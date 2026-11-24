@@ -131,7 +131,11 @@ fn joined(
   Ok(finished)
 }
 
-fn ended(paragraph: &Paragraph<'_>, kept: &Retained, runs: Vec<LevelRun>) -> Result<Sequence, Never> {
+fn ended(
+  paragraph: &Paragraph<'_>,
+  kept: &Retained,
+  runs: Vec<LevelRun>,
+) -> Result<Sequence, Never> {
   let start = match runs.first() {
     Some(first) => first.start,
     None => 0,

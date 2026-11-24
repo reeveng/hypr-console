@@ -4,8 +4,23 @@
 //! (lines 711-942) to safe Rust NEON intrinsics. Uses full 128-bit
 //! `int16x8_t` registers (8 lanes) instead of the 64-bit `int16x4_t`
 //! used by the 4x4 transforms.
+//!
+//! The transpose uses interleaves at 16-, 32-, then 64-bit lane widths, matching
+//! `transpose_8x8h` in util.S. Widening products preserve the lower and upper
+//! halves independently through the 12-bit saturating rounded narrow. The
+//! 8-point DCT applies the 4-point DCT to the even inputs before rotating and
+//! combining the odd inputs. ADST retains the assembly's signs and output order.
+//!
+//! The 8x8 multiply-by-two identity cancels the row normalization shift. For
+//! the DC-only DCT, fixed coefficient scaling rounds on both sides of the row
+//! shift by one, followed by the final shift by four. The square layout has
+//! no additional rectangular normalization. Tests compare against scalar
+//! transforms with a tolerance for accumulated rounding in the NEON assembly.
 
-#![allow(clippy::too_many_arguments)]
+#![allow(
+  clippy::too_many_arguments,
+  reason = "the NEON entry points take the destination, coefficients, transform parameters and SIMD capability explicitly"
+)]
 #![cfg_attr(not(feature = "unchecked"), forbid(unsafe_code))]
 #![cfg_attr(feature = "unchecked", deny(unsafe_code))]
 
@@ -20,20 +35,9 @@ use archmage::intrinsics::aarch64 as safe_simd;
 
 use super::itx_arm_neon_common::IDCT_COEFFS;
 
-/// IADST8 coefficients: two vectors loaded as {v0.8h, v1.8h}
-///
-/// v0: [4076, 401, 3612, 1931, 2598, 3166, 1189, 3920]
-/// v1: [2896, 0, 1567, 3784, 0, 0, 0, 0]
 pub(crate) const IADST8_COEFFS_V0: [i16; 8] = [4076, 401, 3612, 1931, 2598, 3166, 1189, 3920];
 pub(crate) const IADST8_COEFFS_V1: [i16; 8] = [2896, 0, 1567, 3784, 0, 0, 0, 0];
 
-/// 8x8 transpose for int16x8_t vectors.
-///
-/// Matches the `transpose_8x8h` macro from util.S.
-/// Uses 3 levels of trn1/trn2:
-///   Level 1: trn at .8h (16-bit pairs)
-///   Level 2: trn at .4s (32-bit groups, reinterpreted)
-///   Level 3: trn at .2d (64-bit groups, reinterpreted)
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn transpose_8x8h(
@@ -112,14 +116,6 @@ pub(crate) fn transpose_8x8h(
   )
 }
 
-/// Widening multiply-accumulate: lo*coeff_lane + hi*coeff_lane, producing
-/// two int32x4_t results (lower and upper halves).
-///
-/// Equivalent to the assembly `smull_smlal` macro for .8h:
-///   smull   d0.4s, s0.4h, c0      (lower half: s0 * c0)
-///   smlal   d0.4s, s1.4h, c1      (lower half: += s1 * c1)
-///   smull2  d1.4s, s0.8h, c0      (upper half: s0_hi * c0)
-///   smlal2  d1.4s, s1.8h, c1      (upper half: += s1_hi * c1)
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 #[inline(always)]
@@ -202,9 +198,6 @@ pub(crate) fn smull_smlal_q(
   (lo, hi)
 }
 
-/// Widening multiply-subtract: lo*coeff_lane - hi*coeff_lane.
-///
-/// Equivalent to the assembly `smull_smlsl` macro for .8h.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 #[inline(always)]
@@ -287,11 +280,6 @@ pub(crate) fn smull_smlsl_q(
   (lo, hi)
 }
 
-/// Saturating rounding shift right narrow: (int32x4_t, int32x4_t) -> int16x8_t
-///
-/// Equivalent to the assembly `sqrshrn_sz` for .8h:
-///   sqrshrn  d0.4h, s0.4s, #12
-///   sqrshrn2 d0.8h, s1.4s, #12
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 #[inline(always)]
@@ -300,11 +288,6 @@ pub(crate) fn sqrshrn_pair(lo: int32x4_t, hi: int32x4_t) -> int16x8_t {
   vqrshrn_high_n_s32::<12>(lo_narrow, hi)
 }
 
-/// 4-point inverse DCT on four int16x8_t vectors (8 transforms in parallel).
-///
-/// Same algorithm as `idct_4h` in `itx_arm_neon_4x4.rs` but operates on
-/// 128-bit registers. Uses the `idct_coeffs` table:
-///   v0.h[0]=2896, v0.h[2]=1567, v0.h[3]=3784
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn idct_4_q(
@@ -337,14 +320,6 @@ pub(crate) fn idct_4_q(
   (out0, out1, out2, out3)
 }
 
-/// 8-point inverse DCT on eight int16x8_t vectors (8 transforms in parallel).
-///
-/// Calls `idct_4_q` on even-indexed inputs (r0, r2, r4, r6), then processes
-/// odd inputs (r1, r3, r5, r7) with butterfly stages.
-///
-/// Uses IDCT coefficients:
-///   v0.h[4]=799, v0.h[5]=4017, v0.h[6]=3406, v0.h[7]=2276
-///   v0.h[0]=2896 (for the t5/t6 rotation)
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn idct_8_q(
@@ -407,21 +382,6 @@ pub(crate) fn idct_8_q(
   (out0, out1, out2, out3, out4, out5, out6, out7)
 }
 
-/// 8-point inverse ADST on eight int16x8_t vectors.
-///
-/// Uses iadst8_coeffs table:
-///   v0: [4076, 401, 3612, 1931, 2598, 3166, 1189, 3920]
-///   v1: [2896, 0, 1567, 3784, 0, 0, 0, 0]
-///
-/// The output mapping follows the assembly exactly:
-///   o0 = v2 + v6 (positive)
-///   o1 = -(v3 + v7)  (negated)
-///   o2 = rotation result
-///   o3 = -rotation result (negated)
-///   o4 = rotation result
-///   o5 = -rotation result (negated)
-///   o6 = v5 + v19 (positive)
-///   o7 = -(v4 + v18) (negated)
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn iadst_8_q(
@@ -527,10 +487,6 @@ pub(crate) fn iadst_8_q(
   (o0, o1, o2, o3, o4, o5, o6, o7)
 }
 
-/// 8-point identity transform on eight int16x8_t vectors.
-///
-/// Simply saturating left shift by 1 (multiply by 2).
-/// Assembly: sqshl v*.8h, v*.8h, #1
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn identity_8_q(
@@ -564,14 +520,6 @@ pub(crate) fn identity_8_q(
   )
 }
 
-/// Add 8x8 transform output to destination pixels for 8bpc.
-///
-/// For each of 8 rows:
-///   1. Apply rounding shift right by 4: srshr v.8h, v.8h, #4
-///   2. Load 8 dst u8 pixels, zero-extend to u16
-///   3. uaddw: add i16 transform result to u16 pixels
-///   4. sqxtun: saturate i16→u8
-///   5. Store 8 bytes
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn add_to_dst_8x8_8bpc(
@@ -607,7 +555,6 @@ pub(crate) fn add_to_dst_8x8_8bpc(
   }
 }
 
-/// Row/column transform type for 8x8 blocks.
 #[cfg(target_arch = "aarch64")]
 #[derive(Clone, Copy)]
 pub(crate) enum TxType8 {
@@ -617,7 +564,6 @@ pub(crate) enum TxType8 {
   Identity,
 }
 
-/// Apply a 1D 8-point transform to 8 int16x8_t vectors.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn apply_tx8(
@@ -651,21 +597,6 @@ fn apply_tx8(
   }
 }
 
-/// NEON implementation of generic 8x8 inverse transform add for 8bpc.
-///
-/// Mirrors `inv_txfm_add_8x8_neon` + `def_fn_8x8` from itx.S.
-///
-/// Algorithm:
-/// 1. Load 8x8 i16 coefficients (8 int16x8_t vectors)
-/// 2. Clear coefficient buffer
-/// 3. Apply row transform
-/// 4. Shift right by 1: srshr v.8h, v.8h, #1 (rounding)
-/// 5. Transpose 8x8
-/// 6. Apply column transform
-/// 7. Add to destination with >>4 shift
-///
-/// For identity row transform, the shl<<1 and >>1 cancel, so we skip both
-/// (assembly line 880-883).
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_8x8_8bpc_neon(
@@ -736,22 +667,6 @@ pub(crate) fn inv_txfm_add_8x8_8bpc_neon(
   );
 }
 
-/// DC-only fast path for DCT_DCT 8x8 with eob=0.
-///
-/// Mirrors the `idct_dc 8, 8, 1` from itx.S lines 277-295.
-///
-/// Algorithm:
-/// ```text
-/// v16 = broadcast(coeff[0])
-/// scale = dup(2896*8)       // 23168
-/// coeff[0] = 0
-/// v16 = sqrdmulh(v16, scale)  // first DCT coefficient scaling
-/// // 8x8 is square (w != 2*h and 2*w != h), so no extra sqrdmulh
-/// v16 = srshr(v16, 1)         // shift=1
-/// v16 = sqrdmulh(v16, scale)  // second scaling
-/// v16 = srshr(v16, 4)         // final shift
-/// ```
-/// Then broadcast to all 8 rows and add to destination.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dc_only_8x8_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff: &mut [i16]) {
@@ -795,7 +710,6 @@ fn dc_only_8x8_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff: &
   }
 }
 
-/// DCT_DCT 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_dct_dct_8x8_8bpc_neon_inner(
@@ -820,7 +734,6 @@ pub(crate) fn inv_txfm_add_dct_dct_8x8_8bpc_neon_inner(
   );
 }
 
-/// IDENTITY_IDENTITY 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_identity_identity_8x8_8bpc_neon_inner(
@@ -845,7 +758,6 @@ pub(crate) fn inv_txfm_add_identity_identity_8x8_8bpc_neon_inner(
   );
 }
 
-/// ADST_ADST 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_adst_adst_8x8_8bpc_neon_inner(
@@ -870,7 +782,6 @@ pub(crate) fn inv_txfm_add_adst_adst_8x8_8bpc_neon_inner(
   );
 }
 
-/// DCT_ADST 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_dct_adst_8x8_8bpc_neon_inner(
@@ -895,7 +806,6 @@ pub(crate) fn inv_txfm_add_dct_adst_8x8_8bpc_neon_inner(
   );
 }
 
-/// DCT_FLIPADST 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_dct_flipadst_8x8_8bpc_neon_inner(
@@ -920,7 +830,6 @@ pub(crate) fn inv_txfm_add_dct_flipadst_8x8_8bpc_neon_inner(
   );
 }
 
-/// DCT_IDENTITY 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_dct_identity_8x8_8bpc_neon_inner(
@@ -945,7 +854,6 @@ pub(crate) fn inv_txfm_add_dct_identity_8x8_8bpc_neon_inner(
   );
 }
 
-/// ADST_DCT 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_adst_dct_8x8_8bpc_neon_inner(
@@ -970,7 +878,6 @@ pub(crate) fn inv_txfm_add_adst_dct_8x8_8bpc_neon_inner(
   );
 }
 
-/// ADST_FLIPADST 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_adst_flipadst_8x8_8bpc_neon_inner(
@@ -995,7 +902,6 @@ pub(crate) fn inv_txfm_add_adst_flipadst_8x8_8bpc_neon_inner(
   );
 }
 
-/// FLIPADST_DCT 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_flipadst_dct_8x8_8bpc_neon_inner(
@@ -1020,7 +926,6 @@ pub(crate) fn inv_txfm_add_flipadst_dct_8x8_8bpc_neon_inner(
   );
 }
 
-/// FLIPADST_ADST 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_flipadst_adst_8x8_8bpc_neon_inner(
@@ -1045,7 +950,6 @@ pub(crate) fn inv_txfm_add_flipadst_adst_8x8_8bpc_neon_inner(
   );
 }
 
-/// FLIPADST_FLIPADST 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_flipadst_flipadst_8x8_8bpc_neon_inner(
@@ -1070,7 +974,6 @@ pub(crate) fn inv_txfm_add_flipadst_flipadst_8x8_8bpc_neon_inner(
   );
 }
 
-/// IDENTITY_DCT 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_identity_dct_8x8_8bpc_neon_inner(
@@ -1095,7 +998,6 @@ pub(crate) fn inv_txfm_add_identity_dct_8x8_8bpc_neon_inner(
   );
 }
 
-/// ADST_IDENTITY 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_adst_identity_8x8_8bpc_neon_inner(
@@ -1120,7 +1022,6 @@ pub(crate) fn inv_txfm_add_adst_identity_8x8_8bpc_neon_inner(
   );
 }
 
-/// FLIPADST_IDENTITY 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_flipadst_identity_8x8_8bpc_neon_inner(
@@ -1145,7 +1046,6 @@ pub(crate) fn inv_txfm_add_flipadst_identity_8x8_8bpc_neon_inner(
   );
 }
 
-/// IDENTITY_ADST 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_identity_adst_8x8_8bpc_neon_inner(
@@ -1170,7 +1070,6 @@ pub(crate) fn inv_txfm_add_identity_adst_8x8_8bpc_neon_inner(
   );
 }
 
-/// IDENTITY_FLIPADST 8x8 for 8bpc
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_identity_flipadst_8x8_8bpc_neon_inner(
@@ -1201,14 +1100,8 @@ mod tests {
   use super::*;
   use archmage::SimdToken;
 
-  /// Maximum per-pixel difference allowed between NEON and scalar.
-  /// NEON matches the dav1d assembly (the reference); scalar Rust has known
-  /// rounding differences that scale with coefficient magnitude.
-  /// Observed: up to ~8 for small coefficients, potentially more for larger.
   const MAX_DIFF: i32 = 40;
 
-  /// Helper: run scalar 8x8 DCT_DCT transform on a coefficient buffer
-  /// and add to destination.
   fn scalar_dct_dct_8x8(
     dst: &mut [u8],
     stride: isize,
@@ -1669,7 +1562,6 @@ mod tests {
     ::core::result::Result::Ok(())
   }
 
-  /// Test DCT_DCT 8x8 NEON vs scalar
   #[test]
   fn test_dct_dct_8x8_neon_vs_scalar() {
     let token = match Arm64::summon() {
@@ -1738,7 +1630,6 @@ mod tests {
     assert!(coeff_neon.iter().all(|&c| c == 0));
   }
 
-  /// Test DCT_DCT 8x8 DC-only fast path
   #[test]
   fn test_dct_dct_8x8_dc_only() {
     let token = match Arm64::summon() {
@@ -1819,7 +1710,6 @@ mod tests {
     }
   }
 
-  /// Test ADST_ADST 8x8 NEON vs scalar
   #[test]
   fn test_adst_adst_8x8_neon_vs_scalar() {
     let token = match Arm64::summon() {
@@ -1886,7 +1776,6 @@ mod tests {
     }
   }
 
-  /// Test IDENTITY_IDENTITY 8x8 NEON vs scalar — exact match expected
   #[test]
   fn test_identity_identity_8x8_neon_vs_scalar() {
     let token = match Arm64::summon() {
@@ -1952,7 +1841,6 @@ mod tests {
     }
   }
 
-  /// Test DCT_ADST 8x8 (hybrid transform)
   #[test]
   fn test_dct_adst_8x8_neon_vs_scalar() {
     let token = match Arm64::summon() {
@@ -2063,8 +1951,6 @@ mod tests {
     }
   }
 
-  /// Inner helper for transpose test — needs #[arcane] because it calls
-  /// #[rite] transpose_8x8h and safe_simd NEON load/store functions.
   #[arcane]
   fn test_transpose_8x8h_inner(_token: Arm64, rows_in: &[[i16; 8]; 8]) -> [[i16; 8]; 8] {
     let r0 = safe_simd::vld1q_s16({
@@ -2162,7 +2048,6 @@ mod tests {
     rows_out
   }
 
-  /// Test 8x8 transpose correctness
   #[test]
   fn test_transpose_8x8h() {
     let token = match Arm64::summon() {

@@ -1,4 +1,15 @@
 //! Rectangles expressed as an origin and size or as opposite corners.
+//!
+//! [`Coordinate`] lets an origin add an extent to find its exclusive corner.
+//! Integer extents saturate at the limits of the type. Floating-point extents
+//! use ordinary addition, including infinity and NaN.
+//! Both containment methods include the lower edges and exclude the upper edges.
+//!
+//! [`Bounds::new`] stores the corners in input order and allows inverted bounds.
+//! `from_points` and `normalized` put the lower coordinate first on each axis.
+//! `width` and `height` give the extents, which saturate for integer coordinates.
+//! `intersect` clamps a disjoint axis to zero extent. `union` encloses both
+//! rectangles when the input bounds are normalized.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -19,16 +30,11 @@ pub enum Containment {
   Outside,
 }
 
-/// Coordinates that can add an extent when finding the end of a rectangle.
-///
-/// Integer implementations saturate at the limits of their type. Floating-point
-/// implementations use ordinary addition, including its infinity and NaN behavior.
 pub trait Coordinate: Copy + PartialOrd {
   fn add_extent(self, extent: Self) -> Self;
 }
 
 impl<T: Coordinate> Rectangle<T> {
-  /// Returns the exclusive corner in the same units as the origin.
   pub fn end(&self) -> Result<Point<T>, Never> {
     Ok(Point {
       x: self.origin.x.add_extent(self.size.width),
@@ -36,7 +42,6 @@ impl<T: Coordinate> Rectangle<T> {
     })
   }
 
-  /// Includes the origin edges and excludes the opposite edges.
   pub fn contains(&self, point: Point<T>) -> Result<Containment, Never> {
     let Ok(end) = self.end();
     let bounds = Bounds {
@@ -50,7 +55,6 @@ impl<T: Coordinate> Rectangle<T> {
   }
 }
 
-/// Opposite corners in the caller's coordinate space.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default)]
 pub struct Bounds<T> {
   pub x0: T,
@@ -60,37 +64,35 @@ pub struct Bounds<T> {
 }
 
 impl<T> Bounds<T> {
-  /// Stores corners in the given order, allowing inverted bounds.
-  #[cfg_attr(
-    dylint_lib = "explicit024_no_swappable_params",
-    expect(
-      explicit024_no_swappable_params,
-      reason = "PDF callers use x0, y0, x1, y1 order"
-    )
-  )]
   pub const fn new(x0: T, y0: T, x1: T, y1: T) -> Result<Self, Never> {
     Ok(Self { x0, y0, x1, y1 })
   }
 }
 
 impl<T: PartialOrd> Bounds<T> {
-  /// Includes each minimum edge and excludes each maximum edge.
   pub fn contains(&self, point: Point<T>) -> Result<Containment, Never> {
     Ok(
-      match point.x >= self.x0 && point.x < self.x1 && point.y >= self.y0 && point.y < self.y1 {
-        true => Containment::Inside,
-        false => Containment::Outside,
+      match ::core::primitive::bool::then_some(
+        point.x >= self.x0 && point.x < self.x1 && point.y >= self.y0 && point.y < self.y1,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => Containment::Inside,
+        ::core::option::Option::None => Containment::Outside,
       },
     )
   }
 }
 
-// Each numeric implementation uses the same bounds operations. Keeping the scalar
-// operations concrete lets callers such as curve geometry evaluate bounds in constants.
+#[cfg_attr(
+  dylint_lib = "explicit080_macro_budget",
+  expect(
+    explicit080_macro_budget,
+    reason = "each coordinate representation uses the same rectangle operations with its own arithmetic"
+  )
+)]
 macro_rules! bounds_operations {
-  ($coordinate:ty, $minimum:path, $maximum:path, $difference:path) => {
+  ($coordinate:ty) => {
     impl Bounds<$coordinate> {
-      /// Encloses both points, in either order.
       pub const fn from_points(
         first: Point<$coordinate>,
         second: Point<$coordinate>,
@@ -104,24 +106,21 @@ macro_rules! bounds_operations {
         .normalized()
       }
 
-      /// Puts the lower coordinate first on each axis.
       pub const fn normalized(&self) -> Result<Self, Never> {
-        Ok(Self {
-          x0: $minimum(self.x0, self.x1),
-          y0: $minimum(self.y0, self.y1),
-          x1: $maximum(self.x0, self.x1),
-          y1: $maximum(self.y0, self.y1),
-        })
+        let Ok(x0) = Self::minimum([self.x0, self.x1]);
+        let Ok(y0) = Self::minimum([self.y0, self.y1]);
+        let Ok(x1) = Self::maximum([self.x0, self.x1]);
+        let Ok(y1) = Self::maximum([self.y0, self.y1]);
+
+        Ok(Self { x0, y0, x1, y1 })
       }
 
-      /// Returns the horizontal extent, saturating for integer coordinates.
       pub const fn width(&self) -> Result<$coordinate, Never> {
-        Ok($difference(self.x1, self.x0))
+        Self::extent([self.x0, self.x1])
       }
 
-      /// Returns the vertical extent, saturating for integer coordinates.
       pub const fn height(&self) -> Result<$coordinate, Never> {
-        Ok($difference(self.y1, self.y0))
+        Self::extent([self.y0, self.y1])
       }
 
       pub const fn size(&self) -> Result<Size<$coordinate>, Never> {
@@ -131,32 +130,36 @@ macro_rules! bounds_operations {
         Ok(Size { width, height })
       }
 
-      /// Finds the overlap, clamping a disjoint axis to a zero-length extent.
       pub const fn intersect(&self, other: Self) -> Result<Self, Never> {
-        let x0 = $maximum(self.x0, other.x0);
-        let y0 = $maximum(self.y0, other.y0);
+        let Ok(x0) = Self::maximum([self.x0, other.x0]);
+        let Ok(y0) = Self::maximum([self.y0, other.y0]);
+        let Ok(right) = Self::minimum([self.x1, other.x1]);
+        let Ok(bottom) = Self::minimum([self.y1, other.y1]);
+        let Ok(x1) = Self::maximum([right, x0]);
+        let Ok(y1) = Self::maximum([bottom, y0]);
 
-        Ok(Self {
-          x0,
-          y0,
-          x1: $maximum($minimum(self.x1, other.x1), x0),
-          y1: $maximum($minimum(self.y1, other.y1), y0),
-        })
+        Ok(Self { x0, y0, x1, y1 })
       }
 
-      /// Encloses the two rectangles. Supply normalized bounds to enclose both full extents.
       pub const fn union(&self, other: Self) -> Result<Self, Never> {
-        Ok(Self {
-          x0: $minimum(self.x0, other.x0),
-          y0: $minimum(self.y0, other.y0),
-          x1: $maximum(self.x1, other.x1),
-          y1: $maximum(self.y1, other.y1),
-        })
+        let Ok(x0) = Self::minimum([self.x0, other.x0]);
+        let Ok(y0) = Self::minimum([self.y0, other.y0]);
+        let Ok(x1) = Self::maximum([self.x1, other.x1]);
+        let Ok(y1) = Self::maximum([self.y1, other.y1]);
+
+        Ok(Self { x0, y0, x1, y1 })
       }
     }
   };
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit080_macro_budget",
+  expect(
+    explicit080_macro_budget,
+    reason = "every integer coordinate uses the same ordering and saturating extent arithmetic"
+  )
+)]
 macro_rules! integer_coordinates {
   ($($coordinate:ident),+ $(,)?) => {
     $(
@@ -167,26 +170,37 @@ macro_rules! integer_coordinates {
       }
 
       impl Bounds<$coordinate> {
-        const fn minimum(first: $coordinate, second: $coordinate) -> $coordinate {
-          match first <= second {
+        const fn minimum([first, second]: [$coordinate; 2]) -> Result<$coordinate, Never> {
+          Ok(match first <= second {
             true => first,
             false => second,
-          }
+          })
         }
 
-        const fn maximum(first: $coordinate, second: $coordinate) -> $coordinate {
-          match first >= second {
+        const fn maximum([first, second]: [$coordinate; 2]) -> Result<$coordinate, Never> {
+          Ok(match first >= second {
             true => first,
             false => second,
-          }
+          })
+        }
+
+        const fn extent([start, end]: [$coordinate; 2]) -> Result<$coordinate, Never> {
+          Ok(end.saturating_sub(start))
         }
       }
 
-      bounds_operations!($coordinate, Self::minimum, Self::maximum, $coordinate::saturating_sub);
+      bounds_operations!($coordinate);
     )+
   };
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit080_macro_budget",
+  expect(
+    explicit080_macro_budget,
+    reason = "both floating coordinate widths use the same floating-point ordering and extent arithmetic"
+  )
+)]
 macro_rules! floating_point_coordinates {
   ($($coordinate:ident),+ $(,)?) => {
     $(
@@ -197,12 +211,20 @@ macro_rules! floating_point_coordinates {
       }
 
       impl Bounds<$coordinate> {
-        const fn difference(end: $coordinate, start: $coordinate) -> $coordinate {
-          end - start
+        const fn minimum([first, second]: [$coordinate; 2]) -> Result<$coordinate, Never> {
+          Ok(first.min(second))
+        }
+
+        const fn maximum([first, second]: [$coordinate; 2]) -> Result<$coordinate, Never> {
+          Ok(first.max(second))
+        }
+
+        const fn extent([start, end]: [$coordinate; 2]) -> Result<$coordinate, Never> {
+          Ok(end - start)
         }
       }
 
-      bounds_operations!($coordinate, $coordinate::min, $coordinate::max, Self::difference);
+      bounds_operations!($coordinate);
     )+
   };
 }
@@ -253,7 +275,7 @@ mod tests {
   fn integer_extents_saturate_at_the_coordinate_limits() {
     let rectangle = Rectangle {
       origin: Point {
-        x: u32::MAX - 1,
+        x: ::core::primitive::u32::wrapping_sub(u32::MAX, 1),
         y: 2,
       },
       size: Size {

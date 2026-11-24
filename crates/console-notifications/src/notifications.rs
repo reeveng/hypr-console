@@ -16,10 +16,9 @@
 //! that wrote out the name, the path and the member itself would be a second
 //! opinion about what this desktop's own daemon is called.
 
-use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue, Transition};
-use console_program_contract::{Command, Effect, Event};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
+use console_program_contract::{Effect, Event};
 
 pub const UP: u32 = 0;
 
@@ -43,6 +42,14 @@ pub enum NotificationsEvent {
 pub enum NotificationsEffect {
   Replace(u32),
   Refresh,
+}
+
+impl EffectDependencies for NotificationsEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Replace(_) | Self::Refresh => &[Service::Panels],
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -107,7 +114,7 @@ fn decide(
     },
 
     Event::Custom(NotificationsEvent::Dismissed(id)) => {
-      let Ok(dismiss) = closing(*id);
+      let Ok(dismiss) = crate::serving::closing_one(*id);
 
       Transition::new(
         Destination::List,
@@ -119,7 +126,7 @@ fn decide(
     }
 
     Event::Custom(NotificationsEvent::ClearAll) => {
-      let Ok(clear) = clearing();
+      let Ok(clear) = crate::serving::clear_all();
 
       Transition::new(
         Destination::List,
@@ -142,20 +149,6 @@ fn decide(
   Ok(turn)
 }
 
-fn closing(id: u32) -> Result<Command, Never> {
-  let Ok(arguments) = crate::serving::closing_one(id);
-  let said: Vec<&str> = arguments.iter().map(String::as_str).collect();
-
-  Command::external(ExternalProgram::Busctl, &said)
-}
-
-fn clearing() -> Result<Command, Never> {
-  let Ok(arguments) = crate::serving::call_arguments("ClearAll");
-  let said: Vec<&str> = arguments.iter().map(String::as_str).collect();
-
-  Command::external(ExternalProgram::Busctl, &said)
-}
-
 pub fn closes(state: &Destination) -> Result<Closes, Never> {
   Ok(match state {
     Destination::List => Closes::Yes,
@@ -170,7 +163,7 @@ mod tests {
   use super::*;
 
   fn dismissing(id: u32) -> Result<Effect<NotificationsEffect>, Never> {
-    let Ok(runs) = closing(id);
+    let Ok(runs) = crate::serving::closing_one(id);
 
     Ok(Effect::Run(runs))
   }
@@ -233,7 +226,7 @@ mod tests {
   #[test]
   fn clearing_them_all_stays_where_it_is_and_draws_again() {
     let Ok(said) = run::<Notifications>(&(), &[Event::Custom(NotificationsEvent::ClearAll)]);
-    let Ok(clear) = clearing();
+    let Ok(clear) = crate::serving::clear_all();
 
     assert_eq!(
       said.on(0),

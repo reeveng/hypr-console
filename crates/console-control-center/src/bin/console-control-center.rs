@@ -50,6 +50,11 @@ enum Selection {
   Corners(Corners),
 }
 
+enum SelectionStart {
+  AwaitDrag,
+  PickCorners,
+}
+
 #[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 enum Next {
   Stay,
@@ -63,17 +68,24 @@ enum Next {
 }
 
 fn main() -> ExitCode {
-  if std::env::args()
-    .skip(1)
-    .eq([SELECT_SCREENSHOT_AREA.spelling])
-  {
-    return match focus::Layer::ScreenSelection.take() {
-      Ok(()) => ExitCode::SUCCESS,
-      Err(fault) => {
-        console_core_logging::error!("opening screenshot area: {fault}");
-        ExitCode::FAILURE
-      }
-    };
+  match {
+    ::core::primitive::bool::then_some(
+      std::env::args()
+        .skip(1)
+        .eq([SELECT_SCREENSHOT_AREA.spelling]),
+      (),
+    )
+  } {
+    ::core::option::Option::Some(()) => {
+      return match focus::Layer::ScreenSelection.take() {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(fault) => {
+          console_core_logging::error!("opening screenshot area: {fault}");
+          ExitCode::FAILURE
+        }
+      };
+    }
+    ::core::option::Option::None => {}
   }
 
   let wearing = match Wearing::worn() {
@@ -158,22 +170,32 @@ fn round(
 
   let Ok(events) = surface.pointer_events();
   let Ok(keys) = surface.keyboard_events();
-  if let Some(socket) = requests {
-    match focus::heard(socket) {
-      Ok(Some(focus::Request::Take))
-        if !matches!(
-          showing,
-          Showing::Selecting {
-            purpose: Purpose::Screenshot,
-            ..
-          }
-        ) =>
-      {
-        return select(surface, wearing, Purpose::Screenshot, true);
-      }
+
+  match requests {
+    Some(socket) => match focus::heard(socket) {
+      Ok(Some(focus::Request::Take)) => match showing {
+        Showing::Selecting {
+          purpose: Purpose::Screenshot,
+          ..
+        } => {}
+        Showing::Edge { .. }
+        | Showing::Sheet { .. }
+        | Showing::Selecting {
+          purpose: Purpose::Text,
+          ..
+        } => {
+          return select(
+            surface,
+            wearing,
+            Purpose::Screenshot,
+            SelectionStart::PickCorners,
+          );
+        }
+      },
       Err(fault) => console_core_logging::warn!("reading screenshot shortcut: {fault}"),
-      Ok(_) => {}
-    }
+      Ok(Some(focus::Request::Release) | None) => {}
+    },
+    ::core::option::Option::None => {}
   }
 
   for input in events
@@ -197,7 +219,7 @@ fn round(
 
         put_away
       }
-      Next::Select(purpose) => select(surface, wearing, purpose, false)?,
+      Next::Select(purpose) => select(surface, wearing, purpose, SelectionStart::AwaitDrag)?,
       Next::Capture(purpose, region) => submit_capture(surface, capture, purpose, region)?,
       Next::Close => {
         let put_away = edge(surface)?;
@@ -278,32 +300,44 @@ fn selection_key(
   key: Keysym,
   room: Option<Size<u32>>,
 ) -> Result<Next, Never> {
-  if key == Keysym::Escape {
-    return Ok(Next::PutAway);
+  match { ::core::primitive::bool::then_some(key == Keysym::Escape, ()) } {
+    ::core::option::Option::Some(()) => {
+      return Ok(Next::PutAway);
+    }
+    ::core::option::Option::None => {}
   }
-  let (Purpose::Screenshot, Some(room)) = (purpose, room) else {
-    return Ok(Next::Stay);
+
+  let size = match (purpose, room) {
+    (Purpose::Screenshot, Some(size)) => size,
+    (Purpose::Screenshot, None) | (Purpose::Text, _) => return Ok(Next::Stay),
   };
+
   let mut corners = match selection {
     Selection::Corners(corners) => *corners,
-    Selection::Ready => Corners::centered(room),
+    Selection::Ready => {
+      let Ok(centered) = Corners::centered(size);
+
+      centered
+    }
     Selection::Dragging(_) => return Ok(Next::Stay),
   };
 
-  match key {
-    Keysym::Left => corners.move_by(-1, 0, room),
-    Keysym::Right => corners.move_by(1, 0, room),
-    Keysym::Up => corners.move_by(0, -1, room),
-    Keysym::Down => corners.move_by(0, 1, room),
+  let Ok(()) = match key {
+    Keysym::Left => corners.move_by(Point { x: -1, y: 0 }, size),
+    Keysym::Right => corners.move_by(Point { x: 1, y: 0 }, size),
+    Keysym::Up => corners.move_by(Point { x: 0, y: -1 }, size),
+    Keysym::Down => corners.move_by(Point { x: 0, y: 1 }, size),
     Keysym::Tab | Keysym::ISO_Left_Tab | Keysym::F18 => corners.toggle_fine(),
     Keysym::Return | Keysym::KP_Enter | Keysym::space => {
-      let Ok(region) = corners.pick(room);
-      if let Some(region) = region {
-        return Ok(Next::Capture(purpose, region));
+      let Ok(region) = corners.pick(size);
+
+      match region {
+        Some(region_2) => return Ok(Next::Capture(purpose, region_2)),
+        None => Ok(()),
       }
     }
     _ => return Ok(Next::Stay),
-  }
+  };
 
   *selection = Selection::Corners(corners);
   Ok(Next::Repaint)
@@ -427,9 +461,11 @@ fn selection_step(
       Selection::Ready | Selection::Corners(_) => Next::Stay,
     },
     PointerEvent::Up => {
-      let Selection::Dragging(drag) = *selection else {
-        return Ok(Next::Stay);
+      let drag = match *selection {
+        Selection::Dragging(drag) => drag,
+        Selection::Ready | Selection::Corners(_) => return Ok(Next::Stay),
       };
+
       *selection = Selection::Ready;
       let region = room.and_then(|size| {
         let Ok(region) = drag.region(size);
@@ -552,7 +588,7 @@ fn select(
   surface: &mut Surface,
   wearing: &Wearing,
   purpose: Purpose,
-  with_corners: bool,
+  start: SelectionStart,
 ) -> Result<Showing, SurfaceError> {
   let Ok(namespace) = focus::Layer::ScreenSelection.namespace();
   open_overlay(surface, namespace)?;
@@ -562,10 +598,13 @@ fn select(
   };
 
   let Ok(prompt) = selection::prompt(room, wearing);
-  let selection = if with_corners {
-    Selection::Corners(Corners::centered(room))
-  } else {
-    Selection::Ready
+  let selection = match start {
+    SelectionStart::AwaitDrag => Selection::Ready,
+    SelectionStart::PickCorners => {
+      let Ok(corners) = Corners::centered(room);
+
+      Selection::Corners(corners)
+    }
   };
   paint_selection(surface, wearing, purpose, prompt, selection)?;
   Ok(Showing::Selecting {
@@ -637,33 +676,58 @@ fn paint_selection(
   prompt: Prompt,
   selection: Selection,
 ) -> Result<(), SurfaceError> {
-  let Ok(Some(room)) = surface.logical() else {
-    return Ok(());
+  let room = {
+    let outcome_room = surface.logical();
+
+    match outcome_room {
+      Ok(Some(matched_room)) => matched_room,
+      ::core::result::Result::Ok(::core::option::Option::None)
+      | ::core::result::Result::Err(_) => return Ok(()),
+    }
   };
+
   let (said, guides) = match selection {
     Selection::Dragging(drag) => {
       let Ok(region) = drag.region(room);
-      if let Some(region) = region {
-        let Ok(shapes) = selection::outline(region, wearing);
-        return paint(surface, &shapes);
+
+      match region {
+        Some(region_2) => {
+          let Ok(shapes) = selection::outline(region_2, wearing);
+          return paint(surface, &shapes);
+        }
+        ::core::option::Option::None => {}
       }
-      (purpose.instruction(), Vec::new())
+
+      let Ok(instruction) = purpose.instruction();
+
+      (instruction, Vec::new())
     }
     Selection::Corners(corners) => {
       let Ok(shapes) = corners.shapes(room, wearing);
-      (corners.instruction(), shapes)
+      let Ok(instruction) = corners.instruction();
+
+      (instruction, shapes)
     }
-    Selection::Ready => (purpose.instruction(), Vec::new()),
+    Selection::Ready => {
+      let Ok(instruction) = purpose.instruction();
+
+      (instruction, Vec::new())
+    }
   };
   let Ok(instruction) = measure_label(said, prompt.instruction.size.width);
   let Ok(cancel) = measure_label(CANCEL, prompt.cancel.size.width);
   let Ok(header) = prompt.shapes(said, instruction, cancel, wearing);
   let mut shapes = Vec::from(header);
-  if purpose == Purpose::Screenshot {
-    let Ok(measured) = measure_label(CORNER_CONTROLS, prompt.controls.size.width);
-    let Ok(controls) = prompt.control_shapes(measured, wearing);
-    shapes.extend(controls);
+
+  match { ::core::primitive::bool::then_some(purpose == Purpose::Screenshot, ()) } {
+    ::core::option::Option::Some(()) => {
+      let Ok(measured) = measure_label(CORNER_CONTROLS, prompt.controls.size.width);
+      let Ok(controls) = prompt.control_shapes(measured, wearing);
+      shapes.extend(controls);
+    }
+    ::core::option::Option::None => {}
   }
+
   shapes.extend(guides);
   paint(surface, &shapes)
 }
@@ -738,6 +802,7 @@ mod tests {
       selection: Selection::Ready,
     };
     let mut fingers = Fingers::default();
+
     let touches = [
       Touch::Down {
         id: 1,
@@ -765,10 +830,11 @@ mod tests {
     ];
     for (touch, next) in touches.into_iter().zip(expected) {
       let Ok(event) = fingers.handle_touch(touch);
-      assert_eq!(
-        event.map(|event| step(&mut showing, event, Some(room))),
-        Some(Ok(next))
-      );
+      let stepped = match event {
+        Some(touch_event) => Some(step(&mut showing, touch_event, Some(room))),
+        None => None,
+      };
+      assert_eq!(stepped, Some(Ok(next)));
     }
 
     Ok(())
@@ -782,6 +848,7 @@ mod tests {
     });
     let purpose = Purpose::Screenshot;
     let mut selecting = Selection::Ready;
+
     for key in [
       Keysym::Left,
       Keysym::Return,
@@ -796,6 +863,7 @@ mod tests {
         Ok(Next::Repaint)
       );
     }
+
     assert_eq!(
       selection_key(purpose, &mut selecting, Keysym::Return, room),
       Ok(Next::Capture(

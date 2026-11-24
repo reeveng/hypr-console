@@ -11,17 +11,17 @@
 use std::cmp::Ordering;
 use std::io::{Read, Seek};
 
+use console_core_audio_decoding_interfaces::id3v2::{
+  COMPRESSION_OR_EXTENDED_HEADER, UNSYNCHRONISED, UnsynchronisationDecoder, read_tag_fields,
+  synchsafe_word, tag_unsynchronisation,
+};
+use console_core_audio_decoding_interfaces::io::BufReader;
 use console_core_never::Never;
 
 use crate::bytes::Source;
 use crate::fault::{Malformed, ParseError};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub(crate) enum Version {
-  Two,
-  Three,
-  Four,
-}
+pub(crate) use console_core_audio_decoding_interfaces::id3v2::{Unsynchronisation, Version};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct Header {
@@ -31,29 +31,11 @@ pub(crate) struct Header {
   pub(crate) extended_size: u32,
 }
 
-const UNSYNCHRONISED: u8 = 0x80;
-
-const EXTENDED: u8 = 0x40;
-
 const FOOTER: u8 = 0x10;
 
-pub(crate) fn synchsafe(bytes: [u8; 4]) -> Result<u32, Never> {
-  let [a, b, c, d] = bytes;
-
-  Ok(
-    u32::from(a & 0x7F).wrapping_shl(21)
-      | u32::from(b & 0x7F).wrapping_shl(14)
-      | u32::from(c & 0x7F).wrapping_shl(7)
-      | u32::from(d & 0x7F),
-  )
-}
-
 impl Header {
-  pub(crate) fn unsynchronised(&self) -> Result<Unsynchronised, Never> {
-    Ok(match self.flags & UNSYNCHRONISED {
-      0 => Unsynchronised::No,
-      _set => Unsynchronised::Yes,
-    })
+  pub(crate) fn unsynchronised(&self) -> Result<Unsynchronisation, Never> {
+    tag_unsynchronisation(self.flags)
   }
 
   pub(crate) fn footer(&self) -> Result<u64, Never> {
@@ -68,54 +50,36 @@ impl Header {
   }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub(crate) enum Unsynchronised {
-  Yes,
-  No,
-}
-
-pub(crate) fn opening(bytes: [u8; 10]) -> Result<(Version, u8, u32), Malformed> {
-  let [i, d, three, major, _minor, flags, s0, s1, s2, s3] = bytes;
-
-  match [i, d, three] {
-    [b'I', b'D', b'3'] => {}
-    _other => return Err(Malformed::Signature),
-  }
-
-  let version = match major {
-    2 => Version::Two,
-    3 => Version::Three,
-    4 => Version::Four,
-    _other => return Err(Malformed::TagVersion),
-  };
-
-  match (version, flags & EXTENDED) {
-    (Version::Two, EXTENDED) => return Err(Malformed::TagVersion),
-    (Version::Two, _) | (Version::Three | Version::Four, _) => {}
-  }
-
-  let Ok(size) = synchsafe([s0, s1, s2, s3]);
-
-  Ok((version, flags, size))
-}
-
 pub(crate) fn read<R: Read + Seek>(source: &mut Source<'_, R>) -> Result<Header, ParseError> {
   let bytes = source.array::<10>()?;
-  let (version, flags, size) = opening(bytes)?;
+  let Ok(mut reader) = BufReader::new(&bytes);
+  let tag_fields = read_tag_fields(&mut reader)?;
+  let fields = tag_fields.ok_or(Malformed::Signature)?;
+  let version = fields.version().map_err(|_invalid| Malformed::TagVersion)?;
+  let flags = fields.flags;
+  let size = fields.size;
 
-  let extended_size = match (version, flags & EXTENDED, flags & UNSYNCHRONISED) {
+  let extended_size = match (
+    version,
+    flags & COMPRESSION_OR_EXTENDED_HEADER,
+    flags & UNSYNCHRONISED,
+  ) {
     (Version::Two, _extended, _unsynchronised) => 0,
     (Version::Three | Version::Four, 0, _unsynchronised) => 0,
     (Version::Four, _extended, _unsynchronised) => {
       let size_2 = source.array::<4>()?;
-      let Ok(size_3) = synchsafe(size_2);
+      let Ok(size_3) = synchsafe_word(size_2);
 
-      extended(source, size_3, Unsynchronised::No)?
+      extended(source, size_3, Unsynchronisation::Absent)?
     }
     (Version::Three, _extended, 0) => {
       let size_4 = source.array::<4>()?;
 
-      extended(source, u32::from_be_bytes(size_4), Unsynchronised::No)?
+      extended(
+        source,
+        u32::from_be_bytes(size_4),
+        Unsynchronisation::Absent,
+      )?
     }
     (Version::Three, _extended, _unsynchronised) => {
       let size_5 = unsynchronised_bytes(source, 4)?;
@@ -125,7 +89,7 @@ pub(crate) fn read<R: Read + Seek>(source: &mut Source<'_, R>) -> Result<Header,
         _short => return Err(ParseError::Parse(Malformed::Short)),
       };
 
-      extended(source, size_6, Unsynchronised::Yes)?
+      extended(source, size_6, Unsynchronisation::Applied)?
     }
   };
 
@@ -147,7 +111,7 @@ pub(crate) fn read<R: Read + Seek>(source: &mut Source<'_, R>) -> Result<Header,
 fn extended<R: Read + Seek>(
   source: &mut Source<'_, R>,
   size: u32,
-  unsynchronised: Unsynchronised,
+  unsynchronised: Unsynchronisation,
 ) -> Result<u32, ParseError> {
   match size {
     0..=5 => return Err(ParseError::Parse(Malformed::TagSize)),
@@ -155,8 +119,8 @@ fn extended<R: Read + Seek>(
   }
 
   let flags = match unsynchronised {
-    Unsynchronised::No => source.array::<2>(),
-    Unsynchronised::Yes => {
+    Unsynchronisation::Absent => source.array::<2>(),
+    Unsynchronisation::Applied => {
       let read = unsynchronised_bytes(source, 2)?;
 
       match read.as_slice() {
@@ -178,11 +142,11 @@ fn extended<R: Read + Seek>(
   };
 
   match unsynchronised {
-    Unsynchronised::No => {
+    Unsynchronisation::Absent => {
       source.exact(checksum)?;
       source.exact(restrictions)?;
     }
-    Unsynchronised::Yes => {
+    Unsynchronisation::Applied => {
       unsynchronised_bytes(source, checksum)?;
       unsynchronised_bytes(source, restrictions)?;
     }
@@ -196,7 +160,7 @@ fn unsynchronised_bytes<R: Read + Seek>(
   count: u64,
 ) -> Result<Vec<u8>, ParseError> {
   let mut read = Vec::new();
-  let mut previous = 0u8;
+  let mut decoder = UnsynchronisationDecoder::default();
 
   'bytes: for _byte in 0..=u32::MAX {
     let Ok(held) = crate::bytes::length(&read);
@@ -206,33 +170,13 @@ fn unsynchronised_bytes<R: Read + Seek>(
       Ordering::Less => {}
     }
 
-    let byte = source.byte()?;
+    let Ok(kept) = decoder.push({
+      let checked_value = source.byte()?;
+      checked_value
+    });
 
-    match (previous, byte) {
-      (0xFF, 0x00) => previous = 0x00,
-      (_previous, byte_2) => {
-        read.push(byte_2);
-        previous = byte_2;
-      }
-    }
+    read.extend(kept);
   }
 
   Ok(read)
-}
-
-pub(crate) fn resynchronised(bytes: &[u8]) -> Result<Vec<u8>, Never> {
-  let mut undone = Vec::with_capacity(bytes.len());
-  let mut previous = 0u8;
-
-  for byte in bytes {
-    match (previous, *byte) {
-      (0xFF, 0x00) => previous = 0x00,
-      (_previous, byte_2) => {
-        undone.push(byte_2);
-        previous = byte_2;
-      }
-    }
-  }
-
-  Ok(undone)
 }

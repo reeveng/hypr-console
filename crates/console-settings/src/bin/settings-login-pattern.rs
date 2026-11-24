@@ -14,6 +14,7 @@ use std::process::ExitCode;
 
 use console_core_arguments::{Operands, Subcommand, read_with};
 use console_core_color::palette::{Wearing, WearingError};
+use console_core_external_programs::Program;
 use console_core_geometry::Size;
 use console_core_iteration::Step;
 use console_core_never::Never;
@@ -122,7 +123,14 @@ fn ran(asked: Option<Pattern>) -> Result<Result<(), LoginPatternError>, Never> {
 
   Ok(match asked {
     None => run(&home_3),
-    Some(Pattern::Off) => stored_pattern::remove(&home_3).map_err(LoginPatternError::Store),
+    Some(Pattern::Off) => stored_pattern::remove(&home_3)
+      .map_err(LoginPatternError::Store)
+      .map(|()| {
+        ({
+          let Ok(explicit_value) = reload_idle();
+          explicit_value
+        })
+      }),
   })
 }
 
@@ -234,6 +242,7 @@ fn apply_event(
         let stored = stored_pattern::store(home, &hash);
 
         stored.map_err(LoginPatternError::Store)?;
+        let Ok(()) = reload_idle();
       }
       Effect::Stop(Exit::Success | Exit::Failure(_)) => return Ok(Flow::Finished),
       Effect::Run(_)
@@ -251,6 +260,26 @@ fn apply_event(
   }
 
   Ok(Flow::Continue)
+}
+
+fn reload_idle() -> core::result::Result<(), console_core_never::Never> {
+  {
+    let Ok(mut systemctl) = Program::Systemctl.command();
+    let unit = console_lock_screen::idle::SERVICE;
+
+    match systemctl
+      .args(["--user", "--no-block", "try-restart", unit])
+      .status()
+    {
+      Ok(status) => match status.success().then_some(()) {
+        Some(()) => {}
+        None => eprintln!("{WHO}: reloading {unit}: {status}"),
+      },
+      Err(fault) => eprintln!("{WHO}: reloading {unit}: {fault}"),
+    }
+  };
+
+  Ok(())
 }
 
 fn draw(

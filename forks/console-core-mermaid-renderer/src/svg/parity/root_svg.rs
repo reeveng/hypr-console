@@ -20,6 +20,7 @@ pub(super) struct DiagramBounds {
 }
 
 impl DiagramBounds {
+    #[must_use]
     pub(super) fn from_view_box(min_x: f64, min_y: f64, width: f64, height: f64) -> Self {
         Self {
             min_x,
@@ -29,6 +30,7 @@ impl DiagramBounds {
         }
     }
 
+    #[must_use]
     pub(super) fn from_extents(
         min_x: f64,
         min_y: f64,
@@ -36,16 +38,16 @@ impl DiagramBounds {
         max_y: f64,
         padding: f64,
     ) -> Self {
-        let padding = if padding.is_finite() {
+        let padding_2 = if padding.is_finite() {
             padding.max(0.0)
         } else {
             padding
         };
         Self::from_view_box(
-            min_x - padding,
-            min_y - padding,
-            max_x - min_x + 2.0 * padding,
-            max_y - min_y + 2.0 * padding,
+            min_x - padding_2,
+            min_y - padding_2,
+            max_x - min_x + 2.0 * padding_2,
+            max_y - min_y + 2.0 * padding_2,
         )
     }
 }
@@ -59,6 +61,7 @@ pub(super) struct ViewBox {
 }
 
 impl ViewBox {
+    #[must_use]
     pub(super) fn new(min_x: f64, min_y: f64, width: f64, height: f64) -> Self {
         Self {
             min_x,
@@ -78,6 +81,7 @@ impl ViewBox {
         Ok(Self::new(min_x, min_y, width, height))
     }
 
+    #[must_use]
     pub(super) fn attr(self) -> String {
         format!(
             "{} {} {} {}",
@@ -101,23 +105,24 @@ impl RootMaxWidth {
     fn format(self, view_box: Option<ViewBox>) -> Result<String> {
         let value = match self {
             Self::ViewBox => {
-                view_box
+                let checked_value = view_box
                     .ok_or_else(|| Error::InvalidModel {
                         message: "root max-width requested without a viewBox".to_string(),
-                    })?
+                    })?;
+                checked_value
                     .width
             }
             Self::SvgNumber(value)
             | Self::CssSixSignificant(value)
             | Self::Precision { value, .. } => value,
         };
-        let value = checked_viewport_dimension(value, "root max-width")?;
+        let value_2 = checked_viewport_dimension(value, "root max-width")?;
         Ok(match self {
-            Self::ViewBox | Self::SvgNumber(_) => fmt_string(value),
-            Self::CssSixSignificant(_) => format_css_max_width(value),
+            Self::ViewBox | Self::SvgNumber(_) => fmt_string(value_2),
+            Self::CssSixSignificant(_) => format_css_max_width(value_2),
             Self::Precision {
                 significant_digits, ..
-            } => format_precision_fixed(value, significant_digits),
+            } => format_precision_fixed(value_2, significant_digits),
         })
     }
 }
@@ -147,6 +152,7 @@ pub(super) struct RootViewportSpec {
 }
 
 impl RootViewportSpec {
+    #[must_use]
     pub(super) fn responsive(bounds: DiagramBounds) -> Self {
         Self {
             view_box: Some(bounds),
@@ -156,6 +162,7 @@ impl RootViewportSpec {
         }
     }
 
+    #[must_use]
     pub(super) fn responsive_without_view_box(max_width: f64) -> Self {
         Self {
             view_box: None,
@@ -165,6 +172,7 @@ impl RootViewportSpec {
         }
     }
 
+    #[must_use]
     pub(super) fn mermaid(bounds: DiagramBounds, use_max_width: bool) -> Self {
         Self {
             sizing: RootSizing::Mermaid { use_max_width },
@@ -173,6 +181,7 @@ impl RootViewportSpec {
     }
 
     #[cfg(feature = "layout-cytoscape")]
+    #[must_use]
     pub(super) fn mermaid_or_intrinsic(bounds: DiagramBounds, use_max_width: bool) -> Self {
         Self {
             sizing: RootSizing::MermaidOrIntrinsic { use_max_width },
@@ -180,11 +189,13 @@ impl RootViewportSpec {
         }
     }
 
+    #[must_use]
     pub(super) fn with_max_width(mut self, max_width: RootMaxWidth) -> Self {
         self.max_width = max_width;
         self
     }
 
+    #[must_use]
     pub(super) fn with_mermaid_responsive_height(
         mut self,
         use_max_width: bool,
@@ -197,6 +208,7 @@ impl RootViewportSpec {
         self
     }
 
+    #[must_use]
     pub(super) fn with_fixed_size(mut self, width: f64, height: f64) -> Self {
         self.fixed_size = Some((width, height));
         self
@@ -248,6 +260,7 @@ pub(super) enum RootDiagramId<'a> {
 }
 
 impl<'a> RootDiagramId<'a> {
+    #[must_use]
     fn as_str(self) -> &'a str {
         match self {
             Self::Projected(diagram_id) => diagram_id.semantic_str(),
@@ -314,12 +327,13 @@ pub(super) struct RootChrome<'a> {
 }
 
 impl<'a> RootChrome<'a> {
+    #[must_use]
     pub(super) fn new(
         diagram_id: impl Into<RootDiagramId<'a>>,
         aria_roledescription: &'a str,
     ) -> Self {
         Self {
-            diagram_id: diagram_id.into(),
+            diagram_id: <_ as ::core::convert::Into<crate::svg::parity::root_svg::RootDiagramId<'_>>>::into(diagram_id),
             class: None,
             extra_attrs: &[],
             aria_roledescription,
@@ -339,6 +353,7 @@ pub(super) struct DeferredRootSpec {
 }
 
 impl DeferredRootSpec {
+    #[must_use]
     pub(super) fn responsive() -> Self {
         Self {
             sizing: RootSizing::Responsive,
@@ -346,6 +361,7 @@ impl DeferredRootSpec {
     }
 
     #[cfg(feature = "layout-cytoscape")]
+    #[must_use]
     pub(super) fn mermaid_or_intrinsic(use_max_width: bool) -> Self {
         Self {
             sizing: RootSizing::MermaidOrIntrinsic { use_max_width },
@@ -395,10 +411,11 @@ pub(super) struct RootViewportContext<'a> {
 }
 
 impl<'a> RootViewportContext<'a> {
+    #[must_use]
     pub(super) fn new(family: DiagramFamilyId, diagram_id: impl Into<RootDiagramId<'a>>) -> Self {
         Self {
             family,
-            diagram_id: diagram_id.into(),
+            diagram_id: <_ as ::core::convert::Into<crate::svg::parity::root_svg::RootDiagramId<'_>>>::into(diagram_id),
         }
     }
 
@@ -409,11 +426,13 @@ impl<'a> RootViewportContext<'a> {
         chrome: RootChrome<'_>,
     ) -> Result<RootDocument> {
         self.require_empty_document(out)?;
+
         if chrome.diagram_id != self.diagram_id {
             return Err(Error::InvalidModel {
                 message: "deferred root chrome belongs to a different render context".to_string(),
             });
         }
+
         let responsive = match spec.sizing {
             RootSizing::Responsive
             | RootSizing::Mermaid {
@@ -493,12 +512,12 @@ impl<'a> RootViewportContext<'a> {
         })?;
         let max_width_range = if responsive {
             Some(
-                tracked_ranges
+                { let checked_value = tracked_ranges
                     .max_width
                     .ok_or_else(|| Error::InvalidModel {
                         message: "deferred SVG root is missing its max-width placeholder"
                             .to_string(),
-                    })?,
+                    })?; checked_value },
             )
         } else {
             None
@@ -528,6 +547,7 @@ impl<'a> RootViewportContext<'a> {
                 message: "deferred root document belongs to a different render context".to_string(),
             });
         }
+
         let RootDocumentState::Deferred {
             view_box_range,
             max_width_range,
@@ -540,15 +560,19 @@ impl<'a> RootViewportContext<'a> {
                 message: "root document viewport was already finalized".to_string(),
             });
         };
+
         let plan = self.plan(spec)?;
+
         if plan.responsive != responsive || plan.height.is_some() {
             return Err(Error::InvalidModel {
                 message: "deferred root sizing changed between open and finalize".to_string(),
             });
         }
+
         let view_box = plan.view_box.ok_or_else(|| Error::InvalidModel {
             message: "deferred root viewport did not resolve a viewBox".to_string(),
         })?;
+
         if out.as_str().get(..root_open_end) != Some(root_open_snapshot.as_str())
             || out.as_str().get(view_box_range.clone()) != Some(DEFERRED_ROOT_ATTRIBUTE_VALUE)
             || max_width_range.as_ref().is_some_and(|range| {
@@ -559,7 +583,9 @@ impl<'a> RootViewportContext<'a> {
                 message: "deferred root document was mutated before viewport finalize".to_string(),
             });
         }
+
         let mut replacements = vec![(view_box_range, view_box.attr())];
+
         match (max_width_range, plan.responsive) {
             (Some(range), true) => replacements.push((range, plan.max_width.clone())),
             (None, false) => {}
@@ -569,7 +595,9 @@ impl<'a> RootViewportContext<'a> {
                 });
             }
         }
+
         replacements.sort_by_key(|(range, _)| std::cmp::Reverse(range.start));
+
         for (range, replacement) in replacements {
             root_open_end = root_open_end
                 .checked_add(replacement.len())
@@ -579,6 +607,7 @@ impl<'a> RootViewportContext<'a> {
                 })?;
             out.replace_range(range, replacement.as_str())?;
         }
+
         let root_open = out
             .as_str()
             .get(..root_open_end)
@@ -611,6 +640,7 @@ impl<'a> RootViewportContext<'a> {
                 ),
             });
         }
+
         let plan = self.plan(spec)?;
         self.write_plan(out, &plan, chrome)
     }
@@ -622,6 +652,7 @@ impl<'a> RootViewportContext<'a> {
         chrome: RootChrome<'_>,
     ) -> Result<RootDocument> {
         self.require_empty_document(out)?;
+
         if plan.family != self.family
             || plan.diagram_id != self.diagram_id.as_str()
             || chrome.diagram_id != self.diagram_id
@@ -630,6 +661,7 @@ impl<'a> RootViewportContext<'a> {
                 message: "root viewport plan belongs to a different render context".to_string(),
             });
         }
+
         let viewbox_attr = plan.view_box.map(ViewBox::attr);
         let style = with_custom_properties(plan.style.as_deref(), chrome.custom_properties)?;
         let width = match plan.width.as_deref() {
@@ -683,6 +715,7 @@ impl<'a> RootViewportContext<'a> {
                 message: "root document belongs to a different render context".to_string(),
             });
         }
+
         let RootDocumentState::Ready {
             root_open,
             view_box,
@@ -692,16 +725,19 @@ impl<'a> RootViewportContext<'a> {
                 message: "root document viewport was not finalized".to_string(),
             });
         };
+
         if !out.starts_with(&root_open) {
             return Err(Error::InvalidModel {
                 message: "family mutated operation-owned SVG root attributes".to_string(),
             });
         }
+
         if !out.trim_end().ends_with("</svg>") {
             return Err(Error::InvalidModel {
                 message: "family returned an incomplete SVG root document".to_string(),
             });
         }
+
         Ok(RootedSvg {
             svg: out,
             family: self.family,
@@ -715,6 +751,7 @@ impl<'a> RootViewportContext<'a> {
         if out.len() == 0 {
             return Ok(());
         }
+
         Err(Error::InvalidModel {
             message: "root SVG emission must begin with an empty document buffer".to_string(),
         })
@@ -731,6 +768,7 @@ impl<'a> RootViewportContext<'a> {
                     fmt_string(checked_viewport_dimension(height, "fixed root height")?),
                 ));
             }
+
             let view_box = view_box.ok_or_else(|| Error::InvalidModel {
                 message: format!(
                     "fixed root sizing for {} diagram '{}' requires a viewBox",
@@ -803,16 +841,17 @@ impl RootedSvg {
         plan: Option<&RootThemePlan>,
         work_meter: &OperationWorkMeter,
     ) -> Result<(Self, RootThemeReport)> {
-        let Some(plan) = plan else {
+        let Some(plan_2) = plan else {
             return Ok((
                 self,
                 RootThemePlan::default().begin_svg_application().finish(),
             ));
         };
-        let mut application = plan.begin_svg_application();
-        let canvas_prelude = CanvasPreludePlan::new(plan, self.diagram_id.as_str(), self.view_box)?;
-        let background_edit = (plan.canvas().has_explicit_base()
-            && matches!(plan.canvas().base(), CanvasPaint::Transparent))
+
+        let mut application = plan_2.begin_svg_application();
+        let canvas_prelude = CanvasPreludePlan::new(plan_2, self.diagram_id.as_str(), self.view_box)?;
+        let background_edit = (plan_2.canvas().has_explicit_base()
+            && matches!(plan_2.canvas().base(), CanvasPaint::Transparent))
         .then(|| {
             crate::svg::pipeline::set_root_background_color(&self.svg, "transparent").ok_or_else(
                 || Error::InvalidModel {
@@ -834,6 +873,7 @@ impl RootedSvg {
                 })?;
         work_meter.check_svg_append(self.svg.len(), total_growth)?;
         canvas_prelude.ensure_resource_ids_available(&self.svg, work_meter)?;
+
         if prelude_len != 0 || background_edit.is_some() {
             let mut prelude = String::new();
             prelude
@@ -842,17 +882,20 @@ impl RootedSvg {
                     message: "failed to reserve bounded root theme SVG prelude".to_string(),
                 })?;
             canvas_prelude.write(&mut prelude, self.view_box)?;
+
             if prelude.len() != prelude_len {
                 return Err(Error::InvalidModel {
                     message: "root theme SVG preflight disagreed with terminal serialization"
                         .to_string(),
                 });
             }
+
             self.svg
                 .try_reserve_exact(total_growth)
                 .map_err(|_| Error::InvalidModel {
                     message: "failed to reserve bounded root theme SVG".to_string(),
                 })?;
+
             if let Some(edit) = background_edit {
                 self.root_open_end =
                     edit.adjusted_end(self.root_open_end)
@@ -862,10 +905,12 @@ impl RootedSvg {
                         })?;
                 edit.apply(&mut self.svg);
             }
+
             if !prelude.is_empty() {
                 self.svg.insert_str(self.root_open_end, &prelude);
             }
         }
+
         canvas_prelude.mark_applied(&mut application)?;
         Ok((self, application.finish()))
     }
@@ -879,14 +924,17 @@ impl RootedSvg {
                 ),
             });
         }
+
         Ok(self.svg)
     }
 }
 
+#[must_use]
 fn supported_canvas_paint(paint: &CanvasPaint) -> bool {
     !matches!(paint, CanvasPaint::Pattern(_))
 }
 
+#[must_use]
 fn canvas_paint_has_concrete_svg_geometry(paint: &CanvasPaint, view_box: Option<ViewBox>) -> bool {
     match paint {
         CanvasPaint::LinearGradient(gradient) => linear_gradient_line(gradient, view_box).is_some(),
@@ -901,6 +949,7 @@ fn canvas_paint_has_concrete_svg_geometry(paint: &CanvasPaint, view_box: Option<
     }
 }
 
+#[must_use]
 fn supported_canvas_capabilities(
     paint: &CanvasPaint,
 ) -> impl Iterator<Item = ThemeCapability> + '_ {
@@ -919,6 +968,7 @@ fn validate_canvas_paint_svg_geometry(
                     message: "ordinary root linear gradients require concrete paint bounds"
                         .to_string(),
                 })?;
+
             for (field, value) in [
                 ("linear gradient x1", line.x1),
                 ("linear gradient y1", line.y1),
@@ -938,6 +988,7 @@ fn validate_canvas_paint_svg_geometry(
                     checked_svg_coordinate(f64::from(value), field)?;
                 }
             }
+
             if gradient.is_repeating() {
                 let radius_px = resolved_radial_radius_px(gradient, view_box).ok_or_else(|| {
                     Error::InvalidModel {
@@ -945,17 +996,20 @@ fn validate_canvas_paint_svg_geometry(
                             .to_string(),
                     }
                 })?;
+
                 if !gradient.resolved_repeating_radius_is_bounded(radius_px) {
                     return Err(Error::InvalidModel {
                         message: "repeating radial gradient resolved outside its bounded period"
                             .to_string(),
                     });
                 }
+
                 checked_svg_coordinate(radius_px, "repeating radial gradient radius")?;
             }
         }
         CanvasPaint::Transparent | CanvasPaint::Solid(_) | CanvasPaint::Pattern(_) => {}
     }
+
     Ok(())
 }
 
@@ -987,13 +1041,16 @@ impl<'a> CanvasPreludePlan<'a> {
             {
                 continue;
             }
+
             validate_canvas_paint_svg_geometry(layer.paint(), view_box)?;
             let (offset_x, offset_y) = layer.offset();
             checked_svg_coordinate(f64::from(offset_x), "canvas layer offset-x")?;
             checked_svg_coordinate(f64::from(offset_y), "canvas layer offset-y")?;
+
             if entries.capacity() == 0 {
                 entries.reserve_exact(entry_capacity);
             }
+
             entries.push(CanvasPreludeEntry::Layer {
                 index,
                 paint: layer.paint(),
@@ -1029,7 +1086,9 @@ impl<'a> CanvasPreludePlan<'a> {
         {
             return Ok(());
         }
+
         work_meter.charge(existing_svg.len().div_ceil(64))?;
+
         if svg_contains_canvas_resource_namespace(existing_svg, &self.scope) {
             return Err(Error::InvalidModel {
                 message: format!(
@@ -1038,6 +1097,7 @@ impl<'a> CanvasPreludePlan<'a> {
                 ),
             });
         }
+
         Ok(())
     }
 
@@ -1045,6 +1105,7 @@ impl<'a> CanvasPreludePlan<'a> {
         for entry in &self.entries {
             entry.write(out, view_box, &self.scope);
         }
+
         out.checkpoint()
     }
 
@@ -1052,6 +1113,7 @@ impl<'a> CanvasPreludePlan<'a> {
         for entry in &self.entries {
             entry.mark_applied(application)?;
         }
+
         Ok(())
     }
 }
@@ -1071,6 +1133,7 @@ enum CanvasPreludeEntry<'a> {
 }
 
 impl CanvasPreludeEntry<'_> {
+    #[must_use]
     fn resource_ids<'a>(&self, scope: &'a str) -> Option<CanvasResourceIds<'a>> {
         match self {
             Self::Base { paint } => {
@@ -1129,7 +1192,7 @@ impl CanvasPreludeEntry<'_> {
             } => {
                 let applied = std::iter::once(ThemeCapability::LayeredCanvas)
                     .chain(supported_canvas_capabilities(paint))
-                    .chain((*opacity != 1.0).then_some(ThemeCapability::Opacity))
+                    .chain((::core::primitive::f32::to_bits(*opacity) != ::core::primitive::f32::to_bits(1.0)).then_some(ThemeCapability::Opacity))
                     .chain((*offset != (0.0, 0.0)).then_some(ThemeCapability::CanvasLayerPlacement))
                     .chain(
                         (!matches!(blend_mode, BlendMode::Normal))
@@ -1165,6 +1228,7 @@ enum CanvasResourceKind {
 }
 
 impl<'a> CanvasResourceIds<'a> {
+    #[must_use]
     fn for_paint(scope: &'a str, slot: CanvasPaintSlot, paint: &CanvasPaint) -> Option<Self> {
         if !matches!(
             paint,
@@ -1172,6 +1236,7 @@ impl<'a> CanvasResourceIds<'a> {
         ) {
             return None;
         }
+
         let tiled = match paint {
             CanvasPaint::LinearGradient(gradient) => gradient.tile_size_px().is_some(),
             CanvasPaint::RadialGradient(gradient) => gradient.tile_size_px().is_some(),
@@ -1182,12 +1247,14 @@ impl<'a> CanvasResourceIds<'a> {
 
     fn write(self, out: &mut impl SvgOutput, kind: CanvasResourceKind) {
         escape_attr_into(out, self.scope);
+
         match self.slot {
             CanvasPaintSlot::Base => out.push_str("-merman-theme-canvas-base"),
             CanvasPaintSlot::Layer(index) => {
                 let _ = write!(out, "-merman-theme-canvas-layer-{index}");
             }
         }
+
         match kind {
             CanvasResourceKind::Gradient => out.push_str("-gradient"),
             CanvasResourceKind::Pattern => out.push_str("-pattern"),
@@ -1195,55 +1262,79 @@ impl<'a> CanvasResourceIds<'a> {
     }
 }
 
+#[must_use]
 fn svg_contains_canvas_resource_namespace(svg: &str, scope: &str) -> bool {
     let mut cursor = 0usize;
+
     while let Some(relative_start) = svg[cursor..].find('<') {
         let start = cursor + relative_start;
-        let Some(end) = crate::svg::scanner::find_tag_end(svg, start) else {
-            return false;
+
+        let end = {
+            let optional_end = crate::svg::scanner::find_tag_end(svg, start);
+
+            match optional_end {
+                Some(matched_end) => matched_end,
+                ::core::option::Option::None => return false,
+            }
         };
+
         if svg_tag_contains_canvas_resource_namespace(&svg[start..=end], scope) {
             return true;
         }
+
         cursor = end + 1;
     }
+
     false
 }
 
+#[must_use]
 fn svg_tag_contains_canvas_resource_namespace(tag: &str, scope: &str) -> bool {
     let bytes = tag.as_bytes();
     let mut cursor = 1usize;
+
     while cursor < bytes.len() {
         if !bytes[cursor].is_ascii_whitespace() {
             cursor += 1;
             continue;
         }
+
         cursor += 1;
-        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+
+        while match <[_]>::get(&*bytes, cursor) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_whitespace(), ::core::option::Option::None => false } {
             cursor += 1;
         }
+
         let name_start = cursor;
-        while cursor < bytes.len()
-            && !bytes[cursor].is_ascii_whitespace()
+
+        while (match <[_]>::get(&*bytes, cursor) { ::core::option::Option::Some(&checked_element) => !checked_element.is_ascii_whitespace(), ::core::option::Option::None => false })
             && !matches!(bytes[cursor], b'=' | b'/' | b'>')
         {
             cursor += 1;
         }
+
         let name_end = cursor;
-        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+
+        while match <[_]>::get(&*bytes, cursor) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_whitespace(), ::core::option::Option::None => false } {
             cursor += 1;
         }
+
         if bytes.get(cursor) != Some(&b'=') {
             continue;
         }
+
         cursor += 1;
-        while cursor < bytes.len() && bytes[cursor].is_ascii_whitespace() {
+
+        while match <[_]>::get(&*bytes, cursor) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_whitespace(), ::core::option::Option::None => false } {
             cursor += 1;
         }
+
         let Some(&quote @ (b'"' | b'\'')) = bytes.get(cursor) else {
             continue;
         };
+
         let value_start = cursor + 1;
+
         let Some(value_end) = bytes[value_start..]
             .iter()
             .position(|byte| *byte == quote)
@@ -1251,6 +1342,7 @@ fn svg_tag_contains_canvas_resource_namespace(tag: &str, scope: &str) -> bool {
         else {
             return false;
         };
+
         if &bytes[name_start..name_end] == b"id"
             && tag[value_start..value_end]
                 .strip_prefix(scope)
@@ -1258,8 +1350,10 @@ fn svg_tag_contains_canvas_resource_namespace(tag: &str, scope: &str) -> bool {
         {
             return true;
         }
+
         cursor = value_end + 1;
     }
+
     false
 }
 
@@ -1279,6 +1373,7 @@ struct LinearGradientLine {
     y2: f64,
 }
 
+#[must_use]
 fn gradient_paint_bounds(
     tile_size_px: Option<(f32, f32)>,
     view_box: Option<ViewBox>,
@@ -1291,14 +1386,16 @@ fn gradient_paint_bounds(
             height: f64::from(height_px),
         });
     }
-    view_box.map(|view_box| GradientBounds {
-        min_x: view_box.min_x,
-        min_y: view_box.min_y,
-        width: view_box.width,
-        height: view_box.height,
+
+    view_box.map(|view_box_2| GradientBounds {
+        min_x: view_box_2.min_x,
+        min_y: view_box_2.min_y,
+        width: view_box_2.width,
+        height: view_box_2.height,
     })
 }
 
+#[must_use]
 fn linear_gradient_line(
     gradient: &LinearGradient,
     view_box: Option<ViewBox>,
@@ -1308,13 +1405,14 @@ fn linear_gradient_line(
         .to_radians();
     let direction_x = radians.sin();
     let direction_y = -radians.cos();
+
     if let Some(period_px) = gradient.repeating_period_px() {
-        let period_px = f64::from(period_px);
+        let period_px_2 = f64::from(period_px);
         return Some(LinearGradientLine {
             x1: 0.0,
             y1: 0.0,
-            x2: direction_x * period_px,
-            y2: direction_y * period_px,
+            x2: direction_x * period_px_2,
+            y2: direction_y * period_px_2,
         });
     }
 
@@ -1331,14 +1429,17 @@ fn linear_gradient_line(
     })
 }
 
+#[must_use]
 fn gradient_bounds(gradient: &RadialGradient, view_box: Option<ViewBox>) -> Option<GradientBounds> {
     gradient_paint_bounds(gradient.tile_size_px(), view_box)
 }
 
+#[must_use]
 fn normalized_diagonal(width: f64, height: f64) -> f64 {
     width.hypot(height) / std::f64::consts::SQRT_2
 }
 
+#[must_use]
 fn resolved_radial_radius_px(gradient: &RadialGradient, view_box: Option<ViewBox>) -> Option<f64> {
     match gradient.radius() {
         ThemeLength::Px(value) => Some(f64::from(value)),
@@ -1359,25 +1460,31 @@ fn push_canvas_paint_defs(
     ids: Option<CanvasResourceIds<'_>>,
     view_box: Option<ViewBox>,
 ) {
-    let Some(ids) = ids else {
-        return;
+    let ids_2 = match ids {
+        Some(matched_ids) => matched_ids,
+        ::core::option::Option::None => return,
     };
+
     out.push_str("<defs>");
+
     match paint {
         CanvasPaint::LinearGradient(gradient) => {
-            push_linear_gradient(out, ids, gradient, view_box);
+            push_linear_gradient(out, ids_2, gradient, view_box);
+
             if let Some((width_px, height_px)) = gradient.tile_size_px() {
-                push_gradient_pattern(out, ids, width_px, height_px, view_box);
+                push_gradient_pattern(out, ids_2, width_px, height_px, view_box);
             }
         }
         CanvasPaint::RadialGradient(gradient) => {
-            push_radial_gradient(out, ids, gradient, view_box);
+            push_radial_gradient(out, ids_2, gradient, view_box);
+
             if let Some((width_px, height_px)) = gradient.tile_size_px() {
-                push_gradient_pattern(out, ids, width_px, height_px, view_box);
+                push_gradient_pattern(out, ids_2, width_px, height_px, view_box);
             }
         }
         CanvasPaint::Transparent | CanvasPaint::Solid(_) | CanvasPaint::Pattern(_) => {}
     }
+
     out.push_str("</defs>");
 }
 
@@ -1399,12 +1506,14 @@ fn push_linear_gradient(
         fmt(line.x2),
         fmt(line.y2),
     );
+
     if let Some(period_px) = gradient.repeating_period_px() {
         debug_assert!(period_px >= 1.0);
         out.push_str(r#" spreadMethod="repeat">"#);
     } else {
         out.push('>');
     }
+
     push_gradient_stops(out, gradient.stops());
     out.push_str("</linearGradient>");
 }
@@ -1419,29 +1528,36 @@ fn push_radial_gradient(
     out.push_str(r#"<radialGradient id=""#);
     ids.write(out, CanvasResourceKind::Gradient);
     out.push_str(r#"" gradientUnits="userSpaceOnUse" cx=""#);
+
     match bounds {
-        Some(bounds) => {
-            push_resolved_position(out, gradient.center_x(), bounds.min_x, bounds.width)
+        Some(bounds_2) => {
+            push_resolved_position(out, gradient.center_x(), bounds_2.min_x, bounds_2.width)
         }
         None => push_theme_length(out, gradient.center_x()),
     }
+
     out.push_str(r#"" cy=""#);
+
     match bounds {
-        Some(bounds) => {
-            push_resolved_position(out, gradient.center_y(), bounds.min_y, bounds.height)
+        Some(bounds_3) => {
+            push_resolved_position(out, gradient.center_y(), bounds_3.min_y, bounds_3.height)
         }
         None => push_theme_length(out, gradient.center_y()),
     }
+
     out.push_str(r#"" r=""#);
+
     match bounds {
-        Some(bounds) => push_resolved_radius(out, gradient.radius(), bounds.width, bounds.height),
+        Some(bounds_4) => push_resolved_radius(out, gradient.radius(), bounds_4.width, bounds_4.height),
         None => push_theme_length(out, gradient.radius()),
     }
+
     if gradient.is_repeating() {
         out.push_str(r#"" spreadMethod="repeat">"#);
     } else {
         out.push_str(r#"">"#);
     }
+
     push_gradient_stops(out, gradient.stops());
     out.push_str("</radialGradient>");
 }
@@ -1462,8 +1578,9 @@ fn push_gradient_pattern(
         fmt(f64::from(width_px)),
         fmt(f64::from(height_px)),
     );
-    if let Some(bounds) = view_box.filter(|bounds| bounds.min_x != 0.0 || bounds.min_y != 0.0) {
-        // Move the tile coordinate system once, keeping its content and gradient local.
+
+    if let Some(bounds) = view_box.filter(|bounds| !::core::matches!(::core::primitive::f64::classify(bounds.min_x), ::core::num::FpCategory::Zero) || !::core::matches!(::core::primitive::f64::classify(bounds.min_y), ::core::num::FpCategory::Zero)) {
+
         let _ = write!(
             out,
             r#" patternTransform="translate({} {})""#,
@@ -1471,6 +1588,7 @@ fn push_gradient_pattern(
             fmt(bounds.min_y),
         );
     }
+
     let _ = write!(
         out,
         r#"><rect x="0" y="0" width="{}" height="{}" fill="url(#"#,
@@ -1517,6 +1635,7 @@ fn push_resolved_radius(out: &mut impl SvgOutput, length: ThemeLength, width: f6
     let _ = write!(out, "{}", fmt(value));
 }
 
+#[must_use]
 fn resolve_radius(length: ThemeLength, width: f64, height: f64) -> f64 {
     match length {
         ThemeLength::Px(value) => f64::from(value),
@@ -1559,9 +1678,11 @@ fn push_canvas_layer(
         out,
         r#"<g class="merman-theme-canvas-layer" data-merman-theme-canvas-layer="{index}" aria-hidden="true" pointer-events="none""#,
     );
-    if opacity != 1.0 {
+
+    if ::core::primitive::f32::to_bits(opacity) != ::core::primitive::f32::to_bits(1.0) {
         let _ = write!(out, r#" opacity="{}""#, fmt(f64::from(opacity)));
     }
+
     if offset != (0.0, 0.0) {
         let _ = write!(
             out,
@@ -1570,11 +1691,13 @@ fn push_canvas_layer(
             fmt(f64::from(offset.1)),
         );
     }
+
     if !matches!(blend_mode, BlendMode::Normal) {
         out.push_str(r#" style="mix-blend-mode:"#);
         out.push_str(blend_mode.as_svg());
         out.push_str(r#"""#);
     }
+
     out.push('>');
     out.push_str(r#"<rect"#);
     push_canvas_rect_geometry(out, view_box);
@@ -1630,6 +1753,7 @@ impl ProjectedSvgLength {
             self.overflowed = true;
             return Err(std::fmt::Error);
         };
+
         self.len = len;
         Ok(())
     }
@@ -1640,6 +1764,7 @@ impl ProjectedSvgLength {
                 message: "root theme SVG preflight length overflowed".to_string(),
             });
         }
+
         Ok(self.len)
     }
 }
@@ -1679,20 +1804,21 @@ impl SvgOutput for ProjectedSvgLength {
                 message: "root theme SVG preflight length overflowed".to_string(),
             });
         }
+
         Ok(())
     }
 }
 
 fn push_canvas_rect_geometry(out: &mut impl SvgOutput, view_box: Option<ViewBox>) {
     match view_box {
-        Some(view_box) => {
+        Some(view_box_2) => {
             let _ = write!(
                 out,
                 r#" x="{}" y="{}" width="{}" height="{}""#,
-                fmt(view_box.min_x),
-                fmt(view_box.min_y),
-                fmt(view_box.width),
-                fmt(view_box.height),
+                fmt(view_box_2.min_x),
+                fmt(view_box_2.min_y),
+                fmt(view_box_2.width),
+                fmt(view_box_2.height),
             );
         }
         None => out.push_str(r#" x="0" y="0" width="100%" height="100%""#),
@@ -1707,6 +1833,7 @@ fn mark_root_mechanism_applied(
     if application.mark_applied(key, capabilities) {
         return Ok(());
     }
+
     Err(Error::InvalidModel {
         message: format!("root SVG consumer emitted unplanned theme mechanism {key}"),
     })
@@ -1747,6 +1874,7 @@ pub(super) struct RootViewportPlan {
 }
 
 impl RootViewportPlan {
+    #[must_use]
     pub(super) fn view_box(&self) -> Option<ViewBox> {
         self.view_box
     }
@@ -1756,12 +1884,21 @@ fn with_custom_properties<'a>(
     style: Option<&'a str>,
     properties: &[(&str, &str)],
 ) -> Result<Option<Cow<'a, str>>> {
-    if properties.is_empty() {
-        return Ok(style.filter(|style| !style.is_empty()).map(Cow::Borrowed));
+    match properties {
+        [] => {
+            return Ok(style.filter(|style_2| !style_2.is_empty()).map(Cow::Borrowed));
+        },
+        [_, ..] => {},
     }
-    let mut style = style.unwrap_or_default().to_owned();
+
+    let mut style_3 = match style {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => "",
+    }.to_owned();
+
     for (key, value) in properties {
         let declaration = format!("{key}:{value}");
+
         if !key.starts_with("--")
             || crate::mermaid_style::parse_safe_style_decl(&declaration).is_none()
         {
@@ -1769,41 +1906,53 @@ fn with_custom_properties<'a>(
                 message: format!("invalid SVG root custom property {key}"),
             });
         }
-        if !style.is_empty() {
-            style.push(' ');
+
+        if !style_3.is_empty() {
+            style_3.push(' ');
         }
-        let _ = write!(style, "{key}: {value};");
+
+        let _ = write!(style_3, "{key}: {value};");
     }
-    Ok((!style.is_empty()).then_some(Cow::Owned(style)))
+
+    Ok((!style_3.is_empty()).then_some(Cow::Owned(style_3)))
 }
 
+#[must_use]
 fn format_css_max_width(value: f64) -> String {
     if !value.is_finite() || value.abs() < 0.0005 {
         return "0".to_string();
     }
+
     let exponent = value.abs().max(0.0005).log10().floor() as i32;
     let decimals = (5 - exponent).clamp(0, 6) as usize;
     let scale = 10f64.powi(decimals as i32);
     let mut rounded = round_ties_to_even(value * scale) / scale;
+
     if rounded.abs() < 0.0005 {
         rounded = 0.0;
     }
+
     let mut formatted = format!("{rounded:.decimals$}");
+
     if formatted.contains('.') {
         while formatted.ends_with('0') {
             formatted.pop();
         }
+
         if formatted.ends_with('.') {
             formatted.pop();
         }
     }
+
     formatted
 }
 
+#[must_use]
 fn round_ties_to_even(value: f64) -> f64 {
     if !value.is_finite() {
         return 0.0;
     }
+
     let sign = if value.is_sign_negative() { -1.0 } else { 1.0 };
     let absolute = value.abs();
     let floor = absolute.floor();
@@ -1812,7 +1961,7 @@ fn round_ties_to_even(value: f64) -> f64 {
         floor
     } else if fraction > 0.5 {
         floor + 1.0
-    } else if (floor as i64) % 2 == 0 {
+    } else if ::core::primitive::i64::wrapping_rem((floor as i64), 2) == 0 {
         floor
     } else {
         floor + 1.0
@@ -1820,14 +1969,18 @@ fn round_ties_to_even(value: f64) -> f64 {
     sign * rounded
 }
 
+#[must_use]
 fn format_precision_fixed(value: f64, significant_digits: u8) -> String {
     let precision = i32::from(significant_digits.max(1));
+
     if !value.is_finite() {
         return "0".to_string();
     }
-    if value == 0.0 {
-        return format!("{:.*}", (precision - 1) as usize, 0.0);
+
+    if ::core::matches!(::core::primitive::f64::classify(value), ::core::num::FpCategory::Zero) {
+        return format!("{:.*}", ::core::primitive::i32::wrapping_sub(precision, 1) as usize, 0.0);
     }
+
     let exponent = value.abs().log10().floor() as i32;
     let decimals = (precision - exponent - 1).max(0) as usize;
     format!("{value:.decimals$}")
@@ -1837,13 +1990,15 @@ fn checked_svg_coordinate(value: f64, field: &str) -> Result<f64> {
     if value.is_finite() {
         return Ok(value);
     }
+
     Err(Error::InvalidModel {
         message: format!("root SVG {field} must be finite"),
     })
 }
 
 fn checked_viewport_dimension(value: f64, field: &str) -> Result<f64> {
-    Ok(checked_svg_coordinate(value, field)?.max(1.0))
+    let checked_value = checked_svg_coordinate(value, field)?;
+    Ok(checked_value.max(1.0))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1883,10 +2038,12 @@ enum SvgRootAttributeValue<'a> {
 }
 
 impl<'a> SvgRootAttributeValue<'a> {
+    #[must_use]
     const fn plain(value: &'a str) -> Self {
         Self::Plain(value)
     }
 
+    #[must_use]
     const fn tracked(prefix: &'a str, value: &'a str, suffix: &'a str) -> Self {
         Self::Tracked {
             prefix,
@@ -1979,9 +2136,9 @@ fn push_svg_root_open(out: &mut impl SvgOutput, attrs: SvgRootAttrs<'_>) -> SvgR
         aria_attr_order,
     } = attrs;
 
-    // Keep attribute order stable (helps strict-mode diffs) and match existing renderers:
-    // id, width/height (with configurable fixed-height placement), xmlns, class?,
-    // style?/viewBox (configurable), extra-attrs..., role, aria-roledescription, aria-*, tail-attrs..., >\n?
+
+
+
     let mut deferred_height_after_class: Option<&str> = None;
     let mut tracked_ranges = SvgRootTrackedRanges::default();
     out.push_str(r#"<svg id=""#);
@@ -1989,6 +2146,7 @@ fn push_svg_root_open(out: &mut impl SvgOutput, attrs: SvgRootAttrs<'_>) -> SvgR
     let responsive_height_attr = matches!(width, SvgRootWidth::Percent100)
         .then_some(height_attr)
         .flatten();
+
     match width {
         SvgRootWidth::None => {
             out.push_str(r#"" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink""#);
@@ -2002,6 +2160,7 @@ fn push_svg_root_open(out: &mut impl SvgOutput, attrs: SvgRootAttrs<'_>) -> SvgR
             out.push_str(r#"" width=""#);
             escape_attr_into(out, w);
             out.push('"');
+
             match fixed_height_placement {
                 SvgRootFixedHeightPlacement::BeforeXmlns => {
                     out.push_str(r#" height=""#);
@@ -2029,45 +2188,51 @@ fn push_svg_root_open(out: &mut impl SvgOutput, attrs: SvgRootAttrs<'_>) -> SvgR
         }
     }
 
-    if let Some(class) = class {
+    if let Some(class_2) = class {
         out.push_str(r#" class=""#);
-        escape_attr_into(out, class);
+        escape_attr_into(out, class_2);
         out.push('"');
     }
+
     if let Some(h) = deferred_height_after_class.take() {
         out.push_str(r#" height=""#);
         escape_attr_into(out, h);
         out.push('"');
     }
+
     match style_viewbox_order {
         SvgRootStyleViewBoxOrder::StyleThenViewBox => {
             if style_placement == RootStylePlacement::Viewport
-                && let Some(style_attr) = style_attr
+                && let Some(style_attr_2) = style_attr
             {
-                tracked_ranges.max_width = push_svg_root_attribute(out, "style", style_attr);
+                tracked_ranges.max_width = push_svg_root_attribute(out, "style", style_attr_2);
             }
-            if let Some(viewbox_attr) = viewbox_attr {
-                tracked_ranges.view_box = push_svg_root_attribute(out, "viewBox", viewbox_attr);
+
+            if let Some(viewbox_attr_2) = viewbox_attr {
+                tracked_ranges.view_box = push_svg_root_attribute(out, "viewBox", viewbox_attr_2);
             }
         }
         SvgRootStyleViewBoxOrder::ViewBoxThenStyle => {
-            if let Some(viewbox_attr) = viewbox_attr {
-                tracked_ranges.view_box = push_svg_root_attribute(out, "viewBox", viewbox_attr);
+            if let Some(viewbox_attr_3) = viewbox_attr {
+                tracked_ranges.view_box = push_svg_root_attribute(out, "viewBox", viewbox_attr_3);
             }
+
             if style_placement == RootStylePlacement::Viewport
-                && let Some(style_attr) = style_attr
+                && let Some(style_attr_3) = style_attr
             {
-                tracked_ranges.max_width = push_svg_root_attribute(out, "style", style_attr);
+                tracked_ranges.max_width = push_svg_root_attribute(out, "style", style_attr_3);
             }
         }
     }
+
     if responsive_height_placement == RootResponsiveHeightPlacement::BeforeExtraAttrs
-        && let Some(height_attr) = responsive_height_attr
+        && let Some(height_attr_2) = responsive_height_attr
     {
         out.push_str(r#" height=""#);
-        escape_attr_into(out, height_attr);
+        escape_attr_into(out, height_attr_2);
         out.push('"');
     }
+
     for (k, v) in extra_attrs {
         out.push(' ');
         out.push_str(k);
@@ -2075,22 +2240,25 @@ fn push_svg_root_open(out: &mut impl SvgOutput, attrs: SvgRootAttrs<'_>) -> SvgR
         escape_attr_into(out, v);
         out.push('"');
     }
+
     if responsive_height_placement == RootResponsiveHeightPlacement::AfterExtraAttrs
-        && let Some(height_attr) = responsive_height_attr
+        && let Some(height_attr_3) = responsive_height_attr
     {
         out.push_str(r#" height=""#);
-        escape_attr_into(out, height_attr);
+        escape_attr_into(out, height_attr_3);
         out.push('"');
     }
 
     out.push_str(r#" role="graphics-document document" aria-roledescription=""#);
     escape_attr_into(out, aria_roledescription);
     out.push('"');
+
     if style_placement == RootStylePlacement::AfterRoleDescription
-        && let Some(style_attr) = style_attr
+        && let Some(style_attr_4) = style_attr
     {
-        tracked_ranges.max_width = push_svg_root_attribute(out, "style", style_attr);
+        tracked_ranges.max_width = push_svg_root_attribute(out, "style", style_attr_4);
     }
+
     for (k, v) in after_roledescription_attrs {
         out.push(' ');
         out.push_str(k);
@@ -2098,6 +2266,7 @@ fn push_svg_root_open(out: &mut impl SvgOutput, attrs: SvgRootAttrs<'_>) -> SvgR
         escape_attr_into(out, v);
         out.push('"');
     }
+
     match aria_attr_order {
         SvgRootAriaAttrOrder::DescribedbyThenLabelledby => {
             if let Some(v) = aria_describedby {
@@ -2105,6 +2274,7 @@ fn push_svg_root_open(out: &mut impl SvgOutput, attrs: SvgRootAttrs<'_>) -> SvgR
                 escape_attr_into(out, v);
                 out.push('"');
             }
+
             if let Some(v) = aria_labelledby {
                 out.push_str(r#" aria-labelledby=""#);
                 escape_attr_into(out, v);
@@ -2117,6 +2287,7 @@ fn push_svg_root_open(out: &mut impl SvgOutput, attrs: SvgRootAttrs<'_>) -> SvgR
                 escape_attr_into(out, v);
                 out.push('"');
             }
+
             if let Some(v) = aria_describedby {
                 out.push_str(r#" aria-describedby=""#);
                 escape_attr_into(out, v);
@@ -2126,10 +2297,11 @@ fn push_svg_root_open(out: &mut impl SvgOutput, attrs: SvgRootAttrs<'_>) -> SvgR
     }
 
     if style_placement == RootStylePlacement::Tail
-        && let Some(style_attr) = style_attr
+        && let Some(style_attr_5) = style_attr
     {
-        tracked_ranges.max_width = push_svg_root_attribute(out, "style", style_attr);
+        tracked_ranges.max_width = push_svg_root_attribute(out, "style", style_attr_5);
     }
+
     for (k, v) in tail_attrs {
         out.push(' ');
         out.push_str(k);
@@ -2139,9 +2311,11 @@ fn push_svg_root_open(out: &mut impl SvgOutput, attrs: SvgRootAttrs<'_>) -> SvgR
     }
 
     out.push('>');
+
     if trailing_newline {
         out.push('\n');
     }
+
     tracked_ranges
 }
 

@@ -9,9 +9,10 @@ Type=Application
 # home screen came for; a film is reached from the files panel, or by walking
 # the folder it is in. Two of them, named Pictures and Videos, is a change to
 # this file and a second one beside it, and nothing in the panel.
-Name=Viewer
+Name=Console Viewer
 Comment=Photographs and films, on the machine that holds them
-Exec=/usr/local/bin/viewer %f
+Exec=/usr/local/bin/console-application-media-viewer %f
+StartupWMClass=viewer
 Icon=multimedia-photo-viewer
 Terminal=false
 Categories=Graphics;Viewer;AudioVideo;Video;Player;

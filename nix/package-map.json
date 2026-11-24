@@ -83,13 +83,6 @@
     ],
     "explanation": "External runtime dependency declared by the desktop manifest."
   },
-  "awww": {
-    "role": "runtime",
-    "nix": [
-      "awww"
-    ],
-    "explanation": "External runtime dependency declared by the desktop manifest."
-  },
   "papirus-icon-theme": {
     "role": "runtime",
     "nix": [
@@ -166,6 +159,13 @@
       "glib"
     ],
     "explanation": "External runtime dependency declared by the desktop manifest."
+  },
+  "pipewire": {
+    "role": "runtime",
+    "nix": [
+      "pipewire"
+    ],
+    "explanation": "Supplies pw-metadata for stream privacy."
   },
   "pipewire-audio": {
     "role": "runtime",

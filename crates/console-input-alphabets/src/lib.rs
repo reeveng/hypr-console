@@ -47,6 +47,7 @@
 
 use console_core_never::Never;
 
+pub mod keyboard_socket;
 pub mod wearing;
 
 pub struct Alphabet {

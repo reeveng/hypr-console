@@ -1,11 +1,13 @@
 use super::super::roughjs_common::{controlled, ops_to_svg_path_d, parse_hex_color_to_srgba};
 use super::super::*;
 
+#[must_use]
 fn class_parse_stroke_dash_pair(stroke_dasharray: &str) -> (f64, f64) {
     let dash = stroke_dasharray.trim().replace(',', " ");
     let mut nums = dash
         .split_whitespace()
-        .filter_map(|t| t.parse::<f64>().ok());
+        .filter_map(|t| match t.parse::<f64>() { ::core::result::Result::Ok(value) => ::core::option::Option::Some(value), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None });
+
     match (nums.next(), nums.next()) {
         (Some(a), Some(b)) => (a, b),
         (Some(a), None) => (a, a),
@@ -17,6 +19,7 @@ fn roughjs46_diverge_point(options: &mut roughr::core::Options) -> f64 {
     0.2 + options.random() * 0.2
 }
 
+#[must_use]
 pub(super) fn class_rough_seed(
     base_randomness: &roughr::core::RoughRandomness,
     _diagram_id: &str,
@@ -26,6 +29,7 @@ pub(super) fn class_rough_seed(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[must_use]
 pub(super) fn class_rough_hachure_rect_paths(
     left: f64,
     top: f64,
@@ -38,20 +42,26 @@ pub(super) fn class_rough_hachure_rect_paths(
     work_meter: &crate::resources::OperationWorkMeter,
     randomness: &roughr::core::RoughRandomness,
 ) -> Option<(String, String)> {
-    let fill =
-        parse_hex_color_to_srgba(fill).unwrap_or_else(|| roughr::Srgba::new(0.0, 0.0, 0.0, 1.0));
-    let stroke =
-        parse_hex_color_to_srgba(stroke).unwrap_or_else(|| roughr::Srgba::new(0.0, 0.0, 0.0, 1.0));
+    let fill_2 =
+        match parse_hex_color_to_srgba(fill) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => roughr::Srgba::new(0.0, 0.0, 0.0, 1.0),
+        };
+    let stroke_2 =
+        match parse_hex_color_to_srgba(stroke) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => roughr::Srgba::new(0.0, 0.0, 0.0, 1.0),
+        };
     let (dash0, dash1) = class_parse_stroke_dash_pair(stroke_dasharray);
     let options = roughr::core::OptionsBuilder::default()
         .randomness(randomness.clone())
         .roughness(0.7)
-        .fill(fill)
+        .fill(fill_2)
         .fill_style(roughr::core::FillStyle::Hachure)
-        // Mermaid userNodeOverrides sets fill weight and hachure gap independently of outline width.
+
         .fill_weight(1.5)
         .hachure_gap(1.5)
-        .stroke(stroke)
+        .stroke(stroke_2)
         .stroke_width(stroke_width)
         .stroke_line_dash(vec![dash0, dash1])
         .stroke_line_dash_offset(0.0)
@@ -79,6 +89,7 @@ pub(super) fn class_rough_hachure_rect_paths(
 
     for set in drawable.sets {
         let d = ops_to_svg_path_d(&set);
+
         match set.op_set_type {
             roughr::core::OpSetType::FillPath | roughr::core::OpSetType::FillSketch => {
                 fill_d = Some(d);
@@ -89,10 +100,11 @@ pub(super) fn class_rough_hachure_rect_paths(
         }
     }
 
-    Some((fill_d?, stroke_d?))
+    Some(({ let checked_value = fill_d?; checked_value }, { let checked_value_2 = stroke_d?; checked_value_2 }))
 }
 
 #[allow(clippy::too_many_arguments)]
+#[must_use]
 pub(super) fn class_rough_hand_drawn_line_path(
     x1: f64,
     y1: f64,
@@ -104,13 +116,16 @@ pub(super) fn class_rough_hand_drawn_line_path(
     work_meter: &crate::resources::OperationWorkMeter,
     randomness: &roughr::core::RoughRandomness,
 ) -> Option<String> {
-    let stroke =
-        parse_hex_color_to_srgba(stroke).unwrap_or_else(|| roughr::Srgba::new(0.0, 0.0, 0.0, 1.0));
+    let stroke_2 =
+        match parse_hex_color_to_srgba(stroke) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => roughr::Srgba::new(0.0, 0.0, 0.0, 1.0),
+        };
     let (dash0, dash1) = class_parse_stroke_dash_pair(stroke_dasharray);
     let mut options = roughr::core::OptionsBuilder::default()
         .randomness(randomness.clone())
         .roughness(0.7)
-        .stroke(stroke)
+        .stroke(stroke_2)
         .stroke_width(stroke_width)
         .stroke_line_dash(vec![dash0, dash1])
         .stroke_line_dash_offset(0.0)
@@ -125,6 +140,7 @@ pub(super) fn class_rough_hand_drawn_line_path(
     .map(|opset| ops_to_svg_path_d(&opset))
 }
 
+#[must_use]
 pub(super) fn class_rough_hand_drawn_stroke_path_for_svg_path(
     svg_path_data: &str,
     roughness: f32,
@@ -151,6 +167,7 @@ pub(super) fn class_rough_hand_drawn_stroke_path_for_svg_path(
     .map(|opset| ops_to_svg_path_d(&opset))
 }
 
+#[must_use]
 pub(super) fn class_rough_line_double_path_and_bounds(
     x1: f64,
     y1: f64,
@@ -184,6 +201,7 @@ fn class_rough_line_double_path_and_bounds_with_options(
 
     for idx in 0..2 {
         let diverge = roughjs46_diverge_point(options);
+
         for _ in 0..10 {
             let _ = options.random();
         }
@@ -192,9 +210,11 @@ fn class_rough_line_double_path_and_bounds_with_options(
         let c1y = y1 + dy * diverge;
         let c2x = x1 + dx * 2.0 * diverge;
         let c2y = y1 + dy * 2.0 * diverge;
+
         if idx > 0 {
             d.push(' ');
         }
+
         let _ = write!(
             &mut d,
             "M{} {} C{} {}, {} {}, {} {}",
@@ -225,6 +245,7 @@ fn class_rough_line_double_path_and_bounds_with_options(
     (d, pb)
 }
 
+#[must_use]
 pub(super) fn class_rough_rect_stroke_path_and_bounds(
     left: f64,
     top: f64,
@@ -252,10 +273,13 @@ pub(super) fn class_rough_rect_stroke_path_and_bounds(
     {
         let (segment, seg_pb) =
             class_rough_line_double_path_and_bounds_with_options(ax, ay, bx, by, &mut options);
+
         if idx > 0 {
             out.push(' ');
         }
+
         out.push_str(&segment);
+
         if let Some(pb) = pb_opt.as_mut() {
             pb.min_x = pb.min_x.min(seg_pb.min_x);
             pb.min_y = pb.min_y.min(seg_pb.min_y);
@@ -268,12 +292,15 @@ pub(super) fn class_rough_rect_stroke_path_and_bounds(
 
     (
         out,
-        pb_opt.unwrap_or(super::super::path_bounds::SvgPathBounds {
-            min_x: left,
-            min_y: top,
-            max_x: right,
-            max_y: bottom,
-        }),
+        match (pb_opt, super::super::path_bounds::SvgPathBounds {
+                min_x: left,
+                min_y: top,
+                max_x: right,
+                max_y: bottom,
+            }) {
+            (::core::option::Option::Some(present), _) => present,
+            (::core::option::Option::None, alternate) => alternate,
+        },
     )
 }
 

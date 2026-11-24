@@ -10,6 +10,8 @@
 //! `console-program-contract` had this first, for programs; it is here because
 //! every machine is pressed the same way.
 
+use alloc::vec::Vec;
+
 use console_core_never::Never;
 
 use crate::{Machine, Queue};

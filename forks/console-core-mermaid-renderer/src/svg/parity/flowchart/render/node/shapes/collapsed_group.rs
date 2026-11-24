@@ -18,33 +18,42 @@ pub(in crate::svg::parity::flowchart::render::node) struct CollapsedGroupGeometr
     border: String,
 }
 
-fn rounded_rect_path_d(x: f64, y: f64, width: f64, height: f64, radius: f64) -> String {
-    let radius = radius.min(width / 2.0).min(height / 2.0).max(0.0);
+#[must_use]
+fn rounded_rect_path_d(RoundedRectPathDArguments { x, y, width, height, radius }: RoundedRectPathDArguments) -> String {
+    let radius_2 = radius.min(width / 2.0).min(height / 2.0).max(0.0);
     format!(
         "M {} {} H {} A {} {} 0 0 1 {} {} V {} A {} {} 0 0 1 {} {} H {} A {} {} 0 0 1 {} {} V {} A {} {} 0 0 1 {} {} Z",
-        fmt(x + radius),
+        fmt(x + radius_2),
         fmt(y),
-        fmt(x + width - radius),
-        fmt(radius),
-        fmt(radius),
+        fmt(x + width - radius_2),
+        fmt(radius_2),
+        fmt(radius_2),
         fmt(x + width),
-        fmt(y + radius),
-        fmt(y + height - radius),
-        fmt(radius),
-        fmt(radius),
-        fmt(x + width - radius),
+        fmt(y + radius_2),
+        fmt(y + height - radius_2),
+        fmt(radius_2),
+        fmt(radius_2),
+        fmt(x + width - radius_2),
         fmt(y + height),
-        fmt(x + radius),
-        fmt(radius),
-        fmt(radius),
+        fmt(x + radius_2),
+        fmt(radius_2),
+        fmt(radius_2),
         fmt(x),
-        fmt(y + height - radius),
-        fmt(y + radius),
-        fmt(radius),
-        fmt(radius),
-        fmt(x + radius),
+        fmt(y + height - radius_2),
+        fmt(y + radius_2),
+        fmt(radius_2),
+        fmt(radius_2),
+        fmt(x + radius_2),
         fmt(y),
     )
+}
+
+struct RoundedRectPathDArguments {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+    radius: f64,
 }
 
 pub(in crate::svg::parity::flowchart::render::node) fn render_collapsed_group_body(
@@ -69,18 +78,19 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_collapsed_group_bo
             RADIUS,
             ctx.compatibility.cluster_bkg.as_str(),
             ctx.compatibility.cluster_border.as_str(),
-            common.stroke_width as f64,
+            <f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width),
             "collapsed-group",
         )
     };
 
     if common.look_is_hand_drawn() {
-        let path = rounded_rect_path_d(left, top, width, height, radius);
+        let path = rounded_rect_path_d(self::RoundedRectPathDArguments { x: left, y: top, width, height, radius });
         let effective_stroke_width = if is_agentflow_flow {
             stroke_width as f32
         } else {
             common.stroke_width
         };
+
         if let Some((fill_d, stroke_d)) =
             helpers::timed_node_roughjs(common.timing, details, || {
                 roughjs_paths_for_svg_path_single_set(
@@ -100,7 +110,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_collapsed_group_bo
                 escape_attr(common.style),
                 escape_attr(&stroke_d),
                 escape_attr(border),
-                fmt_display(effective_stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(effective_stroke_width)),
                 escape_attr(common.stroke_dasharray),
                 escape_attr(common.style),
             );
@@ -167,6 +177,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_collapsed_group_in
         escape_attr(&border),
     );
     let dot_y = separator_y + INDICATOR_ROW_HEIGHT / 2.0;
+
     for x in [-10.0, 0.0, 10.0] {
         let _ = write!(
             out,
@@ -178,6 +189,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_collapsed_group_in
     }
 }
 
+#[must_use]
 fn collapsed_group_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
@@ -211,9 +223,10 @@ pub(super) fn advance_rough_geometry(
     if !common.look_is_hand_drawn() {
         return;
     }
+
     let (_, _, w, h, x, y) = collapsed_group_geometry(ctx, common, label);
     let agentflow = ctx.diagram_type == "agentflow";
-    let path = rounded_rect_path_d(x, y, w, h, if agentflow { 10.0 } else { RADIUS });
+    let path = rounded_rect_path_d(self::RoundedRectPathDArguments { x, y, width: w, height: h, radius: if agentflow { 10.0 } else { RADIUS } });
     let _ = super::super::roughjs::roughjs_prepare_paths_for_svg_path_single_set(
         super::super::roughjs::RoughGeometryTarget::Query,
         &path,

@@ -1,6 +1,6 @@
 use super::super::*;
 
-// Error diagram SVG renderer implementation (split from parity.rs).
+
 
 pub(crate) fn render_error_diagram_svg_model(
     layout: &ErrorDiagramLayout,
@@ -88,6 +88,7 @@ pub(crate) fn render_error_diagram_svg_model(
         version.x(),
         version.y(),
     );
+
     for (index, detail) in typography_theme.detail_geometry().iter().enumerate() {
         let _ = write!(
             &mut out,
@@ -108,13 +109,16 @@ pub(crate) fn render_error_diagram_svg_model(
             detail.y(),
         );
     }
+
     out.push_str("</g></svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if !typography_theme.record_terminal(surface_receipt) {
         return Err(crate::Error::InvalidModel {
             message: "Error typography receipt was recorded more than once".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 

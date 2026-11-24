@@ -29,15 +29,20 @@ struct Buzzing;
 impl Interpreter for Buzzing {
   type Event = Never;
   type Effect = ProfileEffect;
+  type Error = Never;
 
-  fn interpret(&mut self, acts: &ProfileEffect, _clock: &Clock) -> Vec<Event<Never>> {
+  fn interpret(
+    &mut self,
+    acts: &ProfileEffect,
+    _clock: &Clock,
+  ) -> Result<Vec<Event<Never>>, Never> {
     match acts {
       ProfileEffect::Buzzing(buzz) => {
         let Ok(()) = buzzed(*buzz);
       }
     }
 
-    Vec::new()
+    Ok(Vec::new())
   }
 }
 

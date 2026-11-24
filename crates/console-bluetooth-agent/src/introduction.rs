@@ -47,7 +47,7 @@ use console_bus::messages::Message;
 use console_bus::properties::ObjectPath;
 use console_bus::replies::Received;
 use console_core_media_access_control_addresses::Address;
-use console_core_state_machine::{Machine, Never, Queue};
+use console_core_state_machine::{EffectDependencies, Machine, Never, Queue, Service};
 
 use crate::agent::{self, Answer, PinAnswer, Pins, Went};
 use crate::cards::{self, Code};
@@ -111,6 +111,15 @@ pub enum Effect {
   Call { method: Method, message: Message },
   Reply(Message),
   ShowCode(String),
+}
+
+impl EffectDependencies for Effect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Call { .. } | Self::Reply(_) => &[Service::Bluetooth],
+      Self::ShowCode(_) => &[Service::Panels],
+    })
+  }
 }
 
 pub struct Introduction;

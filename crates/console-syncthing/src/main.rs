@@ -1,97 +1,119 @@
 //! Offers the shared Documents and Pictures to the devices paired with Syncthing.
 
-use console_core_external_programs::Program;
-use std::ffi::OsStr;
+use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Error};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::process::{Command, Stdio};
-use std::thread;
 use std::time::Duration;
+
+use console_core_external_programs::Program;
+use console_core_never::Never;
+use console_waiting::{Schedule, clock::LiveClock, until_some_handed_on_result};
 
 type Failure = Box<dyn std::error::Error>;
 
-fn cli(arguments: &[&str]) -> Command {
+#[derive(Clone, Copy, Debug)]
+enum SharedFolder {
+  Documents,
+  Pictures,
+}
+
+fn cli(arguments: &[&str]) -> Result<Command, Never> {
   let Ok(mut command) = Program::Syncthing.command();
   command.args(["cli", "config"]).args(arguments);
-  command
+
+  Ok(command)
 }
 
 fn apply(command: &mut Command) -> io::Result<()> {
   let status = command.status()?;
-  if status.success() {
-    Ok(())
-  } else {
-    Err(Error::other(format!("Syncthing exited with {status}")))
+
+  match status.success().then_some(()) {
+    Some(()) => Ok(()),
+    None => Err(Error::other(format!("Syncthing exited with {status}"))),
   }
 }
 
 fn list(arguments: &[&str]) -> Result<Vec<String>, Failure> {
-  let output = cli(arguments).stderr(Stdio::inherit()).output()?;
-  if !output.status.success() {
-    return Err(
-      format!(
+  let Ok(mut command) = cli(arguments);
+  let output = command.stderr(Stdio::inherit()).output()?;
+
+  match (!output.status.success()).then_some(()) {
+    Some(()) => {
+      return Err(Failure::from(format!(
         "Syncthing could not list {} ({})",
         arguments.join(" "),
         output.status
-      )
-      .into(),
-    );
+      )));
+    }
+    None => {}
   }
+
   let printed = String::from_utf8(output.stdout)?;
   Ok(printed.lines().map(str::to_owned).collect())
 }
 
 fn wait_for_syncthing() -> Result<(), Failure> {
-  for waited in 0..=60 {
-    let Ok(mut command) = Program::Syncthing.command();
-    let status = command
-      .args(["cli", "show", "system"])
-      .stdout(Stdio::null())
-      .stderr(Stdio::null())
-      .status()?;
-    if status.success() {
-      return Ok(());
-    }
-    if waited < 60 {
-      thread::sleep(Duration::from_secs(1));
-    }
-  }
-  Err("Syncthing did not become ready".into())
+  let Ok(mut clock) = LiveClock::started();
+  let Ok(schedule) = Schedule::asking_every(Duration::from_secs(60), Duration::from_secs(1));
+  let Ok(mut probe) = Program::Syncthing.command();
+  probe
+    .args(["cli", "show", "system"])
+    .stdout(Stdio::null())
+    .stderr(Stdio::null());
+  let ready = until_some_handed_on_result(&mut clock, schedule, &mut probe, |command| {
+    let status = command.status()?;
+
+    Ok::<_, io::Error>(status.success().then_some(()))
+  })?;
+
+  ready.ok_or_else(|| Failure::from("Syncthing did not become ready"))
 }
 
-fn offer_folder(shared: &Path, id: &str, label: &str, devices: &[String]) -> Result<(), Failure> {
-  let folder = shared.join(label);
+fn offer_folder(shared: &Path, choice: SharedFolder, devices: &[String]) -> Result<(), Failure> {
+  let (id, label, folder) = match choice {
+    SharedFolder::Documents => ("shared-documents", "Documents", shared.join("Documents")),
+    SharedFolder::Pictures => ("shared-pictures", "Pictures", shared.join("Pictures")),
+  };
   fs::create_dir_all(&folder)?;
-  if !list(&["folders", "list"])?
-    .iter()
-    .any(|existing| existing == id)
-  {
-    apply(cli(&["folders", "add", "--id", id, "--label", label, "--path"]).arg(&folder))?;
+  let folders = list(&["folders", "list"])?;
+
+  match folders.iter().find(|existing| existing.as_str() == id) {
+    Some(_) => {}
+    None => {
+      let Ok(mut add) = cli(&["folders", "add", "--id", id, "--label", label, "--path"]);
+      apply(add.arg(&folder))?;
+    }
   }
 
   let paired = list(&["folders", id, "devices", "list"])?;
-  let mut failures = 0;
+  let paired_devices: HashSet<_> = paired.into_iter().collect();
+  let mut failures = 0u32;
+
   for device in devices {
-    if !paired.contains(device) {
-      let changed = apply(&mut cli(&[
-        "folders",
-        id,
-        "devices",
-        "add",
-        "--device-id",
-        device,
-      ]));
-      if let Err(fault) = changed {
-        eprintln!("Could not offer {label} to {device}: {fault}");
-        failures += 1;
+    match paired_devices.get(device) {
+      Some(_) => {}
+      None => {
+        let Ok(mut share) = cli(&["folders", id, "devices", "add", "--device-id", device]);
+
+        match apply(&mut share) {
+          Err(fault) => {
+            eprintln!("Could not offer {label} to {device}: {fault}");
+            failures = failures.saturating_add(1);
+          }
+          Ok(()) => {}
+        }
       }
     }
   }
-  if failures > 0 {
-    return Err(format!("{failures} device(s) could not be offered {label}").into());
+
+  match failures {
+    0 => Ok(()),
+    _ => Err(Failure::from(format!(
+      "{failures} device(s) could not be offered {label}"
+    ))),
   }
-  Ok(())
 }
 
 fn run(shared: &Path) -> Result<(), Failure> {
@@ -99,41 +121,50 @@ fn run(shared: &Path) -> Result<(), Failure> {
   let devices = list(&["devices", "list"])?;
   let mut failed = false;
 
-  if let Err(fault) = apply(cli(&["defaults", "folder", "path", "set"]).arg(shared)) {
-    eprintln!("Could not set the default folder path: {fault}");
-    failed = true;
-  }
-  for device in &devices {
-    if let Err(fault) = apply(&mut cli(&[
-      "devices",
-      device,
-      "auto-accept-folders",
-      "set",
-      "true",
-    ])) {
-      eprintln!("Could not accept folders from {device}: {fault}");
+  let Ok(mut default_path) = cli(&["defaults", "folder", "path", "set"]);
+
+  match apply(default_path.arg(shared)) {
+    Err(fault) => {
+      eprintln!("Could not set the default folder path: {fault}");
       failed = true;
     }
+    Ok(()) => {}
   }
-  for (id, label) in [
-    ("shared-documents", "Documents"),
-    ("shared-pictures", "Pictures"),
-  ] {
-    if let Err(fault) = offer_folder(shared, id, label, &devices) {
-      eprintln!("Could not configure {label}: {fault}");
-      failed = true;
+
+  for device in &devices {
+    let Ok(mut accept) = cli(&["devices", device, "auto-accept-folders", "set", "true"]);
+
+    match apply(&mut accept) {
+      Err(fault) => {
+        eprintln!("Could not accept folders from {device}: {fault}");
+        failed = true;
+      }
+      Ok(()) => {}
     }
   }
 
-  if failed {
-    return Err("some shared-folder settings could not be applied".into());
+  for folder in [SharedFolder::Documents, SharedFolder::Pictures] {
+    match offer_folder(shared, folder, &devices) {
+      Err(fault) => {
+        eprintln!("Could not configure {folder:?}: {fault}");
+        failed = true;
+      }
+      Ok(()) => {}
+    }
   }
-  Ok(())
+
+  match failed.then_some(()) {
+    Some(()) => Err(Failure::from(
+      "some shared-folder settings could not be applied",
+    )),
+    None => Ok(()),
+  }
 }
 
 fn main() -> Result<(), Failure> {
-  let home = std::env::var_os("HOME")
-    .filter(|path| path != OsStr::new(""))
+  let Ok(configured) = console_core_places::home();
+  let home = configured
+    .filter(|path| !path.as_os_str().is_empty())
     .ok_or("HOME is required for the shared folders")?;
-  run(&PathBuf::from(home).join("Shared"))
+  run(&home.join("Shared"))
 }

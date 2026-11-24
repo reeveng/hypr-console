@@ -8,33 +8,41 @@ use super::{
 };
 use unicode_segmentation::{ClusterKind, UnicodeSegmentation};
 
+#[must_use]
 pub fn ceil_to_1_64_px(v: f64) -> f64 {
     if !(v.is_finite() && v >= 0.0) {
         return 0.0;
     }
-    // Avoid "ceil to next 1/64" due to tiny FP drift (e.g. `...0000000002` over the exact
-    // lattice). Upstream Mermaid fixtures frequently land exactly on the 1/64px grid.
+
+
+
     let x = v * 64.0;
     let r = x.round();
+
     if (x - r).abs() < 1e-4 {
         return r / 64.0;
     }
+
     ((x) - 1e-5).ceil() / 64.0
 }
 
+#[must_use]
 pub fn round_to_1_64_px(v: f64) -> f64 {
     if !(v.is_finite() && v >= 0.0) {
         return 0.0;
     }
+
     let x = v * 64.0;
     let r = (x + 0.5).floor();
     r / 64.0
 }
 
+#[must_use]
 pub fn round_to_1_64_px_ties_to_even(v: f64) -> f64 {
     if !(v.is_finite() && v >= 0.0) {
         return 0.0;
     }
+
     let x = v * 64.0;
     let f = x.floor();
     let frac = x - f;
@@ -44,10 +52,12 @@ pub fn round_to_1_64_px_ties_to_even(v: f64) -> f64 {
         f + 1.0
     } else {
         let fi = f as i64;
-        if fi % 2 == 0 { f } else { f + 1.0 }
+
+        if ::core::primitive::i64::wrapping_rem(fi, 2) == 0 { f } else { f + 1.0 }
     };
     let out = i / 64.0;
-    if out == -0.0 { 0.0 } else { out }
+
+    if ::core::matches!(::core::primitive::f64::classify(out), ::core::num::FpCategory::Zero) { 0.0 } else { out }
 }
 
 #[cfg(test)]
@@ -79,6 +89,7 @@ pub(super) fn visit_grapheme_lines_to_width<'a, E>(
     let mut stats = GraphemeSplitStats::default();
 
     let Ok(graphemes) = token.grapheme_indices(ClusterKind::Extended);
+
     for (index, grapheme) in graphemes.map(|(index, grapheme)| (index as usize, grapheme)) {
         #[cfg(test)]
         {
@@ -90,6 +101,7 @@ pub(super) fn visit_grapheme_lines_to_width<'a, E>(
             grapheme,
             index == line_start,
         )?;
+
         if has_positive_advance
             && candidate_width_px > width_px
             && candidate_width_px > max_width_px
@@ -99,6 +111,7 @@ pub(super) fn visit_grapheme_lines_to_width<'a, E>(
             {
                 stats.partitioned_bytes = stats.partitioned_bytes.saturating_add(completed.len());
             }
+
             if !emit_line(completed) {
                 return Ok(GraphemeLineVisit {
                     tail: &token[index..],
@@ -106,14 +119,17 @@ pub(super) fn visit_grapheme_lines_to_width<'a, E>(
                     stats,
                 });
             }
+
             line_start = index;
-            width_px = measure_candidate(grapheme, grapheme, true)?;
+            let checked_value = measure_candidate(grapheme, grapheme, true)?;
+            width_px = checked_value;
             has_positive_advance = width_px > 0.0;
         } else {
             width_px = candidate_width_px;
             has_positive_advance |= candidate_width_px > 0.0;
         }
     }
+
     let tail = &token[line_start..];
     #[cfg(test)]
     {
@@ -154,12 +170,14 @@ fn split_graphemes_to_width<E>(
 /// This mirrors Mermaid's `wrapLabel(...)` behavior at a high level (greedy word wrapping), but
 /// delegates width measurements to the active measurer so the operation-selected font backend and
 /// SVG measurement phase determine wrapping breakpoints.
+#[must_use]
 pub fn wrap_text_lines_measurer(
     text: &str,
     measurer: &dyn TextMeasurer,
     style: &TextStyle,
     max_width_px: Option<f64>,
 ) -> Vec<String> {
+    #[must_use]
     fn wrap_line(
         line: &str,
         measurer: &dyn TextMeasurer,
@@ -182,6 +200,7 @@ pub fn wrap_text_lines_measurer(
             }
 
             let candidate = format!("{cur}{tok}");
+
             if measurer
                 .measure(
                     trim_end_html_collapsible_ascii_whitespace(&candidate),
@@ -219,6 +238,7 @@ pub fn wrap_text_lines_measurer(
                 Ok(visit) => visit,
                 Err(error) => match error {},
             };
+
             if !visit.tail.is_empty() {
                 if measurer.measure(visit.tail, style).width > max_width_px {
                     out.push(visit.tail.to_string());
@@ -241,13 +261,18 @@ pub fn wrap_text_lines_measurer(
     }
 
     let mut out: Vec<String> = Vec::new();
+
     for line in split_html_br_lines(text) {
-        if let Some(w) = max_width_px {
-            out.extend(wrap_line(line, measurer, style, w));
-        } else {
-            out.push(line.to_string());
+        match max_width_px {
+            Some(w) => {
+                out.extend(wrap_line(line, measurer, style, w));
+            },
+            ::core::option::Option::None => {
+                out.push(line.to_string());
+            },
         }
     }
+
     if out.is_empty() {
         vec!["".to_string()]
     } else {
@@ -260,37 +285,47 @@ pub fn wrap_text_lines_measurer(
 /// Mirrors Mermaid's `lineBreakRegex = /<br\\s*\\/?>/gi` behavior:
 /// - allows ASCII whitespace between `br` and the optional `/` or `>`
 /// - does not accept extra characters (e.g. `<br \\t/>` with a literal backslash)
+#[must_use]
 pub fn split_html_br_lines(text: &str) -> Vec<&str> {
     let b = text.as_bytes();
     let mut parts: Vec<&str> = Vec::new();
     let mut start = 0usize;
     let mut i = 0usize;
+
     while i + 3 < b.len() {
         if b[i] != b'<' {
             i += 1;
             continue;
         }
+
         let b1 = b[i + 1];
         let b2 = b[i + 2];
+
         if !matches!(b1, b'b' | b'B') || !matches!(b2, b'r' | b'R') {
             i += 1;
             continue;
         }
+
         let mut j = i + 3;
+
         while j < b.len() && matches!(b[j], b' ' | b'\t' | b'\r' | b'\n') {
             j += 1;
         }
-        if j < b.len() && b[j] == b'/' {
+
+        if match <[_]>::get(&*b, j) { ::core::option::Option::Some(&checked_element) => checked_element == b'/', ::core::option::Option::None => false } {
             j += 1;
         }
-        if j < b.len() && b[j] == b'>' {
+
+        if match <[_]>::get(&*b, j) { ::core::option::Option::Some(&checked_element) => checked_element == b'>', ::core::option::Option::None => false } {
             parts.push(&text[start..i]);
             start = j + 1;
             i = start;
             continue;
         }
+
         i += 1;
     }
+
     parts.push(&text[start..]);
     parts
 }
@@ -303,31 +338,37 @@ fn try_wrap_label_like_mermaid_lines<E>(
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> std::result::Result<Vec<String>, E> {
     checkpoint()?;
+
     if label.is_empty() {
         return Ok(Vec::new());
     }
+
     if !max_width_px.is_finite() || max_width_px <= 0.0 {
         return Ok(vec![label.to_string()]);
     }
 
-    // Mermaid short-circuits wrapping if the label already contains `<br>` breaks.
+
     let explicit_lines = split_html_br_lines(label);
+
     if explicit_lines.len() > 1 {
         let mut lines = Vec::with_capacity(explicit_lines.len());
+
         for line in explicit_lines {
             checkpoint()?;
             lines.push(line.to_string());
         }
+
         checkpoint()?;
         return Ok(lines);
     }
+
     fn w_px<E>(
         measurer: &dyn TextMeasurer,
         style: &TextStyle,
         s: &str,
         checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
     ) -> std::result::Result<f64, E> {
-        // Upstream uses `calculateTextWidth(...)` which rounds the SVG bbox width.
+
         checkpoint()?;
         let width = measurer
             .measure_svg_simple_text_bbox_width_for_wrap_px(s, style)
@@ -346,37 +387,45 @@ fn try_wrap_label_like_mermaid_lines<E>(
         let chars: Vec<char> = word.chars().collect();
         let mut lines: Vec<String> = Vec::new();
         let mut current = String::new();
+
         for (idx, ch) in chars.iter().enumerate() {
             checkpoint()?;
             let next_line = format!("{current}{ch}");
             let line_w = w_px(measurer, style, &next_line, checkpoint)?;
+
             if line_w >= max_width_px {
                 let is_last = idx + 1 == chars.len();
+
                 if is_last {
                     lines.push(next_line);
                 } else {
                     lines.push(format!("{next_line}-"));
                 }
+
                 current.clear();
             } else {
                 current = next_line;
             }
         }
+
         Ok((lines, current))
     }
 
-    // Mermaid splits on ASCII spaces and drops empty chunks (collapsing multiple spaces).
+
     let words: Vec<&str> = label.split(' ').filter(|w| !w.is_empty()).collect();
+
     if words.is_empty() {
         return Ok(vec![label.to_string()]);
     }
 
     let mut completed: Vec<String> = Vec::new();
     let mut next_line = String::new();
+
     for (idx, word) in words.iter().enumerate() {
         checkpoint()?;
         let word_len = w_px(measurer, style, &format!("{word} "), checkpoint)?;
         let next_len = w_px(measurer, style, &next_line, checkpoint)?;
+
         if word_len > max_width_px {
             let (hyphenated, remaining) =
                 break_string_like_mermaid(word, max_width_px, measurer, style, checkpoint)?;
@@ -394,6 +443,7 @@ fn try_wrap_label_like_mermaid_lines<E>(
         }
 
         let is_last = idx + 1 == words.len();
+
         if is_last {
             completed.push(next_line.clone());
         }
@@ -407,6 +457,7 @@ fn try_wrap_label_like_mermaid_lines<E>(
 ///
 /// This is used by Sequence diagrams (Mermaid@11.x) when `wrap: true` is enabled and when actor
 /// descriptions are marked `wrap: true` by the DB layer.
+#[must_use]
 pub fn wrap_label_like_mermaid_lines(
     label: &str,
     measurer: &dyn TextMeasurer,
@@ -414,6 +465,7 @@ pub fn wrap_label_like_mermaid_lines(
     max_width_px: f64,
 ) -> Vec<String> {
     let mut checkpoint = || Ok::<(), std::convert::Infallible>(());
+
     match try_wrap_label_like_mermaid_lines(label, measurer, style, max_width_px, &mut checkpoint) {
         Ok(lines) => lines,
         Err(error) => match error {},

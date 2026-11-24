@@ -8,13 +8,13 @@ pub(super) fn canonical_class(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::class::parse_class_semantic_model_controlled(
+        { let checked_value = crate::diagrams::class::parse_class_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Class),
     )
 }
@@ -27,13 +27,13 @@ pub(super) fn canonical_git_graph(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::git_graph::parse_git_graph_semantic_model_controlled(
+        { let checked_value = crate::diagrams::git_graph::parse_git_graph_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::GitGraph),
     )
 }
@@ -46,13 +46,13 @@ pub(super) fn canonical_agentflow(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::agentflow::parse_agentflow_semantic_model_controlled(
+        { let checked_value = crate::diagrams::agentflow::parse_agentflow_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Agentflow),
     )
 }
@@ -65,13 +65,13 @@ pub(super) fn canonical_kanban(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::kanban::parse_kanban_semantic_model_controlled(
+        { let checked_value = crate::diagrams::kanban::parse_kanban_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Kanban),
     )
 }
@@ -84,13 +84,13 @@ pub(super) fn canonical_mindmap(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::mindmap::parse_mindmap_semantic_model_controlled(
+        { let checked_value = crate::diagrams::mindmap::parse_mindmap_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Mindmap),
     )
 }
@@ -103,13 +103,13 @@ pub(super) fn canonical_xychart(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::xychart::parse_xychart_semantic_model_controlled(
+        { let checked_value = crate::diagrams::xychart::parse_xychart_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::XyChart),
     )
 }
@@ -122,13 +122,13 @@ pub(super) fn canonical_block(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::block::parse_block_semantic_model_controlled(
+        { let checked_value = crate::diagrams::block::parse_block_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Block),
     )
 }
@@ -141,13 +141,13 @@ pub(super) fn canonical_ishikawa(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::ishikawa::parse_ishikawa_semantic_model_controlled(
+        { let checked_value = crate::diagrams::ishikawa::parse_ishikawa_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Ishikawa),
     )
 }
@@ -160,13 +160,13 @@ pub(super) fn canonical_treemap(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::treemap::parse_treemap_semantic_model_controlled(
+        { let checked_value = crate::diagrams::treemap::parse_treemap_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Treemap),
     )
 }
@@ -178,13 +178,13 @@ pub(super) fn canonical_c4(
     #[cfg(feature = "editor-facts")] editor_demand: super::EditorFactsDemand,
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
-    Ok(crate::diagrams::c4::parse_c4_semantic_model_controlled(
+    Ok({ let checked_value = crate::diagrams::c4::parse_c4_semantic_model_controlled(
         code,
         metadata,
         #[cfg(feature = "editor-facts")]
         editor_demand,
         control,
-    )?
+    )?; checked_value }
     .map_model(crate::SemanticDiagramModel::C4))
 }
 
@@ -196,13 +196,13 @@ pub(super) fn canonical_tree_view(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::tree_view::parse_tree_view_semantic_model_controlled(
+        { let checked_value = crate::diagrams::tree_view::parse_tree_view_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::TreeView),
     )
 }
@@ -215,13 +215,13 @@ pub(super) fn canonical_packet(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::packet::parse_packet_semantic_model_controlled(
+        { let checked_value = crate::diagrams::packet::parse_packet_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Packet),
     )
 }
@@ -233,13 +233,13 @@ pub(super) fn canonical_flowchart(
     #[cfg(feature = "editor-facts")] editor_demand: super::EditorFactsDemand,
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
-    Ok(crate::diagrams::flowchart::parse_semantic_model_controlled(
+    Ok({ let checked_value = crate::diagrams::flowchart::parse_semantic_model_controlled(
         code,
         metadata,
         #[cfg(feature = "editor-facts")]
         editor_demand,
         control,
-    )?
+    )?; checked_value }
     .map_model(crate::SemanticDiagramModel::Flowchart))
 }
 
@@ -251,13 +251,13 @@ pub(super) fn canonical_sequence(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::sequence::parse_sequence_semantic_model_controlled(
+        { let checked_value = crate::diagrams::sequence::parse_sequence_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Sequence),
     )
 }
@@ -270,13 +270,13 @@ pub(super) fn canonical_cynefin(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::cynefin::parse_cynefin_semantic_model_controlled(
+        { let checked_value = crate::diagrams::cynefin::parse_cynefin_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Cynefin),
     )
 }
@@ -384,13 +384,13 @@ pub(super) fn canonical_quadrant_chart(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::quadrant_chart::parse_quadrant_chart_semantic_model_controlled(
+        { let checked_value = crate::diagrams::quadrant_chart::parse_quadrant_chart_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::QuadrantChart),
     )
 }
@@ -403,13 +403,13 @@ pub(super) fn canonical_radar(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::radar::parse_radar_semantic_model_controlled(
+        { let checked_value = crate::diagrams::radar::parse_radar_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Radar),
     )
 }
@@ -422,13 +422,13 @@ pub(super) fn canonical_sankey(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::sankey::parse_sankey_semantic_model_controlled(
+        { let checked_value = crate::diagrams::sankey::parse_sankey_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Sankey),
     )
 }
@@ -440,13 +440,13 @@ pub(super) fn canonical_venn(
     #[cfg(feature = "editor-facts")] editor_demand: super::EditorFactsDemand,
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
-    Ok(crate::diagrams::venn::parse_venn_semantic_model_controlled(
+    Ok({ let checked_value = crate::diagrams::venn::parse_venn_semantic_model_controlled(
         code,
         metadata,
         #[cfg(feature = "editor-facts")]
         editor_demand,
         control,
-    )?
+    )?; checked_value }
     .map_model(crate::SemanticDiagramModel::Venn))
 }
 
@@ -458,13 +458,13 @@ pub(super) fn canonical_requirement(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::requirement::parse_requirement_semantic_model_controlled(
+        { let checked_value = crate::diagrams::requirement::parse_requirement_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Requirement),
     )
 }
@@ -477,13 +477,13 @@ pub(super) fn canonical_usecase(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::usecase::parse_usecase_semantic_model_controlled(
+        { let checked_value = crate::diagrams::usecase::parse_usecase_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Usecase),
     )
 }
@@ -496,13 +496,13 @@ pub(super) fn canonical_eventmodeling(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::eventmodeling::parse_eventmodeling_semantic_model_controlled(
+        { let checked_value = crate::diagrams::eventmodeling::parse_eventmodeling_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::EventModeling),
     )
 }
@@ -515,13 +515,13 @@ pub(super) fn canonical_wardley(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::wardley::parse_wardley_semantic_model_controlled(
+        { let checked_value = crate::diagrams::wardley::parse_wardley_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Wardley),
     )
 }
@@ -534,13 +534,13 @@ pub(super) fn canonical_railroad(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::railroad::parse_railroad_semantic_model_controlled(
+        { let checked_value = crate::diagrams::railroad::parse_railroad_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Railroad),
     )
 }
@@ -553,13 +553,13 @@ pub(super) fn canonical_railroad_ebnf(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::railroad::parse_railroad_ebnf_semantic_model_controlled(
+        { let checked_value = crate::diagrams::railroad::parse_railroad_ebnf_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Railroad),
     )
 }
@@ -572,13 +572,13 @@ pub(super) fn canonical_railroad_abnf(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::railroad::parse_railroad_abnf_semantic_model_controlled(
+        { let checked_value = crate::diagrams::railroad::parse_railroad_abnf_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Railroad),
     )
 }
@@ -591,13 +591,13 @@ pub(super) fn canonical_railroad_peg(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::railroad::parse_railroad_peg_semantic_model_controlled(
+        { let checked_value = crate::diagrams::railroad::parse_railroad_peg_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Railroad),
     )
 }
@@ -610,13 +610,13 @@ pub(super) fn canonical_zenuml(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::zenuml::parse_zenuml_semantic_model_controlled(
+        { let checked_value = crate::diagrams::zenuml::parse_zenuml_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Zenuml),
     )
 }
@@ -628,13 +628,13 @@ pub(super) fn canonical_er(
     #[cfg(feature = "editor-facts")] editor_demand: super::EditorFactsDemand,
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
-    Ok(crate::diagrams::er::parse_er_semantic_model_controlled(
+    Ok({ let checked_value = crate::diagrams::er::parse_er_semantic_model_controlled(
         code,
         metadata,
         #[cfg(feature = "editor-facts")]
         editor_demand,
         control,
-    )?
+    )?; checked_value }
     .map_model(crate::SemanticDiagramModel::Er))
 }
 
@@ -646,13 +646,13 @@ pub(super) fn canonical_architecture(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::architecture::parse_architecture_semantic_model_controlled(
+        { let checked_value = crate::diagrams::architecture::parse_architecture_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Architecture),
     )
 }
@@ -665,13 +665,13 @@ pub(super) fn canonical_gantt(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<super::SemanticConstruction<crate::SemanticDiagramModel>> {
     Ok(
-        crate::diagrams::gantt::parse_gantt_semantic_model_controlled(
+        { let checked_value = crate::diagrams::gantt::parse_gantt_semantic_model_controlled(
             code,
             metadata,
             #[cfg(feature = "editor-facts")]
             editor_demand,
             control,
-        )?
+        )?; checked_value }
         .map_model(crate::SemanticDiagramModel::Gantt),
     )
 }

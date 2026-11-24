@@ -509,16 +509,11 @@ impl<'b> Iterator for LayoutRunIter<'b> {
         let centering_offset = (line_height - glyph_height) / 2.0;
         let line_y = line_top + centering_offset + layout_line.max_ascent;
 
-        match self.height_opt {
-          Some(height) => {
-            match ::core::primitive::bool::then_some(line_y - layout_line.max_ascent > height, ())
-            {
-              ::core::option::Option::Some(()) => {
-                return None;
-              }
-              ::core::option::Option::None => {}
-            }
-          }
+        match self
+          .height_opt
+          .filter(|height| line_y - layout_line.max_ascent > *height)
+        {
+          Some(_) => return None,
           None => {}
         }
 

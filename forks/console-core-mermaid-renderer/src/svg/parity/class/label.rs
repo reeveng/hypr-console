@@ -1,6 +1,7 @@
 use super::super::*;
 pub(super) use crate::class::node_binding::{class_node_label_style, class_node_paint_style};
 
+#[must_use]
 pub(super) fn class_math_html_label(
     text: &str,
     mermaid_config: Option<&merman_model::presentation::PresentationConfig>,
@@ -9,9 +10,17 @@ pub(super) fn class_math_html_label(
     if !crate::math::contains_delimited_math(text) {
         return None;
     }
-    let (Some(config), Some(renderer)) = (mermaid_config, math_renderer) else {
-        return None;
+
+    let (config, renderer) = {
+        let outcome_config = (mermaid_config, math_renderer);
+
+        match outcome_config {
+            (Some(matched_config), Some(matched_renderer)) => (matched_config, matched_renderer),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return None,
+        }
     };
+
     crate::math::render_math_html_label(text, config, Some(renderer))
         .map(crate::math::mark_math_html_native_unavailable)
 }
@@ -33,6 +42,7 @@ pub(super) fn render_class_html_label<'a>(
 ) -> Option<&'a str> {
     out.push_str(r#"<span class=""#);
     escape_xml_into(out, spec.span_class);
+
     if let Some(extra) = spec
         .extra_span_class
         .map(str::trim)
@@ -41,6 +51,7 @@ pub(super) fn render_class_html_label<'a>(
         out.push(' ');
         escape_xml_into(out, extra);
     }
+
     let span_style = spec.span_style.map(str::trim).unwrap_or("");
     out.push('"');
     let emitted_style = super::super::util::write_style_attribute(
@@ -60,6 +71,7 @@ pub(super) fn render_class_html_label<'a>(
                     }),
             )
         });
+
     if spec.include_p {
         out.push_str(&html);
     } else {
@@ -69,6 +81,7 @@ pub(super) fn render_class_html_label<'a>(
             .unwrap_or(html.as_ref());
         out.push_str(inner);
     }
+
     out.push_str("</span>");
     emitted_style
 }
@@ -137,8 +150,8 @@ pub(super) fn write_class_svg_edge_text_with_style<'a>(
     style: Option<&'a str>,
 ) -> Option<&'a str> {
     match style {
-        Some(style) => {
-            crate::svg::parity::label::write_svg_text_centered_with_style(out, text, style)
+        Some(style_2) => {
+            crate::svg::parity::label::write_svg_text_centered_with_style(out, text, style_2)
         }
         None => {
             write_class_svg_edge_text(out, text, false);
@@ -187,32 +200,37 @@ pub(super) fn open_class_note_label<'a>(
     emitted_style
 }
 
+#[must_use]
 pub(super) fn class_html_div_style(width: f64, max_width_px: i64) -> String {
-    let max_width_px = max_width_px.max(0);
-    if width >= max_width_px as f64 - 0.01 {
+    let max_width_px_2 = max_width_px.max(0);
+
+    if width >= max_width_px_2 as f64 - 0.01 {
         format!(
             "display: table; white-space: break-spaces; line-height: 1.5; max-width: {max_width_px}px; text-align: center; width: {max_width_px}px;"
-        )
+        , max_width_px = max_width_px_2)
     } else {
         format!(
             "display: table-cell; white-space: nowrap; line-height: 1.5; max-width: {max_width_px}px; text-align: center;"
-        )
+        , max_width_px = max_width_px_2)
     }
 }
 
+#[must_use]
 pub(super) fn class_note_html_div_style(width: f64, max_width_px: i64) -> String {
-    let max_width_px = max_width_px.max(0);
-    if width >= max_width_px as f64 - 0.01 {
+    let max_width_px_2 = max_width_px.max(0);
+
+    if width >= max_width_px_2 as f64 - 0.01 {
         format!(
             "text-align: center; white-space: break-spaces; display: table; line-height: 1.5; max-width: {max_width_px}px; width: {max_width_px}px;"
-        )
+        , max_width_px = max_width_px_2)
     } else {
         format!(
             "text-align: center; white-space: nowrap; display: table-cell; line-height: 1.5; max-width: {max_width_px}px;"
-        )
+        , max_width_px = max_width_px_2)
     }
 }
 
+#[must_use]
 pub(super) fn class_html_label_metrics(
     measurer: &dyn TextMeasurer,
     style: &TextStyle,
@@ -223,6 +241,7 @@ pub(super) fn class_html_label_metrics(
     crate::class::class_html_measure_label_metrics(measurer, style, text, max_width_px, css_style)
 }
 
+#[must_use]
 pub(super) fn class_html_title_metrics(
     measurer: &dyn TextMeasurer,
     style: &TextStyle,
@@ -230,10 +249,11 @@ pub(super) fn class_html_title_metrics(
     max_width_px: i64,
     span_style: &str,
 ) -> crate::text::TextMetrics {
-    let style = crate::class::class_html_node_text_style(style, "font-weight:bolder", span_style);
-    crate::class::class_html_measure_label_metrics(measurer, &style, text, max_width_px, "")
+    let style_2 = crate::class::class_html_node_text_style(style, "font-weight:bolder", span_style);
+    crate::class::class_html_measure_label_metrics(measurer, &style_2, text, max_width_px, "")
 }
 
+#[must_use]
 pub(super) fn class_svg_label_rect(
     metrics: &crate::text::TextMetrics,
     y_offset: f64,
@@ -241,16 +261,20 @@ pub(super) fn class_svg_label_rect(
     if !(metrics.width.is_finite() && metrics.height.is_finite()) {
         return None;
     }
+
     let w = metrics.width.max(0.0);
     let h = metrics.height.max(0.0);
+
     if w <= 0.0 || h <= 0.0 {
         return None;
     }
+
     let lines = metrics.line_count.max(1) as f64;
     let y = y_offset - (h / (2.0 * lines));
     Some(super::Rect::from_min_max(0.0, y, w, y + h))
 }
 
+#[must_use]
 pub(super) fn wrap_class_svg_text_like_mermaid(
     text: &str,
     measurer: &dyn TextMeasurer,
@@ -259,58 +283,68 @@ pub(super) fn wrap_class_svg_text_like_mermaid(
     wrap_probe_font_size: f64,
     bold: bool,
 ) -> String {
-    let Some(wrap_width_px) =
-        mermaid_class_svg_create_text_width_px(measurer, text, probe_style, wrap_probe_font_size)
-    else {
-        return text.to_string();
+    let wrap_width_px = {
+        let optional_wrap_width_px = mermaid_class_svg_create_text_width_px(measurer, text, probe_style, wrap_probe_font_size);
+
+        match optional_wrap_width_px {
+            Some(matched_wrap_width_px) => matched_wrap_width_px,
+            ::core::option::Option::None => return text.to_string(),
+        }
     };
 
     let mut lines: Vec<String> = Vec::new();
+
     for line in crate::text::DeterministicTextMeasurer::normalized_text_lines(text) {
         let mut tokens = std::collections::VecDeque::from(
             crate::text::DeterministicTextMeasurer::split_line_to_words(&line),
         );
         let mut cur = String::new();
 
-        while let Some(tok) = tokens.pop_front() {
+        'inner_while_2: while let Some(tok) = tokens.pop_front() {
             if cur.is_empty() && tok == " " {
-                continue;
+                continue 'inner_while_2;
             }
 
             let candidate = format!("{cur}{tok}");
             let candidate_w =
                 class_svg_text_computed_length_px(measurer, candidate.trim_end(), style, bold);
+
             if candidate_w <= wrap_width_px {
                 cur = candidate;
-                continue;
+                continue 'inner_while_2;
             }
 
             if !cur.trim().is_empty() {
                 lines.push(cur.trim_end().to_string());
                 cur.clear();
                 tokens.push_front(tok);
-                continue;
+                continue 'inner_while_2;
             }
 
             if tok == " " {
-                continue;
+                continue 'inner_while_2;
             }
 
             let chars = tok.chars().collect::<Vec<_>>();
             let mut cut = 1usize;
-            while cut < chars.len() {
+
+            'inner_for_3: for _ in (::core::ops::Range { start: cut, end: chars.len() }) {
                 let head: String = chars[..cut].iter().collect();
                 let head_w =
                     class_svg_text_computed_length_px(measurer, head.as_str(), style, bold);
+
                 if head_w > wrap_width_px {
-                    break;
+                    break 'inner_for_3;
                 }
-                cut += 1;
+
+                cut = (::core::num::Wrapping(cut) + ::core::num::Wrapping(1)).0;
             }
+
             cut = cut.saturating_sub(1).max(1);
             let head: String = chars[..cut].iter().collect();
             let tail: String = chars[cut..].iter().collect();
             lines.push(head);
+
             if !tail.is_empty() {
                 tokens.push_front(tail);
             }
@@ -328,6 +362,7 @@ pub(super) fn wrap_class_svg_text_like_mermaid(
     }
 }
 
+#[must_use]
 fn mermaid_class_svg_create_text_width_px(
     measurer: &dyn TextMeasurer,
     text: &str,
@@ -343,12 +378,13 @@ fn mermaid_class_svg_create_text_width_px(
         font_weight: None,
         font_style: None,
     };
-    // Reuse the same body-attached calculateTextDimensions operation as Class layout.
-    // Combining a generic bbox width and wrapped-text height bypasses host probe semantics.
+
+
     let width = crate::class::class_html_create_text_width_px(text, measurer, &wrap_probe_style);
     (width > 0).then_some(width as f64)
 }
 
+#[must_use]
 fn class_svg_text_computed_length_px(
     measurer: &dyn TextMeasurer,
     text: &str,
@@ -419,8 +455,8 @@ mod tests {
             &render_style,
             10.0,
         );
-        // Mermaid keeps the configured font when sans-serif is wider but not taller.
-        // Its rounded width (80) then receives shapeUtil's 50px wrapping allowance.
+
+
         assert_eq!(width, Some(130.0));
     }
 
@@ -492,7 +528,7 @@ mod paint_emission_tests {
 
     #[test]
     fn styled_class_markdown_preserves_unstyled_dom_bytes() {
-        // These byte oracles retain the pre-consolidation Class writer's empty and multiline DOM.
+
         for (markdown, expected) in [
             (
                 "",
@@ -558,7 +594,7 @@ mod paint_emission_tests {
         let mut prefix = String::new();
         let emitted = open_class_cardinality_label(&mut prefix, Some(style));
         assert_eq!(emitted, Some(style));
-        // Fail before the attribute, inside its value, and before its closing quote.
+
         for budget in [1, r#"<span class="edgeLabel""#.len() + 10, prefix.len() - 2] {
             let policy = RenderResourcePolicy::unbounded_for_trusted_input()
                 .with_limit(ResourceLimitId::MaxSvgBytes, budget)

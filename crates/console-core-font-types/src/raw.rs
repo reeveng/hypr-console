@@ -112,23 +112,16 @@ mod sealed {
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+  feature = "bytemuck",
+  derive(bytemuck::Zeroable),
+  zeroable(bound = "T: Scalar + Copy")
+)]
 #[repr(transparent)]
 pub struct BigEndian<T: Scalar>(T::Raw);
 
-// SAFETY: `BigEndian<T>` is `repr(transparent)` over `T::Raw`, and `BeByteArray` is sealed to
-// byte arrays, for which every byte pattern is a value and all zeroes is one of them.
-#[cfg(feature = "bytemuck")]
-#[cfg_attr(
-  dylint_lib = "explicit058_contain_unsafe",
-  expect(
-    explicit058_contain_unsafe,
-    reason = "the transparent wrapper has exactly the layout of its guaranteed Zeroable raw storage"
-  )
-)]
-unsafe impl<T> bytemuck::Zeroable for BigEndian<T> where T: Scalar + Copy {}
-
-// SAFETY: as above -- the one field is a byte array, which holds no padding, no pointer and no
-// invalid pattern, so any bytes at all read as a `BigEndian<T>`.
+// SAFETY: the transparent wrapper has one byte-array field, which has no padding, no pointers,
+// and no invalid bit patterns.
 #[cfg(feature = "bytemuck")]
 #[cfg_attr(
   dylint_lib = "explicit058_contain_unsafe",

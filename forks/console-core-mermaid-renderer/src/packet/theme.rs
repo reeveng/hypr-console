@@ -45,6 +45,7 @@ struct PacketRuleObservation {
 }
 
 impl PacketRuleObservation {
+    #[must_use]
     const fn new(selector: FamilyThemeSelectorShape) -> Self {
         Self {
             selector,
@@ -83,13 +84,16 @@ pub(crate) struct PacketThemeOutcome {
 }
 
 impl PacketThemeOutcome {
+    #[must_use]
     pub(crate) fn compatibility_consumptions(
         &self,
         parse_evidence: &ThemeCompatibilityEvidence,
     ) -> Box<[ThemeCompatibilityFieldConsumption]> {
-        let Some((disposition, canonical_dark_mode)) = self.compatibility else {
-            return Box::new([]);
+        let (disposition, canonical_dark_mode) = match self.compatibility {
+            Some((matched_disposition, matched_canonical_dark_mode)) => (matched_disposition, matched_canonical_dark_mode),
+            ::core::option::Option::None => return Box::new([]),
         };
+
         packet_text_surface_compatibility_consumptions(
             parse_evidence,
             disposition,
@@ -106,7 +110,8 @@ impl PacketTypographyThemePlan {
     ) -> Result<Self, OperationWorkError> {
         let mut css_binding =
             super::PacketConfigView::new(effective_config.as_value()).style_settings();
-        let Some(theme) = theme.filter(|theme| !theme.family_mechanism_routes().is_empty()) else {
+
+        let Some(theme_3) = theme.filter(|theme_2| !theme_2.family_mechanism_routes().is_empty()) else {
             return Ok(Self {
                 css_binding,
                 font_family_css: crate::config::config_font_family_css(effective_config.as_value())
@@ -114,45 +119,46 @@ impl PacketTypographyThemePlan {
                 selection: None,
             });
         };
+
         let text_color_ownership = PacketTextColorOwnership::from_config(effective_config);
-        let blocks = blocks::PacketBlockThemePlan::resolve(theme, effective_config, work_meter)?;
+        let blocks = blocks::PacketBlockThemePlan::resolve(theme_3, effective_config, work_meter)?;
         blocks.apply_css(&mut css_binding);
 
         let config_owns_font_stack = packet_config_owns_font_stack(effective_config);
         let mut typed_font_stack = false;
         let mut unsupported_properties = BTreeSet::new();
-        let byte_label_style = theme.style_with_work_meter(
+        let byte_label_style = theme_3.style_with_work_meter(
             ThemeTarget::PacketByteLabel,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
-        let field_label_style = theme.text_style_with_work_meter(
+        let field_label_style = theme_3.text_style_with_work_meter(
             ThemeTarget::PacketFieldLabel,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
-        let title_style = theme.style_with_work_meter(
+        let title_style = theme_3.style_with_work_meter(
             ThemeTarget::Title,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
         let byte_label_fill =
-            packet_direct_static_fill(theme, &byte_label_style, &[ThemeTarget::PacketByteLabel]);
+            packet_direct_static_fill(theme_3, &byte_label_style, &[ThemeTarget::PacketByteLabel]);
         let field_label_fill = packet_direct_static_fill(
-            theme,
+            theme_3,
             &field_label_style,
             &[ThemeTarget::Text, ThemeTarget::PacketFieldLabel],
         );
-        let title_fill = packet_direct_static_fill(theme, &title_style, &[ThemeTarget::Title]);
+        let title_fill = packet_direct_static_fill(theme_3, &title_style, &[ThemeTarget::Title]);
         let text_winners =
-            PacketTextWinners::new(theme, &byte_label_style, &field_label_style, &title_style);
+            PacketTextWinners::new(theme_3, &byte_label_style, &field_label_style, &title_style);
         let mut rule_observations = BTreeMap::new();
         let mut unsupported_routes = Vec::new();
 
-        for route in theme.family_mechanism_routes().iter().copied() {
+        for route in theme_3.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontStack)
                     if route.disposition() == FamilyThemeDisposition::TypedAdapter =>
@@ -174,11 +180,13 @@ impl PacketTypographyThemePlan {
                     if target == ThemeTarget::Node {
                         continue;
                     }
-                    let key = theme.family_mechanism_key(route);
+
+                    let key = theme_3.family_mechanism_key(route);
                     let observation = rule_observations
                         .entry(key)
                         .or_insert_with(|| PacketRuleObservation::new(selector));
                     let property = resolved_style_property_for_facet(facet);
+
                     match (route.disposition(), selector, facet) {
                         (
                             FamilyThemeDisposition::TypedAdapter,
@@ -196,11 +204,11 @@ impl PacketTypographyThemePlan {
                             .filter(|fill| fill.rule_index() == rule_index)
                             .map(DirectStaticPaint::capability);
                         }
-                        (FamilyThemeDisposition::Unsupported, _, facet) => {
+                        (FamilyThemeDisposition::Unsupported, _, facet_2) => {
                             observation
                                 .unsupported
                                 .entry(property)
-                                .or_insert_with(|| unsupported_residual_for_facet(facet));
+                                .or_insert_with(|| unsupported_residual_for_facet(facet_2));
                         }
                         (FamilyThemeDisposition::TypedAdapter, _, _) => {
                             observation.incomplete.insert(property);
@@ -211,9 +219,10 @@ impl PacketTypographyThemePlan {
                     if target == ThemeTarget::Node {
                         continue;
                     }
+
                     debug_assert_eq!(route.disposition(), FamilyThemeDisposition::Unsupported);
                     unsupported_routes.push(PacketUnsupportedRoute {
-                        key: theme.family_mechanism_key(route),
+                        key: theme_3.family_mechanism_key(route),
                         target,
                         reason: FamilyThemeResidualReason::UnsupportedOrdinalPalette,
                     });
@@ -222,9 +231,10 @@ impl PacketTypographyThemePlan {
                     if target == ThemeTarget::Node {
                         continue;
                     }
+
                     debug_assert_eq!(route.disposition(), FamilyThemeDisposition::Unsupported);
                     unsupported_routes.push(PacketUnsupportedRoute {
-                        key: theme.family_mechanism_key(route),
+                        key: theme_3.family_mechanism_key(route),
                         target,
                         reason: FamilyThemeResidualReason::UnsupportedEffect,
                     });
@@ -233,7 +243,7 @@ impl PacketTypographyThemePlan {
         }
 
         let font_family_css = if typed_font_stack && !config_owns_font_stack {
-            theme.typography().font_stack().as_css()
+            theme_3.typography().font_stack().as_css()
         } else {
             crate::config::config_font_family_css(effective_config.as_value())
         };
@@ -284,14 +294,17 @@ impl PacketTypographyThemePlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         &self.font_family_css
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &super::config::PacketStyleSettings {
         &self.css_binding
     }
 
+    #[must_use]
     pub(crate) fn begin_text_output(&self) -> Option<PacketTextOutput<'_>> {
         self.selection
             .as_ref()
@@ -304,19 +317,25 @@ impl PacketTypographyThemePlan {
         count: usize,
         work: &OperationWorkMeter,
     ) -> Result<(), OperationWorkError> {
-        if let Some(selection) = &self.selection {
-            output
-                .evidence
-                .merge_accounted_from(selection.blocks.finish(count, work)?);
+        match &self.selection {
+            Some(selection) => {
+                output
+                    .evidence
+                    .merge_accounted_from({ let checked_value = selection.blocks.finish(count, work)?; checked_value });
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(())
     }
 }
 
 impl PacketThemeSelection {
+    #[must_use]
     fn finish(&self, output: &PacketTextOutput<'_>) -> PacketThemeOutcome {
         let mut evidence = FamilyThemeOutcomes::default();
         let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
         if output.has_visible_text() {
             match self.typography {
                 PacketTypographyOutcome::TypedFontStack => {
@@ -328,14 +347,17 @@ impl PacketThemeSelection {
         } else {
             evidence.mark_not_applicable(key);
         }
+
         for property in &self.unsupported_properties {
-            let key = FamilyThemeMechanismKey::Typography(*property);
+            let key_2 = FamilyThemeMechanismKey::Typography(*property);
+
             if output.has_visible_text() {
-                evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
+                evidence.mark_residual(key_2, FamilyThemeResidualReason::UnsupportedTypography);
             } else {
-                evidence.mark_not_applicable(key);
+                evidence.mark_not_applicable(key_2);
             }
         }
+
         for route in &self.unsupported_routes {
             if output.occurrence_count(route.target) != 0 {
                 evidence.mark_residual(route.key.clone(), route.reason);
@@ -343,6 +365,7 @@ impl PacketThemeSelection {
                 evidence.mark_not_applicable(route.key.clone());
             }
         }
+
         for (key, observation) in &self.rule_observations {
             let FamilyThemeMechanismKey::Rule {
                 index: rule_index,
@@ -351,6 +374,7 @@ impl PacketThemeSelection {
             else {
                 unreachable!("Packet rule observations must use rule mechanism keys");
             };
+
             if !selector_intersects_default_occurrences(
                 observation.selector,
                 output.occurrence_count(target),
@@ -358,16 +382,20 @@ impl PacketThemeSelection {
                 evidence.mark_not_applicable(key.clone());
                 continue;
             }
-            if let Some(reason) = observation
+
+            match observation
                 .unsupported
                 .iter()
                 .find_map(|(property, reason)| {
                     output.route_won(rule_index, *property).then_some(*reason)
-                })
-            {
-                evidence.mark_residual(key.clone(), reason);
-                continue;
+                }) {
+                Some(reason) => {
+                    evidence.mark_residual(key.clone(), reason);
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
+
             if observation
                 .incomplete
                 .iter()
@@ -375,6 +403,7 @@ impl PacketThemeSelection {
             {
                 continue;
             }
+
             match observation.pending_fill {
                 Some(capability)
                     if output.route_won(rule_index, ResolvedStyleProperty::Fill)
@@ -382,9 +411,10 @@ impl PacketThemeSelection {
                 {
                     evidence.mark_applied_with_capabilities(key.clone(), [capability]);
                 }
-                _ => evidence.mark_not_applicable(key.clone()),
+                ::core::option::Option::None | ::core::option::Option::Some(_) => evidence.mark_not_applicable(key.clone()),
             }
         }
+
         let compatibility = self.compatibility_surface_candidate.then(|| {
             let disposition = if output.has_visible_text() {
                 ThemeCompatibilityConsumptionDisposition::ReplacedByTypedSurface
@@ -402,17 +432,21 @@ impl PacketThemeSelection {
 
 /// Returns provisional path coverage used only to preserve pre-SVG compatibility error order.
 /// Final reports replace this deferral with actual writer outcomes.
+#[must_use]
 pub(crate) fn deferred_mermaid_compatibility_consumptions(
     theme: Option<&ResolvedDiagramTheme>,
     effective_config: &PresentationConfig,
     parse_evidence: &ThemeCompatibilityEvidence,
 ) -> Box<[ThemeCompatibilityFieldConsumption]> {
-    let Some(theme) = theme else {
-        return Box::new([]);
+    let theme_2 = match theme {
+        Some(matched_theme) => matched_theme,
+        ::core::option::Option::None => return Box::new([]),
     };
-    if !has_complete_direct_text_surface_plan(theme) {
+
+    if !has_complete_direct_text_surface_plan(theme_2) {
         return Box::new([]);
     }
+
     packet_text_surface_compatibility_consumptions(
         parse_evidence,
         ThemeCompatibilityConsumptionDisposition::ReplacedByTypedSurface,
@@ -420,6 +454,7 @@ pub(crate) fn deferred_mermaid_compatibility_consumptions(
     )
 }
 
+#[must_use]
 fn has_complete_direct_text_surface_plan(theme: &ResolvedDiagramTheme) -> bool {
     let byte_label_style = theme.style(ThemeTarget::PacketByteLabel, ThemeVariant::Default, None);
     let field_label_style = theme.style(ThemeTarget::PacketFieldLabel, ThemeVariant::Default, None);
@@ -437,6 +472,7 @@ fn has_complete_direct_text_surface_plan(theme: &ResolvedDiagramTheme) -> bool {
         })
 }
 
+#[must_use]
 fn packet_text_surface_compatibility_consumptions(
     parse_evidence: &ThemeCompatibilityEvidence,
     disposition: ThemeCompatibilityConsumptionDisposition,
@@ -453,6 +489,7 @@ fn packet_text_surface_compatibility_consumptions(
         .into_boxed_slice()
 }
 
+#[must_use]
 fn packet_dark_mode_is_canonical(config: &PresentationConfig) -> bool {
     match (
         config.get_bool("darkMode"),
@@ -464,6 +501,7 @@ fn packet_dark_mode_is_canonical(config: &PresentationConfig) -> bool {
     }
 }
 
+#[must_use]
 fn selected_fill_for_target<'a>(
     target: ThemeTarget,
     byte_label_fill: &'a Option<DirectStaticPaint>,
@@ -478,6 +516,7 @@ fn selected_fill_for_target<'a>(
     }
 }
 
+#[must_use]
 fn packet_direct_static_fill(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
@@ -491,14 +530,17 @@ fn packet_direct_static_fill(
     )
 }
 
+#[must_use]
 const fn selector_intersects_default_variant(selector: FamilyThemeSelectorShape) -> bool {
     let variant = match selector {
         FamilyThemeSelectorShape::Static { variant }
         | FamilyThemeSelectorShape::Ordinal { variant, .. } => variant,
     };
+
     matches!(variant, None | Some(ThemeVariant::Default))
 }
 
+#[must_use]
 const fn selector_intersects_default_occurrences(
     selector: FamilyThemeSelectorShape,
     occurrence_count: usize,
@@ -507,11 +549,13 @@ const fn selector_intersects_default_occurrences(
         && selector.ordinal_domain_intersects_occurrence_count(occurrence_count)
 }
 
+#[must_use]
 fn packet_config_owns_font_stack(config: &PresentationConfig) -> bool {
     config.config_path_overrides_typed_default("themeVariables.fontFamily")
         || config.config_path_overrides_typed_default("fontFamily")
 }
 
+#[must_use]
 fn packet_config_path_owns(config: &PresentationConfig, path: &str) -> bool {
     config.config_path_overrides_typed_default(path)
 }

@@ -3,16 +3,19 @@
 use super::node_inventory::FlowchartNodeInventoryInput;
 use super::*;
 
+#[must_use]
 pub(super) fn flowchart_node_dom_indices<'a>(
     model: &'a crate::flowchart::FlowchartModel,
 ) -> FixedMap<&'a str, usize> {
     if !model.vertex_calls.is_empty() {
         let mut out: FixedMap<&'a str, usize> = FixedMap::default();
         out.reserve(model.vertex_calls.len());
+
         for (vertex_counter, id) in model.vertex_calls.iter().enumerate() {
-            let id: &'a str = id.as_str();
-            let _ = out.entry(id).or_insert(vertex_counter);
+            let id_2: &'a str = id.as_str();
+            let _ = out.entry(id_2).or_insert(vertex_counter);
         }
+
         return out;
     }
 
@@ -20,9 +23,9 @@ pub(super) fn flowchart_node_dom_indices<'a>(
     out.reserve(model.edges.len().saturating_mul(2) + model.nodes.len());
     let mut vertex_counter: usize = 0;
 
-    // Mermaid FlowDB assigns `domId` when a vertex is first created, but increments the internal
-    // `vertexCounter` on every `addVertex(...)` call (even for repeated references). This means the
-    // domId suffix depends on the full "first-use" order + repeat uses.
+
+
+
     fn touch<'a>(id: &'a str, out: &mut FixedMap<&'a str, usize>, c: &mut usize) {
         let _ = out.entry(id).or_insert(*c);
         *c += 1;
@@ -48,15 +51,18 @@ struct FlowchartClusterOrderKey<'a> {
     top: f64,
 }
 
+#[must_use]
 fn flowchart_cluster_order_key<'a>(
     ctx: &'a FlowchartNodeInventoryInput<'a>,
     id: &'a str,
 ) -> FlowchartClusterOrderKey<'a> {
-    let (left, top) = ctx
+    let (left, top) = match ctx
         .layout_clusters_by_id
         .get(id)
-        .map(|cluster| cluster.top_left())
-        .unwrap_or((0.0, 0.0));
+        .map(|cluster| cluster.top_left()) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => (0.0, 0.0),
+    };
     FlowchartClusterOrderKey {
         id,
         subgraph_index: ctx.subgraph_indices_by_id.get(id).copied(),
@@ -65,13 +71,14 @@ fn flowchart_cluster_order_key<'a>(
     }
 }
 
+#[must_use]
 fn flowchart_sort_cluster_order_keys<'a>(
     mut keyed: Vec<FlowchartClusterOrderKey<'a>>,
 ) -> Vec<&'a str> {
     keyed.sort_by(|a, b| {
         if let (Some(ai), Some(bi)) = (a.subgraph_index, b.subgraph_index) {
-            // Mirror Mermaid's Dagre graph registration behavior: sibling cluster roots tend to
-            // appear in reverse subgraph definition order.
+
+
             bi.cmp(&ai)
                 .then_with(|| a.left.total_cmp(&b.left))
                 .then_with(|| a.top.total_cmp(&b.top))
@@ -108,6 +115,7 @@ fn flowchart_node_hierarchy_key_with<'a, E>(
     let mut nesting_depth = 0usize;
     let mut nearest_cluster_id = None;
     let mut current = ctx.parent.get(id).copied();
+
     while let Some(parent) = current {
         visit_parent()?;
         let (counts_toward_depth, is_nearest_candidate) = if parent_cluster.is_some() {
@@ -120,14 +128,18 @@ fn flowchart_node_hierarchy_key_with<'a, E>(
             let is_recursive = ctx.recursive_clusters.contains(parent);
             (is_recursive, is_recursive)
         };
+
         if counts_toward_depth {
             nesting_depth = nesting_depth.saturating_add(1);
         }
+
         if nearest_cluster_id.is_none() && is_nearest_candidate {
             nearest_cluster_id = Some(parent);
         }
+
         current = ctx.parent.get(parent).copied();
     }
+
     Ok((nesting_depth, nearest_cluster_id))
 }
 
@@ -142,15 +154,17 @@ fn flowchart_node_hierarchy_key_metered<'a>(
     })
 }
 
+#[must_use]
 fn flowchart_directional_sort_key(primary_dir: &str, x: f64, y: f64) -> (f64, f64) {
     match primary_dir {
         "BT" => (-y, x),
         "LR" => (x, y),
         "RL" => (-x, y),
-        _ => (y, x), // TB (default)
+        _ => (y, x),
     }
 }
 
+#[must_use]
 fn flowchart_explicit_dom_indices<'a>(
     ctx: &'a FlowchartNodeInventoryInput<'a>,
     parent_cluster: Option<&str>,
@@ -160,13 +174,16 @@ fn flowchart_explicit_dom_indices<'a>(
         .map(|ids| {
             let mut indices = FixedMap::default();
             indices.reserve(ids.len());
+
             for (index, id) in ids.iter().enumerate() {
                 indices.insert(id.as_str(), index);
             }
+
             indices
         })
 }
 
+#[must_use]
 fn flowchart_node_order_key<'a>(
     ctx: &'a FlowchartNodeInventoryInput<'a>,
     explicit_dom_indices: Option<&FixedMap<&str, usize>>,
@@ -174,11 +191,13 @@ fn flowchart_node_order_key<'a>(
     nesting_depth: usize,
     nearest_cluster_id: Option<&'a str>,
 ) -> FlowchartNodeOrderKey<'a> {
-    let (x, y) = ctx
+    let (x, y) = match ctx
         .layout_nodes_by_id
         .get(id)
-        .map(|node| node.position())
-        .unwrap_or((0.0, 0.0));
+        .map(|node| node.position()) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => (0.0, 0.0),
+    };
     let direction = nearest_cluster_id
         .and_then(|cluster_id| ctx.layout_clusters_by_id.get(cluster_id))
         .map(|cluster| cluster.direction())
@@ -187,10 +206,15 @@ fn flowchart_node_order_key<'a>(
         flowchart_directional_sort_key(direction, x, y);
     FlowchartNodeOrderKey {
         id,
-        explicit_dom_index: explicit_dom_indices
-            .and_then(|indices| indices.get(id).copied())
-            .unwrap_or(usize::MAX),
-        node_dom_index: ctx.node_dom_index.get(id).copied().unwrap_or(usize::MAX),
+        explicit_dom_index: match explicit_dom_indices
+            .and_then(|indices| indices.get(id).copied()) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => usize::MAX,
+        },
+        node_dom_index: match ctx.node_dom_index.get(id).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => usize::MAX,
+        },
         x,
         y,
         nesting_depth,
@@ -200,6 +224,7 @@ fn flowchart_node_order_key<'a>(
     }
 }
 
+#[must_use]
 fn flowchart_sort_node_order_keys<'a>(mut keyed: Vec<FlowchartNodeOrderKey<'a>>) -> Vec<&'a str> {
     keyed.sort_by(|a, b| {
         a.explicit_dom_index
@@ -207,15 +232,15 @@ fn flowchart_sort_node_order_keys<'a>(mut keyed: Vec<FlowchartNodeOrderKey<'a>>)
             .then_with(|| b.nesting_depth.cmp(&a.nesting_depth))
             .then_with(|| {
                 if a.nesting_depth == 0 && b.nesting_depth == 0 {
-                    // For nodes not nested in any subgraph, upstream Mermaid keeps the graph
-                    // insertion order as the primary key, then uses position to stabilize ties.
+
+
                     a.node_dom_index
                         .cmp(&b.node_dom_index)
                         .then_with(|| a.y.total_cmp(&b.y))
                         .then_with(|| a.x.total_cmp(&b.x))
                 } else {
-                    // For nodes that are nested in subgraphs, upstream Mermaid's DOM ordering is
-                    // closer to “flow direction” ordering within the nearest cluster.
+
+
                     if a.nearest_cluster_id == b.nearest_cluster_id {
                         a.directional_primary
                             .total_cmp(&b.directional_primary)
@@ -224,7 +249,7 @@ fn flowchart_sort_node_order_keys<'a>(mut keyed: Vec<FlowchartNodeOrderKey<'a>>)
                             })
                             .then_with(|| a.node_dom_index.cmp(&b.node_dom_index))
                     } else {
-                        // Different clusters at the same nesting depth: keep insertion order stable.
+
                         a.node_dom_index
                             .cmp(&b.node_dom_index)
                             .then_with(|| a.y.total_cmp(&b.y))
@@ -261,14 +286,18 @@ impl<'a> FlowchartDomCandidateBuckets<'a> {
         ctx.work_meter.charge(scan_work)?;
 
         let mut buckets = Self::default();
+
         for id in ctx.nodes_by_id.keys().copied() {
             if ctx.subgraph_has_children(id) {
                 continue;
             }
+
             buckets.push_node(parent_index.parent(id), id);
         }
+
         for id in ctx.subgraphs_by_id.keys().copied() {
             let root = parent_index.parent(id);
+
             if ctx.subgraph_has_children(id) {
                 if ctx.recursive_clusters.contains(id) {
                     buckets.push_cluster(root, id);
@@ -277,6 +306,7 @@ impl<'a> FlowchartDomCandidateBuckets<'a> {
                 buckets.push_node(root, id);
             }
         }
+
         Ok(buckets)
     }
 
@@ -305,6 +335,7 @@ fn flowchart_prepare_root_children_nodes_metered<'a>(
 
     ctx.work_meter.charge(ids.len())?;
     let mut keyed = Vec::with_capacity(ids.len());
+
     for id in ids {
         let (nesting_depth, nearest_cluster_id) =
             flowchart_node_hierarchy_key_metered(ctx, id, parent_cluster)?;
@@ -316,6 +347,7 @@ fn flowchart_prepare_root_children_nodes_metered<'a>(
             nearest_cluster_id,
         ));
     }
+
     Ok(keyed)
 }
 
@@ -337,9 +369,10 @@ pub(in crate::svg::parity::flowchart) fn flowchart_checked_sort_work(
     if item_count <= 1 {
         return Ok(0);
     }
+
     item_count
         .checked_mul(item_count.ilog2() as usize + 1)
-        .ok_or_else(|| work_meter.arithmetic_overflow().into())
+        .ok_or_else(|| <crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(work_meter.arithmetic_overflow()))
 }
 
 pub(super) fn flowchart_dom_order_for_root<'a>(
@@ -360,15 +393,17 @@ pub(super) fn flowchart_dom_order_for_root<'a>(
     };
 
     if !dom_order.is_empty() {
-        // Some upstream flowchart-v2 configurations only register non-recursive clusters with
-        // external edges. Those clusters do not emit a node DOM element, so the raw order would
-        // otherwise produce an empty `.nodes` group.
+
+
+
         let emits_anything = dom_order.iter().any(|id| {
             if ctx.subgraphs_by_id.contains_key(id) && ctx.subgraph_has_children(id) {
                 return ctx.recursive_clusters.contains(id);
             }
+
             true
         });
+
         if !emits_anything {
             dom_order.clear();
         }
@@ -391,6 +426,7 @@ pub(super) fn flowchart_dom_order_for_root<'a>(
         dom_order = flowchart_sort_node_order_keys(node_keys);
         dom_order.extend(flowchart_sort_cluster_order_keys(cluster_keys));
     }
+
     Ok(dom_order)
 }
 
@@ -404,6 +440,7 @@ pub(super) fn flowchart_elk_dom_order<'a>(
         ctx.work_meter.charge(ids.len())?;
         return Ok(ids.iter().map(String::as_str).collect());
     }
+
     flowchart_dom_order_for_root(ctx, None, candidates)
 }
 
@@ -416,6 +453,7 @@ struct FlowchartRenderedClusterOrderKey<'a> {
 }
 
 impl<'a> FlowchartRenderedClusterOrderKey<'a> {
+    #[must_use]
     fn prepare(ctx: &FlowchartRenderCtx<'_>, cluster: &'a LayoutCluster) -> Self {
         Self {
             cluster,
@@ -443,10 +481,12 @@ fn flowchart_sort_rendered_clusters<'a>(
     keyed.sort_by(|a, b| {
         let a_id = a.cluster.id.as_str();
         let b_id = b.cluster.id.as_str();
+
         if a_id != b_id {
             if ancestry.is_strict_ancestor(a_id, b_id) {
                 return std::cmp::Ordering::Less;
             }
+
             if ancestry.is_strict_ancestor(b_id, a_id) {
                 return std::cmp::Ordering::Greater;
             }
@@ -479,6 +519,7 @@ impl<'a> FlowchartRenderedClusterBuckets<'a> {
         ancestry: &FlowchartAncestryIndex<'a>,
     ) -> crate::Result<Self> {
         let mut buckets = Self::default();
+
         for id in ctx.prepared_nodes.cluster_ids() {
             ctx.work_meter.charge(1)?;
             let cluster = ctx.layout_clusters_by_id.get(id).copied().ok_or_else(|| {
@@ -504,18 +545,20 @@ impl<'a> FlowchartRenderedClusterBuckets<'a> {
             let unsorted = std::mem::take(clusters);
             *clusters = flowchart_sort_rendered_clusters(ctx, ancestry, unsorted)?;
         }
+
         Ok(buckets)
     }
 
     fn prepare_elk(ctx: &'a FlowchartRenderCtx<'a>) -> crate::Result<Self> {
         let mut clusters = Vec::new();
+
         for id in ctx.prepared_nodes.cluster_ids() {
             ctx.work_meter.charge(1)?;
-            clusters.push(ctx.layout_clusters_by_id.get(id).copied().ok_or_else(|| {
+            clusters.push({ let checked_value = ctx.layout_clusters_by_id.get(id).copied().ok_or_else(|| {
                 crate::Error::InvalidModel {
                     message: format!("missing prepared Flowchart cluster geometry `{id}`"),
                 }
-            })?);
+            })?; checked_value });
         }
 
         let mut by_root = FixedMap::default();
@@ -524,7 +567,10 @@ impl<'a> FlowchartRenderedClusterBuckets<'a> {
     }
 
     fn take(&mut self, root: Option<&'a str>) -> Vec<&'a LayoutCluster> {
-        self.by_root.remove(&root).unwrap_or_default()
+        match self.by_root.remove(&root) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        }
     }
 }
 
@@ -537,10 +583,12 @@ fn flowchart_prepare_root_offsets<'a>(
     ctx.work_meter.charge(ctx.subgraphs_by_id.len())?;
     let mut empty_sibling_count_by_root: FixedMap<Option<&'a str>, usize> = FixedMap::default();
     let mut empty_subgraphs = FixedSet::default();
+
     for id in ctx.subgraphs_by_id.keys().copied() {
         if ctx.subgraph_has_children(id) || !ctx.layout_clusters_by_id.contains_key(id) {
             continue;
         }
+
         empty_subgraphs.insert(id);
         let count = empty_sibling_count_by_root
             .entry(parent_index.parent(id))
@@ -554,14 +602,23 @@ fn flowchart_prepare_root_offsets<'a>(
     let mut offsets_by_root = FixedMap::default();
     offsets_by_root.reserve(ctx.recursive_clusters.len());
     let mut extra_root_y = 0.0f64;
+
     for cid in ctx.recursive_clusters.iter().copied() {
-        let Some(cluster) = ctx.layout_clusters_by_id.get(cid).copied() else {
-            continue;
+        let cluster = {
+            let optional_cluster = ctx.layout_clusters_by_id.get(cid).copied();
+
+            match optional_cluster {
+                Some(matched_cluster) => matched_cluster,
+                ::core::option::Option::None => continue,
+            }
         };
-        let empty_siblings = empty_sibling_count_by_root
+
+        let empty_siblings = match empty_sibling_count_by_root
             .get(&parent_index.parent(cid))
-            .copied()
-            .unwrap_or(0)
+            .copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        }
             .saturating_sub(usize::from(empty_subgraphs.contains(cid)));
 
         let abs_left = if cluster.diff > 0.0 {
@@ -587,6 +644,7 @@ fn flowchart_prepare_root_offsets<'a>(
             },
         );
     }
+
     Ok((offsets_by_root, extra_root_y))
 }
 
@@ -597,16 +655,19 @@ pub(in crate::svg::parity::flowchart) struct FlowchartRootEmission<'a> {
 }
 
 impl<'a> FlowchartRootEmission<'a> {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn edges(
         &self,
     ) -> &[super::render_input::FlowchartRenderEdgeRef<'a>] {
         &self.edges
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn dom_order(&self) -> &[&'a str] {
         &self.dom_order
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn clusters(&self) -> &[&'a LayoutCluster] {
         &self.clusters
     }
@@ -661,11 +722,13 @@ impl<'a> FlowchartHierarchyPlan<'a> {
             let edges = ctx.edge_order.clone();
             let mut edge_root_by_key = FixedMap::default();
             edge_root_by_key.reserve(edges.len());
+
             for edge in edges.iter().copied() {
                 if edge_root_by_key.insert(edge.key, None).is_some() {
                     return Err(flowchart_duplicate_edge_key_error(edge.key));
                 }
             }
+
             let dom_order = node_schedule
                 .top()
                 .iter()
@@ -703,6 +766,7 @@ impl<'a> FlowchartHierarchyPlan<'a> {
         > = FixedMap::default();
         let mut edge_root_by_key = FixedMap::default();
         edge_root_by_key.reserve(ctx.edge_order.len());
+
         for edge in ctx.edge_order.iter().copied() {
             ctx.work_meter.charge(1)?;
             let root = flowchart_lca_with_work_meter(
@@ -712,11 +776,13 @@ impl<'a> FlowchartHierarchyPlan<'a> {
                 effective_parents,
                 ctx.work_meter,
             )?;
+
             if edge_root_by_key.insert(edge.key, root).is_some() {
                 return Err(flowchart_duplicate_edge_key_error(edge.key));
             }
+
             match root {
-                Some(root) => edges_by_nested_root.entry(root).or_default().push(edge),
+                Some(root_2) => edges_by_nested_root.entry(root_2).or_default().push(edge),
                 None => top_edges.push(edge),
             }
         }
@@ -742,14 +808,18 @@ impl<'a> FlowchartHierarchyPlan<'a> {
         };
 
         let mut nested_roots = FixedMap::default();
+
         for (cluster_id, scheduled_order) in node_schedule.nested() {
-            let cluster_id = cluster_id.as_str();
-            let edges = edges_by_nested_root.remove(cluster_id).unwrap_or_default();
+            let cluster_id_2 = cluster_id.as_str();
+            let edges = match edges_by_nested_root.remove(cluster_id_2) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            };
             let dom_order = scheduled_order
                 .iter()
                 .map(String::as_str)
                 .collect::<Vec<_>>();
-            let clusters = cluster_buckets.take(Some(cluster_id));
+            let clusters = cluster_buckets.take(Some(cluster_id_2));
             let retained_refs = edges
                 .len()
                 .checked_add(dom_order.len())
@@ -757,9 +827,10 @@ impl<'a> FlowchartHierarchyPlan<'a> {
                 .ok_or_else(|| ctx.work_meter.arithmetic_overflow())?;
             ctx.work_meter.charge(retained_refs)?;
             ordered_edges.extend(edges.iter().copied());
+
             if nested_roots
                 .insert(
-                    cluster_id,
+                    cluster_id_2,
                     FlowchartRootEmission {
                         edges,
                         dom_order,
@@ -771,7 +842,7 @@ impl<'a> FlowchartHierarchyPlan<'a> {
                 return Err(crate::Error::InvalidModel {
                     message: format!(
                         "Flowchart hierarchy visits extracted root `{cluster_id}` more than once"
-                    ),
+                    , cluster_id = cluster_id_2),
                 });
             }
         }
@@ -782,6 +853,7 @@ impl<'a> FlowchartHierarchyPlan<'a> {
                     .to_string(),
             });
         }
+
         Ok(Self {
             top_root,
             nested_roots,
@@ -799,24 +871,26 @@ impl<'a> FlowchartHierarchyPlan<'a> {
     ) -> crate::Result<&FlowchartRootEmission<'a>> {
         match cluster_id {
             None => Ok(&self.top_root),
-            Some(cluster_id) => {
+            Some(cluster_id_2) => {
                 self.nested_roots
-                    .get(cluster_id)
+                    .get(cluster_id_2)
                     .ok_or_else(|| crate::Error::InvalidModel {
                         message: format!(
                             "missing prepared Flowchart root emission for `{cluster_id}`"
-                        ),
+                        , cluster_id = cluster_id_2),
                     })
             }
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn ordered_edges(
         &self,
     ) -> &[super::render_input::FlowchartRenderEdgeRef<'a>] {
         &self.ordered_edges
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn rendered_node_ids(
         &self,
     ) -> impl Iterator<Item = &'a str> + '_ {
@@ -831,6 +905,7 @@ impl<'a> FlowchartHierarchyPlan<'a> {
             .copied()
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn effective_parent(&self, id: &str) -> Option<&'a str> {
         self.effective_parents.parent(id)
     }
@@ -850,6 +925,7 @@ impl<'a> FlowchartHierarchyPlan<'a> {
             })
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn root_offsets(
         &self,
         cluster_id: &str,
@@ -857,11 +933,13 @@ impl<'a> FlowchartHierarchyPlan<'a> {
         self.root_offsets.get(cluster_id).copied()
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn extra_recursive_root_y(&self) -> f64 {
         self.extra_recursive_root_y
     }
 }
 
+#[must_use]
 fn flowchart_duplicate_edge_key_error(key: crate::flowchart::FlowchartEdgeKey) -> crate::Error {
     crate::Error::InvalidModel {
         message: format!(
@@ -898,10 +976,17 @@ impl<'a> FlowchartAncestryIndex<'a> {
         work_meter.charge(identity_count)?;
         let mut children_by_parent: FixedMap<&'a str, Vec<&'a str>> = FixedMap::default();
         children_by_parent.reserve(identity_count);
+
         for id in identities_by_id.iter().copied() {
-            let Some(parent) = physical_parent_by_id.get(id).copied() else {
-                continue;
+            let parent = {
+                let optional_parent = physical_parent_by_id.get(id).copied();
+
+                match optional_parent {
+                    Some(matched_parent) => matched_parent,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if identities_by_id.contains(parent) {
                 children_by_parent.entry(parent).or_default().push(id);
             }
@@ -928,30 +1013,40 @@ impl<'a> FlowchartAncestryIndex<'a> {
         intervals_by_id.reserve(identity_count);
         let mut clock = 0usize;
         let mut stack = Vec::new();
+
         for root in roots {
             stack.push((root, false));
-            while let Some((id, exiting)) = stack.pop() {
+
+            'inner_while_2: while let Some((id, exiting)) = stack.pop() {
                 if exiting {
-                    let Some(entry) = entry_by_id.get(id).copied() else {
-                        return Err(flowchart_parent_cycle_error());
+                    let entry = {
+                        let optional_entry = entry_by_id.get(id).copied();
+
+                        match optional_entry {
+                            Some(matched_entry) => matched_entry,
+                            ::core::option::Option::None => return Err(flowchart_parent_cycle_error()),
+                        }
                     };
+
                     let exit = clock;
                     clock = clock
                         .checked_add(1)
                         .ok_or_else(|| work_meter.arithmetic_overflow())?;
                     intervals_by_id.insert(id, FlowchartClusterAncestryInterval { entry, exit });
-                    continue;
+                    continue 'inner_while_2;
                 }
 
                 if entry_by_id.contains_key(id) {
-                    continue;
+                    continue 'inner_while_2;
                 }
+
                 let entry = clock;
                 clock = clock
                     .checked_add(1)
                     .ok_or_else(|| work_meter.arithmetic_overflow())?;
                 entry_by_id.insert(id, entry);
                 stack.push((id, true));
+
                 if let Some(children) = children_by_parent.get(id) {
                     stack.extend(children.iter().rev().map(|child| (*child, false)));
                 }
@@ -961,20 +1056,35 @@ impl<'a> FlowchartAncestryIndex<'a> {
         if intervals_by_id.len() != identity_count {
             return Err(flowchart_parent_cycle_error());
         }
+
         Ok(Self { intervals_by_id })
     }
 
+    #[must_use]
     fn is_strict_ancestor(&self, ancestor: &str, node: &str) -> bool {
         if ancestor == node {
             return false;
         }
-        let Some(ancestor) = self.intervals_by_id.get(ancestor) else {
-            return false;
+
+        let ancestor_2 = {
+            let optional_ancestor = self.intervals_by_id.get(ancestor);
+
+            match optional_ancestor {
+                Some(matched_ancestor) => matched_ancestor,
+                ::core::option::Option::None => return false,
+            }
         };
-        let Some(node) = self.intervals_by_id.get(node) else {
-            return false;
+
+        let node_2 = {
+            let optional_node = self.intervals_by_id.get(node);
+
+            match optional_node {
+                Some(matched_node) => matched_node,
+                ::core::option::Option::None => return false,
+            }
         };
-        ancestor.entry < node.entry && node.exit < ancestor.exit
+
+        ancestor_2.entry < node_2.entry && node_2.exit < ancestor_2.exit
     }
 }
 
@@ -994,6 +1104,7 @@ impl FlowchartEffectiveParentIndex {
         let mut parent_by_id = FixedMap::default();
         parent_by_id.reserve(physical_parent_by_id.len());
         let ids = physical_parent_by_id.keys().copied().collect::<Vec<_>>();
+
         for id in ids.iter().copied() {
             if parent_by_id.contains_key(id) {
                 continue;
@@ -1001,18 +1112,25 @@ impl FlowchartEffectiveParentIndex {
 
             let mut path = Vec::new();
             let mut current = id;
-            let effective_parent = loop {
+            let effective_parent = 'inner_loop_2: loop {
                 if let Some(cached) = parent_by_id.get(current).copied() {
-                    break cached;
+                    break 'inner_loop_2 cached;
                 }
-                let Some(parent) = physical_parent_by_id.get(current).copied() else {
-                    break None;
+
+                let parent = {
+                    let optional_parent_2 = physical_parent_by_id.get(current).copied();
+
+                    match optional_parent_2 {
+                        Some(matched_parent_2) => matched_parent_2,
+                        ::core::option::Option::None => break 'inner_loop_2 None,
+                    }
                 };
 
-                // Charge the physical edge before retaining it in the flattened path. A chain of
-                // transparent subgraphs is therefore never hidden inside one logical lookup.
+
+
                 work_meter.charge(1)?;
                 path.push(current);
+
                 if path.len() > physical_parent_by_id.len() {
                     return Err(flowchart_parent_cycle_error());
                 }
@@ -1020,7 +1138,7 @@ impl FlowchartEffectiveParentIndex {
                 if is_transparent_parent(parent) {
                     current = parent;
                 } else {
-                    break Some(parent);
+                    break 'inner_loop_2 Some(parent);
                 }
             };
 
@@ -1032,6 +1150,7 @@ impl FlowchartEffectiveParentIndex {
         work_meter.charge(parent_by_id.len())?;
         let mut depth_by_id = FixedMap::default();
         depth_by_id.reserve(parent_by_id.len());
+
         for id in ids {
             if depth_by_id.contains_key(id) {
                 continue;
@@ -1039,24 +1158,32 @@ impl FlowchartEffectiveParentIndex {
 
             let mut path = Vec::new();
             let mut current = id;
-            let base_depth = loop {
+            let base_depth = 'inner_loop_2: loop {
                 if let Some(depth) = depth_by_id.get(current).copied() {
-                    break depth;
+                    break 'inner_loop_2 depth;
                 }
 
                 work_meter.charge(1)?;
                 path.push(current);
+
                 if path.len() > parent_by_id.len().saturating_add(1) {
                     return Err(flowchart_parent_cycle_error());
                 }
 
-                let Some(parent) = parent_by_id.get(current).copied().flatten() else {
-                    break 0usize;
+                let parent = {
+                    let optional_parent_2 = parent_by_id.get(current).copied().flatten();
+
+                    match optional_parent_2 {
+                        Some(matched_parent_2) => matched_parent_2,
+                        ::core::option::Option::None => break 'inner_loop_2 0usize,
+                    }
                 };
+
                 current = parent;
             };
 
             let mut depth = base_depth;
+
             for path_id in path.into_iter().rev() {
                 depth = depth
                     .checked_add(1)
@@ -1076,17 +1203,20 @@ impl FlowchartEffectiveParentIndex {
         })
     }
 
+    #[must_use]
     pub(super) fn parent(&self, id: &str) -> Option<&str> {
         self.entries
             .get(id)
             .and_then(|(parent, _)| parent.as_deref())
     }
 
+    #[must_use]
     fn depth(&self, id: &str) -> usize {
         self.entries.get(id).map_or(1, |(_, depth)| *depth)
     }
 }
 
+#[must_use]
 fn flowchart_parent_cycle_error() -> crate::Error {
     crate::Error::InvalidModel {
         message: "Flowchart parent hierarchy contains a cycle".to_string(),
@@ -1100,6 +1230,7 @@ fn flowchart_lca_with_work_meter<'a>(
     parent_index: &'a FlowchartEffectiveParentIndex,
     work_meter: &crate::resources::OperationWorkMeter,
 ) -> crate::Result<Option<&'a str>> {
+    #[must_use]
     fn first_render_root<'a>(
         ctx: &'a FlowchartRenderCtx<'a>,
         parent_index: &'a FlowchartEffectiveParentIndex,
@@ -1128,25 +1259,29 @@ fn flowchart_lca_from_render_roots<'a>(
     let mut left_depth = left.map_or(0, |root| parent_index.depth(root));
     let mut right_depth = right.map_or(0, |root| parent_index.depth(root));
 
-    while left_depth > right_depth {
+    for _ in (::core::ops::Range { start: right_depth, end: left_depth }).rev() {
         work_meter.charge(1)?;
         left = left.and_then(|root| parent_index.parent(root));
-        left_depth -= 1;
+        left_depth = (::core::num::Wrapping(left_depth) - ::core::num::Wrapping(1)).0;
     }
-    while right_depth > left_depth {
+
+    for _ in (::core::ops::Range { start: left_depth, end: right_depth }).rev() {
         work_meter.charge(1)?;
         right = right.and_then(|root| parent_index.parent(root));
-        right_depth -= 1;
+        right_depth = (::core::num::Wrapping(right_depth) - ::core::num::Wrapping(1)).0;
     }
 
     while let (Some(left_root), Some(right_root)) = (left, right) {
         work_meter.charge(2)?;
+
         if left_root == right_root {
             return Ok(Some(left_root));
         }
+
         left = parent_index.parent(left_root);
         right = parent_index.parent(right_root);
     }
+
     Ok(None)
 }
 
@@ -1240,9 +1375,9 @@ mod tests {
         assert_eq!(index.depth("inner"), 2);
         assert_eq!(index.depth("outer"), 1);
 
-        // Four entries are scanned, each of the four physical parent edges is charged exactly
-        // once, four flattened entries are scanned for depth preparation, and five unique
-        // effective-hierarchy nodes receive a cached depth.
+
+
+
         assert_eq!(work_meter.used(), 17);
     }
 

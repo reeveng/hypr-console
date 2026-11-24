@@ -1,0 +1,24 @@
+[package]
+name = "console-paper"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+console-compositor.workspace = true
+console-core-bounded-reads.workspace = true
+console-core-geometry.workspace = true
+console-core-iteration.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-places.workspace = true
+console-core-state-machine.workspace = true
+console-core-webp-files.workspace = true
+console-readiness.workspace = true
+console-wayland = { path = "../console-wayland" }
+rustix = { workspace = true, features = ["net"] }
+
+[lints]
+workspace = true

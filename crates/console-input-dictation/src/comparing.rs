@@ -56,7 +56,7 @@ const NOTHING_GUESSED: &str = "none";
 use console_core_arguments::{
   CommandLine, Flag, NoSubcommand, Operands, Reason, Takes, ValidationError,
 };
-use console_core_state_machine::{Machine, Queue, Transition};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_program_contract::{
   Choice, Command, Effect, Event, Exit, ExitStatus, FileWrite, Prompt,
 };
@@ -324,8 +324,19 @@ pub enum CompareEffect {
   Look(Vec<CommandPath>),
   Ran(Vec<String>),
   Timed(Vec<String>),
-  Record(PathBuf),
-  Enough,
+  StartRecording(PathBuf),
+  StopRecording,
+}
+
+impl EffectDependencies for CompareEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Look(_) | Self::Ran(_) => &[Service::Process],
+      Self::Timed(_) => &[Service::Process, Service::Clock],
+      Self::StartRecording(_) => &[Service::Audio, Service::Process, Service::FileSystem],
+      Self::StopRecording => &[Service::Audio, Service::Process],
+    })
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -333,7 +344,8 @@ pub enum CompareEvent {
   Looked(Vec<Candidate>),
   Output(String),
   Timed(Timing),
-  Finished,
+  RecordingStarted,
+  RecordingStopped,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -359,7 +371,9 @@ pub struct Timing {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum RecordingPhase {
   Waiting,
+  Starting,
   Recording,
+  Stopping,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -389,6 +403,7 @@ pub enum Step {
   Copying,
   Naming,
   Sweeping,
+  PreparingRecording,
   Recording(Vec<u32>, RecordingPhase),
   Looking,
   DetectingBackend,
@@ -623,6 +638,19 @@ fn decide(
 
     (Step::Finished, Event::Replied(_)) => after(state),
 
+    (Step::PreparingRecording, Event::Replied(answer)) => match answer.status {
+      ExitStatus::Success => ready_to_record(state),
+      ExitStatus::Failure(_) | ExitStatus::Interrupt => {
+        let Ok(clips) = state.at.clips();
+        let Ok(path) = shown(&clips);
+
+        badly(
+          state,
+          &format!("could not create the clips directory {path}"),
+        )
+      }
+    },
+
     (Step::Recording(left, ear), word) => recording(state, left, ear, word),
 
     (Step::Looking, Event::Custom(CompareEvent::Looked(seen))) => looked(state, seen),
@@ -665,27 +693,12 @@ fn decide(
 fn begun(state: &Comparing) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
   match state.job {
     Task::Record => {
-      let Ok(clips) = fitted::<_, u32>(CLIPS.len());
-      let Ok(stepped) = with_step(
-        state,
-        Step::Recording((0..clips).collect(), RecordingPhase::Waiting),
-      );
-      let Ok(clips_2) = state.at.clips();
-      let Ok(shown) = shown(&clips_2);
-      let Ok(asking) = prompt_for_clip(0);
+      let Ok(stepped) = with_step(state, Step::PreparingRecording);
+      let Ok(clips) = state.at.clips();
+      let Ok(shown) = shown(&clips);
       let Ok(making) = Command::external(ExternalProgram::Mkdir, &["-p", &shown]);
 
-      Transition::new(
-        stepped,
-        std::iter::once(Effect::Run(making))
-          .chain(
-            PREAMBLE
-              .iter()
-              .map(|line| Effect::Print((*line).to_string())),
-          )
-          .chain(asking)
-          .collect(),
-      )
+      Transition::new(stepped, vec![Effect::Run(making)])
     }
 
     Task::Models | Task::Fetch => {
@@ -813,6 +826,26 @@ fn built(
   }
 }
 
+fn ready_to_record(
+  state: &Comparing,
+) -> Result<Transition<Comparing, Effect<CompareEffect>>, Never> {
+  let Ok(clips) = fitted::<_, u32>(CLIPS.len());
+  let Ok(stepped) = with_step(
+    state,
+    Step::Recording((0..clips).collect(), RecordingPhase::Waiting),
+  );
+  let Ok(asking) = prompt_for_clip(0);
+
+  Transition::new(
+    stepped,
+    PREAMBLE
+      .iter()
+      .map(|line| Effect::Print((*line).to_string()))
+      .chain(asking)
+      .collect(),
+  )
+}
+
 fn recording(
   state: &Comparing,
   left: &[u32],
@@ -825,22 +858,37 @@ fn recording(
     (Some(at_2), RecordingPhase::Waiting, Event::Chosen(_)) => {
       let Ok(stepped) = with_step(
         state,
-        Step::Recording(left.to_vec(), RecordingPhase::Recording),
+        Step::Recording(left.to_vec(), RecordingPhase::Starting),
       );
       let Ok(name) = name(at_2);
       let Ok(clip) = state.at.clip(name);
-      let Ok(asking) = Prompt::unless("  listening, ENTER to stop", Choice::Yes);
-
       Transition::new(
         stepped,
-        vec![
-          Effect::Custom(CompareEffect::Record(PathBuf::from(clip))),
-          Effect::Prompt(asking),
-        ],
+        vec![Effect::Custom(CompareEffect::StartRecording(
+          PathBuf::from(clip),
+        ))],
       )
     }
 
+    (Some(_), RecordingPhase::Starting, Event::Custom(CompareEvent::RecordingStarted)) => {
+      let Ok(stepped) = with_step(
+        state,
+        Step::Recording(left.to_vec(), RecordingPhase::Recording),
+      );
+      let Ok(asking) = Prompt::unless("  listening, ENTER to stop", Choice::Yes);
+
+      Transition::new(stepped, vec![Effect::Prompt(asking)])
+    }
+
     (Some(_), RecordingPhase::Recording, Event::Chosen(_)) => {
+      let Ok(stepped) = with_step(
+        state,
+        Step::Recording(left.to_vec(), RecordingPhase::Stopping),
+      );
+      Transition::new(stepped, vec![Effect::Custom(CompareEffect::StopRecording)])
+    }
+
+    (Some(_), RecordingPhase::Stopping, Event::Custom(CompareEvent::RecordingStopped)) => {
       let rest: Vec<u32> = left.iter().skip(1).copied().collect();
       let Ok(stepped) = with_step(
         state,
@@ -860,8 +908,7 @@ fn recording(
 
       Transition::new(
         stepped,
-        std::iter::once(Effect::Custom(CompareEffect::Enough))
-          .chain(std::iter::once(Effect::Print("  kept".to_string())))
+        std::iter::once(Effect::Print("  kept".to_string()))
           .chain(next)
           .collect(),
       )
@@ -1512,6 +1559,7 @@ fn badly(
 #[cfg(test)]
 mod tests {
   use console_core_state_machine::run;
+  use console_program_contract::Answer;
 
   use super::*;
 
@@ -1989,39 +2037,69 @@ mod tests {
   }
 
   #[test]
-  fn recording_waits_for_a_press_before_it_listens_and_for_another_before_it_stops() {
+  fn recording_waits_for_each_press_and_for_the_recorder_to_reply()
+  -> Result<(), Box<dyn std::error::Error>> {
     let Ok(record) = given(Task::Record);
-
-    let Ok(said) = run::<Compare>(
-      &record,
-      &[
-        Event::Opened,
-        Event::Chosen(Choice::Yes),
-        Event::Chosen(Choice::Yes),
-      ],
+    let Ok(initial) = Compare::initial_transition(&record, None);
+    let Ok(opened) = Compare::transition(initial.state, Event::Opened);
+    let making = match opened.effects.as_slice() {
+      [Effect::Run(command)] => command.clone(),
+      _other => {
+        return Err(Box::<dyn std::error::Error>::from(
+          "expected only the directory creation effect",
+        ));
+      }
+    };
+    let reply = Answer {
+      job: None,
+      command: making,
+      output: String::new(),
+      error_output: String::new(),
+      status: ExitStatus::Success,
+    };
+    let Ok(refused) = Compare::transition(
+      opened.state.clone(),
+      Event::Replied(Answer {
+        status: ExitStatus::Failure(Some(1)),
+        ..reply.clone()
+      }),
     );
+    assert!(matches!(
+      refused.effects.as_slice(),
+      [Effect::Stop(Exit::Failure(_))]
+    ));
+    let Ok(ready) = Compare::transition(opened.state, Event::Replied(reply));
+    assert!(matches!(ready.effects.last(), Some(Effect::Prompt(_))));
 
-    let Ok(effects) = said.effects();
+    let Ok(started) = Compare::transition(ready.state, Event::Chosen(Choice::Yes));
+    assert!(matches!(
+      started.effects.as_slice(),
+      [Effect::Custom(CompareEffect::StartRecording(_))]
+    ));
 
-    let listened_before_the_end = effects
-      .iter()
-      .take_while(|effect| !matches!(effect, Effect::Custom(CompareEffect::Enough)))
-      .any(|effect| matches!(effect, Effect::Custom(CompareEffect::Record(_))));
-
+    let Ok(listening) =
+      Compare::transition(started.state, Event::Custom(CompareEvent::RecordingStarted));
     assert!(
-      effects
-        .iter()
-        .filter(|effect| matches!(effect, Effect::Prompt(_)))
-        .count()
-        >= 3,
-      "it did not wait to be told to start and to stop"
+      matches!(listening.effects.as_slice(), [Effect::Prompt(prompt)] if prompt.message.contains("listening"))
     );
-    assert!(
-      effects
-        .iter()
-        .any(|effect| matches!(effect, Effect::Custom(CompareEffect::Enough)))
+
+    let Ok(stopping) = Compare::transition(listening.state, Event::Chosen(Choice::Yes));
+    assert_eq!(
+      stopping.effects,
+      [Effect::Custom(CompareEffect::StopRecording)]
     );
-    assert!(listened_before_the_end);
+
+    let Ok(stopped) = Compare::transition(
+      stopping.state,
+      Event::Custom(CompareEvent::RecordingStopped),
+    );
+    assert_eq!(
+      stopped.effects.first(),
+      Some(&Effect::Print("  kept".to_string()))
+    );
+    assert!(matches!(stopped.effects.last(), Some(Effect::Prompt(_))));
+
+    Ok(())
   }
 
   #[test]

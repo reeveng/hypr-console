@@ -106,9 +106,10 @@ pub(crate) struct LexError {
 }
 
 impl LexError {
+    #[must_use]
     pub(crate) fn new(message: impl Into<String>) -> Self {
         Self {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span: None,
             #[cfg(feature = "editor-facts")]
             expected_syntax: Vec::new(),
@@ -117,9 +118,10 @@ impl LexError {
         }
     }
 
+    #[must_use]
     pub(crate) fn with_span(message: impl Into<String>, span: SourceSpan) -> Self {
         Self {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span: Some(span),
             #[cfg(feature = "editor-facts")]
             expected_syntax: Vec::new(),

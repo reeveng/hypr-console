@@ -1,5 +1,7 @@
 //! Delivery exploration refuses a partial result when its bound is too small.
 
+#![cfg(feature = "alloc")]
+
 use console_core_state_machine::{ExplorationError, interleavings};
 
 #[test]

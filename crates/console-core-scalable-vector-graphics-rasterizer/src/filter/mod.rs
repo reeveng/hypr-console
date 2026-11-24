@@ -5,7 +5,7 @@ use console_core_never::Never;
 use console_core_number_conversion::{
   index, nearest_f32_from_i64, nearest_f32_from_u64, toward_zero_i32, toward_zero_u8,
 };
-use console_core_path_rasterizer::{Paint, Pixmap, FloatRectangle, Transform};
+use console_core_path_rasterizer::{FloatRectangle, Paint, Pixmap, Transform};
 use console_core_paths::{NonZeroRect, Point};
 use console_core_pixel_buffers::{Rgba8, rgba_pixels, rgba_pixels_mut};
 use console_core_scalable_vector_graphics::console_core_paths::{StrictNormalized, StrictNum};
@@ -68,12 +68,19 @@ mod box_blur;
 mod color_matrix;
 mod component_transfer;
 mod composite;
-mod convolve_matrix;
+pub(super) mod convolve_matrix;
+
 mod displacement_map;
 mod iir_blur;
 mod lighting;
 mod morphology;
 mod turbulence;
+
+pub(super) type Convolve<'a> = dyn Fn(
+    &console_core_scalable_vector_graphics::filter::ConvolveMatrix,
+    ImageRefMut<'_>,
+  ) -> Result<(), Error>
+  + 'a;
 
 #[doc = "A borrowed RGBA image. The filter determines whether it expects premultiplied channels."]
 #[derive(Clone, Copy)]
@@ -468,7 +475,7 @@ struct FilterResult {
 )]
 pub(super) fn apply(
   filter: &Filter,
-  context: &crate::render::Context,
+  context: &crate::render::Context<'_>,
   transform: Transform,
   source: &mut Pixmap,
 ) -> Result<(), Never> {
@@ -501,7 +508,7 @@ pub(super) fn apply(
 )]
 fn apply_inner(
   filter: &Filter,
-  context: &crate::render::Context,
+  context: &crate::render::Context<'_>,
   transform: Transform,
   source: &Pixmap,
 ) -> Result<Image, Error> {
@@ -539,7 +546,7 @@ fn apply_inner(
 }
 
 struct FilterStage<'a> {
-  context: &'a crate::render::Context,
+  context: &'a crate::render::Context<'a>,
   transform: Transform,
   region: IntRect,
   source: &'a Pixmap,
@@ -620,7 +627,7 @@ impl FilterStage<'_> {
       Kind::ConvolveMatrix(fe) => {
         let Ok(fe_input) = fe.input();
         let input = self.input(fe_input)?;
-        apply_convolve_matrix(fe, cs, input)
+        apply_convolve_matrix(fe, cs, input, self.context.convolve)
       }
       Kind::Morphology(fe) => {
         let Ok(fe_input) = fe.input();
@@ -1195,7 +1202,7 @@ fn apply_image(
   region: IntRect,
   subregion: IntRect,
   transform: Transform,
-  context: &crate::render::Context,
+  context: &crate::render::Context<'_>,
 ) -> Result<Image, Error> {
   let Ok(width) = region.width();
   let Ok(height) = region.height();
@@ -1252,6 +1259,7 @@ fn apply_convolve_matrix(
   fe: &console_core_scalable_vector_graphics::filter::ConvolveMatrix,
   cs: console_core_scalable_vector_graphics::filter::ColorInterpolation,
   input: Image,
+  convolve: &Convolve<'_>,
 ) -> Result<Image, Error> {
   let converted_input = input.into_color_space(cs)?;
   let mut pixmap = converted_input.take()?;
@@ -1268,7 +1276,7 @@ fn apply_convolve_matrix(
     ::core::option::Option::None => {}
   }
 
-  convolve_matrix::apply(fe, pixmap.as_image_ref_mut())?;
+  convolve(fe, pixmap.as_image_ref_mut())?;
 
   Image::from_image(pixmap, cs)
 }

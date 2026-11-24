@@ -38,7 +38,7 @@ impl SvgShadowEvidenceRecorder {
                 )
             })
             .collect::<Option<Vec<_>>>();
-        let application = stages.and_then(|stages| {
+        let application = stages.and_then(|stages_2| {
             NativeSvgFilterApplication::new_with_units(
                 scoped_filter_id,
                 match region.units() {
@@ -51,29 +51,36 @@ impl SvgShadowEvidenceRecorder {
                 },
                 region.as_array(),
                 effect.color_space(),
-                stages,
+                stages_2,
                 1,
             )
             .and_then(|application| application.with_composition(effect.composition()))
         });
-        let Some(application) = application else {
+
+        let Some(application_2) = application else {
             self.state.borrow_mut().invalid = true;
             return;
         };
-        self.state.borrow_mut().applications.push(application);
+
+        self.state.borrow_mut().applications.push(application_2);
     }
 
+    #[must_use]
     pub(crate) fn finish(&self) -> Option<NativeSvgFilterReceipt> {
         let mut state = self.state.borrow_mut();
         let applications = std::mem::take(&mut state.applications);
+
         if state.invalid {
             return None;
         }
+
         let had_applications = !applications.is_empty();
         let receipt = NativeSvgFilterReceipt::from_applications(applications);
+
         if had_applications && receipt.is_none() {
             state.invalid = true;
         }
+
         receipt
     }
 }

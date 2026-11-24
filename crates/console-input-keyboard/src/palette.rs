@@ -16,7 +16,7 @@
 use console_core_never::Never;
 use std::collections::BTreeMap;
 
-pub const NAME: &str = "console-keyboard";
+pub use console_input_alphabets::keyboard_socket::NAME;
 
 pub const VIRTUAL_KEYBOARD: &str = "/usr/local/bin/console-keyboard";
 

@@ -32,6 +32,7 @@ pub(crate) struct GanttCssBinding {
 }
 
 impl GanttCssBinding {
+    #[must_use]
     pub(super) fn new(config: &serde_json::Value, font_family: &str) -> Self {
         let option = |key: &str, fallback: &str| {
             config_string(config, &["themeVariables", key]).unwrap_or_else(|| fallback.to_owned())
@@ -47,8 +48,14 @@ impl GanttCssBinding {
         };
         Self {
             common,
-            task_font_size: config_f64(gantt_config, &["fontSize"]).unwrap_or(11.0),
-            section_font_size: config_f64(gantt_config, &["sectionFontSize"]).unwrap_or(11.0),
+            task_font_size: match config_f64(gantt_config, &["fontSize"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 11.0,
+            },
+            section_font_size: match config_f64(gantt_config, &["sectionFontSize"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 11.0,
+            },
             text_color,
             title_color,
             title_text_color,
@@ -81,17 +88,29 @@ impl GanttCssBinding {
         text: Option<&super::GanttTextFillExpectation>,
         warning: Option<&super::GanttWarningStrokeExpectation>,
     ) {
-        if let Some(title) = title {
-            self.title_color = title.css.to_string();
+        match title {
+            Some(title_2) => {
+                self.title_color = title_2.css.to_string();
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(text) = text {
-            self.text_color = text.grid_css.to_string();
-            self.task_text_color = text.task_css.to_string();
+
+        match text {
+            Some(text_2) => {
+                self.text_color = text_2.grid_css.to_string();
+                self.task_text_color = text_2.task_css.to_string();
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(warning) = warning {
-            self.today_line_color = warning.today_css.to_string();
-            self.vert_line_color = warning.vert_css.to_string();
+
+        match warning {
+            Some(warning_2) => {
+                self.today_line_color = warning_2.today_css.to_string();
+                self.vert_line_color = warning_2.vert_css.to_string();
+            },
+            ::core::option::Option::None => {},
         }
+
         self.title_text_color = if self.title_color.trim().is_empty() {
             self.text_color.clone()
         } else {

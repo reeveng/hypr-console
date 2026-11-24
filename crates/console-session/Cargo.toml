@@ -13,21 +13,10 @@ path = "src/lib.rs"
 name = "session-start"
 path = "src/bin/session-start.rs"
 
-[[bin]]
-name = "session-game"
-path = "src/bin/session-game.rs"
-
-[[bin]]
-name = "session-desktop"
-path = "src/bin/session-desktop.rs"
-
-[[bin]]
-name = "steamos-session-select"
-path = "src/bin/steamos-session-select.rs"
-
 [dependencies]
 console-bluetooth.workspace = true
 console-bus.workspace = true
+console-compositor.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-external-programs.workspace = true
 console-core-places.workspace = true

@@ -53,14 +53,17 @@ pub(crate) struct SequenceDiagramTitleGeometry {
 }
 
 impl SequenceDiagramTitleGeometry {
+    #[must_use]
     pub(crate) fn text(&self) -> &str {
         &self.text
     }
 
+    #[must_use]
     pub(crate) const fn x(&self) -> f64 {
         self.x
     }
 
+    #[must_use]
     pub(crate) const fn y(&self) -> f64 {
         self.y
     }
@@ -79,21 +82,21 @@ pub(super) fn prepare_sequence_root_geometry(
     include_actor_popup_bottoms(&mut content, &ctx)?;
     include_actor_popup_widths(&mut content, &ctx)?;
 
-    // Mermaid (11.12.2) expands the viewBox vertically when a sequence title is present.
-    // See `sequenceRenderer.ts`: `extraVertForTitle = title ? 40 : 0`.
+
+
     let extra_vert_for_title = if ctx.diagram_title.is_some() {
         40.0
     } else {
         0.0
     };
 
-    // Mermaid's sequence renderer sets the viewBox y origin to
-    // `-(diagramMarginY + extraVertForTitle)` regardless of diagram contents.
+
+
     let vb_min_y = -(ctx.diagram_margin_y + extra_vert_for_title);
 
-    // Mermaid's sequence renderer uses a bounds box with `starty = 0` and computes `height` from
-    // `stopy - starty`. Our headless layout models message spacing in content coordinates, but for
-    // viewBox parity we must follow the upstream formula.
+
+
+
     let mut bounds_box_stopy = if ctx.mirror_actors {
         content.max_y + ctx.bottom_margin_adj
     } else {
@@ -101,8 +104,8 @@ pub(super) fn prepare_sequence_root_geometry(
     }
     .max(0.0);
 
-    // When boxes exist, Mermaid's bounds logic extends the vertical bounds by `boxMargin`
-    // (diagramMarginY covers the remaining box padding), so include it here.
+
+
     if ctx.has_boxes {
         bounds_box_stopy += ctx.box_margin;
     }
@@ -121,11 +124,15 @@ pub(super) fn prepare_sequence_root_geometry(
         max_x: bounds_box.stop_x + ctx.diagram_margin_x,
         max_y: bounds_box_stopy + ctx.diagram_margin_y,
     };
-    if let Some(title) = diagram_title.as_ref() {
-        bounds.min_x = bounds.min_x.min(title.bounds.min_x);
-        bounds.min_y = bounds.min_y.min(title.bounds.min_y);
-        bounds.max_x = bounds.max_x.max(title.bounds.max_x);
-        bounds.max_y = bounds.max_y.max(title.bounds.max_y);
+
+    match diagram_title.as_ref() {
+        Some(title) => {
+            bounds.min_x = bounds.min_x.min(title.bounds.min_x);
+            bounds.min_y = bounds.min_y.min(title.bounds.min_y);
+            bounds.max_x = bounds.max_x.max(title.bounds.max_x);
+            bounds.max_y = bounds.max_y.max(title.bounds.max_y);
+        },
+        ::core::option::Option::None => {},
     }
 
     Ok(SequenceRootGeometry {
@@ -138,9 +145,11 @@ fn prepare_diagram_title_geometry(
     ctx: &SequenceRootBoundsContext<'_>,
     bounds_box: &ActorHorizontalBounds,
 ) -> Result<Option<SequenceDiagramTitleGeometry>> {
-    let Some(text) = ctx.diagram_title else {
-        return Ok(None);
+    let text = match ctx.diagram_title {
+        Some(matched_text) => matched_text,
+        ::core::option::Option::None => return Ok(None),
     };
+
     let x = (bounds_box.stop_x - bounds_box.start_x) / 2.0 - 2.0 * ctx.diagram_margin_x;
     let y = -25.0;
     ctx.checkpoints.checkpoint()?;
@@ -148,7 +157,7 @@ fn prepare_diagram_title_geometry(
         .measurer
         .measure_svg_title_bbox_x(text, ctx.base_text_style);
     ctx.checkpoints.checkpoint()?;
-    // TitleBBoxX is center-relative; the pinned title has the default start anchor.
+
     let center = x + ctx
         .measurer
         .measure_svg_text_computed_length_px(text, ctx.base_text_style)
@@ -182,31 +191,48 @@ fn include_resolved_block_label_box_bounds(
         return Ok(());
     }
 
-    // Mermaid anchors each label box to the left edge of its resolved control-block frame. Consume
-    // the same family-owned block plan as terminal SVG emission instead of guessing that edge from
-    // a global actor position.
+
+
+
     let mut nodes_by_id = FixedMap::default();
+
     for (node_index, node) in ctx.nodes.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(node_index)?;
         nodes_by_id.insert(node.id.as_str(), node);
     }
+
     let mut edges_by_id = FixedMap::default();
+
     for (edge_index, edge) in ctx.edges.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(edge_index)?;
         edges_by_id.insert(edge.id.as_str(), edge);
     }
+
     let mut actor_nodes_by_id = FixedMap::default();
+
     for (actor_index, actor_id) in ctx.model.actor_order.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(actor_index)?;
         let node_id = format!("actor-top-{actor_id}");
-        if let Some(node) = nodes_by_id.get(node_id.as_str()).copied() {
-            actor_nodes_by_id.insert(actor_id.as_str(), node);
+
+        {
+            match nodes_by_id.get(node_id.as_str()).copied() {
+                Some(node) => {
+                    actor_nodes_by_id.insert(actor_id.as_str(), node);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
-    let Some(default_frame) = frame_x_from_actors(ctx.model, &nodes_by_id, ctx.checkpoints)? else {
-        return Ok(());
+    let default_frame = {
+        let optional_default_frame = frame_x_from_actors(ctx.model, &nodes_by_id, ctx.checkpoints)?;
+
+        match optional_default_frame {
+            Some(matched_default_frame) => matched_default_frame,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
+
     let (_, blocks) = collect_sequence_blocks(
         ctx.model,
         &actor_nodes_by_id,
@@ -215,14 +241,22 @@ fn include_resolved_block_label_box_bounds(
         ctx.block_layouts_by_id,
         ctx.checkpoints,
     )?;
+
     for (block_index, block) in blocks.into_iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(block_index)?;
-        let Some(layout) = block.layout() else {
-            continue;
+
+        let layout = {
+            let optional_layout = block.layout();
+
+            match optional_layout {
+                Some(matched_layout) => matched_layout,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let critical_section_count = match &block {
             SequenceBlock::Critical { sections, .. } => Some(sections.len()),
-            _ => None,
+            SequenceBlock::Alt { .. } | SequenceBlock::Opt { .. } | SequenceBlock::Break { .. } | SequenceBlock::Par { .. } | SequenceBlock::Loop { .. } => None,
         };
         let frame = resolved_block_frame_x(
             block.geometry(),
@@ -231,14 +265,18 @@ fn include_resolved_block_label_box_bounds(
             default_frame,
             critical_section_count,
         );
-        let Some((frame_left, frame_right, _)) = frame else {
-            continue;
+
+        let (frame_left, frame_right) = match frame {
+            Some((matched_frame_left, matched_frame_right, _)) => (matched_frame_left, matched_frame_right),
+            ::core::option::Option::None => continue,
         };
+
         bounds_box.include(
             frame_left,
             frame_right.max(frame_left + ctx.block_label_box_metrics.width()),
         );
     }
+
     Ok(())
 }
 
@@ -251,9 +289,9 @@ fn sequence_content_bounds(ctx: &SequenceRootBoundsContext<'_>) -> Result<Conten
         let right = n.x + n.width / 2.0;
         let bottom = n.y + n.height / 2.0;
         content.include_x(left, right);
-        // When `mirrorActors=false`, Mermaid does not draw footer actor boxes. The internal
-        // bottom actor placeholders still anchor lifelines in our layout, but upstream root
-        // sizing ignores those invisible placeholders and uses message/popup geometry instead.
+
+
+
         if ctx.mirror_actors || !n.id.starts_with("actor-bottom-") {
             content.include_y(bottom);
         }
@@ -264,21 +302,29 @@ fn sequence_content_bounds(ctx: &SequenceRootBoundsContext<'_>) -> Result<Conten
     if !ctx.mirror_actors {
         for (edge_index, e) in ctx.edges.iter().enumerate() {
             ctx.checkpoints.checkpoint_loop(edge_index)?;
+
             if e.id.starts_with("lifeline-") {
                 continue;
             }
+
             for (point_index, p) in e.points.iter().enumerate() {
                 ctx.checkpoints.checkpoint_loop(point_index)?;
                 content.include_y(p.y);
             }
-            if let Some(label) = e.label.as_ref() {
-                let margin = crate::config::config_f64(
-                    ctx.math_config.as_value(),
-                    &["sequence", "wrapPadding"],
-                )
-                .unwrap_or(10.0);
-                let first_y = super::sequence_drawn_text_y(label.y, margin, 0.0);
-                content.include_y(first_y + label.height / 2.0);
+
+            match e.label.as_ref() {
+                Some(label) => {
+                    let margin = match crate::config::config_f64(
+                        ctx.math_config.as_value(),
+                        &["sequence", "wrapPadding"],
+                    ) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 10.0,
+                    };
+                    let first_y = super::sequence_drawn_text_y(label.y, margin, 0.0);
+                    content.include_y(first_y + label.height / 2.0);
+                },
+                ::core::option::Option::None => {},
             }
         }
     }
@@ -297,19 +343,23 @@ fn include_footer_row_height(
         return Ok(());
     }
 
-    // Mermaid's footer draw pass bumps the shared bounds cursor by the maximum rendered actor
-    // height for the whole footer row, even when some actors were destroyed earlier and have their
-    // own `stopy`. The root viewport follows that cursor, not just each individual footer node.
+
+
+
     let mut max_footer_height = 0.0_f64;
+
     for (node_index, node) in ctx.nodes.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(node_index)?;
+
         if node.id.starts_with("actor-bottom-") {
             max_footer_height = max_footer_height.max(node.height);
         }
     }
+
     if max_footer_height > 0.0 {
         content.include_y(ctx.bottom_box_top_y + max_footer_height);
     }
+
     Ok(())
 }
 
@@ -322,17 +372,32 @@ fn include_actor_popup_widths(
     } else {
         "actor-top-"
     };
+
     for (node_index, node) in ctx.nodes.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(node_index)?;
-        let Some(actor_id) = node.id.strip_prefix(node_prefix) else {
-            continue;
+
+        let actor_id = {
+            let optional_actor_id = node.id.strip_prefix(node_prefix);
+
+            match optional_actor_id {
+                Some(matched_actor_id) => matched_actor_id,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(actor) = ctx.model.actors.get(actor_id) else {
-            continue;
+
+        let actor = {
+            let optional_actor = ctx.model.actors.get(actor_id);
+
+            match optional_actor {
+                Some(matched_actor) => matched_actor,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if actor.links.is_empty() {
             continue;
         }
+
         let panel_width = ctx
             .actor_popup_widths
             .get(actor_id)
@@ -341,6 +406,7 @@ fn include_actor_popup_widths(
         let left = node.x - node.width / 2.0;
         content.include_x(left, left + panel_width);
     }
+
     Ok(())
 }
 
@@ -348,25 +414,40 @@ fn include_actor_popup_bottoms(
     content: &mut ContentBounds,
     ctx: &SequenceRootBoundsContext<'_>,
 ) -> Result<()> {
-    // Mermaid's root `getBBox()` still includes actor popup menu panels when links/directives are
-    // present, even when they are emitted hidden by default. Account for the menu panel bottom so
-    // root height stays aligned with upstream for link-only fixtures.
+
+
+
     let node_prefix = if ctx.mirror_actors {
         "actor-bottom-"
     } else {
         "actor-top-"
     };
+
     for (node_index, node) in ctx.nodes.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(node_index)?;
-        let Some(actor_id) = node.id.strip_prefix(node_prefix) else {
-            continue;
+
+        let actor_id = {
+            let optional_actor_id = node.id.strip_prefix(node_prefix);
+
+            match optional_actor_id {
+                Some(matched_actor_id) => matched_actor_id,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(actor) = ctx.model.actors.get(actor_id) else {
-            continue;
+
+        let actor = {
+            let optional_actor = ctx.model.actors.get(actor_id);
+
+            match optional_actor {
+                Some(matched_actor) => matched_actor,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if actor.links.is_empty() {
             continue;
         }
+
         let popup_bottom = sequence_actor_popup_rect_height(
             &actor.actor_type,
             node.height,
@@ -381,6 +462,7 @@ fn include_actor_popup_bottoms(
         };
         content.include_y(popup_content_bottom.max(0.0));
     }
+
     Ok(())
 }
 
@@ -388,25 +470,41 @@ fn include_self_message_bounds(
     bounds_box: &mut ActorHorizontalBounds,
     ctx: &SequenceRootBoundsContext<'_>,
 ) -> Result<()> {
-    // Mermaid's self-message bounds insert expands horizontally by
-    // `dx = max(textWidth/2, conf.width/2)`, where `conf.width` is the configured actor width
-    // (150 by default). This can increase `box.stopx` by ~1px due to `from_x + 1` rounding
-    // behavior in message geometry, affecting viewBox width.
+
+
+
+
     for (message_index, msg) in ctx.model.messages.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(message_index)?;
-        let (Some(from), Some(to)) = (msg.from.as_deref(), msg.to.as_deref()) else {
-            continue;
+
+        let (from, to) = {
+            let outcome_from = (msg.from.as_deref(), msg.to.as_deref());
+
+            match outcome_from {
+                (Some(matched_from), Some(matched_to)) => (matched_from, matched_to),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => continue,
+            }
         };
+
         if from != to {
             continue;
         }
-        // Notes can use `from==to` for `rightOf`/`leftOf`; ignore them here.
+
+
         if msg.semantic_kind() == SequenceMessageKind::Note {
             continue;
         }
-        let Some(&i) = ctx.actor_index.get(from) else {
-            continue;
+
+        let i = {
+            let optional_i = ctx.actor_index.get(from);
+
+            match optional_i {
+                Some(&matched_i) => matched_i,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let center_x = ctx.actor_centers_x[i] + 1.0;
         let text = msg.message_text();
         let premeasured_bound = ctx
@@ -434,6 +532,7 @@ fn include_self_message_bounds(
         let dx = (text_w.max(1.0) / 2.0).max(ctx.actor_width_min / 2.0);
         bounds_box.include(center_x - dx, center_x + dx);
     }
+
     Ok(())
 }
 
@@ -445,6 +544,7 @@ struct ContentBounds {
 }
 
 impl ContentBounds {
+    #[must_use]
     fn new() -> Self {
         Self {
             min_x: f64::INFINITY,
@@ -462,12 +562,14 @@ impl ContentBounds {
         self.max_y = self.max_y.max(y);
     }
 
+    #[must_use]
     fn or_fallback(mut self, fallback_width: f64, fallback_max_y: f64) -> Self {
         if !self.min_x.is_finite() {
             self.min_x = 0.0;
             self.max_x = fallback_width;
             self.max_y = fallback_max_y;
         }
+
         self
     }
 }
@@ -478,6 +580,7 @@ struct ActorHorizontalBounds {
 }
 
 impl ActorHorizontalBounds {
+    #[must_use]
     fn from_content(min_x: f64, max_x: f64) -> Self {
         Self {
             start_x: min_x,
@@ -486,13 +589,18 @@ impl ActorHorizontalBounds {
     }
 
     fn include_actor_boxes(&mut self, ctx: &SequenceRootBoundsContext<'_>) -> Result<()> {
-        // addActorRenderingData records box coordinates before created-actor spacing.
+
         for (index, box_layout) in ctx.box_layouts.iter().enumerate() {
             ctx.checkpoints.checkpoint_loop(index)?;
-            if let Some(x) = box_layout.x {
-                self.include(x, x + box_layout.width);
+
+            match box_layout.x {
+                Some(x) => {
+                    self.include(x, x + box_layout.width);
+                },
+                ::core::option::Option::None => {},
             }
         }
+
         Ok(())
     }
 

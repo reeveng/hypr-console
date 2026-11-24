@@ -37,6 +37,7 @@ pub(crate) struct GitGraphCssBinding {
 }
 
 impl GitGraphCssBinding {
+    #[must_use]
     pub(super) fn resolve(config: &serde_json::Value, font_family: &str, font_size: &str) -> Self {
         let optional = |key: &str| config_string(config, &["themeVariables", key]);
         let color =
@@ -45,8 +46,11 @@ impl GitGraphCssBinding {
             config_css_number_or_string(config, &["themeVariables", key])
                 .unwrap_or_else(|| fallback.to_owned())
         };
-        let theme = config_string(config, &["theme"]).unwrap_or_else(|| "default".to_owned());
-        let border_color_array: Vec<String> = config
+        let theme = match config_string(config, &["theme"]) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => "default".to_owned(),
+        };
+        let border_color_array: Vec<String> = match config
             .pointer("/themeVariables/borderColorArray")
             .and_then(serde_json::Value::as_array)
             .map(|values| {
@@ -54,8 +58,10 @@ impl GitGraphCssBinding {
                     .iter()
                     .filter_map(|value| value.as_str().map(str::to_owned))
                     .collect()
-            })
-            .unwrap_or_default();
+            }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        };
         Self {
             common: PreparedCommonCss::with_resolved_typography(
                 config,
@@ -72,21 +78,25 @@ impl GitGraphCssBinding {
                     "dark" | "redux-dark" | "redux-dark-color" | "neo-dark"
                 ),
                 use_color_gen: super::gitgraph_theme_uses_color_gen(&theme),
-                use_gradient: config
+                use_gradient: match config
                     .pointer("/themeVariables/useGradient")
-                    .and_then(crate::config::json_bool)
-                    .unwrap_or(false),
+                    .and_then(crate::config::json_bool) {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => false,
+                },
                 has_border_color_array: !border_color_array.is_empty(),
             },
-            theme_color_limit: config_f64(config, &["themeVariables", "THEME_COLOR_LIMIT"])
+            theme_color_limit: match config_f64(config, &["themeVariables", "THEME_COLOR_LIMIT"])
                 .map(|v| {
                     if v.is_nan() {
                         1
                     } else {
                         v.clamp(1.0, 64.0) as usize
                     }
-                })
-                .unwrap_or(12),
+                }) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 12,
+            },
             named: std::array::from_fn(|i| GitGraphNamedPaint {
                 git: color(&format!("git{i}"), default_git_color(i)),
                 branch_label: color(&format!("gitBranchLabel{i}"), default_git_branch_label(i)),
@@ -116,6 +126,7 @@ impl GitGraphCssBinding {
     /// Resolves the gradient start using the same raw/typed fallback order for defs and CSS.
     ///
     /// An authored empty string is a value and must therefore remain distinct from absence.
+    #[must_use]
     pub(crate) fn gradient_start<'a>(&'a self, typed_primary_border: Option<&'a str>) -> &'a str {
         self.gradient_start
             .as_deref()
@@ -127,6 +138,7 @@ impl GitGraphCssBinding {
     ///
     /// The explicit stop and secondary border preserve their raw CSS spelling, including an
     /// authored empty string; only an absent value falls back to the selected start.
+    #[must_use]
     pub(crate) fn gradient_stop<'a>(&'a self, start: &'a str) -> &'a str {
         self.gradient_stop
             .as_deref()
@@ -146,14 +158,18 @@ pub(crate) struct GitGraphTerminalPaletteSources {
 }
 
 impl GitGraphTerminalPaletteSources {
+    #[must_use]
     pub(crate) fn branch_slot(self, slot: usize) -> crate::gitgraph::GitGraphPaletteSource {
         if !self.use_color_gen {
             crate::gitgraph::GitGraphPaletteSource::Git(slot)
         } else if self.use_neo_theme {
-            if slot == 0 {
-                crate::gitgraph::GitGraphPaletteSource::NodeBorder
-            } else {
-                crate::gitgraph::GitGraphPaletteSource::Git(slot)
+            match slot {
+                0 => {
+                    crate::gitgraph::GitGraphPaletteSource::NodeBorder
+                },
+                _ => {
+                    crate::gitgraph::GitGraphPaletteSource::Git(slot)
+                },
             }
         } else if !self.use_color_theme || slot == 0 || !self.has_border_color_array {
             crate::gitgraph::GitGraphPaletteSource::NodeBorder
@@ -162,6 +178,7 @@ impl GitGraphTerminalPaletteSources {
         }
     }
 
+    #[must_use]
     pub(crate) fn state(self) -> crate::gitgraph::GitGraphPaletteSource {
         if self.use_color_gen {
             crate::gitgraph::GitGraphPaletteSource::MainBackground
@@ -170,6 +187,7 @@ impl GitGraphTerminalPaletteSources {
         }
     }
 
+    #[must_use]
     pub(crate) fn branch_label_background(
         self,
         slot: usize,
@@ -187,6 +205,7 @@ impl GitGraphTerminalPaletteSources {
     }
 }
 
+#[must_use]
 fn default_git_color(i: usize) -> &'static str {
     match i {
         0 => "hsl(240, 100%, 46.2745098039%)",
@@ -200,6 +219,7 @@ fn default_git_color(i: usize) -> &'static str {
     }
 }
 
+#[must_use]
 fn default_git_branch_label(i: usize) -> &'static str {
     match i {
         0 | 3 => "#ffffff",
@@ -207,6 +227,7 @@ fn default_git_branch_label(i: usize) -> &'static str {
     }
 }
 
+#[must_use]
 fn default_git_inv(i: usize) -> &'static str {
     match i {
         0 => "hsl(60, 100%, 3.7254901961%)",

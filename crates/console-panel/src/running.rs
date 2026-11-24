@@ -34,19 +34,22 @@ use console_core_external_programs::Program;
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_operating_system_linux::program_runtime::commands::{Linux, Timing};
-use console_program_contract::Command;
+use console_program_contract::{Command, Executable};
 use console_program_runtime::commands::{self as execution_commands, Launch, Platform, Streams};
 
 pub use console_operating_system_linux::program_runtime::commands::reap_in_background;
 
 pub fn run_output(program: Program, rest: &[&str]) -> Result<String, Never> {
   let Ok(command) = Command::external(program, rest);
-  let mut platform = Linux {
-    timing: Timing::Background,
-  };
+
+  run_command_output(&command)
+}
+
+pub fn run_command_output(command: &Command) -> Result<String, Never> {
+  let Ok(mut platform) = Linux::new(Timing::Background);
 
   Ok(
-    match execution_commands::run(&mut platform, &command, Streams::COLLECT) {
+    match execution_commands::run(&mut platform, command, Streams::COLLECT) {
       Ok(answer) => answer.output.trim().to_string(),
       Err(_would_not_start) => String::new(),
     },
@@ -64,9 +67,7 @@ pub fn say(kind: &str, said: Notification<'_>) -> Result<(), Never> {
     InternalProgram::ConsoleSay,
     &[kind, said.summary, said.body],
   );
-  let mut platform = Linux {
-    timing: Timing::Background,
-  };
+  let Ok(mut platform) = Linux::new(Timing::Background);
 
   match execution_commands::spawn(&mut platform, &command, Streams::QUIET, Launch::Background) {
     Ok(()) => {}
@@ -80,29 +81,31 @@ pub fn say(kind: &str, said: Notification<'_>) -> Result<(), Never> {
 }
 
 pub fn words_of(command: &Command) -> Result<Vec<String>, Never> {
-  let platform = Linux {
-    timing: Timing::Inherited,
-  };
-  let invocation = match execution_commands::resolve(&platform, command) {
-    Ok(invocation) => invocation,
-    Err(_unresolved) => return Ok(Vec::new()),
-  };
+  let program = match command.program {
+    Executable::External(external) => {
+      let Ok(name) = external.name();
 
-  let program = match invocation.program.to_str() {
-    Some(text) => text,
-    None => {
-      console_core_logging::warn!(
-        "console-panel: a command label cannot represent {:?}",
-        invocation.program
-      );
+      name.to_owned()
+    }
+    Executable::Internal(internal) => {
+      let Ok(path) = internal.at();
 
-      return Ok(Vec::new());
+      match path.into_os_string().into_string() {
+        Ok(text) => text,
+        Err(unrepresentable) => {
+          console_core_logging::warn!(
+            "console-panel: a command label cannot represent {unrepresentable:?}"
+          );
+
+          return Ok(Vec::new());
+        }
+      }
     }
   };
 
   Ok(
-    std::iter::once(program.to_owned())
-      .chain(invocation.arguments)
+    std::iter::once(program)
+      .chain(command.arguments.iter().cloned())
       .collect(),
   )
 }
@@ -128,9 +131,7 @@ pub fn on_exit(
       Some(invocation_2) => invocation_2,
       None => return,
     };
-    let mut platform = Linux {
-      timing: Timing::Background,
-    };
+    let Ok(mut platform) = Linux::new(Timing::Background);
     let exit = match platform.run(&invocation_3, Streams::COLLECT, None) {
       Ok(completion) => match completion.status {
         console_program_contract::ExitStatus::Success => Exit::Success,
@@ -160,9 +161,7 @@ pub fn left_running(arguments: &[String]) -> Result<(), Never> {
     Some(invocation_2) => invocation_2,
     None => return Ok(()),
   };
-  let mut platform = Linux {
-    timing: Timing::Pressed,
-  };
+  let Ok(mut platform) = Linux::new(Timing::Pressed);
 
   match platform.spawn(&invocation_3, Streams::QUIET, Launch::Application) {
     Ok(()) => {}

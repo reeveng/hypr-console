@@ -94,6 +94,7 @@ struct RadarSemanticSource {
 }
 
 impl RadarDb {
+    #[must_use]
     fn new() -> Self {
         Self {
             title: None,
@@ -111,6 +112,7 @@ impl RadarDb {
         control: &crate::OperationControl,
     ) -> crate::OperationControlResult<()> {
         let mut rendered = Vec::with_capacity(axes.len());
+
         for axis in axes {
             control.checkpoint()?;
             rendered.push(RadarAxis {
@@ -121,6 +123,7 @@ impl RadarDb {
                 name: axis.name.text,
             });
         }
+
         self.axes = rendered;
         Ok(())
     }
@@ -131,6 +134,7 @@ impl RadarDb {
         control: &crate::OperationControl,
     ) -> crate::OperationControlResult<Result<()>> {
         let mut rendered = Vec::with_capacity(curves.len());
+
         for curve in curves {
             control.checkpoint()?;
             let curve_span = curve.span;
@@ -152,6 +156,7 @@ impl RadarDb {
                 entries,
             });
         }
+
         self.curves = rendered;
         Ok(Ok(()))
     }
@@ -163,6 +168,7 @@ impl RadarDb {
     ) -> crate::OperationControlResult<()> {
         let mut last: std::collections::HashMap<String, OptionValueAst> =
             std::collections::HashMap::new();
+
         for opt in options {
             control.checkpoint()?;
             last.insert(opt.name, opt.value);
@@ -171,6 +177,7 @@ impl RadarDb {
         if let Some(OptionValueAst::Bool(v)) = last.get("showLegend") {
             self.options.show_legend = *v;
         }
+
         if let Some(OptionValueAst::Number(v)) = last.get("ticks") {
             self.options.ticks = if v.as_f64().is_some_and(|ticks| ticks > MAX_TICKS as f64) {
                 Value::from(MAX_TICKS)
@@ -178,19 +185,24 @@ impl RadarDb {
                 v.clone()
             };
         }
+
         if let Some(OptionValueAst::Number(v)) = last.get("max") {
             self.options.max = Some(v.clone());
         }
+
         if let Some(OptionValueAst::Number(v)) = last.get("min") {
             self.options.min = v.clone();
         }
+
         if let Some(OptionValueAst::Graticule(v)) = last.get("graticule") {
             self.options.graticule = v.clone();
         }
+
         Ok(())
     }
 
     #[inline]
+    #[must_use]
     fn into_model(self) -> RadarDiagramModel {
         RadarDiagramModel {
             title: self.title,
@@ -292,24 +304,30 @@ fn parse_radar_statement(
 ) -> crate::OperationControlResult<std::result::Result<RadarParsedStatement, String>> {
     control.checkpoint()?;
     let (trimmed, trimmed_start) = trim_start_with_source_offset(stmt, stmt_start);
-    if let Some(rest) = trimmed.strip_prefix("axis") {
-        let (rest, rest_start) = trim_start_with_source_offset(rest, trimmed_start + "axis".len());
-        if rest.is_empty() {
-            return Ok(Err(
-                "axis statement must include at least one axis".to_string()
-            ));
-        }
-        let axes = match parse_axes_list(rest, rest_start, control)? {
-            Ok(axes) => axes,
-            Err(error) => return Ok(Err(error)),
-        };
-        return Ok(Ok(RadarParsedStatement {
-            event: RadarStatementEvent::Axes(axes),
-        }));
+
+    match trimmed.strip_prefix("axis") {
+        Some(rest) => {
+            let (rest_2, rest_start) = trim_start_with_source_offset(rest, trimmed_start + "axis".len());
+
+            if rest_2.is_empty() {
+                return Ok(Err(
+                    "axis statement must include at least one axis".to_string()
+                ));
+            }
+
+            let axes = match { let checked_value_5 = parse_axes_list(rest_2, rest_start, control)?; checked_value_5 } {
+                Ok(axes) => axes,
+                Err(error) => return Ok(Err(error)),
+            };
+            return Ok(Ok(RadarParsedStatement {
+                event: RadarStatementEvent::Axes(axes),
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
     if trimmed.starts_with("curve") {
-        let curves = match parse_curves_stmt(trimmed, trimmed_start, control)? {
+        let curves = match { let checked_value_2 = parse_curves_stmt(trimmed, trimmed_start, control)?; checked_value_2 } {
             Ok(curves) => curves,
             Err(error) => return Ok(Err(error)),
         };
@@ -318,25 +336,33 @@ fn parse_radar_statement(
         }));
     }
 
-    let options = match parse_option_list_stmt(trimmed, trimmed_start, control)? {
+    let options = match { let checked_value_3 = parse_option_list_stmt(trimmed, trimmed_start, control)?; checked_value_3 } {
         Ok(options) => options,
         Err(error) => return Ok(Err(error)),
     };
-    if let Some(options) = options {
-        return Ok(Ok(RadarParsedStatement {
-            event: RadarStatementEvent::Options(options),
-        }));
+
+    match options {
+        Some(options_2) => {
+            return Ok(Ok(RadarParsedStatement {
+                event: RadarStatementEvent::Options(options_2),
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
     let option = match parse_option_stmt(trimmed, trimmed_start) {
         Ok(option) => option,
         Err(error) => return Ok(Err(error)),
     };
-    if let Some(option) = option {
-        control.checkpoint()?;
-        return Ok(Ok(RadarParsedStatement {
-            event: RadarStatementEvent::Options(vec![option]),
-        }));
+
+    match option {
+        Some(option_2) => {
+            control.checkpoint()?;
+            return Ok(Ok(RadarParsedStatement {
+                event: RadarStatementEvent::Options(vec![option_2]),
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
     Ok(Err(format!("unexpected radar statement: {}", stmt.trim())))
@@ -461,6 +487,7 @@ fn apply_radar_statement_controlled(
             }
         }
     }
+
     Ok(())
 }
 
@@ -470,50 +497,69 @@ fn compute_curve_entries_controlled(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<Result<Vec<Value>>> {
     control.checkpoint()?;
-    if entries.is_empty() {
-        return Ok(Ok(Vec::new()));
+
+    match entries {
+        [] => {
+            return Ok(Ok(Vec::new()));
+        },
+        [_, ..] => {},
     }
 
     if entries[0].axis.is_none() {
         let mut values = Vec::with_capacity(entries.len());
+
         for entry in entries {
             control.checkpoint()?;
             values.push(entry.value.value.clone());
         }
+
         return Ok(Ok(values));
     }
 
-    if axes.is_empty() {
-        return Ok(Err(Error::diagram_parse_fallback(
-            "radar".to_string(),
-            "Axes must be populated before curves for reference entries".to_string(),
-        )));
+    match axes {
+        [] => {
+            return Ok(Err(Error::diagram_parse_fallback(
+                "radar".to_string(),
+                "Axes must be populated before curves for reference entries".to_string(),
+            )));
+        },
+        [_, ..] => {},
     }
 
     let mut entries_by_axis = std::collections::HashMap::with_capacity(entries.len());
+
     for entry in entries {
         control.checkpoint()?;
-        if let Some(axis) = &entry.axis {
-            entries_by_axis.entry(axis.text.as_str()).or_insert(entry);
+
+        match &entry.axis {
+            Some(axis) => {
+                entries_by_axis.entry(axis.text.as_str()).or_insert(entry);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
     let mut values = Vec::with_capacity(axes.len());
+
     for axis in axes {
         control.checkpoint()?;
+
         let Some(found) = entries_by_axis.get(axis.name.as_str()) else {
             return Ok(Err(Error::diagram_parse_fallback(
                 "radar".to_string(),
                 format!("Missing entry for axis {}", axis.label),
             )));
         };
+
         values.push(found.value.value.clone());
     }
+
     Ok(Ok(values))
 }
 
 #[cfg(feature = "presentation")]
 impl RadarSemanticSource {
+    #[must_use]
     fn into_render_parts(self) -> (RadarDiagramModel, RadarOutputData) {
         match self.model {
             Some(model) => (model, RadarOutputData::Model),
@@ -658,6 +704,7 @@ pub(crate) fn parse_radar_semantic_model_controlled(
                     },
                 }
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 crate::family::SemanticConstruction {
@@ -680,7 +727,7 @@ fn construct_radar_semantic_source_controlled(
     #[cfg(test)]
     crate::diagrams::langium_common::record_family_syntax_construction("radar");
 
-    let body = match radar_body_start(code, control)? {
+    let body = match { let checked_value = radar_body_start(code, control)?; checked_value } {
         Ok(Some(body)) => body,
         Ok(None) => {
             return Ok(Ok(RadarSemanticSource {
@@ -726,34 +773,43 @@ fn construct_radar_semantic_source_controlled(
 
     while offset < code.len() {
         control.checkpoint()?;
-        if let Some(parsed) = parse_langium_common(code, offset) {
-            if let Some(diagnostic) = &parsed.diagnostic {
-                #[cfg(feature = "editor-facts")]
-                if let Some(facts) = editor_facts.as_mut() {
-                    push_langium_common_recovery(facts, diagnostic);
+
+        match parse_langium_common(code, offset) {
+            Some(parsed) => {
+                match &parsed.diagnostic {
+                    Some(diagnostic) => {
+                        #[cfg(feature = "editor-facts")]
+                        if let Some(facts) = editor_facts.as_mut() {
+                            push_langium_common_recovery(facts, diagnostic);
+                        }
+                        first_error.get_or_insert_with(|| {
+                            Error::diagram_parse_insertion_point(
+                                diagram_type.to_string(),
+                                diagnostic.message.clone(),
+                                diagnostic.span.start,
+                            )
+                        });
+                    },
+                    ::core::option::Option::None => {},
                 }
-                first_error.get_or_insert_with(|| {
-                    Error::diagram_parse_insertion_point(
-                        diagram_type.to_string(),
-                        diagnostic.message.clone(),
-                        diagnostic.span.start,
-                    )
-                });
-            }
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                push_langium_common_editor_fact(facts, &parsed.fact, "radar");
-            }
-            common.push(parsed.fact);
-            offset += parsed.consumed;
-            continue;
+
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    push_langium_common_editor_fact(facts, &parsed.fact, "radar");
+                }
+                common.push(parsed.fact);
+                offset += parsed.consumed;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let (statement, statement_start, next_offset) = radar_statement_at(code, offset, control)?;
         offset = next_offset;
+
         if statement.is_empty() {
             continue;
         }
@@ -801,28 +857,37 @@ fn construct_radar_semantic_source_controlled(
     db.acc_title = common.acc_title;
     db.acc_descr = common.acc_descr;
     db.set_axes_controlled(axes, control)?;
-    if let Err(error) = db.set_curves_controlled(curves, control)? {
-        #[cfg(feature = "editor-facts")]
-        if let Some(facts) = editor_facts.take() {
-            editor_facts = Some(ensure_editor_recovery_from_error(
-                facts,
-                &error,
-                recovery_fallback_span(code),
-            ));
-        }
-        if first_error.is_none() {
-            first_error = Some(error);
-        }
+
+    match { let checked_value_4 = db.set_curves_controlled(curves, control)?; checked_value_4 } {
+        Err(error) => {
+            #[cfg(feature = "editor-facts")]
+            if let Some(facts) = editor_facts.take() {
+                editor_facts = Some(ensure_editor_recovery_from_error(
+                    facts,
+                    &error,
+                    recovery_fallback_span(code),
+                ));
+            }
+
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        },
+        ::core::result::Result::Ok(_) => {},
     }
+
     db.set_options_controlled(options, control)?;
     control.checkpoint()?;
 
-    if let Some(error) = first_error {
-        return Ok(Err(family::CombinedSemanticFailure::new(
-            error,
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-        )));
+    match first_error {
+        Some(error) => {
+            return Ok(Err(family::CombinedSemanticFailure::new(
+                error,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            )));
+        },
+        ::core::option::Option::None => {},
     }
 
     Ok(Ok(RadarSemanticSource {
@@ -832,6 +897,7 @@ fn construct_radar_semantic_source_controlled(
     }))
 }
 
+#[must_use]
 fn radar_parse_failure(
     error: Error,
     #[cfg(feature = "editor-facts")] editor_facts: Option<EditorSemanticFacts>,
@@ -848,6 +914,7 @@ fn radar_parse_failure(
     )
 }
 
+#[must_use]
 fn strip_inline_comment(line: &str) -> &str {
     strip_langium_inline_comment(line)
 }
@@ -862,21 +929,25 @@ fn radar_body_start(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<Result<Option<RadarBodyStart>>> {
     let mut offset = 0usize;
+
     while offset < code.len() {
         control.checkpoint()?;
         let (line, next_offset) = physical_line(code, offset);
         let visible = strip_inline_comment(line);
         let trimmed = visible.trim_start();
+
         if trimmed.trim().is_empty() {
             offset = next_offset;
             continue;
         }
+
         let Some(after_keyword) = trimmed.strip_prefix("radar-beta") else {
             return Ok(Err(Error::diagram_parse_fallback(
                 "radar".to_string(),
                 "expected radar-beta".to_string(),
             )));
         };
+
         if after_keyword
             .chars()
             .next()
@@ -897,11 +968,14 @@ fn radar_body_start(
             .map(char::len_utf8)
             .sum::<usize>();
         let colon_start = body_start + whitespace;
+
         if code.as_bytes().get(colon_start) == Some(&b':') {
             body_start = colon_start + 1;
         }
+
         return Ok(Ok(Some(RadarBodyStart { offset: body_start })));
     }
+
     Ok(Ok(None))
 }
 
@@ -914,10 +988,15 @@ fn radar_statement_at(
     let (line, mut next_offset) = physical_line(code, offset);
     let visible = strip_inline_comment(line);
     let trimmed = visible.trim();
-    let stmt_start = offset + visible.find(trimmed).unwrap_or(0);
+    let stmt_start = offset + match visible.find(trimmed) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0,
+    };
+
     if trimmed.is_empty() {
         return Ok((String::new(), stmt_start, next_offset));
     }
+
     let mut stmt = mask_radar_inline_comments(&code[stmt_start..next_offset], control)?;
     let mut brace_balance = RadarBraceBalance::default();
     brace_balance.scan(&stmt, control)?;
@@ -934,6 +1013,7 @@ fn radar_statement_at(
             let segment = mask_radar_inline_comments(&code[segment_start..next_offset], control)?;
             brace_balance.scan(&segment, control)?;
             stmt.push_str(&segment);
+
             if brace_balance.is_balanced() {
                 break;
             }
@@ -949,6 +1029,7 @@ fn mask_radar_inline_comments(
 ) -> crate::OperationControlResult<String> {
     let mut masked = source.as_bytes().to_vec();
     let mut line_start = 0usize;
+
     while line_start < source.len() {
         control.checkpoint()?;
         let line_end = source[line_start..]
@@ -961,22 +1042,28 @@ fn mask_radar_inline_comments(
         };
         let line = &source[line_start..content_end];
         let visible = strip_langium_inline_comment(line);
+
         if visible.len() < line.len() {
             masked[line_start + visible.len()..content_end].fill(b' ');
         }
+
         line_start = (line_end + usize::from(line_end < source.len())).min(source.len());
     }
+
     Ok(String::from_utf8(masked)
         .expect("comment masking preserves UTF-8 before the comment marker"))
 }
 
+#[must_use]
 fn trim_start_with_source_offset(input: &str, input_start: usize) -> (&str, usize) {
     let trimmed = input.trim_start();
     (trimmed, input_start + input.len() - trimmed.len())
 }
 
+#[must_use]
 fn physical_line(source: &str, offset: usize) -> (&str, usize) {
     let rest = &source[offset..];
+
     if let Some(newline) = rest.find('\n') {
         let line = rest[..newline]
             .strip_suffix('\r')
@@ -1002,37 +1089,54 @@ impl RadarBraceBalance {
         control: &crate::OperationControl,
     ) -> crate::OperationControlResult<()> {
         for (offset, ch) in source.char_indices() {
-            if offset % 4096 < ch.len_utf8() {
+            if ::core::primitive::usize::wrapping_rem(offset, 4096) < ch.len_utf8() {
                 control.checkpoint()?;
             }
+
             if self.escaped {
                 self.escaped = false;
                 continue;
             }
+
             if ch == '\\' && self.in_quote.is_some() {
                 self.escaped = true;
                 continue;
             }
-            if let Some(quote) = self.in_quote {
-                if ch == quote {
-                    self.in_quote = None;
-                }
-                continue;
+
+            match self.in_quote {
+                Some(quote) => {
+                    if ch == quote {
+                        self.in_quote = None;
+                    }
+
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
+
             if ch == '"' || ch == '\'' {
                 self.in_quote = Some(ch);
                 continue;
             }
-            if ch == '{' {
-                self.saw_opening_brace = true;
-                self.depth += 1;
-            } else if ch == '}' {
-                self.depth -= 1;
+
+            match ch {
+                '{' => {
+                    self.saw_opening_brace = true;
+                    self.depth += 1;
+                },
+                _ => match ch {
+                    '}' => {
+                        self.depth -= 1;
+                    },
+                    _ => {},
+                },
             }
         }
+
         Ok(())
     }
 
+    #[must_use]
     fn is_balanced(&self) -> bool {
         self.depth == 0
     }
@@ -1045,44 +1149,68 @@ fn parse_axes_list(
 ) -> crate::OperationControlResult<std::result::Result<Vec<AxisAst>, String>> {
     let mut p = TokenParser::new(input, input_start);
     let mut out = Vec::new();
+
     loop {
         control.checkpoint()?;
         p.skip_ws();
+
         if p.eof() {
             break;
         }
-        let Some(name) = p.parse_id() else {
-            return Ok(Err("expected axis id".to_string()));
+
+        let name = {
+            let optional_name = p.parse_id();
+
+            match optional_name {
+                Some(matched_name) => matched_name,
+                ::core::option::Option::None => return Ok(Err("expected axis id".to_string())),
+            }
         };
+
         p.skip_ws();
         let label = if p.try_consume('[') {
             p.skip_ws();
-            let Some(s) = p.parse_quoted_string() else {
-                return Ok(Err("expected quoted axis label".to_string()));
+
+            let s = {
+                let optional_s = p.parse_quoted_string();
+
+                match optional_s {
+                    Some(matched_s) => matched_s,
+                    ::core::option::Option::None => return Ok(Err("expected quoted axis label".to_string())),
+                }
             };
+
             p.skip_ws();
+
             if !p.try_consume(']') {
                 return Ok(Err("expected ']'".to_string()));
             }
+
             Some(s)
         } else {
             None
         };
         out.push(AxisAst { name, label });
         p.skip_ws();
+
         if p.try_consume(',') {
-            // Upstream Mermaid rejects a trailing comma at the end of an `axis` list.
+
             p.skip_ws();
+
             if p.eof() {
                 return Ok(Err("unexpected trailing ',' in axis list".to_string()));
             }
+
             continue;
         }
+
         if p.eof() {
             break;
         }
+
         return Ok(Err("expected ',' or end of axis list".to_string()));
     }
+
     Ok(Ok(out))
 }
 
@@ -1092,29 +1220,41 @@ fn parse_curves_stmt(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<std::result::Result<Vec<CurveAst>, String>> {
     control.checkpoint()?;
-    let (input, input_start) = trim_start_with_source_offset(input, input_start);
-    let Some(rest) = input.strip_prefix("curve") else {
-        return Ok(Err("expected curve".to_string()));
+    let (input_2, input_start_2) = trim_start_with_source_offset(input, input_start);
+
+    let rest = {
+        let optional_rest = input_2.strip_prefix("curve");
+
+        match optional_rest {
+            Some(matched_rest) => matched_rest,
+            ::core::option::Option::None => return Ok(Err("expected curve".to_string())),
+        }
     };
-    let (rest, rest_start) = trim_start_with_source_offset(rest, input_start + "curve".len());
-    if rest.trim().is_empty() {
+
+    let (rest_2, rest_start) = trim_start_with_source_offset(rest, input_start_2 + "curve".len());
+
+    if rest_2.trim().is_empty() {
         return Ok(Err("expected curve id".to_string()));
     }
 
-    let chunks = split_top_level(rest, ',', control)?;
+    let chunks = split_top_level(rest_2, ',', control)?;
     let mut curves = Vec::new();
+
     for (chunk_offset, chunk) in chunks {
         control.checkpoint()?;
-        let (chunk, chunk_start) = trim_start_with_source_offset(chunk, rest_start + chunk_offset);
-        let chunk = chunk.trim_end();
-        if chunk.is_empty() {
+        let (chunk_2, chunk_start) = trim_start_with_source_offset(chunk, rest_start + chunk_offset);
+        let chunk_3 = chunk_2.trim_end();
+
+        if chunk_3.is_empty() {
             return Ok(Err("expected curve after ','".to_string()));
         }
-        match parse_curve(chunk, chunk_start, control)? {
+
+        match { let checked_value_4 = parse_curve(chunk_3, chunk_start, control)?; checked_value_4 } {
             Ok(curve) => curves.push(curve),
             Err(error) => return Ok(Err(error)),
         }
     }
+
     Ok(Ok(curves))
 }
 
@@ -1127,19 +1267,35 @@ fn parse_curve(
     let (name, label, entries_str, entries_start) = {
         let mut p = TokenParser::new(input, input_start);
         p.skip_ws();
-        let Some(name) = p.parse_id() else {
-            return Ok(Err("expected curve id".to_string()));
+
+        let name = {
+            let optional_name = p.parse_id();
+
+            match optional_name {
+                Some(matched_name) => matched_name,
+                ::core::option::Option::None => return Ok(Err("expected curve id".to_string())),
+            }
         };
+
         p.skip_ws();
         let label = if p.try_consume('[') {
             p.skip_ws();
-            let Some(s) = p.parse_quoted_string() else {
-                return Ok(Err("expected quoted curve label".to_string()));
+
+            let s = {
+                let optional_s = p.parse_quoted_string();
+
+                match optional_s {
+                    Some(matched_s) => matched_s,
+                    ::core::option::Option::None => return Ok(Err("expected quoted curve label".to_string())),
+                }
             };
+
             p.skip_ws();
+
             if !p.try_consume(']') {
                 return Ok(Err("expected ']'".to_string()));
             }
+
             p.skip_ws();
             Some(s)
         } else {
@@ -1156,18 +1312,21 @@ fn parse_curve(
         };
 
         p.skip_ws();
+
         if !p.eof() {
             return Ok(Err("unexpected trailing tokens after curve".to_string()));
         }
+
         (name, label, entries_str, entries_start)
     };
-    let entries = match parse_entries(entries_str, entries_start, control)? {
+    let entries = match { let checked_value = parse_entries(entries_str, entries_start, control)?; checked_value } {
         Ok(entries) => entries,
         Err(error) => return Ok(Err(error)),
     };
 
     let has_detailed = entries.iter().any(|e| e.axis.is_some());
     let has_numeric = entries.iter().any(|e| e.axis.is_none());
+
     if has_detailed && has_numeric {
         return Ok(Err(
             "mixed detailed and numeric entries are not supported".to_string()
@@ -1189,49 +1348,73 @@ fn parse_entries(
 ) -> crate::OperationControlResult<std::result::Result<Vec<EntryAst>, String>> {
     let items = split_top_level(input, ',', control)?;
     let mut out = Vec::new();
+
     for (item_offset, item) in items {
         control.checkpoint()?;
-        let (item, item_start) = trim_start_with_source_offset(item, input_start + item_offset);
-        let item = item.trim_end();
-        if item.is_empty() {
+        let (item_2, item_start) = trim_start_with_source_offset(item, input_start + item_offset);
+        let item_3 = item_2.trim_end();
+
+        if item_3.is_empty() {
             return Ok(Err("expected curve entry".to_string()));
         }
 
-        // Try detailed first: <ID> ':'? <NUMBER>
-        let mut p = TokenParser::new(item, item_start);
+
+        let mut p = TokenParser::new(item_3, item_start);
         p.skip_ws();
         let checkpoint = p.checkpoint();
-        if let Some(axis) = p.parse_id() {
-            p.skip_ws();
-            p.try_consume(':');
-            p.skip_ws();
-            if let Some(num) = p.parse_number_value() {
+
+        match p.parse_id() {
+            Some(axis) => {
                 p.skip_ws();
-                if p.eof() {
-                    out.push(EntryAst {
-                        axis: Some(axis),
-                        value: num,
-                    });
-                    continue;
+                p.try_consume(':');
+                p.skip_ws();
+
+                {
+                    match p.parse_number_value() {
+                        Some(num) => {
+                            p.skip_ws();
+
+                            if p.eof() {
+                                out.push(EntryAst {
+                                    axis: Some(axis),
+                                    value: num,
+                                });
+                                continue;
+                            }
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
-            }
+            },
+            ::core::option::Option::None => {},
         }
+
         p.rollback(checkpoint);
 
-        // Otherwise numeric: <NUMBER>
+
         p.skip_ws();
-        let Some(num) = p.parse_number_value() else {
-            return Ok(Err("expected entry number".to_string()));
+
+        let num = {
+            let optional_num = p.parse_number_value();
+
+            match optional_num {
+                Some(matched_num) => matched_num,
+                ::core::option::Option::None => return Ok(Err("expected entry number".to_string())),
+            }
         };
+
         p.skip_ws();
+
         if !p.eof() {
             return Ok(Err("unexpected trailing tokens in entry".to_string()));
         }
+
         out.push(EntryAst {
             axis: None,
             value: num,
         });
     }
+
     Ok(Ok(out))
 }
 
@@ -1261,9 +1444,11 @@ fn parse_option_stmt(
             .parse_bool()
             .ok_or_else(|| "expected boolean".to_string())?;
         p.skip_ws();
+
         if !p.eof() {
             return Err("unexpected trailing tokens after option".to_string());
         }
+
         return Ok(Some(OptionAst {
             name,
             value: OptionValueAst::Bool(value),
@@ -1276,13 +1461,17 @@ fn parse_option_stmt(
         let value = p
             .parse_id()
             .ok_or_else(|| "expected graticule".to_string())?;
+
         if value.text != "circle" && value.text != "polygon" {
             return Err("expected graticule".to_string());
         }
+
         p.skip_ws();
+
         if !p.eof() {
             return Err("unexpected trailing tokens after option".to_string());
         }
+
         return Ok(Some(OptionAst {
             name,
             value: OptionValueAst::Graticule(value.text),
@@ -1295,9 +1484,11 @@ fn parse_option_stmt(
         .parse_number_value()
         .ok_or_else(|| "expected number".to_string())?;
     p.skip_ws();
+
     if !p.eof() {
         return Err("unexpected trailing tokens after option".to_string());
     }
+
     Ok(Some(OptionAst {
         name,
         value: OptionValueAst::Number(value.value),
@@ -1312,29 +1503,39 @@ fn parse_option_list_stmt(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<std::result::Result<Option<Vec<OptionAst>>, String>> {
     let chunks = split_top_level(input, ',', control)?;
+
     if chunks.len() == 1 {
         return Ok(Ok(None));
     }
+
     let mut out = Vec::new();
+
     for (chunk_offset, chunk) in chunks {
         control.checkpoint()?;
-        let (chunk, chunk_start) = trim_start_with_source_offset(chunk, input_start + chunk_offset);
-        let chunk = chunk.trim_end();
-        if chunk.is_empty() {
+        let (chunk_2, chunk_start) = trim_start_with_source_offset(chunk, input_start + chunk_offset);
+        let chunk_3 = chunk_2.trim_end();
+
+        if chunk_3.is_empty() {
             return Ok(Err("expected option after ','".to_string()));
         }
-        let opt = match parse_option_stmt(chunk, chunk_start) {
+
+        let opt = match parse_option_stmt(chunk_3, chunk_start) {
             Ok(opt) => opt,
             Err(error) => return Ok(Err(error)),
         };
-        let Some(opt) = opt else {
-            return Ok(Ok(None));
+
+        let opt_2 = match opt {
+            Some(matched_opt) => matched_opt,
+            ::core::option::Option::None => return Ok(Ok(None)),
         };
-        out.push(opt);
+
+        out.push(opt_2);
     }
+
     if out.is_empty() {
         return Ok(Ok(None));
     }
+
     Ok(Ok(Some(out)))
 }
 
@@ -1349,28 +1550,41 @@ fn split_top_level<'a>(
     let mut escaped = false;
     let mut brace_depth = 0i64;
     let mut bracket_depth = 0i64;
+
     for (offset, ch) in input.char_indices() {
-        if offset % 4096 < ch.len_utf8() {
+        if ::core::primitive::usize::wrapping_rem(offset, 4096) < ch.len_utf8() {
             control.checkpoint()?;
         }
+
         if escaped {
             escaped = false;
             continue;
         }
-        if let Some(q) = in_quote {
-            if ch == '\\' {
-                escaped = true;
+
+        match in_quote {
+            Some(q) => {
+                match ch {
+                    '\\' => {
+                        escaped = true;
+                        continue;
+                    },
+                    _ => {},
+                }
+
+                if ch == q {
+                    in_quote = None;
+                }
+
                 continue;
-            }
-            if ch == q {
-                in_quote = None;
-            }
-            continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         if ch == '"' || ch == '\'' {
             in_quote = Some(ch);
             continue;
         }
+
         match ch {
             '{' => brace_depth += 1,
             '}' => brace_depth -= 1,
@@ -1378,12 +1592,14 @@ fn split_top_level<'a>(
             ']' => bracket_depth -= 1,
             _ => {}
         }
+
         if ch == delim && brace_depth == 0 && bracket_depth == 0 {
             out.push((chunk_start, &input[chunk_start..offset]));
             chunk_start = offset + ch.len_utf8();
             continue;
         }
     }
+
     out.push((chunk_start, &input[chunk_start..]));
     Ok(out)
 }
@@ -1400,6 +1616,7 @@ struct TokenParser<'input> {
 }
 
 impl<'input> TokenParser<'input> {
+    #[must_use]
     fn new(input: &'input str, base_offset: usize) -> Self {
         Self {
             input,
@@ -1408,6 +1625,7 @@ impl<'input> TokenParser<'input> {
         }
     }
 
+    #[must_use]
     fn checkpoint(&self) -> TokenParserCheckpoint {
         TokenParserCheckpoint { pos: self.pos }
     }
@@ -1416,6 +1634,7 @@ impl<'input> TokenParser<'input> {
         self.pos = checkpoint.pos;
     }
 
+    #[must_use]
     fn eof(&self) -> bool {
         self.pos >= self.input.len()
     }
@@ -1426,10 +1645,12 @@ impl<'input> TokenParser<'input> {
                 self.pos += ch.len_utf8();
                 continue;
             }
+
             break;
         }
     }
 
+    #[must_use]
     fn peek_char(&self) -> Option<char> {
         self.input[self.pos..].chars().next()
     }
@@ -1449,11 +1670,14 @@ impl<'input> TokenParser<'input> {
         let s = &self.input[self.pos..];
         let mut chars = s.chars();
         let first = chars.next()?;
+
         if !(first.is_ascii_alphanumeric() || first == '_') {
             return None;
         }
+
         let mut idx = first.len_utf8();
         let mut last = first;
+
         for ch in chars {
             if ch.is_ascii_alphanumeric() || ch == '_' || ch == '-' {
                 idx += ch.len_utf8();
@@ -1462,9 +1686,11 @@ impl<'input> TokenParser<'input> {
                 break;
             }
         }
+
         if last == '-' {
             return None;
         }
+
         let raw = &s[..idx];
         self.pos += idx;
         Some(SpannedText {
@@ -1476,16 +1702,19 @@ impl<'input> TokenParser<'input> {
 
     fn parse_bool(&mut self) -> Option<(bool, SourceSpan)> {
         let start = self.pos;
+
         if self.input[self.pos..].starts_with("true") {
             self.pos += 4;
             let span = SourceSpan::new(self.base_offset + start, self.base_offset + self.pos);
             return Some((true, span));
         }
+
         if self.input[self.pos..].starts_with("false") {
             self.pos += 5;
             let span = SourceSpan::new(self.base_offset + start, self.base_offset + self.pos);
             return Some((false, span));
         }
+
         None
     }
 
@@ -1493,33 +1722,41 @@ impl<'input> TokenParser<'input> {
         #[cfg(feature = "editor-facts")]
         let start = self.pos;
         let s = &self.input[self.pos..];
+
         if !s.as_bytes().first().is_some_and(u8::is_ascii_digit) {
             return None;
         }
+
         let mut idx = 0usize;
         let mut saw_dot = false;
+
         for ch in s.chars() {
             if ch.is_ascii_digit() {
                 idx += ch.len_utf8();
                 continue;
             }
+
             if ch == '.' && !saw_dot {
                 saw_dot = true;
                 idx += 1;
                 continue;
             }
+
             break;
         }
+
         if idx == 0 {
             return None;
         }
+
         let token = &s[..idx];
 
         if saw_dot {
             if token.ends_with('.') {
                 return None;
             }
-            let v: f64 = token.parse().ok()?;
+
+            let v: f64 = match token.parse() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }?;
             self.pos += idx;
             let n = serde_json::Number::from_f64(v)?;
             #[cfg(feature = "editor-facts")]
@@ -1534,7 +1771,8 @@ impl<'input> TokenParser<'input> {
         if token.len() > 1 && token.starts_with('0') {
             return None;
         }
-        let v: i64 = token.parse().ok()?;
+
+        let v: i64 = match token.parse() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
         self.pos += idx;
         #[cfg(feature = "editor-facts")]
         let span = SourceSpan::new(self.base_offset + start, self.base_offset + self.pos);
@@ -1563,44 +1801,71 @@ impl<'input> TokenParser<'input> {
         let mut in_quote: Option<char> = None;
         let mut escaped = false;
         let content_start = self.pos;
+
         while let Some(ch) = self.peek_char() {
             let char_start = self.pos;
-            if char_start % 4096 < ch.len_utf8() {
+
+            if char_start.wrapping_rem(4096) < ch.len_utf8() {
                 control.checkpoint()?;
             }
+
             self.pos += ch.len_utf8();
+
             if escaped {
                 escaped = false;
                 continue;
             }
-            if let Some(q) = in_quote {
-                if ch == '\\' {
-                    escaped = true;
+
+            match in_quote {
+                Some(q) => {
+                    match ch {
+                        '\\' => {
+                            escaped = true;
+                            continue;
+                        },
+                        _ => {},
+                    }
+
+                    if ch == q {
+                        in_quote = None;
+                    }
+
                     continue;
-                }
-                if ch == q {
-                    in_quote = None;
-                }
-                continue;
+                },
+                ::core::option::Option::None => {},
             }
+
             if ch == '"' || ch == '\'' {
                 in_quote = Some(ch);
                 continue;
             }
-            if ch == '{' {
-                depth += 1;
-                continue;
+
+            match ch {
+                '{' => {
+                    depth += 1;
+                    continue;
+                },
+                _ => {},
             }
-            if ch == '}' {
-                depth -= 1;
-                if depth == 0 {
-                    return Ok(Ok((
-                        &self.input[content_start..char_start],
-                        self.base_offset + content_start,
-                    )));
-                }
+
+            match ch {
+                '}' => {
+                    depth -= 1;
+
+                    match depth {
+                        0 => {
+                            return Ok(Ok((
+                                &self.input[content_start..char_start],
+                                self.base_offset + content_start,
+                            )));
+                        },
+                        _ => {},
+                    }
+                },
+                _ => {},
             }
         }
+
         Ok(Err("unterminated '{' in curve".to_string()))
     }
 }
@@ -2384,7 +2649,7 @@ mod output_data_tests {
         assert_eq!(empty_output, RadarOutputData::Empty);
         assert_eq!(header_output, RadarOutputData::Model);
         assert_eq!(RadarOutputData::default(), RadarOutputData::Model);
-        // Identical canonical values must not erase the source producer's distinct output shape.
+
         assert_eq!(
             serde_json::to_value(&empty).unwrap(),
             serde_json::to_value(&header).unwrap()

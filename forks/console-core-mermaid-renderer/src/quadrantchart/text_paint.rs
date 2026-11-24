@@ -44,14 +44,16 @@ impl QuadrantChartPaintPlan {
         layout: &mut QuadrantChartDiagramLayout,
         work_meter: &OperationWorkMeter,
     ) -> crate::Result<Self> {
-        let Some(theme) = theme else {
-            return Ok(Self::default());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::default()),
         };
+
         let mut plan = Self {
             evidence: FamilyThemeOutcomes::default(),
             ..Self::default()
         };
-        let routes = theme
+        let routes = theme_2
             .family_mechanism_routes()
             .iter()
             .copied()
@@ -70,10 +72,13 @@ impl QuadrantChartPaintPlan {
                 )
             })
             .collect::<Vec<_>>();
+
         if routes.is_empty() {
             return Ok(plan);
         }
+
         let mut observations = BTreeMap::<(ThemeTarget, usize), RuleObservation>::new();
+
         for route in &routes {
             if let FamilyThemeMechanism::RuleFacet {
                 target, rule_index, ..
@@ -82,7 +87,8 @@ impl QuadrantChartPaintPlan {
                 observations.entry((target, rule_index)).or_default();
             }
         }
-        let has_ordinal = theme.family_mechanism_routes().iter().any(|route| {
+
+        let has_ordinal = theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -103,14 +109,15 @@ impl QuadrantChartPaintPlan {
         let mut terminals = Vec::with_capacity(terminal_count);
         let mut palette_targets = BTreeSet::new();
         let mut effect_targets = BTreeSet::new();
-        // Ordinals follow the writer's text order: points, visible axis labels, title.
-        // Empty text elements are still checkpointed, but have no semantic occurrence.
+
+
         let x_count = layout
             .axis_labels
             .iter()
-            .take_while(|label| label.rotation == 0.0)
+            .take_while(|label| ::core::matches!(::core::primitive::f64::classify(label.rotation), ::core::num::FpCategory::Zero))
             .count();
         let (x_labels, y_labels) = layout.axis_labels.split_at_mut(x_count);
+
         for (target, path, labels) in [
             (
                 ThemeTarget::Text,
@@ -138,7 +145,7 @@ impl QuadrantChartPaintPlan {
             ),
         ] {
             let source_owned = config.config_paint_overrides_typed_default(path);
-            let static_style = theme.text_style_with_work_meter(
+            let static_style = theme_2.text_style_with_work_meter(
                 target,
                 ThemeVariant::Default,
                 None,
@@ -147,7 +154,7 @@ impl QuadrantChartPaintPlan {
             let paint = (!source_owned)
                 .then(|| {
                     resolve_direct_static_fill(
-                        theme,
+                        theme_2,
                         &static_style,
                         &[ThemeTarget::Text, ThemeTarget::Title, ThemeTarget::Axis],
                         DirectStaticSelectorDomain::Default,
@@ -155,66 +162,83 @@ impl QuadrantChartPaintPlan {
                 })
                 .flatten();
             let mut observed_static = false;
-            for label in labels {
-                if let Some(paint) = &paint {
-                    label.fill = paint.css().to_string();
+
+            'over_label_2: for label in labels {
+                match &paint {
+                    Some(paint_2) => {
+                        label.fill = paint_2.css().to_string();
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 terminals.push((
                     label.text.clone().into_boxed_str(),
                     label.fill.clone().into_boxed_str(),
                 ));
+
                 if label.text.trim().is_empty() {
-                    continue;
+                    continue 'over_label_2;
                 }
+
                 ordinal += 1;
                 let role_ordinal = role_ordinals.entry(target).or_default();
+
                 *role_ordinal += 1;
                 if observed_static && !has_ordinal {
-                    continue;
+                    continue 'over_label_2;
                 }
+
                 observed_static = true;
                 let mut dynamic_style;
                 let style = if has_ordinal {
-                    dynamic_style = theme.style_with_work_meter(
+                    dynamic_style = { let checked_value = theme_2.style_with_work_meter(
                         ThemeTarget::Text,
                         ThemeVariant::Default,
                         Some(ordinal),
                         work_meter,
-                    )?;
+                    )?; checked_value };
+
                     if target != ThemeTarget::Text {
-                        let role_style = theme.style_with_work_meter(
+                        let role_style = theme_2.style_with_work_meter(
                             target,
                             ThemeVariant::Default,
                             Some(*role_ordinal),
                             work_meter,
                         )?;
-                        // Shared Text and specific roles keep independent occurrence domains;
-                        // merge their winners by author order, not by role priority.
+
+
                         dynamic_style.merge_from(&role_style);
                     }
+
                     &dynamic_style
                 } else {
                     &static_style
                 };
+
                 if !source_owned
                     && matches!(style.fill_resolution().specified(), Specified::Unspecified)
                 {
                     palette_targets.insert(ThemeTarget::Text);
+
                     if target != ThemeTarget::Text {
                         palette_targets.insert(target);
                     }
                 }
+
                 if matches!(
                     style.effect_resolution().specified(),
                     Specified::Unspecified
                 ) {
                     effect_targets.insert(ThemeTarget::Text);
+
                     if target != ThemeTarget::Text {
                         effect_targets.insert(target);
                     }
                 }
+
                 work_meter.charge(routes.len())?;
-                for route in &routes {
+
+                'over_route_3: for route in &routes {
                     let FamilyThemeMechanism::RuleFacet {
                         target: route_target,
                         rule_index,
@@ -222,26 +246,31 @@ impl QuadrantChartPaintPlan {
                         ..
                     } = route.mechanism()
                     else {
-                        continue;
+                        continue 'over_route_3;
                     };
+
                     let property = resolved_style_property_for_facet(facet);
-                    // Axis stroke is consumed by borders, independently of text inheritance.
+
                     if route_target == ThemeTarget::Axis
                         && property == ResolvedStyleProperty::Stroke
                     {
-                        continue;
+                        continue 'over_route_3;
                     }
+
                     if source_owned && property == ResolvedStyleProperty::Fill {
-                        continue;
+                        continue 'over_route_3;
                     }
+
                     if !style.winner_rule_properties().any(|(candidate, origin)| {
                         candidate == property && origin.rule_index() == rule_index
                     }) {
-                        continue;
+                        continue 'over_route_3;
                     }
+
                     let observation = observations
                         .get_mut(&(route_target, rule_index))
                         .expect("registered chart text rule");
+
                     match route.disposition() {
                         FamilyThemeDisposition::Unsupported => {
                             observation
@@ -252,20 +281,21 @@ impl QuadrantChartPaintPlan {
                             if property == ResolvedStyleProperty::Fill
                                 && paint
                                     .as_ref()
-                                    .is_some_and(|paint| paint.rule_index() == rule_index) =>
+                                    .is_some_and(|paint_3| paint_3.rule_index() == rule_index) =>
                         {
                             observation
                                 .pending
                                 .insert(paint.as_ref().expect("matched paint").capability());
                         }
-                        _ => observation.incomplete = true,
+                        FamilyThemeDisposition::TypedAdapter => observation.incomplete = true,
                     }
                 }
             }
         }
-        // Borders have their own Axis occurrence domain in writer order: four outer sides,
-        // then the two dividers. Text inheritance never supplies their fill fallback.
-        let axis_style = theme.style_with_work_meter(
+
+
+
+        let axis_style = theme_2.style_with_work_meter(
             ThemeTarget::Axis,
             ThemeVariant::Default,
             None,
@@ -277,14 +307,14 @@ impl QuadrantChartPaintPlan {
         );
         let border_paint = if static_fill_fallback {
             resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &axis_style,
                 &[ThemeTarget::Axis],
                 DirectStaticSelectorDomain::Default,
             )
         } else {
             resolve_direct_static_stroke(
-                theme,
+                theme_2,
                 &axis_style,
                 &[ThemeTarget::Axis],
                 DirectStaticSelectorDomain::Default,
@@ -292,6 +322,7 @@ impl QuadrantChartPaintPlan {
         };
         let mut borders = Vec::with_capacity(layout.border_lines.len());
         work_meter.charge(layout.border_lines.len())?;
+
         for (index, line) in layout.border_lines.iter_mut().enumerate() {
             let path = if index < 4 {
                 "themeVariables.quadrantExternalBorderStrokeFill"
@@ -299,21 +330,25 @@ impl QuadrantChartPaintPlan {
                 "themeVariables.quadrantInternalBorderStrokeFill"
             };
             let source_owned = config.config_paint_overrides_typed_default(path);
+
             if !source_owned && let Some(paint) = &border_paint {
                 line.stroke_fill = paint.css().to_owned();
             }
+
             borders.push(BorderTerminal::from_line(line));
-            if line.stroke_width <= 0.0 || (line.x1 == line.x2 && line.y1 == line.y2) {
+
+            if line.stroke_width <= 0.0 || (<::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&line.x1, &line.x2) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&line.y1, &line.y2) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)) {
                 continue;
             }
+
             let dynamic_style;
             let style = if has_ordinal {
-                dynamic_style = theme.style_with_work_meter(
+                dynamic_style = { let checked_value_2 = theme_2.style_with_work_meter(
                     ThemeTarget::Axis,
                     ThemeVariant::Default,
                     Some(index + 1),
                     work_meter,
-                )?;
+                )?; checked_value_2 };
                 &dynamic_style
             } else {
                 &axis_style
@@ -326,20 +361,24 @@ impl QuadrantChartPaintPlan {
             } else {
                 ResolvedStyleProperty::Stroke
             };
+
             if !source_owned
                 && paint_property == ResolvedStyleProperty::Fill
                 && matches!(style.fill_resolution().specified(), Specified::Unspecified)
             {
                 palette_targets.insert(ThemeTarget::Axis);
             }
+
             if matches!(
                 style.effect_resolution().specified(),
                 Specified::Unspecified
             ) {
                 effect_targets.insert(ThemeTarget::Axis);
             }
+
             work_meter.charge(routes.len())?;
-            for route in &routes {
+
+            'over_route_2: for route in &routes {
                 let FamilyThemeMechanism::RuleFacet {
                     target: ThemeTarget::Axis,
                     rule_index,
@@ -347,24 +386,29 @@ impl QuadrantChartPaintPlan {
                     ..
                 } = route.mechanism()
                 else {
-                    continue;
+                    continue 'over_route_2;
                 };
+
                 let property = resolved_style_property_for_facet(facet);
+
                 if matches!(
                     property,
                     ResolvedStyleProperty::Fill | ResolvedStyleProperty::Stroke
                 ) && (property != paint_property || source_owned)
                 {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 if !style.winner_rule_properties().any(|(candidate, origin)| {
                     candidate == property && origin.rule_index() == rule_index
                 }) {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 let observation = observations
                     .get_mut(&(ThemeTarget::Axis, rule_index))
                     .expect("registered axis rule");
+
                 match route.disposition() {
                     FamilyThemeDisposition::Unsupported => {
                         observation
@@ -384,11 +428,13 @@ impl QuadrantChartPaintPlan {
                                 .capability(),
                         );
                     }
-                    _ => observation.incomplete = true,
+                    FamilyThemeDisposition::TypedAdapter => observation.incomplete = true,
                 }
             }
         }
+
         plan.borders = borders.into();
+
         for route in &routes {
             let (applies, reason) = match route.mechanism() {
                 FamilyThemeMechanism::OrdinalPalette { target } => (
@@ -399,17 +445,20 @@ impl QuadrantChartPaintPlan {
                     effect_targets.contains(&target),
                     FamilyThemeResidualReason::UnsupportedEffect,
                 ),
-                _ => continue,
+                FamilyThemeMechanism::BaseTypography(_) | FamilyThemeMechanism::RuleFacet { .. } => continue,
             };
-            let key = theme.family_mechanism_key(*route);
+            let key = theme_2.family_mechanism_key(*route);
+
             if applies {
                 plan.evidence.mark_residual(key, reason);
             } else {
                 plan.evidence.mark_not_applicable(key);
             }
         }
+
         for ((target, index), observation) in observations {
             let key = FamilyThemeMechanismKey::Rule { index, target };
+
             if let Some(reason) = observation.residual {
                 plan.evidence.mark_residual(key, reason);
             } else if observation.incomplete { /* Winning sibling facets remain incomplete. */
@@ -419,10 +468,12 @@ impl QuadrantChartPaintPlan {
                 plan.evidence.mark_not_applicable(key);
             }
         }
+
         plan.terminals = terminals.into();
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> Option<QuadrantChartPaintReceipt> {
         (!self.pending.is_empty()).then(|| QuadrantChartPaintReceipt {
             expected: Arc::clone(&self.terminals),
@@ -433,6 +484,7 @@ impl QuadrantChartPaintPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: QuadrantChartPaintReceipt) -> bool {
         Arc::ptr_eq(&self.terminals, &receipt.expected)
             && Arc::ptr_eq(&self.borders, &receipt.expected_borders)
@@ -444,6 +496,7 @@ impl QuadrantChartPaintPlan {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if self.terminal_receipt.get().is_some() {
             for (&(target, index), capabilities) in &self.pending {
                 evidence.mark_applied_with_capabilities(
@@ -489,6 +542,7 @@ struct BorderTerminal {
 }
 
 impl BorderTerminal {
+    #[must_use]
     fn from_line(line: &QuadrantChartBorderLineData) -> Self {
         Self {
             geometry: [line.x1, line.y1, line.x2, line.y2, line.stroke_width],
@@ -496,6 +550,7 @@ impl BorderTerminal {
         }
     }
 
+    #[must_use]
     fn matches(&self, line: &QuadrantChartBorderLineData) -> bool {
         self.geometry == [line.x1, line.y1, line.x2, line.y2, line.stroke_width]
             && self.paint.as_ref() == line.stroke_fill

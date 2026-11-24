@@ -3,12 +3,20 @@
 use super::render::node::geom::generate_full_sine_wave_points;
 use super::*;
 
+#[must_use]
 fn union_svg_path_bounds(paths: &[&str]) -> Option<crate::svg::parity::path_bounds::SvgPathBounds> {
     let mut bounds: Option<crate::svg::parity::path_bounds::SvgPathBounds> = None;
+
     for d in paths {
-        let Some(pb) = crate::svg::parity::path_bounds::svg_path_bounds_from_d(d) else {
-            continue;
+        let pb = {
+            let optional_pb = crate::svg::parity::path_bounds::svg_path_bounds_from_d(d);
+
+            match optional_pb {
+                Some(matched_pb) => matched_pb,
+                ::core::option::Option::None => continue,
+            }
         };
+
         bounds = Some(match bounds {
             Some(mut acc) => {
                 acc.min_x = acc.min_x.min(pb.min_x);
@@ -20,9 +28,11 @@ fn union_svg_path_bounds(paths: &[&str]) -> Option<crate::svg::parity::path_boun
             None => pb,
         });
     }
+
     bounds
 }
 
+#[must_use]
 fn rough_svg_path_bounds(
     randomness: &roughr::core::RoughRandomness,
     path_data: &str,
@@ -41,6 +51,7 @@ fn rough_svg_path_bounds(
     union_svg_path_bounds(&[fill_d.as_str(), stroke_d.as_str()])
 }
 
+#[must_use]
 fn rough_stroke_svg_path_bounds(
     randomness: &roughr::core::RoughRandomness,
     path_data: &str,
@@ -54,6 +65,7 @@ fn rough_stroke_svg_path_bounds(
     crate::svg::parity::path_bounds::svg_path_bounds_from_d(&stroke_d)
 }
 
+#[must_use]
 fn measure_flowchart_layout_node_label(
     ctx: &FlowchartRenderCtx<'_>,
     n: &LayoutNode,
@@ -97,6 +109,7 @@ fn measure_flowchart_layout_node_label(
     Some(metrics.with_label_min_width(label, min_width, None))
 }
 
+#[must_use]
 fn layout_node_metrics_or_zero(
     ctx: &FlowchartRenderCtx<'_>,
     n: &LayoutNode,
@@ -108,18 +121,24 @@ fn layout_node_metrics_or_zero(
             line_count: 0,
         };
     }
-    measure_flowchart_layout_node_label(ctx, n).unwrap_or(crate::text::TextMetrics {
-        width: 0.0,
-        height: 0.0,
-        line_count: 0,
-    })
+
+    match (measure_flowchart_layout_node_label(ctx, n), crate::text::TextMetrics {
+            width: 0.0,
+            height: 0.0,
+            line_count: 0,
+        }) {
+        (::core::option::Option::Some(option_value), _) => option_value,
+        (::core::option::Option::None, alternate) => alternate,
+    }
 }
 
+#[must_use]
 fn layout_node_label_size_or_zero(ctx: &FlowchartRenderCtx<'_>, n: &LayoutNode) -> (f64, f64) {
     let metrics = layout_node_metrics_or_zero(ctx, n);
     (metrics.width, metrics.height)
 }
 
+#[must_use]
 fn layout_node_label_width_if_known(ctx: &FlowchartRenderCtx<'_>, n: &LayoutNode) -> Option<f64> {
     n.label_width
         .or_else(|| measure_flowchart_layout_node_label(ctx, n).map(|metrics| metrics.width))
@@ -135,8 +154,8 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
     F: Fn(&str) -> Option<&'data str>,
 {
     let node_padding = ctx.node_padding;
-    // ViewBox estimation rebuilds RoughJS geometry but does not emit it. Keep that work on an
-    // isolated stream so it cannot advance the operation-owned stream used by actual SVG nodes.
+
+
     let bounds_randomness = ctx.hand_drawn_seed.isolated_copy();
 
     let y_offset_for_root = |root: Option<&str>| -> f64 {
@@ -156,6 +175,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
             effective_parent_for_id(&n.id)
         };
         let y_off = y_offset_for_root(root);
+
         if n.is_cluster
             || ctx.node_dom_index.contains_key(n.id.as_str())
             || is_empty_subgraph_node
@@ -165,6 +185,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
             let mut right_hw = left_hw;
             let mut top_hh = n.height / 2.0;
             let mut bottom_hh = top_hh;
+
             if !n.is_cluster
                 && let Some(shape) = ctx
                     .nodes_by_id
@@ -184,18 +205,18 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                     bottom_hh = geometry.rendered_max_y().max(0.0);
                 }
 
-                // Mermaid's flowchart-v2 rhombus node renderer offsets the polygon by
-                // `(-width/2 + 0.5, height/2)` so the diamond outline stays on the same
-                // pixel lattice as other nodes. This makes the DOM bbox slightly asymmetric
-                // around the node center and affects the root `getBBox()` width.
+
+
+
+
                 if shape == "diamond" || shape == "diam" || shape == "rhombus" {
                     left_hw = (left_hw - 0.5).max(0.0);
                     right_hw += 0.5;
                 }
 
-                // Mermaid `curvedTrapezoid.ts` draws its rough path from the
-                // "theoretical" text+padding width, but Dagre uses the
-                // `updateNodeBounds(...)` bbox which can be slightly narrower.
+
+
+
                 if matches!(shape, "curv-trap" | "display" | "curved-trapezoid")
                     && let Some(label_w) = layout_node_label_width_if_known(ctx, n)
                 {
@@ -209,9 +230,9 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                     right_hw = (n.width - left_hw).max(0.0);
                 }
 
-                // Mermaid `waveEdgedRectangle.ts` (document) stores Dagre dimensions from
-                // `updateNodeBounds(...)`, but the final root viewport comes from the rendered
-                // RoughJS path bbox. Rebuild that bbox directly.
+
+
+
                 if matches!(shape, "doc" | "document") {
                     let (label_w, label_h) = layout_node_label_size_or_zero(ctx, n);
                     let look_is_neo =
@@ -238,6 +259,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
 
                     let path_data =
                         crate::svg::parity::roughjs_common::closed_path_d_from_points(&points);
+
                     if let Some(pb) =
                         rough_svg_path_bounds(&bounds_randomness, &path_data, ctx.work_meter)
                     {
@@ -249,9 +271,9 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                     }
                 }
 
-                // Mermaid `linedWaveEdgedRect.ts` follows the same split as the other wave
-                // document shapes: Dagre uses the post-`updateNodeBounds(...)` dimensions,
-                // while the rendered root bbox comes from the original label-box path.
+
+
+
                 if matches!(shape, "lin-doc" | "lined-document") {
                     let (label_w, label_h) = layout_node_label_size_or_zero(ctx, n);
                     let look_is_neo =
@@ -282,6 +304,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
 
                     let path_data =
                         crate::svg::parity::roughjs_common::closed_path_d_from_points(&points);
+
                     if let Some(pb) =
                         rough_svg_path_bounds(&bounds_randomness, &path_data, ctx.work_meter)
                     {
@@ -293,9 +316,9 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                     }
                 }
 
-                // Mermaid `taggedWaveEdgedRectangle.ts` (tagged-document) renders from the
-                // base label box, then `updateNodeBounds(...)` stores a slightly shorter outer
-                // bbox. The rendered wave is also vertically asymmetric.
+
+
+
                 if matches!(shape, "tag-doc" | "tagged-document") {
                     let (label_w, label_h) = layout_node_label_size_or_zero(ctx, n);
                     let w = (label_w + 2.0 * node_padding).max(0.0);
@@ -339,6 +362,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                     let tag_path_data =
                         crate::svg::parity::roughjs_common::closed_path_d_from_points(&tag_points);
                     let mut bounds: Option<crate::svg::parity::path_bounds::SvgPathBounds> = None;
+
                     for pb in [
                         rough_svg_path_bounds(&bounds_randomness, &wave_path_data, ctx.work_meter),
                         rough_svg_path_bounds(&bounds_randomness, &tag_path_data, ctx.work_meter),
@@ -357,6 +381,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                             None => pb,
                         });
                     }
+
                     if let Some(pb) = bounds {
                         let y_shift = -wave_amplitude / 2.0;
                         left_hw = (-pb.min_x).max(0.0);
@@ -366,9 +391,9 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                     }
                 }
 
-                // Mermaid computes the root viewport from the rendered DOM bbox. Curly
-                // brace/comment shapes emit narrow RoughJS stroke paths plus an invisible
-                // path; using the inflated Dagre `node.width / 2` keeps a phantom edge.
+
+
+
                 if matches!(
                     shape,
                     "comment" | "brace" | "brace-l" | "brace-r" | "braces"
@@ -381,8 +406,8 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                             node_padding,
                             crate::config::mermaid_config_diagram_look(ctx.config).is_neo(),
                         );
-                    // Root getBBox includes the separately translated label,
-                    // which can extend beyond Neo's fixed shape padding.
+
+
                     include_rect(
                         n.x + geometry.label_dx - metrics.width / 2.0,
                         n.y + y_off + geometry.label_dy - metrics.height / 2.0,
@@ -390,6 +415,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                         n.y + y_off + geometry.label_dy + metrics.height / 2.0,
                     );
                     let mut bounds: Option<crate::svg::parity::path_bounds::SvgPathBounds> = None;
+
                     for path in geometry.paths {
                         if let Some(mut pb) = rough_stroke_svg_path_bounds(
                             &bounds_randomness,
@@ -410,6 +436,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                             });
                         }
                     }
+
                     if let Some(pb) = bounds {
                         left_hw = (-pb.min_x).max(0.0);
                         right_hw = pb.max_x.max(0.0);
@@ -418,8 +445,8 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                     }
                 }
 
-                // Mermaid `forkJoin.ts` inflates Dagre dimensions but the rendered bar
-                // remains `70x10` (or `10x70` for LR).
+
+
                 if matches!(shape, "fork" | "join") {
                     if n.width >= n.height {
                         left_hw = 35.0;
@@ -434,8 +461,8 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                     }
                 }
 
-                // Root getBBox includes both painted paths and the displaced label;
-                // the unshifted outer polygon remains the layout/intersection boundary.
+
+
                 if matches!(shape, "docs" | "documents" | "st-doc" | "stacked-document") {
                     let (label_w, label_h) = layout_node_label_size_or_zero(ctx, n);
                     let geometry = crate::flowchart::flowchart_stacked_document_geometry(
@@ -451,6 +478,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                         &geometry.inner_points,
                     );
                     let mut bounds: Option<crate::svg::parity::path_bounds::SvgPathBounds> = None;
+
                     for path in [&outer, &inner] {
                         if let Some(pb) =
                             rough_svg_path_bounds(&bounds_randomness, path, ctx.work_meter)
@@ -467,12 +495,14 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                             });
                         }
                     }
+
                     if let Some(pb) = bounds {
                         left_hw = (-pb.min_x).max(0.0);
                         right_hw = pb.max_x.max(0.0);
                         top_hh = (-(pb.min_y + geometry.group_dy)).max(0.0);
                         bottom_hh = (pb.max_y + geometry.group_dy).max(0.0);
                     }
+
                     include_rect(
                         n.x + geometry.label_dx - label_w / 2.0,
                         n.y + y_off + geometry.label_dy - label_h / 2.0,
@@ -482,8 +512,14 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                 }
 
                 if matches!(shape, "delay" | "half-rounded-rectangle") {
-                    let label_w = n.label_width.unwrap_or(0.0);
-                    let label_h = n.label_height.unwrap_or(0.0);
+                    let label_w = match n.label_width {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0.0,
+                    };
+                    let label_h = match n.label_height {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0.0,
+                    };
                     let geometry = crate::flowchart::DelayGeometry::from_label(
                         label_w,
                         label_h,
@@ -494,6 +530,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
 
                     let path_data =
                         crate::svg::parity::roughjs_common::closed_path_d_from_points(&points);
+
                     if let Some(pb) =
                         rough_svg_path_bounds(&bounds_randomness, &path_data, ctx.work_meter)
                     {
@@ -505,8 +542,14 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                 }
 
                 if matches!(shape, "notch-pent" | "loop-limit" | "notched-pentagon") {
-                    let label_w = n.label_width.unwrap_or(0.0);
-                    let label_h = n.label_height.unwrap_or(0.0);
+                    let label_w = match n.label_width {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0.0,
+                    };
+                    let label_h = match n.label_height {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0.0,
+                    };
                     let look_is_neo =
                         crate::config::mermaid_config_diagram_look(ctx.config).is_neo();
                     let padding_x = if look_is_neo { 16.0 } else { node_padding };
@@ -523,6 +566,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                     ];
                     let path_data =
                         crate::svg::parity::roughjs_common::closed_path_d_from_points(&points);
+
                     if let Some(pb) =
                         rough_svg_path_bounds(&bounds_randomness, &path_data, ctx.work_meter)
                     {
@@ -533,6 +577,7 @@ pub(in crate::svg::parity::flowchart) fn include_flowchart_node_rendered_bounds<
                     }
                 }
             }
+
             include_rect(
                 n.x - left_hw,
                 n.y + y_off - top_hh,
@@ -754,7 +799,7 @@ mod tests {
                 "{shape}, padding {padding}: label exceeds bottom viewport; viewbox={viewbox:?}, label=({label_x},{label_y},{label_width},{label_height})"
             );
             if shape == "documents" {
-                // Pinned h=56, amplitude14: label offset(-10,-4), group y=-7.
+
                 assert_eq!((label_x, label_y), (40.0, 86.0));
                 let body = doc
                     .descendants()
@@ -764,7 +809,7 @@ mod tests {
                     .unwrap();
                 assert_eq!(body.attribute("transform"), Some("translate(0,-7)"));
             } else if padding == 15.0 {
-                // A contained label must not inflate the ordinary shape viewport.
+
                 assert!((viewbox[2] - width - 2.0 * diagram_padding).abs() < 1e-6);
                 assert!((viewbox[3] - height - 2.0 * diagram_padding).abs() < 1e-6);
             }
@@ -934,7 +979,7 @@ mod tests {
                 .collect();
             assert_eq!(actual.len(), expected.len(), "{shape}");
             for (actual, expected) in actual.iter().zip(&expected) {
-                // SVG formatting rounds coordinates; the pure source test retains full precision.
+
                 assert!(
                     (actual.0 - expected.0).abs() < 0.001 && (actual.1 - expected.1).abs() < 0.001,
                     "{shape}: {actual:?} != {expected:?}"
@@ -949,8 +994,8 @@ mod tests {
                 .find(|node| node.attribute("class") == Some("basic label-container outer-path"))
                 .unwrap();
             assert_eq!(body.attribute("transform"), Some("translate(5.5,0)"));
-            // Exact RoughJS path bounds are covered by pure geometry tests; this DOM check
-            // only guards the source label shift and final containment.
+
+
             let label = doc
                 .descendants()
                 .find(|node| node.has_tag_name("foreignObject"))

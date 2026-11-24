@@ -11,6 +11,7 @@ use super::*;
 pub(in crate::svg::parity::flowchart) struct FlowchartCssSelectorDiagramId<I>(I);
 
 impl<I> FlowchartCssSelectorDiagramId<I> {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn new(value: I) -> Self {
         Self(value)
     }
@@ -29,6 +30,7 @@ where
             && semantic
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
+
         if normalized {
             std::fmt::Display::fmt(&self.0, formatter)
         } else {
@@ -37,13 +39,14 @@ where
     }
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn flowchart_classdef_css_declarations(
     declarations: &[String],
 ) -> (String, String) {
     let styles = crate::flowchart::FlowchartClassDefStyles::prepare(declarations);
 
-    // This is deliberately a safe headless projection, not a complete browser CSS engine:
-    // `PreparedSourceStyleDeclaration` rejects resource-bearing values that CSSOM would retain.
+
+
     (
         flowchart_classdef_cssom_string(styles.shape),
         flowchart_classdef_cssom_string(styles.text),
@@ -58,15 +61,25 @@ pub(in crate::svg::parity::flowchart) fn cluster_title_class_foreground(
 ) -> Result<crate::flowchart::FlowchartSourceFacetStatus> {
     use crate::flowchart::FlowchartSourceFacetStatus;
     let mut status = FlowchartSourceFacetStatus::Absent;
+
     for class in classes {
         work.charge(1)?;
-        let Some(declarations) = class_defs.get(class) else {
-            continue;
+
+        let declarations = {
+            let optional_declarations = class_defs.get(class);
+
+            match optional_declarations {
+                Some(matched_declarations) => matched_declarations,
+                ::core::option::Option::None => continue,
+            }
         };
+
         for declaration in declarations {
             work.charge(declaration.len())?;
         }
+
         let styles = crate::flowchart::FlowchartClassDefStyles::prepare(declarations);
+
         if let Some(declaration) = styles.text.get("fill") {
             status = status.merge(FlowchartSourceFacetStatus::from_parts(
                 true,
@@ -74,13 +87,16 @@ pub(in crate::svg::parity::flowchart) fn cluster_title_class_foreground(
             ));
         }
     }
+
     Ok(status)
 }
 
+#[must_use]
 fn flowchart_classdef_cssom_string(
     cssom: IndexMap<String, std::sync::Arc<crate::diagram_theme::PreparedSourceStyleDeclaration>>,
 ) -> String {
     let mut style = String::new();
+
     for (property, declaration) in &cssom {
         let value = if !property.starts_with("--")
             && (matches!(property.as_str(), "fill" | "stroke" | "color")
@@ -92,6 +108,7 @@ fn flowchart_classdef_cssom_string(
         };
         let _ = write!(&mut style, "{}:{}!important;", property, value);
     }
+
     style
 }
 
@@ -112,13 +129,20 @@ where
         const SMALL_SUFFIX: &str = "-small)";
 
         let mut remaining = self.source;
+
         loop {
-            let Some(offset) = remaining.find(PREFIX) else {
-                return f.write_str(remaining);
+            let offset = {
+                let optional_offset = remaining.find(PREFIX);
+
+                match optional_offset {
+                    Some(matched_offset) => matched_offset,
+                    ::core::option::Option::None => return f.write_str(remaining),
+                }
             };
 
             f.write_str(&remaining[..offset])?;
             let suffix = &remaining[offset + PREFIX.len()..];
+
             if let Some(next) = suffix.strip_prefix(SMALL_SUFFIX) {
                 f.write_str("url(#")?;
                 std::fmt::Display::fmt(&self.drop_shadow_small_id, f)?;
@@ -130,8 +154,8 @@ where
                 f.write_str(")")?;
                 remaining = next;
             } else {
-                // Preserve near-matches byte-for-byte and continue after the common prefix. Each
-                // input byte therefore belongs to at most one subsequent `find` range.
+
+
                 f.write_str(PREFIX)?;
                 remaining = suffix;
             }
@@ -203,8 +227,8 @@ where
 
     let typed_background =
         text_surface_paint.is_some_and(|plan| plan.background.supplies_background());
-    // Typed paint owns one layer, including its alpha. Mermaid configuration retains
-    // the historical paragraph/div compositing and native rectangle fade.
+
+
     let background_underlay = if typed_background {
         "transparent"
     } else {
@@ -262,9 +286,11 @@ where
         id
     );
     out.checkpoint()?;
+
     if diagram_type != "agentflow" {
         super::agentflow::write_flowchart_container_css(out, id, theme)?;
     }
+
     let _ = write!(
         &mut *out,
         r#"#{} .label{{font-family:{};color:{};}}"#,
@@ -278,6 +304,7 @@ where
         out,
         "}}#{id} .cluster-label span p{{background-color:transparent;}}#{id} .label text,#{id} span{{fill:{node_text_color};color:{node_text_color};}}"
     );
+
     if let Some(plan) = text_surface_paint.filter(|plan| plan.generic_text.requested()) {
         let edge_text_color = plan.generic_text.color(
             crate::flowchart::FlowchartTextPaintChannel::Edge,
@@ -288,6 +315,7 @@ where
             "#{id} .edgeLabel .label,#{id} .edgeLabel .label text,#{id} .edgeLabel span{{fill:{edge_text_color};color:{edge_text_color};}}"
         );
     }
+
     let _ = write!(
         &mut *out,
         r#"#{id} .node rect,#{id} .node circle,#{id} .node ellipse,#{id} .node polygon,#{id} .node path{{fill:{main_bkg};stroke:{node_border};stroke-width:{stroke_width}px;}}#{id} .rough-node .label text,#{id} .node .label text,#{id} .image-shape .label,#{id} .icon-shape .label{{text-anchor:middle;}}#{id} .node .katex path{{fill:#000;stroke:#000;stroke-width:1px;}}#{id} .rough-node .label,#{id} .node .label,#{id} .image-shape .label,#{id} .icon-shape .label{{text-align:center;}}#{id} .node.clickable{{cursor:pointer;}}"#
@@ -334,11 +362,13 @@ where
         document_title_color,
         id
     );
+
     if title_css.is_ok()
         && let Some(plan) = text_surface_paint
     {
         plan.record_document_title_css(document_title_color);
     }
+
     let _ = write!(
         &mut *out,
         r#"#{} .icon-shape,#{} .image-shape{{background-color:{};text-align:center;}}#{} .icon-shape p,#{} .image-shape p{{background-color:{};padding:2px;}}#{} .icon-shape .label rect,#{} .image-shape .label rect{{opacity:{background_opacity};background-color:{};fill:{};}}#{} .label-icon{{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}}#{} .node .label-icon path{{fill:currentColor;stroke:revert;stroke-width:revert;}}"#,
@@ -364,23 +394,26 @@ where
         &theme.root_font_family,
     );
 
-    // Mermaid `createCssStyles(...)` chooses different selectors based on `htmlLabels`.
-    // - HTML labels: `.classDef > *` + `.classDef span`
-    // - SVG labels: `.classDef rect|polygon|ellipse|circle|path`
+
+
+
     let html_labels = theme.html_labels;
     let shape_elements: &[&str] = &["rect", "polygon", "ellipse", "circle", "path"];
 
-    // Flush the fixed stylesheet prefix before processing attacker-controlled class catalogs.
+
     out.checkpoint()?;
 
     for (class, decls) in class_defs {
         if decls.is_empty() {
             continue;
         }
+
         let (style, text_style) = flowchart_classdef_css_declarations(decls);
+
         if style.is_empty() {
             continue;
         }
+
         if html_labels {
             let _ = write!(
                 &mut *out,
@@ -404,6 +437,7 @@ where
                 );
             }
         }
+
         if !text_style.is_empty() {
             let _ = write!(
                 &mut *out,
@@ -413,6 +447,7 @@ where
                 text_style
             );
         }
+
         out.checkpoint()?;
     }
 
@@ -425,8 +460,8 @@ fn write_cluster_title_paint(
     configured: &str,
     html: bool,
 ) {
-    if let Some(plan) = plan {
-        let _ = plan.write_css(out, configured, html);
+    if let Some(plan_2) = plan {
+        let _ = plan_2.write_css(out, configured, html);
     } else {
         let property = if html { "color" } else { "fill" };
         let _ = write!(out, "{property}:{configured};");
@@ -465,9 +500,9 @@ pub(super) fn write_flowchart_edge_class_attr(
     edge: &crate::flowchart::FlowEdge,
     animation: FlowchartEdgeAnimationResolution,
 ) {
-    // Mermaid includes a 2-part class tuple (thickness/pattern) for flowchart edge paths. The
-    // second tuple is `edge-thickness-normal edge-pattern-solid` in Mermaid@11.12.2 baselines,
-    // even for dotted/thick strokes.
+
+
+
     let (thickness_1, pattern_1) = match edge.stroke.as_deref() {
         Some("thick") => ("edge-thickness-thick", "edge-pattern-solid"),
         Some("invisible") => ("edge-thickness-invisible", "edge-pattern-solid"),
@@ -476,8 +511,8 @@ pub(super) fn write_flowchart_edge_class_attr(
     };
 
     if thickness_1 == "edge-thickness-invisible" {
-        // Mermaid@11.12.2 does *not* include the second tuple nor `flowchart-link` for invisible
-        // edges.
+
+
         out.push_str(thickness_1);
         out.push(' ');
         out.push_str(pattern_1);

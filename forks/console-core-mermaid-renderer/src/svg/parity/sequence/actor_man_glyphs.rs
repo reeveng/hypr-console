@@ -51,28 +51,34 @@ pub(super) fn write_actor_man_glyph(
         r#"<g class="{group_class} {placement_class}" name="{}""#,
         escape_attr(actor_id)
     );
-    let translate_y = if bands.is_none() {
-        match actor_type {
-            "boundary" => {
-                out.push_str(r#" transform="translate(0,21)""#);
-                21.0
+    let translate_y = match bands {
+        ::core::option::Option::None => {
+            match actor_type {
+                "boundary" => {
+                    out.push_str(r#" transform="translate(0,21)""#);
+                    21.0
+                }
+                "entity" => {
+                    let offset = if placement.footer { 22 } else { 6 };
+                    let _ = write!(out, r#" transform="translate(0, {offset})""#);
+                    f64::from(offset)
+                }
+                _ => 0.0,
             }
-            "entity" => {
-                let offset = if placement.footer { 22 } else { 6 };
-                let _ = write!(out, r#" transform="translate(0, {offset})""#);
-                f64::from(offset)
-            }
-            _ => 0.0,
-        }
-    } else {
-        0.0
+        },
+        ::core::option::Option::Some(_) => {
+            0.0
+        },
     };
     let separate_shadow =
         matches!(actor_type, "boundary" | "entity") && label_ctx.separate_label_shadow();
+
     if matches!(actor_type, "boundary" | "entity") && !separate_shadow {
         label_ctx.write_shadow_attr(out);
     }
+
     label_ctx.write_style_attr(out, actor_type, placement.actor_index);
+
     if !placement.footer {
         let _ = write!(
             out,
@@ -81,9 +87,11 @@ pub(super) fn write_actor_man_glyph(
             escape_attr(actor_id)
         );
     }
+
     out.push('>');
+
     if separate_shadow {
-        // Keep the default glyph decoration off the independently filtered label.
+
         out.push_str("<g");
         label_ctx.write_shadow_attr(out);
         out.push('>');
@@ -103,12 +111,16 @@ pub(super) fn write_actor_man_glyph(
                     _ => 32.0,
                 }
         });
+
     match actor_type {
         "actor" => {
-            let scale = if bands.is_some() {
-                SEQUENCE_GLYPH_BAND_HEIGHT / 65.0
-            } else {
-                1.0
+            let scale = match bands {
+                ::core::option::Option::Some(_) => {
+                    SEQUENCE_GLYPH_BAND_HEIGHT / 65.0
+                },
+                ::core::option::Option::None => {
+                    1.0
+                },
             };
             let gy = |offset: f64| {
                 bands.as_ref().map_or(actor_y + offset, |band| {
@@ -152,11 +164,16 @@ pub(super) fn write_actor_man_glyph(
                 marker_id = escape_attr_display(marker_id),
                 cy = fmt(cy)
             );
-            if bands.is_some() {
-                label_ctx.write_shadow_attr(out);
-            } else {
-                out.push_str(r#" filter="""#);
+
+            match bands {
+                ::core::option::Option::Some(_) => {
+                    label_ctx.write_shadow_attr(out);
+                },
+                ::core::option::Option::None => {
+                    out.push_str(r#" filter="""#);
+                },
             }
+
             let _ = write!(
                 out,
                 r#"/><line marker-end="{marker_url}" transform="translate({cx_text}, {top})"/>"#,
@@ -178,9 +195,11 @@ pub(super) fn write_actor_man_glyph(
         }
         _ => {}
     }
+
     if separate_shadow {
         out.push_str("</g>");
     }
+
     let label_y = bands
         .as_ref()
         .map(|band| band.label_center_y)

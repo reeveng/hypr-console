@@ -14,6 +14,7 @@ name = "music-player"
 path = "src/bin/music-player.rs"
 
 [dependencies]
+console-audio-streams.workspace = true
 console-core-logging = { workspace = true, features = ["std"] }
 console-operating-system-linux.workspace = true
 console-core-arguments.workspace = true
@@ -33,7 +34,6 @@ console-bus.workspace = true
 console-core-audio-metadata.workspace = true
 console-core-audio-decoding.workspace = true
 console-core-audio-decoding-opus.workspace = true
-console-sound-effects.workspace = true
 
 [lints]
 workspace = true

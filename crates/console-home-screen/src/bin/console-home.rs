@@ -173,6 +173,7 @@ use console_home_screen::{
 use console_onscreen::{Hand, Over, PadInput, WakeState, over_the_desktop};
 use console_panel::pictures::Side;
 use console_program_contract::EventGroup;
+use console_status_bar::preferences::{self, Placement, Preferences};
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 
 const NAMESPACE: &str = "console-home";
@@ -200,7 +201,7 @@ const A_MOUTHFUL: [u8; 1024] = [0; 1024];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Showing {
-  Yes,
+  Yes(Placement),
   No,
 }
 
@@ -694,7 +695,7 @@ impl Screen {
     let Ok(standing) = standing();
     let Ok(held) = console_home_screen::kept(&hers, standing);
 
-    let home_3 = match held {
+    let mut home_3 = match held {
       Stored::Text(said) => HomeScreen::read(&said)?,
       Stored::Absent => self.first()?,
       Stored::Failed(fault) => {
@@ -704,6 +705,7 @@ impl Screen {
       }
     };
 
+    let Ok(()) = home_3.update_application_names(|name| self.applications.contains_key(name));
     let home_2 = home_3.fitted(self.grid)?;
 
     match ::core::primitive::bool::then_some(self.home == home_2, ()) {
@@ -762,36 +764,30 @@ impl Screen {
     Ok(())
   }
 
-  fn settle(&mut self, surface: &mut Surface) -> Result<(), Never> {
+  fn settle(&mut self, surface: &mut Surface, drew: &mut Rendered) -> Result<(), Never> {
     let holds = holds_a_window()?;
 
     let showing = match holds {
       Holds::AWindow => Showing::No,
-      Holds::None => Showing::Yes,
+      Holds::None => {
+        let Ok(placement) = bar_placement(self.settled);
+
+        Showing::Yes(placement)
+      }
     };
 
     match ::core::primitive::bool::then_some(self.settled.replace(showing) == Some(showing), ()) {
       ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => match showing {
-        Showing::Yes => {
-          let Ok(wanted) = covering();
-
-          match surface.show(&wanted) {
-            Ok(()) => {}
-            Err(fault) => eprintln!("console-home: no surface to draw on: {fault}"),
-          }
-        }
-        Showing::No => {
-          let Ok(()) = surface.hide();
-        }
-      },
+      ::core::option::Option::None => {
+        let Ok(()) = self.change_surface(showing, surface, drew);
+      }
     }
 
     let over = anything_over_it()?;
 
-    match ::core::primitive::bool::then_some((showing, over) == (Showing::Yes, Over::None), ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => {
+    match (showing, over) {
+      (Showing::Yes(_), Over::None) => {}
+      _ => {
         self.nothing_pointed()?;
 
         self.sleeps()?;
@@ -800,23 +796,75 @@ impl Screen {
 
     Ok(())
   }
+
+  fn change_surface(
+    &mut self,
+    showing: Showing,
+    surface: &mut Surface,
+    drew: &mut Rendered,
+  ) -> Result<(), Never> {
+    let Ok(()) = surface.hide();
+    let Ok(()) = drew.forget();
+    self.finger = None;
+    self.nothing_pointed()?;
+
+    match showing {
+      Showing::Yes(placement) => {
+        let Ok(wanted) = covering(placement);
+
+        match surface.show(&wanted) {
+          Ok(()) => {}
+          Err(fault) => eprintln!("console-home: no surface to draw on: {fault}"),
+        }
+      }
+      Showing::No => {}
+    }
+
+    Ok(())
+  }
 }
 
-fn covering() -> Result<Wanted, Never> {
+fn bar_placement(placed: Option<Showing>) -> Result<Placement, Never> {
+  let Ok(at) = preferences::path();
+
+  let at_2 = match at {
+    Some(matched_at) => matched_at,
+    ::core::option::Option::None => return Ok(Placement::default()),
+  };
+
+  Ok(match Preferences::load(&at_2) {
+    Ok(preferences) => preferences.placement,
+    Err(fault) => {
+      eprintln!("console-home: {}: {fault}", at_2.display());
+
+      match placed {
+        Some(Showing::Yes(placement)) => placement,
+        Some(Showing::No) | None => Placement::default(),
+      }
+    }
+  })
+}
+
+fn covering(placement: Placement) -> Result<Wanted, Never> {
   let Ok(bar) = console_status_bar::showing::Fitting::of_em();
-  let Ok(bar_2) = bar.height();
-  let Ok(top) = out(bar_2);
+  let Ok(height) = bar.height();
+  let Ok(width) = bar.sidebar_width();
+  let Ok(height_2) = out(height);
+  let Ok(width_2) = out(width);
+  let mut margin = Margin::default();
+
+  match placement {
+    Placement::Top => margin.top = height_2,
+    Placement::Bottom => margin.bottom = height_2,
+    Placement::Left => margin.left = width_2,
+    Placement::Right => margin.right = width_2,
+  }
 
   Ok(Wanted {
     namespace: NAMESPACE.to_string(),
     anchor: Anchor::Whole,
     size: WHATEVER_THE_SCREEN_IS,
-    margin: Margin {
-      top,
-      right: 0,
-      bottom: 0,
-      left: 0,
-    },
+    margin,
     keyboard: Keyboard::Declines,
     room: Room::Over,
     under: Under::AWindow,
@@ -1770,10 +1818,11 @@ fn main() {
 
   screen.applications = applications;
 
-  let Ok(()) = screen.reread();
-  let Ok(()) = screen.settle(&mut surface);
-  let Ok(listening) = bind_socket();
   let Ok(stirring) = stirring();
+  let mut drew = Rendered::default();
+  let Ok(()) = screen.reread();
+  let Ok(()) = screen.settle(&mut surface, &mut drew);
+  let Ok(listening) = bind_socket();
   let Ok(searching) = searching();
 
   match console_onscreen::set_awake(WakeState::No) {
@@ -1791,7 +1840,7 @@ fn main() {
     screen,
     searching,
     stirring,
-    drew: Rendered::default(),
+    drew,
     waiting: Waiting::None,
     touching: Vec::new(),
     room: (0, 0),
@@ -2028,7 +2077,7 @@ fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, ()>, Nev
           Stirring::Gone => stirring = None,
         }
 
-        let Ok(()) = screen.settle(&mut surface);
+        let Ok(()) = screen.settle(&mut surface, &mut drew);
         let Ok(()) = screen.reread();
       }
     }
@@ -2049,6 +2098,32 @@ fn turned(turning: Turning, around: Around<'_>) -> Result<Step<Turning, ()>, Nev
 #[cfg(test)]
 mod tests {
   use super::*;
+
+  #[test]
+  fn the_home_screen_leaves_room_on_the_selected_edge() {
+    let Ok(bar) = console_status_bar::showing::Fitting::of_em();
+    let Ok(height) = bar.height();
+    let Ok(width) = bar.sidebar_width();
+    let Ok(height_2) = out(height);
+    let Ok(width_2) = out(width);
+
+    for (placement, margins) in [
+      (Placement::Top, [height_2, 0, 0, 0]),
+      (Placement::Bottom, [0, 0, height_2, 0]),
+      (Placement::Left, [0, 0, 0, width_2]),
+      (Placement::Right, [0, width_2, 0, 0]),
+    ] {
+      let Ok(wanted) = covering(placement);
+      let Margin {
+        top,
+        right,
+        bottom,
+        left,
+      } = wanted.margin;
+      assert_eq!([top, right, bottom, left], margins);
+      assert_eq!(wanted.room, Room::Over);
+    }
+  }
 
   #[test]
   fn the_compositor_relay_stops_being_watched_when_its_writer_closes()

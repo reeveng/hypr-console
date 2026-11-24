@@ -36,14 +36,19 @@
 //! thread has its own queue so either can drain notices while the other sleeps.
 
 use std::io;
-use std::os::fd::{AsFd, BorrowedFd};
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, MutexGuard, Weak};
+use std::sync::{Mutex, MutexGuard, TryLockError};
+use std::time::Duration;
 
 use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_shapes::Pixels;
+use console_waiting::{Schedule, clock::LiveClock};
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use rustix::io::Errno;
+use rustix::net::{SendFlags, send};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum FrameState {
@@ -52,13 +57,35 @@ enum FrameState {
   Failed,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
 struct Looked {
   of: PathBuf,
   room: Size<u32>,
   held: FrameState,
   asked: Size<u32>,
   said: Vec<String>,
+  device: DeviceTarget,
+}
+
+enum DeviceTarget {
+  Inactive,
+  Waiting,
+  Frame(DeviceFrame),
+}
+
+pub(crate) struct DeviceFrame {
+  pub fd: OwnedFd,
+  pub size: Size<u32>,
+  pub stride: u32,
+}
+
+pub(crate) enum DeviceRetired {
+  Yes,
+  No,
+}
+
+pub enum DeviceInsertion {
+  Stored,
+  NotTargeted,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -114,40 +141,78 @@ static LOOKING_AT: Mutex<Option<Looked>> = Mutex::new(None);
     reason = "each drawing thread registers its own wake socket and producers notify every live listener"
   )
 )]
-static LISTENERS: Mutex<Vec<Weak<Wake>>> = Mutex::new(Vec::new());
+static LISTENERS: Mutex<Vec<UnixStream>> = Mutex::new(Vec::new());
 
-struct Wake {
-  receiver: UnixStream,
-  sender: UnixStream,
-}
+pub struct WakeReceiver(UnixStream);
 
-impl Wake {
-  fn open() -> io::Result<Arc<Self>> {
+impl WakeReceiver {
+  pub fn open() -> io::Result<Self> {
     let (receiver, sender) = UnixStream::pair()?;
     receiver.set_nonblocking(true)?;
     sender.set_nonblocking(true)?;
-    let wake = Arc::new(Self { receiver, sender });
-    let mut listeners = LISTENERS
-      .lock()
-      .map_err(|_| io::Error::other("the wake queue registry is unavailable"))?;
-    listeners.retain(|listener| listener.strong_count() != 0);
-    listeners.push(Arc::downgrade(&wake));
-    Ok(wake)
+    let mut registered = listeners()?;
+    registered.retain(|peer| {
+      let mut watch = [PollFd::new(peer, PollFlags::empty())];
+
+      match poll(&mut watch, Some(&Timespec::default())) {
+        Ok(_ready) => {
+          let [checked_peer] = watch;
+          !checked_peer
+            .revents()
+            .intersects(PollFlags::HUP | PollFlags::ERR | PollFlags::NVAL)
+        }
+        Err(Errno::INTR) => true,
+        Err(fault) => {
+          console_core_logging::warn!("console-panel: checking a wake socket: {fault}");
+          true
+        }
+      }
+    });
+    registered.push(sender);
+
+    Ok(Self(receiver))
+  }
+
+  pub(crate) fn descriptor(&self) -> Result<BorrowedFd<'_>, Never> {
+    Ok(self.0.as_fd())
+  }
+
+  pub fn state(&self) -> Result<WakeState, Never> {
+    read_wakes(self.0.as_fd())
   }
 }
 
-std::thread_local! {
-  static WAKE: Option<Arc<Wake>> = match Wake::open() {
-    Ok(wake) => Some(wake),
-    Err(fault) => {
-      console_core_logging::warn!("console-panel: cannot create a wake queue: {fault}");
-      None
+fn try_listeners() -> io::Result<Option<MutexGuard<'static, Vec<UnixStream>>>> {
+  match LISTENERS.try_lock() {
+    Ok(registered) => Ok(Some(registered)),
+    Err(TryLockError::WouldBlock) => Ok(None),
+    Err(TryLockError::Poisoned(_inconsistent)) => {
+      Err(io::Error::other("the wake queue registry is unavailable"))
     }
-  };
+  }
 }
 
-pub(crate) fn with_waking<T>(wait: impl FnOnce(Option<BorrowedFd<'_>>) -> T) -> T {
-  WAKE.with(|wake| wait(wake.as_ref().map(|wake| wake.receiver.as_fd())))
+fn listeners() -> io::Result<MutexGuard<'static, Vec<UnixStream>>> {
+  let immediate = try_listeners()?;
+
+  match immediate {
+    Some(registered) => return Ok(registered),
+    None => {}
+  }
+
+  let Ok(mut clock) = LiveClock::started();
+  let Ok(schedule) = Schedule::asking_every(Duration::from_millis(100), Duration::from_millis(1));
+  let waiting =
+    console_waiting::until_some_handed_on_result(&mut clock, schedule, &mut (), |_| {
+      try_listeners()
+    })?;
+
+  waiting.ok_or_else(|| {
+    io::Error::new(
+      io::ErrorKind::TimedOut,
+      "the wake queue registry stayed busy",
+    )
+  })
 }
 
 pub fn tell(what: Notice) -> Result<(), Never> {
@@ -167,32 +232,28 @@ pub(crate) fn subscription_ready() -> Result<(), Never> {
 }
 
 fn signal_ready(byte: u8) -> Result<(), Never> {
-  if let Ok(mut listeners) = LISTENERS.lock() {
-    listeners.retain(|listener| {
-      let Some(wake) = listener.upgrade() else {
-        return false;
-      };
-      match rustix::io::write(&wake.sender, &[byte]) {
-        Ok(_) | Err(rustix::io::Errno::AGAIN) => {}
-        Err(fault) => console_core_logging::warn!("console-panel: waking the card: {fault}"),
+  let mut registered = match listeners() {
+    Ok(registered) => registered,
+    Err(fault) => {
+      console_core_logging::warn!("console-panel: publishing a wake: {fault}");
+      return Ok(());
+    }
+  };
+  registered.retain(
+    |destination| match send(destination, &[byte], SendFlags::NOSIGNAL) {
+      Ok(_) | Err(Errno::AGAIN) => true,
+      Err(Errno::PIPE | Errno::CONNRESET | Errno::NOTCONN) => false,
+      Err(fault) => {
+        console_core_logging::warn!("console-panel: waking the card: {fault}");
+        true
       }
-      true
-    });
-  }
+    },
+  );
 
   Ok(())
 }
 
-pub fn wake_state() -> Result<WakeState, Never> {
-  with_waking(read_wakes)
-}
-
-fn read_wakes(told: Option<BorrowedFd<'_>>) -> Result<WakeState, Never> {
-  let told = match told {
-    Some(told) => told,
-    None => return Ok(WakeState::default()),
-  };
-
+fn read_wakes(told: BorrowedFd<'_>) -> Result<WakeState, Never> {
   let read = (0..1024).map_while(|_batch| {
     let mut read = [0u8; 64];
 
@@ -289,6 +350,7 @@ pub(crate) fn with_current<Context, T>(
     held: FrameState::Decoding,
     asked: room,
     said: Vec::new(),
+    device: DeviceTarget::Inactive,
   });
 
   drop(holding);
@@ -445,25 +507,116 @@ pub fn insert(of: &Path, pixels: Pixels, said: Vec<String>) -> Result<(), Never>
     None => return Ok(()),
   };
 
-  let room = match holding.as_ref() {
-    Some(looked) => match ::core::primitive::bool::then_some(looked.of.as_path() == of, ()) {
-      ::core::option::Option::Some(()) => looked.room,
-      ::core::option::Option::None => return Ok(()),
-    },
+  let looked = match holding.as_mut().filter(|frame| frame.of.as_path() == of) {
+    Some(frame) => frame,
     None => return Ok(()),
   };
+  looked.held = FrameState::Decoded(pixels);
+  looked.asked = looked.room;
+  looked.said = said;
 
-  *holding = Some(Looked {
-    of: of.to_path_buf(),
-    room,
-    held: FrameState::Decoded(pixels),
-    asked: room,
-    said,
-  });
+  match looked.device {
+    DeviceTarget::Frame(_) => looked.device = DeviceTarget::Waiting,
+    DeviceTarget::Inactive | DeviceTarget::Waiting => {}
+  }
 
   drop(holding);
 
   tell(Notice::Frame)
+}
+
+pub(crate) fn set_device_target(path: Option<&Path>) -> Result<DeviceRetired, Never> {
+  let Ok(resident) = held_frame();
+  let mut holding = match resident {
+    Some(holding) => holding,
+    None => return Ok(DeviceRetired::No),
+  };
+  let looked = match holding.as_mut() {
+    Some(looked) => looked,
+    None => return Ok(DeviceRetired::No),
+  };
+
+  match (path == Some(looked.of.as_path())).then_some(()) {
+    Some(()) => {
+      match looked.device {
+        DeviceTarget::Inactive => looked.device = DeviceTarget::Waiting,
+        DeviceTarget::Waiting | DeviceTarget::Frame(_) => {}
+      }
+
+      Ok(DeviceRetired::No)
+    }
+    None => match std::mem::replace(&mut looked.device, DeviceTarget::Inactive) {
+      DeviceTarget::Frame(_) => Ok(DeviceRetired::Yes),
+      DeviceTarget::Inactive | DeviceTarget::Waiting => Ok(DeviceRetired::No),
+    },
+  }
+}
+
+pub fn device_room(of: &Path) -> Result<Option<Size<u32>>, Never> {
+  let Ok(resident) = held_frame();
+  Ok(
+    resident
+      .as_deref()
+      .and_then(Option::as_ref)
+      .filter(|looked| {
+        looked.of.as_path() == of
+          && matches!(
+            looked.device,
+            DeviceTarget::Waiting | DeviceTarget::Frame(_)
+          )
+      })
+      .map(|looked| looked.room),
+  )
+}
+
+pub(crate) fn device_frame(of: &Path) -> io::Result<Option<DeviceFrame>> {
+  let Ok(resident) = held_frame();
+  let target = resident
+    .as_deref()
+    .and_then(Option::as_ref)
+    .filter(|looked| looked.of.as_path() == of)
+    .map(|looked| &looked.device);
+
+  match target {
+    Some(DeviceTarget::Frame(frame)) => {
+      let fd = frame.fd.try_clone()?;
+
+      Ok(Some(DeviceFrame {
+        fd,
+        size: frame.size,
+        stride: frame.stride,
+      }))
+    }
+    Some(DeviceTarget::Inactive | DeviceTarget::Waiting) | None => Ok(None),
+  }
+}
+
+pub fn insert_device(
+  of: &Path,
+  fd: OwnedFd,
+  size: Size<u32>,
+  stride: u32,
+) -> Result<DeviceInsertion, Never> {
+  let Ok(resident) = held_frame();
+  let mut holding = match resident {
+    Some(holding) => holding,
+    None => return Ok(DeviceInsertion::NotTargeted),
+  };
+  let looked = match holding.as_mut().filter(|frame| frame.of.as_path() == of) {
+    Some(frame) => frame,
+    None => return Ok(DeviceInsertion::NotTargeted),
+  };
+
+  match looked.device {
+    DeviceTarget::Inactive => return Ok(DeviceInsertion::NotTargeted),
+    DeviceTarget::Waiting | DeviceTarget::Frame(_) => {}
+  }
+
+  looked.device = DeviceTarget::Frame(DeviceFrame { fd, size, stride });
+  looked.said.clear();
+  drop(holding);
+  let Ok(()) = tell(Notice::Frame);
+  Ok(DeviceInsertion::Stored)
 }
 
 #[cfg(test)]
@@ -527,11 +680,11 @@ mod tests {
   #[test]
   fn overlapping_panels_do_not_drain_each_others_wakes() -> Result<(), Failure> {
     let Ok(_turn) = serial_fixture();
-    let outgoing = Wake::open()?;
-    let incoming = Wake::open()?;
+    let outgoing = WakeReceiver::open()?;
+    let incoming = WakeReceiver::open()?;
     let Ok(()) = tell(Notice::Card);
-    let Ok(outgoing_wake) = read_wakes(Some(outgoing.receiver.as_fd()));
-    let Ok(incoming_wake) = read_wakes(Some(incoming.receiver.as_fd()));
+    let Ok(outgoing_wake) = outgoing.state();
+    let Ok(incoming_wake) = incoming.state();
 
     assert_eq!(outgoing_wake.card, FrameReceived::Yes);
     assert_eq!(incoming_wake.card, FrameReceived::Yes);
@@ -565,7 +718,7 @@ mod tests {
   fn a_picture_asked_for_is_decoded_away_from_the_loop_and_the_loop_is_told()
   -> Result<(), Failure> {
     let Ok(_turn) = serial_fixture();
-    let Ok(_before) = wake_state();
+    let waking = WakeReceiver::open()?;
     let at = fresh_picture()?;
     let space = Size {
       width: 80,
@@ -581,7 +734,7 @@ mod tests {
     let told = Cell::new(FrameReceived::No);
     let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(20));
     let Ok(drawn) = console_waiting::until_some(patience, || {
-      let Ok(heard) = wake_state();
+      let Ok(heard) = waking.state();
 
       match heard.card {
         FrameReceived::Yes => told.set(FrameReceived::Yes),
@@ -596,7 +749,7 @@ mod tests {
 
     assert_eq!((drawn_2.width, drawn_2.height), (80, 60));
 
-    let Ok(heard) = wake_state();
+    let Ok(heard) = waking.state();
 
     match heard.card {
       FrameReceived::Yes => told.set(FrameReceived::Yes),
@@ -617,7 +770,7 @@ mod tests {
     assert_eq!(room(film), Ok(Some(space)));
 
     let Ok(()) = insert(film, bright.clone(), vec![String::from("Hello")]);
-    let Ok(heard_2) = wake_state();
+    let Ok(heard_2) = waking.state();
 
     assert_eq!(
       heard_2.frame,

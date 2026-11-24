@@ -29,18 +29,21 @@ pub(super) fn write_theme_shadow_application(
         height,
         effect.color_space().svg_name()
     );
+
     if effect.composition() == EffectComposition::Independent {
         write_independent_shadows(out, effect);
     } else {
         for (index, stage) in effect.stages().iter().enumerate() {
             let color = escape_attr(&stage.color.as_css());
+
             match effect.color_space() {
                 EffectColorSpace::LinearRgb => {
                     let _ = write!(out, "<feDropShadow");
-                    // Omitted SVG `in` selects the preceding primitive. `Previous` is not a keyword.
+
                     if stage.input == EffectInput::SourceGraphic {
                         let _ = write!(out, r#" in="SourceGraphic""#);
                     }
+
                     let _ = write!(
                         out,
                         r#" dx="{}" dy="{}" stdDeviation="{}" flood-color="{}"/>"#,
@@ -48,8 +51,8 @@ pub(super) fn write_theme_shadow_application(
                     );
                 }
                 EffectColorSpace::Srgb => {
-                    // The standard DropShadow expansion keeps flood pixels in sRGB. The pinned
-                    // native backend otherwise applies gamma conversion twice in feDropShadow.
+
+
                     let input = match stage.input {
                         EffectInput::SourceGraphic => "SourceGraphic".to_owned(),
                         EffectInput::Previous => format!("merman-shadow-{}-result", index - 1),
@@ -59,7 +62,7 @@ pub(super) fn write_theme_shadow_application(
                         r#"<feGaussianBlur in="{input}" stdDeviation="{}" result="merman-shadow-{index}-blur"/>"#,
                         stage.std_deviation
                     );
-                    let mask = if stage.offset_x == 0.0 && stage.offset_y == 0.0 {
+                    let mask = if ::core::matches!(::core::primitive::f32::classify(stage.offset_x), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f32::classify(stage.offset_y), ::core::num::FpCategory::Zero) {
                         "blur"
                     } else {
                         let _ = write!(
@@ -85,6 +88,7 @@ pub(super) fn write_theme_shadow_application(
             }
         }
     }
+
     let _ = write!(out, "</filter></defs>");
     format!("url(#{scoped_filter_id})")
 }
@@ -97,7 +101,7 @@ fn write_independent_shadows(out: &mut impl SvgOutput, effect: &SvgShadowEffect)
             r#"<feGaussianBlur in="SourceAlpha" stdDeviation="{}" result="merman-shadow-{index}-blur"/>"#,
             stage.std_deviation
         );
-        let mask = if stage.offset_x == 0.0 && stage.offset_y == 0.0 {
+        let mask = if ::core::matches!(::core::primitive::f32::classify(stage.offset_x), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f32::classify(stage.offset_y), ::core::num::FpCategory::Zero) {
             "blur"
         } else {
             let _ = write!(
@@ -118,9 +122,12 @@ fn write_independent_shadows(out: &mut impl SvgOutput, effect: &SvgShadowEffect)
             mask = mask,
         );
     }
+
     let _ = write!(out, r#"<feMerge result="merman-shadow-stack-result">"#);
+
     for index in 0..effect.stages().len() {
         let _ = write!(out, r#"<feMergeNode in="merman-shadow-{index}-shadow"/>"#);
     }
+
     let _ = write!(out, r#"<feMergeNode in="SourceGraphic"/></feMerge>"#);
 }

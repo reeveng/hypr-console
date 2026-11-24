@@ -17,6 +17,7 @@ pub(super) struct ClassConfigView<'a> {
 }
 
 impl<'a> ClassConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -29,6 +30,7 @@ impl<'a> ClassConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn diagram_config(&self) -> &'a Value {
         self.effective_config
             .get("flowchart")
@@ -36,42 +38,52 @@ impl<'a> ClassConfigView<'a> {
             .unwrap_or(self.effective_config)
     }
 
+    #[must_use]
     fn root_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.effective_config, &[key])
     }
 
+    #[must_use]
     fn flowchart_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.flowchart_config, &[key])
     }
 
+    #[must_use]
     fn class_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.class_config, &[key])
     }
 
+    #[must_use]
     fn root_compat_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.effective_config, &[key])
     }
 
+    #[must_use]
     fn flowchart_compat_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.flowchart_config, &[key])
     }
 
+    #[must_use]
     fn state_compat_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.state_config, &[key])
     }
 
+    #[must_use]
     fn class_compat_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.class_config, &[key])
     }
 
+    #[must_use]
     fn class_json_number(&self, key: &str) -> Option<f64> {
         self.class_config.get(key).and_then(Value::as_f64)
     }
 
+    #[must_use]
     fn theme_string(&self, key: &str) -> Option<String> {
         config_string(self.theme_variables, &[key])
     }
 
+    #[must_use]
     fn layout_settings(&self) -> ClassLayoutSettings {
         let nodesep = self.layout_spacing("nodeSpacing");
         let ranksep = self.layout_spacing("rankSpacing");
@@ -89,84 +101,128 @@ impl<'a> ClassConfigView<'a> {
             wrap_mode_node,
             wrap_mode_label,
             wrap_mode_note: wrap_mode_node,
-            class_padding: self.class_compat_f64("padding").unwrap_or(12.0),
-            namespace_padding: self.flowchart_compat_f64("padding").unwrap_or(15.0),
-            hide_empty_members_box: self.class_bool("hideEmptyMembersBox").unwrap_or(false),
+            class_padding: match self.class_compat_f64("padding") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 12.0,
+            },
+            namespace_padding: match self.flowchart_compat_f64("padding") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 15.0,
+            },
+            hide_empty_members_box: match self.class_bool("hideEmptyMembersBox") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            },
             text_style,
             html_calc_text_style,
             wrap_probe_font_size: self.wrap_probe_font_size(),
-            title_margin_top: config_f64(
+            title_margin_top: match config_f64(
                 self.effective_config,
                 &["flowchart", "subGraphTitleMargin", "top"],
-            )
-            .unwrap_or(0.0),
-            title_margin_bottom: config_f64(
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0.0,
+            },
+            title_margin_bottom: match config_f64(
                 self.effective_config,
                 &["flowchart", "subGraphTitleMargin", "bottom"],
-            )
-            .unwrap_or(0.0),
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0.0,
+            },
         }
     }
 
+    #[must_use]
     fn layout_spacing(&self, key: &str) -> f64 {
-        let renderer_spacing = self
+        let renderer_spacing = match self
             .state_compat_f64(key)
-            .filter(|value| *value != 0.0)
-            .unwrap_or(50.0);
-        [
+            .filter(|value| !::core::matches!(::core::primitive::f64::classify(*value), ::core::num::FpCategory::Zero)) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 50.0,
+        };
+
+        match [
             self.root_compat_f64(key),
             Some(renderer_spacing),
             self.flowchart_compat_f64(key),
         ]
         .into_iter()
         .flatten()
-        .find(|value| *value != 0.0)
-        .unwrap_or(50.0)
+        .find(|value| !::core::matches!(::core::primitive::f64::classify(*value), ::core::num::FpCategory::Zero)) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 50.0,
+        }
     }
 
+    #[must_use]
     fn html_calculate_text_style(&self) -> TextStyle {
         TextStyle {
             font_family: config_string(self.effective_config, &["fontFamily"])
                 .or_else(|| Some(DEFAULT_CLASS_HTML_CALC_FONT_FAMILY.to_string())),
-            font_size: config_f64_css_px(self.effective_config, &["fontSize"])
-                .unwrap_or(16.0)
+            font_size: match config_f64_css_px(self.effective_config, &["fontSize"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 16.0,
+            }
                 .max(1.0),
             font_weight: None,
             font_style: None,
         }
     }
 
+    #[must_use]
     fn interface_wrapping_width(&self) -> f64 {
-        self.flowchart_compat_f64("wrappingWidth")
-            .filter(|width| width.is_finite() && *width > 0.0)
-            .unwrap_or(crate::text::MERMAID_CREATE_TEXT_DEFAULT_WIDTH_PX)
+        match self.flowchart_compat_f64("wrappingWidth")
+            .filter(|width| width.is_finite() && *width > 0.0) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => crate::text::MERMAID_CREATE_TEXT_DEFAULT_WIDTH_PX,
+        }
     }
 
+    #[must_use]
     fn render_diagram_html_labels(&self) -> bool {
-        self.root_bool("htmlLabels").unwrap_or(true)
+        match self.root_bool("htmlLabels") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        }
     }
 
+    #[must_use]
     fn render_edge_html_labels(&self) -> bool {
-        self.root_bool("htmlLabels")
-            .or_else(|| self.flowchart_bool("htmlLabels"))
-            .unwrap_or(true)
+        match self.root_bool("htmlLabels")
+            .or_else(|| self.flowchart_bool("htmlLabels")) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        }
     }
 
+    #[must_use]
     fn render_font_size(&self) -> f64 {
-        // HTML labels inherit the same root SVG theme font size as SVG labels.
-        config_f64_explicit_css_px(self.effective_config, &["themeVariables", "fontSize"])
-            .unwrap_or(16.0)
+
+        match config_f64_explicit_css_px(self.effective_config, &["themeVariables", "fontSize"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 16.0,
+        }
             .max(1.0)
     }
 
+    #[must_use]
     fn wrap_probe_font_size(&self) -> f64 {
-        self.root_compat_f64("fontSize").unwrap_or(16.0).max(1.0)
+        match self.root_compat_f64("fontSize") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 16.0,
+        }.max(1.0)
     }
 
+    #[must_use]
     fn render_class_padding(&self) -> f64 {
-        self.class_json_number("padding").unwrap_or(12.0).max(0.0)
+        match self.class_json_number("padding") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 12.0,
+        }.max(0.0)
     }
 
+    #[must_use]
     fn render_text_style(&self, font_size: f64) -> TextStyle {
         TextStyle {
             font_family: self.text_font_family(),
@@ -176,28 +232,38 @@ impl<'a> ClassConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn render_viewport_padding(&self) -> f64 {
-        config_f64(self.diagram_config(), &["diagramPadding"])
-            .unwrap_or(8.0)
+        match config_f64(self.diagram_config(), &["diagramPadding"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 8.0,
+        }
             .max(0.0)
     }
 
+    #[must_use]
     fn diagram_look(&self) -> String {
         config_diagram_look(self.effective_config)
             .as_str()
             .to_string()
     }
 
+    #[must_use]
     fn text_font_family(&self) -> Option<String> {
         config_string(self.effective_config, &["fontFamily"])
             .or_else(|| self.theme_string("fontFamily"))
             .or_else(|| Some(DEFAULT_CLASS_FONT_FAMILY.to_string()))
     }
 
+    #[must_use]
     pub(super) fn layout_font_family_css(&self) -> String {
         let font_family = crate::config::normalize_css_font_family(
-            self.text_font_family().unwrap_or_default().as_str(),
+            match self.text_font_family() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::string::String::new(),
+            }.as_str(),
         );
+
         if font_family.is_empty() {
             DEFAULT_CLASS_FONT_FAMILY.to_string()
         } else {
@@ -222,12 +288,13 @@ pub(crate) struct ClassRenderConfig {
 }
 
 impl ClassRenderConfig {
+    #[must_use]
     pub(crate) fn resolve(
         effective_config: &merman_model::presentation::PresentationConfig,
         typography: &super::ClassTextThemePlan,
     ) -> Self {
-        let effective_config = effective_config.as_value();
-        let config = ClassConfigView::new(effective_config);
+        let effective_config_2 = effective_config.as_value();
+        let config = ClassConfigView::new(effective_config_2);
         let mut layout = config.layout_settings();
         typography
             .apply_layout_text_styles(&mut layout.text_style, &mut layout.html_calc_text_style);
@@ -241,34 +308,39 @@ impl ClassRenderConfig {
             line_height,
             class_padding: config.render_class_padding(),
             viewport_padding: config.render_viewport_padding(),
-            security_level_loose: effective_config
+            security_level_loose: effective_config_2
                 .get("securityLevel")
                 .and_then(Value::as_str)
                 == Some("loose"),
             look: config.diagram_look(),
             interface_wrapping_width: config.interface_wrapping_width(),
-            hand_drawn_seed: effective_config
+            hand_drawn_seed: effective_config_2
                 .get("handDrawnSeed")
                 .and_then(Value::as_f64),
         }
     }
 
+    #[must_use]
     pub(super) const fn layout_settings(&self) -> &ClassLayoutSettings {
         &self.layout
     }
 
+    #[must_use]
     pub(crate) const fn text_style(&self) -> &TextStyle {
         &self.layout.text_style
     }
 
+    #[must_use]
     pub(crate) const fn html_calc_text_style(&self) -> &TextStyle {
         &self.layout.html_calc_text_style
     }
 
+    #[must_use]
     pub(crate) const fn wrap_probe_font_size(&self) -> f64 {
         self.layout.wrap_probe_font_size
     }
 
+    #[must_use]
     pub(crate) const fn hide_empty_members_box(&self) -> bool {
         self.layout.hide_empty_members_box
     }
@@ -291,6 +363,7 @@ pub(super) struct ClassLayoutSettings {
     pub(super) title_margin_bottom: f64,
 }
 
+#[must_use]
 fn class_wrap_mode(html_labels: bool) -> WrapMode {
     if html_labels {
         WrapMode::HtmlLike

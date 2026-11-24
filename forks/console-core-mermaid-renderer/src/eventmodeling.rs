@@ -70,11 +70,13 @@ pub(crate) fn prepare_eventmodeling_diagram_typed_with_binding(
     work_meter.checkpoint(merman_model::OperationPhase::Layout)?;
     let cfg = theme.layout_settings;
     let mut label_config = effective_config.as_config().clone();
+
     if label_config.get_str("securityLevel").is_none() {
         label_config.set_value("securityLevel", serde_json::json!("strict"));
     }
-    // Author text is sanitized before wrapping, as in pinned db.ts::calculateTextProps.
-    // The second pass serializes generated markup; it must not escape it as author text.
+
+
+
     let mut fragment_config = label_config.clone();
     fragment_config.set_value("securityLevel", serde_json::json!("loose"));
     let mut prepared_labels = EventModelingPreparedLabels::default();
@@ -150,15 +152,23 @@ pub(crate) fn prepare_eventmodeling_diagram_typed_with_binding(
 
         if !(index == 0 && frame.source_frames.is_empty()) {
             if frame.source_frames.is_empty() && frame.frame_kind != "resetframe" {
-                if let Some(source_idx) =
-                    find_previous_cross_swimlane_box(&boxes, swimlane_props.index, index)
                 {
-                    relation_specs.push((source_idx, target_box_idx));
+                    match find_previous_cross_swimlane_box(&boxes, swimlane_props.index, index) {
+                        Some(source_idx) => {
+                            relation_specs.push((source_idx, target_box_idx));
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             } else {
                 for source_name in &frame.source_frames {
-                    if let Some(source_idx) = frame_to_box.get(source_name).copied() {
-                        relation_specs.push((source_idx, target_box_idx));
+                    {
+                        match frame_to_box.get(source_name).copied() {
+                            Some(source_idx) => {
+                                relation_specs.push((source_idx, target_box_idx));
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
             }
@@ -232,9 +242,11 @@ pub(crate) fn prepare_eventmodeling_diagram_typed_with_binding(
         .collect();
 
     let mut bounds = BoundsAcc::new();
+
     for swimlane in &swimlane_layouts {
         bounds.include_rect(swimlane.x, swimlane.y, swimlane.width, swimlane.height);
     }
+
     for box_layout in &box_layouts {
         bounds.include_rect(
             box_layout.x,
@@ -243,17 +255,21 @@ pub(crate) fn prepare_eventmodeling_diagram_typed_with_binding(
             box_layout.height,
         );
     }
+
     for relation in &relation_layouts {
         bounds.include_point(relation.x1, relation.y1);
         bounds.include_point(relation.x2, relation.y2);
     }
 
-    let padded = bounds.finish(cfg.padding).unwrap_or(Bounds {
-        min_x: 0.0,
-        min_y: 0.0,
-        max_x: 1.0,
-        max_y: 1.0,
-    });
+    let padded = match (bounds.finish(cfg.padding), Bounds {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 1.0,
+            max_y: 1.0,
+        }) {
+        (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+        (::core::option::Option::None, alternate) => alternate,
+    };
     let total_width = (padded.max_x - padded.min_x).max(1.0);
     let total_height = (padded.max_y - padded.min_y).max(1.0);
     let viewbox_x = padded.min_x;
@@ -323,11 +339,13 @@ struct TextDimension {
     height: f64,
 }
 
+#[must_use]
 fn calculate_swimlane_props(
     frame: &EventModelingFrame,
     swimlanes: &BTreeMap<i64, SwimlaneState>,
 ) -> SwimlaneProps {
     let namespace = extract_namespace(&frame.entity_identifier);
+
     match frame.model_entity_type.as_str() {
         "ui" | "pcr" | "processor" => {
             namespaced_or_default_swimlane(swimlanes, namespace, 0, 100, "UI/Automation", "UI/A: ")
@@ -347,6 +365,7 @@ fn calculate_swimlane_props(
     }
 }
 
+#[must_use]
 fn namespaced_or_default_swimlane(
     swimlanes: &BTreeMap<i64, SwimlaneState>,
     namespace: Option<String>,
@@ -355,31 +374,36 @@ fn namespaced_or_default_swimlane(
     default_label: &str,
     prefix: &str,
 ) -> SwimlaneProps {
-    if let Some(namespace) = namespace {
-        if let Some(swimlane) =
-            find_swimlane_by_namespace(swimlanes, &namespace, boundary_min, boundary_max)
-        {
-            return SwimlaneProps {
-                index: swimlane.index,
-                label: swimlane.label.clone(),
-                namespace: Some(namespace),
-            };
-        }
+    match namespace {
+        Some(namespace_2) => {
+            match find_swimlane_by_namespace(swimlanes, &namespace_2, boundary_min, boundary_max) {
+                Some(swimlane) => {
+                    return SwimlaneProps {
+                        index: swimlane.index,
+                        label: swimlane.label.clone(),
+                        namespace: Some(namespace_2),
+                    };
+                },
+                ::core::option::Option::None => {},
+            }
 
-        SwimlaneProps {
-            index: find_next_available_index(swimlanes, boundary_min, boundary_max),
-            label: format!("{prefix}{namespace}"),
-            namespace: Some(namespace),
-        }
-    } else {
-        SwimlaneProps {
-            index: boundary_min,
-            label: default_label.to_string(),
-            namespace: None,
-        }
+            SwimlaneProps {
+                index: find_next_available_index(swimlanes, boundary_min, boundary_max),
+                label: format!("{prefix}{namespace}", namespace = namespace_2),
+                namespace: Some(namespace_2),
+            }
+        },
+        ::core::option::Option::None => {
+            SwimlaneProps {
+                index: boundary_min,
+                label: default_label.to_string(),
+                namespace: None,
+            }
+        },
     }
 }
 
+#[must_use]
 fn extract_namespace(entity_identifier: &str) -> Option<String> {
     let mut parts = entity_identifier.split('.');
     let namespace = parts.next()?;
@@ -391,14 +415,28 @@ fn extract_namespace(entity_identifier: &str) -> Option<String> {
         .flatten()
 }
 
+#[must_use]
 fn extract_name(entity_identifier: &str) -> &str {
     let mut parts = entity_identifier.split('.');
-    let Some(first) = parts.next() else {
-        return entity_identifier;
+
+    let first = {
+        let optional_first = parts.next();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return entity_identifier,
+        }
     };
-    let Some(second) = parts.next() else {
-        return entity_identifier;
+
+    let second = {
+        let optional_second = parts.next();
+
+        match optional_second {
+            Some(matched_second) => matched_second,
+            ::core::option::Option::None => return entity_identifier,
+        }
     };
+
     if parts.next().is_none() {
         second
     } else {
@@ -406,6 +444,7 @@ fn extract_name(entity_identifier: &str) -> &str {
     }
 }
 
+#[must_use]
 fn find_swimlane_by_namespace<'a>(
     swimlanes: &'a BTreeMap<i64, SwimlaneState>,
     namespace: &str,
@@ -419,6 +458,7 @@ fn find_swimlane_by_namespace<'a>(
     })
 }
 
+#[must_use]
 fn find_next_available_index(
     swimlanes: &BTreeMap<i64, SwimlaneState>,
     boundary_min: i64,
@@ -432,31 +472,46 @@ fn find_next_available_index(
         + 1
 }
 
+#[must_use]
 fn calculate_x(
     swimlane: &SwimlaneState,
     previous_swimlane_index: Option<i64>,
     last_box: Option<&BoxState>,
 ) -> f64 {
-    if previous_swimlane_index.is_none() {
-        return CONTENT_START_X;
+    match previous_swimlane_index {
+        ::core::option::Option::None => {
+            return CONTENT_START_X;
+        },
+        ::core::option::Option::Some(_) => {},
     }
+
     if previous_swimlane_index == Some(swimlane.index) && swimlane.r > 0.0 {
         return swimlane.r + BOX_PADDING;
     }
-    if let Some(last_box) = last_box {
-        return last_box.r - BOX_OVERLAP + BOX_PADDING;
+
+    match last_box {
+        Some(last_box_2) => {
+            return last_box_2.r - BOX_OVERLAP + BOX_PADDING;
+        },
+        ::core::option::Option::None => {},
     }
+
     CONTENT_START_X
 }
 
+#[must_use]
 fn find_previous_cross_swimlane_box(
     boxes: &[BoxState],
     target_swimlane_index: i64,
     line_index: usize,
 ) -> Option<usize> {
-    if line_index == 0 {
-        return None;
+    match line_index {
+        0 => {
+            return None;
+        },
+        _ => {},
     }
+
     (0..line_index)
         .rev()
         .find(|idx| boxes[*idx].swimlane_index != target_swimlane_index)
@@ -464,17 +519,20 @@ fn find_previous_cross_swimlane_box(
 
 fn recalculate_swimlane_y(swimlanes: &mut BTreeMap<i64, SwimlaneState>) {
     let mut next_y = 0.0;
+
     for swimlane in swimlanes.values_mut() {
         swimlane.y = next_y;
         next_y += swimlane.height + SWIMLANE_GAP;
     }
 }
 
+#[must_use]
 fn frame_text(
     frame: &EventModelingFrame,
     data_entities: &HashMap<&str, &EventModelingDataEntity>,
 ) -> String {
     let mut text = extract_name(&frame.entity_identifier).to_string();
+
     if let Some(data) = frame.data_inline_value.as_deref() {
         text.push('\n');
         text.push_str(data);
@@ -484,9 +542,11 @@ fn frame_text(
         text.push('\n');
         text.push_str(&entity.data_block_value);
     }
+
     text
 }
 
+#[must_use]
 fn eventmodeling_label_style() -> TextStyle {
     TextStyle {
         font_size: TEXT_FONT_SIZE,
@@ -495,6 +555,7 @@ fn eventmodeling_label_style() -> TextStyle {
     }
 }
 
+#[must_use]
 fn measure_eventmodeling_label_html(
     html: &str,
     measurer: &dyn TextMeasurer,
@@ -534,6 +595,7 @@ struct EventModelingHtmlTextDimension {
 }
 
 impl EventModelingHtmlTextDimension {
+    #[must_use]
     fn into_dimension(self) -> TextDimension {
         TextDimension {
             width: self.width,
@@ -542,6 +604,7 @@ impl EventModelingHtmlTextDimension {
     }
 }
 
+#[must_use]
 fn measure_eventmodeling_label_html_with_style(
     html: &str,
     measurer: &dyn TextMeasurer,
@@ -550,20 +613,22 @@ fn measure_eventmodeling_label_html_with_style(
     let mut width: f64 = 0.0;
     let mut height: f64 = 0.0;
     let mut line_height: f64 = 0.0;
+
     for line in split_html_br_lines(html) {
-        let line = line.replace(['\r', '\n'], " ");
+        let line_2 = line.replace(['\r', '\n'], " ");
         width = width.max(
             measurer
-                .measure_svg_simple_text_bbox_width_px(&line, style)
+                .measure_svg_simple_text_bbox_width_px(&line_2, style)
                 .round(),
         );
         let current_height = measurer
-            .measure_svg_simple_text_bbox_height_px(&line, style)
+            .measure_svg_simple_text_bbox_height_px(&line_2, style)
             .round()
             .max(HTML_LABEL_BBOX_LINE_HEIGHT);
         height += current_height;
         line_height = line_height.max(current_height);
     }
+
     EventModelingHtmlTextDimension {
         width,
         height,
@@ -582,7 +647,7 @@ impl EventModelingPreparedHtmlLabel {
     ) -> Result<Self> {
         use crate::html::HtmlSanitizeSink;
 
-        // Include the vector owner slot, consistently with Block's prepared-label accounting.
+
         const OWNER_SLOT_BYTES: usize = 192;
         let owner_bytes = std::mem::size_of::<Self>().saturating_add(OWNER_SLOT_BYTES);
         work_meter.preflight_prepared_text_retained_bytes(owner_bytes)?;
@@ -598,8 +663,8 @@ impl EventModelingPreparedHtmlLabel {
             &parse_work,
             merman_model::OperationPhase::Layout,
         );
-        // Author sanitization is transient and may shrink during wrapLabel whitespace folding.
-        // Its parser/storage work is metered separately from final retained XHTML bytes.
+
+
         let author_sink = HtmlSanitizeSink::new(
             usize::MAX,
             work_meter,
@@ -620,7 +685,7 @@ impl EventModelingPreparedHtmlLabel {
                 measurer,
                 &style,
                 TEXT_MAX_WIDTH,
-                || Ok(work_meter.checkpoint(merman_model::OperationPhase::Layout)?),
+                || Ok({ let checked_value = work_meter.checkpoint(merman_model::OperationPhase::Layout)?; checked_value }),
             )
             .map(|lines| lines.join("<br/>"))
         };
@@ -633,27 +698,39 @@ impl EventModelingPreparedHtmlLabel {
                 .and_then(|reference| data_entities.get(reference))
                 .map(|entity| entity.data_block_value.as_str())
         });
-        if let Some(data) = data {
-            let data = sanitize_author(&normalize_eventmodeling_data(data))?;
-            let wrapped_data = wrap(&data)?.replace(' ', "&nbsp;");
-            html.push_str(
-                r#"<br/><br/><code style="text-align: left; display: block;max-width:430px">"#,
-            );
-            html.push_str(&wrapped_data);
-            if frame.data_reference.is_some() {
-                html.push_str("<br/>");
-            }
-            html.push_str("</code>");
+
+        match data {
+            Some(data_2) => {
+                let data_3 = sanitize_author(&normalize_eventmodeling_data(data_2))?;
+                let wrapped_data = wrap(&data_3)?.replace(' ', "&nbsp;");
+                html.push_str(
+                    r#"<br/><br/><code style="text-align: left; display: block;max-width:430px">"#,
+                );
+                html.push_str(&wrapped_data);
+
+                if frame.data_reference.is_some() {
+                    html.push_str("<br/>");
+                }
+
+                html.push_str("</code>");
+            },
+            ::core::option::Option::None => {},
         }
-        // Pinned calculateTextDimensions probes generated HTML source with SVG text APIs.
-        // Preserve entity spellings here; XHTML serialization is a separate terminal projection.
+
+
+
         let mut dimension = measure_eventmodeling_label_html(&html, measurer, &style);
-        if data.is_some() {
-            dimension.width /= 3.0;
+
+        match data {
+            ::core::option::Option::Some(_) => {
+                dimension.width /= 3.0;
+            },
+            ::core::option::Option::None => {},
         }
+
         dimension.width = dimension.width.min(TEXT_MAX_WIDTH);
-        // Keep entity-authored angle brackets encoded until this HTML parse consumes them.
-        // Only this sanitized, XML-serialized terminal may be written beneath the XHTML span.
+
+
         let xhtml = eventmodeling_sanitize_result(
             merman_markup::sanitize::sanitize_xhtml_with_sink(&html, fragment_config, &sink),
             owner_bytes,
@@ -684,17 +761,18 @@ fn eventmodeling_sanitize_result(
 
     match result {
         Ok(text) => Ok(text),
-        Err(SanitizeFailure::Output(HtmlOutputError::Operation(error))) => Err(error.into()),
+        Err(SanitizeFailure::Output(HtmlOutputError::Operation(error))) => Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error)),
         Err(SanitizeFailure::Output(HtmlOutputError::Limit { attempted })) => {
             work_meter
                 .preflight_prepared_text_retained_bytes(owner_bytes.saturating_add(attempted))?;
             Ok(String::new())
         }
-        // Preserve the sanitizer's fail-closed behavior for malformed input/allocation.
+
         Err(_) => Ok(String::new()),
     }
 }
 
+#[must_use]
 fn normalize_eventmodeling_data(raw: &str) -> String {
     let trimmed = raw.trim();
     let without_outer_braces = trimmed
@@ -704,6 +782,7 @@ fn normalize_eventmodeling_data(raw: &str) -> String {
     without_outer_braces.trim().to_string()
 }
 
+#[must_use]
 fn entity_visual_props(theme: &EventModelingCssBinding, entity_type: &str) -> VisualProps {
     match entity_type {
         "ui" => VisualProps {
@@ -743,6 +822,7 @@ struct BoundsAcc {
 }
 
 impl BoundsAcc {
+    #[must_use]
     fn new() -> Self {
         Self {
             min_x: 0.0,
@@ -762,6 +842,7 @@ impl BoundsAcc {
             self.has_value = true;
             return;
         }
+
         self.min_x = self.min_x.min(x);
         self.max_x = self.max_x.max(x);
         self.min_y = self.min_y.min(y);
@@ -773,6 +854,7 @@ impl BoundsAcc {
         self.include_point(x + width, y + height);
     }
 
+    #[must_use]
     fn finish(self, padding: f64) -> Option<Bounds> {
         self.has_value.then_some(Bounds {
             min_x: self.min_x - padding,

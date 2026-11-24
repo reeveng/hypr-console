@@ -203,6 +203,7 @@ impl ArchitectureSurfaceRenderState {
         let mut mechanisms = ArchitectureTerminalMechanisms::default();
         let mut service_styles = Vec::new();
         let mut text_ordinal = 0usize;
+
         for service in services {
             debug_assert_eq!(service.index, service_styles.len());
             let ordinal = service.index.saturating_add(1);
@@ -285,6 +286,7 @@ impl ArchitectureSurfaceRenderState {
         }
 
         let mut group_styles = Vec::new();
+
         for group in groups {
             debug_assert_eq!(group.index, group_styles.len());
             let title_fill = resolve_text_fill(
@@ -318,6 +320,7 @@ impl ArchitectureSurfaceRenderState {
 
         let mut marker_ordinal = 0usize;
         let mut edge_styles = Vec::new();
+
         for edge in edges {
             debug_assert_eq!(edge.index, edge_styles.len());
             let label_fill = resolve_text_fill(
@@ -337,6 +340,7 @@ impl ArchitectureSurfaceRenderState {
                     if !present {
                         return Ok(None);
                     }
+
                     marker_ordinal = marker_ordinal.saturating_add(1);
                     let style = theme.style_with_work_meter(
                         ThemeTarget::Marker,
@@ -406,36 +410,42 @@ impl ArchitectureSurfaceRenderState {
         })
     }
 
+    #[must_use]
     pub(crate) fn service_background_style(&self, service_index: usize) -> Option<&str> {
         self.services
             .get(service_index)
             .and_then(|style| style.background_style.as_deref())
     }
 
+    #[must_use]
     pub(crate) fn service_title_style(&self, service_index: usize) -> Option<&str> {
         self.services
             .get(service_index)
             .and_then(|style| style.title_style.as_deref())
     }
 
+    #[must_use]
     pub(crate) fn group_title_style(&self, group_index: usize) -> Option<&str> {
         self.groups
             .get(group_index)
             .and_then(|style| style.title_style.as_deref())
     }
 
+    #[must_use]
     pub(crate) fn edge_label_style(&self, edge_index: usize) -> Option<&str> {
         self.edges
             .get(edge_index)
             .and_then(|style| style.label_style.as_deref())
     }
 
+    #[must_use]
     pub(crate) fn edge_arrow_style(
         &self,
         edge_index: usize,
         side: ArchitectureArrowSide,
     ) -> Option<&str> {
         let style = self.edges.get(edge_index)?;
+
         match side {
             ArchitectureArrowSide::Lhs => style.lhs_arrow_style.as_deref(),
             ArchitectureArrowSide::Rhs => style.rhs_arrow_style.as_deref(),
@@ -447,13 +457,16 @@ impl ArchitectureSurfaceRenderState {
         emission: ArchitectureServiceTerminalEmission,
     ) {
         let style = &mut self.services[emission.index];
+
         if emission.background.emitted {
             record_paint(style.background_fill.as_ref(), &mut self.emitted_rules);
             record_paint(style.background_stroke.as_ref(), &mut self.emitted_rules);
         }
+
         if emission.title.emitted {
             record_paint(style.title_fill.as_ref(), &mut self.emitted_rules);
         }
+
         #[cfg(merman_internal_theme_acceptance)]
         {
             style.id = emission.id.into();
@@ -468,9 +481,11 @@ impl ArchitectureSurfaceRenderState {
         emission: ArchitectureGroupTerminalEmission,
     ) {
         let style = &mut self.groups[emission.index];
+
         if emission.title.emitted {
             record_paint(style.title_fill.as_ref(), &mut self.emitted_rules);
         }
+
         #[cfg(merman_internal_theme_acceptance)]
         {
             style.id = emission.id.into();
@@ -482,15 +497,19 @@ impl ArchitectureSurfaceRenderState {
 
     pub(crate) fn record_checkpointed_edge(&mut self, emission: ArchitectureEdgeTerminalEmission) {
         let style = &mut self.edges[emission.index];
+
         if emission.label.emitted {
             record_paint(style.label_fill.as_ref(), &mut self.emitted_rules);
         }
+
         if emission.lhs_arrow.emitted {
             record_paint(style.lhs_arrow_fill.as_ref(), &mut self.emitted_rules);
         }
+
         if emission.rhs_arrow.emitted {
             record_paint(style.rhs_arrow_fill.as_ref(), &mut self.emitted_rules);
         }
+
         #[cfg(merman_internal_theme_acceptance)]
         {
             style.lhs_id = emission.lhs_id.into();
@@ -623,6 +642,7 @@ impl ArchitectureTerminalMechanisms {
                     )
                 }),
         );
+
         if !source_owned
             .iter()
             .any(|(property, owned)| *property == ResolvedStyleProperty::Fill && *owned)
@@ -632,6 +652,7 @@ impl ArchitectureTerminalMechanisms {
             self.active_palettes
                 .insert(FamilyThemeMechanismKey::OrdinalPalette { target });
         }
+
         if let Some(ResolvedThemeEffect::Binding { binding, .. }) =
             theme.resolve_effect(target, style.effect_resolution())
         {
@@ -644,33 +665,46 @@ impl ArchitectureTerminalMechanisms {
     }
 }
 
+#[must_use]
 fn resolve_mechanism_outcomes(
     theme: &ResolvedDiagramTheme,
     mechanisms: &ArchitectureTerminalMechanisms,
 ) -> BTreeMap<FamilyThemeMechanismKey, ArchitectureMechanismOutcome> {
     let mut rules = BTreeMap::<FamilyThemeMechanismKey, ArchitectureRuleOutcome>::new();
     let mut other = BTreeMap::new();
+
     for route in theme.family_mechanism_routes().iter().copied() {
-        let Some(target) = mechanism_target(route.mechanism()) else {
-            continue;
+        let target = {
+            let optional_target = mechanism_target(route.mechanism());
+
+            match optional_target {
+                Some(matched_target) => matched_target,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !is_architecture_terminal_surface_target(target) {
             continue;
         }
+
         let key = theme.family_mechanism_key(route);
+
         match route.mechanism() {
             FamilyThemeMechanism::RuleFacet {
                 selector, facet, ..
             } => {
                 let property = resolved_style_property_for_facet(facet);
                 let observation = rules.entry(key.clone()).or_default();
+
                 if !mechanisms
                     .winner_properties
                     .contains(&(key.clone(), property))
                 {
                     continue;
                 }
+
                 observation.applicable = true;
+
                 match route.disposition() {
                     FamilyThemeDisposition::Unsupported => {
                         observation
@@ -749,6 +783,7 @@ fn resolve_text_fill(
     if !present {
         return Ok(None);
     }
+
     *resolution.ordinal = resolution.ordinal.saturating_add(1);
     let style = resolution.theme.style_with_work_meter(
         ThemeTarget::Text,
@@ -775,6 +810,7 @@ fn resolve_text_fill(
         .flatten())
 }
 
+#[must_use]
 fn paint_key(paint: &DirectStaticPaint, target: ThemeTarget) -> FamilyThemeMechanismKey {
     FamilyThemeMechanismKey::Rule {
         index: paint.rule_index(),
@@ -786,29 +822,43 @@ fn record_paint(
     key: Option<&FamilyThemeMechanismKey>,
     emitted: &mut BTreeSet<FamilyThemeMechanismKey>,
 ) {
-    if let Some(key) = key {
-        emitted.insert(key.clone());
+    match key {
+        Some(key_2) => {
+            emitted.insert(key_2.clone());
+        },
+        ::core::option::Option::None => {},
     }
 }
 
+#[must_use]
 fn compose_paint_style(
     fill: Option<&DirectStaticPaint>,
     stroke: Option<&DirectStaticPaint>,
 ) -> Option<Box<str>> {
     let mut style = String::new();
-    if let Some(fill) = fill {
-        style.push_str("fill:");
-        style.push_str(fill.css());
-        style.push(';');
+
+    match fill {
+        Some(fill_2) => {
+            style.push_str("fill:");
+            style.push_str(fill_2.css());
+            style.push(';');
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(stroke) = stroke {
-        style.push_str("stroke:");
-        style.push_str(stroke.css());
-        style.push(';');
+
+    match stroke {
+        Some(stroke_2) => {
+            style.push_str("stroke:");
+            style.push_str(stroke_2.css());
+            style.push(';');
+        },
+        ::core::option::Option::None => {},
     }
+
     (!style.is_empty()).then(|| style.into_boxed_str())
 }
 
+#[must_use]
 fn direct_surface_facet(
     target: ThemeTarget,
     selector: FamilyThemeSelectorShape,
@@ -823,9 +873,11 @@ fn direct_surface_facet(
             },
         ) | (_, FamilyThemeSelectorShape::Static { variant: None })
     );
+
     if !selector_is_direct {
         return false;
     }
+
     matches!(
         (target, facet),
         (
@@ -847,8 +899,9 @@ fn direct_surface_facet(
 fn add_capabilities(capabilities: &mut BTreeSet<ThemeCapability>, facet: FamilyThemeRuleFacet) {
     let kind = match facet {
         FamilyThemeRuleFacet::Fill(kind) | FamilyThemeRuleFacet::Stroke(kind) => kind,
-        _ => return,
+        FamilyThemeRuleFacet::StrokeWidth | FamilyThemeRuleFacet::StrokeDasharray | FamilyThemeRuleFacet::StrokeLinecap | FamilyThemeRuleFacet::StrokeLinejoin | FamilyThemeRuleFacet::Opacity | FamilyThemeRuleFacet::FillOpacity | FamilyThemeRuleFacet::StrokeOpacity | FamilyThemeRuleFacet::Radius | FamilyThemeRuleFacet::Padding | FamilyThemeRuleFacet::Typography(_) | FamilyThemeRuleFacet::Effect => return,
     };
+
     match kind {
         FamilyThemePaintKind::Transparent => {
             capabilities.insert(ThemeCapability::TransparentPaint);
@@ -861,11 +914,13 @@ fn add_capabilities(capabilities: &mut BTreeSet<ThemeCapability>, facet: FamilyT
         | FamilyThemePaintKind::RadialGradient
         | FamilyThemePaintKind::Pattern => {}
     }
+
     if matches!(facet, FamilyThemeRuleFacet::Stroke(_)) {
         capabilities.insert(ThemeCapability::BorderStyling);
     }
 }
 
+#[must_use]
 pub(super) fn mechanism_target(mechanism: FamilyThemeMechanism) -> Option<ThemeTarget> {
     match mechanism {
         FamilyThemeMechanism::BaseTypography(_) => None,
@@ -875,6 +930,7 @@ pub(super) fn mechanism_target(mechanism: FamilyThemeMechanism) -> Option<ThemeT
     }
 }
 
+#[must_use]
 pub(super) fn is_architecture_terminal_surface_target(target: ThemeTarget) -> bool {
     matches!(
         target,

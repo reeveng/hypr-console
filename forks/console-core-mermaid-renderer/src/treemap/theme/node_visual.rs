@@ -22,6 +22,7 @@ pub(crate) struct TreemapNodeVisual {
 }
 
 impl TreemapNodeVisual {
+    #[must_use]
     fn retained_bytes(&self) -> Option<usize> {
         [
             &self.fill,
@@ -68,20 +69,30 @@ impl OrdinalScale {
             self.domain.insert(key.to_string(), idx);
             idx
         };
+
         if self.range.is_empty() {
             return String::new();
         }
+
         self.range[idx % self.range.len()].clone()
     }
 }
 
+#[must_use]
 fn replace_first(haystack: &str, needle: &str, replacement: &str) -> String {
     if needle.is_empty() {
         return haystack.to_string();
     }
-    let Some(idx) = haystack.find(needle) else {
-        return haystack.to_string();
+
+    let idx = {
+        let optional_idx = haystack.find(needle);
+
+        match optional_idx {
+            Some(matched_idx) => matched_idx,
+            ::core::option::Option::None => return haystack.to_string(),
+        }
     };
+
     let mut out = String::with_capacity(haystack.len() - needle.len() + replacement.len());
     out.push_str(&haystack[..idx]);
     out.push_str(replacement);
@@ -100,15 +111,18 @@ impl OrderedMap {
         if k.is_empty() {
             return;
         }
+
         if let Some(&i) = self.idx.get(k) {
             self.order[i].1 = v.to_string();
             return;
         }
+
         self.idx.insert(k.to_string(), self.order.len());
         self.order.push((k.to_string(), v.to_string()));
     }
 }
 
+#[must_use]
 fn treemap_is_label_style(key: &str) -> bool {
     matches!(
         key.trim(),
@@ -149,10 +163,10 @@ fn treemap_styles2_string(
     css_compiled_styles: &[String],
     work_meter: &crate::resources::OperationWorkMeter,
 ) -> Result<TreemapCompiledStyles> {
-    // Ported from Mermaid `handDrawnShapeStyles.compileStyles()` / `styles2String()`:
-    // - preserve insertion order of the first occurrence of a key
-    // - later occurrences override values, without changing order
-    // - tolerate tokens without `:` (JS `split(':')` yields `value = undefined`)
+
+
+
+
     let mut m = OrderedMap::default();
 
     for entry in css_compiled_styles {
@@ -169,9 +183,11 @@ fn treemap_styles2_string(
                     .strip_suffix(';')
                     .unwrap_or_else(|| raw.trim())
                     .trim();
+
                 if s.is_empty() {
                     return Ok(true);
                 }
+
                 let (k, v) =
                     if let Some(declaration) = crate::mermaid_style::parse_style_declaration(raw) {
                         (declaration.property_source(), declaration.source_value())
@@ -201,6 +217,7 @@ fn treemap_styles2_string(
         if v.is_empty() {
             continue;
         }
+
         work_meter.charge(
             1usize
                 .saturating_add(k.len().div_ceil(64))
@@ -208,10 +225,11 @@ fn treemap_styles2_string(
         )?;
         let decl = format!("{k}:{v}");
         let decl_imp = format!("{decl} !important");
+
         if treemap_is_label_style(k) {
             if k == "color" {
-                // The emitted suffix converts this declaration to fill and appends !important.
-                // Dynamic or invalid values cannot prove that the generated fill is shadowed.
+
+
                 text_fill_ownership = if crate::mermaid_style::is_supported_css_color_value(v)
                     || v.eq_ignore_ascii_case("none")
                 {
@@ -220,20 +238,23 @@ fn treemap_styles2_string(
                     crate::treemap::TreemapTextFillOwnership::Unverified
                 };
                 text_fill_without_font_size_ownership = text_fill_ownership;
-                // Preserve the writer's first-substring replacement, including values that
-                // contain `color:` before the real declaration. Such output is not proof of
-                // a source-owned fill; the two suffixes can have different first matches.
+
+
+
                 if label_styles_contain_color {
                     text_fill_ownership = crate::treemap::TreemapTextFillOwnership::Unverified;
                 }
+
                 if label_styles_without_font_size_contain_color {
                     text_fill_without_font_size_ownership =
                         crate::treemap::TreemapTextFillOwnership::Unverified;
                 }
             }
+
             let contains_color = decl_imp.contains("color:");
             label_styles_contain_color |= contains_color;
             label_styles.push(decl_imp.clone());
+
             if k.trim() != "font-size" {
                 label_styles_without_font_size_contain_color |= contains_color;
                 label_styles_without_font_size.push(decl_imp);
@@ -249,14 +270,18 @@ fn treemap_styles2_string(
             let declaration = crate::mermaid_style::parse_style_declaration(&decl);
             let property = declaration
                 .as_ref()
-                .map_or(k.as_str(), |declaration| declaration.property());
+                .map_or(k.as_str(), |declaration_2| declaration_2.property());
+
             if property.eq_ignore_ascii_case("fill") {
                 fill_ownership = ownership;
             }
+
             if property.eq_ignore_ascii_case("stroke") {
                 stroke_ownership = ownership;
             }
+
             node_styles.push(decl_imp.clone());
+
             if k.contains("stroke") {
                 border_styles.push(decl_imp);
             }
@@ -300,8 +325,9 @@ impl TreemapTypographyThemePlan {
             .extend(self.css.color_scale_label.iter().cloned());
         let mut node_rules = BTreeMap::<usize, TreemapNodeRuleObservation>::new();
         let mut node_facets = BTreeMap::new();
-        if let Some(theme) = theme {
-            for route in theme.family_mechanism_routes() {
+
+        if let Some(theme_2) = theme {
+            for route in theme_2.family_mechanism_routes() {
                 match route.mechanism() {
                     FamilyThemeMechanism::RuleFacet {
                         target: ThemeTarget::Node,
@@ -338,46 +364,62 @@ impl TreemapTypographyThemePlan {
                 }
             }
         }
+
         let mut series = std::collections::HashMap::<String, usize>::new();
         let mut node_ordinal = 0;
         let mut node_terminals = Vec::new();
         let mut palette_capabilities = BTreeSet::new();
         let mut palette_unverified = false;
-        // Keep the original writer traversal and the three independent first-seen domains.
+
         for section in &layout.sections {
             work.charge(1)?;
             let fill = colors.get(&section.name);
             let stroke = peers.get(&section.name);
             let source = treemap_styles2_string(
-                section.css_compiled_styles.as_deref().unwrap_or_default(),
+                match section.css_compiled_styles.as_deref() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => &[],
+                },
                 work,
             )?;
-            let rect_style = if section.depth == 0 {
-                "display: none;".to_owned()
-            } else {
-                format!("{};{}", source.node_styles, source.border_styles.join(";"))
+            let rect_style = match section.depth {
+                0 => {
+                    "display: none;".to_owned()
+                },
+                _ => {
+                    format!("{};{}", source.node_styles, source.border_styles.join(";"))
+                },
             };
-            let baseline = if section.depth == 0 {
-                String::new()
-            } else {
-                labels.get(&section.name)
+            let baseline = match section.depth {
+                0 => {
+                    String::new()
+                },
+                _ => {
+                    labels.get(&section.name)
+                },
             };
             let label_palette_owned = theme.is_some()
                 && section.depth != 0
                 && label_palette_source_owned(
                     config,
-                    labels.domain.get(&section.name).copied().unwrap_or(0),
+                    match labels.domain.get(&section.name).copied() {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0,
+                    },
                 );
             let label_fill = self
                 .label_text_fill_css()
                 .filter(|_| !label_palette_owned)
                 .map_or_else(|| baseline.clone(), str::to_owned);
-            let value_fill = if section.depth == 0 {
-                String::new()
-            } else {
-                self.value_text_fill_css()
-                    .filter(|_| !label_palette_owned)
-                    .map_or(baseline, str::to_owned)
+            let value_fill = match section.depth {
+                0 => {
+                    String::new()
+                },
+                _ => {
+                    self.value_text_fill_css()
+                        .filter(|_| !label_palette_owned)
+                        .map_or(baseline, str::to_owned)
+                },
             };
             let mut visual = TreemapNodeVisual {
                 fill,
@@ -391,40 +433,52 @@ impl TreemapTypographyThemePlan {
                 label_palette_owned,
                 ..Default::default()
             };
-            if section.depth != 0 {
-                node_ordinal += 1;
-                visual.ordinal = node_ordinal;
-                if let Some(theme) = theme {
-                    let slot = colors.domain.get(&section.name).copied().unwrap_or(0);
-                    let peer_slot = peers.domain.get(&section.name).copied().unwrap_or(0);
-                    let next = series.len() + 1;
-                    let series_ordinal = *series.entry(section.name.clone()).or_insert(next);
-                    let fill_owner =
-                        palette_source_owner(config, slot, "cScale", source.fill_ownership);
-                    let stroke_owner = palette_source_owner(
-                        config,
-                        peer_slot,
-                        "cScalePeer",
-                        source.stroke_ownership,
-                    );
-                    palette_unverified |= lower_node_paint(
-                        theme,
-                        &mut visual,
-                        node_ordinal,
-                        series_ordinal,
-                        [fill_owner, stroke_owner],
-                        &node_facets,
-                        &mut node_rules,
-                        &mut palette_capabilities,
-                        work,
-                    )?;
-                    node_terminals.push((
-                        node_ordinal,
-                        fill_owner == TreemapTextFillOwnership::SourceOwned,
-                    ));
-                    self.lower_node_label(theme, &mut visual, work)?;
-                }
+
+            match section.depth {
+                0 => {},
+                _ => {
+                    node_ordinal += 1;
+                    visual.ordinal = node_ordinal;
+
+                    if let Some(theme_3) = theme {
+                        let slot = match colors.domain.get(&section.name).copied() {
+                            ::core::option::Option::Some(explicit_present) => explicit_present,
+                            ::core::option::Option::None => 0,
+                        };
+                        let peer_slot = match peers.domain.get(&section.name).copied() {
+                            ::core::option::Option::Some(explicit_present) => explicit_present,
+                            ::core::option::Option::None => 0,
+                        };
+                        let next = series.len() + 1;
+                        let series_ordinal = *series.entry(section.name.clone()).or_insert(next);
+                        let fill_owner =
+                            palette_source_owner(config, slot, "cScale", source.fill_ownership);
+                        let stroke_owner = palette_source_owner(
+                            config,
+                            peer_slot,
+                            "cScalePeer",
+                            source.stroke_ownership,
+                        );
+                        palette_unverified |= lower_node_paint(
+                            theme_3,
+                            &mut visual,
+                            node_ordinal,
+                            series_ordinal,
+                            [fill_owner, stroke_owner],
+                            &node_facets,
+                            &mut node_rules,
+                            &mut palette_capabilities,
+                            work,
+                        )?;
+                        node_terminals.push((
+                            node_ordinal,
+                            fill_owner == TreemapTextFillOwnership::SourceOwned,
+                        ));
+                        self.lower_node_label(theme_3, &mut visual, work)?;
+                    }
+                },
             }
+
             retained = retained
                 .checked_add(
                     visual
@@ -434,11 +488,15 @@ impl TreemapTypographyThemePlan {
                 .ok_or_else(|| crate::Error::from(work.arithmetic_overflow()))?;
             section_visuals.push(visual);
         }
+
         for leaf in &layout.leaves {
             work.charge(1)?;
             let fill = colors.get(leaf.parent_name.as_deref().unwrap_or(&leaf.name));
             let source = treemap_styles2_string(
-                leaf.css_compiled_styles.as_deref().unwrap_or_default(),
+                match leaf.css_compiled_styles.as_deref() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => &[],
+                },
                 work,
             )?;
             let baseline = self.css.readable_leaf_label_fill(
@@ -449,7 +507,10 @@ impl TreemapTypographyThemePlan {
             let label_palette_owned = theme.is_some()
                 && label_palette_source_owned(
                     config,
-                    labels.domain.get(&leaf.name).copied().unwrap_or(0),
+                    match labels.domain.get(&leaf.name).copied() {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0,
+                    },
                 );
             let label_fill = self
                 .label_text_fill_css()
@@ -480,17 +541,21 @@ impl TreemapTypographyThemePlan {
             };
             node_ordinal += 1;
             visual.ordinal = node_ordinal;
-            if let Some(theme) = theme {
+
+            if let Some(theme_4) = theme {
                 let category = leaf.parent_name.as_deref().unwrap_or(&leaf.name);
                 let next = series.len() + 1;
                 let series_ordinal = *series.entry(category.to_owned()).or_insert(next);
-                let slot = colors.domain.get(category).copied().unwrap_or(0);
+                let slot = match colors.domain.get(category).copied() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0,
+                };
                 let fill_owner =
                     palette_source_owner(config, slot, "cScale", source.fill_ownership);
                 let stroke_owner =
                     palette_source_owner(config, slot, "cScale", source.stroke_ownership);
                 palette_unverified |= lower_node_paint(
-                    theme,
+                    theme_4,
                     &mut visual,
                     node_ordinal,
                     series_ordinal,
@@ -504,8 +569,9 @@ impl TreemapTypographyThemePlan {
                     node_ordinal,
                     fill_owner == TreemapTextFillOwnership::SourceOwned,
                 ));
-                self.lower_node_label(theme, &mut visual, work)?;
+                self.lower_node_label(theme_4, &mut visual, work)?;
             }
+
             retained = retained
                 .checked_add(
                     visual
@@ -515,15 +581,16 @@ impl TreemapTypographyThemePlan {
                 .ok_or_else(|| crate::Error::from(work.arithmetic_overflow()))?;
             leaf_visuals.push(visual);
         }
+
         work.charge(retained)?;
-        // Charge only selected, folded fields, then transfer the temporary visuals into
-        // their existing source owners after resource admission succeeds.
+
+
         let label_receipt_bytes = if self.node_label_requested {
             layout
                 .sections
                 .len()
                 .checked_add(layout.leaves.len())
-                .and_then(|count| count.checked_mul(1 + usize::from(layout.show_values)))
+                .and_then(|count| count.checked_mul(::core::primitive::usize::wrapping_add(1, usize::from(layout.show_values))))
                 .and_then(|count| count.checked_mul(std::mem::size_of::<TreemapLabelTerminal>()))
                 .ok_or_else(|| crate::Error::from(work.arithmetic_overflow()))?
         } else {
@@ -534,18 +601,23 @@ impl TreemapTypographyThemePlan {
                 .checked_add(label_receipt_bytes)
                 .ok_or_else(|| crate::Error::from(work.arithmetic_overflow()))?,
         )?;
+
         for (source, visual) in self.section_source_styles.iter_mut().zip(section_visuals) {
             source.visual = visual;
         }
+
         for (source, visual) in self.leaf_source_styles.iter_mut().zip(leaf_visuals) {
             source.visual = visual;
         }
+
         self._visual_retained_reservation = Some(reservation);
+
         for (index, observation) in node_rules {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: ThemeTarget::Node,
             };
+
             if let Some(reason) = observation.residual {
                 self.evidence.mark_residual(key, reason);
             } else if observation.capabilities.is_empty() {
@@ -554,13 +626,14 @@ impl TreemapTypographyThemePlan {
                 self.node_pending.insert(key, observation.capabilities);
             }
         }
-        if let Some(theme) = theme {
+
+        if let Some(theme_5) = theme {
             let owned = node_terminals
                 .iter()
                 .map(|(_, owned)| *owned)
                 .collect::<Vec<_>>();
             reconcile_unsupported_terminal_domains(
-                theme,
+                theme_5,
                 &mut self.evidence,
                 &[UnsupportedTerminalDomain::fallbacks_only(
                     ThemeTarget::Node,
@@ -569,12 +642,14 @@ impl TreemapTypographyThemePlan {
                 .with_source_owned_fill(&owned)],
                 work,
             )?;
-            if theme.ordinal_palette_disposition(ThemeTarget::Node)
+
+            if theme_5.ordinal_palette_disposition(ThemeTarget::Node)
                 == Some(FamilyThemeDisposition::TypedAdapter)
             {
                 let key = FamilyThemeMechanismKey::OrdinalPalette {
                     target: ThemeTarget::Node,
                 };
+
                 if palette_unverified {
                     self.evidence
                         .mark_residual(key, FamilyThemeResidualReason::UnsupportedPaint);
@@ -585,6 +660,7 @@ impl TreemapTypographyThemePlan {
                 }
             }
         }
+
         Ok(self)
     }
 
@@ -597,6 +673,7 @@ impl TreemapTypographyThemePlan {
         if !self.node_label_requested {
             return Ok(());
         }
+
         let style = theme.text_style_with_role_override(
             ThemeTarget::Text,
             ThemeTarget::NodeLabel,
@@ -608,15 +685,18 @@ impl TreemapTypographyThemePlan {
             .fill_resolution()
             .winner()
             .is_some_and(|origin| origin.target() == ThemeTarget::NodeLabel);
+
         if !visual.node_label_winner {
             return Ok(());
         }
+
         let paint = resolve_direct_static_fill(
             theme,
             &style,
             &[ThemeTarget::NodeLabel],
             DirectStaticSelectorDomain::Default,
         );
+
         for (value, fill, fitted, pending) in [
             (
                 false,
@@ -636,19 +716,22 @@ impl TreemapTypographyThemePlan {
             } else {
                 self.label_config_owns_text_fill
             };
+
             if config_owned || visual.label_palette_owned {
                 continue;
             }
-            if let Some(paint) = &paint {
-                *fill = paint.css().to_owned();
+
+            if let Some(paint_2) = &paint {
+                *fill = paint_2.css().to_owned();
                 *fitted = crate::svg::cssom_color_value(fill);
                 *pending = Some(DirectPaintExpectation::new(
-                    paint.rule_index(),
-                    paint.css(),
-                    paint.capability(),
+                    paint_2.rule_index(),
+                    paint_2.css(),
+                    paint_2.capability(),
                 ));
             }
         }
+
         Ok(())
     }
 }
@@ -659,10 +742,12 @@ struct TreemapNodeRuleObservation {
     residual: Option<FamilyThemeResidualReason>,
 }
 
+#[must_use]
 fn label_palette_source_owned(config: &PresentationConfig, slot: usize) -> bool {
-    config.config_paint_overrides_typed_default(&format!("themeVariables.cScaleLabel{}", slot % 12))
+    config.config_paint_overrides_typed_default(&format!("themeVariables.cScaleLabel{}", slot.wrapping_rem(12)))
 }
 
+#[must_use]
 fn palette_source_owner(
     config: &PresentationConfig,
     slot: usize,
@@ -672,15 +757,17 @@ fn palette_source_owner(
     if source != TreemapTextFillOwnership::Generated {
         return source;
     }
-    // The body scales prepend the hidden root's transparent slot. Default Mermaid
-    // deliberately ignores authored cScale/cScalePeer values for these body scales.
+
+
+
     let custom = crate::config::config_string(config.as_value(), &["theme"])
         .is_some_and(|name| name != "default");
-    let slot = slot % 13;
+    let slot_2 = slot.wrapping_rem(13);
+
     if custom
-        && slot != 0
+        && slot_2 != 0
         && config
-            .config_paint_overrides_typed_default(&format!("themeVariables.{prefix}{}", slot - 1))
+            .config_paint_overrides_typed_default(&format!("themeVariables.{prefix}{}", slot_2 - 1))
     {
         TreemapTextFillOwnership::SourceOwned
     } else {
@@ -721,48 +808,61 @@ fn lower_node_paint(
         &[ThemeTarget::Node],
         DirectStaticSelectorDomain::Default,
     );
+
     for (index, css, paint) in [
         (0, &mut visual.fill, fill.as_ref()),
         (1, &mut visual.stroke, stroke.as_ref()),
     ] {
         if owners[index] == TreemapTextFillOwnership::Generated
-            && let Some(paint) = paint
+            && let Some(paint_2) = paint
         {
-            *css = paint.css().to_owned();
+            *css = paint_2.css().to_owned();
         }
     }
+
     work.charge(facets.len())?;
+
     for (property, origin) in style.winner_rule_properties() {
-        let Some(facet) = facets.get(&(origin.rule_index(), property)) else {
-            continue;
+        let facet = {
+            let optional_facet = facets.get(&(origin.rule_index(), property));
+
+            match optional_facet {
+                Some(matched_facet) => matched_facet,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let owner_index = match property {
             ResolvedStyleProperty::Fill => Some(0),
             ResolvedStyleProperty::Stroke => Some(1),
-            _ => None,
+            ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => None,
         };
+
         if owner_index.is_some_and(|index| owners[index] == TreemapTextFillOwnership::SourceOwned) {
             continue;
         }
+
         let observation = observations
             .get_mut(&origin.rule_index())
             .expect("registered Treemap Node rule");
         let paint = match property {
             ResolvedStyleProperty::Fill => fill.as_ref(),
             ResolvedStyleProperty::Stroke => stroke.as_ref(),
-            _ => None,
+            ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => None,
         };
+
         if owner_index.is_some_and(|index| owners[index] == TreemapTextFillOwnership::Generated)
-            && let Some(paint) = paint
-            && paint.rule_index() == origin.rule_index()
+            && let Some(paint_3) = paint
+            && paint_3.rule_index() == origin.rule_index()
         {
-            observation.capabilities.insert(paint.capability());
+            observation.capabilities.insert(paint_3.capability());
         } else {
             observation
                 .residual
                 .get_or_insert(unsupported_residual_for_facet(*facet));
         }
     }
+
     if style.fill_resolution().specified().is_unspecified()
         && owners[0] == TreemapTextFillOwnership::Generated
         && theme.ordinal_palette_disposition(ThemeTarget::Node)
@@ -776,6 +876,7 @@ fn lower_node_paint(
             ThemeCapability::SolidPaint
         });
     }
+
     Ok(style.fill_resolution().specified().is_unspecified()
         && owners[0] == TreemapTextFillOwnership::Unverified)
 }
@@ -796,6 +897,7 @@ pub(super) fn record_text_paint_evidence(
 ) -> crate::Result<()> {
     let mut observations = BTreeMap::<(usize, ThemeTarget), TreemapNodeRuleObservation>::new();
     let mut facets = BTreeMap::new();
+
     for route in theme.family_mechanism_routes() {
         if let FamilyThemeMechanism::RuleFacet {
             target: target @ (ThemeTarget::Text | ThemeTarget::NodeLabel),
@@ -811,8 +913,10 @@ pub(super) fn record_text_paint_evidence(
             observations.entry((rule_index, target)).or_default();
         }
     }
+
     let mut palette_targets = BTreeSet::new();
     let mut effect_keys = BTreeSet::new();
+
     for terminal in terminals {
         let style = theme.text_style_with_role_override(
             ThemeTarget::Text,
@@ -822,16 +926,25 @@ pub(super) fn record_text_paint_evidence(
             work,
         )?;
         work.charge(facets.len())?;
-        for (property, origin) in style.winner_rule_properties() {
-            let Some(facet) = facets.get(&(origin.rule_index(), property)) else {
-                continue;
+
+        'inner_for_2: for (property, origin) in style.winner_rule_properties() {
+            let facet = {
+                let optional_facet = facets.get(&(origin.rule_index(), property));
+
+                match optional_facet {
+                    Some(matched_facet) => matched_facet,
+                    ::core::option::Option::None => continue 'inner_for_2,
+                }
             };
+
             if property == ResolvedStyleProperty::Fill && terminal.source_owned {
-                continue;
+                continue 'inner_for_2;
             }
+
             let observation = observations
                 .get_mut(&(origin.rule_index(), origin.target()))
                 .expect("registered Treemap text rule");
+
             if property == ResolvedStyleProperty::Fill
                 && !terminal.unverified
                 && let Some((index, capability)) = terminal.paint
@@ -844,6 +957,7 @@ pub(super) fn record_text_paint_evidence(
                     .get_or_insert(unsupported_residual_for_facet(*facet));
             }
         }
+
         for target in [ThemeTarget::Text, ThemeTarget::NodeLabel] {
             if !terminal.source_owned
                 && style.fill_resolution().specified().is_unspecified()
@@ -851,6 +965,7 @@ pub(super) fn record_text_paint_evidence(
             {
                 palette_targets.insert(target);
             }
+
             if let Some(crate::diagram_theme::ResolvedThemeEffect::Binding { binding, .. }) =
                 theme.resolve_effect(target, style.effect_resolution())
             {
@@ -861,8 +976,10 @@ pub(super) fn record_text_paint_evidence(
             }
         }
     }
+
     for ((index, target), observation) in observations {
         let key = FamilyThemeMechanismKey::Rule { index, target };
+
         if let Some(reason) = observation.residual {
             evidence.mark_residual(key, reason);
         } else if observation.capabilities.is_empty() {
@@ -871,8 +988,9 @@ pub(super) fn record_text_paint_evidence(
             evidence.mark_applied_with_capabilities(key, observation.capabilities);
         }
     }
-    // Both label roles retain their node ordinal. Fitting can hide one role without
-    // renumbering later nodes, and source ownership can differ between label and value.
+
+
+
     for route in theme.family_mechanism_routes() {
         let applicable = match route.mechanism() {
             FamilyThemeMechanism::OrdinalPalette {
@@ -885,6 +1003,7 @@ pub(super) fn record_text_paint_evidence(
             _ => continue,
         };
         let key = theme.family_mechanism_key(*route);
+
         if applicable {
             let reason = if matches!(
                 route.mechanism(),
@@ -899,6 +1018,7 @@ pub(super) fn record_text_paint_evidence(
             evidence.mark_not_applicable(key);
         }
     }
+
     Ok(())
 }
 

@@ -6,10 +6,12 @@ use merman_theme_contract::*;
 use crate::DiagramFamilyId;
 use crate::diagram_theme::{ThemeTarget, ThemeVariant};
 
+#[must_use]
 pub(super) fn literal<T>(value: T) -> ThemeValueV1<T> {
     ThemeValueV1::Literal(value)
 }
 
+#[must_use]
 pub(super) fn reference<T>(id: &str) -> ThemeValueV1<T> {
     ThemeValueV1::Ref(ThemeReferenceV1 {
         r#ref: id.to_owned(),
@@ -88,10 +90,12 @@ pub(super) fn number_token(
     );
 }
 
+#[must_use]
 pub(super) fn px(value: f32) -> ThemeValueV1<ThemeLengthWireV1> {
     literal(ThemeLengthWireV1::PxValue(value))
 }
 
+#[must_use]
 pub(super) fn paint(id: &str) -> ThemeValueV1<ThemeDesignPaintV1> {
     literal(ThemeDesignPaintV1::Structured(
         ThemeDesignPaintObjectV1::Solid {
@@ -100,6 +104,7 @@ pub(super) fn paint(id: &str) -> ThemeValueV1<ThemeDesignPaintV1> {
     ))
 }
 
+#[must_use]
 pub(super) fn style(fill: Option<&str>, stroke: Option<&str>) -> ThemeDesignStyleV1 {
     ThemeDesignStyleV1 {
         fill: fill.map_or(SpecifiedWireV1::Unspecified, |id| {
@@ -115,6 +120,7 @@ pub(super) fn style(fill: Option<&str>, stroke: Option<&str>) -> ThemeDesignStyl
     }
 }
 
+#[must_use]
 pub(super) fn rule(
     family: Option<DiagramFamilyId>,
     target: ThemeTarget,
@@ -130,6 +136,7 @@ pub(super) fn rule(
     }
 }
 
+#[must_use]
 pub(super) fn weighted(id: &str) -> ThemeDesignStyleV1 {
     ThemeDesignStyleV1 {
         typography: Some(literal(ThemeDesignTextStyleV1 {
@@ -140,6 +147,7 @@ pub(super) fn weighted(id: &str) -> ThemeDesignStyleV1 {
     }
 }
 
+#[must_use]
 pub(super) fn shadow(color: &str, offset: f32, sigma: f32, opacity: f32) -> ThemeDesignShadowV1 {
     ThemeDesignShadowV1 {
         offset_x: px(offset),
@@ -171,6 +179,7 @@ pub(super) fn effect_token(
     );
 }
 
+#[must_use]
 pub(super) fn stop(offset: f32, color: &str, opacity: f32) -> ThemeDesignGradientStopV1 {
     ThemeDesignGradientStopV1 {
         offset: literal(offset),

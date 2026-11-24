@@ -12,8 +12,8 @@ const DEFAULT_DIAGRAM_PADDING: f64 = 8.0;
 const DEFAULT_TITLE_TOP_MARGIN: f64 = 25.0;
 const FIXED_CLUSTER_PADDING: f64 = 8.0;
 
-// Mermaid `createText(...)` defaults its `width` argument to 200. Flowchart edge labels and
-// markdown subgraph titles rely on that default instead of `flowchart.wrappingWidth`.
+
+
 pub(crate) const FLOWCHART_FIXED_LABEL_WRAP_WIDTH: f64 = 200.0;
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -24,6 +24,7 @@ pub(crate) struct FlowchartTypographyConfigOwnership {
     pub(crate) invalid_font_weight: bool,
 }
 
+#[must_use]
 pub(crate) fn flowchart_typography_config_ownership(
     config: &merman_model::presentation::PresentationConfig,
 ) -> FlowchartTypographyConfigOwnership {
@@ -49,6 +50,7 @@ pub(crate) struct FlowchartConfigView<'a> {
 }
 
 impl<'a> FlowchartConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -60,6 +62,7 @@ impl<'a> FlowchartConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> FlowchartLayoutSettings {
         let node_html_labels = self.node_html_labels();
         let edge_html_labels = self.effective_html_labels();
@@ -76,15 +79,21 @@ impl<'a> FlowchartConfigView<'a> {
         FlowchartLayoutSettings {
             nodesep: self.dagre_spacing_or_default("nodeSpacing", DEFAULT_NODE_SPACING),
             ranksep: self.dagre_spacing_or_default("rankSpacing", DEFAULT_RANK_SPACING),
-            node_padding: self
-                .flowchart_compat_f64("padding")
-                .unwrap_or(DEFAULT_NODE_PADDING),
-            state_padding: self
-                .state_compat_f64("padding")
-                .unwrap_or(DEFAULT_STATE_PADDING),
-            wrapping_width: self
-                .flowchart_compat_f64("wrappingWidth")
-                .unwrap_or(DEFAULT_WRAPPING_WIDTH),
+            node_padding: match self
+                .flowchart_compat_f64("padding") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_NODE_PADDING,
+            },
+            state_padding: match self
+                .state_compat_f64("padding") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_STATE_PADDING,
+            },
+            wrapping_width: match self
+                .flowchart_compat_f64("wrappingWidth") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_WRAPPING_WIDTH,
+            },
             edge_label_wrapping_width: FLOWCHART_FIXED_LABEL_WRAP_WIDTH,
             cluster_title_wrapping_width: FLOWCHART_FIXED_LABEL_WRAP_WIDTH,
             edge_html_labels,
@@ -96,12 +105,16 @@ impl<'a> FlowchartConfigView<'a> {
             title_margin_bottom,
             title_total_margin,
             y_shift: title_total_margin / 2.0,
-            inherit_dir: self.flowchart_bool("inheritDir").unwrap_or(false),
+            inherit_dir: match self.flowchart_bool("inheritDir") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            },
             text_style,
             html_label_text_style,
         }
     }
 
+    #[must_use]
     pub(crate) fn font_family(&self) -> String {
         let theme_font_family = self
             .theme_string("fontFamily")
@@ -118,48 +131,71 @@ impl<'a> FlowchartConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn render_font_size(&self) -> f64 {
-        self.theme_font_size_px().unwrap_or(16.0).max(1.0)
+        match self.theme_font_size_px() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 16.0,
+        }.max(1.0)
     }
 
+    #[must_use]
     pub(crate) fn render_wrapping_width(&self) -> f64 {
-        self.flowchart_compat_f64("wrappingWidth")
-            .unwrap_or(DEFAULT_WRAPPING_WIDTH)
+        match self.flowchart_compat_f64("wrappingWidth") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => DEFAULT_WRAPPING_WIDTH,
+        }
             .max(1.0)
     }
 
+    #[must_use]
     pub(crate) fn render_diagram_padding(&self) -> f64 {
-        self.flowchart_compat_f64("diagramPadding")
-            .unwrap_or(DEFAULT_DIAGRAM_PADDING)
+        match self.flowchart_compat_f64("diagramPadding") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => DEFAULT_DIAGRAM_PADDING,
+        }
             .max(0.0)
     }
 
+    #[must_use]
     pub(crate) fn render_use_max_width(&self) -> bool {
-        self.flowchart_bool("useMaxWidth").unwrap_or(true)
+        match self.flowchart_bool("useMaxWidth") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        }
     }
 
+    #[must_use]
     pub(crate) fn render_title_top_margin(&self) -> f64 {
-        self.flowchart_compat_f64("titleTopMargin")
-            .unwrap_or(DEFAULT_TITLE_TOP_MARGIN)
+        match self.flowchart_compat_f64("titleTopMargin") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => DEFAULT_TITLE_TOP_MARGIN,
+        }
             .max(0.0)
     }
 
+    #[must_use]
     pub(crate) fn render_node_padding(&self) -> f64 {
-        self.flowchart_compat_f64("padding")
-            .unwrap_or(DEFAULT_NODE_PADDING)
+        match self.flowchart_compat_f64("padding") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => DEFAULT_NODE_PADDING,
+        }
             .max(0.0)
     }
 
+    #[must_use]
     pub(crate) fn render_subgraph_title_y_shift(&self) -> f64 {
         let top = self.layout_subgraph_title_margin("top").max(0.0);
         let bottom = self.layout_subgraph_title_margin("bottom").max(0.0);
         (top + bottom) / 2.0
     }
 
+    #[must_use]
     pub(crate) fn render_curve(&self) -> Option<String> {
         self.flowchart_string("curve")
     }
 
+    #[must_use]
     pub(crate) fn render_text_style(&self, font_family: &str, font_size: f64) -> TextStyle {
         TextStyle {
             font_family: Some(font_family.to_string()),
@@ -169,22 +205,30 @@ impl<'a> FlowchartConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn node_html_labels(&self) -> bool {
-        // Mermaid 11.15 node shapes use `evaluate(getConfig()?.htmlLabels)` in labelHelper, while
-        // edge and cluster labels use `getEffectiveHtmlLabels(...)` and still honor the deprecated
-        // `flowchart.htmlLabels` fallback.
-        self.root_bool("htmlLabels").unwrap_or(true)
+
+
+
+        match self.root_bool("htmlLabels") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        }
     }
 
+    #[must_use]
     pub(crate) fn effective_html_labels(&self) -> bool {
-        self.root_bool("htmlLabels")
-            .or_else(|| self.flowchart_bool("htmlLabels"))
-            .unwrap_or(true)
+        match self.root_bool("htmlLabels")
+            .or_else(|| self.flowchart_bool("htmlLabels")) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        }
     }
 
+    #[must_use]
     pub(crate) fn swimlane_title_html_labels(&self) -> bool {
-        // Mermaid 11.16's dedicated Swimlane cluster renderer bypasses the root-level setting and
-        // calls `evaluate(siteConfig.flowchart.htmlLabels)` directly.
+
+
         match self.flowchart_config.get("htmlLabels") {
             None => true,
             Some(Value::Bool(false) | Value::Null) => false,
@@ -197,21 +241,25 @@ impl<'a> FlowchartConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn node_wrap_mode(&self) -> WrapMode {
         flowchart_wrap_mode(self.node_html_labels())
     }
 
+    #[must_use]
     pub(crate) fn edge_wrap_mode(&self) -> WrapMode {
         flowchart_wrap_mode(self.effective_html_labels())
     }
 
+    #[must_use]
     pub(crate) fn html_label_measurement_base_style(&self, render_style: &TextStyle) -> TextStyle {
         let mut style = render_style.clone();
-        // HTML labels inherit the same px value emitted on the SVG root.
+
         style.font_size = self.render_font_size();
         style
     }
 
+    #[must_use]
     fn root_font_weight(&self) -> Option<String> {
         let raw = self.root_string("fontWeight")?;
         Some(
@@ -220,70 +268,96 @@ impl<'a> FlowchartConfigView<'a> {
         )
     }
 
+    #[must_use]
     fn layout_text_style(&self) -> TextStyle {
         TextStyle {
             font_family: Some(self.font_family()),
-            font_size: self.theme_font_size_px().unwrap_or(16.0),
+            font_size: match self.theme_font_size_px() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 16.0,
+            },
             font_weight: self.root_font_weight(),
             font_style: None,
         }
     }
 
+    #[must_use]
     fn dagre_spacing_or_default(&self, key: &str, default: f64) -> f64 {
-        let Some(raw) = self.flowchart_config.get(key) else {
-            return default;
+        let raw = {
+            let optional_raw = self.flowchart_config.get(key);
+
+            match optional_raw {
+                Some(matched_raw) => matched_raw,
+                ::core::option::Option::None => return default,
+            }
         };
 
-        // Mermaid Flowchart assigns `conf?.nodeSpacing || 50` and `conf?.rankSpacing || 50`,
-        // so numeric zero falls back to the default instead of becoming a real Dagre separation.
+
+
         if raw.is_number() {
-            return raw
+            return match raw
                 .as_f64()
-                .filter(|value| *value != 0.0)
-                .unwrap_or(default);
+                .filter(|value| !::core::matches!(::core::primitive::f64::classify(*value), ::core::num::FpCategory::Zero)) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => default,
+            };
         }
 
-        self.flowchart_compat_f64(key).unwrap_or(default)
+        match self.flowchart_compat_f64(key) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => default,
+        }
     }
 
+    #[must_use]
     fn theme_font_size_px(&self) -> Option<f64> {
         self.theme_variables
             .get("fontSize")
             .and_then(parse_font_size_px)
     }
 
+    #[must_use]
     fn layout_subgraph_title_margin(&self, key: &str) -> f64 {
-        self.flowchart_config
+        match self.flowchart_config
             .get("subGraphTitleMargin")
             .and_then(|margin| margin.get(key))
-            .and_then(crate::config::json_f64)
-            .unwrap_or(0.0)
+            .and_then(crate::config::json_f64) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.0,
+        }
     }
 
+    #[must_use]
     fn root_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.effective_config, &[key])
     }
 
+    #[must_use]
     fn flowchart_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.flowchart_config, &[key])
     }
 
+    #[must_use]
     fn root_string(&self, key: &str) -> Option<String> {
         config_string(self.effective_config, &[key])
     }
 
+    #[must_use]
     fn theme_string(&self, key: &str) -> Option<String> {
         config_string(self.theme_variables, &[key])
     }
 
+    #[must_use]
     fn flowchart_string(&self, key: &str) -> Option<String> {
         config_string(self.flowchart_config, &[key])
     }
 
+    #[must_use]
     fn flowchart_compat_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.flowchart_config, &[key])
     }
 
+    #[must_use]
     fn state_compat_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.state_config, &[key])
     }
@@ -311,6 +385,7 @@ pub(crate) struct FlowchartLayoutSettings {
     pub(crate) html_label_text_style: TextStyle,
 }
 
+#[must_use]
 fn flowchart_wrap_mode(html_labels: bool) -> WrapMode {
     if html_labels {
         WrapMode::HtmlLike
@@ -319,36 +394,57 @@ fn flowchart_wrap_mode(html_labels: bool) -> WrapMode {
     }
 }
 
+#[must_use]
 fn parse_font_size_px(v: &Value) -> Option<f64> {
-    if let Some(n) = v.as_f64() {
-        return Some(n);
+    match v.as_f64() {
+        Some(n) => {
+            return Some(n);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(n) = v.as_i64() {
-        return Some(n as f64);
+
+    match v.as_i64() {
+        Some(n) => {
+            return Some(n as f64);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(n) = v.as_u64() {
-        return Some(n as f64);
+
+    match v.as_u64() {
+        Some(n) => {
+            return Some(n as f64);
+        },
+        ::core::option::Option::None => {},
     }
-    let s = v.as_str()?.trim();
+
+    let checked_value = v.as_str()?;
+    let s = checked_value.trim();
+
     if s.is_empty() {
         return None;
     }
+
     let mut num = String::new();
+
     for (idx, ch) in s.chars().enumerate() {
         if ch.is_ascii_digit() {
             num.push(ch);
             continue;
         }
+
         if idx == 0 && (ch == '-' || ch == '+') {
             num.push(ch);
             continue;
         }
+
         break;
     }
+
     if num.trim().is_empty() {
         return None;
     }
-    num.parse::<f64>().ok()
+
+    match num.parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
 }
 
 #[cfg(test)]

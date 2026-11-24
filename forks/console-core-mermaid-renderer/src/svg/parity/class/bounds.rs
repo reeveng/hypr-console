@@ -10,25 +10,30 @@ pub(super) fn include_rect(
     max_x: f64,
     max_y: f64,
 ) {
-    // Match Chromium's `getBBox()` behavior: ignore placeholder boxes that should not affect
-    // the measured diagram bounds.
+
+
     let w = (max_x - min_x).abs();
     let h = (max_y - min_y).abs();
+
     if (w < 1e-9 && h < 1e-9) || (w <= 0.1 + 1e-9 && h <= 0.1 + 1e-9) {
         return;
     }
-    if let Some(cur) = bounds.as_mut() {
-        cur.min_x = cur.min_x.min(min_x);
-        cur.min_y = cur.min_y.min(min_y);
-        cur.max_x = cur.max_x.max(max_x);
-        cur.max_y = cur.max_y.max(max_y);
-    } else {
-        *bounds = Some(Bounds {
-            min_x,
-            min_y,
-            max_x,
-            max_y,
-        });
+
+    match bounds.as_mut() {
+        Some(cur) => {
+            cur.min_x = cur.min_x.min(min_x);
+            cur.min_y = cur.min_y.min(min_y);
+            cur.max_x = cur.max_x.max(max_x);
+            cur.max_y = cur.max_y.max(max_y);
+        },
+        ::core::option::Option::None => {
+            *bounds = Some(Bounds {
+                min_x,
+                min_y,
+                max_x,
+                max_y,
+            });
+        },
     }
 }
 
@@ -47,8 +52,13 @@ pub(super) fn include_path_d_with_outset(
     dy: f64,
     outset: f64,
 ) {
-    if let Some(pb) = svg_path_bounds_from_d(d) {
-        include_path_bounds_with_outset(bounds, &pb, dx, dy, outset);
+    {
+        match svg_path_bounds_from_d(d) {
+            Some(pb) => {
+                include_path_bounds_with_outset(bounds, &pb, dx, dy, outset);
+            },
+            ::core::option::Option::None => {},
+        };
     }
 }
 
@@ -59,13 +69,13 @@ pub(super) fn include_path_bounds_with_outset(
     dy: f64,
     outset: f64,
 ) {
-    let outset = outset.max(0.0);
+    let outset_2 = outset.max(0.0);
     include_rect(
         bounds,
-        pb.min_x + dx - outset,
-        pb.min_y + dy - outset,
-        pb.max_x + dx + outset,
-        pb.max_y + dy + outset,
+        pb.min_x + dx - outset_2,
+        pb.min_y + dy - outset_2,
+        pb.max_x + dx + outset_2,
+        pb.max_y + dy + outset_2,
     );
 }
 
@@ -98,11 +108,11 @@ pub(super) fn include_class_marker_paint_bounds(
             .skip(1)
             .find(|point| (point.x - endpoint.x).hypot(point.y - endpoint.y) > f64::EPSILON)
     };
-    let (tangent_x, tangent_y) = adjacent.map_or((1.0, 0.0), |adjacent| {
+    let (tangent_x, tangent_y) = adjacent.map_or((1.0, 0.0), |adjacent_2| {
         if is_start {
-            (adjacent.x - endpoint.x, adjacent.y - endpoint.y)
+            (adjacent_2.x - endpoint.x, adjacent_2.y - endpoint.y)
         } else {
-            (endpoint.x - adjacent.x, endpoint.y - adjacent.y)
+            (endpoint.x - adjacent_2.x, endpoint.y - adjacent_2.y)
         }
     });
     let tangent_length = tangent_x.hypot(tangent_y);

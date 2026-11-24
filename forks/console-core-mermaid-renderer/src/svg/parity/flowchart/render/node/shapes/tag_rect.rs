@@ -17,6 +17,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tag_rect(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (rect_path, tag_path) = prepare_tag_rect_geometry(ctx, common, label);
+
     if common.look_is_hand_drawn() {
         let rect_paths = helpers::hand_drawn_path_pair(common, details, &rect_path);
         let tag_paths = super::super::helpers::timed_node_roughjs(common.timing, details, || {
@@ -30,50 +31,51 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tag_rect(
         })
         .filter(|(fill_d, stroke_d)| !fill_d.is_empty() && !stroke_d.is_empty());
 
-        if let (Some((rect_fill_d, rect_stroke_d)), Some((tag_fill_d, tag_stroke_d))) =
-            (rect_paths, tag_paths)
-        {
-            let _ = write!(
-                out,
-                r##"<g class="basic label-container outer-path" style="{}"><g><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g><path d="{}" stroke="none" stroke-width="0" fill="{}"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
-                escape_attr(common.rough_group_style),
-                escape_attr(&rect_fill_d),
-                escape_attr(common.fill_color),
-                escape_attr(&rect_stroke_d),
-                escape_attr(common.stroke_color),
-                util::fmt_display(common.stroke_width as f64),
-                escape_attr(common.stroke_dasharray),
-                escape_attr(&tag_fill_d),
-                escape_attr(common.fill_color),
-                escape_attr(&tag_stroke_d),
-                escape_attr(common.stroke_color),
-                util::fmt_display(common.stroke_width as f64),
-                escape_attr(common.stroke_dasharray),
-            );
-            return;
+        match (rect_paths, tag_paths) {
+            (Some((rect_fill_d, rect_stroke_d)), Some((tag_fill_d, tag_stroke_d))) => {
+                let _ = write!(
+                    out,
+                    r##"<g class="basic label-container outer-path" style="{}"><g><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g><path d="{}" stroke="none" stroke-width="0" fill="{}"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
+                    escape_attr(common.rough_group_style),
+                    escape_attr(&rect_fill_d),
+                    escape_attr(common.fill_color),
+                    escape_attr(&rect_stroke_d),
+                    escape_attr(common.stroke_color),
+                    util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                    escape_attr(common.stroke_dasharray),
+                    escape_attr(&tag_fill_d),
+                    escape_attr(common.fill_color),
+                    escape_attr(&tag_stroke_d),
+                    escape_attr(common.stroke_color),
+                    util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                    escape_attr(common.stroke_dasharray),
+                );
+                return;
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
 
-        // Hand-drawn RoughJS only accepts a strict color subset. Keep the full tag and body
-        // geometry visible when either path cannot be admitted.
+
+
         let _ = write!(
             out,
             r##"<g class="basic label-container outer-path"><g><path d="{}" fill="{}" stroke="{}" stroke-width="{}" style="{}"/></g><path d="{}" fill="{}" stroke="{}" stroke-width="{}" style="{}"/></g>"##,
             escape_attr(&rect_path),
             escape_attr(common.fill_color),
             escape_attr(common.stroke_color),
-            util::fmt_display(common.stroke_width as f64),
+            util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.style),
             escape_attr(&tag_path),
             escape_attr(common.fill_color),
             escape_attr(common.stroke_color),
-            util::fmt_display(common.stroke_width as f64),
+            util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.style),
         );
         return;
     }
 
     let (rect_fill_d, rect_stroke_d) =
-        super::super::helpers::timed_node_roughjs(common.timing, details, || {
+        match super::super::helpers::timed_node_roughjs(common.timing, details, || {
             roughjs_paths_for_svg_path(
                 &rect_path,
                 common.stroke_width,
@@ -81,11 +83,13 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tag_rect(
                 common.work_meter,
                 common.hand_drawn_seed,
             )
-        })
-        .unwrap_or_else(|| ("M0,0".to_string(), "M0,0".to_string()));
+        }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ("M0,0".to_string(), "M0,0".to_string()),
+        };
 
     let (tag_fill_d, tag_stroke_d) =
-        super::super::helpers::timed_node_roughjs(common.timing, details, || {
+        match super::super::helpers::timed_node_roughjs(common.timing, details, || {
             roughjs_paths_for_svg_path(
                 &tag_path,
                 common.stroke_width,
@@ -93,8 +97,10 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tag_rect(
                 common.work_meter,
                 common.hand_drawn_seed,
             )
-        })
-        .unwrap_or_else(|| ("M0,0".to_string(), "M0,0".to_string()));
+        }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ("M0,0".to_string(), "M0,0".to_string()),
+        };
 
     let _ = write!(
         out,
@@ -104,7 +110,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tag_rect(
         escape_attr(common.style),
         escape_attr(&rect_stroke_d),
         escape_attr(common.stroke_color),
-        util::fmt_display(common.stroke_width as f64),
+        util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         escape_attr(common.stroke_dasharray),
         escape_attr(common.style),
         escape_attr(&tag_fill_d),
@@ -112,12 +118,13 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tag_rect(
         escape_attr(common.style),
         escape_attr(&tag_stroke_d),
         escape_attr(common.stroke_color),
-        util::fmt_display(common.stroke_width as f64),
+        util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         escape_attr(common.stroke_dasharray),
         escape_attr(common.style),
     );
 }
 
+#[must_use]
 fn prepare_tag_rect_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
@@ -169,6 +176,7 @@ pub(super) fn advance_tag_rect_rough_geometry(
     let (rect_path, tag_path) = prepare_tag_rect_geometry(ctx, common, label);
     let target = super::super::roughjs::RoughGeometryTarget::Query;
     let _ = super::super::helpers::prepare_node_path(common, &rect_path, target);
+
     if common.look_is_hand_drawn() {
         let _ = super::super::roughjs::roughjs_prepare_paths_for_hand_drawn_solid_svg_path(
             target,

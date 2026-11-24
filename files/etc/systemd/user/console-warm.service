@@ -4,31 +4,11 @@ PartOf=console.target
 
 [Service]
 Type=simple
-# Where this desktop's own hypr directory is, which is console-idle.service's
-# argument and hyprsunset's own. It takes --gamma and --temperature and nothing
-# that names a file, so the only way to hand it a curve that is not in
-# ~/.config/hypr -- a directory another desktop on the machine already owns --
-# is to move the directory it looks in.
+# The scheduled mode reads Console's hyprsunset profile. The always-on mode
+# starts hyprsunset with a constant temperature.
 Environment=XDG_CONFIG_HOME=%h/.config/console
-# Whether the screen follows the clock at all, asked before anything is
-# started. It is the switch on the Battery tab, and it has to be here rather
-# than in something sent to the daemon: hyprsunset re-applies its profile at
-# every step of the curve, so a temperature sent to it is undone within minutes
-# during dusk and not until morning at midnight -- one switch behaving two ways
-# depending on when it was pressed. A daemon that is not running is the same
-# answer at every hour, and it survives a reboot without anyone re-asserting
-# it.
-#
-# A condition that says no leaves the unit inactive and not failed, so nothing
-# is restarted and `console-report-crash` says nothing.
 ExecCondition=/usr/local/bin/console-warm switched-on
-# The whole curve is in ~/.config/console/hypr/hyprsunset.conf, read once at
-# startup.
-# Nothing has to tell it anything afterwards, which is why there is no
-# ExecStartPost here any more: what someone decided last night is in the file
-# this asks about, and where in the curve the clock is is the daemon's own
-# business.
-ExecStart=/usr/bin/hyprsunset
+ExecStart=/usr/local/bin/console-warm --engine /usr/bin/hyprsunset daemon
 ExecStopPost=-/usr/local/bin/console-report-crash %n
 Restart=always
 RestartSec=5

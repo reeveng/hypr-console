@@ -9,7 +9,9 @@ use console_core_fonts::{Font, Weight};
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{narrow_f32, toward_zero_i32};
-use console_core_path_rasterizer::{BlendMode, Color as Ink, FillRule, Paint, FloatRectangle, Transform};
+use console_core_path_rasterizer::{
+  BlendMode, Color as Ink, FillRule, FloatRectangle, Paint, Transform,
+};
 use console_draw_painting::raster::{Canvas, rounded};
 use console_draw_painting::text;
 

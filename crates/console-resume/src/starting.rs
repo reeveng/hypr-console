@@ -28,6 +28,7 @@
 //! that does not exist -- so a lone argument carrying spaces is read back as the
 //! words it used to be.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 
 use console_compositor::Window;
@@ -52,6 +53,36 @@ pub fn quote_word(word: &str) -> Result<String, Never> {
       ::core::option::Option::None => format!("'{}'", word.replace('\'', r"'\''")),
     },
   )
+}
+
+fn renamed_command(command: &str) -> Result<Option<(&'static str, &str)>, Never> {
+  let (binary, arguments) = match command
+    .find(char::is_whitespace)
+    .and_then(|end| command.split_at_checked(end))
+  {
+    Some(parts) => parts,
+    None => (command, ""),
+  };
+  let executable = binary.trim_matches('\'');
+  let name = match executable.strip_prefix("/usr/local/bin/") {
+    Some(named) => named,
+    None => executable,
+  };
+  let Ok(renamed) = console_core_places::session::renamed(name);
+
+  Ok(renamed.map(|program| (program, arguments)))
+}
+
+pub(crate) fn launch_command(command: &str) -> Result<Cow<'_, str>, Never> {
+  let Ok(renamed) = renamed_command(command);
+
+  Ok(match renamed {
+    Some((name, arguments)) => match on_path(name) {
+      Ok(Installed::Yes) => Cow::Owned(format!("{name}{arguments}")),
+      Ok(Installed::No) => Cow::Borrowed(command),
+    },
+    None => Cow::Borrowed(command),
+  })
 }
 
 fn separate_words(arguments: &[String]) -> Result<Vec<String>, Never> {
@@ -111,8 +142,27 @@ fn from_its_command_line(window: &Window) -> Result<String, Unresumed> {
 
   let Ok(pid) = console_core_number_conversion::fitted::<i64, i32>(window.pid);
   let Ok(restored) = crate::terminal::restore_command(&arguments, pid);
+  let reported = || {
+    let first_argument = arguments.first()?;
+    let executable = first_argument.rsplit('/').next()?;
+    let Ok(known) = console_core_places::session::application(executable);
+    let application = known?;
+    let pid_2 = match u32::try_from(pid) {
+      ::core::result::Result::Ok(value) => ::core::option::Option::Some(value),
+      ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
+    }?;
+    let Ok(arguments_3) = console_core_places::session::arguments(pid_2, application);
+    Some(
+      std::iter::once(executable.to_owned())
+        .chain({
+          let checked_value = arguments_3?;
+          checked_value
+        })
+        .collect(),
+    )
+  };
 
-  let arguments_2 = match restored {
+  let arguments_2 = match restored.or_else(reported) {
     Some(restored_2) => restored_2,
     None => arguments,
   };
@@ -205,6 +255,30 @@ mod tests {
     let arguments: Vec<String> = words.iter().map(|word| (*word).to_string()).collect();
 
     command_from_argv(&arguments)
+  }
+
+  #[test]
+  fn a_saved_application_command_keeps_its_arguments_when_renamed() {
+    assert_eq!(
+      renamed_command("books --resume 'My Book.pdf'"),
+      Ok(Some((
+        "console-application-books",
+        " --resume 'My Book.pdf'"
+      )))
+    );
+    assert_eq!(
+      renamed_command("/usr/local/bin/viewer '/home/reader/Some Photo.png'"),
+      Ok(Some((
+        "console-application-media-viewer",
+        " '/home/reader/Some Photo.png'"
+      )))
+    );
+    assert_eq!(
+      renamed_command("calculator"),
+      Ok(Some(("console-application-calculator", "")))
+    );
+    assert_eq!(renamed_command("/opt/viewer photo.png"), Ok(None));
+    assert_eq!(renamed_command("books-catalog"), Ok(None));
   }
 
   #[test]

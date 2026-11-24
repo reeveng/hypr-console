@@ -36,13 +36,26 @@
 //! limine-snapper-sync, which writes it into this file as a comment, and the
 //! menu that reads it back has to tell an apply's snapshot from the installer's
 //! or pacman's by the same words the apply wrote.
+//!
+//! A one-shot command with no identifier clears the pending boot selection.
 
 use std::collections::BTreeMap;
 
+use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
+use console_program_contract::Command;
 
 pub const CONFIG: &str = "/boot/limine.conf";
+
+pub fn one_shot(identifier: Option<&str>) -> Result<Command, Never> {
+  let entry = match identifier {
+    Some(entry) => entry,
+    None => "",
+  };
+
+  Command::external(Program::Bootctl, &["set-oneshot", entry])
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Entry {

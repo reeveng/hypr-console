@@ -3,7 +3,7 @@ pub mod hairline_aa;
 pub mod path;
 pub mod path_aa;
 
-use crate::{IntRect, FloatRectangle};
+use crate::{FloatRectangle, IntRect};
 
 use crate::blitter::Blitter;
 use crate::geom::{IntRectExt, ScreenIntRect};

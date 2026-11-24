@@ -1,57 +1,55 @@
+//! Min and max select the right operand for unordered comparisons and ties
+//! in the SIMD path, as the x86 pipeline did. Pixel conversion first
+//! normalizes and scales each lane to 0..=255. Adding 2^23 rounds to even in a
+//! binade where adjacent float bit patterns represent consecutive integers.
+
+#[cfg(not(feature = "std"))]
+use console_core_paths::NoStdFloat;
+#[cfg(feature = "simd")]
+use core::simd::{
+  Mask, Select, Simd,
+  cmp::{SimdPartialEq, SimdPartialOrd},
+  num::SimdFloat,
+};
+#[cfg(all(feature = "simd", feature = "std"))]
+use std::simd::StdFloat;
+
 use crate::math::GammaExponent;
 use console_core_never::Never;
 
-use bytemuck::cast;
-
-use super::{i32x8, u32x8};
-
-cfg_if::cfg_if! {
-    if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-        #[cfg(target_arch = "x86")]
-        use core::arch::x86::*;
-        #[cfg(target_arch = "x86_64")]
-        use core::arch::x86_64::*;
-
-        #[derive(Clone, Copy, Debug)]
-        #[repr(C, align(32))]
-        pub struct f32x8(__m256);
-    } else {
-        use super::f32x4;
-
-        #[derive(Clone, Copy, Debug)]
-        #[repr(C, align(32))]
-        pub struct f32x8(pub f32x4, pub f32x4);
-    }
-}
+use super::{i32x8, lanes::lane_operator, u32x8};
 
 #[cfg_attr(
-  dylint_lib = "explicit058_contain_unsafe",
+  dylint_lib = "explicit080_macro_budget",
   expect(
-    explicit058_contain_unsafe,
-    reason = "all selected lane storage layouts have a valid zero bit pattern in every lane"
+    explicit080_macro_budget,
+    reason = "the six lane comparisons share the same SIMD and scalar mask construction"
   )
 )]
-unsafe impl bytemuck::Zeroable for f32x8 {}
+macro_rules! compare {
+  ($name:ident, $simd:ident, $comparison:tt) => {
+    #[inline]
+    pub fn $name(self, rhs: Self) -> Result<FloatMask8, Never> {
+      #[cfg(feature = "simd")]
+      let lanes = Simd::from_array(self.0).$simd(Simd::from_array(rhs.0));
+      #[cfg(not(feature = "simd"))]
+      let lanes = super::lanes::combine(self.0, rhs.0, |left, right| left $comparison right);
 
-#[cfg_attr(
-  dylint_lib = "explicit058_contain_unsafe",
-  expect(
-    explicit058_contain_unsafe,
-    reason = "each selected layout is one register, a fixed lane array, or adjacent equal-width lane blocks without padding"
-  )
-)]
-unsafe impl bytemuck::Pod for f32x8 {}
-
-impl Default for f32x8 {
-  fn default() -> Self {
-    {
-      let Ok(explicit_value) = Self::splat(0.0);
-      explicit_value
+      Ok(FloatMask8(lanes))
     }
-  }
+  };
 }
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, bytemuck::Zeroable, bytemuck::Pod)]
+#[allow(
+  non_camel_case_types,
+  reason = "the name identifies the lane type and count"
+)]
+#[repr(C, align(32))]
+pub struct f32x8([f32; 8]);
 
 impl f32x8 {
+  #[inline]
   #[cfg_attr(
     dylint_lib = "explicit067_no_unit_less_quantity",
     expect(
@@ -59,457 +57,167 @@ impl f32x8 {
       reason = "the generic SIMD broadcast preserves the units of its caller's lane value"
     )
   )]
-  pub fn splat(n: f32) -> core::result::Result<Self, console_core_never::Never> {
-    Ok(cast([n, n, n, n, n, n, n, n]))
-  }
-
-  pub fn floor(self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "simd128"))] {
-              {
-                  let Ok(low) = self.0.floor();
-                  let Ok(high) = self.1.floor();
-
-                  Self(low, high)
-              }
-          } else {
-              let roundtrip: f32x8 = cast({ let Ok(explicit_value) = ({ let Ok(explicit_value) = self.trunc_int(); explicit_value }).to_f32x8(); explicit_value });
-              roundtrip
-                  - ({ let Ok(explicit_value) = ({ let Ok(explicit_value) = roundtrip
-                      .cmp_gt(self); explicit_value })
-                      .blend({ let Ok(explicit_value) = f32x8::splat(1.0); explicit_value }, f32x8::default()); explicit_value })
-          }
-      }
-    })
-  }
-
-  pub fn fract(self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      self
-        - ({
-          let Ok(explicit_value) = self.floor();
-          explicit_value
-        })
-    })
-  }
-
-  pub fn normalize(self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      {
-        let Ok(explicit_value) = ({
-          let Ok(explicit_value) = self.max(f32x8::default());
-          explicit_value
-        })
-        .min({
-          let Ok(explicit_value) = f32x8::splat(1.0);
-          explicit_value
-        });
-        explicit_value
-      }
-    })
-  }
-
-  pub fn to_i32x8_bitcast(self) -> core::result::Result<i32x8, console_core_never::Never> {
-    Ok(bytemuck::cast(self))
-  }
-
-  pub fn to_u32x8_bitcast(self) -> core::result::Result<u32x8, console_core_never::Never> {
-    Ok(bytemuck::cast(self))
-  }
-
-  pub fn cmp_eq(self, rhs: Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_cmp_ps(self.0, rhs.0, _CMP_EQ_OQ) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.cmp_eq(rhs.0);
-                  let Ok(high) = self.1.cmp_eq(rhs.1);
-
-                  Self(low, high)
-              }
-          }
-      }
-    })
-  }
-
-  pub fn cmp_ne(self, rhs: Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_cmp_ps(self.0, rhs.0, _CMP_NEQ_UQ) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.cmp_ne(rhs.0);
-                  let Ok(high) = self.1.cmp_ne(rhs.1);
-
-                  Self(low, high)
-              }
-          }
-      }
-    })
-  }
-
-  pub fn cmp_ge(self, rhs: Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_cmp_ps(self.0, rhs.0, _CMP_GE_OQ) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.cmp_ge(rhs.0);
-                  let Ok(high) = self.1.cmp_ge(rhs.1);
-
-                  Self(low, high)
-              }
-          }
-      }
-    })
-  }
-
-  pub fn cmp_gt(self, rhs: Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_cmp_ps(self.0, rhs.0, _CMP_GT_OQ) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.cmp_gt(rhs.0);
-                  let Ok(high) = self.1.cmp_gt(rhs.1);
-
-                  Self(low, high)
-              }
-          }
-      }
-    })
-  }
-
-  pub fn cmp_le(self, rhs: Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_cmp_ps(self.0, rhs.0, _CMP_LE_OQ) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.cmp_le(rhs.0);
-                  let Ok(high) = self.1.cmp_le(rhs.1);
-
-                  Self(low, high)
-              }
-          }
-      }
-    })
-  }
-
-  pub fn cmp_lt(self, rhs: Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_cmp_ps(self.0, rhs.0, _CMP_LT_OQ) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.cmp_lt(rhs.0);
-                  let Ok(high) = self.1.cmp_lt(rhs.1);
-
-                  Self(low, high)
-              }
-          }
-      }
-    })
+  pub fn splat(value: f32) -> Result<Self, Never> {
+    Ok(Self([value; 8]))
   }
 
   #[inline]
-  pub fn blend(self, t: Self, f: Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_blendv_ps(f.0, t.0, self.0) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.blend(t.0, f.0);
-                  let Ok(high) = self.1.blend(t.1, f.1);
+  pub fn floor(self) -> Result<Self, Never> {
+    #[cfg(all(feature = "simd", feature = "std"))]
+    let lanes = Simd::from_array(self.0).floor().to_array();
+    #[cfg(all(not(feature = "simd"), feature = "std"))]
+    let lanes = self.0.map(f32::floor);
+    #[cfg(not(feature = "std"))]
+    let lanes = self.0.map(<f32 as NoStdFloat>::floor);
 
-                  Self(low, high)
-              }
-          }
-      }
-    })
+    Ok(Self(lanes))
   }
 
-  pub fn abs(self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      let non_sign_bits = {
-        let Ok(explicit_value) = f32x8::splat(f32::from_bits({
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(i32::MAX);
-          numeric_value
-        }));
-        explicit_value
-      };
-      self & non_sign_bits
-    })
+  #[inline]
+  pub fn fract(self) -> Result<Self, Never> {
+    let Ok(floor) = self.floor();
+
+    Ok(self - floor)
   }
 
-  pub fn max(self, rhs: Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_max_ps(self.0, rhs.0) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.max(rhs.0);
-                  let Ok(high) = self.1.max(rhs.1);
+  #[inline]
+  pub fn normalize(self) -> Result<Self, Never> {
+    let Ok(nonnegative) = self.max(Self::default());
+    let Ok(one) = Self::splat(1.0);
 
-                  Self(low, high)
-              }
-          }
-      }
-    })
+    nonnegative.min(one)
   }
 
-  pub fn min(self, rhs: Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_min_ps(self.0, rhs.0) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.min(rhs.0);
-                  let Ok(high) = self.1.min(rhs.1);
+  #[inline]
+  pub fn abs(self) -> Result<Self, Never> {
+    #[cfg(feature = "simd")]
+    let lanes = Simd::from_array(self.0).abs().to_array();
+    #[cfg(not(feature = "simd"))]
+    let lanes = self.0.map(f32::abs);
 
-                  Self(low, high)
-              }
-          }
-      }
-    })
+    Ok(Self(lanes))
   }
 
-  pub fn is_finite(self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      let shifted_exp_mask = {
-        let Ok(explicit_value) = u32x8::splat(0xFF000000);
-        explicit_value
-      };
-      let u: u32x8 = cast(self);
-      let shift_u = {
-        let Ok(explicit_value) = u.shl::<1>();
-        explicit_value
-      };
-      let out = !({
-        let Ok(explicit_value) = (shift_u & shifted_exp_mask).cmp_eq(shifted_exp_mask);
-        explicit_value
-      });
-      cast(out)
-    })
+  #[inline]
+  pub fn max(self, rhs: Self) -> Result<Self, Never> {
+    #[cfg(feature = "simd")]
+    let lanes = {
+      let left = Simd::from_array(self.0);
+      let right = Simd::from_array(rhs.0);
+      left.simd_gt(right).select(left, right).to_array()
+    };
+    #[cfg(not(feature = "simd"))]
+    let lanes = super::lanes::combine(self.0, rhs.0, |left, right| match left < right {
+      true => right,
+      false => left,
+    });
+
+    Ok(Self(lanes))
   }
 
-  pub fn round(self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_round_ps(self.0, _MM_FROUND_NO_EXC | _MM_FROUND_TO_NEAREST_INT) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.round();
-                  let Ok(high) = self.1.round();
+  #[inline]
+  pub fn min(self, rhs: Self) -> Result<Self, Never> {
+    #[cfg(feature = "simd")]
+    let lanes = {
+      let left = Simd::from_array(self.0);
+      let right = Simd::from_array(rhs.0);
+      left.simd_lt(right).select(left, right).to_array()
+    };
+    #[cfg(not(feature = "simd"))]
+    let lanes = super::lanes::combine(self.0, rhs.0, |left, right| match right < left {
+      true => right,
+      false => left,
+    });
 
-                  Self(low, high)
-              }
-          }
-      }
-    })
+    Ok(Self(lanes))
   }
 
-  pub fn round_int(self) -> core::result::Result<i32x8, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              cast(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_cvtps_epi32(self.0) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.round_int();
-                  let Ok(high) = self.1.round_int();
+  compare!(cmp_eq, simd_eq, ==);
+  compare!(cmp_ne, simd_ne, !=);
+  compare!(cmp_ge, simd_ge, >=);
+  compare!(cmp_gt, simd_gt, >);
+  compare!(cmp_le, simd_le, <=);
+  compare!(cmp_lt, simd_lt, <);
 
-                  i32x8(low, high)
-              }
-          }
-      }
-    })
+  #[inline]
+  pub fn round(self) -> Result<Self, Never> {
+    #[cfg(all(feature = "simd", feature = "std"))]
+    let lanes = Simd::from_array(self.0).round_ties_even().to_array();
+    #[cfg(all(not(feature = "simd"), feature = "std"))]
+    let lanes = self.0.map(f32::round_ties_even);
+    #[cfg(not(feature = "std"))]
+    let lanes = self.0.map(round_ties_even);
+
+    Ok(Self(lanes))
   }
 
-  pub fn trunc_int(self) -> core::result::Result<i32x8, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              cast(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_cvttps_epi32(self.0) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.trunc_int();
-                  let Ok(high) = self.1.trunc_int();
+  #[inline]
+  pub fn round_int(self) -> Result<i32x8, Never> {
+    let Ok(rounded) = self.round();
 
-                  i32x8(low, high)
-              }
-          }
-      }
-    })
+    rounded.trunc_int()
   }
 
-  pub fn recip_fast(self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_rcp_ps(self.0) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.recip_fast();
-                  let Ok(high) = self.1.recip_fast();
+  #[inline]
+  pub fn to_pixel_channels(self) -> Result<i32x8, Never> {
+    let Ok(normalized) = self.normalize();
+    let Ok(scale) = Self::splat(255.0);
+    let scaled = normalized * scale;
 
-                  Self(low, high)
-              }
-          }
-      }
-    })
+    #[cfg(feature = "simd")]
+    {
+      const ROUNDING_BIAS: f32 = 8_388_608.0;
+      let Ok(bias) = Self::splat(ROUNDING_BIAS);
+      let Ok(rounded_bits) = (scaled + bias).to_i32x8_bitcast();
+      let Ok(bias_bits) = bias.to_i32x8_bitcast();
+
+      Ok(rounded_bits - bias_bits)
+    }
+
+    #[cfg(not(feature = "simd"))]
+    scaled.round_int()
   }
 
-  pub fn recip_sqrt(self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_rsqrt_ps(self.0) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.recip_sqrt();
-                  let Ok(high) = self.1.recip_sqrt();
+  #[inline]
+  pub fn trunc_int(self) -> Result<i32x8, Never> {
+    #[cfg(feature = "simd")]
+    let lanes = Simd::from_array(self.0).cast::<i32>().to_array();
+    #[cfg(not(feature = "simd"))]
+    let lanes = self.0.map(|lane| {
+      let Ok(converted) = console_core_number_conversion::toward_zero_i32(f64::from(lane));
+      converted
+    });
 
-                  Self(low, high)
-              }
-          }
-      }
-    })
+    Ok(i32x8(lanes))
   }
 
-  pub fn sqrt(self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-              Self(
-                  #[cfg_attr(
-                    dylint_lib = "explicit058_contain_unsafe",
-                    expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                  )]
-                  // SAFETY: this branch is compiled with AVX enabled.
-                  unsafe { _mm256_sqrt_ps(self.0) },
-              )
-          } else {
-              {
-                  let Ok(low) = self.0.sqrt();
-                  let Ok(high) = self.1.sqrt();
+  #[inline]
+  pub fn reciprocal(self) -> Result<Self, Never> {
+    let Ok(one) = Self::splat(1.0);
 
-                  Self(low, high)
-              }
-          }
-      }
-    })
+    Ok(one / self)
+  }
+
+  #[inline]
+  pub fn sqrt(self) -> Result<Self, Never> {
+    #[cfg(all(feature = "simd", feature = "std"))]
+    let lanes = Simd::from_array(self.0).sqrt().to_array();
+    #[cfg(all(not(feature = "simd"), feature = "std"))]
+    let lanes = self.0.map(f32::sqrt);
+    #[cfg(not(feature = "std"))]
+    let lanes = self.0.map(<f32 as NoStdFloat>::sqrt);
+
+    Ok(Self(lanes))
+  }
+
+  #[inline]
+  fn to_i32x8_bitcast(self) -> Result<i32x8, Never> {
+    Ok(bytemuck::cast(self))
+  }
+
+  #[inline]
+  pub fn to_u32x8_bitcast(self) -> Result<u32x8, Never> {
+    Ok(bytemuck::cast(self))
   }
 
   pub fn powf(self, GammaExponent(exponent): GammaExponent) -> Result<Self, Never> {
@@ -562,218 +270,172 @@ impl f32x8 {
   }
 }
 
+#[cfg(not(feature = "std"))]
+#[inline]
+fn round_ties_even(value: f32) -> f32 {
+  let magnitude = value.abs();
+  let integer_spacing = 1.0 / f32::EPSILON;
+
+  match magnitude < integer_spacing {
+    true => (magnitude + integer_spacing - integer_spacing).copysign(value),
+    false => value,
+  }
+}
+
 impl From<[f32; 8]> for f32x8 {
-  fn from(v: [f32; 8]) -> Self {
-    cast(v)
+  fn from(lanes: [f32; 8]) -> Self {
+    Self(lanes)
   }
 }
 
 impl From<f32x8> for [f32; 8] {
-  fn from(v: f32x8) -> Self {
-    cast(v)
+  fn from(vector: f32x8) -> Self {
+    vector.0
   }
 }
 
-impl core::ops::Add for f32x8 {
-  type Output = Self;
-
-  fn add(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-            Self(
-                #[cfg_attr(
-                  dylint_lib = "explicit058_contain_unsafe",
-                  expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                )]
-                // SAFETY: this branch is compiled with AVX enabled.
-                unsafe { _mm256_add_ps(self.0, rhs.0) },
-            )
-        } else {
-            Self(self.0 + rhs.0, self.1 + rhs.1)
-        }
-    }
-  }
-}
+lane_operator!(f32x8, Add, add, +, |left, right| left + right);
+lane_operator!(f32x8, Sub, sub, -, |left, right| left - right);
+lane_operator!(f32x8, Mul, mul, *, |left, right| left * right);
+lane_operator!(f32x8, Div, div, /, |left, right| left / right);
 
 impl core::ops::AddAssign for f32x8 {
-  fn add_assign(&mut self, rhs: f32x8) {
+  #[inline]
+  fn add_assign(&mut self, rhs: Self) {
     *self = *self + rhs;
   }
 }
 
-impl core::ops::Sub for f32x8 {
-  type Output = Self;
-
-  fn sub(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-            Self(
-                #[cfg_attr(
-                  dylint_lib = "explicit058_contain_unsafe",
-                  expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                )]
-                // SAFETY: this branch is compiled with AVX enabled.
-                unsafe { _mm256_sub_ps(self.0, rhs.0) },
-            )
-        } else {
-            Self(self.0 - rhs.0, self.1 - rhs.1)
-        }
-    }
-  }
-}
-
-impl core::ops::Mul for f32x8 {
-  type Output = Self;
-
-  fn mul(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-            Self(
-                #[cfg_attr(
-                  dylint_lib = "explicit058_contain_unsafe",
-                  expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                )]
-                // SAFETY: this branch is compiled with AVX enabled.
-                unsafe { _mm256_mul_ps(self.0, rhs.0) },
-            )
-        } else {
-            Self(self.0 * rhs.0, self.1 * rhs.1)
-        }
-    }
-  }
-}
-
 impl core::ops::MulAssign for f32x8 {
-  fn mul_assign(&mut self, rhs: f32x8) {
+  #[inline]
+  fn mul_assign(&mut self, rhs: Self) {
     *self = *self * rhs;
-  }
-}
-
-impl core::ops::Div for f32x8 {
-  type Output = Self;
-
-  fn div(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-            Self(
-                #[cfg_attr(
-                  dylint_lib = "explicit058_contain_unsafe",
-                  expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                )]
-                // SAFETY: this branch is compiled with AVX enabled.
-                unsafe { _mm256_div_ps(self.0, rhs.0) },
-            )
-        } else {
-            Self(self.0 / rhs.0, self.1 / rhs.1)
-        }
-    }
-  }
-}
-
-impl core::ops::BitAnd for f32x8 {
-  type Output = Self;
-
-  #[inline(always)]
-  fn bitand(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-            Self(
-                #[cfg_attr(
-                  dylint_lib = "explicit058_contain_unsafe",
-                  expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                )]
-                // SAFETY: this branch is compiled with AVX enabled.
-                unsafe { _mm256_and_ps(self.0, rhs.0) },
-            )
-        } else {
-            Self(self.0 & rhs.0, self.1 & rhs.1)
-        }
-    }
-  }
-}
-
-impl core::ops::BitOr for f32x8 {
-  type Output = Self;
-
-  #[inline(always)]
-  fn bitor(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-            Self(
-                #[cfg_attr(
-                  dylint_lib = "explicit058_contain_unsafe",
-                  expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                )]
-                // SAFETY: this branch is compiled with AVX enabled.
-                unsafe { _mm256_or_ps(self.0, rhs.0) },
-            )
-        } else {
-            Self(self.0 | rhs.0, self.1 | rhs.1)
-        }
-    }
-  }
-}
-
-impl core::ops::BitXor for f32x8 {
-  type Output = Self;
-
-  #[inline(always)]
-  fn bitxor(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-            Self(
-                #[cfg_attr(
-                  dylint_lib = "explicit058_contain_unsafe",
-                  expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-                )]
-                // SAFETY: this branch is compiled with AVX enabled.
-                unsafe { _mm256_xor_ps(self.0, rhs.0) },
-            )
-        } else {
-            Self(self.0 ^ rhs.0, self.1 ^ rhs.1)
-        }
-    }
   }
 }
 
 impl core::ops::Neg for f32x8 {
   type Output = Self;
 
+  #[inline]
   fn neg(self) -> Self {
-    Self::default() - self
+    Self(self.0.map(core::ops::Neg::neg))
   }
 }
 
-impl core::ops::Not for f32x8 {
+#[derive(Clone, Copy)]
+pub struct FloatMask8(
+  #[cfg(feature = "simd")] Mask<i32, 8>,
+  #[cfg(not(feature = "simd"))] [bool; 8],
+);
+
+impl FloatMask8 {
+  #[inline]
+  pub fn to_u32x8_mask(self) -> Result<u32x8, Never> {
+    #[cfg(feature = "simd")]
+    let lanes = self
+      .0
+      .select(Simd::splat(u32::MAX), Simd::splat(0))
+      .to_array();
+    #[cfg(not(feature = "simd"))]
+    let lanes = self.0.map(|set| match set {
+      true => u32::MAX,
+      false => 0,
+    });
+
+    Ok(bytemuck::cast(lanes))
+  }
+
+  #[inline]
+  pub fn blend(self, yes: f32x8, no: f32x8) -> Result<f32x8, Never> {
+    #[cfg(feature = "simd")]
+    let lanes = self
+      .0
+      .select(Simd::from_array(yes.0), Simd::from_array(no.0))
+      .to_array();
+    #[cfg(not(feature = "simd"))]
+    let lanes = {
+      let mut selected = no.0;
+
+      for ((lane, mask), when_set) in selected.iter_mut().zip(self.0).zip(yes.0) {
+        match mask {
+          true => *lane = when_set,
+          false => {}
+        }
+      }
+
+      selected
+    };
+
+    Ok(f32x8(lanes))
+  }
+}
+
+impl core::ops::BitOr for FloatMask8 {
   type Output = Self;
 
-  fn not(self) -> Self {
-    let Ok(all_bits) = Self::splat(f32::from_bits(u32::MAX));
+  #[inline]
+  fn bitor(self, rhs: Self) -> Self {
+    #[cfg(feature = "simd")]
+    let lanes = self.0 | rhs.0;
+    #[cfg(not(feature = "simd"))]
+    let lanes = super::lanes::combine(self.0, rhs.0, |left, right| left | right);
 
-    self ^ all_bits
+    Self(lanes)
   }
 }
 
-impl core::cmp::PartialEq for f32x8 {
-  fn eq(&self, rhs: &Self) -> bool {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_feature = "avx"))] {
-            #[cfg_attr(
-              dylint_lib = "explicit058_contain_unsafe",
-              expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-            )]
-            // SAFETY: this branch is compiled with AVX enabled.
-            let mask = unsafe { _mm256_cmp_ps(self.0, rhs.0, _CMP_EQ_OQ) };
+#[cfg(test)]
+mod tests {
+  use super::f32x8;
 
-            #[cfg_attr(
-              dylint_lib = "explicit058_contain_unsafe",
-              expect(explicit058_contain_unsafe, reason = "the compile-time branch requires AVX and the intrinsic takes only owned vector registers")
-            )]
-            // SAFETY: this branch is compiled with AVX enabled.
-            unsafe { _mm256_movemask_ps(mask) == 0b1111_1111 }
-        } else {
-            self.0 == rhs.0 && self.1 == rhs.1
-        }
-    }
+  #[test]
+  fn nearest_integer_uses_ties_to_even() {
+    let input = f32x8::from([-2.5, -1.5, -0.5, -0.0, 0.5, 1.5, 2.5, 3.5]);
+    let Ok(rounded) = input.round();
+    let Ok(integers) = input.round_int();
+
+    assert_eq!(
+      <[f32; 8]>::from(rounded).map(f32::to_bits),
+      [-2.0_f32, -2.0, -0.0, -0.0, 0.0, 2.0, 2.0, 4.0].map(f32::to_bits)
+    );
+    assert_eq!(<[i32; 8]>::from(integers), [-2, -2, 0, 0, 0, 2, 2, 4]);
+  }
+
+  #[test]
+  fn pixel_channels_clamp_and_round_to_even() {
+    let inputs = f32x8::from([-1.0, 0.1, 0.3, 0.5, 0.7, 1.0, 2.0, f32::NAN]);
+    let Ok(pixels) = inputs.to_pixel_channels();
+
+    assert_eq!(<[i32; 8]>::from(pixels), [0, 26, 76, 128, 178, 255, 255, 0]);
+  }
+
+  #[test]
+  fn floor_keeps_signed_zero_and_large_whole_values() {
+    let input = f32x8::from([
+      -2.5,
+      -0.5,
+      -0.0,
+      0.0,
+      2.5,
+      4_294_967_296.0,
+      f32::INFINITY,
+      f32::NEG_INFINITY,
+    ]);
+    let Ok(floor) = input.floor();
+
+    assert_eq!(
+      <[f32; 8]>::from(floor).map(f32::to_bits),
+      [
+        -3.0_f32,
+        -1.0,
+        -0.0,
+        0.0,
+        2.0,
+        4_294_967_296.0,
+        f32::INFINITY,
+        f32::NEG_INFINITY
+      ]
+      .map(f32::to_bits)
+    );
   }
 }

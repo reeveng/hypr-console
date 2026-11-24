@@ -15,7 +15,7 @@ let
         top = builtins.head (lib.splitString "/" relative);
       in builtins.elem top [ ".cargo" "Cargo.toml" "Cargo.lock" "crates" "forks" ];
   };
-  calculatorSource = src + "/crates/console-calculator";
+  calculatorSource = src + "/crates/console-application-calculator";
   calculator = pkgs.runCommand "console-native-calculator" {
     nativeBuildInputs = [ pkgs.rustc pkgs.stdenv.cc.bintools ];
   } ''

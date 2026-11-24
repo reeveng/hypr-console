@@ -55,7 +55,6 @@ use crate::src::looprestoration::Rav1dLoopRestorationDSPContext;
 use crate::src::lr_apply::LrRestorePlanes;
 use crate::src::managed::Strictness;
 use crate::src::mc::Rav1dMCDSPContext;
-use crate::src::mem::MemPool;
 use crate::src::msac::MsacContext;
 use crate::src::msac::Rav1dMsacDSPContext;
 use crate::src::pal::Rav1dPalDSPContext;
@@ -105,7 +104,6 @@ use std::sync::atomic::AtomicU8;
 use std::sync::atomic::AtomicU32;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Condvar};
-use strum::FromRepr;
 use zerocopy::FromBytes;
 use zerocopy::FromZeros;
 use zerocopy::Immutable;
@@ -235,23 +233,31 @@ impl Rav1dBitDepthDSPContext {
     })
   }
 
+  fn for_8bit() -> Result<&'static Self, console_core_never::Never> {
+    #[cfg_attr(
+      dylint_lib = "explicit044_no_ambient_value",
+      expect(
+        explicit044_no_ambient_value,
+        reason = "this once-initialized table shares the immutable 8-bit dispatch function pointers"
+      )
+    )]
+    #[cfg_attr(
+      dylint_lib = "explicit068_no_global_mutable_state",
+      expect(
+        explicit068_no_global_mutable_state,
+        reason = "this once-initialized table shares the immutable 8-bit dispatch function pointers"
+      )
+    )]
+    static BPC8: OnceLock<Rav1dBitDepthDSPContext> = OnceLock::new();
+    Ok(BPC8.get_or_init(|| {
+      let Ok(flags) = rav1d_get_cpu_flags();
+      let Ok(context) = Self::new::<BitDepth8>(flags, 8);
+      context
+    }))
+  }
+
   pub fn get(bpc: u8) -> core::result::Result<Option<&'static Self>, console_core_never::Never> {
     Ok({
-      #[cfg_attr(
-        dylint_lib = "explicit044_no_ambient_value",
-        expect(
-          explicit044_no_ambient_value,
-          reason = "this once-initialized table shares the immutable 8-bit dispatch function pointers"
-        )
-      )]
-      #[cfg_attr(
-        dylint_lib = "explicit068_no_global_mutable_state",
-        expect(
-          explicit068_no_global_mutable_state,
-          reason = "this once-initialized table shares the immutable 8-bit dispatch function pointers"
-        )
-      )]
-      static BPC8: OnceLock<Rav1dBitDepthDSPContext> = OnceLock::new();
       #[cfg_attr(
         dylint_lib = "explicit044_no_ambient_value",
         expect(
@@ -283,13 +289,10 @@ impl Rav1dBitDepthDSPContext {
       )]
       static BPC12: OnceLock<Rav1dBitDepthDSPContext> = OnceLock::new();
       Some(match bpc {
-        8 => BPC8.get_or_init(|| {
-          let Ok(flags) = rav1d_get_cpu_flags();
-
-          let Ok(rav1d_bit_depth_dsp_context) = Self::new::<BitDepth8>(flags, bpc);
-
-          rav1d_bit_depth_dsp_context
-        }),
+        8 => {
+          let Ok(context) = Self::for_8bit();
+          context
+        }
         10 => BPC10.get_or_init(|| {
           let Ok(flags) = rav1d_get_cpu_flags();
 
@@ -312,11 +315,8 @@ impl Rav1dBitDepthDSPContext {
 
 impl Default for &'static Rav1dBitDepthDSPContext {
   fn default() -> Self {
-    ({
-      let Ok(explicit_value) = Rav1dBitDepthDSPContext::get(8);
-      explicit_value
-    })
-    .unwrap()
+    let Ok(context) = Rav1dBitDepthDSPContext::for_8bit();
+    context
   }
 }
 
@@ -355,13 +355,12 @@ pub(crate) struct Rav1dContextFrameThread {
   pub next: c_uint,
 }
 
-pub type GrainLut<Entry> = [[Entry; {
-  let Ok(width) = console_core_number_conversion::const_u8_index(GRAIN_WIDTH);
-  width
-}]; {
-  let Ok(height) = console_core_number_conversion::const_u8_index(GRAIN_HEIGHT.wrapping_add(1));
-  height
-}];
+pub type GrainLut<Entry> =
+  [[Entry; match console_core_number_conversion::const_u8_index(GRAIN_WIDTH) {
+    Ok(width) => width,
+  }]; match console_core_number_conversion::const_u8_index(GRAIN_HEIGHT.wrapping_add(1)) {
+    Ok(height) => height,
+  }];
 
 pub struct GrainBD<BD: BitDepth> {
   pub grain_lut: Align16<[GrainLut<BD::Entry>; 3]>,
@@ -479,11 +478,9 @@ impl From<bool> for FlushState {
 }
 
 impl Rav1dContextTaskThread {
-  #[must_use]
-  pub(crate) fn flush_state(&self) -> FlushState {
+  pub(crate) fn flush_state(&self) -> Result<FlushState, console_core_never::Never> {
     let Ok(flushed) = self.thread_data.flushed.get();
-
-    FlushState::from(flushed)
+    Ok(FlushState::from(flushed))
   }
 }
 
@@ -495,15 +492,73 @@ pub(crate) enum DrainRequest {
   Requested,
 }
 
+#[derive(Clone)]
+pub(crate) struct DecoderStopToken {
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the managed API receives a caller-owned cancellation source and workers hold a snapshot while callbacks run outside the decoder lock"
+    )
+  )]
+  pub(crate) retained: Arc<dyn enough::Stop>,
+}
+
+impl DecoderStopToken {
+  pub(crate) fn check(&self) -> Result<(), enough::StopReason> {
+    self.retained.check()
+  }
+
+  pub(crate) fn state(&self) -> Result<DecoderStopState, console_core_never::Never> {
+    Ok(match self.retained.should_stop().then_some(()) {
+      Some(()) => DecoderStopState::Requested,
+      None => DecoderStopState::Running,
+    })
+  }
+}
+
+pub(crate) enum DecoderStopState {
+  Running,
+  Requested,
+}
+
 #[derive(Default)]
 pub struct Rav1dState {
   pub(crate) tiles: Vec<Rav1dTileGroup>,
   pub(crate) n_tiles: c_int,
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the parser retains immutable sequence metadata for subsequent frames while exported C pictures may retain the same descriptor"
+    )
+  )]
   pub(crate) seq_hdr: Option<Arc<DRav1d<Rav1dSequenceHeader, Dav1dSequenceHeader>>>,
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the parser holds an immutable frame header while collecting tile groups and completed C pictures may retain it independently"
+    )
+  )]
   pub(crate) frame_hdr: Option<Arc<DRav1d<Rav1dFrameHeader, Dav1dFrameHeader>>>,
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "published C pictures retain immutable content light metadata after the decoder receives a replacement"
+    )
+  )]
   pub(crate) content_light: Option<Arc<Rav1dContentLightLevel>>,
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "published C pictures retain immutable mastering display metadata after the decoder receives a replacement"
+    )
+  )]
   pub(crate) mastering_display: Option<Arc<Rav1dMasteringDisplay>>,
-  pub(crate) itut_t35: Arc<std::sync::Mutex<Vec<Rav1dITUTT35>>>,
+  pub(crate) itut_t35: Vec<Rav1dITUTT35>,
 
   pub(crate) in_0: Rav1dData,
   pub(crate) out: Rav1dThreadPicture,
@@ -537,52 +592,86 @@ pub struct Rav1dContext {
 
   pub(crate) flush: AtomicBool,
 
-  pub(crate) task_thread: Arc<TaskThreadData>,
+  pub(crate) task_thread: TaskThreadData,
 
   pub dsp: &'static Rav1dDSPContext,
 
   pub(crate) allocator: Rav1dPicAllocator,
-  pub(crate) apply_grain: bool,
+  pub(crate) grain_output: GrainOutputPolicy,
   pub(crate) operating_point: u8,
-  pub(crate) all_layers: bool,
+  pub(crate) layer_output: LayerOutputPolicy,
   pub(crate) frame_size_limit: c_uint,
-
-  pub(crate) strict_std_compliance: bool,
-
   pub(crate) strictness: Strictness,
-  pub(crate) output_invisible_frames: bool,
+  pub(crate) frame_visibility: FrameVisibilityPolicy,
   pub(crate) inloop_filters: Rav1dInloopFilterType,
   pub(crate) decode_frame_type: Rav1dDecodeFrameType,
 
   pub(crate) logger: Option<Rav1dLogger>,
 
-  pub(crate) picture_pool: Arc<MemPool<u8>>,
+  pub(crate) stop: Mutex<Option<DecoderStopToken>>,
+}
 
-  pub(crate) stop: Mutex<Option<Arc<dyn enough::Stop>>>,
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+pub(crate) enum GrainOutputPolicy {
+  #[default]
+  Original,
+  Synthesized,
+}
+
+impl From<bool> for GrainOutputPolicy {
+  fn from(apply_grain: bool) -> Self {
+    match apply_grain.then_some(()) {
+      Some(()) => Self::Synthesized,
+      None => Self::Original,
+    }
+  }
+}
+
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+pub(crate) enum LayerOutputPolicy {
+  #[default]
+  HighestSpatial,
+  All,
+}
+
+impl From<bool> for LayerOutputPolicy {
+  fn from(all_layers: bool) -> Self {
+    match all_layers.then_some(()) {
+      Some(()) => Self::All,
+      None => Self::HighestSpatial,
+    }
+  }
+}
+
+#[derive(Clone, Copy, Default, Eq, PartialEq)]
+pub(crate) enum FrameVisibilityPolicy {
+  #[default]
+  VisibleOnly,
+  IncludeInvisible,
+}
+
+impl From<bool> for FrameVisibilityPolicy {
+  fn from(include_invisible: bool) -> Self {
+    match include_invisible.then_some(()) {
+      Some(()) => Self::IncludeInvisible,
+      None => Self::VisibleOnly,
+    }
+  }
 }
 
 impl Rav1dContext {
   pub(crate) fn set_stop(
     &self,
-    stop: Option<Arc<dyn enough::Stop>>,
+    stop: Option<DecoderStopToken>,
   ) -> core::result::Result<(), console_core_never::Never> {
-    {
-      *self.stop.lock() = stop;
-    };
-
+    let previous = mem::replace(&mut *self.stop.lock(), stop);
+    drop(previous);
     Ok(())
   }
 
-  pub(crate) fn stop_token(
-    &self,
-  ) -> core::result::Result<Option<Arc<dyn enough::Stop>>, console_core_never::Never> {
-    Ok({
-      let token = match self.stop.lock().clone() {
-        Some(explicit_value) => explicit_value,
-        None => return Ok(None),
-      };
-      token.may_stop().then_some(token)
-    })
+  pub(crate) fn stop_token(&self) -> Result<Option<DecoderStopToken>, console_core_never::Never> {
+    let snapshot = self.stop.lock().clone();
+    Ok(snapshot.filter(|token| token.retained.may_stop()))
   }
 }
 
@@ -720,33 +809,37 @@ impl Rav1dFrameContextBdFn {
   }
 }
 
-#[derive(Clone, Copy, Default, Atom)]
+#[derive(Clone, Copy, Atom)]
 pub struct CodedBlockInfo(i16);
 
 impl CodedBlockInfo {
-  const TXTP_BITS: u8 = ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u32 => ::core::primitive::u8, TxfmType::BITS - WHT_WHT.leading_zeros());
+  pub const INITIAL: Self = Self(0);
 
-  pub const fn eob(&self) -> core::result::Result<i16, console_core_never::Never> {
-    Ok(self.0 >> Self::TXTP_BITS)
+  const TXTP_BITS: u32 = TxfmType::BITS.wrapping_sub(WHT_WHT.leading_zeros());
+  const TXTP_MASK: i16 = 1i16.wrapping_shl(Self::TXTP_BITS).wrapping_sub(1);
+
+  pub const fn eob(&self) -> Result<i16, console_core_never::Never> {
+    Ok(self.0.wrapping_shr(Self::TXTP_BITS))
   }
 
-  pub const fn txtp(&self) -> core::result::Result<TxfmType, console_core_never::Never> {
-    Ok({
-      ::console_core_number_conversion::const_wrapped_integer!(signed ::core::primitive::i16 => TxfmType, self.0 & ((1 << Self::TXTP_BITS) - 1))
-    })
+  pub const fn txtp(&self) -> Result<TxfmType, console_core_never::Never> {
+    Ok(
+      console_core_number_conversion::const_wrapped_integer!(signed i16 => TxfmType, self.0 & Self::TXTP_MASK),
+    )
   }
 
-  pub const fn new(
-    eob: i16,
-    txtp: TxfmType,
-  ) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      debug_assert!(eob << Self::TXTP_BITS >> Self::TXTP_BITS == eob);
-      Self(
-        (eob << Self::TXTP_BITS)
-          | ::console_core_number_conversion::const_wrapped_integer!(unsigned ::core::primitive::u8 => ::core::primitive::i16, txtp),
-      )
-    })
+  pub const fn new(eob: i16, kind: TxfmType) -> Rav1dResult<Self> {
+    let position = eob.wrapping_shl(Self::TXTP_BITS);
+    let transform =
+      console_core_number_conversion::const_wrapped_integer!(unsigned u8 => i16, kind);
+
+    match (
+      position.wrapping_shr(Self::TXTP_BITS) == eob,
+      transform <= Self::TXTP_MASK,
+    ) {
+      (true, true) => Ok(Self(position | transform)),
+      (false, _) | (_, false) => Err(Rav1dError::EINVAL),
+    }
   }
 }
 
@@ -764,18 +857,21 @@ pub(crate) enum PalettePixels {
 type PalArray<BD> = [[<BD as BitDepth>::Pixel; 8]; 3];
 
 impl Pal {
-  pub fn try_resize(&mut self, n: usize) -> Result<(), std::collections::TryReserveError> {
+  pub fn try_resize(&mut self, entries: u64) -> Rav1dResult {
+    let length = entries.checked_mul(24).ok_or(Rav1dError::ENOMEM)?;
+    let bytes = console_core_number_conversion::checked_index(length)
+      .map_err(|_outside_allocation| Rav1dError::ENOMEM)?;
     self
       .data
-      .try_resize(n.wrapping_mul(8).wrapping_mul(3), Default::default())
+      .try_resize(bytes, 0)
+      .map_err(|_allocation| Rav1dError::ENOMEM)
   }
 
-  #[must_use]
-  pub(crate) fn pixels(&self) -> PalettePixels {
-    match self.data.len() {
+  pub(crate) fn pixels(&self) -> Result<PalettePixels, console_core_never::Never> {
+    Ok(match self.data.len() {
       0 => PalettePixels::Empty,
       _ => PalettePixels::Present,
-    }
+    })
   }
 
   fn checked_position<BD: BitDepth>(&self, record: u64) -> Rav1dResult<u64> {
@@ -1017,7 +1113,21 @@ impl Rav1dFrameContext {
 #[derive(Default)]
 #[repr(C)]
 pub(crate) struct Rav1dFrameData {
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "frame workers read the same immutable sequence descriptor published with C pictures that can outlive this frame slot"
+    )
+  )]
   pub seq_hdr: Option<Arc<DRav1d<Rav1dSequenceHeader, Dav1dSequenceHeader>>>,
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "frame workers read the same immutable frame descriptor published with C pictures that can outlive this frame slot"
+    )
+  )]
   pub frame_hdr: Option<Arc<DRav1d<Rav1dFrameHeader, Dav1dFrameHeader>>>,
   pub refp: [Rav1dThreadPicture; 7],
 
@@ -1087,6 +1197,20 @@ pub(crate) struct ChromaMotionNeighbors {
   pub diagonal: Option<ChromaNeighborPrediction>,
 }
 
+enum ChromaNeighborRequirement {
+  Read,
+  Unused,
+}
+
+impl From<bool> for ChromaNeighborRequirement {
+  fn from(required: bool) -> Self {
+    match required.then_some(()) {
+      Some(()) => Self::Read,
+      None => Self::Unused,
+    }
+  }
+}
+
 impl Rav1dFrameData {
   pub(crate) fn chroma_motion_neighbors(
     &self,
@@ -1100,9 +1224,11 @@ impl Rav1dFrameData {
     };
     let position = task.b;
     let row = 5_i32.wrapping_add(position.y & 31);
-    let read = |required, neighbor: Bxy| -> Rav1dResult<Option<ChromaNeighborPrediction>> {
+    let read = |required: ChromaNeighborRequirement,
+                neighbor: Bxy|
+     -> Rav1dResult<Option<ChromaNeighborPrediction>> {
       match required {
-        true => {
+        ChromaNeighborRequirement::Read => {
           let ring_row = row.wrapping_add(neighbor.y.wrapping_sub(position.y));
           let block = read_spatial_block(
             &self.rf.r,
@@ -1115,36 +1241,38 @@ impl Rav1dFrameData {
           let [first_reference, _] = block.r#ref.r#ref;
           let [vector, _] = block.mv.mv;
           Ok(
-            u8::try_from(i16::from(first_reference).wrapping_sub(1))
-              .ok()
-              .map(|reference| ChromaNeighborPrediction {
-                position: neighbor,
-                vector,
-                reference,
-              }),
+            match u8::try_from(i16::from(first_reference).wrapping_sub(1)) {
+              ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_),
+              ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
+            }
+            .map(|reference| ChromaNeighborPrediction {
+              position: neighbor,
+              vector,
+              reference,
+            }),
           )
         }
-        false => Ok(None),
+        ChromaNeighborRequirement::Unused => Ok(None),
       }
     };
     let previous_x = position.x.wrapping_sub(1);
     let previous_y = position.y.wrapping_sub(1);
     let left = read(
-      needs_left,
+      ChromaNeighborRequirement::from(needs_left),
       Bxy {
         x: previous_x,
         y: position.y,
       },
     )?;
     let above = read(
-      needs_above,
+      ChromaNeighborRequirement::from(needs_above),
       Bxy {
         x: position.x,
         y: previous_y,
       },
     )?;
     let diagonal = read(
-      needs_left && needs_above,
+      ChromaNeighborRequirement::from(needs_left && needs_above),
       Bxy {
         x: previous_x,
         y: previous_y,
@@ -1160,16 +1288,15 @@ impl Rav1dFrameData {
       diagonal,
     }))
   }
-  #[must_use]
-  pub(crate) fn tile(&self, position: u32) -> Option<&Rav1dTileState> {
+
+  pub(crate) fn tile(&self, position: u32) -> Rav1dResult<&Rav1dTileState> {
     let Ok(index) = console_core_number_conversion::index(position);
-    self.ts.get(index)
+    self.ts.get(index).ok_or(Rav1dError::EINVAL)
   }
 
-  #[must_use]
-  pub(crate) fn above_context(&self, position: u32) -> Option<&BlockContext> {
+  pub(crate) fn above_context(&self, position: u32) -> Rav1dResult<&BlockContext> {
     let Ok(index) = console_core_number_conversion::index(position);
-    self.a.get(index)
+    self.a.get(index).ok_or(Rav1dError::EINVAL)
   }
 
   pub(crate) fn lowest_pixel_position(
@@ -1368,20 +1495,18 @@ fn scratch_prefix_mut<T: FromBytes + KnownLayout + IntoBytes>(
   Ok(view)
 }
 
-pub const CF_LEN: usize = 32 * 32;
+pub type CoefficientScratch<T> = [T; 32 * 32];
 
 #[derive(FromZeros)]
 #[repr(align(64))]
-pub struct Cf([i32; CF_LEN]);
+pub struct Cf(CoefficientScratch<i32>);
 
 impl Cf {
-  pub fn select<BD: BitDepth>(&self) -> core::result::Result<&[BD::Coef; CF_LEN], Rav1dError> {
+  pub fn select<BD: BitDepth>(&self) -> Rav1dResult<&CoefficientScratch<BD::Coef>> {
     scratch_prefix(IntoBytes::as_bytes(&self.0))
   }
 
-  pub fn select_mut<BD: BitDepth>(
-    &mut self,
-  ) -> core::result::Result<&mut [BD::Coef; CF_LEN], Rav1dError> {
+  pub fn select_mut<BD: BitDepth>(&mut self) -> Rav1dResult<&mut CoefficientScratch<BD::Coef>> {
     scratch_prefix_mut(IntoBytes::as_mut_bytes(&mut self.0))
   }
 }
@@ -1397,17 +1522,22 @@ impl AlPal {
   }
 }
 
-pub const COMPINTER_LEN: usize = 128 * 128;
-pub const SEG_MASK_LEN: usize = 128 * 128;
+pub const MAX_COMPOUND_SAMPLES: u16 = 128 * 128;
+type CompoundSamples<T> =
+  [T; match console_core_number_conversion::const_u16_index(MAX_COMPOUND_SAMPLES) {
+    Ok(samples) => samples,
+  }];
+pub type CompoundPrediction = CompoundSamples<i16>;
+pub type SegmentMask = CompoundSamples<u8>;
 
 #[derive(FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C, align(64))]
 pub struct ScratchCompinter {
-  pub compinter: [[i16; COMPINTER_LEN]; 2],
-  pub seg_mask: [u8; SEG_MASK_LEN],
+  pub compinter: [CompoundPrediction; 2],
+  pub seg_mask: SegmentMask,
 }
 
-pub const SCRATCH_LAP_LEN: usize = 128 * 32;
+pub type OverlapPrediction<T> = [T; 128 * 32];
 
 #[derive(FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C, align(64))]
@@ -1416,7 +1546,7 @@ pub struct ScratchLapInter([u8; mem::size_of::<ScratchCompinter>()]);
 impl ScratchLapInter {
   pub fn lap_mut<BD: BitDepth>(
     &mut self,
-  ) -> core::result::Result<&mut [BD::Pixel; SCRATCH_LAP_LEN], Rav1dError> {
+  ) -> core::result::Result<&mut OverlapPrediction<BD::Pixel>, Rav1dError> {
     scratch_prefix_mut(&mut self.0)
   }
 
@@ -1425,16 +1555,16 @@ impl ScratchLapInter {
   }
 }
 
-pub const EMU_EDGE_LEN: usize = 320 * (256 + 7);
+pub type EmulatedEdge<T> = [T; 320 * (256 + 7)];
 
 #[derive(FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C, align(64))]
-pub struct ScratchEmuEdge([u8; EMU_EDGE_LEN * 2]);
+pub struct ScratchEmuEdge([u8; mem::size_of::<EmulatedEdge<u16>>()]);
 
 impl ScratchEmuEdge {
   pub fn buf_mut<BD: BitDepth>(
     &mut self,
-  ) -> core::result::Result<&mut [BD::Pixel; EMU_EDGE_LEN], Rav1dError> {
+  ) -> core::result::Result<&mut EmulatedEdge<BD::Pixel>, Rav1dError> {
     scratch_prefix_mut(&mut self.0)
   }
 }
@@ -1458,30 +1588,28 @@ impl ScratchLevelsPal {
   }
 }
 
-pub const SCRATCH_INTER_INTRA_BUF_LEN: usize = 64 * 64;
+pub type InterIntraPrediction<T> = [T; 64 * 64];
 
 #[derive(Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C, align(64))]
-pub struct ScratchInterIntraBuf([u16; SCRATCH_INTER_INTRA_BUF_LEN * 2]);
+pub struct ScratchInterIntraBuf([InterIntraPrediction<u16>; 2]);
 
 impl ScratchInterIntraBuf {
   pub fn buf_mut<BD: BitDepth>(
     &mut self,
-  ) -> core::result::Result<&mut [BD::Pixel; SCRATCH_INTER_INTRA_BUF_LEN], Rav1dError> {
+  ) -> core::result::Result<&mut InterIntraPrediction<BD::Pixel>, Rav1dError> {
     scratch_prefix_mut(IntoBytes::as_mut_bytes(&mut self.0))
   }
 }
 
-pub const SCRATCH_EDGE_LEN: usize = 257;
+pub type IntraEdgeSamples<T> = [T; 257];
 
 #[derive(Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C, align(64))]
-pub struct ScratchEdgeBuf([u8; SCRATCH_EDGE_LEN * 2 + 62]);
+pub struct ScratchEdgeBuf([u8; mem::size_of::<IntraEdgeSamples<u16>>() + 62]);
 
 impl ScratchEdgeBuf {
-  pub fn buf_mut<BD: BitDepth>(
-    &mut self,
-  ) -> core::result::Result<&mut [BD::Pixel; SCRATCH_EDGE_LEN], Rav1dError> {
+  pub fn buf_mut<BD: BitDepth>(&mut self) -> Rav1dResult<&mut IntraEdgeSamples<BD::Pixel>> {
     scratch_prefix_mut(&mut self.0)
   }
 }
@@ -1512,24 +1640,20 @@ pub struct ScratchInterIntraEdgePal {
   _padding: [u8; 16],
 }
 
-pub const SCRATCH_AC_TXTP_LEN: usize = 32 * 32;
-
 #[derive(Clone, Copy, FromBytes, IntoBytes, KnownLayout, Immutable)]
 #[repr(C, align(64))]
-pub struct ScratchAcTxtpMap([u8; SCRATCH_AC_TXTP_LEN * 2]);
+pub struct ScratchAcTxtpMap([u8; mem::size_of::<CoefficientScratch<i16>>()]);
 
 impl ScratchAcTxtpMap {
-  pub fn ac_mut(&mut self) -> core::result::Result<&mut [i16; SCRATCH_AC_TXTP_LEN], Rav1dError> {
+  pub fn ac_mut(&mut self) -> Rav1dResult<&mut CoefficientScratch<i16>> {
     scratch_prefix_mut(&mut self.0)
   }
 
-  pub fn txtp_map(&self) -> core::result::Result<&[TxfmType; SCRATCH_AC_TXTP_LEN], Rav1dError> {
+  pub fn txtp_map(&self) -> Rav1dResult<&CoefficientScratch<TxfmType>> {
     scratch_prefix(&self.0)
   }
 
-  pub fn txtp_map_mut(
-    &mut self,
-  ) -> core::result::Result<&mut [TxfmType; SCRATCH_AC_TXTP_LEN], Rav1dError> {
+  pub fn txtp_map_mut(&mut self) -> Rav1dResult<&mut CoefficientScratch<TxfmType>> {
     scratch_prefix_mut(&mut self.0)
   }
 }
@@ -1658,12 +1782,13 @@ mod task_ctx_size {
 
   #[test]
   fn task_context_stays_stack_light() {
-    use core::mem::size_of;
-    let sz = size_of::<Rav1dTaskContext>();
-    eprintln!("Rav1dTaskContext = {sz}");
+    const MAX_STACK_BYTES: u64 = 48 * 1024;
+    let Ok(bytes) =
+      console_core_number_conversion::fixed_index(core::mem::size_of::<Rav1dTaskContext>());
+    eprintln!("Rav1dTaskContext = {bytes}");
     assert!(
-      sz < usize::wrapping_mul(48, 1024),
-      "Rav1dTaskContext grew to {sz} B — inline buffers belong in \
+      bytes < MAX_STACK_BYTES,
+      "Rav1dTaskContext grew to {bytes} B — inline buffers belong in \
              `scratch`-style zeroed boxes (see issue #15)"
     );
   }

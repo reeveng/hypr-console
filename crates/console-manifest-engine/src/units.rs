@@ -2,39 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use console_core_external_programs::Program;
 use console_core_never::Never;
-
-pub const WAKES: [Wake; 1] = [Wake {
-  under: "/usr/share/backgrounds/",
-  program: Program::Awww,
-  arguments: &["clear-cache"],
-  name: "the frames the wallpaper daemon kept",
-}];
-
-#[derive(Debug, Clone, Copy)]
-pub struct Wake {
-  pub under: &'static str,
-  pub program: Program,
-  pub arguments: &'static [&'static str],
-  pub name: &'static str,
-}
-
-pub fn woken_by<'a>(
-  written: impl IntoIterator<Item = &'a String> + Clone,
-) -> Result<Vec<Wake>, Never> {
-  Ok(
-    WAKES
-      .into_iter()
-      .filter(|wake| {
-        written
-          .clone()
-          .into_iter()
-          .any(|path| path.contains(wake.under))
-      })
-      .collect(),
-  )
-}
 
 pub fn named_by(unit: &str) -> Result<BTreeSet<String>, Never> {
   Ok(
@@ -58,8 +26,6 @@ pub fn named_by(unit: &str) -> Result<BTreeSet<String>, Never> {
 mod tests {
   use super::*;
 
-  type Failure = Box<dyn std::error::Error>;
-
   #[test]
   fn the_program_a_unit_runs_is_named_by_it() {
     let unit = "[Service]\nExecStart=/usr/local/bin/controller-desktop\n";
@@ -70,7 +36,7 @@ mod tests {
 
   #[test]
   fn an_argument_is_named_too() {
-    let unit = "[Service]\nExecStart=/usr/bin/awww img /usr/share/backgrounds/console.webp\n";
+    let unit = "[Service]\nExecStart=/usr/local/bin/console-paper img /usr/share/backgrounds/console.webp\n";
     let Ok(named) = named_by(unit);
 
     assert!(
@@ -111,26 +77,5 @@ mod tests {
     let unit = "Execute_this=/nope\nExecStart=/yes\n";
 
     assert_eq!(named_by(unit), Ok(BTreeSet::from(["/yes".to_string()])));
-  }
-
-  #[test]
-  fn a_file_under_nothing_that_wakes_wakes_nothing() {
-    let elsewhere = vec!["/home/@user@/.config/wofi/config".to_string()];
-    let Ok(woken) = woken_by(&elsewhere);
-
-    assert!(woken.is_empty());
-  }
-
-  #[test]
-  fn the_kept_frames_go_when_a_background_is_written() -> Result<(), Failure> {
-    let written = vec!["/usr/share/backgrounds/console.webp".to_string()];
-    let Ok(woken) = woken_by(&written);
-    let first = woken.first().ok_or("nothing woke")?;
-
-    assert_eq!(woken.len(), 1);
-    assert_eq!(first.program, Program::Awww);
-    assert_eq!(first.arguments, &["clear-cache"]);
-
-    Ok(())
   }
 }

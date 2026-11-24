@@ -102,6 +102,7 @@ pub(crate) struct LinkToken {
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
 impl LinkToken {
+    #[must_use]
     pub(crate) const fn compatibility_edge_type(&self) -> &'static str {
         match (self.start_marker, self.end_marker) {
             (FlowEdgeMarker::Point, FlowEdgeMarker::Point) => "double_arrow_point",
@@ -114,10 +115,12 @@ impl LinkToken {
         }
     }
 
+    #[must_use]
     pub(crate) const fn compatibility_stroke(&self) -> &'static str {
         if matches!(self.visibility, FlowEdgeVisibility::Invisible) {
             return "invisible";
         }
+
         match self.stroke_kind {
             FlowEdgeStroke::Normal => "normal",
             FlowEdgeStroke::Dotted => "dotted",

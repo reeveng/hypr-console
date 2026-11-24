@@ -124,8 +124,30 @@ struct StoredNotification {
 struct StoredInbox {
   waiting: Box<[StoredNotification]>,
   earlier: Box<[StoredNotification]>,
-  #[serde(rename = "quiet")]
-  do_not_disturb: Option<String>,
+  #[serde(default, rename = "quiet")]
+  do_not_disturb: StoredQuiet,
+  #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+  stream_quiet: bool,
+}
+
+#[derive(Default)]
+struct StoredQuiet(DoNotDisturb);
+
+impl<'de> Deserialize<'de> for StoredQuiet {
+  fn deserialize<D: serde::Deserializer<'de>>(from: D) -> Result<Self, D::Error> {
+    let saved = Option::<String>::deserialize(from)?;
+    Ok(Self(match saved.as_deref() {
+      Some("held-back") => DoNotDisturb::On,
+      Some(_) | None => DoNotDisturb::Off,
+    }))
+  }
+}
+
+impl Serialize for StoredQuiet {
+  fn serialize<S: serde::Serializer>(&self, into: S) -> Result<S::Ok, S::Error> {
+    let Ok(word) = self.0.said();
+    into.serialize_str(word)
+  }
 }
 
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -133,6 +155,13 @@ pub struct Inbox {
   pub waiting: Vec<Notification>,
   pub earlier: Vec<Notification>,
   pub do_not_disturb: DoNotDisturb,
+  pub stream_quiet: DoNotDisturb,
+}
+
+impl Inbox {
+  pub fn effective_do_not_disturb(&self) -> Result<DoNotDisturb, Never> {
+    self.do_not_disturb.with_hold(self.stream_quiet)
+  }
 }
 
 pub fn whole(said: &str) -> Result<Inbox, Never> {
@@ -145,27 +174,26 @@ pub fn whole(said: &str) -> Result<Inbox, Never> {
   let Ok(waiting) = every(kept.waiting.into_vec());
   let Ok(earlier) = every(kept.earlier.into_vec());
 
-  let do_not_disturb = match kept.do_not_disturb.as_deref() {
-    Some("held-back") => DoNotDisturb::On,
-    Some(_) | None => DoNotDisturb::Off,
-  };
-
   Ok(Inbox {
     waiting,
     earlier,
-    do_not_disturb,
+    do_not_disturb: kept.do_not_disturb.0,
+    stream_quiet: match bool::then_some(kept.stream_quiet, ()) {
+      Some(()) => DoNotDisturb::On,
+      None => DoNotDisturb::Off,
+    },
   })
 }
 
 pub fn serialize(whole: &Inbox) -> Result<String, Never> {
   let Ok(waiting) = to_stored(&whole.waiting);
   let Ok(earlier) = to_stored(&whole.earlier);
-  let Ok(do_not_disturb) = whole.do_not_disturb.said();
 
   let kept = StoredInbox {
     waiting: waiting.into_boxed_slice(),
     earlier: earlier.into_boxed_slice(),
-    do_not_disturb: Some(do_not_disturb.to_string()),
+    do_not_disturb: StoredQuiet(whole.do_not_disturb),
+    stream_quiet: whole.stream_quiet == DoNotDisturb::On,
   };
 
   Ok(match serde_json::to_string(&kept) {
@@ -258,6 +286,15 @@ pub enum DoNotDisturb {
   #[default]
   #[words(said = "coming")]
   Off,
+}
+
+impl DoNotDisturb {
+  pub(crate) fn with_hold(self, hold: Self) -> Result<Self, Never> {
+    Ok(match (self, hold) {
+      (Self::Off, Self::Off) => Self::Off,
+      _ => Self::On,
+    })
+  }
 }
 
 #[cfg(test)]
@@ -389,6 +426,7 @@ mod tests {
       waiting: held.clone(),
       earlier: Vec::new(),
       do_not_disturb: DoNotDisturb::Off,
+      stream_quiet: DoNotDisturb::On,
     };
     let Ok(written) = serialize(&whole);
     let Ok(back) = super::whole(&written);
@@ -398,6 +436,7 @@ mod tests {
       Some(Urgency::Critical)
     );
     assert_eq!(back, whole);
+    assert_eq!(back.effective_do_not_disturb(), Ok(DoNotDisturb::On));
   }
 
   #[test]

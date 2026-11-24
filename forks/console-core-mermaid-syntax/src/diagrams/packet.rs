@@ -65,6 +65,7 @@ enum PacketParseOutput {
 }
 
 impl PacketParseOutput {
+    #[must_use]
     fn into_semantic_model(self) -> PacketDiagramModel {
         match self {
             Self::Empty => PacketDiagramModel::default(),
@@ -73,6 +74,7 @@ impl PacketParseOutput {
     }
 
     #[cfg(feature = "presentation")]
+    #[must_use]
     fn into_render_parts(self) -> (PacketDiagramModel, PacketOutputData) {
         match self {
             Self::Empty => (PacketDiagramModel::default(), PacketOutputData::Empty),
@@ -223,6 +225,7 @@ pub(crate) fn parse_packet_semantic_model_controlled(
                     },
                 }
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 crate::family::SemanticConstruction {
@@ -246,7 +249,7 @@ fn construct_packet_semantic_source_controlled(
     #[cfg(test)]
     crate::diagrams::langium_common::record_family_syntax_construction("packet");
 
-    let body = match packet_body_start_controlled(code, control)? {
+    let body = match { let checked_value_3 = packet_body_start_controlled(code, control)?; checked_value_3 } {
         Ok(Some(body)) => body,
         Ok(None) => {
             return Ok(Ok(PacketSemanticSource {
@@ -286,30 +289,38 @@ fn construct_packet_semantic_source_controlled(
 
     while offset < code.len() {
         control.checkpoint()?;
-        if let Some(parsed) = parse_langium_common(code, offset) {
-            if let Some(diagnostic) = &parsed.diagnostic {
-                #[cfg(feature = "editor-facts")]
-                if let Some(facts) = &mut editor_facts {
-                    push_langium_common_recovery(facts, diagnostic);
+
+        match parse_langium_common(code, offset) {
+            Some(parsed) => {
+                match &parsed.diagnostic {
+                    Some(diagnostic) => {
+                        #[cfg(feature = "editor-facts")]
+                        if let Some(facts) = &mut editor_facts {
+                            push_langium_common_recovery(facts, diagnostic);
+                        }
+                        first_error.get_or_insert_with(|| {
+                            Error::diagram_parse_insertion_point(
+                                diagram_type,
+                                diagnostic.message.clone(),
+                                diagnostic.span.start,
+                            )
+                        });
+                    },
+                    ::core::option::Option::None => {},
                 }
-                first_error.get_or_insert_with(|| {
-                    Error::diagram_parse_insertion_point(
-                        diagram_type,
-                        diagnostic.message.clone(),
-                        diagnostic.span.start,
-                    )
-                });
-            }
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                push_langium_common_editor_fact(facts, &parsed.fact, "packet");
-            }
-            common.push(parsed.fact);
-            offset += parsed.consumed;
-            continue;
+
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    push_langium_common_editor_fact(facts, &parsed.fact, "packet");
+                }
+                common.push(parsed.fact);
+                offset += parsed.consumed;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let line_start = offset;
@@ -317,20 +328,24 @@ fn construct_packet_semantic_source_controlled(
         offset = next_offset;
         let visible = strip_inline_comment(line);
         let t = visible.trim();
+
         if t.is_empty() {
             continue;
         }
 
-        if let Some(block) = parse_packet_block_spanned(line, line_start) {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                push_packet_block_editor_fact(facts, &block);
-            }
-            blocks.push(block.semantic);
-            continue;
+        match parse_packet_block_spanned(line, line_start) {
+            Some(block) => {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    push_packet_block_editor_fact(facts, &block);
+                }
+                blocks.push(block.semantic);
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let diagnostic = if line_start < body.header_line_end {
@@ -369,20 +384,25 @@ fn construct_packet_semantic_source_controlled(
                     recovery_fallback_span(code),
                 ));
             }
+
             if first_error.is_none() {
                 first_error = Some(error);
             }
+
             Vec::new()
         }
     };
     let common = LangiumCommonDbFields::from_facts(&common);
 
-    if let Some(error) = first_error {
-        return Ok(Err(family::CombinedSemanticFailure::new(
-            error,
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-        )));
+    match first_error {
+        Some(error) => {
+            return Ok(Err(family::CombinedSemanticFailure::new(
+                error,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            )));
+        },
+        ::core::option::Option::None => {},
     }
 
     control.checkpoint()?;
@@ -398,6 +418,7 @@ fn construct_packet_semantic_source_controlled(
     }))
 }
 
+#[must_use]
 fn packet_parse_failure(
     error: Error,
     #[cfg(feature = "editor-facts")] editor_facts: Option<EditorSemanticFacts>,
@@ -440,9 +461,10 @@ fn populate_packet_controlled(
     let mut row: i128 = 1;
 
     for (block_index, mut block) in blocks.into_iter().enumerate() {
-        if block_index % 128 == 0 {
+        if block_index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         if let (Some(start), Some(end)) = (block.start, block.end)
             && end < start
         {
@@ -463,8 +485,15 @@ fn populate_packet_controlled(
                 )));
             }
         };
-        let start = block.start.unwrap_or(expected_start);
-        let end_for_msg = block.end.unwrap_or(start);
+        let start = match block.start {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => expected_start,
+        };
+        let end_for_msg = match block.end {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => start,
+        };
+
         if start != expected_start {
             return Ok(Err(Error::diagram_parse_exact(
                 "packet".to_string(),
@@ -487,7 +516,11 @@ fn populate_packet_controlled(
         let end = match block.end {
             Some(end) => end,
             None => {
-                let bits = block.bits.unwrap_or(1);
+                let bits = match block.bits {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 1,
+                };
+
                 let Some(width) = bits.checked_sub(1) else {
                     return Ok(Err(Error::diagram_parse_exact(
                         "packet".to_string(),
@@ -495,6 +528,7 @@ fn populate_packet_controlled(
                         block.numeric_span,
                     )));
                 };
+
                 let Some(end) = start.checked_add(width) else {
                     return Ok(Err(Error::diagram_parse_exact(
                         "packet".to_string(),
@@ -502,9 +536,11 @@ fn populate_packet_controlled(
                         block.numeric_span,
                     )));
                 };
+
                 end
             }
         };
+
         let Some(bits) = end
             .checked_sub(start)
             .and_then(|value| value.checked_add(1))
@@ -515,6 +551,7 @@ fn populate_packet_controlled(
                 block.numeric_span,
             )));
         };
+
         last_bit = end;
 
         let mut cur = PacketBlock {
@@ -525,15 +562,18 @@ fn populate_packet_controlled(
         };
 
         let mut split_count = 0usize;
-        loop {
+
+        'inner_loop_2: loop {
             if split_count.is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             split_count = split_count.saturating_add(1);
             let (fitting, next) = match get_next_fitting_block(cur, row, bits_per_row) {
                 Ok(next) => next,
                 Err(error) => return Ok(Err(error)),
             };
+
             let Some(row_boundary) = row.checked_mul(i128::from(bits_per_row)) else {
                 return Ok(Err(Error::diagram_parse_exact(
                     "packet".to_string(),
@@ -541,8 +581,10 @@ fn populate_packet_controlled(
                     block.numeric_span,
                 )));
             };
-            let reached_row_end = i128::from(fitting.end) + 1 == row_boundary;
+
+            let reached_row_end = ::core::primitive::i128::wrapping_add(i128::from(fitting.end), 1) == row_boundary;
             word.push(fitting);
+
             if reached_row_end {
                 if !word.is_empty() {
                     if packet.len() >= MAX_PACKET_SIZE {
@@ -552,8 +594,10 @@ fn populate_packet_controlled(
                             block.numeric_span,
                         )));
                     }
+
                     packet.push(std::mem::take(&mut word));
                 }
+
                 let Some(next_row) = row.checked_add(1) else {
                     return Ok(Err(Error::diagram_parse_exact(
                         "packet".to_string(),
@@ -561,12 +605,16 @@ fn populate_packet_controlled(
                         block.numeric_span,
                     )));
                 };
+
                 row = next_row;
             }
-            let Some(next) = next else {
-                break;
+
+            let next_2 = match next {
+                Some(matched_next) => matched_next,
+                ::core::option::Option::None => break 'inner_loop_2,
             };
-            cur = next;
+
+            cur = next_2;
         }
     }
 
@@ -610,19 +658,19 @@ fn get_next_fitting_block(
             "Packet row arithmetic underflowed.".to_string(),
         )
     })?;
-    let row_end = i64::try_from(row_end).map_err(|_| {
+    let row_end_2 = i64::try_from(row_end).map_err(|_| {
         Error::diagram_parse_fallback(
             "packet".to_string(),
             "Packet row boundary exceeds the supported integer range.".to_string(),
         )
     })?;
-    let row_start = i64::try_from(row_start).map_err(|_| {
+    let row_start_2 = i64::try_from(row_start).map_err(|_| {
         Error::diagram_parse_fallback(
             "packet".to_string(),
             "Packet row boundary exceeds the supported integer range.".to_string(),
         )
     })?;
-    let first_bits = row_end
+    let first_bits = row_end_2
         .checked_sub(block.start)
         .and_then(|value| value.checked_add(1))
         .ok_or_else(|| {
@@ -633,7 +681,7 @@ fn get_next_fitting_block(
         })?;
     let second_bits = block
         .end
-        .checked_sub(row_start)
+        .checked_sub(row_start_2)
         .and_then(|value| value.checked_add(1))
         .ok_or_else(|| {
             Error::diagram_parse_fallback(
@@ -644,12 +692,12 @@ fn get_next_fitting_block(
     Ok((
         PacketBlock {
             start: block.start,
-            end: row_end,
+            end: row_end_2,
             label: block.label.clone(),
             bits: first_bits,
         },
         Some(PacketBlock {
-            start: row_start,
+            start: row_start_2,
             end: block.end,
             label: block.label,
             bits: second_bits,
@@ -657,16 +705,20 @@ fn get_next_fitting_block(
     ))
 }
 
+#[must_use]
 fn strip_inline_comment(line: &str) -> &str {
     strip_langium_inline_comment(line)
 }
 
+#[must_use]
 fn parse_packet_block_spanned(line: &str, line_start: usize) -> Option<PacketBlockSpanned> {
     let stripped = strip_inline_comment(line);
     let trimmed = stripped.trim_start();
+
     if trimmed.is_empty() {
         return None;
     }
+
     let leading = stripped.len() - trimmed.len();
     let base = line_start + leading;
     let bytes = trimmed.as_bytes();
@@ -674,44 +726,68 @@ fn parse_packet_block_spanned(line: &str, line_start: usize) -> Option<PacketBlo
 
     let (start, end, bits, numeric_span) = if bytes.first() == Some(&b'+') {
         idx = 1;
+
         while idx < bytes.len() && matches!(bytes[idx], b' ' | b'\t') {
             idx += 1;
         }
+
         let digits_start = idx;
+
         while match <[_]>::get(&*bytes, idx) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_digit(), ::core::option::Option::None => false } {
             idx += 1;
         }
-        if idx == digits_start {
-            return None;
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(idx), &::core::convert::identity(digits_start)); _explicit_ordering } {
+            ::core::cmp::Ordering::Equal => {
+                return None;
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Greater => {},
         }
+
         let bits = parse_packet_integer(&trimmed[digits_start..idx])?;
         let bits_span = SourceSpan::new(base + digits_start, base + idx);
         (None, None, Some(bits), bits_span)
     } else {
         let digits_start = idx;
+
         while match <[_]>::get(&*bytes, idx) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_digit(), ::core::option::Option::None => false } {
             idx += 1;
         }
-        if idx == digits_start {
-            return None;
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(idx), &::core::convert::identity(digits_start)); _explicit_ordering } {
+            ::core::cmp::Ordering::Equal => {
+                return None;
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Greater => {},
         }
+
         let start = parse_packet_integer(&trimmed[digits_start..idx])?;
         let start_span = SourceSpan::new(base + digits_start, base + idx);
+
         while idx < bytes.len() && matches!(bytes[idx], b' ' | b'\t') {
             idx += 1;
         }
+
         if match <[_]>::get(&*bytes, idx) { ::core::option::Option::Some(&checked_element) => checked_element == b'-', ::core::option::Option::None => false } {
             idx += 1;
+
             while idx < bytes.len() && matches!(bytes[idx], b' ' | b'\t') {
                 idx += 1;
             }
+
             let end_digits_start = idx;
+
             while match <[_]>::get(&*bytes, idx) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_digit(), ::core::option::Option::None => false } {
                 idx += 1;
             }
-            if idx == end_digits_start {
-                return None;
+
+            match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(idx), &::core::convert::identity(end_digits_start)); _explicit_ordering } {
+                ::core::cmp::Ordering::Equal => {
+                    return None;
+                },
+                ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Greater => {},
             }
+
             let end = parse_packet_integer(&trimmed[end_digits_start..idx])?;
             (
                 Some(start),
@@ -728,9 +804,11 @@ fn parse_packet_block_spanned(line: &str, line_start: usize) -> Option<PacketBlo
     let rest_trimmed = rest.trim_start();
     let ws1 = rest.len() - rest_trimmed.len();
     rest = rest_trimmed;
+
     if !rest.starts_with(':') {
         return None;
     }
+
     let after_colon_base = base + idx + ws1 + 1;
     rest = &rest[1..];
     let rest_trimmed = rest.trim_start();
@@ -738,6 +816,7 @@ fn parse_packet_block_spanned(line: &str, line_start: usize) -> Option<PacketBlo
     rest = rest_trimmed;
     let label_base = after_colon_base + ws2;
     let (_label, decoded_label, tail) = parse_quoted_string_spanned(rest, label_base)?;
+
     if !tail.trim().is_empty() {
         return None;
     }
@@ -755,13 +834,16 @@ fn parse_packet_block_spanned(line: &str, line_start: usize) -> Option<PacketBlo
     })
 }
 
+#[must_use]
 fn parse_packet_integer(token: &str) -> Option<i64> {
     if token.len() > 1 && token.starts_with('0') {
         return None;
     }
-    token.parse().ok()
+
+    match token.parse() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }
 }
 
+#[must_use]
 fn parse_quoted_string_spanned(
     input: &str,
     base_offset: usize,
@@ -780,20 +862,24 @@ fn parse_quoted_string_spanned(
     ))
 }
 
+#[must_use]
 fn packet_header_token_len(line: &str) -> Option<usize> {
     if let Some(rest) = line.strip_prefix("packet-beta")
         && keyword_boundary(rest)
     {
         return Some("packet-beta".len());
     }
+
     if let Some(rest) = line.strip_prefix("packet")
         && keyword_boundary(rest)
     {
         return Some("packet".len());
     }
+
     None
 }
 
+#[must_use]
 fn keyword_boundary(rest: &str) -> bool {
     rest.is_empty()
         || rest.starts_with("%%")
@@ -811,34 +897,41 @@ fn packet_body_start_controlled(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<Result<Option<PacketBodyStart>>> {
     let mut offset = 0usize;
+
     while offset < code.len() {
         control.checkpoint()?;
         let (line, next_offset) = physical_line(code, offset);
         let visible = strip_inline_comment(line);
         let trimmed = visible.trim_start();
+
         if trimmed.trim().is_empty() {
             offset = next_offset;
             continue;
         }
 
         let leading = visible.len() - trimmed.len();
+
         let Some(header_len) = packet_header_token_len(trimmed) else {
             return Ok(Err(Error::diagram_parse_fallback(
                 "packet".to_string(),
                 "expected packet".to_string(),
             )));
         };
+
         let body_start = offset + leading + header_len;
         return Ok(Ok(Some(PacketBodyStart {
             offset: body_start,
             header_line_end: next_offset,
         })));
     }
+
     Ok(Ok(None))
 }
 
+#[must_use]
 fn physical_line(source: &str, offset: usize) -> (&str, usize) {
     let rest = &source[offset..];
+
     if let Some(newline) = rest.find('\n') {
         let line = rest[..newline]
             .strip_suffix('\r')
@@ -849,17 +942,20 @@ fn physical_line(source: &str, offset: usize) -> (&str, usize) {
     }
 }
 
+#[must_use]
 fn config_i64(config: &MermaidConfig, dotted_path: &str) -> Option<i64> {
     let mut cur = config.as_value();
+
     for segment in dotted_path.split('.') {
         let checked_value = cur.as_object()?;
         let checked_value_2 = checked_value.get(segment)?;
         cur = checked_value_2;
     }
+
     match cur {
         Value::Number(n) => n
             .as_i64()
-            .or_else(|| n.as_u64().and_then(|v| i64::try_from(v).ok())),
+            .or_else(|| n.as_u64().and_then(|v| match i64::try_from(v) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None })),
         _ => None,
     }
 }
@@ -1585,7 +1681,7 @@ mod output_data_tests {
         assert_eq!(empty_output, PacketOutputData::Empty);
         assert_eq!(header_output, PacketOutputData::Model);
         assert_eq!(PacketOutputData::default(), PacketOutputData::Model);
-        // Identical canonical values must not erase the source producer's distinct output shape.
+
         assert_eq!(
             serde_json::to_value(&empty).unwrap(),
             serde_json::to_value(&header).unwrap()

@@ -42,6 +42,7 @@ impl FlowchartTextPaintChannel {
         }
     }
 
+    #[must_use]
     fn target(self) -> ThemeTarget {
         match self {
             Self::Node => ThemeTarget::NodeLabel,
@@ -62,6 +63,7 @@ pub(crate) struct FlowchartTextPaintFacts {
 }
 
 impl FlowchartTextPaintFacts {
+    #[must_use]
     pub(crate) fn from_visible(facts: &VisibleTextStyleFacts) -> Self {
         Self {
             visible: facts.has_visible_runs() || !facts.parse_valid(),
@@ -71,6 +73,7 @@ impl FlowchartTextPaintFacts {
         }
     }
 
+    #[must_use]
     pub(crate) fn unknown() -> Self {
         Self {
             visible: true,
@@ -114,8 +117,8 @@ impl FlowchartTextPaintPlan {
         node_config_owned: bool,
         work: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let theme = theme.filter(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let theme_3 = theme.filter(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 matches!(
                     route.mechanism(),
                     FamilyThemeMechanism::RuleFacet {
@@ -131,65 +134,73 @@ impl FlowchartTextPaintPlan {
             })
         });
         let mut channels = Vec::new();
-        if let Some(theme) = theme {
-            work.charge(theme.family_mechanism_routes().len())?;
-            for channel in [
-                FlowchartTextPaintChannel::Node,
-                FlowchartTextPaintChannel::Edge,
-                FlowchartTextPaintChannel::Cluster,
-                FlowchartTextPaintChannel::DiagramTitle,
-            ] {
-                let target = if matches!(channel, FlowchartTextPaintChannel::DiagramTitle)
-                    && theme.family_id() == crate::DiagramFamilyId::AGENTFLOW
-                {
-                    ThemeTarget::Title
-                } else {
-                    channel.target()
-                };
-                let style = channel.resolve_style(theme, None, work)?;
-                let fill = resolve_direct_static_fill(
-                    theme,
-                    &style,
-                    &[ThemeTarget::Text],
-                    DirectStaticSelectorDomain::Default,
-                );
-                let config_owned = match channel {
-                    FlowchartTextPaintChannel::Node | FlowchartTextPaintChannel::Edge => {
-                        node_config_owned
-                    }
-                    FlowchartTextPaintChannel::Cluster => {
-                        config.config_paint_overrides_typed_default("themeVariables.titleColor")
-                    }
-                    FlowchartTextPaintChannel::DiagramTitle => {
-                        config.config_paint_overrides_typed_default("themeVariables.textColor")
-                    }
-                };
-                work.charge(theme.family_mechanism_routes().len())?;
-                channels.push(ChannelPaint {
-                    style,
-                    fill,
-                    config_owned,
-                    ordinal_rules: theme.family_rules().any(|(_, rule)| {
-                        (rule.target() == ThemeTarget::Text
-                            || rule.target() == target
-                            || (matches!(channel, FlowchartTextPaintChannel::Cluster)
-                                && rule.target() == ThemeTarget::ClusterLabel))
-                            && rule.ordinal().is_some()
-                    }),
-                });
-            }
+
+        match theme_3 {
+            Some(theme_4) => {
+                work.charge(theme_4.family_mechanism_routes().len())?;
+
+                for channel in [
+                    FlowchartTextPaintChannel::Node,
+                    FlowchartTextPaintChannel::Edge,
+                    FlowchartTextPaintChannel::Cluster,
+                    FlowchartTextPaintChannel::DiagramTitle,
+                ] {
+                    let target = if matches!(channel, FlowchartTextPaintChannel::DiagramTitle)
+                        && theme_4.family_id() == crate::DiagramFamilyId::AGENTFLOW
+                    {
+                        ThemeTarget::Title
+                    } else {
+                        channel.target()
+                    };
+                    let style = channel.resolve_style(theme_4, None, work)?;
+                    let fill = resolve_direct_static_fill(
+                        theme_4,
+                        &style,
+                        &[ThemeTarget::Text],
+                        DirectStaticSelectorDomain::Default,
+                    );
+                    let config_owned = match channel {
+                        FlowchartTextPaintChannel::Node | FlowchartTextPaintChannel::Edge => {
+                            node_config_owned
+                        }
+                        FlowchartTextPaintChannel::Cluster => {
+                            config.config_paint_overrides_typed_default("themeVariables.titleColor")
+                        }
+                        FlowchartTextPaintChannel::DiagramTitle => {
+                            config.config_paint_overrides_typed_default("themeVariables.textColor")
+                        }
+                    };
+                    work.charge(theme_4.family_mechanism_routes().len())?;
+                    channels.push(ChannelPaint {
+                        style,
+                        fill,
+                        config_owned,
+                        ordinal_rules: theme_4.family_rules().any(|(_, rule)| {
+                            (rule.target() == ThemeTarget::Text
+                                || rule.target() == target
+                                || (matches!(channel, FlowchartTextPaintChannel::Cluster)
+                                    && rule.target() == ThemeTarget::ClusterLabel))
+                                && rule.ordinal().is_some()
+                        }),
+                    });
+                }
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(Self {
-            theme: theme.cloned(),
+            theme: theme_3.cloned(),
             channels,
             terminal: Mutex::new(TextPaintReceipt::default()),
         })
     }
 
+    #[must_use]
     pub(crate) fn requested(&self) -> bool {
         self.theme.is_some()
     }
 
+    #[must_use]
     pub(crate) fn color<'a>(
         &'a self,
         channel: FlowchartTextPaintChannel,
@@ -216,13 +227,17 @@ impl FlowchartTextPaintPlan {
         source: super::FlowchartSourceFacetStatus,
         work: &OperationWorkMeter,
     ) -> Result<(), OperationWorkError> {
-        let Some(theme) = &self.theme else {
-            return Ok(());
+        let theme = match &self.theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(()),
         };
+
         work.charge(facts.work)?;
+
         if !facts.visible {
             return Ok(());
         }
+
         let mut terminal = self
             .terminal
             .lock()
@@ -232,7 +247,7 @@ impl FlowchartTextPaintPlan {
         let ordinal = terminal.ordinals[channel as usize];
         let ordinal_style;
         let style = if paint.ordinal_rules {
-            ordinal_style = channel.resolve_style(theme, Some(ordinal), work)?;
+            ordinal_style = { let checked_value = channel.resolve_style(theme, Some(ordinal), work)?; checked_value };
             &ordinal_style
         } else {
             &paint.style
@@ -241,18 +256,23 @@ impl FlowchartTextPaintPlan {
             paint.config_owned || source == super::FlowchartSourceFacetStatus::Admitted;
         let unknown = facts.unknown || source == super::FlowchartSourceFacetStatus::Unverified;
         let fill_applies = !source_owned && (facts.inherited || unknown);
+
         for (property, origin) in style.winner_rule_properties() {
             work.charge(1)?;
+
             if origin.target() != ThemeTarget::Text
                 || (property == ResolvedStyleProperty::Fill && !fill_applies)
             {
                 continue;
             }
+
             terminal.winners.insert((origin.rule_index(), property));
+
             if property == ResolvedStyleProperty::Fill {
                 if unknown {
                     terminal.unknown.insert(origin.rule_index());
                 }
+
                 if facts.inherited
                     && !unknown
                     && paint
@@ -264,6 +284,7 @@ impl FlowchartTextPaintPlan {
                 }
             }
         }
+
         terminal.palette_applies |= fill_applies
             && matches!(style.fill_resolution().specified(), Specified::Unspecified)
             && theme.series_color(ThemeTarget::Text, ordinal).is_some()
@@ -276,27 +297,34 @@ impl FlowchartTextPaintPlan {
         } else {
             theme.resolve_effect(channel.target(), style.effect_resolution())
         };
+
         if let Some(ResolvedThemeEffect::Binding { binding, .. }) = effect
             && (!matches!(channel, FlowchartTextPaintChannel::Cluster)
                 || binding.target() != ThemeTarget::ClusterLabel)
         {
             terminal.bindings.insert(binding.effect_id().to_owned());
         }
+
         Ok(())
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
-        let Some(theme) = &self.theme else {
-            return;
+        let theme = match &self.theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return,
         };
+
         let terminal = self
             .terminal
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         if !terminal.css_emitted {
             return;
         }
+
         let mut observations = BTreeMap::<usize, (bool, Option<FamilyThemeResidualReason>)>::new();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
@@ -306,12 +334,14 @@ impl FlowchartTextPaintPlan {
                     ..
                 } => {
                     let observation = observations.entry(rule_index).or_default();
+
                     if !terminal
                         .winners
                         .contains(&(rule_index, resolved_style_property_for_facet(facet)))
                     {
                         continue;
                     }
+
                     if route.disposition() == FamilyThemeDisposition::TypedAdapter
                         && matches!(facet, FamilyThemeRuleFacet::Fill(_))
                         && terminal.consumed.contains(&rule_index)
@@ -328,6 +358,7 @@ impl FlowchartTextPaintPlan {
                     target: ThemeTarget::Text,
                 } => {
                     let key = theme.family_mechanism_key(route);
+
                     if terminal.palette_applies {
                         evidence.mark_residual(
                             key,
@@ -342,6 +373,7 @@ impl FlowchartTextPaintPlan {
                     ..
                 } => {
                     let key = theme.family_mechanism_key(route);
+
                     if matches!(&key, FamilyThemeMechanismKey::EffectBinding { effect_id, .. } if terminal.bindings.contains(effect_id))
                     {
                         evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedEffect);
@@ -352,11 +384,13 @@ impl FlowchartTextPaintPlan {
                 _ => {}
             }
         }
+
         for (index, (applied, residual)) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: ThemeTarget::Text,
             };
+
             if let Some(reason) = residual {
                 evidence.mark_residual(key, reason);
             } else if applied {
@@ -555,7 +589,7 @@ mod tests {
         for _ in 0..3 {
             let before = meter.used();
             record(&plan, FlowchartTextPaintChannel::Cluster, "cluster", &meter);
-            // One visible run, the receipt, and one winning property need work per label.
+
             assert_eq!(meter.used() - before, 3);
         }
         assert!(collected_evidence(&plan).applied().is_empty());

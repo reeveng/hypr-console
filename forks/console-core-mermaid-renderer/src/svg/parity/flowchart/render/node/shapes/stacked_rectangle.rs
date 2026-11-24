@@ -22,7 +22,7 @@ fn write_stacked_rectangle_path_group(
             escape_attr(common.fill_color),
             escape_attr(stroke_d),
             escape_attr(common.stroke_color),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.stroke_dasharray),
         );
         return;
@@ -35,7 +35,7 @@ fn write_stacked_rectangle_path_group(
         escape_attr(stroke_d),
         escape_attr(common.fill_color),
         escape_attr(common.stroke_color),
-        fmt_display(common.stroke_width as f64),
+        fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         OptionalStyleAttr(common.style),
     );
 }
@@ -47,6 +47,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_rectangle(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (outer_path, inner_path) = prepare_stacked_rectangle_geometry(common, label);
+
     if common.look_is_hand_drawn() {
         let _ = write!(
             out,
@@ -56,6 +57,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_rectangle(
     } else {
         out.push_str(r#"<g class="basic label-container outer-path">"#);
     }
+
     for path_data in [&outer_path, &inner_path] {
         let hand_drawn = common.look_is_hand_drawn();
         let paths = if hand_drawn {
@@ -78,6 +80,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_rectangle(
             write_stacked_rectangle_path_group(out, common, path_data, path_data, false);
         }
     }
+
     out.push_str("</g>");
 }
 
@@ -133,6 +136,7 @@ pub(super) fn advance_stacked_rectangle_rough_geometry(
 ) {
     let (outer_path, inner_path) = prepare_stacked_rectangle_geometry(common, label);
     let target = super::super::roughjs::RoughGeometryTarget::Query;
+
     for path in [&outer_path, &inner_path] {
         let _ = super::super::helpers::prepare_node_path(common, path, target);
     }

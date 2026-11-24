@@ -1,0 +1,5 @@
+#%PAM-1.0
+# Login checks the account when opening the desktop session. Unlock already
+# has a session. This service verifies the enrolled fingerprint.
+auth       required     pam_fprintd.so max-tries=3 timeout=15
+account    required     pam_permit.so

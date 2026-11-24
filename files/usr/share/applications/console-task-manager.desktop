@@ -1,8 +1,8 @@
 [Desktop Entry]
 Type=Application
-Name=Task Manager
+Name=Console Task Manager
 Comment=Find, switch to, or close an open window
-Exec=/usr/local/bin/console-task-manager
+Exec=/usr/local/bin/console-application-task-manager
 Icon=utilities-system-monitor
 Terminal=false
 Categories=System;Monitor;

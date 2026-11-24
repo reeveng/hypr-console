@@ -19,6 +19,7 @@ pub(crate) struct ThemeRuleOrigin {
 }
 
 impl ThemeRuleOrigin {
+    #[must_use]
     pub(super) fn new(rule_index: usize, rule: &ThemeRule) -> Self {
         Self {
             rule_index,
@@ -28,24 +29,29 @@ impl ThemeRuleOrigin {
         }
     }
 
+    #[must_use]
     pub(crate) const fn rule_index(self) -> usize {
         self.rule_index
     }
 
+    #[must_use]
     pub(crate) const fn target(self) -> ThemeTarget {
         self.target
     }
 
+    #[must_use]
     pub(crate) const fn variant(self) -> Option<ThemeVariant> {
         self.variant
     }
 
+    #[must_use]
     pub(crate) const fn ordinal(self) -> Option<OrdinalSelector> {
         self.ordinal
     }
 
+    #[must_use]
     fn supersedes(self, current: Option<Self>) -> bool {
-        current.is_none_or(|current| self.rule_index >= current.rule_index)
+        current.is_none_or(|current_2| self.rule_index >= current_2.rule_index)
     }
 }
 
@@ -78,6 +84,7 @@ impl<T> ResolvedProperty<T> {
         if specified.is_unspecified() || !origin.supersedes(self.winner) {
             return;
         }
+
         self.specified = specified.clone();
         self.winner = Some(origin);
     }
@@ -86,8 +93,11 @@ impl<T> ResolvedProperty<T> {
     where
         T: Clone,
     {
-        if let Some(origin) = other.winner {
-            self.apply(&other.specified, origin);
+        match other.winner {
+            Some(origin) => {
+                self.apply(&other.specified, origin);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -97,14 +107,17 @@ impl<T> ResolvedProperty<T> {
         }
     }
 
+    #[must_use]
     pub const fn specified(&self) -> &Specified<T> {
         &self.specified
     }
 
+    #[must_use]
     pub(crate) const fn winner(&self) -> Option<ThemeRuleOrigin> {
         self.winner
     }
 
+    #[must_use]
     pub const fn value(&self) -> Option<&T> {
         match &self.specified {
             Specified::Value(value) => Some(value),
@@ -146,6 +159,7 @@ impl ThemeTypographyProperty {
         Self::Wrap,
     ];
 
+    #[must_use]
     pub(crate) const fn id(self) -> &'static str {
         match self {
             Self::FontStack => "font-stack",
@@ -196,6 +210,7 @@ impl PartialEq for ResolvedTypography {
 }
 
 impl ResolvedTypography {
+    #[must_use]
     pub(super) fn new(base: TextStyle) -> Self {
         Self {
             computed: base.clone(),
@@ -291,6 +306,7 @@ impl ResolvedTypography {
             origin,
             &mut self.winners,
         );
+
         if changed {
             self.computed = self.base.clone();
             self.patch.apply_to(&mut self.computed, &self.base);
@@ -383,24 +399,29 @@ impl ResolvedTypography {
             &mut self.patch.wrap,
             &mut self.winners,
         );
+
         if changed {
             self.computed = self.base.clone();
             self.patch.apply_to(&mut self.computed, &self.base);
         }
     }
 
+    #[must_use]
     pub const fn base(&self) -> &TextStyle {
         &self.base
     }
 
+    #[must_use]
     pub const fn computed(&self) -> &TextStyle {
         &self.computed
     }
 
+    #[must_use]
     pub const fn patch(&self) -> &TextStylePatch {
         &self.patch
     }
 
+    #[must_use]
     pub(crate) fn winner(&self, property: ThemeTypographyProperty) -> Option<ThemeRuleOrigin> {
         self.winners.get(&property).copied()
     }
@@ -416,6 +437,7 @@ fn apply_typography_property<T: Clone>(
     if incoming.is_unspecified() || !origin.supersedes(winners.get(&property).copied()) {
         return false;
     }
+
     *resolved = incoming.clone();
     winners.insert(property, origin);
     true
@@ -453,6 +475,7 @@ pub struct ResolvedThemeStyle {
 }
 
 impl ResolvedThemeStyle {
+    #[must_use]
     pub(super) fn new(typography: TextStyle) -> Self {
         Self {
             fill: ResolvedProperty::default(),
@@ -525,10 +548,12 @@ impl ResolvedThemeStyle {
         self.typography.merge_from(&other.typography);
     }
 
+    #[must_use]
     pub const fn fill(&self) -> Option<&CanvasPaint> {
         self.fill.value()
     }
 
+    #[must_use]
     pub(crate) fn winner_rule_properties(
         &self,
     ) -> impl Iterator<Item = (ResolvedStyleProperty, ThemeRuleOrigin)> + '_ {
@@ -565,7 +590,7 @@ impl ResolvedThemeStyle {
             (ResolvedStyleProperty::Effect, self.effect.winner()),
         ]
         .into_iter()
-        .filter_map(|(property, origin)| origin.map(|origin| (property, origin)))
+        .filter_map(|(property, origin)| origin.map(|origin_2| (property, origin_2)))
         .chain(
             [
                 ThemeTypographyProperty::FontStack,
@@ -590,10 +615,12 @@ impl ResolvedThemeStyle {
         )
     }
 
+    #[must_use]
     pub const fn stroke(&self) -> Option<&CanvasPaint> {
         self.stroke.value()
     }
 
+    #[must_use]
     pub const fn stroke_width(&self) -> Option<f32> {
         match self.stroke_width.value() {
             Some(value) => Some(*value),
@@ -601,10 +628,12 @@ impl ResolvedThemeStyle {
         }
     }
 
+    #[must_use]
     pub fn stroke_dasharray(&self) -> Option<&[f32]> {
         self.stroke_dasharray.value().map(Vec::as_slice)
     }
 
+    #[must_use]
     pub const fn stroke_linecap(&self) -> Option<StrokeLineCap> {
         match self.stroke_linecap.value() {
             Some(value) => Some(*value),
@@ -612,6 +641,7 @@ impl ResolvedThemeStyle {
         }
     }
 
+    #[must_use]
     pub const fn stroke_linejoin(&self) -> Option<StrokeLineJoin> {
         match self.stroke_linejoin.value() {
             Some(value) => Some(*value),
@@ -619,6 +649,7 @@ impl ResolvedThemeStyle {
         }
     }
 
+    #[must_use]
     pub const fn opacity(&self) -> Option<f32> {
         match self.opacity.value() {
             Some(value) => Some(*value),
@@ -626,6 +657,7 @@ impl ResolvedThemeStyle {
         }
     }
 
+    #[must_use]
     pub const fn fill_opacity(&self) -> Option<f32> {
         match self.fill_opacity.value() {
             Some(value) => Some(*value),
@@ -633,6 +665,7 @@ impl ResolvedThemeStyle {
         }
     }
 
+    #[must_use]
     pub const fn stroke_opacity(&self) -> Option<f32> {
         match self.stroke_opacity.value() {
             Some(value) => Some(*value),
@@ -640,6 +673,7 @@ impl ResolvedThemeStyle {
         }
     }
 
+    #[must_use]
     pub const fn radius(&self) -> Option<f32> {
         match self.radius.value() {
             Some(value) => Some(*value),
@@ -647,6 +681,7 @@ impl ResolvedThemeStyle {
         }
     }
 
+    #[must_use]
     pub const fn padding(&self) -> Option<InsetsPx> {
         match self.padding.value() {
             Some(value) => Some(*value),
@@ -654,58 +689,72 @@ impl ResolvedThemeStyle {
         }
     }
 
+    #[must_use]
     pub const fn typography(&self) -> &TextStyle {
         self.typography.computed()
     }
 
+    #[must_use]
     pub const fn fill_resolution(&self) -> &ResolvedProperty<CanvasPaint> {
         &self.fill
     }
 
+    #[must_use]
     pub const fn stroke_resolution(&self) -> &ResolvedProperty<CanvasPaint> {
         &self.stroke
     }
 
+    #[must_use]
     pub const fn stroke_width_resolution(&self) -> &ResolvedProperty<f32> {
         &self.stroke_width
     }
 
+    #[must_use]
     pub const fn stroke_dasharray_resolution(&self) -> &ResolvedProperty<Vec<f32>> {
         &self.stroke_dasharray
     }
 
+    #[must_use]
     pub const fn stroke_linecap_resolution(&self) -> &ResolvedProperty<StrokeLineCap> {
         &self.stroke_linecap
     }
 
+    #[must_use]
     pub const fn stroke_linejoin_resolution(&self) -> &ResolvedProperty<StrokeLineJoin> {
         &self.stroke_linejoin
     }
 
+    #[must_use]
     pub const fn opacity_resolution(&self) -> &ResolvedProperty<f32> {
         &self.opacity
     }
 
+    #[must_use]
     pub const fn fill_opacity_resolution(&self) -> &ResolvedProperty<f32> {
         &self.fill_opacity
     }
 
+    #[must_use]
     pub const fn stroke_opacity_resolution(&self) -> &ResolvedProperty<f32> {
         &self.stroke_opacity
     }
 
+    #[must_use]
     pub const fn radius_resolution(&self) -> &ResolvedProperty<f32> {
         &self.radius
     }
 
+    #[must_use]
     pub const fn padding_resolution(&self) -> &ResolvedProperty<InsetsPx> {
         &self.padding
     }
 
+    #[must_use]
     pub const fn typography_resolution(&self) -> &ResolvedTypography {
         &self.typography
     }
 
+    #[must_use]
     pub const fn effect_resolution(&self) -> &ResolvedProperty<String> {
         &self.effect
     }
@@ -732,6 +781,7 @@ pub(crate) enum ResolvedThemeEffect<'a> {
 }
 
 impl ResolvedDiagramTheme {
+    #[must_use]
     pub(crate) fn new(theme: super::DiagramTheme, family: DiagramFamilyId) -> Self {
         let program = theme.family_program(family);
         Self {
@@ -741,14 +791,17 @@ impl ResolvedDiagramTheme {
         }
     }
 
+    #[must_use]
     pub const fn family_id(&self) -> DiagramFamilyId {
         self.family
     }
 
+    #[must_use]
     pub(crate) fn family_program_owner(&self) -> Arc<FamilyThemeProgram> {
         Arc::clone(&self.program)
     }
 
+    #[must_use]
     pub fn typography(&self) -> &TextStyle {
         self.program.base_typography()
     }
@@ -758,6 +811,7 @@ impl ResolvedDiagramTheme {
         self.program.has_family_style_requirements()
     }
 
+    #[must_use]
     pub(crate) fn effect_bindings(
         &self,
     ) -> impl ExactSizeIterator<Item = &super::effects::EffectBinding> + '_ {
@@ -767,6 +821,7 @@ impl ResolvedDiagramTheme {
             .map(|index| &self.theme.spec().effects().bindings()[*index])
     }
 
+    #[must_use]
     pub(crate) fn resolve_effect<'a>(
         &'a self,
         target: ThemeTarget,
@@ -787,10 +842,12 @@ impl ResolvedDiagramTheme {
         }
     }
 
+    #[must_use]
     pub(crate) fn effect_graph(&self, effect_id: &str) -> Option<&super::effects::EffectGraph> {
         self.theme.spec().effects().graph(effect_id)
     }
 
+    #[must_use]
     pub(crate) fn family_rules(&self) -> impl Iterator<Item = (usize, &ThemeRule)> + '_ {
         self.program
             .rule_indices()
@@ -799,10 +856,12 @@ impl ResolvedDiagramTheme {
             .map(|index| (index, &self.theme.spec().styles().rules()[index]))
     }
 
+    #[must_use]
     pub(crate) fn family_ordinal_palette_targets(&self) -> impl Iterator<Item = ThemeTarget> + '_ {
         self.program.ordinal_palette_targets()
     }
 
+    #[must_use]
     pub(crate) fn ordinal_palette_disposition(
         &self,
         target: ThemeTarget,
@@ -810,6 +869,7 @@ impl ResolvedDiagramTheme {
         self.program.ordinal_palette_disposition(target)
     }
 
+    #[must_use]
     pub(crate) fn family_mechanism_key(
         &self,
         route: super::family_mechanism_matrix::FamilyThemeRoute,
@@ -817,16 +877,19 @@ impl ResolvedDiagramTheme {
         self.program.mechanism_key(route)
     }
 
+    #[must_use]
     pub(crate) fn family_mechanism_routes(
         &self,
     ) -> &[super::family_mechanism_matrix::FamilyThemeRoute] {
         self.program.mechanism_routes()
     }
 
+    #[must_use]
     pub(crate) fn has_family_mechanism_routes(&self) -> bool {
         self.program.has_mechanism_routes()
     }
 
+    #[must_use]
     pub(crate) fn rule_facet_disposition(
         &self,
         rule_index: usize,
@@ -835,6 +898,7 @@ impl ResolvedDiagramTheme {
         self.program.rule_facet_disposition(rule_index, facet)
     }
 
+    #[must_use]
     pub fn style(
         &self,
         target: ThemeTarget,
@@ -894,6 +958,7 @@ impl ResolvedDiagramTheme {
         )
     }
 
+    #[must_use]
     pub fn series_color(
         &self,
         target: ThemeTarget,
@@ -992,7 +1057,7 @@ mod tests {
             .unwrap();
         let rule = ThemeRule::new(ThemeTarget::Text, ThemeStylePatch::default());
         let origin = |index| ThemeRuleOrigin::new(index, &rule);
-        // Each property must independently trigger both apply and merge recomputation.
+
         macro_rules! check_property {
             ($field:ident, $property:ident) => {{
                 let value = TextStylePatch {
@@ -1045,7 +1110,7 @@ mod tests {
             assert_eq!(resolved.winner(*property), Some(origin(10)));
         }
 
-        // Unspecified inputs and losing clears cannot invalidate any cached value or winner.
+
         resolved.apply(&clears, origin(9));
         resolved.apply(&TextStylePatch::default(), origin(100));
         let mut older = ResolvedTypography::new(base.clone());
@@ -1058,7 +1123,7 @@ mod tests {
             assert_eq!(resolved.winner(*property), Some(origin(10)));
         }
 
-        // Equal-index writes still supersede, and Clear restores the family's base value.
+
         resolved.apply(&clears, origin(10));
         assert_eq!(resolved.computed(), &base);
         assert_eq!(resolved.patch(), &clears);

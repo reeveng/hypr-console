@@ -2,9 +2,14 @@
 Type=Application
 Name=Console Browser
 GenericName=Web Browser
-Exec=/usr/local/bin/console-browser-window -- %u
-TryExec=/usr/local/bin/console-browser-window
+Exec=/usr/local/bin/console-application-browser -- %u
+TryExec=/usr/local/bin/console-application-browser
 Icon=web-browser
 Terminal=false
 Categories=Network;WebBrowser;
 MimeType=text/html;application/xhtml+xml;x-scheme-handler/http;x-scheme-handler/https;
+Actions=new-private-window;
+
+[Desktop Action new-private-window]
+Name=Open a New Private Window
+Exec=/usr/local/bin/console-application-browser

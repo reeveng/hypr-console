@@ -530,7 +530,7 @@ impl Grid {
 
   fn finder(&mut self, corner: Point<u32>) -> Result<(), Never> {
     for down in -1_i32..=7 {
-      for across in -1_i32..=7 {
+      'columns: for across in -1_i32..=7 {
         let far = across.abs_diff(3).max(down.abs_diff(3));
         let module = match far {
           2 | 4 => Module::Light,
@@ -539,16 +539,19 @@ impl Grid {
         let x = i64::from(corner.x).saturating_add(i64::from(across));
         let y = i64::from(corner.y).saturating_add(i64::from(down));
 
-        match (u32::try_from(x), u32::try_from(y)) {
-          (Ok(x_2), Ok(y_2)) => {
-            match ::core::primitive::bool::then_some(x_2 < self.side && y_2 < self.side, ()) {
-              ::core::option::Option::Some(()) => {
-                let Ok(()) = self.fix(Point { x: x_2, y: y_2 }, module);
-              }
-              ::core::option::Option::None => {}
-            }
+        let position = match (u32::try_from(x), u32::try_from(y)) {
+          (Ok(grid_x), Ok(grid_y)) => Point {
+            x: grid_x,
+            y: grid_y,
+          },
+          (Err(_off_the_grid), _) | (_, Err(_off_the_grid)) => continue 'columns,
+        };
+
+        match (position.x < self.side && position.y < self.side).then_some(()) {
+          Some(()) => {
+            let Ok(()) = self.fix(position, module);
           }
-          (Err(_off_the_grid), _) | (_, Err(_off_the_grid)) => {}
+          None => {}
         }
       }
     }

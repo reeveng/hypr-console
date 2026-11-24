@@ -208,7 +208,9 @@ impl Decoder {
       }
       Some(_) | None => return invalid("hvcC too short"),
     };
-    ensure!(version == 1, "unsupported hvcC version {version}");
+    ensure(version == 1, || {
+      format!("unsupported hvcC version {version}")
+    })?;
     self.nal_length_size = Some((length_field & 3).wrapping_add(1));
 
     for _ in 0..count {
@@ -456,10 +458,10 @@ impl Decoder {
     match (first, &self.pending) {
       (true, _) => self.start_picture(&header, &sps, &pps, pts)?,
       (false, Some(pending)) => {
-        ensure!(
+        ensure(
           ParameterSnapshot::ptr_eq(&pending.job.pps, &pps),
-          "PPS changed within a picture"
-        );
+          || "PPS changed within a picture",
+        )?;
       }
       (false, None) => return invalid("slice segment without the first slice of its picture"),
     }
@@ -495,10 +497,10 @@ impl Decoder {
     pps: &ParameterSnapshot<Pps>,
     pts: i64,
   ) -> Result<()> {
-    ensure!(
+    ensure(
       sh.first_slice_segment_in_pic && !sh.dependent,
-      "invalid first slice segment"
-    );
+      || "invalid first slice segment",
+    )?;
 
     let format = Format::from(sps.as_ref());
     let Ok((poc, rps)) = self.picture_references(sh, sps, format);

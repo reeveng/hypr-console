@@ -9,20 +9,22 @@ pub(super) struct SequenceKatexLabel<'a> {
     style_assurance: &'a crate::math::PreparedMathStyleAssurance,
 }
 
+#[must_use]
 pub(super) fn sequence_katex_label<'a>(
     prepared: Option<&'a crate::math::PreparedMathLabel>,
     style: &TextStyle,
     height_mode: SequenceMathHeightMode,
 ) -> Option<SequenceKatexLabel<'a>> {
-    let prepared = prepared?;
+    let prepared_2 = prepared?;
+    let checked_value = prepared_sequence_math_terminal_geometry(Some(prepared_2), style, height_mode)?;
     let (width, height) =
-        prepared_sequence_math_terminal_geometry(Some(prepared), style, height_mode)?
+        checked_value
             .browser_box_size();
     Some(SequenceKatexLabel {
-        html: prepared.browser_xhtml(),
+        html: prepared_2.browser_xhtml(),
         width,
         height,
-        style_assurance: prepared.style_assurance(),
+        style_assurance: prepared_2.style_assurance(),
     })
 }
 

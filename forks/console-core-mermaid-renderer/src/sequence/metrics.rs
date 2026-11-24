@@ -17,8 +17,8 @@ struct SequenceWrapTextMeasurer<'a> {
 
 impl TextMeasurer for SequenceWrapTextMeasurer<'_> {
     fn measure(&self, text: &str, style: &TextStyle) -> TextMetrics {
-        // The fallible wrapping core checks the same operation immediately after this infallible
-        // trait call, so a swallowed cancellation is propagated before another probe begins.
+
+
         if self.checkpoints.checkpoint().is_err() {
             return TextMetrics {
                 width: 0.0,
@@ -26,6 +26,7 @@ impl TextMeasurer for SequenceWrapTextMeasurer<'_> {
                 line_count: 0,
             };
         }
+
         let metrics = self.measurer.measure(text, style);
         let _ = self.checkpoints.checkpoint();
         metrics
@@ -59,6 +60,7 @@ pub(crate) fn wrap_sequence_label_like_mermaid_lines(
 
 /// Accept the static family-list grammar using CSS tokens, including quoted semicolons and
 /// escaped identifiers. A declaration separator is never a family value passed to CSSOM.
+#[must_use]
 pub(crate) fn sequence_inline_font_family(style: &TextStyle) -> Option<String> {
     use cssparser::ToCss;
     let family = style.font_family.as_deref()?;
@@ -66,12 +68,14 @@ pub(crate) fn sequence_inline_font_family(style: &TextStyle) -> Option<String> {
     let mut has_name = false;
     let mut quoted = false;
     let mut css = String::new();
+
     while !parser.is_exhausted() {
         match parser.next() {
             Ok(token @ cssparser::Token::Ident(_)) if !quoted => {
                 if has_name {
                     css.push(' ');
                 }
+
                 css.push_str(&token.to_css_string());
                 has_name = true;
             }
@@ -81,14 +85,16 @@ pub(crate) fn sequence_inline_font_family(style: &TextStyle) -> Option<String> {
                 quoted = true;
             }
             Ok(cssparser::Token::BadString(value)) if !has_name => {
-                // cssparser reports an EOF-terminated quoted family as BadString. CSSOM closes
-                // this single-token value when assigning it, so preserve that narrow behavior
-                // without accepting malformed strings followed by more tokens.
-                let value = value.as_ref().to_owned();
+
+
+
+                let value_2 = value.as_ref().to_owned();
+
                 if !parser.is_exhausted() {
                     return None;
                 }
-                cssparser::serialize_string(&value, &mut css)
+
+                cssparser::serialize_string(&value_2, &mut css)
                     .expect("serializing a CSS string into String cannot fail");
                 has_name = true;
                 quoted = true;
@@ -98,19 +104,21 @@ pub(crate) fn sequence_inline_font_family(style: &TextStyle) -> Option<String> {
                 has_name = false;
                 quoted = false;
             }
-            _ => return None,
+            ::core::result::Result::Ok(_) | ::core::result::Result::Err(_) => return None,
         }
     }
+
     has_name.then_some(css)
 }
 
+#[must_use]
 pub(crate) fn sequence_drawn_text_style(
     style: &TextStyle,
     config: &PresentationConfig,
 ) -> TextStyle {
     let mut effective = style.clone();
-    // CSSOM rejects invalid assignments, while accepted tokens must be serialized before
-    // embedding them in a declaration list (an EOF-terminated string needs its closing quote).
+
+
     effective.font_family = Some(
         sequence_inline_font_family(style)
             .unwrap_or_else(|| crate::config::config_font_family_css(config.as_value())),
@@ -136,6 +144,7 @@ pub(super) fn measure_svg_like_with_html_br(
 /// Mermaid 12.1/12.2 restore placeholders after serializing `drawText`'s text nodes;
 /// the browser then decodes one entity layer. Encoded markup remains literal text,
 /// and nested references must not be decoded again by the XML writer.
+#[must_use]
 pub(crate) fn prepare_sequence_text_line(raw: &str) -> std::borrow::Cow<'_, str> {
     merman_model::text::decode_mermaid_entities_to_unicode(raw)
 }
@@ -155,10 +164,11 @@ pub(super) fn measure_drawn_svg_like_with_html_br(
     checkpoints: SequenceTextCheckpoints<'_>,
 ) -> Result<(f64, f64)> {
     let effective_style = sequence_drawn_text_style(terminal_style, config);
-    let terminal_style = &effective_style;
+    let terminal_style_2 = &effective_style;
     let lines = split_html_br_lines(text);
     let mut width = 0.0_f64;
     let mut height = 0.0_f64;
+
     for line in lines {
         let decoded = prepare_sequence_text_line(line);
         let measured_line = if decoded.is_empty() {
@@ -169,10 +179,10 @@ pub(super) fn measure_drawn_svg_like_with_html_br(
         checkpoints.checkpoint()?;
         let line_width = match node {
             SequenceDrawnTextNode::Direct => {
-                measurer.measure_svg_raw_text_bbox_width_px(measured_line, terminal_style)
+                measurer.measure_svg_raw_text_bbox_width_px(measured_line, terminal_style_2)
             }
             SequenceDrawnTextNode::Tspan => {
-                measurer.measure_svg_tspan_text_bbox_width_px(measured_line, terminal_style)
+                measurer.measure_svg_tspan_text_bbox_width_px(measured_line, terminal_style_2)
             }
         }
         .max(0.0);
@@ -199,14 +209,14 @@ pub(crate) fn measure_sequence_drawn_line_height(
     node: SequenceDrawnTextNode,
     checkpoints: SequenceTextCheckpoints<'_>,
 ) -> Result<f64> {
-    let text = if text.is_empty() { "\u{200b}" } else { text };
+    let text_2 = if text.is_empty() { "\u{200b}" } else { text };
     checkpoints.checkpoint()?;
     let height = match node {
         SequenceDrawnTextNode::Direct => {
-            measurer.measure_svg_raw_text_bbox_height_px(text, drawn_style)
+            measurer.measure_svg_raw_text_bbox_height_px(text_2, drawn_style)
         }
         SequenceDrawnTextNode::Tspan => {
-            measurer.measure_svg_tspan_text_bbox_height_px(text, drawn_style)
+            measurer.measure_svg_tspan_text_bbox_height_px(text_2, drawn_style)
         }
     };
     checkpoints.checkpoint()?;
@@ -214,13 +224,15 @@ pub(crate) fn measure_sequence_drawn_line_height(
 }
 
 /// The middle/center branch of svgDraw.drawText, before its per-row rounding.
+#[must_use]
 pub(crate) fn sequence_drawn_text_first_y(base_y: f64, margin: f64) -> f64 {
     base_y + if margin > 0.0 { margin / 2.0 } else { 0.0 }
 }
 
+#[must_use]
 pub(crate) fn sequence_drawn_text_y(first_y: f64, margin: f64, preceding_height: f64) -> f64 {
     if margin > 0.0 {
-        // Math.round chooses the upper integer at negative half ties, unlike f64::round.
+
         let y = first_y + preceding_height;
         let floor = y.floor();
         floor + if y - floor >= 0.5 { 1.0 } else { 0.0 }
@@ -247,10 +259,12 @@ pub(crate) struct SequenceMathTerminalGeometry {
 }
 
 impl SequenceMathTerminalGeometry {
+    #[must_use]
     pub(crate) const fn layout_size(self) -> (f64, f64) {
         (self.layout_width, self.layout_height)
     }
 
+    #[must_use]
     pub(crate) const fn browser_box_size(self) -> (f64, f64) {
         (self.browser_width, self.browser_height)
     }
@@ -267,17 +281,26 @@ fn sequence_math_chunks<'text>(
 ) -> Result<Vec<&'text str>> {
     let mut chunks = Vec::new();
     let mut search_from = 0usize;
+
     while let Some(start_rel) = text[search_from..].find("$$") {
         checkpoints.checkpoint()?;
         let start = search_from + start_rel;
         let content_start = start + 2;
-        let Some(end_rel) = text[content_start..].find("$$") else {
-            break;
+
+        let end_rel = {
+            let optional_end_rel = text[content_start..].find("$$");
+
+            match optional_end_rel {
+                Some(matched_end_rel) => matched_end_rel,
+                ::core::option::Option::None => break,
+            }
         };
+
         let end = content_start + end_rel + 2;
         chunks.push(&text[start..end]);
         search_from = end;
     }
+
     checkpoints.checkpoint()?;
     Ok(chunks)
 }
@@ -307,6 +330,7 @@ fn measure_sequence_mixed_math_line(
 
     for fragment in parsed.fragments {
         checkpoints.checkpoint()?;
+
         if !fragment.leading_text.is_empty() {
             let metrics = measure_plain_sequence_fragment(
                 measurer,
@@ -322,22 +346,29 @@ fn measure_sequence_mixed_math_line(
         let mut math_metrics =
             math_renderer.measure_sequence_html_label_with_style(fragment.delimited, config, style);
         checkpoints.checkpoint()?;
-        if math_metrics.is_none() {
-            checkpoints.checkpoint()?;
-            math_metrics = math_renderer.measure_html_label(
-                fragment.delimited,
-                config,
-                style,
-                Some(10_000.0),
-                WrapMode::HtmlLike,
-            );
-            checkpoints.checkpoint()?;
+
+        match math_metrics {
+            ::core::option::Option::None => {
+                checkpoints.checkpoint()?;
+                math_metrics = math_renderer.measure_html_label(
+                    fragment.delimited,
+                    config,
+                    style,
+                    Some(10_000.0),
+                    WrapMode::HtmlLike,
+                );
+                checkpoints.checkpoint()?;
+            },
+            ::core::option::Option::Some(_) => {},
         }
-        let Some(math_metrics) = math_metrics else {
-            return Ok(None);
+
+        let math_metrics_2 = match math_metrics {
+            Some(matched_math_metrics) => matched_math_metrics,
+            ::core::option::Option::None => return Ok(None),
         };
-        width += math_metrics.width.max(0.0);
-        height = height.max(math_metrics.height.max(0.0));
+
+        width += math_metrics_2.width.max(0.0);
+        height = height.max(math_metrics_2.height.max(0.0));
     }
 
     if !parsed.trailing_text.is_empty() {
@@ -369,6 +400,7 @@ fn measure_sequence_mixed_math_label(
         line_count += 1;
         let (line_width, line_height) = if let Some(parsed) = parse_delimited_math_line(line) {
             saw_math = true;
+
             let Some(metrics) = measure_sequence_mixed_math_line(
                 measurer,
                 parsed,
@@ -380,6 +412,7 @@ fn measure_sequence_mixed_math_label(
             else {
                 return Ok(None);
             };
+
             metrics
         } else {
             let (w, h) = measure_svg_like_with_html_br(measurer, line, style, checkpoints)?;
@@ -418,15 +451,21 @@ fn sequence_math_height_px(
                     .max(1.0)
             };
             let mut math_h = base;
+
             for chunk in sequence_math_chunks(text, checkpoints)? {
                 checkpoints.checkpoint()?;
                 let metrics =
                     math_renderer.measure_sequence_html_label_with_style(chunk, config, style);
                 checkpoints.checkpoint()?;
-                if let Some(metrics) = metrics {
-                    math_h = math_h.max(metrics.height.round() + 2.0);
+
+                match metrics {
+                    Some(metrics_2) => {
+                        math_h = math_h.max(metrics_2.height.round() + 2.0);
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
+
             math_h.round().max(1.0)
         }
     };
@@ -443,53 +482,70 @@ pub(crate) fn measure_sequence_math_label(
     checkpoints: SequenceTextCheckpoints<'_>,
 ) -> Result<Option<(f64, f64)>> {
     checkpoints.checkpoint()?;
+
     if !text.contains("$$") {
         return Ok(None);
     }
-    let Some(renderer) = math_renderer else {
-        return Ok(None);
+
+    let renderer = match math_renderer {
+        Some(matched_renderer) => matched_renderer,
+        ::core::option::Option::None => return Ok(None),
     };
+
     checkpoints.checkpoint()?;
     let mut full_metrics = renderer.measure_sequence_html_label_with_style(text, config, style);
     checkpoints.checkpoint()?;
-    if full_metrics.is_none() {
-        full_metrics = measure_sequence_mixed_math_label(
-            measurer,
-            text,
-            style,
-            config,
-            renderer,
-            checkpoints,
-        )?;
+
+    match full_metrics {
+        ::core::option::Option::None => {
+            let checked_value = measure_sequence_mixed_math_label(
+                measurer,
+                text,
+                style,
+                config,
+                renderer,
+                checkpoints,
+            )?;
+            full_metrics = checked_value;
+        },
+        ::core::option::Option::Some(_) => {},
     }
-    if full_metrics.is_none() {
-        checkpoints.checkpoint()?;
-        full_metrics =
-            renderer.measure_html_label(text, config, style, Some(10_000.0), WrapMode::HtmlLike);
-        checkpoints.checkpoint()?;
+
+    match full_metrics {
+        ::core::option::Option::None => {
+            checkpoints.checkpoint()?;
+            full_metrics =
+                renderer.measure_html_label(text, config, style, Some(10_000.0), WrapMode::HtmlLike);
+            checkpoints.checkpoint()?;
+        },
+        ::core::option::Option::Some(_) => {},
     }
-    let Some(full_metrics) = full_metrics else {
-        return Ok(None);
+
+    let full_metrics_2 = match full_metrics {
+        Some(matched_full_metrics) => matched_full_metrics,
+        ::core::option::Option::None => return Ok(None),
     };
+
     let height = sequence_math_height_px(
         text,
         style,
         config,
         renderer,
         mode,
-        &full_metrics,
+        &full_metrics_2,
         checkpoints,
     )?;
-    Ok(Some((full_metrics.width.round().max(1.0), height)))
+    Ok(Some((full_metrics_2.width.round().max(1.0), height)))
 }
 
+#[must_use]
 pub(crate) fn prepared_sequence_math_terminal_geometry(
     prepared: Option<&crate::math::PreparedMathLabel>,
     style: &TextStyle,
     mode: SequenceMathHeightMode,
 ) -> Option<SequenceMathTerminalGeometry> {
-    let prepared = prepared?;
-    let metrics = prepared.metrics();
+    let prepared_2 = prepared?;
+    let metrics = prepared_2.metrics();
     let projection_width = metrics.width.max(0.0);
     let projection_height = metrics.height.max(0.0);
     let layout_height = match mode {
@@ -508,9 +564,9 @@ pub(crate) fn prepared_sequence_math_terminal_geometry(
                     .max(sequence_text_dimensions_height_px(style.font_size))
                     .max(1.0)
             };
-            let math_line_height = prepared
+            let math_line_height = prepared_2
                 .max_math_height_px()
-                .unwrap_or_else(|| prepared.max_line_height_px())
+                .unwrap_or_else(|| prepared_2.max_line_height_px())
                 .round()
                 + 2.0;
             let projected_layout_height = if metrics.line_count > 1 {
@@ -565,11 +621,12 @@ pub(super) fn measure_sequence_label_for_layout_with_prepared(
 ) -> Result<(f64, f64)> {
     if text.contains("$$")
         && let Some(metrics) =
-            measure_prepared_sequence_math_label(prepared, style, mode, checkpoints)?
+            { let checked_value = measure_prepared_sequence_math_label(prepared, style, mode, checkpoints)?; checked_value }
     {
         return Ok(metrics);
     }
-    if let Some(metrics) = measure_sequence_math_label(
+
+    if let Some(metrics) = { let checked_value_2 = measure_sequence_math_label(
         measurer,
         text,
         style,
@@ -577,7 +634,7 @@ pub(super) fn measure_sequence_label_for_layout_with_prepared(
         math_renderer,
         mode,
         checkpoints,
-    )? {
+    )?; checked_value_2 } {
         Ok(metrics)
     } else {
         measure_svg_like_with_html_br(measurer, text, style, checkpoints)
@@ -1189,7 +1246,7 @@ mod tests {
             )
             .unwrap();
             assert_eq!(lines, [raw]);
-            // wrapLabel probes each word with its trailing space in both font families.
+
             assert_eq!(*probe.0.borrow(), [format!("{raw} "), format!("{raw} ")]);
         }
     }

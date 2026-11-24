@@ -14,6 +14,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_odd(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (geometry, dx, path_data) = prepare_odd_geometry(common, label);
+
     if let Some((fill_d, stroke_d)) = helpers::hand_drawn_path_pair(common, details, &path_data) {
         let _ = write!(
             out,
@@ -59,7 +60,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_odd(
             r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}" style="{}"/>"#,
             escape_attr(&stroke_d),
             escape_attr(common.stroke_color),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.stroke_dasharray),
             escape_attr(common.style)
         );

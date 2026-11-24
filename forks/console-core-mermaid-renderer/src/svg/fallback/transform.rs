@@ -32,6 +32,7 @@ impl Default for Affine {
 }
 
 impl Affine {
+    #[must_use]
     pub(super) fn then_local(self, local: Self) -> Option<Self> {
         let result = Self {
             a: self.a * local.a + self.c * local.b,
@@ -44,12 +45,14 @@ impl Affine {
         result.is_finite().then_some(result)
     }
 
+    #[must_use]
     fn is_finite(self) -> bool {
         [self.a, self.b, self.c, self.d, self.e, self.f]
             .into_iter()
             .all(f64::is_finite)
     }
 
+    #[must_use]
     pub(super) fn maps_finite_rect(self, x: f64, y: f64, width: f64, height: f64) -> bool {
         [
             (x, y),
@@ -58,9 +61,9 @@ impl Affine {
             (x + width, y + height),
         ]
         .into_iter()
-        .all(|(x, y)| {
-            (self.a * x + self.c * y + self.e).is_finite()
-                && (self.b * x + self.d * y + self.f).is_finite()
+        .all(|(x_2, y_2)| {
+            (self.a * x_2 + self.c * y_2 + self.e).is_finite()
+                && (self.b * x_2 + self.d * y_2 + self.f).is_finite()
         })
     }
 
@@ -68,10 +71,17 @@ impl Affine {
         tag: &str,
         checkpoint: &mut impl FnMut() -> Result<(), E>,
     ) -> Result<Option<Self>, E> {
-        let Some(transform) = attribute(tag, "transform", checkpoint)? else {
-            return Ok(Some(Self::default()));
+        let transform = {
+            let optional_transform = attribute(tag, "transform", checkpoint)?;
+
+            match optional_transform {
+                Some(matched_transform) => matched_transform,
+                ::core::option::Option::None => return Ok(Some(Self::default())),
+            }
         };
+
         let mut cumulative = Self::default();
+
         for (iteration, token) in TransformListParser::from(transform.as_ref()).enumerate() {
             checkpoint_loop(iteration, checkpoint)?;
             let local = match token {
@@ -104,25 +114,34 @@ impl Affine {
                     b: angle.to_radians().tan(),
                     ..Default::default()
                 },
-                // An invalid transform attribute is ignored as a whole in SVG.
-                // Never retain a parsed prefix or manufacture partial coordinates.
+
+
                 Err(_) => return Ok(Some(Self::default())),
             };
-            let Some(next) = cumulative.then_local(local) else {
-                return Ok(None);
+
+            let next = {
+                let optional_next = cumulative.then_local(local);
+
+                match optional_next {
+                    Some(matched_next) => matched_next,
+                    ::core::option::Option::None => return Ok(None),
+                }
             };
+
             cumulative = next;
         }
+
         checkpoint()?;
         Ok(Some(cumulative))
     }
 }
 
+#[must_use]
 fn length(raw: &str, reference: Option<f64>) -> Option<f64> {
     let value: Length = raw.parse().ok()?;
-    let value = match value.unit {
+    let value_2 = match value.unit {
         LengthUnit::None | LengthUnit::Px => value.number,
-        LengthUnit::Percent => value.number * reference? / 100.0,
+        LengthUnit::Percent => value.number * { let checked_value = reference?; checked_value } / 100.0,
         LengthUnit::Inches => value.number * 96.0,
         LengthUnit::Cm => value.number * 96.0 / 2.54,
         LengthUnit::Mm => value.number * 96.0 / 25.4,
@@ -130,7 +149,7 @@ fn length(raw: &str, reference: Option<f64>) -> Option<f64> {
         LengthUnit::Pc => value.number * 16.0,
         LengthUnit::Em | LengthUnit::Ex => return None,
     };
-    value.is_finite().then_some(value)
+    value_2.is_finite().then_some(value_2)
 }
 
 fn view_box<E>(
@@ -150,9 +169,15 @@ pub(super) fn root_viewport<E>(
     tag: &str,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<Option<(f64, f64)>, E> {
-    if let Some(view_box) = view_box(tag, checkpoint)? {
-        return Ok(Some((view_box.w, view_box.h)));
+    let checked_value = view_box(tag, checkpoint)?;
+
+    match checked_value {
+        Some(view_box) => {
+            return Ok(Some((view_box.w, view_box.h)));
+        },
+        ::core::option::Option::None => {},
     }
+
     let width = attribute(tag, "width", checkpoint)?.and_then(|raw| length(raw.as_ref(), None));
     let height = attribute(tag, "height", checkpoint)?.and_then(|raw| length(raw.as_ref(), None));
     Ok(width.zip(height))
@@ -179,30 +204,43 @@ pub(super) fn nested_viewport<E>(
         || parent.map(|size| size.1),
         |raw| length(raw, parent.map(|size| size.1)),
     );
-    let Some((x, y)) = x.zip(y) else {
-        return Ok(None);
+
+    let (x_2, y_2) = {
+        let optional_x = x.zip(y);
+
+        match optional_x {
+            Some((matched_x, matched_y)) => (matched_x, matched_y),
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     if (width_attr.is_some() && width.is_none()) || (height_attr.is_some() && height.is_none()) {
         return Ok(None);
     }
+
     let translation = Affine {
-        e: x,
-        f: y,
+        e: x_2,
+        f: y_2,
         ..Default::default()
     };
     let view_box = view_box(tag, checkpoint)?;
+
     if attribute(tag, "viewBox", checkpoint)?.is_some() && view_box.is_none() {
         return Ok(None);
     }
-    let Some(view_box) = view_box else {
-        return Ok(Some((translation, width.zip(height))));
+
+    let view_box_2 = match view_box {
+        Some(matched_view_box) => matched_view_box,
+        ::core::option::Option::None => return Ok(Some((translation, width.zip(height)))),
     };
-    let Some((width, height)) = width
+
+    let Some((width_3, height_3)) = width
         .zip(height)
-        .filter(|(width, height)| *width >= 0.0 && *height >= 0.0)
+        .filter(|(width_2, height_2)| *width_2 >= 0.0 && *height_2 >= 0.0)
     else {
         return Ok(None);
     };
+
     let aspect = match attribute(tag, "preserveAspectRatio", checkpoint)? {
         Some(raw) => match raw.parse::<AspectRatio>() {
             Ok(value) => value,
@@ -210,28 +248,42 @@ pub(super) fn nested_viewport<E>(
         },
         None => AspectRatio::default(),
     };
-    Ok(view_box_mapping(view_box, width, height, x, y, aspect)
-        .map(|mapping| (mapping, Some((view_box.w, view_box.h)))))
+    Ok(view_box_mapping(view_box_2, width_3, height_3, x_2, y_2, aspect)
+        .map(|mapping| (mapping, Some((view_box_2.w, view_box_2.h)))))
 }
 
 pub(super) fn root_mapping<E>(
     tag: &str,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<Option<Affine>, E> {
-    let Some(view_box) = view_box(tag, checkpoint)? else {
-        return Ok(Some(Affine::default()));
+    let view_box = {
+        let optional_view_box = view_box(tag, checkpoint)?;
+
+        match optional_view_box {
+            Some(matched_view_box) => matched_view_box,
+            ::core::option::Option::None => return Ok(Some(Affine::default())),
+        }
     };
+
     let width = attribute(tag, "width", checkpoint)?.and_then(|raw| length(raw.as_ref(), None));
     let height = attribute(tag, "height", checkpoint)?.and_then(|raw| length(raw.as_ref(), None));
-    let Some((width, height)) = width.zip(height) else {
-        return Ok(Some(Affine::default()));
+
+    let (width_2, height_2) = {
+        let optional_width = width.zip(height);
+
+        match optional_width {
+            Some((matched_width, matched_height)) => (matched_width, matched_height),
+            ::core::option::Option::None => return Ok(Some(Affine::default())),
+        }
     };
+
     let aspect = attribute(tag, "preserveAspectRatio", checkpoint)?
         .and_then(|raw| raw.parse::<AspectRatio>().ok())
         .unwrap_or_default();
-    Ok(view_box_mapping(view_box, width, height, 0.0, 0.0, aspect))
+    Ok(view_box_mapping(view_box, width_2, height_2, 0.0, 0.0, aspect))
 }
 
+#[must_use]
 fn view_box_mapping(
     view_box: ViewBox,
     width: f64,
@@ -241,11 +293,13 @@ fn view_box_mapping(
     aspect: AspectRatio,
 ) -> Option<Affine> {
     let (mut sx, mut sy) = (width / view_box.w, height / view_box.h);
+
     if aspect.align != Align::None {
         let scale = if aspect.slice { sx.max(sy) } else { sx.min(sy) };
         sx = scale;
         sy = scale;
     }
+
     let align_x = match aspect.align {
         Align::XMidYMin | Align::XMidYMid | Align::XMidYMax => 0.5,
         Align::XMaxYMin | Align::XMaxYMid | Align::XMaxYMax => 1.0,

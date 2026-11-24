@@ -74,6 +74,7 @@ pub(crate) trait MathRenderer: std::fmt::Debug {
     ///
     /// This is intended to mirror upstream Mermaid's DOM measurement behavior for math labels.
     /// The default implementation returns `None`.
+    #[must_use]
     fn measure_html_label(
         &self,
         _text: &str,
@@ -90,6 +91,7 @@ pub(crate) trait MathRenderer: std::fmt::Debug {
     /// Mermaid Sequence does not wrap KaTeX labels in the flowchart HTML-label shell; it appends
     /// a bare `<foreignObject><div style="width: fit-content;">...</div></foreignObject>`.
     /// This hook lets Sequence callers avoid inheriting flowchart-specific table-cell metrics.
+    #[must_use]
     fn measure_sequence_html_label(
         &self,
         _text: &str,
@@ -103,6 +105,7 @@ pub(crate) trait MathRenderer: std::fmt::Debug {
     /// This default preserves source compatibility for existing host backends. Implementations
     /// that can honor the resolved role font size may override it; older implementations retain
     /// their existing Sequence-specific measurement behavior.
+    #[must_use]
     fn measure_sequence_html_label_with_style(
         &self,
         text: &str,
@@ -139,6 +142,7 @@ pub(crate) struct DelimitedMathLine<'a> {
     pub(crate) trailing_text: &'a str,
 }
 
+#[must_use]
 pub(crate) fn parse_delimited_math_line(text: &str) -> Option<DelimitedMathLine<'_>> {
     let mut fragments = Vec::new();
     let mut search_from = 0usize;
@@ -146,9 +150,16 @@ pub(crate) fn parse_delimited_math_line(text: &str) -> Option<DelimitedMathLine<
     while let Some(start_rel) = text[search_from..].find("$$") {
         let start = search_from + start_rel;
         let content_start = start + 2;
-        let Some(end_rel) = text[content_start..].find("$$") else {
-            break;
+
+        let end_rel = {
+            let optional_end_rel = text[content_start..].find("$$");
+
+            match optional_end_rel {
+                Some(matched_end_rel) => matched_end_rel,
+                ::core::option::Option::None => break,
+            }
         };
+
         let end_start = content_start + end_rel;
         let end = end_start + 2;
         fragments.push(DelimitedMathFragment {
@@ -166,12 +177,14 @@ pub(crate) fn parse_delimited_math_line(text: &str) -> Option<DelimitedMathLine<
     })
 }
 
+#[must_use]
 pub(crate) fn contains_delimited_math(text: &str) -> bool {
     crate::text::split_html_br_lines(text)
         .into_iter()
         .any(|line| parse_delimited_math_line(line).is_some())
 }
 
+#[must_use]
 fn normalized_math_text(text: &str) -> String {
     text.replace("\\\\", "\\")
 }
@@ -186,6 +199,7 @@ pub(crate) struct MathLabelMetricsRequest<'a> {
     pub(crate) math_renderer: Option<&'a (dyn MathRenderer + Send + Sync)>,
 }
 
+#[must_use]
 fn measure_text_fragment(
     measurer: &dyn crate::text::TextMeasurer,
     text: &str,
@@ -194,6 +208,7 @@ fn measure_text_fragment(
     measurer.measure_wrapped(text, style, None, WrapMode::HtmlLike)
 }
 
+#[must_use]
 fn measure_mixed_math_line(
     measurer: &dyn crate::text::TextMeasurer,
     line: &str,
@@ -204,16 +219,19 @@ fn measure_mixed_math_line(
     let start = line.find("$$")?;
     let content_start = start + 2;
     let end_start = line[content_start..].rfind("$$")? + content_start;
+
     if line[content_start..end_start].contains("$$") {
         return None;
     }
 
     let mut width = 0.0_f64;
     let mut height = 0.0_f64;
+
     for text in [&line[..start], &line[end_start + 2..]] {
         if text.is_empty() {
             continue;
         }
+
         let metrics = measure_text_fragment(measurer, text, style);
         width += metrics.width.max(0.0);
         height = height.max(metrics.height.max(0.0));
@@ -232,6 +250,7 @@ fn measure_mixed_math_line(
     Some((width, height.max(1.0)))
 }
 
+#[must_use]
 fn measure_mixed_math_label(
     request: &MathLabelMetricsRequest<'_>,
     math_renderer: &(dyn MathRenderer + Send + Sync),
@@ -239,12 +258,14 @@ fn measure_mixed_math_label(
     if !request.raw_label.contains("$$") {
         return None;
     }
+
     math_renderer.render_html_label(request.raw_label, request.config)?;
 
     let mut saw_math = false;
     let mut width = 0.0_f64;
     let mut height = 0.0_f64;
     let mut line_count = 0usize;
+
     for line in crate::text::split_html_br_lines(request.raw_label) {
         line_count += 1;
         let (line_width, line_height) = if line.contains("$$") {
@@ -277,12 +298,14 @@ fn measure_mixed_math_label(
 }
 
 /// Measures a Mermaid HTML label after delegating its math fragments to the active backend.
+#[must_use]
 pub(crate) fn math_label_metrics_for_layout(
     request: MathLabelMetricsRequest<'_>,
 ) -> Option<TextMetrics> {
     if request.wrap_mode != WrapMode::HtmlLike || !request.raw_label.contains("$$") {
         return None;
     }
+
     let math_renderer = request.math_renderer?;
     math_renderer
         .measure_html_label(
@@ -296,6 +319,7 @@ pub(crate) fn math_label_metrics_for_layout(
 }
 
 /// Renders, sanitizes, and XML-normalizes a shared Mermaid math label fragment.
+#[must_use]
 pub(crate) fn render_math_html_label(
     text: &str,
     config: &PresentationConfig,
@@ -304,13 +328,16 @@ pub(crate) fn render_math_html_label(
     if !text.contains("$$") {
         return None;
     }
-    let rendered = math_renderer?.render_html_label(text, config)?;
+
+    let checked_value = math_renderer?;
+    let rendered = checked_value.render_html_label(text, config)?;
     Some(merman_markup::sanitize::sanitize_xhtml(
         &rendered,
         config.as_config(),
     ))
 }
 
+#[must_use]
 pub(crate) fn mark_math_html_native_unavailable(mut html: String) -> String {
     let prefix = format!("<span {BROWSER_ONLY_MATH_NATIVE_UNAVAILABLE_ATTRIBUTE}>");
     const SUFFIX: &str = "</span>";
@@ -1393,7 +1420,7 @@ mod tests {
         ) else {
             return;
         };
-        // This is a Node/KaTeX shell smoke, not a browser-font parity gate.
+
         assert!(
             (250.0..=290.0).contains(&matrix_metrics.width),
             "matrix width = {}",

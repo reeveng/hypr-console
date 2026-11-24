@@ -61,6 +61,7 @@ struct ArchitectureArrowPoints {
 }
 
 impl ArchitectureArrowPoints {
+    #[must_use]
     fn new(arrow_size: f64) -> Self {
         let s = fmt_string(arrow_size);
         let hs = fmt_string(arrow_size / 2.0);
@@ -72,6 +73,7 @@ impl ArchitectureArrowPoints {
         }
     }
 
+    #[must_use]
     fn get(&self, dir: char) -> &str {
         match dir {
             'L' => self.left.as_str(),
@@ -145,11 +147,16 @@ fn write_architecture_edge_path(
     out.push_str(r#" " class="edge" id=""#);
     write_architecture_edge_id_attr(out, diagram_id, "L", &edge.lhs_id, &edge.rhs_id, 0);
     out.push('"');
-    if let Some(style) = edge_inline_style {
-        out.push_str(r#" style=""#);
-        escape_attr_into(out, style);
-        out.push('"');
+
+    match edge_inline_style {
+        Some(style) => {
+            out.push_str(r#" style=""#);
+            escape_attr_into(out, style);
+            out.push('"');
+        },
+        ::core::option::Option::None => {},
     }
+
     out.push_str("/>");
 }
 
@@ -197,14 +204,20 @@ fn write_architecture_arrow_polygon(
     out.push_str(r#"" transform=""#);
     write_architecture_arrow_transform(out, arrow.transform);
     out.push_str(r#"" class="arrow""#);
-    if let Some(style) = inline_style {
-        out.push_str(r#" style=""#);
-        escape_attr_into(out, style);
-        out.push('"');
+
+    match inline_style {
+        Some(style) => {
+            out.push_str(r#" style=""#);
+            escape_attr_into(out, style);
+            out.push('"');
+        },
+        ::core::option::Option::None => {},
     }
+
     out.push_str("/>");
 }
 
+#[must_use]
 fn architecture_dir_unit(dir: char) -> (f64, f64) {
     match dir {
         'L' => (1.0, 0.0),
@@ -215,6 +228,7 @@ fn architecture_dir_unit(dir: char) -> (f64, f64) {
     }
 }
 
+#[must_use]
 fn architecture_arrow_geometry<'a>(
     dir: char,
     anchor_x: f64,
@@ -256,9 +270,9 @@ fn architecture_arrow_geometry<'a>(
         };
     }
 
-    // Mermaid positions Architecture arrows as standalone polygons rather than SVG markers.
-    // Rotate that polygon by the actual final segment, so diagonal crosslinks point along the
-    // edge instead of only following the requested port side.
+
+
+
     let tip_x = anchor_x + 2.0 * ux;
     let tip_y = anchor_y + 2.0 * uy;
     let base_x = tip_x - arrow_size * ux;
@@ -295,6 +309,7 @@ fn architecture_arrow_geometry<'a>(
     }
 }
 
+#[must_use]
 fn architecture_edge_segment_bounds(points: ArchitectureEdgePoints) -> Bounds {
     Bounds {
         min_x: points.start_x.min(points.mid_x).min(points.end_x),
@@ -304,6 +319,7 @@ fn architecture_edge_segment_bounds(points: ArchitectureEdgePoints) -> Bounds {
     }
 }
 
+#[must_use]
 fn architecture_edge_label_plan(
     edge: &ArchitectureEdgeModel,
     points: ArchitectureEdgePoints,
@@ -326,15 +342,16 @@ fn architecture_edge_label_plan(
         "Y" => (points.start_y - points.end_y).abs() / 1.5,
         _ => (points.start_x - points.end_x).abs() / 2.0,
     };
-    let wrap_width = if wrap_width.is_finite() && wrap_width > 0.0 {
+    let wrap_width_2 = if wrap_width.is_finite() && wrap_width > 0.0 {
         wrap_width
     } else {
         ARCHITECTURE_CREATE_TEXT_DEFAULT_WRAP_WIDTH_PX
     };
-    let lines = wrap_svg_words_to_lines(label, wrap_width, text_measurer, &settings.text_style);
+    let lines = wrap_svg_words_to_lines(label, wrap_width_2, text_measurer, &settings.text_style);
 
     let mut bbox_w = 0.0f64;
     let mut first_line_text = None;
+
     for line in &lines {
         let s = svg_line_plain_text(line);
         bbox_w = bbox_w.max(svg_line_formatted_bbox_width_px(
@@ -344,6 +361,7 @@ fn architecture_edge_label_plan(
         ));
         first_line_text.get_or_insert(s);
     }
+
     let line_count = lines.len().max(1);
     let (bbox_y_min, bbox_y_max) = architecture_create_text_middle_bbox_y_range_px(
         first_line_text.as_deref().unwrap_or(label),
@@ -374,12 +392,12 @@ fn architecture_edge_label_plan(
             };
             let angle = (-xf * yf * 45.0f64).round() as i64;
 
-            // Rotated bbox at 45° (w' == h' == (w+h)*sqrt(2)/2).
+
             let diag = (bbox_w + bbox_h) * std::f64::consts::FRAC_1_SQRT_2;
             let t2x = xf * diag / 2.0;
             let t2y = yf * diag / 2.0;
-            // Mermaid CLI serializes newline characters inside attribute values as XML entities
-            // (`&#10;`). Emit those explicitly so our SVG matches the upstream baselines.
+
+
             let sep = "&#10;";
 
             (
@@ -416,7 +434,7 @@ fn architecture_edge_label_plan(
             max_y: points.mid_y + half_bbox_w,
         },
         _ => {
-            // |cos(45°)| == |sin(45°)| == sqrt(1/2)
+
             let a = (bbox_w + bbox_h) * std::f64::consts::FRAC_1_SQRT_2;
             Bounds {
                 min_x: points.mid_x - a / 2.0,
@@ -458,30 +476,43 @@ pub(super) fn push_architecture_edges<O: SvgOutput>(
     let is_junction = |id: &str| junction_bounds.contains_key(id);
 
     let edge_points = |edge_idx: usize, edge: &ArchitectureEdgeModel| -> ArchitectureEdgePoints {
-        // Prefer layout-provided points: this is where we model Mermaid/Cytoscape edge routing.
-        //
-        // The layout points represent raw Cytoscape endpoints; Mermaid applies group/junction
-        // endpoint shifts later, during SVG emission.
+
+
+
+
         let (raw_start_x, raw_start_y, mid_x, mid_y, raw_end_x, raw_end_y) = layout
             .edges
             .get(edge_idx)
             .map(|layout_edge| {
-                // A present layout edge keeps zero fallbacks for missing polyline points.
+
                 let points = &layout_edge.points;
-                let p0 = points.first().map(|p| (p.x, p.y)).unwrap_or((0.0, 0.0));
-                let pm = points.get(1).map(|p| (p.x, p.y)).unwrap_or((0.0, 0.0));
-                let p2 = points.last().map(|p| (p.x, p.y)).unwrap_or((0.0, 0.0));
+                let p0 = match points.first().map(|p| (p.x, p.y)) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => (0.0, 0.0),
+                };
+                let pm = match points.get(1).map(|p| (p.x, p.y)) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => (0.0, 0.0),
+                };
+                let p2 = match points.last().map(|p| (p.x, p.y)) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => (0.0, 0.0),
+                };
                 (p0.0, p0.1, pm.0, pm.1, p2.0, p2.1)
             })
             .unwrap_or_else(|| {
-                let (sx, sy) = node_xy
+                let (sx, sy) = match node_xy
                     .get(edge.lhs_id.as_str())
-                    .copied()
-                    .unwrap_or((0.0, 0.0));
-                let (tx, ty) = node_xy
+                    .copied() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => (0.0, 0.0),
+                };
+                let (tx, ty) = match node_xy
                     .get(edge.rhs_id.as_str())
-                    .copied()
-                    .unwrap_or((0.0, 0.0));
+                    .copied() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => (0.0, 0.0),
+                };
 
                 let (sx, sy) = match edge.lhs_dir {
                     'L' => (sx, sy + settings.half_icon),
@@ -499,7 +530,7 @@ pub(super) fn push_architecture_edges<O: SvgOutput>(
                 };
 
                 let (mx, my) = if (sx - tx).abs() > 1e-6 && (sy - ty).abs() > 1e-6 {
-                    // Match upstream Mermaid: choose the bend based on the *source* dir.
+
                     if is_arch_dir_y(edge.lhs_dir) {
                         (sx, ty)
                     } else {
@@ -516,7 +547,11 @@ pub(super) fn push_architecture_edges<O: SvgOutput>(
         let mut end_x = raw_end_x;
         let mut end_y = raw_end_y;
 
-        let lhs_group = edge.lhs_group.unwrap_or(false);
+        let lhs_group = match edge.lhs_group {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        };
+
         if lhs_group {
             if is_arch_dir_x(edge.lhs_dir) {
                 start_x += if edge.lhs_dir == 'L' {
@@ -532,6 +567,7 @@ pub(super) fn push_architecture_edges<O: SvgOutput>(
                 };
             }
         }
+
         if !lhs_group && is_junction(&edge.lhs_id) {
             if is_arch_dir_x(edge.lhs_dir) {
                 start_x += if edge.lhs_dir == 'L' {
@@ -548,7 +584,11 @@ pub(super) fn push_architecture_edges<O: SvgOutput>(
             }
         }
 
-        let rhs_group = edge.rhs_group.unwrap_or(false);
+        let rhs_group = match edge.rhs_group {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        };
+
         if rhs_group {
             if is_arch_dir_x(edge.rhs_dir) {
                 end_x += if edge.rhs_dir == 'L' {
@@ -564,6 +604,7 @@ pub(super) fn push_architecture_edges<O: SvgOutput>(
                 };
             }
         }
+
         if !rhs_group && is_junction(&edge.rhs_id) {
             if is_arch_dir_x(edge.rhs_dir) {
                 end_x += if edge.rhs_dir == 'L' {
@@ -590,10 +631,11 @@ pub(super) fn push_architecture_edges<O: SvgOutput>(
         }
     };
 
-    // Edges (including conservative label bounds).
+
     if !model.edges.is_empty() {
         let arrow_size = settings.icon_size_px / 6.0;
         let arrow_points = ArchitectureArrowPoints::new(arrow_size);
+
         for (edge_idx, edge) in model.edges.iter().enumerate() {
             let points = edge_points(edge_idx, edge);
             let lhs_arrow = (edge.lhs_into == Some(true)).then(|| {
@@ -621,20 +663,30 @@ pub(super) fn push_architecture_edges<O: SvgOutput>(
 
             extend_bounds(content_bounds, architecture_edge_segment_bounds(points));
 
-            if let Some(arrow) = lhs_arrow.as_ref() {
-                extend_bounds(content_bounds, arrow.bounds.clone());
+            match lhs_arrow.as_ref() {
+                Some(arrow) => {
+                    extend_bounds(content_bounds, arrow.bounds.clone());
+                },
+                ::core::option::Option::None => {},
             }
 
-            if let Some(arrow) = rhs_arrow.as_ref() {
-                extend_bounds(content_bounds, arrow.bounds.clone());
+            match rhs_arrow.as_ref() {
+                Some(arrow) => {
+                    extend_bounds(content_bounds, arrow.bounds.clone());
+                },
+                ::core::option::Option::None => {},
             }
 
             let label_plan = architecture_edge_label_plan(edge, points, settings, text_measurer);
             let has_label = label_plan.is_some();
             #[cfg(merman_internal_theme_acceptance)]
             let label_bounds = label_plan.as_ref().map(|plan| plan.bounds.clone());
-            if let Some(label_plan) = label_plan.as_ref() {
-                extend_bounds(content_bounds, label_plan.bounds.clone());
+
+            match label_plan.as_ref() {
+                Some(label_plan) => {
+                    extend_bounds(content_bounds, label_plan.bounds.clone());
+                },
+                ::core::option::Option::None => {},
             }
 
             out.push_str("<g>");
@@ -651,71 +703,87 @@ pub(super) fn push_architecture_edges<O: SvgOutput>(
                 .as_deref()
                 .and_then(|styles| styles.edge_label_style(edge_idx));
 
-            if let Some(arrow) = lhs_arrow.as_ref() {
-                write_architecture_arrow_polygon(out, arrow, lhs_arrow_style);
+            match lhs_arrow.as_ref() {
+                Some(arrow) => {
+                    write_architecture_arrow_polygon(out, arrow, lhs_arrow_style);
+                },
+                ::core::option::Option::None => {},
             }
 
-            if let Some(arrow) = rhs_arrow.as_ref() {
-                write_architecture_arrow_polygon(out, arrow, rhs_arrow_style);
+            match rhs_arrow.as_ref() {
+                Some(arrow) => {
+                    write_architecture_arrow_polygon(out, arrow, rhs_arrow_style);
+                },
+                ::core::option::Option::None => {},
             }
 
             #[cfg(merman_internal_theme_acceptance)]
             let mut label_fragment_digest = None;
             #[cfg(merman_internal_theme_acceptance)]
             let mut label_run_count = 0;
-            if let Some(label_plan) = label_plan {
-                let _ = write!(
-                    out,
-                    r#"<g dy="1em" alignment-baseline="middle" dominant-baseline="{baseline}" text-anchor="middle" transform="{transform}">"#,
-                    baseline = label_plan.dominant_baseline,
-                    transform = label_plan.transform.as_str()
-                );
-                out.push_str(r#"<g><rect class="background" style="stroke: none"/>"#);
-                let writer_facts = write_svg_text_lines(out, &label_plan.lines, label_style);
-                out.push_str("</g></g>");
-                #[cfg(merman_internal_theme_acceptance)]
-                {
-                    label_fragment_digest = Some(writer_facts.fragment_digest);
-                    label_run_count = writer_facts.run_count;
-                }
-                #[cfg(not(merman_internal_theme_acceptance))]
-                let _ = writer_facts;
+
+            match label_plan {
+                Some(label_plan) => {
+                    let _ = write!(
+                        out,
+                        r#"<g dy="1em" alignment-baseline="middle" dominant-baseline="{baseline}" text-anchor="middle" transform="{transform}">"#,
+                        baseline = label_plan.dominant_baseline,
+                        transform = label_plan.transform.as_str()
+                    );
+                    out.push_str(r#"<g><rect class="background" style="stroke: none"/>"#);
+                    let writer_facts = write_svg_text_lines(out, &label_plan.lines, label_style);
+                    out.push_str("</g></g>");
+                    #[cfg(merman_internal_theme_acceptance)]
+                    {
+                        label_fragment_digest = Some(writer_facts.fragment_digest);
+                        label_run_count = writer_facts.run_count;
+                    }
+                    #[cfg(not(merman_internal_theme_acceptance))]
+                    let _ = writer_facts;
+                },
+                ::core::option::Option::None => {},
             }
 
             out.push_str("</g>");
             out.checkpoint()?;
+
             *ctx.edge_style_emitted |= edge_inline_style.is_some();
             if has_label && let Some(emission) = typography_emission.as_deref_mut() {
                 emission.record_visible_text();
             }
-            if let Some(styles) = surface_styles.as_deref_mut() {
-                styles.record_checkpointed_edge(
-                    crate::architecture::ArchitectureEdgeTerminalEmission {
-                        index: edge_idx,
-                        #[cfg(merman_internal_theme_acceptance)]
-                        lhs_id: edge.lhs_id.as_str().into(),
-                        #[cfg(merman_internal_theme_acceptance)]
-                        rhs_id: edge.rhs_id.as_str().into(),
-                        label: crate::architecture::ArchitectureTextTerminalEmission {
-                            emitted: has_label,
+
+            match surface_styles.as_deref_mut() {
+                Some(styles) => {
+                    styles.record_checkpointed_edge(
+                        crate::architecture::ArchitectureEdgeTerminalEmission {
+                            index: edge_idx,
                             #[cfg(merman_internal_theme_acceptance)]
-                            bounds: label_bounds,
+                            lhs_id: edge.lhs_id.as_str().into(),
                             #[cfg(merman_internal_theme_acceptance)]
-                            fragment_digest: label_fragment_digest,
-                            #[cfg(merman_internal_theme_acceptance)]
-                            run_count: label_run_count,
+                            rhs_id: edge.rhs_id.as_str().into(),
+                            label: crate::architecture::ArchitectureTextTerminalEmission {
+                                emitted: has_label,
+                                #[cfg(merman_internal_theme_acceptance)]
+                                bounds: label_bounds,
+                                #[cfg(merman_internal_theme_acceptance)]
+                                fragment_digest: label_fragment_digest,
+                                #[cfg(merman_internal_theme_acceptance)]
+                                run_count: label_run_count,
+                            },
+                            lhs_arrow: crate::architecture::ArchitecturePaintTerminalEmission {
+                                emitted: lhs_arrow.is_some(),
+                            },
+                            rhs_arrow: crate::architecture::ArchitecturePaintTerminalEmission {
+                                emitted: rhs_arrow.is_some(),
+                            },
                         },
-                        lhs_arrow: crate::architecture::ArchitecturePaintTerminalEmission {
-                            emitted: lhs_arrow.is_some(),
-                        },
-                        rhs_arrow: crate::architecture::ArchitecturePaintTerminalEmission {
-                            emitted: rhs_arrow.is_some(),
-                        },
-                    },
-                );
+                    );
+                },
+                ::core::option::Option::None => {},
             }
         }
     }
+
     ctx.typography_emission = typography_emission;
     Ok(())
 }

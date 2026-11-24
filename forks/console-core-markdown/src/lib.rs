@@ -47,14 +47,17 @@ pub enum CodeBlockKind<'a> {
 }
 
 impl<'a> CodeBlockKind<'a> {
+    #[must_use]
     pub fn is_indented(&self) -> bool {
         matches!(*self, CodeBlockKind::Indented)
     }
 
+    #[must_use]
     pub fn is_fenced(&self) -> bool {
         matches!(*self, CodeBlockKind::Fenced(_))
     }
 
+    #[must_use]
     pub fn into_static(self) -> CodeBlockKind<'static> {
         match self {
             CodeBlockKind::Indented => CodeBlockKind::Indented,
@@ -134,7 +137,7 @@ pub enum Tag<'a> {
 
     /// A list. If the list is ordered the field indicates the number of the first item.
     /// Contains only list items.
-    List(Option<u64>), // TODO: add delim and tight for ast (not needed for html)
+    List(Option<u64>),
     /// A list item.
     Item,
     /// A footnote definition. The value contained is the footnote's label by which it can
@@ -163,7 +166,7 @@ pub enum Tag<'a> {
     /// Only parsed and emitted with [`Options::ENABLE_TABLES`].
     TableCell,
 
-    // span-level tags
+
     /// [Emphasis](https://spec.commonmark.org/0.31.2/#emphasis-and-strong-emphasis).
     /// ```markdown
     /// half*emph* _strong_ _multi _level__
@@ -218,6 +221,7 @@ pub enum Tag<'a> {
 }
 
 impl<'a> Tag<'a> {
+    #[must_use]
     pub fn to_end(&self) -> TagEnd {
         match self {
             Tag::Paragraph => TagEnd::Paragraph,
@@ -246,6 +250,7 @@ impl<'a> Tag<'a> {
         }
     }
 
+    #[must_use]
     pub fn into_static(self) -> Tag<'static> {
         match self {
             Tag::Paragraph => Tag::Paragraph,
@@ -433,12 +438,13 @@ pub enum LinkType {
 
 impl LinkType {
     /// Map the link type to an equivalent _Unknown link type.
+    #[must_use]
     fn to_unknown(self) -> Self {
         match self {
             LinkType::Reference => LinkType::ReferenceUnknown,
             LinkType::Collapsed => LinkType::CollapsedUnknown,
             LinkType::Shortcut => LinkType::ShortcutUnknown,
-            _ => unreachable!(),
+            LinkType::Inline | LinkType::ReferenceUnknown | LinkType::CollapsedUnknown | LinkType::ShortcutUnknown | LinkType::Autolink | LinkType::Email | LinkType::WikiLink { .. } => unreachable!(),
         }
     }
 }
@@ -530,6 +536,7 @@ pub enum Event<'a> {
 }
 
 impl<'a> Event<'a> {
+    #[must_use]
     pub fn into_static(self) -> Event<'static> {
         match self {
             Event::Start(t) => Event::Start(t.into_static()),
@@ -654,6 +661,7 @@ bitflags::bitflags! {
 }
 
 impl Options {
+    #[must_use]
     pub(crate) fn has_gfm_footnotes(&self) -> bool {
         self.contains(Options::ENABLE_FOOTNOTES) && !self.contains(Options::ENABLE_OLD_FOOTNOTES)
     }

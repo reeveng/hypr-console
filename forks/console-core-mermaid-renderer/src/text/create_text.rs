@@ -11,6 +11,7 @@ pub(crate) struct NonMarkdownSvgWords<'a> {
 }
 
 impl<'a> NonMarkdownSvgWords<'a> {
+    #[must_use]
     fn new(line: &'a str) -> Self {
         Self {
             line,
@@ -31,24 +32,29 @@ impl<'a> Iterator for NonMarkdownSvgWords<'a> {
                 .next()
                 .expect("an in-bounds UTF-8 offset starts with a character");
 
-            if character == '<' {
-                if !self.closing_angle_exhausted {
-                    if let Some(relative_end) = rest[1..].find('>') {
-                        let end = relative_end + 1;
-                        if end > 1 {
-                            let token = &rest[..=end];
-                            self.offset += end + 1;
-                            return Some(token);
+            match character {
+                '<' => {
+                    if !self.closing_angle_exhausted {
+                        if let Some(relative_end) = rest[1..].find('>') {
+                            let end = relative_end + 1;
+
+                            if end > 1 {
+                                let token = &rest[..=end];
+                                self.offset += end + 1;
+                                return Some(token);
+                            }
+                        } else {
+
+
+
+                            self.closing_angle_exhausted = true;
                         }
-                    } else {
-                        // Once the remaining suffix has no `>`, no later `<` can start a tag.
-                        // Remember that fact so malformed input stays linear instead of searching
-                        // the same shrinking suffix for every delimiter.
-                        self.closing_angle_exhausted = true;
                     }
-                }
-                self.offset += character.len_utf8();
-                continue;
+
+                    self.offset += character.len_utf8();
+                    continue;
+                },
+                _ => {},
             }
 
             if character == '>' || is_ecmascript_whitespace(character) {
@@ -58,16 +64,20 @@ impl<'a> Iterator for NonMarkdownSvgWords<'a> {
 
             let start = self.offset;
             self.offset += character.len_utf8();
-            while self.offset < self.line.len() {
+
+            'inner_while_2: while self.offset < self.line.len() {
                 let next = self.line[self.offset..]
                     .chars()
                     .next()
                     .expect("an in-bounds UTF-8 offset starts with a character");
+
                 if next == '<' || next == '>' || is_ecmascript_whitespace(next) {
-                    break;
+                    break 'inner_while_2;
                 }
+
                 self.offset += next.len_utf8();
             }
+
             return Some(&self.line[start..self.offset]);
         }
 
@@ -75,6 +85,7 @@ impl<'a> Iterator for NonMarkdownSvgWords<'a> {
     }
 }
 
+#[must_use]
 pub(crate) fn non_markdown_svg_words(line: &str) -> NonMarkdownSvgWords<'_> {
     NonMarkdownSvgWords::new(line)
 }

@@ -12,10 +12,12 @@ struct PathPoint {
 }
 
 impl PathPoint {
+    #[must_use]
     const fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
 
+    #[must_use]
     const fn nan() -> Self {
         Self {
             x: f64::NAN,
@@ -23,18 +25,22 @@ impl PathPoint {
         }
     }
 
+    #[must_use]
     fn from_layout(p: &LayoutPoint) -> Self {
         Self { x: p.x, y: p.y }
     }
 
+    #[must_use]
     fn from_curve(point: kurbo::Point) -> Self {
         Self::new(point.x, point.y)
     }
 
+    #[must_use]
     fn into_curve(self) -> kurbo::Point {
         kurbo::Point::new(self.x, self.y)
     }
 
+    #[must_use]
     const fn swap_xy(self) -> Self {
         Self {
             x: self.y,
@@ -51,10 +57,12 @@ struct PathCubic {
 }
 
 impl PathCubic {
+    #[must_use]
     const fn new(c1: PathPoint, c2: PathPoint, end: PathPoint) -> Self {
         Self { c1, c2, end }
     }
 
+    #[must_use]
     const fn swap_xy(self) -> Self {
         Self {
             c1: self.c1.swap_xy(),
@@ -99,7 +107,7 @@ impl BoundsBuilder {
 
     fn on_cubic(&mut self, cubic: PathCubic) {
         let Some(start) = self.cur else {
-            // Defensive: cubic without a current point is invalid; fall back to including end point.
+
             self.include_point(cubic.end);
             self.cur = Some(cubic.end);
             return;
@@ -113,6 +121,7 @@ impl BoundsBuilder {
                 max_y: start.y,
             });
         }
+
         if let Some(b) = &mut self.bounds {
             svg_path_bounds_include_cubic(
                 b,
@@ -128,6 +137,7 @@ impl BoundsBuilder {
                 },
             );
         }
+
         self.cur = Some(cubic.end);
     }
 }
@@ -208,6 +218,7 @@ fn emit_cmd_cubic_impl(out: &mut String, bounds: Option<&mut BoundsBuilder>, cub
     }
 }
 
+#[must_use]
 pub(super) fn curve_monotone_path_d_and_bounds(
     points: &[LayoutPoint],
     swap_xy: bool,
@@ -217,17 +228,21 @@ pub(super) fn curve_monotone_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 fn curve_monotone_path_d_impl(
     points: &[LayoutPoint],
     swap_xy: bool,
     bounds: Option<&mut BoundsBuilder>,
 ) -> String {
+    #[must_use]
     fn sign(v: f64) -> f64 {
         if v < 0.0 { -1.0 } else { 1.0 }
     }
 
+    #[must_use]
     fn to_monotone_point(p: &LayoutPoint, swap_xy: bool) -> PathPoint {
         let point = PathPoint::from_layout(p);
+
         if swap_xy { point.swap_xy() } else { point }
     }
 
@@ -252,17 +267,18 @@ fn curve_monotone_path_d_impl(
         emit_cmd_cubic_impl(out, bounds, cubic);
     }
 
+    #[must_use]
     fn slope3(p0: PathPoint, p1: PathPoint, p2: PathPoint) -> f64 {
         let h0 = p1.x - p0.x;
         let h1 = p2.x - p1.x;
-        let denom0 = if h0 != 0.0 {
+        let denom0 = if !::core::matches!(::core::primitive::f64::classify(h0), ::core::num::FpCategory::Zero) {
             h0
         } else if h1 < 0.0 {
             -0.0
         } else {
             0.0
         };
-        let denom1 = if h1 != 0.0 {
+        let denom1 = if !::core::matches!(::core::primitive::f64::classify(h1), ::core::num::FpCategory::Zero) {
             h1
         } else if h0 < 0.0 {
             -0.0
@@ -273,12 +289,15 @@ fn curve_monotone_path_d_impl(
         let s1 = (p2.y - p1.y) / denom1;
         let p = (s0 * h1 + s1 * h0) / (h0 + h1);
         let v = (sign(s0) + sign(s1)) * s0.abs().min(s1.abs()).min(0.5 * p.abs());
+
         if v.is_finite() { v } else { 0.0 }
     }
 
+    #[must_use]
     fn slope2(p0: PathPoint, p1: PathPoint, t: f64) -> f64 {
         let h = p1.x - p0.x;
-        if h != 0.0 {
+
+        if !::core::matches!(::core::primitive::f64::classify(h), ::core::num::FpCategory::Zero) {
             (3.0 * (p1.y - p0.y) / h - t) / 2.0
         } else {
             t
@@ -309,10 +328,14 @@ fn curve_monotone_path_d_impl(
         );
     }
 
-    let mut bounds = bounds;
+    let mut bounds_2 = bounds;
     let mut out = String::with_capacity(points.len().saturating_mul(64));
-    if points.is_empty() {
-        return out;
+
+    match points {
+        [] => {
+            return out;
+        },
+        [_, ..] => {},
     }
 
     let mut point_state: u8 = 0;
@@ -323,15 +346,16 @@ fn curve_monotone_path_d_impl(
     for p in points {
         let point = to_monotone_point(p, swap_xy);
 
-        if point.x == p1.x && point.y == p1.y {
+        if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&point.x, &p1.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&point.y, &p1.y) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
             continue;
         }
 
         let mut t1 = f64::NAN;
+
         match point_state {
             0 => {
                 point_state = 1;
-                emit_pair_to(&mut out, 'M', point, swap_xy, bounds.as_deref_mut());
+                emit_pair_to(&mut out, 'M', point, swap_xy, bounds_2.as_deref_mut());
             }
             1 => {
                 point_state = 2;
@@ -349,7 +373,7 @@ fn curve_monotone_path_d_impl(
                         t1,
                     },
                     swap_xy,
-                    bounds.as_deref_mut(),
+                    bounds_2.as_deref_mut(),
                 );
             }
             _ => {
@@ -363,7 +387,7 @@ fn curve_monotone_path_d_impl(
                         t1,
                     },
                     swap_xy,
-                    bounds.as_deref_mut(),
+                    bounds_2.as_deref_mut(),
                 );
             }
         }
@@ -374,7 +398,7 @@ fn curve_monotone_path_d_impl(
     }
 
     match point_state {
-        2 => emit_pair_to(&mut out, 'L', p1, swap_xy, bounds.as_deref_mut()),
+        2 => emit_pair_to(&mut out, 'L', p1, swap_xy, bounds_2.as_deref_mut()),
         3 => {
             let t1 = slope2(p0, p1, t0);
             hermite_segment(
@@ -386,7 +410,7 @@ fn curve_monotone_path_d_impl(
                     t1,
                 },
                 swap_xy,
-                bounds,
+                bounds_2,
             );
         }
         _ => {}
@@ -395,11 +419,13 @@ fn curve_monotone_path_d_impl(
     out
 }
 
-// Ported from D3 `curveBasis` (d3-shape v3.x), used by Mermaid ER renderer `@11.12.2`.
+
+#[must_use]
 pub(super) fn curve_basis_path_d(points: &[LayoutPoint]) -> String {
     curve_basis_path_d_impl(points, None)
 }
 
+#[must_use]
 pub(super) fn curve_basis_path_d_and_bounds(
     points: &[LayoutPoint],
 ) -> (String, Option<SvgPathBounds>) {
@@ -408,10 +434,15 @@ pub(super) fn curve_basis_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 fn curve_basis_path_d_impl(points: &[LayoutPoint], bounds: Option<&mut BoundsBuilder>) -> String {
     let mut out = String::with_capacity(points.len().saturating_mul(64));
-    if points.is_empty() {
-        return out;
+
+    match points {
+        [] => {
+            return out;
+        },
+        [_, ..] => {},
     }
 
     fn basis_point(
@@ -430,17 +461,18 @@ fn curve_basis_path_d_impl(points: &[LayoutPoint], bounds: Option<&mut BoundsBui
         );
     }
 
-    let mut bounds = bounds;
+    let mut bounds_2 = bounds;
     let mut point_state = 0u8;
     let mut previous = PathPoint::nan();
     let mut current = PathPoint::nan();
 
     for pt in points {
         let next = PathPoint::from_layout(pt);
+
         match point_state {
             0 => {
                 point_state = 1;
-                emit_cmd_pair_impl(&mut out, bounds.as_deref_mut(), 'M', next);
+                emit_cmd_pair_impl(&mut out, bounds_2.as_deref_mut(), 'M', next);
             }
             1 => {
                 point_state = 2;
@@ -451,24 +483,25 @@ fn curve_basis_path_d_impl(points: &[LayoutPoint], bounds: Option<&mut BoundsBui
                     bezier::basis_start([previous.x, current.x]),
                     bezier::basis_start([previous.y, current.y]),
                 );
-                emit_cmd_pair_impl(&mut out, bounds.as_deref_mut(), 'L', line_to);
-                basis_point(&mut out, bounds.as_deref_mut(), previous, current, next);
+                emit_cmd_pair_impl(&mut out, bounds_2.as_deref_mut(), 'L', line_to);
+                basis_point(&mut out, bounds_2.as_deref_mut(), previous, current, next);
             }
             _ => {
-                basis_point(&mut out, bounds.as_deref_mut(), previous, current, next);
+                basis_point(&mut out, bounds_2.as_deref_mut(), previous, current, next);
             }
         }
+
         previous = current;
         current = next;
     }
 
     match point_state {
         3 => {
-            basis_point(&mut out, bounds.as_deref_mut(), previous, current, current);
-            emit_cmd_pair_impl(&mut out, bounds, 'L', current);
+            basis_point(&mut out, bounds_2.as_deref_mut(), previous, current, current);
+            emit_cmd_pair_impl(&mut out, bounds_2, 'L', current);
         }
         2 => {
-            emit_cmd_pair_impl(&mut out, bounds, 'L', current);
+            emit_cmd_pair_impl(&mut out, bounds_2, 'L', current);
         }
         _ => {}
     }
@@ -476,10 +509,12 @@ fn curve_basis_path_d_impl(points: &[LayoutPoint], bounds: Option<&mut BoundsBui
     out
 }
 
+#[must_use]
 pub(super) fn curve_linear_path_d(points: &[LayoutPoint]) -> String {
     curve_linear_path_d_impl(points, None)
 }
 
+#[must_use]
 pub(super) fn curve_linear_path_d_and_bounds(
     points: &[LayoutPoint],
 ) -> (String, Option<SvgPathBounds>) {
@@ -488,29 +523,40 @@ pub(super) fn curve_linear_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 fn curve_linear_path_d_impl(points: &[LayoutPoint], bounds: Option<&mut BoundsBuilder>) -> String {
-    let mut bounds = bounds;
+    let mut bounds_2 = bounds;
     let mut out = String::with_capacity(points.len().saturating_mul(32));
-    let Some(first) = points.first() else {
-        return out;
+
+    let first = {
+        let optional_first = points.first();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return out,
+        }
     };
+
     emit_cmd_pair_impl(
         &mut out,
-        bounds.as_deref_mut(),
+        bounds_2.as_deref_mut(),
         'M',
         PathPoint::from_layout(first),
     );
+
     for p in points.iter().skip(1) {
         emit_cmd_pair_impl(
             &mut out,
-            bounds.as_deref_mut(),
+            bounds_2.as_deref_mut(),
             'L',
             PathPoint::from_layout(p),
         );
     }
+
     out
 }
 
+#[must_use]
 pub(super) fn curve_rounded_path_d_and_bounds(
     points: &[LayoutPoint],
     radius: f64,
@@ -523,6 +569,7 @@ pub(super) fn curve_rounded_path_d_and_bounds(
     )
 }
 
+#[must_use]
 fn curve_rounded_path_d_impl(
     points: &[LayoutPoint],
     radius: f64,
@@ -537,10 +584,14 @@ fn curve_rounded_path_d_impl(
     let epsilon = 1e-5;
 
     for (idx, curr) in points.iter().enumerate() {
-        if idx == 0 {
-            emit_cmd_pair_no_bounds(&mut out, 'M', PathPoint::from_layout(curr));
-            continue;
+        match idx {
+            0 => {
+                emit_cmd_pair_no_bounds(&mut out, 'M', PathPoint::from_layout(curr));
+                continue;
+            },
+            _ => {},
         }
+
         if idx + 1 == points.len() {
             emit_cmd_pair_no_bounds(&mut out, 'L', PathPoint::from_layout(curr));
             continue;
@@ -548,6 +599,7 @@ fn curve_rounded_path_d_impl(
 
         let prev = &points[idx - 1];
         let next = &points[idx + 1];
+
         if rounded_corner_mask.is_some_and(|mask| mask.get(idx) == Some(&false)) {
             emit_cmd_pair_no_bounds(&mut out, 'L', PathPoint::from_layout(curr));
             continue;
@@ -559,6 +611,7 @@ fn curve_rounded_path_d_impl(
         let dy2 = next.y - curr.y;
         let len1 = dx1.hypot(dy1);
         let len2 = dx2.hypot(dy2);
+
         if len1 < epsilon || len2 < epsilon {
             emit_cmd_pair_no_bounds(&mut out, 'L', PathPoint::from_layout(curr));
             continue;
@@ -570,6 +623,7 @@ fn curve_rounded_path_d_impl(
         let ny2 = dy2 / len2;
         let dot = (nx1 * nx2 + ny1 * ny2).clamp(-1.0, 1.0);
         let angle = dot.acos();
+
         if angle < epsilon || (std::f64::consts::PI - angle).abs() < epsilon {
             emit_cmd_pair_no_bounds(&mut out, 'L', PathPoint::from_layout(curr));
             continue;
@@ -599,9 +653,10 @@ fn curve_rounded_path_d_impl(
     out
 }
 
-// Ported from D3 `curveNatural` (d3-shape v3.x).
-//
-// This is used by Mermaid flowchart edge-id curve overrides (e.g. `e1@{ curve: natural }`).
+
+
+
+#[must_use]
 pub(super) fn curve_natural_path_d_and_bounds(
     points: &[LayoutPoint],
 ) -> (String, Option<SvgPathBounds>) {
@@ -610,26 +665,36 @@ pub(super) fn curve_natural_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 fn curve_natural_path_d_impl(points: &[LayoutPoint], bounds: Option<&mut BoundsBuilder>) -> String {
-    let mut bounds = bounds;
+    let mut bounds_2 = bounds;
     let mut out = String::with_capacity(points.len().saturating_mul(64));
-    let Some(first) = points.first() else {
-        return out;
+
+    let first = {
+        let optional_first = points.first();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return out,
+        }
     };
+
     emit_cmd_pair_impl(
         &mut out,
-        bounds.as_deref_mut(),
+        bounds_2.as_deref_mut(),
         'M',
         PathPoint::from_layout(first),
     );
+
     if points.len() == 1 {
         return out;
     }
+
     if points.len() == 2 {
         let p1 = &points[1];
         emit_cmd_pair_impl(
             &mut out,
-            bounds.as_deref_mut(),
+            bounds_2.as_deref_mut(),
             'L',
             PathPoint::from_layout(p1),
         );
@@ -638,6 +703,7 @@ fn curve_natural_path_d_impl(points: &[LayoutPoint], bounds: Option<&mut BoundsB
 
     let mut xs: Vec<f64> = Vec::with_capacity(points.len());
     let mut ys: Vec<f64> = Vec::with_capacity(points.len());
+
     for p in points {
         xs.push(p.x);
         ys.push(p.y);
@@ -650,7 +716,7 @@ fn curve_natural_path_d_impl(points: &[LayoutPoint], bounds: Option<&mut BoundsB
         let p = &points[i + 1];
         emit_cmd_cubic_impl(
             &mut out,
-            bounds.as_deref_mut(),
+            bounds_2.as_deref_mut(),
             PathCubic::new(
                 PathPoint::new(x1[i], y1[i]),
                 PathPoint::new(x2[i], y2[i]),
@@ -662,7 +728,8 @@ fn curve_natural_path_d_impl(points: &[LayoutPoint], bounds: Option<&mut BoundsB
     out
 }
 
-// Ported from D3 `curveStepAfter` (d3-shape v3.x).
+
+#[must_use]
 pub(super) fn curve_step_after_path_d_and_bounds(
     points: &[LayoutPoint],
 ) -> (String, Option<SvgPathBounds>) {
@@ -671,41 +738,52 @@ pub(super) fn curve_step_after_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 fn curve_step_after_path_d_impl(
     points: &[LayoutPoint],
     bounds: Option<&mut BoundsBuilder>,
 ) -> String {
-    let mut bounds = bounds;
+    let mut bounds_2 = bounds;
     let mut out = String::with_capacity(points.len().saturating_mul(32));
-    let Some(first) = points.first() else {
-        return out;
+
+    let first = {
+        let optional_first = points.first();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return out,
+        }
     };
+
     let mut prev_y = first.y;
     emit_cmd_pair_impl(
         &mut out,
-        bounds.as_deref_mut(),
+        bounds_2.as_deref_mut(),
         'M',
         PathPoint::from_layout(first),
     );
+
     for p in points.iter().skip(1) {
         emit_cmd_pair_impl(
             &mut out,
-            bounds.as_deref_mut(),
+            bounds_2.as_deref_mut(),
             'L',
             PathPoint::new(p.x, prev_y),
         );
         emit_cmd_pair_impl(
             &mut out,
-            bounds.as_deref_mut(),
+            bounds_2.as_deref_mut(),
             'L',
             PathPoint::from_layout(p),
         );
         prev_y = p.y;
     }
+
     out
 }
 
-// Ported from D3 `curveStepBefore` (d3-shape v3.x).
+
+#[must_use]
 pub(super) fn curve_step_before_path_d_and_bounds(
     points: &[LayoutPoint],
 ) -> (String, Option<SvgPathBounds>) {
@@ -714,41 +792,52 @@ pub(super) fn curve_step_before_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 fn curve_step_before_path_d_impl(
     points: &[LayoutPoint],
     bounds: Option<&mut BoundsBuilder>,
 ) -> String {
-    let mut bounds = bounds;
+    let mut bounds_2 = bounds;
     let mut out = String::with_capacity(points.len().saturating_mul(32));
-    let Some(first) = points.first() else {
-        return out;
+
+    let first = {
+        let optional_first = points.first();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return out,
+        }
     };
+
     let mut prev_x = first.x;
     emit_cmd_pair_impl(
         &mut out,
-        bounds.as_deref_mut(),
+        bounds_2.as_deref_mut(),
         'M',
         PathPoint::from_layout(first),
     );
+
     for p in points.iter().skip(1) {
         emit_cmd_pair_impl(
             &mut out,
-            bounds.as_deref_mut(),
+            bounds_2.as_deref_mut(),
             'L',
             PathPoint::new(prev_x, p.y),
         );
         emit_cmd_pair_impl(
             &mut out,
-            bounds.as_deref_mut(),
+            bounds_2.as_deref_mut(),
             'L',
             PathPoint::from_layout(p),
         );
         prev_x = p.x;
     }
+
     out
 }
 
-// Ported from D3 `curveStep` (d3-shape v3.x).
+
+#[must_use]
 pub(super) fn curve_step_path_d_and_bounds(
     points: &[LayoutPoint],
 ) -> (String, Option<SvgPathBounds>) {
@@ -757,45 +846,56 @@ pub(super) fn curve_step_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 fn curve_step_path_d_impl(points: &[LayoutPoint], bounds: Option<&mut BoundsBuilder>) -> String {
-    let mut bounds = bounds;
+    let mut bounds_2 = bounds;
     let mut out = String::with_capacity(points.len().saturating_mul(32));
-    let Some(first) = points.first() else {
-        return out;
+
+    let first = {
+        let optional_first = points.first();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return out,
+        }
     };
+
     emit_cmd_pair_impl(
         &mut out,
-        bounds.as_deref_mut(),
+        bounds_2.as_deref_mut(),
         'M',
         PathPoint::from_layout(first),
     );
     let mut prev = first;
+
     for p in points.iter().skip(1) {
         let mid_x = (prev.x + p.x) / 2.0;
         emit_cmd_pair_impl(
             &mut out,
-            bounds.as_deref_mut(),
+            bounds_2.as_deref_mut(),
             'L',
             PathPoint::new(mid_x, prev.y),
         );
         emit_cmd_pair_impl(
             &mut out,
-            bounds.as_deref_mut(),
+            bounds_2.as_deref_mut(),
             'L',
             PathPoint::new(mid_x, p.y),
         );
         emit_cmd_pair_impl(
             &mut out,
-            bounds.as_deref_mut(),
+            bounds_2.as_deref_mut(),
             'L',
             PathPoint::from_layout(p),
         );
         prev = p;
     }
+
     out
 }
 
-// Ported from D3 `curveCardinal` (d3-shape v3.x).
+
+#[must_use]
 pub(super) fn curve_cardinal_path_d_and_bounds(
     points: &[LayoutPoint],
     tension: f64,
@@ -805,15 +905,20 @@ pub(super) fn curve_cardinal_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 fn curve_cardinal_path_d_impl(
     points: &[LayoutPoint],
     tension: f64,
     bounds: Option<&mut BoundsBuilder>,
 ) -> String {
-    let mut bounds = bounds;
+    let mut bounds_2 = bounds;
     let mut out = String::with_capacity(points.len().saturating_mul(64));
-    if points.is_empty() {
-        return out;
+
+    match points {
+        [] => {
+            return out;
+        },
+        [_, ..] => {},
     }
 
     let k = (1.0 - tension) / 6.0;
@@ -851,10 +956,11 @@ fn curve_cardinal_path_d_impl(
 
     for pt in points {
         let point = PathPoint::from_layout(pt);
+
         match point_state {
             0 => {
                 point_state = 1;
-                emit_cmd_pair_impl(&mut out, bounds.as_deref_mut(), 'M', point);
+                emit_cmd_pair_impl(&mut out, bounds_2.as_deref_mut(), 'M', point);
             }
             1 => {
                 point_state = 2;
@@ -871,7 +977,7 @@ fn curve_cardinal_path_d_impl(
                         next: p2,
                         target: point,
                     },
-                    bounds.as_deref_mut(),
+                    bounds_2.as_deref_mut(),
                 );
             }
             _ => {
@@ -884,7 +990,7 @@ fn curve_cardinal_path_d_impl(
                         next: p2,
                         target: point,
                     },
-                    bounds.as_deref_mut(),
+                    bounds_2.as_deref_mut(),
                 );
             }
         }
@@ -896,7 +1002,7 @@ fn curve_cardinal_path_d_impl(
 
     match point_state {
         2 => {
-            emit_cmd_pair_impl(&mut out, bounds.as_deref_mut(), 'L', p2);
+            emit_cmd_pair_impl(&mut out, bounds_2.as_deref_mut(), 'L', p2);
         }
         3 => {
             cardinal_point(
@@ -908,7 +1014,7 @@ fn curve_cardinal_path_d_impl(
                     next: p2,
                     target: p1,
                 },
-                bounds,
+                bounds_2,
             );
         }
         _ => {}
@@ -917,9 +1023,10 @@ fn curve_cardinal_path_d_impl(
     out
 }
 
-// Ported from D3 `curveBumpY` (d3-shape v3.x).
-//
-// This is used by Mermaid flowchart edge-id curve overrides (e.g. `e1@{ curve: bumpY }`).
+
+
+
+#[must_use]
 pub(super) fn curve_bump_y_path_d_and_bounds(
     points: &[LayoutPoint],
 ) -> (String, Option<SvgPathBounds>) {
@@ -928,6 +1035,7 @@ pub(super) fn curve_bump_y_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 pub(super) fn curve_bump_x_path_d_and_bounds(
     points: &[LayoutPoint],
 ) -> (String, Option<SvgPathBounds>) {
@@ -936,31 +1044,38 @@ pub(super) fn curve_bump_x_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 fn curve_bump_path_d_impl(
     points: &[LayoutPoint],
     bounds: Option<&mut BoundsBuilder>,
     vertical: bool,
 ) -> String {
-    let mut bounds = bounds;
+    let mut bounds_2 = bounds;
     let mut out = String::new();
-    let Some(first) = points.first() else {
-        return out;
+
+    let first = {
+        let optional_first = points.first();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return out,
+        }
     };
 
     let mut previous = PathPoint::from_layout(first);
-    emit_cmd_pair_impl(&mut out, bounds.as_deref_mut(), 'M', previous);
+    emit_cmd_pair_impl(&mut out, bounds_2.as_deref_mut(), 'M', previous);
 
     for p in points.iter().skip(1) {
         let point = PathPoint::from_layout(p);
-        let [first, second] = if vertical {
+        let [first_2, second] = if vertical {
             bezier::vertical_controls(previous.into_curve(), point.into_curve())
         } else {
             bezier::horizontal_controls(previous.into_curve(), point.into_curve())
         };
         emit_cmd_cubic_impl(
             &mut out,
-            bounds.as_deref_mut(),
-            PathCubic::new(PathPoint::from_curve(first), PathPoint::from_curve(second), point),
+            bounds_2.as_deref_mut(),
+            PathCubic::new(PathPoint::from_curve(first_2), PathPoint::from_curve(second), point),
         );
         previous = point;
     }
@@ -968,9 +1083,10 @@ fn curve_bump_path_d_impl(
     out
 }
 
-// Ported from D3 `curveCatmullRom` (d3-shape v3.x), with the default alpha=0.5.
-//
-// This is used by Mermaid flowchart edge-id curve overrides (e.g. `e1@{ curve: catmullRom }`).
+
+
+
+#[must_use]
 pub(super) fn curve_catmull_rom_path_d_and_bounds(
     points: &[LayoutPoint],
 ) -> (String, Option<SvgPathBounds>) {
@@ -979,6 +1095,7 @@ pub(super) fn curve_catmull_rom_path_d_and_bounds(
     (d, b.bounds)
 }
 
+#[must_use]
 fn curve_catmull_rom_path_d_with_alpha_impl(
     points: &[LayoutPoint],
     alpha: f64,
@@ -1001,6 +1118,7 @@ fn curve_catmull_rom_path_d_with_alpha_impl(
     }
 
     impl CatmullRomState {
+        #[must_use]
         fn new(alpha: f64) -> Self {
             Self {
                 alpha,
@@ -1080,7 +1198,7 @@ fn curve_catmull_rom_path_d_with_alpha_impl(
                     emit_cmd_pair_impl(out, bounds, 'L', self.p2);
                 }
                 3 => {
-                    // Mirror D3's `lineEnd` behavior: `this.point(this._x2, this._y2)`.
+
                     self.l23_a = 0.0;
                     self.l23_2a = 0.0;
                     self.emit_segment(out, self.p2, bounds);
@@ -1090,17 +1208,23 @@ fn curve_catmull_rom_path_d_with_alpha_impl(
         }
     }
 
-    let mut bounds = bounds;
+    let mut bounds_2 = bounds;
     let mut out = String::new();
-    if points.is_empty() {
-        return out;
+
+    match points {
+        [] => {
+            return out;
+        },
+        [_, ..] => {},
     }
 
     let mut state = CatmullRomState::new(alpha);
+
     for p in points {
-        state.point(&mut out, PathPoint::from_layout(p), bounds.as_deref_mut());
+        state.point(&mut out, PathPoint::from_layout(p), bounds_2.as_deref_mut());
     }
-    state.line_end(&mut out, bounds);
+
+    state.line_end(&mut out, bounds_2);
 
     out
 }

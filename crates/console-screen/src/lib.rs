@@ -36,13 +36,12 @@
 
 pub mod kernel;
 
-use std::fmt;
-
 use console_compositor::Monitor;
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, whole_u32};
 
+pub use console_compositor::lua::Undeclared;
 pub use console_core_screen_orientation::{Mounted, ParseError, Shape, Transform};
 
 #[cfg_attr(
@@ -62,37 +61,6 @@ pub struct Screen {
 
 pub const CONFIGURATION: &str = "files/home/@user@/.config/console/hypr/hyprland.lua";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Undeclared {
-  NoScreen,
-  NoMode,
-  ModeShape,
-  NoRefresh,
-  NoScale,
-  ScaleNotANumber,
-  NoTransform,
-  NotATransform(ParseError),
-  NotAWholeNumber(String),
-}
-
-impl fmt::Display for Undeclared {
-  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
-    match self {
-      Undeclared::NoScreen => write!(to, "the compositor's file declares no screen"),
-      Undeclared::NoMode => write!(to, "the screen says nothing about its mode"),
-      Undeclared::ModeShape => write!(to, "that mode is not WIDTHxHEIGHT"),
-      Undeclared::NoRefresh => write!(to, "that mode names no refresh"),
-      Undeclared::NoScale => write!(to, "the screen says nothing about its scale"),
-      Undeclared::ScaleNotANumber => write!(to, "that scale is not a number"),
-      Undeclared::NoTransform => write!(to, "the screen says nothing about its transform"),
-      Undeclared::NotATransform(fault) => write!(to, "{fault}"),
-      Undeclared::NotAWholeNumber(said) => write!(to, "{said:?} is not a whole number"),
-    }
-  }
-}
-
-impl std::error::Error for Undeclared {}
-
 pub fn from_hyprland_config() -> Result<Screen, Undeclared> {
   Screen::read(DECLARED)
 }
@@ -102,44 +70,13 @@ const DECLARED: &str =
 
 impl Screen {
   pub fn read(lua: &str) -> Result<Self, Undeclared> {
-    let Ok(found) = value_between(
-      lua,
-      Named("hl.monitor"),
-      Wrapped {
-        open: '{',
-        close: '}',
-      },
-    );
+    let screen = console_compositor::lua::ScreenDeclaration::read(lua)?;
 
-    let block = found.ok_or(Undeclared::NoScreen)?;
-
-    let Ok(said) = after(&block, Named("mode"));
-
-    let mode = said.ok_or(Undeclared::NoMode)?;
-    let (wide, rest) = mode.split_once('x').ok_or(Undeclared::ModeShape)?;
-    let (tall, refresh) = rest.split_once('@').ok_or(Undeclared::NoRefresh)?;
-    let wide_2 = number(wide)?;
-    let tall_2 = number(tall)?;
-    let refresh_2 = number(refresh)?;
-    let Ok(found_2) = after(&block, Named("scale"));
-
-    let said_2 = found_2.ok_or(Undeclared::NoScale)?;
-    let scale = said_2.parse().map_err(|_| Undeclared::ScaleNotANumber)?;
-
-    let Ok(found_3) = after(&block, Named("transform"));
-
-    let turn = found_3.ok_or(Undeclared::NoTransform)?;
-    let numbered = number(&turn)?;
-    let transform = Transform::of(i64::from(numbered)).map_err(Undeclared::NotATransform)?;
-
-    Ok(Screen {
-      mode: Size {
-        width: wide_2,
-        height: tall_2,
-      },
-      refresh: refresh_2,
-      scale,
-      transform,
+    Ok(Self {
+      mode: screen.mode,
+      refresh: screen.refresh,
+      scale: screen.scale.0,
+      transform: screen.transform,
     })
   }
 
@@ -309,67 +246,6 @@ pub fn driving_here() -> Result<Option<(String, Screen)>, console_compositor::Hy
   let Ok(screen) = from_monitor(found_3);
 
   Ok(screen.map(|screen_2| (found_3.named.clone(), screen_2)))
-}
-
-struct Wrapped {
-  open: char,
-  close: char,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Named<'a>(&'a str);
-
-fn value_between(text: &str, name: Named<'_>, wrapped: Wrapped) -> Result<Option<String>, Never> {
-  let Wrapped { open, close } = wrapped;
-  let name_2 = name.0;
-
-  Ok(
-    text
-      .split_once(name_2)
-      .and_then(|(_, after_name)| after_name.split_once(open))
-      .and_then(|(_, inside)| inside.split_once(close))
-      .map(|(between, _)| between.to_string()),
-  )
-}
-
-fn after(block: &str, name: Named<'_>) -> Result<Option<String>, Never> {
-  let name_2 = name.0;
-
-  let after_name = match block.split_once(name_2) {
-    Some((_, after_name)) => after_name,
-    None => return Ok(None),
-  };
-
-  let rest = after_name.trim_start();
-
-  let valued = match rest.strip_prefix('=') {
-    Some(valued) => valued,
-    None => return Ok(None),
-  };
-
-  let rest_2 = valued.trim_start();
-  let said: String = match rest_2.strip_prefix('"') {
-    Some(quoted) => quoted
-      .chars()
-      .take_while(|character| *character != '"')
-      .collect(),
-    None => rest_2
-      .chars()
-      .take_while(|character| character.is_ascii_digit() || *character == '.')
-      .collect(),
-  };
-
-  Ok(match said.as_str() {
-    "" => None,
-    _nonempty => Some(said),
-  })
-}
-
-fn number(said: &str) -> Result<u32, Undeclared> {
-  said
-    .trim()
-    .parse()
-    .map_err(|_| Undeclared::NotAWholeNumber(said.to_string()))
 }
 
 #[cfg(test)]

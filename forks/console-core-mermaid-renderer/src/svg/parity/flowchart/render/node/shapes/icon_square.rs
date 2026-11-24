@@ -7,8 +7,9 @@ use crate::svg::parity::fmt;
 
 use super::super::helpers;
 
-fn rounded_rect_path_d(x: f64, y: f64, w: f64, h: f64, r: f64) -> String {
-    // Port of Mermaid `createRoundedRectPathD(...)` (`roundedRectPath.ts`).
+#[must_use]
+fn rounded_rect_path_d(RoundedRectPathDArguments { x, y, w, h, r }: RoundedRectPathDArguments) -> String {
+
     let mut out = String::new();
     let _ = write!(
         &mut out,
@@ -37,6 +38,14 @@ fn rounded_rect_path_d(x: f64, y: f64, w: f64, h: f64, r: f64) -> String {
         fmt(y),
     );
     out
+}
+
+struct RoundedRectPathDArguments {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    r: f64,
 }
 
 pub(in crate::svg::parity::flowchart::render::node) fn render_icon_square(
@@ -114,32 +123,36 @@ fn render_icon_rect_frame(
         }
     };
 
-    // Icon border/background (RoughJS `rc.path(...)`) — emitted before labels and outer bbox.
-    // Mermaid uses `translate(0,18)` without a space after the comma.
-    if let Some(frame_class) = frame_class {
-        let _ = write!(
-            out,
-            r#"<g class="{}" transform="translate(0,{})"{}>"#,
-            escape_attr(frame_class),
-            fmt(icon_dy),
-            if hand_drawn {
-                format!(r#" style="{}""#, escape_attr(common.rough_group_style))
-            } else {
-                String::new()
-            }
-        );
-    } else {
-        let _ = write!(
-            out,
-            r#"<g transform="translate(0,{})"{}>"#,
-            fmt(icon_dy),
-            if hand_drawn {
-                format!(r#" style="{}""#, escape_attr(common.rough_group_style))
-            } else {
-                String::new()
-            }
-        );
+
+
+    match frame_class {
+        Some(frame_class_2) => {
+            let _ = write!(
+                out,
+                r#"<g class="{}" transform="translate(0,{})"{}>"#,
+                escape_attr(frame_class_2),
+                fmt(icon_dy),
+                if hand_drawn {
+                    format!(r#" style="{}""#, escape_attr(common.rough_group_style))
+                } else {
+                    String::new()
+                }
+            );
+        },
+        ::core::option::Option::None => {
+            let _ = write!(
+                out,
+                r#"<g transform="translate(0,{})"{}>"#,
+                fmt(icon_dy),
+                if hand_drawn {
+                    format!(r#" style="{}""#, escape_attr(common.rough_group_style))
+                } else {
+                    String::new()
+                }
+            );
+        },
     }
+
     if raw_hand_drawn_frame {
         let _ = write!(
             out,
@@ -172,6 +185,7 @@ fn render_icon_rect_frame(
             escape_attr(common.fill_color),
         );
     }
+
     out.push_str("</g>");
 
     let outer_x0 = -outer_w / 2.0;
@@ -204,57 +218,64 @@ fn render_icon_rect_frame(
         label_bbox_h,
     );
 
-    // Outer bbox helper node (transparent fill, no stroke) — emitted after the label group.
+
     let _ = write!(
         out,
         r#"<g><path d="{}" stroke="none" stroke-width="0" fill="transparent"/></g>"#,
         escape_attr(&outer_path)
     );
 
-    if let Some(icon_name) = icon_name {
-        let icon_tx = -icon_size / 2.0;
-        let icon_ty = icon_dy - icon_size / 2.0;
-        let icon_svg = super::super::helpers::icon_svg_or_placeholder(
-            ctx,
-            common.node_id,
-            icon_name,
-            icon_size,
-        )?;
-        let _ = write!(
-            out,
-            r#"<g transform="translate({},{})" style="color: {};"><g>{}</g></g>"#,
-            fmt(icon_tx),
-            fmt(icon_ty),
-            escape_attr(common.stroke_color),
-            icon_svg,
-        );
+    match icon_name {
+        Some(icon_name_2) => {
+            let icon_tx = -icon_size / 2.0;
+            let icon_ty = icon_dy - icon_size / 2.0;
+            let icon_svg = super::super::helpers::icon_svg_or_placeholder(
+                ctx,
+                common.node_id,
+                icon_name_2,
+                icon_size,
+            )?;
+            let _ = write!(
+                out,
+                r#"<g transform="translate({},{})" style="color: {};"><g>{}</g></g>"#,
+                fmt(icon_tx),
+                fmt(icon_ty),
+                escape_attr(common.stroke_color),
+                icon_svg,
+            );
+        },
+        ::core::option::Option::None => {},
     }
 
     out.push_str("</g>");
+
     if common.wrapped_in_a {
         out.push_str("</a>");
     }
+
     Ok(label_receipt)
 }
 
+#[must_use]
 fn prepare_icon_rect_frame_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
     label: &super::super::FlowchartNodeLabelState<'_>,
     corner_radius: f64,
 ) -> (bool, f64, f64, f64, f64, f64, f64, f64, String, bool) {
-    // Port of Mermaid `iconSquare.ts` and `iconRounded.ts` (`icon-shape default`).
+
     let has_label = !label.text.is_empty();
     let label_padding = if has_label { 8.0 } else { 0.0 };
     let top_label = common.node_pos == Some("t");
     let (icon_size, width, height, rounded_rect) = icon_frame_geometry(ctx, common, corner_radius);
     let mut metrics = common.label_metrics(ctx, label);
+
     if !has_label {
         metrics.width = 0.0;
         metrics.height = 0.0;
     }
 
-    // Mermaid's `labelHelper(...)` wraps icon labels in `.labelBkg` (2px padding).
+
     let label_bbox_w = metrics.width + if has_label { 4.0 } else { 0.0 };
     let label_bbox_h = metrics.height + if has_label { 4.0 } else { 0.0 };
 
@@ -290,6 +311,7 @@ pub(super) fn advance_rough_geometry(
     corner_radius: f64,
 ) {
     let (_, _, _, path) = icon_frame_geometry(ctx, common, corner_radius);
+
     if common.look_is_hand_drawn() {
         let _ = super::super::roughjs::roughjs_prepare_paths_for_hand_drawn_svg_path(
             super::super::roughjs::RoughGeometryTarget::Query,
@@ -311,22 +333,28 @@ pub(super) fn advance_rough_geometry(
     }
 }
 
+#[must_use]
 fn icon_frame_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
     corner_radius: f64,
 ) -> (f64, f64, f64, String) {
     let half_padding = (ctx.node_padding / 2.0).max(0.0);
-    let icon_size = common
-        .node_asset_height
-        .unwrap_or(48.0)
-        .max(common.node_asset_width.unwrap_or(48.0));
+    let icon_size = match common
+        .node_asset_height {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 48.0,
+    }
+        .max(match common.node_asset_width {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 48.0,
+        });
     let width = icon_size + half_padding * 2.0;
     let height = icon_size + half_padding * 2.0;
     (
         icon_size,
         width,
         height,
-        rounded_rect_path_d(-width / 2.0, -height / 2.0, width, height, corner_radius),
+        rounded_rect_path_d(self::RoundedRectPathDArguments { x: -width / 2.0, y: -height / 2.0, w: width, h: height, r: corner_radius }),
     )
 }

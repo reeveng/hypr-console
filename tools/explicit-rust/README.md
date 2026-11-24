@@ -24,6 +24,94 @@ which stable cannot do; `rust-toolchain.toml` pins the nightly and the
     just explicit-rust fix-all  apply and recheck fixes across the workspace and the UEFI kernel
     just explicit-batch audit   count findings and available fixes for all rules
 
+## Writing Explicit Rust
+
+1. Trace the behavior from its normal entry point before editing. Find the type
+   or crate that owns the decision and reuse its variants, error types, and
+   boundary APIs. Before changing a signature, check its callers, trait
+   requirements, and feature-gated uses. For a lint finding, read the rule's
+   diagnostic and a relevant fixture when the intended rewrite is unclear.
+2. Decide what each path means before choosing the syntax. Use `Option` for
+   expected absence, a typed `Err` for failure, and a domain enum for outcomes
+   callers act on. Use exhaustive `match` on named variants for branching and
+   put it in the initializer when a binding needs to handle separate cases.
+   For a foreign non-exhaustive enum, query the specific case you need, such
+   as `error.kind() == ErrorKind::NotFound`. Bind an infallible
+   `Result<T, Never>` with `let Ok(value) = compute();`. Put error propagation
+   on its own statement, as in `let value = read()?;` (EXPLICIT001–008,
+   016–017, 019, 023, 033, 038).
+3. Choose bounds and numeric policies before changing operations. Use `get`
+   and decide what an absent index means. Name the conversion target and
+   choose the arithmetic policy from the valid range and overflow behavior.
+   Reuse [the workspace conversions](../../crates/console-core-number-conversion/src/lib.rs)
+   where they fit. When lifting a `?` or rearranging a branch, preserve
+   evaluation order, when a borrow ends or a value is dropped, and which work
+   has already happened when a call fails (EXPLICIT010–011, 014–015, 017, 045, 051).
+4. Finish one behavior through its callers and check it before broadening the
+   edit. Run `cargo check -p PACKAGE --all-targets` and the relevant tests with
+   the features that reach the changed code. Check affected dependent packages
+   when an API changes. Use `just explicit-gate --package PACKAGE` for a focused
+   lint audit. If the package already has findings, compare with a successful
+   base-revision report using `--baseline` and the same scope and settings.
+   Review the diff after any [automatic fix](#applying-automatic-fixes). Keep
+   exceptions local and give the concrete reason the rule's concern is absent.
+   Match the surrounding hand formatting.
+
+### State machines and effects
+
+If several fields describe mutually exclusive states, use an enum with each
+variant's data on that variant. Keep state changes behind methods on the owning
+type. Reuse the machine that owns the lifecycle. For a new lifecycle, use
+[console-core-state-machine](../../crates/console-core-state-machine/src/lib.rs)
+when requests arrive over time and handling depends on the current state,
+especially for work that stays pending between requests. An enum and an owning
+method can suffice for a synchronous update (EXPLICIT048, 076).
+
+- Before editing a handler, sketch the affected state and request pairs with
+  their next states and effects. Include requests that leave state unchanged.
+  For pending work, decide which state owns it, when to clear it, and what
+  happens on failure. Where cancellation, retries, or overlap can make a
+  reply stale, carry the operation identity in the pending state and reply and
+  check it before applying the result.
+- Hand observations such as time and randomness in as inputs or requests.
+  Offer a typed effect for external work that the handler needs done, such as a
+  file read, a process call, or a wait. The driver performs the work and delivers
+  the outcome as a request when the machine needs it. Keep the handler
+  deterministic and infallible. Reuse existing events and effects from the
+  [program contract](../../crates/console-program-contract/src/lib.rs)
+  (EXPLICIT039, 041, 044, 077, 105).
+- Use `run` or `Machine::transition` to assert the resulting state and effects
+  without real I/O. The [guide test](../../crates/console-core-state-machine/tests/the_guide.rs)
+  exercises a request sequence with `run`. The
+  [download refresh tests](../../crates/console-application-browser/src/download_refresh.rs)
+  cover coalesced requests and a reply received after a queue failure.
+  Exercise the normal driver entry point when the change depends on how a
+  request arrives or how an effect runs.
+
+## CI
+
+The Rust checks workflow compares Explicit Rust findings in changed workspace
+packages and owned forks against the base revision. It uses the same default
+and all-features audit as `just explicit-gate`. CI runs the audit so commits can
+be made without a local Dylint build.
+
+`just unsafe-rust` checks the repository’s Rust sources with the compiler lexer.
+It covers source gated by features or target architecture as well as standalone
+packages, build scripts, benchmarks, and lint fixtures. The kernel, kernel
+handles, and kernel heap crates are outside the inventory. CI checks the
+exception list against the base revision and rejects additions. After removing
+an exception, refresh the list with
+`just unsafe-rust --inventory > tools/unsafe-rust-baseline.txt`.
+Compiler-level `forbid(unsafe_code)` still checks local macro expansions
+when the crate is built.
+
+The default Rust AV1 decoder and the standalone Servo worker already forbid
+unsafe Rust in their crate roots. The optional AV1 C ABI and unchecked mode,
+the standalone WebKit worker, WASM exports, native calculator entry, and
+allocator benchmarks keep their current interfaces during the migration. Their
+unsafe sites count against the same repository baseline as the Linux device,
+process, and login boundaries.
+
 ## The rules
 
     EXPLICIT001  a failure met is a failure said

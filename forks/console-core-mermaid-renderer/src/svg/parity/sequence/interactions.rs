@@ -43,20 +43,31 @@ pub(super) fn render_sequence_interaction_overlays(
     note_theme_receipt: &mut SequenceStaticRectThemeReceipt,
     activation_theme_receipt: &mut SequenceStaticRectThemeReceipt,
 ) -> Result<()> {
-    let Some((frame_x1, frame_x2)) =
-        frame_x_from_actors(ctx.model, ctx.nodes_by_id, ctx.checkpoints)?
-    else {
-        return Ok(());
+    let (frame_x1, frame_x2) = {
+        let optional_frame_x1 = frame_x_from_actors(ctx.model, ctx.nodes_by_id, ctx.checkpoints)?;
+
+        match optional_frame_x1 {
+            Some((matched_frame_x1, matched_frame_x2)) => (matched_frame_x1, matched_frame_x2),
+            ::core::option::Option::None => return Ok(()),
+        }
     };
 
     let mut actor_nodes_by_id: FixedMap<&str, &LayoutNode> =
         FixedMap::with_capacity_and_hasher(ctx.model.actors.len(), Default::default());
+
     for (actor_index, actor_id) in ctx.model.actor_order.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(actor_index)?;
         let node_id = format!("actor-top-{actor_id}");
-        let Some(n) = ctx.nodes_by_id.get(node_id.as_str()).copied() else {
-            continue;
+
+        let n = {
+            let optional_n = ctx.nodes_by_id.get(node_id.as_str()).copied();
+
+            match optional_n {
+                Some(matched_n) => matched_n,
+                ::core::option::Option::None => continue,
+            }
         };
+
         actor_nodes_by_id.insert(actor_id.as_str(), n);
     }
 
@@ -126,12 +137,24 @@ pub(super) fn render_sequence_interaction_overlays(
         )?;
         render_sequence_note(out, message_index, msg, &note_ctx, note_theme_receipt)?;
 
-        let Some(block_index) = blocks_by_end_index.get(message_index).copied().flatten() else {
-            continue;
+        let block_index = {
+            let optional_block_index = blocks_by_end_index.get(message_index).copied().flatten();
+
+            match optional_block_index {
+                Some(matched_block_index) => matched_block_index,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(block) = blocks.get(block_index) else {
-            continue;
+
+        let block = {
+            let optional_block = blocks.get(block_index);
+
+            match optional_block {
+                Some(matched_block) => matched_block,
+                ::core::option::Option::None => continue,
+            }
         };
+
         match block {
             SequenceBlock::Alt {
                 control_id,
@@ -220,5 +243,6 @@ pub(super) fn render_sequence_interaction_overlays(
             }
         }
     }
+
     ctx.checkpoints.checkpoint()
 }

@@ -11,3 +11,9 @@ workspace = true
 [dependencies.console-core-api-compatibility]
 workspace = true
 
+[dependencies.console-core-number-conversion]
+workspace = true
+
+[dependencies.console-core-simd]
+workspace = true
+

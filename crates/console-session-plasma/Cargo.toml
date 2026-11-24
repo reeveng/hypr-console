@@ -1,0 +1,15 @@
+[package]
+name = "console-session-plasma"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+console-core-ini-files.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-never.workspace = true
+console-session.workspace = true
+
+[lints]
+workspace = true

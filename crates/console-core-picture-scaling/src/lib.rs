@@ -41,11 +41,13 @@ use console_core_number_conversion::{fitted, index, toward_zero_i32, toward_zero
 mod chroma;
 #[cfg(feature = "std")]
 mod cubic;
+mod opaque;
 pub use chroma::{
   ChromaRounding, MismatchedChromaRows, chroma_2x_rows, upsample_chroma_2x_bilinear,
 };
 #[cfg(feature = "std")]
 pub use cubic::{Channels, ResizeError, catmull_rom};
+pub use opaque::{ChannelOrder, OpaqueResizeError, resize_opaque};
 
 const WEIGHT_BITS: u32 = 14;
 

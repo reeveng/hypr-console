@@ -1,4 +1,6 @@
 use std::fmt::Write as _;
+
+#[must_use]
 fn is_box_style_key(key: &str) -> bool {
     matches!(
         key,
@@ -12,36 +14,48 @@ fn is_box_style_key(key: &str) -> bool {
     )
 }
 
+#[must_use]
 fn source_style_winners(
     styles: &[String],
 ) -> Vec<(&str, crate::mermaid_style::ParsedStyleDeclaration<'_>)> {
     let mut winners: Vec<(&str, crate::mermaid_style::ParsedStyleDeclaration<'_>)> = Vec::new();
+
     for raw in styles {
-        let raw = raw.trim().trim_end_matches(';').trim();
-        let Some(parsed) = crate::mermaid_style::parse_style_declaration(raw) else {
-            continue;
+        let raw_2 = raw.trim().trim_end_matches(';').trim();
+
+        let parsed = {
+            let optional_parsed = crate::mermaid_style::parse_style_declaration(raw_2);
+
+            match optional_parsed {
+                Some(matched_parsed) => matched_parsed,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !is_box_style_key(parsed.property())
             && !crate::mermaid_style::is_label_style_key(parsed.property())
         {
             continue;
         }
+
         if let Some(current) = winners
             .iter_mut()
             .find(|(_, winner)| winner.property() == parsed.property())
         {
-            // Retain the first property's position and the winning source spelling. An
-            // ordinary later declaration cannot replace an earlier important value.
+
+
             if parsed.important() || !current.1.important() {
-                *current = (raw, parsed);
+                *current = (raw_2, parsed);
             }
         } else {
-            winners.push((raw, parsed));
+            winners.push((raw_2, parsed));
         }
     }
+
     winners
 }
 
+#[must_use]
 pub(super) fn source_text_style(
     styles: &[String],
     inherited: &crate::text::TextStyle,
@@ -49,8 +63,8 @@ pub(super) fn source_text_style(
 ) -> crate::text::TextStyle {
     let declarations = source_style_winners(styles);
     let mut style = inherited.clone();
-    // HTML repeats source declarations on g/div/span; SVG repeats them on g/text.
-    // Each element resolves relative values against its own inherited font.
+
+
     let has_font = declarations.iter().any(|(_, declaration)| {
         matches!(
             declaration.property(),
@@ -64,24 +78,29 @@ pub(super) fn source_text_style(
     } else {
         2
     };
+
     for _ in 0..styled_elements {
         let mut cascade = crate::mermaid_style::TextStyleCascade::new(
             &style,
             crate::mermaid_style::CssFontSizeContext::new(style.font_size, inherited.font_size),
         );
+
         for (_, declaration) in &declarations {
             cascade.observe_declaration(declaration);
         }
+
         style = cascade.finish().into_owned();
     }
+
     if !html {
-        // createText's inner word resets inherited weight/style, not size/family.
+
         style = crate::text::svg_markdown_word_style(
             &style,
             crate::text::MermaidMarkdownWordType::Normal,
         )
         .into_owned();
     }
+
     style
 }
 
@@ -170,6 +189,7 @@ pub(crate) struct BlockNodeTerminalBinding {
     pub(crate) html_paragraph_color: Option<String>,
 }
 
+#[must_use]
 pub(crate) fn lower(
     styles: &[String],
     fill: Option<&str>,
@@ -180,17 +200,22 @@ pub(crate) fn lower(
     let mut text_style = String::new();
     let mut div_prefix = String::new();
     let mut svg_text_style = String::new();
+
     for (raw, parsed) in source_style_winners(styles) {
         let key = parsed.property();
+
         if is_box_style_key(key) {
             box_style.push_str(raw);
             box_style.push(';');
         }
+
         if !crate::mermaid_style::is_label_style_key(key) {
             continue;
         }
+
         text_style.push_str(raw);
         text_style.push(';');
+
         if key == "color" {
             let value = parsed.source_value();
             let _ = write!(&mut svg_text_style, "fill:{value};");
@@ -208,13 +233,21 @@ pub(crate) fn lower(
     }
 
     for (key, value) in [("fill", fill), ("stroke", stroke)] {
-        if let Some(value) = value {
-            let _ = write!(box_style, "{key}:{value};");
+        match value {
+            Some(value_2) => {
+                let _ = write!(box_style, "{key}:{value};", value = value_2);
+            },
+            ::core::option::Option::None => {},
         }
     }
-    if let Some(value) = label {
-        let _ = write!(svg_text_style, "fill:{value};");
+
+    match label {
+        Some(value) => {
+            let _ = write!(svg_text_style, "fill:{value};");
+        },
+        ::core::option::Option::None => {},
     }
+
     BlockNodeTerminalBinding {
         html_paragraph_color: label.map(str::to_owned),
         box_style,

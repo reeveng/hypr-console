@@ -38,7 +38,7 @@ impl Platform for OtherOs {
   type Executable = u64;
   type Error = PlatformError;
 
-  fn resolve(&self, _executable: Executable) -> Result<u64, PlatformError> {
+  fn resolve(&mut self, _executable: Executable) -> Result<u64, PlatformError> {
     match self.failure {
       Some(PlatformError::Resolution) => Err(PlatformError::Resolution),
       None | Some(PlatformError::Execution) => Ok(self.executable),

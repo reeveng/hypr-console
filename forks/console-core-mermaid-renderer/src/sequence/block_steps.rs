@@ -47,13 +47,14 @@ impl SequenceBlockLabelBoxMetrics {
             terminal_height: LEGACY_SEQUENCE_BLOCK_LABEL_BOX_HEIGHT,
             typography_expanded: false,
         };
-        // Authored Mermaid fonts preserve drawLoop's configured geometry. Only typed
-        // typography adds measured space beyond the upstream label-box contract.
+
+
         if !typography.has_typed_typography() {
             return Ok(legacy);
         }
 
         let mut present = [false; SEQUENCE_BLOCK_CONTROL_LABELS.len()];
+
         for message in &model.messages {
             let index = match message.message_type {
                 10 => Some(0),
@@ -64,18 +65,24 @@ impl SequenceBlockLabelBoxMetrics {
                 30 => Some(5),
                 _ => None,
             };
-            if let Some(index) = index {
-                present[index] = true;
+
+            match index {
+                Some(index_2) => {
+                    present[index_2] = true;
+                },
+                ::core::option::Option::None => {},
             }
         }
 
         let mut measured_width: f64 = 0.0;
         let mut measured_height: f64 = 0.0;
         let mut measured_any = false;
+
         for (label, is_present) in SEQUENCE_BLOCK_CONTROL_LABELS.iter().zip(present) {
             if !is_present {
                 continue;
             }
+
             let (width, height) = measure_svg_like_with_html_br(
                 measurer,
                 label,
@@ -86,6 +93,7 @@ impl SequenceBlockLabelBoxMetrics {
             measured_height = measured_height.max(height);
             measured_any = true;
         }
+
         if !measured_any {
             return Ok(legacy);
         }
@@ -102,18 +110,22 @@ impl SequenceBlockLabelBoxMetrics {
         })
     }
 
+    #[must_use]
     pub(crate) const fn width(self) -> f64 {
         self.width
     }
 
+    #[must_use]
     pub(crate) const fn layout_height(self) -> f64 {
         self.layout_height
     }
 
+    #[must_use]
     pub(crate) const fn terminal_height(self) -> f64 {
         self.terminal_height
     }
 
+    #[must_use]
     pub(crate) const fn typography_expanded(self) -> bool {
         self.typography_expanded
     }
@@ -161,19 +173,23 @@ pub(super) fn plan_sequence_blocks(ctx: BlockStepPlanContext<'_>) -> Result<Sequ
     };
 
     let mut directive_steps = HashMap::new();
+
     for (message_index, msg) in ctx.model.messages.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(message_index)?;
+
         if !is_block_label_directive(msg) {
             continue;
         }
-        // Mermaid wraps block labels against the computed loop width. The label box occupies
-        // only the leading part of the frame; it does not cap the available loop text width.
+
+
+
         let frame_width = widths_by_id.get(&msg.id).copied();
         directive_steps.insert(
             msg.id.clone(),
-            block_label_step(msg, frame_width, frame_ctx, step_ctx)?,
+            { let checked_value = block_label_step(msg, frame_width, frame_ctx, step_ctx)?; checked_value },
         );
     }
+
     ctx.checkpoints.checkpoint()?;
 
     Ok(SequenceBlockPlan { directive_steps })
@@ -188,29 +204,36 @@ pub(super) fn calculate_sequence_block_widths(
         ctx.checkpoints,
     )?;
     let mut widths_by_id = HashMap::with_capacity(bounds_by_id.len());
+
     for (index, (id, bounds)) in bounds_by_id.into_iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(index)?;
         widths_by_id.insert(id, bounds.width);
     }
+
     Ok(widths_by_id)
 }
 
+#[must_use]
 pub(super) fn is_block_start(message: &SequenceMessage) -> bool {
     is_block_role(message, SequenceControlRole::Start)
 }
 
+#[must_use]
 pub(super) fn is_block_section(message: &SequenceMessage) -> bool {
     is_block_role(message, SequenceControlRole::Separator)
 }
 
+#[must_use]
 pub(super) fn is_block_end(message: &SequenceMessage) -> bool {
     is_block_role(message, SequenceControlRole::End)
 }
 
+#[must_use]
 fn is_block_label_directive(message: &SequenceMessage) -> bool {
     is_block_start(message) || is_block_section(message)
 }
 
+#[must_use]
 fn is_block_role(message: &SequenceMessage, role: SequenceControlRole) -> bool {
     message.control_semantics().is_some_and(|semantics| {
         semantics.kind != SequenceControlKind::Rect && semantics.role == role
@@ -224,6 +247,7 @@ fn block_label_step(
     step_ctx: BlockStepContext,
 ) -> Result<f64> {
     let raw_label = message.message_text();
+
     if raw_label.trim().is_empty() {
         return Ok(step_ctx.block_base_step_empty);
     }
@@ -234,13 +258,19 @@ fn block_label_step(
         &label,
         frame_ctx.math_terminal_style,
     );
-    if let Some((_, height)) = measure_prepared_sequence_math_label(
-        prepared_math.as_deref(),
-        frame_ctx.loop_text_style,
-        SequenceMathHeightMode::Bound,
-        frame_ctx.checkpoints.text(),
-    )? {
-        return Ok(step_ctx.block_base_step_empty + height.max(step_ctx.label_box_height));
+
+    let checked_value = measure_prepared_sequence_math_label(
+            prepared_math.as_deref(),
+            frame_ctx.loop_text_style,
+            SequenceMathHeightMode::Bound,
+            frame_ctx.checkpoints.text(),
+        )?;
+
+    match checked_value {
+        Some((_, height)) => {
+            return Ok(step_ctx.block_base_step_empty + height.max(step_ctx.label_box_height));
+        },
+        ::core::option::Option::None => {},
     }
 
     let measured_label = match frame_width {
@@ -295,6 +325,7 @@ struct BlockStepContext {
 }
 
 impl<'a> BlockStepPlanContext<'a> {
+    #[must_use]
     fn frame_width_context(self) -> BlockFrameWidthContext<'a> {
         BlockFrameWidthContext {
             actor_index: self.actor_index,
@@ -329,6 +360,7 @@ struct BlockHorizontalBounds {
 }
 
 impl BlockHorizontalBounds {
+    #[must_use]
     fn empty() -> Self {
         Self {
             from: f64::INFINITY,
@@ -340,8 +372,8 @@ impl BlockHorizontalBounds {
 
 #[derive(Debug, Clone, Copy)]
 struct BlockBoundsSummary {
-    // For input bounds (F, T, W), width becomes:
-    // max(W + p, T - F + r, T + t, -F + f, c).
+
+
     min_from: f64,
     max_to: f64,
     prior_width_offset: f64,
@@ -352,6 +384,7 @@ struct BlockBoundsSummary {
 }
 
 impl BlockBoundsSummary {
+    #[must_use]
     fn identity() -> Self {
         Self {
             min_from: f64::INFINITY,
@@ -364,6 +397,7 @@ impl BlockBoundsSummary {
         }
     }
 
+    #[must_use]
     fn fixed_width(from: f64, to: f64, width: f64, label_box_width: f64) -> Self {
         Self {
             min_from: from,
@@ -376,6 +410,7 @@ impl BlockBoundsSummary {
         }
     }
 
+    #[must_use]
     fn envelope_width(from: f64, to: f64, label_box_width: f64) -> Self {
         Self {
             min_from: from,
@@ -388,6 +423,7 @@ impl BlockBoundsSummary {
         }
     }
 
+    #[must_use]
     fn then(self, next: Self) -> Self {
         Self {
             min_from: self.min_from.min(next.min_from),
@@ -409,12 +445,13 @@ impl BlockBoundsSummary {
         }
     }
 
+    #[must_use]
     fn resolve(self) -> BlockHorizontalBounds {
-        if self.min_from == f64::INFINITY && self.max_to == f64::NEG_INFINITY {
+        if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&self.min_from, &f64::INFINITY) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&self.max_to, &f64::NEG_INFINITY) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
             return BlockHorizontalBounds::empty();
         }
 
-        // Every block summary is ultimately evaluated from the empty (F, T, W) state.
+
         let width = self.prior_width_offset.max(self.constant_width);
         BlockHorizontalBounds {
             from: self.min_from,
@@ -424,12 +461,13 @@ impl BlockBoundsSummary {
     }
 }
 
+#[must_use]
 fn message_bounds_summary(
     msg: &SequenceMessage,
     model: SequenceMessageHorizontalModel,
     ctx: BlockFrameWidthContext<'_>,
 ) -> Option<BlockBoundsSummary> {
-    if model.start_x == model.stop_x {
+    if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&model.start_x, &model.stop_x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
         let actor_id = msg.from.as_deref()?;
         let actor_index = ctx.actor_index.get(actor_id).copied()?;
         let actor_center_x = ctx.actor_centers_x.get(actor_index).copied()?;
@@ -459,6 +497,7 @@ struct OpenBlock {
 }
 
 impl OpenBlock {
+    #[must_use]
     fn new(id: String) -> Self {
         Self {
             aliases: vec![id],
@@ -482,36 +521,56 @@ fn calculate_sequence_block_bounds(
 
     for (message_index, msg) in messages.iter().enumerate() {
         checkpoints.checkpoint_loop(message_index)?;
+
         if is_block_start(msg) {
             stack.push(OpenBlock::new(msg.id.clone()));
             continue;
         }
+
         if is_block_section(msg) {
             if !msg.message_text().is_empty()
                 && let Some(current) = stack.last_mut()
             {
                 current.aliases.push(msg.id.clone());
             }
+
             continue;
         }
+
         if is_block_end(msg) {
-            if let Some(current) = stack.pop() {
-                if let Some(parent) = stack.last_mut() {
-                    parent.include(current.summary);
-                }
-                let bounds = current.summary.resolve();
-                for (alias_index, alias) in current.aliases.into_iter().enumerate() {
-                    checkpoints.checkpoint_loop(alias_index)?;
-                    completed.insert(alias, bounds);
-                }
+            match stack.pop() {
+                Some(current) => {
+                    match stack.last_mut() {
+                        Some(parent) => {
+                            parent.include(current.summary);
+                        },
+                        ::core::option::Option::None => {},
+                    }
+
+                    let bounds = current.summary.resolve();
+
+                    for (alias_index, alias) in current.aliases.into_iter().enumerate() {
+                        checkpoints.checkpoint_loop(alias_index)?;
+                        completed.insert(alias, bounds);
+                    }
+                },
+                ::core::option::Option::None => {},
             }
+
             continue;
         }
+
         if activation_state.handle_directive(msg, ctx.actor_index, ctx.actor_centers_x) {
             continue;
         }
-        let Some(current) = stack.last_mut() else {
-            continue;
+
+        let current = {
+            let optional_current = stack.last_mut();
+
+            match optional_current {
+                Some(matched_current) => matched_current,
+                ::core::option::Option::None => continue,
+            }
         };
 
         if msg.placement.is_some() {
@@ -537,6 +596,7 @@ fn calculate_sequence_block_bounds(
             else {
                 continue;
             };
+
             current.include(BlockBoundsSummary::envelope_width(
                 note.start_x,
                 note.start_x + note.width,
@@ -565,8 +625,14 @@ fn calculate_sequence_block_bounds(
         else {
             continue;
         };
-        if let Some(summary) = message_bounds_summary(msg, message, ctx) {
-            current.include(summary);
+
+        {
+            match message_bounds_summary(msg, message, ctx) {
+                Some(summary) => {
+                    current.include(summary);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 

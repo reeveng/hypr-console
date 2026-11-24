@@ -35,6 +35,7 @@ pub(super) struct ArchitectureSurfaceThemePlan {
 }
 
 impl ArchitectureSurfaceThemePlan {
+    #[must_use]
     pub(super) fn baseline() -> Self {
         Self {
             theme: None,
@@ -45,23 +46,26 @@ impl ArchitectureSurfaceThemePlan {
         }
     }
 
+    #[must_use]
     pub(super) fn resolve(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &PresentationConfig,
     ) -> Self {
-        let title_keys = theme
-            .map(|theme| {
-                theme
+        let title_keys = match theme
+            .map(|theme_2| {
+                theme_2
                     .family_mechanism_routes()
                     .iter()
                     .copied()
                     .filter(|route| mechanism_target(route.mechanism()) == Some(ThemeTarget::Title))
-                    .map(|route| theme.family_mechanism_key(route))
+                    .map(|route| theme_2.family_mechanism_key(route))
                     .collect::<BTreeSet<_>>()
                     .into_iter()
                     .collect::<Vec<_>>()
-            })
-            .unwrap_or_default()
+            }) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        }
             .into_boxed_slice();
         Self {
             theme: theme.cloned(),
@@ -80,9 +84,15 @@ impl ArchitectureSurfaceThemePlan {
         edges: impl IntoIterator<Item = ArchitectureEdgeTerminal>,
         work_meter: &OperationWorkMeter,
     ) -> Result<Option<ArchitectureSurfaceRenderState>, OperationWorkError> {
-        let Some(theme) = self.theme.as_ref() else {
-            return Ok(None);
+        let theme = {
+            let optional_theme = self.theme.as_ref();
+
+            match optional_theme {
+                Some(matched_theme) => matched_theme,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         if !theme.family_mechanism_routes().iter().any(|route| {
             mechanism_target(route.mechanism()).is_some_and(is_architecture_terminal_surface_target)
         }) {
@@ -109,26 +119,33 @@ impl ArchitectureSurfaceThemePlan {
         evidence: &mut FamilyThemeOutcomes,
         emission: Option<&ArchitectureSurfaceRenderState>,
     ) {
-        // The Cytoscape SVG writer emits service/group labels, but never model.title or a
-        // frontmatter diagram title. Those labels retain their own semantic paint targets.
+
+
         for key in &self.title_keys {
             evidence.mark_not_applicable(key.clone());
         }
-        if let Some(emission) = emission {
-            emission.apply_to_evidence(evidence);
+
+        match emission {
+            Some(emission_2) => {
+                emission_2.apply_to_evidence(evidence);
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
 
+#[must_use]
 fn mermaid_owns_arrow_fill(config: &PresentationConfig) -> bool {
     if config.config_paint_overrides_typed_default(ARCH_EDGE_ARROW_COLOR_PATH) {
         return true;
     }
+
     if config.config_paint_overrides_typed_default(ARCH_EDGE_COLOR_PATH)
         && config.get_str(ARCH_EDGE_ARROW_COLOR_PATH) == config.get_str(ARCH_EDGE_COLOR_PATH)
     {
         return true;
     }
+
     config.config_paint_overrides_typed_default(LINE_COLOR_PATH)
         && config.get_str(ARCH_EDGE_COLOR_PATH) == config.get_str(LINE_COLOR_PATH)
         && config.get_str(ARCH_EDGE_ARROW_COLOR_PATH) == config.get_str(ARCH_EDGE_COLOR_PATH)

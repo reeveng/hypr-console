@@ -1,36 +1,45 @@
 use super::super::*;
 use merman_model::families::gantt::{GanttDiagramRenderModel, GanttRenderTask};
 
-// Gantt diagram SVG renderer implementation (split from parity.rs).
 
+
+#[must_use]
 fn gantt_scale_time_round(ms: i64, min_ms: i64, max_ms: i64, range: f64) -> f64 {
     if max_ms <= min_ms {
-        // D3 scaleTime returns the midpoint of the range for degenerate domains.
+
         return (range / 2.0).round();
     }
+
     let t = (ms - min_ms) as f64 / (max_ms - min_ms) as f64;
     (t * range).round()
 }
 
+#[must_use]
 fn fmt_allow_nan(v: f64) -> String {
     if v.is_nan() {
         return "NaN".to_string();
     }
+
     fmt_string(v)
 }
 
+#[must_use]
 fn gantt_dom_id(diagram_id: SvgDiagramId<'_>, raw_id: &str) -> String {
     format!("{diagram_id}-{raw_id}")
 }
 
+#[must_use]
 fn gantt_insert_before_width(base: &str, insert: &str) -> String {
-    let insert = insert.trim();
-    if insert.is_empty() {
+    let insert_2 = insert.trim();
+
+    if insert_2.is_empty() {
         return base.to_string();
     }
+
     let mut parts: Vec<&str> = base.split_whitespace().collect();
-    let insert_parts: Vec<&str> = insert.split_whitespace().collect();
+    let insert_parts: Vec<&str> = insert_2.split_whitespace().collect();
     let idx = parts.iter().position(|p| p.starts_with("width-"));
+
     match idx {
         Some(i) => {
             for (off, p) in insert_parts.iter().enumerate() {
@@ -39,6 +48,7 @@ fn gantt_insert_before_width(base: &str, insert: &str) -> String {
         }
         None => parts.extend(insert_parts),
     }
+
     parts.join(" ")
 }
 
@@ -64,6 +74,7 @@ fn render_gantt_axis_ticks(
             fmt(tick_size)
         );
         out.checkpoint()?;
+
         if with_dy {
             let _ = write!(
                 out,
@@ -77,9 +88,11 @@ fn render_gantt_axis_ticks(
                 escape_xml(&t.label)
             );
         }
-        if let Some(receipt) = receipt.as_mut() {
-            receipt.record_grid_text(&t.label);
+
+        if let Some(receipt_2) = receipt.as_mut() {
+            receipt_2.record_grid_text(&t.label);
         }
+
         out.push_str("</g>");
         out.checkpoint()?;
     }
@@ -96,9 +109,9 @@ fn render_gantt_axis_group(
     receipt: &mut Option<crate::gantt::GanttTaskThemeReceipt>,
 ) -> Result<()> {
     let range = (layout.width - layout.left_padding - layout.right_padding).max(1.0);
-    // Mermaid renders two possible axis grids:
-    // - bottom axis (ticks extend upward, label baseline uses `dy="1em"` at `y="3"`)
-    // - optional top axis (ticks extend downward, labels use `dy="0em"` at `y="-3"`)
+
+
+
     let tick_size = if with_dy {
         -layout.height + layout.top_padding + layout.grid_line_start_padding
     } else {
@@ -184,6 +197,7 @@ pub(crate) fn render_gantt_diagram_svg_model(
             text = escape_xml(title)
         );
     }
+
     if let Some(descr) = acc_descr {
         let _ = write!(
             &mut out,
@@ -192,12 +206,14 @@ pub(crate) fn render_gantt_diagram_svg_model(
             text = escape_xml(descr)
         );
     }
+
     out.checkpoint()?;
 
     let mut task_theme_receipt = task_theme.begin_terminal_receipt();
     out.push_str("<style>");
     out.checkpoint()?;
     let css = gantt_css(diagram_id, task_theme);
+
     if let Some(receipt) = task_theme_receipt.as_mut() {
         receipt.record_global_css(
             diagram_id.semantic_str(),
@@ -205,6 +221,7 @@ pub(crate) fn render_gantt_diagram_svg_model(
             task_theme.font_family_css(),
         );
     }
+
     super::super::output::XmlTextOutput::new(&mut out).push_str(&css);
     drop(css);
     out.checkpoint()?;
@@ -220,32 +237,36 @@ pub(crate) fn render_gantt_diagram_svg_model(
     };
     let range = (w - layout.left_padding - layout.right_padding).max(1.0);
     let gap = layout.bar_height + layout.bar_gap;
-    // Mermaid's Gantt renderer assigns this custom attribute before the final SVG cleanup.
-    // Loose security skips DOMPurify, while every sanitized mode removes the attribute.
+
+
     let preserve_task_text_height = effective_config
         .get("securityLevel")
         .and_then(serde_json::Value::as_str)
         == Some("loose");
     let local_time_zone = options.local_time_zone();
-    let min_day_start_ms = crate::gantt::start_of_day_ms(min_ms, local_time_zone).unwrap_or(min_ms);
+    let min_day_start_ms = match crate::gantt::start_of_day_ms(min_ms, local_time_zone) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => min_ms,
+    };
     let min_in_day_offset_ms = (min_ms - min_day_start_ms).max(0);
 
-    // Exclude layer (drawn before the grid in Mermaid).
+
     if layout.has_excludes_layer {
         if layout.excludes.is_empty() {
             out.push_str("<g/>");
         } else {
             out.push_str("<g>");
             out.checkpoint()?;
+
             for (i, r) in layout.excludes.iter().enumerate() {
-                // Mermaid's gantt exclude rectangles use a slightly unintuitive origin:
-                //
-                // - `x`/`width` are based on `startOf('day')` / `endOf('day')`
-                // - `transform-origin` uses the raw `dayjs(minTime)` time-of-day offset:
-                //   `timeScale(d.start) + sidePad + 0.5*(timeScale(d.end)-timeScale(d.start))`
-                //
-                // This matters when date-only inputs are parsed with a timezone-derived offset
-                // (e.g. `YYYY-MM-DD` treated as UTC midnight and shifted when rendered locally).
+
+
+
+
+
+
+
+
                 let start_day_start_ms = crate::gantt::start_of_day_ms(r.start_ms, local_time_zone)
                     .unwrap_or(r.start_ms);
                 let end_day_start_ms =
@@ -271,8 +292,10 @@ pub(crate) fn render_gantt_diagram_svg_model(
                 );
                 out.checkpoint()?;
             }
+
             out.push_str("</g>");
         }
+
         out.checkpoint()?;
     }
 
@@ -302,6 +325,7 @@ pub(crate) fn render_gantt_diagram_svg_model(
     } else {
         out.push_str("<g>");
         out.checkpoint()?;
+
         for r in &layout.rows {
             let _ = write!(
                 &mut out,
@@ -314,19 +338,23 @@ pub(crate) fn render_gantt_diagram_svg_model(
             );
             out.checkpoint()?;
         }
+
         out.push_str("</g>");
     }
+
     out.checkpoint()?;
 
     let mut tasks_in_draw_order: Vec<(usize, &crate::model::GanttTaskLayout)> =
         layout.tasks.iter().enumerate().collect();
     tasks_in_draw_order.sort_by(|(ai, a), (bi, b)| a.vert.cmp(&b.vert).then(ai.cmp(bi)));
+
     if let Some(receipt) = task_theme_receipt.as_mut() {
         receipt.record_typography_css(task_theme.font_family_css());
     }
 
     let mut semantic_task_by_id: std::collections::HashMap<&str, &GanttRenderTask> =
         std::collections::HashMap::new();
+
     for task in &model.tasks {
         semantic_task_by_id.insert(task.id.as_str(), task);
     }
@@ -360,16 +388,21 @@ pub(crate) fn render_gantt_diagram_svg_model(
                 layout.number_section_styles,
             );
             let _ = write!(&mut out, r#" id="{}""#, escape_attr(&terminal_id));
+
             if terminal_fill.is_some() || terminal_stroke.is_some() {
                 let mut style = String::new();
+
                 if let Some(fill) = terminal_fill {
                     let _ = write!(&mut style, "fill:{fill};");
                 }
+
                 if let Some(stroke) = terminal_stroke {
                     let _ = write!(&mut style, "stroke:{stroke};");
                 }
+
                 let _ = write!(&mut out, r#" style="{}""#, escape_attr(&style));
             }
+
             let _ = write!(
                 &mut out,
                 r#" rx="{rx}" ry="{ry}" x="{x}" y="{y}" width="{w}" height="{h}" transform-origin="{origin}" class="{cls}"/>"#,
@@ -383,6 +416,7 @@ pub(crate) fn render_gantt_diagram_svg_model(
                 cls = escape_attr(&t.bar.class),
             );
             out.checkpoint()?;
+
             if let Some(receipt) = task_theme_receipt.as_mut() {
                 receipt.record_checkpointed_task(
                     *task_index,
@@ -396,11 +430,13 @@ pub(crate) fn render_gantt_diagram_svg_model(
                     terminal_fill,
                     terminal_stroke,
                 );
+
                 if t.vert {
                     receipt.record_vertical_terminal(*task_index, terminal_stroke);
                 }
             }
         }
+
         if let Some(receipt) = task_theme_receipt.as_mut() {
             receipt.record_vertical_terminal_visibility(layout.tasks.iter().any(|task| task.vert));
         }
@@ -408,6 +444,7 @@ pub(crate) fn render_gantt_diagram_svg_model(
         for (task_index, t) in &tasks_in_draw_order {
             let base_class = &t.label.class;
             let mut task_type_class = String::new();
+
             if let Some(task) = semantic_task_by_id.get(t.id.as_str()) {
                 let section_suffix = crate::gantt::gantt_section_class_suffix(
                     &task.task_type,
@@ -416,16 +453,20 @@ pub(crate) fn render_gantt_diagram_svg_model(
                 );
                 task_type_class =
                     crate::gantt::GanttTaskTheme::task_label_state_classes(task, &section_suffix);
+
                 if task.milestone {
                     if !task_type_class.is_empty() {
                         task_type_class.push(' ');
                     }
+
                     task_type_class.push_str("milestoneText");
                 }
+
                 if task.vert {
                     if !task_type_class.is_empty() {
                         task_type_class.push(' ');
                     }
+
                     task_type_class.push_str("vertText");
                 }
             }
@@ -441,6 +482,7 @@ pub(crate) fn render_gantt_diagram_svg_model(
             );
             let terminal_label_fill =
                 task_theme.terminal_label_fill_for_layout_task(*task_index, &class);
+
             if let Some(fill) = terminal_label_fill {
                 let _ = write!(
                     &mut out,
@@ -448,10 +490,13 @@ pub(crate) fn render_gantt_diagram_svg_model(
                     escape_attr(fill)
                 );
             }
+
             options.checkpoint_emit()?;
+
             if preserve_task_text_height {
                 let _ = write!(&mut out, r#" text-height="{}""#, fmt(layout.bar_height));
             }
+
             let _ = write!(
                 &mut out,
                 r#" class="{cls}">{txt}</text>"#,
@@ -459,11 +504,17 @@ pub(crate) fn render_gantt_diagram_svg_model(
                 txt = escape_xml(&t.label.text),
             );
             out.checkpoint()?;
+
             if let Some(receipt) = task_theme_receipt.as_mut() {
                 receipt.record_typography_text(&t.label.text);
-                if terminal_label_fill.is_none() {
-                    receipt.record_task_text(&t.label.text, &class);
+
+                match terminal_label_fill {
+                    ::core::option::Option::None => {
+                        receipt.record_task_text(&t.label.text, &class);
+                    },
+                    ::core::option::Option::Some(_) => {},
                 }
+
                 receipt.record_label_fill(
                     *task_index,
                     &class,
@@ -475,6 +526,7 @@ pub(crate) fn render_gantt_diagram_svg_model(
 
         out.push_str("</g>");
     }
+
     out.checkpoint()?;
 
     if layout.section_titles.is_empty() {
@@ -482,6 +534,7 @@ pub(crate) fn render_gantt_diagram_svg_model(
     } else {
         out.push_str("<g>");
         out.checkpoint()?;
+
         for st in &layout.section_titles {
             let _ = write!(
                 &mut out,
@@ -493,34 +546,43 @@ pub(crate) fn render_gantt_diagram_svg_model(
                 cls = escape_attr(&st.class),
             );
             out.checkpoint()?;
+
             for (j, line) in st.lines.iter().enumerate() {
-                if j == 0 {
-                    let _ = write!(
-                        &mut out,
-                        r#"<tspan alignment-baseline="central" x="{x}">{txt}</tspan>"#,
-                        x = fmt(st.x),
-                        txt = escape_xml(line)
-                    );
-                } else {
-                    let _ = write!(
-                        &mut out,
-                        r#"<tspan alignment-baseline="central" x="{x}" dy="1em">{txt}</tspan>"#,
-                        x = fmt(st.x),
-                        txt = escape_xml(line)
-                    );
+                match j {
+                    0 => {
+                        let _ = write!(
+                            &mut out,
+                            r#"<tspan alignment-baseline="central" x="{x}">{txt}</tspan>"#,
+                            x = fmt(st.x),
+                            txt = escape_xml(line)
+                        );
+                    },
+                    _ => {
+                        let _ = write!(
+                            &mut out,
+                            r#"<tspan alignment-baseline="central" x="{x}" dy="1em">{txt}</tspan>"#,
+                            x = fmt(st.x),
+                            txt = escape_xml(line)
+                        );
+                    },
                 }
+
                 out.checkpoint()?;
             }
+
             out.push_str("</text>");
             out.checkpoint()?;
+
             if let Some(receipt) = task_theme_receipt.as_mut() {
                 for line in &st.lines {
                     receipt.record_title_text(line);
                 }
             }
         }
+
         out.push_str("</g>");
     }
+
     out.checkpoint()?;
 
     if model.today_marker.trim() != "off" {
@@ -543,33 +605,44 @@ pub(crate) fn render_gantt_diagram_svg_model(
         let style_raw = model.today_marker.trim();
         let emitted_style = if !style_raw.is_empty() && style_raw != "off" {
             let mut style = style_raw.to_string();
-            // Mermaid upstream mmdc output for `todayMarker stroke:#00f;opacity:0.5` ends up as
-            // `style="stroke:&00f;opacity:0.5"` (note the `#` → `&`), while comma-separated style
-            // strings preserve `#`. Mirror this quirk based on whether the raw marker contains `;`.
+
+
+
             if style.contains(';') {
                 style = style.replace('#', "&");
             }
+
             style = style.replace(',', ";");
             Some(style)
         } else {
             None
         };
+
         if let Some(style) = &emitted_style {
             let _ = write!(&mut out, r#" style="{}""#, escape_attr(style));
         }
+
         out.push_str("/></g>");
+
         if let Some(receipt) = task_theme_receipt.as_mut() {
             receipt.record_today_terminal(
                 !layout.tasks.is_empty(),
-                emitted_style.as_deref().unwrap_or_default(),
+                match emitted_style.as_deref() {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => "",
+                },
             );
         }
+
         out.checkpoint()?;
     } else if let Some(receipt) = task_theme_receipt.as_mut() {
         receipt.record_today_terminal(false, "");
     }
 
-    let title = layout.title.as_deref().unwrap_or_default();
+    let title = match layout.title.as_deref() {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => "",
+    };
     let _ = write!(
         &mut out,
         r#"<text x="{x}" y="{y}" class="titleText">{txt}</text>"#,
@@ -577,17 +650,20 @@ pub(crate) fn render_gantt_diagram_svg_model(
         y = fmt(layout.title_y),
         txt = escape_xml(title),
     );
+
     if let Some(receipt) = task_theme_receipt.as_mut() {
         receipt.record_title_text(title);
     }
 
     out.push_str("</svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if task_theme_receipt.is_some_and(|receipt| !task_theme.record_terminal(receipt)) {
         return Err(crate::Error::InvalidModel {
             message: "Gantt task theme receipt did not match the terminal SVG".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 

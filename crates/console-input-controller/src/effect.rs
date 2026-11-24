@@ -11,6 +11,7 @@
 //! session -- is the binary's, like starting a program is.
 
 use console_core_never::Never;
+use console_core_state_machine::{EffectDependencies, Service};
 use console_input_event_devices::EventType;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,6 +47,19 @@ pub enum Effect {
   Tell(console_onscreen::PadInput),
   Using(console_input_bindings::bound::Input),
   Reconnected(Reconnected),
+}
+
+impl EffectDependencies for Effect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Run(_) => &[Service::Process],
+      Self::Dispatch(_) => &[Service::Compositor],
+      Self::Frame(_) => &[Service::Input],
+      Self::Tell(_) => &[Service::Panels],
+      Self::Using(_) => &[Service::Events, Service::FileSystem],
+      Self::Reconnected(_) => &[Service::Console],
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

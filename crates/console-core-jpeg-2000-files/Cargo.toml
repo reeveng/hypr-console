@@ -45,7 +45,7 @@ image = [
 ]
 logging = ["dep:console-core-logging"]
 simd = [
-    "fearless_simd",
+    "console-core-simd/std",
     "std",
 ]
 std = ["console-core-logging?/std"]
@@ -64,9 +64,8 @@ path = "../console-core-mq-decoding"
 path = "../console-core-bounded-reads"
 optional = true
 
-[dependencies.fearless_simd]
-version = "0.4.0"
-optional = true
+[dependencies.console-core-simd]
+workspace = true
 
 [dependencies.image]
 version = "0.25.10"

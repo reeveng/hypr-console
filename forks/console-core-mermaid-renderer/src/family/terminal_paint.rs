@@ -21,6 +21,7 @@ pub(crate) struct TerminalPaint {
 }
 
 impl TerminalPaint {
+    #[must_use]
     pub(crate) fn css(&self) -> &str {
         &self.css
     }
@@ -49,6 +50,7 @@ impl<'a> TerminalPaintPlan<'a> {
         if self.theme.is_some() {
             self.work_meter.charge(units)?;
         }
+
         Ok(())
     }
 
@@ -59,22 +61,29 @@ impl<'a> TerminalPaintPlan<'a> {
         work_meter: &'a OperationWorkMeter,
     ) -> crate::Result<Self> {
         let mut observations = BTreeMap::new();
-        if let Some(theme) = theme {
-            work_meter.charge(theme.family_mechanism_routes().len())?;
-            for route in theme.family_mechanism_routes().iter().copied() {
-                let target = match route.mechanism() {
-                    FamilyThemeMechanism::RuleFacet { target, .. }
-                    | FamilyThemeMechanism::OrdinalPalette { target }
-                    | FamilyThemeMechanism::EffectBinding { target, .. } => target,
-                    FamilyThemeMechanism::BaseTypography(_) => continue,
-                };
-                if owned_targets.contains(&target) {
-                    observations
-                        .entry(theme.family_mechanism_key(route))
-                        .or_default();
+
+        match theme {
+            Some(theme_2) => {
+                work_meter.charge(theme_2.family_mechanism_routes().len())?;
+
+                for route in theme_2.family_mechanism_routes().iter().copied() {
+                    let target = match route.mechanism() {
+                        FamilyThemeMechanism::RuleFacet { target, .. }
+                        | FamilyThemeMechanism::OrdinalPalette { target }
+                        | FamilyThemeMechanism::EffectBinding { target, .. } => target,
+                        FamilyThemeMechanism::BaseTypography(_) => continue,
+                    };
+
+                    if owned_targets.contains(&target) {
+                        observations
+                            .entry(theme_2.family_mechanism_key(route))
+                            .or_default();
+                    }
                 }
-            }
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(Self {
             theme,
             config,
@@ -90,9 +99,11 @@ impl<'a> TerminalPaintPlan<'a> {
         ordinal: usize,
         inherit_text: bool,
     ) -> crate::Result<Option<ResolvedThemeStyle>> {
-        let Some(theme) = self.theme else {
-            return Ok(None);
+        let theme = match self.theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(None),
         };
+
         let style = if inherit_text {
             theme.text_style_with_work_meter(
                 target,
@@ -110,14 +121,15 @@ impl<'a> TerminalPaintPlan<'a> {
         };
         self.work_meter
             .charge(theme.family_mechanism_routes().len())?;
+
         for route in theme.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
                     rule_index,
-                    target,
+                    target: target_2,
                     facet,
                     ..
-                } if self.owned_targets.contains(&target)
+                } if self.owned_targets.contains(&target_2)
                     && !matches!(
                         facet,
                         FamilyThemeRuleFacet::Fill(_) | FamilyThemeRuleFacet::Stroke(_)
@@ -143,9 +155,10 @@ impl<'a> TerminalPaintPlan<'a> {
                         FamilyThemeResidualReason::UnsupportedEffect,
                     );
                 }
-                _ => {}
+                FamilyThemeMechanism::BaseTypography(_) | FamilyThemeMechanism::RuleFacet { .. } | FamilyThemeMechanism::OrdinalPalette { .. } | FamilyThemeMechanism::EffectBinding { .. } => {}
             }
         }
+
         Ok(Some(style))
     }
 
@@ -159,22 +172,26 @@ impl<'a> TerminalPaintPlan<'a> {
         base: &str,
     ) -> Option<TerminalPaint> {
         let theme = self.theme?;
-        let style = style?;
+        let style_2 = style?;
+
         if source_paths
             .iter()
             .any(|path| self.config.config_paint_overrides_typed_default(path))
         {
             return None;
         }
+
         let resolution = match property {
-            ResolvedStyleProperty::Fill => style.fill_resolution(),
-            ResolvedStyleProperty::Stroke => style.stroke_resolution(),
-            _ => return None,
+            ResolvedStyleProperty::Fill => style_2.fill_resolution(),
+            ResolvedStyleProperty::Stroke => style_2.stroke_resolution(),
+            ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => return None,
         };
+
         if let Some(origin) = resolution.winner() {
             if !self.owned_targets.contains(&origin.target()) {
                 return None;
             }
+
             let facet = if property == ResolvedStyleProperty::Fill {
                 FamilyThemeRuleFacet::fill(resolution.specified())?
             } else {
@@ -187,21 +204,26 @@ impl<'a> TerminalPaintPlan<'a> {
             let direct = if property == ResolvedStyleProperty::Fill {
                 resolve_direct_static_fill(
                     theme,
-                    style,
+                    style_2,
                     &[origin.target()],
                     DirectStaticSelectorDomain::Default,
                 )
             } else {
                 resolve_direct_static_stroke(
                     theme,
-                    style,
+                    style_2,
                     &[origin.target()],
                     DirectStaticSelectorDomain::Default,
                 )
             };
-            if let Some(paint) = direct {
-                return Some(self.expect(key, paint.css().into(), paint.capability()));
+
+            match direct {
+                Some(paint) => {
+                    return Some(self.expect(key, <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(paint.css()), paint.capability()));
+                },
+                ::core::option::Option::None => {},
             }
+
             if matches!(resolution.specified(), Specified::Clear)
                 && origin.ordinal().is_none()
                 && matches!(origin.variant(), None | Some(ThemeVariant::Default))
@@ -211,37 +233,46 @@ impl<'a> TerminalPaintPlan<'a> {
                 if base.eq_ignore_ascii_case("none")
                     || crate::mermaid_style::is_safe_browser_css_color_value(base)
                 {
-                    return Some(self.expect(key, base.into(), ThemeCapability::SemanticRules));
+                    return Some(self.expect(key, <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(base), ThemeCapability::SemanticRules));
                 }
+
                 self.residual(key, FamilyThemeResidualReason::UnsupportedPaint);
                 return None;
             }
+
             self.residual(key, unsupported_residual_for_facet(facet));
         } else if property == ResolvedStyleProperty::Fill
             && let Some(disposition) = theme.ordinal_palette_disposition(target)
         {
             let key = FamilyThemeMechanismKey::OrdinalPalette { target };
+
             if target == ThemeTarget::Node && disposition == FamilyThemeDisposition::TypedAdapter {
-                if let Some(color) = theme.series_color(target, ordinal) {
-                    self.observations
-                        .entry(key.clone())
-                        .or_default()
-                        .capabilities
-                        .insert(if color.is_transparent() {
-                            ThemeCapability::TransparentPaint
-                        } else {
-                            ThemeCapability::SolidPaint
-                        });
-                    return Some(self.expect(
-                        key,
-                        color.as_css().into_boxed_str(),
-                        ThemeCapability::OrdinalPalette,
-                    ));
+                {
+                    match theme.series_color(target, ordinal) {
+                        Some(color) => {
+                            self.observations
+                                .entry(key.clone())
+                                .or_default()
+                                .capabilities
+                                .insert(if color.is_transparent() {
+                                    ThemeCapability::TransparentPaint
+                                } else {
+                                    ThemeCapability::SolidPaint
+                                });
+                            return Some(self.expect(
+                                key,
+                                color.as_css().into_boxed_str(),
+                                ThemeCapability::OrdinalPalette,
+                            ));
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             } else {
                 self.residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette);
             }
         }
+
         None
     }
 
@@ -252,12 +283,17 @@ impl<'a> TerminalPaintPlan<'a> {
         style: Option<&ResolvedThemeStyle>,
         property: ResolvedStyleProperty,
     ) {
-        let Some(style) = style else { return };
-        let resolution = if property == ResolvedStyleProperty::Fill {
-            style.fill_resolution()
-        } else {
-            style.stroke_resolution()
+        let style_2 = match style {
+            Some(matched_style) => matched_style,
+            ::core::option::Option::None => return,
         };
+
+        let resolution = if property == ResolvedStyleProperty::Fill {
+            style_2.fill_resolution()
+        } else {
+            style_2.stroke_resolution()
+        };
+
         if let Some(origin) = resolution
             .winner()
             .filter(|origin| self.owned_targets.contains(&origin.target()))
@@ -303,18 +339,20 @@ impl<'a> TerminalPaintPlan<'a> {
     }
 
     pub(crate) fn record(&mut self, paint: Option<&TerminalPaint>, emitted: &str) {
-        if let Some(paint) = paint
-            && paint.css() == emitted
+        if let Some(paint_2) = paint
+            && paint_2.css() == emitted
         {
             self.observations
-                .entry(paint.key.clone())
+                .entry(paint_2.key.clone())
                 .or_default()
                 .emitted += 1;
         }
     }
 
+    #[must_use]
     pub(crate) fn finish(self) -> FamilyThemeOutcomes {
         let mut outcomes = FamilyThemeOutcomes::default();
+
         for (key, observation) in self.observations {
             if let Some(reason) = observation.residual {
                 outcomes.mark_residual(key, reason);
@@ -326,6 +364,7 @@ impl<'a> TerminalPaintPlan<'a> {
                 outcomes.mark_residual(key, FamilyThemeResidualReason::UnsupportedPaint);
             }
         }
+
         outcomes
     }
 }

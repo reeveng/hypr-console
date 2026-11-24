@@ -1,0 +1,12 @@
+{
+  "name": "OBS stream status",
+  "text": "•",
+  "application": "com.obsproject.Studio.desktop",
+  "requires-application": true,
+  "states": {
+    "idle": "plain",
+    "live": "accent",
+    "limited": "warning",
+    "unavailable": "error"
+  }
+}

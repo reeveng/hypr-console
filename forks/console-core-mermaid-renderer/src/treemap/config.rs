@@ -14,50 +14,70 @@ pub(crate) struct TreemapConfigView<'a> {
 }
 
 impl<'a> TreemapConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             treemap_config: effective_config.get("treemap").unwrap_or(&Value::Null),
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> TreemapLayoutSettings {
-        // Mermaid treemap defaults live in `defaultConfig.ts`, not in the YAML schema.
-        // Keep these in sync with:
-        // - `repo-ref/mermaid/packages/mermaid/src/defaultConfig.ts`
-        // - `repo-ref/mermaid/packages/mermaid/src/diagrams/treemap/renderer.ts`
+
+
+
+
         TreemapLayoutSettings {
-            use_max_width: self
-                .treemap_bool("useMaxWidth")
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
-            padding: self
-                .treemap_f64("padding")
-                .unwrap_or(DEFAULT_PADDING)
+            use_max_width: match self
+                .treemap_bool("useMaxWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
+            padding: match self
+                .treemap_f64("padding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_PADDING,
+            }
                 .max(0.0),
-            diagram_padding: self
-                .treemap_f64("diagramPadding")
-                .unwrap_or(DEFAULT_DIAGRAM_PADDING)
+            diagram_padding: match self
+                .treemap_f64("diagramPadding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_DIAGRAM_PADDING,
+            }
                 .max(0.0),
-            show_values: self
-                .treemap_bool("showValues")
-                .unwrap_or(DEFAULT_SHOW_VALUES),
-            node_width: self.treemap_f64("nodeWidth").unwrap_or(DEFAULT_NODE_WIDTH),
-            node_height: self
-                .treemap_f64("nodeHeight")
-                .unwrap_or(DEFAULT_NODE_HEIGHT),
-            value_format: self
-                .treemap_string("valueFormat")
-                .unwrap_or_else(|| DEFAULT_VALUE_FORMAT.to_string()),
+            show_values: match self
+                .treemap_bool("showValues") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_SHOW_VALUES,
+            },
+            node_width: match self.treemap_f64("nodeWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_NODE_WIDTH,
+            },
+            node_height: match self
+                .treemap_f64("nodeHeight") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_NODE_HEIGHT,
+            },
+            value_format: match self
+                .treemap_string("valueFormat") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_VALUE_FORMAT.to_string(),
+            },
         }
     }
 
+    #[must_use]
     fn treemap_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.treemap_config, &[key])
     }
 
+    #[must_use]
     fn treemap_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.treemap_config, &[key])
     }
 
+    #[must_use]
     fn treemap_string(&self, key: &str) -> Option<String> {
         config_string(self.treemap_config, &[key])
     }

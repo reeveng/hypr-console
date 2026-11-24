@@ -11,6 +11,7 @@ struct LaneTitle {
     rect: RectBounds,
 }
 
+#[must_use]
 fn valid_title_rect(node: &WorkingNode) -> Option<RectBounds> {
     let rect = node.title_rect.as_ref()?;
     let values = [rect.left, rect.right, rect.top, rect.bottom];
@@ -23,6 +24,7 @@ fn valid_title_rect(node: &WorkingNode) -> Option<RectBounds> {
         })
 }
 
+#[must_use]
 fn top_lane_title_for(
     node: &WorkingNode,
     layout_direction: SwimlaneDirection,
@@ -31,16 +33,20 @@ fn top_lane_title_for(
         .requested_dir
         .as_deref()
         .unwrap_or(layout_direction.as_str());
+
     if ["LR", "RL", "BT"]
         .iter()
         .any(|excluded| direction.eq_ignore_ascii_case(excluded))
     {
         return None;
     }
+
     let rect = valid_title_rect(node)?;
+
     if !node.y.is_finite() || !node.height.is_finite() || node.height <= 0.0 {
         return None;
     }
+
     let title_width = rect.right - rect.left;
     let title_height = rect.bottom - rect.top;
     (title_height > 0.0 && title_width >= title_height).then(|| LaneTitle {
@@ -49,6 +55,7 @@ fn top_lane_title_for(
     })
 }
 
+#[must_use]
 fn left_lane_title_for(
     node: &WorkingNode,
     layout_direction: SwimlaneDirection,
@@ -61,10 +68,13 @@ fn left_lane_title_for(
     {
         return None;
     }
+
     let rect = valid_title_rect(node)?;
+
     if !node.x.is_finite() || !node.width.is_finite() || node.width <= 0.0 {
         return None;
     }
+
     let title_width = rect.right - rect.left;
     let title_height = rect.bottom - rect.top;
     (title_width > 0.0 && title_height >= title_width).then(|| LaneTitle {
@@ -73,6 +83,7 @@ fn left_lane_title_for(
     })
 }
 
+#[must_use]
 fn horizontal_segment_intersects_title(segment: &OrthogonalSegment, rect: RectBounds) -> bool {
     segment.horizontal
         && segment.a.y >= rect.top - EPSILON
@@ -80,6 +91,7 @@ fn horizontal_segment_intersects_title(segment: &OrthogonalSegment, rect: RectBo
         && overlap_length(segment.a.x, segment.b.x, rect.left, rect.right) >= MINIMUM_SHARED_LENGTH
 }
 
+#[must_use]
 fn vertical_segment_intersects_title(segment: &OrthogonalSegment, rect: RectBounds) -> bool {
     segment.vertical
         && segment.a.x >= rect.left - EPSILON
@@ -98,15 +110,19 @@ pub(in crate::swimlane::direction) fn lift_top_lane_title_bands_above_rails(
         .filter(|node| lane_model.is_lane(&node.id))
         .filter_map(|node| top_lane_title_for(node, layout.direction))
         .collect();
+
     if lanes.is_empty() {
         return Ok(());
     }
 
     let mut top_delta: f64 = 0.0;
+
     for edge in &layout.original_edges {
         let points = dedupe_consecutive_points(&edge.points, EPSILON);
+
         for segment in segments_for(&points) {
             work_budget.charge(lanes.len())?;
+
             for lane in &lanes {
                 if horizontal_segment_intersects_title(&segment, lane.rect) {
                     top_delta = top_delta.max(lane.rect.bottom - segment.a.y + CLEARANCE);
@@ -114,17 +130,25 @@ pub(in crate::swimlane::direction) fn lift_top_lane_title_bands_above_rails(
             }
         }
     }
+
     if top_delta <= EPSILON {
         return Ok(());
     }
 
     for lane in lanes {
-        let Some(node) = layout.nodes.get_mut(&lane.node_id) else {
-            continue;
+        let node = {
+            let optional_node = layout.nodes.get_mut(&lane.node_id);
+
+            match optional_node {
+                Some(matched_node) => matched_node,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !node.y.is_finite() || !node.height.is_finite() || node.height <= 0.0 {
             continue;
         }
+
         node.y -= top_delta / 2.0;
         node.height += top_delta;
         node.title_rect = Some(SwimlaneTitleRect {
@@ -134,6 +158,7 @@ pub(in crate::swimlane::direction) fn lift_top_lane_title_bands_above_rails(
             bottom: lane.rect.bottom - top_delta,
         });
     }
+
     Ok(())
 }
 
@@ -148,15 +173,19 @@ pub(in crate::swimlane::direction) fn shift_left_lane_title_bands_left_of_rails(
         .filter(|node| lane_model.is_lane(&node.id))
         .filter_map(|node| left_lane_title_for(node, layout.direction))
         .collect();
+
     if lanes.is_empty() {
         return Ok(());
     }
 
     let mut left_delta: f64 = 0.0;
+
     for edge in &layout.original_edges {
         let points = dedupe_consecutive_points(&edge.points, EPSILON);
+
         for segment in segments_for(&points) {
             work_budget.charge(lanes.len())?;
+
             for lane in &lanes {
                 if vertical_segment_intersects_title(&segment, lane.rect) {
                     left_delta = left_delta.max(lane.rect.right - segment.a.x + CLEARANCE);
@@ -167,17 +196,25 @@ pub(in crate::swimlane::direction) fn shift_left_lane_title_bands_left_of_rails(
             }
         }
     }
+
     if left_delta <= EPSILON {
         return Ok(());
     }
 
     for lane in lanes {
-        let Some(node) = layout.nodes.get_mut(&lane.node_id) else {
-            continue;
+        let node = {
+            let optional_node = layout.nodes.get_mut(&lane.node_id);
+
+            match optional_node {
+                Some(matched_node) => matched_node,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !node.x.is_finite() || !node.width.is_finite() || node.width <= 0.0 {
             continue;
         }
+
         node.x -= left_delta / 2.0;
         node.width += left_delta;
         node.title_rect = Some(SwimlaneTitleRect {
@@ -187,5 +224,6 @@ pub(in crate::swimlane::direction) fn shift_left_lane_title_bands_left_of_rails(
             bottom: lane.rect.bottom,
         });
     }
+
     Ok(())
 }

@@ -61,6 +61,7 @@ pub(super) struct FlowchartClusterStructuralSources {
 }
 
 impl FlowchartClusterStructuralSources {
+    #[must_use]
     pub(super) fn absent() -> Self {
         Self {
             fill: FlowchartSourceFacetStatus::Absent,
@@ -85,28 +86,37 @@ impl FlowchartClusterStructuralSources {
             |units| work.charge(units).map_err(Into::into),
         )?
         .foreground_status();
+
         for class in ["root", "clusters", "cluster"] {
-            let Some(declarations) = class_defs.get(class) else {
-                continue;
+            let declarations = {
+                let optional_declarations = class_defs.get(class);
+
+                match optional_declarations {
+                    Some(matched_declarations) => matched_declarations,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             for declaration in declarations {
                 work.charge(declaration.len())?;
             }
+
             let styles = crate::flowchart::FlowchartClassDefStyles::prepare(declarations);
-            // Native selectors reach rects or rough paths. HTML >* only reaches a native
-            // cluster rect from the cluster itself; rough paths have explicit paint attributes.
+
+
             if !html_labels || (class == "cluster" && !hand_drawn) {
-                for declaration in styles.shape.values() {
+                'over_declaration_2: for declaration in styles.shape.values() {
                     let status = match declaration.property() {
                         "fill" => &mut sources.fill,
                         "stroke" => &mut sources.stroke,
                         "stroke-width" => &mut sources.stroke_width,
-                        _ => continue,
+                        _ => continue 'over_declaration_2,
                     };
                     *status = FlowchartSourceFacetStatus::Unverified;
                 }
             }
         }
+
         Ok(sources)
     }
 }
@@ -133,6 +143,7 @@ impl FlowchartNodeTerminalSourceOwnership {
             residuals: Vec::new(),
         };
         owners.label_foreground = fonts.foreground_status();
+
         for (font_source, status, ordinary) in [
             (
                 fonts.font_stack.as_ref(),
@@ -145,22 +156,26 @@ impl FlowchartNodeTerminalSourceOwnership {
                 source.source_font_size_status(),
             ),
         ] {
-            let Some(font_source) = font_source else {
-                continue;
+            let font_source_2 = match font_source {
+                Some(matched_font_source) => matched_font_source,
+                ::core::option::Option::None => continue,
             };
-            *status = FlowchartSourceFacetStatus::from_parts(true, font_source.measurable());
-            // A content declaration remains specified below the ordinary label style;
-            // an admitted parent font cannot discharge its measurement residual.
-            if !font_source.measurable() && (font_source.owns_content() || ordinary.is_absent()) {
-                let declaration = font_source.declaration.bind(
+
+            *status = FlowchartSourceFacetStatus::from_parts(true, font_source_2.measurable());
+
+
+            if !font_source_2.measurable() && (font_source_2.owns_content() || ordinary.is_absent()) {
+                let declaration = font_source_2.declaration.bind(
                     crate::diagram_theme::SourceStyleProvenance::generated_class_css(
-                        std::sync::Arc::clone(&font_source.class_id),
+                        std::sync::Arc::clone(&font_source_2.class_id),
                         crate::diagram_theme::SourceStyleChannel::Stylesheet,
-                        font_source.ordinal,
+                        font_source_2.ordinal,
                     ),
                 );
-                let reason = super::style::label_source_residual_reason(&declaration, true)
-                    .unwrap_or(crate::diagram_theme::SourceStyleResidualReason::UnsupportedSurface);
+                let reason = match super::style::label_source_residual_reason(&declaration, true) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => crate::diagram_theme::SourceStyleResidualReason::UnsupportedSurface,
+                };
                 owners
                     .residuals
                     .push(crate::diagram_theme::SourceStyleResidual::from_declaration(
@@ -169,13 +184,17 @@ impl FlowchartNodeTerminalSourceOwnership {
                     ));
             }
         }
-        let Some(shape) = shape else {
+
+        let shape_2 = match shape {
+            Some(matched_shape) => matched_shape,
+            ::core::option::Option::None => return Ok(owners),
+        };
+
+        let Ok(shape_3) = FlowchartShape::resolve(shape_2) else {
             return Ok(owners);
         };
-        let Ok(shape) = FlowchartShape::resolve(shape) else {
-            return Ok(owners);
-        };
-        let (bpmn_shape, native_rectangle) = match shape {
+
+        let (bpmn_shape, native_rectangle) = match shape_3 {
             FlowchartShape::Process | FlowchartShape::RoundedRectangle => (None, !hand_drawn),
             FlowchartShape::Diamond
             | FlowchartShape::Circle
@@ -185,72 +204,83 @@ impl FlowchartNodeTerminalSourceOwnership {
             | FlowchartShape::Trapezoid
             | FlowchartShape::InvertedTrapezoid
             | FlowchartShape::Subroutine => (None, false),
-            FlowchartShape::Bpmn(shape)
-                if shape.event_rings().is_some()
-                    || shape == crate::flowchart::bpmn::BpmnShape::Annotation =>
+            FlowchartShape::Bpmn(shape_4)
+                if shape_4.event_rings().is_some()
+                    || shape_4 == crate::flowchart::bpmn::BpmnShape::Annotation =>
             {
-                (Some(shape), false)
+                (Some(shape_4), false)
             }
             _ => return Ok(owners),
         };
-        // These hand-drawn writers emit paths with their own presentation attributes for all
-        // four paint fields. Subroutine still emits a polygon; BPMN retains native primitives.
-        let rough_paths = hand_drawn && bpmn_shape.is_none() && shape != FlowchartShape::Subroutine;
-        // The normal .node primitive rules specify fill/stroke/width, blocking inheritance.
-        // Hand-drawn wrappers use .rough-node, so native Subroutine/BPMN paint may inherit.
+
+
+        let rough_paths = hand_drawn && bpmn_shape.is_none() && shape_3 != FlowchartShape::Subroutine;
+
+
         let inherits_paint = hand_drawn && !rough_paths;
         let inherits_width =
-            inherits_paint && bpmn_shape.is_none_or(|shape| shape.event_rings().is_none());
+            inherits_paint && bpmn_shape.is_none_or(|shape_5| shape_5.event_rings().is_none());
         let inherits_dash = !rough_paths;
-        let body_class = bpmn_shape.map(|shape| {
-            if shape.event_rings().is_some() {
+        let body_class = bpmn_shape.map(|shape_6| {
+            if shape_6.event_rings().is_some() {
                 "bpmn-event-body"
             } else {
                 "bpmn-annotation-body"
             }
         });
 
-        // Every rendered node lies below root/nodes groups. SVG classDef selectors directly
-        // reach these native rect/circle/polygon/path terminals. HTML `>*` selects ancestor groups,
-        // except for the BPMN body's direct ring/bracket children. Terminal classes do not
-        // select themselves. Keep the projections bounded to the audited native writers.
+
+
+
+
         let classes = ["root", "nodes"]
             .into_iter()
             .chain(
                 bpmn_shape
                     .into_iter()
-                    .flat_map(|shape| shape.classes().split_ascii_whitespace()),
+                    .flat_map(|shape_7| shape_7.classes().split_ascii_whitespace()),
             )
             .map(|class| (class, !html_labels))
             .chain(body_class.map(|class| (class, true)));
+
         for (class, direct_terminal) in classes {
             work.charge(1)?;
-            let Some(declarations) = class_defs.get(class) else {
-                continue;
+
+            let declarations = {
+                let optional_declarations = class_defs.get(class);
+
+                match optional_declarations {
+                    Some(matched_declarations) => matched_declarations,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             for declaration in declarations {
                 work.charge(declaration.len())?;
             }
-            // Read parsed CSSOM declarations directly, never Mermaid's comma-delimited syntax.
+
+
             let styles = crate::flowchart::FlowchartClassDefStyles::prepare(declarations);
-            for declaration in styles.shape.values() {
+
+            'over_declaration_2: for declaration in styles.shape.values() {
                 let owner = match declaration.property() {
                     "fill" if direct_terminal || inherits_paint => &mut owners.fill,
                     "stroke" if direct_terminal || inherits_paint => &mut owners.stroke,
-                    // BPMN rings retain a fixed terminal width even under .rough-node.
+
                     "stroke-width" if direct_terminal || inherits_width => &mut owners.stroke_width,
                     "stroke-dasharray" if direct_terminal || inherits_dash => {
                         &mut owners.stroke_dasharray
                     }
-                    // rx/ry do not inherit and only round native Process/RoundedRectangle rects.
+
                     "rx" | "ry" if direct_terminal && native_rectangle => &mut owners.radius,
-                    _ => continue,
+                    _ => continue 'over_declaration_2,
                 };
-                // Ownership blocks typed paint even for values outside the admitted paint set.
-                // It does not certify the independent source transport or remove its residuals.
+
+
                 *owner = FlowchartSourceFacetStatus::Unverified;
             }
         }
+
         Ok(owners)
     }
 
@@ -268,6 +298,7 @@ impl FlowchartNodeTerminalSourceOwnership {
 }
 
 impl PreparedNodeSelection {
+    #[must_use]
     fn prepare(
         ctx: &NodeSelectionInputs<'_>,
         source: &FlowchartCompiledStyles,
@@ -323,31 +354,40 @@ impl PreparedNodeSelection {
             true,
         );
         let mut theme_style = String::new();
+
         for (property, value) in [("fill", fill), ("stroke", stroke)] {
-            if let Some(value) = value {
+            if let Some(value_2) = value {
                 if !theme_style.is_empty() {
                     theme_style.push(';');
                 }
-                let _ = write!(theme_style, "{property}:{value} !important");
+
+                let _ = write!(theme_style, "{property}:{value} !important", value = value_2);
             }
         }
+
         if let Some(value) = stroke_width {
             if !theme_style.is_empty() {
                 theme_style.push(';');
             }
+
             let _ = write!(theme_style, "stroke-width:{value}px !important");
         }
+
         if let Some(value) = stroke_dasharray {
             if !theme_style.is_empty() {
                 theme_style.push(';');
             }
+
             let _ = write!(theme_style, "stroke-dasharray:{value} !important");
         }
+
         let inline_style = (!theme_style.is_empty()).then(|| {
             let mut inline_style = source.node_style.clone();
+
             if !inline_style.is_empty() {
                 inline_style.push(';');
             }
+
             inline_style.push_str(&theme_style);
             inline_style
         });
@@ -379,8 +419,11 @@ impl PreparedNodeSelection {
                 .or(stroke)
                 .unwrap_or(ctx.node_border_color)
                 .to_owned(),
-            stroke_width: selected_width.unwrap_or(1.3),
-            // Effect outsets retain their configured fallback; shape writers use 1.3px.
+            stroke_width: match selected_width {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 1.3,
+            },
+
             effect_stroke_width: selected_width.unwrap_or(ctx.node_stroke_width),
             stroke_dasharray: source
                 .stroke_dasharray
@@ -432,13 +475,15 @@ pub(super) struct NodeSelectionInputs<'a> {
     node_corner_radius: f64,
     look: crate::config::DiagramLook<'static>,
 }
+
 impl<'a> NodeSelectionInputs<'a> {
+    #[must_use]
     pub(super) fn new(
         compatibility: &'a crate::flowchart::FlowchartCompatibilityBinding,
         render_config: &super::render_config::FlowchartRenderConfig,
     ) -> Self {
         Self {
-            // Class selectors follow the CSS writer's mode, which can differ from node labels.
+
             classdef_html_labels: compatibility.html_labels,
             node_fill_config_override: render_config.node_fill_config_override,
             node_border_config_override: render_config.node_border_config_override,
@@ -457,6 +502,7 @@ impl<'a> NodeSelectionInputs<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn for_collapsed_agentflow(mut self) -> Self {
         self.node_border_config_override = self.agentflow_container_stroke_config_override;
         self.node_border_color = self.agentflow_container_stroke;
@@ -509,15 +555,22 @@ impl PreparedNodeTerminal {
     }
 }
 
+#[must_use]
 fn prepare_hand_drawn_shape_group_style(inline_styles: &[String]) -> String {
     let mut node_decls: Vec<String> = Vec::new();
     let mut text_decls: Vec<String> = Vec::new();
 
     for raw in inline_styles {
-        for decl in crate::flowchart::flowchart_split_mermaid_style_decls(raw) {
-            let Some((key, value)) = crate::mermaid_style::parse_safe_style_decl(decl) else {
-                continue;
+        'over_decl_2: for decl in crate::flowchart::flowchart_split_mermaid_style_decls(raw) {
+            let (key, value) = {
+                let optional_key = crate::mermaid_style::parse_safe_style_decl(decl);
+
+                match optional_key {
+                    Some((matched_key, matched_value)) => (matched_key, matched_value),
+                    ::core::option::Option::None => continue 'over_decl_2,
+                }
             };
+
             if is_text_style_key(key) {
                 text_decls.push(format!("{key}:{value}"));
             } else {
@@ -719,8 +772,8 @@ mod structural_font_residual_tests {
                             "{layout}, {class}, {property}, base={base}: only the content-owned generated declaration retains its residual; report={residuals:?}"
                         );
                         if base && class == "root" && property == "font-size" {
-                            // The base-only path has no NodeLabel prepared-font receipt. Its
-                            // conservative inline-source residual is independent of root CSS.
+
+
                             assert!(
                                 residuals.iter().any(|residual| {
                                     residual.origin() == FamilyStyleOrigin::InlineStyle

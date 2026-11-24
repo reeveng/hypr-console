@@ -3,7 +3,7 @@
 use crate::include::common::bitdepth::BPC;
 use crate::include::common::bitdepth::BitDepth;
 use crate::include::dav1d::headers::Rav1dMatrixCoefficients;
-use crate::include::dav1d::headers::Rav1dPixelLayout;
+use crate::include::dav1d::headers::{Rav1dPixelLayout, Rav1dPixelLayoutSubSampled};
 use crate::include::dav1d::picture::{Rav1dPicture, Rav1dPictureDataComponent};
 use crate::src::align::ArrayDefault;
 use crate::src::error::{Rav1dError::EINVAL, Rav1dResult};
@@ -226,6 +226,17 @@ struct GrainRow {
   luma_height: u64,
 }
 
+enum GrainLumaEdge {
+  Padded,
+  Extend,
+}
+
+struct ChromaGrainRow {
+  size: Size<u64>,
+  vertical_shift: u32,
+  luma_edge: GrainLumaEdge,
+}
+
 impl GrainRow {
   fn new(out: &Rav1dPicture, row: u32) -> Rav1dResult<Self> {
     let width = u64::try_from(out.p.w).map_err(|_negative_width| EINVAL)?;
@@ -244,6 +255,37 @@ impl GrainRow {
         luma_height: visible_height,
       }),
     }
+  }
+
+  fn chroma(
+    &self,
+    layout: Rav1dPixelLayoutSubSampled,
+  ) -> Result<ChromaGrainRow, console_core_never::Never> {
+    let Ok(Point {
+      x: horizontal,
+      y: vertical,
+    }) = grain_sampling(layout);
+    let horizontal_shift = u32::from(u8::from(horizontal));
+    let vertical_shift = u32::from(u8::from(vertical));
+    let h_round = u64::from(u8::from(horizontal));
+    let v_round = u64::from(u8::from(vertical));
+    let width = self
+      .luma_width
+      .wrapping_add(h_round)
+      .wrapping_shr(horizontal_shift);
+    let height = self
+      .luma_height
+      .wrapping_add(v_round)
+      .wrapping_shr(vertical_shift);
+    let luma_edge = match self.luma_width & h_round {
+      0 => GrainLumaEdge::Padded,
+      _ => GrainLumaEdge::Extend,
+    };
+    Ok(ChromaGrainRow {
+      size: Size { width, height },
+      vertical_shift,
+      luma_edge,
+    })
   }
 }
 
@@ -349,26 +391,16 @@ pub(crate) fn rav1d_apply_grain_row<BD: BitDepth>(
   }
 
   let layout = input.p.layout.try_into().map_err(|_monochrome| EINVAL)?;
-  let Ok(Point {
-    x: horizontal,
-    y: vertical,
-  }) = grain_sampling(layout);
-  let horizontal_shift = u32::from(u8::from(horizontal));
-  let vertical_shift = u32::from(u8::from(vertical));
-  let h_round = u64::from(u8::from(horizontal));
-  let v_round = u64::from(u8::from(vertical));
-  let chroma_width = geometry
-    .luma_width
-    .wrapping_add(h_round)
-    .wrapping_shr(horizontal_shift);
-  let chroma_height = geometry
-    .luma_height
-    .wrapping_add(v_round)
-    .wrapping_shr(vertical_shift);
+  let Ok(chroma) = geometry.chroma(layout);
 
-  match geometry.luma_width & h_round {
-    0 => {}
-    _ => extend_grain_luma::<BD>(source_y, &geometry, chroma_height, vertical_shift)?,
+  match chroma.luma_edge {
+    GrainLumaEdge::Padded => {}
+    GrainLumaEdge::Extend => extend_grain_luma::<BD>(
+      source_y,
+      &geometry,
+      chroma.size.height,
+      chroma.vertical_shift,
+    )?,
   }
 
   let matrix = ClipMatrix::from(sequence.mtrx == Rav1dMatrixCoefficients::IDENTITY);
@@ -391,10 +423,6 @@ pub(crate) fn rav1d_apply_grain_row<BD: BitDepth>(
       cr_count,
     ),
   ];
-  let size = Size {
-    width: chroma_width,
-    height: chroma_height,
-  };
   let chroma_row = u64::from(geometry.row);
 
   for (plane, chroma_destination, chroma_source, plane_scaling, lut, points) in planes {
@@ -408,7 +436,7 @@ pub(crate) fn rav1d_apply_grain_row<BD: BitDepth>(
         destination: chroma_destination,
         source: chroma_source,
         parameters: data,
-        size,
+        size: chroma.size,
         row: chroma_row,
         scaling: chroma_scaling,
         grain: lut,

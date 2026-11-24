@@ -10,7 +10,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_subroutine(
     out: &mut impl crate::svg::parity::SvgOutput,
     common: &super::super::FlowchartNodeRenderCommon<'_>,
 ) -> FlowchartNodeShapeEmissionReceipt {
-    // Mermaid `subroutine.ts` (non-handDrawn): polygon via `insertPolygonShape(...)`.
+
     let total_w = common.layout_node.width.max(1.0);
     let h = common.layout_node.height.max(1.0);
     let w = (total_w - 16.0).max(1.0);
@@ -28,12 +28,15 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_subroutine(
         (-8.0, 0.0),
     ];
     let mut points_attr = String::new();
+
     for (idx, (px, py)) in pts.iter().copied().enumerate() {
         if idx > 0 {
             points_attr.push(' ');
         }
+
         let _ = write!(&mut points_attr, "{},{}", fmt_display(px), fmt_display(py));
     }
+
     let _ = write!(
         out,
         r#"<polygon points="{}" class="label-container" transform="translate({},{})"{} />"#,

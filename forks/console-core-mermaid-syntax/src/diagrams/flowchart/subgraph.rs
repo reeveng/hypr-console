@@ -24,6 +24,7 @@ pub(super) struct SubgraphBuilder {
 }
 
 impl SubgraphBuilder {
+    #[must_use]
     pub(super) fn new(inherit_dir: bool, global_dir: Option<String>) -> Self {
         Self {
             sub_count: 0,
@@ -43,26 +44,39 @@ impl SubgraphBuilder {
         control: &OperationControl,
     ) -> OperationControlResult<()> {
         let mut stack: Vec<Vec<StatementItem>> = Vec::new();
+
         for (visited, event) in ast.walk().enumerate() {
             if visited.is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             match event {
                 StatementEvent::Enter(Stmt::Subgraph(_)) => stack.push(Vec::new()),
                 StatementEvent::Enter(stmt) => {
-                    if let Some(items) = stack.last_mut() {
-                        push_statement_items(items, stmt, control)?;
+                    match stack.last_mut() {
+                        Some(items) => {
+                            push_statement_items(items, stmt, control)?;
+                        },
+                        ::core::option::Option::None => {},
                     }
                 }
                 StatementEvent::Exit(subgraph) => {
-                    let items = stack.pop().unwrap_or_default();
+                    let items = match stack.pop() {
+                        ::core::option::Option::Some(present) => present,
+                        ::core::option::Option::None => ::std::vec::Vec::new(),
+                    };
                     let id = self.eval_subgraph_from_items(subgraph, items, control)?;
-                    if let Some(parent) = stack.last_mut() {
-                        parent.push(StatementItem::Id(id));
+
+                    match stack.last_mut() {
+                        Some(parent) => {
+                            parent.push(StatementItem::Id(id));
+                        },
+                        ::core::option::Option::None => {},
                     }
                 }
             }
         }
+
         control.checkpoint()?;
         Ok(())
     }
@@ -78,15 +92,17 @@ impl SubgraphBuilder {
         let mut dir: Option<String> = None;
 
         for (index, item) in items.into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             match item {
                 StatementItem::Dir(d) => dir = Some(d),
                 StatementItem::Id(id) => {
                     if trim_flowdb_label_text(&id).is_empty() {
                         continue;
                     }
+
                     if seen.insert(id.clone()) {
                         members.push(id);
                     }
@@ -95,7 +111,7 @@ impl SubgraphBuilder {
         }
 
         let has_explicit_dir = dir.is_some();
-        let dir = dir.or_else(|| {
+        let dir_2 = dir.or_else(|| {
             if self.inherit_dir {
                 self.global_dir.clone()
             } else {
@@ -105,6 +121,7 @@ impl SubgraphBuilder {
 
         let mut id: Option<String> = {
             let trimmed = trim_flowdb_label_text(&sg.header.raw_id);
+
             if trimmed.is_empty() {
                 None
             } else {
@@ -112,16 +129,16 @@ impl SubgraphBuilder {
             }
         };
 
-        // Mirror Mermaid `FlowDB.addSubGraph(...)`:
-        // `if (_id === _title && /\\s/.exec(_title.text)) id = undefined;`
-        //
-        // The important nuance is that this checks the untrimmed title token (including any
-        // extra whitespace that may have been captured into the header).
+
+
+
+
+
         if sg.header.id_equals_title && sg.header.raw_title.chars().any(is_ecmascript_trim_char) {
             id = None;
         }
 
-        let id = id.unwrap_or_else(|| format!("subGraph{}", self.sub_count));
+        let id_2 = id.unwrap_or_else(|| format!("subGraph{}", self.sub_count));
         let title = trim_flowdb_label_text(&sg.header.raw_title).to_string();
         let label_type = match sg.header.title_kind {
             TitleKind::Text => "text",
@@ -132,50 +149,59 @@ impl SubgraphBuilder {
 
         self.sub_count += 1;
 
-        // Mermaid 12.1 keeps the first completed declaration as the single group owner.
-        // Replay still visits every declaration, so retain its canonical owner separately.
-        let owner = if let Some(&index) = self.subgraph_index.get(&id) {
+
+
+        let owner = if let Some(&index) = self.subgraph_index.get(&id_2) {
             index
         } else {
             let index = self.subgraphs.len();
-            self.subgraph_index.insert(id.clone(), index);
+            self.subgraph_index.insert(id_2.clone(), index);
             self.subgraphs.push(FlowSubGraph {
-                id: id.clone(),
+                id: id_2.clone(),
                 nodes: Vec::new(),
                 title,
                 classes: Vec::new(),
                 styles: Vec::new(),
-                dir,
+                dir: dir_2,
                 has_explicit_dir,
                 label_type,
                 metadata: None,
             });
             index
         };
+
         for (index, member) in members.into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
-            if member == id {
+
+            if member == id_2 {
                 continue;
             }
-            if let Some(&previous_owner) = self.claimed_members.get(member.as_str()) {
-                if previous_owner != owner && !self.is_nested_in(previous_owner, &seen, control)? {
-                    self.dropped_subgraph_members
-                        .push(FlowDroppedSubgraphMember {
-                            node: member,
-                            kept_by: self.subgraphs[previous_owner].id.clone(),
-                            dropped_from: id.clone(),
-                        });
-                }
-                continue;
+
+            match self.claimed_members.get(member.as_str()) {
+                Some(&previous_owner) => {
+                    if previous_owner != owner && !self.is_nested_in(previous_owner, &seen, control)? {
+                        self.dropped_subgraph_members
+                            .push(FlowDroppedSubgraphMember {
+                                node: member,
+                                kept_by: self.subgraphs[previous_owner].id.clone(),
+                                dropped_from: id_2.clone(),
+                            });
+                    }
+
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
+
             self.subgraphs[owner].nodes.push(member.clone());
             self.claimed_members.insert(member, owner);
         }
+
         self.declaration_owners.push(owner);
 
-        Ok(id)
+        Ok(id_2)
     }
 
     fn is_nested_in(
@@ -186,19 +212,25 @@ impl SubgraphBuilder {
     ) -> OperationControlResult<bool> {
         let mut current = Some(owner);
         let mut visited = HashSet::new();
+
         while let Some(index) = current {
             if visited.len().is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             if !visited.insert(index) {
                 break;
             }
+
             let id = self.subgraphs[index].id.as_str();
+
             if ancestor_members.contains(id) {
                 return Ok(true);
             }
+
             current = self.claimed_members.get(id).copied();
         }
+
         Ok(false)
     }
 }
@@ -213,24 +245,26 @@ fn push_statement_items(
             node_groups,
             edge_groups,
         } => {
-            // Mermaid FlowDB's subgraph membership list is based on the Jison
-            // `vertexStatement.nodes` shape, which prepends the last node in a chain first
-            // (e.g. `a-->b` yields `[b, a]`).
-            //
-            // For node-only group statements (e.g. `A & B`), there are no edges and the list
-            // preserves the input order.
+
+
+
+
+
+
             if edge_groups.is_empty() {
                 for (index, n) in node_groups.iter().flatten().enumerate() {
-                    if index % 128 == 0 {
+                    if index.wrapping_rem(128) == 0 {
                         control.checkpoint()?;
                     }
+
                     out.push(StatementItem::Id(n.id.clone()));
                 }
             } else {
                 for (index, n) in node_groups.iter().flatten().rev().enumerate() {
-                    if index % 128 == 0 {
+                    if index.wrapping_rem(128) == 0 {
                         control.checkpoint()?;
                     }
+
                     out.push(StatementItem::Id(n.id.clone()));
                 }
             }
@@ -245,6 +279,7 @@ fn push_statement_items(
         | Stmt::Click(_)
         | Stmt::LinkStyle(_) => {}
     }
+
     Ok(())
 }
 

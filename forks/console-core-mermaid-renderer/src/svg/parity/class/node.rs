@@ -203,42 +203,54 @@ pub(super) fn render_class_node_shell_open(
     });
     let have_callback = node.have_callback;
 
-    if link.is_some() {
-        out.push_str(r#"<a data-look=""#);
-        super::super::util::escape_attr_into(out, ctx.look);
-        out.push('"');
-        if let Some(href) = href.as_ref() {
-            out.push_str(r#" xlink:href=""#);
-            out.push_str(href.as_serialized_str());
+    match link {
+        ::core::option::Option::Some(_) => {
+            out.push_str(r#"<a data-look=""#);
+            super::super::util::escape_attr_into(out, ctx.look);
             out.push('"');
-        }
-        if ctx.security_level_loose
-            && let Some(target) = node
-                .link_target
-                .as_deref()
-                .map(str::trim)
-                .filter(|target| !target.is_empty())
-        {
-            out.push_str(r#" target=""#);
-            super::super::util::escape_attr_into(out, target);
-            out.push('"');
-        }
-        if have_callback {
-            out.push_str(r#" class="null clickable""#);
-        }
-        out.push_str(r#" transform="translate("#);
-        fmt_into(out, position.node_tx);
-        out.push_str(", ");
-        fmt_into(out, position.node_ty);
-        out.push_str(r#")">"#);
+
+            match href.as_ref() {
+                Some(href_2) => {
+                    out.push_str(r#" xlink:href=""#);
+                    out.push_str(href_2.as_serialized_str());
+                    out.push('"');
+                },
+                ::core::option::Option::None => {},
+            }
+
+            if ctx.security_level_loose
+                && let Some(target) = node
+                    .link_target
+                    .as_deref()
+                    .map(str::trim)
+                    .filter(|target| !target.is_empty())
+            {
+                out.push_str(r#" target=""#);
+                super::super::util::escape_attr_into(out, target);
+                out.push('"');
+            }
+
+            if have_callback {
+                out.push_str(r#" class="null clickable""#);
+            }
+
+            out.push_str(r#" transform="translate("#);
+            fmt_into(out, position.node_tx);
+            out.push_str(", ");
+            fmt_into(out, position.node_ty);
+            out.push_str(r#")">"#);
+        },
+        ::core::option::Option::None => {},
     }
 
     out.push_str(r#"<g class=""#);
+
     if ctx.look == "handDrawn" {
         out.push_str("rough-node ");
     } else {
         out.push_str("node ");
     }
+
     super::super::util::escape_attr_into(out, node.css_classes.trim());
     out.push_str(r#"" id=""#);
     let _ = write!(out, "{}", ctx.diagram_id);
@@ -246,29 +258,41 @@ pub(super) fn render_class_node_shell_open(
     out.push('-');
     super::super::util::escape_attr_into(out, node.dom_id);
     out.push('"');
-    if link.is_none() {
-        out.push_str(r#" data-look=""#);
-        super::super::util::escape_attr_into(out, ctx.look);
-        out.push('"');
+
+    match link {
+        ::core::option::Option::None => {
+            out.push_str(r#" data-look=""#);
+            super::super::util::escape_attr_into(out, ctx.look);
+            out.push('"');
+        },
+        ::core::option::Option::Some(_) => {},
     }
+
     write_class_color_slot(out, ctx.color_index, ctx.palette_size);
+
     if has_tooltip {
         out.push_str(r#" title=""#);
         super::super::util::escape_attr_into(out, tooltip);
         out.push('"');
     }
-    if link.is_none() {
-        out.push_str(r#" transform="translate("#);
-        fmt_into(out, position.node_tx);
-        out.push_str(", ");
-        fmt_into(out, position.node_ty);
-        out.push_str(r#")""#);
+
+    match link {
+        ::core::option::Option::None => {
+            out.push_str(r#" transform="translate("#);
+            fmt_into(out, position.node_tx);
+            out.push_str(", ");
+            fmt_into(out, position.node_ty);
+            out.push_str(r#")""#);
+        },
+        ::core::option::Option::Some(_) => {},
     }
+
     out.push('>');
 
     Ok(link.is_some())
 }
 
+#[must_use]
 pub(super) fn render_class_node_basic_container<O: SvgOutput>(
     state: ClassNodeRenderState<'_, O>,
     node: ClassSvgNode<'_>,
@@ -291,6 +315,7 @@ pub(super) fn render_class_node_basic_container<O: SvgOutput>(
     );
     let hand_drawn = ctx.look == "handDrawn";
     out.push_str(r#"<g class="basic label-container outer-path">"#);
+
     if !hand_drawn {
         let _ = write!(
             out,
@@ -344,10 +369,15 @@ pub(super) fn render_class_node_basic_container<O: SvgOutput>(
         position.node_bounds_tx,
         position.node_bounds_ty,
     );
-    if let Some(s) = path_bounds_start {
-        stats.path_bounds += s.elapsed();
-        stats.path_bounds_calls += 1;
+
+    match path_bounds_start {
+        Some(s) => {
+            stats.path_bounds += s.elapsed();
+            stats.path_bounds_calls += 1;
+        },
+        ::core::option::Option::None => {},
     }
+
     if hand_drawn {
         let _ = write!(
             out,
@@ -356,6 +386,7 @@ pub(super) fn render_class_node_basic_container<O: SvgOutput>(
             escape_attr_display(ctx.node_fill),
         );
     }
+
     let _ = write!(
         out,
         r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}" style="{}"/>"#,
@@ -378,6 +409,7 @@ pub(super) fn render_class_node_basic_container<O: SvgOutput>(
     }
 }
 
+#[must_use]
 pub(super) fn render_class_node_dividers<O: SvgOutput>(
     state: ClassNodeRenderState<'_, O>,
     position: ClassNodeRenderPosition,
@@ -427,10 +459,15 @@ pub(super) fn render_class_node_dividers<O: SvgOutput>(
             position.node_bounds_tx,
             position.node_bounds_ty,
         );
-        if let Some(s) = path_bounds_start {
-            stats.path_bounds += s.elapsed();
-            stats.path_bounds_calls += 1;
+
+        match path_bounds_start {
+            Some(s) => {
+                stats.path_bounds += s.elapsed();
+                stats.path_bounds_calls += 1;
+            },
+            ::core::option::Option::None => {},
         }
+
         let _ = write!(
             out,
             r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}" style="{}"/>"#,
@@ -446,6 +483,7 @@ pub(super) fn render_class_node_dividers<O: SvgOutput>(
     stats
 }
 
+#[must_use]
 pub(super) fn render_class_html_node_body<O: SvgOutput>(
     state: ClassNodeRenderState<'_, O>,
     position: ClassNodeRenderPosition,
@@ -561,14 +599,18 @@ pub(super) fn render_class_html_node_body<O: SvgOutput>(
             |prepared| prepared.metrics,
         )
     });
-    let annotation_width = annotation_metrics
+    let annotation_width = match annotation_metrics
         .as_ref()
-        .map(|metrics| metrics.width.max(1.0))
-        .unwrap_or(0.0);
-    let annotation_height = annotation_metrics
+        .map(|metrics| metrics.width.max(1.0)) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+    let annotation_height = match annotation_metrics
         .as_ref()
-        .map(|metrics| metrics.height.max(ctx.line_height).max(1.0))
-        .unwrap_or(0.0);
+        .map(|metrics| metrics.height.max(ctx.line_height).max(1.0)) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
     let annotation_group_x = if annotation_width > 0.0 {
         -annotation_width / 2.0
     } else {
@@ -616,17 +658,20 @@ pub(super) fn render_class_html_node_body<O: SvgOutput>(
         .fold(0.0_f64, |acc, row| acc.max(row.metrics.width.max(1.0)));
     let mut content_bbox_min_x = 0.0_f64;
     let mut content_bbox_max_x = 0.0_f64;
+
     for centered_width in [annotation_width, title_width] {
         if centered_width > 0.0 {
             content_bbox_min_x = content_bbox_min_x.min(-centered_width / 2.0);
             content_bbox_max_x = content_bbox_max_x.max(centered_width / 2.0);
         }
     }
+
     for left_aligned_width in [members_group_width, methods_group_width] {
         if left_aligned_width > 0.0 {
             content_bbox_max_x = content_bbox_max_x.max(left_aligned_width);
         }
     }
+
     let content_bbox_width = (content_bbox_max_x - content_bbox_min_x).max(0.0);
     let members_x = -content_bbox_width / 2.0;
 
@@ -642,50 +687,53 @@ pub(super) fn render_class_html_node_body<O: SvgOutput>(
         + padding
         + gap * 2.0;
 
-    if let Some(annotation_text) = annotation_text.as_deref() {
-        let annotation_max_width_px = annotation_prepared.map_or_else(
-            || {
-                crate::class::class_html_create_text_width_px(
-                    annotation_text,
-                    ctx.measurer,
-                    ctx.html_calc_text_style,
-                )
-            },
-            |prepared| prepared.max_width_px,
-        );
-        let annotation_div_style =
-            class_html_div_style(annotation_width.max(1.0), annotation_max_width_px);
-        let _ = write!(
-            out,
-            r#"<g class="annotation-group text" transform="translate({}, {})">"#,
-            fmt(annotation_group_x),
-            fmt(annotation_group_y)
-        );
-        render_class_html_node_label_group(
-            out,
-            &ClassHtmlNodeLabelGroupSpec {
-                label_style: "",
-                inherited_fill: ctx.node_label_fill,
-                translate_y: -annotation_height / 2.0,
-                width: annotation_width.max(1.0),
-                height: annotation_height.max(1.0),
-                div_style: annotation_div_style.as_str(),
-                text: annotation_text,
-                include_p: true,
-                extra_span_class: Some("markdown-node-label"),
-                span_style: Some(ctx.node_label_style_attr),
-                prepared_xhtml: annotation_prepared.map(|prepared| prepared.xhtml.as_str()),
-                mermaid_config: ctx.mermaid_config,
-                math_renderer: ctx.math_renderer,
-            },
-        );
-        out.push_str("</g>");
-    } else {
-        let _ = write!(
-            out,
-            r#"<g class="annotation-group text" transform="translate(0, {})"/>"#,
-            fmt(annotation_group_y)
-        );
+    match annotation_text.as_deref() {
+        Some(annotation_text_2) => {
+            let annotation_max_width_px = annotation_prepared.map_or_else(
+                || {
+                    crate::class::class_html_create_text_width_px(
+                        annotation_text_2,
+                        ctx.measurer,
+                        ctx.html_calc_text_style,
+                    )
+                },
+                |prepared| prepared.max_width_px,
+            );
+            let annotation_div_style =
+                class_html_div_style(annotation_width.max(1.0), annotation_max_width_px);
+            let _ = write!(
+                out,
+                r#"<g class="annotation-group text" transform="translate({}, {})">"#,
+                fmt(annotation_group_x),
+                fmt(annotation_group_y)
+            );
+            render_class_html_node_label_group(
+                out,
+                &ClassHtmlNodeLabelGroupSpec {
+                    label_style: "",
+                    inherited_fill: ctx.node_label_fill,
+                    translate_y: -annotation_height / 2.0,
+                    width: annotation_width.max(1.0),
+                    height: annotation_height.max(1.0),
+                    div_style: annotation_div_style.as_str(),
+                    text: annotation_text_2,
+                    include_p: true,
+                    extra_span_class: Some("markdown-node-label"),
+                    span_style: Some(ctx.node_label_style_attr),
+                    prepared_xhtml: annotation_prepared.map(|prepared| prepared.xhtml.as_str()),
+                    mermaid_config: ctx.mermaid_config,
+                    math_renderer: ctx.math_renderer,
+                },
+            );
+            out.push_str("</g>");
+        },
+        ::core::option::Option::None => {
+            let _ = write!(
+                out,
+                r#"<g class="annotation-group text" transform="translate(0, {})"/>"#,
+                fmt(annotation_group_y)
+            );
+        },
     }
 
     let title_div_style = class_html_div_style(title_width, title_max_width_px);
@@ -760,6 +808,7 @@ pub(super) fn render_class_html_node_body<O: SvgOutput>(
     }
 }
 
+#[must_use]
 pub(super) fn render_class_svg_node_body<O: SvgOutput>(
     state: ClassNodeRenderState<'_, O>,
     position: ClassNodeRenderPosition,
@@ -776,59 +825,76 @@ pub(super) fn render_class_svg_node_body<O: SvgOutput>(
 
     let title_label = &prepared_title.label;
     let title_metrics = prepared_title.metrics;
-    // Annotation group: Mermaid only renders the first annotation.
+
     let mut annotation_runs: Vec<ClassSvgNodeLabelRun> = Vec::new();
     let mut annotation_rect: Option<Rect> = None;
     let mut annotation_group_height: f64 = 0.0;
     let mut annotation_group_width: f64 = 0.0;
-    if let Some(mut text) = node.annotation_text_for_render() {
-        if crate::class::analyze_class_svg_markdown(&text).all_runs_normal() {
-            text = wrap_class_svg_text_like_mermaid(
-                &text,
+
+    match node.annotation_text_for_render() {
+        Some(mut text) => {
+            if crate::class::analyze_class_svg_markdown(&text).all_runs_normal() {
+                text = wrap_class_svg_text_like_mermaid(
+                    &text,
+                    ctx.measurer,
+                    ctx.text_style,
+                    ctx.html_calc_text_style,
+                    ctx.wrap_probe_font_size,
+                    false,
+                );
+            }
+
+            let metrics = crate::text::measure_markdown_with_inline_styles(
                 ctx.measurer,
+                &text,
                 ctx.text_style,
-                ctx.html_calc_text_style,
-                ctx.wrap_probe_font_size,
-                false,
+                None,
+                WrapMode::SvgLike,
             );
-        }
-        let metrics = crate::text::measure_markdown_with_inline_styles(
-            ctx.measurer,
-            &text,
-            ctx.text_style,
-            None,
-            WrapMode::SvgLike,
-        );
-        annotation_group_width = metrics.width.max(0.0);
-        if let Some(r) = class_svg_label_rect(&metrics, 0.0) {
-            annotation_group_height = r.height().max(0.0);
-            annotation_rect = Some(r);
-        }
-        annotation_runs.push(ClassSvgNodeLabelRun {
-            text,
-            literal_fallback: false,
-            style: String::new(),
-            metrics,
-            y_offset: 0.0,
-        });
+            annotation_group_width = metrics.width.max(0.0);
+
+            match class_svg_label_rect(&metrics, 0.0) {
+                Some(r) => {
+                    annotation_group_height = r.height().max(0.0);
+                    annotation_rect = Some(r);
+                },
+                ::core::option::Option::None => {},
+            }
+
+            annotation_runs.push(ClassSvgNodeLabelRun {
+                text,
+                literal_fallback: false,
+                style: String::new(),
+                metrics,
+                y_offset: 0.0,
+            });
+        },
+        ::core::option::Option::None => {},
     }
 
     let title_rect = class_svg_label_rect(&title_metrics, 0.0);
-    let label_group_height = title_rect.as_ref().map(|r| r.height()).unwrap_or(0.0);
+    let label_group_height = match title_rect.as_ref().map(|r| r.height()) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
     let label_group_width = title_metrics.width.max(0.0);
 
     let (members_runs, members_rect) =
         measure_class_svg_node_rows(&node.members, ctx, text_padding);
-    let mut members_group_height = members_rect.as_ref().map(|r| r.height()).unwrap_or(0.0);
+    let mut members_group_height = match members_rect.as_ref().map(|r| r.height()) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+
     if members_group_height <= 0.0 {
-        // Mermaid reserves half a gap when the members group is empty.
+
         members_group_height = (gap / 2.0).max(0.0);
     }
 
     let (methods_runs, methods_rect) =
         measure_class_svg_node_rows(&node.methods, ctx, text_padding);
 
-    // textHelper(...) pre-adjust group transforms.
+
     let ann_tx = -annotation_group_width / 2.0;
     let ann_ty = 0.0;
     let label_tx = -label_group_width / 2.0;
@@ -839,54 +905,88 @@ pub(super) fn render_class_svg_node_body<O: SvgOutput>(
     let methods_ty =
         annotation_group_height + label_group_height + (members_group_height + gap * 4.0);
 
-    // Compute bbox returned by textHelper(...) after group transforms.
+
     let mut bbox_opt: Option<Rect> = None;
-    if let Some(mut r) = annotation_rect {
-        r.translate(ann_tx, ann_ty);
-        bbox_opt = Some(if let Some(mut cur) = bbox_opt {
-            cur.union(r);
-            cur
-        } else {
-            r
-        });
+
+    match annotation_rect {
+        Some(mut r) => {
+            r.translate(ann_tx, ann_ty);
+            bbox_opt = Some(match bbox_opt {
+                Some(mut cur) => {
+                    cur.union(r);
+                    cur
+                },
+                ::core::option::Option::None => {
+                    r
+                },
+            });
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(mut r) = title_rect {
-        r.translate(label_tx, label_ty);
-        bbox_opt = Some(if let Some(mut cur) = bbox_opt {
-            cur.union(r);
-            cur
-        } else {
-            r
-        });
+
+    match title_rect {
+        Some(mut r) => {
+            r.translate(label_tx, label_ty);
+            bbox_opt = Some(match bbox_opt {
+                Some(mut cur) => {
+                    cur.union(r);
+                    cur
+                },
+                ::core::option::Option::None => {
+                    r
+                },
+            });
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(mut r) = members_rect {
-        r.translate(members_tx, members_ty);
-        bbox_opt = Some(if let Some(mut cur) = bbox_opt {
-            cur.union(r);
-            cur
-        } else {
-            r
-        });
+
+    match members_rect {
+        Some(mut r) => {
+            r.translate(members_tx, members_ty);
+            bbox_opt = Some(match bbox_opt {
+                Some(mut cur) => {
+                    cur.union(r);
+                    cur
+                },
+                ::core::option::Option::None => {
+                    r
+                },
+            });
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(mut r) = methods_rect {
-        r.translate(methods_tx, methods_ty);
-        bbox_opt = Some(if let Some(mut cur) = bbox_opt {
-            cur.union(r);
-            cur
-        } else {
-            r
-        });
+
+    match methods_rect {
+        Some(mut r) => {
+            r.translate(methods_tx, methods_ty);
+            bbox_opt = Some(match bbox_opt {
+                Some(mut cur) => {
+                    cur.union(r);
+                    cur
+                },
+                ::core::option::Option::None => {
+                    r
+                },
+            });
+        },
+        ::core::option::Option::None => {},
     }
-    let bbox = bbox_opt.unwrap_or_else(|| Rect::from_min_max(0.0, 0.0, 0.0, 0.0));
+
+    let bbox = match bbox_opt {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => Rect::from_min_max(0.0, 0.0, 0.0, 0.0),
+    };
     let bbox_w = bbox.width().max(0.0);
     let mut bbox_h = bbox.height().max(0.0);
     let members_rows = node.members.len();
     let methods_rows = node.methods.len();
+
     if members_rows == 0 && methods_rows == 0 {
         bbox_h += gap;
     } else if members_rows > 0 && methods_rows == 0 {
         bbox_h += gap * 2.0;
     }
+
     let x = -bbox_w / 2.0;
     let y = -bbox_h / 2.0;
 
@@ -899,18 +999,19 @@ pub(super) fn render_class_svg_node_body<O: SvgOutput>(
         0.0
     };
 
-    // classBox.ts label adjustment stage.
+
     let adjust_y = |ty: f64| ty + y + padding - adjust_term - 4.0;
     let adjusted_label_group_x = -label_group_width / 2.0;
     let adjusted_annotation_group_x = -annotation_group_width / 2.0;
     let mut adjusted_text_group_x = x;
     let expected_text_group_x = -geometry.w / 2.0 + padding;
+
     if expected_text_group_x.is_finite()
         && adjusted_text_group_x.is_finite()
         && (expected_text_group_x - adjusted_text_group_x).abs() > 1e-6
     {
-        // Keep the members/methods groups consistent with the already-laid-out node rectangle
-        // width (`bbox.width + 2*PADDING` in Mermaid's `classBox.ts`).
+
+
         adjusted_text_group_x = expected_text_group_x;
     }
 
@@ -959,19 +1060,24 @@ pub(super) fn render_class_svg_node_body<O: SvgOutput>(
         ctx.node_label_style_attr,
     );
 
-    // Dividers (classBox.ts uses group bbox heights).
+
     if ctx.hide_empty_members_box && members_rows == 0 && methods_rows == 0 {
         ClassNodeRenderStats::default()
     } else {
         let mut ann_h = annotation_group_height;
         let mut label_h = label_group_height;
-        let mut members_h = members_rect.as_ref().map(|r| r.height()).unwrap_or(0.0);
+        let mut members_h = match members_rect.as_ref().map(|r| r.height()) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.0,
+        };
+
         if render_extra_box {
             let shrink = (padding / 2.0).max(0.0);
             ann_h -= shrink;
             label_h -= shrink;
             members_h -= shrink;
         }
+
         let divider1_y = ann_h + label_h + y + padding;
         let divider2_y = ann_h + label_h + members_h + y + gap * 2.0 + padding;
         render_class_node_dividers(
@@ -998,6 +1104,7 @@ pub(super) fn render_class_svg_node_body<O: SvgOutput>(
     }
 }
 
+#[must_use]
 pub(super) fn measure_class_html_node_rows<'a>(
     members: &[ClassMember],
     row_metrics: Option<&[crate::text::TextMetrics]>,
@@ -1006,9 +1113,10 @@ pub(super) fn measure_class_html_node_rows<'a>(
 ) -> ClassHtmlNodeRows<'a> {
     let mut raw_height = 0.0;
     let mut rows = Vec::with_capacity(members.len());
+
     for (idx, member) in members.iter().enumerate() {
         let text = crate::class::class_member_create_text_input(member);
-        let prepared = prepared_rows.and_then(|rows| rows.get(idx));
+        let prepared = prepared_rows.and_then(|rows_2| rows_2.get(idx));
         let max_width_px = prepared.map_or_else(
             || {
                 crate::class::class_html_create_text_width_px(
@@ -1017,13 +1125,13 @@ pub(super) fn measure_class_html_node_rows<'a>(
                     ctx.html_calc_text_style,
                 )
             },
-            |prepared| prepared.max_width_px,
+            |prepared_2| prepared_2.max_width_px,
         );
         let metrics = prepared
-            .map(|prepared| prepared.metrics)
+            .map(|prepared_3| prepared_3.metrics)
             .unwrap_or_else(|| {
                 row_metrics
-                    .and_then(|rows| rows.get(idx).copied())
+                    .and_then(|rows_3| rows_3.get(idx).copied())
                     .unwrap_or_else(|| {
                         let style = crate::class::class_html_node_text_style(
                             ctx.text_style,
@@ -1047,7 +1155,7 @@ pub(super) fn measure_class_html_node_rows<'a>(
             row_style: member.css_style.trim().to_string(),
             metrics,
             max_width_px,
-            prepared_xhtml: prepared.map(|prepared| prepared.xhtml.as_str()),
+            prepared_xhtml: prepared.map(|prepared_4| prepared_4.xhtml.as_str()),
             y,
         });
     }
@@ -1111,6 +1219,7 @@ fn render_class_html_node_rows_group(
         fmt(group_x),
         fmt(group_y)
     );
+
     for row in &rows_rendered.rows {
         let div_style = class_html_div_style(row.metrics.width.max(1.0), row.max_width_px);
         render_class_html_node_label_group(
@@ -1132,9 +1241,11 @@ fn render_class_html_node_rows_group(
             },
         );
     }
+
     out.push_str("</g>");
 }
 
+#[must_use]
 fn measure_class_svg_node_rows(
     rows: &[ClassMember],
     ctx: &ClassSvgNodeBodyContext<'_>,
@@ -1143,6 +1254,7 @@ fn measure_class_svg_node_rows(
     let mut runs = Vec::with_capacity(rows.len());
     let mut rect: Option<Rect> = None;
     let mut y_offset = 0.0;
+
     for row in rows {
         let mut text = row.display_text_for_render();
         let fallback = crate::class::class_svg_empty_markdown_fallback(&text);
@@ -1152,9 +1264,14 @@ fn measure_class_svg_node_rows(
             &row.css_style,
             literal_fallback,
         );
-        if let Some(fallback) = fallback {
-            text = fallback;
+
+        match fallback {
+            Some(fallback_2) => {
+                text = fallback_2;
+            },
+            ::core::option::Option::None => {},
         }
+
         if !literal_fallback && crate::class::analyze_class_svg_markdown(&text).all_runs_normal() {
             text = wrap_class_svg_text_like_mermaid(
                 &text,
@@ -1165,6 +1282,7 @@ fn measure_class_svg_node_rows(
                 false,
             );
         }
+
         let metrics = if literal_fallback {
             ctx.measurer
                 .measure_wrapped(&text, &text_style, None, WrapMode::SvgLike)
@@ -1177,13 +1295,21 @@ fn measure_class_svg_node_rows(
                 WrapMode::SvgLike,
             )
         };
-        if let Some(row_rect) = class_svg_label_rect(&metrics, y_offset) {
-            if let Some(rect) = rect.as_mut() {
-                rect.union(row_rect);
-            } else {
-                rect = Some(row_rect);
-            }
+
+        match class_svg_label_rect(&metrics, y_offset) {
+            Some(row_rect) => {
+                match rect.as_mut() {
+                    Some(rect_2) => {
+                        rect_2.union(row_rect);
+                    },
+                    ::core::option::Option::None => {
+                        rect = Some(row_rect);
+                    },
+                }
+            },
+            ::core::option::Option::None => {},
         }
+
         runs.push(ClassSvgNodeLabelRun {
             text,
             literal_fallback,
@@ -1193,6 +1319,7 @@ fn measure_class_svg_node_rows(
         });
         y_offset += metrics.height.max(0.0) + text_padding;
     }
+
     (runs, rect)
 }
 
@@ -1204,15 +1331,18 @@ pub(super) fn render_class_svg_node_runs_group(
     runs: &[ClassSvgNodeLabelRun],
     group_style: &str,
 ) {
-    if runs.is_empty() {
-        let _ = write!(
-            out,
-            r#"<g class="{}" transform="translate({}, {})"/>"#,
-            group_class,
-            fmt(group_x),
-            fmt(group_y)
-        );
-        return;
+    match runs {
+        [] => {
+            let _ = write!(
+                out,
+                r#"<g class="{}" transform="translate({}, {})"/>"#,
+                group_class,
+                fmt(group_x),
+                fmt(group_y)
+            );
+            return;
+        },
+        [_, ..] => {},
     }
 
     let _ = write!(
@@ -1222,6 +1352,7 @@ pub(super) fn render_class_svg_node_runs_group(
         fmt(group_x),
         fmt(group_y)
     );
+
     for run in runs {
         let t_y = -run.metrics.height.max(0.0) / (2.0 * run.metrics.line_count.max(1) as f64)
             + run.y_offset;
@@ -1231,6 +1362,7 @@ pub(super) fn render_class_svg_node_runs_group(
             escape_attr_display(run.style.as_str()),
             fmt(t_y)
         );
+
         if run.literal_fallback {
             super::label::write_class_svg_empty_markdown_fallback(
                 out,
@@ -1240,8 +1372,10 @@ pub(super) fn render_class_svg_node_runs_group(
         } else {
             write_class_svg_text_markdown_with_style(out, run.text.as_str(), group_style);
         }
+
         out.push_str("</g></g>");
     }
+
     out.push_str("</g>");
 }
 
@@ -1633,13 +1767,20 @@ pub(super) fn write_class_svg_label_rows(
         );
         return;
     }
+
     for (index, words) in lines.iter().enumerate() {
-        let y_em = if index == 0 {
-            "-0.1em".to_owned()
-        } else if index == 1 {
-            "1em".to_owned()
-        } else {
-            format!("{:.1}em", 1.0 + (index as f64 - 1.0) * 1.1)
+        let y_em = match index {
+            0 => {
+                "-0.1em".to_owned()
+            },
+            _ => match index {
+                1 => {
+                    "1em".to_owned()
+                },
+                _ => {
+                    format!("{:.1}em", 1.0 + (index as f64 - 1.0) * 1.1)
+                },
+            },
         };
         let _ = write!(
             out,
@@ -1652,9 +1793,13 @@ pub(super) fn write_class_svg_label_rows(
                 ""
             }
         );
+
         if literal_first_row && index == 0 {
-            if let Some((literal, _)) = words.first() {
-                escape_xml_into(out, literal);
+            match words.first() {
+                Some((literal, _)) => {
+                    escape_xml_into(out, literal);
+                },
+                ::core::option::Option::None => {},
             }
         } else {
             for (word_index, (word, kind)) in words.iter().enumerate() {
@@ -1675,13 +1820,16 @@ pub(super) fn write_class_svg_label_rows(
                     r#"<tspan font-style="{}" class="text-inner-tspan" font-weight="{}">"#,
                     font_style, font_weight
                 );
+
                 if word_index > 0 {
                     out.push(' ');
                 }
+
                 escape_xml_into(out, word);
                 out.push_str("</tspan>");
             }
         }
+
         out.push_str("</tspan>");
     }
 }

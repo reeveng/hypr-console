@@ -16,6 +16,7 @@ pub(in crate::svg::parity) fn render_flowchart_svg_artifact(
     render_flowchart_svg_model(flowchart_request(artifact, metadata), options)
 }
 
+#[must_use]
 pub(super) fn flowchart_request<'a>(
     artifact: &'a crate::family::FlowchartFamilyArtifact<FlowchartLayout>,
     metadata: &'a merman_model::presentation::PresentationMetadata,
@@ -141,7 +142,7 @@ pub(super) fn render_flowchart_svg_model(
                 hierarchy_plan,
             )?;
             let FlowchartViewboxBounds {
-                diagram_title,
+                diagram_title: diagram_title_2,
                 title_anchor_x,
                 source_paint_bounds,
                 mut bbox_min_x,
@@ -185,6 +186,7 @@ pub(super) fn render_flowchart_svg_model(
                     &mut edge_path_cache,
                 )?;
             }
+
             let mut edge_labels =
                 super::paint::FlowchartEdgeLabels::prepare(ctx, hierarchy_plan, &edge_path_cache)?;
             let step_badges = super::step::StepBadges::prepare(
@@ -236,6 +238,7 @@ pub(super) fn render_flowchart_svg_model(
             document.push_accessibility_metadata(&mut out);
             out.push_str("<style>");
             out.checkpoint()?;
+
             {
                 let mut css_out = super::super::output::XmlTextOutput::new(&mut out);
                 write_flowchart_css(
@@ -251,6 +254,7 @@ pub(super) fn render_flowchart_svg_model(
                     &model.class_defs,
                     Some(text_surface_paint),
                 )?;
+
                 if diagram_type == "agentflow" {
                     super::agentflow::write_css(
                         &mut css_out,
@@ -258,18 +262,25 @@ pub(super) fn render_flowchart_svg_model(
                         &prepared_theme.compatibility,
                     )?;
                 }
+
                 text_surface_paint.generic_text.record_stylesheet_emission();
                 text_surface_paint.background.record_stylesheet();
-                if swimlane_layout.is_some() {
-                    super::swimlane::write_swimlane_css(
-                        &mut css_out,
-                        diagram_id,
-                        &prepared_theme.compatibility.cluster_border,
-                    );
+
+                match swimlane_layout {
+                    ::core::option::Option::Some(_) => {
+                        super::swimlane::write_swimlane_css(
+                            &mut css_out,
+                            diagram_id,
+                            &prepared_theme.compatibility.cluster_border,
+                        );
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
+
             out.push_str("</style>");
             out.checkpoint()?;
+
             if let Some(base_typography) = svg_label_sidecar
                 .base_typography()
                 .filter(|plan| plan.requires_terminal_evidence())
@@ -293,6 +304,7 @@ pub(super) fn render_flowchart_svg_model(
                 edge_labels: &mut edge_labels,
                 step_badges: &step_badges,
             };
+
             if layout.uses_elk_adapter_dom {
                 out.push_str("<g>");
                 defs.push_base_markers(&mut out)?;
@@ -301,8 +313,8 @@ pub(super) fn render_flowchart_svg_model(
                 out.checkpoint()?;
                 render_flowchart_elk_root_groups(&mut out, ctx, &mut root_session)?;
                 out.push_str("</g>");
-                // The shadow filters are siblings of Mermaid's marker/root wrapper,
-                // rather than children of the wrapper that owns the painted graph.
+
+
                 push_flowchart_shadow_defs(
                     &mut out,
                     document_ids,
@@ -324,13 +336,15 @@ pub(super) fn render_flowchart_svg_model(
                 out.push_str("</g>");
                 out.checkpoint()?;
             }
+
             push_flowchart_gradient(
                 &mut out,
                 document_ids,
                 &prepared_theme.compatibility.look_defs,
             );
             out.checkpoint()?;
-            if let Some(title) = diagram_title.as_deref() {
+
+            if let Some(title) = diagram_title_2.as_deref() {
                 let title_x = title_anchor_x;
                 let title_y = -title_top_margin;
                 let _ = write!(
@@ -342,12 +356,14 @@ pub(super) fn render_flowchart_svg_model(
                     escape_xml(title)
                 );
                 text_surface_paint.record_document_title(title, ctx.work_meter)?;
+
                 if !title.trim().is_empty() {
                     ctx.record_base_typography_label_emission(
                         crate::flowchart::FlowchartBaseTypographyLabelEmission::diagram_title(),
                     );
                 }
             }
+
             ctx.steps.write_style(&mut out, diagram_id);
             out.push_str("</svg>\n");
             out.checkpoint()?;
@@ -356,6 +372,7 @@ pub(super) fn render_flowchart_svg_model(
             timings.total = total_timer
                 .map(merman_model::runtime::OperationTimer::elapsed)
                 .unwrap_or_default();
+
             if render_timing.is_enabled() {
                 eprintln!(
                     "[render-timing] diagram=flowchart-v2 total={:?} deserialize={:?} build_ctx={:?} viewbox={:?} viewbox_edge_curve_bounds={:?} viewbox_edge_root_lookup={:?} viewbox_edge_curve_offsets={:?} viewbox_edge_curve_geom={:?} viewbox_edge_curve_bbox_union={:?} viewbox_edge_curve_geom_calls={} viewbox_edge_curve_geom_skipped_bounds={} render_svg={:?} finalize={:?} root_calls={} clusters={:?} edges_select={:?} edge_paths={:?} edge_labels={:?} dom_order={:?} nodes={:?} node_style_compile={:?} node_roughjs={:?} node_roughjs_calls={} node_label_html={:?} node_label_html_calls={} nested_roots={:?}",
@@ -387,17 +404,21 @@ pub(super) fn render_flowchart_svg_model(
                     detail.nested_roots,
                 );
             }
-            let rooted = root_document.complete(out.finish()?)?;
+
+            let rooted = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
             if let Some(evidence) =
-                marker_plan.finish_theme_evidence(ctx.resolved_theme, ctx.work_meter)?
+                { let checked_value_2 = marker_plan.finish_theme_evidence(ctx.resolved_theme, ctx.work_meter)?; checked_value_2 }
             {
                 theme_evidence.record_marker_evidence(evidence);
             }
+
             Ok(rooted)
         },
     )
 }
 
+#[must_use]
 pub(super) fn flowchart_node_theme_ordinals<'a>(
     nodes: &'a [crate::flowchart::FlowNode],
     subgraphs: &'a [crate::flowchart::FlowSubgraph],
@@ -411,9 +432,9 @@ pub(super) fn flowchart_node_theme_ordinals<'a>(
     let mut ordinals = FixedMap::default();
     let mut next_ordinal = 1usize;
 
-    // Theme ordinals describe surfaces that reach the Node emitter, not Graphlib/ELK vertices.
-    // ELK materializes every subgraph as a node in the semantic model, but renders it as a
-    // cluster. Collapsed groups are nodes in either backend; hidden descendants own no slot.
+
+
+
     for node in nodes {
         if subgraph_ids.contains(node.id.as_str())
             || render_context
@@ -422,6 +443,7 @@ pub(super) fn flowchart_node_theme_ordinals<'a>(
         {
             continue;
         }
+
         if let std::collections::hash_map::Entry::Vacant(entry) = ordinals.entry(node.id.as_str()) {
             entry.insert(next_ordinal);
             next_ordinal += 1;
@@ -527,20 +549,26 @@ fn push_flowchart_gradient(
     document_ids: &FlowchartDocumentIds,
     prepared: &crate::svg::PreparedLookDefs,
 ) {
-    let Some((gradient_start, gradient_stop)) = prepared.gradient() else {
-        return;
+    let (gradient_start, gradient_stop) = {
+        let optional_gradient_start = prepared.gradient();
+
+        match optional_gradient_start {
+            Some((matched_gradient_start, matched_gradient_stop)) => (matched_gradient_start, matched_gradient_stop),
+            ::core::option::Option::None => return,
+        }
     };
 
-    let gradient_start = escape_xml(gradient_start);
-    let gradient_stop = escape_xml(gradient_stop);
+    let gradient_start_2 = escape_xml(gradient_start);
+    let gradient_stop_2 = escape_xml(gradient_stop);
     let _ = write!(
         out,
         r#"<linearGradient id="{}" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="{}" stop-opacity="1"/><stop offset="100%" stop-color="{}" stop-opacity="1"/></linearGradient>"#,
         document_ids.root_gradient(),
-        gradient_start.as_str(),
-        gradient_stop.as_str()
+        gradient_start_2.as_str(),
+        gradient_stop_2.as_str()
     );
 }
+
 #[cfg(all(test, feature = "diagram-flowchart"))]
 mod integration_tests {
     use super::super::render_input::prepare_flowchart_render_inputs;
@@ -572,7 +600,7 @@ mod integration_tests {
             panic!("expected Flowchart model");
         };
         model.keyword = "agentflow-beta".to_owned();
-        // Authored ids may overlap generated helper spellings without sharing an owner.
+
         model.edges[1].id = "A-cyclic-special-1".to_owned();
         let owners = crate::flowchart::FlowchartEdgeOwners::new(vec![
             crate::flowchart::FlowchartEdgeKey::self_loop_segment(2, 0),
@@ -751,8 +779,8 @@ mod integration_tests {
         use crate::model::{LayoutEdge, LayoutPoint};
         use base64::Engine as _;
 
-        // Pinned Mermaid geometry.spec.ts terminal-jog case, with measured rectangles whose
-        // boundaries coincide with its ports. The layout is fixed to isolate SVG postprocessing.
+
+
         let render = |enabled: bool, trace: bool| {
             let parsed = MermaidEngine::new()
                 .parse_diagram_for_render_model_sync(

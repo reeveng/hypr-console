@@ -35,12 +35,15 @@ pub(super) fn observe_control_rule(
     {
         return;
     }
+
     observation.applicable = true;
+
     match facet {
         FamilyThemeRuleFacet::Fill(_) if surface.fill_overridden => return,
         FamilyThemeRuleFacet::Stroke(_) if surface.stroke_overridden => return,
-        _ => {}
+        FamilyThemeRuleFacet::Fill(_) | FamilyThemeRuleFacet::Stroke(_) | FamilyThemeRuleFacet::StrokeWidth | FamilyThemeRuleFacet::StrokeDasharray | FamilyThemeRuleFacet::StrokeLinecap | FamilyThemeRuleFacet::StrokeLinejoin | FamilyThemeRuleFacet::Opacity | FamilyThemeRuleFacet::FillOpacity | FamilyThemeRuleFacet::StrokeOpacity | FamilyThemeRuleFacet::Radius | FamilyThemeRuleFacet::Padding | FamilyThemeRuleFacet::Typography(_) | FamilyThemeRuleFacet::Effect => {}
     }
+
     match (disposition, facet) {
         (
             FamilyThemeDisposition::TypedAdapter,
@@ -52,6 +55,7 @@ pub(super) fn observe_control_rule(
                 observation.incomplete = true;
                 return;
             }
+
             observation.capabilities.insert(capability_for_paint(kind));
         }
         (
@@ -64,6 +68,7 @@ pub(super) fn observe_control_rule(
                 observation.incomplete = true;
                 return;
             }
+
             observation.capabilities.insert(capability_for_paint(kind));
         }
         (FamilyThemeDisposition::TypedAdapter, FamilyThemeRuleFacet::StrokeWidth) => {
@@ -84,6 +89,7 @@ pub(super) fn observe_control_rule(
                 observation
                     .capabilities
                     .insert(ThemeCapability::SemanticRules);
+
                 if !surface.receipt.effect_cleared {
                     observation
                         .capabilities
@@ -92,10 +98,10 @@ pub(super) fn observe_control_rule(
             }
         }
         (FamilyThemeDisposition::TypedAdapter, _) => observation.incomplete = true,
-        (FamilyThemeDisposition::Unsupported, facet) => {
+        (FamilyThemeDisposition::Unsupported, facet_2) => {
             observation
                 .residual
-                .get_or_insert(unsupported_reason_for_facet(facet));
+                .get_or_insert(unsupported_reason_for_facet(facet_2));
         }
     }
 }
@@ -111,12 +117,15 @@ pub(super) fn observe_static_rect_rule(
     if surface.surface_count == 0 || !surface.receipt.route_won(rule_index, selector, facet) {
         return;
     }
+
     observation.applicable = true;
+
     match facet {
         FamilyThemeRuleFacet::Fill(_) if surface.fill_overridden => return,
         FamilyThemeRuleFacet::Stroke(_) if surface.stroke_overridden => return,
-        _ => {}
+        FamilyThemeRuleFacet::Fill(_) | FamilyThemeRuleFacet::Stroke(_) | FamilyThemeRuleFacet::StrokeWidth | FamilyThemeRuleFacet::StrokeDasharray | FamilyThemeRuleFacet::StrokeLinecap | FamilyThemeRuleFacet::StrokeLinejoin | FamilyThemeRuleFacet::Opacity | FamilyThemeRuleFacet::FillOpacity | FamilyThemeRuleFacet::StrokeOpacity | FamilyThemeRuleFacet::Radius | FamilyThemeRuleFacet::Padding | FamilyThemeRuleFacet::Typography(_) | FamilyThemeRuleFacet::Effect => {}
     }
+
     match (disposition, facet) {
         (
             FamilyThemeDisposition::TypedAdapter,
@@ -128,6 +137,7 @@ pub(super) fn observe_static_rect_rule(
                 observation.incomplete = true;
                 return;
             }
+
             observation.capabilities.insert(capability_for_paint(kind));
         }
         (
@@ -140,18 +150,19 @@ pub(super) fn observe_static_rect_rule(
                 observation.incomplete = true;
                 return;
             }
+
             observation.capabilities.insert(capability_for_paint(kind));
         }
         (
             FamilyThemeDisposition::TypedAdapter,
-            facet @ (FamilyThemeRuleFacet::StrokeWidth | FamilyThemeRuleFacet::Radius),
+            facet_2 @ (FamilyThemeRuleFacet::StrokeWidth | FamilyThemeRuleFacet::Radius),
         ) => {
             if surface.receipt.emitted_rects != surface.surface_count {
                 observation.incomplete = true;
             } else {
                 observation
                     .capabilities
-                    .insert(if facet == FamilyThemeRuleFacet::StrokeWidth {
+                    .insert(if facet_2 == FamilyThemeRuleFacet::StrokeWidth {
                         ThemeCapability::BorderStyling
                     } else {
                         ThemeCapability::RoundedGeometry
@@ -169,6 +180,7 @@ pub(super) fn observe_static_rect_rule(
                 observation
                     .capabilities
                     .insert(ThemeCapability::SemanticRules);
+
                 if !surface.receipt.effect_cleared {
                     observation
                         .capabilities
@@ -177,10 +189,10 @@ pub(super) fn observe_static_rect_rule(
             }
         }
         (FamilyThemeDisposition::TypedAdapter, _) => observation.incomplete = true,
-        (FamilyThemeDisposition::Unsupported, facet) => {
+        (FamilyThemeDisposition::Unsupported, facet_3) => {
             observation
                 .residual
-                .get_or_insert(unsupported_reason_for_facet(facet));
+                .get_or_insert(unsupported_reason_for_facet(facet_3));
         }
     }
 }
@@ -198,7 +210,9 @@ pub(super) fn observe_message_rule(
     {
         return;
     }
+
     observation.applicable = true;
+
     if message.stroke_overridden
         && matches!(
             facet,
@@ -207,6 +221,7 @@ pub(super) fn observe_message_rule(
     {
         return;
     }
+
     if matches!(
         facet,
         FamilyThemeRuleFacet::Fill(_) | FamilyThemeRuleFacet::Stroke(_)
@@ -214,6 +229,7 @@ pub(super) fn observe_message_rule(
     {
         return;
     }
+
     match (disposition, facet) {
         (
             FamilyThemeDisposition::TypedAdapter,
@@ -228,6 +244,7 @@ pub(super) fn observe_message_rule(
                 observation.incomplete = true;
                 return;
             }
+
             observation.capabilities.insert(capability_for_paint(kind));
         }
         (FamilyThemeDisposition::TypedAdapter, FamilyThemeRuleFacet::StrokeWidth) => {
@@ -235,6 +252,7 @@ pub(super) fn observe_message_rule(
                 observation.incomplete = true;
                 return;
             }
+
             observation
                 .capabilities
                 .insert(ThemeCapability::BorderStyling);
@@ -250,6 +268,7 @@ pub(super) fn observe_message_rule(
                 observation
                     .capabilities
                     .insert(ThemeCapability::SemanticRules);
+
                 if !message.receipt.effect_cleared {
                     observation
                         .capabilities
@@ -258,10 +277,10 @@ pub(super) fn observe_message_rule(
             }
         }
         (FamilyThemeDisposition::TypedAdapter, _) => observation.incomplete = true,
-        (FamilyThemeDisposition::Unsupported, facet) => {
+        (FamilyThemeDisposition::Unsupported, facet_2) => {
             observation
                 .residual
-                .get_or_insert(unsupported_reason_for_facet(facet));
+                .get_or_insert(unsupported_reason_for_facet(facet_2));
         }
     }
 }
@@ -281,10 +300,13 @@ pub(super) fn observe_sequence_number_rule(
     {
         return;
     }
+
     observation.applicable = true;
+
     if sequence_number.fill_overridden && matches!(facet, FamilyThemeRuleFacet::Fill(_)) {
         return;
     }
+
     match (disposition, facet) {
         (
             FamilyThemeDisposition::TypedAdapter,
@@ -296,13 +318,14 @@ pub(super) fn observe_sequence_number_rule(
                 observation.incomplete = true;
                 return;
             }
+
             observation.capabilities.insert(capability_for_paint(kind));
         }
         (FamilyThemeDisposition::TypedAdapter, _) => observation.incomplete = true,
-        (FamilyThemeDisposition::Unsupported, facet) => {
+        (FamilyThemeDisposition::Unsupported, facet_2) => {
             observation
                 .residual
-                .get_or_insert(unsupported_reason_for_facet(facet));
+                .get_or_insert(unsupported_reason_for_facet(facet_2));
         }
     }
 }
@@ -320,7 +343,9 @@ pub(super) fn observe_lifeline_rule(
     {
         return;
     }
+
     observation.applicable = true;
+
     if matches!(
         facet,
         FamilyThemeRuleFacet::Fill(_) | FamilyThemeRuleFacet::Stroke(_)
@@ -328,10 +353,12 @@ pub(super) fn observe_lifeline_rule(
         if lifeline.paint_overridden {
             return;
         }
+
         if lifeline.selected_property != Some(style_property_for_facet(facet)) {
             return;
         }
     }
+
     match (disposition, facet) {
         (
             FamilyThemeDisposition::TypedAdapter,
@@ -346,6 +373,7 @@ pub(super) fn observe_lifeline_rule(
                 observation.incomplete = true;
                 return;
             }
+
             observation.capabilities.insert(capability_for_paint(kind));
         }
         (FamilyThemeDisposition::TypedAdapter, FamilyThemeRuleFacet::StrokeWidth) => {
@@ -353,6 +381,7 @@ pub(super) fn observe_lifeline_rule(
                 observation.incomplete = true;
                 return;
             }
+
             observation
                 .capabilities
                 .insert(ThemeCapability::BorderStyling);
@@ -368,6 +397,7 @@ pub(super) fn observe_lifeline_rule(
                 observation
                     .capabilities
                     .insert(ThemeCapability::SemanticRules);
+
                 if !lifeline.receipt.effect_cleared {
                     observation
                         .capabilities
@@ -376,10 +406,10 @@ pub(super) fn observe_lifeline_rule(
             }
         }
         (FamilyThemeDisposition::TypedAdapter, _) => observation.incomplete = true,
-        (FamilyThemeDisposition::Unsupported, facet) => {
+        (FamilyThemeDisposition::Unsupported, facet_2) => {
             observation
                 .residual
-                .get_or_insert(unsupported_reason_for_facet(facet));
+                .get_or_insert(unsupported_reason_for_facet(facet_2));
         }
     }
 }
@@ -395,6 +425,7 @@ pub(super) fn observe_typography_rule(
     if role.label_candidate_count() == 0 {
         return;
     }
+
     if !role.route_won(rule_index, selector, facet) {
         if matches!(
             (disposition, selector),
@@ -412,14 +443,18 @@ pub(super) fn observe_typography_rule(
                 .residual
                 .get_or_insert(unsupported_reason_for_facet(facet));
         }
+
         return;
     }
+
     observation.applicable = true;
+
     if let FamilyThemeRuleFacet::Typography(property) = facet
         && role.config_overrides.contains(&property)
     {
         return;
     }
+
     match (disposition, facet) {
         (FamilyThemeDisposition::TypedAdapter, FamilyThemeRuleFacet::Typography(property)) => {
             if role.typography_property_complete(property) {
@@ -435,6 +470,7 @@ pub(super) fn observe_typography_rule(
             ),
         ) => {
             let fill = role.fill_summary();
+
             if fill.incomplete {
                 observation.incomplete = true;
             } else if fill.typed_applied {
@@ -458,14 +494,15 @@ pub(super) fn observe_typography_rule(
             }
         }
         (FamilyThemeDisposition::TypedAdapter, _) => observation.incomplete = true,
-        (FamilyThemeDisposition::Unsupported, facet) => {
+        (FamilyThemeDisposition::Unsupported, facet_2) => {
             observation
                 .residual
-                .get_or_insert(unsupported_reason_for_facet(facet));
+                .get_or_insert(unsupported_reason_for_facet(facet_2));
         }
     }
 }
 
+#[must_use]
 fn capability_for_paint(kind: FamilyThemePaintKind) -> ThemeCapability {
     match kind {
         FamilyThemePaintKind::Transparent => ThemeCapability::TransparentPaint,

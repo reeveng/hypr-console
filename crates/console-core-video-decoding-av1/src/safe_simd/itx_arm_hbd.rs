@@ -41,7 +41,15 @@
 //! panics on overflow). The parity sweep in `itx_arm_parity.rs` and the
 //! 766-vector corpus are what hold that claim.
 
-#![allow(clippy::too_many_arguments)]
+//!
+//! The 2-D dispatcher specializes the nine supported 4-, 8-, and 16-point
+//! width and height combinations. Fixed row and column array sizes let LLVM
+//! keep the lanes in registers. Four vectors suffice for a 4x4 pass, which
+//! accounted for 181,768 of 272,949 high-bit-depth transform calls in the
+//! 3840x2160 10-bit vector's shape census. The 32- and 64-point cases use the
+//! scalar reference. The SIMD kernel emits residuals first so pixel addition
+//! can borrow one destination row at a time.
+
 #![cfg_attr(not(feature = "unchecked"), forbid(unsafe_code))]
 #![cfg_attr(feature = "unchecked", deny(unsafe_code))]
 
@@ -53,8 +61,6 @@ use archmage::{Arm64, arcane, rite};
 
 #[cfg(target_arch = "aarch64")]
 use archmage::intrinsics::aarch64 as safe_simd;
-
-/// One 1-D transform family. Mirrors `inv_txfm_add_rust`'s local `Type`.
 #[cfg(target_arch = "aarch64")]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(crate) enum Kind {
@@ -66,48 +72,33 @@ pub(crate) enum Kind {
 
 #[cfg(target_arch = "aarch64")]
 type V = int32x4_t;
-
-/// The largest (w, h) this module handles. 32- and 64-point transforms keep
-/// running on the scalar reference; see `hbd_supported`.
 #[cfg(target_arch = "aarch64")]
 const MAXDIM: usize = 16;
-
-/// `iclip(v, min, max)`.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn clip4(v: V, min: V, max: V) -> V {
   vminq_s32(vmaxq_s32(v, min), max)
 }
-
-/// `(a * ka + 2048) >> 12`
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn m12(a: V, ka: i32) -> V {
   vrshrq_n_s32::<12>(vmulq_n_s32(a, ka))
 }
-
-/// `(a * ka + b * kb + 2048) >> 12`
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn mm12(a: V, ka: i32, b: V, kb: i32) -> V {
   vrshrq_n_s32::<12>(vmlaq_n_s32(vmulq_n_s32(a, ka), b, kb))
 }
-
-/// `(a * ka + b * kb + 1024) >> 11`
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn mm11(a: V, ka: i32, b: V, kb: i32) -> V {
   vrshrq_n_s32::<11>(vmlaq_n_s32(vmulq_n_s32(a, ka), b, kb))
 }
-
-/// `(a * 181 + 128) >> 8`
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn m181(a: V) -> V {
   vrshrq_n_s32::<8>(vmulq_n_s32(a, 181))
 }
-
-/// `inv_dct4_1d_internal_c`, `tx64 == 0`.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dct4(c: &mut [V; 4], min: V, max: V) {
@@ -164,8 +155,6 @@ fn dct4(c: &mut [V; 4], min: V, max: V) {
     _explicit_part
   } = clip4(vsubq_s32(t0, t3), min, max);
 }
-
-/// `inv_dct8_1d_internal_c`, `tx64 == 0`.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dct8(c: &mut [V; 8], min: V, max: V) {
@@ -277,8 +266,6 @@ fn dct8(c: &mut [V; 8], min: V, max: V) {
     _explicit_part
   } = clip4(vsubq_s32(t0, t7), min, max);
 }
-
-/// `inv_dct16_1d_internal_c`, `tx64 == 0`.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dct16(c: &mut [V; 16], min: V, max: V) {
@@ -602,10 +589,6 @@ fn dct16(c: &mut [V; 16], min: V, max: V) {
     _explicit_part
   } = clip4(vsubq_s32(t0, t15a), min, max);
 }
-
-/// `inv_adst4_1d_internal_c`, results in forward output order.
-///
-/// The reference takes no clip here (`_min` / `_max` are unused).
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn adst4_core(c: &[V; 4]) -> [V; 4] {
@@ -646,8 +629,6 @@ fn adst4_core(c: &[V; 4]) -> [V; 4] {
 
   [o0, o1, o2, o3]
 }
-
-/// `inv_adst8_1d_internal_c`, results in forward output order.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn adst8_core(c: &[V; 8], min: V, max: V) -> [V; 8] {
@@ -823,8 +804,6 @@ fn adst8_core(c: &[V; 8], min: V, max: V) -> [V; 8] {
   } = vnegq_s32(m181(vsubq_s32(t6, t7)));
   o
 }
-
-/// `inv_adst16_1d_internal_c`, results in forward output order.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn adst16_core(c: &[V; 16], min: V, max: V) -> [V; 16] {
@@ -1323,19 +1302,6 @@ fn adst16_core(c: &[V; 16], min: V, max: V) -> [V; 16] {
   } = m181(vsubq_s32(t14a, t15a));
   o
 }
-
-/// Apply one 1-D transform of length `n` to `v[..n]`.
-///
-/// `kind` and `n` are runtime values, but the branch is taken once per group of
-/// four transforms, not per element, so it is far below the cost of the
-/// transform itself.
-///
-/// `N` is a const parameter (three instantiations: 4, 8, 16) rather than a
-/// runtime length. A runtime length is what forced the caller's `[V; N]` state
-/// array into memory: LLVM cannot promote an array whose address escapes into a
-/// slice of unknown length, so every 1-D transform round-tripped its inputs and
-/// outputs through the stack. `kind` stays runtime — it does not affect
-/// addressing, so it costs one predictable branch per group of four transforms.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 #[inline(always)]
@@ -1398,8 +1364,6 @@ fn apply1d<const N: usize>(kind: Kind, v: &mut [V; N], min: V, max: V) {
     _ => unreachable!("itx_arm_hbd: no 1-D kernel for {kind:?} n={n}"),
   }
 }
-
-/// Transpose four `int32x4_t` (rows) into four `int32x4_t` (columns).
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn transpose4x4(v: [V; 4]) -> [V; 4] {
@@ -1444,18 +1408,11 @@ fn transpose4x4(v: [V; 4]) -> [V; 4] {
     vreinterpretq_s32_s64(vtrn2q_s64(b64, d64)),
   ]
 }
-
-/// Whether this module has kernels for `(w, h)`.
-///
-/// 32- and 64-point transforms are not ported; those sizes keep running on
-/// `src/itx.rs`'s scalar reference.
 #[cfg(target_arch = "aarch64")]
 #[must_use]
 pub(crate) fn hbd_supported(w: usize, h: usize) -> bool {
   w <= MAXDIM && h <= MAXDIM
 }
-
-/// `iclip_pixel(dst + delta)` for a 4-pixel group. `delta` is already final.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn add_clip4(dst: &mut [u16], off: usize, delta: V, bd_max: V) {
@@ -1466,9 +1423,6 @@ fn add_clip4(dst: &mut [u16], off: usize, delta: V, bd_max: V) {
   let slot = <&mut [u16; 4]>::try_from(&mut dst[off..off + 4]).expect("4 pixels");
   safe_simd::vst1_u16(slot, out);
 }
-
-/// The DC-only shortcut's scalar half: `src/itx.rs::inv_txfm_add`'s `eob <
-/// has_dc_only` branch, up to but not including the pixel add.
 #[cfg(target_arch = "aarch64")]
 pub(crate) fn hbd_dc_value(w: usize, h: usize, shift: u32, coeff: &mut [i32]) -> i32 {
   let is_rect2 = w * 2 == h || h * 2 == w;
@@ -1496,12 +1450,6 @@ pub(crate) fn hbd_dc_value(w: usize, h: usize, shift: u32, coeff: &mut [i32]) ->
     12_u32,
   )
 }
-
-/// Add one already-computed row of residual to `w` destination pixels.
-///
-/// Taking `dst` as exactly one row is what lets the caller hold ONE NARROW
-/// GUARD PER ROW instead of a wide guard over the whole block. See
-/// `itxfm_add_dispatch`'s 16bpc arm for the measurement that decided it.
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn add_row_hbd_neon(
@@ -1519,8 +1467,6 @@ pub(crate) fn add_row_hbd_neon(
     add_clip4(dst, x, delta, bd_max);
   }
 }
-
-/// Add a constant DC to `w` destination pixels.
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn add_row_dc_hbd_neon(
@@ -1537,18 +1483,12 @@ pub(crate) fn add_row_dc_hbd_neon(
     add_clip4(dst, x, dcv, bd_max);
   }
 }
-
-/// The 16bpc 2-D inverse transform, vectorised, WITHOUT the pixel add.
-///
-/// Transliteration of `src/itx.rs::inv_txfm_add` for `BD::BITDEPTH != 8`, with
-/// `w, h <= 16` (so `sw == w` and `sh == h`, and the reference's
-/// zero-padded-tail cases cannot arise). The residual lands in `tmp` row-major
-/// and the caller adds it a row at a time.
-///
-/// This entry point is the shape dispatcher; [`txfm_core`] is the body, with
-/// `W`/`H` as const parameters. See that function for why.
 #[cfg(target_arch = "aarch64")]
 #[arcane]
+#[allow(
+  clippy::too_many_arguments,
+  reason = "The NEON dispatcher keeps the two residual buffers and both dimensions explicit at its call boundary"
+)]
 pub(crate) fn inv_txfm_hbd_neon(
   _token: Arm64,
   w: usize,
@@ -1560,48 +1500,44 @@ pub(crate) fn inv_txfm_hbd_neon(
   bitdepth_max: i32,
   tmp: &mut [i32],
 ) {
-  macro_rules! shape {
-    ($w:literal, $h:literal) => {
-      txfm_core::<$w, $h>(first, second, shift, coeff, bitdepth_max, tmp)
-    };
-  }
+  let settings = TransformSettings {
+    first,
+    second,
+    shift,
+    bitdepth_max,
+  };
 
   match (w, h) {
-    (4, 4) => shape!(4, 4),
-    (4, 8) => shape!(4, 8),
-    (4, 16) => shape!(4, 16),
-    (8, 4) => shape!(8, 4),
-    (8, 8) => shape!(8, 8),
-    (8, 16) => shape!(8, 16),
-    (16, 4) => shape!(16, 4),
-    (16, 8) => shape!(16, 8),
-    (16, 16) => shape!(16, 16),
+    (4, 4) => txfm_core::<4, 4>(settings, coeff, tmp),
+    (4, 8) => txfm_core::<4, 8>(settings, coeff, tmp),
+    (4, 16) => txfm_core::<4, 16>(settings, coeff, tmp),
+    (8, 4) => txfm_core::<8, 4>(settings, coeff, tmp),
+    (8, 8) => txfm_core::<8, 8>(settings, coeff, tmp),
+    (8, 16) => txfm_core::<8, 16>(settings, coeff, tmp),
+    (16, 4) => txfm_core::<16, 4>(settings, coeff, tmp),
+    (16, 8) => txfm_core::<16, 8>(settings, coeff, tmp),
+    (16, 16) => txfm_core::<16, 16>(settings, coeff, tmp),
     _ => unreachable!("itx_arm_hbd: no kernel for {w}x{h}"),
   }
 }
-
-/// [`inv_txfm_hbd_neon`]'s body, monomorphised on the transform shape.
-///
-/// `W` and `H` are const rather than runtime for one reason: the row- and
-/// column-pass state arrays. They used to be `[V; MAXDIM]` — 16 vectors —
-/// indexed by a runtime bound and handed to `apply1d` as a slice, so LLVM had
-/// to materialise them on the stack, zero all 16 lanes on entry to every group,
-/// and reload each element across the 1-D call. On this ladder the dominant
-/// shape is the *smallest*: 181,768 of the 272,949 16bpc transform calls in
-/// L3840x2160_420_10b are 4x4 (`__ablate` shape census, 2026-08-10), where 4 of
-/// those 16 vectors carry data. With the shape const, every index and trip
-/// count is a constant, the arrays are exactly `W`/`H` long, and SROA can keep
-/// them in NEON registers.
-///
-/// Nine instantiations (3 widths x 3 heights); `apply1d` adds three more.
 #[cfg(target_arch = "aarch64")]
-#[rite(neon)]
-fn txfm_core<const W: usize, const H: usize>(
+struct TransformSettings {
   first: Kind,
   second: Kind,
   shift: u32,
-  coeff: &mut [i32],
   bitdepth_max: i32,
+}
+
+#[cfg(target_arch = "aarch64")]
+#[rite(neon)]
+fn txfm_core<const W: usize, const H: usize>(
+  TransformSettings {
+    first,
+    second,
+    shift,
+    bitdepth_max,
+  }: TransformSettings,
+  coeff: &mut [i32],
   tmp: &mut [i32],
 ) {
   const { assert!(W % 4 == 0 && H % 4 == 0) };

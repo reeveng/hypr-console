@@ -1168,6 +1168,85 @@ mod left_split_parity {
     Ok(values)
   }
 
+  fn probe_location(rng: &mut Rng, side: u32) -> Rav1dResult<Bxy> {
+    let row = rng.below(side)?;
+    let Ok(y) = console_core_number_conversion::wrapped::<_, i32>(row);
+    let column = rng.below(side)?;
+    let Ok(x) = console_core_number_conversion::wrapped::<_, i32>(column);
+    Ok(Bxy { x, y })
+  }
+
+  fn probe_filter(rng: &mut Rng) -> Rav1dResult<(ReferenceArity, FilterAxis, i8)> {
+    let arity = rng.below(2)?;
+    let references = match arity {
+      1 => ReferenceArity::Compound,
+      _ => ReferenceArity::Single,
+    };
+    let filter_axis = rng.below(2)?;
+    let axis = match filter_axis {
+      1 => FilterAxis::Horizontal,
+      _ => FilterAxis::Vertical,
+    };
+    let reference = rng.below(8)?;
+    let Ok(reference_code) = console_core_number_conversion::wrapped::<_, i8>(reference);
+    let selected_reference = reference_code.wrapping_sub(1);
+    Ok((references, axis, selected_reference))
+  }
+
+  fn probe_order_hints(rng: &mut Rng) -> Rav1dResult<CompoundOrderHints> {
+    let hint_width = rng.below(9)?;
+    let Ok(width) = console_core_number_conversion::wrapped::<_, u8>(hint_width);
+    let current = rng.below(256)?;
+    let first_hint = rng.below(256)?;
+    let second_hint = rng.below(256)?;
+    Ok(CompoundOrderHints {
+      width,
+      current,
+      reference_hints: [first_hint, second_hint],
+    })
+  }
+
+  fn trial_contexts(
+    [
+      intra,
+      transform_ctx,
+      partition,
+      filter,
+      compound,
+      compound_direction,
+      mask,
+    ]: [u8; 7],
+    neighbors: BlockNeighbors<'_>,
+    joint: u8,
+  ) -> Rav1dResult<[u8; 15]> {
+    let [
+      direction,
+      forward,
+      near_forward,
+      far_forward,
+      backward,
+      near_backward,
+      paired,
+    ] = reference_context_values(neighbors)?;
+    Ok([
+      intra,
+      transform_ctx,
+      partition,
+      filter,
+      compound,
+      compound_direction,
+      mask,
+      direction,
+      forward,
+      near_forward,
+      far_forward,
+      backward,
+      near_backward,
+      paired,
+      joint,
+    ])
+  }
+
   #[test]
   fn all_fifteen_helpers_match_the_pre_split_implementation() -> Rav1dResult {
     let Ok((trials, expected)) = expected_contexts();
@@ -1178,14 +1257,8 @@ mod left_split_parity {
     for _ in 0..trials {
       let above = random_ctx(&mut rng)?;
       let left = random_ctx(&mut rng)?;
-      let row_4x4 = rng.below(32)?;
-      let Ok(y_4x4) = console_core_number_conversion::wrapped::<_, i32>(row_4x4);
-      let column_4x4 = rng.below(32)?;
-      let Ok(x_4x4) = console_core_number_conversion::wrapped::<_, i32>(column_4x4);
-      let row_8x8 = rng.below(16)?;
-      let Ok(y_8x8) = console_core_number_conversion::wrapped::<_, i32>(row_8x8);
-      let column_8x8 = rng.below(16)?;
-      let Ok(x_8x8) = console_core_number_conversion::wrapped::<_, i32>(column_8x8);
+      let block_location = probe_location(&mut rng, 32)?;
+      let partition_location = probe_location(&mut rng, 16)?;
       let has_top = rng.below(2)?;
       let has_left = rng.below(2)?;
       let availability = NeighborAvailability::from((has_top == 1, has_left == 1));
@@ -1198,11 +1271,11 @@ mod left_split_parity {
       let blocks = BlockNeighbors {
         above: &above,
         left: &left,
-        location: Bxy { x: x_4x4, y: y_4x4 },
+        location: block_location,
         availability,
       };
       let partitions = BlockNeighbors {
-        location: Bxy { x: x_8x8, y: y_8x8 },
+        location: partition_location,
         ..blocks
       };
       let level_value = rng.below(5)?;
@@ -1211,29 +1284,8 @@ mod left_split_parity {
       let size_value = rng.below(size_count)?;
       let Ok(size_index) = console_core_number_conversion::index(size_value);
       let transform = dav1d_txfm_dimensions.get(size_index).ok_or(EINVAL)?;
-      let arity = rng.below(2)?;
-      let references = match arity {
-        1 => ReferenceArity::Compound,
-        _ => ReferenceArity::Single,
-      };
-      let filter_axis = rng.below(2)?;
-      let axis = match filter_axis {
-        1 => FilterAxis::Horizontal,
-        _ => FilterAxis::Vertical,
-      };
-      let reference = rng.below(8)?;
-      let Ok(reference_code) = console_core_number_conversion::wrapped::<_, i8>(reference);
-      let selected_reference = reference_code.wrapping_sub(1);
-      let hint_width = rng.below(9)?;
-      let Ok(width) = console_core_number_conversion::wrapped::<_, u8>(hint_width);
-      let current = rng.below(256)?;
-      let first_hint = rng.below(256)?;
-      let second_hint = rng.below(256)?;
-      let order = CompoundOrderHints {
-        width,
-        current,
-        reference_hints: [first_hint, second_hint],
-      };
+      let (references, axis, selected_reference) = probe_filter(&mut rng)?;
+      let order = probe_order_hints(&mut rng)?;
       let intra = get_intra_ctx(blocks)?;
       let transform_ctx = get_tx_ctx(blocks, transform)?;
       let partition = get_partition_ctx(partitions, level)?;
@@ -1242,16 +1294,7 @@ mod left_split_parity {
       let compound_direction = get_comp_dir_ctx(blocks)?;
       let mask = get_mask_comp_ctx(blocks)?;
       let joint = get_jnt_comp_ctx(order, blocks)?;
-      let [
-        direction,
-        forward,
-        near_forward,
-        far_forward,
-        backward,
-        near_backward,
-        paired,
-      ] = reference_context_values(blocks)?;
-      let results = [
+      let block_contexts = [
         intra,
         transform_ctx,
         partition,
@@ -1259,15 +1302,8 @@ mod left_split_parity {
         compound,
         compound_direction,
         mask,
-        direction,
-        forward,
-        near_forward,
-        far_forward,
-        backward,
-        near_backward,
-        paired,
-        joint,
       ];
+      let results = trial_contexts(block_contexts, blocks, joint)?;
 
       for (observed, value) in seen.iter_mut().zip(results) {
         observed.note(value)?;

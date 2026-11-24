@@ -32,16 +32,24 @@ pub(super) fn render_sequence_actor_popup_menus(
 ) -> Result<()> {
     let actor_typography = label_ctx.typography;
     let typography_receipt = label_ctx.typography_receipt;
-    // Mermaid emits actor popup menus (links/link directives) as root-level
-    // `<g class="actorPopupMenu">` groups after messages.
+
+
     for (actor_cnt, actor_id) in model.actor_order.iter().enumerate() {
         checkpoints.checkpoint_loop(actor_cnt)?;
-        let Some(actor) = model.actors.get(actor_id) else {
-            continue;
+
+        let actor = {
+            let optional_actor = model.actors.get(actor_id);
+
+            match optional_actor {
+                Some(matched_actor) => matched_actor,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if actor.links.is_empty() {
             continue;
         }
+
         let actor_custom_class = actor
             .properties
             .get("class")
@@ -53,10 +61,13 @@ pub(super) fn render_sequence_actor_popup_menus(
         } else {
             "none"
         };
-        let popup_fill = if actor_custom_class.is_some() {
-            "#EDF2AE"
-        } else {
-            "#eaeaea"
+        let popup_fill = match actor_custom_class {
+            ::core::option::Option::Some(_) => {
+                "#EDF2AE"
+            },
+            ::core::option::Option::None => {
+                "#eaeaea"
+            },
         };
         let popup_actor_pos_class = if options.mirror_actors {
             "actor-bottom"
@@ -72,11 +83,13 @@ pub(super) fn render_sequence_actor_popup_menus(
         } else {
             format!("actor-top-{actor_id}")
         };
+
         let Some(n) = nodes_by_id.get(node_id.as_str()).copied() else {
             typography_receipt
                 .record_missing_text_effect(crate::sequence::SequenceTextSurface::ParticipantLabel);
             continue;
         };
+
         let (x, _y) = node_left_top(n);
         let panel_width = actor_popup_widths.get(actor_id).copied().unwrap_or(n.width);
 
@@ -114,11 +127,18 @@ pub(super) fn render_sequence_actor_popup_menus(
             fill = escape_xml_display(popup_fill),
         );
 
-        for (link_index, (label, url)) in actor.links.iter().enumerate() {
+        'inner_for_2: for (link_index, (label, url)) in actor.links.iter().enumerate() {
             checkpoints.checkpoint_loop(link_index)?;
-            let Some(href) = url.as_str() else {
-                continue;
+
+            let href = {
+                let optional_href = url.as_str();
+
+                match optional_href {
+                    Some(matched_href) => matched_href,
+                    ::core::option::Option::None => continue 'inner_for_2,
+                }
             };
+
             let security_level_loose = sanitize_config.get_str("securityLevel") == Some("loose");
             let href = merman_markup::url::sanitize_url(href);
             let href = prepare_mermaid_navigation_href(
@@ -132,8 +152,8 @@ pub(super) fn render_sequence_actor_popup_menus(
             };
             let text_x = x + 10.0;
             let text_y = rect_height + link_y + 10.0;
-            // Hidden interactive links do not survive native export. Keep their
-            // requested effect incomplete instead of certifying an absent filter.
+
+
             let application = if options.force_menus {
                 label_ctx.write_shadow(
                     out,
@@ -146,14 +166,17 @@ pub(super) fn render_sequence_actor_popup_menus(
             } else {
                 None
             };
-            let filter = application
+            let filter = match application
                 .as_ref()
-                .map(|a| format!(" filter=\"{}\"", escape_attr(&a.filter)))
-                .unwrap_or_default();
+                .map(|a| format!(" filter=\"{}\"", escape_attr(&a.filter))) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::string::String::new(),
+            };
             let style = actor_typography.terminal_style(
                 "text-anchor: start",
                 format!("text-anchor: start; {text_style}"),
             );
+
             if let Some(href) = href {
                 let _ = write!(
                     out,
@@ -175,6 +198,7 @@ pub(super) fn render_sequence_actor_popup_menus(
                     label = escape_xml(label)
                 );
             }
+
             out.checkpoint()?;
             label_ctx.record_shadow(
                 application.as_ref(),
@@ -189,5 +213,6 @@ pub(super) fn render_sequence_actor_popup_menus(
 
         out.push_str("</g>");
     }
+
     checkpoints.checkpoint()
 }

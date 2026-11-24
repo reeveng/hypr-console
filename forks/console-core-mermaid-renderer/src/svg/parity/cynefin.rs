@@ -3,6 +3,7 @@ use crate::diagram_theme::{ResolvedStyleProperty, ThemeTarget};
 use crate::family::{TerminalPaint, TerminalPaintPlan};
 use merman_model::families::cynefin::CynefinDiagramModel;
 
+#[must_use]
 fn domain_ordinal(name: &str) -> usize {
     match name {
         "complex" => 1,
@@ -13,6 +14,7 @@ fn domain_ordinal(name: &str) -> usize {
     }
 }
 
+#[must_use]
 fn domain_fill_path(name: &str) -> &'static str {
     match name {
         "complex" => "themeVariables.cynefin.complexBg",
@@ -32,14 +34,17 @@ fn write_paint_style(
     if fill.is_none() && stroke.is_none() {
         return Ok(());
     }
+
     out.push_str(r#" style=""#);
+
     for (property, paint) in [("fill", fill), ("stroke", stroke)] {
-        if let Some(paint) = paint {
-            let _ = write!(out, "{property}:{};", escape_attr_display(paint.css()));
+        if let Some(paint_2) = paint {
+            let _ = write!(out, "{property}:{};", escape_attr_display(paint_2.css()));
             out.checkpoint()?;
-            plan.record(Some(&paint), paint.css());
+            plan.record(Some(&paint_2), paint_2.css());
         }
     }
+
     out.push_str(r#"""#);
     out.checkpoint()
 }
@@ -119,14 +124,15 @@ pub(crate) fn render_cynefin_diagram_svg_model(
             .write_open(&mut out, root_spec, root_chrome)?;
     options.checkpoint_emit()?;
 
-    if let Some(title) = acc_title {
+    if let Some(title_2) = acc_title {
         let _ = write!(
             &mut out,
             r#"<title id="chart-title-{diagram_id}">{}</title>"#,
-            escape_xml_display(title)
+            escape_xml_display(title_2)
         );
         out.checkpoint()?;
     }
+
     if let Some(descr) = acc_descr {
         let _ = write!(
             &mut out,
@@ -146,10 +152,12 @@ pub(crate) fn render_cynefin_diagram_svg_model(
     )?;
     out.push_str("</style><g/>");
     out.checkpoint()?;
-    if let Some(title) = acc_title {
-        let _ = write!(&mut out, "<title>{}</title>", escape_xml_display(title));
+
+    if let Some(title_3) = acc_title {
+        let _ = write!(&mut out, "<title>{}</title>", escape_xml_display(title_3));
         out.checkpoint()?;
     }
+
     if let Some(descr) = acc_descr {
         let _ = write!(&mut out, "<desc>{}</desc>", escape_xml_display(descr));
         out.checkpoint()?;
@@ -171,6 +179,7 @@ pub(crate) fn render_cynefin_diagram_svg_model(
         &mut paint_plan,
         &mut surface_receipt,
     )?;
+
     if layout.show_domain_descriptions {
         push_subtitles(
             &mut out,
@@ -180,6 +189,7 @@ pub(crate) fn render_cynefin_diagram_svg_model(
             &mut surface_receipt,
         )?;
     }
+
     push_items(
         &mut out,
         layout,
@@ -197,7 +207,8 @@ pub(crate) fn render_cynefin_diagram_svg_model(
         &mut paint_plan,
         &mut surface_receipt,
     )?;
-    if let Some(title) = title {
+
+    if let Some(title_4) = title {
         let _ = write!(
             &mut out,
             r#"<text class="cynefinTitle" x="{}" y="{}" text-anchor="middle" dominant-baseline="middle""#,
@@ -212,14 +223,15 @@ pub(crate) fn render_cynefin_diagram_svg_model(
             true,
             &base.label_color,
         )?;
-        let _ = write!(&mut out, ">{}</text>", escape_xml_display(title));
+        let _ = write!(&mut out, ">{}</text>", escape_xml_display(title_4));
         out.checkpoint()?;
         surface_receipt.record_text(
             crate::cynefin::CynefinTextRole::Title,
             "cynefinTitle",
-            title,
+            title_4,
         );
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
@@ -241,9 +253,10 @@ pub(crate) fn render_cynefin_diagram_svg_model(
             paths,
             &base.arrow_color,
         );
+
         if style
             .as_ref()
-            .is_some_and(|style| style.fill_resolution().specified().is_unspecified())
+            .is_some_and(|style_2| style_2.fill_resolution().specified().is_unspecified())
         {
             let edge_style = paint_plan.style(ThemeTarget::Edge, 1, false)?;
             fill = paint_plan.paint(
@@ -255,6 +268,7 @@ pub(crate) fn render_cynefin_diagram_svg_model(
                 &base.arrow_color,
             );
         }
+
         let stroke = paint_plan.paint(
             ThemeTarget::Marker,
             1,
@@ -267,14 +281,17 @@ pub(crate) fn render_cynefin_diagram_svg_model(
         out.push_str("></path></marker></defs>");
         out.checkpoint()?;
     }
+
     surface_receipt.paint_evidence = paint_plan.finish();
     out.push_str("</svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if !typography_theme.record_terminal(surface_receipt) {
         return Err(crate::Error::InvalidModel {
             message: "Cynefin typography receipt was recorded more than once".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 
@@ -286,6 +303,7 @@ fn push_backgrounds(
 ) -> Result<()> {
     out.push_str(r#"<g class="cynefin-backgrounds">"#);
     out.checkpoint()?;
+
     for domain_name in crate::cynefin::quadrant_domains() {
         let Some(domain) = layout
             .domain_layouts
@@ -294,6 +312,7 @@ fn push_backgrounds(
         else {
             continue;
         };
+
         let _ = write!(
             out,
             r#"<rect class="cynefinDomain" x="{}" y="{}" width="{}" height="{}" fill="{}" fill-opacity="0.4" stroke="none""#,
@@ -328,6 +347,7 @@ fn push_backgrounds(
         out.push_str("></rect>");
         out.checkpoint()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -354,6 +374,7 @@ fn push_boundaries(
         Some(layout.boundary_amplitude),
     );
     let cliff_path = crate::cynefin::generate_cliff_path(layout.width, layout.height);
+
     for (class, path, ordinal, paths, base) in [
         (
             "cynefinBoundary",
@@ -401,6 +422,7 @@ fn push_boundaries(
         out.push_str("></path>");
         out.checkpoint()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
@@ -450,6 +472,7 @@ fn push_labels(
 ) -> Result<()> {
     out.push_str(r#"<g class="cynefin-labels">"#);
     out.checkpoint()?;
+
     for domain_name in crate::cynefin::quadrant_domains() {
         let Some(domain) = layout
             .domain_layouts
@@ -458,6 +481,7 @@ fn push_labels(
         else {
             continue;
         };
+
         let y = if layout.show_domain_descriptions {
             domain.cy - 30.0
         } else {
@@ -489,6 +513,7 @@ fn push_labels(
             crate::cynefin::domain_title(domain_name),
         );
     }
+
     let y = if layout.show_domain_descriptions {
         layout.height / 2.0 - 10.0
     } else {
@@ -527,6 +552,7 @@ fn push_subtitles(
 ) -> Result<()> {
     out.push_str(r#"<g class="cynefin-subtitles">"#);
     out.checkpoint()?;
+
     for domain_name in crate::cynefin::quadrant_domains() {
         let Some(domain) = layout
             .domain_layouts
@@ -535,7 +561,9 @@ fn push_subtitles(
         else {
             continue;
         };
+
         let (model, practice) = crate::cynefin::domain_model_and_practice(domain_name);
+
         for (text, y) in [(model, domain.cy - 10.0), (practice, domain.cy + 5.0)] {
             let _ = write!(
                 out,
@@ -543,6 +571,7 @@ fn push_subtitles(
                 fmt(domain.cx),
                 fmt(y)
             );
+
             if write_label_paint(
                 out,
                 paint_plan,
@@ -553,9 +582,11 @@ fn push_subtitles(
             )? {
                 surface_receipt.record_text_fill_override();
             }
+
             let _ = write!(out, ">{}</text>", escape_xml_display(text));
             out.checkpoint()?;
         }
+
         surface_receipt.record_text(
             crate::cynefin::CynefinTextRole::Subtitle,
             "cynefinSubtitle",
@@ -567,12 +598,14 @@ fn push_subtitles(
             practice,
         );
     }
+
     let _ = write!(
         out,
         r#"<text class="cynefinSubtitle" x="{}" y="{}" text-anchor="middle" dominant-baseline="middle""#,
         fmt(layout.width / 2.0),
         fmt(layout.height / 2.0 + 8.0)
     );
+
     if write_label_paint(
         out,
         paint_plan,
@@ -583,6 +616,7 @@ fn push_subtitles(
     )? {
         surface_receipt.record_text_fill_override();
     }
+
     out.push_str(">Disorder</text></g>");
     out.checkpoint()?;
     surface_receipt.record_text(
@@ -603,6 +637,7 @@ fn push_items(
 ) -> Result<()> {
     out.push_str(r#"<g class="cynefin-items">"#);
     out.checkpoint()?;
+
     for item in &layout.items {
         let fill = crate::cynefin::domain_fill(theme, &item.domain);
         let ordinal = domain_ordinal(&item.domain);
@@ -649,6 +684,7 @@ fn push_items(
             fmt(item.text_x),
             fmt(item.text_y)
         );
+
         if !item.label.trim().is_empty()
             && write_label_paint(
                 out,
@@ -661,6 +697,7 @@ fn push_items(
         {
             surface_receipt.record_text_fill_override();
         }
+
         let _ = write!(out, ">{}</text></g>", escape_xml_display(&item.label));
         out.checkpoint()?;
         surface_receipt.record_text(
@@ -669,6 +706,7 @@ fn push_items(
             &item.label,
         );
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -685,8 +723,10 @@ fn push_transitions(
     if layout.transitions.is_empty() {
         return Ok(());
     }
+
     out.push_str(r#"<g class="cynefin-arrows">"#);
     out.checkpoint()?;
+
     for (index, transition) in layout.transitions.iter().enumerate() {
         options.checkpoint_emit()?;
         let d = format!(
@@ -723,6 +763,7 @@ fn push_transitions(
         write_paint_style(out, paint_plan, None, stroke)?;
         out.push_str("></path>");
         out.checkpoint()?;
+
         if let Some(label) = transition
             .label
             .as_deref()
@@ -734,6 +775,7 @@ fn push_transitions(
                 fmt(transition.cpx),
                 fmt(transition.cpy - 6.0)
             );
+
             if write_label_paint(
                 out,
                 paint_plan,
@@ -744,6 +786,7 @@ fn push_transitions(
             )? {
                 surface_receipt.record_text_fill_override();
             }
+
             let _ = write!(out, ">{}</text>", escape_xml_display(label));
             out.checkpoint()?;
             surface_receipt.record_text(
@@ -752,8 +795,10 @@ fn push_transitions(
                 label,
             );
         }
+
         options.checkpoint_emit()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }

@@ -21,7 +21,7 @@ use crate::include::common::bitdepth::BitDepth;
 #[cfg(target_arch = "wasm32")]
 use crate::include::dav1d::picture::PicOffset;
 #[cfg(target_arch = "wasm32")]
-use crate::src::internal::COMPINTER_LEN;
+use crate::src::internal::CompoundPrediction;
 
 #[cfg(target_arch = "wasm32")]
 use crate::src::safe_simd::pixel_access::wasm_load_128;
@@ -48,8 +48,8 @@ fn avg_8bpc_wasm128(
   _token: Wasm128Token,
   dst: &mut [u8],
   dst_stride: usize,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
 ) {
@@ -110,8 +110,8 @@ fn avg_16bpc_wasm128(
   _token: Wasm128Token,
   dst: &mut [u8],
   dst_stride: usize,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   bitdepth_max: i32,
@@ -199,8 +199,8 @@ fn w_avg_8bpc_wasm128(
   _token: Wasm128Token,
   dst: &mut [u8],
   dst_stride: usize,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   weight: i32,
@@ -283,8 +283,8 @@ fn w_avg_16bpc_wasm128(
   _token: Wasm128Token,
   dst: &mut [u8],
   dst_stride: usize,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   weight: i32,
@@ -378,8 +378,8 @@ fn mask_8bpc_wasm128(
   _token: Wasm128Token,
   dst: &mut [u8],
   dst_stride: usize,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   mask: &[u8],
@@ -456,8 +456,8 @@ fn mask_16bpc_wasm128(
   _token: Wasm128Token,
   dst: &mut [u8],
   dst_stride: usize,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   mask: &[u8],
@@ -548,8 +548,8 @@ fn mask_16bpc_wasm128(
 #[cfg(target_arch = "wasm32")]
 pub fn avg_dispatch<BD: BitDepth>(
   dst: PicOffset,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   bd: BD,
@@ -571,8 +571,8 @@ pub(crate) fn avg_dispatch_inner<BD: BitDepth>(
   dst_bytes: &mut [u8],
   dst_offset: usize,
   dst_stride: isize,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   bd: BD,
@@ -609,8 +609,8 @@ pub(crate) fn avg_dispatch_inner<BD: BitDepth>(
 #[cfg(target_arch = "wasm32")]
 pub fn w_avg_dispatch<BD: BitDepth>(
   dst: PicOffset,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   weight: i32,
@@ -635,8 +635,8 @@ pub(crate) fn w_avg_dispatch_inner<BD: BitDepth>(
   dst_bytes: &mut [u8],
   dst_offset: usize,
   dst_stride: isize,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   weight: i32,
@@ -676,8 +676,8 @@ pub(crate) fn w_avg_dispatch_inner<BD: BitDepth>(
 #[cfg(target_arch = "wasm32")]
 pub fn mask_dispatch<BD: BitDepth>(
   dst: PicOffset,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   mask: &[u8],
@@ -702,8 +702,8 @@ pub(crate) fn mask_dispatch_inner<BD: BitDepth>(
   dst_bytes: &mut [u8],
   dst_offset: usize,
   dst_stride: isize,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
   mask: &[u8],

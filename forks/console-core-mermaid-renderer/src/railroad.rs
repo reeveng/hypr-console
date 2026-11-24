@@ -159,6 +159,7 @@ fn layout_railroad_diagram_typed_for_type_with_style(
     })
 }
 
+#[must_use]
 fn normalized_railroad_diagram_type(diagram_type: &str) -> &'static str {
     match diagram_type {
         "railroadEbnf" => "railroadEbnf",
@@ -168,6 +169,7 @@ fn normalized_railroad_diagram_type(diagram_type: &str) -> &'static str {
     }
 }
 
+#[must_use]
 fn railroad_config_value<'a>(
     effective_config: &'a serde_json::Value,
     key: &str,
@@ -175,36 +177,49 @@ fn railroad_config_value<'a>(
     value_at(effective_config, &["railroad", key])
 }
 
+#[must_use]
 fn theme_config_value<'a>(
     effective_config: &'a serde_json::Value,
     primary_key: &str,
     secondary_key: Option<&str>,
 ) -> Option<&'a serde_json::Value> {
     let primary = value_at(effective_config, &["themeVariables", primary_key]);
+
     match primary {
         Some(value) if !value.is_null() => Some(value),
-        _ => secondary_key.and_then(|key| value_at(effective_config, &["themeVariables", key])),
+        ::core::option::Option::None | ::core::option::Option::Some(_) => secondary_key.and_then(|key| value_at(effective_config, &["themeVariables", key])),
     }
 }
 
+#[must_use]
 fn sanitize_color_value(value: Option<&serde_json::Value>, fallback: &str) -> String {
     value
         .and_then(serde_json::Value::as_str)
         .map(trim_ecmascript_whitespace)
-        .filter(|value| is_valid_color_value(value))
+        .filter(|value_2| is_valid_color_value(value_2))
         .unwrap_or(fallback)
         .to_string()
 }
 
+#[must_use]
 fn is_valid_color_value(value: &str) -> bool {
-    if let Some(hex) = value.strip_prefix('#') {
-        return matches!(hex.len(), 3 | 4 | 6 | 8)
-            && hex.bytes().all(|byte| byte.is_ascii_hexdigit());
+    match value.strip_prefix('#') {
+        Some(hex) => {
+            return matches!(hex.len(), 3 | 4 | 6 | 8)
+                && hex.bytes().all(|byte| byte.is_ascii_hexdigit());
+        },
+        ::core::option::Option::None => {},
     }
 
-    let Some(open) = value.find('(') else {
-        return !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_alphabetic());
+    let open = {
+        let optional_open = value.find('(');
+
+        match optional_open {
+            Some(matched_open) => matched_open,
+            ::core::option::Option::None => return !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_alphabetic()),
+        }
     };
+
     if !value.ends_with(')') {
         return false;
     }
@@ -226,13 +241,14 @@ fn is_valid_color_value(value: &str) -> bool {
         })
 }
 
+#[must_use]
 fn sanitize_font_family_value(value: Option<&serde_json::Value>, fallback: &str) -> String {
     value
         .and_then(serde_json::Value::as_str)
         .map(trim_ecmascript_whitespace)
-        .filter(|value| {
-            !value.is_empty()
-                && value.chars().all(|character| {
+        .filter(|value_2| {
+            !value_2.is_empty()
+                && value_2.chars().all(|character| {
                     character.is_ascii_alphanumeric()
                         || character == '_'
                         || matches!(character, ' ' | '"' | '\'' | ',' | '.' | '-')
@@ -242,16 +258,21 @@ fn sanitize_font_family_value(value: Option<&serde_json::Value>, fallback: &str)
         .to_string()
 }
 
+#[must_use]
 fn sanitize_number_value(value: Option<&serde_json::Value>, fallback: f64) -> f64 {
-    parse_number_value(value)
-        .filter(|value| value.is_finite() && *value >= 0.0)
-        .unwrap_or(fallback)
+    match parse_number_value(value)
+        .filter(|value_2| value_2.is_finite() && *value_2 >= 0.0) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => fallback,
+    }
 }
 
+#[must_use]
 fn parse_theme_font_size(value: Option<&serde_json::Value>) -> Option<f64> {
-    parse_number_value(value).filter(|value| value.is_finite() && *value > 0.0)
+    parse_number_value(value).filter(|value_2| value_2.is_finite() && *value_2 > 0.0)
 }
 
+#[must_use]
 fn parse_number_value(value: Option<&serde_json::Value>) -> Option<f64> {
     match value? {
         serde_json::Value::Number(number) => number.as_f64(),
@@ -260,9 +281,10 @@ fn parse_number_value(value: Option<&serde_json::Value>) -> Option<f64> {
     }
 }
 
+#[must_use]
 fn parse_js_float_prefix(text: &str) -> Option<f64> {
-    let text = trim_start_ecmascript_whitespace(text);
-    let bytes = text.as_bytes();
+    let text_2 = trim_start_ecmascript_whitespace(text);
+    let bytes = text_2.as_bytes();
     let mut index = 0;
 
     if matches!(bytes.first(), Some(b'+' | b'-')) {
@@ -270,17 +292,21 @@ fn parse_js_float_prefix(text: &str) -> Option<f64> {
     }
 
     let integer_start = index;
+
     while bytes.get(index).is_some_and(u8::is_ascii_digit) {
         index += 1;
     }
+
     let mut has_digits = index > integer_start;
 
     if bytes.get(index) == Some(&b'.') {
         index += 1;
         let fraction_start = index;
+
         while bytes.get(index).is_some_and(u8::is_ascii_digit) {
             index += 1;
         }
+
         has_digits |= index > fraction_start;
     }
 
@@ -289,31 +315,39 @@ fn parse_js_float_prefix(text: &str) -> Option<f64> {
     }
 
     let mut end = index;
+
     if matches!(bytes.get(index), Some(b'e' | b'E')) {
         let mut exponent_index = index + 1;
+
         if matches!(bytes.get(exponent_index), Some(b'+' | b'-')) {
             exponent_index += 1;
         }
+
         let exponent_start = exponent_index;
+
         while bytes.get(exponent_index).is_some_and(u8::is_ascii_digit) {
             exponent_index += 1;
         }
+
         if exponent_index > exponent_start {
             end = exponent_index;
         }
     }
 
-    text[..end].parse::<f64>().ok()
+    match text_2[..end].parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
 }
 
+#[must_use]
 pub(crate) fn railroad_style(effective_config: &serde_json::Value) -> RailroadStyle {
     let theme_font_family = sanitize_font_family_value(
         theme_config_value(effective_config, "fontFamily", None),
         "monospace",
     );
     let theme_font_size =
-        parse_theme_font_size(theme_config_value(effective_config, "fontSize", None))
-            .unwrap_or(14.0);
+        match parse_theme_font_size(theme_config_value(effective_config, "fontSize", None)) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 14.0,
+        };
     let theme_terminal_fill = sanitize_color_value(
         theme_config_value(effective_config, "secondBkg", Some("secondaryColor")),
         "#FFFFC0",
@@ -457,10 +491,14 @@ pub(crate) fn railroad_style(effective_config: &serde_json::Value) -> RailroadSt
             railroad_config_value(effective_config, "markerRadius"),
             5.0,
         ),
-        use_max_width: config_bool(effective_config, &["railroad", "useMaxWidth"]).unwrap_or(true),
+        use_max_width: match config_bool(effective_config, &["railroad", "useMaxWidth"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        },
     }
 }
 
+#[must_use]
 fn layout_rule(
     rule: &RailroadRuleModel,
     y: f64,
@@ -511,6 +549,7 @@ fn layout_rule(
     }
 }
 
+#[must_use]
 fn layout_expr(
     node: &RailroadAstNode,
     style: &RailroadStyle,
@@ -535,6 +574,7 @@ fn layout_expr(
     }
 }
 
+#[must_use]
 pub(crate) fn railroad_render_node(
     node: &RailroadAstNode,
     style: &RailroadStyle,
@@ -544,6 +584,7 @@ pub(crate) fn railroad_render_node(
     (layout.render_node, layout.up)
 }
 
+#[must_use]
 fn layout_box(
     kind: &str,
     label: &str,
@@ -577,6 +618,7 @@ fn layout_box(
     }
 }
 
+#[must_use]
 fn layout_sequence(
     elements: &[RailroadAstNode],
     style: &RailroadStyle,
@@ -586,6 +628,7 @@ fn layout_sequence(
         .iter()
         .map(|element| layout_expr(element, style, measurer))
         .collect();
+
     if rendered.is_empty() {
         return empty_expr();
     }
@@ -609,6 +652,7 @@ fn layout_sequence(
     };
     let mut render_children = Vec::new();
     let mut x = 0.0;
+
     for (idx, mut child) in rendered.into_iter().enumerate() {
         let y = up - child.up;
         let child_width = child.width;
@@ -618,6 +662,7 @@ fn layout_sequence(
         out.paths.extend(child.paths);
         child.render_node.set_transform(x, y);
         render_children.push(child.render_node);
+
         if idx + 1 < elements.len() {
             let line_x1 = x + child_width;
             let line_x2 = line_x1 + style.horizontal_separation;
@@ -630,14 +675,18 @@ fn layout_sequence(
             out.paths.push(path.clone());
             render_children.push(RailroadRenderNode::Path(path));
         }
+
         x += child_width + style.horizontal_separation;
     }
+
     if let RailroadRenderNode::Group { children, .. } = &mut out.render_node {
         *children = render_children;
     }
+
     out
 }
 
+#[must_use]
 fn layout_choice(
     alternatives: &[RailroadAstNode],
     style: &RailroadStyle,
@@ -647,6 +696,7 @@ fn layout_choice(
         .iter()
         .map(|alternative| layout_expr(alternative, style, measurer))
         .collect();
+
     if rendered.is_empty() {
         return empty_expr();
     }
@@ -673,6 +723,7 @@ fn layout_choice(
     let mut render_children = Vec::new();
 
     let mut y = 0.0;
+
     for mut child in rendered {
         let elem_y = y;
         let elem_center_y = elem_y + child.up;
@@ -722,8 +773,8 @@ fn layout_choice(
                 .line_to(elem_x, elem_center_y)
                 .build()
         };
-        let left_path = railroad_path(left_path);
-        out.paths.push(left_path.clone());
+        let left_path_2 = railroad_path(left_path);
+        out.paths.push(left_path_2.clone());
 
         let right_start = elem_x + child.width;
         let right_lane_x = total_width - arc_radius * 2.0;
@@ -770,12 +821,12 @@ fn layout_choice(
                 )
                 .build()
         };
-        let right_path = railroad_path(right_path);
-        out.paths.push(right_path.clone());
+        let right_path_2 = railroad_path(right_path);
+        out.paths.push(right_path_2.clone());
         child.render_node.set_transform(elem_x, elem_y);
         render_children.push(child.render_node);
-        render_children.push(RailroadRenderNode::Path(left_path));
-        render_children.push(RailroadRenderNode::Path(right_path));
+        render_children.push(RailroadRenderNode::Path(left_path_2));
+        render_children.push(RailroadRenderNode::Path(right_path_2));
         translate_elements(&mut child.elements, elem_x, elem_y);
         translate_paths(&mut child.paths, elem_x, elem_y);
         out.elements.extend(child.elements);
@@ -790,11 +841,13 @@ fn layout_choice(
     out
 }
 
+#[must_use]
 fn same_layout_coordinate(left: f64, right: f64) -> bool {
-    // Distinct addition orders can drift while still producing the same emitted coordinate.
+
     left.is_finite() && right.is_finite() && fmt_number(left) == fmt_number(right)
 }
 
+#[must_use]
 fn layout_optional(
     element: &RailroadAstNode,
     style: &RailroadStyle,
@@ -893,6 +946,7 @@ fn layout_optional(
     }
 }
 
+#[must_use]
 fn layout_repetition(
     element: &RailroadAstNode,
     min: RailroadRepeatBound,
@@ -967,6 +1021,7 @@ fn layout_repetition(
     paths.push(loop_path.clone());
 
     let mut bypass_render_path = None;
+
     if has_bypass {
         let bypass_path = railroad_path(
             PathBuilder::new()
@@ -1022,8 +1077,11 @@ fn layout_repetition(
         RailroadRenderNode::Path(forward_path_2),
         RailroadRenderNode::Path(loop_path),
     ];
-    if let Some(path) = bypass_render_path {
-        render_children.push(RailroadRenderNode::Path(path));
+    match bypass_render_path {
+        Some(path) => {
+            render_children.push(RailroadRenderNode::Path(path));
+        },
+        ::core::option::Option::None => {},
     }
 
     ExprLayout {
@@ -1041,6 +1099,7 @@ fn layout_repetition(
     }
 }
 
+#[must_use]
 fn empty_expr() -> ExprLayout {
     ExprLayout {
         width: 0.0,
@@ -1057,6 +1116,7 @@ fn empty_expr() -> ExprLayout {
     }
 }
 
+#[must_use]
 fn measure_text(text: &str, style: &RailroadStyle, measurer: &dyn TextMeasurer) -> (f64, f64) {
     let text_style = TextStyle {
         font_family: Some(style.font_family.clone()),
@@ -1079,15 +1139,17 @@ fn translate_elements(elements: &mut [RailroadElementLayout], dx: f64, dy: f64) 
 }
 
 fn translate_paths(paths: &mut [RailroadPathLayout], dx: f64, dy: f64) {
-    if dx == 0.0 && dy == 0.0 {
+    if ::core::matches!(::core::primitive::f64::classify(dx), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f64::classify(dy), ::core::num::FpCategory::Zero) {
         return;
     }
+
     for path in paths {
         path.x += dx;
         path.y += dy;
     }
 }
 
+#[must_use]
 fn railroad_path(d: String) -> RailroadPathLayout {
     RailroadPathLayout { x: 0.0, y: 0.0, d }
 }
@@ -1097,21 +1159,25 @@ struct PathBuilder {
 }
 
 impl PathBuilder {
+    #[must_use]
     fn new() -> Self {
         Self { d: String::new() }
     }
 
+    #[must_use]
     fn move_to(mut self, x: f64, y: f64) -> Self {
         self.push_cmd("M", &[x, y]);
         self
     }
 
+    #[must_use]
     fn line_to(mut self, x: f64, y: f64) -> Self {
         self.push_cmd("L", &[x, y]);
         self
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[must_use]
     fn arc_to(
         mut self,
         rx: f64,
@@ -1133,12 +1199,14 @@ impl PathBuilder {
         self
     }
 
+    #[must_use]
     fn build(self) -> String {
         self.d.trim().to_string()
     }
 
     fn push_cmd(&mut self, cmd: &str, values: &[f64]) {
         self.push_raw(cmd);
+
         for value in values {
             self.push_number(*value);
         }
@@ -1148,6 +1216,7 @@ impl PathBuilder {
         if !self.d.is_empty() {
             self.d.push(' ');
         }
+
         self.d.push_str(value);
     }
 
@@ -1155,29 +1224,37 @@ impl PathBuilder {
         if !self.d.is_empty() {
             self.d.push(' ');
         }
+
         self.d.push_str(&fmt_number(value));
     }
 }
 
+#[must_use]
 fn fmt_number(value: f64) -> String {
     if !value.is_finite() || value.abs() < 0.0005 {
         return "0".to_string();
     }
+
     let mut rounded = if value.abs() <= f64::MAX / 1000.0 {
         (value * 1000.0).round() / 1000.0
     } else {
         value
     };
+
     if rounded.abs() < 0.0005 {
         rounded = 0.0;
     }
+
     let mut s = format!("{rounded:.3}");
+
     while s.contains('.') && s.ends_with('0') {
         s.pop();
     }
+
     if s.ends_with('.') {
         s.pop();
     }
+
     if s == "-0" { "0".to_string() } else { s }
 }
 

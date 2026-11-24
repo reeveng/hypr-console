@@ -41,6 +41,7 @@ pub(crate) fn is_valid_editor_identifier(candidate: &str) -> bool {
     tokens.len() == 2 && tokens[0].kind == lexer::TokenKind::Identifier
 }
 
+#[must_use]
 fn is_forbidden_statement_identifier(candidate: &str) -> bool {
     [
         "allowmixing",
@@ -69,9 +70,10 @@ struct ParseIssue {
 }
 
 impl ParseIssue {
+    #[must_use]
     fn new(message: impl Into<String>, span: SourceSpan) -> Self {
         Self {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span,
         }
     }
@@ -227,7 +229,7 @@ fn construct_usecase_semantic_source_controlled(
     control.checkpoint()?;
     #[cfg(test)]
     crate::diagrams::langium_common::record_family_syntax_construction("usecase");
-    let tokens = match lexer::lex(code, control)? {
+    let tokens = match { let checked_value = lexer::lex(code, control)?; checked_value } {
         Ok(tokens) => tokens,
         Err(issue) => {
             return Ok(Err(failure(
@@ -250,17 +252,23 @@ fn construct_usecase_semantic_source_controlled(
     let parsed = parser.parse()?;
     #[cfg(feature = "editor-facts")]
     parser.finalize_editor_facts()?;
-    if let Err(issue) = parsed {
-        return Ok(Err(failure(
-            diagram_type,
-            issue,
-            #[cfg(feature = "editor-facts")]
-            parser.facts,
-            #[cfg(feature = "editor-facts")]
-            editor_demand,
-        )));
+
+    match parsed {
+        Err(issue) => {
+            return Ok(Err(failure(
+                diagram_type,
+                issue,
+                #[cfg(feature = "editor-facts")]
+                parser.facts,
+                #[cfg(feature = "editor-facts")]
+                editor_demand,
+            )));
+        },
+        ::core::result::Result::Ok(_) => {},
     }
+
     let model = resolve::resolve(&parser.draft, title, control)?;
+
     match model {
         Ok(model) => Ok(Ok(Construction {
             model,
@@ -278,6 +286,7 @@ fn construct_usecase_semantic_source_controlled(
     }
 }
 
+#[must_use]
 fn failure(
     diagram_type: &str,
     issue: ParseIssue,

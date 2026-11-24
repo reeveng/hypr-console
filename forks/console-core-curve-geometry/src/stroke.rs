@@ -5,8 +5,6 @@ use core::{borrow::Borrow, f64::consts::PI};
 
 use alloc::vec::Vec;
 
-use smallvec::SmallVec;
-
 #[cfg(not(feature = "std"))]
 use crate::common::FloatFuncs;
 
@@ -110,7 +108,7 @@ impl Stroke {
             miter_limit: 4.0,
             start_cap: Cap::Round,
             end_cap: Cap::Round,
-            dash_pattern: SmallVec::new_const(),
+            dash_pattern: Dashes::new(),
             dash_offset: 0.0,
         }
     }
@@ -195,7 +193,7 @@ impl StrokeOpts {
 }
 
 /// Collection of values representing lengths in a dash pattern.
-pub type Dashes = SmallVec<[f64; 4]>;
+pub type Dashes = Vec<f64>;
 
 /// A structure that is used for creating strokes.
 ///

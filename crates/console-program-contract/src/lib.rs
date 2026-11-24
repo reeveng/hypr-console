@@ -12,6 +12,8 @@
 //! it holds now and what it wants done. It never does any of it.
 //! Something else -- the loop in the program's own `main`, which is the only
 //! part of it that touches a machine -- carries the effects out.
+//! The shared effect variants declare their required services here.
+//! `Effect::Custom` gets its requirements from the effect it carries.
 //!
 //! Everything the plan claims falls out of that one split. A test is a list of
 //! events and a list of the effects that should come back, and it runs on a
@@ -75,7 +77,8 @@ pub mod event;
 pub mod subscription;
 
 pub use effect::{
-  Command, Effect, Executable, Exit, FileWrite, Fork, Task, JobId, JobOwner, Notification, Prompt,
+  Command, Effect, EffectKind, Executable, Exit, FileWrite, Fork, JobId, JobOwner, Notification,
+  Prompt, Task,
 };
 pub use event::{
   Answer, Change, Choice, Elapsed, Event, EventGroup, ExitStatus, WriteAnswer, WriteFailure,

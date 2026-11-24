@@ -271,7 +271,8 @@ impl core::str::FromStr for Transform {
     let mut combined = AffineTransform::IDENTITY;
 
     for token in TransformListParser::from(text) {
-      let Ok(transform) = match token? {
+      let checked_value = token?;
+      let Ok(transform) = match checked_value {
         TransformListToken::Matrix { a, b, c, d, e, f } => {
           AffineTransform::from_coefficients([a, b, c, d, e, f])
         }

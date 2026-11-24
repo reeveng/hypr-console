@@ -12,8 +12,9 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
-use console_compositor::{ActiveWorkspace, Clients, Layers, Monitors, Question, Request};
-use console_core_external_programs::Program;
+use console_compositor::session as compositor_session;
+use console_compositor::{ActiveWorkspace, Clients, Layers, Monitors, Query, Question, Request};
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_operating_system_linux::program_lifetime::{BoundToParent, alongside};
 use console_program_lifetime::Still;
@@ -60,9 +61,12 @@ pub struct Inside {
 impl Inside {
   pub fn new(environment: Vec<(String, String)>, at: Instance<'_>) -> Result<Self, Never> {
     let mut environment_2 = environment;
-    environment_2.push(("WAYLAND_DISPLAY".to_string(), at.socket.to_string()));
     environment_2.push((
-      "HYPRLAND_INSTANCE_SIGNATURE".to_string(),
+      compositor_session::DISPLAY.to_string(),
+      at.socket.to_string(),
+    ));
+    environment_2.push((
+      compositor_session::SIGNATURE.to_string(),
       at.signature.to_string(),
     ));
     Ok(Inside {
@@ -71,8 +75,17 @@ impl Inside {
   }
 
   pub fn command(&self, program: &str) -> Result<Command, Never> {
-    let mut asking = Command::new(program);
-    asking.env_remove("HYPRLAND_INSTANCE_SIGNATURE");
+    self.in_environment(Command::new(program))
+  }
+
+  fn control(&self) -> Result<Command, Never> {
+    let Ok(command) = compositor_session::control();
+
+    self.in_environment(command)
+  }
+
+  fn in_environment(&self, mut asking: Command) -> Result<Command, Never> {
+    asking.env_remove(compositor_session::SIGNATURE);
 
     for (name, value) in &self.environment {
       asking.env(name, value);
@@ -81,21 +94,13 @@ impl Inside {
     Ok(asking)
   }
 
-  pub fn hyprctl(&self, arguments: &[&str]) -> Result<String, Never> {
-    let Ok(name) = Program::Hyprctl.name();
-    let Ok(mut asking) = self.command(name);
+  pub fn query_text(&self, query: Query) -> Result<String, Never> {
+    let Ok(asking) = self.control();
 
-    Ok(match asking.args(arguments).output() {
-      Ok(done) => match std::str::from_utf8(&done.stdout) {
-        Ok(text) => text.trim().to_string(),
-        Err(fault) => {
-          console_core_logging::warn!("console-desktop: hyprctl output is not UTF-8: {fault}");
-
-          String::new()
-        }
-      },
+    Ok(match console_compositor::query_text(asking, query) {
+      Ok(text) => text.trim().to_string(),
       Err(fault) => {
-        console_core_logging::warn!("console-desktop: hyprctl {}: {fault}", arguments.join(" "));
+        console_core_logging::warn!("console-desktop: {fault}");
 
         String::new()
       }
@@ -103,8 +108,7 @@ impl Inside {
   }
 
   fn query<Q: Question>(&self, question: Q) -> Result<Option<Q::Reply>, Never> {
-    let Ok(name) = Program::Hyprctl.name();
-    let Ok(asking) = self.command(name);
+    let Ok(asking) = self.control();
 
     Ok(match console_compositor::ask_with(asking, question) {
       Ok(said) => Some(said),
@@ -121,8 +125,7 @@ impl Inside {
     what: Request,
     lua: &str,
   ) -> Result<console_compositor::DispatchResult, Never> {
-    let Ok(name) = Program::Hyprctl.name();
-    let Ok(telling) = self.command(name);
+    let Ok(telling) = self.control();
 
     console_compositor::request_with(telling, what, lua)
   }
@@ -180,7 +183,16 @@ impl Inside {
   }
 
   pub fn make_the_screen(&self, screen: &Screen) -> Result<Outcome, Never> {
-    let Ok(_created) = self.hyprctl(&["output", "create", "headless"]);
+    let Ok(control) = self.control();
+    let Ok(created) = compositor_session::create_headless(control);
+
+    match created {
+      console_compositor::DispatchResult::Success => {}
+      console_compositor::DispatchResult::Failure(reason) => {
+        console_core_logging::warn!("console-desktop: could not create {HEADLESS}: {reason}");
+      }
+    }
+
     let Ok(arrived) = self.wait_for_monitors(HEADLESS, Ready::Yes);
 
     match arrived {
@@ -199,10 +211,8 @@ impl Inside {
       }
     }
 
-    let Ok(_disabled) = self.request(
-      Request::Script,
-      r#"hl.monitor({ output = "WAYLAND-1", disabled = true })"#,
-    );
+    let Ok(disable) = console_compositor::lua::disable_monitor(WINDOWED);
+    let Ok(_disabled) = self.request(Request::Script, &disable);
     let Ok(alone) = self.wait_for_monitors(WINDOWED, Ready::NotYet);
 
     match alone {
@@ -338,7 +348,7 @@ impl Inside {
       let Ok(now) = self.query(ActiveWorkspace);
 
       let named = match now {
-        Some(front) => front.map(|workspace| workspace.named),
+        Some(front) => front.map(|workspace_2| workspace_2.named),
         None => return Ok(Ready::NotYet),
       };
 
@@ -362,12 +372,13 @@ impl Inside {
 
   pub fn focus_a_window(&self) -> Result<(), Never> {
     let Ok(windows) = self.query(Clients);
-    if let Some(window) = windows.as_ref().and_then(|windows| windows.first()) {
-      let Ok(target) = console_compositor::quote(&format!("address:{}", window.address));
-      let Ok(_focused) = self.request(
-        Request::Dispatch,
-        &format!("hl.dsp.focus({{window = {target}}})"),
-      );
+
+    match windows.as_ref().and_then(|windows_2| windows_2.first()) {
+      Some(window) => {
+        let Ok(dispatcher) = console_compositor::WindowAction::Focus.dispatcher(&window.address);
+        let Ok(_focused) = self.request(Request::Dispatch, &dispatcher);
+      }
+      ::core::option::Option::None => {}
     }
 
     Ok(())
@@ -382,12 +393,9 @@ impl Inside {
     let Ok(patience) = Schedule::asking_every(A_PAINT, Duration::from_millis(250));
     let mut last = String::new();
     let Ok(painted) = until_handed(patience, &mut last, |last_2| {
-      let Ok(mut asking) = self.command("awww");
-      let told = asking
-        .args(["img"])
-        .arg(picture)
-        .args(["--resize", "crop", "--transition-type", "none"])
-        .output();
+      let Ok(paper) = InternalProgram::Paper.name();
+      let Ok(mut asking) = self.command(paper);
+      let told = asking.args(["img"]).arg(picture).output();
 
       Ok(match told {
         Ok(done) => match ::core::primitive::bool::then_some(done.status.success(), ()) {
@@ -395,14 +403,14 @@ impl Inside {
           ::core::option::Option::None => {
             *last_2 = match std::str::from_utf8(&done.stderr) {
               Ok(text) => text.trim().to_string(),
-              Err(fault) => format!("awww's error output is not UTF-8: {fault}"),
+              Err(fault) => format!("console-paper's error output is not UTF-8: {fault}"),
             };
 
             Ready::NotYet
           }
         },
-        Err(_there_is_no_awww_here) => {
-          *last_2 = "awww is not on this machine".to_string();
+        Err(_paper_unavailable) => {
+          *last_2 = "console-paper is not on this machine".to_string();
 
           Ready::Yes
         }
@@ -502,9 +510,28 @@ impl Inside {
   }
 
   pub fn start_the_wallpaper(&self, palette: &Path) -> Result<Option<BoundToParent>, Never> {
-    let Ok(program) = Program::AwwwDaemon.name();
+    let palette_text = match console_core_atomic_writes::read_text(palette) {
+      Ok(text) => text,
+      Err(fault) => {
+        console_core_logging::warn!("console-desktop: {}: {fault}", palette.display());
+        return Ok(None);
+      }
+    };
+
+    let night = palette_text
+      .lines()
+      .find_map(|line| line.strip_prefix("night="));
+    let ground = match night {
+      Some(ground) => ground,
+      None => {
+        console_core_logging::warn!("console-desktop: {} has no night color", palette.display());
+        return Ok(None);
+      }
+    };
+
+    let Ok(program) = InternalProgram::Paper.name();
     let Ok(mut asking) = self.command(program);
-    asking.arg("--no-cache");
+    asking.args(["serve", ground]);
 
     let daemon = match alongside(&mut asking) {
       Ok(daemon) => daemon,
@@ -515,15 +542,9 @@ impl Inside {
       }
     };
 
-    let Ok(program_2) = Program::Sh.name();
-    let Ok(client) = Program::Awww.name();
-    let Ok(mut clearing) = self.command(program_2);
-    clearing.args([
-      "-c",
-      r#". "$1" && exec "$2" clear "$night""#,
-      "console-desktop",
-    ]);
-    clearing.arg(palette).arg(client);
+    let Ok(client) = InternalProgram::Paper.name();
+    let Ok(mut clearing) = self.command(client);
+    clearing.arg("query");
 
     let mut starting = (daemon, clearing);
     let Ok(patience) = Schedule::asking_every(A_PAINT, Duration::from_millis(100));
@@ -533,7 +554,9 @@ impl Inside {
       Ok(match still {
         Still::Ended => Ready::Yes,
         Still::Running => match ::core::primitive::bool::then_some(
-          clearing_2.output().is_ok_and(|done| done.status.success()),
+          clearing_2
+            .output()
+            .is_ok_and(|done| done.status.success() && !done.stdout.is_empty()),
           (),
         ) {
           ::core::option::Option::Some(()) => Ready::Yes,
@@ -562,9 +585,9 @@ impl Inside {
       Still::Ended => return Ok(()),
     }
 
-    let Ok(program) = Program::Awww.name();
+    let Ok(program) = InternalProgram::Paper.name();
     let Ok(mut asking) = self.command(program);
-    let _told = asking.arg("kill").output();
+    let _told = asking.arg("quit").output();
 
     let Ok(patience) = Schedule::asking_every(A_GOODBYE, Duration::from_millis(50));
     let Ok(_went) = until_handed(patience, &mut daemon, |daemon_2| {
@@ -603,22 +626,21 @@ mod tests {
   fn the_wallpaper_process_exits_before_its_compositor_can_be_stopped() -> Result<(), Failure> {
     let here = console_core_temporary_directories::fresh("wallpaper-exit")?;
     executable(
-      &here.join("awww-daemon"),
-      r#"#!/bin/sh
-[ "$1" = --no-cache ] || exit 1
-printf '%s' "$WAYLAND_DISPLAY" > "$HOME/display"
-while [ ! -f "$HOME/stop" ]; do sleep 0.01; done
-sleep 0.2
-printf done > "$HOME/exited"
-"#,
-    )?;
-    executable(
-      &here.join("awww"),
+      &here.join("console-paper"),
       r#"#!/bin/sh
 case "$1" in
-    clear) printf '%s' "$2" > "$HOME/ground" ;;
-    kill) touch "$HOME/stop" ;;
-    query) exit 1 ;;
+    serve)
+        printf '%s' "$WAYLAND_DISPLAY" > "$HOME/display"
+        printf '%s' "$2" > "$HOME/ground"
+        while [ ! -f "$HOME/stop" ]; do sleep 0.01; done
+        sleep 0.2
+        printf done > "$HOME/exited"
+        ;;
+    quit) touch "$HOME/stop" ;;
+    query)
+        [ -f "$HOME/ground" ] || exit 1
+        cat "$HOME/ground"
+        ;;
     *) exit 1 ;;
 esac
 "#,
@@ -660,7 +682,7 @@ esac
   fn a_session_without_a_wallpaper_never_sends_a_kill_to_another_daemon() -> Result<(), Failure> {
     let here = console_core_temporary_directories::fresh("wallpaper-absent")?;
     executable(
-      &here.join("awww"),
+      &here.join("console-paper"),
       "#!/bin/sh\nprintf called > \"$HOME/called\"\n",
     )?;
     let Ok(inside) = Inside::new(

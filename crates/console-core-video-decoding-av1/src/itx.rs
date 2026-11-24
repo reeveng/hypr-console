@@ -36,6 +36,7 @@ use crate::src::levels::V_DCT;
 use crate::src::levels::V_FLIPADST;
 use crate::src::levels::WHT_WHT;
 use crate::src::owned_recon::ReconDst;
+use crate::src::strided::Strided as _;
 
 use console_core_geometry::Size;
 use std::num::NonZeroU32;
@@ -61,6 +62,40 @@ struct TransformPlan {
   row: Itx1dFn,
   column: Itx1dFn,
   dc_shortcut: DcShortcut,
+}
+
+struct TransformBuffers<'a, Coef> {
+  coefficients: &'a mut [Coef],
+  intermediate: &'a mut [i32],
+  coefficient_rows: NonZeroU32,
+}
+
+fn transform_buffers<'a, Coef>(
+  size: Size<u32>,
+  coefficients: &'a mut [Coef],
+  intermediate: &'a mut [i32],
+) -> Rav1dResult<TransformBuffers<'a, Coef>> {
+  let Size { width, height } = size;
+  let coefficient_rows = NonZeroU32::new(height.min(32)).ok_or(Rav1dError::EINVAL)?;
+  let active = width
+    .min(32)
+    .checked_mul(coefficient_rows.get())
+    .ok_or(Rav1dError::ERANGE)?;
+  let area = width.checked_mul(height).ok_or(Rav1dError::ERANGE)?;
+  let Ok(coefficient_count) = console_core_number_conversion::index(active);
+  let Ok(scratch_count) = console_core_number_conversion::index(area);
+  let active_coefficients = coefficients
+    .get_mut(..coefficient_count)
+    .ok_or(Rav1dError::EINVAL)?;
+  let active_intermediate = intermediate
+    .get_mut(..scratch_count)
+    .ok_or(Rav1dError::EINVAL)?;
+
+  Ok(TransformBuffers {
+    coefficients: active_coefficients,
+    intermediate: active_intermediate,
+    coefficient_rows,
+  })
 }
 
 #[inline(never)]
@@ -92,15 +127,10 @@ fn inv_txfm_add_body<BD: BitDepth>(
   let rnd = 1_i32.wrapping_shl(shift).wrapping_shr(1);
   let Ok(w) = console_core_number_conversion::index(width);
   let Ok(h) = console_core_number_conversion::index(height);
-  let Ok(native_stride) =
-    ::console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() {
-      ::core::result::Result::Ok(native_stride) => native_stride,
+  let Ok(pxstride) =
+    console_core_number_conversion::fixed_offset(match dst.pixel_stride::<BD>() {
+      Ok(stride) => stride,
     });
-  let Ok(pxstride) = console_core_number_conversion::fixed_offset(
-    match ::console_core_number_conversion::wrapped_offset(native_stride) {
-      ::core::result::Result::Ok(native_position__) => native_position__,
-    },
-  );
 
   let dc_threshold = match plan.dc_shortcut {
     DcShortcut::Available => 1_i32,
@@ -135,7 +165,7 @@ fn inv_txfm_add_body<BD: BitDepth>(
             ::core::result::Result::Ok(native_position_) => native_position_,
           },
         ));
-        let Ok(mut pixels) = row.slice_mut::<BD>(w);
+        let mut pixels = row.slice_mut::<BD>(w)?;
 
         for pixel in pixels.iter_mut() {
           *pixel = bd.iclip_pixel((*pixel).as_::<i32>().wrapping_add(dc));
@@ -147,20 +177,12 @@ fn inv_txfm_add_body<BD: BitDepth>(
     ::core::option::Option::None => {}
   }
 
-  let coefficient_height = NonZeroU32::new(height.min(32)).ok_or(Rav1dError::EINVAL)?;
-  let active_height = coefficient_height.get();
-  let active_width = width.min(32);
-  let Ok(sh) = console_core_number_conversion::index(active_height);
-  let active = active_width
-    .checked_mul(active_height)
-    .ok_or(Rav1dError::ERANGE)?;
-  let area = width.checked_mul(height).ok_or(Rav1dError::ERANGE)?;
-  let Ok(coefficient_count) = console_core_number_conversion::index(active);
-  let Ok(scratch_count) = console_core_number_conversion::index(area);
-  let coeff_2 = coeff
-    .get_mut(..coefficient_count)
-    .ok_or(Rav1dError::EINVAL)?;
-  let tmp_2 = tmp.get_mut(..scratch_count).ok_or(Rav1dError::EINVAL)?;
+  let TransformBuffers {
+    coefficients: coeff_2,
+    intermediate: tmp_2,
+    coefficient_rows,
+  } = transform_buffers(plan.size, coeff, tmp)?;
+  let Ok(sh) = console_core_number_conversion::index(coefficient_rows.get());
 
   let (row_clip_min, col_clip_min) = match BD::BITDEPTH {
     8 => (i32::from(i16::MIN), i32::from(i16::MIN)),
@@ -216,18 +238,27 @@ fn inv_txfm_add_body<BD: BitDepth>(
     )?;
   }
 
-  for (y, source) in tmp_2.chunks_exact(w.max(1)).enumerate() {
-    let Ok(row_offset) = console_core_number_conversion::wrapped_offset(y);
-    let Ok(mut row) = dst.at(row_offset.wrapping_mul(
-      match ::console_core_number_conversion::wrapped_offset(pxstride) {
-        ::core::result::Result::Ok(native_position_) => native_position_,
-      },
-    ));
-    let Ok(mut pixels) = row.slice_mut::<BD>(w);
+  add_transform_residuals::<BD>(dst, tmp_2, width, pxstride, bd)
+}
+
+fn add_transform_residuals<BD: BitDepth>(
+  dst: &mut ReconDst<'_>,
+  residuals: &[i32],
+  width: u32,
+  pitch: i64,
+  depth: BD,
+) -> Rav1dResult {
+  let Ok(columns) = console_core_number_conversion::index(width);
+  let Ok(row_stride) = console_core_number_conversion::wrapped_offset(pitch);
+
+  for (row_index, source) in (0u64..).zip(residuals.chunks_exact(columns.max(1))) {
+    let Ok(offset) = console_core_number_conversion::wrapped_offset(row_index);
+    let Ok(mut row) = dst.at(offset.wrapping_mul(row_stride));
+    let mut pixels = row.slice_mut::<BD>(columns)?;
 
     for (pixel, &coefficient) in pixels.iter_mut().zip(source) {
       let residual = coefficient.wrapping_add(8).wrapping_shr(4);
-      *pixel = bd.iclip_pixel((*pixel).as_::<i32>().wrapping_add(residual));
+      *pixel = depth.iclip_pixel((*pixel).as_::<i32>().wrapping_add(residual));
     }
   }
 
@@ -344,9 +375,14 @@ fn inv_txfm_add_rust<const W: usize, const H: usize, const TYPE: TxfmType, BD: B
 }
 
 #[cfg(test)]
+pub(crate) struct ScalarTransformCase {
+  pub size_ordinal: u8,
+  pub kind: TxfmType,
+}
+
+#[cfg(test)]
 pub(crate) fn itxfm_add_scalar_fallback<BD: BitDepth>(
-  size_ordinal: u8,
-  tx_type: TxfmType,
+  ScalarTransformCase { size_ordinal, kind }: ScalarTransformCase,
   dst: &mut ReconDst<'_>,
   coeff: &mut [BD::Coef],
   eob: i32,
@@ -354,8 +390,8 @@ pub(crate) fn itxfm_add_scalar_fallback<BD: BitDepth>(
 ) -> Rav1dResult {
   let Ok(index) = console_core_number_conversion::index(size_ordinal);
   let tx_size_2 = TxfmSize::from_repr(index).ok_or(Rav1dError::EINVAL)?;
-  check_transform::<BD>(tx_size_2, tx_type, dst, eob)?;
-  add_scalar::<BD>(tx_size_2, tx_type, dst, coeff, eob, bd)
+  check_transform::<BD>(tx_size_2, kind, dst, eob)?;
+  add_scalar::<BD>(tx_size_2, kind, dst, coeff, eob, bd)
 }
 
 #[cfg_attr(
@@ -621,7 +657,7 @@ fn inv_txfm_add_wht_wht_4x4_rust<BD: BitDepth>(
         ::core::result::Result::Ok(native_position) => native_position,
       },
     ));
-    let Ok(mut pixels) = row.slice_mut::<BD>(side);
+    let mut pixels = row.slice_mut::<BD>(side)?;
 
     for (pixel, &residual) in pixels.iter_mut().zip(source) {
       *pixel = bd.iclip_pixel((*pixel).as_::<i32>().wrapping_add(residual));
@@ -708,7 +744,16 @@ mod tests {
       Err(Rav1dError::EINVAL),
     );
     assert_eq!(
-      itxfm_add_scalar_fallback::<BitDepth8>(u8::MAX, DCT_DCT, &mut dst, &mut full, 0, bd),
+      itxfm_add_scalar_fallback::<BitDepth8>(
+        ScalarTransformCase {
+          size_ordinal: u8::MAX,
+          kind: DCT_DCT
+        },
+        &mut dst,
+        &mut full,
+        0,
+        bd
+      ),
       Err(Rav1dError::EINVAL),
     );
     assert_eq!(

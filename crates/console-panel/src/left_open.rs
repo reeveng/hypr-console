@@ -82,9 +82,7 @@ pub fn started(program: InternalProgram, arguments: Vec<String>) -> Result<(), N
     program: Executable::Internal(program),
     arguments,
   };
-  let mut platform = Linux {
-    timing: Timing::Background,
-  };
+  let Ok(mut platform) = Linux::new(Timing::Background);
 
   match execution_commands::spawn(&mut platform, &command, Streams::QUIET, Launch::Application) {
     Ok(()) => {}

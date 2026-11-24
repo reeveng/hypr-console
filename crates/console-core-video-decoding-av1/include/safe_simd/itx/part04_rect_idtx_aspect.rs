@@ -70,7 +70,10 @@ fn identity_shift_columns_8bpc<const SHIFT: i32>(
 ) -> Rav1dResult {
     let (lanes, remainder) = residuals.as_chunks_mut::<8>();
 
-    let [] = remainder else { return Err(Rav1dError::EINVAL) };
+    match remainder {
+        [] => {}
+        [_, ..] => return Err(Rav1dError::EINVAL),
+    }
 
     for lane in lanes {
         let values = loadu_256!(&*lane);
@@ -88,7 +91,10 @@ fn identity16_columns_8bpc(
 ) -> Rav1dResult {
     let (lanes, remainder) = residuals.as_chunks_mut::<8>();
 
-    let [] = remainder else { return Err(Rav1dError::EINVAL) };
+    match remainder {
+        [] => {}
+        [_, ..] => return Err(Rav1dError::EINVAL),
+    }
 
     let factor = _mm256_set1_epi32(1697);
     let half = _mm256_set1_epi32(1024);
@@ -139,8 +145,8 @@ fn inv_txfm_add_dct_dct_16x32_8bpc_avx2_inner(
                 lower: _mm256_set1_epi32(bounds.columns.lower),
                 upper: _mm256_set1_epi32(bounds.columns.upper),
             };
-            apply_transform_columns_avx2(token, residuals, extent, clipping, |token, values, limits| {
-                dct32_1d_cols8_i16(token, values, limits)
+            apply_transform_columns_avx2(token, residuals, extent, clipping, |column_token, values, limits| {
+                dct32_1d_cols8_i16(column_token, values, limits)
             })?;
         }
     }
@@ -259,7 +265,10 @@ fn store_avx2_row_lanes<const WIDTH: usize>(
   let row_width = NonZeroU32::new(width).ok_or(Rav1dError::EINVAL)?;
   let (strips, remainder) = vectors.as_chunks::<8>();
 
-  let [] = remainder else { return Err(Rav1dError::EINVAL) };
+  match remainder {
+      [] => {}
+      [_, ..] => return Err(Rav1dError::EINVAL),
+  }
 
   let last_row = first_row.checked_add(8).ok_or(Rav1dError::EINVAL)?;
   let active = checked_scratch_rows(scratch, row_width, first_row..last_row)?;
@@ -269,7 +278,7 @@ fn store_avx2_row_lanes<const WIDTH: usize>(
     let Ok(rows) = transpose_8x8_i32(_token, *columns);
     let Ok(offset) = console_core_number_conversion::index(segment.wrapping_mul(8));
 
-    for (output, row) in active.chunks_exact_mut(stride).zip(rows) {
+    for (output, row) in active.chunks_exact_mut(stride.max(1)).zip(rows) {
       let lane = output.get_mut(offset..).and_then(<[_]>::first_chunk_mut::<8>);
       let pixels = lane.ok_or(Rav1dError::EINVAL)?;
       storeu_256!(pixels, row);
@@ -294,7 +303,7 @@ fn simd_row_dct8_8bpc_8rows(
     lower: _mm256_set1_epi32(pass.row_bounds.lower),
     upper: _mm256_set1_epi32(pass.row_bounds.upper),
   };
-  dct8_1d_cols8(token, &mut vectors, bounds);
+  let Ok(()) = dct8_1d_cols8(token, &mut vectors, bounds);
   let Ok(()) = round_avx2_row_lanes(token, &mut vectors, pass);
 
   store_avx2_row_lanes(token, scratch, first_row, &vectors)
@@ -315,7 +324,7 @@ fn simd_row_dct16_8bpc_8rows(
     lower: _mm256_set1_epi32(pass.row_bounds.lower),
     upper: _mm256_set1_epi32(pass.row_bounds.upper),
   };
-  dct16_1d_cols8(token, &mut vectors, bounds);
+  let Ok(()) = dct16_1d_cols8(token, &mut vectors, bounds);
   let Ok(()) = round_avx2_row_lanes(token, &mut vectors, pass);
 
   store_avx2_row_lanes(token, scratch, first_row, &vectors)
@@ -336,7 +345,7 @@ fn simd_row_dct32_8bpc_8rows(
     lower: _mm256_set1_epi32(pass.row_bounds.lower),
     upper: _mm256_set1_epi32(pass.row_bounds.upper),
   };
-  dct32_1d_cols8_i16(token, &mut vectors, bounds);
+  let Ok(()) = dct32_1d_cols8_i16(token, &mut vectors, bounds);
   let Ok(()) = round_avx2_row_lanes(token, &mut vectors, pass);
 
   store_avx2_row_lanes(token, scratch, first_row, &vectors)
@@ -358,7 +367,7 @@ fn simd_row_adst8_8bpc_8rows(
     lower: _mm256_set1_epi32(pass.row_bounds.lower),
     upper: _mm256_set1_epi32(pass.row_bounds.upper),
   };
-  adst8_1d_cols8(token, &mut vectors, bounds);
+  let Ok(()) = adst8_1d_cols8(token, &mut vectors, bounds);
 
   match order {
     AdstRowOrder::Reversed => vectors.reverse(),
@@ -386,7 +395,7 @@ fn simd_row_adst16_8bpc_8rows(
     lower: _mm256_set1_epi32(pass.row_bounds.lower),
     upper: _mm256_set1_epi32(pass.row_bounds.upper),
   };
-  adst16_1d_cols8(token, &mut vectors, bounds);
+  let Ok(()) = adst16_1d_cols8(token, &mut vectors, bounds);
 
   match order {
     AdstRowOrder::Reversed => vectors.reverse(),
@@ -401,40 +410,45 @@ fn simd_row_adst16_8bpc_8rows(
 #[cfg(target_arch = "x86_64")]
 #[rite]
 #[inline(always)]
-#[must_use]
-fn dct8_row_build_pair(_token: Desktop64, a: __m128i, b: __m128i) -> __m256i {
+fn dct8_row_build_pair(_token: Desktop64, a: __m128i, b: __m128i) -> Result<__m256i, Never> {
     let lo = _mm_unpacklo_epi16(a, b);
     let hi = _mm_unpackhi_epi16(a, b);
-    _mm256_set_m128i(hi, lo)
+    Ok(_mm256_set_m128i(hi, lo))
 }
 
 
 
 
+
+#[cfg(target_arch = "x86_64")]
+struct CoefficientPair {
+    low: i16,
+    high: i16,
+}
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
 #[inline(always)]
-#[must_use]
-fn dct8_row_coef_pack(_token: Desktop64, c_lo: i16, c_hi: i16) -> __m256i {
-    let packed = ::core::primitive::u32::cast_signed((match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u32>(c_lo) { ::core::result::Result::Ok(converted_position) => converted_position }) & 0xFFFF) | ::core::primitive::u32::cast_signed(::core::primitive::u32::wrapping_shl((match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u32>(c_hi) { ::core::result::Result::Ok(converted_position) => converted_position }) & 0xFFFF, 16_u32));
-    _mm256_set1_epi32(packed)
+fn dct8_row_coef_pack(_token: Desktop64, pair: CoefficientPair) -> Result<__m256i, Never> {
+    let [low_a, low_b] = pair.low.to_le_bytes();
+    let [high_a, high_b] = pair.high.to_le_bytes();
+    let packed = i32::from_le_bytes([low_a, low_b, high_a, high_b]);
+    Ok(_mm256_set1_epi32(packed))
 }
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-#[must_use]
-fn dct8_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 64]) -> [i32; 64]{
+fn dct8_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 64]) -> Result<[i32; 64], Never> {
     let mut col_xmm = [_mm_setzero_si128(); 8];
 
     for (vector, lane) in col_xmm.iter_mut().zip(coeff_col_major.as_chunks::<8>().0) {
         *vector = loadu_128!(lane);
     }
 
-    let pair_17 = dct8_row_build_pair(_token, match col_xmm { [_, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let pair_53 = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _explicit_element, ..] => _explicit_element });
-    let pair_26 = dct8_row_build_pair(_token, match col_xmm { [_, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let pair_04 = dct8_row_build_pair(_token, match col_xmm { [_explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _explicit_element, ..] => _explicit_element });
+    let Ok(pair_17) = dct8_row_build_pair(_token, match col_xmm { [_, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+    let Ok(pair_53) = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _explicit_element, ..] => _explicit_element });
+    let Ok(pair_26) = dct8_row_build_pair(_token, match col_xmm { [_, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+    let Ok(pair_04) = dct8_row_build_pair(_token, match col_xmm { [_explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _explicit_element, ..] => _explicit_element });
 
     let pd_2048 = _mm256_set1_epi32(2048);
     let pd_128 = _mm256_set1_epi32(128);
@@ -452,35 +466,35 @@ fn dct8_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 64]) -> [i32
 
 
     let t4a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_17, dct8_row_coef_pack(_token, 799, -4017)),
+        _mm256_madd_epi16(pair_17, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 799, high: -4017 }); packed_vector }),
         pd_2048,
     ));
     let t7a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_17, dct8_row_coef_pack(_token, 4017, 799)),
+        _mm256_madd_epi16(pair_17, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 4017, high: 799 }); packed_vector }),
         pd_2048,
     ));
     let t5a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_53, dct8_row_coef_pack(_token, 3406, -2276)),
+        _mm256_madd_epi16(pair_53, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3406, high: -2276 }); packed_vector }),
         pd_2048,
     ));
     let t6a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_53, dct8_row_coef_pack(_token, 2276, 3406)),
+        _mm256_madd_epi16(pair_53, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2276, high: 3406 }); packed_vector }),
         pd_2048,
     ));
     let t2 = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_26, dct8_row_coef_pack(_token, 1567, -3784)),
+        _mm256_madd_epi16(pair_26, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1567, high: -3784 }); packed_vector }),
         pd_2048,
     ));
     let t3 = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_26, dct8_row_coef_pack(_token, 3784, 1567)),
+        _mm256_madd_epi16(pair_26, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3784, high: 1567 }); packed_vector }),
         pd_2048,
     ));
     let t0 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_04, dct8_row_coef_pack(_token, 181, 181)),
+        _mm256_madd_epi16(pair_04, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: 181 }); packed_vector }),
         pd_128,
     ));
     let t1 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_04, dct8_row_coef_pack(_token, 181, -181)),
+        _mm256_madd_epi16(pair_04, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: -181 }); packed_vector }),
         pd_128,
     ));
 
@@ -548,7 +562,7 @@ fn dct8_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 64]) -> [i32
         storeu_256!(output, vector);
     }
 
-    out
+    Ok(out)
 }
 
 
@@ -567,8 +581,7 @@ fn dct8_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 64]) -> [i32
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
-#[must_use]
-fn dct8_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 64]) -> [__m256i; 8] {
+fn dct8_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 64]) -> Result<[__m256i; 8], Never> {
 
 
     let mut row_xmm = [_mm_setzero_si128(); 8];
@@ -580,10 +593,10 @@ fn dct8_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 64]) -> [__m256i; 
         *row = _mm_packs_epi32(low, high);
     }
 
-    let pair_17 = dct8_row_build_pair(_token, match row_xmm { [_, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let pair_53 = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _explicit_element, ..] => _explicit_element });
-    let pair_26 = dct8_row_build_pair(_token, match row_xmm { [_, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-    let pair_04 = dct8_row_build_pair(_token, match row_xmm { [_explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _explicit_element, ..] => _explicit_element });
+    let Ok(pair_17) = dct8_row_build_pair(_token, match row_xmm { [_, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+    let Ok(pair_53) = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _explicit_element, ..] => _explicit_element });
+    let Ok(pair_26) = dct8_row_build_pair(_token, match row_xmm { [_, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+    let Ok(pair_04) = dct8_row_build_pair(_token, match row_xmm { [_explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _explicit_element, ..] => _explicit_element });
 
     let pd_2048 = _mm256_set1_epi32(2048);
     let pd_128 = _mm256_set1_epi32(128);
@@ -598,35 +611,35 @@ fn dct8_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 64]) -> [__m256i; 
 
 
     let t4a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_17, dct8_row_coef_pack(_token, 799, -4017)),
+        _mm256_madd_epi16(pair_17, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 799, high: -4017 }); packed_vector }),
         pd_2048,
     ));
     let t7a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_17, dct8_row_coef_pack(_token, 4017, 799)),
+        _mm256_madd_epi16(pair_17, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 4017, high: 799 }); packed_vector }),
         pd_2048,
     ));
     let t5a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_53, dct8_row_coef_pack(_token, 3406, -2276)),
+        _mm256_madd_epi16(pair_53, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3406, high: -2276 }); packed_vector }),
         pd_2048,
     ));
     let t6a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_53, dct8_row_coef_pack(_token, 2276, 3406)),
+        _mm256_madd_epi16(pair_53, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2276, high: 3406 }); packed_vector }),
         pd_2048,
     ));
     let t2 = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_26, dct8_row_coef_pack(_token, 1567, -3784)),
+        _mm256_madd_epi16(pair_26, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1567, high: -3784 }); packed_vector }),
         pd_2048,
     ));
     let t3 = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_26, dct8_row_coef_pack(_token, 3784, 1567)),
+        _mm256_madd_epi16(pair_26, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3784, high: 1567 }); packed_vector }),
         pd_2048,
     ));
     let t0 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_04, dct8_row_coef_pack(_token, 181, 181)),
+        _mm256_madd_epi16(pair_04, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: 181 }); packed_vector }),
         pd_128,
     ));
     let t1 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_04, dct8_row_coef_pack(_token, 181, -181)),
+        _mm256_madd_epi16(pair_04, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: -181 }); packed_vector }),
         pd_128,
     ));
 
@@ -656,13 +669,13 @@ fn dct8_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 64]) -> [__m256i; 
         _mm256_castsi256_si128(t6a_n),
         _mm256_extracti128_si256(t6a_n, 1),
     );
-    let pair_65 = dct8_row_build_pair(_token, t6a_n_xmm, t5a_n_xmm);
+    let Ok(pair_65) = dct8_row_build_pair(_token, t6a_n_xmm, t5a_n_xmm);
     let t5 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_65, dct8_row_coef_pack(_token, 181, -181)),
+        _mm256_madd_epi16(pair_65, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: -181 }); packed_vector }),
         pd_128,
     ));
     let t6 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-        _mm256_madd_epi16(pair_65, dct8_row_coef_pack(_token, 181, 181)),
+        _mm256_madd_epi16(pair_65, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: 181 }); packed_vector }),
         pd_128,
     ));
 
@@ -684,7 +697,7 @@ fn dct8_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 64]) -> [__m256i; 
     *{ let [_, _, _, _, _, _, _explicit_part, ..] = &mut out; _explicit_part } = clip(_mm256_sub_epi32(tmp1, t6));
     *{ let [_, _, _, _, _, _, _, _explicit_part, ..] = &mut out; _explicit_part } = clip(_mm256_sub_epi32(tmp0, t7));
 
-    out
+    Ok(out)
 }
 
 
@@ -708,8 +721,7 @@ fn dct8_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 64]) -> [__m256i; 
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
-#[must_use]
-fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 256] {
+fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> Result<[i32; 256], Never> {
     let mut result = [0i32; 256];
     let col_min = <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MIN);
     let col_max = <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MAX);
@@ -736,27 +748,27 @@ fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 25
             *row = _mm_packs_epi32(low, high);
         }
 
-        let pair_0_8 = dct8_row_build_pair(_token, match row_xmm { [_explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_4_12 = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_0_8) = dct8_row_build_pair(_token, match row_xmm { [_explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_4_12) = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
 
 
         let e_t0 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_0_8, dct8_row_coef_pack(_token, 181, 181)),
+            _mm256_madd_epi16(pair_0_8, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: 181 }); packed_vector }),
             pd_128,
         ));
 
         let e_t1 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_0_8, dct8_row_coef_pack(_token, 181, -181)),
+            _mm256_madd_epi16(pair_0_8, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: -181 }); packed_vector }),
             pd_128,
         ));
 
         let e_t2 = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_4_12, dct8_row_coef_pack(_token, 1567, -3784)),
+            _mm256_madd_epi16(pair_4_12, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1567, high: -3784 }); packed_vector }),
             pd_2048,
         ));
 
         let e_t3 = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_4_12, dct8_row_coef_pack(_token, 3784, 1567)),
+            _mm256_madd_epi16(pair_4_12, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3784, high: 1567 }); packed_vector }),
             pd_2048,
         ));
 
@@ -767,27 +779,27 @@ fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 25
         let dct4_3 = clip(_mm256_sub_epi32(e_t0, e_t3));
 
 
-        let pair_2_14 = dct8_row_build_pair(_token, match row_xmm { [_, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_10_6 = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_2_14) = dct8_row_build_pair(_token, match row_xmm { [_, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_10_6) = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
 
 
         let t4a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_2_14, dct8_row_coef_pack(_token, 799, -4017)),
+            _mm256_madd_epi16(pair_2_14, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 799, high: -4017 }); packed_vector }),
             pd_2048,
         ));
 
         let t7a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_2_14, dct8_row_coef_pack(_token, 4017, 799)),
+            _mm256_madd_epi16(pair_2_14, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 4017, high: 799 }); packed_vector }),
             pd_2048,
         ));
 
         let t5a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_10_6, dct8_row_coef_pack(_token, 3406, -2276)),
+            _mm256_madd_epi16(pair_10_6, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3406, high: -2276 }); packed_vector }),
             pd_2048,
         ));
 
         let t6a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_10_6, dct8_row_coef_pack(_token, 2276, 3406)),
+            _mm256_madd_epi16(pair_10_6, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2276, high: 3406 }); packed_vector }),
             pd_2048,
         ));
 
@@ -806,15 +818,15 @@ fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 25
             _mm256_castsi256_si128(e_t6a_n),
             _mm256_extracti128_si256(e_t6a_n, 1),
         );
-        let pair_65 = dct8_row_build_pair(_token, e_t6a_n_xmm, e_t5a_n_xmm);
+        let Ok(pair_65) = dct8_row_build_pair(_token, e_t6a_n_xmm, e_t5a_n_xmm);
 
         let e_t5 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_65, dct8_row_coef_pack(_token, 181, -181)),
+            _mm256_madd_epi16(pair_65, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: -181 }); packed_vector }),
             pd_128,
         ));
 
         let e_t6 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_65, dct8_row_coef_pack(_token, 181, 181)),
+            _mm256_madd_epi16(pair_65, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: 181 }); packed_vector }),
             pd_128,
         ));
 
@@ -831,49 +843,49 @@ fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 25
 
 
 
-        let pair_1_15 = dct8_row_build_pair(_token, match row_xmm { [_, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_9_7 = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_5_11 = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_13_3 = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_1_15) = dct8_row_build_pair(_token, match row_xmm { [_, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_9_7) = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_5_11) = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_13_3) = dct8_row_build_pair(_token, match row_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match row_xmm { [_, _, _, _explicit_element, ..] => _explicit_element });
 
 
         let o_t8a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_1_15, dct8_row_coef_pack(_token, 401, -4076)),
+            _mm256_madd_epi16(pair_1_15, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 401, high: -4076 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t15a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_1_15, dct8_row_coef_pack(_token, 4076, 401)),
+            _mm256_madd_epi16(pair_1_15, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 4076, high: 401 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t9a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_9_7, dct8_row_coef_pack(_token, 3166, -2598)),
+            _mm256_madd_epi16(pair_9_7, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3166, high: -2598 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t14a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_9_7, dct8_row_coef_pack(_token, 2598, 3166)),
+            _mm256_madd_epi16(pair_9_7, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2598, high: 3166 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t10a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_5_11, dct8_row_coef_pack(_token, 1931, -3612)),
+            _mm256_madd_epi16(pair_5_11, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1931, high: -3612 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t13a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_5_11, dct8_row_coef_pack(_token, 3612, 1931)),
+            _mm256_madd_epi16(pair_5_11, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3612, high: 1931 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t11a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_13_3, dct8_row_coef_pack(_token, 3920, -1189)),
+            _mm256_madd_epi16(pair_13_3, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3920, high: -1189 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t12a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_13_3, dct8_row_coef_pack(_token, 1189, 3920)),
+            _mm256_madd_epi16(pair_13_3, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1189, high: 3920 }); packed_vector }),
             pd_2048,
         ));
 
@@ -896,16 +908,16 @@ fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 25
             _mm256_castsi256_si128(o_t9),
             _mm256_extracti128_si256(o_t9, 1),
         );
-        let pair_14_9 = dct8_row_build_pair(_token, o_t14_xmm, o_t9_xmm);
+        let Ok(pair_14_9) = dct8_row_build_pair(_token, o_t14_xmm, o_t9_xmm);
 
 
         let o_t9a_new = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_14_9, dct8_row_coef_pack(_token, 1567, -3784)),
+            _mm256_madd_epi16(pair_14_9, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1567, high: -3784 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t14a_new = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_14_9, dct8_row_coef_pack(_token, 3784, 1567)),
+            _mm256_madd_epi16(pair_14_9, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3784, high: 1567 }); packed_vector }),
             pd_2048,
         ));
 
@@ -917,16 +929,16 @@ fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 25
             _mm256_castsi256_si128(o_t10),
             _mm256_extracti128_si256(o_t10, 1),
         );
-        let pair_13_10 = dct8_row_build_pair(_token, o_t13_xmm, o_t10_xmm);
+        let Ok(pair_13_10) = dct8_row_build_pair(_token, o_t13_xmm, o_t10_xmm);
 
 
         let o_t10a_new = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_13_10, dct8_row_coef_pack(_token, -3784, -1567)),
+            _mm256_madd_epi16(pair_13_10, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: -3784, high: -1567 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t13a_new = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_13_10, dct8_row_coef_pack(_token, 1567, -3784)),
+            _mm256_madd_epi16(pair_13_10, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1567, high: -3784 }); packed_vector }),
             pd_2048,
         ));
 
@@ -949,16 +961,16 @@ fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 25
             _mm256_castsi256_si128(o_t10_f),
             _mm256_extracti128_si256(o_t10_f, 1),
         );
-        let pair_13f_10f = dct8_row_build_pair(_token, o_t13_f_xmm, o_t10_f_xmm);
+        let Ok(pair_13f_10f) = dct8_row_build_pair(_token, o_t13_f_xmm, o_t10_f_xmm);
 
 
         let o_t10a_f = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_13f_10f, dct8_row_coef_pack(_token, 181, -181)),
+            _mm256_madd_epi16(pair_13f_10f, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: -181 }); packed_vector }),
             pd_128,
         ));
 
         let o_t13a_f = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_13f_10f, dct8_row_coef_pack(_token, 181, 181)),
+            _mm256_madd_epi16(pair_13f_10f, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: 181 }); packed_vector }),
             pd_128,
         ));
 
@@ -970,16 +982,16 @@ fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 25
             _mm256_castsi256_si128(o_t11a_f),
             _mm256_extracti128_si256(o_t11a_f, 1),
         );
-        let pair_12a_11a = dct8_row_build_pair(_token, o_t12a_f_xmm, o_t11a_f_xmm);
+        let Ok(pair_12a_11a) = dct8_row_build_pair(_token, o_t12a_f_xmm, o_t11a_f_xmm);
 
 
         let o_t11_f = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_12a_11a, dct8_row_coef_pack(_token, 181, -181)),
+            _mm256_madd_epi16(pair_12a_11a, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: -181 }); packed_vector }),
             pd_128,
         ));
 
         let o_t12_f = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_12a_11a, dct8_row_coef_pack(_token, 181, 181)),
+            _mm256_madd_epi16(pair_12a_11a, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: 181 }); packed_vector }),
             pd_128,
         ));
 
@@ -1013,12 +1025,13 @@ fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 25
 
 
         let destination = residual_strips.iter_mut().skip(first).step_by(2);
+
         for (lane, &vector) in destination.zip(cols.as_flattened()) {
             storeu_256!(lane, vector);
         }
     }
 
-    result
+    Ok(result)
 }
 
 
@@ -1035,8 +1048,7 @@ fn dct16_col_pass_i16(_token: Desktop64, tmp_row_major: &[i32; 256]) -> [i32; 25
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-#[must_use]
-fn dct16_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 256]) -> [i32; 256]{
+fn dct16_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 256]) -> Result<[i32; 256], Never> {
     let mut out = [0i32; 256];
 
     let row_min = <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MIN);
@@ -1081,27 +1093,27 @@ fn dct16_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 256]) -> [i
 
 
 
-        let pair_0_8 = dct8_row_build_pair(_token, match col_xmm { [_explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_4_12 = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_0_8) = dct8_row_build_pair(_token, match col_xmm { [_explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_4_12) = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
 
 
         let e_t0 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_0_8, dct8_row_coef_pack(_token, 181, 181)),
+            _mm256_madd_epi16(pair_0_8, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: 181 }); packed_vector }),
             pd_128,
         ));
 
         let e_t1 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_0_8, dct8_row_coef_pack(_token, 181, -181)),
+            _mm256_madd_epi16(pair_0_8, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: -181 }); packed_vector }),
             pd_128,
         ));
 
         let e_t2 = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_4_12, dct8_row_coef_pack(_token, 1567, -3784)),
+            _mm256_madd_epi16(pair_4_12, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1567, high: -3784 }); packed_vector }),
             pd_2048,
         ));
 
         let e_t3 = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_4_12, dct8_row_coef_pack(_token, 3784, 1567)),
+            _mm256_madd_epi16(pair_4_12, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3784, high: 1567 }); packed_vector }),
             pd_2048,
         ));
 
@@ -1112,27 +1124,27 @@ fn dct16_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 256]) -> [i
         let dct4_3 = clip(_mm256_sub_epi32(e_t0, e_t3));
 
 
-        let pair_2_14 = dct8_row_build_pair(_token, match col_xmm { [_, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_10_6 = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_2_14) = dct8_row_build_pair(_token, match col_xmm { [_, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_10_6) = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
 
 
         let t4a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_2_14, dct8_row_coef_pack(_token, 799, -4017)),
+            _mm256_madd_epi16(pair_2_14, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 799, high: -4017 }); packed_vector }),
             pd_2048,
         ));
 
         let t7a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_2_14, dct8_row_coef_pack(_token, 4017, 799)),
+            _mm256_madd_epi16(pair_2_14, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 4017, high: 799 }); packed_vector }),
             pd_2048,
         ));
 
         let t5a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_10_6, dct8_row_coef_pack(_token, 3406, -2276)),
+            _mm256_madd_epi16(pair_10_6, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3406, high: -2276 }); packed_vector }),
             pd_2048,
         ));
 
         let t6a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_10_6, dct8_row_coef_pack(_token, 2276, 3406)),
+            _mm256_madd_epi16(pair_10_6, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2276, high: 3406 }); packed_vector }),
             pd_2048,
         ));
 
@@ -1163,49 +1175,49 @@ fn dct16_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 256]) -> [i
 
 
 
-        let pair_1_15 = dct8_row_build_pair(_token, match col_xmm { [_, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_9_7 = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_5_11 = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_13_3 = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_1_15) = dct8_row_build_pair(_token, match col_xmm { [_, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_9_7) = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_5_11) = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_13_3) = dct8_row_build_pair(_token, match col_xmm { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match col_xmm { [_, _, _, _explicit_element, ..] => _explicit_element });
 
 
         let o_t8a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_1_15, dct8_row_coef_pack(_token, 401, -4076)),
+            _mm256_madd_epi16(pair_1_15, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 401, high: -4076 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t15a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_1_15, dct8_row_coef_pack(_token, 4076, 401)),
+            _mm256_madd_epi16(pair_1_15, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 4076, high: 401 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t9a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_9_7, dct8_row_coef_pack(_token, 3166, -2598)),
+            _mm256_madd_epi16(pair_9_7, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3166, high: -2598 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t14a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_9_7, dct8_row_coef_pack(_token, 2598, 3166)),
+            _mm256_madd_epi16(pair_9_7, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2598, high: 3166 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t10a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_5_11, dct8_row_coef_pack(_token, 1931, -3612)),
+            _mm256_madd_epi16(pair_5_11, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1931, high: -3612 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t13a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_5_11, dct8_row_coef_pack(_token, 3612, 1931)),
+            _mm256_madd_epi16(pair_5_11, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3612, high: 1931 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t11a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_13_3, dct8_row_coef_pack(_token, 3920, -1189)),
+            _mm256_madd_epi16(pair_13_3, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3920, high: -1189 }); packed_vector }),
             pd_2048,
         ));
 
         let o_t12a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_13_3, dct8_row_coef_pack(_token, 1189, 3920)),
+            _mm256_madd_epi16(pair_13_3, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1189, high: 3920 }); packed_vector }),
             pd_2048,
         ));
 
@@ -1326,7 +1338,7 @@ fn dct16_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 256]) -> [i
         }
     }
 
-    out
+    Ok(out)
 }
 
 
@@ -1345,11 +1357,8 @@ fn dct16_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 256]) -> [i
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
-#[must_use]
-fn dct32_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 1024]) -> [i32; 1024]{
+fn dct32_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 1024]) -> Result<[i32; 1024], Never> {
     let mut out = [0i32; 1024];
-    let build_pair = dct8_row_build_pair;
-    let coef_pack = dct8_row_coef_pack;
 
     let coefficient_strips = coeff_col_major.as_chunks::<8>().0;
     let row_groups = out.as_chunks_mut::<256>().0;
@@ -1378,23 +1387,23 @@ fn dct32_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 1024]) -> [
         let c_181 = _mm256_set1_epi32(181);
 
 
-        let pair_04 = build_pair(_token, match cx { [_explicit_element, ..] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_13 = build_pair(_token, match cx { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _, _, _, _, _] => _explicit_element });
+        let Ok(pair_04) = dct8_row_build_pair(_token, match cx { [_explicit_element, ..] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_13) = dct8_row_build_pair(_token, match cx { [_, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _, _, _, _, _] => _explicit_element });
 
         let dct4_t0 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_04, coef_pack(_token, 181, 181)),
+            _mm256_madd_epi16(pair_04, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: 181 }); packed_vector }),
             pd_128,
         ));
         let dct4_t1 = _mm256_srai_epi32::<8>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_04, coef_pack(_token, 181, -181)),
+            _mm256_madd_epi16(pair_04, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 181, high: -181 }); packed_vector }),
             pd_128,
         ));
         let dct4_t2 = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_13, coef_pack(_token, 1567, -3784)),
+            _mm256_madd_epi16(pair_13, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1567, high: -3784 }); packed_vector }),
             pd_2048,
         ));
         let dct4_t3 = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_13, coef_pack(_token, 3784, 1567)),
+            _mm256_madd_epi16(pair_13, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3784, high: 1567 }); packed_vector }),
             pd_2048,
         ));
 
@@ -1404,23 +1413,23 @@ fn dct32_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 1024]) -> [
         let dct4_o3 = clip(_mm256_sub_epi32(dct4_t0, dct4_t3));
 
 
-        let pair_8_17 = build_pair(_token, match cx { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _] => _explicit_element });
-        let pair_8_53 = build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_8_17) = dct8_row_build_pair(_token, match cx { [_, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _] => _explicit_element });
+        let Ok(pair_8_53) = dct8_row_build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
 
         let t4a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_8_17, coef_pack(_token, 799, -4017)),
+            _mm256_madd_epi16(pair_8_17, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 799, high: -4017 }); packed_vector }),
             pd_2048,
         ));
         let t7a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_8_17, coef_pack(_token, 4017, 799)),
+            _mm256_madd_epi16(pair_8_17, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 4017, high: 799 }); packed_vector }),
             pd_2048,
         ));
         let t5a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_8_53, coef_pack(_token, 3406, -2276)),
+            _mm256_madd_epi16(pair_8_53, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3406, high: -2276 }); packed_vector }),
             pd_2048,
         ));
         let t6a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_8_53, coef_pack(_token, 2276, 3406)),
+            _mm256_madd_epi16(pair_8_53, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2276, high: 3406 }); packed_vector }),
             pd_2048,
         ));
 
@@ -1444,42 +1453,42 @@ fn dct32_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 1024]) -> [
         let dct8_o7 = clip(_mm256_sub_epi32(dct4_o0, t7));
 
 
-        let pair_16_1_15 = build_pair(_token, match cx { [_, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _] => _explicit_element });
-        let pair_16_9_7 = build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_16_5_11 = build_pair(_token, match cx { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _] => _explicit_element });
-        let pair_16_13_3 = build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_16_1_15) = dct8_row_build_pair(_token, match cx { [_, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _] => _explicit_element });
+        let Ok(pair_16_9_7) = dct8_row_build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_16_5_11) = dct8_row_build_pair(_token, match cx { [_, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _] => _explicit_element });
+        let Ok(pair_16_13_3) = dct8_row_build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
 
         let t8a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_16_1_15, coef_pack(_token, 401, -4076)),
+            _mm256_madd_epi16(pair_16_1_15, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 401, high: -4076 }); packed_vector }),
             pd_2048,
         ));
         let t15a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_16_1_15, coef_pack(_token, 4076, 401)),
+            _mm256_madd_epi16(pair_16_1_15, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 4076, high: 401 }); packed_vector }),
             pd_2048,
         ));
 
         let t9a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_16_9_7, coef_pack(_token, 3166, -2598)),
+            _mm256_madd_epi16(pair_16_9_7, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3166, high: -2598 }); packed_vector }),
             pd_2048,
         ));
         let t14a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_16_9_7, coef_pack(_token, 2598, 3166)),
+            _mm256_madd_epi16(pair_16_9_7, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2598, high: 3166 }); packed_vector }),
             pd_2048,
         ));
         let t10a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_16_5_11, coef_pack(_token, 1931, -3612)),
+            _mm256_madd_epi16(pair_16_5_11, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1931, high: -3612 }); packed_vector }),
             pd_2048,
         ));
         let t13a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_16_5_11, coef_pack(_token, 3612, 1931)),
+            _mm256_madd_epi16(pair_16_5_11, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3612, high: 1931 }); packed_vector }),
             pd_2048,
         ));
         let t11a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_16_13_3, coef_pack(_token, 3920, -1189)),
+            _mm256_madd_epi16(pair_16_13_3, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3920, high: -1189 }); packed_vector }),
             pd_2048,
         ));
         let t12a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_16_13_3, coef_pack(_token, 1189, 3920)),
+            _mm256_madd_epi16(pair_16_13_3, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1189, high: 3920 }); packed_vector }),
             pd_2048,
         ));
 
@@ -1577,79 +1586,79 @@ fn dct32_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 1024]) -> [
         ];
 
 
-        let pair_32_1_31 = build_pair(_token, match cx { [_, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element] => _explicit_element });
-        let pair_32_17_15 = build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_32_9_23 = build_pair(_token, match cx { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _] => _explicit_element });
-        let pair_32_25_7 = build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_32_5_27 = build_pair(_token, match cx { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _, _] => _explicit_element });
-        let pair_32_21_11 = build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
-        let pair_32_13_19 = build_pair(_token, match cx { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _, _, _, _] => _explicit_element });
-        let pair_32_29_3 = build_pair(_token, match cx { [.., _explicit_element, _, _] => _explicit_element }, match cx { [_, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_32_1_31) = dct8_row_build_pair(_token, match cx { [_, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element] => _explicit_element });
+        let Ok(pair_32_17_15) = dct8_row_build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_32_9_23) = dct8_row_build_pair(_token, match cx { [_, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _] => _explicit_element });
+        let Ok(pair_32_25_7) = dct8_row_build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_32_5_27) = dct8_row_build_pair(_token, match cx { [_, _, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _, _] => _explicit_element });
+        let Ok(pair_32_21_11) = dct8_row_build_pair(_token, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _, _] => _explicit_element }, match cx { [_, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element });
+        let Ok(pair_32_13_19) = dct8_row_build_pair(_token, match cx { [_, _, _, _, _, _, _, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element }, match cx { [.., _explicit_element, _, _, _, _, _, _, _, _, _, _, _, _] => _explicit_element });
+        let Ok(pair_32_29_3) = dct8_row_build_pair(_token, match cx { [.., _explicit_element, _, _] => _explicit_element }, match cx { [_, _, _, _explicit_element, ..] => _explicit_element });
 
 
         let t16a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_1_31, coef_pack(_token, 201, -4091)),
+            _mm256_madd_epi16(pair_32_1_31, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 201, high: -4091 }); packed_vector }),
             pd_2048,
         ));
         let t31a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_1_31, coef_pack(_token, 4091, 201)),
+            _mm256_madd_epi16(pair_32_1_31, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 4091, high: 201 }); packed_vector }),
             pd_2048,
         ));
         let t17a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_17_15, coef_pack(_token, 3035, -2751)),
+            _mm256_madd_epi16(pair_32_17_15, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3035, high: -2751 }); packed_vector }),
             pd_2048,
         ));
         let t30a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_17_15, coef_pack(_token, 2751, 3035)),
+            _mm256_madd_epi16(pair_32_17_15, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2751, high: 3035 }); packed_vector }),
             pd_2048,
         ));
         let t18a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_9_23, coef_pack(_token, 1751, -3703)),
+            _mm256_madd_epi16(pair_32_9_23, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1751, high: -3703 }); packed_vector }),
             pd_2048,
         ));
         let t29a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_9_23, coef_pack(_token, 3703, 1751)),
+            _mm256_madd_epi16(pair_32_9_23, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3703, high: 1751 }); packed_vector }),
             pd_2048,
         ));
         let t19a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_25_7, coef_pack(_token, 3857, -1380)),
+            _mm256_madd_epi16(pair_32_25_7, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3857, high: -1380 }); packed_vector }),
             pd_2048,
         ));
         let t28a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_25_7, coef_pack(_token, 1380, 3857)),
+            _mm256_madd_epi16(pair_32_25_7, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 1380, high: 3857 }); packed_vector }),
             pd_2048,
         ));
         let t20a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_5_27, coef_pack(_token, 995, -3973)),
+            _mm256_madd_epi16(pair_32_5_27, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 995, high: -3973 }); packed_vector }),
             pd_2048,
         ));
         let t27a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_5_27, coef_pack(_token, 3973, 995)),
+            _mm256_madd_epi16(pair_32_5_27, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3973, high: 995 }); packed_vector }),
             pd_2048,
         ));
         let t21a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_21_11, coef_pack(_token, 3513, -2106)),
+            _mm256_madd_epi16(pair_32_21_11, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3513, high: -2106 }); packed_vector }),
             pd_2048,
         ));
         let t26a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_21_11, coef_pack(_token, 2106, 3513)),
+            _mm256_madd_epi16(pair_32_21_11, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2106, high: 3513 }); packed_vector }),
             pd_2048,
         ));
 
         let t22a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_13_19, coef_pack(_token, 2440, -3290)),
+            _mm256_madd_epi16(pair_32_13_19, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 2440, high: -3290 }); packed_vector }),
             pd_2048,
         ));
         let t25a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_13_19, coef_pack(_token, 3290, 2440)),
+            _mm256_madd_epi16(pair_32_13_19, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 3290, high: 2440 }); packed_vector }),
             pd_2048,
         ));
         let t23a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_29_3, coef_pack(_token, 4052, -601)),
+            _mm256_madd_epi16(pair_32_29_3, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 4052, high: -601 }); packed_vector }),
             pd_2048,
         ));
         let t24a = _mm256_srai_epi32::<12>(_mm256_add_epi32(
-            _mm256_madd_epi16(pair_32_29_3, coef_pack(_token, 601, 4052)),
+            _mm256_madd_epi16(pair_32_29_3, { let Ok(packed_vector) = dct8_row_coef_pack(_token, CoefficientPair { low: 601, high: 4052 }); packed_vector }),
             pd_2048,
         ));
 
@@ -1923,7 +1932,7 @@ fn dct32_row_pass_i16_simd(_token: Desktop64, coeff_col_major: [i16; 1024]) -> [
         }
     }
 
-    out
+    Ok(out)
 }
 
 
@@ -1965,8 +1974,8 @@ fn inv_txfm_add_dct_dct_32x16_8bpc_avx2_inner(
                 lower: _mm256_set1_epi32(bounds.columns.lower),
                 upper: _mm256_set1_epi32(bounds.columns.upper),
             };
-            apply_transform_columns_avx2(token, residuals, extent, clipping, |token, values, limits| {
-                dct16_1d_cols8(token, values, limits)
+            apply_transform_columns_avx2(token, residuals, extent, clipping, |column_token, values, limits| {
+                dct16_1d_cols8(column_token, values, limits)
             })?;
             add_to_dst_8bpc_avx2(token, pixels, stride, residuals, extent, bitdepth_max)?;
         }
@@ -2110,8 +2119,8 @@ fn inv_txfm_add_dct_dct_64x32_8bpc_avx2_inner(
                 lower: _mm256_set1_epi32(bounds.columns.lower),
                 upper: _mm256_set1_epi32(bounds.columns.upper),
             };
-            apply_transform_columns_avx2(token, residuals, extent, clipping, |token, values, limits| {
-                dct32_1d_cols8_i16(token, values, limits)
+            apply_transform_columns_avx2(token, residuals, extent, clipping, |column_token, values, limits| {
+                dct32_1d_cols8_i16(column_token, values, limits)
             })?;
             add_to_dst_8bpc_avx2(token, pixels, stride, residuals, extent, bitdepth_max)?;
         }
@@ -2168,8 +2177,8 @@ fn inv_txfm_add_dct_dct_16x4_8bpc_avx2_inner(
                 lower: _mm256_set1_epi32(bounds.columns.lower),
                 upper: _mm256_set1_epi32(bounds.columns.upper),
             };
-            apply_transform_columns_avx2(token, residuals, extent, lanes, |token, values, bounds| {
-                dct4_1d_cols8(token, values, bounds)
+            apply_transform_columns_avx2(token, residuals, extent, lanes, |column_token, values, column_bounds| {
+                dct4_1d_cols8(column_token, values, column_bounds)
             })?;
         }
     }
@@ -2211,8 +2220,8 @@ fn inv_txfm_add_dct_dct_8x32_8bpc_avx2_inner(
         lower: _mm256_set1_epi32(bounds.columns.lower),
         upper: _mm256_set1_epi32(bounds.columns.upper),
     };
-    apply_transform_columns_avx2(token, &mut residuals, extent, lanes, |token, values, bounds| {
-        dct32_1d_cols8_i16(token, values, bounds)
+    apply_transform_columns_avx2(token, &mut residuals, extent, lanes, |column_token, values, column_bounds| {
+        dct32_1d_cols8_i16(column_token, values, column_bounds)
     })?;
     add_rectangular_pixels_8bpc(pixels, stride, &residuals, extent, bitdepth_max)?;
     active.fill(0);
@@ -2256,8 +2265,8 @@ fn inv_txfm_add_dct_dct_32x8_8bpc_avx2_inner(
                 lower: _mm256_set1_epi32(bounds.columns.lower),
                 upper: _mm256_set1_epi32(bounds.columns.upper),
             };
-            apply_transform_columns_avx2(token, residuals, extent, clipping, |token, values, limits| {
-                dct8_1d_cols8(token, values, limits)
+            apply_transform_columns_avx2(token, residuals, extent, clipping, |column_token, values, limits| {
+                dct8_1d_cols8(column_token, values, limits)
             })?;
             add_to_dst_8bpc_avx2(token, pixels, stride, residuals, extent, bitdepth_max)?;
         }
@@ -2389,8 +2398,8 @@ fn inv_txfm_add_dct_dct_64x16_8bpc_avx2_inner(
                 lower: _mm256_set1_epi32(bounds.columns.lower),
                 upper: _mm256_set1_epi32(bounds.columns.upper),
             };
-            apply_transform_columns_avx2(token, residuals, extent, clipping, |token, values, limits| {
-                dct16_1d_cols8(token, values, limits)
+            apply_transform_columns_avx2(token, residuals, extent, clipping, |column_token, values, limits| {
+                dct16_1d_cols8(column_token, values, limits)
             })?;
             add_to_dst_8bpc_avx2(token, pixels, stride, residuals, extent, bitdepth_max)?;
         }

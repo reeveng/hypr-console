@@ -9,8 +9,6 @@ use console_core_geometry::Point;
 use std::collections::BTreeSet;
 use std::time::Duration;
 
-use console_core_never::Never;
-use console_panel::completion::{ENVIRONMENT, Progress};
 use console_response_times::FELT;
 
 use console_test_stages::checking::{
@@ -63,17 +61,17 @@ const OPENED_AND_PUT_AWAY: u32 = 6;
 const HOSTED: &str = "settings-panel";
 
 const OVER_A_PANEL: &str = r#"{"eDP-1":{"levels":{
-    "0":[{"namespace":"awww-daemon","h":1600}],
+    "0":[{"namespace":"console-paper","h":1600}],
     "2":[{"namespace":"console-bar","h":40}],
     "3":[{"namespace":"settings-panel","h":1562},{"namespace":"console-keyboard","h":520}]}}}"#;
 
 const THE_PANEL_ALONE: &str = r#"{"eDP-1":{"levels":{
-    "0":[{"namespace":"awww-daemon","h":1600}],
+    "0":[{"namespace":"console-paper","h":1600}],
     "2":[{"namespace":"console-bar","h":40}],
     "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
 
 const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
-    "0":[{"namespace":"awww-daemon","h":1600}],
+    "0":[{"namespace":"console-paper","h":1600}],
     "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
 fn without_a_screen(stage: &mut Here) -> CheckResult {
@@ -170,34 +168,7 @@ fn there(stage: &mut Device) -> CheckResult {
 }
 
 fn put_away_at_once(stage: &mut Desktop) -> CheckResult {
-  stage.inside("console-panels & host=$!; trap 'kill $host' EXIT TERM")?;
-
-  let Ok(listening) = host_listening();
-
-  stage.inside(&listening)?;
-
-  for _opened in 1..=OPENED_AND_PUT_AWAY {
-    stage
-      .inside("completion=$(mktemp \"$XDG_RUNTIME_DIR/panel-completion.XXXXXX\") || exit 1")?;
-    stage.inside(&format!("({ENVIRONMENT}=\"$completion\" {HOSTED} Sound &)"))?;
-
-    for progress in [Progress::Accepted, Progress::Visible] {
-      let Ok(waiting) = waiting_for_completion(progress);
-
-      stage.inside(&waiting)?;
-    }
-
-    stage.inside("console-put-away")?;
-
-    let Ok(closed) = waiting_for_completion(Progress::Gone);
-
-    stage.inside(&closed)?;
-    stage.inside("rm -f \"$completion\"")?;
-  }
-
-  stage.inside("kill $host; wait $host")?;
-  stage.keeping_timings()?;
-
+  stage.panel_cycles(OPENED_AND_PUT_AWAY, HOSTED, &["Sound"])?;
   let timings = stage.timings()?;
   let about = |what: &str| {
     timings
@@ -232,35 +203,6 @@ fn put_away_at_once(stage: &mut Desktop) -> CheckResult {
   same(&written, &OPENED_AND_PUT_AWAY, || {
     format!("opened {OPENED_AND_PUT_AWAY} times and {written} openings were written down")
   })
-}
-
-fn host_listening() -> Result<String, Never> {
-  let socket = console_panel::handoff::SOCKET;
-  let ours = console_core_places::APPLICATION;
-
-  Ok(format!(
-    "for _ in $(seq 200); do \
-           [ -S \"$XDG_RUNTIME_DIR/{ours}/{socket}\" ] && break; \
-           sleep 0.05; \
-         done; \
-         [ -S \"$XDG_RUNTIME_DIR/{ours}/{socket}\" ] || exit 1"
-  ))
-}
-
-fn waiting_for_completion(progress: Progress) -> Result<String, Never> {
-  let Ok(word) = progress.word();
-  let Ok(failed) = Progress::Failed.word();
-  let Ok(gone) = Progress::Gone.word();
-
-  Ok(format!(
-    "for _ in $(seq 200); do \
-           grep -qx '{word}' \"$completion\" && break; \
-           grep -qx '{failed}' \"$completion\" && exit 1; \
-           grep -qx '{gone}' \"$completion\" && exit 1; \
-           sleep 0.05; \
-         done; \
-         grep -qx '{word}' \"$completion\" || exit 1"
-  ))
 }
 
 fn draws(stage: &mut Desktop) -> CheckResult {

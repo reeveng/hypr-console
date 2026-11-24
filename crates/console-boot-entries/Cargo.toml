@@ -10,8 +10,10 @@ name = "console_boot_entries"
 path = "src/lib.rs"
 
 [dependencies]
+console-core-external-programs.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
+console-program-contract.workspace = true
 
 [lints]
 workspace = true

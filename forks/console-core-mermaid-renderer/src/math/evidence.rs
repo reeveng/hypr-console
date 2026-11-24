@@ -19,10 +19,12 @@ const PREPARED_MATH_NATIVE_CLASS_ATTRIBUTE: &str = r#"class="merman-prepared-mat
 pub(crate) struct PreparedMathOccurrenceId(Arc<str>);
 
 impl PreparedMathOccurrenceId {
+    #[must_use]
     pub(crate) fn indexed(family_id: DiagramFamilyId, role: &'static str, index: usize) -> Self {
         Self(Arc::from(format!("{}/{role}/{index}", family_id.as_str())))
     }
 
+    #[must_use]
     pub(crate) fn keyed(family_id: DiagramFamilyId, role: &'static str, key: &str) -> Self {
         let mut hasher = Sha256::default();
         update_len_prefixed(&mut hasher, OCCURRENCE_KEY_DOMAIN);
@@ -37,6 +39,7 @@ impl PreparedMathOccurrenceId {
         )))
     }
 
+    #[must_use]
     pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
@@ -46,6 +49,7 @@ impl PreparedMathOccurrenceId {
 pub(crate) struct PreparedMathProjectionFingerprint([u8; 32]);
 
 impl PreparedMathProjectionFingerprint {
+    #[must_use]
     pub(crate) fn from_projection(projection: &str) -> Self {
         let mut hasher = Sha256::default();
         update_len_prefixed(&mut hasher, PROJECTION_DOMAIN);
@@ -69,6 +73,7 @@ pub(crate) struct PreparedMathStyleAssurance {
 }
 
 impl PreparedMathStyleAssurance {
+    #[must_use]
     pub(crate) fn compiled_ratex(requested_foreground: &str, requested_font_size_px: f64) -> Self {
         Self {
             requested_foreground: Arc::from(requested_foreground),
@@ -88,14 +93,17 @@ impl PreparedMathStyleAssurance {
         }
     }
 
+    #[must_use]
     pub(crate) fn proves_default_foreground(&self, expected: &str) -> bool {
         self.default_foreground_verified && self.requested_foreground.as_ref() == expected
     }
 
+    #[must_use]
     pub(crate) fn proves_font_size_px(&self, expected: f64) -> bool {
         self.font_size_verified && self.requested_font_size_bits == expected.to_bits()
     }
 
+    #[must_use]
     pub(crate) fn retained_heap_bytes(&self) -> usize {
         self.requested_foreground.len()
     }
@@ -109,6 +117,7 @@ pub(crate) struct PreparedMathExpectation {
 }
 
 impl PreparedMathExpectation {
+    #[must_use]
     pub(crate) fn available(
         occurrence_id: PreparedMathOccurrenceId,
         projection_fingerprint: PreparedMathProjectionFingerprint,
@@ -121,6 +130,7 @@ impl PreparedMathExpectation {
         }
     }
 
+    #[must_use]
     pub(crate) fn unavailable(
         occurrence_id: PreparedMathOccurrenceId,
         expected_emissions: usize,
@@ -132,18 +142,22 @@ impl PreparedMathExpectation {
         }
     }
 
+    #[must_use]
     pub(crate) fn occurrence_id(&self) -> &PreparedMathOccurrenceId {
         &self.occurrence_id
     }
 
+    #[must_use]
     pub(crate) const fn projection_fingerprint(&self) -> Option<PreparedMathProjectionFingerprint> {
         self.projection_fingerprint
     }
 
+    #[must_use]
     pub(crate) const fn expected_emissions(&self) -> usize {
         self.expected_emissions
     }
 
+    #[must_use]
     pub(crate) fn retained_bytes(&self) -> usize {
         std::mem::size_of::<Self>().saturating_add(self.occurrence_id.as_str().len())
     }
@@ -178,6 +192,7 @@ impl PreparedMathEvidenceLease {
         )
     }
 
+    #[must_use]
     pub(crate) fn with_native_projections(
         mut entries: Vec<(
             PreparedMathExpectation,
@@ -188,28 +203,32 @@ impl PreparedMathEvidenceLease {
         entries.sort_unstable_by(|left, right| left.0.occurrence_id().cmp(right.0.occurrence_id()));
         let duplicate_occurrence_id = entries
             .windows(2)
-            .find(|entries| entries[0].0.occurrence_id() == entries[1].0.occurrence_id())
-            .map(|entries| entries[0].0.occurrence_id().clone());
-        let (entries, native_projections): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
+            .find(|entries_2| entries_2[0].0.occurrence_id() == entries_2[1].0.occurrence_id())
+            .map(|entries_3| entries_3[0].0.occurrence_id().clone());
+        let (entries_4, native_projections): (Vec<_>, Vec<_>) = entries.into_iter().unzip();
         Self {
-            entries: entries.into(),
+            entries: entries_4.into(),
             native_projections: native_projections.into(),
             duplicate_occurrence_id,
             _retained_reservations: retained_reservations.into(),
         }
     }
 
+    #[must_use]
     pub(crate) fn entries(&self) -> &[PreparedMathExpectation] {
         &self.entries
     }
 
+    #[must_use]
     pub(crate) fn native_projection(
         &self,
         index: usize,
     ) -> Option<&super::PreparedMathNativeProjection> {
-        self.native_projections.get(index)?.as_deref()
+        let checked_value = self.native_projections.get(index)?;
+        checked_value.as_deref()
     }
 
+    #[must_use]
     pub(crate) fn retained_entry_bytes(
         expectation: &PreparedMathExpectation,
         projection: Option<&super::PreparedMathNativeProjection>,
@@ -224,14 +243,17 @@ impl PreparedMathEvidenceLease {
             )
     }
 
+    #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
         self.entries.is_empty()
     }
 
     pub(crate) fn validate_unique_occurrences(&self) -> Result<(), String> {
-        let Some(duplicate) = &self.duplicate_occurrence_id else {
-            return Ok(());
+        let duplicate = match &self.duplicate_occurrence_id {
+            Some(matched_duplicate) => matched_duplicate,
+            ::core::option::Option::None => return Ok(()),
         };
+
         Err(format!(
             "prepared-math evidence contains duplicate occurrence identity `{}`",
             duplicate.as_str()
@@ -243,10 +265,9 @@ impl PreparedMathEvidenceLease {
         occurrence_id: &str,
     ) -> Result<Option<(usize, &PreparedMathExpectation)>, String> {
         self.validate_unique_occurrences()?;
-        Ok(self
+        Ok(match self
             .entries
-            .binary_search_by(|entry| entry.occurrence_id().as_str().cmp(occurrence_id))
-            .ok()
+            .binary_search_by(|entry| entry.occurrence_id().as_str().cmp(occurrence_id)) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_insertion_position) => ::core::option::Option::None }
             .map(|index| (index, &self.entries[index])))
     }
 }
@@ -271,7 +292,9 @@ impl PreparedMathTerminalReceipt {
         if evidence.is_empty() {
             return Ok(None);
         }
+
         evidence.validate_unique_occurrences()?;
+
         if evidence
             .entries()
             .iter()
@@ -283,9 +306,11 @@ impl PreparedMathTerminalReceipt {
         let document = crate::xml_dom::Document::parse(svg)
             .map_err(|error| format!("prepared-math terminal SVG is malformed: {error}"))?;
         let root = document.root_element();
+
         if !native_svg_element(root, "svg") {
             return Err("prepared-math terminal requires an SVG root".to_owned());
         }
+
         let namespace_context = root
             .namespaces()
             .map(|namespace| (namespace.name(), namespace.uri()))
@@ -296,12 +321,14 @@ impl PreparedMathTerminalReceipt {
         };
         let mut identifiers = HashMap::new();
         let mut references = HashMap::<&str, usize>::new();
+
         for node in document.descendants().filter(|node| node.is_element()) {
             if let Some(identifier) = node.attribute("id")
                 && identifiers.insert(identifier, node).is_some()
             {
                 return Err(format!("duplicate prepared-math SVG id `{identifier}`"));
             }
+
             if native_svg_element(node, "use")
                 && let Some(target) = node
                     .attribute(("http://www.w3.org/1999/xlink", "href"))
@@ -311,25 +338,30 @@ impl PreparedMathTerminalReceipt {
                 *references.entry(target).or_default() += 1;
             }
         }
+
         let mut used_definitions = HashSet::new();
         let mut emitted = vec![0usize; evidence.entries().len()];
         let mut instance_indices = Vec::new();
+
         for (index, node) in document
             .descendants()
             .filter(|node| node.is_element())
             .enumerate()
         {
-            let Some(occurrence_id) =
-                unqualified_attribute(node, super::PREPARED_MATH_OCCURRENCE_ATTRIBUTE)
-            else {
-                // User classes do not establish renderer ownership. Missing owned instances are
-                // rejected by the expected emission counts below.
-                continue;
+            let occurrence_id = {
+                let optional_occurrence_id = unqualified_attribute(node, super::PREPARED_MATH_OCCURRENCE_ATTRIBUTE);
+
+                match optional_occurrence_id {
+                    Some(matched_occurrence_id) => matched_occurrence_id,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let (expected_index, expected) =
                 evidence.expectation(occurrence_id)?.ok_or_else(|| {
                     format!("prepared-math terminal emitted unknown occurrence `{occurrence_id}`")
                 })?;
+
             if !unqualified_attribute(node, "class").is_some_and(|class| {
                 class
                     .split_ascii_whitespace()
@@ -339,18 +371,22 @@ impl PreparedMathTerminalReceipt {
                     "prepared-math terminal occurrence `{occurrence_id}` is missing its native class"
                 ));
             }
+
             emitted[expected_index] = emitted[expected_index].saturating_add(1);
+
             if emitted[expected_index] > expected.expected_emissions() {
                 return Err(format!(
                     "prepared-math terminal emitted duplicate occurrence `{occurrence_id}`"
                 ));
             }
+
             let owner = {
                 if !owned_element(node, "use") {
                     return Err(
                         "prepared-math instance must reference a root definition".to_owned()
                     );
                 }
+
                 let target = node
                     .attribute(("http://www.w3.org/1999/xlink", "href"))
                     .or_else(|| node.attribute("href"))
@@ -358,20 +394,24 @@ impl PreparedMathTerminalReceipt {
                     .ok_or_else(|| {
                         "prepared-math instance requires a local definition".to_owned()
                     })?;
+
                 if references.get(target) != Some(&1) || !used_definitions.insert(target) {
                     return Err(format!(
                         "prepared-math definition `{target}` requires one instance"
                     ));
                 }
-                let definition = *identifiers
+
+                let definition = ::core::result::Result::<&_, _>::copied(identifiers
                     .get(target)
-                    .ok_or_else(|| format!("prepared-math definition `{target}` is missing"))?;
+                    .ok_or_else(|| format!("prepared-math definition `{target}` is missing")))?;
                 let root_definition = definition.parent_element().is_some_and(|parent| {
                     owned_element(parent, "defs") && parent.parent_element() == Some(root)
                 });
+
                 if !root_definition || !owned_element(definition, "g") {
                     return Err("prepared-math definition must be a root-owned group".to_owned());
                 }
+
                 if definition
                     .attributes()
                     .any(|attribute| attribute.namespace().is_some() || attribute.name() != "id")
@@ -388,6 +428,7 @@ impl PreparedMathTerminalReceipt {
                             .to_owned(),
                     );
                 }
+
                 if node.children().any(|child| child.is_element())
                     || node
                         .ancestors()
@@ -408,44 +449,53 @@ impl PreparedMathTerminalReceipt {
                 {
                     return Err("prepared-math instance must be a visible leaf".to_owned());
                 }
+
                 definition
             };
             let mut children = owner.children().filter(|child| child.is_element());
             let projection = children.next().ok_or_else(|| {
                 format!("prepared-math terminal occurrence `{occurrence_id}` has no projection")
             })?;
+
             if !owned_element(projection, "g") {
                 return Err("prepared-math projection requires an SVG group".to_owned());
             }
+
             if children.next().is_some() {
                 return Err(format!(
                     "prepared-math terminal occurrence `{occurrence_id}` has duplicate projections"
                 ));
             }
+
             let actual =
                 PreparedMathProjectionFingerprint::from_projection(&svg[projection.range()]);
+
             if Some(actual) != expected.projection_fingerprint() {
                 return Err(format!(
                     "prepared-math terminal occurrence `{occurrence_id}` has a mismatched projection"
                 ));
             }
+
             instance_indices.push(index);
         }
 
-        if let Some((missing, _)) = evidence
+        match evidence
             .entries()
             .iter()
             .zip(emitted.iter())
-            .find(|(entry, emitted)| **emitted < entry.expected_emissions())
-        {
-            return Err(format!(
-                "prepared-math terminal is missing occurrence `{}`",
-                missing.occurrence_id().as_str()
-            ));
+            .find(|(entry, emitted_2)| **emitted_2 < entry.expected_emissions()) {
+            Some((missing, _)) => {
+                return Err(format!(
+                    "prepared-math terminal is missing occurrence `{}`",
+                    missing.occurrence_id().as_str()
+                ));
+            },
+            ::core::option::Option::None => {},
         }
 
         let plan = crate::svg::SvgReferencePlan::for_occurrence_receipt(svg)
             .map_err(|error| format!("prepared-math reference expansion is invalid: {error}"))?;
+
         if instance_indices
             .into_iter()
             .any(|index| plan.raw_element_occurrences().get(index) != Some(&1))
@@ -459,9 +509,9 @@ impl PreparedMathTerminalReceipt {
             .cloned()
             .zip(emitted)
             .map(
-                |(expectation, emitted)| PreparedMathTerminalOccurrenceReceipt {
+                |(expectation, emitted_3)| PreparedMathTerminalOccurrenceReceipt {
                     expectation,
-                    emitted,
+                    emitted: emitted_3,
                 },
             )
             .collect::<Vec<_>>();
@@ -471,15 +521,18 @@ impl PreparedMathTerminalReceipt {
         }))
     }
 
+    #[must_use]
     pub(crate) fn occurrence_count(&self) -> usize {
         self.occurrences.len()
     }
 
+    #[must_use]
     pub(crate) fn artifact_digest(&self) -> [u8; 32] {
         self.artifact_digest
     }
 }
 
+#[must_use]
 fn native_svg_element(node: crate::xml_dom::Node<'_, '_>, name: &str) -> bool {
     node.is_element()
         && node.tag_name().name() == name
@@ -489,12 +542,14 @@ fn native_svg_element(node: crate::xml_dom::Node<'_, '_>, name: &str) -> bool {
             .is_none_or(|uri| uri == "http://www.w3.org/2000/svg")
 }
 
+#[must_use]
 fn unqualified_attribute<'a>(node: crate::xml_dom::Node<'a, '_>, name: &str) -> Option<&'a str> {
     node.attributes()
         .find(|attribute| attribute.namespace().is_none() && attribute.name() == name)
         .map(|attribute| attribute.value())
 }
 
+#[must_use]
 fn same_namespace_context(
     node: crate::xml_dom::Node<'_, '_>,
     expected: &HashMap<Option<&str>, &str>,
@@ -505,6 +560,7 @@ fn same_namespace_context(
             .all(|namespace| expected.get(&namespace.name()) == Some(&namespace.uri()))
 }
 
+#[must_use]
 fn artifact_digest(svg: &str) -> [u8; 32] {
     let mut hasher = Sha256::default();
     update_len_prefixed(&mut hasher, b"merman-prepared-math-terminal-artifact-v1");

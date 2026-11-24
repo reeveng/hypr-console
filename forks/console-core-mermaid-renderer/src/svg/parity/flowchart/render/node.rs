@@ -31,6 +31,7 @@ pub(in crate::svg::parity::flowchart::render) struct FlowchartNodeRenderCommon<'
     pub wrapped_in_a: bool,
     pub timing: RenderTiming,
 }
+
 pub(in crate::svg::parity::flowchart::render) struct FlowchartNodeGeometry<'a> {
     pub node_id: &'a str,
     pub shape: &'a str,
@@ -55,12 +56,17 @@ pub(in crate::svg::parity::flowchart::render) struct FlowchartNodeGeometry<'a> {
 }
 
 impl FlowchartNodeGeometry<'_> {
+    #[must_use]
     pub(super) fn look_is_neo(&self) -> bool {
         self.look == "neo"
     }
+
+    #[must_use]
     pub(super) fn look_is_hand_drawn(&self) -> bool {
         self.look == "handDrawn"
     }
+
+    #[must_use]
     pub(super) fn label_metrics(
         &self,
         ctx: &FlowchartRenderCtx<'_>,
@@ -88,6 +94,7 @@ impl FlowchartNodeGeometry<'_> {
 
 impl<'a> std::ops::Deref for FlowchartNodeRenderCommon<'a> {
     type Target = FlowchartNodeGeometry<'a>;
+
     fn deref(&self) -> &Self::Target {
         &self.geometry
     }
@@ -124,12 +131,12 @@ impl FlowchartNodeRenderCommon<'_> {
         &self,
         out: &mut impl crate::svg::parity::SvgOutput,
     ) {
-        // Keep admitted source winners and typed geometry consistent with native attributes.
-        // Neo defaults and differently cased source spellings must not override them in CSS.
+
+
         for (axis, source) in ["rx", "ry"].into_iter().zip(self.source_corner_radii) {
             if let Some(radius) = source.or(self.typed_corner_radius) {
-                let radius = crate::svg::parity::fmt_display(radius);
-                let _ = write!(out, ";{axis}:{radius}px !important");
+                let radius_2 = crate::svg::parity::fmt_display(radius);
+                let _ = write!(out, ";{axis}:{radius}px !important", radius = radius_2);
             }
         }
     }
@@ -151,8 +158,13 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
     timing: RenderTiming,
     details: &mut FlowchartRenderDetails,
 ) -> crate::Result<()> {
-    let Some(layout_node) = ctx.layout_nodes_by_id.get(node_id) else {
-        return Ok(());
+    let layout_node = {
+        let optional_layout_node = ctx.layout_nodes_by_id.get(node_id);
+
+        match optional_layout_node {
+            Some(matched_layout_node) => matched_layout_node,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
 
     let x = layout_node.x + ctx.tx - origin_x;
@@ -171,8 +183,13 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
         return Ok(());
     }
 
-    let Some(resolved) = helpers::resolve_node_render_info(ctx, node_id) else {
-        return Ok(());
+    let resolved = {
+        let optional_resolved = helpers::resolve_node_render_info(ctx, node_id);
+
+        match optional_resolved {
+            Some(matched_resolved) => matched_resolved,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
 
     let tooltip = ctx.tooltips.get(node_id).map(|s| s.as_str()).unwrap_or("");
@@ -200,12 +217,12 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
     let shape: &str = resolved.shape;
     let node_classes = resolved.node_classes;
     let bpmn_classes =
-        crate::flowchart::bpmn::BpmnShape::resolve(shape).map(|shape| shape.classes());
+        crate::flowchart::bpmn::BpmnShape::resolve(shape).map(|shape_2| shape_2.classes());
 
     let empty_classes: &[String] = &[];
     let node_classes_for_wrapper = match shape {
-        // Mermaid flowchart-v2 start/stop nodes do not carry classDef classes on the wrapper.
-        // Styling is applied via inline styles on the shape paths (stop) or ignored (start).
+
+
         "sm-circ" | "small-circle" | "start" | "fr-circ" | "framed-circle" | "stop" => {
             empty_classes
         }
@@ -247,9 +264,11 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
         .inline_style
         .as_deref()
         .unwrap_or(&prepared.source.node_style);
+
     if let Some(s) = style_start {
         details.node_style_compile += s.elapsed();
     }
+
     let node_theme = &prepared.style;
     let source_filter = compiled_styles.source_filter_status();
     let typed_fill_selected = selection.typed_fill_selected;
@@ -282,12 +301,12 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
                 materialized.region(),
             );
             let attribute = format!(r#" filter="{}""#, escape_attr(&reference));
-            let style = if look == "neo" {
+            let style_2 = if look == "neo" {
                 format!(";filter:{} !important", escape_attr(&reference))
             } else {
                 String::new()
             };
-            (id, effect, materialized.region(), attribute, style)
+            (id, effect, materialized.region(), attribute, style_2)
         });
     let effect_selected = prepared_effect.is_some_and(|effect| effect.replaces_look_filter());
     let effect_filter_style = effect_application.as_ref().map_or_else(
@@ -298,7 +317,7 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
                 ""
             }
         },
-        |(_, _, _, _, style)| style.as_str(),
+        |(_, _, _, _, style_3)| style_3.as_str(),
     );
     let common = FlowchartNodeRenderCommon {
         geometry: prepare_node_geometry(ctx, node_id, &resolved)?,
@@ -333,8 +352,9 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
     if ctx.text_surface_paint.generic_text.requested() {
         ctx.work_meter.charge(label.text.len())?;
     }
+
     let (shape_outcome, no_label) = if shape == "collapsedGroup" {
-        // Mermaid appends the separator and ellipsis after the labelHelper output.
+
         let geometry = shapes::render_collapsed_group_body(out, ctx, &common, &mut label, details);
         out.checkpoint()?;
         let label_receipt =
@@ -342,9 +362,11 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
         shapes::render_collapsed_group_indicators(out, geometry);
         out.checkpoint()?;
         out.push_str("</g>");
+
         if common.wrapped_in_a {
             out.push_str("</a>");
         }
+
         (
             crate::svg::parity::flowchart::render::node::emission::FlowchartNodeShapeRenderOutcome::new(
                 true,
@@ -366,16 +388,20 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
             false,
         )
     };
+
     if shape_outcome.emission().typed_effect_verified()
         && let Some((id, effect, region, _, _)) = &effect_application
     {
         ctx.effect_evidence.record_application(effect, id, *region);
     }
+
     let label_receipt = if no_label {
         out.push_str("</g>");
+
         if common.wrapped_in_a {
             out.push_str("</a>");
         }
+
         None
     } else if shape_outcome.closes_wrapper() {
         Some(shape_outcome.label())
@@ -385,15 +411,15 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
         ))
     };
 
-    if let Some(label_receipt) = label_receipt {
+    if let Some(label_receipt_2) = label_receipt {
         ctx.text_surface_paint.background.record_terminal(
-            label_receipt.background_has_area(),
-            label_receipt.background_has_area(),
+            label_receipt_2.background_has_area(),
+            label_receipt_2.background_has_area(),
             ctx.work_meter,
         )?;
         ctx.text_surface_paint.generic_text.record_label(
             crate::flowchart::FlowchartTextPaintChannel::Node,
-            label_receipt
+            label_receipt_2
                 .text_paint_facts()
                 .unwrap_or_else(crate::flowchart::FlowchartTextPaintFacts::unknown),
             compiled_styles
@@ -406,18 +432,18 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
                 ctx.svg_label_sidecar.and_then(|sidecar| {
                     sidecar.node_owner(node_id, ctx.swimlane_direction.is_some())
                 }),
-                label_receipt.typography_applicable(),
-                label_receipt.typography_verified(),
+                label_receipt_2.typography_applicable(),
+                label_receipt_2.typography_verified(),
             )
             .with_source_facets(
                 compiled_styles
                     .source_font_stack_status()
                     .merge(prepared.terminal_sources.font_stack)
-                    .merge(label_receipt.html_font_stack_status()),
+                    .merge(label_receipt_2.html_font_stack_status()),
                 compiled_styles
                     .source_font_size_status()
                     .merge(prepared.terminal_sources.font_size)
-                    .merge(label_receipt.html_font_size_status()),
+                    .merge(label_receipt_2.html_font_size_status()),
             )
             .with_target_selection(typed_font_stack_selected, typed_font_size_selected),
         );
@@ -431,39 +457,39 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
         .terminal_sources
         .merge_into_evidence(&mut source_evidence);
     let (font_stack_emission, font_size_emission, label_fill_emission) =
-        label_receipt.map_or((None, None, None), |label_receipt| {
+        label_receipt.map_or((None, None, None), |label_receipt_3| {
             source_evidence
                 .residuals
-                .extend(compiled_styles.label_source_residuals(node_id, label_receipt));
+                .extend(compiled_styles.label_source_residuals(node_id, label_receipt_3));
             (
-                label_receipt.prepared_font_stack_reach().map(|reach| {
+                label_receipt_3.prepared_font_stack_reach().map(|reach| {
                     crate::flowchart::FlowchartThemeFacetEmission::new(
                         crate::flowchart::FlowchartFacetPrecedence::new(
                             compiled_styles
-                                .emitted_source_font_stack_status(label_receipt)
+                                .emitted_source_font_stack_status(label_receipt_3)
                                 .merge(prepared.terminal_sources.font_stack),
                             ctx.node_typography_config_ownership.font_stack,
                         ),
                         typed_font_stack_selected && reach.is_verified(),
                     )
                 }),
-                label_receipt.prepared_font_size_reach().map(|reach| {
+                label_receipt_3.prepared_font_size_reach().map(|reach| {
                     crate::flowchart::FlowchartThemeFacetEmission::new(
                         crate::flowchart::FlowchartFacetPrecedence::new(
                             compiled_styles
-                                .emitted_source_font_size_status(label_receipt)
+                                .emitted_source_font_size_status(label_receipt_3)
                                 .merge(prepared.terminal_sources.font_size),
                             ctx.node_typography_config_ownership.font_size,
                         ),
                         typed_font_size_selected && reach.is_verified(),
                     )
                 }),
-                label_receipt.label_fill_reach().and_then(|reach| {
+                label_receipt_3.label_fill_reach().and_then(|reach| {
                     node_theme.has_label_fill_route().then(|| {
                         crate::flowchart::FlowchartThemeFacetEmission::new(
                             crate::flowchart::FlowchartFacetPrecedence::new(
                                 compiled_styles
-                                    .emitted_source_label_foreground_status(label_receipt)
+                                    .emitted_source_label_foreground_status(label_receipt_3)
                                     .merge(prepared.terminal_sources.label_foreground),
                                 ctx.node_label_fill_config_override,
                             ),
@@ -485,6 +511,7 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
             )
         })
     });
+
     if ctx.resolved_theme.is_some() || !source_evidence.residuals.is_empty() {
         ctx.theme_evidence.record_node_emission(
             node_theme,
@@ -550,9 +577,9 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_node(
         )?;
     }
 
-    // HandDrawn RoughJS generation may reject before the bounded SVG sink sees its output. Replay
-    // that terminal here so a fallback shape cannot silently turn a resource rejection into a
-    // successful render.
+
+
+
     ctx.checkpoint_emit()?;
     Ok(())
 }
@@ -606,12 +633,20 @@ pub(in crate::svg::parity::flowchart) fn advance_rough_geometry(
     ctx.work_meter
         .checkpoint(merman_model::OperationPhase::Layout)
         .map_err(crate::Error::from)?;
+
     if !ctx.layout_nodes_by_id.contains_key(node_id) {
         return Ok(());
     }
-    let Some(resolved) = helpers::resolve_node_render_info(ctx, node_id) else {
-        return Ok(());
+
+    let resolved = {
+        let optional_resolved = helpers::resolve_node_render_info(ctx, node_id);
+
+        match optional_resolved {
+            Some(matched_resolved) => matched_resolved,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
+
     let geometry = prepare_node_geometry(ctx, node_id, &resolved)?;
     let mut label = FlowchartNodeLabelState {
         text: if resolved.label_text_is_node_id {

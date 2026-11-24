@@ -11,16 +11,20 @@ pub(crate) struct ParsedCssFontStack {
 }
 
 impl ParsedCssFontStack {
+    #[must_use]
     fn generic_family(&self, index: usize) -> Option<GenericFontFamily> {
         self.generic_families.get(&index).copied()
     }
 
+    #[must_use]
     pub(crate) fn as_css(&self) -> String {
         let mut out = String::new();
+
         for (index, family) in self.families.iter().enumerate() {
             if index > 0 {
                 out.push_str(", ");
             }
+
             if self.generic_family(index).is_some() {
                 out.push_str(family);
             } else {
@@ -28,10 +32,12 @@ impl ParsedCssFontStack {
                     .expect("serializing a CSS string into String cannot fail");
             }
         }
+
         out
     }
 }
 
+#[must_use]
 pub(crate) fn parse_css_font_stack(value: &str) -> Option<ParsedCssFontStack> {
     let mut parser = Parser::new(value);
     let mut families = Vec::new();
@@ -39,14 +45,16 @@ pub(crate) fn parse_css_font_stack(value: &str) -> Option<ParsedCssFontStack> {
 
     while !parser.is_exhausted() {
         let family_index = families.len();
-        let family = if let Ok(value) = parser.try_parse(|input| input.expect_string_cloned()) {
-            value.to_string()
+        let family = if let Ok(value_2) = parser.try_parse(|input| input.expect_string_cloned()) {
+            value_2.to_string()
         } else {
             let first = parser.expect_ident_cloned().ok()?;
             let mut components = vec![first.to_string()];
+
             while let Ok(component) = parser.try_parse(|input| input.expect_ident_cloned()) {
                 components.push(component.to_string());
             }
+
             if components.iter().any(|component| {
                 matches!(
                     component.to_ascii_lowercase().as_str(),
@@ -55,18 +63,23 @@ pub(crate) fn parse_css_font_stack(value: &str) -> Option<ParsedCssFontStack> {
             }) {
                 return None;
             }
+
             if components.len() == 1
                 && let Some(generic) = GenericFontFamily::from_css_keyword(&components[0])
             {
                 generic_families.insert(family_index, generic);
             }
+
             components.join(" ")
         };
         families.push(family);
+
         if parser.is_exhausted() {
             break;
         }
+
         parser.expect_comma().ok()?;
+
         if parser.is_exhausted() {
             return None;
         }
@@ -78,19 +91,20 @@ pub(crate) fn parse_css_font_stack(value: &str) -> Option<ParsedCssFontStack> {
     })
 }
 
+#[must_use]
 pub(crate) fn resolve_css_font_weight(value: &str, inherited: u16) -> Option<u16> {
     match value.trim().to_ascii_lowercase().as_str() {
         "normal" => Some(400),
         "bold" => Some(700),
         "bolder" => Some(relative_font_weight(inherited, true)),
         "lighter" => Some(relative_font_weight(inherited, false)),
-        value => value
-            .parse::<u16>()
-            .ok()
+        value_2 => match value_2
+            .parse::<u16>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }
             .filter(|weight| (1..=1000).contains(weight)),
     }
 }
 
+#[must_use]
 fn relative_font_weight(inherited: u16, bolder: bool) -> u16 {
     match (inherited, bolder) {
         (1..=99, true) => 400,

@@ -55,6 +55,22 @@ const OPENED: &str = "openwindow>>";
 const CLOSED: &str = "closewindow>>";
 const RENAMED_WITH_TITLE: &str = "windowtitlev2>>";
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OutputChange {
+  Changed,
+  Unchanged,
+}
+
+pub fn outputs_changed(line: &str) -> Result<OutputChange, Never> {
+  let words = line.trim();
+  let changed = words.starts_with("monitoraddedv2>>") || words.starts_with("monitorremovedv2>>");
+
+  Ok(match changed.then_some(()) {
+    Some(()) => OutputChange::Changed,
+    None => OutputChange::Unchanged,
+  })
+}
+
 const CARRYING_NO_ADDRESS: [(&str, CompositorEvent); 10] = [
   ("movewindowv2>>", CompositorEvent::WindowMoved),
   ("changefloatingmode>>", CompositorEvent::WindowFloated),

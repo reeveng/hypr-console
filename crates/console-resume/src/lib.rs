@@ -32,6 +32,7 @@
 use console_core_arguments::{Flag, Takes};
 
 pub mod already;
+pub mod ending;
 pub mod lua;
 pub mod session;
 pub mod starting;
@@ -81,6 +82,11 @@ pub enum Unresumed {
   SaidNothing(String),
   Untitled(String),
   StillOpen,
+  Ending(String),
+  NoSetup(std::path::PathBuf),
+  NoDisplays,
+  DisplaysChanged,
+  ApplyingSetup(String),
 }
 
 impl std::fmt::Display for Unresumed {
@@ -108,6 +114,15 @@ impl std::fmt::Display for Unresumed {
         to,
         "something would not close, so what was saved is not put back"
       ),
+      Unresumed::Ending(why) => write!(to, "ending the session: {why}"),
+      Unresumed::NoSetup(at) => {
+        write!(to, "{}: no setup for the connected displays", at.display())
+      }
+      Unresumed::NoDisplays => write!(to, "there are no active displays to save"),
+      Unresumed::DisplaysChanged => {
+        write!(to, "the connected displays changed during the operation")
+      }
+      Unresumed::ApplyingSetup(fault) => write!(to, "restoring the display setup: {fault}"),
     }
   }
 }

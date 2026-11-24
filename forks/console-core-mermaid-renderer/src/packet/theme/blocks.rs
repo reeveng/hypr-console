@@ -65,11 +65,18 @@ impl PacketBlockThemePlan {
     }
 
     pub(super) fn apply_css(&self, style: &mut crate::packet::config::PacketStyleSettings) {
-        if let Some(fill) = &self.fill {
-            style.block_fill_color = fill.css().to_owned().into();
+        match &self.fill {
+            Some(fill) => {
+                style.block_fill_color = fill.css().to_owned().into();
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(stroke) = &self.stroke {
-            style.block_stroke_color = stroke.css().to_owned().into();
+
+        match &self.stroke {
+            Some(stroke) => {
+                style.block_stroke_color = stroke.css().to_owned().into();
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -94,39 +101,48 @@ impl PacketBlockThemePlan {
             work,
         )?;
         let mut evidence = FamilyThemeOutcomes::default();
+
         for residual in fallbacks.residuals() {
             evidence.mark_residual(residual.key().clone(), residual.reason());
         }
+
         let mut occurrence_winners = BTreeSet::new();
-        if emitted_blocks != 0 {
-            let has_ordinal_rules = self.theme.family_rules().any(|(_, rule)| {
-                rule.target() == ThemeTarget::Node
-                    && rule.ordinal().is_some()
-                    && matches!(rule.variant(), None | Some(ThemeVariant::Default))
-            });
-            for ordinal in 1..=if has_ordinal_rules { emitted_blocks } else { 1 } {
-                work.charge(1)?;
-                let style = self.theme.style_with_work_meter(
-                    ThemeTarget::Node,
-                    ThemeVariant::Default,
-                    Some(ordinal),
-                    work,
-                )?;
-                occurrence_winners.extend(
-                    style
-                        .winner_rule_properties()
-                        .filter(|(property, _)| {
-                            matches!(
-                                property,
-                                ResolvedStyleProperty::Fill | ResolvedStyleProperty::Stroke
-                            )
-                        })
-                        .map(|(property, origin)| (origin.rule_index(), property)),
-                );
-            }
+
+        match emitted_blocks {
+            0 => {},
+            _ => {
+                let has_ordinal_rules = self.theme.family_rules().any(|(_, rule)| {
+                    rule.target() == ThemeTarget::Node
+                        && rule.ordinal().is_some()
+                        && matches!(rule.variant(), None | Some(ThemeVariant::Default))
+                });
+
+                for ordinal in 1..=if has_ordinal_rules { emitted_blocks } else { 1 } {
+                    work.charge(1)?;
+                    let style = self.theme.style_with_work_meter(
+                        ThemeTarget::Node,
+                        ThemeVariant::Default,
+                        Some(ordinal),
+                        work,
+                    )?;
+                    occurrence_winners.extend(
+                        style
+                            .winner_rule_properties()
+                            .filter(|(property, _)| {
+                                matches!(
+                                    property,
+                                    ResolvedStyleProperty::Fill | ResolvedStyleProperty::Stroke
+                                )
+                            })
+                            .map(|(property, origin)| (origin.rule_index(), property)),
+                    );
+                }
+            },
         }
+
         let mut typed_rules = BTreeSet::new();
         let mut applied = BTreeMap::<usize, BTreeSet<ThemeCapability>>::new();
+
         for route in self.theme.family_mechanism_routes() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
@@ -137,40 +153,56 @@ impl PacketBlockThemePlan {
             else {
                 continue;
             };
+
             if route.disposition() != FamilyThemeDisposition::TypedAdapter {
                 continue;
             }
+
             typed_rules.insert(rule_index);
-            if emitted_blocks == 0 {
-                continue;
+
+            match emitted_blocks {
+                0 => {
+                    continue;
+                },
+                _ => {},
             }
+
             let property = resolved_style_property_for_facet(facet);
             let paint = match property {
                 ResolvedStyleProperty::Fill => self.fill.as_ref(),
                 ResolvedStyleProperty::Stroke => self.stroke.as_ref(),
-                _ => None,
+                ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => None,
             };
-            if let Some(paint) = paint.filter(|paint| {
-                paint.rule_index() == rule_index
-                    && occurrence_winners.contains(&(rule_index, property))
-            }) {
-                applied
-                    .entry(rule_index)
-                    .or_default()
-                    .insert(paint.capability());
+
+            {
+                match paint.filter(|paint_2| {
+                        paint_2.rule_index() == rule_index
+                            && occurrence_winners.contains(&(rule_index, property))
+                    }) {
+                    Some(paint_3) => {
+                        applied
+                            .entry(rule_index)
+                            .or_default()
+                            .insert(paint_3.capability());
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
+
         for index in typed_rules {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: ThemeTarget::Node,
             };
+
             if let Some(capabilities) = applied.remove(&index) {
                 evidence.mark_applied_with_capabilities(key, capabilities);
             } else {
                 evidence.mark_not_applicable(key);
             }
         }
+
         evidence.merge_accounted_from(fallbacks);
         Ok(evidence)
     }

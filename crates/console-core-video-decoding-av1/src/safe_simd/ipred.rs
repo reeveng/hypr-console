@@ -174,7 +174,9 @@ impl PredictorOutput {
   ) -> Rav1dResult<impl Iterator<Item = &mut [u8]>> {
     let width = match samples {
       PredictorStorage::Bytes => self.size.width,
-      PredictorStorage::WordSamples => self.size.width.checked_mul(2).ok_or(Rav1dError::ERANGE)?,
+      PredictorStorage::WordSamples => {
+        self.size.width.checked_mul(2).ok_or(Rav1dError::ERANGE)?
+      }
     };
     let extent = Size {
       width,
@@ -10279,7 +10281,7 @@ struct CflPred16bpcInnerArguments {
 
 use crate::include::common::bitdepth::BitDepth;
 use crate::include::dav1d::headers::Rav1dPixelLayoutSubSampled;
-use crate::src::internal::SCRATCH_EDGE_LEN;
+use crate::src::internal::IntraEdgeSamples;
 use crate::src::ipred::{
   CflAcExtraction, CflProjection, EdgeFilterSelection, IntraPrediction, PredictionDispatch,
   get_filter_strength,
@@ -10288,7 +10290,7 @@ use crate::src::ipred::{
 #[cfg(target_arch = "x86_64")]
 pub fn intra_pred_dispatch<BD: BitDepth>(
   dst: &mut crate::src::owned_recon::ReconDst<'_>,
-  topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+  topleft: &IntraEdgeSamples<BD::Pixel>,
   prediction: IntraPrediction,
   bd: BD,
 ) -> Rav1dResult<PredictionDispatch> {
@@ -10327,865 +10329,860 @@ pub fn intra_pred_dispatch<BD: BitDepth>(
 
   let tl_bytes: &[u8] = topleft.as_bytes();
 
-  let Ok(columns) = index(w);
-  let Ok(rows) = index(h);
-  let Ok(with_block_mut) = dst.with_block_mut::<BD, _, _>(
-    columns,
-    rows,
-    tl_bytes,
-    |dst_bytes, native_base, native_pitch, edge_bytes| {
-      let Ok(dst_base_bytes) = console_core_number_conversion::fixed_index(native_base);
-      let Ok(byte_stride) = console_core_number_conversion::fixed_offset(native_pitch);
-
-      match (BD::BPC, mode) {
-        (BPC::BPC8, 0) => match avx512_token {
-          Some(t512) => ipred_dc_8bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredDc8bpcAvx512InnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-          None => ipred_dc_8bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredDc8bpcInnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-        },
-        (BPC::BPC8, 1) => match avx512_token {
-          Some(t512) => ipred_v_8bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredV8bpcAvx512InnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-          None => ipred_v_8bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredV8bpcInnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-        },
-        (BPC::BPC8, 2) => match avx512_token {
-          Some(t512) => ipred_h_8bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredH8bpcAvx512InnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-          None => ipred_h_8bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredH8bpcInnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-        },
-        (BPC::BPC8, 3) => match avx512_token {
-          Some(t512) => ipred_dc_left_8bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredDcLeft8bpcAvx512InnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-          None => ipred_dc_left_8bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredDcLeft8bpcInnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-        },
-        (BPC::BPC8, 4) => match avx512_token {
-          Some(t512) => ipred_dc_top_8bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredDcTop8bpcAvx512InnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-          None => ipred_dc_top_8bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredDcTop8bpcInnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-        },
-        (BPC::BPC8, 5) => match avx512_token {
-          Some(t512) => ipred_dc_128_8bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            self::IpredDc1288bpcAvx512InnerArguments {
-              dst_base: dst_base_bytes,
-              stride: byte_stride,
-              width: w,
-              height: h,
-            },
-          ),
-          None => ipred_dc_128_8bpc_inner(
-            token,
-            dst_bytes,
-            self::IpredDc1288bpcInnerArguments {
-              dst_base: dst_base_bytes,
-              stride: byte_stride,
-              width: w,
-              height: h,
-            },
-          ),
-        },
-        (BPC::BPC8, 6) => match avx512x_token {
-          Some(t512x) => ipred_z1_8bpc_v4x_inner(
-            t512x,
-            dst_bytes,
-            edge_bytes,
-            DirectionalPrediction {
-              destination: PredictorOutput {
-                base: dst_base_bytes,
-                stride: byte_stride,
-                size: Size {
-                  width: w,
-                  height: h,
-                },
-              },
-              edge_center: topleft_off,
-              angle: {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-                numeric_value
-              },
-            },
-          ),
-          None => ipred_z1_8bpc_inner(
-            token,
-            dst_bytes,
-            edge_bytes,
-            DirectionalPrediction {
-              destination: PredictorOutput {
-                base: dst_base_bytes,
-                stride: byte_stride,
-                size: Size {
-                  width: w,
-                  height: h,
-                },
-              },
-              edge_center: topleft_off,
-              angle: {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-                numeric_value
-              },
-            },
-          ),
-        },
-        (BPC::BPC8, 7) => match avx512x_token {
-          Some(t512x) => ipred_z2_8bpc_v4x_inner(
-            t512x,
-            dst_bytes,
-            edge_bytes,
-            DirectionalPrediction {
-              destination: PredictorOutput {
-                base: dst_base_bytes,
-                stride: byte_stride,
-                size: Size {
-                  width: w,
-                  height: h,
-                },
-              },
-              edge_center: topleft_off,
-              angle: {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-                numeric_value
-              },
-            },
-            Size {
-              width: max_width,
-              height: max_height,
-            },
-          ),
-          None => ipred_z2_8bpc_inner(
-            token,
-            dst_bytes,
-            edge_bytes,
-            DirectionalPrediction {
-              destination: PredictorOutput {
-                base: dst_base_bytes,
-                stride: byte_stride,
-                size: Size {
-                  width: w,
-                  height: h,
-                },
-              },
-              edge_center: topleft_off,
-              angle: {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-                numeric_value
-              },
-            },
-            Size {
-              width: max_width,
-              height: max_height,
-            },
-          ),
-        },
-        (BPC::BPC8, 8) => match avx512x_token {
-          Some(t512x) => ipred_z3_8bpc_v4x_inner(
-            t512x,
-            dst_bytes,
-            edge_bytes,
-            DirectionalPrediction {
-              destination: PredictorOutput {
-                base: dst_base_bytes,
-                stride: byte_stride,
-                size: Size {
-                  width: w,
-                  height: h,
-                },
-              },
-              edge_center: topleft_off,
-              angle: {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-                numeric_value
-              },
-            },
-          ),
-          None => ipred_z3_8bpc_inner(
-            token,
-            dst_bytes,
-            edge_bytes,
-            DirectionalPrediction {
-              destination: PredictorOutput {
-                base: dst_base_bytes,
-                stride: byte_stride,
-                size: Size {
-                  width: w,
-                  height: h,
-                },
-              },
-              edge_center: topleft_off,
-              angle: {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-                numeric_value
-              },
-            },
-          ),
-        },
-        (BPC::BPC8, 9) => match avx512_token {
-          Some(t512) => ipred_smooth_8bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredSmooth8bpcAvx512InnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-          None => ipred_smooth_8bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredSmooth8bpcInnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-        },
-        (BPC::BPC8, 10) => match avx512_token {
-          Some(t512) => ipred_smooth_v_8bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredSmoothV8bpcAvx512InnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-          None => ipred_smooth_v_8bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredSmoothV8bpcInnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-        },
-        (BPC::BPC8, 11) => match avx512_token {
-          Some(t512) => ipred_smooth_h_8bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredSmoothH8bpcAvx512InnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-          None => ipred_smooth_h_8bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredSmoothH8bpcInnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-        },
-        (BPC::BPC8, 12) => match avx512_token {
-          Some(t512) => ipred_paeth_8bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredPaeth8bpcAvx512InnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-          None => ipred_paeth_8bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredPaeth8bpcInnerArguments {
-              tl_off: topleft_off,
-              width: w,
-              height: h,
-            },
-          ),
-        },
-        (BPC::BPC8, 13) => ipred_filter_8bpc_inner(
-          token,
-          dst_bytes,
-          dst_base_bytes,
-          byte_stride,
-          edge_bytes,
-          self::IpredFilter8bpcInnerArguments {
-            tl_off: 0,
-            width: w,
-            height: h,
-            filt_idx: {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-              numeric_value
-            },
-            topleft_off,
-          },
-        ),
-        (BPC::BPC16, 0) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-
-          match avx512_token {
-            Some(t512) => ipred_dc_16bpc_avx512_inner(
-              t512,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredDc16bpcAvx512InnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-            None => ipred_dc_16bpc_inner(
-              token,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredDc16bpcInnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-          }
-        }
-        (BPC::BPC16, 1) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-
-          match avx512_token {
-            Some(t512) => ipred_v_16bpc_avx512_inner(
-              t512,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredV16bpcAvx512InnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-            None => ipred_v_16bpc_inner(
-              token,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredV16bpcInnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-          }
-        }
-        (BPC::BPC16, 2) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-
-          match avx512_token {
-            Some(t512) => ipred_h_16bpc_avx512_inner(
-              t512,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredH16bpcAvx512InnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-            None => ipred_h_16bpc_inner(
-              token,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredH16bpcInnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-          }
-        }
-        (BPC::BPC16, 3) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-
-          match avx512_token {
-            Some(t512) => ipred_dc_left_16bpc_avx512_inner(
-              t512,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredDcLeft16bpcAvx512InnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-            None => ipred_dc_left_16bpc_inner(
-              token,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredDcLeft16bpcInnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-          }
-        }
-        (BPC::BPC16, 4) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-
-          match avx512_token {
-            Some(t512) => ipred_dc_top_16bpc_avx512_inner(
-              t512,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredDcTop16bpcAvx512InnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-            None => ipred_dc_top_16bpc_inner(
-              token,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredDcTop16bpcInnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-          }
-        }
-        (BPC::BPC16, 5) => match avx512_token {
-          Some(t512) => ipred_dc_128_16bpc_avx512_inner(
-            t512,
-            dst_bytes,
-            self::IpredDc12816bpcAvx512InnerArguments {
-              dst_base: dst_base_bytes,
-              stride: byte_stride,
-              width: w,
-              height: h,
-            },
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(bd_c);
-              numeric_value
-            },
-          ),
-          None => ipred_dc_128_16bpc_inner(
-            token,
-            dst_bytes,
-            self::IpredDc12816bpcInnerArguments {
-              dst_base: dst_base_bytes,
-              stride: byte_stride,
-              width: w,
-              height: h,
-            },
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(bd_c);
-              numeric_value
-            },
-          ),
-        },
-        (BPC::BPC16, 6) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-          ipred_z1_16bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredZ116bpcInnerArguments {
-              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                ::core::result::Result::Ok(native_position) => native_position,
-              },
-              width: w,
-              height: h,
-              angle: {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-                numeric_value
-              },
-              bitdepth_max: bd_c,
-            },
-          )
-        }
-        (BPC::BPC16, 7) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-          ipred_z2_16bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredZ216bpcInnerArguments {
-              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                ::core::result::Result::Ok(native_position) => native_position,
-              },
-              width: w,
-              height: h,
-              angle: {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-                numeric_value
-              },
-              max_width,
-              max_height,
-              bitdepth_max: bd_c,
-            },
-          )
-        }
-        (BPC::BPC16, 8) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-          ipred_z3_16bpc_inner(
-            token,
-            dst_bytes,
-            dst_base_bytes,
-            byte_stride,
-            edge_bytes,
-            self::IpredZ316bpcInnerArguments {
-              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                ::core::result::Result::Ok(native_position) => native_position,
-              },
-              width: w,
-              height: h,
-              angle: {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-                numeric_value
-              },
-              bitdepth_max: bd_c,
-            },
-          )
-        }
-        (BPC::BPC16, 9) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-
-          match avx512_token {
-            Some(t512) => ipred_smooth_16bpc_avx512_inner(
-              t512,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredSmooth16bpcAvx512InnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-            None => ipred_smooth_16bpc_inner(
-              token,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredSmooth16bpcInnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-          }
-        }
-        (BPC::BPC16, 10) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-
-          match avx512_token {
-            Some(t512) => ipred_smooth_v_16bpc_avx512_inner(
-              t512,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredSmoothV16bpcAvx512InnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-            None => ipred_smooth_v_16bpc_inner(
-              token,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredSmoothV16bpcInnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-          }
-        }
-        (BPC::BPC16, 11) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-
-          match avx512_token {
-            Some(t512) => ipred_smooth_h_16bpc_avx512_inner(
-              t512,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredSmoothH16bpcAvx512InnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-            None => ipred_smooth_h_16bpc_inner(
-              token,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredSmoothH16bpcInnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-          }
-        }
-        (BPC::BPC16, 12) => {
-          let ::core::result::Result::Ok(tl_off_bytes) =
-            ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
-
-          match avx512_token {
-            Some(t512) => ipred_paeth_16bpc_avx512_inner(
-              t512,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredPaeth16bpcAvx512InnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-            None => ipred_paeth_16bpc_inner(
-              token,
-              dst_bytes,
-              dst_base_bytes,
-              byte_stride,
-              edge_bytes,
-              self::IpredPaeth16bpcInnerArguments {
-                tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
-                  ::core::result::Result::Ok(native_position) => native_position,
-                },
-                width: w,
-                height: h,
-              },
-            ),
-          }
-        }
-        (BPC::BPC16, 13) => ipred_filter_16bpc_inner(
-          token,
-          dst_bytes,
-          dst_base_bytes,
-          byte_stride,
-          edge_bytes,
-          self::IpredFilter16bpcInnerArguments {
-            tl_off: 0,
-            width: w,
-            height: h,
-            filt_idx: {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
-              numeric_value
-            },
-            bitdepth_max: {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(bd_c);
-              numeric_value
-            },
-            topleft_off,
-          },
-        ),
-        _ => Err(Rav1dError::EINVAL),
-      }
+  let with_block_mut = dst.with_block_mut::<BD, _, _>(
+    Size {
+      width: w,
+      height: h,
     },
-  );
+    tl_bytes,
+    |dst_bytes, dst_base_bytes, byte_stride, edge_bytes| match (BD::BPC, mode) {
+      (BPC::BPC8, 0) => match avx512_token {
+        Some(t512) => ipred_dc_8bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredDc8bpcAvx512InnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+        None => ipred_dc_8bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredDc8bpcInnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+      },
+      (BPC::BPC8, 1) => match avx512_token {
+        Some(t512) => ipred_v_8bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredV8bpcAvx512InnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+        None => ipred_v_8bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredV8bpcInnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+      },
+      (BPC::BPC8, 2) => match avx512_token {
+        Some(t512) => ipred_h_8bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredH8bpcAvx512InnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+        None => ipred_h_8bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredH8bpcInnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+      },
+      (BPC::BPC8, 3) => match avx512_token {
+        Some(t512) => ipred_dc_left_8bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredDcLeft8bpcAvx512InnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+        None => ipred_dc_left_8bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredDcLeft8bpcInnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+      },
+      (BPC::BPC8, 4) => match avx512_token {
+        Some(t512) => ipred_dc_top_8bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredDcTop8bpcAvx512InnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+        None => ipred_dc_top_8bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredDcTop8bpcInnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+      },
+      (BPC::BPC8, 5) => match avx512_token {
+        Some(t512) => ipred_dc_128_8bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          self::IpredDc1288bpcAvx512InnerArguments {
+            dst_base: dst_base_bytes,
+            stride: byte_stride,
+            width: w,
+            height: h,
+          },
+        ),
+        None => ipred_dc_128_8bpc_inner(
+          token,
+          dst_bytes,
+          self::IpredDc1288bpcInnerArguments {
+            dst_base: dst_base_bytes,
+            stride: byte_stride,
+            width: w,
+            height: h,
+          },
+        ),
+      },
+      (BPC::BPC8, 6) => match avx512x_token {
+        Some(t512x) => ipred_z1_8bpc_v4x_inner(
+          t512x,
+          dst_bytes,
+          edge_bytes,
+          DirectionalPrediction {
+            destination: PredictorOutput {
+              base: dst_base_bytes,
+              stride: byte_stride,
+              size: Size {
+                width: w,
+                height: h,
+              },
+            },
+            edge_center: topleft_off,
+            angle: {
+              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+              numeric_value
+            },
+          },
+        ),
+        None => ipred_z1_8bpc_inner(
+          token,
+          dst_bytes,
+          edge_bytes,
+          DirectionalPrediction {
+            destination: PredictorOutput {
+              base: dst_base_bytes,
+              stride: byte_stride,
+              size: Size {
+                width: w,
+                height: h,
+              },
+            },
+            edge_center: topleft_off,
+            angle: {
+              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+              numeric_value
+            },
+          },
+        ),
+      },
+      (BPC::BPC8, 7) => match avx512x_token {
+        Some(t512x) => ipred_z2_8bpc_v4x_inner(
+          t512x,
+          dst_bytes,
+          edge_bytes,
+          DirectionalPrediction {
+            destination: PredictorOutput {
+              base: dst_base_bytes,
+              stride: byte_stride,
+              size: Size {
+                width: w,
+                height: h,
+              },
+            },
+            edge_center: topleft_off,
+            angle: {
+              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+              numeric_value
+            },
+          },
+          Size {
+            width: max_width,
+            height: max_height,
+          },
+        ),
+        None => ipred_z2_8bpc_inner(
+          token,
+          dst_bytes,
+          edge_bytes,
+          DirectionalPrediction {
+            destination: PredictorOutput {
+              base: dst_base_bytes,
+              stride: byte_stride,
+              size: Size {
+                width: w,
+                height: h,
+              },
+            },
+            edge_center: topleft_off,
+            angle: {
+              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+              numeric_value
+            },
+          },
+          Size {
+            width: max_width,
+            height: max_height,
+          },
+        ),
+      },
+      (BPC::BPC8, 8) => match avx512x_token {
+        Some(t512x) => ipred_z3_8bpc_v4x_inner(
+          t512x,
+          dst_bytes,
+          edge_bytes,
+          DirectionalPrediction {
+            destination: PredictorOutput {
+              base: dst_base_bytes,
+              stride: byte_stride,
+              size: Size {
+                width: w,
+                height: h,
+              },
+            },
+            edge_center: topleft_off,
+            angle: {
+              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+              numeric_value
+            },
+          },
+        ),
+        None => ipred_z3_8bpc_inner(
+          token,
+          dst_bytes,
+          edge_bytes,
+          DirectionalPrediction {
+            destination: PredictorOutput {
+              base: dst_base_bytes,
+              stride: byte_stride,
+              size: Size {
+                width: w,
+                height: h,
+              },
+            },
+            edge_center: topleft_off,
+            angle: {
+              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+              numeric_value
+            },
+          },
+        ),
+      },
+      (BPC::BPC8, 9) => match avx512_token {
+        Some(t512) => ipred_smooth_8bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredSmooth8bpcAvx512InnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+        None => ipred_smooth_8bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredSmooth8bpcInnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+      },
+      (BPC::BPC8, 10) => match avx512_token {
+        Some(t512) => ipred_smooth_v_8bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredSmoothV8bpcAvx512InnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+        None => ipred_smooth_v_8bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredSmoothV8bpcInnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+      },
+      (BPC::BPC8, 11) => match avx512_token {
+        Some(t512) => ipred_smooth_h_8bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredSmoothH8bpcAvx512InnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+        None => ipred_smooth_h_8bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredSmoothH8bpcInnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+      },
+      (BPC::BPC8, 12) => match avx512_token {
+        Some(t512) => ipred_paeth_8bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredPaeth8bpcAvx512InnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+        None => ipred_paeth_8bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredPaeth8bpcInnerArguments {
+            tl_off: topleft_off,
+            width: w,
+            height: h,
+          },
+        ),
+      },
+      (BPC::BPC8, 13) => ipred_filter_8bpc_inner(
+        token,
+        dst_bytes,
+        dst_base_bytes,
+        byte_stride,
+        edge_bytes,
+        self::IpredFilter8bpcInnerArguments {
+          tl_off: 0,
+          width: w,
+          height: h,
+          filt_idx: {
+            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+            numeric_value
+          },
+          topleft_off,
+        },
+      ),
+      (BPC::BPC16, 0) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+
+        match avx512_token {
+          Some(t512) => ipred_dc_16bpc_avx512_inner(
+            t512,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredDc16bpcAvx512InnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+          None => ipred_dc_16bpc_inner(
+            token,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredDc16bpcInnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+        }
+      }
+      (BPC::BPC16, 1) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+
+        match avx512_token {
+          Some(t512) => ipred_v_16bpc_avx512_inner(
+            t512,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredV16bpcAvx512InnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+          None => ipred_v_16bpc_inner(
+            token,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredV16bpcInnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+        }
+      }
+      (BPC::BPC16, 2) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+
+        match avx512_token {
+          Some(t512) => ipred_h_16bpc_avx512_inner(
+            t512,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredH16bpcAvx512InnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+          None => ipred_h_16bpc_inner(
+            token,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredH16bpcInnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+        }
+      }
+      (BPC::BPC16, 3) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+
+        match avx512_token {
+          Some(t512) => ipred_dc_left_16bpc_avx512_inner(
+            t512,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredDcLeft16bpcAvx512InnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+          None => ipred_dc_left_16bpc_inner(
+            token,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredDcLeft16bpcInnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+        }
+      }
+      (BPC::BPC16, 4) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+
+        match avx512_token {
+          Some(t512) => ipred_dc_top_16bpc_avx512_inner(
+            t512,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredDcTop16bpcAvx512InnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+          None => ipred_dc_top_16bpc_inner(
+            token,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredDcTop16bpcInnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+        }
+      }
+      (BPC::BPC16, 5) => match avx512_token {
+        Some(t512) => ipred_dc_128_16bpc_avx512_inner(
+          t512,
+          dst_bytes,
+          self::IpredDc12816bpcAvx512InnerArguments {
+            dst_base: dst_base_bytes,
+            stride: byte_stride,
+            width: w,
+            height: h,
+          },
+          {
+            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(bd_c);
+            numeric_value
+          },
+        ),
+        None => ipred_dc_128_16bpc_inner(
+          token,
+          dst_bytes,
+          self::IpredDc12816bpcInnerArguments {
+            dst_base: dst_base_bytes,
+            stride: byte_stride,
+            width: w,
+            height: h,
+          },
+          {
+            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(bd_c);
+            numeric_value
+          },
+        ),
+      },
+      (BPC::BPC16, 6) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+        ipred_z1_16bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredZ116bpcInnerArguments {
+            tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+            width: w,
+            height: h,
+            angle: {
+              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+              numeric_value
+            },
+            bitdepth_max: bd_c,
+          },
+        )
+      }
+      (BPC::BPC16, 7) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+        ipred_z2_16bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredZ216bpcInnerArguments {
+            tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+            width: w,
+            height: h,
+            angle: {
+              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+              numeric_value
+            },
+            max_width,
+            max_height,
+            bitdepth_max: bd_c,
+          },
+        )
+      }
+      (BPC::BPC16, 8) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+        ipred_z3_16bpc_inner(
+          token,
+          dst_bytes,
+          dst_base_bytes,
+          byte_stride,
+          edge_bytes,
+          self::IpredZ316bpcInnerArguments {
+            tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+              ::core::result::Result::Ok(native_position) => native_position,
+            },
+            width: w,
+            height: h,
+            angle: {
+              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+              numeric_value
+            },
+            bitdepth_max: bd_c,
+          },
+        )
+      }
+      (BPC::BPC16, 9) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+
+        match avx512_token {
+          Some(t512) => ipred_smooth_16bpc_avx512_inner(
+            t512,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredSmooth16bpcAvx512InnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+          None => ipred_smooth_16bpc_inner(
+            token,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredSmooth16bpcInnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+        }
+      }
+      (BPC::BPC16, 10) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+
+        match avx512_token {
+          Some(t512) => ipred_smooth_v_16bpc_avx512_inner(
+            t512,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredSmoothV16bpcAvx512InnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+          None => ipred_smooth_v_16bpc_inner(
+            token,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredSmoothV16bpcInnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+        }
+      }
+      (BPC::BPC16, 11) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+
+        match avx512_token {
+          Some(t512) => ipred_smooth_h_16bpc_avx512_inner(
+            t512,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredSmoothH16bpcAvx512InnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+          None => ipred_smooth_h_16bpc_inner(
+            token,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredSmoothH16bpcInnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+        }
+      }
+      (BPC::BPC16, 12) => {
+        let ::core::result::Result::Ok(tl_off_bytes) =
+          ::console_core_number_conversion::fitted::<_, u64>(topleft_off.wrapping_mul(2));
+
+        match avx512_token {
+          Some(t512) => ipred_paeth_16bpc_avx512_inner(
+            t512,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredPaeth16bpcAvx512InnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+          None => ipred_paeth_16bpc_inner(
+            token,
+            dst_bytes,
+            dst_base_bytes,
+            byte_stride,
+            edge_bytes,
+            self::IpredPaeth16bpcInnerArguments {
+              tl_off: match ::console_core_number_conversion::fitted::<_, u64>(tl_off_bytes) {
+                ::core::result::Result::Ok(native_position) => native_position,
+              },
+              width: w,
+              height: h,
+            },
+          ),
+        }
+      }
+      (BPC::BPC16, 13) => ipred_filter_16bpc_inner(
+        token,
+        dst_bytes,
+        dst_base_bytes,
+        byte_stride,
+        edge_bytes,
+        self::IpredFilter16bpcInnerArguments {
+          tl_off: 0,
+          width: w,
+          height: h,
+          filt_idx: {
+            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(angle);
+            numeric_value
+          },
+          bitdepth_max: {
+            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(bd_c);
+            numeric_value
+          },
+          topleft_off,
+        },
+      ),
+      _ => Err(Rav1dError::EINVAL),
+    },
+  )?;
 
   with_block_mut.map(|()| PredictionDispatch::Applied)
 }
@@ -11234,47 +11231,42 @@ pub fn cfl_pred_dispatch<BD: BitDepth>(
     None => return Ok(PredictionDispatch::ScalarFallback),
   };
 
-  let Ok(columns) = index(w);
-  let Ok(rows) = index(h);
-  let Ok(predicted) = dst.with_block_mut::<BD, _, _>(
-    columns,
-    rows,
-    ac_slice,
-    |dst_bytes, native_base, native_pitch, ac_slice_2| {
-      let Ok(dst_base_bytes) = console_core_number_conversion::fixed_index(native_base);
-      let Ok(byte_stride) = console_core_number_conversion::fixed_offset(native_pitch);
-
-      match BD::BPC {
-        BPC::BPC8 => cfl_pred_8bpc_inner(
-          token,
-          dst_bytes,
-          dst_base_bytes,
-          byte_stride,
-          ac_slice_2,
-          self::CflPred8bpcInnerArguments {
-            width: w,
-            height: h,
-            dc,
-            alpha,
-          },
-        ),
-        BPC::BPC16 => cfl_pred_16bpc_inner(
-          token,
-          dst_bytes,
-          dst_base_bytes,
-          byte_stride,
-          ac_slice_2,
-          self::CflPred16bpcInnerArguments {
-            width: w,
-            height: h,
-            dc,
-            alpha,
-            bitdepth_max: bd.bitdepth_max().as_::<i32>(),
-          },
-        ),
-      }
+  let predicted = dst.with_block_mut::<BD, _, _>(
+    Size {
+      width: w,
+      height: h,
     },
-  );
+    ac_slice,
+    |dst_bytes, dst_base_bytes, byte_stride, ac_slice_2| match BD::BPC {
+      BPC::BPC8 => cfl_pred_8bpc_inner(
+        token,
+        dst_bytes,
+        dst_base_bytes,
+        byte_stride,
+        ac_slice_2,
+        self::CflPred8bpcInnerArguments {
+          width: w,
+          height: h,
+          dc,
+          alpha,
+        },
+      ),
+      BPC::BPC16 => cfl_pred_16bpc_inner(
+        token,
+        dst_bytes,
+        dst_base_bytes,
+        byte_stride,
+        ac_slice_2,
+        self::CflPred16bpcInnerArguments {
+          width: w,
+          height: h,
+          dc,
+          alpha,
+          bitdepth_max: bd.bitdepth_max().as_::<i32>(),
+        },
+      ),
+    },
+  )?;
   predicted.map(|()| PredictionDispatch::Applied)
 }
 

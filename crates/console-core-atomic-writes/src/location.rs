@@ -3,7 +3,11 @@
 //! Parent directories are opened without following symbolic or magic links.
 //! Once opened, renames of their paths do not redirect operations on their
 //! descriptors. File opens stay beneath that directory and refuse links too.
+//! When systemd's RestrictSUIDSGID filter makes openat2 unavailable, the
+//! fallback opens each component with O_NOFOLLOW and holds its directory
+//! descriptor for the next.
 
+use console_core_never::Never;
 use rustix::fd::OwnedFd;
 use rustix::fs::{AtFlags, Mode, OFlags, ResolveFlags, Stat};
 use rustix::io::Errno;
@@ -12,7 +16,6 @@ use std::path::{Component, Path};
 
 const DIRECTORY: OFlags = OFlags::RDONLY
   .union(OFlags::DIRECTORY)
-  .union(OFlags::CLOEXEC)
   .union(OFlags::NOFOLLOW);
 const NO_LINKS: ResolveFlags = ResolveFlags::NO_SYMLINKS.union(ResolveFlags::NO_MAGICLINKS);
 
@@ -44,15 +47,17 @@ impl Location {
     flags: OFlags,
     mode: Mode,
   ) -> Result<OwnedFd, Errno> {
-    match Path::new(name).file_name() {
-      Some(leaf) if leaf == name => rustix::fs::openat(
-        &self.directory,
-        leaf,
-        flags | OFlags::CLOEXEC | OFlags::NOFOLLOW,
-        mode,
-      ),
-      _ => Err(Errno::INVAL),
-    }
+    let leaf = Path::new(name)
+      .file_name()
+      .filter(|leaf| *leaf == name)
+      .ok_or(Errno::INVAL)?;
+
+    rustix::fs::openat(
+      &self.directory,
+      leaf,
+      flags | OFlags::CLOEXEC | OFlags::NOFOLLOW,
+      mode,
+    )
   }
 
   pub(super) fn metadata(&self) -> Result<Stat, Errno> {
@@ -70,22 +75,23 @@ pub(super) fn open_directory(at: &Path) -> Result<OwnedFd, Errno> {
     ::core::option::Option::None => at,
   };
 
-  match rustix::fs::openat2(rustix::fs::CWD, path, DIRECTORY, Mode::empty(), NO_LINKS) {
+  match rustix::fs::openat2(
+    rustix::fs::CWD,
+    path,
+    DIRECTORY | OFlags::CLOEXEC,
+    Mode::empty(),
+    NO_LINKS,
+  ) {
+    Ok(directory) => Ok(directory),
     Err(Errno::NOSYS) => walk_directory(path),
-    opened => opened,
+    Err(fault) => Err(fault),
   }
 }
 
-// systemd's RestrictSUIDSGID filter can make openat2 unavailable. Open each
-// component with O_NOFOLLOW and hold its directory descriptor for the next.
 fn walk_directory(at: &Path) -> Result<OwnedFd, Errno> {
-  let flags = DIRECTORY | OFlags::PATH;
-  let mut directory = rustix::fs::openat(
-    rustix::fs::CWD,
-    starting_directory(at),
-    flags,
-    Mode::empty(),
-  )?;
+  let flags = DIRECTORY | OFlags::PATH | OFlags::CLOEXEC;
+  let Ok(start) = starting_directory(at);
+  let mut directory = rustix::fs::openat(rustix::fs::CWD, start, flags, Mode::empty())?;
 
   for component in at.components() {
     let name = match component {
@@ -95,27 +101,36 @@ fn walk_directory(at: &Path) -> Result<OwnedFd, Errno> {
       Component::Prefix(_prefix) => return Err(Errno::INVAL),
     };
 
-    directory = rustix::fs::openat(&directory, name, flags, Mode::empty())?;
+    let next = rustix::fs::openat(&directory, name, flags, Mode::empty())?;
+    directory = next;
   }
 
-  rustix::fs::openat(&directory, ".", DIRECTORY, Mode::empty())
+  rustix::fs::openat(&directory, ".", DIRECTORY | OFlags::CLOEXEC, Mode::empty())
 }
 
-fn starting_directory(at: &Path) -> &Path {
-  match ::core::primitive::bool::then_some(at.is_absolute(), ()) {
-    ::core::option::Option::Some(()) => Path::new("/"),
-    ::core::option::Option::None => Path::new("."),
+fn starting_directory(at: &Path) -> Result<&Path, Never> {
+  match at.is_absolute().then_some(()) {
+    Some(()) => Ok(Path::new("/")),
+    None => Ok(Path::new(".")),
   }
 }
 
 pub(super) fn make_directories(at: &Path) -> Result<OwnedFd, Errno> {
-  let mut directory = open_directory(starting_directory(at))?;
+  let Ok(start) = starting_directory(at);
+  let mut directory = open_directory(start)?;
 
   for component in at.components() {
     directory = match component {
       Component::RootDir | Component::CurDir => directory,
-      Component::ParentDir => rustix::fs::openat(&directory, "..", DIRECTORY, Mode::empty())?,
-      Component::Normal(name) => descend(&directory, name)?,
+      Component::ParentDir => {
+        let parent =
+          rustix::fs::openat(&directory, "..", DIRECTORY | OFlags::CLOEXEC, Mode::empty())?;
+        parent
+      }
+      Component::Normal(name) => {
+        let child = descend(&directory, name)?;
+        child
+      }
       Component::Prefix(_prefix) => return Err(Errno::INVAL),
     };
   }
@@ -124,21 +139,22 @@ pub(super) fn make_directories(at: &Path) -> Result<OwnedFd, Errno> {
 }
 
 fn descend(directory: &OwnedFd, name: &OsStr) -> Result<OwnedFd, Errno> {
-  match rustix::fs::openat(directory, name, DIRECTORY, Mode::empty()) {
-    Ok(opened) => return Ok(opened),
-    Err(fault) => match ::core::primitive::bool::then_some(fault == Errno::NOENT, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => return Err(fault),
-    },
+  match rustix::fs::openat(directory, name, DIRECTORY | OFlags::CLOEXEC, Mode::empty()) {
+    Ok(opened) => Ok(opened),
+    Err(Errno::NOENT) => make_child(directory, name),
+    Err(fault) => Err(fault),
   }
+}
+
+fn make_child(directory: &OwnedFd, name: &OsStr) -> Result<OwnedFd, Errno> {
+  let open = || rustix::fs::openat(directory, name, DIRECTORY | OFlags::CLOEXEC, Mode::empty());
 
   match rustix::fs::mkdirat(directory, name, Mode::from_raw_mode(0o755)) {
-    Ok(()) => rustix::fs::fsync(directory)?,
-    Err(fault) => match ::core::primitive::bool::then_some(fault == Errno::EXIST, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => return Err(fault),
-    },
+    Ok(()) => {
+      rustix::fs::fsync(directory)?;
+      open()
+    }
+    Err(Errno::EXIST) => open(),
+    Err(fault) => Err(fault),
   }
-
-  rustix::fs::openat(directory, name, DIRECTORY, Mode::empty())
 }

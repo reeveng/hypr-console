@@ -24,10 +24,13 @@ pub(crate) struct KanbanCssBinding {
     pub(crate) sections: Vec<KanbanSectionCssBinding>,
 }
 
+#[must_use]
 pub(super) fn dark_mode(config: &Value) -> bool {
-    config_bool(config, &["darkMode"])
-        .or_else(|| config_bool(config, &["themeVariables", "darkMode"]))
-        .unwrap_or(false)
+    match config_bool(config, &["darkMode"])
+        .or_else(|| config_bool(config, &["themeVariables", "darkMode"])) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => false,
+    }
 }
 
 impl KanbanCssBinding {
@@ -53,9 +56,13 @@ impl KanbanCssBinding {
         mut common: PreparedCommonCss,
         resolved_text_color: Option<&str>,
     ) -> crate::Result<Self> {
-        if let Some(color) = resolved_text_color {
-            common = common.with_text_color(color);
+        match resolved_text_color {
+            Some(color) => {
+                common = common.with_text_color(color);
+            },
+            ::core::option::Option::None => {},
         }
+
         let color = |key: &str, fallback: &str| {
             config_string(config, &["themeVariables", key]).unwrap_or_else(|| fallback.to_string())
         };

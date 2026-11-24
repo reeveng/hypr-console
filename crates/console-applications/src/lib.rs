@@ -13,5 +13,6 @@ pub mod counts;
 pub mod entry;
 pub mod found;
 pub mod icons;
+pub mod launch;
 pub mod narrow;
 pub mod words;

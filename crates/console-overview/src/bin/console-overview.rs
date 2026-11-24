@@ -4,7 +4,7 @@ use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use console_compositor::{ActiveWorkspace, Clients, DispatchResult, Monitors, Request};
+use console_compositor::{ActiveWorkspace, Clients, DispatchResult, Monitors, Script};
 use console_core_arguments::{Operands, Presence, read};
 use console_core_color::palette::Wearing;
 use console_core_fonts::TextStyle;
@@ -71,8 +71,8 @@ enum Next {
   Open,
   PutAway,
   Redraw,
-  Ask(String),
-  AskAndPutAway(String),
+  Ask(Script),
+  AskAndPutAway(Script),
 }
 
 const SHOW: &str = "show";
@@ -674,12 +674,12 @@ fn looked(room: Size<u32>) -> Result<Option<(Overview, Option<PlaceId>)>, Never>
   Ok(Some((laid, front.map(|workspace| PlaceId(workspace.id)))))
 }
 
-fn ask(lua: &str) -> Result<(), Never> {
-  let Ok(answered) = console_compositor::request(Request::Script, lua);
+fn ask(script: &Script) -> Result<(), Never> {
+  let Ok(answered) = script.run();
 
   match answered {
     DispatchResult::Success => {}
-    DispatchResult::Failure(why) => eprintln!("console-overview: {lua}: {why}"),
+    DispatchResult::Failure(why) => eprintln!("console-overview: {script}: {why}"),
   }
 
   Ok(())

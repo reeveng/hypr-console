@@ -8,14 +8,14 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_cylinder(
     common: &super::super::FlowchartNodeRenderCommon<'_>,
     label: &mut super::super::FlowchartNodeLabelState<'_>,
 ) {
-    // Mermaid `cylinder.ts` (non-handDrawn): a single `<path>` with arc commands and a
-    // `label-offset-y` attribute.
+
+
     let w = common.layout_node.width.max(1.0);
     let rx = w / 2.0;
     let ry = rx / (2.5 + w / 50.0);
     let total_h = common.layout_node.height.max(1.0);
     let h = (total_h - 2.0 * ry).max(1.0);
-    // Mermaid applies an extra downward label shift of `node.padding / 1.5`.
+
     label.dy = ctx.node_padding / 1.5;
 
     let path_data = format!(
@@ -34,9 +34,11 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_cylinder(
         escape_attr(&path_data),
         escape_attr(common.style),
     );
+
     if ctx.security_level_loose {
         let _ = write!(out, r#" label-offset-y="{}""#, fmt(ry));
     }
+
     let _ = write!(
         out,
         r#" transform="translate({},{})"/>"#,
@@ -51,11 +53,11 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_horizontal_cylinde
     common: &super::super::FlowchartNodeRenderCommon<'_>,
     label: &mut super::super::FlowchartNodeLabelState<'_>,
 ) {
-    // Mermaid `tiltedCylinder.ts` (non-handDrawn): a single `<path>` with arc commands.
-    //
-    // Mermaid computes the rendered path from the label bbox, then separately calls
-    // `updateNodeBounds(...)` and feeds that DOM bbox into Dagre. Those two sizes can diverge
-    // slightly, so rebuild the path from label metrics instead of `layout_node.width`.
+
+
+
+
+
     let metrics = super::super::helpers::compute_node_label_metrics(
         ctx,
         common.node_id,
@@ -72,15 +74,16 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_horizontal_cylinde
     };
     let h = (metrics.height + label_padding).max(1.0);
     let ry = h / 2.0;
-    let rx = if ry == 0.0_f64 {
+    let rx = if ::core::matches!(::core::primitive::f64::classify(ry), ::core::num::FpCategory::Zero) {
         0.0
     } else {
         ry / (2.5 + h / 50.0)
     };
     let w = (metrics.width + rx + label_padding).max(1.0);
 
-    // Mermaid offsets the label left by `rx` for tilted cylinders.
+
     label.dx = -rx;
+
     if !ctx.node_html_labels {
         let node_text_style = super::super::helpers::node_source_text_style(
             ctx,

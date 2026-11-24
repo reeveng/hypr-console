@@ -1,43 +1,59 @@
 //! Flowchart-specific HTML label measurement parity helpers.
 
+#[must_use]
 pub fn flowchart_html_line_height_px(font_size_px: f64) -> f64 {
     (font_size_px.max(1.0) * 1.5).max(1.0)
 }
 
+#[must_use]
 pub fn flowchart_html_has_inline_style_tags(lower_html: &str) -> bool {
-    // Detect Mermaid HTML inline styling tags in a way that avoids false positives like
-    // `<br>` matching `<b`.
-    //
-    // We keep this intentionally lightweight (no full HTML parser); for our purposes we only
-    // need to decide whether the label needs the special inline-style measurement path.
+
+
+
+
+
     let bytes = lower_html.as_bytes();
     let mut i = 0usize;
+
     while i < bytes.len() {
         if bytes[i] != b'<' {
             i += 1;
             continue;
         }
+
         i += 1;
+
         if i >= bytes.len() {
             break;
         }
+
         if bytes[i] == b'!' || bytes[i] == b'?' {
             continue;
         }
+
         if bytes[i] == b'/' {
             i += 1;
         }
+
         let start = i;
-        while i < bytes.len() && bytes[i].is_ascii_alphabetic() {
+
+        while match <[_]>::get(&*bytes, i) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_alphabetic(), ::core::option::Option::None => false } {
             i += 1;
         }
-        if start == i {
-            continue;
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(start), &::core::convert::identity(i)); _explicit_ordering } {
+            ::core::cmp::Ordering::Equal => {
+                continue;
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Greater => {},
         }
+
         let name = &lower_html[start..i];
+
         if matches!(name, "strong" | "b" | "em" | "i" | "code") {
             return true;
         }
     }
+
     false
 }

@@ -20,7 +20,6 @@ use console_core_number_conversion::{checked_index, index};
 use core::ops::Range;
 use std::cmp;
 use std::ffi::c_int;
-use std::sync::atomic::AtomicU8;
 
 #[derive(Clone, Copy)]
 enum BackupFilter {
@@ -410,6 +409,40 @@ struct LoopFilterPlane<'a> {
   restore: LrRestorePlanes,
 }
 
+fn loop_filter_planes<'a>(
+  sources: [PicOffset<'a>; 3],
+  picture: &'a crate::include::dav1d::picture::Rav1dPictureData,
+  f: &Rav1dFrameData,
+) -> Result<[LoopFilterPlane<'a>; 3], console_core_never::Never> {
+  let [luma_resized, cb_resized, cr_resized] = &picture.data;
+  let [luma_source, cb_source, cr_source] = sources;
+  let [y_restoration, u_restoration, v_restoration] = f.lf.lr_lpf_line;
+  let [y_cdef, u_cdef, v_cdef] = f.lf.cdef_lpf_line;
+  Ok([
+    LoopFilterPlane {
+      source: luma_source,
+      resized: luma_resized,
+      restoration_line: y_restoration,
+      cdef_line: y_cdef,
+      restore: LrRestorePlanes::Y,
+    },
+    LoopFilterPlane {
+      source: cb_source,
+      resized: cb_resized,
+      restoration_line: u_restoration,
+      cdef_line: u_cdef,
+      restore: LrRestorePlanes::U,
+    },
+    LoopFilterPlane {
+      source: cr_source,
+      resized: cr_resized,
+      restoration_line: v_restoration,
+      cdef_line: v_cdef,
+      restore: LrRestorePlanes::V,
+    },
+  ])
+}
+
 pub(crate) fn rav1d_copy_lpf<BD: BitDepth>(
   c: &Rav1dContext,
   f: &Rav1dFrameData,
@@ -432,33 +465,7 @@ pub(crate) fn rav1d_copy_lpf<BD: BitDepth>(
     .wrapping_mul(i64::from(threaded));
   let [_, source_u, _] = sources;
   let Ok(chroma_pitch) = source_u.fixed_pixel_stride::<BD>();
-  let [luma_resized, cb_resized, cr_resized] = &picture.data;
-  let [luma_source, cb_source, cr_source] = sources;
-  let [y_restoration, u_restoration, v_restoration] = f.lf.lr_lpf_line;
-  let [y_cdef, u_cdef, v_cdef] = f.lf.cdef_lpf_line;
-  let planes = [
-    LoopFilterPlane {
-      source: luma_source,
-      resized: luma_resized,
-      restoration_line: y_restoration,
-      cdef_line: y_cdef,
-      restore: LrRestorePlanes::Y,
-    },
-    LoopFilterPlane {
-      source: cb_source,
-      resized: cb_resized,
-      restoration_line: u_restoration,
-      cdef_line: u_cdef,
-      restore: LrRestorePlanes::U,
-    },
-    LoopFilterPlane {
-      source: cr_source,
-      resized: cr_resized,
-      restoration_line: v_restoration,
-      cdef_line: v_cdef,
-      restore: LrRestorePlanes::V,
-    },
-  ];
+  let Ok(planes) = loop_filter_planes(sources, picture, f);
 
   for plane in planes {
     let luma = plane.restore.contains(LrRestorePlanes::Y);
@@ -939,48 +946,52 @@ struct DeblockRow<'a> {
   width: u32,
 }
 
-impl DeblockRow<'_> {
-  fn dispatch<BD: BitDepth>(
-    &self,
-    f: &Rav1dFrameData,
-    [py, pu, pv]: [PicOffset; 3],
-    sweep: FilterSweep,
-    sby: u32,
-  ) -> Rav1dResult {
-    let Self {
-      masks,
-      luma,
-      chroma,
-      horizontal_shift,
-      vertical_shift,
-      level_stride,
-      base,
-      width,
-    } = *self;
-    let horizontal = match sweep {
+#[derive(Clone, Copy)]
+struct DeblockPass {
+  sweep: FilterSweep,
+  superblock_row: u32,
+  byte_stride: i64,
+}
+
+impl DeblockPass {
+  fn direction(self) -> Result<HV, console_core_never::Never> {
+    Ok(match self.sweep {
       FilterSweep::Columns => HV::H,
       FilterSweep::Rows { .. } => HV::V,
-    };
-    let neighbor = |column| match (horizontal, column, sby) {
-      (HV::H, 0, _) | (HV::V, _, 0) => Neighbor::Absent,
-      _ => Neighbor::Present,
-    };
-    let frame_hdr = f.frame_hdr.as_ref().ok_or(EINVAL)?;
-    let byte_stride = level_stride.checked_mul(4).ok_or(EINVAL)?;
-    let luma_base = byte_stride.checked_mul(i64::from(base)).ok_or(EINVAL)?;
+    })
+  }
 
-    for (column, mask) in (0_u32..).zip(masks) {
-      let checked_value = width.checked_sub(column.wrapping_mul(32)).ok_or(EINVAL)?;
+  fn neighbor(self, column: u32) -> Result<Neighbor, console_core_never::Never> {
+    let Ok(direction) = self.direction();
+    Ok(match (direction, column, self.superblock_row) {
+      (HV::H, 0, _) | (HV::V, _, 0) => Neighbor::Absent,
+      (HV::H, 1.., _) | (HV::V, _, 1..) => Neighbor::Present,
+    })
+  }
+}
+
+impl DeblockRow<'_> {
+  fn dispatch_luma<BD: BitDepth>(
+    &self,
+    f: &Rav1dFrameData,
+    py: PicOffset<'_>,
+    pass: DeblockPass,
+  ) -> Rav1dResult {
+    let Ok(direction) = pass.direction();
+    let luma_base = pass.byte_stride.checked_mul(i64::from(self.base)).ok_or(EINVAL)?;
+
+    for (column, mask) in (0_u32..).zip(self.masks) {
+      let checked_value = self.width.checked_sub(column.wrapping_mul(32)).ok_or(EINVAL)?;
       let columns = checked_value.min(32);
       let Ok(pixel_offset) = index(column.wrapping_mul(128));
       let [columns_mask, rows_mask] = &mask.filter_y;
-      let selected = match horizontal {
+      let selected = match direction {
         HV::H => columns_mask,
         HV::V => rows_mask,
       };
       filter_plane::<BD, 3>(
         f,
-        sweep,
+        pass.sweep,
         FilterPlane {
           pictures: FilterPictures::Luma(py + pixel_offset),
           levels: {
@@ -992,13 +1003,43 @@ impl DeblockRow<'_> {
           masks: selected,
           region: FilterRegion {
             width: columns,
-            row: luma,
+            row: self.luma,
             half_width: 16,
-            neighbor: neighbor(column),
+            neighbor: {
+              let Ok(neighbor) = pass.neighbor(column);
+              neighbor
+            },
           },
         },
       )?;
     }
+
+    Ok(())
+  }
+
+
+  fn dispatch<BD: BitDepth>(
+    &self,
+    f: &Rav1dFrameData,
+    [py, pu, pv]: [PicOffset; 3],
+    sweep: FilterSweep,
+    sby: u32,
+  ) -> Rav1dResult {
+    let Self {
+      masks,
+      chroma,
+      horizontal_shift,
+      vertical_shift,
+      level_stride,
+      base,
+      width,
+      ..
+    } = *self;
+    let frame_hdr = f.frame_hdr.as_ref().ok_or(EINVAL)?;
+    let byte_stride = level_stride.checked_mul(4).ok_or(EINVAL)?;
+    let pass = DeblockPass { sweep, superblock_row: sby, byte_stride };
+    let Ok(horizontal) = pass.direction();
+    self.dispatch_luma::<BD>(f, py, pass)?;
 
     match {
       ::core::primitive::bool::then_some(
@@ -1049,7 +1090,10 @@ impl DeblockRow<'_> {
             width: columns,
             row: chroma,
             half_width,
-            neighbor: neighbor(column),
+            neighbor: {
+              let Ok(neighbor) = pass.neighbor(column);
+              neighbor
+            },
           },
         },
       )?;

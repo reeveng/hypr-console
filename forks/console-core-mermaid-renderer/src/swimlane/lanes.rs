@@ -10,6 +10,7 @@ pub(super) struct LaneModel {
 }
 
 impl LaneModel {
+    #[must_use]
     pub fn new(nodes: &IndexMap<String, WorkingNode>) -> Self {
         let group_parents: HashSet<&str> = nodes
             .values()
@@ -27,10 +28,12 @@ impl LaneModel {
             .collect();
         let mut lanes = HashSet::new();
         let mut lanes_by_pool: HashMap<String, Vec<String>> = HashMap::new();
+
         for node in nodes.values().filter(|node| node.is_group()) {
             if pools.contains(&node.id) {
                 continue;
             }
+
             if let Some(parent) = node
                 .parent_id
                 .as_ref()
@@ -45,34 +48,46 @@ impl LaneModel {
                 lanes.insert(node.id.clone());
             }
         }
+
         let mut lane_by_id: HashMap<String, Option<String>> = HashMap::new();
+
         for node in nodes.values() {
             if lane_by_id.contains_key(&node.id) {
                 continue;
             }
+
             let mut current = node.parent_id.as_deref();
             let mut seen = HashSet::from([node.id.as_str()]);
             let mut path = vec![node.id.as_str()];
             let mut resolved = None;
-            while let Some(parent) = current {
+
+            'inner_while_2: while let Some(parent) = current {
                 if !seen.insert(parent) {
-                    break;
+                    break 'inner_while_2;
                 }
+
                 if lanes.contains(parent) {
                     resolved = Some(parent.to_string());
-                    break;
+                    break 'inner_while_2;
                 }
-                if let Some(cached) = lane_by_id.get(parent) {
-                    resolved = cached.clone();
-                    break;
+
+                match lane_by_id.get(parent) {
+                    Some(cached) => {
+                        resolved = cached.clone();
+                        break 'inner_while_2;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 path.push(parent);
-                current = nodes.get(parent).and_then(|node| node.parent_id.as_deref());
+                current = nodes.get(parent).and_then(|node_2| node_2.parent_id.as_deref());
             }
+
             for id in path {
                 lane_by_id.insert(id.to_string(), resolved.clone());
             }
         }
+
         Self {
             lanes,
             pools,
@@ -81,19 +96,23 @@ impl LaneModel {
         }
     }
 
+    #[must_use]
     pub fn is_lane(&self, id: &str) -> bool {
         self.lanes.contains(id)
     }
 
+    #[must_use]
     pub fn is_pool(&self, id: &str) -> bool {
         self.pools.contains(id)
     }
 
+    #[must_use]
     pub fn lane_of(&self, id: &str) -> Option<&str> {
         self.lane_by_id.get(id).and_then(Option::as_deref)
     }
 
     #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+    #[must_use]
     pub fn order(
         &self,
         nodes: &IndexMap<String, WorkingNode>,
@@ -104,19 +123,25 @@ impl LaneModel {
             .filter(|node| self.is_lane(&node.id))
             .map(|node| node.id.clone())
             .collect();
+
         if !lane_ids.is_empty() && lane_ids.iter().all(|id| indices.contains_key(id.as_str())) {
             let mut indexed = lane_ids;
             indexed.sort_by(|left, right| {
-                indices[left.as_str()]
-                    .partial_cmp(&indices[right.as_str()])
-                    .unwrap_or(std::cmp::Ordering::Equal)
+                match indices[left.as_str()]
+                    .partial_cmp(&indices[right.as_str()]) {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => std::cmp::Ordering::Equal,
+                }
             });
             return indexed;
         }
+
         if self.pools.is_empty() {
             return lane_ids.into_iter().rev().collect();
         }
+
         let mut order = Vec::new();
+
         for node in nodes.values().filter(|node| node.parent_id.is_none()) {
             if self.is_pool(&node.id) {
                 order.extend(
@@ -130,6 +155,7 @@ impl LaneModel {
                 order.push(node.id.clone());
             }
         }
+
         order.reverse();
         order
     }

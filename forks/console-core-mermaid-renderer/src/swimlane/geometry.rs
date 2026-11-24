@@ -10,6 +10,7 @@ pub(super) struct Rect {
 }
 
 impl Rect {
+    #[must_use]
     pub fn from_center(x: f64, y: f64, width: f64, height: f64) -> Self {
         Self {
             left: x - width / 2.0,
@@ -19,14 +20,17 @@ impl Rect {
         }
     }
 
+    #[must_use]
     pub fn width(self) -> f64 {
         (self.right - self.left).max(0.0)
     }
 
+    #[must_use]
     pub fn height(self) -> f64 {
         (self.bottom - self.top).max(0.0)
     }
 
+    #[must_use]
     pub fn center(self) -> LayoutPoint {
         LayoutPoint {
             x: (self.left + self.right) / 2.0,
@@ -41,6 +45,7 @@ impl Rect {
         self.bottom = self.bottom.max(other.bottom);
     }
 
+    #[must_use]
     pub fn inflated(self, amount: f64) -> Self {
         Self {
             left: self.left - amount,
@@ -50,6 +55,7 @@ impl Rect {
         }
     }
 
+    #[must_use]
     pub fn contains_point(self, point: &LayoutPoint, inset: f64) -> bool {
         point.x > self.left + inset
             && point.x < self.right - inset
@@ -58,6 +64,7 @@ impl Rect {
     }
 }
 
+#[must_use]
 pub(super) fn segment_blocked(
     from: &LayoutPoint,
     to: &LayoutPoint,
@@ -72,6 +79,7 @@ pub(super) fn segment_blocked(
         if excluded.contains(&id.as_str()) {
             return false;
         }
+
         if (from.y - to.y).abs() <= EPSILON {
             rect.top < from.y && rect.bottom > from.y && rect.right > min_x && rect.left < max_x
         } else if (from.x - to.x).abs() <= EPSILON {

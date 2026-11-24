@@ -1,8 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Notes
+Name=Console Notes
 Comment=Notes written on a page, the first line the title, kept as Markdown in the Notes folder
-Exec=/usr/local/bin/notes
+Exec=/usr/local/bin/console-application-notes
+StartupWMClass=notes
 Icon=accessories-text-editor
 Terminal=false
 Categories=Utility;TextEditor;

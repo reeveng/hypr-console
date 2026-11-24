@@ -92,7 +92,11 @@ impl Header {
   }
 }
 
-fn read_tails<B: ReadBitsLtr>(bs: &mut B, shift: u32, tails: &mut [u16]) -> Result<(), DecodeError> {
+fn read_tails<B: ReadBitsLtr>(
+  bs: &mut B,
+  shift: u32,
+  tails: &mut [u16],
+) -> Result<(), DecodeError> {
   match shift {
     0 => Ok(()),
     _ => {

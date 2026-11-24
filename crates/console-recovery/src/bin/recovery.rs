@@ -40,15 +40,20 @@ struct Console {
 impl Interpreter for Console {
   type Event = ButtonPress;
   type Effect = Screen;
+  type Error = Never;
 
-  fn interpret(&mut self, effect: &Screen, _clock: &Clock) -> Vec<Event<ButtonPress>> {
+  fn interpret(
+    &mut self,
+    effect: &Screen,
+    _clock: &Clock,
+  ) -> Result<Vec<Event<ButtonPress>>, Never> {
     match effect {
       Screen::Show(menu) => {
         let Ok(()) = self.show(menu);
       }
     }
 
-    Vec::new()
+    Ok(Vec::new())
   }
 
   fn listen(&mut self, tell: Tell<ButtonPress>) -> Result<Subscribed, Never> {

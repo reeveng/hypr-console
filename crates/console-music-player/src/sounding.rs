@@ -1,14 +1,14 @@
 //! Sound, as a pipe with this program at the head of it.
 //!
-//! [`decoding`] reads one song out as plain samples and pw-cat plays what it
-//! is handed. Between them is a loop in a thread of its own, and that loop is
+//! [`decoding`] reads one song out as plain samples and the audio stream plays
+//! them. Between them is a loop in a thread of its own, and that loop is
 //! every control this player has: pausing ends the pipe, position is how much
 //! has been written, and stopping is a pipe that closes. None of the three is a
 //! question asked of someone else's program, which is what made every one of
 //! kew's answers a thing to be waited for rather than read.
 //!
 //! **A pause that keeps the pipe keeps the machine awake.** Not writing was
-//! the cheaper pause and it left pw-cat standing with the stream open, which
+//! the cheaper pause and it left the playback stream open, which
 //! is a sink PipeWire will not suspend: the graph goes on running, the codec
 //! stays powered, and a handheld with the music paused draws what a handheld
 //! playing music draws. So a pause ends the sink, lets the song go, and keeps
@@ -27,7 +27,7 @@
 //! `console-awake` is the rest of that argument.
 //!
 //! What is kept is what was heard rather than what was written. The samples in
-//! the pipe and in pw-cat's own buffer go with pw-cat, so folding the raw
+//! the pipe and in the playback buffer go with the stream, so folding the raw
 //! count into the offset would step over [`AHEAD`] of music every time someone
 //! pressed pause. Taking it off costs at worst a third of a second heard twice,
 //! which is the direction to be wrong in.
@@ -39,8 +39,8 @@
 //!
 //! What position is, exactly. Frames are counted as they are written, a frame
 //! being one sample for each channel, at the rate the song was made at. What
-//! has been written is not what has been heard: the pipe to pw-cat holds what a
-//! pipe holds and pw-cat holds its own latency on top, so the count runs ahead
+//! has been written is not what has been heard: the pipe and the audio service
+//! each buffer samples, so the count runs ahead
 //! of the speaker by an amount that is bounded rather than known. [`AHEAD`] is
 //! that amount, named once and taken off, and the answer is held at the offset
 //! the run began from rather than allowed to walk back behind it in the first
@@ -84,27 +84,23 @@
 
 use crate::Seconds;
 use crate::decoding::{self, Block, Decoding, Format};
+use crate::loudness::{self, Analysis};
 use crate::stretching::Stretching;
+pub use console_audio_streams::PlaybackApp;
+use console_audio_streams::{Media, Pcm, PlaybackStream, Sample, play_stream};
 use console_awake::{InhibitReason, InhibitResult, Staying};
-use console_core_external_programs::Program;
 use console_core_iteration::{Endless, Step};
 use console_core_never::Never;
 use console_core_number_conversion::{Float, index};
-use console_operating_system_linux::program_lifetime::{BoundToParent, TimedPipe, alongside};
 use console_response_times::{Wait, Waiting};
-use console_sound_effects::balance::Balance;
 use std::io::ErrorKind;
-use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::sync::Weak;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread;
 use std::time::Duration;
 
-pub const SAMPLE: &str = "f32";
-
-pub const LATENCY: &str = "50ms";
+const LATENCY: Duration = Duration::from_millis(50);
 
 const AHEAD: Seconds = Seconds(0.383);
 
@@ -257,6 +253,13 @@ impl PositionReader {
 }
 
 impl Sounding {
+  pub fn new<E>(telling_progress: E) -> Result<Sounding, Never>
+  where
+    E: Fn(Progress) -> Result<(), Never> + Send + 'static,
+  {
+    Self::for_app(PlaybackApp::Music, telling_progress)
+  }
+
   #[cfg_attr(
     dylint_lib = "explicit081_no_shared_ownership",
     expect(
@@ -264,7 +267,7 @@ impl Sounding {
       reason = "only the Sounding owner and its joined worker hold the two endpoints of this private rendezvous"
     )
   )]
-  pub fn new<E>(telling_progress: E) -> Result<Sounding, Never>
+  pub fn for_app<E>(app: PlaybackApp, telling_progress: E) -> Result<Sounding, Never>
   where
     E: Fn(Progress) -> Result<(), Never> + Send + 'static,
   {
@@ -277,7 +280,7 @@ impl Sounding {
     let worker = thread::Builder::new()
       .name("music samples".to_string())
       .spawn(move || {
-        let Ok(()) = pumping(&carrying, &telling_progress);
+        let Ok(()) = pumping(&carrying, app, &telling_progress);
 
         drop(telling_progress);
 
@@ -581,6 +584,7 @@ fn lock<T>(what: &Mutex<T>) -> Result<MutexGuard<'_, T>, Never> {
 
 fn pumping(
   telling: &Playback,
+  app: PlaybackApp,
   progress: &dyn Fn(Progress) -> Result<(), Never>,
 ) -> Result<(), Never> {
   let pumped = console_core_iteration::iterate((), |()| {
@@ -593,7 +597,7 @@ fn pumping(
     match current.song.as_deref() {
       None => {}
       Some(song) => {
-        let Ok(reached) = one(telling, &current, song, progress);
+        let Ok(reached) = one(telling, &current, song, app, progress);
 
         match reached {
           Reached::End => {
@@ -679,6 +683,7 @@ fn one(
   telling: &Playback,
   job: &Task,
   song: &Path,
+  app: PlaybackApp,
   progress: &dyn Fn(Progress) -> Result<(), Never>,
 ) -> Result<Reached, Never> {
   let Ok(mut waiting) = Waiting::here(Wait {
@@ -703,6 +708,20 @@ fn one(
   };
 
   let Ok(()) = waiting.mark("decoder");
+  let Ok(analysis) = loudness::before_playback(song, || {
+    let Ok(request) = carrying_on(telling, job.turn);
+
+    match request {
+      Payload::On => loudness::Request::Continue,
+      Payload::Hold | Payload::Stop => loudness::Request::Cancel,
+    }
+  });
+  let indexed_gain = match analysis {
+    Analysis::Indexed(gain) => Some(gain),
+    Analysis::Unavailable => None,
+    Analysis::Interrupted => return Ok(Reached::Requested),
+  };
+  let Ok(()) = waiting.mark("loudness");
   let Ok(carrying) = began(telling, job.turn, first_3.format.rate);
 
   match carrying {
@@ -710,30 +729,10 @@ fn one(
     Payload::Hold | Payload::Stop => return Ok(Reached::Requested),
   }
 
-  let balance = match Balance::new(first_3.format.rate, first_3.format.channels) {
-    Ok(balance) => balance,
-    Err(fault) => {
-      console_core_logging::warn!("could not prepare the volume reference: {fault}");
-      return Ok(Reached::Requested);
-    }
-  };
-  let Ok(playing) = sink(first_3.format);
-
-  let mut playing_3 = match playing {
-    Some(playing_2) => playing_2,
-    None => return Ok(Reached::Requested),
-  };
-
-  let Ok(into) = playing_3.take_stdin();
-
-  let stdin = match into {
-    Some(stdin) => stdin,
-    None => return Ok(Reached::Requested),
-  };
-  let input = match TimedPipe::new(OwnedFd::from(stdin)) {
+  let input = match sink(first_3.format, app, indexed_gain) {
     Ok(input) => input,
     Err(fault) => {
-      console_core_logging::warn!("could not prepare the audio pipe: {fault}");
+      console_core_logging::warn!("nothing to play through: {fault}");
 
       return Ok(Reached::Requested);
     }
@@ -745,7 +744,6 @@ fn one(
   let pouring = Pouring {
     decoding,
     into: input,
-    balance,
     stretching,
     channels,
     waiting: Some(first_3),
@@ -787,8 +785,7 @@ fn began(telling: &Playback, turn: u64, rate: u32) -> Result<Payload, Never> {
 
 struct Pouring {
   decoding: Decoding,
-  into: TimedPipe,
-  balance: Balance,
+  into: PlaybackStream,
   stretching: Option<Stretching>,
   channels: u32,
   waiting: Option<Block>,
@@ -833,12 +830,10 @@ fn poured(
 
   let Ok(heard) = pouring.heard();
 
-  let mut samples = match heard {
+  let samples = match heard {
     Some(samples) => samples,
     None => return Ok(Step::Halt(Reached::End)),
   };
-  let Ok(()) = pouring.balance.apply(&mut samples);
-
   let bytes: Vec<u8> = samples
     .iter()
     .flat_map(|sample| sample.to_le_bytes())
@@ -887,7 +882,7 @@ enum Delivered {
 fn write_samples(
   telling: &Playback,
   turn: u64,
-  into: &TimedPipe,
+  into: &PlaybackStream,
   bytes: &[u8],
 ) -> Result<Delivered, Never> {
   let written = console_core_iteration::iterate(bytes, |pending| {
@@ -978,37 +973,23 @@ fn carry(state: &State, turn: u64) -> Result<Payload, Never> {
   })
 }
 
-fn sink(format: Format) -> Result<Option<BoundToParent>, Never> {
-  let Ok(mut asking) = Program::PwCat.command();
-
-  asking
-    .args([
-      "--playback",
-      "--raw",
-      "--format",
-      SAMPLE,
-      "--rate",
-      &format.rate.to_string(),
-    ])
-    .args([
-      "--channels",
-      &format.channels.to_string(),
-      "--latency",
-      LATENCY,
-      "-",
-    ])
-    .stdin(Stdio::piped())
-    .stdout(Stdio::null())
-    .stderr(Stdio::null());
-
-  Ok(match alongside(&mut asking) {
-    Ok(playing) => Some(playing),
-    Err(fault) => {
-      console_core_logging::warn!("nothing to play through: {fault}");
-
-      None
-    }
-  })
+fn sink(
+  format: Format,
+  app: PlaybackApp,
+  indexed_gain: Option<f64>,
+) -> std::io::Result<PlaybackStream> {
+  play_stream(
+    Pcm {
+      rate_hz: format.rate,
+      channels: format.channels,
+      sample: Sample::F32,
+    },
+    Media {
+      app,
+      indexed_gain,
+      latency: LATENCY,
+    },
+  )
 }
 
 #[cfg(test)]

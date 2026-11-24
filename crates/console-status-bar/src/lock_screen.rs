@@ -44,7 +44,7 @@ use console_core_geometry::Size;
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_number_conversion::index;
-use console_core_state_machine::{Machine, Queue};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
 use console_core_walking::where_it_is;
 use console_core_words::Words;
 use console_draw_surface::Activation;
@@ -103,7 +103,17 @@ impl Volume {
 
 impl Power {
   pub fn command(self) -> Result<Command, Never> {
-    let Ok(mut command) = Program::Systemctl.command();
+    let mut command = match self {
+      Self::Sleep => {
+        let Ok(command) = Program::Systemctl.command();
+        command
+      }
+      Self::Restart | Self::ShutDown => {
+        let Ok(mut command) = InternalProgram::Resume.command();
+        command.arg("finish");
+        command
+      }
+    };
     let Ok(word) = self.systemctl();
 
     command.arg(word);
@@ -135,6 +145,17 @@ pub enum LockScreenBarEffect {
   Volume(Volume),
   Power(Power),
   Read(StatusItem),
+}
+
+impl EffectDependencies for LockScreenBarEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Volume(_) | Self::Read(StatusItem::Sound) => &[Service::Audio],
+      Self::Power(_) | Self::Read(StatusItem::Battery) => &[Service::Power],
+      Self::Read(StatusItem::Bluetooth) => &[Service::Bluetooth],
+      Self::Read(StatusItem::Network) => &[Service::Network],
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -845,7 +866,7 @@ mod tests {
   }
 
   #[test]
-  fn each_way_of_stopping_the_machine_is_the_systemctl_command_for_it() {
+  fn restart_and_shutdown_request_a_checkpoint_before_stopping() {
     let asked = |power: Power| {
       let Ok(command) = power.command();
 
@@ -856,7 +877,7 @@ mod tests {
     };
 
     assert_eq!(asked(Power::Sleep), ["suspend"]);
-    assert_eq!(asked(Power::Restart), ["reboot"]);
-    assert_eq!(asked(Power::ShutDown), ["poweroff"]);
+    assert_eq!(asked(Power::Restart), ["finish", "reboot"]);
+    assert_eq!(asked(Power::ShutDown), ["finish", "poweroff"]);
   }
 }

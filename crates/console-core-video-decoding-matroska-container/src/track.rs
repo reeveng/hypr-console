@@ -11,8 +11,11 @@
 
 use std::num::{FpCategory, NonZeroU64};
 
+use console_core_matroska_blocks::elements::AudioTrackFields;
 use console_core_never::Never;
 use console_core_number_conversion::{index, toward_zero_i64, wrapped};
+
+pub use console_core_matroska_blocks::elements::SampleRateHertz;
 
 use crate::codec::Codec;
 use crate::states::{ColourRange, FrameAccess};
@@ -77,16 +80,6 @@ pub struct LuminanceNits(pub f64);
   )
 )]
 pub struct Degrees(pub f64);
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-#[cfg_attr(
-  dylint_lib = "explicit067_no_unit_less_quantity",
-  expect(
-    explicit067_no_unit_less_quantity,
-    reason = "this is the representation of a sample rate measured in hertz, including fractional rates read from track metadata"
-  )
-)]
-pub struct SampleRateHertz(pub f64);
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct MasteringMetadata {
@@ -234,11 +227,17 @@ pub struct AudioInfo {
 
 impl Default for AudioInfo {
   fn default() -> Self {
+    Self::from(AudioTrackFields::default())
+  }
+}
+
+impl From<AudioTrackFields> for AudioInfo {
+  fn from(fields: AudioTrackFields) -> Self {
     Self {
-      sampling_frequency: SampleRateHertz(8_000.0),
-      output_sampling_frequency: None,
-      channels: 1,
-      bit_depth: None,
+      sampling_frequency: fields.sampling_frequency,
+      output_sampling_frequency: fields.output_sampling_frequency,
+      channels: fields.channels,
+      bit_depth: fields.bit_depth,
     }
   }
 }

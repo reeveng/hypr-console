@@ -105,24 +105,29 @@ impl C4TextPaintPlan {
         title: Option<&str>,
         work: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let title = title
+        let title_3 = title
             .map(str::trim)
-            .filter(|title| !title.is_empty())
+            .filter(|title_2| !title_2.is_empty())
             .map(Into::into);
         let mut plan = Self {
             fill: None,
             title_fill: None,
-            title,
+            title: title_3,
             evidence: FamilyThemeOutcomes::default(),
             pending: Vec::new(),
             terminal: OnceLock::new(),
             source_paint: OnceLock::new(),
             theme: theme.cloned(),
         };
-        let Some(theme) = theme else { return Ok(plan) };
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
         let config_owned = config.config_paint_overrides_typed_default("themeVariables.textColor");
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut plan.evidence,
             &[UnsupportedTerminalDomain::direct(
                 ThemeTarget::Title,
@@ -135,8 +140,9 @@ impl C4TextPaintPlan {
             work,
         )?;
         let mut title_fill_winner = None;
+
         if plan.title.is_some() && !config_owned {
-            let style = theme.style_with_work_meter(
+            let style = theme_2.style_with_work_meter(
                 ThemeTarget::Title,
                 ThemeVariant::Default,
                 Some(1),
@@ -147,22 +153,23 @@ impl C4TextPaintPlan {
                 .winner()
                 .map(|origin| origin.rule_index());
             plan.title_fill = resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Title],
                 DirectStaticSelectorDomain::Default,
             )
             .map(DirectPaintExpectation::from_paint);
+
             if matches!(style.fill_resolution().specified(), Specified::Clear)
                 && let Some(origin) = style.fill_resolution().winner()
                 && origin.ordinal().is_none()
                 && matches!(origin.variant(), None | Some(ThemeVariant::Default))
-                && theme.rule_facet_disposition(
+                && theme_2.rule_facet_disposition(
                     origin.rule_index(),
                     FamilyThemeRuleFacet::Fill(FamilyThemePaintKind::Clear),
                 ) == Some(FamilyThemeDisposition::TypedAdapter)
             {
-                // Clear blocks Text fallback and restores the configured root text paint.
+
                 let baseline = crate::config::config_string(
                     config.as_value(),
                     &["themeVariables", "textColor"],
@@ -175,7 +182,8 @@ impl C4TextPaintPlan {
                 ));
             }
         }
-        for route in theme.family_mechanism_routes() {
+
+        for route in theme_2.family_mechanism_routes() {
             if let FamilyThemeMechanism::RuleFacet {
                 target: ThemeTarget::Title,
                 rule_index,
@@ -186,36 +194,40 @@ impl C4TextPaintPlan {
             {
                 if title_fill_winner != Some(rule_index) {
                     plan.evidence
-                        .mark_not_applicable(theme.family_mechanism_key(*route));
+                        .mark_not_applicable(theme_2.family_mechanism_key(*route));
                 } else if plan
                     .title_fill
                     .as_ref()
                     .is_none_or(|fill| fill.rule_index() != rule_index)
                 {
                     plan.evidence.mark_residual(
-                        theme.family_mechanism_key(*route),
+                        theme_2.family_mechanism_key(*route),
                         FamilyThemeResidualReason::UnsupportedPaint,
                     );
                 }
             }
         }
+
         let style =
-            theme.style_with_work_meter(ThemeTarget::Text, ThemeVariant::Default, None, work)?;
+            theme_2.style_with_work_meter(ThemeTarget::Text, ThemeVariant::Default, None, work)?;
         let winners = style
             .winner_rule_properties()
             .map(|(property, origin)| (origin.rule_index(), property))
             .collect::<BTreeSet<_>>();
+
         if !config_owned {
             plan.fill = resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Text],
                 DirectStaticSelectorDomain::Default,
             );
         }
-        // A rule key covers all its facets. A proved fill must not certify an unsupported sibling.
+
+
         let mut observations = BTreeMap::new();
-        for route in theme.family_mechanism_routes() {
+
+        for route in theme_2.family_mechanism_routes() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Text,
@@ -225,13 +237,14 @@ impl C4TextPaintPlan {
             else {
                 continue;
             };
+
             work.charge(1)?;
             let entry = observations
-                .entry(theme.family_mechanism_key(*route))
+                .entry(theme_2.family_mechanism_key(*route))
                 .or_insert((false, None, true));
             let property = resolved_style_property_for_facet(facet);
-            // C4 has no declared logical Text ordinal ordering. Only a later global winner
-            // proves that an ordinal assignment is shadowed on every possible terminal.
+
+
             let unproved_ordinal = matches!(
                 selector,
                 FamilyThemeSelectorShape::Ordinal {
@@ -241,12 +254,15 @@ impl C4TextPaintPlan {
             ) && !winners.iter().any(|(winner_index, winner_property)| {
                 *winner_property == property && *winner_index > rule_index
             });
+
             if (!winners.contains(&(rule_index, property)) && !unproved_ordinal)
                 || (property == ResolvedStyleProperty::Fill && config_owned)
             {
                 continue;
             }
+
             entry.2 &= property == ResolvedStyleProperty::Fill;
+
             if route.disposition() == FamilyThemeDisposition::TypedAdapter
                 && matches!(facet, FamilyThemeRuleFacet::Fill(_))
                 && plan
@@ -259,9 +275,10 @@ impl C4TextPaintPlan {
                 entry.1.get_or_insert(unsupported_residual_for_facet(facet));
             }
         }
+
         for (key, (pending, residual, inherited_fill_only)) in observations {
             if pending || residual.is_some() {
-                // Source-directed inheritance is only known after the writer emits its labels.
+
                 plan.pending.push(C4PendingTextMechanism {
                     key,
                     residual,
@@ -271,9 +288,10 @@ impl C4TextPaintPlan {
                 plan.evidence.mark_not_applicable(key);
             }
         }
+
         let mut fallbacks = FamilyThemeOutcomes::default();
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut fallbacks,
             &[UnsupportedTerminalDomain::static_fallbacks_only(
                 ThemeTarget::Text,
@@ -282,10 +300,11 @@ impl C4TextPaintPlan {
             .with_source_owned_fill(&[config_owned])],
             work,
         )?;
-        // Resolve fallback winners once, but defer their visible domain to the terminal receipt.
+
         for key in fallbacks.not_applicable_mechanisms() {
             plan.evidence.mark_not_applicable(key.clone());
         }
+
         for residual in fallbacks.residuals() {
             plan.pending.push(C4PendingTextMechanism {
                 key: residual.key().clone(),
@@ -294,13 +313,16 @@ impl C4TextPaintPlan {
                     == FamilyThemeResidualReason::UnsupportedOrdinalPalette,
             });
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn fill_css(&self) -> Option<&str> {
         self.fill.as_ref().map(DirectStaticPaint::css)
     }
 
+    #[must_use]
     pub(crate) fn title_fill_css(&self) -> Option<&str> {
         self.title_fill
             .as_ref()
@@ -316,8 +338,8 @@ impl C4TextPaintPlan {
         config: &PresentationConfig,
         work: &OperationWorkMeter,
     ) -> crate::Result<()> {
-        // The writer historically selected the last source metadata for an alias, while
-        // defaults came from each actual layout occurrence's type. Preserve both owners.
+
+
         let source_shapes: BTreeMap<_, _> = model
             .shapes
             .iter()
@@ -329,6 +351,7 @@ impl C4TextPaintPlan {
         let mut element_text_owned = Vec::new();
         let mut element_fill_owned = Vec::new();
         let mut element_stroke_owned = Vec::new();
+
         for shape in &layout.shapes {
             let source = source_shapes.get(shape.alias.as_str()).ok_or_else(|| {
                 crate::Error::InvalidModel {
@@ -360,16 +383,16 @@ impl C4TextPaintPlan {
                 fill_owned && stroke_owned,
                 work,
             )?;
-            let background_paint = background_paint.filter(|_| !fill_owned);
-            let border_paint = border_paint.filter(|_| !stroke_owned);
+            let background_paint_2 = background_paint.filter(|_| !fill_owned);
+            let border_paint_2 = border_paint.filter(|_| !stroke_owned);
             element_fill_owned.push(fill_owned);
             element_stroke_owned.push(stroke_owned);
             record_role_paint(
                 &mut typed_roles,
                 ThemeTarget::Node,
-                background_paint.as_ref(),
+                background_paint_2.as_ref(),
             );
-            record_role_paint(&mut typed_roles, ThemeTarget::Node, border_paint.as_ref());
+            record_role_paint(&mut typed_roles, ThemeTarget::Node, border_paint_2.as_ref());
             let visible = text_is_visible(&shape.label.text)
                 || text_is_visible(&shape.type_block.text)
                 || shape
@@ -382,6 +405,7 @@ impl C4TextPaintPlan {
                 explicit_text.is_some(),
                 work,
             )?;
+
             if visible {
                 element_text_owned.push(explicit_text.is_some());
                 record_role_paint(
@@ -390,17 +414,18 @@ impl C4TextPaintPlan {
                     text_paint.as_ref(),
                 );
             }
+
             elements.push(C4ElementTerminalPaint {
                 background: source
                     .bg_color
                     .as_deref()
-                    .or_else(|| background_paint.as_ref().map(DirectStaticPaint::css))
+                    .or_else(|| background_paint_2.as_ref().map(DirectStaticPaint::css))
                     .unwrap_or(&defaults.background)
                     .to_owned(),
                 border: source
                     .border_color
                     .as_deref()
-                    .or_else(|| border_paint.as_ref().map(DirectStaticPaint::css))
+                    .or_else(|| border_paint_2.as_ref().map(DirectStaticPaint::css))
                     .unwrap_or(&defaults.border)
                     .to_owned(),
                 text: explicit_text
@@ -410,6 +435,7 @@ impl C4TextPaintPlan {
                 typed_text: visible && self.uses_inherited_fill(text_paint.as_ref()),
             });
         }
+
         let source_relations: BTreeMap<_, _> = model
             .rels
             .iter()
@@ -423,13 +449,14 @@ impl C4TextPaintPlan {
         let mut relations = Vec::with_capacity(layout.rels.len());
         let mut relation_text_owned = Vec::new();
         let mut relation_line_owned = Vec::new();
+
         for (index, relation) in layout.rels.iter().enumerate() {
             let source = source_relations.get(&(relation.from.as_str(), relation.to.as_str()));
             let explicit_text = source
-                .and_then(|source| source.text_color.as_deref())
+                .and_then(|source_2| source_2.text_color.as_deref())
                 .or_else(|| config.get_str("c4.relationship_text_color"));
             let explicit_line = source
-                .and_then(|source| source.line_color.as_deref())
+                .and_then(|source_3| source_3.line_color.as_deref())
                 .or_else(|| config.get_str("c4.relationship_line_color"));
             let label_visible = text_is_visible(&relation.label.text)
                 || relation
@@ -445,13 +472,14 @@ impl C4TextPaintPlan {
             let (_, line_paint) = self.role_paints(ThemeTarget::Edge, index + 1, false, work)?;
             let (marker_fill, marker_stroke) =
                 self.role_paints(ThemeTarget::Marker, index + 1, false, work)?;
-            // Mermaid's source colors retain the shared, unpainted markers. A requested
-            // host paint activates colored markers even when source colors override it.
+
+
             let themed_markers =
                 line_paint.is_some() || marker_fill.is_some() || marker_stroke.is_some();
-            let line_paint = line_paint.filter(|_| explicit_line.is_none());
-            let marker_fill = marker_fill.filter(|_| explicit_line.is_none());
-            let marker_stroke = marker_stroke.filter(|_| explicit_line.is_none());
+            let line_paint_2 = line_paint.filter(|_| explicit_line.is_none());
+            let marker_fill_2 = marker_fill.filter(|_| explicit_line.is_none());
+            let marker_stroke_2 = marker_stroke.filter(|_| explicit_line.is_none());
+
             if label_visible {
                 relation_text_owned.push(explicit_text.is_some());
                 record_role_paint(
@@ -460,31 +488,32 @@ impl C4TextPaintPlan {
                     text_paint.as_ref(),
                 );
             }
+
             relation_line_owned.push(explicit_line.is_some());
-            record_role_paint(&mut typed_roles, ThemeTarget::Edge, line_paint.as_ref());
-            record_role_paint(&mut typed_roles, ThemeTarget::Marker, marker_fill.as_ref());
+            record_role_paint(&mut typed_roles, ThemeTarget::Edge, line_paint_2.as_ref());
+            record_role_paint(&mut typed_roles, ThemeTarget::Marker, marker_fill_2.as_ref());
             record_role_paint(
                 &mut typed_roles,
                 ThemeTarget::Marker,
-                marker_stroke.as_ref(),
+                marker_stroke_2.as_ref(),
             );
             let line = explicit_line
-                .or_else(|| line_paint.as_ref().map(DirectStaticPaint::css))
+                .or_else(|| line_paint_2.as_ref().map(DirectStaticPaint::css))
                 .unwrap_or(typography.relationship_line_color())
                 .to_owned();
             relations.push(C4RelationTerminalPaint {
                 text: source
-                    .and_then(|source| source.text_color.as_deref())
+                    .and_then(|source_4| source_4.text_color.as_deref())
                     .or_else(|| config.get_str("c4.relationship_text_color"))
                     .or_else(|| text_paint.as_ref().map(DirectStaticPaint::css))
                     .unwrap_or(typography.relationship_text_color())
                     .to_owned(),
-                marker_fill: marker_fill
+                marker_fill: marker_fill_2
                     .as_ref()
                     .map(DirectStaticPaint::css)
                     .unwrap_or(&line)
                     .to_owned(),
-                marker_stroke: marker_stroke
+                marker_stroke: marker_stroke_2
                     .as_ref()
                     .map(DirectStaticPaint::css)
                     .unwrap_or(&line)
@@ -494,6 +523,7 @@ impl C4TextPaintPlan {
                 typed_text: label_visible && self.uses_inherited_fill(text_paint.as_ref()),
             });
         }
+
         let mut boundaries = Vec::with_capacity(layout.boundaries.len());
         let mut boundary_text_owned = Vec::new();
         let source_boundaries: BTreeMap<_, _> = model
@@ -501,14 +531,16 @@ impl C4TextPaintPlan {
             .iter()
             .map(|boundary| (boundary.alias.as_str(), boundary))
             .collect();
+
         for boundary in &layout.boundaries {
             if boundary.alias == "global" {
                 boundaries.push(None);
                 continue;
             }
+
             let explicit = source_boundaries
                 .get(boundary.alias.as_str())
-                .and_then(|boundary| boundary.font_color.as_deref())
+                .and_then(|boundary_2| boundary_2.font_color.as_deref())
                 .or_else(|| config.get_str("c4.boundary_font_color"));
             let visible = text_is_visible(&boundary.label.text)
                 || boundary
@@ -525,10 +557,12 @@ impl C4TextPaintPlan {
                 explicit.is_some(),
                 work,
             )?;
+
             if visible {
                 boundary_text_owned.push(explicit.is_some());
                 record_role_paint(&mut typed_roles, ThemeTarget::ClusterLabel, paint.as_ref());
             }
+
             boundaries.push(Some(C4LabelTerminalPaint {
                 text: explicit
                     .or_else(|| paint.as_ref().map(DirectStaticPaint::css))
@@ -538,69 +572,75 @@ impl C4TextPaintPlan {
                 visible,
             }));
         }
+
         let mut role_evidence = FamilyThemeOutcomes::default();
-        if let Some(theme) = self.theme.as_ref() {
-            reconcile_unsupported_terminal_domains(
-                theme,
-                &mut role_evidence,
-                &[
-                    UnsupportedTerminalDomain::direct(
-                        ThemeTarget::Node,
-                        TerminalVariantDomain::uniform(
-                            element_fill_owned.len(),
-                            ThemeVariant::Default,
-                        ),
-                    )
-                    .with_source_owned_fill(&element_fill_owned)
-                    .with_source_owned_stroke(&element_stroke_owned),
-                    UnsupportedTerminalDomain::textual(
-                        ThemeTarget::NodeLabel,
-                        &[ThemeTarget::NodeLabel],
-                        TerminalVariantDomain::uniform(
-                            element_text_owned.len(),
-                            ThemeVariant::Default,
-                        ),
-                    )
-                    .with_source_owned_fill(&element_text_owned),
-                    UnsupportedTerminalDomain::textual(
-                        ThemeTarget::ClusterLabel,
-                        &[ThemeTarget::ClusterLabel],
-                        TerminalVariantDomain::uniform(
-                            boundary_text_owned.len(),
-                            ThemeVariant::Default,
-                        ),
-                    )
-                    .with_source_owned_fill(&boundary_text_owned),
-                    UnsupportedTerminalDomain::textual(
-                        ThemeTarget::EdgeLabel,
-                        &[ThemeTarget::EdgeLabel],
-                        TerminalVariantDomain::uniform(
-                            relation_text_owned.len(),
-                            ThemeVariant::Default,
-                        ),
-                    )
-                    .with_source_owned_fill(&relation_text_owned),
-                    UnsupportedTerminalDomain::direct(
-                        ThemeTarget::Edge,
-                        TerminalVariantDomain::uniform(
-                            relation_line_owned.len(),
-                            ThemeVariant::Default,
-                        ),
-                    )
-                    .with_source_owned_stroke(&relation_line_owned),
-                    UnsupportedTerminalDomain::direct(
-                        ThemeTarget::Marker,
-                        TerminalVariantDomain::uniform(
-                            relation_line_owned.len(),
-                            ThemeVariant::Default,
-                        ),
-                    )
-                    .with_source_owned_fill(&relation_line_owned)
-                    .with_source_owned_stroke(&relation_line_owned),
-                ],
-                work,
-            )?;
+
+        match self.theme.as_ref() {
+            Some(theme) => {
+                reconcile_unsupported_terminal_domains(
+                    theme,
+                    &mut role_evidence,
+                    &[
+                        UnsupportedTerminalDomain::direct(
+                            ThemeTarget::Node,
+                            TerminalVariantDomain::uniform(
+                                element_fill_owned.len(),
+                                ThemeVariant::Default,
+                            ),
+                        )
+                        .with_source_owned_fill(&element_fill_owned)
+                        .with_source_owned_stroke(&element_stroke_owned),
+                        UnsupportedTerminalDomain::textual(
+                            ThemeTarget::NodeLabel,
+                            &[ThemeTarget::NodeLabel],
+                            TerminalVariantDomain::uniform(
+                                element_text_owned.len(),
+                                ThemeVariant::Default,
+                            ),
+                        )
+                        .with_source_owned_fill(&element_text_owned),
+                        UnsupportedTerminalDomain::textual(
+                            ThemeTarget::ClusterLabel,
+                            &[ThemeTarget::ClusterLabel],
+                            TerminalVariantDomain::uniform(
+                                boundary_text_owned.len(),
+                                ThemeVariant::Default,
+                            ),
+                        )
+                        .with_source_owned_fill(&boundary_text_owned),
+                        UnsupportedTerminalDomain::textual(
+                            ThemeTarget::EdgeLabel,
+                            &[ThemeTarget::EdgeLabel],
+                            TerminalVariantDomain::uniform(
+                                relation_text_owned.len(),
+                                ThemeVariant::Default,
+                            ),
+                        )
+                        .with_source_owned_fill(&relation_text_owned),
+                        UnsupportedTerminalDomain::direct(
+                            ThemeTarget::Edge,
+                            TerminalVariantDomain::uniform(
+                                relation_line_owned.len(),
+                                ThemeVariant::Default,
+                            ),
+                        )
+                        .with_source_owned_stroke(&relation_line_owned),
+                        UnsupportedTerminalDomain::direct(
+                            ThemeTarget::Marker,
+                            TerminalVariantDomain::uniform(
+                                relation_line_owned.len(),
+                                ThemeVariant::Default,
+                            ),
+                        )
+                        .with_source_owned_fill(&relation_line_owned)
+                        .with_source_owned_stroke(&relation_line_owned),
+                    ],
+                    work,
+                )?;
+            },
+            ::core::option::Option::None => {},
         }
+
         self.source_paint
             .set(C4SourceTerminalPaint {
                 elements,
@@ -620,9 +660,15 @@ impl C4TextPaintPlan {
         source_owned: bool,
         work: &OperationWorkMeter,
     ) -> Result<(Option<DirectStaticPaint>, Option<DirectStaticPaint>), OperationWorkError> {
-        let Some(theme) = self.theme.as_ref().filter(|_| !source_owned) else {
-            return Ok((None, None));
+        let theme = {
+            let optional_theme = self.theme.as_ref().filter(|_| !source_owned);
+
+            match optional_theme {
+                Some(matched_theme) => matched_theme,
+                ::core::option::Option::None => return Ok((None, None)),
+            }
         };
+
         let textual = matches!(
             target,
             ThemeTarget::NodeLabel | ThemeTarget::EdgeLabel | ThemeTarget::ClusterLabel
@@ -633,40 +679,45 @@ impl C4TextPaintPlan {
             theme.style_with_work_meter(target, ThemeVariant::Default, Some(ordinal), work)?
         };
         let targets = [ThemeTarget::Text, target];
-        // An owned root textColor suppresses Text fallback, not an explicit C4 label role.
+
         let inherits_text = textual && self.fill.is_some();
-        let targets = if inherits_text {
+        let targets_2 = if inherits_text {
             { let _explicit_part = &targets; let _explicit_slice: &[_] = _explicit_part; _explicit_slice }
         } else {
             { let [_, _explicit_part @ ..] = &targets; let _explicit_slice: &[_] = _explicit_part; _explicit_slice }
         };
         Ok((
-            resolve_direct_static_fill(theme, &style, targets, DirectStaticSelectorDomain::Default),
+            resolve_direct_static_fill(theme, &style, targets_2, DirectStaticSelectorDomain::Default),
             resolve_direct_static_stroke(
                 theme,
                 &style,
-                targets,
+                targets_2,
                 DirectStaticSelectorDomain::Default,
             ),
         ))
     }
 
+    #[must_use]
     fn uses_inherited_fill(&self, paint: Option<&DirectStaticPaint>) -> bool {
         self.fill
             .as_ref()
             .zip(paint)
-            .is_some_and(|(inherited, paint)| inherited.rule_index() == paint.rule_index())
+            .is_some_and(|(inherited, paint_2)| inherited.rule_index() == paint_2.rule_index())
     }
 
+    #[must_use]
     pub(crate) fn boundary_text_color(&self, index: usize) -> Option<&str> {
-        self.source_paint
-            .get()?
+        let checked_value = self.source_paint
+            .get()?;
+        let checked_value_2 = checked_value
             .boundaries
-            .get(index)?
+            .get(index)?;
+        checked_value_2
             .as_ref()
             .map(|paint| paint.text.as_str())
     }
 
+    #[must_use]
     pub(crate) fn element_paint(&self, index: usize) -> Option<&C4ElementTerminalPaint> {
         self.source_paint
             .get()
@@ -675,6 +726,7 @@ impl C4TextPaintPlan {
             .get(index)
     }
 
+    #[must_use]
     pub(crate) fn relation_paint(&self, index: usize) -> Option<&C4RelationTerminalPaint> {
         self.source_paint
             .get()
@@ -683,6 +735,7 @@ impl C4TextPaintPlan {
             .get(index)
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> Option<C4TextPaintReceipt<'_>> {
         (!self.pending.is_empty()
             || self.theme.as_ref().is_some_and(|theme| {
@@ -710,6 +763,7 @@ impl C4TextPaintPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: C4TextPaintReceipt<'_>) -> bool {
         receipt.valid
             && receipt.css_seen
@@ -738,6 +792,7 @@ impl C4TextPaintPlan {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if self.terminal.get().is_some()
             && let Some(fill) = &self.title_fill
         {
@@ -749,9 +804,11 @@ impl C4TextPaintPlan {
                 [fill.capability()],
             );
         }
+
         for pending in &self.pending {
             let key = &pending.key;
             let residual = pending.residual;
+
             match self.terminal.get() {
                 Some(receipt)
                     if !receipt.text_seen
@@ -763,46 +820,60 @@ impl C4TextPaintPlan {
                     evidence.mark_not_applicable(key.clone());
                 }
                 Some(receipt) if receipt.source_colors_static && residual.is_none() => {
-                    if let Some(fill) = &self.fill {
-                        evidence.mark_applied_with_capabilities(key.clone(), [fill.capability()]);
-                    } else {
-                        evidence.mark_residual(
-                            key.clone(),
-                            FamilyThemeResidualReason::UnsupportedPaint,
-                        );
+                    match &self.fill {
+                        Some(fill) => {
+                            evidence.mark_applied_with_capabilities(key.clone(), [fill.capability()]);
+                        },
+                        ::core::option::Option::None => {
+                            evidence.mark_residual(
+                                key.clone(),
+                                FamilyThemeResidualReason::UnsupportedPaint,
+                            );
+                        },
                     }
                 }
-                _ => {
+                ::core::option::Option::None | ::core::option::Option::Some(_) => {
                     evidence.mark_residual(
                         key.clone(),
-                        residual.unwrap_or(FamilyThemeResidualReason::UnsupportedPaint),
+                        match residual {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => FamilyThemeResidualReason::UnsupportedPaint,
+                        },
                     );
                 }
             }
         }
-        if let Some(source) = self.source_paint.get() {
-            evidence.merge_borrowed(&source.role_evidence);
-            if self
-                .terminal
-                .get()
-                .is_some_and(|terminal| terminal.roles_complete)
-                && let Some(theme) = self.theme.as_ref()
-            {
-                for route in theme.family_mechanism_routes() {
-                    let FamilyThemeMechanism::RuleFacet { target, .. } = route.mechanism() else {
-                        continue;
-                    };
-                    if !is_role_target(target) {
-                        continue;
-                    }
-                    let key = theme.family_mechanism_key(*route);
-                    if let Some(capabilities) = source.typed_roles.get(&key) {
-                        evidence.mark_applied_with_capabilities(key, capabilities.iter().copied());
-                    } else {
-                        evidence.mark_not_applicable(key);
+
+        match self.source_paint.get() {
+            Some(source) => {
+                evidence.merge_borrowed(&source.role_evidence);
+
+                if self
+                    .terminal
+                    .get()
+                    .is_some_and(|terminal| terminal.roles_complete)
+                    && let Some(theme) = self.theme.as_ref()
+                {
+                    for route in theme.family_mechanism_routes() {
+                        let FamilyThemeMechanism::RuleFacet { target, .. } = route.mechanism() else {
+                            continue;
+                        };
+
+                        if !is_role_target(target) {
+                            continue;
+                        }
+
+                        let key = theme.family_mechanism_key(*route);
+
+                        if let Some(capabilities) = source.typed_roles.get(&key) {
+                            evidence.mark_applied_with_capabilities(key, capabilities.iter().copied());
+                        } else {
+                            evidence.mark_not_applicable(key);
+                        }
                     }
                 }
-            }
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
@@ -832,11 +903,12 @@ impl C4TextPaintReceipt<'_> {
     pub(crate) fn record_boundary(&mut self, index: usize, color: &str) {
         let Some(expected) = self
             .expected_source
-            .and_then(|source| source.boundaries.get(index)?.as_ref())
+            .and_then(|source| { let checked_value = source.boundaries.get(index)?; checked_value }.as_ref())
         else {
             self.valid = false;
             return;
         };
+
         self.valid &= expected.text == color && self.boundaries_seen.insert(index);
         self.typed_fill_seen |= expected.typed_text;
     }
@@ -849,6 +921,7 @@ impl C4TextPaintReceipt<'_> {
             self.valid = false;
             return;
         };
+
         self.valid &= expected.text == paint.text
             && expected.background == paint.background
             && expected.border == paint.border
@@ -864,6 +937,7 @@ impl C4TextPaintReceipt<'_> {
             self.valid = false;
             return;
         };
+
         self.valid &= expected.text == paint.text
             && expected.line == paint.line
             && expected.marker_fill == paint.marker_fill
@@ -873,6 +947,7 @@ impl C4TextPaintReceipt<'_> {
     }
 }
 
+#[must_use]
 fn is_role_target(target: ThemeTarget) -> bool {
     matches!(
         target,
@@ -885,6 +960,7 @@ fn is_role_target(target: ThemeTarget) -> bool {
     )
 }
 
+#[must_use]
 fn text_is_visible(text: &str) -> bool {
     text.split("<br/>")
         .flat_map(|line| line.split("<br />"))
@@ -897,14 +973,17 @@ fn record_role_paint(
     target: ThemeTarget,
     paint: Option<&DirectStaticPaint>,
 ) {
-    if let Some(paint) = paint {
-        outcomes
-            .entry(FamilyThemeMechanismKey::Rule {
-                index: paint.rule_index(),
-                target,
-            })
-            .or_default()
-            .insert(paint.capability());
+    match paint {
+        Some(paint_2) => {
+            outcomes
+                .entry(FamilyThemeMechanismKey::Rule {
+                    index: paint_2.rule_index(),
+                    target,
+                })
+                .or_default()
+                .insert(paint_2.capability());
+        },
+        ::core::option::Option::None => {},
     }
 }
 

@@ -39,6 +39,7 @@ pub(crate) struct InheritedTextRunSpec<'a> {
 }
 
 impl<'a> InheritedTextRunSpec<'a> {
+    #[must_use]
     pub(crate) const fn new(
         text: &'a str,
         font_size_px: f64,
@@ -68,24 +69,29 @@ pub(crate) struct InheritedTextRunFacts {
 }
 
 impl InheritedTextRunFacts {
+    #[must_use]
     pub(crate) fn text(&self) -> &str {
         &self.text
     }
 
+    #[must_use]
     pub(crate) const fn font_size_px(&self) -> f64 {
         self.font_size_px
     }
 
+    #[must_use]
     pub(crate) const fn x(&self) -> f64 {
         self.x
     }
 
+    #[must_use]
     pub(crate) const fn y(&self) -> f64 {
         self.y
     }
 
+    #[must_use]
     pub(crate) fn matches_terminal(&self, text: &str, font_size_px: f64, x: f64, y: f64) -> bool {
-        self.text() == text && self.font_size_px == font_size_px && self.x == x && self.y == y
+        self.text() == text && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&self.font_size_px, &font_size_px) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&self.x, &x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&self.y, &y) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
     }
 }
 
@@ -98,6 +104,7 @@ pub(crate) struct InheritedTextViewportFacts {
 }
 
 impl InheritedTextViewportFacts {
+    #[must_use]
     pub(crate) fn prepare<'a>(
         baseline_width_px: f64,
         baseline_height_px: f64,
@@ -117,6 +124,7 @@ impl InheritedTextViewportFacts {
         let mut width_px = baseline_width_px;
         let mut height_px = baseline_height_px;
         let mut measured = Vec::new();
+
         for spec in specs {
             debug_assert!(spec.font_size_px.is_finite() && spec.font_size_px > 0.0);
             debug_assert!(spec.baseline_x_px > 0.0 && spec.baseline_x_px < baseline_width_px);
@@ -150,18 +158,18 @@ impl InheritedTextViewportFacts {
 
         let runs = measured
             .into_iter()
-            .map(|measured| InheritedTextRunFacts {
-                text: measured.spec.text.into(),
-                font_size_px: measured.spec.font_size_px,
-                x: if width_px == baseline_width_px {
-                    measured.spec.baseline_x_px
+            .map(|measured_2| InheritedTextRunFacts {
+                text: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(measured_2.spec.text),
+                font_size_px: measured_2.spec.font_size_px,
+                x: if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&width_px, &baseline_width_px) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
+                    measured_2.spec.baseline_x_px
                 } else {
-                    measured.anchor_x_ratio * width_px
+                    measured_2.anchor_x_ratio * width_px
                 },
-                y: if height_px == baseline_height_px {
-                    measured.spec.baseline_y_px
+                y: if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&height_px, &baseline_height_px) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
+                    measured_2.spec.baseline_y_px
                 } else {
-                    measured.anchor_y_ratio * height_px
+                    measured_2.anchor_y_ratio * height_px
                 },
             })
             .collect::<Vec<_>>()
@@ -174,37 +182,44 @@ impl InheritedTextViewportFacts {
         }
     }
 
+    #[must_use]
     pub(crate) const fn width_px(&self) -> f64 {
         self.width_px
     }
 
+    #[must_use]
     pub(crate) const fn height_px(&self) -> f64 {
         self.height_px
     }
 
+    #[must_use]
     pub(crate) fn runs(&self) -> &[InheritedTextRunFacts] {
         &self.runs
     }
 
+    #[must_use]
     pub(crate) fn run(&self, index: usize) -> &InheritedTextRunFacts {
         &self.runs[index]
     }
 }
 
+#[must_use]
 fn required_axis_extent(measured_extent: f64, available_ratio: f64) -> f64 {
-    if measured_extent == 0.0 {
+    if ::core::matches!(::core::primitive::f64::classify(measured_extent), ::core::num::FpCategory::Zero) {
         return 0.0;
     }
+
     measured_extent / available_ratio
 }
 
 impl InheritedFontStackPlan {
     /// Resolves the font stack independently from unsupported sibling typography properties.
+    #[must_use]
     pub(crate) fn resolve_property_local(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &PresentationConfig,
     ) -> Self {
-        let Some(theme) = theme else {
+        let Some(theme_2) = theme else {
             return Self {
                 font_family_css: crate::config::config_font_family_css(effective_config.as_value())
                     .into_boxed_str(),
@@ -221,7 +236,8 @@ impl InheritedFontStackPlan {
         let mut typed_font_stack = false;
         let mut font_stack_unsupported = false;
         let mut unsupported_typography_properties = BTreeSet::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match (route.mechanism(), route.disposition()) {
                 (
                     FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontStack),
@@ -243,11 +259,11 @@ impl InheritedFontStackPlan {
             }
         }
 
-        // Legacy and unsupported siblings remain non-portable, but neither owns the font-family
-        // assignment. Each property is settled by its own evidence or compatibility ledger.
+
+
         let typed_font_stack_active = typed_font_stack && !config_owns_font_stack;
         let font_family_css = if typed_font_stack_active {
-            theme.typography().font_stack().as_css()
+            theme_2.typography().font_stack().as_css()
         } else {
             crate::config::config_font_family_css(effective_config.as_value())
         };
@@ -269,10 +285,12 @@ impl InheritedFontStackPlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         &self.font_family_css
     }
 
+    #[must_use]
     pub(crate) const fn outcome(&self) -> InheritedFontStackOutcome {
         self.outcome
     }
@@ -283,6 +301,7 @@ impl InheritedFontStackPlan {
     /// terminal DOM unless the typed route was actually requested. It remains true when explicit
     /// configuration owns the winning value or a sibling typography property is handled by a
     /// separate evidence ledger.
+    #[must_use]
     pub(crate) const fn typed_font_stack_requested(&self) -> bool {
         self.typed_font_stack_requested
     }
@@ -291,10 +310,12 @@ impl InheritedFontStackPlan {
     ///
     /// Property-local families settle legacy and unsupported sibling properties through their own
     /// evidence keys, so those siblings do not change this font-stack ownership result.
+    #[must_use]
     pub(crate) const fn typed_font_stack_active(&self) -> bool {
         self.typed_font_stack_active
     }
 
+    #[must_use]
     pub(crate) fn has_unsupported_typography_properties(&self) -> bool {
         !self.unsupported_typography_properties.is_empty()
     }
@@ -303,6 +324,7 @@ impl InheritedFontStackPlan {
     ///
     /// Legacy-compatible properties belong to the compatibility ledger and therefore do not make
     /// the native terminal receipt path run by themselves.
+    #[must_use]
     pub(crate) fn typography_requested(&self) -> bool {
         self.typed_font_stack_requested || self.has_unsupported_typography_properties()
     }
@@ -314,6 +336,7 @@ impl InheritedFontStackPlan {
     ) {
         for property in self.unsupported_typography_properties.iter().copied() {
             let key = crate::diagram_theme::FamilyThemeMechanismKey::Typography(property);
+
             if has_visible_terminals {
                 evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
             } else {
@@ -329,6 +352,7 @@ impl InheritedFontStackPlan {
     ) {
         for property in self.unsupported_typography_properties.iter().copied() {
             let key = crate::diagram_theme::FamilyThemeMechanismKey::Typography(property);
+
             if has_visible_terminals {
                 evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
             } else {

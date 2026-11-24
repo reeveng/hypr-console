@@ -10,7 +10,7 @@ use crate::alpha_runs::{AlphaRuns, Coverage, RunOffset};
 use crate::blitter::{Blitter, CoverageBlitter, SpanBlitter};
 use crate::color::AlphaU8;
 use crate::geom::{IntRectExt, PixelPosition, ScreenIntRect};
-use crate::{Emptiness, FillRule, IntRect, LengthU32, Path, FloatRectangle};
+use crate::{Emptiness, FillRule, FloatRectangle, IntRect, LengthU32, Path};
 
 const SHIFT: u32 = 2;
 const SCALE: u32 = 1 << SHIFT;
@@ -28,7 +28,8 @@ pub fn fill_path(
   let Ok(top) = bounds.top();
   let Ok(right) = bounds.right();
   let Ok(bottom) = bounds.bottom();
-  let Ok(rect) = FloatRectangle::from_ltrb(left.floor(), top.floor(), right.ceil(), bottom.ceil());
+  let Ok(rect) =
+    FloatRectangle::from_ltrb(left.floor(), top.floor(), right.ceil(), bottom.ceil());
   let bounds_2 = match rect.and_then(|rect_2| {
     let Ok(rounded) = rect_2.round_out();
     rounded

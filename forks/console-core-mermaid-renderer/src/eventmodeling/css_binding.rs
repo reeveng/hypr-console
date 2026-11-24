@@ -20,6 +20,7 @@ pub(crate) struct EventModelingCssBinding {
 }
 
 impl EventModelingCssBinding {
+    #[must_use]
     pub(crate) fn resolve(config: &serde_json::Value) -> Self {
         let optional_color =
             |key: &str| crate::config::config_string(config, &["themeVariables", key]);
@@ -38,12 +39,16 @@ impl EventModelingCssBinding {
             command_stroke: color("emCommandStroke", "#679ac3"),
             event_fill: color("emEventFill", "#ffb778"),
             event_stroke: color("emEventStroke", "#c19a0f"),
-            swimlane_background_fill: optional_color("emSwimlaneBackgroundOdd")
-                .or_else(|| optional_color("emSwimlaneBackground"))
-                .unwrap_or_else(|| "rgb(250,250,250)".to_string()),
-            swimlane_background_stroke: optional_color("emSwimlaneBackgroundStroke")
-                .or_else(|| optional_color("emSwimlaneBorder"))
-                .unwrap_or_else(|| "rgb(240,240,240)".to_string()),
+            swimlane_background_fill: match optional_color("emSwimlaneBackgroundOdd")
+                .or_else(|| optional_color("emSwimlaneBackground")) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => "rgb(250,250,250)".to_string(),
+            },
+            swimlane_background_stroke: match optional_color("emSwimlaneBackgroundStroke")
+                .or_else(|| optional_color("emSwimlaneBorder")) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => "rgb(240,240,240)".to_string(),
+            },
             relation_stroke: color("emRelationStroke", "#000"),
             arrowhead_fill: color("emArrowhead", "#000000"),
         }

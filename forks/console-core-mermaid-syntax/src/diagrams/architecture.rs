@@ -159,13 +159,21 @@ impl ArchitectureDb {
         let acc_descr = (!self.acc_descr.trim().is_empty()).then(|| self.acc_descr.clone());
 
         let mut nodes = Vec::with_capacity(self.node_order.len());
+
         for (index, id) in self.node_order.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
-            let Some(n) = self.nodes.get(id) else {
-                continue;
+
+            let n = {
+                let optional_n = self.nodes.get(id);
+
+                match optional_n {
+                    Some(matched_n) => matched_n,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             nodes.push(ArchitectureNodeModel {
                 id: n.id.clone(),
                 node_type: match n.ty {
@@ -181,13 +189,21 @@ impl ArchitectureDb {
         }
 
         let mut groups = Vec::with_capacity(self.group_order.len());
+
         for (index, id) in self.group_order.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
-            let Some(g) = self.groups.get(id) else {
-                continue;
+
+            let g = {
+                let optional_g = self.groups.get(id);
+
+                match optional_g {
+                    Some(matched_g) => matched_g,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             groups.push(ArchitectureGroupModel {
                 id: g.id.clone(),
                 icon: g.icon.clone(),
@@ -197,10 +213,12 @@ impl ArchitectureDb {
         }
 
         let mut edges = Vec::with_capacity(self.edges.len());
+
         for (index, e) in self.edges.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             edges.push(ArchitectureEdgeModel {
                 lhs_id: e.lhs_id.clone(),
                 lhs_dir: e.lhs_dir,
@@ -215,10 +233,12 @@ impl ArchitectureDb {
         }
 
         let mut layout_hints = Vec::with_capacity(self.layout_hints.len());
+
         for (index, hint) in self.layout_hints.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             layout_hints.push(ArchitectureLayoutHintModel {
                 direction: hint.direction,
                 members: hint.members.clone(),
@@ -247,46 +267,57 @@ impl ArchitectureDb {
     ) -> Result<()> {
         let id_text = id.text;
         let id_span = id.span;
-        if let Some(existing) = self.registered_ids.get(&id_text) {
-            return Err(Error::diagram_parse_exact(
-                "architecture",
-                format!("The service id [{id_text}] is already in use by another {existing}"),
-                id_span,
-            ));
+
+        match self.registered_ids.get(&id_text) {
+            Some(existing) => {
+                return Err(Error::diagram_parse_exact(
+                    "architecture",
+                    format!("The service id [{id_text}] is already in use by another {existing}"),
+                    id_span,
+                ));
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(parent) = &in_group {
-            if id_text == parent.text {
-                return Err(Error::diagram_parse_exact(
-                    "architecture",
-                    format!("The service [{id_text}] cannot be placed within itself"),
-                    parent.span,
-                ));
-            }
-            let Some(parent_type) = self.registered_ids.get(&parent.text).copied() else {
-                return Err(Error::diagram_parse_exact(
-                    "architecture",
-                    format!(
-                        "The service [{id_text}]'s parent does not exist. Please make sure the parent is created before this service"
-                    ),
-                    parent.span,
-                ));
-            };
-            if parent_type == RegisteredIdType::Node {
-                return Err(Error::diagram_parse_exact(
-                    "architecture",
-                    format!("The service [{id_text}]'s parent is not a group"),
-                    parent.span,
-                ));
-            }
+        match &in_group {
+            Some(parent) => {
+                if id_text == parent.text {
+                    return Err(Error::diagram_parse_exact(
+                        "architecture",
+                        format!("The service [{id_text}] cannot be placed within itself"),
+                        parent.span,
+                    ));
+                }
+
+                let Some(parent_type) = self.registered_ids.get(&parent.text).copied() else {
+                    return Err(Error::diagram_parse_exact(
+                        "architecture",
+                        format!(
+                            "The service [{id_text}]'s parent does not exist. Please make sure the parent is created before this service"
+                        ),
+                        parent.span,
+                    ));
+                };
+
+                if parent_type == RegisteredIdType::Node {
+                    return Err(Error::diagram_parse_exact(
+                        "architecture",
+                        format!("The service [{id_text}]'s parent is not a group"),
+                        parent.span,
+                    ));
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
-        let in_group = in_group.map(|parent| parent.text);
+        let in_group_2 = in_group.map(|parent| parent.text);
         self.registered_ids
             .insert(id_text.clone(), RegisteredIdType::Node);
+
         if !self.nodes.contains_key(&id_text) {
             self.node_order.push(id_text.clone());
         }
+
         self.nodes.insert(
             id_text.clone(),
             ArchitectureNode {
@@ -296,7 +327,7 @@ impl ArchitectureDb {
                 icon,
                 icon_text,
                 title,
-                in_group,
+                in_group: in_group_2,
             },
         );
         Ok(())
@@ -308,46 +339,57 @@ impl ArchitectureDb {
         in_group: Option<ArchitectureIdentifier>,
     ) -> Result<()> {
         let id_text = id.text;
-        if let Some(existing) = self.registered_ids.get(&id_text) {
-            return Err(Error::diagram_parse_exact(
-                "architecture",
-                format!("The junction id [{id_text}] is already in use by another {existing}"),
-                id.span,
-            ));
+
+        match self.registered_ids.get(&id_text) {
+            Some(existing) => {
+                return Err(Error::diagram_parse_exact(
+                    "architecture",
+                    format!("The junction id [{id_text}] is already in use by another {existing}"),
+                    id.span,
+                ));
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(parent) = &in_group {
-            if id_text == parent.text {
-                return Err(Error::diagram_parse_exact(
-                    "architecture",
-                    format!("The junction [{id_text}] cannot be placed within itself"),
-                    parent.span,
-                ));
-            }
-            let Some(parent_type) = self.registered_ids.get(&parent.text).copied() else {
-                return Err(Error::diagram_parse_exact(
-                    "architecture",
-                    format!(
-                        "The junction [{id_text}]'s parent does not exist. Please make sure the parent is created before this junction"
-                    ),
-                    parent.span,
-                ));
-            };
-            if parent_type == RegisteredIdType::Node {
-                return Err(Error::diagram_parse_exact(
-                    "architecture",
-                    format!("The junction [{id_text}]'s parent is not a group"),
-                    parent.span,
-                ));
-            }
+        match &in_group {
+            Some(parent) => {
+                if id_text == parent.text {
+                    return Err(Error::diagram_parse_exact(
+                        "architecture",
+                        format!("The junction [{id_text}] cannot be placed within itself"),
+                        parent.span,
+                    ));
+                }
+
+                let Some(parent_type) = self.registered_ids.get(&parent.text).copied() else {
+                    return Err(Error::diagram_parse_exact(
+                        "architecture",
+                        format!(
+                            "The junction [{id_text}]'s parent does not exist. Please make sure the parent is created before this junction"
+                        ),
+                        parent.span,
+                    ));
+                };
+
+                if parent_type == RegisteredIdType::Node {
+                    return Err(Error::diagram_parse_exact(
+                        "architecture",
+                        format!("The junction [{id_text}]'s parent is not a group"),
+                        parent.span,
+                    ));
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
-        let in_group = in_group.map(|parent| parent.text);
+        let in_group_2 = in_group.map(|parent| parent.text);
         self.registered_ids
             .insert(id_text.clone(), RegisteredIdType::Node);
+
         if !self.nodes.contains_key(&id_text) {
             self.node_order.push(id_text.clone());
         }
+
         self.nodes.insert(
             id_text.clone(),
             ArchitectureNode {
@@ -357,7 +399,7 @@ impl ArchitectureDb {
                 icon: None,
                 icon_text: None,
                 title: None,
-                in_group,
+                in_group: in_group_2,
             },
         );
         Ok(())
@@ -372,53 +414,64 @@ impl ArchitectureDb {
     ) -> Result<()> {
         let id_text = id.text;
         let id_span = id.span;
-        if let Some(existing) = self.registered_ids.get(&id_text) {
-            return Err(Error::diagram_parse_exact(
-                "architecture",
-                format!("The group id [{id_text}] is already in use by another {existing}"),
-                id_span,
-            ));
+
+        match self.registered_ids.get(&id_text) {
+            Some(existing) => {
+                return Err(Error::diagram_parse_exact(
+                    "architecture",
+                    format!("The group id [{id_text}] is already in use by another {existing}"),
+                    id_span,
+                ));
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(parent) = &in_group {
-            if id_text == parent.text {
-                return Err(Error::diagram_parse_exact(
-                    "architecture",
-                    format!("The group [{id_text}] cannot be placed within itself"),
-                    parent.span,
-                ));
-            }
-            let Some(parent_type) = self.registered_ids.get(&parent.text).copied() else {
-                return Err(Error::diagram_parse_exact(
-                    "architecture",
-                    format!(
-                        "The group [{id_text}]'s parent does not exist. Please make sure the parent is created before this group"
-                    ),
-                    parent.span,
-                ));
-            };
-            if parent_type == RegisteredIdType::Node {
-                return Err(Error::diagram_parse_exact(
-                    "architecture",
-                    format!("The group [{id_text}]'s parent is not a group"),
-                    parent.span,
-                ));
-            }
+        match &in_group {
+            Some(parent) => {
+                if id_text == parent.text {
+                    return Err(Error::diagram_parse_exact(
+                        "architecture",
+                        format!("The group [{id_text}] cannot be placed within itself"),
+                        parent.span,
+                    ));
+                }
+
+                let Some(parent_type) = self.registered_ids.get(&parent.text).copied() else {
+                    return Err(Error::diagram_parse_exact(
+                        "architecture",
+                        format!(
+                            "The group [{id_text}]'s parent does not exist. Please make sure the parent is created before this group"
+                        ),
+                        parent.span,
+                    ));
+                };
+
+                if parent_type == RegisteredIdType::Node {
+                    return Err(Error::diagram_parse_exact(
+                        "architecture",
+                        format!("The group [{id_text}]'s parent is not a group"),
+                        parent.span,
+                    ));
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
-        let in_group = in_group.map(|parent| parent.text);
+        let in_group_2 = in_group.map(|parent| parent.text);
         self.registered_ids
             .insert(id_text.clone(), RegisteredIdType::Group);
+
         if !self.groups.contains_key(&id_text) {
             self.group_order.push(id_text.clone());
         }
+
         self.groups.insert(
             id_text.clone(),
             ArchitectureGroup {
                 id: id_text,
                 icon,
                 title,
-                in_group,
+                in_group: in_group_2,
             },
         );
         Ok(())
@@ -434,6 +487,7 @@ impl ArchitectureDb {
                 ),
             ));
         }
+
         if !is_dir(edge.rhs_dir) {
             return Err(Error::diagram_parse_fallback(
                 "architecture".to_string(),
@@ -454,6 +508,7 @@ impl ArchitectureDb {
                 edge.lhs_span,
             ));
         }
+
         if !self.nodes.contains_key(&edge.rhs_id) && !self.groups.contains_key(&edge.rhs_id) {
             return Err(Error::diagram_parse_exact(
                 "architecture",
@@ -464,6 +519,7 @@ impl ArchitectureDb {
                 edge.rhs_span,
             ));
         }
+
         if self.groups.contains_key(&edge.lhs_id) {
             return Err(Error::diagram_parse_exact(
                 "architecture",
@@ -474,6 +530,7 @@ impl ArchitectureDb {
                 edge.lhs_span,
             ));
         }
+
         if self.groups.contains_key(&edge.rhs_id) {
             return Err(Error::diagram_parse_exact(
                 "architecture",
@@ -500,6 +557,7 @@ impl ArchitectureDb {
                 edge.lhs_span,
             ));
         }
+
         if edge.rhs_group == Some(true)
             && let (Some(lhs), Some(rhs)) =
                 (self.nodes.get(&edge.lhs_id), self.nodes.get(&edge.rhs_id))
@@ -520,14 +578,25 @@ impl ArchitectureDb {
         self.edges.push(edge);
         let lhs_id = self.edges[edge_idx].lhs_id.clone();
         let rhs_id = self.edges[edge_idx].rhs_id.clone();
+
         if self.nodes.contains_key(&lhs_id) && self.nodes.contains_key(&rhs_id) {
-            if let Some(lhs) = self.nodes.get_mut(&lhs_id) {
-                lhs.edges.push(edge_idx);
+            match self.nodes.get_mut(&lhs_id) {
+                Some(lhs) => {
+                    lhs.edges.push(edge_idx);
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(rhs) = self.nodes.get_mut(&rhs_id) {
-                rhs.edges.push(edge_idx);
+
+            {
+                match self.nodes.get_mut(&rhs_id) {
+                    Some(rhs) => {
+                        rhs.edges.push(edge_idx);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
+
         Ok(())
     }
 
@@ -538,6 +607,7 @@ impl ArchitectureDb {
         control: &OperationControl,
     ) -> OperationControlResult<Result<()>> {
         control.checkpoint()?;
+
         if members.len() < 2 {
             return Ok(Err(Error::diagram_parse_fallback(
                 "architecture".to_string(),
@@ -550,10 +620,12 @@ impl ArchitectureDb {
 
         let mut seen = std::collections::HashSet::new();
         let mut member_texts = Vec::with_capacity(members.len());
+
         for (index, member) in members.into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             if self.registered_ids.get(&member.text).copied() != Some(RegisteredIdType::Node) {
                 return Ok(Err(Error::diagram_parse_exact(
                     "architecture",
@@ -565,6 +637,7 @@ impl ArchitectureDb {
                     member.span,
                 )));
             }
+
             if !seen.insert(member.text.clone()) {
                 return Ok(Err(Error::diagram_parse_exact(
                     "architecture",
@@ -576,6 +649,7 @@ impl ArchitectureDb {
                     member.span,
                 )));
             }
+
             member_texts.push(member.text);
         }
 
@@ -588,44 +662,63 @@ impl ArchitectureDb {
     }
 }
 
+#[must_use]
 fn is_dir(c: char) -> bool {
     matches!(c, 'L' | 'R' | 'T' | 'B')
 }
 
+#[must_use]
 fn strip_inline_comment(line: &str) -> &str {
     let mut in_quote = false;
     let mut quote_char: Option<char> = None;
     let mut in_title = false;
     let mut it = line.char_indices().peekable();
+
     while let Some((idx, ch)) = it.next() {
         if in_quote {
-            if ch == '\\' {
-                it.next();
-                continue;
+            match ch {
+                '\\' => {
+                    it.next();
+                    continue;
+                },
+                _ => {},
             }
+
             if Some(ch) == quote_char {
                 in_quote = false;
                 quote_char = None;
             }
+
             continue;
         }
+
         if ch == '"' || ch == '\'' {
             in_quote = true;
             quote_char = Some(ch);
             continue;
         }
-        if ch == '[' {
-            in_title = true;
-            continue;
+
+        match ch {
+            '[' => {
+                in_title = true;
+                continue;
+            },
+            _ => {},
         }
-        if ch == ']' {
-            in_title = false;
-            continue;
+
+        match ch {
+            ']' => {
+                in_title = false;
+                continue;
+            },
+            _ => {},
         }
+
         if !in_title && ch == '%' && it.peek().is_some_and(|(_, next)| *next == '%') {
             return &line[..idx];
         }
     }
+
     line
 }
 
@@ -641,6 +734,7 @@ struct ArchitectureLineCursor<'a> {
 }
 
 impl<'a> ArchitectureLineCursor<'a> {
+    #[must_use]
     fn new(source: &'a str) -> Self {
         Self { source, offset: 0 }
     }
@@ -666,12 +760,14 @@ impl<'a> ArchitectureLineCursor<'a> {
     }
 }
 
+#[must_use]
 fn trimmed_statement_with_offset(raw: &str, raw_start: usize) -> (&str, usize) {
     let line = strip_inline_comment(raw);
     let leading = line.len() - line.trim_start().len();
     (line.trim(), raw_start + leading)
 }
 
+#[must_use]
 fn is_architecture_reserved_id(id: &str) -> bool {
     matches!(
         id,
@@ -699,6 +795,7 @@ pub(crate) fn is_valid_editor_identifier(candidate: &str) -> bool {
     !candidate.is_empty() && last_was_word && !is_architecture_reserved_id(candidate)
 }
 
+#[must_use]
 fn architecture_reserved_id_message(id: &str) -> String {
     format!("reserved architecture keyword [{id}] cannot be used as an id")
 }

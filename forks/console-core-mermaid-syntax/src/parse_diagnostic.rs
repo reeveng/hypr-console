@@ -28,6 +28,7 @@ pub(crate) fn lalrpop_recovery_span<T, E>(
     }
 }
 
+#[must_use]
 pub(crate) fn lalrpop_parse_diagnostic<T, E>(
     error: &lalrpop_util::ParseError<usize, T, E>,
     fallback_offset: usize,
@@ -37,6 +38,7 @@ where
     E: std::fmt::Display + ParseErrorSourceSpan,
 {
     let message = format_lalrpop_parse_error(error);
+
     match error {
         lalrpop_util::ParseError::InvalidToken { location }
         | lalrpop_util::ParseError::UnrecognizedEof { location, .. } => {
@@ -51,19 +53,23 @@ where
                 SourceSpan::new(token.0, token.2),
                 ParseDiagnosticSpanKind::Exact,
             ),
-        lalrpop_util::ParseError::User { error } => {
-            if let Some(span) = error.source_span() {
-                ParseDiagnostic::new(message).with_span(span, ParseDiagnosticSpanKind::Exact)
-            } else {
-                ParseDiagnostic::new(message).with_span(
-                    SourceSpan::new(fallback_offset, fallback_offset),
-                    ParseDiagnosticSpanKind::Fallback,
-                )
+        lalrpop_util::ParseError::User { error: error_2 } => {
+            match error_2.source_span() {
+                Some(span) => {
+                    ParseDiagnostic::new(message).with_span(span, ParseDiagnosticSpanKind::Exact)
+                },
+                ::core::option::Option::None => {
+                    ParseDiagnostic::new(message).with_span(
+                        SourceSpan::new(fallback_offset, fallback_offset),
+                        ParseDiagnosticSpanKind::Fallback,
+                    )
+                },
             }
         }
     }
 }
 
+#[must_use]
 pub(crate) fn format_lalrpop_parse_error<T, E>(
     error: &lalrpop_util::ParseError<usize, T, E>,
 ) -> String
@@ -74,29 +80,32 @@ where
     match error {
         lalrpop_util::ParseError::InvalidToken { .. } => "unexpected token".to_string(),
         lalrpop_util::ParseError::UnrecognizedEof { expected, .. } => {
-            let expected = format_expected_tokens(expected);
-            if expected.is_empty() {
+            let expected_2 = format_expected_tokens(expected);
+
+            if expected_2.is_empty() {
                 "unexpected end of input".to_string()
             } else {
-                format!("unexpected end of input; expected {expected}")
+                format!("unexpected end of input; expected {expected}", expected = expected_2)
             }
         }
         lalrpop_util::ParseError::UnrecognizedToken { token, expected } => {
-            let expected = format_expected_tokens(expected);
+            let expected_3 = format_expected_tokens(expected);
             let found = format_found_token(&token.1);
-            if expected.is_empty() {
+
+            if expected_3.is_empty() {
                 format!("unexpected {found}")
             } else {
-                format!("unexpected {found}; expected {expected}")
+                format!("unexpected {found}; expected {expected}", expected = expected_3)
             }
         }
         lalrpop_util::ParseError::ExtraToken { token } => {
             format!("unexpected extra {}", format_found_token(&token.1))
         }
-        lalrpop_util::ParseError::User { error } => error.to_string(),
+        lalrpop_util::ParseError::User { error: error_2 } => error_2.to_string(),
     }
 }
 
+#[must_use]
 fn format_expected_tokens(expected: &[String]) -> String {
     expected
         .iter()
@@ -105,6 +114,7 @@ fn format_expected_tokens(expected: &[String]) -> String {
         .join(", ")
 }
 
+#[must_use]
 fn humanize_expected_token(token: &str) -> String {
     match token {
         "Id" => "node identifier".to_string(),
@@ -117,6 +127,7 @@ fn humanize_expected_token(token: &str) -> String {
     }
 }
 
+#[must_use]
 fn format_found_token<T>(token: &T) -> String
 where
     T: std::fmt::Debug,
@@ -146,16 +157,18 @@ where
     }
 }
 
+#[must_use]
 fn humanize_token_name(token: &str) -> String {
-    let token = token.strip_prefix("Kw").unwrap_or(token);
+    let token_2 = token.strip_prefix("Kw").unwrap_or(token);
     let mut out = String::new();
     let mut previous_is_lowercase = false;
 
-    for ch in token.chars() {
+    for ch in token_2.chars() {
         if ch == '_' || ch == '-' {
             if !out.ends_with(' ') {
                 out.push(' ');
             }
+
             previous_is_lowercase = false;
             continue;
         }

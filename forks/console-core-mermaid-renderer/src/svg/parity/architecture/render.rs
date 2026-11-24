@@ -17,9 +17,10 @@ use super::root::{architecture_a11y_nodes, begin_architecture_document};
 use super::settings::ArchitectureRenderSettings;
 use super::viewport::{ArchitectureRootViewportContext, finalize_architecture_root_viewport};
 
-// Architecture diagram SVG renderer implementation (split from parity.rs).
 
-fn architecture_bounds_match_icon_rect(bounds: &Bounds, x: f64, y: f64, icon_size_px: f64) -> bool {
+
+#[must_use]
+fn architecture_bounds_match_icon_rect(bounds: &Bounds, ArchitectureBoundsMatchIconRectArguments { x, y, icon_size_px }: ArchitectureBoundsMatchIconRectArguments) -> bool {
     const EPSILON: f64 = 1e-6;
     (bounds.min_x - x).abs() <= EPSILON
         && (bounds.min_y - y).abs() <= EPSILON
@@ -27,21 +28,35 @@ fn architecture_bounds_match_icon_rect(bounds: &Bounds, x: f64, y: f64, icon_siz
         && (bounds.max_y - (y + icon_size_px)).abs() <= EPSILON
 }
 
-fn architecture_cached_service_child_bounds<'a>(
-    service_bounds_by_id: &'a console_core_perfect_hash::collections::FixedMap<&str, &'a ArchitectureCytoscapeServiceBounds>,
-    service: &ArchitectureNodeModel,
+struct ArchitectureBoundsMatchIconRectArguments {
     x: f64,
     y: f64,
     icon_size_px: f64,
+}
+
+#[must_use]
+fn architecture_cached_service_child_bounds<'a>(
+    service_bounds_by_id: &'a console_core_perfect_hash::collections::FixedMap<&str, &'a ArchitectureCytoscapeServiceBounds>,
+    service: &ArchitectureNodeModel,
+    ArchitectureCachedServiceChildBoundsArguments { x, y, icon_size_px }: ArchitectureCachedServiceChildBoundsArguments,
 ) -> Option<&'a ArchitectureCytoscapeServiceBounds> {
     let cached = service_bounds_by_id.get(service.id.as_str()).copied()?;
+
     if cached.in_group.as_deref() != service.in_group.as_deref() {
         return None;
     }
-    if !architecture_bounds_match_icon_rect(&cached.body_bounds, x, y, icon_size_px) {
+
+    if !architecture_bounds_match_icon_rect(&cached.body_bounds, self::ArchitectureBoundsMatchIconRectArguments { x, y, icon_size_px }) {
         return None;
     }
+
     Some(cached)
+}
+
+struct ArchitectureCachedServiceChildBoundsArguments {
+    x: f64,
+    y: f64,
+    icon_size_px: f64,
 }
 
 pub(crate) fn render_architecture_diagram_svg_typed_with_config(
@@ -83,44 +98,51 @@ pub(crate) fn render_architecture_diagram_svg_typed_with_config(
     checkpoints.checkpoint()?;
 
     let mut node_xy: console_core_perfect_hash::collections::FixedMap<&str, (f64, f64)> = console_core_perfect_hash::collections::FixedMap::default();
+
     for n in &layout.nodes {
         node_xy.insert(n.id.as_str(), (n.x, n.y));
     }
 
     let text_measurer = options.text_measurer();
 
-    // Mermaid Architecture uses `setupGraphViewbox()` which expands the viewBox based on the
-    // SVG's `getBBox()` plus `architecture.padding`. Reconstruct that effective bbox from the
-    // emitted geometry, cached Cytoscape bounds, and operation-owned text measurements.
+
+
+
     let mut content_bounds: Option<Bounds> = None;
 
-    // Service/root text bounds use the exact tspan-height and middle-baseline operations. Compound
-    // sizing stays on the separate Cytoscape child-bbox phases cached by layout; the two DOM
-    // consumers intentionally do not share a vertical extent.
+
+
+
 
     let mut cached_service_bounds_by_id: console_core_perfect_hash::collections::FixedMap<
         &str,
         &ArchitectureCytoscapeServiceBounds,
     > = console_core_perfect_hash::collections::FixedMap::default();
     cached_service_bounds_by_id.reserve(layout.cytoscape_service_bounds.len());
+
     for bounds in &layout.cytoscape_service_bounds {
         cached_service_bounds_by_id.insert(bounds.id.as_str(), bounds);
     }
 
     let mut service_bounds: console_core_perfect_hash::collections::FixedMap<&str, Bounds> = console_core_perfect_hash::collections::FixedMap::default();
+
     for svc in model
         .nodes
         .iter()
         .filter(|node| node.node_type == ArchitectureNodeKind::Service)
     {
-        let (x, y) = node_xy.get(svc.id.as_str()).copied().unwrap_or((0.0, 0.0));
+        let (x, y) = match node_xy.get(svc.id.as_str()).copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => (0.0, 0.0),
+        };
+
         if svc.in_group.is_some()
             && let Some(cached) = architecture_cached_service_child_bounds(
                 &cached_service_bounds_by_id,
                 svc,
-                x,
+                self::ArchitectureCachedServiceChildBoundsArguments { x,
                 y,
-                icon_size_px,
+                icon_size_px },
             )
         {
             service_bounds.insert(svc.id.as_str(), cached.union_bounds.clone());
@@ -150,13 +172,14 @@ pub(crate) fn render_architecture_diagram_svg_typed_with_config(
         } else {
             estimate.svg_root_bounds.clone()
         };
-        // Group rectangles (compound nodes) are sized by Cytoscape to include service labels, so
-        // extending the root `getBBox()` estimate with *in-group* label bounds can double-count
-        // and inflate the final `viewBox` / `max-width` in parity-root comparisons.
-        //
-        // Keep full label bounds for group sizing, but only union label extents into the root
-        // viewport bounds when the service is not inside a group.
+
+
+
+
+
+
         service_bounds.insert(svc.id.as_str(), b_full.clone());
+
         if svc.in_group.is_none() {
             extend_bounds(&mut content_bounds, estimate.svg_root_bounds);
         } else {
@@ -165,33 +188,39 @@ pub(crate) fn render_architecture_diagram_svg_typed_with_config(
     }
 
     let mut junction_bounds: console_core_perfect_hash::collections::FixedMap<&str, Bounds> = console_core_perfect_hash::collections::FixedMap::default();
+
     for junction in model
         .nodes
         .iter()
         .filter(|node| node.node_type == ArchitectureNodeKind::Junction)
     {
-        let (x, y) = node_xy
+        let (x, y) = match node_xy
             .get(junction.id.as_str())
-            .copied()
-            .unwrap_or((0.0, 0.0));
+            .copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => (0.0, 0.0),
+        };
         let b = bounds_from_rect(x, y, icon_size_px, icon_size_px);
         junction_bounds.insert(junction.id.as_str(), b.clone());
         extend_bounds(&mut content_bounds, b);
     }
 
-    // Groups (outer rects, including nested groups).
+
     let mut child_groups: console_core_perfect_hash::collections::FixedMap<&str, Vec<&str>> = console_core_perfect_hash::collections::FixedMap::default();
+
     for g in &model.groups {
         if let Some(parent) = g.in_group.as_deref() {
             child_groups.entry(parent).or_default().push(g.id.as_str());
         }
     }
+
     for v in child_groups.values_mut() {
         v.sort_unstable();
     }
 
     let mut services_in_group: console_core_perfect_hash::collections::FixedMap<&str, Vec<&str>> =
         console_core_perfect_hash::collections::FixedMap::default();
+
     for svc in model
         .nodes
         .iter()
@@ -204,12 +233,14 @@ pub(crate) fn render_architecture_diagram_svg_typed_with_config(
                 .push(svc.id.as_str());
         }
     }
+
     for v in services_in_group.values_mut() {
         v.sort_unstable();
     }
 
     let mut junctions_in_group: console_core_perfect_hash::collections::FixedMap<&str, Vec<&str>> =
         console_core_perfect_hash::collections::FixedMap::default();
+
     for junction in model
         .nodes
         .iter()
@@ -222,6 +253,7 @@ pub(crate) fn render_architecture_diagram_svg_typed_with_config(
                 .push(junction.id.as_str());
         }
     }
+
     for v in junctions_in_group.values_mut() {
         v.sort_unstable();
     }
@@ -235,11 +267,13 @@ pub(crate) fn render_architecture_diagram_svg_typed_with_config(
         &service_bounds,
         &junction_bounds,
     );
+
     for g in &model.groups {
         let _ = group_rects_computer.compute(g.id.as_str());
     }
 
     let mut group_rects: Vec<GroupRect<'_>> = Vec::with_capacity(model.groups.len());
+
     for g in &model.groups {
         if let Some(b) = group_rects_computer.get(g.id.as_str()) {
             group_rects.push(GroupRect {
@@ -311,7 +345,7 @@ pub(crate) fn render_architecture_diagram_svg_typed_with_config(
     )?;
     let mut edge_style_emitted = false;
     let mut group_emitted = false;
-    // Edge bounds and DOM emission live in `architecture/edges.rs`.
+
     {
         let mut edge_render_ctx = ArchitectureEdgeRenderContext {
             out: &mut out,
@@ -331,6 +365,7 @@ pub(crate) fn render_architecture_diagram_svg_typed_with_config(
         };
         push_architecture_edges(&mut edge_render_ctx)?;
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
@@ -378,7 +413,7 @@ pub(crate) fn render_architecture_diagram_svg_typed_with_config(
         is_empty,
         trust_content_bounds: options.icon_registry().is_none(),
     })?;
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
     let theme_outcome = crate::architecture::ArchitectureThemeOutcome {
         evidence: group_theme.finish_evidence(
             typography_emission,
@@ -397,6 +432,7 @@ pub(crate) fn render_architecture_diagram_svg_typed_with_config(
     timings.total = total_timer
         .map(merman_model::runtime::OperationTimer::elapsed)
         .unwrap_or_default();
+
     if timing.is_enabled() {
         eprintln!(
             "[render-timing] diagram=architecture total={:?} deserialize={:?} build_ctx={:?} viewbox={:?} render_svg={:?} finalize={:?}",

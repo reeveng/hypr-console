@@ -26,7 +26,7 @@ use crate::include::dav1d::headers::Rav1dPixelLayoutSubSampled;
 #[cfg(target_arch = "x86_64")]
 use crate::include::dav1d::picture::PicOffset;
 #[cfg(target_arch = "x86_64")]
-use crate::src::internal::COMPINTER_LEN;
+use crate::src::internal::CompoundPrediction;
 #[cfg(target_arch = "x86_64")]
 use crate::src::levels::Filter2d;
 #[cfg(target_arch = "x86_64")]
@@ -43,6 +43,10 @@ use console_core_geometry::Point;
 use console_core_geometry::Size;
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 use console_core_never::Never;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use console_core_simd::Simd;
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+use console_core_video_interpolation::FilterTaps;
 
 use std::cell::Cell;
 
@@ -108,8 +112,8 @@ fn avg_8bpc_avx2_safe(
   _token: Desktop64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
 ) -> Result<(), BlendLayoutError> {
   let Size {
@@ -184,8 +188,8 @@ fn avg_8bpc_avx512_safe(
   _token: Server64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
 ) -> Result<(), BlendLayoutError> {
   let Size {
@@ -272,8 +276,8 @@ fn avg_16bpc_avx2_safe(
   _token: Desktop64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   bitdepth_max: i32,
 ) -> Result<(), BlendLayoutError> {
@@ -369,8 +373,8 @@ fn avg_16bpc_avx512_safe(
   _token: Server64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   bitdepth_max: i32,
 ) -> Result<(), BlendLayoutError> {
@@ -533,8 +537,8 @@ fn w_avg_8bpc_avx2_safe(
   _token: Desktop64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   weight: i32,
 ) -> Result<(), BlendLayoutError> {
@@ -600,8 +604,8 @@ fn w_avg_8bpc_avx512_safe(
   _token: Server64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   weight: i32,
 ) -> Result<(), BlendLayoutError> {
@@ -688,8 +692,8 @@ fn w_avg_16bpc_avx2_safe(
   _token: Desktop64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   scale: WeightedAverageScale,
 ) -> Result<(), BlendLayoutError> {
@@ -793,8 +797,8 @@ fn w_avg_16bpc_avx512_safe(
   _token: Server64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   scale: WeightedAverageScale,
 ) -> Result<(), BlendLayoutError> {
@@ -940,8 +944,8 @@ fn mask_8bpc_avx2_safe(
   _token: Desktop64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   mask: &[u8],
 ) -> Result<(), BlendLayoutError> {
@@ -1019,8 +1023,8 @@ fn mask_8bpc_avx512_safe(
   _token: Server64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   mask: &[u8],
 ) -> Result<(), BlendLayoutError> {
@@ -1169,8 +1173,8 @@ fn mask_16bpc_avx512_safe(
   token: Server64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   mask: &[u8],
   bitdepth_max: i32,
@@ -1256,8 +1260,8 @@ fn mask_16bpc_avx2_safe(
   token: Desktop64,
   dst: &mut [u8],
   byte_stride: u64,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   mask: &[u8],
   bitdepth_max: i32,
@@ -1298,7 +1302,7 @@ fn mask_16bpc_avx2_safe(
 }
 
 #[cfg(target_arch = "x86_64")]
-use crate::src::internal::{SCRATCH_INTER_INTRA_BUF_LEN, SCRATCH_LAP_LEN};
+use crate::src::internal::{InterIntraPrediction, OverlapPrediction};
 
 #[cfg(target_arch = "x86_64")]
 #[arcane]
@@ -2113,50 +2117,6 @@ fn horizontal_byte_sums(
   let first_half = _mm256_add_epi16(products_01, products_23);
   let third_pair = _mm256_add_epi16(first_half, products_45);
   Ok(_mm256_add_epi16(third_pair, products_67))
-}
-
-#[cfg(target_arch = "x86_64")]
-#[rite]
-fn word_tap_coefficients(
-  _token: Server64,
-  filter: [i8; 8],
-) -> Result<[__m512i; 8], console_core_never::Never> {
-  let [a, b, c, d, e, f, g, h] = filter.map(i32::from);
-  Ok([
-    _mm512_set1_epi32(a),
-    _mm512_set1_epi32(b),
-    _mm512_set1_epi32(c),
-    _mm512_set1_epi32(d),
-    _mm512_set1_epi32(e),
-    _mm512_set1_epi32(f),
-    _mm512_set1_epi32(g),
-    _mm512_set1_epi32(h),
-  ])
-}
-
-#[cfg(target_arch = "x86_64")]
-#[rite]
-fn horizontal_word_sums(
-  _token: Server64,
-  input: &[u16; 23],
-  [a, b, c, d, e, f, g, h]: [__m512i; 8],
-) -> Rav1dResult<__m512i> {
-  let [first, second, third, fourth, fifth, sixth, seventh, eighth] = horizontal_windows(input)?;
-  let term_0 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(first)), a);
-  let term_1 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(second)), b);
-  let term_2 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(third)), c);
-  let term_3 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(fourth)), d);
-  let term_4 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(fifth)), e);
-  let term_5 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(sixth)), f);
-  let term_6 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(seventh)), g);
-  let term_7 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(eighth)), h);
-  let first_two = _mm512_add_epi32(term_0, term_1);
-  let first_three = _mm512_add_epi32(first_two, term_2);
-  let first_four = _mm512_add_epi32(first_three, term_3);
-  let first_five = _mm512_add_epi32(first_four, term_4);
-  let first_six = _mm512_add_epi32(first_five, term_5);
-  let first_seven = _mm512_add_epi32(first_six, term_6);
-  Ok(_mm512_add_epi32(first_seven, term_7))
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -5208,559 +5168,6 @@ fn v_filter_8tap_16bpc_prep_avx2_inner(
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
-fn h_filter_8tap_16bpc_put_avx2_inner(
-  _token: Desktop64,
-  dst: &mut [u16],
-  src: &[u16],
-  width: u32,
-  filter: &[i8; 8],
-  max: i32,
-) -> Rav1dResult {
-  let dst_2 = &mut *dst;
-  let src_2 = &*src;
-
-  let coeff0 = _mm256_set1_epi32(
-    ::core::primitive::i32::wrapping_shl(
-      <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-        <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-          &[_, element, ..] => element,
-        }),
-      ),
-      16_u32,
-    ) | <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      ::core::primitive::i16::cast_unsigned(<i16 as ::core::convert::From<
-        ::core::primitive::i8,
-      >>::from(match filter {
-        &[element, ..] => element,
-      })),
-    ),
-  );
-  let coeff2 = _mm256_set1_epi32(
-    ::core::primitive::i32::wrapping_shl(
-      <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-        <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-          &[_, _, _, element, ..] => element,
-        }),
-      ),
-      16_u32,
-    ) | <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      ::core::primitive::i16::cast_unsigned(<i16 as ::core::convert::From<
-        ::core::primitive::i8,
-      >>::from(match filter {
-        &[_, _, element, ..] => element,
-      })),
-    ),
-  );
-  let coeff4 = _mm256_set1_epi32(
-    ::core::primitive::i32::wrapping_shl(
-      <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-        <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-          &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
-        }),
-      ),
-      16_u32,
-    ) | <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      ::core::primitive::i16::cast_unsigned(<i16 as ::core::convert::From<
-        ::core::primitive::i8,
-      >>::from(match filter {
-        &[_, _, _, _, _explicit_element, ..] => _explicit_element,
-      })),
-    ),
-  );
-  let coeff6 = _mm256_set1_epi32(
-    ::core::primitive::i32::wrapping_shl(
-      <i32 as ::core::convert::From<::core::primitive::i16>>::from(
-        <i16 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-          &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-        }),
-      ),
-      16_u32,
-    ) | <i32 as ::core::convert::From<::core::primitive::u16>>::from(
-      ::core::primitive::i16::cast_unsigned(<i16 as ::core::convert::From<
-        ::core::primitive::i8,
-      >>::from(match filter {
-        &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-      })),
-    ),
-  );
-
-  let intermediate_bits = match ::core::primitive::bool::then_some(
-    ::core::primitive::i32::wrapping_shr(max, 11_u32) != 0,
-    (),
-  ) {
-    ::core::option::Option::Some(()) => 2,
-    ::core::option::Option::None => 4,
-  };
-  let rnd = _mm256_set1_epi32(i32::wrapping_add(
-    32,
-    ::core::primitive::i32::wrapping_shr(
-      i32::wrapping_shl(
-        1,
-        i32::cast_unsigned(i32::wrapping_sub(6, intermediate_bits)),
-      ),
-      1_u32,
-    ),
-  ));
-  let shift_count = _mm_cvtsi32_si128(6);
-  let zero = _mm256_setzero_si256();
-  let max_val = _mm256_set1_epi32(max);
-
-  let vector_columns = width.wrapping_sub(width.wrapping_rem(8));
-
-  for col in (0..vector_columns).step_by(8) {
-    let Ok(column_index) = console_core_number_conversion::index(col);
-
-    let checked_value_2 = <[_]>::get(
-      &*src_2,
-      column_index..(Wrapping(column_index) + Wrapping(4)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a0 = loadu_64!(checked_value_2);
-    let checked_value_3 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(1)).0..(Wrapping(column_index) + Wrapping(5)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a1 = loadu_64!(checked_value_3);
-    let checked_value_4 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(2)).0..(Wrapping(column_index) + Wrapping(6)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a2 = loadu_64!(checked_value_4);
-    let checked_value_5 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(3)).0..(Wrapping(column_index) + Wrapping(7)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a3 = loadu_64!(checked_value_5);
-    let checked_value_6 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(4)).0..(Wrapping(column_index) + Wrapping(8)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a4 = loadu_64!(checked_value_6);
-    let checked_value_7 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(5)).0..(Wrapping(column_index) + Wrapping(9)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a5 = loadu_64!(checked_value_7);
-    let checked_value_8 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(6)).0..(Wrapping(column_index) + Wrapping(10)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a6 = loadu_64!(checked_value_8);
-    let checked_value_9 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(7)).0..(Wrapping(column_index) + Wrapping(11)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a7 = loadu_64!(checked_value_9);
-    let checked_value_10 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(8)).0..(Wrapping(column_index) + Wrapping(12)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a8 = loadu_64!(checked_value_10);
-    let checked_value_11 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(9)).0..(Wrapping(column_index) + Wrapping(13)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a9 = loadu_64!(checked_value_11);
-    let checked_value_12 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(10)).0..(Wrapping(column_index) + Wrapping(14)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a10 = loadu_64!(checked_value_12);
-    let checked_value_13 = <[_]>::get(
-      &*src_2,
-      (Wrapping(column_index) + Wrapping(11)).0..(Wrapping(column_index) + Wrapping(15)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 4]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let a11 = loadu_64!(checked_value_13);
-
-    let s0 = _mm256_inserti128_si256(_mm256_castsi128_si256(a0), a4, 1);
-    let s1 = _mm256_inserti128_si256(_mm256_castsi128_si256(a1), a5, 1);
-    let s2 = _mm256_inserti128_si256(_mm256_castsi128_si256(a2), a6, 1);
-    let s3 = _mm256_inserti128_si256(_mm256_castsi128_si256(a3), a7, 1);
-    let s4 = _mm256_inserti128_si256(_mm256_castsi128_si256(a4), a8, 1);
-    let s5 = _mm256_inserti128_si256(_mm256_castsi128_si256(a5), a9, 1);
-    let s6 = _mm256_inserti128_si256(_mm256_castsi128_si256(a6), a10, 1);
-    let s7 = _mm256_inserti128_si256(_mm256_castsi128_si256(a7), a11, 1);
-
-    let p01 = _mm256_unpacklo_epi16(s0, s1);
-    let p23 = _mm256_unpacklo_epi16(s2, s3);
-    let p45 = _mm256_unpacklo_epi16(s4, s5);
-    let p67 = _mm256_unpacklo_epi16(s6, s7);
-
-    let ma01 = _mm256_madd_epi16(p01, coeff0);
-    let ma23 = _mm256_madd_epi16(p23, coeff2);
-    let ma45 = _mm256_madd_epi16(p45, coeff4);
-    let ma67 = _mm256_madd_epi16(p67, coeff6);
-
-    let sum = _mm256_add_epi32(_mm256_add_epi32(ma01, ma23), _mm256_add_epi32(ma45, ma67));
-
-    let shifted = _mm256_sra_epi32(_mm256_add_epi32(sum, rnd), shift_count);
-    let clamped_lo = _mm256_max_epi32(shifted, zero);
-    let clamped = _mm256_min_epi32(clamped_lo, max_val);
-
-    let packed = _mm256_packus_epi32(clamped, zero);
-    let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
-
-    let checked_value_14 = <[_]>::get_mut(
-      &mut *dst_2,
-      column_index..(Wrapping(column_index) + Wrapping(8)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&mut [u16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    storeu_128!(checked_value_14, _mm256_castsi256_si128(result));
-  }
-
-  let scalar_rnd = i32::wrapping_add(
-    32,
-    ::core::primitive::i32::wrapping_shr(
-      i32::wrapping_shl(
-        1,
-        i32::cast_unsigned(i32::wrapping_sub(6, intermediate_bits)),
-      ),
-      1_u32,
-    ),
-  );
-
-  for col in vector_columns..width {
-    let Ok(column_index) = console_core_number_conversion::index(col);
-
-    let sum = try_convolve8(filter, |ordinal| {
-      let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value =
-        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
-      Ok(i32::from(*checked_value))
-    })?;
-
-    let output_sample =
-      ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, scalar_rnd), 6_u32)
-        .clamp(0, max);
-    *{
-      let checked_value_18 =
-        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
-      checked_value_18
-    } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
-      {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
-  }
-
-  Ok(())
-}
-
-#[cfg(target_arch = "x86_64")]
-#[rite]
-fn v_filter_8tap_16bpc_direct_avx2_inner(
-  _token: Desktop64,
-  dst: &mut [u16],
-  src: &[u16],
-  src_stride: i64,
-  width: u32,
-  filter: &[i8; 8],
-  max: i32,
-) -> Rav1dResult {
-  let dst_2 = &mut *dst;
-  let src_2 = &*src;
-  let coeff: [i32; 8] = [
-    <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[element, ..] => element,
-    }),
-    <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, element, ..] => element,
-    }),
-    <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, element, ..] => element,
-    }),
-    <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, element, ..] => element,
-    }),
-    <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
-    }),
-    <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    }),
-    <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    }),
-    <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    }),
-  ];
-
-  let c0 = _mm256_set1_epi32(match coeff {
-    [element, ..] => element,
-  });
-  let c1 = _mm256_set1_epi32(match coeff {
-    [_, element, ..] => element,
-  });
-  let c2 = _mm256_set1_epi32(match coeff {
-    [_, _, element, ..] => element,
-  });
-  let c3 = _mm256_set1_epi32(match coeff {
-    [_, _, _, element, ..] => element,
-  });
-  let c4 = _mm256_set1_epi32(match coeff {
-    [_, _, _, _, _explicit_element, ..] => _explicit_element,
-  });
-  let c5 = _mm256_set1_epi32(match coeff {
-    [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
-  });
-  let c6 = _mm256_set1_epi32(match coeff {
-    [_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-  });
-  let c7 = _mm256_set1_epi32(match coeff {
-    [_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-  });
-
-  let rnd = _mm256_set1_epi32(32);
-  let shift_count = _mm_cvtsi32_si128(6);
-  let zero = _mm256_setzero_si256();
-  let max_val = _mm256_set1_epi32(max);
-
-  let vector_columns = width.wrapping_sub(width.wrapping_rem(8));
-
-  let pitch = u64::try_from(src_stride).map_err(|_| Rav1dError::EINVAL)?;
-  let Ok(stride_u) = console_core_number_conversion::index(pitch);
-
-  for col in (0..vector_columns).step_by(8) {
-    let Ok(column_index) = console_core_number_conversion::index(col);
-
-    let checked_value = <[_]>::get(
-      &*src_2,
-      column_index..(Wrapping(column_index) + Wrapping(8)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p0 = _mm256_cvtepu16_epi32(loadu_128!(checked_value));
-    let checked_value_2 = <[_]>::get(
-      &*src_2,
-      (Wrapping(stride_u) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping(stride_u) + Wrapping(column_index)).0) + Wrapping(8)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p1 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_2));
-    let checked_value_3 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(8))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p2 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_3));
-    let checked_value_4 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(8))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p3 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_4));
-    let checked_value_5 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(8))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p4 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_5));
-    let checked_value_6 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(8))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p5 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_6));
-    let checked_value_7 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(8))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p6 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_7));
-    let checked_value_8 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(8))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p7 = _mm256_cvtepu16_epi32(loadu_128!(checked_value_8));
-
-    let m0 = _mm256_mullo_epi32(p0, c0);
-    let m1 = _mm256_mullo_epi32(p1, c1);
-    let m2 = _mm256_mullo_epi32(p2, c2);
-    let m3 = _mm256_mullo_epi32(p3, c3);
-    let m4 = _mm256_mullo_epi32(p4, c4);
-    let m5 = _mm256_mullo_epi32(p5, c5);
-    let m6 = _mm256_mullo_epi32(p6, c6);
-    let m7 = _mm256_mullo_epi32(p7, c7);
-
-    let sum = _mm256_add_epi32(
-      _mm256_add_epi32(_mm256_add_epi32(m0, m1), _mm256_add_epi32(m2, m3)),
-      _mm256_add_epi32(_mm256_add_epi32(m4, m5), _mm256_add_epi32(m6, m7)),
-    );
-
-    let shifted = _mm256_sra_epi32(_mm256_add_epi32(sum, rnd), shift_count);
-    let clamped_lo = _mm256_max_epi32(shifted, zero);
-    let clamped = _mm256_min_epi32(clamped_lo, max_val);
-
-    let packed = _mm256_packus_epi32(clamped, zero);
-    let result = _mm256_permute4x64_epi64(packed, 0b00_00_10_00);
-
-    let checked_value_9 = <[_]>::get_mut(
-      &mut *dst_2,
-      column_index..(Wrapping(column_index) + Wrapping(8)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&mut [u16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    storeu_128!(checked_value_9, _mm256_castsi256_si128(result));
-  }
-
-  for col in vector_columns..width {
-    let Ok(column_index) = console_core_number_conversion::index(col);
-
-    let mut sum = 0i32;
-
-    for (i, coeff_element) in <[_]>::iter(&coeff).enumerate() {
-      let checked_value_10 = <[_]>::get(
-        &*src_2,
-        (Wrapping((Wrapping(i) * Wrapping(stride_u)).0) + Wrapping(column_index)).0,
-      )
-      .ok_or(Rav1dError::EINVAL)?;
-      let px = <i32 as ::core::convert::From<::core::primitive::u16>>::from(*checked_value_10);
-
-      match (i32::wrapping_mul(*coeff_element, px), &mut sum) {
-        (explicit_arithmetic_amount, explicit_arithmetic_place) => {
-          *explicit_arithmetic_place = ::core::primitive::i32::wrapping_add(
-            *explicit_arithmetic_place,
-            explicit_arithmetic_amount,
-          )
-        }
-      };
-    }
-
-    let output_sample =
-      ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, 32), 6_u32).clamp(0, max);
-    *{
-      let checked_value_18 =
-        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
-      checked_value_18
-    } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
-      {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
-  }
-
-  Ok(())
-}
-
-#[cfg(target_arch = "x86_64")]
-#[rite]
 fn h_filter_8tap_16bpc_prep_direct_avx2_inner(
   _token: Desktop64,
   dst: &mut [i16],
@@ -6941,103 +6348,8 @@ fn v_filter_8tap_16bpc_prep_avx512_inner(
 
 #[cfg(target_arch = "x86_64")]
 #[rite]
-fn h_filter_8tap_16bpc_put_avx512_inner(
-  token: Server64,
-  dst: &mut [u16],
-  src: &[u16],
-  width: u32,
-  filter: &[i8; 8],
-  max: i32,
-) -> Rav1dResult {
-  let dst_2 = &mut *dst;
-  let src_2 = &*src;
-
-  let Ok(coefficients) = word_tap_coefficients(token, *filter);
-
-  let intermediate_bits = match ::core::primitive::bool::then_some(
-    ::core::primitive::i32::wrapping_shr(max, 11_u32) != 0,
-    (),
-  ) {
-    ::core::option::Option::Some(()) => 2,
-    ::core::option::Option::None => 4,
-  };
-  let rnd = _mm512_set1_epi32(i32::wrapping_add(
-    32,
-    ::core::primitive::i32::wrapping_shr(
-      i32::wrapping_shl(
-        1,
-        i32::cast_unsigned(i32::wrapping_sub(6, intermediate_bits)),
-      ),
-      1_u32,
-    ),
-  ));
-  let shift_count = _mm_cvtsi32_si128(6);
-  let zero = _mm512_setzero_si512();
-  let max_val = _mm512_set1_epi32(max);
-
-  let vector_columns = width.wrapping_sub(width.wrapping_rem(16));
-
-  for col in (0..vector_columns).step_by(16) {
-    let Ok(column_index) = console_core_number_conversion::index(col);
-
-    let window = src_2
-      .get(column_index..)
-      .and_then(<[u16]>::first_chunk::<23>)
-      .ok_or(Rav1dError::EINVAL)?;
-    let sum = horizontal_word_sums(token, window, coefficients)?;
-
-    let shifted = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), shift_count);
-    let clamped = _mm512_min_epi32(_mm512_max_epi32(shifted, zero), max_val);
-    let packed = _mm512_cvtusepi32_epi16(clamped);
-    let target = dst_2
-      .get_mut(column_index..)
-      .and_then(<[u16]>::first_chunk_mut::<16>)
-      .ok_or(Rav1dError::EINVAL)?;
-    storeu_256!(target, packed);
-  }
-
-  let scalar_rnd = i32::wrapping_add(
-    32,
-    ::core::primitive::i32::wrapping_shr(
-      i32::wrapping_shl(
-        1,
-        i32::cast_unsigned(i32::wrapping_sub(6, intermediate_bits)),
-      ),
-      1_u32,
-    ),
-  );
-
-  for col in vector_columns..width {
-    let Ok(column_index) = console_core_number_conversion::index(col);
-
-    let sum = try_convolve8(filter, |ordinal| {
-      let Ok(tap) = console_core_number_conversion::index(ordinal);
-      let checked_value =
-        <[_]>::get(&*src_2, column_index.wrapping_add(tap)).ok_or(Rav1dError::EINVAL)?;
-      Ok(i32::from(*checked_value))
-    })?;
-
-    let output_sample =
-      ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, scalar_rnd), 6_u32)
-        .clamp(0, max);
-    *{
-      let checked_value_18 =
-        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
-      checked_value_18
-    } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
-      {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
-  }
-
-  Ok(())
-}
-
-#[cfg(target_arch = "x86_64")]
-#[rite]
 fn h_filter_8tap_16bpc_prep_direct_avx512_inner(
-  token: Server64,
+  _token: Server64,
   dst: &mut [i16],
   src: &[u16],
   width: u32,
@@ -7051,7 +6363,7 @@ fn h_filter_8tap_16bpc_prep_direct_avx512_inner(
   let dst_2 = &mut *dst;
   let src_2 = &*src;
 
-  let Ok(coefficients) = word_tap_coefficients(token, *filter);
+  let [a, b, c, d, e, f, g, h] = filter.map(|weight| _mm512_set1_epi32(i32::from(weight)));
 
   let rnd = _mm512_set1_epi32(::core::primitive::i32::wrapping_shr(
     i32::wrapping_shl(1, i32::cast_unsigned(sh)),
@@ -7069,7 +6381,23 @@ fn h_filter_8tap_16bpc_prep_direct_avx512_inner(
       .get(column_index..)
       .and_then(<[u16]>::first_chunk::<23>)
       .ok_or(Rav1dError::EINVAL)?;
-    let sum = horizontal_word_sums(token, window, coefficients)?;
+    let [first, second, third, fourth, fifth, sixth, seventh, eighth] =
+      horizontal_windows(window)?;
+    let term_0 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(first)), a);
+    let term_1 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(second)), b);
+    let term_2 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(third)), c);
+    let term_3 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(fourth)), d);
+    let term_4 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(fifth)), e);
+    let term_5 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(sixth)), f);
+    let term_6 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(seventh)), g);
+    let term_7 = _mm512_mullo_epi32(_mm512_cvtepu16_epi32(loadu_256!(eighth)), h);
+    let first_two = _mm512_add_epi32(term_0, term_1);
+    let first_three = _mm512_add_epi32(first_two, term_2);
+    let first_four = _mm512_add_epi32(first_three, term_3);
+    let first_five = _mm512_add_epi32(first_four, term_4);
+    let first_six = _mm512_add_epi32(first_five, term_5);
+    let first_seven = _mm512_add_epi32(first_six, term_6);
+    let sum = _mm512_add_epi32(first_seven, term_7);
 
     let shifted = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), shift_count);
     let biased = _mm512_sub_epi32(shifted, bias);
@@ -7103,244 +6431,6 @@ fn h_filter_8tap_16bpc_prep_direct_avx512_inner(
       checked_value_18
     } =
       match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(output_sample)
-      {
-        ::core::result::Result::Ok(converted_position) => converted_position,
-      };
-  }
-
-  Ok(())
-}
-
-#[cfg(target_arch = "x86_64")]
-#[rite]
-fn v_filter_8tap_16bpc_direct_avx512_inner(
-  _token: Server64,
-  dst: &mut [u16],
-  src: &[u16],
-  src_stride: i64,
-  width: u32,
-  filter: &[i8; 8],
-  max: i32,
-) -> Rav1dResult {
-  let dst_2 = &mut *dst;
-  let src_2 = &*src;
-
-  let c0 = _mm512_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i8>>::from(
-    match filter {
-      &[element, ..] => element,
-    },
-  ));
-  let c1 = _mm512_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i8>>::from(
-    match filter {
-      &[_, element, ..] => element,
-    },
-  ));
-  let c2 = _mm512_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i8>>::from(
-    match filter {
-      &[_, _, element, ..] => element,
-    },
-  ));
-  let c3 = _mm512_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i8>>::from(
-    match filter {
-      &[_, _, _, element, ..] => element,
-    },
-  ));
-  let c4 = _mm512_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i8>>::from(
-    match filter {
-      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
-    },
-  ));
-  let c5 = _mm512_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i8>>::from(
-    match filter {
-      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    },
-  ));
-  let c6 = _mm512_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i8>>::from(
-    match filter {
-      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    },
-  ));
-  let c7 = _mm512_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i8>>::from(
-    match filter {
-      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    },
-  ));
-
-  let rnd = _mm512_set1_epi32(32);
-  let shift_count = _mm_cvtsi32_si128(6);
-  let zero = _mm512_setzero_si512();
-  let max_val = _mm512_set1_epi32(max);
-
-  let pitch = u64::try_from(src_stride).map_err(|_| Rav1dError::EINVAL)?;
-  let Ok(stride_u) = console_core_number_conversion::index(pitch);
-  let vector_columns = width.wrapping_sub(width.wrapping_rem(16));
-
-  for col in (0..vector_columns).step_by(16) {
-    let Ok(column_index) = console_core_number_conversion::index(col);
-
-    let checked_value = <[_]>::get(
-      &*src_2,
-      column_index..(Wrapping(column_index) + Wrapping(16)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p0 = _mm512_cvtepu16_epi32(loadu_256!(checked_value));
-    let checked_value_2 = <[_]>::get(
-      &*src_2,
-      (Wrapping(stride_u) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping(stride_u) + Wrapping(column_index)).0) + Wrapping(16)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p1 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_2));
-    let checked_value_3 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(2) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(16))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p2 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_3));
-    let checked_value_4 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(3) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(16))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p3 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_4));
-    let checked_value_5 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(4) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(16))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p4 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_5));
-    let checked_value_6 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(5) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(16))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p5 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_6));
-    let checked_value_7 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(6) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(16))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p6 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_7));
-    let checked_value_8 = <[_]>::get(
-      &*src_2,
-      (Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0
-        ..(Wrapping((Wrapping((Wrapping(7) * Wrapping(stride_u)).0) + Wrapping(column_index)).0)
-          + Wrapping(16))
-        .0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[u16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let p7 = _mm512_cvtepu16_epi32(loadu_256!(checked_value_8));
-
-    let mut sum = _mm512_mullo_epi32(p0, c0);
-    sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p1, c1));
-    sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p2, c2));
-    sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p3, c3));
-    sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p4, c4));
-    sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p5, c5));
-    sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p6, c6));
-    sum = _mm512_add_epi32(sum, _mm512_mullo_epi32(p7, c7));
-
-    let shifted = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), shift_count);
-    let clamped = _mm512_min_epi32(_mm512_max_epi32(shifted, zero), max_val);
-    let packed = _mm512_cvtusepi32_epi16(clamped);
-    let checked_value_9 = <[_]>::get_mut(
-      &mut *dst_2,
-      column_index..(Wrapping(column_index) + Wrapping(16)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&mut [u16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    storeu_256!(checked_value_9, packed);
-  }
-
-  let coeff: [i32; 8] = filter.map(i32::from);
-
-  for col in vector_columns..width {
-    let Ok(column_index) = console_core_number_conversion::index(col);
-
-    let mut sum = 0i32;
-
-    for (i, coeff_element) in <[_]>::iter(&coeff).enumerate() {
-      match (
-        i32::wrapping_mul(
-          *coeff_element,
-          <i32 as ::core::convert::From<::core::primitive::u16>>::from(*{
-            let checked_value_18 = <[_]>::get(
-              &*src_2,
-              (Wrapping((Wrapping(i) * Wrapping(stride_u)).0) + Wrapping(column_index)).0,
-            )
-            .ok_or(Rav1dError::EINVAL)?;
-            checked_value_18
-          }),
-        ),
-        &mut sum,
-      ) {
-        (explicit_arithmetic_amount, explicit_arithmetic_place) => {
-          *explicit_arithmetic_place = ::core::primitive::i32::wrapping_add(
-            *explicit_arithmetic_place,
-            explicit_arithmetic_amount,
-          )
-        }
-      };
-    }
-
-    let output_sample =
-      ::core::primitive::i32::wrapping_shr(i32::wrapping_add(sum, 32), 6_u32).clamp(0, max);
-    *{
-      let checked_value_19 =
-        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
-      checked_value_19
-    } =
-      match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(output_sample)
       {
         ::core::result::Result::Ok(converted_position) => converted_position,
       };
@@ -7651,6 +6741,45 @@ struct EightTapOutput<'a, Pixel> {
   axes: Point<Rav1dFilterMode>,
 }
 
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+pub(super) enum WordTapDirection {
+  Horizontal,
+  Vertical(u64),
+}
+
+#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[inline]
+#[doc = "Horizontal-only interpolation includes the intermediate precision bias in AV1's rounding."]
+pub(super) fn filter_word_tap_row(
+  simd: Simd,
+  target: &mut [u16],
+  input: &[u16],
+  direction: WordTapDirection,
+  taps: &[i8; 8],
+  maximum: u16,
+) -> Rav1dResult {
+  let (step, bias) = match direction {
+    WordTapDirection::Horizontal => match (maximum > 2047).then_some(()) {
+      Some(()) => (1, 40),
+      None => (1, 34),
+    },
+    WordTapDirection::Vertical(pitch) => (pitch, 32),
+  };
+  let coefficients = taps.map(i16::from);
+  console_core_video_interpolation::filter_8tap_u16_row::<6>(
+    simd,
+    input,
+    &coefficients,
+    FilterTaps {
+      step,
+      bias,
+      maximum,
+    },
+    target,
+  )
+  .map_err(|_| Rav1dError::EINVAL)
+}
+
 #[cfg(target_arch = "x86_64")]
 #[doc = "Connects the selected word SIMD backend to the shared eight-tap output loop."]
 #[cfg_attr(
@@ -7661,7 +6790,7 @@ struct EightTapOutput<'a, Pixel> {
   )
 )]
 macro_rules! word_tap_writer {
-  ($token:ident; $horizontal:path, $vertical:path, $horizontal_direct:path, $vertical_direct:path) => {
+  ($token:ident, $simd:ident; $horizontal:path, $vertical:path) => {
     MotionRowWriters {
       horizontal_buffered: |target: &mut [i32], input: &[u16], width, taps: &[i8; 8], shift| {
         $horizontal($token, target, input, width, taps, shift)
@@ -7674,7 +6803,17 @@ macro_rules! word_tap_writer {
         $vertical($token, target, filtered, geometry, taps, scale)
       },
       horizontal_direct: |target: &mut [u16], input: &[u16], width, taps: &[i8; 8], maximum| {
-        $horizontal_direct($token, target, input, width, taps, maximum)
+        let Ok(width) = console_core_number_conversion::index(width);
+        let target = target.get_mut(..width).ok_or(Rav1dError::EINVAL)?;
+        let maximum = u16::try_from(maximum).map_err(|_| Rav1dError::EINVAL)?;
+        filter_word_tap_row(
+          $simd,
+          target,
+          input,
+          WordTapDirection::Horizontal,
+          taps,
+          maximum,
+        )
       },
       vertical_direct: |target: &mut [u16],
                         input: &[u16],
@@ -7682,7 +6821,18 @@ macro_rules! word_tap_writer {
                         width,
                         taps: &[i8; 8],
                         maximum| {
-        $vertical_direct($token, target, input, pitch, width, taps, maximum)
+        let Ok(width) = console_core_number_conversion::index(width);
+        let target = target.get_mut(..width).ok_or(Rav1dError::EINVAL)?;
+        let fixed_pitch = u64::try_from(pitch).map_err(|_invalid_stride| Rav1dError::EINVAL)?;
+        let maximum = u16::try_from(maximum).map_err(|_| Rav1dError::EINVAL)?;
+        filter_word_tap_row(
+          $simd,
+          target,
+          input,
+          WordTapDirection::Vertical(fixed_pitch),
+          taps,
+          maximum,
+        )
       },
     }
   };
@@ -7805,12 +6955,15 @@ fn put_8tap_16bpc_avx512_impl_inner(
   token: Server64,
   request: EightTapOutput<'_, u16>,
 ) -> Rav1dResult {
+  let Ok(capability) = Simd::avx512();
+  let simd = match capability {
+    Some(backend) => backend,
+    None => Simd::SCALAR,
+  };
   let writer = word_tap_writer!(
-    token;
+    token, simd;
     h_filter_8tap_16bpc_avx512_inner,
-    v_filter_8tap_16bpc_avx512_inner,
-    h_filter_8tap_16bpc_put_avx512_inner,
-    v_filter_8tap_16bpc_direct_avx512_inner
+    v_filter_8tap_16bpc_avx512_inner
   );
   put_eight_tap(writer, request, &MID_I32_135)
 }
@@ -7860,12 +7013,15 @@ fn put_8tap_16bpc_avx2_impl_inner(
   token: Desktop64,
   request: EightTapOutput<'_, u16>,
 ) -> Rav1dResult {
+  let Ok(capability) = Simd::avx2();
+  let simd = match capability {
+    Some(backend) => backend,
+    None => Simd::SCALAR,
+  };
   let writer = word_tap_writer!(
-    token;
+    token, simd;
     h_filter_8tap_16bpc_avx2_inner,
-    v_filter_8tap_16bpc_avx2_inner,
-    h_filter_8tap_16bpc_put_avx2_inner,
-    v_filter_8tap_16bpc_direct_avx2_inner
+    v_filter_8tap_16bpc_avx2_inner
   );
   put_eight_tap(writer, request, &MID_I32_135)
 }
@@ -8042,143 +7198,6 @@ fn h_filter_bilin_8bpc_avx2_inner(
         <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
       checked_value_18
     } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
-      ::core::result::Result::Ok(converted_position) => converted_position,
-    };
-  }
-
-  Ok(())
-}
-
-#[cfg(target_arch = "x86_64")]
-#[rite]
-fn v_filter_bilin_8bpc_avx2_inner(
-  _token: Desktop64,
-  dst: &mut [u8],
-  mid: &[&[i16]],
-  width: u32,
-  my: i32,
-  sh: u8,
-  bd_max: i16,
-) -> Rav1dResult {
-  let dst_2 = &mut *dst;
-  let my_2 = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(my) {
-    ::core::result::Result::Ok(converted_position) => converted_position,
-  };
-  let coeff0 = i32::wrapping_sub(16, my_2);
-  let coeff1 = my_2;
-
-  let c0_32 = _mm256_set1_epi32(coeff0);
-  let c1_32 = _mm256_set1_epi32(coeff1);
-  let rnd = _mm256_set1_epi32(match ::core::primitive::bool::then_some(sh > 0, ()) {
-    ::core::option::Option::Some(()) => i32::wrapping_shl(1, u32::from(u8::wrapping_sub(sh, 1))),
-    ::core::option::Option::None => 0,
-  });
-  let zero = _mm256_setzero_si256();
-  let max_32 =
-    _mm256_set1_epi32(<i32 as ::core::convert::From<::core::primitive::i16>>::from(bd_max));
-  let sh_reg = _mm_cvtsi32_si128(<i32 as ::core::convert::From<::core::primitive::u8>>::from(
-    sh,
-  ));
-
-  let vector_columns = width.wrapping_sub(width.wrapping_rem(8));
-
-  for x in (0..vector_columns).step_by(8) {
-    let Ok(column_index) = console_core_number_conversion::index(x);
-
-    let checked_value = <[_]>::get(
-      &*(*{
-        let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
-        checked_value_36
-      }),
-      column_index..(Wrapping(column_index) + Wrapping(8)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[i16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let row0 = _mm256_cvtepi16_epi32(loadu_128!(checked_value));
-    let checked_value_2 = <[_]>::get(
-      &*(*{
-        let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
-        checked_value_37
-      }),
-      column_index..(Wrapping(column_index) + Wrapping(8)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[i16; 8]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let row1 = _mm256_cvtepi16_epi32(loadu_128!(checked_value_2));
-
-    let mul0 = _mm256_mullo_epi32(row0, c0_32);
-    let mul1 = _mm256_mullo_epi32(row1, c1_32);
-    let sum = _mm256_add_epi32(mul0, mul1);
-
-    let result = _mm256_sra_epi32(_mm256_add_epi32(sum, rnd), sh_reg);
-
-    let result_2 = _mm256_max_epi32(result, zero);
-    let result_3 = _mm256_min_epi32(result_2, max_32);
-
-    let packed16 = _mm256_packs_epi32(result_3, result_3);
-    let packed16_2 = _mm256_permute4x64_epi64(packed16, 0xD8);
-    let packed8 = _mm256_packus_epi16(packed16_2, packed16_2);
-
-    let result_64 = _mm256_extract_epi64(packed8, 0);
-
-    {
-      let explicit_byte_copy_destination = <[_]>::get_mut(&mut *dst_2, column_index..)
-        .and_then(<[_]>::first_chunk_mut::<8>)
-        .ok_or(Rav1dError::EINVAL)?;
-      *explicit_byte_copy_destination = result_64.to_le_bytes();
-    };
-  }
-
-  for x in vector_columns..width {
-    let Ok(column_index) = console_core_number_conversion::index(x);
-
-    let checked_value_38 = <[_]>::get(
-      &*(*{
-        let checked_value_18 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
-        checked_value_18
-      }),
-      column_index,
-    )
-    .ok_or(Rav1dError::EINVAL)?;
-    let r0 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(*checked_value_38);
-    let checked_value_39 = <[_]>::get(
-      &*(*{
-        let checked_value_20 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
-        checked_value_20
-      }),
-      column_index,
-    )
-    .ok_or(Rav1dError::EINVAL)?;
-    let r1 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(*checked_value_39);
-    let pixel = i32::wrapping_add(i32::wrapping_mul(coeff0, r0), i32::wrapping_mul(coeff1, r1));
-    let result = match ::core::primitive::bool::then_some(sh > 0, ()) {
-      ::core::option::Option::Some(()) => i32::wrapping_shr(
-        i32::wrapping_add(
-          pixel,
-          i32::wrapping_shl(1, u32::from(u8::wrapping_sub(sh, 1))),
-        ),
-        u32::from(sh),
-      )
-      .clamp(
-        0,
-        <i32 as ::core::convert::From<::core::primitive::i16>>::from(bd_max),
-      ),
-      ::core::option::Option::None => pixel.clamp(
-        0,
-        <i32 as ::core::convert::From<::core::primitive::i16>>::from(bd_max),
-      ),
-    };
-    *{
-      let checked_value_21 =
-        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
-      checked_value_21
-    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
       ::core::result::Result::Ok(converted_position) => converted_position,
     };
   }
@@ -8534,134 +7553,6 @@ fn h_filter_bilin_8bpc_avx512_inner(
         <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
       checked_value_18
     } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(result) {
-      ::core::result::Result::Ok(converted_position) => converted_position,
-    };
-  }
-
-  Ok(())
-}
-
-#[cfg(target_arch = "x86_64")]
-#[rite]
-fn v_filter_bilin_8bpc_avx512_inner(
-  _token: Server64,
-  dst: &mut [u8],
-  mid: &[&[i16]],
-  width: u32,
-  my: i32,
-  sh: u8,
-  _bd_max: i16,
-) -> Rav1dResult {
-  let dst_2 = &mut *dst;
-  let my_2 = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i32>(my) {
-    ::core::result::Result::Ok(converted_position) => converted_position,
-  };
-  let coeff0 = i32::wrapping_sub(16, my_2);
-  let coeff1 = my_2;
-
-  let c0_32 = _mm512_set1_epi32(coeff0);
-  let c1_32 = _mm512_set1_epi32(coeff1);
-  let rnd = _mm512_set1_epi32(match ::core::primitive::bool::then_some(sh > 0, ()) {
-    ::core::option::Option::Some(()) => i32::wrapping_shl(1, u32::from(u8::wrapping_sub(sh, 1))),
-    ::core::option::Option::None => 0,
-  });
-  let zero = _mm512_setzero_si512();
-  let max_32 = _mm512_set1_epi32(255);
-  let sh_reg = _mm_cvtsi32_si128(<i32 as ::core::convert::From<::core::primitive::u8>>::from(
-    sh,
-  ));
-
-  let vector_columns = width.wrapping_sub(width.wrapping_rem(16));
-
-  for x in (0..vector_columns).step_by(16) {
-    let Ok(column_index) = console_core_number_conversion::index(x);
-
-    let checked_value = <[_]>::get(
-      &*(*{
-        let checked_value_36 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
-        checked_value_36
-      }),
-      column_index..(Wrapping(column_index) + Wrapping(16)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[i16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let row0 = _mm512_cvtepi16_epi32(loadu_256!(checked_value));
-    let checked_value_2 = <[_]>::get(
-      &*(*{
-        let checked_value_37 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
-        checked_value_37
-      }),
-      column_index..(Wrapping(column_index) + Wrapping(16)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&[i16; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    let row1 = _mm512_cvtepi16_epi32(loadu_256!(checked_value_2));
-
-    let mul0 = _mm512_mullo_epi32(row0, c0_32);
-    let mul1 = _mm512_mullo_epi32(row1, c1_32);
-    let sum = _mm512_add_epi32(mul0, mul1);
-
-    let result = _mm512_sra_epi32(_mm512_add_epi32(sum, rnd), sh_reg);
-    let result_2 = _mm512_max_epi32(result, zero);
-    let result_3 = _mm512_min_epi32(result_2, max_32);
-
-    let packed = _mm512_cvtusepi32_epi8(result_3);
-    let checked_value_3 = <[_]>::get_mut(
-      &mut *dst_2,
-      column_index..(Wrapping(column_index) + Wrapping(16)).0,
-    )
-    .ok_or(crate::src::error::Rav1dError::EINVAL)
-    .and_then(|_explicit_array_source| {
-      <&mut [u8; 16]>::try_from(_explicit_array_source)
-        .map_err(|_| crate::src::error::Rav1dError::EINVAL)
-    })?;
-    storeu_128!(checked_value_3, packed);
-  }
-
-  for x in vector_columns..width {
-    let Ok(column_index) = console_core_number_conversion::index(x);
-
-    let checked_value_38 = <[_]>::get(
-      &*(*{
-        let checked_value_18 = <[_]>::get(&*mid, 0).ok_or(Rav1dError::EINVAL)?;
-        checked_value_18
-      }),
-      column_index,
-    )
-    .ok_or(Rav1dError::EINVAL)?;
-    let r0 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(*checked_value_38);
-    let checked_value_39 = <[_]>::get(
-      &*(*{
-        let checked_value_20 = <[_]>::get(&*mid, 1).ok_or(Rav1dError::EINVAL)?;
-        checked_value_20
-      }),
-      column_index,
-    )
-    .ok_or(Rav1dError::EINVAL)?;
-    let r1 = <i32 as ::core::convert::From<::core::primitive::i16>>::from(*checked_value_39);
-    let pixel = i32::wrapping_add(i32::wrapping_mul(coeff0, r0), i32::wrapping_mul(coeff1, r1));
-    let result = match ::core::primitive::bool::then_some(sh > 0, ()) {
-      ::core::option::Option::Some(()) => i32::wrapping_shr(
-        i32::wrapping_add(
-          pixel,
-          i32::wrapping_shl(1, u32::from(u8::wrapping_sub(sh, 1))),
-        ),
-        u32::from(sh),
-      )
-      .clamp(0, 255),
-      ::core::option::Option::None => pixel.clamp(0, 255),
-    };
-    *{
-      let checked_value_21 =
-        <[_]>::get_mut(&mut *dst_2, column_index).ok_or(Rav1dError::EINVAL)?;
-      checked_value_21
-    } = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u8>(result) {
       ::core::result::Result::Ok(converted_position) => converted_position,
     };
   }
@@ -9094,7 +7985,7 @@ fn v_bilin_8bpc_prep_direct_avx512_inner(
 }
 
 #[cfg(target_arch = "x86_64")]
-use crate::src::internal::SEG_MASK_LEN;
+use crate::src::internal::SegmentMask;
 
 #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
 pub(super) struct WeightedMaskMode<BD> {
@@ -10972,12 +9863,7 @@ macro_rules! byte_bilinear_writer {
         let Ok(index) = console_core_number_conversion::index(geometry.ordinal);
         let window = filtered.get(index..).ok_or(Rav1dError::EINVAL)?;
         let [first, next] = window.first_chunk::<2>().ok_or(Rav1dError::EINVAL)?;
-        ($vertical)(
-          target,
-          [first.as_slice(), next.as_slice()],
-          geometry.width,
-          phase,
-        )
+        ($vertical)(target, [first, next], geometry.width, phase)
       },
       horizontal_direct: $horizontal_direct,
       vertical_direct: |target: &mut [$output],
@@ -11023,12 +9909,48 @@ fn prepare_byte_bilinear_identity(output: &mut [i16], source: &[u8]) -> Result<(
 }
 
 #[cfg(target_arch = "x86_64")]
+#[inline(always)]
+fn blend_byte_bilinear_rows(
+  simd: Simd,
+  target: &mut [u8],
+  [first, next]: [&[i16; MID_STRIDE]; 2],
+  phase: i32,
+) -> Rav1dResult {
+  use console_core_number_conversion::wrapped;
+
+  let first_q4: &[u16; MID_STRIDE] = zerocopy::transmute_ref!(first);
+  let next_q4: &[u16; MID_STRIDE] = zerocopy::transmute_ref!(next);
+  let Ok(weight_q8) = wrapped::<_, u16>(phase.wrapping_mul(16));
+  let Ok(written) = simd.blend_rows::<12>(first_q4, next_q4, weight_q8, target);
+  let Ok(done) = console_core_number_conversion::index(written);
+  let first_tail = first_q4.get(done..).ok_or(Rav1dError::EINVAL)?;
+  let next_tail = next_q4.get(done..).ok_or(Rav1dError::EINVAL)?;
+  let target_tail = target.get_mut(done..).ok_or(Rav1dError::EINVAL)?;
+  let first_weight = 16i32.wrapping_sub(phase);
+
+  for ((&a, &b), target_pixel) in first_tail.iter().zip(next_tail).zip(target_tail) {
+    let start = i32::from(a).wrapping_mul(first_weight);
+    let end = i32::from(b).wrapping_mul(phase);
+    let sum = start.wrapping_add(end);
+    let Ok(pixel) = wrapped(sum.wrapping_add(128).wrapping_shr(8));
+    *target_pixel = pixel;
+  }
+
+  Ok(())
+}
+
+#[cfg(target_arch = "x86_64")]
 #[arcane]
 fn put_byte_bilinear_avx2(token: Desktop64, request: BilinearRequest<'_, u8, u8>) -> Rav1dResult {
+  let Ok(capability) = Simd::avx2();
+  let simd = match capability {
+    Some(backend) => backend,
+    None => Simd::SCALAR,
+  };
   let writer = byte_bilinear_writer!(
     u8;
     |target: &mut [i16], source: &[u8], width, phase| h_filter_bilin_8bpc_avx2_inner(token, target, source, width, phase, 0),
-    |target, rows: [&[i16]; 2], width, phase| v_filter_bilin_8bpc_avx2_inner(token, target, &rows, width, phase, 8, 255),
+    |target, rows, _width, phase| blend_byte_bilinear_rows(simd, target, rows, phase),
     |target: &mut [u8], source: &[u8], width, phase| h_bilin_8bpc_put_avx2_inner(token, target, source, width, phase),
     |target, first, next, width, phase| v_bilin_8bpc_direct_avx2_inner(token, target, first, next, width, phase)
   );
@@ -11045,7 +9967,7 @@ fn prep_byte_bilinear_avx2(
   let writer = byte_bilinear_writer!(
     i16;
     |target: &mut [i16], source: &[u8], width, phase| h_filter_bilin_8bpc_avx2_inner(token, target, source, width, phase, 0),
-    |target, rows: [&[i16]; 2], _width, phase| prepare_byte_bilinear_pair(target, rows, phase, 4),
+    |target, rows: [&[i16; MID_STRIDE]; 2], _width, phase| prepare_byte_bilinear_pair(target, rows.map(|row| row.as_slice()), phase, 4),
     |target: &mut [i16], source: &[u8], width, phase| h_filter_bilin_8bpc_avx2_inner(token, target, source, width, phase, 0),
     |target, first, next, _width, phase| prepare_byte_bilinear_pair(target, [first, next], phase, 0)
   );
@@ -11064,10 +9986,15 @@ fn put_byte_bilinear_avx512(
   token: Server64,
   request: BilinearRequest<'_, u8, u8>,
 ) -> Rav1dResult {
+  let Ok(capability) = Simd::avx512();
+  let simd = match capability {
+    Some(backend) => backend,
+    None => Simd::SCALAR,
+  };
   let writer = byte_bilinear_writer!(
     u8;
     |target: &mut [i16], source: &[u8], width, phase| h_filter_bilin_8bpc_avx512_inner(token, target, source, width, phase, 0),
-    |target, rows: [&[i16]; 2], width, phase| v_filter_bilin_8bpc_avx512_inner(token, target, &rows, width, phase, 8, 255),
+    |target, rows, _width, phase| blend_byte_bilinear_rows(simd, target, rows, phase),
     |target: &mut [u8], source: &[u8], width, phase| h_bilin_8bpc_put_avx512_inner(token, target, source, width, phase),
     |target, first, next, width, phase| v_bilin_8bpc_direct_avx512_inner(token, target, first, next, width, phase)
   );
@@ -11084,7 +10011,7 @@ fn prep_byte_bilinear_avx512(
   let writer = byte_bilinear_writer!(
     i16;
     |target: &mut [i16], source: &[u8], width, phase| h_filter_bilin_8bpc_avx512_inner(token, target, source, width, phase, 0),
-    |target, rows: [&[i16]; 2], width, phase| v_filter_bilin_8bpc_prep_avx512_inner(token, target, &rows, width, phase, 4),
+    |target, rows: [&[i16; MID_STRIDE]; 2], width, phase| v_filter_bilin_8bpc_prep_avx512_inner(token, target, &rows.map(|row| row.as_slice()), width, phase, 4),
     |target: &mut [i16], source: &[u8], width, phase| h_filter_bilin_8bpc_avx512_inner(token, target, source, width, phase, 0),
     |target, first, next, width, phase| v_bilin_8bpc_prep_direct_avx512_inner(token, target, first, next, width, phase)
   );
@@ -11173,8 +10100,8 @@ fn with_motion_destination<BD: BitDepth, Context>(
 #[must_use]
 pub fn avg_dispatch<BD: BitDepth>(
   dst: PicOffset,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   bd: BD,
 ) -> MotionDispatch {
@@ -11193,8 +10120,8 @@ pub fn avg_dispatch<BD: BitDepth>(
 #[cfg(target_arch = "x86_64")]
 fn avg_dispatch_inner<BD: BitDepth>(
   destination: PixelDestination<'_>,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   bd: BD,
 ) -> MotionDispatch {
@@ -11274,8 +10201,8 @@ fn avg_dispatch_inner<BD: BitDepth>(
 #[must_use]
 pub fn w_avg_dispatch<BD: BitDepth>(
   dst: PicOffset,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   weight: i32,
   bd: BD,
@@ -11295,8 +10222,8 @@ pub fn w_avg_dispatch<BD: BitDepth>(
 #[cfg(target_arch = "x86_64")]
 fn w_avg_dispatch_inner<BD: BitDepth>(
   destination: PixelDestination<'_>,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   weight: i32,
   bd: BD,
@@ -11385,8 +10312,8 @@ fn w_avg_dispatch_inner<BD: BitDepth>(
 #[must_use]
 pub fn mask_dispatch<BD: BitDepth>(
   dst: PicOffset,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   mask: &[u8],
   bd: BD,
@@ -11406,8 +10333,8 @@ pub fn mask_dispatch<BD: BitDepth>(
 #[cfg(target_arch = "x86_64")]
 fn mask_dispatch_inner<BD: BitDepth>(
   destination: PixelDestination<'_>,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
   mask: &[u8],
   bd: BD,
@@ -11492,7 +10419,7 @@ fn mask_dispatch_inner<BD: BitDepth>(
 #[must_use]
 pub fn blend_dispatch<BD: BitDepth>(
   dst: PicOffset,
-  tmp: &[BD::Pixel; SCRATCH_INTER_INTRA_BUF_LEN],
+  tmp: &InterIntraPrediction<BD::Pixel>,
   block_extent: Size<i32>,
   mask: &[u8],
 ) -> MotionDispatch {
@@ -11564,7 +10491,7 @@ fn blend_dispatch_inner<BD: BitDepth>(
 pub fn blend_dir_dispatch<BD: BitDepth>(
   axis: BlendAxis,
   dst: PicOffset,
-  tmp: &[BD::Pixel; SCRATCH_LAP_LEN],
+  tmp: &OverlapPrediction<BD::Pixel>,
   block_extent: Size<i32>,
 ) -> MotionDispatch {
   let Ok(avx2) = crate::src::cpu::summon_avx2();
@@ -11652,10 +10579,10 @@ fn blend_dir_dispatch_inner<BD: BitDepth>(
 pub(crate) fn w_mask_dispatch<BD: BitDepth>(
   layout: Rav1dPixelLayoutSubSampled,
   dst: PicOffset,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   block_extent: Size<i32>,
-  mask: &mut [u8; SEG_MASK_LEN],
+  mask: &mut SegmentMask,
   sign: i32,
   bd: BD,
 ) -> MotionDispatch {
@@ -12435,6 +11362,82 @@ mod tests {
   use super::*;
 
   #[test]
+  fn buffered_byte_bilinear_matches_the_av1_rounding_for_each_backend() -> Rav1dResult {
+    use console_core_number_conversion::{fixed_index, index, wrapped};
+
+    let _lock = archmage::testing::lock_token_testing();
+    let Ok(avx2) = crate::src::cpu::summon_avx2();
+    let Ok(avx512) = crate::src::cpu::summon_avx512();
+    let input: [u8; 129 * 3] = core::array::from_fn(|position| {
+      let Ok(column) = fixed_index(position);
+      let Ok(value) = wrapped(
+        column
+          .wrapping_mul(89)
+          .wrapping_add(column.wrapping_div(13)),
+      );
+      value
+    });
+    let (source_rows, _) = input.as_chunks::<129>();
+    let horizontal = |[left, right]: &[u8; 2]| {
+      i32::from(*left)
+        .wrapping_mul(9)
+        .wrapping_add(i32::from(*right).wrapping_mul(7))
+    };
+
+    for wide in [false, true] {
+      'width: for width in [4, 8, 16, 23, 32, 64, 128] {
+        let mut output = [231; 133 * 2];
+        let request = BilinearRequest {
+          destination: &mut output,
+          stride: 133,
+          source: PixelSource {
+            samples: &input,
+            origin: 0,
+            stride_bytes: 129,
+          },
+          sampling: reference::Sampling {
+            size: Size { width, height: 2 },
+            phase: Point { x: 7, y: 9 },
+          },
+        };
+
+        let decode_result = match (wide, avx2, avx512) {
+          (false, Some(token), _) => put_byte_bilinear_avx2(token, request),
+          (true, _, Some(token)) => put_byte_bilinear_avx512(token, request),
+          (false, None, _) | (true, _, None) => continue 'width,
+        };
+
+        decode_result?;
+
+        let Ok(row_width) = index(width.cast_unsigned());
+        let (output_rows, _) = output.as_chunks::<133>();
+
+        for ([top, bottom], row) in source_rows.array_windows().zip(output_rows) {
+          let (pixels, padding) = row.split_at_checked(row_width).ok_or(Rav1dError::EINVAL)?;
+
+          for ((&actual, above), below) in pixels
+            .iter()
+            .zip(top.array_windows())
+            .zip(bottom.array_windows())
+          {
+            let upper_weighted = horizontal(above).wrapping_mul(7);
+            let lower_weighted = horizontal(below).wrapping_mul(9);
+            let expected = upper_weighted
+              .wrapping_add(lower_weighted)
+              .wrapping_add(128)
+              .wrapping_shr(8);
+            assert_eq!(i32::from(actual), expected);
+          }
+
+          assert!(padding.iter().all(|&value| value == 231));
+        }
+      }
+    }
+
+    Ok(())
+  }
+
+  #[test]
   fn word_bilinear_refuses_a_short_reference_before_writing() {
     let Ok(avx2) = crate::src::cpu::summon_avx2();
     let token = match avx2 {
@@ -12537,7 +11540,7 @@ mod tests {
       Some(avx2) => avx2,
       None => return,
     };
-    let samples = [0i16; COMPINTER_LEN];
+    let samples = [0i16; 128 * 128];
     let mut dst = [71u8; 131];
     let mask = [32u8; 127];
 
@@ -12568,7 +11571,7 @@ mod tests {
       Some(avx2) => avx2,
       None => return,
     };
-    let samples = [0i16; COMPINTER_LEN];
+    let samples = [0i16; 128 * 128];
     let mut dst = [u16::MAX; 85];
 
     assert_eq!(
@@ -12596,7 +11599,7 @@ mod tests {
       alpha
     });
 
-    let dark = [-8192i16; COMPINTER_LEN];
+    let dark = [-8192i16; 128 * 128];
     let expect_mask = mask.map(|alpha| 512u16.wrapping_sub(u16::from(alpha).wrapping_mul(8)));
     let [first_row, second_row]: &[[u16; 41]; 2] = zerocopy::transmute_ref!(&expect_mask);
     let expected = first_row
@@ -12662,7 +11665,7 @@ mod tests {
       }
     };
 
-    let test_values: [i16; 18] = [
+    let test_values = [
       0,
       1,
       2,
@@ -12682,47 +11685,30 @@ mod tests {
       i16::MIN,
       i16::MAX,
     ];
-
-    let w = 67i32;
-    let h = 2i32;
-
-    let mut tmp1 = [0i16; COMPINTER_LEN];
-    let mut tmp2 = [0i16; COMPINTER_LEN];
+    let size = Size {
+      width: 67,
+      height: 2,
+    };
+    let mut tmp1 = [0i16; 128 * 128];
+    let mut tmp2 = [0i16; 128 * 128];
     let mut dst_avx2 = [0_u8; 134];
-    let mut dst_scalar = [0_u8; 134];
+    let Ok(len) = console_core_number_conversion::wrapped_index(134_u32);
 
     for &v1 in &test_values {
       for &v2 in &test_values {
-        let Ok(len) = console_core_number_conversion::wrapped_index(i32::wrapping_mul(w, h));
-
         for (a, b) in tmp1.iter_mut().zip(&mut tmp2).take(len) {
           *a = v1;
           *b = v2;
         }
 
         dst_avx2.fill(0);
-        dst_scalar.fill(0);
-
-        let golden = ::core::primitive::i32::wrapping_shr(
-          i32::from(v1.wrapping_add(v2)).wrapping_add(16),
-          5_u32,
-        )
-        .clamp(0, 255);
-        let Ok(expected) = console_core_number_conversion::wrapped::<_, u8>(golden);
-        dst_scalar.fill(expected);
+        let sum = i32::from(v1.wrapping_add(v2));
+        let rounded = sum.wrapping_add(16).wrapping_shr(5).clamp(0, 255);
+        let Ok(expected) = console_core_number_conversion::wrapped::<_, u8>(rounded);
+        let dst_scalar = [expected; 134];
 
         assert_eq!(
-          avg_8bpc_avx2_safe(
-            token,
-            &mut dst_avx2,
-            u64::from(w.cast_unsigned()),
-            &tmp1,
-            &tmp2,
-            Size {
-              width: w,
-              height: h
-            }
-          ),
+          avg_8bpc_avx2_safe(token, &mut dst_avx2, 67, &tmp1, &tmp2, size,),
           Ok(())
         );
 
@@ -12752,8 +11738,8 @@ mod tests {
     let w = 128i32;
     let h = 4i32;
 
-    let mut tmp1 = [0i16; COMPINTER_LEN];
-    let mut tmp2 = [0i16; COMPINTER_LEN];
+    let mut tmp1 = [0i16; 128 * 128];
+    let mut tmp2 = [0i16; 128 * 128];
 
     for (i, (a, b)) in tmp1
       .iter_mut()
@@ -12834,8 +11820,8 @@ mod tests {
     let w = 67i32;
     let h = 2i32;
 
-    let mut tmp1 = [0i16; COMPINTER_LEN];
-    let mut tmp2 = [0i16; COMPINTER_LEN];
+    let mut tmp1 = [0i16; 128 * 128];
+    let mut tmp2 = [0i16; 128 * 128];
     let mut dst_a = [0_u8; 134];
     let mut dst_b = [0_u8; 134];
 
@@ -12916,8 +11902,8 @@ mod tests {
     let w = 67i32;
     let h = 2i32;
 
-    let mut tmp1 = [0i16; COMPINTER_LEN];
-    let mut tmp2 = [0i16; COMPINTER_LEN];
+    let mut tmp1 = [0i16; 128 * 128];
+    let mut tmp2 = [0i16; 128 * 128];
     let mut mask = [0_u8; 134];
     let mut dst_a = [0_u8; 134];
     let mut dst_b = [0_u8; 134];
@@ -12986,8 +11972,8 @@ mod tests {
     let h = 2i32;
     let Ok(size) = console_core_number_conversion::wrapped_index(i32::wrapping_mul(w, h));
 
-    let mut tmp1 = [0i16; COMPINTER_LEN];
-    let mut tmp2 = [0i16; COMPINTER_LEN];
+    let mut tmp1 = [0i16; 128 * 128];
+    let mut tmp2 = [0i16; 128 * 128];
 
     for (i, (a, b)) in tmp1.iter_mut().zip(&mut tmp2).take(size).enumerate() {
       *a = {

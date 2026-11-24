@@ -33,51 +33,65 @@ pub(crate) fn project_prepared_math_with_checkpoints(
     let mut identifiers = HashSet::new();
     let mut browser_occurrences = Vec::new();
     let mut has_native_projection = false;
+
     for (index, node) in document
         .descendants()
         .filter(|node| node.is_element())
         .enumerate()
     {
         checkpoint_loop(index, checkpoint)?;
+
         if attribute(node, LEGACY_NATIVE_ATTRIBUTE) == Some("unavailable") {
             return Err(projection_error(
                 "browser-only math has no renderer-owned native projection",
             ));
         }
+
         if attribute(node, NATIVE_ATTRIBUTE).is_some() {
             browser_occurrences.push(node);
         }
+
         has_native_projection |= attribute(node, PREPARED_MATH_OCCURRENCE_ATTRIBUTE).is_some();
+
         for identifier in node.attributes().filter(|value| value.name() == "id") {
             identifiers.insert(identifier.value().to_owned());
         }
     }
+
     if browser_occurrences.is_empty() && evidence.is_none_or(PreparedMathEvidenceLease::is_empty) {
-        // Serialized native geometry is ordinary untrusted SVG on reimport. Its inert occurrence
-        // attributes cannot supply a payload or mint a terminal receipt. Browser occurrences
-        // still require the private family preparation below.
+
+
+
         return Ok(svg.to_owned());
     }
+
     if browser_occurrences.is_empty() && !has_native_projection {
-        if let Some(evidence) = evidence.filter(|evidence| !evidence.is_empty()) {
-            evidence
-                .validate_unique_occurrences()
-                .map_err(projection_error)?;
-            if evidence
-                .entries()
-                .iter()
-                .any(|entry| entry.projection_fingerprint().is_none())
-            {
+        match evidence.filter(|evidence_2| !evidence_2.is_empty()) {
+            Some(evidence_3) => {
+                evidence_3
+                    .validate_unique_occurrences()
+                    .map_err(projection_error)?;
+
+                if evidence_3
+                    .entries()
+                    .iter()
+                    .any(|entry| entry.projection_fingerprint().is_none())
+                {
+                    return Err(projection_error(
+                        "prepared-math occurrence is marked native-unavailable",
+                    ));
+                }
+
                 return Err(projection_error(
-                    "prepared-math occurrence is marked native-unavailable",
+                    "prepared-math evidence has no terminal occurrence marker",
                 ));
-            }
-            return Err(projection_error(
-                "prepared-math evidence has no terminal occurrence marker",
-            ));
+            },
+            ::core::option::Option::None => {},
         }
+
         return Ok(svg.to_owned());
     }
+
     if !matches!(
         family_id,
         Some(DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE | DiagramFamilyId::SEQUENCE)
@@ -86,16 +100,18 @@ pub(crate) fn project_prepared_math_with_checkpoints(
             "prepared math requires renderer-owned family metadata",
         ));
     }
-    let evidence = evidence
-        .filter(|evidence| !evidence.is_empty())
+
+    let evidence_5 = evidence
+        .filter(|evidence_4| !evidence_4.is_empty())
         .ok_or_else(|| {
             projection_error("prepared math requires renderer-owned occurrence evidence")
         })?;
-    evidence
+    evidence_5
         .validate_unique_occurrences()
         .map_err(projection_error)?;
+
     if browser_occurrences.is_empty() {
-        if evidence
+        if evidence_5
             .entries()
             .iter()
             .any(|entry| entry.projection_fingerprint().is_none())
@@ -104,11 +120,13 @@ pub(crate) fn project_prepared_math_with_checkpoints(
                 "prepared-math occurrence is marked native-unavailable",
             ));
         }
+
         return Ok(svg.to_owned());
     }
 
     let root = document.root_element();
     let root_namespace = root.tag_name().namespace();
+
     if root.tag_name().name() != "svg"
         || root_namespace.is_some_and(|uri| uri != "http://www.w3.org/2000/svg")
         || root.lookup_namespace_uri(None) != root_namespace
@@ -117,38 +135,46 @@ pub(crate) fn project_prepared_math_with_checkpoints(
             "prepared math requires the root SVG default namespace",
         ));
     }
+
     let namespace = crate::svg::parity::sanitize_svg_id(attribute(root, "id").unwrap_or("merman"));
-    let root_open_end = find_tag_end_with_checkpoints(svg, root.range().start, checkpoint)?
+    let checked_value = find_tag_end_with_checkpoints(svg, root.range().start, checkpoint)?;
+    let root_open_end = checked_value
         .ok_or_else(|| projection_error("missing root SVG start tag"))?;
     let mut definitions = String::new();
     let mut output = String::with_capacity(svg.len());
     let mut cursor = 0usize;
     let mut projected = 0usize;
     let mut next_identifier = 0usize;
-    let mut emitted = vec![0usize; evidence.entries().len()];
+    let mut emitted = vec![0usize; evidence_5.entries().len()];
     let browser_count = browser_occurrences.len();
     let mut foreign_objects = HashSet::new();
+
     for (index, occurrence) in browser_occurrences.into_iter().enumerate() {
         checkpoint_loop(index, checkpoint)?;
         let mut foreign_object = None;
-        for (depth, ancestor) in occurrence.ancestors().enumerate() {
+
+        'inner_for_2: for (depth, ancestor) in occurrence.ancestors().enumerate() {
             checkpoint_loop(depth, checkpoint)?;
+
             if ancestor.is_element()
                 && ancestor.tag_name().name() == "foreignObject"
                 && ancestor.tag_name().namespace() == root_namespace
             {
                 foreign_object = Some(ancestor);
-                break;
+                break 'inner_for_2;
             }
         }
-        let foreign_object = foreign_object.ok_or_else(|| {
+
+        let foreign_object_2 = foreign_object.ok_or_else(|| {
             projection_error("prepared-math occurrence was not bound to a terminal foreignObject")
         })?;
-        if !foreign_objects.insert(foreign_object.id()) {
+
+        if !foreign_objects.insert(foreign_object_2.id()) {
             return Err(projection_error(
                 "each prepared-math foreignObject must contain exactly one occurrence",
             ));
         }
+
         if !attribute(occurrence, "class").is_some_and(|classes| {
             classes
                 .split_ascii_whitespace()
@@ -158,14 +184,16 @@ pub(crate) fn project_prepared_math_with_checkpoints(
                 "prepared-math occurrence is missing its browser class",
             ));
         }
+
         if attribute(occurrence, NATIVE_ATTRIBUTE) != Some("v1") {
             return Err(projection_error(
                 "native projection is unavailable for a prepared browser math occurrence",
             ));
         }
+
         let occurrence_id = attribute(occurrence, PREPARED_MATH_OCCURRENCE_ATTRIBUTE)
             .ok_or_else(|| projection_error("prepared-math occurrence identity is missing"))?;
-        let (expected_index, expected) = evidence
+        let (expected_index, expected) = evidence_5
             .expectation(occurrence_id)
             .map_err(projection_error)?
             .ok_or_else(|| {
@@ -174,36 +202,48 @@ pub(crate) fn project_prepared_math_with_checkpoints(
                 ))
             })?;
         emitted[expected_index] = emitted[expected_index].saturating_add(1);
+
         if emitted[expected_index] > expected.expected_emissions() {
             return Err(projection_error(format!(
                 "prepared-math occurrence {occurrence_id} was emitted more times than expected"
             )));
         }
+
         let expected_fingerprint = expected.projection_fingerprint().ok_or_else(|| {
             projection_error(format!(
                 "native projection is unavailable for prepared-math occurrence `{occurrence_id}`"
             ))
         })?;
-        let projection = evidence.native_projection(expected_index).ok_or_else(|| {
+        let projection = evidence_5.native_projection(expected_index).ok_or_else(|| {
             projection_error("prepared-math native payload is missing from renderer evidence")
         })?;
+
         if projection.fingerprint() != expected_fingerprint {
             return Err(projection_error(format!(
                 "prepared-math occurrence `{occurrence_id}` projection does not match renderer evidence"
             )));
         }
-        let x = parse_optional_position(foreign_object, "x")?.unwrap_or(0.0);
-        let y = parse_optional_position(foreign_object, "y")?.unwrap_or(0.0);
-        let width = parse_required_size(foreign_object, "width")?;
-        let height = parse_required_size(foreign_object, "height")?;
+
+        let x = match parse_optional_position(foreign_object_2, "x")? {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0.0,
+        };
+        let y = match parse_optional_position(foreign_object_2, "y")? {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0.0,
+        };
+        let width = parse_required_size(foreign_object_2, "width")?;
+        let height = parse_required_size(foreign_object_2, "height")?;
         let projection_width = projection.width_px();
         let projection_height = projection.height_px();
+
         if projection_width > width + 0.01 || projection_height > height + 0.01 {
             return Err(projection_error(
                 "prepared-math native projection exceeds its terminal foreignObject bounds",
             ));
         }
-        // Mermaid Sequence positions fit-content HTML at the foreignObject origin.
+
+
         let (translate_x, translate_y) = if family_id == Some(DiagramFamilyId::SEQUENCE) {
             (x, y)
         } else {
@@ -212,31 +252,36 @@ pub(crate) fn project_prepared_math_with_checkpoints(
                 y + (height - projection_height) / 2.0,
             )
         };
-        let replacement = foreign_object
+        let replacement = match foreign_object_2
             .parent_element()
             .filter(|parent| {
                 parent.tag_name().name() == "switch"
                     && parent.tag_name().namespace() == root_namespace
                     && attribute(*parent, SWITCH_ATTRIBUTE) == Some("v1")
-            })
-            .unwrap_or(foreign_object)
+            }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => foreign_object_2,
+        }
             .range();
+
         if replacement.start < cursor {
             return Err(projection_error(
                 "prepared-math terminal wrappers must not overlap",
             ));
         }
-        let identifier = loop {
+
+        let identifier = 'inner_loop_2: loop {
             checkpoint_loop(next_identifier, checkpoint)?;
             let candidate = format!("{namespace}-prepared-math-{next_identifier}");
             next_identifier = next_identifier
                 .checked_add(1)
                 .ok_or_else(|| projection_error("prepared-math definition identifier overflow"))?;
+
             if identifiers.insert(candidate.clone()) {
-                break candidate;
+                break 'inner_loop_2 candidate;
             }
         };
-        // Root definitions keep native glyphs outside diagram shape selectors.
+
         definitions.push_str(r#"<g id=""#);
         definitions.push_str(&identifier);
         definitions.push_str(r#"">"#);
@@ -257,29 +302,36 @@ pub(crate) fn project_prepared_math_with_checkpoints(
         cursor = replacement.end;
         projected += 1;
     }
+
     output.push_str(&svg[cursor..]);
+
     if projected != browser_count {
         return Err(projection_error(
             "prepared-math occurrence was not bound to a terminal foreignObject",
         ));
     }
-    if let Some((missing, _)) = evidence
+
+    match evidence_5
         .entries()
         .iter()
         .zip(emitted.iter())
-        .find(|(entry, emitted)| **emitted < entry.expected_emissions())
-    {
-        return Err(projection_error(format!(
-            "prepared-math terminal is missing occurrence {}",
-            missing.occurrence_id().as_str()
-        )));
+        .find(|(entry, emitted_2)| **emitted_2 < entry.expected_emissions()) {
+        Some((missing, _)) => {
+            return Err(projection_error(format!(
+                "prepared-math terminal is missing occurrence {}",
+                missing.occurrence_id().as_str()
+            )));
+        },
+        ::core::option::Option::None => {},
     }
+
     checkpoint()?;
     output.insert_str(root_open_end + 1, &format!("<defs>{definitions}</defs>"));
     checkpoint()?;
     Ok(output)
 }
 
+#[must_use]
 fn attribute<'a>(node: Node<'a, '_>, name: &str) -> Option<&'a str> {
     node.attributes()
         .find(|attribute| attribute.namespace().is_none() && attribute.name() == name)
@@ -287,7 +339,8 @@ fn attribute<'a>(node: Node<'a, '_>, name: &str) -> Option<&'a str> {
 }
 
 fn parse_required_size(tag: Node<'_, '_>, name: &str) -> Result<f64> {
-    parse_optional_size(tag, name)?
+    let checked_value = parse_optional_size(tag, name)?;
+    checked_value
         .ok_or_else(|| projection_error(format!("prepared-math terminal is missing `{name}`")))
 }
 
@@ -304,15 +357,22 @@ fn parse_optional_finite_length(
     name: &str,
     allow_negative: bool,
 ) -> Result<Option<f64>> {
-    let Some(raw) = attribute(tag, name) else {
-        return Ok(None);
+    let raw = {
+        let optional_raw = attribute(tag, name);
+
+        match optional_raw {
+            Some(matched_raw) => matched_raw,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
-    let raw = raw.strip_suffix("px").unwrap_or(raw);
-    let value = raw.parse::<f64>().map_err(|_| {
+
+    let raw_2 = raw.strip_suffix("px").unwrap_or(raw);
+    let value = raw_2.parse::<f64>().map_err(|_| {
         projection_error(format!(
             "prepared-math terminal `{name}` must be a finite pixel length"
         ))
     })?;
+
     if !value.is_finite() || (!allow_negative && value < 0.0) {
         let constraint = if allow_negative {
             "finite"
@@ -323,19 +383,23 @@ fn parse_optional_finite_length(
             "prepared-math terminal `{name}` must be a {constraint} length"
         )));
     }
+
     Ok(Some(value))
 }
 
+#[must_use]
 fn format_number(value: f64) -> String {
-    let value = format!("{value:.6}");
-    let value = value.trim_end_matches('0').trim_end_matches('.');
-    if value.is_empty() || value == "-0" {
+    let value_2 = format!("{value:.6}");
+    let value_3 = value_2.trim_end_matches('0').trim_end_matches('.');
+
+    if value_3.is_empty() || value_3 == "-0" {
         "0".to_owned()
     } else {
-        value.to_owned()
+        value_3.to_owned()
     }
 }
 
+#[must_use]
 fn projection_error(message: impl Into<String>) -> Error {
     Error::svg_postprocess("prepared-math-projection", message)
 }

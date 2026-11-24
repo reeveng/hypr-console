@@ -16,6 +16,7 @@ pub(crate) struct ArchitectureCssBinding {
 }
 
 impl ArchitectureCssBinding {
+    #[must_use]
     pub(super) fn resolve(
         config: &serde_json::Value,
         font_family: &str,
@@ -35,27 +36,39 @@ impl ArchitectureCssBinding {
             ),
             arrow_color: color("archEdgeArrowColor", &edge_color),
             edge_color,
-            edge_width: config_css_number_or_string(config, &["themeVariables", "archEdgeWidth"])
-                .unwrap_or_else(|| "3".to_owned()),
+            edge_width: match config_css_number_or_string(config, &["themeVariables", "archEdgeWidth"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => "3".to_owned(),
+            },
             group_border_color: color("archGroupBorderColor", &primary_border),
-            group_border_width: config_css_number_or_string(
+            group_border_width: match config_css_number_or_string(
                 config,
                 &["themeVariables", "archGroupBorderWidth"],
-            )
-            .unwrap_or_else(|| "2px".to_owned()),
-            icon_size_px: config_f64(config, &["architecture", "iconSize"])
-                .unwrap_or(80.0)
+            ) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => "2px".to_owned(),
+            },
+            icon_size_px: match config_f64(config, &["architecture", "iconSize"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 80.0,
+            }
                 .max(1.0),
-            padding_px: config_f64(config, &["architecture", "padding"])
-                .unwrap_or(40.0)
+            padding_px: match config_f64(config, &["architecture", "padding"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 40.0,
+            }
                 .max(0.0),
-            arch_font_size_px: config_f64(config, &["architecture", "fontSize"])
-                .unwrap_or(16.0)
+            arch_font_size_px: match config_f64(config, &["architecture", "fontSize"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 16.0,
+            }
                 .max(1.0),
-            use_max_width: config
+            use_max_width: match config
                 .pointer("/architecture/useMaxWidth")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(true),
+                .and_then(serde_json::Value::as_bool) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => true,
+            },
         }
     }
 }

@@ -36,7 +36,8 @@ fn transform_square16_8bpc(
 
     match plan.rows {
         Square16Rows::Scalar(row) => {
-            scratch = rectangular_transform_rows(coefficients, row, RectangularScale::Skip, 2, bounds)?;
+            let transformed = rectangular_transform_rows(coefficients, row, RectangularScale::Skip, 2, bounds)?;
+            scratch = transformed;
         }
         Square16Rows::Dct => {
             row_dct16_8bpc_block(token, coefficients.as_flattened(), 16, scratch.as_flattened_mut(), row_pass)?;
@@ -63,6 +64,13 @@ fn transform_square16_8bpc(
     Ok(())
 }
 
+#[cfg_attr(
+    dylint_lib = "explicit080_macro_budget",
+    expect(
+        explicit080_macro_budget,
+        reason = "the transform dispatch table requires a distinct target-feature entry point for each row and column transform pair"
+    )
+)]
 macro_rules! impl_square16_transform {
     ($name:ident, $rows:expr, $columns:expr) => {
         #[cfg(target_arch = "x86_64")]
@@ -162,7 +170,7 @@ fn inv_txfm_add_dct_dct_16x16_8bpc_avx2_inner(
     bitdepth_max: i32,
 ) -> Rav1dResult {
     let coefficients = coeff.first_chunk_mut::<256>().ok_or(Rav1dError::EINVAL)?;
-    let mut rows = dct16_row_pass_i16_simd(token, *coefficients);
+    let Ok(mut rows) = dct16_row_pass_i16_simd(token, *coefficients);
     let rounding = _mm256_set1_epi32(2);
     let minimum = _mm256_set1_epi32(i32::from(i16::MIN));
     let maximum = _mm256_set1_epi32(i32::from(i16::MAX));
@@ -174,7 +182,7 @@ fn inv_txfm_add_dct_dct_16x16_8bpc_avx2_inner(
         storeu_256!(lanes, clipped);
     }
 
-    let residuals = dct16_col_pass_i16(token, &rows);
+    let Ok(residuals) = dct16_col_pass_i16(token, &rows);
     let stride = dst_stride;
     let extent = console_core_geometry::Size { width: 16, height: 16 };
     add_to_dst_8bpc_avx2(token, dst, stride, &residuals, extent, bitdepth_max)?;
@@ -200,7 +208,7 @@ fn inv_txfm_add_dct_dct_16x16_16bpc_avx2_inner(
 
     let stride = byte_stride;
     let extent = console_core_geometry::Size { width: 16, height: 16 };
-    add_to_dst_16bpc_avx2(token, dst, stride >> 1, residuals, extent, bitdepth_max)?;
+    add_to_dst_16bpc_avx2(token, dst, ::core::primitive::u64::wrapping_shr(stride, 1_u32), residuals, extent, bitdepth_max)?;
     *coefficients = [[0; 16]; 16];
     Ok(())
 }
@@ -238,11 +246,13 @@ fn transform_active_rows<
     use console_core_video_interpolation::round_shift;
 
     let mut scratch = [[0; WIDTH]; HEIGHT];
+
     for (column, values) in (0u32..).zip(coefficients) {
         let Ok(position) = console_core_number_conversion::index(column);
+
         for (row, &value) in scratch.iter_mut().zip(values) {
             let destination = row.get_mut(position).ok_or(Rav1dError::EINVAL)?;
-            let coefficient = value.into();
+            let coefficient = <_ as ::core::convert::Into<::core::primitive::i32>>::into(value);
             *destination = match transform.scale {
                 RectangularScale::Apply => round_shift(coefficient.wrapping_mul(181), 8),
                 RectangularScale::Skip => coefficient,
@@ -254,6 +264,7 @@ fn transform_active_rows<
 
     for row in scratch.iter_mut().take(active_rows) {
         (transform.transform)(row, STRIDE_1, bounds.rows)?;
+
         for sample in row {
             *sample = iclip(round_shift(*sample, transform.shift), bounds.columns.lower, bounds.columns.upper);
         }
@@ -342,16 +353,18 @@ fn inv_txfm_add_dct_dct_8x4_8bpc_avx2_inner(
         lower: _mm256_set1_epi32(scalar_bounds.columns.lower),
         upper: _mm256_set1_epi32(scalar_bounds.columns.upper),
     };
-    apply_transform_columns_avx2(token, scratch.as_flattened_mut(), extent, bounds, |token, values, clipping| dct4_1d_cols8(token, values, clipping))?;
+    apply_transform_columns_avx2(token, scratch.as_flattened_mut(), extent, bounds, |column_token, values, clipping| dct4_1d_cols8(column_token, values, clipping))?;
 
     let stride = dst_stride;
     let rows = residual_output_rows(dst, scratch.as_flattened(), stride, extent)?;
     let Ok(maximum) = console_core_number_conversion::wrapped::<_, i16>(bitdepth_max);
+
     for (pixels, values) in rows {
         let block = pixels.first_chunk_mut::<8>().ok_or(Rav1dError::EINVAL)?;
         let residuals = values.first_chunk::<8>().ok_or(Rav1dError::EINVAL)?;
         let Ok(()) = add_eight_pixels_8bpc(token, block, residuals, maximum);
     }
+
     *coefficients = [[0; 4]; 8];
     Ok(())
 }
@@ -359,106 +372,44 @@ fn inv_txfm_add_dct_dct_8x4_8bpc_avx2_inner(
 #[cfg(target_arch = "x86_64")]
 #[arcane]
 fn inv_txfm_add_dct_dct_8x16_8bpc_avx2_inner(
-    _token: Desktop64,
+    token: Desktop64,
     dst: &mut [u8],
     dst_stride: u64,
     coeff: &mut [i16],
     bitdepth_max: i32,
 ) -> Rav1dResult {
-    let Ok(pitch) = console_core_number_conversion::index(dst_stride);
     let extent = console_core_geometry::Size { width: 8, height: 16 };
-    let native_stride = dst_stride;
-    let (dst, coeff) = rectangular_8bpc_views(dst, coeff, native_stride, extent)?;
-    let mut dst_2 = dst.flex_mut();
-    let mut coeff_2 = coeff.flex_mut();
+    let (pixels, coefficients) = rectangular_8bpc_views(dst, coeff, dst_stride, extent)?;
+    let Ok(bounds) = TransformAxisBounds::narrow(255);
+    let mut scratch = [0i32; 128];
+    let row_pass = RowPass {
+        coefficient_height: 16,
+        scale: RectangularScale::Apply,
+        rounding: 1,
+        shift: 1,
+        row_bounds: bounds.rows,
+        column_bounds: bounds.columns,
+    };
+    row_dct8_8bpc_block(token, coefficients, 16, &mut scratch, row_pass)?;
 
-    let row_clip_min = <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MIN);
-    let row_clip_max = <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MAX);
-    let col_clip_min = <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MIN);
-    let col_clip_max = <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MAX);
-    let mut tmp = [0i32; 128];
+    let vector_bounds = VectorBounds {
+        lower: _mm256_set1_epi32(bounds.columns.lower),
+        upper: _mm256_set1_epi32(bounds.columns.upper),
+    };
+    apply_transform_columns_avx2(token, &mut scratch, extent, vector_bounds, |column_token, values, clipping| {
+        dct16_1d_cols8(column_token, values, clipping)
+    })?;
 
+    let rows = residual_output_rows(pixels, &scratch, dst_stride, extent)?;
+    let Ok(maximum) = console_core_number_conversion::wrapped::<_, i16>(bitdepth_max);
 
-    {
-        let Ok(coeff_slice) = coeff_2.as_slice();
-        row_dct8_8bpc_block(
-          _token,
-          coeff_slice,
-          16,
-          &mut tmp,
-          RowPass {
-            coefficient_height: 16,
-            scale: RectangularScale::Apply,
-            rounding: 1,
-            shift: 1,
-            row_bounds: CoefficientBounds { lower: row_clip_min, upper: row_clip_max },
-            column_bounds: CoefficientBounds { lower: col_clip_min, upper: col_clip_max },
-          },
-        )?;
+    for (output, residual) in rows {
+        let pixel_row = output.first_chunk_mut::<8>().ok_or(Rav1dError::EINVAL)?;
+        let residual_row = residual.first_chunk::<8>().ok_or(Rav1dError::EINVAL)?;
+        let Ok(()) = add_eight_pixels_8bpc(token, pixel_row, residual_row, maximum);
     }
 
-
-    {
-        let min_v = _mm256_set1_epi32(col_clip_min);
-        let max_v = _mm256_set1_epi32(col_clip_max);
-        let mut v = [_mm256_setzero_si256(); 16];
-
-        for (i, v_element) in <[_]>::iter_mut(&mut v).enumerate() {
-            *v_element = loadu_256!(&tmp[::core::primitive::usize::wrapping_mul(i, 8)..::core::primitive::usize::wrapping_mul(i, 8).wrapping_add(8)], [i32; 8]);
-        }
-
-        dct16_1d_cols8(_token, &mut v, VectorBounds { lower: min_v, upper: max_v });
-
-        for (i, v_element) in <[_]>::iter(&v).enumerate() {
-            storeu_256!(&mut tmp[::core::primitive::usize::wrapping_mul(i, 8)..::core::primitive::usize::wrapping_mul(i, 8).wrapping_add(8)], [i32; 8], *v_element);
-        }
-    }
-
-
-    let zero = _mm_setzero_si128();
-    let max_val = _mm_set1_epi16(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(bitdepth_max) { ::core::result::Result::Ok(converted_position) => converted_position });
-    let rnd_final = _mm256_set1_epi32(8);
-
-    for (y, tmp_row) in tmp.as_chunks::<8>().0.iter().enumerate() {
-        let [
-            tmp_lane_0, tmp_lane_1, tmp_lane_2, tmp_lane_3,
-            tmp_lane_4, tmp_lane_5, tmp_lane_6, tmp_lane_7,
-        ] = tmp_row;
-        let dst_off = (Wrapping(y) * Wrapping(pitch)).0;
-
-        let d = loadi64!(&dst_2[dst_off..(Wrapping(dst_off) + Wrapping(8)).0]);
-        let d16 = _mm_unpacklo_epi8(d, zero);
-
-        let c_lo = _mm_set_epi32(
-            *tmp_lane_3,
-            *tmp_lane_2,
-            *tmp_lane_1,
-            *tmp_lane_0,
-        );
-        let c_hi = _mm_set_epi32(
-            *tmp_lane_7,
-            *tmp_lane_6,
-            *tmp_lane_5,
-            *tmp_lane_4,
-        );
-
-        let c_lo_256 = _mm256_set_m128i(c_hi, c_lo);
-        let c_scaled = _mm256_srai_epi32(_mm256_add_epi32(c_lo_256, rnd_final), 4);
-
-        let c_lo_scaled = _mm256_castsi256_si128(c_scaled);
-        let c_hi_scaled = _mm256_extracti128_si256(c_scaled, 1);
-        let c16 = _mm_packs_epi32(c_lo_scaled, c_hi_scaled);
-
-        let sum = _mm_add_epi16(d16, c16);
-        let clamped = _mm_max_epi16(_mm_min_epi16(sum, max_val), zero);
-        let packed = _mm_packus_epi16(clamped, clamped);
-
-        storei64!(&mut dst_2[dst_off..(Wrapping(dst_off) + Wrapping(8)).0], packed);
-    }
-
-
-    coeff_2[..128].fill(0);
-
+    coefficients.fill(0);
     Ok(())
 }
 
@@ -472,12 +423,9 @@ fn inv_txfm_add_dct_dct_16x8_8bpc_avx2_inner(
     coeff: &mut [i16],
     bitdepth_max: i32,
 ) -> Rav1dResult {
-    let Ok(pitch) = console_core_number_conversion::index(dst_stride);
     let extent = console_core_geometry::Size { width: 16, height: 8 };
     let native_stride = dst_stride;
-    let (dst, coeff) = rectangular_8bpc_views(dst, coeff, native_stride, extent)?;
-    let mut dst_2 = dst.flex_mut();
-    let mut coeff_2 = coeff.flex_mut();
+    let (pixel_view, coefficient_view) = rectangular_8bpc_views(dst, coeff, native_stride, extent)?;
 
     let row_clip_min = <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MIN);
     let row_clip_max = <i32 as ::core::convert::From<::core::primitive::i16>>::from(i16::MAX);
@@ -487,10 +435,9 @@ fn inv_txfm_add_dct_dct_16x8_8bpc_avx2_inner(
 
 
     {
-        let Ok(coeff_slice) = coeff_2.as_slice();
         simd_row_dct16_8bpc_8rows(
           _token,
-          coeff_slice,
+          coefficient_view,
           0,
           &mut tmp,
           RowPass {
@@ -508,7 +455,10 @@ fn inv_txfm_add_dct_dct_16x8_8bpc_avx2_inner(
 
     let Ok(avx512) = crate::src::cpu::summon_avx512();
 
-    let wide_result = avx512.map(|t512| dct8_cols_avx512(t512, &mut tmp, console_core_geometry::Size { width: 16, height: 8 }, CoefficientBounds { lower: col_clip_min, upper: col_clip_max }));
+    let wide_result = match avx512 {
+        Some(server) => Some(dct8_cols_avx512(server, &mut tmp, extent, CoefficientBounds { lower: col_clip_min, upper: col_clip_max })),
+        None => None,
+    };
     let Ok(column_dispatch) = scratch_column_dispatch(wide_result);
 
     match column_dispatch { ColumnDispatch::Applied => {}, ColumnDispatch::Fallback => {
@@ -526,63 +476,8 @@ fn inv_txfm_add_dct_dct_16x8_8bpc_avx2_inner(
     } }
 
 
-    let zero = _mm256_setzero_si256();
-    let max_val = _mm256_set1_epi16(match ::console_core_number_conversion::wrapped::<_, ::core::primitive::i16>(bitdepth_max) { ::core::result::Result::Ok(converted_position) => converted_position });
-    let rnd_final = _mm256_set1_epi32(8);
-
-    for (y, tmp_row) in tmp.as_chunks::<16>().0.iter().enumerate() {
-        let [
-            tmp_lane_0, tmp_lane_1, tmp_lane_2, tmp_lane_3,
-            tmp_lane_4, tmp_lane_5, tmp_lane_6, tmp_lane_7,
-            tmp_lane_8, tmp_lane_9, tmp_lane_10, tmp_lane_11,
-            tmp_lane_12, tmp_lane_13, tmp_lane_14, tmp_lane_15,
-        ] = tmp_row;
-        let dst_off = (Wrapping(y) * Wrapping(pitch)).0;
-
-        let d = loadu_128!(<&[u8; 16]>::try_from(&dst_2[dst_off..(Wrapping(dst_off) + Wrapping(16)).0]).unwrap());
-        let d16 = _mm256_cvtepu8_epi16(d);
-
-        let c0 = _mm256_set_epi32(
-            *tmp_lane_7,
-            *tmp_lane_6,
-            *tmp_lane_5,
-            *tmp_lane_4,
-            *tmp_lane_3,
-            *tmp_lane_2,
-            *tmp_lane_1,
-            *tmp_lane_0,
-        );
-        let c1 = _mm256_set_epi32(
-            *tmp_lane_15,
-            *tmp_lane_14,
-            *tmp_lane_13,
-            *tmp_lane_12,
-            *tmp_lane_11,
-            *tmp_lane_10,
-            *tmp_lane_9,
-            *tmp_lane_8,
-        );
-
-        let c0_scaled = _mm256_srai_epi32(_mm256_add_epi32(c0, rnd_final), 4);
-        let c1_scaled = _mm256_srai_epi32(_mm256_add_epi32(c1, rnd_final), 4);
-
-        let c16 = _mm256_packs_epi32(c0_scaled, c1_scaled);
-        let c16_2 = _mm256_permute4x64_epi64(c16, 0b11_01_10_00);
-
-        let sum = _mm256_add_epi16(d16, c16_2);
-        let clamped = _mm256_max_epi16(_mm256_min_epi16(sum, max_val), zero);
-
-        let packed = _mm256_packus_epi16(clamped, clamped);
-        let packed_2 = _mm256_permute4x64_epi64(packed, 0b11_01_10_00);
-
-        storeu_128!(
-            <&mut [u8; 16]>::try_from(&mut dst_2[dst_off..(Wrapping(dst_off) + Wrapping(16)).0]).unwrap(),
-            _mm256_castsi256_si128(packed_2)
-        );
-    }
-
-
-    coeff_2[..128].fill(0);
+    add_to_dst_8bpc_avx2(_token, pixel_view, native_stride, &tmp, extent, bitdepth_max)?;
+    coefficient_view.fill(0);
 
     Ok(())
 }

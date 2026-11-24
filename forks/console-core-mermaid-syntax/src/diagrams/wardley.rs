@@ -88,7 +88,7 @@ pub(crate) fn parse_wardley_model_for_render_controlled(
         Ok(source) => source,
         Err(failure) => return Ok(Err(failure.into_error())),
     };
-    Ok(Ok(source.into_render_model_controlled(meta, control)?))
+    Ok(Ok({ let checked_value = source.into_render_model_controlled(meta, control)?; checked_value }))
 }
 
 #[cfg(feature = "compat-json")]
@@ -150,6 +150,7 @@ pub(crate) fn parse_wardley_semantic_model_controlled(
                     },
                 }
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 crate::family::SemanticConstruction {
@@ -429,17 +430,32 @@ impl WardleyBuilder {
                 component_ids: Vec::new(),
             },
         );
-        if let Some(node) = self.nodes.get_mut(node_id) {
-            node.is_pipeline_parent = true;
+
+        {
+            match self.nodes.get_mut(node_id) {
+                Some(node) => {
+                    node.is_pipeline_parent = true;
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
     fn add_pipeline_component(&mut self, pipeline_node_id: &str, component_id: &str) {
-        if let Some(pipeline) = self.pipelines.get_mut(pipeline_node_id) {
-            pipeline.component_ids.push(component_id.to_string());
+        match self.pipelines.get_mut(pipeline_node_id) {
+            Some(pipeline) => {
+                pipeline.component_ids.push(component_id.to_string());
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(node) = self.nodes.get_mut(component_id) {
-            node.in_pipeline = true;
+
+        {
+            match self.nodes.get_mut(component_id) {
+                Some(node) => {
+                    node.in_pipeline = true;
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
@@ -451,14 +467,17 @@ impl WardleyBuilder {
         if self.nodes.contains_key(name) {
             return Ok(name.to_string());
         }
+
         for (index, (id, node)) in self.nodes.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             if node.label == name {
                 return Ok(id.clone());
             }
         }
+
         Ok(name.to_string())
     }
 
@@ -468,10 +487,12 @@ impl WardleyBuilder {
         control: &OperationControl,
     ) -> OperationControlResult<WardleyDiagramModel> {
         let mut nodes = Vec::with_capacity(self.nodes.len());
+
         for (index, node) in self.nodes.into_values().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             nodes.push(WardleyNode {
                 id: node.id,
                 label: node.label,
@@ -486,20 +507,27 @@ impl WardleyBuilder {
                 source_strategy: node.source_strategy,
             });
         }
+
         let mut trends = Vec::with_capacity(self.trends.len());
+
         for (index, trend) in self.trends.into_values().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             trends.push(trend);
         }
+
         let mut pipelines = Vec::with_capacity(self.pipelines.len());
+
         for (index, pipeline) in self.pipelines.into_values().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             pipelines.push(pipeline);
         }
+
         control.checkpoint()?;
         Ok(WardleyDiagramModel {
             title: common.title,
@@ -527,9 +555,10 @@ struct WardleyParseProblem {
 }
 
 impl WardleyParseProblem {
+    #[must_use]
     fn new(message: impl Into<String>, span: SourceSpan) -> Self {
         Self {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span,
         }
     }
@@ -571,16 +600,21 @@ fn construct_wardley_semantic_source_controlled(
         editor_demand,
         control,
     )?;
-    if let Some(problem) = first_problem {
-        return Ok(Err(wardley_failure(
-            diagram_type,
-            problem,
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-            #[cfg(feature = "editor-facts")]
-            editor_demand,
-        )));
+
+    match first_problem {
+        Some(problem) => {
+            return Ok(Err(wardley_failure(
+                diagram_type,
+                problem,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+                #[cfg(feature = "editor-facts")]
+                editor_demand,
+            )));
+        },
+        ::core::option::Option::None => {},
     }
+
     control.checkpoint()?;
     let model = match build_wardley_model_controlled(&ast, control)? {
         Ok(model) => model,
@@ -604,6 +638,7 @@ fn construct_wardley_semantic_source_controlled(
     }))
 }
 
+#[must_use]
 fn wardley_failure(
     diagram_type: &str,
     problem: WardleyParseProblem,
@@ -646,6 +681,7 @@ fn parse_wardley_ast(
         offset = next_offset;
         let visible = strip_langium_inline_comment(line);
         let trimmed = visible.trim();
+
         if trimmed.is_empty() {
             continue;
         }
@@ -654,6 +690,7 @@ fn parse_wardley_ast(
             header_decided = true;
             let leading = visible.len() - visible.trim_start().len();
             let header_start = line_start + leading;
+
             let Some(rest) = visible.trim_start().strip_prefix(HEADER) else {
                 remember_wardley_problem(
                     &mut first_problem,
@@ -664,6 +701,7 @@ fn parse_wardley_ast(
                 );
                 continue;
             };
+
             if rest
                 .chars()
                 .next()
@@ -678,6 +716,7 @@ fn parse_wardley_ast(
                 );
                 continue;
             }
+
             saw_header = true;
             #[cfg(feature = "editor-facts")]
             if editor_demand.captures_rich() {
@@ -697,21 +736,30 @@ fn parse_wardley_ast(
         let leading = statement.len() - statement.trim_start().len();
         let statement_start = statement_start + leading;
         let statement = &statement[leading..];
-        if let Some(parsed) = parse_langium_common(code, statement_start) {
-            #[cfg(feature = "editor-facts")]
-            if editor_demand.captures_rich() {
-                push_langium_common_editor_fact(&mut editor_facts, &parsed.fact, "wardley");
-            }
-            if let Some(diagnostic) = parsed.diagnostic {
-                remember_wardley_problem(
-                    &mut first_problem,
-                    WardleyParseProblem::new(diagnostic.message, diagnostic.span),
-                );
-            } else {
-                ast.common.push(parsed.fact);
-            }
-            offset = statement_start + parsed.consumed;
-            continue;
+
+        match parse_langium_common(code, statement_start) {
+            Some(parsed) => {
+                #[cfg(feature = "editor-facts")]
+                if editor_demand.captures_rich() {
+                    push_langium_common_editor_fact(&mut editor_facts, &parsed.fact, "wardley");
+                }
+
+                match parsed.diagnostic {
+                    Some(diagnostic) => {
+                        remember_wardley_problem(
+                            &mut first_problem,
+                            WardleyParseProblem::new(diagnostic.message, diagnostic.span),
+                        );
+                    },
+                    ::core::option::Option::None => {
+                        ast.common.push(parsed.fact);
+                    },
+                }
+
+                offset = statement_start + parsed.consumed;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         if keyword_body(statement, "pipeline").is_some() {
@@ -730,24 +778,37 @@ fn parse_wardley_ast(
                 editor_demand,
             );
             offset = pipeline.next_offset;
-            if let Some(problem) = pipeline.first_problem {
-                remember_wardley_problem(&mut first_problem, problem);
-            } else if let Some(pipeline) = pipeline.pipeline {
-                ast.pipelines.push(pipeline);
+
+            match pipeline.first_problem {
+                Some(problem) => {
+                    remember_wardley_problem(&mut first_problem, problem);
+                },
+                ::core::option::Option::None => match pipeline.pipeline {
+                    Some(pipeline) => {
+                        ast.pipelines.push(pipeline);
+                    },
+                    ::core::option::Option::None => {},
+                },
             }
+
             continue;
         }
 
-        if let Err(problem) = parse_wardley_statement(
-            statement,
-            statement_start,
-            &mut ast,
-            #[cfg(feature = "editor-facts")]
-            &mut editor_facts,
-            #[cfg(feature = "editor-facts")]
-            editor_demand,
-        ) {
-            remember_wardley_problem(&mut first_problem, problem);
+        {
+            match parse_wardley_statement(
+                    statement,
+                    statement_start,
+                    &mut ast,
+                    #[cfg(feature = "editor-facts")]
+                    &mut editor_facts,
+                    #[cfg(feature = "editor-facts")]
+                    editor_demand,
+                ) {
+                Err(problem) => {
+                    remember_wardley_problem(&mut first_problem, problem);
+                },
+                ::core::result::Result::Ok(_) => {},
+            };
         }
     }
 
@@ -783,171 +844,210 @@ fn parse_wardley_statement(
     #[cfg(feature = "editor-facts")] editor_facts: &mut EditorSemanticFacts,
     #[cfg(feature = "editor-facts")] editor_demand: EditorFactsDemand,
 ) -> std::result::Result<(), WardleyParseProblem> {
-    if let Some(body) = keyword_body(statement, "size") {
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            editor_facts.push_directive_prefix("size");
-        }
-        let size = parse_size(body, body_start(statement, statement_start, body))?;
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            push_number_fact(editor_facts, size.width, "wardley canvas width");
-            push_number_fact(editor_facts, size.height, "wardley canvas height");
-        }
-        ast.size = Some(size);
-        return Ok(());
+    match keyword_body(statement, "size") {
+        Some(body) => {
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                editor_facts.push_directive_prefix("size");
+            }
+            let size = parse_size(body, body_start(statement, statement_start, body))?;
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                push_number_fact(editor_facts, size.width, "wardley canvas width");
+                push_number_fact(editor_facts, size.height, "wardley canvas height");
+            }
+            ast.size = Some(size);
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(body) = keyword_body(statement, "evolution") {
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            editor_facts.push_directive_prefix("evolution");
-        }
-        let evolution = parse_evolution(body, body_start(statement, statement_start, body))?;
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            for stage in &evolution.stages {
-                push_payload_fact(editor_facts, &stage.name, "wardley evolution stage");
-                if let Some(boundary) = stage.boundary {
-                    push_number_fact(editor_facts, boundary, "wardley evolution boundary");
-                }
-                if let Some(second_name) = &stage.second_name {
-                    push_payload_fact(
-                        editor_facts,
-                        second_name,
-                        "wardley evolution stage secondary label",
-                    );
+
+    match keyword_body(statement, "evolution") {
+        Some(body) => {
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                editor_facts.push_directive_prefix("evolution");
+            }
+            let evolution = parse_evolution(body, body_start(statement, statement_start, body))?;
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                for stage in &evolution.stages {
+                    push_payload_fact(editor_facts, &stage.name, "wardley evolution stage");
+                    if let Some(boundary) = stage.boundary {
+                        push_number_fact(editor_facts, boundary, "wardley evolution boundary");
+                    }
+                    if let Some(second_name) = &stage.second_name {
+                        push_payload_fact(
+                            editor_facts,
+                            second_name,
+                            "wardley evolution stage secondary label",
+                        );
+                    }
                 }
             }
-        }
-        ast.evolution = Some(evolution);
-        return Ok(());
+            ast.evolution = Some(evolution);
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(body) = keyword_body(statement, "anchor") {
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            editor_facts.push_directive_prefix("anchor");
-        }
-        let anchor = parse_positioned_node(body, body_start(statement, statement_start, body))?;
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            push_entity_fact(editor_facts, &anchor.name, "wardley anchor");
-            push_number_fact(editor_facts, anchor.visibility, "wardley anchor visibility");
-            push_number_fact(editor_facts, anchor.evolution, "wardley anchor evolution");
-        }
-        ast.anchors.push(anchor);
-        return Ok(());
+
+    match keyword_body(statement, "anchor") {
+        Some(body) => {
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                editor_facts.push_directive_prefix("anchor");
+            }
+            let anchor = parse_positioned_node(body, body_start(statement, statement_start, body))?;
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                push_entity_fact(editor_facts, &anchor.name, "wardley anchor");
+                push_number_fact(editor_facts, anchor.visibility, "wardley anchor visibility");
+                push_number_fact(editor_facts, anchor.evolution, "wardley anchor evolution");
+            }
+            ast.anchors.push(anchor);
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(body) = keyword_body(statement, "component") {
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            editor_facts.push_directive_prefix("component");
-        }
-        let component = parse_component(body, body_start(statement, statement_start, body))?;
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            push_component_facts(editor_facts, &component, "wardley component");
-        }
-        ast.components.push(component);
-        return Ok(());
+
+    match keyword_body(statement, "component") {
+        Some(body) => {
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                editor_facts.push_directive_prefix("component");
+            }
+            let component = parse_component(body, body_start(statement, statement_start, body))?;
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                push_component_facts(editor_facts, &component, "wardley component");
+            }
+            ast.components.push(component);
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(body) = keyword_body(statement, "evolve") {
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            editor_facts.push_directive_prefix("evolve");
-        }
-        let evolve = parse_evolve(body, body_start(statement, statement_start, body))?;
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            push_reference_fact(editor_facts, &evolve.component, "wardley evolved component");
-            push_number_fact(editor_facts, evolve.target, "wardley evolution target");
-        }
-        ast.evolves.push(evolve);
-        return Ok(());
+
+    match keyword_body(statement, "evolve") {
+        Some(body) => {
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                editor_facts.push_directive_prefix("evolve");
+            }
+            let evolve = parse_evolve(body, body_start(statement, statement_start, body))?;
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                push_reference_fact(editor_facts, &evolve.component, "wardley evolved component");
+                push_number_fact(editor_facts, evolve.target, "wardley evolution target");
+            }
+            ast.evolves.push(evolve);
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(body) = keyword_body(statement, "note") {
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            editor_facts.push_directive_prefix("note");
-        }
-        let note = parse_note(body, body_start(statement, statement_start, body))?;
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            push_payload_fact(editor_facts, &note.text, "wardley note");
-            push_number_fact(editor_facts, note.visibility, "wardley note visibility");
-            push_number_fact(editor_facts, note.evolution, "wardley note evolution");
-        }
-        ast.notes.push(note);
-        return Ok(());
+
+    match keyword_body(statement, "note") {
+        Some(body) => {
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                editor_facts.push_directive_prefix("note");
+            }
+            let note = parse_note(body, body_start(statement, statement_start, body))?;
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                push_payload_fact(editor_facts, &note.text, "wardley note");
+                push_number_fact(editor_facts, note.visibility, "wardley note visibility");
+                push_number_fact(editor_facts, note.evolution, "wardley note evolution");
+            }
+            ast.notes.push(note);
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(body) = keyword_body(statement, "annotations") {
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            editor_facts.push_directive_prefix("annotations");
-        }
-        let annotations =
-            parse_annotations_box(body, body_start(statement, statement_start, body))?;
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            push_number_fact(
-                editor_facts,
-                annotations.x,
-                "wardley annotations visibility",
-            );
-            push_number_fact(editor_facts, annotations.y, "wardley annotations evolution");
-        }
-        ast.annotations_boxes.push(annotations);
-        return Ok(());
+
+    match keyword_body(statement, "annotations") {
+        Some(body) => {
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                editor_facts.push_directive_prefix("annotations");
+            }
+            let annotations =
+                parse_annotations_box(body, body_start(statement, statement_start, body))?;
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                push_number_fact(
+                    editor_facts,
+                    annotations.x,
+                    "wardley annotations visibility",
+                );
+                push_number_fact(editor_facts, annotations.y, "wardley annotations evolution");
+            }
+            ast.annotations_boxes.push(annotations);
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(body) = keyword_body(statement, "annotation") {
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            editor_facts.push_directive_prefix("annotation");
-        }
-        let annotation = parse_annotation(body, body_start(statement, statement_start, body))?;
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            push_integer_fact(
-                editor_facts,
-                annotation.number,
-                annotation.number_span,
-                "wardley annotation number",
-            );
-            push_number_fact(editor_facts, annotation.x, "wardley annotation visibility");
-            push_number_fact(editor_facts, annotation.y, "wardley annotation evolution");
-            push_payload_fact(editor_facts, &annotation.text, "wardley annotation text");
-        }
-        ast.annotations.push(annotation);
-        return Ok(());
+
+    match keyword_body(statement, "annotation") {
+        Some(body) => {
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                editor_facts.push_directive_prefix("annotation");
+            }
+            let annotation = parse_annotation(body, body_start(statement, statement_start, body))?;
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                push_integer_fact(
+                    editor_facts,
+                    annotation.number,
+                    annotation.number_span,
+                    "wardley annotation number",
+                );
+                push_number_fact(editor_facts, annotation.x, "wardley annotation visibility");
+                push_number_fact(editor_facts, annotation.y, "wardley annotation evolution");
+                push_payload_fact(editor_facts, &annotation.text, "wardley annotation text");
+            }
+            ast.annotations.push(annotation);
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(body) = keyword_body(statement, "accelerator") {
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            editor_facts.push_directive_prefix("accelerator");
-        }
-        let force = parse_force(body, body_start(statement, statement_start, body))?;
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            push_outline_fact(editor_facts, &force.name, "wardley accelerator");
-            push_number_fact(editor_facts, force.x, "wardley accelerator visibility");
-            push_number_fact(editor_facts, force.y, "wardley accelerator evolution");
-        }
-        ast.accelerators.push(force);
-        return Ok(());
+
+    match keyword_body(statement, "accelerator") {
+        Some(body) => {
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                editor_facts.push_directive_prefix("accelerator");
+            }
+            let force = parse_force(body, body_start(statement, statement_start, body))?;
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                push_outline_fact(editor_facts, &force.name, "wardley accelerator");
+                push_number_fact(editor_facts, force.x, "wardley accelerator visibility");
+                push_number_fact(editor_facts, force.y, "wardley accelerator evolution");
+            }
+            ast.accelerators.push(force);
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(body) = keyword_body(statement, "deaccelerator") {
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            editor_facts.push_directive_prefix("deaccelerator");
-        }
-        let force = parse_force(body, body_start(statement, statement_start, body))?;
-        #[cfg(feature = "editor-facts")]
-        if editor_demand.captures_rich() {
-            push_outline_fact(editor_facts, &force.name, "wardley deaccelerator");
-            push_number_fact(editor_facts, force.x, "wardley deaccelerator visibility");
-            push_number_fact(editor_facts, force.y, "wardley deaccelerator evolution");
-        }
-        ast.deaccelerators.push(force);
-        return Ok(());
+
+    match keyword_body(statement, "deaccelerator") {
+        Some(body) => {
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                editor_facts.push_directive_prefix("deaccelerator");
+            }
+            let force = parse_force(body, body_start(statement, statement_start, body))?;
+            #[cfg(feature = "editor-facts")]
+            if editor_demand.captures_rich() {
+                push_outline_fact(editor_facts, &force.name, "wardley deaccelerator");
+                push_number_fact(editor_facts, force.x, "wardley deaccelerator visibility");
+                push_number_fact(editor_facts, force.y, "wardley deaccelerator evolution");
+            }
+            ast.deaccelerators.push(force);
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
 
     let link = parse_link(statement, statement_start)?;
@@ -972,6 +1072,7 @@ struct WardleyPipelineOutcome {
     first_problem: Option<WardleyParseProblem>,
 }
 
+#[must_use]
 fn parse_pipeline(
     code: &str,
     statement: &str,
@@ -985,6 +1086,7 @@ fn parse_pipeline(
     let body = keyword_body(statement, "pipeline").expect("pipeline dispatch checked keyword");
     let pipeline_body_start = body_start(statement, statement_start, body);
     let trimmed = body.trim();
+
     let Some(open_brace) = find_unquoted_char(trimmed, '{') else {
         return WardleyPipelineOutcome {
             pipeline: None,
@@ -995,8 +1097,10 @@ fn parse_pipeline(
             )),
         };
     };
+
     let leading = body.len() - body.trim_start().len();
     let opening_start = pipeline_body_start + leading + open_brace;
+
     if !trimmed[open_brace + 1..].trim().is_empty() {
         remember_wardley_problem(
             &mut first_problem,
@@ -1006,6 +1110,7 @@ fn parse_pipeline(
             ),
         );
     }
+
     let parent_raw = &trimmed[..open_brace];
     let parent = match parse_name(parent_raw, pipeline_body_start + leading) {
         Ok(parent) => {
@@ -1037,48 +1142,61 @@ fn parse_pipeline(
                 first_problem,
             };
         }
+
         let line_start = offset;
         let (line, next_offset) = physical_line_at(code, offset);
         offset = next_offset;
         let visible = strip_langium_inline_comment(line);
         let trimmed_line = visible.trim();
+
         if trimmed_line.is_empty() {
             continue;
         }
+
         let leading = visible.len() - visible.trim_start().len();
         let absolute = line_start + leading;
-        if let Some(after_closing) = trimmed_line.strip_prefix('}') {
-            if !after_closing.is_empty() {
-                let trailing_start = absolute + 1 + after_closing.len()
-                    - after_closing.trim_start_matches([' ', '\t']).len();
-                remember_wardley_problem(
-                    &mut first_problem,
-                    WardleyParseProblem::new(
-                        "unexpected tokens after wardley pipeline closing brace",
-                        SourceSpan::new(trailing_start, absolute + trimmed_line.len()),
-                    ),
-                );
-            }
-            if components.is_empty() {
-                remember_wardley_problem(
-                    &mut first_problem,
-                    WardleyParseProblem::new(
-                        "wardley pipeline requires at least one component",
-                        SourceSpan::new(absolute, absolute + 1),
-                    ),
-                );
-            }
-            let pipeline = if first_problem.is_none() {
-                parent.map(|parent| parent_with_components(parent, components))
-            } else {
-                None
-            };
-            return WardleyPipelineOutcome {
-                pipeline,
-                next_offset: offset,
-                first_problem,
-            };
+
+        match trimmed_line.strip_prefix('}') {
+            Some(after_closing) => {
+                if !after_closing.is_empty() {
+                    let trailing_start = absolute + 1 + after_closing.len()
+                        - after_closing.trim_start_matches([' ', '\t']).len();
+                    remember_wardley_problem(
+                        &mut first_problem,
+                        WardleyParseProblem::new(
+                            "unexpected tokens after wardley pipeline closing brace",
+                            SourceSpan::new(trailing_start, absolute + trimmed_line.len()),
+                        ),
+                    );
+                }
+
+                if components.is_empty() {
+                    remember_wardley_problem(
+                        &mut first_problem,
+                        WardleyParseProblem::new(
+                            "wardley pipeline requires at least one component",
+                            SourceSpan::new(absolute, absolute + 1),
+                        ),
+                    );
+                }
+
+                let pipeline = match first_problem {
+                    ::core::option::Option::None => {
+                        parent.map(|parent| parent_with_components(parent, components))
+                    },
+                    ::core::option::Option::Some(_) => {
+                        None
+                    },
+                };
+                return WardleyPipelineOutcome {
+                    pipeline,
+                    next_offset: offset,
+                    first_problem,
+                };
+            },
+            ::core::option::Option::None => {},
         }
+
         let Some(component_body) = keyword_body(trimmed_line, "component") else {
             let span = SourceSpan::new(absolute, absolute + trimmed_line.len());
             remember_wardley_problem(
@@ -1087,11 +1205,13 @@ fn parse_pipeline(
             );
             continue;
         };
+
         #[cfg(feature = "editor-facts")]
         if editor_demand.captures_rich() {
             editor_facts.push_directive_prefix("component");
         }
         let component_start = body_start(trimmed_line, absolute, component_body);
+
         match parse_pipeline_component(component_body, component_start) {
             Ok(component) => {
                 #[cfg(feature = "editor-facts")]
@@ -1105,6 +1225,7 @@ fn parse_pipeline(
     }
 }
 
+#[must_use]
 fn parent_with_components(
     parent: SpannedText,
     components: Vec<WardleyPipelineComponentAst>,
@@ -1126,6 +1247,7 @@ struct WardleyCursor<'input> {
 }
 
 impl<'input> WardleyCursor<'input> {
+    #[must_use]
     fn new(input: &'input str, base: usize) -> Self {
         Self {
             input,
@@ -1134,10 +1256,12 @@ impl<'input> WardleyCursor<'input> {
         }
     }
 
+    #[must_use]
     fn remaining(&self) -> &'input str {
         &self.input[self.pos..]
     }
 
+    #[must_use]
     fn absolute(&self) -> usize {
         self.base + self.pos
     }
@@ -1157,6 +1281,7 @@ impl<'input> WardleyCursor<'input> {
     ) -> std::result::Result<(), WardleyParseProblem> {
         self.skip_ws();
         let start = self.absolute();
+
         if self.remaining().starts_with(expected) {
             self.pos += expected.len_utf8();
             Ok(())
@@ -1180,27 +1305,37 @@ impl<'input> WardleyCursor<'input> {
             .iter()
             .take_while(|byte| byte.is_ascii_digit())
             .count();
-        if integer_len == 0 {
-            return Err(WardleyParseProblem::new(
-                format!("expected {context}"),
-                SourceSpan::new(token_start, token_start),
-            ));
+
+        match integer_len {
+            0 => {
+                return Err(WardleyParseProblem::new(
+                    format!("expected {context}"),
+                    SourceSpan::new(token_start, token_start),
+                ));
+            },
+            _ => {},
         }
 
         let mut consumed = integer_len;
         let has_dot = bytes.get(consumed) == Some(&b'.');
+
         if has_dot {
             consumed += 1;
             let fractional = bytes[consumed..]
                 .iter()
                 .take_while(|byte| byte.is_ascii_digit())
                 .count();
-            if fractional == 0 {
-                return Err(WardleyParseProblem::new(
-                    format!("expected digits after decimal point in {context}"),
-                    SourceSpan::new(token_start, token_start + consumed),
-                ));
+
+            match fractional {
+                0 => {
+                    return Err(WardleyParseProblem::new(
+                        format!("expected digits after decimal point in {context}"),
+                        SourceSpan::new(token_start, token_start + consumed),
+                    ));
+                },
+                _ => {},
             }
+
             consumed += fractional;
         }
 
@@ -1210,20 +1345,24 @@ impl<'input> WardleyCursor<'input> {
                 SourceSpan::new(token_start, token_start + consumed),
             ));
         }
+
         if kind == WardleyNumberKind::Integer && has_dot {
             return Err(WardleyParseProblem::new(
                 format!("expected integer {context}"),
                 SourceSpan::new(token_start, token_start + consumed),
             ));
         }
+
         let token = &self.remaining()[..consumed];
         let token_span = SourceSpan::new(token_start, token_start + consumed);
+
         if !has_dot && token.len() > 1 && token.starts_with('0') {
             return Err(WardleyParseProblem::new(
                 format!("invalid leading zero in {context}"),
                 SourceSpan::new(token_start, token_start + consumed),
             ));
         }
+
         if self.remaining()[consumed..]
             .chars()
             .next()
@@ -1255,9 +1394,11 @@ impl<'input> WardleyCursor<'input> {
         self.skip_ws();
         let start = self.absolute();
         let negative = self.remaining().starts_with('-');
+
         if negative {
             self.pos += 1;
         }
+
         let number = self.take_number(WardleyNumberKind::Integer, context)?;
         let magnitude = number.value as i64;
         Ok((
@@ -1268,6 +1409,7 @@ impl<'input> WardleyCursor<'input> {
 
     fn expect_end(&mut self, context: &str) -> std::result::Result<(), WardleyParseProblem> {
         self.skip_ws();
+
         if self.remaining().is_empty() {
             Ok(())
         } else {
@@ -1296,16 +1438,20 @@ fn parse_evolution(
     base: usize,
 ) -> std::result::Result<WardleyEvolutionAst, WardleyParseProblem> {
     let ranges = split_unquoted_token(body, "->", base)?;
+
     if ranges.len() < 2 {
         return Err(WardleyParseProblem::new(
             "wardley evolution requires at least two stages",
             trimmed_span(body, base),
         ));
     }
+
     let mut stages = Vec::with_capacity(ranges.len());
+
     for (start, end) in ranges {
         stages.push(parse_evolution_stage(&body[start..end], base + start)?);
     }
+
     Ok(WardleyEvolutionAst { stages })
 }
 
@@ -1314,36 +1460,44 @@ fn parse_evolution_stage(
     base: usize,
 ) -> std::result::Result<WardleyEvolutionStageAst, WardleyParseProblem> {
     let (trimmed, trimmed_start) = trim_horizontal(input, base);
+
     if trimmed.is_empty() {
         return Err(WardleyParseProblem::new(
             "expected wardley evolution stage",
             SourceSpan::new(trimmed_start, trimmed_start),
         ));
     }
+
     let slash = find_unquoted_char(trimmed, '/');
     let primary_end = slash.unwrap_or(trimmed.len());
     let primary = &trimmed[..primary_end];
     let boundary_at = find_unquoted_char(primary, '@');
     let name_end = boundary_at.unwrap_or(primary.len());
     let name = parse_name(&primary[..name_end], trimmed_start)?;
-    let boundary = if let Some(at) = boundary_at {
-        let mut cursor = WardleyCursor::new(&primary[at + 1..], trimmed_start + at + 1);
-        let number = cursor.take_number(
-            WardleyNumberKind::Decimal,
-            "wardley evolution stage boundary",
-        )?;
-        cursor.expect_end("wardley evolution stage boundary")?;
-        Some(number)
-    } else {
-        None
+    let boundary = match boundary_at {
+        Some(at) => {
+            let mut cursor = WardleyCursor::new(&primary[at + 1..], trimmed_start + at + 1);
+            let number = cursor.take_number(
+                WardleyNumberKind::Decimal,
+                "wardley evolution stage boundary",
+            )?;
+            cursor.expect_end("wardley evolution stage boundary")?;
+            Some(number)
+        },
+        ::core::option::Option::None => {
+            None
+        },
     };
-    let second_name = if let Some(slash) = slash {
-        Some(parse_name(
-            &trimmed[slash + 1..],
-            trimmed_start + slash + 1,
-        )?)
-    } else {
-        None
+    let second_name = match slash {
+        Some(slash_2) => {
+            Some(parse_name(
+                &trimmed[slash_2 + 1..],
+                trimmed_start + slash_2 + 1,
+            )?)
+        },
+        ::core::option::Option::None => {
+            None
+        },
     };
     Ok(WardleyEvolutionStageAst {
         name,
@@ -1458,9 +1612,16 @@ fn parse_optional_label(
     cursor: &mut WardleyCursor<'_>,
 ) -> std::result::Result<Option<WardleyLabelAst>, WardleyParseProblem> {
     cursor.skip_ws();
-    let Some(rest) = keyword_body(cursor.remaining(), "label") else {
-        return Ok(None);
+
+    let rest = {
+        let optional_rest = keyword_body(cursor.remaining(), "label");
+
+        match optional_rest {
+            Some(matched_rest) => matched_rest,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     cursor.pos += cursor.remaining().len() - rest.len();
     cursor.consume_char('[', "after wardley label")?;
     let (offset_x, _offset_x_span) = cursor.take_signed_integer("wardley label X offset")?;
@@ -1481,16 +1642,20 @@ fn parse_optional_strategy(
     cursor: &mut WardleyCursor<'_>,
 ) -> std::result::Result<Option<(WardleySourceStrategy, SourceSpan)>, WardleyParseProblem> {
     cursor.skip_ws();
+
     if !cursor.remaining().starts_with('(') {
         return Ok(None);
     }
+
     let start = cursor.absolute();
+
     let Some(close) = cursor.remaining().find(')') else {
         return Err(WardleyParseProblem::new(
             "unterminated wardley component decorator",
             SourceSpan::new(start, cursor.base + cursor.input.len()),
         ));
     };
+
     let token = cursor.remaining()[1..close].trim();
     let token_leading =
         cursor.remaining()[1..close].len() - cursor.remaining()[1..close].trim_start().len();
@@ -1498,9 +1663,11 @@ fn parse_optional_strategy(
         start + 1 + token_leading,
         start + 1 + token_leading + token.len(),
     );
+
     if token == "inertia" {
         return Ok(None);
     }
+
     let strategy = match token {
         "build" => WardleySourceStrategy::Build,
         "buy" => WardleySourceStrategy::Buy,
@@ -1522,11 +1689,16 @@ fn parse_optional_inertia(
 ) -> std::result::Result<Option<SourceSpan>, WardleyParseProblem> {
     cursor.skip_ws();
     let start = cursor.absolute();
-    if let Some(rest) = keyword_body(cursor.remaining(), "inertia") {
-        cursor.pos += cursor.remaining().len() - rest.len();
-        let span = SourceSpan::new(start, start + "inertia".len());
-        return Ok(Some(span));
+
+    match keyword_body(cursor.remaining(), "inertia") {
+        Some(rest) => {
+            cursor.pos += cursor.remaining().len() - rest.len();
+            let span = SourceSpan::new(start, start + "inertia".len());
+            return Ok(Some(span));
+        },
+        ::core::option::Option::None => {},
     }
+
     if !cursor.remaining().starts_with('(') {
         return Ok(None);
     }
@@ -1534,12 +1706,14 @@ fn parse_optional_inertia(
     cursor.pos += 1;
     cursor.skip_ws();
     let keyword_start = cursor.absolute();
+
     let Some(after_keyword) = cursor.remaining().strip_prefix("inertia") else {
         return Err(WardleyParseProblem::new(
             "expected inertia inside wardley component inertia annotation",
             SourceSpan::new(keyword_start, keyword_start),
         ));
     };
+
     if after_keyword
         .chars()
         .next()
@@ -1550,16 +1724,19 @@ fn parse_optional_inertia(
             SourceSpan::new(keyword_start, keyword_start + "inertia".len()),
         ));
     }
+
     cursor.pos += "inertia".len();
     let keyword = SourceSpan::new(keyword_start, keyword_start + "inertia".len());
     cursor.skip_ws();
     let close = cursor.absolute();
+
     if !cursor.remaining().starts_with(')') {
         return Err(WardleyParseProblem::new(
             "expected ')' after wardley component inertia annotation",
             SourceSpan::new(close, close),
         ));
     }
+
     cursor.pos += 1;
     Ok(Some(keyword))
 }
@@ -1674,6 +1851,7 @@ fn parse_link(
     statement_start: usize,
 ) -> std::result::Result<WardleyLinkAst, WardleyParseProblem> {
     let (link_body, label) = split_link_label(statement, statement_start)?;
+
     let Some((operator_start, first_operator)) = find_link_operator(link_body) else {
         let (from, to, to_port) = parse_operatorless_link(link_body, statement_start)?;
         return Ok(WardleyLinkAst {
@@ -1685,16 +1863,20 @@ fn parse_link(
             label,
         });
     };
+
     let from = parse_name(&link_body[..operator_start], statement_start)?;
     let mut cursor = operator_start + first_operator.len();
+
     while link_body[cursor..].starts_with([' ', '\t']) {
         cursor += 1;
     }
 
     let mut from_port = None;
     let mut arrow = None;
+
     if is_link_port(first_operator) {
         from_port = Some(first_operator.to_string());
+
         if let Some(second) = link_operator_at(link_body, cursor)
             && !is_link_port(second)
         {
@@ -1724,16 +1906,24 @@ fn split_link_label(
     statement: &str,
     statement_start: usize,
 ) -> std::result::Result<(&str, Option<SpannedText>), WardleyParseProblem> {
-    let Some(index) = find_unquoted_char(statement, ';') else {
-        return Ok((statement, None));
+    let index = {
+        let optional_index = find_unquoted_char(statement, ';');
+
+        match optional_index {
+            Some(matched_index) => matched_index,
+            ::core::option::Option::None => return Ok((statement, None)),
+        }
     };
+
     let raw = &statement[index + 1..];
+
     if raw.is_empty() {
         return Err(WardleyParseProblem::new(
             "expected wardley link label after ';'",
             SourceSpan::new(statement_start + index, statement_start + index + 1),
         ));
     }
+
     let (trimmed, _start) = trim_horizontal(raw, statement_start + index + 1);
     let label = SpannedText {
         text: trimmed.to_string(),
@@ -1746,31 +1936,38 @@ fn split_link_label(
     Ok((&statement[..index], Some(label)))
 }
 
+#[must_use]
 fn find_link_operator(input: &str) -> Option<(usize, &str)> {
     let mut quote = None;
     let mut escaped = false;
     let mut index = 0usize;
+
     while index < input.len() {
         let ch = input[index..].chars().next()?;
+
         if escaped {
             escaped = false;
             index += ch.len_utf8();
             continue;
         }
+
         if quote.is_some() && ch == '\\' {
             escaped = true;
             index += ch.len_utf8();
             continue;
         }
+
         if matches!(ch, '\'' | '"') {
             match quote {
                 Some(open) if open == ch => quote = None,
                 None => quote = Some(ch),
-                _ => {}
+                ::core::option::Option::Some(_) => {}
             }
+
             index += ch.len_utf8();
             continue;
         }
+
         if quote.is_none()
             && let Some(operator) = link_operator_at(input, index)
         {
@@ -1778,15 +1975,20 @@ fn find_link_operator(input: &str) -> Option<(usize, &str)> {
                 index += operator.len();
                 continue;
             }
+
             return Some((index, operator));
         }
+
         index += ch.len_utf8();
     }
+
     None
 }
 
+#[must_use]
 fn link_operator_at(input: &str, index: usize) -> Option<&str> {
     let rest = input.get(index..)?;
+
     if let Some(label_body) = rest.strip_prefix("+'")
         && let Some(close) = label_body.find('\'')
     {
@@ -1799,21 +2001,26 @@ fn link_operator_at(input: &str, index: usize) -> Option<&str> {
         } else {
             0
         };
+
         if suffix_len > 0 {
             return Some(&rest[..suffix_start + suffix_len]);
         }
     }
+
     ["+<>", "-.->", "-->", "->", "+>", "+<", ">"]
         .into_iter()
         .find(|operator| rest.starts_with(operator))
 }
 
+#[must_use]
 fn is_link_port(operator: &str) -> bool {
     matches!(operator, "+<>" | "+>" | "+<")
 }
 
+#[must_use]
 fn split_trailing_link_port(input: &str) -> (&str, Option<(&str, usize)>) {
     let trimmed_end = input.trim_end_matches([' ', '\t']);
+
     for port in ["+<>", "+>", "+<"] {
         if let Some(prefix) = trimmed_end.strip_suffix(port)
             && !prefix.trim().is_empty()
@@ -1821,6 +2028,7 @@ fn split_trailing_link_port(input: &str) -> (&str, Option<(&str, usize)>) {
             return (prefix, Some((port, prefix.len())));
         }
     }
+
     (input, None)
 }
 
@@ -1829,6 +2037,7 @@ fn parse_operatorless_link(
     base: usize,
 ) -> std::result::Result<(SpannedText, SpannedText, Option<String>), WardleyParseProblem> {
     let (trimmed, start) = trim_horizontal(input, base);
+
     let Some(first_len) = wardley_lexical_name_len(trimmed) else {
         let span = trimmed_span(input, base);
         return Err(WardleyParseProblem::new(
@@ -1836,13 +2045,16 @@ fn parse_operatorless_link(
             span,
         ));
     };
+
     let from = parse_name(&trimmed[..first_len], start)?;
+
     if first_len == trimmed.len() {
         return Err(WardleyParseProblem::new(
             "expected a second wardley link endpoint",
             SourceSpan::new(start + first_len, start + first_len),
         ));
     }
+
     let remainder = &trimmed[first_len..];
     let remainder_leading = remainder.len() - remainder.trim_start_matches([' ', '\t']).len();
     let target_start = start + first_len + remainder_leading;
@@ -1852,61 +2064,85 @@ fn parse_operatorless_link(
     Ok((from, to, to_port.map(|(port, _)| port.to_string())))
 }
 
+#[must_use]
 fn wardley_lexical_name_len(input: &str) -> Option<usize> {
     let first = input.chars().next()?;
+
     if matches!(first, '\'' | '"') {
         return parse_langium_string(input, 0).map(|parsed| parsed.consumed);
     }
+
     if first.is_ascii_alphabetic() {
         let mut cursor = first.len_utf8();
         cursor += input[cursor..]
             .bytes()
-            .take_while(|byte| is_name_continuation(*byte as char))
+            .take_while(|byte| is_name_continuation(<char as ::core::convert::From<::core::primitive::u8>>::from(*byte)))
             .count();
+
         loop {
             let whitespace = input[cursor..]
                 .bytes()
                 .take_while(|byte| matches!(byte, b' ' | b'\t'))
                 .count();
-            if whitespace == 0 {
-                break;
+
+            match whitespace {
+                0 => {
+                    break;
+                },
+                _ => {},
             }
+
             let word_start = cursor + whitespace;
-            let Some(next) = input[word_start..].chars().next() else {
-                break;
+
+            let next = {
+                let optional_next = input[word_start..].chars().next();
+
+                match optional_next {
+                    Some(matched_next) => matched_next,
+                    ::core::option::Option::None => break,
+                }
             };
+
             if !next.is_ascii_alphabetic() && next != '(' {
                 break;
             }
+
             cursor = word_start + next.len_utf8();
             cursor += input[cursor..]
                 .bytes()
-                .take_while(|byte| is_name_continuation(*byte as char))
+                .take_while(|byte| is_name_continuation(<char as ::core::convert::From<::core::primitive::u8>>::from(*byte)))
                 .count();
         }
+
         return Some(cursor);
     }
+
     if first.is_ascii_digit() || first == '_' {
         let mut len = input
             .bytes()
-            .take_while(|byte| is_id_continuation(*byte as char))
+            .take_while(|byte| is_id_continuation(<char as ::core::convert::From<::core::primitive::u8>>::from(*byte)))
             .count();
+
         while input[..len].ends_with('-') {
             len -= 1;
         }
+
         return (len > 0).then_some(len);
     }
+
     None
 }
 
 fn parse_name(input: &str, base: usize) -> std::result::Result<SpannedText, WardleyParseProblem> {
     let (trimmed, start) = trim_horizontal(input, base);
+
     if trimmed.is_empty() {
         return Err(WardleyParseProblem::new(
             "expected wardley name",
             SourceSpan::new(start, start),
         ));
     }
+
     if matches!(trimmed.chars().next(), Some('\'' | '"')) {
         let Some(parsed) = parse_langium_string(trimmed, start) else {
             return Err(WardleyParseProblem::new(
@@ -1914,6 +2150,7 @@ fn parse_name(input: &str, base: usize) -> std::result::Result<SpannedText, Ward
                 SourceSpan::new(start, start + trimmed.len()),
             ));
         };
+
         let text = SpannedText {
             text: parsed.value,
             span: parsed.raw_span,
@@ -1922,20 +2159,24 @@ fn parse_name(input: &str, base: usize) -> std::result::Result<SpannedText, Ward
             #[cfg(feature = "editor-facts")]
             quoted: true,
         };
+
         if parsed.consumed != trimmed.len() {
             return Err(WardleyParseProblem::new(
                 "unexpected tokens after quoted wardley name",
                 SourceSpan::new(start + parsed.consumed, start + trimmed.len()),
             ));
         }
+
         return Ok(text);
     }
+
     if !is_valid_wardley_bare_name(trimmed) {
         return Err(WardleyParseProblem::new(
             format!("invalid unquoted wardley name: {trimmed}"),
             SourceSpan::new(start, start + trimmed.len()),
         ));
     }
+
     let text = SpannedText {
         text: trimmed.to_string(),
         span: SourceSpan::new(start, start + trimmed.len()),
@@ -1962,12 +2203,14 @@ fn parse_wardley_quoted_text(
             SourceSpan::new(start, start + input.len()),
         ));
     };
+
     let Some(parsed) = parse_langium_string(input, start) else {
         return Err(WardleyParseProblem::new(
             context,
             SourceSpan::new(start, start + input.len()),
         ));
     };
+
     let consumed = parsed.consumed;
     let text = SpannedText {
         text: parsed.value,
@@ -1980,6 +2223,7 @@ fn parse_wardley_quoted_text(
     Ok((text, consumed))
 }
 
+#[must_use]
 fn is_valid_wardley_bare_name(name: &str) -> bool {
     const RESERVED: &[&str] = &[
         "wardley-beta",
@@ -2007,6 +2251,7 @@ fn is_valid_wardley_bare_name(name: &str) -> bool {
     if RESERVED.contains(&name) {
         return false;
     }
+
     if name.contains([' ', '\t'])
         && ["title", "accTitle", "accDescr"].into_iter().any(|prefix| {
             name.strip_prefix(prefix)
@@ -2016,11 +2261,19 @@ fn is_valid_wardley_bare_name(name: &str) -> bool {
     {
         return false;
     }
+
     if !name.contains([' ', '\t']) {
         let mut chars = name.chars();
-        let Some(first) = chars.next() else {
-            return false;
+
+        let first = {
+            let optional_first = chars.next();
+
+            match optional_first {
+                Some(matched_first) => matched_first,
+                ::core::option::Option::None => return false,
+            }
         };
+
         let id = (first.is_ascii_alphanumeric() || first == '_')
             && chars.clone().all(is_id_continuation)
             && !name.ends_with('-');
@@ -2029,9 +2282,16 @@ fn is_valid_wardley_bare_name(name: &str) -> bool {
     }
 
     let mut words = name.split([' ', '\t']).filter(|word| !word.is_empty());
-    let Some(first_word) = words.next() else {
-        return false;
+
+    let first_word = {
+        let optional_first_word = words.next();
+
+        match optional_first_word {
+            Some(matched_first_word) => matched_first_word,
+            ::core::option::Option::None => return false,
+        }
     };
+
     if first_word.is_empty()
         || !first_word
             .chars()
@@ -2041,6 +2301,7 @@ fn is_valid_wardley_bare_name(name: &str) -> bool {
     {
         return false;
     }
+
     words.all(|word| {
         word.chars()
             .next()
@@ -2049,10 +2310,12 @@ fn is_valid_wardley_bare_name(name: &str) -> bool {
     })
 }
 
+#[must_use]
 fn is_id_continuation(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-')
 }
 
+#[must_use]
 fn is_name_continuation(ch: char) -> bool {
     ch.is_ascii_alphanumeric() || matches!(ch, '_' | '(' | ')' | '&' | '-')
 }
@@ -2067,75 +2330,95 @@ fn split_unquoted_token(
     let mut escaped = false;
     let mut segment_start = 0usize;
     let mut index = 0usize;
+
     while index < input.len() {
         let ch = input[index..]
             .chars()
             .next()
             .expect("index stays on char boundary");
+
         if escaped {
             escaped = false;
             index += ch.len_utf8();
             continue;
         }
+
         if quote.is_some() && ch == '\\' {
             escaped = true;
             index += ch.len_utf8();
             continue;
         }
+
         if matches!(ch, '\'' | '"') {
             match quote {
                 Some(open) if open == ch => quote = None,
                 None => quote = Some(ch),
-                _ => {}
+                ::core::option::Option::Some(_) => {}
             }
+
             index += ch.len_utf8();
             continue;
         }
+
         if quote.is_none() && input[index..].starts_with(token) {
             ranges.push((segment_start, index));
             index += token.len();
             segment_start = index;
             continue;
         }
+
         index += ch.len_utf8();
     }
-    if quote.is_some() {
-        return Err(WardleyParseProblem::new(
-            "unterminated quoted wardley value",
-            SourceSpan::new(base, base + input.len()),
-        ));
+
+    match quote {
+        ::core::option::Option::Some(_) => {
+            return Err(WardleyParseProblem::new(
+                "unterminated quoted wardley value",
+                SourceSpan::new(base, base + input.len()),
+            ));
+        },
+        ::core::option::Option::None => {},
     }
+
     ranges.push((segment_start, input.len()));
     Ok(ranges)
 }
 
+#[must_use]
 fn find_unquoted_char(input: &str, needle: char) -> Option<usize> {
     let mut quote = None;
     let mut escaped = false;
+
     for (index, ch) in input.char_indices() {
         if escaped {
             escaped = false;
             continue;
         }
+
         if quote.is_some() && ch == '\\' {
             escaped = true;
             continue;
         }
+
         if matches!(ch, '\'' | '"') {
             match quote {
                 Some(open) if open == ch => quote = None,
                 None => quote = Some(ch),
-                _ => {}
+                ::core::option::Option::Some(_) => {}
             }
+
             continue;
         }
+
         if quote.is_none() && ch == needle {
             return Some(index);
         }
     }
+
     None
 }
 
+#[must_use]
 fn keyword_body<'a>(input: &'a str, keyword: &str) -> Option<&'a str> {
     let rest = input.strip_prefix(keyword)?;
     (rest.is_empty()
@@ -2146,15 +2429,18 @@ fn keyword_body<'a>(input: &'a str, keyword: &str) -> Option<&'a str> {
     .then_some(rest)
 }
 
+#[must_use]
 fn body_start(statement: &str, statement_start: usize, body: &str) -> usize {
     statement_start + statement.len() - body.len()
 }
 
+#[must_use]
 fn trim_horizontal(input: &str, base: usize) -> (&str, usize) {
     let leading = input.len() - input.trim_start_matches([' ', '\t']).len();
     (input.trim_matches([' ', '\t']), base + leading)
 }
 
+#[must_use]
 fn trimmed_span(input: &str, base: usize) -> SourceSpan {
     let (trimmed, start) = trim_horizontal(input, base);
     SourceSpan::new(start, start + trimmed.len())
@@ -2175,36 +2461,51 @@ fn build_wardley_model_controlled(
 
     control.checkpoint()?;
     let mut builder = WardleyBuilder::default();
-    if let Some(size) = &ast.size {
-        builder.size = Some(WardleySize {
-            width: size.width.value,
-            height: size.height.value,
-        });
-    }
-    if let Some(evolution) = &ast.evolution {
-        builder.axes.stages.reserve(evolution.stages.len());
-        builder
-            .axes
-            .stage_boundaries
-            .reserve(evolution.stages.len());
-        for (index, stage) in evolution.stages.iter().enumerate() {
-            if index % 128 == 0 {
-                control.checkpoint()?;
-            }
-            builder.axes.stages.push(match &stage.second_name {
-                Some(second) => format!("{} / {}", stage.name.text.trim(), second.text.trim()),
-                None => stage.name.text.trim().to_string(),
+
+    match &ast.size {
+        Some(size) => {
+            builder.size = Some(WardleySize {
+                width: size.width.value,
+                height: size.height.value,
             });
-            if let Some(boundary) = stage.boundary {
-                builder.axes.stage_boundaries.push(boundary.value);
+        },
+        ::core::option::Option::None => {},
+    }
+
+    match &ast.evolution {
+        Some(evolution) => {
+            builder.axes.stages.reserve(evolution.stages.len());
+            builder
+                .axes
+                .stage_boundaries
+                .reserve(evolution.stages.len());
+
+            for (index, stage) in evolution.stages.iter().enumerate() {
+                if index.wrapping_rem(128) == 0 {
+                    control.checkpoint()?;
+                }
+
+                builder.axes.stages.push(match &stage.second_name {
+                    Some(second) => format!("{} / {}", stage.name.text.trim(), second.text.trim()),
+                    None => stage.name.text.trim().to_string(),
+                });
+
+                match stage.boundary {
+                    Some(boundary) => {
+                        builder.axes.stage_boundaries.push(boundary.value);
+                    },
+                    ::core::option::Option::None => {},
+                }
             }
-        }
+        },
+        ::core::option::Option::None => {},
     }
 
     for (index, anchor) in ast.anchors.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         let point = wardley_try!(to_coordinates(
             anchor.visibility,
             anchor.evolution,
@@ -2226,9 +2527,10 @@ fn build_wardley_model_controlled(
     }
 
     for (index, component) in ast.components.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         let point = wardley_try!(to_coordinates(
             component.positioned.visibility,
             component.positioned.evolution,
@@ -2250,9 +2552,10 @@ fn build_wardley_model_controlled(
     }
 
     for (index, note) in ast.notes.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         let point = wardley_try!(to_coordinates(
             note.visibility,
             note.evolution,
@@ -2266,9 +2569,10 @@ fn build_wardley_model_controlled(
     }
 
     for (pipeline_index, pipeline) in ast.pipelines.iter().enumerate() {
-        if pipeline_index % 128 == 0 {
+        if pipeline_index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         let Some(parent_y) = builder.nodes.get(&pipeline.parent.text).map(|node| node.y) else {
             return Ok(Err(WardleyParseProblem::new(
                 format!(
@@ -2278,11 +2582,14 @@ fn build_wardley_model_controlled(
                 pipeline.parent.span,
             )));
         };
+
         builder.start_pipeline(&pipeline.parent.text);
+
         for (component_index, component) in pipeline.components.iter().enumerate() {
-            if component_index % 128 == 0 {
+            if component_index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             let component_id = format!("{}_{}", pipeline.parent.text, component.name.text);
             let x = wardley_try!(to_percent(
                 component.evolution,
@@ -2306,9 +2613,10 @@ fn build_wardley_model_controlled(
     }
 
     for (index, link) in ast.links.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         let dashed = link
             .arrow
             .as_deref()
@@ -2318,14 +2626,21 @@ fn build_wardley_model_controlled(
             .as_deref()
             .and_then(flow_from_port)
             .or_else(|| link.to_port.as_deref().and_then(flow_from_port));
-        let (arrow_flow, flow_label) = link
+        let (arrow_flow, flow_label) = match link
             .arrow
             .as_deref()
-            .map(flow_from_arrow)
-            .unwrap_or_default();
-        if flow.is_none() {
-            flow = arrow_flow;
+            .map(flow_from_arrow) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => (::core::option::Option::None, ::core::option::Option::None),
+        };
+
+        match flow {
+            ::core::option::Option::None => {
+                flow = arrow_flow;
+            },
+            ::core::option::Option::Some(_) => {},
         }
+
         let label = flow_label.or_else(|| link.label.as_ref().map(|label| label.text.clone()));
         builder.links.push(WardleyLink {
             source: builder.resolve_node_id_controlled(&link.from.text, control)?,
@@ -2337,12 +2652,19 @@ fn build_wardley_model_controlled(
     }
 
     for (index, evolve) in ast.evolves.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
-        let Some(node_y) = builder.nodes.get(&evolve.component.text).map(|node| node.y) else {
-            continue;
+
+        let node_y = {
+            let optional_node_y = builder.nodes.get(&evolve.component.text).map(|node| node.y);
+
+            match optional_node_y {
+                Some(matched_node_y) => matched_node_y,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let target_x = wardley_try!(to_percent(
             evolve.target,
             &format!("Evolve target for \"{}\"", evolve.component.text),
@@ -2357,17 +2679,22 @@ fn build_wardley_model_controlled(
         );
     }
 
-    if let Some(annotations_box) = ast.annotations_boxes.first() {
-        builder.annotations_box = Some(wardley_try!(to_coordinates(
-            annotations_box.x,
-            annotations_box.y,
-            "Annotations box",
-        )));
+    match ast.annotations_boxes.first() {
+        Some(annotations_box) => {
+            builder.annotations_box = Some(wardley_try!(to_coordinates(
+                annotations_box.x,
+                annotations_box.y,
+                "Annotations box",
+            )));
+        },
+        ::core::option::Option::None => {},
     }
+
     for (index, annotation) in ast.annotations.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         let point = wardley_try!(to_coordinates(
             annotation.x,
             annotation.y,
@@ -2379,10 +2706,12 @@ fn build_wardley_model_controlled(
             text: Some(annotation.text.text.clone()),
         });
     }
+
     for (index, accelerator) in ast.accelerators.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         let point = wardley_try!(to_coordinates(
             accelerator.x,
             accelerator.y,
@@ -2394,10 +2723,12 @@ fn build_wardley_model_controlled(
             y: point.y,
         });
     }
+
     for (index, deaccelerator) in ast.deaccelerators.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         let point = wardley_try!(to_coordinates(
             deaccelerator.x,
             deaccelerator.y,
@@ -2411,7 +2742,7 @@ fn build_wardley_model_controlled(
     }
 
     let common = LangiumCommonDbFields::from_facts(&ast.common);
-    Ok(Ok(builder.finish_controlled(common, control)?))
+    Ok(Ok({ let checked_value = builder.finish_controlled(common, control)?; checked_value }))
 }
 
 fn to_coordinates(
@@ -2434,6 +2765,7 @@ fn to_percent(
     } else {
         value.value
     };
+
     if !(0.0..=100.0).contains(&normalized) {
         return Err(WardleyParseProblem::new(
             format!(
@@ -2443,9 +2775,11 @@ fn to_percent(
             value.span,
         ));
     }
+
     Ok(normalized)
 }
 
+#[must_use]
 fn flow_from_port(port: &str) -> Option<WardleyFlowDirection> {
     match port {
         "+<>" => Some(WardleyFlowDirection::Bidirectional),
@@ -2455,10 +2789,12 @@ fn flow_from_port(port: &str) -> Option<WardleyFlowDirection> {
     }
 }
 
+#[must_use]
 fn flow_from_arrow(arrow: &str) -> (Option<WardleyFlowDirection>, Option<String>) {
     if !arrow.starts_with('+') {
         return (None, None);
     }
+
     let label = arrow
         .strip_prefix("+'")
         .and_then(|rest| rest.find('\'').map(|end| rest[..end].to_string()));

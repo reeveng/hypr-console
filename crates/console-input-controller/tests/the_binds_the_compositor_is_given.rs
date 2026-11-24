@@ -59,7 +59,9 @@ fn super_shift_s_opens_the_area_selector() -> Result<(), Failure> {
   let bind = on(&every, &["super", "shift"], "s")?;
   let Ok(program) = console_core_internal_programs::InternalProgram::ControlCenter.path();
   let flag = console_core_internal_programs::SELECT_SCREENSHOT_AREA.spelling;
-  assert_eq!(command(bind)?, format!("{program} {flag}"));
+  let installed = command(bind)?;
+
+  assert_eq!(installed, format!("{program} {flag}"));
   assert_eq!(bind.repeats, RepeatMode::Once);
   Ok(())
 }

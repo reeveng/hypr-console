@@ -64,11 +64,11 @@ fn add_to_dst_8bpc_avx2(
   let Ok(maximum) = console_core_number_conversion::wrapped::<_, i16>(bitdepth_max);
 
   for (row, input) in rows {
-    let (pixels, _) = row.as_chunks_mut::<16>();
+    let (pixel_blocks, _) = row.as_chunks_mut::<16>();
     let (coefficients, _) = input.as_chunks::<8>();
     let (vectors, _) = coefficients.as_chunks::<2>();
 
-    for (block, residual) in pixels.iter_mut().zip(vectors) {
+    for (block, residual) in pixel_blocks.iter_mut().zip(vectors) {
       let Ok(()) = add_16_residuals_8bpc(token, block, residual, maximum);
     }
   }
@@ -99,12 +99,15 @@ fn add_to_dst_8bpc_avx512(
     let (blocks, remainder) = row.as_chunks_mut::<32>();
     let (coefficients, tail) = input.as_chunks::<32>();
 
-    for (pixels, residuals) in blocks.iter_mut().zip(coefficients) {
-      let (chunks, _) = residuals.as_chunks::<16>();
+    for (pixel_block, residual_block) in blocks.iter_mut().zip(coefficients) {
+      let (chunks, _) = residual_block.as_chunks::<16>();
 
-      let [low, high] = chunks else { return Err(Rav1dError::EINVAL) };
+      let [low, high] = match chunks {
+        [low, high] => [low, high],
+        [] | [_] | [_, _, _, ..] => return Err(Rav1dError::EINVAL),
+      };
 
-      let input_pixels = _mm512_cvtepu8_epi16(loadu_256!(&*pixels));
+      let input_pixels = _mm512_cvtepu8_epi16(loadu_256!(&*pixel_block));
       let low_scaled = _mm512_srai_epi32::<4>(_mm512_add_epi32(loadu_512!(low), rnd));
       let high_scaled = _mm512_srai_epi32::<4>(_mm512_add_epi32(loadu_512!(high), rnd));
       let low_words = _mm512_cvtsepi32_epi16(low_scaled);
@@ -113,13 +116,13 @@ fn add_to_dst_8bpc_avx512(
       let sum = _mm512_add_epi16(input_pixels, residual_words);
       let clipped = _mm512_max_epi16(_mm512_min_epi16(sum, maximum), zero);
       let packed = _mm512_cvtusepi16_epi8(clipped);
-      storeu_256!(pixels, packed);
+      storeu_256!(pixel_block, packed);
     }
 
     match (remainder.first_chunk_mut::<16>(), tail.as_chunks::<8>().0.first_chunk::<2>()) {
-      (Some(pixels), Some(coefficients)) => {
+      (Some(remaining_pixels), Some(remaining_coefficients)) => {
         let desktop = token.v3();
-        let Ok(()) = add_16_residuals_8bpc(desktop, pixels, coefficients, 255);
+        let Ok(()) = add_16_residuals_8bpc(desktop, remaining_pixels, remaining_coefficients, 255);
       }
       (_, _) => {}
     }
@@ -184,9 +187,9 @@ fn add_to_dst_16bpc_avx2(
   match size.width {
     4 => {
       for (row, samples) in rows {
-        let pixels = row.first_chunk_mut::<4>().ok_or(Rav1dError::EINVAL)?;
-        let residuals_2 = samples.first_chunk::<4>().ok_or(Rav1dError::EINVAL)?;
-        let Ok(()) = add_4_residuals_16bpc(token, pixels, residuals_2, bitdepth_max);
+        let pixel_block = row.first_chunk_mut::<4>().ok_or(Rav1dError::EINVAL)?;
+        let residual_block = samples.first_chunk::<4>().ok_or(Rav1dError::EINVAL)?;
+        let Ok(()) = add_4_residuals_16bpc(token, pixel_block, residual_block, bitdepth_max);
       }
 
       return Ok(());
@@ -195,10 +198,10 @@ fn add_to_dst_16bpc_avx2(
   }
 
   for (row, input) in rows {
-    let (pixels, _) = row.as_chunks_mut::<8>();
+    let (pixel_blocks, _) = row.as_chunks_mut::<8>();
     let (coefficients, _) = input.as_chunks::<8>();
 
-    for (block, residual) in pixels.iter_mut().zip(coefficients) {
+    for (block, residual) in pixel_blocks.iter_mut().zip(coefficients) {
       let Ok(()) = add_8_residuals_16bpc(token, block, residual, bitdepth_max);
     }
   }
@@ -230,19 +233,19 @@ fn add_to_dst_16bpc_avx512(
     let (blocks, remainder) = row.as_chunks_mut::<16>();
     let (coefficients, tail) = input.as_chunks::<16>();
 
-    for (pixels, residuals) in blocks.iter_mut().zip(coefficients) {
-      let pixels_wide = _mm512_cvtepu16_epi32(loadu_256!(&*pixels));
-      let values = loadu_512!(residuals);
+    for (pixel_block, residual_block) in blocks.iter_mut().zip(coefficients) {
+      let pixels_wide = _mm512_cvtepu16_epi32(loadu_256!(&*pixel_block));
+      let values = loadu_512!(residual_block);
       let scaled = _mm512_srai_epi32::<4>(_mm512_add_epi32(values, rnd));
       let sum = _mm512_add_epi32(pixels_wide, scaled);
       let clamped = _mm512_max_epi32(_mm512_min_epi32(sum, maximum), zero);
-      storeu_256!(pixels, _mm512_cvtusepi32_epi16(clamped));
+      storeu_256!(pixel_block, _mm512_cvtusepi32_epi16(clamped));
     }
 
     match (remainder.first_chunk_mut::<8>(), tail.first_chunk::<8>()) {
-      (Some(pixels), Some(residuals)) => {
+      (Some(remaining_pixels), Some(remaining_residuals)) => {
         let desktop = token.v3();
-        let Ok(()) = add_8_residuals_16bpc(desktop, pixels, residuals, bitdepth_max);
+        let Ok(()) = add_8_residuals_16bpc(desktop, remaining_pixels, remaining_residuals, bitdepth_max);
       }
       (_, _) => {}
     }
@@ -313,7 +316,7 @@ fn inv_txfm_add_dct_dct_32x32_8bpc_avx2_inner(
     bitdepth_max: i32,
 ) -> Rav1dResult {
     let coefficients = coeff.first_chunk_mut::<1024>().ok_or(Rav1dError::EINVAL)?;
-    let mut residuals = dct32_row_pass_i16_simd(token, *coefficients);
+    let Ok(mut residuals) = dct32_row_pass_i16_simd(token, *coefficients);
     let Ok(bounds) = TransformAxisBounds::narrow(255);
     let bias = _mm256_set1_epi32(2);
     let minimum = _mm256_set1_epi32(bounds.columns.lower);

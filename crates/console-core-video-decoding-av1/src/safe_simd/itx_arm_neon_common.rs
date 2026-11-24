@@ -2,8 +2,21 @@
 //!
 //! Shared constants, transpose, and add-to-destination helpers used by all
 //! transform sizes. Ported from assembly macros in `src/arm/64/itx.S`.
+//!
+//! The 4-point ADST table packs adjacent 16-bit lanes so the pair containing
+//! 3344 can also be used as one 32-bit coefficient. The identity table's
+//! fractional term `(5793 - 4096) * 8` is used with a saturating rounded
+//! multiply and an add to apply the scale `5793 / 4096`.
+//!
+//! The 4x4 transpose interleaves first at 16-bit and then at 32-bit lane
+//! widths. Destination updates combine pairs of rows in 128-bit vectors and
+//! saturate after addition. The Walsh–Hadamard transform has already applied
+//! its normalization, so that path skips the final four-bit rounding shift.
 
-#![allow(clippy::too_many_arguments)]
+#![allow(
+  clippy::too_many_arguments,
+  reason = "the NEON entry points take the destination, coefficients, transform parameters and SIMD capability explicitly"
+)]
 #![cfg_attr(not(feature = "unchecked"), forbid(unsafe_code))]
 #![cfg_attr(feature = "unchecked", deny(unsafe_code))]
 
@@ -16,7 +29,6 @@ use archmage::rite;
 #[cfg(target_arch = "aarch64")]
 use archmage::intrinsics::aarch64 as safe_simd;
 
-/// IDCT coefficients: [2896, 2896*8, 1567, 3784, 799, 4017, 3406, 2276, ...]
 pub(crate) const IDCT_COEFFS: [i16; 32] = [
   2896,
   ::console_core_number_conversion::const_wrapped_integer!(signed ::core::primitive::i32 => ::core::primitive::i16, 2896 * 8),
@@ -52,18 +64,10 @@ pub(crate) const IDCT_COEFFS: [i16; 32] = [
   601,
 ];
 
-/// IADST4 coefficients: [1321, 3803, 2482, 3344, 3344, 0]
-/// Note: h[4..5] can be interpreted as s[2] = 3344 (32-bit)
 pub(crate) const IADST4_COEFFS: [i16; 8] = [1321, 3803, 2482, 3344, 3344, 0, 0, 0];
 
-/// The identity scale factor: (5793 - 4096) * 8 = 13576
-/// Used by the identity transform: x * 5793/4096 via sqrdmulh + sqadd trick.
 pub(crate) const IDENTITY_SCALE: i16 = ::console_core_number_conversion::const_wrapped_integer!(signed ::core::primitive::i32 => ::core::primitive::i16, (5793 - 4096) * 8);
 
-/// 4x4 transpose for int16x4_t vectors.
-///
-/// Matches the `transpose_4x4h` macro from util.S lines 230-239.
-/// Uses trn1/trn2 at 16-bit level, then trn1/trn2 at 32-bit level.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn transpose_4x4h(
@@ -95,15 +99,6 @@ pub(crate) fn transpose_4x4h(
   (o0, o1, o2, o3)
 }
 
-/// Add transform output to destination pixels for 4x4 block (8bpc).
-///
-/// Mirrors the `L(itx_4x4_end)` label in itx.S lines 652-663.
-/// The transform output is in 4 int16x4_t vectors (one per row).
-/// We combine them into pairs of int16x8_t, apply rounding shift >>4,
-/// add to u8 destination pixels with unsigned saturation, and store.
-///
-/// When `shift` is true, applies srshr>>4 (for non-WHT transforms).
-/// WHT transforms skip the shift (it's already absorbed).
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn add_to_dst_4x4_8bpc(

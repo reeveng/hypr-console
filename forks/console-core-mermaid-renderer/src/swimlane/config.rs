@@ -40,32 +40,46 @@ pub(super) struct SwimlaneConfig {
     pub automatic_lane_ordering: bool,
 }
 
+#[must_use]
 fn number_at(root: &Value, path: &[&str]) -> Option<f64> {
     let value = value_at(root, path)?;
     value.as_f64().or_else(|| {
         value
             .as_str()
-            .and_then(|text| text.trim().parse::<f64>().ok())
+            .and_then(|text| match text.trim().parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None })
     })
 }
 
 impl SwimlaneConfig {
+    #[must_use]
     pub fn from_config(config: &PresentationConfig) -> Self {
         let root = config.as_value();
         Self {
-            // Mermaid layoutCore uses nullish-coalescing here. In a fully merged config the
-            // normal values are Flowchart's 50/50 defaults; a user-provided zero remains zero.
-            node_gap: number_at(root, &["flowchart", "nodeSpacing"]).unwrap_or(40.0),
-            layer_gap: number_at(root, &["flowchart", "rankSpacing"]).unwrap_or(100.0),
-            ignore_cross_lane_edges: config_bool(root, &["swimlane", "ignoreCrossLaneEdges"])
-                .unwrap_or(true),
-            optimize_ranks_by_crossings: config_bool(
+
+
+            node_gap: match number_at(root, &["flowchart", "nodeSpacing"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 40.0,
+            },
+            layer_gap: match number_at(root, &["flowchart", "rankSpacing"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 100.0,
+            },
+            ignore_cross_lane_edges: match config_bool(root, &["swimlane", "ignoreCrossLaneEdges"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => true,
+            },
+            optimize_ranks_by_crossings: match config_bool(
                 root,
                 &["swimlane", "optimizeRanksByCrossings"],
-            )
-            .unwrap_or(true),
-            automatic_lane_ordering: config_bool(root, &["swimlane", "automaticLaneOrdering"])
-                .unwrap_or(false),
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => true,
+            },
+            automatic_lane_ordering: match config_bool(root, &["swimlane", "automaticLaneOrdering"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            },
         }
     }
 }

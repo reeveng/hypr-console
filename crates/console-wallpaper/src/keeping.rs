@@ -27,23 +27,24 @@
 //! and one a test can hold against the clock rather than against a stopwatch.
 
 use std::marker::PhantomData;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::units::UnixSeconds;
 use console_core_arguments::{Command, Flag, Operands, Presence, Takes};
 use console_core_external_programs::Program;
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
 use console_program_contract::{
-  Answer, Change, Command as Invocation, Effect, Elapsed, Event, EventGroup, Exit, Fork, Task,
-  JobId, JobOwner, Subscription, Timer,
+  Answer, Change, Command as Invocation, Effect, Elapsed, Event, EventGroup, Exit, Fork, JobId,
+  JobOwner, Subscription, Task, Timer,
 };
 use console_weather::conditions::{self as forecast, Weather};
 use console_weather::here::Where;
 
 use crate::choose::{self, Outside, Picture, Turn, Wanted};
 use crate::covered::{self, Covered, Worth};
+use crate::rules::{self, Rules};
 
 pub const NOW: Flag = Flag {
   spelling: "--now",
@@ -103,6 +104,7 @@ const WEATHER_OWNER: JobOwner = JobOwner("wallpaper weather");
 pub struct Input<'a> {
   pub going: Going,
   pub pictures: &'a [Picture],
+  pub rule_directory: Option<&'a Path>,
 }
 
 #[derive(Debug, Clone)]
@@ -112,6 +114,7 @@ pub struct Sky<'a> {
   pub weather: Option<Weather>,
   going: Going,
   pictures: &'a [Picture],
+  rule_directory: Option<&'a Path>,
   look_timer: Option<Timer>,
   weather_timer: Option<Timer>,
   weather_delay: Duration,
@@ -125,6 +128,8 @@ pub struct Observation {
   pub elapsed: Elapsed,
   pub at: Where,
   pub wanted: Wanted,
+  pub pinned_file: bool,
+  pub rules: Rules,
   pub covered: Covered,
 }
 
@@ -162,7 +167,24 @@ pub enum WallpaperEffect {
   WeatherLocation,
   ReadWeather(Answer),
   Paint(PathBuf),
-  Refresh(PathBuf),
+  Freeze(PathBuf),
+}
+
+impl EffectDependencies for WallpaperEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Observe => &[
+        Service::Clock,
+        Service::Compositor,
+        Service::Configuration,
+        Service::FileSystem,
+      ],
+      Self::Resolve { .. } => &[Service::FileSystem],
+      Self::WeatherLocation => &[Service::Clock, Service::Configuration],
+      Self::ReadWeather(_) => &[],
+      Self::Paint(_) | Self::Freeze(_) => &[Service::FileSystem, Service::Display],
+    })
+  }
 }
 
 pub struct Sun<'a>(PhantomData<&'a [Picture]>);
@@ -184,6 +206,7 @@ impl<'a> Machine for Sun<'a> {
       weather: None,
       going: input.going,
       pictures: input.pictures,
+      rule_directory: input.rule_directory,
       look_timer: None,
       weather_timer: None,
       weather_delay: ASK_SOONER,
@@ -199,15 +222,7 @@ impl<'a> Machine for Sun<'a> {
   ) -> Result<Sky<'a>, Never> {
     match event {
       Event::Opened => {
-        match state.going {
-          Going::KeepGoing => {
-            let Ok(()) = effects.offer(Effect::Subscribe(COMPOSITOR));
-            let Ok(()) = effects.offer(Effect::Custom(WallpaperEffect::WeatherLocation));
-          }
-          Going::Once => {}
-        }
-
-        let Ok(()) = effects.offer(Effect::Custom(WallpaperEffect::Observe));
+        let Ok(()) = opened(&state, effects);
       }
       Event::Modified(Change {
         event_group: EventGroup::Compositor,
@@ -216,6 +231,19 @@ impl<'a> Machine for Sun<'a> {
         let Ok(worth) = covered::worth_waking_for(&text);
 
         match worth {
+          Worth::Waking => {
+            let Ok(()) = effects.offer(Effect::Custom(WallpaperEffect::Observe));
+          }
+          Worth::Ignoring => {}
+        }
+      }
+      Event::Modified(Change {
+        event_group: EventGroup::Path(folder),
+        text,
+      }) => {
+        let Ok(change) = rules_changed(state.rule_directory, &folder, Path::new(&text));
+
+        match change {
           Worth::Waking => {
             let Ok(()) = effects.offer(Effect::Custom(WallpaperEffect::Observe));
           }
@@ -256,23 +284,8 @@ impl<'a> Machine for Sun<'a> {
       Event::Custom(WallpaperEvent::Weather(weather)) => {
         let Ok(()) = weather_arrived(&mut state, weather, effects);
       }
-      Event::Custom(WallpaperEvent::Rendered {
-        at,
-        went: Rendered::Yes,
-      }) => {
-        state.showing = Some(at);
-      }
-      Event::Custom(WallpaperEvent::Rendered {
-        at: _,
-        went: Rendered::No,
-      }) => {
-        let Ok(retry) = look_timer(TRY_AGAIN);
-        let Ok(()) = change_timer(
-          &mut state.look_timer,
-          Some(retry),
-          Subscription::Timer,
-          effects,
-        );
+      Event::Custom(WallpaperEvent::Rendered { at, went }) => {
+        let Ok(()) = rendered(&mut state, at, went, effects);
       }
       Event::Custom(WallpaperEvent::Looked {
         elapsed,
@@ -293,12 +306,98 @@ impl<'a> Machine for Sun<'a> {
 
 type Effects = Queue<Effect<WallpaperEffect>>;
 
+fn opened(state: &Sky<'_>, effects: &mut Effects) -> Result<(), Never> {
+  match state.going {
+    Going::KeepGoing => {
+      let Ok(()) = effects.offer(Effect::Subscribe(COMPOSITOR));
+      let Ok(watch) = rule_watch(state.rule_directory);
+
+      match watch {
+        Some(subscription) => {
+          let Ok(()) = effects.offer(Effect::Subscribe(subscription));
+        }
+        None => {}
+      }
+
+      let Ok(()) = effects.offer(Effect::Custom(WallpaperEffect::WeatherLocation));
+    }
+    Going::Once => {}
+  }
+
+  effects.offer(Effect::Custom(WallpaperEffect::Observe))
+}
+
+fn rendered(
+  state: &mut Sky<'_>,
+  at: PathBuf,
+  went: Rendered,
+  effects: &mut Effects,
+) -> Result<(), Never> {
+  match (went, state.going) {
+    (Rendered::Yes, going) => {
+      state.showing = Some(at);
+
+      match going {
+        Going::Once => effects.offer(Effect::Stop(Exit::Success)),
+        Going::KeepGoing => Ok(()),
+      }
+    }
+    (Rendered::No, Going::Once) => effects.offer(Effect::Stop(Exit::Failure(
+      "the wallpaper could not be painted".to_string(),
+    ))),
+    (Rendered::No, Going::KeepGoing) => {
+      let Ok(retry) = look_timer(TRY_AGAIN);
+      change_timer(
+        &mut state.look_timer,
+        Some(retry),
+        Subscription::Timer,
+        effects,
+      )
+    }
+  }
+}
+
+fn rule_watch(directory: Option<&Path>) -> Result<Option<Subscription>, Never> {
+  Ok(
+    directory
+      .and_then(Path::parent)
+      .map(|folder| Subscription::EventGroup(EventGroup::Path(folder.to_path_buf()))),
+  )
+}
+
+fn rules_changed(
+  directory: Option<&Path>,
+  folder: &Path,
+  changed: &Path,
+) -> Result<Worth, Never> {
+  let rules = match directory {
+    Some(rules) => rules,
+    None => return Ok(Worth::Ignoring),
+  };
+  let affects_rules = rules.parent() == Some(folder)
+    && (changed == folder
+      || changed == rules
+      || (changed.parent() == Some(rules)
+        && changed.extension().is_some_and(|kind| kind == "toml")));
+
+  Ok(match bool::then_some(affects_rules, ()) {
+    Some(()) => Worth::Waking,
+    None => Worth::Ignoring,
+  })
+}
+
 fn observe(
   state: &mut Sky<'_>,
   reading: Observation,
   effects: &mut Effects,
 ) -> Result<(), Never> {
-  let Ok(pinned) = choose::pinned(state.pictures, &reading.wanted);
+  let pinned = match bool::then_some(reading.pinned_file && !reading.wanted.follow, ()) {
+    ::core::option::Option::Some(()) => Some(reading.wanted.picture.as_str()),
+    ::core::option::Option::None => {
+      let Ok(pinned) = choose::pinned(state.pictures, &reading.wanted);
+      pinned.map(|picture| picture.name.as_str())
+    }
+  };
 
   match ::core::primitive::bool::then_some(
     state.going == Going::Once && state.weather_attempt == 0 && pinned.is_none(),
@@ -312,11 +411,17 @@ fn observe(
 
   let Ok(outside) = Outside::at(&reading.at, reading.seconds, state.weather);
   let Ok(turn) = Turn::at(reading.seconds);
-  let Ok(wanted) = choose::pick(state.pictures, &reading.wanted, &outside, turn);
+  let wanted = match pinned {
+    Some(name) => Some(name),
+    None => {
+      let Ok(picked) = rules::pick(&reading.rules, state.pictures, &outside, turn);
+      picked
+    }
+  };
 
   match wanted {
-    Some(picture) => effects.offer(Effect::Custom(WallpaperEffect::Resolve {
-      name: picture.name.clone(),
+    Some(name) => effects.offer(Effect::Custom(WallpaperEffect::Resolve {
+      name: name.to_string(),
       elapsed: reading.elapsed,
       covered: reading.covered,
     })),
@@ -386,6 +491,15 @@ fn stop(state: &mut Sky<'_>, effects: &mut Effects) -> Result<(), Never> {
   match (state.going == Going::KeepGoing).then_some(()) {
     ::core::option::Option::Some(()) => {
       let Ok(()) = effects.offer(Effect::Unsubscribe(COMPOSITOR));
+
+      let Ok(watch) = rule_watch(state.rule_directory);
+
+      match watch {
+        Some(subscription) => {
+          let Ok(()) = effects.offer(Effect::Unsubscribe(subscription));
+        }
+        None => {}
+      }
     }
     ::core::option::Option::None => {}
   }
@@ -457,7 +571,10 @@ fn looked(
   }
 
   match state.going {
-    Going::Once => effects.offer(Effect::Stop(Exit::Success)),
+    Going::Once => match chosen {
+      Some(_) => Ok(()),
+      None => effects.offer(Effect::Stop(Exit::Success)),
+    },
     Going::KeepGoing => {
       let waiting = match settling.filter(|_| away == Away::NotYet) {
         Some(left) => LOOK_AGAIN.min(left.max(SOONEST)),
@@ -490,28 +607,23 @@ fn putting(
     (Resting::Yes, None) | (Resting::No, _) => chosen.moving.clone(),
   };
 
-  match ::core::primitive::bool::then_some(state.showing.as_deref() == Some(put_up.as_path()), ())
-  {
-    ::core::option::Option::Some(()) => return Ok(Vec::new()),
-    ::core::option::Option::None => {}
-  }
-
-  let first = resting == Resting::No && state.showing.as_deref() != chosen.still.as_deref();
+  let first = away == Away::NotYet
+    && state.showing.as_deref() != Some(put_up.as_path())
+    && state.showing.as_deref() != chosen.still.as_deref();
   let mut effects = Vec::new();
 
-  match (first, &chosen.still) {
-    (true, Some(still)) => effects.push(Effect::Custom(WallpaperEffect::Paint(still.clone()))),
-    (true, None) | (false, _) => {}
+  match (first, &chosen.still, state.going) {
+    (true, Some(still), Going::KeepGoing) => {
+      effects.push(Effect::Custom(WallpaperEffect::Paint(still.clone())))
+    }
+    (_, _, _) => {}
   }
 
-  match resting {
-    Resting::Yes => {}
-    Resting::No => effects.push(Effect::Custom(WallpaperEffect::Refresh(
-      chosen.moving.clone(),
-    ))),
-  }
-
-  effects.push(Effect::Custom(WallpaperEffect::Paint(put_up)));
+  let effect = match (away, resting) {
+    (Away::PutIt, Resting::No) => WallpaperEffect::Freeze(put_up),
+    (_, _) => WallpaperEffect::Paint(put_up),
+  };
+  effects.push(Effect::Custom(effect));
 
   Ok(effects)
 }
@@ -561,6 +673,7 @@ mod tests {
       &Input {
         going: Going::KeepGoing,
         pictures: &[],
+        rule_directory: None,
       },
       None,
     );
@@ -611,12 +724,6 @@ mod tests {
     );
     assert_eq!(
       effects.get(1),
-      Some(&Effect::Custom(WallpaperEffect::Refresh(PathBuf::from(
-        "/pictures/rain.gif"
-      ))))
-    );
-    assert_eq!(
-      effects.get(2),
       Some(&Effect::Custom(WallpaperEffect::Paint(PathBuf::from(
         "/pictures/rain.gif"
       ))))
@@ -624,7 +731,7 @@ mod tests {
   }
 
   #[test]
-  fn a_picture_already_up_is_not_put_up_again() {
+  fn a_picture_already_up_is_reconciled_without_replacing_it_with_a_still() {
     let Ok(sky) = sky();
 
     let Ok(up) = said(
@@ -641,7 +748,8 @@ mod tests {
     assert_eq!(
       again.effects(),
       Ok(vec![
-        Effect::Unsubscribe(Subscription::Timer(timer.clone())),
+        Effect::Custom(WallpaperEffect::Paint(PathBuf::from("/pictures/rain.gif"))),
+        Effect::Unsubscribe(Subscription::Timer(timer)),
         Effect::Subscribe(Subscription::Timer(timer))
       ])
     );
@@ -666,7 +774,7 @@ mod tests {
     assert!(
       !effects
         .iter()
-        .any(|effect| matches!(effect, Effect::Custom(WallpaperEffect::Paint(_)))),
+        .any(|effect| matches!(effect, Effect::Custom(WallpaperEffect::Freeze(_)))),
       "it was put away the moment something covered it"
     );
     assert_eq!(covered.state.covered_since, Some(Duration::from_secs(1)));
@@ -719,12 +827,6 @@ mod tests {
       effects.contains(&Effect::Custom(WallpaperEffect::Paint(PathBuf::from(
         "/pictures/rain.png"
       ))))
-    );
-    assert!(
-      !effects
-        .iter()
-        .any(|effect| matches!(effect, Effect::Custom(WallpaperEffect::Refresh(_)))),
-      "a still picture was refreshed, which is a moving one's word"
     );
     assert_eq!(scheduled_look(&effects), Ok(Some(LOOK_AGAIN)));
   }
@@ -781,6 +883,7 @@ mod tests {
       &Input {
         going: Going::Once,
         pictures: &[],
+        rule_directory: None,
       },
       None,
     );
@@ -788,7 +891,14 @@ mod tests {
     let Ok(after) = said(&once, vec![Step::Looked(0.0, Covered::No)]);
     let Ok(effects) = after.effects();
 
-    assert_eq!(effects.last(), Some(&Effect::Stop(Exit::Success)));
+    assert_eq!(
+      effects.as_slice(),
+      &[Effect::Custom(WallpaperEffect::Paint(PathBuf::from(
+        "/pictures/rain.gif"
+      )))]
+    );
+    let Ok(painted) = said(&after.state, vec![Step::Rendered("/pictures/rain.gif")]);
+    assert_eq!(painted.effects(), Ok(vec![Effect::Stop(Exit::Success)]));
     assert_eq!(scheduled_look(&effects), Ok(None));
   }
 

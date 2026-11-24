@@ -21,6 +21,7 @@ pub(crate) struct ClassNodePaintBinding {
 }
 
 impl ClassNodePaintBinding {
+    #[must_use]
     pub(crate) fn outcomes(
         &self,
         fill_source_owned: bool,
@@ -44,18 +45,27 @@ impl ClassNodePaintBinding {
         )
     }
 
+    #[must_use]
     pub(crate) fn typed_fill(&self, source_owned: bool) -> Option<(usize, &str)> {
         self.typed(&self.fill, source_owned)
     }
+
+    #[must_use]
     pub(crate) fn typed_stroke(&self, source_owned: bool) -> Option<(usize, &str)> {
         self.typed(&self.stroke, source_owned)
     }
+
+    #[must_use]
     pub(crate) fn typed_label_fill(&self, source_owned: bool) -> Option<(usize, &str)> {
         self.typed(&self.label_fill, source_owned)
     }
+
+    #[must_use]
     pub(crate) fn label_fill_target(&self) -> Option<ThemeTarget> {
         self.label_fill.as_ref().map(|paint| paint.target)
     }
+
+    #[must_use]
     fn typed<'a>(
         &self,
         paint: &'a Option<ClassSelectedPaint>,
@@ -64,7 +74,7 @@ impl ClassNodePaintBinding {
         paint
             .as_ref()
             .filter(|_| !source_owned)
-            .map(|paint| (paint.rule_index, paint.css.as_str()))
+            .map(|paint_2| (paint_2.rule_index, paint_2.css.as_str()))
     }
 }
 
@@ -80,6 +90,7 @@ pub(super) struct ClassNodeThemePlan {
 }
 
 impl ClassNodeThemePlan {
+    #[must_use]
     pub(super) fn from_config(
         effective_config: &merman_model::presentation::PresentationConfig,
     ) -> Self {
@@ -152,6 +163,7 @@ impl ClassNodeThemePlan {
         }
 
         let mut ordinal_paints = Vec::with_capacity(node_count);
+
         for ordinal in 1..=node_count {
             let node_style = theme.style_with_work_meter(
                 ThemeTarget::Node,
@@ -165,6 +177,7 @@ impl ClassNodeThemePlan {
                 Some(ordinal),
                 work_meter,
             )?;
+
             for (target, ordinal_style) in [
                 (ThemeTarget::Node, &node_style),
                 (ThemeTarget::NodeLabel, &node_label_style),
@@ -175,18 +188,22 @@ impl ClassNodeThemePlan {
                         .map(|(property, origin)| (target, origin.rule_index(), property)),
                 );
             }
+
             ordinal_paints.push(self.terminal_paints(theme, &node_style, &node_label_style));
         }
+
         self.ordinal_paints = ordinal_paints.into_boxed_slice();
         Ok(())
     }
 
+    #[must_use]
     pub(super) fn paint(&self, ordinal: usize) -> &ClassNodePaintBinding {
         self.ordinal_paints
             .get(ordinal.saturating_sub(1))
             .unwrap_or(&self.static_paints)
     }
 
+    #[must_use]
     pub(super) fn route_won(
         &self,
         rule_index: usize,
@@ -197,19 +214,23 @@ impl ClassNodeThemePlan {
         if !matches!(target, ThemeTarget::Node | ThemeTarget::NodeLabel) {
             return false;
         }
+
         if target == ThemeTarget::Node
             && ((matches!(facet, FamilyThemeRuleFacet::Fill(_)) && self.mermaid_owns_fill)
                 || (matches!(facet, FamilyThemeRuleFacet::Stroke(_)) && self.mermaid_owns_stroke))
         {
             return false;
         }
+
         if target == ThemeTarget::NodeLabel
             && matches!(facet, FamilyThemeRuleFacet::Fill(_))
             && self.mermaid_owns_label_fill
         {
             return false;
         }
+
         let property = resolved_style_property_for_facet(facet);
+
         match selector {
             FamilyThemeSelectorShape::Static {
                 variant: None | Some(ThemeVariant::Default),
@@ -226,6 +247,7 @@ impl ClassNodeThemePlan {
         }
     }
 
+    #[must_use]
     fn terminal_paints(
         &self,
         theme: &ResolvedDiagramTheme,
@@ -279,6 +301,7 @@ impl ClassNodeThemePlan {
     }
 }
 
+#[must_use]
 fn typed_paint_expectation(
     theme: &ResolvedDiagramTheme,
     style: &ResolvedThemeStyle,
@@ -288,24 +311,27 @@ fn typed_paint_expectation(
     if mermaid_owns {
         return None;
     }
+
     let resolution = match property {
         ResolvedStyleProperty::Fill => style.fill_resolution(),
         ResolvedStyleProperty::Stroke => style.stroke_resolution(),
-        _ => return None,
+        ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => return None,
     };
     let origin = resolution.winner()?;
     let facet = match property {
         ResolvedStyleProperty::Fill => FamilyThemeRuleFacet::fill(resolution.specified())?,
         ResolvedStyleProperty::Stroke => FamilyThemeRuleFacet::stroke(resolution.specified())?,
-        _ => return None,
+        ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => return None,
     };
     let has_direct_route = theme.rule_facet_disposition(origin.rule_index(), facet)
         == Some(FamilyThemeDisposition::TypedAdapter);
+
     if !has_direct_route {
         return None;
     }
+
     let css = match resolution.specified() {
-        Specified::Value(CanvasPaint::Transparent) => "transparent".into(),
+        Specified::Value(CanvasPaint::Transparent) => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("transparent"),
         Specified::Value(CanvasPaint::Solid(color)) => color.as_css(),
         Specified::Unspecified
         | Specified::Clear

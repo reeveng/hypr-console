@@ -96,9 +96,11 @@ pub(crate) fn authored_source_overrides(
     control: &OperationControl,
 ) -> OperationControlResult<MermaidConfig> {
     control.checkpoint()?;
+
     if overrides.is_empty_object() {
         return Ok(overrides);
     }
+
     remove_secure_keys_recursive(authority.as_value(), overrides.as_value_mut());
     control.checkpoint()?;
     Ok(overrides)
@@ -110,8 +112,8 @@ pub(crate) fn source_filtered_overrides(
     control: &OperationControl,
 ) -> OperationControlResult<MermaidConfig> {
     let mut filtered = overrides.clone();
-    // Normalize legacy typography before authority checks so a locked themeVariables or
-    // fontFamily key cannot be reintroduced through the other spelling after filtering.
+
+
     mirror_legacy_font_family_into_theme_variables(&mut filtered);
     remove_secure_keys_recursive(authority.as_value(), filtered.as_value_mut());
     source_presentation::filter(filtered.as_value_mut(), control)?;
@@ -119,24 +121,37 @@ pub(crate) fn source_filtered_overrides(
 }
 
 fn remove_secure_keys_recursive(site_config: &Value, overrides: &mut Value) {
-    let secure_keys = site_config
+    let secure_keys = match site_config
         .get("secure")
         .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_str).collect::<Vec<_>>())
-        .unwrap_or_default();
+        .map(|items| items.iter().filter_map(Value::as_str).collect::<Vec<_>>()) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => ::std::vec::Vec::new(),
+    };
 
     let mut stack = vec![overrides];
+
     while let Some(current) = stack.pop() {
         match current {
             Value::Object(map) => {
-                if let Some(old) = map.remove("secure") {
-                    drop_value_nonrecursive(old);
-                }
-                for key in &secure_keys {
-                    if let Some(old) = map.remove(*key) {
+                match map.remove("secure") {
+                    Some(old) => {
                         drop_value_nonrecursive(old);
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                for key in &secure_keys {
+                    {
+                        match map.remove(*key) {
+                            Some(old) => {
+                                drop_value_nonrecursive(old);
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
+
                 for child in map.values_mut().rev() {
                     stack.push(child);
                 }
@@ -157,27 +172,41 @@ pub(crate) fn mirror_legacy_font_family_into_theme_variables(config: &mut Mermai
 }
 
 pub(crate) fn mirror_legacy_font_family_into_theme_variables_value(value: &mut Value) {
-    let Some(font_family) = legacy_font_family_for_mirroring(value).map(str::to_owned) else {
-        return;
+    let font_family = {
+        let optional_font_family = legacy_font_family_for_mirroring(value).map(str::to_owned);
+
+        match optional_font_family {
+            Some(matched_font_family) => matched_font_family,
+            ::core::option::Option::None => return,
+        }
     };
-    let Some(root) = value.as_object_mut() else {
-        return;
+
+    let root = {
+        let optional_root = value.as_object_mut();
+
+        match optional_root {
+            Some(matched_root) => matched_root,
+            ::core::option::Option::None => return,
+        }
     };
 
     let theme_variables = root
         .entry("themeVariables")
         .or_insert_with(|| Value::Object(Map::new()));
+
     if !theme_variables.is_object() {
         replace_value_nonrecursive(theme_variables, Value::Object(Map::new()));
     }
-    if let Some(theme_variables) = theme_variables.as_object_mut()
+
+    if let Some(theme_variables_2) = theme_variables.as_object_mut()
         && let Some(old) =
-            theme_variables.insert("fontFamily".to_string(), Value::String(font_family))
+            theme_variables_2.insert("fontFamily".to_string(), Value::String(font_family))
     {
         drop_value_nonrecursive(old);
     }
 }
 
+#[must_use]
 pub(crate) fn legacy_font_family_for_mirroring(value: &Value) -> Option<&str> {
     let root = value.as_object()?;
     let font_family = root
@@ -192,6 +221,7 @@ pub(crate) fn legacy_font_family_for_mirroring(value: &Value) -> Option<&str> {
         .and_then(|theme_variables| theme_variables.get("fontFamily"))
         .and_then(Value::as_str)
         .is_some_and(|s| !s.trim().is_empty());
+
     if has_theme_font_family {
         None
     } else {

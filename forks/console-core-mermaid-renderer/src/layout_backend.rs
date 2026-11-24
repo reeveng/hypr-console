@@ -26,6 +26,7 @@ pub(crate) enum ElkRootAlgorithm {
 }
 
 impl ElkRootAlgorithm {
+    #[must_use]
     pub(crate) fn from_name(name: &str) -> Option<Self> {
         Some(match name {
             "elk" => Self::Layered,
@@ -60,6 +61,7 @@ pub(crate) struct GraphLayoutSelection {
 }
 
 impl GraphLayoutSelection {
+    #[must_use]
     pub(crate) fn required_capability(self) -> Option<crate::RenderCapability> {
         match self.backend {
             GraphLayoutBackend::Dagre => None,
@@ -76,11 +78,13 @@ impl GraphLayoutSelection {
                 message: "Root node is required for the cose-bilkent layout".to_owned(),
             });
         }
+
         Ok(())
     }
 }
 
 /// Select a registered loader before validating the family's layout data.
+#[must_use]
 pub(crate) fn resolve_graph_layout(config: &Value) -> GraphLayoutSelection {
     let requested = config.get("layout").and_then(Value::as_str).unwrap_or("");
     let backend =

@@ -7,17 +7,21 @@ const DEFAULT_LEGEND_POSITION: &str = "right";
 const DEFAULT_USE_MAX_WIDTH: bool = true;
 
 /// Resolve stylesheet sizes whose geometry does not depend on the host document.
+#[must_use]
 pub(super) fn pie_font_size_px(css: &str, inherited_px: f64) -> f64 {
-    pie_font_size(css, inherited_px)
-        .map(|(size, _)| size)
-        .unwrap_or(inherited_px)
+    match pie_font_size(css, inherited_px)
+        .map(|(size, _)| size) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => inherited_px,
+    }
 }
 
 /// Retain whether the emitted role size actually consumes the root font size.
+#[must_use]
 pub(super) fn pie_font_size(css: &str, inherited_px: f64) -> Option<(f64, bool)> {
     let mut parser = cssparser::Parser::new(css);
     let size = match parser.next() {
-        Ok(cssparser::Token::Number { value, .. }) if *value == 0.0 => Some((0.0, false)),
+        Ok(cssparser::Token::Number { value, .. }) if ::core::matches!(::core::primitive::f32::classify(*value), ::core::num::FpCategory::Zero) => Some((0.0, false)),
         Ok(cssparser::Token::Dimension { value, unit, .. }) => {
             let scale = if unit.eq_ignore_ascii_case("px") {
                 Some((1.0, false))
@@ -26,7 +30,7 @@ pub(super) fn pie_font_size(css: &str, inherited_px: f64) -> Option<(f64, bool)>
             } else {
                 None
             };
-            scale.map(|(scale, inherited)| (f64::from(*value) * scale, inherited))
+            scale.map(|(scale_2, inherited)| (f64::from(*value) * scale_2, inherited))
         }
         Ok(cssparser::Token::Percentage { unit_value, .. }) => {
             Some((f64::from(*unit_value) * inherited_px, true))
@@ -39,10 +43,12 @@ pub(super) fn pie_font_size(css: &str, inherited_px: f64) -> Option<(f64, bool)>
         _ => None,
     };
     let _ = parser.try_parse(cssparser::parse_important);
+
     if parser.expect_exhausted().is_err() {
         return None;
     }
-    size.filter(|(size, _)| size.is_finite() && *size >= 0.0)
+
+    size.filter(|(size_2, _)| size_2.is_finite() && *size_2 >= 0.0)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -59,33 +65,45 @@ pub(crate) struct PieConfigView<'a> {
 }
 
 impl<'a> PieConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             pie_config: effective_config.get("pie").unwrap_or(&Value::Null),
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> PieLayoutSettings {
         PieLayoutSettings {
-            text_position: self
-                .pie_f64("textPosition")
-                .unwrap_or(DEFAULT_TEXT_POSITION),
+            text_position: match self
+                .pie_f64("textPosition") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_TEXT_POSITION,
+            },
             legend_position: self.legend_position(),
         }
     }
 
+    #[must_use]
     pub(crate) fn render_settings(&self) -> PieRenderSettings {
         PieRenderSettings {
             donut_hole: self.donut_hole(),
             legend_position: self.legend_position(),
-            use_max_width: self
-                .pie_bool("useMaxWidth")
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
+            use_max_width: match self
+                .pie_bool("useMaxWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
         }
     }
 
+    #[must_use]
     fn donut_hole(&self) -> f64 {
-        let donut_hole = self.pie_f64("donutHole").unwrap_or(DEFAULT_DONUT_HOLE);
+        let donut_hole = match self.pie_f64("donutHole") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_DONUT_HOLE,
+        };
+
         if donut_hole > 0.0 && donut_hole <= 0.9 {
             donut_hole
         } else {
@@ -93,6 +111,7 @@ impl<'a> PieConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn legend_position(&self) -> PieLegendPosition {
         match self.pie_string("legendPosition").as_deref() {
             Some("top") => PieLegendPosition::Top,
@@ -110,14 +129,17 @@ impl<'a> PieConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn pie_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.pie_config, &[key])
     }
 
+    #[must_use]
     fn pie_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.pie_config, &[key])
     }
 
+    #[must_use]
     fn pie_string(&self, key: &str) -> Option<String> {
         config_string(self.pie_config, &[key])
     }

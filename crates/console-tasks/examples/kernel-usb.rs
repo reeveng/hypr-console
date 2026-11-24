@@ -1,12 +1,20 @@
 //! Boots Console with an xHCI keyboard and types through the guest's USB path.
 
 use console_core_external_programs::Program;
-use serde_json::{Value, json};
+use console_core_iteration::{Step, iterate};
+use console_core_number_conversion::index;
+use console_operating_system_linux::program_lifetime::{
+  BoundToParent as Guest, TimedPipe, TimedReadPipe, alongside,
+};
+use console_waiting::clock::LiveClock;
+use console_waiting::{Schedule, until_some_handed_on_result};
+use serde_json::{Value, json, value::RawValue};
+use std::collections::BTreeMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Error, ErrorKind, Write};
+use std::io::{Error, ErrorKind, Write};
+use std::os::fd::OwnedFd;
 use std::path::{Path, PathBuf};
-use std::process::{Child, ChildStdin, ExitStatus, Stdio};
-use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
+use std::process::{ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -16,6 +24,7 @@ const POLL: Duration = Duration::from_millis(20);
 const MONITOR_TIMEOUT: Duration = Duration::from_secs(25);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 const SCREENSHOT: &str = "screen.ppm";
+const MAX_QMP_LINE_BYTES: u32 = 65_536;
 
 #[derive(Clone, Copy)]
 enum Dma {
@@ -26,6 +35,7 @@ enum Dma {
 #[derive(Clone, Copy)]
 enum Check {
   Keyboard(Dma),
+  Browser,
   Calculator,
   Launcher,
 }
@@ -38,72 +48,153 @@ impl Drop for Scratch {
   }
 }
 
-struct Guest(Child);
-
-impl Drop for Guest {
-  fn drop(&mut self) {
-    let _signal = self.0.kill();
-    let _reaped = self.0.wait();
-  }
+enum QmpMessage {
+  Greeting,
+  Success,
+  Error(Box<RawValue>),
+  EventOrUnknown,
 }
 
 struct Monitor {
-  commands: ChildStdin,
-  messages: Receiver<std::io::Result<String>>,
+  commands: TimedPipe,
+  output: TimedReadPipe,
+  received: Vec<u8>,
 }
 
 impl Monitor {
   fn connect(guest: &mut Guest) -> Result<Self, Failure> {
-    let commands = guest.0.stdin.take().ok_or("QEMU has no command pipe")?;
-    let output = guest.0.stdout.take().ok_or("QEMU has no monitor output")?;
-    let (sender, messages) = mpsc::sync_channel(8);
-    // The receiver applies deadlines while the reader waits for complete
-    // messages. Killing and reaping the guest closes the reader's pipe.
-    thread::Builder::new().name("qmp".into()).spawn(move || {
-      for message in BufReader::new(output).lines() {
-        let failed = message.is_err();
-        if sender.send(message).is_err() || failed {
-          break;
-        }
+    let Ok(stdin) = guest.take_stdin();
+    let Ok(stdout) = guest.take_stdout();
+    let command = stdin.ok_or("QEMU has no command pipe")?;
+    let responses = stdout.ok_or("QEMU has no monitor output")?;
+    let commands = TimedPipe::new(OwnedFd::from(command))?;
+    let output = TimedReadPipe::new(OwnedFd::from(responses))?;
+    let mut monitor = Self { commands, output, received: Vec::new() };
+    let deadline = Instant::now()
+      .checked_add(MONITOR_TIMEOUT)
+      .ok_or("QMP deadline overflowed")?;
+
+    let greeting = monitor.read_message(deadline)?;
+
+    match greeting {
+      QmpMessage::Greeting => {}
+      QmpMessage::Success | QmpMessage::Error(_) | QmpMessage::EventOrUnknown => {
+        return Err(Failure::from("QEMU sent no QMP greeting"));
       }
-    })?;
-    let monitor = Self { commands, messages };
-    let greeting = monitor.read_message(Instant::now() + MONITOR_TIMEOUT)?;
-    if greeting.get("QMP").is_none() {
-      return Err("QEMU sent no QMP greeting".into());
     }
+
+    monitor.execute("qmp_capabilities", json!({}))?;
     Ok(monitor)
   }
 
-  fn read_message(&self, deadline: Instant) -> Result<Value, Failure> {
-    let timeout = deadline.saturating_duration_since(Instant::now());
-    if timeout.is_zero() {
-      return Err("QEMU did not answer the monitor".into());
+  fn next_line(&mut self, deadline: Instant) -> Result<Vec<u8>, Failure> {
+    let mut buffer = [0; 4096];
+    let mut scanned = 0_u32;
+
+    for _ in 0..=MAX_QMP_LINE_BYTES {
+      let wait = deadline
+        .checked_duration_since(Instant::now())
+        .ok_or("QEMU did not answer the monitor")?;
+
+      let Ok(start) = index(scanned);
+      let new_bytes = self.received.get(start..).ok_or("invalid QMP scan position")?;
+
+      match new_bytes.iter().position(|&byte| byte == b'\n') {
+        Some(newline) => {
+          let newline_offset = u32::try_from(newline)?;
+          let ending = scanned.saturating_add(newline_offset).saturating_add(1);
+          let Ok(end) = index(ending);
+          let line = self.received.drain(..end).collect();
+          return Ok(line);
+        }
+        None => {}
+      }
+
+      let total = u32::try_from(self.received.len())?;
+      scanned = total;
+      let remaining = MAX_QMP_LINE_BYTES.saturating_sub(total).min(4096);
+
+      match remaining {
+        0 => break,
+        _ => {}
+      }
+
+      let Ok(capacity) = index(remaining);
+      let window = buffer.get_mut(..capacity).ok_or("invalid QMP read capacity")?;
+      let received = self.output.read_some(window, wait)?;
+
+      match received {
+        0 => return Err(Failure::from("QEMU closed the monitor")),
+        _ => {}
+      }
+
+      let Ok(length) = index(received);
+      let data = window.get(..length).ok_or("invalid QMP read length")?;
+      self.received.extend_from_slice(data);
     }
-    let line = match self.messages.recv_timeout(timeout) {
-      Ok(message) => message?,
-      Err(RecvTimeoutError::Timeout) => return Err("QEMU did not answer the monitor".into()),
-      Err(RecvTimeoutError::Disconnected) => return Err("QEMU closed the monitor".into()),
-    };
-    Ok(serde_json::from_str(&line)?)
+
+    Err(Failure::from("QMP response line exceeds 64 KiB"))
+  }
+
+  fn read_message(&mut self, deadline: Instant) -> Result<QmpMessage, Failure> {
+    let line = self.next_line(deadline)?;
+    let mut members: BTreeMap<String, Box<RawValue>> = serde_json::from_slice(&line)?;
+
+    Ok(match members.remove("error") {
+      Some(error) => QmpMessage::Error(error),
+      None => match (members.contains_key("return"), members.contains_key("QMP")) {
+        (true, _) => QmpMessage::Success,
+        (false, true) => QmpMessage::Greeting,
+        (false, false) => QmpMessage::EventOrUnknown,
+      },
+    })
   }
 
   fn execute(&mut self, name: &str, arguments: Value) -> Result<(), Failure> {
-    let deadline = Instant::now() + MONITOR_TIMEOUT;
-    serde_json::to_writer(
-      &mut self.commands,
-      &json!({"execute": name, "arguments": arguments}),
-    )?;
-    self.commands.write_all(b"\n")?;
-    loop {
-      let response = self.read_message(deadline)?;
-      if let Some(error) = response.get("error") {
-        return Err(format!("QMP {name} failed: {error}").into());
+    let deadline = Instant::now()
+      .checked_add(MONITOR_TIMEOUT)
+      .ok_or("QMP deadline overflowed")?;
+    let mut request = serde_json::to_vec(&json!({"execute": name, "arguments": arguments}))?;
+    request.push(b'\n');
+    self.write_request(&request, deadline)?;
+
+    iterate(self, |monitor| {
+      Ok(match monitor.read_message(deadline) {
+        Ok(QmpMessage::Success) => Step::Halt(Ok(())),
+        Ok(QmpMessage::Error(fault)) => {
+          Step::Halt(Err(Failure::from(format!("QMP {name} failed: {fault}"))))
+        }
+        Ok(QmpMessage::Greeting | QmpMessage::EventOrUnknown) => Step::Again(monitor),
+        Err(fault) => Step::Halt(Err(fault)),
+      })
+    })?
+  }
+
+  fn write_request(&self, request: &[u8], deadline: Instant) -> Result<(), Failure> {
+    let mut remaining = request;
+
+    for _ in request {
+      match remaining {
+        [] => return Ok(()),
+        [_, ..] => {}
       }
-      if response.get("return").is_some() {
-        return Ok(());
+
+      let wait = deadline
+        .checked_duration_since(Instant::now())
+        .ok_or("QEMU did not read the monitor command")?;
+      let written = self.commands.write_some(remaining, wait)?;
+
+      match written {
+        0 => return Err(Failure::from("QEMU did not read the monitor command")),
+        _ => {}
       }
+
+      let Ok(start) = index(written);
+      let unwritten = remaining.get(start..).ok_or("invalid QMP write length")?;
+      remaining = unwritten;
     }
+
+    Ok(())
   }
 
   fn send_keys(&mut self, keys: &[&str]) -> Result<(), Failure> {
@@ -126,51 +217,70 @@ impl Monitor {
   }
 }
 
+fn serial_occurrences(serial: &Path, expected: &[u8]) -> Result<u32, Failure> {
+  let bytes = match fs::read(serial) {
+    Ok(bytes) => bytes,
+    Err(fault) => match (fault.kind() == ErrorKind::NotFound).then_some(()) {
+      Some(()) => return Ok(0),
+      None => return Err(Failure::from(fault)),
+    },
+  };
+  let seen = bytes
+    .split(|&byte| byte == b'\n')
+    .filter(|line| {
+      let without_cr = match line.strip_suffix(b"\r") {
+        Some(stripped) => stripped,
+        None => line,
+      };
+      without_cr == expected
+    })
+    .fold(0_u32, |count, _| count.saturating_add(1));
+
+  Ok(seen)
+}
+
 fn expect_line(
   guest: &mut Guest,
   serial: &Path,
   line: &str,
-  count: usize,
+  count: u32,
   timeout: Duration,
 ) -> Result<(), Failure> {
   let expected = format!("console-kernel: {line}");
-  let deadline = Instant::now() + timeout;
-  loop {
-    match fs::read(serial) {
-      Ok(bytes) => {
-        let seen = bytes
-          .split(|byte| *byte == b'\n')
-          .filter(|found| found.strip_suffix(b"\r").unwrap_or(found) == expected.as_bytes())
-          .take(count)
-          .count();
-        if seen == count {
-          return Ok(());
-        }
-      }
-      Err(error) if error.kind() == ErrorKind::NotFound => {}
-      Err(error) => return Err(error.into()),
+  let Ok(patience) = Schedule::asking_every(timeout, POLL);
+  let Ok(mut clock) = LiveClock::started();
+  let found = until_some_handed_on_result(&mut clock, patience, guest, |active| {
+    let seen = serial_occurrences(serial, expected.as_bytes())?;
+
+    match (seen >= count).then_some(()) {
+      Some(()) => return Ok(Some(())),
+      None => {}
     }
-    if Instant::now() >= deadline || guest.0.try_wait()?.is_some() {
-      return Err(format!("expected {count} occurrence(s) of {expected:?}").into());
+
+    let running = active.try_wait()?;
+
+    match running {
+      Some(status) => Err(Failure::from(format!(
+        "QEMU exited ({status}) before {count} occurrence(s) of {expected:?}"
+      ))),
+      None => Ok(None),
     }
-    thread::sleep(POLL);
-  }
+  })?;
+  found.ok_or_else(|| Failure::from(format!("expected {count} occurrence(s) of {expected:?}")))
 }
 
 fn wait_for_exit(guest: &mut Guest) -> Result<ExitStatus, Failure> {
-  let deadline = Instant::now() + SHUTDOWN_TIMEOUT;
-  while Instant::now() < deadline {
-    if let Some(status) = guest.0.try_wait()? {
-      return Ok(status);
-    }
-    thread::sleep(POLL);
-  }
-  Err("QEMU did not exit after Escape".into())
+  let Ok(patience) = Schedule::asking_every(SHUTDOWN_TIMEOUT, POLL);
+  let Ok(mut clock) = LiveClock::started();
+  let status = until_some_handed_on_result(&mut clock, patience, guest, |active| {
+    active.try_wait()
+  })?;
+
+  status.ok_or_else(|| Failure::from("QEMU did not exit after Escape"))
 }
 
 fn verify_guest(guest: &mut Guest, work: &Path, serial: &Path, dma: Dma) -> Result<(), Failure> {
   let mut monitor = Monitor::connect(guest)?;
-  monitor.execute("qmp_capabilities", json!({}))?;
   expect_line(
     guest,
     serial,
@@ -185,14 +295,18 @@ fn verify_guest(guest: &mut Guest, work: &Path, serial: &Path, dma: Dma) -> Resu
     1,
     SHUTDOWN_TIMEOUT,
   )?;
-  if let Dma::AmdVi = dma {
-    expect_line(
-      guest,
-      serial,
-      "AMD-Vi DMA window active",
-      1,
-      SHUTDOWN_TIMEOUT,
-    )?;
+
+  match dma {
+    Dma::AmdVi => {
+      expect_line(
+        guest,
+        serial,
+        "AMD-Vi DMA window active",
+        1,
+        SHUTDOWN_TIMEOUT,
+      )?;
+    }
+    Dma::Direct => {}
   }
 
   let screen = work.join(SCREENSHOT);
@@ -206,11 +320,18 @@ fn verify_guest(guest: &mut Guest, work: &Path, serial: &Path, dma: Dma) -> Resu
     SHUTDOWN_TIMEOUT,
   )?;
   expect_line(guest, serial, "key released: USB 0x04", 1, SHUTDOWN_TIMEOUT)?;
-  if before == monitor.capture(&screen)? {
-    return Err("the key events did not change the framebuffer".into());
+
+  let after = monitor.capture(&screen)?;
+
+  match (before == after).then_some(()) {
+    ::core::option::Option::Some(()) => {
+      return Err(Failure::from(
+        "the key events did not change the framebuffer",
+      ));
+    }
+    ::core::option::Option::None => {}
   }
 
-  // Two reports per keystroke, enough to wrap both xHCI rings.
   for count in 1..=35 {
     monitor.send_keys(&["b"])?;
     expect_line(
@@ -237,18 +358,29 @@ fn verify_guest(guest: &mut Guest, work: &Path, serial: &Path, dma: Dma) -> Resu
     1,
     SHUTDOWN_TIMEOUT,
   )?;
-  if let Dma::AmdVi = dma {
-    expect_line(
-      guest,
-      serial,
-      "AMD-Vi DMA window revoked",
-      1,
-      SHUTDOWN_TIMEOUT,
-    )?;
+
+  match dma {
+    Dma::AmdVi => {
+      expect_line(
+        guest,
+        serial,
+        "AMD-Vi DMA window revoked",
+        1,
+        SHUTDOWN_TIMEOUT,
+      )?;
+    }
+    Dma::Direct => {}
   }
+
   let status = wait_for_exit(guest)?;
-  if status.code() != Some(1) {
-    return Err(format!("the kernel did not exit successfully ({status})").into());
+
+  match { ::core::primitive::bool::then_some(status.code() != Some(1), ()) } {
+    ::core::option::Option::Some(()) => {
+      return Err(Failure::from(format!(
+        "the kernel did not exit successfully ({status})"
+      )));
+    }
+    ::core::option::Option::None => {}
   }
 
   println!(
@@ -257,69 +389,244 @@ fn verify_guest(guest: &mut Guest, work: &Path, serial: &Path, dma: Dma) -> Resu
   Ok(())
 }
 
+struct BrowserFrames {
+  opened: Vec<u8>,
+  scrolled: Vec<u8>,
+}
+
+fn verify_browser(guest: &mut Guest, work: &Path, serial: &Path) -> Result<(), Failure> {
+  let mut monitor = Monitor::connect(guest)?;
+  expect_line(
+    guest,
+    serial,
+    "F2 opens the native browser.",
+    1,
+    MONITOR_TIMEOUT,
+  )?;
+
+  let screen = work.join(SCREENSHOT);
+  let frames = open_and_scroll(&mut monitor, guest, serial, &screen)?;
+  verify_renderer_restart(&mut monitor, guest, serial, &screen, &frames)?;
+  monitor.send_keys(&["esc"])?;
+  expect_line(
+    guest,
+    serial,
+    "Native browser closed. F2 opens it again.",
+    1,
+    SHUTDOWN_TIMEOUT,
+  )?;
+  monitor.send_keys(&["a"])?;
+  expect_line(
+    guest,
+    serial,
+    "key pressed: a (USB 0x04)",
+    1,
+    SHUTDOWN_TIMEOUT,
+  )?;
+  monitor.send_keys(&["esc"])?;
+  let status = wait_for_exit(guest)?;
+
+  match status.code() {
+    Some(1) => {}
+    Some(_) | None => {
+      return Err(Failure::from(format!(
+        "the kernel did not exit successfully ({status})"
+      )));
+    }
+  }
+
+  println!("The native HTML page scrolled and kept its viewport across renderer faults.");
+  Ok(())
+}
+
+fn open_and_scroll(
+  monitor: &mut Monitor,
+  guest: &mut Guest,
+  serial: &Path,
+  screen: &Path,
+) -> Result<BrowserFrames, Failure> {
+  let preview = monitor.capture(screen)?;
+  monitor.send_keys(&["f2"])?;
+  expect_line(
+    guest,
+    serial,
+    "Native browser opened the local HTML page",
+    1,
+    SHUTDOWN_TIMEOUT,
+  )?;
+  let opened = monitor.capture(screen)?;
+
+  match (opened == preview).then_some(()) {
+    Some(()) => return Err(Failure::from("the local HTML page did not appear")),
+    None => {}
+  }
+
+  monitor.send_keys(&["down"])?;
+  expect_line(
+    guest,
+    serial,
+    "Native browser scrolled",
+    1,
+    SHUTDOWN_TIMEOUT,
+  )?;
+  let scrolled = monitor.capture(screen)?;
+
+  match (scrolled == opened).then_some(()) {
+    Some(()) => return Err(Failure::from("scrolling did not change the framebuffer")),
+    None => {}
+  }
+
+  Ok(BrowserFrames { opened, scrolled })
+}
+
+fn verify_renderer_restart(
+  monitor: &mut Monitor,
+  guest: &mut Guest,
+  serial: &Path,
+  screen: &Path,
+  frames: &BrowserFrames,
+) -> Result<(), Failure> {
+  for count in 1..=2 {
+    monitor.send_keys(&["r"])?;
+    expect_line(
+      guest,
+      serial,
+      "Native browser replaced the faulted renderer",
+      count,
+      SHUTDOWN_TIMEOUT,
+    )?;
+    let restored = monitor.capture(screen)?;
+
+    match (restored == frames.scrolled).then_some(()) {
+      Some(()) => {}
+      None => {
+        return Err(Failure::from(
+          "the replacement renderer did not restore the scrolled frame",
+        ));
+      }
+    }
+  }
+
+  monitor.send_keys(&["up"])?;
+  expect_line(
+    guest,
+    serial,
+    "Native browser scrolled",
+    2,
+    SHUTDOWN_TIMEOUT,
+  )?;
+  let restored = monitor.capture(screen)?;
+
+  match (restored == frames.opened).then_some(()) {
+    Some(()) => Ok(()),
+    None => Err(Failure::from(
+      "the replacement renderer could not scroll back",
+    )),
+  }
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit021_no_sleeping",
+  expect(
+    explicit021_no_sleeping,
+    reason = "QMP releases a send-key event after its hold interval; the second Escape must follow the first release"
+  )
+)]
+fn wait_for_escape_release() -> Result<(), console_core_never::Never> {
+  thread::sleep(Duration::from_millis(50));
+  Ok(())
+}
+
 fn verify_generation(guest: &mut Guest, serial: &Path, check: Check) -> Result<(), Failure> {
   let mut monitor = Monitor::connect(guest)?;
-  monitor.execute("qmp_capabilities", json!({}))?;
   expect_line(guest, serial, "Console keyboard ready", 1, MONITOR_TIMEOUT)?;
   expect_line(guest, serial, "Console launcher", 1, SHUTDOWN_TIMEOUT)?;
   monitor.send_keys(&["c"])?;
 
-  if let Check::Calculator = check {
-    expect_line(
-      guest,
-      serial,
-      "C: Calculator | Esc: Exit",
-      1,
-      SHUTDOWN_TIMEOUT,
-    )?;
-    expect_line(
-      guest,
-      serial,
-      "Calculator opened. Type 12+34 and press Enter. Esc returns.",
-      1,
-      SHUTDOWN_TIMEOUT,
-    )?;
-    for (keys, shown) in [
-      (&["1"][..], "1"),
-      (&["2"][..], "12"),
-      (&["shift", "equal"][..], "12+"),
-      (&["3"][..], "12+3"),
-      (&["4"][..], "12+34"),
-      (&["ret"][..], "12+34 = 46"),
-      (&["9"][..], "9"),
-      (&["slash"][..], "9/"),
-      (&["0"][..], "9/0"),
-      (&["ret"][..], "9/0 = Error"),
-      (&["esc"][..], "Console launcher"),
-    ] {
-      monitor.send_keys(keys)?;
-      let count = if shown == "Console launcher" { 2 } else { 1 };
-      expect_line(guest, serial, shown, count, SHUTDOWN_TIMEOUT)?;
+  match check {
+    Check::Calculator => {
+      expect_line(
+        guest,
+        serial,
+        "C: Calculator | Esc: Exit",
+        1,
+        SHUTDOWN_TIMEOUT,
+      )?;
+      expect_line(
+        guest,
+        serial,
+        "Calculator opened. Type 12+34 and press Enter. Esc returns.",
+        1,
+        SHUTDOWN_TIMEOUT,
+      )?;
+
+      let sequence: &[(&[&str], &str)] = &[
+        (&["1"], "1"),
+        (&["2"], "12"),
+        (&["shift", "equal"], "12+"),
+        (&["3"], "12+3"),
+        (&["4"], "12+34"),
+        (&["ret"], "12+34 = 46"),
+        (&["9"], "9"),
+        (&["slash"], "9/"),
+        (&["0"], "9/0"),
+        (&["ret"], "9/0 = Error"),
+        (&["esc"], "Console launcher"),
+      ];
+      for &(keys, shown) in sequence {
+        monitor.send_keys(keys)?;
+        let count = match shown {
+          "Console launcher" => 2,
+          _ => 1,
+        };
+        expect_line(guest, serial, shown, count, SHUTDOWN_TIMEOUT)?;
+      }
+
+      let Ok(()) = wait_for_escape_release();
     }
-    thread::sleep(Duration::from_millis(50));
+    Check::Keyboard(_) | Check::Browser | Check::Launcher => {}
   }
 
   monitor.send_keys(&["esc"])?;
   let status = wait_for_exit(guest)?;
-  if status.code() != Some(65) {
-    return Err(format!("the generation did not exit successfully ({status})").into());
-  }
-  if let Check::Launcher = check {
-    if fs::read_to_string(serial)?.contains("Calculator") {
-      return Err("a disabled Calculator appeared in the session".into());
+
+  match { ::core::primitive::bool::then_some(status.code() != Some(65), ()) } {
+    ::core::option::Option::Some(()) => {
+      return Err(Failure::from(format!(
+        "the generation did not exit successfully ({status})"
+      )));
     }
+    ::core::option::Option::None => {}
   }
+
+  match check {
+    Check::Launcher => {
+      let printed = fs::read_to_string(serial)?;
+
+      match printed.contains("Calculator").then_some(()) {
+        ::core::option::Option::Some(()) => {
+          return Err(Failure::from(
+            "a disabled Calculator appeared in the session",
+          ));
+        }
+        ::core::option::Option::None => {}
+      }
+    }
+    Check::Keyboard(_) | Check::Browser | Check::Calculator => {}
+  }
+
   println!("The native generation booted and honored programs.calculator.enable.");
   Ok(())
 }
 
 fn run(esp: &Path, work: &Path, check: Check) -> Result<(), Failure> {
-  let esp = esp.to_str().ok_or("the ESP path must be UTF-8")?;
+  let esp_2 = esp.to_str().ok_or("the ESP path must be UTF-8")?;
   let drive = format!(
     "if=none,id=preview,format=raw,file=fat:{},readonly=on",
-    esp.replace(',', ",,")
+    esp_2.replace(',', ",,")
   );
   let Ok(mut command) = Program::QemuX86_64.command();
+
   command.current_dir(work).args([
     "-machine",
     "q35",
@@ -341,48 +648,58 @@ fn run(esp: &Path, work: &Path, check: Check) -> Result<(), Failure> {
       "-device",
       "qemu-xhci,id=xhci,bus=usb-root",
     ]),
-    _ => command.args(["-device", "qemu-xhci,id=xhci"]),
+    Check::Keyboard(Dma::Direct) | Check::Browser | Check::Calculator | Check::Launcher => {
+      command.args(["-device", "qemu-xhci,id=xhci"])
+    }
   };
-  let mut guest = Guest(
-    command
-      .args([
-        "-device",
-        "usb-storage,bus=xhci.0,drive=preview,removable=on,bootindex=1",
-        "-device",
-        "usb-kbd,bus=xhci.0",
-        "-serial",
-        "file:serial.log",
-        "-display",
-        "none",
-        "-qmp",
-        "stdio",
-        "-nic",
-        "none",
-        "-vga",
-        "none",
-        "-device",
-        "VGA,vgamem_mb=32,xres=1600,yres=2560,xmax=1600,ymax=2560",
-        "-device",
-        "isa-debug-exit,iobase=0xf4,iosize=0x04",
-        "-no-reboot",
-      ])
-      .stdin(Stdio::piped())
-      .stdout(Stdio::piped())
-      .spawn()
-      .map_err(|fault| format!("could not start QEMU: {fault}"))?,
-  );
+
+  command
+    .args([
+      "-device",
+      "usb-storage,bus=xhci.0,drive=preview,removable=on,bootindex=1",
+      "-device",
+      "usb-kbd,bus=xhci.0",
+      "-serial",
+      "file:serial.log",
+      "-display",
+      "none",
+      "-qmp",
+      "stdio",
+      "-nic",
+      "none",
+      "-vga",
+      "none",
+      "-device",
+      "VGA,vgamem_mb=32,xres=1600,yres=2560,xmax=1600,ymax=2560",
+      "-device",
+      "isa-debug-exit,iobase=0xf4,iosize=0x04",
+      "-no-reboot",
+    ])
+    .stdin(Stdio::piped())
+    .stdout(Stdio::piped());
+  let mut guest = alongside(&mut command).map_err(|fault| format!("could not start QEMU: {fault}"))?;
 
   let serial = work.join("serial.log");
   let result = match check {
     Check::Keyboard(dma) => verify_guest(&mut guest, work, &serial, dma),
+    Check::Browser => verify_browser(&mut guest, work, &serial),
     Check::Calculator | Check::Launcher => verify_generation(&mut guest, &serial, check),
   };
-  if result.is_err() {
-    if let Ok(bytes) = fs::read(&serial) {
-      eprint!("{}", String::from_utf8_lossy(&bytes));
+
+  match result {
+    Err(fault) => {
+      match fs::read(&serial) {
+        Ok(bytes) => match std::io::stderr().write_all(&bytes) {
+          Ok(()) => {}
+          Err(output) => eprintln!("could not display QEMU serial log: {output}"),
+        },
+        Err(read) => eprintln!("could not read QEMU serial log: {read}"),
+      }
+
+      Err(fault)
     }
+    Ok(()) => Ok(()),
   }
-  result
 }
 
 fn main() -> Result<(), Failure> {
@@ -390,25 +707,36 @@ fn main() -> Result<(), Failure> {
   let usage = || {
     Error::new(
       ErrorKind::InvalidInput,
-      "usage: kernel-usb ESP_DIRECTORY [amd-vi | calculator | launcher]",
+      "usage: kernel-usb ESP_DIRECTORY [amd-vi | browser | calculator | launcher]",
     )
   };
-  let esp = fs::canonicalize(args.next().ok_or_else(usage)?)?;
-  let check = match args.next() {
-    None => Check::Keyboard(Dma::Direct),
-    Some(mode) if mode == "amd-vi" => Check::Keyboard(Dma::AmdVi),
-    Some(mode) if mode == "calculator" => Check::Calculator,
-    Some(mode) if mode == "launcher" => Check::Launcher,
-    Some(_) => return Err(usage().into()),
+  let esp_argument = args.next().ok_or_else(usage)?;
+  let esp = fs::canonicalize(esp_argument)?;
+  let mode = args.next();
+  let check = match mode.as_deref().and_then(std::ffi::OsStr::to_str) {
+    Some("amd-vi") => Check::Keyboard(Dma::AmdVi),
+    Some("browser") => Check::Browser,
+    Some("calculator") => Check::Calculator,
+    Some("launcher") => Check::Launcher,
+    None => match mode {
+      Some(_) => return Err(Failure::from(usage())),
+      None => Check::Keyboard(Dma::Direct),
+    },
+    Some(_) => return Err(Failure::from(usage())),
   };
-  if args.next().is_some() {
-    return Err(usage().into());
+
+  match args.next() {
+    Some(_) => return Err(Failure::from(usage())),
+    None => {}
   }
-  let scratch_root =
-    std::env::var_os("TMPDIR").map_or_else(|| PathBuf::from("target/kernel"), PathBuf::from);
-  let scratch = Scratch(console_core_temporary_directories::private_under(
-    &fs::canonicalize(scratch_root)?,
-    "usb",
-  )?);
+
+  let Ok(configured) = console_core_temporary_directories::configured_root();
+  let scratch_root = match configured {
+    Some(path) => path,
+    None => PathBuf::from("target/kernel"),
+  };
+  let canonical_root = fs::canonicalize(scratch_root)?;
+  let directory = console_core_temporary_directories::private_under(&canonical_root, "usb")?;
+  let scratch = Scratch(directory);
   run(&esp, &scratch.0, check)
 }

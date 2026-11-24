@@ -95,7 +95,7 @@ fn ours() -> Result<Vec<KeyBinding>, Never> {
 }
 
 fn handed(stage: &mut Device) -> CheckResult {
-  let Ok(said) = stage.hypr("binds -j");
+  let Ok(said) = stage.compositor_text(console_compositor::Query::Binds);
 
   let holding = match console_compositor::read(console_compositor::Binds, &said) {
     Ok(holding) => holding,

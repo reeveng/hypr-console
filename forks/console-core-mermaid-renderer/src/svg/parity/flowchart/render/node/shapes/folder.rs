@@ -7,16 +7,24 @@ use super::super::geom::path_from_points;
 use super::super::helpers;
 use super::super::roughjs::roughjs_paths_for_hand_drawn_svg_path;
 
-fn folder_geometry(label_width: f64, label_height: f64, padding: f64) -> (f64, f64, f64) {
-    let padding = padding.max(0.0);
-    let width = (label_width + 2.0 * padding).max(90.0);
-    let content_height = label_height + 2.0 * padding;
+#[must_use]
+fn folder_geometry(FolderGeometryArguments { label_width, label_height, padding }: FolderGeometryArguments) -> (f64, f64, f64) {
+    let padding_2 = padding.max(0.0);
+    let width = (label_width + 2.0 * padding_2).max(90.0);
+    let content_height = label_height + 2.0 * padding_2;
     let tab_height = (content_height * 0.16).clamp(8.0, 14.0);
     let total_height = content_height + tab_height;
     (width, total_height, tab_height)
 }
 
-fn folder_points(width: f64, total_height: f64, tab_height: f64) -> Vec<(f64, f64)> {
+struct FolderGeometryArguments {
+    label_width: f64,
+    label_height: f64,
+    padding: f64,
+}
+
+#[must_use]
+fn folder_points(FolderPointsArguments { width, total_height, tab_height }: FolderPointsArguments) -> Vec<(f64, f64)> {
     let tab_width = (width * 0.38).max(28.0);
     let top = -total_height / 2.0;
     vec![
@@ -29,6 +37,12 @@ fn folder_points(width: f64, total_height: f64, tab_height: f64) -> Vec<(f64, f6
     ]
 }
 
+struct FolderPointsArguments {
+    width: f64,
+    total_height: f64,
+    tab_height: f64,
+}
+
 pub(in crate::svg::parity::flowchart::render::node) fn render_folder(
     out: &mut impl crate::svg::parity::SvgOutput,
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
@@ -37,6 +51,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_folder(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (total_height, tab_height, path_data) = prepare_folder_geometry(ctx, common, label);
+
     if common.look_is_hand_drawn() {
         let rough_paths = helpers::timed_node_roughjs(common.timing, details, || {
             roughjs_paths_for_hand_drawn_svg_path(
@@ -47,25 +62,29 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_folder(
                 common.hand_drawn_seed,
             )
         });
-        if let Some((fill_d, stroke_d)) = rough_paths {
-            let _ = write!(
-                out,
-                r#"<g class="basic label-container" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"#,
-                escape_attr(common.rough_group_style),
-                escape_attr(&fill_d),
-                escape_attr(common.fill_color),
-                escape_attr(&stroke_d),
-                escape_attr(common.stroke_color),
-                util::fmt_display(common.stroke_width as f64),
-                escape_attr(common.stroke_dasharray),
-            );
-        } else {
-            let _ = write!(
-                out,
-                r#"<path d="{}" class="basic label-container" style="{}"/>"#,
-                escape_attr(&path_data),
-                escape_attr(common.style),
-            );
+
+        match rough_paths {
+            Some((fill_d, stroke_d)) => {
+                let _ = write!(
+                    out,
+                    r#"<g class="basic label-container" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"#,
+                    escape_attr(common.rough_group_style),
+                    escape_attr(&fill_d),
+                    escape_attr(common.fill_color),
+                    escape_attr(&stroke_d),
+                    escape_attr(common.stroke_color),
+                    util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                    escape_attr(common.stroke_dasharray),
+                );
+            },
+            ::core::option::Option::None => {
+                let _ = write!(
+                    out,
+                    r#"<path d="{}" class="basic label-container" style="{}"/>"#,
+                    escape_attr(&path_data),
+                    escape_attr(common.style),
+                );
+            },
         }
     } else {
         let _ = write!(
@@ -80,6 +99,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_folder(
     label.dy = -total_height / 2.0 + tab_height.min(total_height) + body_height / 2.0;
 }
 
+#[must_use]
 fn prepare_folder_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
@@ -95,11 +115,11 @@ fn prepare_folder_geometry(
         common.node_styles,
     );
     let (measured_width, measured_height, tab_height) =
-        folder_geometry(metrics.width, metrics.height, ctx.node_padding);
-    // Mermaid takes the larger of the rendered label box and any pre-existing node dimensions.
+        folder_geometry(self::FolderGeometryArguments { label_width: metrics.width, label_height: metrics.height, padding: ctx.node_padding });
+
     let width = measured_width.max(common.layout_node.width.max(0.0));
     let total_height = measured_height.max(common.layout_node.height.max(0.0));
-    let points = folder_points(width, total_height, tab_height.min(total_height));
+    let points = folder_points(self::FolderPointsArguments { width, total_height, tab_height: tab_height.min(total_height) });
     let path_data = path_from_points(&points);
 
     (total_height, tab_height, path_data)
@@ -113,6 +133,7 @@ pub(super) fn advance_folder_rough_geometry(
     if !common.look_is_hand_drawn() {
         return;
     }
+
     let (_, _, path_data) = prepare_folder_geometry(ctx, common, label);
     let target = super::super::roughjs::RoughGeometryTarget::Query;
     let _ = super::super::helpers::prepare_node_path(common, &path_data, target);

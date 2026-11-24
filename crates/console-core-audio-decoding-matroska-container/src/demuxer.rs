@@ -172,7 +172,11 @@ impl MkvReader {
     Ok(self.frames.front().map(|frame| frame.timestamp))
   }
 
-  fn seek_track_by_ts_forward(&mut self, track_id: u32, ts: u64) -> Result<SeekedTo, DecodeError> {
+  fn seek_track_by_ts_forward(
+    &mut self,
+    track_id: u32,
+    ts: u64,
+  ) -> Result<SeekedTo, DecodeError> {
     let found = iterate(self, |reader| {
       let Ok(landed) = reader.drop_frames_before(track_id, ts);
 

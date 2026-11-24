@@ -44,6 +44,7 @@ fn write_scoped_sequence_defs_fragment(
     diagram_id: impl Copy + std::fmt::Display,
 ) -> Result<()> {
     let mut cursor = 0usize;
+
     while cursor < fragment.len() {
         let next = SEQUENCE_SCOPED_DEF_IDS
             .iter()
@@ -53,10 +54,12 @@ fn write_scoped_sequence_defs_fragment(
                     .map(|offset| (cursor + offset, needle, local_id))
             })
             .min_by_key(|&(offset, _, _)| offset);
+
         let Some((offset, needle, local_id)) = next else {
             out.push_str(&fragment[cursor..]);
             return out.checkpoint();
         };
+
         out.push_str(&fragment[cursor..offset]);
         let _ = write!(
             out,
@@ -67,6 +70,7 @@ fn write_scoped_sequence_defs_fragment(
         out.checkpoint()?;
         cursor = offset + needle.len();
     }
+
     Ok(())
 }
 
@@ -85,16 +89,16 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
     measurer: &dyn TextMeasurer,
     options: &SvgExecution<'_>,
 ) -> Result<root_svg::RootedSvg> {
-    let model = prepared.model_for_render(model);
+    let model_2 = prepared.model_for_render(model);
     let sanitize_config = effective_config;
-    let effective_config = effective_config.as_value();
+    let effective_config_2 = effective_config.as_value();
     let checkpoints = SequenceEmitCheckpoints::for_emit(options.work_meter());
     checkpoints.checkpoint()?;
     let layout = prepared.layout();
     let compat = prepared.typography().compat_binding();
 
     let settings =
-        SequenceRenderSettings::from_resolved_typography(effective_config, prepared.typography());
+        SequenceRenderSettings::from_resolved_typography(effective_config_2, prepared.typography());
     let mut typography_receipt =
         crate::sequence::SequenceTypographyThemeReceipt::from_plan(prepared.typography());
     let note_text_shadow = super::text_effect::SequenceTextShadow::from_prepared(
@@ -151,8 +155,8 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
     let activation_paint = activation_theme.activation_paint(compat);
     let activation_fill_overridden = activation_paint.fill_overridden;
     let activation_stroke_overridden = activation_paint.stroke_overridden;
-    // Mermaid's non-mirrored viewport does not include the lifeline tail. An explicit canvas
-    // needs the terminal painted frame; keep the unthemed viewport and line geometry unchanged.
+
+
     let has_root_canvas = options.family.root_theme_plan().is_some_and(|plan| {
         plan.canvas().has_explicit_base() || !plan.canvas().layers().is_empty()
     });
@@ -166,6 +170,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
 
     let mut nodes_by_id: FixedMap<&str, &LayoutNode> =
         FixedMap::with_capacity_and_hasher(layout.nodes.len(), Default::default());
+
     for (node_index, node) in layout.nodes.iter().enumerate() {
         checkpoints.checkpoint_loop(node_index)?;
         nodes_by_id.insert(node.id.as_str(), node);
@@ -173,12 +178,14 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
 
     let mut edges_by_id: FixedMap<&str, &crate::model::LayoutEdge> =
         FixedMap::with_capacity_and_hasher(layout.edges.len(), Default::default());
+
     for (edge_index, edge) in layout.edges.iter().enumerate() {
         checkpoints.checkpoint_loop(edge_index)?;
         edges_by_id.insert(edge.id.as_str(), edge);
     }
+
     let message_paint = super::messages::SequenceMessagePaintPlan::prepare(
-        model,
+        model_2,
         &nodes_by_id,
         &edges_by_id,
         message_theme.typed_stroke_width,
@@ -192,7 +199,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
     let actor_shadows = super::actor_effect::SequenceActorShadowPlan::prepare(
         actor_theme.effect.clone(),
         &nodes_by_id,
-        model,
+        model_2,
         settings.mirror_actors,
         actor_rect_style,
         compat,
@@ -200,7 +207,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
         options,
     )?;
     let note_paint = super::notes::SequenceNotePaintPlan::prepare(
-        model,
+        model_2,
         &nodes_by_id,
         note_theme.stroke_width,
         note_theme.radius,
@@ -241,9 +248,12 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
     let root_document = write_sequence_svg_root_open(
         &mut out,
         layout,
-        model,
+        model_2,
         diagram_id,
-        actor_theme.stroke_width.map(f64::from).unwrap_or(0.0) / 2.0,
+        (match actor_theme.stroke_width.map(f64::from) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.0,
+        }) / 2.0,
         &[
             box_paint_bounds.as_ref(),
             actor_shadows.bounds.as_ref(),
@@ -261,7 +271,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
             geometry_receipt: &actor_receipt,
             shadow_plan: &actor_shadows,
             shadow_evidence: prepared.effect_evidence(),
-            model,
+            model: model_2,
             diagram_id,
             compat,
             typed_fill: actor_theme.typed_fill.as_deref(),
@@ -276,16 +286,18 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
             actor_text_style: &settings.actor_text_style,
             actor_typography: prepared.typography().actor(),
             typography_receipt: &typography_receipt,
-            lifeline_effective_stroke_width: lifeline_theme
+            lifeline_effective_stroke_width: match lifeline_theme
                 .typed_stroke_width
-                .map(f64::from)
-                .unwrap_or(LIFELINE_STROKE_WIDTH_PX),
+                .map(f64::from) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => LIFELINE_STROKE_WIDTH_PX,
+            },
             checkpoints,
         };
 
         render_sequence_box_frames_and_rect_blocks(
             &mut out,
-            model,
+            model_2,
             &nodes_by_id,
             SequenceFrameRenderOptions {
                 actor_text_style: &settings.actor_text_style,
@@ -306,7 +318,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
             out.checkpoint()?;
         }
 
-        // Top actors + lifelines.
+
         render_sequence_top_actors_and_lifelines(
             &mut out,
             &actor_ctx,
@@ -325,13 +337,15 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
     )?;
     sequence_number_receipt
         .record_stylesheet_emission(sequence_number_theme.typed_fill().is_some());
+
     for surface in crate::sequence::SequenceTextSurface::ALL {
-        let terminal = prepared.typography().terminal_text_style(surface);
-        let typed_fill = (terminal.foreground_provenance
+        let terminal_2 = prepared.typography().terminal_text_style(surface);
+        let typed_fill = (terminal_2.foreground_provenance
             == crate::sequence::SequenceTerminalForegroundProvenance::TypedTheme)
-            .then_some(terminal.foreground);
-        typography_receipt.record_stylesheet_emission(surface, terminal.foreground, typed_fill);
+            .then_some(terminal_2.foreground);
+        typography_receipt.record_stylesheet_emission(surface, terminal_2.foreground, typed_fill);
     }
+
     keyword_receipt.record_stylesheet_emission(
         keyword_theme.typed_fill.is_some(),
         keyword_theme.typed_stroke.is_some(),
@@ -352,27 +366,39 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
     let mut actor_fill_unhandled = false;
     let mut actor_stroke_emitted = false;
     let mut actor_stroke_unhandled = false;
-    for (actor_index, actor_id) in model.actor_order.iter().enumerate() {
+
+    for (actor_index, actor_id) in model_2.actor_order.iter().enumerate() {
         checkpoints.checkpoint_loop(actor_index)?;
-        let Some(actor) = model.actors.get(actor_id) else {
-            continue;
+
+        let actor = {
+            let optional_actor = model_2.actors.get(actor_id);
+
+            match optional_actor {
+                Some(matched_actor) => matched_actor,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let coverage = actor_fill_coverage(actor);
+
         match coverage {
             ActorFillCoverage::TypedCss => actor_fill_emitted = true,
             ActorFillCoverage::Unhandled => actor_fill_unhandled = true,
         }
+
         match actor_stroke_coverage(actor) {
             ActorStrokeCoverage::TypedCss => actor_stroke_emitted = true,
             ActorStrokeCoverage::Unhandled => actor_stroke_unhandled = true,
         }
     }
+
     actor_fill_emitted &= actor_theme.typed_fill.is_some();
     actor_fill_unhandled &= actor_theme.typed_fill.is_some();
     actor_stroke_emitted &= actor_theme.typed_stroke.is_some();
     actor_stroke_unhandled &= actor_theme.typed_stroke.is_some();
-    // Mermaid's sequence output includes a shared set of <defs> for icons/markers.
+
     write_scoped_sequence_base_defs(&mut out, diagram_id)?;
+
     if compat.is_neo {
         let flood_color = compat.neo_flood_color;
         let offset = super::super::look_defs::NEO_SHADOW_OFFSET_PX;
@@ -401,7 +427,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
         checkpoints,
     };
     let block_widths_by_id = crate::sequence::sequence_block_widths_for_render(
-        model,
+        model_2,
         prepared,
         &nodes_by_id,
         sanitize_config,
@@ -412,6 +438,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
     if frame_theme.typed_stroke.is_some() {
         frame_receipt.record_stylesheet_emission(false, true);
     }
+
     let frame_paint = super::control_paint::SequenceControlPaint::new(
         &frame_receipt,
         frame_theme.effect.clone(),
@@ -435,7 +462,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
         loop_text_shadow: &loop_text_shadow,
         note_paint: &note_paint,
         shadow_evidence: prepared.effect_evidence(),
-        model,
+        model: model_2,
         block_widths_by_id: &block_widths_by_id,
         block_layouts_by_id: &layout.block_layouts_by_id,
         nodes_by_id: &nodes_by_id,
@@ -483,7 +510,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
         geometry_receipt: &actor_receipt,
         shadow_plan: &actor_shadows,
         shadow_evidence: prepared.effect_evidence(),
-        model,
+        model: model_2,
         diagram_id,
         compat,
         typed_fill: actor_theme.typed_fill.as_deref(),
@@ -498,19 +525,21 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
         actor_text_style: &settings.actor_text_style,
         actor_typography: prepared.typography().actor(),
         typography_receipt: &typography_receipt,
-        lifeline_effective_stroke_width: lifeline_theme
+        lifeline_effective_stroke_width: match lifeline_theme
             .typed_stroke_width
-            .map(f64::from)
-            .unwrap_or(LIFELINE_STROKE_WIDTH_PX),
+            .map(f64::from) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => LIFELINE_STROKE_WIDTH_PX,
+        },
         checkpoints,
     };
 
-    // Mermaid appends glyph actors after overlays, before drawing messages.
+
     render_sequence_actor_man_tops(&mut out, &actor_ctx, diagram_id)?;
 
     let message_ctx = SequenceMessageRenderContext {
         sanitize_config,
-        model,
+        model: model_2,
         paint_plan: &message_paint,
         shadow_evidence: prepared.effect_evidence(),
         nodes_by_id: &nodes_by_id,
@@ -556,7 +585,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
     }
 
     prepared.theme_evidence().record_actor_emission(
-        model.actor_order.len(),
+        model_2.actor_order.len(),
         actor_fill_emitted,
         actor_fill_unhandled,
         actor_fill_overridden,
@@ -568,7 +597,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
 
     render_sequence_actor_popup_menus(
         &mut out,
-        model,
+        model_2,
         &nodes_by_id,
         sanitize_config,
         SequenceActorPopupOptions {
@@ -592,11 +621,14 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
             y = fmt(title.y()),
         );
         let fill = prepared.theme_evidence().title_fill_css();
-        if let Some(fill) = fill {
-            let _ = write!(&mut out, r#" fill="{}""#, escape_attr(fill));
+
+        if let Some(fill_2) = fill {
+            let _ = write!(&mut out, r#" fill="{}""#, escape_attr(fill_2));
         }
+
         let _ = write!(&mut out, ">{}</text>", escape_xml_display(title.text()));
         out.checkpoint()?;
+
         if !prepared
             .theme_evidence()
             .record_title_emission(title.text(), fill)
@@ -605,6 +637,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
                 message: "Sequence title paint did not match the terminal SVG".to_owned(),
             });
         }
+
         if !title.text().trim().is_empty() {
             typography_receipt.record_inherited_text();
         }
@@ -612,14 +645,17 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
 
     checkpoints.checkpoint()?;
     out.push_str("</svg>\n");
-    let root_document = if defer_paint_bounds {
+    let root_document_2 = if defer_paint_bounds {
         root_svg::RootViewportContext::new(crate::DiagramFamilyId::SEQUENCE, diagram_id)
             .finish_document(
                 &mut out,
                 root_document,
                 root_svg::RootViewportSpec::responsive(super::root::sequence_root_bounds(
                     layout,
-                    actor_theme.stroke_width.map(f64::from).unwrap_or(0.0) / 2.0,
+                    (match actor_theme.stroke_width.map(f64::from) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0.0,
+                    }) / 2.0,
                     &[
                         box_paint_bounds.as_ref(),
                         actor_shadows.bounds.as_ref(),
@@ -671,7 +707,7 @@ pub(in crate::svg::parity) fn render_sequence_diagram_svg_model_with_config(
     prepared
         .theme_evidence()
         .record_typography_emission(typography_receipt);
-    let rooted = root_document.complete(svg)?;
+    let rooted = root_document_2.complete(svg)?;
     Ok(rooted)
 }
 

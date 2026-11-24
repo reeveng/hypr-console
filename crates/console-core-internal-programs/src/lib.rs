@@ -109,26 +109,32 @@ ours! {
     Asking, "console-asking";
     Bluetooth, "console-bluetooth";
     Bar, "console-bar";
-    Books, "books";
+    Battery, "console-battery";
+    Books, "console-application-books";
     BooksCatalog, "books-catalog";
     Brightness, "console-brightness";
     Browser, "console-browser";
-    Calculator, "calculator";
+    BrowserWindow, "console-application-browser";
+    Calculator, "console-application-calculator";
     CalendarPanel, "calendar-panel";
-    Camera, "console-camera";
-    Clipboard, "console-clipboard";
+    Camera, "console-application-camera";
+    Clipboard, "console-application-clipboard";
+    Compositor, "console-compositor";
     Confirm, "console-confirm";
+    Console, "console";
     ControlCenter, "console-control-center";
     ConsoleSay, "console-say";
     Dictate, "console-dictate";
-    Downloads, "downloads";
+    Downloads, "console-application-downloads";
     DownloadsFind, "downloads-find";
     DownloadsFormat, "downloads-format";
     DownloadsGet, "downloads-get";
-    Files, "files";
+    Events, "console-events";
+    Files, "console-application-files";
     FilesThumbnails, "files-thumbnails";
     FilesUnzip, "files-unzip";
     ForecastPanel, "forecast-panel";
+    Habits, "console-application-habits";
     KeyboardShow, "keyboard-show";
     KeyboardToggle, "keyboard-toggle";
     LanguageSwitch, "language-switch";
@@ -136,37 +142,51 @@ ours! {
     LoginGreeter, "login-greeter";
     LoginWindow, "login-window";
     MappingPanel, "mapping-panel";
-    Music, "music";
+    Music, "console-application-music";
     MusicIndex, "music-index";
     MusicOnward, "music-onward";
     MusicPanel, "music-panel";
+    MusicPlayer, "music-player";
     NightShift, "console-warm";
-    Notes, "notes";
+    Notes, "console-application-notes";
     NotificationsPanel, "notifications-panel";
     Notify, "console-notify";
+    Open, "console-open";
     Overview, "console-overview";
     PanelPictures, "panel-pictures";
+    Panels, "console-panels";
+    Point, "console-point";
     PutAway, "console-put-away";
     Scale, "console-scale";
     Screenshot, "console-screenshot";
     SessionDesktop, "session-desktop";
     SessionGame, "session-game";
+    Resume, "console-resume";
     SettingsLoginPattern, "settings-login-pattern";
     SettingsPanel, "settings-panel";
-    TaskManager, "console-task-manager";
-    Viewer, "viewer";
+    Tap, "console-tap";
+    TaskManager, "console-application-task-manager";
+    Update, "console-update";
+    UpdatePattern, "console-update-pattern";
+    Viewer, "console-application-media-viewer";
     Volume, "console-volume";
+    Paper, "console-paper";
     Wallpaper, "console-wallpaper";
     WallpaperRender, "wallpaper-render";
 }
 
-pub const APPS: [InternalProgram; 7] = [
+pub const APPS: [InternalProgram; 12] = [
   InternalProgram::Books,
+  InternalProgram::BrowserWindow,
+  InternalProgram::Calculator,
   InternalProgram::Camera,
+  InternalProgram::Clipboard,
   InternalProgram::Downloads,
   InternalProgram::Files,
+  InternalProgram::Habits,
   InternalProgram::Music,
   InternalProgram::Notes,
+  InternalProgram::TaskManager,
   InternalProgram::Viewer,
 ];
 
@@ -180,6 +200,12 @@ pub const CLIPBOARD_COPY_TEXT: Flag = Flag {
   spelling: "--copy-text",
   takes: Takes::None,
   about: "copy UTF-8 text from standard input to the clipboard",
+};
+
+pub const CLIPBOARD_COPY_PNG: Flag = Flag {
+  spelling: "--copy-png",
+  takes: Takes::None,
+  about: "copy a PNG from standard input to the clipboard",
 };
 
 pub const LAUNCHER_KEEP: Flag = Flag {

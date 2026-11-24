@@ -19,10 +19,12 @@ use cssparser::{Delimiter, ParseErrorKind, Parser, ToCss, Token};
 use quick_xml::{Reader, events::Event};
 use std::borrow::Cow;
 
+#[must_use]
 fn error(message: impl std::fmt::Debug) -> Error {
     Error::svg_postprocess("lower-id-suffix-selectors", format!("{message:?}"))
 }
 
+#[must_use]
 fn css_error(parse_error: cssparser::ParseError<Error>) -> Error {
     match parse_error.kind {
         ParseErrorKind::Custom(error) => error,
@@ -45,27 +47,37 @@ pub(crate) fn apply_lower_id_suffix_selectors<'a>(
     execution: SvgPostprocessExecution<'_>,
 ) -> Result<Cow<'a, str>> {
     execution.checkpoint()?;
+
     if super::util::find_with_checkpoints(&svg, "$=", &mut || execution.checkpoint())?.is_none() {
         return Ok(svg);
     }
+
     let mut ids = Vec::new();
     let mut styles = Vec::new();
     let mut style = None::<(usize, String)>;
     let mut reader = Reader::from_str(&svg);
+
     loop {
         execution.checkpoint()?;
         let event_start = reader.buffer_position() as usize;
+
         match reader.read_event().map_err(error)? {
             Event::Start(tag) => {
                 collect_ids(&tag, &mut ids, execution)?;
+
                 if tag.local_name().as_ref() == "style" {
                     style = Some((reader.buffer_position() as usize, String::new()));
                 }
             }
             Event::Empty(tag) => collect_ids(&tag, &mut ids, execution)?,
             Event::End(tag) if tag.local_name().as_ref() == "style" => {
-                if let Some((start, css)) = style.take() {
-                    styles.push((start, event_start, css));
+                {
+                    match style.take() {
+                        Some((start, css)) => {
+                            styles.push((start, event_start, css));
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
             Event::Text(text) if style.is_some() => {
@@ -83,27 +95,31 @@ pub(crate) fn apply_lower_id_suffix_selectors<'a>(
                     .push_str(&text.xml10_content());
             }
             Event::GeneralRef(reference) if style.is_some() => {
-                let reference = format!("&{};", reference.as_ref());
+                let reference_2 = format!("&{};", reference.as_ref());
                 style
                     .as_mut()
                     .expect("guarded above")
                     .1
-                    .push_str(&quick_xml::escape::unescape(&reference).map_err(error)?);
+                    .push_str(&quick_xml::escape::unescape(&reference_2).map_err(error)?);
             }
             Event::Eof => break,
             _ => {}
         }
     }
+
     ids.sort_unstable();
     ids.dedup();
     let mut output = String::new();
     let mut cursor = 0;
+
     for (start, end, css) in styles {
         execution.checkpoint()?;
         let lowered = lower_stylesheet(&css, &ids, execution)?;
+
         if lowered == css {
             continue;
         }
+
         append(&mut output, &svg[cursor..start], execution)?;
         append(
             &mut output,
@@ -112,9 +128,14 @@ pub(crate) fn apply_lower_id_suffix_selectors<'a>(
         )?;
         cursor = end;
     }
-    if cursor == 0 {
-        return Ok(svg);
+
+    match cursor {
+        0 => {
+            return Ok(svg);
+        },
+        _ => {},
     }
+
     append(&mut output, &svg[cursor..], execution)?;
     Ok(Cow::Owned(output))
 }
@@ -126,16 +147,18 @@ fn collect_ids(
 ) -> Result<()> {
     for attribute in tag.attributes() {
         execution.checkpoint()?;
-        let attribute = attribute.map_err(error)?;
-        if attribute.key.as_ref() == "id" {
+        let attribute_2 = attribute.map_err(error)?;
+
+        if attribute_2.key.as_ref() == "id" {
             ids.push(
-                attribute
+                attribute_2
                     .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                     .map_err(error)?
                     .into_owned(),
             );
         }
     }
+
     Ok(())
 }
 
@@ -155,8 +178,9 @@ fn consume_values(
             {
                 return Ok(());
             }
-            Err(parse_error) => return Err(parse_error.into()),
+            Err(parse_error) => return Err(<::cssparser::ParseError<crate::Error> as ::core::convert::From<::cssparser::BasicParseError>>::from(parse_error)),
         };
+
         if matches!(
             token,
             Token::Function(_)
@@ -164,9 +188,13 @@ fn consume_values(
                 | Token::ParenthesisBlock
                 | Token::CurlyBracketBlock
         ) {
-            if depth == 64 {
-                return Err(cssparser::ParseError::custom(error("CSS nesting limit")));
+            match depth {
+                64 => {
+                    return Err(cssparser::ParseError::custom(error("CSS nesting limit")));
+                },
+                _ => {},
             }
+
             input.parse_nested_block(|nested| consume_values(nested, execution, depth + 1))?;
         }
     }
@@ -180,13 +208,16 @@ fn lower_stylesheet(
     let mut input = Parser::new(css);
     let mut rule_start = input.position();
     let mut output = String::new();
+
     while !input.is_exhausted() {
         execution.checkpoint()?;
         let start = input.position();
-        let token = input
+        let checked_value = input
             .next_including_whitespace_and_comments()
-            .map_err(error)?
+            .map_err(error)?;
+        let token = checked_value
             .clone();
+
         if token == Token::Semicolon {
             append(
                 &mut output,
@@ -196,6 +227,7 @@ fn lower_stylesheet(
             rule_start = input.position();
             continue;
         }
+
         if matches!(
             token,
             Token::Function(_) | Token::SquareBracketBlock | Token::ParenthesisBlock
@@ -205,28 +237,33 @@ fn lower_stylesheet(
                 .map_err(css_error)?;
             continue;
         }
+
         if token != Token::CurlyBracketBlock {
             continue;
         }
+
         let prelude = input.slice(rule_start..start).to_string();
         input
             .parse_nested_block(|body| consume_values(body, execution, 0))
             .map_err(css_error)?;
         let end = input.position();
         let is_at_rule = matches!(Parser::new(&prelude).next(), Ok(Token::AtKeyword(_)));
-        // usvg does not evaluate conditional at-rules. Preserve them verbatim;
-        // do not reinterpret nested CSS or declaration values as selectors.
+
+
         let lowered = if is_at_rule {
             prelude
         } else {
             lower_selector_list(&prelude, ids, execution)?
         };
+
         if !lowered.trim().is_empty() {
             append(&mut output, &lowered, execution)?;
             append(&mut output, input.slice(start..end), execution)?;
         }
+
         rule_start = end;
     }
+
     append(&mut output, input.slice_from(rule_start), execution)?;
     Ok(output)
 }
@@ -238,6 +275,7 @@ fn lower_selector_list(
 ) -> Result<String> {
     let mut input = Parser::new(css);
     let mut output = String::new();
+
     while !input.is_exhausted() {
         execution.checkpoint()?;
         let selector = input
@@ -247,16 +285,20 @@ fn lower_selector_list(
                 Ok(branch.slice_from(start).to_string())
             })
             .map_err(css_error)?;
+
         for expanded in lower_selector(&selector, ids, execution)? {
             if !output.is_empty() {
                 append(&mut output, ",", execution)?;
             }
+
             append(&mut output, &expanded, execution)?;
         }
+
         if !input.is_exhausted() {
             input.expect_comma().map_err(error)?;
         }
     }
+
     Ok(output)
 }
 
@@ -267,53 +309,77 @@ fn lower_selector(
 ) -> Result<Vec<String>> {
     let mut input = Parser::new(css);
     let mut suffix_match = None;
+
     while !input.is_exhausted() {
         execution.checkpoint()?;
         let start = input.position().byte_index();
-        match input
+
+        let checked_value = input
             .next_including_whitespace_and_comments()
-            .map_err(error)?
+            .map_err(error)?;
+
+        match checked_value
             .clone()
         {
             Token::SquareBracketBlock => {
                 let suffix = input
                     .parse_nested_block(|attribute| {
-                        if attribute.expect_ident()?.as_ref() != "id" {
+                        let checked_value_4 = attribute.expect_ident()?;
+
+                        if checked_value_4.as_ref() != "id" {
                             return Err(cssparser::ParseError::<()>::custom(()));
                         }
-                        if *attribute.next()? != Token::SuffixMatch {
+
+                        let checked_value_2 = attribute.next()?;
+
+                        if *checked_value_2 != Token::SuffixMatch {
                             return Err(cssparser::ParseError::<()>::custom(()));
                         }
-                        let suffix = attribute.expect_ident_or_string()?.to_string();
+
+                        let checked_value_3 = attribute.expect_ident_or_string()?;
+                        let suffix = checked_value_3.to_string();
                         attribute.expect_exhausted()?;
                         Ok(suffix)
                     })
                     .ok();
-                if let Some(suffix) = suffix {
-                    if suffix_match.is_some() {
-                        // Mermaid emits one suffix per branch. Avoid a Cartesian
-                        // expansion for arbitrary compound user selectors.
-                        return Ok(vec![css.to_string()]);
-                    }
-                    suffix_match = Some((start, input.position().byte_index(), suffix));
+
+                match suffix {
+                    Some(suffix_2) => {
+                        match suffix_match {
+                            ::core::option::Option::Some(_) => {
+
+
+                                return Ok(vec![css.to_string()]);
+                            },
+                            ::core::option::Option::None => {},
+                        }
+
+                        suffix_match = Some((start, input.position().byte_index(), suffix_2));
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
             Token::Function(_) | Token::ParenthesisBlock => return Ok(vec![css.to_string()]),
             _ => {}
         }
     }
-    let Some((start, end, suffix)) = suffix_match else {
-        return Ok(vec![css.to_string()]);
+
+    let (start, end, suffix) = match suffix_match {
+        Some((matched_start, matched_end, matched_suffix)) => (matched_start, matched_end, matched_suffix),
+        ::core::option::Option::None => return Ok(vec![css.to_string()]),
     };
+
     let mut output = Vec::new();
     let mut projected = 0usize;
+
     for id in ids {
         execution.checkpoint()?;
-        // CSS suffix matching with an empty operand never matches.
+
         if suffix.is_empty() || !id.ends_with(&suffix) {
             continue;
         }
-        let value = Token::QuotedString(id.as_str().into()).to_css_string();
+
+        let value = Token::QuotedString(<::cssparser::CowRcStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(id.as_str())).to_css_string();
         let bytes = start
             .checked_add(5)
             .and_then(|size| size.checked_add(value.len()))
@@ -326,6 +392,7 @@ fn lower_selector(
         execution.preflight_svg_byte_count(projected)?;
         output.push(format!("{}[id={value}]{}", &css[..start], &css[end..]));
     }
+
     Ok(output)
 }
 

@@ -16,6 +16,7 @@ pub(super) struct SequenceActivationPlan<'a> {
 }
 
 impl<'a> SequenceActivationPlan<'a> {
+    #[must_use]
     pub(super) fn new(geometry: &'a crate::sequence::SequencePreparedActivationGeometry) -> Self {
         Self {
             geometry,
@@ -31,6 +32,7 @@ impl<'a> SequenceActivationPlan<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn effect_count(&self) -> usize {
         self.shadows.iter().flatten().count()
     }
@@ -54,45 +56,59 @@ impl<'a> SequenceActivationPlan<'a> {
         self.stroke_width = stroke_width;
         self.radius = radius;
         self.effect = effect;
+
         if stroke_width.is_none() && self.effect.is_none() {
             return Ok(());
         }
+
         if self.effect.is_some() {
             self.shadows.resize(self.geometry.groups.len(), None);
         }
-        let width = f64::from(stroke_width.unwrap_or(1.0));
+
+        let width = f64::from(match stroke_width {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 1.0,
+        });
+
         for (index, rect) in self.geometry.groups.iter().enumerate() {
             options.work_meter().charge(1)?;
-            let Some(rect) = rect else { continue };
-            let mut bounds = Bounds {
-                min_x: rect.startx - width / 2.0,
-                min_y: rect.starty - width / 2.0,
-                max_x: rect.startx + rect.width + width / 2.0,
-                max_y: rect.starty + rect.height + width / 2.0,
+
+            let rect_2 = match rect {
+                Some(matched_rect) => matched_rect,
+                ::core::option::Option::None => continue,
             };
-            if let Some(effect) = &self.effect {
+
+            let mut bounds = Bounds {
+                min_x: rect_2.startx - width / 2.0,
+                min_y: rect_2.starty - width / 2.0,
+                max_x: rect_2.startx + rect_2.width + width / 2.0,
+                max_y: rect_2.starty + rect_2.height + width / 2.0,
+            };
+
+            if let Some(effect_2) = &self.effect {
                 options
                     .work_meter()
-                    .charge(effect.stages().len().saturating_mul(3))?;
-                if let Some(shadow) = effect.materialize_rect(
+                    .charge(effect_2.stages().len().saturating_mul(3))?;
+
+                if let Some(shadow) = effect_2.materialize_rect(
                     &options.theme_resource_policy(),
-                    rect.width,
-                    rect.height,
+                    rect_2.width,
+                    rect_2.height,
                     width,
                 )? {
                     let region = shadow.region();
                     let [x, y, w, h] = region.as_array().map(f64::from);
                     bounds = Bounds {
-                        min_x: rect.startx + x * rect.width,
-                        min_y: rect.starty + y * rect.height,
-                        max_x: rect.startx + (x + w) * rect.width,
-                        max_y: rect.starty + (y + h) * rect.height,
+                        min_x: rect_2.startx + x * rect_2.width,
+                        min_y: rect_2.starty + y * rect_2.height,
+                        max_x: rect_2.startx + (x + w) * rect_2.width,
+                        max_y: rect_2.starty + (y + h) * rect_2.height,
                     };
                     self.shadows[index] = Some((
                         format!(
                             "{}-activation-{index}-theme-effect-{}",
                             options.diagram_id_or("merman"),
-                            effect.id()
+                            effect_2.id()
                         ),
                         region,
                     ));
@@ -100,6 +116,7 @@ impl<'a> SequenceActivationPlan<'a> {
                     receipt.effect_unhandled = true;
                 }
             }
+
             if let Some(total) = &mut self.bounds {
                 total.min_x = total.min_x.min(bounds.min_x);
                 total.min_y = total.min_y.min(bounds.min_y);
@@ -109,6 +126,7 @@ impl<'a> SequenceActivationPlan<'a> {
                 self.bounds = Some(bounds);
             }
         }
+
         Ok(())
     }
 }
@@ -121,13 +139,19 @@ pub(super) fn render_sequence_activation_group(
     theme_receipt: &mut SequenceStaticRectThemeReceipt,
     evidence: &crate::diagram_theme::SvgShadowEvidenceRecorder,
 ) -> Result<()> {
-    let Some(group_index) = plan.geometry.group_by_start_id.get(message_id).copied() else {
-        return Ok(());
+    let group_index = {
+        let optional_group_index = plan.geometry.group_by_start_id.get(message_id).copied();
+
+        match optional_group_index {
+            Some(matched_group_index) => matched_group_index,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
 
-    // Mermaid creates a `<g>` placeholder at ACTIVE_START time and inserts the
-    // `<rect class="activation{0..2}">` once ACTIVE_END is encountered.
+
+
     out.push_str("<g>");
+
     if let Some(Some(a)) = plan.geometry.groups.get(group_index) {
         let is_neo = compat.is_neo;
         let shadow = plan
@@ -152,21 +176,27 @@ pub(super) fn render_sequence_activation_group(
         );
         let style =
             activation_palette_style(compat, a.actor_index, plan.typed_fill, plan.typed_stroke);
+
         if !style.is_empty() {
             let _ = write!(out, r#" style="{}""#, escape_attr(&style));
         }
+
         if let Some(width) = plan.stroke_width {
             let _ = write!(out, r#" stroke-width="{}""#, fmt(f64::from(width)));
         }
+
         if let Some(radius) = plan.radius {
             let _ = write!(out, r#" rx="{r}" ry="{r}""#, r = fmt(f64::from(radius)));
         }
-        if let Some(filter) = filter {
-            let _ = write!(out, r#" filter="{}""#, escape_attr(&filter));
+
+        if let Some(filter_2) = filter {
+            let _ = write!(out, r#" filter="{}""#, escape_attr(&filter_2));
         }
+
         out.push_str("/>");
         out.checkpoint()?;
         theme_receipt.record_rect_emission();
+
         if let Some(((id, region), effect)) = shadow {
             evidence.record_application(effect, id, *region);
             theme_receipt.record_effect_emission();
@@ -174,10 +204,12 @@ pub(super) fn render_sequence_activation_group(
             theme_receipt.record_effect_emission();
         }
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
 
+#[must_use]
 fn activation_palette_style(
     compat: &crate::sequence::SequenceCompatBinding,
     actor_index: usize,
@@ -187,22 +219,29 @@ fn activation_palette_style(
     if !compat.actor_palette_mode() {
         return String::new();
     }
+
     let (stroke, fill) = compat.activation_palette(actor_index);
     let mut style = String::new();
+
     for (property, value) in [("stroke", stroke), ("fill", fill)] {
         if (property == "fill" && typed_fill) || (property == "stroke" && typed_stroke) {
             continue;
         }
+
         if let Some(color) = value {
-            let color = super::super::util::cssom_color_value(color);
-            if color.is_empty() {
+            let color_2 = super::super::util::cssom_color_value(color);
+
+            if color_2.is_empty() {
                 continue;
             }
+
             if !style.is_empty() {
                 style.push(' ');
             }
-            let _ = write!(style, "{property}: {color};");
+
+            let _ = write!(style, "{property}: {color};", color = color_2);
         }
     }
+
     style
 }

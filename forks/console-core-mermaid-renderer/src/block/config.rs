@@ -11,6 +11,7 @@ pub(crate) struct BlockConfigView<'a> {
 }
 
 impl<'a> BlockConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -18,9 +19,13 @@ impl<'a> BlockConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> BlockLayoutSettings {
         BlockLayoutSettings {
-            padding: self.block_f64("padding").unwrap_or(DEFAULT_BLOCK_PADDING),
+            padding: match self.block_f64("padding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_BLOCK_PADDING,
+            },
             text_style: TextStyle {
                 font_family: Some(config_font_family_or_first_array_css(self.effective_config)),
                 font_size: crate::config::config_theme_or_root_font_size_px(
@@ -34,22 +39,26 @@ impl<'a> BlockConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn shape_settings(&self) -> BlockShapeSettings {
         let radius = self.effective_config.pointer("/themeVariables/radius");
-        let round_radius = radius
+        let round_radius = match radius
             .filter(|value| match value {
-                Value::Number(number) => number.as_f64().is_some_and(|value| value != 0.0),
-                Value::String(value) => !value.is_empty(),
+                Value::Number(number) => number.as_f64().is_some_and(|value_2| !::core::matches!(::core::primitive::f64::classify(value_2), ::core::num::FpCategory::Zero)),
+                Value::String(value_3) => !value_3.is_empty(),
                 _ => false,
             })
-            .and_then(crate::config::json_f64)
-            .unwrap_or(5.0);
+            .and_then(crate::config::json_f64) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 5.0,
+        };
         BlockShapeSettings {
             neo_square: self.effective_config.get("look").and_then(Value::as_str) == Some("neo"),
             round_radius,
         }
     }
 
+    #[must_use]
     fn block_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.block_config, &[key])
     }
@@ -67,6 +76,7 @@ pub(crate) struct BlockShapeSettings {
 }
 
 impl BlockShapeSettings {
+    #[must_use]
     pub(crate) fn resolve(effective_config: &Value) -> Self {
         BlockConfigView::new(effective_config).shape_settings()
     }

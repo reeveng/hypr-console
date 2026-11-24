@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+use crate::src::strided::Strided as _;
 use crate::include::common::bitdepth::AsPrimitive;
 use crate::include::common::bitdepth::BPC;
 use crate::include::common::bitdepth::BitDepth;
@@ -11,8 +12,8 @@ use crate::src::owned_recon::ReconSrc;
 use crate::src::cpu::CpuFlags;
 use crate::src::enum_map::EnumMap;
 use crate::src::enum_map::enum_map_ty;
-use crate::src::internal::SCRATCH_AC_TXTP_LEN;
-use crate::src::internal::SCRATCH_EDGE_LEN;
+use crate::src::internal::CoefficientScratch;
+use crate::src::internal::IntraEdgeSamples;
 
 use crate::src::levels::N_IMPL_INTRA_PRED_MODES;
 
@@ -23,7 +24,7 @@ use crate::src::tables::dav1d_filter_intra_taps;
 use crate::src::tables::dav1d_sm_weights;
 use crate::src::tables::filter_predictions;
 use crate::src::wrap_fn_ptr::wrap_fn_ptr;
-use console_core_geometry::Size;
+use console_core_geometry::{Point, Size};
 use console_core_number_conversion::{fixed_index, index, wrapped_index};
 use core::ops::Range;
 use std::cmp;
@@ -35,7 +36,7 @@ use zerocopy::FromBytes;
 
 use crate::src::enum_map::DefaultValue;
 
-#[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+#[derive(Clone, Copy)]
 pub(crate) struct CflProjection {
   pub size: console_core_geometry::Size<i32>,
   pub dc: i32,
@@ -115,7 +116,9 @@ impl CflAcRegion {
       .ok_or(Rav1dError::EINVAL)?;
 
     for row in below.chunks_exact_mut(width.max(1)) {
-      row.copy_from_slice(previous);
+      for (destination, &sample) in row.iter_mut().zip(previous) {
+        *destination = sample;
+      }
     }
 
     Ok(())
@@ -141,7 +144,7 @@ wrap_fn_ptr!(pub angular_ipred);
 
 fn intra_pred_direct<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
-  topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+  topleft: &IntraEdgeSamples<BD::Pixel>,
   prediction: IntraPrediction,
   bd: BD,
 ) -> Rav1dResult {
@@ -160,8 +163,6 @@ fn intra_pred_direct<BD: BitDepth>(
       reach,
       angle,
     } = prediction;
-    let Size { width, height } = size;
-    let Ok(topleft_off) = index(edge_center);
     let input = ScalarPrediction {
       edge: topleft,
       center: edge_center,
@@ -170,29 +171,21 @@ fn intra_pred_direct<BD: BitDepth>(
 
     match mode {
       0 => {
-        let Ok(call) = DcGen::TopLeft.call::<BD>(topleft, topleft_off, width, height);
+        let call = DcGen::TopLeft.call::<BD>(input)?;
         let Ok(dc) = console_core_number_conversion::wrapped::<_, i32>(call);
 
         splat_dc::<BD>(dst, size, dc, bd)?
       }
-      1 => {
-        let Ok(ipred_v_rust) = ipred_v_rust::<BD>(dst, input);
-
-        ipred_v_rust
-      }
-      2 => {
-        let Ok(ipred_h_rust) = ipred_h_rust::<BD>(dst, input);
-
-        ipred_h_rust
-      }
+      1 => ipred_v_rust::<BD>(dst, input)?,
+      2 => ipred_h_rust::<BD>(dst, input)?,
       3 => {
-        let Ok(call) = DcGen::Left.call::<BD>(topleft, topleft_off, width, height);
+        let call = DcGen::Left.call::<BD>(input)?;
         let Ok(dc) = console_core_number_conversion::wrapped::<_, i32>(call);
 
         splat_dc::<BD>(dst, size, dc, bd)?
       }
       4 => {
-        let Ok(call) = DcGen::Top.call::<BD>(topleft, topleft_off, width, height);
+        let call = DcGen::Top.call::<BD>(input)?;
         let Ok(dc) = console_core_number_conversion::wrapped::<_, i32>(call);
 
         splat_dc::<BD>(dst, size, dc, bd)?
@@ -232,26 +225,10 @@ fn intra_pred_direct<BD: BitDepth>(
         },
         bd,
       )?,
-      9 => {
-        let Ok(ipred_smooth_rust) = ipred_smooth_rust::<BD>(dst, input);
-
-        ipred_smooth_rust
-      }
-      10 => {
-        let Ok(ipred_smooth_v_rust) = ipred_smooth_v_rust::<BD>(dst, input);
-
-        ipred_smooth_v_rust
-      }
-      11 => {
-        let Ok(ipred_smooth_h_rust) = ipred_smooth_h_rust::<BD>(dst, input);
-
-        ipred_smooth_h_rust
-      }
-      12 => {
-        let Ok(ipred_paeth_rust) = ipred_paeth_rust::<BD>(dst, input);
-
-        ipred_paeth_rust
-      }
+      9 => ipred_smooth_rust::<BD>(dst, input)?,
+      10 => ipred_smooth_v_rust::<BD>(dst, input)?,
+      11 => ipred_smooth_h_rust::<BD>(dst, input)?,
+      12 => ipred_paeth_rust::<BD>(dst, input)?,
       13 => ipred_filter_rust::<BD>(dst, input, angle, bd)?,
       _ => return Err(Rav1dError::EINVAL),
     }
@@ -264,7 +241,7 @@ impl angular_ipred::Fn {
   pub(crate) fn call<BD: BitDepth>(
     &self,
     dst: &mut ReconDst<'_>,
-    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
+    topleft: &IntraEdgeSamples<BD::Pixel>,
     prediction: IntraPrediction,
     bd: BD,
   ) -> Rav1dResult {
@@ -275,27 +252,11 @@ impl angular_ipred::Fn {
 wrap_fn_ptr!(pub cfl_ac);
 
 fn cfl_ac_direct<BD: BitDepth>(
-  layout: Rav1dPixelLayoutSubSampled,
-  ac: &mut [i16; SCRATCH_AC_TXTP_LEN],
+  ac: &mut CoefficientScratch<i16>,
   y: &ReconSrc<'_>,
-  w_pad: c_int,
-  h_pad: c_int,
-  cw: c_int,
-  ch: c_int,
+  extraction: CflAcExtraction,
 ) -> core::result::Result<(), console_core_never::Never> {
   {
-    let extraction = CflAcExtraction {
-      size: console_core_geometry::Size {
-        width: cw,
-        height: ch,
-      },
-      padding: console_core_geometry::Size {
-        width: w_pad,
-        height: h_pad,
-      },
-      layout,
-    };
-
     #[cfg(target_arch = "x86_64")]
     match crate::src::safe_simd::ipred::cfl_ac_dispatch::<BD>(ac, y, extraction) {
       Ok(PredictionDispatch::Applied) => return Ok(()),
@@ -307,6 +268,7 @@ fn cfl_ac_direct<BD: BitDepth>(
     {
       let Ok(outcome) =
         crate::src::safe_simd::ipred_arm::cfl_ac_dispatch::<BD>(ac, y, extraction);
+
       match outcome {
         PredictionDispatch::Applied => return Ok(()),
         PredictionDispatch::ScalarFallback => {}
@@ -325,25 +287,13 @@ fn cfl_ac_direct<BD: BitDepth>(
 }
 
 impl cfl_ac::Fn {
-  pub fn call<BD: BitDepth>(
+  pub(crate) fn call<BD: BitDepth>(
     &self,
-    layout: Rav1dPixelLayoutSubSampled,
-    ac: &mut [i16; SCRATCH_AC_TXTP_LEN],
+    ac: &mut CoefficientScratch<i16>,
     y: &ReconSrc<'_>,
-    w_pad: c_int,
-    h_pad: c_int,
-    cw: c_int,
-    ch: c_int,
+    extraction: CflAcExtraction,
   ) -> core::result::Result<(), console_core_never::Never> {
-    {
-      let _ = self;
-
-      let Ok(cfl_ac_direct) = cfl_ac_direct::<BD>(layout, ac, y, w_pad, h_pad, cw, ch);
-
-      cfl_ac_direct
-    };
-
-    Ok(())
+    cfl_ac_direct::<BD>(ac, y, extraction)
   }
 }
 
@@ -358,8 +308,8 @@ pub(crate) struct CflPrediction {
 
 fn cfl_pred_direct<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
-  topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
-  ac: &[i16; SCRATCH_AC_TXTP_LEN],
+  topleft: &IntraEdgeSamples<BD::Pixel>,
+  ac: &CoefficientScratch<i16>,
   prediction: CflPrediction,
   bd: BD,
 ) -> Rav1dResult {
@@ -367,25 +317,29 @@ fn cfl_pred_direct<BD: BitDepth>(
     let CflPrediction {
       mode,
       edge_center,
-      size: Size { width, height },
+      size,
       alpha,
     } = prediction;
-    let Ok(topleft_off) = index(edge_center);
+    let input = ScalarPrediction {
+      edge: topleft,
+      center: edge_center,
+      size,
+    };
     let dc = match mode {
       0 => {
-        let Ok(call) = DcGen::TopLeft.call::<BD>(topleft, topleft_off, width, height);
+        let call = DcGen::TopLeft.call::<BD>(input)?;
         let Ok(top_left_call) = console_core_number_conversion::wrapped::<_, i32>(call);
 
         top_left_call
       }
       3 => {
-        let Ok(call) = DcGen::Left.call::<BD>(topleft, topleft_off, width, height);
+        let call = DcGen::Left.call::<BD>(input)?;
         let Ok(left_call) = console_core_number_conversion::wrapped::<_, i32>(call);
 
         left_call
       }
       4 => {
-        let Ok(call) = DcGen::Top.call::<BD>(topleft, topleft_off, width, height);
+        let call = DcGen::Top.call::<BD>(input)?;
         let Ok(top_call) = console_core_number_conversion::wrapped::<_, i32>(call);
 
         top_call
@@ -397,12 +351,7 @@ fn cfl_pred_direct<BD: BitDepth>(
       _ => return Err(Rav1dError::EINVAL),
     };
 
-    #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-    let projection = CflProjection {
-      size: console_core_geometry::Size { width, height },
-      dc,
-      alpha,
-    };
+    let projection = CflProjection { size, dc, alpha };
 
     #[cfg(target_arch = "x86_64")]
     match crate::src::safe_simd::ipred::cfl_pred_dispatch::<BD>(dst, ac, projection, bd) {
@@ -415,13 +364,14 @@ fn cfl_pred_direct<BD: BitDepth>(
     {
       let Ok(dispatch) =
         crate::src::safe_simd::ipred_arm::cfl_pred_dispatch::<BD>(dst, ac, projection, bd);
+
       match dispatch {
         PredictionDispatch::Applied => return Ok(()),
         PredictionDispatch::ScalarFallback => {}
       }
     }
 
-    let Ok(()) = cfl_pred(dst, width, height, dc, ac, alpha, bd);
+    cfl_pred(dst, ac, projection, bd)?;
   };
 
   Ok(())
@@ -431,8 +381,8 @@ impl cfl_pred::Fn {
   pub(crate) fn call<BD: BitDepth>(
     &self,
     dst: &mut ReconDst<'_>,
-    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
-    ac: &[i16; SCRATCH_AC_TXTP_LEN],
+    topleft: &IntraEdgeSamples<BD::Pixel>,
+    ac: &CoefficientScratch<i16>,
     prediction: CflPrediction,
     bd: BD,
   ) -> Rav1dResult {
@@ -487,175 +437,38 @@ fn splat_dc<BD: BitDepth>(
 #[cfg(all(test, target_arch = "aarch64"))]
 pub(crate) fn cfl_pred_scalar_for_test<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
-  width: c_int,
-  height: c_int,
-  dc: c_int,
-  ac: &[i16; SCRATCH_AC_TXTP_LEN],
-  alpha: c_int,
+  ac: &CoefficientScratch<i16>,
+  projection: CflProjection,
   bd: BD,
-) {
-  let Ok(()) = cfl_pred(dst, width, height, dc, ac, alpha, bd);
+) -> Rav1dResult {
+  cfl_pred(dst, ac, projection, bd)
 }
 
 fn cfl_pred<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
-  width: c_int,
-  height: c_int,
-  dc: c_int,
-  ac: &[i16; SCRATCH_AC_TXTP_LEN],
-  alpha: c_int,
+  ac: &CoefficientScratch<i16>,
+  CflProjection { size, dc, alpha }: CflProjection,
   bd: BD,
-) -> core::result::Result<(), console_core_never::Never> {
-  {
-    let Ok(width_2) = console_core_number_conversion::wrapped_index(width);
-    let Ok(height_2) = console_core_number_conversion::wrapped_index(height);
-    let ac_2 = &ac[..width_2.wrapping_mul(height_2)];
-    let Ok(()) = dst.for_rows_mut::<BD, _>(width_2, height_2, |y, row| {
-      let ac_3 = &ac_2[(::core::num::Wrapping(y) * ::core::num::Wrapping(width_2)).0..];
+) -> Rav1dResult {
+  let width = u64::try_from(size.width).map_err(|_| Rav1dError::EINVAL)?;
+  let height = u64::try_from(size.height).map_err(|_| Rav1dError::EINVAL)?;
+  let length = width.checked_mul(height).ok_or(Rav1dError::ERANGE)?;
+  let Ok(end) = index(length);
+  let samples = ac.get(..end).ok_or(Rav1dError::EINVAL)?;
 
-      for x in 0..width_2 {
-        let diff = i32::wrapping_mul(alpha, {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(ac_3[x]);
-          numeric_value
-        });
-        row[x] = bd.iclip_pixel(i32::wrapping_add(
-          dc,
-          apply_sign(
-            i32::wrapping_shr(i32::wrapping_add(diff.abs(), 32), 6_u32),
-            diff,
-          ),
-        ));
-      }
-    });
-  };
+  write_prediction_rows::<BD>(dst, size, |row, output| {
+    let first = row.wrapping_mul(width);
+    let Ok(range) = console_core_number_conversion::indices(first..first.wrapping_add(width));
+    let row_ac = samples.get(range).ok_or(Rav1dError::EINVAL)?;
 
-  Ok(())
-}
-
-fn dc_gen_top<BD: BitDepth>(
-  topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
-  offset: usize,
-  width: c_int,
-) -> core::result::Result<c_uint, console_core_never::Never> {
-  let mut dc = u32::wrapping_shr(
-    {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(width);
-      numeric_value
-    },
-    1_u32,
-  );
-
-  for i in 0..({
-    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(width);
-    numeric_value
-  }) {
-    {
-      let numeric_amount = topleft[offset.wrapping_add(1).wrapping_add(i)].as_::<c_uint>();
-      let numeric_target = &mut (dc);
-      *numeric_target = u32::wrapping_add(*numeric_target, numeric_amount);
-    };
-  }
-
-  return Ok(u32::wrapping_shr(dc, width.trailing_zeros()));
-}
-
-fn dc_gen_left<BD: BitDepth>(
-  topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
-  offset: usize,
-  height: c_int,
-) -> core::result::Result<c_uint, console_core_never::Never> {
-  let mut dc = u32::wrapping_shr(
-    {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(height);
-      numeric_value
-    },
-    1_u32,
-  );
-
-  for i in 0..({
-    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(height);
-    numeric_value
-  }) {
-    {
-      let numeric_amount = topleft
-        [offset.wrapping_sub((::core::num::Wrapping(1) + ::core::num::Wrapping(i)).0)]
-      .as_::<c_uint>();
-      let numeric_target = &mut (dc);
-      *numeric_target = u32::wrapping_add(*numeric_target, numeric_amount);
-    };
-  }
-
-  return Ok(u32::wrapping_shr(dc, height.trailing_zeros()));
-}
-
-fn dc_gen<BD: BitDepth>(
-  topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
-  offset: usize,
-  width: c_int,
-  height: c_int,
-) -> core::result::Result<c_uint, console_core_never::Never> {
-  let (multiplier_1x2, multiplier_1x4, base_shift) = match BD::BPC {
-    BPC::BPC8 => (0x5556, 0x3334, 16),
-    BPC::BPC16 => (0xAAAB, 0x6667, 17),
-  };
-
-  let Ok(mut dc) = console_core_number_conversion::wrapped::<_, u32>(i32::wrapping_shr(
-    i32::wrapping_add(width, height),
-    1_u32,
-  ));
-
-  for i in 0..({
-    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(width);
-    numeric_value
-  }) {
-    {
-      let numeric_amount = topleft[offset.wrapping_add(i).wrapping_add(1)].as_::<c_uint>();
-      let numeric_target = &mut (dc);
-      *numeric_target = u32::wrapping_add(*numeric_target, numeric_amount);
-    };
-  }
-
-  for i in 0..({
-    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(height);
-    numeric_value
-  }) {
-    {
-      let numeric_amount = topleft[offset.wrapping_sub(i.wrapping_add(1))].as_::<c_uint>();
-      let numeric_target = &mut (dc);
-      *numeric_target = u32::wrapping_add(*numeric_target, numeric_amount);
-    };
-  }
-
-  {
-    let numeric_amount = i32::wrapping_add(width, height).trailing_zeros();
-    let numeric_target = &mut (dc);
-    *numeric_target = u32::wrapping_shr(*numeric_target, numeric_amount);
-  };
-
-  match ::core::primitive::bool::then_some(width != height, ()) {
-    ::core::option::Option::Some(()) => {
-      {
-        let numeric_amount = match ::core::primitive::bool::then_some(
-          width > i32::wrapping_mul(height, 2) || height > i32::wrapping_mul(width, 2),
-          (),
-        ) {
-          ::core::option::Option::Some(()) => multiplier_1x4,
-          ::core::option::Option::None => multiplier_1x2,
-        };
-        let numeric_target = &mut (dc);
-        *numeric_target = u32::wrapping_mul(*numeric_target, numeric_amount);
-      };
-
-      {
-        let Ok(numeric_amount) = console_core_number_conversion::wrapped::<_, u32>(base_shift);
-        let numeric_target = &mut (dc);
-        *numeric_target = u32::wrapping_shr(*numeric_target, numeric_amount);
-      };
+    for (pixel, &coefficient) in output.iter_mut().zip(row_ac) {
+      let diff = alpha.wrapping_mul(i32::from(coefficient));
+      let magnitude = diff.abs().wrapping_add(32).wrapping_shr(6);
+      *pixel = bd.iclip_pixel(dc.wrapping_add(apply_sign(magnitude, diff)));
     }
-    ::core::option::Option::None => {}
-  }
 
-  return Ok(dc);
+    Ok(())
+  })
 }
 
 #[derive(FromRepr)]
@@ -667,32 +480,69 @@ enum DcGen {
 }
 
 impl DcGen {
-  fn call<BD: BitDepth>(
-    &self,
-    topleft: &[BD::Pixel; SCRATCH_EDGE_LEN],
-    offset: usize,
-    width: c_int,
-    height: c_int,
-  ) -> core::result::Result<c_uint, console_core_never::Never> {
-    Ok({
-      match self {
-        Self::Top => {
-          let Ok(dc_gen_top) = dc_gen_top::<BD>(topleft, offset, width);
+  fn call<BD: BitDepth>(&self, input: ScalarPrediction<'_, BD::Pixel>) -> Rav1dResult<c_uint> {
+    let Ok(width) = console_core_number_conversion::wrapped::<_, u32>(input.size.width);
+    let Ok(height) = console_core_number_conversion::wrapped::<_, u32>(input.size.height);
 
-          dc_gen_top
-        }
-        Self::Left => {
-          let Ok(dc_gen_left) = dc_gen_left::<BD>(topleft, offset, height);
-
-          dc_gen_left
-        }
-        Self::TopLeft => {
-          let Ok(dc_gen) = dc_gen::<BD>(topleft, offset, width, height);
-
-          dc_gen
-        }
+    match self {
+      Self::Top => {
+        let Ok(top) = input.top();
+        let edge = top.ok_or(Rav1dError::EINVAL)?;
+        let Ok(sum) = rounded_sum::<BD>(edge, width);
+        Ok(sum.wrapping_shr(width.trailing_zeros()))
       }
-    })
+      Self::Left => {
+        let Ok(left) = input.left();
+        let edge = left.ok_or(Rav1dError::EINVAL)?;
+        let Ok(sum) = rounded_sum::<BD>(edge, height);
+        Ok(sum.wrapping_shr(height.trailing_zeros()))
+      }
+      Self::TopLeft => dc_gen::<BD>(input, Size { width, height }),
+    }
+  }
+}
+
+fn rounded_sum<BD: BitDepth>(
+  samples: &[BD::Pixel],
+  count: u32,
+) -> Result<u32, console_core_never::Never> {
+  Ok(samples.iter().fold(count.wrapping_shr(1), |sum, &sample| {
+    sum.wrapping_add(sample.as_::<u32>())
+  }))
+}
+
+fn dc_gen<BD: BitDepth>(
+  input: ScalarPrediction<'_, BD::Pixel>,
+  size: Size<u32>,
+) -> Rav1dResult<c_uint> {
+  let (multiplier_1x2, multiplier_1x4, base_shift) = match BD::BPC {
+    BPC::BPC8 => (0x5556, 0x3334, 16),
+    BPC::BPC16 => (0xAAAB, 0x6667, 17),
+  };
+  let Size { width, height } = size;
+  let Ok(top) = input.top();
+  let Ok(left) = input.left();
+  let above = top.ok_or(Rav1dError::EINVAL)?;
+  let side = left.ok_or(Rav1dError::EINVAL)?;
+  let length = width.wrapping_add(height);
+  let sum = above
+    .iter()
+    .chain(side)
+    .fold(length.wrapping_shr(1), |sum, &sample| {
+      sum.wrapping_add(sample.as_::<u32>())
+    });
+  let dc = sum.wrapping_shr(length.trailing_zeros());
+
+  match width.cmp(&height) {
+    cmp::Ordering::Equal => Ok(dc),
+    cmp::Ordering::Less | cmp::Ordering::Greater => {
+      let scale =
+        match (width > height.wrapping_mul(2) || height > width.wrapping_mul(2)).then_some(()) {
+          Some(()) => multiplier_1x4,
+          None => multiplier_1x2,
+        };
+      Ok(dc.wrapping_mul(scale).wrapping_shr(base_shift))
+    }
   }
 }
 
@@ -710,14 +560,9 @@ struct ScalarDirection<'a, Pixel> {
 }
 
 impl<'a, Pixel> ScalarPrediction<'a, Pixel> {
-  fn output_dimensions(
-    &self,
-  ) -> Result<
-    console_core_geometry::Size<console_core_api_compatibility::NativeSize>,
-    console_core_never::Never,
-  > {
+  fn output_dimensions(&self) -> Result<Size<u64>, console_core_never::Never> {
     self.size.map(|side| {
-      let Ok(dimension) = console_core_number_conversion::wrapped_index(side);
+      let Ok(dimension) = console_core_number_conversion::wrapped::<_, u64>(side);
       dimension
     })
   }
@@ -752,13 +597,14 @@ impl<'a, Pixel> ScalarPrediction<'a, Pixel> {
 fn ipred_v_rust<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
   input: ScalarPrediction<'_, BD::Pixel>,
-) -> Result<(), console_core_never::Never> {
+) -> Rav1dResult {
   let Ok(size) = input.output_dimensions();
+  let Ok(columns) = index(size.width);
   let Ok(above) = input.top();
 
   match above {
-    Some(edge) => dst.for_rows_mut::<BD, _>(size.width, size.height, |_, row| {
-      BD::pixel_copy(row, edge, size.width);
+    Some(edge) => dst.for_rows_mut::<BD, _>(size, |_, row| {
+      BD::pixel_copy(row, edge, columns);
     }),
     None => Ok(()),
   }
@@ -767,20 +613,19 @@ fn ipred_v_rust<BD: BitDepth>(
 fn ipred_h_rust<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
   input: ScalarPrediction<'_, BD::Pixel>,
-) -> Result<(), console_core_never::Never> {
+) -> Rav1dResult {
   let Ok(size) = input.output_dimensions();
+  let Ok(columns) = index(size.width);
   let Ok(left) = input.left();
 
   match left {
-    Some(edge) => dst.for_rows_mut::<BD, _>(size.width, size.height, |row_number, row| {
-      let ::core::result::Result::Ok(position) = ::console_core_number_conversion::fixed_index(
-        size.height.wrapping_sub(1).wrapping_sub(row_number),
-      );
+    Some(edge) => dst.for_rows_mut::<BD, _>(size, |ordinal, row| {
+      let position = size.height.wrapping_sub(1).wrapping_sub(ordinal);
 
       match edge.get(match ::console_core_number_conversion::index(position) {
         ::core::result::Result::Ok(native_position) => native_position,
       }) {
-        Some(&sample) => BD::pixel_set(row, sample, size.width),
+        Some(&sample) => BD::pixel_set(row, sample, columns),
         None => {}
       }
     }),
@@ -791,7 +636,7 @@ fn ipred_h_rust<BD: BitDepth>(
 fn ipred_paeth_rust<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
   input: ScalarPrediction<'_, BD::Pixel>,
-) -> Result<(), console_core_never::Never> {
+) -> Rav1dResult {
   let Ok(size) = input.output_dimensions();
   let Ok(left) = input.left();
   let Ok(top) = input.top();
@@ -801,10 +646,8 @@ fn ipred_paeth_rust<BD: BitDepth>(
     _ => return Ok(()),
   };
 
-  dst.for_rows_mut::<BD, _>(size.width, size.height, |ordinal, row| {
-    let ::core::result::Result::Ok(position) = ::console_core_number_conversion::fixed_index(
-      size.height.wrapping_sub(1).wrapping_sub(ordinal),
-    );
+  dst.for_rows_mut::<BD, _>(size, |ordinal, row| {
+    let position = size.height.wrapping_sub(1).wrapping_sub(ordinal);
     let sample = match side.get(match ::console_core_number_conversion::index(position) {
       ::core::result::Result::Ok(native_position) => native_position,
     }) {
@@ -820,13 +663,12 @@ fn ipred_paeth_rust<BD: BitDepth>(
   })
 }
 
-fn smooth_weights(
-  side: console_core_api_compatibility::NativeSize,
-) -> Result<Option<&'static [u8]>, console_core_never::Never> {
+fn smooth_weights(side: u64) -> Result<Option<&'static [u8]>, console_core_never::Never> {
+  let Ok(columns) = index(side);
   Ok(
     dav1d_sm_weights
-      .get(side..)
-      .and_then(|weights| weights.get(..side)),
+      .get(columns..)
+      .and_then(|weights| weights.get(..columns)),
   )
 }
 
@@ -843,7 +685,7 @@ fn smooth_pair(
 fn ipred_smooth_rust<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
   input: ScalarPrediction<'_, BD::Pixel>,
-) -> Result<(), console_core_never::Never> {
+) -> Rav1dResult {
   let Ok(size) = input.output_dimensions();
   let Ok(top) = input.top();
   let Ok(left) = input.left();
@@ -860,15 +702,15 @@ fn ipred_smooth_rust<BD: BitDepth>(
     None => return Ok(()),
   };
 
-  dst.for_rows_mut::<BD, _>(size.width, size.height, |ordinal, row| {
-    let ::core::result::Result::Ok(coordinate) = ::console_core_number_conversion::fixed_index(
-      size.height.wrapping_sub(1).wrapping_sub(ordinal),
-    );
+  dst.for_rows_mut::<BD, _>(size, |ordinal, row| {
+    let coordinate = size.height.wrapping_sub(1).wrapping_sub(ordinal);
     let (side_pixel, scale) = match side
       .get(match ::console_core_number_conversion::index(coordinate) {
         ::core::result::Result::Ok(native_position) => native_position,
       })
-      .zip(y_weights.get(ordinal))
+      .zip(y_weights.get(match index(ordinal) {
+        Ok(position) => position,
+      }))
     {
       Some((&sample, &weight)) => (sample.as_::<i32>(), weight),
       None => return,
@@ -886,7 +728,7 @@ fn ipred_smooth_rust<BD: BitDepth>(
 fn ipred_smooth_v_rust<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
   input: ScalarPrediction<'_, BD::Pixel>,
-) -> Result<(), console_core_never::Never> {
+) -> Rav1dResult {
   let Ok(size) = input.output_dimensions();
   let Ok(top) = input.top();
   let Ok(left) = input.left();
@@ -896,8 +738,9 @@ fn ipred_smooth_v_rust<BD: BitDepth>(
     _ => return Ok(()),
   };
 
-  dst.for_rows_mut::<BD, _>(size.width, size.height, |ordinal, row| {
-    let scale = match weights.get(ordinal) {
+  dst.for_rows_mut::<BD, _>(size, |ordinal, row| {
+    let Ok(position) = index(ordinal);
+    let scale = match weights.get(position) {
       Some(&weight) => weight,
       None => return,
     };
@@ -912,7 +755,7 @@ fn ipred_smooth_v_rust<BD: BitDepth>(
 fn ipred_smooth_h_rust<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
   input: ScalarPrediction<'_, BD::Pixel>,
-) -> Result<(), console_core_never::Never> {
+) -> Rav1dResult {
   let Ok(size) = input.output_dimensions();
   let Ok(top) = input.top();
   let Ok(left) = input.left();
@@ -922,10 +765,8 @@ fn ipred_smooth_h_rust<BD: BitDepth>(
     _ => return Ok(()),
   };
 
-  dst.for_rows_mut::<BD, _>(size.width, size.height, |ordinal, row| {
-    let ::core::result::Result::Ok(coordinate) = ::console_core_number_conversion::fixed_index(
-      size.height.wrapping_sub(1).wrapping_sub(ordinal),
-    );
+  dst.for_rows_mut::<BD, _>(size, |ordinal, row| {
+    let coordinate = size.height.wrapping_sub(1).wrapping_sub(ordinal);
     let reference = match side.get(match ::console_core_number_conversion::index(coordinate) {
       ::core::result::Result::Ok(native_position) => native_position,
     }) {
@@ -940,6 +781,7 @@ fn ipred_smooth_h_rust<BD: BitDepth>(
   })
 }
 
+#[derive(Clone, Copy)]
 pub(crate) struct EdgeFilterSelection {
   pub length: i32,
   pub angle_delta: i32,
@@ -1155,16 +997,9 @@ fn write_prediction_rows<BD: BitDepth>(
     _ => {}
   }
 
-  let Ok(columns) = index(width);
-  let Ok(rows) = index(height);
-  let Ok(result) = dst.with_block_mut::<BD, _, _>(
-    columns,
-    rows,
-    write,
-    |storage, native_base, native_pitch, writer| {
-      let Ok(base) = fixed_index(native_base);
-      let Ok(pitch) = console_core_number_conversion::fixed_offset(native_pitch);
-      let extent = Size { width, height };
+  let extent = Size { width, height };
+  let result =
+    dst.with_block_mut::<BD, _, _>(extent, write, |storage, base, pitch, writer| {
       check_prediction_rows::<BD>(
         storage,
         PredictionRows {
@@ -1174,8 +1009,7 @@ fn write_prediction_rows<BD: BitDepth>(
         },
         writer,
       )
-    },
-  );
+    })?;
   result
 }
 
@@ -1229,104 +1063,70 @@ fn ipred_z1_rust<BD: BitDepth>(
       center,
       size: Size { width, height },
     } = input;
-    let Ok(topleft_in_off) = index(center);
 
-    let is_sm = i32::wrapping_shr(angle, 9_u32) & 1 != 0;
-    let enable_intra_edge_filter = i32::wrapping_shr(angle, 10_u32) != 0;
+    let smoothing = angle.wrapping_shr(9) & 1 != 0;
+    let filtering = match angle.wrapping_shr(10) {
+      0 => EdgeFiltering::Disabled,
+      _ => EdgeFiltering::Enabled,
+    };
     angle &= 511;
-    match (angle < 90).then_some(()) {
-      Some(()) => {}
-      None => return Err(Rav1dError::EINVAL),
+
+    match angle {
+      ..=89 => {}
+      90.. => return Err(Rav1dError::EINVAL),
     }
 
     let mut dx = intra_derivative(angle)?;
-    let mut top_out = [0.into(); usize::wrapping_add(64, 64)];
-    let upsample_above = match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-      ::core::option::Option::Some(()) => matches!(
-        get_upsample(EdgeFilterSelection {
-          length: i32::wrapping_add(width, height),
-          angle_delta: i32::wrapping_sub(90, angle),
-          smoothing: is_sm,
-        }),
-        Ok(EdgeInterpolation::Upsample)
-      ),
-      ::core::option::Option::None => false,
+    let length = width.wrapping_add(height);
+    let selection = EdgeFilterSelection {
+      length,
+      angle_delta: 90i32.wrapping_sub(angle),
+      smoothing,
     };
-    let (top, max_base_x) = match ::core::primitive::bool::then_some(upsample_above, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(edge_origin) = fixed_index(topleft_in_off.wrapping_add(1));
+    let Ok(mode) = edge_mode(filtering, selection);
+    let mut top_out = [BD::Pixel::from(0); 128];
+    let source_width = width.wrapping_add(width.min(height));
+    let reference = PredictionEdge {
+      pixels: topleft_in,
+      origin: center.wrapping_add(1),
+      window: -1..source_width,
+    };
+    let (top, max_base_x, step) = match mode {
+      EdgeMode::Upsample => {
         upsample_edge(
           &mut top_out,
-          PredictionEdge {
-            pixels: topleft_in,
-            origin: edge_origin,
-            window: -1..i32::wrapping_add(width, cmp::min(width, height)),
-          },
+          reference,
           EdgeUpsampling {
-            count: i32::wrapping_add(width, height),
+            count: length,
             ceiling: bd.bitdepth_max().as_::<c_int>(),
           },
         )?;
-
-        {
-          let numeric_amount = 1_u32;
-          let numeric_target = &mut (dx);
-          *numeric_target = i32::wrapping_shl(*numeric_target, numeric_amount);
-        };
-
+        dx = dx.wrapping_shl(1);
         (
           top_out.as_slice(),
-          i32::wrapping_sub(i32::wrapping_mul(2, i32::wrapping_add(width, height)), 2),
+          length.wrapping_mul(2).wrapping_sub(2),
+          2u64,
         )
       }
-      ::core::option::Option::None => {
-        let filter_strength =
-          match ::core::primitive::bool::then_some(enable_intra_edge_filter, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(explicit_value) = get_filter_strength(EdgeFilterSelection {
-                length: i32::wrapping_add(width, height),
-                angle_delta: i32::wrapping_sub(90, angle),
-                smoothing: is_sm,
-              });
-              explicit_value
-            }
-            ::core::option::Option::None => 0,
-          };
-
-        match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
-          ::core::option::Option::Some(()) => {
-            let Ok(edge_origin) = fixed_index(topleft_in_off.wrapping_add(1));
-            filter_edge(
-              &mut top_out,
-              PredictionEdge {
-                pixels: topleft_in,
-                origin: edge_origin,
-                window: -1..i32::wrapping_add(width, cmp::min(width, height)),
-              },
-              EdgeFilter {
-                count: i32::wrapping_add(width, height),
-                filtered: 0..i32::wrapping_add(width, height),
-                strength: filter_strength,
-              },
-            )?;
-            (
-              top_out.as_slice(),
-              i32::wrapping_sub(i32::wrapping_add(width, height), 1),
-            )
-          }
-          ::core::option::Option::None => {
-            let Ok(start) = index(center.wrapping_add(1));
-            let raw_top = topleft_in.get(start..).ok_or(Rav1dError::EINVAL)?;
-            (
-              raw_top,
-              width.wrapping_add(width.min(height)).wrapping_sub(1),
-            )
-          }
-        }
+      EdgeMode::Filter(strength) => {
+        filter_edge(
+          &mut top_out,
+          reference,
+          EdgeFilter {
+            count: length,
+            filtered: 0..length,
+            strength,
+          },
+        )?;
+        (top_out.as_slice(), length.wrapping_sub(1), 1)
+      }
+      EdgeMode::Direct => {
+        let Ok(start) = index(reference.origin);
+        let raw_top = topleft_in.get(start..).ok_or(Rav1dError::EINVAL)?;
+        (raw_top, source_width.wrapping_sub(1), 1)
       }
     };
     let Ok(limit) = console_core_number_conversion::wrapped::<_, u64>(max_base_x);
-    let step = u64::from(u8::from(upsample_above)).wrapping_add(1);
     let tail = directional_sample(top, limit)?;
 
     write_prediction_rows::<BD>(dst, Size { width, height }, |row, destination| {
@@ -1337,7 +1137,8 @@ fn ipred_z1_rust<BD: BitDepth>(
       let available = limit.saturating_sub(first);
       let active_width = available
         .wrapping_add(step.wrapping_sub(1))
-        .wrapping_div(step);
+        .checked_div(step)
+        .ok_or(Rav1dError::EINVAL)?;
       let Ok(row_width) = fixed_index(destination.len());
       let Ok(active_columns) = index(active_width.min(row_width));
       let (active, padding) = destination
@@ -1350,7 +1151,8 @@ fn ipred_z1_rust<BD: BitDepth>(
           first: sample,
           stride: 1,
         };
-        *pixel = interpolate_direction(top, pair, fraction)?;
+        let interpolated = interpolate_direction(top, pair, fraction)?;
+        *pixel = interpolated;
       }
 
       padding.fill(tail);
@@ -1359,296 +1161,309 @@ fn ipred_z1_rust<BD: BitDepth>(
   }
 }
 
+#[derive(Clone, Copy)]
+enum EdgeMode {
+  Direct,
+  Filter(i32),
+  Upsample,
+}
+
+#[derive(Clone, Copy)]
+enum EdgeFiltering {
+  Disabled,
+  Enabled,
+}
+
+fn edge_mode(
+  filtering: EdgeFiltering,
+  selection: EdgeFilterSelection,
+) -> Result<EdgeMode, console_core_never::Never> {
+  match filtering {
+    EdgeFiltering::Disabled => Ok(EdgeMode::Direct),
+    EdgeFiltering::Enabled => match get_upsample(selection) {
+      Ok(EdgeInterpolation::Upsample) => Ok(EdgeMode::Upsample),
+      Ok(EdgeInterpolation::Direct) => match get_filter_strength(selection) {
+        Ok(0) => Ok(EdgeMode::Direct),
+        Ok(strength) => Ok(EdgeMode::Filter(strength)),
+      },
+    },
+  }
+}
+
+struct CornerEdge<'a, Pixel> {
+  mode: EdgeMode,
+  source: PredictionEdge<'a, Pixel>,
+  scratch_start: u64,
+  count: i32,
+  filtered: Range<i32>,
+}
+
+impl<Pixel: Copy + ToPrimitive<i32> + FromPrimitive<i32>> CornerEdge<'_, Pixel> {
+  fn prepare(self, scratch: &mut [Pixel], ceiling: i32) -> Rav1dResult {
+    let Ok(start) = index(self.scratch_start);
+    let destination = scratch.get_mut(start..).ok_or(Rav1dError::EINVAL)?;
+
+    match self.mode {
+      EdgeMode::Upsample => upsample_edge(
+        destination,
+        self.source,
+        EdgeUpsampling {
+          count: self.count.wrapping_add(1),
+          ceiling,
+        },
+      ),
+      EdgeMode::Filter(strength) => filter_edge(
+        destination,
+        self.source,
+        EdgeFilter {
+          count: self.count,
+          filtered: self.filtered,
+          strength,
+        },
+      ),
+      EdgeMode::Direct => {
+        let count = u64::try_from(self.count).map_err(|_| Rav1dError::EINVAL)?;
+        let first = self.source.origin;
+        let Ok(range) = console_core_number_conversion::indices(first..first.wrapping_add(count));
+        let source = self.source.pixels.get(range).ok_or(Rav1dError::EINVAL)?;
+        let Ok(length) = index(count);
+        let output = destination.get_mut(..length).ok_or(Rav1dError::EINVAL)?;
+
+        for (pixel, &sample) in output.iter_mut().zip(source) {
+          *pixel = sample;
+        }
+
+        Ok(())
+      }
+    }
+  }
+}
+
+const CORNER_EDGE_CENTER: u64 = 64;
+
+struct CornerDirection {
+  derivative: Point<i32>,
+  step: Size<i32>,
+  vertical_shift: u32,
+}
+
+impl CornerDirection {
+  fn write_row<Pixel>(&self, edge: &[Pixel], row: u64, destination: &mut [Pixel]) -> Rav1dResult
+  where
+    Pixel: Copy + ToPrimitive<i32> + FromPrimitive<i32>,
+  {
+    let Ok(row_index) = console_core_number_conversion::wrapped::<_, i32>(row);
+    let horizontal = self
+      .step
+      .width
+      .wrapping_shl(6)
+      .wrapping_sub(self.derivative.x.wrapping_mul(row_index.wrapping_add(1)));
+    let top_index = horizontal.wrapping_shr(6);
+    let top_fraction = horizontal & 0x3e;
+    let Ok(left_subtraction) =
+      console_core_number_conversion::wrapped::<_, u64>(self.step.height);
+    let left_origin = CORNER_EDGE_CENTER.wrapping_sub(left_subtraction);
+
+    for (column, pixel) in (0u64..).zip(destination) {
+      let Ok(column_index) = console_core_number_conversion::wrapped::<_, i32>(column);
+      let top_sample = top_index.wrapping_add(self.step.width.wrapping_mul(column_index));
+      let (pair, fraction) = match top_sample {
+        0.. => {
+          let Ok(relative) = console_core_number_conversion::wrapped::<_, u64>(top_sample);
+          let pair = AdjacentEdgeSamples {
+            first: CORNER_EDGE_CENTER.wrapping_add(relative),
+            stride: 1,
+          };
+          (pair, top_fraction)
+        }
+        ..=-1 => {
+          let vertical = row_index
+            .wrapping_shl(self.vertical_shift)
+            .wrapping_sub(self.derivative.y.wrapping_mul(column_index.wrapping_add(1)));
+          let base = vertical.wrapping_shr(6);
+
+          match base.cmp(&self.step.height.wrapping_neg()) {
+            cmp::Ordering::Less => return Err(Rav1dError::EINVAL),
+            cmp::Ordering::Equal | cmp::Ordering::Greater => {}
+          }
+
+          let relative = i64::from(base.wrapping_neg());
+          let pair = AdjacentEdgeSamples {
+            first: left_origin.wrapping_add_signed(relative),
+            stride: -1,
+          };
+          (pair, vertical & 0x3e)
+        }
+      };
+      let sample = interpolate_direction(edge, pair, fraction)?;
+      *pixel = sample;
+    }
+
+    Ok(())
+  }
+}
+
+struct CornerFilter {
+  mode: EdgeMode,
+  reach: i32,
+  ceiling: i32,
+}
+
+impl CornerFilter {
+  fn prepare_above<Pixel>(
+    self,
+    input: ScalarPrediction<'_, Pixel>,
+    scratch: &mut [Pixel],
+  ) -> Rav1dResult
+  where
+    Pixel: Copy + ToPrimitive<i32> + FromPrimitive<i32>,
+  {
+    let width = input.size.width;
+    let (offset, window) = match self.mode {
+      EdgeMode::Upsample => (0u64, 0..width.wrapping_add(1)),
+      EdgeMode::Direct | EdgeMode::Filter(_) => (1, -1..width),
+    };
+    let above = CornerEdge {
+      mode: self.mode,
+      source: PredictionEdge {
+        pixels: input.edge,
+        origin: input.center.wrapping_add(offset),
+        window,
+      },
+      scratch_start: CORNER_EDGE_CENTER.wrapping_add(offset),
+      count: width,
+      filtered: 0..self.reach,
+    };
+    above.prepare(scratch, self.ceiling)
+  }
+
+  fn prepare_left<Pixel>(
+    self,
+    input: ScalarPrediction<'_, Pixel>,
+    scratch: &mut [Pixel],
+  ) -> Rav1dResult
+  where
+    Pixel: Copy + ToPrimitive<i32> + FromPrimitive<i32>,
+  {
+    let height = input.size.height;
+    let edge_height = u64::try_from(height).map_err(|_| Rav1dError::EINVAL)?;
+    let upsampled = u32::from(u8::from(matches!(self.mode, EdgeMode::Upsample)));
+    let left = CornerEdge {
+      mode: self.mode,
+      source: PredictionEdge {
+        pixels: input.edge,
+        origin: input.center.wrapping_sub(edge_height),
+        window: 0..height.wrapping_add(1),
+      },
+      scratch_start: CORNER_EDGE_CENTER.wrapping_sub(edge_height.wrapping_shl(upsampled)),
+      count: height,
+      filtered: height.wrapping_sub(self.reach)..height,
+    };
+    left.prepare(scratch, self.ceiling)
+  }
+}
+
+struct CornerFilters {
+  above: CornerFilter,
+  left: CornerFilter,
+}
+
+impl CornerFilters {
+  fn prepare<Pixel>(
+    self,
+    input: ScalarPrediction<'_, Pixel>,
+    scratch: &mut [Pixel],
+  ) -> Rav1dResult
+  where
+    Pixel: Copy + ToPrimitive<i32> + FromPrimitive<i32>,
+  {
+    self.above.prepare_above(input, scratch)?;
+    self.left.prepare_left(input, scratch)?;
+    let corner = directional_sample(input.edge, input.center)?;
+    let Ok(center) = index(CORNER_EDGE_CENTER);
+    let scratch_corner = scratch.get_mut(center).ok_or(Rav1dError::EINVAL)?;
+    *scratch_corner = corner;
+    Ok(())
+  }
+}
+
 fn ipred_z2_rust<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
   direction: ScalarDirection<'_, BD::Pixel>,
   bd: BD,
 ) -> Rav1dResult {
-  {
-    let ScalarDirection {
-      input,
-      mut angle,
-      reach,
-    } = direction;
-    let ScalarPrediction {
-      edge: topleft_in,
-      center,
-      size: Size { width, height },
-    } = input;
-    let Ok(topleft_in_off) = index(center);
-    let Size {
-      width: max_width,
-      height: max_height,
-    } = reach;
+  let ScalarDirection {
+    input,
+    mut angle,
+    reach,
+  } = direction;
+  let size = input.size;
+  let Size { width, height } = size;
+  let smoothing = angle.wrapping_shr(9) & 1 != 0;
+  let filtering = match angle.wrapping_shr(10) {
+    0 => EdgeFiltering::Disabled,
+    _ => EdgeFiltering::Enabled,
+  };
+  angle &= 511;
 
-    let is_sm = i32::wrapping_shr(angle, 9_u32) & 1 != 0;
-    let enable_intra_edge_filter = i32::wrapping_shr(angle, 10_u32);
-    angle &= 511;
-    match (91..180).contains(&angle).then_some(()) {
-      Some(()) => {}
-      None => return Err(Rav1dError::EINVAL),
-    }
-
-    let mut dy = intra_derivative(angle.wrapping_sub(90))?;
-    let mut dx = intra_derivative(180i32.wrapping_sub(angle))?;
-    let upsample_left =
-      match ::core::primitive::bool::then_some(enable_intra_edge_filter != 0, ()) {
-        ::core::option::Option::Some(()) => matches!(
-          get_upsample(EdgeFilterSelection {
-            length: i32::wrapping_add(width, height),
-            angle_delta: i32::wrapping_sub(180, angle),
-            smoothing: is_sm,
-          }),
-          Ok(EdgeInterpolation::Upsample)
-        ),
-        ::core::option::Option::None => false,
-      };
-    let upsample_above =
-      match ::core::primitive::bool::then_some(enable_intra_edge_filter != 0, ()) {
-        ::core::option::Option::Some(()) => matches!(
-          get_upsample(EdgeFilterSelection {
-            length: i32::wrapping_add(width, height),
-            angle_delta: i32::wrapping_sub(angle, 90),
-            smoothing: is_sm,
-          }),
-          Ok(EdgeInterpolation::Upsample)
-        ),
-        ::core::option::Option::None => false,
-      };
-    let mut edge = [0.into(); usize::wrapping_add(64, 64).wrapping_add(1)];
-    let edge_center = 64u64;
-    let Ok(topleft) = index(edge_center);
-
-    match ::core::primitive::bool::then_some(upsample_above, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(edge_origin) = fixed_index(topleft_in_off);
-        let edge_output = edge.get_mut(topleft..).ok_or(Rav1dError::EINVAL)?;
-        upsample_edge(
-          edge_output,
-          PredictionEdge {
-            pixels: topleft_in,
-            origin: edge_origin,
-            window: 0..i32::wrapping_add(width, 1),
-          },
-          EdgeUpsampling {
-            count: i32::wrapping_add(width, 1),
-            ceiling: bd.bitdepth_max().as_::<c_int>(),
-          },
-        )?;
-
-        {
-          let numeric_amount = 1_u32;
-          let numeric_target = &mut (dx);
-          *numeric_target = i32::wrapping_shl(*numeric_target, numeric_amount);
-        };
-      }
-      ::core::option::Option::None => {
-        let filter_strength =
-          match ::core::primitive::bool::then_some(enable_intra_edge_filter != 0, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(explicit_value) = get_filter_strength(EdgeFilterSelection {
-                length: i32::wrapping_add(width, height),
-                angle_delta: i32::wrapping_sub(angle, 90),
-                smoothing: is_sm,
-              });
-              explicit_value
-            }
-            ::core::option::Option::None => 0,
-          };
-
-        match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
-          ::core::option::Option::Some(()) => {
-            let Ok(edge_origin) = fixed_index(topleft_in_off.wrapping_add(1));
-            let edge_output = edge
-              .get_mut(usize::wrapping_add(topleft, 1)..)
-              .ok_or(Rav1dError::EINVAL)?;
-            filter_edge(
-              edge_output,
-              PredictionEdge {
-                pixels: topleft_in,
-                origin: edge_origin,
-                window: -1..width,
-              },
-              EdgeFilter {
-                count: width,
-                filtered: 0..max_width,
-                strength: filter_strength,
-              },
-            )?;
-          }
-          ::core::option::Option::None => {
-            let Ok(width_2) = console_core_number_conversion::wrapped_index(width);
-            let src_start = topleft_in_off.wrapping_add(1);
-            let dst_start = topleft.wrapping_add(1);
-            let source = topleft_in
-              .get(src_start..src_start.wrapping_add(width_2))
-              .ok_or(Rav1dError::EINVAL)?;
-            let output = edge
-              .get_mut(dst_start..dst_start.wrapping_add(width_2))
-              .ok_or(Rav1dError::EINVAL)?;
-
-            for (pixel, &sample) in output.iter_mut().zip(source) {
-              *pixel = sample;
-            }
-          }
-        }
-      }
-    }
-
-    match ::core::primitive::bool::then_some(upsample_left, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(edge_origin) = fixed_index(topleft_in_off.wrapping_sub({
-          let Ok(numeric_value) = console_core_number_conversion::wrapped_index(height);
-          numeric_value
-        }));
-        let edge_output = edge
-          .get_mut(
-            (::core::num::Wrapping(topleft)
-              - ::core::num::Wrapping(
-                ({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(height);
-                  numeric_value
-                })
-                .wrapping_mul(2),
-              ))
-            .0..,
-          )
-          .ok_or(Rav1dError::EINVAL)?;
-        upsample_edge(
-          edge_output,
-          PredictionEdge {
-            pixels: topleft_in,
-            origin: edge_origin,
-            window: 0..i32::wrapping_add(height, 1),
-          },
-          EdgeUpsampling {
-            count: i32::wrapping_add(height, 1),
-            ceiling: bd.bitdepth_max().as_::<c_int>(),
-          },
-        )?;
-
-        {
-          let numeric_amount = 1_u32;
-          let numeric_target = &mut (dy);
-          *numeric_target = i32::wrapping_shl(*numeric_target, numeric_amount);
-        };
-      }
-      ::core::option::Option::None => {
-        let filter_strength_0 =
-          match ::core::primitive::bool::then_some(enable_intra_edge_filter != 0, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(explicit_value) = get_filter_strength(EdgeFilterSelection {
-                length: i32::wrapping_add(width, height),
-                angle_delta: i32::wrapping_sub(180, angle),
-                smoothing: is_sm,
-              });
-              explicit_value
-            }
-            ::core::option::Option::None => 0,
-          };
-
-        match ::core::primitive::bool::then_some(filter_strength_0 != 0, ()) {
-          ::core::option::Option::Some(()) => {
-            let Ok(edge_origin) = fixed_index(topleft_in_off.wrapping_sub({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(height);
-              numeric_value
-            }));
-            let edge_output = edge
-              .get_mut(
-                (::core::num::Wrapping(topleft)
-                  - ::core::num::Wrapping({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(height);
-                    numeric_value
-                  }))
-                .0..,
-              )
-              .ok_or(Rav1dError::EINVAL)?;
-            filter_edge(
-              edge_output,
-              PredictionEdge {
-                pixels: topleft_in,
-                origin: edge_origin,
-                window: 0..i32::wrapping_add(height, 1),
-              },
-              EdgeFilter {
-                count: height,
-                filtered: i32::wrapping_sub(height, max_height)..height,
-                strength: filter_strength_0,
-              },
-            )?;
-          }
-          ::core::option::Option::None => {
-            let Ok(height_2) = console_core_number_conversion::wrapped_index(height);
-            let src_start = topleft_in_off.wrapping_sub(height_2);
-            let dst_start = topleft.wrapping_sub(height_2);
-            let source = topleft_in
-              .get(src_start..topleft_in_off)
-              .ok_or(Rav1dError::EINVAL)?;
-            let output = edge.get_mut(dst_start..topleft).ok_or(Rav1dError::EINVAL)?;
-
-            for (pixel, &sample) in output.iter_mut().zip(source) {
-              *pixel = sample;
-            }
-          }
-        }
-      }
-    }
-
-    let shared_corner = directional_sample(topleft_in, center)?;
-    let scratch_corner = edge.get_mut(topleft).ok_or(Rav1dError::EINVAL)?;
-    *scratch_corner = shared_corner;
-    let step_x = i32::from(upsample_above).wrapping_add(1);
-    let step_y = i32::from(upsample_left).wrapping_add(1);
-    let Ok(left_subtraction) = console_core_number_conversion::wrapped::<_, u64>(step_y);
-    let left_origin = edge_center.wrapping_sub(left_subtraction);
-    let shift_y = 6u32.wrapping_add(u32::from(u8::from(upsample_left)));
-
-    write_prediction_rows::<BD>(dst, Size { width, height }, |row, destination| {
-      let Ok(row_index) = console_core_number_conversion::wrapped::<_, i32>(row);
-      let horizontal = step_x
-        .wrapping_shl(6)
-        .wrapping_sub(dx.wrapping_mul(row_index.wrapping_add(1)));
-      let top_index = horizontal.wrapping_shr(6);
-      let top_fraction = horizontal & 0x3e;
-
-      for (column, pixel) in (0u64..).zip(destination) {
-        let Ok(column_index) = console_core_number_conversion::wrapped::<_, i32>(column);
-        let top_sample = top_index.wrapping_add(step_x.wrapping_mul(column_index));
-        let output = match (top_sample >= 0).then_some(()) {
-          Some(()) => {
-            let Ok(relative) = console_core_number_conversion::wrapped::<_, u64>(top_sample);
-            let pair = AdjacentEdgeSamples {
-              first: edge_center.wrapping_add(relative),
-              stride: 1,
-            };
-            let sample = interpolate_direction(&edge, pair, top_fraction)?;
-            sample
-          }
-          None => {
-            let vertical = row_index
-              .wrapping_shl(shift_y)
-              .wrapping_sub(dy.wrapping_mul(column_index.wrapping_add(1)));
-            let base = vertical.wrapping_shr(6);
-            match (base < step_y.wrapping_neg()).then_some(()) {
-              Some(()) => return Err(Rav1dError::EINVAL),
-              None => {}
-            }
-
-            let relative = i64::from(base.wrapping_neg());
-            let pair = AdjacentEdgeSamples {
-              first: left_origin.wrapping_add_signed(relative),
-              stride: -1,
-            };
-            let sample = interpolate_direction(&edge, pair, vertical & 0x3e)?;
-            sample
-          }
-        };
-        *pixel = output;
-      }
-
-      Ok(())
-    })
+  match angle {
+    91..=179 => {}
+    ..=90 | 180.. => return Err(Rav1dError::EINVAL),
   }
+
+  let above_delta = angle.wrapping_sub(90);
+  let left_delta = 180i32.wrapping_sub(angle);
+  let mut dy = intra_derivative(above_delta)?;
+  let base_dx = intra_derivative(left_delta)?;
+  let length = width.wrapping_add(height);
+  let Ok(above_mode) = edge_mode(
+    filtering,
+    EdgeFilterSelection {
+      length,
+      angle_delta: above_delta,
+      smoothing,
+    },
+  );
+  let Ok(left_mode) = edge_mode(
+    filtering,
+    EdgeFilterSelection {
+      length,
+      angle_delta: left_delta,
+      smoothing,
+    },
+  );
+  let ceiling = bd.bitdepth_max().as_::<c_int>();
+  let mut scratch = [BD::Pixel::from(0); 129];
+  let filters = CornerFilters {
+    above: CornerFilter {
+      mode: above_mode,
+      reach: reach.width,
+      ceiling,
+    },
+    left: CornerFilter {
+      mode: left_mode,
+      reach: reach.height,
+      ceiling,
+    },
+  };
+  filters.prepare(input, &mut scratch)?;
+  let above_upsampled = i32::from(matches!(above_mode, EdgeMode::Upsample));
+  let Ok(above_shift) = console_core_number_conversion::wrapped::<_, u32>(above_upsampled);
+  let dx = base_dx.wrapping_shl(above_shift);
+  let left_upsampled = u32::from(u8::from(matches!(left_mode, EdgeMode::Upsample)));
+  dy = dy.wrapping_shl(left_upsampled);
+  let Ok(left_step_shift) = console_core_number_conversion::wrapped::<_, i32>(left_upsampled);
+  let layout = CornerDirection {
+    derivative: Point { x: dx, y: dy },
+    step: Size {
+      width: 1i32.wrapping_add(above_upsampled),
+      height: 1i32.wrapping_add(left_step_shift),
+    },
+    vertical_shift: 6u32.wrapping_add(left_upsampled),
+  };
+  write_prediction_rows::<BD>(dst, size, |row, destination| {
+    layout.write_row(&scratch, row, destination)
+  })
 }
 
 fn ipred_z3_rust<BD: BitDepth>(
@@ -1665,127 +1480,76 @@ fn ipred_z3_rust<BD: BitDepth>(
       center,
       size: Size { width, height },
     } = input;
-    let Ok(topleft_in_off) = index(center);
 
-    let is_sm = i32::wrapping_shr(angle, 9_u32) & 1 != 0;
-    let enable_intra_edge_filter = i32::wrapping_shr(angle, 10_u32);
+    let smoothing = angle.wrapping_shr(9) & 1 != 0;
+    let filtering = match angle.wrapping_shr(10) {
+      0 => EdgeFiltering::Disabled,
+      _ => EdgeFiltering::Enabled,
+    };
     angle &= 511;
-    match (angle > 180).then_some(()) {
-      Some(()) => {}
-      None => return Err(Rav1dError::EINVAL),
+
+    match angle {
+      181.. => {}
+      ..=180 => return Err(Rav1dError::EINVAL),
     }
 
     let mut dy = intra_derivative(270i32.wrapping_sub(angle))?;
-    let mut left_out = [0.into(); usize::wrapping_add(64, 64)];
-    let left;
-    let left_off;
-    let max_base_y;
-    let upsample_left =
-      match ::core::primitive::bool::then_some(enable_intra_edge_filter != 0, ()) {
-        ::core::option::Option::Some(()) => matches!(
-          get_upsample(EdgeFilterSelection {
-            length: i32::wrapping_add(width, height),
-            angle_delta: i32::wrapping_sub(angle, 180),
-            smoothing: is_sm,
-          }),
-          Ok(EdgeInterpolation::Upsample)
-        ),
-        ::core::option::Option::None => false,
-      };
-
-    match ::core::primitive::bool::then_some(upsample_left, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(edge_origin) = fixed_index(topleft_in_off.wrapping_sub({
-          let Ok(numeric_value) =
-            console_core_number_conversion::wrapped_index(i32::wrapping_add(width, height));
-          numeric_value
-        }));
+    let length = width.wrapping_add(height);
+    let edge_length = u64::try_from(length).map_err(|_| Rav1dError::EINVAL)?;
+    let selection = EdgeFilterSelection {
+      length,
+      angle_delta: angle.wrapping_sub(180),
+      smoothing,
+    };
+    let Ok(mode) = edge_mode(filtering, selection);
+    let mut left_out = [BD::Pixel::from(0); 128];
+    let reference = PredictionEdge {
+      pixels: topleft_in,
+      origin: center.wrapping_sub(edge_length),
+      window: width.wrapping_sub(height).max(0)..length.wrapping_add(1),
+    };
+    let (left, origin, max_base_y, step) = match mode {
+      EdgeMode::Upsample => {
         upsample_edge(
           &mut left_out,
-          PredictionEdge {
-            pixels: topleft_in,
-            origin: edge_origin,
-            window: cmp::max(i32::wrapping_sub(width, height), 0)
-              ..i32::wrapping_add(i32::wrapping_add(width, height), 1),
-          },
+          reference,
           EdgeUpsampling {
-            count: i32::wrapping_add(width, height),
+            count: length,
             ceiling: bd.bitdepth_max().as_::<c_int>(),
           },
         )?;
-        left = left_out.as_slice();
-        left_off = (::core::num::Wrapping(2)
-          * ::core::num::Wrapping({
-            let Ok(numeric_value) =
-              console_core_number_conversion::wrapped_index(i32::wrapping_add(width, height));
-            numeric_value
-          }))
-        .0
-        .wrapping_sub(2);
-        max_base_y = i32::wrapping_sub(i32::wrapping_mul(2, i32::wrapping_add(width, height)), 2);
-
-        {
-          let numeric_amount = 1_u32;
-          let numeric_target = &mut (dy);
-          *numeric_target = (*numeric_target).wrapping_shl(numeric_amount);
-        };
+        dy = dy.wrapping_shl(1);
+        let endpoint = edge_length.wrapping_mul(2).wrapping_sub(2);
+        (
+          left_out.as_slice(),
+          endpoint,
+          length.wrapping_mul(2).wrapping_sub(2),
+          2u64,
+        )
       }
-      ::core::option::Option::None => {
-        let filter_strength =
-          match ::core::primitive::bool::then_some(enable_intra_edge_filter != 0, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(explicit_value) = get_filter_strength(EdgeFilterSelection {
-                length: i32::wrapping_add(width, height),
-                angle_delta: i32::wrapping_sub(angle, 180),
-                smoothing: is_sm,
-              });
-              explicit_value
-            }
-            ::core::option::Option::None => 0,
-          };
-
-        match ::core::primitive::bool::then_some(filter_strength != 0, ()) {
-          ::core::option::Option::Some(()) => {
-            let Ok(edge_origin) = fixed_index(topleft_in_off.wrapping_sub({
-              let Ok(numeric_value) =
-                console_core_number_conversion::wrapped_index(i32::wrapping_add(width, height));
-              numeric_value
-            }));
-            filter_edge(
-              &mut left_out,
-              PredictionEdge {
-                pixels: topleft_in,
-                origin: edge_origin,
-                window: cmp::max(i32::wrapping_sub(width, height), 0)
-                  ..i32::wrapping_add(i32::wrapping_add(width, height), 1),
-              },
-              EdgeFilter {
-                count: i32::wrapping_add(width, height),
-                filtered: 0..i32::wrapping_add(width, height),
-                strength: filter_strength,
-              },
-            )?;
-            left = left_out.as_slice();
-            left_off = {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                i32::wrapping_sub(i32::wrapping_add(width, height), 1),
-              );
-              numeric_value
-            };
-            max_base_y = i32::wrapping_sub(i32::wrapping_add(width, height), 1);
-          }
-          ::core::option::Option::None => {
-            left = topleft_in;
-            left_off = topleft_in_off.wrapping_sub(1);
-            max_base_y = i32::wrapping_sub(i32::wrapping_add(height, cmp::min(width, height)), 1);
-          }
-        }
+      EdgeMode::Filter(strength) => {
+        filter_edge(
+          &mut left_out,
+          reference,
+          EdgeFilter {
+            count: length,
+            filtered: 0..length,
+            strength,
+          },
+        )?;
+        (
+          left_out.as_slice(),
+          edge_length.wrapping_sub(1),
+          length.wrapping_sub(1),
+          1,
+        )
       }
-    }
-
-    let Ok(origin) = fixed_index(left_off);
+      EdgeMode::Direct => {
+        let limit = height.wrapping_add(width.min(height)).wrapping_sub(1);
+        (topleft_in, center.wrapping_sub(1), limit, 1)
+      }
+    };
     let Ok(limit) = console_core_number_conversion::wrapped::<_, u64>(max_base_y);
-    let step = u64::from(u8::from(upsample_left)).wrapping_add(1);
     let tail = directional_sample(left, origin.wrapping_sub(limit))?;
 
     write_prediction_rows::<BD>(dst, Size { width, height }, |row, destination| {
@@ -1824,7 +1588,7 @@ fn write_filter_row<BD: BitDepth>(
 ) -> Rav1dResult {
   let Ok(native_position) = console_core_number_conversion::wrapped_offset(position);
   let Ok(mut row) = dst.at(native_position);
-  let Ok(mut view) = row.slice_mut::<BD>(4);
+  let mut view = row.slice_mut::<BD>(4)?;
   let fixed: &mut [BD::Pixel; 4] = (&mut *view).try_into().map_err(|_| Rav1dError::EINVAL)?;
   *fixed = values;
   Ok(())
@@ -1860,9 +1624,9 @@ fn ipred_filter_rust<BD: BitDepth>(
   for row in (0..height).step_by(2) {
     let edge_center = input.center.wrapping_sub(row);
     let start = edge_center.checked_sub(2).ok_or(Rav1dError::EINVAL)?;
-    let Ok(source_range) =
+    let Ok(source_range_2) =
       console_core_number_conversion::indices(start..edge_center.wrapping_add(1));
-    let source_left = input.edge.get(source_range).ok_or(Rav1dError::EINVAL)?;
+    let source_left = input.edge.get(source_range_2).ok_or(Rav1dError::EINVAL)?;
     let seed: &[BD::Pixel; 3] = source_left.try_into().map_err(|_| Rav1dError::EINVAL)?;
     let [lower_left, upper_left, mut corner] = *seed;
     let mut left = [upper_left, lower_left];
@@ -1895,7 +1659,7 @@ fn ipred_filter_rust<BD: BitDepth>(
 
 #[cfg(all(test, target_arch = "aarch64"))]
 pub(crate) fn cfl_ac_scalar_for_test<BD: BitDepth>(
-  ac: &mut [i16; SCRATCH_AC_TXTP_LEN],
+  ac: &mut CoefficientScratch<i16>,
   y_src: &ReconSrc<'_>,
   extraction: CflAcExtraction,
 ) -> crate::src::error::Rav1dResult {
@@ -1904,7 +1668,7 @@ pub(crate) fn cfl_ac_scalar_for_test<BD: BitDepth>(
 
 #[inline(never)]
 fn cfl_ac_rust<BD: BitDepth>(
-  ac: &mut [i16; SCRATCH_AC_TXTP_LEN],
+  ac: &mut CoefficientScratch<i16>,
   y_src: &ReconSrc<'_>,
   extraction: CflAcExtraction,
 ) -> crate::src::error::Rav1dResult {
@@ -1925,8 +1689,9 @@ fn cfl_ac_rust<BD: BitDepth>(
     Rav1dPixelLayoutSubSampled::I422 => (1, 0),
     Rav1dPixelLayoutSubSampled::I444 => (0, 0),
   };
-  let Ok(pixel_stride) = y_src.pixel_stride::<BD>();
-  let Ok(stride) = fixed_offset(pixel_stride);
+  let Ok(stride) = fixed_offset(match y_src.pixel_stride::<BD>() {
+    Ok(samples) => samples,
+  });
   let row_advance = stride.wrapping_shl(vertical);
   let Ok(source_width) = index(region.visible.width.wrapping_shl(horizontal));
   let Ok(output_width) = index(width);
@@ -1938,15 +1703,16 @@ fn cfl_ac_rust<BD: BitDepth>(
     let Ok(row_number) = wrapped::<_, i64>(ordinal);
     let Ok(displacement) = wrapped_offset(row_advance.wrapping_mul(row_number));
     let Ok(picture) = y_src.at(displacement);
-    let Ok(above) = picture.slice::<BD>(source_width);
+    let above = picture.slice::<BD>(source_width)?;
     let (active, padding) = row
       .split_at_mut_checked(active_width)
       .ok_or(Rav1dError::EINVAL)?;
 
     match region.layout {
       Rav1dPixelLayoutSubSampled::I420 => {
-        let Ok(next) = picture.at(pixel_stride);
-        let Ok(below) = next.slice::<BD>(source_width);
+        let Ok(next_row) = wrapped_offset(stride);
+        let Ok(next) = picture.at(next_row);
+        let below = next.slice::<BD>(source_width)?;
         let top = above.as_chunks::<2>().0;
         let bottom = below.as_chunks::<2>().0;
 
@@ -2004,7 +1770,7 @@ fn pal_pred_rust<BD: BitDepth>(
 
   match (width & 1).cmp(&0) {
     core::cmp::Ordering::Equal => {}
-    _ => return Err(Rav1dError::EINVAL),
+    core::cmp::Ordering::Less | core::cmp::Ordering::Greater => return Err(Rav1dError::EINVAL),
   }
 
   let row_bytes = width.wrapping_shr(1);

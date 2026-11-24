@@ -19,9 +19,10 @@ use crate::include::dav1d::headers::Rav1dFilterMode;
 #[cfg(target_arch = "aarch64")]
 use crate::include::dav1d::headers::Rav1dPixelLayoutSubSampled;
 use crate::include::dav1d::picture::PicOffset;
-use crate::src::internal::COMPINTER_LEN;
+use crate::src::internal::CompoundPrediction;
+use crate::src::internal::MAX_COMPOUND_SAMPLES;
 #[cfg(target_arch = "aarch64")]
-use crate::src::internal::SEG_MASK_LEN;
+use crate::src::internal::SegmentMask;
 use crate::src::levels::Filter2d;
 #[cfg(target_arch = "aarch64")]
 use crate::src::mc::get_filter as get_filter_coeff;
@@ -31,8 +32,10 @@ use crate::src::strided::Strided as _;
 use console_core_video_interpolation::convolve8;
 
 use crate::src::safe_simd::mc::blend_rows::{BlendLayoutError, BlendRow, BlendSize};
+use crate::src::safe_simd::mc::{WordTapDirection, filter_word_tap_row};
 use console_core_geometry::Size;
 use console_core_number_conversion::wrapped;
+use console_core_simd::Simd;
 use zerocopy::{FromBytes, IntoBytes, KnownLayout};
 
 struct CompoundBlock<'a> {
@@ -1958,33 +1961,6 @@ fn get_v_filter_type(filter: Filter2d) -> Rav1dFilterMode {
   }
 }
 
-#[cfg_attr(
-  dylint_lib = "explicit080_macro_budget",
-  expect(
-    explicit080_macro_budget,
-    reason = "one 8-bit NEON put wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients"
-  )
-)]
-macro_rules! define_put_8tap_8bpc {
-  ($name:ident, $filter:expr) => {};
-}
-
-define_put_8tap_8bpc!(put_8tap_regular_8bpc_neon, Filter2d::Regular8Tap);
-define_put_8tap_8bpc!(
-  put_8tap_regular_smooth_8bpc_neon,
-  Filter2d::RegularSmooth8Tap
-);
-define_put_8tap_8bpc!(put_8tap_regular_sharp_8bpc_neon, Filter2d::RegularSharp8Tap);
-define_put_8tap_8bpc!(
-  put_8tap_smooth_regular_8bpc_neon,
-  Filter2d::SmoothRegular8Tap
-);
-define_put_8tap_8bpc!(put_8tap_smooth_8bpc_neon, Filter2d::Smooth8Tap);
-define_put_8tap_8bpc!(put_8tap_smooth_sharp_8bpc_neon, Filter2d::SmoothSharp8Tap);
-define_put_8tap_8bpc!(put_8tap_sharp_regular_8bpc_neon, Filter2d::SharpRegular8Tap);
-define_put_8tap_8bpc!(put_8tap_sharp_smooth_8bpc_neon, Filter2d::SharpSmooth8Tap);
-define_put_8tap_8bpc!(put_8tap_sharp_8bpc_neon, Filter2d::Sharp8Tap);
-
 #[doc = r###"Vertical 8-tap filter from intermediate buffer to i16 output"###]
 #[cfg(target_arch = "aarch64")]
 #[arcane]
@@ -2182,39 +2158,6 @@ fn prep_8tap_8bpc_inner(
     }
   }
 }
-
-#[cfg_attr(
-  dylint_lib = "explicit080_macro_budget",
-  expect(
-    explicit080_macro_budget,
-    reason = "one 8-bit NEON prep wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients"
-  )
-)]
-macro_rules! define_prep_8tap_8bpc {
-  ($name:ident, $filter:expr) => {};
-}
-
-define_prep_8tap_8bpc!(prep_8tap_regular_8bpc_neon, Filter2d::Regular8Tap);
-define_prep_8tap_8bpc!(
-  prep_8tap_regular_smooth_8bpc_neon,
-  Filter2d::RegularSmooth8Tap
-);
-define_prep_8tap_8bpc!(
-  prep_8tap_regular_sharp_8bpc_neon,
-  Filter2d::RegularSharp8Tap
-);
-define_prep_8tap_8bpc!(
-  prep_8tap_smooth_regular_8bpc_neon,
-  Filter2d::SmoothRegular8Tap
-);
-define_prep_8tap_8bpc!(prep_8tap_smooth_8bpc_neon, Filter2d::Smooth8Tap);
-define_prep_8tap_8bpc!(prep_8tap_smooth_sharp_8bpc_neon, Filter2d::SmoothSharp8Tap);
-define_prep_8tap_8bpc!(
-  prep_8tap_sharp_regular_8bpc_neon,
-  Filter2d::SharpRegular8Tap
-);
-define_prep_8tap_8bpc!(prep_8tap_sharp_smooth_8bpc_neon, Filter2d::SharpSmooth8Tap);
-define_prep_8tap_8bpc!(prep_8tap_sharp_8bpc_neon, Filter2d::Sharp8Tap);
 
 #[doc = r###"Horizontal 8-tap filter to intermediate buffer (i32) for 16bpc"###]
 #[cfg(target_arch = "aarch64")]
@@ -2415,202 +2358,6 @@ fn v_filter_8tap_16bpc_neon(
   }
 }
 
-#[doc = r###"Horizontal 8-tap filter directly to output for 16bpc (H-only case)"###]
-#[cfg(target_arch = "aarch64")]
-#[arcane]
-fn h_filter_8tap_16bpc_put_neon(
-  _token: Arm64,
-  dst: &mut [u16],
-  src: &[u16],
-  w: usize,
-  filter: &[i8; 8],
-  max: u16,
-) {
-  let mut dst = dst.flex_mut();
-  let src = src.flex();
-
-  let ib = ::core::primitive::u32::cast_signed(max.leading_zeros()) - 2;
-  let irnd = 32 + ::core::primitive::i32::wrapping_shr(1i32 << (6 - ib), 1_u32);
-  let mut col = 0;
-
-  while col + 4 <= w {
-    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_explicit_element, ..] => _explicit_element,
-    });
-    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _explicit_element, ..] => _explicit_element,
-    });
-    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _explicit_element, ..] => _explicit_element,
-    });
-    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _explicit_element, ..] => _explicit_element,
-    });
-    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
-    });
-    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    });
-    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    });
-    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    });
-
-    let s0 = safe_simd::vld1_u16(src[col..][..4].try_into().unwrap());
-    let s1 = safe_simd::vld1_u16(src[col + 1..][..4].try_into().unwrap());
-    let s2 = safe_simd::vld1_u16(src[col + 2..][..4].try_into().unwrap());
-    let s3 = safe_simd::vld1_u16(src[col + 3..][..4].try_into().unwrap());
-    let s4 = safe_simd::vld1_u16(src[col + 4..][..4].try_into().unwrap());
-    let s5 = safe_simd::vld1_u16(src[col + 5..][..4].try_into().unwrap());
-    let s6 = safe_simd::vld1_u16(src[col + 6..][..4].try_into().unwrap());
-    let s7 = safe_simd::vld1_u16(src[col + 7..][..4].try_into().unwrap());
-
-    let s0_32 = vreinterpretq_s32_u32(vmovl_u16(s0));
-    let s1_32 = vreinterpretq_s32_u32(vmovl_u16(s1));
-    let s2_32 = vreinterpretq_s32_u32(vmovl_u16(s2));
-    let s3_32 = vreinterpretq_s32_u32(vmovl_u16(s3));
-    let s4_32 = vreinterpretq_s32_u32(vmovl_u16(s4));
-    let s5_32 = vreinterpretq_s32_u32(vmovl_u16(s5));
-    let s6_32 = vreinterpretq_s32_u32(vmovl_u16(s6));
-    let s7_32 = vreinterpretq_s32_u32(vmovl_u16(s7));
-
-    let mut sum = vmulq_n_s32(s0_32, c0);
-    sum = vmlaq_n_s32(sum, s1_32, c1);
-    sum = vmlaq_n_s32(sum, s2_32, c2);
-    sum = vmlaq_n_s32(sum, s3_32, c3);
-    sum = vmlaq_n_s32(sum, s4_32, c4);
-    sum = vmlaq_n_s32(sum, s5_32, c5);
-    sum = vmlaq_n_s32(sum, s6_32, c6);
-    sum = vmlaq_n_s32(sum, s7_32, c7);
-
-    let rnd_vec = vdupq_n_s32(irnd);
-    let result = vshrq_n_s32::<6>(vaddq_s32(sum, rnd_vec));
-
-    let max_vec = vdupq_n_s32(<i32 as ::core::convert::From<::core::primitive::u16>>::from(max));
-    let zero = vdupq_n_s32(0);
-    let clamped = vminq_s32(vmaxq_s32(result, zero), max_vec);
-
-    let narrow = vqmovun_s32(clamped);
-    let dst_arr: &mut [u16; 4] = (&mut dst[col..col + 4]).try_into().unwrap();
-    safe_simd::vst1_u16(dst_arr, narrow);
-    col += 4;
-  }
-
-  for _ in (::core::ops::Range { start: col, end: w }) {
-    let sum = convolve8(filter, |tap| i32::from(src[col.wrapping_add(tap)]));
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-      ::core::primitive::i32::wrapping_shr(sum + irnd, 6_u32).clamp(
-        0,
-        <i32 as ::core::convert::From<::core::primitive::u16>>::from(max),
-      ),
-    ) {
-      ::core::result::Result::Ok(converted_position) => converted_position,
-    };
-    col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
-  }
-}
-
-#[doc = r###"Vertical 8-tap filter directly from source for 16bpc (V-only case)"###]
-#[cfg(target_arch = "aarch64")]
-#[arcane]
-fn v_filter_8tap_16bpc_direct_neon(
-  _token: Arm64,
-  dst: &mut [u16],
-  src: &[u16],
-  src_stride: usize,
-  w: usize,
-  filter: &[i8; 8],
-  max: u16,
-) {
-  let mut dst = dst.flex_mut();
-  let src = src.flex();
-  let mut col = 0;
-
-  while col + 4 <= w {
-    let c0 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_explicit_element, ..] => _explicit_element,
-    });
-    let c1 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _explicit_element, ..] => _explicit_element,
-    });
-    let c2 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _explicit_element, ..] => _explicit_element,
-    });
-    let c3 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _explicit_element, ..] => _explicit_element,
-    });
-    let c4 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _explicit_element, ..] => _explicit_element,
-    });
-    let c5 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    });
-    let c6 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    });
-    let c7 = <i32 as ::core::convert::From<::core::primitive::i8>>::from(match filter {
-      &[_, _, _, _, _, _, _, _explicit_element, ..] => _explicit_element,
-    });
-
-    let r0 = safe_simd::vld1_u16(src[col..][..4].try_into().unwrap());
-    let r1 = safe_simd::vld1_u16(src[col + src_stride..][..4].try_into().unwrap());
-    let r2 = safe_simd::vld1_u16(src[col + 2 * src_stride..][..4].try_into().unwrap());
-    let r3 = safe_simd::vld1_u16(src[col + 3 * src_stride..][..4].try_into().unwrap());
-    let r4 = safe_simd::vld1_u16(src[col + 4 * src_stride..][..4].try_into().unwrap());
-    let r5 = safe_simd::vld1_u16(src[col + 5 * src_stride..][..4].try_into().unwrap());
-    let r6 = safe_simd::vld1_u16(src[col + 6 * src_stride..][..4].try_into().unwrap());
-    let r7 = safe_simd::vld1_u16(src[col + 7 * src_stride..][..4].try_into().unwrap());
-
-    let r0_32 = vreinterpretq_s32_u32(vmovl_u16(r0));
-    let r1_32 = vreinterpretq_s32_u32(vmovl_u16(r1));
-    let r2_32 = vreinterpretq_s32_u32(vmovl_u16(r2));
-    let r3_32 = vreinterpretq_s32_u32(vmovl_u16(r3));
-    let r4_32 = vreinterpretq_s32_u32(vmovl_u16(r4));
-    let r5_32 = vreinterpretq_s32_u32(vmovl_u16(r5));
-    let r6_32 = vreinterpretq_s32_u32(vmovl_u16(r6));
-    let r7_32 = vreinterpretq_s32_u32(vmovl_u16(r7));
-
-    let mut sum = vmulq_n_s32(r0_32, c0);
-    sum = vmlaq_n_s32(sum, r1_32, c1);
-    sum = vmlaq_n_s32(sum, r2_32, c2);
-    sum = vmlaq_n_s32(sum, r3_32, c3);
-    sum = vmlaq_n_s32(sum, r4_32, c4);
-    sum = vmlaq_n_s32(sum, r5_32, c5);
-    sum = vmlaq_n_s32(sum, r6_32, c6);
-    sum = vmlaq_n_s32(sum, r7_32, c7);
-
-    let rnd_vec = vdupq_n_s32(32);
-    sum = vshrq_n_s32::<6>(vaddq_s32(sum, rnd_vec));
-
-    let max_vec = vdupq_n_s32(<i32 as ::core::convert::From<::core::primitive::u16>>::from(max));
-    let zero = vdupq_n_s32(0);
-    let clamped = vminq_s32(vmaxq_s32(sum, zero), max_vec);
-
-    let narrow = vqmovun_s32(clamped);
-    let dst_arr: &mut [u16; 4] = (&mut dst[col..col + 4]).try_into().unwrap();
-    safe_simd::vst1_u16(dst_arr, narrow);
-    col += 4;
-  }
-
-  for _ in (::core::ops::Range { start: col, end: w }) {
-    let sum = convolve8(filter, |tap| {
-      i32::from(src[col.wrapping_add(tap.wrapping_mul(src_stride))])
-    });
-    dst[col] = match ::console_core_number_conversion::wrapped::<_, ::core::primitive::u16>(
-      ::core::primitive::i32::wrapping_shr(sum + 32, 6_u32).clamp(
-        0,
-        <i32 as ::core::convert::From<::core::primitive::u16>>::from(max),
-      ),
-    ) {
-      ::core::result::Result::Ok(converted_position) => converted_position,
-    };
-    col = (::core::num::Wrapping(col) + ::core::num::Wrapping(1)).0;
-  }
-}
-
 #[doc = r###"Main 8-tap put function for 16bpc"###]
 #[cfg(target_arch = "aarch64")]
 #[arcane]
@@ -2675,21 +2422,48 @@ fn put_8tap_16bpc_inner(
       }
     }
     (Some(fh), None) => {
+      let Ok(simd) = Simd::detected();
+
       for y in 0..h {
         let src_off =
           src_base.wrapping_add_signed(y.cast_signed() * src_stride.cast_signed() - 3);
         let src_row = &src[src_off..];
         let dst_row = &mut dst[y * dst_stride..][..w];
-        h_filter_8tap_16bpc_put_neon(token, dst_row, src_row, w, fh, bitdepth_max);
+
+        match filter_word_tap_row(
+          simd,
+          dst_row,
+          src_row,
+          WordTapDirection::Horizontal,
+          fh,
+          bitdepth_max,
+        ) {
+          Ok(()) => {}
+          Err(_invalid_filter_row) => return,
+        }
       }
     }
     (None, Some(fv)) => {
+      let Ok(simd) = Simd::detected();
+      let Ok(pitch) = console_core_number_conversion::fixed_index(src_stride);
+
       for y in 0..h {
         let src_off =
           src_base.wrapping_add_signed((y.cast_signed() - 3) * src_stride.cast_signed());
         let src_row = &src[src_off..];
         let dst_row = &mut dst[y * dst_stride..][..w];
-        v_filter_8tap_16bpc_direct_neon(token, dst_row, src_row, src_stride, w, fv, bitdepth_max);
+
+        match filter_word_tap_row(
+          simd,
+          dst_row,
+          src_row,
+          WordTapDirection::Vertical(pitch),
+          fv,
+          bitdepth_max,
+        ) {
+          Ok(()) => {}
+          Err(_invalid_filter_row) => return,
+        }
       }
     }
     (None, None) => {
@@ -2701,39 +2475,6 @@ fn put_8tap_16bpc_inner(
     }
   }
 }
-
-#[cfg_attr(
-  dylint_lib = "explicit080_macro_budget",
-  expect(
-    explicit080_macro_budget,
-    reason = "one 16-bit NEON put wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients"
-  )
-)]
-macro_rules! define_put_8tap_16bpc {
-  ($name:ident, $filter:expr) => {};
-}
-
-define_put_8tap_16bpc!(put_8tap_regular_16bpc_neon, Filter2d::Regular8Tap);
-define_put_8tap_16bpc!(
-  put_8tap_regular_smooth_16bpc_neon,
-  Filter2d::RegularSmooth8Tap
-);
-define_put_8tap_16bpc!(
-  put_8tap_regular_sharp_16bpc_neon,
-  Filter2d::RegularSharp8Tap
-);
-define_put_8tap_16bpc!(
-  put_8tap_smooth_regular_16bpc_neon,
-  Filter2d::SmoothRegular8Tap
-);
-define_put_8tap_16bpc!(put_8tap_smooth_16bpc_neon, Filter2d::Smooth8Tap);
-define_put_8tap_16bpc!(put_8tap_smooth_sharp_16bpc_neon, Filter2d::SmoothSharp8Tap);
-define_put_8tap_16bpc!(
-  put_8tap_sharp_regular_16bpc_neon,
-  Filter2d::SharpRegular8Tap
-);
-define_put_8tap_16bpc!(put_8tap_sharp_smooth_16bpc_neon, Filter2d::SharpSmooth8Tap);
-define_put_8tap_16bpc!(put_8tap_sharp_16bpc_neon, Filter2d::Sharp8Tap);
 
 #[doc = r###"Vertical 8-tap filter from i32 intermediate to i16 output for 16bpc prep"###]
 #[cfg(target_arch = "aarch64")]
@@ -2946,39 +2687,6 @@ fn prep_8tap_16bpc_inner(
   }
 }
 
-#[cfg_attr(
-  dylint_lib = "explicit080_macro_budget",
-  expect(
-    explicit080_macro_budget,
-    reason = "one 16-bit NEON prep wrapper definition generates the filter-specific entries with compile-time horizontal and vertical coefficients"
-  )
-)]
-macro_rules! define_prep_8tap_16bpc {
-  ($name:ident, $filter:expr) => {};
-}
-
-define_prep_8tap_16bpc!(prep_8tap_regular_16bpc_neon, Filter2d::Regular8Tap);
-define_prep_8tap_16bpc!(
-  prep_8tap_regular_smooth_16bpc_neon,
-  Filter2d::RegularSmooth8Tap
-);
-define_prep_8tap_16bpc!(
-  prep_8tap_regular_sharp_16bpc_neon,
-  Filter2d::RegularSharp8Tap
-);
-define_prep_8tap_16bpc!(
-  prep_8tap_smooth_regular_16bpc_neon,
-  Filter2d::SmoothRegular8Tap
-);
-define_prep_8tap_16bpc!(prep_8tap_smooth_16bpc_neon, Filter2d::Smooth8Tap);
-define_prep_8tap_16bpc!(prep_8tap_smooth_sharp_16bpc_neon, Filter2d::SmoothSharp8Tap);
-define_prep_8tap_16bpc!(
-  prep_8tap_sharp_regular_16bpc_neon,
-  Filter2d::SharpRegular8Tap
-);
-define_prep_8tap_16bpc!(prep_8tap_sharp_smooth_16bpc_neon, Filter2d::SharpSmooth8Tap);
-define_prep_8tap_16bpc!(prep_8tap_sharp_16bpc_neon, Filter2d::Sharp8Tap);
-
 pub(crate) enum CompoundBlendFallback {
   Disabled,
   MissingCpuFeature,
@@ -3044,11 +2752,11 @@ pub(crate) fn compound_blend_dispatch<BD: BitDepth>(
 pub fn w_mask_dispatch<BD: BitDepth>(
   layout: Rav1dPixelLayoutSubSampled,
   dst: PicOffset,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
-  mask: &mut [u8; SEG_MASK_LEN],
+  mask: &mut SegmentMask,
   sign: i32,
   bd: BD,
 ) -> bool {
@@ -3111,11 +2819,11 @@ pub(crate) fn w_mask_dispatch_inner<BD: BitDepth>(
   dst_bytes: &mut [u8],
   dst_offset: usize,
   dst_stride: isize,
-  tmp1: &[i16; COMPINTER_LEN],
-  tmp2: &[i16; COMPINTER_LEN],
+  tmp1: &CompoundPrediction,
+  tmp2: &CompoundPrediction,
   w: i32,
   h: i32,
-  mask: &mut [u8; SEG_MASK_LEN],
+  mask: &mut SegmentMask,
   sign: i32,
   bd: BD,
 ) -> bool {
@@ -3949,7 +3657,9 @@ away at both ends."###]
     let mut rep = Report::default();
 
     for &(w, h) in SIZES {
-      match { ::core::primitive::bool::then_some(w * h > COMPINTER_LEN, ()) } {
+      let Ok(capacity) = console_core_number_conversion::index(MAX_COMPOUND_SAMPLES);
+
+      match { ::core::primitive::bool::then_some(w * h > capacity, ()) } {
         ::core::option::Option::Some(()) => {
           continue;
         }
@@ -4475,7 +4185,9 @@ shapes can survive — so the oracle is simply `src/mc.rs`'s formulas with
       let bias = i32::from(BitDepth16::PREP_BIAS);
 
       'inner_for_2: for &(w, h) in SIZES {
-        match { ::core::primitive::bool::then_some(w * h > COMPINTER_LEN, ()) } {
+        let Ok(capacity) = console_core_number_conversion::index(MAX_COMPOUND_SAMPLES);
+
+        match { ::core::primitive::bool::then_some(w * h > capacity, ()) } {
           ::core::option::Option::Some(()) => {
             continue 'inner_for_2;
           }

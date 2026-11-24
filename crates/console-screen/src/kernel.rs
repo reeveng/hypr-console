@@ -23,6 +23,7 @@
 
 use std::path::{Path, PathBuf};
 
+use console_compositor::lua::MonitorRule;
 use console_core_geometry::Size;
 use console_core_never::Never;
 
@@ -72,17 +73,24 @@ impl Panel {
   pub fn block(&self, canvas: Canvas) -> Result<String, Never> {
     let Ok(mounted) = self.mounted();
     let Ok(turned) = mounted.transform();
-    let Ok(transform) = turned.number();
     let Ok(across) = self.width();
     let Ok(scale) = self.scale(canvas);
     let Ok(how) = how_it_is_mounted(mounted);
 
-    let named = &self.named;
+    let rule = MonitorRule {
+      output: &self.named,
+      size: self.mode,
+      refresh: None,
+      scale: console_compositor::setup::OutputScale(scale),
+      transform: turned,
+    };
+    let Ok(monitor) = rule.lua();
+    let Ok(touch) = rule.touch();
     let (wide, tall) = (self.mode.width, self.mode.height);
     let points = canvas.0;
 
     Ok(format!(
-            "\
+      "\
 -- This machine's panel, written by `console apply` out of what the kernel says
 -- it is. It is read after the block in hyprland.lua, which is one machine's
 -- numbers, so this is the one that stands.
@@ -103,10 +111,10 @@ impl Panel {
 -- down is one machine's, and this one is read off the panel it is about.
 --
 -- Editing this is editing a report. The next apply writes it again.
-hl.monitor({{ output = \"{named}\", mode = \"{wide}x{tall}\", position = \"auto\", scale = {scale}, transform = {transform} }})
-hl.config({{ input = {{ touchdevice = {{ output = \"{named}\", transform = {transform} }} }} }})
+{monitor}
+{touch}
 "
-        ))
+    ))
   }
 }
 

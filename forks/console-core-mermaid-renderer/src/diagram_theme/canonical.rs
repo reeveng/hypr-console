@@ -15,37 +15,40 @@ use super::{FontCatalog, FontStack, FontStyle};
 
 const RECIPE_FINGERPRINT_DOMAIN: &[u8] = b"merman-theme-recipe-v1";
 
+#[must_use]
 pub(crate) fn recipe_fingerprint(
     spec: &DiagramThemeSpec,
     catalog: &FontCatalog,
     requirements: &ThemeRequirements,
 ) -> [u8; 32] {
     let mut encoder = CanonicalEncoder::new(RECIPE_FINGERPRINT_DOMAIN);
-    encoder.field("mermaid", |encoder| encode_mermaid(encoder, spec.mermaid()));
-    encoder.field("typography", |encoder| {
-        encode_typography(encoder, spec.typography())
+    encoder.field("mermaid", |encoder_2| encode_mermaid(encoder_2, spec.mermaid()));
+    encoder.field("typography", |encoder_3| {
+        encode_typography(encoder_3, spec.typography())
     });
-    encoder.field("styles", |encoder| encode_rule_set(encoder, spec.styles()));
-    encoder.field("canvas", |encoder| encode_canvas(encoder, spec.canvas()));
-    encoder.field("effects", |encoder| encode_effects(encoder, spec.effects()));
-    encoder.field("font-catalog", |encoder| {
-        encoder.bytes(catalog.fingerprint().as_bytes())
+    encoder.field("styles", |encoder_4| encode_rule_set(encoder_4, spec.styles()));
+    encoder.field("canvas", |encoder_5| encode_canvas(encoder_5, spec.canvas()));
+    encoder.field("effects", |encoder_6| encode_effects(encoder_6, spec.effects()));
+    encoder.field("font-catalog", |encoder_7| {
+        encoder_7.bytes(catalog.fingerprint().as_bytes())
     });
-    encoder.field("requirements", |encoder| {
-        encoder.field("theme-capabilities", |encoder| {
+    encoder.field("requirements", |encoder_8| {
+        encoder_8.field("theme-capabilities", |encoder_9| {
             let required = requirements.required_capabilities().collect::<Vec<_>>();
-            encoder.sequence_len(required.len());
+            encoder_9.sequence_len(required.len());
+
             for capability in required {
-                encoder.string(capability.id());
+                encoder_9.string(capability.id());
             }
         });
-        encoder.field("text-layout-capabilities", |encoder| {
+        encoder_8.field("text-layout-capabilities", |encoder_10| {
             let text = requirements
                 .required_text_capabilities()
                 .collect::<Vec<_>>();
-            encoder.sequence_len(text.len());
+            encoder_10.sequence_len(text.len());
+
             for capability in text {
-                encoder.string(capability.id());
+                encoder_10.string(capability.id());
             }
         });
     });
@@ -54,31 +57,32 @@ pub(crate) fn recipe_fingerprint(
 
 fn encode_mermaid(encoder: &mut CanonicalEncoder, mermaid: &MermaidThemeCompatibility) {
     encoder.option_string("theme", mermaid.theme_name());
-    encoder.field("dark-mode", |encoder| match mermaid.dark_mode() {
+    encoder.field("dark-mode", |encoder_2| match mermaid.dark_mode() {
         Some(value) => {
-            encoder.byte(1);
-            encoder.boolean(value);
+            encoder_2.byte(1);
+            encoder_2.boolean(value);
         }
-        None => encoder.byte(0),
+        None => encoder_2.byte(0),
     });
     let variables = mermaid.variables().collect::<Vec<_>>();
-    encoder.field("variables", |encoder| {
-        encoder.sequence_len(variables.len());
+    encoder.field("variables", |encoder_3| {
+        encoder_3.sequence_len(variables.len());
+
         for (key, value) in variables {
-            encoder.field("variable", |encoder| {
-                encoder.field("name", |encoder| encoder.string(key));
-                encoder.field("value", |encoder| match value {
-                    MermaidThemeValue::String(value) => {
-                        encoder.field("kind", |encoder| encoder.string("string"));
-                        encoder.field("string", |encoder| encoder.string(value));
+            encoder_3.field("variable", |encoder_4| {
+                encoder_4.field("name", |encoder_5| encoder_5.string(key));
+                encoder_4.field("value", |encoder_6| match value {
+                    MermaidThemeValue::String(value_2) => {
+                        encoder_6.field("kind", |encoder_7| encoder_7.string("string"));
+                        encoder_6.field("string", |encoder_8| encoder_8.string(value_2));
                     }
-                    MermaidThemeValue::Number(value) => {
-                        encoder.field("kind", |encoder| encoder.string("number"));
-                        encoder.field("number", |encoder| encoder.f64(*value));
+                    MermaidThemeValue::Number(value_3) => {
+                        encoder_6.field("kind", |encoder_9| encoder_9.string("number"));
+                        encoder_6.field("number", |encoder_10| encoder_10.f64(*value_3));
                     }
-                    MermaidThemeValue::Boolean(value) => {
-                        encoder.field("kind", |encoder| encoder.string("boolean"));
-                        encoder.field("boolean", |encoder| encoder.boolean(*value));
+                    MermaidThemeValue::Boolean(value_4) => {
+                        encoder_6.field("kind", |encoder_11| encoder_11.string("boolean"));
+                        encoder_6.field("boolean", |encoder_12| encoder_12.boolean(*value_4));
                     }
                 });
             });
@@ -87,122 +91,128 @@ fn encode_mermaid(encoder: &mut CanonicalEncoder, mermaid: &MermaidThemeCompatib
 }
 
 fn encode_typography(encoder: &mut CanonicalEncoder, typography: &TypographySpec) {
-    encoder.field("default", |encoder| {
-        encode_text_style(encoder, typography.default_style())
+    encoder.field("default", |encoder_2| {
+        encode_text_style(encoder_2, typography.default_style())
     });
     let overrides = typography.family_overrides().collect::<Vec<_>>();
-    encoder.field("family-overrides", |encoder| {
-        encoder.sequence_len(overrides.len());
+    encoder.field("family-overrides", |encoder_3| {
+        encoder_3.sequence_len(overrides.len());
+
         for (family, style) in overrides {
-            encoder.field("family-override", |encoder| {
-                encoder.field("family", |encoder| encoder.string(family));
-                encoder.field("style", |encoder| encode_text_style(encoder, style));
+            encoder_3.field("family-override", |encoder_4| {
+                encoder_4.field("family", |encoder_5| encoder_5.string(family));
+                encoder_4.field("style", |encoder_6| encode_text_style(encoder_6, style));
             });
         }
     });
 }
 
 fn encode_text_style(encoder: &mut CanonicalEncoder, style: &TextStyle) {
-    encoder.field("specified-properties", |encoder| {
+    encoder.field("specified-properties", |encoder_2| {
         let properties = style.specified_properties().collect::<Vec<_>>();
-        encoder.sequence_len(properties.len());
+        encoder_2.sequence_len(properties.len());
+
         for property in properties {
-            encoder.string(property.id());
+            encoder_2.string(property.id());
         }
     });
-    encoder.field("font-stack", |encoder| {
-        encode_font_stack(encoder, style.font_stack())
+    encoder.field("font-stack", |encoder_3| {
+        encode_font_stack(encoder_3, style.font_stack())
     });
-    encoder.field("font-size-px", |encoder| encoder.f32(style.font_size_px()));
-    encoder.field("font-weight", |encoder| {
-        encoder.u64(u64::from(style.font_weight()))
+    encoder.field("font-size-px", |encoder_4| encoder_4.f32(style.font_size_px()));
+    encoder.field("font-weight", |encoder_5| {
+        encoder_5.u64(u64::from(style.font_weight()))
     });
-    encoder.field("font-style", |encoder| {
-        encoder.string(style.font_style().id())
+    encoder.field("font-style", |encoder_6| {
+        encoder_6.string(style.font_style().id())
     });
-    encoder.field("line-height", |encoder| {
-        encode_line_height(encoder, style.line_height())
+    encoder.field("line-height", |encoder_7| {
+        encode_line_height(encoder_7, style.line_height())
     });
-    encoder.field("letter-spacing-px", |encoder| {
-        encoder.f32(style.letter_spacing_px())
+    encoder.field("letter-spacing-px", |encoder_8| {
+        encoder_8.f32(style.letter_spacing_px())
     });
-    encoder.field("word-spacing-px", |encoder| {
-        encoder.f32(style.word_spacing_px())
+    encoder.field("word-spacing-px", |encoder_9| {
+        encoder_9.f32(style.word_spacing_px())
     });
-    encoder.field("transform", |encoder| {
-        encoder.string(text_transform_id(style.transform()))
+    encoder.field("transform", |encoder_10| {
+        encoder_10.string(text_transform_id(style.transform()))
     });
-    encoder.field("decoration", |encoder| {
-        encoder.string(text_decoration_id(style.decoration()))
+    encoder.field("decoration", |encoder_11| {
+        encoder_11.string(text_decoration_id(style.decoration()))
     });
-    encoder.field("text-align", |encoder| {
-        encoder.string(text_align_id(style.text_align()))
+    encoder.field("text-align", |encoder_12| {
+        encoder_12.string(text_align_id(style.text_align()))
     });
-    encoder.field("white-space", |encoder| {
-        encoder.string(white_space_id(style.white_space()))
+    encoder.field("white-space", |encoder_13| {
+        encoder_13.string(white_space_id(style.white_space()))
     });
-    encoder.field("wrap", |encoder| encoder.string(wrap_mode_id(style.wrap())));
+    encoder.field("wrap", |encoder_14| encoder_14.string(wrap_mode_id(style.wrap())));
 }
 
 fn encode_font_stack(encoder: &mut CanonicalEncoder, stack: &FontStack) {
-    encoder.field("families", |encoder| {
-        encoder.sequence_len(stack.families().len());
+    encoder.field("families", |encoder_2| {
+        encoder_2.sequence_len(stack.families().len());
+
         for family in stack.families() {
-            encoder.string(family);
+            encoder_2.string(family);
         }
     });
 }
 
 fn encode_line_height(encoder: &mut CanonicalEncoder, line_height: LineHeight) {
     match line_height {
-        LineHeight::Normal => encoder.field("kind", |encoder| encoder.string("normal")),
+        LineHeight::Normal => encoder.field("kind", |encoder_2| encoder_2.string("normal")),
         LineHeight::Multiplier(value) => {
-            encoder.field("kind", |encoder| encoder.string("multiplier"));
-            encoder.field("value", |encoder| encoder.f32(value));
+            encoder.field("kind", |encoder_3| encoder_3.string("multiplier"));
+            encoder.field("value", |encoder_4| encoder_4.f32(value));
         }
         LineHeight::Px(value) => {
-            encoder.field("kind", |encoder| encoder.string("px"));
-            encoder.field("value", |encoder| encoder.f32(value));
+            encoder.field("kind", |encoder_5| encoder_5.string("px"));
+            encoder.field("value", |encoder_6| encoder_6.f32(value));
         }
     }
 }
 
 fn encode_rule_set(encoder: &mut CanonicalEncoder, rules: &ThemeRuleSet) {
-    encoder.field("rules", |encoder| {
-        encoder.sequence_len(rules.rules().len());
+    encoder.field("rules", |encoder_2| {
+        encoder_2.sequence_len(rules.rules().len());
+
         for rule in rules.rules() {
-            encoder.field("rule", |encoder| {
-                encoder.field("target", |encoder| encoder.string(rule.target().id()));
-                encoder.option_string("family", rule.family().map(|family| family.as_str()));
-                encoder.option_string("variant", rule.variant().map(|variant| variant.id()));
-                encoder.field("ordinal", |encoder| match rule.ordinal() {
-                    None => encoder.byte(0),
+            encoder_2.field("rule", |encoder_3| {
+                encoder_3.field("target", |encoder_4| encoder_4.string(rule.target().id()));
+                encoder_3.option_string("family", rule.family().map(|family| family.as_str()));
+                encoder_3.option_string("variant", rule.variant().map(|variant| variant.id()));
+                encoder_3.field("ordinal", |encoder_5| match rule.ordinal() {
+                    None => encoder_5.byte(0),
                     Some(OrdinalSelector::Exact(index)) => {
-                        encoder.byte(1);
-                        encoder.field("index", |encoder| encoder.usize(index));
+                        encoder_5.byte(1);
+                        encoder_5.field("index", |encoder_6| encoder_6.usize(index));
                     }
                     Some(OrdinalSelector::Cycle { period, offset }) => {
-                        encoder.byte(2);
-                        encoder.field("period", |encoder| encoder.usize(period));
-                        encoder.field("offset", |encoder| encoder.usize(offset));
+                        encoder_5.byte(2);
+                        encoder_5.field("period", |encoder_7| encoder_7.usize(period));
+                        encoder_5.field("offset", |encoder_8| encoder_8.usize(offset));
                     }
                 });
-                encoder.field("style", |encoder| encode_style_patch(encoder, rule.style()));
+                encoder_3.field("style", |encoder_9| encode_style_patch(encoder_9, rule.style()));
             });
         }
     });
 
     let mut palettes = rules.ordinal_palettes().iter().collect::<Vec<_>>();
     palettes.sort_by_key(|(target, _)| target.id());
-    encoder.field("ordinal-palettes", |encoder| {
-        encoder.sequence_len(palettes.len());
+    encoder.field("ordinal-palettes", |encoder_10| {
+        encoder_10.sequence_len(palettes.len());
+
         for (target, palette) in palettes {
-            encoder.field("ordinal-palette", |encoder| {
-                encoder.field("target", |encoder| encoder.string(target.id()));
-                encoder.field("colors", |encoder| {
-                    encoder.sequence_len(palette.colors().len());
+            encoder_10.field("ordinal-palette", |encoder_11| {
+                encoder_11.field("target", |encoder_12| encoder_12.string(target.id()));
+                encoder_11.field("colors", |encoder_13| {
+                    encoder_13.sequence_len(palette.colors().len());
+
                     for color in palette.colors() {
-                        encode_color(encoder, color);
+                        encode_color(encoder_13, color);
                     }
                 });
             });
@@ -219,178 +229,189 @@ fn encode_style_patch(encoder: &mut CanonicalEncoder, style: &ThemeStylePatch) {
     encoder.specified(
         "stroke-dasharray",
         &style.stroke.dasharray,
-        |encoder, values| {
-            encoder.sequence_len(values.len());
+        |encoder_2, values| {
+            encoder_2.sequence_len(values.len());
+
             for value in values {
-                encoder.f32(*value);
+                encoder_2.f32(*value);
             }
         },
     );
-    encoder.specified("stroke-linecap", &style.stroke.linecap, |encoder, value| {
-        encoder.string(stroke_linecap_id(*value));
+    encoder.specified("stroke-linecap", &style.stroke.linecap, |encoder_3, value| {
+        encoder_3.string(stroke_linecap_id(*value));
     });
     encoder.specified(
         "stroke-linejoin",
         &style.stroke.linejoin,
-        |encoder, value| {
-            encoder.string(stroke_linejoin_id(*value));
+        |encoder_4, value| {
+            encoder_4.string(stroke_linejoin_id(*value));
         },
     );
     encoder.specified_f32("stroke-opacity", &style.stroke.stroke_opacity);
     encoder.specified_f32("radius", &style.geometry.radius);
-    encoder.specified("padding", &style.spacing.padding, |encoder, value| {
-        encode_insets(encoder, *value)
+    encoder.specified("padding", &style.spacing.padding, |encoder_5, value| {
+        encode_insets(encoder_5, *value)
     });
     encode_text_style_patch(encoder, &style.typography);
-    encoder.specified("effect", &style.effects.effect, |encoder, value| {
-        encoder.string(value)
+    encoder.specified("effect", &style.effects.effect, |encoder_6, value| {
+        encoder_6.string(value)
     });
 }
 
 fn encode_text_style_patch(encoder: &mut CanonicalEncoder, style: &TextStylePatch) {
     encoder.specified("font-stack", &style.font_stack, encode_font_stack);
     encoder.specified_f32("font-size", &style.font_size_px);
-    encoder.specified("font-weight", &style.font_weight, |encoder, value| {
-        encoder.u64(u64::from(*value))
+    encoder.specified("font-weight", &style.font_weight, |encoder_2, value| {
+        encoder_2.u64(u64::from(*value))
     });
-    encoder.specified("font-style", &style.font_style, |encoder, value| {
-        encoder.string(font_style_id(*value))
+    encoder.specified("font-style", &style.font_style, |encoder_3, value| {
+        encoder_3.string(font_style_id(*value))
     });
-    encoder.specified("line-height", &style.line_height, |encoder, value| {
-        encode_line_height(encoder, *value)
+    encoder.specified("line-height", &style.line_height, |encoder_4, value| {
+        encode_line_height(encoder_4, *value)
     });
     encoder.specified_f32("letter-spacing", &style.letter_spacing_px);
     encoder.specified_f32("word-spacing", &style.word_spacing_px);
-    encoder.specified("transform", &style.transform, |encoder, value| {
-        encoder.string(text_transform_id(*value))
+    encoder.specified("transform", &style.transform, |encoder_5, value| {
+        encoder_5.string(text_transform_id(*value))
     });
-    encoder.specified("decoration", &style.decoration, |encoder, value| {
-        encoder.string(text_decoration_id(*value))
+    encoder.specified("decoration", &style.decoration, |encoder_6, value| {
+        encoder_6.string(text_decoration_id(*value))
     });
-    encoder.specified("text-align", &style.text_align, |encoder, value| {
-        encoder.string(text_align_id(*value))
+    encoder.specified("text-align", &style.text_align, |encoder_7, value| {
+        encoder_7.string(text_align_id(*value))
     });
-    encoder.specified("white-space", &style.white_space, |encoder, value| {
-        encoder.string(white_space_id(*value))
+    encoder.specified("white-space", &style.white_space, |encoder_8, value| {
+        encoder_8.string(white_space_id(*value))
     });
-    encoder.specified("wrap", &style.wrap, |encoder, value| {
-        encoder.string(wrap_mode_id(*value))
+    encoder.specified("wrap", &style.wrap, |encoder_9, value| {
+        encoder_9.string(wrap_mode_id(*value))
     });
 }
 
 fn encode_canvas(encoder: &mut CanonicalEncoder, canvas: &CanvasSpec) {
-    encoder.field("base-specified", |encoder| {
-        encoder.boolean(canvas.has_explicit_base())
+    encoder.field("base-specified", |encoder_2| {
+        encoder_2.boolean(canvas.has_explicit_base())
     });
-    encoder.field("base", |encoder| {
-        encode_canvas_paint(encoder, canvas.base())
+    encoder.field("base", |encoder_3| {
+        encode_canvas_paint(encoder_3, canvas.base())
     });
-    encoder.field("layers", |encoder| {
-        encoder.sequence_len(canvas.layers().len());
+    encoder.field("layers", |encoder_4| {
+        encoder_4.sequence_len(canvas.layers().len());
+
         for layer in canvas.layers() {
-            encoder.field("layer", |encoder| {
-                encoder.field("paint", |encoder| {
-                    encode_canvas_paint(encoder, layer.paint())
+            encoder_4.field("layer", |encoder_5| {
+                encoder_5.field("paint", |encoder_6| {
+                    encode_canvas_paint(encoder_6, layer.paint())
                 });
-                encoder.field("opacity", |encoder| encoder.f32(layer.opacity()));
-                encoder.field("blend-mode", |encoder| {
-                    encoder.string(layer.blend_mode().as_svg())
+                encoder_5.field("opacity", |encoder_7| encoder_7.f32(layer.opacity()));
+                encoder_5.field("blend-mode", |encoder_8| {
+                    encoder_8.string(layer.blend_mode().as_svg())
                 });
                 let (offset_x, offset_y) = layer.offset();
-                encoder.field("offset-x", |encoder| encoder.f32(offset_x));
-                encoder.field("offset-y", |encoder| encoder.f32(offset_y));
+                encoder_5.field("offset-x", |encoder_9| encoder_9.f32(offset_x));
+                encoder_5.field("offset-y", |encoder_10| encoder_10.f32(offset_y));
             });
         }
     });
-    encoder.field("bleed", |encoder| encode_insets(encoder, canvas.bleed()));
+    encoder.field("bleed", |encoder_11| encode_insets(encoder_11, canvas.bleed()));
 }
 
 fn encode_canvas_paint(encoder: &mut CanonicalEncoder, paint: &CanvasPaint) {
     match paint {
         CanvasPaint::Transparent => {
-            encoder.field("kind", |encoder| encoder.string("transparent"));
+            encoder.field("kind", |encoder_2| encoder_2.string("transparent"));
         }
         CanvasPaint::Solid(color) => {
-            encoder.field("kind", |encoder| encoder.string("solid"));
-            encoder.field("color", |encoder| encode_color(encoder, color));
+            encoder.field("kind", |encoder_3| encoder_3.string("solid"));
+            encoder.field("color", |encoder_4| encode_color(encoder_4, color));
         }
         CanvasPaint::LinearGradient(gradient) => {
-            encoder.field("kind", |encoder| encoder.string("linear-gradient"));
-            encoder.field("angle-degrees", |encoder| {
-                encoder.f32(gradient.angle_degrees())
+            encoder.field("kind", |encoder_5| encoder_5.string("linear-gradient"));
+            encoder.field("angle-degrees", |encoder_6| {
+                encoder_6.f32(gradient.angle_degrees())
             });
-            encoder.field("stops", |encoder| {
-                encode_gradient_stops(encoder, gradient.stops())
+            encoder.field("stops", |encoder_7| {
+                encode_gradient_stops(encoder_7, gradient.stops())
             });
-            if let Some(period_px) = gradient.repeating_period_px() {
-                encoder.field("repetition", |encoder| {
-                    encoder.field("kind", |encoder| encoder.string("repeating"));
-                    encoder.field("period-px", |encoder| encoder.f32(period_px));
-                });
-            } else if let Some((width_px, height_px)) = gradient.tile_size_px() {
-                encode_gradient_tile(encoder, width_px, height_px);
+
+            match gradient.repeating_period_px() {
+                Some(period_px) => {
+                    encoder.field("repetition", |encoder_8| {
+                        encoder_8.field("kind", |encoder_9| encoder_9.string("repeating"));
+                        encoder_8.field("period-px", |encoder_10| encoder_10.f32(period_px));
+                    });
+                },
+                ::core::option::Option::None => match gradient.tile_size_px() {
+                    Some((width_px, height_px)) => {
+                        encode_gradient_tile(encoder, width_px, height_px);
+                    },
+                    ::core::option::Option::None => {},
+                },
             }
         }
         CanvasPaint::RadialGradient(gradient) => {
-            encoder.field("kind", |encoder| encoder.string("radial-gradient"));
-            encoder.field("center-x", |encoder| {
-                encode_length(encoder, gradient.center_x())
+            encoder.field("kind", |encoder_11| encoder_11.string("radial-gradient"));
+            encoder.field("center-x", |encoder_12| {
+                encode_length(encoder_12, gradient.center_x())
             });
-            encoder.field("center-y", |encoder| {
-                encode_length(encoder, gradient.center_y())
+            encoder.field("center-y", |encoder_13| {
+                encode_length(encoder_13, gradient.center_y())
             });
-            encoder.field("radius", |encoder| {
-                encode_length(encoder, gradient.radius())
+            encoder.field("radius", |encoder_14| {
+                encode_length(encoder_14, gradient.radius())
             });
-            encoder.field("stops", |encoder| {
-                encode_gradient_stops(encoder, gradient.stops())
+            encoder.field("stops", |encoder_15| {
+                encode_gradient_stops(encoder_15, gradient.stops())
             });
+
             if gradient.is_repeating() {
-                encoder.field("repetition", |encoder| {
-                    encoder.field("kind", |encoder| encoder.string("repeating"));
+                encoder.field("repetition", |encoder_16| {
+                    encoder_16.field("kind", |encoder_17| encoder_17.string("repeating"));
                 });
             } else if let Some((width_px, height_px)) = gradient.tile_size_px() {
                 encode_gradient_tile(encoder, width_px, height_px);
             }
         }
         CanvasPaint::Pattern(pattern) => {
-            encoder.field("kind", |encoder| encoder.string("pattern"));
-            encoder.field("pattern-kind", |encoder| {
-                encoder.string(pattern_kind_id(pattern.kind()))
+            encoder.field("kind", |encoder_18| encoder_18.string("pattern"));
+            encoder.field("pattern-kind", |encoder_19| {
+                encoder_19.string(pattern_kind_id(pattern.kind()))
             });
-            encoder.field("cell-width", |encoder| encoder.f32(pattern.cell_width()));
-            encoder.field("cell-height", |encoder| encoder.f32(pattern.cell_height()));
-            encoder.field("foreground", |encoder| {
-                encode_color(encoder, pattern.foreground())
+            encoder.field("cell-width", |encoder_20| encoder_20.f32(pattern.cell_width()));
+            encoder.field("cell-height", |encoder_21| encoder_21.f32(pattern.cell_height()));
+            encoder.field("foreground", |encoder_22| {
+                encode_color(encoder_22, pattern.foreground())
             });
-            encoder.field("background", |encoder| match pattern.background() {
+            encoder.field("background", |encoder_23| match pattern.background() {
                 Some(color) => {
-                    encoder.byte(1);
-                    encode_color(encoder, color);
+                    encoder_23.byte(1);
+                    encode_color(encoder_23, color);
                 }
-                None => encoder.byte(0),
+                None => encoder_23.byte(0),
             });
-            encoder.field("angle-degrees", |encoder| {
-                encoder.f32(pattern.angle_degrees())
+            encoder.field("angle-degrees", |encoder_24| {
+                encoder_24.f32(pattern.angle_degrees())
             });
         }
     }
 }
 
 fn encode_gradient_tile(encoder: &mut CanonicalEncoder, width_px: f32, height_px: f32) {
-    encoder.field("repetition", |encoder| {
-        encoder.field("kind", |encoder| encoder.string("tiled"));
-        encoder.field("width-px", |encoder| encoder.f32(width_px));
-        encoder.field("height-px", |encoder| encoder.f32(height_px));
+    encoder.field("repetition", |encoder_2| {
+        encoder_2.field("kind", |encoder_3| encoder_3.string("tiled"));
+        encoder_2.field("width-px", |encoder_4| encoder_4.f32(width_px));
+        encoder_2.field("height-px", |encoder_5| encoder_5.f32(height_px));
     });
 }
 
 fn encode_gradient_stops(encoder: &mut CanonicalEncoder, stops: &[super::GradientStop]) {
     encoder.sequence_len(stops.len());
+
     for stop in stops {
-        encoder.field("stop", |encoder| {
-            encoder.field("offset", |encoder| encoder.f32(stop.offset()));
-            encoder.field("color", |encoder| encode_color(encoder, stop.color()));
+        encoder.field("stop", |encoder_2| {
+            encoder_2.field("offset", |encoder_3| encoder_3.f32(stop.offset()));
+            encoder_2.field("color", |encoder_4| encode_color(encoder_4, stop.color()));
         });
     }
 }
@@ -398,21 +419,21 @@ fn encode_gradient_stops(encoder: &mut CanonicalEncoder, stops: &[super::Gradien
 fn encode_length(encoder: &mut CanonicalEncoder, length: ThemeLength) {
     match length {
         ThemeLength::Px(value) => {
-            encoder.field("unit", |encoder| encoder.string("px"));
-            encoder.field("value", |encoder| encoder.f32(value));
+            encoder.field("unit", |encoder_2| encoder_2.string("px"));
+            encoder.field("value", |encoder_3| encoder_3.f32(value));
         }
         ThemeLength::Percent(value) => {
-            encoder.field("unit", |encoder| encoder.string("percent"));
-            encoder.field("value", |encoder| encoder.f32(value));
+            encoder.field("unit", |encoder_4| encoder_4.string("percent"));
+            encoder.field("value", |encoder_5| encoder_5.f32(value));
         }
     }
 }
 
 fn encode_insets(encoder: &mut CanonicalEncoder, insets: InsetsPx) {
-    encoder.field("top", |encoder| encoder.f32(insets.top));
-    encoder.field("right", |encoder| encoder.f32(insets.right));
-    encoder.field("bottom", |encoder| encoder.f32(insets.bottom));
-    encoder.field("left", |encoder| encoder.f32(insets.left));
+    encoder.field("top", |encoder_2| encoder_2.f32(insets.top));
+    encoder.field("right", |encoder_3| encoder_3.f32(insets.right));
+    encoder.field("bottom", |encoder_4| encoder_4.f32(insets.bottom));
+    encoder.field("left", |encoder_5| encoder_5.f32(insets.left));
 }
 
 fn encode_color(encoder: &mut CanonicalEncoder, color: &ThemeColorValue) {
@@ -422,23 +443,27 @@ fn encode_color(encoder: &mut CanonicalEncoder, color: &ThemeColorValue) {
 fn encode_effects(encoder: &mut CanonicalEncoder, effects: &DiagramEffectSet) {
     let mut graphs = effects.graphs().iter().collect::<Vec<_>>();
     graphs.sort_by_key(|graph| graph.id());
-    encoder.field("graphs", |encoder| {
-        encoder.sequence_len(graphs.len());
+    encoder.field("graphs", |encoder_2| {
+        encoder_2.sequence_len(graphs.len());
+
         for graph in graphs {
-            encoder.field("graph", |encoder| {
-                encoder.field("id", |encoder| encoder.string(graph.id()));
-                // The historical default retains its identity; explicit sRGB is a semantic input.
+            encoder_2.field("graph", |encoder_3| {
+                encoder_3.field("id", |encoder_4| encoder_4.string(graph.id()));
+
                 if graph.color_space() != super::EffectColorSpace::LinearRgb {
-                    encoder.field("color-space", |encoder| encoder.string("srgb"));
+                    encoder_3.field("color-space", |encoder_5| encoder_5.string("srgb"));
                 }
+
                 if graph.composition() == super::EffectComposition::Independent {
-                    encoder.field("composition", |encoder| encoder.string("independent"));
+                    encoder_3.field("composition", |encoder_6| encoder_6.string("independent"));
                 }
-                encoder.field("primitives", |encoder| {
-                    encoder.sequence_len(graph.primitives().len());
+
+                encoder_3.field("primitives", |encoder_7| {
+                    encoder_7.sequence_len(graph.primitives().len());
+
                     for primitive in graph.primitives() {
-                        encoder.field("primitive", |encoder| {
-                            encode_effect_primitive(encoder, primitive)
+                        encoder_7.field("primitive", |encoder_8| {
+                            encode_effect_primitive(encoder_8, primitive)
                         });
                     }
                 });
@@ -448,12 +473,13 @@ fn encode_effects(encoder: &mut CanonicalEncoder, effects: &DiagramEffectSet) {
 
     let mut bindings = effects.bindings().iter().collect::<Vec<_>>();
     bindings.sort_by_key(|binding| (binding.target().id(), binding.effect_id()));
-    encoder.field("bindings", |encoder| {
-        encoder.sequence_len(bindings.len());
+    encoder.field("bindings", |encoder_9| {
+        encoder_9.sequence_len(bindings.len());
+
         for binding in bindings {
-            encoder.field("binding", |encoder| {
-                encoder.field("target", |encoder| encoder.string(binding.target().id()));
-                encoder.field("effect-id", |encoder| encoder.string(binding.effect_id()));
+            encoder_9.field("binding", |encoder_10| {
+                encoder_10.field("target", |encoder_11| encoder_11.string(binding.target().id()));
+                encoder_10.field("effect-id", |encoder_12| encoder_12.string(binding.effect_id()));
             });
         }
     });
@@ -469,29 +495,30 @@ fn encode_effect_primitive(encoder: &mut CanonicalEncoder, primitive: &EffectPri
             spread,
             color,
         } => {
-            encoder.field("kind", |encoder| encoder.string("drop-shadow"));
-            encoder.field("input", |encoder| encoder.string(effect_input_id(*input)));
-            encoder.field("offset-x", |encoder| encoder.f32(*offset_x));
-            encoder.field("offset-y", |encoder| encoder.f32(*offset_y));
-            encoder.field("blur-radius", |encoder| encoder.f32(*blur_radius));
-            encoder.field("spread", |encoder| encoder.f32(*spread));
-            encoder.field("color", |encoder| encode_color(encoder, color));
+            encoder.field("kind", |encoder_2| encoder_2.string("drop-shadow"));
+            encoder.field("input", |encoder_3| encoder_3.string(effect_input_id(*input)));
+            encoder.field("offset-x", |encoder_4| encoder_4.f32(*offset_x));
+            encoder.field("offset-y", |encoder_5| encoder_5.f32(*offset_y));
+            encoder.field("blur-radius", |encoder_6| encoder_6.f32(*blur_radius));
+            encoder.field("spread", |encoder_7| encoder_7.f32(*spread));
+            encoder.field("color", |encoder_8| encode_color(encoder_8, color));
         }
         EffectPrimitive::GaussianBlur {
             input,
             std_deviation,
         } => {
-            encoder.field("kind", |encoder| encoder.string("gaussian-blur"));
-            encoder.field("input", |encoder| encoder.string(effect_input_id(*input)));
-            encoder.field("std-deviation", |encoder| encoder.f32(*std_deviation));
+            encoder.field("kind", |encoder_9| encoder_9.string("gaussian-blur"));
+            encoder.field("input", |encoder_10| encoder_10.string(effect_input_id(*input)));
+            encoder.field("std-deviation", |encoder_11| encoder_11.f32(*std_deviation));
         }
         EffectPrimitive::ColorMatrix { input, values } => {
-            encoder.field("kind", |encoder| encoder.string("color-matrix"));
-            encoder.field("input", |encoder| encoder.string(effect_input_id(*input)));
-            encoder.field("values", |encoder| {
-                encoder.sequence_len(values.len());
+            encoder.field("kind", |encoder_12| encoder_12.string("color-matrix"));
+            encoder.field("input", |encoder_13| encoder_13.string(effect_input_id(*input)));
+            encoder.field("values", |encoder_14| {
+                encoder_14.sequence_len(values.len());
+
                 for value in values {
-                    encoder.f32(*value);
+                    encoder_14.f32(*value);
                 }
             });
         }
@@ -502,28 +529,29 @@ fn encode_effect_primitive(encoder: &mut CanonicalEncoder, primitive: &EffectPri
             octaves,
             seed,
         } => {
-            encoder.field("kind", |encoder| encoder.string("turbulence"));
-            encoder.field("input", |encoder| encoder.string(effect_input_id(*input)));
-            encoder.field("base-frequency-x", |encoder| encoder.f32(*base_frequency_x));
-            encoder.field("base-frequency-y", |encoder| encoder.f32(*base_frequency_y));
-            encoder.field("octaves", |encoder| encoder.u64(u64::from(*octaves)));
-            encoder.field("seed", |encoder| encoder.i64(i64::from(*seed)));
+            encoder.field("kind", |encoder_15| encoder_15.string("turbulence"));
+            encoder.field("input", |encoder_16| encoder_16.string(effect_input_id(*input)));
+            encoder.field("base-frequency-x", |encoder_17| encoder_17.f32(*base_frequency_x));
+            encoder.field("base-frequency-y", |encoder_18| encoder_18.f32(*base_frequency_y));
+            encoder.field("octaves", |encoder_19| encoder_19.u64(u64::from(*octaves)));
+            encoder.field("seed", |encoder_20| encoder_20.i64(i64::from(*seed)));
         }
         EffectPrimitive::Displacement {
             input,
             map_input,
             scale,
         } => {
-            encoder.field("kind", |encoder| encoder.string("displacement"));
-            encoder.field("input", |encoder| encoder.string(effect_input_id(*input)));
-            encoder.field("map-input", |encoder| {
-                encoder.string(effect_input_id(*map_input))
+            encoder.field("kind", |encoder_21| encoder_21.string("displacement"));
+            encoder.field("input", |encoder_22| encoder_22.string(effect_input_id(*input)));
+            encoder.field("map-input", |encoder_23| {
+                encoder_23.string(effect_input_id(*map_input))
             });
-            encoder.field("scale", |encoder| encoder.f32(*scale));
+            encoder.field("scale", |encoder_24| encoder_24.f32(*scale));
         }
     }
 }
 
+#[must_use]
 fn pattern_kind_id(kind: PatternKind) -> &'static str {
     match kind {
         PatternKind::Dots => "dots",
@@ -532,6 +560,7 @@ fn pattern_kind_id(kind: PatternKind) -> &'static str {
     }
 }
 
+#[must_use]
 fn effect_input_id(input: EffectInput) -> &'static str {
     match input {
         EffectInput::SourceGraphic => "source-graphic",
@@ -539,18 +568,22 @@ fn effect_input_id(input: EffectInput) -> &'static str {
     }
 }
 
+#[must_use]
 fn stroke_linecap_id(value: StrokeLineCap) -> &'static str {
     value.id()
 }
 
+#[must_use]
 fn stroke_linejoin_id(value: StrokeLineJoin) -> &'static str {
     value.id()
 }
 
+#[must_use]
 fn font_style_id(value: FontStyle) -> &'static str {
     value.id()
 }
 
+#[must_use]
 fn text_transform_id(value: TextTransform) -> &'static str {
     match value {
         TextTransform::None => "none",
@@ -560,6 +593,7 @@ fn text_transform_id(value: TextTransform) -> &'static str {
     }
 }
 
+#[must_use]
 fn text_decoration_id(value: TextDecoration) -> &'static str {
     match value {
         TextDecoration::None => "none",
@@ -569,6 +603,7 @@ fn text_decoration_id(value: TextDecoration) -> &'static str {
     }
 }
 
+#[must_use]
 fn text_align_id(value: TextAlign) -> &'static str {
     match value {
         TextAlign::Start => "start",
@@ -577,6 +612,7 @@ fn text_align_id(value: TextAlign) -> &'static str {
     }
 }
 
+#[must_use]
 fn white_space_id(value: WhiteSpace) -> &'static str {
     match value {
         WhiteSpace::Normal => "normal",
@@ -587,6 +623,7 @@ fn white_space_id(value: WhiteSpace) -> &'static str {
     }
 }
 
+#[must_use]
 fn wrap_mode_id(value: WrapMode) -> &'static str {
     match value {
         WrapMode::Normal => "normal",
@@ -600,6 +637,7 @@ struct CanonicalEncoder {
 }
 
 impl CanonicalEncoder {
+    #[must_use]
     fn new(domain: &[u8]) -> Self {
         let mut encoder = Self {
             hasher: Sha256::default(),
@@ -608,6 +646,7 @@ impl CanonicalEncoder {
         encoder
     }
 
+    #[must_use]
     fn finish(self) -> [u8; 32] {
         let Ok(digest) = self.hasher.finalize();
         digest
@@ -620,9 +659,9 @@ impl CanonicalEncoder {
 
     fn option_string(&mut self, name: &str, value: Option<&str>) {
         self.field(name, |encoder| match value {
-            Some(value) => {
+            Some(value_2) => {
                 encoder.byte(1);
-                encoder.string(value);
+                encoder.string(value_2);
             }
             None => encoder.byte(0),
         });
@@ -637,15 +676,15 @@ impl CanonicalEncoder {
         self.field(name, |encoder| match value {
             Specified::Unspecified => encoder.byte(0),
             Specified::Clear => encoder.byte(1),
-            Specified::Value(value) => {
+            Specified::Value(value_2) => {
                 encoder.byte(2);
-                encode(encoder, value);
+                encode(encoder, value_2);
             }
         });
     }
 
     fn specified_f32(&mut self, name: &str, value: &Specified<f32>) {
-        self.specified(name, value, |encoder, value| encoder.f32(*value));
+        self.specified(name, value, |encoder, value_2| encoder.f32(*value_2));
     }
 
     fn sequence_len(&mut self, value: usize) {
@@ -682,12 +721,12 @@ impl CanonicalEncoder {
     }
 
     fn f32(&mut self, value: f32) {
-        let bits = if value == 0.0 { 0 } else { value.to_bits() };
+        let bits = if ::core::matches!(::core::primitive::f32::classify(value), ::core::num::FpCategory::Zero) { 0 } else { value.to_bits() };
         let Ok(()) = self.hasher.update(&bits.to_be_bytes());
     }
 
     fn f64(&mut self, value: f64) {
-        let bits = if value == 0.0 { 0 } else { value.to_bits() };
+        let bits = if ::core::matches!(::core::primitive::f64::classify(value), ::core::num::FpCategory::Zero) { 0 } else { value.to_bits() };
         let Ok(()) = self.hasher.update(&bits.to_be_bytes());
     }
 }

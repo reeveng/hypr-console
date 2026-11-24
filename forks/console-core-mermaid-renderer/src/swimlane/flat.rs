@@ -24,26 +24,33 @@ pub(crate) fn layout_flat(
         edges.len(),
     ))?;
     let mut nodes = IndexMap::new();
+
     for (node, shape) in measured {
         nodes.insert(
             node.id.clone(),
             WorkingNode {
                 id: node.id.clone(),
                 label: String::new(),
-                label_type: "markdown".into(),
+                label_type: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("markdown"),
                 shape: (*shape).to_owned(),
                 kind: WorkingNodeKind::Content,
                 producer_lane_role: None,
-                parent_id: Some(DEFAULT_LANE_ID.into()),
-                top_lane_id: Some(DEFAULT_LANE_ID.into()),
+                parent_id: Some(<::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(DEFAULT_LANE_ID)),
+                top_lane_id: Some(<::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(DEFAULT_LANE_ID)),
                 requested_dir: None,
                 padding: 0.0,
                 x: node.x,
                 y: node.y,
                 width: node.width,
                 height: node.height,
-                label_width: node.label_width.unwrap_or(0.0),
-                label_height: node.label_height.unwrap_or(0.0),
+                label_width: match node.label_width {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                },
+                label_height: match node.label_height {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                },
                 layer: 0,
                 order: 0,
                 content_top: None,
@@ -51,20 +58,21 @@ pub(crate) fn layout_flat(
             },
         );
     }
-    // prepareLayoutForSwimlanes places every loose node into one implicit lane.
+
+
     if !nodes.is_empty() {
         nodes.insert(
-            DEFAULT_LANE_ID.into(),
+            <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(DEFAULT_LANE_ID),
             WorkingNode {
-                id: DEFAULT_LANE_ID.into(),
+                id: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(DEFAULT_LANE_ID),
                 label: String::new(),
-                label_type: "text".into(),
-                shape: "swimlane".into(),
+                label_type: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("text"),
+                shape: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("swimlane"),
                 kind: WorkingNodeKind::Group,
                 producer_lane_role: None,
                 parent_id: None,
                 top_lane_id: None,
-                requested_dir: Some("TB".into()),
+                requested_dir: Some(<::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("TB")),
                 padding: DEFAULT_LANE_PADDING,
                 x: 0.0,
                 y: 0.0,
@@ -79,6 +87,7 @@ pub(crate) fn layout_flat(
             },
         );
     }
+
     let original_edges: Vec<_> = edges
         .iter()
         .map(|edge| WorkingEdge {
@@ -96,7 +105,7 @@ pub(crate) fn layout_flat(
         top_lane_order: if nodes.is_empty() {
             Vec::new()
         } else {
-            vec![DEFAULT_LANE_ID.into()]
+            vec![<::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(DEFAULT_LANE_ID)]
         },
         nodes,
         graph_edges: original_edges.clone(),

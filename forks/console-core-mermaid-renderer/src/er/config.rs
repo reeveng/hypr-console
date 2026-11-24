@@ -21,6 +21,7 @@ pub(crate) struct ErConfigView<'a> {
 }
 
 impl<'a> ErConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -38,6 +39,7 @@ impl<'a> ErConfigView<'a> {
         self.layout_settings_with_resolved_typography(direction, font_family_override, None)
     }
 
+    #[must_use]
     pub(super) fn layout_settings_with_resolved_typography(
         &self,
         direction: &str,
@@ -54,7 +56,7 @@ impl<'a> ErConfigView<'a> {
         };
         let relationship_label_style = TextStyle {
             font_family: label_style.font_family.clone(),
-            // Mermaid ER relationship labels stay at a fixed 14px in the emitted stylesheet.
+
             font_size: DEFAULT_RELATIONSHIP_FONT_SIZE,
             font_weight: None,
             font_style: None,
@@ -63,10 +65,16 @@ impl<'a> ErConfigView<'a> {
         ErLayoutSettings {
             graph: GraphLabel {
                 rankdir: rank_dir_from(direction),
-                nodesep: self.er_f64("nodeSpacing").unwrap_or(DEFAULT_NODE_SPACING),
-                ranksep: self.er_f64("rankSpacing").unwrap_or(DEFAULT_RANK_SPACING),
-                // Mermaid's unified Dagre adapter lays out inside an 8px graph margin, then its
-                // root viewport adds the same 8px around the emitted bbox.
+                nodesep: match self.er_f64("nodeSpacing") {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => DEFAULT_NODE_SPACING,
+                },
+                ranksep: match self.er_f64("rankSpacing") {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => DEFAULT_RANK_SPACING,
+                },
+
+
                 marginx: 8.0,
                 marginy: 8.0,
                 ..Default::default()
@@ -87,6 +95,7 @@ impl<'a> ErConfigView<'a> {
         self.render_settings_with_resolved_typography(font_family_override, None)
     }
 
+    #[must_use]
     pub(crate) fn render_settings_with_resolved_typography(
         &self,
         font_family_override: Option<&str>,
@@ -107,7 +116,10 @@ impl<'a> ErConfigView<'a> {
             font_size,
             title_top_margin: self.title_top_margin_with_root_fallback().max(0.0),
             insert_title_top_margin: self.title_top_margin_without_root_fallback(),
-            use_max_width: self.er_bool("useMaxWidth").unwrap_or(true),
+            use_max_width: match self.er_bool("useMaxWidth") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => true,
+            },
             label_style: TextStyle {
                 font_family: Some(font_family),
                 font_size,
@@ -117,30 +129,44 @@ impl<'a> ErConfigView<'a> {
             relationship_html_labels: self.relationship_html_labels(),
             entity_html_label_wrap_mode: self.entity_html_label_wrap_mode(),
             entity_measurement: self.entity_measurement_settings(),
-            hand_drawn_seed: self
+            hand_drawn_seed: match self
                 .effective_config
                 .get("handDrawnSeed")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0),
+                .and_then(Value::as_f64) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0.0,
+            },
         }
     }
 
+    #[must_use]
     pub(crate) fn entity_measurement_settings(&self) -> ErEntityMeasurementSettings {
         ErEntityMeasurementSettings {
-            html_labels_raw: self.root_bool("htmlLabels").unwrap_or(false),
+            html_labels_raw: match self.root_bool("htmlLabels") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            },
             label_wrap_mode: self.entity_html_label_wrap_mode(),
-            diagram_padding: self
-                .er_f64("diagramPadding")
-                .unwrap_or(DEFAULT_DIAGRAM_PADDING),
-            entity_padding: self
-                .er_f64("entityPadding")
-                .unwrap_or(DEFAULT_ENTITY_PADDING),
-            min_entity_width: self
-                .er_f64("minEntityWidth")
-                .unwrap_or(DEFAULT_MIN_ENTITY_WIDTH),
-            wrapping_width_px: self
-                .flowchart_f64("wrappingWidth")
-                .unwrap_or(DEFAULT_WRAPPING_WIDTH)
+            diagram_padding: match self
+                .er_f64("diagramPadding") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_DIAGRAM_PADDING,
+            },
+            entity_padding: match self
+                .er_f64("entityPadding") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_ENTITY_PADDING,
+            },
+            min_entity_width: match self
+                .er_f64("minEntityWidth") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_MIN_ENTITY_WIDTH,
+            },
+            wrapping_width_px: match self
+                .flowchart_f64("wrappingWidth") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_WRAPPING_WIDTH,
+            }
                 .round()
                 .max(0.0) as i64,
         }
@@ -154,6 +180,7 @@ impl<'a> ErConfigView<'a> {
         self.text_style_with_resolved_typography(font_family_override, None)
     }
 
+    #[must_use]
     pub(crate) fn text_style_with_resolved_typography(
         &self,
         font_family_override: Option<&str>,
@@ -173,82 +200,106 @@ impl<'a> ErConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn relationship_html_labels(&self) -> bool {
-        // Mermaid ER relationship labels follow `getEffectiveHtmlLabels(config)` from
-        // `rendering-elements/edges.js`:
-        // - root `htmlLabels` wins when explicitly set
-        // - otherwise `flowchart.htmlLabels` is used
-        // - otherwise the default is `true`
-        //
-        // This intentionally differs from the entity padding quirk, which keys off raw
-        // `!config.htmlLabels` in `erBox.ts`.
-        self.root_bool("htmlLabels")
-            .or_else(|| self.flowchart_bool("htmlLabels"))
-            .unwrap_or(true)
+
+
+
+
+
+
+
+
+        match self.root_bool("htmlLabels")
+            .or_else(|| self.flowchart_bool("htmlLabels")) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        }
     }
 
+    #[must_use]
     pub(crate) fn entity_html_label_wrap_mode(&self) -> WrapMode {
-        // Mermaid's ER box painter reads the root config directly. This deliberately does
-        // not use `getEffectiveHtmlLabels`: `flowchart.htmlLabels` controls relationship
-        // labels, but does not override ER entity, attribute, or subgraph labels.
-        if self.root_bool("htmlLabels").unwrap_or(true) {
+
+
+
+        if match self.root_bool("htmlLabels") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        } {
             WrapMode::HtmlLike
         } else {
             WrapMode::SvgLike
         }
     }
 
+    #[must_use]
     fn font_family_css(&self) -> String {
         crate::config::config_font_family_css(self.effective_config)
     }
 
+    #[must_use]
     fn font_size(&self) -> f64 {
-        // Mermaid ER unified renderer inherits the root SVG font-size, so
-        // `themeVariables.fontSize` wins when present (including Mermaid's common `"NNpx"` form).
-        crate::config::config_theme_or_root_font_size_px_opt(self.effective_config)
-            .or_else(|| config_f64_css_px(self.er_config, &["fontSize"]))
-            .unwrap_or(DEFAULT_FONT_SIZE)
+
+
+        match crate::config::config_theme_or_root_font_size_px_opt(self.effective_config)
+            .or_else(|| config_f64_css_px(self.er_config, &["fontSize"])) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => DEFAULT_FONT_SIZE,
+        }
     }
 
+    #[must_use]
     fn title_top_margin_with_root_fallback(&self) -> f64 {
-        self.er_raw_f64("titleTopMargin")
+        match self.er_raw_f64("titleTopMargin")
             .or_else(|| {
                 self.effective_config
                     .get("titleTopMargin")
                     .and_then(Value::as_f64)
-            })
-            .unwrap_or(DEFAULT_TITLE_TOP_MARGIN)
+            }) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => DEFAULT_TITLE_TOP_MARGIN,
+        }
     }
 
+    #[must_use]
     fn title_top_margin_without_root_fallback(&self) -> f64 {
-        self.er_raw_f64("titleTopMargin")
-            .unwrap_or(DEFAULT_TITLE_TOP_MARGIN)
+        match self.er_raw_f64("titleTopMargin") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => DEFAULT_TITLE_TOP_MARGIN,
+        }
     }
 
+    #[must_use]
     pub(crate) fn is_elk_layout(&self) -> bool {
         resolve_graph_layout(self.effective_config).backend == GraphLayoutBackend::Elk
     }
 
+    #[must_use]
     fn root_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.effective_config, &[key])
     }
 
+    #[must_use]
     fn er_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.er_config, &[key])
     }
 
+    #[must_use]
     fn flowchart_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.flowchart_config, &[key])
     }
 
+    #[must_use]
     fn er_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.er_config, &[key])
     }
 
+    #[must_use]
     fn er_raw_f64(&self, key: &str) -> Option<f64> {
         self.er_config.get(key).and_then(Value::as_f64)
     }
 
+    #[must_use]
     fn flowchart_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.flowchart_config, &[key])
     }
@@ -289,6 +340,7 @@ pub(crate) struct ErRenderSettings {
     pub(crate) hand_drawn_seed: f64,
 }
 
+#[must_use]
 pub(super) fn rank_dir_from(direction: &str) -> RankDir {
     match normalize_dir(direction).as_str() {
         "TB" => RankDir::TB,
@@ -299,6 +351,7 @@ pub(super) fn rank_dir_from(direction: &str) -> RankDir {
     }
 }
 
+#[must_use]
 fn normalize_dir(direction: &str) -> String {
     match direction.trim().to_uppercase().as_str() {
         "TB" | "TD" => "TB".to_string(),

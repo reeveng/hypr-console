@@ -14,20 +14,25 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_divided_rect(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (pts, path_data) = prepare_divided_rect_geometry(ctx, common, label);
-    if let Some((fill_d, stroke_d)) = helpers::hand_drawn_path_pair(common, details, &path_data) {
-        let _ = write!(
-            out,
-            r##"<g class="basic label-container outer-path" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
-            escape_attr(common.rough_group_style),
-            escape_attr(&fill_d),
-            escape_attr(common.fill_color),
-            escape_attr(&stroke_d),
-            escape_attr(common.stroke_color),
-            crate::svg::parity::util::fmt_display(common.stroke_width as f64),
-            escape_attr(common.stroke_dasharray),
-        );
-        return;
+
+    match helpers::hand_drawn_path_pair(common, details, &path_data) {
+        Some((fill_d, stroke_d)) => {
+            let _ = write!(
+                out,
+                r##"<g class="basic label-container outer-path" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
+                escape_attr(common.rough_group_style),
+                escape_attr(&fill_d),
+                escape_attr(common.fill_color),
+                escape_attr(&stroke_d),
+                escape_attr(common.stroke_color),
+                crate::svg::parity::util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                escape_attr(common.stroke_dasharray),
+            );
+            return;
+        },
+        ::core::option::Option::None => {},
     }
+
     if common.look_is_hand_drawn() {
         let _ = write!(
             out,
@@ -56,7 +61,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_divided_rect(
         escape_attr(common.style),
         escape_attr(&stroke_d),
         escape_attr(common.stroke_color),
-        crate::svg::parity::util::fmt_display(common.stroke_width as f64),
+        crate::svg::parity::util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         escape_attr(common.stroke_dasharray),
         escape_attr(common.style),
     );
@@ -67,8 +72,8 @@ fn prepare_divided_rect_geometry(
     common: &super::super::FlowchartNodeGeometry<'_>,
     label: &mut super::super::FlowchartNodeLabelState<'_>,
 ) -> (Vec<(f64, f64)>, String) {
-    // Mermaid draws the polygon using `h` and then the rendered bbox expands to
-    // `out_h = h + rectOffset` where `rectOffset = h * 0.2`, i.e. `out_h = 1.2*h`.
+
+
     let out_w = common.layout_node.width.max(1.0);
     let out_h = common.layout_node.height.max(1.0);
     let h = out_h / 1.2;
@@ -77,8 +82,8 @@ fn prepare_divided_rect_geometry(
     let x = -w / 2.0;
     let y = -h / 2.0 - rect_offset / 2.0;
 
-    // Mermaid's labelHelper transform retains the authored node padding even when Neo uses
-    // fixed shape padding. Convert that source transform to the local centered-label wrapper.
+
+
     let authored_padding = ctx.node_padding;
     let shape_padding = if common.look_is_neo() {
         16.0

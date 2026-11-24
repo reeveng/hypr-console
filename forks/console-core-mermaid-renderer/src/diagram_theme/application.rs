@@ -88,6 +88,7 @@ pub(crate) enum RootThemeResidualReason {
 }
 
 impl RootThemeResidualReason {
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::NoConsumer => "no-consumer",
@@ -125,6 +126,7 @@ pub(crate) struct RootThemePlan {
 }
 
 impl RootThemePlan {
+    #[must_use]
     pub(crate) fn from_spec(spec: &DiagramThemeSpec) -> Self {
         Self {
             requirements: root_theme_requirements(spec),
@@ -132,25 +134,30 @@ impl RootThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn from_theme(theme: Option<&DiagramTheme>) -> Arc<Self> {
         static EMPTY: OnceLock<Arc<RootThemePlan>> = OnceLock::new();
+
         match theme {
-            Some(theme) => Arc::clone(theme.root_plan()),
+            Some(theme_2) => Arc::clone(theme_2.root_plan()),
             None => Arc::clone(EMPTY.get_or_init(|| Arc::new(Self::default()))),
         }
     }
 
+    #[must_use]
     pub(crate) fn required_capabilities(&self) -> impl Iterator<Item = ThemeCapability> + '_ {
         self.requirements
             .iter()
             .flat_map(RootThemeRequirement::capabilities)
     }
 
+    #[must_use]
     pub(crate) const fn canvas(&self) -> &CanvasSpec {
         &self.canvas
     }
 
     /// A family backdrop must not cover an explicit root canvas unless authored config owns it.
+    #[must_use]
     pub(crate) fn replaces_default_family_background(
         &self,
         config: &merman_model::presentation::PresentationConfig,
@@ -161,6 +168,7 @@ impl RootThemePlan {
             && !config.config_paint_overrides_typed_default(family_background_path)
     }
 
+    #[must_use]
     pub(crate) fn begin_svg_application(&self) -> RootThemeApplication {
         RootThemeApplication {
             mechanisms: self
@@ -198,23 +206,29 @@ impl RootThemeApplication {
             return false;
         };
 
-        let applied = applied.into_iter().collect::<BTreeSet<_>>();
-        if !applied.is_subset(&mechanism.required_capabilities) {
+        let applied_2 = applied.into_iter().collect::<BTreeSet<_>>();
+
+        if !applied_2.is_subset(&mechanism.required_capabilities) {
             return false;
         }
-        mechanism.applied_capabilities = applied;
+
+        mechanism.applied_capabilities = applied_2;
         true
     }
 
+    #[must_use]
     pub(crate) fn finish(self) -> RootThemeReport {
         let mut applied_count = 0;
         let mut applied_capabilities = BTreeSet::new();
+
         for mechanism in &self.mechanisms {
             if mechanism.applied_capabilities == mechanism.required_capabilities {
                 applied_count += 1;
             }
+
             applied_capabilities.extend(mechanism.applied_capabilities.iter().copied());
         }
+
         RootThemeReport {
             residual_count: self.mechanisms.len() - applied_count,
             mechanisms: self.mechanisms,
@@ -226,26 +240,32 @@ impl RootThemeApplication {
 }
 
 impl RootThemeReport {
+    #[must_use]
     pub const fn required_count(&self) -> usize {
         self.mechanisms.len()
     }
 
+    #[must_use]
     pub const fn applied_count(&self) -> usize {
         self.applied_count
     }
 
+    #[must_use]
     pub const fn residual_count(&self) -> usize {
         self.residual_count
     }
 
+    #[must_use]
     pub const fn output_mutated(&self) -> bool {
         self.output_mutated
     }
 
+    #[must_use]
     pub fn applied_capabilities(&self) -> impl ExactSizeIterator<Item = ThemeCapability> + '_ {
         self.applied_capabilities.iter().copied()
     }
 
+    #[must_use]
     pub fn residuals(
         &self,
     ) -> impl Iterator<Item = (&RootThemeMechanismKey, RootThemeResidualReason)> + '_ {
@@ -263,6 +283,7 @@ impl RootThemeReport {
             .map(move |mechanism| (&mechanism.key, reason))
     }
 
+    #[must_use]
     pub const fn verification(&self) -> RootThemeVerification {
         if self.mechanisms.is_empty() {
             RootThemeVerification::NotApplicable
@@ -278,13 +299,16 @@ impl RootThemeReport {
     /// The transformation may have changed a typed canvas/effect node without exposing a
     /// machine-checkable proof of preservation. Keeping the original `Verified` state would make
     /// downstream document admission claim more than the final SVG proves.
+    #[must_use]
     pub(crate) fn invalidate_for_output_mutation(mut self) -> Self {
         if self.mechanisms.is_empty() {
             return self;
         }
+
         for mechanism in &mut self.mechanisms {
             mechanism.applied_capabilities.clear();
         }
+
         self.applied_count = 0;
         self.residual_count = self.mechanisms.len();
         self.applied_capabilities.clear();
@@ -319,6 +343,7 @@ pub(crate) struct RootThemeRequirement {
 }
 
 impl RootThemeRequirement {
+    #[must_use]
     fn new(
         key: RootThemeMechanismKey,
         capabilities: impl IntoIterator<Item = ThemeCapability>,
@@ -329,10 +354,12 @@ impl RootThemeRequirement {
         }
     }
 
+    #[must_use]
     pub(crate) fn capabilities(&self) -> impl Iterator<Item = ThemeCapability> + '_ {
         self.capabilities.iter().copied()
     }
 
+    #[must_use]
     fn into_unapplied_outcome(self) -> RootThemeMechanismOutcome {
         RootThemeMechanismOutcome {
             key: self.key,
@@ -342,10 +369,13 @@ impl RootThemeRequirement {
     }
 }
 
+#[must_use]
 pub(crate) fn root_theme_requirements(spec: &DiagramThemeSpec) -> Vec<RootThemeRequirement> {
     let mut requirements = Vec::new();
+
     if spec.canvas().has_explicit_base() {
         let capabilities = paint_capabilities(spec.canvas().base()).collect::<BTreeSet<_>>();
+
         if !capabilities.is_empty() {
             requirements.push(RootThemeRequirement::new(
                 RootThemeMechanismKey::CanvasBase,
@@ -353,23 +383,29 @@ pub(crate) fn root_theme_requirements(spec: &DiagramThemeSpec) -> Vec<RootThemeR
             ));
         }
     }
+
     for (index, layer) in spec.canvas().layers().iter().enumerate() {
         let mut capabilities = BTreeSet::from([ThemeCapability::LayeredCanvas]);
         capabilities.extend(paint_capabilities(layer.paint()));
-        if layer.opacity() != 1.0 {
+
+        if ::core::primitive::f32::to_bits(layer.opacity()) != ::core::primitive::f32::to_bits(1.0) {
             capabilities.insert(ThemeCapability::Opacity);
         }
+
         if layer.offset() != (0.0, 0.0) {
             capabilities.insert(ThemeCapability::CanvasLayerPlacement);
         }
+
         if !matches!(layer.blend_mode(), super::BlendMode::Normal) {
             capabilities.insert(ThemeCapability::BlendMode);
         }
+
         requirements.push(RootThemeRequirement::new(
             RootThemeMechanismKey::CanvasLayer { index },
             capabilities,
         ));
     }
+
     if spec.canvas().bleed() != super::InsetsPx::ZERO {
         requirements.push(RootThemeRequirement::new(
             RootThemeMechanismKey::CanvasGeometry,
@@ -381,11 +417,13 @@ pub(crate) fn root_theme_requirements(spec: &DiagramThemeSpec) -> Vec<RootThemeR
         if rule.target() != ThemeTarget::Canvas {
             continue;
         }
+
         let mut capabilities = BTreeSet::from([
             ThemeCapability::SemanticTokens,
             ThemeCapability::SemanticRules,
         ]);
         collect_style_patch_capabilities(rule.style(), &mut capabilities);
+
         if let Specified::Value(effect_id) = &rule.style().effects.effect {
             let graph = spec
                 .effects()
@@ -393,11 +431,13 @@ pub(crate) fn root_theme_requirements(spec: &DiagramThemeSpec) -> Vec<RootThemeR
                 .expect("validated canvas effect reference must resolve");
             collect_effect_graph_capabilities(graph, &mut capabilities);
         }
+
         requirements.push(RootThemeRequirement::new(
             RootThemeMechanismKey::CanvasRule { index },
             capabilities,
         ));
     }
+
     if spec
         .styles()
         .ordinal_palettes()
@@ -409,6 +449,7 @@ pub(crate) fn root_theme_requirements(spec: &DiagramThemeSpec) -> Vec<RootThemeR
             [ThemeCapability::OrdinalPalette],
         ));
     }
+
     for binding in spec
         .effects()
         .bindings()
@@ -429,6 +470,7 @@ pub(crate) fn root_theme_requirements(spec: &DiagramThemeSpec) -> Vec<RootThemeR
             capabilities,
         ));
     }
+
     requirements
 }
 

@@ -217,6 +217,8 @@ fn mired(kelvin: u32) -> Result<f64, Never> {
 pub enum NightShift {
   #[words(written = "clock\n")]
   Scheduled,
+  #[words(written = "always\n")]
+  On,
   #[words(written = "ordinary\n")]
   Off,
 }
@@ -231,20 +233,21 @@ impl NightShift {
   pub fn read(held: &str) -> Result<Self, Never> {
     Ok(match held.trim() {
       "ordinary" => NightShift::Off,
+      "always" => NightShift::On,
       _ => NightShift::Scheduled,
     })
   }
 
   pub fn other(self) -> Result<Self, Never> {
     Ok(match self {
-      NightShift::Scheduled => NightShift::Off,
+      NightShift::Scheduled | NightShift::On => NightShift::Off,
       NightShift::Off => NightShift::Scheduled,
     })
   }
 
   pub fn switched(self) -> Result<Switched, Never> {
     Ok(
-      match ::core::primitive::bool::then_some(self == NightShift::Scheduled, ()) {
+      match ::core::primitive::bool::then_some(self != NightShift::Off, ()) {
         ::core::option::Option::Some(()) => Switched::On,
         ::core::option::Option::None => Switched::Off,
       },
@@ -321,7 +324,7 @@ mod tests {
 
   #[test]
   fn what_was_written_is_what_is_read_back() {
-    for way in [NightShift::Scheduled, NightShift::Off] {
+    for way in [NightShift::Scheduled, NightShift::On, NightShift::Off] {
       let Ok(written) = way.written();
 
       assert_eq!(NightShift::read(written), Ok(way));

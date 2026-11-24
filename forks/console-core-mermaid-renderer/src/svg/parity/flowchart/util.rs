@@ -14,6 +14,7 @@ impl std::fmt::Display for OptionalStyleAttr<'_> {
         if self.0.trim().is_empty() {
             return Ok(());
         }
+
         write!(
             f,
             r#" style="{}""#,
@@ -28,9 +29,11 @@ impl std::fmt::Display for OptionalStyleXmlAttr<'_> {
     #[inline]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let s = self.0.trim();
+
         if s.is_empty() {
             return Ok(());
         }
+
         write!(
             f,
             r#" style="{}""#,

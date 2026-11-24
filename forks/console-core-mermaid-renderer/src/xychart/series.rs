@@ -123,10 +123,12 @@ pub(crate) struct XyChartSeriesPaintPlan {
 }
 
 impl XyChartSeriesPaintPlan {
+    #[must_use]
     pub(super) fn css_binding(&self) -> &super::css_binding::XyChartCssBinding {
         &self.css
     }
 
+    #[must_use]
     pub(super) fn chart_config(&self) -> &super::ChartConfig {
         &self.chart_config
     }
@@ -193,10 +195,13 @@ impl XyChartSeriesPaintPlan {
             chart_config: super::parse_chart_config(config.as_value(), model),
             css,
         };
-        let Some(theme) = theme else {
-            return Ok(plan);
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
         };
-        let routes = theme
+
+        let routes = theme_2
             .family_mechanism_routes()
             .iter()
             .copied()
@@ -211,6 +216,7 @@ impl XyChartSeriesPaintPlan {
             })
             .collect::<Vec<_>>();
         let mut kind_rules = [false; 2];
+
         for route in &routes {
             if let FamilyThemeMechanism::RuleFacet {
                 rule_index,
@@ -219,6 +225,7 @@ impl XyChartSeriesPaintPlan {
             } = route.mechanism()
             {
                 plan.rules.insert(rule_index);
+
                 match selector {
                     FamilyThemeSelectorShape::Static { variant }
                     | FamilyThemeSelectorShape::Ordinal { variant, .. } => match variant {
@@ -233,7 +240,8 @@ impl XyChartSeriesPaintPlan {
                 }
             }
         }
-        plan.effect_binding = theme.family_mechanism_routes().iter().find_map(|route| {
+
+        plan.effect_binding = theme_2.family_mechanism_routes().iter().find_map(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::EffectBinding {
@@ -241,38 +249,44 @@ impl XyChartSeriesPaintPlan {
                     ..
                 }
             )
-            .then(|| theme.family_mechanism_key(*route))
+            .then(|| theme_2.family_mechanism_key(*route))
         });
-        plan.palette = theme.ordinal_palette_disposition(ThemeTarget::ChartSeries);
+        plan.palette = theme_2.ordinal_palette_disposition(ThemeTarget::ChartSeries);
+
         if routes.is_empty() && plan.palette.is_none() && plan.effect_binding.is_none() {
             return Ok(plan);
         }
+
         let source_colors =
             config.config_paint_overrides_typed_default("themeVariables.xyChart.plotColorPalette");
         let mut effects: BTreeMap<String, Option<Arc<SvgShadowEffect>>> = BTreeMap::new();
+
         for (index, paint) in plan.paints.iter_mut().enumerate() {
-            let mut style = theme.style_with_work_meter(
+            let mut style = theme_2.style_with_work_meter(
                 ThemeTarget::ChartSeries,
                 ThemeVariant::Default,
                 Some(index + 1),
                 work_meter,
             )?;
+
             if kind_rules[plot_kind(paint.plot_type)] {
                 let variant = match paint.plot_type {
                     XyChartPlotType::Bar => ThemeVariant::Bar,
                     XyChartPlotType::Line => ThemeVariant::Line,
                 };
-                // Default and the concrete kind share author order, not selector specificity.
-                style.merge_from(&theme.style_with_work_meter(
+
+                style.merge_from(&theme_2.style_with_work_meter(
                     ThemeTarget::ChartSeries,
                     variant,
                     Some(index + 1),
                     work_meter,
                 )?);
             }
+
             let mut consumed = BTreeMap::new();
+
             if !source_colors {
-                for (property, resolved, css) in [
+                for (property, resolved, css_2) in [
                     (
                         ResolvedStyleProperty::Fill,
                         style.fill_resolution(),
@@ -289,7 +303,7 @@ impl XyChartSeriesPaintPlan {
                             consumed.insert(property, ThemeCapability::SemanticRules);
                         }
                         Specified::Value(CanvasPaint::Solid(color)) => {
-                            *css = color.as_css();
+                            *css_2 = color.as_css();
                             consumed.insert(
                                 property,
                                 if color.is_transparent() {
@@ -300,39 +314,48 @@ impl XyChartSeriesPaintPlan {
                             );
                         }
                         Specified::Value(CanvasPaint::Transparent) => {
-                            *css = "#00000000".to_owned();
+                            *css_2 = "#00000000".to_owned();
                             consumed.insert(property, ThemeCapability::TransparentPaint);
                         }
                         _ => {}
                     }
                 }
+
                 if plan.palette == Some(FamilyThemeDisposition::TypedAdapter) {
-                    let color = theme
+                    let color = theme_2
                         .series_color(ThemeTarget::ChartSeries, index + 1)
                         .expect("compiled palette is non-empty");
-                    let css = color.as_css();
+                    let css_3 = color.as_css();
                     let capability = if color.is_transparent() {
                         ThemeCapability::TransparentPaint
                     } else {
                         ThemeCapability::SolidPaint
                     };
+
                     if paint.plot_type == XyChartPlotType::Bar
                         && style.fill_resolution().winner().is_none()
                     {
-                        paint.fill.clone_from(&css);
+                        paint.fill.clone_from(&css_3);
                         paint.palette_capabilities.insert(capability);
                     }
+
                     if style.stroke_resolution().winner().is_none() {
-                        paint.stroke.clone_from(&css);
+                        paint.stroke.clone_from(&css_3);
                         paint.palette_capabilities.insert(capability);
                     }
-                    // Point-label paint has always been a palette surface, independently of mark fill.
-                    paint.point_label_fill = css;
-                    if paint.expected_labels != 0 {
-                        paint.palette_capabilities.insert(capability);
+
+
+                    paint.point_label_fill = css_3;
+
+                    match paint.expected_labels {
+                        0 => {},
+                        _ => {
+                            paint.palette_capabilities.insert(capability);
+                        },
                     }
                 }
             }
+
             if !matches!(
                 style.stroke_width_resolution().specified(),
                 Specified::Unspecified
@@ -346,6 +369,7 @@ impl XyChartSeriesPaintPlan {
                     ThemeCapability::BorderStyling,
                 );
             }
+
             for (property, resolved, destination) in [
                 (
                     ResolvedStyleProperty::Opacity,
@@ -368,7 +392,8 @@ impl XyChartSeriesPaintPlan {
                     consumed.insert(property, ThemeCapability::Opacity);
                 }
             }
-            match theme.resolve_effect(ThemeTarget::ChartSeries, style.effect_resolution()) {
+
+            match theme_2.resolve_effect(ThemeTarget::ChartSeries, style.effect_resolution()) {
                 Some(ResolvedThemeEffect::ClearedByRule) => {
                     consumed.insert(
                         ResolvedStyleProperty::Effect,
@@ -376,53 +401,62 @@ impl XyChartSeriesPaintPlan {
                     );
                 }
                 Some(ResolvedThemeEffect::Rule { graph }) => {
-                    paint.effect = graph.and_then(|graph| {
+                    paint.effect = graph.and_then(|graph_2| {
                         effects
-                            .entry(graph.id().to_owned())
-                            .or_insert_with(|| SvgShadowEffect::from_graph(graph).map(Arc::new))
+                            .entry(graph_2.id().to_owned())
+                            .or_insert_with(|| SvgShadowEffect::from_graph(graph_2).map(Arc::new))
                             .clone()
                     });
+
                     if paint.effect.is_some() {
                         consumed.insert(ResolvedStyleProperty::Effect, ThemeCapability::Shadow);
                     }
                 }
                 Some(ResolvedThemeEffect::Binding { graph, .. }) => {
                     paint.uses_effect_binding = true;
-                    paint.effect = graph.and_then(|graph| {
+                    paint.effect = graph.and_then(|graph_3| {
                         effects
-                            .entry(graph.id().to_owned())
-                            .or_insert_with(|| SvgShadowEffect::from_graph(graph).map(Arc::new))
+                            .entry(graph_3.id().to_owned())
+                            .or_insert_with(|| SvgShadowEffect::from_graph(graph_3).map(Arc::new))
                             .clone()
                     });
                 }
                 None => {}
             }
+
             work_meter.charge(routes.len())?;
-            for route in &routes {
+
+            'over_route_2: for route in &routes {
                 let FamilyThemeMechanism::RuleFacet {
                     rule_index, facet, ..
                 } = route.mechanism()
                 else {
-                    continue;
+                    continue 'over_route_2;
                 };
+
                 let property = resolved_style_property_for_facet(facet);
+
                 if source_colors
                     && matches!(
                         property,
                         ResolvedStyleProperty::Fill | ResolvedStyleProperty::Stroke
                     )
                 {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 if !style.winner_rule_properties().any(|(candidate, origin)| {
                     candidate == property && origin.rule_index() == rule_index
                 }) {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 let observation = paint.rules.entry(rule_index).or_default();
+
                 match (route.disposition(), consumed.get(&property)) {
                     (FamilyThemeDisposition::TypedAdapter, Some(capability)) => {
                         observation.capabilities.insert(*capability);
+
                         if *capability == ThemeCapability::Shadow {
                             observation.capabilities.insert(ThemeCapability::SvgFilter);
                         }
@@ -435,61 +469,80 @@ impl XyChartSeriesPaintPlan {
                 }
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn has_effect(&self) -> bool {
         self.paints.iter().any(|paint| paint.effect.is_some())
     }
 
+    #[must_use]
     pub(crate) fn effect(&self, index: usize) -> Option<&Arc<SvgShadowEffect>> {
-        self.paints.get(index)?.effect.as_ref()
+        let checked_value = self.paints.get(index)?;
+        checked_value.effect.as_ref()
     }
 
+    #[must_use]
     pub(crate) fn plot_count(&self) -> usize {
         self.paints.len()
     }
+
+    #[must_use]
     pub(crate) fn fill_css(&self, index: usize) -> Option<&str> {
         self.paints.get(index).map(|paint| paint.fill.as_str())
     }
+
+    #[must_use]
     pub(crate) fn stroke_css(&self, index: usize) -> Option<&str> {
         self.paints.get(index).map(|paint| paint.stroke.as_str())
     }
+
+    #[must_use]
     pub(crate) fn point_label_fill_css(&self, index: usize) -> Option<&str> {
         self.paints
             .get(index)
             .map(|paint| paint.point_label_fill.as_str())
     }
+
+    #[must_use]
     pub(crate) fn stroke_width(&self, index: usize) -> Option<f64> {
         self.paints.get(index).map(|paint| paint.stroke_width)
     }
 
     /// Layout knows which titled series actually fit; the writer cannot authorize missing markers.
+    #[must_use]
     pub(crate) fn record_legend_layout(&self, plots: impl IntoIterator<Item = usize>) -> bool {
         if self.rules.is_empty() && self.palette.is_none() && self.effect_binding.is_none() {
             return true;
         }
+
         let mut markers = [Vec::new(), Vec::new()];
+
         for index in plots {
             markers[plot_kind(self.paints[index].plot_type)].push(index);
         }
+
         self.legend_plots.set(markers).is_ok()
     }
 
+    #[must_use]
     pub(crate) fn legend_plot(&self, plot_type: XyChartPlotType, marker: usize) -> Option<usize> {
         self.legend_plots.get()?[plot_kind(plot_type)]
             .get(marker)
             .copied()
     }
 
+    #[must_use]
     fn has_legend(&self, index: usize) -> bool {
         self.legend_plots.get().is_some_and(|plots| {
-            plots[plot_kind(self.paints[index].plot_type)]
-                .binary_search(&index)
-                .is_ok()
+            match &(plots[plot_kind(self.paints[index].plot_type)]
+                .binary_search(&index)) { ::core::result::Result::Ok(_) => true, ::core::result::Result::Err(_insertion_position) => false }
         })
     }
 
+    #[must_use]
     pub(crate) fn opacity_attributes(
         &self,
         index: usize,
@@ -501,9 +554,10 @@ impl XyChartSeriesPaintPlan {
             ("stroke-opacity", paint.stroke_opacity),
         ]
         .into_iter()
-        .filter_map(|(name, value)| value.map(|value| (name, value.to_string())))
+        .filter_map(|(name, value)| value.map(|value_2| (name, value_2.to_string())))
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(
         &self,
         encode_attribute: impl Fn(&str) -> String,
@@ -527,6 +581,7 @@ impl XyChartSeriesPaintPlan {
         )
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: XyChartSeriesPaintReceipt) -> bool {
         receipt.proves(self) && self.terminal_receipt.set(()).is_ok()
     }
@@ -540,25 +595,31 @@ impl XyChartSeriesPaintPlan {
             .collect();
         let mut palette_capabilities = BTreeSet::new();
         let mut has_terminal = false;
+
         for (index, paint) in self.paints.iter().enumerate() {
             if paint.expected_marks == 0 && !self.has_legend(index) {
                 continue;
             }
+
             has_terminal = true;
             palette_capabilities.extend(&paint.palette_capabilities);
+
             for (rule, actual) in &paint.rules {
                 let total = observations.get_mut(rule).expect("registered series rule");
                 total.capabilities.extend(&actual.capabilities);
+
                 if total.residual.is_none() {
                     total.residual = actual.residual;
                 }
             }
         }
+
         for (index, observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: ThemeTarget::ChartSeries,
             };
+
             if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.capabilities.is_empty() {
@@ -567,48 +628,60 @@ impl XyChartSeriesPaintPlan {
                 evidence.mark_applied_with_capabilities(key, observation.capabilities);
             }
         }
-        if let Some(disposition) = self.palette {
-            let key = FamilyThemeMechanismKey::OrdinalPalette {
-                target: ThemeTarget::ChartSeries,
-            };
-            if !has_terminal
-                || (disposition == FamilyThemeDisposition::TypedAdapter
-                    && palette_capabilities.is_empty())
-            {
-                evidence.mark_not_applicable(key);
-            } else if disposition == FamilyThemeDisposition::TypedAdapter
-                && self.terminal_receipt.get().is_some()
-            {
-                evidence.mark_applied_with_capabilities(key, palette_capabilities);
-            } else {
-                evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette);
-            }
-        }
-        if let Some(key) = &self.effect_binding {
-            let mut used = false;
-            let mut unsupported = false;
-            for (index, paint) in self.paints.iter().enumerate() {
-                if paint.uses_effect_binding
-                    && (paint.expected_marks != 0 || self.has_legend(index))
+
+        match self.palette {
+            Some(disposition) => {
+                let key = FamilyThemeMechanismKey::OrdinalPalette {
+                    target: ThemeTarget::ChartSeries,
+                };
+
+                if !has_terminal
+                    || (disposition == FamilyThemeDisposition::TypedAdapter
+                        && palette_capabilities.is_empty())
                 {
-                    used = true;
-                    unsupported |= paint.effect.is_none();
+                    evidence.mark_not_applicable(key);
+                } else if disposition == FamilyThemeDisposition::TypedAdapter
+                    && self.terminal_receipt.get().is_some()
+                {
+                    evidence.mark_applied_with_capabilities(key, palette_capabilities);
+                } else {
+                    evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette);
                 }
-            }
-            if !used {
-                evidence.mark_not_applicable(key.clone());
-            } else if unsupported {
-                evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedEffect);
-            } else if self.terminal_receipt.get().is_some() {
-                evidence.mark_applied_with_capabilities(
-                    key.clone(),
-                    [ThemeCapability::Shadow, ThemeCapability::SvgFilter],
-                );
-            }
+            },
+            ::core::option::Option::None => {},
+        }
+
+        match &self.effect_binding {
+            Some(key) => {
+                let mut used = false;
+                let mut unsupported = false;
+
+                for (index, paint) in self.paints.iter().enumerate() {
+                    if paint.uses_effect_binding
+                        && (paint.expected_marks != 0 || self.has_legend(index))
+                    {
+                        used = true;
+                        unsupported |= paint.effect.is_none();
+                    }
+                }
+
+                if !used {
+                    evidence.mark_not_applicable(key.clone());
+                } else if unsupported {
+                    evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedEffect);
+                } else if self.terminal_receipt.get().is_some() {
+                    evidence.mark_applied_with_capabilities(
+                        key.clone(),
+                        [ThemeCapability::Shadow, ThemeCapability::SvgFilter],
+                    );
+                }
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
 
+#[must_use]
 fn plot_kind(plot_type: XyChartPlotType) -> usize {
     match plot_type {
         XyChartPlotType::Bar => 0,
@@ -616,6 +689,7 @@ fn plot_kind(plot_type: XyChartPlotType) -> usize {
     }
 }
 
+#[must_use]
 fn number(value: f64) -> String {
     crate::number_format::canonical_number(value).to_string()
 }
@@ -654,10 +728,12 @@ impl XyChartSeriesPaintReceipt {
             self.attributes_match = false;
             return;
         };
+
         if paint.plot_type != plot_type {
             self.attributes_match = false;
             return;
         }
+
         if legend {
             self.attributes_match &= !receipt.legend && plan.has_legend(plot);
             receipt.legend = true;
@@ -665,16 +741,18 @@ impl XyChartSeriesPaintReceipt {
             self.attributes_match &= receipt.marks == mark && mark < paint.expected_marks;
             receipt.marks = receipt.marks.saturating_add(1);
         }
+
         self.attributes_match &= attribute("fill") == Some(css[0].as_str())
             && attribute("stroke") == Some(css[1].as_str())
             && attribute("stroke-width") == Some(number(paint.stroke_width).as_str());
+
         for (name, expected) in [
             ("opacity", paint.opacity),
             ("fill-opacity", paint.fill_opacity),
             ("stroke-opacity", paint.stroke_opacity),
         ] {
-            let expected = expected.map(|value| value.to_string());
-            self.attributes_match &= attribute(name) == expected.as_deref();
+            let expected_2 = expected.map(|value| value.to_string());
+            self.attributes_match &= attribute(name) == expected_2.as_deref();
         }
     }
 
@@ -694,6 +772,7 @@ impl XyChartSeriesPaintReceipt {
             self.attributes_match = false;
             return;
         };
+
         self.attributes_match &= paint.plot_type == XyChartPlotType::Line
             && receipt.labels == label
             && label < paint.expected_labels
@@ -701,6 +780,7 @@ impl XyChartSeriesPaintReceipt {
         receipt.labels = receipt.labels.saturating_add(1);
     }
 
+    #[must_use]
     fn proves(&self, plan: &XyChartSeriesPaintPlan) -> bool {
         self.attributes_match
             && self.plots.len() == plan.paints.len()

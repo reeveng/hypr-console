@@ -6,8 +6,9 @@
 //! Desktop integrations live in their own crates. Use [`provide`] to bind a
 //! platform before running the program. Simulation runs the same loop.
 //!
-//! Implement [`Platform`] for an event loop and [`commands::Platform`] for
-//! command operations. The latter chooses its own executable representation:
+//! Implement [`Platform`] for an event loop, [`Clock`] for the runtime's
+//! elapsed time, and [`commands::Platform`] for command operations. The command
+//! adapter chooses its own executable representation:
 //! a capability handle is as valid as a path. Neither interface selects an OS
 //! implementation or a service implicitly.
 //!
@@ -24,7 +25,7 @@ mod placement;
 pub mod simulation;
 
 pub use execution::{
-  Completed, ExecutionError, Inline, Limit, Platform, Provided, TransitionExecutor, Wake,
+  Clock, Completed, ExecutionError, Inline, Limit, Platform, Provided, TransitionExecutor, Wake,
   execute, execute_with, provide,
 };
 pub use jobs::{Invocation, ReplyStatus};

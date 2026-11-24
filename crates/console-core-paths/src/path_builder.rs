@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 use console_core_never::Never;
 use console_core_number_conversion::{fixed_index, index};
 
-use crate::{Path, Point, FloatRectangle};
+use crate::{FloatRectangle, Path, Point};
 
 use crate::path::PathVerb;
 use crate::path_geometry;
@@ -154,7 +154,9 @@ impl PathBuilder {
     Ok(finish)
   }
 
-  pub fn from_oval(oval: FloatRectangle) -> core::result::Result<Option<Path>, console_core_never::Never> {
+  pub fn from_oval(
+    oval: FloatRectangle,
+  ) -> core::result::Result<Option<Path>, console_core_never::Never> {
     let Ok(mut b) = PathBuilder::new();
     let Ok(()) = b.push_oval(oval);
     let Ok(finish) = b.finish();
@@ -359,7 +361,10 @@ impl PathBuilder {
     })
   }
 
-  pub fn push_rect(&mut self, rect: FloatRectangle) -> core::result::Result<(), console_core_never::Never> {
+  pub fn push_rect(
+    &mut self,
+    rect: FloatRectangle,
+  ) -> core::result::Result<(), console_core_never::Never> {
     let Ok(left) = rect.left();
     let Ok(top) = rect.top();
     let Ok(()) = crate::PathBuilder::move_to_pt(&mut *self, crate::Point { x: left, y: top });

@@ -19,6 +19,7 @@ use crate::resources::{OperationWorkError, OperationWorkMeter};
 use super::PieCssBinding;
 
 /// Match the writer's entity decoding and XML scalar filtering before checking visibility.
+#[must_use]
 fn has_visible_pie_text(text: &str) -> bool {
     crate::entities::decode_mermaid_entities_for_render_text(text)
         .chars()
@@ -35,10 +36,12 @@ pub(crate) enum PieTextRole {
 impl PieTextRole {
     pub(crate) const ALL: [Self; 3] = [Self::Title, Self::Section, Self::Legend];
 
+    #[must_use]
     pub(crate) const fn index(self) -> usize {
         self as usize
     }
 
+    #[must_use]
     pub(crate) const fn selector(self) -> &'static str {
         match self {
             Self::Title => super::PIE_TITLE_CLASS,
@@ -47,6 +50,7 @@ impl PieTextRole {
         }
     }
 
+    #[must_use]
     const fn target(self) -> ThemeTarget {
         match self {
             Self::Title => ThemeTarget::Title,
@@ -55,6 +59,7 @@ impl PieTextRole {
         }
     }
 
+    #[must_use]
     const fn fill_path(self) -> &'static str {
         match self {
             Self::Title => "themeVariables.pieTitleTextColor",
@@ -63,6 +68,7 @@ impl PieTextRole {
         }
     }
 
+    #[must_use]
     const fn size_path(self) -> &'static str {
         match self {
             Self::Title => "themeVariables.pieTitleTextSize",
@@ -99,6 +105,7 @@ pub(super) struct PiePreparedText {
 }
 
 impl PiePreparedText {
+    #[must_use]
     pub(super) fn new(
         model: &PieDiagramModel,
         title: Option<&str>,
@@ -106,8 +113,8 @@ impl PiePreparedText {
         theme: Option<&ResolvedDiagramTheme>,
     ) -> (Self, PieCssBinding) {
         let inherited_font_stack = InheritedFontStackPlan::resolve_property_local(theme, config);
-        let base_size_requested = theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let base_size_requested = theme.is_some_and(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 route.mechanism()
                     == FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontSize)
                     && route.disposition() == FamilyThemeDisposition::TypedAdapter
@@ -121,9 +128,14 @@ impl PiePreparedText {
             config.as_value(),
             Some(inherited_font_stack.font_family_css()),
         );
-        if let Some(theme) = theme.filter(|_| base_size_active) {
-            css.bind_base_font_size(config.as_value(), theme.typography().font_size_px());
+
+        match theme.filter(|_| base_size_active) {
+            Some(theme_3) => {
+                css.bind_base_font_size(config.as_value(), theme_3.typography().font_size_px());
+            },
+            ::core::option::Option::None => {},
         }
+
         if !inherited_font_stack.typed_font_stack_requested() {
             css.common = css
                 .common
@@ -132,8 +144,8 @@ impl PiePreparedText {
 
         let requested = inherited_font_stack.typography_requested()
             || base_size_requested
-            || theme.is_some_and(|theme| {
-                theme
+            || theme.is_some_and(|theme_4| {
+                theme_4
                     .family_mechanism_routes()
                     .iter()
                     .any(|route| match route.mechanism() {
@@ -193,9 +205,10 @@ impl PiePreparedText {
         if !self.requested {
             return Ok(());
         }
+
         for role in PieTextRole::ALL {
             let target = role.target();
-            // Shared CSS uses static winners, while evidence observes the actual visible ordinals.
+
             let style = theme.style_with_work_meter(target, ThemeVariant::Default, None, meter)?;
             let occurrences = self.expected[role.index()]
                 .iter()
@@ -210,6 +223,7 @@ impl PiePreparedText {
                     && matches!(rule.variant(), None | Some(ThemeVariant::Default))
             });
             let mut winners = BTreeSet::new();
+
             if has_ordinals {
                 for &(ordinal, variant) in &occurrences {
                     meter.charge(1)?;
@@ -231,6 +245,7 @@ impl PiePreparedText {
             let fill_owned = config.config_paint_overrides_typed_default(role.fill_path());
             let size_owned = config.config_path_overrides_typed_default(role.size_path());
             let mut owners = BTreeMap::new();
+
             if !fill_owned
                 && let Some(fill) = resolve_direct_static_fill(
                     theme,
@@ -245,18 +260,27 @@ impl PiePreparedText {
                     (fill.rule_index(), fill.capability()),
                 );
             }
+
             let typography = style.typography_resolution();
-            for property in [
+
+            'over_property_2: for property in [
                 ThemeTypographyProperty::FontSize,
                 ThemeTypographyProperty::FontWeight,
                 ThemeTypographyProperty::FontStyle,
             ] {
                 if property == ThemeTypographyProperty::FontSize && size_owned {
-                    continue;
+                    continue 'over_property_2;
                 }
-                let Some(origin) = typography.winner(property) else {
-                    continue;
+
+                let origin = {
+                    let optional_origin = typography.winner(property);
+
+                    match optional_origin {
+                        Some(matched_origin) => matched_origin,
+                        ::core::option::Option::None => continue 'over_property_2,
+                    }
                 };
+
                 if origin.target() != target
                     || origin.ordinal().is_some()
                     || !matches!(origin.variant(), None | Some(ThemeVariant::Default))
@@ -265,10 +289,11 @@ impl PiePreparedText {
                         FamilyThemeRuleFacet::Typography(property),
                     ) != Some(FamilyThemeDisposition::TypedAdapter)
                 {
-                    continue;
+                    continue 'over_property_2;
                 }
-                // Only the final winner is bound to the prepared role. Clear therefore keeps
-                // its original CSS and measurement baseline, with evidence deferred to the writer.
+
+
+
                 let prepared = match property {
                     ThemeTypographyProperty::FontSize => match typography.patch().font_size_px {
                         Specified::Value(size) => {
@@ -287,15 +312,16 @@ impl PiePreparedText {
                         Specified::Unspecified => false,
                     },
                     ThemeTypographyProperty::FontStyle => match typography.patch().font_style {
-                        Specified::Value(style) => {
-                            css.bind_text_style(role, style.id().to_owned());
+                        Specified::Value(style_2) => {
+                            css.bind_text_style(role, style_2.id().to_owned());
                             true
                         }
                         Specified::Clear => true,
                         Specified::Unspecified => false,
                     },
-                    _ => unreachable!("bounded Pie role typography"),
+                    ThemeTypographyProperty::FontStack | ThemeTypographyProperty::LineHeight | ThemeTypographyProperty::LetterSpacing | ThemeTypographyProperty::WordSpacing | ThemeTypographyProperty::Transform | ThemeTypographyProperty::Decoration | ThemeTypographyProperty::TextAlign | ThemeTypographyProperty::WhiteSpace | ThemeTypographyProperty::Wrap => unreachable!("bounded Pie role typography"),
                 };
+
                 if prepared {
                     owners.insert(
                         ResolvedStyleProperty::Typography(property),
@@ -305,7 +331,8 @@ impl PiePreparedText {
             }
 
             let mut observations = BTreeMap::<usize, TextRuleObservation>::new();
-            for route in theme.family_mechanism_routes().iter().copied() {
+
+            'over_route_2: for route in theme.family_mechanism_routes().iter().copied() {
                 let FamilyThemeMechanism::RuleFacet {
                     rule_index,
                     target: rule_target,
@@ -313,23 +340,28 @@ impl PiePreparedText {
                     ..
                 } = route.mechanism()
                 else {
-                    continue;
+                    continue 'over_route_2;
                 };
+
                 if rule_target != target {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 let observation = observations.entry(rule_index).or_default();
                 let property = resolved_style_property_for_facet(facet);
+
                 if !winners.contains(&(rule_index, property)) {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 if (fill_owned && property == ResolvedStyleProperty::Fill)
                     || (size_owned
                         && property
                             == ResolvedStyleProperty::Typography(ThemeTypographyProperty::FontSize))
                 {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 if route.disposition() == FamilyThemeDisposition::TypedAdapter
                     && let Some(&(owner, capability)) = owners.get(&property)
                     && owner == rule_index
@@ -341,8 +373,10 @@ impl PiePreparedText {
                         .get_or_insert(unsupported_residual_for_facet(facet));
                 }
             }
+
             for (index, observation) in observations {
                 let key = FamilyThemeMechanismKey::Rule { index, target };
+
                 if let Some(reason) = observation.residual {
                     self.evidence.mark_residual(key, reason);
                 } else if observation.capabilities.is_empty() {
@@ -351,6 +385,7 @@ impl PiePreparedText {
                     self.pending[role.index()].insert(index, observation.capabilities);
                 }
             }
+
             let source_owned_fill = vec![fill_owned; self.expected[role.index()].len()];
             reconcile_unsupported_terminal_domains(
                 theme,
@@ -363,9 +398,11 @@ impl PiePreparedText {
                 meter,
             )?;
         }
+
         Ok(())
     }
 
+    #[must_use]
     pub(super) fn requested(&self) -> bool {
         self.requested
     }
@@ -378,10 +415,11 @@ impl PiePreparedText {
     ) {
         evidence.merge_borrowed(&self.evidence);
         let visible =
-            |role: PieTextRole| terminal.is_some_and(|terminal| terminal.visible[role.index()] > 0);
+            |role: PieTextRole| terminal.is_some_and(|terminal_2| terminal_2.visible[role.index()] > 0);
         let any_visible = PieTextRole::ALL.into_iter().any(visible);
         self.inherited_font_stack
             .record_unsupported_typography_evidence(evidence, terminal.is_none() || any_visible);
+
         for (property, requested, active) in [
             (
                 ThemeTypographyProperty::FontStack,
@@ -397,11 +435,14 @@ impl PiePreparedText {
             if !requested {
                 continue;
             }
+
             let key = FamilyThemeMechanismKey::Typography(property);
+
             let Some(_) = terminal else {
                 evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
                 continue;
             };
+
             let unmeasurable = active
                 && PieTextRole::ALL
                     .into_iter()
@@ -414,6 +455,7 @@ impl PiePreparedText {
                                 .text_size_resolution(role)
                                 .is_some_and(|(_, inherited)| inherited))
                 });
+
             if unmeasurable {
                 evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
             } else if consumed {
@@ -422,15 +464,21 @@ impl PiePreparedText {
                 evidence.mark_not_applicable(key);
             }
         }
-        if terminal.is_none() {
-            return;
+
+        match terminal {
+            ::core::option::Option::None => {
+                return;
+            },
+            ::core::option::Option::Some(_) => {},
         }
+
         for role in PieTextRole::ALL {
             for (&index, capabilities) in &self.pending[role.index()] {
                 let key = FamilyThemeMechanismKey::Rule {
                     index,
                     target: role.target(),
                 };
+
                 if !visible(role) {
                     evidence.mark_not_applicable(key);
                 } else if capabilities.contains(&ThemeCapability::Typography)
@@ -492,11 +540,15 @@ impl PieTextReceipt {
         self.invalid |= index != self.next[role_index]
             || selector != Some(role.selector())
             || plan.expected[role_index].get(index).map(String::as_str)
-                != Some(text.unwrap_or_default());
+                != Some(match text {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "",
+                });
         self.next[role_index] = self.next[role_index].saturating_add(1);
         self.visible[role_index] += usize::from(text.is_some_and(has_visible_pie_text));
     }
 
+    #[must_use]
     pub(super) fn proves_complete(&self, plan: &PiePreparedText) -> bool {
         !self.invalid
             && PieTextRole::ALL.into_iter().all(|role| {

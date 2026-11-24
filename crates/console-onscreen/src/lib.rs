@@ -140,8 +140,9 @@ pub fn layer_state(
   layer.corner()
 }
 
-pub const SYSTEM_SURFACES: [&str; 8] = [
+pub const SYSTEM_SURFACES: [&str; 9] = [
   "awww-daemon",
+  "console-paper",
   "console-keyboard",
   "notifications",
   BAR,
@@ -347,7 +348,7 @@ mod tests {
   }
 
   const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
-        "0":[{"namespace":"awww-daemon","x":0,"y":0,"w":1920,"h":1600}],
+        "0":[{"namespace":"console-paper","x":0,"y":0,"w":1920,"h":1600}],
         "2":[{"namespace":"console-bar","x":0,"y":0,"w":1920,"h":40}]}}}"#;
 
   #[test]
@@ -363,7 +364,7 @@ mod tests {
   #[test]
   fn the_menu_being_on_the_screen_opens_its_door() -> Result<(), Failure> {
     let said = r#"{"eDP-1":{"levels":{
-            "0":[{"namespace":"awww-daemon","x":0,"y":0,"w":1920,"h":1600}],
+            "0":[{"namespace":"console-paper","x":0,"y":0,"w":1920,"h":1600}],
             "3":[{"namespace":"launcher","x":0,"y":0,"w":1920,"h":1562}]}}}"#;
     let listed = layers(said)?;
 

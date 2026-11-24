@@ -567,7 +567,10 @@ fn reference_list(
       }
       None => ordinal,
     };
-    ensure!(position < total.get().max(count), "list_entry out of range");
+    ensure(
+      position < total.get().max(count),
+      || "list_entry out of range",
+    )?;
     let Ok(at) = index(position % total);
     let reference = candidates.get(at).ok_or_else(|| {
       Error::Invalid(<::std::string::String as ::core::convert::From<

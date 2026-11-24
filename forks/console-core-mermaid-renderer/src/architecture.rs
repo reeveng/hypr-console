@@ -39,6 +39,7 @@ struct ArchitectureManateeWorkControl<'a> {
 }
 
 impl<'a> ArchitectureManateeWorkControl<'a> {
+    #[must_use]
     fn new(meter: &'a OperationWorkMeter) -> Self {
         Self {
             meter,
@@ -81,6 +82,7 @@ struct ArchitectureConstraintWork {
 }
 
 impl ArchitectureConstraintWork {
+    #[must_use]
     fn checked_work_units(self) -> Option<usize> {
         self.alignment_group_count
             .checked_add(self.alignment_member_count)?
@@ -94,6 +96,7 @@ struct ArchitectureAdapterWorkPlan {
     declared_constraints: ArchitectureConstraintWork,
 }
 
+#[must_use]
 fn checked_architecture_adapter_work_plan_from_hint_lengths(
     node_count: usize,
     group_count: usize,
@@ -104,12 +107,14 @@ fn checked_architecture_adapter_work_plan_from_hint_lengths(
         hint_member_counts.into_iter().try_fold(
             (0usize, 0usize, 0usize, 0usize),
             |(members, groups, constrained_members, relative), hint_member_count| {
-                let members = members.checked_add(hint_member_count)?;
+                let members_2 = members.checked_add(hint_member_count)?;
+
                 if hint_member_count < 2 {
-                    return Some((members, groups, constrained_members, relative));
+                    return Some((members_2, groups, constrained_members, relative));
                 }
+
                 Some((
-                    members,
+                    members_2,
                     groups.checked_add(1)?,
                     constrained_members.checked_add(hint_member_count)?,
                     relative.checked_add(hint_member_count - 1)?,
@@ -147,6 +152,7 @@ fn checked_architecture_adapter_work_plan(
     )
 }
 
+#[must_use]
 fn checked_typed_architecture_adapter_work_plan(
     model: &ArchitectureDiagramModel,
 ) -> Option<ArchitectureAdapterWorkPlan> {
@@ -158,6 +164,7 @@ fn checked_typed_architecture_adapter_work_plan(
     )
 }
 
+#[must_use]
 fn checked_architecture_fcose_work_upper_bound(
     schedule: manatee::algo::fcose::FcoseIterationSchedule,
     constraints: ArchitectureConstraintWork,
@@ -201,6 +208,7 @@ struct ArchitectureRelativeConstraintPlan<'a> {
 }
 
 impl ArchitectureRelativeConstraintPlan<'_> {
+    #[must_use]
     fn checked_materialization_work_units(&self) -> Option<usize> {
         let constraint_bytes = self.constraint_count.checked_mul(std::mem::size_of::<
             manatee::algo::fcose::IndexedRelativePlacementConstraint,
@@ -208,18 +216,21 @@ impl ArchitectureRelativeConstraintPlan<'_> {
         let queue_bytes = self
             .queue_entry_count
             .checked_mul(std::mem::size_of::<(i32, i32)>())?;
-        if constraint_bytes > isize::MAX as usize || queue_bytes > isize::MAX as usize {
+
+        if constraint_bytes > ::core::primitive::isize::cast_unsigned(isize::MAX) || queue_bytes > ::core::primitive::isize::cast_unsigned(isize::MAX) {
             return None;
         }
-        // Each queued position is pushed, popped, marked visited, looked up, and probes all four
-        // grid directions. Constraint construction is charged separately because declared pairs
-        // still enqueue and traverse without emitting an FCoSE object.
+
+
+
+
         self.queue_entry_count
             .checked_mul(8)?
             .checked_add(self.constraint_count)
     }
 }
 
+#[must_use]
 fn checked_architecture_relative_planning_work_units(
     spatial_maps: &[IndexMap<&str, (i32, i32)>],
 ) -> Option<usize> {
@@ -231,6 +242,7 @@ fn checked_architecture_relative_planning_work_units(
         .checked_add(source_positions.checked_mul(6)?)
 }
 
+#[must_use]
 fn checked_architecture_relative_constraint_plan<'a>(
     spatial_maps: &[IndexMap<&'a str, (i32, i32)>],
     node_index_by_id: &FixedMap<&'a str, usize>,
@@ -243,6 +255,7 @@ fn checked_architecture_relative_constraint_plan<'a>(
     for spatial_map in spatial_maps {
         let mut inv: FixedMap<(i32, i32), &str> = FixedMap::default();
         inv.reserve(spatial_map.len().saturating_mul(2));
+
         for (id, (x, y)) in spatial_map.iter() {
             inv.insert((*x, *y), *id);
         }
@@ -261,17 +274,33 @@ fn checked_architecture_relative_constraint_plan<'a>(
         unique_queue.push_back((0, 0));
         let mut constraint_count = 0usize;
 
-        while let Some(curr) = unique_queue.pop_front() {
-            let curr_plan = *positions.get(&curr)?;
-            let Some(&curr_id) = inv.get(&curr) else {
-                continue;
+        'inner_while_2: while let Some(curr) = unique_queue.pop_front() {
+            let curr_plan = ::core::option::Option::<&_>::copied(positions.get(&curr))?;
+
+            let curr_id = {
+                let optional_curr_id = inv.get(&curr);
+
+                match optional_curr_id {
+                    Some(&matched_curr_id) => matched_curr_id,
+                    ::core::option::Option::None => continue 'inner_while_2,
+                }
             };
+
             let next_distance = curr_plan.distance.checked_add(1)?;
-            for (_, (sx, sy)) in ARCHITECTURE_RELATIVE_DIRS {
-                let new_pos = (curr.0.checked_add(sx)?, curr.1.checked_add(sy)?);
-                let Some(&new_id) = inv.get(&new_pos) else {
-                    continue;
+
+            'inner_for_3_: for (_, (sx, sy)) in ARCHITECTURE_RELATIVE_DIRS {
+                let checked_value = curr.0.checked_add(sx)?;
+                let new_pos = (checked_value, { let checked_value_2 = curr.1.checked_add(sy)?; checked_value_2 });
+
+                let new_id = {
+                    let optional_new_id = inv.get(&new_pos);
+
+                    match optional_new_id {
+                        Some(&matched_new_id) => matched_new_id,
+                        ::core::option::Option::None => continue 'inner_for_3_,
+                    }
                 };
+
                 let is_forward = match positions.get_mut(&new_pos) {
                     Some(existing) if existing.distance == next_distance => {
                         existing.queue_multiplicity = existing
@@ -292,20 +321,35 @@ fn checked_architecture_relative_constraint_plan<'a>(
                         true
                     }
                 };
+
                 if !is_forward {
-                    continue;
+                    continue 'inner_for_3_;
                 }
-                let Some(&curr_idx) = node_index_by_id.get(curr_id) else {
-                    continue;
+
+                let curr_idx = {
+                    let optional_curr_idx = node_index_by_id.get(curr_id);
+
+                    match optional_curr_idx {
+                        Some(&matched_curr_idx) => matched_curr_idx,
+                        ::core::option::Option::None => continue 'inner_for_3_,
+                    }
                 };
-                let Some(&new_idx) = node_index_by_id.get(new_id) else {
-                    continue;
+
+                let new_idx = {
+                    let optional_new_idx = node_index_by_id.get(new_id);
+
+                    match optional_new_idx {
+                        Some(&matched_new_idx) => matched_new_idx,
+                        ::core::option::Option::None => continue 'inner_for_3_,
+                    }
                 };
+
                 if declared_pairs.contains(&(curr_idx, new_idx))
                     || declared_pairs.contains(&(new_idx, curr_idx))
                 {
-                    continue;
+                    continue 'inner_for_3_;
                 }
+
                 constraint_count = constraint_count.checked_add(curr_plan.queue_multiplicity)?;
             }
         }
@@ -329,6 +373,7 @@ fn checked_architecture_relative_constraint_plan<'a>(
     })
 }
 
+#[must_use]
 fn materialize_architecture_relative_placement_constraints(
     plan: &ArchitectureRelativeConstraintPlan<'_>,
     node_index_by_id: &FixedMap<&str, usize>,
@@ -345,34 +390,63 @@ fn materialize_architecture_relative_placement_constraints(
         visited_pos.reserve(spatial.inverse.len().saturating_mul(2));
         pos_queue.push_back((0, 0));
 
-        while let Some(curr) = pos_queue.pop_front() {
+        'inner_while_2: while let Some(curr) = pos_queue.pop_front() {
             materialized_queue_entries = materialized_queue_entries.checked_add(1)?;
-            // Mermaid marks the current grid position as visited but does not skip duplicate
-            // queued positions on pop. Preserve both duplicate constraints and their L/R/T/B
-            // order after the linear admission planner has bounded the expansion.
+
+
+
             visited_pos.insert(curr);
-            let Some(&curr_id) = spatial.inverse.get(&curr) else {
-                continue;
-            };
-            for (dir, (sx, sy)) in ARCHITECTURE_RELATIVE_DIRS {
-                let new_pos = (curr.0.checked_add(sx)?, curr.1.checked_add(sy)?);
-                let Some(&new_id) = spatial.inverse.get(&new_pos) else {
-                    continue;
-                };
-                if visited_pos.contains(&new_pos) {
-                    continue;
+
+            let curr_id = {
+                let optional_curr_id = spatial.inverse.get(&curr);
+
+                match optional_curr_id {
+                    Some(&matched_curr_id) => matched_curr_id,
+                    ::core::option::Option::None => continue 'inner_while_2,
                 }
+            };
+
+            'inner_for_3_: for (dir, (sx, sy)) in ARCHITECTURE_RELATIVE_DIRS {
+                let checked_value = curr.0.checked_add(sx)?;
+                let new_pos = (checked_value, { let checked_value_2 = curr.1.checked_add(sy)?; checked_value_2 });
+
+                let new_id = {
+                    let optional_new_id = spatial.inverse.get(&new_pos);
+
+                    match optional_new_id {
+                        Some(&matched_new_id) => matched_new_id,
+                        ::core::option::Option::None => continue 'inner_for_3_,
+                    }
+                };
+
+                if visited_pos.contains(&new_pos) {
+                    continue 'inner_for_3_;
+                }
+
                 pos_queue.push_back(new_pos);
-                let Some(&curr_idx) = node_index_by_id.get(curr_id) else {
-                    continue;
+
+                let curr_idx = {
+                    let optional_curr_idx = node_index_by_id.get(curr_id);
+
+                    match optional_curr_idx {
+                        Some(&matched_curr_idx) => matched_curr_idx,
+                        ::core::option::Option::None => continue 'inner_for_3_,
+                    }
                 };
-                let Some(&new_idx) = node_index_by_id.get(new_id) else {
-                    continue;
+
+                let new_idx = {
+                    let optional_new_idx = node_index_by_id.get(new_id);
+
+                    match optional_new_idx {
+                        Some(&matched_new_idx) => matched_new_idx,
+                        ::core::option::Option::None => continue 'inner_for_3_,
+                    }
                 };
+
                 if declared_pairs.contains(&(curr_idx, new_idx))
                     || declared_pairs.contains(&(new_idx, curr_idx))
                 {
-                    continue;
+                    continue 'inner_for_3_;
                 }
 
                 relative.push(match dir {
@@ -417,11 +491,15 @@ fn materialize_architecture_relative_placement_constraints(
     Some(relative)
 }
 
+#[must_use]
 fn config_bool(cfg: &Value, path: &[&str]) -> Option<bool> {
     let mut cur = cfg;
+
     for k in path {
-        cur = cur.get(*k)?;
+        let checked_value = cur.get(*k)?;
+        cur = checked_value;
     }
+
     cur.as_bool()
 }
 
@@ -440,6 +518,7 @@ enum Dir {
 }
 
 impl Dir {
+    #[must_use]
     fn from_char(ch: char) -> Option<Self> {
         match ch {
             'L' => Some(Self::L),
@@ -450,11 +529,13 @@ impl Dir {
         }
     }
 
+    #[must_use]
     fn is_x(self) -> bool {
         matches!(self, Self::L | Self::R)
     }
 }
 
+#[must_use]
 fn dir_pair_key(source: Dir, target: Dir) -> Option<&'static str> {
     match (source, target) {
         (Dir::L, Dir::R) => Some("LR"),
@@ -473,20 +554,23 @@ fn dir_pair_key(source: Dir, target: Dir) -> Option<&'static str> {
     }
 }
 
+#[must_use]
 fn shift_position_by_arch_pair(x: i32, y: i32, pair: &str) -> (i32, i32) {
-    // Port of Mermaid@11.12.2 `shiftPositionByArchitectureDirectionPair`.
+
     let bytes = pair.as_bytes();
+
     if bytes.len() != 2 {
         return (x, y);
     }
-    let lhs = match bytes[0] as char {
+
+    let lhs = match <char as ::core::convert::From<::core::primitive::u8>>::from(bytes[0]) {
         'L' => Dir::L,
         'R' => Dir::R,
         'T' => Dir::T,
         'B' => Dir::B,
         _ => return (x, y),
     };
-    let rhs = match bytes[1] as char {
+    let rhs = match <char as ::core::convert::From<::core::primitive::u8>>::from(bytes[1]) {
         'L' => Dir::L,
         'R' => Dir::R,
         'T' => Dir::T,
@@ -513,6 +597,7 @@ fn shift_position_by_arch_pair(x: i32, y: i32, pair: &str) -> (i32, i32) {
     }
 }
 
+#[must_use]
 fn anchor_from_dir(dir: Dir) -> manatee::Anchor {
     match dir {
         Dir::L => manatee::Anchor::Left,
@@ -522,26 +607,30 @@ fn anchor_from_dir(dir: Dir) -> manatee::Anchor {
     }
 }
 
+#[must_use]
 fn js_to_uint32(value: f64) -> u64 {
     const UINT32_MODULUS: f64 = 4_294_967_296.0;
     value.trunc().rem_euclid(UINT32_MODULUS) as u64
 }
 
+#[must_use]
 fn architecture_seed_policy(
     value: Option<&Value>,
     operation_seed: u64,
 ) -> manatee::FcoseRandomPolicy {
-    let numeric_seed = value
+    let numeric_seed = match value
         .and_then(json_f64)
-        .filter(|value| value.is_finite())
-        .unwrap_or(1.0);
+        .filter(|value_2| value_2.is_finite()) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 1.0,
+    };
     let is_json_number_zero = value
         .and_then(Value::as_f64)
-        .is_some_and(|value| value == 0.0);
+        .is_some_and(|value_3| ::core::matches!(::core::primitive::f64::classify(value_3), ::core::num::FpCategory::Zero));
     let policy = if is_json_number_zero {
-        // Mermaid leaves Math.random in place for architecture.seed=0. Merman captures that
-        // operation-owned stream at session start, then consumes it continuously across FCoSE
-        // reruns instead of introducing a second process-global random source.
+
+
+
         manatee::FcoseRandomPolicy::seeded(manatee::FcoseRandomSource::Mulberry32, operation_seed)
             .with_reset_seed_each_run(false)
     } else {
@@ -561,13 +650,21 @@ enum GroupAlignment {
     Bend,
 }
 
+#[must_use]
 fn dir_alignment(a: Option<char>, b: Option<char>) -> GroupAlignment {
-    let (Some(a), Some(b)) = (a.and_then(Dir::from_char), b.and_then(Dir::from_char)) else {
-        return GroupAlignment::Bend;
+    let (a_2, b_2) = {
+        let outcome_a = (a.and_then(Dir::from_char), b.and_then(Dir::from_char));
+
+        match outcome_a {
+            (Some(matched_a), Some(matched_b)) => (matched_a, matched_b),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return GroupAlignment::Bend,
+        }
     };
-    if a.is_x() != b.is_x() {
+
+    if a_2.is_x() != b_2.is_x() {
         GroupAlignment::Bend
-    } else if a.is_x() {
+    } else if a_2.is_x() {
         GroupAlignment::Horizontal
     } else {
         GroupAlignment::Vertical
@@ -593,11 +690,13 @@ struct FlattenAlignmentsMetadata {
 }
 
 impl FlattenAlignmentsMetadata {
+    #[must_use]
     fn checked_work_units(self) -> Option<usize> {
         self.direction_bucket_count.checked_add(self.group_count)
     }
 }
 
+#[must_use]
 fn checked_flatten_alignments_metadata(
     alignment_obj: &IndexMap<i32, IndexMap<String, Vec<usize>>>,
 ) -> Option<FlattenAlignmentsMetadata> {
@@ -610,32 +709,44 @@ fn checked_flatten_alignments_metadata(
     })
 }
 
+#[must_use]
 fn checked_ceil_log2(value: usize) -> Option<usize> {
-    if value <= 1 {
-        return Some(0);
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(value), &::core::convert::identity(1)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+            return Some(0);
+        },
+        ::core::cmp::Ordering::Greater => {},
     }
+
     usize::BITS
         .checked_sub((value - 1).leading_zeros())
         .map(|bits| bits as usize)
 }
 
+#[must_use]
 fn checked_sort_work_units(item_count: usize) -> Option<usize> {
     item_count.checked_mul(checked_ceil_log2(item_count)?)
 }
 
+#[must_use]
 fn checked_unordered_pair_count(item_count: usize) -> Option<usize> {
-    if item_count < 2 {
-        return Some(0);
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(item_count), &::core::convert::identity(2)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less => {
+            return Some(0);
+        },
+        ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
     }
 
     let predecessor = item_count - 1;
+
     if item_count.is_multiple_of(2) {
-        (item_count / 2).checked_mul(predecessor)
+        item_count.wrapping_div(2).checked_mul(predecessor)
     } else {
-        item_count.checked_mul(predecessor / 2)
+        item_count.checked_mul(predecessor.wrapping_div(2))
     }
 }
 
+#[must_use]
 fn checked_flatten_alignment_bucket_cardinality(
     group_count: usize,
     source_member_count: usize,
@@ -654,11 +765,13 @@ fn checked_flatten_alignment_bucket_cardinality(
 }
 
 impl FlattenAlignmentsWorkPlan {
+    #[must_use]
     fn checked(alignment_obj: &IndexMap<i32, IndexMap<String, Vec<usize>>>) -> Option<Self> {
         let metadata = checked_flatten_alignments_metadata(alignment_obj)?;
         Self::checked_with_metadata(alignment_obj, metadata)
     }
 
+    #[must_use]
     fn checked_with_metadata(
         alignment_obj: &IndexMap<i32, IndexMap<String, Vec<usize>>>,
         metadata: FlattenAlignmentsMetadata,
@@ -674,6 +787,7 @@ impl FlattenAlignmentsWorkPlan {
         for (&dir, alignments) in alignment_obj {
             if dir >= 0 {
                 numeric_direction_count = numeric_direction_count.checked_add(1)?;
+
                 if !alignments.is_empty() {
                     numeric_output_key_bound = numeric_output_key_bound.checked_add(1)?;
                 }
@@ -729,19 +843,24 @@ impl FlattenAlignmentsWorkPlan {
     }
 }
 
+#[must_use]
 fn js_array_index_key(key: &str) -> Option<u32> {
     if key == "0" {
         return Some(0);
     }
+
     if key.is_empty() || key.starts_with('0') || !key.as_bytes().iter().all(u8::is_ascii_digit) {
         return None;
     }
-    key.parse::<u32>().ok().filter(|index| *index < u32::MAX)
+
+    match key.parse::<u32>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }.filter(|index| *index < u32::MAX)
 }
 
+#[must_use]
 fn js_object_i32_key_index_order<V>(obj: &IndexMap<i32, V>) -> Vec<usize> {
     let mut array_indices: Vec<(i32, usize)> = Vec::new();
     let mut other_indices: Vec<usize> = Vec::new();
+
     for (index, (&key, _)) in obj.iter().enumerate() {
         if key >= 0 {
             array_indices.push((key, index));
@@ -749,6 +868,7 @@ fn js_object_i32_key_index_order<V>(obj: &IndexMap<i32, V>) -> Vec<usize> {
             other_indices.push(index);
         }
     }
+
     array_indices.sort_unstable_by_key(|(key, _)| *key);
     array_indices
         .into_iter()
@@ -757,9 +877,11 @@ fn js_object_i32_key_index_order<V>(obj: &IndexMap<i32, V>) -> Vec<usize> {
         .collect()
 }
 
+#[must_use]
 fn js_object_string_key_index_order<K: AsRef<str>, V>(obj: &IndexMap<K, V>) -> Vec<usize> {
     let mut array_indices: Vec<(u32, usize)> = Vec::new();
     let mut other_indices: Vec<usize> = Vec::new();
+
     for (index, (key, _)) in obj.iter().enumerate() {
         if let Some(array_index) = js_array_index_key(key.as_ref()) {
             array_indices.push((array_index, index));
@@ -767,6 +889,7 @@ fn js_object_string_key_index_order<K: AsRef<str>, V>(obj: &IndexMap<K, V>) -> V
             other_indices.push(index);
         }
     }
+
     array_indices.sort_unstable_by_key(|(key, _)| *key);
     array_indices
         .into_iter()
@@ -784,14 +907,14 @@ fn flatten_alignments(
     >,
     work_meter: &OperationWorkMeter,
 ) -> Result<Vec<Vec<usize>>> {
-    // Mirror Mermaid's `flattenAlignments(...)` + `Object.values(...)` ordering.
-    //
-    // Mermaid uses plain JS objects keyed by row/col number. Enumeration order puts
-    // non-negative integer keys first (ascending), then other string keys (insertion
-    // order). We reproduce that here to keep the first element of each alignment group
-    // stable, since `cose-base` uses it to seed dummy-node positions.
-    // The scalar scan does not allocate or clone members. Charge its complete execution plan
-    // before creating ordered index vectors, output keys, or pair-expanded member arrays.
+
+
+
+
+
+
+
+
     let metadata = checked_flatten_alignments_metadata(alignment_obj)
         .ok_or_else(|| work_meter.arithmetic_overflow())?;
     work_meter.preflight(
@@ -812,6 +935,7 @@ fn flatten_alignments(
         let group_order = js_object_string_key_index_order(alignments);
         let mut cnt = 0usize;
         let dir_key = dir.to_string();
+
         if group_order.len() == 1 {
             let (_, node_ids) = alignments
                 .get_index(group_order[0])
@@ -819,6 +943,7 @@ fn flatten_alignments(
             prev.insert(dir_key, node_ids.clone());
             continue;
         }
+
         for i in 0..group_order.len().saturating_sub(1) {
             for j in (i + 1)..group_order.len() {
                 let (a_group_id, a_node_ids) = alignments
@@ -857,10 +982,11 @@ fn flatten_alignments(
         }
     }
 
-    // `Object.values(prev)` ordering.
+
     let output_len = prev.len();
     let mut numeric_values: Vec<(u32, Vec<usize>)> = Vec::new();
     let mut other_values: Vec<Vec<usize>> = Vec::new();
+
     for (key, value) in prev {
         if let Some(index) = js_array_index_key(&key) {
             numeric_values.push((index, value));
@@ -868,6 +994,7 @@ fn flatten_alignments(
             other_values.push(value);
         }
     }
+
     numeric_values.sort_unstable_by_key(|(index, _)| *index);
 
     let mut out = Vec::with_capacity(output_len);
@@ -931,6 +1058,7 @@ fn typed_architecture_projection_count() -> usize {
 }
 
 impl<'a> ArchitectureModelView<'a> {
+    #[must_use]
     fn from_typed(model: &'a ArchitectureDiagramModel) -> Self {
         #[cfg(test)]
         TYPED_ARCHITECTURE_PROJECTION_COUNT
@@ -1011,6 +1139,7 @@ struct ArchitectureSpatialAdmission {
     preflight_work_units: usize,
 }
 
+#[must_use]
 fn checked_architecture_spatial_admission<'a>(
     node_ids: &[&'a str],
     adj_list: &FixedMap<&'a str, IndexMap<&'static str, &'a str>>,
@@ -1036,16 +1165,25 @@ fn checked_architecture_spatial_admission<'a>(
         distances.insert(start_id, 0);
         unique_queue.push_back(start_id);
 
-        while let Some(id) = unique_queue.pop_front() {
+        'inner_while_2: while let Some(id) = unique_queue.pop_front() {
             discovery.push(id);
-            let next_distance = distances.get(id)?.checked_add(1)?;
-            let Some(adj) = adj_list.get(id) else {
-                continue;
-            };
-            for &rhs_id in adj.values() {
-                if globally_visited.contains(rhs_id) || distances.contains_key(rhs_id) {
-                    continue;
+            let checked_value = distances.get(id)?;
+            let next_distance = checked_value.checked_add(1)?;
+
+            let adj = {
+                let optional_adj = adj_list.get(id);
+
+                match optional_adj {
+                    Some(matched_adj) => matched_adj,
+                    ::core::option::Option::None => continue 'inner_while_2,
                 }
+            };
+
+            'inner_for_3: for &rhs_id in adj.values() {
+                if globally_visited.contains(rhs_id) || distances.contains_key(rhs_id) {
+                    continue 'inner_for_3;
+                }
+
                 distances.insert(rhs_id, next_distance);
                 unique_queue.push_back(rhs_id);
             }
@@ -1055,42 +1193,59 @@ fn checked_architecture_spatial_admission<'a>(
             .iter()
             .filter(|id| js_array_index_key(id).is_some())
             .count();
-        let js_enumeration_work_units = if numeric_key_count == 0 {
-            0
-        } else {
-            discovery
-                .len()
-                .checked_mul(3)?
-                .checked_add(checked_sort_work_units(numeric_key_count)?)?
+        let js_enumeration_work_units = match numeric_key_count {
+            0 => {
+                0
+            },
+            _ => {
+                discovery
+                    .len()
+                    .checked_mul(3)?
+                    .checked_add(checked_sort_work_units(numeric_key_count)?)?
+            },
         };
 
         multiplicities.insert(start_id, 1);
         let mut queue_entry_count = 0usize;
         let mut adjacency_scan_count = 0usize;
         let mut exact_traversal = true;
+
         'propagate: for &id in &discovery {
-            let distance = *distances.get(id)?;
-            let multiplicity = *multiplicities.get(id)?;
+            let distance = ::core::option::Option::<&_>::copied(distances.get(id))?;
+            let multiplicity = ::core::option::Option::<&_>::copied(multiplicities.get(id))?;
             queue_entry_count = queue_entry_count.checked_add(multiplicity)?;
-            let Some(adj) = adj_list.get(id) else {
-                continue;
+
+            let adj = {
+                let optional_adj = adj_list.get(id);
+
+                match optional_adj {
+                    Some(matched_adj) => matched_adj,
+                    ::core::option::Option::None => continue 'propagate,
+                }
             };
+
             adjacency_scan_count =
                 adjacency_scan_count.checked_add(multiplicity.checked_mul(adj.len())?)?;
             let next_distance = distance.checked_add(1)?;
-            for &rhs_id in adj.values() {
-                let Some(&rhs_distance) = distances.get(rhs_id) else {
-                    // The target belongs to an earlier one-way component and is already visited
-                    // when Mermaid starts this component.
-                    continue;
+
+            'inner_for_3: for &rhs_id in adj.values() {
+                let rhs_distance = {
+                    let optional_rhs_distance = distances.get(rhs_id);
+
+                    match optional_rhs_distance {
+                        Some(&matched_rhs_distance) => matched_rhs_distance,
+                        ::core::option::Option::None => continue 'inner_for_3,
+                    }
                 };
+
                 if rhs_distance == distance {
-                    // Same-layer edges make the exact duplicate queue depend on first-pop order.
-                    // Keep this component on the runtime-charged path without throwing away exact
-                    // preflight evidence from independent strictly layered components.
+
+
+
                     exact_traversal = false;
                     break 'propagate;
                 }
+
                 if rhs_distance == next_distance {
                     let entry = multiplicities.entry(rhs_id).or_default();
                     *entry = entry.checked_add(multiplicity)?;
@@ -1100,9 +1255,11 @@ fn checked_architecture_spatial_admission<'a>(
 
         let exact_traversal_work_units = if exact_traversal {
             let queue_bytes = queue_entry_count.checked_mul(std::mem::size_of::<&str>())?;
-            if queue_bytes > isize::MAX as usize {
+
+            if queue_bytes > ::core::primitive::isize::cast_unsigned(isize::MAX) {
                 return None;
             }
+
             Some(
                 queue_entry_count
                     .checked_mul(2)?
@@ -1116,7 +1273,10 @@ fn checked_architecture_spatial_admission<'a>(
             js_enumeration_work_units,
         };
         preflight_work_units = preflight_work_units
-            .checked_add(component.exact_traversal_work_units.unwrap_or(0))?
+            .checked_add(match component.exact_traversal_work_units {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0,
+            })?
             .checked_add(component.js_enumeration_work_units)?;
         components.push(component);
         globally_visited.extend(discovery.iter().copied());
@@ -1133,27 +1293,40 @@ fn order_architecture_spatial_map_like_js<'a>(
     work_units: usize,
     work_meter: &OperationWorkMeter,
 ) -> Result<IndexMap<&'a str, (i32, i32)>> {
-    if work_units == 0 {
-        return Ok(spatial);
+    match work_units {
+        0 => {
+            return Ok(spatial);
+        },
+        _ => {},
     }
 
     let order_bytes = spatial
         .len()
         .checked_mul(std::mem::size_of::<usize>())
         .ok_or_else(|| work_meter.arithmetic_overflow())?;
-    if order_bytes > isize::MAX as usize {
-        return Err(work_meter.arithmetic_overflow().into());
+
+    if order_bytes > ::core::primitive::isize::cast_unsigned(isize::MAX) {
+        return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(work_meter.arithmetic_overflow()));
     }
+
     work_meter.charge(work_units)?;
 
     let order = js_object_string_key_index_order(&spatial);
     let mut ordered = IndexMap::with_capacity(spatial.len());
+
     for index in order {
-        let Some((&id, &position)) = spatial.get_index(index) else {
-            return Err(work_meter.arithmetic_overflow().into());
+        let (id, position) = {
+            let optional_id = spatial.get_index(index);
+
+            match optional_id {
+                Some((&matched_id, &matched_position)) => (matched_id, matched_position),
+                ::core::option::Option::None => return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(work_meter.arithmetic_overflow())),
+            }
         };
+
         ordered.insert(id, position);
     }
+
     Ok(ordered)
 }
 
@@ -1164,6 +1337,7 @@ fn build_architecture_spatial_maps<'a>(
 ) -> Result<ArchitectureSpatialTraversal<'a>> {
     let mut incident_edges: FixedMap<&'a str, Vec<usize>> = FixedMap::default();
     incident_edges.reserve(model.nodes.len().saturating_mul(2));
+
     for (edge_idx, e) in model.edges.iter().enumerate() {
         incident_edges.entry(e.lhs_id).or_default().push(edge_idx);
         incident_edges.entry(e.rhs_id).or_default().push(edge_idx);
@@ -1171,34 +1345,52 @@ fn build_architecture_spatial_maps<'a>(
 
     let mut adj_list: FixedMap<&'a str, IndexMap<&'static str, &'a str>> = FixedMap::default();
     adj_list.reserve(model.nodes.len().saturating_mul(2));
+
     for &id in node_ids {
         let mut adj: IndexMap<&'static str, &str> = IndexMap::new();
+
         let Some(edges) = incident_edges.get(id) else {
             adj_list.insert(id, adj);
             continue;
         };
-        for &edge_idx in edges {
+
+        'inner_for_2_: for &edge_idx in edges {
             let e = &model.edges[edge_idx];
             let (rhs_id, lhs_dir, rhs_dir) = if e.lhs_id == id {
                 (e.rhs_id, e.lhs_dir, e.rhs_dir)
             } else {
                 (e.lhs_id, e.rhs_dir, e.lhs_dir)
             };
-            let (Some(lhs_dir), Some(rhs_dir)) = (
-                lhs_dir.and_then(Dir::from_char),
-                rhs_dir.and_then(Dir::from_char),
-            ) else {
-                continue;
+
+            let (lhs_dir_2, rhs_dir_2) = {
+                let outcome_lhs_dir = (
+                    lhs_dir.and_then(Dir::from_char),
+                    rhs_dir.and_then(Dir::from_char),
+                );
+
+                match outcome_lhs_dir {
+                    (Some(matched_lhs_dir), Some(matched_rhs_dir)) => (matched_lhs_dir, matched_rhs_dir),
+                    (::core::option::Option::None, _)
+                    | (_, ::core::option::Option::None) => continue 'inner_for_2_,
+                }
             };
-            let Some(pair) = dir_pair_key(lhs_dir, rhs_dir) else {
-                continue;
+
+            let pair = {
+                let optional_pair = dir_pair_key(lhs_dir_2, rhs_dir_2);
+
+                match optional_pair {
+                    Some(matched_pair) => matched_pair,
+                    ::core::option::Option::None => continue 'inner_for_2_,
+                }
             };
+
             if let Some(existing) = adj.get_mut(pair) {
                 *existing = rhs_id;
             } else {
                 adj.insert(pair, rhs_id);
             }
         }
+
         adj_list.insert(id, adj);
     }
 
@@ -1207,17 +1399,19 @@ fn build_architecture_spatial_maps<'a>(
     work_meter.preflight(admission.preflight_work_units)?;
     let mut component_admissions = admission.components.into_iter();
 
-    // Mermaid marks a node as visited when it is dequeued, but intentionally processes every
-    // queued copy. A later dequeue may therefore overwrite the coordinates of descendants that
-    // are still waiting in the queue. Charge before every queue mutation and adjacency scan so
-    // this source-compatible path multiplicity cannot allocate or scan beyond the work budget.
+
+
+
+
     let mut spatial_maps: Vec<IndexMap<&str, (i32, i32)>> = Vec::new();
     let mut visited: FixedSet<&str> = FixedSet::default();
     visited.reserve(model.nodes.len().saturating_mul(2));
+
     for &start_id in node_ids {
         if visited.contains(start_id) {
             continue;
         }
+
         let component_admission = component_admissions
             .next()
             .ok_or_else(|| work_meter.arithmetic_overflow())?;
@@ -1228,25 +1422,47 @@ fn build_architecture_spatial_maps<'a>(
         spatial.insert(start_id, (0, 0));
         queue.push_back(start_id);
 
-        while !queue.is_empty() {
+        'inner_while_2: while !queue.is_empty() {
             work_meter.charge(1)?;
-            let Some(id) = queue.pop_front() else {
-                break;
-            };
-            visited.insert(id);
-            let Some(&(pos_x, pos_y)) = spatial.get(id) else {
-                continue;
-            };
-            let Some(adj) = adj_list.get(id) else {
-                continue;
-            };
-            work_meter.charge(adj.len())?;
-            for (&pair, &rhs_id) in adj.iter() {
-                if visited.contains(rhs_id) {
-                    continue;
+
+            let id = {
+                let optional_id = queue.pop_front();
+
+                match optional_id {
+                    Some(matched_id) => matched_id,
+                    ::core::option::Option::None => break 'inner_while_2,
                 }
-                // Admit the enqueue before updating either local structure. On rejection the
-                // partially built component is dropped and no caller-visible plan is returned.
+            };
+
+            visited.insert(id);
+
+            let (pos_x, pos_y) = {
+                let optional_pos_x = spatial.get(id);
+
+                match optional_pos_x {
+                    Some(&(matched_pos_x, matched_pos_y)) => (matched_pos_x, matched_pos_y),
+                    ::core::option::Option::None => continue 'inner_while_2,
+                }
+            };
+
+            let adj = {
+                let optional_adj = adj_list.get(id);
+
+                match optional_adj {
+                    Some(matched_adj) => matched_adj,
+                    ::core::option::Option::None => continue 'inner_while_2,
+                }
+            };
+
+            work_meter.charge(adj.len())?;
+
+            'inner_for_3: for (&pair, &rhs_id) in adj.iter() {
+                if visited.contains(rhs_id) {
+                    continue 'inner_for_3;
+                }
+
+
+
                 work_meter.charge(1)?;
                 let (nx, ny) = shift_position_by_arch_pair(pos_x, pos_y, pair);
                 spatial.insert(rhs_id, (nx, ny));
@@ -1254,16 +1470,16 @@ fn build_architecture_spatial_maps<'a>(
             }
         }
 
-        let spatial = order_architecture_spatial_map_like_js(
+        let spatial_2 = order_architecture_spatial_map_like_js(
             spatial,
             component_admission.js_enumeration_work_units,
             work_meter,
         )?;
-        spatial_maps.push(spatial);
+        spatial_maps.push(spatial_2);
     }
 
     if component_admissions.next().is_some() {
-        return Err(work_meter.arithmetic_overflow().into());
+        return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(work_meter.arithmetic_overflow()));
     }
 
     Ok(ArchitectureSpatialTraversal {
@@ -1281,10 +1497,11 @@ struct ArchitectureFcoseNodeBoundsExtrasInput<'m, 'a> {
 
 const CYTOSCAPE_DEFAULT_FONT_FAMILY: &str = "Helvetica Neue,Helvetica,sans-serif";
 
+#[must_use]
 pub(crate) fn architecture_cytoscape_text_style(font_size_px: f64) -> TextStyle {
     TextStyle {
-        // Mermaid sets only `font-size` on Architecture nodes, so Cytoscape retains its own
-        // default canvas font family rather than inheriting Mermaid's root Trebuchet stack.
+
+
         font_family: Some(CYTOSCAPE_DEFAULT_FONT_FAMILY.to_string()),
         font_size: font_size_px,
         font_weight: None,
@@ -1292,6 +1509,7 @@ pub(crate) fn architecture_cytoscape_text_style(font_size_px: f64) -> TextStyle 
     }
 }
 
+#[must_use]
 fn architecture_cytoscape_edge_text_style() -> TextStyle {
     TextStyle {
         font_family: Some(CYTOSCAPE_DEFAULT_FONT_FAMILY.to_string()),
@@ -1299,15 +1517,16 @@ fn architecture_cytoscape_edge_text_style() -> TextStyle {
     }
 }
 
+#[must_use]
 fn architecture_fcose_node_bounds_extras<'a>(
     input: ArchitectureFcoseNodeBoundsExtrasInput<'_, 'a>,
 ) -> FixedMap<&'a str, manatee::BoundsExtras> {
-    // Capture Cytoscape's custom compound-child bbox for grouped leaves and its final element bbox
-    // for top-level leaves without changing layout node size. Manatee consumes the selected extras
-    // for compound sizing and relocation.
-    //
-    // Relocation-centering stays inside manatee's indexed graph adapter; keeping it out of this
-    // renderer-side helper avoids a second, unused pre-layout bbox model.
+
+
+
+
+
+
     let ArchitectureFcoseNodeBoundsExtrasInput {
         model,
         text_measurer,
@@ -1318,6 +1537,7 @@ fn architecture_fcose_node_bounds_extras<'a>(
 
     let mut node_bounds_extras: FixedMap<&str, manatee::BoundsExtras> = FixedMap::default();
     node_bounds_extras.reserve(model.nodes.len().saturating_mul(2));
+
     for n in &model.nodes {
         let bounds_extras = if n.in_group.is_some() {
             architecture_measure_cytoscape_compound_child_bbox_extras(
@@ -1412,8 +1632,8 @@ fn build_architecture_fcose_input_plan<'a>(
         }
     }
 
-    // Deterministic component discovery: mimic Mermaid's `Object.keys(notVisited)[0]` by walking
-    // node order and taking the first not-yet-visited id for each component.
+
+
     let ArchitectureSpatialTraversal {
         spatial_maps,
         incident_edges,
@@ -1421,52 +1641,78 @@ fn build_architecture_fcose_input_plan<'a>(
 
     let mut node_group: std::collections::BTreeMap<&str, Option<&str>> =
         std::collections::BTreeMap::new();
+
     for n in &model.nodes {
         node_group.insert(n.id, n.in_group);
     }
 
     let mut node_index_by_id: FixedMap<&str, usize> = FixedMap::default();
     node_index_by_id.reserve(model.nodes.len().saturating_mul(2));
+
     for (idx, &id) in node_ids.iter().enumerate() {
         node_index_by_id.insert(id, idx);
     }
 
     let mut compound_index_by_id: FixedMap<&str, usize> = FixedMap::default();
     compound_index_by_id.reserve(model.groups.len().saturating_mul(2));
+
     for (idx, g) in model.groups.iter().enumerate() {
         compound_index_by_id.insert(g.id, idx);
     }
 
-    // Track how groups connect (used when flattening alignment arrays across groups).
-    //
-    // Mermaid builds this while reducing `this.nodes` and each node's `service.edges` list in
-    // `ArchitectureDB.getDataStructures()`. The same edge can therefore update the map once
-    // per endpoint, and later endpoint traversal overwrites earlier alignment values. Do not
-    // collapse this to a single global edge pass: fixtures with mixed core/data edges rely on
-    // the source traversal order to decide which group alignment survives.
+
+
+
+
+
+
+
     let mut group_alignments: std::collections::BTreeMap<
         String,
         std::collections::BTreeMap<String, GroupAlignment>,
     > = std::collections::BTreeMap::new();
+
     for &id in &node_ids {
-        let Some(edge_indices) = incident_edges.get(id) else {
-            continue;
+        let edge_indices = {
+            let optional_edge_indices = incident_edges.get(id);
+
+            match optional_edge_indices {
+                Some(matched_edge_indices) => matched_edge_indices,
+                ::core::option::Option::None => continue,
+            }
         };
-        for &edge_idx in edge_indices {
+
+        'inner_for_2_: for &edge_idx in edge_indices {
             let e = &model.edges[edge_idx];
-            let Some(lhs_group) = node_group.get(e.lhs_id).and_then(|v| *v) else {
-                continue;
+
+            let lhs_group = {
+                let optional_lhs_group = node_group.get(e.lhs_id).and_then(|v| *v);
+
+                match optional_lhs_group {
+                    Some(matched_lhs_group) => matched_lhs_group,
+                    ::core::option::Option::None => continue 'inner_for_2_,
+                }
             };
-            let Some(rhs_group) = node_group.get(e.rhs_id).and_then(|v| *v) else {
-                continue;
+
+            let rhs_group = {
+                let optional_rhs_group = node_group.get(e.rhs_id).and_then(|v| *v);
+
+                match optional_rhs_group {
+                    Some(matched_rhs_group) => matched_rhs_group,
+                    ::core::option::Option::None => continue 'inner_for_2_,
+                }
             };
+
             if lhs_group == rhs_group {
-                continue;
+                continue 'inner_for_2_;
             }
+
             let alignment = dir_alignment(e.lhs_dir, e.rhs_dir);
+
             if alignment == GroupAlignment::Bend {
-                continue;
+                continue 'inner_for_2_;
             }
+
             group_alignments
                 .entry(lhs_group.to_string())
                 .or_default()
@@ -1480,18 +1726,26 @@ fn build_architecture_fcose_input_plan<'a>(
 
     let mut horizontal_all: Vec<Vec<usize>> = Vec::new();
     let mut vertical_all: Vec<Vec<usize>> = Vec::new();
+
     for spatial_map in &spatial_maps {
         let mut horizontal_alignments: IndexMap<i32, IndexMap<String, Vec<usize>>> =
             IndexMap::new();
         let mut vertical_alignments: IndexMap<i32, IndexMap<String, Vec<usize>>> = IndexMap::new();
 
-        for (id, (x, y)) in spatial_map {
-            let id = *id;
-            let Some(&node_idx) = node_index_by_id.get(id) else {
-                continue;
+        'inner_for_2: for (id, (x, y)) in spatial_map {
+            let id_2 = *id;
+
+            let node_idx = {
+                let optional_node_idx = node_index_by_id.get(id_2);
+
+                match optional_node_idx {
+                    Some(&matched_node_idx) => matched_node_idx,
+                    ::core::option::Option::None => continue 'inner_for_2,
+                }
             };
-            let node_group = node_group
-                .get(id)
+
+            let node_group_2 = node_group
+                .get(id_2)
                 .and_then(|v| *v)
                 .unwrap_or("default")
                 .to_string();
@@ -1499,14 +1753,14 @@ fn build_architecture_fcose_input_plan<'a>(
             horizontal_alignments
                 .entry(*y)
                 .or_default()
-                .entry(node_group.clone())
+                .entry(node_group_2.clone())
                 .or_default()
                 .push(node_idx);
 
             vertical_alignments
                 .entry(*x)
                 .or_default()
-                .entry(node_group)
+                .entry(node_group_2)
                 .or_default()
                 .push(node_idx);
         }
@@ -1529,6 +1783,7 @@ fn build_architecture_fcose_input_plan<'a>(
                 horizontal_all.push(v);
             }
         }
+
         for v in vert_map {
             if v.len() > 1 {
                 vertical_all.push(v);
@@ -1547,21 +1802,26 @@ fn build_architecture_fcose_input_plan<'a>(
         if hint.members.len() < 2 {
             continue;
         }
+
         let mut members = Vec::with_capacity(hint.members.len());
+
         for member in &hint.members {
             let Some(&idx) = node_index_by_id.get(*member) else {
                 return Err(Error::InvalidModel {
                     message: format!("architecture layout hint member not found: {member}"),
                 });
             };
+
             declared_members.insert(idx);
             members.push(idx);
         }
+
         for [pair_0, pair_1] in <[_]>::array_windows::<2>(&members) {
             let a = *pair_0;
             let b = *pair_1;
             declared_pairs.insert((a, b));
             declared_pairs.insert((b, a));
+
             match hint.direction {
                 ArchitectureLayoutDirection::Row => {
                     declared_relative.push(
@@ -1587,6 +1847,7 @@ fn build_architecture_fcose_input_plan<'a>(
                 }
             }
         }
+
         layout_hint_indices.push((hint.direction, members));
     }
 
@@ -1594,6 +1855,7 @@ fn build_architecture_fcose_input_plan<'a>(
         horizontal_all.retain(|group| !group.iter().any(|idx| declared_members.contains(idx)));
         vertical_all.retain(|group| !group.iter().any(|idx| declared_members.contains(idx)));
     }
+
     for (direction, members) in &layout_hint_indices {
         match direction {
             ArchitectureLayoutDirection::Row => horizontal_all.push(members.clone()),
@@ -1601,11 +1863,11 @@ fn build_architecture_fcose_input_plan<'a>(
         }
     }
 
-    // RelativePlacementConstraint (gap between borders).
-    //
-    // Mermaid's visited-on-pop BFS intentionally emits duplicate constraints. Count that
-    // expansion on the unique coordinate graph before allocating the duplicate queue or output
-    // vector, then admit the complete FCoSE constraint schedule while it is still cheap to reject.
+
+
+
+
+
     let relative_planning_work = checked_architecture_relative_planning_work_units(&spatial_maps)
         .ok_or_else(|| work_meter.arithmetic_overflow())?;
     work_meter.charge(relative_planning_work)?;
@@ -1669,16 +1931,16 @@ fn build_architecture_fcose_input_plan<'a>(
     let mut default_edge_length_cnt = 0.0f64;
     let edge_text_style = architecture_cytoscape_edge_text_style();
 
-    // Cytoscape FCoSE de-duplicates multiple edges between the same two nodes when building
-    // its internal layout graph:
-    //
-    // `sourceNode.getEdgesBetween(targetNode).length == 0`
-    //
-    // This means bidirectional/multi edges still render in the final SVG, but only the first
-    // edge between each undirected node pair contributes forces to the layout.
-    //
-    // Without this, our spring forces can cancel in small symmetric graphs, which makes the
-    // final spacing (and thus the root `viewBox/max-width`) diverge from Mermaid baselines.
+
+
+
+
+
+
+
+
+
+
     let mut seen_undirected_layout_edges: FixedSet<(usize, usize)> = FixedSet::default();
 
     for e in &model.edges {
@@ -1687,16 +1949,19 @@ fn build_architecture_fcose_input_plan<'a>(
                 message: format!("edge lhs node not found: {}", e.lhs_id),
             });
         };
+
         let Some(&b_idx) = node_index_by_id.get(e.rhs_id) else {
             return Err(Error::InvalidModel {
                 message: format!("edge rhs node not found: {}", e.rhs_id),
             });
         };
+
         let (k1, k2) = if a_idx <= b_idx {
             (a_idx, b_idx)
         } else {
             (b_idx, a_idx)
         };
+
         if !seen_undirected_layout_edges.insert((k1, k2)) {
             continue;
         }
@@ -1761,6 +2026,7 @@ fn build_architecture_fcose_input_plan<'a>(
 
     let mut indexed_nodes: Vec<manatee::algo::fcose::IndexedNode> =
         Vec::with_capacity(layout_nodes.len());
+
     for (idx, n) in layout_nodes.iter().enumerate() {
         let model_node = &model.nodes[idx];
         let parent =
@@ -1776,10 +2042,10 @@ fn build_architecture_fcose_input_plan<'a>(
             parent,
             width: n.width,
             height: n.height,
-            // Mermaid Architecture feeds Cytoscape node `position()` values directly
-            // into the SVG `translate(x,y)` for the icon box (i.e. it treats the
-            // Cytoscape "center" as a top-left anchor). This keeps the coordinate convention
-            // consistent across nodes, edges, and viewBox in upstream baselines.
+
+
+
+
             x: n.x,
             y: n.y,
             bounds_extras: node_bounds_extras
@@ -1791,6 +2057,7 @@ fn build_architecture_fcose_input_plan<'a>(
 
     let mut indexed_compounds: Vec<manatee::algo::fcose::IndexedCompound> =
         Vec::with_capacity(model.groups.len());
+
     for g in &model.groups {
         let parent =
             match g.in_group {
@@ -1810,8 +2077,8 @@ fn build_architecture_fcose_input_plan<'a>(
         compounds: indexed_compounds,
     };
 
-    // Mermaid Architecture styles group nodes with `padding: ${db.getConfigField('padding')}px`
-    // before running FCoSE, and CoSE uses that per-compound padding when updating bounds.
+
+
     let compound_padding_px = padding_px;
     let options = manatee::algo::fcose::IndexedFcoseOptions {
         alignment_constraint: Some(manatee::algo::fcose::IndexedAlignmentConstraint {
@@ -1825,8 +2092,8 @@ fn build_architecture_fcose_input_plan<'a>(
         num_iter: Some(fcose_num_iter),
         compound_padding: Some(compound_padding_px),
         relocate_center: None,
-        // Mermaid Architecture runs the layout twice (`layout.run()` inside `layoutstop`),
-        // while the additive random policy models each independently wrapped call.
+
+
         rerun: true,
         random_seed: fcose_random_policy.seed(),
         random_seed_offset: None,
@@ -1840,6 +2107,7 @@ fn build_architecture_fcose_input_plan<'a>(
     })
 }
 
+#[must_use]
 fn architecture_cytoscape_service_bounds<'a>(
     model: &ArchitectureModelView<'a>,
     nodes: &[LayoutNode],
@@ -1850,18 +2118,27 @@ fn architecture_cytoscape_service_bounds<'a>(
     let text_style = architecture_cytoscape_text_style(font_size_px);
     let mut node_by_id: FixedMap<&str, &LayoutNode> = FixedMap::default();
     node_by_id.reserve(nodes.len().saturating_mul(2));
+
     for node in nodes {
         node_by_id.insert(node.id.as_str(), node);
     }
 
     let mut out = Vec::new();
+
     for node in &model.nodes {
         if node.node_type != ArchitectureNodeType::Service {
             continue;
         }
-        let Some(layout_node) = node_by_id.get(node.id).copied() else {
-            continue;
+
+        let layout_node = {
+            let optional_layout_node = node_by_id.get(node.id).copied();
+
+            match optional_layout_node {
+                Some(matched_layout_node) => matched_layout_node,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let body_bounds = Bounds {
             min_x: layout_node.x,
             min_y: layout_node.y,
@@ -1889,24 +2166,30 @@ fn architecture_cytoscape_service_bounds<'a>(
             union_bounds: contribution.union_bounds,
         });
     }
+
     out
 }
 
+#[must_use]
 fn compute_bounds(nodes: &[LayoutNode], edges: &[LayoutEdge]) -> Option<Bounds> {
     let mut pts: Vec<(f64, f64)> = Vec::new();
+
     for n in nodes {
-        // Architecture renderer uses top-left anchored `translate(x, y)` for nodes.
+
         pts.push((n.x, n.y));
         pts.push((n.x + n.width, n.y + n.height));
     }
+
     for e in edges {
         for p in &e.points {
             pts.push((p.x, p.y));
         }
     }
+
     Bounds::from_points(pts)
 }
 
+#[must_use]
 fn architecture_bounds_from_layout_rect(rect: manatee::graph::LayoutRect) -> Bounds {
     Bounds {
         min_x: rect.left,
@@ -1927,19 +2210,30 @@ fn project_architecture_fcose_result(
     result: manatee::algo::fcose::IndexedLayoutResult,
 ) -> ArchitectureFcoseResultProjection {
     for (idx, n) in nodes.iter_mut().enumerate() {
-        if let Some(p) = result.node_positions.get(idx) {
-            n.x = p.x;
-            n.y = p.y;
+        {
+            match result.node_positions.get(idx) {
+                Some(p) => {
+                    n.x = p.x;
+                    n.y = p.y;
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
     let mut compound_bounds = Vec::with_capacity(plan.compound_ids.len());
+
     for (idx, group_id) in plan.compound_ids.iter().enumerate() {
-        if let Some(b) = result.compound_bounds.get(idx) {
-            compound_bounds.push(ArchitectureCompoundBounds {
-                id: (*group_id).to_string(),
-                bounds: architecture_bounds_from_layout_rect(*b),
-            });
+        {
+            match result.compound_bounds.get(idx) {
+                Some(b) => {
+                    compound_bounds.push(ArchitectureCompoundBounds {
+                        id: (*group_id).to_string(),
+                        bounds: architecture_bounds_from_layout_rect(*b),
+                    });
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
@@ -1958,6 +2252,7 @@ struct ArchitectureLayoutAdmissionPlan {
     preflight_work_units: usize,
 }
 
+#[must_use]
 fn checked_architecture_layout_admission_plan(
     node_count: usize,
     group_count: usize,
@@ -1969,21 +2264,24 @@ fn checked_architecture_layout_admission_plan(
         config_f64(effective_config, &["architecture", "numIter"]),
     )
     .ok()?;
-    let kernel_admission_units = if node_count == 0 {
-        0
-    } else {
-        let schedule = manatee::algo::fcose::FcoseIterationSchedule::from_normalized_graph_counts(
-            fcose_num_iter,
-            node_count,
-            group_count,
-            edge_count,
-            true,
-        )
-        .ok()?;
-        checked_architecture_fcose_work_upper_bound(
-            schedule,
-            adapter_work_plan.declared_constraints,
-        )?
+    let kernel_admission_units = match node_count {
+        0 => {
+            0
+        },
+        _ => {
+            let schedule = manatee::algo::fcose::FcoseIterationSchedule::from_normalized_graph_counts(
+                fcose_num_iter,
+                node_count,
+                group_count,
+                edge_count,
+                true,
+            )
+            .ok()?;
+            checked_architecture_fcose_work_upper_bound(
+                schedule,
+                adapter_work_plan.declared_constraints,
+            )?
+        },
     };
     let preflight_work_units = adapter_work_plan
         .work_units
@@ -2037,9 +2335,9 @@ pub(crate) fn layout_architecture_diagram_typed(
         effective_config,
         work_meter,
     )?;
-    let model = ArchitectureModelView::from_typed(model);
+    let model_2 = ArchitectureModelView::from_typed(model);
     layout_architecture_diagram_model_admitted(
-        &model,
+        &model_2,
         effective_config,
         text_measurer,
         operation_seed,
@@ -2084,28 +2382,46 @@ fn layout_architecture_diagram_model_admitted(
     work_meter: &OperationWorkMeter,
     admission: ArchitectureLayoutAdmission,
 ) -> Result<ArchitectureDiagramLayout> {
-    let icon_size = config_f64(effective_config, &["architecture", "iconSize"]).unwrap_or(80.0);
-    let icon_size = icon_size.max(1.0);
-    let half_icon = icon_size / 2.0;
-    let padding_px = config_f64(effective_config, &["architecture", "padding"]).unwrap_or(40.0);
-    let padding_px = padding_px.max(0.0);
-    let font_size_px = config_f64(effective_config, &["architecture", "fontSize"]).unwrap_or(16.0);
-    let font_size_px = font_size_px.max(1.0);
+    let icon_size = match config_f64(effective_config, &["architecture", "iconSize"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 80.0,
+    };
+    let icon_size_2 = icon_size.max(1.0);
+    let half_icon = icon_size_2 / 2.0;
+    let padding_px = match config_f64(effective_config, &["architecture", "padding"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 40.0,
+    };
+    let padding_px_2 = padding_px.max(0.0);
+    let font_size_px = match config_f64(effective_config, &["architecture", "fontSize"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 16.0,
+    };
+    let font_size_px_2 = font_size_px.max(1.0);
     let fcose_randomize =
-        config_bool(effective_config, &["architecture", "randomize"]).unwrap_or(false);
-    let fcose_node_separation = config_f64(effective_config, &["architecture", "nodeSeparation"])
-        .filter(|v| v.is_finite() && *v > 0.0)
-        .unwrap_or(75.0);
-    let ideal_edge_length_multiplier = config_f64(
+        match config_bool(effective_config, &["architecture", "randomize"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        };
+    let fcose_node_separation = match config_f64(effective_config, &["architecture", "nodeSeparation"])
+        .filter(|v| v.is_finite() && *v > 0.0) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 75.0,
+    };
+    let ideal_edge_length_multiplier = match config_f64(
         effective_config,
         &["architecture", "idealEdgeLengthMultiplier"],
     )
-    .filter(|v| v.is_finite() && *v > 0.0)
-    .unwrap_or(1.5);
+    .filter(|v| v.is_finite() && *v > 0.0) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 1.5,
+    };
     let same_group_edge_elasticity =
-        config_f64(effective_config, &["architecture", "edgeElasticity"])
-            .filter(|v| v.is_finite() && *v >= 0.0)
-            .unwrap_or(0.45);
+        match config_f64(effective_config, &["architecture", "edgeElasticity"])
+            .filter(|v| v.is_finite() && *v >= 0.0) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.45,
+        };
     let fcose_num_iter = admission.fcose_num_iter;
     let fcose_random_policy = architecture_seed_policy(
         value_at(effective_config, &["architecture", "seed"]),
@@ -2116,27 +2432,28 @@ fn layout_architecture_diagram_model_admitted(
         architecture_fcose_node_bounds_extras(ArchitectureFcoseNodeBoundsExtrasInput {
             model,
             text_measurer,
-            icon_size,
-            font_size_px,
+            icon_size: icon_size_2,
+            font_size_px: font_size_px_2,
         });
     let mut nodes: Vec<LayoutNode> = Vec::new();
 
-    // Emit nodes in Mermaid model order (stable for snapshots and close to upstream).
+
     for n in &model.nodes {
         nodes.push(LayoutNode {
             id: n.id.to_string(),
-            // Cytoscape nodes default to `{ x: 0, y: 0 }` centers before the first layout run.
-            // Our SVG model uses a top-left anchored `<g transform="translate(x,y)">` for the
-            // 80x80 icon box, so convert `(0,0)` center into top-left.
+
+
+
             x: 0.0,
             y: 0.0,
-            width: icon_size,
-            height: icon_size,
+            width: icon_size_2,
+            height: icon_size_2,
             is_cluster: false,
             label_width: None,
             label_height: None,
         });
     }
+
     let mut fcose_compound_bounds: Vec<ArchitectureCompoundBounds> = Vec::new();
 
     if !nodes.is_empty() {
@@ -2146,8 +2463,8 @@ fn layout_architecture_diagram_model_admitted(
             node_bounds_extras: &node_bounds_extras,
             text_measurer,
             work_meter,
-            icon_size,
-            padding_px,
+            icon_size: icon_size_2,
+            padding_px: padding_px_2,
             ideal_edge_length_multiplier,
             same_group_edge_elasticity,
             fcose_randomize,
@@ -2163,18 +2480,20 @@ fn layout_architecture_diagram_model_admitted(
             &mut work_control,
         )
         .map_err(|error| match error {
-            manatee::Error::WorkFailure(manatee::WorkFailure::Interrupted) => work_control
+            manatee::Error::WorkFailure(manatee::WorkFailure::Interrupted) => match work_control
                 .take_denied()
-                .map(Error::from)
-                .unwrap_or_else(|| Error::InvalidModel {
+                .map(Error::from) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => Error::InvalidModel {
                     message: "manatee work control interrupted without a resource error"
                         .to_string(),
-                }),
+                },
+            },
             manatee::Error::WorkFailure(manatee::WorkFailure::ArithmeticOverflow) => {
                 Error::from(work_meter.arithmetic_overflow())
             }
-            error => Error::InvalidModel {
-                message: format!("manatee layout failed: {error}"),
+            error_2 => Error::InvalidModel {
+                message: format!("manatee layout failed: {error}", error = error_2),
             },
         })?;
         let projection = project_architecture_fcose_result(&plan, &mut nodes, result);
@@ -2185,29 +2504,33 @@ fn layout_architecture_diagram_model_admitted(
         model,
         &nodes,
         text_measurer,
-        icon_size,
-        font_size_px,
+        icon_size_2,
+        font_size_px_2,
     );
 
     let mut node_by_id: FixedMap<&str, &LayoutNode> = FixedMap::default();
     node_by_id.reserve(nodes.len());
+
     for n in &nodes {
         node_by_id.insert(n.id.as_str(), n);
     }
 
     let mut edges: Vec<LayoutEdge> = Vec::new();
+
     for (idx, e) in model.edges.iter().enumerate() {
         let Some(&a) = node_by_id.get(e.lhs_id) else {
             return Err(Error::InvalidModel {
                 message: format!("edge lhs node not found: {}", e.lhs_id),
             });
         };
+
         let Some(&b) = node_by_id.get(e.rhs_id) else {
             return Err(Error::InvalidModel {
                 message: format!("edge rhs node not found: {}", e.rhs_id),
             });
         };
 
+        #[must_use]
         fn endpoint(
             x: f64,
             y: f64,
@@ -2224,28 +2547,30 @@ fn layout_architecture_diagram_model_admitted(
             }
         }
 
-        let (sx, sy) = endpoint(a.x, a.y, e.lhs_dir, icon_size, half_icon);
-        let (tx, ty) = endpoint(b.x, b.y, e.rhs_dir, icon_size, half_icon);
+        let (sx, sy) = endpoint(a.x, a.y, e.lhs_dir, icon_size_2, half_icon);
+        let (tx, ty) = endpoint(b.x, b.y, e.rhs_dir, icon_size_2, half_icon);
 
+        #[must_use]
         fn cytoscape_segments_weight_distance_for_point(
             source: (f64, f64),
             target: (f64, f64),
             point: (f64, f64),
         ) -> Option<(f64, f64)> {
-            // Mermaid Architecture uses Cytoscape `curve-style: segments` for XY edges and derives
-            // `segment-weights`/`segment-distances` from a chosen 90° bend point.
-            //
-            // Reference: `repo-ref/mermaid/packages/mermaid/src/diagrams/architecture/architectureRenderer.ts`
+
+
+
+
             let (s_x, s_y) = source;
             let (t_x, t_y) = target;
             let (p_x, p_y) = point;
 
-            if s_x == t_x || s_y == t_y {
+            if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&s_x, &t_x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) || <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&s_y, &t_y) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
                 return None;
             }
 
             let denom_x = s_x - t_x;
-            if denom_x == 0.0 {
+
+            if ::core::matches!(::core::primitive::f64::classify(denom_x), ::core::num::FpCategory::Zero) {
                 return None;
             }
 
@@ -2257,13 +2582,15 @@ fn layout_architecture_diagram_model_admitted(
                 .max(0.0)
                 .sqrt();
             let dist_ab = ((t_x - s_x).powi(2) + (t_y - s_y).powi(2)).sqrt();
-            if dist_ab == 0.0 {
+
+            if ::core::matches!(::core::primitive::f64::classify(dist_ab), ::core::num::FpCategory::Zero) {
                 return None;
             }
+
             let mut w = w / dist_ab;
 
-            // Ensure that the sign of `d` matches the left/right side of the line from source to
-            // target, and that the sign of `w` matches whether the point is "behind" the source.
+
+
             let delta1 = (t_x - s_x) * (p_y - s_y) - (t_y - s_y) * (p_x - s_x);
             let delta1 = if delta1 >= 0.0 { 1.0 } else { -1.0 };
             let delta2 = (t_x - s_x) * (p_x - s_x) + (t_y - s_y) * (p_y - s_y);
@@ -2275,30 +2602,32 @@ fn layout_architecture_diagram_model_admitted(
             Some((w, d))
         }
 
+        #[must_use]
         fn cytoscape_segments_point_from_weight_distance(
             source: (f64, f64),
             target: (f64, f64),
             weight: f64,
             distance: f64,
         ) -> Option<(f64, f64)> {
-            // Cytoscape "segments" curve point (for a single segment) is defined by:
-            // - `weight`: normalized distance along the source->target vector
-            // - `distance`: signed perpendicular offset from the line
-            //
-            // We reconstruct the implied bend point so our headless routing matches the
-            // upstream browser output.
+
+
+
+
+
+
             let (s_x, s_y) = source;
             let (t_x, t_y) = target;
             let dx = t_x - s_x;
             let dy = t_y - s_y;
             let dist_ab = (dx * dx + dy * dy).sqrt();
-            if dist_ab == 0.0 {
+
+            if ::core::matches!(::core::primitive::f64::classify(dist_ab), ::core::num::FpCategory::Zero) {
                 return None;
             }
 
             let ux = dx / dist_ab;
             let uy = dy / dist_ab;
-            // Left-hand normal of the line.
+
             let nx = -uy;
             let ny = ux;
 
@@ -2308,20 +2637,21 @@ fn layout_architecture_diagram_model_admitted(
                 s_y + uy * along + ny * distance,
             ))
         }
-        // Mirror Mermaid Architecture edge routing:
-        //
-        // - Non-XY edges use Cytoscape `curve-style: straight`, and Mermaid draws a 3-point
-        //   polyline using `edge.midpoint()`, which is the midpoint of the straight segment.
-        // - XY edges (`curve-style: segments`) are post-processed to create a single 90° bend.
-        //   Mermaid then draws a 3-point polyline where the midpoint corresponds to that bend.
-        //
-        // Note: Group/junction endpoint shifts are applied later during SVG emission; these
-        // layout points represent the raw Cytoscape endpoints.
+
+
+
+
+
+
+
+
+
+
         let is_xy = match (
             e.lhs_dir.and_then(Dir::from_char),
             e.rhs_dir.and_then(Dir::from_char),
         ) {
-            (Some(a), Some(b)) => a.is_x() != b.is_x(),
+            (Some(a_2), Some(b_2)) => a_2.is_x() != b_2.is_x(),
             _ => false,
         };
         let mid = if is_xy {
@@ -2330,14 +2660,18 @@ fn layout_architecture_diagram_model_admitted(
             } else {
                 (tx, sy)
             };
-            let (w, d) = cytoscape_segments_weight_distance_for_point(
+            let (w, d) = match cytoscape_segments_weight_distance_for_point(
                 (sx, sy),
                 (tx, ty),
                 (point_x, point_y),
-            )
-            .unwrap_or((0.0, 0.0));
-            let (mx, my) = cytoscape_segments_point_from_weight_distance((sx, sy), (tx, ty), w, d)
-                .unwrap_or((point_x, point_y));
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => (0.0, 0.0),
+            };
+            let (mx, my) = match cytoscape_segments_point_from_weight_distance((sx, sy), (tx, ty), w, d) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => (point_x, point_y),
+            };
             LayoutPoint { x: mx, y: my }
         } else {
             LayoutPoint {
@@ -2366,6 +2700,7 @@ fn layout_architecture_diagram_model_admitted(
             stroke_dasharray: None,
         });
     }
+
     let bounds = compute_bounds(&nodes, &edges);
 
     Ok(ArchitectureDiagramLayout {
@@ -2459,8 +2794,8 @@ mod tests {
                 })
                 .collect(),
             groups: Vec::new(),
-            // Mermaid processes these in declaration order. The final edge re-enqueues `n3`, so
-            // its second dequeue must overwrite the still-unvisited `n4` back to `(1, 0)`.
+
+
             edges: vec![
                 super::ArchitectureEdgeView {
                     lhs_id: "n0",
@@ -2567,9 +2902,9 @@ mod tests {
                 })
                 .collect(),
             groups: Vec::new(),
-            // Mermaid inserts `10` before `2`, but `Object.entries()` later enumerates numeric
-            // property keys as `1, 2, 3, 10`. The later `10` entry must therefore win the shared
-            // `(1, 0)` inverse-coordinate slot used by automatic relative constraints.
+
+
+
             edges: vec![
                 super::ArchitectureEdgeView {
                     lhs_id: "1",
@@ -2862,8 +3197,8 @@ mod tests {
         let crate::Error::ResourceLimitExceeded(error) = error else {
             panic!("expected layout work resource error");
         };
-        // Admission now includes the adapter's source-sized spatial planning pass before any
-        // allocation or FCoSE work. Keep the rejection assertion aligned with that full plan.
+
+
         assert_eq!(error.actual, 22);
         assert_eq!(error.max, 9);
         assert_eq!(narrow_meter.used(), 0);

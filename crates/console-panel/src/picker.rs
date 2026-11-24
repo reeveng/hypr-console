@@ -212,20 +212,10 @@ pub fn where_for(app: &str) -> Result<PathBuf, Never> {
 
 fn locked(stem: &str) -> Result<PathBuf, Never> {
   let Ok(runtime) = console_core_places::runtime_or_user();
+  let Ok(display) = console_core_places::wayland_display();
+  let screen = display.as_deref().and_then(std::ffi::OsStr::to_str);
 
-  #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-      explicit026_env_read_once,
-      reason = "WAYLAND_DISPLAY is which screen this process is drawing on, and the lock this names is one per screen. Nothing else here asks which screen it is"
-    )
-  )]
-  let screen = match std::env::var("WAYLAND_DISPLAY") {
-    Ok(screen) => Some(screen),
-    Err(_unset) => None,
-  };
-
-  under(&runtime, screen.as_deref(), stem)
+  under(&runtime, screen, stem)
 }
 
 fn under(runtime: &Path, screen: Option<&str>, stem: &str) -> Result<PathBuf, Never> {
@@ -463,9 +453,7 @@ pub fn alone_as(app: &str, asked: &[String]) -> Result<Alone, Never> {
       let Ok(()) = mark_drawn();
     }
     Alone::No => {
-      let Ok(forward) = console_compositor::focus_window(app);
-      let Ok(_done) =
-        console_compositor::request(console_compositor::Request::Dispatch, &forward);
+      let Ok(_done) = console_compositor::focus_application(app);
     }
   }
 

@@ -1,207 +1,147 @@
-#[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
-use bytemuck::cast;
-#[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
-use core::arch::aarch64::uint16x8_t;
+#![forbid(unsafe_code)]
+
+#[cfg(feature = "simd")]
+use core::simd::{Select, Simd, cmp::SimdOrd, cmp::SimdPartialOrd};
+
+use console_core_never::Never;
 
 #[allow(
   non_camel_case_types,
-  reason = "the name is the lane type and count, as core::simd and every other lane in this module spell them"
+  reason = "the name identifies the lane type and count, matching core::simd"
 )]
 #[derive(Copy, Clone, PartialEq, Default, Debug)]
 pub struct u16x16(pub [u16; 16]);
 
-#[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
-#[cfg_attr(
-  dylint_lib = "explicit080_macro_budget",
-  expect(
-    explicit080_macro_budget,
-    reason = "the eight NEON operations share two register splits and a packed result while preserving direct calls to the selected intrinsic"
-  )
-)]
-macro_rules! impl_aarch64_call {
-  ($f:ident, $a:expr, $b:expr) => {
-    let a = $a.split();
-    let b = $b.split();
-    // SAFETY: this branch is compiled only for AArch64 with NEON enabled.
-    Self(bytemuck::cast(unsafe {
-      [
-        core::arch::aarch64::$f(a.0, b.0),
-        core::arch::aarch64::$f(a.1, b.1),
-      ]
-    }))
-  };
-}
-
 impl u16x16 {
+  #[cfg(not(feature = "simd"))]
   #[inline]
-  fn combined(
-    &self,
-    rhs: &Self,
-    operation: impl Fn(u16, u16) -> u16,
-  ) -> Result<Self, console_core_never::Never> {
-    let mut lanes = self.0;
-
-    for (left, right) in lanes.iter_mut().zip(rhs.0) {
-      *left = operation(*left, right);
-    }
-
-    Ok(Self(lanes))
+  fn combined(&self, rhs: &Self, operation: impl Fn(u16, u16) -> u16) -> [u16; 16] {
+    core::array::from_fn(|lane| operation(self.0[lane], rhs.0[lane]))
   }
 
   #[inline]
-  pub fn splat(n: u16) -> core::result::Result<Self, console_core_never::Never> {
-    Ok(Self([n, n, n, n, n, n, n, n, n, n, n, n, n, n, n, n]))
+  pub fn splat(value: u16) -> Result<Self, Never> {
+    Ok(Self([value; 16]))
   }
 
   #[inline]
-  pub fn as_slice(&self) -> core::result::Result<&[u16; 16], console_core_never::Never> {
+  pub fn as_slice(&self) -> Result<&[u16; 16], Never> {
     Ok(&self.0)
   }
 
   #[inline]
-  pub fn min(&self, rhs: &Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))] {
-              impl_aarch64_call!(vminq_u16, self, rhs)
-          } else {
-              let Ok(lanes) = self.combined(rhs, u16::min);
+  pub fn min(&self, rhs: &Self) -> Result<Self, Never> {
+    #[cfg(feature = "simd")]
+    let minimum = Simd::from_array(self.0)
+      .simd_min(Simd::from_array(rhs.0))
+      .to_array();
+    #[cfg(not(feature = "simd"))]
+    let minimum = self.combined(rhs, u16::min);
 
-            lanes
-          }
-      }
-    })
+    Ok(Self(minimum))
   }
 
   #[inline]
-  pub fn max(&self, rhs: &Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))] {
-              impl_aarch64_call!(vmaxq_u16, self, rhs)
-          } else {
-              let Ok(lanes) = self.combined(rhs, u16::max);
+  pub fn max(&self, rhs: &Self) -> Result<Self, Never> {
+    #[cfg(feature = "simd")]
+    let maximum = Simd::from_array(self.0)
+      .simd_max(Simd::from_array(rhs.0))
+      .to_array();
+    #[cfg(not(feature = "simd"))]
+    let maximum = self.combined(rhs, u16::max);
 
-            lanes
-          }
-      }
-    })
+    Ok(Self(maximum))
   }
 
   #[inline]
-  pub fn cmp_le(&self, rhs: &Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok({
-      cfg_if::cfg_if! {
-          if #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))] {
-              impl_aarch64_call!(vcleq_u16, self, rhs)
-          } else {
-              let Ok(lanes) = self.combined(rhs, |left, right| match left.cmp(&right) {
-                core::cmp::Ordering::Less | core::cmp::Ordering::Equal => u16::MAX,
-                core::cmp::Ordering::Greater => 0,
-              });
+  pub fn cmp_le(&self, rhs: &Self) -> Result<Self, Never> {
+    #[cfg(feature = "simd")]
+    let mask = Simd::from_array(self.0)
+      .simd_le(Simd::from_array(rhs.0))
+      .select(Simd::splat(u16::MAX), Simd::splat(0))
+      .to_array();
+    #[cfg(not(feature = "simd"))]
+    let mask = self.combined(rhs, |left, right| match left <= right {
+      true => u16::MAX,
+      false => 0,
+    });
 
-              lanes
-          }
-      }
-    })
+    Ok(Self(mask))
   }
 
   #[inline]
-  pub fn blend(self, t: Self, e: Self) -> core::result::Result<Self, console_core_never::Never> {
-    Ok((t & self) | (e & !self))
-  }
-
-  #[inline]
-  #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))]
-  pub fn split(self) -> (uint16x8_t, uint16x8_t) {
-    let [first, second]: [uint16x8_t; 2] = cast(self.0);
-
-    (first, second)
+  pub fn blend(self, yes: Self, no: Self) -> Result<Self, Never> {
+    Ok((yes & self) | (no & !self))
   }
 }
 
-impl core::ops::Add<u16x16> for u16x16 {
+impl core::ops::Add for u16x16 {
   type Output = Self;
 
   #[inline]
-  fn add(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))] {
-            impl_aarch64_call!(vaddq_u16, self, rhs)
-        } else {
-            let Ok(lanes) = self.combined(&rhs, u16::wrapping_add);
+  fn add(self, rhs: Self) -> Self {
+    #[cfg(feature = "simd")]
+    let sum = (Simd::from_array(self.0) + Simd::from_array(rhs.0)).to_array();
+    #[cfg(not(feature = "simd"))]
+    let sum = self.combined(&rhs, u16::wrapping_add);
 
-            lanes
-        }
-    }
+    Self(sum)
   }
 }
 
-impl core::ops::Sub<u16x16> for u16x16 {
+impl core::ops::Sub for u16x16 {
   type Output = Self;
 
   #[inline]
-  fn sub(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))] {
-            impl_aarch64_call!(vsubq_u16, self, rhs)
-        } else {
-            let Ok(lanes) = self.combined(&rhs, u16::wrapping_sub);
+  fn sub(self, rhs: Self) -> Self {
+    #[cfg(feature = "simd")]
+    let difference = (Simd::from_array(self.0) - Simd::from_array(rhs.0)).to_array();
+    #[cfg(not(feature = "simd"))]
+    let difference = self.combined(&rhs, u16::wrapping_sub);
 
-            lanes
-        }
-    }
+    Self(difference)
   }
 }
 
-impl core::ops::Mul<u16x16> for u16x16 {
+impl core::ops::Mul for u16x16 {
   type Output = Self;
 
   #[inline]
-  fn mul(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))] {
-            impl_aarch64_call!(vmulq_u16, self, rhs)
-        } else {
-            let Ok(lanes) = self.combined(&rhs, u16::wrapping_mul);
+  fn mul(self, rhs: Self) -> Self {
+    #[cfg(feature = "simd")]
+    let product = (Simd::from_array(self.0) * Simd::from_array(rhs.0)).to_array();
+    #[cfg(not(feature = "simd"))]
+    let product = self.combined(&rhs, u16::wrapping_mul);
 
-            lanes
-        }
-    }
+    Self(product)
   }
 }
 
-impl core::ops::BitAnd<u16x16> for u16x16 {
+impl core::ops::BitAnd for u16x16 {
   type Output = Self;
 
   #[inline]
-  fn bitand(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))] {
-            impl_aarch64_call!(vandq_u16, self, rhs)
-        } else {
-            let Ok(lanes) = self.combined(&rhs, |left, right| left & right);
+  fn bitand(self, rhs: Self) -> Self {
+    #[cfg(feature = "simd")]
+    let bits = (Simd::from_array(self.0) & Simd::from_array(rhs.0)).to_array();
+    #[cfg(not(feature = "simd"))]
+    let bits = self.combined(&rhs, |left, right| left & right);
 
-            lanes
-        }
-    }
+    Self(bits)
   }
 }
 
-impl core::ops::BitOr<u16x16> for u16x16 {
+impl core::ops::BitOr for u16x16 {
   type Output = Self;
 
   #[inline]
-  fn bitor(self, rhs: Self) -> Self::Output {
-    cfg_if::cfg_if! {
-        if #[cfg(all(feature = "simd", target_arch = "aarch64", target_feature = "neon"))] {
-            impl_aarch64_call!(vorrq_u16, self, rhs)
-        } else {
-            let Ok(lanes) = self.combined(&rhs, |left, right| left | right);
+  fn bitor(self, rhs: Self) -> Self {
+    #[cfg(feature = "simd")]
+    let bits = (Simd::from_array(self.0) | Simd::from_array(rhs.0)).to_array();
+    #[cfg(not(feature = "simd"))]
+    let bits = self.combined(&rhs, |left, right| left | right);
 
-            lanes
-        }
-    }
+    Self(bits)
   }
 }
 
@@ -209,7 +149,7 @@ impl core::ops::Not for u16x16 {
   type Output = Self;
 
   #[inline]
-  fn not(self) -> Self::Output {
+  fn not(self) -> Self {
     Self(self.0.map(|lane| !lane))
   }
 }
@@ -218,9 +158,12 @@ impl core::ops::Shr for u16x16 {
   type Output = Self;
 
   #[inline]
-  fn shr(self, rhs: Self) -> Self::Output {
-    let Ok(lanes) = self.combined(&rhs, |left, right| left.wrapping_shr(u32::from(right)));
+  fn shr(self, rhs: Self) -> Self {
+    #[cfg(feature = "simd")]
+    let shifted = (Simd::from_array(self.0) >> Simd::from_array(rhs.0)).to_array();
+    #[cfg(not(feature = "simd"))]
+    let shifted = self.combined(&rhs, |left, right| left.wrapping_shr(u32::from(right)));
 
-    lanes
+    Self(shifted)
   }
 }

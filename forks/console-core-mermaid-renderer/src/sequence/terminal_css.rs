@@ -27,6 +27,7 @@ pub(crate) struct SequencePreparedCss {
 }
 
 impl SequencePreparedCss {
+    #[must_use]
     pub(super) fn resolve(
         typography: &SequenceTypographyPlan,
         terminal: &SequencePreparedTerminalTheme,
@@ -44,11 +45,12 @@ impl SequencePreparedCss {
                 )
             });
         let baseline_declaration = |surface| {
-            let terminal = typography.terminal_text_style(surface);
-            match terminal.foreground_provenance {
+            let terminal_2 = typography.terminal_text_style(surface);
+
+            match terminal_2.foreground_provenance {
                 SequenceTerminalForegroundProvenance::TypedTheme => String::new(),
                 SequenceTerminalForegroundProvenance::PresentationConfig => {
-                    format!("fill:{};", terminal.foreground)
+                    format!("fill:{};", terminal_2.foreground)
                 }
             }
         };
@@ -59,6 +61,7 @@ impl SequencePreparedCss {
         let loop_text_fill = baseline_declaration(SequenceTextSurface::ControlPrimaryTitle);
         let section_title_fill = baseline_declaration(SequenceTextSurface::ControlSectionTitle);
         let mut text_groups = Vec::new();
+
         for surfaces in [
             &[
                 SequenceTextSurface::ParticipantLabel,
@@ -73,14 +76,19 @@ impl SequencePreparedCss {
             ][..],
         ] {
             let mut groups: Vec<SequencePreparedTextCssGroup> = Vec::new();
-            for &surface in surfaces {
-                let declarations = typography
+
+            'inner_for_2: for &surface in surfaces {
+                let declarations = match typography
                     .role(surface.role())
-                    .css_declarations_for(surface)
-                    .unwrap_or_default();
+                    .css_declarations_for(surface) {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => ::std::string::String::new(),
+                };
+
                 if declarations.is_empty() {
-                    continue;
+                    continue 'inner_for_2;
                 }
+
                 if let Some(group) = groups
                     .iter_mut()
                     .find(|group| group.declarations == declarations)
@@ -93,8 +101,10 @@ impl SequencePreparedCss {
                     });
                 }
             }
+
             text_groups.extend(groups);
         }
+
         Self {
             typed_font,
             font_size_override,

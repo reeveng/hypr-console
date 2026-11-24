@@ -127,6 +127,7 @@ const CONFIGURATION: &str = r#"<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D
 pub struct Desktop {
   open_these: Vec<String>,
   press_these: Vec<String>,
+  press_argv: Option<Vec<String>>,
   not_before: Option<PathBuf>,
   filling: Option<Progress>,
   talking: Option<BoundToParent>,
@@ -157,6 +158,7 @@ impl Desktop {
     Ok(Desktop {
       open_these: Vec::new(),
       press_these: Vec::new(),
+      press_argv: None,
       not_before: None,
       filling: None,
       talking: None,
@@ -168,6 +170,7 @@ impl Desktop {
   pub fn fresh(&mut self) -> Result<(), Never> {
     self.open_these.clear();
     self.press_these.clear();
+    self.press_argv = None;
     self.not_before = None;
     self.filling = None;
     self.talking = None;
@@ -267,6 +270,34 @@ impl Desktop {
 
   pub fn inside(&mut self, command: &str) -> Result<(), Error> {
     self.press(command.to_string())
+  }
+
+  pub fn panel_cycles(
+    &mut self,
+    count: u32,
+    program: &str,
+    arguments: &[&str],
+  ) -> Result<(), Error> {
+    let Ok(driver) = console_core_internal_programs::beside_this_program(NESTING);
+    let saved = self.here.join(TIMINGS);
+    let count_2 = count.to_string();
+
+    match (self.taken.is_some(), self.press_argv.is_some()) {
+      (false, false) => {}
+      _ => return Err(Error::AlreadyTaken("run panel cycles")),
+    }
+
+    let mut words = vec![
+      driver.display().to_string(),
+      "panel-cycles".to_owned(),
+      count_2,
+      saved.display().to_string(),
+      program.to_owned(),
+    ];
+    words.extend(arguments.iter().map(|word| (*word).to_owned()));
+    self.press_argv = Some(words);
+
+    Ok(())
   }
 
   pub fn keeping_timings(&mut self) -> Result<(), Error> {
@@ -430,7 +461,28 @@ impl Desktop {
           None => {}
         }
 
+        match &self.press_argv {
+          Some(arguments) => {
+            missing_is_removed(std::fs::remove_file(self.here.join(TIMINGS)))
+              .map_err(Error::Machine)?;
+            let encoded = serde_json::to_string(arguments)
+              .map_err(|fault| Error::Machine(std::io::Error::other(fault)))?;
+            nesting.args(["--press-argv", &encoded]);
+          }
+          None => {}
+        }
+
         let said = nesting.output().map_err(Error::Machine)?;
+
+        match (self.press_argv.is_some(), said.status.success()) {
+          (true, false) => {
+            let message = String::from_utf8(said.stderr)
+              .map_err(|fault| Error::Machine(std::io::Error::other(fault)))?;
+
+            return Err(Error::Machine(std::io::Error::other(message)));
+          }
+          _ => {}
+        }
 
         let picture = read_photo(&shot, &said.stderr)?;
 

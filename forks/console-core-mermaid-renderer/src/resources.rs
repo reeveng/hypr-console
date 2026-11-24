@@ -46,9 +46,9 @@ pub const SVG_BACKEND_TREE_DEPTH_HARD_CAP_ID: &str = "svg_backend_tree_depth";
 pub const MAX_RESVG_TREE_NODES: usize = 1_000_000;
 pub const SVG_BACKEND_TREE_NODES_HARD_CAP_ID: &str = "svg_backend_tree_nodes";
 
-// usvg, resvg, and tiny-skia eventually project SVG geometry into f32 coordinates. Keep the
-// document coordinate space within the largest consecutive integer range representable by f32 so
-// one-unit geometry remains distinguishable before target-specific raster limits run.
+
+
+
 pub(crate) const MAX_SVG_BACKEND_COORDINATE_MAGNITUDE: usize = 1 << 24;
 pub(crate) const SVG_BACKEND_COORDINATE_MAGNITUDE_HARD_CAP_ID: &str =
     "svg_backend_coordinate_magnitude";
@@ -81,6 +81,7 @@ pub enum ResourceLimitCause {
 }
 
 impl ResourceLimitCause {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Ceiling => "ceiling",
@@ -104,6 +105,7 @@ impl ResourceLimitPhase {
         Self::GeometryOutput,
     ];
 
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Source => "source",
@@ -114,6 +116,7 @@ impl ResourceLimitPhase {
         }
     }
 
+    #[must_use]
     fn from_stable_id(value: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|phase| phase.as_str() == value)
     }
@@ -152,6 +155,7 @@ impl RenderResourceLimitId {
         Self::MaxGeometryJsonBytes,
     ];
 
+    #[must_use]
     const fn index(self) -> usize {
         self as usize
     }
@@ -193,6 +197,7 @@ impl ResourceLimitId {
         Self::MaxGeometryJsonBytes,
     ];
 
+    #[must_use]
     pub fn from_stable_id(id: &str) -> Option<Self> {
         InputResourceLimitId::from_stable_id(id)
             .map(Self::Input)
@@ -204,6 +209,7 @@ impl ResourceLimitId {
             })
     }
 
+    #[must_use]
     pub const fn descriptor(self) -> ResourceLimitDescriptor {
         match self {
             Self::Input(id) => input_descriptor(id),
@@ -211,6 +217,7 @@ impl ResourceLimitId {
         }
     }
 
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         self.descriptor().stable_id
     }
@@ -228,6 +235,7 @@ pub struct ResourceLimitDescriptor {
     pub minimum_value: usize,
 }
 
+#[must_use]
 const fn input_descriptor(id: InputResourceLimitId) -> ResourceLimitDescriptor {
     let descriptor = id.descriptor();
     ResourceLimitDescriptor {
@@ -328,11 +336,11 @@ const RENDER_PROFILE_VALUES: [[Option<usize>; RESOURCE_PROFILE_COUNT];
     RENDER_RESOURCE_LIMIT_COUNT] = [
     [Some(24 * MIB), Some(12 * MIB), Some(128 * MIB), None],
     [Some(250_000), Some(125_000), Some(1_000_000), None],
-    // A deterministic work-admission budget, not a Mermaid limit or response-time bound.
-    // Interactive and trusted-native admit ordinary diagrams, including nested ELK layouts;
-    // constrained remains a tighter host policy. Hosts control latency through cancellation,
-    // deadlines, and concurrency. See the dated layout-work calibration receipts in
-    // docs/performance for the corpus and the profile-specific rounding rules.
+
+
+
+
+
     [Some(14_100_000), Some(125_000), Some(15_000_000), None],
     [Some(24 * MIB), Some(12 * MIB), Some(128 * MIB), None],
     [Some(MAX_RESVG_TREE_NODES); RESOURCE_PROFILE_COUNT],
@@ -345,10 +353,12 @@ pub const GENERAL_BINDING_DEFAULT_RESOURCE_PROFILE: RenderResourceProfile =
 pub const CLI_DEFAULT_RESOURCE_PROFILE: RenderResourceProfile =
     merman_model::resources::CLI_DEFAULT_RESOURCE_PROFILE;
 
+#[must_use]
 pub const fn resource_profile_descriptors() -> &'static [RenderResourceProfileDescriptor] {
     &merman_model::resources::RESOURCE_PROFILE_DESCRIPTORS
 }
 
+#[must_use]
 pub const fn resource_limit_descriptors() -> &'static [ResourceLimitDescriptor] {
     &RESOURCE_LIMIT_DESCRIPTORS
 }
@@ -391,33 +401,41 @@ impl Default for RenderResourcePolicy {
 }
 
 impl RenderResourcePolicy {
+    #[must_use]
     pub const fn profile(self) -> RenderResourceProfile {
         self.input.profile()
     }
 
+    #[must_use]
     pub const fn interactive() -> Self {
         Self::for_profile(RenderResourceProfile::Interactive)
     }
 
+    #[must_use]
     pub const fn constrained() -> Self {
         Self::for_profile(RenderResourceProfile::Constrained)
     }
 
+    #[must_use]
     pub const fn trusted_native() -> Self {
         Self::for_profile(RenderResourceProfile::TrustedNative)
     }
 
+    #[must_use]
     pub const fn unbounded_for_trusted_input() -> Self {
         Self::for_profile(RenderResourceProfile::UnboundedForTrustedInput)
     }
 
+    #[must_use]
     pub const fn for_profile(profile: RenderResourceProfile) -> Self {
         let mut render_values = [None; RENDER_RESOURCE_LIMIT_COUNT];
         let mut index = 0;
+
         while index < RENDER_RESOURCE_LIMIT_COUNT {
             render_values[index] = RENDER_PROFILE_VALUES[index][profile as usize];
             index += 1;
         }
+
         Self {
             input: InputResourcePolicy::for_profile(profile),
             render_base_values: render_values,
@@ -426,31 +444,36 @@ impl RenderResourcePolicy {
         }
     }
 
+    #[must_use]
     pub const fn input_policy(&self) -> &InputResourcePolicy {
         &self.input
     }
 
+    #[must_use]
     pub const fn value(self, id: ResourceLimitId) -> Option<usize> {
         match id {
-            ResourceLimitId::Input(id) => self.input.value(id),
-            ResourceLimitId::Render(id) => self.render_effective_values[id.index()],
+            ResourceLimitId::Input(id_2) => self.input.value(id_2),
+            ResourceLimitId::Render(id_3) => self.render_effective_values[id_3.index()],
         }
     }
 
+    #[must_use]
     pub const fn base_value(self, id: ResourceLimitId) -> Option<usize> {
         match id {
-            ResourceLimitId::Input(id) => self.input.base_value(id),
-            ResourceLimitId::Render(id) => self.render_base_values[id.index()],
+            ResourceLimitId::Input(id_2) => self.input.base_value(id_2),
+            ResourceLimitId::Render(id_3) => self.render_base_values[id_3.index()],
         }
     }
 
+    #[must_use]
     pub const fn explicit_override(self, id: ResourceLimitId) -> Option<usize> {
         match id {
-            ResourceLimitId::Input(id) => self.input.explicit_override(id),
-            ResourceLimitId::Render(id) => self.render_explicit_overrides[id.index()],
+            ResourceLimitId::Input(id_2) => self.input.explicit_override(id_2),
+            ResourceLimitId::Render(id_3) => self.render_explicit_overrides[id_3.index()],
         }
     }
 
+    #[must_use]
     pub fn explicit_overrides(&self) -> impl Iterator<Item = (ResourceLimitId, usize)> + '_ {
         ResourceLimitId::ALL
             .into_iter()
@@ -473,47 +496,56 @@ impl RenderResourcePolicy {
         value: usize,
     ) -> Result<(), ResourceLimitOverrideError> {
         match id {
-            ResourceLimitId::Input(id) => {
+            ResourceLimitId::Input(id_2) => {
                 self.input
-                    .apply_limit(id, value)
+                    .apply_limit(id_2, value)
                     .map_err(|error| match error {
                         merman_model::resources::InputResourceLimitOverrideError::UnknownLimit(
-                            id,
-                        ) => ResourceLimitOverrideError::UnknownLimit(id),
+                            id_3,
+                        ) => ResourceLimitOverrideError::UnknownLimit(id_3),
                         merman_model::resources::InputResourceLimitOverrideError::NonPositive(
-                            id,
-                        ) => ResourceLimitOverrideError::NonPositive(id),
+                            id_4,
+                        ) => ResourceLimitOverrideError::NonPositive(id_4),
                     })
             }
-            ResourceLimitId::Render(id) => {
-                let descriptor = RENDER_RESOURCE_LIMIT_DESCRIPTORS[id.index()];
+            ResourceLimitId::Render(id_5) => {
+                let descriptor = RENDER_RESOURCE_LIMIT_DESCRIPTORS[id_5.index()];
+
                 if descriptor.hard_cap || !descriptor.overridable {
                     return Err(ResourceLimitOverrideError::HardCap(descriptor.stable_id));
                 }
-                if value == 0 {
-                    return Err(ResourceLimitOverrideError::NonPositive(
-                        descriptor.stable_id,
-                    ));
+
+                match value {
+                    0 => {
+                        return Err(ResourceLimitOverrideError::NonPositive(
+                            descriptor.stable_id,
+                        ));
+                    },
+                    _ => {},
                 }
-                self.render_effective_values[id.index()] = Some(value);
-                self.render_explicit_overrides[id.index()] = Some(value);
+
+                self.render_effective_values[id_5.index()] = Some(value);
+                self.render_explicit_overrides[id_5.index()] = Some(value);
                 Ok(())
             }
         }
     }
 
     /// Returns the pointwise minimum of two policies while preserving this policy's host profile.
+    #[must_use]
     pub fn meet(&self, restriction: &Self) -> Self {
         let input = self.input.meet(&restriction.input);
         let mut render_effective_values = [None; RENDER_RESOURCE_LIMIT_COUNT];
         let mut index = 0;
-        while index < RENDER_RESOURCE_LIMIT_COUNT {
+
+        for _ in (::core::ops::Range { start: index, end: RENDER_RESOURCE_LIMIT_COUNT }) {
             render_effective_values[index] = minimum_ceiling(
                 self.render_effective_values[index],
                 restriction.render_effective_values[index],
             );
-            index += 1;
+            index = (::core::num::Wrapping(index) + ::core::num::Wrapping(1)).0;
         }
+
         self.with_effective_values(input, render_effective_values)
     }
 
@@ -525,12 +557,15 @@ impl RenderResourcePolicy {
         self.input
             .restrict_with(&restriction.input)
             .map_err(map_input_restriction_error)?;
+
         for id in ResourceLimitId::ALL {
             if matches!(id, ResourceLimitId::Input(_)) {
                 continue;
             }
+
             let ceiling = self.value(id);
             let requested = restriction.value(id);
+
             if loosens_ceiling(ceiling, requested) {
                 return Err(ResourcePolicyRestrictionError {
                     id,
@@ -539,9 +574,11 @@ impl RenderResourcePolicy {
                 });
             }
         }
+
         Ok(self.meet(restriction))
     }
 
+    #[must_use]
     fn with_effective_values(
         &self,
         input: InputResourcePolicy,
@@ -549,12 +586,15 @@ impl RenderResourcePolicy {
     ) -> Self {
         let mut render_explicit_overrides = [None; RENDER_RESOURCE_LIMIT_COUNT];
         let mut index = 0;
-        while index < RENDER_RESOURCE_LIMIT_COUNT {
+
+        for _ in (::core::ops::Range { start: index, end: RENDER_RESOURCE_LIMIT_COUNT }) {
             if render_effective_values[index] != self.render_base_values[index] {
                 render_explicit_overrides[index] = render_effective_values[index];
             }
-            index += 1;
+
+            index = (::core::num::Wrapping(index) + ::core::num::Wrapping(1)).0;
         }
+
         Self {
             input,
             render_base_values: self.render_base_values,
@@ -590,9 +630,11 @@ impl RenderResourcePolicy {
         let Some(max) = self.render_effective_values[id.index()] else {
             return Ok(());
         };
+
         if actual <= max {
             return Ok(());
         }
+
         let limit = ResourceLimitId::Render(id);
         Err(ResourceLimitExceeded {
             cause: ResourceLimitCause::Ceiling,
@@ -603,7 +645,7 @@ impl RenderResourcePolicy {
             profile: self.profile(),
             explicit_overrides: self
                 .explicit_overrides()
-                .map(|(id, value)| ResourceLimitOverride { id, value })
+                .map(|(id_2, value)| ResourceLimitOverride { id: id_2, value })
                 .collect(),
         })
     }
@@ -700,6 +742,7 @@ impl RenderResourcePolicy {
         if !value.is_finite() || value.abs() <= MAX_SVG_BACKEND_COORDINATE_MAGNITUDE as f64 {
             return Ok(());
         }
+
         Err(ResourceLimitExceeded {
             cause: ResourceLimitCause::Ceiling,
             phase: ResourceLimitPhase::SvgPostprocess,
@@ -709,7 +752,7 @@ impl RenderResourcePolicy {
             profile: self.profile(),
             explicit_overrides: self
                 .explicit_overrides()
-                .map(|(id, value)| ResourceLimitOverride { id, value })
+                .map(|(id, value_2)| ResourceLimitOverride { id, value: value_2 })
                 .collect(),
         })
     }
@@ -788,22 +831,25 @@ impl RenderResourcePolicy {
     }
 }
 
+#[must_use]
 const fn minimum_ceiling(left: Option<usize>, right: Option<usize>) -> Option<usize> {
     match (left, right) {
-        (Some(left), Some(right)) => Some(if left < right { left } else { right }),
+        (Some(left_2), Some(right_2)) => Some(if left_2 < right_2 { left_2 } else { right_2 }),
         (Some(value), None) | (None, Some(value)) => Some(value),
         (None, None) => None,
     }
 }
 
+#[must_use]
 const fn loosens_ceiling(ceiling: Option<usize>, requested: Option<usize>) -> bool {
     match (ceiling, requested) {
         (Some(_), None) => true,
-        (Some(ceiling), Some(requested)) => requested > ceiling,
+        (Some(ceiling_2), Some(requested_2)) => requested_2 > ceiling_2,
         (None, _) => false,
     }
 }
 
+#[must_use]
 fn map_input_restriction_error(
     error: InputResourcePolicyRestrictionError,
 ) -> ResourcePolicyRestrictionError {
@@ -823,8 +869,10 @@ fn map_input_restriction_error(
 pub(crate) enum OperationWorkError {
     #[error(transparent)]
     Cancelled(#[from] OperationCancelled),
+
     #[error(transparent)]
     ResourceLimitExceeded(#[from] ResourceLimitExceeded),
+
     #[error(transparent)]
     ForeignResourceTerminal(OperationLedgerError),
 }
@@ -870,11 +918,13 @@ impl SvgByteBudget<'_> {
                 RenderResourceLimitId::MaxSvgBytes,
             ))
         })?;
+
         if self.maximum.is_some_and(|maximum| required > maximum) {
             self.meter
                 .policy
                 .check_svg_byte_count(required, ResourceLimitPhase::SvgOutput)?;
         }
+
         Ok(required)
     }
 
@@ -890,7 +940,10 @@ impl SvgByteBudget<'_> {
     ) -> Result<usize, OperationWorkError> {
         let required = self.appended_len(current_len, additional)?;
         let target = required.max(current_capacity.saturating_mul(2));
-        Ok(target.min(self.maximum.unwrap_or(usize::MAX)))
+        Ok(target.min(match self.maximum {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => usize::MAX,
+        }))
     }
 }
 
@@ -948,10 +1001,12 @@ impl Drop for PreparedTextRetainedReservation {
 )]
 impl OperationWorkMeter {
     #[cfg_attr(not(feature = "layout-elk"), allow(dead_code))]
+    #[must_use]
     pub(crate) fn new(policy: RenderResourcePolicy) -> Self {
         Self::new_with_control(policy, OperationControl::new())
     }
 
+    #[must_use]
     pub(crate) fn new_with_control(
         policy: RenderResourcePolicy,
         control: OperationControl,
@@ -966,10 +1021,12 @@ impl OperationWorkMeter {
         }
     }
 
+    #[must_use]
     pub(crate) const fn policy(&self) -> RenderResourcePolicy {
         self.policy
     }
 
+    #[must_use]
     pub(crate) fn control(&self) -> &OperationControl {
         &self.control
     }
@@ -988,10 +1045,16 @@ impl OperationWorkMeter {
     pub(crate) fn preflight(&self, additional: usize) -> Result<(), OperationWorkError> {
         let phase = OperationPhase::Layout;
         self.resource_checkpoint(phase)?;
-        if additional == 0 {
-            return Ok(());
+
+        match additional {
+            0 => {
+                return Ok(());
+            },
+            _ => {},
         }
+
         let used = self.used.load(std::sync::atomic::Ordering::Relaxed);
+
         let Some(next) = used.checked_add(additional) else {
             return Err(self.terminate_resource_error(
                 self.layout_work_overflow_details(),
@@ -1000,6 +1063,7 @@ impl OperationWorkMeter {
                 additional,
             ));
         };
+
         match self.policy.check_layout_work_units(next) {
             Ok(()) => Ok(()),
             Err(error) => Err(self.terminate_resource_error(error, phase, used, additional)),
@@ -1026,10 +1090,16 @@ impl OperationWorkMeter {
         phase: OperationPhase,
     ) -> Result<(), OperationWorkError> {
         self.resource_checkpoint(phase)?;
-        if additional == 0 {
-            return Ok(());
+
+        match additional {
+            0 => {
+                return Ok(());
+            },
+            _ => {},
         }
+
         let mut used = self.used.load(std::sync::atomic::Ordering::Relaxed);
+
         loop {
             let Some(next) = used.checked_add(additional) else {
                 return Err(self.terminate_resource_error(
@@ -1039,9 +1109,14 @@ impl OperationWorkMeter {
                     additional,
                 ));
             };
-            if let Err(error) = self.policy.check_layout_work_units(next) {
-                return Err(self.terminate_resource_error(error, phase, used, additional));
+
+            match self.policy.check_layout_work_units(next) {
+                Err(error) => {
+                    return Err(self.terminate_resource_error(error, phase, used, additional));
+                },
+                ::core::result::Result::Ok(_) => {},
             }
+
             match self.used.compare_exchange_weak(
                 used,
                 next,
@@ -1057,6 +1132,7 @@ impl OperationWorkMeter {
         }
     }
 
+    #[must_use]
     fn layout_work_overflow_details(&self) -> ResourceLimitExceeded {
         accumulation_overflow(
             self.policy,
@@ -1073,6 +1149,7 @@ impl OperationWorkMeter {
         let mut current = self
             .prepared_text_retained_bytes
             .load(std::sync::atomic::Ordering::Relaxed);
+
         loop {
             let next = current.checked_add(retained_bytes).ok_or_else(|| {
                 accumulation_overflow(
@@ -1082,6 +1159,7 @@ impl OperationWorkMeter {
                 )
             })?;
             self.policy.check_prepared_text_retained_bytes(next)?;
+
             match self.prepared_text_retained_bytes.compare_exchange_weak(
                 current,
                 next,
@@ -1126,6 +1204,7 @@ impl OperationWorkMeter {
     }
 
     /// Returns the currently unreserved prepared-artifact budget for bounded policies.
+    #[must_use]
     pub(crate) fn remaining_prepared_text_retained_bytes(&self) -> Option<usize> {
         let maximum = self
             .policy
@@ -1134,9 +1213,13 @@ impl OperationWorkMeter {
     }
 
     fn release_prepared_text_retained_bytes(&self, released_bytes: usize) {
-        if released_bytes == 0 {
-            return;
+        match released_bytes {
+            0 => {
+                return;
+            },
+            _ => {},
         }
+
         let previous = self
             .prepared_text_retained_bytes
             .fetch_sub(released_bytes, std::sync::atomic::Ordering::Relaxed);
@@ -1165,6 +1248,7 @@ impl OperationWorkMeter {
     /// This is intentionally independent of the producer-owned projected-byte ledger: the
     /// bounded document sink validates its retained bytes directly and must not subtract or charge
     /// separately owned contributions.
+    #[must_use]
     pub(crate) fn svg_byte_budget(&self) -> SvgByteBudget<'_> {
         SvgByteBudget {
             meter: self,
@@ -1172,6 +1256,7 @@ impl OperationWorkMeter {
         }
     }
 
+    #[must_use]
     pub(crate) fn arithmetic_overflow(&self) -> OperationWorkError {
         self.terminate_resource_error(
             self.layout_work_overflow_details(),
@@ -1193,6 +1278,7 @@ impl OperationWorkMeter {
         let mut used = self
             .projected_svg_bytes
             .load(std::sync::atomic::Ordering::Relaxed);
+
         loop {
             let Some(next) = used.checked_add(additional) else {
                 return Err(self.terminate_resource_error(
@@ -1206,12 +1292,16 @@ impl OperationWorkMeter {
                     additional,
                 ));
             };
-            if let Err(error) = self
+
+            match self
                 .policy
-                .check_svg_byte_count(next, ResourceLimitPhase::SvgOutput)
-            {
-                return Err(self.terminate_resource_error(error, phase, used, additional));
+                .check_svg_byte_count(next, ResourceLimitPhase::SvgOutput) {
+                Err(error) => {
+                    return Err(self.terminate_resource_error(error, phase, used, additional));
+                },
+                ::core::result::Result::Ok(_) => {},
             }
+
             match self.projected_svg_bytes.compare_exchange_weak(
                 used,
                 next,
@@ -1234,6 +1324,7 @@ impl OperationWorkMeter {
     ) -> Result<(), OperationWorkError> {
         let phase = OperationPhase::Emit;
         self.resource_checkpoint(phase)?;
+
         let Some(actual) = current.checked_add(additional) else {
             return Err(self.terminate_resource_error(
                 accumulation_overflow(
@@ -1246,6 +1337,7 @@ impl OperationWorkMeter {
                 additional,
             ));
         };
+
         self.policy
             .check_render_limit(
                 ResourceLimitPhase::GeometryOutput,
@@ -1330,6 +1422,7 @@ impl OperationWorkMeter {
         result.map_err(|error| self.terminate_absolute_resource_error(error, operation_phase))
     }
 
+    #[must_use]
     pub(crate) fn terminate_absolute_resource_error(
         &self,
         error: ResourceLimitExceeded,
@@ -1339,6 +1432,7 @@ impl OperationWorkMeter {
         self.terminate_resource_error(error, operation_phase, 0, actual)
     }
 
+    #[must_use]
     pub(crate) fn terminate_svg_byte_count_overflow(
         &self,
         resource_phase: ResourceLimitPhase,
@@ -1356,6 +1450,7 @@ impl OperationWorkMeter {
         )
     }
 
+    #[must_use]
     fn terminate_resource_error(
         &self,
         error: ResourceLimitExceeded,
@@ -1389,6 +1484,7 @@ impl OperationWorkMeter {
         self.map_terminal_error(terminal)
     }
 
+    #[must_use]
     fn operation_resource_provenance(&self) -> OperationResourceProvenance {
         OperationResourceProvenance::new(
             OperationResourceDomain::Render,
@@ -1402,24 +1498,28 @@ impl OperationWorkMeter {
         )
     }
 
+    #[must_use]
     fn map_terminal_error(&self, error: OperationLedgerError) -> OperationWorkError {
         match error {
-            OperationLedgerError::Cancelled(error) => OperationWorkError::Cancelled(error),
-            OperationLedgerError::ResourceLimitExceeded(error) => self
-                .project_resource_limit(&error)
+            OperationLedgerError::Cancelled(error_2) => OperationWorkError::Cancelled(error_2),
+            OperationLedgerError::ResourceLimitExceeded(error_3) => self
+                .project_resource_limit(&error_3)
                 .map(OperationWorkError::ResourceLimitExceeded)
                 .unwrap_or_else(|| {
                     OperationWorkError::ForeignResourceTerminal(
-                        OperationLedgerError::ResourceLimitExceeded(error),
+                        OperationLedgerError::ResourceLimitExceeded(error_3),
                     )
                 }),
-            OperationLedgerError::ArithmeticOverflow { .. } => self
+            OperationLedgerError::ArithmeticOverflow { .. } => match (self
                 .project_resource_overflow(&error)
-                .map(OperationWorkError::ResourceLimitExceeded)
-                .unwrap_or(OperationWorkError::ForeignResourceTerminal(error)),
+                .map(OperationWorkError::ResourceLimitExceeded), OperationWorkError::ForeignResourceTerminal(error)) {
+                (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+                (::core::option::Option::None, alternate) => alternate,
+            },
         }
     }
 
+    #[must_use]
     fn project_resource_limit(
         &self,
         error: &OperationResourceLimitExceeded,
@@ -1427,7 +1527,7 @@ impl OperationWorkMeter {
         let (profile, explicit_overrides) = project_render_provenance(&error.provenance)?;
         Some(ResourceLimitExceeded {
             cause: ResourceLimitCause::Ceiling,
-            phase: ResourceLimitPhase::from_stable_id(error.resource_phase)?,
+            phase: { let checked_value = ResourceLimitPhase::from_stable_id(error.resource_phase)?; checked_value },
             limit: error.id,
             actual: saturating_usize(error.consumed.saturating_add(error.requested)),
             max: saturating_usize(error.limit),
@@ -1436,6 +1536,7 @@ impl OperationWorkMeter {
         })
     }
 
+    #[must_use]
     fn project_resource_overflow(
         &self,
         error: &OperationLedgerError,
@@ -1451,10 +1552,11 @@ impl OperationWorkMeter {
         else {
             return None;
         };
+
         let (profile, explicit_overrides) = project_render_provenance(provenance)?;
         Some(ResourceLimitExceeded {
             cause: ResourceLimitCause::ArithmeticOverflow,
-            phase: ResourceLimitPhase::from_stable_id(resource_phase)?,
+            phase: { let checked_value = ResourceLimitPhase::from_stable_id(resource_phase)?; checked_value },
             limit: id,
             actual: saturating_usize(*actual),
             max: saturating_usize(*maximum),
@@ -1484,6 +1586,7 @@ impl OperationWorkMeter {
     ) -> Result<SvgByteReservation, OperationWorkError> {
         let phase = OperationPhase::Emit;
         self.resource_checkpoint(phase)?;
+
         let Some(maximum) = self.policy.value(ResourceLimitId::MaxSvgBytes) else {
             self.charge_svg_bytes(requested)?;
             return Ok(SvgByteReservation {
@@ -1495,9 +1598,11 @@ impl OperationWorkMeter {
         let mut used = self
             .projected_svg_bytes
             .load(std::sync::atomic::Ordering::Relaxed);
+
         loop {
             let available = maximum.saturating_sub(used);
             let additional_bytes = requested.min(available);
+
             let Some(next) = used.checked_add(additional_bytes) else {
                 return Err(self.terminate_resource_error(
                     accumulation_overflow(
@@ -1510,6 +1615,7 @@ impl OperationWorkMeter {
                     additional_bytes,
                 ));
             };
+
             match self.projected_svg_bytes.compare_exchange_weak(
                 used,
                 next,
@@ -1540,29 +1646,41 @@ impl OperationWorkMeter {
         actual: usize,
     ) -> Result<(), OperationWorkError> {
         self.resource_checkpoint(OperationPhase::Emit)?;
-        if actual > reserved {
-            return self.charge_svg_bytes(actual - reserved);
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(actual), &::core::convert::identity(reserved)); _explicit_ordering } {
+            ::core::cmp::Ordering::Greater => {
+                return self.charge_svg_bytes(actual - reserved);
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
         }
 
         let released = reserved - actual;
-        if released != 0 {
-            let previous = self
-                .projected_svg_bytes
-                .fetch_sub(released, std::sync::atomic::Ordering::Relaxed);
-            debug_assert!(previous >= released);
+
+        match released {
+            0 => {},
+            _ => {
+                let previous = self
+                    .projected_svg_bytes
+                    .fetch_sub(released, std::sync::atomic::Ordering::Relaxed);
+                debug_assert!(previous >= released);
+            },
         }
+
         Ok(())
     }
 
+    #[must_use]
     pub(crate) fn used(&self) -> usize {
         self.used.load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    #[must_use]
     pub(crate) fn prepared_text_retained_bytes(&self) -> usize {
         self.prepared_text_retained_bytes
             .load(std::sync::atomic::Ordering::Relaxed)
     }
 
+    #[must_use]
     pub(crate) fn prepared_text_retained_bytes_peak(&self) -> usize {
         self.prepared_text_retained_bytes_peak
             .load(std::sync::atomic::Ordering::Relaxed)
@@ -1575,33 +1693,39 @@ impl OperationWorkMeter {
     }
 }
 
+#[must_use]
 fn project_render_provenance(
     provenance: &OperationResourceProvenance,
 ) -> Option<(RenderResourceProfile, Vec<ResourceLimitOverride>)> {
     if provenance.domain != OperationResourceDomain::Render {
         return None;
     }
+
     let explicit_overrides = provenance
         .explicit_overrides
         .iter()
         .map(|override_| {
             Some(ResourceLimitOverride {
-                id: ResourceLimitId::from_stable_id(override_.id)?,
+                id: { let checked_value = ResourceLimitId::from_stable_id(override_.id)?; checked_value },
                 value: saturating_usize(override_.value),
             })
         })
         .collect::<Option<Vec<_>>>()?;
-    Some((provenance.profile?, explicit_overrides))
+    let checked_value = provenance.profile?;
+    Some((checked_value, explicit_overrides))
 }
 
+#[must_use]
 fn saturating_usize(value: u64) -> usize {
     usize::try_from(value).unwrap_or(usize::MAX)
 }
 
+#[must_use]
 fn saturating_u64(value: usize) -> u64 {
     u64::try_from(value).unwrap_or(u64::MAX)
 }
 
+#[must_use]
 fn accumulation_overflow(
     policy: RenderResourcePolicy,
     phase: ResourceLimitPhase,
@@ -1613,11 +1737,14 @@ fn accumulation_overflow(
         phase,
         limit: limit.as_str(),
         actual: usize::MAX,
-        max: policy.value(limit).unwrap_or(usize::MAX),
+        max: match policy.value(limit) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => usize::MAX,
+        },
         profile: policy.profile(),
         explicit_overrides: policy
             .explicit_overrides()
-            .map(|(id, value)| ResourceLimitOverride { id, value })
+            .map(|(id_2, value)| ResourceLimitOverride { id: id_2, value })
             .collect(),
     }
 }
@@ -1629,6 +1756,7 @@ fn accumulation_overflow(
         reason = "Shared operation support has different consumers in each diagram selection."
     )
 )]
+#[must_use]
 fn svg_byte_limit_error(policy: RenderResourcePolicy, maximum: usize) -> ResourceLimitExceeded {
     ResourceLimitExceeded {
         cause: ResourceLimitCause::Ceiling,
@@ -1651,6 +1779,7 @@ fn svg_byte_limit_error(policy: RenderResourcePolicy, maximum: usize) -> Resourc
         reason = "Shared operation support has different consumers in each diagram selection."
     )
 )]
+#[must_use]
 fn svg_reservation_limit_error(
     policy: RenderResourcePolicy,
     maximum: usize,
@@ -1664,6 +1793,7 @@ fn svg_reservation_limit_error(
             RenderResourceLimitId::MaxSvgBytes,
         );
     }
+
     svg_byte_limit_error(policy, maximum)
 }
 
@@ -1686,9 +1816,11 @@ impl std::fmt::Display for ResourceLimitExceeded {
             "resource limit exceeded during {}: {}",
             self.phase, self.limit
         )?;
+
         if self.cause == ResourceLimitCause::ArithmeticOverflow {
             write!(formatter, " cause={}", self.cause)?;
         }
+
         write!(formatter, " actual={} max={}", self.actual, self.max)
     }
 }
@@ -1696,6 +1828,7 @@ impl std::fmt::Display for ResourceLimitExceeded {
 impl std::error::Error for ResourceLimitExceeded {}
 
 impl ResourceLimitExceeded {
+    #[must_use]
     pub(crate) fn is_svg_backend_compatibility_ceiling(&self) -> bool {
         matches!(
             self.limit,
@@ -1705,6 +1838,7 @@ impl ResourceLimitExceeded {
         )
     }
 
+    #[must_use]
     fn from_input(policy: &RenderResourcePolicy, error: InputResourceLimitExceeded) -> Self {
         Self {
             cause: ResourceLimitCause::Ceiling,

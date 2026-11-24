@@ -46,10 +46,12 @@ enum RailroadDialect {
 }
 
 impl RailroadDialect {
+    #[must_use]
     fn is_identifier_start(self, ch: char) -> bool {
         ch.is_ascii_alphabetic() || (self != Self::Abnf && ch == '_')
     }
 
+    #[must_use]
     fn is_identifier_continue(self, ch: char) -> bool {
         ch.is_ascii_alphanumeric() || ch == '-' || (self != Self::Abnf && ch == '_')
     }
@@ -64,6 +66,7 @@ impl RailroadDialect {
         }
     }
 
+    #[must_use]
     fn header(self) -> &'static str {
         match self {
             Self::Ir => "railroad-beta",
@@ -356,14 +359,17 @@ struct RailroadSemanticSource {
 }
 
 impl RailroadSemanticSource {
+    #[must_use]
     fn into_model(mut self, config: &crate::MermaidConfig) -> RailroadDiagramModel {
         crate::common_db::sanitize_optional_title(&mut self.model.title, config);
         crate::common_db::sanitize_optional_acc_title(&mut self.model.acc_title, config);
         crate::common_db::sanitize_optional_acc_descr(&mut self.model.acc_descr, config);
+
         for rule in &mut self.model.rules {
             rule.name = sanitize_text(&rule.name, config);
             sanitize_ast_node(&mut rule.definition, config);
         }
+
         self.model
     }
 
@@ -374,6 +380,7 @@ impl RailroadSemanticSource {
     }
 
     #[cfg(feature = "presentation")]
+    #[must_use]
     fn into_render_model(self, meta: &SourcePresentationMetadata) -> RailroadDiagramModel {
         self.into_model(meta.effective_config.as_config())
     }
@@ -437,6 +444,7 @@ fn parse_railroad_model_for_render_dialect_controlled(
         EditorFactsDemand::Omit,
         control,
     )?;
+
     match construction {
         Ok(source) => Ok(Ok(source.into_render_model(meta))),
         Err(failure) => Ok(Err(*failure.error)),
@@ -535,24 +543,27 @@ fn construct_railroad_semantic_source(
     };
     control.checkpoint()?;
 
-    if let Some(error) = earliest_railroad_error(lexer.first_error, parser.first_error) {
-        #[cfg(feature = "editor-facts")]
-        let span = railroad_error_span(&error, SourceSpan::new(0, code.len()));
-        #[cfg(feature = "editor-facts")]
-        if let Some(facts) = &mut editor_facts {
-            facts.mark_recovered_from_parse_error(
-                format!(
-                    "{} parser recovered after parse error: {error}",
-                    dialect.diagram_type()
-                ),
-                Some(span),
-            );
-        }
-        return Ok(Err(RailroadParseFailure {
-            error: Box::new(error),
+    match earliest_railroad_error(lexer.first_error, parser.first_error) {
+        Some(error) => {
             #[cfg(feature = "editor-facts")]
-            editor_facts: editor_facts.map(Box::new),
-        }));
+            let span = railroad_error_span(&error, SourceSpan::new(0, code.len()));
+            #[cfg(feature = "editor-facts")]
+            if let Some(facts) = &mut editor_facts {
+                facts.mark_recovered_from_parse_error(
+                    format!(
+                        "{} parser recovered after parse error: {error}",
+                        dialect.diagram_type()
+                    ),
+                    Some(span),
+                );
+            }
+            return Ok(Err(RailroadParseFailure {
+                error: Box::new(error),
+                #[cfg(feature = "editor-facts")]
+                editor_facts: editor_facts.map(Box::new),
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
     control.checkpoint()?;
@@ -563,15 +574,16 @@ fn construct_railroad_semantic_source(
     }))
 }
 
+#[must_use]
 fn earliest_railroad_error(left: Option<Error>, right: Option<Error>) -> Option<Error> {
     match (left, right) {
-        (Some(left), Some(right)) => {
-            if railroad_error_span(&left, SourceSpan::new(usize::MAX, usize::MAX)).start
-                <= railroad_error_span(&right, SourceSpan::new(usize::MAX, usize::MAX)).start
+        (Some(left_2), Some(right_2)) => {
+            if railroad_error_span(&left_2, SourceSpan::new(usize::MAX, usize::MAX)).start
+                <= railroad_error_span(&right_2, SourceSpan::new(usize::MAX, usize::MAX)).start
             {
-                Some(left)
+                Some(left_2)
             } else {
-                Some(right)
+                Some(right_2)
             }
         }
         (Some(error), None) | (None, Some(error)) => Some(error),
@@ -579,13 +591,18 @@ fn earliest_railroad_error(left: Option<Error>, right: Option<Error>) -> Option<
     }
 }
 
+#[must_use]
 fn railroad_error_span(error: &Error, fallback: SourceSpan) -> SourceSpan {
     match error {
-        Error::DiagramParse { diagnostic, .. } => diagnostic.span().unwrap_or(fallback),
+        Error::DiagramParse { diagnostic, .. } => match diagnostic.span() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => fallback,
+        },
         _ => fallback,
     }
 }
 
+#[must_use]
 fn is_railroad_ir_keyword(value: &str) -> bool {
     matches!(
         value,
@@ -607,6 +624,7 @@ enum RailroadRuleNameConflict {
     IrConstructor,
 }
 
+#[must_use]
 fn railroad_rule_name_conflict(
     candidate: &str,
     dialect: RailroadDialect,
@@ -614,12 +632,15 @@ fn railroad_rule_name_conflict(
     if candidate.starts_with("title") {
         return Some(RailroadRuleNameConflict::TitleToken);
     }
+
     if candidate == dialect.header() {
         return Some(RailroadRuleNameConflict::HeaderKeyword);
     }
+
     if dialect == RailroadDialect::Ir && is_railroad_ir_keyword(candidate) {
         return Some(RailroadRuleNameConflict::IrConstructor);
     }
+
     None
 }
 
@@ -642,8 +663,12 @@ fn sanitize_ast_node(node: &mut RailroadAstNode, config: &crate::MermaidConfig) 
             element, separator, ..
         } => {
             sanitize_ast_node(element, config);
-            if let Some(separator) = separator {
-                sanitize_ast_node(separator, config);
+
+            match separator {
+                Some(separator_2) => {
+                    sanitize_ast_node(separator_2, config);
+                },
+                ::core::option::Option::None => {},
             }
         }
         RailroadAstNode::Special { text, .. } => *text = sanitize_text(text, config),
@@ -670,14 +695,17 @@ struct RailroadConstructedNode {
 }
 
 impl RailroadConstructedNode {
+    #[must_use]
     fn leaf(node: RailroadAstNode) -> Self {
         Self { node, depth: 0 }
     }
 
+    #[must_use]
     fn span(&self) -> SourceSpan {
         self.node.span()
     }
 
+    #[must_use]
     fn selection(&self) -> SourceSpan {
         self.node.selection()
     }
@@ -693,10 +721,12 @@ enum RailroadIrExpressionFrameKind {
 }
 
 impl RailroadIrExpressionFrameKind {
+    #[must_use]
     fn is_variadic(self) -> bool {
         matches!(self, Self::Sequence | Self::Choice)
     }
 
+    #[must_use]
     fn name(self) -> &'static str {
         match self {
             Self::Optional => "optional",
@@ -724,6 +754,7 @@ enum RailroadEbnfFrameKind {
 }
 
 impl RailroadEbnfFrameKind {
+    #[must_use]
     fn closing_symbol(self) -> Option<char> {
         match self {
             Self::Root => None,
@@ -733,6 +764,7 @@ impl RailroadEbnfFrameKind {
         }
     }
 
+    #[must_use]
     fn closing_message(self) -> &'static str {
         match self {
             Self::Root => "expected EBNF expression",
@@ -768,6 +800,7 @@ enum RailroadAbnfFrameKind {
 }
 
 impl RailroadAbnfFrameKind {
+    #[must_use]
     fn closing_symbol(self) -> Option<char> {
         match self {
             Self::Root => None,
@@ -776,6 +809,7 @@ impl RailroadAbnfFrameKind {
         }
     }
 
+    #[must_use]
     fn closing_message(self) -> &'static str {
         match self {
             Self::Root => "expected ABNF element",
@@ -800,6 +834,7 @@ enum RailroadPegFrameKind {
 }
 
 impl RailroadPegFrameKind {
+    #[must_use]
     fn closing_symbol(self) -> Option<char> {
         match self {
             Self::Root => None,
@@ -807,6 +842,7 @@ impl RailroadPegFrameKind {
         }
     }
 
+    #[must_use]
     fn closing_message(self) -> &'static str {
         match self {
             Self::Root => "expected PEG expression",
@@ -824,6 +860,7 @@ struct RailroadPegFrame {
 }
 
 impl<'a> RailroadParser<'a> {
+    #[must_use]
     fn new(
         tokens: Vec<Token>,
         input_len: usize,
@@ -856,17 +893,22 @@ impl<'a> RailroadParser<'a> {
             rules: Vec::new(),
         };
         let mut first_error = None;
-        if let Err(error) = self.expect_header() {
-            return Ok(RailroadParserOutcome {
-                model,
-                #[cfg(feature = "editor-facts")]
-                trace: self.trace,
-                first_error: Some(error),
-            });
+
+        match self.expect_header() {
+            Err(error) => {
+                return Ok(RailroadParserOutcome {
+                    model,
+                    #[cfg(feature = "editor-facts")]
+                    trace: self.trace,
+                    first_error: Some(error),
+                });
+            },
+            ::core::result::Result::Ok(_) => {},
         }
 
         while let Ok(Some(field)) = self.take_common_field() {
             control.checkpoint()?;
+
             match field.kind {
                 CommonFieldKind::Title => {
                     model.title = Some(field.value);
@@ -895,6 +937,7 @@ impl<'a> RailroadParser<'a> {
         while !self.is_eof() {
             control.checkpoint()?;
             let checkpoint = self.pos;
+
             match self.parse_rule() {
                 Ok(rule) => model.rules.push(rule),
                 Err(error) => {
@@ -919,10 +962,12 @@ impl<'a> RailroadParser<'a> {
         control: &OperationControl,
     ) -> OperationControlResult<()> {
         let start = checkpoint.saturating_add(1).min(self.tokens.len());
+
         for index in start..self.tokens.len().saturating_sub(1) {
             if (index - start).is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             if matches!(self.tokens[index].kind, TokenKind::Ident(_))
                 && self.assignment_follows(index + 1)
             {
@@ -930,10 +975,12 @@ impl<'a> RailroadParser<'a> {
                 return Ok(());
             }
         }
+
         self.pos = self.tokens.len();
         Ok(())
     }
 
+    #[must_use]
     fn assignment_follows(&self, index: usize) -> bool {
         self.tokens
             .get(index)
@@ -952,26 +999,37 @@ impl<'a> RailroadParser<'a> {
         let token = self.take().ok_or_else(|| {
             self.error_at_current(format!("expected {} header", self.dialect.header()))
         })?;
+
         let TokenKind::Ident(value) = &token.kind else {
             return Err(
                 self.error_at_token(&token, format!("expected {} header", self.dialect.header()))
             );
         };
+
         if value != self.dialect.header() {
             return Err(
                 self.error_at_token(&token, format!("expected {} header", self.dialect.header()))
             );
         }
+
         Ok(())
     }
 
     fn take_common_field(&mut self) -> Result<Option<SpannedCommonField>> {
-        let Some(token) = self.peek() else {
-            return Ok(None);
+        let token = {
+            let optional_token = self.peek();
+
+            match optional_token {
+                Some(matched_token) => matched_token,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let TokenKind::Common(field) = &token.kind else {
-            return Ok(None);
+
+        let field = match &token.kind {
+            TokenKind::Common(matched_field) => matched_field,
+            crate::diagrams::railroad::TokenKind::Ident(..) | crate::diagrams::railroad::TokenKind::String(..) | crate::diagrams::railroad::TokenKind::SpecialSequence(..) | crate::diagrams::railroad::TokenKind::NumVal(..) | crate::diagrams::railroad::TokenKind::Repeat(..) | crate::diagrams::railroad::TokenKind::Number(..) | crate::diagrams::railroad::TokenKind::Symbol(..) | crate::diagrams::railroad::TokenKind::ColonColonEq | crate::diagrams::railroad::TokenKind::LeftArrow => return Ok(None),
         };
+
         let out = SpannedCommonField {
             kind: field.kind,
             value: field.value.text.clone(),
@@ -984,6 +1042,7 @@ impl<'a> RailroadParser<'a> {
 
     fn parse_rule(&mut self) -> Result<RailroadRuleModel> {
         let name = self.expect_rule_name()?;
+
         match self.dialect {
             RailroadDialect::Peg => self.expect_left_arrow("expected '<-' after PEG rule name")?,
             RailroadDialect::Ebnf => {
@@ -1019,25 +1078,36 @@ impl<'a> RailroadParser<'a> {
         let mut pending = None;
 
         loop {
-            if let Some(node) = pending.take() {
-                let Some(frame) = frames.last_mut() else {
-                    return Ok(node);
-                };
-                frame.elements.push(node);
+            match pending.take() {
+                Some(node) => {
+                    let frame = {
+                        let optional_frame = frames.last_mut();
 
-                if frame.kind.is_variadic() && self.take_symbol(',') {
+                        match optional_frame {
+                            Some(matched_frame) => matched_frame,
+                            ::core::option::Option::None => return Ok(node),
+                        }
+                    };
+
+                    frame.elements.push(node);
+
+                    if frame.kind.is_variadic() && self.take_symbol(',') {
+                        continue;
+                    }
+
+                    let frame_2 = frames.pop().expect("non-empty Railroad IR frame stack");
+                    pending = Some({ let checked_value_3 = self.finish_ir_expression_frame(frame_2)?; checked_value_3 });
                     continue;
-                }
-
-                let frame = frames.pop().expect("non-empty Railroad IR frame stack");
-                pending = Some(self.finish_ir_expression_frame(frame)?);
-                continue;
+                },
+                ::core::option::Option::None => {},
             }
 
-            let expression_depth = frames
+            let expression_depth = match frames
                 .last()
-                .map(|frame: &RailroadIrExpressionFrame| frame.nesting_depth.saturating_add(1))
-                .unwrap_or(nesting_depth);
+                .map(|frame: &RailroadIrExpressionFrame| frame.nesting_depth.saturating_add(1)) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => nesting_depth,
+            };
             self.ensure_nesting_depth(expression_depth)?;
 
             let function = self.expect_ident("expected railroad expression")?;
@@ -1088,19 +1158,23 @@ impl<'a> RailroadParser<'a> {
                 }
             };
 
-            if let Some(kind) = kind {
-                if kind.is_variadic() && self.check_symbol(')') {
-                    return Err(self.error_at_current(format!(
-                        "{} requires at least one argument",
-                        kind.name()
-                    )));
-                }
-                frames.push(RailroadIrExpressionFrame {
-                    kind,
-                    start: function.span.start,
-                    nesting_depth: expression_depth,
-                    elements: Vec::new(),
-                });
+            match kind {
+                Some(kind_2) => {
+                    if kind_2.is_variadic() && self.check_symbol(')') {
+                        return Err(self.error_at_current(format!(
+                            "{} requires at least one argument",
+                            kind_2.name()
+                        )));
+                    }
+
+                    frames.push(RailroadIrExpressionFrame {
+                        kind: kind_2,
+                        start: function.span.start,
+                        nesting_depth: expression_depth,
+                        elements: Vec::new(),
+                    });
+                },
+                ::core::option::Option::None => {},
             }
         }
     }
@@ -1114,12 +1188,15 @@ impl<'a> RailroadParser<'a> {
             format!("expected ')' after {} arguments", frame.kind.name()),
         )?;
         let span = SourceSpan::new(frame.start, end.span.end);
+
         if matches!(frame.kind, RailroadIrExpressionFrameKind::Sequence) {
             return self.collapse_sequence(frame.elements, span);
         }
+
         if matches!(frame.kind, RailroadIrExpressionFrameKind::Choice) {
             return self.collapse_choice(frame.elements, span);
         }
+
         let depth = self.next_constructed_depth(frame.elements.iter().map(|node| node.depth))?;
         let element = Box::new(
             frame
@@ -1162,12 +1239,15 @@ impl<'a> RailroadParser<'a> {
         let mut completed = None;
 
         loop {
-            if let Some(node) = completed.take() {
-                let frame = frames
-                    .last_mut()
-                    .expect("Railroad EBNF parent frame exists for completed group");
-                self.accept_ebnf_primary(frame, node)?;
-                continue;
+            match completed.take() {
+                Some(node) => {
+                    let frame = frames
+                        .last_mut()
+                        .expect("Railroad EBNF parent frame exists for completed group");
+                    self.accept_ebnf_primary(frame, node)?;
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
 
             let state_is_pending = matches!(
@@ -1182,13 +1262,16 @@ impl<'a> RailroadParser<'a> {
                 let wrapped_depth =
                     if self.check_symbol('?') || self.check_symbol('*') || self.check_symbol('+') {
                         let frame = frames.last().expect("Railroad EBNF frame exists");
+
                         let RailroadEbnfFrameState::Pending(node) = &frame.state else {
                             unreachable!("pending Railroad EBNF state was checked above")
                         };
+
                         self.next_constructed_depth([node.depth])?
                     } else {
                         0
                     };
+
                 if self.take_symbol('?') {
                     let end = self.previous_end();
                     let frame = frames.last_mut().expect("Railroad EBNF frame exists");
@@ -1202,6 +1285,7 @@ impl<'a> RailroadParser<'a> {
                     });
                     continue;
                 }
+
                 if self.take_symbol('*') {
                     let end = self.previous_end();
                     let frame = frames.last_mut().expect("Railroad EBNF frame exists");
@@ -1218,6 +1302,7 @@ impl<'a> RailroadParser<'a> {
                     });
                     continue;
                 }
+
                 if self.take_symbol('+') {
                     let end = self.previous_end();
                     let frame = frames.last_mut().expect("Railroad EBNF frame exists");
@@ -1234,6 +1319,7 @@ impl<'a> RailroadParser<'a> {
                     });
                     continue;
                 }
+
                 if self.take_symbol('-') {
                     let dash_span = self.previous_span();
                     let frame = frames.last_mut().expect("Railroad EBNF frame exists");
@@ -1241,12 +1327,14 @@ impl<'a> RailroadParser<'a> {
                     frame.state = RailroadEbnfFrameState::ExpectExceptionRhs { left, dash_span };
                     continue;
                 }
+
                 if self.take_symbol(',') {
                     let frame = frames.last_mut().expect("Railroad EBNF frame exists");
                     let node = Self::take_ebnf_pending(frame)?;
                     frame.sequence.push(node);
                     continue;
                 }
+
                 if self.take_symbol('|') {
                     let frame = frames.last_mut().expect("Railroad EBNF frame exists");
                     let node = Self::take_ebnf_pending(frame)?;
@@ -1256,11 +1344,12 @@ impl<'a> RailroadParser<'a> {
                 }
 
                 let kind = frames.last().expect("Railroad EBNF frame exists").kind;
+
                 if let Some(closing) = kind.closing_symbol() {
                     if self.check_symbol(closing) {
                         let end = self.expect_symbol(closing, kind.closing_message())?;
                         let frame = frames.pop().expect("Railroad EBNF frame exists");
-                        completed = Some(self.finish_ebnf_frame(frame, Some(end.span))?);
+                        completed = Some({ let checked_value_2 = self.finish_ebnf_frame(frame, Some(end.span))?; checked_value_2 });
                         continue;
                     }
                 } else if self.check_symbol(';') || self.is_eof() {
@@ -1303,6 +1392,7 @@ impl<'a> RailroadParser<'a> {
                 });
                 continue;
             }
+
             if self.take_symbol('[') {
                 let start = self.previous_span().start;
                 frames.push(RailroadEbnfFrame {
@@ -1314,6 +1404,7 @@ impl<'a> RailroadParser<'a> {
                 });
                 continue;
             }
+
             if self.take_symbol('{') {
                 let start = self.previous_span().start;
                 frames.push(RailroadEbnfFrame {
@@ -1461,12 +1552,15 @@ impl<'a> RailroadParser<'a> {
         let mut completed = None;
 
         loop {
-            if let Some(node) = completed.take() {
-                let frame = frames
-                    .last_mut()
-                    .expect("Railroad ABNF parent frame exists for completed group");
-                self.append_abnf_element(frame, node)?;
-                continue;
+            match completed.take() {
+                Some(node) => {
+                    let frame = frames
+                        .last_mut()
+                        .expect("Railroad ABNF parent frame exists for completed group");
+                    self.append_abnf_element(frame, node)?;
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
 
             let (kind, frame_depth, has_elements, has_pending_repeat) = {
@@ -1486,15 +1580,17 @@ impl<'a> RailroadParser<'a> {
                     if !has_elements || has_pending_repeat {
                         return Err(self.error_at_current("expected ABNF element"));
                     }
+
                     let end = self.expect_symbol(closing, kind.closing_message())?;
                     let frame = frames.pop().expect("Railroad ABNF frame exists");
-                    completed = Some(self.finish_abnf_frame(frame, Some(end.span))?);
+                    completed = Some({ let checked_value_2 = self.finish_abnf_frame(frame, Some(end.span))?; checked_value_2 });
                     continue;
                 }
             } else if self.check_symbol(';') || self.is_eof() {
                 if !has_elements || has_pending_repeat {
                     return Err(self.error_at_current("expected ABNF element"));
                 }
+
                 let frame = frames.pop().expect("Railroad ABNF root frame exists");
                 return self.finish_abnf_frame(frame, None);
             }
@@ -1503,6 +1599,7 @@ impl<'a> RailroadParser<'a> {
                 if !has_elements || has_pending_repeat {
                     return Err(self.error_at_current("expected ABNF element"));
                 }
+
                 let frame = frames.last_mut().expect("Railroad ABNF frame exists");
                 frame.alternatives.push(std::mem::take(&mut frame.sequence));
                 continue;
@@ -1513,11 +1610,13 @@ impl<'a> RailroadParser<'a> {
                     let frame = frames.pop().expect("Railroad ABNF root frame exists");
                     return self.finish_abnf_frame(frame, None);
                 }
+
                 return Err(self.error_at_current(kind.closing_message()));
             }
 
             self.ensure_nesting_depth(frame_depth)?;
             let repeat = self.take_abnf_repeat();
+
             if self.take_symbol('(') {
                 let start = self.previous_span().start;
                 frames
@@ -1533,6 +1632,7 @@ impl<'a> RailroadParser<'a> {
                 });
                 continue;
             }
+
             if self.take_symbol('[') {
                 let start = self.previous_span().start;
                 frames
@@ -1592,13 +1692,16 @@ impl<'a> RailroadParser<'a> {
         repeat: Option<SpannedText>,
         primary: RailroadConstructedNode,
     ) -> Result<RailroadConstructedNode> {
-        let Some(repeat) = repeat else {
-            return Ok(primary);
+        let repeat_2 = match repeat {
+            Some(matched_repeat) => matched_repeat,
+            ::core::option::Option::None => return Ok(primary),
         };
-        let (min, max) = parse_abnf_repeat_bounds(&repeat.text)
-            .ok_or_else(|| self.error_at_span(repeat.span, "invalid ABNF repetition bound"))?;
-        let span = SourceSpan::new(repeat.span.start, primary.span().end);
+
+        let (min, max) = parse_abnf_repeat_bounds(&repeat_2.text)
+            .ok_or_else(|| self.error_at_span(repeat_2.span, "invalid ABNF repetition bound"))?;
+        let span = SourceSpan::new(repeat_2.span.start, primary.span().end);
         let depth = self.next_constructed_depth([primary.depth])?;
+
         if min.is_zero() && max.is_one() {
             return Ok(RailroadConstructedNode {
                 depth,
@@ -1608,6 +1711,7 @@ impl<'a> RailroadParser<'a> {
                 },
             });
         }
+
         Ok(RailroadConstructedNode {
             depth,
             node: RailroadAstNode::Repetition {
@@ -1667,12 +1771,15 @@ impl<'a> RailroadParser<'a> {
         let mut completed = None;
 
         loop {
-            if let Some(node) = completed.take() {
-                let frame = frames
-                    .last_mut()
-                    .expect("Railroad PEG parent frame exists for completed group");
-                self.append_peg_element(frame, node)?;
-                continue;
+            match completed.take() {
+                Some(node) => {
+                    let frame = frames
+                        .last_mut()
+                        .expect("Railroad PEG parent frame exists for completed group");
+                    self.append_peg_element(frame, node)?;
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
 
             let (kind, frame_depth, has_elements, has_pending_prefix) = {
@@ -1692,15 +1799,17 @@ impl<'a> RailroadParser<'a> {
                     if !has_elements || has_pending_prefix {
                         return Err(self.error_at_current("expected PEG expression"));
                     }
+
                     let end = self.expect_symbol(closing, kind.closing_message())?;
                     let frame = frames.pop().expect("Railroad PEG frame exists");
-                    completed = Some(self.finish_peg_frame(frame, Some(end.span))?);
+                    completed = Some({ let checked_value_2 = self.finish_peg_frame(frame, Some(end.span))?; checked_value_2 });
                     continue;
                 }
             } else if self.check_symbol(';') || self.is_eof() {
                 if !has_elements || has_pending_prefix {
                     return Err(self.error_at_current("expected PEG expression"));
                 }
+
                 let frame = frames.pop().expect("Railroad PEG root frame exists");
                 return self.finish_peg_frame(frame, None);
             }
@@ -1709,6 +1818,7 @@ impl<'a> RailroadParser<'a> {
                 if !has_elements || has_pending_prefix {
                     return Err(self.error_at_current("expected PEG expression"));
                 }
+
                 let frame = frames.last_mut().expect("Railroad PEG frame exists");
                 frame.alternatives.push(std::mem::take(&mut frame.sequence));
                 continue;
@@ -1719,6 +1829,7 @@ impl<'a> RailroadParser<'a> {
                     let frame = frames.pop().expect("Railroad PEG root frame exists");
                     return self.finish_peg_frame(frame, None);
                 }
+
                 return Err(self.error_at_current(kind.closing_message()));
             }
 
@@ -1795,6 +1906,7 @@ impl<'a> RailroadParser<'a> {
         } else {
             return Ok(primary);
         };
+
         if self.take_symbol('?') {
             return Ok(RailroadConstructedNode {
                 depth,
@@ -1804,6 +1916,7 @@ impl<'a> RailroadParser<'a> {
                 },
             });
         }
+
         if self.take_symbol('*') {
             return Ok(RailroadConstructedNode {
                 depth,
@@ -1816,6 +1929,7 @@ impl<'a> RailroadParser<'a> {
                 },
             });
         }
+
         if self.take_symbol('+') {
             return Ok(RailroadConstructedNode {
                 depth,
@@ -1828,6 +1942,7 @@ impl<'a> RailroadParser<'a> {
                 },
             });
         }
+
         unreachable!("a supported Railroad PEG suffix was checked before wrapping")
     }
 
@@ -1836,9 +1951,11 @@ impl<'a> RailroadParser<'a> {
         prefix: Option<(char, SourceSpan)>,
         suffix: RailroadConstructedNode,
     ) -> RailroadConstructedNode {
-        let Some((operator, span)) = prefix else {
-            return suffix;
+        let (operator, span) = match prefix {
+            Some((matched_operator, matched_span)) => (matched_operator, matched_span),
+            ::core::option::Option::None => return suffix,
         };
+
         let label = format!("{operator}{}", node_to_label(&suffix.node));
         let predicate_span = SourceSpan::new(span.start, suffix.span().end);
         #[cfg(feature = "editor-facts")]
@@ -1877,6 +1994,7 @@ impl<'a> RailroadParser<'a> {
         }
     }
 
+    #[must_use]
     fn is_ebnf_primary_start(&self) -> bool {
         matches!(
             self.peek().map(|token| &token.kind),
@@ -1887,6 +2005,7 @@ impl<'a> RailroadParser<'a> {
         )
     }
 
+    #[must_use]
     fn is_abnf_element_start(&self) -> bool {
         matches!(
             self.peek().map(|token| &token.kind),
@@ -1899,6 +2018,7 @@ impl<'a> RailroadParser<'a> {
         )
     }
 
+    #[must_use]
     fn is_peg_prefix_start(&self) -> bool {
         matches!(
             self.peek().map(|token| &token.kind),
@@ -1911,6 +2031,7 @@ impl<'a> RailroadParser<'a> {
 
     fn take_abnf_repeat(&mut self) -> Option<SpannedText> {
         let token = self.peek()?;
+
         match &token.kind {
             TokenKind::Repeat(value) | TokenKind::Number(value) => {
                 let out = SpannedText {
@@ -1921,7 +2042,7 @@ impl<'a> RailroadParser<'a> {
                 self.pos += 1;
                 Some(out)
             }
-            _ => None,
+            TokenKind::Ident(_) | TokenKind::String(_) | TokenKind::SpecialSequence(_) | TokenKind::NumVal(_) | TokenKind::Common(_) | TokenKind::Symbol(_) | TokenKind::ColonColonEq | TokenKind::LeftArrow => None,
         }
     }
 
@@ -1932,14 +2053,19 @@ impl<'a> RailroadParser<'a> {
 
     fn expect_rule_name(&mut self) -> Result<SpannedText> {
         let name = self.expect_ident("expected railroad rule name")?;
-        if let Some(conflict) = railroad_rule_name_conflict(&name.text, self.dialect) {
-            let reason = match conflict {
-                RailroadRuleNameConflict::TitleToken => "is tokenized as railroad title metadata",
-                RailroadRuleNameConflict::HeaderKeyword => "is the railroad dialect header",
-                RailroadRuleNameConflict::IrConstructor => "is reserved for railroad expressions",
-            };
-            return Err(self.error_at_span(name.span, format!("`{}` {reason}", name.text)));
+
+        match railroad_rule_name_conflict(&name.text, self.dialect) {
+            Some(conflict) => {
+                let reason = match conflict {
+                    RailroadRuleNameConflict::TitleToken => "is tokenized as railroad title metadata",
+                    RailroadRuleNameConflict::HeaderKeyword => "is the railroad dialect header",
+                    RailroadRuleNameConflict::IrConstructor => "is reserved for railroad expressions",
+                };
+                return Err(self.error_at_span(name.span, format!("`{}` {reason}", name.text)));
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(name)
     }
 
@@ -1949,6 +2075,7 @@ impl<'a> RailroadParser<'a> {
                 "railroad nesting depth exceeds {MAX_DIAGRAM_NESTING_DEPTH}"
             )));
         }
+
         Ok(())
     }
 
@@ -1959,7 +2086,10 @@ impl<'a> RailroadParser<'a> {
     }
 
     fn next_constructed_depth(&self, depths: impl IntoIterator<Item = usize>) -> Result<usize> {
-        let next = depths.into_iter().max().unwrap_or(0).saturating_add(1);
+        let next = match depths.into_iter().max() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        }.saturating_add(1);
         self.ensure_nesting_depth(next)?;
         Ok(next)
     }
@@ -1972,6 +2102,7 @@ impl<'a> RailroadParser<'a> {
         if elements.len() == 1 {
             return Ok(elements.into_iter().next().expect("one element"));
         }
+
         let depth = self.next_constructed_depth(elements.iter().map(|node| node.depth))?;
         Ok(RailroadConstructedNode {
             depth,
@@ -1990,6 +2121,7 @@ impl<'a> RailroadParser<'a> {
         if alternatives.len() == 1 {
             return Ok(alternatives.into_iter().next().expect("one alternative"));
         }
+
         let depth = self.next_constructed_depth(alternatives.iter().map(|node| node.depth))?;
         Ok(RailroadConstructedNode {
             depth,
@@ -2036,9 +2168,12 @@ impl<'a> RailroadParser<'a> {
 
     fn take_ident(&mut self) -> Option<SpannedText> {
         let token = self.peek()?;
-        let TokenKind::Ident(value) = &token.kind else {
-            return None;
+
+        let value = match &token.kind {
+            TokenKind::Ident(matched_value) => matched_value,
+            crate::diagrams::railroad::TokenKind::String(..) | crate::diagrams::railroad::TokenKind::SpecialSequence(..) | crate::diagrams::railroad::TokenKind::NumVal(..) | crate::diagrams::railroad::TokenKind::Repeat(..) | crate::diagrams::railroad::TokenKind::Number(..) | crate::diagrams::railroad::TokenKind::Common(..) | crate::diagrams::railroad::TokenKind::Symbol(..) | crate::diagrams::railroad::TokenKind::ColonColonEq | crate::diagrams::railroad::TokenKind::LeftArrow => return None,
         };
+
         let out = SpannedText {
             text: value.clone(),
             span: token.span,
@@ -2055,9 +2190,12 @@ impl<'a> RailroadParser<'a> {
 
     fn take_string(&mut self) -> Option<SpannedText> {
         let token = self.peek()?;
-        let TokenKind::String(value) = &token.kind else {
-            return None;
+
+        let value = match &token.kind {
+            TokenKind::String(matched_value) => matched_value,
+            crate::diagrams::railroad::TokenKind::Ident(..) | crate::diagrams::railroad::TokenKind::SpecialSequence(..) | crate::diagrams::railroad::TokenKind::NumVal(..) | crate::diagrams::railroad::TokenKind::Repeat(..) | crate::diagrams::railroad::TokenKind::Number(..) | crate::diagrams::railroad::TokenKind::Common(..) | crate::diagrams::railroad::TokenKind::Symbol(..) | crate::diagrams::railroad::TokenKind::ColonColonEq | crate::diagrams::railroad::TokenKind::LeftArrow => return None,
         };
+
         let out = SpannedText {
             text: value.clone(),
             span: token.span,
@@ -2069,9 +2207,12 @@ impl<'a> RailroadParser<'a> {
 
     fn take_special_sequence(&mut self) -> Option<SpannedText> {
         let token = self.peek()?;
-        let TokenKind::SpecialSequence(value) = &token.kind else {
-            return None;
+
+        let value = match &token.kind {
+            TokenKind::SpecialSequence(matched_value) => matched_value,
+            crate::diagrams::railroad::TokenKind::Ident(..) | crate::diagrams::railroad::TokenKind::String(..) | crate::diagrams::railroad::TokenKind::NumVal(..) | crate::diagrams::railroad::TokenKind::Repeat(..) | crate::diagrams::railroad::TokenKind::Number(..) | crate::diagrams::railroad::TokenKind::Common(..) | crate::diagrams::railroad::TokenKind::Symbol(..) | crate::diagrams::railroad::TokenKind::ColonColonEq | crate::diagrams::railroad::TokenKind::LeftArrow => return None,
         };
+
         let out = SpannedText {
             text: value.clone(),
             span: token.span,
@@ -2083,9 +2224,12 @@ impl<'a> RailroadParser<'a> {
 
     fn take_num_val(&mut self) -> Option<SpannedText> {
         let token = self.peek()?;
-        let TokenKind::NumVal(value) = &token.kind else {
-            return None;
+
+        let value = match &token.kind {
+            TokenKind::NumVal(matched_value) => matched_value,
+            crate::diagrams::railroad::TokenKind::Ident(..) | crate::diagrams::railroad::TokenKind::String(..) | crate::diagrams::railroad::TokenKind::SpecialSequence(..) | crate::diagrams::railroad::TokenKind::Repeat(..) | crate::diagrams::railroad::TokenKind::Number(..) | crate::diagrams::railroad::TokenKind::Common(..) | crate::diagrams::railroad::TokenKind::Symbol(..) | crate::diagrams::railroad::TokenKind::ColonColonEq | crate::diagrams::railroad::TokenKind::LeftArrow => return None,
         };
+
         let out = SpannedText {
             text: value.clone(),
             span: token.span,
@@ -2112,6 +2256,7 @@ impl<'a> RailroadParser<'a> {
         }
     }
 
+    #[must_use]
     fn check_symbol(&self, symbol: char) -> bool {
         matches!(
             self.peek().map(|token| &token.kind),
@@ -2150,40 +2295,51 @@ impl<'a> RailroadParser<'a> {
         Some(token)
     }
 
+    #[must_use]
     fn peek(&self) -> Option<&Token> {
         self.tokens.get(self.pos)
     }
 
+    #[must_use]
     fn previous_token(&self) -> Option<&Token> {
         self.pos.checked_sub(1).and_then(|pos| self.tokens.get(pos))
     }
 
+    #[must_use]
     fn previous_span(&self) -> SourceSpan {
         self.previous_token()
             .map(|token| token.span)
             .unwrap_or_else(|| SourceSpan::new(self.input_len, self.input_len))
     }
 
+    #[must_use]
     fn previous_end(&self) -> usize {
         self.previous_span().end
     }
 
+    #[must_use]
     fn is_eof(&self) -> bool {
         self.pos >= self.tokens.len()
     }
 
+    #[must_use]
     fn error_at_current(&self, message: impl Into<String>) -> Error {
-        if let Some(token) = self.peek() {
-            self.error_at_token(token, message)
-        } else {
-            Error::diagram_parse_insertion_point(self.diagram_type, message, self.input_len)
+        match self.peek() {
+            Some(token) => {
+                self.error_at_token(token, message)
+            },
+            ::core::option::Option::None => {
+                Error::diagram_parse_insertion_point(self.diagram_type, message, self.input_len)
+            },
         }
     }
 
+    #[must_use]
     fn error_at_token(&self, token: &Token, message: impl Into<String>) -> Error {
         Error::diagram_parse_exact(self.diagram_type, message, token.span)
     }
 
+    #[must_use]
     fn error_at_span(&self, span: SourceSpan, message: impl Into<String>) -> Error {
         Error::diagram_parse_exact(self.diagram_type, message, span)
     }
@@ -2212,6 +2368,7 @@ struct Lexer<'a> {
 }
 
 impl<'a> Lexer<'a> {
+    #[must_use]
     fn new(input: &'a str, dialect: RailroadDialect, diagram_type: &'a str) -> Self {
         Self {
             input,
@@ -2227,23 +2384,29 @@ impl<'a> Lexer<'a> {
     ) -> OperationControlResult<RailroadLexerOutcome> {
         let mut tokens = Vec::new();
         let mut first_error = None;
+
         loop {
             control.checkpoint()?;
+
             match self.skip_trivia(control) {
                 Ok(true) => {}
                 Ok(false) => break,
                 Err(error) => {
                     first_error.get_or_insert(error);
+
                     if self.is_eof() {
                         break;
                     }
+
                     self.advance_char();
                     continue;
                 }
             }
+
             if self.is_eof() {
                 break;
             }
+
             match self.take_common_field() {
                 Ok(Some(token)) => {
                     tokens.push(token);
@@ -2252,13 +2415,16 @@ impl<'a> Lexer<'a> {
                 Ok(None) => {}
                 Err(error) => {
                     first_error.get_or_insert(error);
+
                     if self.is_eof() {
                         break;
                     }
+
                     self.advance_char();
                     continue;
                 }
             }
+
             match self.take_string() {
                 Ok(Some(token)) => {
                     tokens.push(token);
@@ -2267,40 +2433,65 @@ impl<'a> Lexer<'a> {
                 Ok(None) => {}
                 Err(error) => {
                     first_error.get_or_insert(error);
+
                     if self.is_eof() {
                         break;
                     }
+
                     self.advance_char();
                     continue;
                 }
             }
+
             if self.dialect == RailroadDialect::Ebnf
                 && let Some(token) = self.take_ebnf_special_sequence()
             {
                 tokens.push(token);
                 continue;
             }
+
             if self.dialect == RailroadDialect::Abnf {
-                if let Some(token) = self.take_abnf_num_val() {
+                match self.take_abnf_num_val() {
+                    Some(token) => {
+                        tokens.push(token);
+                        continue;
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                {
+                    match self.take_abnf_repeat_or_number() {
+                        Some(token) => {
+                            tokens.push(token);
+                            continue;
+                        },
+                        ::core::option::Option::None => {},
+                    };
+                }
+            }
+
+            match self.take_identifier() {
+                Some(token) => {
                     tokens.push(token);
                     continue;
-                }
-                if let Some(token) = self.take_abnf_repeat_or_number() {
+                },
+                ::core::option::Option::None => {},
+            }
+
+            match self.take_compound_symbol() {
+                Some(token) => {
                     tokens.push(token);
                     continue;
-                }
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(token) = self.take_identifier() {
-                tokens.push(token);
-                continue;
-            }
-            if let Some(token) = self.take_compound_symbol() {
-                tokens.push(token);
-                continue;
-            }
-            if let Some(token) = self.take_single_symbol() {
-                tokens.push(token);
-                continue;
+
+            match self.take_single_symbol() {
+                Some(token) => {
+                    tokens.push(token);
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
 
             let start = self.pos;
@@ -2326,31 +2517,41 @@ impl<'a> Lexer<'a> {
         loop {
             let before = self.pos;
             let mut last_checkpoint = self.pos;
+
             while self.current_char().is_some_and(char::is_whitespace) {
                 self.advance_char();
+
                 if self.pos.saturating_sub(last_checkpoint) >= 4096 {
                     if control.is_cancelled() {
                         return Ok(false);
                     }
+
                     last_checkpoint = self.pos;
                 }
             }
+
             if control.is_cancelled() {
                 return Ok(false);
             }
 
             if self.starts_with("%%{") {
-                if let Some(end) = self.remaining().find("}%%") {
-                    self.pos += end + "}%%".len();
-                    continue;
+                match self.remaining().find("}%%") {
+                    Some(end) => {
+                        self.pos += end + "}%%".len();
+                        continue;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 self.pos = self.input.len();
                 continue;
             }
+
             if self.starts_with("%%") {
                 self.skip_to_line_end();
                 continue;
             }
+
             if matches!(self.dialect, RailroadDialect::Ir | RailroadDialect::Ebnf)
                 && self.starts_with("/*")
             {
@@ -2358,19 +2559,23 @@ impl<'a> Lexer<'a> {
                 result?;
                 continue;
             }
+
             if self.dialect == RailroadDialect::Ebnf && self.starts_with("(*") {
                 let result = self.skip_until("*)", "unterminated EBNF comment");
                 result?;
                 continue;
             }
+
             if self.dialect == RailroadDialect::Peg && self.starts_with("#") {
                 self.skip_to_line_end();
                 continue;
             }
+
             if self.dialect == RailroadDialect::Abnf && self.abnf_semicolon_starts_comment() {
                 self.skip_to_line_end();
                 continue;
             }
+
             if self.skip_yaml_fence() {
                 continue;
             }
@@ -2379,6 +2584,7 @@ impl<'a> Lexer<'a> {
                 break;
             }
         }
+
         Ok(!self.is_eof())
     }
 
@@ -2387,11 +2593,14 @@ impl<'a> Lexer<'a> {
         let rest = self.remaining();
         let trimmed = rest.trim_start_matches([' ', '\t']);
         let leading = rest.len() - trimmed.len();
+
         if leading > 0 && rest[..leading].contains(['\r', '\n']) {
             return Ok(None);
         }
+
         let token_start = start + leading;
         let title_end = token_start + "title".len();
+
         if self.input[token_start..].starts_with("title")
             && self.input[title_end..]
                 .chars()
@@ -2413,20 +2622,24 @@ impl<'a> Lexer<'a> {
                 selection: SourceSpan::new(title_end, title_end),
             }));
         }
+
         let line_end = self.input[token_start..]
             .find(['\r', '\n'])
             .map(|rel| token_start + rel)
             .unwrap_or(self.input.len());
         let line = &self.input[token_start..line_end];
 
-        if let Some(field) = parse_common_field_line(line, token_start, self.dialect) {
-            self.pos = line_end;
-            let selection = field.value.selection;
-            return Ok(Some(Token {
-                kind: TokenKind::Common(field),
-                span: SourceSpan::new(token_start, line_end),
-                selection,
-            }));
+        match parse_common_field_line(line, token_start, self.dialect) {
+            Some(field) => {
+                self.pos = line_end;
+                let selection = field.value.selection;
+                return Ok(Some(Token {
+                    kind: TokenKind::Common(field),
+                    span: SourceSpan::new(token_start, line_end),
+                    selection,
+                }));
+            },
+            ::core::option::Option::None => {},
         }
 
         if line.trim_start().starts_with("accDescr")
@@ -2436,14 +2649,20 @@ impl<'a> Lexer<'a> {
         {
             let end = line_end + end_rel + 1;
             let full = &self.input[token_start..end];
-            if let Some(field) = parse_common_field_block(full, token_start) {
-                self.pos = end;
-                let selection = field.value.selection;
-                return Ok(Some(Token {
-                    kind: TokenKind::Common(field),
-                    span: SourceSpan::new(token_start, end),
-                    selection,
-                }));
+
+            {
+                match parse_common_field_block(full, token_start) {
+                    Some(field) => {
+                        self.pos = end;
+                        let selection = field.value.selection;
+                        return Ok(Some(Token {
+                            kind: TokenKind::Common(field),
+                            span: SourceSpan::new(token_start, end),
+                            selection,
+                        }));
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
 
@@ -2451,12 +2670,19 @@ impl<'a> Lexer<'a> {
     }
 
     fn take_string(&mut self) -> Result<Option<Token>> {
-        let Some(quote) = self.current_char() else {
-            return Ok(None);
+        let quote = {
+            let optional_quote = self.current_char();
+
+            match optional_quote {
+                Some(matched_quote) => matched_quote,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         if !matches!(quote, '"' | '\'') {
             return Ok(None);
         }
+
         if self.dialect == RailroadDialect::Abnf && quote != '"' {
             return Ok(None);
         }
@@ -2466,9 +2692,11 @@ impl<'a> Lexer<'a> {
         let content_start = self.pos;
         let mut value = String::new();
         let mut escaped = false;
+
         while let Some(ch) = self.current_char() {
             let ch_start = self.pos;
             self.advance_char();
+
             if self.dialect != RailroadDialect::Abnf && is_railroad_string_line_terminator(ch) {
                 return Err(Error::diagram_parse_exact(
                     self.diagram_type,
@@ -2476,6 +2704,7 @@ impl<'a> Lexer<'a> {
                     SourceSpan::new(ch_start, self.pos),
                 ));
             }
+
             if self.dialect != RailroadDialect::Abnf && escaped {
                 match ch {
                     'n' => value.push('\n'),
@@ -2483,13 +2712,16 @@ impl<'a> Lexer<'a> {
                     't' => value.push('\t'),
                     other => value.push(other),
                 }
+
                 escaped = false;
                 continue;
             }
+
             if self.dialect != RailroadDialect::Abnf && ch == '\\' {
                 escaped = true;
                 continue;
             }
+
             if ch == quote {
                 return Ok(Some(Token {
                     kind: TokenKind::String(value),
@@ -2497,6 +2729,7 @@ impl<'a> Lexer<'a> {
                     selection: SourceSpan::new(content_start, ch_start),
                 }));
             }
+
             value.push(ch);
         }
 
@@ -2511,13 +2744,16 @@ impl<'a> Lexer<'a> {
         if !self.starts_with("?") {
             return None;
         }
+
         let start = self.pos;
         let rest = &self.remaining()[1..];
         let end_rel = rest.find('?')?;
         let content = &rest[..end_rel];
+
         if content.contains(';') || content.trim().is_empty() {
             return None;
         }
+
         self.pos += 1 + end_rel + 1;
         Some(Token {
             kind: TokenKind::SpecialSequence(content.trim().to_string()),
@@ -2530,31 +2766,40 @@ impl<'a> Lexer<'a> {
         if !self.starts_with("%") {
             return None;
         }
+
         let start = self.pos;
         let bytes = self.input.as_bytes();
         let mut pos = start + 1;
         let base = ::core::option::Option::<&_>::copied(bytes.get(pos))?;
+
         if !matches!(base, b'x' | b'X' | b'd' | b'D' | b'b' | b'B') {
             return None;
         }
+
         pos += 1;
         let digits_start = pos;
+
         while match <[_]>::get(&*bytes, pos) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_hexdigit(), ::core::option::Option::None => false } {
             pos += 1;
         }
+
         if pos == digits_start {
             return None;
         }
+
         while pos < bytes.len() && matches!(bytes[pos], b'-' | b'.') {
             pos += 1;
             let chunk_start = pos;
+
             while match <[_]>::get(&*bytes, pos) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_hexdigit(), ::core::option::Option::None => false } {
                 pos += 1;
             }
+
             if pos == chunk_start {
                 return None;
             }
         }
+
         self.pos = pos;
         Some(Token {
             kind: TokenKind::NumVal(self.input[start..pos].to_string()),
@@ -2567,15 +2812,18 @@ impl<'a> Lexer<'a> {
         let start = self.pos;
         let bytes = self.input.as_bytes();
         let mut pos = start;
+
         while match <[_]>::get(&*bytes, pos) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_digit(), ::core::option::Option::None => false } {
             pos += 1;
         }
 
         if match <[_]>::get(&*bytes, pos) { ::core::option::Option::Some(&checked_element) => checked_element == b'*', ::core::option::Option::None => false } {
             pos += 1;
+
             while match <[_]>::get(&*bytes, pos) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_digit(), ::core::option::Option::None => false } {
                 pos += 1;
             }
+
             self.pos = pos;
             return Some(Token {
                 kind: TokenKind::Repeat(self.input[start..pos].to_string()),
@@ -2595,9 +2843,11 @@ impl<'a> Lexer<'a> {
 
         if bytes.get(start) == Some(&b'*') {
             self.pos += 1;
+
             while match <[_]>::get(&*bytes, self.pos) { ::core::option::Option::Some(&checked_element) => checked_element.is_ascii_digit(), ::core::option::Option::None => false } {
                 self.pos += 1;
             }
+
             return Some(Token {
                 kind: TokenKind::Repeat(self.input[start..self.pos].to_string()),
                 span: SourceSpan::new(start, self.pos),
@@ -2611,15 +2861,18 @@ impl<'a> Lexer<'a> {
     fn take_identifier(&mut self) -> Option<Token> {
         let start = self.pos;
         let first = self.current_char()?;
+
         if !self.dialect.is_identifier_start(first) {
             return None;
         }
 
         self.advance_char();
+
         while let Some(ch) = self.current_char() {
             if !self.dialect.is_identifier_continue(ch) {
                 break;
             }
+
             self.advance_char();
         }
 
@@ -2632,6 +2885,7 @@ impl<'a> Lexer<'a> {
 
     fn take_compound_symbol(&mut self) -> Option<Token> {
         let start = self.pos;
+
         if self.starts_with("::=") {
             self.pos += 3;
             return Some(Token {
@@ -2640,6 +2894,7 @@ impl<'a> Lexer<'a> {
                 selection: SourceSpan::new(start, self.pos),
             });
         }
+
         if self.starts_with("<-") {
             self.pos += 2;
             return Some(Token {
@@ -2648,6 +2903,7 @@ impl<'a> Lexer<'a> {
                 selection: SourceSpan::new(start, self.pos),
             });
         }
+
         None
     }
 
@@ -2659,6 +2915,7 @@ impl<'a> Lexer<'a> {
             RailroadDialect::Abnf => "=;/()[]",
             RailroadDialect::Peg => ";/()&!?.*+",
         };
+
         if !symbols.contains(ch) {
             return None;
         }
@@ -2674,6 +2931,7 @@ impl<'a> Lexer<'a> {
 
     fn skip_until(&mut self, needle: &str, message: &'static str) -> Result<()> {
         let start = self.pos;
+
         let Some(end) = self.remaining().find(needle) else {
             self.pos = self.input.len();
             return Err(Error::diagram_parse_insertion_point(
@@ -2682,6 +2940,7 @@ impl<'a> Lexer<'a> {
                 start,
             ));
         };
+
         self.pos += end + needle.len();
         Ok(())
     }
@@ -2694,14 +2953,18 @@ impl<'a> Lexer<'a> {
         self.pos += rel;
     }
 
+    #[must_use]
     fn abnf_semicolon_starts_comment(&self) -> bool {
         if !self.starts_with(";") {
             return false;
         }
-        let line_start = self.input[..self.pos]
+
+        let line_start = match self.input[..self.pos]
             .rfind(['\r', '\n'])
-            .map(|idx| idx + 1)
-            .unwrap_or(0);
+            .map(|idx| idx + 1) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        };
         self.input[line_start..self.pos].trim().is_empty()
     }
 
@@ -2711,6 +2974,7 @@ impl<'a> Lexer<'a> {
         }
 
         let mut cursor = self.pos + "---".len();
+
         while self.input[cursor..]
             .chars()
             .next()
@@ -2722,6 +2986,7 @@ impl<'a> Lexer<'a> {
                 .expect("checked above")
                 .len_utf8();
         }
+
         if self.input[cursor..].starts_with("\r\n") {
             cursor += 2;
         } else if self.input[cursor..].starts_with('\n') {
@@ -2735,8 +3000,10 @@ impl<'a> Lexer<'a> {
                 .find(['\r', '\n'])
                 .map(|relative| cursor + relative)
                 .unwrap_or(self.input.len());
+
             if self.input[cursor..].starts_with("---") {
                 let marker_end = cursor + "---".len();
+
                 if self.input[marker_end..]
                     .chars()
                     .next()
@@ -2746,9 +3013,11 @@ impl<'a> Lexer<'a> {
                     return true;
                 }
             }
+
             if line_end == self.input.len() {
                 return false;
             }
+
             cursor = line_end
                 + if self.input[line_end..].starts_with("\r\n") {
                     2
@@ -2758,34 +3027,44 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    #[must_use]
     fn at_line_start_after_indent(&self) -> bool {
-        let line_start = self.input[..self.pos]
+        let line_start = match self.input[..self.pos]
             .rfind(['\r', '\n'])
-            .map(|idx| idx + 1)
-            .unwrap_or(0);
+            .map(|idx| idx + 1) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        };
         self.input[line_start..self.pos]
             .chars()
             .all(|ch| matches!(ch, ' ' | '\t'))
     }
 
+    #[must_use]
     fn starts_with(&self, literal: &str) -> bool {
         self.remaining().starts_with(literal)
     }
 
+    #[must_use]
     fn remaining(&self) -> &'a str {
         &self.input[self.pos..]
     }
 
+    #[must_use]
     fn current_char(&self) -> Option<char> {
         self.remaining().chars().next()
     }
 
     fn advance_char(&mut self) {
-        if let Some(ch) = self.current_char() {
-            self.pos += ch.len_utf8();
+        match self.current_char() {
+            Some(ch) => {
+                self.pos += ch.len_utf8();
+            },
+            ::core::option::Option::None => {},
         }
     }
 
+    #[must_use]
     fn is_eof(&self) -> bool {
         self.pos >= self.input.len()
     }
@@ -2797,6 +3076,7 @@ struct ParsedCommonField {
     value: SpannedText,
 }
 
+#[must_use]
 fn parse_common_field_line(
     line: &str,
     line_start: usize,
@@ -2808,6 +3088,7 @@ fn parse_common_field_line(
         .or_else(|| parse_acc_descr_spanned(stripped, line_start))
 }
 
+#[must_use]
 fn parse_common_field_block(block: &str, block_start: usize) -> Option<ParsedCommonField> {
     let trimmed = block.trim_start();
     let leading = block.len() - trimmed.len();
@@ -2831,6 +3112,7 @@ fn parse_common_field_block(block: &str, block_start: usize) -> Option<ParsedCom
     })
 }
 
+#[must_use]
 fn parse_title_spanned(
     line: &str,
     line_start: usize,
@@ -2840,6 +3122,7 @@ fn parse_title_spanned(
     let leading = line.len() - trimmed.len();
     let keyword_start = line_start + leading;
     let keyword_end = keyword_start + "title".len();
+
     if trimmed == "title" {
         return Some(ParsedCommonField {
             kind: CommonFieldKind::Title,
@@ -2850,20 +3133,26 @@ fn parse_title_spanned(
             },
         });
     }
+
     let rest = trimmed.strip_prefix("title")?;
     let ws = rest.chars().next()?;
+
     if !matches!(ws, ' ' | '\t') {
         return None;
     }
+
     let (raw, raw_span) = trimmed_value_span(rest, keyword_end);
     let collapsed = collapse_common_spaces(raw);
     let decoded = decode_wrapped_quoted_title(&collapsed, dialect);
-    let (value, selection) = if let Some(value) = decoded {
-        let opening = SourceSpan::new(raw_span.start, raw_span.start + 1);
-        let closing = SourceSpan::new(raw_span.end - 1, raw_span.end);
-        (value, SourceSpan::new(opening.end, closing.start))
-    } else {
-        (collapsed, raw_span)
+    let (value, selection) = match decoded {
+        Some(value) => {
+            let opening = SourceSpan::new(raw_span.start, raw_span.start + 1);
+            let closing = SourceSpan::new(raw_span.end - 1, raw_span.end);
+            (value, SourceSpan::new(opening.end, closing.start))
+        },
+        ::core::option::Option::None => {
+            (collapsed, raw_span)
+        },
     };
     Some(ParsedCommonField {
         kind: CommonFieldKind::Title,
@@ -2875,6 +3164,7 @@ fn parse_title_spanned(
     })
 }
 
+#[must_use]
 fn parse_acc_title_spanned(line: &str, line_start: usize) -> Option<ParsedCommonField> {
     let trimmed = line.trim_start();
     let leading = line.len() - trimmed.len();
@@ -2895,6 +3185,7 @@ fn parse_acc_title_spanned(line: &str, line_start: usize) -> Option<ParsedCommon
     })
 }
 
+#[must_use]
 fn parse_acc_descr_spanned(line: &str, line_start: usize) -> Option<ParsedCommonField> {
     let trimmed = line.trim_start();
     let leading = line.len() - trimmed.len();
@@ -2922,21 +3213,26 @@ fn parse_acc_descr_spanned(line: &str, line_start: usize) -> Option<ParsedCommon
     })
 }
 
+#[must_use]
 fn trimmed_value_span(value: &str, base_offset: usize) -> (&str, SourceSpan) {
     let trimmed_start = value.trim_start();
+
     if trimmed_start.is_empty() {
         let insertion = base_offset + value.len();
         return ("", SourceSpan::new(insertion, insertion));
     }
+
     let leading = value.len() - trimmed_start.len();
     let trimmed = trimmed_start.trim_end();
     let start = base_offset + leading;
     (trimmed, SourceSpan::new(start, start + trimmed.len()))
 }
 
+#[must_use]
 fn collapse_common_spaces(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut previous_space = false;
+
     for ch in value.chars() {
         if matches!(ch, ' ' | '\t') {
             if !previous_space {
@@ -2948,11 +3244,14 @@ fn collapse_common_spaces(value: &str) -> String {
             previous_space = false;
         }
     }
+
     out
 }
 
+#[must_use]
 fn normalize_multiline_common(value: &str) -> String {
     let mut normalized = String::with_capacity(value.len());
+
     for line in value
         .split(['\r', '\n'])
         .map(str::trim)
@@ -2961,27 +3260,34 @@ fn normalize_multiline_common(value: &str) -> String {
         if !normalized.is_empty() {
             normalized.push('\n');
         }
+
         normalized.push_str(line);
     }
+
     normalized
 }
 
+#[must_use]
 fn decode_wrapped_quoted_title(value: &str, dialect: RailroadDialect) -> Option<String> {
     if !((value.starts_with('"') && value.ends_with('"'))
         || (value.starts_with('\'') && value.ends_with('\'')))
     {
         return None;
     }
+
     if dialect == RailroadDialect::Abnf {
         return Some(value[1..value.len() - 1].to_string());
     }
+
     decode_escaped_quoted_string(value).map(|text| text.text)
 }
 
+#[must_use]
 fn is_railroad_string_line_terminator(ch: char) -> bool {
     matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}')
 }
 
+#[must_use]
 fn decode_escaped_quoted_string(value: &str) -> Option<SpannedText> {
     let mut pos = 0usize;
     take_quoted_string_in(value, &mut pos, 0, RailroadDialect::Ir)
@@ -2996,12 +3302,19 @@ fn take_quoted_string_in(
     base_offset: usize,
     dialect: RailroadDialect,
 ) -> Result<Option<SpannedText>> {
-    let Some(quote) = input[*pos..].chars().next() else {
-        return Ok(None);
+    let quote = {
+        let optional_quote = input[*pos..].chars().next();
+
+        match optional_quote {
+            Some(matched_quote) => matched_quote,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     if !matches!(quote, '"' | '\'') {
         return Ok(None);
     }
+
     if dialect == RailroadDialect::Abnf && quote != '"' {
         return Ok(None);
     }
@@ -3011,8 +3324,10 @@ fn take_quoted_string_in(
     let content_start = base_offset + *pos;
     let mut text = String::new();
     let mut escaped = false;
+
     while let Some(ch) = input[*pos..].chars().next() {
         let ch_start = base_offset + *pos;
+
         *pos += ch.len_utf8();
         if dialect != RailroadDialect::Abnf && escaped {
             match ch {
@@ -3021,13 +3336,16 @@ fn take_quoted_string_in(
                 't' => text.push('\t'),
                 other => text.push(other),
             }
+
             escaped = false;
             continue;
         }
+
         if dialect != RailroadDialect::Abnf && ch == '\\' {
             escaped = true;
             continue;
         }
+
         if ch == quote {
             return Ok(Some(SpannedText {
                 text,
@@ -3035,21 +3353,26 @@ fn take_quoted_string_in(
                 selection: SourceSpan::new(content_start, ch_start),
             }));
         }
+
         text.push(ch);
     }
+
     Ok(None)
 }
 
+#[must_use]
 fn strip_inline_comment_aware(line: &str) -> &str {
     let mut in_single = false;
     let mut in_double = false;
     let mut escaped = false;
     let mut iter = line.char_indices().peekable();
+
     while let Some((idx, ch)) = iter.next() {
         if escaped {
             escaped = false;
             continue;
         }
+
         match ch {
             '\\' if in_single || in_double => escaped = true,
             '\'' if !in_double => in_single = !in_single,
@@ -3063,35 +3386,40 @@ fn strip_inline_comment_aware(line: &str) -> &str {
             _ => {}
         }
     }
+
     line
 }
 
+#[must_use]
 fn parse_abnf_repeat_bounds(repeat: &str) -> Option<(RailroadRepeatBound, RailroadRepeatBound)> {
     let parse_bound = |bound: &str| {
-        bound
-            .parse::<f64>()
-            .ok()
+        match bound
+            .parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
             .and_then(|value| RailroadRepeatBound::try_from(value).ok())
     };
 
-    if let Some((min, max)) = repeat.split_once('*') {
-        let min = if min.is_empty() {
-            RailroadRepeatBound::ZERO
-        } else {
-            parse_bound(min)?
-        };
-        let max = if max.is_empty() {
-            RailroadRepeatBound::INFINITY
-        } else {
-            parse_bound(max)?
-        };
-        return Some((min, max));
+    match repeat.split_once('*') {
+        Some((min, max)) => {
+            let min_2 = if min.is_empty() {
+                RailroadRepeatBound::ZERO
+            } else {
+                parse_bound(min)?
+            };
+            let max_2 = if max.is_empty() {
+                RailroadRepeatBound::INFINITY
+            } else {
+                parse_bound(max)?
+            };
+            return Some((min_2, max_2));
+        },
+        ::core::option::Option::None => {},
     }
 
     let exact = parse_bound(repeat)?;
     Some((exact, exact))
 }
 
+#[must_use]
 fn with_outer_span(mut node: RailroadConstructedNode, span: SourceSpan) -> RailroadConstructedNode {
     match &mut node.node {
         RailroadAstNode::Terminal { span: inner, .. }
@@ -3102,9 +3430,11 @@ fn with_outer_span(mut node: RailroadConstructedNode, span: SourceSpan) -> Railr
         | RailroadAstNode::Repetition { span: inner, .. }
         | RailroadAstNode::Special { span: inner, .. } => *inner = span,
     }
+
     node
 }
 
+#[must_use]
 fn node_to_label(node: &RailroadAstNode) -> String {
     match node {
         RailroadAstNode::Terminal { value, .. } => format!("\"{value}\""),
@@ -3901,9 +4231,9 @@ mod tests {
                 .tokenize_recovering(&OperationControl::new())
                 .unwrap();
             assert!(tokens.first_error.is_none());
-            // The lexer visits every token once, then checks EOF and its final outcome.
-            // The next three checkpoints enter construction, enter parsing, and admit entry.
-            // Cancellation at the next rule checkpoint owns the completed maximum-depth rule.
+
+
+
             let control = OperationControl::new();
             control.cancel_after_checkpoints(tokens.tokens.len() + 5);
             assert!(

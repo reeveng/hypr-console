@@ -8,26 +8,16 @@ use std::cmp::Ordering;
 use console_core_audio_decoding_interfaces::errors::{Error, decode_error, unsupported_error};
 use console_core_byte_streams::ReadBytes;
 
-use super::unsync::read_syncsafe;
-
-#[derive(Clone, Copy)]
-pub(super) enum Version {
-  V2,
-  V3,
-  V4,
-}
+use console_core_audio_decoding_interfaces::id3v2::{
+  COMPRESSION_OR_EXTENDED_HEADER, TagVersionError, Unsynchronisation, Version, read_synchsafe,
+  read_tag_fields, tag_unsynchronisation,
+};
 
 pub(super) struct Header {
   pub(super) version: Version,
   pub(super) size: u32,
-  pub(super) synchronisation: Synchronisation,
+  pub(super) unsynchronisation: Unsynchronisation,
   pub(super) extension: Extension,
-}
-
-#[derive(Clone, Copy)]
-pub(super) enum Synchronisation {
-  Plain,
-  Unsynchronised,
 }
 
 #[derive(Clone, Copy)]
@@ -36,54 +26,42 @@ pub(super) enum Extension {
   Absent,
 }
 
-const UNSYNCHRONISATION: u8 = 0x80;
-const EXTENDED_HEADER: u8 = 0x40;
-const V2_COMPRESSION: u8 = 0x40;
-
 pub(super) fn read_header<B: ReadBytes>(reader: &mut B) -> Result<Header, Error> {
-  let marker = reader.read_triple_bytes()?;
+  let fields = match {
+    let checked_value = read_tag_fields(reader)?;
+    checked_value
+  } {
+    Some(fields) => fields,
+    None => return unsupported_error("id3v2: not an ID3v2 tag"),
+  };
 
-  match marker {
-    [b'I', b'D', b'3'] => {}
-    _other => return unsupported_error("id3v2: not an ID3v2 tag"),
-  }
-
-  let major = reader.read_u8()?;
-  let minor = reader.read_u8()?;
-  let flags = reader.read_u8()?;
-  let size = read_syncsafe(reader, 28)?;
-
-  match (major, minor) {
+  match (fields.major_version, fields.revision) {
     (0xff, _) | (_, 0xff) => return decode_error("id3v2: invalid version number(s)"),
     _ => {}
   }
 
-  let version = match major {
-    2 => Version::V2,
-    3 => Version::V3,
-    4 => Version::V4,
-    _ => return unsupported_error("id3v2: unsupported ID3v2 version"),
+  let version = match fields.version() {
+    Ok(version) => version,
+    Err(TagVersionError::Unsupported) => {
+      return unsupported_error("id3v2: unsupported ID3v2 version");
+    }
+    Err(TagVersionError::LegacyCompression) => {
+      return unsupported_error("id3v2: ID3v2.2 compression is not supported");
+    }
+  };
+  let flags = fields.flags;
+
+  let extension = match (version, flags & COMPRESSION_OR_EXTENDED_HEADER) {
+    (Version::Two, _) | (Version::Three | Version::Four, 0) => Extension::Absent,
+    (Version::Three | Version::Four, _) => Extension::Present,
   };
 
-  match (version, flags & V2_COMPRESSION) {
-    (Version::V2, 0) | (Version::V3 | Version::V4, _) => {}
-    (Version::V2, _) => return unsupported_error("id3v2: ID3v2.2 compression is not supported"),
-  }
-
-  let extension = match (version, flags & EXTENDED_HEADER) {
-    (Version::V2, _) | (Version::V3 | Version::V4, 0) => Extension::Absent,
-    (Version::V3 | Version::V4, _) => Extension::Present,
-  };
-
-  let synchronisation = match flags & UNSYNCHRONISATION {
-    0 => Synchronisation::Plain,
-    _set => Synchronisation::Unsynchronised,
-  };
+  let Ok(unsynchronisation) = tag_unsynchronisation(flags);
 
   Ok(Header {
     version,
-    size,
-    synchronisation,
+    size: fields.size,
+    unsynchronisation,
     extension,
   })
 }
@@ -93,9 +71,9 @@ pub(super) fn skip_extended_header<B: ReadBytes>(
   version: Version,
 ) -> Result<(), Error> {
   match version {
-    Version::V2 => Ok(()),
-    Version::V3 => skip_v3(reader),
-    Version::V4 => skip_v4(reader),
+    Version::Two => Ok(()),
+    Version::Three => skip_v3(reader),
+    Version::Four => skip_v4(reader),
   }
 }
 
@@ -130,7 +108,7 @@ fn skip_flag_data<B: ReadBytes>(
 }
 
 fn skip_v4<B: ReadBytes>(reader: &mut B) -> Result<(), Error> {
-  read_syncsafe(reader, 28)?;
+  read_synchsafe(reader, 28)?;
 
   let flag_bytes = reader.read_u8()?;
 
@@ -150,7 +128,7 @@ fn skip_v4<B: ReadBytes>(reader: &mut B) -> Result<(), Error> {
     0 => {}
     _ => {
       skip_flag_data(reader, 5, "id3v2: CRC32 extended flag has invalid size")?;
-      read_syncsafe(reader, 32)?;
+      read_synchsafe(reader, 32)?;
     }
   }
 

@@ -12,6 +12,7 @@ pub(crate) struct StateNodeEffectPlan {
 }
 
 impl StateNodeEffectPlan {
+    #[must_use]
     pub(crate) fn effect_id(&self) -> &str {
         &self.effect_id
     }
@@ -30,6 +31,7 @@ impl Default for StateEffectPlan {
 }
 
 impl StateEffectPlan {
+    #[must_use]
     pub(crate) fn with_resource_policy(resources: Arc<ThemeResourcePolicy>) -> Self {
         Self {
             effects: BTreeMap::new(),
@@ -44,6 +46,7 @@ impl StateEffectPlan {
         Some(StateNodeEffectPlan { effect_id })
     }
 
+    #[must_use]
     pub(crate) fn effect(&self, id: &str) -> Option<&SvgShadowEffect> {
         self.effects.get(id)
     }
@@ -56,14 +59,24 @@ impl StateEffectPlan {
         stroke_width: f64,
     ) -> Result<Option<(&SvgShadowEffect, MaterializedShadowEffect)>, ThemeResourceLimitExceeded>
     {
-        let Some(effect) = self.effect(id) else {
-            return Ok(None);
+        let effect = {
+            let optional_effect = self.effect(id);
+
+            match optional_effect {
+                Some(matched_effect) => matched_effect,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(materialized) =
-            effect.materialize_rect(&self.resources, width, height, stroke_width)?
-        else {
-            return Ok(None);
+
+        let materialized = {
+            let optional_materialized = effect.materialize_rect(&self.resources, width, height, stroke_width)?;
+
+            match optional_materialized {
+                Some(matched_materialized) => matched_materialized,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         Ok(Some((effect, materialized)))
     }
 }

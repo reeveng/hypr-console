@@ -184,6 +184,15 @@ pub fn read_prefix(at: &Path, limit: u32) -> io::Result<Vec<u8>> {
   bytes_up_to(at, u64::from(limit))
 }
 
+#[doc = "Open a lock file and create it if needed, retaining the inode and bytes of an existing file."]
+pub fn open_lock_file(at: &Path) -> io::Result<File> {
+  let flags = OFlags::CREATE | OFlags::WRONLY | OFlags::CLOEXEC;
+  let mode = Mode::RUSR | Mode::WUSR;
+  let descriptor = rustix::fs::open(at, flags, mode)?;
+
+  Ok(File::from(descriptor))
+}
+
 #[cfg_attr(
   dylint_lib = "explicit057_no_unbounded_wait",
   expect(

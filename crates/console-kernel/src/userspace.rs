@@ -4,6 +4,7 @@
 //! from the two words reserved above that stack. Only the boot CPU runs these
 //! fixed, non-preemptible programs.
 
+pub(super) mod document;
 mod paging;
 
 use core::arch::global_asm;
@@ -399,7 +400,17 @@ fn lend_frame(
   receiver: &CreatedProcess,
 ) -> Result<HandleValue, HandleError> {
   let Ok(readable) = Rights::from_rights(&[Right::Read, Right::Transfer]);
-  let outgoing = kernel.duplicate(owner, source, readable)?;
+  lend(kernel, owner, source, receiver, readable)
+}
+
+fn lend(
+  kernel: &mut Kernel,
+  owner: ProcessId,
+  source: HandleValue,
+  receiver: &CreatedProcess,
+  rights: Rights,
+) -> Result<HandleValue, HandleError> {
+  let outgoing = kernel.duplicate(owner, source, rights)?;
   kernel.write(owner, receiver.channel, &[], &[outgoing])?;
 
   let held = kernel.handles(receiver.id)?;
@@ -487,7 +498,7 @@ fn expect_frame_read(
     reason = "the check registers its boot-reserved, exclusively owned frame, and re-registers only after revoking and scrubbing it"
   )
 )]
-pub fn check(memory: &mut Reserved, stack: Address) -> Result<&[u32; 1024], Error> {
+pub fn check(memory: &mut Reserved, stack: Address) -> Result<(), Error> {
   memory.prepare()?;
   let Ok(physical) = memory.frame.identity_address();
   let Boot {
@@ -566,7 +577,7 @@ pub fn check(memory: &mut Reserved, stack: Address) -> Result<&[u32; 1024], Erro
       .all(|(row, color)| row.iter().all(|pixel| *pixel == color)),
     (),
   ) {
-    ::core::option::Option::Some(()) => Ok(pixels),
+    ::core::option::Option::Some(()) => Ok(()),
     ::core::option::Option::None => Err(Error::FrameContent),
   }
 }

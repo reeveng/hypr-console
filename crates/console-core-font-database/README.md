@@ -14,19 +14,18 @@ there is no configuration to read. `FONTCONFIG_FILE` is the one variable read,
 because the file it names decides where the fonts are; the home and the base
 directories come from `console-core-places`.
 
-What a face says about itself comes from its own small TrueType reader in
-`ttf_parser`: where the tables are, the `name` table for families and the
-PostScript name, the `OS/2` table for the weight, width and slant, and the
-`post` table for a fixed pitch and an italic angle. Ordinary file-backed faces
-read their bytes into owned memory. The `memmap` feature enables
-`make_shared_face_data`, which keeps one mapping for every face of a file.
+The database uses `console-core-font-reading` for font collections, table
+directories, `name` records, and `OS/2` style fields. It selects family and
+PostScript names and uses the `post` table for pitch and slant. Ordinary
+file-backed faces read their bytes into owned memory. The `memmap` feature enables
+`make_shared_face_data`, which shares one owned snapshot among all faces of a file.
 `std` can be disabled for `no_std` with
 `alloc`, which keeps loading from bytes and querying.
 
-There are no tests beyond the Macintosh Roman name in `faces`: the crate was
-compared against the upstream reader over every font under `/usr/share/fonts`
-and in `console-core-font-fixtures`, face by face and query by query, when it
-came under the workspace's rules.
+The tests in `faces` cover Macintosh Roman names and format-one name tables.
+When the database came under the workspace's rules, its faces and queries
+were compared with the upstream reader using fonts from `/usr/share/fonts`
+and `console-core-font-fixtures`.
 
 From fontdb by Yevhenii Reizner. The upstream MIT notice is retained in
 `LICENSE`; this workspace offers its copy under AGPL-3.0-or-later.

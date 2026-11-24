@@ -108,9 +108,9 @@ pub const PANELS: &[Panel] = &[
     program: InternalProgram::SettingsPanel,
   },
   Panel {
-    who: console_music::WHO,
-    command: console_music::COMMAND,
-    card: console_music::card,
+    who: console_application_music::WHO,
+    command: console_application_music::COMMAND,
+    card: console_application_music::card,
     program: InternalProgram::MusicPanel,
   },
   Panel {
@@ -120,15 +120,15 @@ pub const PANELS: &[Panel] = &[
     program: InternalProgram::NotificationsPanel,
   },
   Panel {
-    who: console_clipboard::WHO,
-    command: console_clipboard::COMMAND,
-    card: console_clipboard::card,
+    who: console_application_clipboard::WHO,
+    command: console_application_clipboard::COMMAND,
+    card: console_application_clipboard::card,
     program: InternalProgram::Clipboard,
   },
   Panel {
-    who: console_task_manager::WHO,
-    command: console_task_manager::COMMAND,
-    card: console_task_manager::card,
+    who: console_application_task_manager::WHO,
+    command: console_application_task_manager::COMMAND,
+    card: console_application_task_manager::card,
     program: InternalProgram::TaskManager,
   },
   Panel {
@@ -138,9 +138,9 @@ pub const PANELS: &[Panel] = &[
     program: InternalProgram::MappingPanel,
   },
   Panel {
-    who: console_calculator::WHO,
-    command: console_calculator::COMMAND,
-    card: console_calculator::card,
+    who: console_application_calculator::WHO,
+    command: console_application_calculator::COMMAND,
+    card: console_application_calculator::card,
     program: InternalProgram::Calculator,
   },
   Panel {

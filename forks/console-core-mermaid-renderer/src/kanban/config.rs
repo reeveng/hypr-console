@@ -13,6 +13,7 @@ pub(crate) struct KanbanConfigView<'a> {
 }
 
 impl<'a> KanbanConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -31,6 +32,7 @@ impl<'a> KanbanConfigView<'a> {
         )
     }
 
+    #[must_use]
     pub(crate) fn layout_settings_with_resolved_typography(
         &self,
         font_family: &str,
@@ -49,35 +51,48 @@ impl<'a> KanbanConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn look(&self) -> DiagramLook<'a> {
         config_diagram_look(self.effective_config)
     }
 
+    #[must_use]
     pub(crate) fn ticket_base_url(&self) -> Option<String> {
         config_string(self.kanban_config, &["ticketBaseUrl"]).filter(|url| !url.is_empty())
     }
 
+    #[must_use]
     fn section_width(&self) -> f64 {
         let width =
-            config_f64(self.kanban_config, &["sectionWidth"]).unwrap_or(DEFAULT_SECTION_WIDTH);
-        if width == 0.0 {
+            match config_f64(self.kanban_config, &["sectionWidth"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_SECTION_WIDTH,
+            };
+
+        if ::core::matches!(::core::primitive::f64::classify(width), ::core::num::FpCategory::Zero) {
             DEFAULT_SECTION_WIDTH
         } else {
             width.max(1.0)
         }
     }
 
+    #[must_use]
     fn viewbox_padding(&self) -> f64 {
-        config_f64(self.mindmap_config, &["padding"])
-            .or_else(|| config_f64(self.kanban_config, &["padding"]))
-            .unwrap_or(DEFAULT_VIEWBOX_PADDING)
+        match config_f64(self.mindmap_config, &["padding"])
+            .or_else(|| config_f64(self.kanban_config, &["padding"])) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => DEFAULT_VIEWBOX_PADDING,
+        }
             .max(0.0)
     }
 
+    #[must_use]
     fn use_max_width(&self) -> bool {
-        config_bool(self.mindmap_config, &["useMaxWidth"])
-            .or_else(|| config_bool(self.kanban_config, &["useMaxWidth"]))
-            .unwrap_or(DEFAULT_USE_MAX_WIDTH)
+        match config_bool(self.mindmap_config, &["useMaxWidth"])
+            .or_else(|| config_bool(self.kanban_config, &["useMaxWidth"])) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+        }
     }
 }
 
@@ -89,6 +104,7 @@ pub(crate) struct KanbanLayoutSettings {
     pub(crate) text_style: TextStyle,
 }
 
+#[must_use]
 pub(crate) const fn default_use_max_width() -> bool {
     DEFAULT_USE_MAX_WIDTH
 }

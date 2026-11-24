@@ -11,7 +11,6 @@ path = "src/bin/launcher.rs"
 
 [dependencies]
 console-default-applications.workspace = true
-console-core-external-programs.workspace = true
 console-home-screen.workspace = true
 console-screen.workspace = true
 console-applications.workspace = true

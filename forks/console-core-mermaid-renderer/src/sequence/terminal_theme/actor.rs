@@ -1,5 +1,6 @@
 use super::*;
 use crate::diagram_theme::SvgShadowEffect;
+
 #[derive(Debug, Default)]
 pub(crate) struct SequencePreparedActorTheme {
     pub(crate) stroke_width: Option<f32>,
@@ -37,14 +38,16 @@ impl SequencePreparedActorTheme {
             || sanitize_config.config_paint_overrides_typed_default("themeVariables.actorBkg");
         let stroke_overridden = palette_stroke_overridden
             || sanitize_config.config_paint_overrides_typed_default("themeVariables.actorBorder");
-        let Some(theme) = theme else {
+
+        let Some(theme_2) = theme else {
             return Ok(Self {
                 fill_overridden,
                 stroke_overridden,
                 ..Self::default()
             });
         };
-        let has_actor_rule_routes = theme.family_mechanism_routes().iter().any(|route| {
+
+        let has_actor_rule_routes = theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -53,7 +56,7 @@ impl SequencePreparedActorTheme {
                 }
             )
         });
-        let has_typed_actor_fill = theme.family_mechanism_routes().iter().any(|route| {
+        let has_typed_actor_fill = theme_2.family_mechanism_routes().iter().any(|route| {
             route.disposition() == FamilyThemeDisposition::TypedAdapter
                 && matches!(
                     route.mechanism(),
@@ -66,7 +69,7 @@ impl SequencePreparedActorTheme {
                     }
                 )
         });
-        let has_typed_actor_stroke = theme.family_mechanism_routes().iter().any(|route| {
+        let has_typed_actor_stroke = theme_2.family_mechanism_routes().iter().any(|route| {
             route.disposition() == FamilyThemeDisposition::TypedAdapter
                 && matches!(
                     route.mechanism(),
@@ -79,7 +82,7 @@ impl SequencePreparedActorTheme {
                     }
                 )
         });
-        let has_ordinal_routes = theme.family_mechanism_routes().iter().any(|route| {
+        let has_ordinal_routes = theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -93,7 +96,7 @@ impl SequencePreparedActorTheme {
             )
         });
         let style = if has_actors && has_actor_rule_routes {
-            let style = theme.style_with_work_meter(
+            let style = theme_2.style_with_work_meter(
                 ThemeTarget::Actor,
                 ThemeVariant::Default,
                 None,
@@ -104,10 +107,10 @@ impl SequencePreparedActorTheme {
             None
         };
         let typed_fill = (!fill_overridden && has_typed_actor_fill)
-            .then(|| style.as_ref().and_then(|style| css_paint(style.fill())))
+            .then(|| style.as_ref().and_then(|style_2| css_paint(style_2.fill())))
             .flatten();
         let typed_stroke = (!stroke_overridden && has_typed_actor_stroke)
-            .then(|| style.as_ref().and_then(|style| css_paint(style.stroke())))
+            .then(|| style.as_ref().and_then(|style_3| css_paint(style_3.stroke())))
             .flatten();
         let width_overridden =
             sanitize_config.config_path_overrides_typed_default("themeVariables.strokeWidth");
@@ -119,7 +122,7 @@ impl SequencePreparedActorTheme {
         let default_effect_resolution = Default::default();
         let effect_resolution = style
             .as_ref()
-            .map(|style| style.effect_resolution())
+            .map(|style_4| style_4.effect_resolution())
             .unwrap_or(&default_effect_resolution);
         let SequencePreparedEffect {
             effect,
@@ -127,21 +130,24 @@ impl SequencePreparedActorTheme {
             effect_binding_used,
             effect_cleared,
             effect_unhandled,
-        } = prepare_sequence_effect(theme, ThemeTarget::Actor, effect_resolution);
+        } = prepare_sequence_effect(theme_2, ThemeTarget::Actor, effect_resolution);
         let mut ordinal_styles = Vec::new();
+
         if has_ordinal_routes {
             for (index, actor_id) in model.actor_order.iter().enumerate() {
                 work_meter.charge(1)?;
+
                 if model.actors.contains_key(actor_id) {
-                    ordinal_styles.push(theme.style_with_work_meter(
+                    ordinal_styles.push({ let checked_value = theme_2.style_with_work_meter(
                         ThemeTarget::Actor,
                         ThemeVariant::Default,
                         Some(index + 1),
                         work_meter,
-                    )?);
+                    )?; checked_value });
                 }
             }
         }
+
         Ok(SequencePreparedActorTheme {
             effect,
             stroke_width,
@@ -160,19 +166,24 @@ impl SequencePreparedActorTheme {
         })
     }
 
+    #[must_use]
     pub(crate) fn fresh_receipt(&self) -> crate::sequence::SequenceActorThemeReceipt {
         let mut receipt = crate::sequence::SequenceActorThemeReceipt::default();
+
         if let Some(style) = &self.selected_style {
             receipt.record_static_style(style);
         }
+
         receipt.effect_requested = self.effect_requested;
         receipt.effect_binding_used = self.effect_binding_used;
         receipt.effect_cleared = self.effect_cleared;
         receipt.effect_unhandled = self.effect_unhandled;
         receipt.record_stroke_width_override(self.width_overridden);
+
         for style in &self.ordinal_styles {
             receipt.record_ordinal_style(style);
         }
+
         receipt
     }
 }

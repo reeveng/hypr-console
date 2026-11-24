@@ -82,12 +82,12 @@ fn transform_rectangular_16bpc<
   let Ok(count) = console_core_number_conversion::index(sample_count);
   let Ok(coefficient_pitch) = console_core_number_conversion::index(input_height.get());
   let active = coeff.get_mut(..count).ok_or(Rav1dError::EINVAL)?;
-  let coefficients = active.chunks_exact(coefficient_pitch);
+  let coefficients = active.chunks_exact(coefficient_pitch.max(1));
   let Ok(bounds) = TransformAxisBounds::wide(bitdepth_max);
   let mut scratch = transform_active_rows::<_, WIDTH, HEIGHT>(coefficients, input_height.get(), rows, bounds)?;
   let residuals = scratch.as_flattened_mut();
   columns(token, residuals, extent, bounds.columns)?;
-  let pixel_stride = byte_stride >> 1;
+  let pixel_stride = ::core::primitive::u64::wrapping_shr(byte_stride, 1_u32);
   let Ok(wide) = match (width, height) {
     (32.., _) | (_, 64) => crate::src::cpu::summon_avx512(),
     _ => Ok(None),
@@ -140,8 +140,8 @@ fn inv_txfm_add_dct_dct_8x16_16bpc_avx2_inner(
       lower: _mm256_set1_epi32(bounds.lower),
       upper: _mm256_set1_epi32(bounds.upper),
     };
-    apply_transform_columns_avx2(desktop, residuals, extent, limits, |token, values, clipping| {
-      dct16_1d_cols8(token, values, clipping);
+    apply_transform_columns_avx2(desktop, residuals, extent, limits, |column_token, values, clipping| {
+      dct16_1d_cols8(column_token, values, clipping)
     })
   };
   let stride = byte_stride;
@@ -164,7 +164,10 @@ fn inv_txfm_add_dct_dct_16x8_16bpc_avx2_inner(
   };
   let columns = |desktop, residuals: &mut [i32], extent, bounds: CoefficientBounds| {
     let Ok(avx512) = crate::src::cpu::summon_avx512();
-    let wide = avx512.map(|server| dct8_cols_avx512(server, residuals, extent, bounds));
+    let wide = match avx512 {
+      Some(server) => Some(dct8_cols_avx512(server, residuals, extent, bounds)),
+      None => None,
+    };
     let Ok(dispatch) = scratch_column_dispatch(wide);
 
     match dispatch {
@@ -176,8 +179,8 @@ fn inv_txfm_add_dct_dct_16x8_16bpc_avx2_inner(
       lower: _mm256_set1_epi32(bounds.lower),
       upper: _mm256_set1_epi32(bounds.upper),
     };
-    apply_transform_columns_avx2(desktop, residuals, extent, limits, |token, values, clipping| {
-      dct8_1d_cols8(token, values, clipping);
+    apply_transform_columns_avx2(desktop, residuals, extent, limits, |column_token, values, clipping| {
+      dct8_1d_cols8(column_token, values, clipping)
     })
   };
   let stride = byte_stride;
@@ -238,7 +241,10 @@ fn inv_txfm_add_dct_dct_16x32_16bpc_avx2_inner(
   };
   let columns = |desktop, residuals: &mut [i32], extent, bounds: CoefficientBounds| {
     let Ok(avx512) = crate::src::cpu::summon_avx512();
-    let wide = avx512.map(|server| dct32_cols_avx512(server, residuals, extent, bounds));
+    let wide = match avx512 {
+      Some(server) => Some(dct32_cols_avx512(server, residuals, extent, bounds)),
+      None => None,
+    };
     let Ok(dispatch) = scratch_column_dispatch(wide);
 
     match dispatch {
@@ -250,8 +256,8 @@ fn inv_txfm_add_dct_dct_16x32_16bpc_avx2_inner(
       lower: _mm256_set1_epi32(bounds.lower),
       upper: _mm256_set1_epi32(bounds.upper),
     };
-    apply_transform_columns_avx2(desktop, residuals, extent, limits, |token, values, clipping| {
-      dct32_1d_cols8(token, values, clipping);
+    apply_transform_columns_avx2(desktop, residuals, extent, limits, |column_token, values, clipping| {
+      dct32_1d_cols8(column_token, values, clipping)
     })
   };
   let stride = byte_stride;
@@ -274,7 +280,10 @@ fn inv_txfm_add_dct_dct_32x16_16bpc_avx2_inner(
   };
   let columns = |desktop, residuals: &mut [i32], extent, bounds: CoefficientBounds| {
     let Ok(avx512) = crate::src::cpu::summon_avx512();
-    let wide = avx512.map(|server| dct16_cols_avx512(server, residuals, extent, bounds));
+    let wide = match avx512 {
+      Some(server) => Some(dct16_cols_avx512(server, residuals, extent, bounds)),
+      None => None,
+    };
     let Ok(dispatch) = scratch_column_dispatch(wide);
 
     match dispatch {
@@ -286,8 +295,8 @@ fn inv_txfm_add_dct_dct_32x16_16bpc_avx2_inner(
       lower: _mm256_set1_epi32(bounds.lower),
       upper: _mm256_set1_epi32(bounds.upper),
     };
-    apply_transform_columns_avx2(desktop, residuals, extent, limits, |token, values, clipping| {
-      dct16_1d_cols8(token, values, clipping);
+    apply_transform_columns_avx2(desktop, residuals, extent, limits, |column_token, values, clipping| {
+      dct16_1d_cols8(column_token, values, clipping)
     })
   };
   let stride = byte_stride;
@@ -313,8 +322,8 @@ fn inv_txfm_add_dct_dct_8x32_16bpc_avx2_inner(
       lower: _mm256_set1_epi32(bounds.lower),
       upper: _mm256_set1_epi32(bounds.upper),
     };
-    apply_transform_columns_avx2(desktop, residuals, extent, limits, |token, values, clipping| {
-      dct32_1d_cols8(token, values, clipping);
+    apply_transform_columns_avx2(desktop, residuals, extent, limits, |column_token, values, clipping| {
+      dct32_1d_cols8(column_token, values, clipping)
     })
   };
   let stride = byte_stride;
@@ -337,7 +346,10 @@ fn inv_txfm_add_dct_dct_32x8_16bpc_avx2_inner(
   };
   let columns = |desktop, residuals: &mut [i32], extent, bounds: CoefficientBounds| {
     let Ok(avx512) = crate::src::cpu::summon_avx512();
-    let wide = avx512.map(|server| dct8_cols_avx512(server, residuals, extent, bounds));
+    let wide = match avx512 {
+      Some(server) => Some(dct8_cols_avx512(server, residuals, extent, bounds)),
+      None => None,
+    };
     let Ok(dispatch) = scratch_column_dispatch(wide);
 
     match dispatch {
@@ -349,8 +361,8 @@ fn inv_txfm_add_dct_dct_32x8_16bpc_avx2_inner(
       lower: _mm256_set1_epi32(bounds.lower),
       upper: _mm256_set1_epi32(bounds.upper),
     };
-    apply_transform_columns_avx2(desktop, residuals, extent, limits, |token, values, clipping| {
-      dct8_1d_cols8(token, values, clipping);
+    apply_transform_columns_avx2(desktop, residuals, extent, limits, |column_token, values, clipping| {
+      dct8_1d_cols8(column_token, values, clipping)
     })
   };
   let stride = byte_stride;
@@ -392,7 +404,10 @@ fn inv_txfm_add_dct_dct_64x32_16bpc_avx2_inner(
   };
   let columns = |desktop, residuals: &mut [i32], extent, limits: CoefficientBounds| {
     let Ok(avx512) = crate::src::cpu::summon_avx512();
-    let wide = avx512.map(|server| dct32_cols_avx512(server, residuals, extent, limits));
+    let wide = match avx512 {
+      Some(server) => Some(dct32_cols_avx512(server, residuals, extent, limits)),
+      None => None,
+    };
     let Ok(dispatch) = scratch_column_dispatch(wide);
 
     match dispatch {
@@ -404,8 +419,8 @@ fn inv_txfm_add_dct_dct_64x32_16bpc_avx2_inner(
       lower: _mm256_set1_epi32(limits.lower),
       upper: _mm256_set1_epi32(limits.upper),
     };
-    apply_transform_columns_avx2(desktop, residuals, extent, clipping, |token, lanes, bounds| {
-      dct32_1d_cols8(token, lanes, bounds);
+    apply_transform_columns_avx2(desktop, residuals, extent, clipping, |column_token, lanes, bounds| {
+      dct32_1d_cols8(column_token, lanes, bounds)
     })
   };
   let stride = byte_stride;
@@ -447,7 +462,10 @@ fn inv_txfm_add_dct_dct_64x16_16bpc_avx2_inner(
   };
   let columns = |desktop, residuals: &mut [i32], extent, limits: CoefficientBounds| {
     let Ok(avx512) = crate::src::cpu::summon_avx512();
-    let wide = avx512.map(|server| dct16_cols_avx512(server, residuals, extent, limits));
+    let wide = match avx512 {
+      Some(server) => Some(dct16_cols_avx512(server, residuals, extent, limits)),
+      None => None,
+    };
     let Ok(dispatch) = scratch_column_dispatch(wide);
 
     match dispatch {
@@ -459,8 +477,8 @@ fn inv_txfm_add_dct_dct_64x16_16bpc_avx2_inner(
       lower: _mm256_set1_epi32(limits.lower),
       upper: _mm256_set1_epi32(limits.upper),
     };
-    apply_transform_columns_avx2(desktop, residuals, extent, clipping, |token, lanes, bounds| {
-      dct16_1d_cols8(token, lanes, bounds);
+    apply_transform_columns_avx2(desktop, residuals, extent, clipping, |column_token, lanes, bounds| {
+      dct16_1d_cols8(column_token, lanes, bounds)
     })
   };
   let stride = byte_stride;

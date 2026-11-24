@@ -40,6 +40,7 @@ struct VennSemanticState {
 }
 
 impl VennSemanticState {
+    #[must_use]
     fn new(#[cfg(feature = "editor-facts")] editor_demand: EditorFactsDemand) -> Self {
         Self {
             model: VennDiagramModel::default(),
@@ -167,6 +168,7 @@ struct VennCursor<'a> {
 }
 
 impl<'a> VennCursor<'a> {
+    #[must_use]
     fn new(input: &'a str, _line_start: usize) -> Self {
         Self {
             input,
@@ -176,6 +178,7 @@ impl<'a> VennCursor<'a> {
         }
     }
 
+    #[must_use]
     fn remaining(&self) -> &'a str {
         &self.input[self.pos..]
     }
@@ -200,21 +203,30 @@ impl<'a> VennCursor<'a> {
         let token_start = self.abs_start();
         let rest = self.remaining();
 
-        if let Some((value, after)) = parse_string_token(rest) {
-            let consumed = rest.len() - after.len();
-            self.pos += consumed;
-            return Ok(VennFieldSpan {
-                text: normalize_text(&value),
-                #[cfg(feature = "editor-facts")]
-                span: SourceSpan::new(token_start, token_start + consumed),
-                #[cfg(feature = "editor-facts")]
-                selection: SourceSpan::new(token_start + 1, token_start + consumed - 1),
-            });
+        match parse_string_token(rest) {
+            Some((value, after)) => {
+                let consumed = rest.len() - after.len();
+                self.pos += consumed;
+                return Ok(VennFieldSpan {
+                    text: normalize_text(&value),
+                    #[cfg(feature = "editor-facts")]
+                    span: SourceSpan::new(token_start, token_start + consumed),
+                    #[cfg(feature = "editor-facts")]
+                    selection: SourceSpan::new(token_start + 1, token_start + consumed - 1),
+                });
+            },
+            ::core::option::Option::None => {},
         }
 
-        let Some((value, after)) = parse_bare_identifier_token(rest) else {
-            return Err(parse_error(diagram_type, "expected identifier"));
+        let (value, after) = {
+            let optional_value = parse_bare_identifier_token(rest);
+
+            match optional_value {
+                Some((matched_value, matched_after)) => (matched_value, matched_after),
+                ::core::option::Option::None => return Err(parse_error(diagram_type, "expected identifier")),
+            }
         };
+
         let consumed = rest.len() - after.len();
         self.pos += consumed;
         Ok(VennFieldSpan {
@@ -231,9 +243,16 @@ impl<'a> VennCursor<'a> {
         #[cfg(feature = "editor-facts")]
         let token_start = self.abs_start();
         let rest = self.remaining();
-        let Some((value, after)) = parse_bare_identifier_token(rest) else {
-            return Err(parse_error(diagram_type, "expected identifier"));
+
+        let (value, after) = {
+            let optional_value = parse_bare_identifier_token(rest);
+
+            match optional_value {
+                Some((matched_value, matched_after)) => (matched_value, matched_after),
+                ::core::option::Option::None => return Err(parse_error(diagram_type, "expected identifier")),
+            }
         };
+
         let consumed = rest.len() - after.len();
         self.pos += consumed;
         Ok(VennFieldSpan {
@@ -251,34 +270,40 @@ impl<'a> VennCursor<'a> {
         let token_start = self.abs_start();
         let rest = self.remaining();
 
-        if let Some((value, after)) = parse_string_token(rest) {
-            let consumed = rest.len() - after.len();
-            self.pos += consumed;
-            return Ok((
-                VennFieldSpan {
-                    text: normalize_text(&value),
-                    #[cfg(feature = "editor-facts")]
-                    span: SourceSpan::new(token_start, token_start + consumed),
-                    #[cfg(feature = "editor-facts")]
-                    selection: SourceSpan::new(token_start + 1, token_start + consumed - 1),
-                },
-                TextIdKind::IdentifierOrString,
-            ));
+        match parse_string_token(rest) {
+            Some((value, after)) => {
+                let consumed = rest.len() - after.len();
+                self.pos += consumed;
+                return Ok((
+                    VennFieldSpan {
+                        text: normalize_text(&value),
+                        #[cfg(feature = "editor-facts")]
+                        span: SourceSpan::new(token_start, token_start + consumed),
+                        #[cfg(feature = "editor-facts")]
+                        selection: SourceSpan::new(token_start + 1, token_start + consumed - 1),
+                    },
+                    TextIdKind::IdentifierOrString,
+                ));
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some((value, after)) = parse_numeric_token(rest) {
-            let consumed = rest.len() - after.len();
-            self.pos += consumed;
-            return Ok((
-                VennFieldSpan {
-                    text: value,
-                    #[cfg(feature = "editor-facts")]
-                    span: SourceSpan::new(token_start, token_start + consumed),
-                    #[cfg(feature = "editor-facts")]
-                    selection: SourceSpan::new(token_start, token_start + consumed),
-                },
-                TextIdKind::Numeric,
-            ));
+        match parse_numeric_token(rest) {
+            Some((value, after)) => {
+                let consumed = rest.len() - after.len();
+                self.pos += consumed;
+                return Ok((
+                    VennFieldSpan {
+                        text: value,
+                        #[cfg(feature = "editor-facts")]
+                        span: SourceSpan::new(token_start, token_start + consumed),
+                        #[cfg(feature = "editor-facts")]
+                        selection: SourceSpan::new(token_start, token_start + consumed),
+                    },
+                    TextIdKind::Numeric,
+                ));
+            },
+            ::core::option::Option::None => {},
         }
 
         let token = self.take_identifier_like(diagram_type)?;
@@ -287,44 +312,71 @@ impl<'a> VennCursor<'a> {
 
     fn take_optional_bracket_label(&mut self, diagram_type: &str) -> Result<Option<VennFieldSpan>> {
         self.skip_ws();
-        let Some(rest) = self.remaining().strip_prefix('[') else {
-            return Ok(None);
+
+        let rest = {
+            let optional_rest = self.remaining().strip_prefix('[');
+
+            match optional_rest {
+                Some(matched_rest) => matched_rest,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
 
         #[cfg(feature = "editor-facts")]
         let token_start = self.abs_start();
-        if let Some(rest) = rest.strip_prefix('"') {
-            let Some(end) = rest.find("\"]") else {
-                return Err(parse_error(diagram_type, "unterminated bracket label"));
-            };
-            let text = rest[..end].to_string();
-            let consumed = end + 4;
-            self.pos += consumed;
-            if text.is_empty() {
-                return Ok(None);
-            }
-            return Ok(Some(VennFieldSpan {
-                text,
-                #[cfg(feature = "editor-facts")]
-                span: SourceSpan::new(token_start, token_start + consumed),
-                #[cfg(feature = "editor-facts")]
-                selection: SourceSpan::new(token_start + 2, token_start + 2 + end),
-            }));
+
+        match rest.strip_prefix('"') {
+            Some(rest) => {
+                let end = {
+                    let optional_end_2 = rest.find("\"]");
+
+                    match optional_end_2 {
+                        Some(matched_end_2) => matched_end_2,
+                        ::core::option::Option::None => return Err(parse_error(diagram_type, "unterminated bracket label")),
+                    }
+                };
+
+                let text = rest[..end].to_string();
+                let consumed = end + 4;
+                self.pos += consumed;
+
+                if text.is_empty() {
+                    return Ok(None);
+                }
+
+                return Ok(Some(VennFieldSpan {
+                    text,
+                    #[cfg(feature = "editor-facts")]
+                    span: SourceSpan::new(token_start, token_start + consumed),
+                    #[cfg(feature = "editor-facts")]
+                    selection: SourceSpan::new(token_start + 2, token_start + 2 + end),
+                }));
+            },
+            ::core::option::Option::None => {},
         }
 
-        let Some(end) = rest.find(']') else {
-            return Err(parse_error(diagram_type, "unterminated bracket label"));
+        let end = {
+            let optional_end = rest.find(']');
+
+            match optional_end {
+                Some(matched_end) => matched_end,
+                ::core::option::Option::None => return Err(parse_error(diagram_type, "unterminated bracket label")),
+            }
         };
+
         if rest[..end].contains('"') {
             return Err(parse_error(diagram_type, "invalid bracket label"));
         }
+
         let raw = &rest[..end];
         let text = raw.trim().to_string();
         let consumed = end + 2;
         self.pos += consumed;
+
         if text.is_empty() {
             return Ok(None);
         }
+
         #[cfg(feature = "editor-facts")]
         let leading = raw.len() - raw.trim_start().len();
         #[cfg(feature = "editor-facts")]
@@ -345,8 +397,14 @@ impl<'a> VennCursor<'a> {
 
     fn take_optional_size(&mut self, diagram_type: &str) -> Result<Option<VennFieldSpan>> {
         self.skip_ws();
-        let Some(_) = self.remaining().strip_prefix(':') else {
-            return Ok(None);
+
+        {
+            let optional_value = self.remaining().strip_prefix(':');
+
+            match optional_value {
+                Some(_) => (),
+                ::core::option::Option::None => return Ok(None),
+            }
         };
 
         self.pos += 1;
@@ -354,9 +412,16 @@ impl<'a> VennCursor<'a> {
         #[cfg(feature = "editor-facts")]
         let token_start = self.abs_start();
         let rest = self.remaining();
-        let Some((value, after)) = parse_numeric_token(rest) else {
-            return Err(parse_error(diagram_type, "expected numeric"));
+
+        let (value, after) = {
+            let optional_value = parse_numeric_token(rest);
+
+            match optional_value {
+                Some((matched_value, matched_after)) => (matched_value, matched_after),
+                ::core::option::Option::None => return Err(parse_error(diagram_type, "expected numeric")),
+            }
         };
+
         let consumed = rest.len() - after.len();
         self.pos += consumed;
         Ok(Some(VennFieldSpan {
@@ -372,6 +437,7 @@ impl<'a> VennCursor<'a> {
         self.skip_ws();
         let rest = self.remaining();
         let trimmed = rest.trim_end();
+
         if trimmed.is_empty() {
             return None;
         }
@@ -410,6 +476,7 @@ impl<'a> VennCursor<'a> {
         let rest = self.remaining();
         let (raw, _after_raw) = take_style_value_segment(rest);
         let trimmed = raw.trim();
+
         if trimmed.is_empty() {
             return Err(parse_error(diagram_type, "expected style value"));
         }
@@ -617,6 +684,7 @@ fn construct_venn_parse_outcome_controlled(
         offset += segment.len();
         let line = segment.trim_end_matches(['\n', '\r']);
         let stripped = strip_inline_comment_aware(line);
+
         if stripped.trim().is_empty() {
             continue;
         }
@@ -626,6 +694,7 @@ fn construct_venn_parse_outcome_controlled(
             let indent = leading_indent_len(stripped);
             let statement = &stripped[indent..];
             let statement_start = line_start + indent;
+
             let Some(rest) = strip_keyword_ci(statement, "venn-beta") else {
                 let span = SourceSpan::new(
                     statement_start,
@@ -686,24 +755,28 @@ fn construct_venn_parse_outcome_controlled(
                     ),
                 );
             }
+
             continue;
         }
 
-        if let Err(error) =
-            parse_venn_statement_facts(stripped, line_start, &mut state, diagram_type)
         {
-            let indent = leading_indent_len(stripped);
-            #[cfg(feature = "editor-facts")]
-            let message = venn_error_message(&error);
-            recover_venn_error(
-                diagram_type,
-                &mut state,
-                &mut first_error,
-                error,
-                #[cfg(feature = "editor-facts")]
-                format!("venn parser recovered after parse error: {message}"),
-                SourceSpan::new(line_start + indent, line_start + stripped.trim_end().len()),
-            );
+            match parse_venn_statement_facts(stripped, line_start, &mut state, diagram_type) {
+                Err(error) => {
+                    let indent = leading_indent_len(stripped);
+                    #[cfg(feature = "editor-facts")]
+                    let message = venn_error_message(&error);
+                    recover_venn_error(
+                        diagram_type,
+                        &mut state,
+                        &mut first_error,
+                        error,
+                        #[cfg(feature = "editor-facts")]
+                        format!("venn parser recovered after parse error: {message}"),
+                        SourceSpan::new(line_start + indent, line_start + stripped.trim_end().len()),
+                    );
+                },
+                ::core::result::Result::Ok(_) => {},
+            };
         }
     }
 
@@ -745,6 +818,7 @@ fn recover_venn_error(
             span,
         ));
     }
+
     #[cfg(feature = "editor-facts")]
     if let Some(facts) = state.editor_facts.as_mut() {
         facts.mark_recovered_from_parse_error(recovery_message, Some(span));
@@ -753,6 +827,7 @@ fn recover_venn_error(
     state.indent_mode = false;
 }
 
+#[must_use]
 fn venn_error_message(error: &Error) -> String {
     match error {
         Error::DiagramParse { diagnostic, .. } => diagnostic.message().to_string(),
@@ -768,11 +843,13 @@ fn parse_venn_statement_facts(
 ) -> Result<()> {
     let indent = leading_indent_len(line);
     let statement = &line[indent..];
+
     if statement.trim().is_empty() {
         return Ok(());
     }
 
     let statement_start = line_start + indent;
+
     if indent > 0 && state.indent_mode && starts_with_keyword_ci(statement, "text") {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = state.rich_editor_facts() {
@@ -789,90 +866,122 @@ fn parse_venn_statement_facts(
         );
     }
 
-    if indent == 0 {
-        state.indent_mode = false;
+    match indent {
+        0 => {
+            state.indent_mode = false;
+        },
+        _ => {},
     }
 
-    if let Some(rest) = strip_keyword_ci(statement, "title") {
-        let Some(separator) = rest.chars().next() else {
-            return Err(parse_error(diagram_type, "expected title text"));
-        };
-        if !separator.is_whitespace()
-            || rest[separator.len_utf8()..].is_empty()
-            || rest.contains(['#', ';'])
-        {
-            return Err(parse_error(diagram_type, "invalid Venn title syntax"));
-        }
-        #[cfg(feature = "editor-facts")]
-        if let Some(facts) = state.rich_editor_facts() {
-            facts.push_directive_prefix("title");
-        }
-        let mut cursor = VennCursor::new(rest, statement_start + "title".len());
-        let Some(_payload) = cursor.take_remaining_payload() else {
-            return Err(parse_error(diagram_type, "expected title text"));
-        };
-        #[cfg(feature = "editor-facts")]
-        push_venn_payload_fact(
-            state.rich_editor_facts(),
-            &_payload,
-            "venn title",
-            EditorSemanticKind::String,
-        );
-        state.model.title = Some(rest.trim().to_string());
-        return Ok(());
+    match strip_keyword_ci(statement, "title") {
+        Some(rest) => {
+            let separator = {
+                let optional_separator = rest.chars().next();
+
+                match optional_separator {
+                    Some(matched_separator) => matched_separator,
+                    ::core::option::Option::None => return Err(parse_error(diagram_type, "expected title text")),
+                }
+            };
+
+            if !separator.is_whitespace()
+                || rest[separator.len_utf8()..].is_empty()
+                || rest.contains(['#', ';'])
+            {
+                return Err(parse_error(diagram_type, "invalid Venn title syntax"));
+            }
+
+            #[cfg(feature = "editor-facts")]
+            if let Some(facts) = state.rich_editor_facts() {
+                facts.push_directive_prefix("title");
+            }
+            let mut cursor = VennCursor::new(rest, statement_start + "title".len());
+
+            let _payload = {
+                let optional_payload = cursor.take_remaining_payload();
+
+                match optional_payload {
+                    Some(matched_payload) => matched_payload,
+                    ::core::option::Option::None => return Err(parse_error(diagram_type, "expected title text")),
+                }
+            };
+
+            #[cfg(feature = "editor-facts")]
+            push_venn_payload_fact(
+                state.rich_editor_facts(),
+                &_payload,
+                "venn title",
+                EditorSemanticKind::String,
+            );
+            state.model.title = Some(rest.trim().to_string());
+            return Ok(());
+        },
+        ::core::option::Option::None => {},
     }
 
-    if let Some(rest) = strip_keyword_ci(statement, "set") {
-        #[cfg(feature = "editor-facts")]
-        if let Some(facts) = state.rich_editor_facts() {
-            facts.push_directive_prefix("set");
-        }
-        return parse_venn_set_statement_facts(
-            rest,
-            statement_start + "set".len(),
-            state,
-            diagram_type,
-        );
+    match strip_keyword_ci(statement, "set") {
+        Some(rest) => {
+            #[cfg(feature = "editor-facts")]
+            if let Some(facts) = state.rich_editor_facts() {
+                facts.push_directive_prefix("set");
+            }
+            return parse_venn_set_statement_facts(
+                rest,
+                statement_start + "set".len(),
+                state,
+                diagram_type,
+            );
+        },
+        ::core::option::Option::None => {},
     }
 
-    if let Some(rest) = strip_keyword_ci(statement, "union") {
-        #[cfg(feature = "editor-facts")]
-        if let Some(facts) = state.rich_editor_facts() {
-            facts.push_directive_prefix("union");
-        }
-        return parse_venn_union_statement_facts(
-            rest,
-            statement_start + "union".len(),
-            state,
-            diagram_type,
-        );
+    match strip_keyword_ci(statement, "union") {
+        Some(rest) => {
+            #[cfg(feature = "editor-facts")]
+            if let Some(facts) = state.rich_editor_facts() {
+                facts.push_directive_prefix("union");
+            }
+            return parse_venn_union_statement_facts(
+                rest,
+                statement_start + "union".len(),
+                state,
+                diagram_type,
+            );
+        },
+        ::core::option::Option::None => {},
     }
 
-    if let Some(rest) = strip_keyword_ci(statement, "text") {
-        #[cfg(feature = "editor-facts")]
-        if let Some(facts) = state.rich_editor_facts() {
-            facts.push_directive_prefix("text");
-        }
-        return parse_venn_text_statement_facts(
-            rest,
-            statement_start + "text".len(),
-            state,
-            diagram_type,
-            false,
-        );
+    match strip_keyword_ci(statement, "text") {
+        Some(rest) => {
+            #[cfg(feature = "editor-facts")]
+            if let Some(facts) = state.rich_editor_facts() {
+                facts.push_directive_prefix("text");
+            }
+            return parse_venn_text_statement_facts(
+                rest,
+                statement_start + "text".len(),
+                state,
+                diagram_type,
+                false,
+            );
+        },
+        ::core::option::Option::None => {},
     }
 
-    if let Some(rest) = strip_keyword_ci(statement, "style") {
-        #[cfg(feature = "editor-facts")]
-        if let Some(facts) = state.rich_editor_facts() {
-            facts.push_directive_prefix("style");
-        }
-        return parse_venn_style_statement_facts(
-            rest,
-            statement_start + "style".len(),
-            state,
-            diagram_type,
-        );
+    match strip_keyword_ci(statement, "style") {
+        Some(rest) => {
+            #[cfg(feature = "editor-facts")]
+            if let Some(facts) = state.rich_editor_facts() {
+                facts.push_directive_prefix("style");
+            }
+            return parse_venn_style_statement_facts(
+                rest,
+                statement_start + "style".len(),
+                state,
+                diagram_type,
+            );
+        },
+        ::core::option::Option::None => {},
     }
 
     Err(parse_error(
@@ -891,6 +1000,7 @@ fn parse_venn_set_statement_facts(
     let parsed = (|| {
         let identifier = cursor.take_identifier_like(diagram_type)?;
         cursor.skip_ws();
+
         if cursor.take_delimiter(',') {
             return Err(parse_error(diagram_type, "set requires single identifier"));
         }
@@ -959,12 +1069,14 @@ fn parse_venn_union_statement_facts(
     let mut cursor = VennCursor::new(input, line_start);
     let parsed = (|| {
         let identifiers = parse_venn_identifier_list(&mut cursor, diagram_type)?;
+
         if identifiers.len() < 2 {
             return Err(parse_error(
                 diagram_type,
                 "union requires multiple identifiers",
             ));
         }
+
         let label = cursor.take_optional_bracket_label(diagram_type)?;
         let size = cursor.take_optional_size(diagram_type)?;
         cursor.expect_end(diagram_type)?;
@@ -1053,16 +1165,20 @@ fn parse_venn_text_statement_facts(
 
         let (identifier, kind) = cursor.take_text_id(diagram_type)?;
         let label = cursor.take_optional_bracket_label(diagram_type)?;
+
         if kind == TextIdKind::Numeric && label.is_some() {
             return Err(parse_error(
                 diagram_type,
                 "unexpected label after numeric text id",
             ));
         }
+
         cursor.expect_end(diagram_type)?;
+
         if explicit_sets.is_empty() {
             return Err(parse_error(diagram_type, "text requires set"));
         }
+
         Ok((explicit_sets, set_fields, identifier, label))
     })();
     let (explicit_sets, _set_fields, identifier, label) = parsed?;
@@ -1130,32 +1246,40 @@ fn parse_venn_style_statement_facts(
     let parsed = (|| {
         let targets = parse_venn_identifier_list(&mut cursor, diagram_type)?;
         let mut styles = Vec::new();
+
         loop {
             cursor.skip_ws();
             let value = cursor.remaining();
+
             if value.trim().is_empty() {
                 break;
             }
 
             let key = cursor.take_bare_identifier(diagram_type)?;
             cursor.skip_ws();
+
             if !cursor.take_delimiter(':') {
                 return Err(parse_error(diagram_type, "expected ':' after style field"));
             }
+
             let value = cursor.take_style_value(diagram_type)?;
             styles.push((key, value));
 
             cursor.skip_ws();
+
             if cursor.take_delimiter(',') {
                 continue;
             }
+
             break;
         }
 
         cursor.expect_end(diagram_type)?;
+
         if styles.is_empty() {
             return Err(parse_error(diagram_type, "expected style field"));
         }
+
         Ok((targets, styles))
     })();
     let (targets, styles) = parsed?;
@@ -1207,10 +1331,12 @@ fn parse_venn_identifier_list(
 
     loop {
         cursor.skip_ws();
+
         if !cursor.take_delimiter(',') {
             break;
         }
-        identifiers.push(cursor.take_identifier_like(diagram_type)?);
+
+        identifiers.push({ let checked_value = cursor.take_identifier_like(diagram_type)?; checked_value });
     }
 
     Ok(identifiers)
@@ -1293,6 +1419,7 @@ fn push_venn_payload_fact(
     ));
 }
 
+#[must_use]
 fn parse_string_token(input: &str) -> Option<(String, &str)> {
     let rest = input.strip_prefix('"')?;
     let end = rest.find('"')?;
@@ -1300,25 +1427,31 @@ fn parse_string_token(input: &str) -> Option<(String, &str)> {
     Some((value.to_string(), &rest[end + 1..]))
 }
 
+#[must_use]
 fn parse_bare_identifier_token(input: &str) -> Option<(&str, &str)> {
     let bytes = input.as_bytes();
     let first = ::core::option::Option::<&_>::copied(bytes.first())?;
+
     if !(first.is_ascii_alphabetic() || first == b'_') {
         return None;
     }
 
     let mut end = 1usize;
+
     while end < bytes.len() {
         let byte = bytes[end];
+
         if byte.is_ascii_alphanumeric() || byte == b'_' || byte == b'-' {
             end += 1;
         } else {
             break;
         }
     }
+
     Some((&input[..end], &input[end..]))
 }
 
+#[must_use]
 fn parse_numeric_token(input: &str) -> Option<(String, &str)> {
     let bytes = input.as_bytes();
     let mut end = usize::from(
@@ -1327,15 +1460,19 @@ fn parse_numeric_token(input: &str) -> Option<(String, &str)> {
             .is_some_and(|byte| matches!(byte, b'+' | b'-')),
     );
     let integer_start = end;
+
     while bytes.get(end).is_some_and(u8::is_ascii_digit) {
         end += 1;
     }
+
     let has_integer = end > integer_start;
 
     let has_fraction =
         bytes.get(end) == Some(&b'.') && bytes.get(end + 1).is_some_and(u8::is_ascii_digit);
+
     if has_fraction {
         end += 1;
+
         while bytes.get(end).is_some_and(u8::is_ascii_digit) {
             end += 1;
         }
@@ -1348,6 +1485,7 @@ fn parse_numeric_token(input: &str) -> Option<(String, &str)> {
     Some((input[..end].to_string(), &input[end..]))
 }
 
+#[must_use]
 fn take_style_value_segment(input: &str) -> (&str, &str) {
     let mut in_quote = false;
     let mut paren_depth = 0usize;
@@ -1368,33 +1506,51 @@ fn take_style_value_segment(input: &str) -> (&str, &str) {
 fn style_value_tokens(input: &str, diagram_type: &str) -> Result<Vec<String>> {
     let mut rest = input.trim();
     let mut tokens = Vec::new();
+
     while !rest.is_empty() {
-        if let Some((token, after)) = parse_rgb_like_token(rest) {
-            tokens.push(token.to_string());
-            rest = skip_ws(after);
-            continue;
+        match parse_rgb_like_token(rest) {
+            Some((token, after)) => {
+                tokens.push(token.to_string());
+                rest = skip_ws(after);
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some((token, after)) = parse_hex_color_token(rest) {
-            tokens.push(token.to_string());
-            rest = skip_ws(after);
-            continue;
+
+        match parse_hex_color_token(rest) {
+            Some((token, after)) => {
+                tokens.push(token.to_string());
+                rest = skip_ws(after);
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some((token, after)) = parse_numeric_token(rest) {
-            tokens.push(token);
-            rest = skip_ws(after);
-            continue;
+
+        match parse_numeric_token(rest) {
+            Some((token, after)) => {
+                tokens.push(token);
+                rest = skip_ws(after);
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some((identifier, after)) = parse_bare_identifier_token(rest) {
-            tokens.push(identifier.to_string());
-            rest = skip_ws(after);
-            continue;
+
+        match parse_bare_identifier_token(rest) {
+            Some((identifier, after)) => {
+                tokens.push(identifier.to_string());
+                rest = skip_ws(after);
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         return Err(parse_error(diagram_type, "expected style value"));
     }
+
     Ok(tokens)
 }
 
+#[must_use]
 fn parse_rgb_like_token(input: &str) -> Option<(&str, &str)> {
     let lower = input.to_ascii_lowercase();
     let (prefix_len, component_count) = if lower.starts_with("rgba(") {
@@ -1406,26 +1562,30 @@ fn parse_rgb_like_token(input: &str) -> Option<(&str, &str)> {
     };
     let end = input.find(')')?;
     let components = input[prefix_len..end].split(',').collect::<Vec<_>>();
+
     if components.len() != component_count
         || components.iter().any(|component| {
-            let component = component.trim();
-            component.is_empty()
-                || !component
+            let component_2 = component.trim();
+            component_2.is_empty()
+                || !component_2
                     .bytes()
                     .all(|byte| byte.is_ascii_digit() || byte == b'.')
         })
     {
         return None;
     }
+
     Some((&input[..end + 1], &input[end + 1..]))
 }
 
+#[must_use]
 fn parse_hex_color_token(input: &str) -> Option<(&str, &str)> {
     let rest = input.strip_prefix('#')?;
     let len = rest
         .bytes()
         .take_while(|byte| byte.is_ascii_hexdigit())
         .count();
+
     if (3..=8).contains(&len) {
         Some((&input[..len + 1], &input[len + 1..]))
     } else {
@@ -1433,6 +1593,7 @@ fn parse_hex_color_token(input: &str) -> Option<(&str, &str)> {
     }
 }
 
+#[must_use]
 fn normalize_identifier_list(identifiers: Vec<String>) -> Vec<String> {
     let mut out = identifiers
         .into_iter()
@@ -1442,8 +1603,10 @@ fn normalize_identifier_list(identifiers: Vec<String>) -> Vec<String> {
     out
 }
 
+#[must_use]
 fn normalize_text(text: &str) -> String {
     let trimmed = text.trim();
+
     if trimmed.len() >= 2 && trimmed.starts_with('"') && trimmed.ends_with('"') {
         trimmed[1..trimmed.len() - 1].to_string()
     } else {
@@ -1451,6 +1614,7 @@ fn normalize_text(text: &str) -> String {
     }
 }
 
+#[must_use]
 fn leading_indent_len(line: &str) -> usize {
     line.chars()
         .take_while(|ch| matches!(ch, ' ' | '\t'))
@@ -1458,16 +1622,21 @@ fn leading_indent_len(line: &str) -> usize {
         .sum()
 }
 
+#[must_use]
 fn skip_ws(input: &str) -> &str {
     input.trim_start_matches([' ', '\t'])
 }
 
+#[must_use]
 fn strip_keyword_ci<'a>(input: &'a str, keyword: &str) -> Option<&'a str> {
     let candidate = input.get(..keyword.len())?;
+
     if !candidate.eq_ignore_ascii_case(keyword) {
         return None;
     }
+
     let rest = &input[keyword.len()..];
+
     if rest
         .chars()
         .next()
@@ -1475,22 +1644,32 @@ fn strip_keyword_ci<'a>(input: &'a str, keyword: &str) -> Option<&'a str> {
     {
         return None;
     }
+
     Some(rest)
 }
 
+#[must_use]
 fn starts_with_keyword_ci(input: &str, keyword: &str) -> bool {
-    let Some(candidate) = input.get(..keyword.len()) else {
-        return false;
+    let candidate = {
+        let optional_candidate = input.get(..keyword.len());
+
+        match optional_candidate {
+            Some(matched_candidate) => matched_candidate,
+            ::core::option::Option::None => return false,
+        }
     };
+
     if !candidate.eq_ignore_ascii_case(keyword) {
         return false;
     }
+
     input[keyword.len()..]
         .chars()
         .next()
         .is_none_or(|ch| ch.is_whitespace())
 }
 
+#[must_use]
 fn strip_inline_comment_aware(line: &str) -> &str {
     let mut in_quote = false;
     let mut bracket_depth = 0usize;
@@ -1514,8 +1693,9 @@ fn strip_inline_comment_aware(line: &str) -> &str {
     line
 }
 
+#[must_use]
 fn parse_error(diagram_type: &str, message: impl Into<String>) -> Error {
-    Error::diagram_parse_fallback(diagram_type.to_string(), message.into())
+    Error::diagram_parse_fallback(diagram_type.to_string(), <_ as ::core::convert::Into<::std::string::String>>::into(message))
 }
 
 #[cfg(all(test, feature = "compat-json"))]

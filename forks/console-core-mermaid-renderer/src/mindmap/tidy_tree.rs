@@ -36,6 +36,7 @@ struct TidyNode {
 }
 
 impl TidyNode {
+    #[must_use]
     fn new(original_index: Option<usize>, width: f64, height: f64, y: f64) -> Self {
         Self {
             original_index,
@@ -87,12 +88,14 @@ struct PositionedNode {
     section: TreeSection,
 }
 
+#[must_use]
 fn bottom(nodes: &[TidyNode], index: usize) -> f64 {
     nodes[index].y + nodes[index].height
 }
 
 fn set_extremes(nodes: &mut [TidyNode], index: usize) {
     let children = &nodes[index].children;
+
     if children.is_empty() {
         nodes[index].extreme_left = index;
         nodes[index].extreme_right = index;
@@ -114,6 +117,7 @@ fn set_extremes(nodes: &mut [TidyNode], index: usize) {
 }
 
 impl IndexedYList {
+    #[must_use]
     fn with_capacity(capacity: usize) -> Self {
         Self {
             entries: Vec::with_capacity(capacity),
@@ -128,6 +132,7 @@ impl IndexedYList {
         {
             self.head = self.head.and_then(|head| self.entries[head].next);
         }
+
         let entry = self.entries.len();
         self.entries.push(IndexedYEntry {
             low_y: min_y,
@@ -142,6 +147,7 @@ fn distribute_extra(nodes: &mut [TidyNode], parent: usize, index: usize, sibling
     if sibling == index - 1 {
         return;
     }
+
     let child_count = (index - sibling) as f64;
     let after_sibling = nodes[parent].children[sibling + 1];
     let current = nodes[parent].children[index];
@@ -158,6 +164,7 @@ fn move_subtree(nodes: &mut [TidyNode], parent: usize, index: usize, sibling: us
     distribute_extra(nodes, parent, index, sibling, d);
 }
 
+#[must_use]
 fn next_left_contour(nodes: &[TidyNode], index: usize) -> Option<usize> {
     nodes[index]
         .children
@@ -166,6 +173,7 @@ fn next_left_contour(nodes: &[TidyNode], index: usize) -> Option<usize> {
         .or(nodes[index].left_thread)
 }
 
+#[must_use]
 fn next_right_contour(nodes: &[TidyNode], index: usize) -> Option<usize> {
     nodes[index]
         .children
@@ -230,32 +238,45 @@ fn separate(
         if indexed_y.is_some_and(|item| bottom(nodes, sr) > indexed_y_list.entries[item].low_y) {
             indexed_y = indexed_y.and_then(|item| indexed_y_list.entries[item].next);
         }
+
         let Some(indexed_y_index) = indexed_y else {
             return Err(Error::InvalidModel {
                 message: "tidy-tree contour index invariant was violated".to_string(),
             });
         };
-        let indexed_y = &indexed_y_list.entries[indexed_y_index];
+
+        let indexed_y_2 = &indexed_y_list.entries[indexed_y_index];
 
         let distance = modifier_sum_sibling_right + nodes[sr].prelim + nodes[sr].width
             - (modifier_sum_contour_left + nodes[cl].prelim);
+
         if distance > 0.0 {
             modifier_sum_contour_left += distance;
-            move_subtree(nodes, parent, index, indexed_y.index, distance);
+            move_subtree(nodes, parent, index, indexed_y_2.index, distance);
         }
 
         let sibling_y = bottom(nodes, sr);
         let contour_y = bottom(nodes, cl);
+
         if sibling_y <= contour_y {
             sibling_right = next_right_contour(nodes, sr);
-            if let Some(next) = sibling_right {
-                modifier_sum_sibling_right += nodes[next].modifier;
+
+            match sibling_right {
+                Some(next) => {
+                    modifier_sum_sibling_right += nodes[next].modifier;
+                },
+                ::core::option::Option::None => {},
             }
         }
+
         if sibling_y >= contour_y {
             contour_left = next_left_contour(nodes, cl);
-            if let Some(next) = contour_left {
-                modifier_sum_contour_left += nodes[next].modifier;
+
+            match contour_left {
+                Some(next) => {
+                    modifier_sum_contour_left += nodes[next].modifier;
+                },
+                ::core::option::Option::None => {},
             }
         }
     }
@@ -265,6 +286,7 @@ fn separate(
         (Some(sr), None) => set_right_thread(nodes, parent, index, sr, modifier_sum_sibling_right),
         _ => {}
     }
+
     Ok(())
 }
 
@@ -280,49 +302,62 @@ fn position_root(nodes: &mut [TidyNode], index: usize) {
         - nodes[index].width / 2.0;
 }
 
+#[must_use]
 fn postorder(nodes: &[TidyNode], root: usize) -> Vec<usize> {
     let mut order = Vec::with_capacity(nodes.len());
     let mut stack = vec![(root, false)];
+
     while let Some((index, expanded)) = stack.pop() {
         if expanded {
             order.push(index);
             continue;
         }
+
         stack.push((index, true));
+
         for child in nodes[index].children.iter().rev().copied() {
             stack.push((child, false));
         }
     }
+
     order
 }
 
 fn first_walk(nodes: &mut [TidyNode], root: usize) -> Result<()> {
     for index in postorder(nodes, root) {
         let child_count = nodes[index].children.len();
-        if child_count == 0 {
-            set_extremes(nodes, index);
-            continue;
+
+        match child_count {
+            0 => {
+                set_extremes(nodes, index);
+                continue;
+            },
+            _ => {},
         }
 
         let first_child = nodes[index].children[0];
         let first_extreme_left = nodes[first_child].extreme_left;
         let mut indexed_y = IndexedYList::with_capacity(child_count);
         indexed_y.update(bottom(nodes, first_extreme_left), 0);
+
         for child_index in 1..child_count {
             let child = nodes[index].children[child_index];
             let min_y = bottom(nodes, nodes[child].extreme_right);
             separate(nodes, index, child_index, &indexed_y)?;
             indexed_y.update(min_y, child_index);
         }
+
         position_root(nodes, index);
         set_extremes(nodes, index);
     }
+
     Ok(())
 }
 
 fn add_child_spacing(nodes: &mut [TidyNode], index: usize) {
     let mut distance = 0.0;
     let mut modifier_delta = 0.0;
+
     for child_index in 0..nodes[index].children.len() {
         let child = nodes[index].children[child_index];
         distance += nodes[child].shift;
@@ -333,10 +368,12 @@ fn add_child_spacing(nodes: &mut [TidyNode], index: usize) {
 
 fn second_walk(nodes: &mut [TidyNode], root: usize) {
     let mut stack = vec![(root, 0.0)];
+
     while let Some((index, parent_modifier_sum)) = stack.pop() {
         let modifier_sum = parent_modifier_sum + nodes[index].modifier;
         nodes[index].x = nodes[index].prelim + modifier_sum;
         add_child_spacing(nodes, index);
+
         for child in nodes[index].children.iter().rev().copied() {
             stack.push((child, modifier_sum));
         }
@@ -378,9 +415,10 @@ fn build_tidy_node(
                 ),
             });
         }
+
         ancestors[original_index] = true;
 
-        // The upstream plugin transposes dimensions before rotating the vertical tidy tree.
+
         let width = layout_nodes[original_index].height + SIBLING_GAP;
         let height = layout_nodes[original_index].width + CONNECTION_PADDING;
         let index = tidy_nodes.len();
@@ -389,6 +427,7 @@ fn build_tidy_node(
     }
 
     let root = push_node(original_index, y, layout_nodes, ancestors, tidy_nodes)?;
+
     let mut stack = vec![BuildFrame {
         original_index,
         tidy_index: root,
@@ -396,6 +435,7 @@ fn build_tidy_node(
     }];
     while let Some(frame) = stack.last_mut() {
         let children = &child_indices[frame.original_index];
+
         if let Some(child) = children.get(frame.next_child).copied() {
             frame.next_child += 1;
             let child_y = tidy_nodes[frame.tidy_index].y + tidy_nodes[frame.tidy_index].height;
@@ -411,6 +451,7 @@ fn build_tidy_node(
             ancestors[completed.original_index] = false;
         }
     }
+
     Ok(root)
 }
 
@@ -430,6 +471,7 @@ fn build_virtual_tree(
     ));
     let child_y = 1.0 + CONNECTION_PADDING;
     let mut children = Vec::with_capacity(roots.len());
+
     for child in roots.iter().copied() {
         children.push(build_tidy_node(
             child,
@@ -440,6 +482,7 @@ fn build_virtual_tree(
             tidy_nodes,
         )?);
     }
+
     tidy_nodes[root].children = children;
     Ok(root)
 }
@@ -452,27 +495,33 @@ fn collect_positioned_nodes(
     out: &mut Vec<(usize, PositionedNode)>,
 ) {
     let mut stack = vec![index];
-    while let Some(index) = stack.pop() {
-        let node = &tidy_nodes[index];
-        if let Some(original_index) = node.original_index {
-            let distance_from_root = node.y;
-            let vertical_position = node.x + SIBLING_GAP / 2.0;
-            let x = match section {
-                TreeSection::Left => offset_x - distance_from_root,
-                TreeSection::Right => offset_x + distance_from_root,
-                TreeSection::Root => offset_x,
-            };
-            out.push((
-                original_index,
-                PositionedNode {
-                    x,
-                    y: vertical_position,
-                    width: 0.0,
-                    height: 0.0,
-                    section,
-                },
-            ));
+
+    while let Some(index_2) = stack.pop() {
+        let node = &tidy_nodes[index_2];
+
+        match node.original_index {
+            Some(original_index) => {
+                let distance_from_root = node.y;
+                let vertical_position = node.x + SIBLING_GAP / 2.0;
+                let x = match section {
+                    TreeSection::Left => offset_x - distance_from_root,
+                    TreeSection::Right => offset_x + distance_from_root,
+                    TreeSection::Root => offset_x,
+                };
+                out.push((
+                    original_index,
+                    PositionedNode {
+                        x,
+                        y: vertical_position,
+                        width: 0.0,
+                        height: 0.0,
+                        section,
+                    },
+                ));
+            },
+            ::core::option::Option::None => {},
         }
+
         for child in node.children.iter().rev().copied() {
             stack.push(child);
         }
@@ -484,17 +533,22 @@ fn center_tree(
     first_level: &[usize],
     layout_nodes: &[LayoutNode],
 ) {
-    if first_level.is_empty() {
-        return;
+    match first_level {
+        [] => {
+            return;
+        },
+        [_, ..] => {},
     }
 
     let mut is_first_level = vec![false; layout_nodes.len()];
+
     for index in first_level.iter().copied() {
         is_first_level[index] = true;
     }
 
     let mut min_y = f64::INFINITY;
     let mut max_y = f64::NEG_INFINITY;
+
     for (original_index, node) in positioned.iter() {
         if is_first_level[*original_index] {
             let height = layout_nodes[*original_index].height;
@@ -502,6 +556,7 @@ fn center_tree(
             max_y = max_y.max(node.y + height / 2.0);
         }
     }
+
     let offset = if min_y.is_finite() && max_y.is_finite() {
         -(min_y + max_y) / 2.0
     } else {
@@ -521,6 +576,7 @@ fn center_tree(
     }
 }
 
+#[must_use]
 fn circle_intersection(
     node: PositionedNode,
     outside: &LayoutPoint,
@@ -530,15 +586,18 @@ fn circle_intersection(
     let dx = inside.x - outside.x;
     let dy = inside.y - outside.y;
     let length = (dx * dx + dy * dy).sqrt();
-    if length == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(length), ::core::num::FpCategory::Zero) {
         return outside.clone();
     }
+
     LayoutPoint {
         x: node.x - dx / length * radius,
         y: node.y - dy / length * radius,
     }
 }
 
+#[must_use]
 fn rectangle_intersection(
     node: PositionedNode,
     outside: &LayoutPoint,
@@ -568,15 +627,19 @@ fn rectangle_intersection(
                 inside.y - q_abs + q
             },
         };
-        if r == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(r), ::core::num::FpCategory::Zero) {
             result = outside.clone();
         }
-        if r_abs == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(r_abs), ::core::num::FpCategory::Zero) {
             result.x = outside.x;
         }
-        if q_abs == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(q_abs), ::core::num::FpCategory::Zero) {
             result.y = outside.y;
         }
+
         result
     } else {
         let r = if inside.x < outside.x {
@@ -595,20 +658,25 @@ fn rectangle_intersection(
         } else {
             inside.y - q
         };
-        if r == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(r), ::core::num::FpCategory::Zero) {
             x = outside.x;
             y = outside.y;
         }
-        if r_abs == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(r_abs), ::core::num::FpCategory::Zero) {
             x = outside.x;
         }
-        if q_abs == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(q_abs), ::core::num::FpCategory::Zero) {
             y = outside.y;
         }
+
         LayoutPoint { x, y }
     }
 }
 
+#[must_use]
 fn edge_intersection(
     node: PositionedNode,
     outside: &LayoutPoint,
@@ -622,6 +690,7 @@ fn edge_intersection(
     }
 }
 
+#[must_use]
 fn build_edge(
     edge: &MindmapEdgeModel,
     source: PositionedNode,
@@ -682,6 +751,7 @@ fn build_edge(
             TreeSection::Root => {}
         },
     }
+
     points.push(target_center.clone());
 
     let source_outside = points
@@ -714,6 +784,7 @@ fn build_edge(
     }
 }
 
+#[must_use]
 fn is_round_shape(shape: &str) -> bool {
     matches!(shape, "circle" | "mindmapCircle" | "cloud" | "bang")
 }
@@ -726,18 +797,23 @@ pub(super) fn layout(
     work_meter: &OperationWorkMeter,
 ) -> Result<Vec<LayoutEdge>> {
     work_meter.checkpoint(OperationPhase::Layout)?;
-    if layout_nodes.is_empty() {
-        return Err(Error::InvalidModel {
-            message: "tidy-tree layout requires at least one node".to_string(),
-        });
+
+    match layout_nodes {
+        [] => {
+            return Err(Error::InvalidModel {
+                message: "tidy-tree layout requires at least one node".to_string(),
+            });
+        },
+        [_, ..] => {},
     }
 
     let mut child_indices = vec![Vec::new(); layout_nodes.len()];
     let mut has_parent = vec![false; layout_nodes.len()];
+
     for (source, target) in edge_indices.iter().copied() {
         work_meter.checkpoint(OperationPhase::Layout)?;
-        // Indices resolve internal IDs, not authored names or labels. Reject shared descendants
-        // before the builder copies a subtree per incoming path. Adapter work is already prepaid.
+
+
         if std::mem::replace(&mut has_parent[target], true) {
             return Err(Error::InvalidModel {
                 message: format!(
@@ -746,18 +822,23 @@ pub(super) fn layout(
                 ),
             });
         }
+
         child_indices[source].push(target);
     }
+
     work_meter.checkpoint(OperationPhase::Layout)?;
-    let root = has_parent
+    let root = match has_parent
         .iter()
-        .position(|has_parent| !has_parent)
-        .unwrap_or(0);
+        .position(|has_parent_2| !has_parent_2) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0,
+    };
     let root_children = &child_indices[root];
     let mut left_roots = Vec::new();
     let mut right_roots = Vec::new();
+
     for (index, child) in root_children.iter().copied().enumerate() {
-        if index % 2 == 0 {
+        if index.wrapping_rem(2) == 0 {
             left_roots.push(child);
         } else {
             right_roots.push(child);
@@ -789,43 +870,61 @@ pub(super) fn layout(
         })
         .transpose()?;
 
-    if let Some(tree) = left_tree {
-        run_layout(&mut tidy_nodes, tree)?;
+    match left_tree {
+        Some(tree) => {
+            run_layout(&mut tidy_nodes, tree)?;
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(tree) = right_tree {
-        run_layout(&mut tidy_nodes, tree)?;
+
+    match right_tree {
+        Some(tree) => {
+            run_layout(&mut tidy_nodes, tree)?;
+        },
+        ::core::option::Option::None => {},
     }
 
     let tree_spacing = layout_nodes[root].width / 2.0 + TREE_GAP;
     let mut positioned_pairs = Vec::with_capacity(layout_nodes.len());
-    if let Some(tree) = left_tree {
-        for child in tidy_nodes[tree].children.iter().copied() {
-            collect_positioned_nodes(
-                &tidy_nodes,
-                child,
-                TreeSection::Left,
-                -tree_spacing,
-                &mut positioned_pairs,
-            );
-        }
-        center_tree(&mut positioned_pairs, &left_roots, layout_nodes);
+
+    match left_tree {
+        Some(tree) => {
+            for child in tidy_nodes[tree].children.iter().copied() {
+                collect_positioned_nodes(
+                    &tidy_nodes,
+                    child,
+                    TreeSection::Left,
+                    -tree_spacing,
+                    &mut positioned_pairs,
+                );
+            }
+
+            center_tree(&mut positioned_pairs, &left_roots, layout_nodes);
+        },
+        ::core::option::Option::None => {},
     }
+
     let left_len = positioned_pairs.len();
-    if let Some(tree) = right_tree {
-        for child in tidy_nodes[tree].children.iter().copied() {
-            collect_positioned_nodes(
-                &tidy_nodes,
-                child,
-                TreeSection::Right,
-                tree_spacing,
-                &mut positioned_pairs,
+
+    match right_tree {
+        Some(tree) => {
+            for child in tidy_nodes[tree].children.iter().copied() {
+                collect_positioned_nodes(
+                    &tidy_nodes,
+                    child,
+                    TreeSection::Right,
+                    tree_spacing,
+                    &mut positioned_pairs,
+                );
+            }
+
+            center_tree(
+                &mut positioned_pairs[left_len..],
+                &right_roots,
+                layout_nodes,
             );
-        }
-        center_tree(
-            &mut positioned_pairs[left_len..],
-            &right_roots,
-            layout_nodes,
-        );
+        },
+        ::core::option::Option::None => {},
     }
 
     let mut positioned = vec![None; layout_nodes.len()];
@@ -839,6 +938,7 @@ pub(super) fn layout(
     positioned[root] = Some(root_position);
     layout_nodes[root].x = root_position.x;
     layout_nodes[root].y = root_position.y;
+
     for (original_index, node) in positioned_pairs {
         layout_nodes[original_index].x = node.x;
         layout_nodes[original_index].y = node.y;
@@ -846,19 +946,23 @@ pub(super) fn layout(
     }
 
     let mut shape_by_id = console_core_perfect_hash::collections::FixedMap::default();
+
     for node in model_nodes {
         shape_by_id.insert(node.id.as_str(), node.shape.as_str());
     }
 
     let mut edges = Vec::with_capacity(model_edges.len());
+
     for (edge, (source_index, target_index)) in model_edges.iter().zip(edge_indices.iter().copied())
     {
         let Some(source) = positioned[source_index] else {
             continue;
         };
+
         let Some(target) = positioned[target_index] else {
             continue;
         };
+
         let source_round = shape_by_id
             .get(layout_nodes[source_index].id.as_str())
             .is_some_and(|shape| is_round_shape(shape));
@@ -867,6 +971,7 @@ pub(super) fn layout(
             .is_some_and(|shape| is_round_shape(shape));
         edges.push(build_edge(edge, source, target, source_round, target_round));
     }
+
     Ok(edges)
 }
 
@@ -931,7 +1036,7 @@ mod tests {
             control.clone(),
         );
         let edges = [(0, 1), (0, 2), (1, 3), (2, 3)];
-        // Let entry and the first three edges pass; cancel at the conflicting incoming edge.
+
         control.cancel_after_checkpoints(edges.len());
         let error = layout(&mut layout_nodes(4), &[], &[], &edges, &meter)
             .expect_err("parent admission must observe the existing operation control");

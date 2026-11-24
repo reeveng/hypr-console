@@ -16,6 +16,7 @@ const FOREST_PALETTE: &str =
 const NEUTRAL_PALETTE: &str =
     "#EEE,#6BB8E4,#8ACB88,#C7ACD6,#E8DCC2,#FFB2A8,#FFF380,#7E8D91,#FFD8B1,#FAF3E0";
 
+#[must_use]
 fn parse_palette(raw: &str) -> Vec<String> {
     raw.split(',')
         .map(str::trim)
@@ -24,6 +25,7 @@ fn parse_palette(raw: &str) -> Vec<String> {
         .collect()
 }
 
+#[must_use]
 fn upstream_palette(theme_name: &str) -> &'static str {
     match theme_name {
         "dark" => DARK_PALETTE,
@@ -35,27 +37,41 @@ fn upstream_palette(theme_name: &str) -> &'static str {
     }
 }
 
+#[must_use]
 pub(crate) fn resolve_xychart_plot_palette(
     theme_name: &str,
     explicit_palette: Option<&str>,
 ) -> Vec<String> {
-    if let Some(explicit_palette) = explicit_palette {
-        let palette = parse_palette(explicit_palette);
-        if !palette.is_empty() {
-            return palette;
-        }
+    match explicit_palette {
+        Some(explicit_palette_2) => {
+            let palette = parse_palette(explicit_palette_2);
+
+            if !palette.is_empty() {
+                return palette;
+            }
+        },
+        ::core::option::Option::None => {},
     }
+
     parse_palette(upstream_palette(theme_name))
 }
 
+#[must_use]
 pub(crate) fn plot_color_from_palette(palette: &[String], plot_index: usize) -> String {
-    if palette.is_empty() {
-        return String::new();
+    match palette {
+        [] => {
+            return String::new();
+        },
+        [_, ..] => {},
     }
-    let index = if plot_index == 0 {
-        0
-    } else {
-        plot_index % palette.len()
+
+    let index = match plot_index {
+        0 => {
+            0
+        },
+        _ => {
+            plot_index % palette.len()
+        },
     };
     palette[index].clone()
 }

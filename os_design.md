@@ -256,6 +256,153 @@ root. The I9 fusion model verifies the sender, receiver, channel, and grant
 generation against the capability graph. Its ordinary and fused paths must
 agree on effects and charges through receipt, cancellation, and peer exit.
 
+### Cross-device effects
+
+A person's paired devices can act as one system. The device in use gives
+priority to interactive work. Background work can run wherever there is
+capacity, and a result can reach the person's active session even if the
+device that requested it has gone to sleep. Routine progress stays quiet.
+The system surfaces a useful result or asks for attention when it needs a
+decision.
+
+Console's state machines already describe work as effect values and receive
+outcomes as new requests. Extend that model across devices. A service that
+can operate while the requester sleeps durably records the pending effect
+under a stable operation ID before dispatch. The effect describes the work,
+the inputs it may use, and the expected outcome. A build specifies a source
+snapshot, a toolchain, and a target. When the result arrives, it advances the
+same operation regardless of where the work ran.
+[Console state machine](crates/console-core-state-machine/src/lib.rs)
+
+A scheduler chooses among authorized handlers using measured performance for
+that kind of work, current load, cached inputs, and the time to move inputs
+and return a result. Each device can reserve capacity for its own foreground
+work and decline background work when power or thermal conditions warrant it.
+A nearby laptop with a warm build cache may finish sooner than an otherwise
+faster desktop. The requester names the effect. The devices authenticate each
+other and the scheduler resolves where to send it. If no suitable worker is
+available, the effect can stay queued until a handler becomes available.
+
+An effect can also change state owned by another device. A handheld can ask a
+worker to build an artifact, then ask the storage service to publish it. The
+storage service checks the caller's authority for that destination and applies
+its own limits. If a build attempt loses its lease or stalls, another worker
+can try in a private workspace. The service accepts one valid result and
+ignores late completions from superseded attempts. Publication has its own
+operation ID. The storage service commits that ID and the change together so
+a lost reply can be recovered without applying the change twice. If the
+receiver cannot deduplicate a mutation, the caller must establish its outcome
+before retrying it.
+
+One experiment starts a build on the handheld, suspends it, and disconnects
+the chosen worker. A second worker takes over. The result is published once
+and appears on the device the person is now using. Measure foreground latency
+and the time to recover the pending operation as well as time to completion.
+
+### Compute effects
+
+A program can describe a calculation as an effect and receive the same typed
+reply from either execution target. The interpreter supplies
+`Service::Compute` and chooses placement. A portable batch gives each attempt
+the same input and its own scratch storage, so a failed GPU attempt can be
+retried on the CPU before publishing a reply. File writes, device commands,
+and other external actions stay in the effect interpreter.
+
+The Linux compute worker accepts trusted SPIR-V kernels, an input buffer, and
+an ordered list of dispatches. Each dispatch selects a kernel and supplies a
+three-dimensional workgroup grid and parameters. Intermediate data stays in
+one shared device buffer across dispatches, and the worker returns only the
+requested output range. This supports independent array and image operations,
+neighborhood filters, and staged reductions. Each effect defines its
+arithmetic contract, including precision and rounding where they affect the
+reply. [Linux compute interface](crates/console-operating-system-linux/src/program_runtime/compute.rs)
+
+Bend 2 uses explicit parallel calls to compile pure functions for both
+targets. Console's `compute_kernel!` defines the calculation in Rust and
+exposes independent grid items. The CPU calls that Rust function directly.
+The shader build lowers the same body to GLSL and compiles it to SPIR-V.
+The portable subset covers typed scalars, arithmetic, branches, loops,
+and buffer reads and writes. A new dispatch can consume intermediate
+results produced by the preceding dispatch.
+[Bend 2 parallel calls](https://github.com/bendlang/bend/blob/main/guide/GUIDE.md#parallelism)
+[Portable Rust kernels](crates/console-operating-system-linux/src/program_runtime/compute/portable.rs)
+
+`compute_map!` defines one result per independent item. A map supplies the
+active dimensions, input words, and parameters. The runtime computes the
+dispatch grid and allocates output slots in row-major order. `map_reduce`
+reduces those outputs in adjacent pairs, carries an odd item forward, and
+copies back only the final word. Checksums use a shared wrapping-sum program
+and Mandelbrot uses a two-dimensional map.
+[Map and reduction API](crates/console-operating-system-linux/src/program_runtime/compute/iteration.rs)
+
+An independent pass can declare its active grid and a contiguous output
+range with one word per item. CPU workers receive disjoint output slices
+and share the arena outside that range as read-only input. Each item can
+also read its own word, which permits in-place operations such as a threshold.
+A pass joins before the next pass begins. The CPU uses one thread for
+small passes and the host core count for larger passes. Checksum mapping,
+checksum reduction, blur, threshold, and Mandelbrot use this path.
+[CPU partitions](crates/console-operating-system-linux/src/program_runtime/compute/partition.rs)
+
+The Linux compute router is a single-effect state machine. It requests one
+attempt and learns from a reply carrying elapsed time, failure, or a parity
+disagreement. Its interpreter supplies the clock and runs the CPU or Vulkan
+work. The router records the last eight successful timings per target for
+each effect and input size or size bucket. It starts on serial CPU, may try
+multicore once serial averages reach 250 microseconds, and may try Vulkan
+once the preferred CPU path averages at least two milliseconds. An alternative
+must save more than ten percent of elapsed time to become preferred.
+Successful alternative probes grow from four to at most 256 runs apart while
+the preference stays stable. A change in preference resets probe intervals.
+Failed Vulkan runs fall back to the preferred CPU path and back off retries
+on the same schedule.
+
+Each routed calculation has one ID for the lifetime of its router. An explicit
+parity check runs all three targets under one ID and publishes one result
+if the values agree. A mismatch disables automatic placement on that target
+for the workload until a subsequent successful check. The caller supplies the
+comparison, so integer effects can require exact equality and floating-point
+effects can specify a tolerance. [Routing and parity](crates/console-operating-system-linux/src/program_runtime/compute/routing.rs)
+
+The completion gate accepts one reply for the pending ID and backend.
+Accepting a reply or cancelling the gate closes it. CPU fallback retires
+the Vulkan attempt under the same ID. Kani checks those transitions, the
+CPU partition address rules, and checksum reduction equivalence across
+split boundaries using the production checksum join. Hardware parity tests
+compare the generated shaders with the CPU execution paths.
+
+`just kernel-gpu-checksums` checks the typed checksum effect's CPU and Vulkan
+replies against the kernel's CPU reference. `just system-gpu-compute` checks
+the completed program state and exit for a blur and threshold effect.
+Both recipes generate and validate their shaders with `glslangValidator` and
+`spirv-val`. `just compute-benchmark` reports serial CPU, partitioned CPU,
+and Vulkan timings and the route chosen on the current host. The `large`
+profile also increases image size and the iteration limit independently.
+CPU execution needs only the Rust program. Calls on the same thread reuse the
+Linux Vulkan device and a bounded cache of pipelines keyed by SPIR-V contents.
+Each batch has fresh scratch storage, and each reply includes only the
+requested words. A failed request retires the worker. The next Vulkan request
+starts a new one. On integrated GPUs, the worker prefers cacheable host-visible
+memory for readback-heavy jobs, including large jobs with equal input and
+output sizes. The image mask combines both blur stages and the threshold in
+one Vulkan pass. The separable CPU path provides the reference for rounding
+and clamped edge pixels.
+
+The video viewer can pass a completed Vulkan frame to its Wayland video
+subsurface as a linear RGBA DMA-BUF. CPU plane scaling uses the same filter
+as ordinary playback. Vulkan converts the scaled planes to RGBA and rotates
+the output before exporting it. The compositor retains its own descriptor
+until release. Frames with captions and surfaces that cannot accept the
+DMA-BUF use the CPU and Wayland shared memory.
+
+`just video-presentation-benchmark CLIP` compares both paths on the same
+Wayland surface in CPU, Vulkan, Vulkan, CPU order. It reports preparation
+through commit, late frames skipped against the playback clock, and frames
+discarded by the compositor. It builds `target/kernel-compute/vulkan` and
+`target/kernel-compute/video-colour.spv`. Set `CONSOLE_VIDEO_VULKAN_WORKER`
+and `CONSOLE_VIDEO_COLOUR_SPIRV` to the absolute paths of those artifacts to
+enable the GPU path in the viewer.
+
 ## Experiments, in order
 
 **E0 — Baseline and attack.** Build the smallest object/capability/channel/

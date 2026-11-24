@@ -67,6 +67,14 @@ pub struct Playlist {
   over: Over,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct SavedQueue {
+  pub songs: Vec<PathBuf>,
+  pub order: Vec<u32>,
+  pub ordered: Order,
+  pub over: Over,
+}
+
 impl Playlist {
   pub fn of(songs: Vec<PathBuf>) -> Result<Playlist, Never> {
     let Ok(many) = fitted::<_, u32>(songs.len());
@@ -86,6 +94,81 @@ impl Playlist {
     let Ok(at) = held.position_of(song);
 
     Ok(Playlist { at, ..held })
+  }
+
+  #[must_use]
+  pub(crate) fn checkpoint(&self) -> Result<SavedQueue, Never> {
+    Ok(SavedQueue {
+      songs: self.songs.clone(),
+      order: self.order.clone(),
+      ordered: self.ordered,
+      over: self.over,
+    })
+  }
+
+  #[must_use]
+  pub(crate) fn restored(saved: SavedQueue, was: &Path) -> Result<Option<Self>, Never> {
+    let mut slots = Vec::with_capacity(saved.songs.len());
+    let mut songs = Vec::new();
+
+    for song in saved.songs {
+      match song
+        .is_absolute()
+        .then_some(())
+        .and_then(|()| match song.metadata() {
+          Ok(info) => info.is_file().then_some(()),
+          Err(_unavailable) => None,
+        }) {
+        Some(()) => {
+          let Ok(position) = fitted::<_, u32>(songs.len());
+          slots.push(Some(position));
+          songs.push(song);
+        }
+        None => slots.push(None),
+      }
+    }
+
+    match { ::core::primitive::bool::then_some(songs.is_empty(), ()) } {
+      ::core::option::Option::Some(()) => {
+        return Ok(None);
+      }
+      ::core::option::Option::None => {}
+    }
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut order = Vec::new();
+
+    for old in saved.order {
+      let Ok(position) = index(old);
+      let new = match slots.get(position) {
+        Some(Some(new)) => *new,
+        Some(None) | None => continue,
+      };
+
+      match seen.insert(new).then_some(()) {
+        Some(()) => order.push(new),
+        None => {}
+      }
+    }
+
+    match { ::core::primitive::bool::then_some(order.len() != songs.len(), ()) } {
+      ::core::option::Option::Some(()) => {
+        return Ok(None);
+      }
+      ::core::option::Option::None => {}
+    }
+
+    let mut playlist = Self {
+      songs,
+      order,
+      at: 0,
+      ordered: saved.ordered,
+      over: saved.over,
+    };
+    let Ok(at) = playlist.position_of(was);
+    playlist.at = at;
+
+    Ok(Some(playlist))
   }
 
   pub fn song(&self) -> Result<Option<&Path>, Never> {

@@ -49,12 +49,8 @@ libm = [
     "euclid?/libm",
 ]
 mint = ["dep:mint"]
-schemars = [
-    "schemars/smallvec",
-    "dep:schemars",
-]
+schemars = ["dep:schemars"]
 serde = [
-    "smallvec/serde",
     "dep:serde",
     "console-core-point/serde",
     "console-core-transform/serde",
@@ -179,10 +175,6 @@ features = [
 ]
 optional = true
 default-features = false
-
-[dependencies.smallvec]
-version = "1.15.1"
-features = ["const_new"]
 
 [dev-dependencies.criterion]
 version = "=0.8.2"

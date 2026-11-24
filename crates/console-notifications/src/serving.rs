@@ -51,10 +51,13 @@
 //! points it somewhere else; the device is never told, and the default is the
 //! one place the panel and the bell look.
 
-use console_bus::messages::{Message, Signal, ValidationError, Value};
+use console_bus::cli;
+use console_bus::connection::{BUS, BUS_PATH};
+use console_bus::messages::{Kind, Message, Signal, ValidationError, Value, Whom};
 use console_core_never::Never;
+use console_program_contract::Command;
 
-use std::path::PathBuf;
+use std::{collections::BTreeSet, path::PathBuf};
 
 use crate::reading::{DoNotDisturb, Inbox, Notification, Urgency};
 use crate::saying::Expiry;
@@ -70,6 +73,24 @@ pub const WHERE: &str = "CONSOLE_NOTIFICATIONS_PATH";
 const PEER: &str = "org.freedesktop.DBus.Peer";
 
 const LOOKING: &str = "org.freedesktop.DBus.Introspectable";
+
+const CLOSE_NOTIFICATION: &str = "CloseNotification";
+const CLEAR_ALL: &str = "ClearAll";
+const QUIETEN: &str = "Quieten";
+const HOLD_QUIET: &str = "HoldQuiet";
+const NAME_OWNER_CHANGED: &str = "NameOwnerChanged";
+
+pub const QUIET_OWNER_LOST: &str = "type='signal',sender='org.freedesktop.DBus',\
+interface='org.freedesktop.DBus',member='NameOwnerChanged',path='/org/freedesktop/DBus',arg2=''";
+
+pub fn hold_quiet(destination: &str) -> Result<Message, Never> {
+  Message::call(&Whom {
+    to: destination,
+    at: AT,
+    on: APPLICATION,
+    calling: HOLD_QUIET,
+  })
+}
 
 const A_WHILE: u32 = 5000;
 
@@ -104,6 +125,15 @@ pub enum Modified {
   No,
 }
 
+impl From<bool> for Modified {
+  fn from(changed: bool) -> Self {
+    match bool::then_some(changed, ()) {
+      Some(()) => Self::Yes,
+      None => Self::No,
+    }
+  }
+}
+
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub enum Closed {
   Yes,
@@ -120,6 +150,13 @@ pub struct Request {
   pub urgency: Urgency,
   pub expiry: Expiry,
   pub value: Option<i64>,
+  pub actions: Vec<Action>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Action {
+  pub key: String,
+  pub label: String,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -128,6 +165,20 @@ pub struct ActiveNotification {
   pub expiry: Expiry,
   pub value: Option<i64>,
   pub raised: u64,
+  pub actions: Vec<Action>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Target {
+  pub id: u32,
+  pub raised: u64,
+  pub choice: Choice,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Choice {
+  Dismiss,
+  Invoke(u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -142,6 +193,7 @@ pub struct Holding {
   pub waiting: Vec<ActiveNotification>,
   pub earlier: Vec<Notification>,
   pub do_not_disturb: DoNotDisturb,
+  quiet_holders: BTreeSet<String>,
   counted: u32,
   raises: u64,
 }
@@ -180,6 +232,7 @@ impl Holding {
       expiry: asked.expiry,
       value: asked.value,
       raised: raises,
+      actions: asked.actions.clone(),
     };
 
     match self
@@ -208,6 +261,40 @@ impl Holding {
       ::core::option::Option::Some(()) => self.closed(armed.id),
       ::core::option::Option::None => Ok(Closed::No),
     }
+  }
+
+  pub fn activated(&mut self, target: Target) -> Result<Turn, Never> {
+    let matching = self
+      .waiting
+      .iter()
+      .find(|held| held.notification.id == target.id && held.raised == target.raised);
+    let held = match matching {
+      Some(held) => held,
+      None => return Ok(Turn::default()),
+    };
+    let mut signals = match target.choice {
+      Choice::Dismiss => Vec::new(),
+      Choice::Invoke(ordinal) => {
+        let Ok(index) = console_core_number_conversion::index(ordinal);
+
+        match held.actions.get(index) {
+          Some(action) => {
+            let Ok(signal) = action_signal(target.id, &action.key);
+            vec![signal]
+          }
+          None => return Ok(Turn::default()),
+        }
+      }
+    };
+    let Ok(_closed) = self.closed(target.id);
+    let Ok(closed) = closed_signals(&[target.id], Why::Dismissed);
+    signals.extend(closed);
+
+    Ok(Turn {
+      signals,
+      changed: Modified::Yes,
+      ..Turn::default()
+    })
   }
 
   pub fn closed(&mut self, id: u32) -> Result<Closed, Never> {
@@ -253,9 +340,19 @@ impl Holding {
   }
 
   pub fn visible(&self) -> Result<Vec<&ActiveNotification>, Never> {
-    Ok(match self.do_not_disturb {
+    let Ok(held) = self.held_quiet();
+    let Ok(quiet) = self.do_not_disturb.with_hold(held);
+
+    Ok(match quiet {
       DoNotDisturb::On => Vec::new(),
       DoNotDisturb::Off => self.waiting.iter().rev().collect(),
+    })
+  }
+
+  fn held_quiet(&self) -> Result<DoNotDisturb, Never> {
+    Ok(match bool::then_some(self.quiet_holders.is_empty(), ()) {
+      Some(()) => DoNotDisturb::Off,
+      None => DoNotDisturb::On,
     })
   }
 }
@@ -263,14 +360,21 @@ impl Holding {
 #[derive(Debug, Default)]
 pub struct Turn {
   pub say: Option<Message>,
-  pub closed: Vec<Message>,
+  pub signals: Vec<Message>,
   pub changed: Modified,
   pub arm: Option<Armed>,
 }
 
 pub fn handle_message(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
+  match message.kind {
+    Kind::Signal => return quiet_owner_lost(holding, message),
+    Kind::Call => {}
+    Kind::Answer | Kind::ErrorReply => return Ok(Turn::default()),
+  }
+
   let asking = match (message.interface.as_deref(), message.member.as_deref()) {
     (Some(NOTIFICATIONS), Some(member)) => member,
+    (Some(APPLICATION), Some(HOLD_QUIET)) => return hold_for_caller(holding, message),
     (Some(APPLICATION), Some(member)) => member,
     (Some(PEER), Some("Ping")) => {
       let Ok(answer) = message.answering();
@@ -306,12 +410,14 @@ pub fn handle_message(holding: &mut Holding, message: &Message) -> Result<Turn, 
 
   match asking {
     "Notify" => notifying(holding, message),
-    "CloseNotification" => closing(holding, message),
+    CLOSE_NOTIFICATION => closing(holding, message),
     "GetCapabilities" => {
       let Ok(answer) = message.answering();
       let Ok(body) = Value::word("body");
       let Ok(persistence) = Value::word("persistence");
-      let Ok(answer_3) = answer.carrying("as", vec![Value::List(vec![body, persistence])]);
+      let Ok(actions) = Value::word("actions");
+      let Ok(answer_3) =
+        answer.carrying("as", vec![Value::List(vec![body, persistence, actions])]);
 
       Ok(Turn {
         say: Some(answer_3),
@@ -335,19 +441,19 @@ pub fn handle_message(holding: &mut Holding, message: &Message) -> Result<Turn, 
         ..Turn::default()
       })
     }
-    "ClearAll" => {
+    CLEAR_ALL => {
       let Ok(every) = holding.cleared();
       let Ok(answer) = message.answering();
       let Ok(closed) = closed_signals(&every, Why::Dismissed);
 
       Ok(Turn {
         say: Some(answer),
-        closed,
+        signals: closed,
         changed: Modified::Yes,
         arm: None,
       })
     }
-    "Quieten" => {
+    QUIETEN => {
       let Ok(quiet) = holding.toggled_do_not_disturb();
       let Ok(word) = quiet.said();
       let Ok(value) = Value::word(word);
@@ -374,6 +480,60 @@ pub fn handle_message(holding: &mut Holding, message: &Message) -> Result<Turn, 
   }
 }
 
+fn hold_for_caller(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
+  let owner = message
+    .sender
+    .as_deref()
+    .filter(|name| name.starts_with(':'));
+  let owner_name = match (owner, message.values.as_slice()) {
+    (Some(name), []) => name,
+    _invalid => {
+      let Ok(complaint) = message.complaining(
+        ValidationError::InvalidArgs,
+        "a quiet hold takes no arguments and belongs to the calling connection",
+      );
+      return Ok(Turn {
+        say: Some(complaint),
+        ..Turn::default()
+      });
+    }
+  };
+  let changed = Modified::from(holding.quiet_holders.insert(owner_name.to_owned()));
+  let Ok(answer) = message.answering();
+  Ok(Turn {
+    say: Some(answer),
+    changed,
+    ..Turn::default()
+  })
+}
+
+fn quiet_owner_lost(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
+  let changed = match (
+    message.sender.as_deref(),
+    message.path.as_deref(),
+    message.interface.as_deref(),
+    message.member.as_deref(),
+    message.values.as_slice(),
+  ) {
+    (
+      Some(BUS),
+      Some(BUS_PATH),
+      Some(BUS),
+      Some(NAME_OWNER_CHANGED),
+      [Value::Word(name), Value::Word(old), Value::Word(new)],
+    ) => match bool::then_some(name == old && new.is_empty(), ()) {
+      Some(()) => Modified::from(holding.quiet_holders.remove(name)),
+      None => Modified::No,
+    },
+    _unrelated => Modified::No,
+  };
+
+  Ok(Turn {
+    changed,
+    ..Turn::default()
+  })
+}
+
 fn notifying(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
   let Ok(reading) = parse_request(&message.values);
 
@@ -398,7 +558,7 @@ fn notifying(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
 
   Ok(Turn {
     say: Some(answer_2),
-    closed: Vec::new(),
+    signals: Vec::new(),
     changed: Modified::Yes,
     arm: Some(armed),
   })
@@ -435,7 +595,7 @@ fn closing(holding: &mut Holding, message: &Message) -> Result<Turn, Never> {
 
       Turn {
         say: Some(answer),
-        closed: messages,
+        signals: messages,
         changed: Modified::Yes,
         arm: None,
       }
@@ -462,6 +622,41 @@ pub fn closed_signals(every: &[u32], why: Why) -> Result<Vec<Message>, Never> {
   Ok(value)
 }
 
+fn action_signal(id: u32, key: &str) -> Result<Message, Never> {
+  let Ok(signal) = Message::signal(&Signal {
+    at: AT,
+    on: NOTIFICATIONS,
+    name: "ActionInvoked",
+  });
+  let Ok(word) = Value::word(key);
+  signal.carrying("us", vec![Value::Unsigned32(id), word])
+}
+
+fn actions(value: Option<&Value>) -> Result<Vec<Action>, Never> {
+  let listed = match value {
+    Some(present) => {
+      let Ok(items) = present.listed();
+      items
+    }
+    None => None,
+  };
+
+  Ok(
+    listed
+      .into_iter()
+      .flat_map(|values| values.chunks_exact(2))
+      .filter_map(|pair| match pair {
+        [Value::Word(key), Value::Word(label)] => (!key.is_empty()).then(|| Action {
+          key: key.clone(),
+          label: label.clone(),
+        }),
+        _ => None,
+      })
+      .take(3)
+      .collect(),
+  )
+}
+
 pub fn parse_request(values: &[Value]) -> Result<Option<Request>, Never> {
   let Ok(application) = text_of(values.first());
   let Ok(summary) = text_of(values.get(3));
@@ -485,6 +680,7 @@ pub fn parse_request(values: &[Value]) -> Result<Option<Request>, Never> {
   let Ok(asking) = numbered(values.get(7));
   let Ok(expiry) = lasting(asking, urgency);
   let Ok(replacing) = counted(values.get(1));
+  let Ok(actions) = actions(values.get(5));
 
   Ok(Some(Request {
     application,
@@ -494,6 +690,7 @@ pub fn parse_request(values: &[Value]) -> Result<Option<Request>, Never> {
     urgency,
     expiry,
     value,
+    actions,
   }))
 }
 
@@ -631,9 +828,14 @@ fn looked_at() -> Result<String, Never> {
       <arg type=\"u\" name=\"id\"/>
       <arg type=\"u\" name=\"reason\"/>
     </signal>
+    <signal name=\"ActionInvoked\">
+      <arg type=\"u\" name=\"id\"/>
+      <arg type=\"s\" name=\"action_key\"/>
+    </signal>
   </interface>
   <interface name=\"{APPLICATION}\">
     <method name=\"ClearAll\"/>
+    <method name=\"{HOLD_QUIET}\"/>
     <method name=\"Quieten\">
       <arg type=\"s\" name=\"quiet\" direction=\"out\"/>
     </method>
@@ -699,35 +901,38 @@ pub fn to_inbox(holding: &Holding) -> Result<Inbox, Never> {
     .map(|held| held.notification.clone())
     .collect();
 
+  let Ok(stream_quiet) = holding.held_quiet();
   Ok(Inbox {
     waiting,
     earlier: holding.earlier.clone(),
     do_not_disturb: holding.do_not_disturb,
+    stream_quiet,
   })
 }
 
-pub fn closing_one(id: u32) -> Result<Vec<String>, Never> {
-  Ok(vec![
-    "--user".to_string(),
-    "call".to_string(),
-    NOTIFICATIONS.to_string(),
-    AT.to_string(),
-    NOTIFICATIONS.to_string(),
-    "CloseNotification".to_string(),
-    "u".to_string(),
-    id.to_string(),
+pub fn closing_one(id: u32) -> Result<Command, Never> {
+  cli::effect(&[
+    "--user",
+    "call",
+    NOTIFICATIONS,
+    AT,
+    NOTIFICATIONS,
+    CLOSE_NOTIFICATION,
+    "u",
+    &id.to_string(),
   ])
 }
 
-pub fn call_arguments(member: &str) -> Result<Vec<String>, Never> {
-  Ok(vec![
-    "--user".to_string(),
-    "call".to_string(),
-    NOTIFICATIONS.to_string(),
-    AT.to_string(),
-    APPLICATION.to_string(),
-    member.to_string(),
-  ])
+pub fn clear_all() -> Result<Command, Never> {
+  call(CLEAR_ALL)
+}
+
+pub fn quieten() -> Result<Command, Never> {
+  call(QUIETEN)
+}
+
+fn call(member: &str) -> Result<Command, Never> {
+  cli::effect(&["--user", "call", NOTIFICATIONS, AT, APPLICATION, member])
 }
 
 #[cfg(test)]
@@ -751,6 +956,51 @@ mod tests {
       on: NOTIFICATIONS,
       calling: member,
     })
+  }
+
+  #[test]
+  fn a_notification_action_is_sent_once_and_cannot_apply_to_a_replacement() -> Result<(), NotFound>
+  {
+    let mut holding = Holding::default();
+    let Ok(message) = notify("Screenshot saved", 0, Vec::new(), -1);
+    let Ok(parsed) = parse_request(&message.values);
+    let mut asked = parsed.ok_or(NotFound::Waiting)?;
+    asked.actions.push(Action {
+      key: "send".to_owned(),
+      label: "Send to device".to_owned(),
+    });
+    let Ok(first) = holding.raised(&asked);
+    asked.replacing = first.id;
+    let Ok(replaced) = holding.raised(&asked);
+    let target = Target {
+      id: first.id,
+      raised: first.raised,
+      choice: Choice::Invoke(0),
+    };
+    let Ok(stale) = holding.activated(target);
+    assert!(stale.signals.is_empty());
+    assert_eq!(stale.changed, Modified::No);
+
+    let current = Target {
+      raised: replaced.raised,
+      ..target
+    };
+    let Ok(turn) = holding.activated(current);
+    let invoked = turn.signals.first().ok_or(NotFound::Answer)?;
+    assert_eq!(invoked.member.as_deref(), Some("ActionInvoked"));
+    assert_eq!(
+      invoked.values,
+      vec![
+        Value::Unsigned32(current.id),
+        Value::Word("send".to_owned())
+      ]
+    );
+    let last = turn.signals.last().ok_or(NotFound::Closed)?;
+    assert_eq!(last.member.as_deref(), Some("NotificationClosed"));
+    assert_eq!(turn.changed, Modified::Yes);
+    let Ok(again) = holding.activated(current);
+    assert!(again.signals.is_empty());
+    Ok(())
   }
 
   fn notify(
@@ -979,9 +1229,9 @@ mod tests {
     assert_eq!(turn.changed, Modified::Yes);
     assert!(holding.waiting.is_empty());
     assert_eq!(holding.earlier.len(), 1);
-    assert_eq!(turn.closed.len(), 1);
+    assert_eq!(turn.signals.len(), 1);
 
-    let gone = turn.closed.first().ok_or(NotFound::Closed)?;
+    let gone = turn.signals.first().ok_or(NotFound::Closed)?;
 
     assert_eq!(gone.kind, Kind::Signal);
     assert_eq!(gone.member.as_deref(), Some("NotificationClosed"));
@@ -1004,7 +1254,7 @@ mod tests {
     let said = turn.say.ok_or(NotFound::Answer)?;
 
     assert_eq!(turn.changed, Modified::No);
-    assert!(turn.closed.is_empty());
+    assert!(turn.signals.is_empty());
     assert_eq!(said.kind, Kind::Answer);
 
     Ok(())
@@ -1028,7 +1278,11 @@ mod tests {
     assert!(holding.waiting.is_empty());
     assert_eq!(holding.earlier.len(), 2);
 
-    let values: Vec<Vec<Value>> = turn.closed.iter().map(|gone| gone.values.clone()).collect();
+    let values: Vec<Vec<Value>> = turn
+      .signals
+      .iter()
+      .map(|gone| gone.values.clone())
+      .collect();
 
     assert_eq!(
       values,
@@ -1074,6 +1328,56 @@ mod tests {
       holding.earlier.first().map(|was| was.summary.clone()),
       Some(format!("one of {last}"))
     );
+
+    Ok(())
+  }
+
+  #[test]
+  fn quiet_holds_follow_their_connections_and_preserve_the_users_choice() -> Result<(), NotFound>
+  {
+    let mut holding = Holding::default();
+    let _id = raising(&mut holding, "one")?;
+
+    for owner in [":1.42", ":1.43", ":1.42"] {
+      let Ok(mut request) = hold_quiet(NOTIFICATIONS);
+      request.sender = Some(owner.to_owned());
+      let Ok(turn) = handle_message(&mut holding, &request);
+      let say = turn.say.ok_or(NotFound::Answer)?;
+      assert_eq!(say.kind, Kind::Answer);
+    }
+
+    assert_eq!(holding.do_not_disturb, DoNotDisturb::Off);
+    let Ok(visible) = holding.visible();
+    assert!(visible.is_empty());
+
+    let Ok(_changed) = holding.toggled_do_not_disturb();
+    let lost = |owner: &str| Message {
+      kind: Kind::Signal,
+      sender: Some(BUS.to_owned()),
+      path: Some(BUS_PATH.to_owned()),
+      interface: Some(BUS.to_owned()),
+      member: Some(NAME_OWNER_CHANGED.to_owned()),
+      values: vec![
+        Value::Word(owner.to_owned()),
+        Value::Word(owner.to_owned()),
+        Value::Word(String::new()),
+      ],
+      ..Message::default()
+    };
+    let Ok(_first) = handle_message(&mut holding, &lost(":1.42"));
+    let Ok(held) = to_inbox(&holding);
+    assert_eq!(held.stream_quiet, DoNotDisturb::On);
+
+    let Ok(last) = handle_message(&mut holding, &lost(":1.43"));
+    assert_eq!(last.changed, Modified::Yes);
+    assert_eq!(holding.do_not_disturb, DoNotDisturb::On);
+    let Ok(held_2) = to_inbox(&holding);
+    assert_eq!(held_2.stream_quiet, DoNotDisturb::Off);
+    let Ok(still_hidden) = holding.visible();
+    assert!(still_hidden.is_empty());
+    let Ok(_changed) = holding.toggled_do_not_disturb();
+    let Ok(visible_2) = holding.visible();
+    assert_eq!(visible_2.len(), 1);
 
     Ok(())
   }
@@ -1134,6 +1438,7 @@ mod tests {
       vec![Value::List(vec![
         Value::Word("body".to_string()),
         Value::Word("persistence".to_string()),
+        Value::Word("actions".to_string()),
       ])]
     );
 

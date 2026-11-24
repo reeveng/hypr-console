@@ -28,6 +28,7 @@ pub(crate) struct BpmnGeometry {
     pub(crate) label_center_y: f64,
 }
 
+#[must_use]
 pub(crate) fn wrapping_width(shape: Option<&str>, fallback: f64) -> f64 {
     if shape == Some("bpmn-annotation") {
         160.0
@@ -37,6 +38,7 @@ pub(crate) fn wrapping_width(shape: Option<&str>, fallback: f64) -> f64 {
 }
 
 impl BpmnShape {
+    #[must_use]
     pub(crate) fn resolve(name: &str) -> Option<Self> {
         Some(match name {
             "bpmn-start" => Self::Start,
@@ -52,6 +54,7 @@ impl BpmnShape {
         })
     }
 
+    #[must_use]
     pub(crate) fn classes(self) -> &'static str {
         match self {
             Self::Start => "bpmn-event bpmn-event-start",
@@ -66,15 +69,17 @@ impl BpmnShape {
         }
     }
 
+    #[must_use]
     pub(crate) fn event_rings(self) -> Option<(usize, f64)> {
         match self {
             Self::Start => Some((1, 1.6)),
             Self::Intermediate | Self::Boundary => Some((2, 1.4)),
             Self::End => Some((1, 3.4)),
-            _ => None,
+            Self::Gateway | Self::Activity | Self::Data | Self::DataStore | Self::Annotation => None,
         }
     }
 
+    #[must_use]
     pub(crate) fn geometry(
         self,
         metrics: TextMetrics,
@@ -84,6 +89,7 @@ impl BpmnShape {
     ) -> BpmnGeometry {
         let text_width = metrics.width.max(0.0);
         let text_height = metrics.height.max(0.0);
+
         if self == Self::Activity {
             let top_inset = if has_icon { ICON_SIZE + 6.0 } else { 10.0 };
             let bottom_inset = if has_markers { ICON_SIZE + 4.0 } else { 10.0 };
@@ -97,6 +103,7 @@ impl BpmnShape {
                 label_center_y: (top_inset - bottom_inset) / 2.0,
             };
         }
+
         if self == Self::Annotation {
             let width = text_width + 22.0;
             let height = 28.0_f64.max(text_height + 16.0);
@@ -108,6 +115,7 @@ impl BpmnShape {
                 label_center_y: 0.0,
             };
         }
+
         let (drawn_width, drawn_height) = match self {
             Self::Start | Self::Intermediate | Self::Boundary | Self::End => {
                 (EVENT_DIAMETER, EVENT_DIAMETER)
@@ -136,6 +144,7 @@ impl BpmnShape {
         }
     }
 
+    #[must_use]
     pub(crate) fn intersect(
         self,
         center: &LayoutPoint,
@@ -159,12 +168,14 @@ impl BpmnShape {
     }
 }
 
+#[must_use]
 fn ring_intersect(center: &LayoutPoint, diameter: f64, point: &LayoutPoint) -> LayoutPoint {
     let radius = diameter / 2.0;
     let delta_x = point.x - center.x;
     let delta_y = point.y - center.y;
     let reach = radius * 0.85;
     let positive_sign = |value: f64| if value < 0.0 { -1.0 } else { 1.0 };
+
     if delta_y.abs() >= delta_x.abs() {
         let along = delta_x.clamp(-reach, reach);
         LayoutPoint {
@@ -180,6 +191,7 @@ fn ring_intersect(center: &LayoutPoint, diameter: f64, point: &LayoutPoint) -> L
     }
 }
 
+#[must_use]
 fn face_centre_intersect(
     center: &LayoutPoint,
     width: f64,
@@ -188,6 +200,7 @@ fn face_centre_intersect(
 ) -> LayoutPoint {
     let delta_x = point.x - center.x;
     let delta_y = point.y - center.y;
+
     if delta_x.abs() * height > delta_y.abs() * width {
         LayoutPoint {
             x: center.x + delta_x.signum() * width / 2.0,
@@ -206,6 +219,7 @@ fn face_centre_intersect(
     }
 }
 
+#[must_use]
 fn face_project_intersect(
     center: &LayoutPoint,
     width: f64,
@@ -218,6 +232,7 @@ fn face_project_intersect(
     let delta_x = point.x - center.x;
     let delta_y = point.y - center.y;
     let reach = |half: f64| (half - 8.0_f64.min(half / 2.0)).max(0.0);
+
     if fixed_right.is_some() || delta_x.abs() * half_height > delta_y.abs() * half_width {
         let right = fixed_right.unwrap_or(delta_x >= 0.0);
         LayoutPoint {

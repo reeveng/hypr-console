@@ -23,6 +23,7 @@ enum DetectorEntry {
 }
 
 impl DetectorEntry {
+    #[must_use]
     fn id(&self) -> &'static str {
         match self {
             Self::Builtin(fact) => fact.id,
@@ -36,11 +37,16 @@ impl DetectorEntry {
                 if !(fact.detector)(text) {
                     return false;
                 }
-                if let Some((path, value)) = fact.config_effect.assignment() {
-                    // Public assignment records the detector's ownership even when the value
-                    // was already `elk`; overlay replay relies on that provenance.
-                    config.set_value(path, serde_json::Value::String(value.to_string()));
+
+                match fact.config_effect.assignment() {
+                    Some((path, value)) => {
+
+
+                        config.set_value(path, serde_json::Value::String(value.to_string()));
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 true
             }
             Self::Custom(detector) => (detector.detector)(text, config),
@@ -59,6 +65,7 @@ pub struct DetectorRegistry {
 
 impl DetectorRegistry {
     /// Creates an empty detector registry.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             detectors: Arc::new(Vec::new()),
@@ -114,8 +121,8 @@ impl DetectorRegistry {
         config: &mut SourcePresentationConfig,
         control: &OperationControl,
     ) -> OperationControlResult<Result<&'static str>> {
-        let text = text.strip_prefix('\u{feff}').unwrap_or(text);
-        self.detect_type_cleaned_controlled(text, config, control)
+        let text_2 = text.strip_prefix('\u{feff}').unwrap_or(text);
+        self.detect_type_cleaned_controlled(text_2, config, control)
     }
 
     fn detect_type_cleaned_controlled(
@@ -127,13 +134,14 @@ impl DetectorRegistry {
         Ok(detect_precleaned_controlled(
             text,
             self.detectors.as_slice(),
-            |detector, text| detector.matches(text, config),
+            |detector, text_2| detector.matches(text_2, config),
             control,
         )?
         .map(DetectorEntry::id))
     }
 
     /// Builds the detector registry for the pinned Mermaid baseline.
+    #[must_use]
     pub fn pinned_mermaid_baseline() -> Self {
         Self {
             detectors: Arc::new(

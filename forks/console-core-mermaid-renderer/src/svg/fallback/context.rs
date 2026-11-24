@@ -20,28 +20,33 @@ impl SourceFrame {
         checkpoint: &mut impl FnMut() -> Result<(), E>,
     ) -> Result<Self, E> {
         let mut viewport = parent.and_then(|frame| frame.viewport);
-        // Validate the actual CTM, including the root. Emission keeps the original
-        // ancestry and never applies this cumulative matrix a second time.
-        let cumulative = if parent.is_none() {
-            viewport = root_viewport(tag, checkpoint)?;
-            Affine::from_tag(tag, checkpoint)?
-                .zip(root_mapping(tag, checkpoint)?)
-                .and_then(|(transform, mapping)| transform.then_local(mapping))
-        } else {
-            let local = Affine::from_tag(tag, checkpoint)?;
-            let local = if name.eq_ignore_ascii_case("svg") {
-                let geometry = nested_viewport(tag, viewport, checkpoint)?;
-                viewport = geometry.as_ref().and_then(|(_, size)| *size);
-                local
-                    .zip(geometry)
-                    .and_then(|(transform, (mapping, _))| transform.then_local(mapping))
-            } else {
-                local
-            };
-            parent
-                .and_then(|frame| frame.cumulative)
-                .zip(local)
-                .and_then(|(ancestor, local)| ancestor.then_local(local))
+
+
+        let cumulative = match parent {
+            ::core::option::Option::None => {
+                let checked_value = root_viewport(tag, checkpoint)?;
+                viewport = checked_value;
+                let checked_value_2 = Affine::from_tag(tag, checkpoint)?;
+                checked_value_2
+                    .zip({ let checked_value_3 = root_mapping(tag, checkpoint)?; checked_value_3 })
+                    .and_then(|(transform, mapping)| transform.then_local(mapping))
+            },
+            ::core::option::Option::Some(_) => {
+                let local = Affine::from_tag(tag, checkpoint)?;
+                let local_2 = if name.eq_ignore_ascii_case("svg") {
+                    let geometry = nested_viewport(tag, viewport, checkpoint)?;
+                    viewport = geometry.as_ref().and_then(|(_, size)| *size);
+                    local
+                        .zip(geometry)
+                        .and_then(|(transform, (mapping, _))| transform.then_local(mapping))
+                } else {
+                    local
+                };
+                parent
+                    .and_then(|frame| frame.cumulative)
+                    .zip(local_2)
+                    .and_then(|(ancestor, local_3)| ancestor.then_local(local_3))
+            },
         };
         Ok(Self {
             cumulative,
@@ -61,7 +66,7 @@ impl SourceFrame {
     ) -> Result<Option<Affine>, E> {
         Ok(self
             .cumulative
-            .zip(Affine::from_tag(tag, checkpoint)?)
+            .zip({ let checked_value = Affine::from_tag(tag, checkpoint)?; checked_value })
             .and_then(|(ancestor, local)| ancestor.then_local(local)))
     }
 }
@@ -72,7 +77,8 @@ pub(super) fn attribute<'a, E>(
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<Option<Cow<'a, str>>, E> {
     let mut cursor = 0;
-    while let Some(attr) = next_svg_quoted_attr_with_checkpoints(tag, cursor, checkpoint)? {
+
+    while let Some(attr) = { let checked_value = next_svg_quoted_attr_with_checkpoints(tag, cursor, checkpoint)?; checked_value } {
         if &tag[attr.name_start..attr.name_end] == name {
             let raw = tag[attr.value_start..attr.value_end].trim();
             checkpoint()?;
@@ -80,8 +86,10 @@ pub(super) fn attribute<'a, E>(
             checkpoint()?;
             return Ok(Some(decoded));
         }
+
         cursor = attr.full_end;
     }
+
     Ok(None)
 }
 
@@ -89,9 +97,15 @@ fn parse_class_tokens<E>(
     tag: &str,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<Vec<String>, E> {
-    let Some(value) = attribute(tag, "class", checkpoint)? else {
-        return Ok(Vec::new());
+    let value = {
+        let optional_value = attribute(tag, "class", checkpoint)?;
+
+        match optional_value {
+            Some(matched_value) => matched_value,
+            ::core::option::Option::None => return Ok(Vec::new()),
+        }
     };
+
     checkpoint()?;
     Ok(value.split_whitespace().map(str::to_owned).collect())
 }
@@ -104,11 +118,13 @@ fn push_unique_token<E>(
 ) -> Result<(), E> {
     for existing in tokens.iter() {
         checkpoint_loop(*iteration, checkpoint)?;
+
         *iteration = iteration.saturating_add(1);
         if existing == token {
             return Ok(());
         }
     }
+
     tokens.push(token.to_string());
     Ok(())
 }
@@ -121,20 +137,26 @@ pub(super) fn source_class_attr_tokens<E>(
 ) -> Result<Option<String>, E> {
     let mut tokens = Vec::new();
     let mut iteration = 0usize;
+
     for (frame_index, frame) in stack.iter().enumerate() {
         checkpoint_loop(frame_index, checkpoint)?;
+
         for token in &frame.class_tokens {
             push_unique_token(&mut tokens, token, &mut iteration, checkpoint)?;
         }
     }
+
     for tag in [foreign_object_tag, inner] {
         for token in parse_class_tokens(tag, checkpoint)? {
             push_unique_token(&mut tokens, &token, &mut iteration, checkpoint)?;
         }
     }
+
     checkpoint()?;
+
     if tokens.is_empty() {
         return Ok(None);
     }
+
     escape_xml_attr_with_checkpoints(&tokens.join(" "), checkpoint).map(Some)
 }

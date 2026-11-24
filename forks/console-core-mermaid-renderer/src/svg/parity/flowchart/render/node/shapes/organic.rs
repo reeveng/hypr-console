@@ -10,8 +10,10 @@ const HAND_DRAWN_ROUGHNESS: f32 = 0.7;
 const HAND_DRAWN_FILL_WEIGHT: f32 = 1.5;
 const HAND_DRAWN_HACHURE_GAP: f32 = 1.5;
 
+#[must_use]
 fn path_data(arcs: &[RelativeArc]) -> String {
     let mut path = String::from("M0 0\n");
+
     for arc in arcs {
         let _ = writeln!(
             path,
@@ -25,6 +27,7 @@ fn path_data(arcs: &[RelativeArc]) -> String {
             fmt(arc.dy),
         );
     }
+
     path.push_str("H0 V0 Z");
     path
 }
@@ -36,6 +39,7 @@ fn render_organic_shape(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let path = path_data(&geometry.arcs);
+
     if common.look_is_hand_drawn()
         && let Some((fill_d, stroke_d)) =
             super::super::helpers::timed_node_roughjs(common.timing, details, || {
@@ -59,10 +63,10 @@ fn render_organic_shape(
             fmt(geometry.translate_y),
             escape_attr(&fill_d),
             escape_attr(common.fill_color),
-            fmt_display(HAND_DRAWN_FILL_WEIGHT as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(HAND_DRAWN_FILL_WEIGHT)),
             escape_attr(&stroke_d),
             escape_attr(common.stroke_color),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.stroke_dasharray),
         );
         return;
@@ -85,12 +89,20 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_bang(
     label: &mut super::super::FlowchartNodeLabelState<'_>,
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
-    let label_width = common.layout_node.label_width.unwrap_or(0.0).max(0.0);
-    let label_height = common.layout_node.label_height.unwrap_or(0.0).max(0.0);
+    let label_width = match common.layout_node.label_width {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    }.max(0.0);
+    let label_height = match common.layout_node.label_height {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    }.max(0.0);
     let geometry = crate::flowchart::bang_geometry(label_width, label_height, ctx.node_padding);
+
     if !ctx.node_html_labels {
         label.dx = -label_width / 2.0;
     }
+
     render_organic_shape(out, common, &geometry, details);
 }
 
@@ -101,12 +113,20 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_cloud(
     label: &mut super::super::FlowchartNodeLabelState<'_>,
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
-    let label_width = common.layout_node.label_width.unwrap_or(0.0).max(0.0);
-    let label_height = common.layout_node.label_height.unwrap_or(0.0).max(0.0);
+    let label_width = match common.layout_node.label_width {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    }.max(0.0);
+    let label_height = match common.layout_node.label_height {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    }.max(0.0);
     let geometry = crate::flowchart::cloud_geometry(label_width, label_height, ctx.node_padding);
+
     if !ctx.node_html_labels {
         label.dx = -label_width / 2.0;
     }
+
     render_organic_shape(out, common, &geometry, details);
 }
 
@@ -118,8 +138,15 @@ pub(super) fn advance_rough_geometry(
     if !common.look_is_hand_drawn() {
         return;
     }
-    let w = common.layout_node.label_width.unwrap_or(0.0).max(0.0);
-    let h = common.layout_node.label_height.unwrap_or(0.0).max(0.0);
+
+    let w = match common.layout_node.label_width {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    }.max(0.0);
+    let h = match common.layout_node.label_height {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    }.max(0.0);
     let geometry = if cloud {
         crate::flowchart::cloud_geometry(w, h, ctx.node_padding)
     } else {

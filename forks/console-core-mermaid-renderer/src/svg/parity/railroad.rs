@@ -45,6 +45,7 @@ pub(crate) fn render_railroad_diagram_svg_model(
         );
         out.checkpoint()?;
     }
+
     if let Some(descr) = acc_descr {
         let _ = write!(
             &mut out,
@@ -53,6 +54,7 @@ pub(crate) fn render_railroad_diagram_svg_model(
         );
         out.checkpoint()?;
     }
+
     out.push_str("<style>");
     out.checkpoint()?;
     write_railroad_css(
@@ -120,20 +122,24 @@ pub(crate) fn render_railroad_diagram_svg_model(
             fmt(rule.marker_radius)
         );
         out.checkpoint()?;
+
         for path in rule.paths.iter().rev().take(2).rev() {
             push_path(&mut out, path)?;
         }
+
         out.push_str("</g>");
         out.checkpoint()?;
     }
 
     out.push_str("</svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if !typography_theme.record_terminal(surface_receipt) {
         return Err(crate::Error::InvalidModel {
             message: "Railroad typography receipt was recorded more than once".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 
@@ -152,9 +158,11 @@ fn push_render_node(
             push_optional_transform(out, *transform);
             out.push('>');
             out.checkpoint()?;
+
             for child in children {
                 push_render_node(out, child, surface_receipt)?;
             }
+
             out.push_str("</g>");
             out.checkpoint()
         }
@@ -173,7 +181,8 @@ fn push_optional_transform(out: &mut impl SvgOutput, transform: Option<(f64, f64
 
 fn push_path(out: &mut impl SvgOutput, path: &crate::model::RailroadPathLayout) -> Result<()> {
     out.push_str(r#"<path class="railroad-line""#);
-    if path.x != 0.0 || path.y != 0.0 {
+
+    if !::core::matches!(::core::primitive::f64::classify(path.x), ::core::num::FpCategory::Zero) || !::core::matches!(::core::primitive::f64::classify(path.y), ::core::num::FpCategory::Zero) {
         let _ = write!(
             out,
             r#" transform="translate({}, {})""#,
@@ -181,6 +190,7 @@ fn push_path(out: &mut impl SvgOutput, path: &crate::model::RailroadPathLayout) 
             fmt(path.y)
         );
     }
+
     let _ = write!(out, r#" d="{}"></path>"#, escape_attr_display(&path.d));
     out.checkpoint()
 }
@@ -200,6 +210,7 @@ fn push_element(
     let _ = write!(out, r#"<g class="{}""#, class);
     push_optional_transform(out, transform);
     out.push('>');
+
     match element.kind.as_str() {
         "terminal" => {
             let _ = write!(
@@ -218,6 +229,7 @@ fn push_element(
             );
         }
     }
+
     let _ = write!(
         out,
         r#"<text x="{}" y="{}">{}</text></g>"#,
@@ -226,6 +238,7 @@ fn push_element(
         escape_xml_display(&element.label)
     );
     out.checkpoint()?;
+
     match element.kind.as_str() {
         "terminal" => surface_receipt.record_terminal_text(&element.label),
         "nonterminal" => surface_receipt.record_nonterminal_text(&element.label),
@@ -233,6 +246,7 @@ fn push_element(
         "special" => surface_receipt.record_special_text(&element.label),
         _ => {}
     }
+
     Ok(())
 }
 

@@ -29,13 +29,20 @@ impl FlowchartLabelTypography {
         theme: Option<&ResolvedDiagramTheme>,
         meter: Option<&OperationWorkMeter>,
     ) -> Result<Self, OperationWorkError> {
-        let Some(theme) = theme else {
-            return Ok(Self::default());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::default()),
         };
-        let routes = theme.family_mechanism_routes();
-        if let Some(meter) = meter {
-            meter.charge(routes.len())?;
+
+        let routes = theme_2.family_mechanism_routes();
+
+        match meter {
+            Some(meter_2) => {
+                meter_2.charge(routes.len())?;
+            },
+            ::core::option::Option::None => {},
         }
+
         if !routes.iter().any(|route| {
             route.disposition() == FamilyThemeDisposition::TypedAdapter
                 && matches!(
@@ -53,27 +60,28 @@ impl FlowchartLabelTypography {
         }) {
             return Ok(Self::default());
         }
+
         let typography = |target| -> Result<LabelTypography, OperationWorkError> {
             let style = match meter {
-                Some(meter) => {
-                    theme.style_with_work_meter(target, ThemeVariant::Default, None, meter)?
+                Some(meter_3) => {
+                    theme_2.style_with_work_meter(target, ThemeVariant::Default, None, meter_3)?
                 }
-                None => theme.style(target, ThemeVariant::Default, None),
+                None => theme_2.style(target, ThemeVariant::Default, None),
             };
             let selected = |requested| {
                 style.winner_rule_properties().any(|(property, origin)| {
                     property == ResolvedStyleProperty::Typography(requested)
-                        && theme.rule_facet_disposition(
+                        && theme_2.rule_facet_disposition(
                             origin.rule_index(),
                             FamilyThemeRuleFacet::Typography(requested),
                         ) == Some(FamilyThemeDisposition::TypedAdapter)
                 })
             };
             let patch = style.typography_resolution().patch();
-            // Swimlane resolves its labelRect source styles in a separate layout module. Until
-            // that module installs these parents, retain its existing unverified font path.
+
+
             let prepared_fonts = matches!(
-                theme.family_id(),
+                theme_2.family_id(),
                 crate::DiagramFamilyId::FLOWCHART | crate::DiagramFamilyId::AGENTFLOW
             );
             Ok(LabelTypography {
@@ -90,12 +98,13 @@ impl FlowchartLabelTypography {
             })
         };
         Ok(Self {
-            node: typography(ThemeTarget::NodeLabel)?,
-            edge: typography(ThemeTarget::EdgeLabel)?,
+            node: { let checked_value = typography(ThemeTarget::NodeLabel)?; checked_value },
+            edge: { let checked_value_2 = typography(ThemeTarget::EdgeLabel)?; checked_value_2 },
             invalid_config_weight: false,
         })
     }
 
+    #[must_use]
     pub(crate) fn with_config(
         mut self,
         ownership: super::FlowchartTypographyConfigOwnership,
@@ -104,21 +113,29 @@ impl FlowchartLabelTypography {
             if ownership.font_stack {
                 style.font_stack = None;
             }
+
             if ownership.font_size {
                 style.font_size = None;
             }
-            if let Some(weight) = ownership.font_weight {
-                style.font_weight = style.font_weight.map(|_| weight);
+
+            match ownership.font_weight {
+                Some(weight) => {
+                    style.font_weight = style.font_weight.map(|_| weight);
+                },
+                ::core::option::Option::None => {},
             }
         }
+
         self.invalid_config_weight = ownership.invalid_font_weight;
         self
     }
 
+    #[must_use]
     pub(crate) fn config_is_verified(&self) -> bool {
         !self.invalid_config_weight
     }
 
+    #[must_use]
     fn style(&self, target: ThemeTarget) -> Option<&LabelTypography> {
         match target {
             ThemeTarget::NodeLabel => Some(&self.node),
@@ -127,19 +144,24 @@ impl FlowchartLabelTypography {
         }
     }
 
+    #[must_use]
     pub(crate) fn get(&self, target: ThemeTarget) -> Option<u16> {
-        self.style(target)?.font_weight
+        let checked_value = self.style(target)?;
+        checked_value.font_weight
     }
 
+    #[must_use]
     pub(crate) fn has_fonts(&self, target: ThemeTarget) -> bool {
         self.style(target)
             .is_some_and(|style| style.font_stack.is_some() || style.font_size.is_some())
     }
 
+    #[must_use]
     pub(crate) fn requested(&self, target: ThemeTarget) -> bool {
         self.has_fonts(target) || self.get(target).is_some()
     }
 
+    #[must_use]
     pub(crate) fn parent_style<'a>(
         &self,
         target: ThemeTarget,
@@ -148,6 +170,7 @@ impl FlowchartLabelTypography {
         self.parent_style_with_source(target, parent, false, false)
     }
 
+    #[must_use]
     pub(crate) fn source_parent_style<'a>(
         &self,
         target: ThemeTarget,
@@ -160,6 +183,7 @@ impl FlowchartLabelTypography {
         if !self.has_fonts(target) {
             return self.parent_style(target, parent);
         }
+
         let [stack, size] = super::style::flowchart_declared_font_facets(
             class_defs,
             classes,
@@ -169,6 +193,7 @@ impl FlowchartLabelTypography {
         self.parent_style_with_source(target, parent, stack, size)
     }
 
+    #[must_use]
     pub(crate) fn node_source_parent_style<'a>(
         &self,
         parent: &'a TextStyle,
@@ -178,15 +203,16 @@ impl FlowchartLabelTypography {
     ) -> Cow<'a, TextStyle> {
         let [stack, size] =
             super::style::flowchart_declared_font_facets(class_defs, source.0, source.1, source.2);
-        let parent = self.parent_style_with_source(
+        let parent_2 = self.parent_style_with_source(
             ThemeTarget::NodeLabel,
             parent,
             stack || !structural.font_stack_status().is_absent(),
             size || !structural.font_size_status().is_absent(),
         );
-        structural.apply_to_parent(parent)
+        structural.apply_to_parent(parent_2)
     }
 
+    #[must_use]
     pub(crate) fn parent_style_with_source<'a>(
         &self,
         target: ThemeTarget,
@@ -194,39 +220,60 @@ impl FlowchartLabelTypography {
         source_font_stack: bool,
         source_font_size: bool,
     ) -> Cow<'a, TextStyle> {
-        let Some(style) = self.style(target) else {
-            return Cow::Borrowed(parent);
+        let style = {
+            let optional_style = self.style(target);
+
+            match optional_style {
+                Some(matched_style) => matched_style,
+                ::core::option::Option::None => return Cow::Borrowed(parent),
+            }
         };
+
         if !self.requested(target) {
             return Cow::Borrowed(parent);
         }
-        // A source winner keeps the original CSS parent, so em/inherit do not inherit a
-        // competing theme declaration that the browser's cascade would discard.
-        let mut parent = parent.clone();
+
+
+
+        let mut parent_2 = parent.clone();
+
         if !source_font_stack && let Some(stack) = &style.font_stack {
-            parent.font_family = Some(stack.as_css());
+            parent_2.font_family = Some(stack.as_css());
         }
+
         if !source_font_size && let Some(size) = style.font_size {
-            parent.font_size = size;
+            parent_2.font_size = size;
         }
-        if let Some(weight) = style.font_weight {
-            parent.font_weight = Some(weight.to_string());
+
+        match style.font_weight {
+            Some(weight) => {
+                parent_2.font_weight = Some(weight.to_string());
+            },
+            ::core::option::Option::None => {},
         }
-        Cow::Owned(parent)
+
+        Cow::Owned(parent_2)
     }
 
+    #[must_use]
     pub(crate) fn apply_cow<'a>(
         &self,
         target: ThemeTarget,
         mut source: Cow<'a, TextStyle>,
     ) -> Cow<'a, TextStyle> {
-        let Some(base) = self.get(target) else {
-            return source;
+        let base = {
+            let optional_base = self.get(target);
+
+            match optional_base {
+                Some(matched_base) => matched_base,
+                ::core::option::Option::None => return source,
+            }
         };
+
         let weight = match source.font_weight.as_deref() {
             Some(value) => match resolve_css_font_weight(value, base) {
                 Some(weight) => weight,
-                // Preserve invalid source input for the existing source admission boundary.
+
                 None => return source,
             },
             None => base,
@@ -243,30 +290,40 @@ impl FlowchartLabelTypography {
         source_font_size: super::FlowchartSourceFacetStatus,
         style: &mut String,
     ) {
-        let Some(selected) = self.style(target) else {
-            return;
+        let selected = {
+            let optional_selected = self.style(target);
+
+            match optional_selected {
+                Some(matched_selected) => matched_selected,
+                ::core::option::Option::None => return,
+            }
         };
+
         use std::fmt::Write as _;
+
         if selected.font_stack.is_some()
             && source_font_stack.is_absent()
             && let Some(stack) = &effective.font_family
         {
             let _ = write!(style, ";font-family:{stack} !important;");
         }
+
         if selected.font_size.is_some() && source_font_size.is_absent() {
             let _ = write!(style, ";font-size:{}px !important;", effective.font_size);
         }
+
         if selected.font_weight.is_some()
             && let Some(weight) = effective
                 .font_weight
                 .as_deref()
-                .and_then(|s| s.parse::<u16>().ok())
+                .and_then(|s| match s.parse::<u16>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None })
                 .filter(|weight| (1..=1000).contains(weight))
         {
             let _ = write!(style, ";font-weight:{weight} !important;");
         }
     }
 
+    #[must_use]
     pub(crate) fn apply<'a>(
         &self,
         target: ThemeTarget,

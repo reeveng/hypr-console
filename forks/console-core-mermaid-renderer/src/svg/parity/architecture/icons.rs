@@ -3,11 +3,12 @@ use crate::svg::icon_registry::{IconIdScope, scope_svg_internal_ids};
 use super::super::{SvgOutput, fmt_into};
 use std::borrow::Cow;
 
+#[must_use]
 pub(super) fn arch_icon_body(name: &str) -> &'static str {
-    // Copied from Mermaid@11.12.2 `packages/mermaid/src/diagrams/architecture/architectureIcons.ts`.
-    //
-    // Note: SVG DOM parity checks ignore `style` attributes, but we keep the upstream bodies as-is
-    // to preserve element structure and any stable non-style attributes (e.g. `id`).
+
+
+
+
     match name {
         "database" => {
             r#"<g><rect width="80" height="80" style="fill: #087ebf; stroke-width: 0px;"/><path id="b" data-name="4" d="m20,57.86c0,3.94,8.95,7.14,20,7.14s20-3.2,20-7.14" style="fill: none; stroke: #fff; stroke-miterlimit: 10; stroke-width: 2px;"/><path id="c" data-name="3" d="m20,45.95c0,3.94,8.95,7.14,20,7.14s20-3.2,20-7.14" style="fill: none; stroke: #fff; stroke-miterlimit: 10; stroke-width: 2px;"/><path id="d" data-name="2" d="m20,34.05c0,3.94,8.95,7.14,20,7.14s20-3.2,20-7.14" style="fill: none; stroke: #fff; stroke-miterlimit: 10; stroke-width: 2px;"/><ellipse id="e" data-name="1" cx="40" cy="22.14" rx="20" ry="7.14" style="fill: none; stroke: #fff; stroke-miterlimit: 10; stroke-width: 2px;"/><line x1="20" y1="57.86" x2="20" y2="22.14" style="fill: none; stroke: #fff; stroke-miterlimit: 10; stroke-width: 2px;"/><line x1="60" y1="57.86" x2="60" y2="22.14" style="fill: none; stroke: #fff; stroke-miterlimit: 10; stroke-width: 2px;"/></g>"#
@@ -34,10 +35,12 @@ pub(super) fn arch_icon_body(name: &str) -> &'static str {
     }
 }
 
+#[must_use]
 fn arch_icon_body_has_internal_ids(name: &str) -> bool {
     matches!(name, "database")
 }
 
+#[must_use]
 pub(super) fn arch_icon_needs_id_scope(icon_name: &str, has_registry: bool) -> bool {
     has_registry || arch_icon_body_has_internal_ids(icon_name)
 }
@@ -49,11 +52,11 @@ pub(super) fn write_arch_icon_svg(
     id_scope: Option<IconIdScope>,
 ) -> crate::Result<()> {
     let body = arch_icon_body(icon_name);
-    let body = if arch_icon_body_has_internal_ids(icon_name) {
-        let id_scope = id_scope.ok_or_else(|| {
+    let body_2 = if arch_icon_body_has_internal_ids(icon_name) {
+        let id_scope_2 = id_scope.ok_or_else(|| {
             crate::Error::icon_processing("built-in icon with internal IDs is missing its scope")
         })?;
-        Cow::Owned(scope_svg_internal_ids(body, id_scope)?)
+        Cow::Owned({ let checked_value = scope_svg_internal_ids(body, id_scope_2)?; checked_value })
     } else {
         Cow::Borrowed(body)
     };
@@ -62,7 +65,7 @@ pub(super) fn write_arch_icon_svg(
     out.push_str(r#"" height=""#);
     fmt_into(out, icon_size_px);
     out.push_str(r#"" viewBox="0 0 80 80">"#);
-    out.push_str(body.as_ref());
+    out.push_str(body_2.as_ref());
     out.push_str("</svg>");
     Ok(())
 }
@@ -89,11 +92,16 @@ pub(super) fn write_arch_icon_svg_with_registry(
         })?,
         None => None,
     };
-    if let Some(svg) = svg {
-        out.push_str(&svg);
-    } else {
-        write_arch_icon_svg(out, icon_name, icon_size_px, Some(id_scope))?;
+
+    match svg {
+        Some(svg_2) => {
+            out.push_str(&svg_2);
+        },
+        ::core::option::Option::None => {
+            write_arch_icon_svg(out, icon_name, icon_size_px, Some(id_scope))?;
+        },
     }
+
     Ok(())
 }
 

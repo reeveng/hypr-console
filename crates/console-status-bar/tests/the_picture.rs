@@ -41,6 +41,51 @@ const SCREEN: Size<u32> = Size {
 const SPENT: &str = "ground=2b2029\ntext=f7e7f3\nsoft=c9aec4\npink=ff9ecb\nnight=231b26\nbutter=f2d692\ncoral=ff8f8f\nleaf=9fd88f\nfill=723b5f";
 
 #[test]
+fn bottom_bar_keeps_the_horizontal_layout_with_progress_on_the_inner_edge()
+-> Result<(), Box<dyn Error>> {
+  let Ok(mut state) = sample_state();
+  state.clock = "Sat 21 Nov  12:59 pm".to_owned();
+  let mut preferences = Preferences::default();
+  preferences.placement = Placement::Bottom;
+  let Ok(layout) = state.configured(&preferences, Filling::At(250));
+  let Ok(fitting) = Fitting::of_em();
+  let Ok(bar) = measuring::sized(&layout, fitting);
+  let wearing = sample_palette()?;
+  let Ok(top) = showing::along_with_applets(&bar, &[], &wearing, SCREEN, Placement::Top);
+  let Ok(bottom) = showing::along_with_applets(&bar, &[], &wearing, SCREEN, Placement::Bottom);
+
+  assert_eq!(top.room, bottom.room);
+  assert!(!bottom.touching.is_empty());
+  assert_eq!(top.touching.len(), bottom.touching.len());
+  let Ok(strip) = fitted::<_, i32>(fitting.thin);
+
+  for (above, below) in top.touching.iter().zip(&bottom.touching) {
+    assert_eq!(above.action, below.action);
+    assert_eq!(above.panel.at.x, below.panel.at.x);
+    assert_eq!(above.panel.at.y.saturating_add(strip), below.panel.at.y);
+    let Ok(width) = fitted::<_, i32>(below.panel.size.width);
+    let Ok(height) = fitted::<_, i32>(below.panel.size.height);
+    let center = Point {
+      x: below.panel.at.x.saturating_add(width.saturating_div(2)),
+      y: below.panel.at.y.saturating_add(height.saturating_div(2)),
+    };
+    assert_eq!(bottom.on(center), Ok(Some(below.action)));
+  }
+
+  assert!(
+    bottom
+      .shapes
+      .iter()
+      .any(|shape| matches!(shape, Shape::Text(text) if text.said == state.clock))
+  );
+  assert!(matches!(bottom.shapes.last(), Some(Shape::Panel(panel))
+    if panel.at == (Point { x: 0, y: 0 }) && panel.size.height == fitting.thin
+    && panel.fill == wearing.fill));
+
+  Ok(())
+}
+
+#[test]
 fn sidebar_items_fit_and_use_their_drawn_hit_regions_on_both_edges() -> Result<(), Box<dyn Error>>
 {
   let Ok((bar, applets, fitting, room)) = sidebar_fixture();

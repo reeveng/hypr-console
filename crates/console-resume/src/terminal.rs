@@ -164,6 +164,25 @@ fn configuration(binary: &str) -> Result<Option<Configuration>, Never> {
 }
 
 pub fn restore_command(arguments: &[String], pid: i32) -> Result<Option<Vec<String>>, Never> {
+  let first = {
+    let optional_first = arguments.first();
+
+    match optional_first {
+      Some(matched_first) => matched_first,
+      ::core::option::Option::None => return Ok(None),
+    }
+  };
+
+  let Ok(binary) = binary(first);
+  let Ok(terminal) = configuration(binary);
+
+  match terminal {
+    ::core::option::Option::None => {
+      return Ok(None);
+    }
+    ::core::option::Option::Some(_) => {}
+  }
+
   let occupant = inspect(pid)?;
 
   restore(arguments, &occupant)

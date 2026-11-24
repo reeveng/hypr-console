@@ -12,6 +12,7 @@ path = "src/lib.rs"
 
 [dependencies]
 console-core-audio-decoding-advanced-audio-coding = { path = "../console-core-audio-decoding-advanced-audio-coding" }
+console-core-audio-decoding-interfaces = { path = "../console-core-audio-decoding-interfaces" }
 console-core-mpeg-audio-frames.workspace = true
 console-core-iso-media-boxes.workspace = true
 console-core-deflate.workspace = true

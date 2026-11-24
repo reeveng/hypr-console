@@ -14,6 +14,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_document(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (group_dy, outer_path, inner_path) = prepare_stacked_document_geometry(ctx, common, label);
+
     if common.look_is_hand_drawn() {
         let _ = write!(
             out,
@@ -28,6 +29,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_document(
             fmt_display(group_dy)
         );
     }
+
     let outer_paths = if common.look_is_hand_drawn() {
         helpers::hand_drawn_path_pair(common, details, &outer_path)
     } else {
@@ -41,6 +43,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_document(
             )
         })
     };
+
     if let Some((fill_d, stroke_d)) = outer_paths {
         if common.look_is_hand_drawn() {
             let _ = write!(
@@ -50,7 +53,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_document(
                 escape_xml_display(common.fill_color),
                 escape_xml_display(&stroke_d),
                 escape_xml_display(common.stroke_color),
-                fmt_display(common.stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
                 escape_xml_display(common.stroke_dasharray),
             );
         } else {
@@ -62,7 +65,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_document(
                 escape_xml_display(common.style),
                 escape_xml_display(&stroke_d),
                 escape_xml_display(common.stroke_color),
-                fmt_display(common.stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
                 escape_xml_display(common.stroke_dasharray),
                 escape_xml_display(common.style),
             );
@@ -74,10 +77,11 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_document(
             escape_xml_display(&outer_path),
             escape_xml_display(common.fill_color),
             escape_xml_display(common.stroke_color),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_xml_display(common.style),
         );
     }
+
     out.push_str("<g>");
     let inner_paths = if common.look_is_hand_drawn() {
         helpers::hand_drawn_path_pair(common, details, &inner_path)
@@ -92,6 +96,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_document(
             )
         })
     };
+
     if let Some((fill_d, stroke_d)) = inner_paths {
         if common.look_is_hand_drawn() {
             let _ = write!(
@@ -101,7 +106,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_document(
                 escape_xml_display(common.fill_color),
                 escape_xml_display(&stroke_d),
                 escape_xml_display(common.stroke_color),
-                fmt_display(common.stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
                 escape_xml_display(common.stroke_dasharray),
             );
         } else {
@@ -113,7 +118,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_document(
                 escape_xml_display(common.style),
                 escape_xml_display(&stroke_d),
                 escape_xml_display(common.stroke_color),
-                fmt_display(common.stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
                 escape_xml_display(common.stroke_dasharray),
                 escape_xml_display(common.style),
             );
@@ -125,10 +130,11 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_stacked_document(
             escape_xml_display(&inner_path),
             escape_xml_display(common.fill_color),
             escape_xml_display(common.stroke_color),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_xml_display(common.style),
         );
     }
+
     out.push_str("</g></g>");
 }
 
@@ -168,6 +174,7 @@ pub(super) fn advance_stacked_document_rough_geometry(
 ) {
     let (_, outer_path, inner_path) = prepare_stacked_document_geometry(ctx, common, label);
     let target = super::super::roughjs::RoughGeometryTarget::Query;
+
     for path in [&outer_path, &inner_path] {
         let _ = super::super::helpers::prepare_node_path(common, path, target);
     }

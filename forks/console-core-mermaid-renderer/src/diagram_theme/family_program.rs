@@ -42,6 +42,7 @@ pub(super) struct FamilyThemeProgramCache {
 }
 
 impl FamilyThemeProgramCache {
+    #[must_use]
     pub(super) fn new(spec: Arc<DiagramThemeSpec>) -> Self {
         Self {
             spec,
@@ -49,6 +50,7 @@ impl FamilyThemeProgramCache {
         }
     }
 
+    #[must_use]
     pub(super) fn get_or_compile(&self, family: DiagramFamilyId) -> Arc<FamilyThemeProgram> {
         let mut programs = self
             .programs
@@ -88,6 +90,7 @@ struct FamilyRuleSlot {
 }
 
 impl FamilyThemeProgram {
+    #[must_use]
     pub(super) fn compile(spec: Arc<DiagramThemeSpec>, family: DiagramFamilyId) -> Self {
         let base_typography = spec.typography().family_style(family).clone();
         let mut rule_indices = Vec::new();
@@ -112,20 +115,25 @@ impl FamilyThemeProgram {
 
         let mut ordinal_palette_indices = BTreeMap::new();
         let mut ordinal_palette_dispositions = BTreeMap::new();
+
         for (index, (target, _)) in spec.styles().ordinal_palettes().iter().enumerate() {
             if *target == ThemeTarget::Canvas || !target.valid_for(family) {
                 continue;
             }
+
             ordinal_palette_indices.insert(*target, index);
             let route = compile_ordinal_palette_route(family, *target);
             ordinal_palette_dispositions.insert(*target, route.disposition());
             mechanism_routes.push(route);
         }
+
         let mut effect_binding_indices = Vec::new();
+
         for (index, binding) in spec.effects().bindings().iter().enumerate() {
             if binding.target() == ThemeTarget::Canvas || !binding.target().valid_for(family) {
                 continue;
             }
+
             effect_binding_indices.push(index);
             mechanism_routes.push(compile_effect_binding_route(
                 family,
@@ -133,6 +141,7 @@ impl FamilyThemeProgram {
                 binding.target(),
             ));
         }
+
         let rule_facet_dispositions = mechanism_routes
             .iter()
             .filter_map(|route| match route.mechanism() {
@@ -147,13 +156,16 @@ impl FamilyThemeProgram {
 
         let mut requested_mechanisms = Vec::new();
         let mut requested_index = BTreeSet::new();
+
         for route in mechanism_routes.iter().copied() {
             let key = mechanism_key(&spec, route);
+
             if requested_index.insert(key.clone()) {
                 requested_mechanisms.push(key);
             }
         }
-        let requested_mechanisms: Option<Arc<[FamilyThemeMechanismKey]>> =
+
+        let requested_mechanisms_2: Option<Arc<[FamilyThemeMechanismKey]>> =
             if requested_mechanisms.is_empty() {
                 None
             } else {
@@ -169,28 +181,36 @@ impl FamilyThemeProgram {
             ordinal_palette_dispositions,
             effect_binding_indices: effect_binding_indices.into_boxed_slice(),
             mechanism_routes: mechanism_routes.into_boxed_slice(),
-            requested_mechanisms,
+            requested_mechanisms: requested_mechanisms_2,
             requested_index,
             rule_facet_dispositions,
         }
     }
 
+    #[must_use]
     pub(crate) fn requested_mechanisms(&self) -> &[FamilyThemeMechanismKey] {
-        self.requested_mechanisms.as_deref().unwrap_or_default()
+        match self.requested_mechanisms.as_deref() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => &[],
+        }
     }
 
+    #[must_use]
     pub(crate) fn shared_requested_mechanisms(&self) -> Option<Arc<[FamilyThemeMechanismKey]>> {
         self.requested_mechanisms.clone()
     }
 
+    #[must_use]
     pub(crate) fn contains_requested_mechanism(&self, key: &FamilyThemeMechanismKey) -> bool {
         self.requested_index.contains(key)
     }
 
+    #[must_use]
     pub(super) fn mechanism_key(&self, route: FamilyThemeRoute) -> FamilyThemeMechanismKey {
         mechanism_key(&self.spec, route)
     }
 
+    #[must_use]
     pub(super) const fn base_typography(&self) -> &TextStyle {
         &self.base_typography
     }
@@ -203,18 +223,22 @@ impl FamilyThemeProgram {
             || !self.effect_binding_indices.is_empty()
     }
 
+    #[must_use]
     pub(super) fn rule_indices(&self) -> &[usize] {
         &self.rule_indices
     }
 
+    #[must_use]
     pub(super) fn ordinal_palette_targets(&self) -> impl Iterator<Item = ThemeTarget> + '_ {
         self.ordinal_palette_indices.keys().copied()
     }
 
+    #[must_use]
     pub(super) fn ordinal_palette_index(&self, target: ThemeTarget) -> Option<usize> {
         self.ordinal_palette_indices.get(&target).copied()
     }
 
+    #[must_use]
     pub(super) fn ordinal_palette_disposition(
         &self,
         target: ThemeTarget,
@@ -222,10 +246,12 @@ impl FamilyThemeProgram {
         self.ordinal_palette_dispositions.get(&target).copied()
     }
 
+    #[must_use]
     pub(super) fn effect_binding_indices(&self) -> &[usize] {
         &self.effect_binding_indices
     }
 
+    #[must_use]
     pub(super) fn rule_facet_disposition(
         &self,
         rule_index: usize,
@@ -236,14 +262,17 @@ impl FamilyThemeProgram {
             .copied()
     }
 
+    #[must_use]
     pub(super) fn has_mechanism_routes(&self) -> bool {
         !self.mechanism_routes.is_empty()
     }
 
+    #[must_use]
     pub(super) fn mechanism_routes(&self) -> &[FamilyThemeRoute] {
         &self.mechanism_routes
     }
 
+    #[must_use]
     pub(super) fn resolve_style(
         &self,
         target: ThemeTarget,
@@ -272,11 +301,16 @@ impl FamilyThemeProgram {
         work_meter: Option<&OperationWorkMeter>,
     ) -> Result<ResolvedThemeStyle, OperationWorkError> {
         let mut resolved = ResolvedThemeStyle::new(self.base_typography.clone());
-        if let Some(slot) = self.slots.get(&target) {
-            charge_ordinal_candidates(work_meter, ordinal, slot.ordinal_candidate_count(variant))?;
-            slot.apply_static(&mut resolved, variant);
-            slot.apply_ordinal(&self.spec, &mut resolved, variant, ordinal);
+
+        match self.slots.get(&target) {
+            Some(slot) => {
+                charge_ordinal_candidates(work_meter, ordinal, slot.ordinal_candidate_count(variant))?;
+                slot.apply_static(&mut resolved, variant);
+                slot.apply_ordinal(&self.spec, &mut resolved, variant, ordinal);
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(resolved)
     }
 
@@ -311,11 +345,13 @@ impl FamilyThemeProgram {
     ) -> Result<ResolvedThemeStyle, OperationWorkError> {
         let mut resolved =
             self.resolve_text_style_with_work_meter(fallback_target, variant, ordinal, work_meter)?;
+
         if self.slots.contains_key(&override_target) {
             let role =
                 self.resolve_style_with_work_meter(override_target, variant, ordinal, work_meter)?;
             resolved.overlay_role(role);
         }
+
         Ok(resolved)
     }
 
@@ -335,12 +371,15 @@ impl FamilyThemeProgram {
             };
         charge_ordinal_candidates(work_meter, ordinal, ordinal_candidate_count)?;
         self.apply_text_target(ThemeTarget::Text, &mut resolved, variant, ordinal);
+
         if target != ThemeTarget::Text {
             self.apply_text_target(target, &mut resolved, variant, ordinal);
         }
+
         Ok(resolved)
     }
 
+    #[must_use]
     fn ordinal_candidate_count(&self, target: ThemeTarget, variant: ThemeVariant) -> usize {
         self.slots
             .get(&target)
@@ -354,15 +393,22 @@ impl FamilyThemeProgram {
         variant: ThemeVariant,
         ordinal: Option<usize>,
     ) {
-        let Some(slot) = self.slots.get(&target) else {
-            return;
+        let slot = {
+            let optional_slot = self.slots.get(&target);
+
+            match optional_slot {
+                Some(matched_slot) => matched_slot,
+                ::core::option::Option::None => return,
+            }
         };
+
         slot.apply_static(resolved, variant);
         slot.apply_ordinal(&self.spec, resolved, variant, ordinal);
     }
 }
 
 impl FamilyRuleSlot {
+    #[must_use]
     fn new(base_typography: TextStyle) -> Self {
         Self {
             common_static: ResolvedThemeStyle::new(base_typography),
@@ -375,9 +421,9 @@ impl FamilyRuleSlot {
     fn compile_rule(&mut self, origin: ThemeRuleOrigin, patch: &super::semantic::ThemeStylePatch) {
         match (origin.variant(), origin.ordinal()) {
             (variant, Some(_)) => match variant {
-                Some(variant) => self
+                Some(variant_2) => self
                     .variant_ordinal
-                    .entry(variant)
+                    .entry(variant_2)
                     .or_default()
                     .push(origin),
                 None => self.common_ordinal.push(origin),
@@ -397,11 +443,18 @@ impl FamilyRuleSlot {
 
     fn apply_static(&self, resolved: &mut ResolvedThemeStyle, variant: ThemeVariant) {
         resolved.merge_from(&self.common_static);
-        if let Some(style) = self.variant_static.get(&variant) {
-            resolved.merge_from(style);
+
+        {
+            match self.variant_static.get(&variant) {
+                Some(style) => {
+                    resolved.merge_from(style);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
+    #[must_use]
     fn ordinal_candidate_count(&self, variant: ThemeVariant) -> usize {
         self.common_ordinal.len() + self.variant_ordinal.get(&variant).map_or(0, Vec::len)
     }
@@ -413,10 +466,13 @@ impl FamilyRuleSlot {
         variant: ThemeVariant,
         ordinal: Option<usize>,
     ) {
-        let Some(ordinal) = ordinal else {
-            return;
+        let ordinal_2 = match ordinal {
+            Some(matched_ordinal) => matched_ordinal,
+            ::core::option::Option::None => return,
         };
+
         let rules = spec.styles().rules();
+
         for origin in self
             .common_ordinal
             .iter()
@@ -425,13 +481,15 @@ impl FamilyRuleSlot {
             let selector = origin
                 .ordinal()
                 .expect("compiled ordinal rule must retain its selector");
-            if selector.matches(ordinal) {
+
+            if selector.matches(ordinal_2) {
                 resolved.apply(rules[origin.rule_index()].style(), *origin);
             }
         }
     }
 }
 
+#[must_use]
 fn mechanism_key(spec: &DiagramThemeSpec, route: FamilyThemeRoute) -> FamilyThemeMechanismKey {
     match route.mechanism() {
         FamilyThemeMechanism::BaseTypography(property) => {
@@ -466,10 +524,11 @@ fn charge_ordinal_candidates(
     candidates: usize,
 ) -> Result<(), OperationWorkError> {
     if ordinal.is_some()
-        && let Some(work_meter) = work_meter
+        && let Some(work_meter_2) = work_meter
     {
-        work_meter.charge(candidates)?;
+        work_meter_2.charge(candidates)?;
     }
+
     Ok(())
 }
 
@@ -587,7 +646,7 @@ mod tests {
                 target: ThemeTarget::Text,
             },
         ];
-        // Shadowed rules retain identity even when Class owns only some of their facets.
+
         assert_eq!(program.requested_mechanisms(), expected.as_slice());
         for key in &expected {
             assert!(program.contains_requested_mechanism(key));

@@ -6,8 +6,8 @@ pub(super) fn write_sequence_css(
     prepared: &crate::sequence::SequencePreparedArtifact,
 ) -> Result<()> {
     out.checkpoint()?;
-    // Mirrors Mermaid 12 `diagrams/sequence/styles.js` + shared base stylesheet ordering.
-    // Keep `:root` last (matches upstream fixtures).
+
+
     let id = diagram_id;
     let typography = prepared.typography();
     let theme = typography.compat_binding();
@@ -66,10 +66,10 @@ pub(super) fn write_sequence_css(
         id, font, font_size_css, id
     );
 
-    // Sequence styles.
+
     let actor_fill = theme.actor_fill.as_str();
     let stroke_width = theme.stroke_width.as_str();
-    // The Sequence writer owns diagram-prefixed filter definitions and attribute references.
+
     let drop_shadow = scoped_drop_shadow(id, theme.drop_shadow.as_str());
     let label_box_border = theme.label_box_border.as_str();
     let activation_fill = theme.activation_fill.as_str();
@@ -137,6 +137,7 @@ pub(super) fn write_sequence_css(
         r#"#{} text.actor>tspan{{{}stroke:none;}}"#,
         id, actor_text_fill
     );
+
     if let Some(width) = &css.lifeline_width {
         let _ = write!(
             &mut out,
@@ -150,6 +151,7 @@ pub(super) fn write_sequence_css(
             id, final_lifeline_stroke
         );
     }
+
     let _ = write!(
         &mut out,
         r#"#{} .innerArc{{stroke-width:1.5;stroke-dasharray:none;}}"#,
@@ -170,8 +172,8 @@ pub(super) fn write_sequence_css(
         r#"#{} .messageLine0,#{} .messageLine1{{stroke:{};}}"#,
         id, id, final_message_stroke
     );
-    // Native SVG parsing supports exact attribute matches, not CSS suffix selectors.
-    // Keep browser specificity so source themeCSS retains its browser cascade priority.
+
+
     let _ = write!(
         &mut out,
         r#"#{id} [id="{id}-arrowhead"] path,#{id} [id="{id}-crosshead"] path,#{id} [id="{id}-filled-head"] path,#{id} [id="{id}-solidTopArrowHead"] path,#{id} [id="{id}-solidBottomArrowHead"] path{{fill:{final_message_stroke};stroke:{final_message_stroke};}}"#,
@@ -255,12 +257,13 @@ pub(super) fn write_sequence_css(
         r#"#{} .actorPopupMenuPanel{{position:absolute;fill:{};box-shadow:0px 8px 16px 0px rgba(0,0,0,0.2);filter:drop-shadow(3px 5px 2px rgb(0 0 0 / 0.4));}}"#,
         id, actor_fill
     );
-    // Glyph strokes inherit their actor group's palette color in Mermaid 12.
+
     let _ = write!(
         &mut out,
         r#"#{} .actor-man circle,#{} line{{fill:{};stroke-width:2px;}}"#,
         id, id, actor_fill
     );
+
     if let Some(typed_actor_fill) = &terminal.actor.typed_fill {
         let _ = write!(
             &mut out,
@@ -268,6 +271,7 @@ pub(super) fn write_sequence_css(
             id, id, id, id, typed_actor_fill
         );
     }
+
     if let Some(typed_actor_stroke) = &terminal.actor.typed_stroke {
         let _ = write!(
             &mut out,
@@ -275,6 +279,7 @@ pub(super) fn write_sequence_css(
             id, id, id, id, typed_actor_stroke
         );
     }
+
     if let Some(typed_activation_fill) = &activation.typed_fill {
         let _ = write!(
             &mut out,
@@ -282,6 +287,7 @@ pub(super) fn write_sequence_css(
             id, id, id, typed_activation_fill
         );
     }
+
     if let Some(typed_activation_stroke) = &activation.typed_stroke {
         let _ = write!(
             &mut out,
@@ -289,9 +295,11 @@ pub(super) fn write_sequence_css(
             id, id, id, typed_activation_stroke
         );
     }
+
     for group in &css.text_groups {
         write_sequence_text_surface_css_group(&mut out, &id, &group.declarations, &group.surfaces);
     }
+
     let _ = write!(
         &mut out,
         r#"#{} g rect.rect{{filter:{};stroke:{};}}"#,
@@ -356,7 +364,7 @@ mod tests {
         let meter = std::sync::Arc::new(OperationWorkMeter::new(
             RenderResourcePolicy::unbounded_for_trusted_input(),
         ));
-        // These materialized CSS defaults deliberately declare no authored configuration owners.
+
         let config =
             merman_model::presentation::PresentationConfig::try_from_frozen_parts_controlled(
                 merman_model::presentation::FrozenPresentationConfigParts::new(
@@ -537,7 +545,7 @@ mod tests {
             }),
         );
 
-        // Actor, note, loop label and background rectangles share the emitted definition.
+
         assert_eq!(
             css.matches("filter:url(#seq-drop-shadow)").count(),
             4,
@@ -574,7 +582,7 @@ mod tests {
             }),
         );
 
-        // A child stroke declaration would override the parent's per-actor palette.
+
         assert!(
             css.contains(r#"#seq .actor-man circle,#seq line{fill:#330000;stroke-width:2px;}"#)
         );
@@ -648,8 +656,8 @@ mod tests {
         );
         assert!(css.contains(r#"#seq .note{stroke:#cccccc;fill:#dddddd;}"#));
         assert!(css.contains(r#"#seq .noteText,#seq .noteText>tspan{fill:#eeeeee;stroke:none;}"#));
-        // styles.js deliberately omits weight on note tspans: theme 600 must not
-        // override the weight inherited from the parent text's inline style.
+
+
         for rule in css.split('}').filter(|rule| rule.contains(".noteText")) {
             assert!(!rule.contains("font-weight"), "{rule}");
         }

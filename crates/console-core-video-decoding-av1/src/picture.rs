@@ -12,18 +12,18 @@ use crate::include::dav1d::headers::Rav1dITUTT35;
 use crate::include::dav1d::headers::Rav1dMasteringDisplay;
 use crate::include::dav1d::headers::Rav1dPixelLayout;
 use crate::include::dav1d::headers::Rav1dSequenceHeader;
-#[cfg(feature = "c-ffi")]
-use crate::include::dav1d::picture::Dav1dPicture;
 use crate::include::dav1d::picture::RAV1D_PICTURE_ALIGNMENT;
 use crate::include::dav1d::picture::Rav1dPicture;
 use crate::include::dav1d::picture::Rav1dPictureParameters;
+#[cfg(feature = "c-ffi")]
+use crate::include::dav1d::picture::{BufferReturn, Dav1dPicture};
 use crate::include::dav1d::picture::{PictureThreading, Rav1dPicAllocator};
 #[cfg(feature = "c-ffi")]
 use crate::src::error::Dav1dResult;
 use crate::src::error::Rav1dError::{EGeneric, EINVAL, ENOMEM};
 use crate::src::error::Rav1dResult;
-use crate::src::internal::Rav1dContext;
 use crate::src::internal::Rav1dFrameData;
+use crate::src::internal::{FrameVisibilityPolicy, Rav1dContext};
 use crate::src::log::Rav1dLog as _;
 use crate::src::log::Rav1dLogger;
 #[cfg(feature = "c-ffi")]
@@ -40,8 +40,8 @@ use std::mem;
 use std::ptr::NonNull;
 #[cfg(feature = "c-ffi")]
 use std::ptr::fn_addr_eq;
+use std::sync::Arc;
 use std::sync::atomic::AtomicU32;
-use std::sync::{Arc, Mutex};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default)]
 #[repr(transparent)]
@@ -96,18 +96,62 @@ impl From<PictureFlags> for Rav1dEventFlags {
 #[repr(C)]
 pub(crate) struct Rav1dThreadPicture {
   pub p: Rav1dPicture,
-  pub visible: bool,
-
-  pub showable: bool,
+  pub(crate) presentation: FramePresentation,
   pub flags: PictureFlags,
+}
 
-  pub progress: Option<Arc<[AtomicU32; 2]>>,
+impl Rav1dThreadPicture {
+  pub(crate) fn progress(&self) -> Result<Option<&[AtomicU32; 2]>, Never> {
+    Ok(
+      self
+        .p
+        .data
+        .as_deref()
+        .and_then(|picture| picture.frame_progress.as_ref()),
+    )
+  }
+}
+
+#[derive(Clone, Copy, Default)]
+pub(crate) enum FramePresentation {
+  #[default]
+  Hidden,
+  HiddenShowable,
+  Visible,
+  VisibleShowable,
+}
+
+impl FramePresentation {
+  fn from_header(header: &Rav1dFrameHeader) -> Result<Self, Never> {
+    Ok(match (header.show_frame, header.showable_frame) {
+      (0, 0) => Self::Hidden,
+      (0, _) => Self::HiddenShowable,
+      (_, 0) => Self::Visible,
+      (_, _) => Self::VisibleShowable,
+    })
+  }
+
+  pub(crate) fn consume_showability(&mut self) -> Result<(), Never> {
+    *self = match self {
+      Self::Hidden | Self::HiddenShowable => Self::Hidden,
+      Self::Visible | Self::VisibleShowable => Self::Visible,
+    };
+    Ok(())
+  }
+
+  pub(crate) fn show(&mut self) -> Result<(), Never> {
+    *self = match self {
+      Self::Hidden | Self::Visible => Self::Visible,
+      Self::HiddenShowable | Self::VisibleShowable => Self::VisibleShowable,
+    };
+    Ok(())
+  }
 }
 
 #[cfg(feature = "c-ffi")]
-struct MemPoolBuf<T> {
-  pool: Arc<MemPool<T>>,
-  buf: Vec<T>,
+struct MemPoolBuf {
+  release: BufferReturn,
+  buf: Vec<u8>,
 }
 
 impl Rav1dPictureParameters {
@@ -176,10 +220,7 @@ unsafe extern "C" fn dav1d_default_picture_alloc(
 ) -> Dav1dResult {
   // SAFETY: The allocator callback supplies an initialized, uniquely writable C picture.
   let status: Rav1dResult = match unsafe { picture.as_mut() } {
-    Some(output) => {
-      let Ok(pool) = MemPool::new();
-      Rav1dPicAllocator::default_picture_alloc_with_pool(output, Arc::new(pool))
-    }
+    Some(output) => Rav1dPicAllocator::allocate_default_buffer(output, BufferReturn::Free),
     None => Err(EINVAL),
   };
   Dav1dResult::from(status)
@@ -187,9 +228,9 @@ unsafe extern "C" fn dav1d_default_picture_alloc(
 
 #[cfg(feature = "c-ffi")]
 impl Rav1dPicAllocator {
-  pub(crate) fn default_picture_alloc_with_pool(
+  pub(crate) fn allocate_default_buffer(
     picture: &mut Dav1dPicture,
-    pool: Arc<MemPool<u8>>,
+    release: BufferReturn,
   ) -> Rav1dResult {
     let parameters = Rav1dPictureParameters::try_from(picture.p)?;
     let strides = parameters.default_strides()?;
@@ -205,8 +246,14 @@ impl Rav1dPicAllocator {
       .ok_or(ENOMEM)?;
     let Ok(alignment) = console_core_number_conversion::fixed_index(RAV1D_PICTURE_ALIGNMENT);
     let capacity = total_bytes.checked_add(alignment).ok_or(ENOMEM)?;
-    let buf = pool.pop_init(capacity, 0)?;
-    let mut allocation = Box::new(MemPoolBuf { pool, buf });
+    let buf = match &release {
+      BufferReturn::Free => {
+        let Ok(pool) = MemPool::new();
+        pool.pop_init(capacity, 0)
+      }
+      BufferReturn::Recycle(pool) => pool.pop_init(capacity, 0),
+    }?;
+    let mut allocation = Box::new(MemPoolBuf { release, buf });
     let Ok(prefix) = console_core_number_conversion::fixed_index(
       allocation
         .buf
@@ -252,15 +299,28 @@ unsafe extern "C" fn dav1d_default_picture_release(
     Some(owner) => owner,
     None => return,
   };
-  let Ok(raw_owner) = cookie.cast::<MemPoolBuf<u8>>();
+  let Ok(raw_owner) = cookie.cast::<MemPoolBuf>();
   // SAFETY: The matching default allocator transferred this Box to the release callback.
   let Ok(allocation) = unsafe { raw_owner.into_box() };
-  let MemPoolBuf { pool, buf } = *allocation;
-  let Ok(()) = pool.push(buf);
+  let MemPoolBuf { release, buf } = *allocation;
+
+  match release {
+    BufferReturn::Free => drop(buf),
+    BufferReturn::Recycle(pool) => {
+      let Ok(()) = pool.push(buf);
+    }
+  }
 }
 
 #[cfg(feature = "c-ffi")]
 impl Default for Rav1dPicAllocator {
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "each C picture can return its buffer after its allocating decoder has closed"
+    )
+  )]
   fn default() -> Self {
     let Ok(mem_pool) = MemPool::new();
 
@@ -298,9 +358,9 @@ impl From<bool> for AllocationKind {
 #[cfg(feature = "c-ffi")]
 impl Rav1dPicAllocator {
   #[must_use]
-  pub fn allocation_kind(&self) -> AllocationKind {
+  pub fn allocation_kind(&self) -> Result<AllocationKind, Never> {
     match self.default_pool {
-      Some(_) => return AllocationKind::Default,
+      Some(_) => return Ok(AllocationKind::Default),
       None => {}
     }
 
@@ -312,18 +372,33 @@ impl Rav1dPicAllocator {
       dav1d_default_picture_release;
     let alloc = fn_addr_eq(self.alloc_picture_callback, default_alloc);
     let release = fn_addr_eq(self.release_picture_callback, default_release);
-    AllocationKind::from(alloc && release)
+    Ok(AllocationKind::from(alloc && release))
   }
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the frame context and C picture each retain the immutable AV1 headers through their own release"
+  )
+)]
 struct PictureAllocation {
   size: Size<i32>,
   sequence_header: Option<Arc<DRav1d<Rav1dSequenceHeader, Dav1dSequenceHeader>>>,
   frame_header: Option<Arc<DRav1d<Rav1dFrameHeader, Dav1dFrameHeader>>>,
   bit_depth: u8,
   threading: Option<PictureThreading>,
+  frame_progress: Option<[AtomicU32; 2]>,
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the picture allocation is still exclusively held here, and becomes shareable only after the initial plane policy is installed"
+  )
+)]
 fn picture_alloc_with_edges(
   logger: &Option<Rav1dLogger>,
   allocator: &Rav1dPicAllocator,
@@ -359,6 +434,8 @@ fn picture_alloc_with_edges(
         .and_then(Arc::get_mut)
         .ok_or(EGeneric)?;
 
+      data.frame_progress = request.frame_progress;
+
       for plane in &mut data.data {
         let Ok(()) = plane.set_threading_policy(policy);
       }
@@ -370,6 +447,13 @@ fn picture_alloc_with_edges(
   Ok(())
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the C picture exports pointers into immutable metadata that must survive the decoder and other pictures"
+  )
+)]
 pub fn rav1d_picture_copy_props(
   p: &mut Rav1dPicture,
   content_light: Option<Arc<Rav1dContentLightLevel>>,
@@ -387,28 +471,20 @@ pub fn rav1d_picture_copy_props(
   Ok(())
 }
 
-#[derive(PartialEq, Eq)]
-pub(crate) enum OutputScope {
-  VisibleFrames,
-  AllFrames,
-}
-
-impl From<bool> for OutputScope {
-  fn from(include_invisible: bool) -> Self {
-    match include_invisible {
-      true => Self::AllFrames,
-      false => Self::VisibleFrames,
-    }
-  }
-}
-
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "published pictures retain the immutable display metadata across changes on the decoder state"
+  )
+)]
 pub(crate) struct ThreadPictureRequest<'a> {
   pub(crate) content_light: Option<Arc<Rav1dContentLightLevel>>,
   pub(crate) mastering_display: Option<Arc<Rav1dMasteringDisplay>>,
   pub(crate) max_spatial_id: u8,
   pub(crate) frame_flags: &'a mut PictureFlags,
   pub(crate) bit_depth: u8,
-  pub(crate) itut_t35: Arc<Mutex<Vec<Rav1dITUTT35>>>,
+  pub(crate) itut_t35: Vec<Rav1dITUTT35>,
 }
 
 pub(crate) fn rav1d_thread_picture_alloc(
@@ -422,15 +498,14 @@ pub(crate) fn rav1d_thread_picture_alloc(
     max_spatial_id,
     frame_flags,
     bit_depth,
-    mut itut_t35,
+    itut_t35,
   } = request;
   let p = &mut frame.sr_cur;
   let have_frame_mt = decoder.fc.len() > 1;
-  let output_scope = OutputScope::from(decoder.output_invisible_frames);
   let frame_header = frame.frame_hdr.as_ref().ok_or(EGeneric)?;
   let frame_hdr = &***frame_header;
   let first_tile = frame.tiles.first().ok_or(EINVAL)?;
-  let immutable_metadata = Rav1dITUTT35::to_immut(&mut itut_t35)?;
+  let Ok(immutable_metadata) = Rav1dITUTT35::freeze(itut_t35);
   let [_, width] = frame_hdr.size.width;
   let tiles = u64::from(frame_hdr.tiling.cols).wrapping_mul(u64::from(frame_hdr.tiling.rows));
   let Ok(workers) = console_core_number_conversion::fixed_index(decoder.tc.len());
@@ -449,6 +524,7 @@ pub(crate) fn rav1d_thread_picture_alloc(
       frame_header: frame.frame_hdr.clone(),
       bit_depth,
       threading: Some(policy),
+      frame_progress: have_frame_mt.then(<[AtomicU32; 2]>::default),
     },
   )?;
 
@@ -461,7 +537,8 @@ pub(crate) fn rav1d_thread_picture_alloc(
   );
 
   let flags_mask = match ::core::primitive::bool::then_some(
-    (frame_hdr.show_frame != 0 || output_scope == OutputScope::AllFrames)
+    (frame_hdr.show_frame != 0
+      || decoder.frame_visibility == FrameVisibilityPolicy::IncludeInvisible)
       && max_spatial_id == frame_hdr.spatial_id,
     (),
   ) {
@@ -470,15 +547,18 @@ pub(crate) fn rav1d_thread_picture_alloc(
   };
   p.flags = *frame_flags;
   *frame_flags &= flags_mask;
-  p.visible = frame_hdr.show_frame != 0;
-  p.showable = frame_hdr.showable_frame != 0;
-  p.progress = match ::core::primitive::bool::then_some(have_frame_mt, ()) {
-    ::core::option::Option::Some(()) => Some(Default::default()),
-    ::core::option::Option::None => None,
-  };
+  let Ok(presentation) = FramePresentation::from_header(frame_hdr);
+  p.presentation = presentation;
   Ok(())
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "copies of the image may independently release the same immutable C metadata payload"
+  )
+)]
 pub(crate) fn rav1d_picture_alloc_copy(
   logger: &Option<Rav1dLogger>,
   dst: &mut Rav1dPicture,
@@ -501,6 +581,7 @@ pub(crate) fn rav1d_picture_alloc_copy(
       frame_header: src.frame_hdr.clone(),
       bit_depth: src.p.bpc,
       threading,
+      frame_progress: None,
     },
   )?;
 

@@ -2,7 +2,7 @@
 //!
 //! One argument, and it is the folder the music is under. The player is told
 //! where the library is rather than reading it out of someone else's settings:
-//! `console_music::library` used to open kew's `kewrc` to find out, and that
+//! `console_application_music::library` used to open kew's `kewrc` to find out, and that
 //! file goes wherever the fork goes.
 //!
 //! The loop is the bus. Nothing is drawn and no toolkit is started -- this is a
@@ -20,7 +20,7 @@
 use console_bus::connection::{
   Bus, ConnectionError, Incoming, NameRequestResult, Receiver, Sender,
 };
-use console_bus::messages::Message;
+use console_bus::messages::{Kind, Message, Value, Whom};
 use console_core_arguments::{Command, Flag, Operands, Reason, Takes, ValidationError};
 use console_core_iteration::{Endless, Step};
 use console_core_never::Never;
@@ -39,10 +39,12 @@ struct Answering {
   hearing: Receiver,
   saying: Sender,
   wakeup: UnixDatagram,
+  since_checkpoint: u8,
 }
 
 const SECOND: u8 = b'p';
 const ENDED: u8 = b'e';
+const CHECKPOINT_SECONDS: u8 = 10;
 
 impl Answering {
   fn turn(&mut self) -> Result<(), ConnectionError> {
@@ -92,11 +94,24 @@ impl Answering {
 
     match (completed, signal) {
       (Completion::Ended, _) => {
+        self.since_checkpoint = 0;
         let Ok(()) = self.player.finished();
         let Ok(()) = self.player.remember();
         let Ok(()) = changed(&self.saying, &self.player);
       }
       (Completion::Pending, [SECOND]) => {
+        self.since_checkpoint = self.since_checkpoint.saturating_add(1);
+
+        match {
+          ::core::primitive::bool::then_some(self.since_checkpoint >= CHECKPOINT_SECONDS, ())
+        } {
+          ::core::option::Option::Some(()) => {
+            let Ok(()) = self.player.remember_position();
+            self.since_checkpoint = 0;
+          }
+          ::core::option::Option::None => {}
+        }
+
         let Ok(()) = moved(&self.saying);
       }
       (Completion::Pending, _) => {}
@@ -137,7 +152,7 @@ fn wake(socket: &UnixDatagram, progress: Progress) -> Result<(), Never> {
 
 fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
-  let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, folder, answering);
+  let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, starting, answering);
 
   code
 }
@@ -148,35 +163,84 @@ const FOLDER_URI: Flag = Flag {
   about: "the library folder as a local file URI",
 };
 
+const OPEN_URI: Flag = Flag {
+  spelling: "--open-uri",
+  takes: Takes::Value("FILE_URI"),
+  about: "open a track in the session's player",
+};
+
 const COMMAND: Command = Command {
   name: "music-player",
   about: "the player, answering on the session bus, with the music under FOLDER",
-  flags: &[FOLDER_URI],
+  flags: &[FOLDER_URI, OPEN_URI],
   operands: Operands::Optional("FOLDER"),
 };
 
-fn folder(words: &[String]) -> Result<Option<PathBuf>, ValidationError> {
+#[derive(Debug, PartialEq, Eq)]
+struct Starting {
+  folder: Option<PathBuf>,
+  song: Option<PathBuf>,
+}
+
+fn starting(words: &[String]) -> Result<Starting, ValidationError> {
   let line = console_core_arguments::read(&COMMAND, words)?;
   let Ok(named) = line.operands();
-  let Ok(uri) = line.value(FOLDER_URI);
+  let uri_path = |flag: Flag| {
+    let Ok(uri) = line.value(flag);
 
-  match uri {
-    Some(text) => {
-      let Ok(location) = console_core_file_urls::path(text);
+    let text = match uri {
+      Some(matched_text) => matched_text,
+      ::core::option::Option::None => return Ok(None),
+    };
 
-      match location {
-        Some(path) => Ok(Some(path)),
-        None => {
-          let Ok(refusal) = line.refusal(Reason::InvalidValue {
-            of: FOLDER_URI.spelling,
-            value: text.to_owned(),
-          });
+    let Ok(location) = console_core_file_urls::path(text);
 
-          Err(refusal)
-        }
+    match location {
+      Some(path) => Ok(Some(path)),
+      None => {
+        let Ok(refusal) = line.refusal(Reason::InvalidValue {
+          of: flag.spelling,
+          value: text.to_owned(),
+        });
+
+        Err(refusal)
       }
     }
-    None => Ok(named.first().map(PathBuf::from)),
+  };
+
+  Ok(Starting {
+    folder: {
+      let checked_value = uri_path(FOLDER_URI)?;
+      checked_value
+    }
+    .or_else(|| named.first().map(PathBuf::from)),
+    song: {
+      let checked_value_2 = uri_path(OPEN_URI)?;
+      checked_value_2
+    },
+  })
+}
+
+fn tell_existing(bus: &mut Bus, song: &std::path::Path) -> Result<(), ConnectionError> {
+  let Ok(location) = console_core_file_urls::url(song);
+  let Ok(asked) = Message::call(&Whom {
+    to: answers::NAME,
+    at: answers::OBJECT,
+    on: answers::PLAYER,
+    calling: "OpenUri",
+  });
+  let Ok(value) = Value::word(&location);
+  let Ok(asked_2) = asked.carrying("s", vec![value]);
+  let answer = bus.call(&asked_2)?;
+
+  match answer.kind {
+    Kind::Answer => Ok(()),
+    Kind::Call | Kind::ErrorReply | Kind::Signal => {
+      Err(ConnectionError::Rejected(match answer.fault {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => "the player did not accept OpenUri".to_owned(),
+      }))
+    }
   }
 }
 
@@ -191,26 +255,33 @@ mod tests {
     let decoded = PathBuf::from(std::ffi::OsStr::from_bytes(b"a\xff"));
 
     assert_eq!(
-      folder(std::slice::from_ref(&literal)),
-      Ok(Some(PathBuf::from(&literal)))
+      starting(std::slice::from_ref(&literal)),
+      Ok(Starting {
+        folder: Some(PathBuf::from(&literal)),
+        song: None
+      })
     );
     assert_eq!(
-      folder(&[FOLDER_URI.spelling.to_owned(), literal]),
-      Ok(Some(decoded))
+      starting(&[FOLDER_URI.spelling.to_owned(), literal]),
+      Ok(Starting {
+        folder: Some(decoded),
+        song: None
+      })
     );
   }
 }
 
-fn answering(folder: Option<PathBuf>) -> Result<(), ConnectionError> {
+fn answering(Starting { folder, song }: Starting) -> Result<(), ConnectionError> {
   let mut bus = Bus::session()?;
   let got = bus.request_name(answers::NAME)?;
 
   match got {
     NameRequestResult::PrimaryOwner | NameRequestResult::AlreadyOwner => {}
     NameRequestResult::InQueue | NameRequestResult::Exists => {
-      eprintln!("music-player: another player has the name, so this one answers to nothing");
-
-      return Ok(());
+      return match song {
+        Some(path) => tell_existing(&mut bus, &path),
+        None => Ok(()),
+      };
     }
   }
 
@@ -220,13 +291,23 @@ fn answering(folder: Option<PathBuf>) -> Result<(), ConnectionError> {
   wakeup.set_nonblocking(true)?;
 
   let Ok(sounding) = Sounding::new(move |progress| wake(&audio, progress));
-  let Ok(player) = PlayerState::new(sounding, folder);
+  let Ok(mut player) = PlayerState::new(sounding, folder);
+
+  match song {
+    Some(path) => {
+      let Ok(()) = player.opened(&path);
+      let Ok(()) = player.remember();
+    }
+    None => {}
+  }
+
   let Ok((hearing, saying)) = bus.split();
   let owned = Answering {
     hearing,
     saying,
     wakeup,
     player,
+    since_checkpoint: 0,
   };
   let heard = console_core_iteration::iterate(owned, |mut answering| {
     Ok(match answering.turn() {

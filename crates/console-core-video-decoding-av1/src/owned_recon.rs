@@ -56,13 +56,17 @@
 
 use core::cmp::Ordering;
 
+use console_core_api_compatibility::{NativeOffset, NativeSize};
 use console_core_geometry::{Point, Rectangle, Size};
-use console_core_number_conversion::{fixed_index, fixed_offset, index, indices, wrapped_offset};
+use console_core_never::Never;
+use console_core_number_conversion::{
+  checked_index, fixed_index, fixed_offset, index, indices, wrapped_offset,
+};
 
 use crate::include::common::bitdepth::BitDepth;
 use crate::include::dav1d::picture::{PicOffset, Rav1dPictureDataComponent};
 use crate::src::error::{Rav1dError, Rav1dResult};
-use crate::src::strided::Strided as _;
+use crate::src::strided::Strided;
 use std::ops::Deref;
 use std::ops::DerefMut;
 
@@ -389,57 +393,68 @@ impl<BD: BitDepth> DstBlock<'_, BD> {
   }
 }
 
-#[inline]
-fn band_byte_range<BD: BitDepth>(
+struct PixelSpan {
   offset: u64,
-  samples: u64,
-) -> Result<core::ops::Range<u64>, console_core_never::Never> {
-  let Ok(sample_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
-  let start = offset.wrapping_mul(sample_size);
-  let end = samples.wrapping_mul(sample_size).wrapping_add(start);
-  Ok(start..end)
+  length: u64,
+}
+
+impl PixelSpan {
+  #[inline]
+  fn bytes<BD: BitDepth>(self) -> Rav1dResult<core::ops::Range<u64>> {
+    let Ok(sample_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
+    let first = self
+      .offset
+      .checked_mul(sample_size)
+      .ok_or(Rav1dError::ERANGE)?;
+    let last = self
+      .offset
+      .checked_add(self.length)
+      .and_then(|end| end.checked_mul(sample_size))
+      .ok_or(Rav1dError::ERANGE)?;
+    Ok(first..last)
+  }
 }
 
 #[inline]
-fn px<BD: BitDepth>(
-  bytes: &[u8],
-  offset: u64,
-  len: u64,
-) -> Result<&[BD::Pixel], console_core_never::Never> {
-  let Ok(range) = band_byte_range::<BD>(offset, len);
-  let Ok(native_range) = indices(range);
-  Ok(
-    zerocopy::FromBytes::ref_from_bytes(&bytes[native_range])
-      .expect("band row pixel reinterpretation"),
-  )
+fn px<BD: BitDepth>(bytes: &[u8], span: PixelSpan) -> Rav1dResult<&[BD::Pixel]> {
+  let core::ops::Range { start, end } = span.bytes::<BD>()?;
+  let first = checked_index(start).map_err(|_range| Rav1dError::ERANGE)?;
+  let last = checked_index(end).map_err(|_range| Rav1dError::ERANGE)?;
+  let row = bytes.get(first..last).ok_or(Rav1dError::EINVAL)?;
+  zerocopy::FromBytes::ref_from_bytes(row).map_err(|_alignment| Rav1dError::EINVAL)
 }
 
 #[inline]
-fn px_mut<BD: BitDepth>(
-  bytes: &mut [u8],
-  offset: u64,
-  len: u64,
-) -> Result<&mut [BD::Pixel], console_core_never::Never> {
-  let Ok(range) = band_byte_range::<BD>(offset, len);
-  let Ok(native_range) = indices(range);
-  Ok(
-    zerocopy::FromBytes::mut_from_bytes(&mut bytes[native_range])
-      .expect("band row pixel reinterpretation"),
-  )
+fn px_mut<BD: BitDepth>(bytes: &mut [u8], span: PixelSpan) -> Rav1dResult<&mut [BD::Pixel]> {
+  let core::ops::Range { start, end } = span.bytes::<BD>()?;
+  let first = checked_index(start).map_err(|_range| Rav1dError::ERANGE)?;
+  let last = checked_index(end).map_err(|_range| Rav1dError::ERANGE)?;
+  let row = bytes.get_mut(first..last).ok_or(Rav1dError::EINVAL)?;
+  zerocopy::FromBytes::mut_from_bytes(row).map_err(|_alignment| Rav1dError::EINVAL)
+}
+
+impl Strided for ReconDst<'_> {
+  fn fixed_stride(&self) -> Result<i64, Never> {
+    match self {
+      Self::Pic(picture) => picture.fixed_stride(),
+      Self::Own(band) => Ok(band.stride.cast_signed()),
+    }
+  }
+}
+
+impl Strided for ReconSrc<'_> {
+  fn fixed_stride(&self) -> Result<i64, Never> {
+    match self {
+      Self::Pic(picture) => picture.fixed_stride(),
+      Self::Own(band) => Ok(band.stride.cast_signed()),
+    }
+  }
 }
 
 impl<'a> ReconDst<'a> {
   pub(crate) fn check_block_bounds<BD: BitDepth>(&self, size: Size<u64>) -> Rav1dResult {
     let rows_after_first = size.height.checked_sub(1).ok_or(Rav1dError::EINVAL)?;
-    let Ok(native_stride) =
-      ::console_core_number_conversion::fixed_offset(match self.pixel_stride::<BD>() {
-        ::core::result::Result::Ok(native_stride) => native_stride,
-      });
-    let Ok(stride) = fixed_offset(
-      match ::console_core_number_conversion::wrapped_offset(native_stride) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      },
-    );
+    let Ok(stride) = self.fixed_pixel_stride::<BD>();
     let span = rows_after_first
       .checked_mul(stride.unsigned_abs())
       .ok_or(Rav1dError::ERANGE)?;
@@ -478,23 +493,16 @@ impl<'a> ReconDst<'a> {
   }
 
   #[inline(always)]
-  pub(crate) fn pixel_stride<BD: BitDepth>(
-    &self,
-  ) -> core::result::Result<isize, console_core_never::Never> {
-    Ok({
-      match self {
-        Self::Pic(p) => p.pixel_stride::<BD>()?,
-        Self::Own(b) => match wrapped_offset(BD::pxstride(b.stride)) {
-          Ok(native_stride) => native_stride,
-        },
-      }
-    })
-  }
-
-  #[inline(always)]
+  #[cfg_attr(
+    dylint_lib = "explicit051_no_machine_width",
+    expect(
+      explicit051_no_machine_width,
+      reason = "the legacy picture offset uses the signed displacement of the backing Rust slice"
+    )
+  )]
   pub(crate) fn at(
     &mut self,
-    delta: isize,
+    delta: NativeOffset,
   ) -> core::result::Result<ReconDst<'_>, console_core_never::Never> {
     Ok({
       match self {
@@ -525,108 +533,79 @@ impl<'a> ReconDst<'a> {
   }
 
   #[inline(always)]
+  #[cfg_attr(
+    dylint_lib = "explicit051_no_machine_width",
+    expect(
+      explicit051_no_machine_width,
+      reason = "the borrowed picture guard takes an already converted native slice length"
+    )
+  )]
   pub(crate) fn slice_mut<BD: BitDepth>(
     &mut self,
-    len: usize,
-  ) -> core::result::Result<PxMut<'_, BD>, console_core_never::Never> {
-    Ok({
-      match self {
-        Self::Pic(p) => PxMut::Pic(p.slice_mut::<BD>(len)),
-        Self::Own(b) => {
-          let Ok(samples) = fixed_index(len);
-          let Ok(px_mut) = px_mut::<BD>(b.bytes, b.offset, samples);
-
-          PxMut::Own(px_mut)
-        }
+    length: NativeSize,
+  ) -> Rav1dResult<PxMut<'_, BD>> {
+    match self {
+      Self::Pic(p) => Ok(PxMut::Pic(p.slice_mut::<BD>(length))),
+      Self::Own(band) => {
+        let Ok(samples) = fixed_index(length);
+        let span = PixelSpan {
+          offset: band.offset,
+          length: samples,
+        };
+        px_mut::<BD>(band.bytes, span).map(PxMut::Own)
       }
-    })
+    }
   }
 
+  #[cfg(test)]
   #[inline(always)]
-  pub(crate) fn slice<BD: BitDepth>(
-    &self,
-    len: usize,
-  ) -> core::result::Result<Px<'_, BD>, console_core_never::Never> {
-    Ok({
-      match self {
-        Self::Pic(p) => Px::Pic(p.slice::<BD>(len)),
-        Self::Own(b) => {
-          let Ok(samples) = fixed_index(len);
-          let Ok(px) = px::<BD>(b.bytes, b.offset, samples);
-
-          Px::Own(px)
-        }
-      }
-    })
-  }
-
-  #[inline(always)]
-  pub(crate) fn get<BD: BitDepth>(
-    &self,
-  ) -> core::result::Result<BD::Pixel, console_core_never::Never> {
-    Ok({
-      match self {
-        Self::Pic(p) => *p.index::<BD>(),
-        Self::Own(b) => {
-          let Ok(px) = px::<BD>(b.bytes, b.offset, 1);
-
-          px[0]
-        }
-      }
-    })
-  }
-
-  #[inline(always)]
-  pub(crate) fn set<BD: BitDepth>(
-    &mut self,
-    v: BD::Pixel,
-  ) -> core::result::Result<(), console_core_never::Never> {
-    {
-      match self {
-        Self::Pic(p) => *p.index_mut::<BD>() = v,
-        Self::Own(b) => {
-          ({
-            let Ok(explicit_value) = px_mut::<BD>(b.bytes, b.offset, 1);
-            explicit_value
-          })[0] = v
-        }
-      }
-    };
-
+  fn set<BD: BitDepth>(&mut self, value: BD::Pixel) -> Rav1dResult {
+    let mut pixels = self.slice_mut::<BD>(1)?;
+    let pixel = pixels.first_mut().ok_or(Rav1dError::EINVAL)?;
+    *pixel = value;
     Ok(())
   }
 
   #[inline(always)]
-  pub(crate) fn for_rows_mut<BD: BitDepth, F: FnMut(usize, &mut [BD::Pixel])>(
+  pub(crate) fn for_rows_mut<BD: BitDepth, F: FnMut(u64, &mut [BD::Pixel])>(
     &mut self,
-    w: usize,
-    h: usize,
-    mut f: F,
-  ) -> core::result::Result<(), console_core_never::Never> {
-    {
-      match self {
-        Self::Pic(p) => p.for_rows_mut::<BD, F>(w, h, f),
-        Self::Own(b) => {
-          match ::core::primitive::bool::then_some(w == 0 || h == 0, ()) {
-            ::core::option::Option::Some(()) => {
-              return Ok(());
-            }
-            ::core::option::Option::None => {}
-          }
+    size: Size<u64>,
+    mut visit: F,
+  ) -> Rav1dResult {
+    let Size { width, height } = size;
 
-          let Ok(samples) = fixed_index(w);
-          let Ok(row_count) = fixed_index(h);
-          let pixel_stride = BD::pxstride(b.stride);
+    match (width, height) {
+      (0, _) | (_, 0) => return Ok(()),
+      _ => {}
+    }
 
-          for row in 0..row_count {
-            let Ok(row_number) = index(row);
-            let position = b.offset.wrapping_add(row.wrapping_mul(pixel_stride));
-            let Ok(pixels) = px_mut::<BD>(b.bytes, position, samples);
-            f(row_number, pixels);
-          }
+    self.check_block_bounds::<BD>(size)?;
+
+    match self {
+      Self::Pic(picture) => {
+        let Ok(()) = picture.for_rows_mut_with_context::<BD, _, Never>(
+          size,
+          &mut visit,
+          |row, pixels, next| {
+            next(row, pixels);
+            Ok(())
+          },
+        );
+      }
+      Self::Own(band) => {
+        let pitch = BD::pxstride(band.stride);
+
+        for row in 0..height {
+          let offset = band.offset.wrapping_add(row.wrapping_mul(pitch));
+          let span = PixelSpan {
+            offset,
+            length: width,
+          };
+          let pixels = px_mut::<BD>(band.bytes, span)?;
+          visit(row, pixels);
         }
       }
-    };
+    }
 
     Ok(())
   }
@@ -634,28 +613,35 @@ impl<'a> ReconDst<'a> {
   #[inline(always)]
   pub(crate) fn with_block_mut<BD: BitDepth, C, R>(
     &mut self,
-    w: usize,
-    h: usize,
+    extent: Size<u64>,
     context: C,
-    f: impl FnOnce(&mut [u8], usize, isize, C) -> R,
-  ) -> core::result::Result<R, console_core_never::Never> {
-    Ok({
-      match self {
-        Self::Pic(p) => crate::include::dav1d::picture::with_pixel_guard_mut::<BD, R>(
-          p,
-          w,
-          h,
-          |bytes, offset, stride| f(bytes, offset, stride, context),
-        ),
-        Self::Own(b) => {
-          let _ = (w, h);
-          let Ok(sample_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
-          let Ok(offset) = index(b.offset.wrapping_mul(sample_size));
-          let Ok(stride) = wrapped_offset(b.stride);
-          f(b.bytes, offset, stride, context)
-        }
+    visit: impl FnOnce(&mut [u8], u64, i64, C) -> R,
+  ) -> Rav1dResult<R> {
+    self.check_block_bounds::<BD>(extent)?;
+
+    match self {
+      Self::Pic(picture) => {
+        let columns = checked_index(extent.width).map_err(|_too_wide| Rav1dError::ERANGE)?;
+        let rows = checked_index(extent.height).map_err(|_too_tall| Rav1dError::ERANGE)?;
+        let result = crate::include::dav1d::picture::with_pixel_guard_mut::<BD, R>(
+          picture,
+          columns,
+          rows,
+          |bytes, native_position, native_stride| {
+            let Ok(offset) = fixed_index(native_position);
+            let Ok(stride) = fixed_offset(native_stride);
+            visit(bytes, offset, stride, context)
+          },
+        );
+        Ok(result)
       }
-    })
+      Self::Own(band) => {
+        let Ok(sample_size) = fixed_index(core::mem::size_of::<BD::Pixel>());
+        let offset = band.offset.checked_mul(sample_size).ok_or(Rav1dError::ERANGE)?;
+        let stride = i64::try_from(band.stride).map_err(|_stride| Rav1dError::ERANGE)?;
+        Ok(visit(band.bytes, offset, stride, context))
+      }
+    }
   }
 
   #[cfg(any(target_arch = "aarch64", target_arch = "wasm32"))]
@@ -686,23 +672,16 @@ impl<'a> ReconDst<'a> {
 
 impl<'a> ReconSrc<'a> {
   #[inline(always)]
-  pub(crate) fn pixel_stride<BD: BitDepth>(
-    &self,
-  ) -> core::result::Result<isize, console_core_never::Never> {
-    Ok({
-      match self {
-        Self::Pic(p) => p.pixel_stride::<BD>()?,
-        Self::Own(b) => match wrapped_offset(BD::pxstride(b.stride)) {
-          Ok(native_stride) => native_stride,
-        },
-      }
-    })
-  }
-
-  #[inline(always)]
+  #[cfg_attr(
+    dylint_lib = "explicit051_no_machine_width",
+    expect(
+      explicit051_no_machine_width,
+      reason = "the legacy picture offset uses the signed displacement of the backing Rust slice"
+    )
+  )]
   pub(crate) fn at(
     &self,
-    delta: isize,
+    delta: NativeOffset,
   ) -> core::result::Result<ReconSrc<'a>, console_core_never::Never> {
     Ok({
       match self {
@@ -719,37 +698,34 @@ impl<'a> ReconSrc<'a> {
   }
 
   #[inline(always)]
+  #[cfg_attr(
+    dylint_lib = "explicit051_no_machine_width",
+    expect(
+      explicit051_no_machine_width,
+      reason = "the borrowed picture guard takes an already converted native slice length"
+    )
+  )]
   pub(crate) fn slice<BD: BitDepth>(
     &self,
-    len: usize,
-  ) -> core::result::Result<Px<'a, BD>, console_core_never::Never> {
-    Ok({
-      match self {
-        Self::Pic(p) => Px::Pic(p.slice::<BD>(len)),
-        Self::Own(b) => {
-          let Ok(samples) = fixed_index(len);
-          let Ok(px) = px::<BD>(b.bytes, b.offset, samples);
-
-          Px::Own(px)
-        }
+    length: NativeSize,
+  ) -> Rav1dResult<Px<'a, BD>> {
+    match self {
+      Self::Pic(p) => Ok(Px::Pic(p.slice::<BD>(length))),
+      Self::Own(band) => {
+        let Ok(samples) = fixed_index(length);
+        let span = PixelSpan {
+          offset: band.offset,
+          length: samples,
+        };
+        px::<BD>(band.bytes, span).map(Px::Own)
       }
-    })
+    }
   }
 
   #[inline(always)]
-  pub(crate) fn get<BD: BitDepth>(
-    &self,
-  ) -> core::result::Result<BD::Pixel, console_core_never::Never> {
-    Ok({
-      match self {
-        Self::Pic(p) => *p.index::<BD>(),
-        Self::Own(b) => {
-          let Ok(px) = px::<BD>(b.bytes, b.offset, 1);
-
-          px[0]
-        }
-      }
-    })
+  pub(crate) fn get<BD: BitDepth>(&self) -> Rav1dResult<BD::Pixel> {
+    let pixels = self.slice::<BD>(1)?;
+    pixels.first().copied().ok_or(Rav1dError::EINVAL)
   }
 
   pub(crate) fn with_block_context<BD: BitDepth, C, R>(
@@ -818,7 +794,10 @@ impl<'a> ReconPlanes<'a> {
         let location = picture_position::<BD>(component, pixels)?;
         Ok(ReconDst::Pic(location))
       }
-      Self::Own(band) => Ok(ReconDst::Own(band.at::<BD>(plane, pixels)?)),
+      Self::Own(band) => {
+        let location = band.at::<BD>(plane, pixels)?;
+        Ok(ReconDst::Own(location))
+      }
     }
   }
 
@@ -1018,7 +997,7 @@ pub(crate) fn arm_sbrow(f: &Rav1dFrameData, t: &mut Rav1dTaskContext) -> Rav1dRe
     ReconstructionStorage::Picture => return Ok(()),
   }
 
-  let tile = f.tile(t.tile_index).ok_or(Rav1dError::EINVAL)?;
+  let tile = f.tile(t.tile_index)?;
   let tiling = &tile.tiling;
 
   match (tiling.col_end > tiling.col_start && t.b.y >= 0).then_some(()) {
@@ -1077,15 +1056,7 @@ pub(crate) fn stitch_sbrow<BD: BitDepth>(
     .take(plane_count)
   {
     let Rectangle { origin, size } = band.rectangle;
-    let Ok(native_stride) =
-      ::console_core_number_conversion::fixed_offset(match destination.pixel_stride::<BD>() {
-        ::core::result::Result::Ok(native_stride) => native_stride,
-      });
-    let Ok(stride) = fixed_offset(
-      match ::console_core_number_conversion::wrapped_offset(native_stride) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      },
-    );
+    let Ok(stride) = destination.fixed_pixel_stride::<BD>();
     let pitch = u64::try_from(stride).map_err(|_negative_pitch| Rav1dError::EINVAL)?;
     let Ok(pixel_capacity) = fixed_index(destination.pixel_len::<BD>());
     let Ok(columns) = index(size.width);
@@ -1109,7 +1080,11 @@ pub(crate) fn stitch_sbrow<BD: BitDepth>(
       let destination_bytes = zerocopy::IntoBytes::as_mut_bytes(&mut *destination_row);
 
       match destination_bytes.len().cmp(&source.len()) {
-        Ordering::Equal => destination_bytes.copy_from_slice(source),
+        Ordering::Equal => {
+          for (target, &byte) in destination_bytes.iter_mut().zip(source) {
+            *target = byte;
+          }
+        }
         Ordering::Less | Ordering::Greater => return Err(Rav1dError::EINVAL),
       }
     }
@@ -1150,9 +1125,9 @@ mod tests {
       height: 8,
     })?;
     let mut first = dst_at(&mut band, Point { x: 32, y: 16 })?;
-    let Ok(()) = first.set::<BitDepth8>(7);
+    first.set::<BitDepth8>(7)?;
     let mut other = dst_at(&mut band, Point { x: 34, y: 17 })?;
-    let Ok(()) = other.set::<BitDepth8>(9);
+    other.set::<BitDepth8>(9)?;
 
     let [luma, ..] = &band.planes;
     let first_row = luma.row_bytes(0)?;
@@ -1189,6 +1164,31 @@ mod tests {
   }
 
   #[test]
+  fn a_span_past_the_band_returns_invalid_data_before_writing() -> Rav1dResult {
+    let mut band = band_of(Size {
+      width: 64,
+      height: 4,
+    })?;
+    let mut view = dst_at(&mut band, Point { x: 32, y: 19 })?;
+    assert!(matches!(
+      view.slice_mut::<BitDepth8>(65),
+      Err(Rav1dError::EINVAL)
+    ));
+    let Ok(source) = view.as_src();
+    assert!(matches!(
+      source.slice::<BitDepth8>(65),
+      Err(Rav1dError::EINVAL)
+    ));
+    let result = view.for_rows_mut::<BitDepth8, _>(Size { width: 64, height: 2 }, |_, row| row.fill(1));
+    assert_eq!(result, Err(Rav1dError::EINVAL));
+    let [luma, ..] = &band.planes;
+    let row = luma.row_bytes(3)?;
+    assert!(row.iter().all(|&sample| sample == 0));
+
+    Ok(())
+  }
+
+  #[test]
   fn for_rows_mut_walks_the_bands_own_stride_not_the_pictures() -> Rav1dResult {
     let mut band = band_of(Size {
       width: 96,
@@ -1198,10 +1198,10 @@ mod tests {
     assert_eq!(luma.stride, 128);
 
     let mut view = dst_at(&mut band, Point { x: 32, y: 16 })?;
-    let Ok(()) = view.for_rows_mut::<BitDepth8, _>(96, 4, |row, pixels| {
+    view.for_rows_mut::<BitDepth8, _>(Size { width: 96, height: 4 }, |row, pixels| {
       let Ok(byte) = console_core_number_conversion::wrapped::<_, u8>(row);
       pixels.fill(byte.wrapping_add(1));
-    });
+    })?;
 
     let [updated, ..] = &band.planes;
 

@@ -16,36 +16,43 @@ pub struct ThemeColorValue(ThemeColor);
 
 impl ThemeColorValue {
     pub fn parse(value: &str) -> Result<Self, ThemeCompileValidationError> {
-        let value = value.trim();
-        if value.is_empty() {
+        let value_2 = value.trim();
+
+        if value_2.is_empty() {
             return Err(ThemeCompileValidationError::EmptyValue { field: "color" });
         }
+
         let invalid = || ThemeCompileValidationError::InvalidColor {
-            value: value.to_string(),
+            value: value_2.to_string(),
         };
-        let mut color = ThemeColor::parse(value).map_err(|_| invalid())?;
+        let mut color = ThemeColor::parse(value_2).map_err(|_| invalid())?;
+
         if matches!(
             color.source_format(),
             ColorSourceFormat::Rgb | ColorSourceFormat::Hsl
         ) {
             let css =
-                native_functional_color_css(value, color.source_format()).ok_or_else(invalid)?;
+                native_functional_color_css(value_2, color.source_format()).ok_or_else(invalid)?;
             let native = css.parse::<svgtypes::Color>().map_err(|_| invalid())?;
             let normalized = ThemeColor::parse(&css).map_err(|_| invalid())?;
-            if value.parse::<svgtypes::Color>() != Ok(native)
+
+            if value_2.parse::<svgtypes::Color>() != Ok(native)
                 || color.rgba_channels() != normalized.rgba_channels()
                 || color.hsla_channels() != normalized.hsla_channels()
             {
                 color = normalized;
             }
         }
+
         Ok(Self(color))
     }
 
+    #[must_use]
     pub fn as_css(&self) -> String {
         self.as_css_cow().into_owned()
     }
 
+    #[must_use]
     pub(crate) fn as_css_cow(&self) -> Cow<'_, str> {
         match self.0.source_format() {
             ColorSourceFormat::Hex | ColorSourceFormat::Rgb | ColorSourceFormat::Hsl => {
@@ -61,18 +68,21 @@ impl ThemeColorValue {
         }
     }
 
+    #[must_use]
     pub fn alpha(&self) -> f64 {
         self.0.channel(ColorChannel::Alpha)
     }
 
+    #[must_use]
     pub fn is_transparent(&self) -> bool {
-        self.alpha() == 0.0
+        ::core::matches!(::core::primitive::f64::classify(self.alpha()), ::core::num::FpCategory::Zero)
     }
 }
 
-// CSS Color 4 allows independent RGB number/percentage channels and case-insensitive hue units.
-// Keep this conversion within ThemeColor's accepted RGB/HSL syntax and let the native parser
-// perform HSL conversion, without inheriting Khroma's negative-hue channel behavior.
+
+
+
+#[must_use]
 fn native_functional_color_css(value: &str, format: ColorSourceFormat) -> Option<String> {
     let body = value.split_once('(')?.1.strip_suffix(')')?;
     let mut parser = cssparser::Parser::new(body);
@@ -88,10 +98,11 @@ fn native_functional_color_css(value: &str, format: ColorSourceFormat) -> Option
             .try_parse(cssparser::Parser::expect_comma)
             .or_else(|_| parser.expect_delim('/'))
             .ok()?;
-        let (value, unit) = native_color_component(&mut parser)?;
+        let (value_2, unit) = native_color_component(&mut parser)?;
+
         match unit {
-            "" => value.clamp(0.0, 1.0),
-            "%" => value.clamp(0.0, 100.0) / 100.0,
+            "" => value_2.clamp(0.0, 1.0),
+            "%" => value_2.clamp(0.0, 100.0) / 100.0,
             _ => return None,
         }
     };
@@ -99,15 +110,21 @@ fn native_functional_color_css(value: &str, format: ColorSourceFormat) -> Option
 
     let (function, channels) = match format {
         ColorSourceFormat::Rgb => {
-            let [Some(red), Some(green), Some(blue)] =
-                [first, second, third].map(|(value, unit)| match unit {
-                    "" => Some(value.clamp(0.0, 255.0)),
-                    "%" => Some((value.clamp(0.0, 100.0) / 100.0) * 255.0),
-                    _ => None,
-                })
-            else {
-                return None;
+            let (red, green, blue) = {
+                let outcome_red = [first, second, third].map(|(value_3, unit)| match unit {
+                        "" => Some(value_3.clamp(0.0, 255.0)),
+                        "%" => Some((value_3.clamp(0.0, 100.0) / 100.0) * 255.0),
+                        _ => None,
+                    });
+
+                match outcome_red {
+                    [Some(matched_red), Some(matched_green), Some(matched_blue)] => (matched_red, matched_green, matched_blue),
+                    [::core::option::Option::None, _, _]
+                    | [_, ::core::option::Option::None, _]
+                    | [_, _, ::core::option::Option::None] => return None,
+                }
             };
+
             ("rgb", format!("{red}, {green}, {blue}"))
         }
         ColorSourceFormat::Hsl => {
@@ -119,17 +136,19 @@ fn native_functional_color_css(value: &str, format: ColorSourceFormat) -> Option
                 "turn" => 1.0,
                 _ => return None,
             };
-            let hue = (hue.rem_euclid(turn) / turn) * 360.0;
+            let hue_2 = (hue.rem_euclid(turn) / turn) * 360.0;
+
             let ((saturation, "%"), (lightness, "%")) = (second, third) else {
                 return None;
             };
-            let saturation = saturation.clamp(0.0, 100.0);
-            let lightness = lightness.clamp(0.0, 100.0);
-            ("hsl", format!("{hue}, {saturation}%, {lightness}%"))
+
+            let saturation_2 = saturation.clamp(0.0, 100.0);
+            let lightness_2 = lightness.clamp(0.0, 100.0);
+            ("hsl", format!("{hue}, {saturation}%, {lightness}%", hue = hue_2, saturation = saturation_2, lightness = lightness_2))
         }
         _ => return None,
     };
-    Some(if alpha == 1.0 {
+    Some(if ::core::primitive::f64::to_bits(alpha) == ::core::primitive::f64::to_bits(1.0) {
         format!("{function}({channels})")
     } else {
         format!("{function}a({channels}, {alpha})")
@@ -144,10 +163,11 @@ fn native_color_component<'i>(parser: &mut cssparser::Parser<'i>) -> Option<(f64
         cssparser::Token::Dimension { unit, .. } => unit.len(),
         _ => return None,
     };
-    // cssparser stores token values as f32; use its source slice to retain f64 channels and alpha.
+
     let raw = parser.slice_from(start).trim();
     let number_end = raw.len().checked_sub(unit_length)?;
-    let value = raw.get(..number_end)?.parse::<f64>().ok()?;
+    let checked_value = raw.get(..number_end)?;
+    let value = match checked_value.parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }?;
     let unit = raw.get(number_end..)?;
     value.is_finite().then_some((value, unit))
 }
@@ -168,10 +188,12 @@ pub enum ThemeLength {
 }
 
 impl ThemeLength {
+    #[must_use]
     pub const fn px(value: f32) -> Self {
         Self::Px(value)
     }
 
+    #[must_use]
     pub const fn percent(value: f32) -> Self {
         Self::Percent(value)
     }
@@ -180,12 +202,15 @@ impl ThemeLength {
         let value = match self {
             Self::Px(value) | Self::Percent(value) => value,
         };
+
         if !value.is_finite() || value < 0.0 {
             return Err(ThemeCompileValidationError::InvalidNumber { field });
         }
+
         if matches!(self, Self::Percent(_)) && value > 100.0 {
             return Err(ThemeCompileValidationError::InvalidNumber { field });
         }
+
         Ok(())
     }
 }
@@ -208,6 +233,7 @@ impl InsetsPx {
         left: 0.0,
     };
 
+    #[must_use]
     pub const fn all(value: f32) -> Self {
         Self {
             top: value,
@@ -224,6 +250,7 @@ impl InsetsPx {
         {
             return Err(ThemeCompileValidationError::InvalidNumber { field });
         }
+
         Ok(())
     }
 }
@@ -241,6 +268,7 @@ pub enum BlendMode {
 }
 
 impl BlendMode {
+    #[must_use]
     pub const fn as_svg(self) -> &'static str {
         match self {
             Self::Normal => "normal",
@@ -267,13 +295,16 @@ impl GradientStop {
                 field: "gradient.stop.offset",
             });
         }
+
         Ok(Self { offset, color })
     }
 
+    #[must_use]
     pub const fn offset(&self) -> f32 {
         self.offset
     }
 
+    #[must_use]
     pub const fn color(&self) -> &ThemeColorValue {
         &self.color
     }
@@ -296,11 +327,12 @@ impl LinearGradient {
                 field: "canvas.linear_gradient.angle_degrees",
             });
         }
-        let stops = stops.into_iter().collect::<Vec<_>>();
-        validate_gradient_stops(&stops, "canvas.linear_gradient.stops")?;
+
+        let stops_2 = stops.into_iter().collect::<Vec<_>>();
+        validate_gradient_stops(&stops_2, "canvas.linear_gradient.stops")?;
         Ok(Self {
             angle_degrees,
-            stops,
+            stops: stops_2,
             repetition: GradientRepetition::None,
         })
     }
@@ -331,14 +363,17 @@ impl LinearGradient {
         Ok(self)
     }
 
+    #[must_use]
     pub const fn angle_degrees(&self) -> f32 {
         self.angle_degrees
     }
 
+    #[must_use]
     pub fn stops(&self) -> &[GradientStop] {
         &self.stops
     }
 
+    #[must_use]
     pub const fn repeating_period_px(&self) -> Option<f32> {
         match self.repetition {
             GradientRepetition::Repeating {
@@ -350,6 +385,7 @@ impl LinearGradient {
         }
     }
 
+    #[must_use]
     pub const fn tile_size_px(&self) -> Option<(f32, f32)> {
         self.repetition.tile_size_px()
     }
@@ -374,13 +410,13 @@ impl RadialGradient {
         center_x.validate("canvas.radial_gradient.center_x")?;
         center_y.validate("canvas.radial_gradient.center_y")?;
         radius.validate("canvas.radial_gradient.radius")?;
-        let stops = stops.into_iter().collect::<Vec<_>>();
-        validate_gradient_stops(&stops, "canvas.radial_gradient.stops")?;
+        let stops_2 = stops.into_iter().collect::<Vec<_>>();
+        validate_gradient_stops(&stops_2, "canvas.radial_gradient.stops")?;
         Ok(Self {
             center_x,
             center_y,
             radius,
-            stops,
+            stops: stops_2,
             repetition: GradientRepetition::None,
         })
     }
@@ -397,6 +433,7 @@ impl RadialGradient {
             ThemeLength::Percent(radius_percent) => {
                 self.radius
                     .validate("canvas.radial_gradient.repeating_radius")?;
+
                 if radius_percent <= 0.0 {
                     return Err(ThemeCompileValidationError::InvalidNumber {
                         field: "canvas.radial_gradient.repeating_radius",
@@ -404,6 +441,7 @@ impl RadialGradient {
                 }
             }
         }
+
         self.repetition = GradientRepetition::Repeating { period_px: None };
         Ok(self)
     }
@@ -422,22 +460,27 @@ impl RadialGradient {
         Ok(self)
     }
 
+    #[must_use]
     pub const fn center_x(&self) -> ThemeLength {
         self.center_x
     }
 
+    #[must_use]
     pub const fn center_y(&self) -> ThemeLength {
         self.center_y
     }
 
+    #[must_use]
     pub const fn radius(&self) -> ThemeLength {
         self.radius
     }
 
+    #[must_use]
     pub fn stops(&self) -> &[GradientStop] {
         &self.stops
     }
 
+    #[must_use]
     pub const fn is_repeating(&self) -> bool {
         matches!(
             self.repetition,
@@ -445,10 +488,12 @@ impl RadialGradient {
         )
     }
 
+    #[must_use]
     pub const fn tile_size_px(&self) -> Option<(f32, f32)> {
         self.repetition.tile_size_px()
     }
 
+    #[must_use]
     pub(crate) fn resolved_repeating_radius_is_bounded(&self, radius_px: f64) -> bool {
         !self.is_repeating()
             || (radius_px.is_finite()
@@ -465,6 +510,7 @@ enum GradientRepetition {
 }
 
 impl GradientRepetition {
+    #[must_use]
     const fn tile_size_px(self) -> Option<(f32, f32)> {
         match self {
             Self::Tiled {
@@ -513,6 +559,7 @@ impl PatternSpec {
         })
     }
 
+    #[must_use]
     pub fn with_background(mut self, background: ThemeColorValue) -> Self {
         self.background = Some(background);
         self
@@ -527,30 +574,37 @@ impl PatternSpec {
                 field: "canvas.pattern.angle_degrees",
             });
         }
+
         self.angle_degrees = angle_degrees;
         Ok(self)
     }
 
+    #[must_use]
     pub const fn kind(&self) -> PatternKind {
         self.kind
     }
 
+    #[must_use]
     pub const fn cell_width(&self) -> f32 {
         self.cell_width
     }
 
+    #[must_use]
     pub const fn cell_height(&self) -> f32 {
         self.cell_height
     }
 
+    #[must_use]
     pub const fn foreground(&self) -> &ThemeColorValue {
         &self.foreground
     }
 
+    #[must_use]
     pub const fn background(&self) -> Option<&ThemeColorValue> {
         self.background.as_ref()
     }
 
+    #[must_use]
     pub const fn angle_degrees(&self) -> f32 {
         self.angle_degrees
     }
@@ -570,10 +624,12 @@ impl CanvasPaint {
         Ok(Self::Solid(ThemeColorValue::parse(value.as_ref())?))
     }
 
+    #[must_use]
     pub const fn is_transparent(&self) -> bool {
         matches!(self, Self::Transparent)
     }
 
+    #[must_use]
     pub(crate) const fn requires_pattern_capability(&self) -> bool {
         match self {
             Self::LinearGradient(gradient) => {
@@ -597,6 +653,7 @@ pub struct CanvasLayer {
 }
 
 impl CanvasLayer {
+    #[must_use]
     pub fn new(paint: CanvasPaint) -> Self {
         Self {
             paint,
@@ -613,6 +670,7 @@ impl CanvasLayer {
         Ok(self)
     }
 
+    #[must_use]
     pub fn with_blend_mode(mut self, blend_mode: BlendMode) -> Self {
         self.blend_mode = blend_mode;
         self
@@ -628,23 +686,28 @@ impl CanvasLayer {
                 field: "canvas.layer.offset",
             });
         }
+
         self.offset_x = offset_x;
         self.offset_y = offset_y;
         Ok(self)
     }
 
+    #[must_use]
     pub const fn paint(&self) -> &CanvasPaint {
         &self.paint
     }
 
+    #[must_use]
     pub const fn opacity(&self) -> f32 {
         self.opacity
     }
 
+    #[must_use]
     pub const fn blend_mode(&self) -> BlendMode {
         self.blend_mode
     }
 
+    #[must_use]
     pub const fn offset(&self) -> (f32, f32) {
         (self.offset_x, self.offset_y)
     }
@@ -670,6 +733,7 @@ impl Default for CanvasSpec {
 }
 
 impl CanvasSpec {
+    #[must_use]
     pub fn transparent() -> Self {
         Self {
             base_explicit: true,
@@ -678,9 +742,10 @@ impl CanvasSpec {
     }
 
     pub fn solid(value: impl AsRef<str>) -> Result<Self, ThemeCompileValidationError> {
-        Ok(Self::default().with_base(CanvasPaint::solid(value)?))
+        Ok(Self::default().with_base({ let checked_value = CanvasPaint::solid(value)?; checked_value }))
     }
 
+    #[must_use]
     pub fn with_base(mut self, base: CanvasPaint) -> Self {
         self.base = base;
         self.base_explicit = true;
@@ -693,6 +758,7 @@ impl CanvasSpec {
                 field: "canvas.layers",
             });
         }
+
         self.layers.push(layer);
         Ok(self)
     }
@@ -703,6 +769,7 @@ impl CanvasSpec {
         Ok(self)
     }
 
+    #[must_use]
     pub const fn base(&self) -> &CanvasPaint {
         &self.base
     }
@@ -712,14 +779,17 @@ impl CanvasSpec {
     /// A default canvas remains unspecified so Mermaid's historical root background can be kept;
     /// `CanvasSpec::transparent()` and `with_base(CanvasPaint::Transparent)` are explicit clear
     /// requests.
+    #[must_use]
     pub const fn has_explicit_base(&self) -> bool {
         self.base_explicit
     }
 
+    #[must_use]
     pub fn layers(&self) -> &[CanvasLayer] {
         &self.layers
     }
 
+    #[must_use]
     pub const fn bleed(&self) -> InsetsPx {
         self.bleed
     }
@@ -732,9 +802,11 @@ fn validate_gradient_stops(
     if stops.len() < 2 || stops.len() > MAX_GRADIENT_STOPS {
         return Err(ThemeCompileValidationError::InvalidCollection { field });
     }
+
     if stops.windows(2).any(|pair| pair[0].offset > pair[1].offset) {
         return Err(ThemeCompileValidationError::InvalidCollection { field });
     }
+
     Ok(())
 }
 
@@ -742,6 +814,7 @@ fn validate_positive(value: f32, field: &'static str) -> Result<(), ThemeCompile
     if !value.is_finite() || value <= 0.0 {
         return Err(ThemeCompileValidationError::InvalidNumber { field });
     }
+
     Ok(())
 }
 
@@ -752,6 +825,7 @@ fn validate_gradient_period_px(
     if !value.is_finite() || !(MIN_GRADIENT_GEOMETRY_PX..=MAX_GRADIENT_PERIOD_PX).contains(&value) {
         return Err(ThemeCompileValidationError::InvalidNumber { field });
     }
+
     Ok(())
 }
 
@@ -767,6 +841,7 @@ fn validate_gradient_tile_px(
             return Err(ThemeCompileValidationError::InvalidNumber { field });
         }
     }
+
     Ok(())
 }
 
@@ -777,6 +852,7 @@ fn validate_unit_interval(
     if !value.is_finite() || !(0.0..=1.0).contains(&value) {
         return Err(ThemeCompileValidationError::InvalidNumber { field });
     }
+
     Ok(())
 }
 

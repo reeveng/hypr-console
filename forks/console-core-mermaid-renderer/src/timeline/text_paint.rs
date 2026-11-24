@@ -59,24 +59,32 @@ impl TimelineTextPaintPlan {
             pending: Vec::new(),
             terminal: OnceLock::new(),
         };
-        let Some(theme) = theme else { return Ok(plan) };
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
         let config_owned = config.config_paint_overrides_typed_default("themeVariables.textColor");
         let style =
-            theme.style_with_work_meter(ThemeTarget::Text, ThemeVariant::Default, None, work)?;
+            theme_2.style_with_work_meter(ThemeTarget::Text, ThemeVariant::Default, None, work)?;
         let winners = style
             .winner_rule_properties()
             .map(|(property, origin)| (origin.rule_index(), property))
             .collect::<BTreeSet<_>>();
+
         if !config_owned {
             plan.fill = resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Text],
                 DirectStaticSelectorDomain::Default,
             );
         }
+
         let mut observations = BTreeMap::new();
-        for route in theme.family_mechanism_routes() {
+
+        for route in theme_2.family_mechanism_routes() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Text,
@@ -86,9 +94,10 @@ impl TimelineTextPaintPlan {
             else {
                 continue;
             };
+
             work.charge(1)?;
             let entry = observations
-                .entry(theme.family_mechanism_key(*route))
+                .entry(theme_2.family_mechanism_key(*route))
                 .or_insert((false, None, true));
             let property = resolved_style_property_for_facet(facet);
             let unproved_ordinal = matches!(
@@ -100,12 +109,15 @@ impl TimelineTextPaintPlan {
             ) && !winners.iter().any(|(winner_index, winner_property)| {
                 *winner_property == property && *winner_index > rule_index
             });
+
             if (!winners.contains(&(rule_index, property)) && !unproved_ordinal)
                 || (property == ResolvedStyleProperty::Fill && config_owned)
             {
                 continue;
             }
+
             entry.2 &= property == ResolvedStyleProperty::Fill;
+
             if route.disposition() == FamilyThemeDisposition::TypedAdapter
                 && matches!(facet, FamilyThemeRuleFacet::Fill(_))
                 && plan
@@ -118,6 +130,7 @@ impl TimelineTextPaintPlan {
                 entry.1.get_or_insert(unsupported_residual_for_facet(facet));
             }
         }
+
         for (key, (pending, residual, inherited_fill_only)) in observations {
             if pending || residual.is_some() {
                 plan.pending.push(TimelinePendingTextMechanism {
@@ -129,9 +142,10 @@ impl TimelineTextPaintPlan {
                 plan.evidence.mark_not_applicable(key);
             }
         }
+
         let mut fallbacks = FamilyThemeOutcomes::default();
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut fallbacks,
             &[UnsupportedTerminalDomain::static_fallbacks_only(
                 ThemeTarget::Text,
@@ -140,9 +154,11 @@ impl TimelineTextPaintPlan {
             .with_source_owned_fill(&[config_owned])],
             work,
         )?;
+
         for key in fallbacks.not_applicable_mechanisms() {
             plan.evidence.mark_not_applicable(key.clone());
         }
+
         for residual in fallbacks.residuals() {
             plan.pending.push(TimelinePendingTextMechanism {
                 key: residual.key().clone(),
@@ -151,13 +167,16 @@ impl TimelineTextPaintPlan {
                     == FamilyThemeResidualReason::UnsupportedOrdinalPalette,
             });
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn fill_css(&self) -> Option<&str> {
         self.fill.as_ref().map(DirectStaticPaint::css)
     }
 
+    #[must_use]
     pub(crate) fn begin_emission(&self) -> Option<TimelineTextPaintOutcome> {
         (!self.pending.is_empty()).then(TimelineTextPaintOutcome::default)
     }
@@ -168,6 +187,7 @@ impl TimelineTextPaintPlan {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         for pending in &self.pending {
             match self.terminal.get() {
                 Some(outcome)
@@ -181,23 +201,28 @@ impl TimelineTextPaintPlan {
                     evidence.mark_not_applicable(pending.key.clone());
                 }
                 Some(outcome) if outcome.source_colors_static && pending.residual.is_none() => {
-                    if let Some(fill) = &self.fill {
-                        evidence.mark_applied_with_capabilities(
-                            pending.key.clone(),
-                            [fill.capability()],
-                        );
-                    } else {
-                        evidence.mark_residual(
-                            pending.key.clone(),
-                            FamilyThemeResidualReason::UnsupportedPaint,
-                        );
+                    match &self.fill {
+                        Some(fill) => {
+                            evidence.mark_applied_with_capabilities(
+                                pending.key.clone(),
+                                [fill.capability()],
+                            );
+                        },
+                        ::core::option::Option::None => {
+                            evidence.mark_residual(
+                                pending.key.clone(),
+                                FamilyThemeResidualReason::UnsupportedPaint,
+                            );
+                        },
                     }
                 }
-                _ => evidence.mark_residual(
+                ::core::option::Option::None | ::core::option::Option::Some(_) => evidence.mark_residual(
                     pending.key.clone(),
-                    pending
-                        .residual
-                        .unwrap_or(FamilyThemeResidualReason::UnsupportedPaint),
+                    match pending
+                        .residual {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => FamilyThemeResidualReason::UnsupportedPaint,
+                    },
                 ),
             }
         }
@@ -221,6 +246,7 @@ impl TimelineTextPaintOutcome {
         has_visible_label: bool,
     ) {
         self.record_fill(shape_fill);
+
         if has_visible_label {
             self.text_seen = true;
             self.record_fill(label_fill);
@@ -230,16 +256,16 @@ impl TimelineTextPaintOutcome {
     fn record_fill(&mut self, fill: Option<&str>) {
         match fill.map(str::trim) {
             None => self.inherited_fill_seen = true,
-            Some(fill)
-                if fill.eq_ignore_ascii_case("inherit") || fill.eq_ignore_ascii_case("unset") =>
+            Some(fill_2)
+                if fill_2.eq_ignore_ascii_case("inherit") || fill_2.eq_ignore_ascii_case("unset") =>
             {
                 self.inherited_fill_seen = true;
             }
-            Some(fill)
-                if fill.eq_ignore_ascii_case("none") || fill.eq_ignore_ascii_case("initial") => {}
-            Some(fill) => {
+            Some(fill_3)
+                if fill_3.eq_ignore_ascii_case("none") || fill_3.eq_ignore_ascii_case("initial") => {}
+            Some(fill_4) => {
                 self.source_colors_static &=
-                    crate::mermaid_style::is_supported_css_color_value(fill);
+                    crate::mermaid_style::is_supported_css_color_value(fill_4);
             }
         }
     }

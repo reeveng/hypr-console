@@ -355,7 +355,7 @@ mod tests {
     let apart = (later - now).abs();
 
     assert!(
-      apart < 1.0 || apart > 359.0,
+      !apart.is_nan() && !(1.0..=359.0).contains(&apart),
       "a year later it was {apart} degrees away"
     );
   }

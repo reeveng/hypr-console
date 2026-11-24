@@ -93,6 +93,7 @@ impl SpannedArg {
         }
     }
 
+    #[must_use]
     fn span(&self) -> SourceSpan {
         match &self.value {
             SpannedArgValue::Text(value) => value.span,
@@ -116,6 +117,7 @@ enum C4Arg {
 }
 
 impl C4Arg {
+    #[must_use]
     fn from_spanned(arg: &SpannedArg) -> Self {
         match &arg.value {
             SpannedArgValue::Text(value) => Self::Text(value.text.clone()),
@@ -126,12 +128,14 @@ impl C4Arg {
         }
     }
 
+    #[must_use]
     fn value(&self) -> &str {
         match self {
             Self::Text(value) | Self::Named { value, .. } => value,
         }
     }
 
+    #[must_use]
     fn key_or<'a>(&'a self, positional_key: &'a str) -> &'a str {
         match self {
             Self::Text(_) => positional_key,
@@ -139,6 +143,7 @@ impl C4Arg {
         }
     }
 
+    #[must_use]
     fn to_value(&self) -> Value {
         match self {
             Self::Text(value) => json!(value),
@@ -187,7 +192,7 @@ struct C4BoundaryFrame {
 impl C4BoundaryFrame {
     fn new(declaration: SpannedMacroStmt, records: &mut Vec<C4BoundaryRecord>) -> Self {
         let boundary = C4BoundaryId(records.len());
-        // Incomplete and completed boundaries share flat ownership from construction onward.
+
         records.push(C4BoundaryRecord {
             declaration,
             statements: Vec::new(),
@@ -207,11 +212,14 @@ fn push_c4_semantic_statement(
     statement: C4SemanticStatement,
     is_diagram_statement: bool,
 ) {
-    if let Some(boundary) = boundaries.last_mut() {
-        boundary.has_diagram_statement |= is_diagram_statement;
-        records[boundary.boundary.0].statements.push(statement);
-    } else {
-        root.push(statement);
+    match boundaries.last_mut() {
+        Some(boundary) => {
+            boundary.has_diagram_statement |= is_diagram_statement;
+            records[boundary.boundary.0].statements.push(statement);
+        },
+        ::core::option::Option::None => {
+            root.push(statement);
+        },
     }
 }
 
@@ -221,12 +229,19 @@ fn c4_other_statement_is_allowed(
     diagram_type: &str,
     span: SourceSpan,
 ) -> bool {
-    let Some(boundary) = boundaries.last_mut() else {
-        return true;
+    let boundary = {
+        let optional_boundary = boundaries.last_mut();
+
+        match optional_boundary {
+            Some(matched_boundary) => matched_boundary,
+            ::core::option::Option::None => return true,
+        }
     };
+
     if boundary.has_diagram_statement {
         return true;
     }
+
     if boundary.is_valid {
         issues.push(c4_parse_issue(
             Error::diagram_parse_exact(
@@ -238,6 +253,7 @@ fn c4_other_statement_is_allowed(
         ));
         boundary.is_valid = false;
     }
+
     false
 }
 
@@ -259,12 +275,17 @@ struct C4ParseOutcome {
 
 impl C4ParseOutcome {
     fn into_strict_source(self) -> Result<C4SemanticSource> {
-        if let Some(issue) = self.issues.into_iter().next() {
-            return Err(issue.error);
+        match self.issues.into_iter().next() {
+            Some(issue) => {
+                return Err(issue.error);
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(self.source)
     }
 
+    #[must_use]
     fn into_semantic_construction(
         self,
         #[cfg(feature = "editor-facts")] editor_demand: EditorFactsDemand,
@@ -302,6 +323,7 @@ impl C4ParseOutcome {
                 editor_facts: Some(editor_facts),
             }
         }
+
         #[cfg(not(feature = "editor-facts"))]
         {
             crate::family::SemanticConstruction {
@@ -391,6 +413,7 @@ pub(crate) fn render_model_to_compat_json(
         .map_err(crate::Error::from)
 }
 
+#[must_use]
 fn is_c4_header(line: &str) -> bool {
     matches!(
         line.trim(),
@@ -505,19 +528,23 @@ fn push_c4_entity_arg(
     push_c4_entity_fact(facts, &value, detail.to_string(), occurrence);
 }
 
+#[must_use]
 fn parse_title_spanned_c4(line: &str, line_start: usize) -> Option<SpannedText> {
     let trimmed = line.trim_start();
     let rest = trimmed.strip_prefix("title")?;
     let ws = rest.chars().next()?;
+
     if !ws.is_whitespace() {
         return None;
     }
+
     let keyword_start = line_start + line.len() - trimmed.len();
     let rest_start = keyword_start + "title".len();
     let value = spanned_trimmed_c4(rest, rest_start);
     Some(value)
 }
 
+#[must_use]
 fn parse_acc_title_spanned_c4(line: &str, line_start: usize) -> Option<SpannedText> {
     let trimmed = line.trim_start();
     let after_keyword = trimmed.strip_prefix("accTitle")?;
@@ -530,19 +557,23 @@ fn parse_acc_title_spanned_c4(line: &str, line_start: usize) -> Option<SpannedTe
     Some(value)
 }
 
+#[must_use]
 fn parse_acc_description_stmt_spanned_c4(line: &str, line_start: usize) -> Option<SpannedText> {
     let trimmed = line.trim_start();
     let rest = trimmed.strip_prefix("accDescription")?;
     let ws = rest.chars().next()?;
+
     if !ws.is_whitespace() {
         return None;
     }
+
     let keyword_start = line_start + line.len() - trimmed.len();
     let rest_start = keyword_start + "accDescription".len();
     let value = spanned_trimmed_c4(rest, rest_start);
     Some(value)
 }
 
+#[must_use]
 fn spanned_trimmed_c4(source: &str, source_start: usize) -> SpannedText {
     let leading = leading_whitespace_len(source);
     let value = source[leading..].trim_end();
@@ -567,38 +598,60 @@ fn parse_acc_descr_spanned_c4(
     let trimmed = line.trim_start();
     let keyword_start = line_start + line.len() - trimmed.len();
     let keyword_end = keyword_start + "accDescr".len();
-    let Some(after_keyword) = trimmed.strip_prefix("accDescr") else {
-        return Ok(None);
+
+    let after_keyword = {
+        let optional_after_keyword = trimmed.strip_prefix("accDescr");
+
+        match optional_after_keyword {
+            Some(matched_after_keyword) => matched_after_keyword,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let whitespace = leading_whitespace_len(after_keyword);
     let rest = &after_keyword[whitespace..];
     let rest_start = keyword_end + whitespace;
-    if let Some(after) = rest.strip_prefix(':') {
-        let value = spanned_trimmed_c4(after, rest_start + 1);
-        return Ok(Some(SpannedAccDescr {
-            value,
-            closed: true,
-        }));
+
+    match rest.strip_prefix(':') {
+        Some(after) => {
+            let value = spanned_trimmed_c4(after, rest_start + 1);
+            return Ok(Some(SpannedAccDescr {
+                value,
+                closed: true,
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
-    let Some(rest) = rest.strip_prefix('{') else {
-        return Ok(None);
+    let rest_2 = {
+        let optional_rest = rest.strip_prefix('{');
+
+        match optional_rest {
+            Some(matched_rest) => matched_rest,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let content_start = rest_start + 1;
-    if let Some(end) = rest.find('}') {
-        let value = spanned_trimmed_c4(&rest[..end], content_start);
-        lines.resume_same_line_at(content_start + end + 1);
-        return Ok(Some(SpannedAccDescr {
-            value,
-            closed: true,
-        }));
+
+    match rest_2.find('}') {
+        Some(end) => {
+            let value = spanned_trimmed_c4(&rest_2[..end], content_start);
+            lines.resume_same_line_at(content_start + end + 1);
+            return Ok(Some(SpannedAccDescr {
+                value,
+                closed: true,
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
     let mut parts = Vec::new();
     let mut span_start = None;
     let mut span_end = None;
 
-    let first = spanned_trimmed_c4(rest, content_start);
+    let first = spanned_trimmed_c4(rest_2, content_start);
+
     if !first.text.is_empty() {
         parts.push(first.text);
         span_start = Some(first.span.start);
@@ -606,31 +659,46 @@ fn parse_acc_descr_spanned_c4(
     }
 
     let mut closed = false;
+
     while let Some((next_line, segment_start)) = lines.next_line() {
         control.checkpoint()?;
-        if let Some(close_pos) = next_line.find('}') {
-            let before = spanned_trimmed_c4(&next_line[..close_pos], segment_start);
-            if !before.text.is_empty() {
-                parts.push(before.text);
-                span_start.get_or_insert(before.span.start);
-                span_end = Some(before.span.end);
-            }
-            lines.resume_same_line_at(segment_start + close_pos + 1);
-            closed = true;
-            break;
+
+        match next_line.find('}') {
+            Some(close_pos) => {
+                let before = spanned_trimmed_c4(&next_line[..close_pos], segment_start);
+
+                if !before.text.is_empty() {
+                    parts.push(before.text);
+                    span_start.get_or_insert(before.span.start);
+                    span_end = Some(before.span.end);
+                }
+
+                lines.resume_same_line_at(segment_start + close_pos + 1);
+                closed = true;
+                break;
+            },
+            ::core::option::Option::None => {},
         }
 
         let text = spanned_trimmed_c4(next_line, segment_start);
+
         if text.text.is_empty() {
             continue;
         }
+
         parts.push(text.text);
         span_start.get_or_insert(text.span.start);
         span_end = Some(text.span.end);
     }
 
-    let start = span_start.unwrap_or(content_start);
-    let end = span_end.unwrap_or(start);
+    let start = match span_start {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => content_start,
+    };
+    let end = match span_end {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => start,
+    };
     Ok(Some(SpannedAccDescr {
         value: SpannedText {
             text: parts.join("\n"),
@@ -640,6 +708,7 @@ fn parse_acc_descr_spanned_c4(
     }))
 }
 
+#[must_use]
 fn parse_direction_stmt_facts_c4(
     line: &str,
     #[cfg(feature = "editor-facts")] editor_demand: EditorFactsDemand,
@@ -648,6 +717,7 @@ fn parse_direction_stmt_facts_c4(
 ) -> Option<bool> {
     let trimmed = line.trim_start();
     let rest = trimmed.strip_prefix("direction")?;
+
     if rest.chars().next().is_some_and(|ch| !ch.is_whitespace()) {
         return None;
     }
@@ -658,6 +728,7 @@ fn parse_direction_stmt_facts_c4(
     let keyword_end = keyword_start + "direction".len();
     let whitespace = leading_whitespace_len(rest);
     let value = &rest[whitespace..];
+
     if value.is_empty() {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut().filter(|_| editor_demand.captures_rich()) {
@@ -697,6 +768,7 @@ fn parse_macro_stmt_facts_c4(
     } else {
         &mut omitted_facts
     };
+
     match stmt.name.as_str() {
         "Person" | "Person_Ext" | "System" | "SystemDb" | "SystemQueue" | "System_Ext"
         | "SystemDb_Ext" | "SystemQueue_Ext" => {
@@ -808,6 +880,7 @@ fn parse_macro_stmt_facts_c4(
                     "missing relation source".to_string(),
                 ));
             };
+
             #[cfg(feature = "editor-facts")]
             push_c4_entity_arg(
                 facts,
@@ -815,12 +888,14 @@ fn parse_macro_stmt_facts_c4(
                 "c4 relation source",
                 C4EntityOccurrence::Reference,
             );
+
             let Some(_to) = stmt.args.get(1) else {
                 return Err(Error::diagram_parse_fallback(
                     "c4".to_string(),
                     "missing relation target".to_string(),
                 ));
             };
+
             #[cfg(feature = "editor-facts")]
             push_c4_entity_arg(
                 facts,
@@ -855,14 +930,17 @@ fn parse_macro_stmt_facts_c4(
                     "missing relation index".to_string(),
                 ));
             };
+
             #[cfg(feature = "editor-facts")]
             push_c4_payload_arg(facts, _index, "c4 relation index");
+
             let Some(_from) = stmt.args.get(1) else {
                 return Err(Error::diagram_parse_fallback(
                     "c4".to_string(),
                     "missing relation source".to_string(),
                 ));
             };
+
             #[cfg(feature = "editor-facts")]
             push_c4_entity_arg(
                 facts,
@@ -870,12 +948,14 @@ fn parse_macro_stmt_facts_c4(
                 "c4 relation source",
                 C4EntityOccurrence::Reference,
             );
+
             let Some(_to) = stmt.args.get(2) else {
                 return Err(Error::diagram_parse_fallback(
                     "c4".to_string(),
                     "missing relation target".to_string(),
                 ));
             };
+
             #[cfg(feature = "editor-facts")]
             push_c4_entity_arg(
                 facts,
@@ -910,6 +990,7 @@ fn parse_macro_stmt_facts_c4(
                     "missing style target".to_string(),
                 ));
             };
+
             #[cfg(feature = "editor-facts")]
             push_c4_entity_arg(
                 facts,
@@ -930,6 +1011,7 @@ fn parse_macro_stmt_facts_c4(
                     "missing relation style source".to_string(),
                 ));
             };
+
             #[cfg(feature = "editor-facts")]
             push_c4_entity_arg(
                 facts,
@@ -937,12 +1019,14 @@ fn parse_macro_stmt_facts_c4(
                 "c4 relation style source",
                 C4EntityOccurrence::Reference,
             );
+
             let Some(_to) = stmt.args.get(1) else {
                 return Err(Error::diagram_parse_fallback(
                     "c4".to_string(),
                     "missing relation style target".to_string(),
                 ));
             };
+
             #[cfg(feature = "editor-facts")]
             push_c4_entity_arg(
                 facts,
@@ -970,10 +1054,12 @@ fn parse_macro_stmt_facts_c4(
     }
 }
 
+#[must_use]
 fn semantic_c4_args(args: &[SpannedArg]) -> Vec<C4Arg> {
     args.iter().map(C4Arg::from_spanned).collect()
 }
 
+#[must_use]
 fn c4_missing_arg(stmt: &SpannedMacroStmt, message: &'static str) -> Error {
     let offset = stmt
         .args
@@ -993,6 +1079,7 @@ fn validate_c4_macro_args(stmt: &SpannedMacroStmt) -> Result<()> {
             if stmt.args.is_empty() {
                 return Err(c4_missing_arg(stmt, "missing relation source"));
             }
+
             if stmt.args.len() < 2 {
                 return Err(c4_missing_arg(stmt, "missing relation target"));
             }
@@ -1001,9 +1088,11 @@ fn validate_c4_macro_args(stmt: &SpannedMacroStmt) -> Result<()> {
             if stmt.args.is_empty() {
                 return Err(c4_missing_arg(stmt, "missing relation index"));
             }
+
             if stmt.args.len() < 2 {
                 return Err(c4_missing_arg(stmt, "missing relation source"));
             }
+
             if stmt.args.len() < 3 {
                 return Err(c4_missing_arg(stmt, "missing relation target"));
             }
@@ -1015,12 +1104,14 @@ fn validate_c4_macro_args(stmt: &SpannedMacroStmt) -> Result<()> {
             if stmt.args.is_empty() {
                 return Err(c4_missing_arg(stmt, "missing relation style source"));
             }
+
             if stmt.args.len() < 2 {
                 return Err(c4_missing_arg(stmt, "missing relation style target"));
             }
         }
         _ => {}
     }
+
     Ok(())
 }
 
@@ -1039,21 +1130,30 @@ fn c4_shape_detail(name: &str) -> &'static str {
 }
 
 fn parse_macro_stmt_spanned(t: &str, stmt_start: usize) -> Result<Option<SpannedMacroStmt>> {
-    let t = t.trim_end();
-    let Some(paren) = t.find('(') else {
-        return Ok(None);
+    let t_2 = t.trim_end();
+
+    let paren = {
+        let optional_paren = t_2.find('(');
+
+        match optional_paren {
+            Some(matched_paren) => matched_paren,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
-    let name = t[..paren].trim().to_string();
+
+    let name = t_2[..paren].trim().to_string();
+
     if name.is_empty() {
         return Ok(None);
     }
 
-    let after = &t[paren + 1..];
+    let after = &t_2[paren + 1..];
     let args_start = stmt_start + paren + 1;
+
     let Some(end_paren) = find_c4_closing_paren(after) else {
         return Err(Error::diagram_parse_fallback(
             "c4".to_string(),
-            format!("unterminated macro call: {t}"),
+            format!("unterminated macro call: {t}", t = t_2),
         ));
     };
 
@@ -1064,19 +1164,20 @@ fn parse_macro_stmt_spanned(t: &str, stmt_start: usize) -> Result<Option<Spanned
     let trailing_whitespace = leading_whitespace_len(trailing_raw);
     let rest = &trailing_raw[trailing_whitespace..];
     let mut has_lbrace = false;
-    if let Some(after) = rest.strip_prefix('{') {
-        if after.trim().is_empty() {
+
+    if let Some(after_2) = rest.strip_prefix('{') {
+        if after_2.trim().is_empty() {
             has_lbrace = true;
         } else {
             return Err(Error::diagram_parse_fallback(
                 "c4".to_string(),
-                format!("unexpected tokens after '{{' in macro: {t}"),
+                format!("unexpected tokens after '{{' in macro: {t}", t = t_2),
             ));
         }
     } else if !rest.is_empty() {
         return Err(Error::diagram_parse_fallback(
             "c4".to_string(),
-            format!("unexpected trailing tokens in macro: {t}"),
+            format!("unexpected trailing tokens in macro: {t}", t = t_2),
         ));
     }
 
@@ -1084,7 +1185,7 @@ fn parse_macro_stmt_spanned(t: &str, stmt_start: usize) -> Result<Option<Spanned
     Ok(Some(SpannedMacroStmt {
         name,
         args,
-        span: SourceSpan::new(stmt_start, stmt_start + t.len()),
+        span: SourceSpan::new(stmt_start, stmt_start + t_2.len()),
         args_span: SourceSpan::new(
             stmt_start + paren + 1,
             stmt_start + paren + 1 + args_raw.len(),
@@ -1093,8 +1194,10 @@ fn parse_macro_stmt_spanned(t: &str, stmt_start: usize) -> Result<Option<Spanned
     }))
 }
 
+#[must_use]
 fn find_c4_closing_paren(input: &str) -> Option<usize> {
     let mut in_quotes = false;
+
     for (index, ch) in input.char_indices() {
         match ch {
             '"' => in_quotes = !in_quotes,
@@ -1102,6 +1205,7 @@ fn find_c4_closing_paren(input: &str) -> Option<usize> {
             _ => {}
         }
     }
+
     None
 }
 
@@ -1109,18 +1213,24 @@ fn parse_args_csv_spanned(input: &str, base_offset: usize) -> Result<Vec<Spanned
     let mut out = Vec::new();
     let mut cur = input;
     let mut cursor = base_offset;
+
     loop {
         if cur.trim().is_empty() {
             break;
         }
+
         let (seg, comma) = split_next_arg(cur);
-        out.push(parse_arg_spanned(seg, cursor)?);
-        let Some((comma_offset, rest)) = comma else {
-            break;
+        out.push({ let checked_value = parse_arg_spanned(seg, cursor)?; checked_value });
+
+        let (comma_offset, rest) = match comma {
+            Some((matched_comma_offset, matched_rest)) => (matched_comma_offset, matched_rest),
+            ::core::option::Option::None => break,
         };
+
         cursor += comma_offset + 1;
         cur = rest;
     }
+
     Ok(out)
 }
 
@@ -1130,12 +1240,14 @@ fn parse_arg_spanned(seg: &str, seg_base: usize) -> Result<SpannedArg> {
         .find(|(_, ch)| !ch.is_whitespace())
         .map(|(idx, _)| idx)
         .unwrap_or(seg.len());
-    let trimmed_end = seg
+    let trimmed_end = match seg
         .char_indices()
         .rev()
         .find(|(_, ch)| !ch.is_whitespace())
-        .map(|(idx, ch)| idx + ch.len_utf8())
-        .unwrap_or(trimmed_start);
+        .map(|(idx, ch)| idx + ch.len_utf8()) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => trimmed_start,
+    };
     let trimmed = &seg[trimmed_start..trimmed_end];
     let value_base = seg_base + trimmed_start;
 
@@ -1148,13 +1260,16 @@ fn parse_arg_spanned(seg: &str, seg_base: usize) -> Result<SpannedArg> {
         });
     }
 
-    if let Some(value) = try_parse_kv_spanned(trimmed, value_base)? {
-        return Ok(value);
+    match { let checked_value_3 = try_parse_kv_spanned(trimmed, value_base)?; checked_value_3 } {
+        Some(value) => {
+            return Ok(value);
+        },
+        ::core::option::Option::None => {},
     }
 
     if trimmed.starts_with('"') {
         return Ok(SpannedArg {
-            value: SpannedArgValue::Text(parse_quoted_spanned(trimmed, value_base)?),
+            value: SpannedArgValue::Text({ let checked_value_2 = parse_quoted_spanned(trimmed, value_base)?; checked_value_2 }),
         });
     }
 
@@ -1170,21 +1285,26 @@ fn try_parse_kv_spanned(seg: &str, seg_base: usize) -> Result<Option<SpannedArg>
     if !seg.starts_with('$') {
         return Ok(None);
     }
+
     let rest = &seg[1..];
+
     let Some(eq) = rest.find('=') else {
         return Err(Error::diagram_parse_fallback(
             "c4".to_string(),
             format!("invalid attribute kv: {seg}"),
         ));
     };
+
     let key_source = spanned_trimmed_c4(&rest[..eq], seg_base + 1);
     let key = key_source.text.as_str();
+
     if key.is_empty() {
         return Err(Error::diagram_parse_fallback(
             "c4".to_string(),
             format!("invalid attribute kv key: {seg}"),
         ));
     }
+
     let equals = seg_base + 1 + eq;
 
     let val_raw = rest[eq + 1..].trim_start();
@@ -1203,30 +1323,35 @@ fn try_parse_kv_spanned(seg: &str, seg_base: usize) -> Result<Option<SpannedArg>
 }
 
 fn parse_quoted_spanned(input: &str, input_base: usize) -> Result<SpannedText> {
-    let input = input.trim();
-    let Some(rest) = input.strip_prefix('"') else {
+    let input_2 = input.trim();
+
+    let Some(rest) = input_2.strip_prefix('"') else {
         return Err(Error::diagram_parse_fallback(
             "c4".to_string(),
-            format!("expected quoted string, got: {input}"),
+            format!("expected quoted string, got: {input}", input = input_2),
         ));
     };
+
     let Some(end) = rest.find('"') else {
         return Err(Error::diagram_parse_fallback(
             "c4".to_string(),
             "unterminated string".to_string(),
         ));
     };
+
     let value = &rest[..end];
     let value_span = SourceSpan::new(input_base + 1, input_base + 1 + value.len());
     let closing_quote = value_span.end;
     let trailing_raw = &rest[end + 1..];
     let trailing = spanned_trimmed_c4(trailing_raw, closing_quote + 1);
+
     if !trailing.text.is_empty() {
         return Err(Error::diagram_parse_fallback(
             "c4".to_string(),
             format!("unexpected trailing tokens after string: {}", trailing.text),
         ));
     }
+
     Ok(SpannedText {
         text: value.to_string(),
         span: value_span,
@@ -1234,11 +1359,15 @@ fn parse_quoted_spanned(input: &str, input_base: usize) -> Result<SpannedText> {
 }
 
 impl C4Db {
+    #[must_use]
     fn new(config: &MermaidConfig) -> Self {
-        // Mermaid captures the root `wrap` directive while parsing and stores it on
-        // each C4 source object. The renderer's diagram-local `c4.wrap` setting is
-        // applied later as the second half of the `object.wrap && conf.wrap` check.
-        let wrap_enabled = config.get_bool("wrap").unwrap_or(false);
+
+
+
+        let wrap_enabled = match config.get_bool("wrap") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        };
         let mut db = Self {
             wrap_enabled,
             c4_shape_in_row: 4,
@@ -1263,9 +1392,13 @@ impl C4Db {
     }
 
     fn ensure_shape(&mut self, alias: &str) -> &mut C4Shape {
-        if let Some(index) = self.shapes.iter().position(|shape| shape.alias == alias) {
-            return &mut self.shapes[index];
+        match self.shapes.iter().position(|shape| shape.alias == alias) {
+            Some(index) => {
+                return &mut self.shapes[index];
+            },
+            ::core::option::Option::None => {},
         }
+
         self.shapes.push(C4Shape {
             alias: alias.to_string(),
             ..Default::default()
@@ -1274,13 +1407,16 @@ impl C4Db {
     }
 
     fn ensure_boundary(&mut self, alias: &str) -> &mut C4Boundary {
-        if let Some(index) = self
+        match self
             .boundaries
             .iter()
-            .position(|boundary| boundary.alias == alias)
-        {
-            return &mut self.boundaries[index];
+            .position(|boundary| boundary.alias == alias) {
+            Some(index) => {
+                return &mut self.boundaries[index];
+            },
+            ::core::option::Option::None => {},
         }
+
         self.boundaries.push(C4Boundary {
             alias: alias.to_string(),
             ..Default::default()
@@ -1291,13 +1427,16 @@ impl C4Db {
     }
 
     fn ensure_relation(&mut self, from: &str, to: &str) -> &mut C4RelationRecord {
-        if let Some(index) = self
+        match self
             .rels
             .iter()
-            .position(|rel| rel.model.from_alias == from && rel.model.to_alias == to)
-        {
-            return &mut self.rels[index];
+            .position(|rel| rel.model.from_alias == from && rel.model.to_alias == to) {
+            Some(index) => {
+                return &mut self.rels[index];
+            },
+            ::core::option::Option::None => {},
         }
+
         self.rels.push(C4RelationRecord::default());
         self.rels.last_mut().expect("relation was just inserted")
     }
@@ -1434,8 +1573,14 @@ impl C4Db {
     fn add_rel(&mut self, rel_type: &str, args: &[C4Arg]) -> Result<()> {
         let from = positional_arg_to_string(args.first())?;
         let to = positional_arg_to_string(args.get(1))?;
-        let Some(label) = args.get(2).map(C4Arg::to_value) else {
-            return Ok(());
+
+        let label = {
+            let optional_label = args.get(2).map(C4Arg::to_value);
+
+            match optional_label {
+                Some(matched_label) => matched_label,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
 
         let wrap_enabled = self.wrap_enabled;
@@ -1458,6 +1603,7 @@ impl C4Db {
 
     fn update_el_style(&mut self, args: &[C4Arg]) -> Result<()> {
         let element_name = positional_arg_to_string(args.first())?;
+
         if let Some(target) = self
             .shapes
             .iter_mut()
@@ -1471,6 +1617,7 @@ impl C4Db {
         {
             apply_element_style_arguments(target, args);
         }
+
         Ok(())
     }
 
@@ -1500,12 +1647,14 @@ impl C4Db {
         {
             self.c4_shape_in_row = parsed;
         }
+
         if let Some(arg) = args.get(1)
             && let Some(parsed) = javascript_parse_int(arg.value())
             && parsed >= 1
         {
             self.c4_boundary_in_row = parsed;
         }
+
         Ok(())
     }
 
@@ -1536,10 +1685,11 @@ impl C4Db {
     }
 }
 
-// C4 permits named attributes to rewrite fields outside their positional slots.
-// Interpret that dynamic assignment once, at the typed database owner.
+
+
 trait C4Attributes {
     fn assign(&mut self, key: &str, value: Value);
+
     fn has_text_attribute(&self, key: &str) -> bool;
 }
 
@@ -1616,19 +1766,23 @@ impl C4Attributes for C4Boundary {
 #[derive(Debug, Default)]
 struct C4RelationRecord {
     model: C4Relation,
-    // A named text argument can temporarily replace the required string type with {text: ...}.
-    // Later redeclarations/style assignments may repair it before final model validation.
+
+
     invalid_type: Option<Value>,
 }
 
 impl C4RelationRecord {
     fn into_model(self) -> Result<C4Relation> {
-        if let Some(value) = self.invalid_type {
-            return Err(Error::diagram_parse_fallback(
-                "c4".to_string(),
-                format!("expected string field `type`, got {value:?}"),
-            ));
+        match self.invalid_type {
+            Some(value) => {
+                return Err(Error::diagram_parse_fallback(
+                    "c4".to_string(),
+                    format!("expected string field `type`, got {value:?}"),
+                ));
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(self.model)
     }
 }
@@ -1639,11 +1793,11 @@ impl C4Attributes for C4RelationRecord {
             "from" => self.model.from_alias = c4_string_argument(value),
             "to" => self.model.to_alias = c4_string_argument(value),
             "type" => match value {
-                Value::String(value) => {
-                    self.model.rel_type = value;
+                Value::String(value_2) => {
+                    self.model.rel_type = value_2;
                     self.invalid_type = None;
                 }
-                value => self.invalid_type = Some(value),
+                value_3 => self.invalid_type = Some(value_3),
             },
             "label" => self.model.label = c4_text_from_value(value),
             "techn" => self.model.techn = Some(c4_text_from_value(value)),
@@ -1670,33 +1824,38 @@ impl C4Attributes for C4RelationRecord {
     }
 }
 
+#[must_use]
 fn c4_string_argument(value: Value) -> String {
-    let Value::String(value) = value else {
+    let Value::String(value_2) = value else {
         unreachable!("C4 string fields receive string macro arguments")
     };
-    value
+
+    value_2
 }
 
+#[must_use]
 fn c4_truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(value) => !value.is_empty(),
+        Value::Bool(value_2) => *value_2,
+        Value::Number(value_3) => value_3.as_f64().is_some_and(|value_4| !::core::matches!(::core::primitive::f64::classify(value_4), ::core::num::FpCategory::Zero)),
+        Value::String(value_5) => !value_5.is_empty(),
         Value::Array(_) | Value::Object(_) => true,
     }
 }
 
+#[must_use]
 fn c4_text_from_value(value: Value) -> C4Text {
     match value {
         Value::Object(mut map) if map.contains_key("text") => C4Text::Wrapped {
             text: map.remove("text").expect("text key was checked"),
         },
-        Value::String(value) => C4Text::String(value),
-        value => C4Text::Value(value),
+        Value::String(value_2) => C4Text::String(value_2),
+        value_3 => C4Text::Value(value_3),
     }
 }
 
+#[must_use]
 fn wrap_text(value: Value) -> Value {
     json!({"text": value})
 }
@@ -1731,6 +1890,7 @@ fn positional_arg_to_string(arg: Option<&C4Arg>) -> Result<String> {
     }
 }
 
+#[must_use]
 fn c4_arg_value_or_empty(arg: Option<&C4Arg>) -> Value {
     arg.map(C4Arg::to_value).unwrap_or_else(|| json!(""))
 }
@@ -1743,7 +1903,7 @@ fn assign_text_argument(
 ) {
     match arg {
         None => {
-            // Boundary type defaults reset on redeclaration; text descriptions do not.
+
             if positional_key == "type" {
                 obj.assign(positional_key, wrap_text(json!(missing_value)));
             } else {
@@ -1765,9 +1925,9 @@ fn assign_optional_argument(
     arg: Option<&C4Arg>,
 ) {
     match arg {
-        // A named argument may occupy an earlier positional slot.  A later
-        // missing positional value must not clobber the named value that was
-        // already applied to the object.
+
+
+
         None => {}
         Some(C4Arg::Text(value)) => {
             obj.assign(positional_key, json!(value));
@@ -1778,17 +1938,18 @@ fn assign_optional_argument(
 
 fn assign_named_argument(obj: &mut impl C4Attributes, key: &str, value: &str) {
     let value = json!(value);
-    let value = if matches!(key, "label" | "descr" | "techn" | "type") {
+    let value_2 = if matches!(key, "label" | "descr" | "techn" | "type") {
         wrap_text(value)
     } else {
         value
     };
-    obj.assign(key, value);
+    obj.assign(key, value_2);
 }
 
 fn apply_update_argument(obj: &mut impl C4Attributes, positional_key: &str, arg: Option<&C4Arg>) {
-    let Some(arg) = arg else {
-        return;
+    let arg = match arg {
+        Some(matched_arg) => matched_arg,
+        ::core::option::Option::None => return,
     };
 
     obj.assign(arg.key_or(positional_key), json!(arg.value()));
@@ -1799,26 +1960,30 @@ fn apply_relation_style_argument(
     positional_key: &str,
     arg: Option<&C4Arg>,
 ) {
-    let Some(arg) = arg else {
-        return;
+    let arg = match arg {
+        Some(matched_arg) => matched_arg,
+        ::core::option::Option::None => return,
     };
 
     let key = arg.key_or(positional_key);
     let value = match key {
-        "offsetX" | "offsetY" => javascript_parse_int(arg.value())
-            .map(Value::from)
-            .unwrap_or(Value::Null),
+        "offsetX" | "offsetY" => match (javascript_parse_int(arg.value())
+            .map(Value::from), Value::Null) {
+            (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+            (::core::option::Option::None, alternate) => alternate,
+        },
         _ => json!(arg.value()),
     };
     obj.assign(key, value);
 }
 
+#[must_use]
 fn javascript_parse_int(input: &str) -> Option<i64> {
-    let input = input.trim_start_matches(|ch: char| ch.is_whitespace() || ch == '\u{feff}');
-    let (negative, unsigned) = match input.as_bytes().first() {
-        Some(b'-') => (true, &input[1..]),
-        Some(b'+') => (false, &input[1..]),
-        _ => (false, input),
+    let input_2 = input.trim_start_matches(|ch: char| ch.is_whitespace() || ch == '\u{feff}');
+    let (negative, unsigned) = match input_2.as_bytes().first() {
+        Some(b'-') => (true, &input_2[1..]),
+        Some(b'+') => (false, &input_2[1..]),
+        _ => (false, input_2),
     };
     let (radix, digits) = unsigned
         .strip_prefix("0x")
@@ -1831,20 +1996,26 @@ fn javascript_parse_int(input: &str) -> Option<i64> {
             _ => byte.is_ascii_digit(),
         })
         .count();
-    if digit_count == 0 {
-        return None;
+
+    match digit_count {
+        0 => {
+            return None;
+        },
+        _ => {},
     }
 
-    let magnitude = i128::from_str_radix(&digits[..digit_count], radix).ok()?;
+    let magnitude = match i128::from_str_radix(&digits[..digit_count], radix) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
     let signed = if negative { -magnitude } else { magnitude };
-    i64::try_from(signed).ok()
+
+    match i64::try_from(signed) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }
 }
 
+#[must_use]
 fn value_as_i64(v: &Value) -> Option<i64> {
     match v {
         Value::Number(n) => n
             .as_i64()
-            .or_else(|| n.as_u64().and_then(|value| i64::try_from(value).ok())),
+            .or_else(|| n.as_u64().and_then(|value| match i64::try_from(value) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None })),
         Value::String(s) => javascript_parse_int(s),
         _ => None,
     }
@@ -1954,16 +2125,20 @@ fn parse_c4_semantic_source(
 
     let mut lines = LineCursor::new(code);
     let mut saw_header_line = false;
+
     while let Some((raw, line_start)) = lines.next_line() {
         control.checkpoint()?;
         let line = strip_inline_comment(raw);
         let header = line.trim();
+
         if header.is_empty() {
             continue;
         }
+
         saw_header_line = true;
         let start = line_start + line.len() - line.trim_start().len();
         let span = SourceSpan::new(start, start + header.len());
+
         if is_c4_header(header) {
             db.set_c4_type(header, config);
         } else {
@@ -1976,8 +2151,10 @@ fn parse_c4_semantic_source(
                 span,
             ));
         }
+
         break;
     }
+
     if !saw_header_line {
         let span = SourceSpan::new(code.len(), code.len());
         issues.push(c4_parse_issue(
@@ -1994,29 +2171,37 @@ fn parse_c4_semantic_source(
         control.checkpoint()?;
         let raw = strip_inline_comment(raw);
         let t = raw.trim();
+
         if t.is_empty() {
             continue;
         }
+
         saw_statement_after_header = true;
 
         let statement_start = line_start + raw.len() - raw.trim_start().len();
-        if let Some(declaration) = pending_boundary.take() {
-            if t == "{" {
-                boundary_frames.push(C4BoundaryFrame::new(declaration, &mut boundary_records));
-                continue;
-            }
-            issues.push(c4_parse_issue(
-                Error::diagram_parse_insertion_point(
-                    diagram_type.to_string(),
-                    "expected '{' after boundary",
-                    declaration.span.end,
-                ),
-                SourceSpan::new(declaration.span.end, declaration.span.end),
-            ));
+
+        match pending_boundary.take() {
+            Some(declaration) => {
+                if t == "{" {
+                    boundary_frames.push(C4BoundaryFrame::new(declaration, &mut boundary_records));
+                    continue;
+                }
+
+                issues.push(c4_parse_issue(
+                    Error::diagram_parse_insertion_point(
+                        diagram_type.to_string(),
+                        "expected '{' after boundary",
+                        declaration.span.end,
+                    ),
+                    SourceSpan::new(declaration.span.end, declaration.span.end),
+                ));
+            },
+            ::core::option::Option::None => {},
         }
 
         if t == "}" {
             let closing_span = SourceSpan::new(statement_start, statement_start + 1);
+
             let Some(frame) = boundary_frames.pop() else {
                 issues.push(c4_parse_issue(
                     Error::diagram_parse_exact(
@@ -2028,6 +2213,7 @@ fn parse_c4_semantic_source(
                 ));
                 continue;
             };
+
             if !frame.has_diagram_statement {
                 issues.push(c4_parse_issue(
                     Error::diagram_parse_exact(
@@ -2039,9 +2225,11 @@ fn parse_c4_semantic_source(
                 ));
                 continue;
             }
+
             if !frame.is_valid {
                 continue;
             }
+
             push_c4_semantic_statement(
                 &mut semantic_statements,
                 &mut boundary_frames,
@@ -2052,160 +2240,183 @@ fn parse_c4_semantic_source(
             continue;
         }
 
-        if let Some(title) = parse_title_spanned_c4(raw, line_start) {
-            if c4_other_statement_is_allowed(
-                &mut boundary_frames,
-                &mut issues,
-                diagram_type,
-                title.span,
-            ) {
-                push_c4_semantic_statement(
-                    &mut semantic_statements,
+        match parse_title_spanned_c4(raw, line_start) {
+            Some(title) => {
+                if c4_other_statement_is_allowed(
                     &mut boundary_frames,
-                    &mut boundary_records,
-                    C4SemanticStatement::SetTitle(title.text.clone()),
-                    false,
-                );
-            }
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("title");
-            }
-            #[cfg(feature = "editor-facts")]
-            if editor_demand.captures_rich() {
-                push_c4_payload_fact(&mut editor_facts, &title, "c4 title");
-            }
-            continue;
+                    &mut issues,
+                    diagram_type,
+                    title.span,
+                ) {
+                    push_c4_semantic_statement(
+                        &mut semantic_statements,
+                        &mut boundary_frames,
+                        &mut boundary_records,
+                        C4SemanticStatement::SetTitle(title.text.clone()),
+                        false,
+                    );
+                }
+
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("title");
+                }
+                #[cfg(feature = "editor-facts")]
+                if editor_demand.captures_rich() {
+                    push_c4_payload_fact(&mut editor_facts, &title, "c4 title");
+                }
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(acc_title) = parse_acc_title_spanned_c4(raw, line_start) {
-            // Mermaid's C4 grammar maps accTitle to the diagram title.
-            if c4_other_statement_is_allowed(
-                &mut boundary_frames,
-                &mut issues,
-                diagram_type,
-                acc_title.span,
-            ) {
-                push_c4_semantic_statement(
-                    &mut semantic_statements,
+        match parse_acc_title_spanned_c4(raw, line_start) {
+            Some(acc_title) => {
+
+                if c4_other_statement_is_allowed(
                     &mut boundary_frames,
-                    &mut boundary_records,
-                    C4SemanticStatement::SetTitle(acc_title.text.clone()),
-                    false,
-                );
-            }
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("accTitle");
-            }
-            #[cfg(feature = "editor-facts")]
-            if editor_demand.captures_rich() {
-                push_c4_payload_fact(&mut editor_facts, &acc_title, "c4 accessibility title");
-            }
-            continue;
+                    &mut issues,
+                    diagram_type,
+                    acc_title.span,
+                ) {
+                    push_c4_semantic_statement(
+                        &mut semantic_statements,
+                        &mut boundary_frames,
+                        &mut boundary_records,
+                        C4SemanticStatement::SetTitle(acc_title.text.clone()),
+                        false,
+                    );
+                }
+
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("accTitle");
+                }
+                #[cfg(feature = "editor-facts")]
+                if editor_demand.captures_rich() {
+                    push_c4_payload_fact(&mut editor_facts, &acc_title, "c4 accessibility title");
+                }
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(acc_description) = parse_acc_description_stmt_spanned_c4(raw, line_start) {
-            if c4_other_statement_is_allowed(
-                &mut boundary_frames,
-                &mut issues,
-                diagram_type,
-                acc_description.span,
-            ) {
-                push_c4_semantic_statement(
-                    &mut semantic_statements,
+        match parse_acc_description_stmt_spanned_c4(raw, line_start) {
+            Some(acc_description) => {
+                if c4_other_statement_is_allowed(
                     &mut boundary_frames,
-                    &mut boundary_records,
-                    C4SemanticStatement::SetAccDescription(acc_description.text.clone()),
-                    false,
-                );
-            }
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("accDescription");
-            }
-            #[cfg(feature = "editor-facts")]
-            if editor_demand.captures_rich() {
-                push_c4_payload_fact(
-                    &mut editor_facts,
-                    &acc_description,
-                    "c4 accessibility description",
-                );
-            }
-            continue;
+                    &mut issues,
+                    diagram_type,
+                    acc_description.span,
+                ) {
+                    push_c4_semantic_statement(
+                        &mut semantic_statements,
+                        &mut boundary_frames,
+                        &mut boundary_records,
+                        C4SemanticStatement::SetAccDescription(acc_description.text.clone()),
+                        false,
+                    );
+                }
+
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("accDescription");
+                }
+                #[cfg(feature = "editor-facts")]
+                if editor_demand.captures_rich() {
+                    push_c4_payload_fact(
+                        &mut editor_facts,
+                        &acc_description,
+                        "c4 accessibility description",
+                    );
+                }
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(acc_descr) = parse_acc_descr_spanned_c4(&mut lines, raw, line_start, control)? {
-            if c4_other_statement_is_allowed(
-                &mut boundary_frames,
-                &mut issues,
-                diagram_type,
-                acc_descr.value.span,
-            ) {
-                push_c4_semantic_statement(
-                    &mut semantic_statements,
+        match parse_acc_descr_spanned_c4(&mut lines, raw, line_start, control)? {
+            Some(acc_descr) => {
+                if c4_other_statement_is_allowed(
                     &mut boundary_frames,
-                    &mut boundary_records,
-                    C4SemanticStatement::SetAccDescription(acc_descr.value.text.clone()),
-                    false,
-                );
-            }
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("accDescr");
-            }
-            #[cfg(feature = "editor-facts")]
-            if editor_demand.captures_rich() {
-                push_c4_payload_fact(
-                    &mut editor_facts,
-                    &acc_descr.value,
-                    "c4 accessibility description",
-                );
-            }
-            if !acc_descr.closed {
-                let error = Error::diagram_parse_insertion_point(
-                    diagram_type.to_string(),
-                    "unterminated C4 accDescr block",
-                    code.len(),
-                );
-                issues.push(c4_parse_issue(error, acc_descr.value.span));
-            }
-            continue;
+                    &mut issues,
+                    diagram_type,
+                    acc_descr.value.span,
+                ) {
+                    push_c4_semantic_statement(
+                        &mut semantic_statements,
+                        &mut boundary_frames,
+                        &mut boundary_records,
+                        C4SemanticStatement::SetAccDescription(acc_descr.value.text.clone()),
+                        false,
+                    );
+                }
+
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("accDescr");
+                }
+                #[cfg(feature = "editor-facts")]
+                if editor_demand.captures_rich() {
+                    push_c4_payload_fact(
+                        &mut editor_facts,
+                        &acc_descr.value,
+                        "c4 accessibility description",
+                    );
+                }
+
+                if !acc_descr.closed {
+                    let error = Error::diagram_parse_insertion_point(
+                        diagram_type.to_string(),
+                        "unterminated C4 accDescr block",
+                        code.len(),
+                    );
+                    issues.push(c4_parse_issue(error, acc_descr.value.span));
+                }
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let stmt_start = statement_start;
         let statement_span = SourceSpan::new(stmt_start, stmt_start + t.len());
-        if let Some(_valid) = parse_direction_stmt_facts_c4(
-            raw,
-            #[cfg(feature = "editor-facts")]
-            editor_demand,
-            #[cfg(feature = "editor-facts")]
-            line_start,
-            #[cfg(feature = "editor-facts")]
-            &mut editor_facts,
-        ) {
-            issues.push(c4_parse_issue(
-                Error::diagram_parse_exact(
-                    diagram_type.to_string(),
-                    format!("unsupported C4 statement: {t}"),
+
+        match parse_direction_stmt_facts_c4(
+                raw,
+                #[cfg(feature = "editor-facts")]
+                editor_demand,
+                #[cfg(feature = "editor-facts")]
+                line_start,
+                #[cfg(feature = "editor-facts")]
+                &mut editor_facts,
+            ) {
+            Some(_valid) => {
+                issues.push(c4_parse_issue(
+                    Error::diagram_parse_exact(
+                        diagram_type.to_string(),
+                        format!("unsupported C4 statement: {t}"),
+                        statement_span,
+                    ),
                     statement_span,
-                ),
-                statement_span,
-            ));
-            continue;
+                ));
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         let stmt = match parse_macro_stmt_spanned(t, stmt_start) {
             Ok(Some(stmt)) => stmt,
             Ok(None) => {
@@ -2224,20 +2435,29 @@ fn parse_c4_semantic_source(
                 continue;
             }
         };
-        if let Err(error) = validate_c4_macro_args(&stmt) {
-            issues.push(c4_parse_issue(error, stmt.span));
-            continue;
+
+        match validate_c4_macro_args(&stmt) {
+            Err(error) => {
+                issues.push(c4_parse_issue(error, stmt.span));
+                continue;
+            },
+            ::core::result::Result::Ok(_) => {},
         }
-        if let Err(error) = parse_macro_stmt_facts_c4(
-            &stmt,
-            #[cfg(feature = "editor-facts")]
-            editor_demand,
-            #[cfg(feature = "editor-facts")]
-            &mut editor_facts,
-        ) {
-            issues.push(c4_parse_issue(error, stmt.span));
-            continue;
+
+        match parse_macro_stmt_facts_c4(
+                &stmt,
+                #[cfg(feature = "editor-facts")]
+                editor_demand,
+                #[cfg(feature = "editor-facts")]
+                &mut editor_facts,
+            ) {
+            Err(error) => {
+                issues.push(c4_parse_issue(error, stmt.span));
+                continue;
+            },
+            ::core::result::Result::Ok(_) => {},
         }
+
         if stmt.has_lbrace && !is_boundary_macro(&stmt.name) {
             let lbrace = SourceSpan::new(stmt.span.end.saturating_sub(1), stmt.span.end);
             issues.push(c4_parse_issue(
@@ -2250,6 +2470,7 @@ fn parse_c4_semantic_source(
             ));
             continue;
         }
+
         if is_boundary_macro(&stmt.name) {
             if stmt.has_lbrace {
                 boundary_frames.push(C4BoundaryFrame::new(stmt, &mut boundary_records));
@@ -2267,15 +2488,18 @@ fn parse_c4_semantic_source(
         }
     }
 
-    if let Some(declaration) = pending_boundary {
-        issues.push(c4_parse_issue(
-            Error::diagram_parse_insertion_point(
-                diagram_type.to_string(),
-                "expected '{' after boundary",
-                declaration.span.end,
-            ),
-            SourceSpan::new(declaration.span.end, declaration.span.end),
-        ));
+    match pending_boundary {
+        Some(declaration) => {
+            issues.push(c4_parse_issue(
+                Error::diagram_parse_insertion_point(
+                    diagram_type.to_string(),
+                    "expected '{' after boundary",
+                    declaration.span.end,
+                ),
+                SourceSpan::new(declaration.span.end, declaration.span.end),
+            ));
+        },
+        ::core::option::Option::None => {},
     }
 
     while boundary_frames.pop().is_some() {
@@ -2346,13 +2570,16 @@ fn apply_c4_semantic_statements(
     }];
     while let Some(frame) = frames.last_mut() {
         control.checkpoint()?;
+
         if frame.next_statement == frame.statements.len() {
             frames.pop();
             continue;
         }
+
         let statement = &frame.statements[frame.next_statement];
         frame.next_statement += 1;
         let parent_boundary = frame.parent_boundary.clone();
+
         match statement {
             C4SemanticStatement::SetTitle(title) => {
                 db.set_title(title, config);
@@ -2360,20 +2587,26 @@ fn apply_c4_semantic_statements(
             C4SemanticStatement::SetAccDescription(description) => {
                 db.set_acc_description(description);
             }
-            C4SemanticStatement::Macro(statement) => {
-                if let Err(error) = apply_c4_macro(db, statement, diagram_type, &parent_boundary) {
-                    issues.push(c4_parse_issue(error, statement.span));
+            C4SemanticStatement::Macro(statement_2) => {
+                {
+                    match apply_c4_macro(db, statement_2, diagram_type, &parent_boundary) {
+                        Err(error) => {
+                            issues.push(c4_parse_issue(error, statement_2.span));
+                        },
+                        ::core::result::Result::Ok(_) => {},
+                    };
                 }
             }
             C4SemanticStatement::Boundary(boundary) => {
                 let C4BoundaryRecord {
                     declaration,
-                    statements,
+                    statements: statements_2,
                 } = &boundaries[boundary.0];
+
                 match apply_c4_macro(db, declaration, diagram_type, &parent_boundary) {
                     Ok(Some(alias)) => {
                         frames.push(ReplayFrame {
-                            statements,
+                            statements: statements_2,
                             next_statement: 0,
                             parent_boundary: alias,
                         });
@@ -2391,6 +2624,7 @@ fn apply_c4_semantic_statements(
             }
         }
     }
+
     Ok(())
 }
 
@@ -2479,36 +2713,51 @@ fn apply_c4_macro(
             ));
         }
     }
+
     Ok(None)
 }
 
+#[must_use]
 fn c4_parse_issue(error: Error, fallback: SourceSpan) -> C4ParseIssue {
     let span = match &error {
-        Error::DiagramParse { diagnostic, .. } => diagnostic.span().unwrap_or(fallback),
+        Error::DiagramParse { diagnostic, .. } => match diagnostic.span() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => fallback,
+        },
         _ => fallback,
     };
     C4ParseIssue { error, span }
 }
 
+#[must_use]
 fn strip_inline_comment(line: &str) -> &str {
     let mut in_quotes = false;
     let mut idx = 0usize;
     let bytes = line.as_bytes();
+
     while idx < bytes.len() {
         let b = bytes[idx];
-        if b == b'"' {
-            in_quotes = !in_quotes;
-            idx += 1;
-            continue;
+
+        match b {
+            b'"' => {
+                in_quotes = !in_quotes;
+                idx += 1;
+                continue;
+            },
+            _ => {},
         }
+
         if !in_quotes && b == b'%' && match <[_]>::get(&*bytes, idx + 1) { ::core::option::Option::Some(&checked_element) => checked_element == b'%', ::core::option::Option::None => false } {
             return &line[..idx];
         }
+
         idx += 1;
     }
+
     line
 }
 
+#[must_use]
 fn is_boundary_macro(name: &str) -> bool {
     matches!(
         name,
@@ -2523,8 +2772,10 @@ fn is_boundary_macro(name: &str) -> bool {
     )
 }
 
+#[must_use]
 fn split_next_arg(input: &str) -> (&str, Option<(usize, &str)>) {
     let mut in_quotes = false;
+
     for (i, c) in input.char_indices() {
         match c {
             '"' => in_quotes = !in_quotes,
@@ -2534,6 +2785,7 @@ fn split_next_arg(input: &str) -> (&str, Option<(usize, &str)>) {
             _ => {}
         }
     }
+
     (input, None)
 }
 
@@ -2785,9 +3037,9 @@ mod tests {
                 const DEPTH: usize = 15_000;
                 let source = boundary_chain(DEPTH);
                 let control = OperationControl::new().for_phase(crate::OperationPhase::Parse);
-                // Construction entry/header use three checkpoints; each macro uses two. Cancel
-                // halfway through the closers, after completed inner boundaries belong to an
-                // open frame. Nextest isolates this named unit in its own OS subprocess.
+
+
+
                 control.cancel_after_checkpoints(3 + 2 * (DEPTH + 1) + DEPTH / 2);
 
                 let cancelled =
@@ -2820,8 +3072,8 @@ mod tests {
                 const DEPTH: usize = 15_000;
                 let source = boundary_chain(DEPTH);
                 let control = OperationControl::new().for_phase(crate::OperationPhase::Parse);
-                // Consume construction and all closers, then enter half the nested replay
-                // frames. Nextest isolates this named unit in its own OS subprocess.
+
+
                 control.cancel_after_checkpoints(3 + 2 * (DEPTH + 1) + DEPTH + DEPTH / 2);
 
                 let cancelled =
@@ -3378,7 +3630,7 @@ Person(p, "Person", "Description", $tags="tag1,tag2", $link="https://example.com
 
     #[test]
     fn c4_named_attributes_use_field_types_independent_of_argument_slot() {
-        // Mermaid 12 c4NamedAttributes.spec.ts: both text and optional slots use TEXT_FIELDS.
+
         for (header, statement, collection, index, key, expected) in [
             (
                 "C4Context",

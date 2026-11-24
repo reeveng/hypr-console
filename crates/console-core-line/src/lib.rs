@@ -1,4 +1,14 @@
 //! Straight segments with two endpoints in the caller's coordinate space.
+//!
+//! [`LineSegment::displacement`] gives the coordinate changes from start to end.
+//! [`LineSegment::point_at`] evaluates a fraction along the segment. Fractions
+//! outside 0 to 1 extend the line.
+//! [`LineSegment::nearest`] projects onto the closed segment. Coincident
+//! endpoints project to the start.
+//! [`LineSegment::crossing`] finds the intersection of the two extended lines.
+//! Parallel lines have no unique crossing. [`Crossing`] gives the fractions at
+//! the intersection and [`Projection`] gives the nearest fraction and squared
+//! distance to the query.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -6,6 +16,7 @@
 use console_core_never::Never;
 use console_core_point::Point;
 use console_core_rectangle::Bounds;
+use core::num::FpCategory;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct LineSegment<T> {
@@ -25,22 +36,33 @@ impl<T> LineSegment<T> {
   }
 }
 
-/// Fractions along the two extended lines at their crossing.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "crossings hold two dimensionless fractions along the corresponding lines"
+  )
+)]
 pub struct Crossing {
   pub first_fraction: f64,
   pub second_fraction: f64,
 }
 
-/// Position of the nearest point along a segment and its squared distance to the query.
 #[derive(Debug, Clone, Copy, PartialEq)]
+#[cfg_attr(
+  dylint_lib = "explicit067_no_unit_less_quantity",
+  expect(
+    explicit067_no_unit_less_quantity,
+    reason = "projection returns a dimensionless fraction and squared distance in the caller's arbitrary coordinate units"
+  )
+)]
 pub struct Projection {
   pub fraction: f64,
   pub distance_squared: f64,
 }
 
 impl LineSegment<f64> {
-  /// Returns the coordinate changes from the start to the end.
   #[inline]
   pub const fn displacement(&self) -> Result<Point<f64>, Never> {
     Ok(Point {
@@ -54,8 +76,14 @@ impl LineSegment<f64> {
     self.start.midpoint(self.end)
   }
 
-  /// Evaluates a fraction along the segment. Fractions outside 0 to 1 extend the line.
   #[inline]
+  #[cfg_attr(
+    dylint_lib = "explicit067_no_unit_less_quantity",
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the interpolation fraction is a dimensionless multiple of the segment displacement"
+    )
+  )]
   pub const fn point_at(&self, fraction: f64) -> Result<Point<f64>, Never> {
     self.start.interpolate(self.end, fraction)
   }
@@ -70,7 +98,6 @@ impl LineSegment<f64> {
     self.end.distance_squared(self.start)
   }
 
-  /// Projects onto the closed segment. Coincident endpoints project to the start.
   #[inline]
   pub fn nearest(&self, point: Point<f64>) -> Result<Projection, Never> {
     let Ok(displacement) = self.displacement();
@@ -80,7 +107,7 @@ impl LineSegment<f64> {
     };
     let along = displacement.x * from_start.x + displacement.y * from_start.y;
     let Ok(length_squared) = self.length_squared();
-    // An undefined fraction on a zero-length segment selects its start.
+
     #[expect(clippy::manual_clamp, reason = "NaN selects the start of the segment")]
     let fraction = (along / length_squared).max(0.0).min(1.0);
     let residual_x = from_start.x - fraction * displacement.x;
@@ -92,32 +119,35 @@ impl LineSegment<f64> {
     })
   }
 
-  /// Returns the crossing of the two extended lines. Parallel lines have no unique crossing.
   #[inline]
   pub fn crossing(&self, other: Self) -> Result<Option<Crossing>, Never> {
     let Ok(first) = self.displacement();
     let Ok(second) = other.displacement();
-    let denominator = cross(first, second);
+    let Ok(denominator) = cross(first, second);
 
-    match denominator == 0.0 {
-      true => Ok(None),
-      false => {
+    match denominator.classify() {
+      FpCategory::Zero => Ok(None),
+      FpCategory::Nan | FpCategory::Infinite | FpCategory::Subnormal | FpCategory::Normal => {
         let between = Point {
           x: other.start.x - self.start.x,
           y: other.start.y - self.start.y,
         };
 
+        let Ok(first_cross) = cross(between, second);
+        let Ok(second_cross) = cross(between, first);
+
         Ok(Some(Crossing {
-          first_fraction: cross(between, second) / denominator,
-          second_fraction: cross(between, first) / denominator,
+          first_fraction: first_cross / denominator,
+          second_fraction: second_cross / denominator,
         }))
       }
     }
   }
 }
 
-fn cross(first: Point<f64>, second: Point<f64>) -> f64 {
-  first.x * second.y - first.y * second.x
+#[must_use]
+fn cross(first: Point<f64>, second: Point<f64>) -> Result<f64, Never> {
+  Ok(first.x * second.y - first.y * second.x)
 }
 
 #[cfg(test)]

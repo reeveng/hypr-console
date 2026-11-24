@@ -2,7 +2,7 @@
 //!
 //! greetd's greeters speak JSON over a socket because greetd has to serve
 //! greeters it has never met. This one has met its greeter: a line is a word
-//! and what follows it, and there are five lines in all. A pattern is letters
+//! and what follows it. A pattern is letters
 //! and nothing else, so a line that says `login` with anything else after it
 //! is not a login, and nothing a module says can end a line early because a
 //! newline in it is written as a space.
@@ -12,6 +12,7 @@ use console_core_never::Never;
 #[derive(Clone, PartialEq, Eq)]
 pub enum FromGreeter {
   Login(String),
+  Fingerprint,
   Terminal,
 }
 
@@ -19,6 +20,7 @@ impl std::fmt::Debug for FromGreeter {
   fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       FromGreeter::Login(_) => write!(to, "Login(..)"),
+      FromGreeter::Fingerprint => write!(to, "Fingerprint"),
       FromGreeter::Terminal => write!(to, "Terminal"),
     }
   }
@@ -27,11 +29,26 @@ impl std::fmt::Debug for FromGreeter {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ToGreeter {
   Failed(String),
+  FingerprintAvailable,
+  FingerprintFailed,
   Message(String),
   Welcome,
 }
 
+impl From<crate::fingerprint::Event> for ToGreeter {
+  fn from(event: crate::fingerprint::Event) -> Self {
+    match event {
+      crate::fingerprint::Event::Available => Self::FingerprintAvailable,
+      crate::fingerprint::Event::Accepted => Self::Welcome,
+      crate::fingerprint::Event::Refused => Self::FingerprintFailed,
+    }
+  }
+}
+
 const LOGIN: &str = "login";
+const FINGERPRINT: &str = "fingerprint";
+const FINGERPRINT_AVAILABLE: &str = "fingerprint-available";
+const FINGERPRINT_FAILED: &str = "fingerprint-failed";
 const TERMINAL: &str = "terminal";
 const FAILED: &str = "failed";
 const MESSAGE: &str = "message";
@@ -54,6 +71,7 @@ pub fn from_greeter(line: &str) -> Result<Option<FromGreeter>, Never> {
         ::core::option::Option::None => None,
       }
     }
+    (FINGERPRINT, None) => Some(FromGreeter::Fingerprint),
     (TERMINAL, None) => Some(FromGreeter::Terminal),
     _ => None,
   })
@@ -66,17 +84,20 @@ pub fn to_greeter(line: &str) -> Result<Option<ToGreeter>, Never> {
     None => (line_2, ""),
   };
 
-  Ok(match word {
-    FAILED => Some(ToGreeter::Failed(rest.to_string())),
-    MESSAGE => Some(ToGreeter::Message(rest.to_string())),
-    WELCOME => Some(ToGreeter::Welcome),
-    _ => None,
+  Ok(match (word, rest) {
+    (FAILED, reason) => Some(ToGreeter::Failed(reason.to_string())),
+    (FINGERPRINT_AVAILABLE, "") => Some(ToGreeter::FingerprintAvailable),
+    (FINGERPRINT_FAILED, "") => Some(ToGreeter::FingerprintFailed),
+    (MESSAGE, text) => Some(ToGreeter::Message(text.to_string())),
+    (WELCOME, _) => Some(ToGreeter::Welcome),
+    (_, _) => None,
   })
 }
 
 pub fn line_from_greeter(message: &FromGreeter) -> Result<String, Never> {
   Ok(match message {
     FromGreeter::Login(secret) => format!("{LOGIN} {secret}\n"),
+    FromGreeter::Fingerprint => format!("{FINGERPRINT}\n"),
     FromGreeter::Terminal => format!("{TERMINAL}\n"),
   })
 }
@@ -86,6 +107,8 @@ pub fn line_to_greeter(message: &ToGreeter) -> Result<String, Never> {
 
   Ok(match message {
     ToGreeter::Failed(why) => format!("{FAILED} {}\n", flat(why)),
+    ToGreeter::FingerprintAvailable => format!("{FINGERPRINT_AVAILABLE}\n"),
+    ToGreeter::FingerprintFailed => format!("{FINGERPRINT_FAILED}\n"),
     ToGreeter::Message(text) => format!("{MESSAGE} {}\n", flat(text)),
     ToGreeter::Welcome => format!("{WELCOME}\n"),
   })
@@ -97,9 +120,15 @@ mod tests {
 
   #[test]
   fn every_line_reads_back_as_what_was_written() {
-    let from = [FromGreeter::Login("tat".to_string()), FromGreeter::Terminal];
+    let from = [
+      FromGreeter::Login("tat".to_string()),
+      FromGreeter::Fingerprint,
+      FromGreeter::Terminal,
+    ];
     let to = [
       ToGreeter::Failed("that is not the pattern".to_string()),
+      ToGreeter::FingerprintAvailable,
+      ToGreeter::FingerprintFailed,
       ToGreeter::Message("hello".to_string()),
       ToGreeter::Welcome,
     ];

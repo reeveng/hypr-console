@@ -26,22 +26,32 @@ fn render_sequence_actor_man(
     footer: bool,
 ) -> Result<()> {
     let label_ctx = ctx.label_context();
-    // These groups are appended by drawActor, unlike the box groups that are lowered.
+
     for (actor_index, actor_id) in ctx.model.actor_order.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(actor_index)?;
-        let Some(actor) = ctx.model.actors.get(actor_id) else {
-            continue;
+
+        let actor = {
+            let optional_actor = ctx.model.actors.get(actor_id);
+
+            match optional_actor {
+                Some(matched_actor) => matched_actor,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !is_actor_man_variant(&actor.actor_type) {
             continue;
         }
+
         let placement = if footer { "bottom" } else { "top" };
         let node_id = format!("actor-{placement}-{actor_id}");
+
         let Some(node) = ctx.nodes_by_id.get(node_id.as_str()).copied() else {
             ctx.typography_receipt
                 .record_missing_text_effect(crate::sequence::SequenceTextSurface::ParticipantLabel);
             continue;
         };
+
         write_actor_man_glyph(
             out,
             actor_id,
@@ -63,5 +73,6 @@ fn render_sequence_actor_man(
         )?;
         out.checkpoint()?;
     }
+
     ctx.checkpoints.checkpoint()
 }

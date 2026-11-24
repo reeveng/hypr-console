@@ -12,6 +12,7 @@ pub(crate) struct IshikawaCssBinding {
 }
 
 impl IshikawaCssBinding {
+    #[must_use]
     pub(super) fn resolve(config: &serde_json::Value) -> Self {
         let color = |key, fallback: &str| {
             config_string(config, &["themeVariables", key]).unwrap_or_else(|| fallback.to_owned())

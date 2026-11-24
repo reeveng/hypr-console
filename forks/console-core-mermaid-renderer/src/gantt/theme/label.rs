@@ -65,7 +65,7 @@ impl GanttTaskLabelPlan {
             &[ThemeTarget::Text, ThemeTarget::TaskLabel],
             selector,
         );
-        // Outside labels rest on the diagram canvas, independently of the task fill.
+
         let outside = resolve_direct_static_fill(
             theme,
             &outside_style,
@@ -94,14 +94,17 @@ impl GanttTaskLabelPlan {
         })
     }
 
+    #[must_use]
     pub(super) fn winners(&self) -> impl Iterator<Item = (usize, ResolvedStyleProperty)> + '_ {
         self.winners.iter().copied()
     }
 
+    #[must_use]
     pub(super) fn typed_candidates(&self) -> impl Iterator<Item = &DirectStaticPaint> {
         self.inside.iter().chain(self.outside.iter())
     }
 
+    #[must_use]
     pub(super) fn paint(&self, class: &str) -> Option<&DirectStaticPaint> {
         self.state?;
         let has = |value: &str| class.split_ascii_whitespace().any(|token| token == value);
@@ -126,9 +129,11 @@ impl GanttTaskLabelPlan {
         } else {
             self.source_owned.ordinary
         };
+
         if source_owned {
             return None;
         }
+
         if outside {
             self.outside.as_ref()
         } else {

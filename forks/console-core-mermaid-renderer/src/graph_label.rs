@@ -36,6 +36,7 @@ pub(crate) struct FlowchartLabelMetricsRequest<'a> {
     feature = "diagram-swimlane",
     feature = "diagram-agentflow"
 ))]
+#[must_use]
 pub(crate) fn flowchart_node_label_min_width(
     raw_label: &str,
     layout_shape: Option<&str>,
@@ -44,6 +45,7 @@ pub(crate) fn flowchart_node_label_min_width(
     use crate::flowchart::FlowchartShape;
 
     let shape = FlowchartShape::resolve(layout_shape.unwrap_or("squareRect"));
+
     if raw_label.is_empty()
         || matches!(
             shape,
@@ -67,16 +69,22 @@ pub(crate) fn flowchart_node_label_min_width(
     {
         return 0.0;
     }
-    crate::config::config_f64(config.as_value(), &["flowchart", "minNodeWidth"])
-        .unwrap_or(0.0)
+
+    match crate::config::config_f64(config.as_value(), &["flowchart", "minNodeWidth"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    }
         .max(0.0)
 }
 
+#[must_use]
 fn normalize_flowchart_svg_line_breaks(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut pos = 0usize;
+
     while pos < input.len() {
         let rest = &input[pos..];
+
         if rest.starts_with("\\n") {
             out.push('\n');
             pos += 2;
@@ -85,29 +93,37 @@ fn normalize_flowchart_svg_line_breaks(input: &str) -> String {
 
         if rest.starts_with('<') && rest.len() >= 3 {
             let mut cursor = 1usize;
+
             if rest[cursor..].starts_with('/') {
                 cursor += 1;
             }
+
             let mut chars = rest[cursor..].char_indices();
+
             if let Some((_, b)) = chars.next()
                 && let Some((r_offset, r)) = chars.next()
                 && b.eq_ignore_ascii_case(&'b')
                 && r.eq_ignore_ascii_case(&'r')
             {
                 let mut end = cursor + r_offset + r.len_utf8();
-                while end < rest.len() {
+
+                'inner_while_2: while end < rest.len() {
                     let ch = rest[end..]
                         .chars()
                         .next()
                         .expect("position before input end has a character");
+
                     if !is_ecmascript_whitespace(ch) {
-                        break;
+                        break 'inner_while_2;
                     }
+
                     end += ch.len_utf8();
                 }
+
                 if rest[end..].starts_with('/') {
                     end += 1;
                 }
+
                 if rest[end..].starts_with('>') {
                     out.push('\n');
                     pos += end + 1;
@@ -123,6 +139,7 @@ fn normalize_flowchart_svg_line_breaks(input: &str) -> String {
         out.push(ch);
         pos += ch.len_utf8();
     }
+
     out
 }
 
@@ -131,12 +148,13 @@ fn normalize_flowchart_svg_line_breaks(input: &str) -> String {
 /// Tokenization intentionally runs before the sanitizer entities are decoded. A literal
 /// `<span class="a b">` is therefore one source word, while an entity-authored
 /// `&lt;span class="a b"&gt;` keeps the ordinary whitespace boundaries it had in the source.
+#[must_use]
 pub(crate) fn flowchart_non_markdown_svg_source_word_lines(label: &str) -> Vec<Vec<String>> {
     let normalized = label.replace("\r\n", "\n");
-    let normalized = flowchart_decode_label_escapes(&normalized);
-    let normalized = normalize_flowchart_svg_line_breaks(&normalized);
+    let normalized_2 = flowchart_decode_label_escapes(&normalized);
+    let normalized_3 = normalize_flowchart_svg_line_breaks(&normalized_2);
 
-    normalized
+    normalized_3
         .split('\n')
         .map(|line| {
             crate::text::non_markdown_svg_words(line)
@@ -146,6 +164,7 @@ pub(crate) fn flowchart_non_markdown_svg_source_word_lines(label: &str) -> Vec<V
         .collect()
 }
 
+#[must_use]
 pub(crate) fn flowchart_svg_source_word_lines_plain_text(lines: &[Vec<String>]) -> String {
     let capacity = lines
         .iter()
@@ -160,18 +179,22 @@ pub(crate) fn flowchart_svg_source_word_lines_plain_text(lines: &[Vec<String>]) 
         )
         .saturating_add(lines.len().saturating_sub(1));
     let mut out = String::with_capacity(capacity);
+
     for (line_index, line) in lines.iter().enumerate() {
         if line_index > 0 {
             out.push('\n');
         }
+
         for (word_index, word) in line.iter().enumerate() {
             if word_index > 0 {
                 out.push(' ');
             }
+
             let visible = crate::entities::decode_svg_text_content_entities(word);
             out.push_str(visible.as_ref());
         }
     }
+
     out
 }
 
@@ -186,6 +209,7 @@ pub(crate) enum FlowchartSvgWidthMode {
     feature = "diagram-swimlane",
     feature = "diagram-agentflow"
 ))]
+#[must_use]
 pub(crate) fn flowchart_node_svg_width_mode(
     raw_label: &str,
     label_type: &str,
@@ -215,17 +239,22 @@ pub(crate) struct FlowchartSvgLabelSource {
     plain_text: String,
 }
 
+#[must_use]
 fn flowchart_source_plain_projection(source_lines: &[Vec<String>]) -> String {
     let mut plain_text = String::new();
+
     for (line_index, line) in source_lines.iter().enumerate() {
         if line_index > 0 {
             plain_text.push('\n');
         }
+
         for (word_index, source_word) in line.iter().enumerate() {
             if word_index > 0 {
                 plain_text.push(' ');
             }
+
             let mut rest = source_word.as_str();
+
             while !rest.is_empty() {
                 if let Some(entity_len) = authored_entity_len(rest) {
                     let entity = &rest[..entity_len];
@@ -244,16 +273,20 @@ fn flowchart_source_plain_projection(source_lines: &[Vec<String>]) -> String {
             }
         }
     }
+
     plain_text
 }
 
+#[must_use]
 fn authored_entity_len(text: &str) -> Option<usize> {
     const MAX_AUTHORED_ENTITY_BYTES: usize = 64;
 
     let bytes = text.as_bytes();
+
     if bytes.first() != Some(&b'&') {
         return None;
     }
+
     let scan = &bytes[..bytes.len().min(MAX_AUTHORED_ENTITY_BYTES)];
     let end = scan.iter().position(|byte| *byte == b';')?.checked_add(1)?;
     let body = text.get(1..end - 1)?;
@@ -261,6 +294,7 @@ fn authored_entity_len(text: &str) -> Option<usize> {
 }
 
 impl FlowchartSvgLabelSource {
+    #[must_use]
     pub(crate) fn new(source: &str) -> Self {
         let source_lines = flowchart_non_markdown_svg_source_word_lines(source);
         let plain_text = flowchart_source_plain_projection(&source_lines);
@@ -270,10 +304,12 @@ impl FlowchartSvgLabelSource {
         }
     }
 
+    #[must_use]
     pub(crate) fn plain_text(&self) -> &str {
         &self.plain_text
     }
 
+    #[must_use]
     pub(crate) fn wrapped_lines(
         &self,
         measurer: &dyn TextMeasurer,
@@ -290,6 +326,7 @@ impl FlowchartSvgLabelSource {
         )
     }
 
+    #[must_use]
     pub(crate) fn metrics(
         &self,
         measurer: &dyn TextMeasurer,
@@ -304,10 +341,12 @@ impl FlowchartSvgLabelSource {
                 line_count: 0,
             };
         }
+
         let wrapped = self.wrapped_lines(measurer, style, max_width_px, true);
         self.metrics_from_wrapped(measurer, style, &wrapped, width_mode)
     }
 
+    #[must_use]
     pub(crate) fn metrics_from_wrapped(
         &self,
         measurer: &dyn TextMeasurer,
@@ -322,6 +361,7 @@ impl FlowchartSvgLabelSource {
                 line_count: 0,
             };
         }
+
         if flowchart_label_text_is_empty_for_mode(&self.plain_text, false) {
             return crate::text::TextMetrics {
                 width: 0.0,
@@ -332,11 +372,14 @@ impl FlowchartSvgLabelSource {
 
         let mut width = 0.0_f64;
         let mut ink: Option<(f64, f64)> = None;
+
         for (row_index, row) in wrapped.iter().enumerate() {
             let visible = flowchart_svg_source_word_lines_plain_text(std::slice::from_ref(row));
+
             if trim_html_collapsible_ascii_whitespace(&visible).is_empty() {
                 continue;
             }
+
             let row_width = match width_mode {
                 FlowchartSvgWidthMode::Bbox => {
                     measurer.measure_svg_tspan_text_bbox_width_px(&visible, style)
@@ -351,6 +394,7 @@ impl FlowchartSvgLabelSource {
             let bottom = top + measurer.measure_svg_tspan_text_bbox_height_px(&visible, style);
             ink = Some(ink.map_or((top, bottom), |(min, max)| (min.min(top), max.max(bottom))));
         }
+
         crate::text::TextMetrics {
             width,
             height: ink.map_or(0.0, |(top, bottom)| (bottom - top).max(0.0)),
@@ -359,6 +403,7 @@ impl FlowchartSvgLabelSource {
     }
 }
 
+#[must_use]
 pub(crate) fn flowchart_wrap_svg_source_word_lines(
     measurer: &dyn TextMeasurer,
     lines: &[Vec<String>],
@@ -380,6 +425,7 @@ pub(crate) fn flowchart_wrap_svg_source_word_lines(
     }
 
     impl<'a> ComputedLengthProbe<'a> {
+        #[must_use]
         fn new(measurer: &'a dyn TextMeasurer, style: &'a TextStyle) -> Self {
             Self {
                 measurer,
@@ -389,17 +435,23 @@ pub(crate) fn flowchart_wrap_svg_source_word_lines(
             }
         }
 
+        #[must_use]
         fn has_builtin(&self) -> bool {
             self.builtin.is_some()
         }
 
         fn reset(&mut self) {
-            if let Some(builtin) = self.builtin.as_mut() {
-                builtin.reset();
+            match self.builtin.as_mut() {
+                Some(builtin) => {
+                    builtin.reset();
+                },
+                ::core::option::Option::None => {},
             }
+
             self.visible.clear();
         }
 
+        #[must_use]
         fn checkpoint(&self) -> ProbeCheckpoint {
             ProbeCheckpoint {
                 builtin: self.builtin.clone(),
@@ -413,10 +465,13 @@ pub(crate) fn flowchart_wrap_svg_source_word_lines(
         }
 
         fn push_visible(&mut self, text: &str) {
-            if let Some(builtin) = self.builtin.as_mut() {
-                builtin.push_text(text);
-            } else {
-                self.visible.push_str(text);
+            match self.builtin.as_mut() {
+                Some(builtin) => {
+                    builtin.push_text(text);
+                },
+                ::core::option::Option::None => {
+                    self.visible.push_str(text);
+                },
             }
         }
 
@@ -424,10 +479,12 @@ pub(crate) fn flowchart_wrap_svg_source_word_lines(
             if prepend_space {
                 self.push_visible(" ");
             }
+
             let visible = crate::entities::decode_svg_text_content_entities(word);
             self.push_visible(visible.as_ref());
         }
 
+        #[must_use]
         fn width_px(&self) -> f64 {
             self.builtin.as_ref().map_or_else(
                 || {
@@ -456,103 +513,128 @@ pub(crate) fn flowchart_wrap_svg_source_word_lines(
             .map(|(offset, _)| offset as usize)
             .chain(std::iter::once(word.len()))
             .collect::<Vec<_>>();
+
         if boundaries.len() <= 1 {
             return vec![word.to_string()];
         }
 
         let has_decoded_entities =
             word.contains("&lt;") || word.contains("&gt;") || word.contains("&amp;");
+
         if probe.has_builtin() && !has_decoded_entities {
             let mut chunks = Vec::new();
             let mut start_index = 0usize;
+
             while start_index + 1 < boundaries.len() {
                 if probe.measurer.cancellation_requested() {
                     return Vec::new();
                 }
+
                 probe.reset();
                 let mut split_index = start_index + 1;
                 let mut previous_end = boundaries[start_index];
-                for (end_index, &end) in boundaries.iter().enumerate().skip(start_index + 1) {
+
+                'inner_for_2: for (end_index, &end) in boundaries.iter().enumerate().skip(start_index + 1) {
                     if probe.measurer.cancellation_requested() {
                         return Vec::new();
                     }
+
                     probe.push_visible(&word[previous_end..end]);
+
                     if probe.width_px() <= max_width_px {
                         split_index = end_index;
                         previous_end = end;
                     } else {
-                        break;
+                        break 'inner_for_2;
                     }
                 }
+
                 chunks.push(word[boundaries[start_index]..boundaries[split_index]].to_string());
                 start_index = split_index;
             }
+
             return chunks;
         }
 
-        // Opaque/custom measurers retain Mermaid's exact growing-prefix request order. The
-        // grapheme boundaries are collected once and output chunks borrow the original word, so
-        // the compatibility path no longer recopies/resegments every shrinking tail.
+
+
+
         let mut chunks = Vec::new();
         let mut start_index = 0usize;
         let mut first_tail_already_measured = true;
+
         while start_index + 1 < boundaries.len() {
             if probe.measurer.cancellation_requested() {
                 return Vec::new();
             }
+
             let start = boundaries[start_index];
+
             if !first_tail_already_measured && probe.measure_source(&word[start..]) <= max_width_px
             {
                 chunks.push(word[start..].to_string());
                 break;
             }
+
             first_tail_already_measured = false;
 
             let mut split_index = start_index + 1;
-            for (end_index, &end) in boundaries.iter().enumerate().skip(start_index + 1) {
+
+            'inner_for_2: for (end_index, &end) in boundaries.iter().enumerate().skip(start_index + 1) {
                 if probe.measurer.cancellation_requested() {
                     return Vec::new();
                 }
+
                 if probe.measure_source(&word[start..end]) <= max_width_px {
                     split_index = end_index;
                 } else {
-                    break;
+                    break 'inner_for_2;
                 }
             }
+
             chunks.push(word[start..boundaries[split_index]].to_string());
             start_index = split_index;
         }
+
         chunks
     }
 
-    let Some(max_width_px) = max_width_px.filter(|width| width.is_finite() && *width > 0.0) else {
+    let Some(max_width_px_2) = max_width_px.filter(|width| width.is_finite() && *width > 0.0) else {
         if measurer.cancellation_requested() {
             return Vec::new();
         }
+
         return lines.to_vec();
     };
 
     let mut wrapped = Vec::new();
     let mut probe = ComputedLengthProbe::new(measurer, style);
+
     for source_line in lines {
         if measurer.cancellation_requested() {
             return Vec::new();
         }
+
         if source_line.is_empty() {
             wrapped.push(Vec::new());
             continue;
         }
+
         probe.reset();
+
         for (word_index, word) in source_line.iter().enumerate() {
             if measurer.cancellation_requested() {
                 return Vec::new();
             }
+
             probe.push_source_word(word, word_index > 0);
         }
-        if probe.width_px() <= max_width_px {
+
+        if probe.width_px() <= max_width_px_2 {
             if measurer.cancellation_requested() {
                 return Vec::new();
             }
+
             wrapped.push(source_line.clone());
             continue;
         }
@@ -560,42 +642,53 @@ pub(crate) fn flowchart_wrap_svg_source_word_lines(
         probe.reset();
         let mut current = Vec::new();
         let mut word_index = 0usize;
-        while let Some(word) = source_line.get(word_index) {
+
+        'inner_while_2: while let Some(word) = source_line.get(word_index) {
             if measurer.cancellation_requested() {
                 return Vec::new();
             }
+
             let checkpoint = probe.checkpoint();
             probe.push_source_word(word, !current.is_empty());
-            if probe.width_px() <= max_width_px {
+
+            if probe.width_px() <= max_width_px_2 {
                 if measurer.cancellation_requested() {
                     return Vec::new();
                 }
+
                 current.push(word.clone());
                 word_index += 1;
-                continue;
+                continue 'inner_while_2;
             }
+
             probe.restore(checkpoint);
+
             if !current.is_empty() {
                 wrapped.push(std::mem::take(&mut current));
                 probe.reset();
-                continue;
+                continue 'inner_while_2;
             }
+
             if !break_long_words {
                 wrapped.push(vec![word.clone()]);
                 word_index += 1;
-                continue;
+                continue 'inner_while_2;
             }
 
-            let chunks = split_source_word_to_fit(&mut probe, word, max_width_px);
+            let chunks = split_source_word_to_fit(&mut probe, word, max_width_px_2);
+
             if measurer.cancellation_requested() {
                 return Vec::new();
             }
+
             for chunk in chunks {
                 wrapped.push(vec![chunk]);
             }
+
             probe.reset();
             word_index += 1;
         }
+
         if !current.is_empty() {
             wrapped.push(current);
         }
@@ -608,23 +701,27 @@ pub(crate) fn flowchart_wrap_svg_source_word_lines(
     }
 }
 
-// Mermaid 11.16 inserts decoded labels through `addHtmlSpan(...).html(...)`. HTML collapses the
-// ASCII whitespace set at a boundary, but U+00A0 remains visible and contributes to the line box.
+
+
+#[must_use]
 pub(crate) fn flowchart_trim_html_collapsible_whitespace(input: &str) -> &str {
     trim_html_collapsible_ascii_whitespace(input)
 }
 
+#[must_use]
 pub(crate) fn flowchart_label_text_is_empty_for_mode(text: &str, _html_labels: bool) -> bool {
     flowchart_trim_html_collapsible_whitespace(text).is_empty()
 }
 
+#[must_use]
 pub(crate) fn flowchart_label_is_empty_for_render(label: &str) -> bool {
-    // Mermaid admits an edge label whenever FlowDB's already-trimmed label string is non-empty.
-    // Do not infer emptiness from extracted text: image-, icon-, and math-only HTML labels still
-    // have visible DOM content, and parsing here would duplicate the later measurement work.
+
+
+
     label.is_empty()
 }
 
+#[must_use]
 pub(crate) fn flowchart_label_metrics_for_layout(
     request: FlowchartLabelMetricsRequest<'_>,
 ) -> crate::text::TextMetrics {
@@ -635,9 +732,14 @@ pub(crate) fn flowchart_label_metrics_for_layout(
             line_count: 0,
         };
     }
-    if let Some(metrics) = flowchart_math_label_metrics_for_layout(&request) {
-        return metrics;
+
+    match flowchart_math_label_metrics_for_layout(&request) {
+        Some(metrics) => {
+            return metrics;
+        },
+        ::core::option::Option::None => {},
     }
+
     if request.wrap_mode == WrapMode::HtmlLike {
         let source =
             flowchart_label_html_source(request.raw_label, request.label_type, request.config);
@@ -645,6 +747,7 @@ pub(crate) fn flowchart_label_metrics_for_layout(
         let xhtml = merman_markup::sanitize::sanitize_xhtml(&source, &sanitize_config);
         return flowchart_html_label_metrics_for_layout(request, &xhtml);
     }
+
     if request.label_type == "markdown" {
         crate::text::measure_wrapped_markdown_with_inline_styles(
             request.measurer,
@@ -663,12 +766,14 @@ pub(crate) fn flowchart_label_metrics_for_layout(
     }
 }
 
+#[must_use]
 fn flowchart_math_label_metrics_for_layout(
     request: &FlowchartLabelMetricsRequest<'_>,
 ) -> Option<crate::text::TextMetrics> {
     if request.wrap_mode != WrapMode::HtmlLike || !request.raw_label.contains("$$") {
         return None;
     }
+
     let math_renderer = request.math_renderer?;
     let resolved_config;
     let config = if request.config.get_str("securityLevel").is_none() {
@@ -685,8 +790,8 @@ fn flowchart_math_label_metrics_for_layout(
             )
             .with_palette_paint_authority(request.config.palette_paint_authority())
             .with_family_paint_inputs(request.config.family_paint_inputs());
-        // Flowchart's standalone measurement defaults to strict without declaring an assignment.
-        // Construction validates the derived values without charging the request's model limits.
+
+
         resolved_config = PresentationConfig::try_from_frozen_parts_controlled(
             parts,
             &merman_model::resources::InputResourcePolicy::for_profile(
@@ -711,18 +816,21 @@ fn flowchart_math_label_metrics_for_layout(
     })
 }
 
+#[must_use]
 pub(crate) fn flowchart_label_sanitize_config(
     config: &PresentationConfig,
 ) -> std::borrow::Cow<'_, merman_model::MermaidConfig> {
     if config.get_str("securityLevel").is_some() {
         return std::borrow::Cow::Borrowed(config.as_config());
     }
-    let mut config = config.as_config().clone();
-    config.set_value("securityLevel", serde_json::Value::String("strict".into()));
-    std::borrow::Cow::Owned(config)
+
+    let mut config_2 = config.as_config().clone();
+    config_2.set_value("securityLevel", serde_json::Value::String(<::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("strict")));
+    std::borrow::Cow::Owned(config_2)
 }
 
 /// Measures the exact sanitized XHTML retained for the corresponding HTML-label terminal.
+#[must_use]
 pub(crate) fn flowchart_html_label_metrics_for_layout(
     request: FlowchartLabelMetricsRequest<'_>,
     xhtml: &str,
@@ -735,6 +843,7 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
         max_width_px,
         ..
     } = request;
+
     if xhtml.is_empty() {
         return crate::text::TextMetrics {
             width: 0.0,
@@ -742,40 +851,50 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
             line_count: 0,
         };
     }
+
     if let Some(plain) = crate::text::mermaid_xhtml_label_plain_text(xhtml)
         && !plain.contains('<')
     {
-        // A host profile may provide the complete paragraph's browser measurement. Keep that
-        // request intact after collapsing rendered whitespace, instead of probing each word.
-        let plain = flowchart_label_plain_text_for_layout(xhtml, "html", true);
-        let mut metrics = measurer.measure_wrapped(&plain, style, max_width_px, WrapMode::HtmlLike);
+
+
+        let plain_2 = flowchart_label_plain_text_for_layout(xhtml, "html", true);
+        let mut metrics = measurer.measure_wrapped(&plain_2, style, max_width_px, WrapMode::HtmlLike);
+
         if label_type == "markdown" {
             let max_width = max_width_px.filter(|width| width.is_finite() && *width > 0.0);
-            if let Some(max_width) = max_width
+
+            if let Some(max_width_2) = max_width
                 && measurer
-                    .measure_wrapped(&plain, style, None, WrapMode::HtmlLike)
+                    .measure_wrapped(&plain_2, style, None, WrapMode::HtmlLike)
                     .width
-                    > max_width
+                    > max_width_2
             {
-                metrics.width = metrics.width.max(max_width);
+                metrics.width = metrics.width.max(max_width_2);
             } else {
                 metrics.width = crate::text::round_to_1_64_px(metrics.width);
-                if let Some(max_width) = max_width {
-                    metrics.width = metrics.width.min(max_width);
+
+                match max_width {
+                    Some(max_width_3) => {
+                        metrics.width = metrics.width.min(max_width_3);
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
         }
+
         return metrics;
     }
+
     let lower = xhtml.to_ascii_lowercase();
-    // Marked leaves unsupported blocks as root text alongside any generated paragraphs. Keep
-    // that plain-text measurement path; ordinary Markdown paragraphs use the browser's width
-    // lattice. Read the final sanitized structure so removed markup cannot affect this choice.
+
+
+
     let mut markdown_has_unwrapped_text = false;
     let mut extra_lines = 0;
+
     if label_type == "markdown" {
-        // Markdown's paragraph gap and image-only line boxes are properties of its final DOM.
-        // Read only that XHTML; reparsing authored Markdown here would bypass sanitizer policy.
+
+
         let mut reader = quick_xml::Reader::from_str(xhtml);
         let mut paragraphs = 0usize;
         let mut image_only_paragraphs = 0usize;
@@ -783,6 +902,7 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
         let mut paragraph_has_text = false;
         let mut paragraph_depth = 0usize;
         let mut element_depth = 0usize;
+
         loop {
             if measurer.cancellation_requested() {
                 return crate::text::TextMetrics {
@@ -791,15 +911,21 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
                     line_count: 0,
                 };
             }
+
             match reader.read_event() {
                 Ok(quick_xml::events::Event::Start(tag)) => {
                     element_depth += 1;
+
                     if tag.name().as_ref() == "p" {
-                        if paragraph_depth == 0 {
-                            paragraphs += 1;
-                            paragraph_images = 0;
-                            paragraph_has_text = false;
+                        match paragraph_depth {
+                            0 => {
+                                paragraphs += 1;
+                                paragraph_images = 0;
+                                paragraph_has_text = false;
+                            },
+                            _ => {},
                         }
+
                         paragraph_depth += 1;
                     } else if paragraph_depth > 0 && tag.name().as_ref() == "img" {
                         paragraph_images += 1;
@@ -814,11 +940,19 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
                     let decoded =
                         merman_model::text::decode_html_entities_to_unicode(text.as_ref());
                     let has_text = !trim_html_collapsible_ascii_whitespace(&decoded).is_empty();
-                    if paragraph_depth > 0 {
-                        paragraph_has_text |= has_text;
+
+                    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(paragraph_depth), &::core::convert::identity(0)); _explicit_ordering } {
+                        ::core::cmp::Ordering::Greater => {
+                            paragraph_has_text |= has_text;
+                        },
+                        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
                     }
-                    if element_depth == 0 {
-                        markdown_has_unwrapped_text |= has_text;
+
+                    match element_depth {
+                        0 => {
+                            markdown_has_unwrapped_text |= has_text;
+                        },
+                        _ => {},
                     }
                 }
                 Ok(quick_xml::events::Event::GeneralRef(reference)) => {
@@ -830,8 +964,10 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
                 }
                 Ok(quick_xml::events::Event::End(tag)) => {
                     element_depth = element_depth.saturating_sub(1);
+
                     if tag.name().as_ref() == "p" {
                         paragraph_depth = paragraph_depth.saturating_sub(1);
+
                         if paragraph_depth == 0 && paragraph_images > 0 && !paragraph_has_text {
                             image_only_paragraphs += 1;
                         }
@@ -841,15 +977,17 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
                 _ => {}
             }
         }
+
         extra_lines = if lower.contains("<img") {
             image_only_paragraphs
         } else {
             paragraphs.saturating_sub(1)
         };
     }
+
     let mut metrics = if lower.contains("<img") {
-        // The generated image-only paragraph can own the fixed 80px width. A style
-        // on surrounding text must never turn a mixed label into an image-only box.
+
+
         let inner = xhtml
             .strip_prefix("<p>")
             .and_then(|html| html.strip_suffix("</p>"))
@@ -871,6 +1009,7 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
         )
     } else {
         let plain = flowchart_label_plain_text_for_layout(xhtml, "html", true);
+
         if plain.is_empty() {
             crate::text::TextMetrics {
                 width: 0.0,
@@ -889,6 +1028,7 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
             measurer.measure_wrapped(&plain, style, max_width_px, WrapMode::HtmlLike)
         }
     };
+
     if label_type == "markdown"
         && !markdown_has_unwrapped_text
         && !lower.contains("<img")
@@ -898,11 +1038,12 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
         && !crate::text::mermaid_markdown_contains_html_tags(raw_label)
         && !crate::text::mermaid_markdown_contains_raw_blocks(raw_label)
     {
-        // Markdown's min-content overflow keeps the host measurer's base width, rather than
-        // snapping it to the ordinary browser lattice. Authored HTML and raw blocks retain
-        // their rich-text widths. Source classification only selects this compatibility rule;
-        // the measured text still comes exclusively from the sanitized final fragment.
+
+
+
+
         let plain = flowchart_label_plain_text_for_layout(xhtml, "html", true);
+
         if !plain.contains('<') {
             metrics.width = measurer
                 .measure_wrapped(&plain, style, Some(max_width), WrapMode::HtmlLike)
@@ -910,11 +1051,13 @@ pub(crate) fn flowchart_html_label_metrics_for_layout(
                 .max(max_width);
         }
     }
+
     metrics.height += extra_lines as f64 * style.font_size.max(1.0) * 1.5;
     metrics.line_count += extra_lines;
     metrics
 }
 
+#[must_use]
 fn measure_flowchart_html_images(
     measurer: &dyn TextMeasurer,
     html: &str,
@@ -922,33 +1065,56 @@ fn measure_flowchart_html_images(
     max_width_px: Option<f64>,
     fixed_img_width: bool,
 ) -> crate::text::TextMetrics {
-    let max_width = max_width_px.unwrap_or(200.0).max(1.0);
+    let max_width = match max_width_px {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 200.0,
+    }.max(1.0);
     let lower = html.to_ascii_lowercase();
+
     if !lower.contains("<img") {
         return measurer.measure_wrapped(html, style, max_width_px, WrapMode::HtmlLike);
     }
 
+    #[must_use]
     fn has_img_src(tag: &str) -> bool {
         let lower = tag.to_ascii_lowercase();
-        let Some(idx) = lower.find("src=") else {
-            return false;
+
+        let idx = {
+            let optional_idx = lower.find("src=");
+
+            match optional_idx {
+                Some(matched_idx) => matched_idx,
+                ::core::option::Option::None => return false,
+            }
         };
+
         let rest = tag[idx + 4..].trim_start();
-        let Some(quote) = rest.chars().next() else {
-            return false;
+
+        let quote = {
+            let optional_quote = rest.chars().next();
+
+            match optional_quote {
+                Some(matched_quote) => matched_quote,
+                ::core::option::Option::None => return false,
+            }
         };
+
         if quote != '"' && quote != '\'' {
             return false;
         }
+
         let mut it = rest.chars();
         let _ = it.next();
         let mut val = String::new();
+
         for ch in it {
             if ch == quote {
                 break;
             }
+
             val.push(ch);
         }
+
         !val.trim().is_empty()
     }
 
@@ -974,14 +1140,17 @@ fn measure_flowchart_html_images(
 
     let bytes = html.as_bytes();
     let mut i = 0usize;
+
     while i < bytes.len() {
         if bytes[i] == b'<' {
             let rest = &html[i..];
+
             let Some(rel_end) = rest.find('>') else {
-                // No later tag can close either; preserve the remaining text once.
+
                 text_buf.push_str(rest);
                 break;
             };
+
             if rest
                 .get(..4)
                 .is_some_and(|prefix| prefix.eq_ignore_ascii_case("<img"))
@@ -991,6 +1160,7 @@ fn measure_flowchart_html_images(
                 } else {
                     text_buf.clear();
                 }
+
                 let tag = &rest[..=rel_end];
                 blocks.push(Block::Img {
                     has_src: has_img_src(tag),
@@ -998,6 +1168,7 @@ fn measure_flowchart_html_images(
                 i += rel_end + 1;
                 continue;
             }
+
             if rest
                 .get(..3)
                 .is_some_and(|prefix| prefix.eq_ignore_ascii_case("<br"))
@@ -1006,44 +1177,63 @@ fn measure_flowchart_html_images(
                 i += rel_end + 1;
                 continue;
             }
+
             i += rel_end + 1;
             continue;
         }
-        let Some(ch) = html[i..].chars().next() else {
-            break;
+
+        let ch = {
+            let optional_ch = html[i..].chars().next();
+
+            match optional_ch {
+                Some(matched_ch) => matched_ch,
+                ::core::option::Option::None => break,
+            }
         };
+
         text_buf.push(ch);
         i += ch.len_utf8();
     }
+
     if !flowchart_trim_html_collapsible_whitespace(&text_buf).is_empty() {
         blocks.push(Block::Text(text_buf));
     }
 
+    #[must_use]
     fn normalize_text_block(input: &str) -> String {
-        // The scanner separates already-sanitized markup before measuring its DOM text. Decode
-        // the XHTML representation once so entities do not become visible glyph spellings.
+
+
         let input = merman_model::text::decode_html_entities_to_unicode(input);
         let mut out = String::with_capacity(input.len());
         let mut last_space = false;
+
         for ch in input.chars() {
-            if ch == '\n' {
-                while out.ends_with(' ') {
-                    out.pop();
-                }
-                out.push('\n');
-                last_space = false;
-                continue;
+            match ch {
+                '\n' => {
+                    while out.ends_with(' ') {
+                        out.pop();
+                    }
+
+                    out.push('\n');
+                    last_space = false;
+                    continue;
+                },
+                _ => {},
             }
+
             if is_html_collapsible_ascii_whitespace(ch) {
                 if !last_space {
                     out.push(' ');
                 }
+
                 last_space = true;
                 continue;
             }
+
             out.push(ch);
             last_space = false;
         }
+
         out.lines()
             .map(flowchart_trim_html_collapsible_whitespace)
             .collect::<Vec<_>>()
@@ -1062,16 +1252,19 @@ fn measure_flowchart_html_images(
                 width = width.max(img_w);
                 let img_h = if has_src { img_w } else { 0.0 };
                 height += img_h;
+
                 if img_h > 0.0 {
                     lines += 1;
                 }
             }
             Block::Text(t) => {
-                let t = normalize_text_block(&t);
-                if t.is_empty() {
+                let t_2 = normalize_text_block(&t);
+
+                if t_2.is_empty() {
                     continue;
                 }
-                let m = measurer.measure_wrapped(&t, style, Some(max_width), WrapMode::HtmlLike);
+
+                let m = measurer.measure_wrapped(&t_2, style, Some(max_width), WrapMode::HtmlLike);
                 width = width.max(m.width);
                 height += m.height;
                 lines += m.line_count;
@@ -1086,6 +1279,7 @@ fn measure_flowchart_html_images(
     }
 }
 
+#[must_use]
 pub(crate) fn flowchart_decode_label_escapes(label: &str) -> String {
     if !label.contains('\\') {
         return label.to_string();
@@ -1093,10 +1287,14 @@ pub(crate) fn flowchart_decode_label_escapes(label: &str) -> String {
 
     let mut out = String::with_capacity(label.len());
     let mut chars = label.chars().peekable();
+
     while let Some(ch) = chars.next() {
-        if ch != '\\' {
-            out.push(ch);
-            continue;
+        match ch {
+            '\\' => {},
+            _ => {
+                out.push(ch);
+                continue;
+            },
         }
 
         match chars.peek().copied() {
@@ -1111,56 +1309,72 @@ pub(crate) fn flowchart_decode_label_escapes(label: &str) -> String {
             _ => out.push('\\'),
         }
     }
+
     out
 }
 
+#[must_use]
 pub(crate) fn flowchart_non_markdown_label_for_html(label: &str, label_type: &str) -> String {
-    let mut label = if label.contains("\r\n") {
+    let mut label_2 = if label.contains("\r\n") {
         label.replace("\r\n", "\n")
     } else {
         label.to_string()
     };
-    label = flowchart_decode_label_escapes(&label);
+    label_2 = flowchart_decode_label_escapes(&label_2);
+
     if label_type == "string" {
-        label = flowchart_trim_html_collapsible_whitespace(&label).to_string();
-    }
-    let label = label.trim_end_matches('\n');
-    if !label.contains("\\n") && !label.contains('\n') {
-        return label.to_string();
+        label_2 = flowchart_trim_html_collapsible_whitespace(&label_2).to_string();
     }
 
-    let mut out = String::with_capacity(label.len());
+    let label_3 = label_2.trim_end_matches('\n');
+
+    if !label_3.contains("\\n") && !label_3.contains('\n') {
+        return label_3.to_string();
+    }
+
+    let mut out = String::with_capacity(label_3.len());
     let mut offset = 0usize;
-    while offset < label.len() {
-        let rest = &label[offset..];
+
+    while offset < label_3.len() {
+        let rest = &label_3[offset..];
+
         if rest.starts_with("\\n") {
             out.push_str("<br />");
             offset += 2;
             continue;
         }
+
         let ch = rest
             .chars()
             .next()
             .expect("offset before label end has a character");
-        if ch == '\n' {
-            out.push_str("<br />");
-        } else {
-            out.push(ch);
+
+        match ch {
+            '\n' => {
+                out.push_str("<br />");
+            },
+            _ => {
+                out.push(ch);
+            },
         }
+
         offset += ch.len_utf8();
     }
+
     out
 }
 
+#[must_use]
 pub(crate) fn flowchart_label_plain_text_for_layout(
     label: &str,
     label_type: &str,
     html_labels: bool,
 ) -> String {
+    #[must_use]
     fn strip_html_for_layout(input: &str) -> String {
-        // A lightweight, deterministic HTML text extractor for Mermaid htmlLabels layout.
-        // We intentionally do not attempt full HTML parsing/sanitization here; we only need a
-        // best-effort approximation of the rendered textContent for sizing.
+
+
+
         fn append_text_run(
             run: &mut String,
             out: &mut String,
@@ -1171,32 +1385,41 @@ pub(crate) fn flowchart_label_plain_text_for_layout(
             if run.is_empty() {
                 return;
             }
+
             {
-                // Decode each DOM text run independently. Decoding after removing every tag would
-                // incorrectly join `&cop<strong>y;</strong>` into the entity `&copy;`.
+
+
                 let decoded = merman_model::text::decode_html_entities_to_unicode(run.as_str());
+
                 for ch in decoded.chars() {
-                    if ch == '\u{00A0}' {
-                        out.push(ch);
-                        *last_space = false;
-                        *last_nl = false;
-                        *trailing_newline_is_block_end = false;
-                        continue;
+                    match ch {
+                        '\u{00A0}' => {
+                            out.push(ch);
+                            *last_space = false;
+                            *last_nl = false;
+                            *trailing_newline_is_block_end = false;
+                            continue;
+                        },
+                        _ => {},
                     }
+
                     if is_html_collapsible_ascii_whitespace(ch) {
                         if !*last_space && !*last_nl {
                             out.push(' ');
                             *last_space = true;
                             *trailing_newline_is_block_end = false;
                         }
+
                         continue;
                     }
+
                     out.push(ch);
                     *last_space = false;
                     *last_nl = false;
                     *trailing_newline_is_block_end = false;
                 }
             }
+
             run.clear();
         }
 
@@ -1230,10 +1453,12 @@ pub(crate) fn flowchart_label_plain_text_for_layout(
             trailing_newline_is_block_end: &mut bool,
         ) {
             trim_trailing_inline_collapsible_space(out);
+
             if !out.is_empty() && !*last_nl {
                 out.push('\n');
                 *trailing_newline_is_block_end = true;
             }
+
             *last_space = false;
             *last_nl = true;
         }
@@ -1244,65 +1469,81 @@ pub(crate) fn flowchart_label_plain_text_for_layout(
         let mut last_nl = false;
         let mut trailing_newline_is_block_end = false;
         let mut it = input.chars().peekable();
+
+        #[must_use]
         fn is_html_tag_start(ch: Option<char>) -> bool {
             ch.is_some_and(|ch| ch.is_ascii_alphabetic() || matches!(ch, '/' | '!' | '?'))
         }
 
         while let Some(ch) = it.next() {
-            if ch == '<' {
-                if !is_html_tag_start(it.peek().copied()) {
-                    text_run.push('<');
-                    continue;
-                }
-
-                append_text_run(
-                    &mut text_run,
-                    &mut out,
-                    &mut last_space,
-                    &mut last_nl,
-                    &mut trailing_newline_is_block_end,
-                );
-
-                let mut tag = String::new();
-                for c in it.by_ref() {
-                    if c == '>' {
-                        break;
+            match ch {
+                '<' => {
+                    if !is_html_tag_start(it.peek().copied()) {
+                        text_run.push('<');
+                        continue;
                     }
-                    tag.push(c);
-                }
-                let tag = trim_html_collapsible_ascii_whitespace(&tag);
-                let tag_lower = tag.to_ascii_lowercase();
-                let tag_trim = trim_html_collapsible_ascii_whitespace(&tag_lower);
-                if tag_trim.starts_with('!') || tag_trim.starts_with('?') {
+
+                    append_text_run(
+                        &mut text_run,
+                        &mut out,
+                        &mut last_space,
+                        &mut last_nl,
+                        &mut trailing_newline_is_block_end,
+                    );
+
+                    let mut tag = String::new();
+
+                    'over_c_2: for c in it.by_ref() {
+                        match c {
+                            '>' => {
+                                break 'over_c_2;
+                            },
+                            _ => {},
+                        }
+
+                        tag.push(c);
+                    }
+
+                    let tag = trim_html_collapsible_ascii_whitespace(&tag);
+                    let tag_lower = tag.to_ascii_lowercase();
+                    let tag_trim = trim_html_collapsible_ascii_whitespace(&tag_lower);
+
+                    if tag_trim.starts_with('!') || tag_trim.starts_with('?') {
+                        continue;
+                    }
+
+                    let is_closing = tag_trim.starts_with('/');
+                    let name = tag_trim
+                        .trim_start_matches('/')
+                        .trim_end_matches('/')
+                        .split(is_html_collapsible_ascii_whitespace)
+                        .find(|part| !part.is_empty())
+                        .unwrap_or("");
+
+                    if name == "br" {
+                        push_br(
+                            &mut out,
+                            &mut last_space,
+                            &mut last_nl,
+                            &mut trailing_newline_is_block_end,
+                        );
+                    } else if is_closing && matches!(name, "p" | "div" | "li" | "tr" | "ul" | "ol") {
+                        push_block_end(
+                            &mut out,
+                            &mut last_space,
+                            &mut last_nl,
+                            &mut trailing_newline_is_block_end,
+                        );
+                    }
+
                     continue;
-                }
-                let is_closing = tag_trim.starts_with('/');
-                let name = tag_trim
-                    .trim_start_matches('/')
-                    .trim_end_matches('/')
-                    .split(is_html_collapsible_ascii_whitespace)
-                    .find(|part| !part.is_empty())
-                    .unwrap_or("");
-                if name == "br" {
-                    push_br(
-                        &mut out,
-                        &mut last_space,
-                        &mut last_nl,
-                        &mut trailing_newline_is_block_end,
-                    );
-                } else if is_closing && matches!(name, "p" | "div" | "li" | "tr" | "ul" | "ol") {
-                    push_block_end(
-                        &mut out,
-                        &mut last_space,
-                        &mut last_nl,
-                        &mut trailing_newline_is_block_end,
-                    );
-                }
-                continue;
+                },
+                _ => {},
             }
 
             text_run.push(ch);
         }
+
         append_text_run(
             &mut text_run,
             &mut out,
@@ -1310,9 +1551,11 @@ pub(crate) fn flowchart_label_plain_text_for_layout(
             &mut last_nl,
             &mut trailing_newline_is_block_end,
         );
+
         if trailing_newline_is_block_end {
             out.pop();
         }
+
         out
     }
 
@@ -1354,6 +1597,7 @@ pub(crate) fn flowchart_label_plain_text_for_layout(
                     | console_core_markdown::Options::ENABLE_STRIKETHROUGH
                     | console_core_markdown::Options::ENABLE_TASKLISTS,
             );
+
             for ev in parser {
                 match ev {
                     console_core_markdown::Event::Text(t) => out.push_str(&t),
@@ -1364,6 +1608,7 @@ pub(crate) fn flowchart_label_plain_text_for_layout(
                     _ => {}
                 }
             }
+
             flowchart_trim_html_collapsible_whitespace(&out).to_string()
         }
         _ => {
@@ -1373,12 +1618,12 @@ pub(crate) fn flowchart_label_plain_text_for_layout(
             }
 
             let mut t = flowchart_decode_label_escapes(&label.replace("\r\n", "\n"));
-            // Keep the raw label text for layout, then strip HTML tags/entities.
-            //
-            // Note: in Mermaid flowchart-v2, FontAwesome icon tokens (e.g. `fa:fa-car`)
-            // can affect the measured label width even though the exported SVG replaces them
-            // with empty `<i class="fa ..."></i>` nodes (FontAwesome CSS is not embedded).
-            // For strict parity we therefore *do not* rewrite the `fa:` token here.
+
+
+
+
+
+
             t = strip_html_for_layout(&t);
             t.trim_matches(|ch| matches!(ch, '\t' | '\u{000C}' | '\r' | ' '))
                 .to_string()
@@ -1401,6 +1646,7 @@ fn compute_bounds_impl<E>(
             });
             return;
         };
+
         bounds.min_x = bounds.min_x.min(x);
         bounds.min_y = bounds.min_y.min(y);
         bounds.max_x = bounds.max_x.max(x);
@@ -1408,6 +1654,7 @@ fn compute_bounds_impl<E>(
     }
 
     let mut bounds = None;
+
     for n in nodes {
         charge(2)?;
         let hw = n.width / 2.0;
@@ -1415,20 +1662,27 @@ fn compute_bounds_impl<E>(
         include(&mut bounds, n.x - hw, n.y - hh);
         include(&mut bounds, n.x + hw, n.y + hh);
     }
+
     for e in edges {
         charge(1)?;
         charge(e.points.len())?;
+
         for p in &e.points {
             include(&mut bounds, p.x, p.y);
         }
-        if let Some(l) = &e.label {
-            charge(2)?;
-            let hw = l.width / 2.0;
-            let hh = l.height / 2.0;
-            include(&mut bounds, l.x - hw, l.y - hh);
-            include(&mut bounds, l.x + hw, l.y + hh);
+
+        match &e.label {
+            Some(l) => {
+                charge(2)?;
+                let hw = l.width / 2.0;
+                let hh = l.height / 2.0;
+                include(&mut bounds, l.x - hw, l.y - hh);
+                include(&mut bounds, l.x + hw, l.y + hh);
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     Ok(bounds)
 }
 
@@ -1449,6 +1703,7 @@ pub(crate) fn compute_bounds_controlled(
 }
 
 #[inline]
+#[must_use]
 pub(crate) fn starts_with_ascii_case_insensitive(input: &str, prefix: &[u8]) -> bool {
     input
         .as_bytes()
@@ -1457,6 +1712,7 @@ pub(crate) fn starts_with_ascii_case_insensitive(input: &str, prefix: &[u8]) -> 
 }
 
 #[inline]
+#[must_use]
 fn find_ascii_case_insensitive(input: &str, needle: &[u8]) -> Option<usize> {
     debug_assert!(!needle.is_empty());
     input
@@ -1465,10 +1721,13 @@ fn find_ascii_case_insensitive(input: &str, needle: &[u8]) -> Option<usize> {
         .position(|candidate| candidate.eq_ignore_ascii_case(needle))
 }
 
+#[must_use]
 fn extract_flowchart_img_src(tag: &str) -> Option<&str> {
     let idx = find_ascii_case_insensitive(tag, b"src=")?;
-    let rest = tag.get(idx + 4..)?.trim_start();
-    let quote = *rest.as_bytes().first()?;
+    let checked_value = tag.get(idx + 4..)?;
+    let rest = checked_value.trim_start();
+    let quote = ::core::option::Option::<&_>::copied(rest.as_bytes().first())?;
+
     if quote != b'"' && quote != b'\'' {
         return None;
     }
@@ -1479,13 +1738,15 @@ fn extract_flowchart_img_src(tag: &str) -> Option<&str> {
         .iter()
         .position(|candidate| *candidate == quote)
         .unwrap_or(value.len());
-    let value = value.get(..end)?.trim();
-    (!value.is_empty()).then_some(value)
+    let checked_value_2 = value.get(..end)?;
+    let value_2 = checked_value_2.trim();
+    (!value_2.is_empty()).then_some(value_2)
 }
 
+#[must_use]
 pub(crate) fn normalize_flowchart_img_tags(input: &str, fixed_width: bool) -> String {
-    // Mermaid flowchart-v2 adds inline styles to `<img>` tags inside HTML labels to constrain
-    // their layout. The SVG baseline uses XHTML, so we also self-close the tags later.
+
+
     if find_ascii_case_insensitive(input, b"<img").is_none() {
         return input.to_string();
     }
@@ -1499,19 +1760,27 @@ pub(crate) fn normalize_flowchart_img_tags(input: &str, fixed_width: bool) -> St
     let mut out = String::with_capacity(input.len());
     let bytes = input.as_bytes();
     let mut i = 0usize;
+
     while i < bytes.len() {
         if bytes[i] == b'<' && starts_with_ascii_case_insensitive(&input[i..], b"<img") {
             let rest = &input[i..];
+
             let Some(rel_end) = rest.find('>') else {
                 out.push_str(rest);
                 break;
             };
+
             let tag = &rest[..=rel_end];
             let src = extract_flowchart_img_src(tag);
             out.push_str("<img");
-            if let Some(src) = src {
-                let _ = write!(out, r#" src="{}""#, crate::svg::escape_attr(src));
+
+            match src {
+                Some(src_2) => {
+                    let _ = write!(out, r#" src="{}""#, crate::svg::escape_attr(src_2));
+                },
+                ::core::option::Option::None => {},
             }
+
             out.push_str(r#" style=""#);
             out.push_str(style);
             out.push('"');
@@ -1519,26 +1788,44 @@ pub(crate) fn normalize_flowchart_img_tags(input: &str, fixed_width: bool) -> St
             i += rel_end + 1;
             continue;
         }
-        let Some(ch) = input[i..].chars().next() else {
-            break;
+
+        let ch = {
+            let optional_ch = input[i..].chars().next();
+
+            match optional_ch {
+                Some(matched_ch) => matched_ch,
+                ::core::option::Option::None => break,
+            }
         };
+
         out.push(ch);
         i += ch.len_utf8();
     }
+
     out
 }
 
+#[must_use]
 pub(crate) fn is_single_img_label(label: &str) -> bool {
-    let label = flowchart_trim_html_collapsible_whitespace(label);
-    if !starts_with_ascii_case_insensitive(label, b"<img") {
+    let label_2 = flowchart_trim_html_collapsible_whitespace(label);
+
+    if !starts_with_ascii_case_insensitive(label_2, b"<img") {
         return false;
     }
-    let Some(end) = label.find('>') else {
-        return false;
+
+    let end = {
+        let optional_end = label_2.find('>');
+
+        match optional_end {
+            Some(matched_end) => matched_end,
+            ::core::option::Option::None => return false,
+        }
     };
-    flowchart_trim_html_collapsible_whitespace(&label[end + 1..]).is_empty()
+
+    flowchart_trim_html_collapsible_whitespace(&label_2[end + 1..]).is_empty()
 }
 
+#[must_use]
 pub(crate) fn flowchart_label_html_source(
     label: &str,
     label_type: &str,
@@ -1548,6 +1835,7 @@ pub(crate) fn flowchart_label_html_source(
         return String::new();
     }
 
+    #[must_use]
     fn trim_markdown_trailing_newlines(
         input: std::borrow::Cow<'_, str>,
     ) -> std::borrow::Cow<'_, str> {
@@ -1561,32 +1849,35 @@ pub(crate) fn flowchart_label_html_source(
     match label_type {
         "markdown" => {
             let decoded = crate::entities::decode_mermaid_entities_for_render_text(label);
-            let decoded = if decoded.contains("\\\\") {
+            let decoded_2 = if decoded.contains("\\\\") {
                 std::borrow::Cow::Owned(decoded.replace("\\\\", "\\"))
             } else {
                 decoded
             };
-            let decoded = trim_markdown_trailing_newlines(decoded);
-            let markdown_auto_wrap = config
+            let decoded_3 = trim_markdown_trailing_newlines(decoded_2);
+            let markdown_auto_wrap = match config
                 .as_value()
                 .get("markdownAutoWrap")
-                .and_then(serde_json::Value::as_bool)
-                .unwrap_or(true);
+                .and_then(serde_json::Value::as_bool) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => true,
+            };
             let html_out = crate::text::mermaid_markdown_to_html_label_fragment(
-                decoded.as_ref(),
+                decoded_3.as_ref(),
                 markdown_auto_wrap,
             );
-            let html_out = flowchart_trim_html_collapsible_whitespace(&html_out).to_string();
-            crate::text::replace_fontawesome_icons(&html_out)
+            let html_out_2 = flowchart_trim_html_collapsible_whitespace(&html_out).to_string();
+            crate::text::replace_fontawesome_icons(&html_out_2)
         }
         _ => {
-            let label = flowchart_non_markdown_label_for_html(label, label_type);
+            let label_2 = flowchart_non_markdown_label_for_html(label, label_type);
 
-            // Mermaid's nonMarkdownToHTML() wraps every non-empty label in one paragraph.
-            // Markdown block classification must not leak into this branch.
-            let fixed_img_width = is_single_img_label(&label);
-            let label = normalize_flowchart_img_tags(&label, fixed_img_width);
-            let wrapped = format!("<p>{}</p>", label);
+
+
+            let fixed_img_width = is_single_img_label(&label_2);
+            let label_3 = normalize_flowchart_img_tags(&label_2, fixed_img_width);
+            let wrapped = format!("<p>{}</p>", label_3);
+
             if wrapped.contains(":fa-") {
                 crate::text::replace_fontawesome_icons(&wrapped)
             } else {
@@ -1767,7 +2058,7 @@ mod tests {
 
     #[test]
     fn html_image_layout_preserves_metrics_and_measurement_requests() {
-        // Prefix and src recognition are deliberately the existing headless rules.
+
         let cases: &[(&str, &[&str], usize, f64)] = &[
             ("<img src='x'>", &[], 1, 80.0),
             ("<IMG src=''>", &[], 0, 80.0),
@@ -1803,7 +2094,7 @@ mod tests {
                 2,
                 120.0,
             ),
-            // HTML5 recovery preserves these visible stray angle brackets as text.
+
             ("head<img src='x'>tail<<中", &["head", "tail<<中"], 1, 120.0),
         ];
         for &(label, expected_requests, images_with_src, width) in cases {

@@ -106,61 +106,9 @@ impl Type1Font {
       }
     }
 
-    let Ok(mut private_parser) = Parser::new(private);
-
-    let mut len_iv = 4;
-
-    let Ok(private_input) = private_parser.unparsed_bytes();
-
-    for _ in private_input {
-      let token = match private_parser.next() {
-        Ok(Some(token)) => token,
-        Ok(None) => break,
-      };
-
-      match token {
-        Token::Name(b"lenIV") => {
-          let Ok(parser_int) = private_parser.read_int();
-          let int = match parser_int {
-            Some(explicit_value) => explicit_value,
-            None => return Ok(None),
-          };
-
-          len_iv = int
-        }
-        Token::Name(b"Subrs") => {
-          match ::core::primitive::bool::then_some(font.subrs.index.is_empty(), ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(parser_subrs) = private_parser.read_subrs(len_iv);
-              let subrs = match parser_subrs {
-                Some(explicit_value) => explicit_value,
-                None => return Ok(None),
-              };
-              font.subrs = subrs;
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-        Token::Name(b"CharStrings") => match font.charstrings.index.as_slice() {
-          [] => {
-            let Ok(parser_charstrings) = private_parser.read_charstrings(len_iv);
-            let charstrings = match parser_charstrings {
-              Some(explicit_value) => explicit_value,
-              None => return Ok(None),
-            };
-
-            font.charstrings = charstrings;
-          }
-          [_, ..] => {}
-        },
-        Token::Raw(_)
-        | Token::Int(_)
-        | Token::LitString(_)
-        | Token::HexString(_)
-        | Token::Proc(_)
-        | Token::Binary(_)
-        | Token::Name(_) => {}
-      }
+    match font.read_private_dict(private) {
+      Ok(()) => {}
+      Err(_invalid_private_dictionary) => return Ok(None),
     }
 
     match ::core::primitive::bool::then_some(font.charstrings.index.is_empty(), ()) {
@@ -195,6 +143,53 @@ impl Type1Font {
     }
 
     Ok(Some(font))
+  }
+
+  fn read_private_dict(&mut self, private: &[u8]) -> Result<(), ReadError> {
+    let Ok(mut parser) = Parser::new(private);
+    let Ok(original_input) = parser.unparsed_bytes();
+    let mut len_iv = 4;
+
+    for _ in original_input {
+      let token = match parser.next() {
+        Ok(Some(token)) => token,
+        Ok(None) => break,
+      };
+
+      match token {
+        Token::Name(b"lenIV") => {
+          let Ok(length) = parser.read_int();
+          let value = length.ok_or(ReadError::MalformedData("invalid Type 1 lenIV"))?;
+          len_iv = value;
+        }
+        Token::Name(b"Subrs") => match self.subrs.index.is_empty().then_some(()) {
+          Some(()) => {
+            let Ok(subroutines) = parser.read_subrs(len_iv);
+            let parsed = subroutines.ok_or(ReadError::MalformedData("invalid Type 1 Subrs"))?;
+            self.subrs = parsed;
+          }
+          None => {}
+        },
+        Token::Name(b"CharStrings") => match self.charstrings.index.as_slice() {
+          [] => {
+            let Ok(charstrings) = parser.read_charstrings(len_iv);
+            let parsed =
+              charstrings.ok_or(ReadError::MalformedData("invalid Type 1 CharStrings"))?;
+            self.charstrings = parsed;
+          }
+          [_, ..] => {}
+        },
+        Token::Raw(_)
+        | Token::Int(_)
+        | Token::LitString(_)
+        | Token::HexString(_)
+        | Token::Proc(_)
+        | Token::Binary(_)
+        | Token::Name(_) => {}
+      }
+    }
+
+    Ok(())
   }
 
   fn read_base_entry(
@@ -537,37 +532,26 @@ impl Type1Font {
     )
   )]
   pub fn remapped_gid(&self, original_gid: GlyphId) -> GlyphId {
-    match self.charstrings.orig_notdef_index {
-      Some(orig_notdef) => {
-        match ::core::primitive::bool::then_some(original_gid == GlyphId::NOTDEF, ()) {
-          ::core::option::Option::Some(()) => {
-            let Ok(value_2) = GlyphId::new({
-              let Ok(migrated_value) =
-                console_core_number_conversion::wrapped::<_, u32>(orig_notdef);
-              migrated_value
-            });
+    let stored_notdef = match self.charstrings.orig_notdef_index {
+      Some(position) => position,
+      None => return original_gid,
+    };
 
-            value_2
-          }
-          ::core::option::Option::None => {
-            let Ok(value_3) = original_gid.to_u32();
+    match (original_gid == GlyphId::NOTDEF).then_some(()) {
+      Some(()) => {
+        let Ok(numeric_id) = wrapped::<_, u32>(stored_notdef);
+        let Ok(remapped) = GlyphId::new(numeric_id);
 
-            match ::core::primitive::bool::then_some(
-              orig_notdef
-                == ({
-                  let Ok(migrated_value) =
-                    console_core_number_conversion::wrapped::<_, u64>(value_3);
-                  migrated_value
-                }),
-              (),
-            ) {
-              ::core::option::Option::Some(()) => GlyphId::NOTDEF,
-              ::core::option::Option::None => original_gid,
-            }
-          }
+        remapped
+      }
+      None => {
+        let Ok(numeric_id) = original_gid.to_u32();
+
+        match (u64::from(numeric_id) == stored_notdef).then_some(()) {
+          Some(()) => GlyphId::NOTDEF,
+          None => original_gid,
         }
       }
-      None => original_gid,
     }
   }
 
@@ -1272,6 +1256,7 @@ impl Charstrings {
         data: start..end,
       });
     };
+
     Ok(())
   }
 }
@@ -2934,6 +2919,7 @@ mod tests {
       .collect::<Vec<_>>();
       assert_eq!(decoded, expected);
     };
+
     Ok(())
   }
 
@@ -3062,6 +3048,7 @@ mod tests {
 "#;
       assert!(base.starts_with(EXPECTED_PREFIX.as_bytes()));
     };
+
     Ok(())
   }
 
@@ -3081,6 +3068,7 @@ mod tests {
 
       assert!(private.starts_with(EXPECTED_PREFIX.as_bytes()))
     };
+
     Ok(())
   }
 
@@ -3266,6 +3254,7 @@ mod tests {
       let ::core::result::Result::Ok(ts) = parse_to_tokens(source.as_bytes());
       assert_eq!(ts, expected);
     };
+
     Ok(())
   }
 
@@ -3289,262 +3278,68 @@ mod tests {
   }
 
   #[test]
-  fn parse_fixed() -> ::core::result::Result<(), &'static str> {
-    let Ok(fixed) = decode_fixed(b"42.5", 0);
-    assert_eq!(
-      match fixed {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      },
-      ({
-        let Ok(explicit_value) = Fixed::from_f64(42.5);
-        explicit_value
-      })
-    );
-    assert_eq!(
-      match {
-        let Ok(explicit_value) = decode_fixed(b"0.0015", 0);
-        explicit_value
-      } {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      },
-      ({
-        let Ok(explicit_value) = Fixed::from_f64(0.001495361328125);
-        explicit_value
-      })
-    );
-    assert_eq!(
-      match {
-        let Ok(explicit_value) = decode_fixed(b"425.000e-1", 0);
-        explicit_value
-      } {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      },
-      ({
-        let Ok(explicit_value) = Fixed::from_f64(42.5);
-        explicit_value
-      })
-    );
-    assert_eq!(
-      match {
-        let Ok(explicit_value) = decode_fixed(b"1.5e-3", 0);
-        explicit_value
-      } {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      },
-      ({
-        let Ok(explicit_value) = Fixed::from_f64(0.001495361328125);
-        explicit_value
-      })
-    );
+  fn parse_fixed() -> Result<(), crate::test_support::Failure> {
+    let cases: &[(&[u8], i32, f64)] = &[
+      (b"42.5", 0, 42.5),
+      (b"0.0015", 0, 0.001495361328125),
+      (b"425.000e-1", 0, 42.5),
+      (b"1.5e-3", 0, 0.001495361328125),
+      (b"1.5", 3, 1500.0),
+      (b"0.001", 3, 1.0),
+      (b"15000e-4", 3, 1500.0),
+      (b"1.000e-3", 3, 1.0),
+    ];
 
-    assert_eq!(
-      match {
-        let Ok(explicit_value) = decode_fixed(b"1.5", 3);
-        explicit_value
-      } {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      },
-      ({
-        let Ok(explicit_value) = Fixed::from_f64(1500.0);
-        explicit_value
-      })
-    );
-    assert_eq!(
-      match {
-        let Ok(explicit_value) = decode_fixed(b"0.001", 3);
-        explicit_value
-      } {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      },
-      ({
-        let Ok(explicit_value) = Fixed::from_f64(1.0);
-        explicit_value
-      })
-    );
-    assert_eq!(
-      match {
-        let Ok(explicit_value) = decode_fixed(b"15000e-4", 3);
-        explicit_value
-      } {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      },
-      ({
-        let Ok(explicit_value) = Fixed::from_f64(1500.0);
-        explicit_value
-      })
-    );
-    assert_eq!(
-      match {
-        let Ok(explicit_value) = decode_fixed(b"1.000e-3", 3);
-        explicit_value
-      } {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      },
-      ({
-        let Ok(explicit_value) = Fixed::from_f64(1.0);
-        explicit_value
-      })
-    );
-    ::core::result::Result::Ok(())
+    for &(input, power_ten, reference) in cases {
+      let Ok(parsed) = decode_fixed(input, power_ten);
+      let actual = crate::test_support::fixture_value(parsed, "Type 1 fixed-point number")?;
+      let Ok(expected) = Fixed::from_f64(reference);
+
+      assert_eq!(actual, expected, "input {input:?} with power {power_ten}");
+    }
+
+    Ok(())
   }
 
   #[test]
-  fn parse_font_matrix() -> ::core::result::Result<(), &'static str> {
-    let Ok(mut parser) = Parser::new(b"[0.001 0 0 0.001 0 0]");
-    let Ok(font_matrix) = parser.read_font_matrix();
-    assert_eq!(
-      match font_matrix {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      }
-      .matrix,
-      FontMatrix::IDENTITY,
-    );
+  fn parse_font_matrix() -> Result<(), crate::test_support::Failure> {
+    use crate::test_support::fixture_value;
 
-    let Ok(parser_font_matrix) = ({
-      let Ok(explicit_value) = Parser::new(b"[0.002 0 0 0.001 1 2e1]");
-      explicit_value
-    })
-    .read_font_matrix();
-    assert_eq!(
-      match parser_font_matrix {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      }
-      .matrix,
-      ({
-        let Ok(explicit_value) = FontMatrix::from_elements([
-          ({
-            let Ok(explicit_value) = Fixed::from_i32(2);
-            explicit_value
-          }),
-          Fixed::ZERO,
-          Fixed::ZERO,
-          Fixed::ONE,
-          {
-            let Ok(value) = Fixed::from_bits(1000);
-            value
-          },
-          {
-            let Ok(value) = Fixed::from_bits(20000);
-            value
-          },
-        ]);
-        explicit_value
-      })
-    );
+    let Ok(mut identity) = Parser::new(b"[0.001 0 0 0.001 0 0]");
+    let Ok(identity_matrix) = identity.read_font_matrix();
+    let actual_identity = fixture_value(identity_matrix, "identity font matrix")?;
+    assert_eq!(actual_identity.matrix, FontMatrix::IDENTITY);
 
+    let Ok(double) = Fixed::from_i32(2);
+    let Ok(tx) = Fixed::from_bits(1000);
+    let Ok(ty) = Fixed::from_bits(20000);
+    let Ok(translated) =
+      FontMatrix::from_elements([double, Fixed::ZERO, Fixed::ZERO, Fixed::ONE, tx, ty]);
+    let Ok(mut with_translation) = Parser::new(b"[0.002 0 0 0.001 1 2e1]");
+    let Ok(translated_matrix) = with_translation.read_font_matrix();
+    let actual_translation = fixture_value(translated_matrix, "translated font matrix")?;
+    assert_eq!(actual_translation.matrix, translated);
+
+    let Ok(scaled) = FontMatrix::from_elements([
+      double,
+      Fixed::ZERO,
+      Fixed::ZERO,
+      Fixed::ONE,
+      Fixed::ZERO,
+      Fixed::ZERO,
+    ]);
+    let Ok(mut with_scaling) = Parser::new(b"[0.001 0 0 0.0005 0.0 0.0]");
+    let Ok(scaled_matrix) = with_scaling.read_font_matrix();
+    let actual_scale = fixture_value(scaled_matrix, "scaled font matrix")?;
     assert_eq!(
-      match {
-        let Ok(explicit_value) = ({
-          let Ok(explicit_value) = Parser::new(b"[0.001 0 0 0.0005 0.0 0.0]");
-          explicit_value
-        })
-        .read_font_matrix();
-        explicit_value
-      } {
-        ::core::option::Option::Some(read_value) => read_value,
-        ::core::option::Option::None =>
-          return ::core::result::Result::Err(::core::concat!(
-            ::core::file!(),
-            ":",
-            ::core::line!(),
-            ": expected Some, found None"
-          )),
-      },
+      actual_scale,
       ScaledFontMatrix {
-        matrix: ({
-          let Ok(explicit_value) = FontMatrix::from_elements([
-            ({
-              let Ok(explicit_value) = Fixed::from_i32(2);
-              explicit_value
-            }),
-            Fixed::ZERO,
-            Fixed::ZERO,
-            Fixed::ONE,
-            {
-              let Ok(value) = Fixed::from_i32(0);
-              value
-            },
-            {
-              let Ok(value) = Fixed::from_i32(0);
-              value
-            },
-          ]);
-          explicit_value
-        }),
-        scale: 2000,
+        matrix: scaled,
+        scale: 2000
       }
     );
-    ::core::result::Result::Ok(())
+
+    Ok(())
   }
 
   #[test]
@@ -4005,6 +3800,7 @@ mod tests {
           .eq([".notdef", "H", "f", "i"].into_iter())
       )
     };
+
     Ok(())
   }
 

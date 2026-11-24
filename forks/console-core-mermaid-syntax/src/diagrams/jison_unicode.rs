@@ -373,9 +373,11 @@ const MERMAID_UNICODE_TEXT_RANGES: &[(u32, u32)] = &[
     (0xFFDA, 0xFFDC),
 ];
 
+#[must_use]
 pub(crate) fn is_mermaid_unicode_text(ch: char) -> bool {
-    let code = ch as u32;
-    MERMAID_UNICODE_TEXT_RANGES
+    let code = <u32 as ::core::convert::From<::core::primitive::char>>::from(ch);
+
+    match &(MERMAID_UNICODE_TEXT_RANGES
         .binary_search_by(|&(start, end)| {
             if code < start {
                 std::cmp::Ordering::Greater
@@ -384,6 +386,5 @@ pub(crate) fn is_mermaid_unicode_text(ch: char) -> bool {
             } else {
                 std::cmp::Ordering::Equal
             }
-        })
-        .is_ok()
+        })) { ::core::result::Result::Ok(_) => true, ::core::result::Result::Err(_insertion_position) => false }
 }

@@ -34,6 +34,8 @@ use console_login_pattern::{DOTS, LOGIN, LOGIN_SIZE, ROOM, Target, dot};
 use console_screen::DRAWN_AT;
 use console_status_bar::showing::{self, Rendered};
 
+use crate::greeting::{FINGERPRINT_BUTTON, FINGERPRINT_SIZE, Fingerprint};
+
 use crate::greeting::{GreeterState, Greeting, Status};
 
 pub const FONT: &str = "Noto Sans";
@@ -290,16 +292,21 @@ pub fn under_the_bar(
   canvas: Size<u32>,
   button: &str,
 ) -> Result<Vec<Shape>, Never> {
-  let at = match state.bar.focus {
-    Some(_) => None,
-    None => Some(state.greeting.pattern.at),
+  let focus = match (state.bar.focus, state.fingerprint_focused) {
+    (Some(_), _) => RingFocus::Bar,
+    (None, true) => RingFocus::Fingerprint,
+    (None, false) => RingFocus::Pattern(state.greeting.pattern.at),
   };
 
   ring(
     &state.greeting,
     wearing,
     canvas,
-    Looks { button, cursor: at },
+    Looks {
+      button,
+      focus,
+      fingerprint: state.fingerprint,
+    },
   )
 }
 
@@ -315,7 +322,8 @@ pub fn render(
     canvas,
     Looks {
       button,
-      cursor: Some(greeting.pattern.at),
+      focus: RingFocus::Pattern(greeting.pattern.at),
+      fingerprint: Fingerprint::Hidden,
     },
   )
 }
@@ -323,7 +331,15 @@ pub fn render(
 #[derive(Debug, Clone, Copy)]
 struct Looks<'a> {
   button: &'a str,
-  cursor: Option<Target>,
+  focus: RingFocus,
+  fingerprint: Fingerprint,
+}
+
+#[derive(Debug, Clone, Copy)]
+enum RingFocus {
+  Bar,
+  Pattern(Target),
+  Fingerprint,
 }
 
 fn trace_pattern(
@@ -385,7 +401,15 @@ fn ring(
   canvas: Size<u32>,
   looks: Looks<'_>,
 ) -> Result<Vec<Shape>, Never> {
-  let Looks { button, cursor: at } = looks;
+  let Looks {
+    button,
+    focus,
+    fingerprint,
+  } = looks;
+  let at = match focus {
+    RingFocus::Pattern(target) => Some(target),
+    RingFocus::Bar | RingFocus::Fingerprint => None,
+  };
   let Ok(placed) = Placed::of(canvas);
   let mut shapes = vec![Shape::Panel(Panel {
     at: Point { x: 0, y: 0 },
@@ -420,40 +444,39 @@ fn ring(
   }
 
   let Ok(on) = cursor(at, Target::Login);
-  let Ok(edge) = edge(on, wearing, &placed);
-  let Ok(corner) = placed.corner(LOGIN, LOGIN_SIZE);
-  let Ok(size) = placed.size(LOGIN_SIZE);
   let Ok(tall) = placed.length(WORDS);
   let font = Font {
     family: FONT.to_string(),
     height: tall,
   };
-  let Ok(middle) = placed.point(LOGIN);
-  let Ok(label) = centred(
-    Run {
-      said: button,
-      weight: Weight::Bold,
-      width: size.width,
-    },
-    &font,
-    middle,
-  );
+  let Ok(login) = action(&placed, wearing, &font, (LOGIN, LOGIN_SIZE), button, on);
+  shapes.extend(login);
 
-  shapes.push(Shape::Panel(Panel {
-    at: corner,
-    size,
-    round: Round(size.height.saturating_div(2)),
-    fill: wearing.fill,
-    edge,
-  }));
-  shapes.push(Shape::Text(Text {
-    at: label,
-    width: size.width,
-    said: button.to_string(),
-    weight: Weight::Bold,
-    font: font.clone(),
-    ink: wearing.text,
-  }));
+  let fingerprint_label = match fingerprint {
+    Fingerprint::Hidden => None,
+    Fingerprint::Available => Some("Use fingerprint"),
+    Fingerprint::Scanning => Some("Touch fingerprint reader"),
+    Fingerprint::Retry => Some("Retry fingerprint"),
+  };
+
+  match fingerprint_label {
+    Some(label) => {
+      let on_2 = match focus {
+        RingFocus::Fingerprint => Cursor::On,
+        RingFocus::Bar | RingFocus::Pattern(_) => Cursor::Off,
+      };
+      let Ok(fingerprint_2) = action(
+        &placed,
+        wearing,
+        &font,
+        (FINGERPRINT_BUTTON, FINGERPRINT_SIZE),
+        label,
+        on_2,
+      );
+      shapes.extend(fingerprint_2);
+    }
+    ::core::option::Option::None => {}
+  }
 
   let Ok(message) = message(&greeting.status);
 
@@ -502,6 +525,47 @@ fn ring(
   }
 
   Ok(shapes)
+}
+
+fn action(
+  placed: &Placed,
+  wearing: &Wearing,
+  font: &Font,
+  (centre, size): (Point<i32>, Size<u32>),
+  label: &str,
+  on: Cursor,
+) -> Result<[Shape; 2], Never> {
+  let Ok(edge) = edge(on, wearing, placed);
+  let Ok(corner) = placed.corner(centre, size);
+  let Ok(size_2) = placed.size(size);
+  let Ok(middle) = placed.point(centre);
+  let Ok(at) = centred(
+    Run {
+      said: label,
+      weight: Weight::Bold,
+      width: size_2.width,
+    },
+    font,
+    middle,
+  );
+
+  Ok([
+    Shape::Panel(Panel {
+      at: corner,
+      size: size_2,
+      round: Round(size_2.height.saturating_div(2)),
+      fill: wearing.fill,
+      edge,
+    }),
+    Shape::Text(Text {
+      at,
+      width: size_2.width,
+      said: label.to_owned(),
+      weight: Weight::Bold,
+      font: font.clone(),
+      ink: wearing.text,
+    }),
+  ])
 }
 
 fn centred(run: Run<'_>, font: &Font, middle: Point<i32>) -> Result<Point<i32>, Never> {
@@ -594,6 +658,8 @@ mod tests {
         clock: String::from("14:30"),
         ..LockScreenBar::default()
       },
+      fingerprint: Fingerprint::Hidden,
+      fingerprint_focused: false,
     })
   }
 

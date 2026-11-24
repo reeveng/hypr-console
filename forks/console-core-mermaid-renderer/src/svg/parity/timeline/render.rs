@@ -9,10 +9,11 @@ fn write_timeline_css(
     typography: &crate::timeline::TimelineTypographyThemePlan,
     event_emission: &mut TimelineEventEmissionState<'_>,
 ) -> Result<()> {
-    // Keep `:root` last (matches upstream Mermaid timeline SVG baselines).
+
     let common = typography.common_css();
     common.write_prefix_with_font_emission(out, diagram_id)?;
     let _ = write!(out, r#"#{} .edge{{stroke-width:3;}}"#, diagram_id);
+
     for (i, section_theme) in theme.sections.iter().enumerate() {
         let section = i as i64 - 1;
         let sw = 17 - 3 * (i as i64);
@@ -27,9 +28,11 @@ fn write_timeline_css(
                 out,
                 r#"#{diagram_id} .section-{section} rect,#{diagram_id} .section-{section} path,#{diagram_id} .section-{section} circle{{"#,
             );
+
             if let Some(fill) = timeline_section_fill(theme, i, false) {
                 let _ = write!(out, "fill:{fill};");
             }
+
             if let Some(stroke) = event_emission
                 .theme
                 .shape_stroke_for_redux()
@@ -37,6 +40,7 @@ fn write_timeline_css(
             {
                 let _ = write!(out, "stroke:{stroke};");
             }
+
             let _ = write!(
                 out,
                 r#"stroke-width:{};filter:{};}}#{diagram_id} .section-{section} text{{"#,
@@ -56,11 +60,13 @@ fn write_timeline_css(
             );
             let _ = write!(out, "stroke:{node_border};");
             out.checkpoint()?;
+
             if typed_stroke.is_some()
                 && let Some(outcome) = &mut event_emission.outcome
             {
                 outcome.record_stroke_css();
             }
+
             let _ = write!(
                 out,
                 r#"stroke-width:{};}}#{diagram_id} .disabled,#{diagram_id} .disabled circle,#{diagram_id} .disabled text{{fill:{};}}#{diagram_id} .disabled text{{fill:{};}}"#,
@@ -104,11 +110,13 @@ fn write_timeline_css(
                 theme.disabled_text_fill,
             );
         }
+
         out.checkpoint()?;
     }
 
     if theme.use_neo_gradient {
         let gradient = scoped_svg_url(diagram_id, "gradient");
+
         for (i, _) in theme.sections.iter().enumerate() {
             let section = i as i64 - 1;
             let _ = write!(
@@ -149,6 +157,7 @@ fn write_timeline_css(
     Ok(())
 }
 
+#[must_use]
 fn timeline_section_fill(
     theme: &TimelineCssBinding,
     slot: usize,
@@ -168,6 +177,7 @@ fn timeline_section_fill(
     })
 }
 
+#[must_use]
 fn timeline_section_label_fill<'a>(
     theme: &'a TimelineCssBinding,
     slot: usize,
@@ -196,14 +206,16 @@ impl TimelineTextPaintEmissionState<'_> {
         slot: Option<usize>,
         inline_fill: Option<&str>,
     ) {
-        let Some(outcome) = &mut self.outcome else {
-            return;
+        let outcome = match &mut self.outcome {
+            Some(matched_outcome) => matched_outcome,
+            ::core::option::Option::None => return,
         };
+
         let shape_fill = inline_fill.or_else(|| {
-            slot.and_then(|slot| timeline_section_fill(self.theme, slot, self.neo_gradient))
+            slot.and_then(|slot_2| timeline_section_fill(self.theme, slot_2, self.neo_gradient))
         });
         let label_fill =
-            slot.and_then(|slot| timeline_section_label_fill(self.theme, slot, self.event_stroke));
+            slot.and_then(|slot_3| timeline_section_label_fill(self.theme, slot_3, self.event_stroke));
         outcome.record_node(
             shape_fill,
             label_fill,
@@ -239,13 +251,14 @@ fn write_timeline_connector(
     }
 
     match diagram_id {
-        Some(diagram_id) => write_connector(
+        Some(diagram_id_2) => write_connector(
             out,
             connector,
-            escape_attr_display(scoped_svg_url(diagram_id, "arrowhead")),
+            escape_attr_display(scoped_svg_url(diagram_id_2, "arrowhead")),
         ),
         None => write_connector(out, connector, "url(#arrowhead)"),
     }
+
     out.checkpoint()
 }
 
@@ -255,11 +268,11 @@ fn write_timeline_event_wrapper_open(
     opacity_token: Option<&str>,
 ) -> Result<()> {
     match opacity_token {
-        Some(opacity_token) => {
+        Some(opacity_token_2) => {
             let _ = write!(
                 out,
                 r#"<g class="eventWrapper" opacity="{opacity}" transform="translate({x}, {y})">"#,
-                opacity = opacity_token,
+                opacity = opacity_token_2,
                 x = fmt(event.x),
                 y = fmt(event.y)
             );
@@ -273,11 +286,13 @@ fn write_timeline_event_wrapper_open(
             );
         }
     }
+
     out.checkpoint()
 }
 
+#[must_use]
 fn negative_radius_token(token: &str, radius_value: f64) -> String {
-    if radius_value == 0.0 {
+    if ::core::matches!(::core::primitive::f64::classify(radius_value), ::core::num::FpCategory::Zero) {
         "0".to_string()
     } else {
         format!("-{token}")
@@ -296,6 +311,7 @@ struct TimelineTypographyEmissionState<'a> {
 }
 
 impl<'a> TimelineTypographyEmissionState<'a> {
+    #[must_use]
     fn new(plan: &'a crate::timeline::TimelineTypographyThemePlan) -> Self {
         Self {
             plan,
@@ -317,6 +333,7 @@ impl<'a> TimelineTypographyEmissionState<'a> {
 }
 
 impl<'a> TimelineEventEmissionState<'a> {
+    #[must_use]
     fn new(theme: &'a crate::timeline::TimelineEventTheme) -> Self {
         Self {
             theme,
@@ -341,6 +358,7 @@ impl<'a> TimelineEventEmissionState<'a> {
         if let Some(outcome) = &mut self.outcome {
             outcome.record_event(self.theme, event_index);
         }
+
         self.next_event_index += 1;
     }
 
@@ -364,13 +382,17 @@ pub(crate) fn render_timeline_diagram_svg_model(
     let is_neo = theme.is_neo;
     let use_neo_gradient = theme.use_neo_gradient;
 
-    let bounds = layout.bounds.clone().unwrap_or(Bounds {
-        min_x: 0.0,
-        min_y: 0.0,
-        max_x: 100.0,
-        max_y: 100.0,
-    });
+    let bounds = match (layout.bounds.clone(), Bounds {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 100.0,
+            max_y: 100.0,
+        }) {
+        (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+        (::core::option::Option::None, alternate) => alternate,
+    };
 
+    #[must_use]
     fn node_line_class(section_class: &str) -> String {
         let rest = section_class
             .strip_prefix("section-")
@@ -463,6 +485,7 @@ pub(crate) fn render_timeline_diagram_svg_model(
             fill_style = fill_style,
         );
         out.checkpoint()?;
+
         if !is_redux_theme {
             let line_style = palette_line_stroke
                 .map(|stroke| format!(r#" style="stroke:{};""#, escape_attr(stroke)))
@@ -477,6 +500,7 @@ pub(crate) fn render_timeline_diagram_svg_model(
             );
             out.checkpoint()?;
         }
+
         out.push_str("</g>");
         out.checkpoint()?;
 
@@ -499,8 +523,12 @@ pub(crate) fn render_timeline_diagram_svg_model(
         out.checkpoint()?;
         out.push_str(r#"<text dy="1em" alignment-baseline="middle" dominant-baseline="middle" text-anchor="middle">"#);
         out.checkpoint()?;
+
         for (idx, line) in n.label_lines.iter().enumerate() {
-            let dy = if idx == 0 { "1em" } else { "1.1em" };
+            let dy = match idx {
+                0 => { "1em" },
+                _ => { "1.1em" },
+            };
             let _ = write!(
                 out,
                 r#"<tspan x="0" dy="{dy}">{text}</tspan>"#,
@@ -510,6 +538,7 @@ pub(crate) fn render_timeline_diagram_svg_model(
             out.checkpoint()?;
             typography_emission.record_base_text_run(line);
         }
+
         out.push_str("</text></g></g>");
         out.checkpoint()?;
         event_emission.record_palette_node(
@@ -615,6 +644,7 @@ pub(crate) fn render_timeline_diagram_svg_model(
                     write_timeline_connector(out, connector, Some(diagram_id))?;
                     event_emission.record_stroke_line();
                 }
+
                 for event in &task.events {
                     render_event(
                         out,
@@ -644,12 +674,14 @@ pub(crate) fn render_timeline_diagram_svg_model(
                         text_emission,
                         options,
                     )?;
+
                     if let Some(connector) = task.connectors.get(index) {
                         options.checkpoint_emit()?;
                         write_timeline_connector(out, connector, None)?;
                         event_emission.record_stroke_line();
                     }
                 }
+
                 for connector in task.connectors.iter().skip(task.events.len()) {
                     options.checkpoint_emit()?;
                     write_timeline_connector(out, connector, None)?;
@@ -657,6 +689,7 @@ pub(crate) fn render_timeline_diagram_svg_model(
                 }
             }
         }
+
         Ok(())
     }
 
@@ -697,8 +730,8 @@ pub(crate) fn render_timeline_diagram_svg_model(
 
     let mut event_emission = TimelineEventEmissionState::new(event_theme);
 
-    // Mermaid's vertical renderer lowers the activity axis to the first root child and invokes
-    // marker initialization without a diagram id. Preserve both observable source behaviors.
+
+
     if layout.direction == merman_model::families::timeline::TimelineDirection::TopDown {
         let _ = write!(
             &mut out,
@@ -723,6 +756,7 @@ pub(crate) fn render_timeline_diagram_svg_model(
     options.checkpoint_emit()?;
     out.push_str("<style>");
     out.checkpoint()?;
+
     {
         let mut css = String::new();
         write_timeline_css(
@@ -734,6 +768,7 @@ pub(crate) fn render_timeline_diagram_svg_model(
         )?;
         super::super::output::XmlTextOutput::new(&mut out).push_str(&css);
     }
+
     out.checkpoint()?;
     out.push_str("</style>");
     out.checkpoint()?;
@@ -748,6 +783,7 @@ pub(crate) fn render_timeline_diagram_svg_model(
         escape_attr(&arrowhead_id)
     );
     out.checkpoint()?;
+
     if is_redux_theme {
         let flood_opacity = if is_neo && theme.is_dark_theme {
             "0.2"
@@ -768,21 +804,25 @@ pub(crate) fn render_timeline_diagram_svg_model(
         );
         out.checkpoint()?;
     }
+
     if use_neo_gradient {
         let _ = write!(
             &mut out,
             r#"<defs><linearGradient id="{}-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%">"#,
             escape_attr_display(diagram_id),
         );
-        // Mermaid sets each stop independently. A missing/null variable removes the
-        // attribute; neither stop inherits nodeBorder or the other gradient stop.
+
+
         for (offset, color) in ["0%", "100%"].into_iter().zip(&theme.gradient_stops) {
             let _ = write!(&mut out, r#"<stop offset="{offset}""#);
-            if let Some(color) = color {
-                let _ = write!(&mut out, r#" stop-color="{}""#, escape_attr(color));
+
+            if let Some(color_2) = color {
+                let _ = write!(&mut out, r#" stop-color="{}""#, escape_attr(color_2));
             }
+
             out.push_str(r#" stop-opacity="1"/>"#);
         }
+
         out.push_str("</linearGradient></defs>");
         out.checkpoint()?;
     }
@@ -859,16 +899,20 @@ pub(crate) fn render_timeline_diagram_svg_model(
             y = fmt(layout.title_y),
         );
         let fill = event_theme.title_fill_css();
-        if let Some(fill) = fill {
-            let _ = write!(&mut out, r#" fill="{}""#, escape_attr(fill));
+
+        if let Some(fill_2) = fill {
+            let _ = write!(&mut out, r#" fill="{}""#, escape_attr(fill_2));
         }
+
         let _ = write!(&mut out, ">{}</text>", escape_xml(title));
         out.checkpoint()?;
+
         if !event_theme.record_title_fill(title, fill) {
             return Err(crate::Error::InvalidModel {
                 message: "Timeline title paint did not match the terminal SVG".to_owned(),
             });
         }
+
         if let Some(outcome) = &mut text_emission.outcome {
             outcome.record_title(fill.is_none());
         }
@@ -887,6 +931,7 @@ pub(crate) fn render_timeline_diagram_svg_model(
         );
         out.checkpoint()?;
         event_emission.record_stroke_line();
+
         if let Some(outcome) = &mut text_emission.outcome {
             outcome.record_marker_reference();
         }
@@ -894,7 +939,7 @@ pub(crate) fn render_timeline_diagram_svg_model(
 
     out.push_str("</svg>\n");
     options.checkpoint_emit()?;
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
     event_emission.finish();
     typography_emission.finish();
     text_emission.finish();
@@ -1107,8 +1152,8 @@ mod tests {
         for (mut variables, expected_start, expected_stop) in cases {
             variables["nodeBorder"] = serde_json::json!("#abcdef");
             variables["useGradient"] = serde_json::json!(true);
-            // This renderer boundary accepts effective config directly. Public config merge
-            // materializes null overrides; testing that path cannot exercise absent stop attrs.
+
+
             let effective_config = serde_json::json!({
                 "theme": "redux", "look": "neo", "themeVariables": variables,
             });

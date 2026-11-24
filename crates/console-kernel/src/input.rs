@@ -14,18 +14,44 @@ use crate::display;
 use crate::serial::Serial;
 use crate::xhci::{self, DmaMode, Keyboard, Machine};
 
-pub(super) fn run(root: Option<Root>, machine: Machine) -> Result<(), xhci::Error> {
-  listen(root, machine, present, || {
-    line(format_args!(
+pub(super) fn run<S>(
+  root: Option<Root>,
+  machine: Machine,
+  state: S,
+  turn: impl Fn(&mut S, Turn) -> Result<Action, Never>,
+) -> Result<(), xhci::Error> {
+  drive(root, machine, state, turn, || {
+    let Ok(()) = line(format_args!(
       "USB keyboard ready. Press keys to see events. Escape exits."
-    ))
+    ));
+    line(format_args!("F2 opens the native browser."))
   })
 }
 
-pub(super) fn listen(
+pub(super) fn listen<S>(
   root: Option<Root>,
   machine: Machine,
-  key: impl FnMut(u16, KeyEdge, BootReport) -> Result<Action, Never>,
+  state: S,
+  key: impl Fn(&mut S, u16, KeyEdge, BootReport) -> Result<Action, Never>,
+  ready: impl FnOnce() -> Result<(), Never>,
+) -> Result<(), xhci::Error> {
+  drive(
+    root,
+    machine,
+    state,
+    |held, turn| match turn {
+      Turn::Key { code, edge, report } => key(held, code, edge, report),
+      Turn::Idle => Ok(Action::Continue),
+    },
+    ready,
+  )
+}
+
+fn drive<S>(
+  root: Option<Root>,
+  machine: Machine,
+  mut state: S,
+  turn: impl Fn(&mut S, Turn) -> Result<Action, Never>,
   ready: impl FnOnce() -> Result<(), Never>,
 ) -> Result<(), xhci::Error> {
   let attached = xhci::open(root, machine)?;
@@ -43,7 +69,7 @@ pub(super) fn listen(
   }
 
   let Ok(()) = ready();
-  let input = read(&mut keyboard, key);
+  let input = read(&mut keyboard, &mut state, turn);
   let closed = keyboard.close();
   let () = closed?;
 
@@ -64,9 +90,10 @@ pub(super) fn listen(
     reason = "the preview stays at the input console until Escape or a controller error"
   )
 )]
-fn read(
+fn read<S>(
   keyboard: &mut Keyboard,
-  mut key: impl FnMut(u16, KeyEdge, BootReport) -> Result<Action, Never>,
+  state: &mut S,
+  turn: impl Fn(&mut S, Turn) -> Result<Action, Never>,
 ) -> Result<(), xhci::Error> {
   let mut sequence = 0_u64;
   let mut queue = InputQueue::<32>::EMPTY;
@@ -85,8 +112,15 @@ fn read(
     let report = match decoded {
       Some(report) => report,
       None => {
-        core::hint::spin_loop();
-        continue;
+        let Ok(action) = turn(state, Turn::Idle);
+
+        match action {
+          Action::Exit => return Ok(()),
+          Action::Continue => {
+            core::hint::spin_loop();
+            continue;
+          }
+        }
       }
     };
 
@@ -106,18 +140,29 @@ fn read(
     }
 
     previous = report;
-    for _pending in 0..32_u8 {
-      let Ok(pending) = queue.take();
-      match pending.map(|event| event.input) {
-        Some(Input::Key { code, edge }) => match key(code, edge, report) {
+
+    'over__pending_2: for _pending in 0..32_u8 {
+      let Ok(pending_2) = queue.take();
+
+      match pending_2.map(|event| event.input) {
+        Some(Input::Key { code, edge }) => match turn(state, Turn::Key { code, edge, report }) {
           Ok(Action::Continue) => {}
           Ok(Action::Exit) => return Ok(()),
         },
         Some(Input::Position { .. }) => {}
-        None => break,
+        None => break 'over__pending_2,
       }
     }
   }
+}
+
+pub(super) enum Turn {
+  Key {
+    code: u16,
+    edge: KeyEdge,
+    report: BootReport,
+  },
+  Idle,
 }
 
 pub(super) enum Action {
@@ -125,7 +170,7 @@ pub(super) enum Action {
   Exit,
 }
 
-fn present(code: u16, edge: KeyEdge, report: BootReport) -> Result<Action, Never> {
+pub(super) fn present(code: u16, edge: KeyEdge, report: BootReport) -> Result<Action, Never> {
   match (edge, code) {
     (KeyEdge::Press, 0x29) => {
       let Ok(()) = line(format_args!("USB keyboard test ended"));

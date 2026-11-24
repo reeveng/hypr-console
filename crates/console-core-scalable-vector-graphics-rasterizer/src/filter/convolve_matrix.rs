@@ -10,7 +10,7 @@ use console_core_scalable_vector_graphics::filter::{ConvolveMatrix, EdgeMode};
 use console_core_size::Size;
 
 #[doc = "Applies a convolution kernel. Input pixels are premultiplied when the kernel changes alpha."]
-pub(super) fn apply(matrix: &ConvolveMatrix, source: ImageRefMut<'_>) -> Result<(), Error> {
+pub(crate) fn apply(matrix: &ConvolveMatrix, source: ImageRefMut<'_>) -> Result<(), Error> {
   let size = source.dimensions()?;
 
   match (size.width, size.height) {
@@ -187,3 +187,8 @@ fn crop_axis(value: i64, span: u32, edge: EdgeMode) -> Result<Option<u32>, Never
     ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
   })
 }
+
+#[cfg(feature = "hosted-compute")]
+mod compute;
+#[cfg(feature = "hosted-compute")]
+pub(crate) use compute::{CONVOLUTION, mapped};

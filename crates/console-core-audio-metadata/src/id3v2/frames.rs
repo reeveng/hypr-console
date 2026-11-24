@@ -16,13 +16,21 @@
 //! count as one per tag where the standard says so, without their contents
 //! being taken apart.
 
+use console_core_audio_decoding_interfaces::id3v2::frame_flags::{
+  COMPRESSED, DATA_LENGTH_INDICATOR, ENCRYPTED, GROUPED, UNSYNCHRONISED, normalised,
+};
+use console_core_audio_decoding_interfaces::id3v2::{
+  FrameFields, FrameIdentifier, FrameNameValidity, check_frame_name, read_frame_fields,
+  read_frame_identifier, synchsafe_word, undo_unsynchronisation,
+};
+use console_core_audio_decoding_interfaces::io::BufReader;
 use console_core_never::Never;
 
 use crate::bytes::{Cursor, length};
 use crate::fault::{Malformed, ParseError};
-use crate::id3v2::header::{Unsynchronised, Version, resynchronised, synchsafe};
+use crate::id3v2::Identity;
+use crate::id3v2::header::{Unsynchronisation, Version};
 use crate::id3v2::timestamp::Timestamp;
-use crate::id3v2::{Identity, Validity};
 use crate::picture::{MimeType, Picture, PictureType};
 use crate::text::{Decoded, Encoding, Ending, decoded, order_of, terminated_maybe_marked};
 
@@ -35,16 +43,6 @@ pub(crate) struct Flags {
   pub(crate) method: Option<u8>,
   pub(crate) data_length: Option<u32>,
 }
-
-const GROUPED: u16 = 0x0040;
-
-const COMPRESSED: u16 = 0x0008;
-
-const ENCRYPTED: u16 = 0x0004;
-
-const UNSYNCHRONISED: u16 = 0x0002;
-
-const LENGTHED: u16 = 0x0001;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Frame {
@@ -263,21 +261,6 @@ fn upgraded_v3(id: &str) -> Result<Option<&'static str>, Never> {
   })
 }
 
-fn valid(id: &str) -> Result<Validity, Never> {
-  let characters = id
-    .bytes()
-    .all(|byte| byte.is_ascii_uppercase() || byte.is_ascii_digit());
-
-  Ok(Validity::from(characters && matches!(id.len(), 3 | 4)))
-}
-
-fn named(id: &str, upgrade: Option<&'static str>) -> Result<String, Never> {
-  Ok(match upgrade {
-    Some(upgraded) => upgraded.to_string(),
-    None => id.to_string(),
-  })
-}
-
 struct Opened {
   id: Option<String>,
   size: u32,
@@ -285,109 +268,61 @@ struct Opened {
 }
 
 fn opened(reader: &mut Cursor<'_>, version: Version) -> Result<Option<Opened>, Never> {
-  match version {
-    Version::Two => {
-      let header = match reader.array::<6>() {
-        Ok([0, ..]) => return Ok(None),
-        Err(_short_header) => return Ok(None),
-        Ok(header) => header,
-      };
-      let [a, b, c, s0, s1, s2] = header;
-      let size = u32::from_be_bytes([0, s0, s1, s2]);
+  let Ok(header_bytes) = version.frame_header_bytes();
+  let header = match reader.take(header_bytes) {
+    Ok([0, ..]) => return Ok(None),
+    Err(_short_header) => return Ok(None),
+    Ok(header) => header,
+  };
+  let Ok(mut reader_2) = BufReader::new(header);
+  let identifier = match read_frame_identifier(&mut reader_2, version) {
+    Ok(identifier) => identifier,
+    Err(_invalid_identifier) => return Ok(None),
+  };
+  let FrameFields { size, flags } = match read_frame_fields(&mut reader_2, version) {
+    Ok(fields) => fields,
+    Err(_invalid_fields) => return Ok(None),
+  };
+  let (bytes, name_version) = match (&identifier, version) {
+    (FrameIdentifier::Legacy(bytes), _)
+    | (FrameIdentifier::Modern([bytes @ .., 0]), Version::Three) => {
+      (bytes.as_slice(), Version::Two)
+    }
+    (FrameIdentifier::Modern(bytes), _) => (bytes.as_slice(), version),
+  };
+  let id = match std::str::from_utf8(bytes) {
+    Ok(name) => {
+      let (name_3, upgrade) = match name_version {
+        Version::Two => (name, upgraded_v2(name)),
+        Version::Three => {
+          let name_2 = name.trim_end_matches('\0');
 
-      let id = match std::str::from_utf8(&[a, b, c]) {
-        Ok(id) => {
-          let Ok(upgrade) = upgraded_v2(id);
-          let Ok(id_2) = named(id, upgrade);
-
-          Some(id_2)
+          (name_2, upgraded_v3(name_2))
         }
-        Err(_not_utf8) => None,
+        Version::Four => (name.trim_end_matches('\0'), Ok(None)),
+      };
+      let Ok(upgrade_2) = upgrade;
+
+      let spelling = match upgrade_2 {
+        Some(standard) => standard,
+        None => name_3,
       };
 
-      Ok(Some(Opened {
-        id,
-        size,
-        flags: Flags::default(),
-      }))
+      Some(spelling.to_string())
     }
-    Version::Three | Version::Four => {
-      let header = match reader.array::<10>() {
-        Ok([0, ..]) => return Ok(None),
-        Err(_short_header) => return Ok(None),
-        Ok(header) => header,
-      };
-
-      opened_v3_or_v4(header, version)
-    }
-  }
-}
-
-fn opened_v3_or_v4(header: [u8; 10], version: Version) -> Result<Option<Opened>, Never> {
-  let [a, b, c, d, s0, s1, s2, s3, f0, f1] = header;
-
-  let size = match version {
-    Version::Four => {
-      let Ok(size) = synchsafe([s0, s1, s2, s3]);
-
-      size
-    }
-    Version::Two | Version::Three => u32::from_be_bytes([s0, s1, s2, s3]),
+    Err(_not_utf8) => None,
   };
+  let Ok(flags_2) = flags_of(flags, version);
 
-  let id = match (version, d) {
-    (Version::Three, 0) => match std::str::from_utf8(&[a, b, c]) {
-      Ok(id) => {
-        let Ok(upgrade) = upgraded_v2(id);
-        let Ok(id_2) = named(id, upgrade);
-
-        Some(id_2)
-      }
-      Err(_not_utf8) => None,
-    },
-    (Version::Three, _named) => match std::str::from_utf8(&[a, b, c, d]) {
-      Ok(id) => {
-        let trimmed = id.trim_end_matches('\0');
-        let Ok(upgrade) = upgraded_v3(trimmed);
-        let Ok(id_3) = named(trimmed, upgrade);
-
-        Some(id_3)
-      }
-      Err(_not_utf8) => None,
-    },
-    (Version::Two | Version::Four, _) => match std::str::from_utf8(&[a, b, c, d]) {
-      Ok(id) => Some(id.trim_end_matches('\0').to_string()),
-      Err(_not_utf8) => None,
-    },
-  };
-
-  let raw = u16::from_be_bytes([f0, f1]);
-  let Ok(flags) = flags_of(raw, version);
-
-  Ok(Some(Opened { id, size, flags }))
+  Ok(Some(Opened {
+    id,
+    size,
+    flags: flags_2,
+  }))
 }
 
 fn flags_of(raw: u16, version: Version) -> Result<Flags, Never> {
-  let bits = match version {
-    Version::Four => raw & 0x704F,
-    Version::Two | Version::Three => {
-      let moved = [
-        (0x8000, 0x4000),
-        (0x4000, 0x2000),
-        (0x2000, 0x1000),
-        (0x0020, GROUPED),
-        (0x0080, COMPRESSED),
-        (0x0040, ENCRYPTED),
-      ];
-
-      moved
-        .iter()
-        .fold(0u16, |bits, (from, to)| match raw & from {
-          0 => bits,
-          _set => bits | to,
-        })
-    }
-  };
+  let Ok(bits) = normalised(version, raw);
 
   let present = |bit: u16| match bits & bit {
     0 => None,
@@ -398,14 +333,14 @@ fn flags_of(raw: u16, version: Version) -> Result<Flags, Never> {
     bits,
     group: present(GROUPED),
     method: present(ENCRYPTED),
-    data_length: present(LENGTHED).map(u32::from),
+    data_length: present(DATA_LENGTH_INDICATOR).map(u32::from),
   })
 }
 
 pub(crate) fn next(
   reader: &mut Cursor<'_>,
   version: Version,
-  unsynchronised: Unsynchronised,
+  unsynchronised: Unsynchronisation,
 ) -> Result<Parsed, ParseError> {
   let Ok(opened) = opened(reader, version);
 
@@ -427,20 +362,21 @@ pub(crate) fn next(
     }
   };
 
-  let Ok(validity) = valid(&id_3);
+  let Ok(validity) = check_frame_name(id_3.as_bytes());
 
   match (validity, size) {
-    (Validity::Invalid, _) | (Validity::Valid, 0) => {
+    (FrameNameValidity::Invalid, _) | (FrameNameValidity::Valid, 0) => {
       let Ok(_skipped) = reader.upto(u64::from(size));
 
       return Ok(Parsed::Skip);
     }
-    (Validity::Valid, _) => {}
+    (FrameNameValidity::Valid, _) => {}
   }
 
   match (unsynchronised, version) {
-    (Unsynchronised::Yes, Version::Four) => flags.bits |= UNSYNCHRONISED,
-    (Unsynchronised::Yes, Version::Two | Version::Three) | (Unsynchronised::No, _) => {}
+    (Unsynchronisation::Applied, Version::Four) => flags.bits |= UNSYNCHRONISED,
+    (Unsynchronisation::Applied, Version::Two | Version::Three)
+    | (Unsynchronisation::Absent, _) => {}
   }
 
   let size_2 = announced(reader, &mut flags, size)?;
@@ -492,7 +428,7 @@ fn announced(reader: &mut Cursor<'_>, flags: &mut Flags, size: u32) -> Result<u3
     (Some(_), _compressed) | (None, _compressed) => {
       let left = after_group.checked_sub(4).ok_or(Malformed::Frame)?;
       let written = reader.array::<4>()?;
-      let Ok(length) = synchsafe(written);
+      let Ok(length) = synchsafe_word(written);
 
       flags.data_length = Some(length);
 
@@ -524,12 +460,12 @@ fn body(
       Some(inflated)
     }
     (_unsynchronised, 0) => {
-      let Ok(undone) = resynchronised(within);
+      let Ok(undone) = undo_unsynchronisation(within);
 
       Some(undone)
     }
     (_unsynchronised, _compressed) => {
-      let Ok(undone) = resynchronised(within);
+      let Ok(undone) = undo_unsynchronisation(within);
 
       let inflated = inflated(&undone)?;
 

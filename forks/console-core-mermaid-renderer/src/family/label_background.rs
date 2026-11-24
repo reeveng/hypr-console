@@ -41,8 +41,8 @@ impl EdgeLabelBackgroundPlan {
         config: &merman_model::presentation::PresentationConfig,
         work: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let theme = theme.filter(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let theme_3 = theme.filter(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 matches!(
                     route.mechanism(),
                     FamilyThemeMechanism::RuleFacet { target: TARGET, .. }
@@ -51,23 +51,23 @@ impl EdgeLabelBackgroundPlan {
                 )
             })
         });
-        let style = theme
-            .map(|theme| {
-                work.charge(theme.family_mechanism_routes().len())?;
-                theme.style_with_work_meter(TARGET, ThemeVariant::Default, None, work)
+        let style = theme_3
+            .map(|theme_4| {
+                work.charge(theme_4.family_mechanism_routes().len())?;
+                theme_4.style_with_work_meter(TARGET, ThemeVariant::Default, None, work)
             })
             .transpose()?;
-        let fill = theme.zip(style.as_ref()).and_then(|(theme, style)| {
-            resolve_direct_static_fill(theme, style, &[TARGET], DirectStaticSelectorDomain::Default)
+        let fill = theme_3.zip(style.as_ref()).and_then(|(theme_5, style_2)| {
+            resolve_direct_static_fill(theme_5, style_2, &[TARGET], DirectStaticSelectorDomain::Default)
         });
         Ok(Self {
-            theme: theme.cloned(),
+            theme: theme_3.cloned(),
             style,
             fill,
             config_owned: config
                 .config_paint_overrides_typed_default("themeVariables.edgeLabelBackground"),
-            ordinal_rules: theme.is_some_and(|theme| {
-                theme
+            ordinal_rules: theme_3.is_some_and(|theme_6| {
+                theme_6
                     .family_rules()
                     .any(|(_, rule)| rule.target() == TARGET && rule.ordinal().is_some())
             }),
@@ -75,16 +75,19 @@ impl EdgeLabelBackgroundPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn requested(&self) -> bool {
         self.theme.is_some()
     }
 
     /// An explicit static background introduces a content box on Swimlane labelRect.
     /// The unthemed Mermaid layout sentinel remains unchanged.
+    #[must_use]
     pub(crate) fn supplies_background(&self) -> bool {
         self.fill.is_some() && !self.config_owned
     }
 
+    #[must_use]
     pub(crate) fn color<'a>(&'a self, configured: &'a str) -> &'a str {
         if self.config_owned {
             configured
@@ -110,13 +113,17 @@ impl EdgeLabelBackgroundPlan {
         background_emitted: bool,
         work: &OperationWorkMeter,
     ) -> Result<(), OperationWorkError> {
-        let Some(theme) = &self.theme else {
-            return Ok(());
+        let theme = match &self.theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(()),
         };
+
         work.charge(1)?;
+
         if !has_area {
             return Ok(());
         }
+
         let mut receipt = self
             .terminal
             .lock()
@@ -124,29 +131,33 @@ impl EdgeLabelBackgroundPlan {
         receipt.ordinal += 1;
         let dynamic;
         let style = if self.ordinal_rules {
-            dynamic = theme.style_with_work_meter(
+            dynamic = { let checked_value = theme.style_with_work_meter(
                 TARGET,
                 ThemeVariant::Default,
                 Some(receipt.ordinal),
                 work,
-            )?;
+            )?; checked_value };
             &dynamic
         } else {
             self.style.as_ref().expect("requested background style")
         };
+
         for (property, origin) in style.winner_rule_properties() {
             work.charge(1)?;
+
             if property == ResolvedStyleProperty::Fill && self.config_owned {
                 continue;
             }
+
             receipt.winners.insert((origin.rule_index(), property));
+
             if property == ResolvedStyleProperty::Fill {
                 let consumed = background_emitted
                     && self
                         .fill
                         .as_ref()
                         .is_some_and(|fill| fill.rule_index() == origin.rule_index());
-                // A successful sibling terminal cannot erase an unverified occurrence.
+
                 receipt
                     .complete_fills
                     .entry(origin.rule_index())
@@ -154,30 +165,38 @@ impl EdgeLabelBackgroundPlan {
                     .or_insert(consumed);
             }
         }
+
         receipt.palette_applies |= !self.config_owned
             && matches!(style.fill_resolution().specified(), Specified::Unspecified)
             && theme.series_color(TARGET, receipt.ordinal).is_some();
+
         if let Some(ResolvedThemeEffect::Binding { binding, .. }) =
             theme.resolve_effect(TARGET, style.effect_resolution())
             && !receipt.bindings.contains(binding.effect_id())
         {
             receipt.bindings.insert(binding.effect_id().to_owned());
         }
+
         Ok(())
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
-        let Some(theme) = &self.theme else {
-            return;
+        let theme = match &self.theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return,
         };
+
         let receipt = self
             .terminal
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         if !receipt.stylesheet_emitted {
             return;
         }
+
         let mut rules = BTreeMap::<usize, (bool, Option<FamilyThemeResidualReason>)>::new();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
@@ -187,12 +206,14 @@ impl EdgeLabelBackgroundPlan {
                     ..
                 } => {
                     let outcome = rules.entry(rule_index).or_default();
+
                     if !receipt
                         .winners
                         .contains(&(rule_index, resolved_style_property_for_facet(facet)))
                     {
                         continue;
                     }
+
                     if route.disposition() == FamilyThemeDisposition::TypedAdapter
                         && matches!(facet, FamilyThemeRuleFacet::Fill(_))
                         && receipt.complete_fills.get(&rule_index) == Some(&true)
@@ -206,6 +227,7 @@ impl EdgeLabelBackgroundPlan {
                 }
                 FamilyThemeMechanism::OrdinalPalette { target: TARGET } => {
                     let key = theme.family_mechanism_key(route);
+
                     if receipt.palette_applies {
                         evidence.mark_residual(
                             key,
@@ -217,6 +239,7 @@ impl EdgeLabelBackgroundPlan {
                 }
                 FamilyThemeMechanism::EffectBinding { target: TARGET, .. } => {
                     let key = theme.family_mechanism_key(route);
+
                     if matches!(&key, FamilyThemeMechanismKey::EffectBinding { effect_id, .. } if receipt.bindings.contains(effect_id))
                     {
                         evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedEffect);
@@ -227,11 +250,13 @@ impl EdgeLabelBackgroundPlan {
                 _ => {}
             }
         }
+
         for (index, (applied, residual)) in rules {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: TARGET,
             };
+
             if let Some(reason) = residual {
                 evidence.mark_residual(key, reason);
             } else if applied {

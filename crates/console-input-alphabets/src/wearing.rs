@@ -23,10 +23,8 @@
 //!    every address is latin, so this is the answer that cannot leave someone
 //!    unable to type their way back out.
 //!
-//! It is state and not a setting. Nothing offers to change it and nothing
-//! reads it as a preference: a machine that lost the file is a machine where
-//! every keyboard starts on step two, which is where they all started the
-//! first time anyway.
+//! When someone chooses a layout in Settings, the screen and all remembered
+//! keyboards use it. The compositor also uses that choice for new keyboards.
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -39,6 +37,8 @@ use crate::Alphabet;
 pub const NAMED: &str = "alphabets";
 
 pub const SCREEN: &str = "screen";
+
+const PHYSICAL_LAYOUT: &str = "physical-layout";
 
 pub fn path_in(home: &Path) -> Result<PathBuf, Never> {
   let Ok(ours) = console_core_places::Base::State.application_under(home);
@@ -109,7 +109,11 @@ pub fn among(
     None => {}
   }
 
-  match walk.first() {
+  let selected = every
+    .get(PHYSICAL_LAYOUT)
+    .and_then(|xkb| walk.iter().find(|alphabet| alphabet.xkb == xkb));
+
+  match selected.or_else(|| walk.first()) {
     Some(alphabet) => Ok(alphabet),
     None => crate::latin(),
   }
@@ -148,10 +152,86 @@ impl From<console_core_atomic_writes::Unwritten> for Unremembered {
 }
 
 pub fn remember(home: &Path, whose: &str, alphabet: &Alphabet) -> Result<(), Unremembered> {
-  let Ok(mut every) = every(home);
-  let _ = every.insert(whose.to_string(), alphabet.key.to_string());
+  change(home, |every| {
+    let _ = every.insert(whose.to_string(), alphabet.key.to_string());
+  })
+}
 
-  let Ok(text) = serialize(&every);
+#[derive(Debug)]
+pub enum Unselected {
+  Store(Unremembered),
+  Apply(String),
+  Rollback {
+    apply: String,
+    restore: Unremembered,
+  },
+}
+
+impl fmt::Display for Unselected {
+  fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Store(fault) => write!(out, "{fault}"),
+      Self::Apply(message) => out.write_str(message),
+      Self::Rollback { apply, restore } => {
+        write!(
+          out,
+          "{apply}. Could not restore the previous layout: {restore}"
+        )
+      }
+    }
+  }
+}
+
+impl std::error::Error for Unselected {}
+
+pub fn select(
+  home: &Path,
+  alphabet: &Alphabet,
+  apply: impl FnOnce(&[&str]) -> Result<(), String>,
+) -> Result<(), Unselected> {
+  let (at, _directory) = lock(home).map_err(Unselected::Store)?;
+  let Ok(previous) = every(home);
+  let mut selected = previous.clone();
+  let devices: Vec<&str> = previous
+    .keys()
+    .map(String::as_str)
+    .filter(|name| *name != SCREEN && *name != PHYSICAL_LAYOUT)
+    .filter(|name| !name.starts_with("hl-virtual-keyboard"))
+    .collect();
+
+  for chosen in selected.values_mut() {
+    *chosen = alphabet.key.to_string();
+  }
+
+  let _ = selected.insert(SCREEN.to_string(), alphabet.key.to_string());
+  let _ = selected.insert(PHYSICAL_LAYOUT.to_string(), alphabet.xkb.to_string());
+
+  save(&at, &selected).map_err(Unselected::Store)?;
+
+  match apply(&devices) {
+    Ok(()) => Ok(()),
+    Err(apply_fault) => match save(&at, &previous) {
+      Ok(()) => Err(Unselected::Apply(apply_fault)),
+      Err(restore) => Err(Unselected::Rollback {
+        apply: apply_fault,
+        restore,
+      }),
+    },
+  }
+}
+
+fn change(
+  home: &Path,
+  update: impl FnOnce(&mut BTreeMap<String, String>),
+) -> Result<(), Unremembered> {
+  let (at, _directory) = lock(home)?;
+  let Ok(mut every) = every(home);
+  update(&mut every);
+
+  save(&at, &every)
+}
+
+fn lock(home: &Path) -> Result<(PathBuf, std::fs::File), Unremembered> {
   let Ok(at) = path_in(home);
 
   let under = match at.parent() {
@@ -162,7 +242,19 @@ pub fn remember(home: &Path, whose: &str, alphabet: &Alphabet) -> Result<(), Unr
   std::fs::create_dir_all(under)
     .map_err(|fault| Unremembered::Holding(under.to_path_buf(), fault))?;
 
-  console_core_atomic_writes::whole(&at, text.as_bytes()).map_err(Unremembered::Writing)
+  let directory = std::fs::File::open(under)
+    .map_err(|fault| Unremembered::Holding(under.to_path_buf(), fault))?;
+  directory
+    .lock()
+    .map_err(|fault| Unremembered::Holding(under.to_path_buf(), fault))?;
+
+  Ok((at, directory))
+}
+
+fn save(at: &Path, every: &BTreeMap<String, String>) -> Result<(), Unremembered> {
+  let Ok(text) = serialize(every);
+
+  console_core_atomic_writes::whole(at, text.as_bytes()).map_err(Unremembered::Writing)
 }
 
 #[cfg(test)]
@@ -265,6 +357,42 @@ mod tests {
     let Ok(worn) = among(&every, "Logitech K380", &walk);
 
     assert_eq!(worn.key, "greek");
+
+    Ok(())
+  }
+
+  #[test]
+  fn selecting_a_layout_updates_the_default_for_new_keyboards_and_can_be_retried()
+  -> Result<(), Box<dyn Error>> {
+    let home = console_core_temporary_directories::fresh("selected-layout")?;
+    let Ok(walk) = crate::read("greek,thai");
+    let Ok(thai) = crate::one("thai");
+    let thai_2 = thai.ok_or("Thai is missing")?;
+    remember(&home, "desk-keyboard", thai_2)?;
+    let Ok(before) = every(&home);
+    let Ok(found) = crate::one("greek");
+    let greek = found.ok_or("Greek is missing")?;
+
+    assert!(matches!(
+      select(&home, greek, |_| Err(String::from(
+        "compositor unavailable"
+      ))),
+      Err(Unselected::Apply(_message))
+    ));
+    assert_eq!(every(&home), Ok(before));
+    select(&home, greek, |devices| {
+      assert_eq!(devices, ["desk-keyboard"]);
+      Ok(())
+    })?;
+
+    let Ok(current) = every(&home);
+
+    for device in [SCREEN, "desk-keyboard", "new-keyboard"] {
+      let Ok(active) = among(&current, device, &walk);
+      assert_eq!(active.key, "greek");
+    }
+
+    assert_eq!(current.get(PHYSICAL_LAYOUT).map(String::as_str), Some("gr"));
 
     Ok(())
   }

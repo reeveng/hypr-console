@@ -657,6 +657,7 @@ impl<'a> PointIter<'a> {
       self.cur_x = self.cur_x.wrapping_add(delta_x);
       self.cur_y = self.cur_y.wrapping_add(delta_y);
     };
+
     Ok(())
   }
 }
@@ -1292,24 +1293,21 @@ impl Transform {
     )
   )]
   pub fn compute_flags(&self) -> CompositeGlyphFlags {
-    match ::core::primitive::bool::then_some(
-      self.yx != F2Dot14::ZERO || self.xy != F2Dot14::ZERO,
-      (),
+    let skewed = self.yx != F2Dot14::ZERO || self.xy != F2Dot14::ZERO;
+    let uneven_scale = self.xx != self.yy;
+    let scaled = self.xx != F2Dot14::ONE;
+
+    match (
+      skewed.then_some(()),
+      uneven_scale.then_some(()),
+      scaled.then_some(()),
     ) {
-      ::core::option::Option::Some(()) => CompositeGlyphFlags::WE_HAVE_A_TWO_BY_TWO,
-      ::core::option::Option::None => {
-        match ::core::primitive::bool::then_some(self.xx != self.yy, ()) {
-          ::core::option::Option::Some(()) => CompositeGlyphFlags::WE_HAVE_AN_X_AND_Y_SCALE,
-          ::core::option::Option::None => {
-            match ::core::primitive::bool::then_some(self.xx != F2Dot14::ONE, ()) {
-              ::core::option::Option::Some(()) => CompositeGlyphFlags::WE_HAVE_A_SCALE,
-              ::core::option::Option::None => {
-                let Ok(explicit_value) = CompositeGlyphFlags::empty();
-                explicit_value
-              }
-            }
-          }
-        }
+      (Some(()), _, _) => CompositeGlyphFlags::WE_HAVE_A_TWO_BY_TWO,
+      (None, Some(()), _) => CompositeGlyphFlags::WE_HAVE_AN_X_AND_Y_SCALE,
+      (None, None, Some(())) => CompositeGlyphFlags::WE_HAVE_A_SCALE,
+      (None, None, None) => {
+        let Ok(flags) = CompositeGlyphFlags::empty();
+        flags
       }
     }
   }

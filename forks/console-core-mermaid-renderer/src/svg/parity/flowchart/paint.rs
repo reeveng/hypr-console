@@ -32,8 +32,9 @@ pub(super) fn with_flowchart_paint_context<T>(
         edge_theme,
     } = request;
     let render_model = crate::flowchart::FlowchartRenderModelRef::new(model, render_context);
-    let model = &render_model;
-    if model
+    let model_2 = &render_model;
+
+    if model_2
         .nodes
         .iter()
         .any(|node| node.layout_shape.as_deref() == Some("ellipse"))
@@ -42,7 +43,8 @@ pub(super) fn with_flowchart_paint_context<T>(
             message: "No such shape: ellipse. Please check your syntax.".to_string(),
         });
     }
-    layout.edge_owners.validate(&layout.edges, &model.edges)?;
+
+    layout.edge_owners.validate(&layout.edges, &model_2.edges)?;
 
     let measurer = options.text_measurer();
 
@@ -60,13 +62,14 @@ pub(super) fn with_flowchart_paint_context<T>(
         mut render_edges,
         extra_nodes,
     } = prepare_flowchart_render_inputs(
-        model,
+        model_2,
         render_context,
         &layout.edge_owners,
         layout.uses_elk_adapter_dom,
     );
-    if let Some(swimlane_layout) = swimlane_layout {
-        super::swimlane::apply_swimlane_edge_curves(&mut render_edges, swimlane_layout);
+
+    if let Some(swimlane_layout_2) = swimlane_layout {
+        super::swimlane::apply_swimlane_edge_curves(&mut render_edges, swimlane_layout_2);
     }
 
     let wrapping_width = render_config.wrapping_width;
@@ -94,32 +97,37 @@ pub(super) fn with_flowchart_paint_context<T>(
 
     let mut nodes_by_id: FixedMap<&str, &crate::flowchart::FlowNode> =
         FixedMap::with_capacity_and_hasher(
-            model.nodes.len() + extra_nodes.len(),
+            model_2.nodes.len() + extra_nodes.len(),
             Default::default(),
         );
-    for n in &model.nodes {
+
+    for n in &model_2.nodes {
         nodes_by_id.insert(n.id.as_str(), n);
     }
+
     for n in &extra_nodes {
         let _ = nodes_by_id.entry(n.id.as_str()).or_insert(n);
     }
 
-    // Source-ported ELK should preserve Mermaid's edge emission order, not the layout engine's
-    // internal reordering. `render_edges` already reflects the source-backed ordering rules.
+
+
     let edge_order: Vec<super::render_input::FlowchartRenderEdgeRef<'_>> =
         render_edges.iter().map(|edge| edge.as_ref()).collect();
     let mut edges_by_key: FixedMap<
         crate::flowchart::FlowchartEdgeKey,
         super::render_input::FlowchartRenderEdgeRef<'_>,
     > = FixedMap::with_capacity_and_hasher(render_edges.len(), Default::default());
+
     for e in &render_edges {
         let edge = e.as_ref();
+
         if edges_by_key.insert(edge.key, edge).is_some() {
             return Err(crate::Error::InvalidModel {
                 message: format!("duplicate Flowchart render edge occurrence {:?}", edge.key),
             });
         }
     }
+
     if edges_by_key.len() != layout.edge_owners.len()
         || layout
             .edge_owners
@@ -131,10 +139,10 @@ pub(super) fn with_flowchart_paint_context<T>(
         });
     }
 
-    let swimlane_direction = swimlane_layout.map(|layout| layout.direction);
+    let swimlane_direction = swimlane_layout.map(|layout_2| layout_2.direction);
     let swimlane_lanes_by_id: FixedMap<&str, &crate::model::SwimlaneLaneLayout> = swimlane_layout
         .into_iter()
-        .flat_map(|layout| layout.lanes.iter())
+        .flat_map(|layout_3| layout_3.lanes.iter())
         .map(|lane| (lane.id.as_str(), lane))
         .collect();
     let swimlane_edge_label_edges_by_node_id: FixedMap<
@@ -142,7 +150,7 @@ pub(super) fn with_flowchart_paint_context<T>(
         super::render_input::FlowchartRenderEdgeRef<'_>,
     > = swimlane_layout
         .into_iter()
-        .flat_map(|layout| layout.edges.iter().zip(layout.edge_owners.iter()))
+        .flat_map(|layout_4| layout_4.edges.iter().zip(layout_4.edge_owners.iter()))
         .filter_map(|(layout_edge, owner)| {
             let label_node_id = layout_edge.label_node_id.as_deref()?;
             let edge = edges_by_key.get(&owner).copied()?;
@@ -150,16 +158,19 @@ pub(super) fn with_flowchart_paint_context<T>(
         })
         .collect();
     let mut subgraphs_by_id: FixedMap<&str, &crate::flowchart::FlowSubgraph> =
-        FixedMap::with_capacity_and_hasher(model.subgraphs.len(), Default::default());
+        FixedMap::with_capacity_and_hasher(model_2.subgraphs.len(), Default::default());
     let mut subgraph_index_by_id: FixedMap<&str, usize> =
-        FixedMap::with_capacity_and_hasher(model.subgraphs.len(), Default::default());
+        FixedMap::with_capacity_and_hasher(model_2.subgraphs.len(), Default::default());
     let mut subgraph_ids_with_children: FixedSet<&str> = FixedSet::default();
-    for (subgraph_index, sg) in model.subgraphs.iter().enumerate() {
+
+    for (subgraph_index, sg) in model_2.subgraphs.iter().enumerate() {
         let id = sg.id.as_str();
+
         if let std::collections::hash_map::Entry::Vacant(entry) = subgraphs_by_id.entry(id) {
             entry.insert(sg);
             subgraph_index_by_id.insert(id, subgraph_index);
         }
+
         if !sg.nodes.is_empty()
             && !render_context.is_subgraph_collapsed(id)
             && render_context.collapsed_replacement(id).is_none()
@@ -169,25 +180,35 @@ pub(super) fn with_flowchart_paint_context<T>(
     }
 
     let mut parent: FixedMap<&str, &str> = FixedMap::default();
-    for sg in model.subgraphs.iter().rev() {
+
+    for sg in model_2.subgraphs.iter().rev() {
         let sg_id = sg.id.as_str();
+
         for child in &sg.nodes {
             parent.insert(child.as_str(), sg_id);
         }
     }
+
     for n in &extra_nodes {
         let id = n.id.as_str();
-        let Some((base, _)) = id.split_once("---") else {
-            continue;
+
+        let base = {
+            let optional_base = id.split_once("---");
+
+            match optional_base {
+                Some((matched_base, _)) => matched_base,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if let Some(&p) = parent.get(base) {
             parent.insert(id, p);
         }
     }
 
-    // Layout extraction is the source of truth for recursive cluster roots. Recomputing this from
-    // semantic edges loses Mermaid 11.16's explicit-direction extraction branch and can make every
-    // node inside an extracted cluster disappear from the SVG DOM.
+
+
+
     let recursive_clusters: FixedSet<&str> = layout
         .dom_node_order_by_root
         .keys()
@@ -197,6 +218,7 @@ pub(super) fn with_flowchart_paint_context<T>(
 
     let mut layout_nodes_by_id: FixedMap<&str, &LayoutNode> =
         FixedMap::with_capacity_and_hasher(layout.nodes.len(), Default::default());
+
     for n in &layout.nodes {
         layout_nodes_by_id.insert(n.id.as_str(), n);
     }
@@ -205,6 +227,7 @@ pub(super) fn with_flowchart_paint_context<T>(
         crate::flowchart::FlowchartEdgeKey,
         &crate::model::LayoutEdge,
     > = FixedMap::with_capacity_and_hasher(layout.edges.len(), Default::default());
+
     for (key, edge) in layout.edge_owners.iter().zip(&layout.edges) {
         if layout_edges_by_key.insert(key, edge).is_some() {
             return Err(crate::Error::InvalidModel {
@@ -215,22 +238,25 @@ pub(super) fn with_flowchart_paint_context<T>(
 
     let mut layout_clusters_by_id: FixedMap<&str, &LayoutCluster> =
         FixedMap::with_capacity_and_hasher(layout.clusters.len(), Default::default());
+
     for c in &layout.clusters {
         layout_clusters_by_id.insert(c.id.as_str(), c);
     }
 
-    // Mermaid flowchart-v2 does not translate the root `.root` group; node/edge coordinates are
-    // already in the Dagre coordinate space (including Dagre's fixed `marginx/marginy=8`).
-    // `diagramPadding` is applied only when computing the final SVG viewBox.
+
+
+
     let tx = 0.0;
     let ty = 0.0;
 
-    let mut node_dom_index = flowchart_node_dom_indices(model);
-    for node in &model.nodes {
+    let mut node_dom_index = flowchart_node_dom_indices(model_2);
+
+    for node in &model_2.nodes {
         if let Some(index) = render_context.node_dom_index(&node.id) {
             node_dom_index.insert(node.id.as_str(), index);
         }
     }
+
     let flowchart_edge_trace = options.debug.flowchart_edge_trace();
     let checkpoint_emit = || options.checkpoint_emit();
     let text_surface_paint = &prepared_theme.text_surface;
@@ -245,7 +271,7 @@ pub(super) fn with_flowchart_paint_context<T>(
         edge_effects: std::cell::OnceCell::new(),
         effect_evidence,
         text_surface_paint,
-        model,
+        model: model_2,
         diagram_id,
         diagram_type,
         tx,
@@ -267,9 +293,9 @@ pub(super) fn with_flowchart_paint_context<T>(
         edge_html_labels,
         swimlane_title_html_labels,
         uses_elk_adapter_dom: layout.uses_elk_adapter_dom,
-        class_defs: &model.class_defs,
+        class_defs: &model_2.class_defs,
         edge_style_plan,
-        steps: super::step::FlowchartSteps::new(model, effective_config),
+        steps: super::step::FlowchartSteps::new(model_2, effective_config),
         document_ids: std::cell::OnceCell::new(),
         layout,
         swimlane_layout,
@@ -294,7 +320,7 @@ pub(super) fn with_flowchart_paint_context<T>(
         subgraphs_by_id,
         subgraph_indices_by_id: subgraph_index_by_id,
         subgraph_ids_with_children,
-        tooltips: &model.tooltips,
+        tooltips: &model_2.tooltips,
         recursive_clusters,
         parent,
         layout_nodes_by_id,
@@ -326,35 +352,40 @@ pub(super) fn prepare_edge_routes(
     let mut scratch = FlowchartEdgeDataPointsScratch::default();
     let mut routes = Vec::new();
     let mut routed_edges = Vec::new();
+
     for edge in render_edges {
-        let edge = edge.as_ref();
-        let root = hierarchy.edge_root(edge.key)?.unwrap_or("");
-        let offsets = hierarchy
-            .root_offsets(root)
-            .unwrap_or(FlowchartRootOffsets {
+        let edge_2 = edge.as_ref();
+        let root = hierarchy.edge_root(edge_2.key)?.unwrap_or("");
+        let offsets = match (hierarchy
+            .root_offsets(root), FlowchartRootOffsets {
                 origin_x: 0.0,
                 origin_y: 0.0,
                 abs_top_transform: 0.0,
-            });
+            }) {
+            (::core::option::Option::Some(option_value), _) => option_value,
+            (::core::option::Option::None, alternate) => alternate,
+        };
         let request = FlowchartEdgePathGeomRequest {
             ctx,
-            key: edge.key,
-            edge: edge.edge,
+            key: edge_2.key,
+            edge: edge_2.edge,
             origin_x: offsets.origin_x,
             origin_y: offsets.origin_y,
             trace_enabled: false,
         };
-        if let Some(layout_edge) = ctx.layout_edges_by_key.get(&edge.key) {
+
+        if let Some(layout_edge) = ctx.layout_edges_by_key.get(&edge_2.key) {
             ctx.work_meter.charge(layout_edge.points.len().max(2))?;
         }
+
         if ctx.uses_elk_adapter_dom {
             if let Some(route) = edge_geom::prepare_edge_route(request, &mut scratch) {
                 routes.push(route);
-                routed_edges.push((edge, offsets));
+                routed_edges.push((edge_2, offsets));
             }
         } else if let Some(geom) = flowchart_compute_edge_path_geom(request, &mut scratch) {
             cache.insert(
-                edge.key,
+                edge_2.key,
                 FlowchartEdgePathCacheEntry {
                     origin_x: offsets.origin_x,
                     origin_y: offsets.origin_y,
@@ -364,6 +395,7 @@ pub(super) fn prepare_edge_routes(
             );
         }
     }
+
     if ctx.uses_elk_adapter_dom {
         if ctx
             .config
@@ -375,6 +407,7 @@ pub(super) fn prepare_edge_routes(
         {
             edge_geom::straighten_edge_terminals(&mut routes, ctx.work_meter)?;
         }
+
         edge_geom::separate_edge_labels(
             &mut routes,
             routed_edges.iter().map(|(edge, _)| {
@@ -388,6 +421,7 @@ pub(super) fn prepare_edge_routes(
             }),
             ctx.work_meter,
         )?;
+
         for ((edge, offsets), route) in routed_edges.into_iter().zip(routes) {
             if let Some(geom) = edge_geom::finish_edge_route(
                 FlowchartEdgePathGeomRequest {
@@ -413,6 +447,7 @@ pub(super) fn prepare_edge_routes(
             }
         }
     }
+
     if ctx.swimlane_direction.is_some() || ctx.uses_elk_adapter_dom {
         super::swimlane::apply_line_hops_to_edge_geometries(
             &mut cache,
@@ -422,6 +457,7 @@ pub(super) fn prepare_edge_routes(
             ctx.uses_elk_adapter_dom,
         )?;
     }
+
     ctx.work_meter
         .checkpoint(merman_model::OperationPhase::Layout)?;
     Ok(cache)
@@ -435,13 +471,21 @@ pub(super) fn prepare_rough_edge_paths(
     if !ctx.compatibility.look.is_hand_drawn() {
         return Ok(());
     }
+
     for edge in edges {
-        let Some(entry) = cache.get_mut(&edge.key) else {
-            continue;
+        let entry = {
+            let optional_entry = cache.get_mut(&edge.key);
+
+            match optional_entry {
+                Some(matched_entry) => matched_entry,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if entry.geom.line_hop_applied || entry.geom.emitted_d_for_label.is_some() {
             continue;
         }
+
         ctx.work_meter.charge(entry.geom.d.len().max(1))?;
         entry.geom.emitted_d_for_label =
             render::node::roughjs::roughjs_hand_drawn_stroke_path_for_svg_path(
@@ -451,6 +495,7 @@ pub(super) fn prepare_rough_edge_paths(
                 &ctx.hand_drawn_seed,
             );
     }
+
     Ok(())
 }
 
@@ -489,30 +534,44 @@ impl FlowchartEdgeLabels {
         edges: &[super::render_input::FlowchartRenderEdgeRef<'_>],
     ) -> Result<()> {
         ctx.work_meter.charge(edges.len())?;
+
         for edge in edges {
-            let text = ctx
+            let text = match ctx
                 .model
-                .edge_label_for_occurrence(edge.key, edge.edge)
-                .unwrap_or_default();
+                .edge_label_for_occurrence(edge.key, edge.edge) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => "",
+            };
+
             if ctx.swimlane_direction.is_some() && !self.synthetic.contains(&edge.key) {
                 continue;
             }
+
             if ctx.uses_elk_adapter_dom
                 && crate::flowchart::flowchart_label_is_empty_for_render(text)
             {
                 continue;
             }
-            let Some(layout_edge) = ctx.layout_edges_by_key.get(&edge.key) else {
-                continue;
+
+            let layout_edge = {
+                let optional_layout_edge = ctx.layout_edges_by_key.get(&edge.key);
+
+                match optional_layout_edge {
+                    Some(matched_layout_edge) => matched_layout_edge,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let root = hierarchy.edge_root(edge.key)?.unwrap_or("");
-            let offsets = hierarchy
-                .root_offsets(root)
-                .unwrap_or(FlowchartRootOffsets {
+            let offsets = match (hierarchy
+                .root_offsets(root), FlowchartRootOffsets {
                     origin_x: 0.0,
                     origin_y: 0.0,
                     abs_top_transform: 0.0,
-                });
+                }) {
+                (::core::option::Option::Some(option_value), _) => option_value,
+                (::core::option::Option::None, alternate) => alternate,
+            };
             let (origin_x, origin_y) = if ctx.uses_elk_adapter_dom {
                 (0.0, 0.0)
             } else {
@@ -534,6 +593,7 @@ impl FlowchartEdgeLabels {
                 if ctx.swimlane_direction.is_none() && !html && empty && text.is_empty() {
                     continue;
                 }
+
                 render::resolve_flowchart_edge_label_position(
                     ctx,
                     edge.key,
@@ -548,6 +608,7 @@ impl FlowchartEdgeLabels {
                 if ctx.swimlane_direction.is_some() || empty {
                     continue;
                 }
+
                 fallback_label_position(ctx, layout_edge, origin_x, origin_y)
             };
             self.positions.insert(
@@ -558,9 +619,11 @@ impl FlowchartEdgeLabels {
                 },
             );
         }
+
         Ok(())
     }
 
+    #[must_use]
     pub(super) fn local_position(
         &self,
         key: crate::flowchart::FlowchartEdgeKey,
@@ -576,6 +639,7 @@ impl FlowchartEdgeLabels {
             })
     }
 
+    #[must_use]
     pub(super) fn position(
         &self,
         key: crate::flowchart::FlowchartEdgeKey,
@@ -584,6 +648,7 @@ impl FlowchartEdgeLabels {
     }
 }
 
+#[must_use]
 fn fallback_label_position(
     ctx: &FlowchartRenderCtx<'_>,
     edge: &crate::model::LayoutEdge,
@@ -619,6 +684,7 @@ fn prepare_query_rough_paths(
     if !ctx.compatibility.look.is_hand_drawn() {
         return Ok(false);
     }
+
     let mut needed: FixedSet<_> = ctx
         .edge_order
         .iter()
@@ -631,9 +697,11 @@ fn prepare_query_rough_paths(
             .then_some(edge.key)
         })
         .collect();
+
     if needed.is_empty() {
         return Ok(false);
     }
+
     if !ctx.hand_drawn_seed.seed().may_use_math_random() {
         for edge in hierarchy
             .ordered_edges()
@@ -642,37 +710,52 @@ fn prepare_query_rough_paths(
         {
             prepare_rough_edge_paths(ctx, std::slice::from_ref(edge), routes)?;
         }
+
         return Ok(true);
     }
 
-    // Only earlier emitted geometry can advance the fallback stream used by a requested label.
-    // Visit the same root-local clusters, edges and DOM nodes as SVG and stop at the last need.
+
+
     let mut frames = vec![(None, 0.0, 0.0, false, 0usize)];
+
     while let Some((root_id, origin_x, origin_y, initialized, next_node)) = frames.pop() {
         ctx.work_meter.charge(1)?;
         let root = hierarchy.root(root_id)?;
+
         if !initialized {
             for cluster in root.clusters() {
                 render::advance_flowchart_cluster_rough_geometry(ctx, cluster, origin_x, origin_y)?;
             }
+
             for edge in root.edges() {
                 prepare_rough_edge_paths(ctx, std::slice::from_ref(edge), routes)?;
                 needed.remove(&edge.key);
+
                 if needed.is_empty() {
                     return Ok(true);
                 }
             }
         }
+
         if ctx.uses_elk_adapter_dom {
             return Ok(true);
         }
-        let Some(&id) = root.dom_order().get(next_node) else {
-            continue;
+
+        let id = {
+            let optional_id = root.dom_order().get(next_node);
+
+            match optional_id {
+                Some(&matched_id) => matched_id,
+                ::core::option::Option::None => continue,
+            }
         };
+
         frames.push((root_id, origin_x, origin_y, true, next_node + 1));
+
         if ctx.swimlane_edge_label_edges_by_node_id.contains_key(id) {
             continue;
         }
+
         if ctx.subgraphs_by_id.contains_key(id)
             && ctx.subgraph_has_children(id)
             && !ctx.is_subgraph_collapsed(id)
@@ -681,8 +764,8 @@ fn prepare_query_rough_paths(
                 let offsets = hierarchy.root_offsets(id);
                 frames.push((
                     Some(id),
-                    offsets.map_or(origin_x, |offsets| offsets.origin_x),
-                    offsets.map_or(origin_y, |offsets| offsets.origin_y),
+                    offsets.map_or(origin_x, |offsets_2| offsets_2.origin_x),
+                    offsets.map_or(origin_y, |offsets_3| offsets_3.origin_y),
                     false,
                     0,
                 ));
@@ -691,6 +774,7 @@ fn prepare_query_rough_paths(
             render::node::advance_rough_geometry(ctx, id)?;
         }
     }
+
     Ok(true)
 }
 
@@ -701,10 +785,13 @@ pub(super) fn edge_geometry(
     with_flowchart_paint_context(request, options, |ctx, edges, hierarchy| {
         let mut routes = prepare_edge_routes(ctx, edges, hierarchy)?;
         let mut labels = FlowchartEdgeLabels::prepare(ctx, hierarchy, &routes)?;
+
         if prepare_query_rough_paths(ctx, hierarchy, &mut routes, &labels)? {
             labels.update(ctx, hierarchy, &routes, &ctx.edge_order)?;
         }
+
         let mut result = Vec::with_capacity(edges.len());
+
         for edge in edges {
             let points = routes
                 .get(&edge.key)
@@ -731,6 +818,7 @@ pub(super) fn edge_geometry(
                 label_position: labels.position(edge.key),
             });
         }
+
         Ok(result)
     })
 }

@@ -17,11 +17,13 @@ pub(super) fn projected_css_bytes(
     execution: SvgPostprocessExecution<'_>,
 ) -> Result<usize> {
     let mut projected = ProjectedBytes::default();
+
     {
         let mut escaped = StyleEndEscaper::new(&mut projected);
         write_scoped_css(css, scope, &mut escaped, execution)?;
         escaped.finish().map_err(scoped_css_write_error)?;
     }
+
     projected
         .finish()
         .ok_or_else(|| execution.svg_byte_count_overflow())
@@ -45,6 +47,7 @@ struct ProjectedBytes {
 }
 
 impl ProjectedBytes {
+    #[must_use]
     fn finish(self) -> Option<usize> {
         (!self.overflowed).then_some(self.bytes)
     }
@@ -58,6 +61,7 @@ impl fmt::Write for ProjectedBytes {
                 None => self.overflowed = true,
             }
         }
+
         Ok(())
     }
 }
@@ -82,46 +86,59 @@ impl<'a, W: fmt::Write> StyleEndEscaper<'a, W> {
     }
 
     fn flush_pending(&mut self) -> fmt::Result {
-        if self.pending_len != 0 {
-            let pending = std::str::from_utf8(&self.pending[..self.pending_len])
-                .expect("the style terminator prefix is ASCII");
-            self.output.write_str(pending)?;
-            self.pending_len = 0;
+        match self.pending_len {
+            0 => {},
+            _ => {
+                let pending = std::str::from_utf8(&self.pending[..self.pending_len])
+                    .expect("the style terminator prefix is ASCII");
+                self.output.write_str(pending)?;
+                self.pending_len = 0;
+            },
         }
+
         Ok(())
     }
 
     fn write_chunk(&mut self, value: &str) -> fmt::Result {
         let bytes = value.as_bytes();
         let mut cursor = 0usize;
+
         while cursor < bytes.len() {
-            if self.pending_len == 0 {
-                let Some(relative) = bytes[cursor..].iter().position(|byte| *byte == b'<') else {
-                    self.output.write_str(&value[cursor..])?;
-                    return Ok(());
-                };
-                let next = cursor + relative;
-                self.output.write_str(&value[cursor..next])?;
-                *{ let [_explicit_part, ..] = &mut self.pending; _explicit_part } = b'<';
-                self.pending_len = 1;
-                cursor = next + 1;
-                continue;
+            match self.pending_len {
+                0 => {
+                    let Some(relative) = bytes[cursor..].iter().position(|byte| *byte == b'<') else {
+                        self.output.write_str(&value[cursor..])?;
+                        return Ok(());
+                    };
+
+                    let next = cursor + relative;
+                    self.output.write_str(&value[cursor..next])?;
+                    *{ let [_explicit_part, ..] = &mut self.pending; _explicit_part } = b'<';
+                    self.pending_len = 1;
+                    cursor = next + 1;
+                    continue;
+                },
+                _ => {},
             }
 
             let byte = bytes[cursor];
+
             if byte == STYLE_END_ESCAPE_PATTERN[self.pending_len] {
                 self.pending[self.pending_len] = byte;
                 self.pending_len += 1;
                 cursor += 1;
+
                 if self.pending_len == STYLE_END_ESCAPE_PATTERN.len() {
                     self.output.write_str(STYLE_END_ESCAPE_REPLACEMENT)?;
                     self.pending_len = 0;
                 }
+
                 continue;
             }
 
             self.flush_pending()?;
         }
+
         Ok(())
     }
 }
@@ -138,6 +155,7 @@ struct ScopedCssCadence<'a> {
 }
 
 impl<'a> ScopedCssCadence<'a> {
+    #[must_use]
     const fn new(execution: SvgPostprocessExecution<'a>) -> Self {
         Self {
             execution,
@@ -153,6 +171,7 @@ impl<'a> ScopedCssCadence<'a> {
         if self.iterations.is_multiple_of(SCOPED_CSS_CHECKPOINT_BATCH) {
             self.checkpoint()?;
         }
+
         self.iterations = self.iterations.wrapping_add(1);
         Ok(())
     }
@@ -174,24 +193,25 @@ fn consume_css_component_values<'i>(
         let token = match input.next_including_whitespace_and_comments() {
             Ok(token) => token.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => {
-                if let Some(expected_close) = expected_close
+                if let Some(expected_close_2) = expected_close
                     && source
                         .as_bytes()
                         .get(input.position().byte_index())
                         .copied()
-                        != Some(expected_close)
+                        != Some(expected_close_2)
                 {
                     return Err(ParseError::custom(Error::svg_postprocess(
                         "scoped-css",
                         "invalid scoped CSS: unclosed block or function",
                     )));
                 }
+
                 return Ok(());
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<crate::Error> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
 
-        let expected_close = match token {
+        let expected_close_3 = match token {
             Token::Function(_) | Token::ParenthesisBlock => Some(b')'),
             Token::SquareBracketBlock => Some(b']'),
             Token::CurlyBracketBlock => Some(b'}'),
@@ -207,17 +227,21 @@ fn consume_css_component_values<'i>(
             }
             _ => None,
         };
-        if let Some(expected_close) = expected_close {
-            let nested_depth = descend_scoped_css(depth)?;
-            input.parse_nested_block(|nested| {
-                consume_css_component_values(
-                    nested,
-                    source,
-                    Some(expected_close),
-                    nested_depth,
-                    cadence,
-                )
-            })?;
+
+        match expected_close_3 {
+            Some(expected_close_4) => {
+                let nested_depth = descend_scoped_css(depth)?;
+                input.parse_nested_block(|nested| {
+                    consume_css_component_values(
+                        nested,
+                        source,
+                        Some(expected_close_4),
+                        nested_depth,
+                        cadence,
+                    )
+                })?;
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
@@ -225,7 +249,7 @@ fn consume_css_component_values<'i>(
 fn descend_scoped_css(depth: u8) -> std::result::Result<u8, ParseError<Error>> {
     depth
         .checked_add(1)
-        .filter(|depth| *depth <= SCOPED_CSS_NESTING_HARD_LIMIT)
+        .filter(|depth_2| *depth_2 <= SCOPED_CSS_NESTING_HARD_LIMIT)
         .ok_or_else(|| {
             ParseError::custom(Error::svg_postprocess(
                 "scoped-css",
@@ -242,7 +266,7 @@ fn write_scoped_css<W: fmt::Write>(
     output: &mut W,
     execution: SvgPostprocessExecution<'_>,
 ) -> Result<()> {
-    let Some(scope) = scope else {
+    let Some(scope_2) = scope else {
         let mut input = Parser::new(css);
         let mut cadence = ScopedCssCadence::new(execution);
         consume_css_component_values(&mut input, css, None, 0, &mut cadence)
@@ -256,7 +280,7 @@ fn write_scoped_css<W: fmt::Write>(
 
     let mut input = Parser::new(css);
     let mut cadence = ScopedCssCadence::new(execution);
-    write_scoped_rule_list(&mut input, css, scope, output, 0, &mut cadence)
+    write_scoped_rule_list(&mut input, css, scope_2, output, 0, &mut cadence)
         .map_err(map_scoped_css_parse_error)?;
     cadence.checkpoint()
 }
@@ -427,6 +451,7 @@ fn write_scoped_rule_list<'i, W: fmt::Write>(
     cadence: &mut ScopedCssCadence<'_>,
 ) -> std::result::Result<(), ParseError<Error>> {
     cadence.step()?;
+
     if depth >= SCOPED_CSS_NESTING_HARD_LIMIT {
         return Err(ParseError::custom(Error::svg_postprocess(
             "scoped-css",
@@ -435,6 +460,7 @@ fn write_scoped_rule_list<'i, W: fmt::Write>(
             ),
         )));
     }
+
     let mut parser = ScopedCssRuleParser {
         source,
         scope,
@@ -442,9 +468,11 @@ fn write_scoped_rule_list<'i, W: fmt::Write>(
         depth,
         cadence,
     };
+
     for rule in StyleSheetParser::new(input, &mut parser) {
         rule.map_err(|(error, _, _)| error)?;
     }
+
     Ok(())
 }
 
@@ -479,6 +507,7 @@ fn write_selector_list<W: fmt::Write>(
     let mut safe_root_declarations = None;
     let mut input = Parser::new(selector);
     let mut part_start = 0usize;
+
     loop {
         cadence.step().map_err(map_scoped_css_parse_error)?;
         let token_start = input.position().byte_index();
@@ -496,9 +525,10 @@ fn write_selector_list<W: fmt::Write>(
                 )?;
                 return Ok(());
             }
-            Err(error) => return Err(map_scoped_css_parse_error(error.into())),
+            Err(error) => return Err(map_scoped_css_parse_error(<::cssparser::ParseError<crate::Error> as ::core::convert::From<::cssparser::BasicParseError>>::from(error))),
         };
         let token_end = input.position().byte_index();
+
         match token {
             Token::Comma => {
                 write_selector_part(
@@ -579,28 +609,34 @@ fn write_selector_part<W: fmt::Write>(
     depth: u8,
     cadence: &mut ScopedCssCadence<'_>,
 ) -> Result<()> {
-    let selector = trim_css_whitespace(selector, cadence)?;
-    if selector.is_empty() {
+    let selector_2 = trim_css_whitespace(selector, cadence)?;
+
+    if selector_2.is_empty() {
         return Err(Error::svg_postprocess(
             "scoped-css",
             "invalid scoped CSS: empty selector",
         ));
     }
-    if matches!(selector, ":root" | "svg") {
+
+    if matches!(selector_2, ":root" | "svg") {
         output.write_str(scope).map_err(scoped_css_write_error)?;
         return Ok(());
     }
 
-    let root_suffix = match safe_root_selector_suffix(selector, ":root", cadence)? {
+    let root_suffix = match safe_root_selector_suffix(selector_2, ":root", cadence)? {
         Some(suffix) => Some(suffix),
-        None => safe_root_selector_suffix(selector, "svg", cadence)?,
+        None => safe_root_selector_suffix(selector_2, "svg", cadence)?,
     };
-    if let Some(suffix) = root_suffix {
-        output.write_str(scope).map_err(scoped_css_write_error)?;
-        return write_expanded_selector(suffix, scope, output, depth, cadence);
+
+    match root_suffix {
+        Some(suffix) => {
+            output.write_str(scope).map_err(scoped_css_write_error)?;
+            return write_expanded_selector(suffix, scope, output, depth, cadence);
+        },
+        ::core::option::Option::None => {},
     }
 
-    let safe_root_declarations = if selector == "&" || selector == scope {
+    let safe_root_declarations_2 = if selector_2 == "&" || selector_2 == scope {
         match *safe_root_declarations {
             Some(safe) => safe,
             None => {
@@ -612,11 +648,15 @@ fn write_selector_part<W: fmt::Write>(
     } else {
         false
     };
-    if !selector_is_already_namespaced(selector, scope, safe_root_declarations, cadence)? {
+
+    let checked_value = selector_is_already_namespaced(selector_2, scope, safe_root_declarations_2, cadence)?;
+
+    if !checked_value {
         output.write_str(scope).map_err(scoped_css_write_error)?;
         output.write_char(' ').map_err(scoped_css_write_error)?;
     }
-    write_expanded_selector(selector, scope, output, depth, cadence)
+
+    write_expanded_selector(selector_2, scope, output, depth, cadence)
 }
 
 fn selector_is_already_namespaced(
@@ -628,15 +668,21 @@ fn selector_is_already_namespaced(
     if selector == "&" || selector == scope {
         return Ok(safe_root_declarations);
     }
-    if let Some(suffix) = selector.strip_prefix(scope) {
-        return is_safe_root_suffix(suffix, false, cadence);
+
+    match selector.strip_prefix(scope) {
+        Some(suffix) => {
+            return is_safe_root_suffix(suffix, false, cadence);
+        },
+        ::core::option::Option::None => {},
     }
 
     let mut input = Parser::new(selector);
     cadence.step().map_err(map_scoped_css_parse_error)?;
+
     if !matches!(input.next(), Ok(Token::Delim('&'))) {
         return Ok(false);
     }
+
     let suffix = &selector[input.position().byte_index()..];
     is_safe_root_suffix(suffix, false, cadence)
 }
@@ -646,12 +692,21 @@ fn safe_root_selector_suffix<'a>(
     root: &str,
     cadence: &mut ScopedCssCadence<'_>,
 ) -> Result<Option<&'a str>> {
-    let Some(suffix) = selector.strip_prefix(root) else {
-        return Ok(None);
+    let suffix = {
+        let optional_suffix = selector.strip_prefix(root);
+
+        match optional_suffix {
+            Some(matched_suffix) => matched_suffix,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
-    if !is_safe_root_suffix(suffix, true, cadence)? {
+
+    let checked_value = is_safe_root_suffix(suffix, true, cadence)?;
+
+    if !checked_value {
         return Ok(None);
     }
+
     Ok(Some(suffix))
 }
 
@@ -661,40 +716,60 @@ fn is_safe_root_suffix(
     cadence: &mut ScopedCssCadence<'_>,
 ) -> Result<bool> {
     cadence.tick()?;
+
     if suffix.is_empty() {
         return Ok(true);
     }
+
     if suffix.starts_with('>') {
         return Ok(!require_attribute_qualifier);
     }
-    let Some(first) = suffix.chars().next() else {
-        return Ok(false);
+
+    let first = {
+        let optional_first = suffix.chars().next();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return Ok(false),
+        }
     };
+
     if is_css_whitespace(first) {
         if require_attribute_qualifier {
             return Ok(false);
         }
+
         let descendant = suffix.trim_start_matches(is_css_whitespace);
         return Ok(!descendant.is_empty() && !starts_with_sibling_or_comment(descendant));
     }
+
     if !suffix.starts_with('[') {
         return Ok(false);
     }
 
-    let Some(rest) = consume_attribute_qualifiers(suffix, cadence)? else {
-        return Ok(false);
+    let rest = {
+        let optional_rest = consume_attribute_qualifiers(suffix, cadence)?;
+
+        match optional_rest {
+            Some(matched_rest) => matched_rest,
+            ::core::option::Option::None => return Ok(false),
+        }
     };
+
     if rest.is_empty() || rest.starts_with('>') {
         return Ok(true);
     }
+
     if rest.chars().next().is_some_and(is_css_whitespace) {
         return Ok(!starts_with_sibling_or_comment(
             rest.trim_start_matches(is_css_whitespace),
         ));
     }
+
     Ok(false)
 }
 
+#[must_use]
 fn starts_with_sibling_or_comment(selector: &str) -> bool {
     selector.starts_with('+')
         || selector.starts_with('~')
@@ -711,64 +786,88 @@ fn consume_attribute_qualifiers<'a>(
         let mut escaped = false;
         let mut end = None;
         let mut chars = selector.char_indices().skip(1).peekable();
-        while let Some((index, character)) = chars.next() {
+
+        'inner_while_2: while let Some((index, character)) = chars.next() {
             cadence.tick()?;
+
             if escaped {
                 escaped = false;
-                continue;
+                continue 'inner_while_2;
             }
-            if character == '\\' {
-                escaped = true;
-                continue;
+
+            match character {
+                '\\' => {
+                    escaped = true;
+                    continue 'inner_while_2;
+                },
+                _ => {},
             }
-            if let Some(open_quote) = quote {
-                if character == open_quote {
-                    quote = None;
-                }
-                continue;
+
+            match quote {
+                Some(open_quote) => {
+                    if character == open_quote {
+                        quote = None;
+                    }
+
+                    continue 'inner_while_2;
+                },
+                ::core::option::Option::None => {},
             }
+
             if matches!(character, '\'' | '"') {
                 quote = Some(character);
             } else if character == '/' && chars.peek().is_some_and(|(_, next)| *next == '*') {
                 return Ok(None);
             } else if character == ']' {
                 end = Some(index + character.len_utf8());
-                break;
+                break 'inner_while_2;
             }
         }
-        let Some(end) = end else {
-            return Ok(None);
+
+        let end_2 = match end {
+            Some(matched_end) => matched_end,
+            ::core::option::Option::None => return Ok(None),
         };
-        selector = &selector[end..];
+
+        selector = &selector[end_2..];
     }
+
     Ok(Some(selector))
 }
 
+#[must_use]
 fn is_css_whitespace(character: char) -> bool {
     matches!(character, ' ' | '\n' | '\r' | '\t' | '\u{000C}')
 }
 
 fn trim_css_whitespace<'a>(value: &'a str, cadence: &mut ScopedCssCadence<'_>) -> Result<&'a str> {
     let mut start = value.len();
+
     for (index, character) in value.char_indices() {
         cadence.tick()?;
+
         if !is_css_whitespace(character) {
             start = index;
             break;
         }
     }
+
     if start == value.len() {
         cadence.checkpoint()?;
         return Ok(&value[value.len()..]);
     }
+
     let mut end = value.len();
+
     for (index, character) in value[start..].char_indices().rev() {
         cadence.tick()?;
+
         if !is_css_whitespace(character) {
             end = start + index + character.len_utf8();
             break;
         }
     }
+
     Ok(&value[start..end])
 }
 
@@ -797,9 +896,10 @@ fn write_expanded_selector_parser<'i, W: fmt::Write>(
         let token = match input.next_including_whitespace_and_comments() {
             Ok(token) => token.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => return Ok(()),
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<crate::Error> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
         let token_end = input.position();
+
         match token {
             Token::Delim('&') => write_css(output, scope)?,
             Token::Function(_) | Token::ParenthesisBlock => {
@@ -847,14 +947,17 @@ fn has_only_safe_root_declarations(
     cadence: &mut ScopedCssCadence<'_>,
 ) -> Result<bool> {
     let mut parser = Parser::new(body);
+
     while !parser.is_exhausted() {
         cadence.step().map_err(map_scoped_css_parse_error)?;
+
         if parser
             .try_parse(|declaration| declaration.expect_semicolon())
             .is_ok()
         {
             continue;
         }
+
         let allowed = parser.parse_until_after(Delimiter::Semicolon, |declaration| {
             cadence.step()?;
             let property = declaration.expect_ident_cloned()?;
@@ -865,12 +968,14 @@ fn has_only_safe_root_declarations(
                 "font-family" | "font-size" | "fill"
             ))
         });
+
         match allowed {
             Ok(true) => {}
             Ok(false) => return Ok(false),
             Err(error) => return Err(map_scoped_css_parse_error(error)),
         }
     }
+
     Ok(true)
 }
 
@@ -883,15 +988,17 @@ fn write_css(
         .map_err(|error| ParseError::custom(scoped_css_write_error(error)))
 }
 
+#[must_use]
 fn map_scoped_css_parse_error(error: ParseError<Error>) -> Error {
     match error.kind {
-        ParseErrorKind::Custom(error) => error,
-        ParseErrorKind::Basic(error) => {
-            Error::svg_postprocess("scoped-css", format!("invalid scoped CSS: {error}"))
+        ParseErrorKind::Custom(error_2) => error_2,
+        ParseErrorKind::Basic(error_3) => {
+            Error::svg_postprocess("scoped-css", format!("invalid scoped CSS: {error}", error = error_3))
         }
     }
 }
 
+#[must_use]
 fn scoped_css_write_error(error: fmt::Error) -> Error {
     Error::svg_postprocess("scoped-css", format!("failed to write scoped CSS: {error}"))
 }

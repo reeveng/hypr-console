@@ -34,7 +34,7 @@ pub struct NalHeader {
 
 impl NalHeader {
   pub fn parse(b: u8) -> Result<Self> {
-    ensure!(b & 0x80 == 0, "forbidden_zero_bit set");
+    ensure(b & 0x80 == 0, || "forbidden_zero_bit set")?;
     Ok(Self {
       nal_ref_idc: u8::wrapping_shr(b, 5_u32) & 3,
       nal_unit_type: b & 0x1f,
@@ -204,7 +204,7 @@ fn read_reference_list(reader: &mut BitReader) -> Result<Vec<RefPicListMod>> {
 
   for _ in 0..=MAX_REFERENCE_COMMANDS {
     let idc = reader.read_ue()?;
-    ensure!(idc <= 5, "modification_of_pic_nums_idc out of range");
+    ensure(idc <= 5, || "modification_of_pic_nums_idc out of range")?;
 
     match idc {
       3 => return Ok(modifications),
@@ -240,13 +240,16 @@ fn read_prediction_weights(
   }
 
   let luma_log2_denom = reader.read_ue()?;
-  ensure!(luma_log2_denom <= 7, "luma_log2_weight_denom out of range");
+  ensure(
+    luma_log2_denom <= 7,
+    || "luma_log2_weight_denom out of range",
+  )?;
   let Ok(chroma_type) = sequence.chroma_array_type();
   let (chroma, chroma_log2_denom) = match chroma_type {
     0 => (SyntaxField::Absent, 0),
     _ => {
       let denominator = reader.read_ue()?;
-      ensure!(denominator <= 7, "chroma_log2_weight_denom out of range");
+      ensure(denominator <= 7, || "chroma_log2_weight_denom out of range")?;
       (SyntaxField::Present, denominator)
     }
   };
@@ -296,10 +299,10 @@ fn read_weight_entry(reader: &mut BitReader, syntax: WeightSyntax) -> Result<Wei
     FlagBit::One => {
       let weight = reader.read_se()?;
       let offset = reader.read_se()?;
-      ensure!(
+      ensure(
         (-128..=127).contains(&weight) && (-128..=127).contains(&offset),
-        "luma weight out of range"
-      );
+        || "luma weight out of range",
+      )?;
       entry.luma_weight = weight;
       entry.luma_offset = offset;
       entry.luma_flag = true;
@@ -319,10 +322,10 @@ fn read_weight_entry(reader: &mut BitReader, syntax: WeightSyntax) -> Result<Wei
       for (weight, offset) in entry.chroma_weight.iter_mut().zip(&mut entry.chroma_offset) {
         let parsed_weight = reader.read_se()?;
         let parsed_offset = reader.read_se()?;
-        ensure!(
+        ensure(
           (-128..=127).contains(&parsed_weight) && (-128..=127).contains(&parsed_offset),
-          "chroma weight out of range"
-        );
+          || "chroma weight out of range",
+        )?;
         *weight = parsed_weight;
         *offset = parsed_offset;
       }
@@ -337,7 +340,10 @@ fn read_mmcos(reader: &mut BitReader) -> Result<Vec<Mmco>> {
 
   for _ in 0..=MAX_REFERENCE_COMMANDS {
     let op = reader.read_ue()?;
-    ensure!(op <= 6, "memory_management_control_operation out of range");
+    ensure(
+      op <= 6,
+      || "memory_management_control_operation out of range",
+    )?;
 
     match op {
       0 => return Ok(commands),
@@ -500,10 +506,10 @@ fn read_reference_counts(
     CodedField::Frame => 16,
     CodedField::Top | CodedField::Bottom => 32,
   };
-  ensure!(
+  ensure(
     l0 <= maximum && l1 <= maximum,
-    "num_ref_idx_active out of range"
-  );
+    || "num_ref_idx_active out of range",
+  )?;
   Ok(match slice_type {
     SliceType::B => [l0, l1],
     SliceType::I | SliceType::Si | SliceType::P | SliceType::Sp => [l0, 0],
@@ -579,10 +585,10 @@ fn read_slice_deblocking(
     0 | 2 => {
       let alpha = reader.read_se()?;
       let beta = reader.read_se()?;
-      ensure!(
+      ensure(
         (-6..=6).contains(&alpha) && (-6..=6).contains(&beta),
-        "deblocking offsets out of range"
-      );
+        || "deblocking offsets out of range",
+      )?;
       (alpha, beta)
     }
     _ => return invalid("disable_deblocking_filter_idc out of range"),
@@ -612,14 +618,16 @@ fn read_slice_tail(
   let cabac_init = match (pps.entropy_coding_mode, kind) {
     (EntropyCoding::Cabac, SliceType::P | SliceType::Sp | SliceType::B) => {
       let init = reader.read_ue()?;
-      ensure!(init <= 2, "cabac_init_idc out of range");
+      ensure(init <= 2, || "cabac_init_idc out of range")?;
       init
     }
     _ => 0,
   };
   let qp_delta = reader.read_se()?;
   let qp = pps.pic_init_qp.wrapping_add(qp_delta);
-  ensure!((0..=51).contains(&qp), "slice QP {qp} out of range");
+  ensure((0..=51).contains(&qp), || {
+    format!("slice QP {qp} out of range")
+  })?;
   let (switch, qs_delta) = match kind {
     SliceType::Sp => {
       let flag = reader.read_flag()?;
@@ -688,10 +696,10 @@ impl SliceHeader {
     };
     let first_mb_in_slice = reader.read_ue()?;
     let slice_type_raw = reader.read_ue()?;
-    ensure!(slice_type_raw <= 9, "slice_type out of range");
+    ensure(slice_type_raw <= 9, || "slice_type out of range")?;
     let slice_type = SliceType::from_raw(slice_type_raw)?;
     let pps_id = reader.read_ue()?;
-    ensure!(pps_id < 256, "pic_parameter_set_id out of range");
+    ensure(pps_id < 256, || "pic_parameter_set_id out of range")?;
     let (pps, sps) = pps_lookup(pps_id)?;
     let geometry = read_slice_geometry(&mut reader, sps, refresh)?;
     let poc = read_slice_poc(&mut reader, pps, sps, geometry.field)?;
@@ -704,10 +712,10 @@ impl SliceHeader {
       SliceType::I | SliceType::Si | SliceType::P | SliceType::Sp => FlagBit::Zero,
     };
     let num_ref_idx_active = read_reference_counts(&mut reader, pps, slice_type, geometry.field)?;
-    ensure!(
+    ensure(
       nal.nal_unit_type != 20 && nal.nal_unit_type != 21,
-      "MVC slices are not supported"
-    );
+      || "MVC slices are not supported",
+    )?;
     let ref_pic_list_mod = read_reference_modifications(&mut reader, slice_type)?;
     let pred_weight_table =
       read_prediction_weights(&mut reader, pps, sps, slice_type, num_ref_idx_active)?;

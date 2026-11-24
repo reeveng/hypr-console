@@ -27,6 +27,7 @@ pub(crate) struct SankeyConfigView<'a> {
 }
 
 impl<'a> SankeyConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         let sankey_config = effective_config.get("sankey").unwrap_or(&Value::Null);
         Self {
@@ -38,30 +39,50 @@ impl<'a> SankeyConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> SankeyLayoutSettings {
         let show_values = self.show_values();
-        let node_padding_base = self
-            .configured_f64("nodePadding")
-            .unwrap_or(DEFAULT_NODE_PADDING_BASE_PX);
+        let node_padding_base = match self
+            .configured_f64("nodePadding") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_NODE_PADDING_BASE_PX,
+        };
         SankeyLayoutSettings {
-            width: self.root_f64("width").unwrap_or(DEFAULT_WIDTH),
-            height: self.root_f64("height").unwrap_or(DEFAULT_HEIGHT),
+            width: match self.root_f64("width") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_WIDTH,
+            },
+            height: match self.root_f64("height") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_HEIGHT,
+            },
             node_align: self.node_align(),
-            node_width: self
-                .configured_f64("nodeWidth")
-                .unwrap_or(DEFAULT_NODE_WIDTH_PX),
+            node_width: match self
+                .configured_f64("nodeWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_NODE_WIDTH_PX,
+            },
             node_padding: sankey_node_padding_px_with_base(node_padding_base, show_values),
         }
     }
 
+    #[must_use]
     pub(crate) fn render_settings(&self) -> SankeyRenderSettings<'a> {
         SankeyRenderSettings {
-            use_max_width: self
-                .configured_bool("useMaxWidth")
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
+            use_max_width: match self
+                .configured_bool("useMaxWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
             show_values: self.show_values(),
-            prefix: self.configured_string("prefix").unwrap_or_default(),
-            suffix: self.configured_string("suffix").unwrap_or_default(),
+            prefix: match self.configured_string("prefix") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => ::std::string::String::new(),
+            },
+            suffix: match self.configured_string("suffix") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => ::std::string::String::new(),
+            },
             #[cfg(test)]
             link_color: self.link_color(),
             #[cfg(test)]
@@ -70,22 +91,32 @@ impl<'a> SankeyConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn link_color(&self) -> String {
-        self.configured_string("linkColor")
-            .unwrap_or_else(|| DEFAULT_LINK_COLOR.to_string())
+        match self.configured_string("linkColor") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_LINK_COLOR.to_string(),
+        }
     }
 
+    #[must_use]
     pub(super) fn outlined_labels(&self) -> bool {
-        self.configured_string("labelStyle")
-            .unwrap_or_else(|| DEFAULT_LABEL_STYLE.to_string())
+        (match self.configured_string("labelStyle") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_LABEL_STYLE.to_string(),
+        })
             == "outlined"
     }
 
+    #[must_use]
     fn show_values(&self) -> bool {
-        self.configured_bool("showValues")
-            .unwrap_or(DEFAULT_SHOW_VALUES)
+        match self.configured_bool("showValues") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_SHOW_VALUES,
+        }
     }
 
+    #[must_use]
     fn node_align(&self) -> NodeAlign {
         match self.configured_string("nodeAlignment").as_deref() {
             Some("left") => NodeAlign::Left,
@@ -95,31 +126,36 @@ impl<'a> SankeyConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn root_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.effective_config, &["sankey", key])
     }
 
+    #[must_use]
     fn configured_bool(&self, key: &str) -> Option<bool> {
         self.has_sankey_config
             .then(|| config_bool(self.sankey_config, &[key]))
             .flatten()
     }
 
+    #[must_use]
     fn configured_f64(&self, key: &str) -> Option<f64> {
         self.has_sankey_config
             .then(|| config_f64(self.sankey_config, &[key]))
             .flatten()
     }
 
+    #[must_use]
     fn configured_string(&self, key: &str) -> Option<String> {
         self.has_sankey_config
             .then(|| config_string(self.sankey_config, &[key]))
             .flatten()
     }
 
+    #[must_use]
     fn configured_object(&self, key: &str) -> Option<&'a Map<String, Value>> {
         self.has_sankey_config
-            .then(|| self.sankey_config.get(key)?.as_object())
+            .then(|| { let checked_value = self.sankey_config.get(key)?; checked_value }.as_object())
             .flatten()
     }
 }
@@ -145,6 +181,7 @@ pub(crate) struct SankeyRenderSettings<'a> {
     pub(crate) node_colors: Option<&'a Map<String, Value>>,
 }
 
+#[must_use]
 pub(super) fn sankey_node_padding_px_with_base(base: f64, show_values: bool) -> f64 {
     base + if show_values {
         NODE_PADDING_SHOW_VALUES_EXTRA_PX
@@ -153,6 +190,7 @@ pub(super) fn sankey_node_padding_px_with_base(base: f64, show_values: bool) -> 
     }
 }
 
+#[must_use]
 fn has_ref_object(v: &Value) -> bool {
     v.as_object().is_some_and(|m| m.contains_key("$ref"))
 }

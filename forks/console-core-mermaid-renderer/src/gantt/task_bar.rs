@@ -17,6 +17,7 @@ pub(super) enum GanttTaskBarState {
 }
 
 impl GanttTaskBarState {
+    #[must_use]
     pub(super) const fn from_task(task: &GanttRenderTask) -> Self {
         if task.semantic.active {
             if task.semantic.crit {
@@ -37,6 +38,7 @@ impl GanttTaskBarState {
         }
     }
 
+    #[must_use]
     pub(super) const fn theme_variant(self) -> ThemeVariant {
         match self {
             Self::Default => ThemeVariant::Default,
@@ -46,6 +48,7 @@ impl GanttTaskBarState {
         }
     }
 
+    #[must_use]
     pub(super) const fn bar_class_prefix(self) -> &'static str {
         match self {
             Self::Default => "task",
@@ -57,10 +60,12 @@ impl GanttTaskBarState {
         }
     }
 
+    #[must_use]
     pub(super) const fn is_critical(self) -> bool {
         matches!(self, Self::Crit | Self::ActiveCrit | Self::DoneCrit)
     }
 
+    #[must_use]
     pub(super) const fn final_fill_path(self) -> &'static str {
         match self {
             Self::Default => "themeVariables.taskBkgColor",
@@ -70,6 +75,7 @@ impl GanttTaskBarState {
         }
     }
 
+    #[must_use]
     pub(super) const fn final_stroke_path(self) -> &'static str {
         match self {
             Self::Default => "themeVariables.taskBorderColor",
@@ -80,9 +86,11 @@ impl GanttTaskBarState {
     }
 }
 
-// Mermaid labels retain every authored status class, unlike bars' active-first state.
+
+#[must_use]
 pub(super) fn label_state_classes(task: &GanttRenderTask, suffix: &str) -> String {
     let mut classes = Vec::new();
+
     if task.active {
         classes.push(format!(
             "{}{suffix}",
@@ -93,6 +101,7 @@ pub(super) fn label_state_classes(task: &GanttRenderTask, suffix: &str) -> Strin
             }
         ));
     }
+
     if task.done {
         classes.push(format!(
             "{}{suffix}",
@@ -105,5 +114,6 @@ pub(super) fn label_state_classes(task: &GanttRenderTask, suffix: &str) -> Strin
     } else if task.crit {
         classes.push(format!("critText{suffix}"));
     }
+
     classes.join(" ")
 }

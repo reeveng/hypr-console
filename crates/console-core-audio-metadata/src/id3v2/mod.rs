@@ -22,17 +22,17 @@ mod write;
 use std::collections::VecDeque;
 use std::io::{Read, Seek};
 
+use console_core_audio_decoding_interfaces::id3v2::undo_unsynchronisation;
 use console_core_never::Never;
-use console_core_number_conversion::index;
 
 use crate::bytes::{Cursor, Source};
 use crate::fault::ParseError;
-use crate::id3v1::GENRES;
+use crate::id3v1::genre_name;
 use crate::keys::{self, ItemKey};
 use crate::tag::{Tag, TagType};
 
 use frames::{Body, Flags, Frame, FrameContent, Parsed};
-use header::{Unsynchronised, Version, resynchronised};
+use header::{Unsynchronisation, Version};
 use timestamp::Timestamp;
 
 pub(crate) use header::{Header, read as read_header};
@@ -130,12 +130,12 @@ impl Id3v2 {
     let Ok(unsynchronised) = header.unsynchronised();
 
     let undone = match (unsynchronised, header.version) {
-      (Unsynchronised::Yes, Version::Two | Version::Three) => {
-        let Ok(undone) = resynchronised(taken);
+      (Unsynchronisation::Applied, Version::Two | Version::Three) => {
+        let Ok(undone) = undo_unsynchronisation(taken);
 
         Some(undone)
       }
-      (Unsynchronised::Yes, Version::Four) | (Unsynchronised::No, _) => None,
+      (Unsynchronisation::Applied, Version::Four) | (Unsynchronisation::Absent, _) => None,
     };
 
     let content_2 = match &undone {
@@ -514,12 +514,12 @@ pub(crate) fn parse_genre(genre: &str) -> Result<&str, Never> {
     _short => {}
   }
 
-  Ok(match (genre.parse::<u16>(), genre) {
+  Ok(match (genre.parse::<u8>(), genre) {
     (Ok(number), _genre) => {
-      let Ok(at) = index(number);
+      let Ok(name) = genre_name(number);
 
-      match GENRES.get(at) {
-        Some(named) => *named,
+      match name {
+        Some(standard) => standard,
         None => genre,
       }
     }

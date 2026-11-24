@@ -7,20 +7,24 @@ pub(crate) struct RenderTiming {
 }
 
 impl RenderTiming {
+    #[must_use]
     pub(crate) const fn disabled() -> Self {
         Self { authority: None }
     }
 
+    #[must_use]
     pub(crate) const fn enabled(authority: OperationTiming) -> Self {
         Self {
             authority: Some(authority),
         }
     }
 
+    #[must_use]
     pub(crate) const fn is_enabled(self) -> bool {
         self.authority.is_some()
     }
 
+    #[must_use]
     pub(crate) fn start(self) -> Option<OperationTimer> {
         self.authority.map(OperationTiming::start)
     }

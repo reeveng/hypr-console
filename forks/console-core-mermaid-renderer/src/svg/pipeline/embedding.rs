@@ -15,12 +15,15 @@ pub(super) fn normalize_renderer_ids<'a>(
     if metadata.family_id() != Some(DiagramFamilyId::MINDMAP) {
         return Ok(svg);
     }
+
     execution.checkpoint()?;
     let document = crate::xml_dom::Document::parse(&svg)
         .map_err(|error| Error::svg_postprocess("normalize-embedding-ids", error.to_string()))?;
     let mut removed = Vec::new();
+
     for (index, node) in document.descendants().enumerate() {
         checkpoint_loop(index, &mut || execution.checkpoint())?;
+
         if !node.has_tag_name(("http://www.w3.org/2000/svg", "path"))
             || !node.attribute("class").is_some_and(|classes| {
                 classes
@@ -30,13 +33,25 @@ pub(super) fn normalize_renderer_ids<'a>(
         {
             continue;
         }
-        let Some(parent) = node.parent_element() else {
-            continue;
+
+        let parent = {
+            let optional_parent = node.parent_element();
+
+            match optional_parent {
+                Some(matched_parent) => matched_parent,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !parent.has_tag_name(("http://www.w3.org/2000/svg", "g")) {
             continue;
         }
-        let classes = parent.attribute("class").unwrap_or_default();
+
+        let classes = match parent.attribute("class") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => "",
+        };
+
         if !classes
             .split_ascii_whitespace()
             .any(|class| class == "node")
@@ -46,27 +61,33 @@ pub(super) fn normalize_renderer_ids<'a>(
         {
             continue;
         }
+
         let Some(attribute) = node
             .attributes()
             .find(|attribute| attribute.namespace().is_none() && attribute.name() == "id")
         else {
             continue;
         };
+
         if parent.attribute("id") == Some(attribute.value()) {
             removed.push(attribute.range());
         }
     }
+
     if removed.is_empty() {
         return Ok(svg);
     }
+
     execution.checkpoint()?;
     let mut output = String::with_capacity(svg.len());
     let mut cursor = 0;
+
     for (index, range) in removed.into_iter().enumerate() {
         checkpoint_loop(index, &mut || execution.checkpoint())?;
         output.push_str(&svg[cursor..range.start]);
         cursor = range.end;
     }
+
     output.push_str(&svg[cursor..]);
     execution.checkpoint()?;
     Ok(Cow::Owned(output))

@@ -51,9 +51,11 @@ impl GitGraphNodePaintPlan {
                 target: ThemeTarget::Node, facet, ..
             } if matches!(resolved_style_property_for_facet(facet), ResolvedStyleProperty::Fill | ResolvedStyleProperty::Stroke))
         });
+
         if !requested {
             return Ok(None);
         }
+
         let style =
             theme.style_with_work_meter(ThemeTarget::Node, ThemeVariant::Default, None, work)?;
         let paint_inputs = config.gitgraph_paint_inputs();
@@ -85,6 +87,7 @@ impl GitGraphNodePaintPlan {
             observations: BTreeMap::new(),
             terminal: OnceLock::new(),
         };
+
         for route in theme.family_mechanism_routes() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
@@ -95,6 +98,7 @@ impl GitGraphNodePaintPlan {
             else {
                 continue;
             };
+
             work.charge(1)?;
             let property = resolved_style_property_for_facet(facet);
             let won = style.winner_rule_properties().any(|(candidate, origin)| {
@@ -113,9 +117,11 @@ impl GitGraphNodePaintPlan {
                 .observations
                 .entry(theme.family_mechanism_key(*route))
                 .or_default();
+
             if !won && !unproved_ordinal {
                 continue;
             }
+
             if !matches!(
                 property,
                 ResolvedStyleProperty::Fill | ResolvedStyleProperty::Stroke
@@ -125,18 +131,21 @@ impl GitGraphNodePaintPlan {
                     .get_or_insert(unsupported_residual_for_facet(facet));
                 continue;
             }
+
             let (sources, paint) = if property == ResolvedStyleProperty::Fill {
                 (0..3, plan.fill.as_ref())
             } else {
                 (3..6, plan.stroke.as_ref())
             };
-            for i in sources {
+
+            'over_i_2: for i in sources {
                 if paint_inputs.is_some() && available_sources & (1 << i) == 0 {
-                    continue;
+                    continue 'over_i_2;
                 }
+
                 if route.disposition() == FamilyThemeDisposition::TypedAdapter
                     && available_sources & (1 << i) != 0
-                    && paint.is_some_and(|paint| paint.rule_index() == rule_index)
+                    && paint.is_some_and(|paint_2| paint_2.rule_index() == rule_index)
                 {
                     observation.direct |= 1 << i;
                 } else {
@@ -144,9 +153,11 @@ impl GitGraphNodePaintPlan {
                 }
             }
         }
+
         Ok(Some(plan))
     }
 
+    #[must_use]
     pub(crate) fn css_values(&self) -> [Option<&str>; 6] {
         std::array::from_fn(|i| {
             (if i < 3 {
@@ -159,6 +170,7 @@ impl GitGraphNodePaintPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt<'a>(
         &'a self,
         layout: &'a GitGraphDiagramLayout,
@@ -173,7 +185,7 @@ impl GitGraphNodePaintPlan {
             && css.values.iter().enumerate().all(|(i, value)| {
                 value
                     .as_deref()
-                    .is_none_or(|value| expected[i].is_none_or(|expected| value == expected))
+                    .is_none_or(|value_2| expected[i].is_none_or(|expected_2| value_2 == expected_2))
             });
         GitGraphNodePaintReceipt {
             plan: self,
@@ -195,6 +207,7 @@ impl GitGraphNodePaintPlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, mut receipt: GitGraphNodePaintReceipt<'_>) -> bool {
         let complete = std::ptr::eq(self, receipt.plan)
             && receipt.valid
@@ -219,6 +232,7 @@ impl GitGraphNodePaintPlan {
                 evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
                 continue;
             };
+
             if facts.nodes_visible
                 && let Some(reason) = observation.other
             {
@@ -251,9 +265,9 @@ pub(crate) struct GitGraphNodePaintCss {
     pub(crate) complete: bool,
     pub(crate) state: u8,
     pub(crate) tag: u8,
-    // Branch background fill, background stroke, and branch text fill.
+
     pub(crate) branches: [[u8; GITGRAPH_PALETTE_SLOT_COUNT]; 3],
-    // Commit and highlight outer fill/stroke remain independent under palette overrides.
+
     pub(crate) commits: [[u8; GITGRAPH_PALETTE_SLOT_COUNT]; 2],
     pub(crate) outers: [[u8; GITGRAPH_PALETTE_SLOT_COUNT]; 2],
     pub(crate) arrows: [u8; GITGRAPH_PALETTE_SLOT_COUNT],
@@ -286,6 +300,7 @@ impl GitGraphNodePaintCss {
         } else {
             self.values[source] = Some(value.to_owned());
         }
+
         1 << source
     }
 }
@@ -312,7 +327,7 @@ pub(crate) struct GitGraphNodePaintReceipt<'a> {
 
 impl GitGraphNodePaintReceipt<'_> {
     fn consume(&mut self, sources: u8) {
-        // Every consumed bit must name a declaration whose exact value was captured.
+
         self.valid &=
             (0..6).all(|source| sources & (1 << source) == 0 || self.css.values[source].is_some());
         self.facts.sources |= sources;
@@ -327,6 +342,7 @@ impl GitGraphNodePaintReceipt<'_> {
                 .branches
                 .get(index)
                 .is_some_and(|branch| palette_slot(branch.index) == slot);
+
         if slot < GITGRAPH_PALETTE_SLOT_COUNT {
             let fill = if self.palette_fill_masked[1][slot] {
                 0
@@ -335,42 +351,51 @@ impl GitGraphNodePaintReceipt<'_> {
             };
             self.consume(fill | self.css.branches[1][slot] | self.css.branches[2][slot]);
         }
+
         self.next_branch += 1;
     }
 
+    #[must_use]
     fn commit_slot_matches(&self, index: usize, slot: usize) -> bool {
         self.layout.commits.get(index).is_some_and(|commit| {
             palette_slot(
-                self.branches
+                match self.branches
                     .get(commit.branch.as_str())
-                    .copied()
-                    .unwrap_or(0),
+                    .copied() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0,
+                },
             ) == slot
         })
     }
 
     pub(crate) fn record_commit(&mut self, index: usize, slot: usize) {
         self.valid &= index == self.next_commit && self.commit_slot_matches(index, slot);
-        if let Some(commit) = self.layout.commits.get(index) {
-            match GitGraphCommitKind::from_layout(commit) {
-                GitGraphCommitKind::CherryPick => self.consume(self.css.cherry),
-                GitGraphCommitKind::Highlight => self.facts.nodes_visible = true,
-                _ if slot < GITGRAPH_PALETTE_SLOT_COUNT => {
-                    let fill = if self.palette_fill_masked[0][slot] {
-                        0
-                    } else {
-                        self.css.commits[0][slot]
-                    };
-                    let stroke = if self.palette_stroke_masked[0][slot] {
-                        0
-                    } else {
-                        self.css.commits[1][slot]
-                    };
-                    self.consume(fill | stroke);
+
+        match self.layout.commits.get(index) {
+            Some(commit) => {
+                match GitGraphCommitKind::from_layout(commit) {
+                    GitGraphCommitKind::CherryPick => self.consume(self.css.cherry),
+                    GitGraphCommitKind::Highlight => self.facts.nodes_visible = true,
+                    _ if slot < GITGRAPH_PALETTE_SLOT_COUNT => {
+                        let fill = if self.palette_fill_masked[0][slot] {
+                            0
+                        } else {
+                            self.css.commits[0][slot]
+                        };
+                        let stroke = if self.palette_stroke_masked[0][slot] {
+                            0
+                        } else {
+                            self.css.commits[1][slot]
+                        };
+                        self.consume(fill | stroke);
+                    }
+                    GitGraphCommitKind::Normal | GitGraphCommitKind::Reverse | GitGraphCommitKind::Merge => {}
                 }
-                _ => {}
-            }
+            },
+            ::core::option::Option::None => {},
         }
+
         self.next_commit += 1;
     }
 
@@ -381,9 +406,11 @@ impl GitGraphNodePaintReceipt<'_> {
                 .arrows
                 .get(index)
                 .is_some_and(|arrow| palette_slot(arrow.class_index) == slot);
+
         if slot < GITGRAPH_PALETTE_SLOT_COUNT && !self.palette_stroke_masked[1][slot] {
             self.consume(self.css.arrows[slot]);
         }
+
         self.next_arrow += 1;
     }
 
@@ -391,10 +418,12 @@ impl GitGraphNodePaintReceipt<'_> {
         while let Some(commit) = self.layout.commits.get(self.next_label) {
             let index = self.next_label;
             self.next_label += 1;
+
             if super::gitgraph_commit_label_is_visible(self.layout, commit) {
                 return Some(index);
             }
         }
+
         None
     }
 
@@ -409,10 +438,12 @@ impl GitGraphNodePaintReceipt<'_> {
         } else {
             &mut self.next_state
         };
+
         while let Some(commit) = self.layout.commits.get(*cursor) {
             let index = *cursor;
             *cursor += 1;
             let kind = GitGraphCommitKind::from_layout(commit);
+
             if kind == GitGraphCommitKind::Highlight
                 || (!outer
                     && matches!(
@@ -423,12 +454,14 @@ impl GitGraphNodePaintReceipt<'_> {
                 return Some(index);
             }
         }
+
         None
     }
 
     pub(crate) fn record_state(&mut self, index: usize, slot: usize, outer: bool) {
         self.valid &= self.next_state_commit(outer) == Some(index);
         self.valid &= self.commit_slot_matches(index, slot);
+
         if slot < GITGRAPH_PALETTE_SLOT_COUNT {
             if outer {
                 self.consume(self.css.outers[0][slot] | self.css.outers[1][slot]);
@@ -445,9 +478,11 @@ impl GitGraphNodePaintReceipt<'_> {
                 self.next_tag += 1;
                 return Some(event);
             }
+
             self.tag_commit += 1;
             self.next_tag = 0;
         }
+
         None
     }
 

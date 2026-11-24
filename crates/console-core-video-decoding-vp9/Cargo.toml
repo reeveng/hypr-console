@@ -23,6 +23,7 @@ console-core-logging.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-pixel-buffers.workspace = true
+console-core-simd = { workspace = true, features = ["std"] }
 console-core-video-interpolation.workspace = true
 console-core-video-inverse-transforms.workspace = true
 console-core-video-planes.workspace = true
@@ -31,6 +32,13 @@ console-core-video-decoding-bitstream = { path = "../console-core-video-decoding
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 console-concurrency = { workspace = true, optional = true }
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "vp9_scaled_reference"
+harness = false
 
 [lints]
 workspace = true

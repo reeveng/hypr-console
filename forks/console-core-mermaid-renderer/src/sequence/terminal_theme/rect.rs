@@ -1,5 +1,6 @@
 use super::*;
 use crate::diagram_theme::SvgShadowEffect;
+
 #[derive(Debug, Default)]
 pub(crate) struct SequencePreparedStaticRectTheme {
     pub(crate) stroke_width: Option<f32>,
@@ -24,6 +25,7 @@ pub(crate) struct SequenceActivationPaint<'a> {
 }
 
 impl SequencePreparedStaticRectTheme {
+    #[must_use]
     pub(crate) fn activation_paint(
         &self,
         compat: &super::super::SequenceCompatBinding,
@@ -55,6 +57,7 @@ impl SequencePreparedStaticRectTheme {
             target,
             crate::diagram_theme::ThemeTarget::Note | crate::diagram_theme::ThemeTarget::Activation
         ));
+
         if !has_surfaces {
             return Ok(Self {
                 fill_overridden,
@@ -62,17 +65,20 @@ impl SequencePreparedStaticRectTheme {
                 ..Self::default()
             });
         }
-        let Some(theme) = theme else {
+
+        let Some(theme_2) = theme else {
             return Ok(Self {
                 fill_overridden,
                 stroke_overridden,
                 ..Self::default()
             });
         };
+
         let mut has_rule_routes = false;
         let mut has_typed_fill = false;
         let mut has_typed_stroke = false;
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             let FamilyThemeMechanism::RuleFacet {
                 target: route_target,
                 selector:
@@ -85,13 +91,17 @@ impl SequencePreparedStaticRectTheme {
             else {
                 continue;
             };
+
             if route_target != target {
                 continue;
             }
+
             has_rule_routes = true;
+
             if route.disposition() != FamilyThemeDisposition::TypedAdapter {
                 continue;
             }
+
             match facet {
                 FamilyThemeRuleFacet::Fill(
                     FamilyThemePaintKind::Transparent | FamilyThemePaintKind::Solid,
@@ -102,25 +112,26 @@ impl SequencePreparedStaticRectTheme {
                 _ => {}
             }
         }
+
         let style = if has_rule_routes {
             let style =
-                theme.style_with_work_meter(target, ThemeVariant::Default, None, work_meter)?;
+                theme_2.style_with_work_meter(target, ThemeVariant::Default, None, work_meter)?;
             Some(style)
         } else {
             None
         };
         let typed_fill = (!fill_overridden && has_typed_fill)
-            .then(|| style.as_ref().and_then(|style| css_paint(style.fill())))
+            .then(|| style.as_ref().and_then(|style_2| css_paint(style_2.fill())))
             .flatten();
         let typed_stroke = (!stroke_overridden && has_typed_stroke)
-            .then(|| style.as_ref().and_then(|style| css_paint(style.stroke())))
+            .then(|| style.as_ref().and_then(|style_3| css_paint(style_3.stroke())))
             .flatten();
-        let stroke_width = style.as_ref().and_then(|style| style.stroke_width());
-        let radius = style.as_ref().and_then(|style| style.radius());
+        let stroke_width = style.as_ref().and_then(|style_4| style_4.stroke_width());
+        let radius = style.as_ref().and_then(|style_5| style_5.radius());
         let default_effect_resolution = Default::default();
         let resolution = style
             .as_ref()
-            .map(|style| style.effect_resolution())
+            .map(|style_6| style_6.effect_resolution())
             .unwrap_or(&default_effect_resolution);
         let SequencePreparedEffect {
             effect,
@@ -128,7 +139,7 @@ impl SequencePreparedStaticRectTheme {
             effect_binding_used,
             effect_cleared,
             effect_unhandled,
-        } = prepare_sequence_effect(theme, target, resolution);
+        } = prepare_sequence_effect(theme_2, target, resolution);
         Ok(SequencePreparedStaticRectTheme {
             stroke_width,
             radius,
@@ -145,11 +156,14 @@ impl SequencePreparedStaticRectTheme {
         })
     }
 
+    #[must_use]
     pub(crate) fn fresh_receipt(&self) -> crate::sequence::SequenceStaticRectThemeReceipt {
         let mut receipt = crate::sequence::SequenceStaticRectThemeReceipt::default();
+
         if let Some(style) = &self.selected_style {
             receipt.record_static_style(style);
         }
+
         receipt.effect_requested = self.effect_requested;
         receipt.effect_binding_used = self.effect_binding_used;
         receipt.effect_cleared = self.effect_cleared;

@@ -20,6 +20,7 @@ pub(crate) const PAINT_TARGETS: &[ThemeTarget] = &[
     ThemeTarget::Title,
 ];
 
+#[must_use]
 fn owns_target(target: ThemeTarget) -> bool {
     PAINT_TARGETS.contains(&target)
 }
@@ -77,41 +78,57 @@ pub(crate) struct CynefinTheme {
     pub label_color: String,
 }
 
+#[must_use]
 pub(crate) fn cynefin_layout_settings(
     effective_config: &serde_json::Value,
 ) -> CynefinLayoutSettings {
-    // Mermaid only accepts a JavaScript `number` here. Do not reuse the general
-    // config-number helper: it intentionally accepts YAML string numbers, while
-    // upstream `resolveSeed` ignores strings based on `typeof configuredSeed`.
+
+
+
     let seed = effective_config
         .get("cynefin")
         .and_then(|config| config.get("seed"))
         .and_then(serde_json::Value::as_f64)
-        .filter(|value| value.is_finite() && *value != 0.0);
+        .filter(|value| value.is_finite() && !::core::matches!(::core::primitive::f64::classify(*value), ::core::num::FpCategory::Zero));
     CynefinLayoutSettings {
-        width: config_f64(effective_config, &["cynefin", "width"])
-            .unwrap_or(800.0)
+        width: match config_f64(effective_config, &["cynefin", "width"]) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 800.0,
+        }
             .max(1.0),
-        height: config_f64(effective_config, &["cynefin", "height"])
-            .unwrap_or(600.0)
+        height: match config_f64(effective_config, &["cynefin", "height"]) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 600.0,
+        }
             .max(1.0),
-        padding: config_f64(effective_config, &["cynefin", "padding"])
-            .unwrap_or(40.0)
+        padding: match config_f64(effective_config, &["cynefin", "padding"]) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 40.0,
+        }
             .max(0.0),
-        show_domain_descriptions: config_bool(
+        show_domain_descriptions: match config_bool(
             effective_config,
             &["cynefin", "showDomainDescriptions"],
-        )
-        .unwrap_or(true),
-        boundary_amplitude: config_f64(effective_config, &["cynefin", "boundaryAmplitude"])
-            .filter(|value| value.is_finite())
-            .unwrap_or(8.0),
+        ) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => true,
+        },
+        boundary_amplitude: match config_f64(effective_config, &["cynefin", "boundaryAmplitude"])
+            .filter(|value| value.is_finite()) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 8.0,
+        },
         seed,
-        use_max_width: config_bool(effective_config, &["cynefin", "useMaxWidth"]).unwrap_or(true),
+        use_max_width: match config_bool(effective_config, &["cynefin", "useMaxWidth"]) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => true,
+        },
     }
 }
 
+#[must_use]
 pub(crate) fn cynefin_theme(effective_config: &serde_json::Value) -> CynefinTheme {
+    #[must_use]
     fn color(cfg: &serde_json::Value, key: &str, fallback: &str) -> String {
         cfg.get("themeVariables")
             .and_then(|value| value.get("cynefin"))
@@ -120,6 +137,8 @@ pub(crate) fn cynefin_theme(effective_config: &serde_json::Value) -> CynefinThem
             .unwrap_or(fallback)
             .to_string()
     }
+
+    #[must_use]
     fn themed_color(
         cfg: &serde_json::Value,
         key: &str,
@@ -134,8 +153,13 @@ pub(crate) fn cynefin_theme(effective_config: &serde_json::Value) -> CynefinThem
             .or_else(|| config_string(cfg, &["themeVariables", fallback_key]))
             .unwrap_or_else(|| fallback.to_string())
     }
+
+    #[must_use]
     fn number(cfg: &serde_json::Value, key: &str, fallback: f64) -> f64 {
-        config_f64(cfg, &["themeVariables", "cynefin", key]).unwrap_or(fallback)
+        match config_f64(cfg, &["themeVariables", "cynefin", key]) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => fallback,
+        }
     }
 
     CynefinTheme {
@@ -237,10 +261,12 @@ fn layout_cynefin_diagram_with_font_family(
     })
 }
 
+#[must_use]
 pub(crate) fn quadrant_domains() -> &'static [&'static str] {
     QUADRANT_DOMAINS
 }
 
+#[must_use]
 pub(crate) fn domain_title(name: &str) -> &str {
     match name {
         DOMAIN_COMPLEX => "Complex",
@@ -252,6 +278,7 @@ pub(crate) fn domain_title(name: &str) -> &str {
     }
 }
 
+#[must_use]
 pub(crate) fn domain_model_and_practice(name: &str) -> (&'static str, &'static str) {
     match name {
         DOMAIN_COMPLEX => (
@@ -269,6 +296,7 @@ pub(crate) fn domain_model_and_practice(name: &str) -> (&'static str, &'static s
     }
 }
 
+#[must_use]
 pub(crate) fn domain_fill<'a>(theme: &'a CynefinTheme, name: &str) -> &'a str {
     match name {
         DOMAIN_COMPLEX => &theme.complex_bg,
@@ -280,10 +308,12 @@ pub(crate) fn domain_fill<'a>(theme: &'a CynefinTheme, name: &str) -> &'a str {
     }
 }
 
+#[must_use]
 pub(crate) fn resolve_seed(configured_seed: Option<f64>, id: &str) -> f64 {
     configured_seed.unwrap_or_else(|| f64::from(hash_string(id)))
 }
 
+#[must_use]
 pub(crate) fn generate_fold_path(
     width: f64,
     height: f64,
@@ -294,17 +324,20 @@ pub(crate) fn generate_fold_path(
     let amplitude = amplitude_override.unwrap_or(width * 0.015);
     let segments = 7usize;
     let seg_height = height / segments as f64;
-    let mut points = Vec::with_capacity(segments + 1);
+    let mut points = Vec::with_capacity(segments.wrapping_add(1));
+
     for i in 0..=segments {
         let jitter = seeded_random(seed + i as f64 * 17.0) * amplitude * 2.0 - amplitude;
         points.push((cx + jitter, i as f64 * seg_height));
     }
+
     let mut d = format!("M{},{}", fmt_number(points[0].0), fmt_number(points[0].1));
+
     for i in 0..points.len() - 1 {
         let p0 = points[i];
         let p1 = points[i + 1];
         let mid_y = (p0.1 + p1.1) / 2.0;
-        let dir = if i % 2 == 0 { 1.0 } else { -1.0 };
+        let dir = if i.wrapping_rem(2) == 0 { 1.0 } else { -1.0 };
         let offset = amplitude * 1.5 * dir * seeded_random(seed + i as f64 * 31.0 + 7.0);
         d.push_str(&format!(
             " C{},{} {},{} {},{}",
@@ -316,9 +349,11 @@ pub(crate) fn generate_fold_path(
             fmt_number(p1.1)
         ));
     }
+
     d
 }
 
+#[must_use]
 pub(crate) fn generate_horizontal_boundary(
     width: f64,
     height: f64,
@@ -329,17 +364,20 @@ pub(crate) fn generate_horizontal_boundary(
     let amplitude = amplitude_override.unwrap_or(height * 0.015);
     let segments = 7usize;
     let seg_width = width / segments as f64;
-    let mut points = Vec::with_capacity(segments + 1);
+    let mut points = Vec::with_capacity(segments.wrapping_add(1));
+
     for i in 0..=segments {
         let jitter = seeded_random(seed + i as f64 * 23.0) * amplitude * 2.0 - amplitude;
         points.push((i as f64 * seg_width, cy + jitter));
     }
+
     let mut d = format!("M{},{}", fmt_number(points[0].0), fmt_number(points[0].1));
+
     for i in 0..points.len() - 1 {
         let p0 = points[i];
         let p1 = points[i + 1];
         let mid_x = (p0.0 + p1.0) / 2.0;
-        let dir = if i % 2 == 0 { 1.0 } else { -1.0 };
+        let dir = if i.wrapping_rem(2) == 0 { 1.0 } else { -1.0 };
         let offset = amplitude * 1.5 * dir * seeded_random(seed + i as f64 * 37.0 + 11.0);
         d.push_str(&format!(
             " C{},{} {},{} {},{}",
@@ -351,9 +389,11 @@ pub(crate) fn generate_horizontal_boundary(
             fmt_number(p1.1)
         ));
     }
+
     d
 }
 
+#[must_use]
 pub(crate) fn generate_cliff_path(width: f64, height: f64) -> String {
     let cx = width / 2.0;
     let top_y = height * 0.5;
@@ -378,6 +418,7 @@ pub(crate) fn generate_cliff_path(width: f64, height: f64) -> String {
     )
 }
 
+#[must_use]
 pub(crate) fn generate_confusion_path(cx: f64, cy: f64, rx: f64, ry: f64) -> String {
     format!(
         "M{},{} A{},{} 0 1,1 {},{} A{},{} 0 1,1 {},{} Z",
@@ -394,6 +435,7 @@ pub(crate) fn generate_confusion_path(cx: f64, cy: f64, rx: f64, ry: f64) -> Str
     )
 }
 
+#[must_use]
 fn build_domain_layouts(width: f64, height: f64) -> Vec<CynefinDomainLayout> {
     let hw = width / 2.0;
     let hh = height / 2.0;
@@ -446,6 +488,7 @@ fn build_domain_layouts(width: f64, height: f64) -> Vec<CynefinDomainLayout> {
     ]
 }
 
+#[must_use]
 fn layout_items(
     model: &CynefinDiagramModel,
     domain_layouts: &[CynefinDomainLayout],
@@ -460,6 +503,7 @@ fn layout_items(
         ..Default::default()
     };
     let mut out = Vec::new();
+
     for domain_name in ALL_DOMAINS {
         let Some(domain) = model
             .domains
@@ -468,15 +512,18 @@ fn layout_items(
         else {
             continue;
         };
+
         if domain.items.is_empty() {
             continue;
         }
+
         let Some(layout) = domain_layouts
             .iter()
             .find(|layout| layout.name == *domain_name)
         else {
             continue;
         };
+
         let is_confusion = *domain_name == DOMAIN_CONFUSION;
         let visible_count = if is_confusion {
             domain.items.len().min(MAX_CONFUSION_ITEMS)
@@ -498,6 +545,7 @@ fn layout_items(
                     15.0
                 }
         };
+
         for (idx, item) in domain.items.iter().take(visible_count).enumerate() {
             push_item_layout(
                 &mut out,
@@ -511,6 +559,7 @@ fn layout_items(
                 false,
             );
         }
+
         if is_confusion && domain.items.len() > MAX_CONFUSION_ITEMS {
             let label = format!("+{} more", domain.items.len() - MAX_CONFUSION_ITEMS);
             push_item_layout(
@@ -526,6 +575,7 @@ fn layout_items(
             );
         }
     }
+
     out
 }
 
@@ -545,8 +595,8 @@ fn push_item_layout(
     let measured_width = if bbox_width > 0.0 {
         bbox_width
     } else {
-        // Mermaid uses JavaScript `String.length`, so preserve UTF-16 code-unit semantics in the
-        // browser-only fallback instead of replacing a valid bbox with a character estimate.
+
+
         label.encode_utf16().count() as f64 * 7.0
     };
     let width = measured_width + ITEM_PADDING_X * 2.0;
@@ -565,33 +615,40 @@ fn push_item_layout(
     });
 }
 
+#[must_use]
 fn layout_transitions(
     model: &CynefinDiagramModel,
     domain_layouts: &[CynefinDomainLayout],
 ) -> Vec<CynefinTransitionLayout> {
     let mut out = Vec::new();
+
     for transition in &model.transitions {
         if transition.from == transition.to {
             continue;
         }
+
         let Some(from) = domain_layouts
             .iter()
             .find(|layout| layout.name == transition.from)
         else {
             continue;
         };
+
         let Some(to) = domain_layouts
             .iter()
             .find(|layout| layout.name == transition.to)
         else {
             continue;
         };
+
         let dx = to.cx - from.cx;
         let dy = to.cy - from.cy;
         let len = (dx * dx + dy * dy).sqrt();
+
         if len <= f64::EPSILON {
             continue;
         }
+
         let mx = (from.cx + to.cx) / 2.0;
         let my = (from.cy + to.cy) / 2.0;
         let offset_amount = len * 0.15;
@@ -609,49 +666,63 @@ fn layout_transitions(
             cpy: my + ny * offset_amount,
         });
     }
+
     out
 }
 
+#[must_use]
 fn seeded_random(seed: f64) -> f64 {
     let mut t = javascript_to_uint32(seed + f64::from(0x6d2b_79f5_u32));
-    t = (t ^ (t >> 15)).wrapping_mul(t | 1);
-    t ^= t.wrapping_add((t ^ (t >> 7)).wrapping_mul(t | 61));
-    ((t ^ (t >> 14)) as f64) / 4_294_967_296.0
+    t = (t ^ ::core::primitive::u32::wrapping_shr(t, 15_u32)).wrapping_mul(t | 1);
+    t ^= t.wrapping_add((t ^ ::core::primitive::u32::wrapping_shr(t, 7_u32)).wrapping_mul(t | 61));
+    <f64 as ::core::convert::From<::core::primitive::u32>>::from((t ^ ::core::primitive::u32::wrapping_shr(t, 14_u32))) / 4_294_967_296.0
 }
 
+#[must_use]
 fn javascript_to_uint32(value: f64) -> u32 {
-    if !value.is_finite() || value == 0.0 {
+    if !value.is_finite() || ::core::matches!(::core::primitive::f64::classify(value), ::core::num::FpCategory::Zero) {
         return 0;
     }
+
     value.trunc().rem_euclid(4_294_967_296.0) as u32
 }
 
+#[must_use]
 fn hash_string(value: &str) -> i32 {
     let mut hash: i32 = 0;
+
     for ch in value.encode_utf16() {
         hash = hash
             .wrapping_shl(5)
             .wrapping_sub(hash)
-            .wrapping_add(ch as i32);
+            .wrapping_add(<i32 as ::core::convert::From<::core::primitive::u16>>::from(ch));
     }
+
     hash
 }
 
+#[must_use]
 fn fmt_number(value: f64) -> String {
     if !value.is_finite() || value.abs() < 0.0005 {
         return "0".to_string();
     }
+
     let mut rounded = (value * 1000.0).round() / 1000.0;
+
     if rounded.abs() < 0.0005 {
         rounded = 0.0;
     }
+
     let mut s = format!("{rounded:.3}");
+
     while s.contains('.') && s.ends_with('0') {
         s.pop();
     }
+
     if s.ends_with('.') {
         s.pop();
     }
+
     if s == "-0" { "0".to_string() } else { s }
 }
 

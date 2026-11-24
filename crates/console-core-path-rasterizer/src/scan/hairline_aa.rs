@@ -15,7 +15,7 @@ use crate::fixed_point::{
 };
 use crate::geom::{IntRectExt, PixelPosition, ScreenIntRect};
 use crate::math::LENGTH_U32_ONE;
-use crate::{IntRect, LengthU32, LineCap, Path, Point, FloatRectangle};
+use crate::{FloatRectangle, IntRect, LengthU32, LineCap, Path, Point};
 
 #[derive(Copy, Clone)]
 struct SubpixelSpan {

@@ -1,3 +1,6 @@
+//! Platform fonts and their caches. `with_prepared_platform_fonts` gives a
+//! drawing thread the same discovered faces and prepared matches.
+
 use crate::{Attrs, Font, FontMatchAttrs, HashMap, ShapeBuffer};
 use alloc::boxed::Box;
 use alloc::collections::BTreeSet;
@@ -413,7 +416,6 @@ impl FontSystem {
     Ok((self.locale, self.db))
   }
 
-  /// Start a drawing thread with the same discovered faces and prepared matches.
   pub fn with_prepared_platform_fonts(&self) -> Result<Self, console_core_never::Never> {
     let Ok(mut system) = Self::new_with_locale_and_db(self.locale.clone(), self.db.clone());
     system.font_cache.clone_from(&self.font_cache);

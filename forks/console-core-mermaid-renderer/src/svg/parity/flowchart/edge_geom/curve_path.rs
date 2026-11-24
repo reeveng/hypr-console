@@ -6,6 +6,7 @@
 
 use super::*;
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn curve_path_d_and_bounds(
     line_data: &[crate::model::LayoutPoint],
     interpolate: &str,
@@ -31,9 +32,9 @@ pub(in crate::svg::parity::flowchart) fn curve_path_d_and_bounds(
 
     if curve_is_basis {
         let (d, raw_pb) = crate::svg::parity::curve::curve_basis_path_d_and_bounds(line_data);
-        let d = maybe_close_single_point_path(d, line_data);
-        let pb = svg_path_bounds_from_d(&d).or(raw_pb);
-        (d, pb, false)
+        let d_2 = maybe_close_single_point_path(d, line_data);
+        let pb = svg_path_bounds_from_d(&d_2).or(raw_pb);
+        (d_2, pb, false)
     } else {
         let (d, pb) = match interpolate {
             "linear" => crate::svg::parity::curve::curve_linear_path_d_and_bounds(line_data),
@@ -63,21 +64,22 @@ pub(in crate::svg::parity::flowchart) fn curve_path_d_and_bounds(
                 compact_edge_corners,
                 rounded_corner_mask,
             ),
-            // Unknown curve names fall back to Mermaid's historical `basis` behavior.
+
             _ => crate::svg::parity::curve::curve_basis_path_d_and_bounds(line_data),
         };
 
-        let d = maybe_close_single_point_path(d, line_data);
-        let pb = svg_path_bounds_from_d(&d).or(pb);
-        (d, pb, false)
+        let d_3 = maybe_close_single_point_path(d, line_data);
+        let pb_2 = svg_path_bounds_from_d(&d_3).or(pb);
+        (d_3, pb_2, false)
     }
 }
 
+#[must_use]
 fn maybe_close_single_point_path(d: String, line_data: &[crate::model::LayoutPoint]) -> String {
     if line_data.len() == 1 && !d.ends_with('Z') {
-        let mut d = d;
-        d.push('Z');
-        d
+        let mut d_2 = d;
+        d_2.push('Z');
+        d_2
     } else {
         d
     }
@@ -104,7 +106,7 @@ mod tests {
             crate::model::LayoutPoint { x: 20.0, y: 10.0 },
             crate::model::LayoutPoint { x: 40.0, y: 0.0 },
         ];
-        // d3-shape from the Mermaid 12 reference graph, line().curve(curveBumpX/Y).
+
         for (curve, expected) in [
             ("bumpX", "M0,0C10,0,10,10,20,10C30,10,30,0,40,0"),
             ("bumpY", "M0,0C0,5,20,5,20,10C20,5,40,5,40,0"),

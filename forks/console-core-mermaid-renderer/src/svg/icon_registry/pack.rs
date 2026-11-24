@@ -23,6 +23,7 @@ impl std::fmt::Debug for IconPack<'_> {
 }
 
 impl<'a> IconPack<'a> {
+    #[must_use]
     pub const fn new(json: &'a [u8]) -> Self {
         Self {
             json,
@@ -36,10 +37,12 @@ impl<'a> IconPack<'a> {
         self
     }
 
+    #[must_use]
     pub const fn json(self) -> &'a [u8] {
         self.json
     }
 
+    #[must_use]
     pub const fn registration_name(self) -> Option<&'a str> {
         self.registration_name
     }

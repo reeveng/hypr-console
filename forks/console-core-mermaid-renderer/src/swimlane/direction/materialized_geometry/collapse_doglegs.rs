@@ -14,14 +14,17 @@ fn candidate_is_safe(
     work_budget: &mut LayoutWorkBudget,
 ) -> Result<bool> {
     let candidate_segments = segments_for(candidate);
+
     if candidate_segments.len() != candidate.len().saturating_sub(1) {
         return Ok(false);
     }
+
     work_budget.charge(
         candidate_segments
             .len()
             .saturating_mul(real_node_rects.len().saturating_add(label_rects.len())),
     )?;
+
     if path_hits_rects(
         &edges[edge_index],
         candidate,
@@ -33,12 +36,15 @@ fn candidate_is_safe(
     }
 
     work_budget.charge(edges.len().saturating_sub(1))?;
+
     for (other_index, other) in edges.iter().enumerate() {
         if other_index == edge_index || other.points.len() < 2 {
             continue;
         }
+
         let other_points = dedupe_consecutive_points(&other.points, EPSILON);
         let other_segments = segments_for(&other_points);
+
         for candidate_segment in &candidate_segments {
             for other_segment in &other_segments {
                 if same_axis_segment_overlap_length(candidate_segment, other_segment, 0.5)
@@ -56,13 +62,16 @@ fn candidate_is_safe(
             }
         }
     }
+
     Ok(true)
 }
 
+#[must_use]
 fn without_dogleg(points: &[LayoutPoint], index: usize) -> Option<Vec<LayoutPoint>> {
     if index + 4 >= points.len() {
         return None;
     }
+
     let p0 = &points[index];
     let p1 = &points[index + 1];
     let p2 = &points[index + 2];
@@ -85,6 +94,7 @@ fn without_dogleg(points: &[LayoutPoint], index: usize) -> Option<Vec<LayoutPoin
         && same_y(p0, p4, EPSILON)
         && same_y(p1, p2, EPSILON)
         && (p1.y - p0.y) * (p3.y - p2.y) < 0.0;
+
     if terminal_vertical_dogleg || terminal_horizontal_dogleg {
         let mut candidate = points[..=index].to_vec();
         candidate.push(p4.clone());
@@ -95,6 +105,7 @@ fn without_dogleg(points: &[LayoutPoint], index: usize) -> Option<Vec<LayoutPoin
     if index + 5 >= points.len() {
         return None;
     }
+
     let p5 = &points[index + 5];
     let vertical_dogleg = is_vertical_segment(p0, p1, EPSILON)
         && is_horizontal_segment(p1, p2, EPSILON)
@@ -114,6 +125,7 @@ fn without_dogleg(points: &[LayoutPoint], index: usize) -> Option<Vec<LayoutPoin
         && same_y(p0, p5, EPSILON)
         && same_y(p2, p3, EPSILON)
         && (p2.y - p1.y) * (p4.y - p3.y) < 0.0;
+
     if !vertical_dogleg && !horizontal_dogleg {
         return None;
     }
@@ -130,19 +142,30 @@ pub(in crate::swimlane::direction) fn collapse_redundant_rectangular_doglegs(
 ) -> Result<()> {
     work_budget.charge(layout.nodes.len())?;
     let (real_node_rects, label_rects) = collect_node_rect_entries(layout);
+
     for _ in 0..MAX_ITERATIONS {
         let mut replacement = None;
         work_budget.charge(layout.original_edges.len())?;
-        for (edge_index, edge) in layout.original_edges.iter().enumerate() {
+
+        'inner_for_2: for (edge_index, edge) in layout.original_edges.iter().enumerate() {
             let points = dedupe_consecutive_points(&edge.points, EPSILON);
+
             if points.len() < 5 {
-                continue;
+                continue 'inner_for_2;
             }
-            for index in 0..=points.len() - 5 {
-                let Some(candidate) = without_dogleg(&points, index) else {
-                    continue;
+
+            'over_index_3: for index in 0..=points.len() - 5 {
+                let candidate = {
+                    let optional_candidate = without_dogleg(&points, index);
+
+                    match optional_candidate {
+                        Some(matched_candidate) => matched_candidate,
+                        ::core::option::Option::None => continue 'over_index_3,
+                    }
                 };
+
                 work_budget.charge(1)?;
+
                 if candidate_is_safe(
                     &layout.original_edges,
                     edge_index,
@@ -152,17 +175,25 @@ pub(in crate::swimlane::direction) fn collapse_redundant_rectangular_doglegs(
                     work_budget,
                 )? {
                     replacement = Some((edge_index, candidate));
-                    break;
+                    break 'over_index_3;
                 }
             }
-            if replacement.is_some() {
-                break;
+
+            match replacement {
+                ::core::option::Option::Some(_) => {
+                    break 'inner_for_2;
+                },
+                ::core::option::Option::None => {},
             }
         }
-        let Some((edge_index, points)) = replacement else {
-            return Ok(());
+
+        let (edge_index, points) = match replacement {
+            Some((matched_edge_index, matched_points)) => (matched_edge_index, matched_points),
+            ::core::option::Option::None => return Ok(()),
         };
+
         layout.original_edges[edge_index].points = points;
     }
+
     Ok(())
 }

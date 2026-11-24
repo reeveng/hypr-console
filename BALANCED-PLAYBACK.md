@@ -2,24 +2,58 @@
 
 Balanced playback uses the volume-change sound as its reference. At a given
 volume and on the same output, music, films and other sounds should generally
-land below the cue. Quiet material can remain quiet.
+land below the cue. Normal, very loud and very quiet programme should settle
+near a common level. Silence and the noise floor stay quiet.
 
 ## What works today
 
-The volume rocker and the Speakers slider in Settings play the same fixed-pitch
+The volume rocker and the output slider in Settings play the same fixed-pitch
 bell at the resulting device volume when Sound Effects is enabled. The preview
 is pinned to the output that changed. A running preview suppresses overlapping
 previews during rapid adjustments. Muted and zero-volume outputs stay silent.
+Sound Settings shows the current device and jack where available. The Output
+picker switches between connected devices and shows the chosen device's volume.
 
 The built-in music and film players and desktop effects derive their limits from
-the rendered bell. WirePlumber also routes application playback through a
-PipeWire filter for the selected output, including browser and game streams.
-The filter acts on the combined stereo mix and applies the same gain to both
-channels. It only reduces gain, with a sample peak limit and a sustained
-level target about 6 decibels below the corresponding bell measurements.
-If a filter is unavailable, regular playback managed by WirePlumber stays
-silent on that output. The bell and the filtered mix share the device's volume
-and mute controls. The desktop manifest and NixOS module install the policy.
+the rendered bell. The first play of a local file in the built-in players
+scans the entire audio track before opening its playback stream. FFmpeg's EBU
+R128 scanner measures integrated loudness and true peak. Console caches the
+measurements by file revision, then applies one gain from the start of playback.
+Later plays and seeks reuse the measurement. An edit invalidates the cache,
+and the original audio file is left intact. If analysis fails, live leveling
+can handle the decoded audio. [FFmpeg EBU R128 filter](https://ffmpeg.org/ffmpeg-filters.html#ebur128)
+
+With **Automatic Leveling** on, WirePlumber installs an internal PipeWire
+filter on compatible PCM playback streams. Indexed files get their fixed gain.
+The real-time filter handles streams such as browser and game audio. A 5 ms
+look-ahead softens loud onsets. Sustained quiet audio can receive up to 28 dB of
+gain above the noise floor. The sample peak limit and the sustained level
+target are about 6 dB below the corresponding bell measurements. PipeWire
+applies the app's volume after leveling, so the app slider controls its level
+relative to the other sounds in the mix. Turning Automatic Leveling off keeps
+the original source dynamics and the output's peak protection. [PipeWire processing order](https://github.com/PipeWire/pipewire/blob/1.6.9/spa/plugins/audioconvert/audioconvert.c#L3597-L3615)
+
+Live leveling keeps a three-second moving level in memory for each stream.
+A sustained loud passage can reduce the available boost by up to 1.6 dB as
+the stream gets quiet. The estimate fades as the stream continues and resets
+when the stream is recreated. Pauses have no way to raise the maximum boost.
+
+Sound Settings groups active streams by application. An app's menu can bypass
+leveling for that app and can restore the global policy. WirePlumber remembers
+the override for apps with an identity. **Reset App Volumes** sets
+the playing apps' volume to 100 percent. An individual app's menu can reset it
+on its own. These controls preserve mute and the selected output's volume.
+WirePlumber saves app levels when it recognizes their identity.
+
+The output filter uses one gain across all advertised channels. It limits
+individual samples and uses a faster power detector to hold down short loud
+bursts, including after silence and with automatic leveling disabled. Its
+sample ceiling sits about 9 dB below the bell's sample peak, allowing extra
+headroom for later resampling. WirePlumber rebuilds a lost filter while its
+output remains connected. Regular playback stays silent on that output while
+the filter is unavailable. The bell and the filtered mix share the device's
+volume and mute controls. The desktop manifest and NixOS module install the
+policy.
 
 WirePlumber remembers each recognized device and jack route's level. New
 routes with no saved level default to 25 percent on the volume slider.
@@ -34,11 +68,11 @@ An evaluation fork of [sdroege/ebur128](https://github.com/sdroege/ebur128) live
 in [forks/console-core-audio-loudness](forks/console-core-audio-loudness), pinned in
 [UPSTREAM.toml](forks/console-core-audio-loudness/UPSTREAM.toml). The fork
 retains the upstream source and license text. Its standalone workspace lets
-the crate build independently. The desktop's attenuation processor uses the
-existing sound synthesizer and the Rust standard library.
+the crate build independently. The installed policy uses PipeWire's built-in
+filters and the existing sound synthesizer for its reference. [PipeWire filter chain](https://docs.pipewire.org/page_module_filter_chain.html)
 
 The library provides momentary, short-term, integrated, loudness-range and
-true-peak measurements for a future file scanner and system-wide processor.
+true-peak measurements that could also support a system-wide processor.
 
 ## What to build
 
@@ -68,13 +102,13 @@ flowchart LR
     P --> H[Listener volume and output device]
 ```
 
-This graph shows the proposed addition of independent leveling before the final
-mix. The installed filter measures the mix for each output. Independently
-balancing simultaneous apps requires processing each stream before mixing.
+The installed policy applies indexed track gain or live leveling before the
+final mix.
 The volume preview joins at the output device with the listener's volume
-control. Encoded audio requires decoding before it can be leveled.
+control. Background library scanning, album gain and role policies in this
+graph remain proposals. Encoded audio requires decoding before it can be leveled.
 
-### Local files: scan once, apply a constant gain
+### Local files: background indexing and album gain
 
 1. Decode the full track in the background. Measure integrated gated loudness
    and maximum true peak across the correctly mapped channels. Account for the
@@ -93,20 +127,19 @@ control. Encoded audio requires decoding before it can be leveled.
    generation. A separate normalized export is appropriate when a destination
    player cannot apply metadata, but is not the library default.
 
-For finite, valid measurements, express the terms on their respective
-decibel scales and apply only attenuation:
+For valid measurements, the current file scanner bounds the gain by both
+true peak and the maximum boost:
 
 ```text
 desired_gain_db = target_lufs - measured_integrated_lufs
 peak_allowance_db = ceiling_dbtp - measured_true_peak_dbtp
-applied_gain_db = min(0, desired_gain_db, peak_allowance_db)
+applied_gain_db = min(desired_gain_db, peak_allowance_db, max_boost_db)
 sample_multiplier = 10 ** (applied_gain_db / 20)
 ```
 
-Apply the same multiplier to every channel. An already quiet track stays at
-its recorded level or is reduced further if its peak requires it. With missing
-or invalid measurements, use the live attenuation and peak limits from the
-start of playback.
+The same multiplier applies to every channel. For a track at the -70 LUFS
+measurement floor, the desired gain is zero and peak protection still applies.
+Without a valid measurement, the live filter handles playback from the start.
 
 Existing ReplayGain/R128 metadata can avoid scanning, but validate its units,
 reference level and peak semantics first. ReplayGain 2.0 gain commonly refers
@@ -117,10 +150,9 @@ that gain twice. Legacy peak tags may be sample peaks rather than true peaks.
 
 The player decodes in
 `crates/console-music-player/src/decoding.rs` and hands float samples to `pw-cat`
-in `sounding.rs`. The live processor runs there after tempo processing. Cached
-gain can use the same boundary once file scanning is available. Tag keys
-already exist in `console-core-audio-metadata`. The player currently uses the
-tags for display.
+in `sounding.rs`. It passes the indexed gain as a property on that stream.
+WirePlumber selects the fixed gain or live filter. Tag keys already exist in
+`console-core-audio-metadata` and the player uses the tags for display.
 
 ### What the existing music-library setup teaches the OS
 
@@ -257,13 +289,30 @@ library API and the policy above rather than those examples as production code.
 
 ## Validation and remaining integration
 
-An offline comparison processed six full-scale tones from 60 to 10,000 hertz.
-Their maximum momentary loudness measured 3.9 to 10.5 decibels below the
-preview. An isolated PipeWire session with two virtual outputs verified native
-and PulseAudio playback, a default output change during playback, the preview
-route, the mixed signal's peak and sustained level, and silence after removing
-a filter. Listening on the built-in speakers and headphones remains to be
-tested.
+An isolated PipeWire session verifies the policy on a virtual output. The
+regression test repeats the same noise at loud, normal and very quiet input
+levels, with silent gaps and in immediate succession. It checks that settled
+levels stay within 3 dB of the normal example, that the sample peak stays below
+the bell-derived ceiling, and that the stereo balance and noise floor are
+preserved. Run it from a Linux host with PipeWire and WirePlumber installed.
+The app volume test checks that lowering an app still lowers its audio. A
+separate fixture verifies that indexed playback uses one multiplier through
+the loud and quiet passages. The short-burst test records a full-scale impulse
+after quiet audio and a full-scale 25 ms burst after silence, with adaptive
+leveling, fixed indexed gain, and automatic leveling disabled. It checks the
+sample ceiling and compares the burst's 5 ms RMS to the normal passage. A
+separate live regression checks that the rolling level survives a pause. The
+file-indexing test compares equal-amplitude tones that measure 4.1 LU apart,
+then checks cache reuse and invalidation.
+
+```sh
+cargo test -p console-sound-effects --test balanced_output -- --ignored --nocapture
+```
+
+A separate virtual-output check covered native and PulseAudio playback, default
+output changes during playback, the preview route, mono and surround channel
+layouts, and filter recovery. Listening on physical speakers and headphones
+remains to be tested.
 
 Run the upstream unit and Rust/C comparison tests independently:
 
@@ -286,8 +335,8 @@ mono/surround mapping, Opus header/tag gain, silence, abrupt adverts, simultaneo
 apps, user volume changes, output-device switches and processor restart. Listen
 for pumping and stereo-image changes, measure true peaks after the output
 chain, and measure CPU, buffering latency and audio/video synchronization on
-the handheld. The remaining work includes the scanner and cache, live
-leveling for individual external streams and true-peak protection after final
+the handheld. The remaining work includes background library indexing,
+album gain, live gain metering, and true-peak protection after final
 resampling. The official Rust bindings can integrate streamed processing and
 routing into the operating system. [PipeWire Rust bindings](https://pipewire.pages.freedesktop.org/pipewire-rs/pipewire/index.html)
 

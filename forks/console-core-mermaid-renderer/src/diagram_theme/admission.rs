@@ -64,6 +64,7 @@ impl ThemeCapability {
         Self::WordSpacing,
     ];
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::SemanticTokens => "semantic-tokens",
@@ -128,6 +129,7 @@ impl TextLayoutCapability {
         Self::VariationSettings,
     ];
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::CatalogBinding => "catalog-binding",
@@ -158,6 +160,7 @@ pub enum ThemePortabilityRequirement {
 }
 
 impl ThemePortabilityRequirement {
+    #[must_use]
     pub const fn stricter(self, other: Self) -> Self {
         match (self, other) {
             (Self::RequirePortable, _) | (_, Self::RequirePortable) => Self::RequirePortable,
@@ -177,6 +180,7 @@ pub enum FontSource {
 impl FontSource {
     pub const ALL: &'static [Self] = &[Self::Embedded, Self::System];
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::Embedded => "embedded",
@@ -204,60 +208,74 @@ impl FontSourcePolicy {
     pub fn new(
         priority: impl IntoIterator<Item = FontSource>,
     ) -> Result<Self, ThemeAdmissionError> {
-        let mut priority = priority.into_iter();
-        let first = priority
+        let mut priority_2 = priority.into_iter();
+        let first = priority_2
             .next()
             .ok_or(ThemeAdmissionError::EmptyFontSourcePolicy)?;
-        let Some(second) = priority.next() else {
+
+        let Some(second) = priority_2.next() else {
             return Ok(match first {
                 FontSource::Embedded => Self::embedded_only(),
                 FontSource::System => Self::system_only(),
             });
         };
+
         if first == second {
             return Err(ThemeAdmissionError::DuplicateFontSource(second));
         }
-        if let Some(duplicate) = priority.next() {
-            return Err(ThemeAdmissionError::DuplicateFontSource(duplicate));
+
+        match priority_2.next() {
+            Some(duplicate) => {
+                return Err(ThemeAdmissionError::DuplicateFontSource(duplicate));
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(match first {
             FontSource::Embedded => Self::embedded_then_system(),
             FontSource::System => Self::system_then_embedded(),
         })
     }
 
+    #[must_use]
     pub fn embedded_only() -> Self {
         Self {
             priority: &[FontSource::Embedded],
         }
     }
 
+    #[must_use]
     pub fn system_only() -> Self {
         Self {
             priority: &[FontSource::System],
         }
     }
 
+    #[must_use]
     pub fn embedded_then_system() -> Self {
         Self {
             priority: &[FontSource::Embedded, FontSource::System],
         }
     }
 
+    #[must_use]
     pub fn system_then_embedded() -> Self {
         Self {
             priority: &[FontSource::System, FontSource::Embedded],
         }
     }
 
+    #[must_use]
     pub fn priority(&self) -> impl ExactSizeIterator<Item = FontSource> + '_ {
         self.priority.iter().copied()
     }
 
+    #[must_use]
     pub fn contains(&self, source: FontSource) -> bool {
         self.priority.contains(&source)
     }
 
+    #[must_use]
     pub fn first(&self) -> FontSource {
         self.priority[0]
     }
@@ -272,12 +290,14 @@ impl FontSourcePolicy {
     ) -> Result<Self, ThemeAdmissionError> {
         let mut embedded = false;
         let mut system = false;
+
         for source in allowed {
             match source {
                 FontSource::Embedded => embedded = true,
                 FontSource::System => system = true,
             }
         }
+
         match (
             embedded && self.contains(FontSource::Embedded),
             system && self.contains(FontSource::System),
@@ -312,6 +332,7 @@ impl TrustedThemeLane {
         Self::SvgPostprocessor,
     ];
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::RawThemeCss => "raw-theme-css",
@@ -320,6 +341,7 @@ impl TrustedThemeLane {
         }
     }
 
+    #[must_use]
     pub(crate) const fn usage_mask(self) -> u64 {
         match self {
             Self::RawThemeCss => 1 << 0,
@@ -342,30 +364,36 @@ pub struct TrustedThemeLanes {
 }
 
 impl TrustedThemeLanes {
+    #[must_use]
     pub fn none() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn all() -> Self {
         Self {
             allowed: TrustedThemeLane::ALL.iter().copied().collect(),
         }
     }
 
+    #[must_use]
     pub fn from_allowed(allowed: impl IntoIterator<Item = TrustedThemeLane>) -> Self {
         Self {
             allowed: allowed.into_iter().collect(),
         }
     }
 
+    #[must_use]
     pub fn contains(&self, lane: TrustedThemeLane) -> bool {
         self.allowed.contains(&lane)
     }
 
+    #[must_use]
     pub fn allowed(&self) -> impl ExactSizeIterator<Item = TrustedThemeLane> + '_ {
         self.allowed.iter().copied()
     }
 
+    #[must_use]
     pub fn restrict_with(&self, restriction: &Self) -> Self {
         Self {
             allowed: self
@@ -395,6 +423,7 @@ pub struct ThemeRequirements {
 }
 
 impl ThemeRequirements {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             required_capabilities: BTreeSet::new(),
@@ -402,6 +431,7 @@ impl ThemeRequirements {
         }
     }
 
+    #[must_use]
     pub fn with_required_capabilities(
         mut self,
         capabilities: impl IntoIterator<Item = ThemeCapability>,
@@ -410,6 +440,7 @@ impl ThemeRequirements {
         self
     }
 
+    #[must_use]
     pub fn with_required_text_capabilities(
         mut self,
         capabilities: impl IntoIterator<Item = TextLayoutCapability>,
@@ -418,10 +449,12 @@ impl ThemeRequirements {
         self
     }
 
+    #[must_use]
     pub fn required_capabilities(&self) -> impl ExactSizeIterator<Item = ThemeCapability> + '_ {
         self.required_capabilities.iter().copied()
     }
 
+    #[must_use]
     pub fn required_text_capabilities(
         &self,
     ) -> impl ExactSizeIterator<Item = TextLayoutCapability> + '_ {
@@ -442,9 +475,13 @@ impl Iterator for ThemeCapabilities {
     type Item = ThemeCapability;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.0 == 0 {
-            return None;
+        match self.0 {
+            0 => {
+                return None;
+            },
+            _ => {},
         }
+
         let index = self.0.trailing_zeros() as usize;
         self.0 &= self.0 - 1;
         Some(ThemeCapability::ALL[index])
@@ -471,9 +508,13 @@ impl Iterator for TextLayoutCapabilities {
     type Item = TextLayoutCapability;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if self.0 == 0 {
-            return None;
+        match self.0 {
+            0 => {
+                return None;
+            },
+            _ => {},
         }
+
         let index = self.0.trailing_zeros() as usize;
         self.0 &= self.0 - 1;
         Some(TextLayoutCapability::ALL[index])
@@ -506,6 +547,7 @@ pub struct ThemeAdmissionPolicy {
 }
 
 impl ThemeAdmissionPolicy {
+    #[must_use]
     pub fn permissive() -> Self {
         Self {
             allowed_capabilities: ThemeCapabilities((1 << ThemeCapability::ALL.len()) - 1),
@@ -516,6 +558,7 @@ impl ThemeAdmissionPolicy {
         }
     }
 
+    #[must_use]
     pub fn with_allowed_capabilities(
         mut self,
         allowed: impl IntoIterator<Item = ThemeCapability>,
@@ -528,6 +571,7 @@ impl ThemeAdmissionPolicy {
         self
     }
 
+    #[must_use]
     pub fn with_allowed_text_capabilities(
         mut self,
         allowed: impl IntoIterator<Item = TextLayoutCapability>,
@@ -540,26 +584,31 @@ impl ThemeAdmissionPolicy {
         self
     }
 
+    #[must_use]
     pub fn with_trusted_lanes(mut self, lanes: TrustedThemeLanes) -> Self {
         self.trusted_lanes = lanes;
         self
     }
 
+    #[must_use]
     pub fn allowed_capabilities(&self) -> impl ExactSizeIterator<Item = ThemeCapability> + '_ {
         self.allowed_capabilities
     }
 
+    #[must_use]
     pub fn allowed_text_capabilities(
         &self,
     ) -> impl ExactSizeIterator<Item = TextLayoutCapability> + '_ {
         self.allowed_text_capabilities
     }
 
+    #[must_use]
     pub const fn trusted_lanes(&self) -> &TrustedThemeLanes {
         &self.trusted_lanes
     }
 
     /// Applies an operation-level restriction without allowing any host axis to be widened.
+    #[must_use]
     pub fn restrict_with(&self, restriction: &Self) -> Self {
         Self {
             allowed_capabilities: ThemeCapabilities(
@@ -596,19 +645,24 @@ pub(crate) fn resolve_theme_admission(
     requirements: &ThemeRequirements,
     catalog: &FontCatalog,
 ) -> Result<ResolvedThemeAdmission, ThemeAdmissionError> {
-    if let Some(capability) = requirements
+    match requirements
         .required_capabilities
         .iter()
-        .find(|capability| admission.allowed_capabilities.0 & (1 << **capability as u32) == 0)
-    {
-        return Err(ThemeAdmissionError::ThemeCapabilityDenied(*capability));
+        .find(|capability| admission.allowed_capabilities.0 & (1 << **capability as u32) == 0) {
+        Some(capability) => {
+            return Err(ThemeAdmissionError::ThemeCapabilityDenied(*capability));
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(capability) = requirements
+
+    match requirements
         .required_text_capabilities
         .iter()
-        .find(|capability| admission.allowed_text_capabilities.0 & (1 << **capability as u32) == 0)
-    {
-        return Err(ThemeAdmissionError::TextLayoutCapabilityDenied(*capability));
+        .find(|capability| admission.allowed_text_capabilities.0 & (1 << **capability as u32) == 0) {
+        Some(capability) => {
+            return Err(ThemeAdmissionError::TextLayoutCapabilityDenied(*capability));
+        },
+        ::core::option::Option::None => {},
     }
 
     Ok(ResolvedThemeAdmission {
@@ -621,6 +675,7 @@ pub(crate) fn resolve_theme_admission(
 }
 
 impl ResolvedThemeAdmission {
+    #[must_use]
     pub(crate) fn report(&self) -> ThemeHostAdmissionReport {
         ThemeHostAdmissionReport {
             host_allowed_capabilities: self.host_allowed_capabilities.clone(),
@@ -631,14 +686,17 @@ impl ResolvedThemeAdmission {
         }
     }
 
+    #[must_use]
     pub const fn font_source_policy(&self) -> &FontSourcePolicy {
         &self.font_sources
     }
 
+    #[must_use]
     pub const fn portability_requirement(&self) -> ThemePortabilityRequirement {
         self.portability
     }
 
+    #[must_use]
     pub(crate) const fn trusted_lanes(&self) -> &TrustedThemeLanes {
         &self.trusted_lanes
     }
@@ -658,24 +716,29 @@ pub struct ThemeHostAdmissionReport {
 }
 
 impl ThemeHostAdmissionReport {
+    #[must_use]
     pub fn host_allowed_capabilities(&self) -> impl ExactSizeIterator<Item = ThemeCapability> + '_ {
         self.host_allowed_capabilities.iter().copied()
     }
 
+    #[must_use]
     pub fn host_allowed_text_capabilities(
         &self,
     ) -> impl ExactSizeIterator<Item = TextLayoutCapability> + '_ {
         self.host_allowed_text_capabilities.iter().copied()
     }
 
+    #[must_use]
     pub const fn font_source_policy(&self) -> &FontSourcePolicy {
         &self.font_sources
     }
 
+    #[must_use]
     pub const fn portability_requirement(&self) -> ThemePortabilityRequirement {
         self.portability
     }
 
+    #[must_use]
     pub const fn trusted_lanes(&self) -> &TrustedThemeLanes {
         &self.trusted_lanes
     }

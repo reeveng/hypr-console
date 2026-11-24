@@ -1,8 +1,8 @@
 use super::*;
 
-// Shared Mermaid diagram CSS fragments (split from parity.rs).
-//
-// Keep Mermaid@11.16.0 ordering quirks to preserve DOM parity.
+
+
+
 
 #[derive(Clone, Copy)]
 struct CssSelectorDiagramId<I>(I);
@@ -15,6 +15,7 @@ where
         if is_normalized_svg_diagram_id(self.0.semantic_value()) {
             return std::fmt::Display::fmt(&self.0, formatter);
         }
+
         formatter.write_str(&crate::svg::escape_css_identifier(self.0.semantic_value()))
     }
 }
@@ -30,22 +31,26 @@ where
         if is_normalized_svg_diagram_id(self.0.semantic_value()) {
             return std::fmt::Display::fmt(&self.0, formatter);
         }
-        // An unquoted CSS URL has a different token grammar from a selector identifier.
-        // Keep punctuation such as `:` and `.` literal; XML metacharacters belong to the sink.
+
+
+
         for character in self.0.semantic_value().chars() {
             if character <= '\u{20}' || character == '\u{7f}' {
-                write!(formatter, "\\{:x} ", character as u32)?;
+                write!(formatter, "\\{:x} ", <u32 as ::core::convert::From<::core::primitive::char>>::from(character))?;
             } else {
                 if matches!(character, '"' | '\'' | '(' | ')' | '\\') {
                     formatter.write_str("\\")?;
                 }
+
                 formatter.write_char(character)?;
             }
         }
+
         Ok(())
     }
 }
 
+#[must_use]
 fn is_normalized_svg_diagram_id(value: &str) -> bool {
     value
         .as_bytes()
@@ -76,18 +81,22 @@ pub(super) struct MermaidBaseFontCssEmission<'a> {
 }
 
 impl<'a> MermaidBaseFontCssEmission<'a> {
+    #[must_use]
     pub(super) const fn diagram_root_font_family_css(self) -> &'a str {
         self.diagram_root_font_family_css
     }
 
+    #[must_use]
     pub(super) const fn nested_svg_font_family_css(self) -> &'a str {
         self.nested_svg_font_family_css
     }
 
+    #[must_use]
     pub(super) const fn diagram_root_font_size_css(self) -> &'a str {
         self.diagram_root_font_size_css
     }
 
+    #[must_use]
     pub(super) const fn nested_svg_font_size_css(self) -> &'a str {
         self.nested_svg_font_size_css
     }
@@ -99,6 +108,7 @@ pub(super) struct MermaidRootVariableFontCssEmission<'a> {
 }
 
 impl<'a> MermaidRootVariableFontCssEmission<'a> {
+    #[must_use]
     pub(super) const fn font_family_css(self) -> &'a str {
         self.font_family_css
     }
@@ -219,17 +229,21 @@ pub(super) fn write_mermaid_base_css_root_rule_to(
     write_mermaid_base_css_root_rule(out, id, font_family)
 }
 
+#[must_use]
 fn mermaid_stroke_width_px(effective_config: &serde_json::Value) -> String {
-    let value = crate::config::config_css_number_or_string(
+    let value = match crate::config::config_css_number_or_string(
         effective_config,
         &["themeVariables", "strokeWidth"],
-    )
-    .unwrap_or_else(|| "1".to_string());
-    let value = value.trim();
-    if value.parse::<f64>().is_ok() {
-        format!("{value}px")
+    ) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "1".to_string(),
+    };
+    let value_2 = value.trim();
+
+    if match &(value_2.parse::<f64>()) { ::core::result::Result::Ok(_) => true, ::core::result::Result::Err(_invalid_float) => false } {
+        format!("{value}px", value = value_2)
     } else {
-        value.to_string()
+        value_2.to_string()
     }
 }
 
@@ -257,6 +271,7 @@ pub(crate) struct PreparedCommonNeoCss(MermaidCommonNeoCss);
     feature = "diagram-usecase"
 ))]
 impl PreparedCommonNeoCss {
+    #[must_use]
     pub(crate) fn new(config: &serde_json::Value) -> Self {
         Self(MermaidCommonNeoCss::new(config))
     }
@@ -308,16 +323,21 @@ impl PreparedCommonNeoCss {
 }
 
 impl MermaidCommonNeoCss {
+    #[must_use]
     fn new(effective_config: &serde_json::Value) -> Self {
         Self {
             node_border: theme_token(effective_config, "nodeBorder", "#9370DB"),
-            use_gradient: config_bool(effective_config, &["themeVariables", "useGradient"])
-                .unwrap_or(false),
-            drop_shadow: crate::config::config_css_number_or_string(
+            use_gradient: match config_bool(effective_config, &["themeVariables", "useGradient"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            },
+            drop_shadow: match crate::config::config_css_number_or_string(
                 effective_config,
                 &["themeVariables", "dropShadow"],
-            )
-            .unwrap_or_else(|| "none".to_string()),
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => "none".to_string(),
+            },
             stroke_width: mermaid_stroke_width_px(effective_config),
         }
     }
@@ -459,6 +479,7 @@ fn emit_mermaid_base_css_root_rule<'a>(
             font_family_css: font_family,
         });
     }
+
     let _ = write!(
         out,
         r#"#{} :root{{--mermaid-font-family:{};}}"#,
@@ -494,6 +515,7 @@ pub(crate) struct PreparedCommonCss {
 
 impl PreparedCommonCss {
     #[cfg(any(feature = "diagram-class", feature = "diagram-er"))]
+    #[must_use]
     pub(crate) fn bind(
         effective_config: &serde_json::Value,
         font_family: &str,
@@ -509,6 +531,7 @@ impl PreparedCommonCss {
     }
 
     #[cfg(feature = "diagram-class")]
+    #[must_use]
     pub(crate) fn bind_normalized(
         effective_config: &serde_json::Value,
         font_family: &str,
@@ -524,6 +547,7 @@ impl PreparedCommonCss {
     }
 
     #[cfg(any(feature = "diagram-class", feature = "diagram-er"))]
+    #[must_use]
     fn bind_resolved(
         effective_config: &serde_json::Value,
         font_family: String,
@@ -532,9 +556,11 @@ impl PreparedCommonCss {
     ) -> Self {
         let mut values =
             Self::with_resolved_typography(effective_config, font_family, font_size_css);
+
         if !typed_font_stack_active {
             values = values.with_configured_root_font_family(effective_config);
         }
+
         values
     }
 
@@ -552,6 +578,7 @@ impl PreparedCommonCss {
         feature = "diagram-sankey",
         feature = "diagram-cynefin"
     ))]
+    #[must_use]
     pub(crate) fn font_family(&self) -> &str {
         &self.font_family
     }
@@ -565,6 +592,7 @@ impl PreparedCommonCss {
         feature = "diagram-git-graph",
         feature = "diagram-requirement"
     ))]
+    #[must_use]
     pub(crate) fn text_color(&self) -> &str {
         &self.text_color
     }
@@ -576,6 +604,7 @@ impl PreparedCommonCss {
         feature = "diagram-pie",
         feature = "diagram-requirement"
     ))]
+    #[must_use]
     pub(crate) fn font_size_css(&self) -> &str {
         &self.font_size_css
     }
@@ -585,6 +614,7 @@ impl PreparedCommonCss {
         feature = "diagram-requirement",
         feature = "diagram-git-graph"
     ))]
+    #[must_use]
     pub(crate) fn line_color(&self) -> &str {
         &self.line_color
     }
@@ -596,11 +626,13 @@ impl PreparedCommonCss {
         feature = "diagram-sankey",
         feature = "diagram-requirement"
     ))]
+    #[must_use]
     pub(crate) fn with_text_color(mut self, text_color: &str) -> Self {
         self.text_color = text_color.to_owned();
         self
     }
 
+    #[must_use]
     pub(crate) fn new(
         effective_config: &serde_json::Value,
         resolved_font_family: Option<&str>,
@@ -610,18 +642,23 @@ impl PreparedCommonCss {
             str::to_owned,
         );
         let font_size_css =
-            crate::config::config_theme_font_size_css_or_root_number_px_opt(effective_config)
-                .map(|font_size| format!("{}px", fmt(font_size.max(1.0))))
-                .unwrap_or_else(|| "16px".to_string());
+            match crate::config::config_theme_font_size_css_or_root_number_px_opt(effective_config)
+                .map(|font_size| format!("{}px", fmt(font_size.max(1.0)))) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => "16px".to_string(),
+            };
 
         let mut values =
             Self::with_resolved_typography(effective_config, font_family, font_size_css);
+
         if resolved_font_family.is_none() {
             values = values.with_configured_root_font_family(effective_config);
         }
+
         values
     }
 
+    #[must_use]
     pub(crate) fn with_configured_root_font_family(
         mut self,
         effective_config: &serde_json::Value,
@@ -631,6 +668,7 @@ impl PreparedCommonCss {
         self
     }
 
+    #[must_use]
     pub(crate) fn with_resolved_typography(
         effective_config: &serde_json::Value,
         font_family: String,
@@ -749,22 +787,26 @@ pub(super) struct InfoCssWriter {
 }
 
 impl InfoCssWriter {
+    #[must_use]
     pub(super) fn from_prepared(values: &PreparedCommonCss) -> Self {
         Self {
             values: values.clone(),
         }
     }
 
+    #[must_use]
     pub(super) fn with_text_color(mut self, text_color: &str) -> Self {
         self.values.text_color = text_color.to_owned();
         self
     }
 
+    #[must_use]
     pub(super) fn with_node_border(mut self, node_border: &str) -> Self {
         self.values.neo.node_border = node_border.to_owned();
         self
     }
 
+    #[must_use]
     pub(super) fn into_parts<I>(self, diagram_id: I) -> InfoCssParts
     where
         I: Copy + std::fmt::Display,
@@ -773,6 +815,7 @@ impl InfoCssWriter {
     }
 }
 
+#[must_use]
 fn info_css_parts_from_values<I>(diagram_id: I, values: PreparedCommonCss) -> InfoCssParts
 where
     I: Copy + std::fmt::Display,
@@ -782,7 +825,7 @@ where
         .write_prefix_with_font_emission(&mut out, diagram_id)
         .map(|_| true)
         .expect("String-backed Mermaid base CSS emission cannot fail");
-    // Keep `:root` last (matches upstream Mermaid SVG baselines).
+
     let mut root_rule = String::new();
     values
         .write_root_with_font_emission(&mut root_rule, diagram_id, diagram_id)
@@ -807,14 +850,17 @@ pub(super) struct InheritedFontStackCssWrite<'a> {
 }
 
 impl InheritedFontStackCssWrite<'_> {
+    #[must_use]
     pub(super) fn root_font_family_css(&self) -> &str {
         self.root_font_family_css
     }
 
+    #[must_use]
     pub(super) fn inherited_font_family_css(&self) -> &str {
         self.inherited_font_family_css
     }
 
+    #[must_use]
     pub(super) fn root_variable_font_family_css(&self) -> &str {
         self.root_variable_font_family_css
     }
@@ -856,9 +902,9 @@ pub(super) fn er_css_with_resolved_typography<I>(
 where
     I: SvgDiagramIdValue,
 {
-    // Mirrors pinned Mermaid ER unified renderer stylesheet ordering (see `diagrams/er/styles.ts`
-    // and shared base stylesheet).
-    // Keep `:root` last (matches upstream fixtures).
+
+
+
     let id = CssSelectorDiagramId(diagram_id);
     let fragment_id = FragmentDiagramId(diagram_id);
     let font = &values.font_family;
@@ -906,7 +952,7 @@ where
         r#"#{} .label{{font-family:{};color:{};}}"#,
         id, font, node_text_color
     );
-    // Mermaid duplicates `.edge-pattern-dashed` (base rule earlier sets dasharray:3).
+
     let _ = write!(
         &mut out,
         r#"#{} .edge-pattern-dashed{{stroke-dasharray:8,8;}}"#,
@@ -922,7 +968,7 @@ where
         r#"#{} .relationshipLine{{stroke:{};stroke-width:{};fill:none;}}"#,
         id, line_color, stroke_width
     );
-    // Mermaid duplicates `.marker` (base rule earlier sets fill/stroke from the line color).
+
     let _ = write!(
         &mut out,
         r#"#{} .marker{{fill:none!important;stroke:{}!important;stroke-width:1;}}"#,
@@ -954,14 +1000,17 @@ pub(super) struct PieCssEmission<'a> {
 
 #[cfg(feature = "diagram-pie")]
 impl PieCssEmission<'_> {
+    #[must_use]
     pub(super) fn slice_stroke(&self) -> Option<&str> {
         self.slice_stroke
     }
 
+    #[must_use]
     pub(super) fn outer_stroke(&self) -> Option<&str> {
         self.outer_stroke
     }
 
+    #[must_use]
     pub(super) fn text(&self, role: crate::pie::PieTextRole) -> crate::pie::PieTextCssEmission<'_> {
         self.text[role.index()]
     }
@@ -999,9 +1048,11 @@ where
         values.outer_stroke.css(slices_present),
         values.outer_stroke_width,
     );
+
     for role in PieTextRole::ALL {
-        // Preserve Mermaid's baseline declaration order and bytes for each independent role.
+
         let _ = write!(out, "#{} .{}{{", id, role.selector());
+
         match role {
             PieTextRole::Title => {
                 let _ = write!(
@@ -1031,14 +1082,18 @@ where
                 );
             }
         }
+
         if let Some(weight) = values.text_weight(role) {
             let _ = write!(out, "font-weight:{weight};");
         }
+
         if let Some(style) = values.text_style(role) {
             let _ = write!(out, "font-style:{style};");
         }
+
         out.push('}');
     }
+
     out.checkpoint()?;
     values.common.write_root(out, selector_id, fragment_id)?;
     let emission = PieCssEmission {
@@ -1090,10 +1145,12 @@ pub(super) struct TreemapTitleCssEmission<'a> {
 }
 
 impl TreemapTitleCssEmission<'_> {
+    #[must_use]
     pub(super) const fn class(&self) -> &'static str {
         self.class
     }
 
+    #[must_use]
     pub(super) fn fill(&self) -> &str {
         self.fill
     }
@@ -1111,8 +1168,8 @@ pub(super) fn treemap_css_with_title_fill_and_font_family<'a, I>(
 where
     I: SvgDiagramIdValue,
 {
-    // Mermaid's treemap styles merge `treemap.*` options with theme title/text colors. Keep
-    // `:root` last to match upstream SVG baselines.
+
+
     let id = CssSelectorDiagramId(diagram_id);
     let theme = typography_theme.css_binding();
     let label_color = &theme.label_color;
@@ -1167,14 +1224,15 @@ where
 }
 
 #[cfg(feature = "diagram-gantt")]
+#[must_use]
 pub(super) fn gantt_css<I>(diagram_id: I, task_theme: &crate::gantt::GanttTaskTheme) -> String
 where
     I: SvgDiagramIdValue,
 {
     let id = CssSelectorDiagramId(diagram_id);
     let theme = task_theme.css_binding();
-    // These are fallback declarations when terminal label paints are present. In particular,
-    // usvg 0.47 retains the first important declaration even over later inline important paint.
+
+
     let label_priority = task_theme.task_label_css_priority();
     let mut out = String::new();
     theme
@@ -1182,10 +1240,12 @@ where
         .write_prefix(&mut out, diagram_id)
         .expect("String-backed Gantt base CSS emission cannot fail");
     let font = theme.common.font_family();
+
     if let Some(axis_color) = theme.axis_color.as_deref() {
-        // D3 tick lines inherit currentColor from the grid group.
+
         let _ = write!(&mut out, "#{id} .grid{{color:{axis_color};}}");
     }
+
     let text_color = theme.text_color.as_str();
     let exclude_bkg_color = &theme.exclude_bkg_color;
     let section_bkg_color = &theme.section_bkg_color;
@@ -1219,6 +1279,7 @@ where
         I: Copy + std::fmt::Display,
     {
         let mut first = true;
+
         for i in 0..4 {
             for side in ["Left", "Right"] {
                 if first {
@@ -1226,6 +1287,7 @@ where
                 } else {
                     out.push(',');
                 }
+
                 let _ = write!(
                     out,
                     "#{} .{}{}.taskTextOutside{}",
@@ -1233,6 +1295,7 @@ where
                 );
             }
         }
+
         let _ = write!(out, "{{fill:{}{};}}", color, priority);
     }
 

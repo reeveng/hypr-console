@@ -26,6 +26,7 @@ pub(crate) struct SequencePreparedActivationGeometry {
     pub(crate) group_by_start_id: FixedMap<String, usize>,
     rect_count: usize,
 }
+
 impl SequencePreparedActivationGeometry {
     pub(super) fn prepare(
         model: &SequenceDiagramModel,
@@ -35,19 +36,24 @@ impl SequencePreparedActivationGeometry {
         checkpoints: SequenceLayoutCheckpoints<'_>,
     ) -> crate::Result<Self> {
         let mut node_index = FixedMap::default();
+
         for (index, node) in nodes.iter().enumerate() {
             checkpoints.checkpoint_loop(index)?;
             node_index.insert(node.id.as_str(), node);
         }
+
         let mut edge_index = FixedMap::default();
+
         for (index, edge) in edges.iter().enumerate() {
             checkpoints.checkpoint_loop(index)?;
             edge_index.insert(edge.id.as_str(), edge);
         }
+
         let nodes_by_id = &node_index;
         let edges_by_id = &edge_index;
         let mut actor_indexes =
             FixedMap::with_capacity_and_hasher(model.actor_order.len(), Default::default());
+
         for (actor_index, actor_id) in model.actor_order.iter().enumerate() {
             checkpoints.checkpoint_loop(actor_index)?;
             actor_indexes.insert(actor_id.as_str(), actor_index);
@@ -63,27 +69,45 @@ impl SequencePreparedActivationGeometry {
 
         for (message_index, msg) in model.messages.iter().enumerate() {
             checkpoints.checkpoint_loop(message_index)?;
-            if let Some(y) = msg_line_y(edges_by_id, &msg.id) {
-                last_line_y = Some(y);
+
+            match msg_line_y(edges_by_id, &msg.id) {
+                Some(y) => {
+                    last_line_y = Some(y);
+                },
+                ::core::option::Option::None => {},
             }
 
             match msg.semantic_kind() {
                 SequenceMessageKind::ActivationStart => {
-                    let Some(actor_id) = msg.from.as_deref() else {
-                        continue;
+                    let actor_id = {
+                        let optional_actor_id = msg.from.as_deref();
+
+                        match optional_actor_id {
+                            Some(matched_actor_id) => matched_actor_id,
+                            ::core::option::Option::None => continue,
+                        }
                     };
-                    let Some(cx) = actor_center_x(nodes_by_id, actor_id) else {
-                        continue;
+
+                    let cx = {
+                        let optional_cx = actor_center_x(nodes_by_id, actor_id);
+
+                        match optional_cx {
+                            Some(matched_cx) => matched_cx,
+                            ::core::option::Option::None => continue,
+                        }
                     };
+
                     let has_any_activation = !activation_stacks.is_empty();
                     let stack = activation_stacks.entry(actor_id).or_default();
                     let stacked_size = stack.len();
                     let startx = sequence_activation_start_x(cx, stacked_size, activation_width);
 
-                    let starty = last_line_y
-                        .or_else(|| lifeline_y(edges_by_id, actor_id).map(|(y0, _y1)| y0))
-                        .unwrap_or(0.0);
-                    let starty = if last_line_y.is_some() && has_any_activation {
+                    let starty = match last_line_y
+                        .or_else(|| lifeline_y(edges_by_id, actor_id).map(|(y0, _y1)| y0)) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0.0,
+                    };
+                    let starty_2 = if last_line_y.is_some() && has_any_activation {
                         starty + 2.0
                     } else {
                         starty
@@ -94,40 +118,70 @@ impl SequencePreparedActivationGeometry {
                     group_by_start_id.insert(msg.id.clone(), group_index);
                     stack.push(SequenceActivationStart {
                         startx,
-                        starty,
+                        starty: starty_2,
                         group_index,
                     });
                 }
                 SequenceMessageKind::ActivationEnd => {
-                    let Some(actor_id) = msg.from.as_deref() else {
-                        continue;
+                    let actor_id = {
+                        let optional_actor_id = msg.from.as_deref();
+
+                        match optional_actor_id {
+                            Some(matched_actor_id) => matched_actor_id,
+                            ::core::option::Option::None => continue,
+                        }
                     };
-                    let Some(stack) = activation_stacks.get_mut(actor_id) else {
-                        continue;
+
+                    let stack = {
+                        let optional_stack = activation_stacks.get_mut(actor_id);
+
+                        match optional_stack {
+                            Some(matched_stack) => matched_stack,
+                            ::core::option::Option::None => continue,
+                        }
                     };
-                    let Some(start) = stack.pop() else {
-                        continue;
+
+                    let start = {
+                        let optional_start = stack.pop();
+
+                        match optional_start {
+                            Some(matched_start) => matched_start,
+                            ::core::option::Option::None => continue,
+                        }
                     };
 
                     let mut starty = start.starty;
-                    let mut vertical_pos = last_line_y.unwrap_or(starty);
+                    let mut vertical_pos = match last_line_y {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => starty,
+                    };
+
                     if starty + 18.0 > vertical_pos {
                         starty = vertical_pos - 6.0;
                         vertical_pos += 12.0;
                     }
 
-                    let class_idx = stack.len() % 3;
+                    let class_idx = stack.len().wrapping_rem(3);
                     let rect = SequenceActivationRect {
                         startx: start.startx,
                         starty,
                         width: activation_width,
                         height: (vertical_pos - starty).max(0.0),
                         class_idx,
-                        actor_index: actor_indexes.get(actor_id).copied().unwrap_or(0),
+                        actor_index: match actor_indexes.get(actor_id).copied() {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => 0,
+                        },
                     };
-                    if let Some(slot) = groups.get_mut(start.group_index) {
-                        *slot = Some(rect);
-                        rect_count = rect_count.saturating_add(1);
+
+                    {
+                        match groups.get_mut(start.group_index) {
+                            Some(slot) => {
+                                *slot = Some(rect);
+                                rect_count = rect_count.saturating_add(1);
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
                 _ => {}
@@ -143,33 +197,42 @@ impl SequencePreparedActivationGeometry {
             rect_count,
         })
     }
+
+    #[must_use]
     pub(crate) const fn rect_count(&self) -> usize {
         self.rect_count
     }
 }
+
+#[must_use]
 fn actor_center_x(nodes_by_id: &FixedMap<&str, &LayoutNode>, actor_id: &str) -> Option<f64> {
     let node_id = format!("actor-top-{actor_id}");
     nodes_by_id.get(node_id.as_str()).copied().map(|n| n.x)
 }
 
+#[must_use]
 fn lifeline_y(
     edges_by_id: &FixedMap<&str, &crate::model::LayoutEdge>,
     actor_id: &str,
 ) -> Option<(f64, f64)> {
     let edge_id = format!("lifeline-{actor_id}");
     let e = edges_by_id.get(edge_id.as_str()).copied()?;
-    let y0 = e.points.first()?.y;
-    let y1 = e.points.last()?.y;
+    let checked_value = e.points.first()?;
+    let y0 = checked_value.y;
+    let checked_value_2 = e.points.last()?;
+    let y1 = checked_value_2.y;
     Some((y0, y1))
 }
 
+#[must_use]
 fn msg_line_y(
     edges_by_id: &FixedMap<&str, &crate::model::LayoutEdge>,
     msg_id: &str,
 ) -> Option<f64> {
     let edge_id = format!("msg-{msg_id}");
     let e = edges_by_id.get(edge_id.as_str()).copied()?;
-    Some(e.points.first()?.y)
+    let checked_value = e.points.first()?;
+    Some(checked_value.y)
 }
 
 #[cfg(test)]

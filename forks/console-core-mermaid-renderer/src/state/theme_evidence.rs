@@ -29,6 +29,7 @@ pub(crate) struct StateThemeOutcomes {
 }
 
 impl StateThemeOutcomes {
+    #[must_use]
     pub(crate) fn new(
         selected: BTreeMap<FamilyThemeMechanismKey, StateAppliedThemeOutcome>,
     ) -> Self {
@@ -45,15 +46,22 @@ impl StateThemeOutcomes {
     }
 
     pub(crate) fn record_theme_evidence(&self, evidence: &mut FamilyThemeEvidence) {
-        let Some(&(include_nodes, include_edges)) = self.visibility.get() else {
-            return;
+        let (include_nodes, include_edges) = {
+            let optional_include_nodes = self.visibility.get();
+
+            match optional_include_nodes {
+                Some(&(matched_include_nodes, matched_include_edges)) => (matched_include_nodes, matched_include_edges),
+                ::core::option::Option::None => return,
+            }
         };
+
         for (key, outcome) in &self.selected {
             let filtered = outcome.occurrences.iter().any(|surface| match surface {
                 StateThemeSurface::Title => false,
                 StateThemeSurface::Node => !include_nodes,
                 StateThemeSurface::Edge => !include_edges,
             });
+
             if filtered {
                 evidence.mark_residual(
                     key.clone(),

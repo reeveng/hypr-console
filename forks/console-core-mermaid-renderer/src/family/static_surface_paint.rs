@@ -28,18 +28,21 @@ impl StaticSurfacePaint {
         source_stroke: &[bool],
         work: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let Some(theme) = theme else {
-            return Ok(Self::default());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::default()),
         };
+
         debug_assert_eq!(source_fill.len(), source_stroke.len());
-        let style = theme.style_with_work_meter(target, ThemeVariant::Default, None, work)?;
+        let style = theme_2.style_with_work_meter(target, ThemeVariant::Default, None, work)?;
         let fill_available = source_fill.iter().any(|&owned| !owned);
         let stroke_available = source_stroke.iter().any(|&owned| !owned);
         let mut winner_properties = BTreeSet::new();
+
         for (index, (&fill_owned, &stroke_owned)) in
             source_fill.iter().zip(source_stroke).enumerate()
         {
-            let occurrence = theme.style_with_work_meter(
+            let occurrence = theme_2.style_with_work_meter(
                 target,
                 ThemeVariant::Default,
                 Some(index + 1),
@@ -50,16 +53,17 @@ impl StaticSurfacePaint {
                     let source_owned = match property {
                         ResolvedStyleProperty::Fill => fill_owned,
                         ResolvedStyleProperty::Stroke => stroke_owned,
-                        _ => false,
+                        ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => false,
                     };
                     (!source_owned).then_some((origin.rule_index(), property))
                 },
             ));
         }
+
         let fill = fill_available
             .then(|| {
                 resolve_direct_static_fill(
-                    theme,
+                    theme_2,
                     &style,
                     &[target],
                     DirectStaticSelectorDomain::Default,
@@ -69,7 +73,7 @@ impl StaticSurfacePaint {
         let stroke = stroke_available
             .then(|| {
                 resolve_direct_static_stroke(
-                    theme,
+                    theme_2,
                     &style,
                     &[target],
                     DirectStaticSelectorDomain::Default,
@@ -78,7 +82,7 @@ impl StaticSurfacePaint {
             .flatten();
         let mut fallback = FamilyThemeOutcomes::default();
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut fallback,
             &[UnsupportedTerminalDomain::direct(
                 target,
@@ -91,7 +95,8 @@ impl StaticSurfacePaint {
         let mut rules = BTreeSet::new();
         let mut incomplete = BTreeSet::new();
         let mut capabilities = BTreeMap::<usize, BTreeSet<ThemeCapability>>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: rule_target,
@@ -101,41 +106,54 @@ impl StaticSurfacePaint {
             else {
                 continue;
             };
+
             if rule_target != target {
                 continue;
             }
+
             rules.insert(rule_index);
             let property = resolved_style_property_for_facet(facet);
+
             if !winner_properties.contains(&(rule_index, property)) {
                 continue;
             }
+
             let paint = match property {
                 ResolvedStyleProperty::Fill => fill.as_ref(),
                 ResolvedStyleProperty::Stroke => stroke.as_ref(),
-                _ => None,
+                ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => None,
             }
             .filter(|paint| paint.rule_index() == rule_index);
-            if let Some(paint) = paint {
-                capabilities
-                    .entry(rule_index)
-                    .or_default()
-                    .insert(paint.capability());
-            } else {
-                incomplete.insert(rule_index);
+
+            match paint {
+                Some(paint_2) => {
+                    capabilities
+                        .entry(rule_index)
+                        .or_default()
+                        .insert(paint_2.capability());
+                },
+                ::core::option::Option::None => {
+                    incomplete.insert(rule_index);
+                },
             }
         }
+
         let mut evidence = FamilyThemeOutcomes::default();
+
         for index in rules {
             let key = crate::diagram_theme::FamilyThemeMechanismKey::Rule { index, target };
+
             if incomplete.contains(&index) {
                 continue;
             }
-            if let Some(capabilities) = capabilities.remove(&index) {
-                evidence.mark_applied_with_capabilities(key, capabilities);
+
+            if let Some(capabilities_2) = capabilities.remove(&index) {
+                evidence.mark_applied_with_capabilities(key, capabilities_2);
             } else {
                 evidence.mark_not_applicable(key);
             }
         }
+
         Ok(Self {
             fill,
             stroke,
@@ -146,12 +164,14 @@ impl StaticSurfacePaint {
 
     /// The caller records this only after the SVG writer completes the matching real surface.
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
-        // A surviving unsupported sibling invalidates the whole rule. A fallback N/A must
-        // wait until typed consumers have accounted for supported siblings of the same key.
+
+
         for residual in self.fallback.residuals() {
             evidence.mark_residual(residual.key().clone(), residual.reason());
         }
+
         evidence.merge_borrowed(&self.evidence);
+
         for key in self.fallback.not_applicable_mechanisms() {
             evidence.mark_not_applicable(key.clone());
         }

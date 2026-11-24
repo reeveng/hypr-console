@@ -96,7 +96,7 @@ fn finite_geometry(values: impl IntoIterator<Item = f64>) -> Result<()> {
 fn reserved_plot_span(span: f64, percent: f64) -> Result<f64> {
     finite_geometry([span, percent])?;
     let product = span * percent;
-    // Keep Mermaid's ordinary rounding, recovering only when the intermediate product overflows.
+
     let reserved = if product.is_finite() {
         product / 100.0
     } else {
@@ -106,12 +106,15 @@ fn reserved_plot_span(span: f64, percent: f64) -> Result<f64> {
     Ok(reserved.floor())
 }
 
+#[must_use]
 fn linear_scale_value(value: f64, domain: (f64, f64), range: (f64, f64)) -> f64 {
     let (d0, d1) = domain;
     let (r0, r1) = range;
-    if d0 == d1 {
+
+    if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&d0, &d1) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
         return r0 + (r1 - r0) * 0.5;
     }
+
     let numerator = value - d0;
     let denominator = d1 - d0;
     let t = if numerator.is_finite() && denominator.is_finite() {
@@ -122,6 +125,7 @@ fn linear_scale_value(value: f64, domain: (f64, f64), range: (f64, f64)) -> f64 
     r0 + t * (r1 - r0)
 }
 
+#[must_use]
 fn pt(x: f64, y: f64) -> Point {
     crate::geom::point(x, y)
 }
@@ -134,11 +138,13 @@ struct BoundingRect {
     height: f64,
 }
 
+#[must_use]
 fn is_ref_only_object(v: &Value) -> bool {
     v.as_object()
         .is_some_and(|m| m.len() == 1 && m.contains_key("$ref"))
 }
 
+#[must_use]
 fn default_axis_config() -> AxisConfig {
     AxisConfig {
         show_label: true,
@@ -158,80 +164,135 @@ fn default_axis_config() -> AxisConfig {
     }
 }
 
+#[must_use]
 fn parse_axis_config(effective_config: &Value, axis_key: &str) -> AxisConfig {
     let base = default_axis_config();
+
     let Some(v) = effective_config
         .get("xyChart")
         .and_then(|c| c.get(axis_key))
     else {
         return base;
     };
-    // The default Mermaid config uses `$ref` placeholders (schema references) for axis configs.
-    // When users override axis fields via directives/frontmatter, a deep-merge will keep the `$ref`
-    // key while adding the override keys. Treat a *pure* `$ref` object as "no concrete config",
-    // but do not discard user overrides just because `$ref` is present.
+
+
+
+
+
     if !v.is_object() || is_ref_only_object(v) {
         return base;
     }
 
     AxisConfig {
-        show_label: config_bool(effective_config, &["xyChart", axis_key, "showLabel"])
-            .unwrap_or(base.show_label),
-        label_font_size: config_f64(effective_config, &["xyChart", axis_key, "labelFontSize"])
-            .unwrap_or(base.label_font_size),
+        show_label: match config_bool(effective_config, &["xyChart", axis_key, "showLabel"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.show_label,
+        },
+        label_font_size: match config_f64(effective_config, &["xyChart", axis_key, "labelFontSize"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.label_font_size,
+        },
         label_font_weight: None,
-        label_padding: config_f64(effective_config, &["xyChart", axis_key, "labelPadding"])
-            .unwrap_or(base.label_padding),
-        show_title: config_bool(effective_config, &["xyChart", axis_key, "showTitle"])
-            .unwrap_or(base.show_title),
-        title_font_size: config_f64(effective_config, &["xyChart", axis_key, "titleFontSize"])
-            .unwrap_or(base.title_font_size),
+        label_padding: match config_f64(effective_config, &["xyChart", axis_key, "labelPadding"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.label_padding,
+        },
+        show_title: match config_bool(effective_config, &["xyChart", axis_key, "showTitle"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.show_title,
+        },
+        title_font_size: match config_f64(effective_config, &["xyChart", axis_key, "titleFontSize"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.title_font_size,
+        },
         title_font_weight: None,
-        title_padding: config_f64(effective_config, &["xyChart", axis_key, "titlePadding"])
-            .unwrap_or(base.title_padding),
-        show_tick: config_bool(effective_config, &["xyChart", axis_key, "showTick"])
-            .unwrap_or(base.show_tick),
-        tick_length: config_f64(effective_config, &["xyChart", axis_key, "tickLength"])
-            .unwrap_or(base.tick_length),
-        tick_width: config_f64(effective_config, &["xyChart", axis_key, "tickWidth"])
-            .unwrap_or(base.tick_width),
-        show_axis_line: config_bool(effective_config, &["xyChart", axis_key, "showAxisLine"])
-            .unwrap_or(base.show_axis_line),
-        axis_line_width: config_f64(effective_config, &["xyChart", axis_key, "axisLineWidth"])
-            .unwrap_or(base.axis_line_width),
-        label_rotation: config_f64(effective_config, &["xyChart", axis_key, "labelRotation"])
-            .unwrap_or(base.label_rotation),
+        title_padding: match config_f64(effective_config, &["xyChart", axis_key, "titlePadding"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.title_padding,
+        },
+        show_tick: match config_bool(effective_config, &["xyChart", axis_key, "showTick"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.show_tick,
+        },
+        tick_length: match config_f64(effective_config, &["xyChart", axis_key, "tickLength"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.tick_length,
+        },
+        tick_width: match config_f64(effective_config, &["xyChart", axis_key, "tickWidth"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.tick_width,
+        },
+        show_axis_line: match config_bool(effective_config, &["xyChart", axis_key, "showAxisLine"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.show_axis_line,
+        },
+        axis_line_width: match config_f64(effective_config, &["xyChart", axis_key, "axisLineWidth"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.axis_line_width,
+        },
+        label_rotation: match config_f64(effective_config, &["xyChart", axis_key, "labelRotation"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => base.label_rotation,
+        },
     }
 }
 
+#[must_use]
 fn parse_chart_config(effective_config: &Value, model: &XyChartDiagramRenderModel) -> ChartConfig {
     ChartConfig {
-        width: config_f64(effective_config, &["xyChart", "width"]).unwrap_or(700.0),
-        height: config_f64(effective_config, &["xyChart", "height"]).unwrap_or(500.0),
-        plot_reserved_space_percent: config_f64(
+        width: match config_f64(effective_config, &["xyChart", "width"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 700.0,
+        },
+        height: match config_f64(effective_config, &["xyChart", "height"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 500.0,
+        },
+        plot_reserved_space_percent: match config_f64(
             effective_config,
             &["xyChart", "plotReservedSpacePercent"],
-        )
-        .unwrap_or(50.0),
-        show_data_label: config_bool(effective_config, &["xyChart", "showDataLabel"])
-            .unwrap_or(false),
-        show_data_label_outside_bar: config_bool(
+        ) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 50.0,
+        },
+        show_data_label: match config_bool(effective_config, &["xyChart", "showDataLabel"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        },
+        show_data_label_outside_bar: match config_bool(
             effective_config,
             &["xyChart", "showDataLabelOutsideBar"],
-        )
-        .unwrap_or(false),
-        show_title: config_bool(effective_config, &["xyChart", "showTitle"]).unwrap_or(true),
-        title_font_size: config_f64(effective_config, &["xyChart", "titleFontSize"])
-            .unwrap_or(20.0),
+        ) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        },
+        show_title: match config_bool(effective_config, &["xyChart", "showTitle"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        },
+        title_font_size: match config_f64(effective_config, &["xyChart", "titleFontSize"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 20.0,
+        },
         title_font_weight: None,
-        title_padding: config_f64(effective_config, &["xyChart", "titlePadding"]).unwrap_or(10.0),
-        show_legend: config_bool(effective_config, &["xyChart", "showLegend"]).unwrap_or(true),
-        legend_font_size: config_f64(effective_config, &["xyChart", "legendFontSize"])
-            .unwrap_or(14.0)
+        title_padding: match config_f64(effective_config, &["xyChart", "titlePadding"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 10.0,
+        },
+        show_legend: match config_bool(effective_config, &["xyChart", "showLegend"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        },
+        legend_font_size: match config_f64(effective_config, &["xyChart", "legendFontSize"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 14.0,
+        }
             .max(1.0),
         legend_font_weight: None,
-        legend_padding: config_f64(effective_config, &["xyChart", "legendPadding"])
-            .unwrap_or(10.0)
+        legend_padding: match config_f64(effective_config, &["xyChart", "legendPadding"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 10.0,
+        }
             .max(0.0),
         chart_orientation: match model.orientation.as_str() {
             "horizontal" => "horizontal".to_string(),
@@ -242,6 +303,7 @@ fn parse_chart_config(effective_config: &Value, model: &XyChartDiagramRenderMode
     }
 }
 
+#[must_use]
 fn max_text_dimension(
     texts: &[String],
     font_size: f64,
@@ -257,26 +319,33 @@ fn max_text_dimension(
     };
     let mut max_w: f64 = 0.0;
     let mut max_h: f64 = 0.0;
-    if texts.is_empty() {
-        return Dimension {
-            width: 0.0,
-            height: 0.0,
-        };
+
+    match texts {
+        [] => {
+            return Dimension {
+                width: 0.0,
+                height: 0.0,
+            };
+        },
+        [_, ..] => {},
     }
-    // These metrics and the chart dimensions already share SVG user units. Mermaid 12.1
-    // divides browser screen measurements by the SVG's CTM; no display scale enters this path.
+
+
+
     for t in texts {
         max_w = max_w.max(measurer.measure_svg_text_bounding_client_rect_width_px(t, &style));
-        // computeDimensionOfText() inserts one literal run, not a wrapped HTML label.
-        // The raw-height route is this profile's existing single-row approximation.
+
+
         max_h = max_h.max(measurer.measure_svg_raw_text_bbox_height_px(t, &style));
     }
+
     Dimension {
         width: max_w,
         height: max_h,
     }
 }
 
+#[must_use]
 fn single_text_height(
     text: &str,
     font_size: f64,
@@ -287,6 +356,7 @@ fn single_text_height(
     if text.trim().is_empty() {
         return 0.0;
     }
+
     let style = TextStyle {
         font_family: Some(font_family.to_string()),
         font_size,
@@ -300,6 +370,7 @@ const LEGEND_MARKER_TO_FONT_RATIO: f64 = 0.75;
 const LEGEND_ITEM_SPACING_TO_FONT_RATIO: f64 = 0.5;
 const LEGEND_MARKER_SPACING_TO_FONT_RATIO: f64 = 0.35;
 
+#[must_use]
 fn calculate_legend_space(
     plots: &[(usize, &XyChartPlotModel)],
     chart_config: &ChartConfig,
@@ -307,11 +378,14 @@ fn calculate_legend_space(
     font_family: &str,
     measurer: &dyn TextMeasurer,
 ) -> Dimension {
-    if plots.is_empty() {
-        return Dimension {
-            width: 0.0,
-            height: 0.0,
-        };
+    match plots {
+        [] => {
+            return Dimension {
+                width: 0.0,
+                height: 0.0,
+            };
+        },
+        [_, ..] => {},
     }
 
     let titles = plots
@@ -351,8 +425,11 @@ fn legend_drawable_elements(
     legend_text_color: &str,
     series_paint: &XyChartSeriesPaintPlan,
 ) -> Result<Vec<XyChartDrawableElem>> {
-    if plots.is_empty() {
-        return Ok(Vec::new());
+    match plots {
+        [] => {
+            return Ok(Vec::new());
+        },
+        [_, ..] => {},
     }
 
     let marker_size = chart_config.legend_font_size * LEGEND_MARKER_TO_FONT_RATIO;
@@ -377,6 +454,7 @@ fn legend_drawable_elements(
                 .ok_or_else(|| Error::InvalidModel {
                     message: "XY Chart legend stroke plan is incomplete".to_string(),
                 })?;
+
         match plot.plot_type {
             XyChartPlotType::Bar => bar_markers.push(XyChartRectData {
                 x: start_x,
@@ -404,8 +482,12 @@ fn legend_drawable_elements(
                 });
             }
         }
+
         labels.push(XyChartTextData {
-            text: plot.title.clone().unwrap_or_default(),
+            text: match plot.title.clone() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::string::String::new(),
+            },
             x: start_x + marker_size + marker_spacing,
             y: start_y + legend_index as f64 * row_height + marker_size / 2.0,
             fill: legend_text_color.to_string(),
@@ -432,7 +514,9 @@ fn legend_drawable_elements(
     ])
 }
 
+#[must_use]
 fn d3_ticks(start: f64, stop: f64, count: usize) -> Vec<f64> {
+    #[must_use]
     fn tick_spec(start: f64, stop: f64, count: f64) -> Option<(i64, i64, f64)> {
         if count <= 0.0 {
             return None;
@@ -444,9 +528,11 @@ fn d3_ticks(start: f64, stop: f64, count: usize) -> Vec<f64> {
         } else {
             stop / count - start / count
         };
-        if !step.is_finite() || step == 0.0 {
+
+        if !step.is_finite() || ::core::matches!(::core::primitive::f64::classify(step), ::core::num::FpCategory::Zero) {
             return None;
         }
+
         let power = step.log10().floor();
         let error = step / 10f64.powf(power);
         let e10 = 50f64.sqrt();
@@ -466,23 +552,29 @@ fn d3_ticks(start: f64, stop: f64, count: usize) -> Vec<f64> {
             let inc = 10f64.powf(-power) / factor;
             let mut i1 = (start * inc).round() as i64;
             let mut i2 = (stop * inc).round() as i64;
+
             if (i1 as f64) / inc < start {
                 i1 += 1;
             }
+
             if (i2 as f64) / inc > stop {
                 i2 -= 1;
             }
+
             (i1, i2, -inc)
         } else {
             let inc = 10f64.powf(power) * factor;
             let mut i1 = (start / inc).round() as i64;
             let mut i2 = (stop / inc).round() as i64;
+
             if (i1 as f64) * inc < start {
                 i1 += 1;
             }
+
             if (i2 as f64) * inc > stop {
                 i2 -= 1;
             }
+
             (i1, i2, inc)
         };
 
@@ -493,7 +585,8 @@ fn d3_ticks(start: f64, stop: f64, count: usize) -> Vec<f64> {
         if !inc.is_finite() {
             return None;
         }
-        if inc == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(inc), ::core::num::FpCategory::Zero) {
             return None;
         }
 
@@ -503,11 +596,14 @@ fn d3_ticks(start: f64, stop: f64, count: usize) -> Vec<f64> {
     if !start.is_finite() || !stop.is_finite() {
         return Vec::new();
     }
-    let count = count as f64;
-    if count <= 0.0 {
+
+    let count_2 = count as f64;
+
+    if count_2 <= 0.0 {
         return Vec::new();
     }
-    if start == stop {
+
+    if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&start, &stop) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
         return vec![start];
     }
 
@@ -517,9 +613,16 @@ fn d3_ticks(start: f64, stop: f64, count: usize) -> Vec<f64> {
     } else {
         (start, stop)
     };
-    let Some((i1, i2, inc)) = tick_spec(a, b, count) else {
-        return Vec::new();
+
+    let (i1, i2, inc) = {
+        let optional_i1 = tick_spec(a, b, count_2);
+
+        match optional_i1 {
+            Some((matched_i1, matched_i2, matched_inc)) => (matched_i1, matched_i2, matched_inc),
+            ::core::option::Option::None => return Vec::new(),
+        }
     };
+
     if i2 < i1 {
         return Vec::new();
     }
@@ -550,14 +653,17 @@ fn d3_ticks(start: f64, stop: f64, count: usize) -> Vec<f64> {
     out
 }
 
+#[must_use]
 fn build_tick_values(kind: &AxisKind, axis_position: AxisPosition) -> Vec<String> {
     match kind {
         AxisKind::Band { categories } => categories.clone(),
         AxisKind::Linear { domain } => {
             let (mut a, mut b) = *domain;
+
             if matches!(axis_position, AxisPosition::Left) {
                 std::mem::swap(&mut a, &mut b);
             }
+
             d3_ticks(a, b, 10)
                 .into_iter()
                 .map(|v| format!("{v}"))
@@ -592,6 +698,7 @@ struct Axis {
 }
 
 impl Axis {
+    #[must_use]
     fn new(
         kind: AxisKind,
         axis_config: AxisConfig,
@@ -634,6 +741,7 @@ impl Axis {
 
     fn set_range(&mut self, range: (f64, f64)) {
         self.range = range;
+
         if matches!(self.axis_position, AxisPosition::Left) {
             self.bounding_rect.height = range.1 - range.0;
         } else {
@@ -646,6 +754,7 @@ impl Axis {
         self.bounding_rect.y = pt.y;
     }
 
+    #[must_use]
     fn get_range(&self) -> (f64, f64) {
         (
             self.range.0 + self.outer_padding,
@@ -653,80 +762,114 @@ impl Axis {
         )
     }
 
+    #[must_use]
     fn tick_values(&self) -> &[String] {
         &self.tick_values
     }
 
+    #[must_use]
     fn tick_distance(&self) -> f64 {
         let (a, b) = self.get_range();
         let span = (a - b).abs();
+
         if self.tick_values.is_empty() {
             return 0.0;
         }
+
         span / (self.tick_values.len() as f64)
     }
 
+    #[must_use]
     fn get_scale_value(&self, value: &str) -> f64 {
         match &self.kind {
             AxisKind::Band { categories } => {
                 let (a, b) = self.get_range();
                 let n = categories.len();
-                if n == 0 {
-                    return a;
+
+                match n {
+                    0 => {
+                        return a;
+                    },
+                    _ => {},
                 }
-                if n == 1 {
-                    return a + (b - a) * 0.5;
+
+                match n {
+                    1 => {
+                        return a + (b - a) * 0.5;
+                    },
+                    _ => {},
                 }
+
                 let step = (b - a) / ((n - 1) as f64);
-                let idx = categories.iter().position(|c| c == value).unwrap_or(0);
+                let idx = match categories.iter().position(|c| c == value) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0,
+                };
                 a + step * (idx as f64)
             }
             AxisKind::Linear { domain } => {
-                let Ok(v) = value.parse::<f64>() else {
-                    return self.get_range().0;
+                let v = {
+                    let outcome_v = value.parse::<f64>();
+
+                    match outcome_v {
+                        Ok(matched_v) => matched_v,
+                        ::core::result::Result::Err(_) => return self.get_range().0,
+                    }
                 };
+
                 if v.is_nan() {
                     return f64::NAN;
                 }
+
                 let (mut d0, mut d1) = *domain;
+
                 if matches!(self.axis_position, AxisPosition::Left) {
                     std::mem::swap(&mut d0, &mut d1);
                 }
+
                 linear_scale_value(v, (d0, d1), self.get_range())
             }
         }
     }
 
+    #[must_use]
     fn get_scale_number(&self, value: Option<f64>) -> f64 {
-        let Some(value) = value else {
-            return self.get_scale_value("NaN");
+        let value_2 = match value {
+            Some(matched_value) => matched_value,
+            ::core::option::Option::None => return self.get_scale_value("NaN"),
         };
 
         match &self.kind {
             AxisKind::Linear { domain } => {
-                if value.is_nan() {
+                if value_2.is_nan() {
                     return f64::NAN;
                 }
+
                 let (mut d0, mut d1) = *domain;
+
                 if matches!(self.axis_position, AxisPosition::Left) {
                     std::mem::swap(&mut d0, &mut d1);
                 }
-                linear_scale_value(value, (d0, d1), self.get_range())
+
+                linear_scale_value(value_2, (d0, d1), self.get_range())
             }
-            AxisKind::Band { .. } => self.get_scale_value(&format!("{value}")),
+            AxisKind::Band { .. } => self.get_scale_value(&format!("{value}", value = value_2)),
         }
     }
 
     fn recalculate_outer_padding_to_draw_bar(&mut self) {
         const BAR_WIDTH_TO_TICK_WIDTH_RATIO: f64 = 0.7;
         let target = BAR_WIDTH_TO_TICK_WIDTH_RATIO * self.tick_distance();
+
         if target > self.outer_padding * 2.0 {
             self.outer_padding = (target / 2.0).floor();
         }
     }
 
+    #[must_use]
     fn normalized_label_rotation_rad(&self) -> f64 {
         let rotation = self.axis_config.label_rotation;
+
         if (-90.0..=90.0).contains(&rotation) {
             rotation.to_radians()
         } else {
@@ -734,11 +877,14 @@ impl Axis {
         }
     }
 
+    #[must_use]
     fn label_rotation_offset(&self, reference: AxisLabelDimensionRef) -> f64 {
         let rotation = self.normalized_label_rotation_rad();
-        if rotation == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(rotation), ::core::num::FpCategory::Zero) {
             return 0.0;
         }
+
         let dimension = match reference {
             AxisLabelDimensionRef::Width => self.label_dimension.width,
             AxisLabelDimensionRef::Height => self.label_dimension.height,
@@ -785,6 +931,7 @@ impl Axis {
                 let max_padding = 0.2 * available.height;
                 self.outer_padding = (dim.height / 2.0).min(max_padding);
                 let width_required = dim.width + self.axis_config.label_padding * 2.0;
+
                 if width_required <= available_width {
                     available_width -= width_required;
                     self.show_label = true;
@@ -806,6 +953,7 @@ impl Axis {
                 );
                 let width_required = title_height + self.axis_config.title_padding * 2.0;
                 self.title_text_height = title_height;
+
                 if width_required <= available_width {
                     available_width -= width_required;
                     self.show_title = true;
@@ -842,12 +990,15 @@ impl Axis {
                 self.outer_padding = (dim.width / 2.0).min(max_padding);
                 let mut height_required = dim.height;
                 let rotation = self.normalized_label_rotation_rad();
-                if matches!(self.axis_position, AxisPosition::Bottom) && rotation != 0.0 {
+
+                if matches!(self.axis_position, AxisPosition::Bottom) && !::core::matches!(::core::primitive::f64::classify(rotation), ::core::num::FpCategory::Zero) {
                     height_required = height_required.max(
                         (rotation.sin() * dim.width).abs() + (rotation.cos() * dim.height).abs(),
                     );
                 }
+
                 height_required += self.axis_config.label_padding * 2.0;
+
                 if height_required <= available_height {
                     available_height -= height_required;
                     self.show_label = true;
@@ -869,6 +1020,7 @@ impl Axis {
                 );
                 let height_required = title_height + self.axis_config.title_padding * 2.0;
                 self.title_text_height = title_height;
+
                 if height_required <= available_height {
                     available_height -= height_required;
                     self.show_title = true;
@@ -884,6 +1036,7 @@ impl Axis {
         }
     }
 
+    #[must_use]
     fn drawable_elements(&self) -> Vec<XyChartDrawableElem> {
         match self.axis_position {
             AxisPosition::Left => self.drawable_elements_for_left_axis(),
@@ -892,8 +1045,10 @@ impl Axis {
         }
     }
 
+    #[must_use]
     fn drawable_elements_for_left_axis(&self) -> Vec<XyChartDrawableElem> {
         let mut out: Vec<XyChartDrawableElem> = Vec::new();
+
         if self.show_axis_line {
             let x = self.bounding_rect.x + self.bounding_rect.width
                 - self.axis_config.axis_line_width / 2.0;
@@ -911,6 +1066,7 @@ impl Axis {
                 }],
             });
         }
+
         if self.show_label {
             let x = self.bounding_rect.x + self.bounding_rect.width
                 - (if self.show_label {
@@ -946,6 +1102,7 @@ impl Axis {
                     .collect(),
             });
         }
+
         if self.show_tick {
             let x = self.bounding_rect.x + self.bounding_rect.width
                 - (if self.show_axis_line {
@@ -970,6 +1127,7 @@ impl Axis {
                     .collect(),
             });
         }
+
         if self.show_title {
             out.push(XyChartDrawableElem::Text {
                 group_texts: vec!["left-axis".to_string(), "title".to_string()],
@@ -985,11 +1143,14 @@ impl Axis {
                 }],
             });
         }
+
         out
     }
 
+    #[must_use]
     fn drawable_elements_for_bottom_axis(&self) -> Vec<XyChartDrawableElem> {
         let mut out: Vec<XyChartDrawableElem> = Vec::new();
+
         if self.show_axis_line {
             let y = self.bounding_rect.y + self.axis_config.axis_line_width / 2.0;
             out.push(XyChartDrawableElem::Path {
@@ -1006,6 +1167,7 @@ impl Axis {
                 }],
             });
         }
+
         if self.show_label {
             let ticks = self.tick_values();
             out.push(XyChartDrawableElem::Text {
@@ -1040,6 +1202,7 @@ impl Axis {
                     .collect(),
             });
         }
+
         if self.show_tick {
             let y = self.bounding_rect.y
                 + (if self.show_axis_line {
@@ -1064,6 +1227,7 @@ impl Axis {
                     .collect(),
             });
         }
+
         if self.show_title {
             out.push(XyChartDrawableElem::Text {
                 group_texts: vec!["bottom-axis".to_string(), "title".to_string()],
@@ -1081,11 +1245,14 @@ impl Axis {
                 }],
             });
         }
+
         out
     }
 
+    #[must_use]
     fn drawable_elements_for_top_axis(&self) -> Vec<XyChartDrawableElem> {
         let mut out: Vec<XyChartDrawableElem> = Vec::new();
+
         if self.show_axis_line {
             let y = self.bounding_rect.y + self.bounding_rect.height
                 - self.axis_config.axis_line_width / 2.0;
@@ -1103,6 +1270,7 @@ impl Axis {
                 }],
             });
         }
+
         if self.show_label {
             let ticks = self.tick_values();
             out.push(XyChartDrawableElem::Text {
@@ -1128,6 +1296,7 @@ impl Axis {
                     .collect(),
             });
         }
+
         if self.show_tick {
             let y = self.bounding_rect.y;
             let ticks = self.tick_values();
@@ -1160,6 +1329,7 @@ impl Axis {
                     .collect(),
             });
         }
+
         if self.show_title {
             out.push(XyChartDrawableElem::Text {
                 group_texts: vec!["top-axis".to_string(), "title".to_string()],
@@ -1175,6 +1345,7 @@ impl Axis {
                 }],
             });
         }
+
         out
     }
 }
@@ -1185,17 +1356,24 @@ enum AxisLabelDimensionRef {
     Height,
 }
 
+#[must_use]
 fn line_path(points: &[(f64, f64)]) -> Option<String> {
     let (first, rest) = points.split_first()?;
     let mut out = String::with_capacity(points.len().saturating_mul(24).max(24));
     let _ = write!(&mut out, "M{},{}", first.0, first.1);
-    if rest.is_empty() {
-        out.push('Z');
-        return Some(out);
+
+    match rest {
+        [] => {
+            out.push('Z');
+            return Some(out);
+        },
+        [_, ..] => {},
     }
+
     for p in rest {
         let _ = write!(&mut out, "L{},{}", p.0, p.1);
     }
+
     Some(out)
 }
 
@@ -1212,6 +1390,7 @@ pub(crate) fn layout_xychart_diagram_typed(
             message: "XY Chart series paint plan does not match the semantic model".to_string(),
         });
     }
+
     if model
         .orientation
         .as_str()
@@ -1257,7 +1436,7 @@ pub(crate) fn layout_xychart_diagram_typed(
     );
     let theme_cfg = series_paint.css_binding();
 
-    let title = model
+    let title = match model
         .title
         .as_deref()
         .map(str::trim)
@@ -1266,8 +1445,10 @@ pub(crate) fn layout_xychart_diagram_typed(
             diagram_title
                 .map(str::trim)
                 .filter(|title| !title.is_empty())
-        })
-        .unwrap_or_default()
+        }) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    }
         .to_owned();
     let mut chart_width =
         reserved_plot_span(chart_cfg.width, chart_cfg.plot_reserved_space_percent)?;
@@ -1290,31 +1471,43 @@ pub(crate) fn layout_xychart_diagram_typed(
         Vec::with_capacity(model.plots.len().saturating_mul(2).saturating_add(4));
 
     let (x_axis_kind, x_axis_title) = match &model.x_axis {
-        XyChartAxisModel::Band { title, categories } => (
+        XyChartAxisModel::Band { title: title_2, categories } => (
             AxisKind::Band {
                 categories: categories.clone(),
             },
-            title.clone(),
+            title_2.clone(),
         ),
-        XyChartAxisModel::Linear { title, min, max } => (
+        XyChartAxisModel::Linear { title: title_3, min, max } => (
             AxisKind::Linear {
-                domain: (min.unwrap_or(0.0), max.unwrap_or(1.0)),
+                domain: (match *(min) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                }, match *(max) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 1.0,
+                }),
             },
-            title.clone(),
+            title_3.clone(),
         ),
     };
     let (y_axis_kind, y_axis_title) = match &model.y_axis {
-        XyChartAxisModel::Band { title, categories } => (
+        XyChartAxisModel::Band { title: title_4, categories } => (
             AxisKind::Band {
                 categories: categories.clone(),
             },
-            title.clone(),
+            title_4.clone(),
         ),
-        XyChartAxisModel::Linear { title, min, max } => (
+        XyChartAxisModel::Linear { title: title_5, min, max } => (
             AxisKind::Linear {
-                domain: (min.unwrap_or(0.0), max.unwrap_or(1.0)),
+                domain: (match *(min) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                }, match *(max) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 1.0,
+                }),
             },
-            title.clone(),
+            title_5.clone(),
         ),
     };
 
@@ -1349,7 +1542,7 @@ pub(crate) fn layout_xychart_diagram_typed(
             .plots
             .iter()
             .enumerate()
-            .filter(|(_, plot)| plot.title.as_deref().is_some_and(|title| !title.is_empty()))
+            .filter(|(_, plot)| plot.title.as_deref().is_some_and(|title_6| !title_6.is_empty()))
             .collect::<Vec<_>>()
     } else {
         Vec::new()
@@ -1394,14 +1587,17 @@ pub(crate) fn layout_xychart_diagram_typed(
             typography_theme.font_family_css(),
             text_measurer,
         );
-        if legend_space.width == 0.0 && legend_space.height == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(legend_space.width), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f64::classify(legend_space.height), ::core::num::FpCategory::Zero) {
             legend_plots.clear();
         }
+
         available_width = (available_width - legend_space.width).max(0.0);
 
         if available_width > 0.0 {
             chart_width += available_width;
         }
+
         if available_height > 0.0 {
             chart_height += available_height;
         }
@@ -1459,14 +1655,17 @@ pub(crate) fn layout_xychart_diagram_typed(
             typography_theme.font_family_css(),
             text_measurer,
         );
-        if legend_space.width == 0.0 && legend_space.height == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(legend_space.width), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f64::classify(legend_space.height), ::core::num::FpCategory::Zero) {
             legend_plots.clear();
         }
+
         available_width = (available_width - legend_space.width).max(0.0);
 
         if available_width > 0.0 {
             chart_width += available_width;
         }
+
         if available_height > 0.0 {
             chart_height += available_height;
         }
@@ -1501,8 +1700,8 @@ pub(crate) fn layout_xychart_diagram_typed(
     ])?;
 
     if show_chart_title {
-        // The title owns a row above both plot and legend. Center it over the plot,
-        // allowing a wide title to span legend columns while staying inside the chart.
+
+
         let half_width = title_dimension.width.min(chart_cfg.width) / 2.0;
         let title_x = (plot_rect.x + plot_rect.width / 2.0)
             .max(half_width)
@@ -1552,12 +1751,15 @@ pub(crate) fn layout_xychart_diagram_typed(
                 finite_geometry([bar_width])?;
 
                 let mut rects: Vec<XyChartRectData> = Vec::with_capacity(plot.data.len());
+
                 for (cat, value) in &plot.data {
                     let x = x_axis.get_scale_value(cat);
                     let y = y_axis.get_scale_number(*value);
+
                     if value.is_some() {
                         finite_geometry([x, y])?;
                     }
+
                     let rect = if chart_cfg.chart_orientation == "horizontal" {
                         XyChartRectData {
                             x: plot_rect.x,
@@ -1583,9 +1785,11 @@ pub(crate) fn layout_xychart_diagram_typed(
                                 .expect("resolved series width"),
                         }
                     };
+
                     if value.is_some() {
                         finite_geometry([rect.x, rect.y, rect.width, rect.height])?;
                     }
+
                     rects.push(rect);
                 }
 
@@ -1596,83 +1800,96 @@ pub(crate) fn layout_xychart_diagram_typed(
             }
             XyChartPlotType::Line => {
                 let mut points: Vec<(f64, f64)> = Vec::with_capacity(plot.data.len());
+
                 for (cat, value) in &plot.data {
                     let x = x_axis.get_scale_value(cat);
                     let y = y_axis.get_scale_number(*value);
+
                     if value.is_some() {
                         finite_geometry([x, y])?;
                     }
+
                     points.push(if chart_cfg.chart_orientation == "horizontal" {
                         (y, x)
                     } else {
                         (x, y)
                     });
                 }
-                if let Some(path) = line_path(&points) {
-                    drawables.push(XyChartDrawableElem::Path {
-                        group_texts: vec!["plot".to_string(), format!("line-plot-{plot_index}")],
-                        data: vec![XyChartPathData {
-                            path,
-                            fill: (fill_color != "none").then(|| fill_color.to_string()),
-                            stroke_fill: stroke_color.to_string(),
-                            stroke_width: series_paint
-                                .stroke_width(plot_index)
-                                .expect("resolved series width"),
-                        }],
-                    });
-                    if !plot.point_labels.is_empty() {
-                        let label_offset = 10.0;
-                        let font_size = 12.0;
-                        let labels = points
-                            .iter()
-                            .enumerate()
-                            .filter_map(|(idx, (px, py))| {
-                                let label = plot.point_labels.get(idx)?;
-                                if label.is_empty() {
-                                    return None;
-                                }
-                                let (x, y, vertical_pos, horizontal_pos) =
-                                    if chart_cfg.chart_orientation == "horizontal" {
-                                        (
-                                            px + label_offset,
-                                            *py,
-                                            "middle".to_string(),
-                                            "left".to_string(),
-                                        )
-                                    } else {
-                                        (
-                                            *px,
-                                            py - label_offset,
-                                            "middle".to_string(),
-                                            "center".to_string(),
-                                        )
-                                    };
-                                Some(XyChartTextData {
-                                    text: label.clone(),
-                                    x,
-                                    y,
-                                    fill: series_paint
-                                        .point_label_fill_css(plot_index)
-                                        .expect("resolved point-label paint")
-                                        .to_string(),
-                                    font_size,
-                                    rotation: 0.0,
-                                    vertical_pos,
-                                    horizontal_pos,
-                                })
-                            })
-                            .collect::<Vec<_>>();
-                        if !labels.is_empty() {
-                            drawables.push(XyChartDrawableElem::Text {
-                                group_texts: vec![
-                                    "plot".to_string(),
-                                    format!("line-plot-{plot_index}"),
-                                    "labels".to_string(),
-                                ],
-                                data: labels,
+
+                {
+                    match line_path(&points) {
+                        Some(path) => {
+                            drawables.push(XyChartDrawableElem::Path {
+                                group_texts: vec!["plot".to_string(), format!("line-plot-{plot_index}")],
+                                data: vec![XyChartPathData {
+                                    path,
+                                    fill: (fill_color != "none").then(|| fill_color.to_string()),
+                                    stroke_fill: stroke_color.to_string(),
+                                    stroke_width: series_paint
+                                        .stroke_width(plot_index)
+                                        .expect("resolved series width"),
+                                }],
                             });
-                        }
-                    }
+
+                            if !plot.point_labels.is_empty() {
+                                let label_offset = 10.0;
+                                let font_size = 12.0;
+                                let labels = points
+                                    .iter()
+                                    .enumerate()
+                                    .filter_map(|(idx, (px, py))| {
+                                        let label = plot.point_labels.get(idx)?;
+
+                                        if label.is_empty() {
+                                            return None;
+                                        }
+
+                                        let (x, y, vertical_pos, horizontal_pos) =
+                                            if chart_cfg.chart_orientation == "horizontal" {
+                                                (
+                                                    px + label_offset,
+                                                    *py,
+                                                    "middle".to_string(),
+                                                    "left".to_string(),
+                                                )
+                                            } else {
+                                                (
+                                                    *px,
+                                                    py - label_offset,
+                                                    "middle".to_string(),
+                                                    "center".to_string(),
+                                                )
+                                            };
+                                        Some(XyChartTextData {
+                                            text: label.clone(),
+                                            x,
+                                            y,
+                                            fill: series_paint
+                                                .point_label_fill_css(plot_index)
+                                                .expect("resolved point-label paint")
+                                                .to_string(),
+                                            font_size,
+                                            rotation: 0.0,
+                                            vertical_pos,
+                                            horizontal_pos,
+                                        })
+                                    })
+                                    .collect::<Vec<_>>();
+
+                                if !labels.is_empty() {
+                                    drawables.push(XyChartDrawableElem::Text {
+                                        group_texts: vec![
+                                            "plot".to_string(),
+                                            format!("line-plot-{plot_index}"),
+                                            "labels".to_string(),
+                                        ],
+                                        data: labels,
+                                    });
+                                }
+                            }
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         }
@@ -1683,6 +1900,7 @@ pub(crate) fn layout_xychart_diagram_typed(
             message: "XY Chart legend plan was already finalized".to_owned(),
         });
     }
+
     drawables.extend(legend_drawable_elements(
         &legend_plots,
         legend_origin,
@@ -1695,19 +1913,23 @@ pub(crate) fn layout_xychart_diagram_typed(
     drawables.extend(y_axis.drawable_elements());
 
     let label_data = if chart_cfg.show_data_label {
-        model
+        match model
             .plots
             .first()
             .map(|p| {
                 p.data
                     .iter()
                     .map(|(_, y)| {
-                        y.map(|v| format!("{v}"))
-                            .unwrap_or_else(|| "null".to_string())
+                        match y.map(|v| format!("{v}")) {
+                            ::core::option::Option::Some(explicit_present) => explicit_present,
+                            ::core::option::Option::None => "null".to_string(),
+                        }
                     })
                     .collect()
-            })
-            .unwrap_or_default()
+            }) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        }
     } else {
         Vec::new()
     };
@@ -1739,6 +1961,7 @@ pub(crate) struct XyChartRectDataLabel<'a> {
 
 pub(crate) const XY_CHART_DATA_LABEL_INSET_PX: f64 = 10.0;
 
+#[must_use]
 pub(crate) fn rect_data_labels<'a>(
     data: &'a [XyChartRectData],
     labels: &'a [String],
@@ -1757,6 +1980,7 @@ pub(crate) fn rect_data_labels<'a>(
         })
         .collect::<Vec<_>>();
     let mut min_font = f64::INFINITY;
+
     for item in &items {
         let fs = if orientation == "horizontal" {
             horizontal_label_font_size(
@@ -1782,6 +2006,7 @@ pub(crate) fn rect_data_labels<'a>(
         };
         min_font = min_font.min(fs);
     }
+
     let font_size = if min_font.is_finite() { min_font } else { 0.0 }
         .floor()
         .max(0.0);
@@ -1790,6 +2015,7 @@ pub(crate) fn rect_data_labels<'a>(
 
 /// Mermaid uses JavaScript's `String#length` for XYChart bar labels, which counts UTF-16 code
 /// units rather than Unicode scalar values.
+#[must_use]
 fn javascript_string_length(text: &str) -> f64 {
     text.encode_utf16().count() as f64
 }
@@ -1801,19 +2027,23 @@ fn javascript_string_length(text: &str) -> f64 {
 /// subtracting one, so the browser algorithm never terminates. The fit predicates are monotonic;
 /// solving their upper bound directly preserves the same discrete candidate for normal values and
 /// makes extreme finite dimensions terminate in constant time.
+#[must_use]
 fn font_size_after_unit_decrements(initial: f64, maximum_that_fits: f64) -> f64 {
     if !(initial.is_finite() && initial > 0.0) || maximum_that_fits.is_nan() {
         return 0.0;
     }
+
     if maximum_that_fits >= initial {
         return initial;
     }
+
     if maximum_that_fits <= 0.0 {
         return 0.0;
     }
 
     let decrements = (initial - maximum_that_fits).ceil();
     let candidate = initial - decrements;
+
     if candidate.is_finite() && candidate > 0.0 {
         candidate
     } else {
@@ -1821,6 +2051,7 @@ fn font_size_after_unit_decrements(initial: f64, maximum_that_fits: f64) -> f64 
     }
 }
 
+#[must_use]
 fn horizontal_label_font_size(item_width: f64, label: &str, initial: f64, inset_px: f64) -> f64 {
     let denominator = javascript_string_length(label) * 0.7;
     let maximum_that_fits = if denominator > 0.0 {
@@ -1831,6 +2062,7 @@ fn horizontal_label_font_size(item_width: f64, label: &str, initial: f64, inset_
     font_size_after_unit_decrements(initial, maximum_that_fits)
 }
 
+#[must_use]
 fn vertical_label_font_size(
     item_width: f64,
     item_height: f64,

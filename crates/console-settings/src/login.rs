@@ -14,7 +14,7 @@
 //! login there is nowhere else to go, and here there always is.
 
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
 use console_input_event_devices::presses::ButtonPress;
 use console_login_greeter::greeting::{Greeting, Status};
 use console_login_pattern::{Clicked, Direction, Pattern, Secret, Touch};
@@ -55,6 +55,14 @@ pub enum LoginPatternEvent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum LoginPatternEffect {
   Save(Secret),
+}
+
+impl EffectDependencies for LoginPatternEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Save(_) => &[Service::FileSystem],
+    })
+  }
 }
 
 pub struct LoginPattern;

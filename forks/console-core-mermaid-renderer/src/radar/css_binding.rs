@@ -21,6 +21,7 @@ pub(crate) struct RadarCssBinding {
 }
 
 impl RadarCssBinding {
+    #[must_use]
     pub(crate) fn resolve(config: &serde_json::Value) -> Self {
         let color = |key: &str, fallback: &str| {
             config_string(config, &["themeVariables", key]).unwrap_or_else(|| fallback.to_string())
@@ -31,9 +32,11 @@ impl RadarCssBinding {
                 .unwrap_or_else(|| fallback.to_string())
         };
         let scoped_number = |key: &str, fallback: f64| {
-            config_f64(config, &["radar", key])
-                .or_else(|| config_f64(config, &["themeVariables", "radar", key]))
-                .unwrap_or(fallback)
+            match config_f64(config, &["radar", key])
+                .or_else(|| config_f64(config, &["themeVariables", "radar", key])) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => fallback,
+            }
         };
         Self {
             text_color: color("textColor", "#333"),

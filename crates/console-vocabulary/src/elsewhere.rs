@@ -100,7 +100,7 @@ impl Elsewhere {
           }
         }
         Origin::Arch => {}
-        Origin::Developing | Origin::Handheld => {}
+        Origin::Developing | Origin::Handheld | Origin::Optional => {}
       }
     }
 

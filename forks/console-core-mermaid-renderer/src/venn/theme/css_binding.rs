@@ -286,12 +286,13 @@ impl VennCssBinding {
         work_meter: &crate::resources::OperationWorkMeter,
     ) -> crate::Result<Self> {
         let option = |key: &str| config_string(config, &["themeVariables", key]);
-        let dark = is_dark(&option("background").unwrap_or_else(|| "#f4f4f4".into()))?;
+        let dark = is_dark(&option("background").unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("#f4f4f4")))?;
         let palette = (1..=8)
             .filter_map(|index| option(&format!("venn{index}")).map(|color| (index, color)))
             .collect::<Vec<_>>();
-        let primary = option("primaryColor").unwrap_or_else(|| "#ECECFF".into());
+        let primary = option("primaryColor").unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("#ECECFF"));
         let mut styles = HashMap::<String, BTreeMap<String, String>>::new();
+
         for entry in &model.style_entries {
             work_meter.charge(1)?;
             styles
@@ -299,24 +300,26 @@ impl VennCssBinding {
                 .or_default()
                 .extend(entry.styles.clone());
         }
+
         let set_text_color = text_fill
             .map(str::to_owned)
             .or_else(|| option("vennSetTextColor"))
             .or_else(|| option("primaryTextColor"))
             .or_else(|| option("textColor"))
-            .unwrap_or_else(|| "#333".into());
+            .unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("#333"));
         let mut circle_index = 0usize;
-        let areas = layout
+        let areas = { let checked_value = layout
             .areas
             .iter()
             .map(|area| {
                 let source = styles.get(&area.sets.join("|"));
                 let value = |key: &str| {
                     source
-                        .and_then(|source| source.get(key))
+                        .and_then(|source_2| source_2.get(key))
                         .filter(|value| !value.trim().is_empty())
                         .cloned()
                 };
+
                 if area.sets.len() != 1 {
                     let source_text = value("color");
                     return Ok(VennAreaPaintBinding::Intersection {
@@ -325,10 +328,11 @@ impl VennCssBinding {
                         text: source_text.unwrap_or_else(|| set_text_color.clone()),
                     });
                 }
+
                 work_meter.charge(1)?;
                 let fill = value("fill").unwrap_or_else(|| {
                     palette
-                        .get(circle_index % palette.len().max(1))
+                        .get(circle_index.wrapping_rem(palette.len().max(1)))
                         .map(|(_, color)| color.clone())
                         .unwrap_or_else(|| primary.clone())
                 });
@@ -338,7 +342,7 @@ impl VennCssBinding {
                     None => darken(&fill, 30.0)?,
                 };
                 let fill_config_role = palette
-                    .get(circle_index % palette.len().max(1))
+                    .get(circle_index.wrapping_rem(palette.len().max(1)))
                     .map(|(index, _)| *index);
                 circle_index += 1;
                 Ok(VennAreaPaintBinding::Circle(VennCirclePaintBinding {
@@ -346,7 +350,10 @@ impl VennCssBinding {
                     source_stroke_owned: value("stroke").is_some(),
                     source_text_owned: value("color").is_some(),
                     fill_config_role,
-                    fill_opacity: value("fill-opacity").unwrap_or_else(|| "0.1".into()),
+                    fill_opacity: match value("fill-opacity") {
+                        ::core::option::Option::Some(present) => present,
+                        ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("0.1"),
+                    },
                     stroke: value("stroke").unwrap_or_else(|| fill.clone()),
                     stroke_width: value("stroke-width").unwrap_or_else(|| {
                         crate::number_format::canonical_number(5.0 * layout.scale).to_string()
@@ -355,7 +362,7 @@ impl VennCssBinding {
                     text,
                 }))
             })
-            .collect::<crate::Result<Vec<_>>>()?
+            .collect::<crate::Result<Vec<_>>>()?; checked_value }
             .into_boxed_slice();
         let text_node_colors = layout
             .text_nodes
@@ -373,7 +380,7 @@ impl VennCssBinding {
                 .map(str::to_owned)
                 .or_else(|| option("vennTitleTextColor"))
                 .or_else(|| option("titleColor"))
-                .unwrap_or_else(|| "#333".into()),
+                .unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("#333")),
             set_text_color,
             areas,
             text_node_colors,

@@ -7,16 +7,13 @@
 //! note is a scale degree rather than a frequency, and [`synthesis`] is what
 //! turns one into sound. [`catalogue`] is every cue this desktop plays, by name.
 //!
-//! A cue is played by rendering it here and handing the samples to pw-cat, the
-//! player the music player already speaks to. No sound file and no sound theme:
+//! A cue is rendered here and played through the shared desktop audio stream.
+//! No sound file and no sound theme:
 //! the freedesktop theme has no tick for a list, and a synthesised one can be
 //! pitched, which is what lets a row further down sound higher than the one
 //! above it.
 //!
-//! [`play`] never waits for the sound. The samples fit in a pipe's buffer, so
-//! the write returns at once and pw-cat drains them after its input has closed;
-//! a thread of its own collects pw-cat when it is done, so a panel stepping all
-//! evening leaves nothing behind it.
+//! [`play`] submits the samples and returns while the audio stream drains.
 //!
 //! The volume preview uses the same note at every setting. Its sink sets its
 //! loudness, and the rendered note supplies the reference for balance.
@@ -31,16 +28,14 @@ pub mod catalogue;
 pub mod synthesis;
 
 use std::fmt;
-use std::fs::{File, OpenOptions, TryLockError};
-use std::io::{self, Write};
+use std::fs::{OpenOptions, TryLockError};
+use std::io;
 use std::num::NonZeroU32;
-use std::process::Stdio;
 use std::time::Duration;
 
-use console_core_external_programs::Program;
+use console_audio_streams::{CueError, Pcm, Sample, VolumePreview, play_cue};
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_program_lifetime::threads;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Voice {
@@ -127,9 +122,7 @@ impl SoundEffects {
 pub enum PlaybackError {
   Cue(synthesis::RenderError),
   PreviewLock(io::Error),
-  NotStarted(io::Error),
-  NotWritten(io::Error),
-  NoInput,
+  Output(CueError),
 }
 
 impl fmt::Display for PlaybackError {
@@ -139,21 +132,27 @@ impl fmt::Display for PlaybackError {
       PlaybackError::PreviewLock(fault) => {
         write!(formatter, "could not reserve the volume preview: {fault}")
       }
-      PlaybackError::NotStarted(fault) => write!(formatter, "pw-cat would not start: {fault}"),
-      PlaybackError::NotWritten(fault) => {
-        write!(formatter, "pw-cat would not take the sound: {fault}")
-      }
-      PlaybackError::NoInput => write!(formatter, "pw-cat was started with nothing to write to"),
+      PlaybackError::Output(fault) => write!(formatter, "{fault}"),
     }
   }
 }
 
+const CUE_PCM: Pcm = Pcm {
+  rate_hz: synthesis::RATE,
+  channels: 1,
+  sample: Sample::I16,
+};
+
 pub fn play(cue: &Cue, root: Degree) -> Result<(), PlaybackError> {
   let mut sound = synthesis::render(cue, root).map_err(PlaybackError::Cue)?;
-  let mut balance = balance::Balance::new(synthesis::RATE, 1).map_err(PlaybackError::Cue)?;
+  let format = balance::PlaybackFormat {
+    sample_rate_hz: synthesis::RATE,
+    channels: CUE_PCM.channels,
+  };
+  let mut balance = balance::Balance::new(format).map_err(PlaybackError::Cue)?;
   let Ok(()) = balance.apply_mono_pcm16(&mut sound);
 
-  play_samples(&sound, None)
+  play_cue(CUE_PCM, &sound, None).map_err(PlaybackError::Output)
 }
 
 fn volume_samples() -> Result<Vec<u8>, synthesis::RenderError> {
@@ -162,6 +161,13 @@ fn volume_samples() -> Result<Vec<u8>, synthesis::RenderError> {
   synthesis::render(&cue, Degree(10))
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit040_no_torn_write",
+  expect(
+    explicit040_no_torn_write,
+    reason = "the process holds an advisory lock on this file's inode and writes no bytes to the file"
+  )
+)]
 pub fn play_volume(sink: &str) -> Result<(), PlaybackError> {
   let Ok(runtime) = console_core_places::runtime_or_user();
   let lock = OpenOptions::new()
@@ -174,73 +180,12 @@ pub fn play_volume(sink: &str) -> Result<(), PlaybackError> {
     Ok(()) => {
       let sound = volume_samples().map_err(PlaybackError::Cue)?;
 
-      play_samples(&sound, Some((sink, lock)))
+      play_cue(CUE_PCM, &sound, Some(VolumePreview { target: sink, lock }))
+        .map_err(PlaybackError::Output)
     }
     Err(TryLockError::WouldBlock) => Ok(()),
     Err(TryLockError::Error(fault)) => Err(PlaybackError::PreviewLock(fault)),
   }
-}
-
-fn play_samples(sound: &[u8], preview: Option<(&str, File)>) -> Result<(), PlaybackError> {
-  let Ok(mut asking) = Program::PwCat.command();
-
-  match preview {
-    Some((sink, lock)) => {
-      asking.args([
-        "--target",
-        sink,
-        "--properties",
-        concat!(
-          "{ application.name = \"Volume Preview\" ",
-          "console.balance.preview = true ",
-          "state.restore-props = false state.default-volume = 1.0 ",
-          "state.restore-target = false node.dont-fallback = true ",
-          "node.dont-reconnect = true node.dont-move = true }",
-        ),
-      ]);
-      // The detached player inherits the lock on its unused standard output.
-      // This keeps repeated presses from summing until the cue finishes.
-      asking.stdout(Stdio::from(lock));
-    }
-    None => {
-      asking.stdout(Stdio::null());
-    }
-  }
-
-  asking
-    .args([
-      "--playback",
-      "--raw",
-      "--format",
-      "s16",
-      "--rate",
-      &synthesis::RATE.to_string(),
-    ])
-    .args(["--channels", "1", "-"])
-    .stdin(Stdio::piped())
-    .stderr(Stdio::null());
-
-  let mut playing =
-    console_program_lifetime::let_go(&mut asking).map_err(PlaybackError::NotStarted)?;
-  let Ok(writing) = playing.take_stdin();
-
-  let written = match writing {
-    Some(mut input) => input.write_all(sound).map_err(PlaybackError::NotWritten),
-    None => Err(PlaybackError::NoInput),
-  };
-
-  let Ok(()) = threads::let_go(std::thread::spawn(move || {
-    #[cfg_attr(
-      dylint_lib = "explicit060_no_reasonless_discard",
-      expect(
-        explicit060_no_reasonless_discard,
-        reason = "this worker reaps a detached optional sound effect; its exit status cannot change the input that already triggered the cue"
-      )
-    )]
-    let _ = playing.wait();
-  }));
-
-  written
 }
 
 #[cfg(test)]

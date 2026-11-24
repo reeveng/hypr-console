@@ -12,10 +12,11 @@
 //! `ParseError` from a field is a snapshot written by a different layout, not
 //! a bad disk.
 
-use std::fmt;
-#[cfg(unix)]
+use alloc::{string::String, vec::Vec};
+use core::fmt;
+#[cfg(all(feature = "std", unix))]
 use std::os::unix::ffi::{OsStrExt, OsStringExt};
-#[cfg(unix)]
+#[cfg(all(feature = "std", unix))]
 use std::path::PathBuf;
 
 use console_core_never::Never;
@@ -54,7 +55,7 @@ impl fmt::Display for ParseError {
   }
 }
 
-impl std::error::Error for ParseError {}
+impl core::error::Error for ParseError {}
 
 pub trait Serializable: Sized {
   fn encode(&self, encoder: &mut Encoder) -> Result<(), Never>;
@@ -201,7 +202,7 @@ impl Serializable for String {
   }
 }
 
-#[cfg(unix)]
+#[cfg(all(feature = "std", unix))]
 impl Serializable for PathBuf {
   fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
     encoder.counted(self.as_os_str().as_bytes())

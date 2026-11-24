@@ -5,6 +5,15 @@
 //! stopping rules; only the platform supplies time, arrivals and effect results.
 //! GTK panels drive the same program contract through their own toolkit loop.
 //!
+//! [`Interpreter`] supplies the Linux services for custom effects and events.
+//! It returns a reply when the machine can decide how to recover from a failure.
+//! Returning `Err` ends the run and invokes [`Interpreter::finish`], which releases
+//! the resources acquired by this run, including after a failed `listen`.
+//! [`execute`] returns the typed outcome to the caller. [`run`] presents the
+//! outcome at the terminal and returns its process exit code.
+//! [`for_each`] runs a finite batch of independent service operations with a
+//! [`Cores`] limit and returns per-item replies in input order.
+//!
 //! Linux waits on one channel until an arrival or the earliest timer deadline.
 //! The event pool and interpreter's listener feed that channel. An interpreter
 //! that listens keeps the program alive until it sends `Tell::end`; otherwise,
@@ -44,7 +53,11 @@
 //! into a full channel is a loop waiting for itself.
 
 pub mod commands;
+pub mod compute;
+mod executables;
 mod jobs;
+
+pub use console_concurrency::{Cores, for_each};
 
 use std::collections::BTreeMap;
 use std::process::ExitCode;
@@ -53,18 +66,19 @@ use std::time::{Instant, SystemTime};
 
 use commands::{Linux as CommandPlatform, Timing};
 use console_core_atomic_writes::Unwritten;
-use console_core_external_programs::Program as ExternalProgram;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::index;
-use console_core_state_machine::Machine;
+use console_core_state_machine::{EffectDependencies, Machine};
 use console_program_contract::{
-  Answer, Choice, Command, Effect, Elapsed, Event, Exit, ExitStatus, FileWrite, Task,
-  Notification, Prompt, Subscription, Timer, WriteAnswer, WriteFailure, WriteStage,
+  Answer, Choice, Command, Effect, Elapsed, Event, Exit, ExitStatus, FileWrite, Notification,
+  Prompt, Subscription, Task, Timer, WriteAnswer, WriteFailure, WriteStage,
 };
 use console_program_lifetime::threads;
 use console_program_runtime::commands::{self as execution_commands, Launch, Streams};
-use console_program_runtime::{Invocation, Limit, Platform, Wake, provide};
+use console_program_runtime::{
+  Clock as RuntimeClock, Completed, ExecutionError, Invocation, Limit, Platform, Wake, provide,
+};
 
 use crate::events::subscription::{self, Received, Subscriptions};
 use jobs::Tasks;
@@ -107,20 +121,33 @@ impl Clock {
 
 pub trait Interpreter {
   type Event;
-  type Effect;
+  type Effect: EffectDependencies;
+  type Error: std::error::Error + 'static;
 
-  fn interpret(&mut self, effect: &Self::Effect, clock: &Clock) -> Vec<Event<Self::Event>>;
+  fn interpret(
+    &mut self,
+    effect: &Self::Effect,
+    clock: &Clock,
+  ) -> Result<Vec<Event<Self::Event>>, Self::Error>;
 
-  fn tick(&mut self, _timer: &Timer, _since: Elapsed) -> Result<Vec<Event<Self::Event>>, Never> {
+  fn tick(
+    &mut self,
+    _timer: &Timer,
+    _since: Elapsed,
+  ) -> Result<Vec<Event<Self::Event>>, Self::Error> {
     Ok(Vec::new())
   }
 
-  fn connected(&mut self) -> Result<Option<Self::Event>, Never> {
+  fn connected(&mut self) -> Result<Option<Self::Event>, Self::Error> {
     Ok(None)
   }
 
-  fn listen(&mut self, _tell: Tell<Self::Event>) -> Result<Subscribed, Never> {
+  fn listen(&mut self, _tell: Tell<Self::Event>) -> Result<Subscribed, Self::Error> {
     Ok(Subscribed::No)
+  }
+
+  fn finish(&mut self) -> Result<(), Self::Error> {
+    Ok(())
   }
 }
 
@@ -164,8 +191,9 @@ pub struct Pure;
 impl Interpreter for Pure {
   type Event = Never;
   type Effect = Never;
+  type Error = Never;
 
-  fn interpret(&mut self, effect: &Never, _clock: &Clock) -> Vec<Event<Never>> {
+  fn interpret(&mut self, effect: &Never, _clock: &Clock) -> Result<Vec<Event<Never>>, Never> {
     match *effect {}
   }
 }
@@ -177,6 +205,7 @@ struct Linux<'a, C: Interpreter> {
   arrived: Option<Receiver<Arrived<C::Event>>>,
   forking: SyncSender<Arrived<C::Event>>,
   jobs: Tasks,
+  commands: CommandPlatform,
   listening: Subscribed,
   clock: Clock,
 }
@@ -186,18 +215,30 @@ where
   M: Machine<Request = Event<C::Event>, Effect = Effect<C::Effect>>,
   C: Interpreter<Event: Send + 'static>,
 {
+  match execute::<M, C>(called, input, interpreter) {
+    Ok(completed) => ended(called, completed.exit),
+    Err(error) => ended(called, Exit::Failure(error.to_string())),
+  }
+}
+
+pub fn execute<M, C>(
+  called: &str,
+  input: &M::Input,
+  interpreter: &mut C,
+) -> Result<Completed<M::State>, ExecutionError<C::Error>>
+where
+  M: Machine<Request = Event<C::Event>, Effect = Effect<C::Effect>>,
+  C: Interpreter<Event: Send + 'static>,
+{
   let Ok(subscriber) = subscription::connect(&[]);
   let Ok((subscriptions, pool)) = subscriber.split();
   let Ok(room) = index(ARRIVING);
   let (telling, arrived) = sync_channel::<Arrived<C::Event>>(room);
   let carrying = telling.clone();
-  let forking = telling.clone();
 
   let Ok(()) = threads::let_go(std::thread::spawn(move || {
     let Ok(()) = forward_pool(pool, carrying);
   }));
-
-  let Ok(listening) = interpreter.listen(Tell(telling));
 
   #[cfg_attr(
     dylint_lib = "explicit039_no_reading_the_clock",
@@ -207,27 +248,22 @@ where
     )
   )]
   let began = Instant::now();
+  let Ok(commands) = CommandPlatform::new(Timing::Inherited);
   let mut platform = Linux {
     called,
     interpreter,
     subscriptions,
     arrived: Some(arrived),
-    forking,
+    forking: telling,
     jobs: Tasks::default(),
-    listening,
+    commands,
+    listening: Subscribed::No,
     clock: Clock { began },
   };
 
   let Ok(program) = provide::<M, _>(input, &mut platform, Limit::Unbounded);
 
-  match program.run() {
-    Ok(completed) => ended(called, completed.exit),
-    Err(error) => {
-      eprintln!("{called}: {error}");
-
-      Ok(ExitCode::FAILURE)
-    }
-  }
+  program.run()
 }
 
 #[cfg_attr(
@@ -251,20 +287,29 @@ fn forward_pool<E>(
   Ok(())
 }
 
+impl<C: Interpreter> RuntimeClock for Linux<'_, C> {
+  fn elapsed(&self) -> Result<Elapsed, Never> {
+    Ok(self.clock.began.elapsed())
+  }
+}
+
 impl<C: Interpreter<Event: Send + 'static>> Platform for Linux<'_, C> {
   type Event = C::Event;
   type Effect = C::Effect;
-  type Error = Never;
+  type Error = C::Error;
 
-  fn elapsed(&self) -> Result<Elapsed, Never> {
-    Ok(self.clock.began.elapsed())
+  fn start(&mut self) -> Result<(), C::Error> {
+    let listening = self.interpreter.listen(Tell(self.forking.clone()))?;
+    self.listening = listening;
+
+    Ok(())
   }
 
   fn listening(&self) -> Result<Subscribed, Never> {
     Ok(self.listening)
   }
 
-  fn receive(&mut self, deadline: Option<Elapsed>) -> Result<Wake<C::Event>, Never> {
+  fn receive(&mut self, deadline: Option<Elapsed>) -> Result<Wake<C::Event>, C::Error> {
     let result = console_core_iteration::iterate(self, |platform| {
       let Ok(now) = platform.elapsed();
 
@@ -273,7 +318,7 @@ impl<C: Interpreter<Event: Send + 'static>> Platform for Linux<'_, C> {
 
         match optional_arrived {
           Some(matched_arrived) => matched_arrived,
-          ::core::option::Option::None => return Ok(Step::Halt(Wake::Disconnected)),
+          ::core::option::Option::None => return Ok(Step::Halt(Ok(Wake::Disconnected))),
         }
       };
 
@@ -287,66 +332,68 @@ impl<C: Interpreter<Event: Send + 'static>> Platform for Linux<'_, C> {
       let arrival = match deadline {
         Some(due) => match arrived.recv_timeout(due.saturating_sub(now)) {
           Ok(arrived_2) => arrived_2,
-          Err(RecvTimeoutError::Timeout) => return Ok(Step::Halt(Wake::Deadline)),
+          Err(RecvTimeoutError::Timeout) => return Ok(Step::Halt(Ok(Wake::Deadline))),
           Err(RecvTimeoutError::Disconnected) => {
-            return Ok(Step::Halt(Wake::Disconnected));
+            return Ok(Step::Halt(Ok(Wake::Disconnected)));
           }
         },
         None => match arrived.recv() {
           Ok(arrived_3) => arrived_3,
-          Err(_disconnected) => return Ok(Step::Halt(Wake::Disconnected)),
+          Err(_disconnected) => return Ok(Step::Halt(Ok(Wake::Disconnected))),
         },
       };
 
       Ok(match arrival {
-        Arrived::Pool(Received::Connected) => {
-          let Ok(refresh) = platform.interpreter.connected();
-
-          match refresh {
-            Some(event) => Step::Halt(Wake::Event(Event::Custom(event))),
-            None => Step::Again(platform),
-          }
-        }
+        Arrived::Pool(Received::Connected) => match platform.interpreter.connected() {
+          Ok(Some(event)) => Step::Halt(Ok(Wake::Event(Event::Custom(event)))),
+          Ok(None) => Step::Again(platform),
+          Err(error) => Step::Halt(Err(error)),
+        },
         Arrived::Pool(Received::Event(change)) => {
-          Step::Halt(Wake::Event(Event::Modified(change)))
+          Step::Halt(Ok(Wake::Event(Event::Modified(change))))
         }
-        Arrived::Custom(event) => Step::Halt(Wake::Event(Event::Custom(event))),
+        Arrived::Custom(event) => Step::Halt(Ok(Wake::Event(Event::Custom(event)))),
         Arrived::Reply(invocation, answer) => {
           let Ok(said) = platform.jobs.landed(invocation, answer);
 
-          Step::Halt(Wake::ForkReply(invocation, said))
+          Step::Halt(Ok(Wake::ForkReply(invocation, said)))
         }
-        Arrived::Ended(exit) => Step::Halt(Wake::Stop(exit)),
+        Arrived::Ended(exit) => Step::Halt(Ok(Wake::Stop(exit))),
       })
     });
 
-    Ok(match result {
+    match result {
       Ok(wake) => wake,
-      Err(_endless) => Wake::Disconnected,
-    })
+      Err(_endless) => Ok(Wake::Disconnected),
+    }
   }
 
   fn perform(
     &mut self,
     effect: &Effect<C::Effect>,
     invocation: Option<Invocation>,
-  ) -> Result<Vec<Event<C::Event>>, Never> {
+  ) -> Result<Vec<Event<C::Event>>, C::Error> {
     let events = match effect {
       Effect::Run(command) => {
-        let Ok(answer) = run_command(self.called, command, Streams::CAPTURE);
+        let Ok(answer) = run_command(self.called, &mut self.commands, command, Streams::CAPTURE);
 
         vec![Event::Replied(answer)]
       }
       Effect::Stream(command) => {
-        let Ok(answer) = run_command(self.called, command, Streams::INHERIT);
+        let Ok(answer) = run_command(self.called, &mut self.commands, command, Streams::INHERIT);
 
         vec![Event::Replied(answer)]
       }
       Effect::Fork(fork) => match invocation {
-        Some(issued) => match self.jobs.start(self.called, fork, issued, &self.forking) {
-          Ok(()) => Vec::new(),
-          Err(answer) => vec![Event::Replied(answer)],
-        },
+        Some(issued) => {
+          match self
+            .jobs
+            .start(self.called, &mut self.commands, fork, issued, &self.forking)
+          {
+            Ok(()) => Vec::new(),
+            Err(answer) => vec![Event::Replied(answer)],
+          }
+        }
         None => Vec::new(),
       },
       Effect::Interrupt(job) => {
@@ -360,12 +407,8 @@ impl<C: Interpreter<Event: Send + 'static>> Platform for Linux<'_, C> {
         vec![Event::Chosen(choice)]
       }
       Effect::Spawn(command) => {
-        let mut platform = CommandPlatform {
-          timing: Timing::Inherited,
-        };
-
         match execution_commands::spawn(
-          &mut platform,
+          &mut self.commands,
           command,
           Streams {
             stdout: execution_commands::Stream::Discard,
@@ -395,7 +438,7 @@ impl<C: Interpreter<Event: Send + 'static>> Platform for Linux<'_, C> {
         vec![Event::Written(answer)]
       }
       Effect::Notify(notification) => {
-        let Ok(()) = notify(self.called, notification);
+        let Ok(()) = notify(self.called, &mut self.commands, notification);
 
         Vec::new()
       }
@@ -411,7 +454,7 @@ impl<C: Interpreter<Event: Send + 'static>> Platform for Linux<'_, C> {
 
         Vec::new()
       }
-      Effect::Custom(custom) => self.interpreter.interpret(custom, &self.clock),
+      Effect::Custom(custom) => return self.interpreter.interpret(custom, &self.clock),
       Effect::Subscribe(Subscription::Timer(_) | Subscription::Once(_))
       | Effect::Unsubscribe(Subscription::Timer(_) | Subscription::Once(_))
       | Effect::Stop(_) => Vec::new(),
@@ -419,13 +462,15 @@ impl<C: Interpreter<Event: Send + 'static>> Platform for Linux<'_, C> {
     Ok(events)
   }
 
-  fn tick(&mut self, timer: &Timer, elapsed: Elapsed) -> Result<Vec<Event<C::Event>>, Never> {
+  fn tick(&mut self, timer: &Timer, elapsed: Elapsed) -> Result<Vec<Event<C::Event>>, C::Error> {
     self.interpreter.tick(timer, elapsed)
   }
 
-  fn finish(&mut self, _jobs: &BTreeMap<Task, Invocation>) -> Result<(), Never> {
+  fn finish(&mut self, _jobs: &BTreeMap<Task, Invocation>) -> Result<(), C::Error> {
     drop(self.arrived.take());
-    self.jobs.finish()
+    let Ok(()) = self.jobs.finish();
+
+    self.interpreter.finish()
   }
 }
 
@@ -440,29 +485,28 @@ fn ended(called: &str, how: Exit) -> Result<ExitCode, Never> {
   })
 }
 
-fn run_command(called: &str, command: &Command, streams: Streams) -> Result<Answer, Never> {
-  let mut platform = CommandPlatform {
-    timing: Timing::Inherited,
-  };
+fn run_command(
+  called: &str,
+  platform: &mut CommandPlatform,
+  command: &Command,
+  streams: Streams,
+) -> Result<Answer, Never> {
+  Ok(match execution_commands::run(platform, command, streams) {
+    Ok(answer) => answer,
+    Err(fault) => {
+      let Ok(name) = command.program.name();
 
-  Ok(
-    match execution_commands::run(&mut platform, command, streams) {
-      Ok(answer) => answer,
-      Err(fault) => {
-        let Ok(name) = command.program.name();
+      eprintln!("{called}: {name} did not run: {fault}");
 
-        eprintln!("{called}: {name} did not run: {fault}");
-
-        Answer {
-          job: None,
-          command: command.clone(),
-          output: String::new(),
-          error_output: fault.to_string(),
-          status: ExitStatus::Failure(None),
-        }
+      Answer {
+        job: None,
+        command: command.clone(),
+        output: String::new(),
+        error_output: fault.to_string(),
+        status: ExitStatus::Failure(None),
       }
-    },
-  )
+    }
+  })
 }
 
 #[cfg_attr(
@@ -528,18 +572,22 @@ fn wrote(called: &str, write: &FileWrite) -> Result<WriteAnswer, Never> {
   })
 }
 
-fn notify(called: &str, notification: &Notification) -> Result<(), Never> {
-  let arguments: Vec<&str> = std::iter::once(notification.summary.as_str())
-    .chain(notification.body.as_deref())
-    .collect();
-  let Ok(command) = Command::external(ExternalProgram::NotifySend, &arguments);
-  let mut platform = CommandPlatform {
-    timing: Timing::Background,
-  };
+fn notify(
+  called: &str,
+  platform: &mut CommandPlatform,
+  notification: &Notification,
+) -> Result<(), Never> {
+  let Ok(command) = crate::notification::Options::default()
+    .effect(&notification.summary, notification.body.as_deref());
+  let previous = std::mem::replace(&mut platform.timing, Timing::Background);
+  let delivered = execution_commands::run(platform, &command, Streams::INHERIT);
+  platform.timing = previous;
 
-  match execution_commands::run(&mut platform, &command, Streams::INHERIT) {
+  match delivered {
     Ok(_) => {}
-    Err(fault) => eprintln!("{called}: nothing was said on the screen: {fault}"),
+    Err(fault) => {
+      console_core_logging::warn!("{called}: nothing was said on the screen: {fault}")
+    }
   }
 
   Ok(())

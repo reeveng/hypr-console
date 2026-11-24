@@ -29,6 +29,20 @@ const PRIMARY: c_uint = 1;
 const PRIMARY_HELD: c_uint = 1 << 8;
 const SETTINGS_SOURCE_APPLICATION: c_int = 1;
 
+enum FindDirection {
+  Next,
+  Previous,
+}
+
+impl From<bool> for FindDirection {
+  fn from(backward: bool) -> Self {
+    match backward {
+      true => Self::Previous,
+      false => Self::Next,
+    }
+  }
+}
+
 #[repr(C)]
 struct GError {
   domain: u32,
@@ -78,6 +92,7 @@ unsafe extern "C" {
   fn g_signal_handler_disconnect(object: Handle, id: c_ulong);
 
   fn g_error_free(error: *mut GError);
+
   fn g_free(memory: Handle);
 
   fn g_type_check_instance_is_a(instance: Handle, ty: usize) -> c_int;
@@ -106,7 +121,9 @@ unsafe extern "C" {
   fn wpe_display_headless_new() -> Handle;
 
   fn wpe_display_connect(display: Handle, error: *mut *mut GError) -> c_int;
+
   fn wpe_display_get_settings(display: Handle) -> Handle;
+
   fn wpe_settings_set_boolean(
     settings: Handle,
     key: *const c_char,
@@ -185,11 +202,25 @@ unsafe extern "C" {
   fn webkit_web_view_get_type() -> usize;
 
   fn webkit_network_session_new_ephemeral() -> Handle;
+
   fn webkit_network_session_set_itp_enabled(session: Handle, enabled: c_int);
+
+  fn webkit_web_view_get_context(page: Handle) -> Handle;
+
+  fn webkit_web_context_set_preferred_languages(context: Handle, languages: *const *const c_char);
+
   fn webkit_web_view_get_settings(page: Handle) -> Handle;
+
   fn webkit_settings_set_enable_media_stream(settings: Handle, enabled: c_int);
+
+  fn webkit_settings_set_enable_webaudio(settings: Handle, enabled: c_int);
+
+  fn webkit_settings_set_enable_webgl(settings: Handle, enabled: c_int);
+
   fn webkit_settings_set_enable_webrtc(settings: Handle, enabled: c_int);
+
   fn webkit_permission_request_deny(request: Handle);
+
   fn webkit_web_view_evaluate_javascript(
     page: Handle,
     script: *const c_char,
@@ -200,11 +231,13 @@ unsafe extern "C" {
     callback: unsafe extern "C" fn(Handle, Handle, Handle),
     data: Handle,
   );
+
   fn webkit_web_view_evaluate_javascript_finish(
     page: Handle,
     result: Handle,
     error: *mut *mut GError,
   ) -> Handle;
+
   fn jsc_value_to_string(value: Handle) -> *mut c_char;
 
   fn webkit_web_view_get_wpe_view(page: Handle) -> Handle;
@@ -216,6 +249,18 @@ unsafe extern "C" {
   fn webkit_web_view_is_loading(page: Handle) -> c_int;
 
   fn webkit_web_view_load_uri(page: Handle, address: *const c_char);
+
+  fn webkit_web_view_set_zoom_level(page: Handle, zoom: c_double);
+
+  fn webkit_web_view_get_find_controller(page: Handle) -> Handle;
+
+  fn webkit_find_controller_get_search_text(controller: Handle) -> *const c_char;
+
+  fn webkit_find_controller_search(controller: Handle, text: *const c_char, options: c_uint, max: c_uint);
+
+  fn webkit_find_controller_search_next(controller: Handle);
+
+  fn webkit_find_controller_search_previous(controller: Handle);
 
   fn webkit_web_view_go_back(page: Handle);
 
@@ -457,6 +502,14 @@ impl Active<'_, '_> {
       // SAFETY: Active borrows the page from the live WebKit object in run.
       Request::Stop => unsafe { webkit_web_view_stop_loading(self.page) },
       Request::Read(id) => self.read(id)?,
+      Request::Zoom(percent) => {
+        // SAFETY: the active view owns the page for the duration of the call.
+        unsafe { webkit_web_view_set_zoom_level(self.page, f64::from(percent.clamp(25, 300)) / 100.0) };
+      }
+      Request::Find { text, backward } => {
+        self.find(&text, FindDirection::from(backward))?;
+      }
+      Request::Upload { .. } | Request::CopySelection | Request::ClosePopup | Request::Visible(_) => {}
       Request::Click(point) => {
         self.cursor.set(point);
 
@@ -494,7 +547,7 @@ impl Active<'_, '_> {
           )
         };
       }
-      Request::Text(text) => {
+      Request::Text(text) | Request::Paste(text) => {
         for character in text.chars() {
           let Ok(key) = Keysym::from_char(character);
           let Ok(()) = self.key(key, time);
@@ -515,9 +568,55 @@ impl Active<'_, '_> {
     Ok(())
   }
 
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the live WebKit page owns the find controller and its C search text"
+    )
+  )]
+  fn find(&self, text: &str, direction: FindDirection) -> io::Result<()> {
+    const CASE_INSENSITIVE: c_uint = 1;
+    const BACKWARD: c_uint = 8;
+    const WRAP_AROUND: c_uint = 16;
+    let query = CString::new(text).map_err(io::Error::other)?;
+
+    // SAFETY: The active page owns the controller and any non-null search text.
+    unsafe {
+      let controller = webkit_web_view_get_find_controller(self.page);
+      let previous_text = webkit_find_controller_get_search_text(controller);
+      let current_search = NonNull::new(previous_text.cast_mut())
+        .filter(|previous| CStr::from_ptr(previous.as_ptr()) == query.as_c_str());
+
+      match (current_search, direction) {
+        (Some(_), FindDirection::Previous) => webkit_find_controller_search_previous(controller),
+        (Some(_), FindDirection::Next) => webkit_find_controller_search_next(controller),
+        (None, new_search_direction) => {
+          let flags = match new_search_direction {
+            FindDirection::Previous => BACKWARD,
+            FindDirection::Next => 0,
+          };
+          let options = CASE_INSENSITIVE | WRAP_AROUND | flags;
+          webkit_find_controller_search(controller, query.as_ptr(), options, 1000);
+        }
+      }
+    }
+
+    Ok(())
+  }
+
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "WebKit schedules this callback through its C API with a single owned reply"
+    )
+  )]
   fn read(&self, id: u64) -> io::Result<()> {
     let script = CString::new(READER_SCRIPT).map_err(io::Error::other)?;
-    let reply = Box::new((self.session.socket.try_clone_to_owned()?, id));
+    let socket = self.session.socket.try_clone_to_owned()?;
+    let reply = Box::new(ReaderReply { socket, id });
+
     // SAFETY: WebKit copies the script and calls reader_finished once with the
     // boxed reply. The reply owns its socket and holds no reference to Active.
     unsafe {
@@ -532,29 +631,78 @@ impl Active<'_, '_> {
         Box::into_raw(reply).cast(),
       );
     }
+
     Ok(())
   }
 }
 
+struct ReaderReply {
+  socket: OwnedFd,
+  id: u64,
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit058_contain_unsafe",
+  expect(
+    explicit058_contain_unsafe,
+    reason = "WebKit hands this C callback its completion handles and transfers the reader reply back"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit096_no_unchecked_memory",
+  expect(
+    explicit096_no_unchecked_memory,
+    reason = "the scheduled evaluation transfers exactly one Box<ReaderReply> back through user data"
+  )
+)]
 unsafe extern "C" fn reader_finished(page: Handle, result: Handle, data: Handle) {
+  let pending = match NonNull::new(data.cast::<ReaderReply>()) {
+    Some(pending) => pending,
+    None => {
+      console_core_logging::error!("WebKit reader callback had no pending reply");
+
+      return;
+    }
+  };
+
   // SAFETY: the matching call transfers a Box of this type to this callback.
-  let reply = unsafe { Box::from_raw(data.cast::<(OwnedFd, u64)>()) };
+  let reply = unsafe { Box::from_raw(pending.as_ptr()) };
+
   // SAFETY: GLib supplies this page and result. The last argument is optional.
-  let value =
-    unsafe { webkit_web_view_evaluate_javascript_finish(page, result, ptr::null_mut()) };
-  let text = match Object::new(value) {
+  let returned = unsafe {
+    webkit_web_view_evaluate_javascript_finish(page, result, ptr::null_mut())
+  };
+
+  let text = match Object::new(returned) {
     Ok(value) => {
       // SAFETY: the result owns the JSCValue. GLib transfers the string to us.
       let raw = unsafe { jsc_value_to_string(value.0.as_ptr()) };
+
       // SAFETY: string copies the NUL-terminated value before it is freed.
-      let text = unsafe { string(raw) };
+      let copied = unsafe { string(raw) };
+
+      // SAFETY: GLib allocated the string and accepts null if no string was returned.
       unsafe { g_free(raw.cast()) };
-      text.ok().flatten().unwrap_or_default()
+
+      match copied {
+        Ok(Some(text)) => text,
+        Ok(None) => String::new(),
+        Err(fault) => {
+          console_core_logging::debug!("WebKit returned invalid reader text: {fault}");
+
+          String::new()
+        }
+      }
     }
-    Err(_) => String::new(),
+    Err(fault) => {
+      console_core_logging::debug!("WebKit reader evaluation returned no value: {fault}");
+
+      String::new()
+    }
   };
-  let Ok(line) = encoded_event(&Event::Reader(reply.1, text));
-  match console_browser_renderer::send(reply.0.as_fd(), &line, None) {
+  let Ok(line) = encoded_event(&Event::Reader(reply.id, text));
+
+  match console_browser_renderer::send(reply.socket.as_fd(), &line, None) {
     Ok(()) => {}
     Err(fault) => {
       console_core_logging::debug!("WebKit reader response could not be sent: {fault}")
@@ -562,9 +710,17 @@ unsafe extern "C" fn reader_finished(page: Handle, result: Handle, data: Handle)
   }
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit058_contain_unsafe",
+  expect(
+    explicit058_contain_unsafe,
+    reason = "denying a permission uses the live request WebKit provides through the signal ABI"
+  )
+)]
 unsafe extern "C" fn deny_permission(_: Handle, request: Handle, _: Handle) -> c_int {
   // SAFETY: WebKit supplies a live WebKitPermissionRequest for this signal.
   unsafe { webkit_permission_request_deny(request) };
+
   1
 }
 
@@ -891,6 +1047,7 @@ fn open_view() -> io::Result<OpenedView> {
       &mut failure,
     )
   };
+
   match dark {
     0 => {
       // SAFETY: the failed call transfers any GError written to failure.
@@ -902,8 +1059,10 @@ fn open_view() -> io::Result<OpenedView> {
 
   // SAFETY: the constructor transfers one GObject reference.
   let network = Object::new(unsafe { webkit_network_session_new_ephemeral() })?;
+
   // SAFETY: network owns a live WebKitNetworkSession.
   unsafe { webkit_network_session_set_itp_enabled(network.0.as_ptr(), 1) };
+
   // SAFETY: the properties name a display and network session, both are live,
   // and the varargs end at a null property name.
   let page = Object::new(unsafe {
@@ -916,12 +1075,23 @@ fn open_view() -> io::Result<OpenedView> {
       ptr::null::<c_char>(),
     )
   })?;
-  // SAFETY: the page owns its settings.
+
+  let languages = [c"en-US".as_ptr(), ptr::null()];
+
+  // SAFETY: the page keeps its settings and web context alive. WebKit copies
+  // the null-terminated language list before returning.
   unsafe {
+    webkit_web_context_set_preferred_languages(
+      webkit_web_view_get_context(page.0.as_ptr()),
+      languages.as_ptr(),
+    );
     let settings = webkit_web_view_get_settings(page.0.as_ptr());
     webkit_settings_set_enable_media_stream(settings, 0);
+    webkit_settings_set_enable_webaudio(settings, 0);
+    webkit_settings_set_enable_webgl(settings, 0);
     webkit_settings_set_enable_webrtc(settings, 0);
   }
+
   // SAFETY: page is the live WebKitWebView created with these two properties.
   let raw_view = unsafe { webkit_web_view_get_wpe_view(page.0.as_ptr()) };
   let view =

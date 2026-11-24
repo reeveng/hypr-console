@@ -6,7 +6,7 @@ use crate::src::levels::TxfmSize;
 use aligned::Aligned;
 use strum::EnumCount;
 
-type Scan = InRange<u16, 0, { 1024 - 1 }>;
+pub(crate) type Scan = InRange<u16, 0, { 1024 - 1 }>;
 
 static scan_4x4: Align32<[Scan; 16]> = {
   let Ok(order) = Scan::new_array([0, 4, 1, 2, 5, 8, 12, 9, 6, 3, 7, 10, 13, 14, 11, 15]);

@@ -33,7 +33,7 @@ pub enum Already {
   CannotTell,
 }
 
-fn mark() -> Result<Option<PathBuf>, Never> {
+pub(crate) fn mark() -> Result<Option<PathBuf>, Never> {
   let Ok(said) = console_core_places::runtime();
 
   let runtime = match said {

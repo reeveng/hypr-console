@@ -42,6 +42,7 @@ pub(crate) struct WardleyPaintBinding {
 }
 
 impl WardleyPaintBinding {
+    #[must_use]
     fn from_config(config: &serde_json::Value) -> Self {
         let nested = |key, fallback: &str| {
             config_string(config, &["themeVariables", "wardley", key])
@@ -120,10 +121,11 @@ impl WardleySurfaceReceipt {
         fill: &str,
     ) {
         if self.requested && !text.trim().is_empty() {
-            self.text_fills.entry(role).or_default().insert(fill.into());
+            self.text_fills.entry(role).or_default().insert(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(fill));
         }
     }
 
+    #[must_use]
     fn has_visible_text(&self) -> bool {
         !self.text_fills.is_empty()
     }
@@ -183,33 +185,37 @@ impl WardleyTypographyThemePlan {
             typed_text_fills: BTreeMap::new(),
             terminal_receipt: OnceLock::new(),
         };
-        let Some(theme) = theme else {
-            return Ok(plan);
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
         };
-        let text_style = theme.text_style_with_work_meter(
+
+        let text_style = theme_2.text_style_with_work_meter(
             ThemeTarget::Text,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
-        let node_style = theme.text_style_with_work_meter(
+        let node_style = theme_2.text_style_with_work_meter(
             ThemeTarget::NodeLabel,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
         let text_fill = resolve_direct_static_fill(
-            theme,
+            theme_2,
             &text_style,
             &[ThemeTarget::Text],
             DirectStaticSelectorDomain::Default,
         );
         let node_fill = resolve_direct_static_fill(
-            theme,
+            theme_2,
             &node_style,
             &[ThemeTarget::Text, ThemeTarget::NodeLabel],
             DirectStaticSelectorDomain::Default,
         );
+
         if text_fill.is_some()
             && ![
                 "themeVariables.wardley.axisTextColor",
@@ -221,8 +227,8 @@ impl WardleyTypographyThemePlan {
             plan.paint_binding.arrow_text = "#333".to_owned();
         }
 
-        // Upstream anchors hard-code black. Only an active host label-paint request
-        // introduces this adapter channel, whose foreground an authored palette owns.
+
+
         if node_fill.is_some()
             && !effective_config
                 .config_paint_overrides_typed_default("themeVariables.wardley.anchorLabelColor")
@@ -235,6 +241,7 @@ impl WardleyTypographyThemePlan {
         {
             plan.paint_binding.anchor_label_color = color;
         }
+
         bind_text_fill(
             &mut plan.paint_binding.axis_text_color,
             &mut plan.typed_text_fills,
@@ -274,19 +281,22 @@ impl WardleyTypographyThemePlan {
             &[WardleyTextRole::AnchorLabel],
             node_fill.as_ref(),
         );
-        // Annotation labels own an independent foreground/background pair. Generic
-        // host text applies only to the shared map surface, not those white boxes.
+
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) const fn paint_binding(&self) -> &WardleyPaintBinding {
         &self.paint_binding
     }
 
+    #[must_use]
     pub(crate) const fn base_paint_binding(&self) -> &WardleyPaintBinding {
         &self.base_paint_binding
     }
 
+    #[must_use]
     pub(crate) fn config(&self) -> &PresentationConfig {
         &self.config
     }
@@ -306,17 +316,20 @@ impl WardleyTypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.source_font_family_css
             .as_deref()
             .unwrap_or_else(|| self.inherited_font_stack.font_family_css())
     }
 
+    #[must_use]
     pub(crate) const fn should_write_inherited_font(&self) -> bool {
         self.source_font_family_css.is_some()
             || self.inherited_font_stack.typed_font_stack_requested()
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> WardleySurfaceReceipt {
         WardleySurfaceReceipt {
             requested: self.inherited_font_stack.typography_requested()
@@ -328,33 +341,45 @@ impl WardleyTypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: WardleySurfaceReceipt) -> bool {
         self.terminal_receipt.set(receipt).is_ok()
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         for route in &self.unsupported_routes {
             evidence.mark_residual(route.key.clone(), route.reason);
         }
-        let Some(receipt) = self.terminal_receipt.get() else {
-            return;
+
+        let receipt = {
+            let optional_receipt = self.terminal_receipt.get();
+
+            match optional_receipt {
+                Some(matched_receipt) => matched_receipt,
+                ::core::option::Option::None => return,
+            }
         };
+
         evidence.merge_borrowed(&receipt.paint_evidence);
         self.finish_text_fill_evidence(evidence, receipt);
         self.inherited_font_stack
             .record_unsupported_typography_evidence(evidence, receipt.has_visible_text());
         let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
         if !receipt.has_visible_text() {
             evidence.mark_not_applicable(key);
             return;
         }
+
         if self.source_font_family_css.is_some()
             && self.inherited_font_stack.typed_font_stack_requested()
         {
             evidence.mark_not_applicable(key);
             return;
         }
+
         if self.inherited_font_stack.typed_font_stack_active() {
             evidence.mark_applied_with_capabilities(key, [ThemeCapability::Typography]);
         } else {
@@ -376,8 +401,8 @@ impl WardleyTypographyThemePlan {
         receipt: &WardleySurfaceReceipt,
     ) {
         for route in &self.direct_text_fill_routes {
-            // Mechanism keys aggregate a rule's facets. Applied fill must not erase an
-            // unsupported sibling such as opacity, typography, or a gradient channel.
+
+
             if self
                 .unsupported_routes
                 .iter()
@@ -385,23 +410,34 @@ impl WardleyTypographyThemePlan {
             {
                 continue;
             }
+
             let mut visible = false;
             let mut matches = true;
             let mut capabilities = BTreeSet::new();
-            for (role, paint) in &self.typed_text_fills {
+
+            'inner_for_2: for (role, paint) in &self.typed_text_fills {
                 if receipt.paint_overridden_text_roles.contains(role) {
-                    continue;
+                    continue 'inner_for_2;
                 }
+
                 if paint.rule_index() != route.rule_index {
-                    continue;
+                    continue 'inner_for_2;
                 }
-                let Some(fills) = receipt.text_fills.get(role) else {
-                    continue;
+
+                let fills = {
+                    let optional_fills = receipt.text_fills.get(role);
+
+                    match optional_fills {
+                        Some(matched_fills) => matched_fills,
+                        ::core::option::Option::None => continue 'inner_for_2,
+                    }
                 };
+
                 visible = true;
                 matches &= fills.len() == 1 && fills.contains(paint.css());
                 capabilities.insert(paint.capability());
             }
+
             if !visible {
                 evidence.mark_not_applicable(route.key.clone());
             } else if matches {
@@ -430,22 +466,29 @@ fn bind_text_fill(
     {
         return;
     }
-    let Some(paint) = paint else {
-        return;
+
+    let paint_2 = match paint {
+        Some(matched_paint) => matched_paint,
+        ::core::option::Option::None => return,
     };
-    paint.css().clone_into(color);
+
+    paint_2.css().clone_into(color);
+
     for role in roles {
-        typed_text_fills.insert(*role, paint.clone());
+        typed_text_fills.insert(*role, paint_2.clone());
     }
 }
 
+#[must_use]
 fn wardley_direct_text_fill_routes(
     theme: Option<&ResolvedDiagramTheme>,
 ) -> Box<[WardleyDirectTextFillRoute]> {
-    let Some(theme) = theme else {
-        return Box::new([]);
+    let theme_2 = match theme {
+        Some(matched_theme) => matched_theme,
+        ::core::option::Option::None => return Box::new([]),
     };
-    theme
+
+    theme_2
         .family_mechanism_routes()
         .iter()
         .copied()
@@ -460,23 +503,26 @@ fn wardley_direct_text_fill_routes(
                 facet: FamilyThemeRuleFacet::Fill(_),
             } if route.disposition() == FamilyThemeDisposition::TypedAdapter => {
                 Some(WardleyDirectTextFillRoute {
-                    key: theme.family_mechanism_key(route),
+                    key: theme_2.family_mechanism_key(route),
                     rule_index,
                 })
             }
-            _ => None,
+            FamilyThemeMechanism::BaseTypography(_) | FamilyThemeMechanism::RuleFacet { .. } | FamilyThemeMechanism::OrdinalPalette { .. } | FamilyThemeMechanism::EffectBinding { .. } => None,
         })
         .collect::<Vec<_>>()
         .into_boxed_slice()
 }
 
+#[must_use]
 fn wardley_unsupported_routes(
     theme: Option<&ResolvedDiagramTheme>,
 ) -> Box<[WardleyUnsupportedRoute]> {
-    let Some(theme) = theme else {
-        return Box::new([]);
+    let theme_2 = match theme {
+        Some(matched_theme) => matched_theme,
+        ::core::option::Option::None => return Box::new([]),
     };
-    theme
+
+    theme_2
         .family_mechanism_routes()
         .iter()
         .copied()
@@ -489,9 +535,11 @@ fn wardley_unsupported_routes(
             {
                 return None;
             }
+
             if route.disposition() != FamilyThemeDisposition::Unsupported {
                 return None;
             }
+
             let reason = match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet { facet, .. } => {
                     unsupported_residual_for_facet(facet)
@@ -505,7 +553,7 @@ fn wardley_unsupported_routes(
                 FamilyThemeMechanism::BaseTypography(_) => return None,
             };
             Some(WardleyUnsupportedRoute {
-                key: theme.family_mechanism_key(route),
+                key: theme_2.family_mechanism_key(route),
                 reason,
             })
         })

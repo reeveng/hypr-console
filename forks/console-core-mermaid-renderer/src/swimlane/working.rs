@@ -40,6 +40,7 @@ pub(super) struct WorkingNode {
 }
 
 impl WorkingNode {
+    #[must_use]
     pub fn drawn_size(&self) -> (f64, f64) {
         #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
         if let Some(shape) = crate::flowchart::bpmn::BpmnShape::resolve(&self.shape)
@@ -61,13 +62,16 @@ impl WorkingNode {
             );
             return (geometry.drawn_width, geometry.drawn_height);
         }
+
         (self.width, self.height)
     }
 
+    #[must_use]
     pub fn is_group(&self) -> bool {
         self.kind == WorkingNodeKind::Group
     }
 
+    #[must_use]
     pub fn is_layout_node(&self) -> bool {
         matches!(self.kind, WorkingNodeKind::Content | WorkingNodeKind::Dummy)
     }
@@ -85,6 +89,7 @@ pub(super) struct WorkingEdge {
 }
 
 impl WorkingEdge {
+    #[must_use]
     pub fn layout_key(&self) -> String {
         format!("{}:{}->{}", self.id, self.from, self.to)
     }
@@ -103,17 +108,20 @@ impl WorkingLayout {
     #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
     pub fn refresh_top_lane_ids(&mut self) {
         let lanes = super::lanes::LaneModel::new(&self.nodes);
+
         for node in self.nodes.values_mut() {
             node.top_lane_id = lanes.lane_of(&node.id).map(str::to_string);
         }
     }
 
+    #[must_use]
     pub fn top_lane_of(&self, id: &str) -> Option<&str> {
         self.nodes
             .get(id)
             .and_then(|node| node.top_lane_id.as_deref())
     }
 
+    #[must_use]
     pub fn children_of<'a>(&'a self, parent_id: &'a str) -> impl Iterator<Item = &'a WorkingNode> {
         self.nodes
             .values()

@@ -28,21 +28,31 @@ pub(super) fn measure_zero_width_lane_titles(
     svg_label_sidecar: Option<&FlowchartSvgLabelSidecarBuilder>,
 ) {
     let config_view = FlowchartConfigView::new(config.as_value());
+
     if config_view.swimlane_title_html_labels() {
         return;
     }
+
     let settings = svg_label_sidecar.map_or_else(
         || config_view.layout_settings(),
         |sidecar| sidecar.layout_settings(config.as_value()),
     );
     let render_model = FlowchartRenderModelRef::new(model, render_context);
+
     for (index, subgraph) in model.subgraphs.iter().enumerate() {
-        let Some(lane) = layout.nodes.get_mut(&subgraph.id) else {
-            continue;
+        let lane = {
+            let optional_lane = layout.nodes.get_mut(&subgraph.id);
+
+            match optional_lane {
+                Some(matched_lane) => matched_lane,
+                ::core::option::Option::None => continue,
+            }
         };
-        if !lane.is_group() || lane.shape != "swimlane" || lane.width != 0.0 {
+
+        if !lane.is_group() || lane.shape != "swimlane" || !::core::matches!(::core::primitive::f64::classify(lane.width), ::core::num::FpCategory::Zero) {
             continue;
         }
+
         let (classes, styles) = render_model.effective_subgraph_css(index, subgraph);
         let style = flowchart_effective_text_style_for_classes_with_provenance(
             &settings.text_style,
@@ -64,6 +74,7 @@ pub(super) fn measure_zero_width_lane_titles(
     }
 }
 
+#[must_use]
 fn normalize_direction(direction: Option<&str>) -> SwimlaneDirection {
     match direction
         .unwrap_or("TB")
@@ -92,6 +103,7 @@ struct MeasureContext<'a> {
     edge_label_padding: crate::flowchart::FlowchartEdgeLabelPadding,
 }
 
+#[must_use]
 fn measure_content_node(
     node: &FlowNode,
     render_label: &str,
@@ -165,14 +177,16 @@ fn measure_content_node(
 
     WorkingNode {
         id: node.id.clone(),
-        // Geometry follows the parser-owned render spelling, while the public layout projection
-        // remains a projection of the semantic model.
+
+
         label: semantic_label.to_string(),
         label_type: label_type.to_string(),
-        shape: node
+        shape: match node
             .layout_shape
-            .clone()
-            .unwrap_or_else(|| "squareRect".to_string()),
+            .clone() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "squareRect".to_string(),
+        },
         kind: WorkingNodeKind::Content,
         producer_lane_role: None,
         parent_id: None,
@@ -201,11 +215,11 @@ fn measure_edge_label(
     owner: FlowchartSvgLabelOwner,
     ctx: &MeasureContext<'_>,
 ) -> crate::Result<WorkingNode> {
-    // Mermaid turns Swimlane edge labels into fresh `labelRect` nodes. The conversion copies the
-    // label and label style, but deliberately does not copy `edge.labelType`; `labelHelper`
-    // therefore treats the new node as ordinary non-Markdown text. Its initial width is zero, so
-    // createText also uses the configured Flowchart wrapping width rather than the ordinary
-    // Flowchart edge-label constant.
+
+
+
+
+
     let wrap_mode = ctx.settings.node_wrap_mode;
     let base_style = if wrap_mode == WrapMode::HtmlLike {
         &ctx.settings.html_label_text_style
@@ -216,7 +230,10 @@ fn measure_edge_label(
         .edge_style_plan
         .swimlane_edge_label_text_style_for(key, base_style)?;
     let label = render_label;
-    let semantic_label = edge.label.as_deref().unwrap_or_default();
+    let semantic_label = match edge.label.as_deref() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
     let label_type = "text";
     let metrics = measure_flowchart_svg_label_for_layout_with_terminal_foreground(
         ctx.svg_label_sidecar,
@@ -252,8 +269,8 @@ fn measure_edge_label(
         padding: 0.0,
         x: 0.0,
         y: 0.0,
-        // createGraphWithElements overwrites labelRect's hidden 0.1 x 0.1 SVG rect with the
-        // complete label group's measured bbox before the Swimlane layout core runs.
+
+
         width: label_width,
         height: label_height,
         label_width,
@@ -265,6 +282,7 @@ fn measure_edge_label(
     })
 }
 
+#[must_use]
 fn working_edge(edge: &FlowEdge, transport_id: &str) -> WorkingEdge {
     WorkingEdge {
         id: transport_id.to_string(),
@@ -277,15 +295,16 @@ fn working_edge(edge: &FlowEdge, transport_id: &str) -> WorkingEdge {
     }
 }
 
+#[must_use]
 fn measure_group_title(
     declaration_ordinal: usize,
     subgraph: &FlowSubgraph,
     render_title: &str,
     ctx: &MeasureContext<'_>,
 ) -> (f64, f64) {
-    // The dedicated Mermaid Swimlane cluster renderer reads `flowchart.htmlLabels` directly.
-    // This deliberately differs from ordinary Flowchart clusters, which use the effective
-    // root-first compatibility setting.
+
+
+
     let wrap_mode = if ctx.title_html_labels {
         WrapMode::HtmlLike
     } else {
@@ -305,8 +324,8 @@ fn measure_group_title(
         classes,
         styles,
     );
-    // Mermaid 11.16's dedicated Swimlane renderer omits createText's `markdown` option, so the
-    // default `true` applies independently of FlowDB's public subgraph labelType.
+
+
     let render_label_type = "markdown";
     let metrics = measure_flowchart_svg_label_for_layout_with_terminal_foreground(
         ctx.svg_label_sidecar,
@@ -340,8 +359,8 @@ pub(super) fn prepare(
     edge_style_plan: &crate::svg::FlowchartEdgeStylePlan,
 ) -> crate::Result<WorkingLayout> {
     let render_model = FlowchartRenderModelRef::new(model, render_label_sources);
-    let model = &render_model;
-    let direction = normalize_direction(model.direction.as_deref());
+    let model_2 = &render_model;
+    let direction = normalize_direction(model_2.direction.as_deref());
     let config_view = FlowchartConfigView::new(effective_config.as_value());
     let swimlane_title_html_labels = config_view.swimlane_title_html_labels();
     let settings = svg_label_sidecar.map_or_else(
@@ -353,7 +372,7 @@ pub(super) fn prepare(
         FlowchartSvgLabelSidecarBuilder::edge_label_padding,
     );
     let measure_ctx = MeasureContext {
-        model,
+        model: model_2,
         config: effective_config,
         measurer,
         math_renderer,
@@ -365,18 +384,20 @@ pub(super) fn prepare(
         edge_label_padding,
     };
 
-    // FlowDB builds parentDB by walking subgraphs from last to first.
+
     let mut parent_by_id: HashMap<String, String> = HashMap::new();
-    for subgraph in model.subgraphs.iter().rev() {
+
+    for subgraph in model_2.subgraphs.iter().rev() {
         for child in &subgraph.nodes {
             parent_by_id.insert(child.clone(), subgraph.id.clone());
         }
     }
 
     let mut nodes = IndexMap::new();
-    for subgraph_index in (0..model.subgraphs.len()).rev() {
-        let subgraph = &model.subgraphs[subgraph_index];
-        let render_title = model.subgraph_title_for_render(subgraph_index, subgraph);
+
+    for subgraph_index in (0..model_2.subgraphs.len()).rev() {
+        let subgraph = &model_2.subgraphs[subgraph_index];
+        let render_title = model_2.subgraph_title_for_render(subgraph_index, subgraph);
         let (label_width, label_height) =
             measure_group_title(subgraph_index, subgraph, render_title, &measure_ctx);
         let producer_lane_role = match subgraph
@@ -394,10 +415,12 @@ pub(super) fn prepare(
             WorkingNode {
                 id: subgraph.id.clone(),
                 label: subgraph.title.clone(),
-                label_type: subgraph
+                label_type: match subgraph
                     .label_type
-                    .clone()
-                    .unwrap_or_else(|| "text".to_string()),
+                    .clone() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "text".to_string(),
+                },
                 shape: "rect".to_string(),
                 producer_lane_role,
                 kind: WorkingNodeKind::Group,
@@ -425,16 +448,18 @@ pub(super) fn prepare(
         );
     }
 
-    let group_ids: HashSet<String> = model
+    let group_ids: HashSet<String> = model_2
         .subgraphs
         .iter()
         .map(|subgraph| subgraph.id.clone())
         .collect();
-    for (node_index, node) in model.nodes.iter().enumerate() {
+
+    for (node_index, node) in model_2.nodes.iter().enumerate() {
         if group_ids.contains(&node.id) {
             continue;
         }
-        let render_label = model.node_label_for_render(node).unwrap_or(&node.id);
+
+        let render_label = model_2.node_label_for_render(node).unwrap_or(&node.id);
         let mut measured = measure_content_node(
             node,
             render_label,
@@ -444,10 +469,12 @@ pub(super) fn prepare(
         measured.parent_id = parent_by_id.get(&node.id).cloned();
         nodes.insert(node.id.clone(), measured);
     }
-    for id in &model.vertex_calls {
+
+    for id in &model_2.vertex_calls {
         if nodes.contains_key(id) {
             continue;
         }
+
         let synthetic = FlowNode {
             id: id.clone(),
             provenance: Default::default(),
@@ -475,23 +502,26 @@ pub(super) fn prepare(
 
     let lane_model = LaneModel::new(&nodes);
     let mut emptied = HashSet::new();
-    for member in &model.dropped_subgraph_members {
+
+    for member in &model_2.dropped_subgraph_members {
         let kept_by = if lane_model.is_lane(&member.kept_by) {
             Some(member.kept_by.as_str())
         } else {
             lane_model.lane_of(&member.kept_by)
         };
+
         if kept_by.is_some_and(|lane| lane != member.dropped_from)
             && lane_model.is_lane(&member.dropped_from)
         {
             emptied.insert(member.dropped_from.as_str());
         }
     }
+
     let used_groups: HashSet<&str> = nodes
         .values()
         .filter_map(|node| node.parent_id.as_deref())
         .chain(
-            model
+            model_2
                 .edges
                 .iter()
                 .flat_map(|edge| [edge.from.as_str(), edge.to.as_str()]),
@@ -504,10 +534,11 @@ pub(super) fn prepare(
         .collect();
     nodes.retain(|id, _| !removed.contains(id));
 
-    let lane_model = LaneModel::new(&nodes);
+    let lane_model_2 = LaneModel::new(&nodes);
+
     for node in nodes.values_mut() {
-        if lane_model.is_lane(&node.id) || lane_model.is_pool(&node.id) {
-            node.shape = if lane_model.is_lane(&node.id) {
+        if lane_model_2.is_lane(&node.id) || lane_model_2.is_pool(&node.id) {
+            node.shape = if lane_model_2.is_lane(&node.id) {
                 "swimlane"
             } else {
                 "pool"
@@ -522,11 +553,12 @@ pub(super) fn prepare(
         .filter(|node| !node.is_group() && node.parent_id.is_none())
         .map(|node| node.id.clone())
         .collect();
+
     if !loose_ids.is_empty() {
         if let Some(default_lane) = nodes.get_mut(DEFAULT_LANE_ID) {
-            // Mermaid reuses an explicit group with the reserved id. Preserve
-            // its title, classes, styles, and measured geometry; only apply
-            // the swimlane shape/direction required by the layout adapter.
+
+
+
             if default_lane.is_group() {
                 default_lane.shape = "swimlane".to_string();
                 default_lane.requested_dir = Some(direction.as_str().to_string());
@@ -558,17 +590,24 @@ pub(super) fn prepare(
                 },
             );
         }
+
         for id in loose_ids {
-            if let Some(node) = nodes.get_mut(&id) {
-                node.parent_id = Some(DEFAULT_LANE_ID.to_string());
+            {
+                match nodes.get_mut(&id) {
+                    Some(node) => {
+                        node.parent_id = Some(DEFAULT_LANE_ID.to_string());
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }
 
-    let mut original_edges = Vec::with_capacity(model.edges.len());
+    let mut original_edges = Vec::with_capacity(model_2.edges.len());
     let transport_plan =
-        crate::flowchart::FlowchartEdgeTransportPlan::for_semantic_edges(&model.edges);
-    for (edge_index, edge) in model.edges.iter().enumerate() {
+        crate::flowchart::FlowchartEdgeTransportPlan::for_semantic_edges(&model_2.edges);
+
+    for (edge_index, edge) in model_2.edges.iter().enumerate() {
         let key = crate::flowchart::FlowchartEdgeKey::new(edge_index);
         let transport_id = transport_plan
             .id(key)
@@ -578,8 +617,9 @@ pub(super) fn prepare(
                 ),
             })?;
         let mut original = working_edge(edge, transport_id);
-        let render_label = model.edge_label_for_render(edge_index, edge);
+        let render_label = model_2.edge_label_for_render(edge_index, edge);
         let has_label = render_label.is_some_and(|label| !label.is_empty());
+
         if has_label && nodes.contains_key(&edge.from) && nodes.contains_key(&edge.to) {
             let label_node_id = if transport_id != edge.id {
                 format!("edge-label-occurrence-{:020}", key.semantic_index())
@@ -588,11 +628,13 @@ pub(super) fn prepare(
             };
             let mut unique_label_node_id = label_node_id.clone();
             let mut suffix = 1usize;
+
             while nodes.contains_key(&unique_label_node_id) {
                 unique_label_node_id = format!("{label_node_id}-{suffix}");
                 suffix += 1;
             }
-            let label_node_id = unique_label_node_id;
+
+            let label_node_id_2 = unique_label_node_id;
             let source_parent = nodes
                 .get(&edge.from)
                 .and_then(|node| node.parent_id.clone());
@@ -605,28 +647,34 @@ pub(super) fn prepare(
             let label_node = measure_edge_label(
                 edge,
                 crate::flowchart::FlowchartEdgeKey::new(edge_index),
-                render_label.unwrap_or_default(),
-                label_node_id.clone(),
+                match render_label {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "",
+                },
+                label_node_id_2.clone(),
                 label_parent,
                 FlowchartSvgLabelOwner::SwimlaneEdgeLabel(edge_index),
                 &measure_ctx,
             )?;
-            nodes.insert(label_node_id.clone(), label_node);
-            original.label_node_id = Some(label_node_id.clone());
+            nodes.insert(label_node_id_2.clone(), label_node);
+            original.label_node_id = Some(label_node_id_2.clone());
         }
+
         original_edges.push(original);
     }
 
-    let lane_model = LaneModel::new(&nodes);
-    let lane_indices: HashMap<&str, f64> = model
+    let lane_model_3 = LaneModel::new(&nodes);
+    let lane_indices: HashMap<&str, f64> = model_2
         .subgraphs
         .iter()
         .filter_map(|subgraph| {
-            let index = subgraph.metadata.as_ref()?.get("laneIndex")?.as_f64()?;
+            let checked_value = subgraph.metadata.as_ref()?;
+            let checked_value_2 = checked_value.get("laneIndex")?;
+            let index = checked_value_2.as_f64()?;
             index.is_finite().then_some((subgraph.id.as_str(), index))
         })
         .collect();
-    let top_lane_order = lane_model.order(&nodes, &lane_indices);
+    let top_lane_order = lane_model_3.order(&nodes, &lane_indices);
 
     let mut layout = WorkingLayout {
         direction,

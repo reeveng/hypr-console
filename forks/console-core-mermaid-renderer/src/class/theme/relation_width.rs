@@ -28,19 +28,22 @@ pub(crate) struct ClassRelationWidthBinding {
 }
 
 impl ClassRelationWidthBinding {
+    #[must_use]
     pub(super) fn compatibility(config: &merman_model::presentation::PresentationConfig) -> Self {
         const PATH: &str = "themeVariables.strokeWidth";
         let config_origin = config
             .config_path_overrides_typed_default(PATH)
             .then_some(PATH);
-        let compatibility_css = crate::config::config_css_number_or_string(
+        let compatibility_css = match crate::config::config_css_number_or_string(
             config.as_value(),
             &["themeVariables", "strokeWidth"],
-        )
-        .unwrap_or_else(|| "1".to_owned());
+        ) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "1".to_owned(),
+        };
         let paint_width = config_origin.and_then(|_| {
             crate::config::config_f64_css_px(config.as_value(), &["themeVariables", "strokeWidth"])
-                .filter(|value| value.is_finite() && *value >= 0.0 && *value <= f32::MAX as f64)
+                .filter(|value| value.is_finite() && *value >= 0.0 && *value <= <f64 as ::core::convert::From<::core::primitive::f32>>::from(f32::MAX))
                 .map(|value| value as f32)
         });
         Self {
@@ -51,6 +54,7 @@ impl ClassRelationWidthBinding {
         }
     }
 
+    #[must_use]
     pub(super) fn config_owned(&self) -> bool {
         self.config_origin.is_some()
     }
@@ -59,16 +63,26 @@ impl ClassRelationWidthBinding {
         if self.config_owned() {
             return;
         }
+
         let resolution = style.stroke_width_resolution();
-        let Some(origin) = resolution.winner() else {
-            return;
+
+        let origin = {
+            let optional_origin = resolution.winner();
+
+            match optional_origin {
+                Some(matched_origin) => matched_origin,
+                ::core::option::Option::None => return,
+            }
         };
+
         let rule_index = origin.rule_index();
+
         if theme.rule_facet_disposition(rule_index, FamilyThemeRuleFacet::StrokeWidth)
             != Some(FamilyThemeDisposition::TypedAdapter)
         {
             return;
         }
+
         match resolution.specified() {
             Specified::Unspecified => {}
             Specified::Clear => {
@@ -88,21 +102,30 @@ impl ClassRelationWidthBinding {
         }
     }
 
+    #[must_use]
     pub(crate) fn compatibility_css(&self) -> &str {
         &self.compatibility_css
     }
+
+    #[must_use]
     pub(crate) fn paint_width(&self) -> Option<f32> {
         self.paint_width
     }
+
+    #[must_use]
     pub(crate) fn terminal_css(&self) -> Option<&str> {
         self.terminal_css.as_deref()
     }
+
+    #[must_use]
     pub(super) fn typed_emission(&self) -> Option<(usize, f32)> {
         match self.action {
             WidthAction::Set { rule_index, value } => Some((rule_index, value)),
             _ => None,
         }
     }
+
+    #[must_use]
     pub(super) fn is_clear_for(&self, index: usize) -> bool {
         matches!(self.action, WidthAction::Clear { rule_index } if rule_index == index)
     }

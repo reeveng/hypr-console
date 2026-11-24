@@ -1,0 +1,30 @@
+[package]
+name = "console-stream-privacy"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "stream-privacy"
+path = "src/main.rs"
+
+[dependencies]
+console-bus.workspace = true
+console-core-atomic-writes.workspace = true
+console-core-bounded-reads.workspace = true
+console-core-external-programs.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-places.workspace = true
+console-core-state-machine.workspace = true
+console-default-applications.workspace = true
+console-notifications.workspace = true
+console-operating-system-linux.workspace = true
+console-program-contract.workspace = true
+rustix.workspace = true
+
+[dev-dependencies]
+console-core-temporary-directories.workspace = true
+
+[lints]
+workspace = true

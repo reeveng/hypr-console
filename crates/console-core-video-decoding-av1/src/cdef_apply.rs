@@ -243,6 +243,18 @@ struct CdefLineRows<'frame> {
   saved_chroma_row: i32,
 }
 
+impl CdefLineRows<'_> {
+  fn backup_offsets(&self, [luma, u, v]: [u64; 3]) -> Result<[u64; 3], Never> {
+    let y_delta = i64::from(self.saved_luma_row).wrapping_mul(self.luma_stride);
+    let uv_delta = i64::from(self.saved_chroma_row).wrapping_mul(self.chroma_stride);
+    Ok([
+      luma.wrapping_add_signed(y_delta),
+      u.wrapping_add_signed(uv_delta),
+      v.wrapping_add_signed(uv_delta),
+    ])
+  }
+}
+
 struct CdefPlaneRows<'frame> {
   source: PicOffset<'frame>,
   saved_offset: u64,
@@ -334,6 +346,34 @@ struct CdefLineSources<'frame> {
   following_row: i32,
   luma_stride: i64,
   chroma_stride: i64,
+}
+
+struct CdefLineBank {
+  boundary: CdefBoundary,
+  offsets: [u64; 3],
+  superblock_row: i32,
+}
+
+impl<'frame> CdefLineSources<'frame> {
+  fn saved_rows(
+    &self,
+    saved: &'frame DisjointMut<AlignedVec64<u8>>,
+    bank: CdefLineBank,
+  ) -> Result<CdefLineRows<'frame>, Never> {
+    Ok(CdefLineRows {
+      saved,
+      loop_filter: self.filter,
+      boundary: bank.boundary,
+      previous_row: self.previous_row,
+      following_row: self.following_row,
+      saved_offsets: bank.offsets,
+      filter_offsets: self.filter_offsets,
+      luma_stride: self.luma_stride,
+      chroma_stride: self.chroma_stride,
+      saved_luma_row: bank.superblock_row.wrapping_mul(4),
+      saved_chroma_row: bank.superblock_row.wrapping_mul(8),
+    })
+  }
 }
 
 fn cdef_line_sources<BD: BitDepth>(
@@ -755,8 +795,6 @@ pub(crate) fn rav1d_cdef_brow<BD: BitDepth>(
   };
   let threaded = c.tc.len() > 1;
   let threaded_row = bounds.superblock_row.wrapping_mul(i32::from(threaded));
-  let saved_luma_row = threaded_row.wrapping_mul(4);
-  let saved_chroma_row = threaded_row.wrapping_mul(8);
   let mut secondary_backup = false;
 
   for by in bounds.rows.clone().step_by(2) {
@@ -777,19 +815,14 @@ pub(crate) fn rav1d_cdef_brow<BD: BitDepth>(
       (None, Some(())) => CdefBoundary::FollowingSuperblock,
       (None, None) => CdefBoundary::PictureRows,
     };
-    let lines = CdefLineRows {
-      saved: &f.lf.cdef_line_buf,
-      loop_filter: sources.filter,
-      boundary,
-      previous_row: sources.previous_row,
-      following_row: sources.following_row,
-      saved_offsets,
-      filter_offsets: sources.filter_offsets,
-      luma_stride: sources.luma_stride,
-      chroma_stride: sources.chroma_stride,
-      saved_luma_row,
-      saved_chroma_row,
-    };
+    let Ok(lines) = sources.saved_rows(
+      &f.lf.cdef_line_buf,
+      CdefLineBank {
+        boundary,
+        offsets: saved_offsets,
+        superblock_row: threaded_row,
+      },
+    );
 
     match (after_row >= f.bh).then_some(()) {
       Some(()) => edges.remove(CdefEdgeFlags::HAVE_BOTTOM),
@@ -803,14 +836,7 @@ pub(crate) fn rav1d_cdef_brow<BD: BitDepth>(
     .then_some(())
     {
       Some(()) => {
-        let [luma, u, v] = future_offsets;
-        let y_delta = i64::from(saved_luma_row).wrapping_mul(sources.luma_stride);
-        let uv_delta = i64::from(saved_chroma_row).wrapping_mul(sources.chroma_stride);
-        let offsets = [
-          luma.wrapping_add_signed(y_delta),
-          u.wrapping_add_signed(uv_delta),
-          v.wrapping_add_signed(uv_delta),
-        ];
+        let Ok(offsets) = lines.backup_offsets(future_offsets);
         let Ok(()) = backup2lines::<BD>(&f.lf.cdef_line_buf, offsets, pictures, layout);
       }
       None => {}

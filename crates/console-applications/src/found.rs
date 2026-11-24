@@ -19,7 +19,7 @@ use std::collections::BTreeMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-use console_core_external_programs::{Program, installed};
+use console_core_external_programs::{Installed, installed};
 use console_core_never::Never;
 use console_core_places::Base;
 
@@ -274,6 +274,10 @@ pub struct Found {
   pub icon: BTreeMap<String, String>,
 }
 
+fn installed_command(program: &str) -> Result<Installed, Never> {
+  installed(program)
+}
+
 pub fn machine() -> Result<Found, Never> {
   let index = index()?;
 
@@ -290,7 +294,7 @@ pub fn machine() -> Result<Found, Never> {
       Err(_unreadable) => continue,
     };
 
-    let application = entry::read(&said, installed)?;
+    let application = entry::read(&said, installed_command)?;
 
     let application_3 = match application {
       Some(application_2) => application_2,
@@ -333,7 +337,7 @@ pub fn quickly() -> Result<Found, Never> {
       Err(_unreadable) => continue,
     };
 
-    let application = entry::read(&said, installed)?;
+    let application = entry::read(&said, installed_command)?;
 
     let application_3 = match application {
       Some(application_2) => application_2,
@@ -452,10 +456,8 @@ pub fn command(application: &Application) -> Result<Option<Vec<String>>, Never> 
 
   let launched = match ::core::primitive::bool::then_some(application.terminal, ()) {
     ::core::option::Option::Some(()) => {
-      let Ok(alacritty) = Program::Alacritty.name();
+      let Ok(terminal) = crate::launch::in_terminal(arguments);
 
-      let mut terminal = vec![alacritty.to_string(), "-e".to_string()];
-      terminal.extend(arguments);
       terminal
     }
     ::core::option::Option::None => arguments,

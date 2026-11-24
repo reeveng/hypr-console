@@ -53,14 +53,12 @@
 //! it, which is also where the last of the narrowing happens: a match rule
 //! cannot say which keys a changed dictionary holds.
 //!
-//! **The Wi-Fi is NetworkManager on the system bus, heard through
-//! `gdbus monitor` for the reason Bluetooth was.**
+//! **The Wi-Fi is NetworkManager's scan signals on the system bus.**
 //! `nmcli monitor` is `Network`, and it says a device connected and never how
 //! strong anything is. What the bus says that it does not is every access
 //! point's strength and the moment a scan finished, which is when a list of
-//! what is in range is new rather than remembered. It is an event group of its
-//! own because the bar wakes on every line of `Network`, and a street full of
-//! access points being seen again is not a line it should wake for.
+//! what is in range is new. The Wi-Fi group sends a scan completion separately
+//! so the bar's `Network` subscription can keep updating connection state.
 //!
 //! **The battery is the kernel's `power_supply` uevents, which is a netlink
 //! socket.** `udevadm monitor` on the subsystem rather than on a name, because
@@ -97,9 +95,10 @@
 use std::fmt;
 use std::io::{BufRead, BufReader};
 use std::os::unix::net::UnixStream;
-use std::process::Stdio;
+use std::process::{Command, Stdio};
 use std::sync::mpsc::SyncSender;
 
+use console_bus::cli;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_reconnect::{Round, keep};
@@ -118,10 +117,6 @@ pub const NOTIFICATIONS: &str = "org.freedesktop.Notifications";
 pub const APPLICATION: &str = "console.Notifications";
 
 pub const PLAYERS: &str = "/org/mpris/MediaPlayer2";
-
-pub const NETWORK_MANAGER: &str = "org.freedesktop.NetworkManager";
-
-pub const SCANNED: &str = "'LastScan'";
 
 pub fn handed_to(
   waiting: Option<&SyncSender<SyncSender<Change>>>,
@@ -146,28 +141,25 @@ pub fn hold(event_group: &EventGroup, say: SyncSender<Change>) -> Result<Subscri
       Subscribed::Yes
     }
     EventGroup::Sound => {
-      let Ok(arguments) = to_strings(&["subscribe"]);
-      let Ok(()) = once(EventGroup::Sound, Program::Pactl, arguments, say);
+      let Ok(()) = once(
+        EventGroup::Sound,
+        || event_command(Program::Pactl, &["subscribe"]),
+        say,
+      );
 
       Subscribed::Yes
     }
     EventGroup::Network => {
-      let Ok(arguments) = to_strings(&["monitor"]);
-      let Ok(()) = once(EventGroup::Network, Program::Nmcli, arguments, say);
+      let Ok(()) = once(
+        EventGroup::Network,
+        || event_command(Program::Nmcli, &["monitor"]),
+        say,
+      );
 
       Subscribed::Yes
     }
     EventGroup::Wifi => {
-      let Ok(gdbus) = Program::Gdbus.name();
-      let Ok(arguments) = to_strings(&[
-        "-oL",
-        gdbus,
-        "monitor",
-        "--system",
-        "--dest",
-        NETWORK_MANAGER,
-      ]);
-      let Ok(()) = once(EventGroup::Wifi, Program::Stdbuf, arguments, say);
+      let Ok(()) = crate::wifi::hold(say);
 
       Subscribed::Yes
     }
@@ -177,23 +169,39 @@ pub fn hold(event_group: &EventGroup, say: SyncSender<Change>) -> Result<Subscri
       Subscribed::Yes
     }
     EventGroup::Battery => {
-      let Ok(arguments) = to_strings(&["monitor", "--udev", "--subsystem-match=power_supply"]);
-      let Ok(()) = once(EventGroup::Battery, Program::Udevadm, arguments, say);
+      let Ok(()) = once(
+        EventGroup::Battery,
+        || {
+          event_command(
+            Program::Udevadm,
+            &["monitor", "--udev", "--subsystem-match=power_supply"],
+          )
+        },
+        say,
+      );
 
       Subscribed::Yes
     }
     EventGroup::Notifications => {
-      let Ok(arguments) = monitoring(&[
+      let rules = [
         format!("--match=interface={NOTIFICATIONS}"),
         format!("--match=interface={APPLICATION}"),
-      ]);
-      let Ok(()) = once(EventGroup::Notifications, Program::Stdbuf, arguments, say);
+      ];
+      let Ok(()) = once(
+        EventGroup::Notifications,
+        move || cli::monitor_session(&rules),
+        say,
+      );
 
       Subscribed::Yes
     }
     EventGroup::Player => {
-      let Ok(arguments) = monitoring(&[format!("--match=path={PLAYERS}")]);
-      let Ok(()) = once(EventGroup::Player, Program::Stdbuf, arguments, say);
+      let rules = [format!("--match=path={PLAYERS}")];
+      let Ok(()) = once(
+        EventGroup::Player,
+        move || cli::monitor_session(&rules),
+        say,
+      );
 
       Subscribed::Yes
     }
@@ -211,26 +219,24 @@ pub fn hold(event_group: &EventGroup, say: SyncSender<Change>) -> Result<Subscri
   })
 }
 
-fn to_strings(arguments: &[&str]) -> Result<Vec<String>, Never> {
-  Ok(arguments.iter().map(|word| (*word).to_string()).collect())
+fn event_command(program: Program, arguments: &[&str]) -> Result<Command, Never> {
+  let Ok(mut command) = program.command();
+  command.args(arguments);
+
+  Ok(command)
 }
 
-fn monitoring(matches: &[String]) -> Result<Vec<String>, Never> {
-  let Ok(busctl) = Program::Busctl.name();
-  let Ok(mut arguments) = to_strings(&["-oL", busctl, "--user", "monitor"]);
-
-  arguments.extend(matches.iter().cloned());
-
-  Ok(arguments)
-}
-
-enum Outage {
+pub(crate) enum Outage {
   Unreported,
   Reported,
 }
 
 impl Outage {
-  fn retry(&mut self, source: &EventGroup, cause: fmt::Arguments<'_>) -> Result<Round, Never> {
+  pub(crate) fn retry(
+    &mut self,
+    source: &EventGroup,
+    cause: fmt::Arguments<'_>,
+  ) -> Result<Round, Never> {
     match self {
       Self::Unreported => {
         console_core_logging::warn!("{source:?} subscription interrupted: {cause}; retrying");
@@ -283,20 +289,19 @@ fn compositor(say: SyncSender<Change>) -> Result<(), Never> {
 
 fn once(
   about: EventGroup,
-  program: Program,
-  arguments: Vec<String>,
+  command: impl Fn() -> Result<Command, Never> + Send + 'static,
   say: SyncSender<Change>,
 ) -> Result<(), Never> {
   let mut outage = Outage::Unreported;
 
   let Ok(()) = keep(move || {
-    let Ok(mut asking) = program.command();
-    let Ok(name) = program.name();
-
-    asking
-      .args(&arguments)
-      .stdout(Stdio::piped())
-      .stderr(Stdio::null());
+    let Ok(mut asking) = command();
+    asking.stdout(Stdio::piped()).stderr(Stdio::null());
+    let program = asking.get_program();
+    let name = match program.to_str() {
+      Some(text) => text.to_owned(),
+      None => format!("{program:?}"),
+    };
 
     let mut running = match alongside(&mut asking) {
       Ok(running) => running,

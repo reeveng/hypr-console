@@ -17,6 +17,7 @@ pub(crate) use config::QuadrantChartConfigView;
 pub(crate) use text_paint::QuadrantChartPaintPlan;
 pub(crate) use theme::QuadrantChartPointThemePlan;
 
+#[must_use]
 fn point_class_styles<'a>(
     model: &'a QuadrantChartDiagramModel,
     point: &QuadrantChartPointModel,
@@ -27,6 +28,7 @@ fn point_class_styles<'a>(
         .and_then(|class_name| model.classes.get(class_name))
 }
 
+#[must_use]
 fn point_source_fill<'a>(
     point: &'a QuadrantChartPointModel,
     class_styles: Option<&'a QuadrantChartStyles>,
@@ -38,12 +40,15 @@ fn point_source_fill<'a>(
         .or_else(|| class_styles.and_then(|class_style| class_style.color.as_deref()))
 }
 
+#[must_use]
 fn scale_linear(domain: (f64, f64), range: (f64, f64), v: f64) -> f64 {
     let (d0, d1) = domain;
     let (r0, r1) = range;
-    if d1 == d0 {
+
+    if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&d1, &d0) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
         return r0;
     }
+
     let t = (v - d0) / (d1 - d0);
     r0 + t * (r1 - r0)
 }
@@ -61,6 +66,7 @@ pub(crate) fn layout_quadrantchart_diagram_typed(
                 .to_string(),
         });
     }
+
     let cfg = QuadrantChartConfigView::new(effective_config).layout_settings();
     let theme = point_theme.css();
 
@@ -202,6 +208,7 @@ pub(crate) fn layout_quadrantchart_diagram_typed(
     ];
     for q in &mut quadrants {
         q.text.x = q.x + q.width / 2.0;
+
         if model.points.is_empty() {
             q.text.y = q.y + q.height / 2.0;
             q.text.horizontal_pos = "middle".to_string();
@@ -215,6 +222,7 @@ pub(crate) fn layout_quadrantchart_diagram_typed(
     let draw_y_axis_labels_in_middle = !model.axes.y_axis_top_text.trim().is_empty();
 
     let mut axis_labels: Vec<QuadrantChartAxisLabelData> = Vec::new();
+
     if !model.axes.x_axis_left_text.trim().is_empty() && show_x_axis {
         axis_labels.push(QuadrantChartAxisLabelData {
             text: model.axes.x_axis_left_text.clone(),
@@ -240,6 +248,7 @@ pub(crate) fn layout_quadrantchart_diagram_typed(
             rotation: 0.0,
         });
     }
+
     if !model.axes.x_axis_right_text.trim().is_empty() && show_x_axis {
         axis_labels.push(QuadrantChartAxisLabelData {
             text: model.axes.x_axis_right_text.clone(),
@@ -266,6 +275,7 @@ pub(crate) fn layout_quadrantchart_diagram_typed(
             rotation: 0.0,
         });
     }
+
     if !model.axes.y_axis_bottom_text.trim().is_empty() && show_y_axis {
         axis_labels.push(QuadrantChartAxisLabelData {
             text: model.axes.y_axis_bottom_text.clone(),
@@ -291,6 +301,7 @@ pub(crate) fn layout_quadrantchart_diagram_typed(
             rotation: -90.0,
         });
     }
+
     if !model.axes.y_axis_top_text.trim().is_empty() && show_y_axis {
         axis_labels.push(QuadrantChartAxisLabelData {
             text: model.axes.y_axis_top_text.clone(),
@@ -370,6 +381,7 @@ pub(crate) fn layout_quadrantchart_diagram_typed(
     ];
 
     let mut points: Vec<QuadrantChartPointData> = Vec::new();
+
     for (point_index, p) in model.points.iter().enumerate() {
         let binding = point_theme.point_binding(
             point_index,

@@ -105,6 +105,7 @@ impl<'a> SequenceLayoutLoopState<'a> {
         });
         let mut bounds = None;
         let mut actor_center_bounds = None;
+
         for (actor_position, (center_x, width)) in ctx
             .actor_centers_x
             .iter()
@@ -123,9 +124,13 @@ impl<'a> SequenceLayoutLoopState<'a> {
                 }),
             );
         }
+
         let (bounds_start_x, bounds_stop_x) =
             bounds.unwrap_or((0.0, ctx.sequence_default_width.max(1.0)));
-        let actor_center_bounds = actor_center_bounds.unwrap_or((bounds_start_x, bounds_stop_x));
+        let actor_center_bounds_2 = match actor_center_bounds {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => (bounds_start_x, bounds_stop_x),
+        };
 
         Ok(Self {
             cursor_y: ctx.actor_top_offset_y + ctx.max_actor_layout_height,
@@ -135,7 +140,7 @@ impl<'a> SequenceLayoutLoopState<'a> {
             rect_stack: Vec::new(),
             activation_state,
             actor_lifecycle,
-            actor_center_bounds,
+            actor_center_bounds: actor_center_bounds_2,
             bounds_start_x,
             bounds_stop_x,
         })
@@ -159,8 +164,11 @@ impl<'a> SequenceLayoutLoopState<'a> {
     }
 
     fn add_sequence_section(&mut self, id: &str, y: f64) {
-        if let Some(open) = self.open_sequence_blocks.last_mut() {
-            open.section_ys_by_id.insert(id.to_string(), y);
+        match self.open_sequence_blocks.last_mut() {
+            Some(open) => {
+                open.section_ys_by_id.insert(id.to_string(), y);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -173,10 +181,11 @@ impl<'a> SequenceLayoutLoopState<'a> {
         self.bounds_start_x = self.bounds_start_x.min(min_x - nested_margin);
         self.bounds_stop_x = self.bounds_stop_x.max(max_x + nested_margin);
 
-        // Mermaid updates every active sequence item for each insertion. The outermost item gets
-        // the largest margin, while the innermost item gets one box margin. `block_stopy_stack`
-        // mirrors that stack and also includes `rect` items, which do not have a control frame.
+
+
+
         let sequence_item_depth = self.block_stopy_stack.len();
+
         for block in &mut self.open_sequence_blocks {
             let depth_margin =
                 sequence_item_depth.saturating_sub(block.sequence_item_index) as f64 * box_margin;
@@ -201,17 +210,23 @@ impl<'a> SequenceLayoutLoopState<'a> {
 
     fn close_sequence_block(&mut self, box_margin: f64) {
         self.close_content_block(box_margin);
-        if let Some(open) = self.open_sequence_blocks.pop() {
-            self.block_layouts_by_id.insert(
-                open.id,
-                SequenceBlockLayout {
-                    start_y: open.start_y,
-                    stop_y: self.cursor_y,
-                    start_x: open.start_x,
-                    stop_x: open.stop_x,
-                    section_ys_by_id: open.section_ys_by_id,
+
+        {
+            match self.open_sequence_blocks.pop() {
+                Some(open) => {
+                    self.block_layouts_by_id.insert(
+                        open.id,
+                        SequenceBlockLayout {
+                            start_y: open.start_y,
+                            stop_y: self.cursor_y,
+                            start_x: open.start_x,
+                            stop_x: open.stop_x,
+                            section_ys_by_id: open.section_ys_by_id,
+                        },
+                    );
                 },
-            );
+                ::core::option::Option::None => {},
+            };
         }
     }
 }
@@ -221,9 +236,12 @@ fn include_block_stopy(
     inserted_bottom_y: f64,
     box_margin: f64,
 ) {
-    if let Some(stopy) = block_stopy_stack.last_mut() {
-        let candidate = inserted_bottom_y + box_margin;
-        *stopy = Some(stopy.map_or(candidate, |current| current.max(candidate)));
+    match block_stopy_stack.last_mut() {
+        Some(stopy) => {
+            let candidate = inserted_bottom_y + box_margin;
+            *stopy = Some(stopy.map_or(candidate, |current| current.max(candidate)));
+        },
+        ::core::option::Option::None => {},
     }
 }
 
@@ -233,14 +251,22 @@ fn close_block_cursor(
     box_margin: f64,
 ) -> f64 {
     let closed_stopy = block_stopy_stack.pop().flatten();
-    if let Some(closed_stopy) = closed_stopy {
-        if let Some(parent_stopy) = block_stopy_stack.last_mut() {
-            let candidate = closed_stopy + box_margin;
-            *parent_stopy = Some(parent_stopy.map_or(candidate, |current| current.max(candidate)));
-        }
-        closed_stopy
-    } else {
-        cursor_y + box_margin
+
+    match closed_stopy {
+        Some(closed_stopy_2) => {
+            match block_stopy_stack.last_mut() {
+                Some(parent_stopy) => {
+                    let candidate = closed_stopy_2 + box_margin;
+                    *parent_stopy = Some(parent_stopy.map_or(candidate, |current| current.max(candidate)));
+                },
+                ::core::option::Option::None => {},
+            }
+
+            closed_stopy_2
+        },
+        ::core::option::Option::None => {
+            cursor_y + box_margin
+        },
     }
 }
 
@@ -260,25 +286,32 @@ fn handle_sequence_directive<'a>(
     if is_block_start(msg) {
         let start_y = state.cursor_y + ctx.box_margin;
         state.open_sequence_block(&msg.id, start_y);
-        state.cursor_y += directive_steps
+        state.cursor_y += match directive_steps
             .get(msg.id.as_str())
-            .copied()
-            .unwrap_or_default();
+            .copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.0,
+        };
         return true;
     }
+
     if is_block_end(msg) {
         state.close_sequence_block(ctx.box_margin);
         return true;
     }
+
     if is_block_section(msg) {
         let section_y = state.cursor_y + ctx.box_margin + ctx.box_text_margin;
         state.add_sequence_section(&msg.id, section_y);
-        state.cursor_y += directive_steps
+        state.cursor_y += match directive_steps
             .get(msg.id.as_str())
-            .copied()
-            .unwrap_or_default();
+            .copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.0,
+        };
         return true;
     }
+
     false
 }
 
@@ -307,21 +340,29 @@ fn handle_sequence_rect(
                 && semantics.role == SequenceControlRole::End =>
         {
             state.close_content_block(box_margin);
-            if let Some(open) = state.rect_stack.pop() {
-                let closed = open.close(state.actor_center_bounds);
-                nodes.push(closed.node);
 
-                if let Some(parent) = state.rect_stack.last_mut() {
-                    parent.include_min_max(
-                        closed.left - SEQUENCE_FRAME_SIDE_PAD_PX,
-                        closed.right + SEQUENCE_FRAME_SIDE_PAD_PX,
-                        closed.bottom,
-                    );
-                }
+            match state.rect_stack.pop() {
+                Some(open) => {
+                    let closed = open.close(state.actor_center_bounds);
+                    nodes.push(closed.node);
+
+                    match state.rect_stack.last_mut() {
+                        Some(parent) => {
+                            parent.include_min_max(
+                                closed.left - SEQUENCE_FRAME_SIDE_PAD_PX,
+                                closed.right + SEQUENCE_FRAME_SIDE_PAD_PX,
+                                closed.bottom,
+                            );
+                        },
+                        ::core::option::Option::None => {},
+                    }
+                },
+                ::core::option::Option::None => {},
             }
+
             true
         }
-        _ => false,
+        ::core::option::Option::None | ::core::option::Option::Some(_) => false,
     }
 }
 
@@ -435,6 +476,7 @@ fn handle_sequence_message(
     else {
         return Ok(false);
     };
+
     let super::messages::SequenceMessageLayout {
         edge,
         from_x,
@@ -525,6 +567,7 @@ pub(super) fn build_sequence_layout_graph(
 
     for (msg_idx, msg) in ctx.model.messages.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(msg_idx)?;
+
         if handle_sequence_directive(msg, &directive_steps, &mut state, &ctx) {
             continue;
         }
@@ -579,15 +622,18 @@ pub(super) fn build_sequence_layout_graph(
     )?;
     ctx.checkpoints.checkpoint()?;
 
-    // drawActors advances one shared footer cursor, including destroyed actors' heights.
+
     let box_height = if ctx.mirror_actors {
         let mut max_footer_height = 0.0_f64;
+
         for (index, node) in nodes.iter().enumerate() {
             ctx.checkpoints.checkpoint_loop(index)?;
+
             if node.id.starts_with("actor-bottom-") {
                 max_footer_height = max_footer_height.max(node.height);
             }
         }
+
         bottom_box_top_y + max_footer_height + ctx.box_margin
     } else {
         state.cursor_y
@@ -609,8 +655,11 @@ fn include_rect_stack_bounds(
     max_x: f64,
     max_y: f64,
 ) {
-    if let Some(open) = rect_stack.last_mut() {
-        open.include_min_max(min_x, max_x, max_y);
+    match rect_stack.last_mut() {
+        Some(open) => {
+            open.include_min_max(min_x, max_x, max_y);
+        },
+        ::core::option::Option::None => {},
     }
 }
 

@@ -31,6 +31,7 @@ pub(super) struct ActorLabelContext<'a> {
 }
 
 impl<'a> ActorLabelContext<'a> {
+    #[must_use]
     pub(super) fn for_actor(&self, actor_index: usize) -> Self {
         Self {
             actor_index: Some(actor_index),
@@ -50,10 +51,13 @@ impl<'a> ActorLabelContext<'a> {
         if !self.shadow.needs_bounds() || self.shadow.is_paintless(text) {
             return Ok(None);
         }
+
         let mut style = self.typography.terminal_text_style().clone();
+
         if !self.typography.requires_resolved_emission() {
             style.font_size = legacy_size;
         }
+
         self.shadow
             .write_definition(out, text, x, y, baseline, &style, self.measurer)
     }
@@ -84,8 +88,8 @@ impl<'a> ActorLabelContext<'a> {
     ) -> Result<()> {
         write_actor_label(
             out,
-            cx,
-            cy,
+            self::WriteActorLabelArguments { cx,
+            cy },
             &actor.description,
             actor.wrap,
             "actor-box",
@@ -102,8 +106,8 @@ impl<'a> ActorLabelContext<'a> {
     ) -> Result<()> {
         write_actor_label(
             out,
-            cx,
-            cy,
+            self::WriteActorLabelArguments { cx,
+            cy },
             &actor.description,
             actor.wrap,
             "actor-man",
@@ -111,15 +115,17 @@ impl<'a> ActorLabelContext<'a> {
         )
     }
 
+    #[must_use]
     pub(super) fn is_neo(&self) -> bool {
         self.compat.is_neo
     }
 
+    #[must_use]
     pub(super) fn bands(&self, node: &LayoutNode, footer: bool) -> Option<SequenceActorBands> {
         self.is_neo().then(|| {
             let (_, top) = node_left_top(node);
-            // Neo row height is the shared glyph band plus two 6px gaps and the label block.
-            // Derive the label block from that datum so host bbox differences cannot move glyphs.
+
+
             let text_height =
                 (node.height - crate::sequence::SEQUENCE_GLYPH_BAND_HEIGHT - 12.0).max(1.0);
             SequenceActorBands::new(top, node.height, text_height, footer)
@@ -136,6 +142,7 @@ impl<'a> ActorLabelContext<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn separate_label_shadow(&self) -> bool {
         self.is_neo() && self.shadow.needs_bounds()
     }
@@ -163,45 +170,55 @@ impl<'a> ActorLabelContext<'a> {
             {
                 return;
             }
+
             if !style.is_empty() {
                 style.push(' ');
             }
-            let color = super::super::util::cssom_color_value(color);
-            let _ = write!(style, "{property}: {color};");
+
+            let color_2 = super::super::util::cssom_color_value(color);
+            let _ = write!(style, "{property}: {color};", color = color_2);
         };
+
         if self.compat.actor_palette_mode() {
             let (stroke, fill) = self.compat.actor_palette(actor_index);
-            let stroke = stroke.or_else(|| {
+            let stroke_2 = stroke.or_else(|| {
                 matches!(actor_type, "actor" | "boundary" | "control" | "database")
                     .then(|| self.compat.actor_palette_stroke_fallback())
                     .flatten()
             });
-            for (property, color) in [("stroke", stroke), ("fill", fill)] {
-                if let Some(color) = color {
-                    declaration(property, color);
+
+            for (property, color) in [("stroke", stroke_2), ("fill", fill)] {
+                if let Some(color_3) = color {
+                    declaration(property, color_3);
                 }
             }
         } else {
             let theme = self.compat;
+
             if matches!(actor_type, "actor" | "boundary" | "control" | "database") {
                 declaration("stroke", theme.actor_border.as_str());
             }
+
             if actor_type == "control" {
                 declaration("fill", theme.actor_fill.as_str());
             }
         }
-        if let Some(width) = width {
+
+        if let Some(width_2) = width {
             if !style.is_empty() {
                 style.push(' ');
             }
-            let _ = write!(style, "stroke-width:{}px;", fmt(f64::from(width)));
+
+            let _ = write!(style, "stroke-width:{}px;", fmt(f64::from(width_2)));
         }
+
         if !style.is_empty() {
             let _ = write!(out, r#" style="{}""#, escape_attr(&style));
         }
     }
 }
 
+#[must_use]
 pub(super) fn is_actor_man_variant(actor_type: &str) -> bool {
     matches!(actor_type, "actor" | "boundary" | "control" | "entity")
 }
@@ -226,31 +243,33 @@ pub(super) const LIFELINE_STROKE_WIDTH_PX: f64 = 0.5;
 /// CSS. Actor-man glyphs have child `circle`/`line` nodes targeted directly by the generated
 /// selectors. Control remains conservative because its marker path still inherits the wrapper's
 /// inline fill; a participant custom class likewise owns its rectangle fill.
+#[must_use]
 pub(super) fn actor_fill_coverage(actor: &SequenceActor) -> ActorFillCoverage {
     match actor.actor_type.as_str() {
-        // These actor-man glyphs use only circles/lines covered by the generated selectors.
+
         "actor" | "boundary" => ActorFillCoverage::TypedCss,
         "entity" | "collections" | "queue" | "database" => ActorFillCoverage::TypedCss,
-        // The control arrow marker path still inherits the wrapper's inline fill. Do not sign the
-        // whole Actor fill route until the marker writer participates in the typed receipt.
+
+
         "control" => ActorFillCoverage::Unhandled,
-        // A participant with a custom class deliberately omits `.actor`; its source-owned fill
-        // must not be counted as typed theme consumption. Treat it as uncovered so a strict
-        // portable request cannot claim the typed route for a mixed or custom-only diagram.
+
+
+
         _ if actor_custom_class(actor).is_some() => ActorFillCoverage::Unhandled,
         _ => ActorFillCoverage::TypedCss,
     }
 }
 
 /// Classifies which actor shapes receive the generated actor stroke without an inline override.
+#[must_use]
 pub(super) fn actor_stroke_coverage(actor: &SequenceActor) -> ActorStrokeCoverage {
     match actor.actor_type.as_str() {
-        // Actor-man children, regular rectangles, collections, and queue paths all receive the
-        // generated `.actor`/`.actor-man` stroke selectors directly or through an unstyled parent.
+
+
         "actor" | "boundary" | "entity" | "collections" | "queue" => ActorStrokeCoverage::TypedCss,
-        // Mermaid's control and database glyphs put inline stroke on their wrappers. The control
-        // marker path still inherits that stroke even though its circle/line children are covered.
-        // Do not claim a typed stroke until those writers have dedicated terminal receipts.
+
+
+
         "control" | "database" => ActorStrokeCoverage::Unhandled,
         _ if actor_custom_class(actor).is_some() => ActorStrokeCoverage::Unhandled,
         _ => ActorStrokeCoverage::TypedCss,
@@ -322,9 +341,11 @@ impl ActorLabelContext<'_> {
                 ""
             },
         );
+
         if actor_type == "collections" && !self.separate_label_shadow() {
             self.write_shadow_attr(out);
         }
+
         out.push('>');
     }
 }
@@ -342,11 +363,13 @@ pub(super) fn write_collection_actor_shape(
     let (x, y) = node_left_top(n);
     let height = n.height - if label_ctx.is_neo() { OFFSET } else { 0.0 };
     let separate_shadow = label_ctx.separate_label_shadow();
+
     if separate_shadow {
         out.push_str("<g");
         label_ctx.write_shadow_attr(out);
         out.push('>');
     }
+
     for (rect_x, rect_y, class) in [
         (x, y, format!("actor {placement_class}")),
         (x - OFFSET, y + OFFSET, "actor".to_string()),
@@ -360,15 +383,19 @@ pub(super) fn write_collection_actor_shape(
             h = fmt(height),
             name = escape_attr(actor_id)
         );
+
         if label_ctx.is_neo() {
             out.push_str(r#" data-look="neo""#);
         }
+
         label_ctx.write_style_attr(out, "collections", actor_index);
         out.push_str("/>");
     }
+
     if separate_shadow {
         out.push_str("</g>");
     }
+
     label_ctx.write_actor(out, n.x - OFFSET, y + OFFSET + height / 2.0, actor)
 }
 
@@ -383,6 +410,7 @@ pub(super) fn write_queue_actor_shape(
     let ry = n.height / 2.0;
     let rx = ry / (2.5 + n.height / 50.0);
     let y_mid = y + ry;
+
     for (index, tx) in [rx, n.width - rx].into_iter().enumerate() {
         let _ = write!(
             out,
@@ -390,9 +418,14 @@ pub(super) fn write_queue_actor_shape(
             fmt(tx),
             fmt(-n.height / 2.0)
         );
-        if index == 0 {
-            label_ctx.write_shadow_attr(out);
+
+        match index {
+            0 => {
+                label_ctx.write_shadow_attr(out);
+            },
+            _ => {},
         }
+
         label_ctx.write_style_attr(out, "queue", actor_index);
         let _ = write!(
             out,
@@ -403,18 +436,24 @@ pub(super) fn write_queue_actor_shape(
             ry = fmt(ry),
             h = fmt(n.height)
         );
-        if index == 0 {
-            let _ = write!(
-                out,
-                " h {} a {},{} 0 0 0 0,-{} Z",
-                fmt(n.width - 2.0 * rx),
-                fmt(rx),
-                fmt(ry),
-                fmt(n.height)
-            );
+
+        match index {
+            0 => {
+                let _ = write!(
+                    out,
+                    " h {} a {},{} 0 0 0 0,-{} Z",
+                    fmt(n.width - 2.0 * rx),
+                    fmt(rx),
+                    fmt(ry),
+                    fmt(n.height)
+                );
+            },
+            _ => {},
         }
+
         out.push_str("\"/></g>");
     }
+
     label_ctx.write_actor(out, n.x, y_mid, actor)
 }
 
@@ -430,10 +469,13 @@ pub(super) fn write_database_actor_shape(
     let (x, y) = node_left_top(n);
     let w = n.width / 3.0;
     let bands = label_ctx.bands(n, placement_class == "actor-bottom");
-    let h = if bands.is_some() {
-        SEQUENCE_GLYPH_BAND_HEIGHT
-    } else {
-        w
+    let h = match bands {
+        ::core::option::Option::Some(_) => {
+            SEQUENCE_GLYPH_BAND_HEIGHT
+        },
+        ::core::option::Option::None => {
+            w
+        },
     };
     let rx = w / 2.0;
     let ry = rx / (2.5 + w / 50.0);
@@ -472,6 +514,7 @@ pub(super) struct SequenceActorRectStyle {
     pub(super) radius: Option<f32>,
 }
 
+#[must_use]
 pub(super) fn actor_rect_geometry_supported(actor: &SequenceActor) -> bool {
     !is_actor_man_variant(&actor.actor_type)
         && !matches!(
@@ -481,7 +524,7 @@ pub(super) fn actor_rect_geometry_supported(actor: &SequenceActor) -> bool {
         && actor_custom_class(actor).is_none()
 }
 
-// Keep the geometry and text receipts with their respective terminal owners.
+
 #[allow(clippy::too_many_arguments)]
 pub(super) fn write_rect_actor_shape(
     out: &mut impl SvgOutput,
@@ -495,13 +538,16 @@ pub(super) fn write_rect_actor_shape(
     receipt: &crate::sequence::SequenceActorThemeReceipt,
     shadow: Option<super::actor_effect::SequenceActorShadow<'_>>,
 ) -> Result<()> {
-    let filter = shadow.as_ref().map(|shadow| shadow.write_definition(out));
+    let filter = shadow.as_ref().map(|shadow_2| shadow_2.write_definition(out));
     let (x, y) = node_left_top(n);
     let custom_class = actor_custom_class(actor);
-    let fill = if custom_class.is_some() {
-        "#EDF2AE"
-    } else {
-        "#eaeaea"
+    let fill = match custom_class {
+        ::core::option::Option::Some(_) => {
+            "#EDF2AE"
+        },
+        ::core::option::Option::None => {
+            "#eaeaea"
+        },
     };
     let class = custom_class
         .map(|c| format!("{c} {placement_class}"))
@@ -510,7 +556,10 @@ pub(super) fn write_rect_actor_shape(
     let is_neo = label_ctx.is_neo();
     let legacy_radius = if is_neo { 6.0 } else { 3.0 };
     let radius = if supported {
-        rect_style.radius.unwrap_or(legacy_radius)
+        match rect_style.radius {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => legacy_radius,
+        }
     } else {
         legacy_radius
     };
@@ -526,35 +575,44 @@ pub(super) fn write_rect_actor_shape(
         class = escape_attr(&class),
         radius = fmt(f64::from(radius)),
     );
+
     if is_neo {
         out.push_str(r#" data-look="neo""#);
+
         if filter.is_none() && !receipt.effect_cleared {
             label_ctx.write_shadow_attr(out);
         }
     }
+
     label_ctx.write_style_attr_with_width(
         out,
         "participant",
         actor_index,
         supported.then_some(rect_style.stroke_width).flatten(),
     );
-    if let Some(filter) = &filter {
-        let _ = write!(out, r#" filter="{}""#, escape_attr(filter));
+
+    if let Some(filter_2) = &filter {
+        let _ = write!(out, r#" filter="{}""#, escape_attr(filter_2));
     }
+
     out.push_str("/>");
     out.checkpoint()?;
-    if let Some(shadow) = shadow {
-        shadow.record_emission();
+
+    if let Some(shadow_3) = shadow {
+        shadow_3.record_emission();
         receipt.record_effect_rect();
     } else if supported && receipt.effect_cleared {
         receipt.record_effect_rect();
     }
+
     if supported {
         receipt.record_geometry_rect();
     }
+
     label_ctx.write_actor(out, n.x, n.y, actor)
 }
 
+#[must_use]
 fn actor_custom_class(actor: &SequenceActor) -> Option<&str> {
     actor
         .properties
@@ -566,8 +624,7 @@ fn actor_custom_class(actor: &SequenceActor) -> Option<&str> {
 
 fn write_actor_label(
     out: &mut impl SvgOutput,
-    cx: f64,
-    cy: f64,
+    WriteActorLabelArguments { cx, cy }: WriteActorLabelArguments,
     label: &str,
     wrap: bool,
     label_class: &str,
@@ -596,6 +653,7 @@ fn write_actor_label(
             rendered_label,
         )
     });
+
     if let Some(katex) =
         sequence_katex_label(prepared_math, ctx.style, SequenceMathHeightMode::Actor)
     {
@@ -615,7 +673,7 @@ fn write_actor_label(
         );
         let raw_lines = crate::text::split_html_br_lines(rendered_label);
         let line_count = raw_lines.len();
-        write_actor_label_lines(out, cx, cy, raw_lines, line_count, label_class, ctx, false)?;
+        write_actor_label_lines(out, self::WriteActorLabelLinesArguments { cx, cy }, raw_lines, line_count, label_class, ctx, false)?;
         out.push_str("</switch>");
         record_sequence_katex_terminal_emission(
             ctx.typography_receipt,
@@ -631,14 +689,14 @@ fn write_actor_label(
         return ctx.checkpoints.checkpoint();
     }
 
-    // Split/wrap before decoding Mermaid entities so escaped `<br>` (`#lt;br#gt;`) remains
-    // literal text rather than being treated as an actual `<br>` break.
-    if let Some(wrapped_label) = wrapped_label {
-        let raw_lines = crate::text::split_html_br_lines(&wrapped_label);
+
+
+    if let Some(wrapped_label_2) = wrapped_label {
+        let raw_lines = crate::text::split_html_br_lines(&wrapped_label_2);
         write_actor_label_lines(
             out,
-            cx,
-            cy,
+            self::WriteActorLabelLinesArguments { cx,
+            cy },
             raw_lines.iter().copied(),
             raw_lines.len(),
             label_class,
@@ -648,9 +706,15 @@ fn write_actor_label(
     } else {
         let raw_lines = crate::text::split_html_br_lines(label);
         let line_count = raw_lines.len();
-        write_actor_label_lines(out, cx, cy, raw_lines, line_count, label_class, ctx, true)?;
+        write_actor_label_lines(out, self::WriteActorLabelLinesArguments { cx, cy }, raw_lines, line_count, label_class, ctx, true)?;
     }
+
     ctx.checkpoints.checkpoint()
+}
+
+struct WriteActorLabelArguments {
+    cx: f64,
+    cy: f64,
 }
 
 #[allow(
@@ -659,8 +723,7 @@ fn write_actor_label(
 )]
 fn write_actor_label_lines<'a>(
     out: &mut impl SvgOutput,
-    cx: f64,
-    cy: f64,
+    WriteActorLabelLinesArguments { cx, cy }: WriteActorLabelLinesArguments,
     raw_lines: impl IntoIterator<Item = &'a str>,
     line_count: usize,
     label_class: &str,
@@ -668,6 +731,7 @@ fn write_actor_label_lines<'a>(
     record_receipt: bool,
 ) -> Result<()> {
     let n = line_count.max(1) as f64;
+
     for (i, raw) in raw_lines.into_iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(i)?;
         let decoded = crate::sequence::prepare_sequence_text_line(raw);
@@ -688,10 +752,12 @@ fn write_actor_label_lines<'a>(
         } else {
             None
         };
-        let filter = application
+        let filter = match application
             .as_ref()
-            .map(|a| format!(" filter=\"{}\"", escape_attr(&a.filter)))
-            .unwrap_or_default();
+            .map(|a| format!(" filter=\"{}\"", escape_attr(&a.filter))) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
         let legacy_style = format!(
             "text-anchor: middle; {}",
             super::settings::sequence_text_style_attribute(ctx.style)
@@ -709,6 +775,7 @@ fn write_actor_label_lines<'a>(
             text = super::escape_prepared_text(decoded.as_ref())
         );
         out.checkpoint()?;
+
         if record_receipt {
             ctx.record_shadow(
                 application.as_ref(),
@@ -720,5 +787,11 @@ fn write_actor_label_lines<'a>(
                 .record_terminal_text(crate::sequence::SequenceTextSurface::ParticipantLabel);
         }
     }
+
     ctx.checkpoints.checkpoint()
+}
+
+struct WriteActorLabelLinesArguments {
+    cx: f64,
+    cy: f64,
 }

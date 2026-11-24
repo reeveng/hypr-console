@@ -6,9 +6,12 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+console-core-atomic-writes.workspace = true
 console-core-finite-numbers.workspace = true
+console-core-logging.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
+console-core-places.workspace = true
 
 [lints]
 workspace = true

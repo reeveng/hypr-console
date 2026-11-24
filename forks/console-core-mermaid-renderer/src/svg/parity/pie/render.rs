@@ -4,21 +4,24 @@ use merman_model::families::pie::PieDiagramModel;
 const EMPTY_PIE_WIDTH: f64 = 225.0;
 const EMPTY_PIE_HEIGHT: f64 = 450.0;
 
+#[must_use]
 fn pie_legend_rect_style(fill: &str) -> String {
-    // Mermaid emits legend colors via inline `style` in rgb() form for default themes.
-    // The compare tooling ignores `style`, but we keep this for human inspection parity.
+
+
     let color = super::super::util::cssom_color_value(fill);
     format!("fill: {color}; stroke: {color};")
 }
 
+#[must_use]
 fn pie_polar_xy(radius: f64, angle: f64) -> (f64, f64) {
     let x = radius * angle.cos();
     let y = radius * angle.sin();
     (x, y)
 }
 
+#[must_use]
 fn pie_path_round(value: f64) -> f64 {
-    // d3-shape's default pathRound(3) uses Math.round, including negative half ties.
+
     let scaled = value * 1000.0;
     let lower = scaled.floor();
     let rounded = if scaled - lower >= 0.5 {
@@ -29,6 +32,7 @@ fn pie_path_round(value: f64) -> f64 {
     rounded / 1000.0
 }
 
+#[must_use]
 fn pie_path_number(value: f64) -> crate::number_format::CanonicalNumber {
     fmt(pie_path_round(value))
 }
@@ -40,7 +44,7 @@ fn append_pie_arc(out: &mut String, radius: f64, start_angle: f64, end_angle: f6
     let sweep = u8::from(end_angle > start_angle);
     let r = pie_path_number(radius);
 
-    // d3-path's circle threshold is independent of d3-shape's full-circle branch.
+
     if delta > std::f64::consts::TAU - 1e-6 {
         let _ = write!(
             out,
@@ -51,8 +55,8 @@ fn append_pie_arc(out: &mut String, radius: f64, start_angle: f64, end_angle: f6
             y0 = pie_path_number(y0),
         );
     } else if delta > 1e-6 {
-        // d3-path 3.1.1 splits a large arc whose endpoints coincide after rounding.
-        // Each donut ring must make this decision using its own radius.
+
+
         if delta >= std::f64::consts::PI
             && pie_path_round(x0) == pie_path_round(x1)
             && pie_path_round(y0) == pie_path_round(y1)
@@ -67,6 +71,7 @@ fn append_pie_arc(out: &mut String, radius: f64, start_angle: f64, end_angle: f6
                 my = pie_path_number(my),
             );
         }
+
         let _ = write!(
             out,
             "A{r},{r},0,{large},{sweep},{x1},{y1}",
@@ -77,18 +82,24 @@ fn append_pie_arc(out: &mut String, radius: f64, start_angle: f64, end_angle: f6
     }
 }
 
+#[must_use]
 fn pie_slice_class(effective_config: &serde_json::Value, label: &str) -> String {
-    let highlight = crate::config::config_string(effective_config, &["pie", "highlightSlice"])
-        .unwrap_or_default();
+    let highlight = match crate::config::config_string(effective_config, &["pie", "highlightSlice"]) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => ::std::string::String::new(),
+    };
     let mut class_name = "pieCircle".to_string();
+
     if highlight == "hover" {
         class_name.push_str(" highlightedOnHover");
     } else if highlight == label {
         class_name.push_str(" highlighted");
     }
+
     class_name
 }
 
+#[must_use]
 fn emitted_attribute_matches(
     output: &str,
     element_start: usize,
@@ -102,6 +113,7 @@ fn emitted_attribute_matches(
         .is_some_and(|(value, _)| value == expected_value)
 }
 
+#[must_use]
 fn emitted_text_matches(output: &str, element_start: usize, text: Option<&str>) -> bool {
     let Some(element) = output
         .get(element_start..)
@@ -109,16 +121,18 @@ fn emitted_text_matches(output: &str, element_start: usize, text: Option<&str>) 
     else {
         return false;
     };
+
     match text {
-        Some(text) => element.split_once('>').is_some_and(|(_, content)| {
+        Some(text_2) => element.split_once('>').is_some_and(|(_, content)| {
             content
-                .strip_prefix(escape_xml(text).as_str())
+                .strip_prefix(escape_xml(text_2).as_str())
                 .is_some_and(|tail| tail.starts_with("</text>"))
         }),
         None => element.starts_with("<text ") && element.ends_with("/>"),
     }
 }
 
+#[must_use]
 fn empty_pie_root_viewport_fallback(
     model: &PieDiagramModel,
     min_x: f64,
@@ -132,12 +146,13 @@ fn empty_pie_root_viewport_fallback(
 
     let computed_root_is_finite =
         min_x.is_finite() && min_y.is_finite() && width.is_finite() && height.is_finite();
+
     if computed_root_is_finite {
         return None;
     }
 
-    // Mermaid can produce an invalid `-Infinity` viewport when no sections are drawn. Root
-    // Viewport requires finite bounds, but valid title-widened layout bounds remain authoritative.
+
+
     Some((
         root_svg::DiagramBounds::from_view_box(0.0, 0.0, EMPTY_PIE_WIDTH, EMPTY_PIE_HEIGHT),
         root_svg::RootMaxWidth::SvgNumber(EMPTY_PIE_WIDTH),
@@ -158,6 +173,7 @@ fn render_pie_slices(
         let emitted_fill = slice.fill.as_str();
         let escaped_fill = escape_xml(emitted_fill);
         let element_start = out.len();
+
         if slice.is_full_circle {
             let d = if inner_radius > 0.0 {
                 format!(
@@ -191,6 +207,7 @@ fn render_pie_slices(
                 y0 = pie_path_number(y0),
             );
             append_pie_arc(&mut d, radius, start_angle, end_angle);
+
             if inner_radius > 0.0 {
                 let (ix1, iy1) = pie_polar_xy(inner_radius, end_angle);
                 let _ = write!(
@@ -203,6 +220,7 @@ fn render_pie_slices(
             } else {
                 d.push_str("L0,0");
             }
+
             d.push('Z');
             let _ = write!(
                 out,
@@ -212,7 +230,9 @@ fn render_pie_slices(
                 class = escape_xml(&slice_class)
             );
         }
+
         out.checkpoint()?;
+
         if let Some(receipt) = paint_receipt.as_deref_mut() {
             let terminal_fill =
                 emitted_attribute_matches(out.as_str(), element_start, r#" fill=""#, &escaped_fill)
@@ -264,12 +284,15 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
 ) -> Result<root_svg::RootedSvg> {
     let diagram_id = options.diagram_id_or("merman");
 
-    let bounds = layout.bounds.clone().unwrap_or(Bounds {
-        min_x: 0.0,
-        min_y: 0.0,
-        max_x: 450.0,
-        max_y: 450.0,
-    });
+    let bounds = match (layout.bounds.clone(), Bounds {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 450.0,
+            max_y: 450.0,
+        }) {
+        (::core::option::Option::Some(present), alternate) => { ::core::mem::drop(alternate); present },
+        (::core::option::Option::None, alternate) => alternate,
+    };
     let vb_min_x = bounds.min_x;
     let vb_min_y = bounds.min_y;
     let vb_w = (bounds.max_x - bounds.min_x).max(1.0);
@@ -323,6 +346,7 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
             text = escape_xml(t)
         );
     }
+
     if let Some(d) = model.acc_descr.as_deref() {
         let _ = write!(
             &mut out,
@@ -331,6 +355,7 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
             text = escape_xml(d)
         );
     }
+
     out.checkpoint()?;
 
     let mut paint_receipt =
@@ -349,10 +374,12 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
         paint_plan,
         !layout.slices.is_empty(),
     )?;
+
     if let Some(receipt) = paint_receipt.as_mut() {
         for role in PieTextRole::ALL {
             receipt.record_text_stylesheet(paint_plan, role, css_emission.text(role));
         }
+
         if let Some(stroke) = slice_stroke {
             receipt.record_slice_stroke_stylesheet(
                 paint_plan,
@@ -362,6 +389,7 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
                     .filter(|emitted| *emitted == stroke),
             );
         }
+
         if let Some(stroke) = outer_stroke {
             receipt.record_outer_stroke_stylesheet(
                 paint_plan,
@@ -372,6 +400,7 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
             );
         }
     }
+
     out.push_str(r#"</style><g/>"#);
     out.checkpoint()?;
 
@@ -393,7 +422,8 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
     } else {
         0.0
     };
-    let has_pie_offset = pie_offset_x != 0.0 || pie_offset_y != 0.0;
+    let has_pie_offset = !::core::matches!(::core::primitive::f64::classify(pie_offset_x), ::core::num::FpCategory::Zero) || !::core::matches!(::core::primitive::f64::classify(pie_offset_y), ::core::num::FpCategory::Zero);
+
     if has_pie_offset {
         let _ = write!(
             &mut out,
@@ -412,6 +442,7 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
         r = fmt(layout.outer_radius)
     );
     out.checkpoint()?;
+
     if let Some(receipt) = paint_receipt.as_mut() {
         let terminal_class = emitted_attribute_matches(
             out.as_str(),
@@ -446,6 +477,7 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
             text = escape_xml(&text)
         );
         out.checkpoint()?;
+
         if let Some(receipt) = paint_receipt.as_mut() {
             let terminal_class =
                 (emitted_attribute_matches(out.as_str(), element_start, r#" class=""#, "slice")
@@ -465,6 +497,7 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
 
     let title_start = out.len();
     let title_text = layout.title.as_deref();
+
     match title_text {
         Some(t) => {
             options.checkpoint_emit()?;
@@ -486,7 +519,9 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
             );
         }
     }
+
     out.checkpoint()?;
+
     if let Some(receipt) = paint_receipt.as_mut() {
         let terminal_class = (emitted_attribute_matches(
             out.as_str(),
@@ -541,6 +576,7 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
         );
         out.push_str("</g>");
         out.checkpoint()?;
+
         if let Some(receipt) = paint_receipt.as_mut() {
             receipt.record_legend(paint_plan, legend_index, item.label.as_str(), terminal_fill);
             let terminal_parent_class =
@@ -558,12 +594,14 @@ pub(crate) fn render_pie_diagram_svg_model_with_paint_plan(
     }
 
     out.push_str("</g></svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if paint_receipt.is_some_and(|receipt| !paint_plan.record_terminal(receipt)) {
         return Err(crate::Error::InvalidModel {
             message: "Pie theme receipt did not match the terminal SVG".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 
@@ -617,8 +655,8 @@ mod tests {
 
     #[test]
     fn pie_near_full_arcs_split_coincident_rounded_endpoints() {
-        // d3-shape 3.2.1 with d3-path 3.1.1, using its default three-digit precision.
-        // Synthetic geometry reaches the arc boundary independently of Pie's 1% filter.
+
+
         for (start, inner, expected) in [
             (
                 0.0,

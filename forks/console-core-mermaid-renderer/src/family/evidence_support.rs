@@ -19,6 +19,7 @@ pub(crate) struct DirectPaintExpectation {
 }
 
 impl DirectPaintExpectation {
+    #[must_use]
     pub(crate) fn new(
         rule_index: usize,
         css: impl Into<Arc<str>>,
@@ -31,19 +32,23 @@ impl DirectPaintExpectation {
         }
     }
 
+    #[must_use]
     pub(crate) fn from_paint(paint: DirectStaticPaint) -> Self {
         let (css, rule_index, capability) = paint.into_parts();
         Self::new(rule_index, Arc::<str>::from(css), capability)
     }
 
+    #[must_use]
     pub(crate) const fn rule_index(&self) -> usize {
         self.rule_index
     }
 
+    #[must_use]
     pub(crate) fn css(&self) -> &str {
         &self.css
     }
 
+    #[must_use]
     pub(crate) const fn capability(&self) -> ThemeCapability {
         self.capability
     }
@@ -70,24 +75,27 @@ impl DirectPaintTerminalLedger {
         if source_owns {
             return emitted.is_none();
         }
+
         match (expected, emitted) {
             (None, None) => true,
-            (Some(expected), Some((rule_index, css))) => {
-                let expected_key = (expected.rule_index(), property);
+            (Some(expected_2), Some((rule_index, css))) => {
+                let expected_key = (expected_2.rule_index(), property);
                 *self.effective_by_property.entry(expected_key).or_default() += 1;
-                let matches = expected.rule_index() == rule_index && expected.css() == css;
+                let matches = expected_2.rule_index() == rule_index && expected_2.css() == css;
+
                 if matches {
                     *self
                         .emitted_by_property
                         .entry((rule_index, property))
                         .or_default() += 1;
                 }
+
                 matches
             }
-            (Some(expected), None) => {
+            (Some(expected_3), None) => {
                 *self
                     .effective_by_property
-                    .entry((expected.rule_index(), property))
+                    .entry((expected_3.rule_index(), property))
                     .or_default() += 1;
                 false
             }
@@ -95,12 +103,14 @@ impl DirectPaintTerminalLedger {
         }
     }
 
+    #[must_use]
     pub(crate) fn has_effective_rule(&self, rule_index: usize) -> bool {
         self.effective_by_property
             .iter()
             .any(|((candidate, _), count)| *candidate == rule_index && *count != 0)
     }
 
+    #[must_use]
     pub(crate) fn proves_property(
         &self,
         terminal_complete: bool,
@@ -108,10 +118,16 @@ impl DirectPaintTerminalLedger {
         property: ResolvedStyleProperty,
     ) -> bool {
         let key = (rule_index, property);
-        let effective = self.effective_by_property.get(&key).copied().unwrap_or(0);
+        let effective = match self.effective_by_property.get(&key).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        };
         terminal_complete
             && effective != 0
-            && self.emitted_by_property.get(&key).copied().unwrap_or(0) == effective
+            && (match self.emitted_by_property.get(&key).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            }) == effective
     }
 }
 
@@ -136,19 +152,23 @@ pub(crate) enum TerminalVariantDomain<'a> {
 }
 
 impl<'a> TerminalVariantDomain<'a> {
+    #[must_use]
     pub(crate) const fn uniform(count: usize, variant: ThemeVariant) -> Self {
         Self::Uniform { count, variant }
     }
 
     /// Actual terminal ordinals when semantic source occurrences can be hidden by layout.
+    #[must_use]
     pub(crate) const fn indexed(occurrences: &'a [(usize, ThemeVariant)]) -> Self {
         Self::Indexed { occurrences }
     }
 
+    #[must_use]
     pub(crate) const fn per_occurrence(variants: &'a [ThemeVariant]) -> Self {
         Self::PerOccurrence { variants }
     }
 
+    #[must_use]
     pub(crate) const fn grouped_alternating(
         group_lengths: &'a [usize],
         odd: ThemeVariant,
@@ -187,14 +207,16 @@ impl<'a> TerminalVariantDomain<'a> {
                 even,
             } => {
                 let mut ordinal = 0usize;
+
                 for group_length in group_lengths.iter().copied() {
                     for local_index in 0..group_length {
                         ordinal = ordinal.saturating_add(1);
-                        visit(ordinal, if local_index % 2 == 0 { odd } else { even })?;
+                        visit(ordinal, if ::core::primitive::usize::wrapping_rem(local_index, 2) == 0 { odd } else { even })?;
                     }
                 }
             }
         }
+
         Ok(())
     }
 }
@@ -209,6 +231,7 @@ enum TerminalStyleResolution<'a> {
 }
 
 impl TerminalStyleResolution<'_> {
+    #[must_use]
     const fn terminal_target(self) -> ThemeTarget {
         match self {
             Self::Direct(target) => target,
@@ -218,6 +241,7 @@ impl TerminalStyleResolution<'_> {
         }
     }
 
+    #[must_use]
     fn owns_target(self, target: ThemeTarget) -> bool {
         match self {
             Self::Direct(owned) => owned == target,
@@ -241,6 +265,7 @@ pub(crate) struct UnsupportedTerminalDomain<'a> {
 }
 
 impl<'a> UnsupportedTerminalDomain<'a> {
+    #[must_use]
     pub(crate) const fn direct(target: ThemeTarget, variants: TerminalVariantDomain<'a>) -> Self {
         Self {
             resolution: TerminalStyleResolution::Direct(target),
@@ -255,6 +280,7 @@ impl<'a> UnsupportedTerminalDomain<'a> {
 
     /// Reconciles only ordinal-palette and effect-binding fallbacks for a surface whose rule
     /// facets remain owned by a family-local plan.
+    #[must_use]
     pub(crate) const fn fallbacks_only(
         target: ThemeTarget,
         variants: TerminalVariantDomain<'a>,
@@ -272,6 +298,7 @@ impl<'a> UnsupportedTerminalDomain<'a> {
 
     /// Resolves whole-surface fallback winners without inventing an ordinal identity.
     /// The family still owns ordinal-rule accounting and the final visible applicability check.
+    #[must_use]
     pub(crate) const fn static_fallbacks_only(target: ThemeTarget, variant: ThemeVariant) -> Self {
         Self {
             resolution: TerminalStyleResolution::Direct(target),
@@ -288,6 +315,7 @@ impl<'a> UnsupportedTerminalDomain<'a> {
     ///
     /// Source/config fill overrides suppress unsupported fill-rule winners and ordinal-palette
     /// fallback for that occurrence. Other winning properties and effect bindings remain active.
+    #[must_use]
     pub(crate) const fn with_source_owned_fill(mut self, owned: &'a [bool]) -> Self {
         self.source_owned_fill = Some(owned);
         self
@@ -295,6 +323,7 @@ impl<'a> UnsupportedTerminalDomain<'a> {
 
     /// Suppresses only stroke paint winners owned by source/config at the actual occurrence.
     /// Fill, stroke geometry, and effect requests keep their independent ownership.
+    #[must_use]
     pub(crate) const fn with_source_owned_stroke(mut self, owned: &'a [bool]) -> Self {
         self.source_owned_stroke = Some(owned);
         self
@@ -302,11 +331,13 @@ impl<'a> UnsupportedTerminalDomain<'a> {
 
     /// Suppresses only fill requests when the family has proved that higher-priority terminal
     /// owners cover every occurrence. This requires completed writer evidence, not just rules.
+    #[must_use]
     pub(crate) const fn with_fill_fully_overridden(mut self, overridden: bool) -> Self {
         self.fill_fully_overridden = overridden;
         self
     }
 
+    #[must_use]
     pub(crate) const fn textual(
         terminal_target: ThemeTarget,
         owned_rule_targets: &'a [ThemeTarget],
@@ -326,20 +357,26 @@ impl<'a> UnsupportedTerminalDomain<'a> {
         }
     }
 
+    #[must_use]
     fn stroke_is_overridden(self, ordinal: usize) -> bool {
-        self.source_owned_stroke
+        match self.source_owned_stroke
             .and_then(|owned| owned.get(ordinal.saturating_sub(1)))
-            .copied()
-            .unwrap_or(false)
+            .copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => false,
+        }
     }
 
+    #[must_use]
     fn fill_is_overridden(self, ordinal: usize) -> bool {
         self.fill_fully_overridden
-            || self
+            || match self
                 .source_owned_fill
                 .and_then(|owned| owned.get(ordinal.saturating_sub(1)))
-                .copied()
-                .unwrap_or(false)
+                .copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => false,
+            }
     }
 }
 
@@ -358,6 +395,7 @@ enum UnsupportedMechanismObservation {
 }
 
 impl UnsupportedMechanismObservation {
+    #[must_use]
     fn is_owned(&self) -> bool {
         match self {
             Self::Rule {
@@ -384,6 +422,7 @@ pub(crate) fn reconcile_unsupported_terminal_domains(
     work_meter.charge(theme.family_mechanism_routes().len())?;
 
     let mut target_domains = BTreeMap::<ThemeTarget, usize>::new();
+
     for (domain_index, domain) in domains.iter().copied().enumerate() {
         match domain.resolution {
             TerminalStyleResolution::Direct(target) => {
@@ -404,6 +443,7 @@ pub(crate) fn reconcile_unsupported_terminal_domains(
     let mut observations = (0..domains.len())
         .map(|_| BTreeMap::<FamilyThemeMechanismKey, UnsupportedMechanismObservation>::new())
         .collect::<Vec<_>>();
+
     for route in theme.family_mechanism_routes().iter().copied() {
         let target = match route.mechanism() {
             FamilyThemeMechanism::BaseTypography(_) => continue,
@@ -411,21 +451,31 @@ pub(crate) fn reconcile_unsupported_terminal_domains(
             | FamilyThemeMechanism::OrdinalPalette { target }
             | FamilyThemeMechanism::EffectBinding { target, .. } => target,
         };
-        let Some(domain_index) = target_domains.get(&target).copied() else {
-            continue;
+
+        let domain_index = {
+            let optional_domain_index = target_domains.get(&target).copied();
+
+            match optional_domain_index {
+                Some(matched_domain_index) => matched_domain_index,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let key = theme.family_mechanism_key(route);
+
         match route.mechanism() {
             FamilyThemeMechanism::RuleFacet { facet, .. } => {
                 if !domains[domain_index].reconcile_rules {
                     continue;
                 }
+
                 let entry = observations[domain_index].entry(key).or_insert_with(|| {
                     UnsupportedMechanismObservation::Rule {
                         all_unsupported: true,
                         reasons_by_property: BTreeMap::new(),
                     }
                 });
+
                 let UnsupportedMechanismObservation::Rule {
                     all_unsupported,
                     reasons_by_property,
@@ -433,6 +483,7 @@ pub(crate) fn reconcile_unsupported_terminal_domains(
                 else {
                     unreachable!("one family mechanism key has one mechanism kind")
                 };
+
                 *all_unsupported &= route.disposition() == FamilyThemeDisposition::Unsupported;
                 if route.disposition() == FamilyThemeDisposition::Unsupported {
                     reasons_by_property
@@ -460,20 +511,21 @@ pub(crate) fn reconcile_unsupported_terminal_domains(
         }
     }
 
-    for (domain, observations) in domains.iter().copied().zip(observations) {
-        let mut outcomes = observations
+    for (domain, observations_2) in domains.iter().copied().zip(observations) {
+        let mut outcomes = observations_2
             .iter()
             .filter(|(_, observation)| observation.is_owned())
             .map(|(key, _)| (key.clone(), None))
             .collect::<BTreeMap<_, Option<FamilyThemeResidualReason>>>();
-        // A domain with no owned unsupported mechanism has nothing to reconcile.  In
-        // particular, do not rescan every ordinal occurrence just to discover that all
-        // observations are typed, shadowed, or otherwise not owned by this fallback path.
+
+
+
         if outcomes.is_empty() {
             continue;
         }
-        // Palette membership is invariant across this domain's terminal occurrences.
-        let palette_keys = observations
+
+
+        let palette_keys = observations_2
             .keys()
             .filter(|key| matches!(key, FamilyThemeMechanismKey::OrdinalPalette { .. }))
             .collect::<Vec<_>>();
@@ -503,20 +555,24 @@ pub(crate) fn reconcile_unsupported_terminal_domains(
                 {
                     continue;
                 }
+
                 if !domain.resolution.owns_target(origin.target()) {
                     continue;
                 }
+
                 let key = FamilyThemeMechanismKey::Rule {
                     index: origin.rule_index(),
                     target: origin.target(),
                 };
+
                 let Some(UnsupportedMechanismObservation::Rule {
                     reasons_by_property,
                     ..
-                }) = observations.get(&key)
+                }) = observations_2.get(&key)
                 else {
                     continue;
                 };
+
                 if let Some(reason) = reasons_by_property.get(&property).copied()
                     && let Some(outcome) = outcomes.get_mut(&key)
                 {
@@ -531,6 +587,7 @@ pub(crate) fn reconcile_unsupported_terminal_domains(
                     let FamilyThemeMechanismKey::OrdinalPalette { target } = key else {
                         unreachable!("filtered palette key")
                     };
+
                     if theme.series_color(*target, ordinal).is_some()
                         && let Some(outcome) = outcomes.get_mut(key)
                     {
@@ -546,10 +603,17 @@ pub(crate) fn reconcile_unsupported_terminal_domains(
                     target: binding.target(),
                     effect_id: binding.effect_id().to_string(),
                 };
-                if let Some(outcome) = outcomes.get_mut(&key) {
-                    outcome.get_or_insert(FamilyThemeResidualReason::UnsupportedEffect);
+
+                {
+                    match outcomes.get_mut(&key) {
+                        Some(outcome) => {
+                            outcome.get_or_insert(FamilyThemeResidualReason::UnsupportedEffect);
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
+
             Ok(())
         })?;
 
@@ -557,14 +621,14 @@ pub(crate) fn reconcile_unsupported_terminal_domains(
             if let Some(reason) = outcome {
                 evidence.mark_residual(key, reason);
             } else if !matches!(
-                observations.get(&key),
+                observations_2.get(&key),
                 Some(UnsupportedMechanismObservation::Rule {
                     all_unsupported: false,
                     ..
                 })
             ) {
-                // A mixed rule without an unsupported winner remains owned by its
-                // typed adapter. Only wholly unsupported rules can be classified N/A here.
+
+
                 evidence.mark_not_applicable(key);
             }
         }
@@ -573,6 +637,7 @@ pub(crate) fn reconcile_unsupported_terminal_domains(
     Ok(())
 }
 
+#[must_use]
 pub(crate) const fn resolved_style_property_for_facet(
     facet: FamilyThemeRuleFacet,
 ) -> ResolvedStyleProperty {
@@ -593,6 +658,7 @@ pub(crate) const fn resolved_style_property_for_facet(
     }
 }
 
+#[must_use]
 pub(crate) const fn unsupported_residual_for_facet(
     facet: FamilyThemeRuleFacet,
 ) -> FamilyThemeResidualReason {
@@ -664,7 +730,7 @@ mod tests {
     }
 
     fn fill_rule(target: ThemeTarget, color: &str) -> ThemeRule {
-        // Solid paint now has real consumers. Keep these unsupported-domain controls complex.
+
         let color = ThemeColorValue::parse(color).unwrap();
         let paint = CanvasPaint::LinearGradient(
             LinearGradient::new(

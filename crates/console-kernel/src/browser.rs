@@ -83,15 +83,7 @@ fn steps(
   } = Kernel::boot_with_memory_backing(memory, frame_bytes, 1)?;
   let root_before = kernel.budget(root, root_job)?;
   let root_objects = kernel.object_count()?;
-  let (mut browser, parent) = Browser::open(
-    &mut kernel,
-    Opening {
-      by: root,
-      under: root_job,
-      share: BROWSER_SHARE,
-      denied: &[Condition::ReplaceAsExecutable],
-    },
-  )?;
+  let (mut browser, parent) = open_browser(&mut kernel, root, root_job)?;
   let browser_before = browser.budget(&mut kernel)?;
   let browser_objects = kernel.object_count()?;
   let Ok(lendable) = Rights::from_rights(&[Right::Duplicate, Right::Transfer]);
@@ -119,28 +111,14 @@ fn steps(
   exercise_sandbox(&mut kernel, &browser, &site, &renderer, resource, log)?;
 
   kernel.revoke(root, executable_resource)?;
-
-  match ::core::primitive::bool::then_some(
-    kernel.handle_rights(renderer.process, resource) == Err(HandleError::BadHandle),
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return Err(BAD_STATE),
-  }
-
+  check_executable_revoked(&mut kernel, &renderer, resource)?;
   log(format_args!(
     "the root took back the executable resource from the renderer"
   ));
 
   let replacement = browser.replace_renderer(&mut kernel, &site)?;
 
-  match ::core::primitive::bool::then_some(
-    kernel.handles(renderer.process) == Err(HandleError::ProcessNotFound),
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return Err(BAD_STATE),
-  }
+  check_process_ended(&mut kernel, renderer.process)?;
 
   let next = Renderer::bootstrap(&mut kernel, replacement)?;
   exchange_frame(&mut kernel, &browser, &site, &next, &mut page, present)?;
@@ -170,6 +148,43 @@ fn steps(
     root_before,
     root_objects,
   )
+}
+
+fn open_browser(
+  kernel: &mut Kernel,
+  root: ProcessId,
+  root_job: HandleValue,
+) -> Result<(Browser, Parent), SiteIsolationError> {
+  Browser::open(
+    kernel,
+    Opening {
+      by: root,
+      under: root_job,
+      share: BROWSER_SHARE,
+      denied: &[Condition::ReplaceAsExecutable],
+    },
+  )
+}
+
+fn check_executable_revoked(
+  kernel: &mut Kernel,
+  renderer: &Renderer,
+  resource: HandleValue,
+) -> Result<(), SiteIsolationError> {
+  match kernel.handle_rights(renderer.process, resource) {
+    Err(HandleError::BadHandle) => Ok(()),
+    Ok(_) | Err(_) => Err(BAD_STATE),
+  }
+}
+
+fn check_process_ended(
+  kernel: &mut Kernel,
+  process: ProcessId,
+) -> Result<(), SiteIsolationError> {
+  match kernel.handles(process) {
+    Err(HandleError::ProcessNotFound) => Ok(()),
+    Ok(_) | Err(_) => Err(BAD_STATE),
+  }
 }
 
 fn finish_browser(
@@ -305,13 +320,7 @@ fn check_site_closed(
   before: console_kernel_handles::Budget,
   objects: u64,
 ) -> Result<(), SiteIsolationError> {
-  match ::core::primitive::bool::then_some(
-    kernel.handles(replacement) == Err(HandleError::ProcessNotFound),
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {}
-    ::core::option::Option::None => return Err(BAD_STATE),
-  }
+  check_process_ended(kernel, replacement)?;
 
   let budget = browser.budget(kernel)?;
   let after = kernel.object_count()?;

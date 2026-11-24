@@ -111,6 +111,7 @@ pub(crate) struct SequenceTextCheckpoints<'a> {
 }
 
 impl<'a> SequenceTextCheckpoints<'a> {
+    #[must_use]
     pub(crate) const fn for_phase(
         work_meter: &'a OperationWorkMeter,
         phase: OperationPhase,
@@ -134,18 +135,22 @@ pub(crate) struct SequenceOperationCheckpoints<'a> {
 }
 
 impl<'a> SequenceOperationCheckpoints<'a> {
+    #[must_use]
     const fn new(work_meter: &'a OperationWorkMeter) -> Self {
         Self::for_layout(work_meter)
     }
 
+    #[must_use]
     pub(crate) const fn for_layout(work_meter: &'a OperationWorkMeter) -> Self {
         Self::for_phase(work_meter, OperationPhase::Layout)
     }
 
+    #[must_use]
     pub(crate) const fn for_emit(work_meter: &'a OperationWorkMeter) -> Self {
         Self::for_phase(work_meter, OperationPhase::Emit)
     }
 
+    #[must_use]
     pub(crate) const fn for_phase(
         work_meter: &'a OperationWorkMeter,
         phase: OperationPhase,
@@ -161,9 +166,11 @@ impl<'a> SequenceOperationCheckpoints<'a> {
         if iteration.is_multiple_of(SEQUENCE_CHECKPOINT_INTERVAL) {
             self.checkpoint()?;
         }
+
         Ok(())
     }
 
+    #[must_use]
     pub(crate) const fn text(self) -> SequenceTextCheckpoints<'a> {
         SequenceTextCheckpoints::for_phase(self.work_meter, self.phase)
     }
@@ -207,6 +214,7 @@ pub(crate) struct SequencePreparedArtifact {
 }
 
 impl SequencePreparedArtifact {
+    #[must_use]
     pub(crate) fn model_for_render<'a>(
         &'a self,
         source: &'a SequenceDiagramModel,
@@ -214,70 +222,87 @@ impl SequencePreparedArtifact {
         self.visible_model.as_deref().unwrap_or(source)
     }
 
+    #[must_use]
     pub(crate) fn effect_evidence(&self) -> &crate::diagram_theme::SvgShadowEvidenceRecorder {
         &self.effect_evidence
     }
 
+    #[must_use]
     pub(crate) fn expected_effect_applications(&self) -> &std::cell::Cell<usize> {
         &self.expected_effect_applications
     }
 
+    #[must_use]
     pub(crate) fn box_layouts(&self) -> &[SequenceBoxLayout] {
         &self.box_layouts
     }
 
+    #[must_use]
     pub(crate) fn box_height(&self) -> f64 {
         self.box_height
     }
 
+    #[must_use]
     pub(crate) fn box_title_height(&self) -> f64 {
         self.box_title_height
     }
 
+    #[must_use]
     pub(crate) fn layout(&self) -> &SequenceDiagramLayout {
         &self.layout
     }
 
+    #[must_use]
     pub(crate) const fn theme_evidence(&self) -> &SequenceThemeEvidenceRecorder {
         &self.theme_evidence
     }
 
+    #[must_use]
     pub(crate) const fn math_sidecar(&self) -> &SequenceMathSidecar {
         &self.math_sidecar
     }
 
+    #[must_use]
     pub(crate) fn typography(&self) -> &SequenceTypographyPlan {
         self.typography.as_ref()
     }
 
+    #[must_use]
     pub(crate) const fn number_theme(&self) -> &SequencePreparedNumberTheme {
         &self.terminal_theme.number
     }
 
+    #[must_use]
     pub(crate) const fn terminal_theme(&self) -> &SequencePreparedTerminalTheme {
         &self.terminal_theme
     }
 
+    #[must_use]
     pub(crate) const fn activation_geometry(&self) -> &SequencePreparedActivationGeometry {
         &self.activation_geometry
     }
 
+    #[must_use]
     pub(crate) const fn activation_theme(&self) -> &SequencePreparedStaticRectTheme {
         &self.activation_theme
     }
 
+    #[must_use]
     pub(crate) const fn css(&self) -> &SequencePreparedCss {
         &self.css
     }
 
+    #[must_use]
     pub(crate) const fn diagram_title(&self) -> Option<&SequenceDiagramTitleGeometry> {
         self.diagram_title.as_ref()
     }
 
+    #[must_use]
     pub(crate) const fn block_label_box_metrics(&self) -> SequenceBlockLabelBoxMetrics {
         self.block_label_box_metrics
     }
 
+    #[must_use]
     pub(crate) const fn actor_popup_widths(&self) -> &HashMap<String, f64> {
         &self.actor_popup_widths
     }
@@ -294,12 +319,13 @@ struct SequenceLayoutWorkShape {
 }
 
 impl SequenceLayoutWorkShape {
+    #[must_use]
     fn work_units(self) -> Option<usize> {
-        // Sequence layout has a fixed number of actor and message passes: measurement, spacing,
-        // geometry construction, frame propagation, and final bounds. Box membership is scanned
-        // twice by Mermaid-compatible actor margin and actor-to-box assignment. Popup labels are
-        // measured once with ActorLabel typography. Nested frame accumulators are propagated to
-        // their parent once, so block depth does not multiply the per-message term.
+
+
+
+
+
         self.actors
             .checked_mul(SEQUENCE_ACTOR_LAYOUT_WORK_UNITS)?
             .checked_add(
@@ -319,11 +345,12 @@ impl SequenceLayoutWorkShape {
     }
 }
 
+#[must_use]
 fn sequence_label_text_work_units(byte_len: usize, wraps: bool) -> Option<usize> {
-    // `str::len()` gives an O(1), conservative upper bound for scalar/word scans. The linear
-    // term covers the fixed layout, bounds, and SVG replay envelope. Wrapped labels additionally
-    // pay a squared-byte envelope before any measurement callback because Mermaid-compatible
-    // wrapping repeatedly materializes and measures growing word/line prefixes.
+
+
+
+
     let linear = byte_len.checked_mul(SEQUENCE_TEXT_LINEAR_REPLAY_WORK_UNITS_PER_BYTE)?;
     let wrapping = if wraps {
         byte_len.checked_mul(byte_len)?
@@ -333,17 +360,24 @@ fn sequence_label_text_work_units(byte_len: usize, wraps: bool) -> Option<usize>
     linear.checked_add(wrapping)
 }
 
+#[must_use]
 fn sequence_message_text_work_units(message: &SequenceMessage) -> Option<usize> {
-    if let Some(semantics) = message.control_semantics() {
-        if semantics.kind == SequenceControlKind::Rect {
-            return sequence_label_text_work_units(message.message_text().len(), false);
-        }
-        if !semantics.consumes_text() {
-            return Some(0);
-        }
-        let byte_len = message.message_text().len().checked_add(2)?;
-        return sequence_label_text_work_units(byte_len, true);
+    match message.control_semantics() {
+        Some(semantics) => {
+            if semantics.kind == SequenceControlKind::Rect {
+                return sequence_label_text_work_units(message.message_text().len(), false);
+            }
+
+            if !semantics.consumes_text() {
+                return Some(0);
+            }
+
+            let byte_len = message.message_text().len().checked_add(2)?;
+            return sequence_label_text_work_units(byte_len, true);
+        },
+        ::core::option::Option::None => {},
     }
+
     sequence_label_text_work_units(message.message_text().len(), message.wrap)
 }
 
@@ -357,42 +391,77 @@ fn sequence_text_work_units_controlled(
     let mut include = |label_work: Option<usize>| -> Result<bool> {
         checkpoints.checkpoint_loop(label_index)?;
         label_index = label_index.saturating_add(1);
-        let Some(label_work) = label_work else {
-            return Ok(false);
+
+        let label_work_2 = match label_work {
+            Some(matched_label_work) => matched_label_work,
+            ::core::option::Option::None => return Ok(false),
         };
-        let Some(next) = work_units.checked_add(label_work) else {
-            return Ok(false);
+
+        let next = {
+            let optional_next = work_units.checked_add(label_work_2);
+
+            match optional_next {
+                Some(matched_next) => matched_next,
+                ::core::option::Option::None => return Ok(false),
+            }
         };
+
         work_units = next;
         Ok(true)
     };
 
     for actor_id in &model.actor_order {
-        if let Some(actor) = model.actors.get(actor_id) {
-            if !include(sequence_label_text_work_units(
-                actor.description.len(),
-                actor.wrap,
-            ))? {
-                return Ok(None);
-            }
-            for (label, url) in &actor.links {
-                let Some(url) = url.as_str() else {
-                    continue;
-                };
-                let Some(link_bytes) = label.len().checked_add(url.len()) else {
-                    return Ok(None);
-                };
-                if !include(sequence_label_text_work_units(link_bytes, false))? {
-                    return Ok(None);
-                }
-            }
+        {
+            match model.actors.get(actor_id) {
+                Some(actor) => {
+                    let checked_value_2 = include(sequence_label_text_work_units(
+                        actor.description.len(),
+                        actor.wrap,
+                    ))?;
+
+                    if !checked_value_2 {
+                        return Ok(None);
+                    }
+
+                    'inner_for_2: for (label, url) in &actor.links {
+                        let url_2 = {
+                            let optional_url = url.as_str();
+
+                            match optional_url {
+                                Some(matched_url) => matched_url,
+                                ::core::option::Option::None => continue 'inner_for_2,
+                            }
+                        };
+
+                        let link_bytes = {
+                            let optional_link_bytes = label.len().checked_add(url_2.len());
+
+                            match optional_link_bytes {
+                                Some(matched_link_bytes) => matched_link_bytes,
+                                ::core::option::Option::None => return Ok(None),
+                            }
+                        };
+
+                        let checked_value_4 = include(sequence_label_text_work_units(link_bytes, false))?;
+
+                        if !checked_value_4 {
+                            return Ok(None);
+                        }
+                    }
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     for message in &model.messages {
-        if !include(sequence_message_text_work_units(message))? {
+        let checked_value_3 = include(sequence_message_text_work_units(message))?;
+
+        if !checked_value_3 {
             return Ok(None);
         }
     }
+
     for sequence_box in &model.boxes {
         if let Some(name) = sequence_box.name.as_deref()
             && !include(sequence_label_text_work_units(name.len(), false))?
@@ -400,6 +469,7 @@ fn sequence_text_work_units_controlled(
             return Ok(None);
         }
     }
+
     if let Some(title) = sequence_render_title(model.title.as_deref(), diagram_title)
         && !include(sequence_label_text_work_units(title.len(), false))?
     {
@@ -425,35 +495,57 @@ fn sequence_layout_work_units_controlled(
 ) -> Result<Option<usize>> {
     let mut box_memberships = 0usize;
     let mut membership_index = 0usize;
+
     for sequence_box in &model.boxes {
         for _ in &sequence_box.actor_keys {
             checkpoints.checkpoint_loop(membership_index)?;
             membership_index = membership_index.saturating_add(1);
-            let Some(next) = box_memberships.checked_add(1) else {
-                return Ok(None);
+
+            let next = {
+                let optional_next = box_memberships.checked_add(1);
+
+                match optional_next {
+                    Some(matched_next) => matched_next,
+                    ::core::option::Option::None => return Ok(None),
+                }
             };
+
             box_memberships = next;
         }
     }
+
     checkpoints.checkpoint()?;
 
     let mut popup_links = 0usize;
+
     for (actor_position, actor_id) in model.actor_order.iter().enumerate() {
         checkpoints.checkpoint_loop(actor_position)?;
         let actor_links = model
             .actors
             .get(actor_id)
             .map_or(0, |actor| actor.links.len());
-        let Some(next) = popup_links.checked_add(actor_links) else {
-            return Ok(None);
+
+        let next = {
+            let optional_next = popup_links.checked_add(actor_links);
+
+            match optional_next {
+                Some(matched_next) => matched_next,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         popup_links = next;
     }
+
     checkpoints.checkpoint()?;
 
-    let Some(text_work) = sequence_text_work_units_controlled(model, diagram_title, checkpoints)?
-    else {
-        return Ok(None);
+    let text_work = {
+        let optional_text_work = sequence_text_work_units_controlled(model, diagram_title, checkpoints)?;
+
+        match optional_text_work {
+            Some(matched_text_work) => matched_text_work,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
 
     Ok(SequenceLayoutWorkShape {
@@ -467,14 +559,18 @@ fn sequence_layout_work_units_controlled(
     .work_units())
 }
 
+#[must_use]
 pub(crate) fn bracketize_sequence_block_label(value: &str) -> String {
     let trimmed = value.trim();
+
     if trimmed.is_empty() {
         return "\u{200B}".to_string();
     }
+
     format!("[{trimmed}]")
 }
 
+#[must_use]
 pub(crate) fn sequence_block_label_wrap_width(block_width: f64, wrap_padding: f64) -> f64 {
     (block_width - 2.0 * wrap_padding).max(1.0)
 }
@@ -493,25 +589,35 @@ pub(crate) fn sequence_block_widths_for_render(
         effective_config.as_value(),
         prepared.typography(),
     );
-    // SVG frame emission reconstructs Mermaid's `calculateLoopBounds` after Rust layout has
-    // already completed. Only the built-in operation route may carry its earlier message bounds
-    // across this private split; host and custom routes deliberately replay every callback.
+
+
+
     let message_metrics = prepared
         .message_metrics
         .view(model, &settings.msg_text_style, measurer);
     let mut actor_index = HashMap::with_capacity(model.actor_order.len());
+
     for (actor_position, actor_id) in model.actor_order.iter().enumerate() {
         checkpoints.checkpoint_loop(actor_position)?;
         actor_index.insert(actor_id.as_str(), actor_position);
     }
+
     let mut actor_centers_x = Vec::with_capacity(model.actor_order.len());
     let mut actor_widths = Vec::with_capacity(model.actor_order.len());
+
     for (actor_position, actor_id) in model.actor_order.iter().enumerate() {
         checkpoints.checkpoint_loop(actor_position)?;
         let node_id = format!("actor-top-{actor_id}");
-        let Some(node) = nodes_by_id.get(node_id.as_str()).copied() else {
-            return Ok(FixedMap::default());
+
+        let node = {
+            let optional_node = nodes_by_id.get(node_id.as_str()).copied();
+
+            match optional_node {
+                Some(matched_node) => matched_node,
+                ::core::option::Option::None => return Ok(FixedMap::default()),
+            }
         };
+
         actor_centers_x.push(node.x);
         actor_widths.push(node.width);
     }
@@ -547,10 +653,12 @@ pub(crate) fn sequence_block_widths_for_render(
         checkpoints,
     })?;
     let mut widths_by_id = FixedMap::default();
+
     for (index, (id, width)) in widths.into_iter().enumerate() {
         checkpoints.checkpoint_loop(index)?;
         widths_by_id.insert(id, width);
     }
+
     checkpoints.checkpoint()?;
     Ok(widths_by_id)
 }
@@ -573,7 +681,8 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
     checkpoints.checkpoint()?;
     work_meter.preflight_sequence_complexity(model, OperationPhase::Layout)?;
     checkpoints.checkpoint()?;
-    let work_units = sequence_layout_work_units_controlled(model, diagram_title, checkpoints)?
+    let checked_value = sequence_layout_work_units_controlled(model, diagram_title, checkpoints)?;
+    let work_units = checked_value
         .ok_or_else(|| work_meter.arithmetic_overflow())?;
     work_meter.charge(work_units)?;
 
@@ -584,7 +693,7 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
         } else {
             None
         };
-    let model = visible_model.as_deref().unwrap_or(model);
+    let model_2 = visible_model.as_deref().unwrap_or(model);
 
     let typography = Arc::new(SequenceTypographyPlan::resolve(
         effective_config,
@@ -593,12 +702,12 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
     )?);
     checkpoints.checkpoint()?;
     let terminal_theme = SequencePreparedTerminalTheme::resolve(
-        model,
+        model_2,
         effective_config,
         resolved_theme,
         work_meter.as_ref(),
     )?;
-    let effective_title = sequence_render_title(model.title.as_deref(), diagram_title);
+    let effective_title = sequence_render_title(model_2.title.as_deref(), diagram_title);
     let theme_evidence = SequenceThemeEvidenceRecorder::with_title(
         resolved_theme,
         effective_config,
@@ -617,7 +726,7 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
     )
     .with_actor_terminal_emissions(if settings.mirror_actors { 2 } else { 1 });
     let block_label_box_metrics = SequenceBlockLabelBoxMetrics::resolve(
-        model,
+        model_2,
         settings.label_box_width,
         settings.label_box_height,
         settings.box_text_margin,
@@ -642,7 +751,7 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
         has_boxes,
         message_metrics,
     } = plan_sequence_actors(SequenceActorLayoutPlanContext {
-        model,
+        model: model_2,
         source_actor_order,
         measurer,
         actor_text_style: &settings.actor_text_style,
@@ -661,7 +770,7 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
         wrap_padding: settings.wrap_padding,
         checkpoints,
     })?;
-    let message_metric_view = message_metrics.view(model, &settings.msg_text_style, measurer);
+    let message_metric_view = message_metrics.view(model_2, &settings.msg_text_style, measurer);
 
     let clusters: Vec<LayoutCluster> = Vec::new();
 
@@ -674,7 +783,7 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
         bounds_start_x,
         bounds_stop_x,
     } = build_sequence_layout_graph(SequenceLayoutGraphContext {
-        model,
+        model: model_2,
         actor_index: &actor_index,
         actor_centers_x: &actor_centers_x,
         actor_widths: &actor_widths,
@@ -711,7 +820,7 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
     })?;
 
     let rect_x_bounds = sequence_rect_stack_x_bounds(SequenceRectStackBoundsContext {
-        model,
+        model: model_2,
         actor_index: &actor_index,
         actor_centers_x: &actor_centers_x,
         edges: &edges,
@@ -720,15 +829,29 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
         box_margin: settings.box_margin,
         checkpoints,
     })?;
+
     if !rect_x_bounds.is_empty() {
         for (node_index, n) in nodes.iter_mut().enumerate() {
             checkpoints.checkpoint_loop(node_index)?;
-            let Some(start_id) = n.id.strip_prefix("rect-") else {
-                continue;
+
+            let start_id = {
+                let optional_start_id = n.id.strip_prefix("rect-");
+
+                match optional_start_id {
+                    Some(matched_start_id) => matched_start_id,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let Some((min_x, max_x)) = rect_x_bounds.get(start_id).copied() else {
-                continue;
+
+            let (min_x, max_x) = {
+                let optional_min_x = rect_x_bounds.get(start_id).copied();
+
+                match optional_min_x {
+                    Some((matched_min_x, matched_max_x)) => (matched_min_x, matched_max_x),
+                    ::core::option::Option::None => continue,
+                }
             };
+
             n.x = (min_x + max_x) / 2.0;
             n.width = (max_x - min_x).max(1.0);
         }
@@ -736,10 +859,10 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
 
     let SequenceRootGeometry {
         bounds,
-        diagram_title,
+        diagram_title: diagram_title_2,
     } = prepare_sequence_root_geometry(SequenceRootBoundsContext {
         is_neo: settings.is_neo,
-        model,
+        model: model_2,
         diagram_title: effective_title,
         nodes: &nodes,
         edges: &edges,
@@ -772,7 +895,7 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
     let math_sidecar = math_sidecar_builder.finish()?;
     checkpoints.checkpoint()?;
     let activation_geometry = SequencePreparedActivationGeometry::prepare(
-        model,
+        model_2,
         &nodes,
         &edges,
         typography.compat_binding().svg_activation_width,
@@ -809,7 +932,7 @@ pub(crate) fn prepare_sequence_diagram_typed_with_title_and_work_meter(
         activation_geometry,
         activation_theme,
         css,
-        diagram_title,
+        diagram_title: diagram_title_2,
         block_label_box_metrics,
         box_layouts,
         box_title_height,
@@ -821,41 +944,51 @@ fn sequence_visible_model(
     model: &SequenceDiagramModel,
     checkpoints: SequenceLayoutCheckpoints<'_>,
 ) -> Result<Option<Box<SequenceDiagramModel>>> {
-    // Mermaid counts endpoints from every message, including notes and activation records.
+
     let mut used = console_core_perfect_hash::collections::FixedSet::default();
+
     for (index, message) in model.messages.iter().enumerate() {
         checkpoints.checkpoint_loop(index)?;
         used.extend(message.from.as_deref());
         used.extend(message.to.as_deref());
     }
+
     let mut hidden = false;
+
     for (index, id) in model.actor_order.iter().enumerate() {
         checkpoints.checkpoint_loop(index)?;
         hidden |= !used.contains(id.as_str());
     }
+
     if !hidden {
         return Ok(None);
     }
 
-    // Retain the message allocation with its metric sidecar through layout and SVG emission.
-    // Source actor order and parser-owned lifecycle data remain untouched.
+
+
     let mut visible = Box::new(model.clone());
     visible.actor_order.retain(|id| used.contains(id.as_str()));
-    if let Some(lifecycles) = &mut visible.actor_lifecycles {
-        let mut index = 0;
-        lifecycles.retain(|_| {
-            let keep = model
-                .actor_order
-                .get(index)
-                .is_some_and(|id| used.contains(id.as_str()));
-            index += 1;
-            keep
-        });
+
+    match &mut visible.actor_lifecycles {
+        Some(lifecycles) => {
+            let mut index = 0;
+            lifecycles.retain(|_| {
+                let keep = model
+                    .actor_order
+                    .get(index)
+                    .is_some_and(|id| used.contains(id.as_str()));
+                index += 1;
+                keep
+            });
+        },
+        ::core::option::Option::None => {},
     }
+
     checkpoints.checkpoint()?;
     Ok(Some(visible))
 }
 
+#[must_use]
 pub(crate) fn sequence_render_title<'a>(
     model_title: Option<&'a str>,
     diagram_title: Option<&'a str>,
@@ -865,6 +998,7 @@ pub(crate) fn sequence_render_title<'a>(
     {
         return Some(title);
     }
+
     model_title
 }
 

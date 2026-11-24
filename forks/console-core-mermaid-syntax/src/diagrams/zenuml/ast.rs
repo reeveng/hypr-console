@@ -7,9 +7,10 @@ pub(super) struct SpannedText {
 }
 
 impl SpannedText {
+    #[must_use]
     pub(super) fn new(value: impl Into<String>, span: SourceSpan) -> Self {
         Self {
-            value: value.into(),
+            value: <_ as ::core::convert::Into<::std::string::String>>::into(value),
             span,
         }
     }

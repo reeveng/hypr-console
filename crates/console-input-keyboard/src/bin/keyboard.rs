@@ -32,14 +32,9 @@
 //! round again: what arrives there is the connection dying, and the next turn
 //! would not block, so the keyboard would spin and say so forever.
 //!
-//! A turn also asks what alphabet this keyboard should be wearing, which is a
-//! few bytes under the state directory that `language-switch` writes when the
-//! board someone is typing on moves. KeyboardCommand here rather than waited for: the
-//! keyboard already hears three words and a fourth would be a fourth program
-//! to send it, and a turn happens when something happened -- a press, a frame,
-//! a wake -- so this is one small read on a loop that is not spinning. What it
-//! costs is that a switch made while the keyboard is up and untouched lands on
-//! the next thing that wakes it rather than at once.
+//! Settings and `language-switch` wake this loop when the layout changes.
+//! The chosen alphabet and the list of available layers are read together on
+//! that wake, before handling any other input.
 //!
 //! A key held down -- under a thumb, or selected with A, B or the menu button
 //! held -- types again for as long as it is held, and `key_repeat` says when.
@@ -59,7 +54,7 @@ use std::os::fd::{AsFd, BorrowedFd};
 use std::os::unix::net::UnixDatagram;
 use std::process::ExitCode;
 
-use console_core_color::palette::{beside, read};
+use console_core_color::palette::spent;
 use console_input_alphabets::{self as alphabets, Orientation as Holding};
 use console_input_focus::{self as claim, CONTROLLER, Claim, Received, Spans};
 use console_input_keyboard::configuration::{self, Configuration};
@@ -178,17 +173,13 @@ fn main() -> ExitCode {
 }
 
 fn dressed(passed: &[String]) -> Result<Vec<String>, Never> {
-  let Ok(me) = me();
-  let Ok(at) = beside(&me);
-
-  let held = match std::fs::read_to_string(&at) {
-    Ok(held) => held,
+  let palette = match spent() {
+    Ok(palette) => palette,
     Err(why) => {
-      eprintln!("console-keyboard: no palette at {}: {why}", at.display());
-      String::new()
+      eprintln!("console-keyboard: {why}");
+      std::collections::BTreeMap::new()
     }
   };
-  let Ok(palette) = read(&held);
   let Ok(missing) = console_input_keyboard::palette::missing_colors(&palette);
 
   match ::core::primitive::bool::then_some(missing.is_empty(), ()) {
@@ -203,17 +194,6 @@ fn dressed(passed: &[String]) -> Result<Vec<String>, Never> {
   }
 
   console_input_keyboard::palette::arguments(&palette, passed)
-}
-
-fn me() -> Result<std::path::PathBuf, Never> {
-  Ok(match std::env::current_exe() {
-    Ok(at) => at,
-    Err(why) => {
-      eprintln!("console-keyboard: where this program is: {why}");
-
-      std::path::PathBuf::from(console_input_keyboard::palette::VIRTUAL_KEYBOARD)
-    }
-  })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -269,17 +249,6 @@ impl State<'_> {
     let Ok(showing_now) = self.screen.visibility();
     let Ok(()) = sync_reading(showing_now, &mut self.reading, &mut self.complained);
 
-    match ::core::primitive::bool::then_some(self.typist.last_alphabet == self.worn, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => {
-        self.worn = self.typist.last_alphabet;
-
-        let Ok(()) = keeps_its_own(self.worn);
-      }
-    }
-
-    let Ok(()) = self.follows();
-
     self.drawing(showing_now)?;
 
     let events = self.waiting_on()?;
@@ -291,26 +260,28 @@ impl State<'_> {
     let Ok(()) = self.pointer_events(now);
     let Ok(()) = self.repeats(now);
 
+    match (self.typist.last_alphabet == self.worn).then_some(()) {
+      Some(()) => {}
+      None => {
+        self.worn = self.typist.last_alphabet;
+        let Ok(()) = keeps_its_own(self.worn);
+      }
+    }
+
     Ok(())
   }
 
-  fn follows(&mut self) -> Result<(), Never> {
-    let Ok(worn) = left_on(self.standing);
+  fn reload_layouts(&mut self) -> Result<(), Never> {
+    let Ok((asked, _height)) = orientation(self.configuration, self.standing);
+    let Ok(walk) = layout_walk(&asked);
+    let Ok(wanted) = left_on(self.standing);
+    let Ok(()) = self.typist.reload_layouts(walk, wanted);
 
-    let wanted = match worn {
-      Some(wanted) => wanted,
-      None => return Ok(()),
-    };
-
-    match ::core::primitive::bool::then_some(wanted == self.worn, ()) {
-      ::core::option::Option::Some(()) => {}
-      ::core::option::Option::None => {
-        let Ok(()) = self.typist.go(wanted);
-
-        self.worn = wanted;
-        self.selected = None;
-      }
-    }
+    self.worn = self.typist.last_alphabet;
+    let Ok(()) = self.repeat.stop();
+    self.selected = None;
+    self.pressed = None;
+    self.shown = None;
 
     Ok(())
   }
@@ -423,6 +394,9 @@ impl State<'_> {
             (Command::Show, Showing::Yes) | (Command::Hide, Showing::No) => {}
             (Command::Hide, Showing::Yes) | (Command::Toggle, Showing::Yes) => {
               let Ok(()) = self.away();
+            }
+            (Command::ReloadLayouts, _) => {
+              let Ok(()) = self.reload_layouts();
             }
           }
         }
@@ -828,14 +802,7 @@ fn run(configuration: &Configuration, mut waiting: Waiting) -> Result<(), Unopen
   let Ok(shape) = standing();
   let Ok((asked, height)) = orientation(configuration, shape);
   let Ok(opening) = left_on(shape);
-  let walk: Vec<LayoutKind> = asked
-    .iter()
-    .filter_map(|name| {
-      let Ok(named) = find_layout(name.as_str());
-
-      named
-    })
-    .collect();
+  let Ok(walk) = layout_walk(&asked);
 
   match ::core::primitive::bool::then_some(walk.is_empty(), ()) {
     ::core::option::Option::Some(()) => return Err(Unopened::NoLayer(asked)),
@@ -1029,7 +996,9 @@ fn keeps_its_own(showing: LayoutKind) -> Result<(), Never> {
 
   match alphabets::wearing::remember(&home_3, alphabets::wearing::SCREEN, alphabet) {
     Ok(()) => {}
-    Err(fault) => eprintln!("console-keyboard: {fault}"),
+    Err(fault) => {
+      console_core_logging::warn!("could not remember the on-screen keyboard layout: {fault}")
+    }
   }
 
   Ok(())
@@ -1060,6 +1029,19 @@ fn orientation(configuration: &Configuration, shape: Shape) -> Result<(Vec<Strin
   };
 
   Ok((asked, height))
+}
+
+fn layout_walk(names: &[String]) -> Result<Vec<LayoutKind>, Never> {
+  Ok(
+    names
+      .iter()
+      .filter_map(|name| {
+        let Ok(named) = find_layout(name);
+
+        named
+      })
+      .collect(),
+  )
 }
 
 fn bind_socket() -> Result<UnixDatagram, Unopened> {

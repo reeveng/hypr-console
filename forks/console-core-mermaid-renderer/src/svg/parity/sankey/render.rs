@@ -27,12 +27,15 @@ impl SankeyTerminalNodeIndex {
         next_generated_id: &mut impl FnMut(&str) -> String,
     ) -> Self {
         let mut by_id = std::collections::HashMap::with_capacity(nodes.len());
+
         for node in nodes {
             by_id.insert(node.id.clone(), next_generated_id("node-"));
         }
+
         Self { by_id }
     }
 
+    #[must_use]
     fn terminal_uid(&self, node_id: &str) -> Option<&str> {
         self.by_id.get(node_id).map(String::as_str)
     }
@@ -76,7 +79,7 @@ fn write_sankey_nodes(
                 })?;
         let stroke = node_palette.stroke_for(node_index, &node.id);
         let stroke_attr = stroke
-            .map(|stroke| format!(r#" stroke="{}""#, escape_attr(stroke)))
+            .map(|stroke_2| format!(r#" stroke="{}""#, escape_attr(stroke_2)))
             .unwrap_or_default();
         let _ = write!(
             out,
@@ -89,8 +92,9 @@ fn write_sankey_nodes(
             fill = escape_attr(fill),
         );
         out.checkpoint()?;
-        if let Some(receipt) = receipt.as_deref_mut() {
-            receipt.record_node_paints(
+
+        if let Some(receipt_2) = receipt.as_deref_mut() {
+            receipt_2.record_node_paints(
                 node_palette,
                 node_index,
                 &node.id,
@@ -99,6 +103,7 @@ fn write_sankey_nodes(
             );
         }
     }
+
     Ok(())
 }
 
@@ -210,6 +215,7 @@ pub(crate) fn render_sankey_diagram_svg(
         font_style: None,
     };
     let mut label_texts = Vec::with_capacity(layout.nodes.len());
+
     for node in &layout.nodes {
         options.checkpoint_emit()?;
         let text = if show_values {
@@ -293,16 +299,18 @@ pub(crate) fn render_sankey_diagram_svg(
         diagram_id,
         typography_theme,
     )?;
+
     if let Some(receipt) = &mut typography_receipt {
         receipt.record_css_emission(typography_css_emission);
     }
+
     out.push_str("</style><g/>");
     out.checkpoint()?;
 
     let mut uid_count: usize = 0;
-    let mut next_generated_id = |prefix: &str| -> String {
+    let mut next_generated_id = |prefix_2: &str| -> String {
         uid_count += 1;
-        format!("{prefix}{uid_count}")
+        format!("{prefix}{uid_count}", prefix = prefix_2)
     };
 
     let terminal_node_index = SankeyTerminalNodeIndex::new(&layout.nodes, &mut next_generated_id);
@@ -321,6 +329,7 @@ pub(crate) fn render_sankey_diagram_svg(
     )?;
     out.push_str("</g>");
     out.checkpoint()?;
+
     if let Some(receipt) = node_palette_receipt
         && !node_palette.record_terminal(receipt)
     {
@@ -337,18 +346,21 @@ pub(crate) fn render_sankey_diagram_svg(
     out.checkpoint()?;
     let mut max_value = 0.0;
     let mut central_node_layer = 0usize;
+
     for n in &layout.nodes {
         options.checkpoint_emit()?;
+
         if n.value > max_value {
             max_value = n.value;
             central_node_layer = n.layer;
         }
     }
 
-    let mut append_labels = |out: &mut BoundedSvgOutput<'_>,
+    let mut append_labels = |out_2: &mut BoundedSvgOutput<'_>,
                              surface: crate::sankey::SankeyLabelSurface|
      -> Result<()> {
         let class_name = surface.class_name();
+
         for (n, text) in layout.nodes.iter().zip(&label_texts) {
             options.checkpoint_emit()?;
             let y = (n.y0 + n.y1) / 2.0;
@@ -369,10 +381,10 @@ pub(crate) fn render_sankey_diagram_svg(
                 format!("{}em", fmt(label_hide_values_dy_em))
             };
             let class_attr = class_name
-                .map(|class_name| format!(r#" class="{}""#, escape_attr(class_name)))
+                .map(|class_name_2| format!(r#" class="{}""#, escape_attr(class_name_2)))
                 .unwrap_or_default();
             let _ = write!(
-                out,
+                out_2,
                 r#"<text{class_attr}{fill_attr} x="{x}" y="{y}" dy="{dy}" text-anchor="{anchor}">{text}</text>"#,
                 class_attr = class_attr,
                 fill_attr = text_fill_attr.as_deref().unwrap_or_default(),
@@ -382,13 +394,16 @@ pub(crate) fn render_sankey_diagram_svg(
                 anchor = anchor,
                 text = escape_xml(text),
             );
-            out.checkpoint()?;
+            out_2.checkpoint()?;
+
             if let Some(receipt) = &mut typography_receipt {
                 receipt.record_label(surface, !text.trim().is_empty());
             }
         }
+
         Ok(())
     };
+
     if outlined_labels {
         append_labels(
             &mut out,
@@ -401,8 +416,10 @@ pub(crate) fn render_sankey_diagram_svg(
     } else {
         append_labels(&mut out, crate::sankey::SankeyLabelSurface::Plain)?;
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
+
     if let Some(receipt) = typography_receipt
         && !typography_theme.record_terminal(receipt)
     {
@@ -425,7 +442,7 @@ pub(crate) fn render_sankey_diagram_svg(
     out.push_str("</g>");
     out.checkpoint()?;
     out.push_str("</svg>");
-    root_document.complete(out.finish()?)
+    root_document.complete({ let checked_value = out.finish()?; checked_value })
 }
 
 #[cfg(test)]
@@ -858,8 +875,8 @@ mod tests {
 
     #[test]
     fn sankey_endpoint_index_long_chain_has_exact_linear_operation_counts() {
-        // Nodes plus links stay one item below the constrained 16,000-item model boundary. This
-        // is a structural work-counter check, not a wall-clock benchmark.
+
+
         const NODE_COUNT: usize = 8_000;
         let nodes = (0..NODE_COUNT)
             .map(|index| {

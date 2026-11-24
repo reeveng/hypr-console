@@ -27,6 +27,7 @@ impl Default for SvgOutputPolicy {
 }
 
 impl SvgOutputPolicy {
+    #[must_use]
     pub fn pipeline(&self) -> SvgPipeline {
         let mut pipeline = SvgPipeline::from_preset(self.preset);
 
@@ -47,25 +48,29 @@ impl SvgOutputPolicy {
             );
         }
 
-        if let Some(color) = self
+        match self
             .root_background_color
             .as_deref()
-            .filter(|color| !color.trim().is_empty())
-        {
-            pipeline.push_postprocessor_preserving_prepared_math(RootBackgroundPostprocessor::new(
-                color.trim(),
-            ));
+            .filter(|color| !color.trim().is_empty()) {
+            Some(color) => {
+                pipeline.push_postprocessor_preserving_prepared_math(RootBackgroundPostprocessor::new(
+                    color.trim(),
+                ));
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(css) = self
+        match self
             .scoped_css
             .as_deref()
-            .filter(|css| !css.trim().is_empty())
-        {
-            pipeline.push_postprocessor(
-                ScopedCssPostprocessor::new(css.to_string())
-                    .with_override_policy(self.css_override_policy),
-            );
+            .filter(|css| !css.trim().is_empty()) {
+            Some(css) => {
+                pipeline.push_postprocessor(
+                    ScopedCssPostprocessor::new(css.to_string())
+                        .with_override_policy(self.css_override_policy),
+                );
+            },
+            ::core::option::Option::None => {},
         }
 
         pipeline

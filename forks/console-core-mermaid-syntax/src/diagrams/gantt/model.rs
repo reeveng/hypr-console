@@ -155,13 +155,15 @@ impl GanttDb {
         self.sections.push(txt.to_string());
     }
 
+    #[must_use]
     pub(super) fn find_task_by_id(&self, id: &str) -> Option<&RawTask> {
-        // Mermaid's upstream ganttDb uses a plain JS object (`taskDb`) for id → index mapping,
-        // which makes `__proto__` non-addressable via `taskDb[id]` (prototype mutation). Mirror
-        // that observable behavior for parity.
+
+
+
         if id == "__proto__" {
             return None;
         }
+
         let pos = self.task_index.get(id).copied()?;
         self.raw_tasks.get(pos)
     }
@@ -170,31 +172,43 @@ impl GanttDb {
         if id == "__proto__" {
             return None;
         }
+
         let pos = self.task_index.get(id).copied()?;
         self.raw_tasks.get_mut(pos)
     }
 
     pub(super) fn set_class(&mut self, ids: &str, class_name: &str) {
         for id in ids.split(',') {
-            let id = id.trim();
-            let Some(task) = self.find_task_by_id_mut(id) else {
-                continue;
+            let id_2 = id.trim();
+
+            let task = {
+                let optional_task = self.find_task_by_id_mut(id_2);
+
+                match optional_task {
+                    Some(matched_task) => matched_task,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             task.classes.push(class_name.to_string());
         }
     }
 
     pub(super) fn set_link(&mut self, ids: &str, link_str: &str) {
-        let mut link_str = link_str.to_string();
+        let mut link_str_2 = link_str.to_string();
+
         if self.security_level != "loose" {
-            link_str = utils::sanitize_url(&link_str);
+            link_str_2 = utils::sanitize_url(&link_str_2);
         }
+
         for id in ids.split(',') {
-            let id = id.trim();
-            if self.find_task_by_id(id).is_some() {
-                self.links.insert(id.to_string(), link_str.clone());
+            let id_2 = id.trim();
+
+            if self.find_task_by_id(id_2).is_some() {
+                self.links.insert(id_2.to_string(), link_str_2.clone());
             }
         }
+
         self.set_class(ids, "clickable");
     }
 
@@ -206,25 +220,30 @@ impl GanttDb {
     ) {
         if self.security_level == "loose" {
             for id in ids.split(',') {
-                let id = id.trim();
-                if self.find_task_by_id(id).is_some() {
-                    let args = parse_callback_args(function_args).unwrap_or_default();
-                    let args = if args.is_empty() {
-                        vec![id.to_string()]
+                let id_2 = id.trim();
+
+                if self.find_task_by_id(id_2).is_some() {
+                    let args = match parse_callback_args(function_args) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => ::std::vec::Vec::new(),
+                    };
+                    let args_2 = if args.is_empty() {
+                        vec![id_2.to_string()]
                     } else {
                         args
                     };
                     self.click_events.insert(
-                        id.to_string(),
+                        id_2.to_string(),
                         GanttClickEvent {
                             function_name: function_name.to_string(),
-                            function_args: args,
+                            function_args: args_2,
                             raw_function_args: function_args.map(|s| s.to_string()),
                         },
                     );
                 }
             }
         }
+
         self.set_class(ids, "clickable");
     }
 
@@ -279,38 +298,45 @@ impl GanttDb {
         control: &OperationControl,
     ) -> OperationControlResult<Result<bool>> {
         let mut all_processed = true;
+
         for i in 0..self.raw_tasks.len() {
-            if i % 128 == 0 {
+            if i.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             let processed = match self.compile_task(i) {
                 Ok(processed) => processed,
                 Err(error) => return Ok(Err(error)),
             };
             all_processed = all_processed && processed;
         }
+
         Ok(Ok(all_processed))
     }
 
     fn compile_task(&mut self, pos: usize) -> Result<bool> {
         let start_spec = self.raw_tasks.get(pos).map(|t| t.raw.start_time.clone());
-        let Some(start_spec) = start_spec else {
-            return Ok(false);
+
+        let start_spec_2 = match start_spec {
+            Some(matched_start_spec) => matched_start_spec,
+            ::core::option::Option::None => return Ok(false),
         };
 
-        match start_spec {
+        match start_spec_2 {
             StartTimeRaw::PrevTaskEnd => {
                 let prev_id = self.raw_tasks[pos].prev_task_id.clone();
-                if let Some(prev_id) = prev_id
-                    && let Some(prev_task) = self.find_task_by_id(&prev_id)
+
+                if let Some(prev_id_2) = prev_id
+                    && let Some(prev_task) = self.find_task_by_id(&prev_id_2)
                 {
                     self.raw_tasks[pos].start_time = prev_task.end_time;
                 }
             }
             StartTimeRaw::GetStartDate { start_data } => {
                 let start_time = get_start_date(self, &self.date_format, &start_data)?;
-                if let Some(start_time) = start_time {
-                    self.raw_tasks[pos].start_time = Some(start_time);
+
+                if let Some(start_time_2) = start_time {
+                    self.raw_tasks[pos].start_time = Some(start_time_2);
                 }
             }
         }
@@ -342,18 +368,26 @@ impl GanttDb {
         if self.excludes.is_empty() || self.raw_tasks[pos].manual_end_time {
             return Ok(());
         }
+
         let Some(start_time) = self.raw_tasks[pos].start_time else {
             return Ok(());
         };
+
         let Some(end_time) = self.raw_tasks[pos].end_time else {
             return Ok(());
         };
 
-        let Some(start_time) = add_days_local(start_time, 1) else {
-            return Ok(());
+        let start_time_2 = {
+            let optional_start_time = add_days_local(start_time, 1);
+
+            match optional_start_time {
+                Some(matched_start_time) => matched_start_time,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         let (fixed_end_time, render_end_time) =
-            fix_task_dates(self, start_time, end_time, &self.date_format)?;
+            fix_task_dates(self, start_time_2, end_time, &self.date_format)?;
         self.raw_tasks[pos].end_time = Some(fixed_end_time);
         self.raw_tasks[pos].render_end_time = render_end_time;
 
@@ -365,20 +399,22 @@ impl GanttDb {
         control: &OperationControl,
     ) -> OperationControlResult<Result<()>> {
         control.checkpoint()?;
-        let mut all = match self.compile_tasks_controlled(control)? {
+        let mut all = match { let checked_value = self.compile_tasks_controlled(control)?; checked_value } {
             Ok(all) => all,
             Err(error) => return Ok(Err(error)),
         };
         let max_depth = 10;
         let mut iters = 0;
+
         while !all && iters < max_depth {
             control.checkpoint()?;
-            all = match self.compile_tasks_controlled(control)? {
-                Ok(all) => all,
+            all = match { let checked_value_2 = self.compile_tasks_controlled(control)?; checked_value_2 } {
+                Ok(all_2) => all_2,
                 Err(error) => return Ok(Err(error)),
             };
             iters += 1;
         }
+
         control.checkpoint()?;
         Ok(Ok(()))
     }
@@ -388,13 +424,15 @@ impl GanttDb {
     }
 }
 
+#[must_use]
 fn parse_callback_args(raw: Option<&str>) -> Option<Vec<String>> {
-    let raw = raw?;
+    let raw_2 = raw?;
     let mut out: Vec<String> = Vec::new();
 
     let mut cur = String::new();
     let mut in_quotes = false;
-    for ch in raw.chars() {
+
+    for ch in raw_2.chars() {
         match ch {
             '"' => {
                 in_quotes = !in_quotes;
@@ -407,20 +445,23 @@ fn parse_callback_args(raw: Option<&str>) -> Option<Vec<String>> {
             _ => cur.push(ch),
         }
     }
+
     out.push(cur);
 
-    let out: Vec<String> = out
+    let out_2: Vec<String> = out
         .into_iter()
         .map(|s| {
             let mut item = s.trim().to_string();
+
             if item.starts_with('"') && item.ends_with('"') && item.len() >= 2 {
                 item = item[1..item.len() - 1].to_string();
             }
+
             item
         })
         .collect();
 
-    Some(out)
+    Some(out_2)
 }
 
 #[derive(Debug, Clone)]
@@ -435,6 +476,7 @@ pub(super) struct TaskInfo {
     vert: bool,
 }
 
+#[must_use]
 fn split_list_lower(txt: &str) -> Vec<String> {
     txt.to_lowercase()
         .split(|c: char| c.is_whitespace() || c == ',')
@@ -462,9 +504,11 @@ fn parse_task_data(task_cnt: &mut i64, fields: &[&str]) -> TaskInfo {
 
     let tags = ["active", "done", "crit", "milestone", "vert"];
     let mut match_found = true;
+
     while match_found && !data.is_empty() {
         match_found = false;
-        for tag in tags {
+
+        'over_tag_2: for tag in tags {
             if data.first().is_some_and(|s| s.trim() == tag) {
                 match tag {
                     "active" => active = true,
@@ -474,9 +518,10 @@ fn parse_task_data(task_cnt: &mut i64, fields: &[&str]) -> TaskInfo {
                     "vert" => vert = true,
                     _ => {}
                 }
+
                 data.remove(0);
                 match_found = true;
-                break;
+                break 'over_tag_2;
             }
         }
     }

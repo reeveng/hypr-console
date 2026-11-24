@@ -19,6 +19,7 @@ pub(crate) struct Shape<'a> {
 }
 
 impl Shape<'_> {
+    #[must_use]
     fn center(self) -> P {
         P {
             x: self.node.x,
@@ -26,15 +27,21 @@ impl Shape<'_> {
         }
     }
 
+    #[must_use]
     pub(crate) fn intersect(self, point: &P) -> P {
-        if let Some(intersection) = self.intersection {
-            return intersection(point);
+        match self.intersection {
+            Some(intersection) => {
+                return intersection(point);
+            },
+            ::core::option::Option::None => {},
         }
+
         let node = self.node;
         let dx = point.x - node.x;
         let dy = point.y - node.y;
         let w = node.width / 2.0;
         let h = node.height / 2.0;
+
         if self.outline == Outline::Ellipse {
             let det = (w * w * dy * dy + h * h * dx * dx).sqrt();
             return P {
@@ -42,11 +49,12 @@ impl Shape<'_> {
                 y: node.y + w * h * dy / det,
             };
         }
+
         if self.outline == Outline::Diamond {
-            // Mermaid 12 polygon intersection uses floating division without the old
-            // half-pixel rounding bias. A diamond's center ray has this closed form.
+
+
             let scale = dx.abs() / w + dy.abs() / h;
-            return if scale == 0.0 {
+            return if ::core::matches!(::core::primitive::f64::classify(scale), ::core::num::FpCategory::Zero) {
                 self.center()
             } else {
                 P {
@@ -55,28 +63,31 @@ impl Shape<'_> {
                 }
             };
         }
+
         if dy.abs() * w > dx.abs() * h {
-            let h = if dy < 0.0 { -h } else { h };
+            let h_2 = if dy < 0.0 { -h } else { h };
             P {
-                x: node.x + if dy == 0.0 { 0.0 } else { h * dx / dy },
-                y: node.y + h,
+                x: node.x + if ::core::matches!(::core::primitive::f64::classify(dy), ::core::num::FpCategory::Zero) { 0.0 } else { h_2 * dx / dy },
+                y: node.y + h_2,
             }
         } else {
-            let w = if dx < 0.0 { -w } else { w };
+            let w_2 = if dx < 0.0 { -w } else { w };
             P {
-                x: node.x + w,
-                y: node.y + if dx == 0.0 { 0.0 } else { w * dy / dx },
+                x: node.x + w_2,
+                y: node.y + if ::core::matches!(::core::primitive::f64::classify(dx), ::core::num::FpCategory::Zero) { 0.0 } else { w_2 * dy / dx },
             }
         }
     }
 
+    #[must_use]
     fn outside(self, point: &P) -> bool {
-        // Match Mermaid's outsideNode exactly: an inward-rounded port remains
-        // inside, which can select a different departure and preserve a corner.
+
+
         (point.x - self.node.x).abs() >= self.node.width / 2.0
             || (point.y - self.node.y).abs() >= self.node.height / 2.0
     }
 
+    #[must_use]
     fn border(self, point: &P, tolerance: f64) -> bool {
         let dx = (point.x - self.node.x).abs();
         let dy = (point.y - self.node.y).abs();
@@ -86,20 +97,25 @@ impl Shape<'_> {
                 && dx <= self.node.width / 2.0 + tolerance)
     }
 
+    #[must_use]
     fn inside_outline(self, point: &P) -> bool {
         let crossing = self.intersect(point);
         distance(point, &self.center()) <= distance(&crossing, &self.center()) + 1e-9
     }
 
+    #[must_use]
     fn departure(self, port: &P, next: &P) -> Option<P> {
         if self.node.is_cluster {
             return None;
         }
+
         let dx = next.x - port.x;
         let dy = next.y - port.y;
-        if (dx == 0.0 && dy == 0.0) || (dx.abs() > 1e-6 && dy.abs() > 1e-6) {
+
+        if (::core::matches!(::core::primitive::f64::classify(dx), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f64::classify(dy), ::core::num::FpCategory::Zero)) || (dx.abs() > 1e-6 && dy.abs() > 1e-6) {
             return None;
         }
+
         let horizontal = dx.abs() > dy.abs();
         let along = |t| {
             if horizontal {
@@ -110,74 +126,88 @@ impl Shape<'_> {
         };
         let mut inner = if horizontal { self.node.x } else { self.node.y };
         let mut outer = if horizontal { port.x } else { port.y };
+
         if !self.inside_outline(&along(inner)) {
             return None;
         }
+
         if self.inside_outline(&along(outer)) {
             return Some(port.clone());
         }
+
         for _ in 0..20 {
             let mid = (inner + outer) / 2.0;
+
             if self.inside_outline(&along(mid)) {
                 inner = mid;
             } else {
                 outer = mid;
             }
         }
+
         Some(along(inner))
     }
 
+    #[must_use]
     fn compute_intersection(self, outside: &P, center: &P) -> P {
         let node = self.node;
-        let mut outside = outside.clone();
-        let dx = outside.x - node.x;
-        let dy = outside.y - node.y;
+        let mut outside_2 = outside.clone();
+        let dx = outside_2.x - node.x;
+        let dy = outside_2.y - node.y;
+
         if (dx.abs() - node.width / 2.0).abs() < 1.0 || (dy.abs() - node.height / 2.0).abs() < 1.0 {
             let length = dx.hypot(dy);
+
             if length > 0.0 {
-                outside = P {
+                outside_2 = P {
                     x: node.x + dx / length * (length + 10.0),
                     y: node.y + dy / length * (length + 10.0),
                 };
             }
         }
-        let crossing = self.intersect(&outside);
-        let wrong_side = (outside.x < node.x && crossing.x > node.x)
-            || (outside.x > node.x && crossing.x < node.x);
-        // Match JS comparisons for a degenerate ellipse's NaN intersection;
-        // sanitize() owns the finite-point fallback after endpoint clipping.
-        let rejected = wrong_side || distance(&outside, &crossing) <= 1.0;
+
+        let crossing = self.intersect(&outside_2);
+        let wrong_side = (outside_2.x < node.x && crossing.x > node.x)
+            || (outside_2.x > node.x && crossing.x < node.x);
+
+
+        let rejected = wrong_side || distance(&outside_2, &crossing) <= 1.0;
+
         if !rejected {
             return crossing;
         }
+
         let inside = P {
-            x: if (outside.x - node.x).abs() < 1.0 {
-                outside.x
-            } else if outside.x < node.x {
+            x: if (outside_2.x - node.x).abs() < 1.0 {
+                outside_2.x
+            } else if outside_2.x < node.x {
                 node.x - node.width / 4.0
             } else {
                 node.x + node.width / 4.0
             },
-            y: if (outside.y - node.y).abs() < 1.0 {
-                outside.y
+            y: if (outside_2.y - node.y).abs() < 1.0 {
+                outside_2.y
             } else {
                 center.y
             },
         };
-        rect_segment_intersection(node, &outside, &inside)
+        rect_segment_intersection(node, &outside_2, &inside)
     }
 }
 
+#[must_use]
 fn distance(a: &P, b: &P) -> f64 {
     (a.x - b.x).hypot(a.y - b.y)
 }
 
+#[must_use]
 fn rect_segment_intersection(node: &LayoutNode, outside: &P, inside: &P) -> P {
     let w = node.width / 2.0;
     let h = node.height / 2.0;
     let q_abs = (outside.y - inside.y).abs();
     let r_abs = (outside.x - inside.x).abs();
     let mut result;
+
     if (node.y - outside.y).abs() * w > (node.x - outside.x).abs() * h {
         let q = if inside.y < outside.y {
             outside.y - h - node.y
@@ -217,12 +247,15 @@ fn rect_segment_intersection(node: &LayoutNode, outside: &P, inside: &P) -> P {
             },
         };
     }
-    if r_abs == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(r_abs), ::core::num::FpCategory::Zero) {
         result.x = outside.x;
     }
-    if q_abs == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(q_abs), ::core::num::FpCategory::Zero) {
         result.y = outside.y;
     }
+
     result
 }
 
@@ -230,7 +263,9 @@ fn replace_endpoint(points: &mut Vec<P>, start: bool, value: P) {
     if points.is_empty() {
         return;
     }
+
     let index = if start { 0 } else { points.len() - 1 };
+
     if (points[index].x - value.x).abs() < 0.1 && (points[index].y - value.y).abs() < 0.1 {
         points.remove(index);
     } else {
@@ -244,22 +279,26 @@ fn group_clip(points: &mut Vec<P>, shape: Shape<'_>, start: bool) -> bool {
     } else {
         points.iter().rposition(|p| shape.outside(p))
     };
-    let Some(index) = outside else {
-        return false;
+
+    let index = match outside {
+        Some(matched_index) => matched_index,
+        ::core::option::Option::None => return false,
     };
+
     if (start && index == 0) || (!start && index == points.len() - 1) {
         return false;
     }
-    let outside = &points[index];
+
+    let outside_2 = &points[index];
     let inside = &points[if start { index - 1 } else { index + 1 }];
-    let dx = outside.x - inside.x;
-    let dy = outside.y - inside.y;
-    let tx = if dx == 0.0 {
+    let dx = outside_2.x - inside.x;
+    let dy = outside_2.y - inside.y;
+    let tx = if ::core::matches!(::core::primitive::f64::classify(dx), ::core::num::FpCategory::Zero) {
         f64::INFINITY
     } else {
         (shape.node.x + dx.signum() * shape.node.width / 2.0 - inside.x) / dx
     };
-    let ty = if dy == 0.0 {
+    let ty = if ::core::matches!(::core::primitive::f64::classify(dy), ::core::num::FpCategory::Zero) {
         f64::INFINITY
     } else {
         (shape.node.y + dy.signum() * shape.node.height / 2.0 - inside.y) / dy
@@ -269,11 +308,13 @@ fn group_clip(points: &mut Vec<P>, shape: Shape<'_>, start: bool) -> bool {
         x: inside.x + t * dx,
         y: inside.y + t * dy,
     };
+
     if start {
         points.splice(..index, [crossing]);
     } else {
         points.splice(index + 1.., [crossing]);
     }
+
     true
 }
 
@@ -284,45 +325,73 @@ fn apply_intersection(points: &mut Vec<P>, shape: Shape<'_>, start: bool) {
         points.iter().rfind(|p| shape.outside(p))
     };
     let center = if start { points.first() } else { points.last() };
-    if let (Some(outside), Some(center)) = (outside, center) {
-        let crossing = shape.compute_intersection(outside, center);
-        replace_endpoint(points, start, crossing);
+
+    match (outside, center) {
+        (Some(outside_2), Some(center_2)) => {
+            let crossing = shape.compute_intersection(outside_2, center_2);
+            replace_endpoint(points, start, crossing);
+        },
+        (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
     }
 }
 
+#[must_use]
 fn cutter(points: &[P], start: Shape<'_>, end: Shape<'_>) -> Vec<P> {
     let mut out = points.to_vec();
-    let (Some(start_center), Some(end_center)) = (points.first(), points.last()) else {
-        return out;
+
+    let (start_center, end_center) = {
+        let outcome_start_center = (points.first(), points.last());
+
+        match outcome_start_center {
+            (Some(matched_start_center), Some(matched_end_center)) => (matched_start_center, matched_end_center),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return out,
+        }
     };
-    if let Some(index) = out.iter().position(|p| start.outside(p)) {
-        let intersection = out
-            .get(index + 1)
-            .and_then(|next| start.departure(&out[index], next))
-            .unwrap_or_else(|| start.compute_intersection(&out[index], start_center));
-        replace_endpoint(&mut out, true, intersection);
+
+    match out.iter().position(|p| start.outside(p)) {
+        Some(index) => {
+            let intersection = out
+                .get(index + 1)
+                .and_then(|next| start.departure(&out[index], next))
+                .unwrap_or_else(|| start.compute_intersection(&out[index], start_center));
+            replace_endpoint(&mut out, true, intersection);
+        },
+        ::core::option::Option::None => {},
     }
+
     let outside = out
         .iter()
         .rposition(|p| end.outside(p))
         .or_else(|| out.len().checked_sub(2));
-    if let Some(index) = outside {
-        let intersection = index
-            .checked_sub(1)
-            .and_then(|next| end.departure(&out[index], &out[next]))
-            .unwrap_or_else(|| end.compute_intersection(&out[index], end_center));
-        replace_endpoint(&mut out, false, intersection);
+
+    match outside {
+        Some(index) => {
+            let intersection = index
+                .checked_sub(1)
+                .and_then(|next| end.departure(&out[index], &out[next]))
+                .unwrap_or_else(|| end.compute_intersection(&out[index], end_center));
+            replace_endpoint(&mut out, false, intersection);
+        },
+        ::core::option::Option::None => {},
     }
+
     if out.len() > 1 && distance(&out[out.len() - 1], &out[out.len() - 2]) < 2.0 {
         out.pop();
     }
+
     out
 }
 
+#[must_use]
 pub(crate) fn sanitize(points: &[P], start: Shape<'_>, end: Shape<'_>) -> Vec<P> {
-    if points.is_empty() {
-        return Vec::new();
+    match points {
+        [] => {
+            return Vec::new();
+        },
+        [_, ..] => {},
     }
+
     let mut previous = points.to_vec();
     let center_approx = |point: &P, shape: Shape<'_>| {
         (point.x - shape.node.x).abs() < 1e-6 && (point.y - shape.node.y).abs() < 1e-6
@@ -341,29 +410,37 @@ pub(crate) fn sanitize(points: &[P], start: Shape<'_>, end: Shape<'_>) -> Vec<P>
     };
     let mut skip_start = start.node.is_cluster && start.border(start_candidate, 0.5);
     let mut skip_end = end.node.is_cluster && end.border(end_candidate, 0.5);
+
     if skip_start && start_center {
         previous.remove(0);
     }
+
     if skip_end && end_center {
         previous.pop();
     }
+
     if start.node.is_cluster && !skip_start {
         skip_start = group_clip(&mut previous, start, true);
     }
+
     if end.node.is_cluster && !skip_end {
         skip_end = group_clip(&mut previous, end, false);
     }
+
     let mut clipped = if skip_start || skip_end {
         if !skip_start {
             apply_intersection(&mut previous, start, true);
         }
+
         if !skip_end {
             apply_intersection(&mut previous, end, false);
         }
+
         previous.clone()
     } else {
         cutter(&previous, start, end)
     };
+
     if clipped.len() < 2 || clipped.iter().any(|p| !p.x.is_finite() || !p.y.is_finite()) {
         let cleaned: Vec<_> = previous
             .iter()
@@ -376,7 +453,8 @@ pub(crate) fn sanitize(points: &[P], start: Shape<'_>, end: Shape<'_>) -> Vec<P>
             previous
         };
     }
-    // Source compares with the original predecessor, not the previously retained point.
+
+
     clipped
         .iter()
         .enumerate()
@@ -402,14 +480,17 @@ pub(crate) fn marker_segment(
         Some("arrow_cross" | "arrow_circle") => 12.5,
         _ => 0.0,
     };
+
     if offset <= 0.0 || points.len() < 3 {
         return;
     }
+
     let (terminal, adjacent) = if start {
         (0, 1)
     } else {
         (points.len() - 1, points.len() - 2)
     };
+
     if distance(&points[terminal], &points[adjacent]) < 8.0_f64.max(offset * 2.0)
         && shape.border(&points[adjacent], 1.0)
     {
@@ -447,7 +528,7 @@ mod tests {
 
     #[test]
     fn repeated_endpoint_is_removed_even_from_a_two_point_route() {
-        // Mermaid 12 geometry.spec.ts: replacement removes an already matching endpoint.
+
         for (start, replacement, expected) in [
             (true, (0.0, 0.0), (1.0, 1.0)),
             (false, (1.0, 1.0), (0.0, 0.0)),
@@ -541,7 +622,7 @@ mod tests {
 
     #[test]
     fn changed_group_frame_uses_actual_crossing_segment_in_both_directions() {
-        // Pinned render.spec.ts: crossing lies on the frame at y=130, not on its centre ray.
+
         let source_node = node(-100.0, 130.0, 40.0, 40.0, true);
         let target_node = node(100.0, 100.0, 100.0, 120.0, true);
         let source = Shape {

@@ -10,6 +10,8 @@ See the `examples/` directory for usage examples.
 */
 
 #![no_std]
+#![forbid(unsafe_code)]
+#![cfg_attr(feature = "simd", feature(portable_simd))]
 
 #[cfg(not(any(feature = "std", feature = "no-std-float")))]
 compile_error!("You have to activate either the `std` or the `no-std-float` feature.");
@@ -52,7 +54,7 @@ pub use shaders::{FilterQuality, GradientStop, PixmapPaint, SpreadMode};
 pub use shaders::{LinearGradient, Pattern, RadialGradient, Shader, SweepGradient};
 
 pub use console_core_paths::{
-  IntRect, IntSize, NonZeroRect, Point, FloatRectangle, ScaleFactors, Size, Transform,
+  FloatRectangle, IntRect, IntSize, NonZeroRect, Point, ScaleFactors, Size, Transform,
 };
 pub use console_core_paths::{LineCap, LineJoin, Stroke, StrokeDash};
 pub use console_core_paths::{Path, PathBuilder, PathSegment, PathSegmentsIter, PathStroker};

@@ -1,9 +1,10 @@
 //! Child pipes that give control back when the other end stops responding.
 
 use std::io;
-use std::os::fd::OwnedFd;
-use std::time::Duration;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
+use std::time::{Duration, Instant};
 
+use console_core_number_conversion::index;
 use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fs::{OFlags, fcntl_getfl, fcntl_setfl};
 use rustix::io::{Errno, read, write};
@@ -54,6 +55,12 @@ fn wait_ready(watched: &mut [PollFd<'_>], wait: Duration) -> io::Result<()> {
 
 pub struct TimedReadPipe(OwnedFd);
 
+impl AsFd for TimedReadPipe {
+  fn as_fd(&self) -> BorrowedFd<'_> {
+    self.0.as_fd()
+  }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PipeReady {
   Readable,
@@ -83,6 +90,46 @@ impl TimedReadPipe {
     };
 
     converted.map_err(io::Error::other)
+  }
+
+  pub fn read_until<'a>(
+    &self,
+    bytes: &'a mut [u8],
+    deadline: Instant,
+    clock: impl Fn() -> Instant,
+  ) -> io::Result<&'a mut [u8]> {
+    let capacity = u32::try_from(bytes.len()).map_err(io::Error::other)?;
+    let mut received = 0_u32;
+
+    for _ in 0..capacity {
+      let Ok(start) = index(received);
+      let buffer = bytes.get_mut(start..).ok_or(io::ErrorKind::InvalidData)?;
+
+      match buffer {
+        [] => break,
+        [_, ..] => {}
+      }
+
+      let wait = deadline
+        .checked_duration_since(clock())
+        .ok_or(io::ErrorKind::TimedOut)?;
+      let read = self.read_some(buffer, wait)?;
+
+      match read {
+        0 => break,
+        _ => received = received.saturating_add(read),
+      }
+    }
+
+    let Ok(end) = index(received);
+    bytes
+      .get_mut(..end)
+      .ok_or_else(|| io::Error::from(io::ErrorKind::InvalidData))
+  }
+
+  pub(crate) fn wait_readable(&self, wait: Duration) -> io::Result<()> {
+    let mut watched = [PollFd::new(&self.0, PollFlags::IN)];
+    wait_ready(&mut watched, wait)
   }
 
   pub fn ready_with(&self, second: &Self, wait: Duration) -> io::Result<[PipeReady; 2]> {

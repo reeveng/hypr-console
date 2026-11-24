@@ -172,13 +172,10 @@ impl<'tcx> LateLintPass<'tcx> for Explicit048NoUnrealState {
                  which only a few mean anything"
             ),
             None,
-            "a flag beside what it is about, or beside another flag, is an enum written out flat. \
-             Name one variant per state that can really happen, and the compiler counts them, a \
-             caller cannot set one field and forget the next, and a state added later has to be \
-             answered everywhere. Where the flag was set by a check, the variant holds what the \
-             check found, so whatever does the work takes that and cannot be called without it. \
-             Where the fields really are independent, allow this rule here and let the reason say \
-             so",
+            "give each valid state an enum variant with the data available in that state. If \
+             requests and replies change the state over time, let a machine own those transitions \
+             and put outstanding work in its pending variant. For independent fields, explain \
+             their independence in a local exception",
         );
     }
 

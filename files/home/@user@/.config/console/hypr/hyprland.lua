@@ -57,6 +57,22 @@ hl.config({
 -- there before the first apply, and nothing there in the nested desktop either.
 pcall(dofile, "/home/@user@/.config/console/hypr/monitor.lua")
 
+-- Restore the physical layout last selected in Settings. The on-screen
+-- keyboard keeps its own entry in the same state file.
+local home = os.getenv("HOME")
+local keyboard_layout = "us"
+local keyboard_state = home and io.open(home .. "/.local/state/console/alphabets", "r")
+if keyboard_state then
+    for line in keyboard_state:lines() do
+        local layout = line:match("^physical%-layout = ([a-z]+)$")
+        if layout then
+            keyboard_layout = layout
+            break
+        end
+    end
+    keyboard_state:close()
+end
+
 -- Clipboard contents and window titles stay private in compositor captures.
 hl.layer_rule({
     match = { namespace = "^(console-clipboard|console-task-manager)$" },
@@ -196,7 +212,7 @@ hl.config({
         damage_tracking = 1,
     },
     input = {
-        kb_layout    = "us",
+        kb_layout    = keyboard_layout,
         follow_mouse = 1,
         sensitivity  = 0,
     },
@@ -254,6 +270,37 @@ hl.window_rule({
     match     = { class = ".*" },
     workspace = "emptyn",
 })
+
+-- Settings stores the desktop entry ID followed by its window classes.
+-- Register the rule after the default so selected apps open over the active workspace.
+local config_home = os.getenv("XDG_CONFIG_HOME")
+if not config_home or config_home:sub(1, 1) ~= "/" then
+    local home = os.getenv("HOME")
+    config_home = home and home .. "/.config"
+end
+local quick_apps = config_home and io.open(config_home .. "/console/quick-workspace", "r")
+if quick_apps then
+    local classes = {}
+    for line in quick_apps:lines() do
+        local _, rest = line:match("^([^\t]+)\t(.+)$")
+        if rest then
+            for class in rest:gmatch("[^\t]+") do
+                local escaped = class:gsub("([\\.^$|?*+()%[%]{}])", "\\%1")
+                table.insert(classes, escaped)
+            end
+        end
+    end
+    quick_apps:close()
+    if #classes > 0 then
+        hl.window_rule({
+            name = "open apps in Quick Workspace",
+            match = { initial_class = table.concat(classes, "|") },
+            workspace = "special:console-quick",
+        })
+    end
+end
+
+hl.workspace_rule({ workspace = "special:console-quick", gaps_in = 8, gaps_out = 24 })
 
 ------------------------------------------------------------------ startup
 

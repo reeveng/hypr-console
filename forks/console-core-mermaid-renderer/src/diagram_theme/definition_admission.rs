@@ -21,10 +21,12 @@ const PREFLIGHT_SENTINEL: &str = "theme design JSON preflight failed";
 pub(super) enum ThemeInputEncodingError {
     #[error("typed theme input cannot be encoded for bounded admission")]
     InvalidEncoding,
+
     #[error(transparent)]
     ResourceLimit(#[from] ThemeResourceLimitExceeded),
 }
 
+#[must_use]
 pub(super) fn encoded_bytes_contract_error(
     error: ThemeResourceLimitExceeded,
 ) -> ThemeMaterializationErrorV1 {
@@ -44,6 +46,7 @@ pub(super) fn encoded_bytes_contract_error(
     )
 }
 
+#[must_use]
 fn invalid_json_contract_error(
     reason: &'static str,
     message: &'static str,
@@ -66,9 +69,14 @@ pub(super) fn measure_typed_input_encoded_bytes(
 ) -> Result<usize, ThemeInputEncodingError> {
     let mut writer = BoundedCountingWriter::new(resources);
     let encoded = serde_json::to_writer(&mut writer, input);
-    if let Some(error) = writer.take_resource_error() {
-        return Err(ThemeInputEncodingError::ResourceLimit(error));
+
+    match writer.take_resource_error() {
+        Some(error) => {
+            return Err(ThemeInputEncodingError::ResourceLimit(error));
+        },
+        ::core::option::Option::None => {},
     }
+
     encoded.map_err(|_| ThemeInputEncodingError::InvalidEncoding)?;
     Ok(writer.bytes)
 }
@@ -80,6 +88,7 @@ struct BoundedCountingWriter<'a> {
 }
 
 impl<'a> BoundedCountingWriter<'a> {
+    #[must_use]
     const fn new(resources: &'a ThemeResourcePolicy) -> Self {
         Self {
             resources,
@@ -98,11 +107,17 @@ impl io::Write for BoundedCountingWriter<'_> {
         if self.resource_error.is_some() {
             return Err(io::Error::other("theme input encoded-byte limit exceeded"));
         }
+
         let projected = self.bytes.saturating_add(buffer.len());
-        if let Err(error) = self.resources.check_theme_encoded_bytes(projected) {
-            self.resource_error = Some(error);
-            return Err(io::Error::other("theme input encoded-byte limit exceeded"));
+
+        match self.resources.check_theme_encoded_bytes(projected) {
+            Err(error) => {
+                self.resource_error = Some(error);
+                return Err(io::Error::other("theme input encoded-byte limit exceeded"));
+            },
+            ::core::result::Result::Ok(_) => {},
         }
+
         self.bytes = projected;
         Ok(buffer.len())
     }
@@ -132,9 +147,13 @@ impl PreflightState {
         actual: usize,
         max: usize,
     ) -> Result<(), E> {
-        if actual <= max {
-            return Ok(());
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(actual), &::core::convert::identity(max)); _explicit_ordering } {
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+                return Ok(());
+            },
+            ::core::cmp::Ordering::Greater => {},
         }
+
         let path = if limit == "max_theme_definition_collection_items" {
             ""
         } else {
@@ -171,14 +190,17 @@ impl PreflightState {
 
     fn push_key(&mut self, key: &str) -> (usize, bool) {
         let previous = (self.path.len(), self.path_frozen);
+
         if self.path_frozen {
             return previous;
         }
+
         let escaped_len = key.len().saturating_add(
             key.bytes()
                 .filter(|byte| matches!(*byte, b'~' | b'/'))
                 .count(),
         );
+
         if self
             .path
             .len()
@@ -189,7 +211,9 @@ impl PreflightState {
             self.path_frozen = true;
             return previous;
         }
+
         self.path.push('/');
+
         for character in key.chars() {
             match character {
                 '~' => self.path.push_str("~0"),
@@ -197,13 +221,16 @@ impl PreflightState {
                 _ => self.path.push(character),
             }
         }
+
         previous
     }
 
     fn push_index(&mut self, index: usize) -> (usize, bool) {
         let previous = (self.path.len(), self.path_frozen);
+
         if !self.path_frozen {
             let segment = format!("/{index}");
+
             if self.path.len().saturating_add(segment.len())
                 > ThemeMaterializationDiagnosticV1::MAX_PATH_BYTES
             {
@@ -212,6 +239,7 @@ impl PreflightState {
                 self.path.push_str(&segment);
             }
         }
+
         previous
     }
 
@@ -231,11 +259,19 @@ pub(super) fn preflight_json(bytes: &[u8]) -> Result<(), ThemeMaterializationErr
         parent_depth: 0,
     }
     .deserialize(&mut decoder);
-    if parsed.is_err() {
-        return Err(state.failure.unwrap_or_else(|| {
-            invalid_json_contract_error("malformed-json", "theme design JSON is malformed")
-        }));
+
+    match parsed {
+        ::core::result::Result::Err(_) => {
+            return Err(match state.failure {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => {
+                    invalid_json_contract_error("malformed-json", "theme design JSON is malformed")
+                },
+            });
+        },
+        ::core::result::Result::Ok(_) => {},
     }
+
     decoder.end().map_err(|_| {
         invalid_json_contract_error("malformed-json", "theme design JSON is malformed")
     })
@@ -272,24 +308,31 @@ impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
     fn visit_bool<E>(self, _: bool) -> Result<(), E> {
         Ok(())
     }
+
     fn visit_i64<E>(self, _: i64) -> Result<(), E> {
         Ok(())
     }
+
     fn visit_u64<E>(self, _: u64) -> Result<(), E> {
         Ok(())
     }
+
     fn visit_f64<E>(self, _: f64) -> Result<(), E> {
         Ok(())
     }
+
     fn visit_unit<E>(self) -> Result<(), E> {
         Ok(())
     }
+
     fn visit_str<E: de::Error>(self, value: &str) -> Result<(), E> {
         self.state.string(value)
     }
+
     fn visit_borrowed_str<E: de::Error>(self, value: &'de str) -> Result<(), E> {
         self.state.string(value)
     }
+
     fn visit_string<E: de::Error>(self, value: String) -> Result<(), E> {
         self.state.string(&value)
     }
@@ -299,6 +342,7 @@ impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
         self.state
             .bound("max_theme_definition_json_depth", depth, MAX_JSON_DEPTH)?;
         let mut count = 0usize;
+
         while sequence
             .next_element_seed(JsonSequenceItemSeed {
                 state: &mut *self.state,
@@ -309,6 +353,7 @@ impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
         {
             count += 1;
         }
+
         Ok(())
     }
 
@@ -317,6 +362,7 @@ impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
         self.state
             .bound("max_theme_definition_json_depth", depth, MAX_JSON_DEPTH)?;
         let mut seen = HashSet::<Cow<'de, str>>::new();
+
         while let Some(key) = map.next_key_seed(JsonKeySeed {
             state: &mut *self.state,
         })? {
@@ -325,12 +371,14 @@ impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
                 seen.len().saturating_add(1),
                 MAX_JSON_OBJECT_MEMBERS,
             )?;
+
             if !seen.insert(key.clone()) {
                 return Err(self.state.fail(invalid_json_contract_error(
                     "duplicate-object-key",
                     "theme design JSON contains a duplicate object key",
                 )));
             }
+
             self.state.item()?;
             let previous = self.state.push_key(&key);
             let result = map.next_value_seed(JsonValueSeed {
@@ -340,6 +388,7 @@ impl<'de> Visitor<'de> for JsonValueVisitor<'_> {
             self.state.restore_path(previous);
             result?;
         }
+
         Ok(())
     }
 }

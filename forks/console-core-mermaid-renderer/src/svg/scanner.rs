@@ -1,7 +1,9 @@
 /// Returns the byte index of the first unquoted `>` at or after `start`.
+#[must_use]
 pub(crate) fn find_tag_end(input: &str, start: usize) -> Option<usize> {
     let mut quote = None;
-    for (offset, character) in input.get(start..)?.char_indices() {
+
+    for (offset, character) in { let checked_value = input.get(start..)?; checked_value }.char_indices() {
         match character {
             '\'' | '"' if quote == Some(character) => quote = None,
             '\'' | '"' if quote.is_none() => quote = Some(character),
@@ -9,6 +11,7 @@ pub(crate) fn find_tag_end(input: &str, start: usize) -> Option<usize> {
             _ => {}
         }
     }
+
     None
 }
 

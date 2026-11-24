@@ -5,11 +5,14 @@
 //! that is saved -- so it is where the transcript, the snapshot and the
 //! migration are each made to go red.
 
+#![cfg(feature = "alloc")]
+
+#[cfg(all(feature = "std", unix))]
 use std::path::PathBuf;
 
 use console_core_state_machine::{
-  Decoder, Encoder, Machine, Never, ParseError, Queue, Serializable, SerializableMachine,
-  Version, restore, run, snapshot,
+  Decoder, EffectDependencies, Encoder, Machine, Never, ParseError, Queue, Serializable,
+  SerializableMachine, Service, Version, restore, run, snapshot,
 };
 
 type Failure = Box<dyn std::error::Error>;
@@ -56,6 +59,14 @@ enum Effect {
   ShowGuide,
   HideGuide,
   Highlight(Row),
+}
+
+impl EffectDependencies for Effect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::ShowGuide | Self::HideGuide | Self::Highlight(_) => &[Service::Display],
+    })
+  }
 }
 
 impl Serializable for Row {
@@ -301,6 +312,7 @@ fn a_layout_nobody_answers_is_said_rather_than_read() {
   );
 }
 
+#[cfg(all(feature = "std", unix))]
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct Book {
   file: Option<PathBuf>,
@@ -308,6 +320,7 @@ struct Book {
   page: u32,
 }
 
+#[cfg(all(feature = "std", unix))]
 impl Serializable for Book {
   fn encode(&self, encoder: &mut Encoder) -> Result<(), Never> {
     let Ok(()) = self.file.encode(encoder);
@@ -325,8 +338,10 @@ impl Serializable for Book {
   }
 }
 
+#[cfg(all(feature = "std", unix))]
 struct Shelf;
 
+#[cfg(all(feature = "std", unix))]
 impl Machine for Shelf {
   type Input = ();
   type State = Vec<Book>;
@@ -350,10 +365,12 @@ impl Machine for Shelf {
   }
 }
 
+#[cfg(all(feature = "std", unix))]
 impl SerializableMachine for Shelf {
   const VERSION: Version = Version(1);
 }
 
+#[cfg(all(feature = "std", unix))]
 #[test]
 fn a_state_of_lists_paths_and_names_comes_back_whole() -> Result<(), Failure> {
   let shelf = vec![

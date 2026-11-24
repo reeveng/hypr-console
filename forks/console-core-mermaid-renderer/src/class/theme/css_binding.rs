@@ -21,6 +21,7 @@ pub(crate) struct ClassCssThemeBinding {
 }
 
 impl ClassCssThemeBinding {
+    #[must_use]
     pub(crate) fn resolve(config: &Value) -> Self {
         let token = |key: &str, fallback: &str| {
             crate::config::config_string(config, &["themeVariables", key])
@@ -31,11 +32,11 @@ impl ClassCssThemeBinding {
         let class_group_text =
             crate::config::config_string(config, &["themeVariables", "nodeBorder"])
                 .unwrap_or_else(|| class_text.clone());
-        let palette_look = config
+        let palette_look = match config
             .get("look")
             .and_then(|value| match value {
-                Value::String(value) => Some(value.clone()),
-                Value::Number(value) => Some(value.to_string()),
+                Value::String(value_2) => Some(value_2.clone()),
+                Value::Number(value_3) => Some(value_3.to_string()),
                 _ => None,
             })
             .filter(|look| {
@@ -43,8 +44,10 @@ impl ClassCssThemeBinding {
                     && look
                         .bytes()
                         .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-            })
-            .unwrap_or_else(|| "classic".into());
+            }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("classic"),
+        };
         let palette = if matches!(
             config.get("theme").and_then(Value::as_str),
             Some("redux-color" | "redux-dark-color")
@@ -56,10 +59,11 @@ impl ClassCssThemeBinding {
             let color = |value: &Value| {
                 value
                     .as_str()
-                    .map(|value| value.trim().to_owned())
+                    .map(|value_4| value_4.trim().to_owned())
                     .unwrap_or_else(|| value.to_string())
             };
-            config
+
+            match config
                 .pointer("/themeVariables/borderColorArray")
                 .and_then(Value::as_array)
                 .map(|borders| {
@@ -69,14 +73,16 @@ impl ClassCssThemeBinding {
                         .map(|(index, border)| {
                             (
                                 color(border),
-                                backgrounds.map(|backgrounds| {
-                                    color(&backgrounds[index % backgrounds.len()])
+                                backgrounds.map(|backgrounds_2| {
+                                    color(&backgrounds_2[index % backgrounds_2.len()])
                                 }),
                             )
                         })
                         .collect()
-                })
-                .unwrap_or_default()
+                }) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            }
         } else {
             Vec::new()
         };

@@ -22,8 +22,8 @@ const DEFAULT_FONT_SIZE: f64 = 16.0;
 const DEFAULT_FONT_FAMILY: &str = "trebuchet ms,verdana,arial,sans-serif";
 const DEFAULT_FILL: &str = "#333";
 const DEFAULT_COLOR: &str = "#000";
-// Fallback text is a bounded adapter, so pathological CSS magnitudes must not enter output or
-// overflow relative-unit and line-height calculations.
+
+
 const MAX_CSS_NUMERIC_VALUE: f64 = 1_000_000.0;
 pub(super) const MAX_SELECTOR_STYLESHEET_BYTES: usize = 2 * 1024 * 1024;
 const MAX_SELECTOR_BYTES: usize = 1024 * 1024;
@@ -36,8 +36,8 @@ const MAX_SELECTOR_DECLARATIONS: usize = 32_768;
 pub(super) const MAX_SELECTOR_DECLARATIONS_PER_RULE: usize = 256;
 pub(super) const MAX_SELECTOR_POSTINGS: usize = 8192;
 pub(super) const MAX_UNIVERSAL_POSTINGS: usize = 4096;
-// Matching work is byte-weighted so repeated class/attribute string scans cannot hide behind a
-// small selector-component count. Keep enough headroom for normal multi-label Mermaid diagrams.
+
+
 pub(super) const MAX_SELECTOR_MATCH_WORK: usize = 16 * 1024 * 1024;
 pub(super) const MAX_SELECTOR_ANCESTRY_DEPTH: usize = crate::resources::MAX_RESVG_TREE_DEPTH;
 
@@ -96,6 +96,7 @@ enum LineHeight {
 }
 
 impl LineHeight {
+    #[must_use]
     fn pixels(&self, font_size: f64) -> f64 {
         match self {
             Self::Normal => font_size * 1.5,
@@ -124,6 +125,7 @@ pub(super) struct ResolvedForeignObject {
 }
 
 impl ResolvedFallbackTypography {
+    #[must_use]
     pub(super) fn text_style(&self) -> TextStyle {
         TextStyle {
             font_family: Some(self.font_family.to_string()),
@@ -139,8 +141,8 @@ struct Specificity(u32, u32, u32);
 
 #[derive(Clone, Debug)]
 struct Compound {
-    // A selector without an explicit type is namespace-neutral: `.label` can
-    // match either the SVG source context or XHTML inside `foreignObject`.
+
+
     namespace: Option<Namespace>,
     local_name: Option<String>,
     id: Option<String>,
@@ -179,7 +181,7 @@ struct Branch {
 
 #[derive(Clone, Debug)]
 struct Rule {
-    // Conservative necessary conditions used only to reject uncertain projections.
+
     projection_only: bool,
     projection_uncertain: bool,
     branch: Branch,
@@ -215,12 +217,18 @@ fn checked_charge<E>(
     if *exhausted {
         return Ok(false);
     }
-    let actual = used.checked_add(additional).unwrap_or(usize::MAX);
+
+    let actual = match used.checked_add(additional) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => usize::MAX,
+    };
+
     if actual > maximum {
         *exhausted = true;
         selector_limit(actual, maximum)?;
         return Ok(false);
     }
+
     *used = actual;
     Ok(true)
 }
@@ -343,18 +351,23 @@ impl SelectorBudget {
         if self.postings_exhausted {
             return Ok(false);
         }
+
         let actual = self.postings.saturating_add(additional);
+
         if actual > MAX_SELECTOR_POSTINGS {
             self.postings_exhausted = true;
             selector_limit(actual, MAX_SELECTOR_POSTINGS)?;
             return Ok(false);
         }
+
         let universal_actual = current_universal.saturating_add(universal_additional);
+
         if universal_actual > MAX_UNIVERSAL_POSTINGS {
             self.postings_exhausted = true;
             selector_limit(universal_actual, MAX_UNIVERSAL_POSTINGS)?;
             return Ok(false);
         }
+
         self.postings = actual;
         Ok(true)
     }
@@ -381,11 +394,13 @@ impl SelectorBudget {
         if self.matching_exhausted {
             return Ok(false);
         }
+
         if actual > MAX_SELECTOR_ANCESTRY_DEPTH {
             self.matching_exhausted = true;
             selector_limit(actual, MAX_SELECTOR_ANCESTRY_DEPTH)?;
             return Ok(false);
         }
+
         Ok(true)
     }
 }
@@ -417,18 +432,21 @@ impl CascadeIndex {
             universal_postings: Vec::new(),
             budget,
         };
-        // Rules produced by one selector list share a source-order value. Admit each such
-        // group atomically so a posting cap cannot retain only part of a CSS selector list.
+
+
         let mut retained_rules = 0usize;
         let mut group_start = 0usize;
+
         while group_start < index.rules.len() {
             let source_order = index.rules[group_start].source_order;
             let mut group_end = group_start + 1;
+
             while group_end < index.rules.len()
                 && index.rules[group_end].source_order == source_order
             {
                 group_end += 1;
             }
+
             checkpoint_loop(group_start, checkpoint)?;
 
             let universal_additional = (group_start..group_end)
@@ -444,12 +462,15 @@ impl CascadeIndex {
                         && target.local_name.is_none()
                 })
                 .count();
-            if !index.budget.charge_posting_group(
+
+            let checked_value = index.budget.charge_posting_group(
                 group_end - group_start,
                 universal_additional,
                 index.universal_postings.len(),
                 selector_limit,
-            )? {
+            )?;
+
+            if !checked_value {
                 break;
             }
 
@@ -460,74 +481,108 @@ impl CascadeIndex {
                     .compounds
                     .last()
                     .expect("admitted selector branches have a rightmost compound");
-                if let Some(id) = &target.id {
-                    index
-                        .id_postings
-                        .entry(id.clone())
-                        .or_default()
-                        .push(rule_index);
-                } else if let Some(class) = target.classes.first() {
-                    index
-                        .class_postings
-                        .entry(class.clone())
-                        .or_default()
-                        .push(rule_index);
-                } else if let Some(attribute) = target.attributes.first() {
-                    index
-                        .attribute_postings
-                        .entry(attribute.name.clone())
-                        .or_default()
-                        .push(rule_index);
-                } else if let Some(local_name) = &target.local_name {
-                    index
-                        .type_postings
-                        .entry(local_name.clone())
-                        .or_default()
-                        .push(rule_index);
-                } else {
-                    // A universal rightmost selector cannot be narrowed by source-element
-                    // postings, so keep it in the bounded universal bucket.
-                    index.universal_postings.push(rule_index);
+
+                match &target.id {
+                    Some(id) => {
+                        index
+                            .id_postings
+                            .entry(id.clone())
+                            .or_default()
+                            .push(rule_index);
+                    },
+                    ::core::option::Option::None => match target.classes.first() {
+                        Some(class) => {
+                            index
+                                .class_postings
+                                .entry(class.clone())
+                                .or_default()
+                                .push(rule_index);
+                        },
+                        ::core::option::Option::None => match target.attributes.first() {
+                            Some(attribute) => {
+                                index
+                                    .attribute_postings
+                                    .entry(attribute.name.clone())
+                                    .or_default()
+                                    .push(rule_index);
+                            },
+                            ::core::option::Option::None => match &target.local_name {
+                                Some(local_name) => {
+                                    index
+                                        .type_postings
+                                        .entry(local_name.clone())
+                                        .or_default()
+                                        .push(rule_index);
+                                },
+                                ::core::option::Option::None => {
+
+
+                                    index.universal_postings.push(rule_index);
+                                },
+                            },
+                        },
+                    },
                 }
             }
+
             retained_rules = group_end;
             group_start = group_end;
         }
+
         index.rules.truncate(retained_rules);
         checkpoint()?;
         Ok(index)
     }
 
+    #[must_use]
     fn candidate_rule_indices(&self, element: &SourceElement) -> Vec<usize> {
         if self.budget.matching_exhausted {
             return Vec::new();
         }
-        // Each branch is assigned exactly one primary rightmost posting when
-        // indexed, so these buckets are disjoint and need no per-label
-        // de-duplication. Candidate order is irrelevant because the cascade
-        // compares the retained source-order tuple.
+
+
+
+
+
         let mut candidates = self.universal_postings.clone();
+
         if let Some(id) = &element.id
             && let Some(postings) = self.id_postings.get(id)
         {
             candidates.extend(postings);
         }
+
         for class in element.classes.iter() {
-            if let Some(postings) = self.class_postings.get(class) {
-                candidates.extend(postings);
+            {
+                match self.class_postings.get(class) {
+                    Some(postings) => {
+                        candidates.extend(postings);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
-        if let Some(postings) = self
+
+        match self
             .type_postings
-            .get(&element.local_name.to_ascii_lowercase())
-        {
-            candidates.extend(postings);
-        }
-        for attribute_name in element.attributes.keys() {
-            if let Some(postings) = self.attribute_postings.get(attribute_name) {
+            .get(&element.local_name.to_ascii_lowercase()) {
+            Some(postings) => {
                 candidates.extend(postings);
+            },
+            ::core::option::Option::None => {},
+        }
+
+        for attribute_name in element.attributes.keys() {
+            {
+                match self.attribute_postings.get(attribute_name) {
+                    Some(postings) => {
+                        candidates.extend(postings);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
+
         candidates
     }
 
@@ -541,28 +596,47 @@ impl CascadeIndex {
         let mut budget = SelectorBudget::default();
         let mut scanner = SvgTagScanner::new(svg);
         let mut style_index = 0usize;
+
         while let Some(tag) = scanner.next_with_checkpoints(checkpoint)? {
             checkpoint_loop(style_index, checkpoint)?;
             style_index = style_index.saturating_add(1);
+
             if start_tag_name(tag.raw()) != Some("style") || tag.is_self_closing() {
                 continue;
             }
+
             let content_start = scanner.cursor();
             let mut close_tag = None;
-            while let Some(candidate) = scanner.next_with_checkpoints(checkpoint)? {
+
+            'inner_while_2: while let Some(candidate) = scanner.next_with_checkpoints(checkpoint)? {
                 if end_tag_name(candidate.raw()) == Some("style") {
                     close_tag = Some(candidate);
-                    break;
+                    break 'inner_while_2;
                 }
             }
-            let Some(close_tag) = close_tag else { break };
-            let css = &svg[content_start..close_tag.start()];
-            if !budget.charge_stylesheet_bytes(css.len(), selector_limit)? {
+
+            let close_tag_2 = match close_tag {
+                Some(matched_close_tag) => matched_close_tag,
+                ::core::option::Option::None => break,
+            };
+
+            let css = &svg[content_start..close_tag_2.start()];
+
+            let checked_value = budget.charge_stylesheet_bytes(css.len(), selector_limit)?;
+
+            if !checked_value {
                 break;
             }
-            let Some(logical_css) = decode_xml_style_text_with_checkpoints(css, checkpoint)? else {
-                continue;
+
+            let logical_css = {
+                let optional_logical_css = decode_xml_style_text_with_checkpoints(css, checkpoint)?;
+
+                match optional_logical_css {
+                    Some(matched_logical_css) => matched_logical_css,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if !parse_stylesheet(
                 &logical_css,
                 &mut rules,
@@ -574,6 +648,7 @@ impl CascadeIndex {
                 break;
             }
         }
+
         checkpoint()?;
         Self::with_postings(rules, budget, checkpoint, selector_limit)
     }
@@ -595,10 +670,14 @@ impl CascadeIndex {
             .map(|value| value.split_whitespace().map(str::to_owned).collect())
             .unwrap_or_default();
         let inline = parse_declarations(
-            attribute_value(&attributes, "style").unwrap_or_default(),
+            match attribute_value(&attributes, "style") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => "",
+            },
             checkpoint,
         )?;
         let mut presentation = Vec::new();
+
         for property in [
             "font-size",
             "font-family",
@@ -619,28 +698,34 @@ impl CascadeIndex {
             "transform",
             "transform-origin",
         ] {
-            if let Some(value) = attribute_value(&attributes, property) {
-                presentation.push(Declaration {
-                    property: property.to_string(),
-                    value: value.into(),
-                    important: false,
-                    order: 0,
-                });
+            {
+                match attribute_value(&attributes, property) {
+                    Some(value) => {
+                        presentation.push(Declaration {
+                            property: property.to_string(),
+                            value: value.into(),
+                            important: false,
+                            order: 0,
+                        });
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
-        let attributes = attributes
+
+        let attributes_2 = attributes
             .into_iter()
             .map(|attribute| (attribute.name, attribute.value))
             .collect::<HashMap<_, _>>();
         let selector_weight =
-            source_selector_weight(&local_name, id.as_deref(), &classes, &attributes);
+            source_selector_weight(&local_name, id.as_deref(), &classes, &attributes_2);
         checkpoint()?;
         Ok(SourceElement {
             namespace,
             local_name,
             id,
             classes: Arc::new(classes),
-            attributes: Arc::new(attributes),
+            attributes: Arc::new(attributes_2),
             inline,
             presentation,
             selector_weight,
@@ -653,28 +738,31 @@ impl CascadeIndex {
         selector_limit: &mut impl FnMut(usize, usize) -> Result<(), E>,
     ) -> Result<Vec<usize>, E> {
         let element = path.last().expect("source path is non-empty");
-        let may_collect_candidates = self
+        let checked_value = self
             .budget
-            .check_ancestry_depth(path.len(), selector_limit)?
-            && self
+            .check_ancestry_depth(path.len(), selector_limit)?;
+        let may_collect_candidates = checked_value
+            && { let checked_value_2 = self
                 .budget
-                .charge_match_work(element.selector_weight, selector_limit)?;
+                .charge_match_work(element.selector_weight, selector_limit)?; checked_value_2 };
         let mut candidate_rule_indices = if may_collect_candidates {
             self.candidate_rule_indices(element)
         } else {
             Vec::new()
         };
-        let path_source_weight = path
+        let path_source_weight = match path
             .iter()
-            .try_fold(0usize, |total, element| {
-                total.checked_add(element.selector_weight)
-            })
-            .unwrap_or(usize::MAX);
+            .try_fold(0usize, |total, element_2| {
+                total.checked_add(element_2.selector_weight)
+            }) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => usize::MAX,
+        };
         let match_work = candidate_rule_indices
             .iter()
             .fold(0usize, |total, rule_index| {
                 let rule = &self.rules[*rule_index];
-                let branch_work = rule
+                let branch_work = match rule
                     .branch
                     .selector_weight
                     .checked_mul(path.len())
@@ -684,13 +772,19 @@ impl CascadeIndex {
                             .checked_mul(path_source_weight)
                             .and_then(|source_work| work.checked_add(source_work))
                     })
-                    .and_then(|work| work.checked_add(rule.declaration_match_weight))
-                    .unwrap_or(usize::MAX);
+                    .and_then(|work| work.checked_add(rule.declaration_match_weight)) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => usize::MAX,
+                };
                 total.saturating_add(branch_work)
             });
-        if !self.budget.charge_match_work(match_work, selector_limit)? {
+
+        let checked_value_3 = self.budget.charge_match_work(match_work, selector_limit)?;
+
+        if !checked_value_3 {
             candidate_rule_indices.clear();
         }
+
         Ok(candidate_rule_indices)
     }
 
@@ -709,6 +803,7 @@ impl CascadeIndex {
         let mut path = ancestors.to_vec();
         let mut scanner = SvgTagScanner::new(inner);
         let mut first = Some(foreign_object);
+
         loop {
             let (raw, namespace) = if let Some(tag) = first.take() {
                 (tag, Namespace::Svg)
@@ -717,14 +812,18 @@ impl CascadeIndex {
             } else {
                 break;
             };
+
             if end_tag_name(raw).is_some() {
                 path.pop();
                 continue;
             }
+
             if start_tag_name(raw).is_none() {
                 continue;
             }
+
             let element = Self::source_element(raw, namespace, checkpoint)?;
+
             if namespace == Namespace::Svg
                 && (element
                     .attributes
@@ -737,9 +836,12 @@ impl CascadeIndex {
             {
                 return Ok(false);
             }
+
             path.push(element);
+
             for index in self.candidate_rules_for_path(&path, selector_limit)? {
                 let rule = &self.rules[index];
+
                 if matches_branch(&rule.branch, &path, checkpoint)?
                     && (rule.projection_only
                         || rule.projection_uncertain
@@ -760,18 +862,21 @@ impl CascadeIndex {
                     return Ok(false);
                 }
             }
+
             if self.budget.matching_exhausted {
                 return Ok(false);
             }
+
             if raw.trim_end().ends_with("/>") {
                 path.pop();
             }
         }
+
         Ok(true)
     }
 
-    // An unparsed declaration or conservative selector guard may also affect the original HTML
-    // through inheritance. Check that source path before projecting any filtered fallback.
+
+
     pub(super) fn permits_source_projection<E>(
         &mut self,
         ancestors: &[SourceElement],
@@ -781,22 +886,28 @@ impl CascadeIndex {
         selector_limit: &mut impl FnMut(usize, usize) -> Result<(), E>,
     ) -> Result<bool, E> {
         let mut path = Vec::new();
+
         for element in ancestors {
             path.push(element.clone());
+
             if !self.source_projection_path_is_bounded(&path, checkpoint, selector_limit)? {
                 return Ok(false);
             }
         }
-        path.push(Self::source_element(
+
+        path.push({ let checked_value = Self::source_element(
             foreign_object,
             Namespace::Svg,
             checkpoint,
-        )?);
+        )?; checked_value });
+
         if !self.source_projection_path_is_bounded(&path, checkpoint, selector_limit)? {
             return Ok(false);
         }
+
         let base_depth = path.len();
         let mut scanner = SvgTagScanner::new(inner);
+
         while let Some(tag) = scanner.next_with_checkpoints(checkpoint)? {
             if let Some(name) = end_tag_name(tag.raw()) {
                 if path.len() > base_depth
@@ -812,9 +923,11 @@ impl CascadeIndex {
                     Namespace::Xhtml,
                     checkpoint,
                 )?);
+
                 if !self.source_projection_path_is_bounded(&path, checkpoint, selector_limit)? {
                     return Ok(false);
                 }
+
                 if tag.is_self_closing()
                     || is_void_html_element(&path.last().expect("element was pushed").local_name)
                 {
@@ -822,6 +935,7 @@ impl CascadeIndex {
                 }
             }
         }
+
         Ok(true)
     }
 
@@ -833,12 +947,14 @@ impl CascadeIndex {
     ) -> Result<bool, E> {
         for index in self.candidate_rules_for_path(path, selector_limit)? {
             let rule = &self.rules[index];
+
             if (rule.projection_only || rule.projection_uncertain)
                 && matches_branch(&rule.branch, path, checkpoint)?
             {
                 return Ok(false);
             }
         }
+
         Ok(!self.budget.matching_exhausted)
     }
 
@@ -855,30 +971,38 @@ impl CascadeIndex {
         {
             return Ok(false);
         }
+
         let mut path = ancestors.to_vec();
         let mut scanner = SvgTagScanner::new(fragment);
+
         while let Some(tag) = scanner.next_with_checkpoints(checkpoint)? {
             if end_tag_name(tag.raw()).is_some() {
                 path.pop();
                 continue;
             }
+
             if start_tag_name(tag.raw()).is_none() {
                 continue;
             }
+
             path.push(Self::source_element(tag.raw(), Namespace::Svg, checkpoint)?);
             let candidates = self.candidate_rules_for_path(&path, selector_limit)?;
+
             if self.budget.matching_exhausted {
                 return Ok(false);
             }
+
             for index in candidates {
                 let rule = &self.rules[index];
+
                 if matches_branch(&rule.branch, &path, checkpoint)?
                     && (rule.projection_only
                         || rule.projection_uncertain
                         || rule.declarations.iter().any(|declaration| {
-                            // Only explicitly emitted paint/typography overrides are isolated.
-                            // Parent rules and important declarations remain outside this projection.
+
+
                             let element = path.last().expect("projected element");
+
                             if element.local_name == "text" {
                                 !projection_overrides(declaration)
                             } else if element.local_name == "tspan" {
@@ -892,8 +1016,8 @@ impl CascadeIndex {
                                     inline.property == declaration.property && !inline.important
                                 })
                             {
-                                // The generated viewport resets these inherited properties;
-                                // emitted text also carries absolute, resolved typography.
+
+
                                 declaration.important
                             } else if element.local_name == "rect"
                                 && element
@@ -919,10 +1043,12 @@ impl CascadeIndex {
                     return Ok(false);
                 }
             }
+
             if tag.is_self_closing() {
                 path.pop();
             }
         }
+
         Ok(true)
     }
 
@@ -939,24 +1065,37 @@ impl CascadeIndex {
         {
             return Ok(true);
         }
+
         let mut path = ancestors.to_vec();
         let mut scanner = SvgTagScanner::new(fragment);
+
         while let Some(tag) = scanner.next_with_checkpoints(checkpoint)? {
             if end_tag_name(tag.raw()).is_some() {
                 path.pop();
                 continue;
             }
-            let Some(name) = start_tag_name(tag.raw()) else {
-                continue;
+
+            let name = {
+                let optional_name = start_tag_name(tag.raw());
+
+                match optional_name {
+                    Some(matched_name) => matched_name,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             path.push(Self::source_element(tag.raw(), Namespace::Svg, checkpoint)?);
+
             if name == "tspan" {
                 let candidates = self.candidate_rules_for_path(&path, selector_limit)?;
+
                 if self.budget.matching_exhausted {
                     return Ok(true);
                 }
+
                 for index in candidates {
                     let rule = &self.rules[index];
+
                     if matches_branch(&rule.branch, &path, checkpoint)?
                         && (rule.projection_only
                             || rule.projection_uncertain
@@ -971,10 +1110,12 @@ impl CascadeIndex {
                     }
                 }
             }
+
             if tag.is_self_closing() {
                 path.pop();
             }
         }
+
         Ok(false)
     }
 
@@ -996,12 +1137,15 @@ impl CascadeIndex {
         };
         let mut specified: HashMap<String, Specified> = HashMap::new();
         let candidate_rule_indices = self.candidate_rules_for_path(path, selector_limit)?;
+
         for (candidate_index, rule_index) in candidate_rule_indices.into_iter().enumerate() {
             checkpoint_loop(candidate_index, checkpoint)?;
             let rule = &self.rules[rule_index];
+
             if rule.projection_only || !matches_branch(&rule.branch, path, checkpoint)? {
                 continue;
             }
+
             for declaration in rule.declarations.iter() {
                 select_specified(
                     &mut specified,
@@ -1016,6 +1160,7 @@ impl CascadeIndex {
                 );
             }
         }
+
         for declaration in &element.presentation {
             select_specified(
                 &mut specified,
@@ -1029,6 +1174,7 @@ impl CascadeIndex {
                 true,
             );
         }
+
         for declaration in &element.inline {
             select_specified(
                 &mut specified,
@@ -1043,15 +1189,17 @@ impl CascadeIndex {
             );
         }
 
-        let font_size = resolve_font_size(
+        let font_size = match resolve_font_size(
             specified.get("font-size").map(|value| value.value.as_ref()),
             parent.font_size,
             root_font_size,
             specified
                 .get("font-size")
                 .is_some_and(|value| value.presentation),
-        )
-        .unwrap_or(parent.font_size);
+        ) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => parent.font_size,
+        };
         let mut font_family = resolve_inherited_text_value(
             specified.get("font-family").map(|value| &value.value),
             &parent.font_family,
@@ -1065,16 +1213,19 @@ impl CascadeIndex {
             specified.get("font-style").map(|value| &value.value),
             parent.font_style.as_ref(),
         );
+
         if element.namespace == Namespace::Xhtml {
             if element.local_name == "code" && !specified.contains_key("font-family") {
                 font_family = "monospace".into();
             }
+
             if matches!(element.local_name.as_str(), "b" | "strong")
                 && !specified.contains_key("font-weight")
                 && !style_requests_bold_font_weight(&parent_text_style)
             {
                 font_weight = Some("700".into());
             }
+
             if matches!(element.local_name.as_str(), "i" | "em")
                 && !specified.contains_key("font-style")
                 && !style_requests_italic_font_style(&parent_text_style)
@@ -1082,6 +1233,7 @@ impl CascadeIndex {
                 font_style = Some("italic".into());
             }
         }
+
         let line_height = resolve_line_height(
             specified
                 .get("line-height")
@@ -1109,12 +1261,17 @@ impl CascadeIndex {
             specified.get("background-color").map(|value| &value.value),
             parent.background_color.as_ref(),
         );
+
         if background_color
             .as_deref()
             .is_some_and(|value| value.eq_ignore_ascii_case("currentcolor"))
         {
-            background_color = Some(color.clone().unwrap_or_else(|| DEFAULT_COLOR.into()));
+            background_color = Some(match color.clone() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_COLOR.into(),
+            });
         }
+
         let background_color_specified = specified.contains_key("background-color");
         checkpoint()?;
         Ok(ResolvedStyle {
@@ -1150,25 +1307,29 @@ impl CascadeIndex {
     ) -> Result<ResolvedForeignObject, E> {
         let next_depth = svg_ancestors.len().saturating_add(1);
         let mut path = Vec::new();
-        if self
+
+        let checked_value = self
             .budget
-            .check_ancestry_depth(next_depth, selector_limit)?
+            .check_ancestry_depth(next_depth, selector_limit)?;
+
+        if checked_value
         {
             path.extend_from_slice(svg_ancestors);
-            path.push(Self::source_element(
+            path.push({ let checked_value_2 = Self::source_element(
                 foreign_object_tag,
                 Namespace::Svg,
                 checkpoint,
-            )?);
+            )?; checked_value_2 });
         }
+
         let base_depth = path.len();
         let mut node_path = (0..base_depth).collect::<Vec<_>>();
         let mut next_node_id = base_depth;
         let mut previous_text_node_path = None;
         let mut computed_styles = Vec::with_capacity(base_depth);
         let mut root_font_size = DEFAULT_FONT_SIZE;
-        // Resolve each source node once. Text leaves and background ownership share this
-        // cache rather than charging selector work for the same ancestry repeatedly.
+
+
         for index in 0..base_depth {
             checkpoint_loop(index, checkpoint)?;
             let style = self.resolve_path(
@@ -1178,14 +1339,21 @@ impl CascadeIndex {
                 checkpoint,
                 selector_limit,
             )?;
-            if index == 0 {
-                root_font_size = style.font_size;
+
+            match index {
+                0 => {
+                    root_font_size = style.font_size;
+                },
+                _ => {},
             }
+
             computed_styles.push(style);
+
             if self.budget.matching_exhausted {
                 break;
             }
         }
+
         let base_style = computed_styles
             .last()
             .cloned()
@@ -1195,11 +1363,13 @@ impl CascadeIndex {
         let mut fragments = Vec::new();
         let mut cursor = 0usize;
         let mut iteration = 0usize;
+
         while let Some(relative) = find_with_checkpoints(&html[cursor..], "<", checkpoint)? {
             checkpoint_loop(iteration, checkpoint)?;
             iteration = iteration.saturating_add(1);
             let start = cursor + relative;
             let text = &html[cursor..start];
+
             if !text.is_empty() {
                 fragments.push(HtmlTextFragment::Text {
                     text: text.to_string(),
@@ -1228,71 +1398,99 @@ impl CascadeIndex {
                             .unwrap_or_default()
                     },
                 });
+
                 if html_text_is_visible(text) && !self.budget.matching_exhausted {
                     observed.observe(&path, &computed_styles);
                 }
             }
+
             cursor = start;
-            let Some(end) = find_tag_end_with_checkpoints(html, start, checkpoint)? else {
-                break;
+
+            let end = {
+                let optional_end = find_tag_end_with_checkpoints(html, start, checkpoint)?;
+
+                match optional_end {
+                    Some(matched_end) => matched_end,
+                    ::core::option::Option::None => break,
+                }
             };
-            let end = end + 1;
-            let tag = &html[start..end];
+
+            let end_2 = end + 1;
+            let tag = &html[start..end_2];
+
             if tag.starts_with("<!--") || tag.starts_with("<!") || tag.starts_with("<?") {
-                cursor = end;
+                cursor = end_2;
                 continue;
             }
-            if let Some(name) = end_tag_name(tag) {
-                if name.eq_ignore_ascii_case("br") {
-                    fragments.push(HtmlTextFragment::HardBreak);
-                    previous_text_node_path = None;
-                }
-                if !self.budget.matching_exhausted
-                    && path.len() > base_depth
-                    && path
-                        .last()
-                        .is_some_and(|element| element.local_name.eq_ignore_ascii_case(name))
-                {
-                    path.pop();
-                    computed_styles.pop();
-                    node_path.pop();
-                }
-                cursor = end;
-                continue;
-            }
-            if let Some(name) = start_tag_name(tag) {
-                if name.eq_ignore_ascii_case("br") {
-                    fragments.push(HtmlTextFragment::HardBreak);
-                    previous_text_node_path = None;
-                }
-                if !self.budget.matching_exhausted {
-                    let next_depth = path.len().saturating_add(1);
-                    if self
-                        .budget
-                        .check_ancestry_depth(next_depth, selector_limit)?
+
+            match end_tag_name(tag) {
+                Some(name) => {
+                    if name.eq_ignore_ascii_case("br") {
+                        fragments.push(HtmlTextFragment::HardBreak);
+                        previous_text_node_path = None;
+                    }
+
+                    if !self.budget.matching_exhausted
+                        && path.len() > base_depth
+                        && path
+                            .last()
+                            .is_some_and(|element| element.local_name.eq_ignore_ascii_case(name))
                     {
-                        let element = Self::source_element(tag, Namespace::Xhtml, checkpoint)?;
-                        if !is_void_html_element(&element.local_name)
-                            && !tag.trim_end().ends_with("/>")
+                        path.pop();
+                        computed_styles.pop();
+                        node_path.pop();
+                    }
+
+                    cursor = end_2;
+                    continue;
+                },
+                ::core::option::Option::None => {},
+            }
+
+            match start_tag_name(tag) {
+                Some(name) => {
+                    if name.eq_ignore_ascii_case("br") {
+                        fragments.push(HtmlTextFragment::HardBreak);
+                        previous_text_node_path = None;
+                    }
+
+                    if !self.budget.matching_exhausted {
+                        let next_depth_2 = path.len().saturating_add(1);
+
+                        let checked_value_3 = self
+                            .budget
+                            .check_ancestry_depth(next_depth_2, selector_limit)?;
+
+                        if checked_value_3
                         {
-                            path.push(element);
-                            node_path.push(next_node_id);
-                            next_node_id = next_node_id.saturating_add(1);
-                            let style = self.resolve_path(
-                                &path,
-                                computed_styles.last(),
-                                root_font_size,
-                                checkpoint,
-                                selector_limit,
-                            )?;
-                            computed_styles.push(style);
+                            let element = Self::source_element(tag, Namespace::Xhtml, checkpoint)?;
+
+                            if !is_void_html_element(&element.local_name)
+                                && !tag.trim_end().ends_with("/>")
+                            {
+                                path.push(element);
+                                node_path.push(next_node_id);
+                                next_node_id = next_node_id.saturating_add(1);
+                                let style = self.resolve_path(
+                                    &path,
+                                    computed_styles.last(),
+                                    root_font_size,
+                                    checkpoint,
+                                    selector_limit,
+                                )?;
+                                computed_styles.push(style);
+                            }
                         }
                     }
-                }
+                },
+                ::core::option::Option::None => {},
             }
-            cursor = end;
+
+            cursor = end_2;
         }
+
         let text = &html[cursor..];
+
         if !text.is_empty() {
             fragments.push(HtmlTextFragment::Text {
                 text: text.to_string(),
@@ -1321,15 +1519,18 @@ impl CascadeIndex {
                         .unwrap_or_default()
                 },
             });
+
             if html_text_is_visible(text) && !self.budget.matching_exhausted {
                 observed.observe(&path, &computed_styles);
             }
         }
+
         if self.budget.matching_exhausted {
-            // Best-effort callers still need every text leaf and explicit line break when
-            // style matching is capped. Do not grow an unbounded source stack after the cap.
+
+
             for (index, fragment) in fragments.iter_mut().enumerate() {
                 checkpoint_loop(index, checkpoint)?;
+
                 if let HtmlTextFragment::Text {
                     white_space,
                     boundary_white_space,
@@ -1339,11 +1540,15 @@ impl CascadeIndex {
                 {
                     *white_space = HtmlWhiteSpace::default();
                     *typography = default_fallback_typography();
-                    if let Some((_, boundary_white_space)) = boundary_white_space {
-                        *boundary_white_space = HtmlWhiteSpace::default();
+                    match boundary_white_space {
+                        Some((_, boundary_white_space_2)) => {
+                            *boundary_white_space_2 = HtmlWhiteSpace::default();
+                        },
+                        ::core::option::Option::None => {},
                     }
                 }
             }
+
             checkpoint()?;
             return Ok(ResolvedForeignObject {
                 typography: default_fallback_typography(),
@@ -1351,6 +1556,7 @@ impl CascadeIndex {
                 paint,
             });
         }
+
         let style = if observed.differing_styles {
             observed
                 .common_styles
@@ -1358,11 +1564,15 @@ impl CascadeIndex {
                 .cloned()
                 .unwrap_or_else(default_style)
         } else {
-            observed.first_style.unwrap_or(base_style)
+            match (observed.first_style, base_style) {
+                (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+                (::core::option::Option::None, alternate) => alternate,
+            }
         };
         let mut label_background = None;
         let mut background_color_specified = false;
         let mut label_background_marker = false;
+
         for (element, background_style) in observed
             .common_path
             .iter()
@@ -1370,28 +1580,31 @@ impl CascadeIndex {
             .skip(base_depth)
         {
             label_background_marker |= element.classes.contains("labelBkg");
+
             if background_style.background_color_specified {
                 background_color_specified = true;
+
                 match background_style.background_color.as_ref() {
                     Some(color)
                         if !merman_markup::theme_color::ThemeColor::parse(color).is_ok_and(
                             |value| {
-                                value.channel(merman_markup::theme_color::ColorChannel::Alpha)
-                                    == 0.0
+                                ::core::matches!(::core::primitive::f64::classify(value.channel(merman_markup::theme_color::ColorChannel::Alpha)), ::core::num::FpCategory::Zero)
                             },
                         ) =>
                     {
                         label_background = Some(color.clone());
                     }
-                    // Transparent descendants paint no background; they do not erase
-                    // an ancestor's background. This is not an inherited property.
+
+
                     Some(_) | None => {}
                 }
             }
         }
+
         if label_background.is_none() && label_background_marker && !background_color_specified {
             label_background = Some("rgba(232, 232, 232, 0.5)".into());
         }
+
         checkpoint()?;
         Ok(ResolvedForeignObject {
             typography: fallback_typography(style, label_background),
@@ -1409,132 +1622,205 @@ fn parse_tag_attributes<E>(
     let mut cursor = 1usize;
     let mut iteration = 0usize;
 
-    // Skip the opening element name. `source_element` is called only for start
-    // tags, so a compact XML/HTML attribute scan is enough here and avoids
-    // conflating the current source context with generated fallback markup.
+
+
+
     while cursor < tag.len() {
         checkpoint_loop(iteration, checkpoint)?;
         iteration = iteration.saturating_add(1);
-        let Some(character) = tag[cursor..].chars().next() else {
-            break;
+
+        let character = {
+            let optional_character = tag[cursor..].chars().next();
+
+            match optional_character {
+                Some(matched_character) => matched_character,
+                ::core::option::Option::None => break,
+            }
         };
+
         if character.is_whitespace() || character == '>' || character == '/' {
             break;
         }
+
         cursor += character.len_utf8();
     }
 
     while cursor < tag.len() {
         checkpoint_loop(iteration, checkpoint)?;
         iteration = iteration.saturating_add(1);
-        let Some(character) = tag[cursor..].chars().next() else {
-            break;
+
+        let character = {
+            let optional_character = tag[cursor..].chars().next();
+
+            match optional_character {
+                Some(matched_character) => matched_character,
+                ::core::option::Option::None => break,
+            }
         };
+
         if character.is_whitespace() {
             cursor += character.len_utf8();
             continue;
         }
+
         if character == '>' || character == '/' {
             break;
         }
 
         let name_start = cursor;
-        while cursor < tag.len() {
+
+        'inner_while_2_: while cursor < tag.len() {
             checkpoint_loop(iteration, checkpoint)?;
             iteration = iteration.saturating_add(1);
-            let Some(candidate) = tag[cursor..].chars().next() else {
-                break;
+
+            let candidate = {
+                let optional_candidate = tag[cursor..].chars().next();
+
+                match optional_candidate {
+                    Some(matched_candidate) => matched_candidate,
+                    ::core::option::Option::None => break 'inner_while_2_,
+                }
             };
+
             if candidate.is_whitespace() || matches!(candidate, '=' | '>' | '/') {
-                break;
+                break 'inner_while_2_;
             }
+
             cursor += candidate.len_utf8();
         }
-        if cursor == name_start {
-            cursor += character.len_utf8();
-            continue;
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(cursor), &::core::convert::identity(name_start)); _explicit_ordering } {
+            ::core::cmp::Ordering::Equal => {
+                cursor += character.len_utf8();
+                continue;
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Greater => {},
         }
+
         let name = tag[name_start..cursor].to_ascii_lowercase();
 
-        while cursor < tag.len() {
+        'inner_while_2_: while cursor < tag.len() {
             checkpoint_loop(iteration, checkpoint)?;
             iteration = iteration.saturating_add(1);
-            let Some(candidate) = tag[cursor..].chars().next() else {
-                break;
+
+            let candidate = {
+                let optional_candidate = tag[cursor..].chars().next();
+
+                match optional_candidate {
+                    Some(matched_candidate) => matched_candidate,
+                    ::core::option::Option::None => break 'inner_while_2_,
+                }
             };
+
             if !candidate.is_whitespace() {
-                break;
+                break 'inner_while_2_;
             }
+
             cursor += candidate.len_utf8();
         }
 
         let mut value = None;
+
         if tag[cursor..].starts_with('=') {
             cursor += 1;
-            while cursor < tag.len() {
+
+            'inner_while_2_: while cursor < tag.len() {
                 checkpoint_loop(iteration, checkpoint)?;
                 iteration = iteration.saturating_add(1);
-                let Some(candidate) = tag[cursor..].chars().next() else {
-                    break;
+
+                let candidate = {
+                    let optional_candidate = tag[cursor..].chars().next();
+
+                    match optional_candidate {
+                        Some(matched_candidate) => matched_candidate,
+                        ::core::option::Option::None => break 'inner_while_2_,
+                    }
                 };
+
                 if !candidate.is_whitespace() {
-                    break;
+                    break 'inner_while_2_;
                 }
+
                 cursor += candidate.len_utf8();
             }
+
             if let Some(quote) = tag[cursor..]
                 .chars()
                 .next()
-                .filter(|character| matches!(character, '\'' | '"'))
+                .filter(|character_2| matches!(character_2, '\'' | '"'))
             {
                 cursor += quote.len_utf8();
                 let value_start = cursor;
-                while cursor < tag.len() {
+
+                'inner_while_2_: while cursor < tag.len() {
                     checkpoint_loop(iteration, checkpoint)?;
                     iteration = iteration.saturating_add(1);
-                    let Some(candidate) = tag[cursor..].chars().next() else {
-                        break;
+
+                    let candidate = {
+                        let optional_candidate = tag[cursor..].chars().next();
+
+                        match optional_candidate {
+                            Some(matched_candidate) => matched_candidate,
+                            ::core::option::Option::None => break 'inner_while_2_,
+                        }
                     };
+
                     if candidate == quote {
                         value = Some(tag[value_start..cursor].to_string());
                         cursor += candidate.len_utf8();
-                        break;
+                        break 'inner_while_2_;
                     }
+
                     cursor += candidate.len_utf8();
                 }
             } else {
                 let value_start = cursor;
-                while cursor < tag.len() {
+
+                'inner_while_2_: while cursor < tag.len() {
                     checkpoint_loop(iteration, checkpoint)?;
                     iteration = iteration.saturating_add(1);
-                    let Some(candidate) = tag[cursor..].chars().next() else {
-                        break;
+
+                    let candidate = {
+                        let optional_candidate = tag[cursor..].chars().next();
+
+                        match optional_candidate {
+                            Some(matched_candidate) => matched_candidate,
+                            ::core::option::Option::None => break 'inner_while_2_,
+                        }
                     };
+
                     if candidate.is_whitespace() || matches!(candidate, '>' | '/') {
-                        break;
+                        break 'inner_while_2_;
                     }
+
                     cursor += candidate.len_utf8();
                 }
-                if value_start < cursor {
-                    value = Some(tag[value_start..cursor].to_string());
+
+                match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(value_start), &::core::convert::identity(cursor)); _explicit_ordering } {
+                    ::core::cmp::Ordering::Less => {
+                        value = Some(tag[value_start..cursor].to_string());
+                    },
+                    ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
                 }
             }
         }
-        // Attribute values enter CSS and selector matching as logical XML values.
-        // Decode exactly once here; generated fallback markup escapes them on output.
+
+
+
         checkpoint()?;
-        let value = value.map(|raw| match quick_xml::escape::unescape(&raw) {
+        let value_2 = value.map(|raw| match quick_xml::escape::unescape(&raw) {
             Ok(std::borrow::Cow::Owned(decoded)) => decoded,
             _ => raw,
         });
         checkpoint()?;
-        attributes.push(SourceAttribute { name, value });
+        attributes.push(SourceAttribute { name, value: value_2 });
     }
 
     checkpoint()?;
     Ok(attributes)
 }
 
+#[must_use]
 fn attribute_value<'a>(attributes: &'a [SourceAttribute], name: &str) -> Option<&'a str> {
     attributes
         .iter()
@@ -1543,6 +1829,7 @@ fn attribute_value<'a>(attributes: &'a [SourceAttribute], name: &str) -> Option<
         .and_then(|attribute| attribute.value.as_deref())
 }
 
+#[must_use]
 fn source_selector_weight(
     local_name: &str,
     id: Option<&str>,
@@ -1550,18 +1837,29 @@ fn source_selector_weight(
     attributes: &HashMap<String, Option<String>>,
 ) -> usize {
     let mut weight = 1usize.saturating_add(local_name.len());
-    if let Some(id) = id {
-        weight = weight.saturating_add(1).saturating_add(id.len());
+
+    match id {
+        Some(id_2) => {
+            weight = weight.saturating_add(1).saturating_add(id_2.len());
+        },
+        ::core::option::Option::None => {},
     }
+
     for class in classes {
         weight = weight.saturating_add(1).saturating_add(class.len());
     }
+
     for (name, value) in attributes {
         weight = weight.saturating_add(1).saturating_add(name.len());
-        if let Some(value) = value {
-            weight = weight.saturating_add(1).saturating_add(value.len());
+
+        match value {
+            Some(value_2) => {
+                weight = weight.saturating_add(1).saturating_add(value_2.len());
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     weight
 }
 
@@ -1578,8 +1876,8 @@ fn text_fragment_boundary_white_space(
     node_path: &[usize],
     computed_styles: &[ResolvedStyle],
 ) -> Option<(usize, HtmlWhiteSpace)> {
-    let boundary = previous_node_path.as_ref().map(|previous_node_path| {
-        let common_depth = previous_node_path
+    let boundary = previous_node_path.as_ref().map(|previous_node_path_2| {
+        let common_depth = previous_node_path_2
             .iter()
             .zip(node_path)
             .take_while(|(previous, current)| previous == current)
@@ -1591,39 +1889,50 @@ fn text_fragment_boundary_white_space(
             .unwrap_or_default();
         (common_depth, white_space)
     });
-    let previous_node_path = previous_node_path.get_or_insert_with(Vec::new);
-    previous_node_path.clear();
-    previous_node_path.extend_from_slice(node_path);
+    let previous_node_path_3 = previous_node_path.get_or_insert_with(Vec::new);
+    previous_node_path_3.clear();
+    previous_node_path_3.extend_from_slice(node_path);
     boundary
 }
 
 impl TextTypographyObserver {
     fn observe(&mut self, path: &[SourceElement], computed_styles: &[ResolvedStyle]) {
-        let Some(style) = computed_styles.last() else {
-            return;
+        let style = {
+            let optional_style = computed_styles.last();
+
+            match optional_style {
+                Some(matched_style) => matched_style,
+                ::core::option::Option::None => return,
+            }
         };
-        if let Some(first_style) = self.first_style.as_ref() {
-            self.differing_styles |= !same_effective_typography(first_style, style);
-            let common_len = self
-                .common_path
-                .iter()
-                .zip(path)
-                .take_while(|(left, right)| *left == *right)
-                .count();
-            self.common_path.truncate(common_len);
-            self.common_styles.truncate(common_len);
-        } else {
-            self.first_style = Some(style.clone());
-            self.common_path = path.to_vec();
-            self.common_styles = computed_styles.to_vec();
+
+        match self.first_style.as_ref() {
+            Some(first_style) => {
+                self.differing_styles |= !same_effective_typography(first_style, style);
+                let common_len = self
+                    .common_path
+                    .iter()
+                    .zip(path)
+                    .take_while(|(left, right)| *left == *right)
+                    .count();
+                self.common_path.truncate(common_len);
+                self.common_styles.truncate(common_len);
+            },
+            ::core::option::Option::None => {
+                self.first_style = Some(style.clone());
+                self.common_path = path.to_vec();
+                self.common_styles = computed_styles.to_vec();
+            },
         }
     }
 }
 
+#[must_use]
 fn html_text_is_visible(text: &str) -> bool {
     text.chars().any(|character| !character.is_whitespace())
 }
 
+#[must_use]
 fn is_void_html_element(name: &str) -> bool {
     matches!(
         name,
@@ -1644,6 +1953,7 @@ fn is_void_html_element(name: &str) -> bool {
     )
 }
 
+#[must_use]
 fn same_effective_typography(left: &ResolvedStyle, right: &ResolvedStyle) -> bool {
     left.font_size.to_bits() == right.font_size.to_bits()
         && left.font_family == right.font_family
@@ -1680,11 +1990,13 @@ fn select_specified(
     } else {
         declaration.property.as_str()
     };
+
     if !is_supported_property(property)
         || !is_admitted_value(property, &declaration.value, presentation)
     {
         return;
     }
+
     if specified
         .get(property)
         .is_none_or(|current| priority > current.priority)
@@ -1700,6 +2012,7 @@ fn select_specified(
     }
 }
 
+#[must_use]
 fn default_style() -> ResolvedStyle {
     ResolvedStyle {
         font_size: DEFAULT_FONT_SIZE,
@@ -1716,10 +2029,12 @@ fn default_style() -> ResolvedStyle {
     }
 }
 
+#[must_use]
 fn default_fallback_typography() -> ResolvedFallbackTypography {
     fallback_typography(default_style(), None)
 }
 
+#[must_use]
 fn fallback_typography(
     style: ResolvedStyle,
     label_background: Option<Arc<str>>,
@@ -1749,6 +2064,7 @@ pub(super) const PAINT_PROPERTIES: [&str; 9] = [
     "transform-origin",
 ];
 
+#[must_use]
 fn is_supported_property(property: &str) -> bool {
     matches!(
         property,
@@ -1773,19 +2089,24 @@ fn is_supported_property(property: &str) -> bool {
     )
 }
 
+#[must_use]
 fn is_admitted_value(property: &str, value: &str, presentation: bool) -> bool {
-    let value = value.trim();
-    if value.is_empty()
-        || lower_ascii_contains(value, "var(")
-        || lower_ascii_contains(value, "calc(")
-        || lower_ascii_contains(value, "env(")
+    let value_2 = value.trim();
+
+    if value_2.is_empty()
+        || lower_ascii_contains(value_2, "var(")
+        || lower_ascii_contains(value_2, "calc(")
+        || lower_ascii_contains(value_2, "env(")
     {
         return false;
     }
-    let lower = value.to_ascii_lowercase();
+
+    let lower = value_2.to_ascii_lowercase();
+
     if matches!(lower.as_str(), "inherit" | "initial" | "unset") {
         return true;
     }
+
     match property {
         "font-size" => {
             matches!(
@@ -1803,28 +2124,25 @@ fn is_admitted_value(property: &str, value: &str, presentation: bool) -> bool {
                 .iter()
                 .any(|unit| parse_css_number_with_unit(&lower, unit).is_some())
                 || (presentation
-                    && lower
-                        .parse::<f64>()
-                        .ok()
+                    && match lower
+                        .parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
                         .and_then(bounded_positive)
                         .is_some())
         }
         "line-height" => {
             lower == "normal"
-                || lower
-                    .parse::<f64>()
-                    .ok()
+                || match lower
+                    .parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
                     .and_then(bounded_positive)
                     .is_some()
                 || ["px", "rem", "em", "%"]
                     .iter()
                     .any(|unit| parse_css_number_with_unit(&lower, unit).is_some())
         }
-        "opacity" => lower
+        "opacity" => match lower
             .strip_suffix('%')
             .unwrap_or(&lower)
-            .parse::<f64>()
-            .ok()
+            .parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
             .is_some_and(f64::is_finite),
         "display" => matches!(
             lower.as_str(),
@@ -1836,46 +2154,59 @@ fn is_admitted_value(property: &str, value: &str, presentation: bool) -> bool {
             "visible" | "hidden" | "clip" | "scroll" | "auto"
         ),
         "clip-path" | "mask" | "filter" => {
-            lower == "none" || svgtypes::FuncIRI::from_str(value).is_ok()
+            lower == "none" || svgtypes::FuncIRI::from_str(value_2).is_ok()
         }
-        "transform" | "transform-origin" => !value
+        "transform" | "transform-origin" => !value_2
             .chars()
             .any(|character| character.is_control() || matches!(character, '{' | '}' | ';')),
         "font-weight" => is_supported_css_font_weight_value(&lower),
         "font-style" => is_supported_css_font_style_value(&lower),
         "fill" => is_admitted_paint(&lower),
         "color" | "background-color" => lower != "none" && is_admitted_paint(&lower),
-        "font-family" => is_admitted_font_family(value),
+        "font-family" => is_admitted_font_family(value_2),
         "white-space" => HtmlWhiteSpace::from_css_value(&lower).is_some(),
         _ => false,
     }
 }
 
+#[must_use]
 fn lower_ascii_contains(value: &str, needle: &str) -> bool {
     value.to_ascii_lowercase().contains(needle)
 }
 
+#[must_use]
 fn parse_css_number_with_unit(value: &str, unit: &str) -> Option<f64> {
     let number = value.strip_suffix(unit)?;
+
     if number.is_empty() || number.chars().any(char::is_whitespace) {
         return None;
     }
-    number.parse::<f64>().ok().and_then(bounded_positive)
+
+    match number.parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }.and_then(bounded_positive)
 }
 
+#[must_use]
 fn is_admitted_font_family(value: &str) -> bool {
     !value
         .chars()
         .any(|character| character.is_control() || matches!(character, '{' | '}' | ';'))
 }
 
+#[must_use]
 fn is_admitted_paint(value: &str) -> bool {
     if matches!(value, "none" | "transparent" | "currentcolor") {
         return true;
     }
-    let Some(open) = value.find('(') else {
-        return is_supported_css_color_value(value);
+
+    let open = {
+        let optional_open = value.find('(');
+
+        match optional_open {
+            Some(matched_open) => matched_open,
+            ::core::option::Option::None => return is_supported_css_color_value(value),
+        }
     };
+
     let function = &value[..open];
     matches!(function, "rgb" | "rgba" | "hsl" | "hsla")
         && has_admitted_color_function_shape(value, function, open)
@@ -1885,16 +2216,19 @@ fn is_admitted_paint(value: &str) -> bool {
 /// Preserve the fallback renderer's intentionally narrow static-color contract.
 /// The shared color parser accepts modern CSS forms, while this writer rejects mixed comma/space
 /// separators because it preserves the admitted spelling verbatim in generated SVG.
+#[must_use]
 fn has_admitted_color_function_shape(value: &str, function: &str, open: usize) -> bool {
     let Some(body) = value
         .strip_suffix(')')
-        .and_then(|value| value.get(open + 1..))
+        .and_then(|value_2| value_2.get(open + 1..))
     else {
         return false;
     };
+
     if !body.contains(',') {
         return true;
     }
+
     if body.contains('/') {
         return false;
     }
@@ -1902,20 +2236,27 @@ fn has_admitted_color_function_shape(value: &str, function: &str, open: usize) -
     let rgb_like = matches!(function, "rgb" | "rgba");
     let mut component_count = 0usize;
     let mut rgb_channels_are_percent = None;
+
     for component in body.split(',') {
-        let component = component.trim();
-        if component.is_empty() || component.chars().any(char::is_whitespace) {
+        let component_2 = component.trim();
+
+        if component_2.is_empty() || component_2.chars().any(char::is_whitespace) {
             return false;
         }
+
         if rgb_like && component_count < 3 {
-            let is_percent = component.ends_with('%');
+            let is_percent = component_2.ends_with('%');
+
             if rgb_channels_are_percent.is_some_and(|expected| expected != is_percent) {
                 return false;
             }
+
             rgb_channels_are_percent.get_or_insert(is_percent);
         }
+
         component_count = component_count.saturating_add(1);
     }
+
     matches!(component_count, 3 | 4)
 }
 
@@ -1934,9 +2275,10 @@ fn consume_css_parser_tokens(input: &mut Parser<'_>) -> Result<(), ParseError<()
         match input.next_including_whitespace_and_comments() {
             Ok(_) => {}
             Err(error) if matches!(&error.kind, BasicParseErrorKind::EndOfInput) => break,
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<()> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         }
     }
+
     Ok(())
 }
 
@@ -1999,7 +2341,7 @@ impl<'i> AtRuleParser<'i> for FallbackStylesheetParser {
         input: &mut Parser<'i>,
     ) -> Result<Self::AtRule, ParseError<Self::Error>> {
         consume_css_parser_tokens(input)?;
-        // Native static rendering ignores keyframes; conditional/nested selectors are opaque.
+
         self.unbounded_at_rule |= !matches!(prelude.as_str(), "keyframes" | "-webkit-keyframes");
         Ok(None)
     }
@@ -2013,80 +2355,114 @@ fn parse_stylesheet<E>(
     checkpoint: &mut impl FnMut() -> Result<(), E>,
     selector_limit: &mut impl FnMut(usize, usize) -> Result<(), E>,
 ) -> Result<bool, E> {
-    let css = css.trim();
-    let css = css.strip_prefix("<![CDATA[").unwrap_or(css);
-    let css = css.strip_suffix("]]>").unwrap_or(css);
-    let css = strip_css_comments(css, checkpoint)?;
-    let mut parser = Parser::new(&css);
+    let css_2 = css.trim();
+    let css_3 = css_2.strip_prefix("<![CDATA[").unwrap_or(css_2);
+    let css_4 = css_3.strip_suffix("]]>").unwrap_or(css_3);
+    let css_5 = strip_css_comments(css_4, checkpoint)?;
+    let mut parser = Parser::new(&css_5);
     let mut rule_parser = FallbackStylesheetParser::default();
     let mut rule_index = 0usize;
+
     for parsed in StyleSheetParser::new(&mut parser, &mut rule_parser) {
         checkpoint_loop(rule_index, checkpoint)?;
         rule_index = rule_index.saturating_add(1);
-        let Ok(Some(parsed)) = parsed else {
-            continue;
+
+        let parsed_2 = match parsed {
+            Ok(Some(matched_parsed)) => matched_parsed,
+            ::core::result::Result::Ok(::core::option::Option::None) | ::core::result::Result::Err(_) => continue,
         };
-        if !budget.charge_qualified_rule(selector_limit)? {
+
+        let checked_value = budget.charge_qualified_rule(selector_limit)?;
+
+        if !checked_value {
             return Ok(false);
         }
-        let selector = trim_with_checkpoints(&parsed.selector, checkpoint)?;
-        if !budget.charge_selector_bytes(selector.len(), selector_limit)? {
+
+        let selector = trim_with_checkpoints(&parsed_2.selector, checkpoint)?;
+
+        let checked_value_2 = budget.charge_selector_bytes(selector.len(), selector_limit)?;
+
+        if !checked_value_2 {
             return Ok(false);
         }
+
         let parsed_declarations = parse_declarations_with_limit(
-            &parsed.body,
+            &parsed_2.body,
             MAX_SELECTOR_DECLARATIONS_PER_RULE,
             checkpoint,
         )?;
-        if let Some((actual, maximum)) = parsed_declarations.limit_exceeded {
-            return budget.reject_admission(actual, maximum, selector_limit);
+
+        match parsed_declarations.limit_exceeded {
+            Some((actual, maximum)) => {
+                return budget.reject_admission(actual, maximum, selector_limit);
+            },
+            ::core::option::Option::None => {},
         }
+
         let projection_uncertain = parsed_declarations.unparsed;
-        // Escaped CSS identifiers remain outside the fallback selector subset. They may still
-        // target projected SVG, even when the simple branch parser cannot classify their syntax.
+
+
         budget.projection_unbounded |= projection_uncertain && selector.contains('\\');
         let declarations = parsed_declarations.declarations;
+
         if declarations.is_empty() && !projection_uncertain {
             continue;
         }
-        if !budget.charge_declarations(declarations.len(), selector_limit)? {
+
+        let checked_value_3 = budget.charge_declarations(declarations.len(), selector_limit)?;
+
+        if !checked_value_3 {
             return Ok(false);
         }
-        let Some(branches) = split_selector_branches(selector, budget, checkpoint, selector_limit)?
-        else {
-            return Ok(false);
+
+        let branches = {
+            let optional_branches = split_selector_branches(selector, budget, checkpoint, selector_limit)?;
+
+            match optional_branches {
+                Some(matched_branches) => matched_branches,
+                ::core::option::Option::None => return Ok(false),
+            }
         };
+
         let mut parsed_branches = Vec::new();
         let mut invalid = false;
+
         for branch in branches {
-            match parse_branch(branch, checkpoint)? {
-                BranchParse::Admitted(branch) => {
-                    if branch.component_count > MAX_SELECTOR_COMPONENTS_PER_BRANCH {
+            match { let checked_value_4 = parse_branch(branch, checkpoint)?; checked_value_4 } {
+                BranchParse::Admitted(branch_2) => {
+                    if branch_2.component_count > MAX_SELECTOR_COMPONENTS_PER_BRANCH {
                         return budget.reject_admission(
-                            branch.component_count,
+                            branch_2.component_count,
                             MAX_SELECTOR_COMPONENTS_PER_BRANCH,
                             selector_limit,
                         );
                     }
-                    if !budget.charge_components(branch.component_count, selector_limit)? {
+
+                    let checked_value_5 = budget.charge_components(branch_2.component_count, selector_limit)?;
+
+                    if !checked_value_5 {
                         return Ok(false);
                     }
-                    parsed_branches.push((branch, false));
+
+                    parsed_branches.push((branch_2, false));
                 }
-                // A branch can be ordinary CSS syntax but outside the
-                // deliberately small fallback matcher subset. Keeping
-                // admitted siblings is safe because we never widen the
-                // unadmitted branch into a class-only match.
+
+
+
+
                 BranchParse::ValidButUnadmitted => {
                     if projection_uncertain
                         || declarations
                             .iter()
                             .any(|declaration| !declaration.property.starts_with("--"))
                     {
-                        if let Some(guard) = projection_guard(branch, checkpoint)? {
-                            if !budget.charge_components(guard.component_count, selector_limit)? {
+                        if let Some(guard) = { let checked_value_6 = projection_guard(branch, checkpoint)?; checked_value_6 } {
+                            let checked_value_7 = budget.charge_components(guard.component_count, selector_limit)?;
+
+                            if !checked_value_7 {
                                 return Ok(false);
                             }
+
                             parsed_branches.push((guard, true));
                         } else {
                             budget.projection_unbounded = true;
@@ -2094,8 +2470,8 @@ fn parse_stylesheet<E>(
                     }
                 }
                 BranchParse::Invalid => {
-                    // Invalid in the bounded matcher need not mean invalid to a browser.
-                    // A declaration that can affect projected SVG still blocks local fallback.
+
+
                     budget.projection_unbounded |= projection_uncertain
                         || declarations
                             .iter()
@@ -2111,6 +2487,7 @@ fn parse_stylesheet<E>(
                 }
             }
         }
+
         if invalid
             && parsed_branches
                 .iter()
@@ -2118,10 +2495,14 @@ fn parse_stylesheet<E>(
         {
             budget.projection_unbounded = true;
         }
+
         if !invalid {
-            if !budget.charge_rules(parsed_branches.len(), selector_limit)? {
+            let checked_value_8 = budget.charge_rules(parsed_branches.len(), selector_limit)?;
+
+            if !checked_value_8 {
                 return Ok(false);
             }
+
             let rule_order = *source_order;
             let declaration_match_weight =
                 declarations.iter().fold(0usize, |total, declaration| {
@@ -2131,20 +2512,23 @@ fn parse_stylesheet<E>(
                             .saturating_add(declaration.value.len()),
                     )
                 });
-            let declarations: Arc<[Declaration]> = declarations.into();
+            let declarations_2: Arc<[Declaration]> = declarations.into();
+
             for (branch, projection_only) in parsed_branches {
                 rules.push(Rule {
                     projection_only,
                     projection_uncertain,
                     branch,
-                    declarations: declarations.clone(),
+                    declarations: declarations_2.clone(),
                     declaration_match_weight,
                     source_order: rule_order,
                 });
             }
+
             *source_order = source_order.saturating_add(1);
         }
     }
+
     budget.projection_unbounded |= rule_parser.unbounded_at_rule;
     checkpoint()?;
     Ok(true)
@@ -2161,21 +2545,35 @@ fn strip_css_comments<E>(
     let mut cursor = 0usize;
     let mut quote = None;
     let mut iteration = 0usize;
+
     while cursor < css.len() {
         checkpoint_loop(iteration, checkpoint)?;
         iteration = iteration.saturating_add(1);
         let tail = &css[cursor..];
-        let Some(character) = tail.chars().next() else {
-            break;
-        };
-        if let Some(current_quote) = quote {
-            output.push(character);
-            cursor += character.len_utf8();
-            if character == current_quote {
-                quote = None;
+
+        let character = {
+            let optional_character = tail.chars().next();
+
+            match optional_character {
+                Some(matched_character) => matched_character,
+                ::core::option::Option::None => break,
             }
-            continue;
+        };
+
+        match quote {
+            Some(current_quote) => {
+                output.push(character);
+                cursor += character.len_utf8();
+
+                if character == current_quote {
+                    quote = None;
+                }
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         match character {
             '\'' | '"' => {
                 quote = Some(character);
@@ -2184,12 +2582,19 @@ fn strip_css_comments<E>(
             }
             '/' if tail.as_bytes().get(1) == Some(&b'*') => {
                 let content = &tail[2..];
-                let Some(end) = find_with_checkpoints(content, "*/", checkpoint)? else {
-                    break;
+
+                let end = {
+                    let optional_end = find_with_checkpoints(content, "*/", checkpoint)?;
+
+                    match optional_end {
+                        Some(matched_end) => matched_end,
+                        ::core::option::Option::None => break,
+                    }
                 };
+
                 cursor += 2 + end + 2;
-                // Preserve a token boundary so `a/*comment*/b` cannot become
-                // a different selector or declaration name.
+
+
                 output.push(' ');
             }
             _ => {
@@ -2198,6 +2603,7 @@ fn strip_css_comments<E>(
             }
         }
     }
+
     checkpoint()?;
     Ok(output)
 }
@@ -2213,8 +2619,10 @@ fn split_selector_branches<'a, E>(
     let mut quote = None;
     let mut bracket_depth = 0usize;
     let mut paren_depth = 0usize;
+
     for (iteration, (index, ch)) in selector.char_indices().enumerate() {
         checkpoint_loop(iteration, checkpoint)?;
+
         match ch {
             '\'' | '"' if quote == Some(ch) => quote = None,
             '\'' | '"' if quote.is_none() => quote = Some(ch),
@@ -2223,18 +2631,25 @@ fn split_selector_branches<'a, E>(
             '(' if quote.is_none() => paren_depth = paren_depth.saturating_add(1),
             ')' if quote.is_none() => paren_depth = paren_depth.saturating_sub(1),
             ',' if quote.is_none() && bracket_depth == 0 && paren_depth == 0 => {
-                if !budget.charge_branch(selector_limit)? {
+                let checked_value = budget.charge_branch(selector_limit)?;
+
+                if !checked_value {
                     return Ok(None);
                 }
+
                 result.push(selector[start..index].trim());
                 start = index + ch.len_utf8();
             }
             _ => {}
         }
     }
-    if !budget.charge_branch(selector_limit)? {
+
+    let checked_value_2 = budget.charge_branch(selector_limit)?;
+
+    if !checked_value_2 {
         return Ok(None);
     }
+
     result.push(selector[start..].trim());
     checkpoint()?;
     Ok(Some(result))
@@ -2265,6 +2680,7 @@ enum SelectorTokenError {
     LimitExceeded(usize),
 }
 
+#[must_use]
 fn validate_unadmitted_selector(selector: &str) -> bool {
     let mut bracket_depth = 0usize;
     let mut paren_depth = 0usize;
@@ -2282,53 +2698,82 @@ fn validate_unadmitted_selector(selector: &str) -> bool {
             skipped_column_pipe = None;
             continue;
         }
+
         if escaped {
             escaped = false;
+
             if bracket_depth == 0 && paren_depth == 0 {
                 if descendant_pending {
                     descendant_pending = false;
                 }
+
                 operator_pending = false;
                 compound_active = true;
                 saw_compound = true;
             }
+
             continue;
         }
-        if ch == '\\' {
-            escaped = true;
-            continue;
+
+        match ch {
+            '\\' => {
+                escaped = true;
+                continue;
+            },
+            _ => {},
         }
-        if let Some(current_quote) = quote {
-            if ch == current_quote {
-                quote = None;
-            }
-            continue;
-        }
-        if bracket_depth > 0 {
-            match ch {
-                '\'' | '"' => quote = Some(ch),
-                '[' => bracket_depth = bracket_depth.saturating_add(1),
-                ']' => {
-                    if bracket_depth == 1 {
-                        let start = bracket_start.take().unwrap_or(index);
-                        if !validate_attribute_fragment(&selector[start + 1..index]) {
-                            return false;
-                        }
-                    }
-                    bracket_depth -= 1;
+
+        match quote {
+            Some(current_quote) => {
+                if ch == current_quote {
+                    quote = None;
                 }
-                _ => {}
-            }
-            continue;
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
-        if paren_depth > 0 {
-            match ch {
-                '\'' | '"' => quote = Some(ch),
-                '(' => paren_depth = paren_depth.saturating_add(1),
-                ')' => paren_depth -= 1,
-                _ => {}
-            }
-            continue;
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(bracket_depth), &::core::convert::identity(0)); _explicit_ordering } {
+            ::core::cmp::Ordering::Greater => {
+                match ch {
+                    '\'' | '"' => quote = Some(ch),
+
+                    '[' => bracket_depth = bracket_depth.saturating_add(1),
+                    ']' => {
+                        match bracket_depth {
+                            1 => {
+                                let start = bracket_start.take().unwrap_or(index);
+
+                                if !validate_attribute_fragment(&selector[start + 1..index]) {
+                                    return false;
+                                }
+                            },
+                            _ => {},
+                        }
+
+                        bracket_depth -= 1;
+                    }
+                    _ => {}
+                }
+
+                continue;
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
+        }
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(paren_depth), &::core::convert::identity(0)); _explicit_ordering } {
+            ::core::cmp::Ordering::Greater => {
+                match ch {
+                    '\'' | '"' => quote = Some(ch),
+                    '(' => paren_depth = paren_depth.saturating_add(1),
+                    ')' => paren_depth -= 1,
+                    _ => {}
+                }
+
+                continue;
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
         }
 
         match ch {
@@ -2337,6 +2782,7 @@ fn validate_unadmitted_selector(selector: &str) -> bool {
                 if descendant_pending {
                     descendant_pending = false;
                 }
+
                 operator_pending = false;
                 compound_active = true;
                 saw_compound = true;
@@ -2347,6 +2793,7 @@ fn validate_unadmitted_selector(selector: &str) -> bool {
                 if !compound_active || operator_pending {
                     return false;
                 }
+
                 paren_depth = 1;
             }
             character if character.is_whitespace() => {
@@ -2358,6 +2805,7 @@ fn validate_unadmitted_selector(selector: &str) -> bool {
                 if !compound_active || operator_pending {
                     return false;
                 }
+
                 operator_pending = true;
                 compound_active = false;
                 descendant_pending = false;
@@ -2365,16 +2813,19 @@ fn validate_unadmitted_selector(selector: &str) -> bool {
             '|' => {
                 let next_index = index + ch.len_utf8();
                 let next = selector[next_index..].chars().next();
+
                 if next == Some('|') {
                     if !compound_active || operator_pending {
                         return false;
                     }
+
                     operator_pending = true;
                     compound_active = false;
                     descendant_pending = false;
                     skipped_column_pipe = Some(next_index);
                 } else {
                     let previous = selector[..index].chars().next_back();
+
                     if operator_pending
                         || matches!(next, Some('+' | '~' | '>' | '|' | ','))
                         || previous.is_some_and(char::is_whitespace)
@@ -2382,20 +2833,24 @@ fn validate_unadmitted_selector(selector: &str) -> bool {
                     {
                         return false;
                     }
-                    // A single pipe is a namespace separator. CSS does not allow
-                    // whitespace around it; only the `||` column combinator may be
-                    // separated from its neighboring compounds.
+
+
+
+
                     descendant_pending = false;
                 }
             }
             '#' | '.' => {
                 let next = selector[index + ch.len_utf8()..].chars().next();
+
                 if next.is_none_or(|character| !is_selector_ident_start(character)) {
                     return false;
                 }
+
                 if descendant_pending {
                     descendant_pending = false;
                 }
+
                 operator_pending = false;
                 compound_active = true;
                 saw_compound = true;
@@ -2404,27 +2859,47 @@ fn validate_unadmitted_selector(selector: &str) -> bool {
                 if descendant_pending {
                     descendant_pending = false;
                 }
+
                 operator_pending = false;
                 compound_active = true;
                 saw_compound = true;
             }
             ':' => {
                 let mut next_index = index + ch.len_utf8();
-                let Some((_, next)) = selector[next_index..].char_indices().next() else {
-                    return false;
+
+                let next = {
+                    let optional_next = selector[next_index..].char_indices().next();
+
+                    match optional_next {
+                        Some((_, matched_next)) => matched_next,
+                        ::core::option::Option::None => return false,
+                    }
                 };
-                if next == ':' {
-                    next_index += next.len_utf8();
+
+                match next {
+                    ':' => {
+                        next_index += next.len_utf8();
+                    },
+                    _ => {},
                 }
-                let Some((_, name_start)) = selector[next_index..].char_indices().next() else {
-                    return false;
+
+                let name_start = {
+                    let optional_name_start = selector[next_index..].char_indices().next();
+
+                    match optional_name_start {
+                        Some((_, matched_name_start)) => matched_name_start,
+                        ::core::option::Option::None => return false,
+                    }
                 };
+
                 if !is_selector_ident_start(name_start) {
                     return false;
                 }
+
                 if descendant_pending {
                     descendant_pending = false;
                 }
+
                 operator_pending = false;
                 compound_active = true;
                 saw_compound = true;
@@ -2434,6 +2909,7 @@ fn validate_unadmitted_selector(selector: &str) -> bool {
                 if descendant_pending {
                     descendant_pending = false;
                 }
+
                 operator_pending = false;
                 compound_active = true;
                 saw_compound = true;
@@ -2449,6 +2925,7 @@ fn validate_unadmitted_selector(selector: &str) -> bool {
         && !operator_pending
 }
 
+#[must_use]
 fn is_selector_ident_start(character: char) -> bool {
     character == '_'
         || character == '-'
@@ -2457,35 +2934,52 @@ fn is_selector_ident_start(character: char) -> bool {
         || !character.is_ascii()
 }
 
+#[must_use]
 fn validate_attribute_fragment(fragment: &str) -> bool {
-    let fragment = fragment.trim();
+    let fragment_2 = fragment.trim();
     let mut name_end = 0usize;
-    for (index, character) in fragment.char_indices() {
+
+    for (index, character) in fragment_2.char_indices() {
         if is_selector_ident_start(character) {
             name_end = index + character.len_utf8();
         } else {
             break;
         }
     }
-    if name_end == 0 {
-        return false;
+
+    match name_end {
+        0 => {
+            return false;
+        },
+        _ => {},
     }
-    let rest = fragment[name_end..].trim_start();
+
+    let rest = fragment_2[name_end..].trim_start();
+
     if rest.is_empty() {
         return true;
     }
+
     let operator = ["~=", "|=", "^=", "$=", "*=", "!=", "="]
         .into_iter()
         .find(|operator| rest.starts_with(operator));
-    let Some(operator) = operator else {
-        return false;
+
+    let operator_2 = match operator {
+        Some(matched_operator) => matched_operator,
+        ::core::option::Option::None => return false,
     };
-    let value = rest[operator.len()..].trim();
+
+    let value = rest[operator_2.len()..].trim();
+
     if value.is_empty() {
         return false;
     }
+
     if value.starts_with('\'') || value.starts_with('"') {
-        let quote = value.chars().next().unwrap_or_default();
+        let quote = match value.chars().next() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => '\0',
+        };
         value.len() >= 2 && value.ends_with(quote)
     } else {
         value.chars().all(|character| {
@@ -2505,6 +2999,7 @@ fn parse_branch<E>(
     if selector.is_empty() {
         return Ok(BranchParse::Invalid);
     }
+
     let mut compounds = Vec::new();
     let mut combinators = Vec::new();
     let mut token = String::new();
@@ -2514,28 +3009,41 @@ fn parse_branch<E>(
     let mut quote = None;
     let mut bracket_depth = 0usize;
     let mut paren_depth = 0usize;
+
     for (iteration, ch) in selector.chars().enumerate() {
         checkpoint_loop(iteration, checkpoint)?;
-        if let Some(current_quote) = quote {
-            token.push(ch);
-            if ch == current_quote {
-                quote = None;
-            }
-            continue;
+
+        match quote {
+            Some(current_quote) => {
+                token.push(ch);
+
+                if ch == current_quote {
+                    quote = None;
+                }
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         match ch {
             '\'' | '"' => {
                 quote = Some(ch);
                 token.push(ch);
             }
+
             '[' => {
                 bracket_depth = bracket_depth.saturating_add(1);
                 token.push(ch);
             }
             ']' => {
-                if bracket_depth == 0 {
-                    return Ok(BranchParse::Invalid);
+                match bracket_depth {
+                    0 => {
+                        return Ok(BranchParse::Invalid);
+                    },
+                    _ => {},
                 }
+
                 bracket_depth -= 1;
                 token.push(ch);
             }
@@ -2544,14 +3052,18 @@ fn parse_branch<E>(
                 token.push(ch);
             }
             ')' => {
-                if paren_depth == 0 {
-                    return Ok(BranchParse::Invalid);
+                match paren_depth {
+                    0 => {
+                        return Ok(BranchParse::Invalid);
+                    },
+                    _ => {},
                 }
+
                 paren_depth -= 1;
                 token.push(ch);
             }
-            ch if bracket_depth > 0 || paren_depth > 0 => token.push(ch),
-            ch if ch.is_whitespace() => {
+            ch_2 if bracket_depth > 0 || paren_depth > 0 => token.push(ch_2),
+            ch_3 if ch_3.is_whitespace() => {
                 match flush_selector_token(
                     &mut token,
                     &mut compounds,
@@ -2565,6 +3077,7 @@ fn parse_branch<E>(
                         return Ok(BranchParse::LimitExceeded(actual));
                     }
                 }
+
                 if !compounds.is_empty() {
                     pending.get_or_insert(Combinator::Descendant);
                 }
@@ -2583,14 +3096,17 @@ fn parse_branch<E>(
                         return Ok(BranchParse::LimitExceeded(actual));
                     }
                 }
+
                 if compounds.is_empty() {
                     return Ok(BranchParse::Invalid);
                 }
+
                 if pending == Some(Combinator::Child) {
                     return Ok(BranchParse::Invalid);
                 }
-                // Whitespace immediately before `>` is part of the same explicit
-                // child combinator, so replace the provisional descendant marker.
+
+
+
                 pending = Some(Combinator::Child);
             }
             '+' | '~' | '|' | ':' => {
@@ -2600,9 +3116,11 @@ fn parse_branch<E>(
             _ => token.push(ch),
         }
     }
+
     if quote.is_some() || bracket_depth != 0 || paren_depth != 0 {
         return Ok(BranchParse::Invalid);
     }
+
     match flush_selector_token(
         &mut token,
         &mut compounds,
@@ -2616,9 +3134,11 @@ fn parse_branch<E>(
             return Ok(BranchParse::LimitExceeded(actual));
         }
     }
+
     if compounds.is_empty() {
         return Ok(BranchParse::Invalid);
     }
+
     if unsupported {
         return Ok(if validate_unadmitted_selector(selector) {
             BranchParse::ValidButUnadmitted
@@ -2626,34 +3146,39 @@ fn parse_branch<E>(
             BranchParse::Invalid
         });
     }
+
     if pending.is_some() || combinators.len() + 1 != compounds.len() {
         return Ok(BranchParse::Invalid);
     }
+
     let mut component_count = combinators.len();
+
     if component_count > MAX_SELECTOR_COMPONENTS_PER_BRANCH {
         return Ok(BranchParse::LimitExceeded(component_count));
     }
+
     let mut specificity = Specificity::default();
     let mut parsed = Vec::new();
+
     for compound in compounds {
         match parse_compound(&compound, &mut component_count, checkpoint)? {
-            CompoundParse::Admitted(compound) => {
+            CompoundParse::Admitted(compound_2) => {
                 specificity.0 = specificity
                     .0
-                    .saturating_add(u32::from(compound.id.is_some()));
+                    .saturating_add(u32::from(compound_2.id.is_some()));
                 specificity.1 = specificity.1.saturating_add(
                     u32::try_from(
-                        compound
+                        compound_2
                             .classes
                             .len()
-                            .saturating_add(compound.attributes.len()),
+                            .saturating_add(compound_2.attributes.len()),
                     )
                     .unwrap_or(u32::MAX),
                 );
                 specificity.2 = specificity
                     .2
-                    .saturating_add(u32::from(compound.local_name.is_some()));
-                parsed.push(compound);
+                    .saturating_add(u32::from(compound_2.local_name.is_some()));
+                parsed.push(compound_2);
             }
             CompoundParse::ValidButUnadmitted => {
                 return Ok(BranchParse::ValidButUnadmitted);
@@ -2664,6 +3189,7 @@ fn parse_branch<E>(
             }
         }
     }
+
     Ok(BranchParse::Admitted(Branch {
         compounds: parsed,
         combinators,
@@ -2673,9 +3199,9 @@ fn parse_branch<E>(
     }))
 }
 
-// Removing these structural restrictions yields necessary conditions, never a style match.
-// Keep the guard in the same bounded index, and reject projection when it can match a generated
-// terminal. Other pseudo classes, pseudo elements, escapes and selector-list functions stay closed.
+
+
+
 fn projection_guard<E>(
     selector: &str,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
@@ -2683,36 +3209,49 @@ fn projection_guard<E>(
     if selector.contains('\\') {
         return Ok(None);
     }
+
     let mut parser = Parser::new(selector);
     let mut retained = parser.position();
     let mut necessary = String::new();
+
     while !parser.is_exhausted() {
         checkpoint()?;
         let start = parser.position();
-        let Ok(token) = parser.next_including_whitespace_and_comments() else {
-            return Ok(None);
+
+        let token = {
+            let outcome_token = parser.next_including_whitespace_and_comments();
+
+            match outcome_token {
+                Ok(matched_token) => matched_token,
+                ::core::result::Result::Err(_) => return Ok(None),
+            }
         };
+
         if matches!(token, Token::SquareBracketBlock) {
-            // Consume the block now so the next token's start cannot point inside an attribute.
+
             if parser
                 .parse_nested_block(consume_css_parser_tokens)
                 .is_err()
             {
                 return Ok(None);
             }
+
             continue;
         }
+
         if !matches!(token, Token::Colon) {
             continue;
         }
+
         necessary.push_str(parser.slice(retained..start));
-        // A pseudo-only compound needs a universal guard, not an accidentally joined ancestor.
+
         if necessary.is_empty()
             || necessary.ends_with(char::is_whitespace)
             || necessary.ends_with('>')
         {
             necessary.push('*');
         }
+
         match parser.next_including_whitespace_and_comments().cloned() {
             Ok(Token::Ident(name))
                 if matches!(
@@ -2728,35 +3267,43 @@ fn projection_guard<E>(
                 if matches!(name.as_ref(), "not" | "nth-of-type" | "nth-child") =>
             {
                 let argument: Result<String, ParseError<()>> = parser.parse_nested_block(|input| {
-                    let start = input.position();
+                    let start_2 = input.position();
                     consume_css_parser_tokens(input)?;
-                    Ok(input.slice_from(start).trim().to_string())
+                    Ok(input.slice_from(start_2).trim().to_string())
                 });
-                let Ok(argument) = argument else {
-                    return Ok(None);
+
+                let argument_2 = match argument {
+                    Ok(matched_argument) => matched_argument,
+                    ::core::result::Result::Err(_) => return Ok(None),
                 };
+
                 if name == "not" {
-                    let BranchParse::Admitted(argument) = parse_branch(&argument, checkpoint)?
+                    let BranchParse::Admitted(argument_3) = parse_branch(&argument_2, checkpoint)?
                     else {
                         return Ok(None);
                     };
-                    if argument.compounds.len() != 1 {
+
+                    if argument_3.compounds.len() != 1 {
                         return Ok(None);
                     }
-                } else if argument.parse::<i32>().is_err()
-                    && !matches!(argument.as_str(), "odd" | "even")
+                } else if (match &(argument_2.parse::<i32>()) { ::core::result::Result::Ok(_) => false, ::core::result::Result::Err(_invalid_integer) => true })
+                    && !matches!(argument_2.as_str(), "odd" | "even")
                 {
                     return Ok(None);
                 }
             }
-            _ => return Ok(None),
+            ::core::result::Result::Ok(_) | ::core::result::Result::Err(_) => return Ok(None),
         }
+
         retained = parser.position();
     }
+
     necessary.push_str(parser.slice_from(retained));
+
     let BranchParse::Admitted(mut guard) = parse_branch(&necessary, checkpoint)? else {
         return Ok(None);
     };
+
     guard.selector_weight = selector.len().max(1);
     Ok(Some(guard))
 }
@@ -2769,9 +3316,11 @@ fn flush_selector_token(
     component_floor: &mut usize,
 ) -> Result<(), SelectorTokenError> {
     let value = token.trim();
+
     if value.is_empty() {
         return Ok(());
     }
+
     if pending.is_some() {
         if compounds.is_empty() || combinators.len() + 1 != compounds.len() {
             return Err(SelectorTokenError::Invalid);
@@ -2779,16 +3328,25 @@ fn flush_selector_token(
     } else if !compounds.is_empty() {
         return Err(SelectorTokenError::Invalid);
     }
+
     let additional = 1usize.saturating_add(usize::from(pending.is_some()));
-    let actual = component_floor
-        .checked_add(additional)
-        .unwrap_or(usize::MAX);
+    let actual = match component_floor
+        .checked_add(additional) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => usize::MAX,
+    };
+
     if actual > MAX_SELECTOR_COMPONENTS_PER_BRANCH {
         return Err(SelectorTokenError::LimitExceeded(actual));
     }
-    if let Some(combinator) = pending.take() {
-        combinators.push(combinator);
+
+    match pending.take() {
+        Some(combinator) => {
+            combinators.push(combinator);
+        },
+        ::core::option::Option::None => {},
     }
+
     *component_floor = actual;
     compounds.push(value.to_string());
     token.clear();
@@ -2805,57 +3363,105 @@ fn parse_compound<E>(
     let mut id = None;
     let mut classes = Vec::new();
     let mut attributes = Vec::new();
+
     if rest.starts_with('*') {
-        if let Err(actual) = charge_branch_component(component_count) {
-            return Ok(CompoundParse::LimitExceeded(actual));
+        match charge_branch_component(component_count) {
+            Err(actual) => {
+                return Ok(CompoundParse::LimitExceeded(actual));
+            },
+            ::core::result::Result::Ok(_) => {},
         }
+
         rest = &rest[1..];
     } else if !rest.starts_with(['#', '.', '[']) {
         let end = identifier_prefix_len(rest);
-        if end == 0 {
-            return Ok(CompoundParse::Invalid);
+
+        match end {
+            0 => {
+                return Ok(CompoundParse::Invalid);
+            },
+            _ => {},
         }
-        if let Err(actual) = charge_branch_component(component_count) {
-            return Ok(CompoundParse::LimitExceeded(actual));
+
+        match charge_branch_component(component_count) {
+            Err(actual) => {
+                return Ok(CompoundParse::LimitExceeded(actual));
+            },
+            ::core::result::Result::Ok(_) => {},
         }
+
         local_name = Some(rest[..end].to_ascii_lowercase());
         rest = &rest[end..];
     }
+
     while !rest.is_empty() {
         let marker = rest.chars().next().expect("rest is non-empty");
+
         match marker {
             '#' | '.' => {
                 let value = &rest[marker.len_utf8()..];
                 let end = identifier_prefix_len(value);
-                if end == 0 {
-                    return Ok(CompoundParse::Invalid);
-                }
-                let value = &value[..end];
-                if marker == '#' {
-                    if id.is_some() {
+
+                match end {
+                    0 => {
                         return Ok(CompoundParse::Invalid);
-                    }
-                    if let Err(actual) = charge_branch_component(component_count) {
-                        return Ok(CompoundParse::LimitExceeded(actual));
-                    }
-                    id = Some(value.to_string());
-                } else {
-                    if let Err(actual) = charge_branch_component(component_count) {
-                        return Ok(CompoundParse::LimitExceeded(actual));
-                    }
-                    classes.push(value.to_string());
+                    },
+                    _ => {},
                 }
+
+                let value_2 = &value[..end];
+
+                match marker {
+                    '#' => {
+                        match id {
+                            ::core::option::Option::Some(_) => {
+                                return Ok(CompoundParse::Invalid);
+                            },
+                            ::core::option::Option::None => {},
+                        }
+
+                        match charge_branch_component(component_count) {
+                            Err(actual) => {
+                                return Ok(CompoundParse::LimitExceeded(actual));
+                            },
+                            ::core::result::Result::Ok(_) => {},
+                        }
+
+                        id = Some(value_2.to_string());
+                    },
+                    _ => {
+                        match charge_branch_component(component_count) {
+                            Err(actual) => {
+                                return Ok(CompoundParse::LimitExceeded(actual));
+                            },
+                            ::core::result::Result::Ok(_) => {},
+                        }
+
+                        classes.push(value_2.to_string());
+                    },
+                }
+
                 rest = &rest[marker.len_utf8() + end..];
             }
             '[' => {
-                let Some(end) = find_attribute_selector_end(rest) else {
-                    return Ok(CompoundParse::Invalid);
+                let end = {
+                    let optional_end = find_attribute_selector_end(rest);
+
+                    match optional_end {
+                        Some(matched_end) => matched_end,
+                        ::core::option::Option::None => return Ok(CompoundParse::Invalid),
+                    }
                 };
+
                 match parse_attribute_selector(&rest[1..end], checkpoint)? {
                     AttributeParse::Admitted(attribute) => {
-                        if let Err(actual) = charge_branch_component(component_count) {
-                            return Ok(CompoundParse::LimitExceeded(actual));
+                        match charge_branch_component(component_count) {
+                            Err(actual) => {
+                                return Ok(CompoundParse::LimitExceeded(actual));
+                            },
+                            ::core::result::Result::Ok(_) => {},
                         }
+
                         attributes.push(attribute);
                     }
                     AttributeParse::ValidButUnadmitted => {
@@ -2863,15 +3469,17 @@ fn parse_compound<E>(
                     }
                     AttributeParse::Invalid => return Ok(CompoundParse::Invalid),
                 }
+
                 rest = &rest[end + 1..];
             }
             _ => return Ok(CompoundParse::Invalid),
         }
     }
+
     checkpoint()?;
     Ok(CompoundParse::Admitted(Compound {
-        // No `@namespace` declarations are admitted by this fallback subset,
-        // so an unprefixed type selector remains namespace-neutral.
+
+
         namespace: None,
         local_name,
         id,
@@ -2881,7 +3489,11 @@ fn parse_compound<E>(
 }
 
 fn charge_branch_component(component_count: &mut usize) -> Result<(), usize> {
-    let actual = component_count.checked_add(1).unwrap_or(usize::MAX);
+    let actual = match component_count.checked_add(1) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => usize::MAX,
+    };
+
     *component_count = actual;
     if actual > MAX_SELECTOR_COMPONENTS_PER_BRANCH {
         Err(actual)
@@ -2890,26 +3502,37 @@ fn charge_branch_component(component_count: &mut usize) -> Result<(), usize> {
     }
 }
 
+#[must_use]
 fn identifier_prefix_len(value: &str) -> usize {
     let mut end = 0usize;
+
     for (offset, character) in value.char_indices() {
         if !is_css_identifier_character(character) {
             break;
         }
+
         end = offset + character.len_utf8();
     }
+
     end
 }
 
+#[must_use]
 fn find_attribute_selector_end(value: &str) -> Option<usize> {
     let mut quote = None;
+
     for (offset, character) in value.char_indices().skip(1) {
-        if let Some(current_quote) = quote {
-            if character == current_quote {
-                quote = None;
-            }
-            continue;
+        match quote {
+            Some(current_quote) => {
+                if character == current_quote {
+                    quote = None;
+                }
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         match character {
             '\'' | '"' => quote = Some(character),
             ']' => return Some(offset),
@@ -2917,6 +3540,7 @@ fn find_attribute_selector_end(value: &str) -> Option<usize> {
             _ => {}
         }
     }
+
     None
 }
 
@@ -2927,6 +3551,7 @@ fn parse_attribute_selector<E>(
     let mut parser = Parser::new(source);
     let parsed = parser.parse_entirely(|input| {
         let name = input.expect_ident_cloned()?.to_ascii_lowercase();
+
         if input.is_exhausted() {
             return Ok(AttributeParse::Admitted(AttributeSelector {
                 name,
@@ -2934,15 +3559,19 @@ fn parse_attribute_selector<E>(
             }));
         }
 
-        let operator = input.next()?.clone();
-        let value = input.expect_ident_or_string()?.to_string();
+        let checked_value = input.next()?;
+        let operator = checked_value.clone();
+        let checked_value_2 = input.expect_ident_or_string()?;
+        let value = checked_value_2.to_string();
         let modifier = if input.is_exhausted() {
             None
         } else {
             let modifier = input.expect_ident_cloned()?;
+
             if !matches!(modifier.as_ref(), "i" | "I" | "s" | "S") {
                 return Err(ParseError::<()>::custom(()));
             }
+
             Some(modifier)
         };
 
@@ -2979,6 +3608,7 @@ fn parse_attribute_selector<E>(
     Ok(parsed.unwrap_or(AttributeParse::Invalid))
 }
 
+#[must_use]
 fn is_css_identifier_character(character: char) -> bool {
     character.is_ascii_alphanumeric()
         || character == '-'
@@ -2992,16 +3622,20 @@ fn matches_branch<E>(
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<bool, E> {
     let rightmost = branch.compounds.len() - 1;
+
     if !matches_compound(
         &branch.compounds[rightmost],
         path.last().expect("path is non-empty"),
     ) {
         return Ok(false);
     }
+
     let mut states = vec![false; path.len()];
     states[path.len() - 1] = true;
+
     for selector_index in (0..rightmost).rev() {
         let mut next = vec![false; path.len()];
+
         match branch.combinators[selector_index] {
             Combinator::Child => {
                 for path_index in 1..path.len() {
@@ -3015,6 +3649,7 @@ fn matches_branch<E>(
             }
             Combinator::Descendant => {
                 let mut has_descendant_match = false;
+
                 for path_index in (0..path.len()).rev() {
                     checkpoint_loop(path_index, checkpoint)?;
                     next[path_index] = has_descendant_match
@@ -3023,12 +3658,15 @@ fn matches_branch<E>(
                 }
             }
         }
+
         states = next;
     }
+
     checkpoint()?;
     Ok(states.into_iter().any(|matched| matched))
 }
 
+#[must_use]
 fn matches_compound(compound: &Compound, element: &SourceElement) -> bool {
     compound
         .namespace
@@ -3051,21 +3689,28 @@ fn matches_compound(compound: &Compound, element: &SourceElement) -> bool {
             .all(|selector| attribute_selector_matches(selector, element))
 }
 
+#[must_use]
 fn attribute_selector_matches(selector: &AttributeSelector, element: &SourceElement) -> bool {
-    let Some(value) = element.attributes.get(&selector.name) else {
-        return false;
+    let value = {
+        let optional_value = element.attributes.get(&selector.name);
+
+        match optional_value {
+            Some(matched_value) => matched_value,
+            ::core::option::Option::None => return false,
+        }
     };
+
     match &selector.matcher {
         AttributeMatcher::Exists => true,
         AttributeMatcher::Exact(expected) => value.as_deref() == Some(expected),
         AttributeMatcher::ContainsToken(expected) => value
             .as_deref()
-            .is_some_and(|value| value.split_whitespace().any(|token| token == expected)),
+            .is_some_and(|value_2| value_2.split_whitespace().any(|token| token == expected)),
         AttributeMatcher::Suffix(expected) => {
             !expected.is_empty()
                 && value
                     .as_deref()
-                    .is_some_and(|value| value.ends_with(expected))
+                    .is_some_and(|value_3| value_3.ends_with(expected))
         }
     }
 }
@@ -3076,6 +3721,7 @@ struct ParsedDeclarations {
     limit_exceeded: Option<(usize, usize)>,
 }
 
+#[must_use]
 fn projection_overrides(declaration: &Declaration) -> bool {
     !declaration.important
         && matches!(
@@ -3092,6 +3738,7 @@ fn projection_overrides(declaration: &Declaration) -> bool {
         )
 }
 
+#[must_use]
 fn derived_inline_overrides(element: &SourceElement, declaration: &Declaration) -> bool {
     element
         .inline
@@ -3106,21 +3753,26 @@ fn parse_declarations<E>(
     Ok(parse_declarations_with_limit(style, usize::MAX, checkpoint)?.declarations)
 }
 
-// The source-style parser intentionally rejects URLs. Fallback projection must additionally
-// preserve already-rendered SVG references, restricted to these same-document paint properties.
+
+
+#[must_use]
 fn parse_fragment_paint_declaration(raw: &str, order: usize) -> Option<Declaration> {
-    let raw = raw.trim().strip_suffix(';').unwrap_or(raw.trim()).trim();
-    let mut parser = Parser::new(raw);
+    let raw_2 = raw.trim().strip_suffix(';').unwrap_or(raw.trim()).trim();
+    let mut parser = Parser::new(raw_2);
     let property = parser.expect_ident_cloned().ok()?.to_ascii_lowercase();
+
     if !matches!(property.as_str(), "clip-path" | "mask" | "filter") {
         return None;
     }
+
     parser.expect_colon().ok()?;
     let value_start = parser.position();
     let target = parser.expect_url().ok()?;
+
     if !target.starts_with('#') || target.len() == 1 {
         return None;
     }
+
     let value = parser.slice(value_start..parser.position()).trim();
     svgtypes::FuncIRI::from_str(value).ok()?;
     let important = parser.try_parse(parse_important).is_ok();
@@ -3159,10 +3811,12 @@ fn parse_declarations_with_limit<E>(
             unparsed |= !boundary.raw().trim().is_empty();
             return Ok(true);
         };
+
         if declarations.len() >= maximum {
             limit_exceeded = Some((maximum.saturating_add(1), maximum));
             return Ok(false);
         }
+
         declarations.push(declaration);
         Ok(true)
     })?;
@@ -3173,35 +3827,57 @@ fn parse_declarations_with_limit<E>(
     })
 }
 
+#[must_use]
 fn resolve_font_size(
     value: Option<&str>,
     parent: f64,
     root: f64,
     svg_unitless: bool,
 ) -> Option<f64> {
-    let value = value?.trim().to_ascii_lowercase();
-    if matches!(value.as_str(), "inherit" | "unset") {
+    let checked_value = value?;
+    let value_2 = checked_value.trim().to_ascii_lowercase();
+
+    if matches!(value_2.as_str(), "inherit" | "unset") {
         return finite_positive(parent);
     }
-    if value == "initial" {
+
+    if value_2 == "initial" {
         return finite_positive(DEFAULT_FONT_SIZE);
     }
-    if let Some(number) = value.strip_suffix("px").and_then(parse_number) {
-        return bounded_positive(number);
+
+    match value_2.strip_suffix("px").and_then(parse_number) {
+        Some(number) => {
+            return bounded_positive(number);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(number) = value.strip_suffix("rem").and_then(parse_number) {
-        return bounded_positive(root * number);
+
+    match value_2.strip_suffix("rem").and_then(parse_number) {
+        Some(number) => {
+            return bounded_positive(root * number);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(number) = value.strip_suffix("em").and_then(parse_number) {
-        return bounded_positive(parent * number);
+
+    match value_2.strip_suffix("em").and_then(parse_number) {
+        Some(number) => {
+            return bounded_positive(parent * number);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(number) = value.strip_suffix('%').and_then(parse_number) {
-        return bounded_positive(parent * number / 100.0);
+
+    match value_2.strip_suffix('%').and_then(parse_number) {
+        Some(number) => {
+            return bounded_positive(parent * number / 100.0);
+        },
+        ::core::option::Option::None => {},
     }
+
     if svg_unitless {
-        return value.parse::<f64>().ok().and_then(bounded_positive);
+        return match value_2.parse::<f64>() { ::core::result::Result::Ok(value___) => ::core::option::Option::Some(value___), ::core::result::Result::Err(_invalid_float_) => ::core::option::Option::None }.and_then(bounded_positive);
     }
-    match value.as_str() {
+
+    match value_2.as_str() {
         "xx-small" => finite_positive(9.0),
         "x-small" => finite_positive(10.0),
         "small" => finite_positive(13.0),
@@ -3215,135 +3891,203 @@ fn resolve_font_size(
     }
 }
 
+#[must_use]
 fn resolve_inherited_text_value(
     value: Option<&Arc<str>>,
     parent: &Arc<str>,
     initial: &str,
 ) -> Arc<str> {
-    let Some(value) = value.filter(|value| !value.is_empty()) else {
-        return Arc::clone(parent);
+    let value_3 = {
+        let optional_value = value.filter(|value_2| !value_2.is_empty());
+
+        match optional_value {
+            Some(matched_value) => matched_value,
+            ::core::option::Option::None => return Arc::clone(parent),
+        }
     };
-    if value.eq_ignore_ascii_case("inherit") || value.eq_ignore_ascii_case("unset") {
+
+    if value_3.eq_ignore_ascii_case("inherit") || value_3.eq_ignore_ascii_case("unset") {
         Arc::clone(parent)
-    } else if value.eq_ignore_ascii_case("initial") {
+    } else if value_3.eq_ignore_ascii_case("initial") {
         initial.into()
     } else {
-        Arc::clone(value)
+        Arc::clone(value_3)
     }
 }
 
+#[must_use]
 fn resolve_optional_text_value(
     value: Option<&Arc<str>>,
     parent: Option<&Arc<str>>,
 ) -> Option<Arc<str>> {
-    let Some(value) = value.filter(|value| !value.is_empty()) else {
-        return parent.cloned();
+    let value_3 = {
+        let optional_value = value.filter(|value_2| !value_2.is_empty());
+
+        match optional_value {
+            Some(matched_value) => matched_value,
+            ::core::option::Option::None => return parent.cloned(),
+        }
     };
-    if value.eq_ignore_ascii_case("inherit") || value.eq_ignore_ascii_case("unset") {
+
+    if value_3.eq_ignore_ascii_case("inherit") || value_3.eq_ignore_ascii_case("unset") {
         parent.cloned()
-    } else if value.eq_ignore_ascii_case("initial") {
+    } else if value_3.eq_ignore_ascii_case("initial") {
         None
     } else {
-        Some(Arc::clone(value))
+        Some(Arc::clone(value_3))
     }
 }
 
+#[must_use]
 fn resolve_white_space(value: Option<&str>, parent: HtmlWhiteSpace) -> HtmlWhiteSpace {
-    let Some(value) = value else { return parent };
-    match value.trim().to_ascii_lowercase().as_str() {
+    let value_2 = match value {
+        Some(matched_value) => matched_value,
+        ::core::option::Option::None => return parent,
+    };
+
+    match value_2.trim().to_ascii_lowercase().as_str() {
         "inherit" | "unset" => parent,
         "initial" => HtmlWhiteSpace::default(),
-        value => HtmlWhiteSpace::from_css_value(value).unwrap_or(parent),
+        value_3 => match HtmlWhiteSpace::from_css_value(value_3) {
+            ::core::option::Option::Some(explicit_present) => explicit_present,
+            ::core::option::Option::None => parent,
+        },
     }
 }
 
+#[must_use]
 fn resolve_optional_color(value: Option<&Arc<str>>, parent: Option<&Arc<str>>) -> Option<Arc<str>> {
-    let Some(value) = value.filter(|value| !value.is_empty()) else {
-        return parent.cloned();
+    let value_3 = {
+        let optional_value = value.filter(|value_2| !value_2.is_empty());
+
+        match optional_value {
+            Some(matched_value) => matched_value,
+            ::core::option::Option::None => return parent.cloned(),
+        }
     };
-    if value.eq_ignore_ascii_case("inherit") || value.eq_ignore_ascii_case("unset") {
+
+    if value_3.eq_ignore_ascii_case("inherit") || value_3.eq_ignore_ascii_case("unset") {
         parent.cloned()
-    } else if value.eq_ignore_ascii_case("initial") {
+    } else if value_3.eq_ignore_ascii_case("initial") {
         Some(DEFAULT_COLOR.into())
-    } else if value.eq_ignore_ascii_case("currentcolor") {
-        Some(parent.cloned().unwrap_or_else(|| DEFAULT_COLOR.into()))
+    } else if value_3.eq_ignore_ascii_case("currentcolor") {
+        Some(match parent.cloned() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => DEFAULT_COLOR.into(),
+        })
     } else {
-        Some(Arc::clone(value))
+        Some(Arc::clone(value_3))
     }
 }
 
+#[must_use]
 fn effective_html_text_paint(style: &ResolvedStyle) -> &str {
     style.color.as_deref().unwrap_or(&style.fill)
 }
 
+#[must_use]
 fn resolve_line_height(
     value: Option<&str>,
     font_size: f64,
     inherited: &LineHeight,
     root: f64,
 ) -> LineHeight {
-    let Some(value) = value.map(str::trim).filter(|value| !value.is_empty()) else {
-        return inherited.clone();
+    let value_3 = {
+        let optional_value = value.map(str::trim).filter(|value_2| !value_2.is_empty());
+
+        match optional_value {
+            Some(matched_value) => matched_value,
+            ::core::option::Option::None => return inherited.clone(),
+        }
     };
-    let lower = value.to_ascii_lowercase();
+
+    let lower = value_3.to_ascii_lowercase();
+
     if matches!(lower.as_str(), "inherit" | "unset") {
         return inherited.clone();
     }
+
     if matches!(lower.as_str(), "normal" | "initial") {
         return LineHeight::Normal;
     }
-    if let Ok(number) = lower.parse::<f64>() {
-        return bounded_positive(number)
-            .map(LineHeight::Multiplier)
-            .unwrap_or_else(|| inherited.clone());
+
+    match lower.parse::<f64>() {
+        Ok(number) => {
+            return bounded_positive(number)
+                .map(LineHeight::Multiplier)
+                .unwrap_or_else(|| inherited.clone());
+        },
+        ::core::result::Result::Err(_) => {},
     }
-    if let Some(number) = lower.strip_suffix("px").and_then(parse_number) {
-        return bounded_positive(number)
-            .map(LineHeight::AbsolutePx)
-            .unwrap_or_else(|| inherited.clone());
+
+    match lower.strip_suffix("px").and_then(parse_number) {
+        Some(number) => {
+            return bounded_positive(number)
+                .map(LineHeight::AbsolutePx)
+                .unwrap_or_else(|| inherited.clone());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(number) = lower.strip_suffix("rem").and_then(parse_number) {
-        return bounded_positive(root * number)
-            .map(LineHeight::AbsolutePx)
-            .unwrap_or_else(|| inherited.clone());
+
+    match lower.strip_suffix("rem").and_then(parse_number) {
+        Some(number) => {
+            return bounded_positive(root * number)
+                .map(LineHeight::AbsolutePx)
+                .unwrap_or_else(|| inherited.clone());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(number) = lower.strip_suffix("em").and_then(parse_number) {
-        return bounded_positive(font_size * number)
-            .map(LineHeight::AbsolutePx)
-            .unwrap_or_else(|| inherited.clone());
+
+    match lower.strip_suffix("em").and_then(parse_number) {
+        Some(number) => {
+            return bounded_positive(font_size * number)
+                .map(LineHeight::AbsolutePx)
+                .unwrap_or_else(|| inherited.clone());
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(number) = lower.strip_suffix('%').and_then(parse_number) {
-        return bounded_positive(font_size * number / 100.0)
-            .map(LineHeight::AbsolutePx)
-            .unwrap_or_else(|| inherited.clone());
+
+    match lower.strip_suffix('%').and_then(parse_number) {
+        Some(number) => {
+            return bounded_positive(font_size * number / 100.0)
+                .map(LineHeight::AbsolutePx)
+                .unwrap_or_else(|| inherited.clone());
+        },
+        ::core::option::Option::None => {},
     }
+
     inherited.clone()
 }
 
+#[must_use]
 fn resolve_background(value: Option<&Arc<str>>, parent: Option<&Arc<str>>) -> Option<Arc<str>> {
-    let value = value.filter(|value| !value.is_empty())?;
-    if value.eq_ignore_ascii_case("initial") || value.eq_ignore_ascii_case("unset") {
+    let value_3 = value.filter(|value_2| !value_2.is_empty())?;
+
+    if value_3.eq_ignore_ascii_case("initial") || value_3.eq_ignore_ascii_case("unset") {
         None
-    } else if value.eq_ignore_ascii_case("inherit") {
+    } else if value_3.eq_ignore_ascii_case("inherit") {
         parent.cloned()
     } else {
-        Some(Arc::clone(value))
+        Some(Arc::clone(value_3))
     }
 }
 
+#[must_use]
 fn parse_number(value: &str) -> Option<f64> {
-    value.trim().parse::<f64>().ok()
+    match value.trim().parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
 }
 
+#[must_use]
 fn finite_positive(value: f64) -> Option<f64> {
     value
         .is_finite()
         .then_some(value)
-        .filter(|value| *value > 0.0)
+        .filter(|value_2| *value_2 > 0.0)
 }
 
+#[must_use]
 fn bounded_positive(value: f64) -> Option<f64> {
-    finite_positive(value).filter(|value| *value <= MAX_CSS_NUMERIC_VALUE)
+    finite_positive(value).filter(|value_2| *value_2 <= MAX_CSS_NUMERIC_VALUE)
 }
 
 #[cfg(test)]

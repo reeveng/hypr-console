@@ -73,6 +73,7 @@ pub(crate) struct SemanticConstruction<M> {
 }
 
 impl<M> SemanticConstruction<M> {
+    #[must_use]
     pub(crate) fn map_model<N>(self, project: impl FnOnce(M) -> N) -> SemanticConstruction<N> {
         SemanticConstruction {
             model: self.model.map(project),
@@ -230,6 +231,7 @@ pub(crate) struct CombinedSemanticFailure {
     reason = "Shared parser facilities have different consumers in each family selection."
 )]
 impl CombinedSemanticFailure {
+    #[must_use]
     pub(crate) fn new(
         error: Error,
         #[cfg(feature = "editor-facts")] editor_facts: Option<EditorSemanticFacts>,
@@ -243,6 +245,7 @@ impl CombinedSemanticFailure {
         }
     }
 
+    #[must_use]
     pub(crate) fn parser_recovery(
         #[cfg(feature = "editor-facts")] parser: &'static str,
         error: Error,
@@ -279,6 +282,7 @@ impl CombinedSemanticFailure {
         (*self.error, *editor_facts)
     }
 
+    #[must_use]
     pub(crate) fn into_error(self) -> Error {
         *self.error
     }
@@ -544,6 +548,7 @@ impl DiagramFamilyCapability {
     ///
     /// Logical families may share a render model: Swimlane uses Flowchart's model, while
     /// metadata spellings such as `gitgraph` remain distinct from the detector's `gitGraph`.
+    #[must_use]
     pub fn typed_render_family(&self) -> Option<&'static BuiltInTypedRenderFamily> {
         #[cfg(feature = "presentation")]
         {
@@ -554,6 +559,7 @@ impl DiagramFamilyCapability {
                 .iter()
                 .find(|family| family.render_model_kind == parser.model_kind)
         }
+
         #[cfg(not(feature = "presentation"))]
         {
             None
@@ -587,6 +593,7 @@ struct FamilyCatalogProjection {
 }
 
 impl FamilyCatalogProjection {
+    #[must_use]
     fn build<'a>(
         variants: impl IntoIterator<Item = (&'a DiagramFamilyDefinition, FamilyVariantDefinition)>,
     ) -> Self {
@@ -604,6 +611,7 @@ impl FamilyCatalogProjection {
         for (family, variant) in variants {
             let identity = &variant.identity;
             let implementation = &variant.implementation;
+
             if let Some(ordered) = variant.detector {
                 detector_facts.push((
                     ordered.order,
@@ -613,6 +621,7 @@ impl FamilyCatalogProjection {
                         config_effect: variant.detector_effect,
                     },
                 ));
+
                 if identity.key == DiagramTypeId::Error {
                     detector_facts.push((
                         1,
@@ -624,6 +633,7 @@ impl FamilyCatalogProjection {
                     ));
                 }
             }
+
             #[cfg(feature = "compat-json")]
             if let Some(ordered) = implementation.semantic {
                 semantic_parser_facts.push((
@@ -634,6 +644,7 @@ impl FamilyCatalogProjection {
                     },
                 ));
             }
+
             #[cfg(feature = "presentation")]
             if let Some(ordered) = implementation.typed_render {
                 render_parser_facts.push((
@@ -648,6 +659,7 @@ impl FamilyCatalogProjection {
                     },
                 ));
             }
+
             #[cfg(all(feature = "compat-json", feature = "editor-facts"))]
             if let Some(ordered) = implementation.combined {
                 combined_parser_facts.push((
@@ -658,12 +670,14 @@ impl FamilyCatalogProjection {
                     },
                 ));
             }
+
             if let Some((order, id)) = identity
                 .metadata
                 .and_then(|metadata| metadata.order.map(|order| (order, metadata.id)))
             {
                 metadata_facts.push((order, id));
             }
+
             for header in identity.headers {
                 diagram_header_facts.push((
                     header.order,
@@ -674,6 +688,7 @@ impl FamilyCatalogProjection {
                     },
                 ));
             }
+
             diagram_family_capabilities.push((
                 identity.catalog_order,
                 DiagramFamilyCapability {
@@ -716,6 +731,7 @@ impl FamilyCatalogProjection {
         let mut built_in_typed_render_families = Vec::<BuiltInTypedRenderFamily>::new();
         #[cfg(not(feature = "presentation"))]
         let built_in_typed_render_families = Vec::new();
+
         #[cfg(feature = "presentation")]
         for metadata_id in metadata_facts {
             let Some(fact) = render_parser_facts
@@ -724,6 +740,7 @@ impl FamilyCatalogProjection {
             else {
                 continue;
             };
+
             if !built_in_typed_render_families
                 .iter()
                 .any(|family| family.render_model_kind == fact.model_kind)
@@ -751,16 +768,19 @@ impl FamilyCatalogProjection {
     }
 }
 
+#[must_use]
 fn ordered_values<T>(mut values: Vec<(u16, T)>) -> Vec<T> {
     values.sort_by_key(|(order, _)| *order);
     values.into_iter().map(|(_, value)| value).collect()
 }
 
+#[must_use]
 fn family_catalog_projection() -> &'static FamilyCatalogProjection {
     static CATALOG: OnceLock<FamilyCatalogProjection> = OnceLock::new();
     CATALOG.get_or_init(|| FamilyCatalogProjection::build(variants()))
 }
 
+#[must_use]
 pub(crate) fn detector_facts() -> &'static [DetectorFact] {
     family_catalog_projection().detector_facts.as_slice()
 }
@@ -771,6 +791,7 @@ pub(crate) fn semantic_parser_facts() -> &'static [SemanticParserFact] {
 }
 
 #[cfg(feature = "presentation")]
+#[must_use]
 pub(crate) fn render_parser_facts() -> &'static [RenderParserFact] {
     family_catalog_projection().render_parser_facts.as_slice()
 }
@@ -787,22 +808,26 @@ pub(crate) fn combined_parser(diagram_type: &str) -> Option<CombinedSemanticPars
         .find_map(|fact| (fact.id == diagram_type).then_some(fact.parser))
 }
 
+#[must_use]
 pub(crate) fn supported_diagram_metadata_ids() -> &'static [&'static str] {
     family_catalog_projection()
         .supported_diagram_metadata_ids
         .as_slice()
 }
 
+#[must_use]
 pub(crate) fn diagram_header_facts() -> &'static [DiagramHeaderFact] {
     family_catalog_projection().diagram_header_facts.as_slice()
 }
 
+#[must_use]
 pub(crate) fn diagram_family_capabilities() -> &'static [DiagramFamilyCapability] {
     family_catalog_projection()
         .diagram_family_capabilities
         .as_slice()
 }
 
+#[must_use]
 pub(crate) fn built_in_typed_render_families() -> &'static [BuiltInTypedRenderFamily] {
     family_catalog_projection()
         .built_in_typed_render_families
@@ -823,11 +848,13 @@ pub(crate) fn is_builtin_diagram_type(diagram_type: &str) -> bool {
 /// Flowchart and Swimlane share paint consumers. This projection is used only for theme
 /// contributions; parser admission and public logical identity always use the catalog.
 #[cfg(feature = "presentation")]
+#[must_use]
 pub(crate) fn operation_family_id(
     diagram_type: &str,
     effective_config: &MermaidConfig,
 ) -> Option<DiagramFamilyId> {
     let family = diagram_type_family_id(diagram_type)?;
+
     if family == DiagramFamilyId::FLOWCHART || family == DiagramFamilyId::SWIMLANE {
         return Some(
             if effective_config.get_str("layout") == Some(DiagramFamilyId::SWIMLANE.as_str()) {
@@ -837,6 +864,7 @@ pub(crate) fn operation_family_id(
             },
         );
     }
+
     Some(family)
 }
 
@@ -870,6 +898,7 @@ struct Ordered<T> {
     value: T,
 }
 
+#[must_use]
 const fn ordered<T>(order: u16, value: T) -> Ordered<T> {
     Ordered { order, value }
 }
@@ -909,44 +938,56 @@ pub(crate) type CanonicalSemanticParser =
     ) -> OperationControlResult<SemanticConstruction<crate::SemanticDiagramModel>>;
 
 impl FamilyImplementation {
+    #[must_use]
     fn has_semantic_parser(&self) -> bool {
         if self.canonical.is_some() {
             return true;
         }
+
         #[cfg(feature = "compat-json")]
         {
             self.semantic.is_some()
         }
+
         #[cfg(not(feature = "compat-json"))]
         {
             false
         }
     }
+
+    #[must_use]
     fn has_combined_parser(&self) -> bool {
         #[cfg(all(feature = "compat-json", feature = "editor-facts"))]
         {
             self.combined.is_some()
         }
+
         #[cfg(not(all(feature = "compat-json", feature = "editor-facts")))]
         {
             false
         }
     }
+
+    #[must_use]
     fn has_editor_parser(&self) -> bool {
         #[cfg(feature = "editor-facts")]
         {
             (self.canonical.is_some() && self.canonical_editor_facts) || self.has_combined_parser()
         }
+
         #[cfg(not(feature = "editor-facts"))]
         {
             false
         }
     }
+
+    #[must_use]
     fn has_render_parser(&self) -> bool {
         #[cfg(feature = "presentation")]
         {
             self.typed_render.is_some()
         }
+
         #[cfg(not(feature = "presentation"))]
         {
             false
@@ -954,6 +995,7 @@ impl FamilyImplementation {
     }
 }
 
+#[must_use]
 pub(crate) fn canonical_parser(diagram_type: &str) -> Option<CanonicalSemanticParser> {
     find_variant(diagram_type).and_then(|(_, variant)| variant.implementation.canonical)
 }
@@ -1049,11 +1091,13 @@ macro_rules! variant {
     (@canonical_editor_facts $canonical_editor_facts:expr) => { $canonical_editor_facts };
 }
 
+#[must_use]
 fn variants() -> impl Iterator<Item = (&'static DiagramFamilyDefinition, FamilyVariantDefinition)> {
     merman_model::family::diagram_family_identities()
         .map(|(family, identity)| (family, bind_variant(identity)))
 }
 
+#[must_use]
 fn find_variant(
     diagram_type: &str,
 ) -> Option<(&'static DiagramFamilyDefinition, FamilyVariantDefinition)> {
@@ -1067,6 +1111,7 @@ pub(crate) struct FrontmatterConfigAliasFact {
     pub(crate) namespace: &'static str,
 }
 
+#[must_use]
 pub(crate) fn frontmatter_config_aliases() -> &'static [FrontmatterConfigAliasFact] {
     static FACTS: OnceLock<Vec<FrontmatterConfigAliasFact>> = OnceLock::new();
     FACTS
@@ -1097,6 +1142,7 @@ pub(crate) fn frontmatter_config_aliases() -> &'static [FrontmatterConfigAliasFa
         .as_slice()
 }
 
+#[must_use]
 pub(crate) fn frontmatter_config_namespaces() -> &'static [&'static str] {
     static NAMESPACES: OnceLock<Vec<&'static str>> = OnceLock::new();
     NAMESPACES
@@ -1118,10 +1164,12 @@ pub(crate) fn frontmatter_config_namespaces() -> &'static [&'static str] {
         .as_slice()
 }
 
+#[must_use]
 pub(crate) fn config_namespace_for_diagram_type(diagram_type: &str) -> Option<&'static str> {
     find_variant(diagram_type).and_then(|(family, _)| family.config.map(|config| config.namespace))
 }
 
+#[must_use]
 fn bind_variant(identity: &FamilyVariantIdentity) -> FamilyVariantDefinition {
     match identity.key {
         DiagramTypeId::Error => variant! {

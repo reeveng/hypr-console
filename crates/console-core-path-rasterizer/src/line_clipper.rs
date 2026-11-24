@@ -5,7 +5,7 @@ use console_core_number_conversion::nearest_f32_from_f64;
 use console_core_paths::{Scalar, ScalarProximity};
 
 use crate::answers::PointOrder;
-use crate::{IntersectAnswer, Point, FloatRectangle};
+use crate::{FloatRectangle, IntersectAnswer, Point};
 
 pub enum ClippedLine {
   Empty,

@@ -6,7 +6,7 @@ use console_core_number_conversion::{fixed_index, index};
 
 use crate::path_builder::PathBuilder;
 use crate::transform::Transform;
-use crate::{Point, FloatRectangle};
+use crate::{FloatRectangle, Point};
 
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Debug, Hash)]
 pub enum PathVerb {

@@ -47,6 +47,7 @@ use rustix::pipe::{PipeFlags, pipe_with};
 
 use console_compositor::events::CompositorEvent;
 use console_core_atomic_writes::Stored;
+use console_core_internal_programs::InternalProgram;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_cpu_boost::{Boost, HighPowerMode};
@@ -1183,8 +1184,7 @@ impl Sender {
 }
 
 fn settle_language() -> Result<(), Never> {
-  let named = console_input_language::NAMED;
-  let mut starting = Command::new(named);
+  let Ok(mut starting) = InternalProgram::LanguageSwitch.command();
 
   starting
     .arg(console_input_language::SETTLE.spelling)
@@ -1193,7 +1193,7 @@ fn settle_language() -> Result<(), Never> {
 
   match let_go(&mut starting) {
     Ok(_child) => {}
-    Err(fault) => eprintln!("controller-desktop: cannot run {named}: {fault}"),
+    Err(fault) => eprintln!("controller-desktop: cannot restore keyboard layouts: {fault}"),
   }
 
   Ok(())

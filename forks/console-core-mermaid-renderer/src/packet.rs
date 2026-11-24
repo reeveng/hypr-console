@@ -40,15 +40,18 @@ pub(crate) fn layout_packet_diagram_typed(
     let svg_width = cfg.bit_width * (cfg.bits_per_row as f64) + 2.0;
 
     let mut words: Vec<PacketWordLayout> = Vec::new();
+
     for (row_number, word) in model.packet.iter().enumerate() {
         let word_y = (row_number as f64) * total_row_height + cfg.padding_y;
         let mut blocks: Vec<PacketBlockLayout> = Vec::new();
+
         for block in word {
             if block.start < 0 || block.end < block.start {
                 return Err(Error::InvalidModel {
                     message: "Packet block ranges must be nonnegative and ordered".to_string(),
                 });
             }
+
             let bits = block
                 .end
                 .checked_sub(block.start)
@@ -57,12 +60,13 @@ pub(crate) fn layout_packet_diagram_typed(
                     message: "Packet block range exceeds the supported integer range".to_string(),
                 })?;
             let first_column = block.start % cfg.bits_per_row;
-            // Source construction splits fields at row boundaries before producing these blocks.
+
             if bits > cfg.bits_per_row - first_column {
                 return Err(Error::InvalidModel {
                     message: "Packet block range crosses a row boundary".to_string(),
                 });
             }
+
             let column = match cfg.bit_order {
                 PacketBitOrder::Ascending => first_column,
                 PacketBitOrder::Descending => cfg.bits_per_row - first_column - bits,
@@ -79,6 +83,7 @@ pub(crate) fn layout_packet_diagram_typed(
                 height: cfg.row_height,
             });
         }
+
         words.push(PacketWordLayout { blocks });
     }
 

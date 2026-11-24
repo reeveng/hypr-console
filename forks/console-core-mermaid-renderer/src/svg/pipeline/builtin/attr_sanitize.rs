@@ -38,6 +38,7 @@ fn sanitize_element_attributes(svg: &str) -> String {
     .into_owned()
 }
 
+#[must_use]
 fn infallible<T>(result: std::result::Result<T, Infallible>) -> T {
     match result {
         Ok(value) => value,
@@ -59,17 +60,22 @@ pub(crate) fn sanitize_element_attributes_cow_with_checkpoints<'a, E>(
         checkpoint_loop(tag_index, checkpoint)?;
         tag_index = tag_index.saturating_add(1);
         let raw_tag = tag.raw();
-        if let Some(active_name) = active_svg_element_name(raw_tag) {
-            let output = out.get_or_insert_with(|| String::with_capacity(source.len()));
-            output.push_str(&source[copied_until..tag.start()]);
-            copied_until = if tag.is_self_closing() {
-                scanner.cursor()
-            } else {
-                find_close_tag_end(source, scanner.cursor(), active_name, checkpoint)?
-                    .unwrap_or(scanner.cursor())
-            };
-            scanner.skip_to(copied_until);
-            continue;
+
+        match active_svg_element_name(raw_tag) {
+            Some(active_name) => {
+                let output = out.get_or_insert_with(|| String::with_capacity(source.len()));
+                output.push_str(&source[copied_until..tag.start()]);
+                copied_until = if tag.is_self_closing() {
+                    scanner.cursor()
+                } else {
+                    let checked_value = find_close_tag_end(source, scanner.cursor(), active_name, checkpoint)?;
+                    checked_value
+                        .unwrap_or(scanner.cursor())
+                };
+                scanner.skip_to(copied_until);
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         if is_bad_rect_tag(raw_tag) {
@@ -88,9 +94,12 @@ pub(crate) fn sanitize_element_attributes_cow_with_checkpoints<'a, E>(
 
         match sanitize_tag_attributes(raw_tag, checkpoint)? {
             Cow::Borrowed(_) => {
-                if let Some(output) = out.as_mut() {
-                    output.push_str(&source[copied_until..scanner.cursor()]);
-                    copied_until = scanner.cursor();
+                match out.as_mut() {
+                    Some(output) => {
+                        output.push_str(&source[copied_until..scanner.cursor()]);
+                        copied_until = scanner.cursor();
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
             Cow::Owned(sanitized) => {
@@ -102,13 +111,14 @@ pub(crate) fn sanitize_element_attributes_cow_with_checkpoints<'a, E>(
         }
     }
 
-    let Some(mut out) = out else {
+    let Some(mut out_2) = out else {
         checkpoint()?;
         return Ok(svg);
     };
-    out.push_str(&source[copied_until..]);
+
+    out_2.push_str(&source[copied_until..]);
     checkpoint()?;
-    Ok(Cow::Owned(out))
+    Ok(Cow::Owned(out_2))
 }
 
 fn sanitize_tag_attributes<'a, E>(
@@ -123,35 +133,45 @@ fn sanitize_tag_attributes<'a, E>(
         return Ok(Cow::Borrowed(tag));
     }
 
-    let element_name = start_tag_name(tag).map(local_name).unwrap_or_default();
+    let element_name = match start_tag_name(tag).map(local_name) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
     let mut changed = false;
     let mut out = String::new();
     let mut copied_until = 0usize;
     let mut cursor = 0usize;
     let mut attr_index = 0usize;
 
-    while let Some(attr) = next_svg_quoted_attr_with_checkpoints(tag, cursor, checkpoint)? {
+    while let Some(attr) = { let checked_value = next_svg_quoted_attr_with_checkpoints(tag, cursor, checkpoint)?; checked_value } {
         checkpoint_loop(attr_index, checkpoint)?;
         attr_index = attr_index.saturating_add(1);
         let name = &tag[attr.name_start..attr.name_end];
         let value = &tag[attr.value_start..attr.value_end];
 
         let replacement = sanitized_attr_replacement(element_name, name, value, checkpoint)?;
-        if let AttrReplacement::Unchanged = replacement {
-            cursor = attr.full_end;
-            continue;
+
+        match replacement {
+            AttrReplacement::Unchanged => {
+                cursor = attr.full_end;
+                continue;
+            },
+            AttrReplacement::Drop | AttrReplacement::Replace(_) => {},
         }
 
         if !changed {
             out = String::with_capacity(tag.len());
             changed = true;
         }
+
         out.push_str(&tag[copied_until..attr.full_start]);
+
         match replacement {
             AttrReplacement::Unchanged => {}
             AttrReplacement::Drop => {}
-            AttrReplacement::Replace(replacement) => out.push_str(&replacement),
+            AttrReplacement::Replace(replacement_2) => out.push_str(&replacement_2),
         }
+
         copied_until = attr.full_end;
         cursor = attr.full_end;
     }
@@ -177,38 +197,52 @@ fn sanitized_attr_replacement<E>(
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> std::result::Result<AttrReplacement, E> {
     checkpoint()?;
+
     if is_namespace_declaration(name) {
         return Ok(AttrReplacement::Unchanged);
     }
 
     if is_anchor_navigation_attribute(element_name, name) {
-        let Some(normalized_value) =
-            admit_mermaid_svg_uri_attribute(value, MermaidSvgUriRepresentation::SerializedSvg)
-        else {
-            return Ok(AttrReplacement::Drop);
+        let normalized_value = {
+            let optional_normalized_value = admit_mermaid_svg_uri_attribute(value, MermaidSvgUriRepresentation::SerializedSvg);
+
+            match optional_normalized_value {
+                Some(matched_normalized_value) => matched_normalized_value,
+                ::core::option::Option::None => return Ok(AttrReplacement::Drop),
+            }
         };
-        let normalized_value = escape_xml_attr(&normalized_value);
-        if normalized_value != value {
+
+        let normalized_value_2 = escape_xml_attr(&normalized_value);
+
+        if normalized_value_2 != value {
             return Ok(AttrReplacement::Replace(format!(
                 r#" {name}="{normalized_value}""#
-            )));
+            , normalized_value = normalized_value_2)));
         }
+
         return Ok(AttrReplacement::Unchanged);
     }
 
-    if should_drop_attribute_with_checkpoints(element_name, name, value, checkpoint)? {
+    let checked_value = should_drop_attribute_with_checkpoints(element_name, name, value, checkpoint)?;
+
+    if checked_value {
         return Ok(AttrReplacement::Drop);
     }
 
-    if let Some(value) = normalize_px_attribute(name, value) {
-        return Ok(AttrReplacement::Replace(format!(r#" {name}="{value}""#)));
+    match normalize_px_attribute(name, value) {
+        Some(value_2) => {
+            return Ok(AttrReplacement::Replace(format!(r#" {name}="{value}""#, value = value_2)));
+        },
+        ::core::option::Option::None => {},
     }
 
     if local_name(name).eq_ignore_ascii_case("style") {
         let sanitized = sanitize_style_attribute(value, checkpoint)?;
+
         if sanitized.trim().is_empty() {
             return Ok(AttrReplacement::Drop);
         }
+
         if sanitized != value {
             return Ok(AttrReplacement::Replace(format!(
                 r#" {name}="{sanitized}""#
@@ -220,6 +254,7 @@ fn sanitized_attr_replacement<E>(
     Ok(AttrReplacement::Unchanged)
 }
 
+#[must_use]
 fn should_drop_attribute(element_name: &str, name: &str, value: &str) -> bool {
     infallible(should_drop_attribute_with_checkpoints(
         element_name,
@@ -240,6 +275,7 @@ fn should_drop_attribute_with_checkpoints<E>(
     }
 
     let semantic_name = local_name(name.trim());
+
     if semantic_name.eq_ignore_ascii_case("style") {
         return Ok(false);
     }
@@ -252,7 +288,8 @@ fn should_drop_attribute_with_checkpoints<E>(
     }
 
     let normalized = semantic_name.to_ascii_lowercase();
-    if is_url_function_attribute(&normalized) && css_value_violates_url_safety(value, checkpoint)? {
+
+    if is_url_function_attribute(&normalized) && { let checked_value = css_value_violates_url_safety(value, checkpoint)?; checked_value } {
         return Ok(true);
     }
 
@@ -293,6 +330,7 @@ fn should_drop_attribute_with_checkpoints<E>(
     Ok(drop)
 }
 
+#[must_use]
 pub(in crate::svg::pipeline) fn parsed_attribute_violates_resvg_contract(
     element_name: &str,
     name: &str,
@@ -303,30 +341,40 @@ pub(in crate::svg::pipeline) fn parsed_attribute_violates_resvg_contract(
             .is_none_or(|normalized| normalized != value);
     }
 
-    // The scanner contract consumes serialized source. Re-serialize this parsed XML value before
-    // reusing it so character references are interpreted exactly once, not once per validation
-    // stage.
+
+
+
     should_drop_attribute(element_name, name, &escape_xml_attr(value))
 }
 
+#[must_use]
 fn is_event_handler_attribute(name: &str) -> bool {
-    let name = local_name(name.trim());
-    name.len() > 2
-        && name
+    let name_2 = local_name(name.trim());
+    name_2.len() > 2
+        && name_2
             .get(..2)
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case("on"))
-        && name.as_bytes()[2].is_ascii_alphabetic()
+        && name_2.as_bytes()[2].is_ascii_alphabetic()
 }
 
+#[must_use]
 fn is_base_url_attribute(name: &str) -> bool {
-    let Some((prefix, local)) = name.trim().rsplit_once(':') else {
-        return false;
+    let (prefix, local) = {
+        let optional_prefix = name.trim().rsplit_once(':');
+
+        match optional_prefix {
+            Some((matched_prefix, matched_local)) => (matched_prefix, matched_local),
+            ::core::option::Option::None => return false,
+        }
     };
+
     !prefix.eq_ignore_ascii_case("xmlns") && local.eq_ignore_ascii_case("base")
 }
 
+#[must_use]
 fn is_unsafe_url_attribute(element_name: &str, name: &str, value: &str) -> bool {
     let attribute_name = local_name(name.trim()).to_ascii_lowercase();
+
     match attribute_name.as_str() {
         "href" => match local_name(element_name).to_ascii_lowercase().as_str() {
             "a" => is_unsafe_navigation_url_value(value),
@@ -340,11 +388,13 @@ fn is_unsafe_url_attribute(element_name: &str, name: &str, value: &str) -> bool 
     }
 }
 
+#[must_use]
 fn is_anchor_navigation_attribute(element_name: &str, name: &str) -> bool {
     local_name(element_name).eq_ignore_ascii_case("a")
         && local_name(name.trim()).eq_ignore_ascii_case("href")
 }
 
+#[must_use]
 fn is_url_function_attribute(name: &str) -> bool {
     matches!(
         name,
@@ -362,10 +412,12 @@ fn is_url_function_attribute(name: &str) -> bool {
     )
 }
 
+#[must_use]
 fn is_unsafe_navigation_url_value(value: &str) -> bool {
     admit_mermaid_svg_uri_attribute(value, MermaidSvgUriRepresentation::SerializedSvg).is_none()
 }
 
+#[must_use]
 pub(super) fn is_unsafe_render_resource_url_value(value: &str) -> bool {
     if is_same_document_fragment(value) {
         return false;
@@ -374,11 +426,13 @@ pub(super) fn is_unsafe_render_resource_url_value(value: &str) -> bool {
     !is_safe_data_image_url(value)
 }
 
+#[must_use]
 fn is_same_document_fragment(value: &str) -> bool {
-    let value = normalize_url_attr_for_scheme_check(value);
-    is_same_document_fragment_normalized(&value)
+    let value_2 = normalize_url_attr_for_scheme_check(value);
+    is_same_document_fragment_normalized(&value_2)
 }
 
+#[must_use]
 fn is_same_document_fragment_normalized(value: &str) -> bool {
     value
         .strip_prefix('#')
@@ -395,22 +449,28 @@ fn css_value_violates_url_safety<E>(
     Ok(sanitize_css_value_with_checkpoints(decoded.as_ref(), checkpoint)?.is_none())
 }
 
+#[must_use]
 fn normalize_url_attr_for_scheme_check(value: &str) -> String {
     let decoded = merman_model::text::decode_html_entities_to_unicode(value);
     let mut out = String::with_capacity(decoded.len());
+
     for ch in decoded.trim().chars() {
         if !ch.is_whitespace() && !ch.is_control() {
             out.extend(ch.to_lowercase());
         }
     }
+
     out
 }
 
+#[must_use]
 pub(in crate::svg::pipeline) fn is_safe_data_image_url(value: &str) -> bool {
     let decoded = merman_model::text::decode_html_entities_to_unicode(value);
+
     let Ok(url) = data_url::DataUrl::process(decoded.as_ref()) else {
         return false;
     };
+
     let Ok(mime) = url.mime_type();
     let Ok((media_type, subtype)) = mime.essence();
     let approved_mime = media_type == "image"
@@ -422,25 +482,35 @@ pub(in crate::svg::pipeline) fn is_safe_data_image_url(value: &str) -> bool {
             .is_ok()
 }
 
+#[must_use]
 fn has_valid_percent_encoding(data_url: &str) -> bool {
-    let Some((_, encoded_body)) = data_url.split_once(',') else {
-        return false;
+    let encoded_body = {
+        let optional_encoded_body = data_url.split_once(',');
+
+        match optional_encoded_body {
+            Some((_, matched_encoded_body)) => matched_encoded_body,
+            ::core::option::Option::None => return false,
+        }
     };
-    let encoded_body = encoded_body
+
+    let encoded_body_2 = encoded_body
         .split_once('#')
         .map_or(encoded_body, |(body, _)| body);
-    let mut bytes = encoded_body.bytes();
+    let mut bytes = encoded_body_2.bytes();
+
     while let Some(byte) = bytes.next() {
         if byte == b'%'
-            && (!bytes.next().is_some_and(|byte| byte.is_ascii_hexdigit())
-                || !bytes.next().is_some_and(|byte| byte.is_ascii_hexdigit()))
+            && (!bytes.next().is_some_and(|byte_2| byte_2.is_ascii_hexdigit())
+                || !bytes.next().is_some_and(|byte_3| byte_3.is_ascii_hexdigit()))
         {
             return false;
         }
     }
+
     true
 }
 
+#[must_use]
 fn normalize_px_attribute(name: &str, value: &str) -> Option<String> {
     let normalized = local_name(name.trim()).to_ascii_lowercase();
     let guarded = matches!(
@@ -460,12 +530,15 @@ fn normalize_px_attribute(name: &str, value: &str) -> Option<String> {
             | "ry"
             | "stroke-width"
     );
+
     if !guarded {
         return None;
     }
 
     let trimmed = value.trim();
-    let number = trimmed.strip_suffix("px")?.trim();
+    let checked_value = trimmed.strip_suffix("px")?;
+    let number = checked_value.trim();
+
     if number.parse::<f64>().is_ok_and(f64::is_finite) {
         Some(number.to_string())
     } else {
@@ -473,24 +546,28 @@ fn normalize_px_attribute(name: &str, value: &str) -> Option<String> {
     }
 }
 
+#[must_use]
 fn is_start_or_empty_tag(tag: &str, expected: &str) -> bool {
-    let tag = tag.trim_start();
-    if !tag.starts_with('<') || tag.starts_with("</") || tag.starts_with("<!--") {
+    let tag_2 = tag.trim_start();
+
+    if !tag_2.starts_with('<') || tag_2.starts_with("</") || tag_2.starts_with("<!--") {
         return false;
     }
 
-    let name = tag[1..]
+    let name = tag_2[1..]
         .chars()
         .take_while(|ch| !ch.is_whitespace() && *ch != '/' && *ch != '>')
         .collect::<String>();
     name.eq_ignore_ascii_case(expected)
 }
 
+#[must_use]
 fn active_svg_element_name(tag: &str) -> Option<&str> {
     let name = start_tag_name(tag)?;
     matches_active_svg_element(name).then_some(name)
 }
 
+#[must_use]
 pub(in crate::svg::pipeline) fn matches_active_svg_element(name: &str) -> bool {
     matches!(
         local_name(name).to_ascii_lowercase().as_str(),
@@ -515,14 +592,16 @@ pub(in crate::svg::pipeline) fn matches_active_svg_element(name: &str) -> bool {
     )
 }
 
+#[must_use]
 fn local_name(name: &str) -> &str {
     name.rsplit_once(':')
         .map_or(name, |(_, local_name)| local_name)
 }
 
+#[must_use]
 fn is_namespace_declaration(name: &str) -> bool {
-    let name = name.trim();
-    name == "xmlns" || name.starts_with("xmlns:")
+    let name_2 = name.trim();
+    name_2 == "xmlns" || name_2.starts_with("xmlns:")
 }
 
 fn find_close_tag_end<E>(
@@ -533,56 +612,80 @@ fn find_close_tag_end<E>(
 ) -> std::result::Result<Option<usize>, E> {
     let mut scanner = SvgTagScanner::new(svg);
     scanner.skip_to(from);
+
     while let Some(tag) = scanner.next_with_checkpoints(checkpoint)? {
         if close_tag_matches(tag.raw(), name) {
             return Ok(Some(scanner.cursor()));
         }
     }
+
     checkpoint()?;
     Ok(None)
 }
 
+#[must_use]
 fn close_tag_matches(tag: &str, expected: &str) -> bool {
-    let tag = tag.trim_start();
-    if !tag.starts_with("</") {
+    let tag_2 = tag.trim_start();
+
+    if !tag_2.starts_with("</") {
         return false;
     }
+
     let name_start = 2;
     let name_end = name_start
-        + tag[name_start..]
+        + tag_2[name_start..]
             .find(|ch: char| ch.is_whitespace() || ch == '>')
-            .unwrap_or(tag.len() - name_start);
+            .unwrap_or(tag_2.len() - name_start);
+
     if name_start >= name_end {
         return false;
     }
-    let after_name = tag[name_end..].trim();
-    after_name == ">" && tag[name_start..name_end].eq_ignore_ascii_case(expected)
+
+    let after_name = tag_2[name_end..].trim();
+    after_name == ">" && tag_2[name_start..name_end].eq_ignore_ascii_case(expected)
 }
 
+#[must_use]
 fn attr_value(tag: &str, name: &str) -> Option<String> {
     let mut cursor = 0usize;
+
     while let Some(attr) = next_svg_quoted_attr(tag, cursor) {
         if tag[attr.name_start..attr.name_end].eq_ignore_ascii_case(name) {
             return Some(tag[attr.value_start..attr.value_end].to_string());
         }
+
         cursor = attr.full_end;
     }
+
     None
 }
 
+#[must_use]
 fn is_missing_or_invalid_rect_dimension(value: Option<&str>) -> bool {
-    let Some(value) = value.map(str::trim) else {
-        return true;
+    let value_2 = {
+        let optional_value = value.map(str::trim);
+
+        match optional_value {
+            Some(matched_value) => matched_value,
+            ::core::option::Option::None => return true,
+        }
     };
-    if value.is_empty() {
+
+    if value_2.is_empty() {
         return true;
     }
-    if let Ok(n) = value.parse::<f64>() {
-        return !n.is_finite() || n <= 0.0;
+
+    match value_2.parse::<f64>() {
+        Ok(n) => {
+            return !n.is_finite() || n <= 0.0;
+        },
+        ::core::result::Result::Err(_) => {},
     }
+
     false
 }
 
+#[must_use]
 fn is_bad_rect_tag(tag: &str) -> bool {
     if !is_start_or_empty_tag(tag, "rect") {
         return false;
@@ -600,20 +703,27 @@ fn sanitize_style_attribute<E>(
 ) -> std::result::Result<String, E> {
     let mut out = Vec::new();
 
-    for (index, (property, value)) in parse_css_declarations(value, checkpoint)?
+    for (index, (property, value_2)) in { let checked_value = parse_css_declarations(value, checkpoint)?; checked_value }
         .into_iter()
         .enumerate()
     {
         checkpoint_loop(index, checkpoint)?;
-        let Some(normalized_value) = sanitize_css_value_with_checkpoints(&value, checkpoint)?
-        else {
-            continue;
+
+        let normalized_value = {
+            let optional_normalized_value_2 = sanitize_css_value_with_checkpoints(&value_2, checkpoint)?;
+
+            match optional_normalized_value_2 {
+                Some(matched_normalized_value_2) => matched_normalized_value_2,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if normalized_value.is_empty()
             || is_invalid_style_property_value(&property, &normalized_value)
         {
             continue;
         }
+
         if property.to_ascii_lowercase().starts_with("animation") {
             continue;
         }
@@ -641,20 +751,27 @@ fn parse_css_declarations<E>(
             let property = declaration.expect_ident_cloned()?.to_string();
             declaration.expect_colon()?;
             let value_start = declaration.position();
-            // `expect_no_error_token` recursively descends into every block. The bounded
-            // sanitizer below validates the raw value after this iterative boundary scan.
+
+
             while declaration.next_including_whitespace().is_ok() {}
-            let value = declaration.slice_from(value_start).trim().to_string();
-            Ok::<_, cssparser::ParseError<()>>((property, value))
+
+            let value_2 = declaration.slice_from(value_start).trim().to_string();
+            Ok::<_, cssparser::ParseError<()>>((property, value_2))
         });
         checkpoint()?;
-        if let Ok(declaration) = declaration {
-            declarations.push(declaration);
+
+        match declaration {
+            Ok(declaration_2) => {
+                declarations.push(declaration_2);
+            },
+            ::core::result::Result::Err(_) => {},
         }
     }
+
     Ok(declarations)
 }
 
+#[must_use]
 fn is_invalid_style_property_value(property: &str, value: &str) -> bool {
     match property.trim().to_ascii_lowercase().as_str() {
         "fill" | "stroke" | "color" | "flood-color" | "lighting-color" | "stop-color" => {
@@ -668,52 +785,79 @@ fn is_invalid_style_property_value(property: &str, value: &str) -> bool {
     }
 }
 
+#[must_use]
 fn is_provably_invalid_scalar(value: &str) -> bool {
-    let value = value.trim();
-    if value.eq_ignore_ascii_case("undefined") {
+    let value_2 = value.trim();
+
+    if value_2.eq_ignore_ascii_case("undefined") {
         return true;
     }
 
     let number = ["rem", "px", "%", "em", "ex", "in", "cm", "mm", "pt", "pc"]
         .into_iter()
-        .find_map(|unit| value.strip_suffix(unit))
-        .unwrap_or(value)
+        .find_map(|unit| value_2.strip_suffix(unit))
+        .unwrap_or(value_2)
         .trim();
     number
         .parse::<f64>()
-        .is_ok_and(|number| !number.is_finite())
+        .is_ok_and(|number_2| !number_2.is_finite())
 }
 
+#[must_use]
 fn is_invalid_svg_transform(value: &str) -> bool {
     let mut remaining = value.trim();
+
     if remaining.eq_ignore_ascii_case("none") {
         return false;
     }
 
     while !remaining.is_empty() {
         remaining = remaining.trim_start_matches(|ch: char| ch.is_whitespace() || ch == ',');
+
         if remaining.is_empty() {
             break;
         }
+
         let name_end = remaining
             .find(|ch: char| !ch.is_ascii_alphabetic())
             .unwrap_or(remaining.len());
         let name = &remaining[..name_end];
-        let Some(expected) = transform_argument_counts(name) else {
-            return false;
+
+        let expected = {
+            let optional_expected = transform_argument_counts(name);
+
+            match optional_expected {
+                Some(matched_expected) => matched_expected,
+                ::core::option::Option::None => return false,
+            }
         };
+
         remaining = &remaining[name_end..];
-        let Some(after_open) = remaining.strip_prefix('(') else {
-            return true;
+
+        let after_open = {
+            let optional_after_open = remaining.strip_prefix('(');
+
+            match optional_after_open {
+                Some(matched_after_open) => matched_after_open,
+                ::core::option::Option::None => return true,
+            }
         };
-        let Some(close) = after_open.find(')') else {
-            return true;
+
+        let close = {
+            let optional_close = after_open.find(')');
+
+            match optional_close {
+                Some(matched_close) => matched_close,
+                ::core::option::Option::None => return true,
+            }
         };
+
         let arguments_text = &after_open[..close];
         let arguments = arguments_text
             .split(|ch: char| ch.is_whitespace() || ch == ',')
             .filter(|argument| !argument.is_empty())
             .collect::<Vec<_>>();
+
         if !expected.contains(&arguments.len())
             || arguments.iter().any(|argument| {
                 argument
@@ -723,11 +867,14 @@ fn is_invalid_svg_transform(value: &str) -> bool {
         {
             return true;
         }
+
         remaining = &after_open[close + 1..];
     }
+
     false
 }
 
+#[must_use]
 fn transform_argument_counts(name: &str) -> Option<&'static [usize]> {
     match name {
         "matrix" => Some(&[6]),
@@ -738,12 +885,14 @@ fn transform_argument_counts(name: &str) -> Option<&'static [usize]> {
     }
 }
 
+#[must_use]
 fn contains_non_finite_numeric_token(value: &str) -> bool {
     ["NaN", "Infinity", "-Infinity", "+Infinity"]
         .into_iter()
         .any(|token| contains_delimited_numeric_token(value, token))
 }
 
+#[must_use]
 fn contains_delimited_numeric_token(value: &str, token: &str) -> bool {
     value.match_indices(token).any(|(start, _)| {
         let before = value[..start].chars().next_back();
@@ -752,12 +901,13 @@ fn contains_delimited_numeric_token(value: &str, token: &str) -> bool {
     })
 }
 
+#[must_use]
 fn is_numeric_token_boundary(ch: Option<char>) -> bool {
-    ch.is_none_or(|ch| {
-        ch.is_whitespace()
-            || matches!(ch, ',' | '(' | ')')
+    ch.is_none_or(|ch_2| {
+        ch_2.is_whitespace()
+            || matches!(ch_2, ',' | '(' | ')')
             || matches!(
-                ch,
+                ch_2,
                 'M' | 'm'
                     | 'Z'
                     | 'z'

@@ -54,6 +54,7 @@ enum SequencePaletteEntry {
 }
 
 impl SequenceCompatBinding {
+    #[must_use]
     pub(crate) fn resolve_for_theme(
         config: &merman_model::presentation::PresentationConfig,
         theme: Option<&crate::diagram_theme::ResolvedDiagramTheme>,
@@ -63,20 +64,27 @@ impl SequenceCompatBinding {
         };
 
         let mut binding = Self::resolve(config.as_value());
-        let Some(theme) = theme else { return binding };
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return binding,
+        };
+
         (
             binding.palette_fill_overridden,
             binding.palette_stroke_overridden,
         ) = Self::configured_palette_paints(config);
-        // Raw Mermaid keeps its inline categorical defaults ahead of scalar CSS. Only a
-        // compiled paint route needs scalar ownership to reach the actual terminal instead.
-        for route in theme.family_mechanism_routes() {
+
+
+        for route in theme_2.family_mechanism_routes() {
             if route.disposition() != FamilyThemeDisposition::TypedAdapter {
                 continue;
             }
+
             let FamilyThemeMechanism::RuleFacet { target, facet, .. } = route.mechanism() else {
                 continue;
             };
+
             let (suppressed, path, palette_owned) = match (target, facet) {
                 (ThemeTarget::Actor, FamilyThemeRuleFacet::Fill(_)) => (
                     &mut binding.actor_palette_fill_suppressed,
@@ -102,9 +110,11 @@ impl SequenceCompatBinding {
             };
             *suppressed = !palette_owned && config.config_paint_overrides_typed_default(path);
         }
+
         binding
     }
 
+    #[must_use]
     pub(crate) fn configured_palette_paints(
         config: &merman_model::presentation::PresentationConfig,
     ) -> (bool, bool) {
@@ -114,6 +124,7 @@ impl SequenceCompatBinding {
         ) {
             return (false, false);
         }
+
         let owns = |key: &str| {
             config
                 .as_value()
@@ -125,6 +136,7 @@ impl SequenceCompatBinding {
         (owns("bkgColorArray"), owns("borderColorArray"))
     }
 
+    #[must_use]
     pub(crate) fn resolve(config: &serde_json::Value) -> Self {
         let color = |key: &str, fallback: &str| {
             config_string(config, &["themeVariables", key]).unwrap_or_else(|| fallback.to_owned())
@@ -137,12 +149,11 @@ impl SequenceCompatBinding {
         let actor_fill = color("actorBkg", "#ECECFF");
         let actor_text = color("actorTextColor", "black");
         let stroke_width = value("strokeWidth", "1");
-        let native_stroke_width = stroke_width
+        let native_stroke_width = match stroke_width
             .trim()
             .strip_suffix("px")
             .unwrap_or(stroke_width.trim())
-            .parse::<f64>()
-            .ok()
+            .parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
             .filter(|width| width.is_finite() && *width >= 0.0);
         let drop_shadow = value("dropShadow", "none");
         let is_neo = crate::config::config_diagram_look(config).is_neo();
@@ -156,18 +167,20 @@ impl SequenceCompatBinding {
                 .flatten()
                 .map(|entry| match entry {
                     serde_json::Value::Null => SequencePaletteEntry::Null,
-                    serde_json::Value::String(value) => SequencePaletteEntry::Token(value.clone()),
+                    serde_json::Value::String(value_2) => SequencePaletteEntry::Token(value_2.clone()),
                     _ => SequencePaletteEntry::Other,
                 })
                 .collect()
         };
-        let rect_default_fill = config_string(config, &["themeVariables", "rectBkgColor"])
+        let rect_default_fill = match config_string(config, &["themeVariables", "rectBkgColor"])
             .filter(|fill| !fill.is_empty())
             .or_else(|| {
                 config_string(config, &["themeVariables", "actorBkg"])
                     .filter(|fill| !fill.is_empty())
-            })
-            .unwrap_or_else(|| "rgba(128, 128, 128, 0.5)".to_owned());
+            }) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "rgba(128, 128, 128, 0.5)".to_owned(),
+        };
         Self {
             svg_activation_width: super::config::SequenceConfigView::new(config)
                 .sequence_json_number_min("activationWidth", 10.0, 1.0),
@@ -223,6 +236,7 @@ impl SequenceCompatBinding {
         }
     }
 
+    #[must_use]
     pub(crate) fn text_surface_fill(&self, surface: super::SequenceTextSurface) -> &str {
         use super::SequenceTextSurface;
 
@@ -238,10 +252,12 @@ impl SequenceCompatBinding {
         }
     }
 
+    #[must_use]
     pub(crate) fn actor_palette_mode(&self) -> bool {
         self.redux_palette
     }
 
+    #[must_use]
     pub(crate) fn actor_palette(&self, index: usize) -> (Option<&str>, Option<&str>) {
         (
             palette_token(&self.actor_borders, index)
@@ -250,15 +266,18 @@ impl SequenceCompatBinding {
         )
     }
 
+    #[must_use]
     pub(crate) fn actor_palette_stroke_fallback(&self) -> Option<&str> {
         self.actor_palette_stroke_suppressed
             .then_some(self.actor_border.as_str())
     }
 
+    #[must_use]
     pub(crate) fn activation_palette(&self, index: usize) -> (Option<&str>, Option<&str>) {
         if !self.redux_palette {
             return (None, None);
         }
+
         let fill = match palette_entry(&self.actor_fills, index) {
             None | Some(SequencePaletteEntry::Null) => self.activation_fill_fallback.as_deref(),
             Some(SequencePaletteEntry::Token(value)) => Some(value.as_str()),
@@ -272,10 +291,12 @@ impl SequenceCompatBinding {
     }
 }
 
+#[must_use]
 fn palette_entry(palette: &[SequencePaletteEntry], index: usize) -> Option<&SequencePaletteEntry> {
     (!palette.is_empty()).then(|| &palette[index % palette.len()])
 }
 
+#[must_use]
 fn palette_token(palette: &[SequencePaletteEntry], index: usize) -> Option<&str> {
     match palette_entry(palette, index) {
         Some(SequencePaletteEntry::Token(value)) => Some(value),

@@ -499,6 +499,8 @@ impl RasterPipelineBuilder {
     match stages.is_empty().then_some(()) {
       Some(()) => {
         return Ok(RasterPipeline {
+          #[cfg(feature = "simd")]
+          simd: console_core_simd::Simd::SCALAR,
           kind: RasterPipelineKind::High {
             functions: StageList::new(),
             tail_functions: StageList::new(),
@@ -562,7 +564,12 @@ impl RasterPipelineBuilder {
       }
     };
 
+    #[cfg(feature = "simd")]
+    let Ok(simd) = console_core_simd::Simd::detected();
+
     Ok(RasterPipeline {
+      #[cfg(feature = "simd")]
+      simd,
       kind,
       ctx: self.ctx,
     })
@@ -600,6 +607,8 @@ pub enum RasterPipelineKind {
 }
 
 pub struct RasterPipeline {
+  #[cfg(feature = "simd")]
+  simd: console_core_simd::Simd,
   kind: RasterPipelineKind,
   pub ctx: Context,
 }
@@ -634,6 +643,8 @@ impl RasterPipeline {
         ref tail_functions,
       } => {
         let Ok(()) = lowp::start(
+          #[cfg(feature = "simd")]
+          self.simd,
           functions.as_slice(),
           tail_functions.as_slice(),
           rect,

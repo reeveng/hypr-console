@@ -41,6 +41,10 @@ use console_core_arguments::Subcommand;
 use console_core_never::Never;
 use console_core_words::Words;
 
+pub mod charge_limit;
+mod power;
+pub use power::{PowerSource, power_source};
+
 const NOTHING_SAID: &str = "";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, PartialOrd, Ord, Words)]

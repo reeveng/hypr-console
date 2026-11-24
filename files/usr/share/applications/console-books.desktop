@@ -5,9 +5,10 @@ Type=Application
 # Pressed from the home screen it opens the library: every book in ~/Books as its
 # cover, the one being read with how far through it is. Handed a file it opens
 # straight onto the page that book was left at, and B goes back to the library.
-Name=Books
+Name=Console Books
 Comment=Books, comics and documents, open where they were left
-Exec=/usr/local/bin/books %f
+Exec=/usr/local/bin/console-application-books %f
+StartupWMClass=books
 Icon=accessories-ebook-reader
 Terminal=false
 Categories=Office;Viewer;

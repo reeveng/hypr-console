@@ -446,29 +446,17 @@ fn apply_sign_shift(
   channel_data: &mut [ComponentData],
   component_infos: &[ComponentInfo],
 ) -> core::result::Result<(), console_core_never::Never> {
-  let _: () = {
-    use crate::math::{Float32x8, Level, dispatch};
+  for (channel, component_info) in channel_data.iter_mut().zip(component_infos) {
+    let shift = u32::from(component_info.size_info.precision.wrapping_sub(1));
+    let Ok(offset) =
+      console_core_number_conversion::narrow_f32(f64::from(1u32.wrapping_shl(shift)));
+    let Ok(samples) = channel.container.samples_mut();
 
-    for (channel, component_info) in channel_data.iter_mut().zip(component_infos.iter()) {
-      let Ok(offset) = console_core_number_conversion::narrow_f32(f64::from(u32::wrapping_shl(
-        1_u32,
-        match console_core_number_conversion::wrapped::<_, u32>(u8::wrapping_sub(
-          component_info.size_info.precision,
-          1,
-        )) {
-          Ok(shift_bits) => shift_bits,
-        },
-      )));
-      dispatch!(Level::new(), simd => {
-          let Ok(offset_v) = Float32x8::splat(simd, crate::math::Sample(offset));
-
-          for chunk in (match channel.container.samples_mut() { Ok(samples) => samples }).as_chunks_mut::<8>().0.iter_mut() {
-              let Ok(v) = Float32x8::from_slice(simd, chunk);
-              (match (v + offset_v).store(chunk) { Ok(value) => value });
-          }
-      });
+    for sample in samples.as_chunks_mut::<8>().0.as_flattened_mut() {
+      *sample += offset;
     }
-  };
+  }
+
   Ok(())
 }
 

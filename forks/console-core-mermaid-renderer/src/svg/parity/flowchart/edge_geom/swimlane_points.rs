@@ -22,8 +22,8 @@ mod tests {
         use merman_core::{MermaidEngine, ParseOptions};
         use merman_model::presentation::RenderSemanticModel;
 
-        // Mermaid 12.2 edges.spec.js supplies a two-point swimlane route while
-        // getConfig().layout is ELK. Use real rectangle intersections here.
+
+
         let parsed = MermaidEngine::new()
             .parse_diagram_for_render_model_sync(
                 "%%{init: {\"layout\": \"elk\"}}%%\nswimlane-beta TB\nA --> B\n",

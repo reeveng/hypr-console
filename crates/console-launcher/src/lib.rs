@@ -55,10 +55,9 @@ use console_applications::{counts, entry, found, narrow};
 use console_core_arguments::{
   Command, CommandLine, Flag, NoSubcommand, Operands, Presence, Takes, read,
 };
-use console_core_external_programs::Program;
 use console_core_internal_programs::LAUNCHER_KEEP;
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
 use console_default_applications::engines;
 use console_home_screen::shape::Shape;
 use console_home_screen::{HomeScreen, Spot};
@@ -131,6 +130,14 @@ struct Word;
 enum Narrowed {
   Same,
   Different,
+}
+
+impl EffectDependencies for Narrowed {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Same | Self::Different => &[],
+    })
+  }
 }
 
 impl Machine for Word {
@@ -213,7 +220,12 @@ fn home() -> Result<HomeScreen, Never> {
   let Ok(held) = console_home_screen::kept(&hers, standing);
 
   match held {
-    console_core_atomic_writes::Stored::Text(said) => HomeScreen::read(&said),
+    console_core_atomic_writes::Stored::Text(said) => {
+      let Ok(mut home) = HomeScreen::read(&said);
+      let Ok(known) = found::load_cached();
+      let Ok(()) = home.update_application_names(|name| known.applications.contains_key(name));
+      Ok(home)
+    }
     console_core_atomic_writes::Stored::Absent => Ok(HomeScreen::default()),
     console_core_atomic_writes::Stored::Failed(fault) => {
       eprintln!("launcher: the home screen: {fault}");
@@ -512,14 +524,10 @@ fn looked_up(said: &str) -> Result<(), Never> {
   };
 
   eprintln!("the menu was asked {said:?}: {address}");
-  let Ok(opening) = open_command(&address);
+  let Ok(opening) = console_default_applications::opening::arguments(&address);
   let Ok(()) = console_panel::running::left_running(&opening);
 
   Ok(())
-}
-
-fn open_command(address: &str) -> Result<Vec<String>, Never> {
-  Program::XdgOpen.arguments(&[address])
 }
 
 #[cfg(test)]

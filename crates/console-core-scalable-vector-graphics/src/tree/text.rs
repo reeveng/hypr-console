@@ -5,7 +5,9 @@ pub use console_core_scalable_vector_graphics_values::FontFamily;
 
 #[cfg(feature = "text")]
 use crate::layout::Span;
-use crate::{Fill, Group, NonEmptyString, PaintOrder, FloatRectangle, Stroke, TextRendering, Transform};
+use crate::{
+  Fill, FloatRectangle, Group, NonEmptyString, PaintOrder, Stroke, TextRendering, Transform,
+};
 
 #[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Debug, Hash)]
 pub enum FontStretch {
@@ -564,15 +566,21 @@ impl Text {
     Ok(self.bounding_box)
   }
 
-  pub fn abs_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn abs_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_bounding_box)
   }
 
-  pub fn stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn stroke_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.stroke_bounding_box)
   }
 
-  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn abs_stroke_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_stroke_bounding_box)
   }
 

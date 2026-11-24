@@ -43,7 +43,7 @@ fn there(stage: &mut Device) -> CheckResult {
     })
     .collect();
 
-  let Ok(missing) = stage.icons_missing(&theme, &names);
+  let missing = stage.icons_missing(&theme, &names)?;
 
   empty(&missing, || {
     format!("{theme} has nothing for {missing:?}, so those are drawn as broken squares")

@@ -17,6 +17,7 @@
 //! of its own the panel is one of the things they will have to name.
 
 use core::fmt::{self, Write};
+use core::ops::Range;
 
 use console_core_geometry::Size;
 use console_core_never::Never;
@@ -98,6 +99,15 @@ pub fn print(line: fmt::Arguments<'_>) -> Result<(), Never> {
   }
 }
 
+pub(crate) fn reset() -> Result<(), Never> {
+  let Ok(mut held) = SCREEN.lock();
+
+  match held.as_mut() {
+    Some(screen) => screen.reset(),
+    None => Ok(()),
+  }
+}
+
 pub fn draw_frame<const SIDE: usize>(rows: &[[u32; SIDE]]) -> Result<Presentation, Never> {
   let Ok(mut held) = SCREEN.lock();
 
@@ -112,6 +122,18 @@ pub fn draw_monochrome_frame(size: Size<u32>, pixels: &[[u8; 4]]) -> Result<Pres
 
   match held.as_mut() {
     Some(screen) => screen.draw_monochrome_frame(size, pixels),
+    None => Ok(Presentation::Skipped),
+  }
+}
+
+pub(crate) fn draw_bitmap_rows<const WORDS: usize>(
+  bitmap: &[[u32; WORDS]],
+  rows: Range<u64>,
+) -> Result<Presentation, Never> {
+  let Ok(mut held) = SCREEN.lock();
+
+  match held.as_mut() {
+    Some(screen) => screen.draw_bitmap_rows(bitmap, rows),
     None => Ok(Presentation::Skipped),
   }
 }

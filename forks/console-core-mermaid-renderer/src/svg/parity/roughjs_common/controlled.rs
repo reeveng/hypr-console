@@ -26,9 +26,9 @@ pub(in crate::svg::parity) fn generate<T>(
     let result = generate(&mut RoughWorkControl { meter, phase });
     meter.checkpoint(phase)?;
     result.map_err(|error| match error {
-        WorkError::ArithmeticOverflow => meter.arithmetic_overflow().into(),
-        error => crate::Error::InvalidModel {
-            message: format!("RoughJS generation failed: {error}"),
+        WorkError::ArithmeticOverflow => <crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(meter.arithmetic_overflow()),
+        error_2 => crate::Error::InvalidModel {
+            message: format!("RoughJS generation failed: {error}", error = error_2),
         },
     })
 }

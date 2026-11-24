@@ -110,10 +110,10 @@ impl SliceDecoder<'_> {
       Scan::Diagonal | Scan::Horizontal => last,
     };
     let side = 1u64.wrapping_shl(block.log2);
-    ensure!(
+    ensure(
       final_position.x < side && final_position.y < side,
-      "last significant coefficient outside the block"
-    );
+      || "last significant coefficient outside the block",
+    )?;
     let subgroup_log2 = block.log2.wrapping_sub(2);
     let Ok(significance) = table_row(&SCAN_4, u64::from(scan));
     let syntax = Residual {
@@ -211,7 +211,7 @@ impl SliceDecoder<'_> {
     let block_area = syntax.side.wrapping_mul(syntax.side);
     let Ok(coefficients) = window_mut(&mut self.coeffs, 0..block_area);
     let Ok(length) = fixed_index(coefficients.len());
-    ensure!(length == block_area, "index or range outside the buffer");
+    ensure(length == block_area, || "index or range outside the buffer")?;
     coefficients.fill(0);
 
     let Ok(last_group) = scan_position(
@@ -462,13 +462,13 @@ impl SliceDecoder<'_> {
 
   fn coeff_abs_level_remaining(&mut self, rice: u32) -> Result<i32> {
     let Ok(prefix) = self.bypass_unary(32);
-    ensure!(prefix < 32, "invalid coeff_abs_level_remaining");
+    ensure(prefix < 32, || "invalid coeff_abs_level_remaining")?;
     let (bits, high) = match prefix {
       0..=3 => (rice, prefix.wrapping_shl(rice)),
       _ => {
         let extension = prefix.wrapping_sub(3);
         let bits = extension.wrapping_add(rice);
-        ensure!(bits <= 24, "coeff_abs_level_remaining too large");
+        ensure(bits <= 24, || "coeff_abs_level_remaining too large")?;
         (
           bits,
           1u32
@@ -516,7 +516,7 @@ impl SliceDecoder<'_> {
       let Ok(residual) = window(coefficients, offset..offset.wrapping_add(side));
       let Ok(target) = window_mut(destination, first..first.wrapping_add(side));
       let Ok(length) = fixed_index(target.len());
-      ensure!(length == side, "index or range outside the buffer");
+      ensure(length == side, || "index or range outside the buffer")?;
 
       for (sample, &residual_2) in target.iter_mut().zip(residual) {
         let Ok(value) =

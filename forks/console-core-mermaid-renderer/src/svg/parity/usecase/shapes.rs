@@ -13,11 +13,16 @@ pub(super) fn write_dagre_helper(
         fmt(node.x),
         fmt(node.y)
     );
-    if config_bool(config.as_value(), &["htmlLabels"]).unwrap_or(true) {
+
+    if match config_bool(config.as_value(), &["htmlLabels"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => true,
+    } {
         out.push_str(r#"<foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" style="display:table-cell;white-space:nowrap;line-height:1.5;max-width:10px;text-align:center"><span class="nodeLabel"/></div></foreignObject>"#);
     } else {
         out.push_str(r#"<g><rect class="background" style="stroke: none"/><text y="-10.1" style=""><tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em"/></text></g>"#);
     }
+
     out.push_str("</g></g>");
 }
 
@@ -26,21 +31,27 @@ pub(super) fn write_empty_edge_label(
     id: &str,
     config: &merman_model::presentation::PresentationConfig,
 ) {
-    let html = config_bool(config.as_value(), &["htmlLabels"]).unwrap_or(true);
+    let html = match config_bool(config.as_value(), &["htmlLabels"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => true,
+    };
     let _ = write!(
         out,
         r#"<g class="edgeLabel"><g class="label" data-id="{}" transform="translate({},0)">"#,
         escape_attr(id),
         if html { "-2" } else { "0" }
     );
+
     if html {
         out.push_str(r#"<foreignObject width="4" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display:table-cell;white-space:nowrap;line-height:1.5;max-width:200px;text-align:center"><span class="edgeLabel"/></div></foreignObject>"#);
     } else {
         out.push_str(r#"<text y="-10.1" text-anchor="middle"><tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em" text-anchor="middle"/></text>"#);
     }
+
     out.push_str("</g></g>");
+
     if !html {
-        // Empty createText returns only its text, leaving the background group beside edgeLabel.
+
         out.push_str(r#"<g><rect class="background" style="stroke: none"/></g>"#);
     }
 }
@@ -89,7 +100,7 @@ pub(super) fn write_node(
 ) -> Result<()> {
     if let Some(actor) = context
         .source
-        .filter(|node| node.kind == UsecaseNodeKind::Actor)
+        .filter(|node_2| node_2.kind == UsecaseNodeKind::Actor)
     {
         let _ = write!(
             out,
@@ -102,6 +113,7 @@ pub(super) fn write_node(
         let content_height = node.height - 20.0;
         let glyph_y = -content_height / 2.0 + 36.0;
         let mut y = -content_height / 2.0 + 80.0;
+
         if let Some(stereotype) = &plan.stereotype {
             write_label(
                 out,
@@ -118,6 +130,7 @@ pub(super) fn write_node(
             );
             y += stereotype.metrics.height + 2.0;
         }
+
         write_label(
             out,
             &plan.label,
@@ -148,6 +161,7 @@ pub(super) fn write_node(
             .filter(|style| !style.css(false).is_empty())
             .map(|_| format!(r#" style="{}""#, escape_attr(context.style)))
             .unwrap_or_default();
+
         match actor.actor_type {
             UsecaseActorType::Normal => {
                 let _ = write!(
@@ -192,8 +206,10 @@ pub(super) fn write_node(
                     None
                 };
                 let fallback = icon.is_none();
-                let icon = icon
-                    .unwrap_or_else(|| crate::svg::icon_registry::mermaid_unknown_icon_svg(42, 42));
+                let icon_2 = match icon {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => crate::svg::icon_registry::mermaid_unknown_icon_svg(42, 42),
+                };
                 let _ = write!(
                     out,
                     r#"<g class="usecase-actor-icon-symbol{}" aria-hidden="true" transform="translate(-21,-23)"><g>{icon}</g></g>"#,
@@ -202,9 +218,10 @@ pub(super) fn write_node(
                     } else {
                         ""
                     }
-                );
+                , icon = icon_2);
             }
         }
+
         if actor.business {
             let (center_y, radius): (f64, f64) = match actor.actor_type {
                 UsecaseActorType::Hollow => (-23.0, 9.0),
@@ -215,16 +232,16 @@ pub(super) fn write_node(
             let (dx, dy) = (angle.cos(), -angle.sin());
             let offset = radius * 0.6;
             let chord = radius * 0.8;
-            let (x, y) = (offset * -dy, center_y + offset * dx);
+            let (x, y_2) = (offset * -dy, center_y + offset * dx);
             let path = if actor.actor_type == UsecaseActorType::Icon {
-                "M 12 -8 L 26 -26".into()
+                <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("M 12 -8 L 26 -26")
             } else {
                 format!(
                     "M {} {} L {} {}",
                     fmt(x - chord * dx),
-                    fmt(y - chord * dy),
+                    fmt(y_2 - chord * dy),
                     fmt(x + chord * dx),
-                    fmt(y + chord * dy)
+                    fmt(y_2 + chord * dy)
                 )
             };
             let _ = write!(
@@ -232,6 +249,7 @@ pub(super) fn write_node(
                 r#"<path class="usecase-business-marker usecase-actor-business-marker" d="{path}" fill="none" style="stroke:inherit!important;stroke-width:inherit!important"/>"#
             );
         }
+
         out.push_str("</g>");
     } else if let Some(table) = &plan.table {
         rect(
@@ -270,6 +288,7 @@ pub(super) fn write_node(
             },
         );
         let mut row_top = top + table.title_height;
+
         for (index, row) in table.rows.iter().enumerate() {
             context.options.checkpoint_emit()?;
             let _ = write!(
@@ -324,13 +343,15 @@ pub(super) fn write_node(
             out.push_str("</g>");
             row_top += row.height;
         }
+
         out.push_str("</g>");
     } else {
         if let Some(shadow) = context.shadow {
             theme::write_body_shadow_open(out, shadow);
         }
+
         if plan.ellipse {
-            let business = context.source.is_some_and(|node| node.business);
+            let business = context.source.is_some_and(|node_3| node_3.business);
             let _ = write!(
                 out,
                 r#"<ellipse class="basic label-container{}" cx="0" cy="0" rx="{}" ry="{}" style="{}"/>"#,
@@ -343,6 +364,7 @@ pub(super) fn write_node(
                 fmt(node.height / 2.0),
                 escape_attr(context.style)
             );
+
             if business {
                 let (rx, ry) = (node.width / 2.0, node.height / 2.0);
                 let label_width = plan.label.metrics.width.max(
@@ -364,8 +386,8 @@ pub(super) fn write_node(
                 );
             }
         } else if context.note {
-            // note.ts uses a RoughJS rectangle even for classic/neo. At zero
-            // roughness its fill and outline still remain separate SVG paths.
+
+
             let randomness = context
                 .options
                 .rough_randomness(context.css_binding.hand_drawn_seed, "usecase-note");
@@ -377,14 +399,18 @@ pub(super) fn write_node(
                 .typed_style
                 .and_then(|style| style.stroke.as_deref())
                 .unwrap_or(&context.css_binding.note_border);
-            let mut fill_style = context
+            let mut fill_style = match context
                 .typed_style
-                .map(|style| style.note_path_css(false))
-                .unwrap_or_default();
-            let mut stroke_style = context
+                .map(|style| style.note_path_css(false)) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::string::String::new(),
+            };
+            let mut stroke_style = match context
                 .typed_style
-                .map(|style| style.note_path_css(true))
-                .unwrap_or_default();
+                .map(|style| style.note_path_css(true)) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::string::String::new(),
+            };
             fill_style.push_str(&plan.source_style);
             stroke_style.push_str(&plan.source_style);
             let paths = roughjs_common::roughjs_paths_for_rect(roughjs_common::RoughRectSpec {
@@ -399,7 +425,7 @@ pub(super) fn write_node(
             });
             context.options.checkpoint_emit()?;
             let (fill, stroke) = paths.ok_or_else(|| Error::InvalidModel {
-                message: "failed to construct Usecase note geometry".into(),
+                message: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("failed to construct Usecase note geometry"),
             })?;
             let _ = write!(
                 out,
@@ -420,24 +446,28 @@ pub(super) fn write_node(
                 context.style,
             );
         }
+
         if let Some(shadow) = context.shadow {
             out.push_str("</g>");
             context.options.checkpoint_emit()?;
             theme::record_body_shadow(shadow, context.effect_evidence);
+
             if let Some(style) = context.typed_style {
                 style.record_shadow_emitted(context.receipt);
             }
         }
+
         let stereo_height = plan
             .stereotype
             .as_ref()
             .map_or(0.0, |label| label.metrics.height);
-        let gap = if plan.stereotype.is_some() && context.source.is_some_and(|node| node.business) {
+        let gap = if plan.stereotype.is_some() && context.source.is_some_and(|node_4| node_4.business) {
             2.0
         } else {
             0.0
         };
         let height = plan.label.metrics.height + stereo_height + gap;
+
         if let Some(stereotype) = &plan.stereotype {
             write_label(
                 out,
@@ -453,6 +483,7 @@ pub(super) fn write_node(
                 },
             );
         }
+
         let label_start = out.len();
         write_label(
             out,
@@ -461,7 +492,7 @@ pub(super) fn write_node(
                 UsecaseLabelKind::PositionedNode("label noteLabel")
             } else if context
                 .source
-                .is_some_and(|node| node.business && plan.ellipse)
+                .is_some_and(|node_5| node_5.business && plan.ellipse)
             {
                 UsecaseLabelKind::PositionedNode("label usecase-label")
             } else {
@@ -476,30 +507,36 @@ pub(super) fn write_node(
                 background: None,
             },
         );
+
         if plan.folded_stereotype {
             annotate_folded_stereotype(out, label_start)?;
         }
     }
+
     Ok(())
 }
 
 fn annotate_folded_stereotype(out: &mut String, start: usize) -> Result<()> {
-    // Match the first emitted label text node, as annotateUsecaseElements does.
-    // The fragment is our own complete label group, so byte ranges can be applied
-    // without reparsing the entire diagram or depending on literal label content.
+
+
+
     let fragment = &out[start..];
     let document =
         crate::xml_dom::Document::parse(fragment).map_err(|error| Error::InvalidModel {
             message: format!("invalid prepared Usecase stereotype label: {error}"),
         })?;
+
     if let Some(span) = document
         .descendants()
         .find(|node| node.has_tag_name("span") && node.attribute("class") == Some("nodeLabel"))
     {
-        let container = span
+        let container = match span
             .children()
-            .find(|node| node.has_tag_name("p"))
-            .unwrap_or(span);
+            .find(|node| node.has_tag_name("p")) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => span,
+        };
+
         if let Some(text) = container.first_child().filter(|node| node.is_text()) {
             let range = text.range();
             out.insert_str(start + range.end, "</span>");
@@ -515,5 +552,6 @@ fn annotate_folded_stereotype(out: &mut String, start: usize) -> Result<()> {
         let insertion = attribute.range_value().end;
         out.insert_str(start + insertion, " usecase-stereotype");
     }
+
     Ok(())
 }

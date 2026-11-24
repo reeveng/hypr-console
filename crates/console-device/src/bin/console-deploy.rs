@@ -5,14 +5,15 @@
 //! top of the tree, and the lock -- which is a `mkdir` and four small files,
 //! and is the one effect no other program on this device will ever want.
 //!
-//! The lock is released by dropping it. A deploy that ends any way the loop
-//! can see ends by returning through here, and one killed harder than that
-//! leaves a directory the next run takes over because the pid in it is gone.
+//! The interpreter releases its lock when the program runtime finishes. A
+//! process killed before cleanup leaves a directory the next run can take over.
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+use std::{fmt, io};
 
 use console_core_arguments::read;
+use console_core_atomic_writes::{Unread, Unwritten};
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_device::deploying::{
@@ -28,90 +29,132 @@ struct Locking {
   held: Option<PathBuf>,
 }
 
+#[derive(Debug)]
+enum LockError {
+  Acquired(PathBuf),
+  Create(PathBuf, io::Error),
+  Read(Unread),
+  Write(Unwritten),
+  Remove(PathBuf, io::Error),
+}
+
+impl fmt::Display for LockError {
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Acquired(at) => write!(to, "the deploy already owns lock {}", at.display()),
+      Self::Create(at, error) => {
+        write!(to, "could not create deploy lock {}: {error}", at.display())
+      }
+      Self::Read(error) => write!(to, "could not read the deploy lock owner: {error}"),
+      Self::Write(error) => write!(to, "could not write the deploy lock owner: {error}"),
+      Self::Remove(at, error) => {
+        write!(to, "could not remove deploy lock {}: {error}", at.display())
+      }
+    }
+  }
+}
+
+impl std::error::Error for LockError {
+  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    match self {
+      Self::Acquired(_) => None,
+      Self::Create(_, error) | Self::Remove(_, error) => Some(error),
+      Self::Read(error) => Some(error),
+      Self::Write(error) => Some(error),
+    }
+  }
+}
+
+impl Locking {
+  fn take(&mut self, at: &Path) -> Result<DeployingEvent, LockError> {
+    match &self.held {
+      Some(held) => return Err(LockError::Acquired(held.clone())),
+      None => {}
+    }
+
+    match std::fs::create_dir(at) {
+      Ok(()) => self.held = Some(at.to_path_buf()),
+      Err(error) => {
+        return match ::core::primitive::bool::then_some(
+          error.kind() == io::ErrorKind::AlreadyExists,
+          (),
+        ) {
+          ::core::option::Option::Some(()) => Ok(DeployingEvent::Busy),
+          ::core::option::Option::None => Err(LockError::Create(at.to_path_buf(), error)),
+        };
+      }
+    }
+
+    let host = here()?;
+    let Ok(since) = today();
+    let pid = std::process::id().to_string();
+
+    for (called, said) in [
+      (LockField::Pid, pid.as_str()),
+      (LockField::Host, host.as_str()),
+      (LockField::Since, since.as_str()),
+    ] {
+      wrote(at, Line { called, said })?;
+    }
+
+    Ok(DeployingEvent::Took)
+  }
+}
+
 impl Interpreter for Locking {
   type Event = DeployingEvent;
   type Effect = DeployingEffect;
+  type Error = LockError;
 
-  fn interpret(&mut self, acts: &DeployingEffect, _clock: &Clock) -> Vec<Event<DeployingEvent>> {
+  fn interpret(
+    &mut self,
+    acts: &DeployingEffect,
+    _clock: &Clock,
+  ) -> Result<Vec<Event<DeployingEvent>>, LockError> {
     match acts {
-      DeployingEffect::Take(at) => match std::fs::create_dir(at) {
-        Ok(()) => {
-          self.held = Some(at.clone());
-
-          vec![Event::Custom(DeployingEvent::Took)]
-        }
-        Err(_already_held) => vec![Event::Custom(DeployingEvent::Busy)],
-      },
-
-      DeployingEffect::Mine(at) => {
-        let Ok(here) = here();
-        let Ok(today) = today();
-        let pid = std::process::id().to_string();
-        let Ok(()) = wrote(
-          at,
-          Line {
-            called: LockField::Pid,
-            said: &pid,
-          },
-        );
-        let Ok(()) = wrote(
-          at,
-          Line {
-            called: LockField::Host,
-            said: &here,
-          },
-        );
-        let Ok(()) = wrote(
-          at,
-          Line {
-            called: LockField::Since,
-            said: &today,
-          },
-        );
-
-        Vec::new()
-      }
+      DeployingEffect::Take(at) => self.take(at).map(|event| vec![Event::Custom(event)]),
 
       DeployingEffect::Read(at) => {
-        let Ok(holding) = read_holder(at);
+        let holding = read_holder(at)?;
 
-        vec![Event::Custom(DeployingEvent::Holder(holding))]
+        Ok(vec![Event::Custom(DeployingEvent::Holder(holding))])
       }
 
       DeployingEffect::Free(at) => {
-        let Ok(()) = remove_lock(at);
+        remove_lock(at)?;
 
-        Vec::new()
+        Ok(Vec::new())
       }
+    }
+  }
+
+  fn finish(&mut self) -> Result<(), LockError> {
+    match self.held.take() {
+      Some(at) => remove_lock(&at),
+      None => Ok(()),
     }
   }
 }
 
 impl Drop for Locking {
   fn drop(&mut self) {
-    match &self.held {
-      Some(at) => {
-        let Ok(()) = remove_lock(at);
-      }
-      None => {}
+    match self.finish() {
+      Ok(()) => {}
+      Err(error) => eprintln!("console-deploy: {error}"),
     }
   }
 }
 
-fn remove_lock(at: &Path) -> Result<(), Never> {
+fn remove_lock(at: &Path) -> Result<(), LockError> {
   match std::fs::remove_dir_all(at) {
-    Ok(()) => {}
-    Err(fault) => {
-      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => {}
-        ::core::option::Option::None => {
-          eprintln!("console-deploy: removing lock {}: {fault}", at.display())
-        }
+    Ok(()) => Ok(()),
+    Err(error) => {
+      match ::core::primitive::bool::then_some(error.kind() == io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => Ok(()),
+        ::core::option::Option::None => Err(LockError::Remove(at.to_path_buf(), error)),
       }
     }
   }
-
-  Ok(())
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -137,41 +180,29 @@ struct Line<'a> {
   said: &'a str,
 }
 
-fn wrote(at: &Path, line: Line<'_>) -> Result<(), Never> {
+fn wrote(at: &Path, line: Line<'_>) -> Result<(), LockError> {
   let Line { called, said } = line;
   let path = at.join(called);
 
-  match console_core_atomic_writes::whole(&path, format!("{said}\n").as_bytes()) {
-    Ok(()) => {}
-    Err(fault) => eprintln!(
-      "console-deploy: writing lock field {}: {fault}",
-      path.display()
-    ),
-  }
-
-  Ok(())
+  console_core_atomic_writes::whole(&path, format!("{said}\n").as_bytes())
+    .map_err(LockError::Write)
 }
 
-fn read_field(at: &Path, called: LockField) -> Result<String, Never> {
+fn read_field(at: &Path, called: LockField) -> Result<String, LockError> {
   read_trimmed(&at.join(called))
 }
 
-fn read_trimmed(at: &Path) -> Result<String, Never> {
-  Ok(match console_core_atomic_writes::text_or_empty(at) {
-    Ok(said) => said.trim().to_string(),
-    Err(fault) => {
-      eprintln!("console-deploy: {fault}");
-
-      String::new()
-    }
-  })
+fn read_trimmed(at: &Path) -> Result<String, LockError> {
+  console_core_atomic_writes::text_or_empty(at)
+    .map(|said| said.trim().to_string())
+    .map_err(LockError::Read)
 }
 
-fn read_holder(at: &Path) -> Result<Holder, Never> {
-  let Ok(pid) = read_field(at, LockField::Pid);
-  let Ok(on) = read_field(at, LockField::Host);
-  let Ok(since) = read_field(at, LockField::Since);
-  let Ok(here) = here();
+fn read_holder(at: &Path) -> Result<Holder, LockError> {
+  let pid = read_field(at, LockField::Pid)?;
+  let on = read_field(at, LockField::Host)?;
+  let since = read_field(at, LockField::Since)?;
+  let here = here()?;
 
   Ok(Holder {
     alive: match ::core::primitive::bool::then_some(
@@ -188,7 +219,7 @@ fn read_holder(at: &Path) -> Result<Holder, Never> {
   })
 }
 
-fn here() -> Result<String, Never> {
+fn here() -> Result<String, LockError> {
   read_trimmed(Path::new(NAMED))
 }
 
@@ -266,4 +297,25 @@ fn main() -> ExitCode {
   );
 
   how
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn lock_contention_and_filesystem_failure_are_distinct() -> Result<(), LockError> {
+    let mut locking = Locking { held: None };
+    let package = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let blocked = package.join("Cargo.toml").join(deploying::LOCK);
+
+    let locking_take = locking.take(package)?;
+    assert_eq!(locking_take, DeployingEvent::Busy);
+    assert!(
+      matches!(locking.take(&blocked), Err(LockError::Create(at, error)) if at == blocked && error.kind() == io::ErrorKind::NotADirectory)
+    );
+    assert!(locking.held.is_none());
+
+    Ok(())
+  }
 }

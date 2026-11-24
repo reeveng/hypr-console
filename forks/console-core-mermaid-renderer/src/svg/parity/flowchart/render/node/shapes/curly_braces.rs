@@ -18,6 +18,7 @@ pub(in crate::svg::parity::flowchart) struct CurlyBraceCommentPath {
     pub(in crate::svg::parity::flowchart) visible: bool,
 }
 
+#[must_use]
 fn circle_points(
     center_x: f64,
     center_y: f64,
@@ -30,25 +31,32 @@ fn circle_points(
     let start = start_deg.to_radians();
     let end = end_deg.to_radians();
     let angle_range = end - start;
-    let angle_step = if num_points > 1 {
-        angle_range / (num_points as f64 - 1.0)
-    } else {
-        0.0
+    let angle_step = match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(num_points), &::core::convert::identity(1)); _explicit_ordering } {
+        ::core::cmp::Ordering::Greater => {
+            angle_range / (num_points as f64 - 1.0)
+        },
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+            0.0
+        },
     };
     let mut out: Vec<(f64, f64)> = Vec::with_capacity(num_points);
+
     for i in 0..num_points {
         let a = start + (i as f64) * angle_step;
         let x = center_x + radius * a.cos();
         let y = center_y + radius * a.sin();
+
         if negate {
             out.push((-x, -y));
         } else {
             out.push((x, y));
         }
     }
+
     out
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn curly_brace_comment_intersection_points(
     shape: &str,
     label_w: f64,
@@ -64,8 +72,8 @@ pub(in crate::svg::parity::flowchart) fn curly_brace_comment_intersection_points
         look_is_neo,
     );
     let radius = (h * 0.1).max(5.0);
-    // Keep the pinned rectPoints separate from the visible brace paths: their
-    // central indentation and sampling differ, and intersections need no SVG.
+
+
     if shape == "braces" {
         let rect_points: Vec<(f64, f64)> = [
             vec![(w / 2.0, -h / 2.0 - radius), (-w / 2.0, -h / 2.0 - radius)],
@@ -187,6 +195,7 @@ pub(in crate::svg::parity::flowchart) fn curly_brace_comment_intersection_points
     }
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn curly_brace_comment_geometry(
     shape: &str,
     label_w: f64,
@@ -194,21 +203,21 @@ pub(in crate::svg::parity::flowchart) fn curly_brace_comment_geometry(
     padding: f64,
     look_is_neo: bool,
 ) -> CurlyBraceCommentGeometry {
-    let padding = padding.max(0.0);
+    let padding_2 = padding.max(0.0);
     let (w, h) = crate::flowchart::flowchart_brace_content_dimensions(
         shape,
         label_w,
         label_h,
-        padding,
+        padding_2,
         look_is_neo,
     );
     let radius = (h * 0.1).max(5.0);
 
-    // The source label transforms use the original node padding, even when
-    // Neo chooses different shape padding. Express them relative to the
-    // shared label renderer's centered label box.
-    let label_padding_dx = (label_w - w + padding) / 2.0;
-    let label_dy = (label_h - h + padding) / 2.0;
+
+
+
+    let label_padding_dx = (label_w - w + padding_2) / 2.0;
+    let label_dy = (label_h - h + padding_2) / 2.0;
     let (group_tx, label_dx) = match shape {
         "comment" | "brace" | "brace-l" => (radius, (label_w - w) / 2.0 + radius),
         "brace-r" => (-radius, label_padding_dx),
@@ -217,9 +226,9 @@ pub(in crate::svg::parity::flowchart) fn curly_brace_comment_geometry(
     };
 
     let rect_points =
-        curly_brace_comment_intersection_points(shape, label_w, label_h, padding, look_is_neo);
+        curly_brace_comment_intersection_points(shape, label_w, label_h, padding_2, look_is_neo);
     let paths = if shape == "braces" {
-        // Mermaid `curlyBraces.ts`: two visible brace paths + one invisible rect path.
+
         let left_points: Vec<(f64, f64)> = [
             circle_points(w / 2.0, -h / 2.0, radius, 30, -90.0, 0.0, true),
             vec![(-w / 2.0 - radius, radius)],
@@ -298,7 +307,7 @@ pub(in crate::svg::parity::flowchart) fn curly_brace_comment_geometry(
             .trim_end_matches('Z')
             .to_string();
         let rect_path = path_from_points(&rect_points);
-        // Upstream inserts each path at :first-child: right, left, then the hidden rectangle.
+
         vec![
             CurlyBraceCommentPath {
                 d: right_path,
@@ -314,7 +323,7 @@ pub(in crate::svg::parity::flowchart) fn curly_brace_comment_geometry(
             },
         ]
     } else {
-        // Mermaid `curlyBraceLeft.ts` / `curlyBraceRight.ts`.
+
         let points = if shape == "brace-r" {
             let points: Vec<(f64, f64)> = [
                 circle_points(w / 2.0, -h / 2.0, radius, 20, -90.0, 0.0, false),
@@ -426,7 +435,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_curly_brace_commen
     label.dy = geometry.label_dy;
 
     let mut stroke_d = |d: &str| {
-        super::super::helpers::timed_node_roughjs(common.timing, details, || {
+        match super::super::helpers::timed_node_roughjs(common.timing, details, || {
             roughjs_stroke_path_for_svg_path(
                 d,
                 common.stroke_width,
@@ -434,8 +443,10 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_curly_brace_commen
                 common.work_meter,
                 common.hand_drawn_seed,
             )
-        })
-        .unwrap_or_else(|| "M0,0".to_string())
+        }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => "M0,0".to_string(),
+        }
     };
 
     let _ = write!(
@@ -443,24 +454,28 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_curly_brace_commen
         r##"<g class="text" transform="translate({},0)">"##,
         fmt(geometry.group_tx),
     );
+
     for path in geometry.paths {
         let d = stroke_d(&path.d);
+
         if path.visible {
             out.push_str("<g>");
         } else {
             out.push_str(r#"<g stroke-opacity="0">"#);
         }
+
         let _ = write!(
             out,
             r##"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}" style="{}"/>"##,
             escape_attr(&d),
             escape_attr(common.stroke_color),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.stroke_dasharray),
             escape_attr(common.style),
         );
         out.push_str("</g>");
     }
+
     out.push_str("</g>");
 }
 
@@ -485,6 +500,7 @@ pub(super) fn advance_rough_geometry(
         ctx.node_padding,
         crate::config::mermaid_config_diagram_look(ctx.config).is_neo(),
     );
+
     for path in geometry.paths {
         let _ = super::super::roughjs::roughjs_prepare_stroke_path_for_svg_path(
             super::super::roughjs::RoughGeometryTarget::Query,
@@ -571,8 +587,8 @@ mod tests {
                 assert_eq!(empty.label_dy, 0.0, "{shape}");
             }
         }
-        // A tall classic label increases radius beyond the default 5px.
-        // Left-brace text follows r - padding/2, not the historical -r/2.
+
+
         let tall = curly_brace_comment_geometry("brace", 100.0, 85.0, 15.0, false);
         assert_eq!(tall.label_dx, 2.5);
         assert_eq!(tall.label_dy, 0.0);

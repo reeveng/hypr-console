@@ -14,6 +14,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_manual_file(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (metrics, p, h, path_data) = prepare_manual_file_geometry(ctx, common, label);
+
     if let Some((fill_d, stroke_d)) = helpers::hand_drawn_path_pair(common, details, &path_data) {
         let _ = write!(
             out,
@@ -62,7 +63,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_manual_file(
             r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}" style="{}"/>"#,
             escape_xml_display(&stroke_d),
             escape_xml_display(common.stroke_color),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_xml_display(common.stroke_dasharray),
             escape_xml_display(common.style)
         );
@@ -99,6 +100,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_manual_input(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (metrics, p, padding_x, h, path_data) = prepare_manual_input_geometry(ctx, common, label);
+
     if let Some((fill_d, stroke_d)) = helpers::hand_drawn_path_pair(common, details, &path_data) {
         let _ = write!(
             out,
@@ -144,7 +146,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_manual_input(
             r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}" style="{}"/>"#,
             escape_xml_display(&stroke_d),
             escape_xml_display(common.stroke_color),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_xml_display(common.stroke_dasharray),
             escape_xml_display(common.style)
         );
@@ -171,12 +173,13 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_manual_input(
         ctx.measurer
             .measure_svg_create_text_bbox_y_offset_px(label.text, &node_text_style)
     };
-    // Mermaid's slopedRect label transform uses authored padding against the shape's
-    // look-specific horizontal padding.
+
+
     label.dx = -padding_x + p;
     label.dy = metrics.height / 2.0 - h / 4.0 + p - bbox_y_offset;
 }
 
+#[must_use]
 fn prepare_manual_file_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
@@ -203,6 +206,7 @@ fn prepare_manual_file_geometry(
     (metrics, p, h, path_data)
 }
 
+#[must_use]
 fn prepare_manual_input_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,

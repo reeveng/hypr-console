@@ -1,7 +1,7 @@
 use std::path::{Component, Path, PathBuf};
 
 use console_core_geometry::Size;
-use console_core_path_rasterizer::{Paint, Pixmap, FloatRectangle, Transform};
+use console_core_path_rasterizer::{FloatRectangle, Paint, Pixmap, Transform};
 use console_core_text_layout::{
   Align, Attrs, AttrsOwned, Buffer, Color, Ellipsize, Family, FontSize, FontSystem, GlyphCache,
   LineHeight, Metrics, Shaping, Wrap, fontdb::Database,

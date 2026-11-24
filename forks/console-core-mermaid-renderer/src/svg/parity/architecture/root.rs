@@ -8,6 +8,7 @@ pub(super) struct ArchitectureA11y {
     pub(super) nodes: String,
 }
 
+#[must_use]
 pub(super) fn architecture_a11y_nodes(
     diagram_id: SvgDiagramId<'_>,
     acc_title: Option<&str>,
@@ -23,21 +24,29 @@ pub(super) fn architecture_a11y_nodes(
         .map(|_| format!("chart-desc-{diagram_id}"));
 
     let mut nodes = String::new();
-    if let Some(t) = acc_title.map(str::trim).filter(|t| !t.is_empty()) {
-        let _ = write!(
-            &mut nodes,
-            r#"<title id="chart-title-{}">{}</title>"#,
-            escape_attr_display(diagram_id),
-            escape_xml_display(t)
-        );
+
+    match acc_title.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(t) => {
+            let _ = write!(
+                &mut nodes,
+                r#"<title id="chart-title-{}">{}</title>"#,
+                escape_attr_display(diagram_id),
+                escape_xml_display(t)
+            );
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(d) = acc_descr.map(str::trim).filter(|t| !t.is_empty()) {
-        let _ = write!(
-            &mut nodes,
-            r#"<desc id="chart-desc-{}">{}</desc>"#,
-            escape_attr_display(diagram_id),
-            escape_xml_display(d)
-        );
+
+    match acc_descr.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(d) => {
+            let _ = write!(
+                &mut nodes,
+                r#"<desc id="chart-desc-{}">{}</desc>"#,
+                escape_attr_display(diagram_id),
+                escape_xml_display(d)
+            );
+        },
+        ::core::option::Option::None => {},
     }
 
     ArchitectureA11y {

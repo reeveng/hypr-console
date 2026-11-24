@@ -4,18 +4,22 @@ use crate::model::LayoutPoint;
 
 const AXIS_TOLERANCE: f64 = 0.5;
 
+#[must_use]
 fn shares_column(first: &LayoutPoint, second: &LayoutPoint) -> bool {
     (first.x - second.x).abs() < AXIS_TOLERANCE
 }
 
+#[must_use]
 fn shares_row(first: &LayoutPoint, second: &LayoutPoint) -> bool {
     (first.y - second.y).abs() < AXIS_TOLERANCE
 }
 
+#[must_use]
 fn coincides(first: &LayoutPoint, second: &LayoutPoint) -> bool {
     shares_column(first, second) && shares_row(first, second)
 }
 
+#[must_use]
 fn dock_final_point(
     original: &LayoutPoint,
     inner: &LayoutPoint,
@@ -31,9 +35,11 @@ fn dock_final_point(
     } else {
         shares_column(&candidate, inner) || shares_row(&candidate, inner)
     };
+
     if (column || row) && !keeps_axis {
         return original.clone();
     }
+
     let (heading, from) = if coincides(original, inner) {
         (inner, before)
     } else {
@@ -41,9 +47,11 @@ fn dock_final_point(
     };
     let dot = (heading.x - from.x) * (candidate.x - inner.x)
         + (heading.y - from.y) * (candidate.y - inner.y);
+
     if dot < 0.0 {
         return inner.clone();
     }
+
     if shares_row(heading, from) && !shares_column(heading, from) {
         LayoutPoint {
             x: candidate.x,
@@ -59,10 +67,14 @@ fn dock_final_point(
     }
 }
 
+#[must_use]
 fn marker_pull_back(marker: Option<&str>) -> f64 {
     match marker {
         Some("arrow_barb_neo") => 5.5,
-        _ => crate::svg::parity::edge_path::marker_offset_for(marker).unwrap_or(0.0),
+        _ => match crate::svg::parity::edge_path::marker_offset_for(marker) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0.0,
+        },
     }
 }
 
@@ -75,12 +87,15 @@ pub(in crate::svg::parity::flowchart) fn clip_swimlane_endpoints(
 ) {
     out.clear();
     out.reserve(points.len());
+
     if points.len() < 2 {
         out.extend_from_slice(points);
         return;
     }
+
     if points.len() == 2 {
         let (first, last) = (&points[0], &points[1]);
+
         if shares_column(first, last) || shares_row(first, last) {
             out.push(tail_intersect(first));
             out.push(head_intersect(last));
@@ -88,8 +103,10 @@ pub(in crate::svg::parity::flowchart) fn clip_swimlane_endpoints(
             out.push(tail_intersect(last));
             out.push(head_intersect(first));
         }
+
         return;
     }
+
     let inner = &points[1..points.len() - 1];
     let first_inner = &inner[0];
     let last_inner = &inner[inner.len() - 1];
@@ -109,12 +126,18 @@ pub(in crate::svg::parity::flowchart) fn clip_swimlane_endpoints(
     } else {
         None
     };
+
     if !coincides(&first, first_inner) {
         out.push(first);
     }
+
     out.extend_from_slice(inner);
-    if let Some(last) = final_point {
-        out.push(last);
+
+    match final_point {
+        Some(last_2) => {
+            out.push(last_2);
+        },
+        ::core::option::Option::None => {},
     }
 }
 

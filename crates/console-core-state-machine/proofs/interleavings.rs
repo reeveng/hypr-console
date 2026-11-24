@@ -1,7 +1,7 @@
 //! `cargo kani -p console-core-state-machine --lib --harness interleavings`.
 
 use super::*;
-use std::cmp::Ordering;
+use core::cmp::Ordering;
 
 #[kani::proof]
 #[kani::unwind(8)]

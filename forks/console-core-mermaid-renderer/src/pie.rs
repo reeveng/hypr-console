@@ -13,6 +13,7 @@ pub(crate) use config::{PieConfigView, PieLegendPosition};
 pub(crate) use theme::prepared_text::{PieTextCssEmission, PieTextRole};
 pub(crate) use theme::{PIE_TITLE_CLASS, PieThemePlan, PieThemeReceipt};
 
+#[must_use]
 fn visible_pie_sections(model: &PieDiagramModel) -> (f64, Vec<&PieSection>) {
     let total: f64 = model
         .sections
@@ -33,6 +34,7 @@ fn visible_pie_sections(model: &PieDiagramModel) -> (f64, Vec<&PieSection>) {
     (total, sections)
 }
 
+#[must_use]
 pub(crate) fn pie_legend_text(label: &str, value: f64, show_data: bool) -> String {
     if show_data {
         format!(
@@ -44,33 +46,42 @@ pub(crate) fn pie_legend_text(label: &str, value: f64, show_data: bool) -> Strin
     }
 }
 
+#[must_use]
 fn polar_xy(radius: f64, angle: f64) -> (f64, f64) {
-    // Mermaid pie charts use a "12 o'clock is zero" convention with y increasing downwards.
+
     let x = radius * angle.sin();
     let y = -radius * angle.cos();
     (x, y)
 }
 
+#[must_use]
 fn fmt_number(v: f64) -> String {
     if !v.is_finite() {
         return "0".to_string();
     }
+
     if v.abs() < 0.0005 {
         return "0".to_string();
     }
+
     let mut r = (v * 1000.0).round() / 1000.0;
+
     if r.abs() < 0.0005 {
         r = 0.0;
     }
+
     let mut s = format!("{r:.3}");
+
     if s.contains('.') {
         while s.ends_with('0') {
             s.pop();
         }
+
         if s.ends_with('.') {
             s.pop();
         }
     }
+
     if s == "-0" { "0".to_string() } else { s }
 }
 
@@ -104,7 +115,7 @@ pub(crate) fn layout_pie_diagram_typed_with_paint_plan(
         model.acc_descr.as_deref(),
     );
 
-    // Mermaid@11.16 `packages/mermaid/src/diagrams/pie/pieRenderer.ts` constants.
+
     let margin: f64 = 40.0;
     let legend_rect_size = PIE_LEGEND_RECT_SIZE_PX;
     let legend_spacing = PIE_LEGEND_SPACING_PX;
@@ -122,20 +133,22 @@ pub(crate) fn layout_pie_diagram_typed_with_paint_plan(
     let legend_start_y = match legend_position {
         PieLegendPosition::Top => -radius,
         PieLegendPosition::Bottom => radius + legend_step_y,
-        _ => centered_legend_start_y,
+        PieLegendPosition::Left | PieLegendPosition::Right | PieLegendPosition::Center => centered_legend_start_y,
     };
 
     let (total, pie_sections) = visible_pie_sections(model);
 
     let mut slices: Vec<PieSliceLayout> = Vec::new();
+
     if total.is_finite() && total > 0.0 {
-        // Mermaid@11.16 `packages/mermaid/src/diagrams/pie/pieRenderer.ts`:
-        //
-        // - filter out values < 1% (based on the original total)
-        // - preserve input order before D3 pie() computes angles (`sort(null)`)
-        // - angles are normalized over the filtered set (so drawn slices fill the whole circle)
-        // - percentage labels are still computed using the original total
+
+
+
+
+
+
         let pie_total: f64 = pie_sections.iter().map(|s| s.value).sum();
+
         if !pie_sections.is_empty() && pie_total.is_finite() && pie_total > 0.0 {
             if pie_sections.len() == 1 {
                 let s = pie_sections[0];
@@ -155,6 +168,7 @@ pub(crate) fn layout_pie_diagram_typed_with_paint_plan(
                 });
             } else {
                 let mut start = 0.0;
+
                 for s in pie_sections {
                     let frac = (s.value / pie_total).max(0.0);
                     let delta = (frac * std::f64::consts::TAU).max(0.0);
@@ -163,28 +177,34 @@ pub(crate) fn layout_pie_diagram_typed_with_paint_plan(
                     let (tx, ty) = polar_xy(label_radius, mid);
                     let fill = pie_fill_for(paint_plan, &s.label)?;
                     let percent = ((100.0 * (s.value / total)).max(0.0)).round() as i64;
-                    if percent != 0 {
-                        slices.push(PieSliceLayout {
-                            label: s.label.clone(),
-                            value: s.value,
-                            start_angle: start,
-                            end_angle: end,
-                            is_full_circle: false,
-                            percent,
-                            text_x: tx,
-                            text_y: ty,
-                            fill,
-                        });
+
+                    match percent {
+                        0 => {},
+                        _ => {
+                            slices.push(PieSliceLayout {
+                                label: s.label.clone(),
+                                value: s.value,
+                                start_angle: start,
+                                end_angle: end,
+                                is_full_circle: false,
+                                percent,
+                                text_x: tx,
+                                text_y: ty,
+                                fill,
+                            });
+                        },
                     }
+
                     start = end;
                 }
             }
         }
     }
 
-    // Lock the color scale domain based on the drawn slices first, then compute legend colors in
-    // the original section order (this matches Mermaid's zero-slice behavior).
+
+
     let mut legend_items: Vec<PieLegendItemLayout> = Vec::new();
+
     for (i, sec) in model.sections.iter().enumerate() {
         let y = legend_start_y + (i as f64) * legend_step_y;
         let fill = pie_fill_for(paint_plan, &sec.label)?;
@@ -199,6 +219,7 @@ pub(crate) fn layout_pie_diagram_typed_with_paint_plan(
     let legend_style = paint_plan.css_binding().legend_measurement_style();
     let title_style = paint_plan.css_binding().title_measurement_style();
     let mut max_legend_width: f64 = 0.0;
+
     for sec in &model.sections {
         let label = if paint_plan.text_measurement_requested() {
             pie_legend_text(&sec.label, sec.value, model.show_data)
@@ -208,14 +229,15 @@ pub(crate) fn layout_pie_diagram_typed_with_paint_plan(
             sec.label.clone()
         };
         let trimmed = label.trim_end();
-        // Mermaid 11.16 measures pie legend text via a single SVG `<text>` node's
-        // `getBoundingClientRect().width`.
+
+
         let w = if trimmed.is_empty() {
             0.0
         } else {
             let width =
                 measurer.measure_svg_text_bounding_client_rect_width_px(trimmed, &legend_style);
-            if legend_style.font_size == 0.0 {
+
+            if ::core::matches!(::core::primitive::f64::classify(legend_style.font_size), ::core::num::FpCategory::Zero) {
                 0.0
             } else {
                 width
@@ -224,17 +246,20 @@ pub(crate) fn layout_pie_diagram_typed_with_paint_plan(
         max_legend_width = max_legend_width.max(w);
     }
 
-    let title_width = title
-        .map(|title| {
+    let title_width = match title
+        .map(|title_2| {
             let width =
-                measurer.measure_svg_text_bounding_client_rect_width_px(title, &title_style);
-            if title_style.font_size == 0.0 {
+                measurer.measure_svg_text_bounding_client_rect_width_px(title_2, &title_style);
+
+            if ::core::matches!(::core::primitive::f64::classify(title_style.font_size), ::core::num::FpCategory::Zero) {
                 0.0
             } else {
                 width
             }
-        })
-        .unwrap_or(0.0);
+        }) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
 
     let base_w: f64 = center * 2.0;
     let legend_extra_width = legend_rect_size + legend_spacing + max_legend_width;
@@ -275,7 +300,7 @@ pub(crate) fn layout_pie_diagram_typed_with_paint_plan(
     let title_right = base_w / 2.0 + title_width / 2.0;
     let min_x = title_left.min(0.0);
     let max_x = chart_and_legend_width.max(title_right);
-    let max_x = if model.sections.is_empty() {
+    let max_x_2 = if model.sections.is_empty() {
         max_x.max(base_w)
     } else {
         max_x
@@ -285,7 +310,7 @@ pub(crate) fn layout_pie_diagram_typed_with_paint_plan(
         bounds: Some(Bounds {
             min_x,
             min_y: 0.0,
-            max_x,
+            max_x: max_x_2,
             max_y: height,
         }),
         title: title.map(str::to_owned),

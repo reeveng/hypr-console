@@ -11,9 +11,10 @@ use std::collections::{BTreeMap, VecDeque};
 use std::fmt;
 
 use console_core_never::Never;
+use console_core_state_machine::EffectDependencies;
 use console_program_contract::{Effect, Elapsed, Event, Task};
 
-use crate::{Invocation, Platform, Subscribed, Wake};
+use crate::{Clock, Invocation, Platform, Subscribed, Wake};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct After<E> {
@@ -114,14 +115,16 @@ impl<E, F> Simulation<E, F> {
   }
 }
 
-impl<E: Clone, F: Clone + PartialEq> Platform for Simulation<E, F> {
-  type Event = E;
-  type Effect = F;
-  type Error = SimulationError;
-
+impl<E, F> Clock for Simulation<E, F> {
   fn elapsed(&self) -> Result<Elapsed, Never> {
     Ok(self.now)
   }
+}
+
+impl<E: Clone, F: Clone + PartialEq + EffectDependencies> Platform for Simulation<E, F> {
+  type Event = E;
+  type Effect = F;
+  type Error = SimulationError;
 
   fn listening(&self) -> Result<Subscribed, Never> {
     Ok(self.listening)

@@ -5,14 +5,15 @@ use std::sync::Arc;
 use super::{InlineTextRun, TextMeasurer, TextMetrics, TextStyle, WrapMode};
 use crate::mermaid_style::{CssFontSizeContext, TextStyleCascade, visit_parsed_style_declarations};
 
+#[must_use]
 pub(super) fn same_font(left: Option<&TextStyle>, right: Option<&TextStyle>) -> bool {
     match (left, right) {
         (None, None) => true,
-        (Some(left), Some(right)) => {
-            left.font_size == right.font_size
-                && left.font_family == right.font_family
-                && left.font_weight == right.font_weight
-                && left.font_style == right.font_style
+        (Some(left_2), Some(right_2)) => {
+            <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&left_2.font_size, &right_2.font_size) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
+                && left_2.font_family == right_2.font_family
+                && left_2.font_weight == right_2.font_weight
+                && left_2.font_style == right_2.font_style
         }
         _ => false,
     }
@@ -27,6 +28,7 @@ pub(super) struct TerminalFonts {
 
 impl TerminalFonts {
     #[cfg(feature = "diagram-block")]
+    #[must_use]
     pub(super) fn new(style: &TextStyle, root_font_size: f64) -> Self {
         Self {
             root_font_size,
@@ -36,6 +38,7 @@ impl TerminalFonts {
         }
     }
 
+    #[must_use]
     pub(super) fn current(&self) -> &Arc<TextStyle> {
         &self
             .stack
@@ -44,24 +47,30 @@ impl TerminalFonts {
             .1
     }
 
+    #[must_use]
     pub(super) fn has_font_declarations(&self) -> bool {
         self.has_font_declarations
     }
 
     pub(super) fn observe_tag(&mut self, name: &str, tag: &str, closing: bool) {
         if closing {
-            if let Some(index) = self.stack.iter().rposition(|(element, _)| element == name) {
-                self.stack.truncate(index.max(1));
+            match self.stack.iter().rposition(|(element, _)| element == name) {
+                Some(index) => {
+                    self.stack.truncate(index.max(1));
+                },
+                ::core::option::Option::None => {},
             }
+
             return;
         }
+
         let parent = self.current();
         let mut cascade = TextStyleCascade::new(
             parent,
             CssFontSizeContext::new(parent.font_size, self.root_font_size),
         );
-        // Element primitives precede authored declarations. Explicit inherit reads the parent,
-        // so font-weight:normal/inherit on strong can override its intrinsic emphasis.
+
+
         match name {
             "strong" | "b" if !super::style_requests_bold_font_weight(parent) => {
                 cascade.observe("font-weight", "700", false);
@@ -72,28 +81,34 @@ impl TerminalFonts {
             "code" => cascade.observe("font-family", "monospace", false),
             _ => {}
         }
+
         let opening = quick_xml::events::BytesStart::from_content(tag, name.len());
         let mut has_font_declarations = false;
-        if let Some(attribute) = opening
+
+        match opening
             .attributes()
             .with_checks(false)
             .filter_map(Result::ok)
-            .find(|attribute| attribute.key.as_ref().eq_ignore_ascii_case("style"))
-        {
-            let declarations =
-                merman_model::text::decode_html_entities_to_unicode(attribute.value.as_ref());
-            visit_parsed_style_declarations(&declarations, |declaration| {
-                if matches!(
-                    declaration.property(),
-                    "font-size" | "font-family" | "font-weight" | "font-style"
-                ) {
-                    has_font_declarations = true;
-                    cascade.observe_declaration(&declaration);
-                }
-            });
+            .find(|attribute| attribute.key.as_ref().eq_ignore_ascii_case("style")) {
+            Some(attribute) => {
+                let declarations =
+                    merman_model::text::decode_html_entities_to_unicode(attribute.value.as_ref());
+                visit_parsed_style_declarations(&declarations, |declaration| {
+                    if matches!(
+                        declaration.property(),
+                        "font-size" | "font-family" | "font-weight" | "font-style"
+                    ) {
+                        has_font_declarations = true;
+                        cascade.observe_declaration(&declaration);
+                    }
+                });
+            },
+            ::core::option::Option::None => {},
         }
+
         let resolved = Arc::new(cascade.finish().into_owned());
         self.has_font_declarations |= has_font_declarations;
+
         if !tag.trim_end().ends_with('/') {
             self.stack.push((name.to_owned(), resolved));
         }
@@ -103,6 +118,7 @@ impl TerminalFonts {
         self.line_sizes.push(self.current().font_size);
     }
 
+    #[must_use]
     pub(super) fn measure<M: TextMeasurer + ?Sized>(
         &self,
         measurer: &M,
@@ -116,7 +132,10 @@ impl TerminalFonts {
             .enumerate()
             .map(|(index, runs)| {
                 super::measure_inline_runs_width_px(measurer, runs, base, WrapMode::HtmlLike, false)
-                    + icon_widths.get(index).copied().unwrap_or(0.0)
+                    + match icon_widths.get(index).copied() {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0.0,
+                    }
             })
             .fold(0.0_f64, f64::max);
         let line_count = runs_by_line.len().max(explicit_line_boxes);
@@ -136,8 +155,8 @@ impl TerminalFonts {
                     .filter(|run| !run.text.is_empty())
                     .map(|run| {
                         let style = run.terminal_style.as_deref().unwrap_or(base);
-                        // Use the routed terminal measurement for host-specific vertical metrics.
-                        // Block's inherited 1.5 line height still supplies the CSS line-box floor.
+
+
                         measurer
                             .measure_html_line_height_px(&run.text, style)
                             .max(style.font_size.max(1.0) * 1.5)

@@ -15,6 +15,7 @@ enum SelfLoopSide {
     Right,
 }
 
+#[must_use]
 fn default_side(rankdir: RankDir) -> SelfLoopSide {
     match rankdir {
         RankDir::BT => SelfLoopSide::Bottom,
@@ -24,13 +25,17 @@ fn default_side(rankdir: RankDir) -> SelfLoopSide {
     }
 }
 
+#[must_use]
 fn side_from_layout_hints(
     node_center: &LayoutPoint,
     rankdir: RankDir,
     hints: &[LayoutPoint],
 ) -> SelfLoopSide {
-    if hints.is_empty() {
-        return default_side(rankdir);
+    match hints {
+        [] => {
+            return default_side(rankdir);
+        },
+        [_, ..] => {},
     }
 
     let (sum_x, sum_y) = hints
@@ -58,8 +63,9 @@ fn side_from_layout_hints(
     }
 }
 
-// Port of Mermaid 11.16.0's getSelfLoopSide, getSelfLoopPoints, and
-// getSelfLoopLabelPosition helpers in the Dagre rendering adapter.
+
+
+#[must_use]
 pub(crate) fn compact_self_loop_geometry(
     node_center: &LayoutPoint,
     node_size: Size,

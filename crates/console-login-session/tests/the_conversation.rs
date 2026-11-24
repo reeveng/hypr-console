@@ -5,7 +5,8 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::PathBuf;
 
 use console_login_session::{
-  Credentials, LoginError, Request, Rules, Stage, authenticate, trusted,
+  Credentials, LoginError, Request, Rules, Stage, authenticate, authenticate_without_secret,
+  trusted,
 };
 
 const SERVICE: &str = "console-login-test";
@@ -100,6 +101,52 @@ fn a_wrong_pattern_is_refused_before_anything_past_the_secret_is_asked()
       Ok(())
     }
   }
+}
+
+#[test]
+fn a_secretless_check_cannot_answer_a_password_prompt() -> Result<(), Box<dyn Error>> {
+  let folder = rules("secretless")?;
+  let person = person()?;
+  let request = Request {
+    service: SERVICE,
+    person: &person,
+    rules: Rules::Directory(&folder),
+  };
+
+  assert!(matches!(authenticate_without_secret(request), Err(_reason)));
+
+  Ok(())
+}
+
+#[test]
+fn console_pam_denies_missing_and_incomplete_services() -> Result<(), Box<dyn Error>> {
+  let folder = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("console-pam-fallback");
+  fs::create_dir_all(&folder)?;
+  console_core_atomic_writes::whole(
+    &folder.join("other"),
+    include_bytes!("../../../files/etc/console-auth/other"),
+  )?;
+  console_core_atomic_writes::whole(
+    &folder.join("incomplete"),
+    b"account required pam_permit.so\n",
+  )?;
+
+  let person = person()?;
+
+  for service in ["missing", "incomplete"] {
+    let request = Request {
+      service,
+      person: &person,
+      rules: Rules::Directory(&folder),
+    };
+    assert!(matches!(authenticate_without_secret(request), Err(_reason)));
+    assert!(matches!(
+      authenticate(request, "fixture password"),
+      Err(_reason)
+    ));
+  }
+
+  Ok(())
 }
 
 #[test]

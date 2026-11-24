@@ -4,36 +4,56 @@ impl<'input> Iterator for Lexer<'input> {
     type Item = std::result::Result<(usize, Tok, usize), LexError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(tok) = self.pending.pop_front() {
-            return Some(tok);
+        match self.pending.pop_front() {
+            Some(tok) => {
+                return Some(tok);
+            },
+            ::core::option::Option::None => {},
         }
 
         if self.pos >= self.input.len() {
             return None;
         }
 
-        // Mermaid's LINK and START_LINK rules precede NEWLINE/SPACE and include leading `\s*`.
-        // Give an operator spanning line or Unicode whitespace the same longest-match priority.
-        if let Some(res) = self.lex_arrow_and_label() {
-            return Some(res);
+
+
+        match self.lex_arrow_and_label() {
+            Some(res) => {
+                return Some(res);
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(sep) = self.lex_sep() {
-            self.allow_header_direction = false;
-            return Some(Ok(sep));
+        match self.lex_sep() {
+            Some(sep) => {
+                self.allow_header_direction = false;
+                return Some(Ok(sep));
+            },
+            ::core::option::Option::None => {},
         }
+
         self.skip_ws();
+
         if self.pos >= self.input.len() {
             return None;
         }
-        if let Some(sep) = self.lex_sep() {
-            self.allow_header_direction = false;
-            return Some(Ok(sep));
+
+        match self.lex_sep() {
+            Some(sep) => {
+                self.allow_header_direction = false;
+                return Some(Ok(sep));
+            },
+            ::core::option::Option::None => {},
         }
+
         if self.allow_header_direction {
-            if let Some(direction) = self.lex_direction() {
-                return Some(Ok(direction));
+            match self.lex_direction() {
+                Some(direction) => {
+                    return Some(Ok(direction));
+                },
+                ::core::option::Option::None => {},
             }
+
             let start = self.pos;
             let rest = &self.input[start..];
             let value_len = rest
@@ -52,85 +72,144 @@ impl<'input> Iterator for Lexer<'input> {
                 error
             }));
         }
+
         let start = self.pos;
-        if let Some(error) = self.lex_reserved_token_error() {
-            return Some(Err(error));
+
+        match self.lex_reserved_token_error() {
+            Some(error) => {
+                return Some(Err(error));
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(tok) = self.lex_direction_stmt() {
-            return Some(tok);
+
+        match self.lex_direction_stmt() {
+            Some(tok) => {
+                return Some(tok);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(res) = self.lex_style_stmt() {
-            return Some(res);
+
+        match self.lex_style_stmt() {
+            Some(res) => {
+                return Some(res);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(res) = self.lex_classdef_stmt() {
-            return Some(res);
+
+        match self.lex_classdef_stmt() {
+            Some(res) => {
+                return Some(res);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(res) = self.lex_class_assign_stmt() {
-            return Some(res);
+
+        match self.lex_class_assign_stmt() {
+            Some(res) => {
+                return Some(res);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(res) = self.lex_click_stmt() {
-            return Some(res);
+
+        match self.lex_click_stmt() {
+            Some(res) => {
+                return Some(res);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(res) = self.lex_link_style_stmt() {
-            return Some(res);
+
+        match self.lex_link_style_stmt() {
+            Some(res) => {
+                return Some(res);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(res) = self.lex_shape_data() {
-            return Some(res);
+
+        match self.lex_shape_data() {
+            Some(res) => {
+                return Some(res);
+            },
+            ::core::option::Option::None => {},
         }
+
         if self.starts_with_kw("flowchart-elk") {
             self.pos += "flowchart-elk".len();
             self.allow_header_direction = true;
             return Some(Ok((start, Tok::KwFlowchartElk, self.pos)));
         }
+
         if self.starts_with_kw("swimlane-beta") {
             self.pos += "swimlane-beta".len();
             self.allow_header_direction = true;
             return Some(Ok((start, Tok::KwSwimlane, self.pos)));
         }
+
         if self.starts_with_kw("flowchart") {
             self.pos += "flowchart".len();
             self.allow_header_direction = true;
             return Some(Ok((start, Tok::KwFlowchart, self.pos)));
         }
+
         if self.starts_with_kw("graph") {
             self.pos += "graph".len();
             self.allow_header_direction = true;
             return Some(Ok((start, Tok::KwGraph, self.pos)));
         }
+
         if self.starts_with_kw("subgraph") {
             self.pos += "subgraph".len();
             let keyword_end = self.pos;
-            if let Some(header) = self.lex_subgraph_header_after_keyword(start) {
-                self.pending.push_back(header);
+
+            match self.lex_subgraph_header_after_keyword(start) {
+                Some(header) => {
+                    self.pending.push_back(header);
+                },
+                ::core::option::Option::None => {},
             }
+
             return Some(Ok((start, Tok::KwSubgraph, keyword_end)));
         }
+
         if self.starts_with_kw("end") {
             self.pos += "end".len();
             return Some(Ok((start, Tok::KwEnd, self.pos)));
         }
 
-        if let Some(tok) = self.lex_style_sep() {
-            return Some(Ok(tok));
+        match self.lex_style_sep() {
+            Some(tok) => {
+                return Some(Ok(tok));
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(res) = self.lex_node_label() {
-            return Some(res);
+        match self.lex_node_label() {
+            Some(res) => {
+                return Some(res);
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(tok) = self.lex_edge_id() {
-            return Some(Ok(tok));
+        match self.lex_edge_id() {
+            Some(tok) => {
+                return Some(Ok(tok));
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(tok) = self.lex_id() {
-            return Some(Ok(tok));
+        match self.lex_id() {
+            Some(tok) => {
+                return Some(Ok(tok));
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(tok) = self.lex_amp() {
-            return Some(Ok(tok));
+        match self.lex_amp() {
+            Some(tok) => {
+                return Some(Ok(tok));
+            },
+            ::core::option::Option::None => {},
         }
 
-        // Keep recovery and error spans on UTF-8 boundaries after an unsupported character.
+
         self.pos += self.input[start..].chars().next().unwrap().len_utf8();
         Some(Err(LexError::with_span(
             format!("Unexpected character at {start}"),

@@ -15,6 +15,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_triangle_extract(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (metrics, p, h, path_data) = prepare_triangle_extract_geometry(ctx, common, label);
+
     if common.look_is_hand_drawn() {
         let rough_paths = super::super::helpers::timed_node_roughjs(common.timing, details, || {
             roughjs_paths_for_hand_drawn_svg_path(
@@ -25,6 +26,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_triangle_extract(
                 common.hand_drawn_seed,
             )
         });
+
         if let Some((fill_d, stroke_d)) =
             rough_paths.filter(|(fill_d, stroke_d)| !fill_d.is_empty() && !stroke_d.is_empty())
         {
@@ -38,12 +40,12 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_triangle_extract(
                 escape_attr(common.fill_color),
                 escape_attr(&stroke_d),
                 escape_attr(common.stroke_color),
-                util::fmt(common.stroke_width as f64),
+                util::fmt(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
                 escape_attr(common.stroke_dasharray),
             );
         } else {
-            // Keep the complete classic geometry when RoughJS admission fails, without
-            // emitting a partial hand-drawn shape with empty paths.
+
+
             let _ = write!(
                 out,
                 r#"<path d="{}" class="outer-path" transform="translate({}, {})" style="{}"/>"#,
@@ -75,7 +77,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_triangle_extract(
             escape_attr(common.style),
             escape_attr(&stroke_d),
             escape_attr(common.stroke_color),
-            util::fmt(common.stroke_width as f64),
+            util::fmt(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.stroke_dasharray),
             escape_attr(common.style),
         );
@@ -106,6 +108,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_triangle_extract(
     label.dy = h / 2.0 - metrics.height / 2.0 - padding_term + bbox_y_offset;
 }
 
+#[must_use]
 fn prepare_triangle_extract_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,

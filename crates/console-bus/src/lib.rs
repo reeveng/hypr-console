@@ -31,11 +31,10 @@
 //! smaller still: `call`, which waits for the one answer it asked for,
 //! `subscribe`, which asks the bus for signals by a rule, a `Set` written for
 //! somebody else's service, and two readings of a value, a truth and an entry
-//! in a dictionary looked up by its key. Every other caller that only wants an
-//! answer still goes out through `busctl`, which
-//! `console-core-external-programs` already names, and moves here when its
-//! crate is next opened rather than all at once.
+//! in a dictionary looked up by its key. Callers still speaking to the bus
+//! through `busctl` use [`cli`] to construct the command.
 
+pub mod cli;
 pub mod connection;
 pub mod introspection;
 pub mod messages;

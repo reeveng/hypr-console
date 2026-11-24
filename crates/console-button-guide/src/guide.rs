@@ -42,8 +42,8 @@
 
 use std::collections::BTreeSet;
 
+use console_application_files::doing::{self, FileAction};
 use console_core_never::Never;
-use console_files::doing::{self, FileAction};
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_input_controller::actions::{Context, Table, Task};
 use console_input_controller::mode::Mode;

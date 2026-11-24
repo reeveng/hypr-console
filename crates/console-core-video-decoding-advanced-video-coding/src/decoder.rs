@@ -366,17 +366,17 @@ fn ensure_slice_references(kind: SliceType, references: &[Vec<RefPic>; 2]) -> Re
 
   match kind {
     SliceType::P | SliceType::Sp | SliceType::B => {
-      ensure!(
+      ensure(
         !first.is_empty(),
-        "no reference pictures available for inter slice"
-      );
+        || "no reference pictures available for inter slice",
+      )?;
     }
     SliceType::I | SliceType::Si => {}
   }
 
   match ::core::primitive::bool::then_some(kind == SliceType::B, ()) {
     ::core::option::Option::Some(()) => {
-      ensure!(!second.is_empty(), "empty RefPicList1 in B slice");
+      ensure(!second.is_empty(), || "empty RefPicList1 in B slice")?;
     }
     ::core::option::Option::None => {}
   }
@@ -532,13 +532,15 @@ impl Decoder {
   }
 
   pub fn configure_avcc(&mut self, avcc: &[u8]) -> Result<()> {
-    ensure!(avcc.len() >= 7, "avcC too short");
+    ensure(avcc.len() >= 7, || "avcC too short")?;
     let prefix = match avcc.first_chunk::<6>() {
       Some(prefix) => prefix,
       None => return invalid("avcC too short"),
     };
     let &[version, _, _, _, framing, sps_count] = prefix;
-    ensure!(version == 1, "unsupported avcC version {version}");
+    ensure(version == 1, || {
+      format!("unsupported avcC version {version}")
+    })?;
     self.nal_length_size = Some((framing & 3).wrapping_add(1));
     let remainder = match avcc.get(6..) {
       Some(bytes) => bytes,

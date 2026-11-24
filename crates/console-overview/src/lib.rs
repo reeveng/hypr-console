@@ -23,12 +23,13 @@
 //! means and what the compositor is asked for. The binary draws what it says
 //! and carries it out.
 
-mod mapping;
-pub mod pictures;
+pub use console_compositor::thumbnails as pictures;
 
 use std::collections::BTreeMap;
 
-use console_compositor::{Window, quote};
+use console_compositor::{
+  Coordinates, Direction, Operation, Script, Window, WindowAction, WindowChange,
+};
 use console_core_color::palette::Wearing;
 use console_core_fonts::TextStyle;
 use console_core_geometry::{Point, Size};
@@ -541,12 +542,12 @@ impl Side {
     })
   }
 
-  fn preselected(self) -> Result<&'static str, Never> {
+  fn direction(self) -> Result<Direction, Never> {
     Ok(match self {
-      Side::Above => "preselect u",
-      Side::Below => "preselect d",
-      Side::Left => "preselect l",
-      Side::Right => "preselect r",
+      Side::Above => Direction::Up,
+      Side::Below => Direction::Down,
+      Side::Left => Direction::Left,
+      Side::Right => Direction::Right,
     })
   }
 }
@@ -661,10 +662,6 @@ impl Stroke {
   }
 }
 
-fn window_named(address: &str) -> Result<String, Never> {
-  quote(&format!("address:{address}"))
-}
-
 pub fn landing(overview: &Overview, held: &Dragged) -> Result<Option<Frame>, Never> {
   let own = overview
     .cards
@@ -706,64 +703,56 @@ pub fn landing(overview: &Overview, held: &Dragged) -> Result<Option<Frame>, Nev
   })
 }
 
-fn dispatched(dispatcher: &str) -> Result<String, Never> {
-  Ok(format!("hl.dispatch({dispatcher})"))
-}
-
-pub fn carried(address: &str, drop: Drop) -> Result<Option<String>, Never> {
-  let Ok(window) = window_named(address);
-
-  Ok(match drop {
-    Drop::Onto(PlaceId(id)) => {
-      let Ok(place) = quote(&id.to_string());
-      let Ok(moving) = dispatched(&format!(
-        "hl.dsp.window.move({{ window = {window}, workspace = {place}, follow = false }})"
-      ));
-
-      Some(moving)
-    }
+pub fn carried(address: &str, drop: Drop) -> Result<Option<Script>, Never> {
+  let script = match drop {
+    Drop::Onto(PlaceId(id)) => Script::operations(&[Operation::ChangeWindow {
+      address,
+      change: WindowChange::MoveToWorkspace(&id.to_string()),
+    }]),
     Drop::Beside {
       place: PlaceId(id),
       window: beside,
       side,
     } => {
-      let Ok(place) = quote(&id.to_string());
-      let Ok(neighbour) = window_named(&beside);
-      let Ok(preselect) = side.preselected();
-      let Ok(side_asked) = quote(preselect);
-      let Ok(focusing) = dispatched(&format!("hl.dsp.focus({{ window = {neighbour} }})"));
-      let Ok(choosing) = dispatched(&format!("hl.dsp.layout({side_asked})"));
-      let Ok(moving) = dispatched(&format!(
-        "hl.dsp.window.move({{ window = {window}, workspace = {place}, follow = false }})"
-      ));
+      let Ok(side_2) = side.direction();
 
-      Some(format!("{focusing} {choosing} {moving}"))
+      Script::operations(&[
+        Operation::Window {
+          address: &beside,
+          action: WindowAction::Focus,
+        },
+        Operation::Preselect(side_2),
+        Operation::ChangeWindow {
+          address,
+          change: WindowChange::MoveToWorkspace(&id.to_string()),
+        },
+      ])
     }
-    Drop::New => {
-      let Ok(place) = quote(EMPTY_PLACE);
-      let Ok(moving) = dispatched(&format!(
-        "hl.dsp.window.move({{ window = {window}, workspace = {place}, follow = false }})"
-      ));
+    Drop::New => Script::operations(&[Operation::ChangeWindow {
+      address,
+      change: WindowChange::MoveToWorkspace(EMPTY_PLACE),
+    }]),
+    Drop::Close => Script::operations(&[Operation::Window {
+      address,
+      action: WindowAction::Close,
+    }]),
+    Drop::Back => return Ok(None),
+  };
 
-      Some(moving)
-    }
-    Drop::Close => {
-      let Ok(action) = console_compositor::WindowAction::Close.dispatcher(address);
-      let Ok(closing) = dispatched(&action);
-
-      Some(closing)
-    }
-    Drop::Back => None,
-  })
+  script.map(Some)
 }
 
-pub fn resized(overview: &Overview, left: &str, by: HorizontalPixels) -> Result<String, Never> {
-  let Ok(window) = window_named(left);
+pub fn resized(overview: &Overview, left: &str, by: HorizontalPixels) -> Result<Script, Never> {
   let Ok(across) = whole_i32(by.0 / overview.shrink.0.max(f64::EPSILON));
 
-  dispatched(&format!(
-    "hl.dsp.window.resize({{ window = {window}, x = {across}, y = 0, relative = true }})"
-  ))
+  Script::operations(&[Operation::ChangeWindow {
+    address: left,
+    change: WindowChange::Resize {
+      x: i64::from(across),
+      y: 0,
+      coordinates: Coordinates::Relative,
+    },
+  }])
 }
 
 pub fn activate(
@@ -788,28 +777,20 @@ pub fn activate(
   })
 }
 
-pub fn gone_to(hit: &Hit) -> Result<Option<String>, Never> {
-  Ok(match hit {
-    Hit::Tile { address, .. } => {
-      let Ok(action) = console_compositor::WindowAction::Focus.dispatcher(address);
-      let Ok(focusing) = dispatched(&action);
-
-      Some(focusing)
-    }
+pub fn gone_to(hit: &Hit) -> Result<Option<Script>, Never> {
+  let script = match hit {
+    Hit::Tile { address, .. } => Script::operations(&[Operation::Window {
+      address,
+      action: WindowAction::Focus,
+    }]),
     Hit::Card(Target::Place(PlaceId(id))) => {
-      let Ok(place) = quote(&id.to_string());
-      let Ok(focusing) = dispatched(&format!("hl.dsp.focus({{ workspace = {place} }})"));
-
-      Some(focusing)
+      Script::operations(&[Operation::FocusWorkspace(&id.to_string())])
     }
-    Hit::Card(Target::New) => {
-      let Ok(place) = quote(EMPTY_PLACE);
-      let Ok(focusing) = dispatched(&format!("hl.dsp.focus({{ workspace = {place} }})"));
+    Hit::Card(Target::New) => Script::operations(&[Operation::FocusWorkspace(EMPTY_PLACE)]),
+    Hit::Divider { .. } | Hit::Close | Hit::None => return Ok(None),
+  };
 
-      Some(focusing)
-    }
-    Hit::Divider { .. } | Hit::Close | Hit::None => None,
-  })
+  script.map(Some)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -849,8 +830,8 @@ pub struct Carried {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Chose {
   Stay,
-  Ask(String),
-  AskAndPutAway(String),
+  Ask(Script),
+  AskAndPutAway(Script),
   PutAway,
 }
 
@@ -1568,7 +1549,8 @@ mod tests {
   #[test]
   fn a_window_dropped_beside_another_asks_for_that_side_of_it_before_it_moves() {
     assert_eq!(
-            carried("0x1", Drop::Beside { place: PlaceId(3), window: "0x2".to_string(), side: Side::Below }),
+            carried("0x1", Drop::Beside { place: PlaceId(3), window: "0x2".to_string(), side: Side::Below })
+                .map(|asked| asked.map(|script| script.to_string())),
             Ok(Some(
                 r#"hl.dispatch(hl.dsp.focus({ window = "address:0x2" })) hl.dispatch(hl.dsp.layout("preselect d")) hl.dispatch(hl.dsp.window.move({ window = "address:0x1", workspace = "3", follow = false }))"#
                     .to_string()
@@ -1658,7 +1640,7 @@ mod tests {
       Ok(Drop::Close)
     );
     assert_eq!(
-      carried("0x1", Drop::Close),
+      carried("0x1", Drop::Close).map(|asked| asked.map(|script| script.to_string())),
       Ok(Some(
         r#"hl.dispatch(hl.dsp.window.close({ window = "address:0x1" }))"#.to_string()
       ))
@@ -1709,7 +1691,7 @@ mod tests {
   #[test]
   fn moving_a_window_names_it_and_does_not_follow_it() {
     assert_eq!(
-            carried("0x1", Drop::Onto(PlaceId(3))),
+            carried("0x1", Drop::Onto(PlaceId(3))).map(|asked| asked.map(|script| script.to_string())),
             Ok(Some(r#"hl.dispatch(hl.dsp.window.move({ window = "address:0x1", workspace = "3", follow = false }))"#.to_string()))
         );
     assert_eq!(carried("0x1", Drop::Back), Ok(None));
@@ -1721,7 +1703,7 @@ mod tests {
     let by = HorizontalPixels(10.0 * laid.shrink.0);
 
     assert_eq!(
-            resized(&laid, "0x1", by),
+            resized(&laid, "0x1", by).map(|script| script.to_string()),
             Ok(r#"hl.dispatch(hl.dsp.window.resize({ window = "address:0x1", x = 10, y = 0, relative = true }))"#.to_string())
         );
   }
@@ -1757,10 +1739,11 @@ mod tests {
     assert_eq!(first, Choosing::Window(0));
     assert_eq!(stay, Chose::Stay);
     assert_eq!(chosen_window(&laid, &second), Ok(Some("b".to_string())));
-    assert_eq!(
+    assert!(matches!(
       went,
-      Chose::AskAndPutAway(r#"hl.dispatch(hl.dsp.focus({ window = "address:b" }))"#.to_string())
-    );
+      Chose::AskAndPutAway(script) if script.to_string() ==
+        r#"hl.dispatch(hl.dsp.focus({ window = "address:b" }))"#
+    ));
     assert_eq!(
       chose(&laid, &Choosing::Window(2), Key::Right).map(|(to, _)| to),
       Ok(Choosing::Window(0))
@@ -1775,10 +1758,11 @@ mod tests {
     let Ok((back, dropped_there)) = chose(&laid, &aimed, Key::Choose);
 
     assert_eq!(back, Choosing::Window(0));
-    assert_eq!(
-            dropped_there,
-            Chose::Ask(r#"hl.dispatch(hl.dsp.window.move({ window = "address:a", workspace = "3", follow = false }))"#.to_string())
-        );
+    assert!(matches!(
+      dropped_there,
+      Chose::Ask(script) if script.to_string() ==
+        r#"hl.dispatch(hl.dsp.window.move({ window = "address:a", workspace = "3", follow = false }))"#
+    ));
     assert!(
       matches!(held_by_the_pad(&laid, &aimed), Ok(Some(Dragged { ref address, .. })) if address == "a")
     );
@@ -1792,10 +1776,11 @@ mod tests {
     let Ok((_, closed)) = chose(&laid, &up, Key::Choose);
     let Ok((put_back, nothing)) = chose(&laid, &up, Key::Back);
 
-    assert_eq!(
+    assert!(matches!(
       closed,
-      Chose::Ask(r#"hl.dispatch(hl.dsp.window.close({ window = "address:b" }))"#.to_string())
-    );
+      Chose::Ask(script) if script.to_string() ==
+        r#"hl.dispatch(hl.dsp.window.close({ window = "address:b" }))"#
+    ));
     assert_eq!((put_back, nothing), (Choosing::Window(1), Chose::Stay));
   }
 
@@ -1813,9 +1798,9 @@ mod tests {
   #[test]
   fn tapping_the_new_card_goes_to_an_empty_desktop() {
     assert_eq!(
-      gone_to(&Hit::Card(Target::New)),
+      gone_to(&Hit::Card(Target::New)).map(|asked| asked.map(|script| script.to_string())),
       Ok(Some(
-        r#"hl.dispatch(hl.dsp.focus({ workspace = "empty" }))"#.to_string()
+        r#"hl.dispatch(hl.dsp.focus({workspace = "empty"}))"#.to_string()
       ))
     );
   }

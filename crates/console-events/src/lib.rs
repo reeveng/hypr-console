@@ -32,11 +32,9 @@
 //! understood every source it relays is a pool that has to be changed whenever
 //! a source says something new, and the program that asked to hear an event
 //! group is the one that knows what its words mean. So a line arrives as a
-//! line, and `pool` is arithmetic over who wants what. The one source that is
-//! not a line is bluez, which is heard on the system bus as messages: those
-//! are narrowed where they arrive, by `bluetooth`, because a match rule cannot
-//! narrow them far enough and a message handed on as text is a format the
-//! listener would have to read back into a message.
+//! line, and `pool` is arithmetic over who wants what. Bluetooth changes and
+//! Wi-Fi scan completion arrive as D-Bus messages. Their sources inspect
+//! property dictionaries and hand a change marker to the pool.
 
 pub mod again;
 pub mod bluetooth;
@@ -45,6 +43,7 @@ pub mod pool;
 pub mod serving;
 pub mod sources;
 pub mod watching;
+mod wifi;
 
 pub use console_operating_system_linux::events::{subscription, wire};
 pub mod place;

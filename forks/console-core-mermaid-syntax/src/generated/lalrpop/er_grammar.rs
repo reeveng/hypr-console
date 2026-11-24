@@ -1,6 +1,6 @@
-// auto-generated: "lalrpop 0.23.2"
-// sha3: 1f7da3837f2093b65fbe46ae8a57c7406b2d31e63d026bc190c7337b64b1ce4d
-// features:
+
+
+
 use crate::diagrams::er::{Action, Attribute, ErActionArena, ErActionList, RelSpec, SpannedDirection, SpannedIdList, Tok};
 #[allow(unused_extern_crates)]
 extern crate lalrpop_util as __lalrpop_util;
@@ -21,6 +21,7 @@ mod __parse__Actions {
     #[allow(unused_extern_crates)]
     extern crate alloc;
     use super::__ToTriple;
+
     #[allow(dead_code)]
     pub(crate) enum __Symbol<>
      {
@@ -38,465 +39,469 @@ mod __parse__Actions {
         Variant11(RelSpec),
         Variant12((String, String, String)),
     }
+
     const __ACTION: &[i8] = &[
-        // State 0
+
         2, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 1
+
         2, -32, -32, 0, 0, 0, -32, -32, -32, -32, 0, 0, 0, 0, 0, 0, 0, 0, -32, -32, -32, -32, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 2
+
         2, 0, -32, 0, 0, 0, -32, -32, -32, -32, 0, 0, 0, 0, 0, 0, 0, 0, -32, -32, -32, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 3
+
         0, 0, 10, 0, 0, 0, 51, 49, 50, 52, 0, 0, 0, 0, 0, 0, 0, 0, 8, 7, 6, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 4
+
         2, 0, -32, 0, 0, 0, -32, -32, -32, -32, 0, 0, 0, 0, 0, 0, 0, 0, -32, -32, -32, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 5
+
         0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 6
+
         0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 7
+
         0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 8
+
         0, 0, 57, 58, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 9
+
         -26, 0, -26, 0, 0, 0, -26, -26, -26, -26, 15, 0, 63, 0, 16, 0, 0, 0, -26, -26, -26, -26, -26, 65, 64, 61, 62, 60, 0, 0, 0, 0, 0,
-        // State 10
+
         0, 0, 10, 0, 0, 0, 51, 49, 50, 52, 0, 0, 0, 0, 0, 0, 0, 0, 8, 7, 6, 9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 11
+
         0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 12
+
         18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 13
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 70, 71, 0, 0, 0,
-        // State 14
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 0, 0,
-        // State 15
+
         0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 16
+
         0, 0, 10, 0, 0, 0, 51, 49, 50, 52, 0, 0, 0, 0, 0, 0, 0, 0, 8, 7, 6, 9, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 17
+
         2, 0, -32, 0, 0, 0, -32, -32, -32, -32, 0, 0, 0, 0, 0, 0, 0, 0, -32, -32, -32, -32, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 18
+
         0, 0, 81, 82, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 19
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 65, 64, 61, 62, 60, 0, 0, 0, 0, 0,
-        // State 20
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 0, 0,
-        // State 21
+
         -25, 0, -25, 0, 0, 0, -25, -25, -25, -25, 28, 0, 0, 0, 0, 0, 0, 0, -25, -25, -25, -25, -25, 65, 64, 61, 62, 60, 0, 0, 0, 0, 0,
-        // State 22
+
         2, 0, -32, 0, 0, 0, -32, -32, -32, -32, 0, 0, 0, 0, 0, 0, 0, 0, -32, -32, -32, -32, -32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 23
+
         0, 0, 81, 82, 0, 0, 0, 0, 0, 0, 0, 0, 0, 90, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 24
+
         0, 0, 92, 93, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 25
+
         0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 26
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -5, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -5, 96, 97,
-        // State 27
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 0, 0,
-        // State 28
+
         0, 0, 10, 0, 0, 0, 51, 49, 50, 52, 0, 0, 0, 0, 0, 0, 0, 0, 8, 7, 6, 9, 78, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 29
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 0, 0,
-        // State 30
+
         0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 31
+
         0, 0, 92, 93, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 32
+
         0, 0, 92, 93, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 33
+
         0, 0, 0, 0, 53, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 34
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -13, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 75, 0, 0,
-        // State 35
+
         0, 0, 92, 93, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 36
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 37
+
         0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 38
+
         0, -33, -33, 0, 0, 0, -33, -33, -33, -33, 0, 0, 0, 0, 0, 0, 0, 0, -33, -33, -33, -33, -33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 39
+
         -46, 0, -46, 0, 0, 0, -46, -46, -46, -46, 0, 0, 0, 0, 0, 0, 0, 0, -46, -46, -46, -46, -46, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 40
+
         -48, 0, -48, 0, 0, 0, -48, -48, -48, -48, 0, 0, 0, 0, 0, 0, 0, 0, -48, -48, -48, -48, -48, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 41
+
         -49, 0, -49, 0, 0, 0, -49, -49, -49, -49, 0, 0, 0, 0, 0, 0, 0, 0, -49, -49, -49, -49, -49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 42
+
         -47, 0, -47, 0, 0, 0, -47, -47, -47, -47, 0, 0, 0, 0, 0, 0, 0, 0, -47, -47, -47, -47, -47, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 43
+
         -45, 0, -45, 0, 0, 0, -45, -45, -45, -45, 0, 0, 0, 0, 0, 0, 0, 0, -45, -45, -45, -45, -45, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 44
+
         -44, 0, -44, 0, 0, 0, -44, -44, -44, -44, 0, 0, 0, 0, 0, 0, 0, 0, -44, -44, -44, -44, -44, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 45
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 46
+
         -50, 0, -50, 0, 0, 0, -50, -50, -50, -50, 0, 0, 0, 0, 0, 0, 0, 0, -50, -50, -50, -50, -50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 47
+
         -51, 0, -51, 0, 0, 0, -51, -51, -51, -51, 0, 0, 0, 0, 0, 0, 0, 0, -51, -51, -51, -51, -51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 48
+
         -2, 0, -2, 0, 0, 0, -2, -2, -2, -2, 0, 0, 0, 0, 0, 0, 0, 0, -2, -2, -2, -2, -2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 49
+
         -3, 0, -3, 0, 0, 0, -3, -3, -3, -3, 0, 0, 0, 0, 0, 0, 0, 0, -3, -3, -3, -3, -3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 50
+
         -1, 0, -1, 0, 0, 0, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, -1, -1, -1, -1, -1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 51
+
         -22, 0, -22, 0, 0, 0, -22, -22, -22, -22, 0, 0, 0, 0, 0, 0, 0, 0, -22, -22, -22, -22, -22, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 52
+
         -31, 0, -31, 0, -31, -31, -31, -31, -31, -31, -31, 0, 0, 0, 0, -31, 0, 0, -31, -31, -31, -31, -31, -31, -31, -31, -31, -31, 0, 0, 0, 0, 0,
-        // State 53
+
         0, 0, 0, 0, 0, 68, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 54
+
         0, 0, 0, 0, 0, 69, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 55
+
         -57, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 56
+
         -59, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -59, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 57
+
         -60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -60, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 58
+
         0, 0, 72, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 59
+
         0, 0, -19, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -19, -19, 0, 0, 0,
-        // State 60
+
         0, 0, -17, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -17, -17, 0, 0, 0,
-        // State 61
+
         0, 0, -18, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -18, -18, 0, 0, 0,
-        // State 62
+
         0, 0, 76, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 63
+
         0, 0, -16, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -16, -16, 0, 0, 0,
-        // State 64
+
         0, 0, -15, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -15, -15, 0, 0, 0,
-        // State 65
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 66
+
         -21, 0, -21, 0, 0, 0, -21, -21, -21, -21, 0, 0, 0, 0, 0, 0, 0, 0, -21, -21, -21, -21, -21, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 67
+
         -20, 0, -20, 0, 0, 0, -20, -20, -20, -20, 0, 0, 0, 0, 0, 0, 0, 0, -20, -20, -20, -20, -20, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 68
+
         -54, 0, -54, 0, 0, 0, -54, -54, -54, -54, 0, 0, 0, 0, 0, 0, 0, 0, -54, -54, -54, -54, -54, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 69
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -36, -36, -36, -36, -36, 0, 0, 0, 0, 0,
-        // State 70
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -37, -37, -37, -37, -37, 0, 0, 0, 0, 0,
-        // State 71
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 26, 25, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 72
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 27, 0, 0,
-        // State 73
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 85, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 74
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 86, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -11, 0, 0,
-        // State 75
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 87, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 76
+
         -61, 0, -61, 0, 0, 0, -61, -61, -61, -61, 0, 0, 0, 0, 0, 0, 0, 0, -61, -61, -61, -61, -61, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 77
+
         -55, 0, -55, 0, 0, 0, -55, -55, -55, -55, 0, 0, 0, 0, 0, 0, 0, 0, -55, -55, -55, -55, -55, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 78
+
         0, 0, -34, 0, 0, 0, -34, -34, -34, -34, 0, 0, 0, 0, 0, 0, 0, 0, -34, -34, -34, -34, -34, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 79
+
         0, 0, -62, -62, 0, 0, 0, 0, 0, 0, 0, 0, 0, -62, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 80
+
         0, 0, -64, -64, 0, 0, 0, 0, 0, 0, 0, 0, 0, -64, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 81
+
         0, 0, -65, -65, 0, 0, 0, 0, 0, 0, 0, 0, 0, -65, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 82
+
         0, 0, -35, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 83
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -14, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 84
+
         -23, 0, -23, 0, 0, 0, -23, -23, -23, -23, 0, 0, 0, 0, 0, 0, 0, 0, -23, -23, -23, -23, -23, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 85
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -12, 0, 0,
-        // State 86
+
         -28, 0, -28, 0, 0, 0, -28, -28, -28, -28, 30, 0, 0, 0, 31, 0, 0, 0, -28, -28, -28, -28, -28, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 87
+
         0, 0, 98, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 88
+
         0, 0, -63, -63, 0, 0, 0, 0, 0, 0, 0, 0, 0, -63, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 89
+
         -58, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 90
+
         -38, 0, -38, 0, 0, 0, -38, -38, -38, -38, 0, 0, 0, 0, 0, 0, 0, 0, -38, -38, -38, -38, -38, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 91
+
         -42, 0, -42, 0, 0, 0, -42, -42, -42, -42, 0, 0, 0, 0, 0, 0, 0, 0, -42, -42, -42, -42, -42, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 92
+
         -43, 0, -43, 0, 0, 0, -43, -43, -43, -43, 0, 0, 0, 0, 0, 0, 0, 0, -43, -43, -43, -43, -43, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 93
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 32, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 94
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -6, 0, 0, 0, 0, 101, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -6, 0, 102,
-        // State 95
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -9, 0, 0, 0, 0, -9, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -9, 0, -9,
-        // State 96
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -7, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -7, 0, 0,
-        // State 97
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 34, 33, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 98
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 105, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 99
+
         -56, 0, -56, 0, 0, 0, -56, -56, -56, -56, 0, 0, 0, 0, 0, 0, 0, 0, -56, -56, -56, -56, -56, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 100
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 107, 0,
-        // State 101
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -8, 0, 0,
-        // State 102
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 108, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 103
+
         -30, 0, -30, 0, 0, 0, -30, -30, -30, -30, 35, 0, 0, 0, 0, 0, 0, 0, -30, -30, -30, -30, -30, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 104
+
         -24, 0, -24, 0, 0, 0, -24, -24, -24, -24, 0, 0, 0, 0, 0, 0, 0, 0, -24, -24, -24, -24, -24, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 105
+
         -41, 0, -41, 0, 0, 0, -41, -41, -41, -41, 0, 0, 0, 0, 0, 0, 0, 0, -41, -41, -41, -41, -41, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 106
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -10, 0, 0, 0, 0, -10, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, -10, 0, -10,
-        // State 107
+
         -27, 0, -27, 0, 0, 0, -27, -27, -27, -27, 0, 0, 0, 0, 0, 0, 0, 0, -27, -27, -27, -27, -27, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 108
+
         -40, 0, -40, 0, 0, 0, -40, -40, -40, -40, 0, 0, 0, 0, 0, 0, 0, 0, -40, -40, -40, -40, -40, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 109
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 36, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 110
+
         0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 112, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 111
+
         -29, 0, -29, 0, 0, 0, -29, -29, -29, -29, 0, 0, 0, 0, 0, 0, 0, 0, -29, -29, -29, -29, -29, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-        // State 112
+
         -39, 0, -39, 0, 0, 0, -39, -39, -39, -39, 0, 0, 0, 0, 0, 0, 0, 0, -39, -39, -39, -39, -39, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     ];
+    #[must_use]
     fn __action(state: i8, integer: usize) -> i8 {
         __ACTION[(state as usize) * 33 + integer]
     }
+
     const __EOF_ACTION: &[i8] = &[
-        // State 0
+
         0,
-        // State 1
+
         -32,
-        // State 2
+
         -32,
-        // State 3
+
         -52,
-        // State 4
+
         -32,
-        // State 5
+
         0,
-        // State 6
+
         0,
-        // State 7
+
         0,
-        // State 8
+
         0,
-        // State 9
+
         -26,
-        // State 10
+
         -52,
-        // State 11
+
         0,
-        // State 12
+
         0,
-        // State 13
+
         0,
-        // State 14
+
         0,
-        // State 15
+
         0,
-        // State 16
+
         0,
-        // State 17
+
         0,
-        // State 18
+
         0,
-        // State 19
+
         0,
-        // State 20
+
         0,
-        // State 21
+
         -25,
-        // State 22
+
         0,
-        // State 23
+
         0,
-        // State 24
+
         0,
-        // State 25
+
         0,
-        // State 26
+
         0,
-        // State 27
+
         0,
-        // State 28
+
         0,
-        // State 29
+
         0,
-        // State 30
+
         0,
-        // State 31
+
         0,
-        // State 32
+
         0,
-        // State 33
+
         0,
-        // State 34
+
         0,
-        // State 35
+
         0,
-        // State 36
+
         -66,
-        // State 37
+
         0,
-        // State 38
+
         -33,
-        // State 39
+
         -46,
-        // State 40
+
         -48,
-        // State 41
+
         -49,
-        // State 42
+
         -47,
-        // State 43
+
         -45,
-        // State 44
+
         -44,
-        // State 45
+
         -4,
-        // State 46
+
         -50,
-        // State 47
+
         -51,
-        // State 48
+
         -2,
-        // State 49
+
         -3,
-        // State 50
+
         -1,
-        // State 51
+
         -22,
-        // State 52
+
         -31,
-        // State 53
+
         0,
-        // State 54
+
         0,
-        // State 55
+
         0,
-        // State 56
+
         0,
-        // State 57
+
         0,
-        // State 58
+
         0,
-        // State 59
+
         0,
-        // State 60
+
         0,
-        // State 61
+
         0,
-        // State 62
+
         0,
-        // State 63
+
         0,
-        // State 64
+
         0,
-        // State 65
+
         -53,
-        // State 66
+
         -21,
-        // State 67
+
         -20,
-        // State 68
+
         -54,
-        // State 69
+
         0,
-        // State 70
+
         0,
-        // State 71
+
         0,
-        // State 72
+
         0,
-        // State 73
+
         0,
-        // State 74
+
         0,
-        // State 75
+
         0,
-        // State 76
+
         -61,
-        // State 77
+
         -55,
-        // State 78
+
         0,
-        // State 79
+
         0,
-        // State 80
+
         0,
-        // State 81
+
         0,
-        // State 82
+
         0,
-        // State 83
+
         0,
-        // State 84
+
         -23,
-        // State 85
+
         0,
-        // State 86
+
         -28,
-        // State 87
+
         0,
-        // State 88
+
         0,
-        // State 89
+
         0,
-        // State 90
+
         -38,
-        // State 91
+
         -42,
-        // State 92
+
         -43,
-        // State 93
+
         0,
-        // State 94
+
         0,
-        // State 95
+
         0,
-        // State 96
+
         0,
-        // State 97
+
         0,
-        // State 98
+
         0,
-        // State 99
+
         -56,
-        // State 100
+
         0,
-        // State 101
+
         0,
-        // State 102
+
         0,
-        // State 103
+
         -30,
-        // State 104
+
         -24,
-        // State 105
+
         -41,
-        // State 106
+
         0,
-        // State 107
+
         -27,
-        // State 108
+
         -40,
-        // State 109
+
         0,
-        // State 110
+
         0,
-        // State 111
+
         -29,
-        // State 112
+
         -39,
     ];
+    #[must_use]
     fn __goto(state: i8, nt: usize) -> i8 {
         match nt {
             0 => 39,
@@ -574,6 +579,7 @@ mod __parse__Actions {
             _ => 0,
         }
     }
+
     #[allow(clippy::needless_raw_string_hashes)]
     const __TERMINAL: &[&str] = &[
         r###"Newline"###,
@@ -610,16 +616,23 @@ mod __parse__Actions {
         r###"AttrKey"###,
         r###"Comment"###,
     ];
+    #[must_use]
     fn __expected_tokens(__state: i8) -> alloc::vec::Vec<alloc::string::String> {
         __TERMINAL.iter().enumerate().filter_map(|(index, terminal)| {
             let next_state = __action(__state, index);
-            if next_state == 0 {
-                None
-            } else {
-                Some(alloc::string::ToString::to_string(terminal))
+
+            match next_state {
+                0 => {
+                    None
+                },
+                _ => {
+                    Some(alloc::string::ToString::to_string(terminal))
+                },
             }
         }).collect()
     }
+
+    #[must_use]
     fn __expected_tokens_from_states<
         '__0,
     >(
@@ -635,12 +648,14 @@ mod __parse__Actions {
             }
         }).collect()
     }
+
     struct __StateMachine<'__0>
     where
     {
         arena: &'__0 mut ErActionArena,
         __phantom: core::marker::PhantomData<()>,
     }
+
     impl<'__0> __state_machine::ParserDefinition for __StateMachine<'__0>
     where
     {
@@ -677,7 +692,7 @@ mod __parse__Actions {
 
         #[inline]
         fn error_action(&self, state: i8) -> i8 {
-            __action(state, 33 - 1)
+            __action(state, 32)
         }
 
         #[inline]
@@ -736,6 +751,8 @@ mod __parse__Actions {
             __simulate_reduce(action, core::marker::PhantomData::<()>)
         }
     }
+
+    #[must_use]
     fn __token_to_integer<
     >(
         __token: &Tok,
@@ -780,6 +797,8 @@ mod __parse__Actions {
             _ => None,
         }
     }
+
+    #[must_use]
     fn __token_to_symbol<
     >(
         __token_index: usize,
@@ -804,6 +823,8 @@ mod __parse__Actions {
             _ => unreachable!(),
         }
     }
+
+    #[must_use]
     fn __simulate_reduce<
         '__0,
     >(
@@ -1206,12 +1227,15 @@ mod __parse__Actions {
             _ => panic!("invalid reduction index {__reduce_index}")
         }
     }
+
     pub struct ActionsParser {
         _priv: (),
     }
 
     impl Default for ActionsParser { fn default() -> Self { Self::new() } }
+
     impl ActionsParser {
+        #[must_use]
         pub fn new() -> ActionsParser {
             ActionsParser {
                 _priv: (),
@@ -1239,6 +1263,8 @@ mod __parse__Actions {
             )
         }
     }
+
+    #[must_use]
     fn __accepts<
         '__0,
     >(
@@ -1250,6 +1276,7 @@ mod __parse__Actions {
     {
         let mut __states = __states.to_vec();
         __states.extend(__error_state);
+
         loop {
             let mut __states_len = __states.len();
             let __top = __states[__states_len - 1];
@@ -1257,8 +1284,14 @@ mod __parse__Actions {
                 None => __EOF_ACTION[__top as usize],
                 Some(__integer) => __action(__top, __integer),
             };
-            if __action == 0 { return false; }
+
+            match __action {
+                0 => { return false; },
+                _ => {},
+            }
+
             if __action > 0 { return true; }
+
             let (__to_pop, __nt) = match __simulate_reduce(-(__action + 1), core::marker::PhantomData::<()>) {
                 __state_machine::SimulatedReduce::Reduce {
                     states_to_pop, nonterminal_produced
@@ -1272,6 +1305,7 @@ mod __parse__Actions {
             __states.push(__next_state);
         }
     }
+
     fn __reduce<
     >(
         arena: &mut ErActionArena,
@@ -1479,7 +1513,7 @@ mod __parse__Actions {
                 __reduce64(arena, __lookahead_start, __symbols, core::marker::PhantomData::<()>)
             }
             65 => {
-                // __Actions = Actions => ActionFn(0);
+
                 let __sym0 = __pop_Variant5(__symbols);
                 let __start = __sym0.0.clone();
                 let __end = __sym0.2.clone();
@@ -1495,10 +1529,12 @@ mod __parse__Actions {
         __states.push(__next_state);
         None
     }
+
     #[inline(never)]
     fn __symbol_type_mismatch() -> ! {
         panic!("symbol type mismatch")
     }
+
     fn __pop_Variant10<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1509,6 +1545,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant12<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1519,6 +1556,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant4<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1529,6 +1567,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant6<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1539,6 +1578,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant5<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1549,6 +1589,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant11<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1559,6 +1600,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant3<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1569,6 +1611,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant2<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1579,6 +1622,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant1<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1589,6 +1633,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant0<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1599,6 +1644,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant9<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1609,6 +1655,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant8<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1619,6 +1666,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __pop_Variant7<
     >(
         __symbols: &mut alloc::vec::Vec<(usize,__Symbol<>,usize)>
@@ -1629,6 +1677,7 @@ mod __parse__Actions {
             _ => __symbol_type_mismatch()
         }
     }
+
     fn __reduce0<
     >(
         arena: &mut ErActionArena,
@@ -1637,7 +1686,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // AccStatement = AccTitle => ActionFn(26);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1645,6 +1694,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant4(__nt), __end));
         (1, 0)
     }
+
     fn __reduce1<
     >(
         arena: &mut ErActionArena,
@@ -1653,7 +1703,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // AccStatement = AccDescr => ActionFn(27);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1661,6 +1711,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant4(__nt), __end));
         (1, 0)
     }
+
     fn __reduce2<
     >(
         arena: &mut ErActionArena,
@@ -1669,7 +1720,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // AccStatement = AccDescrMultiline => ActionFn(28);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1677,6 +1728,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant4(__nt), __end));
         (1, 0)
     }
+
     fn __reduce3<
     >(
         arena: &mut ErActionArena,
@@ -1685,7 +1737,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Actions = Newlines, "erDiagram", Newlines, Statements => ActionFn(1);
+
         assert!(__symbols.len() >= 4);
         let __sym3 = __pop_Variant5(__symbols);
         let __sym2 = __pop_Variant10(__symbols);
@@ -1697,6 +1749,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (4, 1)
     }
+
     fn __reduce4<
     >(
         arena: &mut ErActionArena,
@@ -1705,7 +1758,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Attribute = AttributeType, AttrWord => ActionFn(58);
+
         assert!(__symbols.len() >= 2);
         let __sym1 = __pop_Variant1(__symbols);
         let __sym0 = __pop_Variant1(__symbols);
@@ -1715,6 +1768,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant6(__nt), __end));
         (2, 2)
     }
+
     fn __reduce5<
     >(
         arena: &mut ErActionArena,
@@ -1723,7 +1777,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Attribute = AttributeType, AttrWord, AttributeKeys => ActionFn(59);
+
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant7(__symbols);
         let __sym1 = __pop_Variant1(__symbols);
@@ -1734,6 +1788,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant6(__nt), __end));
         (3, 2)
     }
+
     fn __reduce6<
     >(
         arena: &mut ErActionArena,
@@ -1742,7 +1797,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Attribute = AttributeType, AttrWord, Comment => ActionFn(60);
+
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant1(__symbols);
         let __sym1 = __pop_Variant1(__symbols);
@@ -1753,6 +1808,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant6(__nt), __end));
         (3, 2)
     }
+
     fn __reduce7<
     >(
         arena: &mut ErActionArena,
@@ -1761,7 +1817,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Attribute = AttributeType, AttrWord, AttributeKeys, Comment => ActionFn(61);
+
         assert!(__symbols.len() >= 4);
         let __sym3 = __pop_Variant1(__symbols);
         let __sym2 = __pop_Variant7(__symbols);
@@ -1773,6 +1829,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant6(__nt), __end));
         (4, 2)
     }
+
     fn __reduce8<
     >(
         arena: &mut ErActionArena,
@@ -1781,7 +1838,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // AttributeKeys = AttrKey => ActionFn(64);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1789,6 +1846,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant7(__nt), __end));
         (1, 3)
     }
+
     fn __reduce9<
     >(
         arena: &mut ErActionArena,
@@ -1797,7 +1855,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // AttributeKeys = AttributeKeys, Comma, AttrKey => ActionFn(65);
+
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant1(__symbols);
         let __sym1 = __pop_Variant0(__symbols);
@@ -1808,6 +1866,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant7(__nt), __end));
         (3, 3)
     }
+
     fn __reduce10<
     >(
         arena: &mut ErActionArena,
@@ -1816,7 +1875,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // AttributeType = AttrWord => ActionFn(62);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1824,6 +1883,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 4)
     }
+
     fn __reduce11<
     >(
         arena: &mut ErActionArena,
@@ -1832,7 +1892,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // AttributeType = AttrWord, Question => ActionFn(63);
+
         assert!(__symbols.len() >= 2);
         let __sym1 = __pop_Variant0(__symbols);
         let __sym0 = __pop_Variant1(__symbols);
@@ -1842,6 +1902,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (2, 4)
     }
+
     fn __reduce12<
     >(
         arena: &mut ErActionArena,
@@ -1850,13 +1911,17 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Attributes =  => ActionFn(56);
-        let __start = __lookahead_start.cloned().or_else(|| __symbols.last().map(|s| s.2.clone())).unwrap_or_default();
+
+        let __start = match __lookahead_start.cloned().or_else(|| __symbols.last().map(|s| s.2.clone())) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        };
         let __end = __start.clone();
         let __nt = super::__action56::<>(arena, &__start, &__end);
         __symbols.push((__start, __Symbol::Variant8(__nt), __end));
         (0, 5)
     }
+
     fn __reduce13<
     >(
         arena: &mut ErActionArena,
@@ -1865,7 +1930,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Attributes = Attribute, Attributes => ActionFn(57);
+
         assert!(__symbols.len() >= 2);
         let __sym1 = __pop_Variant8(__symbols);
         let __sym0 = __pop_Variant6(__symbols);
@@ -1875,6 +1940,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant8(__nt), __end));
         (2, 5)
     }
+
     fn __reduce14<
     >(
         arena: &mut ErActionArena,
@@ -1883,7 +1949,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Cardinality = ZeroOrOne => ActionFn(49);
+
         let __sym0 = __pop_Variant0(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1891,6 +1957,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 6)
     }
+
     fn __reduce15<
     >(
         arena: &mut ErActionArena,
@@ -1899,7 +1966,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Cardinality = ZeroOrMore => ActionFn(50);
+
         let __sym0 = __pop_Variant0(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1907,6 +1974,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 6)
     }
+
     fn __reduce16<
     >(
         arena: &mut ErActionArena,
@@ -1915,7 +1983,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Cardinality = OneOrMore => ActionFn(51);
+
         let __sym0 = __pop_Variant0(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1923,6 +1991,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 6)
     }
+
     fn __reduce17<
     >(
         arena: &mut ErActionArena,
@@ -1931,7 +2000,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Cardinality = OnlyOne => ActionFn(52);
+
         let __sym0 = __pop_Variant0(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1939,6 +2008,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 6)
     }
+
     fn __reduce18<
     >(
         arena: &mut ErActionArena,
@@ -1947,7 +2017,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Cardinality = MdParent => ActionFn(53);
+
         let __sym0 = __pop_Variant0(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -1955,6 +2025,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 6)
     }
+
     fn __reduce19<
     >(
         arena: &mut ErActionArena,
@@ -1963,7 +2034,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // ClassDefStatement = "classDef", IdNames, RestOfLine => ActionFn(31);
+
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant1(__symbols);
         let __sym1 = __pop_Variant7(__symbols);
@@ -1974,6 +2045,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant4(__nt), __end));
         (3, 7)
     }
+
     fn __reduce20<
     >(
         arena: &mut ErActionArena,
@@ -1982,7 +2054,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // ClassStatement = "class", IdNames, IdNames => ActionFn(32);
+
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant7(__symbols);
         let __sym1 = __pop_Variant7(__symbols);
@@ -1993,6 +2065,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant4(__nt), __end));
         (3, 8)
     }
+
     fn __reduce21<
     >(
         arena: &mut ErActionArena,
@@ -2001,7 +2074,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // DirectionStatement = Direction => ActionFn(29);
+
         let __sym0 = __pop_Variant3(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2009,6 +2082,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant4(__nt), __end));
         (1, 9)
     }
+
     fn __reduce22<
     >(
         arena: &mut ErActionArena,
@@ -2017,7 +2091,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // EntityStatement = Name, BlockStart, Attributes, BlockStop => ActionFn(37);
+
         assert!(__symbols.len() >= 4);
         let __sym3 = __pop_Variant0(__symbols);
         let __sym2 = __pop_Variant8(__symbols);
@@ -2029,6 +2103,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (4, 10)
     }
+
     fn __reduce23<
     >(
         arena: &mut ErActionArena,
@@ -2037,7 +2112,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // EntityStatement = Name, StyleSeparator, IdNames, BlockStart, Attributes, BlockStop => ActionFn(38);
+
         assert!(__symbols.len() >= 6);
         let __sym5 = __pop_Variant0(__symbols);
         let __sym4 = __pop_Variant8(__symbols);
@@ -2051,6 +2126,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (6, 10)
     }
+
     fn __reduce24<
     >(
         arena: &mut ErActionArena,
@@ -2059,7 +2135,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // EntityStatement = Name, StyleSeparator, IdNames => ActionFn(39);
+
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant7(__symbols);
         let __sym1 = __pop_Variant0(__symbols);
@@ -2070,6 +2146,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (3, 10)
     }
+
     fn __reduce25<
     >(
         arena: &mut ErActionArena,
@@ -2078,7 +2155,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // EntityStatement = Name => ActionFn(40);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2086,6 +2163,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (1, 10)
     }
+
     fn __reduce26<
     >(
         arena: &mut ErActionArena,
@@ -2094,7 +2172,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // EntityStatement = Name, SquareStart, Name, SquareStop, BlockStart, Attributes, BlockStop => ActionFn(41);
+
         assert!(__symbols.len() >= 7);
         let __sym6 = __pop_Variant0(__symbols);
         let __sym5 = __pop_Variant8(__symbols);
@@ -2109,6 +2187,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (7, 10)
     }
+
     fn __reduce27<
     >(
         arena: &mut ErActionArena,
@@ -2117,7 +2196,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // EntityStatement = Name, SquareStart, Name, SquareStop => ActionFn(42);
+
         assert!(__symbols.len() >= 4);
         let __sym3 = __pop_Variant0(__symbols);
         let __sym2 = __pop_Variant1(__symbols);
@@ -2129,6 +2208,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (4, 10)
     }
+
     fn __reduce28<
     >(
         arena: &mut ErActionArena,
@@ -2137,7 +2217,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // EntityStatement = Name, SquareStart, Name, SquareStop, StyleSeparator, IdNames, BlockStart, Attributes, BlockStop => ActionFn(43);
+
         assert!(__symbols.len() >= 9);
         let __sym8 = __pop_Variant0(__symbols);
         let __sym7 = __pop_Variant8(__symbols);
@@ -2154,6 +2234,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (9, 10)
     }
+
     fn __reduce29<
     >(
         arena: &mut ErActionArena,
@@ -2162,7 +2243,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // EntityStatement = Name, SquareStart, Name, SquareStop, StyleSeparator, IdNames => ActionFn(44);
+
         assert!(__symbols.len() >= 6);
         let __sym5 = __pop_Variant7(__symbols);
         let __sym4 = __pop_Variant0(__symbols);
@@ -2176,6 +2257,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (6, 10)
     }
+
     fn __reduce30<
     >(
         arena: &mut ErActionArena,
@@ -2184,7 +2266,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // IdNames = IdList => ActionFn(45);
+
         let __sym0 = __pop_Variant2(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2192,6 +2274,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant7(__nt), __end));
         (1, 11)
     }
+
     fn __reduce31<
     >(
         arena: &mut ErActionArena,
@@ -2200,13 +2283,17 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Newlines =  => ActionFn(2);
-        let __start = __lookahead_start.cloned().or_else(|| __symbols.last().map(|s| s.2.clone())).unwrap_or_default();
+
+        let __start = match __lookahead_start.cloned().or_else(|| __symbols.last().map(|s| s.2.clone())) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        };
         let __end = __start.clone();
         let __nt = super::__action2::<>(arena, &__start, &__end);
         __symbols.push((__start, __Symbol::Variant10(__nt), __end));
         (0, 12)
     }
+
     fn __reduce32<
     >(
         arena: &mut ErActionArena,
@@ -2215,7 +2302,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Newlines = Newline, Newlines => ActionFn(3);
+
         assert!(__symbols.len() >= 2);
         let __sym1 = __pop_Variant10(__symbols);
         let __sym0 = __pop_Variant0(__symbols);
@@ -2225,6 +2312,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant10(__nt), __end));
         (2, 12)
     }
+
     fn __reduce33<
     >(
         arena: &mut ErActionArena,
@@ -2233,7 +2321,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Newlines1 = Newline, Newlines => ActionFn(4);
+
         assert!(__symbols.len() >= 2);
         let __sym1 = __pop_Variant10(__symbols);
         let __sym0 = __pop_Variant0(__symbols);
@@ -2243,6 +2331,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant10(__nt), __end));
         (2, 13)
     }
+
     fn __reduce34<
     >(
         arena: &mut ErActionArena,
@@ -2251,7 +2340,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // RelSpec = Cardinality, RelType, Cardinality => ActionFn(48);
+
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant1(__symbols);
         let __sym1 = __pop_Variant1(__symbols);
@@ -2262,6 +2351,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant11(__nt), __end));
         (3, 14)
     }
+
     fn __reduce35<
     >(
         arena: &mut ErActionArena,
@@ -2270,7 +2360,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // RelType = Identifying => ActionFn(54);
+
         let __sym0 = __pop_Variant0(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2278,6 +2368,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 15)
     }
+
     fn __reduce36<
     >(
         arena: &mut ErActionArena,
@@ -2286,7 +2377,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // RelType = NonIdentifying => ActionFn(55);
+
         let __sym0 = __pop_Variant0(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2294,6 +2385,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 15)
     }
+
     fn __reduce37<
     >(
         arena: &mut ErActionArena,
@@ -2302,7 +2394,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // RelationshipStatement = Name, RelSpec, Name, Colon, Role => ActionFn(33);
+
         assert!(__symbols.len() >= 5);
         let __sym4 = __pop_Variant1(__symbols);
         let __sym3 = __pop_Variant0(__symbols);
@@ -2315,6 +2407,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (5, 16)
     }
+
     fn __reduce38<
     >(
         arena: &mut ErActionArena,
@@ -2323,7 +2416,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // RelationshipStatement = Name, StyleSeparator, IdNames, RelSpec, Name, StyleSeparator, IdNames, Colon, Role => ActionFn(34);
+
         assert!(__symbols.len() >= 9);
         let __sym8 = __pop_Variant1(__symbols);
         let __sym7 = __pop_Variant0(__symbols);
@@ -2340,6 +2433,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (9, 16)
     }
+
     fn __reduce39<
     >(
         arena: &mut ErActionArena,
@@ -2348,7 +2442,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // RelationshipStatement = Name, StyleSeparator, IdNames, RelSpec, Name, Colon, Role => ActionFn(35);
+
         assert!(__symbols.len() >= 7);
         let __sym6 = __pop_Variant1(__symbols);
         let __sym5 = __pop_Variant0(__symbols);
@@ -2363,6 +2457,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (7, 16)
     }
+
     fn __reduce40<
     >(
         arena: &mut ErActionArena,
@@ -2371,7 +2466,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // RelationshipStatement = Name, RelSpec, Name, StyleSeparator, IdNames, Colon, Role => ActionFn(36);
+
         assert!(__symbols.len() >= 7);
         let __sym6 = __pop_Variant1(__symbols);
         let __sym5 = __pop_Variant0(__symbols);
@@ -2386,6 +2481,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant9(__nt), __end));
         (7, 16)
     }
+
     fn __reduce41<
     >(
         arena: &mut ErActionArena,
@@ -2394,7 +2490,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Role = Name => ActionFn(46);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2402,6 +2498,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 17)
     }
+
     fn __reduce42<
     >(
         arena: &mut ErActionArena,
@@ -2410,7 +2507,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Role = Str => ActionFn(47);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2418,6 +2515,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 17)
     }
+
     fn __reduce43<
     >(
         arena: &mut ErActionArena,
@@ -2426,7 +2524,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Statement = RelationshipStatement => ActionFn(7);
+
         let __sym0 = __pop_Variant9(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2434,6 +2532,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (1, 18)
     }
+
     fn __reduce44<
     >(
         arena: &mut ErActionArena,
@@ -2442,7 +2541,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Statement = EntityStatement => ActionFn(8);
+
         let __sym0 = __pop_Variant9(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2450,6 +2549,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (1, 18)
     }
+
     fn __reduce45<
     >(
         arena: &mut ErActionArena,
@@ -2458,7 +2558,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Statement = AccStatement => ActionFn(9);
+
         let __sym0 = __pop_Variant4(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2466,6 +2566,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (1, 18)
     }
+
     fn __reduce46<
     >(
         arena: &mut ErActionArena,
@@ -2474,7 +2575,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Statement = DirectionStatement => ActionFn(10);
+
         let __sym0 = __pop_Variant4(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2482,6 +2583,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (1, 18)
     }
+
     fn __reduce47<
     >(
         arena: &mut ErActionArena,
@@ -2490,7 +2592,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Statement = ClassDefStatement => ActionFn(11);
+
         let __sym0 = __pop_Variant4(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2498,6 +2600,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (1, 18)
     }
+
     fn __reduce48<
     >(
         arena: &mut ErActionArena,
@@ -2506,7 +2609,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Statement = ClassStatement => ActionFn(12);
+
         let __sym0 = __pop_Variant4(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2514,6 +2617,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (1, 18)
     }
+
     fn __reduce49<
     >(
         arena: &mut ErActionArena,
@@ -2522,7 +2626,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Statement = StyleStatement => ActionFn(13);
+
         let __sym0 = __pop_Variant4(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2530,6 +2634,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (1, 18)
     }
+
     fn __reduce50<
     >(
         arena: &mut ErActionArena,
@@ -2538,7 +2643,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Statement = SubgraphStatement => ActionFn(14);
+
         let __sym0 = __pop_Variant4(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2546,6 +2651,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (1, 18)
     }
+
     fn __reduce51<
     >(
         arena: &mut ErActionArena,
@@ -2554,13 +2660,17 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Statements =  => ActionFn(5);
-        let __start = __lookahead_start.cloned().or_else(|| __symbols.last().map(|s| s.2.clone())).unwrap_or_default();
+
+        let __start = match __lookahead_start.cloned().or_else(|| __symbols.last().map(|s| s.2.clone())) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        };
         let __end = __start.clone();
         let __nt = super::__action5::<>(arena, &__start, &__end);
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (0, 19)
     }
+
     fn __reduce52<
     >(
         arena: &mut ErActionArena,
@@ -2569,7 +2679,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // Statements = Statement, Newlines, Statements => ActionFn(6);
+
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant5(__symbols);
         let __sym1 = __pop_Variant10(__symbols);
@@ -2580,6 +2690,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (3, 19)
     }
+
     fn __reduce53<
     >(
         arena: &mut ErActionArena,
@@ -2588,7 +2699,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // StyleStatement = "style", IdNames, RestOfLine => ActionFn(30);
+
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant1(__symbols);
         let __sym1 = __pop_Variant7(__symbols);
@@ -2599,6 +2710,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant4(__nt), __end));
         (3, 20)
     }
+
     fn __reduce54<
     >(
         arena: &mut ErActionArena,
@@ -2607,7 +2719,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphBody = "end" => ActionFn(16);
+
         let __sym0 = __pop_Variant0(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2615,6 +2727,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (1, 21)
     }
+
     fn __reduce55<
     >(
         arena: &mut ErActionArena,
@@ -2623,7 +2736,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphBody = Statement, Newlines, SubgraphBody => ActionFn(17);
+
         assert!(__symbols.len() >= 3);
         let __sym2 = __pop_Variant5(__symbols);
         let __sym1 = __pop_Variant10(__symbols);
@@ -2634,6 +2747,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant5(__nt), __end));
         (3, 21)
     }
+
     fn __reduce56<
     >(
         arena: &mut ErActionArena,
@@ -2642,7 +2756,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphHeader = SubgraphName => ActionFn(18);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2650,6 +2764,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant12(__nt), __end));
         (1, 22)
     }
+
     fn __reduce57<
     >(
         arena: &mut ErActionArena,
@@ -2658,7 +2773,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphHeader = SubgraphName, SquareStart, SubgraphTitle, SquareStop => ActionFn(19);
+
         assert!(__symbols.len() >= 4);
         let __sym3 = __pop_Variant0(__symbols);
         let __sym2 = __pop_Variant1(__symbols);
@@ -2670,6 +2785,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant12(__nt), __end));
         (4, 22)
     }
+
     fn __reduce58<
     >(
         arena: &mut ErActionArena,
@@ -2678,7 +2794,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphName = Name => ActionFn(20);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2686,6 +2802,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 23)
     }
+
     fn __reduce59<
     >(
         arena: &mut ErActionArena,
@@ -2694,7 +2811,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphName = Str => ActionFn(21);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2702,6 +2819,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 23)
     }
+
     fn __reduce60<
     >(
         arena: &mut ErActionArena,
@@ -2710,7 +2828,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphStatement = "subgraph", SubgraphHeader, Newlines1, SubgraphBody => ActionFn(15);
+
         assert!(__symbols.len() >= 4);
         let __sym3 = __pop_Variant5(__symbols);
         let __sym2 = __pop_Variant10(__symbols);
@@ -2722,6 +2840,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant4(__nt), __end));
         (4, 24)
     }
+
     fn __reduce61<
     >(
         arena: &mut ErActionArena,
@@ -2730,7 +2849,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphTitle = SubgraphTitlePart => ActionFn(22);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2738,6 +2857,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 25)
     }
+
     fn __reduce62<
     >(
         arena: &mut ErActionArena,
@@ -2746,7 +2866,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphTitle = SubgraphTitle, SubgraphTitlePart => ActionFn(23);
+
         assert!(__symbols.len() >= 2);
         let __sym1 = __pop_Variant1(__symbols);
         let __sym0 = __pop_Variant1(__symbols);
@@ -2756,6 +2876,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (2, 25)
     }
+
     fn __reduce63<
     >(
         arena: &mut ErActionArena,
@@ -2764,7 +2885,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphTitlePart = Name => ActionFn(24);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2772,6 +2893,7 @@ mod __parse__Actions {
         __symbols.push((__start, __Symbol::Variant1(__nt), __end));
         (1, 26)
     }
+
     fn __reduce64<
     >(
         arena: &mut ErActionArena,
@@ -2780,7 +2902,7 @@ mod __parse__Actions {
         _: core::marker::PhantomData<()>,
     ) -> (usize, usize)
     {
-        // SubgraphTitlePart = Str => ActionFn(25);
+
         let __sym0 = __pop_Variant1(__symbols);
         let __start = __sym0.0.clone();
         let __end = __sym0.2.clone();
@@ -2789,6 +2911,7 @@ mod __parse__Actions {
         (1, 26)
     }
 }
+
 #[allow(unused_imports)]
 pub use self::__parse__Actions::ActionsParser;
 
@@ -3668,6 +3791,7 @@ impl<> __ToTriple<> for (usize, Tok, usize)
         Ok(self)
     }
 }
+
 impl<> __ToTriple<> for Result<(usize, Tok, usize), crate::diagrams::er::LexError>
 {
     fn to_triple(self) -> Result<(usize,Tok,usize), __lalrpop_util::ParseError<usize, Tok, crate::diagrams::er::LexError>> {

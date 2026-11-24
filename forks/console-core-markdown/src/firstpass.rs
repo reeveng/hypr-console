@@ -24,10 +24,11 @@ use crate::parse::ListFlags;
 
 /// Runs the first pass, which resolves the block structure of the document,
 /// and returns the resulting tree.
+#[must_use]
 pub(crate) fn run_first_pass(text: &str, options: Options) -> (Tree<Item>, Allocations<'_>) {
-    // This is a very naive heuristic for the number of nodes
-    // we'll need.
-    let start_capacity = max(128, text.len() / 32);
+
+
+    let start_capacity = max(128, text.len().wrapping_div(32));
     let lookup_table = &special_bytes(&options);
     let first_pass = FirstPass {
         text,
@@ -43,15 +44,15 @@ pub(crate) fn run_first_pass(text: &str, options: Options) -> (Tree<Item>, Alloc
     first_pass.run()
 }
 
-// Each level of brace nesting adds another entry to a hash table.
-// To limit the amount of memory consumed, do not create a new brace
-// context beyond some amount deep.
-//
-// There are actually two limits at play here: this one,
-// and the one where the maximum amount of distinct contexts passes
-// the 255 item limit imposed by using `u8`. When over 255 distinct
-// contexts are created, it wraps around, while this one instead makes it
-// saturate, which is a better behavior.
+
+
+
+
+
+
+
+
+
 const MATH_BRACE_CONTEXT_MAX_NESTING: usize = 25;
 
 /// State for the first parsing pass.
@@ -69,14 +70,18 @@ struct FirstPass<'a, 'b> {
 }
 
 impl<'a, 'b> FirstPass<'a, 'b> {
+    #[must_use]
     fn run(mut self) -> (Tree<Item>, Allocations<'a>) {
         let mut ix = 0;
+
         while ix < self.text.len() {
             ix = self.parse_block(ix);
         }
+
         while self.tree.spine_len() > 0 {
             self.pop(ix);
         }
+
         (self.tree, self.allocs)
     }
 
@@ -85,11 +90,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let bytes = self.text.as_bytes();
         let mut line_start = LineStart::new(&bytes[start_ix..]);
 
-        // math spans and their braces are tracked only within a single block
+
         self.brace_context_stack.clear();
         self.brace_context_next = 0;
 
         let i = scan_containers(&self.tree, &mut line_start, self.options, true);
+
         for _ in i..self.tree.spine_len() {
             self.pop(start_ix);
         }
@@ -99,7 +105,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
-                // finish footnote if it's still open and was preceded by blank line
+
                 match self.tree.peek_up() {
                     Some(node_ix) => {
                         if let ItemBody::FootnoteDefinition(..) = self.tree[node_ix].item.body {
@@ -120,10 +126,11 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             ::core::option::Option::None => {},
         }
 
-        // Process new containers
+
         loop {
             let save = line_start.clone();
             let outer_indent = line_start.scan_space_upto(4);
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(outer_indent >= 4, ());
                 _explicit_decision
@@ -134,27 +141,34 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 ::core::option::Option::None => {},
             }
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(self.options.contains(Options::ENABLE_FOOTNOTES), ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
-                    // Footnote definitions
+
                     let container_start = start_ix + line_start.bytes_scanned();
+
                     match self.parse_footnote(container_start) {
                         Some(bytecount) => {
                             start_ix = container_start + bytecount;
+
                             match {
                                 let _explicit_decision = ::core::primitive::bool::then_some(self.options.contains(Options::ENABLE_OLD_FOOTNOTES), ());
                                 _explicit_decision
                             } {
                                 ::core::option::Option::Some(()) => {
-                                    // gfm footnotes need indented, but old footnotes don't
-                                    // handle this, old footnotes treat the next line as part of the current line
-                                    start_ix += scan_blank_line(&bytes[start_ix..]).unwrap_or(0);
+
+
+                                    start_ix += match scan_blank_line(&bytes[start_ix..]) {
+                                        ::core::option::Option::Some(option_value) => option_value,
+                                        ::core::option::Option::None => 0,
+                                    };
                                 },
                                 ::core::option::Option::None => {},
                             }
+
                             line_start = LineStart::new(&bytes[start_ix..]);
                             continue;
                         },
@@ -163,17 +177,20 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 ::core::option::Option::None => {},
             }
+
             let container_start = start_ix + line_start.bytes_scanned();
+
             match line_start.scan_list_marker_with_indent(outer_indent) {
                 Some((ch, index, indent)) => {
                     let after_marker_index = start_ix + line_start.bytes_scanned();
                     self.continue_list(container_start - outer_indent, ch, index);
                     self.tree.append(Item {
                         start: container_start - outer_indent,
-                        end: after_marker_index, // will get updated later if item not empty
+                        end: after_marker_index,
                         body: ItemBody::ListItem(indent),
                     });
                     self.tree.push();
+
                     match scan_blank_line(&bytes[after_marker_index..]) {
                         Some(n) => {
                             self.begin_list_item = Some(after_marker_index + n);
@@ -181,6 +198,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(self.options.contains(Options::ENABLE_TASKLISTS), ());
                         _explicit_decision
@@ -192,19 +210,20 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                     end: start_ix + line_start.bytes_scanned(),
                                     body: ItemBody::TaskListMarker(is_checked),
                                 });
+
                             match task_list_marker {
-                                Some(task_list_marker) => {
-                                    match scan_blank_line(&bytes[task_list_marker.end..]) {
+                                Some(task_list_marker_2) => {
+                                    match scan_blank_line(&bytes[task_list_marker_2.end..]) {
                                         Some(n) => {
-                                            let end = task_list_marker.end;
-                                            self.tree.append(task_list_marker);
+                                            let end = task_list_marker_2.end;
+                                            self.tree.append(task_list_marker_2);
                                             self.begin_list_item = Some(end + n);
                                             return end + n;
                                         },
                                         ::core::option::Option::None => {
                                             line_start.scan_all_space();
                                             let ix = start_ix + line_start.bytes_scanned();
-                                            return self.parse_paragraph(ix, Some(task_list_marker));
+                                            return self.parse_paragraph(ix, Some(task_list_marker_2));
                                         },
                                     }
                                 },
@@ -251,7 +270,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                 let list_idx = self.tree.cur().unwrap();
                                 let title_idx = self.tree.create_node(Item {
                                     start,
-                                    end, // will get updated later if item not empty
+                                    end,
                                     body: ItemBody::DefinitionListTitle,
                                 });
                                 self.tree[title_idx].child = child;
@@ -264,14 +283,16 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                             ItemBody::DefinitionListDefinition(_) => {}
                             _ => unreachable!(),
                         }
+
                         let after_marker_index = start_ix + line_start.bytes_scanned();
-                        // `outer_indent` is columns, not bytes. Subtracting it from a
-                        // source offset can land inside a multibyte character (issue 1142).
+
+
                         self.tree.append(Item {
                             start: start_ix + save.bytes_scanned(),
-                            end: after_marker_index, // will get updated later if item not empty
+                            end: after_marker_index,
                             body: ItemBody::DefinitionListDefinition(indent),
                         });
+
                         if let Some(ItemBody::DefinitionList(ref list_flags)) =
                             self.tree.peek_up().map(|cur| &mut self.tree[cur].item.body)
                         {
@@ -286,7 +307,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                 ::core::option::Option::None => {},
                             }
                         }
+
                         self.tree.push();
+
                         match scan_blank_line(&bytes[after_marker_index..]) {
                             Some(n) => {
                                 self.begin_list_item = Some(after_marker_index + n);
@@ -314,20 +337,22 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                             self.finish_list(start_ix);
                             self.tree.append(Item {
                                 start: container_start,
-                                end: 0, // will get set later
+                                end: 0,
                                 body: ItemBody::BlockQuote(kind),
                             });
                             self.tree.push();
+
                             match kind {
                                 ::core::option::Option::Some(_) => {
-                                    // blockquote tag leaves us at the end of the line
-                                    // we need to scan through all the container syntax for the next line
-                                    // and break out if we can't re-scan all of them
+
+
+
                                     let ix = start_ix + line_start.bytes_scanned();
                                     let mut lazy_line_start = LineStart::new(&bytes[ix..]);
                                     let tree_position =
                                         scan_containers(&self.tree, &mut lazy_line_start, self.options, false);
                                     let current_container = tree_position == self.tree.spine_len();
+
                                     match {
                                         let _explicit_decision = ::core::primitive::bool::then_some(!lazy_line_start.scan_space(4)
                                         && self.scan_paragraph_interrupt(
@@ -341,8 +366,8 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                             return ix;
                                         },
                                         ::core::option::Option::None => {
-                                            // blockquote tags act as if they were nested in a paragraph
-                                            // so you can lazily continue the imaginary paragraph off of them
+
+
                                             line_start = lazy_line_start;
                                             line_start.scan_all_space();
                                             start_ix = ix;
@@ -374,10 +399,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                 if self.begin_list_item.is_some() =>
                             {
                                 self.last_line_blank = true;
-                                // This is a blank list item.
-                                // While the list itself can be continued no matter how many blank lines
-                                // there are between this one and the next one, it cannot nest anything
-                                // else, so its indentation should not be subtracted from the line start.
+
+
+
+
                                 *indent = 0;
                             }
                             _ => {
@@ -389,32 +414,34 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         self.last_line_blank = true;
                     },
                 }
+
                 return ix + n;
             },
             ::core::option::Option::None => {},
         }
 
-        // Save `remaining_space` here to avoid needing to backtrack `line_start` for HTML blocks
+
         let remaining_space = line_start.remaining_space();
 
         let indent = line_start.scan_space_upto(4);
+
         match indent {
             4 => {
                 self.finish_list(start_ix);
-                let ix = start_ix + line_start.bytes_scanned();
-                let remaining_space = line_start.remaining_space();
-                return self.parse_indented_code_block(ix, remaining_space);
+                let ix_2 = start_ix + line_start.bytes_scanned();
+                let remaining_space_2 = line_start.remaining_space();
+                return self.parse_indented_code_block(ix_2, remaining_space_2);
             },
             _ => {},
         }
 
-        let ix = start_ix + line_start.bytes_scanned();
+        let ix_3 = start_ix + line_start.bytes_scanned();
 
-        // metadata blocks cannot be indented
+
         match indent {
             0 => {
                 match scan_metadata_block(
-                        &bytes[ix..],
+                        &bytes[ix_3..],
                         self.options
                             .contains(Options::ENABLE_YAML_STYLE_METADATA_BLOCKS),
                         self.options
@@ -422,7 +449,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     ) {
                     Some((_n, metadata_block_ch)) => {
                         self.finish_list(start_ix);
-                        return self.parse_metadata_block(ix, metadata_block_ch);
+                        return self.parse_metadata_block(ix_3, metadata_block_ch);
                     },
                     ::core::option::Option::None => {},
                 }
@@ -430,19 +457,19 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             _ => {},
         }
 
-        // HTML Blocks
+
         match {
-            let _explicit_decision = ::core::primitive::bool::then_some(bytes[ix] == b'<', ());
+            let _explicit_decision = ::core::primitive::bool::then_some(bytes[ix_3] == b'<', ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
-                // Types 1-5 are all detected by one function and all end with the same
-                // pattern
-                match get_html_end_tag(&bytes[(ix + 1)..]) {
+
+
+                match get_html_end_tag(&bytes[(ix_3 + 1)..]) {
                     Some(html_end_tag) => {
                         self.finish_list(start_ix);
                         return self.parse_html_block_type_1_to_5(
-                            ix,
+                            ix_3,
                             html_end_tag,
                             remaining_space,
                             indent,
@@ -451,23 +478,23 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     ::core::option::Option::None => {},
                 }
 
-                // Detect type 6
+
                 match {
-                    let _explicit_decision = ::core::primitive::bool::then_some(starts_html_block_type_6(&bytes[(ix + 1)..]), ());
+                    let _explicit_decision = ::core::primitive::bool::then_some(starts_html_block_type_6(&bytes[(ix_3 + 1)..]), ());
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
                         self.finish_list(start_ix);
-                        return self.parse_html_block_type_6_or_7(ix, remaining_space, indent);
+                        return self.parse_html_block_type_6_or_7(ix_3, remaining_space, indent);
                     },
                     ::core::option::Option::None => {},
                 }
 
-                // Detect type 7
-                match scan_html_type_7(&bytes[ix..]) {
+
+                match scan_html_type_7(&bytes[ix_3..]) {
                     Some(_html_bytes) => {
                         self.finish_list(start_ix);
-                        return self.parse_html_block_type_6_or_7(ix, remaining_space, indent);
+                        return self.parse_html_block_type_6_or_7(ix_3, remaining_space, indent);
                     },
                     ::core::option::Option::None => {},
                 }
@@ -475,76 +502,77 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             ::core::option::Option::None => {},
         }
 
-        match scan_hrule(&bytes[ix..]) {
+        match scan_hrule(&bytes[ix_3..]) {
             Ok(n) => {
                 self.finish_list(start_ix);
-                return self.parse_hrule(n, ix);
+                return self.parse_hrule(n, ix_3);
             },
             ::core::result::Result::Err(_) => {},
         }
 
-        match scan_atx_heading(&bytes[ix..]) {
+        match scan_atx_heading(&bytes[ix_3..]) {
             Some(atx_size) => {
                 self.finish_list(start_ix);
-                return self.parse_atx_heading(ix, atx_size);
+                return self.parse_atx_heading(ix_3, atx_size);
             },
             ::core::option::Option::None => {},
         }
 
-        match scan_code_fence(&bytes[ix..]) {
+        match scan_code_fence(&bytes[ix_3..]) {
             Some((n, fence_ch)) => {
                 self.finish_list(start_ix);
-                return self.parse_fenced_code_block(ix, indent, fence_ch, n);
+                return self.parse_fenced_code_block(ix_3, indent, fence_ch, n);
             },
             ::core::option::Option::None => {},
         }
 
-        // parse refdef
+
         while let Some((bytecount, label, link_def)) =
             self.parse_refdef_total(start_ix + line_start.bytes_scanned())
         {
             self.allocs.refdefs.0.entry(label).or_insert(link_def);
             let container_start = start_ix + line_start.bytes_scanned();
-            let mut ix = container_start + bytecount;
-            // Refdefs act as if they were contained within a paragraph, for purposes of lazy
-            // continuations. For example:
-            //
-            // ```
-            // > [foo]: http://example.com
-            // bar
-            // ```
-            //
-            // is equivalent to
-            //
-            // ```
-            // > bar
-            //
-            // [foo]: http://example.com
-            // ```
-            match scan_blank_line(&bytes[ix..]) {
+            let mut ix_4 = container_start + bytecount;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+            match scan_blank_line(&bytes[ix_4..]) {
                 Some(nl) => {
-                    ix += nl;
+                    ix_4 += nl;
                 },
                 ::core::option::Option::None => {
                     self.finish_list(start_ix);
-                    return ix;
+                    return ix_4;
                 },
             }
-            match self.scan_next_line_or_lazy_continuation(&bytes[ix..]) {
+
+            match self.scan_next_line_or_lazy_continuation(&bytes[ix_4..]) {
                 Some(lazy_line_start) => {
                     line_start = lazy_line_start;
-                    start_ix = ix;
+                    start_ix = ix_4;
                 },
                 ::core::option::Option::None => {
                     self.finish_list(start_ix);
-                    return ix;
+                    return ix_4;
                 },
             }
         }
 
-        let ix = start_ix + line_start.bytes_scanned();
+        let ix_5 = start_ix + line_start.bytes_scanned();
 
-        self.parse_paragraph(ix, None)
+        self.parse_paragraph(ix_5, None)
     }
 
     /// footnote definitions and GFM quote markers can be "interrupted"
@@ -559,6 +587,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let mut line_start = LineStart::new(bytes);
         let tree_position = scan_containers(&self.tree, &mut line_start, self.options, false);
         let current_container = tree_position == self.tree.spine_len();
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some((!line_start.scan_space(4)
             && self.scan_paragraph_interrupt(
@@ -588,16 +617,17 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         head_start: usize,
         body_start: usize,
     ) -> Option<usize> {
-        // filled empty cells are limited to protect against quadratic growth
-        // https://github.com/raphlinus/pulldown-cmark/issues/832
+
+
         let mut missing_empty_cells = 0;
-        // parse header. this shouldn't fail because we made sure the table header is ok
+
         let (_sep_start, thead_ix) =
             self.parse_table_row_inner(head_start, table_cols, &mut missing_empty_cells)?;
         self.tree[thead_ix].item.body = ItemBody::TableHead;
 
-        // parse body
+
         let mut ix = body_start;
+
         while let Some((next_ix, _row_ix)) =
             self.parse_table_row(ix, table_cols, &mut missing_empty_cells)
         {
@@ -616,8 +646,8 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         row_cells: usize,
         missing_empty_cells: &mut usize,
     ) -> Option<(usize, TreeIndex)> {
-        // Limit to prevent a malicious input from causing a denial of service.
-        const MAX_AUTOCOMPLETED_CELLS: usize = 1 << 18; // = 0x40000
+
+        const MAX_AUTOCOMPLETED_CELLS: usize = 1 << 18;
 
         let bytes = self.text.as_bytes();
         let mut cells = 0;
@@ -626,7 +656,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let old_cur = self.tree.cur();
         let row_ix = self.tree.append(Item {
             start: ix,
-            end: 0, // set at end of this function
+            end: 0,
             body: ItemBody::TableRow,
         });
         self.tree.push();
@@ -675,9 +705,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             return None;
         }
 
-        // fill empty cells if needed
-        // note: this is where GFM and commonmark-extra diverge. we follow
-        // GFM here
+
+
+
         for _ in cells..row_cells {
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(*missing_empty_cells >= MAX_AUTOCOMPLETED_CELLS, ());
@@ -688,6 +718,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 ::core::option::Option::None => {},
             }
+
             *missing_empty_cells += 1;
             self.tree.append(Item {
                 start: ix,
@@ -696,7 +727,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             });
         }
 
-        // drop excess cells
+
         match final_cell_ix {
             Some(cell_ix) => {
                 self.tree[cell_ix].next = None;
@@ -720,6 +751,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let mut line_start = LineStart::new(&bytes[ix..]);
         let tree_position = scan_containers(&self.tree, &mut line_start, self.options, false);
         let current_container = tree_position == self.tree.spine_len();
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(!current_container, ());
             _explicit_decision
@@ -729,8 +761,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         line_start.scan_all_space();
         ix += line_start.bytes_scanned();
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(scan_paragraph_interrupt_no_table(
                 &self.text[ix..],
@@ -748,8 +782,8 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             ::core::option::Option::None => {},
         }
 
-        let (ix, row_ix) = self.parse_table_row_inner(ix, row_cells, missing_empty_cells)?;
-        Some((ix, row_ix))
+        let (ix_2, row_ix) = self.parse_table_row_inner(ix, row_cells, missing_empty_cells)?;
+        Some((ix_2, row_ix))
     }
 
     /// Returns offset of line start after paragraph.
@@ -767,7 +801,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
-                    // blank lines between the previous definition and this one don't count
+
                     self.last_line_blank = false;
                     ItemBody::MaybeDefinitionListTitle
                 },
@@ -782,7 +816,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         };
         let node_ix = self.tree.append(Item {
             start: start_ix,
-            end: 0, // will get set later
+            end: 0,
             body: body.clone(),
         });
         self.tree.push();
@@ -796,6 +830,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
 
         let bytes = self.text.as_bytes();
         let mut ix = start_ix;
+
         loop {
             let scan_mode = match {
                 let _explicit_decision = ::core::primitive::bool::then_some(self.options.contains(Options::ENABLE_TABLES) && ix == start_ix, ());
@@ -810,7 +845,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             };
             let (next_ix, brk) = self.parse_line(ix, None, scan_mode);
 
-            // break out when we find a table
+
             if let Some(Item {
                 body: ItemBody::Table(alignment_ix),
                 ..
@@ -818,10 +853,11 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             {
                 let table_cols = self.allocs[alignment_ix].len();
                 self.tree[node_ix].item.body = ItemBody::Table(alignment_ix);
-                // this clears out any stuff we may have appended - but there may
-                // be a cleaner way
+
+
                 self.tree[node_ix].child = None;
                 self.tree.pop();
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(body == ItemBody::MaybeDefinitionListTitle, ());
                     _explicit_decision
@@ -831,10 +867,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     },
                     ::core::option::Option::None => {},
                 }
+
                 self.tree.push();
+
                 match self.parse_table(table_cols, ix, next_ix) {
-                    Some(ix) => {
-                        return ix;
+                    Some(ix_2) => {
+                        return ix_2;
                     },
                     ::core::option::Option::None => {},
                 }
@@ -850,14 +888,16 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     body: ItemBody::HardBreak(true),
                     ..
                 }) if bytes[start] == b'\\' => Some(start),
-                _ => None,
+                ::core::option::Option::None | ::core::option::Option::Some(_) => None,
             };
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(!line_start.scan_space(4), ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
                     let ix_new = ix + line_start.bytes_scanned();
+
                     match ::core::primitive::bool::then_some(current_container, ()) {
                         ::core::option::Option::Some(()) => {
                             match self.parse_setext_heading(ix_new, node_ix, trailing_backslash_pos.is_some()) {
@@ -868,7 +908,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                         },
                                         ::core::option::Option::None => {},
                                     }
+
                                     self.pop(ix_setext);
+
                                     match {
                                         let _explicit_decision = ::core::primitive::bool::then_some(body == ItemBody::MaybeDefinitionListTitle, ());
                                         _explicit_decision
@@ -878,6 +920,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                         },
                                         ::core::option::Option::None => {},
                                     }
+
                                     return ix_setext;
                                 },
                                 ::core::option::Option::None => {},
@@ -885,8 +928,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         },
                         ::core::option::Option::None => {},
                     }
-                    // first check for non-empty lists, then for other interrupts
+
+
                     let suffix = &self.text[ix_new..];
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(self.scan_paragraph_interrupt(suffix, current_container, tree_position), ());
                         _explicit_decision
@@ -898,6 +943,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                 },
                                 ::core::option::Option::None => {},
                             }
+
                             break;
                         },
                         ::core::option::Option::None => {},
@@ -905,7 +951,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 ::core::option::Option::None => {},
             }
+
             line_start.scan_all_space();
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(line_start.is_at_eol(), ());
                 _explicit_decision
@@ -917,11 +965,14 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     break;
                 },
                 ::core::option::Option::None => {},
             }
+
             ix = next_ix + line_start.bytes_scanned();
+
             match brk {
                 Some(item) => {
                     self.tree.append(item);
@@ -949,28 +1000,30 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             Some(cur_ix) => {
                 let parent_ix = self.tree.peek_up().unwrap();
                 let header_start = self.tree[parent_ix].item.start;
-                // Note that `self.tree[parent_ix].item.end` might be zero at this point.
-                // Use the end position of the current node (i.e. the last known child
-                // of the parent) instead.
+
+
+
                 let header_end = self.tree[cur_ix].item.end;
 
-                // extract the trailing attribute block
+
                 let (content_end, attrs_) =
                     self.extract_and_parse_heading_attribute_block(header_start, header_end);
                 attrs = attrs_;
 
-                // strip trailing whitespace
+
                 let new_end = match ::core::primitive::bool::then_some(has_trailing_content, ()) {
                     ::core::option::Option::Some(()) => {
                         content_end
                     },
                     ::core::option::Option::None => {
                         let mut last_line_start = header_start;
+
                         match attrs {
                             ::core::option::Option::Some(_) => {
                                 loop {
                                     let next_line_start =
                                         last_line_start + scan_nextline(&bytes[last_line_start..content_end]);
+
                                     match {
                                         let _explicit_decision = ::core::primitive::bool::then_some(next_line_start >= content_end, ());
                                         _explicit_decision
@@ -980,7 +1033,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                         },
                                         ::core::option::Option::None => {},
                                     }
+
                                     let mut line_start = LineStart::new(&bytes[next_line_start..content_end]);
+
                                     match {
                                         let _explicit_decision = ::core::primitive::bool::then_some(scan_containers(&self.tree, &mut line_start, self.options, false)
                                         != self.tree.spine_len(), ());
@@ -991,11 +1046,13 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                         },
                                         ::core::option::Option::None => {},
                                     }
+
                                     last_line_start = next_line_start + line_start.bytes_scanned();
                                 }
                             },
                             ::core::option::Option::None => {},
                         }
+
                         let trailing_ws = scan_rev_while(
                             &bytes[last_line_start..content_end],
                             is_ascii_whitespace_no_nl,
@@ -1006,15 +1063,15 @@ impl<'a, 'b> FirstPass<'a, 'b> {
 
                 match attrs {
                     ::core::option::Option::Some(_) => {
-                        // remove trailing block attributes
+
                         self.tree.truncate_siblings(new_end);
                     },
                     ::core::option::Option::None => {},
                 }
 
                 match self.tree.cur() {
-                    Some(cur_ix) => {
-                        self.tree[cur_ix].item.end = new_end;
+                    Some(cur_ix_2) => {
+                        self.tree[cur_ix_2].item.end = new_end;
                     },
                     ::core::option::Option::None => {},
                 }
@@ -1024,7 +1081,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
 
         self.tree[node_ix].item.body = ItemBody::Heading(
             level,
-            attrs.map(|attrs| self.allocs.allocate_heading(attrs)),
+            attrs.map(|attrs_2| self.allocs.allocate_heading(attrs_2)),
         );
 
         Some(ix + n)
@@ -1040,17 +1097,17 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         mode: TableParseMode,
     ) -> (usize, Option<Item>) {
         let bytes = self.text.as_bytes();
-        let bytes = match end {
-            Some(end) => &bytes[..end],
+        let bytes_2 = match end {
+            Some(end_2) => &bytes[..end_2],
             None => bytes,
         };
-        let bytes_len = bytes.len();
+        let bytes_len = bytes_2.len();
         let mut pipes = 0;
         let mut last_pipe_ix = start;
         let mut begin_text = start;
         let mut backslash_escaped = false;
 
-        let (final_ix, brk) = iterate_special_bytes(self.lookup_table, bytes, start, |ix, byte| {
+        let (final_ix, brk) = iterate_special_bytes(self.lookup_table, bytes_2, start, |ix, byte| {
             match byte {
                 b'\n' | b'\r' => {
                     match mode {
@@ -1061,12 +1118,13 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     }
 
                     let mut i = ix;
-                    let eol_bytes = scan_eol(&bytes[ix..]).unwrap();
+                    let eol_bytes = scan_eol(&bytes_2[ix..]).unwrap();
 
                     let end_ix = ix + eol_bytes;
-                    let trailing_backslashes = scan_rev_while(&bytes[..ix], |b| b == b'\\');
+                    let trailing_backslashes = scan_rev_while(&bytes_2[..ix], |b| b == b'\\');
+
                     match {
-                        let _explicit_decision = ::core::primitive::bool::then_some(trailing_backslashes % 2 == 1 && end_ix < bytes_len, ());
+                        let _explicit_decision = ::core::primitive::bool::then_some(trailing_backslashes.wrapping_rem(2) == 1 && end_ix < bytes_len, ());
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
@@ -1090,9 +1148,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
-                            // check if we may be parsing a table
+
                             let next_line_ix = ix + eol_bytes;
-                            let mut line_start = LineStart::new(&bytes[next_line_ix..]);
+                            let mut line_start = LineStart::new(&bytes_2[next_line_ix..]);
+
                             match {
                                 let _explicit_decision = ::core::primitive::bool::then_some(scan_containers(&self.tree, &mut line_start, self.options, false)
                                 == self.tree.spine_len(), ());
@@ -1101,30 +1160,30 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                 ::core::option::Option::Some(()) => {
                                     let table_head_ix = next_line_ix + line_start.bytes_scanned();
                                     let (table_head_bytes, alignment) =
-                                        scan_table_head(&bytes[table_head_ix..]);
+                                        scan_table_head(&bytes_2[table_head_ix..]);
 
                                     match {
                                         let _explicit_decision = ::core::primitive::bool::then_some(table_head_bytes > 0, ());
                                         _explicit_decision
                                     } {
                                         ::core::option::Option::Some(()) => {
-                                            // computing header count from number of pipes
-                                            let ::core::result::Result::Ok(header_count) =
-                                                count_header_cols(bytes, pipes, start, last_pipe_ix);
 
-                                            // make sure they match the number of columns we find in separator line
+                                            let ::core::result::Result::Ok(header_count) =
+                                                count_header_cols(bytes_2, self::CountHeaderColsArguments { pipes, start, last_pipe_ix });
+
+
                                             match {
                                                 let _explicit_decision = ::core::primitive::bool::then_some(alignment.len() == header_count, ());
                                                 _explicit_decision
                                             } {
                                                 ::core::option::Option::Some(()) => {
                                                     let alignment_ix = self.allocs.allocate_alignment(alignment);
-                                                    let end_ix = table_head_ix + table_head_bytes;
+                                                    let end_ix_2 = table_head_ix + table_head_bytes;
                                                     return LoopInstruction::BreakAtWith(
-                                                        end_ix,
+                                                        end_ix_2,
                                                         Some(Item {
                                                             start: i,
-                                                            end: end_ix, // must update later
+                                                            end: end_ix_2,
                                                             body: ItemBody::Table(alignment_ix),
                                                         }),
                                                     );
@@ -1142,7 +1201,8 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     }
 
                     let trailing_whitespace =
-                        scan_rev_while(&bytes[..ix], is_ascii_whitespace_no_nl);
+                        scan_rev_while(&bytes_2[..ix], is_ascii_whitespace_no_nl);
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(trailing_whitespace >= 2, ());
                         _explicit_decision
@@ -1178,17 +1238,18 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 }
                 b'\\' => {
                     match {
-                        let _explicit_decision = ::core::primitive::bool::then_some(ix + 1 < bytes_len && is_ascii_punctuation(bytes[ix + 1]), ());
+                        let _explicit_decision = ::core::primitive::bool::then_some(ix + 1 < bytes_len && is_ascii_punctuation(bytes_2[ix + 1]), ());
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
                             self.tree.append_text(begin_text, ix, backslash_escaped);
+
                             match {
-                                let _explicit_decision = ::core::primitive::bool::then_some(bytes[ix + 1] == b'`', ());
+                                let _explicit_decision = ::core::primitive::bool::then_some(bytes_2[ix + 1] == b'`', ());
                                 _explicit_decision
                             } {
                                 ::core::option::Option::Some(()) => {
-                                    let count = 1 + scan_ch_repeat(&bytes[(ix + 2)..], b'`');
+                                    let count = 1 + scan_ch_repeat(&bytes_2[(ix + 2)..], b'`');
                                     self.tree.append(Item {
                                         start: ix + 1,
                                         end: ix + count + 1,
@@ -1199,29 +1260,29 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                     LoopInstruction::ContinueAndSkip(count)
                                 },
                                 ::core::option::Option::None => match {
-                                    let _explicit_decision = ::core::primitive::bool::then_some(bytes[ix + 1] == b'|' && TableParseMode::Active == mode, ());
+                                    let _explicit_decision = ::core::primitive::bool::then_some(bytes_2[ix + 1] == b'|' && TableParseMode::Active == mode, ());
                                     _explicit_decision
                                 } {
                                     ::core::option::Option::Some(()) => {
-                                        // Yeah, it's super weird that backslash escaped pipes in tables aren't "real"
-                                        // backslash escapes.
-                                        //
-                                        // This tree structure is intended for the benefit of inline analysis, and it
-                                        // is supposed to operate as-if backslash escaped pipes were stripped out in a
-                                        // separate pass.
+
+
+
+
+
+
                                         begin_text = ix + 1;
                                         backslash_escaped = false;
                                         LoopInstruction::ContinueAndSkip(1)
                                     },
                                     ::core::option::Option::None => match {
                                         let _explicit_decision = ::core::primitive::bool::then_some(ix + 2 < bytes_len
-                                        && bytes[ix + 1] == b'\\'
-                                        && bytes[ix + 2] == b'|'
+                                        && bytes_2[ix + 1] == b'\\'
+                                        && bytes_2[ix + 2] == b'|'
                                         && TableParseMode::Active == mode, ());
                                         _explicit_decision
                                     } {
                                         ::core::option::Option::Some(()) => {
-                                            // To parse `\\|`, discard the backslashes and parse the `|` that follows it.
+
                                             begin_text = ix + 2;
                                             backslash_escaped = true;
                                             LoopInstruction::ContinueAndSkip(2)
@@ -1246,15 +1307,15 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     let can_open = delim_run_can_open(
                         &self.text[start..],
                         string_suffix,
-                        count,
-                        ix - start,
+                        self::DelimRunCanOpenArguments { run_len: count,
+                        ix: ix - start },
                         mode,
                     );
                     let can_close = delim_run_can_close(
                         &self.text[start..],
                         string_suffix,
-                        count,
-                        ix - start,
+                        self::DelimRunCanCloseArguments { run_len: count,
+                        ix: ix - start },
                         mode,
                     );
                     let is_valid_seq = (c != b'~' || count <= 2) || (c == b'~' && count == 2);
@@ -1266,6 +1327,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         ::core::option::Option::Some(()) => {
                             self.tree.append_text(begin_text, ix, backslash_escaped);
                             backslash_escaped = false;
+
                             for i in 0..count {
                                 self.tree.append(Item {
                                     start: ix + i,
@@ -1273,32 +1335,34 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                     body: ItemBody::MaybeEmphasis(count - i, can_open, can_close),
                                 });
                             }
+
                             begin_text = ix + count;
                         },
                         ::core::option::Option::None => {},
                     }
+
                     LoopInstruction::ContinueAndSkip(count - 1)
                 }
                 b'$' => {
-                    let byte_suffix = &bytes[ix..];
+                    let byte_suffix = &bytes_2[ix..];
                     let can_open = !byte_suffix[1..]
                         .first()
                         .copied()
                         .map_or(true, is_ascii_whitespace);
                     let can_close = ix > start
-                        && !bytes[..ix]
+                        && !bytes_2[..ix]
                             .last()
                             .copied()
                             .map_or(true, is_ascii_whitespace);
 
-                    // 0xFFFF_FFFF... represents the root brace context. Using None would require
-                    // storing Option<u8>, which is bigger than u8.
-                    //
-                    // These shouldn't conflict unless you have 255 levels of nesting, which is
-                    // past the intended limit anyway.
-                    //
-                    // Unbalanced braces will cause the root to be changed, which is why it gets
-                    // stored here.
+
+
+
+
+
+
+
+
                     let brace_context =
                         match {
                             let _explicit_decision = ::core::primitive::bool::then_some(self.brace_context_stack.len() > MATH_BRACE_CONTEXT_MAX_NESTING, ());
@@ -1338,8 +1402,8 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                             _explicit_decision
                         } {
                             ::core::option::Option::Some(()) => {
-                                // When we reach the limit of nesting, switch from actually matching
-                                // braces to just counting them.
+
+
                                 self.brace_context_next += 1;
                             },
                             ::core::option::Option::None => match {
@@ -1347,7 +1411,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                 _explicit_decision
                             } {
                                 ::core::option::Option::Some(()) => {
-                                    // Store nothing if no math environment has been reached yet.
+
                                     self.brace_context_stack.push(self.brace_context_next as u8);
                                     self.brace_context_next += 1;
                                 },
@@ -1355,29 +1419,30 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                             },
                         },
                     }
+
                     LoopInstruction::ContinueAndSkip(0)
                 }
                 b'}' => {
                     if let &mut [ref mut top_level_context] = ::core::convert::AsMut::<[_]>::as_mut(&mut self.brace_context_stack) {
-                        // Unbalanced Braces
-                        //
-                        // The initial, root top-level brace context is -1, but this is changed whenever an unbalanced
-                        // close brace is encountered:
-                        //
-                        //     This is not a math environment: $}$
-                        //     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^|^
-                        //     -1                               |-2
-                        //
-                        // To ensure this can't get parsed as math, each side of the unbalanced
-                        // brace is an irreversibly separate brace context. As long as the math
-                        // environment itself contains balanced braces, they should share a top level context.
-                        //
-                        //     Math environment contains 2+2: $}$2+2$
-                        //                                       ^^^ this is a math environment
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                         *top_level_context = top_level_context.wrapping_sub(1);
                     } else if self.brace_context_stack.len() > MATH_BRACE_CONTEXT_MAX_NESTING {
-                        // When we exceed 25 levels of nesting, switch from accurately balancing braces
-                        // to just counting them. When we dip back below the limit, switch back.
+
+
                         match {
                             let _explicit_decision = ::core::primitive::bool::then_some(self.brace_context_next <= MATH_BRACE_CONTEXT_MAX_NESTING, ());
                             _explicit_decision
@@ -1392,12 +1457,13 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     } else {
                         self.brace_context_stack.pop();
                     }
+
                     LoopInstruction::ContinueAndSkip(0)
                 }
                 b'`' => {
                     self.tree.append_text(begin_text, ix, backslash_escaped);
                     backslash_escaped = false;
-                    let count = 1 + scan_ch_repeat(&bytes[(ix + 1)..], b'`');
+                    let count = 1 + scan_ch_repeat(&bytes_2[(ix + 1)..], b'`');
                     self.tree.append(Item {
                         start: ix,
                         end: ix + count,
@@ -1406,9 +1472,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     begin_text = ix + count;
                     LoopInstruction::ContinueAndSkip(count - 1)
                 }
-                b'<' if bytes.get(ix + 1) != Some(&b'\\') => {
-                    // Note: could detect some non-HTML cases and early escape here, but not
-                    // clear that's a win.
+                b'<' if bytes_2.get(ix + 1) != Some(&b'\\') => {
+
+
                     self.tree.append_text(begin_text, ix, backslash_escaped);
                     backslash_escaped = false;
                     self.tree.append(Item {
@@ -1421,7 +1487,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 }
                 b'!' => {
                     match {
-                        let _explicit_decision = ::core::primitive::bool::then_some(ix + 1 < bytes_len && bytes[ix + 1] == b'[', ());
+                        let _explicit_decision = ::core::primitive::bool::then_some(ix + 1 < bytes_len && bytes_2[ix + 1] == b'[', ());
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
@@ -1462,7 +1528,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     begin_text = ix + 1;
                     LoopInstruction::ContinueAndSkip(0)
                 }
-                b'&' => match scan_entity(&bytes[ix..]) {
+                b'&' => match scan_entity(&bytes_2[ix..]) {
                     (n, Some(value)) => {
                         self.tree.append_text(begin_text, ix, backslash_escaped);
                         backslash_escaped = false;
@@ -1478,7 +1544,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 b'|' => {
                     match {
-                        let _explicit_decision = ::core::primitive::bool::then_some(ix != 0 && bytes[ix - 1] == b'\\', ());
+                        let _explicit_decision = ::core::primitive::bool::then_some(ix != 0 && bytes_2[ix - 1] == b'\\', ());
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
@@ -1498,7 +1564,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 }
                 b'.' => {
                     match {
-                        let _explicit_decision = ::core::primitive::bool::then_some(ix + 2 < bytes.len() && bytes[ix + 1] == b'.' && bytes[ix + 2] == b'.', ());
+                        let _explicit_decision = ::core::primitive::bool::then_some(ix + 2 < bytes_2.len() && bytes_2[ix + 1] == b'.' && bytes_2[ix + 2] == b'.', ());
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
@@ -1518,7 +1584,8 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     }
                 }
                 b'-' => {
-                    let count = 1 + scan_ch_repeat(&bytes[(ix + 1)..], b'-');
+                    let count = 1 + scan_ch_repeat(&bytes_2[(ix + 1)..], b'-');
+
                     match count {
                         1 => {
                             LoopInstruction::ContinueAndSkip(0)
@@ -1533,21 +1600,24 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                         ItemBody::SynthesizeChar('—')
                                     },
                                     _ => {
-                                        let (ems, ens) = match count % 6 {
-                                            0 | 3 => (count / 3, 0),
-                                            2 | 4 => (0, count / 2),
-                                            1 => (count / 3 - 1, 2),
-                                            _ => (count / 3, 1),
+                                        let (ems, ens) = match count.wrapping_rem(6) {
+                                            0 | 3 => (count.wrapping_div(3), 0),
+                                            2 | 4 => (0, count.wrapping_div(2)),
+                                            1 => (count.wrapping_div(3) - 1, 2),
+                                            _ => (count.wrapping_div(3), 1),
                                         };
-                                        // – and — are 3 bytes each in utf8
+
                                         let mut buf = String::with_capacity(3 * (ems + ens));
+
                                         for _ in 0..ems {
                                             buf.push('—');
                                         }
+
                                         for _ in 0..ens {
                                             buf.push('–');
                                         }
-                                        ItemBody::SynthesizeText(self.allocs.allocate_cow(buf.into()))
+
+                                        ItemBody::SynthesizeText(self.allocs.allocate_cow(<crate::strings::CowStr<'_> as ::core::convert::From<::std::string::String>>::from(buf)))
                                     },
                                 },
                             };
@@ -1567,12 +1637,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 c @ b'\'' | c @ b'"' => {
                     let string_suffix = &self.text[ix..];
                     let can_open =
-                        delim_run_can_open(&self.text[start..], string_suffix, 1, ix - start, mode);
+                        delim_run_can_open(&self.text[start..], string_suffix, self::DelimRunCanOpenArguments { run_len: 1, ix: ix - start }, mode);
                     let can_close = delim_run_can_close(
                         &self.text[start..],
                         string_suffix,
-                        1,
-                        ix - start,
+                        self::DelimRunCanCloseArguments { run_len: 1,
+                        ix: ix - start },
                         mode,
                     );
 
@@ -1594,8 +1664,8 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         match brk {
             ::core::option::Option::None => {
                 let trailing_whitespace =
-                    scan_rev_while(&bytes[begin_text..final_ix], is_ascii_whitespace_no_nl);
-                // need to close text at eof
+                    scan_rev_while(&bytes_2[begin_text..final_ix], is_ascii_whitespace_no_nl);
+
                 self.tree.append_text(
                     begin_text,
                     final_ix - trailing_whitespace,
@@ -1604,6 +1674,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::Some(_) => {},
         }
+
         (final_ix, brk)
     }
 
@@ -1621,7 +1692,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
     ) -> usize {
         self.tree.append(Item {
             start: start_ix,
-            end: 0, // set later
+            end: 0,
             body: ItemBody::HtmlBlock,
         });
         self.tree.push();
@@ -1629,6 +1700,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let bytes = self.text.as_bytes();
         let mut ix = start_ix;
         let end_ix;
+
         loop {
             let line_start_ix = ix;
             ix += scan_nextline(&bytes[ix..]);
@@ -1636,6 +1708,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
 
             let mut line_start = LineStart::new(&bytes[ix..]);
             let n_containers = scan_containers(&self.tree, &mut line_start, self.options, false);
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(n_containers < self.tree.spine_len(), ());
                 _explicit_decision
@@ -1659,6 +1732,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             }
 
             let next_line_ix = ix + line_start.bytes_scanned();
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(next_line_ix == self.text.len(), ());
                 _explicit_decision
@@ -1669,10 +1743,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 ::core::option::Option::None => {},
             }
+
             ix = next_line_ix;
             remaining_space = line_start.remaining_space();
             indent = 0;
         }
+
         self.pop(end_ix);
         ix
     }
@@ -1688,7 +1764,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
     ) -> usize {
         self.tree.append(Item {
             start: start_ix,
-            end: 0, // set later
+            end: 0,
             body: ItemBody::HtmlBlock,
         });
         self.tree.push();
@@ -1696,6 +1772,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let bytes = self.text.as_bytes();
         let mut ix = start_ix;
         let end_ix;
+
         loop {
             let line_start_ix = ix;
             ix += scan_nextline(&bytes[ix..]);
@@ -1703,6 +1780,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
 
             let mut line_start = LineStart::new(&bytes[ix..]);
             let n_containers = scan_containers(&self.tree, &mut line_start, self.options, false);
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(n_containers < self.tree.spine_len() || line_start.is_at_eol(), ());
                 _explicit_decision
@@ -1715,6 +1793,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             }
 
             let next_line_ix = ix + line_start.bytes_scanned();
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(next_line_ix == self.text.len() || scan_blank_line(&bytes[next_line_ix..]).is_some(), ());
                 _explicit_decision
@@ -1725,10 +1804,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 ::core::option::Option::None => {},
             }
+
             ix = next_line_ix;
             remaining_space = line_start.remaining_space();
             indent = 0;
         }
+
         self.pop(end_ix);
         ix
     }
@@ -1736,7 +1817,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
     fn parse_indented_code_block(&mut self, start_ix: usize, mut remaining_space: usize) -> usize {
         self.tree.append(Item {
             start: start_ix,
-            end: 0, // will get set later
+            end: 0,
             body: ItemBody::IndentCodeBlock,
         });
         self.tree.push();
@@ -1747,11 +1828,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         self.last_line_blank = false;
 
         let mut ix = start_ix;
+
         loop {
             let line_start_ix = ix;
             ix += scan_nextline(&bytes[ix..]);
             self.append_code_text(remaining_space, line_start_ix, ix);
-            // TODO(spec clarification): should we synthesize newline at EOF?
+
 
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(!self.last_line_blank, ());
@@ -1767,6 +1849,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
 
             let mut line_start = LineStart::new(&bytes[ix..]);
             let n_containers = scan_containers(&self.tree, &mut line_start, self.options, false);
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(n_containers < self.tree.spine_len()
                 || !(line_start.scan_space(4) || line_start.is_at_eol()), ());
@@ -1777,7 +1860,9 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 ::core::option::Option::None => {},
             }
+
             let next_line_ix = ix + line_start.bytes_scanned();
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(next_line_ix == self.text.len(), ());
                 _explicit_decision
@@ -1787,12 +1872,13 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 ::core::option::Option::None => {},
             }
+
             ix = next_line_ix;
             remaining_space = line_start.remaining_space();
             self.last_line_blank = scan_blank_line(&bytes[ix..]).is_some();
         }
 
-        // Trim trailing blank lines.
+
         match last_nonblank_child {
             Some(child) => {
                 self.tree[child].next = None;
@@ -1800,6 +1886,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         self.pop(end_ix);
         ix
     }
@@ -1814,52 +1901,61 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let bytes = self.text.as_bytes();
         let mut info_start = start_ix + n_fence_char;
         info_start += scan_whitespace_no_nl(&bytes[info_start..]);
-        // TODO: info strings are typically very short. wouldn't it be faster
-        // to just do a forward scan here?
+
+
         let mut ix = info_start + scan_nextline(&bytes[info_start..]);
         let info_end = ix - scan_rev_while(&bytes[info_start..ix], is_ascii_whitespace);
         let info_string = unescape(&self.text[info_start..info_end], self.tree.is_in_table());
         self.tree.append(Item {
             start: start_ix,
-            end: 0, // will get set later
+            end: 0,
             body: ItemBody::FencedCodeBlock(self.allocs.allocate_cow(info_string)),
         });
         self.tree.push();
+
         loop {
             let mut line_start = LineStart::new(&bytes[ix..]);
             let n_containers = scan_containers(&self.tree, &mut line_start, self.options, false);
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(n_containers < self.tree.spine_len(), ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
-                    // this line will get parsed again as not being part of the code
-                    // if it's blank, it should be parsed as a blank line
+
+
                     self.pop(ix);
                     return ix;
                 },
                 ::core::option::Option::None => {},
             }
+
             line_start.scan_space(indent);
             let mut close_line_start = line_start.clone();
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(!close_line_start.scan_space(4 - indent), ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
                     let close_ix = ix + close_line_start.bytes_scanned();
+
                     match scan_closing_code_fence(&bytes[close_ix..], fence_ch, n_fence_char) {
                         Some(n) => {
                             ix = close_ix + n;
                             self.pop(ix);
-                            // try to read trailing whitespace or it will register as a completely blank line
-                            return ix + scan_blank_line(&bytes[ix..]).unwrap_or(0);
+
+                            return ix + match scan_blank_line(&bytes[ix..]) {
+                                ::core::option::Option::Some(option_value) => option_value,
+                                ::core::option::Option::None => 0,
+                            };
                         },
                         ::core::option::Option::None => {},
                     }
                 },
                 ::core::option::Option::None => {},
             }
+
             let remaining_space = line_start.remaining_space();
             ix += line_start.bytes_scanned();
             let next_ix = ix + scan_nextline(&bytes[ix..]);
@@ -1875,17 +1971,19 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             b'+' => MetadataBlockKind::PlusesStyle,
             _ => panic!("Erroneous metadata block character when parsing metadata block"),
         };
-        // 3 delimiter characters
+
         let mut ix = start_ix + 3 + scan_nextline(&bytes[start_ix + 3..]);
         self.tree.append(Item {
             start: start_ix,
-            end: 0, // will get set later
+            end: 0,
             body: ItemBody::MetadataBlock(metadata_block_kind),
         });
         self.tree.push();
+
         loop {
             let mut line_start = LineStart::new(&bytes[ix..]);
             let n_containers = scan_containers(&self.tree, &mut line_start, self.options, false);
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(n_containers < self.tree.spine_len(), ());
                 _explicit_decision
@@ -1895,6 +1993,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 ::core::option::Option::None => {},
             }
+
             if let (_, 0) = calc_indent(&bytes[ix..], 4) {
                 match scan_closing_metadata_block(&bytes[ix..], metadata_block_ch) {
                     Some(n) => {
@@ -1904,6 +2003,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     ::core::option::Option::None => {},
                 }
             }
+
             let remaining_space = line_start.remaining_space();
             ix += line_start.bytes_scanned();
             let next_ix = ix + scan_nextline(&bytes[ix..]);
@@ -1913,8 +2013,11 @@ impl<'a, 'b> FirstPass<'a, 'b> {
 
         self.pop(ix);
 
-        // try to read trailing whitespace or it will register as a completely blank line
-        ix + scan_blank_line(&bytes[ix..]).unwrap_or(0)
+
+        ix + match scan_blank_line(&bytes[ix..]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        }
     }
 
     fn append_code_text(&mut self, remaining_space: usize, start: usize, end: usize) {
@@ -1932,12 +2035,13 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(self.text.as_bytes()[end - 2] == b'\r', ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
-                // Normalize CRLF to LF
+
                 self.tree.append_text(start, end - 2, false);
                 self.tree.append_text(end - 1, end, false);
             },
@@ -1963,12 +2067,13 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(self.text.as_bytes()[end - 2] == b'\r', ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
-                // Normalize CRLF to LF
+
                 self.tree.append(Item {
                     start,
                     end: end - 2,
@@ -1994,10 +2099,12 @@ impl<'a, 'b> FirstPass<'a, 'b> {
     fn pop(&mut self, ix: usize) {
         let cur_ix = self.tree.pop().unwrap();
         self.tree[cur_ix].item.end = ix;
+
         if let ItemBody::DefinitionList(_) = self.tree[cur_ix].item.body {
             let ::core::result::Result::Ok(()) = fixup_end_of_definition_list(&mut self.tree, cur_ix);
             self.begin_list_item = None;
         }
+
         if let ItemBody::List(ref list_flags, _, _) | ItemBody::DefinitionList(ref list_flags) =
             self.tree[cur_ix].item.body
         {
@@ -2018,6 +2125,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
     /// and end current list if it's a lone, empty item
     fn finish_list(&mut self, ix: usize) {
         self.finish_empty_list_item();
+
         match self.tree.peek_up() {
             Some(node_ix) => {
                 if let ItemBody::List(_, _, _) | ItemBody::DefinitionList(_) =
@@ -2028,6 +2136,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(self.last_line_blank, ());
             _explicit_decision
@@ -2043,6 +2152,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     },
                     ::core::option::Option::None => {},
                 }
+
                 self.last_line_blank = false;
             },
             ::core::option::Option::None => {},
@@ -2057,7 +2167,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
-                        // A list item can begin with at most one blank line.
+
                         match self.tree.peek_up() {
                             Some(node_ix) => {
                                 if let ItemBody::ListItem(_) | ItemBody::DefinitionListDefinition(_) =
@@ -2074,6 +2184,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         self.begin_list_item = None;
     }
 
@@ -2081,6 +2192,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
     /// list that matches.
     fn continue_list(&mut self, start: usize, ch: u8, index: u64) {
         self.finish_empty_list_item();
+
         match self.tree.peek_up() {
             Some(node_ix) => {
                 if let ItemBody::List(ref list_flags, existing_ch, _) = self.tree[node_ix].item.body {
@@ -2099,19 +2211,22 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                                 },
                                 ::core::option::Option::None => {},
                             }
+
                             return;
                         },
                         ::core::option::Option::None => {},
                     }
                 }
-                // TODO: this is not the best choice for end; maybe get end from last list item.
+
+
                 self.finish_list(start);
             },
             ::core::option::Option::None => {},
         }
+
         self.tree.append(Item {
             start,
-            end: 0, // will get set later
+            end: 0,
             body: ItemBody::List(Cell::new(ListFlags::IS_TIGHT), ch, index),
         });
         self.tree.push();
@@ -2137,12 +2252,13 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         let mut ix = start;
         let heading_ix = self.tree.append(Item {
             start,
-            end: 0,                    // set later
-            body: ItemBody::default(), // set later
+            end: 0,
+            body: ItemBody::default(),
         });
         ix += atx_level as usize;
-        // next char is space or eol (guaranteed by scan_atx_heading)
+
         let bytes = self.text.as_bytes();
+
         match scan_eol(&bytes[ix..]) {
             Some(eol_bytes) => {
                 self.tree[heading_ix].item.end = ix + eol_bytes;
@@ -2151,22 +2267,23 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
-        // skip leading spaces
+
+
         let skip_spaces = scan_whitespace_no_nl(&bytes[ix..]);
         ix += skip_spaces;
 
-        // now handle the header text
-        let header_start = ix;
-        let header_node_idx = self.tree.push(); // so that we can set the endpoint later
 
-        // trim the trailing attribute block before parsing the entire line, if necessary
+        let header_start = ix;
+        let header_node_idx = self.tree.push();
+
+
         let (end, content_end, attrs) = match {
             let _explicit_decision = ::core::primitive::bool::then_some(self.options.contains(Options::ENABLE_HEADING_ATTRIBUTES), ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
-                // the start of the next line is the end of the header since the
-                // header cannot have line breaks
+
+
                 let header_end = header_start + scan_nextline(&bytes[header_start..]);
                 let (content_end, attrs) =
                     self.extract_and_parse_heading_attribute_block(header_start, header_end);
@@ -2176,25 +2293,27 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             ::core::option::Option::None => {
                 let (line_ix, line_brk) = self.parse_line(ix, None, TableParseMode::Disabled);
                 ix = line_ix;
-                // Backslash at end is actually hard line break
+
                 if let Some(Item {
-                    start,
+                    start: start_2,
                     end,
                     body: ItemBody::HardBreak(true),
                 }) = line_brk
                 {
-                    self.tree.append_text(start, end, false);
+                    self.tree.append_text(start_2, end, false);
                 }
+
                 (ix, ix, None)
             },
         };
         self.tree[header_node_idx].item.end = end;
 
-        // remove trailing matter from header text
+
         let mut empty_text_node = false;
+
         match self.tree.cur() {
             Some(cur_ix) => {
-                // remove closing of the ATX heading
+
                 let header_text = &bytes[header_start..content_end];
                 let mut limit = header_text
                     .iter()
@@ -2204,12 +2323,14 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     .iter()
                     .rposition(|&b| b != b'#')
                     .map_or(0, |i| i + 1);
+
                 match closer {
                     0 => {
                         limit = closer;
                     },
                     _ => {
                         let spaces = scan_rev_while(&header_text[..closer], |b| b == b' ');
+
                         match {
                             let _explicit_decision = ::core::primitive::bool::then_some(spaces > 0, ());
                             _explicit_decision
@@ -2221,10 +2342,11 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         }
                     },
                 }
-                // if text is only spaces, then remove them
+
+
                 self.tree[cur_ix].item.end = limit + header_start;
 
-                // limit = 0 when text is empty after removing spaces
+
                 match limit {
                     0 => {
                         empty_text_node = true;
@@ -2243,9 +2365,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 self.tree.pop();
             },
         }
+
         self.tree[heading_ix].item.body = ItemBody::Heading(
             atx_level,
-            attrs.map(|attrs| self.allocs.allocate_heading(attrs)),
+            attrs.map(|attrs_2| self.allocs.allocate_heading(attrs_2)),
         );
 
         end
@@ -2254,6 +2377,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
     /// Returns the number of bytes scanned on success.
     fn parse_footnote(&mut self, start: usize) -> Option<usize> {
         let bytes = &self.text.as_bytes()[start..];
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(!bytes.starts_with(b"[^"), ());
             _explicit_decision
@@ -2263,32 +2387,36 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         let (mut i, label) = match {
             let _explicit_decision = ::core::primitive::bool::then_some(self.options.has_gfm_footnotes(), ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
-                // GitHub doesn't allow footnote definition labels to contain line breaks.
-                // It actually does allow this for link definitions under certain circumstances,
-                // but for this it's simpler to avoid it.
+
+
+
                 scan_link_label_rest(&self.text[start + 2..], &|_| None, self.tree.is_in_table())?
             },
             ::core::option::Option::None => {
                 self.parse_refdef_label(start + 2)?
             },
         };
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(self.options.has_gfm_footnotes() && label.bytes().any(|b| b == b'\r' || b == b'\n'), ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
-                // GitHub doesn't allow footnote definition labels to contain line breaks,
-                // even if they're escaped.
+
+
                 return None;
             },
             ::core::option::Option::None => {},
         }
+
         i += 2;
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(bytes.get(i) != Some(&b':'), ());
             _explicit_decision
@@ -2298,17 +2426,20 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         i += 1;
         self.finish_list(start);
+
         match self.tree.peek_up() {
             Some(node_ix) => {
                 if let ItemBody::FootnoteDefinition(..) = self.tree[node_ix].item.body {
-                    // finish previous footnote if it's still open
+
                     self.pop(start);
                 }
             },
             ::core::option::Option::None => {},
         }
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(self.options.has_gfm_footnotes(), ());
             _explicit_decision
@@ -2318,14 +2449,15 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         self.allocs
             .footdefs
             .0
             .insert(UniCase::new(label.clone()), FootnoteDef { use_count: 0 });
         self.tree.append(Item {
             start,
-            end: 0, // will get set later
-            // TODO: check whether the label here is strictly necessary
+            end: 0,
+
             body: ItemBody::FootnoteDefinition(self.allocs.allocate_cow(label)),
         });
         self.tree.push();
@@ -2334,6 +2466,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
 
     /// Tries to parse a reference label, which can be interrupted by new blocks.
     /// On success, returns the number of bytes of the label and the label itself.
+    #[must_use]
     fn parse_refdef_label(&self, start: usize) -> Option<(usize, CowStr<'a>)> {
         scan_link_label_rest(
             &self.text[start..],
@@ -2342,6 +2475,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 let tree_position =
                     scan_containers(&self.tree, &mut line_start, self.options, false);
                 let current_container = tree_position == self.tree.spine_len();
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(line_start.scan_space(4), ());
                     _explicit_decision
@@ -2351,9 +2485,11 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     },
                     ::core::option::Option::None => {},
                 }
+
                 let bytes_scanned = line_start.bytes_scanned();
                 let off = self.text.len() - bytes.len() + bytes_scanned;
                 let suffix = &self.text[off..];
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(self.scan_paragraph_interrupt(suffix, current_container, tree_position)
                     || (current_container && scan_setext_heading(suffix.as_bytes()).is_some()), ());
@@ -2374,6 +2510,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
     /// Returns number of bytes scanned, label and definition on success.
     fn parse_refdef_total(&mut self, start: usize) -> Option<(usize, LinkLabel<'a>, LinkDef<'a>)> {
         let bytes = &self.text.as_bytes()[start..];
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(bytes.get(0) != Some(&b'['), ());
             _explicit_decision
@@ -2383,8 +2520,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         let (mut i, label) = self.parse_refdef_label(start + 1)?;
         i += 1;
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(bytes.get(i) != Some(&b':'), ());
             _explicit_decision
@@ -2394,21 +2533,26 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         i += 1;
         let (bytecount, link_def) = self.scan_refdef(start, start + i)?;
         Some((bytecount + i, UniCase::new(label), link_def))
     }
 
     /// Returns number of bytes and number of newlines
+    #[must_use]
     fn scan_refdef_space(&self, bytes: &[u8], mut i: usize) -> Option<(usize, usize)> {
         let mut newlines = 0;
+
         loop {
             let whitespaces = scan_whitespace_no_nl(&bytes[i..]);
             i += whitespaces;
+
             match scan_eol(&bytes[i..]) {
                 Some(eol_bytes) => {
                     i += eol_bytes;
                     newlines += 1;
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(newlines > 1, ());
                         _explicit_decision
@@ -2423,15 +2567,18 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                     break;
                 },
             }
+
             let mut line_start = LineStart::new(&bytes[i..]);
             let tree_position = scan_containers(&self.tree, &mut line_start, self.options, false);
             let current_container = tree_position == self.tree.spine_len();
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(!line_start.scan_space(4), ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
                     let suffix = &self.text[i + line_start.bytes_scanned()..];
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(self.scan_paragraph_interrupt(suffix, current_container, tree_position)
                         || scan_setext_heading(suffix.as_bytes()).is_some(), ());
@@ -2445,15 +2592,19 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
                 ::core::option::Option::None => {},
             }
+
             i += line_start.bytes_scanned();
         }
+
         Some((i, newlines))
     }
 
-    // returns (bytelength, title_str)
+
+    #[must_use]
     fn scan_refdef_title<'t>(&self, text: &'t str) -> Option<(usize, CowStr<'t>)> {
         let bytes = text.as_bytes();
-        let closing_delim = match bytes.first()? {
+        let checked_value = bytes.first()?;
+        let closing_delim = match checked_value {
             b'\'' => b'\'',
             b'"' => b'"',
             b'(' => b')',
@@ -2467,32 +2618,33 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         while let Some(&c) = bytes.get(bytecount) {
             match c {
                 b'(' if closing_delim == b')' => {
-                    // https://spec.commonmark.org/0.30/#link-title
-                    // a sequence of zero or more characters between matching parentheses ((...)),
-                    // including a ( or ) character only if it is backslash-escaped.
+
+
+
                     return None;
                 }
                 b'\n' | b'\r' => {
-                    // push text to line buffer
-                    // this is used to strip the block formatting:
-                    //
-                    // > [first]: http://example.com "
-                    // > second"
-                    //
-                    // should get turned into `<a href="example.com" title=" second">first</a>`
-                    let linebuf = match &mut linebuf {
-                        Some(linebuf) => {
-                            linebuf
+
+
+
+
+
+
+
+                    let linebuf_3 = match &mut linebuf {
+                        Some(linebuf_2) => {
+                            linebuf_2
                         },
                         ::core::option::Option::None => {
                             linebuf = Some(String::new());
                             linebuf.as_mut().unwrap()
                         },
                     };
-                    linebuf.push_str(&text[linestart..bytecount]);
-                    linebuf.push('\n'); // normalize line breaks
-                                        // skip line break
+                    linebuf_3.push_str(&text[linestart..bytecount]);
+                    linebuf_3.push('\n');
+
                     bytecount += 1;
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(c == b'\r' && bytes.get(bytecount) == Some(&b'\n'), ());
                         _explicit_decision
@@ -2502,16 +2654,19 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     let mut line_start = LineStart::new(&bytes[bytecount..]);
                     let tree_position =
                         scan_containers(&self.tree, &mut line_start, self.options, false);
                     let current_container = tree_position == self.tree.spine_len();
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(!line_start.scan_space(4), ());
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
                             let suffix = &text[bytecount + line_start.bytes_scanned()..];
+
                             match {
                                 let _explicit_decision = ::core::primitive::bool::then_some(self.scan_paragraph_interrupt(suffix, current_container, tree_position)
                                 || scan_setext_heading(suffix.as_bytes()).is_some(), ());
@@ -2525,15 +2680,17 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     line_start.scan_all_space();
                     bytecount += line_start.bytes_scanned();
                     linestart = bytecount;
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(scan_blank_line(&bytes[bytecount..]).is_some(), ());
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
-                            // blank line - not allowed
+
                             return None;
                         },
                         ::core::option::Option::None => {},
@@ -2541,10 +2698,11 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 }
                 b'\\' => {
                     bytecount += 1;
+
                     match bytes.get(bytecount) {
-                        Some(c) => {
+                        Some(c_2) => {
                             match {
-                                let _explicit_decision = ::core::primitive::bool::then_some(c != &b'\r' && c != &b'\n', ());
+                                let _explicit_decision = ::core::primitive::bool::then_some(c_2 != &b'\r' && c_2 != &b'\n', ());
                                 _explicit_decision
                             } {
                                 ::core::option::Option::Some(()) => {
@@ -2556,11 +2714,11 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         ::core::option::Option::None => {},
                     }
                 }
-                c if c == closing_delim => {
+                c_3 if c_3 == closing_delim => {
                     let cow = match linebuf {
-                        Some(mut linebuf) => {
-                            linebuf.push_str(&text[linestart..bytecount]);
-                            CowStr::from(linebuf)
+                        Some(mut linebuf_4) => {
+                            linebuf_4.push_str(&text[linestart..bytecount]);
+                            CowStr::from(linebuf_4)
                         },
                         ::core::option::Option::None => {
                             CowStr::from(&text[linestart..bytecount])
@@ -2573,40 +2731,44 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 }
             }
         }
+
         None
     }
 
     /// Returns # of bytes and definition.
     /// Assumes the label of the reference including colon has already been scanned.
+    #[must_use]
     fn scan_refdef(&self, span_start: usize, start: usize) -> Option<(usize, LinkDef<'a>)> {
         let bytes = self.text.as_bytes();
 
-        // whitespace between label and url (including up to one newline)
+
         let (mut i, _newlines) = self.scan_refdef_space(bytes, start)?;
 
-        // scan link dest
+
         let (dest_length, dest) = scan_link_dest(self.text, i, LINK_MAX_NESTED_PARENS)?;
+
         match dest_length {
             0 => {
                 return None;
             },
             _ => {},
         }
-        let dest = unescape(dest, self.tree.is_in_table());
+
+        let dest_2 = unescape(dest, self.tree.is_in_table());
         i += dest_length;
 
-        // no title
+
         let mut backup = (
             i - start,
             LinkDef {
-                dest,
+                dest: dest_2,
                 title: None,
                 span: span_start..i,
             },
         );
 
-        // scan whitespace between dest and label
-        let (mut i, newlines) =
+
+        let (mut i_2, newlines) =
             match self.scan_refdef_space(bytes, i) {
                 Some((new_i, mut newlines)) => {
                     match {
@@ -2618,6 +2780,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(new_i == i && newlines == 0, ());
                         _explicit_decision
@@ -2627,6 +2790,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(newlines > 1, ());
                         _explicit_decision
@@ -2636,6 +2800,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                         },
                         ::core::option::Option::None => {},
                     };
+
                     (new_i, newlines)
                 },
                 ::core::option::Option::None => {
@@ -2643,18 +2808,19 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 },
             };
 
-        // scan title
-        // if this fails but newline == 1, return also a refdef without title
-        match self.scan_refdef_title(&self.text[i..]) {
+
+
+        match self.scan_refdef_title(&self.text[i_2..]) {
             Some((title_length, title)) => {
-                i += title_length;
+                i_2 += title_length;
+
                 match {
-                    let _explicit_decision = ::core::primitive::bool::then_some(scan_blank_line(&bytes[i..]).is_some(), ());
+                    let _explicit_decision = ::core::primitive::bool::then_some(scan_blank_line(&bytes[i_2..]).is_some(), ());
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
-                        backup.0 = i - start;
-                        backup.1.span = span_start..i;
+                        backup.0 = i_2 - start;
+                        backup.1.span = span_start..i_2;
                         backup.1.title = Some(unescape(title, self.tree.is_in_table()));
                         return Some(backup);
                     },
@@ -2663,6 +2829,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(newlines > 0, ());
             _explicit_decision
@@ -2677,6 +2844,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
     }
 
     /// Checks whether we should break a paragraph on the given input.
+    #[must_use]
     fn scan_paragraph_interrupt(
         &self,
         text: &str,
@@ -2684,6 +2852,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
         tree_position: usize,
     ) -> bool {
         let bytes = text.as_bytes();
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(scan_paragraph_interrupt_no_table(
                 text,
@@ -2700,20 +2869,21 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
-        // pulldown-cmark allows heavy tables, that have a `|` on the header row,
-        // to interrupt paragraphs.
-        //
-        // ```markdown
-        // This is a table
-        // | a | b | c |
-        // |---|---|---|
-        // | d | e | f |
-        //
-        // This is not a table
-        //  a | b | c
-        // ---|---|---
-        //  d | e | f
-        // ```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(!self.options.contains(Options::ENABLE_TABLES) || !bytes.starts_with(b"|"), ());
             _explicit_decision
@@ -2724,12 +2894,13 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             ::core::option::Option::None => {},
         }
 
-        // Checking if something's a valid table or not requires looking at two lines.
-        // First line, count unescaped pipes.
+
+
         let mut pipes = 0;
         let mut next_line_ix = 0;
         let mut bsesc = false;
         let mut last_pipe_ix = 0;
+
         for (i, &byte) in bytes.iter().enumerate() {
             match byte {
                 b'\\' => {
@@ -2746,10 +2917,11 @@ impl<'a, 'b> FirstPass<'a, 'b> {
                 }
                 _ => {}
             }
+
             bsesc = false;
         }
 
-        // scan_eol can't return 0, so this can't be zero
+
         match next_line_ix {
             0 => {
                 return false;
@@ -2757,19 +2929,20 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             _ => {},
         }
 
-        // Scan the table head. The part that looks like:
-        //
-        //     |---|---|---|
-        //
-        // Also scan any containing items, since it's on its own line, and
-        // might be nested inside a block quote or something
-        //
-        //     > Table: First
-        //     > | first col | second col |
-        //     > |-----------|------------|
-        //     ^
-        //     | need to skip over the `>` when checking for the table
+
+
+
+
+
+
+
+
+
+
+
+
         let mut line_start = LineStart::new(&bytes[next_line_ix..]);
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(scan_containers(&self.tree, &mut line_start, self.options, false)
             != self.tree.spine_len(), ());
@@ -2780,6 +2953,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             },
             ::core::option::Option::None => {},
         }
+
         let table_head_ix = next_line_ix + line_start.bytes_scanned();
         let (table_head_bytes, alignment) = scan_table_head(&bytes[table_head_ix..]);
 
@@ -2790,10 +2964,10 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             _ => {},
         }
 
-        // computing header count from number of pipes
-        let ::core::result::Result::Ok(header_count) = count_header_cols(bytes, pipes, 0, last_pipe_ix);
 
-        // make sure they match the number of columns we find in separator line
+        let ::core::result::Result::Ok(header_count) = count_header_cols(bytes, self::CountHeaderColsArguments { pipes, start: 0, last_pipe_ix });
+
+
         alignment.len() == header_count
     }
 
@@ -2818,7 +2992,7 @@ impl<'a, 'b> FirstPass<'a, 'b> {
             ::core::option::Option::None => {},
         }
 
-        // extract the trailing attribute block
+
         let header_bytes = &self.text.as_bytes()[header_start..header_end];
         let (content_len, attr_block_range_rel) =
             extract_attribute_block_content_from_header_text(header_bytes);
@@ -2847,12 +3021,11 @@ enum TableParseMode {
 /// that aren't followed or preceded by whitespace.
 fn count_header_cols(
     bytes: &[u8],
-    mut pipes: usize,
-    mut start: usize,
-    last_pipe_ix: usize,
+    CountHeaderColsArguments { mut pipes, mut start, last_pipe_ix }: CountHeaderColsArguments,
 ) -> ::core::result::Result<usize, ::core::convert::Infallible> {
-    // was first pipe preceded by whitespace? if so, subtract one
+
     start += scan_whitespace_no_nl(&bytes[start..]);
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(bytes[start] == b'|', ());
         _explicit_decision
@@ -2863,7 +3036,7 @@ fn count_header_cols(
         ::core::option::Option::None => {},
     }
 
-    // was last pipe followed by whitespace? if so, sub one
+
     ::core::result::Result::Ok(match {
         let _explicit_decision = ::core::primitive::bool::then_some(scan_blank_line(&bytes[(last_pipe_ix + 1)..]).is_some(), ());
         _explicit_decision
@@ -2877,10 +3050,17 @@ fn count_header_cols(
     })
 }
 
+struct CountHeaderColsArguments {
+    pipes: usize,
+    start: usize,
+    last_pipe_ix: usize,
+}
+
 /// Checks whether we should break a paragraph on the given input.
 ///
 /// Use `FirstPass::scan_paragraph_interrupt` in any context that allows
 /// tables to interrupt the paragraph.
+#[must_use]
 fn scan_paragraph_interrupt_no_table(
     text: &str,
     current_container: bool,
@@ -2898,8 +3078,8 @@ fn scan_paragraph_interrupt_no_table(
         || scan_listitem(bytes).map_or(false, |(ix, delim, index, _)| {
             ! current_container ||
             tree.is_in_table() ||
-            // we don't allow interruption by either empty lists or
-            // numbered lists starting at an index other than 1
+
+
             (delim == b'*' || delim == b'-' || delim == b'+' || index == 1)
                 && (scan_blank_line(&bytes[ix..]).is_none())
         })
@@ -2926,8 +3106,10 @@ fn scan_paragraph_interrupt_no_table(
 }
 
 /// Assumes `text_bytes` is preceded by `<`.
+#[must_use]
 fn get_html_end_tag(text_bytes: &[u8]) -> Option<&'static str> {
     static BEGIN_TAGS: &[&[u8]; 4] = &[b"pre", b"style", b"script", b"textarea"];
+
     static ST_BEGIN_TAGS: &[&[u8]; 3] = &[b"!--", b"?", b"![CDATA["];
 
     for (beg_tag, end_tag) in BEGIN_TAGS
@@ -2941,7 +3123,7 @@ fn get_html_end_tag(text_bytes: &[u8]) -> Option<&'static str> {
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
-                // begin tags are increasing in size
+
                 break;
             },
             ::core::option::Option::None => {},
@@ -2957,7 +3139,7 @@ fn get_html_end_tag(text_bytes: &[u8]) -> Option<&'static str> {
             ::core::option::Option::None => {},
         }
 
-        // Must either be the end of the line...
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(text_bytes.len() == tag_len, ());
             _explicit_decision
@@ -2968,8 +3150,9 @@ fn get_html_end_tag(text_bytes: &[u8]) -> Option<&'static str> {
             ::core::option::Option::None => {},
         }
 
-        // ...or be followed by whitespace, newline, or '>'.
+
         let s = text_bytes[tag_len];
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(is_ascii_whitespace(s) || s == b'>', ());
             _explicit_decision
@@ -3010,10 +3193,12 @@ fn surgerize_tight_list(tree: &mut Tree<Item>, list_ix: TreeIndex) -> ::core::re
     let mut list_item = tree[list_ix].child;
     ::core::result::Result::Ok(while let Some(listitem_ix) = list_item {
         let mut node_ix = tree[listitem_ix].child;
+
         while let Some(node) = node_ix {
             if let ItemBody::Paragraph = tree[node].item.body {
                 tree[node].item.body = ItemBody::TightParagraph;
             }
+
             node_ix = tree[node].next;
         }
 
@@ -3024,6 +3209,7 @@ fn surgerize_tight_list(tree: &mut Tree<Item>, list_ix: TreeIndex) -> ::core::re
 fn fixup_end_of_definition_list(tree: &mut Tree<Item>, list_ix: TreeIndex) -> ::core::result::Result<(), ::core::convert::Infallible> {
     let mut list_item = tree[list_ix].child;
     let mut previous_list_item = None;
+
     while let Some(listitem_ix) = list_item {
         match &mut tree[listitem_ix].item.body {
             ItemBody::DefinitionListTitle | ItemBody::DefinitionListDefinition(_) => {
@@ -3037,9 +3223,10 @@ fn fixup_end_of_definition_list(tree: &mut Tree<Item>, list_ix: TreeIndex) -> ::
             _ => break,
         }
     }
+
     ::core::result::Result::Ok(match previous_list_item {
-        Some(previous_list_item) => {
-            tree.truncate_to_parent(previous_list_item);
+        Some(previous_list_item_2) => {
+            tree.truncate_to_parent(previous_list_item_2);
         },
         ::core::option::Option::None => {},
     })
@@ -3050,11 +3237,11 @@ fn fixup_end_of_definition_list(tree: &mut Tree<Item>, list_ix: TreeIndex) -> ::
 /// for _ delims).
 /// suffix is &s[ix..], which is passed in as an optimization, since taking
 /// a string subslice is O(n).
+#[must_use]
 fn delim_run_can_open(
     s: &str,
     suffix: &str,
-    run_len: usize,
-    ix: usize,
+    DelimRunCanOpenArguments { run_len, ix }: DelimRunCanOpenArguments,
     mode: TableParseMode,
 ) -> bool {
     let next_char = match suffix[run_len..].chars().next() {
@@ -3065,6 +3252,7 @@ fn delim_run_can_open(
             return false;
         },
     };
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(next_char.is_whitespace(), ());
         _explicit_decision
@@ -3074,12 +3262,14 @@ fn delim_run_can_open(
         },
         ::core::option::Option::None => {},
     }
+
     match ix {
         0 => {
             return true;
         },
         _ => {},
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(mode == TableParseMode::Active, ());
         _explicit_decision
@@ -3094,6 +3284,7 @@ fn delim_run_can_open(
                 },
                 ::core::option::Option::None => {},
             }
+
             match next_char {
                 '|' => {
                     return false;
@@ -3103,8 +3294,9 @@ fn delim_run_can_open(
         },
         ::core::option::Option::None => {},
     }
+
     let delim = suffix.bytes().next().unwrap();
-    // `*` and `~~` can be intraword, `_` and `~` cannot
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(delim == b'*' && !is_punctuation(next_char), ());
         _explicit_decision
@@ -3114,6 +3306,7 @@ fn delim_run_can_open(
         },
         ::core::option::Option::None => {},
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(delim == b'~' && run_len > 1, ());
         _explicit_decision
@@ -3123,7 +3316,9 @@ fn delim_run_can_open(
         },
         ::core::option::Option::None => {},
     }
+
     let prev_char = s[..ix].chars().last().unwrap();
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(delim == b'~' && prev_char == '~' && !is_punctuation(next_char), ());
         _explicit_decision
@@ -3138,14 +3333,19 @@ fn delim_run_can_open(
         || is_punctuation(prev_char) && (delim != b'\'' || ![']', ')'].contains(&prev_char))
 }
 
+struct DelimRunCanOpenArguments {
+    run_len: usize,
+    ix: usize,
+}
+
 /// Determines whether the delimiter run starting at given index is
 /// right-flanking, as defined by the commonmark spec (and isn't intraword
 /// for _ delims)
+#[must_use]
 fn delim_run_can_close(
     s: &str,
     suffix: &str,
-    run_len: usize,
-    ix: usize,
+    DelimRunCanCloseArguments { run_len, ix }: DelimRunCanCloseArguments,
     mode: TableParseMode,
 ) -> bool {
     match ix {
@@ -3154,7 +3354,9 @@ fn delim_run_can_close(
         },
         _ => {},
     }
+
     let prev_char = s[..ix].chars().last().unwrap();
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(prev_char.is_whitespace(), ());
         _explicit_decision
@@ -3164,6 +3366,7 @@ fn delim_run_can_close(
         },
         ::core::option::Option::None => {},
     }
+
     let next_char = match suffix[run_len..].chars().next() {
         Some(c) => {
             c
@@ -3172,6 +3375,7 @@ fn delim_run_can_close(
             return true;
         },
     };
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(mode == TableParseMode::Active, ());
         _explicit_decision
@@ -3186,6 +3390,7 @@ fn delim_run_can_close(
                 },
                 ::core::option::Option::None => {},
             }
+
             match next_char {
                 '|' => {
                     return true;
@@ -3195,8 +3400,9 @@ fn delim_run_can_close(
         },
         ::core::option::Option::None => {},
     }
+
     let delim = suffix.bytes().next().unwrap();
-    // `*` and `~~` can be intraword, `_` and `~` cannot
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some((delim == b'*' || (delim == b'~' && run_len > 1)) && !is_punctuation(prev_char), ());
         _explicit_decision
@@ -3206,6 +3412,7 @@ fn delim_run_can_close(
         },
         ::core::option::Option::None => {},
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(delim == b'~' && prev_char == '~', ());
         _explicit_decision
@@ -3219,6 +3426,12 @@ fn delim_run_can_close(
     next_char.is_whitespace() || is_punctuation(next_char)
 }
 
+struct DelimRunCanCloseArguments {
+    run_len: usize,
+    ix: usize,
+}
+
+#[must_use]
 fn special_bytes(options: &Options) -> [bool; 256] {
     let mut bytes = [false; 256];
     let standard_bytes = [
@@ -3226,54 +3439,59 @@ fn special_bytes(options: &Options) -> [bool; 256] {
     ];
 
     for &byte in &standard_bytes {
-        bytes[byte as usize] = true;
+        bytes[<usize as ::core::convert::From<::core::primitive::u8>>::from(byte)] = true;
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(options.contains(Options::ENABLE_TABLES), ());
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
-            bytes[b'|' as usize] = true;
+            bytes[<usize as ::core::convert::From<::core::primitive::u8>>::from(b'|')] = true;
         },
         ::core::option::Option::None => {},
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(options.contains(Options::ENABLE_STRIKETHROUGH)
         || options.contains(Options::ENABLE_SUBSCRIPT), ());
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
-            bytes[b'~' as usize] = true;
+            bytes[<usize as ::core::convert::From<::core::primitive::u8>>::from(b'~')] = true;
         },
         ::core::option::Option::None => {},
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(options.contains(Options::ENABLE_SUPERSCRIPT), ());
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
-            bytes[b'^' as usize] = true;
+            bytes[<usize as ::core::convert::From<::core::primitive::u8>>::from(b'^')] = true;
         },
         ::core::option::Option::None => {},
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(options.contains(Options::ENABLE_MATH), ());
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
-            bytes[b'$' as usize] = true;
-            bytes[b'{' as usize] = true;
-            bytes[b'}' as usize] = true;
+            bytes[<usize as ::core::convert::From<::core::primitive::u8>>::from(b'$')] = true;
+            bytes[<usize as ::core::convert::From<::core::primitive::u8>>::from(b'{')] = true;
+            bytes[<usize as ::core::convert::From<::core::primitive::u8>>::from(b'}')] = true;
         },
         ::core::option::Option::None => {},
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(options.contains(Options::ENABLE_SMART_PUNCTUATION), ());
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
             for &byte in &[b'.', b'-', b'"', b'\''] {
-                bytes[byte as usize] = true;
+                bytes[<usize as ::core::convert::From<::core::primitive::u8>>::from(byte)] = true;
             }
         },
         ::core::option::Option::None => {},
@@ -3301,6 +3519,7 @@ type LookupTable = [bool; 256];
 /// called and the function returns immediately with the return value `(end_ix, opt_val)`.
 /// If `BreakAtWith(..)` is never returned, this function will return the first
 /// index that is outside the byteslice bound and a `None` value.
+#[must_use]
 fn iterate_special_bytes<F, T>(
     lut: &[bool; 256],
     bytes: &[u8],
@@ -3312,8 +3531,9 @@ where
 {
     while ix < bytes.len() {
         let b = bytes[ix];
+
         match {
-            let _explicit_decision = ::core::primitive::bool::then_some(lut[b as usize], ());
+            let _explicit_decision = ::core::primitive::bool::then_some(lut[<usize as ::core::convert::From<::core::primitive::u8>>::from(b)], ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
@@ -3321,13 +3541,14 @@ where
                     LoopInstruction::ContinueAndSkip(skip) => {
                         ix += skip;
                     }
-                    LoopInstruction::BreakAtWith(ix, val) => {
-                        return (ix, val);
+                    LoopInstruction::BreakAtWith(ix_2, val) => {
+                        return (ix_2, val);
                     }
                 }
             },
             ::core::option::Option::None => {},
         }
+
         ix += 1;
     }
 
@@ -3346,6 +3567,7 @@ where
 ///
 /// However, this method does not trim the trailing whitespaces of heading content.
 /// It is callers' responsibility to trim them if necessary.
+#[must_use]
 fn extract_attribute_block_content_from_header_text(
     heading: &[u8],
 ) -> (usize, Option<Range<usize>>) {
@@ -3354,6 +3576,7 @@ fn extract_attribute_block_content_from_header_text(
     ix -= scan_rev_while(heading, |b| {
         b == b'\n' || b == b'\r' || b == b' ' || b == b'\t'
     });
+
     match ix {
         0 => {
             return (heading_len, None);
@@ -3362,50 +3585,55 @@ fn extract_attribute_block_content_from_header_text(
     }
 
     let attr_block_close = ix - 1;
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(heading.get(attr_block_close) != Some(&b'}'), ());
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
-            // The last character is not `}`. No attribute blocks found.
+
             return (heading_len, None);
         },
         ::core::option::Option::None => {},
     }
-    // move cursor before the closing right brace (`}`)
+
+
     ix -= 1;
 
     ix -= scan_rev_while(&heading[..ix], |b| {
-        // Characters to be excluded:
-        //  * `{` and `}`: special characters to open and close an attribute block.
-        //  * `\\`: a special character to escape many characters and disable some syntaxes.
-        //      + Handling of this escape character differs among markdown processors.
-        //      + Escaped characters will be separate text node from neighbors, so
-        //        it is not easy to handle unescaped string and trim the trailing block.
-        //  * `<` and `>`: special characters to start and end HTML tag.
-        //      + No known processors converts `{#<i>foo</i>}` into
-        //        `id="&lt;i&gt;foo&lt;/&gt;"` as of this writing, so hopefully
-        //        this restriction won't cause compatibility issues.
-        //  * `\n` and `\r`: a newline character.
-        //      + Setext heading can have multiple lines. However it is hard to support
-        //        attribute blocks that have newline inside, since the parsing proceeds line by
-        //        line and lines will be separate nodes even they are logically a single text.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
         !matches!(b, b'{' | b'}' | b'<' | b'>' | b'\\' | b'\n' | b'\r')
     });
+
     match ix {
         0 => {
-            // `{` is not found. No attribute blocks available.
+
             return (heading_len, None);
         },
         _ => {},
     }
+
     let attr_block_open = ix - 1;
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(heading[attr_block_open] != b'{', ());
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
-            // `{` is not found. No attribute blocks available.
+
             return (heading_len, None);
         },
         ::core::option::Option::None => {},
@@ -3433,20 +3661,22 @@ fn extract_attribute_block_content_from_header_text(
 /// See also: [`Options::ENABLE_HEADING_ATTRIBUTES`].
 ///
 /// [`Options::ENABLE_HEADING_ATTRIBUTES`]: `crate::Options::ENABLE_HEADING_ATTRIBUTES`
+#[must_use]
 fn parse_inside_attribute_block(inside_attr_block: &str) -> Option<HeadingAttributes<'_>> {
     let mut id = None;
     let mut classes = Vec::new();
     let mut attrs = Vec::new();
 
     for attr in inside_attr_block.split_ascii_whitespace() {
-        // iterator returned by `str::split_ascii_whitespace` never emits empty
-        // strings, so taking first byte won't panic.
+
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(attr.len() > 1, ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
                 let first_byte = attr.as_bytes()[0];
+
                 match first_byte {
                     b'#' => {
                         id = Some(attr[1..].into());
@@ -3457,12 +3687,13 @@ fn parse_inside_attribute_block(inside_attr_block: &str) -> Option<HeadingAttrib
                         },
                         _ => {
                             let split = attr.split_once('=');
+
                             match split {
                                 Some((key, value)) => {
-                                    attrs.push((key.into(), Some(value.into())));
+                                    attrs.push((<crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(key), Some(<crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(value))));
                                 },
                                 ::core::option::Option::None => {
-                                    attrs.push((attr.into(), None));
+                                    attrs.push((<crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(attr), None));
                                 },
                             }
                         },

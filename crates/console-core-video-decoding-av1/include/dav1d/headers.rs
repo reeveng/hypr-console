@@ -1216,6 +1216,21 @@ impl Rav1dITUTT35 {
         return Err(Rav1dError::EGeneric);
       }
     };
+    let Ok(metadata) = Self::freeze(pending);
+    Ok(metadata)
+  }
+
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the C picture and its Rust owner retain the immutable packets and C payload views until their respective releases"
+    )
+  )]
+  pub(crate) fn freeze(
+    pending: Vec<Rav1dITUTT35>,
+  ) -> Result<Arc<DRav1d<Box<[Rav1dITUTT35]>, Box<[Dav1dITUTT35]>>>, console_core_never::Never>
+  {
     let rav1d = pending.into_boxed_slice();
     #[cfg(feature = "c-ffi")]
     let dav1d = rav1d.iter().map(Dav1dITUTT35::from).collect();
@@ -1656,26 +1671,25 @@ impl Rav1dSequenceHeader {
   }
 }
 
+fn checked_header_field<Domain, Wire>(wire: Wire) -> Rav1dResult<Domain>
+where
+  Domain: TryFrom<Wire>,
+{
+  Domain::try_from(wire).map_err(|_invalid_code| Rav1dError::EINVAL)
+}
+
 impl TryFrom<Dav1dSequenceHeader> for Rav1dSequenceHeader {
   type Error = Rav1dError;
 
   fn try_from(value: Dav1dSequenceHeader) -> Rav1dResult<Self> {
-    let profile =
-      Rav1dProfile::try_from(value.profile).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let layout =
-      Rav1dPixelLayout::try_from(value.layout).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let pri =
-      Rav1dColorPrimaries::try_from(value.pri).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let trc = Rav1dTransferCharacteristics::try_from(value.trc)
-      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let mtrx = Rav1dMatrixCoefficients::try_from(value.mtrx)
-      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let chr = Rav1dChromaSamplePosition::try_from(value.chr)
-      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let screen_content_tools = Rav1dAdaptiveBoolean::try_from(value.screen_content_tools)
-      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let force_integer_mv = Rav1dAdaptiveBoolean::try_from(value.force_integer_mv)
-      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let profile = checked_header_field(value.profile)?;
+    let layout = checked_header_field(value.layout)?;
+    let pri = checked_header_field(value.pri)?;
+    let trc = checked_header_field(value.trc)?;
+    let mtrx = checked_header_field(value.mtrx)?;
+    let chr = checked_header_field(value.chr)?;
+    let screen_content_tools = checked_header_field(value.screen_content_tools)?;
+    let force_integer_mv = checked_header_field(value.force_integer_mv)?;
 
     Ok(Self {
       profile,
@@ -3043,20 +3057,11 @@ impl TryFrom<Dav1dFrameHeader> for Rav1dFrameHeader {
   type Error = Rav1dError;
 
   fn try_from(value: Dav1dFrameHeader) -> Rav1dResult<Self> {
-    let frame_type =
-      Rav1dFrameType::try_from(value.frame_type).map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let subpel_filter_mode = Rav1dFilterMode::try_from(value.subpel_filter_mode)
-      .map_err(|_invalid_code| Rav1dError::EINVAL)?;
-    let txfm_mode =
-      Rav1dTxfmMode::try_from(value.txfm_mode).map_err(|_invalid_code| Rav1dError::EINVAL)?;
+    let frame_type = checked_header_field(value.frame_type)?;
+    let subpel_filter_mode = checked_header_field(value.subpel_filter_mode)?;
+    let txfm_mode = checked_header_field(value.txfm_mode)?;
     let restoration = Rav1dFrameHeaderRestoration::try_from(value.restoration)?;
-    let mut gmv = std::array::from_fn(|_index| Rav1dWarpedMotionParams::default());
-
-    for (destination, packed) in gmv.iter_mut().zip(value.gmv) {
-      let motion = Rav1dWarpedMotionParams::try_from(packed)
-        .map_err(|_invalid_motion| Rav1dError::EINVAL)?;
-      *destination = motion;
-    }
+    let gmv = checked_global_motion(value.gmv)?;
 
     Ok(Self {
       size: Rav1dFrameSize {
@@ -3117,6 +3122,19 @@ impl TryFrom<Dav1dFrameHeader> for Rav1dFrameHeader {
       gmv,
     })
   }
+}
+
+fn checked_global_motion(
+  wire: [Dav1dWarpedMotionParams; DAV1D_REFS_PER_FRAME],
+) -> Rav1dResult<[Rav1dWarpedMotionParams; RAV1D_REFS_PER_FRAME]> {
+  let mut output = std::array::from_fn(|_slot| Rav1dWarpedMotionParams::default());
+
+  for (destination, packed) in output.iter_mut().zip(wire) {
+    let motion = checked_header_field(packed)?;
+    *destination = motion;
+  }
+
+  Ok(output)
 }
 
 impl From<Rav1dFrameHeader> for Dav1dFrameHeader {

@@ -23,21 +23,26 @@ pub(crate) use theme::{
     MindmapNodePaletteTerminalDecision, MindmapWriterThemeToken,
 };
 
+#[must_use]
 pub(crate) fn mindmap_max_node_width_px(effective_config: &Value) -> f64 {
-    config_f64_css_px(effective_config, &["mindmap", "maxNodeWidth"])
-        .unwrap_or(200.0)
+    match config_f64_css_px(effective_config, &["mindmap", "maxNodeWidth"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 200.0,
+    }
         .max(1.0)
 }
 
+#[must_use]
 pub(crate) fn mindmap_node_look<'a>(
     model_look: &'a str,
     effective_config: &'a Value,
 ) -> crate::config::DiagramLook<'a> {
-    let model_look = model_look.trim();
-    if model_look.is_empty() || model_look == "default" {
+    let model_look_2 = model_look.trim();
+
+    if model_look_2.is_empty() || model_look_2 == "default" {
         crate::config::config_diagram_look(effective_config)
     } else {
-        crate::config::DiagramLook::from_raw(Some(model_look))
+        crate::config::DiagramLook::from_raw(Some(model_look_2))
     }
 }
 
@@ -51,8 +56,10 @@ pub(crate) enum MindmapLayoutBackend {
     Elk,
 }
 
+#[must_use]
 pub(crate) fn layout_backend(config: &Value) -> MindmapLayoutBackend {
     let requested = config.get("layout").and_then(Value::as_str).unwrap_or("");
+
     match requested {
         "tidy-tree" => MindmapLayoutBackend::TidyTree,
         "dagre" => MindmapLayoutBackend::Dagre,
@@ -68,6 +75,7 @@ pub(crate) fn layout_backend(config: &Value) -> MindmapLayoutBackend {
     }
 }
 
+#[must_use]
 pub(crate) fn required_layout_capability(
     config: &PresentationConfig,
 ) -> Option<crate::RenderCapability> {
@@ -80,6 +88,7 @@ pub(crate) fn required_layout_capability(
 }
 
 /// The Dagre renderer clips circular nodes along the endpoint-to-center ray.
+#[must_use]
 pub(crate) fn dagre_shape_points(
     mut points: Vec<LayoutPoint>,
     start: &LayoutNode,
@@ -90,26 +99,32 @@ pub(crate) fn dagre_shape_points(
     if points.len() < 2 {
         return points;
     }
+
     let intersect = |node: &LayoutNode, point: &LayoutPoint| {
         let dx = point.x - node.x;
         let dy = point.y - node.y;
         let length = dx.hypot(dy);
-        if length == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(length), ::core::num::FpCategory::Zero) {
             return point.clone();
         }
+
         let radius = node.width / 2.0;
         LayoutPoint {
             x: node.x + radius * dx / length,
             y: node.y + radius * dy / length,
         }
     };
+
     if start_circle {
         points[0] = intersect(start, &points[1]);
     }
+
     if end_circle {
         let last = points.len() - 1;
         points[last] = intersect(end, &points[last - 1]);
     }
+
     points
 }
 
@@ -134,6 +149,7 @@ struct MindmapPreparedLabel {
 }
 
 impl MindmapPreparedLabels {
+    #[must_use]
     pub(crate) fn xhtml_for(&self, node_id: &str) -> Option<&str> {
         self.labels.get(node_id).map(|label| label.xhtml.as_str())
     }
@@ -150,7 +166,7 @@ impl MindmapPreparedLabel {
         config: &PresentationConfig,
         work_meter: &Arc<crate::resources::OperationWorkMeter>,
     ) -> Result<Self> {
-        // Match the conservative owner-slot allowance used by the Flowchart sidecar.
+
         const OWNER_SLOT_BYTES: usize = 192;
         let owner_bytes = std::mem::size_of::<Self>()
             .saturating_add(OWNER_SLOT_BYTES)
@@ -168,7 +184,7 @@ impl MindmapPreparedLabel {
             &parse_work,
             merman_model::OperationPhase::Layout,
         );
-        // createText restores entity references before HTML consumption, not after serialization.
+
         let source = merman_model::text::restore_mermaid_entity_spelling(text);
         let html = crate::text::replace_fontawesome_icons(
             &crate::text::mermaid_markdown_to_xhtml_label_fragment(source.as_ref(), true),
@@ -181,7 +197,7 @@ impl MindmapPreparedLabel {
             Ok(xhtml) => xhtml,
             Err(merman_markup::sanitize::SanitizeFailure::Output(
                 crate::html::HtmlOutputError::Operation(error),
-            )) => return Err(error.into()),
+            )) => return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error)),
             Err(merman_markup::sanitize::SanitizeFailure::Output(
                 crate::html::HtmlOutputError::Limit { attempted },
             )) => {
@@ -190,30 +206,37 @@ impl MindmapPreparedLabel {
                 )?;
                 String::new()
             }
-            // Preserve the existing sanitizer's fail-closed behavior for malformed input.
+
             Err(_) => String::new(),
         };
-        // Preserve the terminal's normalization order and whitespace. Indented code may own a
-        // trailing line box once its container switches to `white-space: break-spaces`.
-        let xhtml = single_image_paragraph_inner(&xhtml)
-            .map(str::to_owned)
-            .unwrap_or(xhtml);
-        let retained_bytes = owner_bytes.saturating_add(xhtml.capacity());
+
+
+        let xhtml_2 = match (single_image_paragraph_inner(&xhtml)
+            .map(str::to_owned), xhtml) {
+            (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+            (::core::option::Option::None, alternate) => alternate,
+        };
+        let retained_bytes = owner_bytes.saturating_add(xhtml_2.capacity());
         let reservation = work_meter.reserve_prepared_text_retained_bytes(retained_bytes)?;
         Ok(Self {
-            xhtml,
+            xhtml: xhtml_2,
             _retained_reservation: reservation,
         })
     }
 }
 
+#[must_use]
 pub(crate) fn single_image_paragraph_inner(fragment: &str) -> Option<&str> {
-    let fragment = fragment.trim();
-    let inner = fragment.strip_prefix("<p>")?.strip_suffix("</p>")?.trim();
+    let fragment_2 = fragment.trim();
+    let checked_value = fragment_2.strip_prefix("<p>")?;
+    let checked_value_2 = checked_value.strip_suffix("</p>")?;
+    let inner = checked_value_2.trim();
     let prefix = inner.get(..4)?;
+
     if !prefix.eq_ignore_ascii_case("<img") {
         return None;
     }
+
     if inner
         .as_bytes()
         .get(4)
@@ -223,6 +246,7 @@ pub(crate) fn single_image_paragraph_inner(fragment: &str) -> Option<&str> {
     }
 
     let mut quote = None;
+
     for (index, ch) in inner.char_indices().skip(4) {
         match (quote, ch) {
             (Some(active), candidate) if active == candidate => quote = None,
@@ -231,6 +255,7 @@ pub(crate) fn single_image_paragraph_inner(fragment: &str) -> Option<&str> {
             _ => {}
         }
     }
+
     None
 }
 
@@ -242,11 +267,12 @@ fn mindmap_text_style(effective_config: &Value) -> TextStyle {
     )
 }
 
+#[must_use]
 pub(crate) fn mindmap_text_style_with_font_family(
     effective_config: &Value,
     font_family_css: &str,
 ) -> TextStyle {
-    // HTML labels and SVG text inherit the same root CSS font size.
+
     let font_size =
         crate::config::config_theme_font_size_css_or_root_number_px(effective_config, 16.0)
             .max(1.0);
@@ -258,33 +284,42 @@ pub(crate) fn mindmap_text_style_with_font_family(
     }
 }
 
+#[must_use]
 pub(crate) fn mindmap_label_text_for_layout(text: &str) -> &str {
     if !text.contains('\n') && !text.contains('\r') {
         return text;
     }
 
     let mut normalized = None;
+
     for line in text.lines() {
-        let line = line.trim();
-        if line.is_empty() {
+        let line_2 = line.trim();
+
+        if line_2.is_empty() {
             continue;
         }
-        if normalized.is_some() {
-            return text;
+
+        match normalized {
+            ::core::option::Option::Some(_) => {
+                return text;
+            },
+            ::core::option::Option::None => {},
         }
-        normalized = Some(line);
+
+        normalized = Some(line_2);
     }
 
     normalized.unwrap_or(text)
 }
 
+#[must_use]
 pub(crate) fn mindmap_svg_label_source(text: &str) -> std::borrow::Cow<'_, str> {
-    let text = mindmap_label_text_for_layout(text);
-    let text = text
+    let text_2 = mindmap_label_text_for_layout(text);
+    let text_4 = text_2
         .strip_prefix('`')
-        .and_then(|text| text.strip_suffix('`'))
-        .unwrap_or(text);
-    merman_model::text::restore_mermaid_entity_spelling(text)
+        .and_then(|text_3| text_3.strip_suffix('`'))
+        .unwrap_or(text_2);
+    merman_model::text::restore_mermaid_entity_spelling(text_4)
 }
 
 #[cfg(test)]
@@ -350,8 +385,8 @@ fn mindmap_label_bbox_px_with_math(
         let xhtml = prepared_xhtml.ok_or_else(|| Error::InvalidModel {
             message: "Mindmap HTML label is missing its prepared fragment".to_string(),
         })?;
-        // Preserve Mindmap's HTML min-content and wrapping rules while measuring the exact
-        // recovered structure retained for emission, including sanitizer removals.
+
+
         let metrics = crate::text::measure_html_with_inline_styles(
             measurer,
             xhtml,
@@ -362,7 +397,7 @@ fn mindmap_label_bbox_px_with_math(
         return Ok((metrics.width.max(0.0), metrics.height.max(0.0)));
     }
 
-    let math_renderer = math_renderer.ok_or_else(|| Error::MissingCapability {
+    let math_renderer_2 = math_renderer.ok_or_else(|| Error::MissingCapability {
         capability: crate::RenderCapability::Math,
         diagram_type: "mindmap".to_string(),
     })?;
@@ -374,70 +409,75 @@ fn mindmap_label_bbox_px_with_math(
         max_width_px: Some(max_node_width_px.max(1.0)),
         wrap_mode: WrapMode::HtmlLike,
         config,
-        math_renderer: Some(math_renderer),
+        math_renderer: Some(math_renderer_2),
     });
     Ok((metrics.width.max(0.0), metrics.height.max(0.0)))
 }
 
 /// Total label padding after Mindmap's rect preprocessing and shared squareRect/drawRect sizing.
+#[must_use]
 pub(crate) fn mindmap_rect_label_padding_px(look: crate::config::DiagramLook<'_>) -> (f64, f64) {
     if look.is_neo() {
         (32.0, 24.0)
     } else {
-        // mindmapRenderer.ts fixes node.padding at 10; squareRect applies it twice horizontally.
+
         (40.0, 20.0)
     }
 }
 
+#[must_use]
 fn mindmap_node_dimensions_from_label_bbox(
     node: &MindmapNodeModel,
     bbox_w: f64,
     bbox_h: f64,
     look: crate::config::DiagramLook<'_>,
 ) -> (f64, f64, f64, f64) {
-    // `mindmapRenderer.ts` overrides padding after `getData()`: rect uses 10, rounded uses 15.
-    // Hexagon only clears its requested dimensions; mindmapCircle retains the configured padding.
-    //
-    // Our semantic snapshots keep the DB padding (e.g. doubled padding for `(text)`), but layout
-    // should follow the render-time effective padding so layout golden snapshots remain stable.
+
+
+
+
+
     let padding = match node.shape.as_str() {
         "rounded" => 15.0,
         _ => node.padding.max(0.0),
     };
     let half_padding = padding / 2.0;
 
-    // Align with Mermaid shape sizing rules for mindmap nodes (via `labelHelper(...)` + shape
-    // handlers in `rendering-elements/shapes/*`).
+
+
     let (w, h) = match node.shape.as_str() {
-        // `defaultMindmapNode.ts`: w = bbox.width + 8 * halfPadding; h = bbox.height + 2 * halfPadding
+
         "" | "defaultMindmapNode" => (bbox_w + 8.0 * half_padding, bbox_h + 2.0 * half_padding),
-        // `squareRect.ts` supplies per-side padding to `drawRect.ts`: classic uses 2*padding
-        // horizontally and padding vertically; Neo uses fixed 16px/12px per-side steps.
+
+
         "rect" => {
             let (padding_w, padding_h) = mindmap_rect_label_padding_px(look);
             (bbox_w + padding_w, bbox_h + padding_h)
         }
         "rounded" => (bbox_w + 2.0 * padding, bbox_h + 2.0 * padding),
-        // `mindmapCircle.ts` passes the full node padding to shared `circle.ts`.
-        // Mermaid 12.2 encloses the label diagonal and uses one 16px radius padding for Neo.
+
+
         "mindmapCircle" => {
             let radius_padding = if look.is_neo() { 16.0 } else { padding };
             let d = bbox_w.hypot(bbox_h) + 2.0 * radius_padding;
             (d, d)
         }
-        // `cloud.ts` first draws a path from w = bbox.width + 2*halfPadding and
-        // h = bbox.height + 2*halfPadding, then upstream cose-bilkent lays out the node
-        // using the inserted SVG node's rendered path bbox.
+
+
+
         "cloud" => {
             let shape_w = bbox_w + 2.0 * half_padding;
             let shape_h = bbox_h + 2.0 * half_padding;
-            crate::svg::mindmap_cloud_rendered_bbox_size_px(shape_w, shape_h)
-                .unwrap_or((shape_w, shape_h))
+
+            match crate::svg::mindmap_cloud_rendered_bbox_size_px(shape_w, shape_h) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => (shape_w, shape_h),
+            }
         }
-        // `bang.ts`:
-        // - w = bbox.width + 10*halfPadding; h = bbox.height + 8*halfPadding
-        // - minWidth = bbox.width + 20; minHeight = bbox.height + 20
-        // - effectiveWidth/Height = max(w/h, minWidth/Height)
+
+
+
+
         "bang" => {
             let w = bbox_w + 10.0 * half_padding;
             let h = bbox_h + 8.0 * half_padding;
@@ -445,8 +485,8 @@ fn mindmap_node_dimensions_from_label_bbox(
             let min_h = bbox_h + 20.0;
             (w.max(min_w), h.max(min_h))
         }
-        // `hexagon.ts` (classic): h = bbox.height + padding; m = h/4;
-        // w = bbox.width + 2*m + padding.
+
+
         "hexagon" => {
             let h = bbox_h + padding;
             let m = h / 4.0;
@@ -474,8 +514,10 @@ fn mindmap_node_dimensions_px(
     )
 }
 
+#[must_use]
 fn compute_bounds(nodes: &[LayoutNode], edges: &[LayoutEdge]) -> Option<Bounds> {
     let mut pts: Vec<(f64, f64)> = Vec::new();
+
     for n in nodes {
         let x0 = n.x - n.width / 2.0;
         let y0 = n.y - n.height / 2.0;
@@ -484,29 +526,39 @@ fn compute_bounds(nodes: &[LayoutNode], edges: &[LayoutEdge]) -> Option<Bounds> 
         pts.push((x0, y0));
         pts.push((x1, y1));
     }
+
     for e in edges {
         for p in &e.points {
             pts.push((p.x, p.y));
         }
     }
+
     Bounds::from_points(pts)
 }
 
 fn shift_nodes_to_positive_bounds(nodes: &mut [LayoutNode], content_min: f64) {
-    if nodes.is_empty() {
-        return;
+    match nodes {
+        [] => {
+            return;
+        },
+        [_, ..] => {},
     }
+
     let mut min_x = f64::INFINITY;
     let mut min_y = f64::INFINITY;
+
     for n in nodes.iter() {
         min_x = min_x.min(n.x - n.width / 2.0);
         min_y = min_y.min(n.y - n.height / 2.0);
     }
+
     if !(min_x.is_finite() && min_y.is_finite()) {
         return;
     }
+
     let dx = content_min - min_x;
     let dy = content_min - min_y;
+
     for n in nodes.iter_mut() {
         n.x += dx;
         n.y += dy;
@@ -583,9 +635,9 @@ fn layout_mindmap_diagram_model(
 
     let mut nodes: Vec<LayoutNode> = Vec::with_capacity(model.nodes.len());
     let mut prepared_labels = MindmapPreparedLabels::default();
-    // Mermaid's Mindmap DB emits nodes in parser preorder, and Cytoscape consumes that order
-    // directly. The typed model already preserves it; re-sorting numeric-looking ids here added
-    // O(N log N) work and changed the geometry of manually constructed source-order models.
+
+
+
     for n in &model.nodes {
         let prepared = if crate::config::config_effective_html_labels(effective_config)
             && !crate::math::contains_delimited_math(&n.label)
@@ -608,9 +660,14 @@ fn layout_mindmap_diagram_model(
             math_renderer,
             prepared.as_ref().map(|label| label.xhtml.as_str()),
         )?;
-        if let Some(prepared) = prepared {
-            prepared_labels.insert(n.id.clone(), prepared);
+
+        match prepared {
+            Some(prepared) => {
+                prepared_labels.insert(n.id.clone(), prepared);
+            },
+            ::core::option::Option::None => {},
         }
+
         let (width, height, label_width, label_height) = mindmap_node_dimensions_from_label_bbox(
             n,
             label_width,
@@ -620,8 +677,8 @@ fn layout_mindmap_diagram_model(
 
         nodes.push(LayoutNode {
             id: n.id.clone(),
-            // Mermaid mindmap uses Cytoscape COSE-Bilkent and initializes node positions at (0,0).
-            // We keep that behavior so `manatee` can reproduce upstream placements deterministically.
+
+
             x: 0.0,
             y: 0.0,
             width: width.max(1.0),
@@ -631,38 +688,44 @@ fn layout_mindmap_diagram_model(
             label_height: Some(label_height.max(0.0)),
         });
     }
+
     let mut id_to_idx: console_core_perfect_hash::collections::FixedMap<&str, usize> =
         console_core_perfect_hash::collections::FixedMap::with_capacity_and_hasher(nodes.len(), Default::default());
+
     for (idx, n) in nodes.iter().enumerate() {
         id_to_idx.insert(n.id.as_str(), idx);
     }
 
     let mut edge_indices: Vec<(usize, usize)> = Vec::with_capacity(model.edges.len());
+
     for e in &model.edges {
         let Some(&a) = id_to_idx.get(e.start.as_str()) else {
             return Err(Error::InvalidModel {
                 message: format!("edge start node not found: {}", e.start),
             });
         };
+
         let Some(&b) = id_to_idx.get(e.end.as_str()) else {
             return Err(Error::InvalidModel {
                 message: format!("edge end node not found: {}", e.end),
             });
         };
+
         edge_indices.push((a, b));
     }
 
     let backend = layout_backend(effective_config);
+
     match backend {
         MindmapLayoutBackend::Swimlane => {
             return Ok((
-                registered::swimlane(model, nodes, config, work_meter)?,
+                { let checked_value = registered::swimlane(model, nodes, config, work_meter)?; checked_value },
                 prepared_labels,
             ));
         }
         MindmapLayoutBackend::Dagre => {
             return Ok((
-                registered::dagre(model, nodes, effective_config, _work_control)?,
+                { let checked_value_2 = registered::dagre(model, nodes, effective_config, _work_control)?; checked_value_2 },
                 prepared_labels,
             ));
         }
@@ -681,6 +744,7 @@ fn layout_mindmap_diagram_model(
         }
         _ => {}
     }
+
     let use_tidy_tree = backend == MindmapLayoutBackend::TidyTree;
     let tidy_tree_edges = if use_tidy_tree {
         Some(tidy_tree::layout(
@@ -704,14 +768,16 @@ fn layout_mindmap_diagram_model(
                 .collect();
             let mut indexed_edges: Vec<manatee::algo::cose_bilkent::IndexedEdge> =
                 Vec::with_capacity(model.edges.len());
+
             for (edge_idx, (a, b)) in edge_indices.iter().copied().enumerate() {
                 if a == b {
                     continue;
                 }
+
                 indexed_edges.push(manatee::algo::cose_bilkent::IndexedEdge { a, b });
 
-                // Keep `edge_idx` referenced so unused warnings don't obscure failures if we ever
-                // enhance indexed validation error messages.
+
+
                 let _ = edge_idx;
             }
 
@@ -726,8 +792,10 @@ fn layout_mindmap_diagram_model(
                 n.x = p.x;
                 n.y = p.y;
             }
+
             None
         }
+
         #[cfg(not(feature = "layout-cytoscape"))]
         {
             return Err(Error::MissingCapability {
@@ -737,53 +805,56 @@ fn layout_mindmap_diagram_model(
         }
     };
 
-    // Mermaid's COSE-Bilkent post-layout normalizes to a positive coordinate space via
-    // `transform(0,0)` (layout-base), yielding a content bbox that starts around (15,15) before
-    // the 10px viewport padding is applied (viewBox starts at 5,5).
-    //
-    // Tidy-tree is centered around x=0 and intentionally grows in both horizontal directions.
-    // COSE-Bilkent instead normalizes into Mermaid's positive Cytoscape coordinate space.
+
+
+
+
+
+
     if !use_tidy_tree {
         shift_nodes_to_positive_bounds(&mut nodes, 15.0);
     }
 
-    let edges = if let Some(edges) = tidy_tree_edges {
-        edges
-    } else {
-        model
-            .edges
-            .iter()
-            .zip(edge_indices.iter().copied())
-            .map(|(edge, (source_index, target_index))| {
-                let source = &nodes[source_index];
-                let target = &nodes[target_index];
-                LayoutEdge {
-                    id: edge.id.clone(),
-                    from: edge.start.clone(),
-                    to: edge.end.clone(),
-                    from_cluster: None,
-                    to_cluster: None,
-                    points: vec![
-                        LayoutPoint {
-                            x: source.x,
-                            y: source.y,
-                        },
-                        LayoutPoint {
-                            x: target.x,
-                            y: target.y,
-                        },
-                    ],
-                    label: None,
-                    start_label_left: None,
-                    start_label_right: None,
-                    end_label_left: None,
-                    end_label_right: None,
-                    start_marker: None,
-                    end_marker: None,
-                    stroke_dasharray: None,
-                }
-            })
-            .collect()
+    let edges = match tidy_tree_edges {
+        Some(edges) => {
+            edges
+        },
+        ::core::option::Option::None => {
+            model
+                .edges
+                .iter()
+                .zip(edge_indices.iter().copied())
+                .map(|(edge, (source_index, target_index))| {
+                    let source = &nodes[source_index];
+                    let target = &nodes[target_index];
+                    LayoutEdge {
+                        id: edge.id.clone(),
+                        from: edge.start.clone(),
+                        to: edge.end.clone(),
+                        from_cluster: None,
+                        to_cluster: None,
+                        points: vec![
+                            LayoutPoint {
+                                x: source.x,
+                                y: source.y,
+                            },
+                            LayoutPoint {
+                                x: target.x,
+                                y: target.y,
+                            },
+                        ],
+                        label: None,
+                        start_label_left: None,
+                        start_label_right: None,
+                        end_label_left: None,
+                        end_label_right: None,
+                        start_marker: None,
+                        end_marker: None,
+                        stroke_dasharray: None,
+                    }
+                })
+                .collect()
+        },
     };
     let bounds = compute_bounds(&nodes, &edges);
     Ok((
@@ -1252,8 +1323,8 @@ mod tests {
             node_type: 3,
             section: None,
         };
-        // A 30x40 label has a 50px diagonal. mindmapCircle supplies all 7px padding;
-        // Neo instead uses shared circle.ts's single 16px radius padding step.
+
+
         for (node_look, config_look, expected_diameter) in [
             ("", "neo", 82.0),
             ("default", "neo", 82.0),

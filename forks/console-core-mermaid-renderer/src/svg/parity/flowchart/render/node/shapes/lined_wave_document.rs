@@ -16,21 +16,26 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_lined_wave_documen
 ) {
     let (wave_amplitude, points, path_data) =
         prepare_lined_wave_document_geometry(ctx, common, label);
-    if let Some((fill_d, stroke_d)) = helpers::hand_drawn_path_pair(common, details, &path_data) {
-        let _ = write!(
-            out,
-            r##"<g class="basic label-container outer-path" transform="translate(0,{})" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
-            util::fmt(-wave_amplitude / 2.0),
-            escape_attr(common.rough_group_style),
-            escape_attr(&fill_d),
-            escape_attr(common.fill_color),
-            escape_attr(&stroke_d),
-            escape_attr(common.stroke_color),
-            util::fmt_display(common.stroke_width as f64),
-            escape_attr(common.stroke_dasharray),
-        );
-        return;
+
+    match helpers::hand_drawn_path_pair(common, details, &path_data) {
+        Some((fill_d, stroke_d)) => {
+            let _ = write!(
+                out,
+                r##"<g class="basic label-container outer-path" transform="translate(0,{})" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
+                util::fmt(-wave_amplitude / 2.0),
+                escape_attr(common.rough_group_style),
+                escape_attr(&fill_d),
+                escape_attr(common.fill_color),
+                escape_attr(&stroke_d),
+                escape_attr(common.stroke_color),
+                util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                escape_attr(common.stroke_dasharray),
+            );
+            return;
+        },
+        ::core::option::Option::None => {},
     }
+
     if common.look_is_hand_drawn() {
         let _ = write!(
             out,
@@ -68,7 +73,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_lined_wave_documen
         escape_attr(common.style),
         escape_attr(&stroke_d),
         escape_attr(common.stroke_color),
-        util::fmt_display(common.stroke_width as f64),
+        util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         escape_attr(common.stroke_dasharray),
         escape_attr(common.style),
     );
@@ -102,8 +107,8 @@ fn prepare_lined_wave_document_geometry(
     let final_h = h + wave_amplitude;
     let ext = (w / 2.0) * 0.1;
 
-    // Mermaid keeps the authored padding in the label transform while the shape uses
-    // look-specific axis padding. Convert that source transform to the local label wrapper base.
+
+
     label.dx = -padding_x + p + ext / 2.0;
     label.dy = -padding_y + p - wave_amplitude;
 

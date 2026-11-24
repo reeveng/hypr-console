@@ -19,8 +19,11 @@ impl TerminalRoute for ClippedEdgeRoute {
     }
 
     fn reproject_main_label(&mut self, runs: &[crate::elk_terminal_jogs::StraightenedRun]) {
-        if let Some(label) = self.label.as_mut() {
-            crate::elk_terminal_jogs::reproject_label(label, runs);
+        match self.label.as_mut() {
+            Some(label) => {
+                crate::elk_terminal_jogs::reproject_label(label, runs);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -31,10 +34,11 @@ impl TerminalRoute for ClippedEdgeRoute {
         target_changed: bool,
     ) {
         self.points = points;
-        // Connector removal invalidates only its own rounded-corner adapter mask.
+
         if source_changed {
             self.elk_endpoint_adapters.source = false;
         }
+
         if target_changed {
             self.elk_endpoint_adapters.target = false;
         }
@@ -57,12 +61,17 @@ pub(in crate::svg::parity::flowchart) fn separate_edge_labels<'a>(
     work: &OperationWorkMeter,
 ) -> crate::Result<()> {
     work.charge(routes.len().saturating_mul(2))?;
+
     for route in routes.iter_mut() {
-        if let Some(label) = route.label.as_mut() {
-            label.x += route.origin_x;
-            label.y += route.origin_y;
+        match route.label.as_mut() {
+            Some(label) => {
+                label.x += route.origin_x;
+                label.y += route.origin_y;
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     let result = crate::elk_terminal_jogs::separate_opposite_edge_labels(
         endpoints
             .zip(routes.iter_mut())
@@ -71,12 +80,17 @@ pub(in crate::svg::parity::flowchart) fn separate_edge_labels<'a>(
             }),
         |units| work.charge(units).map_err(Into::into),
     );
+
     for route in routes {
-        if let Some(label) = route.label.as_mut() {
-            label.x -= route.origin_x;
-            label.y -= route.origin_y;
+        match route.label.as_mut() {
+            Some(label) => {
+                label.x -= route.origin_x;
+                label.y -= route.origin_y;
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     result
 }
 
@@ -181,10 +195,10 @@ mod tests {
         for moved_label in [false, true] {
             let mut jog = route(&original, (60.0, 10.0), (700.0, 300.0));
             let mut other = if moved_label {
-                // In absolute coordinates this route occupies the candidate label's y=300 lane.
+
                 route(&[(-20.0, 10.0), (40.0, 10.0)], (0.0, 0.0), (750.0, 290.0))
             } else {
-                // This route is clear, but its label occupies the candidate route's y=300 lane.
+
                 route(&[(-60.0, 60.0), (0.0, 60.0)], (-40.0, 10.0), (800.0, 290.0))
             };
             if moved_label {

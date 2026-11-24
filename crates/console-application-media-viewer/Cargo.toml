@@ -1,0 +1,54 @@
+[package]
+name = "console-application-media-viewer"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "console_application_media_viewer"
+path = "src/lib.rs"
+
+[[bin]]
+name = "console-application-media-viewer"
+path = "src/bin/viewer.rs"
+
+[dependencies]
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-atomic-writes.workspace = true
+console-core-jpeg-files.workspace = true
+console-core-png-files.workspace = true
+console-core-geometry.workspace = true
+console-core-internal-programs.workspace = true
+console-core-iteration.workspace = true
+console-core-arguments.workspace = true
+console-core-never.workspace = true
+console-core-localization.workspace = true
+console-core-walking.workspace = true
+console-core-words.workspace = true
+console-program-contract.workspace = true
+console-films = { workspace = true, features = ["hosted-compute"] }
+console-operating-system-linux.workspace = true
+console-concurrency.workspace = true
+console-core-subtitle-files.workspace = true
+console-core-number-conversion.workspace = true
+console-core-places.workspace = true
+console-panel.workspace = true
+console-content-types.workspace = true
+console-pictures.workspace = true
+console-music-player.workspace = true
+console-program-lifetime.workspace = true
+console-core-shapes.workspace = true
+console-core-state-machine.workspace = true
+
+[dev-dependencies]
+console-draw-painting.workspace = true
+console-draw-surface.workspace = true
+console-core-ini-files.workspace = true
+console-waiting.workspace = true
+console-settings.workspace = true
+console-test-stages.workspace = true
+console-core-temporary-directories.workspace = true
+
+[lints]
+workspace = true

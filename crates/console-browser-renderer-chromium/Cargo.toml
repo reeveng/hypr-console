@@ -1,0 +1,28 @@
+[package]
+name = "console-browser-renderer-chromium"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+console-browser-downloads = { path = "../console-browser-downloads" }
+console-browser-renderer = { path = "../console-browser-renderer" }
+console-core-atomic-writes.workspace = true
+console-core-external-programs.workspace = true
+console-core-file-urls.workspace = true
+console-core-geometry.workspace = true
+console-core-iteration.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-core-png-files.workspace = true
+console-core-state-machine.workspace = true
+console-core-urls = { path = "../console-core-urls" }
+console-core-web-engine.workspace = true
+console-operating-system-linux.workspace = true
+rustix = { workspace = true, features = ["net"] }
+serde_json = { version = "1", features = ["raw_value"] }
+
+[lints]
+workspace = true

@@ -10,6 +10,7 @@ pub(crate) enum SourceStyleOrigin {
 }
 
 impl SourceStyleOrigin {
+    #[must_use]
     pub(crate) const fn id(self) -> &'static str {
         match self {
             Self::AssignedClass => "assigned-class",
@@ -28,6 +29,7 @@ pub(crate) enum SourceStyleChannel {
 }
 
 impl SourceStyleChannel {
+    #[must_use]
     pub(crate) const fn id(self) -> &'static str {
         match self {
             Self::Shape => "shape",
@@ -48,6 +50,7 @@ pub(crate) struct SourceStyleProvenance {
 }
 
 impl SourceStyleProvenance {
+    #[must_use]
     pub(crate) fn assigned_class(
         owner_id: impl Into<Arc<str>>,
         class_id: impl Into<Arc<str>>,
@@ -65,6 +68,7 @@ impl SourceStyleProvenance {
         }
     }
 
+    #[must_use]
     pub(crate) fn inline(
         owner_id: impl Into<Arc<str>>,
         channel: SourceStyleChannel,
@@ -80,15 +84,16 @@ impl SourceStyleProvenance {
         }
     }
 
+    #[must_use]
     pub(crate) fn generated_class_css(
         class_id: impl Into<Arc<str>>,
         channel: SourceStyleChannel,
         declaration_ordinal: usize,
     ) -> Self {
-        let class_id = class_id.into();
+        let class_id_2 = class_id.into();
         Self {
-            owner_id: class_id.clone(),
-            class_id: Some(class_id),
+            owner_id: class_id_2.clone(),
+            class_id: Some(class_id_2),
             origin: SourceStyleOrigin::GeneratedClassCss,
             channel,
             assignment_ordinal: None,
@@ -96,6 +101,7 @@ impl SourceStyleProvenance {
         }
     }
 
+    #[must_use]
     pub(crate) fn label_style(
         owner_id: impl Into<Arc<str>>,
         channel: SourceStyleChannel,
@@ -116,6 +122,7 @@ impl SourceStyleProvenance {
         &self.owner_id
     }
 
+    #[must_use]
     pub(crate) fn owner_id_arc(&self) -> Arc<str> {
         Arc::clone(&self.owner_id)
     }
@@ -125,22 +132,27 @@ impl SourceStyleProvenance {
         self.class_id.as_deref()
     }
 
+    #[must_use]
     pub(crate) fn class_id_arc(&self) -> Option<Arc<str>> {
         self.class_id.as_ref().map(Arc::clone)
     }
 
+    #[must_use]
     pub(crate) const fn origin(&self) -> SourceStyleOrigin {
         self.origin
     }
 
+    #[must_use]
     pub(crate) const fn channel(&self) -> SourceStyleChannel {
         self.channel
     }
 
+    #[must_use]
     pub(crate) const fn assignment_ordinal(&self) -> Option<usize> {
         self.assignment_ordinal
     }
 
+    #[must_use]
     pub(crate) const fn declaration_ordinal(&self) -> usize {
         self.declaration_ordinal
     }
@@ -158,11 +170,13 @@ pub(crate) struct PreparedSourceStyleDeclaration {
 }
 
 impl PreparedSourceStyleDeclaration {
+    #[must_use]
     pub(crate) fn parse(raw: &str) -> Option<Self> {
         let parsed = crate::mermaid_style::parse_style_declaration(raw)?;
         Some(Self::from_parsed(raw, parsed))
     }
 
+    #[must_use]
     fn from_parsed(raw: &str, parsed: ParsedStyleDeclaration<'_>) -> Self {
         Self {
             raw: Arc::from(raw.trim()),
@@ -175,6 +189,7 @@ impl PreparedSourceStyleDeclaration {
         }
     }
 
+    #[must_use]
     pub(crate) fn bind(
         self: &Arc<Self>,
         provenance: SourceStyleProvenance,
@@ -185,48 +200,59 @@ impl PreparedSourceStyleDeclaration {
         }
     }
 
+    #[must_use]
     pub(crate) fn raw(&self) -> &str {
         &self.raw
     }
 
+    #[must_use]
     pub(crate) fn property(&self) -> &str {
         &self.property
     }
 
     /// Returns the validated source spelling suitable for CSS emission.
+    #[must_use]
     pub(crate) fn property_css(&self) -> &str {
         &self.property_css
     }
 
     /// Returns the source value used by Mermaid-compatible CSS emission.
+    #[must_use]
     pub(crate) fn source_value(&self) -> &str {
         &self.source_value
     }
 
+    #[must_use]
     pub(crate) fn value(&self) -> &str {
         &self.value
     }
 
+    #[must_use]
     pub(crate) const fn important(&self) -> bool {
         self.important
     }
 
+    #[must_use]
     pub(crate) fn inherits_property_value(&self) -> bool {
         self.analysis.inherits_property_value()
     }
 
+    #[must_use]
     pub(crate) const fn is_single_component_value(&self) -> bool {
         self.analysis.is_single_component()
     }
 
+    #[must_use]
     pub(crate) fn svg_number_or_px(&self) -> Option<f64> {
         self.analysis.svg_number_or_px()
     }
 
+    #[must_use]
     pub(crate) fn resolve_font_size_px(&self, context: CssFontSizeContext) -> Option<f64> {
         self.analysis.resolve_font_size_px(context)
     }
 
+    #[must_use]
     pub(crate) fn property_matches(&self, property: &str) -> bool {
         if self.property.starts_with("--") || property.starts_with("--") {
             self.property.as_ref() == property
@@ -247,20 +273,29 @@ impl SourceStyleDeclaration {
         raw: &str,
         provenance: SourceStyleProvenance,
     ) -> Result<Self, SourceStyleResidual> {
-        let Some(prepared) = PreparedSourceStyleDeclaration::parse(raw) else {
-            return Err(SourceStyleResidual::invalid(raw, provenance));
+        let prepared = {
+            let optional_prepared = PreparedSourceStyleDeclaration::parse(raw);
+
+            match optional_prepared {
+                Some(matched_prepared) => matched_prepared,
+                ::core::option::Option::None => return Err(SourceStyleResidual::invalid(raw, provenance)),
+            }
         };
+
         Ok(Arc::new(prepared).bind(provenance))
     }
 
+    #[must_use]
     pub(crate) fn property(&self) -> &str {
         self.prepared.property()
     }
 
+    #[must_use]
     pub(crate) fn property_css(&self) -> &str {
         self.prepared.property_css()
     }
 
+    #[must_use]
     pub(crate) fn value(&self) -> &str {
         self.prepared.value()
     }
@@ -270,18 +305,22 @@ impl SourceStyleDeclaration {
         self.prepared.important()
     }
 
+    #[must_use]
     pub(crate) fn is_single_component_value(&self) -> bool {
         self.prepared.is_single_component_value()
     }
 
+    #[must_use]
     pub(crate) fn svg_number_or_px(&self) -> Option<f64> {
         self.prepared.svg_number_or_px()
     }
 
+    #[must_use]
     pub(crate) fn resolve_font_size_px(&self, context: CssFontSizeContext) -> Option<f64> {
         self.prepared.resolve_font_size_px(context)
     }
 
+    #[must_use]
     pub(crate) const fn provenance(&self) -> &SourceStyleProvenance {
         &self.provenance
     }
@@ -301,6 +340,7 @@ pub(crate) enum SourceStyleResidualReason {
 }
 
 impl SourceStyleResidualReason {
+    #[must_use]
     pub(crate) const fn id(self) -> &'static str {
         match self {
             Self::InvalidDeclaration => "invalid-declaration",
@@ -320,25 +360,28 @@ pub(crate) struct SourceStyleResidual {
 }
 
 impl SourceStyleResidual {
+    #[must_use]
     pub(crate) fn invalid(raw: &str, provenance: SourceStyleProvenance) -> Self {
         Self::invalid_prepared(Arc::from(raw.trim()), provenance)
     }
 
+    #[must_use]
     pub(crate) fn invalid_prepared(raw: Arc<str>, provenance: SourceStyleProvenance) -> Self {
         let trimmed = raw.trim();
-        let raw = if trimmed.len() == raw.len() {
+        let raw_2 = if trimmed.len() == raw.len() {
             raw
         } else {
             Arc::from(trimmed)
         };
         Self {
-            raw,
+            raw: raw_2,
             property: None,
             provenance,
             reason: SourceStyleResidualReason::InvalidDeclaration,
         }
     }
 
+    #[must_use]
     pub(crate) fn from_declaration(
         declaration: &SourceStyleDeclaration,
         reason: SourceStyleResidualReason,
@@ -356,6 +399,7 @@ impl SourceStyleResidual {
         &self.raw
     }
 
+    #[must_use]
     pub(crate) fn raw_arc(&self) -> Arc<str> {
         Arc::clone(&self.raw)
     }
@@ -365,14 +409,17 @@ impl SourceStyleResidual {
         self.property.as_deref()
     }
 
+    #[must_use]
     pub(crate) fn property_arc(&self) -> Option<Arc<str>> {
         self.property.as_ref().map(Arc::clone)
     }
 
+    #[must_use]
     pub(crate) const fn provenance(&self) -> &SourceStyleProvenance {
         &self.provenance
     }
 
+    #[must_use]
     pub(crate) const fn reason(&self) -> SourceStyleResidualReason {
         self.reason
     }

@@ -82,6 +82,7 @@ impl TimelineDb {
                 "event without a preceding task".to_string(),
             ));
         };
+
         last.events.push(event.to_string());
         Ok(())
     }
@@ -97,6 +98,7 @@ struct TimelineSemanticSource {
 
 #[cfg(feature = "presentation")]
 impl TimelineSemanticSource {
+    #[must_use]
     fn into_render_parts(self) -> (TimelineDiagramModel, TimelineOutputData) {
         (self.model, self.output_data)
     }
@@ -121,12 +123,17 @@ struct TimelineParseOutcome {
 
 impl TimelineParseOutcome {
     fn into_strict_source(self) -> Result<TimelineSemanticSource> {
-        if let Some(issue) = self.issues.into_iter().next() {
-            return Err(issue.error);
+        match self.issues.into_iter().next() {
+            Some(issue) => {
+                return Err(issue.error);
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(self.source)
     }
 
+    #[must_use]
     fn into_semantic_construction(
         self,
         #[cfg(feature = "editor-facts")] editor_demand: EditorFactsDemand,
@@ -163,6 +170,7 @@ impl TimelineParseOutcome {
                 editor_facts: Some(editor_facts),
             }
         }
+
         #[cfg(not(feature = "editor-facts"))]
         {
             crate::family::SemanticConstruction {
@@ -201,34 +209,41 @@ struct TimelineSource<'source> {
 }
 
 impl<'source> TimelineSource<'source> {
+    #[must_use]
     fn new(text: &'source str, start: usize) -> Self {
         Self { text, start }
     }
 
+    #[must_use]
     fn end(self) -> usize {
         self.start + self.text.len()
     }
 
+    #[must_use]
     fn span(self) -> SourceSpan {
         SourceSpan::new(self.start, self.end())
     }
 
+    #[must_use]
     fn subslice(self, start: usize, end: usize) -> Self {
         debug_assert!(start <= end);
         debug_assert!(end <= self.text.len());
         Self::new(&self.text[start..end], self.start + start)
     }
 
+    #[must_use]
     fn trim_start(self) -> Self {
         let leading = leading_whitespace_len(self.text);
         self.subslice(leading, self.text.len())
     }
 
+    #[must_use]
     fn trim_end(self) -> Self {
         let text = self.text.trim_end();
         self.subslice(0, text.len())
     }
 
+    #[must_use]
     fn trim(self) -> Self {
         self.trim_start().trim_end()
     }
@@ -283,6 +298,7 @@ struct ParsedTimelinePeriod<'source> {
     suffix: TimelinePeriodSuffix<'source>,
 }
 
+#[must_use]
 fn parse_keyword_prefix<'source>(
     source: TimelineSource<'source>,
     keyword: &str,
@@ -290,45 +306,50 @@ fn parse_keyword_prefix<'source>(
     if !starts_with_case_insensitive(source.text, keyword) {
         return None;
     }
+
     Some((
         source.subslice(0, keyword.len()),
         source.subslice(keyword.len(), source.text.len()),
     ))
 }
 
+#[must_use]
 fn parse_space_directive<'source>(
     line: TimelineSource<'source>,
     keyword: &str,
 ) -> Option<ParsedSpaceDirective<'source>> {
-    let line = line.trim_start();
-    let (_, after_keyword) = parse_keyword_prefix(line, keyword)?;
+    let line_2 = line.trim_start();
+    let (_, after_keyword) = parse_keyword_prefix(line_2, keyword)?;
     let whitespace = after_keyword.text.chars().next()?;
+
     if !whitespace.is_whitespace() {
         return None;
     }
+
     Some(ParsedSpaceDirective {
         value: after_keyword.subslice(whitespace.len_utf8(), after_keyword.text.len()),
     })
 }
 
+#[must_use]
 fn parse_colon_directive<'source>(
     line: TimelineSource<'source>,
     keyword: &str,
 ) -> Option<ParsedColonDirective<'source>> {
     let line = line.trim_start();
     let (_, after_keyword) = parse_keyword_prefix(line, keyword)?;
-    let after_keyword = after_keyword.trim_start();
-    let after_colon = after_keyword.text.strip_prefix(':')?;
-    let after_colon = TimelineSource::new(after_colon, after_keyword.start + 1).trim_start();
+    let after_keyword_2 = after_keyword.trim_start();
+    let after_colon = after_keyword_2.text.strip_prefix(':')?;
+    let after_colon_2 = TimelineSource::new(after_colon, after_keyword_2.start + 1).trim_start();
 
-    let terminator = after_colon
+    let terminator = after_colon_2
         .text
         .char_indices()
         .find(|(_, ch)| matches!(ch, '#' | ';'));
     let value_source = match terminator {
-        Some((offset, '#')) | Some((offset, ';')) => after_colon.subslice(0, offset).trim(),
+        Some((offset, '#')) | Some((offset, ';')) => after_colon_2.subslice(0, offset).trim(),
         Some(_) => unreachable!("Timeline terminator is closed"),
-        None => after_colon.trim(),
+        None => after_colon_2.trim(),
     };
 
     Some(ParsedColonDirective {
@@ -336,6 +357,7 @@ fn parse_colon_directive<'source>(
     })
 }
 
+#[must_use]
 fn parse_section<'source>(line: TimelineSource<'source>) -> Option<ParsedSection<'source>> {
     let parsed = parse_space_directive(line, "section")?;
     let colon = parsed.value.text.find(':');
@@ -357,45 +379,66 @@ fn parse_acc_descr_block(
 ) -> OperationControlResult<Option<ParsedAccDescrBlock>> {
     control.checkpoint()?;
     let line = first_line.trim_start();
-    let Some((keyword, after_keyword)) = parse_keyword_prefix(line, "accDescr") else {
-        return Ok(None);
+
+    let (keyword, after_keyword) = {
+        let optional_keyword = parse_keyword_prefix(line, "accDescr");
+
+        match optional_keyword {
+            Some((matched_keyword, matched_after_keyword)) => (matched_keyword, matched_after_keyword),
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let after_keyword = after_keyword.trim_start();
-    let Some(rest) = after_keyword.text.strip_prefix('{') else {
-        return Ok(None);
+
+    let rest = {
+        let optional_rest = after_keyword.text.strip_prefix('{');
+
+        match optional_rest {
+            Some(matched_rest) => matched_rest,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let mut rest = TimelineSource::new(rest, after_keyword.start + 1);
     let mut content_spans = Vec::new();
     let mut text = String::new();
 
-    if let Some(close) = rest.text.find('}') {
-        let content = rest.subslice(0, close);
-        let trimmed = content.trim();
-        if !trimmed.text.is_empty() {
-            content_spans.push(trimmed.span());
-        }
-        text.push_str(content.text);
-        let closing = SourceSpan::new(rest.start + close, rest.start + close + 1);
-        cursor.resume_same_line_at(closing.end);
-        let _span = content_spans
-            .first()
-            .zip(content_spans.last())
-            .map_or(SourceSpan::new(rest.start, rest.start), |(first, last)| {
-                SourceSpan::new(first.start, last.end)
-            });
-        return Ok(Some(ParsedAccDescrBlock {
-            keyword: keyword.span(),
-            closing: Some(closing),
-            text: text.trim().to_string(),
-            #[cfg(feature = "editor-facts")]
-            span: _span,
-        }));
+    match rest.text.find('}') {
+        Some(close) => {
+            let content = rest.subslice(0, close);
+            let trimmed = content.trim();
+
+            if !trimmed.text.is_empty() {
+                content_spans.push(trimmed.span());
+            }
+
+            text.push_str(content.text);
+            let closing = SourceSpan::new(rest.start + close, rest.start + close + 1);
+            cursor.resume_same_line_at(closing.end);
+            let _span = content_spans
+                .first()
+                .zip(content_spans.last())
+                .map_or(SourceSpan::new(rest.start, rest.start), |(first, last)| {
+                    SourceSpan::new(first.start, last.end)
+                });
+            return Ok(Some(ParsedAccDescrBlock {
+                keyword: keyword.span(),
+                closing: Some(closing),
+                text: text.trim().to_string(),
+                #[cfg(feature = "editor-facts")]
+                span: _span,
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
     let first = rest.trim();
+
     if !first.text.is_empty() {
         content_spans.push(first.span());
     }
+
     text.push_str(rest.text);
     text.push('\n');
     let mut closing = None;
@@ -404,21 +447,30 @@ fn parse_acc_descr_block(
     while let Some((line, line_start)) = cursor.next_line() {
         control.checkpoint()?;
         rest = TimelineSource::new(line, line_start);
-        if let Some(close) = rest.text.find('}') {
-            let content = rest.subslice(0, close);
-            let trimmed = content.trim();
-            if !trimmed.text.is_empty() {
-                content_spans.push(trimmed.span());
-            }
-            text.push_str(content.text);
-            closing = Some(SourceSpan::new(rest.start + close, rest.start + close + 1));
-            cursor.resume_same_line_at(rest.start + close + 1);
-            break;
+
+        match rest.text.find('}') {
+            Some(close) => {
+                let content = rest.subslice(0, close);
+                let trimmed = content.trim();
+
+                if !trimmed.text.is_empty() {
+                    content_spans.push(trimmed.span());
+                }
+
+                text.push_str(content.text);
+                closing = Some(SourceSpan::new(rest.start + close, rest.start + close + 1));
+                cursor.resume_same_line_at(rest.start + close + 1);
+                break;
+            },
+            ::core::option::Option::None => {},
         }
+
         let trimmed = rest.trim();
+
         if !trimmed.text.is_empty() {
             content_spans.push(trimmed.span());
         }
+
         text.push_str(rest.text);
         text.push('\n');
     }
@@ -438,6 +490,7 @@ fn parse_acc_descr_block(
     }))
 }
 
+#[must_use]
 fn parse_timeline_events<'source>(
     input: TimelineSource<'source>,
     diagram_type: &str,
@@ -460,7 +513,9 @@ fn parse_timeline_events<'source>(
                 )),
             };
         }
+
         let after_colon = source.subslice(1, source.text.len());
+
         let Some(whitespace) = after_colon.text.chars().next() else {
             let insertion = SourceSpan::new(after_colon.start, after_colon.start);
             return ParsedTimelineEvents {
@@ -475,6 +530,7 @@ fn parse_timeline_events<'source>(
                 )),
             };
         };
+
         if !whitespace.is_whitespace() {
             let insertion = SourceSpan::new(after_colon.start, after_colon.start);
             return ParsedTimelineEvents {
@@ -491,6 +547,7 @@ fn parse_timeline_events<'source>(
         }
 
         source = after_colon.subslice(whitespace.len_utf8(), after_colon.text.len());
+
         if source.text.is_empty() {
             let insertion = SourceSpan::new(source.start, source.start);
             return ParsedTimelineEvents {
@@ -507,9 +564,13 @@ fn parse_timeline_events<'source>(
         }
 
         let boundary = source.text.char_indices().find_map(|(offset, ch)| {
-            if ch != ':' {
-                return None;
+            match ch {
+                ':' => {},
+                _ => {
+                    return None;
+                },
             }
+
             source.text[offset + 1..]
                 .chars()
                 .next()
@@ -533,6 +594,7 @@ fn parse_timeline_events<'source>(
     }
 }
 
+#[must_use]
 fn parse_timeline_period(line: TimelineSource<'_>) -> ParsedTimelinePeriod<'_> {
     let boundary = line
         .text
@@ -617,9 +679,13 @@ fn push_timeline_outline_fact(
     ));
 }
 
+#[must_use]
 fn timeline_parse_issue(error: Error, fallback: SourceSpan) -> TimelineParseIssue {
     let _span = match &error {
-        Error::DiagramParse { diagnostic, .. } => diagnostic.span().unwrap_or(fallback),
+        Error::DiagramParse { diagnostic, .. } => match diagnostic.span() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => fallback,
+        },
         _ => fallback,
     };
     TimelineParseIssue {
@@ -704,13 +770,13 @@ pub(crate) fn parse_timeline_semantic_model_controlled(
     #[cfg(feature = "editor-facts")] editor_demand: EditorFactsDemand,
     control: &OperationControl,
 ) -> OperationControlResult<crate::family::SemanticConstruction<TimelineDiagramModel>> {
-    let construction = construct_timeline_semantic_source_controlled(
+    let construction = { let checked_value = construct_timeline_semantic_source_controlled(
         code,
         diagram_type,
         #[cfg(feature = "editor-facts")]
         editor_demand,
         control,
-    )?
+    )?; checked_value }
     .into_semantic_construction(
         #[cfg(feature = "editor-facts")]
         editor_demand,
@@ -772,6 +838,7 @@ fn parse_timeline_semantic_source(
         control.checkpoint()?;
         let line = TimelineSource::new(line, line_start);
         let significant = line.trim();
+
         if significant.text.is_empty() {
             continue;
         }
@@ -779,6 +846,7 @@ fn parse_timeline_semantic_source(
         if significant.text.starts_with("%%") {
             continue;
         }
+
         if significant.text.starts_with('#') {
             continue;
         }
@@ -797,12 +865,15 @@ fn parse_timeline_semantic_source(
             };
 
             header_seen = true;
+
             if after_keyword.text.is_empty() {
                 continue;
             }
+
             if after_keyword.text.starts_with('#') {
                 continue;
             }
+
             if after_keyword.text.starts_with("%%") {
                 continue;
             }
@@ -813,12 +884,15 @@ fn parse_timeline_semantic_source(
                 .next()
                 .is_some_and(char::is_whitespace);
             let rest = after_keyword.trim_start();
+
             if had_whitespace && rest.text.starts_with('#') {
                 continue;
             }
+
             if had_whitespace && rest.text.starts_with("%%") {
                 continue;
             }
+
             let direction_end = rest
                 .text
                 .char_indices()
@@ -829,15 +903,18 @@ fn parse_timeline_semantic_source(
             let valid_direction = had_whitespace
                 && (direction.text.eq_ignore_ascii_case("LR")
                     || direction.text.eq_ignore_ascii_case("TD"));
+
             if valid_direction {
                 db.direction = if direction.text.eq_ignore_ascii_case("TD") {
                     TimelineDirection::TopDown
                 } else {
                     TimelineDirection::LeftToRight
                 };
+
                 if trailing.text.starts_with('#') {
                     continue;
                 }
+
                 if trailing.text.is_empty() || trailing.text.starts_with("%%") {
                     continue;
                 }
@@ -856,118 +933,137 @@ fn parse_timeline_semantic_source(
         }
 
         let statement = line.trim_start();
-        if let Some(parsed) = parse_space_directive(statement, "title") {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("title");
-            }
-            #[cfg(feature = "editor-facts")]
-            push_timeline_payload_fact(
-                editor_demand,
-                &mut editor_facts,
-                parsed.value.text,
-                parsed.value.span(),
-                "timeline title",
-                EditorSemanticKind::String,
-            );
-            db.title = parsed.value.text.to_string();
-            continue;
+
+        match parse_space_directive(statement, "title") {
+            Some(parsed) => {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("title");
+                }
+                #[cfg(feature = "editor-facts")]
+                push_timeline_payload_fact(
+                    editor_demand,
+                    &mut editor_facts,
+                    parsed.value.text,
+                    parsed.value.span(),
+                    "timeline title",
+                    EditorSemanticKind::String,
+                );
+                db.title = parsed.value.text.to_string();
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(parsed) = parse_colon_directive(statement, "accTitle") {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("accTitle");
-            }
-            #[cfg(feature = "editor-facts")]
-            push_timeline_payload_fact(
-                editor_demand,
-                &mut editor_facts,
-                parsed.value.text,
-                parsed.value.span(),
-                "timeline accessibility title",
-                EditorSemanticKind::String,
-            );
-            db.acc_title = parsed.value.text.to_string();
-            continue;
+        match parse_colon_directive(statement, "accTitle") {
+            Some(parsed) => {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("accTitle");
+                }
+                #[cfg(feature = "editor-facts")]
+                push_timeline_payload_fact(
+                    editor_demand,
+                    &mut editor_facts,
+                    parsed.value.text,
+                    parsed.value.span(),
+                    "timeline accessibility title",
+                    EditorSemanticKind::String,
+                );
+                db.acc_title = parsed.value.text.to_string();
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(parsed) = parse_colon_directive(statement, "accDescr") {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("accDescr");
-            }
-            #[cfg(feature = "editor-facts")]
-            push_timeline_payload_fact(
-                editor_demand,
-                &mut editor_facts,
-                parsed.value.text,
-                parsed.value.span(),
-                "timeline accessibility description",
-                EditorSemanticKind::String,
-            );
-            db.acc_descr = parsed.value.text.to_string();
-            continue;
+        match parse_colon_directive(statement, "accDescr") {
+            Some(parsed) => {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("accDescr");
+                }
+                #[cfg(feature = "editor-facts")]
+                push_timeline_payload_fact(
+                    editor_demand,
+                    &mut editor_facts,
+                    parsed.value.text,
+                    parsed.value.span(),
+                    "timeline accessibility description",
+                    EditorSemanticKind::String,
+                );
+                db.acc_descr = parsed.value.text.to_string();
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(parsed) = parse_acc_descr_block(&mut lines, line, control)? {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("accDescr");
-            }
-            #[cfg(feature = "editor-facts")]
-            push_timeline_payload_fact(
-                editor_demand,
-                &mut editor_facts,
-                &parsed.text,
-                parsed.span,
-                "timeline accessibility description",
-                EditorSemanticKind::String,
-            );
-            if parsed.closing.is_none() {
-                let span = SourceSpan::new(parsed.keyword.start, code.len());
-                issues.push(timeline_parse_issue(
-                    Error::diagram_parse_insertion_point(
-                        diagram_type.to_string(),
-                        "unterminated accDescr block",
-                        code.len(),
-                    ),
-                    span,
-                ));
-            }
-            db.acc_descr = parsed.text;
-            continue;
+        match parse_acc_descr_block(&mut lines, line, control)? {
+            Some(parsed) => {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("accDescr");
+                }
+                #[cfg(feature = "editor-facts")]
+                push_timeline_payload_fact(
+                    editor_demand,
+                    &mut editor_facts,
+                    &parsed.text,
+                    parsed.span,
+                    "timeline accessibility description",
+                    EditorSemanticKind::String,
+                );
+
+                if parsed.closing.is_none() {
+                    let span = SourceSpan::new(parsed.keyword.start, code.len());
+                    issues.push(timeline_parse_issue(
+                        Error::diagram_parse_insertion_point(
+                            diagram_type.to_string(),
+                            "unterminated accDescr block",
+                            code.len(),
+                        ),
+                        span,
+                    ));
+                }
+
+                db.acc_descr = parsed.text;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(parsed) = parse_section(statement) {
-            #[cfg(feature = "editor-facts")]
-            push_timeline_outline_fact(
-                editor_demand,
-                &mut editor_facts,
-                parsed.value.text,
-                statement.span(),
-                parsed.value.span(),
-                "timeline section",
-                EditorSemanticKind::Namespace,
-            );
-            db.add_section(parsed.db_value.text);
-            continue;
+        match parse_section(statement) {
+            Some(parsed) => {
+                #[cfg(feature = "editor-facts")]
+                push_timeline_outline_fact(
+                    editor_demand,
+                    &mut editor_facts,
+                    parsed.value.text,
+                    statement.span(),
+                    parsed.value.span(),
+                    "timeline section",
+                    EditorSemanticKind::Namespace,
+                );
+                db.add_section(parsed.db_value.text);
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         if statement.text.starts_with(':') {
             let parsed = parse_timeline_events(statement, diagram_type);
+
             for event in parsed.events {
                 match db.add_event(event.value.text) {
                     Ok(()) => {
@@ -984,13 +1080,19 @@ fn parse_timeline_semantic_source(
                     Err(error) => issues.push(timeline_parse_issue(error, event.value.span())),
                 }
             }
-            if let Some(issue) = parsed.issue {
-                issues.push(issue);
+
+            match parsed.issue {
+                Some(issue) => {
+                    issues.push(issue);
+                },
+                ::core::option::Option::None => {},
             }
+
             continue;
         }
 
         let parsed = parse_timeline_period(statement);
+
         if parsed.task.text.is_empty() {
             continue;
         }
@@ -1012,6 +1114,7 @@ fn parse_timeline_semantic_source(
             TimelinePeriodSuffix::HashComment => {}
             TimelinePeriodSuffix::Events(events_source) => {
                 let events = parse_timeline_events(events_source, diagram_type);
+
                 for event in events.events {
                     match db.add_event(event.value.text) {
                         Ok(()) => {
@@ -1028,8 +1131,12 @@ fn parse_timeline_semantic_source(
                         Err(error) => issues.push(timeline_parse_issue(error, event.value.span())),
                     }
                 }
-                if let Some(issue) = events.issue {
-                    issues.push(issue);
+
+                match events.issue {
+                    Some(issue) => {
+                        issues.push(issue);
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
         }
@@ -2001,7 +2108,7 @@ mod output_data_tests {
         assert_eq!(empty_output, TimelineOutputData::Empty);
         assert_eq!(header_output, TimelineOutputData::Model);
         assert_eq!(TimelineOutputData::default(), TimelineOutputData::Model);
-        // Identical canonical values must not erase the source producer's distinct output shape.
+
         assert_eq!(
             serde_json::to_value(&empty).unwrap(),
             serde_json::to_value(&header).unwrap()

@@ -21,20 +21,21 @@ fn show_volume(sink: &str) -> io::Result<()> {
   let level = sound_server(&["get-sink-volume", sink])?;
   let mute = sound_server(&["get-sink-mute", sink])?;
   let Ok(muted) = rocker::muted(&mute);
-  let Ok(level) = rocker::level(&level);
-  let Ok(words) = rocker::volume_label(level, muted);
+  let Ok(level_2) = rocker::level(&level);
+  let Ok(words) = rocker::volume_label(level_2, muted);
 
   let Ok(notification) = Notification::new(Content {
     summary: &words,
     body: "",
   });
-  let Ok(mut notification) = notification.lasting(1500);
+  let Ok(mut notification_2) = notification.lasting(1500);
 
-  let Ok(value) = rocker::value(level);
+  let Ok(value) = rocker::value(level_2);
+
   match value {
-    Some(value) => {
-      let Ok(valued) = notification.valued(value);
-      notification = valued;
+    Some(value_2) => {
+      let Ok(valued) = notification_2.valued(value_2);
+      notification_2 = valued;
     }
     None => {}
   }
@@ -47,7 +48,7 @@ fn show_volume(sink: &str) -> io::Result<()> {
   }
 
   let Ok(kept) = StatePath::new("volume");
-  let Ok(()) = raise_kept(notification, &kept);
+  let Ok(()) = raise_kept(notification_2, &kept);
 
   Ok(())
 }
@@ -55,12 +56,30 @@ fn show_volume(sink: &str) -> io::Result<()> {
 fn adjust(press: ButtonPress) -> io::Result<()> {
   let default = sound_server(&["get-default-sink"])?;
   let sink = default.trim();
-  match sink.is_empty() {
-    true => return Err(io::Error::other("pactl reported no default output")),
-    false => {}
+
+  match ::core::primitive::bool::then_some(sink.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      return Err(io::Error::other("pactl reported no default output"));
+    }
+    ::core::option::Option::None => {}
   }
 
-  let Ok(requests) = rocker::asks(press, sink);
+  let current = match press {
+    ButtonPress::Up | ButtonPress::Down => {
+      let said = sound_server(&["get-sink-volume", sink])?;
+      let Ok(level) = rocker::level(&said);
+      let Ok(value) = rocker::value(level);
+      value
+        .and_then(|value_2| match i32::try_from(value_2) {
+          ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+          ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None,
+        })
+        .ok_or_else(|| io::Error::other("pactl reported no volume for the default output"))?
+    }
+    ButtonPress::Mute => 0,
+  };
+  let Ok(requests) = rocker::asks(press, sink, current);
+
   for arguments in requests {
     let _reply = sound_server(&arguments)?;
   }

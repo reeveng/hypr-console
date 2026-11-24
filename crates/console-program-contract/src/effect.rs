@@ -54,6 +54,7 @@ use std::path::PathBuf;
 use console_core_external_programs::Program;
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
+use console_core_state_machine::{EffectDependencies, Service};
 
 use crate::event::Choice;
 use crate::subscription::Subscription;
@@ -73,6 +74,23 @@ pub enum Effect<F> {
   Print(String),
   Stop(Exit),
   Custom(F),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum EffectKind {
+  Run,
+  Stream,
+  Fork,
+  Interrupt,
+  Prompt,
+  Spawn,
+  Subscribe,
+  Unsubscribe,
+  Write,
+  Notify,
+  Print,
+  Stop,
+  Custom,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -100,6 +118,24 @@ pub struct Command {
 }
 
 impl<F> Effect<F> {
+  pub const fn kind(&self) -> Result<EffectKind, Never> {
+    Ok(match self {
+      Effect::Run(_) => EffectKind::Run,
+      Effect::Stream(_) => EffectKind::Stream,
+      Effect::Fork(_) => EffectKind::Fork,
+      Effect::Interrupt(_) => EffectKind::Interrupt,
+      Effect::Prompt(_) => EffectKind::Prompt,
+      Effect::Spawn(_) => EffectKind::Spawn,
+      Effect::Subscribe(_) => EffectKind::Subscribe,
+      Effect::Unsubscribe(_) => EffectKind::Unsubscribe,
+      Effect::Write(_) => EffectKind::Write,
+      Effect::Notify(_) => EffectKind::Notify,
+      Effect::Print(_) => EffectKind::Print,
+      Effect::Stop(_) => EffectKind::Stop,
+      Effect::Custom(_) => EffectKind::Custom,
+    })
+  }
+
   pub fn as_file_write(&self) -> Result<Option<&FileWrite>, Never> {
     Ok(match self {
       Effect::Write(writing) => Some(writing),
@@ -133,6 +169,25 @@ impl<F> Effect<F> {
       | Effect::Print(_)
       | Effect::Stop(_)
       | Effect::Custom(_) => None,
+    })
+  }
+}
+
+impl<F: EffectDependencies> EffectDependencies for Effect<F> {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Run(_) | Self::Fork(_) | Self::Interrupt(_) | Self::Spawn(_) => &[Service::Process],
+      Self::Stream(_) => &[Service::Process, Service::Console],
+      Self::Prompt(_) => &[Service::Terminal],
+      Self::Subscribe(Subscription::Timer(_) | Subscription::Once(_))
+      | Self::Unsubscribe(Subscription::Timer(_) | Subscription::Once(_)) => &[Service::Clock],
+      Self::Subscribe(Subscription::EventGroup(_))
+      | Self::Unsubscribe(Subscription::EventGroup(_)) => &[Service::Events],
+      Self::Write(_) => &[Service::FileSystem],
+      Self::Notify(_) => &[Service::Notifications],
+      Self::Print(_) => &[Service::Console],
+      Self::Stop(_) => &[],
+      Self::Custom(effect) => return effect.services(),
     })
   }
 }
@@ -216,4 +271,60 @@ pub enum Exit {
 
 fn to_strings(arguments: &[&str]) -> Result<Vec<String>, Never> {
   Ok(arguments.iter().map(|word| (*word).to_string()).collect())
+}
+
+#[cfg(test)]
+mod tests {
+  use std::time::Duration;
+
+  use console_core_state_machine::Transition;
+
+  use super::*;
+  use crate::{EventGroup, Timer};
+
+  struct Redraw;
+
+  impl EffectDependencies for Redraw {
+    fn services(&self) -> Result<&'static [Service], Never> {
+      Ok(&[Service::Display])
+    }
+  }
+
+  #[test]
+  fn a_transition_combines_shared_and_custom_requirements() {
+    let Ok(command) = Command::external(Program::True, &[]);
+    let timer = Timer {
+      name: "refresh",
+      interval: Duration::from_secs(1),
+    };
+    let Ok(turn) = Transition::new(
+      (),
+      vec![
+        Effect::Stream(command),
+        Effect::Subscribe(Subscription::Once(timer)),
+        Effect::Unsubscribe(Subscription::Timer(timer)),
+        Effect::Subscribe(Subscription::EventGroup(EventGroup::Compositor)),
+        Effect::Write(FileWrite {
+          path: PathBuf::from("example"),
+          contents: String::new(),
+        }),
+        Effect::Custom(Redraw),
+        Effect::Stop(Exit::Success),
+      ],
+    );
+    let Ok(services) = turn.services();
+    assert_eq!(
+      services,
+      [
+        Service::Process,
+        Service::Console,
+        Service::Clock,
+        Service::Events,
+        Service::FileSystem,
+        Service::Display,
+      ]
+      .into_iter()
+      .collect()
+    );
+  }
 }

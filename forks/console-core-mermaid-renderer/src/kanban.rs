@@ -22,25 +22,30 @@ pub(crate) struct KanbanMarkdown<'a> {
 }
 
 impl<'a> KanbanMarkdown<'a> {
+    #[must_use]
     pub(crate) fn new(
         effective_config: &'a merman_model::presentation::PresentationConfig,
     ) -> Self {
         Self {
             sanitize_config: effective_config,
-            auto_wrap: crate::config::config_bool(
+            auto_wrap: match crate::config::config_bool(
                 effective_config.as_value(),
                 &["markdownAutoWrap"],
-            )
-            .unwrap_or(true),
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => true,
+            },
         }
     }
 
+    #[must_use]
     pub(crate) fn render(&self, raw: &str) -> String {
         let sanitized =
             merman_markup::sanitize::sanitize_text(raw, self.sanitize_config.as_config());
         crate::text::mermaid_markdown_to_xhtml_label_fragment(&sanitized, self.auto_wrap)
     }
 
+    #[must_use]
     pub(crate) fn measure_html(
         &self,
         measurer: &dyn TextMeasurer,
@@ -104,9 +109,9 @@ impl KanbanPreparedArtifact {
                         .map_or(0, |href| href.as_serialized_str().len()),
                 ]
             }));
-        // Vec capacities include inline String, geometry, style-fact, and ticket-link slots.
-        // The artifact owns the reservation and all prepared labels and serialized hrefs.
-        // Hrefs use Box<str>, so their lengths cover the complete retained string allocations.
+
+
+
         let owner_bytes = std::mem::size_of::<Self>()
             .saturating_add(
                 self.sections
@@ -120,22 +125,26 @@ impl KanbanPreparedArtifact {
             );
         let bytes = payloads.fold(owner_bytes, usize::saturating_add);
         let work = OperationLayoutWorkControl::new(std::sync::Arc::clone(work_meter));
-        self._retained_text = Some(work.reserve_prepared_text_retained_bytes(bytes)?);
+        self._retained_text = Some({ let checked_value = work.reserve_prepared_text_retained_bytes(bytes)?; checked_value });
         Ok(self)
     }
 
+    #[must_use]
     pub(crate) const fn layout_adaptation(&self) -> Option<crate::LayoutAdaptationObservation> {
         self.adaptation
     }
 
+    #[must_use]
     pub(crate) fn css(&self) -> &KanbanCssBinding {
         &self.css
     }
 
+    #[must_use]
     pub(crate) fn layout(&self) -> &KanbanDiagramLayout {
         &self.layout
     }
 
+    #[must_use]
     pub(crate) fn render_parts(
         &self,
     ) -> (
@@ -146,10 +155,12 @@ impl KanbanPreparedArtifact {
         (&self.layout, &self.sections, &self.items)
     }
 
+    #[must_use]
     pub(crate) const fn task_theme(&self) -> &KanbanTaskTheme {
         &self.task_theme
     }
 
+    #[must_use]
     pub(crate) const fn text_paint(&self) -> &KanbanTextPaintPlan {
         &self.text_paint
     }
@@ -170,6 +181,7 @@ pub(crate) struct KanbanPreparedLabelGeometry {
 }
 
 impl KanbanPreparedLabelGeometry {
+    #[must_use]
     pub(crate) fn empty() -> Self {
         Self {
             content_height: 0.0,
@@ -199,10 +211,17 @@ pub(crate) struct KanbanPreparedTicketLink {
     pub(crate) href: Option<SerializedMermaidNavigationHref>,
 }
 
+#[must_use]
 fn replace_first_like_javascript(source: &str, search: &str, replacement: &str) -> String {
-    let Some(match_start) = source.find(search) else {
-        return source.to_string();
+    let match_start = {
+        let optional_match_start = source.find(search);
+
+        match optional_match_start {
+            Some(matched_match_start) => matched_match_start,
+            ::core::option::Option::None => return source.to_string(),
+        }
     };
+
     let match_end = match_start + search.len();
     let prefix = &source[..match_start];
     let suffix = &source[match_end..];
@@ -210,9 +229,11 @@ fn replace_first_like_javascript(source: &str, search: &str, replacement: &str) 
     result.push_str(prefix);
 
     let mut cursor = 0usize;
+
     while let Some(relative_dollar) = replacement[cursor..].find('$') {
         let dollar = cursor + relative_dollar;
         result.push_str(&replacement[cursor..dollar]);
+
         match replacement.as_bytes().get(dollar + 1).copied() {
             Some(b'$') => result.push('$'),
             Some(b'&') => result.push_str(search),
@@ -224,20 +245,24 @@ fn replace_first_like_javascript(source: &str, search: &str, replacement: &str) 
                 continue;
             }
         }
+
         cursor = dollar + 2;
     }
+
     result.push_str(&replacement[cursor..]);
     result.push_str(suffix);
     result
 }
 
+#[must_use]
 fn prepare_kanban_ticket_link(
     ticket_base_url: Option<&str>,
     ticket: Option<&str>,
     effective_config: &merman_model::presentation::PresentationConfig,
 ) -> Option<KanbanPreparedTicketLink> {
-    let ticket = ticket.filter(|ticket| !ticket.is_empty())?;
-    let ticket_url = replace_first_like_javascript(ticket_base_url?, "#TICKET#", ticket);
+    let ticket_3 = ticket.filter(|ticket_2| !ticket_2.is_empty())?;
+    let checked_value = ticket_base_url?;
+    let ticket_url = replace_first_like_javascript(checked_value, "#TICKET#", ticket_3);
     let href = prepare_mermaid_navigation_href(
         &ticket_url,
         MermaidNavigationSecurity::from_security_level_loose(
@@ -247,6 +272,7 @@ fn prepare_kanban_ticket_link(
     Some(KanbanPreparedTicketLink { href })
 }
 
+#[must_use]
 fn prepare_kanban_markdown_label(
     markdown: &KanbanMarkdown<'_>,
     measurer: &dyn TextMeasurer,
@@ -283,6 +309,7 @@ fn prepare_kanban_markdown_label(
     }
 }
 
+#[must_use]
 fn prepare_kanban_title_label(
     markdown: &KanbanMarkdown<'_>,
     measurer: &dyn TextMeasurer,
@@ -299,12 +326,15 @@ fn prepare_kanban_title_label(
         max_width,
         capture_style_facts,
     );
+
     if raw.is_empty() {
         prepared.geometry.foreign_object_width = 0.0;
     }
+
     prepared
 }
 
+#[must_use]
 fn prepare_kanban_metadata_label(
     markdown: &KanbanMarkdown<'_>,
     measurer: &dyn TextMeasurer,
@@ -313,15 +343,15 @@ fn prepare_kanban_metadata_label(
     max_width: f64,
     capture_style_facts: bool,
 ) -> KanbanPreparedMetadataLabel {
-    // Metadata takes the non-Markdown HTML path. Keep its original source on the public model;
-    // only this private terminal owns HTML parsing, sanitization, and XHTML serialization.
+
+
     let html = text
-        .filter(|text| !text.is_empty())
-        .map_or_else(String::new, |text| {
+        .filter(|text_2| !text_2.is_empty())
+        .map_or_else(String::new, |text_3| {
             merman_markup::sanitize::sanitize_xhtml(
                 &format!(
                     "<p>{}</p>",
-                    text.replace("\\n", "<br/>").replace('\n', "<br/>")
+                    text_3.replace("\\n", "<br/>").replace('\n', "<br/>")
                 ),
                 markdown.sanitize_config.as_config(),
             )
@@ -357,6 +387,7 @@ fn prepare_kanban_metadata_label(
     }
 }
 
+#[must_use]
 fn kanban_layout_work_units(model: &KanbanDiagramRenderModel) -> usize {
     let sections = model.nodes.iter().filter(|node| node.is_group).count();
     let items = model
@@ -425,8 +456,8 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
     work_meter.charge(kanban_layout_work_units(model))?;
     let typography = KanbanTypographyPlan::resolve(theme, effective_config);
     let capture_style_facts = typography.typography_requested()
-        || theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        || theme.is_some_and(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 matches!(
                     route.mechanism(),
                     crate::diagram_theme::FamilyThemeMechanism::RuleFacet {
@@ -460,19 +491,23 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
 
     let mut section_inputs = Vec::new();
     let mut node_index = 0;
+
     while node_index < model.nodes.len() {
         let section = &model.nodes[node_index];
+
         if !section.is_group {
             node_index += 1;
             continue;
         }
+
         let item_start = node_index + 1;
         let mut item_end = item_start;
+
         while item_end < model.nodes.len() && !model.nodes[item_end].is_group {
             let item = &model.nodes[item_end];
-            // Full Kanban data is an occurrence sequence: each section is followed by its
-            // cards, including repeated section IDs. Do not silently reparent malformed data
-            // or regroup it by ID and duplicate already-expanded source occurrences.
+
+
+
             if let Some(parent) = item.parent_id.as_deref()
                 && parent != section.id
             {
@@ -483,11 +518,14 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
                     ),
                 });
             }
+
             item_end += 1;
         }
+
         section_inputs.push((section, item_start..item_end));
         node_index = item_end;
     }
+
     let item_capacity = section_inputs
         .iter()
         .map(|(_, items)| {
@@ -499,8 +537,12 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
         .sum();
     let item_width = (section_width - 1.5 * padding).max(1.0);
     let item_inner_max_width = (item_width - padding).max(0.0);
-    let mut task_occurrences = Vec::with_capacity(if theme.is_some() { item_capacity } else { 0 });
+    let mut task_occurrences = Vec::with_capacity(match theme {
+        ::core::option::Option::Some(_) => { item_capacity },
+        ::core::option::Option::None => { 0 },
+    });
     let mut prepared_task_labels = Vec::with_capacity(item_capacity);
+
     for (_, items) in &section_inputs {
         for node in model.nodes[items.start..items.end]
             .iter()
@@ -530,29 +572,39 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
                 item_inner_max_width,
                 capture_style_facts,
             );
-            if theme.is_some() {
-                let label_facts = [
-                    &prepared_title.visible_style_facts,
-                    &prepared_ticket.visible_style_facts,
-                    &prepared_assigned.visible_style_facts,
-                ];
-                task_occurrences.push(KanbanTaskOccurrence::new(
-                    label_facts.iter().any(|facts| facts.has_visible_runs()),
-                    label_facts
-                        .iter()
-                        .any(|facts| facts.parse_valid() && facts.inherited_color_run_count() > 0),
-                ));
+
+            match theme {
+                ::core::option::Option::Some(_) => {
+                    let label_facts = [
+                        &prepared_title.visible_style_facts,
+                        &prepared_ticket.visible_style_facts,
+                        &prepared_assigned.visible_style_facts,
+                    ];
+                    task_occurrences.push(KanbanTaskOccurrence::new(
+                        label_facts.iter().any(|facts| facts.has_visible_runs()),
+                        label_facts
+                            .iter()
+                            .any(|facts| facts.parse_valid() && facts.inherited_color_run_count() > 0),
+                    ));
+                },
+                ::core::option::Option::None => {},
             }
+
             prepared_task_labels.push((prepared_title, prepared_ticket, prepared_assigned));
         }
     }
-    if theme.is_some() {
-        debug_assert_eq!(task_occurrences.len(), item_capacity);
+
+    match theme {
+        ::core::option::Option::Some(_) => {
+            debug_assert_eq!(task_occurrences.len(), item_capacity);
+        },
+        ::core::option::Option::None => {},
     }
+
     debug_assert_eq!(prepared_task_labels.len(), item_capacity);
     let mut task_theme = match theme {
-        Some(theme) => KanbanTaskTheme::resolve_with_typography(
-            theme,
+        Some(theme_3) => KanbanTaskTheme::resolve_with_typography(
+            theme_3,
             task_occurrences,
             effective_config,
             typography,
@@ -605,6 +657,7 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
 
     let mut section_item_ranges = (options.adaptation == crate::LayoutAdaptation::FitWidth)
         .then(|| Vec::with_capacity(sections.len()));
+
     for (section, (_, item_range)) in sections.iter_mut().zip(&section_inputs) {
         let item_start = items.len();
         let top = section_rect_y + max_label_height;
@@ -616,9 +669,9 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
         {
             let width = item_width;
 
-            // Mermaid's kanban items are rendered via `kanbanItem.ts`, which uses HTML labels for
-            // the title and applies `max-width` clamping when the content needs wrapping. Mirror
-            // that behavior so item heights match the upstream bbox-based layout.
+
+
+
             let (prepared_title, prepared_ticket, prepared_assigned) = prepared_task_labels
                 .next()
                 .expect("Kanban task label preparation must match visible item order");
@@ -635,9 +688,11 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
             let center_y = y + height / 2.0;
 
             let item_index = items.len();
-            let radius = task_theme
-                .radius_px(item_index)
-                .unwrap_or(theme::MERMAID_TASK_RADIUS_PX);
+            let radius = match task_theme
+                .radius_px(item_index) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => theme::MERMAID_TASK_RADIUS_PX,
+            };
             items.push(KanbanItemLayout {
                 id: item.id.clone(),
                 label: item.label.clone(),
@@ -670,41 +725,54 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
         let height = (y - top + 3.0 * padding).max(50.0)
             + (max_label_height - KANBAN_SECTION_LABEL_HEIGHT_BASELINE_PX);
         section.rect_height = height.max(1.0);
-        if let Some(ranges) = &mut section_item_ranges {
-            ranges.push(item_start..items.len());
+
+        match &mut section_item_ranges {
+            Some(ranges) => {
+                ranges.push(item_start..items.len());
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     debug_assert!(prepared_task_labels.next().is_none());
 
-    if let Some(ranges) = section_item_ranges {
-        let gap = padding / 2.0;
-        let inner_width = (options.container_width - 2.0 * viewbox_padding).max(0.0);
-        let capacity = (((inner_width + gap) / (section_width + gap)).floor() as usize)
-            .max(1)
-            .min(sections.len().max(1));
-        let mut row_offset = 0.0;
-        let mut row_height: f64 = 0.0;
-        for (index, (section, item_range)) in sections.iter_mut().zip(ranges).enumerate() {
-            work_meter.charge(1)?;
-            let column = index % capacity;
-            if column == 0 && index > 0 {
-                row_offset += row_height + padding;
-                row_height = 0.0;
-            }
-            row_height = row_height.max(section.rect_height);
-            if index >= capacity {
-                let x = section_width * (column + 1) as f64 + column as f64 * gap;
-                let dx = x - section.center_x;
-                section.center_x = x;
-                section.center_y += row_offset;
-                section.rect_y += row_offset;
-                for item in &mut items[item_range] {
-                    work_meter.charge(1)?;
-                    item.center_x += dx;
-                    item.center_y += row_offset;
+    match section_item_ranges {
+        Some(ranges) => {
+            let gap = padding / 2.0;
+            let inner_width = (options.container_width - 2.0 * viewbox_padding).max(0.0);
+            let capacity = (((inner_width + gap) / (section_width + gap)).floor() as usize)
+                .max(1)
+                .min(sections.len().max(1));
+            let mut row_offset = 0.0;
+            let mut row_height: f64 = 0.0;
+
+            for (index, (section, item_range)) in sections.iter_mut().zip(ranges).enumerate() {
+                work_meter.charge(1)?;
+                let column = index.wrapping_rem(capacity);
+
+                if column == 0 && index > 0 {
+                    row_offset += row_height + padding;
+                    row_height = 0.0;
+                }
+
+                row_height = row_height.max(section.rect_height);
+
+                if index >= capacity {
+                    let x = section_width * (column + 1) as f64 + column as f64 * gap;
+                    let dx = x - section.center_x;
+                    section.center_x = x;
+                    section.center_y += row_offset;
+                    section.rect_y += row_offset;
+
+                    for item in &mut items[item_range] {
+                        work_meter.charge(1)?;
+                        item.center_x += dx;
+                        item.center_y += row_offset;
+                    }
                 }
             }
-        }
+        },
+        ::core::option::Option::None => {},
     }
 
     let mut min_x = f64::INFINITY;
@@ -722,6 +790,7 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
         max_x = max_x.max(right);
         max_y = max_y.max(bottom);
     }
+
     for n in &items {
         let left = n.center_x - n.width / 2.0;
         let right = n.center_x + n.width / 2.0;
@@ -747,15 +816,17 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
 
     let adaptation = if options.adaptation == crate::LayoutAdaptation::FitWidth {
         let actual_width = match &bounds {
-            Some(bounds) => bounds.max_x - bounds.min_x,
+            Some(bounds_2) => bounds_2.max_x - bounds_2.min_x,
             None if sections.is_empty() => 100.0,
             None => f64::NAN,
         };
+
         if !actual_width.is_finite() {
             return Err(crate::Error::InvalidModel {
                 message: "fit-width Kanban bounds exceed finite layout coordinates".to_owned(),
             });
         }
+
         Some(crate::LayoutAdaptationObservation::fit_width(
             options.container_width,
             actual_width.max(1.0),
@@ -787,10 +858,12 @@ pub(crate) fn prepare_kanban_diagram_typed_with_work_meter(
         text_paint.fill_css(),
     )?;
     task_theme.bind_terminal_paints(
-        effective_config
+        match effective_config
             .get_bool("darkMode")
-            .or_else(|| effective_config.get_bool("themeVariables.darkMode"))
-            .unwrap_or(false),
+            .or_else(|| effective_config.get_bool("themeVariables.darkMode")) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        },
     )?;
     Ok(KanbanPreparedArtifact {
         layout,

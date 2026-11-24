@@ -41,19 +41,21 @@ pub(super) struct StateRoughCache {
 }
 
 impl StateRoughCache {
+    #[must_use]
     pub(super) fn get_or_build_circle(
         &self,
         key: StateRoughCacheKey,
         build: impl FnOnce() -> String,
     ) -> Rc<String> {
-        // A fallback `Math.random()` stream is ordered across shapes, so cache hits would skip
-        // stream consumption and change subsequent output.
+
+
         if key.seed.may_use_math_random() {
             return Rc::new(build());
         }
 
         {
             let entries = self.entries.borrow();
+
             match entries.get(&key) {
                 Some(StateRoughGeometry::Circle(value)) => return Rc::clone(value),
                 Some(StateRoughGeometry::Paths(..)) => {
@@ -72,6 +74,7 @@ impl StateRoughCache {
         value
     }
 
+    #[must_use]
     pub(super) fn get_or_build_paths(
         &self,
         key: StateRoughCacheKey,
@@ -84,6 +87,7 @@ impl StateRoughCache {
 
         {
             let entries = self.entries.borrow();
+
             match entries.get(&key) {
                 Some(StateRoughGeometry::Paths(fill, stroke)) => {
                     return (Rc::clone(fill), Rc::clone(stroke));

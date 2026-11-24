@@ -68,32 +68,33 @@ impl BlockCssThemeBinding {
         let fade = |raw: String, opacity| -> crate::Result<String> {
             use merman_markup::theme_color::{ColorChannel, ThemeColor, rgba};
             let color = ThemeColor::parse(raw.trim())?;
-            Ok(rgba(
+            Ok({ let checked_value = rgba(
                 color.channel(ColorChannel::Red),
                 color.channel(ColorChannel::Green),
                 color.channel(ColorChannel::Blue),
                 opacity,
-            )?)
+            )?; checked_value })
         };
         let cluster_bkg = fade(token("clusterBkg", "#ffffde"), 0.5)?;
         let cluster_border = fade(token("clusterBorder", "#aaaa33"), 0.2)?;
         let stroke_width =
-            crate::config::config_css_number_or_string(config, &["themeVariables", "strokeWidth"])
-                .unwrap_or_else(|| "1".to_owned());
+            match crate::config::config_css_number_or_string(config, &["themeVariables", "strokeWidth"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => "1".to_owned(),
+            };
         let edge_stroke_width_px = stroke_width
             .trim()
             .trim_end_matches(';')
             .trim()
             .trim_end_matches("!important")
             .trim();
-        let edge_stroke_width_px = edge_stroke_width_px
+        let edge_stroke_width_px_2 = match edge_stroke_width_px
             .strip_suffix("px")
             .unwrap_or(edge_stroke_width_px)
             .trim()
-            .parse::<f64>()
-            .ok()
+            .parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
             .filter(|value| value.is_finite());
-        let palette_look = config
+        let palette_look = match config
             .get("look")
             .and_then(|look| match look {
                 Value::String(value) => Some(value.clone()),
@@ -105,8 +106,10 @@ impl BlockCssThemeBinding {
                     && look
                         .bytes()
                         .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-'))
-            })
-            .unwrap_or_else(|| "classic".to_owned());
+            }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => "classic".to_owned(),
+        };
         let palette = if matches!(
             config.get("theme").and_then(Value::as_str),
             Some("redux-color" | "redux-dark-color")
@@ -115,7 +118,8 @@ impl BlockCssThemeBinding {
                 .pointer("/themeVariables/bkgColorArray")
                 .and_then(Value::as_array)
                 .filter(|v| !v.is_empty());
-            config
+
+            match config
                 .pointer("/themeVariables/borderColorArray")
                 .and_then(Value::as_array)
                 .map(|borders| {
@@ -126,17 +130,19 @@ impl BlockCssThemeBinding {
                             let color = |value: &Value| {
                                 value
                                     .as_str()
-                                    .map(|value| value.trim().to_owned())
+                                    .map(|value_2| value_2.trim().to_owned())
                                     .unwrap_or_else(|| value.to_string())
                             };
-                            let border = color(border);
+                            let border_2 = color(border);
                             let background =
                                 backgrounds.map(|values| color(&values[i % values.len()]));
-                            (border, background)
+                            (border_2, background)
                         })
                         .collect()
-                })
-                .unwrap_or_default()
+                }) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            }
         } else {
             Vec::new()
         };
@@ -151,7 +157,7 @@ impl BlockCssThemeBinding {
             line_color,
             arrowhead_color,
             stroke_width,
-            edge_stroke_width_px,
+            edge_stroke_width_px: edge_stroke_width_px_2,
             edge_label_background: token("edgeLabelBackground", "rgba(232,232,232, 0.8)"),
             cluster_bkg,
             cluster_border,

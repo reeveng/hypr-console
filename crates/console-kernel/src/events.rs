@@ -6,6 +6,7 @@
 #![forbid(unsafe_code)]
 
 use console_core_never::Never;
+use console_core_operation_slots::{InsertError, OperationSlot as Slot, SlotEntry};
 use console_kernel_handles::{Bytes, ProcessId};
 
 #[cfg_attr(
@@ -293,52 +294,48 @@ pub enum Settlement<T> {
 }
 
 pub struct OperationSlot {
-  generation: Generation,
-  pending: Option<Pending>,
+  pending: Slot<Pending>,
 }
 
 impl OperationSlot {
-  pub const EMPTY: Self = Self {
-    generation: Generation(0),
-    pending: None,
+  pub const EMPTY: Self = {
+    let Ok(pending) = Slot::vacant((), 0);
+
+    Self { pending }
   };
 
   pub fn begin(&mut self, request: Begin) -> Result<Correlation, BeginError> {
-    match self.pending {
-      Some(_) => return Err(BeginError::Busy),
-      None => {}
-    }
-
-    let next = self
-      .generation
-      .0
-      .checked_add(1)
-      .ok_or(BeginError::Exhausted)?;
-    let generation = Generation(next);
-    let correlation = Correlation {
+    let correlate = |generation| Correlation {
       operation: request.operation,
       target: request.target,
-      generation,
+      generation: Generation(generation),
     };
-    self.generation = generation;
-    self.pending = Some(Pending {
-      correlation,
-      replies_from: request.replies_from,
-      reserved: request.reserved,
-    });
+    let generation = self
+      .pending
+      .insert_with(|generation| Pending {
+        correlation: correlate(generation),
+        replies_from: request.replies_from,
+        reserved: request.reserved,
+      })
+      .map_err(|error| match error {
+        InsertError::Occupied => BeginError::Busy,
+        InsertError::Exhausted => BeginError::Exhausted,
+      })?;
 
-    Ok(correlation)
+    Ok(correlate(generation))
   }
 
   pub fn complete<T>(&mut self, event: Envelope<Completion<T>>) -> Result<Settlement<T>, Never> {
-    match self.pending.as_ref() {
-      Some(pending) => {
+    let Ok(entry) = self.pending.entry();
+
+    match entry {
+      SlotEntry::Occupied(pending) => {
         match ::core::primitive::bool::then_some(pending.replies_from == event.source, ()) {
           ::core::option::Option::Some(()) => self.settle(event.payload),
           ::core::option::Option::None => Ok(Settlement::Ignored),
         }
       }
-      None => Ok(Settlement::Ignored),
+      SlotEntry::Vacant(()) => Ok(Settlement::Ignored),
     }
   }
 
@@ -350,24 +347,24 @@ impl OperationSlot {
   }
 
   fn settle<T>(&mut self, completion: Completion<T>) -> Result<Settlement<T>, Never> {
-    match self.pending.as_ref() {
-      Some(pending) => match ::core::primitive::bool::then_some(
-        pending.correlation == completion.correlation,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let refund = pending.reserved;
-          self.pending = None;
+    let correlation = completion.correlation;
+    let Ok(occupant) = self.pending.get(correlation.generation.0);
+    let matching = occupant.filter(|pending| pending.correlation == correlation);
 
-          Ok(Settlement::Complete {
-            value: completion.value,
-            refund,
-          })
-        }
-        ::core::option::Option::None => Ok(Settlement::Ignored),
-      },
-      None => Ok(Settlement::Ignored),
+    match matching {
+      Some(_) => {}
+      None => return Ok(Settlement::Ignored),
     }
+
+    let Ok(removed) = self.pending.remove(correlation.generation.0, ());
+
+    Ok(match removed {
+      Some(pending) => Settlement::Complete {
+        value: completion.value,
+        refund: pending.reserved,
+      },
+      None => Settlement::Ignored,
+    })
   }
 }
 

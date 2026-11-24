@@ -14,19 +14,22 @@ pub(crate) struct SequencePreparedTextEffect {
 }
 
 impl SequencePreparedTextEffect {
+    #[must_use]
     pub(super) fn resolve(
         theme: Option<&ResolvedDiagramTheme>,
         role: SequenceTypographyRole,
         style: Option<&ResolvedThemeStyle>,
     ) -> Self {
-        let Some(theme) = theme else {
-            return Self::default();
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Self::default(),
         };
+
         let default_effect_resolution = Default::default();
         let resolution = style
-            .map(|style| style.effect_resolution())
+            .map(|style_2| style_2.effect_resolution())
             .unwrap_or(&default_effect_resolution);
-        let prepared = prepare_sequence_effect(theme, role.target(), resolution);
+        let prepared = prepare_sequence_effect(theme_2, role.target(), resolution);
         Self {
             effect: prepared.effect,
             requested: prepared.effect_requested,
@@ -36,10 +39,12 @@ impl SequencePreparedTextEffect {
         }
     }
 
+    #[must_use]
     pub(crate) fn effect(&self) -> Option<&SvgShadowEffect> {
         self.effect.as_ref()
     }
 
+    #[must_use]
     pub(crate) const fn cleared(&self) -> bool {
         self.cleared
     }

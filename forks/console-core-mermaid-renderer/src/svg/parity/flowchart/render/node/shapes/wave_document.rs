@@ -16,6 +16,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_wave_document(
 ) {
     let (metrics, p, w, h, wave_amplitude, path_data) =
         prepare_wave_document_geometry(ctx, common, label);
+
     if let Some((fill_d, stroke_d)) = helpers::hand_drawn_path_pair(common, details, &path_data) {
         let _ = write!(
             out,
@@ -26,7 +27,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_wave_document(
             escape_attr(common.fill_color),
             escape_attr(&stroke_d),
             escape_attr(common.stroke_color),
-            util::fmt_display(common.stroke_width as f64),
+            util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.stroke_dasharray),
         );
     } else if common.look_is_hand_drawn() {
@@ -46,7 +47,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_wave_document(
         out.push_str("</g>");
     } else {
         let (fill_d, stroke_d) =
-            super::super::helpers::timed_node_roughjs(common.timing, details, || {
+            match super::super::helpers::timed_node_roughjs(common.timing, details, || {
                 roughjs_paths_for_svg_path(
                     &path_data,
                     common.stroke_width,
@@ -54,8 +55,10 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_wave_document(
                     common.work_meter,
                     common.hand_drawn_seed,
                 )
-            })
-            .unwrap_or_else(|| ("M0,0".to_string(), "M0,0".to_string()));
+            }) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => ("M0,0".to_string(), "M0,0".to_string()),
+            };
         let _ = write!(
             out,
             r##"<g class="basic label-container outer-path" transform="translate(0,{})"><path d="{}" stroke="none" stroke-width="0" fill="{}" style="{}"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}" style="{}"/></g>"##,
@@ -65,17 +68,18 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_wave_document(
             escape_attr(common.style),
             escape_attr(&stroke_d),
             escape_attr(common.stroke_color),
-            util::fmt_display(common.stroke_width as f64),
+            util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.stroke_dasharray),
             escape_attr(common.style),
         );
     }
 
-    // Mirror Mermaid `waveEdgedRectangle.ts` label placement.
+
     label.dx = -w / 2.0 + p + metrics.width / 2.0;
     label.dy = -h / 2.0 + p - wave_amplitude + metrics.height / 2.0;
 }
 
+#[must_use]
 fn prepare_wave_document_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
@@ -94,9 +98,9 @@ fn prepare_wave_document_geometry(
     let p = ctx.node_padding;
     let padding_x = if common.look_is_neo() { 16.0 } else { p };
     let padding_y = if common.look_is_neo() { 12.0 } else { p };
-    // Mermaid creates this shape once during the DOM-backed measurement pass, then Dagre uses the
-    // resulting `getBBox()` as `node.width/height`. Re-feeding those bbox dimensions into our
-    // separate render pass would inflate the wave geometry a second time.
+
+
+
     let w = (metrics.width + 2.0 * padding_x).max(0.0);
     let h = (metrics.height + 2.0 * padding_y).max(0.0);
     let wave_amplitude = if common.look_is_neo() {
@@ -106,7 +110,7 @@ fn prepare_wave_document_geometry(
     };
     let final_h = h + wave_amplitude;
 
-    // Mermaid keeps a minimum width (14px) for wave edged rectangles.
+
     let min_width = 14.0;
     let extra_w = ((min_width - w).max(0.0)) / 2.0;
 

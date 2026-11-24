@@ -1,10 +1,12 @@
 use merman_model::families::sequence::{SequenceMessage, SequenceMessageKind};
 use std::collections::BTreeMap;
 
+#[must_use]
 pub(crate) fn sequence_activation_start_x(center_x: f64, stacked_size: usize, width: f64) -> f64 {
     center_x + (((stacked_size as f64) - 1.0) * width) / 2.0
 }
 
+#[must_use]
 pub(crate) fn sequence_activation_stack_bounds(
     depth: usize,
     center_x: f64,
@@ -12,8 +14,12 @@ pub(crate) fn sequence_activation_stack_bounds(
 ) -> (f64, f64) {
     let mut left = center_x - 1.0;
     let mut right = center_x + 1.0;
-    if depth == 0 {
-        return (left, right);
+
+    match depth {
+        0 => {
+            return (left, right);
+        },
+        _ => {},
     }
 
     let first_start_x = sequence_activation_start_x(center_x, 0, width);
@@ -29,6 +35,7 @@ pub(super) struct SequenceActivationState {
 }
 
 impl SequenceActivationState {
+    #[must_use]
     pub(super) fn new(width: f64) -> Self {
         Self {
             width,
@@ -44,43 +51,77 @@ impl SequenceActivationState {
     ) -> bool {
         match msg.semantic_kind() {
             SequenceMessageKind::ActivationStart => {
-                let Some(actor_id) = msg.from.as_deref() else {
-                    return true;
+                let actor_id = {
+                    let optional_actor_id = msg.from.as_deref();
+
+                    match optional_actor_id {
+                        Some(matched_actor_id) => matched_actor_id,
+                        ::core::option::Option::None => return true,
+                    }
                 };
-                let Some(&idx) = actor_index.get(actor_id) else {
-                    return true;
+
+                let idx = {
+                    let optional_idx = actor_index.get(actor_id);
+
+                    match optional_idx {
+                        Some(&matched_idx) => matched_idx,
+                        ::core::option::Option::None => return true,
+                    }
                 };
+
                 if actor_centers_x.get(idx).is_none() {
                     return true;
                 }
+
                 let depth = self.depths.entry(idx).or_default();
                 *depth = depth.saturating_add(1);
                 true
             }
             SequenceMessageKind::ActivationEnd => {
-                let Some(actor_id) = msg.from.as_deref() else {
-                    return true;
+                let actor_id = {
+                    let optional_actor_id = msg.from.as_deref();
+
+                    match optional_actor_id {
+                        Some(matched_actor_id) => matched_actor_id,
+                        ::core::option::Option::None => return true,
+                    }
                 };
-                let Some(&idx) = actor_index.get(actor_id) else {
-                    return true;
+
+                let idx = {
+                    let optional_idx = actor_index.get(actor_id);
+
+                    match optional_idx {
+                        Some(&matched_idx) => matched_idx,
+                        ::core::option::Option::None => return true,
+                    }
                 };
-                if let Some(depth) = self.depths.get_mut(&idx) {
-                    *depth = depth.saturating_sub(1);
+
+                match self.depths.get_mut(&idx) {
+                    Some(depth) => {
+                        *depth = depth.saturating_sub(1);
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 true
             }
             _ => false,
         }
     }
 
+    #[must_use]
     pub(super) fn actor_bounds(&self, actor_index: usize, center_x: f64) -> (f64, f64) {
         sequence_activation_stack_bounds(
-            self.depths.get(&actor_index).copied().unwrap_or_default(),
+            match self.depths.get(&actor_index).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            },
             center_x,
             self.width,
         )
     }
 
+    #[must_use]
     pub(super) fn width(&self) -> f64 {
         self.width
     }

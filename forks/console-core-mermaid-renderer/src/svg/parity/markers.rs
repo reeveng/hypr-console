@@ -48,6 +48,7 @@ impl BaseEdgeMarkerKind {
         Self::CrossStartMargin,
     ];
 
+    #[must_use]
     pub(crate) const fn suffix(self) -> &'static str {
         match self {
             Self::PointEnd => "pointEnd",
@@ -65,6 +66,7 @@ impl BaseEdgeMarkerKind {
         }
     }
 
+    #[must_use]
     pub(crate) const fn cross(self) -> bool {
         matches!(
             self,
@@ -72,6 +74,7 @@ impl BaseEdgeMarkerKind {
         )
     }
 
+    #[must_use]
     pub(crate) fn from_arrow(arrow: Option<&str>, start: bool) -> Option<Self> {
         match (arrow.unwrap_or("").trim(), start) {
             ("arrow_point", false) => Some(Self::PointEnd),
@@ -90,6 +93,7 @@ impl BaseEdgeMarkerKind {
         }
     }
 
+    #[must_use]
     pub(crate) const fn geometry(self) -> BaseEdgeMarkerGeometry {
         match self {
             Self::PointEnd => BaseEdgeMarkerGeometry {
@@ -284,13 +288,17 @@ pub(in crate::svg::parity) fn push_base_edge_marker(
         cross,
         ty
     );
+
     for (name, value) in geometry.attributes {
         let _ = write!(out, r#" {}="{}""#, name, value);
     }
+
     let _ = write!(out, "><{}", geometry.shape);
+
     for (name, value) in geometry.shape_attributes {
         let _ = write!(out, r#" {}="{}""#, name, value);
     }
+
     let _ = write!(
         out,
         r#" class="arrowMarkerPath" style="{}{}"/></marker>"#,
@@ -298,6 +306,7 @@ pub(in crate::svg::parity) fn push_base_edge_marker(
         escape_attr(paint_style)
     );
 }
+
 use super::util::escape_xml_display;
 
 pub(in crate::svg::parity) fn push_base_edge_markers(
@@ -316,10 +325,11 @@ pub(in crate::svg::parity) fn push_base_edge_markers(
             }
         }
     }
+
     if diagram_type == "agentflow" {
-        // Agentflow registers hierarchy markers after the ordinary edge marker set.  These are
-        // emitted even when a fixture has no hierarchy edge because Mermaid's marker registry is
-        // populated eagerly by the family renderer.
+
+
+
         push_edge_marker(out, diagram_id, diagram_type, "hierarchyEnd", false, None);
         push_edge_marker(out, diagram_id, diagram_type, "hierarchyStart", false, None);
     }
@@ -349,40 +359,43 @@ pub(in crate::svg::parity) fn push_edge_marker(
         ("crossStart", true) => Some(BaseEdgeMarkerKind::CrossStartMargin),
         _ => None,
     };
-    let geometry = if let Some(kind) = kind {
-        kind.geometry()
-    } else {
-        match (base, margin) {
-            ("hierarchyEnd", false) => BaseEdgeMarkerGeometry {
-                attributes: &[
-                    ("viewBox", "0 0 12 10"),
-                    ("refX", "10"),
-                    ("refY", "5"),
-                    ("markerUnits", "userSpaceOnUse"),
-                    ("markerWidth", "12"),
-                    ("markerHeight", "10"),
-                    ("orient", "auto"),
-                ],
-                shape: "path",
-                shape_attributes: &[("d", "M 0 0 L 6 5 L 0 10 M 4 0 L 10 5 L 4 10")],
-                style: "stroke-width: 1; stroke-dasharray: 1, 0; fill: none;",
-            },
-            ("hierarchyStart", false) => BaseEdgeMarkerGeometry {
-                attributes: &[
-                    ("viewBox", "0 0 12 10"),
-                    ("refX", "2"),
-                    ("refY", "5"),
-                    ("markerUnits", "userSpaceOnUse"),
-                    ("markerWidth", "12"),
-                    ("markerHeight", "10"),
-                    ("orient", "auto"),
-                ],
-                shape: "path",
-                shape_attributes: &[("d", "M 12 0 L 6 5 L 12 10 M 8 0 L 2 5 L 8 10")],
-                style: "stroke-width: 1; stroke-dasharray: 1, 0; fill: none;",
-            },
-            _ => return,
-        }
+    let geometry = match kind {
+        Some(kind_2) => {
+            kind_2.geometry()
+        },
+        ::core::option::Option::None => {
+            match (base, margin) {
+                ("hierarchyEnd", false) => BaseEdgeMarkerGeometry {
+                    attributes: &[
+                        ("viewBox", "0 0 12 10"),
+                        ("refX", "10"),
+                        ("refY", "5"),
+                        ("markerUnits", "userSpaceOnUse"),
+                        ("markerWidth", "12"),
+                        ("markerHeight", "10"),
+                        ("orient", "auto"),
+                    ],
+                    shape: "path",
+                    shape_attributes: &[("d", "M 0 0 L 6 5 L 0 10 M 4 0 L 10 5 L 4 10")],
+                    style: "stroke-width: 1; stroke-dasharray: 1, 0; fill: none;",
+                },
+                ("hierarchyStart", false) => BaseEdgeMarkerGeometry {
+                    attributes: &[
+                        ("viewBox", "0 0 12 10"),
+                        ("refX", "2"),
+                        ("refY", "5"),
+                        ("markerUnits", "userSpaceOnUse"),
+                        ("markerWidth", "12"),
+                        ("markerHeight", "10"),
+                        ("orient", "auto"),
+                    ],
+                    shape: "path",
+                    shape_attributes: &[("d", "M 12 0 L 6 5 L 12 10 M 8 0 L 2 5 L 8 10")],
+                    style: "stroke-width: 1; stroke-dasharray: 1, 0; fill: none;",
+                },
+                _ => return,
+            }
+        },
     };
     let _ = write!(
         out,
@@ -392,9 +405,14 @@ pub(in crate::svg::parity) fn push_edge_marker(
         base,
         if margin { "-margin" } else { "" }
     );
-    if let Some((color_id, _)) = color {
-        let _ = write!(out, "_{}", escape_xml_display(color_id));
+
+    match color {
+        Some((color_id, _)) => {
+            let _ = write!(out, "_{}", escape_xml_display(color_id));
+        },
+        ::core::option::Option::None => {},
     }
+
     let _ = write!(
         out,
         r#"" class="marker {}{}""#,
@@ -407,27 +425,33 @@ pub(in crate::svg::parity) fn push_edge_marker(
         },
         escape_xml_display(diagram_type),
     );
+
     for (name, value) in geometry.attributes {
         let _ = write!(out, r#" {}="{}""#, name, value);
     }
+
     let _ = write!(out, "><{}", geometry.shape);
+
     for (name, value) in geometry.shape_attributes {
         let _ = write!(out, r#" {}="{}""#, name, value);
     }
+
     let _ = write!(
         out,
         r#" class="arrowMarkerPath" style="{}""#,
         geometry.style
     );
-    // Mermaid clones only path/circle/line children; the Neo start-point polygon stays intact.
+
     if geometry.shape != "polygon"
-        && let Some((_, Some(color))) = color
+        && let Some((_, Some(color_2))) = color
     {
-        let _ = write!(out, r#" stroke="{}""#, escape_xml_display(color));
+        let _ = write!(out, r#" stroke="{}""#, escape_xml_display(color_2));
+
         if base.starts_with("point") {
-            let _ = write!(out, r#" fill="{}""#, escape_xml_display(color));
+            let _ = write!(out, r#" fill="{}""#, escape_xml_display(color_2));
         }
     }
+
     out.push_str("/></marker>");
 }
 

@@ -26,6 +26,7 @@ pub(super) struct SequencePreparedEffect {
 }
 
 #[inline(never)]
+#[must_use]
 pub(super) fn prepare_sequence_effect(
     theme: &ResolvedDiagramTheme,
     target: ThemeTarget,
@@ -33,9 +34,15 @@ pub(super) fn prepare_sequence_effect(
 ) -> SequencePreparedEffect {
     use crate::diagram_theme::{ResolvedThemeEffect, SvgShadowEffect};
 
-    let Some(resolved) = theme.resolve_effect(target, resolution) else {
-        return SequencePreparedEffect::default();
+    let resolved = {
+        let optional_resolved = theme.resolve_effect(target, resolution);
+
+        match optional_resolved {
+            Some(matched_resolved) => matched_resolved,
+            ::core::option::Option::None => return SequencePreparedEffect::default(),
+        }
     };
+
     let (graph, effect_binding_used) = match resolved {
         ResolvedThemeEffect::ClearedByRule => {
             return SequencePreparedEffect {
@@ -79,6 +86,7 @@ impl SequencePreparedTerminalTheme {
         let owns = |path| config.config_paint_overrides_typed_default(path);
         let mut note_count = 0usize;
         let mut has_lines = false;
+
         for message in &model.messages {
             work_meter.charge(1)?;
             let kind = message.semantic_kind();
@@ -88,8 +96,9 @@ impl SequencePreparedTerminalTheme {
                 && message.from.is_some()
                 && message.to.is_some();
         }
+
         Ok(Self {
-            actor: SequencePreparedActorTheme::resolve(theme, config, model, work_meter)?,
+            actor: { let checked_value = SequencePreparedActorTheme::resolve(theme, config, model, work_meter)?; checked_value },
             lifeline: SequencePreparedLifelineTheme::resolve(
                 theme,
                 !model.actor_order.is_empty(),
@@ -124,7 +133,7 @@ impl SequencePreparedTerminalTheme {
                 owns("themeVariables.noteBorderColor"),
                 work_meter,
             )?,
-            number: SequencePreparedNumberTheme::resolve(theme, config, work_meter)?,
+            number: { let checked_value_2 = SequencePreparedNumberTheme::resolve(theme, config, work_meter)?; checked_value_2 },
             note_count,
         })
     }
@@ -148,10 +157,13 @@ impl SequencePreparedNumberTheme {
                 .config_paint_overrides_typed_default("themeVariables.sequenceNumberColor"),
             ..Self::default()
         };
-        let Some(theme) = theme else {
-            return Ok(prepared);
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(prepared),
         };
-        if !theme.family_mechanism_routes().iter().any(|route| {
+
+        if !theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -162,50 +174,65 @@ impl SequencePreparedNumberTheme {
         }) {
             return Ok(prepared);
         }
-        let style = theme.style_with_work_meter(
+
+        let style = theme_2.style_with_work_meter(
             ThemeTarget::SequenceNumberLabel,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
+
         if !prepared.fill_overridden {
-            prepared.typed_fill = typed_static_sequence_fill(theme, &style);
+            prepared.typed_fill = typed_static_sequence_fill(theme_2, &style);
         }
+
         prepared.selected_style = Some(style);
         Ok(prepared)
     }
 
+    #[must_use]
     pub(crate) fn typed_fill(&self) -> Option<&str> {
         self.typed_fill.as_deref()
     }
 
+    #[must_use]
     pub(crate) const fn fill_overridden(&self) -> bool {
         self.fill_overridden
     }
 
+    #[must_use]
     pub(crate) fn fresh_receipt(&self) -> SequenceNumberLabelThemeReceipt {
         let mut receipt = SequenceNumberLabelThemeReceipt::default();
-        if let Some(style) = &self.selected_style {
-            receipt.record_static_style(style);
+
+        match &self.selected_style {
+            Some(style) => {
+                receipt.record_static_style(style);
+            },
+            ::core::option::Option::None => {},
         }
+
         receipt
     }
 }
 
+#[must_use]
 pub(crate) fn typed_static_sequence_fill(
     theme: &ResolvedDiagramTheme,
     style: &ResolvedThemeStyle,
 ) -> Option<String> {
     let origin = style.fill_resolution().winner()?;
     let facet = FamilyThemeRuleFacet::fill(style.fill_resolution().specified())?;
+
     if theme.rule_facet_disposition(origin.rule_index(), facet)
         != Some(FamilyThemeDisposition::TypedAdapter)
     {
         return None;
     }
+
     css_paint(style.fill())
 }
 
+#[must_use]
 pub(crate) fn css_paint(paint: Option<&CanvasPaint>) -> Option<String> {
     match paint? {
         CanvasPaint::Transparent => Some("transparent".to_owned()),
@@ -216,17 +243,20 @@ pub(crate) fn css_paint(paint: Option<&CanvasPaint>) -> Option<String> {
     }
 }
 
+#[must_use]
 pub(super) fn typed_static_sequence_stroke(
     theme: &ResolvedDiagramTheme,
     style: &ResolvedThemeStyle,
 ) -> Option<String> {
     let origin = style.stroke_resolution().winner()?;
     let facet = FamilyThemeRuleFacet::stroke(style.stroke_resolution().specified())?;
+
     if theme.rule_facet_disposition(origin.rule_index(), facet)
         != Some(FamilyThemeDisposition::TypedAdapter)
     {
         return None;
     }
+
     css_paint(style.stroke())
 }
 

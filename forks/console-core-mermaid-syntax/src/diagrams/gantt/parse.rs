@@ -29,49 +29,61 @@ pub(crate) fn gantt_syntax_construction_count() -> usize {
     GANTT_SYNTAX_CONSTRUCTION_COUNT.get()
 }
 
+#[must_use]
 fn strip_inline_comment(line: &str) -> &str {
-    // Mermaid gantt does not treat `%%` as an inline comment delimiter for statements like `title`
-    // or task lines (see `fixtures/gantt/task_inline_percent_comment.mmd`). It does, however,
-    // accept full-line `%% ...` comments (and directive lines `%%{...}%%`).
+
+
+
     let t = line.trim_start();
+
     if t.starts_with("%%{") {
         return line;
     }
+
     if t.starts_with("%%") {
         return "";
     }
+
     line
 }
 
+#[must_use]
 fn split_statement_suffix(s: &str) -> &str {
     let mut end = s.len();
+
     for (i, c) in s.char_indices() {
         if c == '#' || c == ';' {
             end = i;
             break;
         }
     }
+
     &s[..end]
 }
 
+#[must_use]
 fn parse_key_colon_value_spanned<'a>(
     line: &'a str,
     line_start: usize,
     key: &str,
 ) -> Option<SpannedText<'a>> {
     let trimmed = line.trim_start();
+
     if !starts_with_case_insensitive(trimmed, key) {
         return None;
     }
+
     let leading = line.len().saturating_sub(trimmed.len());
     let after_key_start = key.len();
     let after_key = &trimmed[after_key_start..];
     let after_key_ws = leading_whitespace_len(after_key);
     let colon_start = after_key_start + after_key_ws;
     let rest_start = colon_start + ':'.len_utf8();
+
     if !trimmed[colon_start..].starts_with(':') {
         return None;
     }
+
     let rest = &trimmed[rest_start..];
     let rest_ws = leading_whitespace_len(rest);
     let value_start = rest_start + rest_ws;
@@ -87,9 +99,11 @@ fn parse_click_statement(
     line_start: usize,
 ) -> std::result::Result<Option<ClickStatementParts<'_>>, ClickStatementError> {
     let trimmed = line.trim_start();
+
     if !starts_with_click_keyword(trimmed, "click") {
         return Ok(None);
     }
+
     let leading = line.len().saturating_sub(trimmed.len());
     let after_click = &trimmed["click".len()..];
     let rest_leading = leading_whitespace_len(after_click);
@@ -104,6 +118,7 @@ fn parse_click_statement(
         start: line_start + leading + rest_start,
         end: line_start + leading + rest_start + ids_len,
     };
+
     if ids.text.is_empty() {
         return Err(ClickStatementError::new(
             "invalid click statement: missing task id",
@@ -123,12 +138,14 @@ fn parse_click_statement(
 
     while tail_offset < trimmed.len() {
         let tail = &trimmed[tail_offset..];
+
         if starts_with_click_keyword(tail, "href") {
             if href.is_some() {
                 return Err(ClickStatementError::new(
                     "invalid click statement: duplicate href",
                 ));
             }
+
             let href_keyword_end = tail_offset + "href".len();
             #[cfg(feature = "editor-facts")]
             {
@@ -141,17 +158,21 @@ fn parse_click_statement(
             let href_ws = leading_whitespace_len(after_href);
             let quote_start = href_keyword_end + href_ws;
             let value_start = quote_start + '"'.len_utf8();
+
             if !trimmed[quote_start..].starts_with('"') {
                 return Err(ClickStatementError::new(
                     "invalid click statement: href requires a quoted URL",
                 ));
             }
+
             let value_tail = &trimmed[value_start..];
+
             let Some(end) = value_tail.find('"') else {
                 return Err(ClickStatementError::new(
                     "invalid click statement: unterminated href URL",
                 ));
             };
+
             let value_end = value_start + end;
             href = Some(SpannedText {
                 text: &trimmed[value_start..value_end],
@@ -169,6 +190,7 @@ fn parse_click_statement(
                     "invalid click statement: duplicate callback",
                 ));
             }
+
             let call_keyword_end = tail_offset + "call".len();
             #[cfg(feature = "editor-facts")]
             {
@@ -257,20 +279,22 @@ struct ClickStatementError {
 }
 
 impl ClickStatementError {
+    #[must_use]
     fn new(message: impl Into<String>) -> Self {
         Self {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             #[cfg(feature = "editor-facts")]
             expected_action: None,
         }
     }
 
+    #[must_use]
     fn with_expected_action(
         message: impl Into<String>,
         #[cfg(feature = "editor-facts")] span: SourceSpan,
     ) -> Self {
         Self {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             #[cfg(feature = "editor-facts")]
             expected_action: Some(span),
         }
@@ -279,16 +303,25 @@ impl ClickStatementError {
 
 fn skip_quoted_click_tail(trimmed: &str, quote_start: usize) -> std::result::Result<usize, String> {
     let value_start = quote_start + '"'.len_utf8();
-    let Some(end) = trimmed[value_start..].find('"') else {
-        return Err("invalid click statement: unterminated quoted tail".to_string());
+
+    let end = {
+        let optional_end = trimmed[value_start..].find('"');
+
+        match optional_end {
+            Some(matched_end) => matched_end,
+            ::core::option::Option::None => return Err("invalid click statement: unterminated quoted tail".to_string()),
+        }
     };
+
     Ok(value_start + end + '"'.len_utf8())
 }
 
+#[must_use]
 fn starts_with_click_keyword(input: &str, keyword: &str) -> bool {
     if !starts_with_case_insensitive(input, keyword) {
         return false;
     }
+
     input[keyword.len()..]
         .chars()
         .next()
@@ -301,20 +334,35 @@ fn parse_callback_tail<'a>(
     absolute_offset: usize,
 ) -> std::result::Result<(ClickCallParts<'a>, usize), String> {
     let name_tail = &trimmed[name_start..];
-    let Some(name_len) = callback_name_len(name_tail) else {
-        return Err("invalid click statement: missing callback name".to_string());
+
+    let name_len = {
+        let optional_name_len = callback_name_len(name_tail);
+
+        match optional_name_len {
+            Some(matched_name_len) => matched_name_len,
+            ::core::option::Option::None => return Err("invalid click statement: missing callback name".to_string()),
+        }
     };
+
     let name_end = name_start + name_len;
     let mut next_offset = name_end;
     let args = if trimmed[next_offset..].starts_with('(') {
         let args_start = next_offset + '('.len_utf8();
         let args_tail = &trimmed[args_start..];
-        let Some(end_rel) = args_tail.find(')') else {
-            return Err("invalid click statement: unterminated callback args".to_string());
+
+        let end_rel = {
+            let optional_end_rel = args_tail.find(')');
+
+            match optional_end_rel {
+                Some(matched_end_rel) => matched_end_rel,
+                ::core::option::Option::None => return Err("invalid click statement: unterminated callback args".to_string()),
+            }
         };
+
         let args_end = args_start + end_rel;
         next_offset = args_end + ')'.len_utf8();
         let args_text = &trimmed[args_start..args_end];
+
         if args_text.trim().is_empty() {
             None
         } else {
@@ -340,24 +388,30 @@ fn parse_callback_tail<'a>(
     ))
 }
 
+#[must_use]
 fn callback_name_len(input: &str) -> Option<usize> {
     let mut chars = input.char_indices();
     let (_, first) = chars.next()?;
+
     if !is_callback_name_start(first) {
         return None;
     }
+
     for (idx, ch) in chars {
         if !is_callback_name_continue(ch) {
             return Some(idx);
         }
     }
+
     Some(input.len())
 }
 
+#[must_use]
 fn is_callback_name_start(ch: char) -> bool {
     ch == '_' || ch == '$' || ch.is_ascii_alphabetic()
 }
 
+#[must_use]
 fn is_callback_name_continue(ch: char) -> bool {
     is_callback_name_start(ch) || ch.is_ascii_digit() || ch == '.'
 }
@@ -379,6 +433,7 @@ struct ClickCallParts<'a> {
     args: Option<SpannedText<'a>>,
 }
 
+#[must_use]
 fn parse_gantt_keyword_arg_spanned<'a>(
     line: &'a str,
     line_start: usize,
@@ -386,16 +441,20 @@ fn parse_gantt_keyword_arg_spanned<'a>(
     terminates_at_statement_suffix: bool,
 ) -> Option<SpannedText<'a>> {
     let trimmed = line.trim_start();
+
     if !starts_with_case_insensitive(trimmed, keyword) {
         return None;
     }
+
     let after = &trimmed[keyword.len()..];
     let ws = after.chars().next()?;
+
     if !ws.is_whitespace() {
         return None;
     }
-    // The pinned Jison actions use `substr(keyword.len() + 1)`: one delimiter is consumed and
-    // any additional whitespace remains part of the DB value.
+
+
+
     let ws_len = ws.len_utf8();
     let rest_start = keyword.len() + ws_len;
     let rest = &after[ws_len..];
@@ -404,9 +463,11 @@ fn parse_gantt_keyword_arg_spanned<'a>(
     } else {
         rest
     };
+
     if text.is_empty() {
         return None;
     }
+
     let leading = line.len().saturating_sub(trimmed.len());
     let start = line_start + leading + rest_start;
     Some(SpannedText {
@@ -429,8 +490,10 @@ struct GanttAccDescrBlock {
 }
 
 impl GanttAccDescrBlock {
+    #[must_use]
     fn start(line: &str, line_start: usize) -> Option<Self> {
         let trimmed = line.trim_start();
+
         if !starts_with_case_insensitive(trimmed, "accDescr") {
             return None;
         }
@@ -439,6 +502,7 @@ impl GanttAccDescrBlock {
         let after_key = &trimmed["accDescr".len()..];
         let after_key_ws = leading_whitespace_len(after_key);
         let open_offset = leading + "accDescr".len() + after_key_ws;
+
         if !line[open_offset..].starts_with('{') {
             return None;
         }
@@ -463,6 +527,7 @@ impl GanttAccDescrBlock {
         self.complete
     }
 
+    #[must_use]
     fn is_complete(&self) -> bool {
         self.complete
     }
@@ -514,11 +579,19 @@ impl GanttAccDescrBlock {
     ) -> OperationControlResult<Self> {
         while !self.complete {
             control.checkpoint()?;
-            let Some((line, line_start)) = cursor.next_line() else {
-                break;
+
+            let (line, line_start) = {
+                let optional_line = cursor.next_line();
+
+                match optional_line {
+                    Some((matched_line, matched_line_start)) => (matched_line, matched_line_start),
+                    ::core::option::Option::None => break,
+                }
             };
+
             self.accept_continuation_line(line, line_start);
         }
+
         Ok(self)
     }
 
@@ -528,10 +601,12 @@ impl GanttAccDescrBlock {
         }
     }
 
+    #[must_use]
     fn value(&self) -> &str {
         self.body.trim()
     }
 
+    #[must_use]
     fn statement_span(&self) -> SourceSpan {
         SourceSpan::new(self.statement_start, self.statement_end)
     }
@@ -675,6 +750,7 @@ fn push_gantt_payload_symbol(
     ));
 }
 
+#[must_use]
 fn gantt_statement_span(line: &str, line_start: usize) -> SourceSpan {
     let trimmed_line = line.trim_start();
     let leading = line.len().saturating_sub(trimmed_line.len());
@@ -857,17 +933,22 @@ fn push_gantt_id_symbol(
     facts.push_symbol(symbol);
 }
 
+#[must_use]
 fn split_gantt_fields(text: &str, text_start: usize) -> Vec<SpannedText<'_>> {
     let mut out = Vec::new();
     let mut field_start = 0usize;
+
     for (idx, ch) in text.char_indices() {
-        if ch == ',' {
-            out.push(SpannedText {
-                text: &text[field_start..idx],
-                start: text_start + field_start,
-                end: text_start + idx,
-            });
-            field_start = idx + ch.len_utf8();
+        match ch {
+            ',' => {
+                out.push(SpannedText {
+                    text: &text[field_start..idx],
+                    start: text_start + field_start,
+                    end: text_start + idx,
+                });
+                field_start = idx + ch.len_utf8();
+            },
+            _ => {},
         }
     }
 
@@ -887,12 +968,17 @@ struct SpannedText<'a> {
 }
 
 impl<'a> SpannedText<'a> {
+    #[must_use]
     fn trim(self) -> Option<Self> {
         let leading = self.text.len().saturating_sub(self.text.trim_start().len());
         let text = &self.text[leading..];
         let trimmed_len = text.trim_end().len();
-        if trimmed_len == 0 {
-            return None;
+
+        match trimmed_len {
+            0 => {
+                return None;
+            },
+            _ => {},
         }
 
         Some(Self {
@@ -902,6 +988,7 @@ impl<'a> SpannedText<'a> {
         })
     }
 
+    #[must_use]
     fn span(self) -> SourceSpan {
         SourceSpan::new(self.start, self.end)
     }
@@ -1002,6 +1089,7 @@ pub(crate) fn parse_gantt_model_for_render_controlled(
         Ok(source) => source,
         Err(failure) => return Ok(Err(failure.into_error())),
     };
+
     match source.db {
         Some(db) => gantt_db_to_render_model_controlled(db, control),
         None => Ok(Ok(GanttDiagramRenderModel::from_output_data(
@@ -1122,12 +1210,14 @@ fn parse_gantt_semantic_source_once(
     let mut db = GanttDb::default();
     db.clear();
     db.set_security_level(config.get_str("securityLevel"));
+
     #[cfg(feature = "presentation")]
     {
         if capture_display_mode && let Some(dm) = config.get_str("gantt.displayMode") {
             db.set_display_mode(dm);
         }
     }
+
     #[cfg(feature = "editor-facts")]
     if editor_demand == EditorFactsDemand::Capture {
         #[cfg(test)]
@@ -1145,6 +1235,7 @@ fn parse_gantt_semantic_source_once(
         control.checkpoint()?;
         let stripped = strip_inline_comment(line);
         let trimmed = stripped.trim();
+
         if trimmed.is_empty() {
             continue;
         }
@@ -1153,9 +1244,13 @@ fn parse_gantt_semantic_source_once(
             if starts_with_case_insensitive(trimmed, "gantt") {
                 header_seen = true;
                 let rest = trimmed["gantt".len()..].trim_start();
+
                 if !rest.is_empty() {
                     let rest_offset = trimmed["gantt".len()..].len() - rest.len();
-                    let trimmed_start = stripped.find(trimmed).unwrap_or(0);
+                    let trimmed_start = match stripped.find(trimmed) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0,
+                    };
                     parse_gantt_statement(
                         rest,
                         line_start + trimmed_start + "gantt".len() + rest_offset,
@@ -1169,8 +1264,10 @@ fn parse_gantt_semantic_source_once(
                         first_error.get_or_insert(error);
                     });
                 }
+
                 continue;
             }
+
             first_error.get_or_insert(Error::diagram_parse_exact(
                 "gantt".to_string(),
                 "expected gantt header".to_string(),
@@ -1207,6 +1304,7 @@ fn parse_gantt_semantic_source_once(
 
     #[cfg(feature = "editor-facts")]
     let editor_facts = editor_demand.finish_facts(editor_facts);
+
     if let Some(error) = first_error {
         return Ok(Err(CombinedSemanticFailure::parser_recovery(
             #[cfg(feature = "editor-facts")]
@@ -1226,7 +1324,8 @@ fn parse_gantt_semantic_source_once(
     }
 
     control.checkpoint()?;
-    if let Err(error) = db.finalize_tasks_controlled(control)? {
+
+    if let Err(error) = { let checked_value = db.finalize_tasks_controlled(control)?; checked_value } {
         return Ok(Err(CombinedSemanticFailure::parser_recovery(
             #[cfg(feature = "editor-facts")]
             "gantt",
@@ -1235,6 +1334,7 @@ fn parse_gantt_semantic_source_once(
             editor_facts,
         )));
     }
+
     Ok(Ok(GanttSemanticSource {
         db: Some(db),
         #[cfg(feature = "editor-facts")]
@@ -1279,7 +1379,7 @@ pub(super) fn gantt_db_to_render_model_controlled(
 ) -> OperationControlResult<Result<GanttDiagramRenderModel>> {
     let display_mode = std::mem::take(&mut db.display_mode);
     Ok(
-        gantt_db_to_model_controlled(db, raw_task_to_render_task, control)?.map(|model| {
+        { let checked_value = gantt_db_to_model_controlled(db, raw_task_to_render_task, control)?; checked_value }.map(|model| {
             GanttDiagramRenderModel::from_output_data(model, display_mode, GanttOutputData::Model)
         }),
     )
@@ -1293,12 +1393,14 @@ fn gantt_db_to_model_controlled<Task>(
     control.checkpoint()?;
     let raw_tasks = db.take_tasks();
     let mut tasks = Vec::with_capacity(raw_tasks.len());
+
     for (index, task) in raw_tasks.into_iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         match convert_task(task, &db.date_format) {
-            Ok(task) => tasks.push(task),
+            Ok(task_2) => tasks.push(task_2),
             Err(error) => return Ok(Err(error)),
         }
     }
@@ -1325,6 +1427,7 @@ fn gantt_db_to_model_controlled<Task>(
     }))
 }
 
+#[must_use]
 fn non_empty_opt(value: String) -> Option<String> {
     if value.is_empty() { None } else { Some(value) }
 }
@@ -1393,6 +1496,7 @@ fn raw_task_to_semantic_task(t: RawTask, date_format: &str) -> Result<GanttTask>
     })
 }
 
+#[must_use]
 fn relative_dependency_ids(value: &str, keyword: &str) -> Option<Vec<String>> {
     relative_ref_ids(value.trim(), keyword).map(|ids| {
         ids.split(' ')
@@ -1402,19 +1506,24 @@ fn relative_dependency_ids(value: &str, keyword: &str) -> Option<Vec<String>> {
     })
 }
 
+#[must_use]
 fn gantt_end_constraint(value: &str, date_format: &str) -> GanttTaskEndConstraint {
     let trimmed = value.trim();
+
     if trimmed.is_empty() {
         return GanttTaskEndConstraint::Unspecified;
     }
+
     if let Some(dependency_ids) = relative_dependency_ids(trimmed, "until") {
         return GanttTaskEndConstraint::Until { dependency_ids };
     }
+
     if parse_dayjs_like_strict(date_format.trim(), trimmed).is_some() {
         return GanttTaskEndConstraint::Fixed {
             value: value.to_string(),
         };
     }
+
     GanttTaskEndConstraint::Duration {
         value: value.to_string(),
     }
@@ -1440,6 +1549,7 @@ fn parse_gantt_statement(
     control.checkpoint()?;
     let stripped = strip_inline_comment(line);
     let t = stripped.trim();
+
     if t.is_empty() {
         return Ok(Ok(()));
     }
@@ -1463,6 +1573,7 @@ fn parse_gantt_statement(
         db.set_date_format(v.text);
         return Ok(Ok(()));
     }
+
     if starts_with_case_insensitive(t, "inclusiveEndDates") {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1471,6 +1582,7 @@ fn parse_gantt_statement(
         db.enable_inclusive_end_dates();
         return Ok(Ok(()));
     }
+
     if starts_with_case_insensitive(t, "topAxis") {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1479,6 +1591,7 @@ fn parse_gantt_statement(
         db.enable_top_axis();
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_gantt_keyword_arg_spanned(stripped, line_start, "axisFormat", true) {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1498,6 +1611,7 @@ fn parse_gantt_statement(
         db.set_axis_format(v.text);
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_gantt_keyword_arg_spanned(stripped, line_start, "tickInterval", true) {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1517,6 +1631,7 @@ fn parse_gantt_statement(
         db.set_tick_interval(v.text.trim());
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_gantt_keyword_arg_spanned(stripped, line_start, "includes", true) {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1536,6 +1651,7 @@ fn parse_gantt_statement(
         db.set_includes(v.text);
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_gantt_keyword_arg_spanned(stripped, line_start, "excludes", true) {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1555,6 +1671,7 @@ fn parse_gantt_statement(
         db.set_excludes(v.text);
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_gantt_keyword_arg_spanned(stripped, line_start, "todayMarker", false) {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1574,6 +1691,7 @@ fn parse_gantt_statement(
         db.set_today_marker(v.text.trim());
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_gantt_keyword_arg_spanned(stripped, line_start, "weekday", false) {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1591,9 +1709,12 @@ fn parse_gantt_statement(
             );
         }
         let trimmed_day = v.trim();
-        let day = trimmed_day
-            .map(|value| value.text.to_lowercase())
-            .unwrap_or_default();
+        let day = match trimmed_day
+            .map(|value| value.text.to_lowercase()) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
+
         if !matches!(
             day.as_str(),
             "monday" | "tuesday" | "wednesday" | "thursday" | "friday" | "saturday" | "sunday"
@@ -1607,9 +1728,11 @@ fn parse_gantt_statement(
                 span,
             )));
         }
+
         db.set_weekday(&day);
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_gantt_keyword_arg_spanned(stripped, line_start, "weekend", false) {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1627,9 +1750,12 @@ fn parse_gantt_statement(
             );
         }
         let trimmed_day = v.trim();
-        let day = trimmed_day
-            .map(|value| value.text.to_lowercase())
-            .unwrap_or_default();
+        let day = match trimmed_day
+            .map(|value| value.text.to_lowercase()) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
+
         if !matches!(day.as_str(), "friday" | "saturday") {
             let span = trimmed_day
                 .map(SpannedText::span)
@@ -1640,9 +1766,11 @@ fn parse_gantt_statement(
                 span,
             )));
         }
+
         db.set_weekend(&day);
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_gantt_keyword_arg_spanned(stripped, line_start, "title", false) {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1662,6 +1790,7 @@ fn parse_gantt_statement(
         db.set_diagram_title(v.text);
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_gantt_keyword_arg_spanned(stripped, line_start, "section", false) {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1674,6 +1803,7 @@ fn parse_gantt_statement(
         db.add_section(v.text.trim());
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_key_colon_value_spanned(stripped, line_start, "accTitle") {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1693,6 +1823,7 @@ fn parse_gantt_statement(
         db.set_acc_title(v.text.trim());
         return Ok(Ok(()));
     }
+
     if let Some(v) = parse_key_colon_value_spanned(stripped, line_start, "accDescr") {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1712,6 +1843,7 @@ fn parse_gantt_statement(
         db.set_acc_descr(v.text.trim());
         return Ok(Ok(()));
     }
+
     if let Some(block) = GanttAccDescrBlock::start(stripped, line_start) {
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_mut() {
@@ -1724,6 +1856,7 @@ fn parse_gantt_statement(
         if let Some(facts) = facts.as_mut() {
             block.emit_symbol(facts);
         }
+
         if !block.is_complete() {
             return Ok(Err(Error::diagram_parse_insertion_point(
                 "gantt".to_string(),
@@ -1731,8 +1864,10 @@ fn parse_gantt_statement(
                 block.statement_span().end,
             )));
         }
+
         return Ok(Ok(()));
     }
+
     match parse_click_statement(stripped, line_start) {
         Ok(Some(click)) => {
             #[cfg(feature = "editor-facts")]
@@ -1743,6 +1878,7 @@ fn parse_gantt_statement(
             if let Some(facts) = facts.as_mut() {
                 collect_gantt_click_symbols(stripped, line_start, click, facts);
             }
+
             if let Some(call) = click.call {
                 db.set_click_event(
                     click.ids.text,
@@ -1750,9 +1886,11 @@ fn parse_gantt_statement(
                     call.args.map(|args| args.text),
                 );
             }
+
             if let Some(href) = click.href {
                 db.set_link(click.ids.text, href.text);
             }
+
             return Ok(Ok(()));
         }
         Ok(None) => {}
@@ -1789,13 +1927,15 @@ fn parse_gantt_statement(
         )));
     };
 
-    // Mermaid passes `taskTxt` through to the DB without trimming. This preserves any trailing
-    // whitespace before the `:` delimiter (e.g. `Task1 :id,...` yields `Task1 `).
+
+
     let task_txt = &task_stmt[..colon];
     let task_data = split_statement_suffix(&task_stmt[colon + 1..]);
+
     if task_txt.is_empty() || task_data.trim().is_empty() {
         return Ok(Ok(()));
     }
+
     let leading = stripped.len().saturating_sub(task_stmt.len());
     #[cfg(feature = "editor-facts")]
     let statement_span =

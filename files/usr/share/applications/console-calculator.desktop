@@ -1,8 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Calculator
+Name=Console Calculator
 Comment=Sums on a keypad, pressed or tapped
-Exec=/usr/local/bin/calculator
+Exec=/usr/local/bin/console-application-calculator
+StartupWMClass=calculator
 Icon=accessories-calculator
 Terminal=false
 Categories=Utility;Calculator;

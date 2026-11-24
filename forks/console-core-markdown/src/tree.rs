@@ -15,10 +15,12 @@ use crate::parse::{Item, ItemBody};
 pub(crate) struct TreeIndex(NonZeroUsize);
 
 impl TreeIndex {
+    #[must_use]
     fn new(i: usize) -> Self {
         TreeIndex(NonZeroUsize::new(i).unwrap())
     }
 
+    #[must_use]
     pub fn get(self) -> usize {
         self.0.get()
     }
@@ -53,14 +55,15 @@ pub(crate) struct Node<T> {
 #[derive(Clone)]
 pub(crate) struct Tree<T> {
     nodes: Vec<Node<T>>,
-    spine: Vec<TreeIndex>, // indices of nodes on path to current node
+    spine: Vec<TreeIndex>,
     cur: Option<TreeIndex>,
 }
 
 impl<T: Default> Tree<T> {
-    // Indices start at one, so we place a dummy value at index zero.
-    // The alternative would be subtracting one from every TreeIndex
-    // every time we convert it to usize to index our nodes.
+
+
+
+    #[must_use]
     pub(crate) fn with_capacity(cap: usize) -> Tree<T> {
         let mut nodes = Vec::with_capacity(cap);
         nodes.push(Node {
@@ -76,6 +79,7 @@ impl<T: Default> Tree<T> {
     }
 
     /// Returns the index of the element currently in focus.
+    #[must_use]
     pub(crate) fn cur(&self) -> Option<TreeIndex> {
         self.cur
     }
@@ -86,8 +90,8 @@ impl<T: Default> Tree<T> {
         let this = Some(ix);
 
         match self.cur {
-            Some(ix) => {
-                self[ix].next = this;
+            Some(ix_2) => {
+                self[ix_2].next = this;
             },
             ::core::option::Option::None => match self.spine.last() {
                 Some(&parent) => {
@@ -96,6 +100,7 @@ impl<T: Default> Tree<T> {
                 ::core::option::Option::None => {},
             },
         }
+
         self.cur = this;
         ix
     }
@@ -122,7 +127,8 @@ impl<T: Default> Tree<T> {
 
     /// Pop back up a level.
     pub(crate) fn pop(&mut self) -> Option<TreeIndex> {
-        let ix = Some(self.spine.pop()?);
+        let checked_value = self.spine.pop()?;
+        let ix = Some(checked_value);
         self.cur = ix;
         ix
     }
@@ -137,11 +143,13 @@ impl<T: Default> Tree<T> {
     }
 
     /// Look at the parent node.
+    #[must_use]
     pub(crate) fn peek_up(&self) -> Option<TreeIndex> {
         self.spine.last().copied()
     }
 
     /// Look at grandparent node.
+    #[must_use]
     pub(crate) fn peek_grandparent(&self) -> Option<TreeIndex> {
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(self.spine.len() >= 2, ());
@@ -158,11 +166,13 @@ impl<T: Default> Tree<T> {
 
     /// Returns true when there are no nodes other than the root node
     /// in the tree, false otherwise.
+    #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
         self.nodes.len() <= 1
     }
 
     /// Returns the length of the spine.
+    #[must_use]
     pub(crate) fn spine_len(&self) -> usize {
         self.spine.len()
     }
@@ -184,6 +194,7 @@ impl<T: Default> Tree<T> {
     }
 
     /// Walks the spine from a root node up to, but not including, the current node.
+    #[must_use]
     pub(crate) fn walk_spine(&self) -> impl std::iter::DoubleEndedIterator<Item = &TreeIndex> {
         self.spine.iter()
     }
@@ -197,6 +208,7 @@ impl<T: Default> Tree<T> {
     pub(crate) fn truncate_to_parent(&mut self, child_ix: TreeIndex) {
         let next = self[child_ix].next;
         self[child_ix].next = None;
+
         match self.cur {
             Some(cur) => {
                 self[cur].next = next;
@@ -208,6 +220,7 @@ impl<T: Default> Tree<T> {
                 ::core::option::Option::None => {},
             },
         }
+
         match next {
             ::core::option::Option::Some(_) => {
                 self.cur = next;
@@ -225,15 +238,16 @@ impl Tree<Item> {
         let mut next_child_ix = self[parent_ix].child;
         let mut prev_child_ix = None;
 
-        // drop or truncate children based on its range
+
         while let Some(child_ix) = next_child_ix {
             let child_end = self[child_ix].item.end;
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(child_end < end_byte_ix, ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
-                    // preserve this node, and go to the next
+
                     prev_child_ix = Some(child_ix);
                     next_child_ix = self[child_ix].next;
                     continue;
@@ -243,9 +257,9 @@ impl Tree<Item> {
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
-                        // this will be the last node
+
                         self[child_ix].next = None;
-                        // focus to the new last child (this node)
+
                         self.cur = Some(child_ix);
                     },
                     ::core::option::Option::None => match {
@@ -253,28 +267,29 @@ impl Tree<Item> {
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
-                            // check whether the previous character is a backslash
+
                             let is_previous_char_backslash_escape = match self[child_ix].item.body {
                                 ItemBody::Text { backslash_escaped } => backslash_escaped,
                                 _ => false,
                             };
+
                             match ::core::primitive::bool::then_some(is_previous_char_backslash_escape, ()) {
                                 ::core::option::Option::Some(()) => {
-                                    // rescue the backslash as a plain text content
+
                                     let last_byte_ix = end_byte_ix - 1;
                                     self[child_ix].item.start = last_byte_ix;
                                     self[child_ix].item.end = end_byte_ix;
                                     self.cur = Some(child_ix);
                                 },
                                 ::core::option::Option::None => match prev_child_ix {
-                                    Some(prev_child_ix) => {
-                                        // the node will become empty. drop the node
-                                        // a preceding sibling exists
-                                        self[prev_child_ix].next = None;
-                                        self.cur = Some(prev_child_ix);
+                                    Some(prev_child_ix_2) => {
+
+
+                                        self[prev_child_ix_2].next = None;
+                                        self.cur = Some(prev_child_ix_2);
                                     },
                                     ::core::option::Option::None => {
-                                        // no preceding siblings. remove the node from the parent
+
                                         self[parent_ix].child = None;
                                         self.cur = None;
                                     },
@@ -284,15 +299,16 @@ impl Tree<Item> {
                         ::core::option::Option::None => {
                             debug_assert!(self[child_ix].item.start < end_byte_ix);
                             debug_assert!(end_byte_ix < child_end);
-                            // truncate the node
+
                             self[child_ix].item.end = end_byte_ix;
                             self[child_ix].next = None;
-                            // focus to the new last child
+
                             self.cur = Some(child_ix);
                         },
                     },
                 },
             }
+
             break;
         }
     }
@@ -315,19 +331,23 @@ where
             for _ in 0..indent {
                 write!(f, "  ")?;
             }
+
             writeln!(f, "{:?}", &tree[cur].item)?;
+
             match tree[cur].child {
                 Some(child_ix) => {
                     debug_tree(tree, child_ix, indent + 1, f)?;
                 },
                 ::core::option::Option::None => {},
             }
+
             match tree[cur].next {
                 Some(next_ix) => {
                     debug_tree(tree, next_ix, indent, f)?;
                 },
                 ::core::option::Option::None => {},
             }
+
             Ok(())
         }
 

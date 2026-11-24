@@ -331,7 +331,11 @@ mod tests {
     let map_checks: Vec<&str> = mapped.iter().map(|check| check.name).collect();
 
     assert_eq!(every.len().saturating_add(1), CHECKS.len());
-    assert!(every.iter().all(|check| check.name != architecture::MAPPED.name));
+    assert!(
+      every
+        .iter()
+        .all(|check| check.name != architecture::MAPPED.name)
+    );
     assert_eq!(map_checks, [architecture::MAPPED.name]);
     assert_eq!(brightness, ["090-brighter", "091-dimmer"]);
     assert!(none.is_empty());

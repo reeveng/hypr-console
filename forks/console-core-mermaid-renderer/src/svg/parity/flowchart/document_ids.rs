@@ -37,6 +37,7 @@ impl fmt::Display for FlowchartDocumentId<'_> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.scope)?;
         f.write_str("-")?;
+
         match self.local {
             FlowchartDocumentIdLocal::Static(suffix) => f.write_str(suffix),
             FlowchartDocumentIdLocal::Indexed(prefix, ordinal) => {
@@ -73,6 +74,7 @@ pub(in crate::svg::parity::flowchart) struct FlowchartDocumentIdRequest<'plan, '
 }
 
 impl FlowchartDocumentIds {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn prepare(
         request: FlowchartDocumentIdRequest<'_, '_>,
     ) -> Self {
@@ -86,13 +88,15 @@ impl FlowchartDocumentIds {
 
         let mut node_ids = FixedMap::default();
         node_ids.reserve(request.node_dom_index.len() + request.subgraph_index_by_id.len());
+
         for (&raw_id, &dom_index) in request.node_dom_index {
             node_ids.insert(raw_id.to_owned(), FlowchartNodeDocumentId::Node(dom_index));
         }
+
         for (&raw_id, &subgraph_index) in request.subgraph_index_by_id {
-            // Projected edge endpoints can also register a collapsed subgraph in the node
-            // ordinal map. Its owner remains the subgraph, whose ordinal namespace is separate
-            // from parser-assigned node ordinals (notably Agentflow connectors).
+
+
+
             node_ids.insert(
                 raw_id.to_owned(),
                 FlowchartNodeDocumentId::Subgraph(subgraph_index),
@@ -116,6 +120,7 @@ impl FlowchartDocumentIds {
         let mut synthetic_label_ids = FixedMap::default();
         let swimlane_node_count = request.swimlane_nodes.map_or(0, |nodes| nodes.len());
         synthetic_label_ids.reserve(request.layout_nodes.len() + swimlane_node_count);
+
         for (layout_index, node) in request.layout_nodes.iter().enumerate() {
             if !node_ids.contains_key(node.id.as_str()) {
                 synthetic_label_ids
@@ -123,7 +128,9 @@ impl FlowchartDocumentIds {
                     .or_insert(layout_index);
             }
         }
+
         let swimlane_offset = request.layout_nodes.len();
+
         for (swimlane_index, node) in request.swimlane_nodes.into_iter().flatten().enumerate() {
             if node.is_edge_label && !node_ids.contains_key(node.id.as_str()) {
                 synthetic_label_ids
@@ -142,6 +149,7 @@ impl FlowchartDocumentIds {
         }
     }
 
+    #[must_use]
     fn id(&self, local: FlowchartDocumentIdLocal) -> FlowchartDocumentId<'_> {
         FlowchartDocumentId {
             scope: &self.scope,
@@ -149,32 +157,39 @@ impl FlowchartDocumentIds {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn accessibility_title(&self) -> FlowchartDocumentId<'_> {
         self.id(FlowchartDocumentIdLocal::Static("a11y-title"))
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn accessibility_description(
         &self,
     ) -> FlowchartDocumentId<'_> {
         self.id(FlowchartDocumentIdLocal::Static("a11y-description"))
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn drop_shadow(&self) -> FlowchartDocumentId<'_> {
         self.id(FlowchartDocumentIdLocal::Static("filter-drop-shadow"))
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn drop_shadow_small(&self) -> FlowchartDocumentId<'_> {
         self.id(FlowchartDocumentIdLocal::Static("filter-drop-shadow-small"))
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn root_gradient(&self) -> FlowchartDocumentId<'_> {
         self.id(FlowchartDocumentIdLocal::Static("gradient-root"))
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn marker_scope(&self) -> &str {
         &self.scope
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn edge(
         &self,
         key: crate::flowchart::FlowchartEdgeKey,
@@ -187,6 +202,7 @@ impl FlowchartDocumentIds {
         })
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn node(
         &self,
         raw_id: &str,
@@ -201,6 +217,7 @@ impl FlowchartDocumentIds {
         })
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn cluster(
         &self,
         raw_id: &str,
@@ -210,6 +227,7 @@ impl FlowchartDocumentIds {
             .map(|&ordinal| self.id(FlowchartDocumentIdLocal::Indexed("cluster-", ordinal)))
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn lane(
         &self,
         raw_id: &str,
@@ -219,6 +237,7 @@ impl FlowchartDocumentIds {
             .map(|&ordinal| self.id(FlowchartDocumentIdLocal::Indexed("lane-", ordinal)))
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn synthetic_label(
         &self,
         raw_id: &str,
@@ -231,12 +250,13 @@ impl FlowchartDocumentIds {
         })
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn icon_scope(
         &self,
         raw_node_id: &str,
     ) -> Option<String> {
-        // Iconify rewrites fragment ids from this unescaped logical prefix. Materialize only this
-        // one node-local boundary; XML/CSS escaping happens later inside the icon renderer.
+
+
         self.node(raw_node_id).map(|id| format!("{id}-icon"))
     }
 

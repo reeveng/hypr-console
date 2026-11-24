@@ -22,29 +22,48 @@ pub(super) struct SequenceRenderSettings {
 }
 
 impl SequenceRenderSettings {
+    #[must_use]
     pub(super) fn from_resolved_typography(
         effective_config: &serde_json::Value,
         typography: &crate::sequence::SequenceTypographyPlan,
     ) -> Self {
         let config = crate::sequence::config::SequenceConfigView::new(effective_config);
 
-        let force_menus = config
+        let force_menus = match config
             .sequence_config_bool("forceMenus")
-            .or_else(|| config.root_bool("forceMenus"))
-            .unwrap_or(false);
+            .or_else(|| config.root_bool("forceMenus")) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        };
         let mirror_actors = config.sequence_bool("mirrorActors", true);
-        let box_margin = config.sequence_json_number("boxMargin").unwrap_or(10.0);
+        let box_margin = match config.sequence_json_number("boxMargin") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 10.0,
+        };
         let actor_height = config.sequence_json_number_min("height", 65.0, 1.0);
-        let box_text_margin = config.sequence_json_number("boxTextMargin").unwrap_or(5.0);
-        let message_align = config
-            .sequence_string("messageAlign")
-            .unwrap_or_else(|| "center".to_string());
-        let label_box_height = config
-            .sequence_json_number("labelBoxHeight")
-            .unwrap_or(20.0);
+        let box_text_margin = match config.sequence_json_number("boxTextMargin") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 5.0,
+        };
+        let message_align = match config
+            .sequence_string("messageAlign") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "center".to_string(),
+        };
+        let label_box_height = match config
+            .sequence_json_number("labelBoxHeight") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 20.0,
+        };
         let right_angles = config.sequence_bool("rightAngles", false);
-        let wrap_padding = config.sequence_json_number("wrapPadding").unwrap_or(10.0);
-        let note_margin = config.sequence_json_number("noteMargin").unwrap_or(10.0);
+        let wrap_padding = match config.sequence_json_number("wrapPadding") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 10.0,
+        };
+        let note_margin = match config.sequence_json_number("noteMargin") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 10.0,
+        };
         let sequence_width = config.sequence_json_number_min("width", 150.0, 1.0);
         let activation_width = typography.compat_binding().svg_activation_width;
 
@@ -86,19 +105,30 @@ impl SequenceRenderSettings {
 }
 
 /// Preserve CSSOM's rejected-family behavior while emitting the same size and weight we measure.
+#[must_use]
 pub(super) fn sequence_text_style_attribute(style: &TextStyle) -> String {
     let mut css = String::new();
-    if let Some(family) = crate::sequence::sequence_inline_font_family(style) {
-        css.push_str("font-family: ");
-        css.push_str(&family);
-        css.push_str("; ");
+
+    match crate::sequence::sequence_inline_font_family(style) {
+        Some(family) => {
+            css.push_str("font-family: ");
+            css.push_str(&family);
+            css.push_str("; ");
+        },
+        ::core::option::Option::None => {},
     }
+
     css.push_str(&format!("font-size: {}px;", style.font_size));
-    if let Some(weight) = style.font_weight.as_deref() {
-        css.push_str(" font-weight: ");
-        css.push_str(weight);
-        css.push(';');
+
+    match style.font_weight.as_deref() {
+        Some(weight) => {
+            css.push_str(" font-weight: ");
+            css.push_str(weight);
+            css.push(';');
+        },
+        ::core::option::Option::None => {},
     }
+
     css
 }
 

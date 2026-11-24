@@ -1004,6 +1004,7 @@ version = "0.1.0"
 dependencies = [
  "console-core-geometry",
  "console-core-never",
+ "console-core-number-conversion",
 ]
 
 [[package]]

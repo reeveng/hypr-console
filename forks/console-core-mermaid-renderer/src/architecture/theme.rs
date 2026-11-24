@@ -48,50 +48,58 @@ impl ArchitectureGroupThemePlan {
         work_meter: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
         let typography = ArchitectureTypographyThemePlan::resolve(theme, effective_config);
-        let Some(theme) = theme else {
-            return Ok(Self::baseline(typography));
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::baseline(typography)),
         };
+
         let mut evidence = FamilyThemeOutcomes::default();
         let surfaces = Box::new(ArchitectureSurfaceThemePlan::resolve(
-            Some(theme),
+            Some(theme_2),
             effective_config,
         ));
         let edge_stroke = ArchitectureEdgeStrokePlan::resolve(
-            theme,
+            theme_2,
             effective_config,
             edge_count,
             work_meter,
             &mut evidence,
         )?;
         let mut pending = BTreeMap::new();
-        if group_count == 0 {
-            for route in theme.family_mechanism_routes().iter().copied() {
-                if mechanism_targets_cluster(route.mechanism()) {
-                    evidence.mark_not_applicable(theme.family_mechanism_key(route));
+
+        match group_count {
+            0 => {
+                for route in theme_2.family_mechanism_routes().iter().copied() {
+                    if mechanism_targets_cluster(route.mechanism()) {
+                        evidence.mark_not_applicable(theme_2.family_mechanism_key(route));
+                    }
                 }
-            }
-            return Ok(Self {
-                inline_style: None,
-                evidence,
-                pending,
-                edge_stroke,
-                surfaces,
-                typography,
-            });
+
+                return Ok(Self {
+                    inline_style: None,
+                    evidence,
+                    pending,
+                    edge_stroke,
+                    surfaces,
+                    typography,
+                });
+            },
+            _ => {},
         }
 
-        let style = theme.style_with_work_meter(
+        let style = theme_2.style_with_work_meter(
             ThemeTarget::Cluster,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
         let mermaid_owns_stroke = mermaid_owns_group_stroke(effective_config);
-        let fill = typed_paint_css(theme, style.fill_resolution(), FamilyThemeRuleFacet::fill);
+        let fill = typed_paint_css(theme_2, style.fill_resolution(), FamilyThemeRuleFacet::fill);
         let stroke = (!mermaid_owns_stroke)
             .then(|| {
                 typed_paint_css(
-                    theme,
+                    theme_2,
                     style.stroke_resolution(),
                     FamilyThemeRuleFacet::stroke,
                 )
@@ -104,7 +112,8 @@ impl ArchitectureGroupThemePlan {
             .map(|(property, origin)| (property, origin.rule_index()))
             .collect::<BTreeMap<_, _>>();
         let mut observations = BTreeMap::<usize, ArchitectureGroupRuleObservation>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
                     rule_index,
@@ -113,9 +122,11 @@ impl ArchitectureGroupThemePlan {
                     facet,
                 } => {
                     let observation = observations.entry(rule_index).or_default();
+
                     if !selector_matches_any_group(selector, group_count) {
                         continue;
                     }
+
                     if !matches!(
                         selector,
                         FamilyThemeSelectorShape::Static {
@@ -123,6 +134,7 @@ impl ArchitectureGroupThemePlan {
                         }
                     ) {
                         observation.applicable = true;
+
                         match route.disposition() {
                             FamilyThemeDisposition::Unsupported => {
                                 observation
@@ -133,15 +145,20 @@ impl ArchitectureGroupThemePlan {
                                 observation.incomplete = true;
                             }
                         }
+
                         continue;
                     }
+
                     let property = resolved_style_property_for_facet(facet);
                     let source_owned =
                         property == ResolvedStyleProperty::Stroke && mermaid_owns_stroke;
+
                     if source_owned || winners.get(&property).copied() != Some(rule_index) {
                         continue;
                     }
+
                     observation.applicable = true;
+
                     match route.disposition() {
                         FamilyThemeDisposition::TypedAdapter
                             if matches!(
@@ -165,16 +182,16 @@ impl ArchitectureGroupThemePlan {
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::Cluster,
                 } => {
-                    // Unsupported fallback mechanisms are reconciled from the actual
-                    // per-group resolution below. A static occurrence count is not enough:
-                    // an explicit typed Cluster.fill winner suppresses the palette.
+
+
+
                 }
                 FamilyThemeMechanism::EffectBinding {
                     target: ThemeTarget::Cluster,
                     ..
                 } => {
-                    // See the fallback reconciliation below; only an effect that remains
-                    // selected by a real group terminal is residual.
+
+
                 }
                 FamilyThemeMechanism::BaseTypography(_)
                 | FamilyThemeMechanism::RuleFacet { .. }
@@ -188,12 +205,13 @@ impl ArchitectureGroupThemePlan {
                 index: rule_index,
                 target: ThemeTarget::Cluster,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // Strict mode remains fail-closed until every winning facet has one owner.
+
             } else if observation.pending {
                 pending.insert(key, observation.capabilities);
             } else {
@@ -202,7 +220,7 @@ impl ArchitectureGroupThemePlan {
         }
 
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut evidence,
             &[UnsupportedTerminalDomain::fallbacks_only(
                 ThemeTarget::Cluster,
@@ -221,6 +239,7 @@ impl ArchitectureGroupThemePlan {
         })
     }
 
+    #[must_use]
     fn baseline(typography: ArchitectureTypographyThemePlan) -> Self {
         Self {
             inline_style: None,
@@ -232,14 +251,17 @@ impl ArchitectureGroupThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn inline_style(&self) -> Option<&str> {
         self.inline_style.as_deref()
     }
 
+    #[must_use]
     pub(crate) fn edge_stroke(&self) -> Option<&str> {
         self.edge_stroke.terminal_stroke()
     }
 
+    #[must_use]
     pub(crate) const fn typography_theme(&self) -> &ArchitectureTypographyThemePlan {
         &self.typography
     }
@@ -255,6 +277,7 @@ impl ArchitectureGroupThemePlan {
             .prepare_styles(services, groups, edges, work_meter)
     }
 
+    #[must_use]
     pub(crate) fn finish_evidence(
         &self,
         typography: Option<ArchitectureTypographyEmission>,
@@ -264,11 +287,13 @@ impl ArchitectureGroupThemePlan {
     ) -> FamilyThemeOutcomes {
         let mut evidence = self.evidence.clone();
         evidence.merge_accounted_from(self.typography.finish_evidence(typography));
+
         if group_emitted {
             for (key, capabilities) in &self.pending {
                 evidence.mark_applied_with_capabilities(key.clone(), capabilities.iter().copied());
             }
         }
+
         self.edge_stroke
             .finish_evidence(&mut evidence, edge_style_emitted);
         self.surfaces.finish_evidence(&mut evidence, surfaces);
@@ -283,6 +308,7 @@ pub(crate) struct ArchitectureThemeOutcome {
     pub(crate) text_receipt: Option<crate::__private::ArchitectureTextReceipt>,
 }
 
+#[must_use]
 fn mermaid_owns_group_stroke(
     effective_config: &merman_model::presentation::PresentationConfig,
 ) -> bool {
@@ -290,11 +316,13 @@ fn mermaid_owns_group_stroke(
     {
         return true;
     }
+
     effective_config.config_paint_overrides_typed_default("themeVariables.primaryBorderColor")
         && effective_config.get_str("themeVariables.archGroupBorderColor")
             == effective_config.get_str("themeVariables.primaryBorderColor")
 }
 
+#[must_use]
 fn selector_matches_any_group(selector: FamilyThemeSelectorShape, group_count: usize) -> bool {
     match selector {
         FamilyThemeSelectorShape::Static {
@@ -312,6 +340,7 @@ fn selector_matches_any_group(selector: FamilyThemeSelectorShape, group_count: u
     }
 }
 
+#[must_use]
 fn mechanism_targets_cluster(mechanism: FamilyThemeMechanism) -> bool {
     matches!(
         mechanism,
@@ -327,6 +356,7 @@ fn mechanism_targets_cluster(mechanism: FamilyThemeMechanism) -> bool {
     )
 }
 
+#[must_use]
 fn typed_paint_css(
     theme: &ResolvedDiagramTheme,
     resolution: &crate::diagram_theme::ResolvedProperty<CanvasPaint>,
@@ -334,12 +364,14 @@ fn typed_paint_css(
 ) -> Option<String> {
     let origin = resolution.winner()?;
     let specified = resolution.specified();
-    let facet = facet(specified)?;
-    if theme.rule_facet_disposition(origin.rule_index(), facet)
+    let facet_2 = facet(specified)?;
+
+    if theme.rule_facet_disposition(origin.rule_index(), facet_2)
         != Some(FamilyThemeDisposition::TypedAdapter)
     {
         return None;
     }
+
     match specified {
         Specified::Unspecified => None,
         Specified::Clear => None,
@@ -353,18 +385,28 @@ fn typed_paint_css(
     }
 }
 
+#[must_use]
 fn compose_inline_style(fill: Option<&str>, stroke: Option<&str>) -> Option<String> {
     let mut style = String::new();
-    if let Some(fill) = fill {
-        style.push_str("fill:");
-        style.push_str(fill);
-        style.push(';');
+
+    match fill {
+        Some(fill_2) => {
+            style.push_str("fill:");
+            style.push_str(fill_2);
+            style.push(';');
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(stroke) = stroke {
-        style.push_str("stroke:");
-        style.push_str(stroke);
-        style.push(';');
+
+    match stroke {
+        Some(stroke_2) => {
+            style.push_str("stroke:");
+            style.push_str(stroke_2);
+            style.push(';');
+        },
+        ::core::option::Option::None => {},
     }
+
     (!style.is_empty()).then_some(style)
 }
 
@@ -374,8 +416,9 @@ fn add_paint_capabilities(
 ) {
     let kind = match facet {
         FamilyThemeRuleFacet::Fill(kind) | FamilyThemeRuleFacet::Stroke(kind) => kind,
-        _ => return,
+        FamilyThemeRuleFacet::StrokeWidth | FamilyThemeRuleFacet::StrokeDasharray | FamilyThemeRuleFacet::StrokeLinecap | FamilyThemeRuleFacet::StrokeLinejoin | FamilyThemeRuleFacet::Opacity | FamilyThemeRuleFacet::FillOpacity | FamilyThemeRuleFacet::StrokeOpacity | FamilyThemeRuleFacet::Radius | FamilyThemeRuleFacet::Padding | FamilyThemeRuleFacet::Typography(_) | FamilyThemeRuleFacet::Effect => return,
     };
+
     match kind {
         FamilyThemePaintKind::Transparent => {
             capabilities.insert(ThemeCapability::TransparentPaint);
@@ -388,6 +431,7 @@ fn add_paint_capabilities(
         | FamilyThemePaintKind::RadialGradient
         | FamilyThemePaintKind::Pattern => {}
     }
+
     if matches!(facet, FamilyThemeRuleFacet::Stroke(_)) {
         capabilities.insert(ThemeCapability::BorderStyling);
     }

@@ -20,6 +20,7 @@ struct DefaultConfigShape {
     config_keys: BTreeSet<String>,
 }
 
+#[must_use]
 fn default_config_shape() -> &'static DefaultConfigShape {
     DEFAULT_CONFIG_SHAPE.get_or_init(|| {
         let shape: DefaultConfigShape =
@@ -34,6 +35,7 @@ fn default_config_shape() -> &'static DefaultConfigShape {
     })
 }
 
+#[must_use]
 pub(crate) fn upstream_default_config() -> MermaidConfig {
     UPSTREAM_DEFAULT_CONFIG
         .get_or_init(|| {
@@ -45,6 +47,7 @@ pub(crate) fn upstream_default_config() -> MermaidConfig {
         .clone()
 }
 
+#[must_use]
 pub fn default_site_config() -> MermaidConfig {
     DEFAULT_SITE_CONFIG
         .get_or_init(|| {
@@ -57,6 +60,7 @@ pub fn default_site_config() -> MermaidConfig {
 
 /// Returns hardened full configuration with its initialization mutation history.
 #[cfg(feature = "presentation")]
+#[must_use]
 pub fn default_presentation_config() -> SourcePresentationConfig {
     DEFAULT_PRESENTATION_CONFIG
         .get_or_init(|| {
@@ -68,11 +72,13 @@ pub fn default_presentation_config() -> SourcePresentationConfig {
 }
 
 /// Returns the flat key set used by Mermaid 11.16 to sanitize init directives.
+#[must_use]
 fn default_config_keys() -> &'static BTreeSet<String> {
     &default_config_shape().config_keys
 }
 
 /// Returns whether `key` belongs to Mermaid's generated default-config shape.
+#[must_use]
 pub(crate) fn is_default_config_key(key: &str) -> bool {
     default_config_keys().contains(key)
 }

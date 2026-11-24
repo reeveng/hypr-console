@@ -1,4 +1,5 @@
 use super::super::*;
+
 pub(crate) fn render_info_diagram_svg(
     layout: &InfoDiagramLayout,
     typography_theme: &crate::info::InfoTypographyThemePlan,
@@ -17,10 +18,12 @@ pub(crate) fn render_info_diagram_svg(
     let mut root_spec = root_svg::RootViewportSpec::responsive_without_view_box(
         (bounds.max_x - bounds.min_x).max(0.0),
     );
+
     if typography_theme.requires_explicit_viewport_height() {
         root_spec =
             root_spec.with_mermaid_responsive_height(true, (bounds.max_y - bounds.min_y).max(0.0));
     }
+
     let mut root_chrome = root_svg::RootChrome::new(diagram_id, "info");
     root_chrome.dom.trailing_newline = false;
     let root_document = root_svg::RootViewportContext::new(
@@ -44,11 +47,13 @@ pub(crate) fn render_info_diagram_svg(
     out.push_str(r#"<g/>"#);
     out.checkpoint()?;
     let version = typography_theme.version_geometry();
+
     if layout.version != version.text() {
         return Err(crate::Error::InvalidModel {
             message: "Info layout version diverged from prepared terminal geometry".to_string(),
         });
     }
+
     let _ = write!(
         &mut out,
         r#"<g><text x="{}" y="{}" class="version" font-size="{}""#,
@@ -57,9 +62,11 @@ pub(crate) fn render_info_diagram_svg(
         fmt(version.font_size_px()),
     );
     let version_fill_css = typography_theme.version_fill_css();
+
     if let Some(fill_css) = version_fill_css {
         let _ = write!(&mut out, r#" fill="{}""#, escape_xml(fill_css));
     }
+
     let _ = write!(
         &mut out,
         r#" style="text-anchor: middle;">{}</text></g>"#,
@@ -75,12 +82,14 @@ pub(crate) fn render_info_diagram_svg(
         version_fill_css,
     );
     out.push_str("</svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if !typography_theme.record_terminal(surface_receipt) {
         return Err(crate::Error::InvalidModel {
             message: "Info typography receipt was recorded more than once".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 

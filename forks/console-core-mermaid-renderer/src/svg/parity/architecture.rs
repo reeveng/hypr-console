@@ -17,6 +17,7 @@ pub(super) struct ArchitectureEmitCheckpoints<'a> {
 }
 
 impl<'a> ArchitectureEmitCheckpoints<'a> {
+    #[must_use]
     pub(super) const fn new(work_meter: &'a crate::resources::OperationWorkMeter) -> Self {
         Self { work_meter }
     }

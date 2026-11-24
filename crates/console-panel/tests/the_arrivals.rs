@@ -32,13 +32,13 @@ fn a_song_landing_in_a_kept_folder_asks_the_open_card_for_its_rows_again() -> Re
     })
   });
 
+  let waking = frames::WakeReceiver::open()?;
   let Ok(()) = arrivals::follow_at(&at, std::slice::from_ref(&music));
-  let Ok(_before) = frames::wake_state();
 
   let song = music.join("Africa [x].opus");
   let woken = console_waiting::until(patience, || {
     let written = console_core_atomic_writes::whole(&song, b"");
-    let Ok(heard) = frames::wake_state();
+    let Ok(heard) = waking.state();
 
     Ok(match (written, heard.rows) {
       (Ok(()), frames::FrameReceived::Yes) => console_waiting::Ready::Yes,

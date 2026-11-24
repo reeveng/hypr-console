@@ -10,11 +10,11 @@ const CYTOSCAPE_FINAL_ELEMENT_BBOX_EXPANSION_PX: f64 = 1.0;
 
 #[derive(Debug, Clone)]
 pub(crate) struct ArchitectureServiceBoundsEstimate {
-    // Actual emitted icon bounds used when grouped service labels should not affect root getBBox.
+
     pub(crate) emitted_icon_bounds: Bounds,
-    // Approximation of Mermaid's final SVG getBBox() for top-level services.
+
     pub(crate) svg_root_bounds: Bounds,
-    // Explicit Cytoscape child contribution phases for compound sizing.
+
     pub(crate) cytoscape_group_child_contribution: ArchitectureCytoscapeChildContributionBounds,
 }
 
@@ -38,6 +38,7 @@ pub(crate) struct ArchitectureCytoscapeChildLabelBounds {
 }
 
 impl ArchitectureCytoscapeChildLabelBounds {
+    #[must_use]
     fn bounds_for_icon(&self, icon_bounds: &Bounds) -> Bounds {
         let center_x = (icon_bounds.min_x + icon_bounds.max_x) / 2.0;
         Bounds {
@@ -51,10 +52,10 @@ impl ArchitectureCytoscapeChildLabelBounds {
 
 #[derive(Debug, Clone)]
 pub(crate) struct ArchitectureCytoscapeChildContributionBounds {
-    // Raw icon bounds are retained for the emitted SVG geometry.
+
     pub(crate) body_bounds: Bounds,
     pub(crate) label_bounds: Option<Bounds>,
-    // Compound sizing unions the cached body and label bounds without the final element expansion.
+
     pub(crate) union_bounds: Bounds,
 }
 
@@ -66,6 +67,7 @@ pub(crate) struct ArchitectureNodeBBoxExtras {
     pub(crate) bottom: f64,
 }
 
+#[must_use]
 pub(crate) fn architecture_cytoscape_canvas_label_metrics(
     label: &str,
     measurer: &dyn TextMeasurer,
@@ -84,6 +86,7 @@ pub(crate) fn architecture_cytoscape_canvas_label_metrics(
     ArchitectureCytoscapeCanvasLabelMetrics { width, half_width }
 }
 
+#[must_use]
 pub(crate) fn architecture_cytoscape_edge_label_metrics(
     label: &str,
     measurer: &dyn TextMeasurer,
@@ -95,6 +98,7 @@ pub(crate) fn architecture_cytoscape_edge_label_metrics(
     }
 }
 
+#[must_use]
 pub(crate) fn architecture_create_text_middle_bbox_y_range_px(
     text: &str,
     style: &TextStyle,
@@ -110,16 +114,19 @@ pub(crate) fn architecture_create_text_middle_bbox_y_range_px(
     (min_y, min_y + height)
 }
 
+#[must_use]
 pub(crate) fn architecture_cytoscape_node_label_bottom_extension_px(font_size_px: f64) -> f64 {
     font_size_px.max(1.0) + CYTOSCAPE_NODE_LABEL_MARGIN_OF_ERROR_PX
 }
 
+#[must_use]
 pub(crate) fn architecture_svg_group_bbox_padding_px(padding_px: f64) -> f64 {
     padding_px.max(0.0)
         + CYTOSCAPE_PARENT_BODY_BORDER_WIDTH_PX / 2.0
         + CYTOSCAPE_FINAL_ELEMENT_BBOX_EXPANSION_PX
 }
 
+#[must_use]
 fn union_bounds(a: &Bounds, b: &Bounds) -> Bounds {
     Bounds {
         min_x: a.min_x.min(b.min_x),
@@ -129,6 +136,7 @@ fn union_bounds(a: &Bounds, b: &Bounds) -> Bounds {
     }
 }
 
+#[must_use]
 fn expand_bounds(bounds: &Bounds, amount: f64) -> Bounds {
     Bounds {
         min_x: bounds.min_x - amount,
@@ -138,45 +146,48 @@ fn expand_bounds(bounds: &Bounds, amount: f64) -> Bounds {
     }
 }
 
+#[must_use]
 pub(crate) fn architecture_cytoscape_child_contribution_bounds(
     icon_bounds: &Bounds,
     label_bounds: Option<&ArchitectureCytoscapeChildLabelBounds>,
 ) -> ArchitectureCytoscapeChildContributionBounds {
     let body_bounds = icon_bounds.clone();
     let body_bbox_bounds = expand_bounds(&body_bounds, CYTOSCAPE_FINAL_ELEMENT_BBOX_EXPANSION_PX);
-    let label_bounds = label_bounds.map(|label| label.bounds_for_icon(&body_bounds));
-    let union_bounds = label_bounds
+    let label_bounds_2 = label_bounds.map(|label| label.bounds_for_icon(&body_bounds));
+    let union_bounds = label_bounds_2
         .as_ref()
         .map(|label| union_bounds(&body_bbox_bounds, label))
         .unwrap_or_else(|| body_bbox_bounds.clone());
 
     ArchitectureCytoscapeChildContributionBounds {
         body_bounds,
-        label_bounds,
+        label_bounds: label_bounds_2,
         union_bounds,
     }
 }
 
+#[must_use]
 fn architecture_cytoscape_final_element_bounds(
     icon_bounds: &Bounds,
     label_bounds: Option<&ArchitectureCytoscapeChildLabelBounds>,
 ) -> Bounds {
-    let label_bounds = label_bounds.map(|label| label.bounds_for_icon(icon_bounds));
-    let element_bounds = label_bounds
+    let label_bounds_2 = label_bounds.map(|label| label.bounds_for_icon(icon_bounds));
+    let element_bounds = label_bounds_2
         .as_ref()
         .map(|label| union_bounds(icon_bounds, label))
         .unwrap_or_else(|| icon_bounds.clone());
     expand_bounds(&element_bounds, CYTOSCAPE_FINAL_ELEMENT_BBOX_EXPANSION_PX)
 }
 
+#[must_use]
 pub(crate) fn architecture_cytoscape_child_label_bounds(
     title: Option<&str>,
     measurer: &dyn TextMeasurer,
     style: &TextStyle,
     font_size_px: f64,
 ) -> Option<ArchitectureCytoscapeChildLabelBounds> {
-    let title = title.map(str::trim).filter(|t| !t.is_empty())?;
-    let metrics = architecture_cytoscape_canvas_label_metrics(title, measurer, style);
+    let title_2 = title.map(str::trim).filter(|t| !t.is_empty())?;
+    let metrics = architecture_cytoscape_canvas_label_metrics(title_2, measurer, style);
     Some(ArchitectureCytoscapeChildLabelBounds {
         metrics,
         half_width: metrics.half_width + CYTOSCAPE_NODE_LABEL_MARGIN_OF_ERROR_PX,
@@ -184,6 +195,7 @@ pub(crate) fn architecture_cytoscape_child_label_bounds(
     })
 }
 
+#[must_use]
 pub(crate) fn architecture_measure_cytoscape_final_node_bbox_extras(
     title: Option<&str>,
     measurer: &dyn TextMeasurer,
@@ -206,6 +218,7 @@ pub(crate) fn architecture_measure_cytoscape_final_node_bbox_extras(
     architecture_cytoscape_bbox_extras(&element_bounds, half_icon)
 }
 
+#[must_use]
 pub(crate) fn architecture_measure_cytoscape_compound_child_bbox_extras(
     title: Option<&str>,
     measurer: &dyn TextMeasurer,
@@ -228,16 +241,17 @@ pub(crate) fn architecture_measure_cytoscape_compound_child_bbox_extras(
     architecture_cytoscape_bbox_extras(&contribution.union_bounds, half_icon)
 }
 
+#[must_use]
 fn architecture_cytoscape_bbox_extras(
     bounds: &Bounds,
     half_icon: f64,
 ) -> ArchitectureNodeBBoxExtras {
     let half_w = bounds.max_x.abs().max(bounds.min_x.abs());
-    let half_w = (half_w * 2.0).round() / 2.0;
+    let half_w_2 = (half_w * 2.0).round() / 2.0;
     let top = (-bounds.min_y - half_icon).max(0.0);
     let bottom = (bounds.max_y - half_icon).max(0.0);
 
-    let extra_lr = (half_w - half_icon).max(0.0);
+    let extra_lr = (half_w_2 - half_icon).max(0.0);
     ArchitectureNodeBBoxExtras {
         left: extra_lr,
         right: extra_lr,
@@ -246,6 +260,7 @@ fn architecture_cytoscape_bbox_extras(
     }
 }
 
+#[must_use]
 pub(crate) fn architecture_node_bbox_extras_to_manatee(
     extras: ArchitectureNodeBBoxExtras,
 ) -> manatee::BoundsExtras {
@@ -258,6 +273,7 @@ pub(crate) fn architecture_node_bbox_extras_to_manatee(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[must_use]
 pub(crate) fn architecture_estimate_service_bounds(
     x: f64,
     y: f64,
@@ -277,31 +293,44 @@ pub(crate) fn architecture_estimate_service_bounds(
     let mut svg_root_bounds = emitted_icon_bounds.clone();
     let mut cytoscape_group_child_contribution =
         architecture_cytoscape_child_contribution_bounds(&emitted_icon_bounds, None);
-    if let Some(title) = title.map(str::trim).filter(|t| !t.is_empty()) {
-        if let Some(label) = measure_svg_title_bounds(title) {
-            let cx = x + icon_size_px / 2.0;
-            let baseline_y = y + icon_size_px;
-            svg_root_bounds = union_bounds(
-                &svg_root_bounds,
-                &Bounds {
-                    min_x: cx + label.min_x,
-                    min_y: baseline_y + label.min_y,
-                    max_x: cx + label.max_x,
-                    max_y: baseline_y + label.max_y,
+
+    match title.map(str::trim).filter(|t| !t.is_empty()) {
+        Some(title_2) => {
+            match measure_svg_title_bounds(title_2) {
+                Some(label) => {
+                    let cx = x + icon_size_px / 2.0;
+                    let baseline_y = y + icon_size_px;
+                    svg_root_bounds = union_bounds(
+                        &svg_root_bounds,
+                        &Bounds {
+                            min_x: cx + label.min_x,
+                            min_y: baseline_y + label.min_y,
+                            max_x: cx + label.max_x,
+                            max_y: baseline_y + label.max_y,
+                        },
+                    );
                 },
-            );
-        }
-        if let Some(cytoscape_label_bounds) = architecture_cytoscape_child_label_bounds(
-            Some(title),
-            text_measurer,
-            compound_text_style,
-            arch_font_size_px,
-        ) {
-            cytoscape_group_child_contribution = architecture_cytoscape_child_contribution_bounds(
-                &emitted_icon_bounds,
-                Some(&cytoscape_label_bounds),
-            );
-        }
+                ::core::option::Option::None => {},
+            }
+
+            {
+                match architecture_cytoscape_child_label_bounds(
+                        Some(title_2),
+                        text_measurer,
+                        compound_text_style,
+                        arch_font_size_px,
+                    ) {
+                    Some(cytoscape_label_bounds) => {
+                        cytoscape_group_child_contribution = architecture_cytoscape_child_contribution_bounds(
+                            &emitted_icon_bounds,
+                            Some(&cytoscape_label_bounds),
+                        );
+                    },
+                    ::core::option::Option::None => {},
+                };
+            }
+        },
+        ::core::option::Option::None => {},
     }
 
     ArchitectureServiceBoundsEstimate {

@@ -5,6 +5,7 @@ use crate::flowchart::FlowchartSourceFacetStatus;
 use crate::svg::parity::flowchart::render::node::emission::FlowchartNodeLabelEmissionReceipt;
 use crate::text::VisibleTextStyleFacts;
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn html_label_typography_receipt(
     receipt: FlowchartNodeLabelEmissionReceipt,
     styles: &FlowchartCompiledStyles,
@@ -17,7 +18,7 @@ pub(in crate::svg::parity::flowchart) fn html_label_typography_receipt(
     let visible = facts.parse_valid() && facts.has_visible_runs();
     let stack_source = if visible && inherited_stack == 0 {
         if facts.unverified_font_family_run_count() == 0 {
-            // Code's monospace family is shared by HTML measurement and the native cascade.
+
             FlowchartSourceFacetStatus::Admitted
         } else {
             FlowchartSourceFacetStatus::Unverified
@@ -26,8 +27,8 @@ pub(in crate::svg::parity::flowchart) fn html_label_typography_receipt(
         FlowchartSourceFacetStatus::Absent
     };
     let size_transport_verified = styles.font_size_source.as_ref().is_none_or(|source| {
-        // The HTML shell repeats this declaration. Only an absolute source winner is
-        // idempotent across those ancestors; relative sizes retain their source residual.
+
+
         source.admitted
             && crate::mermaid_style::parse_svg_number_or_px(source.prepared.value()).is_some()
     });
@@ -59,22 +60,30 @@ pub(in crate::svg::parity::flowchart) fn html_label_typography_receipt(
 
 /// Count runs that inherit the outer family except for HTML code's intrinsic monospace.
 /// Other descendant declarations remain owned by the shared visible-run facts.
+#[must_use]
 fn intrinsic_code_family_runs(html: &str) -> usize {
     if !super::contains_ascii_case_insensitive(html, b"<code") {
         return 0;
     }
+
     let wrapped = format!("<merman-label-fonts>{html}</merman-label-fonts>");
+
     let Ok(document) = crate::xml_dom::Document::parse(&wrapped) else {
         return 0;
     };
+
     let mut parents = Vec::<(crate::xml_dom::NodeId, (bool, bool))>::new();
     let mut code_runs = 0;
+
     for node in document.root_element().descendants() {
         let parent = node.parent().map(|parent| parent.id());
+
         while parents.last().map(|(id, _)| *id) != parent && !parents.is_empty() {
             parents.pop();
         }
+
         let inherited = parents.last().map_or((true, true), |(_, owners)| *owners);
+
         if node.is_element() {
             let has_class = node
                 .attribute("class")
@@ -110,7 +119,7 @@ fn intrinsic_code_family_runs(html: &str) -> usize {
             && !inherited.1
             && !node
                 .parent()
-                .is_some_and(|parent| parent.tag_name().name().eq_ignore_ascii_case("style"))
+                .is_some_and(|parent_2| parent_2.tag_name().name().eq_ignore_ascii_case("style"))
             && node.text().is_some_and(|text| {
                 !crate::text::trim_html_collapsible_ascii_whitespace(text).is_empty()
             })
@@ -118,5 +127,6 @@ fn intrinsic_code_family_runs(html: &str) -> usize {
             code_runs += 1;
         }
     }
+
     code_runs
 }

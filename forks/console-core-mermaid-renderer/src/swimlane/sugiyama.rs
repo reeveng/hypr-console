@@ -44,6 +44,7 @@ struct LaneOrderCandidate {
     source_distance: usize,
 }
 
+#[must_use]
 fn weighted_lane_edges(layout: &WorkingLayout) -> Vec<WeightedLaneEdge> {
     let source_index: HashMap<&str, usize> = layout
         .top_lane_order
@@ -52,20 +53,32 @@ fn weighted_lane_edges(layout: &WorkingLayout) -> Vec<WeightedLaneEdge> {
         .map(|(index, lane)| (lane.as_str(), index))
         .collect();
     let mut weights: HashMap<(String, String), usize> = HashMap::new();
+
     for edge in &layout.original_edges {
-        let (Some(source_lane), Some(target_lane)) =
-            (layout.top_lane_of(&edge.from), layout.top_lane_of(&edge.to))
-        else {
-            continue;
+        let (source_lane, target_lane) = {
+            let outcome_source_lane = (layout.top_lane_of(&edge.from), layout.top_lane_of(&edge.to));
+
+            match outcome_source_lane {
+                (Some(matched_source_lane), Some(matched_target_lane)) => (matched_source_lane, matched_target_lane),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => continue,
+            }
         };
+
         if source_lane == target_lane {
             continue;
         }
-        let (Some(&source_position), Some(&target_position)) =
-            (source_index.get(source_lane), source_index.get(target_lane))
-        else {
-            continue;
+
+        let (source_position, target_position) = {
+            let outcome_source_position = (source_index.get(source_lane), source_index.get(target_lane));
+
+            match outcome_source_position {
+                (Some(&matched_source_position), Some(&matched_target_position)) => (matched_source_position, matched_target_position),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => continue,
+            }
         };
+
         let pair = if source_position <= target_position {
             (source_lane.to_string(), target_lane.to_string())
         } else {
@@ -73,6 +86,7 @@ fn weighted_lane_edges(layout: &WorkingLayout) -> Vec<WeightedLaneEdge> {
         };
         *weights.entry(pair).or_default() += 1;
     }
+
     let mut output: Vec<WeightedLaneEdge> = weights
         .into_iter()
         .map(|((left, right), weight)| WeightedLaneEdge {
@@ -88,6 +102,7 @@ fn weighted_lane_edges(layout: &WorkingLayout) -> Vec<WeightedLaneEdge> {
     output
 }
 
+#[must_use]
 fn lane_arrangement_cost(order: &[String], weights: &[WeightedLaneEdge]) -> usize {
     let positions: HashMap<&str, usize> = order
         .iter()
@@ -107,16 +122,21 @@ fn lane_arrangement_cost(order: &[String], weights: &[WeightedLaneEdge]) -> usiz
         .sum()
 }
 
+#[must_use]
 fn lane_source_distance(order: &[String], source_index: &HashMap<&str, usize>) -> usize {
     order
         .iter()
         .enumerate()
         .map(|(index, lane)| {
-            index.abs_diff(source_index.get(lane.as_str()).copied().unwrap_or(index))
+            index.abs_diff(match source_index.get(lane.as_str()).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => index,
+            })
         })
         .sum()
 }
 
+#[must_use]
 fn greedy_lane_switch(
     start: &[String],
     weights: &[WeightedLaneEdge],
@@ -124,11 +144,14 @@ fn greedy_lane_switch(
 ) -> LaneOrderCandidate {
     let mut order = start.to_vec();
     let mut cost = lane_arrangement_cost(&order, weights);
+
     for _ in 0..order.len().max(1) {
         let mut changed = false;
+
         for index in 0..order.len().saturating_sub(1) {
             order.swap(index, index + 1);
             let next = lane_arrangement_cost(&order, weights);
+
             if next < cost {
                 cost = next;
                 changed = true;
@@ -136,10 +159,12 @@ fn greedy_lane_switch(
                 order.swap(index, index + 1);
             }
         }
+
         if !changed {
             break;
         }
     }
+
     LaneOrderCandidate {
         source_distance: lane_source_distance(&order, source_index),
         order,
@@ -147,6 +172,7 @@ fn greedy_lane_switch(
     }
 }
 
+#[must_use]
 fn fnv1a_utf16(input: &str) -> u32 {
     let Ok(hash) = console_core_checksums::fnv1a::of_utf16(input);
     hash
@@ -155,30 +181,38 @@ fn fnv1a_utf16(input: &str) -> u32 {
 fn mulberry32(state: &mut u32) -> f64 {
     *state = state.wrapping_add(0x6d2b_79f5);
     let mut value = *state;
-    value = (value ^ (value >> 15)).wrapping_mul(value | 1);
-    value ^= value.wrapping_add((value ^ (value >> 7)).wrapping_mul(value | 61));
-    f64::from(value ^ (value >> 14)) / 4_294_967_296.0
+    value = (value ^ ::core::primitive::u32::wrapping_shr(value, 15_u32)).wrapping_mul(value | 1);
+    value ^= value.wrapping_add((value ^ ::core::primitive::u32::wrapping_shr(value, 7_u32)).wrapping_mul(value | 61));
+    f64::from(value ^ ::core::primitive::u32::wrapping_shr(value, 14_u32)) / 4_294_967_296.0
 }
 
+#[must_use]
 fn deterministic_shuffle(order: &[String], seed: u32) -> Vec<String> {
     let mut shuffled = order.to_vec();
     let mut state = seed;
+
     for index in (1..shuffled.len()).rev() {
         let swap_index = (mulberry32(&mut state) * (index + 1) as f64).floor() as usize;
         shuffled.swap(index, swap_index);
     }
+
     shuffled
 }
 
+#[must_use]
 fn optimized_lane_order(layout: &WorkingLayout) -> Vec<String> {
     let source_order = layout.top_lane_order.clone();
+
     if source_order.len() < 2 {
         return source_order;
     }
+
     let weights = weighted_lane_edges(layout);
+
     if weights.is_empty() {
         return source_order;
     }
+
     let source_index: HashMap<&str, usize> = source_order
         .iter()
         .enumerate()
@@ -190,6 +224,7 @@ fn optimized_lane_order(layout: &WorkingLayout) -> Vec<String> {
         .map(|edge| format!("{}:{}:{}", edge.left, edge.right, edge.weight))
         .collect::<Vec<_>>()
         .join("|");
+
     for restart in 0..8 {
         let seed = fnv1a_utf16(&format!(
             "{}#{}#{}",
@@ -199,15 +234,18 @@ fn optimized_lane_order(layout: &WorkingLayout) -> Vec<String> {
         ));
         let start = deterministic_shuffle(&source_order, seed);
         let candidate = greedy_lane_switch(&start, &weights, &source_index);
+
         if candidate.cost < best.cost
             || (candidate.cost == best.cost && candidate.source_distance < best.source_distance)
         {
             best = candidate;
         }
     }
+
     best.order
 }
 
+#[must_use]
 fn normalized_edges(layout: &WorkingLayout) -> Vec<WorkingEdge> {
     let mut seen = HashSet::new();
     layout
@@ -220,15 +258,19 @@ fn normalized_edges(layout: &WorkingLayout) -> Vec<WorkingEdge> {
         .collect()
 }
 
+#[must_use]
 fn remove_cycles(layout: &WorkingLayout) -> CycleResult {
     let edges = normalized_edges(layout);
     let mut outgoing: HashMap<&str, Vec<usize>> = HashMap::new();
+
     for id in layout.nodes.keys() {
         outgoing.entry(id).or_default();
     }
+
     for (index, edge) in edges.iter().enumerate() {
         outgoing.entry(&edge.from).or_default().push(index);
     }
+
     for indices in outgoing.values_mut() {
         indices.sort_by(|left, right| {
             let a = &edges[*left];
@@ -246,18 +288,27 @@ fn remove_cycles(layout: &WorkingLayout) -> CycleResult {
         reversed: &mut HashSet<usize>,
     ) {
         colors.insert(node.to_string(), 1);
-        if let Some(indices) = outgoing.get(node) {
-            for &index in indices {
-                let edge = &edges[index];
-                match colors.get(&edge.to).copied().unwrap_or(0) {
-                    0 => visit(&edge.to, outgoing, edges, colors, reversed),
-                    1 => {
-                        reversed.insert(index);
+
+        match outgoing.get(node) {
+            Some(indices) => {
+                for &index in indices {
+                    let edge = &edges[index];
+
+                    match match colors.get(&edge.to).copied() {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0,
+                    } {
+                        0 => visit(&edge.to, outgoing, edges, colors, reversed),
+                        1 => {
+                            reversed.insert(index);
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
-            }
+            },
+            ::core::option::Option::None => {},
         }
+
         colors.insert(node.to_string(), 2);
     }
 
@@ -265,14 +316,18 @@ fn remove_cycles(layout: &WorkingLayout) -> CycleResult {
     node_ids.sort_by(|left, right| deterministic_identifier_cmp(left, right));
     let mut colors = HashMap::new();
     let mut reversed_indices = HashSet::new();
+
     for id in node_ids {
-        if colors.get(id).copied().unwrap_or(0) == 0 {
+        if (match colors.get(id).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        }) == 0 {
             visit(id, &outgoing, &edges, &mut colors, &mut reversed_indices);
         }
     }
 
     let mut reversed_logical_ids = HashSet::new();
-    let edges = edges
+    let edges_2 = edges
         .into_iter()
         .enumerate()
         .map(|(index, mut edge)| {
@@ -281,44 +336,53 @@ fn remove_cycles(layout: &WorkingLayout) -> CycleResult {
                 edge.reversed_for_layout = true;
                 reversed_logical_ids.insert(edge.reference_id.clone());
             }
+
             edge
         })
         .collect();
     CycleResult {
-        edges,
+        edges: edges_2,
         reversed_logical_ids,
     }
 }
 
+#[must_use]
 fn successor_map(
     node_ids: impl Iterator<Item = String>,
     edges: &[WorkingEdge],
 ) -> HashMap<String, Vec<String>> {
     let mut successors: HashMap<String, Vec<String>> =
         node_ids.map(|id| (id, Vec::new())).collect();
+
     for edge in edges {
         successors
             .entry(edge.from.clone())
             .or_default()
             .push(edge.to.clone());
     }
+
     for values in successors.values_mut() {
         values.sort_by(|left, right| deterministic_identifier_cmp(left, right));
     }
+
     successors
 }
 
+#[must_use]
 fn indegrees(
     node_ids: impl Iterator<Item = String>,
     edges: &[WorkingEdge],
 ) -> HashMap<String, usize> {
     let mut indegree: HashMap<String, usize> = node_ids.map(|id| (id, 0)).collect();
+
     for edge in edges {
         *indegree.entry(edge.to.clone()).or_default() += 1;
     }
+
     indegree
 }
 
+#[must_use]
 fn topo_order(layout: &WorkingLayout, edges: &[WorkingEdge], by_generation: bool) -> Vec<String> {
     let node_ids = || {
         layout
@@ -336,8 +400,8 @@ fn topo_order(layout: &WorkingLayout, edges: &[WorkingEdge], by_generation: bool
         .collect();
     frontier.sort_by(|left, right| deterministic_identifier_cmp(left, right));
 
-    // Unconnected content nodes occupy the same sorted slots, but keep source order.
-    // Linked nodes and groups retain Mermaid's deterministic identifier ordering.
+
+
     let linked: HashSet<&str> = edges
         .iter()
         .flat_map(|edge| [edge.from.as_str(), edge.to.as_str()])
@@ -350,6 +414,7 @@ fn topo_order(layout: &WorkingLayout, edges: &[WorkingEdge], by_generation: bool
         .keys()
         .filter(|id| indegree.get(*id) == Some(&0) && is_unconnected(id))
         .cloned();
+
     for (slot, id) in frontier
         .iter_mut()
         .filter(|id| is_unconnected(id))
@@ -357,6 +422,7 @@ fn topo_order(layout: &WorkingLayout, edges: &[WorkingEdge], by_generation: bool
     {
         *slot = id;
     }
+
     let mut output = Vec::with_capacity(layout.nodes.len());
 
     while !frontier.is_empty() {
@@ -365,13 +431,17 @@ fn topo_order(layout: &WorkingLayout, edges: &[WorkingEdge], by_generation: bool
         } else {
             vec![frontier.remove(0)]
         };
+
         for id in &current_generation {
             output.push(id.clone());
         }
+
         let mut next = Vec::new();
+
         for id in current_generation {
             for successor in successors.get(&id).into_iter().flatten() {
                 let degree = indegree.entry(successor.clone()).or_default();
+
                 *degree = degree.saturating_sub(1);
                 if *degree == 0 {
                     if by_generation {
@@ -388,6 +458,7 @@ fn topo_order(layout: &WorkingLayout, edges: &[WorkingEdge], by_generation: bool
                 }
             }
         }
+
         if by_generation {
             next.sort_by(|left, right| deterministic_identifier_cmp(left, right));
             frontier = next;
@@ -403,16 +474,18 @@ fn topo_order(layout: &WorkingLayout, edges: &[WorkingEdge], by_generation: bool
     }
 }
 
+#[must_use]
 fn incoming<'a>(edges: &'a [WorkingEdge], node: &str) -> impl Iterator<Item = &'a WorkingEdge> {
     edges.iter().filter(move |edge| edge.to == node)
 }
 
+#[must_use]
 fn build_layers(
     layout: &WorkingLayout,
     order: &[String],
     rank_of: &HashMap<String, usize>,
 ) -> Vec<Vec<String>> {
-    let max_rank = order
+    let max_rank = match order
         .iter()
         .filter(|id| {
             layout
@@ -420,10 +493,16 @@ fn build_layers(
                 .get(*id)
                 .is_some_and(WorkingNode::is_layout_node)
         })
-        .map(|id| rank_of.get(id).copied().unwrap_or(0))
-        .max()
-        .unwrap_or(0);
+        .map(|id| match rank_of.get(id).copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        })
+        .max() {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0,
+    };
     let mut layers = vec![Vec::new(); max_rank + 1];
+
     for id in order {
         if !layout
             .nodes
@@ -432,11 +511,17 @@ fn build_layers(
         {
             continue;
         }
-        layers[rank_of.get(id).copied().unwrap_or(0)].push(id.clone());
+
+        layers[match rank_of.get(id).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        }].push(id.clone());
     }
+
     layers
 }
 
+#[must_use]
 fn lane_aware_layering(
     layout: &WorkingLayout,
     edges: &[WorkingEdge],
@@ -447,16 +532,27 @@ fn lane_aware_layering(
     let mut next_free: HashMap<String, usize> = HashMap::new();
 
     for id in &order {
-        let Some(node) = layout.nodes.get(id) else {
-            continue;
+        let node = {
+            let optional_node = layout.nodes.get(id);
+
+            match optional_node {
+                Some(matched_node) => matched_node,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if node.is_group() {
             continue;
         }
+
         let lane = node.top_lane_id.clone().unwrap_or_else(|| node.id.clone());
         let mut base = 0;
+
         for edge in incoming(edges, id) {
-            let predecessor_rank = rank_of.get(&edge.from).copied().unwrap_or(0);
+            let predecessor_rank = match rank_of.get(&edge.from).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            };
             let predecessor_lane = layout.top_lane_of(&edge.from).unwrap_or(edge.from.as_str());
             let weight = if config.ignore_cross_lane_edges && predecessor_lane != lane {
                 0
@@ -465,7 +561,11 @@ fn lane_aware_layering(
             };
             base = base.max(predecessor_rank + weight);
         }
-        let layer = base.max(next_free.get(&lane).copied().unwrap_or(0));
+
+        let layer = base.max(match next_free.get(&lane).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        });
         rank_of.insert(id.clone(), layer);
         next_free.insert(lane, layer + 1);
     }
@@ -478,6 +578,7 @@ fn lane_aware_layering(
     }
 }
 
+#[must_use]
 fn gravity_layering(
     layout: &WorkingLayout,
     edges: &[WorkingEdge],
@@ -485,13 +586,21 @@ fn gravity_layering(
 ) -> Layering {
     let order = topo_order(layout, edges, false);
     let mut rank_of: HashMap<String, usize> = HashMap::new();
+
     for id in &order {
-        let Some(node) = layout.nodes.get(id) else {
-            continue;
+        let node = {
+            let optional_node = layout.nodes.get(id);
+
+            match optional_node {
+                Some(matched_node) => matched_node,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if node.is_group() {
             continue;
         }
+
         let predecessors: Vec<&WorkingEdge> = incoming(edges, id).collect();
         let rank = if predecessors.is_empty() {
             0
@@ -499,28 +608,42 @@ fn gravity_layering(
             let edge = predecessors[0];
             let source_lane = layout.top_lane_of(&edge.from);
             let target_lane = layout.top_lane_of(id);
+
             if source_lane != target_lane {
-                rank_of.get(&edge.from).copied().unwrap_or(0)
+                match rank_of.get(&edge.from).copied() {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => 0,
+                }
             } else {
-                rank_of.get(&edge.from).copied().unwrap_or(0) + 1
+                (match rank_of.get(&edge.from).copied() {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => 0,
+                }) + 1
             }
         } else {
-            predecessors
+            match predecessors
                 .iter()
-                .map(|edge| rank_of.get(&edge.from).copied().unwrap_or(0) + 1)
-                .max()
-                .unwrap_or(0)
+                .map(|edge| (match rank_of.get(&edge.from).copied() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0,
+                }) + 1)
+                .max() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            }
         };
         rank_of.insert(id.clone(), rank);
     }
 
-    // Mermaid's gravity pass performs eight deterministic forward/backward relaxations.
+
     let mut predecessors: HashMap<String, Vec<String>> = HashMap::new();
     let mut successors: HashMap<String, Vec<String>> = HashMap::new();
+
     for id in layout.nodes.keys() {
         predecessors.insert(id.clone(), Vec::new());
         successors.insert(id.clone(), Vec::new());
     }
+
     for edge in edges {
         predecessors
             .entry(edge.to.clone())
@@ -531,23 +654,33 @@ fn gravity_layering(
             .or_default()
             .push(edge.to.clone());
     }
+
     for _ in 0..8 {
         let mut changed = false;
+
         for traversal in [order.clone(), order.iter().rev().cloned().collect()] {
-            for id in traversal {
+            'over_id_3: for id in traversal {
                 if layout.nodes.get(&id).is_some_and(WorkingNode::is_group) {
-                    continue;
+                    continue 'over_id_3;
                 }
+
                 let preds = predecessors.get(&id).map(Vec::as_slice).unwrap_or(&[]);
                 let succs = successors.get(&id).map(Vec::as_slice).unwrap_or(&[]);
+
                 if preds.is_empty() && succs.is_empty() {
-                    continue;
+                    continue 'over_id_3;
                 }
-                let lower = preds
+
+                let lower = match preds
                     .iter()
-                    .map(|pred| rank_of.get(pred).copied().unwrap_or(0) + 1)
-                    .max()
-                    .unwrap_or(0);
+                    .map(|pred| (match rank_of.get(pred).copied() {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0,
+                    }) + 1)
+                    .max() {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => 0,
+                };
                 let upper = succs
                     .iter()
                     .filter_map(|succ| {
@@ -557,33 +690,53 @@ fn gravity_layering(
                             .map(|rank| rank.saturating_sub(1))
                     })
                     .min();
-                let pred_average = if preds.is_empty() {
-                    rank_of.get(&id).copied().unwrap_or(0) as f64
-                } else {
-                    preds
-                        .iter()
-                        .map(|pred| rank_of.get(pred).copied().unwrap_or(0) as f64 + 1.0)
-                        .sum::<f64>()
-                        / preds.len() as f64
+                let pred_average = match preds {
+                    [] => {
+                        (match rank_of.get(&id).copied() {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => 0,
+                        }) as f64
+                    },
+                    [_, ..] => {
+                        preds
+                            .iter()
+                            .map(|pred| (match rank_of.get(pred).copied() {
+                                ::core::option::Option::Some(option_value) => option_value,
+                                ::core::option::Option::None => 0,
+                            }) as f64 + 1.0)
+                            .sum::<f64>()
+                            / preds.len() as f64
+                    },
                 };
-                let succ_average = if succs.is_empty() {
-                    rank_of.get(&id).copied().unwrap_or(0) as f64
-                } else {
-                    succs
-                        .iter()
-                        .map(|succ| rank_of.get(succ).copied().unwrap_or(0) as f64 - 1.0)
-                        .sum::<f64>()
-                        / succs.len() as f64
+                let succ_average = match succs {
+                    [] => {
+                        (match rank_of.get(&id).copied() {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => 0,
+                        }) as f64
+                    },
+                    [_, ..] => {
+                        succs
+                            .iter()
+                            .map(|succ| (match rank_of.get(succ).copied() {
+                                ::core::option::Option::Some(option_value) => option_value,
+                                ::core::option::Option::None => 0,
+                            }) as f64 - 1.0)
+                            .sum::<f64>()
+                            / succs.len() as f64
+                    },
                 };
                 let desired = ((pred_average + succ_average) / 2.0).round().max(0.0) as usize;
-                let next = upper.map_or(desired.max(lower), |upper| {
-                    desired.clamp(lower, upper.max(lower))
+                let next = upper.map_or(desired.max(lower), |upper_2| {
+                    desired.clamp(lower, upper_2.max(lower))
                 });
+
                 if rank_of.insert(id.clone(), next) != Some(next) {
                     changed = true;
                 }
             }
         }
+
         if !changed {
             break;
         }
@@ -601,6 +754,7 @@ fn gravity_layering(
     }
 }
 
+#[must_use]
 fn rank_crossing_score(
     layout: &WorkingLayout,
     edges: &[WorkingEdge],
@@ -609,6 +763,7 @@ fn rank_crossing_score(
 ) -> usize {
     let layers = build_layers(layout, order, rank_of);
     let mut score = 0;
+
     for index in 0..layers.len().saturating_sub(1) {
         let upper_index: HashMap<&str, usize> = layers[index]
             .iter()
@@ -630,12 +785,14 @@ fn rank_crossing_score(
             })
             .collect();
         pairs.sort_unstable();
+
         for left in 0..pairs.len() {
             for right in (left + 1)..pairs.len() {
                 score += usize::from(pairs[left].1 > pairs[right].1);
             }
         }
     }
+
     score
 }
 
@@ -646,6 +803,7 @@ fn optimize_ranks_by_crossings(
     rank_of: &mut HashMap<String, usize>,
 ) {
     let mut best = rank_crossing_score(layout, edges, order, rank_of);
+
     for _ in 0..4 {
         let mut changed = false;
         let mut nodes: Vec<String> = layout
@@ -655,27 +813,49 @@ fn optimize_ranks_by_crossings(
             .map(|node| node.id.clone())
             .collect();
         nodes.sort_by(|left, right| {
-            rank_of
+            match rank_of
                 .get(right)
-                .copied()
-                .unwrap_or(0)
-                .cmp(&rank_of.get(left).copied().unwrap_or(0))
+                .copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            }
+                .cmp(&(match rank_of.get(left).copied() {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => 0,
+                }))
                 .then_with(|| deterministic_identifier_cmp(left, right))
         });
-        for id in nodes {
-            let current = rank_of.get(&id).copied().unwrap_or(0);
-            if current == 0 {
-                continue;
+
+        'over_id_2: for id in nodes {
+            let current = match rank_of.get(&id).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            };
+
+            match current {
+                0 => {
+                    continue 'over_id_2;
+                },
+                _ => {},
             }
-            let lower = incoming(edges, &id)
-                .map(|edge| rank_of.get(&edge.from).copied().unwrap_or(0) + 1)
-                .max()
-                .unwrap_or(0);
+
+            let lower = match incoming(edges, &id)
+                .map(|edge| (match rank_of.get(&edge.from).copied() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0,
+                }) + 1)
+                .max() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            };
+
             if lower >= current {
-                continue;
+                continue 'over_id_2;
             }
+
             rank_of.insert(id.clone(), lower);
             let candidate = rank_crossing_score(layout, edges, order, rank_of);
+
             if candidate < best {
                 best = candidate;
                 changed = true;
@@ -683,6 +863,7 @@ fn optimize_ranks_by_crossings(
                 rank_of.insert(id, current);
             }
         }
+
         if !changed {
             break;
         }
@@ -704,8 +885,15 @@ fn make_proper_layering(
     let mut dummy_sequence = 0;
 
     for edge in sorted {
-        let source_rank = layering.rank_of.get(&edge.from).copied().unwrap_or(0);
-        let target_rank = layering.rank_of.get(&edge.to).copied().unwrap_or(0);
+        let source_rank = match layering.rank_of.get(&edge.from).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        };
+        let target_rank = match layering.rank_of.get(&edge.to).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        };
+
         if target_rank <= source_rank + 1 {
             proper_edges.push(ProperEdge {
                 chain_id: edge.id.clone(),
@@ -720,6 +908,7 @@ fn make_proper_layering(
         let mut previous = edge.from.clone();
         let ref_from = edge.from.clone();
         let ref_to = edge.to.clone();
+
         for rank in (source_rank + 1)..target_rank {
             let id = format!("placeholder-{dummy_sequence}");
             dummy_sequence += 1;
@@ -748,9 +937,11 @@ fn make_proper_layering(
                     title_rect: None,
                 },
             );
+
             while layering.layers.len() <= rank {
                 layering.layers.push(Vec::new());
             }
+
             layering.layers[rank].push(id.clone());
             layering.rank_of.insert(id.clone(), rank);
             layering.dummy.insert(id.clone());
@@ -763,6 +954,7 @@ fn make_proper_layering(
             });
             previous = id;
         }
+
         proper_edges.push(ProperEdge {
             chain_id: edge.id,
             from: previous,
@@ -775,26 +967,34 @@ fn make_proper_layering(
     (layering, proper_edges)
 }
 
+#[must_use]
 fn median(mut values: Vec<usize>) -> f64 {
     if values.is_empty() {
         return f64::INFINITY;
     }
+
     values.sort_unstable();
-    if values.len() % 2 == 1 {
-        values[values.len() / 2] as f64
+
+    if values.len().wrapping_rem(2) == 1 {
+        values[values.len().wrapping_div(2)] as f64
     } else {
-        (values[values.len() / 2 - 1] + values[values.len() / 2]) as f64 / 2.0
+        (values[values.len().wrapping_div(2) - 1] + values[values.len().wrapping_div(2)]) as f64 / 2.0
     }
 }
 
+#[must_use]
 fn barycenter(values: &[usize]) -> f64 {
-    if values.is_empty() {
-        f64::INFINITY
-    } else {
-        values.iter().sum::<usize>() as f64 / values.len() as f64
+    match values {
+        [] => {
+            f64::INFINITY
+        },
+        [_, ..] => {
+            values.iter().sum::<usize>() as f64 / values.len() as f64
+        },
     }
 }
 
+#[must_use]
 fn crossings_between(upper: &[String], lower: &[String], edges: &[ProperEdge]) -> usize {
     let upper_index: HashMap<&str, usize> = upper
         .iter()
@@ -817,6 +1017,7 @@ fn crossings_between(upper: &[String], lower: &[String], edges: &[ProperEdge]) -
         .collect();
     pairs.sort_unstable();
     let mut crossings = 0;
+
     for left in 0..pairs.len() {
         for right in (left + 1)..pairs.len() {
             if pairs[left].1 > pairs[right].1 {
@@ -824,9 +1025,11 @@ fn crossings_between(upper: &[String], lower: &[String], edges: &[ProperEdge]) -
             }
         }
     }
+
     crossings
 }
 
+#[must_use]
 fn reorder_layer(
     layout: &WorkingLayout,
     fixed: &[String],
@@ -846,33 +1049,48 @@ fn reorder_layer(
         .collect();
     let mut neighbors: HashMap<&str, Vec<usize>> =
         target.iter().map(|id| (id.as_str(), Vec::new())).collect();
+
     for edge in edges {
         let (fixed_id, target_id) = if downward {
             (edge.from.as_str(), edge.to.as_str())
         } else {
             (edge.to.as_str(), edge.from.as_str())
         };
-        if let (Some(&position), Some(bucket)) =
-            (fixed_index.get(fixed_id), neighbors.get_mut(target_id))
+
         {
-            bucket.push(position);
+            match (fixed_index.get(fixed_id), neighbors.get_mut(target_id)) {
+                (Some(&position), Some(bucket)) => {
+                    bucket.push(position);
+                },
+                (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
+            };
         }
     }
 
     let mut by_lane: HashMap<Option<&str>, Vec<String>> = HashMap::new();
+
     for id in target {
         by_lane
             .entry(layout.top_lane_of(id))
             .or_default()
             .push(id.clone());
     }
+
     let sort_bucket = |bucket: &mut Vec<String>| {
         bucket.sort_by(|a, b| {
-            let score_a = median(neighbors.get(a.as_str()).cloned().unwrap_or_default());
-            let score_b = median(neighbors.get(b.as_str()).cloned().unwrap_or_default());
-            score_a
-                .partial_cmp(&score_b)
-                .unwrap_or(Ordering::Equal)
+            let score_a = median(match neighbors.get(a.as_str()).cloned() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            });
+            let score_b = median(match neighbors.get(b.as_str()).cloned() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            });
+            match score_a
+                .partial_cmp(&score_b) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => Ordering::Equal,
+            }
                 .then_with(|| {
                     current_index
                         .get(a.as_str())
@@ -883,35 +1101,47 @@ fn reorder_layer(
     };
 
     let mut output = Vec::with_capacity(target.len());
+
     for lane in &layout.top_lane_order {
-        if let Some(mut bucket) = by_lane.remove(&Some(lane.as_str())) {
-            sort_bucket(&mut bucket);
-            output.extend(bucket);
-        }
-    }
-    if let Some(mut bucket) = by_lane.remove(&None) {
-        sort_bucket(&mut bucket);
-        for id in bucket {
-            let score = barycenter(neighbors.get(id.as_str()).map(Vec::as_slice).unwrap_or(&[]));
-            let insertion = if score.is_finite() {
-                output
-                    .iter()
-                    .position(|placed| {
-                        score
-                            < barycenter(
-                                neighbors
-                                    .get(placed.as_str())
-                                    .map(Vec::as_slice)
-                                    .unwrap_or(&[]),
-                            )
-                    })
-                    .unwrap_or(output.len())
-            } else {
-                output.len()
+        {
+            match by_lane.remove(&Some(lane.as_str())) {
+                Some(mut bucket) => {
+                    sort_bucket(&mut bucket);
+                    output.extend(bucket);
+                },
+                ::core::option::Option::None => {},
             };
-            output.insert(insertion, id);
         }
     }
+
+    match by_lane.remove(&None) {
+        Some(mut bucket) => {
+            sort_bucket(&mut bucket);
+
+            for id in bucket {
+                let score = barycenter(neighbors.get(id.as_str()).map(Vec::as_slice).unwrap_or(&[]));
+                let insertion = if score.is_finite() {
+                    output
+                        .iter()
+                        .position(|placed| {
+                            score
+                                < barycenter(
+                                    neighbors
+                                        .get(placed.as_str())
+                                        .map(Vec::as_slice)
+                                        .unwrap_or(&[]),
+                                )
+                        })
+                        .unwrap_or(output.len())
+                } else {
+                    output.len()
+                };
+                output.insert(insertion, id);
+            }
+        },
+        ::core::option::Option::None => {},
+    }
+
     let mut remaining: Vec<Vec<String>> = by_lane.into_values().collect();
     remaining.sort_by(|a, b| {
         a.first()
@@ -920,10 +1150,12 @@ fn reorder_layer(
                 deterministic_identifier_cmp(left, right)
             })
     });
+
     for mut bucket in remaining {
         sort_bucket(&mut bucket);
         output.extend(bucket);
     }
+
     output
 }
 
@@ -941,25 +1173,29 @@ fn transpose_improve(
         } else {
             crossings_between(order, fixed, edges)
         };
-        let other_score = other.map_or(0, |other| {
+        let other_score = other.map_or(0, |other_2| {
             if fixed_is_upper {
-                crossings_between(order, other, edges)
+                crossings_between(order, other_2, edges)
             } else {
-                crossings_between(other, order, edges)
+                crossings_between(other_2, order, edges)
             }
         });
         fixed_score + other_score
     };
     let mut best = score(current);
     let mut improved = true;
+
     while improved {
         improved = false;
-        for index in 0..current.len().saturating_sub(1) {
+
+        'over_index_2: for index in 0..current.len().saturating_sub(1) {
             if layout.top_lane_of(&current[index]) != layout.top_lane_of(&current[index + 1]) {
-                continue;
+                continue 'over_index_2;
             }
+
             current.swap(index, index + 1);
             let candidate = score(current);
+
             if candidate < best {
                 best = candidate;
                 improved = true;
@@ -970,6 +1206,7 @@ fn transpose_improve(
     }
 }
 
+#[must_use]
 fn order_layers(
     layout: &WorkingLayout,
     mut layers: Vec<Vec<String>>,
@@ -990,6 +1227,7 @@ fn order_layers(
                 true,
             );
         }
+
         for index in (0..layers.len().saturating_sub(1)).rev() {
             let reordered = reorder_layer(layout, &layers[index + 1], &layers[index], edges, false);
             layers[index] = reordered;
@@ -1008,6 +1246,7 @@ fn order_layers(
             );
         }
     }
+
     layers
 }
 
@@ -1034,6 +1273,7 @@ fn assign_coordinates(
     let mut extra_gaps = vec![0.0; layers.len()];
     let mut used_lanes = HashSet::new();
     let mut has_null_lane = false;
+
     for id in layers.iter().flatten() {
         if let Some(lane) = layout.top_lane_of(id) {
             used_lanes.insert(lane.to_string());
@@ -1041,10 +1281,13 @@ fn assign_coordinates(
             has_null_lane = true;
         }
     }
+
     let mut lane_columns: Vec<Option<String>> = Vec::new();
+
     if has_null_lane {
         lane_columns.push(None);
     }
+
     lane_columns.extend(
         layout
             .top_lane_order
@@ -1055,6 +1298,7 @@ fn assign_coordinates(
     );
     let label_placement = labels::LabelPlacement::new(layout, layers, &lane_columns);
     label_placement.reserve_flow(layout, &mut layer_heights, &mut extra_gaps);
+
     if is_horizontal {
         for index in 0..layers.len().saturating_sub(1) {
             let max_width = |layer: &[String]| {
@@ -1069,18 +1313,28 @@ fn assign_coordinates(
             extra_gaps[index] += (required - normal - config.layer_gap).max(0.0);
         }
     }
+
     let mut lane_width: HashMap<Option<String>, f64> = HashMap::new();
+
     for layer in layers {
         let mut by_lane: HashMap<Option<String>, Vec<&WorkingNode>> = HashMap::new();
-        for id in layer {
-            let Some(node) = layout.nodes.get(id) else {
-                continue;
+
+        'over_id_2: for id in layer {
+            let node = {
+                let optional_node = layout.nodes.get(id);
+
+                match optional_node {
+                    Some(matched_node) => matched_node,
+                    ::core::option::Option::None => continue 'over_id_2,
+                }
             };
+
             by_lane
                 .entry(node.top_lane_id.clone())
                 .or_default()
                 .push(node);
         }
+
         for (lane, nodes) in by_lane {
             let width = nodes.iter().map(|node| node.width).sum::<f64>()
                 + config.node_gap * nodes.len().saturating_sub(1) as f64;
@@ -1090,19 +1344,25 @@ fn assign_coordinates(
                 .or_insert(width);
         }
     }
+
     label_placement.reserve_lanes(layout, config.node_gap, &mut lane_width);
     let widths: Vec<f64> = lane_columns
         .iter()
-        .map(|lane| lane_width.get(lane).copied().unwrap_or(0.0))
+        .map(|lane| match lane_width.get(lane).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0.0,
+        })
         .collect();
     let lane_gap = config.node_gap * 2.0;
     let total_width =
         widths.iter().sum::<f64>() + lane_gap * lane_columns.len().saturating_sub(1) as f64;
     let mut cursor = -total_width / 2.0;
     let mut lane_centers = HashMap::new();
+
     for (index, lane) in lane_columns.iter().enumerate() {
         lane_centers.insert(lane.clone(), cursor + widths[index] / 2.0);
         cursor += widths[index];
+
         if index + 1 < lane_columns.len() {
             cursor += lane_gap;
         }
@@ -1110,9 +1370,11 @@ fn assign_coordinates(
 
     let mut y_offset = 0.0;
     let mut gap_centers = Vec::with_capacity(layers.len());
+
     for (layer_index, layer) in layers.iter().enumerate() {
         let layer_height = layer_heights[layer_index];
         let mut by_lane: HashMap<Option<String>, Vec<String>> = HashMap::new();
+
         for id in layer {
             let lane = layout
                 .nodes
@@ -1120,11 +1382,22 @@ fn assign_coordinates(
                 .and_then(|node| node.top_lane_id.clone());
             by_lane.entry(lane).or_default().push(id.clone());
         }
-        for lane in &lane_columns {
-            let ids = by_lane.get(lane).cloned().unwrap_or_default();
-            let Some(center) = lane_centers.get(lane).copied() else {
-                continue;
+
+        'over_lane_2: for lane in &lane_columns {
+            let ids = match by_lane.get(lane).cloned() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
             };
+
+            let center = {
+                let optional_center = lane_centers.get(lane).copied();
+
+                match optional_center {
+                    Some(matched_center) => matched_center,
+                    ::core::option::Option::None => continue 'over_lane_2,
+                }
+            };
+
             let width = ids
                 .iter()
                 .filter_map(|id| layout.nodes.get(id))
@@ -1132,16 +1405,23 @@ fn assign_coordinates(
                 .sum::<f64>()
                 + config.node_gap * ids.len().saturating_sub(1) as f64;
             let mut x = center - width / 2.0;
+
             for (order, id) in ids.iter().enumerate() {
-                if let Some(node) = layout.nodes.get_mut(id) {
-                    node.x = x + node.width / 2.0;
-                    node.y = y_offset + layer_height / 2.0;
-                    node.layer = layer_index;
-                    node.order = order;
-                    x += node.width + config.node_gap;
+                {
+                    match layout.nodes.get_mut(id) {
+                        Some(node) => {
+                            node.x = x + node.width / 2.0;
+                            node.y = y_offset + layer_height / 2.0;
+                            node.layer = layer_index;
+                            node.order = order;
+                            x += node.width + config.node_gap;
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         }
+
         let gap = config.layer_gap + extra_gaps[layer_index];
         gap_centers.push(y_offset + layer_height + gap / 2.0);
         y_offset += layer_height + gap;
@@ -1150,25 +1430,47 @@ fn assign_coordinates(
     label_placement.place(layout, &gap_centers, config.node_gap);
 
     let mut chains: HashMap<&str, Vec<&ProperEdge>> = HashMap::new();
+
     for edge in edges {
         chains.entry(&edge.chain_id).or_default().push(edge);
     }
+
     for chain in chains.values() {
-        let Some(first) = chain.first() else {
-            continue;
+        let first = {
+            let optional_first = chain.first();
+
+            match optional_first {
+                Some(matched_first) => matched_first,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(source) = layout.nodes.get(&first.ref_from) else {
-            continue;
+
+        let source = {
+            let optional_source = layout.nodes.get(&first.ref_from);
+
+            match optional_source {
+                Some(matched_source) => matched_source,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(target) = layout.nodes.get(&first.ref_to) else {
-            continue;
+
+        let target = {
+            let optional_target = layout.nodes.get(&first.ref_to);
+
+            match optional_target {
+                Some(matched_target) => matched_target,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let midpoint = ((source.x + target.x) / 2.0).round();
         let mut involved = HashSet::new();
+
         for edge in chain {
             involved.insert(edge.from.clone());
             involved.insert(edge.to.clone());
         }
+
         for id in involved {
             if let Some(node) = layout.nodes.get_mut(&id)
                 && node.kind == WorkingNodeKind::Dummy
@@ -1183,6 +1485,7 @@ pub(super) fn run(layout: &mut WorkingLayout, config: SwimlaneConfig) -> HashSet
     if config.automatic_lane_ordering {
         layout.top_lane_order = optimized_lane_order(layout);
     }
+
     let cycle_result = remove_cycles(layout);
     let layering = if config.ignore_cross_lane_edges {
         lane_aware_layering(layout, &cycle_result.edges, config)
@@ -1201,8 +1504,8 @@ mod tests {
 
     #[test]
     fn mixed_frontier_refills_only_disconnected_content_slots_in_source_order() {
-        // Mermaid 12.2 phase0.helpers.ts::sortedZeroInDegreeNodes preserves the
-        // ID-sorted group/linked slots, even when their source order differs.
+
+
         let nodes = ["Z", "E", "D", "A", "C", "B", "M", "X", "Y"]
             .into_iter()
             .map(|id| {

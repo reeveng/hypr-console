@@ -45,6 +45,7 @@ pub(super) fn begin_class_svg_document(
         out.push_str("</title>");
         out.checkpoint()?;
     }
+
     if has_acc_descr {
         let _ = write!(
             out,

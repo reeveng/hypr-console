@@ -1,65 +1,20 @@
 [Unit]
-Description=Wallpaper
+Description=Console wallpaper renderer
 PartOf=console.target
+Wants=console-wallpaper.service
 
 [Service]
-# The daemon tells systemd when it is ready, so the color is only asked for
-# once there is something listening to be asked. Setting it from the unit
-# rather than from a login script means the background is on the machine's
-# inventory like everything else, and comes back with the service.
 Type=notify
-
-# What the daemon keeps of the frames it has decoded is left where it is. It is
-# what a picture costs: with those frames a wallpaper goes up in the moment it
-# is asked for, and without them the client decodes and compresses the whole
-# loop before any of it is drawn, which was measured on this machine at
-# twenty-five seconds of a core. Emptied at every start, that was paid again at
-# every boot, at every return from Game Mode, and every time a window stopped
-# covering the screen. What made it look worth paying is that the name of a
-# cache entry says nothing about what is inside the picture, so a picture
-# pressed again at the same path is served out of the old one's frames;
-# `console_wallpaper::place::refresh` throws away exactly those, by their date.
-#
-# --no-cache is about the other half of the cache, which is the picture the
-# daemon would put up by itself: it remembers what was last on each screen, and
-# a daemon that restored that would be a second opinion about the wallpaper.
-ExecStart=/usr/bin/awww-daemon --no-cache
-
-# What is on the screen for the moment before `console-wallpaper` has chosen a
-# picture, and what stays there on a machine where it will not start. It is a
-# color rather than a picture: this unit brings the daemon up and
-# `console-wallpaper` decides what goes on it, and a unit that painted a
-# picture of its own would be a second opinion about the wallpaper.
-#
-# Written by `just theme`, because a unit file can import nothing.
+# The renderer accepts a picture before any output finishes configuring.
+# The startup color covers outputs as soon as they are ready.
 # console-palette:begin
 # Written by console-palette from theme/palette.toml.
-#
-# awww wants six hex digits and no hash, and a hash would start a
-# comment here anyway.
-#
-# The dash is what makes this a color and not a condition of the
-# background coming up. The daemon says it is ready when it is
-# listening, which is not when it has been told about a screen; asked
-# in that gap it answers "none of the requested outputs are valid"
-# and exits, and an ExecStartPost that exits fails the unit. On the
-# device that took the whole background down and dependency-failed
-# the unit that says which wallpaper is up -- over a color that
-# console-wallpaper covers a second later. Seen during an apply, where the
-# desktop is stopped and started faster than a daemon can find a
-# screen.
-ExecStartPost=-/usr/bin/awww clear 110b12
+ExecStart=/usr/local/bin/console-paper serve 110b12
 # console-palette:end
 ExecStopPost=-/usr/local/bin/console-report-crash %n
 Restart=always
 RestartSec=2
 
-# What this reaches past `console-.service.d/confining.conf`, and why.
-#
-# The home directory stays: the pictures are read from it and the decoded
-# frames are kept in it, which is the cache this unit's comment above argues
-# for. No device node -- a wallpaper is drawn into shared memory and handed to
-# the compositor -- and nothing off this machine.
 PrivateDevices=yes
 RestrictAddressFamilies=AF_UNIX AF_NETLINK
 

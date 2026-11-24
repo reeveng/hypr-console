@@ -421,7 +421,10 @@ fn read_pcm(reader: &mut BitReader, plane: &mut [u16], region: PcmRegion) -> Res
     let first = start.wrapping_add(y.wrapping_mul(region.stride));
     let Ok(row) = window_mut(plane, first..first.wrapping_add(region.side));
     let Ok(length) = fixed_index(row.len());
-    ensure!(length == region.side, "index or range outside the buffer");
+    ensure(
+      length == region.side,
+      || "index or range outside the buffer",
+    )?;
 
     for sample in row {
       let raw = reader.read_bits(region.source_depth)?;
@@ -1089,20 +1092,30 @@ impl<'a> SliceDecoder<'a> {
     Ok(limit)
   }
 
-  pub fn decode(pic: &'a mut PicState, job: &'a SliceJob) -> Result<()> {
-    let sh = &job.sh;
-    let (sps, pps) = (&*job.sps, &*job.pps);
-    ensure!(sh.data_offset < job.rbsp.len(), "empty slice segment data");
-    let slice_qp = i32::wrapping_add(pps.init_qp, sh.qp_delta);
+  fn cabac_initialization(
+    sh: &SliceHeader,
+    pps: &Pps,
+  ) -> core::result::Result<Initialization, Never> {
     let table = match (sh.slice_type, sh.cabac_init_flag) {
       (SliceType::I, _) => ContextTable::Intra,
       (SliceType::P, false) | (SliceType::B, true) => ContextTable::Predictive,
       (SliceType::B, false) | (SliceType::P, true) => ContextTable::Bidirectional,
     };
-    let context_init = Initialization {
+    Ok(Initialization {
       table,
-      qp: slice_qp,
-    };
+      qp: i32::wrapping_add(pps.init_qp, sh.qp_delta),
+    })
+  }
+
+  pub fn decode(pic: &'a mut PicState, job: &'a SliceJob) -> Result<()> {
+    let sh = &job.sh;
+    let (sps, pps) = (&*job.sps, &*job.pps);
+    ensure(
+      sh.data_offset < job.rbsp.len(),
+      || "empty slice segment data",
+    )?;
+    let Ok(context_init) = Self::cabac_initialization(sh, pps);
+    let slice_qp = context_init.qp;
 
     let slice_addr = match ::core::primitive::bool::then_some(sh.dependent, ()) {
       ::core::option::Option::Some(()) => match pic.slices.last() {
@@ -1217,7 +1230,10 @@ impl<'a> SliceDecoder<'a> {
     let start = layout_value(&layout.rs_to_ts, u64::from(self.sh.segment_address))?;
     let start_2 = u64::from(start);
     let Ok(remaining) = tail(&layout.ts_to_rs, start_2);
-    ensure!(!remaining.is_empty(), "index or range outside the buffer");
+    ensure(
+      !remaining.is_empty(),
+      || "index or range outside the buffer",
+    )?;
     let columns = match core::num::NonZeroU32::new(layout.width_ctbs) {
       Some(columns) => columns,
       None => return invalid("empty CTB picture"),
@@ -1247,7 +1263,7 @@ impl<'a> SliceDecoder<'a> {
         SliceEnd::More => {
           let next = scan.wrapping_add(1);
           let Ok(count) = fixed_index(layout.ts_to_rs.len());
-          ensure!(next < count, "slice data continues past the last CTB");
+          ensure(next < count, || "slice data continues past the last CTB")?;
           let raster_2 = layout_value(&layout.ts_to_rs, next)?;
           self.open_subset(
             &layout,
@@ -1274,7 +1290,7 @@ impl<'a> SliceDecoder<'a> {
     let address = u64::from(ctb.raster);
     let Ok(previous) = read(&self.pic.ctb_slice, address);
     let rs = ctb.raster;
-    ensure!(previous.is_none(), "CTB {rs} decoded twice");
+    ensure(previous.is_none(), || format!("CTB {rs} decoded twice"))?;
     let Ok(column) = wrapped::<_, i32>(rs % geometry.columns);
     let Ok(row) = wrapped::<_, i32>(rs / geometry.columns);
     let position = Point { x: column, y: row };
@@ -1298,10 +1314,10 @@ impl<'a> SliceDecoder<'a> {
     )?;
     let Ok(terminate) = self.c.decode_terminate();
     let Ok(exhaustion) = self.c.exhaustion();
-    ensure!(
+    ensure(
       exhaustion != console_core_adaptive_arithmetic_decoding::Exhaustion::Overrun,
-      "slice data overrun"
-    );
+      || "slice data overrun",
+    )?;
     self.save_wavefront(layout, ctb, geometry)?;
 
     let Ok(row_2) = wrapped::<_, u64>(position.y);
@@ -1424,7 +1440,7 @@ impl<'a> SliceDecoder<'a> {
     match (wpp, tile, self.pps.tiles_enabled) {
       (CtbBoundary::Start, _, _) | (_, CtbBoundary::Start, PictureTool::Enabled) => {
         let Ok(end) = self.c.decode_terminate();
-        ensure!(end == 1, "end_of_subset_one_bit is 0");
+        ensure(end == 1, || "end_of_subset_one_bit is 0")?;
         let Ok(position) = self.c.bit_pos();
         let Ok(()) = self.c.set_byte_pos(BytePosition(position.div_ceil(8)));
         self.c.init_engine()?;
@@ -2181,10 +2197,10 @@ impl<'a> SliceDecoder<'a> {
       .wrapping_mul(cside)
       .wrapping_mul(u64::from(chroma_depth));
     let Ok(length) = fixed_index(data.len());
-    ensure!(
+    ensure(
       start.wrapping_add(luma_bits.wrapping_add(chroma_bits).div_ceil(8)) <= length,
-      "PCM samples truncated"
-    );
+      || "PCM samples truncated",
+    )?;
     let Ok(payload) = tail(data, start);
     let Ok(mut reader) = BitReader::new(payload);
 
@@ -2622,10 +2638,10 @@ impl<'a> SliceDecoder<'a> {
     };
     let Ok(depth) = wrapped::<_, i32>(self.pic.bd_y);
     let half = depth.wrapping_sub(8).wrapping_mul(6).wrapping_div(2);
-    ensure!(
+    ensure(
       signed >= 26i32.wrapping_add(half).wrapping_neg() && signed <= 25i32.wrapping_add(half),
-      "CuQpDeltaVal out of range"
-    );
+      || "CuQpDeltaVal out of range",
+    )?;
     self.cu_qp_delta = QpDelta::Decoded(signed);
     let Ok(()) = self.update_qp();
     Ok(())
@@ -2746,7 +2762,7 @@ impl<'a> SliceDecoder<'a> {
         0.. => {
           let Ok(ordinal) = wrapped::<_, u64>(reference);
           let Ok(length) = fixed_index(list.len());
-          ensure!(ordinal < length, "reference index out of range");
+          ensure(ordinal < length, || "reference index out of range")?;
         }
         _ => {}
       }
@@ -2970,7 +2986,7 @@ impl<'a> SliceDecoder<'a> {
     let magnitude = match longer {
       1 => {
         let Ok(prefix) = self.bypass_unary(30);
-        ensure!(prefix < 30, "invalid abs_mvd_minus2");
+        ensure(prefix < 30, || "invalid abs_mvd_minus2")?;
         let bits = prefix.wrapping_add(1);
         let Ok(suffix) = self.bypass_bits(bits);
         let Ok(value) = wrapped::<_, i32>(1u32.wrapping_shl(bits).wrapping_add(suffix));

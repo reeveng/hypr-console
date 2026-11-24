@@ -18,10 +18,18 @@ console-core-number-conversion.workspace = true
 console-core-shapes.workspace = true
 
 console-core-path-rasterizer.workspace = true
+console-core-picture-scaling.workspace = true
 console-core-text-layout.workspace = true
 
 [dependencies.console-core-paths]
 path = "../console-core-paths"
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "picture_painting"
+harness = false
 
 [lints]
 workspace = true

@@ -17,6 +17,8 @@ use console_kernel::interrupts::Address;
 use console_kernel::memory::{Frames, MemoryError, PAGE};
 use console_kernel_handles::{HandleValue, Kernel, MappingAccess, ProcessId};
 
+use super::document::wire::{DOCUMENT_ADDRESS, Document};
+
 pub(super) const CODE_ADDRESS: u64 = 0x4000_0000_0000;
 pub(super) const STACK_TOP: u64 = CODE_ADDRESS + 3 * PAGE;
 pub const FRAME_ADDRESS: u64 = CODE_ADDRESS + 4 * PAGE;
@@ -41,11 +43,14 @@ struct Leaves {
   stack: u64,
   gap: u64,
   frame: [u64; 2],
-  unused: [u64; 506],
+  document: u64,
+  unused: [u64; 505],
 }
 
 const _: [(); 4096] = [(); size_of::<Leaves>()];
 const _: [(); 32] = [(); offset_of!(Leaves, frame)];
+const _: () =
+  assert!(DOCUMENT_ADDRESS == CODE_ADDRESS + 6 * PAGE && offset_of!(Leaves, document) == 48);
 
 pub struct Frame(Page<[u32; 1024]>);
 
@@ -64,6 +69,7 @@ pub struct Reserved {
   pub renderer: AddressSpace,
   pub browser: AddressSpace,
   pub frame: Frame,
+  document: Page<Document>,
   trap_stack: Page<[u8; 16_384]>,
 }
 
@@ -100,16 +106,17 @@ impl Task<'_> {
       stack: self.stack,
       argument,
     };
-    let trap = with_frame_mapping(authority, &mut leaves.0.frame, || {
+    let copy_result = with_frame_mapping(authority, &mut leaves.0.frame, move || {
       run_program(root, code, stack, program, call)
     })
-    .map_err(PagingError::from)??;
+    .map_err(PagingError::from)?;
+    let trap = copy_result?;
 
     Ok(trap)
   }
 }
 
-const RESERVED_PAGES: u64 = 17;
+const RESERVED_PAGES: u64 = 18;
 const _: () = assert!(
   u64::from_le_bytes(size_of::<Reserved>().to_le_bytes()) == RESERVED_PAGES.saturating_mul(PAGE)
 );
@@ -171,6 +178,15 @@ impl Frame {
 }
 
 impl Reserved {
+  pub(super) fn load_document(&mut self, document: Document) -> Result<(), PagingError> {
+    let Ok(address) = self.document.physical();
+    self.document.0 = document;
+    let checked_value = user_leaf(address, UserPage::Data(FrameAccess::Read))?;
+    self.renderer.leaves.0.document = checked_value;
+
+    Ok(())
+  }
+
   #[cfg_attr(
     dylint_lib = "explicit051_no_machine_width",
     expect(
@@ -332,11 +348,11 @@ fn run_program(
   }
 
   stack.0.fill(0);
-  let Ok(root) = root.physical();
+  let Ok(root_2) = root.physical();
 
   // SAFETY: the physical pages and trap stack belong to the fixed boot reservation. No Rust access to the frame overlaps these fixed user programs. The assembly switches CR3 with global translations and PCID disabled, and restores it before returning.
   let trap = unsafe {
-    super::console_enter_user(root, CODE_ADDRESS, STACK_TOP, call.stack, call.argument)
+    super::console_enter_user(root_2, CODE_ADDRESS, STACK_TOP, call.stack, call.argument)
   };
 
   Ok(trap)

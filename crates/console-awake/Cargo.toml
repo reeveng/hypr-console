@@ -12,13 +12,10 @@ path = "src/lib.rs"
 [dependencies]
 console-operating-system-linux.workspace = true
 console-core-external-programs.workspace = true
+console-core-internal-programs.workspace = true
+rustix.workspace = true
 console-core-never.workspace = true
 console-core-words.workspace = true
-console-session.workspace = true
-
-[dev-dependencies]
-console-program-lifetime.workspace = true
-console-waiting.workspace = true
 
 [lints]
 workspace = true

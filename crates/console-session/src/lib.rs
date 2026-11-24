@@ -10,27 +10,36 @@
 //! to be worked out and neither of them could be asked without one, because
 //! both lived in a shell script.
 //!
+//! The login backend chooses a Wayland session entry. The switch backend
+//! observes the active session and supplies the command for a handoff.
+//!
 //! `run_each` also times what it runs, because this is the longest wait on the
 //! device. A switch usually does not get to write its line: the session going
-//! down takes the program writing it with it, somewhere inside
-//! `steamos-session-select`. What always lands is `session`/`starting`, which
-//! is measured in the session that is coming up, and that is the half someone
-//! is actually sitting there watching.
+//! down takes the program writing it with it. The incoming session writes
+//! `session`/`starting`, which measures the wait the player sees.
 
 pub mod radio;
 pub mod reaching;
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
-pub enum Session {
-  #[words(word = "plasma", going = "back to the desktop")]
-  Desktop,
-  #[words(word = "gamescope", going = "to game mode")]
-  Game,
+pub const DESKTOP_ENTRY: &str = "console.desktop";
+
+pub trait LoginBackend {
+  fn next_entry(&self) -> Result<String, Never>;
 }
 
-pub const GAME_TARGET: &str = "gamescope-session.target";
+pub trait SwitchBackend {
+  fn current(&self) -> Result<Session, Never>;
 
-pub const SWITCHER: &str = "/usr/local/bin/steamos-session-select";
+  fn switch_command(&self, to: Session) -> Result<Vec<String>, Never>;
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
+pub enum Session {
+  #[words(going = "back to the desktop")]
+  Desktop,
+  #[words(going = "to game mode")]
+  Game,
+}
 
 impl Session {
   pub fn buttons(self) -> Result<Option<&'static str>, Never> {
@@ -54,7 +63,11 @@ pub enum Going {
   Already,
 }
 
-pub fn steps(now: Session, to: Session) -> Result<Vec<Vec<String>>, Never> {
+pub fn steps(
+  now: Session,
+  to: Session,
+  switch: impl FnOnce(Session) -> Result<Vec<String>, Never>,
+) -> Result<Vec<Vec<String>>, Never> {
   let Ok(worth) = worth_going(now, to);
 
   match worth {
@@ -71,16 +84,15 @@ pub fn steps(now: Session, to: Session) -> Result<Vec<Vec<String>>, Never> {
     None => {}
   }
 
-  let Ok(word) = to.word();
-
-  steps.push(vec![SWITCHER.to_string(), word.to_string()]);
+  let Ok(command) = switch(to);
+  steps.push(command);
 
   Ok(steps)
 }
 
 pub const HANDED_OVER: [&str; 5] = [
-  "WAYLAND_DISPLAY",
-  "HYPRLAND_INSTANCE_SIGNATURE",
+  console_compositor::session::DISPLAY,
+  console_compositor::session::SIGNATURE,
   "XDG_CURRENT_DESKTOP",
   "XDG_SESSION_TYPE",
   "XDG_RUNTIME_DIR",
@@ -128,20 +140,6 @@ impl From<bool> for CommandResult {
       None => Self::Failed,
     }
   }
-}
-
-pub fn here(target: &str) -> Result<Session, Never> {
-  let Ok(mut systemctl) = Program::Systemctl.command();
-
-  let asked = systemctl
-    .args(["--user", "is-active", "--quiet", target])
-    .status();
-
-  Ok(match asked.map(|how| CommandResult::from(how.success())) {
-    Ok(CommandResult::Succeeded) => Session::Game,
-    Ok(CommandResult::Failed) => Session::Desktop,
-    Err(_would_not_start) => Session::Desktop,
-  })
 }
 
 #[cfg_attr(
@@ -198,9 +196,9 @@ pub fn plainly(program: &str) -> Result<String, Never> {
   })
 }
 
-pub fn run(now: Session, to: Session) -> Result<(), Never> {
+pub fn run(now: Session, to: Session, backend: &impl SwitchBackend) -> Result<(), Never> {
   let Ok(going) = to.going();
-  let Ok(steps) = steps(now, to);
+  let Ok(steps) = steps(now, to, |destination| backend.switch_command(destination));
   let Ok(()) = run_each(going, &steps);
 
   Ok(())
@@ -211,12 +209,19 @@ mod tests {
   use super::*;
   use std::error::Error;
 
+  fn switch(to: Session) -> Result<Vec<String>, Never> {
+    Ok(match to {
+      Session::Desktop => vec!["switcher".to_string(), "desktop".to_string()],
+      Session::Game => vec!["switcher".to_string(), "game".to_string()],
+    })
+  }
+
   #[test]
   fn a_step_is_written_down_under_the_name_of_the_program_and_not_its_path() {
-    let Ok(path) = plainly("/usr/local/bin/steamos-session-select");
+    let Ok(path) = plainly("/usr/local/bin/session-switcher");
     let Ok(name) = plainly("systemctl");
 
-    assert_eq!(path, "steamos-session-select");
+    assert_eq!(path, "session-switcher");
     assert_eq!(name, "systemctl");
   }
 
@@ -232,8 +237,8 @@ mod tests {
   fn neither_way_to_a_session_acts_when_the_machine_is_already_in_it() {
     let Ok(in_game) = worth_going(Session::Game, Session::Game);
     let Ok(on_the_desktop) = worth_going(Session::Desktop, Session::Desktop);
-    let Ok(game_steps) = steps(Session::Game, Session::Game);
-    let Ok(desktop_steps) = steps(Session::Desktop, Session::Desktop);
+    let Ok(game_steps) = steps(Session::Game, Session::Game, switch);
+    let Ok(desktop_steps) = steps(Session::Desktop, Session::Desktop, switch);
 
     assert_eq!(in_game, Going::Already);
     assert_eq!(on_the_desktop, Going::Already);
@@ -242,8 +247,8 @@ mod tests {
   }
 
   #[test]
-  fn the_pad_is_a_gamepad_again_before_steam_is_asked_for() {
-    let Ok(steps) = steps(Session::Desktop, Session::Game);
+  fn the_pad_is_a_gamepad_again_before_the_switcher_is_asked() {
+    let Ok(steps) = steps(Session::Desktop, Session::Game, switch);
 
     assert_eq!(
       steps.first(),
@@ -251,15 +256,15 @@ mod tests {
     );
     assert_eq!(
       steps.get(1),
-      Some(&vec![SWITCHER.to_string(), "gamescope".to_string()])
+      Some(&vec!["switcher".to_string(), "game".to_string()])
     );
   }
 
   #[test]
   fn coming_back_does_not_reach_for_the_controller() {
-    let Ok(steps) = steps(Session::Game, Session::Desktop);
+    let Ok(steps) = steps(Session::Game, Session::Desktop, switch);
 
-    assert_eq!(steps, vec![vec![SWITCHER, "plasma"]]);
+    assert_eq!(steps, vec![vec!["switcher", "desktop"]]);
   }
 
   fn the_desktop() -> Result<(u32, Vec<String>), Box<dyn Error>> {

@@ -963,10 +963,12 @@ fn content_step<'input>(
     }
   }
 
-  let Ok(position) = s.gen_text_pos();
-  let next = s
-    .next_byte()
-    .map_err(|_end_after_open| Error::UnknownToken(position))?;
+  let unknown_token = || {
+    let Ok(position) = s.gen_text_pos();
+
+    Error::UnknownToken(position)
+  };
+  let next = s.next_byte().map_err(|_end_after_open| unknown_token())?;
 
   match next {
     b'!' => {
@@ -977,7 +979,7 @@ fn content_step<'input>(
         (crate::PrefixMatch::Matches, _) => parse_comment(s, events)?,
         (_, crate::PrefixMatch::Matches) => parse_cdata(s, events)?,
         (crate::PrefixMatch::Different, crate::PrefixMatch::Different) => {
-          return Err(Error::UnknownToken(position));
+          return Err(unknown_token());
         }
       }
 
@@ -1370,7 +1372,12 @@ impl<'input> Stream<'input> {
   }
 
   pub fn consume_reference(&mut self) -> Result<Option<Reference<'input>>> {
-    let Ok(position) = self.gen_text_pos();
+    let Ok(start) = self.pos();
+    let malformed = |stream: &Self| {
+      let Ok(position) = stream.gen_text_pos_from(start);
+
+      Error::MalformedEntityReference(position)
+    };
     let Ok(ampersand) = self.try_consume_byte(b'&');
 
     match ampersand {
@@ -1394,8 +1401,7 @@ impl<'input> Stream<'input> {
             (digits, 10)
           }
         };
-        let value = u32::from_str_radix(digits, radix)
-          .map_err(|_not_digits| Error::MalformedEntityReference(position))?;
+        let value = u32::from_str_radix(digits, radix).map_err(|_not_digits| malformed(self))?;
         let ch = match char::from_u32(value) {
           Some(ch) => ch,
           None => char::REPLACEMENT_CHARACTER,
@@ -1403,13 +1409,13 @@ impl<'input> Stream<'input> {
 
         match CHAR_XML_CHAR(ch) {
           XmlCharacter::Permitted => Reference::Char(ch),
-          XmlCharacter::Forbidden => return Err(Error::MalformedEntityReference(position)),
+          XmlCharacter::Forbidden => return Err(malformed(self)),
         }
       }
       crate::Consumption::Absent => {
         let name = self
           .consume_name()
-          .map_err(|_invalid_name| Error::MalformedEntityReference(position))?;
+          .map_err(|_invalid_name| malformed(self))?;
 
         match name {
           "quot" => Reference::Char('"'),
@@ -1424,7 +1430,7 @@ impl<'input> Stream<'input> {
 
     self
       .consume_byte(b';')
-      .map_err(|_missing_end| Error::MalformedEntityReference(position))?;
+      .map_err(|_missing_end| malformed(self))?;
 
     Ok(Some(reference))
   }

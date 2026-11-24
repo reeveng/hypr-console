@@ -19,6 +19,7 @@ pub enum ThemeDesignCompileError {
     /// The editable document failed admission or typed resolution.
     #[error("theme design materialization failed: {0}")]
     Materialization(#[from] ThemeMaterializationErrorV1),
+
     /// The materialized concrete specification failed compiler admission.
     #[error("theme design compilation failed: {0}")]
     Compilation(#[from] super::ThemeCompileError),
@@ -72,6 +73,7 @@ pub fn materialize_theme_design_json_with_bindings(
         .map_err(|error| failure("", "finite-theme-design", error.to_string()))
 }
 
+#[must_use]
 fn invalid_design_json(_: serde_json::Error) -> ThemeMaterializationErrorV1 {
     ThemeMaterializationErrorV1::from_diagnostic(
         ThemeMaterializationDiagnosticV1::invalid_definition_json(
@@ -81,12 +83,13 @@ fn invalid_design_json(_: serde_json::Error) -> ThemeMaterializationErrorV1 {
     )
 }
 
+#[must_use]
 fn encoding_error(
     error: super::definition_admission::ThemeInputEncodingError,
 ) -> ThemeMaterializationErrorV1 {
     match error {
-        super::definition_admission::ThemeInputEncodingError::ResourceLimit(error) => {
-            super::definition_admission::encoded_bytes_contract_error(error)
+        super::definition_admission::ThemeInputEncodingError::ResourceLimit(error_2) => {
+            super::definition_admission::encoded_bytes_contract_error(error_2)
         }
         super::definition_admission::ThemeInputEncodingError::InvalidEncoding => failure(
             "",
@@ -102,29 +105,37 @@ pub fn inspect_theme_design(design: &ThemeDesignV1) -> Result<ThemeDesignInspect
         .map(|(_, references)| ThemeDesignInspection { references })
 }
 
+#[must_use]
 fn failure(path: &str, domain: &str, message: impl Into<String>) -> ThemeMaterializationErrorV1 {
+    #[must_use]
     fn bounded(value: &str, max: usize) -> &str {
         let mut end = value.len().min(max);
+
         while !value.is_char_boundary(end) {
             end -= 1;
         }
+
         &value[..end]
     }
-    let message = format!("{} at {path}", message.into());
-    // Keep the complete pointer or its nearest complete ancestor; never split an escape.
+
+    let message_2 = format!("{} at {path}", <_ as ::core::convert::Into<::std::string::String>>::into(message));
+
     let mut pointer = path;
+
     while pointer.len() > ThemeMaterializationDiagnosticV1::MAX_PATH_BYTES {
         pointer = pointer.rsplit_once('/').map_or("", |(parent, _)| parent);
     }
+
     ThemeMaterializationErrorV1::from_diagnostic(
         ThemeMaterializationDiagnosticV1::invalid_token_value(
             pointer,
             domain,
-            bounded(&message, 512),
+            bounded(&message_2, 512),
         ),
     )
 }
 
+#[must_use]
 fn child(path: &str, key: impl std::fmt::Display) -> String {
     format!(
         "{path}/{}",
@@ -132,6 +143,7 @@ fn child(path: &str, key: impl std::fmt::Display) -> String {
     )
 }
 
+#[must_use]
 fn domain(value_type: &'static str) -> ThemeDesignValueDomain {
     ThemeDesignValueDomain {
         value_type: value_type.to_owned(),
@@ -146,6 +158,7 @@ fn materialize(
 ) -> Result<(DiagramThemeSpecWireV1, Vec<ThemeDesignReferenceUse>)> {
     super::definition_admission::check_typed_input_encoded_bytes(resources, design)
         .map_err(encoding_error)?;
+
     if design.tokens.len() > MAX_TOKENS {
         return Err(failure(
             "/tokens",
@@ -153,6 +166,7 @@ fn materialize(
             "too many reusable theme values",
         ));
     }
+
     for (path, id) in design
         .tokens
         .keys()
@@ -168,6 +182,7 @@ fn materialize(
             ));
         }
     }
+
     if design.styles.len() + design.rules.len() + design.palettes.len()
         > super::semantic::MAX_THEME_RULES
     {
@@ -177,6 +192,7 @@ fn materialize(
             "too many authored theme rules",
         ));
     }
+
     let mut resolver = Resolver {
         design,
         resources,
@@ -188,11 +204,14 @@ fn materialize(
         reference_uses: 0,
         inspect,
     };
+
     for id in design.tokens.keys() {
         resolver.token(id, &child("/tokens", id))?;
     }
+
     let mut styles = Vec::new();
     let mut output_bytes = 0;
+
     for (target, style) in &design.styles {
         let entry = ThemeRuleSetWireV1::Rule {
             target: target.clone(),
@@ -204,6 +223,7 @@ fn materialize(
         charge_encoded(resources, &mut output_bytes, &entry)?;
         styles.push(entry);
     }
+
     for (index, rule) in design.rules.iter().enumerate() {
         let entry = ThemeRuleSetWireV1::Rule {
             target: rule.target.clone(),
@@ -215,6 +235,7 @@ fn materialize(
         charge_encoded(resources, &mut output_bytes, &entry)?;
         styles.push(entry);
     }
+
     for (target, palette) in &design.palettes {
         let colors = resolver.palette(palette, &child("/palettes", target))?;
         let entry = ThemeRuleSetWireV1::OrdinalPalette {
@@ -224,6 +245,7 @@ fn materialize(
         charge_encoded(resources, &mut output_bytes, &entry)?;
         styles.push(entry);
     }
+
     let canvas = design
         .canvas
         .as_ref()
@@ -249,6 +271,7 @@ fn materialize(
         })
         .collect::<BTreeSet<_>>();
     resolver.effects.retain(|entry| matches!(entry, ThemeEffectEntryWireV1::Graph { id, .. } if used_effects.contains(id.as_str())));
+
     if resolver.effects.len() > super::resources::MAX_EFFECT_GRAPHS_HARD_CAP {
         return Err(failure(
             "/tokens",
@@ -256,6 +279,7 @@ fn materialize(
             "too many consumed theme effects",
         ));
     }
+
     let spec = DiagramThemeSpecWireV1 {
         mermaid: design.mermaid.clone(),
         typography,
@@ -267,14 +291,16 @@ fn materialize(
     };
     super::definition_admission::check_typed_input_encoded_bytes(resources, &spec)
         .map_err(encoding_error)?;
+
     if inspect {
         propagate_alias_domains(design, &mut resolver.references);
     }
+
     Ok((spec, resolver.references))
 }
 
-// Charge expanded values as they are retained, before repeated consumers can accumulate a
-// large concrete document. The final exact complete-spec admission remains authoritative too.
+
+
 fn charge_encoded(
     resources: &ThemeResourcePolicy,
     total: &mut usize,
@@ -290,21 +316,23 @@ fn charge_encoded(
     Ok(())
 }
 
+#[must_use]
 fn token_alias(value: &ThemeDesignTokenValueV1) -> Option<(&'static str, &ThemeReferenceV1)> {
     use ThemeDesignTokenValueV1 as T;
+
     match value {
-        T::Color(ThemeValueV1::Ref(value)) => Some(("color", value)),
-        T::Number(ThemeValueV1::Ref(value)) => Some(("number", value)),
-        T::String(ThemeValueV1::Ref(value)) => Some(("string", value)),
-        T::Length(ThemeValueV1::Ref(value)) => Some(("length", value)),
-        T::FontStack(ThemeValueV1::Ref(value)) => Some(("font-stack", value)),
-        T::Palette(ThemeValueV1::Ref(value)) => Some(("palette", value)),
-        T::Paint(ThemeValueV1::Ref(value)) => Some(("paint", value)),
-        T::Stroke(ThemeValueV1::Ref(value)) => Some(("stroke", value)),
-        T::TextStyle(ThemeValueV1::Ref(value)) => Some(("text-style", value)),
-        T::Effect(ThemeValueV1::Ref(value)) => Some(("effect", value)),
-        T::LineHeight(ThemeValueV1::Ref(value)) => Some(("line-height", value)),
-        T::Insets(ThemeValueV1::Ref(value)) => Some(("insets", value)),
+        T::Color(ThemeValueV1::Ref(value_2)) => Some(("color", value_2)),
+        T::Number(ThemeValueV1::Ref(value_3)) => Some(("number", value_3)),
+        T::String(ThemeValueV1::Ref(value_4)) => Some(("string", value_4)),
+        T::Length(ThemeValueV1::Ref(value_5)) => Some(("length", value_5)),
+        T::FontStack(ThemeValueV1::Ref(value_6)) => Some(("font-stack", value_6)),
+        T::Palette(ThemeValueV1::Ref(value_7)) => Some(("palette", value_7)),
+        T::Paint(ThemeValueV1::Ref(value_8)) => Some(("paint", value_8)),
+        T::Stroke(ThemeValueV1::Ref(value_9)) => Some(("stroke", value_9)),
+        T::TextStyle(ThemeValueV1::Ref(value_10)) => Some(("text-style", value_10)),
+        T::Effect(ThemeValueV1::Ref(value_11)) => Some(("effect", value_11)),
+        T::LineHeight(ThemeValueV1::Ref(value_12)) => Some(("line-height", value_12)),
+        T::Insets(ThemeValueV1::Ref(value_13)) => Some(("insets", value_13)),
         _ => None,
     }
 }
@@ -316,39 +344,65 @@ fn propagate_alias_domains(design: &ThemeDesignV1, references: &mut [ThemeDesign
         .map(|(index, entry)| (entry.path.clone(), index))
         .collect::<BTreeMap<_, _>>();
     let consumers = references.to_vec();
+
     for consumer in consumers {
         let mut id = consumer.token.as_str();
-        // Cached resolution can admit chains deeper than the active recursion limit.
-        // Missing values and cycles are already rejected; token count bounds this traversal.
-        for _ in 0..design.tokens.len() {
-            let Some(token) = design.tokens.get(id) else {
-                break;
-            };
-            let Some((_, reference)) = token_alias(&token.value) else {
-                break;
-            };
-            if let Some(index) = indices.get(&format!("{}/value", child("/tokens", id))) {
-                let domain = &mut references[*index].domain;
-                let source = &consumer.domain;
-                if let Some(min) = source.min {
-                    domain.min = Some(domain.min.map_or(min, |value| value.max(min)));
+
+
+        'inner_for_2: for _ in 0..design.tokens.len() {
+            let token = {
+                let optional_token = design.tokens.get(id);
+
+                match optional_token {
+                    Some(matched_token) => matched_token,
+                    ::core::option::Option::None => break 'inner_for_2,
                 }
-                if let Some(max) = source.max {
-                    domain.max = Some(domain.max.map_or(max, |value| value.min(max)));
+            };
+
+            let reference = {
+                let optional_reference = token_alias(&token.value);
+
+                match optional_reference {
+                    Some((_, matched_reference)) => matched_reference,
+                    ::core::option::Option::None => break 'inner_for_2,
                 }
-                for (target, incoming) in [
-                    (&mut domain.choices, &source.choices),
-                    (&mut domain.units, &source.units),
-                ] {
-                    if !incoming.is_empty() {
-                        if target.is_empty() {
-                            target.clone_from(incoming);
-                        } else {
-                            target.retain(|value| incoming.contains(value));
+            };
+
+            match indices.get(&format!("{}/value", child("/tokens", id))) {
+                Some(index) => {
+                    let domain = &mut references[*index].domain;
+                    let source = &consumer.domain;
+
+                    match source.min {
+                        Some(min) => {
+                            domain.min = Some(domain.min.map_or(min, |value| value.max(min)));
+                        },
+                        ::core::option::Option::None => {},
+                    }
+
+                    match source.max {
+                        Some(max) => {
+                            domain.max = Some(domain.max.map_or(max, |value| value.min(max)));
+                        },
+                        ::core::option::Option::None => {},
+                    }
+
+                    for (target, incoming) in [
+                        (&mut domain.choices, &source.choices),
+                        (&mut domain.units, &source.units),
+                    ] {
+                        if !incoming.is_empty() {
+                            if target.is_empty() {
+                                target.clone_from(incoming);
+                            } else {
+                                target.retain(|value| incoming.contains(value));
+                            }
                         }
                     }
-                }
+                },
+                ::core::option::Option::None => {},
             }
+
             id = &reference.r#ref;
         }
     }
@@ -372,6 +426,7 @@ enum Value {
 }
 
 impl Value {
+    #[must_use]
     fn kind(&self) -> &'static str {
         match self {
             Self::Color(_) => "color",
@@ -437,7 +492,9 @@ impl Resolver<'_> {
                 "reference identifiers must contain 1 to 128 bytes",
             ));
         }
+
         self.reference_uses += 1;
+
         if self.reference_uses > MAX_REFERENCE_USES {
             return Err(failure(
                 path,
@@ -445,6 +502,7 @@ impl Resolver<'_> {
                 "too many theme reference uses",
             ));
         }
+
         if self.inspect {
             self.references.push(ThemeDesignReferenceUse {
                 token: reference.r#ref.clone(),
@@ -452,13 +510,18 @@ impl Resolver<'_> {
                 domain,
             });
         }
+
         Ok(())
     }
 
     fn token(&mut self, id: &str, path: &str) -> Result<Arc<Value>> {
-        if let Some(value) = self.cache.get(id) {
-            return Ok(value.clone());
+        match self.cache.get(id) {
+            Some(value) => {
+                return Ok(value.clone());
+            },
+            ::core::option::Option::None => {},
         }
+
         if self.visiting.len() >= MAX_REFERENCE_DEPTH {
             return Err(failure(
                 path,
@@ -466,6 +529,7 @@ impl Resolver<'_> {
                 "theme reference chain is too deep",
             ));
         }
+
         if !self.visiting.insert(id.to_owned()) {
             return Err(failure(
                 path,
@@ -473,6 +537,7 @@ impl Resolver<'_> {
                 "theme reference cycle",
             ));
         }
+
         let document = self.design;
         let token = document.tokens.get(id).ok_or_else(|| {
             failure(
@@ -483,20 +548,27 @@ impl Resolver<'_> {
         })?;
         let location = format!("{}/value", child("/tokens", id));
         use ThemeDesignTokenValueV1 as T;
-        if let Some((kind, reference)) = token_alias(&token.value) {
-            self.reference(reference, &location, domain(kind))?;
-            let value = self.token(&reference.r#ref, &location)?;
-            if value.kind() != kind {
-                return Err(failure(
-                    &location,
-                    kind,
-                    "reference has an incompatible declared type",
-                ));
-            }
-            self.visiting.remove(id);
-            self.cache.insert(id.to_owned(), value.clone());
-            return Ok(value);
+
+        match token_alias(&token.value) {
+            Some((kind, reference)) => {
+                self.reference(reference, &location, domain(kind))?;
+                let value = self.token(&reference.r#ref, &location)?;
+
+                if value.kind() != kind {
+                    return Err(failure(
+                        &location,
+                        kind,
+                        "reference has an incompatible declared type",
+                    ));
+                }
+
+                self.visiting.remove(id);
+                self.cache.insert(id.to_owned(), value.clone());
+                return Ok(value);
+            },
+            ::core::option::Option::None => {},
         }
+
         let value = match &token.value {
             T::Color(value) => Value::Color(self.color(value, &location)?),
             T::Number(value) => Value::Number(self.number(value, &location)?),
@@ -513,9 +585,9 @@ impl Resolver<'_> {
         };
         self.visiting.remove(id);
         charge_encoded(self.resources, &mut self.cache_bytes, &value)?;
-        let value = Arc::new(value);
-        self.cache.insert(id.to_owned(), value.clone());
-        Ok(value)
+        let value_2 = Arc::new(value);
+        self.cache.insert(id.to_owned(), value_2.clone());
+        Ok(value_2)
     }
 
     scalar_resolver!(color, String, String, Color, "color", color_literal);
@@ -598,36 +670,43 @@ impl Resolver<'_> {
         if value.len() > 4096 {
             return Err(failure(path, "bounded-color", "color value is too long"));
         }
+
         ThemeColorValue::parse(value).map_err(|error| failure(path, "color", error.to_string()))?;
         Ok(value.to_owned())
     }
+
     fn number_literal(&mut self, value: &f32, path: &str) -> Result<f32> {
         if !value.is_finite() {
             return Err(failure(path, "finite-number", "number must be finite"));
         }
+
         Ok(*value)
     }
+
     fn string_literal(&mut self, value: &str, _: &str) -> Result<String> {
         Ok(value.to_owned())
     }
+
     fn length_literal(
         &mut self,
         value: &ThemeLengthWireV1,
         path: &str,
     ) -> Result<ThemeLengthWireV1> {
         let number = match value {
-            ThemeLengthWireV1::PxValue(value)
-            | ThemeLengthWireV1::Px { px: value }
-            | ThemeLengthWireV1::Percent { percent: value } => value,
+            ThemeLengthWireV1::PxValue(value_2)
+            | ThemeLengthWireV1::Px { px: value_2 }
+            | ThemeLengthWireV1::Percent { percent: value_2 } => value_2,
         };
         self.number_literal(number, path)?;
         Ok(value.clone())
     }
+
     fn font_stack_literal(&mut self, value: &[String], path: &str) -> Result<Vec<String>> {
         super::FontStack::new(value.iter().cloned())
             .map_err(|error| failure(path, "font-stack", error.to_string()))?;
         Ok(value.to_owned())
     }
+
     fn palette_literal(
         &mut self,
         value: &[ThemeValueV1<String>],
@@ -640,19 +719,21 @@ impl Resolver<'_> {
                 "palette must contain 1 to 256 colors",
             ));
         }
+
         value
             .iter()
             .enumerate()
             .map(|(index, color)| self.color(color, &child(path, index)))
             .collect()
     }
+
     fn line_height_literal(
         &mut self,
         value: &ThemeLineHeightWireV1,
         path: &str,
     ) -> Result<ThemeLineHeightWireV1> {
         let height = match value {
-            ThemeLineHeightWireV1::Keyword(value) if value == "normal" => super::LineHeight::Normal,
+            ThemeLineHeightWireV1::Keyword(value_2) if value_2 == "normal" => super::LineHeight::Normal,
             ThemeLineHeightWireV1::Keyword(_) => {
                 return Err(failure(
                     path,
@@ -660,7 +741,7 @@ impl Resolver<'_> {
                     "expected normal, a positive multiplier, or positive pixels",
                 ));
             }
-            ThemeLineHeightWireV1::Multiplier(value) => super::LineHeight::Multiplier(*value),
+            ThemeLineHeightWireV1::Multiplier(value_3) => super::LineHeight::Multiplier(*value_3),
             ThemeLineHeightWireV1::Px { px } => super::LineHeight::Px(*px),
         };
         height
@@ -668,13 +749,14 @@ impl Resolver<'_> {
             .map_err(|error| failure(path, "line-height", error.to_string()))?;
         Ok(value.clone())
     }
+
     fn insets_literal(
         &mut self,
         value: &ThemeInsetsWireV1,
         path: &str,
     ) -> Result<ThemeInsetsWireV1> {
         let insets = match value {
-            ThemeInsetsWireV1::All(value) => super::InsetsPx::all(*value),
+            ThemeInsetsWireV1::All(value_2) => super::InsetsPx::all(*value_2),
             ThemeInsetsWireV1::Sides {
                 top,
                 right,
@@ -701,19 +783,22 @@ impl Resolver<'_> {
         max: Option<f32>,
     ) -> Result<f32> {
         let number = self.number(value, path)?;
-        if min.is_some_and(|min| number < min) || max.is_some_and(|max| number > max) {
+
+        if min.is_some_and(|min_2| number < min_2) || max.is_some_and(|max_2| number > max_2) {
             return Err(failure(
                 path,
                 "bounded-number",
                 "number is outside the consumer's bounds",
             ));
         }
+
         self.constrain_last(path, |domain| {
             domain.min = min;
             domain.max = max;
         });
         Ok(number)
     }
+
     fn pixels(
         &mut self,
         value: &ThemeValueV1<ThemeLengthWireV1>,
@@ -722,7 +807,7 @@ impl Resolver<'_> {
     ) -> Result<f32> {
         let length = self.length(value, path)?;
         let number = match length {
-            ThemeLengthWireV1::PxValue(value) | ThemeLengthWireV1::Px { px: value } => value,
+            ThemeLengthWireV1::PxValue(value_2) | ThemeLengthWireV1::Px { px: value_2 } => value_2,
             ThemeLengthWireV1::Percent { .. } => {
                 return Err(failure(
                     path,
@@ -731,46 +816,56 @@ impl Resolver<'_> {
                 ));
             }
         };
-        if min.is_some_and(|min| number < min) {
+
+        if min.is_some_and(|min_2| number < min_2) {
             return Err(failure(
                 path,
                 "bounded-pixel-length",
                 "pixel length is below the consumer's minimum",
             ));
         }
+
         self.constrain_last(path, |domain| {
             domain.units = vec!["px".to_owned()];
             domain.min = min;
         });
         Ok(number)
     }
+
     fn choice(
         &mut self,
         value: &ThemeValueV1<String>,
         path: &str,
         choices: &'static [&'static str],
     ) -> Result<String> {
-        let value = self.string(value, path)?;
-        if !choices.contains(&value.as_str()) {
+        let value_2 = self.string(value, path)?;
+
+        if !choices.contains(&value_2.as_str()) {
             return Err(failure(
                 path,
                 "enum-choice",
                 format!("expected one of: {}", choices.join(", ")),
             ));
         }
+
         self.constrain_last(path, |domain| {
-            domain.choices = choices.iter().map(|value| (*value).to_owned()).collect()
+            domain.choices = choices.iter().map(|value_3| (*value_3).to_owned()).collect()
         });
-        Ok(value)
+        Ok(value_2)
     }
+
     fn constrain_last(&mut self, path: &str, change: impl FnOnce(&mut ThemeDesignValueDomain)) {
-        if let Some(reference) = self
-            .references
-            .iter_mut()
-            .rev()
-            .find(|reference| reference.path == path)
         {
-            change(&mut reference.domain);
+            match self
+                .references
+                .iter_mut()
+                .rev()
+                .find(|reference| reference.path == path) {
+                Some(reference) => {
+                    change(&mut reference.domain);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
@@ -786,7 +881,7 @@ impl Resolver<'_> {
             stroke: value
                 .stroke
                 .as_ref()
-                .map(|value| self.stroke(value, &child(path, "stroke")))
+                .map(|value_2| self.stroke(value_2, &child(path, "stroke")))
                 .transpose()?,
             radius: self.patch(
                 &value.radius,
@@ -797,11 +892,12 @@ impl Resolver<'_> {
             typography: value
                 .typography
                 .as_ref()
-                .map(|value| self.text_style(value, &child(path, "typography")))
+                .map(|value_3| self.text_style(value_3, &child(path, "typography")))
                 .transpose()?,
             effect: self.patch(&value.effect, &child(path, "effect"), Self::effect)?,
         })
     }
+
     fn patch<T, U>(
         &mut self,
         value: &SpecifiedWireV1<T>,
@@ -811,12 +907,14 @@ impl Resolver<'_> {
         Ok(match value {
             SpecifiedWireV1::Unspecified => SpecifiedWireV1::Unspecified,
             SpecifiedWireV1::Clear => SpecifiedWireV1::Clear,
-            SpecifiedWireV1::Value(value) => SpecifiedWireV1::Value(lower(self, value, path)?),
+            SpecifiedWireV1::Value(value_2) => SpecifiedWireV1::Value(lower(self, value_2, path)?),
         })
     }
+
     fn opacity(&mut self, value: &ThemeValueV1<f32>, path: &str) -> Result<f32> {
         self.bounded_number(value, path, Some(0.0), Some(1.0))
     }
+
     fn nonnegative_pixels(
         &mut self,
         value: &ThemeValueV1<ThemeLengthWireV1>,
@@ -824,6 +922,7 @@ impl Resolver<'_> {
     ) -> Result<f32> {
         self.pixels(value, path, Some(0.0))
     }
+
     fn signed_pixels(
         &mut self,
         value: &ThemeValueV1<ThemeLengthWireV1>,
@@ -831,12 +930,15 @@ impl Resolver<'_> {
     ) -> Result<f32> {
         self.pixels(value, path, None)
     }
+
     fn cap(&mut self, value: &ThemeValueV1<String>, path: &str) -> Result<String> {
         self.choice(value, path, &["butt", "round", "square"])
     }
+
     fn join(&mut self, value: &ThemeValueV1<String>, path: &str) -> Result<String> {
         self.choice(value, path, &["miter", "round", "bevel"])
     }
+
     fn stroke_literal(
         &mut self,
         value: &ThemeDesignStrokeV1,
@@ -847,19 +949,20 @@ impl Resolver<'_> {
                 if values.len() > 64 {
                     return Err(failure(path, "bounded-dashes", "too many dash lengths"));
                 }
+
                 SpecifiedWireV1::Value(
-                    values
+                    { let checked_value = values
                         .iter()
                         .enumerate()
-                        .map(|(index, value)| {
+                        .map(|(index, value_2)| {
                             self.bounded_number(
-                                value,
+                                value_2,
                                 &format!("{path}/dasharray/{index}"),
                                 Some(0.0),
                                 None,
                             )
                         })
-                        .collect::<Result<_>>()?,
+                        .collect::<Result<_>>()?; checked_value },
                 )
             }
             SpecifiedWireV1::Clear => SpecifiedWireV1::Clear,
@@ -939,6 +1042,7 @@ impl Resolver<'_> {
             wrap: self.patch(&value.wrap, &child(path, "wrap"), Self::wrap)?,
         })
     }
+
     fn positive_pixels(
         &mut self,
         value: &ThemeValueV1<ThemeLengthWireV1>,
@@ -946,20 +1050,25 @@ impl Resolver<'_> {
     ) -> Result<f32> {
         self.pixels(value, path, Some(f32::MIN_POSITIVE))
     }
+
     fn font_weight(&mut self, value: &ThemeValueV1<f32>, path: &str) -> Result<u16> {
-        let value = self.bounded_number(value, path, Some(1.0), Some(1000.0))?;
-        if value.fract() != 0.0 {
+        let value_2 = self.bounded_number(value, path, Some(1.0), Some(1000.0))?;
+
+        if !::core::matches!(::core::primitive::f32::classify(value_2.fract()), ::core::num::FpCategory::Zero) {
             return Err(failure(
                 path,
                 "integer-font-weight",
                 "font weight must be an integer",
             ));
         }
-        Ok(value as u16)
+
+        Ok(value_2 as u16)
     }
+
     fn font_style(&mut self, value: &ThemeValueV1<String>, path: &str) -> Result<String> {
         self.choice(value, path, &["normal", "italic", "oblique"])
     }
+
     fn transform(&mut self, value: &ThemeValueV1<String>, path: &str) -> Result<String> {
         self.choice(
             value,
@@ -967,6 +1076,7 @@ impl Resolver<'_> {
             &["none", "uppercase", "lowercase", "capitalize"],
         )
     }
+
     fn decoration(&mut self, value: &ThemeValueV1<String>, path: &str) -> Result<String> {
         self.choice(
             value,
@@ -974,9 +1084,11 @@ impl Resolver<'_> {
             &["none", "underline", "overline", "line-through"],
         )
     }
+
     fn text_align(&mut self, value: &ThemeValueV1<String>, path: &str) -> Result<String> {
         self.choice(value, path, &["start", "center", "end"])
     }
+
     fn white_space(&mut self, value: &ThemeValueV1<String>, path: &str) -> Result<String> {
         self.choice(
             value,
@@ -984,6 +1096,7 @@ impl Resolver<'_> {
             &["normal", "pre", "no-wrap", "pre-wrap", "pre-line"],
         )
     }
+
     fn wrap(&mut self, value: &ThemeValueV1<String>, path: &str) -> Result<String> {
         self.choice(value, path, &["normal", "break-word", "anywhere"])
     }
@@ -992,18 +1105,18 @@ impl Resolver<'_> {
         let default = value
             .default
             .as_ref()
-            .map(|value| {
-                self.text_style(value, "/typography/default")
+            .map(|value_2| {
+                self.text_style(value_2, "/typography/default")
                     .map(complete_text_style)
             })
             .transpose()?;
         let families = value
             .families
             .iter()
-            .map(|(family, value)| {
-                self.text_style(value, &child("/typography/families", family))
+            .map(|(family, value_3)| {
+                self.text_style(value_3, &child("/typography/families", family))
                     .map(complete_text_style)
-                    .map(|value| (family.clone(), value))
+                    .map(|value_4| (family.clone(), value_4))
             })
             .collect::<Result<BTreeMap<_, _>>>()?;
         Ok(ThemeTypographySpecWireV1 {
@@ -1022,7 +1135,7 @@ impl Resolver<'_> {
         let paint = match value {
             ThemeDesignPaintV1::Color(color) => {
                 return Ok(ThemeCanvasPaintWireV1::Color(
-                    self.color_literal(color, path)?,
+                    { let checked_value = self.color_literal(color, path)?; checked_value },
                 ));
             }
             ThemeDesignPaintV1::Structured(paint) => paint,
@@ -1065,6 +1178,7 @@ impl Resolver<'_> {
                 if !["grid", "dots", "stripes"].contains(&pattern.as_str()) {
                     return Err(failure(path, "pattern-kind", "unknown pattern kind"));
                 }
+
                 W::Pattern {
                     pattern: pattern.clone(),
                     cell_width: self.positive_pixels(cell_width, &child(path, "cell_width"))?,
@@ -1072,16 +1186,17 @@ impl Resolver<'_> {
                     foreground: self.color(foreground, &child(path, "foreground"))?,
                     background: background
                         .as_ref()
-                        .map(|value| self.color(value, &child(path, "background")))
+                        .map(|value_2| self.color(value_2, &child(path, "background")))
                         .transpose()?,
                     angle_degrees: angle_degrees
                         .as_ref()
-                        .map(|value| self.number(value, &child(path, "angle_degrees")))
+                        .map(|value_3| self.number(value_3, &child(path, "angle_degrees")))
                         .transpose()?,
                 }
             }
         }))
     }
+
     fn stops(
         &mut self,
         values: &[ThemeDesignGradientStopV1],
@@ -1094,53 +1209,60 @@ impl Resolver<'_> {
                 "a gradient requires 2 to 64 stops",
             ));
         }
+
         let mut previous = 0.0;
         values
             .iter()
             .enumerate()
             .map(|(index, value)| {
-                let path = child(path, index);
+                let path_2 = child(path, index);
                 let offset = self.bounded_number(
                     &value.offset,
-                    &child(&path, "offset"),
+                    &child(&path_2, "offset"),
                     Some(previous),
                     Some(1.0),
                 )?;
                 previous = offset;
                 Ok(ThemeGradientStopWireV1 {
                     offset,
-                    color: self.color_alpha(&value.color, value.opacity.as_ref(), &path)?,
+                    color: self.color_alpha(&value.color, value.opacity.as_ref(), &path_2)?,
                 })
             })
             .collect()
     }
+
     fn color_alpha(
         &mut self,
         color: &ThemeValueV1<String>,
         opacity: Option<&ThemeValueV1<f32>>,
         path: &str,
     ) -> Result<String> {
-        let color = self.color(color, &child(path, "color"))?;
-        let Some(opacity) = opacity else {
-            return Ok(color);
+        let color_2 = self.color(color, &child(path, "color"))?;
+
+        let opacity_2 = match opacity {
+            Some(matched_opacity_2) => matched_opacity_2,
+            ::core::option::Option::None => return Ok(color_2),
         };
-        let opacity = self.opacity(opacity, &child(path, "opacity"))?;
-        if opacity == 1.0 {
-            return Ok(color);
+
+        let opacity_3 = self.opacity(opacity_2, &child(path, "opacity"))?;
+
+        if ::core::primitive::f32::to_bits(opacity_3) == ::core::primitive::f32::to_bits(1.0) {
+            return Ok(color_2);
         }
+
         use merman_markup::theme_color::{ColorChannel, ThemeColor};
-        let color =
-            ThemeColor::parse(&color).map_err(|error| failure(path, "color", error.to_string()))?;
-        let opacity = opacity
+        let color_3 =
+            ThemeColor::parse(&color_2).map_err(|error| failure(path, "color", error.to_string()))?;
+        let opacity_4 = opacity_3
             .to_string()
             .parse::<f64>()
             .map_err(|_| failure(path, "finite-opacity", "invalid opacity"))?;
         Ok(format!(
             "rgba({}, {}, {}, {})",
-            color.channel(ColorChannel::Red),
-            color.channel(ColorChannel::Green),
-            color.channel(ColorChannel::Blue),
-            color.channel(ColorChannel::Alpha) * opacity
+            color_3.channel(ColorChannel::Red),
+            color_3.channel(ColorChannel::Green),
+            color_3.channel(ColorChannel::Blue),
+            color_3.channel(ColorChannel::Alpha) * opacity_4
         ))
     }
 
@@ -1152,13 +1274,15 @@ impl Resolver<'_> {
                 "too many canvas layers",
             ));
         }
+
         let mut layer_bytes = 0;
         let layers = value
             .layers
             .iter()
             .enumerate()
             .map(|(index, layer)| {
-                let path = format!("{path}/layers/{index}");
+                let path_2 = format!("{path}/layers/{index}");
+
                 if layer.blend_mode.as_ref().is_some_and(|mode| {
                     ![
                         "normal",
@@ -1171,42 +1295,43 @@ impl Resolver<'_> {
                     ]
                     .contains(&mode.as_str())
                 }) {
-                    return Err(failure(&path, "blend-mode", "unknown blend mode"));
+                    return Err(failure(&path_2, "blend-mode", "unknown blend mode"));
                 }
-                let layer = ThemeCanvasLayerWireV1 {
-                    paint: self.paint(&layer.paint, &child(&path, "paint"))?,
+
+                let layer_2 = ThemeCanvasLayerWireV1 {
+                    paint: self.paint(&layer.paint, &child(&path_2, "paint"))?,
                     opacity: layer
                         .opacity
                         .as_ref()
-                        .map(|value| self.opacity(value, &child(&path, "opacity")))
+                        .map(|value_2| self.opacity(value_2, &child(&path_2, "opacity")))
                         .transpose()?,
                     blend_mode: layer.blend_mode.clone(),
                     offset_x: layer
                         .offset_x
                         .as_ref()
-                        .map(|value| self.signed_pixels(value, &child(&path, "offset_x")))
+                        .map(|value_3| self.signed_pixels(value_3, &child(&path_2, "offset_x")))
                         .transpose()?,
                     offset_y: layer
                         .offset_y
                         .as_ref()
-                        .map(|value| self.signed_pixels(value, &child(&path, "offset_y")))
+                        .map(|value_4| self.signed_pixels(value_4, &child(&path_2, "offset_y")))
                         .transpose()?,
                 };
-                charge_encoded(self.resources, &mut layer_bytes, &layer)?;
-                Ok(layer)
+                charge_encoded(self.resources, &mut layer_bytes, &layer_2)?;
+                Ok(layer_2)
             })
             .collect::<Result<Vec<_>>>()?;
         Ok(ThemeCanvasSpecWireV1 {
             base: value
                 .base
                 .as_ref()
-                .map(|value| self.paint(value, &child(path, "base")))
+                .map(|value_5| self.paint(value_5, &child(path, "base")))
                 .transpose()?,
             layers: (!layers.is_empty()).then_some(layers),
             bleed: value
                 .bleed
                 .as_ref()
-                .map(|value| self.insets(value, &child(path, "bleed")))
+                .map(|value_6| self.insets(value_6, &child(path, "bleed")))
                 .transpose()?,
         })
     }
@@ -1219,6 +1344,7 @@ impl Resolver<'_> {
                 "too many authored theme effects",
             ));
         }
+
         let id = format!("design-effect-{}", self.effects.len());
         let (composition, color_space, primitives) = match value {
             ThemeDesignEffectV1::Graph {
@@ -1237,12 +1363,13 @@ impl Resolver<'_> {
                         "a shadow stack requires 1 to 256 shadows",
                     ));
                 }
+
                 let independent = *composition == ThemeShadowCompositionV1::Independent;
                 let primitives = shadows
                     .iter()
                     .enumerate()
                     .map(|(index, shadow)| {
-                        let path = format!("{path}/shadows/{index}");
+                        let path_2 = format!("{path}/shadows/{index}");
                         Ok(ThemeEffectPrimitiveWireV1::DropShadow {
                             input: Some(
                                 if independent || index == 0 {
@@ -1253,25 +1380,28 @@ impl Resolver<'_> {
                                 .to_owned(),
                             ),
                             offset_x: self
-                                .signed_pixels(&shadow.offset_x, &child(&path, "offset_x"))?,
+                                .signed_pixels(&shadow.offset_x, &child(&path_2, "offset_x"))?,
                             offset_y: self
-                                .signed_pixels(&shadow.offset_y, &child(&path, "offset_y"))?,
+                                .signed_pixels(&shadow.offset_y, &child(&path_2, "offset_y"))?,
                             blur_radius: self.nonnegative_pixels(
                                 &shadow.std_deviation,
-                                &child(&path, "std_deviation"),
+                                &child(&path_2, "std_deviation"),
                             )?,
                             spread: 0.0,
                             color: self.color_alpha(
                                 &shadow.color,
                                 shadow.opacity.as_ref(),
-                                &path,
+                                &path_2,
                             )?,
                         })
                     })
                     .collect::<Result<Vec<_>>>()?;
                 (
                     independent.then(|| "independent".to_owned()),
-                    Some(color_space.clone().unwrap_or_else(|| "srgb".to_owned())),
+                    Some(match color_space.clone() {
+                        ::core::option::Option::Some(present) => present,
+                        ::core::option::Option::None => "srgb".to_owned(),
+                    }),
                     primitives,
                 )
             }
@@ -1288,13 +1418,16 @@ impl Resolver<'_> {
     }
 }
 
+#[must_use]
 fn complete_text_style(style: ThemeTextStylePatchWireV1) -> ThemeTextStyleWireV1 {
+    #[must_use]
     fn value<T>(patch: SpecifiedWireV1<T>) -> Option<T> {
         match patch {
             SpecifiedWireV1::Value(value) => Some(value),
             _ => None,
         }
     }
+
     ThemeTextStyleWireV1 {
         font_stack: value(style.font_stack),
         font_size_px: value(style.font_size_px),

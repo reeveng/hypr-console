@@ -501,11 +501,14 @@ fn timed(mut timing: Waiting, stage: &str, how: &How) -> Result<(), Never> {
 }
 
 fn run(asked: Arguments, ink: &Ansi) -> Result<std::process::ExitCode, Unchecked> {
-  let checks = if asked.only.is_empty() && (asked.list || asked.all) {
-    CHECKS.to_vec()
-  } else {
-    let Ok(selected) = select(&asked.only);
-    selected
+  let checks = match {
+    ::core::primitive::bool::then_some(asked.only.is_empty() && (asked.list || asked.all), ())
+  } {
+    ::core::option::Option::Some(()) => CHECKS.to_vec(),
+    ::core::option::Option::None => {
+      let Ok(selected) = select(&asked.only);
+      selected
+    }
   };
 
   match ::core::primitive::bool::then_some(checks.is_empty(), ()) {

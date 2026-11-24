@@ -5,6 +5,7 @@ use super::super::*;
 use super::edge_label::render_swimlane_edge_label_node;
 use crate::svg::parity::timing::RenderTiming;
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn flowchart_elk_renders_empty_subgraph_as_cluster(
     ctx: &FlowchartRenderCtx<'_>,
 ) -> bool {
@@ -42,6 +43,7 @@ struct FlowchartRootFrame<'data, 'plan> {
 }
 
 impl<'data, 'plan> FlowchartRootFrame<'data, 'plan> {
+    #[must_use]
     fn new(
         cluster_id: Option<&'data str>,
         parent_origin_x: f64,
@@ -81,32 +83,46 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_root<'data, 'plan>(
 
     while let Some(frame) = stack.pop() {
         ctx.checkpoint_emit()?;
-        let mut frame = Some(frame);
-        if !frame.as_ref().is_some_and(|frame| frame.initialized)
-            && let Some(frame) = frame.as_mut()
+        let mut frame_2 = Some(frame);
+
+        if !frame_2.as_ref().is_some_and(|frame_3| frame_3.initialized)
+            && let Some(frame_4) = frame_2.as_mut()
         {
-            initialize_flowchart_root_frame(out, ctx, session, frame)?;
+            initialize_flowchart_root_frame(out, ctx, session, frame_4)?;
         }
 
         let mut pushed_nested = false;
-        while frame
+
+        'inner_while_2: while frame_2
             .as_ref()
-            .is_some_and(|frame| frame.next_dom_index < frame.dom_order.len())
+            .is_some_and(|frame_5| frame_5.next_dom_index < frame_5.dom_order.len())
         {
             ctx.checkpoint_emit()?;
             let id = {
-                let Some(frame) = frame.as_mut() else {
-                    break;
+                let frame_6 = {
+                    let optional_frame_6 = frame_2.as_mut();
+
+                    match optional_frame_6 {
+                        Some(matched_frame_6) => matched_frame_6,
+                        ::core::option::Option::None => break 'inner_while_2,
+                    }
                 };
-                let id = frame.dom_order[frame.next_dom_index];
-                frame.next_dom_index += 1;
+
+                let id = frame_6.dom_order[frame_6.next_dom_index];
+                frame_6.next_dom_index += 1;
                 id
             };
 
             if let Some(edge) = ctx.swimlane_edge_label_edges_by_node_id.get(id).copied() {
-                let Some(current) = frame.as_ref() else {
-                    break;
+                let current = {
+                    let optional_current = frame_2.as_ref();
+
+                    match optional_current {
+                        Some(matched_current) => matched_current,
+                        ::core::option::Option::None => break 'inner_while_2,
+                    }
                 };
+
                 render_swimlane_edge_label_node(
                     out,
                     ctx,
@@ -119,18 +135,19 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_root<'data, 'plan>(
 
                 ctx.checkpoint_emit()?;
                 out.checkpoint()?;
-                continue;
+                continue 'inner_while_2;
             }
 
             if ctx.subgraphs_by_id.contains_key(id)
                 && ctx.subgraph_has_children(id)
                 && !ctx.is_subgraph_collapsed(id)
             {
-                // Non-recursive clusters render as cluster boxes (in `.clusters`) and do not emit a
-                // node DOM element. Recursive clusters render as nested `.root` groups.
+
+
                 if ctx.recursive_clusters.contains(id) {
                     let nested_start = session.timing.start();
-                    if let Some(parent) = frame.take() {
+
+                    if let Some(parent) = frame_2.take() {
                         let child = FlowchartRootFrame::new(
                             Some(id),
                             parent.origin_x,
@@ -141,15 +158,24 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_root<'data, 'plan>(
                         stack.push(child);
                         pushed_nested = true;
                     }
-                    break;
+
+                    break 'inner_while_2;
                 }
-                continue;
+
+                continue 'inner_while_2;
             }
 
             let node_start = session.timing.start();
-            let Some(current) = frame.as_ref() else {
-                break;
+
+            let current = {
+                let optional_current = frame_2.as_ref();
+
+                match optional_current {
+                    Some(matched_current) => matched_current,
+                    ::core::option::Option::None => break 'inner_while_2,
+                }
             };
+
             render_flowchart_node(
                 out,
                 ctx,
@@ -161,6 +187,7 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_root<'data, 'plan>(
             )?;
             ctx.checkpoint_emit()?;
             out.checkpoint()?;
+
             if let Some(s) = node_start {
                 session.details.nodes += s.elapsed();
             }
@@ -170,27 +197,32 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_root<'data, 'plan>(
             continue;
         }
 
-        if let Some(frame) = frame.take() {
+        if let Some(frame_7) = frame_2.take() {
             out.push_str("</g>");
-            session.step_badges.write_root(out, ctx, frame.cluster_id)?;
+            session.step_badges.write_root(out, ctx, frame_7.cluster_id)?;
             out.push_str("</g>");
             out.checkpoint()?;
-            if let Some(start) = frame.nested_start {
+
+            if let Some(start) = frame_7.nested_start {
                 session.details.nested_roots += start.elapsed();
             }
         }
     }
+
     Ok(())
 }
 
+#[must_use]
 fn edge_label_is_empty(
     ctx: &FlowchartRenderCtx<'_>,
     edge: super::super::render_input::FlowchartRenderEdgeRef<'_>,
 ) -> bool {
-    let label_text = ctx
+    let label_text = match ctx
         .model
-        .edge_label_for_occurrence(edge.key, edge.edge)
-        .unwrap_or_default();
+        .edge_label_for_occurrence(edge.key, edge.edge) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => "",
+    };
     crate::flowchart::flowchart_label_is_empty_for_render(label_text)
 }
 
@@ -202,11 +234,11 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_elk_root_groups(
     ctx.checkpoint_emit()?;
     session.details.root_calls += 1;
 
-    // The published `@mermaid-js/layout-elk@0.2.3` renderer creates the common
-    // layout groups below one `.root` wrapper. Keep this wrapper in the ELK
-    // adapter path as well; the browser-facing Mermaid source and the package
-    // artifact agree on the hierarchy even though the package still uses the
-    // historical singular `edgePath` class.
+
+
+
+
+
     out.push_str(r#"<g class="root">"#);
     render_flowchart_elk_subgraphs(out, ctx, session)?;
 
@@ -230,19 +262,25 @@ fn render_flowchart_elk_subgraphs(
 ) -> crate::Result<()> {
     ctx.checkpoint_emit()?;
     let _g_clusters = detail_guard(session.timing, &mut session.details.clusters);
-    let clusters_to_draw = session.hierarchy_plan.root(None)?.clusters();
+    let checked_value = session.hierarchy_plan.root(None)?;
+    let clusters_to_draw = checked_value.clusters();
 
-    if clusters_to_draw.is_empty() {
-        out.push_str(r#"<g class="clusters"/>"#);
-        return out.checkpoint();
+    match clusters_to_draw {
+        [] => {
+            out.push_str(r#"<g class="clusters"/>"#);
+            return out.checkpoint();
+        },
+        [_, ..] => {},
     }
 
     out.push_str(r#"<g class="clusters">"#);
+
     for &cluster in clusters_to_draw {
         ctx.checkpoint_emit()?;
         render_flowchart_cluster(out, ctx, cluster, 0.0, 0.0)?;
         out.checkpoint()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -256,11 +294,13 @@ fn render_flowchart_elk_nodes(
     out.push_str(r#"<g class="nodes">"#);
 
     let _g_dom_order = detail_guard(session.timing, &mut session.details.dom_order);
-    let dom_order = session.hierarchy_plan.root(None)?.dom_order();
+    let checked_value = session.hierarchy_plan.root(None)?;
+    let dom_order = checked_value.dom_order();
     drop(_g_dom_order);
 
     for &id in dom_order {
         ctx.checkpoint_emit()?;
+
         if ctx.subgraphs_by_id.contains_key(id)
             && !ctx.is_subgraph_collapsed(id)
             && (ctx.subgraph_has_children(id)
@@ -281,6 +321,7 @@ fn render_flowchart_elk_nodes(
         )?;
         ctx.checkpoint_emit()?;
         out.checkpoint()?;
+
         if let Some(s) = node_start {
             session.details.nodes += s.elapsed();
         }
@@ -298,19 +339,26 @@ fn render_flowchart_elk_edge_paths(
 ) -> crate::Result<()> {
     ctx.checkpoint_emit()?;
     super::super::paint::prepare_rough_edge_paths(ctx, edges, session.edge_cache)?;
+
     if ctx.hand_drawn_seed.seed().may_use_math_random() {
         session
             .edge_labels
             .update(ctx, session.hierarchy_plan, session.edge_cache, edges)?;
     }
+
     let _g_edge_paths = detail_guard(session.timing, &mut session.details.edge_paths);
-    if edges.is_empty() {
-        out.push_str(r#"<g class="edges edgePaths"/>"#);
-        return out.checkpoint();
+
+    match edges {
+        [] => {
+            out.push_str(r#"<g class="edges edgePaths"/>"#);
+            return out.checkpoint();
+        },
+        [_, ..] => {},
     }
 
     out.push_str(r#"<g class="edges edgePaths">"#);
     let mut scratch = FlowchartEdgeDataPointsScratch::default();
+
     for &e in edges {
         ctx.checkpoint_emit()?;
         render_flowchart_edge_path(
@@ -326,6 +374,7 @@ fn render_flowchart_elk_edge_paths(
         ctx.checkpoint_emit()?;
         out.checkpoint()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -338,21 +387,29 @@ fn render_flowchart_elk_edge_labels(
 ) -> crate::Result<()> {
     ctx.checkpoint_emit()?;
     let _g_edge_labels = detail_guard(session.timing, &mut session.details.edge_labels);
-    if edges.is_empty() {
-        out.push_str(r#"<g class="edgeLabels"/>"#);
-        return out.checkpoint();
+
+    match edges {
+        [] => {
+            out.push_str(r#"<g class="edgeLabels"/>"#);
+            return out.checkpoint();
+        },
+        [_, ..] => {},
     }
 
     out.push_str(r#"<g class="edgeLabels">"#);
+
     for &e in edges {
         ctx.checkpoint_emit()?;
+
         if edge_label_is_empty(ctx, e) {
             continue;
         }
+
         render_flowchart_edge_label(out, ctx, e, 0.0, 0.0, session.edge_labels)?;
 
         out.checkpoint()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -381,7 +438,7 @@ fn initialize_flowchart_root_frame<'data, 'plan>(
                 ),
             )
         } else {
-            // Fallback: keep the group in the parent's coordinate space.
+
             (
                 frame.parent_origin_x,
                 frame.parent_origin_y,
@@ -400,17 +457,24 @@ fn initialize_flowchart_root_frame<'data, 'plan>(
 
     let _g_clusters = detail_guard(session.timing, &mut session.details.clusters);
     let clusters_to_draw = root_emission.clusters();
-    if clusters_to_draw.is_empty() {
-        out.push_str(r#"<g class="clusters"/>"#);
-    } else {
-        out.push_str(r#"<g class="clusters">"#);
-        for &cluster in clusters_to_draw {
-            ctx.checkpoint_emit()?;
-            render_flowchart_cluster(out, ctx, cluster, origin_x, frame.content_origin_y)?;
-            out.checkpoint()?;
-        }
-        out.push_str("</g>");
+
+    match clusters_to_draw {
+        [] => {
+            out.push_str(r#"<g class="clusters"/>"#);
+        },
+        [_, ..] => {
+            out.push_str(r#"<g class="clusters">"#);
+
+            for &cluster in clusters_to_draw {
+                ctx.checkpoint_emit()?;
+                render_flowchart_cluster(out, ctx, cluster, origin_x, frame.content_origin_y)?;
+                out.checkpoint()?;
+            }
+
+            out.push_str("</g>");
+        },
     }
+
     drop(_g_clusters);
 
     let _g_edges_select = detail_guard(session.timing, &mut session.details.edges_select);
@@ -418,51 +482,62 @@ fn initialize_flowchart_root_frame<'data, 'plan>(
     drop(_g_edges_select);
 
     super::super::paint::prepare_rough_edge_paths(ctx, edges, session.edge_cache)?;
+
     if ctx.hand_drawn_seed.seed().may_use_math_random() {
         session
             .edge_labels
             .update(ctx, session.hierarchy_plan, session.edge_cache, edges)?;
     }
+
     let _g_edge_paths = detail_guard(session.timing, &mut session.details.edge_paths);
     let edge_group_class = if ctx.swimlane_direction.is_some() {
         "edges edgePaths"
     } else {
         "edgePaths"
     };
-    if edges.is_empty() {
-        let _ = write!(out, r#"<g class="{}"/>"#, edge_group_class);
-    } else {
-        let _ = write!(out, r#"<g class="{}">"#, edge_group_class);
-        let mut scratch = FlowchartEdgeDataPointsScratch::default();
-        for &e in edges {
-            ctx.checkpoint_emit()?;
-            render_flowchart_edge_path(
-                out,
-                ctx,
-                session.marker_plan,
-                e,
-                origin_x,
-                frame.content_origin_y,
-                &mut scratch,
-                &*session.edge_cache,
-            )?;
-            ctx.checkpoint_emit()?;
-            out.checkpoint()?;
-        }
-        out.push_str("</g>");
+
+    match edges {
+        [] => {
+            let _ = write!(out, r#"<g class="{}"/>"#, edge_group_class);
+        },
+        [_, ..] => {
+            let _ = write!(out, r#"<g class="{}">"#, edge_group_class);
+            let mut scratch = FlowchartEdgeDataPointsScratch::default();
+
+            for &e in edges {
+                ctx.checkpoint_emit()?;
+                render_flowchart_edge_path(
+                    out,
+                    ctx,
+                    session.marker_plan,
+                    e,
+                    origin_x,
+                    frame.content_origin_y,
+                    &mut scratch,
+                    &*session.edge_cache,
+                )?;
+                ctx.checkpoint_emit()?;
+                out.checkpoint()?;
+            }
+
+            out.push_str("</g>");
+        },
     }
+
     drop(_g_edge_paths);
 
     let _g_edge_labels = detail_guard(session.timing, &mut session.details.edge_labels);
+
     if ctx.swimlane_direction.is_some() || edges.is_empty() {
         out.push_str(r#"<g class="edgeLabels"/>"#);
     } else {
         out.push_str(r#"<g class="edgeLabels">"#);
+
         if !ctx.edge_html_labels
             && !crate::flowchart::flowchart_dagre_merges_self_loop_segments(&ctx.model.keyword)
         {
-            // Unmerged Agentflow helper edges use insertEdgeLabel for every Graphlib edge.
-            // Its SVG empty-label background remains immediately after that edge's wrapper.
+
+
             for &e in edges {
                 ctx.checkpoint_emit()?;
                 render_flowchart_edge_label(
@@ -473,6 +548,7 @@ fn initialize_flowchart_root_frame<'data, 'plan>(
                     frame.content_origin_y,
                     session.edge_labels,
                 )?;
+
                 if edge_label_is_empty(ctx, e) {
                     out.push_str(r#"<g><rect class="background" style="stroke: none"/></g>"#);
                     out.checkpoint()?;
@@ -481,17 +557,19 @@ fn initialize_flowchart_root_frame<'data, 'plan>(
                 out.checkpoint()?;
             }
         } else if !ctx.edge_html_labels {
-            // Mermaid's `createText(..., useHtmlLabels=false)` always creates a background `<rect>`,
-            // but for empty labels it returns the `<text>` element instead of the wrapper `<g>`.
-            // The unused wrapper `<g>` (with the `background` rect) remains as a direct child
-            // under `.edgeLabels`. Mirror this by emitting one rect-group per empty label.
+
+
+
+
             for &e in edges {
                 ctx.checkpoint_emit()?;
+
                 if edge_label_is_empty(ctx, e) {
                     out.push_str(r#"<g><rect class="background" style="stroke: none"/></g>"#);
                     out.checkpoint()?;
                 }
             }
+
             for &e in edges {
                 ctx.checkpoint_emit()?;
                 render_flowchart_edge_label(
@@ -506,8 +584,8 @@ fn initialize_flowchart_root_frame<'data, 'plan>(
                 out.checkpoint()?;
             }
         } else {
-            // Mermaid emits HTML edge-label wrappers in graph edge order. Empty labels stay in
-            // place as zero-sized foreignObjects instead of being partitioned ahead of labels.
+
+
             for &e in edges {
                 ctx.checkpoint_emit()?;
                 render_flowchart_edge_label(
@@ -522,8 +600,10 @@ fn initialize_flowchart_root_frame<'data, 'plan>(
                 out.checkpoint()?;
             }
         }
+
         out.push_str("</g>");
     }
+
     drop(_g_edge_labels);
 
     out.push_str(r#"<g class="nodes">"#);

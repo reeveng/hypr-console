@@ -51,17 +51,18 @@ pub(crate) fn unsupported<T>(msg: impl Into<String>) -> Result<T> {
 }
 
 #[cfg_attr(
-  dylint_lib = "explicit080_macro_budget",
+  dylint_lib = "explicit008_no_bool_param",
   expect(
-    explicit080_macro_budget,
-    reason = "the decoder names the rejected syntax at its check and formats that diagnostic only on failure"
+    explicit008_no_bool_param,
+    reason = "callers supply a validity predicate for the bitstream syntax they check"
   )
 )]
-macro_rules! ensure {
-    ($cond:expr, $($arg:tt)+) => {
-        if !$cond {
-            return Err($crate::error::Error::Invalid(format!($($arg)+)));
-        }
-    };
+pub(crate) fn ensure<M: Into<String>>(
+  condition: bool,
+  message: impl FnOnce() -> M,
+) -> Result<()> {
+  match condition.then_some(()) {
+    Some(()) => Ok(()),
+    None => invalid(message()),
+  }
 }
-pub(crate) use ensure;

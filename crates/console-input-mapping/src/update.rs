@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use console_core_arguments::Presence;
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue, Transition};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_input_bindings::moved::Tasks;
 use console_program_contract::{Command, Effect, Event, FileWrite};
 
@@ -63,6 +63,14 @@ pub enum MappingEvent {
 pub enum MappingEffect {
   Note(String),
   Sure,
+}
+
+impl EffectDependencies for MappingEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Note(_) | Self::Sure => &[Service::Panels],
+    })
+  }
 }
 
 pub struct Setup;

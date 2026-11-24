@@ -22,32 +22,38 @@ struct BpmnTerminalStyle<'a> {
 }
 
 impl<'a> BpmnTerminalStyle<'a> {
+    #[must_use]
     fn resolve(shape: BpmnShape, theme_style: &'a str) -> Self {
         let event = shape.event_rings().is_some();
         let annotation = shape == BpmnShape::Annotation;
         let mut style = Self::default();
+
         if !event && !annotation {
             return style;
         }
-        // The prepared selection also excludes direct BPMN structural classDef owners. Do not
-        // recover fields from the mixed source style or reinterpret rule/palette winners.
+
+
+
         for declaration in theme_style
             .split(';')
             .filter_map(crate::mermaid_style::parse_style_declaration)
         {
             let value = Some(declaration.source_value());
+
             match declaration.property() {
                 "fill" if event => style.fill = value,
                 "stroke" => style.stroke = value,
-                // Event ring weights belong to BPMN notation even under a typed theme.
+
                 "stroke-width" if annotation => style.stroke_width = value,
                 "stroke-dasharray" => style.stroke_dasharray = value,
                 _ => {}
             }
         }
+
         style
     }
 
+    #[must_use]
     fn is_empty(&self) -> bool {
         self.fill.is_none()
             && self.stroke.is_none()
@@ -60,6 +66,7 @@ impl<'a> BpmnTerminalStyle<'a> {
         out: &mut impl crate::svg::parity::SvgOutput,
     ) -> crate::Result<FlowchartNodeShapeEmissionReceipt> {
         let mut receipt = FlowchartNodeShapeEmissionReceipt::unverified();
+
         for (name, property, value) in [
             ("fill", ResolvedStyleProperty::Fill, self.fill),
             ("stroke", ResolvedStyleProperty::Stroke, self.stroke),
@@ -74,12 +81,16 @@ impl<'a> BpmnTerminalStyle<'a> {
                 self.stroke_dasharray,
             ),
         ] {
-            if let Some(value) = value {
-                let _ = write!(out, "{name}:{};", escape_xml_display(value));
-                out.checkpoint()?;
-                receipt = receipt.with_typed_paint_reach(property);
+            match value {
+                Some(value_2) => {
+                    let _ = write!(out, "{name}:{};", escape_xml_display(value_2));
+                    out.checkpoint()?;
+                    receipt = receipt.with_typed_paint_reach(property);
+                },
+                ::core::option::Option::None => {},
             }
         }
+
         Ok(receipt)
     }
 }
@@ -140,9 +151,11 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_bpmn(
         },
     )?;
     label.dy = geometry.label_center_y;
+
     if shape == BpmnShape::Annotation {
         label.dx = if options.annotation_right { -3.0 } else { 3.0 };
     }
+
     Ok(receipt)
 }
 
@@ -168,52 +181,71 @@ fn write_shape(
 ) -> crate::Result<FlowchartNodeShapeEmissionReceipt> {
     let terminal_style = BpmnTerminalStyle::resolve(shape, theme_style);
     let mut receipt = FlowchartNodeShapeEmissionReceipt::unverified();
+
     if shape != BpmnShape::Activity {
         write_bounds(out, geometry);
     }
-    let style = escape_xml_display(style);
-    if let Some((rings, stroke_width)) = shape.event_rings() {
-        let _ = write!(out, r#"<g class="bpmn-event-body" style="{style}">"#);
-        for ring in 0..rings {
-            let _ = write!(
-                out,
-                r#"<circle class="bpmn-event-ring{}" r="{}" style="stroke-width: {}px;"#,
-                if ring == 0 {
-                    ""
-                } else {
-                    " bpmn-event-ring-inner"
+
+    let style_2 = escape_xml_display(style);
+
+    match shape.event_rings() {
+        Some((rings, stroke_width)) => {
+            let _ = write!(out, r#"<g class="bpmn-event-body" style="{style}">"#, style = style_2);
+
+            for ring in 0..rings {
+                let _ = write!(
+                    out,
+                    r#"<circle class="bpmn-event-ring{}" r="{}" style="stroke-width: {}px;"#,
+                    if ring == 0 {
+                        ""
+                    } else {
+                        " bpmn-event-ring-inner"
+                    },
+                    fmt_display(18.0 - ring as f64 * 3.0),
+                    fmt_display(stroke_width),
+                );
+                let checked_value = terminal_style.write_declarations(out)?;
+                receipt = checked_value;
+                out.push_str(r#""/>"#);
+                out.checkpoint()?;
+            }
+
+            match options.icon {
+                Some(icon) => {
+                    let svg = glyph(icon, ICON_SIZE, 0)?;
+                    let _ = write!(
+                        out,
+                        r#"<g class="bpmn-glyph" transform="translate(-8, -8)"><g>{svg}</g></g>"#
+                    );
                 },
-                fmt_display(18.0 - ring as f64 * 3.0),
-                fmt_display(stroke_width),
-            );
-            receipt = terminal_style.write_declarations(out)?;
-            out.push_str(r#""/>"#);
+                ::core::option::Option::None => {},
+            }
+
+            out.push_str("</g>");
             out.checkpoint()?;
-        }
-        if let Some(icon) = options.icon {
-            let svg = glyph(icon, ICON_SIZE, 0)?;
-            let _ = write!(
-                out,
-                r#"<g class="bpmn-glyph" transform="translate(-8, -8)"><g>{svg}</g></g>"#
-            );
-        }
-        out.push_str("</g>");
-        out.checkpoint()?;
-        return Ok(receipt);
+            return Ok(receipt);
+        },
+        ::core::option::Option::None => {},
     }
+
     match shape {
         BpmnShape::Gateway => {
             let _ = write!(
                 out,
                 r#"<g class="bpmn-gateway-body"><polygon class="bpmn-gateway-diamond" points="0,-25 25,0 0,25 -25,0" style="{style}"/>"#,
-            );
-            if let Some(icon) = options.icon {
-                let svg = glyph(icon, ICON_SIZE + 2.0, 0)?;
-                let _ = write!(
-                    out,
-                    r#"<g class="bpmn-glyph" transform="translate(-9, -9)"><g>{svg}</g></g>"#
-                );
+             style = style_2);
+
+            match options.icon {
+                Some(icon) => {
+                    let svg = glyph(icon, ICON_SIZE + 2.0, 0)?;
+                    let _ = write!(
+                        out,
+                        r#"<g class="bpmn-glyph" transform="translate(-9, -9)"><g>{svg}</g></g>"#
+                    );
+                },
+                ::core::option::Option::None => {},
             }
+
             out.push_str("</g>");
         }
         BpmnShape::Activity => {
@@ -226,16 +258,21 @@ fn write_shape(
                 fmt_display(-height / 2.0),
                 fmt_display(width),
                 fmt_display(height),
-            );
-            if let Some(icon) = options.icon {
-                let svg = glyph(icon, ICON_SIZE, 0)?;
-                let _ = write!(
-                    out,
-                    r#"<g class="bpmn-activity-icon" transform="translate({}, {})"><g>{svg}</g></g>"#,
-                    fmt_display(-width / 2.0 + 6.0),
-                    fmt_display(-height / 2.0 + 6.0),
-                );
+             style = style_2);
+
+            match options.icon {
+                Some(icon) => {
+                    let svg = glyph(icon, ICON_SIZE, 0)?;
+                    let _ = write!(
+                        out,
+                        r#"<g class="bpmn-activity-icon" transform="translate({}, {})"><g>{svg}</g></g>"#,
+                        fmt_display(-width / 2.0 + 6.0),
+                        fmt_display(-height / 2.0 + 6.0),
+                    );
+                },
+                ::core::option::Option::None => {},
             }
+
             if !options.markers.is_empty() {
                 let step = ICON_SIZE - 2.0;
                 let row_width = options.markers.len() as f64 * step;
@@ -244,6 +281,7 @@ fn write_shape(
                     r#"<g class="bpmn-activity-markers" transform="translate(0, {})">"#,
                     fmt_display(height / 2.0 - step - 3.0)
                 );
+
                 for (index, marker) in options.markers.iter().enumerate() {
                     let svg = glyph(marker, step, index + 1)?;
                     let _ = write!(
@@ -253,33 +291,39 @@ fn write_shape(
                     );
                     out.checkpoint()?;
                 }
+
                 out.push_str("</g>");
             }
+
             out.push_str("</g>");
         }
         BpmnShape::Data => {
             let _ = write!(
                 out,
                 r#"<g class="bpmn-data-body"><path class="bpmn-data-page" d="M-18,-25 H8 L18,-15 V25 H-18 Z" style="{style}"/><path class="bpmn-data-fold" d="M8,-25 V-15 H18"/>"#,
-            );
+             style = style_2);
+
             if let Some(direction @ ("input" | "output")) = options.data_direction {
                 let _ = write!(
                     out,
                     r#"<path class="bpmn-data-arrow bpmn-data-arrow-{direction}" d="M-14,-16 h7 v-3 l5,4.5 -5,4.5 v-3 h-7 Z"/>"#,
                 );
             }
+
             if options.collection {
                 out.push_str(
                     r#"<path class="bpmn-data-collection" d="M-4,14 v9 M0,14 v9 M4,14 v9"/>"#,
                 );
             }
+
             out.push_str("</g>");
         }
         BpmnShape::DataStore => {
             let _ = write!(
                 out,
                 r#"<g class="bpmn-data-body"><path class="bpmn-store-body" d="M-25,-19 a25,6 0 0 1 50,0 V19 a25,6 0 0 1 -50,0 Z" style="{style}"/>"#,
-            );
+             style = style_2);
+
             for offset in [0.0, 5.0, 10.0] {
                 let _ = write!(
                     out,
@@ -287,6 +331,7 @@ fn write_shape(
                     fmt_display(-19.0 + offset)
                 );
             }
+
             out.push_str("</g>");
         }
         BpmnShape::Annotation => {
@@ -304,17 +349,21 @@ fn write_shape(
                 fmt_display(-half_height),
                 fmt_display(half_height),
             );
+
             if !terminal_style.is_empty() {
                 out.push_str(r#" style=""#);
-                receipt = terminal_style.write_declarations(out)?;
+                let checked_value_2 = terminal_style.write_declarations(out)?;
+                receipt = checked_value_2;
                 out.push('"');
             }
+
             out.push_str("/></g>");
         }
         BpmnShape::Start | BpmnShape::Intermediate | BpmnShape::Boundary | BpmnShape::End => {
             unreachable!()
         }
     }
+
     out.checkpoint()?;
     Ok(receipt)
 }

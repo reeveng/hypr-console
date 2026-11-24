@@ -50,11 +50,18 @@ impl BoundsState {
     }
 
     fn bump_last_margin(&mut self, margin: f64) {
-        if let Some(v) = self.data.stopx.as_mut() {
-            *v += margin;
+        match self.data.stopx.as_mut() {
+            Some(v) => {
+                *v += margin;
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(v) = self.data.stopy.as_mut() {
-            *v += margin;
+
+        match self.data.stopy.as_mut() {
+            Some(v) => {
+                *v += margin;
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -72,7 +79,7 @@ impl BoundsState {
     fn insert_rect(&mut self, rect: &mut Rect, c4_shape_in_row: usize, conf: &C4Conf) {
         self.next.cnt += 1;
 
-        let startx = if self.next.startx == self.next.stopx {
+        let startx = if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&self.next.startx, &self.next.stopx) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
             self.next.stopx + rect.margin
         } else {
             self.next.stopx + rect.margin * 2.0
@@ -140,8 +147,9 @@ struct C4LayoutState {
     global_max_y: f64,
 }
 
+#[must_use]
 fn has_sprite(v: &Option<Value>) -> bool {
-    v.as_ref().is_some_and(|v| match v {
+    v.as_ref().is_some_and(|v_2| match v_2 {
         Value::Null => false,
         Value::Bool(b) => *b,
         Value::Number(_) => true,
@@ -151,9 +159,10 @@ fn has_sprite(v: &Option<Value>) -> bool {
     })
 }
 
+#[must_use]
 fn intersect_rect_point(rect: &Rect, target: LayoutPoint) -> LayoutPoint {
-    // Mermaid's unified shapes and C4 boundaries use the same centre-based intersect.rect.
-    // The grid stores top-left coordinates; convert once before finding the ray intersection.
+
+
     let center_x = rect.origin.x + rect.size.width / 2.0;
     let center_y = rect.origin.y + rect.size.height / 2.0;
     let dx = target.x - center_x;
@@ -164,8 +173,9 @@ fn intersect_rect_point(rect: &Rect, target: LayoutPoint) -> LayoutPoint {
         if dy < 0.0 {
             half_height = -half_height;
         }
+
         (
-            if dy == 0.0 {
+            if ::core::matches!(::core::primitive::f64::classify(dy), ::core::num::FpCategory::Zero) {
                 0.0
             } else {
                 half_height * dx / dy
@@ -176,9 +186,10 @@ fn intersect_rect_point(rect: &Rect, target: LayoutPoint) -> LayoutPoint {
         if dx < 0.0 {
             half_width = -half_width;
         }
+
         (
             half_width,
-            if dx == 0.0 { 0.0 } else { half_width * dy / dx },
+            if ::core::matches!(::core::primitive::f64::classify(dx), ::core::num::FpCategory::Zero) { 0.0 } else { half_width * dy / dx },
         )
     };
     LayoutPoint {
@@ -187,6 +198,7 @@ fn intersect_rect_point(rect: &Rect, target: LayoutPoint) -> LayoutPoint {
     }
 }
 
+#[must_use]
 fn intersect_cylinder_point(from: &Rect, end_point: LayoutPoint) -> LayoutPoint {
     let mut point = intersect_rect_point(from, end_point.clone());
     let center_x = from.origin.x + from.size.width / 2.0;
@@ -196,7 +208,7 @@ fn intersect_cylinder_point(from: &Rect, end_point: LayoutPoint) -> LayoutPoint 
     let rx = width / 2.0;
     let ry = rx / (2.5 + width / 50.0);
 
-    if rx != 0.0
+    if !::core::matches!(::core::primitive::f64::classify(rx), ::core::num::FpCategory::Zero)
         && (x.abs() < width / 2.0
             || ((x.abs() - width / 2.0).abs() < 1e-12
                 && (point.y - center_y).abs() > from.size.height / 2.0 - ry))
@@ -204,15 +216,18 @@ fn intersect_cylinder_point(from: &Rect, end_point: LayoutPoint) -> LayoutPoint 
         let mut cap = ry * ry * (1.0 - (x * x) / (rx * rx));
         cap = cap.max(0.0).sqrt();
         cap = ry - cap;
+
         if end_point.y - center_y > 0.0 {
             cap = -cap;
         }
+
         point.y += cap;
     }
 
     point
 }
 
+#[must_use]
 fn intersect_horizontal_cylinder_point(from: &Rect, end_point: LayoutPoint) -> LayoutPoint {
     let mut point = intersect_rect_point(from, end_point.clone());
     let center_x = from.origin.x + from.size.width / 2.0;
@@ -220,12 +235,13 @@ fn intersect_horizontal_cylinder_point(from: &Rect, end_point: LayoutPoint) -> L
     let y = point.y - center_y;
     let half_height = from.size.height / 2.0;
     let ry = half_height;
-    let rx = if ry == 0.0 {
+    let rx = if ::core::matches!(::core::primitive::f64::classify(ry), ::core::num::FpCategory::Zero) {
         0.0
     } else {
         ry / (2.5 + from.size.height / 50.0)
     };
-    if ry != 0.0
+
+    if !::core::matches!(::core::primitive::f64::classify(ry), ::core::num::FpCategory::Zero)
         && (y.abs() < half_height
             || (y.abs() - half_height).abs() < 1e-12
                 && (point.x - center_x).abs() > from.size.width / 2.0 - rx)
@@ -233,18 +249,23 @@ fn intersect_horizontal_cylinder_point(from: &Rect, end_point: LayoutPoint) -> L
         let mut cap = rx * rx * (1.0 - (y * y) / (ry * ry));
         cap = cap.abs().sqrt();
         cap = rx - cap;
+
         if end_point.x - center_x > 0.0 {
             cap = -cap;
         }
+
         point.x += cap;
     }
+
     point
 }
 
+#[must_use]
 fn cross(a: LayoutPoint, b: LayoutPoint) -> f64 {
     a.x * b.y - a.y * b.x
 }
 
+#[must_use]
 fn line_polygon_intersection(
     origin: LayoutPoint,
     target: LayoutPoint,
@@ -254,11 +275,13 @@ fn line_polygon_intersection(
         x: target.x - origin.x,
         y: target.y - origin.y,
     };
+
     if direction.x.abs() < 1e-12 && direction.y.abs() < 1e-12 {
         return None;
     }
 
     let mut nearest: Option<(f64, LayoutPoint)> = None;
+
     for (a, b) in polygon
         .iter()
         .zip(polygon.iter().cycle().skip(1))
@@ -273,30 +296,37 @@ fn line_polygon_intersection(
             y: a.y - origin.y,
         };
         let denominator = cross(direction.clone(), edge.clone());
+
         if denominator.abs() < 1e-12 {
             continue;
         }
+
         let t = cross(origin_to_a.clone(), edge) / denominator;
         let u = cross(origin_to_a, direction.clone()) / denominator;
+
         if !(0.0..=1.0).contains(&u) {
             continue;
         }
+
         let point = LayoutPoint {
             x: origin.x + direction.x * t,
             y: origin.y + direction.y * t,
         };
-        // Mermaid intersects the complete center/target line, then picks the nearest boundary
-        // point. A containing boundary can place its target inside the person; in that case
-        // the nearest intersection can be opposite the center-to-target direction.
+
+
+
         let distance = (point.x - target.x).hypot(point.y - target.y);
+
         if nearest.as_ref().is_none_or(|(best, _)| distance < *best) {
             nearest = Some((distance, point));
         }
     }
+
     nearest.map(|(_, point)| point)
 }
 
-fn person_polygon(width: f64, height: f64) -> Vec<LayoutPoint> {
+#[must_use]
+fn person_polygon(PersonPolygonArguments { width, height }: PersonPolygonArguments) -> Vec<LayoutPoint> {
     fn append_arc(
         points: &mut Vec<LayoutPoint>,
         center_x: f64,
@@ -306,9 +336,10 @@ fn person_polygon(width: f64, height: f64) -> Vec<LayoutPoint> {
         start_deg: f64,
         end_deg: f64,
     ) {
-        // Same sampling and coordinate orientation as Mermaid's generateCirclePoints.
+
         let start = start_deg.to_radians();
         let step = (end_deg.to_radians() - start) / (count - 1) as f64;
+
         for index in 0..count {
             let angle = start + index as f64 * step;
             points.push(LayoutPoint {
@@ -330,7 +361,7 @@ fn person_polygon(width: f64, height: f64) -> Vec<LayoutPoint> {
         .asin()
         .to_degrees();
 
-    // person.ts uses 24 samples for the exposed head and 12 for each body corner.
+
     let mut points = Vec::with_capacity(72);
     append_arc(
         &mut points,
@@ -341,6 +372,7 @@ fn person_polygon(width: f64, height: f64) -> Vec<LayoutPoint> {
         180.0 + phi_right_deg,
         -phi_right_deg,
     );
+
     for (center_x, center_y, start, end) in [
         (
             width / 2.0 - body_radius,
@@ -373,6 +405,12 @@ fn person_polygon(width: f64, height: f64) -> Vec<LayoutPoint> {
     points
 }
 
+struct PersonPolygonArguments {
+    width: f64,
+    height: f64,
+}
+
+#[must_use]
 fn intersect_polygon_point(
     from: &Rect,
     end_point: LayoutPoint,
@@ -382,8 +420,8 @@ fn intersect_polygon_point(
         x: from.origin.x + from.size.width / 2.0,
         y: from.origin.y + from.size.height / 2.0,
     };
-    // intersect.polygon aligns the sampled outline's minimum coordinates to the node box.
-    // Query in the polygon's coordinates; the person samples need not hit the exact circle top.
+
+
     let origin = LayoutPoint {
         x: from.size.width / 2.0
             + polygon
@@ -400,17 +438,23 @@ fn intersect_polygon_point(
         x: origin.x + (end_point.x - center.x),
         y: origin.y + (end_point.y - center.y),
     };
-    if let Some(point) = line_polygon_intersection(origin.clone(), target, polygon) {
-        return LayoutPoint {
-            x: center.x + point.x - origin.x,
-            y: center.y + point.y - origin.y,
-        };
+
+    match line_polygon_intersection(origin.clone(), target, polygon) {
+        Some(point) => {
+            return LayoutPoint {
+                x: center.x + point.x - origin.x,
+                y: center.y + point.y - origin.y,
+            };
+        },
+        ::core::option::Option::None => {},
     }
+
     center
 }
 
+#[must_use]
 fn intersect_framed_point(from: &Rect, end_point: LayoutPoint) -> LayoutPoint {
-    // subroutine.ts exposes the inner frame and the outer perimeter to intersect.polygon.
+
     let inner_width = from.size.width - 16.0;
     let height = from.size.height;
     let polygon = [
@@ -429,12 +473,13 @@ fn intersect_framed_point(from: &Rect, end_point: LayoutPoint) -> LayoutPoint {
     intersect_polygon_point(from, end_point, &polygon)
 }
 
+#[must_use]
 fn intersect_shape_point(shape: C4NodeShape, from: &Rect, end_point: LayoutPoint) -> LayoutPoint {
     match shape {
         C4NodeShape::Rounded => intersect_rect_point(from, end_point),
         C4NodeShape::Framed => intersect_framed_point(from, end_point),
         C4NodeShape::Person => {
-            let polygon = person_polygon(from.size.width, from.size.height);
+            let polygon = person_polygon(self::PersonPolygonArguments { width: from.size.width, height: from.size.height });
             intersect_polygon_point(from, end_point, &polygon)
         }
         C4NodeShape::Cylinder => intersect_cylinder_point(from, end_point),
@@ -453,13 +498,13 @@ fn layout_c4_shape_array(
         let type_c4_shape = shape.type_c4_shape.as_str().to_string();
         let shape_kind = c4_node_shape(shape);
         let look = ctx.conf.look;
-        // The 11.17 unified C4 label helper reads the diagram-local `c4.wrap` setting.  The
-        // parser's per-object `wrap` field belongs to the legacy boundary/relationship path and
-        // is not consulted by the unified shape renderer.
+
+
+
         let text_wrap = ctx.conf.wrap;
         let text_limit_width = match shape_kind {
-            // Mermaid's cylinder handlers subtract one padding unit from the requested node
-            // width before c4LabelHelper derives its inner wrapping width.
+
+
             C4NodeShape::Cylinder => {
                 let label_padding = if look.is_neo() {
                     24.0
@@ -469,8 +514,8 @@ fn layout_c4_shape_array(
                 (ctx.conf.width - label_padding - ctx.conf.c4_shape_padding * 2.0).max(32.0)
             }
             C4NodeShape::HorizontalCylinder => {
-                // `tiltedCylinder` first subtracts half the padding from the target width;
-                // the label helper then subtracts the full node padding for its wrap probe.
+
+
                 let label_padding = if look.is_neo() {
                     12.0
                 } else {
@@ -478,7 +523,7 @@ fn layout_c4_shape_array(
                 };
                 (ctx.conf.width - label_padding - ctx.conf.c4_shape_padding * 2.0).max(32.0)
             }
-            _ => (ctx.conf.width - ctx.conf.c4_shape_padding * 2.0).max(32.0),
+            C4NodeShape::Rounded | C4NodeShape::Framed | C4NodeShape::Person => (ctx.conf.width - ctx.conf.c4_shape_padding * 2.0).max(32.0),
         };
         let text_conf = ctx
             .typography
@@ -487,9 +532,9 @@ fn layout_c4_shape_array(
             .font
             .clone();
 
-        // Unified C4 labels are measured as stacked name/stereotype/description sections.
-        // Their CSS font sizes are part of the geometry contract, so measure each section with
-        // the same scale that the SVG renderer emits.
+
+
+
         let label_text = shape.label.as_str().to_string();
         let has_label = !label_text.trim().is_empty();
         let label_m = if !has_label {
@@ -514,9 +559,9 @@ fn layout_c4_shape_array(
             render_plan: label_m.map(|m| m.render_plan),
         };
 
-        // Mermaid's unified C4 shape adapter derives the node stereotype exclusively from
-        // `typeC4Shape` and the optional technology. A named `$type` argument may remain in the
-        // legacy source model, but unlike boundary `type` it is not a node label override.
+
+
+
         let stereotype_text = c4_stereotype_text(shape);
         let mut stereotype_conf = text_conf.clone();
         stereotype_conf.font_size *= 0.75;
@@ -563,24 +608,29 @@ fn layout_c4_shape_array(
 
         let section_gap = 3.0;
         let has_descr = descr_block.is_some();
-        let section_count = usize::from(has_label) + 1 + usize::from(has_descr);
+        let section_count = ::core::primitive::usize::wrapping_add(usize::from(has_label), 1).wrapping_add(usize::from(has_descr));
         let content_width = label
             .width
             .max(type_block.width)
-            .max(descr_block.as_ref().map(|block| block.width).unwrap_or(0.0));
+            .max(match descr_block.as_ref().map(|block| block.width) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            });
         let content_height = label.height
             + type_block.height
-            + descr_block
+            + match descr_block
                 .as_ref()
-                .map(|block| block.height)
-                .unwrap_or(0.0)
+                .map(|block| block.height) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            }
             + section_gap * section_count.saturating_sub(1) as f64;
 
-        // Store section centre positions relative to the top-left layout box. The SVG renderer
-        // translates the unified shape to its centre and uses these values to place each label.
+
+
         let label_padding_y = match (shape_kind, look) {
-            // `section_y` is a per-side offset, while Mermaid's subroutine padding is the total
-            // vertical addition to the label bounds.
+
+
             (C4NodeShape::Framed, C4Look::Neo) => C4_NEO_FRAMED_LABEL_PADDING_Y / 2.0,
             (C4NodeShape::HorizontalCylinder, C4Look::Neo) => 6.0,
             (C4NodeShape::Cylinder, C4Look::Neo) => 24.0,
@@ -588,17 +638,23 @@ fn layout_c4_shape_array(
         };
         let mut section_y =
             (ctx.conf.height.max(content_height + 2.0 * label_padding_y) - content_height) / 2.0;
-        let mut label = label;
+        let mut label_2 = label;
+
         if has_label {
-            label.y = section_y + label.height / 2.0;
-            section_y += label.height + section_gap;
+            label_2.y = section_y + label_2.height / 2.0;
+            section_y += label_2.height + section_gap;
         }
-        let mut type_block = type_block;
-        type_block.y = section_y + type_block.height / 2.0;
-        section_y += type_block.height + section_gap;
-        let mut descr_block = descr_block;
-        if let Some(descr) = descr_block.as_mut() {
-            descr.y = section_y + descr.height / 2.0;
+
+        let mut type_block_2 = type_block;
+        type_block_2.y = section_y + type_block_2.height / 2.0;
+        section_y += type_block_2.height + section_gap;
+        let mut descr_block_2 = descr_block;
+
+        match descr_block_2.as_mut() {
+            Some(descr) => {
+                descr.y = section_y + descr.height / 2.0;
+            },
+            ::core::option::Option::None => {},
         }
 
         let image = C4ImageLayout {
@@ -608,8 +664,8 @@ fn layout_c4_shape_array(
         };
         let padding = ctx.conf.c4_shape_padding;
         let base_width = (content_width + 2.0 * padding).max(ctx.conf.width);
-        // Unified shapes receive the configured width as a target, but no legacy minimum
-        // height. Their self-sized label bounds determine the vertical extent.
+
+
         let base_height = content_height + 2.0 * padding;
         let (width, height) = match shape_kind {
             C4NodeShape::Rounded => (base_width, base_height),
@@ -619,7 +675,7 @@ fn layout_c4_shape_array(
                 } else {
                     padding
                 };
-                let label_padding_y = if look.is_neo() {
+                let label_padding_y_2 = if look.is_neo() {
                     C4_NEO_FRAMED_LABEL_PADDING_Y
                 } else {
                     padding
@@ -627,7 +683,7 @@ fn layout_c4_shape_array(
                 (
                     (content_width + 2.0 * C4_FRAMED_FRAME_WIDTH + label_padding_x)
                         .max(ctx.conf.width),
-                    content_height + label_padding_y,
+                    content_height + label_padding_y_2,
                 )
             }
             C4NodeShape::Person => {
@@ -638,21 +694,21 @@ fn layout_c4_shape_array(
                 (width, body_height + 2.0 * head_radius - overlap)
             }
             C4NodeShape::Cylinder => {
-                // The unified cylinder reserves one padding unit around the label, while the
-                // legacy `c4.width` remains a lower bound for the full shape.
+
+
                 let label_padding = if look.is_neo() { 24.0 } else { padding };
                 let width = (content_width + label_padding).max(ctx.conf.width).max(1.0);
                 let rx = width / 2.0;
                 let ry = rx / (2.5 + width / 50.0);
-                // `cylinder`'s path extends one cap radius beyond its vertical body on both
-                // sides; the legacy grid stores the resulting outer bounding-box height.
+
+
                 (width, content_height + label_padding + 3.0 * ry)
             }
             C4NodeShape::HorizontalCylinder => {
-                // Mermaid's `h-cyl` resolves to `tiltedCylinder`: the requested width is
-                // reduced by half-padding for the wrap probe, then the rendered path adds that
-                // half-padding and a horizontal cap radius back. Its returned height is the
-                // path height itself (the path's vertical capsule is centered by a transform).
+
+
+
+
                 let label_padding = if look.is_neo() { 12.0 } else { padding / 2.0 };
                 let inner_width = (ctx.conf.width - label_padding).max(10.0);
                 let body_height = content_height + label_padding;
@@ -683,11 +739,11 @@ fn layout_c4_shape_array(
                 height: rect.size.height,
                 margin: rect.margin,
                 image,
-                type_block,
-                label,
+                type_block: type_block_2,
+                label: label_2,
                 ty: None,
                 techn: None,
-                descr: descr_block,
+                descr: descr_block_2,
             },
         );
     }
@@ -713,6 +769,7 @@ struct C4BoundaryFrame {
 }
 
 impl C4BoundaryFrame {
+    #[must_use]
     fn new(
         boundary_indices: Vec<usize>,
         parent_bounds: BoundsState,
@@ -733,6 +790,7 @@ impl C4BoundaryFrame {
     }
 }
 
+#[must_use]
 fn prepare_c4_boundary_layout(
     boundary: &C4Boundary,
     width_limit: f64,
@@ -745,6 +803,7 @@ fn prepare_c4_boundary_layout(
         height: 0.0,
         y: 0.0,
     };
+
     if has_sprite(&boundary.sprite) {
         image.width = 48.0;
         image.height = 48.0;
@@ -752,10 +811,13 @@ fn prepare_c4_boundary_layout(
         y = image.y + image.height;
     }
 
-    // Legacy Mermaid boundaries carry their own root-wrap snapshot. A global
-    // boundary has no such field and therefore does not wrap when it is absent;
-    // do not substitute the diagram model's root directive here.
-    let text_wrap = boundary.wrap.unwrap_or(false) && ctx.conf.wrap;
+
+
+
+    let text_wrap = (match boundary.wrap {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => false,
+    }) && ctx.conf.wrap;
     let mut label_conf = ctx.conf.boundary_font();
     label_conf.font_size += 2.0;
     label_conf.font_weight = Some("bold".to_string());
@@ -779,44 +841,52 @@ fn prepare_c4_boundary_layout(
     y = label.y + label.height;
 
     let mut ty: Option<C4TextBlockLayout> = None;
-    if let Some(boundary_ty) = boundary.ty.as_ref().filter(|t| !t.as_str().is_empty()) {
-        let ty_text = format!("[{}]", boundary_ty.as_str());
-        let ty_conf = ctx.conf.boundary_font();
-        let m = measure_c4_text(ctx.measurer, &ty_text, &ty_conf, text_wrap, width_limit);
-        let block = C4TextBlockLayout {
-            text: ty_text,
-            y: y + 5.0,
-            width: m.width,
-            height: m.height,
-            line_count: m.line_count,
-            render_plan: None,
-        };
-        y = block.y + block.height;
-        ty = Some(block);
+
+    match boundary.ty.as_ref().filter(|t| !t.as_str().is_empty()) {
+        Some(boundary_ty) => {
+            let ty_text = format!("[{}]", boundary_ty.as_str());
+            let ty_conf = ctx.conf.boundary_font();
+            let m = measure_c4_text(ctx.measurer, &ty_text, &ty_conf, text_wrap, width_limit);
+            let block = C4TextBlockLayout {
+                text: ty_text,
+                y: y + 5.0,
+                width: m.width,
+                height: m.height,
+                line_count: m.line_count,
+                render_plan: None,
+            };
+            y = block.y + block.height;
+            ty = Some(block);
+        },
+        ::core::option::Option::None => {},
     }
 
     let mut descr: Option<C4TextBlockLayout> = None;
-    if let Some(boundary_descr) = boundary.descr.as_ref().filter(|t| !t.as_str().is_empty()) {
-        let descr_text = boundary_descr.as_str().to_string();
-        let mut descr_conf = ctx.conf.boundary_font();
-        descr_conf.font_size -= 2.0;
-        let m = measure_c4_text(
-            ctx.measurer,
-            &descr_text,
-            &descr_conf,
-            text_wrap,
-            width_limit,
-        );
-        let block = C4TextBlockLayout {
-            text: descr_text,
-            y: y + 20.0,
-            width: m.width,
-            height: m.height,
-            line_count: m.line_count,
-            render_plan: None,
-        };
-        y = block.y + block.height;
-        descr = Some(block);
+
+    match boundary.descr.as_ref().filter(|t| !t.as_str().is_empty()) {
+        Some(boundary_descr) => {
+            let descr_text = boundary_descr.as_str().to_string();
+            let mut descr_conf = ctx.conf.boundary_font();
+            descr_conf.font_size -= 2.0;
+            let m = measure_c4_text(
+                ctx.measurer,
+                &descr_text,
+                &descr_conf,
+                text_wrap,
+                width_limit,
+            );
+            let block = C4TextBlockLayout {
+                text: descr_text,
+                y: y + 20.0,
+                width: m.width,
+                height: m.height,
+                line_count: m.line_count,
+                render_plan: None,
+            };
+            y = block.y + block.height;
+            descr = Some(block);
+        },
+        ::core::option::Option::None => {},
     }
 
     (
@@ -839,10 +909,22 @@ fn finish_c4_boundary_layout(
     ctx: &C4LayoutContext<'_>,
     state: &mut C4LayoutState,
 ) {
-    let startx = current_bounds.data.startx.unwrap_or(0.0);
-    let stopx = current_bounds.data.stopx.unwrap_or(startx);
-    let starty = current_bounds.data.starty.unwrap_or(0.0);
-    let stopy = current_bounds.data.stopy.unwrap_or(starty);
+    let startx = match current_bounds.data.startx {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    };
+    let stopx = match current_bounds.data.stopx {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => startx,
+    };
+    let starty = match current_bounds.data.starty {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    };
+    let stopy = match current_bounds.data.stopy {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => starty,
+    };
 
     state.boundaries.insert(
         pending.alias.clone(),
@@ -863,17 +945,21 @@ fn finish_c4_boundary_layout(
     let stopx_with_margin = stopx + ctx.conf.c4_shape_margin;
     let stopy_with_margin = stopy + ctx.conf.c4_shape_margin;
     parent_bounds.data.stopx = Some(
-        parent_bounds
+        match parent_bounds
             .data
-            .stopx
-            .unwrap_or(stopx_with_margin)
+            .stopx {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => stopx_with_margin,
+        }
             .max(stopx_with_margin),
     );
     parent_bounds.data.stopy = Some(
-        parent_bounds
+        match parent_bounds
             .data
-            .stopy
-            .unwrap_or(stopy_with_margin)
+            .stopy {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => stopy_with_margin,
+        }
             .max(stopy_with_margin),
     );
 
@@ -898,24 +984,36 @@ fn layout_inside_boundary(
     )];
 
     while let Some(frame) = stack.last_mut() {
-        if let Some(pending) = frame.pending.take() {
-            finish_c4_boundary_layout(
-                &mut frame.parent_bounds,
-                &frame.current_bounds,
-                pending,
-                ctx,
-                state,
-            );
-            continue;
+        match frame.pending.take() {
+            Some(pending) => {
+                finish_c4_boundary_layout(
+                    &mut frame.parent_bounds,
+                    &frame.current_bounds,
+                    pending,
+                    ctx,
+                    state,
+                );
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         if frame.next_index >= frame.boundary_indices.len() {
-            let Some(finished) = stack.pop() else {
-                break;
+            let finished = {
+                let optional_finished = stack.pop();
+
+                match optional_finished {
+                    Some(matched_finished) => matched_finished,
+                    ::core::option::Option::None => break,
+                }
             };
-            if let Some(parent) = stack.last_mut() {
-                parent.current_bounds = finished.parent_bounds;
-                continue;
+
+            match stack.last_mut() {
+                Some(parent) => {
+                    parent.current_bounds = finished.parent_bounds;
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
 
             *parent_bounds = finished.parent_bounds;
@@ -950,14 +1048,23 @@ fn layout_inside_boundary(
             let y0 = parent_stopy + ctx.conf.diagram_margin_y + y;
             frame.current_bounds.set_data(x, x, y0, y0);
         } else {
-            let startx = frame.current_bounds.data.startx.unwrap_or(parent_startx);
-            let stopx = frame.current_bounds.data.stopx.unwrap_or(startx);
-            let x = if stopx != startx {
+            let startx = match frame.current_bounds.data.startx {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => parent_startx,
+            };
+            let stopx = match frame.current_bounds.data.stopx {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => startx,
+            };
+            let x = if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&stopx, &startx) != ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
                 stopx + ctx.conf.diagram_margin_x
             } else {
                 startx
             };
-            let y0 = frame.current_bounds.data.starty.unwrap_or(parent_stopy);
+            let y0 = match frame.current_bounds.data.starty {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => parent_stopy,
+            };
             frame.current_bounds.set_data(x, x, y0, y0);
         }
 
@@ -1010,13 +1117,16 @@ pub(crate) fn layout_c4_diagram_typed(
     let c4_boundary_in_row = (model.layout.c4_boundary_in_row.max(1)) as usize;
 
     let mut boundary_children: HashMap<String, Vec<usize>> = HashMap::new();
+
     for (i, b) in model.boundaries.iter().enumerate() {
         boundary_children
             .entry(b.parent_boundary.clone())
             .or_default()
             .push(i);
     }
+
     let mut shape_children: HashMap<String, Vec<usize>> = HashMap::new();
+
     for (i, s) in model.shapes.iter().enumerate() {
         shape_children
             .entry(s.parent_boundary.clone())
@@ -1038,9 +1148,16 @@ pub(crate) fn layout_c4_diagram_typed(
         conf.diagram_margin_y,
         conf.diagram_margin_y,
     );
-    screen_bounds.data.width_limit = screen_available_width.unwrap_or(container_width);
+    screen_bounds.data.width_limit = match screen_available_width {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => container_width,
+    };
 
-    let root_boundaries = boundary_children.get("").cloned().unwrap_or_default();
+    let root_boundaries = match boundary_children.get("").cloned() {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => ::std::vec::Vec::new(),
+    };
+
     if root_boundaries.is_empty() {
         return Err(Error::InvalidModel {
             message: "c4: expected at least the implicit global boundary".to_string(),
@@ -1063,10 +1180,22 @@ pub(crate) fn layout_c4_diagram_typed(
     screen_bounds.data.stopx = Some(state.global_max_x);
     screen_bounds.data.stopy = Some(state.global_max_y);
 
-    let box_startx = screen_bounds.data.startx.unwrap_or(0.0);
-    let box_starty = screen_bounds.data.starty.unwrap_or(0.0);
-    let box_stopx = screen_bounds.data.stopx.unwrap_or(conf.diagram_margin_x);
-    let box_stopy = screen_bounds.data.stopy.unwrap_or(conf.diagram_margin_y);
+    let box_startx = match screen_bounds.data.startx {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    };
+    let box_starty = match screen_bounds.data.starty {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    };
+    let box_stopx = match screen_bounds.data.stopx {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => conf.diagram_margin_x,
+    };
+    let box_stopy = match screen_bounds.data.stopy {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => conf.diagram_margin_y,
+    };
 
     let width = (box_stopx - box_startx) + 2.0 * conf.diagram_margin_x;
     let height = (box_stopy - box_starty) + 2.0 * conf.diagram_margin_y;
@@ -1079,10 +1208,17 @@ pub(crate) fn layout_c4_diagram_typed(
     });
 
     let mut endpoint_rects: HashMap<&str, (Rect, Option<C4NodeShape>)> = HashMap::new();
+
     for s in model.shapes.iter() {
-        let Some(l) = state.shapes.get(&s.alias) else {
-            continue;
+        let l = {
+            let optional_l = state.shapes.get(&s.alias);
+
+            match optional_l {
+                Some(matched_l) => matched_l,
+                ::core::option::Option::None => continue,
+            }
         };
+
         endpoint_rects.insert(
             s.alias.as_str(),
             (
@@ -1096,11 +1232,17 @@ pub(crate) fn layout_c4_diagram_typed(
         );
     }
 
-    // Mermaid's getC4Shape resolves a shape first, then falls back to a boundary.
+
     for boundary in &model.boundaries {
-        let Some(layout) = state.boundaries.get(&boundary.alias) else {
-            continue;
+        let layout = {
+            let optional_layout = state.boundaries.get(&boundary.alias);
+
+            match optional_layout {
+                Some(matched_layout) => matched_layout,
+                ::core::option::Option::None => continue,
+            }
         };
+
         endpoint_rects
             .entry(boundary.alias.as_str())
             .or_insert_with(|| {
@@ -1117,8 +1259,10 @@ pub(crate) fn layout_c4_diagram_typed(
 
     let rel_font = conf.message_font();
     let mut rels_out: Vec<C4RelLayout> = Vec::new();
+
     for (i, rel) in model.rels.iter().enumerate() {
         let mut label_text = rel.label.as_str().to_string();
+
         if model.c4_type == "C4Dynamic" {
             label_text = format!("{}: {}", i + 1, label_text);
         }
@@ -1223,22 +1367,26 @@ pub(crate) fn layout_c4_diagram_typed(
     }
 
     let mut boundaries_out = Vec::with_capacity(model.boundaries.len());
+
     for b in &model.boundaries {
         let Some(l) = state.boundaries.get(&b.alias) else {
             return Err(Error::InvalidModel {
                 message: format!("c4: missing boundary layout for {}", b.alias),
             });
         };
+
         boundaries_out.push(l.clone());
     }
 
     let mut shapes_out = Vec::with_capacity(model.shapes.len());
+
     for s in &model.shapes {
         let Some(l) = state.shapes.get(&s.alias) else {
             return Err(Error::InvalidModel {
                 message: format!("c4: missing shape layout for {}", s.alias),
             });
         };
+
         shapes_out.push(l.clone());
     }
 

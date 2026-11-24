@@ -1,7 +1,7 @@
 use super::super::*;
 use merman_model::families::radar::RadarDiagramModel;
 
-// Radar diagram SVG renderer implementation (split from parity.rs).
+
 
 #[allow(
     clippy::too_many_arguments,
@@ -22,14 +22,14 @@ fn write_radar_css<'a, I>(
 where
     I: SvgDiagramIdValue,
 {
-    // Keep `:root` last (matches upstream Mermaid radar SVG baselines).
-    let diagram_id = super::super::util::css_selector_diagram_id(diagram_id);
+
+    let diagram_id_2 = super::super::util::css_selector_diagram_id(diagram_id);
     let font_family_css = typography.font_family_css();
     let font_size_css = typography.font_size_css();
     let title_fill_css = text_paint.title_color();
     let base_font_emission = write_mermaid_base_css_prefix_with_font_emission(
         out,
-        diagram_id,
+        diagram_id_2,
         MermaidBaseCss {
             font_family: font_family_css,
             font_size_css,
@@ -44,6 +44,7 @@ where
     if let Some(receipt) = text_receipt.as_deref_mut() {
         receipt.record_base_css(text_paint.text_color());
     }
+
     if let Some(receipt) = axis_receipt.as_deref_mut() {
         receipt.record_base_line_css(axis_paint.line_color());
     }
@@ -51,38 +52,44 @@ where
     let _ = write!(
         out,
         r#"#{} .radarTitle{{font-size:{};color:{};fill:{};dominant-baseline:hanging;text-anchor:middle;}}"#,
-        diagram_id, font_size_css, title_fill_css, title_fill_css
+        diagram_id_2, font_size_css, title_fill_css, title_fill_css
     );
     out.checkpoint()?;
+
     if let Some(receipt) = text_receipt {
         receipt.record_title_css("radarTitle", title_fill_css, title_fill_css);
     }
+
     let _ = write!(
         out,
         r#"#{} .radarAxisLine{{stroke:{};stroke-width:{};}}"#,
-        diagram_id,
+        diagram_id_2,
         axis_paint.axis_color(),
         fmt(theme.axis_stroke_width)
     );
     out.checkpoint()?;
+
     if let Some(receipt) = axis_receipt.as_deref_mut() {
         receipt.record_axis_line_css("radarAxisLine", axis_paint.axis_color());
     }
+
     let _ = write!(
         out,
         r#"#{} .radarAxisLabel{{font-size:{}px;color:{};}}"#,
-        diagram_id,
+        diagram_id_2,
         fmt(theme.axis_label_font_size),
         axis_paint.axis_color()
     );
     out.checkpoint()?;
+
     if let Some(receipt) = axis_receipt {
         receipt.record_axis_label_css("radarAxisLabel", axis_paint.axis_color());
     }
+
     let _ = write!(
         out,
         r#"#{} .radarGraticule{{fill:{};fill-opacity:{};stroke:{};stroke-width:{};}}"#,
-        diagram_id,
+        diagram_id_2,
         theme.graticule_color,
         fmt(theme.graticule_opacity),
         theme.graticule_color,
@@ -92,7 +99,7 @@ where
     let _ = write!(
         out,
         r#"#{} .radarLegendText{{text-anchor:start;font-size:{}px;dominant-baseline:hanging;}}"#,
-        diagram_id,
+        diagram_id_2,
         fmt(theme.legend_font_size)
     );
     out.checkpoint()?;
@@ -103,14 +110,14 @@ where
         let _ = write!(
             out,
             r#"#{} .radarCurve-{}{{color:{};fill:{};fill-opacity:{};stroke:{};stroke-width:{};}}#{} .radarLegendBox-{}{{fill:{};fill-opacity:{};stroke:{};}}"#,
-            diagram_id,
+            diagram_id_2,
             i,
             c,
             fill,
             fmt(theme.curve_opacity),
             stroke,
             fmt(theme.curve_stroke_width),
-            diagram_id,
+            diagram_id_2,
             i,
             fill,
             fmt(theme.curve_opacity),
@@ -119,30 +126,37 @@ where
         out.checkpoint()?;
         record_series_rule(i, Some(fill), Some(stroke));
     }
-    // Scalar rules also have real consumers beyond Mermaid's bounded palette slots.
+
+
     for index in series_paint.colors().len()..series_paint.curve_count() {
         let fill = series_paint.fill_css(index);
         let stroke = series_paint.stroke_css(index);
+
         if fill.is_none() && stroke.is_none() {
             record_series_rule(index, fill, stroke);
             continue;
         }
+
         for class in ["radarCurve", "radarLegendBox"] {
-            let _ = write!(out, "#{diagram_id} .{class}-{index}{{");
-            if let Some(fill) = fill {
-                let _ = write!(out, "fill:{fill};");
+            let _ = write!(out, "#{diagram_id} .{class}-{index}{{", diagram_id = diagram_id_2);
+
+            if let Some(fill_2) = fill {
+                let _ = write!(out, "fill:{fill};", fill = fill_2);
             }
-            if let Some(stroke) = stroke {
-                let _ = write!(out, "stroke:{stroke};");
+
+            if let Some(stroke_2) = stroke {
+                let _ = write!(out, "stroke:{stroke};", stroke = stroke_2);
             }
+
             out.push('}');
             out.checkpoint()?;
         }
+
         record_series_rule(index, fill, stroke);
     }
 
     let root_font_emission =
-        write_mermaid_base_css_root_rule_with_font_emission(out, diagram_id, font_family_css)?;
+        write_mermaid_base_css_root_rule_with_font_emission(out, diagram_id_2, font_family_css)?;
 
     Ok(
         crate::radar::RadarTypographyCssEmission::from_successful_writes(
@@ -191,6 +205,7 @@ fn write_radar_axes(
         out.checkpoint()?;
         record_axis_label(axis_index, &axis.label);
     }
+
     Ok(())
 }
 
@@ -298,6 +313,7 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
         );
         out.checkpoint()?;
     }
+
     if has_acc_descr {
         let _ = write!(
             &mut out,
@@ -336,9 +352,11 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
     )?;
     out.push_str("</style><g/>");
     out.checkpoint()?;
+
     if let Some(receipt) = typography_receipt.as_mut() {
         receipt.record_css_emission(typography_css_emission);
     }
+
     if let Some(receipt) = title_theme_receipt.as_mut() {
         receipt.record_stylesheet("radarTitle", text_paint.title_color());
     }
@@ -370,16 +388,20 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
                 r = fmt_display(r)
             );
         }
+
         out.checkpoint()?;
     }
+
     write_radar_axes(&mut out, &layout.axes, |axis_index, label| {
         if let Some(receipt) = text_paint_receipt.as_mut() {
             receipt.record_axis(axis_index, "radarAxisLabel", label);
         }
+
         if let Some(receipt) = axis_paint_receipt.as_mut() {
             receipt.record_axis_line(axis_index, "radarAxisLine");
             receipt.record_axis_label(axis_index, "radarAxisLabel");
         }
+
         if let Some(receipt) = typography_receipt.as_mut() {
             receipt.record_axis_label(axis_index, label);
         }
@@ -389,6 +411,7 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
         .graticules
         .first()
         .is_some_and(|g| g.kind.trim() == "polygon");
+
     for (curve_index, curve) in layout.curves.iter().enumerate() {
         if polygon_curves && !curve.points.is_empty() {
             let points = fmt_points(&curve.points);
@@ -406,7 +429,9 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
                 idx = curve.class_index
             );
         }
+
         out.checkpoint()?;
+
         if let Some(receipt) = series_paint_receipt.as_mut() {
             receipt.record_curve(series_paint, curve_index, curve.class_index);
         }
@@ -446,12 +471,15 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
         out.checkpoint()?;
         out.push_str("</g>");
         out.checkpoint()?;
+
         if let Some(receipt) = series_paint_receipt.as_mut() {
             receipt.record_legend(series_paint, legend_index, item.class_index);
         }
+
         if let Some(receipt) = text_paint_receipt.as_mut() {
             receipt.record_legend_paint(legend_index, "radarLegendText", label, legend_fill);
         }
+
         if let Some(receipt) = typography_receipt.as_mut() {
             receipt.record_legend_label(legend_index, label);
         }
@@ -487,18 +515,22 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
         }
     };
     out.checkpoint()?;
+
     if let Some(receipt) = text_paint_receipt.as_mut() {
         receipt.record_title("radarTitle", title_visible);
     }
+
     if let Some(receipt) = typography_receipt.as_mut() {
         receipt.record_title(title_visible);
     }
+
     if let Some(receipt) = title_theme_receipt.as_mut() {
         receipt.record_title_text("radarTitle");
     }
 
     out.push_str("</g></svg>\n");
-    let rooted = root_document.complete(out.finish()?)?;
+    let rooted = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if let Some(receipt) = series_paint_receipt
         && !series_paint.record_terminal(receipt)
     {
@@ -506,6 +538,7 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
             message: "Radar series paint receipt did not match the terminal SVG".to_string(),
         });
     }
+
     if let Some(receipt) = typography_receipt
         && !typography.record_terminal(receipt)
     {
@@ -513,6 +546,7 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
             message: "Radar typography receipt did not match the terminal SVG".to_string(),
         });
     }
+
     if let Some(receipt) = title_theme_receipt
         && !title_theme.record_terminal(receipt)
     {
@@ -520,6 +554,7 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
             message: "Radar title paint receipt did not match the terminal SVG".to_string(),
         });
     }
+
     if let Some(receipt) = axis_paint_receipt
         && !axis_paint.record_terminal(receipt)
     {
@@ -527,6 +562,7 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
             message: "Radar axis paint receipt did not match the terminal SVG".to_string(),
         });
     }
+
     if let Some(receipt) = text_paint_receipt
         && !text_paint.record_terminal(receipt)
     {
@@ -534,6 +570,7 @@ pub(crate) fn render_radar_diagram_svg_model_with_theme_plans(
             message: "Radar text paint receipt did not match the terminal SVG".to_string(),
         });
     }
+
     Ok(rooted)
 }
 

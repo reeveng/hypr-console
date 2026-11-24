@@ -35,7 +35,7 @@ impl ClassTitleThemePlan {
                 config,
                 &["themeVariables.titleColor"],
                 crate::config::config_string(config.as_value(), &["themeVariables", "titleColor"])
-                    .unwrap_or_else(|| "#333".into()),
+                    .unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("#333")),
             ),
             count,
             work_meter,
@@ -53,7 +53,7 @@ impl ClassTitleThemePlan {
                 config,
                 &["themeVariables.textColor"],
                 crate::config::config_string(config.as_value(), &["themeVariables", "textColor"])
-                    .unwrap_or_else(|| "#333".into()),
+                    .unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("#333")),
             ),
             1,
             work_meter,
@@ -70,8 +70,13 @@ impl ClassTitleThemePlan {
             fill,
             ..Self::default()
         };
-        let Some(theme) = theme else { return Ok(plan) };
-        let style = theme.text_style_with_work_meter(
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
+        let style = theme_2.text_style_with_work_meter(
             ThemeTarget::Title,
             ThemeVariant::Default,
             None,
@@ -84,9 +89,10 @@ impl ClassTitleThemePlan {
             })
             .map(|(property, origin)| (property, origin.rule_index()))
             .collect();
+
         {
             let candidate = resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Title, ThemeTarget::Text],
                 DirectStaticSelectorDomain::Default,
@@ -105,6 +111,7 @@ impl ClassTitleThemePlan {
             });
             plan.fill.lower(&style, false, candidate);
         }
+
         if plan.fill.typed().is_some() {
             plan.terminal_style = format!(
                 "color:{} !important;fill:{} !important;",
@@ -112,18 +119,19 @@ impl ClassTitleThemePlan {
                 plan.fill.css()
             );
         }
-        if theme.family_rules().any(|(_, rule)| {
+
+        if theme_2.family_rules().any(|(_, rule)| {
             matches!(rule.target(), ThemeTarget::Text | ThemeTarget::Title)
                 && rule.ordinal().is_some()
         }) {
             for ordinal in 1..=count {
-                let style = theme.text_style_with_work_meter(
+                let style_2 = theme_2.text_style_with_work_meter(
                     ThemeTarget::Title,
                     ThemeVariant::Default,
                     Some(ordinal),
                     work_meter,
                 )?;
-                let winners = style
+                let winners = style_2
                     .winner_rule_properties()
                     .filter(|(property, _)| {
                         *property != ResolvedStyleProperty::Fill || !plan.fill.config_owned()
@@ -133,13 +141,16 @@ impl ClassTitleThemePlan {
                 plan.ordinal_winners.extend(winners);
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(super) fn terminal_style(&self) -> &str {
         &self.terminal_style
     }
 
+    #[must_use]
     pub(super) fn route_won(
         &self,
         rule_index: usize,
@@ -147,6 +158,7 @@ impl ClassTitleThemePlan {
         facet: FamilyThemeRuleFacet,
     ) -> bool {
         let property = resolved_style_property_for_facet(facet);
+
         match selector {
             FamilyThemeSelectorShape::Static {
                 variant: None | Some(ThemeVariant::Default),

@@ -4,14 +4,16 @@ use super::super::*;
 use crate::requirement::requirement_color_indices;
 use merman_model::families::requirement::RequirementDiagramModel;
 
-// Requirement diagram SVG renderer implementation (split from parity.rs).
+
 
 const REQUIREMENT_ROUGH_GEOMETRY_COLOR: &str = "#000000";
 
+#[must_use]
 fn requirement_color_id(border_colors: &[String], color_index: usize) -> Option<String> {
     (!border_colors.is_empty()).then(|| format!("color-{}", color_index % border_colors.len()))
 }
 
+#[must_use]
 fn requirement_color_css<I>(
     diagram_id: I,
     data_look: &str,
@@ -23,30 +25,40 @@ where
     I: SvgDiagramIdValue,
 {
     let mut out = String::new();
-    let diagram_id = crate::svg::escape_css_identifier(diagram_id.semantic_value());
+    let diagram_id_2 = crate::svg::escape_css_identifier(diagram_id.semantic_value());
+
     for index in 0..theme_color_limit {
-        let Some(border_color) = border_colors.get(index) else {
-            continue;
+        let border_color = {
+            let optional_border_color = border_colors.get(index);
+
+            match optional_border_color {
+                Some(matched_border_color) => matched_border_color,
+                ::core::option::Option::None => continue,
+            }
         };
-        let fill = background_colors
+
+        let fill = match background_colors
             .get(index)
-            .map(|color| format!("fill:{color};"))
-            .unwrap_or_default();
+            .map(|color| format!("fill:{color};")) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
         let _ = write!(
             &mut out,
             r#"#{} [data-look="{}"][data-color-id="color-{}"].node path{{stroke:{};{}}}#{} [data-look="{}"][data-color-id="color-{}"].node rect{{stroke:{};{}}}"#,
-            diagram_id.as_ref(),
+            diagram_id_2.as_ref(),
             escape_xml(data_look),
             index,
             border_color,
             fill,
-            diagram_id.as_ref(),
+            diagram_id_2.as_ref(),
             escape_xml(data_look),
             index,
             border_color,
             fill,
         );
     }
+
     out
 }
 
@@ -82,6 +94,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
     let label_measurements =
         prepared.label_measurements_for_render_with_typography(measurer, paint_theme.css());
 
+    #[must_use]
     fn mermaid_markdown_to_html(
         raw: &str,
         sanitize_config: &merman_model::presentation::PresentationConfig,
@@ -90,6 +103,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
         crate::text::mermaid_markdown_to_xhtml_label_fragment(&sanitized, true)
     }
 
+    #[must_use]
     fn requirement_label_source(
         raw: &str,
         sanitize_config: &merman_model::presentation::PresentationConfig,
@@ -161,6 +175,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
         out.push_str("</span></div></foreignObject>");
     }
 
+    #[must_use]
     fn rough_double_line_path_d(x1: f64, y1: f64, x2: f64, y2: f64) -> String {
         let cx1 = (x1 + x2) / 2.0;
         let cy1 = (y1 + y2) / 2.0;
@@ -188,6 +203,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
         out
     }
 
+    #[must_use]
     fn rough_rect_stroke_path_d(x: f64, y: f64, w: f64, h: f64) -> String {
         let x2 = x + w;
         let y2 = y + h;
@@ -206,8 +222,8 @@ pub(crate) fn render_requirement_diagram_svg_model(
     let render_settings = crate::requirement::RequirementConfigView::new(effective_config)
         .render_settings_with_binding(paint_theme.css());
     let look = render_settings.look;
-    let look = look.as_str();
-    let look_attr = format!(r#" data-look="{}""#, escape_xml(look));
+    let look_2 = look.as_str();
+    let look_attr = format!(r#" data-look="{}""#, escape_xml(look_2));
     let binding = paint_theme.css();
     let border_colors = &binding.border_colors;
     let background_colors = &binding.background_colors;
@@ -244,6 +260,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
     };
     let mut rendered_edge_paths = std::collections::HashMap::new();
     let mut rendered_edge_label_positions = std::collections::HashMap::new();
+
     for edge in &layout.edges {
         let identity = edge_identity(edge);
         let prepared_edge = prepared_edges
@@ -264,6 +281,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
         } else {
             curve_basis_path_d(&edge.points)
         };
+
         if rendered_edge_paths
             .insert(identity.clone(), rendered_d.clone())
             .is_some()
@@ -275,6 +293,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 ),
             });
         }
+
         if prepared_edge.has_label {
             let label = edge.label.as_ref().ok_or_else(|| Error::InvalidModel {
                 message: format!(
@@ -327,21 +346,24 @@ pub(crate) fn render_requirement_diagram_svg_model(
         std::collections::HashMap::new()
     };
 
-    // Mermaid derives the root viewport from the rendered SVG subtree. Reconstruct those bounds
-    // from final paths and post-path label positions instead of stale Dagre label anchors.
+
+
     let mut min_x = f64::INFINITY;
     let mut min_y = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
     let mut max_y = f64::NEG_INFINITY;
+
     for node in &layout.nodes {
         min_x = min_x.min(node.x);
         min_y = min_y.min(node.y);
         max_x = max_x.max(node.x + node.width);
         max_y = max_y.max(node.y + node.height);
     }
+
     for edge in &layout.edges {
         if let Some(path) = hop_paths.get(edge.id.as_str()) {
             options.work_meter().charge(path.len())?;
+
             if let Some(bounds) = super::super::svg_path_bounds_from_d(path) {
                 min_x = min_x.min(bounds.min_x);
                 min_y = min_y.min(bounds.min_y);
@@ -349,13 +371,16 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 max_y = max_y.max(bounds.max_y);
             }
         }
+
         for point in &edge.points {
             min_x = min_x.min(point.x);
             min_y = min_y.min(point.y);
             max_x = max_x.max(point.x);
             max_y = max_y.max(point.y);
         }
+
         let identity = edge_identity(edge);
+
         if let (Some(label), Some(position)) = (
             edge.label.as_ref(),
             rendered_edge_label_positions.get(&identity),
@@ -366,6 +391,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
             max_y = max_y.max(position.y + label.height / 2.0);
         }
     }
+
     let mut content_bounds =
         if min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite() {
             Bounds {
@@ -382,10 +408,10 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 max_y: 0.0,
             }
         };
-    let diagram_title = diagram_title
+    let diagram_title_2 = diagram_title
         .map(str::trim)
         .filter(|title| !title.is_empty());
-    let title_position = diagram_title.map(|title| {
+    let title_position = diagram_title_2.map(|title| {
         let x = (content_bounds.min_x + content_bounds.max_x) / 2.0;
         let y = -render_settings.title_top_margin;
         let (left, right) = measurer.measure_svg_title_bbox_x(title, &html_style_regular);
@@ -410,6 +436,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
     let mut aria_labelledby: Option<String> = None;
     let mut aria_describedby: Option<String> = None;
     let mut a11y_nodes = String::new();
+
     if let Some(t) = model
         .acc_title
         .as_deref()
@@ -424,6 +451,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
             escape_xml(t)
         );
     }
+
     if let Some(d) = model
         .acc_descr
         .as_deref()
@@ -469,9 +497,11 @@ pub(crate) fn render_requirement_diagram_svg_model(
     let mut relation_receipt =
         relation_paint.and_then(|plan| plan.begin_terminal_receipt(layout.edges.len()));
     let mut expected_text_terminals = Vec::new();
+
     if paint_theme.text_paint().requested() {
         for edge in &layout.edges {
             options.work_meter().charge(1)?;
+
             if let Some(label) = prepared_edges
                 .get(&edge_identity(edge))
                 .filter(|label| label.has_label)
@@ -481,8 +511,10 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 ));
             }
         }
+
         for node in &layout.nodes {
             options.work_meter().charge(1)?;
+
             if let Some(crate::requirement::RequirementNodeRenderPlan::Semantic(labels)) =
                 prepared_nodes.get(&node.id)
             {
@@ -497,6 +529,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
             }
         }
     }
+
     let mut text_paint_receipt = paint_theme
         .text_paint()
         .begin_terminal_receipt(expected_text_terminals, options.work_meter())?;
@@ -504,7 +537,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
         super::css::write_requirement_css(diagram_id, binding, text_paint_receipt.as_mut());
     let color_css = requirement_color_css(
         diagram_id,
-        look,
+        look_2,
         border_colors,
         background_colors,
         theme_color_limit,
@@ -513,35 +546,38 @@ pub(crate) fn render_requirement_diagram_svg_model(
     out.push_str("<style>");
     super::super::output::XmlTextOutput::new(&mut out).push_str(&css_emission.css);
     out.push_str("</style>");
+
     if let Some(receipt) = relation_receipt.as_mut() {
         out.checkpoint()?;
         receipt.record_css(css_emission.typed_relation_color());
     }
 
     let mut paint_theme_receipt = paint_theme.begin_terminal_receipt();
+
     if let Some(receipt) = paint_theme_receipt.as_mut() {
         receipt.record_typography(css_emission.font_family(), css_emission.font_size());
     }
+
     out.push_str("<g>");
 
-    // Mermaid 12 selects the Neo variants in requirementRenderer.ts.
-    let marker_units = if look == "neo" {
+
+    let marker_units = if look_2 == "neo" {
         r#" markerUnits="userSpaceOnUse""#
     } else {
         ""
     };
-    let marker_stroke = if look == "neo" {
+    let marker_stroke = if look_2 == "neo" {
         let width = &binding.marker_stroke_width;
         format!(r#" stroke-width="{}""#, escape_xml(width))
     } else {
         String::new()
     };
-    let arrow_view_box = if look == "neo" {
+    let arrow_view_box = if look_2 == "neo" {
         r#" viewBox="0 0 25 20""#
     } else {
         ""
     };
-    let arrow_join = if look == "neo" {
+    let arrow_join = if look_2 == "neo" {
         r#" stroke-linejoin="miter""#
     } else {
         ""
@@ -550,18 +586,22 @@ pub(crate) fn render_requirement_diagram_svg_model(
         &mut out,
         r#"<defs><marker id="{diagram_id}_requirement-requirement_containsStart" refX="0" refY="10" markerWidth="20" markerHeight="20" orient="auto"{marker_units}><g><circle cx="10" cy="10" r="9" fill="none"{marker_stroke}/><line x1="1" x2="19" y1="10" y2="10"{marker_stroke}/><line y1="1" y2="19" x1="10" x2="10"{marker_stroke}/></g></marker></defs>"#,
     );
+
     if let Some(receipt) = relation_receipt.as_mut() {
         out.checkpoint()?;
         receipt.record_marker(0);
     }
+
     let _ = write!(
         &mut out,
         r#"<defs><marker id="{diagram_id}_requirement-requirement_arrowEnd" refX="20" refY="10" markerWidth="20" markerHeight="20" orient="auto"{marker_units}{marker_stroke}{arrow_view_box}><path d="M0,0&#10;      L20,10&#10;      M20,10&#10;      L0,20"{arrow_join}/></marker></defs>"#,
     );
+
     if let Some(receipt) = relation_receipt.as_mut() {
         out.checkpoint()?;
         receipt.record_marker(1);
     }
+
     options.checkpoint_emit()?;
 
     out.push_str(r#"<g class="root">"#);
@@ -572,6 +612,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
     } else {
         r#"<g class="edgePaths">"#
     });
+
     for (edge_index, e) in layout.edges.iter().enumerate() {
         let identity = edge_identity(e);
         let prepared_label = prepared_edges
@@ -596,7 +637,8 @@ pub(crate) fn render_requirement_diagram_svg_model(
             .get(&identity)
             .expect("Requirement edge paths were validated before root rendering");
         let mut masked_style = String::new();
-        if look == "neo"
+
+        if look_2 == "neo"
             && let Some(length) = super::super::svg_path_length_from_d(d)
         {
             super::super::edge_path::write_neo_edge_mask(
@@ -608,6 +650,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 false,
             );
         }
+
         masked_style.push_str(style);
         let hopped_d = hop_paths.get(e.id.as_str()).map(String::as_str);
         let style = if let Some(path) = hopped_d {
@@ -623,12 +666,14 @@ pub(crate) fn render_requirement_diagram_svg_model(
             base64::engine::general_purpose::STANDARD.encode(json_stringify_points(&e.points));
 
         let mut marker_attr = String::new();
+
         if prepared_label.marker_start {
             let _ = write!(
                 &mut marker_attr,
                 r#" marker-start="url(#{diagram_id}_requirement-requirement_containsStart)""#,
             );
         }
+
         if prepared_label.marker_end {
             let _ = write!(
                 &mut marker_attr,
@@ -655,14 +700,17 @@ pub(crate) fn render_requirement_diagram_svg_model(
             look_attr = look_attr.as_str(),
             marker_attr = marker_attr,
         );
+
         if let Some(receipt) = relation_receipt.as_mut() {
             out.checkpoint()?;
             receipt.record_path(edge_index);
         }
     }
+
     out.push_str("</g>");
 
     out.push_str(r#"<g class="edgeLabels">"#);
+
     for e in &layout.edges {
         let identity = edge_identity(e);
         let prepared_label = prepared_edges
@@ -676,6 +724,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
         let rel_type = prepared_label.relationship_type.as_str();
         debug_assert!(!rel_type.trim().is_empty());
         let label_text = prepared_label.display_text.as_str();
+
         if prepared_label.has_label {
             label_measurements
                 .measure_edge_label_for_render(prepared_label)
@@ -687,17 +736,20 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 })?;
         }
 
-        let (w, h) = e
+        let (w, h) = match e
             .label
             .as_ref()
-            .map(|label| (label.width, label.height))
-            .unwrap_or((0.0, 0.0));
+            .map(|label| (label.width, label.height)) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => (0.0, 0.0),
+        };
         let svg_text_height = (h - 4.0).max(0.0);
         let svg_text_y = if !render_settings.edge_html_labels && prepared_label.has_label {
             measurer.measure_svg_create_text_bbox_y_offset_px(label_text, &html_style_regular)
         } else {
             0.0
         };
+
         if prepared_label.has_label {
             let label_position = rendered_edge_label_positions
                 .get(&identity)
@@ -726,15 +778,19 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 id = escape_xml(&prepared_label.rendered_id),
             );
         }
+
         let mut text_facts = None;
+
         if render_settings.edge_html_labels {
             let label_html = mermaid_markdown_to_html(label_text, sanitize_config);
+
             if text_paint_receipt.is_some() && prepared_label.has_label {
                 options.work_meter().charge(label_html.len())?;
                 text_facts = Some(crate::text::VisibleTextStyleFacts::from_xhtml_fragment(
                     &label_html,
                 ));
             }
+
             mk_label_foreign_object(
                 &mut out,
                 LabelForeignObject {
@@ -756,7 +812,9 @@ pub(crate) fn render_requirement_diagram_svg_model(
                     crate::text::VisibleTextStyleFacts::from_svg_markdown_projection(label_text),
                 );
             }
+
             out.push_str("<g>");
+
             if prepared_label.has_label {
                 let _ = write!(
                     &mut out,
@@ -769,6 +827,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
             } else {
                 out.push_str(r#"<rect class="background" style="stroke: none"/>"#);
             }
+
             super::super::label::write_svg_text_markdown_wrapped_centered_from_create_text_source(
                 &mut out,
                 label_text,
@@ -779,12 +838,15 @@ pub(crate) fn render_requirement_diagram_svg_model(
             );
             out.push_str("</g>");
         }
+
         out.push_str("</g></g>");
+
         if prepared_label.has_label
             && let Some(receipt) = paint_theme_receipt.as_mut()
         {
             receipt.record_edge_text(label_text);
         }
+
         if let Some(receipt) = text_paint_receipt.as_mut()
             && let Some(facts) = text_facts
         {
@@ -798,9 +860,11 @@ pub(crate) fn render_requirement_diagram_svg_model(
             )?;
         }
     }
+
     out.push_str("</g>");
 
     out.push_str(r#"<g class="nodes">"#);
+
     for n in &layout.nodes {
         let cx = n.x + n.width / 2.0;
         let cy = n.y + n.height / 2.0;
@@ -809,6 +873,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
             .ok_or_else(|| Error::InvalidModel {
                 message: format!("missing prepared Requirement node plan for {}", n.id),
             })?;
+
         if matches!(
             prepared_node,
             crate::requirement::RequirementNodeRenderPlan::EdgeLabelAnchor
@@ -820,6 +885,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 cx = fmt(cx),
                 cy = fmt(cy),
             );
+
             if render_settings.html_labels {
                 mk_label_foreign_object(
                     &mut out,
@@ -842,25 +908,30 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 );
                 out.push_str("</g>");
             }
+
             out.push_str("</g></g>");
             continue;
         }
-        let crate::requirement::RequirementNodeRenderPlan::Semantic(prepared_node) = prepared_node
+
+        let crate::requirement::RequirementNodeRenderPlan::Semantic(prepared_node_2) = prepared_node
         else {
             unreachable!("edge label anchors return before semantic rendering");
         };
+
         let rendered_node = label_measurements
-            .node_plan_for_render(prepared_node)
+            .node_plan_for_render(prepared_node_2)
             .ok_or_else(|| Error::InvalidModel {
                 message: format!("missing Requirement node label measurement for {}", n.id),
             })?;
 
         let mut node_classes: Vec<&str> = Vec::new();
+
         if let Some(req) = req_by_id.get(n.id.as_str()) {
             node_classes = req.classes.iter().map(String::as_str).collect();
         } else if let Some(el) = el_by_id.get(n.id.as_str()) {
             node_classes = el.classes.iter().map(String::as_str).collect();
         }
+
         let paint_theme_index = paint_theme_receipt
             .as_ref()
             .map(|_| {
@@ -878,6 +949,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
         if !node_classes.contains(&"default") {
             node_classes.insert(0, "default");
         }
+
         let classes_str = if node_classes.is_empty() {
             "node default".to_string()
         } else {
@@ -931,8 +1003,8 @@ pub(crate) fn render_requirement_diagram_svg_model(
         let stroke_style_declaration = &visual.stroke_style_declaration;
         let stroke_style_attr = &visual.stroke_style_attr;
 
-        // RoughJS path geometry does not depend on RGB values. Keep paint-only values such as
-        // `transparent` from selecting a different geometry fallback than an opaque color.
+
+
         let geometry_stroke_color = roughjs_parse_hex_color_to_srgba(stroke_color)
             .map_or(REQUIREMENT_ROUGH_GEOMETRY_COLOR, |_| stroke_color);
 
@@ -984,8 +1056,9 @@ pub(crate) fn render_requirement_diagram_svg_model(
         );
         out.push_str("</g>");
 
-        // Labels.
+
         let padding = 20.0;
+
         for line in &rendered_node.lines {
             let metrics = line.metrics;
             let label_x = if line.keep_centered {
@@ -1006,15 +1079,18 @@ pub(crate) fn render_requirement_diagram_svg_model(
             };
             let div_style_prefix = {
                 let mut p = String::new();
+
                 if !label_div_style_prefix.is_empty() {
                     p.push_str(label_div_style_prefix);
                 }
+
                 if line.bold {
                     p.push_str("font-weight: bold; ");
                 }
+
                 if p.is_empty() { None } else { Some(p) }
             };
-            let div_style_prefix = div_style_prefix.as_deref();
+            let div_style_prefix_2 = div_style_prefix.as_deref();
             let _ = write!(
                 &mut out,
                 r#"<g class="label" style="{style}" transform="translate({x}, {y})">"#,
@@ -1023,14 +1099,20 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 y = fmt(label_y),
             );
             let mut text_facts = None;
+
             if render_settings.html_labels {
                 let display_html = mermaid_markdown_to_html(&line.display_text, sanitize_config);
-                if text_paint_receipt.is_some() {
-                    options.work_meter().charge(display_html.len())?;
-                    text_facts = Some(crate::text::VisibleTextStyleFacts::from_xhtml_fragment(
-                        &display_html,
-                    ));
+
+                match text_paint_receipt {
+                    ::core::option::Option::Some(_) => {
+                        options.work_meter().charge(display_html.len())?;
+                        text_facts = Some(crate::text::VisibleTextStyleFacts::from_xhtml_fragment(
+                            &display_html,
+                        ));
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 mk_label_foreign_object(
                     &mut out,
                     LabelForeignObject {
@@ -1040,7 +1122,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
                         span_class: "nodeLabel markdown-node-label",
                         span_style,
                         div_class: None,
-                        div_style_prefix,
+                        div_style_prefix: div_style_prefix_2,
                         max_width_px: metrics.max_width_px,
                         text_align: if render_settings.body_text_start && !line.keep_centered {
                             "left"
@@ -1051,12 +1133,17 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 );
             } else {
                 let source = requirement_label_source(&line.display_text, sanitize_config);
-                if text_paint_receipt.is_some() {
-                    options.work_meter().charge(source.len())?;
-                    text_facts = Some(
-                        crate::text::VisibleTextStyleFacts::from_svg_markdown_projection(&source),
-                    );
+
+                match text_paint_receipt {
+                    ::core::option::Option::Some(_) => {
+                        options.work_meter().charge(source.len())?;
+                        text_facts = Some(
+                            crate::text::VisibleTextStyleFacts::from_svg_markdown_projection(&source),
+                        );
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 let svg_style = if line.bold {
                     format!("{svg_text_styles}; font-weight: bold;")
                 } else {
@@ -1082,12 +1169,14 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 );
                 out.push_str("</g>");
             }
+
             out.push_str("</g>");
+
             if let Some(receipt) = text_paint_receipt.as_mut()
                 && let Some(facts) = text_facts
             {
                 out.checkpoint()?;
-                let facts = if rendered_node.typography.has_zero_font_size() {
+                let facts_2 = if rendered_node.typography.has_zero_font_size() {
                     crate::text::VisibleTextStyleFacts::plain_text("")
                 } else {
                     facts
@@ -1095,7 +1184,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 receipt.record_label(
                     crate::requirement::RequirementTextTerminalId::node(&n.id, line.source_index),
                     false,
-                    &facts,
+                    &facts_2,
                     crate::requirement::RequirementTextColorOwner::from_source_color(
                         source_text_color.as_deref(),
                     ),
@@ -1106,9 +1195,11 @@ pub(crate) fn render_requirement_diagram_svg_model(
 
         let divider_expected = rendered_node.divider_y_offset.is_some();
         let mut divider_emissions = Vec::new();
+
         if let Some(divider_y_offset) = rendered_node.divider_y_offset {
             let divider_y = y + divider_y_offset;
-            if look == "neo" {
+
+            if look_2 == "neo" {
                 let (fill_d, stroke_d) = roughjs_paths_for_rect(RoughRectSpec {
                     x,
                     y: divider_y,
@@ -1187,13 +1278,18 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 message: "Requirement divider terminal emission failed".to_string(),
             })?;
             }
+
             out.checkpoint()?;
+
             if let Some(index) = paint_theme_index {
                 divider_emissions.push(
                     crate::requirement::RequirementDividerEmission::from_successful_write(
                         index,
                         stroke_color,
-                        stroke_style_declaration.as_deref().unwrap_or_default(),
+                        match stroke_style_declaration.as_deref() {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => "",
+                        },
                     ),
                 );
             }
@@ -1214,7 +1310,10 @@ pub(crate) fn render_requirement_diagram_svg_model(
                 visual.source_owns_stroke,
                 typed_stroke,
                 stroke_color,
-                stroke_style_declaration.as_deref().unwrap_or_default(),
+                match stroke_style_declaration.as_deref() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "",
+                },
                 divider_expected,
                 &divider_emissions,
             );
@@ -1222,6 +1321,7 @@ pub(crate) fn render_requirement_diagram_svg_model(
 
         out.push_str("</g>");
     }
+
     out.push_str("</g>");
 
     out.push_str("</g></g>");
@@ -1234,19 +1334,24 @@ pub(crate) fn render_requirement_diagram_svg_model(
             y = fmt(title_y),
         );
         let fill = paint_theme.title_fill_css();
-        if let Some(fill) = fill {
-            let _ = write!(&mut out, r#" fill="{}""#, escape_attr(fill));
+
+        if let Some(fill_2) = fill {
+            let _ = write!(&mut out, r#" fill="{}""#, escape_attr(fill_2));
         }
+
         let _ = write!(&mut out, ">{}</text>", escape_xml(title));
         out.checkpoint()?;
+
         if !paint_theme.record_title_fill(title, fill) {
             return Err(Error::InvalidModel {
                 message: "Requirement title paint did not match the terminal SVG".to_owned(),
             });
         }
+
         if let Some(receipt) = text_paint_receipt.as_mut() {
             receipt.record_title(paint_theme.title_inherits_text_fill(), options.work_meter())?;
         }
+
         if let Some(receipt) = paint_theme_receipt.as_mut() {
             receipt.record_title_text("requirementDiagramTitleText", title);
         }
@@ -1259,7 +1364,8 @@ pub(crate) fn render_requirement_diagram_svg_model(
     );
 
     out.push_str("</svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if let Some(receipt) = relation_receipt
         && !relation_paint
             .expect("relation receipt requires a plan")
@@ -1269,16 +1375,19 @@ pub(crate) fn render_requirement_diagram_svg_model(
             message: "incomplete Requirement relation paint terminal receipt".to_owned(),
         });
     }
+
     if !paint_theme.text_paint().record_terminal(text_paint_receipt) {
         return Err(Error::InvalidModel {
             message: "Requirement text paint terminal evidence could not be sealed".to_string(),
         });
     }
+
     if !paint_theme.record_terminal(paint_theme_receipt) {
         return Err(Error::InvalidModel {
             message: "Requirement paint theme terminal evidence could not be sealed".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 

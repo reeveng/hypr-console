@@ -11,7 +11,7 @@ use serde_json::{Value, json};
 use std::{
     collections::{BTreeMap, BTreeSet},
     env, fs,
-    io::{ErrorKind, Read},
+    io::{self, BufWriter, ErrorKind, Read, Write},
     path::{Path, PathBuf},
     process::{Command, Stdio},
     thread,
@@ -642,6 +642,33 @@ fn report(directory: &Path, capture: &Capture, libraries: &[String]) -> Outcome<
     Ok(())
 }
 
+fn report_findings<'a>(
+    directory: &Path,
+    findings: impl ExactSizeIterator<Item = &'a Value> + Clone,
+) -> Outcome<()> {
+    const PREVIEW_LIMIT: usize = 12;
+
+    let total = findings.len();
+    if total == 0 {
+        return Ok(());
+    }
+
+    let path = directory.join("findings.txt");
+    let mut file = BufWriter::new(fs::File::create(&path)?);
+    batch::write_findings(&mut file, findings.clone())?;
+    file.flush()?;
+
+    let preview = total.min(PREVIEW_LIMIT);
+    let mut terminal = io::stdout().lock();
+    batch::write_findings(&mut terminal, findings.take(preview))?;
+    writeln!(
+        terminal,
+        "Showing {preview} of {total} findings. Full guidance: {}",
+        path.display(),
+    )?;
+    Ok(())
+}
+
 fn firmware_scope() -> Vec<String> {
     [
         "-p",
@@ -1109,8 +1136,11 @@ fn main_run() -> Outcome<i32> {
             new.len(),
             report.display()
         );
+        report_findings(&directory, new.iter().copied())?;
         return Ok(if new.is_empty() { 0 } else { 2 });
     }
+    let findings = current.remaining["findings"].as_array().ok_or("missing findings")?;
+    report_findings(&directory, findings.iter())?;
     Ok(if !rejected.is_empty() {
         1
     } else if current.remaining["total"].as_u64() == Some(0)

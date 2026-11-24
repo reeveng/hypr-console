@@ -28,45 +28,63 @@ pub(crate) struct JourneyConfigView<'a> {
 }
 
 impl<'a> JourneyConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             journey_config: effective_config.get("journey").unwrap_or(&Value::Null),
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> JourneyLayoutSettings {
         JourneyLayoutSettings {
-            left_margin_base: self
-                .journey_f64("leftMargin")
-                .unwrap_or(DEFAULT_LEFT_MARGIN)
+            left_margin_base: match self
+                .journey_f64("leftMargin") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_LEFT_MARGIN,
+            }
                 .max(0.0),
-            max_label_width: self
-                .journey_f64("maxLabelWidth")
-                .unwrap_or(DEFAULT_MAX_LABEL_WIDTH)
+            max_label_width: match self
+                .journey_f64("maxLabelWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_MAX_LABEL_WIDTH,
+            }
                 .max(1.0),
-            box_text_margin: self
-                .journey_f64("boxTextMargin")
-                .unwrap_or(DEFAULT_BOX_TEXT_MARGIN)
+            box_text_margin: match self
+                .journey_f64("boxTextMargin") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_BOX_TEXT_MARGIN,
+            }
                 .max(0.0),
-            diagram_margin_x: self
-                .journey_f64("diagramMarginX")
-                .unwrap_or(DEFAULT_DIAGRAM_MARGIN_X)
+            diagram_margin_x: match self
+                .journey_f64("diagramMarginX") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_DIAGRAM_MARGIN_X,
+            }
                 .max(0.0),
-            diagram_margin_y: self
-                .journey_f64("diagramMarginY")
-                .unwrap_or(DEFAULT_DIAGRAM_MARGIN_Y)
+            diagram_margin_y: match self
+                .journey_f64("diagramMarginY") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_DIAGRAM_MARGIN_Y,
+            }
                 .max(0.0),
-            task_margin: self
-                .journey_f64("taskMargin")
-                .unwrap_or(DEFAULT_TASK_MARGIN)
+            task_margin: match self
+                .journey_f64("taskMargin") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_TASK_MARGIN,
+            }
                 .max(0.0),
-            cell_width: self
-                .journey_f64("width")
-                .unwrap_or(DEFAULT_CELL_WIDTH)
+            cell_width: match self
+                .journey_f64("width") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_CELL_WIDTH,
+            }
                 .max(1.0),
-            cell_height: self
-                .journey_f64("height")
-                .unwrap_or(DEFAULT_CELL_HEIGHT)
+            cell_height: match self
+                .journey_f64("height") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_CELL_HEIGHT,
+            }
                 .max(1.0),
             actor_colours: self.actor_colours(),
             section_fills: self.section_fills(),
@@ -74,28 +92,39 @@ impl<'a> JourneyConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn render_settings(&self) -> JourneyRenderSettings {
         JourneyRenderSettings {
             task_text_style: self.task_text_style(),
-            title_font_size: config_string(self.journey_config, &["titleFontSize"])
-                .unwrap_or_else(|| DEFAULT_TITLE_FONT_SIZE.to_string()),
-            title_font_family: config_string(self.journey_config, &["titleFontFamily"])
-                .unwrap_or_else(|| DEFAULT_TITLE_FONT_FAMILY.to_string()),
-            title_color: config_string(self.journey_config, &["titleColor"])
-                .unwrap_or_else(|| DEFAULT_TITLE_COLOR.to_string()),
+            title_font_size: match config_string(self.journey_config, &["titleFontSize"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_TITLE_FONT_SIZE.to_string(),
+            },
+            title_font_family: match config_string(self.journey_config, &["titleFontFamily"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_TITLE_FONT_FAMILY.to_string(),
+            },
+            title_color: match config_string(self.journey_config, &["titleColor"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_TITLE_COLOR.to_string(),
+            },
         }
     }
 
+    #[must_use]
     fn journey_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.journey_config, &[key])
     }
 
+    #[must_use]
     fn journey_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.journey_config, &[key])
     }
 
+    #[must_use]
     fn actor_colours(&self) -> Vec<String> {
         let actor_colours = config_string_vec(self.journey_config, &["actorColours"]);
+
         if actor_colours.is_empty() {
             DEFAULT_ACTOR_COLOURS
                 .iter()
@@ -106,8 +135,10 @@ impl<'a> JourneyConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn section_fills(&self) -> Vec<String> {
         let section_fills = config_string_vec(self.journey_config, &["sectionFills"]);
+
         if section_fills.is_empty() {
             DEFAULT_SECTION_FILLS
                 .iter()
@@ -118,24 +149,32 @@ impl<'a> JourneyConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn task_text_style(&self) -> TextStyle {
         TextStyle {
             font_family: Some(
-                config_string(self.journey_config, &["taskFontFamily"])
-                    .unwrap_or_else(|| DEFAULT_TASK_FONT_FAMILY.to_string()),
+                match config_string(self.journey_config, &["taskFontFamily"]) {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => DEFAULT_TASK_FONT_FAMILY.to_string(),
+                },
             ),
-            font_size: self
-                .journey_f64("taskFontSize")
-                .unwrap_or(DEFAULT_TASK_FONT_SIZE)
+            font_size: match self
+                .journey_f64("taskFontSize") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_TASK_FONT_SIZE,
+            }
                 .max(1.0),
             font_weight: None,
             font_style: None,
         }
     }
 
+    #[must_use]
     fn use_max_width(&self) -> bool {
-        self.journey_bool("useMaxWidth")
-            .unwrap_or(DEFAULT_USE_MAX_WIDTH)
+        match self.journey_bool("useMaxWidth") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+        }
     }
 }
 
@@ -162,6 +201,7 @@ pub(crate) struct JourneyRenderSettings {
     pub(crate) title_color: String,
 }
 
+#[must_use]
 pub(crate) const fn default_use_max_width() -> bool {
     DEFAULT_USE_MAX_WIDTH
 }

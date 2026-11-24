@@ -1,6 +1,6 @@
-// Shared SVG path bounds helper extracted from parity.rs.
-//
-// Keep behavior identical to Mermaid@11.12.2 DOM parity baselines.
+
+
+
 
 #[derive(Debug, Clone, Copy)]
 pub(super) struct SvgPathBounds {
@@ -38,6 +38,7 @@ pub(super) fn svg_path_bounds_include_cubic(b: &mut SvgPathBounds, c: CubicBezie
     b.include_point(bounds.x1, bounds.y1);
 }
 
+#[must_use]
 pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
     use std::f64::consts::PI;
 
@@ -52,40 +53,53 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
 
     fn parse_number(d: &str, bytes: &[u8], i: &mut usize) -> Option<f64> {
         skip_sep(bytes, i);
+
         if *i >= bytes.len() {
             return None;
         }
+
         let start = *i;
+
         if matches!(bytes[*i], b'+' | b'-') {
             *i += 1;
         }
+
         while *i < bytes.len() && bytes[*i].is_ascii_digit() {
             *i += 1;
         }
+
         if *i < bytes.len() && bytes[*i] == b'.' {
             *i += 1;
             while *i < bytes.len() && bytes[*i].is_ascii_digit() {
                 *i += 1;
             }
         }
+
         if *i < bytes.len() && matches!(bytes[*i], b'e' | b'E') {
             *i += 1;
             if *i < bytes.len() && matches!(bytes[*i], b'+' | b'-') {
                 *i += 1;
             }
+
             while *i < bytes.len() && bytes[*i].is_ascii_digit() {
                 *i += 1;
             }
         }
-        d[start..*i].parse::<f64>().ok()
+
+        match d[start..*i].parse::<f64>() { ::core::result::Result::Ok(value) => ::core::option::Option::Some(value), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
     }
 
     fn try_parse_number(d: &str, bytes: &[u8], i: &mut usize) -> Option<f64> {
         let save = *i;
         let v = parse_number(d, bytes, i);
-        if v.is_none() {
-            *i = save;
+
+        match v {
+            ::core::option::Option::None => {
+                *i = save;
+            },
+            ::core::option::Option::Some(_) => {},
         }
+
         v
     }
 
@@ -98,9 +112,14 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
     fn try_parse_pair(d: &str, bytes: &[u8], i: &mut usize) -> Option<(f64, f64)> {
         let save = *i;
         let v = parse_pair(d, bytes, i);
-        if v.is_none() {
-            *i = save;
+
+        match v {
+            ::core::option::Option::None => {
+                *i = save;
+            },
+            ::core::option::Option::Some(_) => {},
         }
+
         v
     }
 
@@ -130,19 +149,24 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
         );
     }
 
+    #[must_use]
     fn normalize_angle(mut a: f64) -> f64 {
         let two_pi = 2.0 * PI;
         a %= two_pi;
+
         if a < 0.0 {
             a += two_pi;
         }
+
         a
     }
 
+    #[must_use]
     fn angle_between(theta: f64, start: f64, delta: f64) -> bool {
         let two_pi = 2.0 * PI;
         let eps = 1e-9;
         let t = normalize_angle(theta - start);
+
         if delta >= 0.0 {
             t <= delta + eps
         } else {
@@ -150,6 +174,7 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
         }
     }
 
+    #[must_use]
     fn vec_angle(ux: f64, uy: f64, vx: f64, vy: f64) -> f64 {
         let dot = ux * vx + uy * vy;
         let det = ux * vy - uy * vx;
@@ -181,8 +206,8 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
             x1,
             y1,
         } = arc;
-        // Per SVG 1.1 endpoint-to-center arc conversion.
-        // See: https://www.w3.org/TR/SVG/implnote.html#ArcImplementationNotes
+
+
         if rx0.abs() < 1e-12 || ry0.abs() < 1e-12 {
             b.include_point(x0, y0);
             b.include_point(x1, y1);
@@ -203,8 +228,9 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
         let x1p2 = x1p * x1p;
         let y1p2 = y1p * y1p;
 
-        // Ensure radii are large enough.
+
         let lam = x1p2 / (rx * rx) + y1p2 / (ry * ry);
+
         if lam > 1.0 {
             let s = lam.sqrt();
             rx *= s;
@@ -216,15 +242,19 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
 
         let num = (rx2 * ry2) - (rx2 * y1p2) - (ry2 * x1p2);
         let den = (rx2 * y1p2) + (ry2 * x1p2);
+
         if den.abs() < 1e-24 {
             b.include_point(x0, y0);
             b.include_point(x1, y1);
             return;
         }
+
         let mut sq = num / den;
+
         if sq < 0.0 {
             sq = 0.0;
         }
+
         let sign = if large_arc == sweep { -1.0 } else { 1.0 };
         let coef = sign * sq.sqrt();
 
@@ -265,12 +295,14 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
         b.include_point(sx, sy);
         b.include_point(ex, ey);
 
-        // Extrema angles for rotated ellipse. See derivative analysis in many references.
-        // x extrema: tan(theta) = -(ry*sin(phi)) / (rx*cos(phi))
-        // y extrema: tan(theta) =  (ry*cos(phi)) / (rx*sin(phi))
+
+
+
         let tx_base = (-ry * sin_phi).atan2(rx * cos_phi);
+
         for k in 0..2 {
-            let t = tx_base + (k as f64) * PI;
+            let t = tx_base + <f64 as ::core::convert::From<::core::primitive::i32>>::from(k) * PI;
+
             if angle_between(t, start, delta) {
                 let (x, y) = arc_point(t);
                 b.include_point(x, y);
@@ -278,8 +310,10 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
         }
 
         let ty_base = (ry * cos_phi).atan2(rx * sin_phi);
+
         for k in 0..2 {
-            let t = ty_base + (k as f64) * PI;
+            let t = ty_base + <f64 as ::core::convert::From<::core::primitive::i32>>::from(k) * PI;
+
             if angle_between(t, start, delta) {
                 let (x, y) = arc_point(t);
                 b.include_point(x, y);
@@ -300,10 +334,13 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
 
     while i < bytes.len() {
         skip_sep(bytes, &mut i);
+
         if i >= bytes.len() {
             break;
         }
+
         let ch = bytes[i];
+
         if ch.is_ascii_alphabetic() {
             cmd = ch;
             i += 1;
@@ -325,12 +362,14 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
 
         match ucmd {
             b'M' => {
-                // First pair is move-to; subsequent pairs are implicit line-to.
+
                 let (mut x, mut y) = parse_pair(d, bytes, &mut i)?;
+
                 if is_rel {
                     x += cx;
                     y += cy;
                 }
+
                 cx = x;
                 cy = y;
                 sx = x;
@@ -345,6 +384,7 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                         nx += cx;
                         ny += cy;
                     }
+
                     cx = nx;
                     cy = ny;
                     ensure_bounds(&mut b, cx, cy).include_point(cx, cy);
@@ -352,7 +392,7 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                 }
             }
             b'Z' => {
-                // Close path: line to subpath start.
+
                 let cur = ensure_bounds(&mut b, cx, cy);
                 cur.include_point(cx, cy);
                 cur.include_point(sx, sy);
@@ -364,10 +404,12 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
             }
             b'L' => {
                 let (mut x, mut y) = parse_pair(d, bytes, &mut i)?;
+
                 if is_rel {
                     x += cx;
                     y += cy;
                 }
+
                 cx = x;
                 cy = y;
                 ensure_bounds(&mut b, cx, cy).include_point(cx, cy);
@@ -380,6 +422,7 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                         nx += cx;
                         ny += cy;
                     }
+
                     cx = nx;
                     cy = ny;
                     ensure_bounds(&mut b, cx, cy).include_point(cx, cy);
@@ -388,9 +431,11 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
             }
             b'H' => {
                 let mut x = parse_number(d, bytes, &mut i)?;
+
                 if is_rel {
                     x += cx;
                 }
+
                 cx = x;
                 ensure_bounds(&mut b, cx, cy).include_point(cx, cy);
                 last_cubic_ctrl = None;
@@ -401,6 +446,7 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                     if is_rel {
                         nx += cx;
                     }
+
                     cx = nx;
                     ensure_bounds(&mut b, cx, cy).include_point(cx, cy);
                     prev_cmd = ucmd;
@@ -408,9 +454,11 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
             }
             b'V' => {
                 let mut y = parse_number(d, bytes, &mut i)?;
+
                 if is_rel {
                     y += cy;
                 }
+
                 cy = y;
                 ensure_bounds(&mut b, cx, cy).include_point(cx, cy);
                 last_cubic_ctrl = None;
@@ -421,6 +469,7 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                     if is_rel {
                         ny += cy;
                     }
+
                     cy = ny;
                     ensure_bounds(&mut b, cx, cy).include_point(cx, cy);
                     prev_cmd = ucmd;
@@ -433,6 +482,7 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                 let mut y2 = parse_number(d, bytes, &mut i)?;
                 let mut x3 = parse_number(d, bytes, &mut i)?;
                 let mut y3 = parse_number(d, bytes, &mut i)?;
+
                 if is_rel {
                     x1 += cx;
                     y1 += cy;
@@ -441,6 +491,7 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                     x3 += cx;
                     y3 += cy;
                 }
+
                 let cur = ensure_bounds(&mut b, cx, cy);
                 svg_path_bounds_include_cubic(
                     cur,
@@ -461,31 +512,43 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                 last_quad_ctrl = None;
                 prev_cmd = ucmd;
 
-                loop {
+                'inner_loop_2: loop {
                     let save = i;
-                    let Some(mut nx1) = try_parse_number(d, bytes, &mut i) else {
-                        break;
+
+                    let mut nx1 = {
+                        let optional_nx1 = try_parse_number(d, bytes, &mut i);
+
+                        match optional_nx1 {
+                            Some(matched_nx1) => matched_nx1,
+                            ::core::option::Option::None => break 'inner_loop_2,
+                        }
                     };
+
                     let Some(mut ny1) = try_parse_number(d, bytes, &mut i) else {
                         i = save;
-                        break;
+                        break 'inner_loop_2;
                     };
+
                     let Some(mut nx2) = try_parse_number(d, bytes, &mut i) else {
                         i = save;
-                        break;
+                        break 'inner_loop_2;
                     };
+
                     let Some(mut ny2) = try_parse_number(d, bytes, &mut i) else {
                         i = save;
-                        break;
+                        break 'inner_loop_2;
                     };
+
                     let Some(mut nx3) = try_parse_number(d, bytes, &mut i) else {
                         i = save;
-                        break;
+                        break 'inner_loop_2;
                     };
+
                     let Some(mut ny3) = try_parse_number(d, bytes, &mut i) else {
                         i = save;
-                        break;
+                        break 'inner_loop_2;
                     };
+
                     if is_rel {
                         nx1 += cx;
                         ny1 += cy;
@@ -494,9 +557,10 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                         nx3 += cx;
                         ny3 += cy;
                     }
-                    let cur = ensure_bounds(&mut b, cx, cy);
+
+                    let cur_2 = ensure_bounds(&mut b, cx, cy);
                     svg_path_bounds_include_cubic(
-                        cur,
+                        cur_2,
                         CubicBezier {
                             x0: cx,
                             y0: cy,
@@ -517,10 +581,13 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
             }
             b'S' => {
                 let (x1, y1) = if matches!(prev_cmd, b'C' | b'S') {
-                    if let Some((px, py)) = last_cubic_ctrl {
-                        (2.0 * cx - px, 2.0 * cy - py)
-                    } else {
-                        (cx, cy)
+                    match last_cubic_ctrl {
+                        Some((px, py)) => {
+                            (2.0 * cx - px, 2.0 * cy - py)
+                        },
+                        ::core::option::Option::None => {
+                            (cx, cy)
+                        },
                     }
                 } else {
                     (cx, cy)
@@ -530,12 +597,14 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                 let mut y2 = parse_number(d, bytes, &mut i)?;
                 let mut x3 = parse_number(d, bytes, &mut i)?;
                 let mut y3 = parse_number(d, bytes, &mut i)?;
+
                 if is_rel {
                     x2 += cx;
                     y2 += cy;
                     x3 += cx;
                     y3 += cy;
                 }
+
                 let cur = ensure_bounds(&mut b, cx, cy);
                 svg_path_bounds_include_cubic(
                     cur,
@@ -561,12 +630,14 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                 let mut y1 = parse_number(d, bytes, &mut i)?;
                 let mut x2 = parse_number(d, bytes, &mut i)?;
                 let mut y2 = parse_number(d, bytes, &mut i)?;
+
                 if is_rel {
                     x1 += cx;
                     y1 += cy;
                     x2 += cx;
                     y2 += cy;
                 }
+
                 let cur = ensure_bounds(&mut b, cx, cy);
                 quadratic_include_bounds(cur, cx, cy, x1, y1, x2, y2);
                 cx = x2;
@@ -577,19 +648,24 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
             }
             b'T' => {
                 let (x1, y1) = if matches!(prev_cmd, b'Q' | b'T') {
-                    if let Some((qx, qy)) = last_quad_ctrl {
-                        (2.0 * cx - qx, 2.0 * cy - qy)
-                    } else {
-                        (cx, cy)
+                    match last_quad_ctrl {
+                        Some((qx, qy)) => {
+                            (2.0 * cx - qx, 2.0 * cy - qy)
+                        },
+                        ::core::option::Option::None => {
+                            (cx, cy)
+                        },
                     }
                 } else {
                     (cx, cy)
                 };
                 let (mut x2, mut y2) = parse_pair(d, bytes, &mut i)?;
+
                 if is_rel {
                     x2 += cx;
                     y2 += cy;
                 }
+
                 let cur = ensure_bounds(&mut b, cx, cy);
                 quadratic_include_bounds(cur, cx, cy, x1, y1, x2, y2);
                 cx = x2;
@@ -605,50 +681,57 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
                 let laf = parse_number(d, bytes, &mut i)?;
                 let sf = parse_number(d, bytes, &mut i)?;
                 let (mut x1, mut y1) = parse_pair(d, bytes, &mut i)?;
+
                 if is_rel {
                     x1 += cx;
                     y1 += cy;
                 }
+
                 let large_arc = laf.abs() > 0.5;
                 let sweep = sf.abs() > 0.5;
-                if let Some(cur) = b.as_mut() {
-                    arc_include_bounds(
-                        cur,
-                        ArcBoundsInput {
-                            x0: cx,
-                            y0: cy,
-                            rx0: rx,
-                            ry0: ry,
-                            x_axis_rotation_deg: rot,
-                            large_arc,
-                            sweep,
-                            x1,
-                            y1,
-                        },
-                    );
-                } else {
-                    let mut cur = SvgPathBounds {
-                        min_x: cx,
-                        min_y: cy,
-                        max_x: cx,
-                        max_y: cy,
-                    };
-                    arc_include_bounds(
-                        &mut cur,
-                        ArcBoundsInput {
-                            x0: cx,
-                            y0: cy,
-                            rx0: rx,
-                            ry0: ry,
-                            x_axis_rotation_deg: rot,
-                            large_arc,
-                            sweep,
-                            x1,
-                            y1,
-                        },
-                    );
-                    b = Some(cur);
+
+                match b.as_mut() {
+                    Some(cur) => {
+                        arc_include_bounds(
+                            cur,
+                            ArcBoundsInput {
+                                x0: cx,
+                                y0: cy,
+                                rx0: rx,
+                                ry0: ry,
+                                x_axis_rotation_deg: rot,
+                                large_arc,
+                                sweep,
+                                x1,
+                                y1,
+                            },
+                        );
+                    },
+                    ::core::option::Option::None => {
+                        let mut cur = SvgPathBounds {
+                            min_x: cx,
+                            min_y: cy,
+                            max_x: cx,
+                            max_y: cy,
+                        };
+                        arc_include_bounds(
+                            &mut cur,
+                            ArcBoundsInput {
+                                x0: cx,
+                                y0: cy,
+                                rx0: rx,
+                                ry0: ry,
+                                x_axis_rotation_deg: rot,
+                                large_arc,
+                                sweep,
+                                x1,
+                                y1,
+                            },
+                        );
+                        b = Some(cur);
+                    },
                 }
+
                 cx = x1;
                 cy = y1;
                 last_cubic_ctrl = None;
@@ -667,14 +750,15 @@ pub(super) fn svg_path_bounds_from_d(d: &str) -> Option<SvgPathBounds> {
 /// Mermaid derives Neo edge masking from `SVGPathElement.getTotalLength()`. Kurbo parses the same
 /// SVG path grammar, including arcs, and evaluates Bezier arc length without flattening the path
 /// into a local polyline approximation.
+#[must_use]
 pub(super) fn svg_path_length_from_d(d: &str) -> Option<f64> {
     use kurbo::Shape;
 
     let path = kurbo::BezPath::from_svg(d).ok()?;
-    // SVGGeometryElement.getTotalLength() exposes a Web IDL `float`, promoted to a JS Number
-    // before Mermaid applies marker offsets. Preserve that boundary instead of exposing the
-    // platform-dependent low bits of Kurbo's f64 arc-length calculation in SVG styles.
-    // https://www.w3.org/TR/SVG/types.html#InterfaceSVGGeometryElement
+
+
+
+
     let length = f64::from(path.perimeter(1.0e-6) as f32);
     length.is_finite().then_some(length)
 }
@@ -694,7 +778,7 @@ mod tests {
 
     #[test]
     fn neo_marker_mask_length_is_stable_across_platforms() {
-        // The 12.1 new-shapes fixture's n11 -> n22 edge differs by one f64 ULP on Linux/Windows.
+
         let d = "M214.9,268.158L214.9,287.23L214.9,300.159Q214.9,307.23 221.971,307.23L293.662,307.23Q300.733,307.23 300.733,314.301L300.733,343.162Q300.733,347.23 304.801,347.23L308.87,347.23";
         let length = svg_path_length_from_d(d).unwrap();
         assert_eq!(length, 166.18093872070312);

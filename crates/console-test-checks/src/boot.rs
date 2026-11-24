@@ -19,21 +19,8 @@ pub const PAD: Check = Check {
   bodies: &[Body::Device(pad)],
 };
 
-const CLAIMED: &str = r#"claimed=$(for d in $(busctl --list tree org.shadowblip.InputPlumber | grep '/CompositeDevice[0-9]*$'); do
-  busctl get-property org.shadowblip.InputPlumber "$d" org.shadowblip.Input.CompositeDevice SourceDevicePaths
-done)
-awk '/^N: Name=/ { pad = ($0 ~ /^N: Name="Legion-Controller [^ "]*"$/) }
-     pad && /^H: / { for (i = 2; i <= NF; i++) { f = $i; sub(/^Handlers=/, "", f); if (f ~ /^event/) print f } }' \
-  /proc/bus/input/devices |
-while read -r node; do
-  case "$claimed" in
-    *"/dev/input/$node\""*) echo "$node claimed" ;;
-    *) echo "$node unclaimed" ;;
-  esac
-done"#;
-
 fn pad(stage: &mut Device) -> CheckResult {
-  let Ok(said) = stage.ssh(CLAIMED);
+  let said = stage.inspect(&["claimed-gamepad"])?;
 
   let nodes: Vec<&str> = said
     .lines()
@@ -70,17 +57,14 @@ pub const MENU: Check = Check {
   bodies: &[Body::Device(menu)],
 };
 
-const LEFT: &str = r#"left=/sys/firmware/efi/efivars/LoaderConfigTimeoutOneShot-4a67b082-0a4c-41cf-b6c7-440b29bb8c4f
-echo "$(findmnt -no FSROOT /) $(test -e "$left" && tail -c +5 "$left" | tr -d '\0')""#;
-
 const ORDINARY: &str = "/@";
 
 const SKIPPED: &str = "menu-disabled";
 
 fn menu(stage: &mut Device) -> CheckResult {
-  let Ok(said) = stage.ssh(LEFT);
+  let said = stage.inspect(&["boot-menu"])?;
 
-  let (root, left) = match said.split_once(' ') {
+  let (root, left) = match said.split_once('\n') {
     Some((root, left)) => (root, left.trim()),
     None => (said.trim(), ""),
   };

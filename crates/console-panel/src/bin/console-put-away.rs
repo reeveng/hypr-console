@@ -20,8 +20,5 @@ fn main() {
     ::core::option::Option::None => {}
   }
 
-  let Ok(_done) = console_compositor::request(
-    console_compositor::Request::Dispatch,
-    console_compositor::CLOSE_WINDOW,
-  );
+  let Ok(_done) = console_compositor::Action::CloseWindow.dispatch();
 }

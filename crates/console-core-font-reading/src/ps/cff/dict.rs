@@ -817,77 +817,44 @@ mod tests {
     )?;
     let Ok(store_data) = FontData::new(variation_data);
     let store = ItemVariationStore::read(store_data)?;
-    let coords = &[{
-      let Ok(value) = F2Dot14::from_f32(0.0);
-      value
-    }];
+    let coords = &[F2Dot14::ZERO];
     let blend_state =
-      crate::test_support::fixture_value(BlendState::new(store, coords, 0), "fixture value")?;
+      crate::test_support::fixture_value(BlendState::new(store, coords, 0), "CFF2 blend state")?;
     let entries: Vec<_> =
       entries(private_dict_data, Some(blend_state)).collect::<Result<_, _>>()?;
 
-    #[must_use]
-    fn make_blues(values: &[f64]) -> core::result::Result<Blues, console_core_never::Never> {
-      Ok(Blues::new(values.iter().copied().map(|argument| {
-        let Ok(value_9) = Fixed::from_f64(argument);
+    let fixture_fixed = |&value: &f64| {
+      let Ok(fixed) = Fixed::from_f64(value);
 
-        value_9
-      })))
-    }
+      fixed
+    };
 
-    #[must_use]
-    fn make_stem_snaps(
-      values: &[f64],
-    ) -> core::result::Result<StemSnaps, console_core_never::Never> {
-      Ok(StemSnaps::new(values.iter().copied().map(|argument| {
-        let Ok(value_10) = Fixed::from_f64(argument);
-
-        value_10
-      })))
-    }
-
+    let Ok(blue_scale) = Fixed::from_f64(0.037506103515625);
+    let Ok(std_hw) = Fixed::from_i32(55);
+    let Ok(std_vw) = Fixed::from_i32(80);
     let expected: &[Entry] = &[
-      BlueValues({
-        let Ok(explicit_value) = make_blues(&[
+      BlueValues(Blues::new(
+        [
           -20.0, 0.0, 472.0, 490.0, 525.0, 540.0, 645.0, 660.0, 670.0, 690.0, 730.0, 750.0,
-        ]);
-        explicit_value
-      }),
-      OtherBlues({
-        let Ok(explicit_value) = make_blues(&[-250.0, -240.0]);
-        explicit_value
-      }),
-      FamilyBlues({
-        let Ok(explicit_value) = make_blues(&[
+        ]
+        .iter()
+        .map(fixture_fixed),
+      )),
+      OtherBlues(Blues::new([-250.0, -240.0].iter().map(fixture_fixed))),
+      FamilyBlues(Blues::new(
+        [
           -20.0, 0.0, 473.0, 491.0, 525.0, 540.0, 644.0, 659.0, 669.0, 689.0, 729.0, 749.0,
-        ]);
-        explicit_value
-      }),
-      FamilyOtherBlues({
-        let Ok(explicit_value) = make_blues(&[-249.0, -239.0]);
-        explicit_value
-      }),
-      BlueScale({
-        let Ok(explicit_value) = Fixed::from_f64(0.037506103515625);
-        explicit_value
-      }),
+        ]
+        .iter()
+        .map(fixture_fixed),
+      )),
+      FamilyOtherBlues(Blues::new([-249.0, -239.0].iter().map(fixture_fixed))),
+      BlueScale(blue_scale),
       BlueFuzz(Fixed::ZERO),
-      StdHw({
-        let Ok(explicit_value) = Fixed::from_f64(55.0);
-        explicit_value
-      }),
-      StdVw({
-        let Ok(explicit_value) = Fixed::from_f64(80.0);
-        explicit_value
-      }),
-      StemSnapH({
-        let Ok(explicit_value) = make_stem_snaps(&[40.0, 55.0]);
-        explicit_value
-      }),
-      StemSnapV({
-        let Ok(explicit_value) = make_stem_snaps(&[80.0, 90.0]);
-        explicit_value
-      }),
+      StdHw(std_hw),
+      StdVw(std_vw),
+      StemSnapH(StemSnaps::new([40.0, 55.0].iter().map(fixture_fixed))),
+      StemSnapV(StemSnaps::new([80.0, 90.0].iter().map(fixture_fixed))),
       SubrsOffset(114),
     ];
     assert_eq!(&entries, expected);

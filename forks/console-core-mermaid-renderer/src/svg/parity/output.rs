@@ -9,10 +9,15 @@ use crate::resources::{OperationWorkMeter, SvgByteBudget};
 /// operation boundary to reject an append before the backing allocation grows.
 pub(super) trait SvgOutput: fmt::Write {
     fn push_str(&mut self, value: &str);
+
     fn push(&mut self, value: char);
+
     fn len(&self) -> usize;
+
     fn as_str(&self) -> &str;
+
     fn replace_range(&mut self, range: Range<usize>, replacement: &str) -> crate::Result<()>;
+
     fn checkpoint(&mut self) -> crate::Result<()>;
 
     /// Appends an unchanged XML fragment whose bytes have already been observed while scanning.
@@ -83,8 +88,8 @@ impl<S: SvgOutput> XmlTextOutput<'_, S> {
         let bytes = value.as_bytes();
         let mut plain_start = start;
         let mut offset = start;
-        // A str already proves UTF-8 validity. XML 1.0 excludes only ASCII controls and
-        // U+FFFE/U+FFFF from its scalar range, so other UTF-8 bytes need no decoding.
+
+
         while offset < end {
             let (replacement, consumed) = match bytes[offset] {
                 0..=8 | 11 | 12 | 14..=31 => (Some(""), 1),
@@ -108,68 +113,109 @@ impl<S: SvgOutput> XmlTextOutput<'_, S> {
                     (replacement, 1)
                 }
             };
-            if let Some(replacement) = replacement {
-                if plain_start < offset {
-                    self.out.write_scanned_text(&value[plain_start..offset])?;
-                }
-                if !replacement.is_empty() {
-                    self.out.write_str(replacement)?;
-                }
-                // Removed scalars do not break a retained `]]` sequence.
-                plain_start = offset + consumed;
+
+            match replacement {
+                Some(replacement_2) => {
+                    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(plain_start), &::core::convert::identity(offset)); _explicit_ordering } {
+                        ::core::cmp::Ordering::Less => {
+                            self.out.write_scanned_text(&value[plain_start..offset])?;
+                        },
+                        ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
+                    }
+
+                    if !replacement_2.is_empty() {
+                        self.out.write_str(replacement_2)?;
+                    }
+
+
+                    plain_start = offset + consumed;
+                },
+                ::core::option::Option::None => {},
             }
+
             offset += consumed;
         }
-        if plain_start < end {
-            self.out.write_scanned_text(&value[plain_start..end])?;
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(plain_start), &::core::convert::identity(end)); _explicit_ordering } {
+            ::core::cmp::Ordering::Less => {
+                self.out.write_scanned_text(&value[plain_start..end])?;
+            },
+            ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
         }
 
         Ok(())
     }
+
     fn write_searchable_chunk(&mut self, value: &str, start: usize, end: usize) -> fmt::Result {
         let bytes = value.as_bytes();
         let mut offset = start;
         let mut plain_start = start;
+
         while offset < end {
             if self.trailing_brackets == 2 && bytes[offset] == b'>' {
-                if plain_start < offset {
-                    self.out.write_scanned_text(&value[plain_start..offset])?;
+                match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(plain_start), &::core::convert::identity(offset)); _explicit_ordering } {
+                    ::core::cmp::Ordering::Less => {
+                        self.out.write_scanned_text(&value[plain_start..offset])?;
+                    },
+                    ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
                 }
+
                 self.out.write_str("&gt;")?;
                 self.trailing_brackets = 0;
                 offset += 1;
                 plain_start = offset;
                 continue;
             }
+
             let ordinary =
                 memchr::memchr3(b'&', b'<', b']', &bytes[offset..end]).unwrap_or(end - offset);
-            if ordinary != 0 {
-                self.trailing_brackets = 0;
-                offset += ordinary;
+            match ordinary {
+                0 => {},
+                _ => {
+                    self.trailing_brackets = 0;
+                    offset += ordinary;
+                },
             }
-            if offset == end {
-                break;
+
+            match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(offset), &::core::convert::identity(end)); _explicit_ordering } {
+                ::core::cmp::Ordering::Equal => {
+                    break;
+                },
+                ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Greater => {},
             }
+
             match bytes[offset] {
                 b']' => {
                     self.trailing_brackets = (self.trailing_brackets + 1).min(2);
                     offset += 1;
                 }
                 byte => {
-                    if plain_start < offset {
-                        self.out.write_scanned_text(&value[plain_start..offset])?;
+                    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(plain_start), &::core::convert::identity(offset)); _explicit_ordering } {
+                        ::core::cmp::Ordering::Less => {
+                            self.out.write_scanned_text(&value[plain_start..offset])?;
+                        },
+                        ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
                     }
+
                     self.out
-                        .write_str(if byte == b'&' { "&amp;" } else { "&lt;" })?;
+                        .write_str(match byte {
+                            b'&' => { "&amp;" },
+                            _ => { "&lt;" },
+                        })?;
                     self.trailing_brackets = 0;
                     offset += 1;
                     plain_start = offset;
                 }
             }
         }
-        if plain_start < end {
-            self.out.write_scanned_text(&value[plain_start..end])?;
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(plain_start), &::core::convert::identity(end)); _explicit_ordering } {
+            ::core::cmp::Ordering::Less => {
+                self.out.write_scanned_text(&value[plain_start..end])?;
+            },
+            ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
         }
+
         Ok(())
     }
 }
@@ -180,28 +226,33 @@ impl<S: SvgOutput> fmt::Write for XmlTextOutput<'_, S> {
 
         let bytes = value.as_bytes();
         let mut start = 0;
+
         while start < bytes.len() {
             let mut end = start
                 .saturating_add(MAX_PLAIN_FRAGMENT_BYTES)
                 .min(bytes.len());
+
             while !value.is_char_boundary(end) {
                 end += 1;
             }
+
             self.out
                 .observe_scanned_work(end - start)
                 .map_err(|_| fmt::Error)?;
             let first = bytes[start];
+
             if matches!(first, 0..=8 | 11 | 12 | 14..=31 | b'&' | b'<' | b']' | b'>' | 0xef) {
                 self.write_scalar_chunk(value, start, end)?;
             } else {
                 let flags = bytes[start..end].iter().fold(0u8, |flags, &byte| {
-                    // Keep comparisons non-short-circuiting so the classifier can vectorize.
+
                     let forbidden =
                         (byte < 0x20) & (byte != b'\t') & (byte != b'\n') & (byte != b'\r');
                     flags
-                        | (u8::from(forbidden | (byte == 0xef)) << 1)
+                        | ::core::primitive::u8::wrapping_shl(u8::from(forbidden | (byte == 0xef)), 1_u32)
                         | u8::from(matches!(byte, b'&' | b'<' | b']'))
                 });
+
                 match flags {
                     0 => {
                         self.trailing_brackets = 0;
@@ -211,8 +262,10 @@ impl<S: SvgOutput> fmt::Write for XmlTextOutput<'_, S> {
                     _ => self.write_scalar_chunk(value, start, end)?,
                 }
             }
+
             start = end;
         }
+
         self.out.checkpoint().map_err(|_| fmt::Error)
     }
 }
@@ -290,6 +343,7 @@ impl BoundedSvgOutputState {
         }
     }
 
+    #[must_use]
     fn error(&self) -> Option<crate::Error> {
         match self {
             Self::Active => None,
@@ -297,6 +351,7 @@ impl BoundedSvgOutputState {
         }
     }
 
+    #[must_use]
     fn into_error(self) -> Option<crate::Error> {
         match self {
             Self::Active => None,
@@ -306,13 +361,15 @@ impl BoundedSvgOutputState {
 }
 
 impl BoundedSvgOutputFailure {
+    #[must_use]
     fn to_error(&self) -> crate::Error {
         self.clone().into_error()
     }
 
+    #[must_use]
     fn into_error(self) -> crate::Error {
         match self {
-            Self::Operation(error) => error.into(),
+            Self::Operation(error) => <crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error),
             Self::InvalidModel(message) => crate::Error::InvalidModel {
                 message: message.to_string(),
             },
@@ -321,6 +378,7 @@ impl BoundedSvgOutputFailure {
 }
 
 impl<'a> BoundedSvgOutput<'a> {
+    #[must_use]
     pub(super) fn new(work_meter: &'a OperationWorkMeter) -> Self {
         Self {
             out: String::new(),
@@ -350,40 +408,59 @@ impl<'a> BoundedSvgOutput<'a> {
         range: Range<usize>,
         replacement: &str,
     ) -> crate::Result<()> {
-        if let Some(error) = self.state.error() {
-            return Err(error);
+        match self.state.error() {
+            Some(error) => {
+                return Err(error);
+            },
+            ::core::option::Option::None => {},
         }
+
         let removed = range.len();
+
         let Some(retained_without_range) = self.out.len().checked_sub(removed) else {
             return Err(self.fail(BoundedSvgOutputFailure::InvalidModel(
                 "bounded SVG replacement range exceeds the current output",
             )));
         };
+
         let Some(final_len) = retained_without_range.checked_add(replacement.len()) else {
             return Err(self.fail(BoundedSvgOutputFailure::InvalidModel(
                 "bounded SVG replacement length overflowed",
             )));
         };
+
         if final_len > self.out.len() {
             let growth = final_len - self.out.len();
-            if let Err(error) = self.observe_work(growth) {
-                return Err(self.fail(BoundedSvgOutputFailure::Operation(error)));
+
+            match self.observe_work(growth) {
+                Err(error) => {
+                    return Err(self.fail(BoundedSvgOutputFailure::Operation(error)));
+                },
+                ::core::result::Result::Ok(_) => {},
             }
-            if let Err(failure) = self.admit_growth(growth) {
-                return Err(self.fail(failure));
+
+            {
+                match self.admit_growth(growth) {
+                    Err(failure) => {
+                        return Err(self.fail(failure));
+                    },
+                    ::core::result::Result::Ok(_) => {},
+                };
             }
         }
+
         self.out.replace_range(range, replacement);
         Ok(())
     }
 
     fn admit_growth(&mut self, additional: usize) -> Result<(), BoundedSvgOutputFailure> {
-        // Credit is explicit: an allocator may return more capacity than requested. Fitting the
-        // admitted end proves both non-overflow and the exact retained-byte ceiling; excess
-        // allocator capacity never grants permission to retain more serialized bytes.
+
+
+
         if additional <= self.admitted_end - self.out.len() {
             return Ok(());
         }
+
         #[cfg(test)]
         {
             self.capacity_admissions += 1;
@@ -406,10 +483,15 @@ impl<'a> BoundedSvgOutput<'a> {
 
     fn observe_work(&mut self, bytes: usize) -> Result<(), crate::resources::OperationWorkError> {
         const OBSERVATION_INTERVAL: usize = 2_048;
-        if bytes >= self.work_until_observation {
-            self.budget.observe_operation()?;
-            self.work_until_observation = OBSERVATION_INTERVAL;
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(bytes), &::core::convert::identity(self.work_until_observation)); _explicit_ordering } {
+            ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {
+                self.budget.observe_operation()?;
+                self.work_until_observation = OBSERVATION_INTERVAL;
+            },
+            ::core::cmp::Ordering::Less => {},
         }
+
         self.work_until_observation = self.work_until_observation.saturating_sub(bytes);
         Ok(())
     }
@@ -419,18 +501,25 @@ impl<'a> BoundedSvgOutput<'a> {
         {
             self.write_attempts += 1;
         }
+
         if matches!(&self.state, BoundedSvgOutputState::Failed(_)) {
             return Err(fmt::Error);
         }
+
         if !scanned && let Err(error) = self.observe_work(value.len()) {
             self.state
                 .record_failure(BoundedSvgOutputFailure::Operation(error));
             return Err(fmt::Error);
         }
-        if let Err(failure) = self.admit_growth(value.len()) {
-            self.state.record_failure(failure);
-            return Err(fmt::Error);
+
+        match self.admit_growth(value.len()) {
+            Err(failure) => {
+                self.state.record_failure(failure);
+                return Err(fmt::Error);
+            },
+            ::core::result::Result::Ok(_) => {},
         }
+
         self.out.push_str(value);
         Ok(())
     }
@@ -488,17 +577,25 @@ impl SvgOutput for BoundedSvgOutput<'_> {
     }
 
     fn observe_scanned_work(&mut self, bytes: usize) -> crate::Result<()> {
-        if let Some(error) = self.state.error() {
-            return Err(error);
+        match self.state.error() {
+            Some(error) => {
+                return Err(error);
+            },
+            ::core::option::Option::None => {},
         }
+
         self.observe_work(bytes)
             .map_err(|error| self.fail(BoundedSvgOutputFailure::Operation(error)))
     }
 
     fn observe_operation(&mut self) -> crate::Result<()> {
-        if let Some(error) = self.state.error() {
-            return Err(error);
+        match self.state.error() {
+            Some(error) => {
+                return Err(error);
+            },
+            ::core::option::Option::None => {},
         }
+
         self.budget
             .observe_operation()
             .map_err(|error| self.fail(BoundedSvgOutputFailure::Operation(error)))
@@ -915,7 +1012,7 @@ mod tests {
             .unwrap();
         let meter = OperationWorkMeter::new(policy);
         let mut out = BoundedSvgOutput::new(&meter);
-        // Model an allocator supplying more storage than requested by an exact reservation.
+
         out.out = String::with_capacity(64);
         out.push_str("0123456789");
         assert_eq!(out.admitted_end, 10);

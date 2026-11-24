@@ -22,6 +22,7 @@ impl FontContainer {
         Self::Woff2,
     ];
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::TrueType => "truetype",
@@ -43,6 +44,7 @@ pub enum FontStyle {
 impl FontStyle {
     pub const ALL: &'static [Self] = &[Self::Normal, Self::Italic, Self::Oblique];
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::Normal => "normal",
@@ -73,6 +75,7 @@ impl GenericFontFamily {
         Self::SystemUi,
     ];
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::Serif => "serif",
@@ -84,6 +87,7 @@ impl GenericFontFamily {
         }
     }
 
+    #[must_use]
     pub(crate) fn from_css_keyword(value: &str) -> Option<Self> {
         Self::ALL
             .iter()
@@ -99,16 +103,18 @@ pub struct FontAssetSpec {
 }
 
 impl FontAssetSpec {
+    #[must_use]
     pub fn new(id: impl Into<String>, bytes: impl AsRef<[u8]>) -> Self {
         Self {
-            id: id.into(),
+            id: <_ as ::core::convert::Into<::std::string::String>>::into(id),
             bytes: Arc::from(bytes.as_ref()),
         }
     }
 
+    #[must_use]
     pub fn from_shared_bytes(id: impl Into<String>, bytes: Arc<[u8]>) -> Self {
         Self {
-            id: id.into(),
+            id: <_ as ::core::convert::Into<::std::string::String>>::into(id),
             bytes,
         }
     }
@@ -133,6 +139,7 @@ pub struct FontCatalogSpec {
 }
 
 impl FontCatalogSpec {
+    #[must_use]
     pub fn new(assets: impl IntoIterator<Item = FontAssetSpec>) -> Self {
         Self {
             assets: assets.into_iter().collect(),
@@ -143,25 +150,29 @@ impl FontCatalogSpec {
         }
     }
 
+    #[must_use]
     pub fn with_alias(mut self, alias: impl Into<String>, target: impl Into<String>) -> Self {
-        self.aliases.push((alias.into(), target.into()));
+        self.aliases.push((<_ as ::core::convert::Into<::std::string::String>>::into(alias), <_ as ::core::convert::Into<::std::string::String>>::into(target)));
         self
     }
 
+    #[must_use]
     pub fn with_generic_family(
         mut self,
         generic: GenericFontFamily,
         target: impl Into<String>,
     ) -> Self {
-        self.generic_families.push((generic, target.into()));
+        self.generic_families.push((generic, <_ as ::core::convert::Into<::std::string::String>>::into(target)));
         self
     }
 
+    #[must_use]
     pub fn with_available_sources(mut self, sources: impl IntoIterator<Item = FontSource>) -> Self {
         self.available_sources = sources.into_iter().collect();
         self
     }
 
+    #[must_use]
     pub fn with_embedding_requirement(mut self, requirement: FontEmbeddingRequirement) -> Self {
         self.embedding = requirement;
         self
@@ -180,10 +191,12 @@ impl FontCatalogSpec {
 pub struct FontCatalogFingerprint([u8; 32]);
 
 impl FontCatalogFingerprint {
+    #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 
+    #[must_use]
     pub fn to_hex(self) -> String {
         hex_bytes(&self.0)
     }
@@ -205,9 +218,10 @@ impl FontCatalog {
     ///
     /// This does not enumerate or freeze fonts installed on the host. Its fingerprint identifies
     /// the system-font catalog mode, not the host's installed font set or output portability.
+    #[must_use]
     pub fn system_fonts() -> Self {
-        // SHA-256 of the established length-prefixed catalog domain and "default-parity".
-        // This identifies one fixed mode, so constructing it does not require hashing.
+
+
         Self(FontCatalogFingerprint([
             0xc6, 0xaa, 0x7a, 0xf7, 0x33, 0x22, 0xaa, 0xc3, 0x5c, 0xe4, 0x54, 0x83, 0x69, 0x14,
             0x08, 0x48, 0xc9, 0xa4, 0xd0, 0x93, 0x70, 0x0a, 0xbc, 0xcb, 0x06, 0x3e, 0xa4, 0x7a,
@@ -215,10 +229,12 @@ impl FontCatalog {
         ]))
     }
 
+    #[must_use]
     pub fn available_sources(&self) -> impl ExactSizeIterator<Item = FontSource> + '_ {
         std::iter::once(FontSource::System)
     }
 
+    #[must_use]
     pub fn fingerprint(&self) -> FontCatalogFingerprint {
         self.0
     }
@@ -242,19 +258,22 @@ fn compile_font_catalog(
         .checked_add(spec.generic_families.len())
         .ok_or(FontCatalogError::CatalogCountOverflow)?;
     resources.check_font_alias_count(mapping_count)?;
+
     if spec.assets.is_empty() {
         return Err(FontCatalogError::EmptyCatalog);
     }
+
     if spec.available_sources.is_empty() {
         return Err(FontCatalogError::Admission(
             ThemeAdmissionError::EmptyThemeFontSources,
         ));
     }
+
     if !spec.available_sources.contains(&FontSource::Embedded) {
         return Err(FontCatalogError::EmbeddedSourceRequired);
     }
 
-    // Apply limits that can be checked without a font parser before rejecting the capability.
+
     for asset in &spec.assets {
         if detect_font_container(&asset.bytes) == Some(FontContainer::Woff2) {
             resources.check_font_asset_compressed_bytes(asset.bytes.len())?;
@@ -262,11 +281,14 @@ fn compile_font_catalog(
             resources.check_font_asset_decoded_bytes(asset.bytes.len())?;
         }
     }
+
     Err(FontCatalogError::EmbeddedFontsUnavailable)
 }
 
+#[must_use]
 pub(super) fn detect_font_container(bytes: &[u8]) -> Option<FontContainer> {
     let magic = bytes.get(..4)?;
+
     match magic {
         [0x00, 0x01, 0x00, 0x00] | b"true" | b"typ1" => Some(FontContainer::TrueType),
         b"OTTO" => Some(FontContainer::OpenType),
@@ -276,13 +298,16 @@ pub(super) fn detect_font_container(bytes: &[u8]) -> Option<FontContainer> {
     }
 }
 
+#[must_use]
 fn hex_bytes(bytes: &[u8]) -> String {
     const HEX: &[u8; 16] = b"0123456789abcdef";
     let mut output = String::with_capacity(bytes.len() * 2);
+
     for byte in bytes {
-        output.push(HEX[(byte >> 4) as usize] as char);
-        output.push(HEX[(byte & 0x0f) as usize] as char);
+        output.push(<char as ::core::convert::From<::core::primitive::u8>>::from(HEX[<usize as ::core::convert::From<::core::primitive::u8>>::from(::core::primitive::u8::wrapping_shr(*(byte), 4_u32))]));
+        output.push(<char as ::core::convert::From<::core::primitive::u8>>::from(HEX[<usize as ::core::convert::From<::core::primitive::u8>>::from((byte & 0x0f))]));
     }
+
     output
 }
 
@@ -292,8 +317,10 @@ fn hex_bytes(bytes: &[u8]) -> String {
 pub enum FontCatalogError {
     #[error(transparent)]
     ResourceLimit(#[from] ThemeResourceLimitExceeded),
+
     #[error(transparent)]
     Admission(#[from] ThemeAdmissionError),
+
     #[error("embedded theme font resources are not supported")]
     EmbeddedFontsUnavailable,
     #[error("font catalog must contain at least one custom asset")]

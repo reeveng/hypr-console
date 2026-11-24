@@ -9,6 +9,9 @@ use console_core_audio_decoding_interfaces::meta::{
   MetadataBuilder, MetadataRevision, Tag, Value,
 };
 use console_core_extensible_binary_meta_language::{Children, float, string, uint};
+use console_core_matroska_blocks::elements::{
+  MissingSeekField, SeekEntry, audio_track_fields, cue_track_position, seek_entries,
+};
 use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u32;
 
@@ -36,12 +39,6 @@ pub(crate) struct TrackElement {
 pub(crate) struct InfoElement {
   pub(crate) timestamp_scale: u64,
   pub(crate) duration: Option<f64>,
-}
-
-#[derive(Debug, Clone, Copy)]
-pub(crate) struct SeekElement {
-  pub(crate) id: u64,
-  pub(crate) position: u64,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -141,40 +138,13 @@ fn read_track(data: &[u8]) -> Result<TrackElement, DecodeError> {
 }
 
 fn read_audio(data: &[u8]) -> Result<AudioElement, Never> {
-  let mut sample_rate_hz = 8_000;
-  let mut channels = None;
-  let mut bit_depth = None;
-
-  for child in Children::from(data) {
-    match child.id {
-      ids::SAMPLING_FREQUENCY => {
-        let Ok(read) = float(child.data);
-
-        let Ok(rounded_hz) = toward_zero_u32(read.round());
-
-        sample_rate_hz = rounded_hz;
-      }
-      ids::CHANNELS => {
-        let Ok(read) = uint(child.data);
-
-        channels = Some(read);
-      }
-      ids::BIT_DEPTH => {
-        let Ok(read) = uint(child.data);
-
-        bit_depth = Some(read);
-      }
-      _ => {}
-    }
-  }
+  let Ok(fields) = audio_track_fields(data);
+  let Ok(sample_rate_hz) = toward_zero_u32(fields.sampling_frequency.0.round());
 
   Ok(AudioElement {
     sample_rate_hz,
-    channels: match channels {
-      Some(channels_2) => channels_2,
-      None => 1,
-    },
-    bit_depth,
+    channels: fields.channels,
+    bit_depth: fields.bit_depth,
   })
 }
 
@@ -207,40 +177,19 @@ pub(crate) fn read_info(data: &[u8]) -> Result<InfoElement, Never> {
   })
 }
 
-pub(crate) fn read_seek_head(data: &[u8]) -> Result<Vec<SeekElement>, DecodeError> {
-  Children::from(data)
-    .filter(|child| child.id == ids::SEEK)
-    .map(|child| read_seek(child.data))
+pub(crate) fn read_seek_head(data: &[u8]) -> Result<Vec<SeekEntry>, DecodeError> {
+  let Ok(entries) = seek_entries(data);
+
+  entries
+    .map(|entry| {
+      entry.map_err(|missing| {
+        DecodeError::Absent(match missing {
+          MissingSeekField::Identifier => MissingElement::SeekId,
+          MissingSeekField::Position => MissingElement::SeekPosition,
+        })
+      })
+    })
     .collect()
-}
-
-fn read_seek(data: &[u8]) -> Result<SeekElement, DecodeError> {
-  let mut id = None;
-  let mut position = None;
-
-  for child in Children::from(data) {
-    match child.id {
-      ids::SEEK_ID => {
-        let Ok(read) = uint(child.data);
-
-        id = Some(read);
-      }
-      ids::SEEK_POSITION => {
-        let Ok(read) = uint(child.data);
-
-        position = Some(read);
-      }
-      _ => {}
-    }
-  }
-
-  let id_2 = id.ok_or(DecodeError::Absent(MissingElement::SeekId))?;
-  let position_2 = position.ok_or(DecodeError::Absent(MissingElement::SeekPosition))?;
-
-  Ok(SeekElement {
-    id: id_2,
-    position: position_2,
-  })
 }
 
 pub(crate) fn read_cues(data: &[u8]) -> Result<Vec<CuePointElement>, DecodeError> {
@@ -271,7 +220,8 @@ fn read_cue_point(data: &[u8]) -> Result<CuePointElement, DecodeError> {
   }
 
   let time_2 = time.ok_or(DecodeError::Absent(MissingElement::CueTime))?;
-  let cluster_position_2 = cluster_position.ok_or(DecodeError::Absent(MissingElement::CuePositions))?;
+  let cluster_position_2 =
+    cluster_position.ok_or(DecodeError::Absent(MissingElement::CuePositions))?;
 
   Ok(CuePointElement {
     time: time_2,
@@ -280,28 +230,14 @@ fn read_cue_point(data: &[u8]) -> Result<CuePointElement, DecodeError> {
 }
 
 fn read_cue_track_positions(data: &[u8]) -> Result<u64, DecodeError> {
-  let mut track = None;
-  let mut cluster_position = None;
+  let Ok(position) = cue_track_position(data);
 
-  for child in Children::from(data) {
-    match child.id {
-      ids::CUE_TRACK => {
-        let Ok(read) = uint(child.data);
-
-        track = Some(read);
-      }
-      ids::CUE_CLUSTER_POSITION => {
-        let Ok(read) = uint(child.data);
-
-        cluster_position = Some(read);
-      }
-      _ => {}
-    }
-  }
-
-  let _track = track.ok_or(DecodeError::Absent(MissingElement::CueTrack))?;
-
-  cluster_position.ok_or(DecodeError::Absent(MissingElement::CueClusterPosition))
+  let _track = position
+    .track
+    .ok_or(DecodeError::Absent(MissingElement::CueTrack))?;
+  position
+    .cluster_position
+    .ok_or(DecodeError::Absent(MissingElement::CueClusterPosition))
 }
 
 pub(crate) fn read_block_group(data: &[u8]) -> Result<BlockGroupElement, DecodeError> {

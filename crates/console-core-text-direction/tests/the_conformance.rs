@@ -378,8 +378,8 @@ fn by_class() -> Result<Vec<Case>, Error> {
             });
           }
         };
-        let asked = by_class_at(line, said, &wanted)
-          .map_err(|reading| Error::Read { line, reading })?;
+        let asked =
+          by_class_at(line, said, &wanted).map_err(|reading| Error::Read { line, reading })?;
 
         cases.extend(asked);
       }

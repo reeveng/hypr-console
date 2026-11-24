@@ -39,7 +39,7 @@ fn held_to_the_contract(program: &str, arguments: &[&str]) -> Result<(), Error> 
 
 #[test]
 fn the_files() -> Result<(), Error> {
-  held_to_the_contract("files", &[])
+  held_to_the_contract("console-application-files", &[])
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn the_music() -> Result<(), Error> {
 
 #[test]
 fn the_music_library() -> Result<(), Error> {
-  held_to_the_contract("music", &[])
+  held_to_the_contract("console-application-music", &[])
 }
 
 #[test]
@@ -69,12 +69,12 @@ fn the_notifications() -> Result<(), Error> {
 
 #[test]
 fn the_downloads() -> Result<(), Error> {
-  held_to_the_contract("downloads", &[])
+  held_to_the_contract("console-application-downloads", &[])
 }
 
 #[test]
 fn the_calculator() -> Result<(), Error> {
-  held_to_the_contract("calculator", &[])
+  held_to_the_contract("console-application-calculator", &[])
 }
 
 #[test]

@@ -22,6 +22,7 @@ impl PacketTextRole {
     const FIELD_LABEL: [Self; 1] = [Self::Label];
     const TITLE: [Self; 1] = [Self::Title];
 
+    #[must_use]
     pub(super) const fn target(self) -> ThemeTarget {
         match self {
             Self::ByteStart | Self::ByteEnd => ThemeTarget::PacketByteLabel,
@@ -30,6 +31,7 @@ impl PacketTextRole {
         }
     }
 
+    #[must_use]
     pub(crate) const fn class_attribute(self) -> &'static str {
         match self {
             Self::ByteStart => "packetByte start",
@@ -39,6 +41,7 @@ impl PacketTextRole {
         }
     }
 
+    #[must_use]
     pub(crate) const fn css_selector(self) -> &'static str {
         match self {
             Self::ByteStart => ".packetByte.start",
@@ -48,6 +51,7 @@ impl PacketTextRole {
         }
     }
 
+    #[must_use]
     fn for_target(target: ThemeTarget) -> &'static [Self] {
         match target {
             ThemeTarget::PacketByteLabel => &Self::BYTE_LABELS,
@@ -67,6 +71,7 @@ pub(super) struct PacketTextColorOwnership {
 }
 
 impl PacketTextColorOwnership {
+    #[must_use]
     pub(super) fn from_config(config: &PresentationConfig) -> Self {
         let packet = crate::packet::config::PacketConfigView::new(config.as_value());
         let owns =
@@ -79,6 +84,7 @@ impl PacketTextColorOwnership {
         }
     }
 
+    #[must_use]
     pub(super) const fn owns(self, role: PacketTextRole) -> bool {
         match role {
             PacketTextRole::ByteStart => self.byte_start,
@@ -102,6 +108,7 @@ pub(super) struct PacketTextWinners {
 }
 
 impl PacketTextWinners {
+    #[must_use]
     pub(super) fn new(
         theme: &ResolvedDiagramTheme,
         byte_label_style: &crate::diagram_theme::ResolvedThemeStyle,
@@ -109,6 +116,7 @@ impl PacketTextWinners {
         title_style: &crate::diagram_theme::ResolvedThemeStyle,
     ) -> Self {
         let mut has_ordinal_rules = [false; 3];
+
         for (_, rule) in theme.family_rules() {
             if rule.ordinal().is_some()
                 && matches!(rule.variant(), None | Some(ThemeVariant::Default))
@@ -117,6 +125,7 @@ impl PacketTextWinners {
                 has_ordinal_rules[index] = true;
             }
         }
+
         let styles = [byte_label_style, field_label_style, title_style];
         Self {
             theme: theme.clone(),
@@ -132,6 +141,7 @@ impl PacketTextWinners {
     }
 }
 
+#[must_use]
 const fn target_index(target: ThemeTarget) -> Option<usize> {
     match target {
         ThemeTarget::PacketByteLabel => Some(0),
@@ -152,6 +162,7 @@ pub(crate) struct PacketTextOutput<'a> {
 }
 
 impl<'a> PacketTextOutput<'a> {
+    #[must_use]
     pub(super) fn new(
         selection: &'a PacketThemeSelection,
         css: &crate::packet::config::PacketStyleSettings,
@@ -179,6 +190,7 @@ impl<'a> PacketTextOutput<'a> {
         if !text.trim().is_empty() {
             self.record_text(role, work_meter)?;
         }
+
         Ok(())
     }
 
@@ -194,10 +206,11 @@ impl<'a> PacketTextOutput<'a> {
         self.emitted_roles |= 1 << role as u8;
         let visible = self.visible_font_sizes[index];
         let fill_owned = self.selection.text_color_ownership.owns(role);
-        // Zero-sized text retains its ordinal and geometry winners, but cannot prove paint/fonts.
+
         let property_applicable =
             |property| property != ResolvedStyleProperty::Fill || (visible && !fill_owned);
         let plan = &self.selection.text_winners.targets[index];
+
         if plan.has_ordinal_rules {
             let theme = &self.selection.text_winners.theme;
             let style = if target == ThemeTarget::PacketFieldLabel {
@@ -230,13 +243,16 @@ impl<'a> PacketTextOutput<'a> {
                     .filter(|(_, property)| property_applicable(*property)),
             );
         }
+
         Ok(())
     }
 
+    #[must_use]
     pub(super) fn occurrence_count(&self, target: ThemeTarget) -> usize {
         target_index(target).map_or(0, |index| self.occurrences[index])
     }
 
+    #[must_use]
     pub(super) fn has_visible_text(&self) -> bool {
         self.occurrences
             .iter()
@@ -244,6 +260,7 @@ impl<'a> PacketTextOutput<'a> {
             .any(|(count, visible)| *count != 0 && visible)
     }
 
+    #[must_use]
     pub(super) fn has_typed_fill(&self, target: ThemeTarget) -> bool {
         target_index(target).is_some_and(|index| {
             self.visible_font_sizes[index]
@@ -254,10 +271,12 @@ impl<'a> PacketTextOutput<'a> {
         })
     }
 
+    #[must_use]
     pub(super) fn route_won(&self, rule_index: usize, property: ResolvedStyleProperty) -> bool {
         self.winners.contains(&(rule_index, property))
     }
 
+    #[must_use]
     pub(crate) fn finish(self) -> PacketThemeOutcome {
         self.selection.finish(&self)
     }

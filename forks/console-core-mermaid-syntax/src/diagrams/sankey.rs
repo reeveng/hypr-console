@@ -45,9 +45,11 @@ struct SankeyDb {
 impl SankeyDb {
     fn find_or_create_node(&mut self, id_raw: &str, config: &crate::MermaidConfig) -> String {
         let id = sanitize_text(id_raw, config);
+
         if self.nodes_map.contains_key(&id) {
             return id;
         }
+
         let idx = self.nodes.len();
         self.nodes.push(SankeyNode { id: id.clone() });
         self.nodes_map.insert(id.clone(), idx);
@@ -63,6 +65,7 @@ impl SankeyDb {
     }
 
     #[inline]
+    #[must_use]
     fn into_model(self) -> SankeyDiagramModel {
         SankeyDiagramModel {
             graph: SankeyGraph {
@@ -145,10 +148,12 @@ impl SankeySemanticSource {
         control: &crate::OperationControl,
     ) -> crate::OperationControlResult<SankeyDiagramModel> {
         let mut db = SankeyDb::default();
+
         for (index, record) in self.records.into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             let source_raw = normalize_field_value(&record.source.text);
             let target_raw = normalize_field_value(&record.target.text);
             let source = db.find_or_create_node(&source_raw, config);
@@ -156,6 +161,7 @@ impl SankeySemanticSource {
             let value = parse_float_json(record.value.text.trim());
             db.add_link(source, target, value);
         }
+
         control.checkpoint()?;
         Ok(db.into_model())
     }
@@ -287,6 +293,7 @@ pub(crate) fn parse_sankey_semantic_model_controlled(
                     },
                 }
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 crate::family::SemanticConstruction {
@@ -332,12 +339,15 @@ fn construct_sankey_semantic_source_controlled(
         }
     }
 
-    if let Some(error) = errors.into_iter().next() {
-        return Ok(Err(family::CombinedSemanticFailure::new(
-            Error::diagram_parse_exact(diagram_type.to_string(), error.message, error.span),
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-        )));
+    match errors.into_iter().next() {
+        Some(error) => {
+            return Ok(Err(family::CombinedSemanticFailure::new(
+                Error::diagram_parse_exact(diagram_type.to_string(), error.message, error.span),
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            )));
+        },
+        ::core::option::Option::None => {},
     }
 
     let model = source.into_model_controlled(config, control)?;
@@ -384,37 +394,47 @@ fn push_sankey_payload(
     facts.push_symbol(symbol);
 }
 
+#[must_use]
 fn is_sankey_header(header: &str) -> bool {
     let h = header.trim_start().to_ascii_lowercase();
     h == "sankey" || h == "sankey-beta"
 }
 
+#[must_use]
 fn normalize_field_value(s: &str) -> String {
-    // CsvParser already applies Mermaid's `replaceAll('""', '"')` while decoding a quoted field.
+
     s.trim().to_string()
 }
 
+#[must_use]
 fn parse_float_json(s: &str) -> Value {
     let t = s.trim_start();
     let bytes = t.as_bytes();
     let mut end = usize::from(matches!(bytes.first(), Some(b'+') | Some(b'-')));
+
     if t[end..].starts_with("Infinity") {
         return Value::Null;
     }
 
     let integer_start = end;
+
     while bytes.get(end).is_some_and(u8::is_ascii_digit) {
         end += 1;
     }
+
     let mut has_digits = end > integer_start;
+
     if bytes.get(end) == Some(&b'.') {
         end += 1;
         let fraction_start = end;
+
         while bytes.get(end).is_some_and(u8::is_ascii_digit) {
             end += 1;
         }
+
         has_digits |= end > fraction_start;
     }
+
     if !has_digits {
         return Value::Null;
     }
@@ -422,31 +442,43 @@ fn parse_float_json(s: &str) -> Value {
     if matches!(bytes.get(end), Some(b'e') | Some(b'E')) {
         let exponent_marker = end;
         end += 1;
+
         if matches!(bytes.get(end), Some(b'+') | Some(b'-')) {
             end += 1;
         }
+
         let exponent_start = end;
+
         while bytes.get(end).is_some_and(u8::is_ascii_digit) {
             end += 1;
         }
+
         if end == exponent_start {
             end = exponent_marker;
         }
     }
 
     let v = t[..end].parse::<f64>().unwrap_or(f64::NAN);
+
     if !v.is_finite() {
         return Value::Null;
     }
 
     const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
-    if v.fract() == 0.0 && (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&v) {
-        return Value::Number((v as i64).into());
+
+    if ::core::matches!(::core::primitive::f64::classify(v.fract()), ::core::num::FpCategory::Zero) && (-MAX_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&v) {
+        return Value::Number(<::serde_json::Number as ::core::convert::From<::core::primitive::i64>>::from((v as i64)));
     }
 
-    let Some(n) = serde_json::Number::from_f64(v) else {
-        return Value::Null;
+    let n = {
+        let optional_n = serde_json::Number::from_f64(v);
+
+        match optional_n {
+            Some(matched_n) => matched_n,
+            ::core::option::Option::None => return Value::Null,
+        }
     };
+
     Value::Number(n)
 }
 
@@ -471,6 +503,7 @@ fn checkpoint_sankey_scan(
         control.checkpoint()?;
         *next_checkpoint = progress.saturating_add(SANKEY_SCAN_CHECKPOINT_BYTES);
     }
+
     Ok(())
 }
 
@@ -480,25 +513,30 @@ impl PreparedSankeyText {
         control: &crate::OperationControl,
     ) -> crate::OperationControlResult<Self> {
         control.checkpoint()?;
-        // Mermaid's prepareTextForParsing trims non-newline whitespace at the source edges,
-        // collapses each CR/LF run to one LF, and then trims the complete result.
+
+
         let mut start = source.len();
         let mut next_checkpoint = 0usize;
+
         for (index, ch) in source.char_indices() {
             checkpoint_sankey_scan(control, index, &mut next_checkpoint)?;
+
             if !ch.is_whitespace() || ch == '\n' || ch == '\r' {
                 start = index;
                 break;
             }
         }
+
         let mut end = 0usize;
         next_checkpoint = 0;
+
         for (index, ch) in source.char_indices().rev() {
             checkpoint_sankey_scan(
                 control,
                 source.len().saturating_sub(index),
                 &mut next_checkpoint,
             )?;
+
             if !ch.is_whitespace() || ch == '\n' || ch == '\r' {
                 end = index + ch.len_utf8();
                 break;
@@ -509,40 +547,49 @@ impl PreparedSankeyText {
         let mut source_bytes = Vec::with_capacity(end.saturating_sub(start));
         let mut offset = start.min(end);
         next_checkpoint = offset;
+
         while offset < end {
             checkpoint_sankey_scan(control, offset, &mut next_checkpoint)?;
             let ch = source[offset..end]
                 .chars()
                 .next()
                 .expect("prepared Sankey offset must be a character boundary");
+
             if ch == '\n' || ch == '\r' {
                 let newline_start = offset;
                 offset += ch.len_utf8();
-                while offset < end {
+
+                'inner_while_2: while offset < end {
                     checkpoint_sankey_scan(control, offset, &mut next_checkpoint)?;
                     let next = source[offset..end]
                         .chars()
                         .next()
                         .expect("prepared Sankey newline offset must be a character boundary");
+
                     if next != '\n' && next != '\r' {
-                        break;
+                        break 'inner_while_2;
                     }
+
                     offset += next.len_utf8();
                 }
+
                 text.push('\n');
                 source_bytes.push(SourceSpan::new(newline_start, offset));
                 continue;
             }
 
             text.push(ch);
+
             for byte in offset..offset + ch.len_utf8() {
                 source_bytes.push(SourceSpan::new(byte, byte + 1));
             }
+
             offset += ch.len_utf8();
         }
 
         let trimmed_start = text.len() - text.trim_start().len();
         let trimmed_end = text.trim_end().len();
+
         if trimmed_start >= trimmed_end {
             return Ok(Self {
                 text: String::new(),
@@ -550,6 +597,7 @@ impl PreparedSankeyText {
                 source_len: source.len(),
             });
         }
+
         control.checkpoint()?;
         Ok(Self {
             text: text[trimmed_start..trimmed_end].to_string(),
@@ -558,9 +606,11 @@ impl PreparedSankeyText {
         })
     }
 
+    #[must_use]
     fn map_span(&self, span: SourceSpan) -> SourceSpan {
         debug_assert!(span.start <= span.end);
         debug_assert!(span.end <= self.text.len());
+
         if span.start == span.end {
             let offset = self
                 .source_bytes
@@ -570,12 +620,14 @@ impl PreparedSankeyText {
                 .unwrap_or(self.source_len);
             return SourceSpan::new(offset, offset);
         }
+
         SourceSpan::new(
             self.source_bytes[span.start].start,
             self.source_bytes[span.end - 1].end,
         )
     }
 
+    #[must_use]
     fn map_field(&self, mut field: SankeyField) -> SankeyField {
         field.span = self.map_span(field.span);
         field.quotes = field
@@ -584,6 +636,7 @@ impl PreparedSankeyText {
         field
     }
 
+    #[must_use]
     fn map_error(&self, mut error: SankeySyntaxError) -> SankeySyntaxError {
         error.span = self.map_span(error.span);
         error
@@ -595,12 +648,18 @@ fn find_sankey_newline_controlled(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<Option<usize>> {
     let mut next_checkpoint = 0usize;
+
     for (index, byte) in input.bytes().enumerate() {
         checkpoint_sankey_scan(control, index, &mut next_checkpoint)?;
-        if byte == b'\n' {
-            return Ok(Some(index));
+
+        match byte {
+            b'\n' => {
+                return Ok(Some(index));
+            },
+            _ => {},
         }
     }
+
     control.checkpoint()?;
     Ok(None)
 }
@@ -610,6 +669,7 @@ fn parse_sankey_syntax_outcome_controlled(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<SankeySyntaxOutcome> {
     let prepared = PreparedSankeyText::new_controlled(code, control)?;
+
     let Some(header_end) = find_sankey_newline_controlled(&prepared.text, control)? else {
         let span = prepared.map_span(SourceSpan::new(0, prepared.text.len()));
         return Ok(SankeySyntaxOutcome {
@@ -622,12 +682,14 @@ fn parse_sankey_syntax_outcome_controlled(
             }],
         });
     };
+
     let header_raw = &prepared.text[..header_end];
     let header = header_raw.trim();
     let header_start = header_raw
         .len()
         .saturating_sub(header_raw.trim_start().len());
     let header_span = SourceSpan::new(header_start, header_start + header.len());
+
     if !is_sankey_header(header) {
         let span = prepared.map_span(header_span);
         return Ok(SankeySyntaxOutcome {
@@ -644,10 +706,12 @@ fn parse_sankey_syntax_outcome_controlled(
     let mut parser = CsvParser::new(&prepared.text, header_end + 1, control);
     let mut records = Vec::new();
     let mut errors = Vec::new();
+
     while !parser.eof() {
         control.checkpoint()?;
         let record_start = parser.pos;
-        match parser.parse_record()? {
+
+        match { let checked_value = parser.parse_record()?; checked_value } {
             Ok(record) => records.push(record),
             Err(error) => {
                 errors.push(prepared.map_error(error));
@@ -655,6 +719,7 @@ fn parse_sankey_syntax_outcome_controlled(
             }
         }
     }
+
     if records.is_empty() && errors.is_empty() {
         errors.push(SankeySyntaxError {
             message: "expected at least one csv record".to_string(),
@@ -663,10 +728,12 @@ fn parse_sankey_syntax_outcome_controlled(
     }
 
     let mut mapped_records = Vec::with_capacity(records.len());
+
     for (index, record) in records.into_iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         mapped_records.push(SankeyRecord {
             source: prepared.map_field(record.source),
             target: prepared.map_field(record.target),
@@ -693,6 +760,7 @@ struct CsvParser<'input, 'control> {
 }
 
 impl<'input, 'control> CsvParser<'input, 'control> {
+    #[must_use]
     fn new(input: &'input str, pos: usize, control: &'control crate::OperationControl) -> Self {
         Self {
             input,
@@ -701,21 +769,25 @@ impl<'input, 'control> CsvParser<'input, 'control> {
         }
     }
 
+    #[must_use]
     fn eof(&self) -> bool {
         self.pos >= self.input.len()
     }
 
+    #[must_use]
     fn rest(&self) -> &'input str {
         &self.input[self.pos..]
     }
 
+    #[must_use]
     fn peek_char(&self) -> Option<char> {
         self.rest().chars().next()
     }
 
+    #[must_use]
     fn error(&self, message: impl Into<String>, span: SourceSpan) -> SankeySyntaxError {
         SankeySyntaxError {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span,
         }
     }
@@ -743,24 +815,35 @@ impl<'input, 'control> CsvParser<'input, 'control> {
 
     fn parse_record(&mut self) -> ControlledSankeySyntaxResult<SankeyRecord> {
         self.control.checkpoint()?;
-        let source = match self.parse_field()? {
+        let source = match { let checked_value = self.parse_field()?; checked_value } {
             Ok(source) => source,
             Err(error) => return Ok(Err(error)),
         };
-        if let Err(error) = self.consume_comma() {
-            return Ok(Err(error));
+
+        match self.consume_comma() {
+            Err(error) => {
+                return Ok(Err(error));
+            },
+            ::core::result::Result::Ok(_) => {},
         }
-        let target = match self.parse_field()? {
+
+        let target = match { let checked_value_2 = self.parse_field()?; checked_value_2 } {
             Ok(target) => target,
             Err(error) => return Ok(Err(error)),
         };
-        if let Err(error) = self.consume_comma() {
-            return Ok(Err(error));
+
+        match self.consume_comma() {
+            Err(error) => {
+                return Ok(Err(error));
+            },
+            ::core::result::Result::Ok(_) => {},
         }
-        let value = match self.parse_field()? {
+
+        let value = match { let checked_value_3 = self.parse_field()?; checked_value_3 } {
             Ok(value) => value,
             Err(error) => return Ok(Err(error)),
         };
+
         if !self.try_consume_newline() && !self.eof() {
             let end = find_sankey_newline_controlled(self.rest(), self.control)?
                 .map_or(self.input.len(), |end| self.pos + end);
@@ -768,6 +851,7 @@ impl<'input, 'control> CsvParser<'input, 'control> {
                 self.error("expected end of record", SourceSpan::new(self.pos, end))
             ));
         }
+
         Ok(Ok(SankeyRecord {
             source,
             target,
@@ -795,13 +879,17 @@ impl<'input, 'control> CsvParser<'input, 'control> {
     fn parse_unquoted_field(&mut self) -> ControlledSankeySyntaxResult<SankeyField> {
         let start = self.pos;
         let mut next_checkpoint = self.pos;
+
         while let Some(ch) = self.peek_char() {
             checkpoint_sankey_scan(self.control, self.pos, &mut next_checkpoint)?;
+
             if ch == ',' || ch == '\n' {
                 break;
             }
+
             self.pos += ch.len_utf8();
         }
+
         let raw = &self.input[start..self.pos];
         let text = raw.trim();
         let leading = raw.len() - raw.trim_start().len();
@@ -814,39 +902,52 @@ impl<'input, 'control> CsvParser<'input, 'control> {
 
     fn parse_quoted_field(&mut self) -> ControlledSankeySyntaxResult<SankeyField> {
         let quote_start = self.pos;
-        if let Err(error) = self.consume_char('"') {
-            return Ok(Err(error));
+
+        match self.consume_char('"') {
+            Err(error) => {
+                return Ok(Err(error));
+            },
+            ::core::result::Result::Ok(_) => {},
         }
+
         let content_start = self.pos;
         let mut out = String::new();
         let mut next_checkpoint = self.pos;
+
         while let Some(ch) = self.peek_char() {
             checkpoint_sankey_scan(self.control, self.pos, &mut next_checkpoint)?;
             let char_start = self.pos;
             self.pos += ch.len_utf8();
-            if ch == '"' {
-                if self.peek_char() == Some('"') {
-                    self.pos += 1;
-                    out.push('"');
-                    continue;
-                }
-                let raw = &self.input[content_start..char_start];
-                let trimmed = raw.trim();
-                let leading = raw.len() - raw.trim_start().len();
-                return Ok(Ok(SankeyField {
-                    text: out.trim().to_string(),
-                    span: SourceSpan::new(
-                        content_start + leading,
-                        content_start + leading + trimmed.len(),
-                    ),
-                    quotes: Some([
-                        SourceSpan::new(quote_start, quote_start + 1),
-                        SourceSpan::new(char_start, char_start + 1),
-                    ]),
-                }));
+
+            match ch {
+                '"' => {
+                    if self.peek_char() == Some('"') {
+                        self.pos += 1;
+                        out.push('"');
+                        continue;
+                    }
+
+                    let raw = &self.input[content_start..char_start];
+                    let trimmed = raw.trim();
+                    let leading = raw.len() - raw.trim_start().len();
+                    return Ok(Ok(SankeyField {
+                        text: out.trim().to_string(),
+                        span: SourceSpan::new(
+                            content_start + leading,
+                            content_start + leading + trimmed.len(),
+                        ),
+                        quotes: Some([
+                            SourceSpan::new(quote_start, quote_start + 1),
+                            SourceSpan::new(char_start, char_start + 1),
+                        ]),
+                    }));
+                },
+                _ => {},
             }
+
             out.push(ch);
         }
+
         Ok(Err(self.error(
             "unterminated quoted field",
             SourceSpan::new(quote_start, self.input.len()),
@@ -856,13 +957,19 @@ impl<'input, 'control> CsvParser<'input, 'control> {
     fn recover_to_next_record(&mut self, record_start: usize) -> crate::OperationControlResult<()> {
         let search_start = self.pos.max(record_start).min(self.input.len());
         let mut next_checkpoint = 0usize;
+
         for (relative, byte) in self.input[search_start..].bytes().enumerate() {
             checkpoint_sankey_scan(self.control, relative, &mut next_checkpoint)?;
-            if byte == b'\n' {
-                self.pos = search_start + relative + 1;
-                return Ok(());
+
+            match byte {
+                b'\n' => {
+                    self.pos = search_start + relative + 1;
+                    return Ok(());
+                },
+                _ => {},
             }
         }
+
         self.pos = self.input.len();
         self.control.checkpoint()
     }

@@ -14,6 +14,7 @@ pub(super) struct FlowchartBuildState {
 }
 
 impl FlowchartBuildState {
+    #[must_use]
     pub(super) fn new(subgraph_ids: HashSet<String>) -> Self {
         Self {
             nodes: Vec::new(),
@@ -34,6 +35,7 @@ impl FlowchartBuildState {
             if visited.is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             let StatementEvent::Enter(stmt) = event else {
                 continue;
             };
@@ -44,36 +46,48 @@ impl FlowchartBuildState {
                     edge_groups,
                 } => {
                     let has_edges = !edge_groups.is_empty();
-                    if let Some(first_group) = node_groups.first() {
-                        self.upsert_group(first_group, has_edges, control)?;
+
+                    match node_groups.first() {
+                        Some(first_group) => {
+                            self.upsert_group(first_group, has_edges, control)?;
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     for (segment_index, edges) in edge_groups.iter().enumerate() {
-                        if let Some(next_group) = node_groups.get(segment_index + 1) {
-                            self.upsert_group(next_group, true, control)?;
+                        match node_groups.get(segment_index + 1) {
+                            Some(next_group) => {
+                                self.upsert_group(next_group, true, control)?;
+                            },
+                            ::core::option::Option::None => {},
                         }
+
                         for (edge_index, edge) in edges.iter().cloned().enumerate() {
-                            if edge_index % 128 == 0 {
+                            if edge_index.wrapping_rem(128) == 0 {
                                 control.checkpoint()?;
                             }
+
                             self.push_edge(edge);
                         }
                     }
                 }
                 Stmt::Node(n) => {
-                    let mut n = n.as_ref().clone();
-                    if self.used_edge_ids.contains(&n.id) {
+                    let mut n_2 = n.as_ref().clone();
+
+                    if self.used_edge_ids.contains(&n_2.id) {
                         continue;
                     }
-                    n.provenance = FlowNodeProvenance::Authored;
-                    self.upsert_node(n);
+
+                    n_2.provenance = FlowNodeProvenance::Authored;
+                    self.upsert_node(n_2);
                 }
                 Stmt::ShapeData {
                     target,
                     target_span,
                     ..
                 } => {
-                    // Reserve the structural node slot in source order. The semantic replay is
-                    // the sole owner of parsing and applying shapeData values.
+
+
                     if !self.used_edge_ids.contains(target) {
                         self.upsert_node(Node {
                             id: target.clone(),
@@ -110,6 +124,7 @@ impl FlowchartBuildState {
                 | Stmt::LinkStyle(_) => {}
             }
         }
+
         control.checkpoint()?;
         Ok(())
     }
@@ -121,63 +136,82 @@ impl FlowchartBuildState {
         control: &OperationControl,
     ) -> OperationControlResult<()> {
         for (index, node) in nodes.iter().cloned().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             if self.used_edge_ids.contains(&node.id) {
                 continue;
             }
-            let mut node = node;
+
+            let mut node_2 = node;
+
             if has_edges
-                && node.syntax == FlowNodeSyntax::BareReference
-                && self.subgraph_ids.contains(&node.id)
+                && node_2.syntax == FlowNodeSyntax::BareReference
+                && self.subgraph_ids.contains(&node_2.id)
             {
-                node.provenance = FlowNodeProvenance::SubgraphAnchor;
+                node_2.provenance = FlowNodeProvenance::SubgraphAnchor;
             }
-            self.upsert_node(node);
+
+            self.upsert_node(node_2);
         }
+
         Ok(())
     }
 
     fn upsert_node(&mut self, n: Node) {
-        if let Some(&idx) = self.node_index.get(&n.id) {
-            if matches!(n.provenance, FlowNodeProvenance::Authored) {
-                self.nodes[idx].provenance = FlowNodeProvenance::Authored;
-            }
-            if n.label.is_some() {
-                self.nodes[idx].label = n.label;
-                self.nodes[idx].label_type = n.label_type;
-                self.nodes[idx].label_span = n.label_span;
-                self.nodes[idx].label_selection = n.label_selection;
-            }
-            if n.shape.is_some() {
-                self.nodes[idx].shape = n.shape;
-            }
-            if n.icon.is_some() {
-                self.nodes[idx].icon = n.icon;
-            }
-            if n.form.is_some() {
-                self.nodes[idx].form = n.form;
-            }
-            if n.pos.is_some() {
-                self.nodes[idx].pos = n.pos;
-            }
-            if n.img.is_some() {
-                self.nodes[idx].img = n.img;
-            }
-            if n.constraint.is_some() {
-                self.nodes[idx].constraint = n.constraint;
-            }
-            if n.asset_width.is_some() {
-                self.nodes[idx].asset_width = n.asset_width;
-            }
-            if n.asset_height.is_some() {
-                self.nodes[idx].asset_height = n.asset_height;
-            }
-            self.nodes[idx].styles.extend(n.styles);
-            self.nodes[idx].classes.extend(n.classes);
-            return;
+        match self.node_index.get(&n.id) {
+            Some(&idx) => {
+                if matches!(n.provenance, FlowNodeProvenance::Authored) {
+                    self.nodes[idx].provenance = FlowNodeProvenance::Authored;
+                }
+
+                if n.label.is_some() {
+                    self.nodes[idx].label = n.label;
+                    self.nodes[idx].label_type = n.label_type;
+                    self.nodes[idx].label_span = n.label_span;
+                    self.nodes[idx].label_selection = n.label_selection;
+                }
+
+                if n.shape.is_some() {
+                    self.nodes[idx].shape = n.shape;
+                }
+
+                if n.icon.is_some() {
+                    self.nodes[idx].icon = n.icon;
+                }
+
+                if n.form.is_some() {
+                    self.nodes[idx].form = n.form;
+                }
+
+                if n.pos.is_some() {
+                    self.nodes[idx].pos = n.pos;
+                }
+
+                if n.img.is_some() {
+                    self.nodes[idx].img = n.img;
+                }
+
+                if n.constraint.is_some() {
+                    self.nodes[idx].constraint = n.constraint;
+                }
+
+                if n.asset_width.is_some() {
+                    self.nodes[idx].asset_width = n.asset_width;
+                }
+
+                if n.asset_height.is_some() {
+                    self.nodes[idx].asset_height = n.asset_height;
+                }
+
+                self.nodes[idx].styles.extend(n.styles);
+                self.nodes[idx].classes.extend(n.classes);
+                return;
+            },
+            ::core::option::Option::None => {},
         }
+
         let idx = self.nodes.len();
         self.node_index.insert(n.id.clone(), idx);
         self.nodes.push(n);
@@ -189,21 +223,37 @@ impl FlowchartBuildState {
 
         let mut final_id = e.id.clone();
         let mut is_user_defined_id = false;
-        if let Some(user_id) = e.id.clone() {
-            if !self.used_edge_ids.contains(&user_id) {
-                is_user_defined_id = true;
-                self.used_edge_ids.insert(user_id);
-            } else {
-                final_id = None;
-            }
+
+        match e.id.clone() {
+            Some(user_id) => {
+                if !self.used_edge_ids.contains(&user_id) {
+                    is_user_defined_id = true;
+                    self.used_edge_ids.insert(user_id);
+                } else {
+                    final_id = None;
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
-        if final_id.is_none() {
-            let counter = if existing == 0 { 0 } else { existing + 1 };
-            final_id = Some(format!("L_{}_{}_{}", e.from, e.to, counter));
-            if let Some(id) = final_id.clone() {
-                self.used_edge_ids.insert(id);
-            }
+        match final_id {
+            ::core::option::Option::None => {
+                let counter = match existing {
+                    0 => { 0 },
+                    _ => { existing + 1 },
+                };
+                final_id = Some(format!("L_{}_{}_{}", e.from, e.to, counter));
+
+                {
+                    match final_id.clone() {
+                        Some(id) => {
+                            self.used_edge_ids.insert(id);
+                        },
+                        ::core::option::Option::None => {},
+                    };
+                }
+            },
+            ::core::option::Option::Some(_) => {},
         }
 
         self.edge_pair_counts.insert(key, existing + 1);

@@ -56,8 +56,13 @@ impl BlockEdgePaintPlan {
                 .collect(),
             evidence: FamilyThemeOutcomes::default(),
         };
-        let Some(theme) = theme else { return Ok(plan) };
-        if !theme.family_mechanism_routes().iter().any(|route| {
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
+        if !theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -73,8 +78,9 @@ impl BlockEdgePaintPlan {
         }) {
             return Ok(plan);
         }
+
         let config_owned = config.config_paint_overrides_typed_default("themeVariables.lineColor");
-        // The source class rule `.block > *` matches paths through their actual parent group.
+
         let source_owned = config_owned
             || model.class_defs.values().any(|class| {
                 class.id == "block"
@@ -84,16 +90,18 @@ impl BlockEdgePaintPlan {
                         )
                     })
             });
-        let has_ordinal = theme
+        let has_ordinal = theme_2
             .family_rules()
             .any(|(_, rule)| rule.target() == ThemeTarget::Edge && rule.ordinal().is_some());
         let static_style =
-            theme.style_with_work_meter(ThemeTarget::Edge, ThemeVariant::Default, None, work)?;
+            theme_2.style_with_work_meter(ThemeTarget::Edge, ThemeVariant::Default, None, work)?;
         let mut layout_by_id = BTreeMap::new();
+
         for edge in &layout.edges {
             work.charge(1)?;
             layout_by_id.entry(edge.id.as_str()).or_insert(edge);
         }
+
         let geometries = layout
             .shape_geometries
             .iter()
@@ -103,22 +111,23 @@ impl BlockEdgePaintPlan {
         let mut capabilities = BTreeMap::new();
         let mut source_owned_fill = Vec::with_capacity(model.edges.len());
         let mut source_owned_stroke = Vec::with_capacity(model.edges.len());
+
         for (index, edge) in model.edges.iter().enumerate() {
             work.charge(1)?;
             let dynamic_style;
             let style = if has_ordinal {
-                dynamic_style = theme.style_with_work_meter(
+                dynamic_style = { let checked_value = theme_2.style_with_work_meter(
                     ThemeTarget::Edge,
                     ThemeVariant::Default,
                     Some(index + 1),
                     work,
-                )?;
+                )?; checked_value };
                 &dynamic_style
             } else {
                 &static_style
             };
-            // Fill is the historical line-paint fallback. Clear and unsupported stroke
-            // values still own the terminal, so neither can reactivate the fill winner.
+
+
             let fill_fallback = matches!(
                 style.stroke_resolution().specified(),
                 Specified::Unspecified
@@ -126,7 +135,7 @@ impl BlockEdgePaintPlan {
             let visibility = layout_by_id.get(edge.id.as_str()).and_then(|layout_edge| {
                 crate::svg::block_edge_is_visible(edge, layout_edge, &geometries)
             });
-            // A valid degenerate path (for example A --> A) has no edge-paint terminal.
+
             let invisible = visibility == Some(false);
             source_owned_stroke.push(source_owned || invisible);
             source_owned_fill.push(source_owned || !fill_fallback || invisible);
@@ -145,41 +154,48 @@ impl BlockEdgePaintPlan {
                 None
             } else if fill_fallback {
                 resolve_direct_static_fill(
-                    theme,
+                    theme_2,
                     style,
                     &[ThemeTarget::Edge],
                     DirectStaticSelectorDomain::Default,
                 )
             } else {
                 resolve_direct_static_stroke(
-                    theme,
+                    theme_2,
                     style,
                     &[ThemeTarget::Edge],
                     DirectStaticSelectorDomain::Default,
                 )
             }
             .map(DirectPaintExpectation::from_paint);
-            if let Some(paint) = &paint
+
+            if let Some(paint_2) = &paint
                 && !invisible
             {
                 capabilities.insert(
                     (
-                        paint.rule_index(),
+                        paint_2.rule_index(),
                         if fill_fallback {
                             ResolvedStyleProperty::Fill
                         } else {
                             ResolvedStyleProperty::Stroke
                         },
                     ),
-                    paint.capability(),
+                    paint_2.capability(),
                 );
             }
-            if let Some(paint) = paint {
-                plan.declarations[index] = Cow::Owned(format!("stroke:{};fill:none;", paint.css()));
+
+            match paint {
+                Some(paint_3) => {
+                    plan.declarations[index] = Cow::Owned(format!("stroke:{};fill:none;", paint_3.css()));
+                },
+                ::core::option::Option::None => {},
             }
         }
+
         let mut observations = BTreeMap::<usize, RuleObservation>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Edge,
@@ -189,12 +205,16 @@ impl BlockEdgePaintPlan {
             else {
                 continue;
             };
+
             let observation = observations.entry(rule_index).or_default();
             let property = resolved_style_property_for_facet(facet);
+
             if !winners.contains(&(rule_index, property)) {
                 continue;
             }
+
             observation.applicable = true;
+
             match route.disposition() {
                 FamilyThemeDisposition::TypedAdapter => {
                     if matches!(
@@ -214,11 +234,13 @@ impl BlockEdgePaintPlan {
                 }
             }
         }
+
         for (index, observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: ThemeTarget::Edge,
             };
+
             if !observation.applicable {
                 plan.evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
@@ -228,8 +250,9 @@ impl BlockEdgePaintPlan {
                     .mark_applied_with_capabilities(key, observation.capabilities);
             }
         }
+
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut plan.evidence,
             &[UnsupportedTerminalDomain::fallbacks_only(
                 ThemeTarget::Edge,
@@ -242,6 +265,7 @@ impl BlockEdgePaintPlan {
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn declaration(&self, edge_index: usize) -> Option<&str> {
         self.declarations.get(edge_index).map(AsRef::as_ref)
     }

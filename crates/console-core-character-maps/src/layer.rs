@@ -185,9 +185,7 @@ impl Layer {
     let Ok(string) = self.bf_string(code);
 
     Ok(match string {
-      Lookup::Ready(Some(BfString::Char(character))) => {
-        Lookup::Ready(Some(u32::from(character)))
-      }
+      Lookup::Ready(Some(BfString::Char(character))) => Lookup::Ready(Some(u32::from(character))),
       Lookup::Ready(Some(BfString::String(_))) | Lookup::Ready(None) | Lookup::Unsettled => {
         Lookup::Unsettled
       }

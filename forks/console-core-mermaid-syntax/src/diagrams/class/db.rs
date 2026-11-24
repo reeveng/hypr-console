@@ -28,8 +28,9 @@ struct ClassMember {
 }
 
 impl ClassMember {
+    #[must_use]
     fn new(input: &str, member_type: &str, config: &MermaidConfig) -> Self {
-        let input = sanitize_text(input, config);
+        let input_2 = sanitize_text(input, config);
         let mut m = Self {
             member_type: member_type.to_string(),
             visibility: String::new(),
@@ -40,22 +41,29 @@ impl ClassMember {
             display_text: String::new(),
             css_style: String::new(),
         };
-        m.parse_member(&input, member_type);
+        m.parse_member(&input_2, member_type);
         m
     }
 
+    #[must_use]
     fn parse_method_signature_like_upstream(input: &str) -> Option<(&str, &str, &str, &str, &str)> {
         let s = input.trim();
+
         if s.is_empty() {
             return None;
         }
 
-        if let Some(parsed) = Self::parse_method_signature_from_offset(s, true) {
-            return Some(parsed);
+        match Self::parse_method_signature_from_offset(s, true) {
+            Some(parsed) => {
+                return Some(parsed);
+            },
+            ::core::option::Option::None => {},
         }
+
         Self::parse_method_signature_from_offset(s, false)
     }
 
+    #[must_use]
     fn parse_method_signature_from_offset(
         input: &str,
         allow_visibility: bool,
@@ -71,8 +79,12 @@ impl ClassMember {
 
         let paren_close = rest.rfind(')')?;
         let paren_open = rest[..paren_close].rfind('(')?;
-        if paren_open == 0 {
-            return None;
+
+        match paren_open {
+            0 => {
+                return None;
+            },
+            _ => {},
         }
 
         let name = &rest[..paren_open];
@@ -98,18 +110,21 @@ impl ClassMember {
     }
 
     fn parse_member(&mut self, input: &str, member_type: &str) {
-        let input = input.trim();
+        let input_2 = input.trim();
+
         if member_type == "method" {
-            if let Some((visibility, id, params, classifier, return_type)) =
-                Self::parse_method_signature_like_upstream(input)
-            {
-                if matches!(visibility, "#" | "+" | "~" | "-") {
-                    self.visibility = visibility.to_string();
-                }
-                self.id = id.to_string();
-                self.parameters = params.to_string();
-                self.classifier = classifier.to_string();
-                self.return_type = return_type.to_string();
+            match Self::parse_method_signature_like_upstream(input_2) {
+                Some((visibility, id, params, classifier, return_type)) => {
+                    if matches!(visibility, "#" | "+" | "~" | "-") {
+                        self.visibility = visibility.to_string();
+                    }
+
+                    self.id = id.to_string();
+                    self.parameters = params.to_string();
+                    self.classifier = classifier.to_string();
+                    self.return_type = return_type.to_string();
+                },
+                ::core::option::Option::None => {},
             }
 
             if self.classifier.is_empty()
@@ -121,19 +136,28 @@ impl ClassMember {
                 self.return_type = self.return_type.trim().to_string();
             }
         } else {
-            let first = input.chars().next().unwrap_or('\0');
-            let last = input.chars().last().unwrap_or('\0');
+            let first = match input_2.chars().next() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => '\0',
+            };
+            let last = match input_2.chars().last() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => '\0',
+            };
             let mut start = 0usize;
-            let mut end = input.len();
+            let mut end = input_2.len();
+
             if matches!(first, '#' | '+' | '~' | '-') {
                 self.visibility = first.to_string();
                 start = first.len_utf8();
             }
+
             if last == '$' || last == '*' {
                 self.classifier = last.to_string();
-                end = input.len() - last.len_utf8();
+                end = input_2.len() - last.len_utf8();
             }
-            self.id = input[start..end].to_string();
+
+            self.id = input_2[start..end].to_string();
         }
 
         if self.id.starts_with(' ') {
@@ -149,18 +173,22 @@ impl ClassMember {
         };
 
         let mut display = format!("{}{}", self.visibility, parse_generic_types(&self.id));
+
         if member_type == "method" {
             display.push('(');
             display.push_str(&parse_generic_types(self.parameters.trim()));
             display.push(')');
+
             if !self.return_type.is_empty() {
                 display.push_str(" : ");
                 display.push_str(&parse_generic_types(self.return_type.trim()));
             }
         }
+
         self.display_text = display.trim().to_string();
     }
 
+    #[must_use]
     fn into_typed(self) -> class_typed::ClassMember {
         class_typed::ClassMember {
             member_type: self.member_type,
@@ -175,6 +203,7 @@ impl ClassMember {
     }
 }
 
+#[must_use]
 fn is_js_regex_whitespace(ch: char) -> bool {
     matches!(
         ch,
@@ -189,19 +218,24 @@ fn is_js_regex_whitespace(ch: char) -> bool {
     )
 }
 
+#[must_use]
 fn collapse_acc_descr_newline_whitespace(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut chars = input.chars().peekable();
 
     while let Some(ch) = chars.next() {
         out.push(ch);
-        if ch == '\n' {
-            while chars
-                .peek()
-                .is_some_and(|next| is_js_regex_whitespace(*next))
-            {
-                chars.next();
-            }
+
+        match ch {
+            '\n' => {
+                while chars
+                    .peek()
+                    .is_some_and(|next| is_js_regex_whitespace(*next))
+                {
+                    chars.next();
+                }
+            },
+            _ => {},
         }
     }
 
@@ -230,6 +264,7 @@ struct ClassNode {
 }
 
 impl ClassNode {
+    #[must_use]
     fn into_typed(self) -> class_typed::ClassNode {
         class_typed::ClassNode {
             id: self.id,
@@ -269,6 +304,7 @@ struct ClassNote {
 }
 
 impl ClassNote {
+    #[must_use]
     fn into_typed(self) -> class_typed::ClassNote {
         class_typed::ClassNote {
             id: self.id,
@@ -287,6 +323,7 @@ struct Interface {
 }
 
 impl Interface {
+    #[must_use]
     fn into_typed(self) -> class_typed::ClassInterface {
         class_typed::ClassInterface {
             id: self.id,
@@ -307,6 +344,7 @@ struct Namespace {
 }
 
 impl Namespace {
+    #[must_use]
     fn into_typed(self) -> class_typed::Namespace {
         class_typed::Namespace {
             id: self.id,
@@ -327,6 +365,7 @@ struct StyleClass {
 }
 
 impl StyleClass {
+    #[must_use]
     fn into_typed(self) -> class_typed::StyleClass {
         class_typed::StyleClass {
             id: self.id,
@@ -377,6 +416,7 @@ pub(super) struct ClassDb<'a> {
 }
 
 impl<'a> ClassDb<'a> {
+    #[must_use]
     pub(super) fn new(config: &'a MermaidConfig) -> Self {
         Self {
             direction: "TB".to_string(),
@@ -400,15 +440,16 @@ impl<'a> ClassDb<'a> {
 }
 
 impl<'a> ClassDb<'a> {
+    #[must_use]
     fn split_class_name_and_type(&self, id: &str) -> (String, String) {
-        let id = sanitize_text(id, self.config);
-        let (left, right) = if let Some((left, right)) = id.split_once('~') {
+        let id_2 = sanitize_text(id, self.config);
+        let (left, right) = if let Some((left, right)) = id_2.split_once('~') {
             (
                 left.to_string(),
                 right.split('~').next().unwrap_or("").to_string(),
             )
         } else {
-            (id, String::new())
+            (id_2, String::new())
         };
 
         let class_name = sanitize_text(&left, self.config);
@@ -423,12 +464,18 @@ impl<'a> ClassDb<'a> {
 
     fn add_class_with_origin(&mut self, id: &str, relation_endpoint_facade_candidate: bool) {
         let (class_name, type_param) = self.split_class_name_and_type(id);
-        if let Some(class) = self.classes.get_mut(&class_name) {
-            if !relation_endpoint_facade_candidate {
-                class.relation_endpoint_facade_candidate = false;
-            }
-            return;
+
+        match self.classes.get_mut(&class_name) {
+            Some(class) => {
+                if !relation_endpoint_facade_candidate {
+                    class.relation_endpoint_facade_candidate = false;
+                }
+
+                return;
+            },
+            ::core::option::Option::None => {},
         }
+
         let text = if type_param.is_empty() {
             class_name.clone()
         } else {
@@ -465,15 +512,22 @@ impl<'a> ClassDb<'a> {
     pub(super) fn set_class_label(&mut self, id: &str, label: &str) {
         let (class_name, type_param) = self.split_class_name_and_type(id);
         self.add_class(&class_name);
-        let Some(c) = self.classes.get_mut(&class_name) else {
-            return;
+
+        let c = {
+            let optional_c = self.classes.get_mut(&class_name);
+
+            match optional_c {
+                Some(matched_c) => matched_c,
+                ::core::option::Option::None => return,
+            }
         };
-        let label = sanitize_text(label, self.config);
-        c.label = label.clone();
+
+        let label_2 = sanitize_text(label, self.config);
+        c.label = label_2.clone();
         c.text = if type_param.is_empty() {
-            label
+            label_2
         } else {
-            format!("{label}<{type_param}>")
+            format!("{label}<{type_param}>", label = label_2)
         };
     }
 
@@ -481,23 +535,32 @@ impl<'a> ClassDb<'a> {
         self.direction = dir.to_string();
     }
 
+    #[must_use]
     fn cleanup_label(&self, label: &str) -> String {
         let t = label.trim();
-        let t = t.strip_prefix(':').unwrap_or(t);
-        sanitize_text(t.trim(), self.config)
+        let t_2 = t.strip_prefix(':').unwrap_or(t);
+        sanitize_text(t_2.trim(), self.config)
     }
 
     pub(super) fn add_member(&mut self, class_name: &str, member: &str) {
         self.add_class(class_name);
-        let (class_name, _) = self.split_class_name_and_type(class_name);
-        let Some(c) = self.classes.get_mut(&class_name) else {
-            return;
+        let (class_name_2, _) = self.split_class_name_and_type(class_name);
+
+        let c = {
+            let optional_c_2 = self.classes.get_mut(&class_name_2);
+
+            match optional_c_2 {
+                Some(matched_c_2) => matched_c_2,
+                ::core::option::Option::None => return,
+            }
         };
 
         let member_string = member.trim();
+
         if member_string.is_empty() {
             return;
         }
+
         if member_string.starts_with("<<") && member_string.ends_with(">>") {
             c.annotations.push(sanitize_text(
                 member_string
@@ -507,17 +570,20 @@ impl<'a> ClassDb<'a> {
             ));
             return;
         }
+
         if member_string.contains(')') {
             c.methods
                 .push(ClassMember::new(member_string, "method", self.config));
             return;
         }
+
         c.members
             .push(ClassMember::new(member_string, "attribute", self.config));
     }
 
     fn add_members(&mut self, class_name: &str, mut members: Vec<String>) {
         members.reverse();
+
         for m in members {
             self.add_member(class_name, &m);
         }
@@ -525,9 +591,15 @@ impl<'a> ClassDb<'a> {
 
     fn add_annotation(&mut self, class_name: &str, annotation: &str) {
         self.add_class(class_name);
-        let (class_name, _) = self.split_class_name_and_type(class_name);
-        if let Some(c) = self.classes.get_mut(&class_name) {
-            c.annotations.push(sanitize_text(annotation, self.config));
+        let (class_name_2, _) = self.split_class_name_and_type(class_name);
+
+        {
+            match self.classes.get_mut(&class_name_2) {
+                Some(c) => {
+                    c.annotations.push(sanitize_text(annotation, self.config));
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
@@ -540,94 +612,130 @@ impl<'a> ClassDb<'a> {
         let prior_definition = style_event_ordinal
             .and_then(|_| self.paint_class_definitions.get(css_class))
             .cloned();
+
         for raw in ids.split(',') {
             let id = raw.trim();
+
             if id.is_empty() {
                 continue;
             }
+
             let (class_name, _) = self.split_class_name_and_type(id);
-            if let Some(c) = self.classes.get_mut(&class_name) {
-                c.relation_endpoint_facade_candidate = false;
-                let is_first_explicit_assignment = style_event_ordinal.is_some()
-                    && !class_list_contains(&c.css_classes, css_class);
-                if let Some(style_event_ordinal) =
-                    style_event_ordinal.filter(|_| is_first_explicit_assignment)
-                {
-                    if let Some(definition) = prior_definition.as_ref()
-                        && self
-                            .style_precedence_facts
-                            .definition_before_assignment_no_backfill
-                            .is_none()
-                    {
-                        self.style_precedence_facts
-                            .definition_before_assignment_no_backfill =
-                            Some(class_typed::ClassStylePrecedenceWitness::new(
-                                css_class.to_string(),
-                                class_name.clone(),
-                                definition.styles.clone(),
-                                definition.style_event_ordinal,
-                                style_event_ordinal,
-                            ));
-                    }
-                    self.explicit_css_assignments
-                        .entry(css_class.to_string())
-                        .or_insert_with(|| ExplicitCssAssignment {
-                            target: class_name.clone(),
-                            style_event_ordinal,
-                        });
-                }
-                c.css_classes.push(' ');
-                c.css_classes.push_str(css_class);
+
+            {
+                match self.classes.get_mut(&class_name) {
+                    Some(c) => {
+                        c.relation_endpoint_facade_candidate = false;
+                        let is_first_explicit_assignment = style_event_ordinal.is_some()
+                            && !class_list_contains(&c.css_classes, css_class);
+
+                        match style_event_ordinal.filter(|_| is_first_explicit_assignment) {
+                            Some(style_event_ordinal_2) => {
+                                if let Some(definition) = prior_definition.as_ref()
+                                    && self
+                                        .style_precedence_facts
+                                        .definition_before_assignment_no_backfill
+                                        .is_none()
+                                {
+                                    self.style_precedence_facts
+                                        .definition_before_assignment_no_backfill =
+                                        Some(class_typed::ClassStylePrecedenceWitness::new(
+                                            css_class.to_string(),
+                                            class_name.clone(),
+                                            definition.styles.clone(),
+                                            definition.style_event_ordinal,
+                                            style_event_ordinal_2,
+                                        ));
+                                }
+
+                                self.explicit_css_assignments
+                                    .entry(css_class.to_string())
+                                    .or_insert_with(|| ExplicitCssAssignment {
+                                        target: class_name.clone(),
+                                        style_event_ordinal: style_event_ordinal_2,
+                                    });
+                            },
+                            ::core::option::Option::None => {},
+                        }
+
+                        c.css_classes.push(' ');
+                        c.css_classes.push_str(css_class);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }
 
     fn set_tooltip(&mut self, id: &str, tooltip: &str) {
         let (class_name, _) = self.split_class_name_and_type(id);
-        if let Some(c) = self.classes.get_mut(&class_name) {
-            c.relation_endpoint_facade_candidate = false;
-            c.tooltip = Some(sanitize_text(tooltip, self.config));
+
+        {
+            match self.classes.get_mut(&class_name) {
+                Some(c) => {
+                    c.relation_endpoint_facade_candidate = false;
+                    c.tooltip = Some(sanitize_text(tooltip, self.config));
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
     fn set_link(&mut self, id: &str, url: &str, target: Option<String>) {
         let (class_name, _) = self.split_class_name_and_type(id);
-        if let Some(c) = self.classes.get_mut(&class_name) {
-            c.relation_endpoint_facade_candidate = false;
-            c.link = format_url(url, self.config);
 
-            let final_target = if self.security_level == Some("sandbox") {
-                "_top".to_string()
-            } else if let Some(t) = target.clone() {
-                sanitize_text(&t, self.config)
-            } else {
-                "_blank".to_string()
-            };
-            c.link_target = Some(final_target);
+        match self.classes.get_mut(&class_name) {
+            Some(c) => {
+                c.relation_endpoint_facade_candidate = false;
+                c.link = format_url(url, self.config);
+
+                let final_target = if self.security_level == Some("sandbox") {
+                    "_top".to_string()
+                } else if let Some(t) = target.clone() {
+                    sanitize_text(&t, self.config)
+                } else {
+                    "_blank".to_string()
+                };
+                c.link_target = Some(final_target);
+            },
+            ::core::option::Option::None => {},
         }
+
         self.set_css_class(&class_name, "clickable", None);
     }
 
     fn set_click_event(&mut self, id: &str, function: &str, args: Option<String>) {
         let (class_name, _) = self.split_class_name_and_type(id);
-        if let Some(c) = self.classes.get_mut(&class_name) {
-            c.relation_endpoint_facade_candidate = false;
-            c.have_callback = true;
-            let mut map = serde_json::Map::new();
-            map.insert("function".to_string(), Value::String(function.to_string()));
-            let args = args.and_then(|s| {
-                let t = s.trim().to_string();
-                if t.is_empty() { None } else { Some(t) }
-            });
-            if let Some(args) = args.clone() {
-                map.insert("args".to_string(), Value::String(args.clone()));
-            }
-            c.callback = Some(map);
-            c.callback_effective = self.security_level == Some("loose");
+
+        match self.classes.get_mut(&class_name) {
+            Some(c) => {
+                c.relation_endpoint_facade_candidate = false;
+                c.have_callback = true;
+                let mut map = serde_json::Map::new();
+                map.insert("function".to_string(), Value::String(function.to_string()));
+                let args_2 = args.and_then(|s| {
+                    let t = s.trim().to_string();
+
+                    if t.is_empty() { None } else { Some(t) }
+                });
+
+                match args_2.clone() {
+                    Some(args_3) => {
+                        map.insert("args".to_string(), Value::String(args_3.clone()));
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                c.callback = Some(map);
+                c.callback_effective = self.security_level == Some("loose");
+            },
+            ::core::option::Option::None => {},
         }
+
         self.set_css_class(&class_name, "clickable", None);
     }
 
+    #[must_use]
     fn parse_styles(raw: &str) -> Vec<String> {
         raw.split(',')
             .map(|s| s.trim())
@@ -648,6 +756,7 @@ impl<'a> ClassDb<'a> {
             .filter(|style| crate::style::is_safe_paint_declaration(style))
             .cloned()
             .collect::<Vec<_>>();
+
         if !paint_styles.is_empty()
             && self.style_precedence_facts.inline_paint.is_none()
             && self.classes.contains_key(id)
@@ -659,13 +768,22 @@ impl<'a> ClassDb<'a> {
                     style_event_ordinal,
                 ));
         }
-        let Some(c) = self.classes.get_mut(id) else {
-            return;
+
+        let c = {
+            let optional_c = self.classes.get_mut(id);
+
+            match optional_c {
+                Some(matched_c) => matched_c,
+                ::core::option::Option::None => return,
+            }
         };
+
         c.relation_endpoint_facade_candidate = false;
+
         for s in styles {
             for part in s.split(',') {
                 let t = part.trim();
+
                 if !t.is_empty() {
                     c.styles.push(t.to_string());
                 }
@@ -684,6 +802,7 @@ impl<'a> ClassDb<'a> {
             .filter(|style| crate::style::is_safe_typography_declaration(style))
             .cloned()
             .collect::<Vec<_>>();
+
         if !typography_styles.is_empty()
             && self.style_precedence_facts.classdef_typography.is_none()
         {
@@ -694,6 +813,7 @@ impl<'a> ClassDb<'a> {
                     style_event_ordinal,
                 ));
         }
+
         if !paint_styles.is_empty()
             && self
                 .style_precedence_facts
@@ -711,6 +831,7 @@ impl<'a> ClassDb<'a> {
                     style_event_ordinal,
                 ));
         }
+
         if !paint_styles.is_empty() {
             self.paint_class_definitions.insert(
                 id.to_string(),
@@ -720,6 +841,7 @@ impl<'a> ClassDb<'a> {
                 },
             );
         }
+
         let entry = self
             .style_classes
             .entry(id.to_string())
@@ -732,6 +854,7 @@ impl<'a> ClassDb<'a> {
             if s.contains("color") {
                 entry.text_styles.push(s.replace("fill", "bgFill"));
             }
+
             entry.styles.push(s.to_string());
         }
 
@@ -739,9 +862,11 @@ impl<'a> ClassDb<'a> {
             if !c.css_classes.contains(id) {
                 continue;
             }
+
             for s in &styles {
                 for part in s.split(',') {
                     let t = part.trim();
+
                     if !t.is_empty() {
                         c.styles.push(t.to_string());
                     }
@@ -750,23 +875,31 @@ impl<'a> ClassDb<'a> {
         }
     }
 
+    #[must_use]
     fn current_namespace(&self) -> Option<&str> {
         self.namespace_stack.last().map(String::as_str)
     }
 
+    #[must_use]
     fn resolve_qualified_namespace_id(&self, id: &str) -> String {
-        let id = id.trim();
-        if let Some(prefix) = self.current_namespace() {
-            format!("{prefix}.{id}")
-        } else {
-            id.to_string()
+        let id_2 = id.trim();
+
+        match self.current_namespace() {
+            Some(prefix) => {
+                format!("{prefix}.{id}", id = id_2)
+            },
+            ::core::option::Option::None => {
+                id_2.to_string()
+            },
         }
     }
 
+    #[must_use]
     fn namespace_ancestor_ids(qualified_id: &str) -> Vec<String> {
         let parts: Vec<&str> = qualified_id.split('.').collect();
         let mut ids = Vec::with_capacity(parts.len());
         let mut current = String::new();
+
         for part in parts {
             if current.is_empty() {
                 current.push_str(part);
@@ -774,8 +907,10 @@ impl<'a> ClassDb<'a> {
                 current.push('.');
                 current.push_str(part);
             }
+
             ids.push(current.clone());
         }
+
         ids
     }
 
@@ -788,8 +923,9 @@ impl<'a> ClassDb<'a> {
             text: text.to_string(),
             parent: parent.clone(),
         });
-        if let Some(parent) = parent
-            && let Some(ns) = self.namespaces.get_mut(&parent)
+
+        if let Some(parent_2) = parent
+            && let Some(ns) = self.namespaces.get_mut(&parent_2)
         {
             ns.note_ids.push(note_id);
         }
@@ -800,17 +936,26 @@ impl<'a> ClassDb<'a> {
         self.namespace_stack.push(qualified_id.clone());
 
         if self.namespaces.contains_key(&qualified_id) {
-            if let Some(ns) = self.namespaces.get_mut(&qualified_id) {
-                ns.explicit = true;
-                if let Some(label) = label {
-                    ns.label = sanitize_text(&label, self.config);
-                }
+            match self.namespaces.get_mut(&qualified_id) {
+                Some(ns) => {
+                    ns.explicit = true;
+
+                    match label {
+                        Some(label_2) => {
+                            ns.label = sanitize_text(&label_2, self.config);
+                        },
+                        ::core::option::Option::None => {},
+                    }
+                },
+                ::core::option::Option::None => {},
             }
+
             return;
         }
 
         let parts: Vec<&str> = qualified_id.split('.').collect();
         let ancestor_ids = Self::namespace_ancestor_ids(&qualified_id);
+
         for (idx, current_id) in ancestor_ids.iter().enumerate() {
             let parent = idx
                 .checked_sub(1)
@@ -826,15 +971,20 @@ impl<'a> ClassDb<'a> {
                 parts[idx].to_string()
             };
 
-            if let Some(ns) = self.namespaces.get_mut(current_id) {
-                if is_leaf {
-                    ns.explicit = true;
-                    ns.label = node_label;
-                }
-                if ns.parent.is_none() {
-                    ns.parent = parent;
-                }
-                continue;
+            match self.namespaces.get_mut(current_id) {
+                Some(ns) => {
+                    if is_leaf {
+                        ns.explicit = true;
+                        ns.label = node_label;
+                    }
+
+                    if ns.parent.is_none() {
+                        ns.parent = parent;
+                    }
+
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
 
             self.namespaces.insert(
@@ -856,31 +1006,46 @@ impl<'a> ClassDb<'a> {
     }
 
     fn add_classes_to_namespace(&mut self, namespace: &str, class_names: &[String]) {
-        let namespace = self
+        let namespace_2 = self
             .current_namespace()
             .map(str::to_string)
             .unwrap_or_else(|| namespace.to_string());
-        if !self.namespaces.contains_key(&namespace) {
+
+        if !self.namespaces.contains_key(&namespace_2) {
             return;
         }
+
         let mut ids = Vec::new();
+
         for name in class_names {
             let (class_name, _) = self.split_class_name_and_type(name);
             self.add_class(name);
-            if let Some(c) = self.classes.get_mut(&class_name) {
-                c.parent = Some(namespace.clone());
+
+            match self.classes.get_mut(&class_name) {
+                Some(c) => {
+                    c.parent = Some(namespace_2.clone());
+                },
+                ::core::option::Option::None => {},
             }
+
             ids.push(class_name);
         }
-        if let Some(ns) = self.namespaces.get_mut(&namespace) {
-            for id in ids {
-                if !ns.class_ids.contains(&id) {
-                    ns.class_ids.push(id);
-                }
-            }
+
+        {
+            match self.namespaces.get_mut(&namespace_2) {
+                Some(ns) => {
+                    for id in ids {
+                        if !ns.class_ids.contains(&id) {
+                            ns.class_ids.push(id);
+                        }
+                    }
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
+    #[must_use]
     fn existing_relation_class_id(&self, class_name: &str) -> Option<String> {
         if self.classes.contains_key(class_name) {
             return Some(class_name.to_string());
@@ -891,23 +1056,30 @@ impl<'a> ClassDb<'a> {
 
     fn add_relation_class(&mut self, id: &str) -> String {
         let (class_name, _) = self.split_class_name_and_type(id);
-        if let Some(existing_id) = self.existing_relation_class_id(&class_name) {
-            return existing_id;
+
+        match self.existing_relation_class_id(&class_name) {
+            Some(existing_id) => {
+                return existing_id;
+            },
+            ::core::option::Option::None => {},
         }
 
         self.add_class_with_origin(id, true);
         class_name
     }
 
+    #[must_use]
     fn namespace_facade_aliases(&self) -> BTreeMap<String, String> {
         let mut qualified_members = BTreeMap::<String, (usize, String)>::new();
+
         for namespace in self.namespaces.values() {
             for class_id in &namespace.class_ids {
                 let qualified_id = format!("{}.{}", namespace.id, class_id);
                 let namespace_len = namespace.id.len();
+
                 match qualified_members.get(&qualified_id) {
                     Some((existing_len, _)) if *existing_len >= namespace_len => {}
-                    _ => {
+                    ::core::option::Option::None | ::core::option::Option::Some(_) => {
                         qualified_members
                             .insert(qualified_id, (namespace_len, class_id.to_string()));
                     }
@@ -1052,15 +1224,27 @@ impl<'a> ClassDb<'a> {
                 Ok(())
             }
             Action::AddRelation { mut data } => {
-                if let Some(t) = data.title.take() {
-                    data.title = Some(self.cleanup_label(&t));
+                match data.title.take() {
+                    Some(t) => {
+                        data.title = Some(self.cleanup_label(&t));
+                    },
+                    ::core::option::Option::None => {},
                 }
-                if let Some(t) = data.relation_title1.take() {
-                    data.relation_title1 = Some(sanitize_text(t.trim(), self.config));
+
+                match data.relation_title1.take() {
+                    Some(t) => {
+                        data.relation_title1 = Some(sanitize_text(t.trim(), self.config));
+                    },
+                    ::core::option::Option::None => {},
                 }
-                if let Some(t) = data.relation_title2.take() {
-                    data.relation_title2 = Some(sanitize_text(t.trim(), self.config));
+
+                match data.relation_title2.take() {
+                    Some(t) => {
+                        data.relation_title2 = Some(sanitize_text(t.trim(), self.config));
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 self.add_relation(data);
                 Ok(())
             }
@@ -1076,24 +1260,48 @@ impl<'a> ClassDb<'a> {
             ns.class_ids.clear();
             ns.note_ids.clear();
         }
+
         for (id, class_node) in &self.classes {
-            let Some(parent) = class_node.parent.as_deref() else {
-                continue;
+            let parent = {
+                let optional_parent = class_node.parent.as_deref();
+
+                match optional_parent {
+                    Some(matched_parent) => matched_parent,
+                    ::core::option::Option::None => continue,
+                }
             };
-            // `classes` is an IndexMap keyed by unique class IDs, so rebuilding
-            // membership cannot introduce a duplicate class entry.
-            if let Some(ns) = self.namespaces.get_mut(parent) {
-                ns.class_ids.push(id.clone());
+
+
+
+            {
+                match self.namespaces.get_mut(parent) {
+                    Some(ns) => {
+                        ns.class_ids.push(id.clone());
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
+
         for note in &self.notes {
-            let Some(parent) = note.parent.as_deref() else {
-                continue;
+            let parent = {
+                let optional_parent = note.parent.as_deref();
+
+                match optional_parent {
+                    Some(matched_parent) => matched_parent,
+                    ::core::option::Option::None => continue,
+                }
             };
-            // Notes receive monotonic synthetic IDs at insertion time, so the
-            // rebuild pass can append directly without an O(N^2) membership scan.
-            if let Some(ns) = self.namespaces.get_mut(parent) {
-                ns.note_ids.push(note.id.clone());
+
+
+
+            {
+                match self.namespaces.get_mut(parent) {
+                    Some(ns) => {
+                        ns.note_ids.push(note.id.clone());
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }
@@ -1108,6 +1316,7 @@ impl<'a> ClassDb<'a> {
             .expect("Class typed model must remain JSON-serializable")
     }
 
+    #[must_use]
     pub(super) fn into_semantic_model(
         mut self,
         diagram_type: &str,
@@ -1131,7 +1340,10 @@ impl<'a> ClassDb<'a> {
                 id2: r.id2,
                 relation_title_1: r.relation_title1,
                 relation_title_2: r.relation_title2,
-                title: r.title.unwrap_or_default(),
+                title: match r.title {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => ::std::string::String::new(),
+                },
                 relation: class_typed::RelationShape {
                     type1: r.relation.type1,
                     type2: r.relation.type2,
@@ -1195,6 +1407,7 @@ impl<'a> ClassDb<'a> {
     }
 }
 
+#[must_use]
 fn class_list_contains(classes: &str, expected: &str) -> bool {
     classes
         .split(|ch: char| ch.is_ascii_whitespace() || ch == ',')

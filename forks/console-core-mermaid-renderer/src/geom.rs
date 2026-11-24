@@ -12,10 +12,12 @@ pub type Transform = euclid::Transform2D<f64, Unit, Unit>;
 pub struct Box2(pub euclid::Box2D<f64, Unit>);
 
 impl Box2 {
+    #[must_use]
     pub fn from_min_max(min_x: f64, min_y: f64, max_x: f64, max_y: f64) -> Self {
         Self(euclid::Box2D::new(point(min_x, min_y), point(max_x, max_y)))
     }
 
+    #[must_use]
     pub fn from_center(x: f64, y: f64, width: f64, height: f64) -> Self {
         let hw = width / 2.0;
         let hh = height / 2.0;
@@ -25,30 +27,37 @@ impl Box2 {
         ))
     }
 
+    #[must_use]
     pub fn width(&self) -> f64 {
         self.0.max.x - self.0.min.x
     }
 
+    #[must_use]
     pub fn height(&self) -> f64 {
         self.0.max.y - self.0.min.y
     }
 
+    #[must_use]
     pub fn min_x(&self) -> f64 {
         self.0.min.x
     }
 
+    #[must_use]
     pub fn min_y(&self) -> f64 {
         self.0.min.y
     }
 
+    #[must_use]
     pub fn max_x(&self) -> f64 {
         self.0.max.x
     }
 
+    #[must_use]
     pub fn max_y(&self) -> f64 {
         self.0.max.y
     }
 
+    #[must_use]
     pub fn center(&self) -> (f64, f64) {
         (
             (self.0.min.x + self.0.max.x) / 2.0,
@@ -56,6 +65,7 @@ impl Box2 {
         )
     }
 
+    #[must_use]
     pub fn center_point(&self) -> Point {
         let (x, y) = self.center();
         point(x, y)
@@ -81,15 +91,18 @@ impl Box2 {
         self.0.max.y += padding;
     }
 
+    #[must_use]
     pub fn contains_point(&self, x: f64, y: f64) -> bool {
         x >= self.min_x() && x <= self.max_x() && y >= self.min_y() && y <= self.max_y()
     }
 }
 
+#[must_use]
 pub fn point(x: f64, y: f64) -> Point {
     euclid::point2(x, y)
 }
 
+#[must_use]
 pub fn vector(x: f64, y: f64) -> Vector {
     euclid::vec2(x, y)
 }

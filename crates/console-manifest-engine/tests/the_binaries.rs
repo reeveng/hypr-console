@@ -41,7 +41,14 @@ use reading::{Failure, Section, read, root, section};
 
 const THE_ENGINE: &str = "console";
 
-const FAMILIES: [&str; 5] = ["core", "input", "manifest", "program", "test"];
+const FAMILIES: [&str; 6] = [
+  "application",
+  "core",
+  "input",
+  "manifest",
+  "program",
+  "test",
+];
 
 fn built_by() -> Result<BTreeMap<String, String>, Failure> {
   let Ok(root) = root();

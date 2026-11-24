@@ -9,7 +9,7 @@ use merman_model::families::c4::{C4Boundary, C4DiagramModel, C4Shape};
 type C4SvgModelShape = C4Shape;
 type C4SvgModelBoundary = C4Boundary;
 
-// C4 diagram SVG renderer implementation (split from parity.rs).
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum C4PaintItem {
@@ -27,6 +27,7 @@ enum C4PaintVisit {
 fn c4_paint_order(layout: &crate::model::C4DiagramLayout) -> Result<Vec<C4PaintItem>> {
     let mut shapes_by_parent: std::collections::HashMap<&str, Vec<usize>> =
         std::collections::HashMap::new();
+
     for (index, shape) in layout.shapes.iter().enumerate() {
         shapes_by_parent
             .entry(shape.parent_boundary.as_str())
@@ -36,6 +37,7 @@ fn c4_paint_order(layout: &crate::model::C4DiagramLayout) -> Result<Vec<C4PaintI
 
     let mut boundaries_by_parent: std::collections::HashMap<&str, Vec<usize>> =
         std::collections::HashMap::new();
+
     for (index, boundary) in layout.boundaries.iter().enumerate() {
         boundaries_by_parent
             .entry(boundary.parent_boundary.as_str())
@@ -48,11 +50,13 @@ fn c4_paint_order(layout: &crate::model::C4DiagramLayout) -> Result<Vec<C4PaintI
         .iter()
         .enumerate()
         .filter_map(|(index, boundary)| (boundary.alias == "global").then_some(index));
+
     let Some(global_boundary) = global_boundaries.next() else {
         return Err(crate::Error::InvalidModel {
             message: "c4: expected the implicit global boundary while painting".to_string(),
         });
     };
+
     if global_boundaries.next().is_some() {
         return Err(crate::Error::InvalidModel {
             message: "c4: expected exactly one implicit global boundary while painting".to_string(),
@@ -77,10 +81,12 @@ fn c4_paint_order(layout: &crate::model::C4DiagramLayout) -> Result<Vec<C4PaintI
                 }
 
                 let boundary = &layout.boundaries[index];
+
                 if boundary.alias != "global" {
                     order.push(C4PaintItem::BoundaryBackground(index));
                     stack.push(C4PaintVisit::PaintBoundary(index));
                 }
+
                 if let Some(children) = boundaries_by_parent.get(boundary.alias.as_str()) {
                     stack.extend(
                         children
@@ -90,6 +96,7 @@ fn c4_paint_order(layout: &crate::model::C4DiagramLayout) -> Result<Vec<C4PaintI
                             .map(C4PaintVisit::EnterBoundary),
                     );
                 }
+
                 if let Some(shapes) = shapes_by_parent.get(boundary.alias.as_str()) {
                     for &shape_index in shapes {
                         painted_shapes[shape_index] = true;
@@ -108,6 +115,7 @@ fn c4_paint_order(layout: &crate::model::C4DiagramLayout) -> Result<Vec<C4PaintI
             message: "c4: found an orphaned or cyclic boundary while painting".to_string(),
         });
     }
+
     if painted_shapes.iter().any(|painted| !painted) {
         return Err(crate::Error::InvalidModel {
             message: "c4: found a shape outside the global boundary tree while painting"
@@ -142,9 +150,9 @@ fn write_c4_css_with_typography(
         diagram_id, person_border, person_bkg
     );
     out.checkpoint()?;
-    // Mermaid's C4 stylesheet emits one type-specific label rule before the shared label rules.
-    // The unified label renderer below relies on these selectors for the configured per-element
-    // font family, size and weight; the inherited theme typography remains the root fallback.
+
+
+
     for type_name in C4_ELEMENT_TYPES {
         let style = typography
             .element_style(type_name)
@@ -163,6 +171,7 @@ fn write_c4_css_with_typography(
         );
         out.checkpoint()?;
     }
+
     let _ = write!(
         out,
         r#"#{} .c4-shape .label,#{} .c4-shape .label text{{color:inherit;fill:currentColor;}}#{} .c4-shape .label .c4-name{{font-weight:bold;}}#{} .c4-shape .label .c4-type{{font-size:0.75em;}}#{} .c4-shape .label .c4-descr{{font-size:0.82em;}}#{} .c4-shape .basic,#{} .c4-shape rect,#{} .c4-shape path,#{} .c4-shape circle,#{} .c4-shape ellipse,#{} .c4-shape line{{stroke-width:2px;}}"#,
@@ -211,7 +220,7 @@ fn c4_write_text_by_tspan(out: &mut impl SvgOutput, text: C4TspanText<'_>) -> Re
         font_weight,
         attrs,
     } = text;
-    let x = x + width / 2.0;
+    let x_2 = x + width / 2.0;
     let mut style = String::new();
     let _ = write!(
         &mut style,
@@ -236,14 +245,16 @@ fn c4_write_text_by_tspan(out: &mut impl SvgOutput, text: C4TspanText<'_>) -> Re
         let _ = write!(
             out,
             r#"<text x="{}" y="{}" dominant-baseline="middle""#,
-            fmt(x),
+            fmt(x_2),
             fmt(y)
         );
         out.checkpoint()?;
+
         for (k, v) in attrs {
             let _ = write!(out, r#" {k}="{}""#, escape_attr(v));
             out.checkpoint()?;
         }
+
         let _ = write!(
             out,
             r#" style="{}"><tspan dy="{}" alignment-baseline="mathematical">{}</tspan></text>"#,
@@ -309,11 +320,14 @@ fn write_c4_relation_defs(out: &mut impl SvgOutput, diagram_id: SvgDiagramId<'_>
     out.checkpoint()
 }
 
+#[must_use]
 fn c4_shape_classes(type_c4_shape: &str) -> String {
     let mut classes = format!("c4-shape c4-{type_c4_shape}");
+
     if type_c4_shape.starts_with("external_") {
         classes.push_str(" c4-external");
     }
+
     classes
 }
 
@@ -326,9 +340,15 @@ fn c4_write_unified_section(
     section_y: f64,
     color: &str,
 ) -> bool {
-    let Some(plan) = block.render_plan.as_ref() else {
-        return false;
+    let plan = {
+        let optional_plan = block.render_plan.as_ref();
+
+        match optional_plan {
+            Some(matched_plan) => matched_plan,
+            ::core::option::Option::None => return false,
+        }
     };
+
     if plan.rows.is_empty() || block.text.trim().is_empty() {
         return false;
     }
@@ -336,15 +356,16 @@ fn c4_write_unified_section(
     let mut visible_text = false;
 
     let section_x = total_width / 2.0 - plan.bbox_x - block.width / 2.0;
-    let section_y = section_y - plan.bbox_y;
+    let section_y_2 = section_y - plan.bbox_y;
     let _ = write!(
         out,
         r#"<g class="{}" transform="translate({}, {})"><g><rect class="background" style="stroke: none"/><text y="-10.1" style="fill:{} !important">"#,
         class,
         fmt(section_x),
-        fmt(section_y),
+        fmt(section_y_2),
         escape_attr(color),
     );
+
     for (index, row) in plan.rows.iter().enumerate() {
         let y = index as f64 * 1.1 - 0.1;
         let _ = write!(
@@ -352,10 +373,14 @@ fn c4_write_unified_section(
             r#"<tspan class="text-outer-tspan row" x="0" y="{}em" dy="1.1em" text-anchor="middle">"#,
             fmt(y),
         );
+
         for (word_index, word) in row.words.iter().enumerate() {
             let visible = crate::entities::decode_svg_text_content_entities(word);
             visible_text = visible_text || !visible.trim().is_empty();
-            let prefix = if word_index == 0 { "" } else { " " };
+            let prefix = match word_index {
+                0 => { "" },
+                _ => { " " },
+            };
             let _ = write!(
                 out,
                 r#"<tspan class="text-inner-tspan">{}{}</tspan>"#,
@@ -363,8 +388,10 @@ fn c4_write_unified_section(
                 escape_xml(visible.as_ref()),
             );
         }
+
         out.push_str("</tspan>");
     }
+
     out.push_str("</text></g></g>");
     visible_text
 }
@@ -372,45 +399,46 @@ fn c4_write_unified_section(
 const C4_HAND_DRAWN_ROUGHNESS: f32 = 0.7;
 const C4_HAND_DRAWN_FILL_WEIGHT: f64 = 4.0;
 
+#[must_use]
 fn c4_rounded_rect_path_d(width: f64, height: f64, radius: f64) -> String {
-    let width = width.max(1.0);
-    let height = height.max(1.0);
-    let radius = radius.min(width / 2.0).min(height / 2.0).max(0.0);
-    let left = -width / 2.0;
-    let right = width / 2.0;
-    let top = -height / 2.0;
-    let bottom = height / 2.0;
-    let mut points = vec![(left + radius, top), (right - radius, top)];
+    let width_2 = width.max(1.0);
+    let height_2 = height.max(1.0);
+    let radius_2 = radius.min(width_2 / 2.0).min(height_2 / 2.0).max(0.0);
+    let left = -width_2 / 2.0;
+    let right = width_2 / 2.0;
+    let top = -height_2 / 2.0;
+    let bottom = height_2 / 2.0;
+    let mut points = vec![(left + radius_2, top), (right - radius_2, top)];
 
     let mut append_arc = |cx: f64, cy: f64, start: f64, end: f64| {
         for step in 1..=6 {
-            let t = step as f64 / 6.0;
+            let t = <f64 as ::core::convert::From<::core::primitive::i32>>::from(step) / 6.0;
             let angle = start + (end - start) * t;
-            points.push((cx + radius * angle.cos(), cy + radius * angle.sin()));
+            points.push((cx + radius_2 * angle.cos(), cy + radius_2 * angle.sin()));
         }
     };
 
     append_arc(
-        right - radius,
-        top + radius,
+        right - radius_2,
+        top + radius_2,
         -std::f64::consts::FRAC_PI_2,
         0.0,
     );
     append_arc(
-        right - radius,
-        bottom - radius,
+        right - radius_2,
+        bottom - radius_2,
         0.0,
         std::f64::consts::FRAC_PI_2,
     );
     append_arc(
-        left + radius,
-        bottom - radius,
+        left + radius_2,
+        bottom - radius_2,
         std::f64::consts::FRAC_PI_2,
         std::f64::consts::PI,
     );
     append_arc(
-        left + radius,
-        top + radius,
+        left + radius_2,
+        top + radius_2,
         std::f64::consts::PI,
         std::f64::consts::PI * 1.5,
     );
@@ -471,8 +499,8 @@ fn c4_write_hand_drawn_pair(
         fmt(C4_HAND_DRAWN_FILL_WEIGHT),
         escape_attr(stroke_d),
         escape_attr(stroke),
-        fmt(stroke_width as f64),
-        fmt(stroke_width as f64),
+        fmt(<f64 as ::core::convert::From<::core::primitive::f32>>::from(stroke_width)),
+        fmt(<f64 as ::core::convert::From<::core::primitive::f32>>::from(stroke_width)),
     );
     out.checkpoint()
 }
@@ -544,8 +572,8 @@ fn c4_write_unified_shape(
                 let total_height = body_height + 2.0 * head_radius - overlap;
                 let top = -total_height / 2.0;
                 let body_top = top + 2.0 * head_radius - overlap;
-                // The path helper is centered, so translate the body into the person silhouette
-                // after generation instead of baking the offset into the shape's layout box.
+
+
                 let body_pair = c4_hand_drawn_paths(
                     &c4_rounded_rect_path_d(width, body_height, body_radius),
                     2.0,
@@ -561,7 +589,7 @@ fn c4_write_unified_shape(
                     randomness,
                 );
                 work_meter.checkpoint(merman_model::OperationPhase::Emit)?;
-                let head_pair = head_pair.ok_or_else(|| crate::Error::InvalidModel {
+                let head_pair_2 = head_pair.ok_or_else(|| crate::Error::InvalidModel {
                     message: "c4: handDrawn person geometry generation failed".to_string(),
                 })?;
                 out.push_str(r#"<g class="basic label-container">"#);
@@ -580,7 +608,7 @@ fn c4_write_unified_shape(
                     fmt(top + head_radius)
                 );
                 out.checkpoint()?;
-                c4_write_hand_drawn_pair(out, &head_pair, fill, stroke, 2.0)?;
+                c4_write_hand_drawn_pair(out, &head_pair_2, fill, stroke, 2.0)?;
                 out.push_str("</g></g>");
                 return out.checkpoint();
             }
@@ -657,6 +685,7 @@ fn c4_write_unified_shape(
             format!("fill:{} !important;stroke:{} !important", fill, stroke)
         }
     };
+
     match node_shape {
         crate::c4::C4NodeShape::Rounded => {
             let _ = write!(
@@ -688,9 +717,9 @@ fn c4_write_unified_shape(
                 points,
                 fmt(-width / 2.0),
                 fmt(height / 2.0),
-                // The C4 adapter supplies the same rx/ry node overrides for rounded and
-                // framed elements; preserve those inline styles even though SVG polygons ignore
-                // the radius properties.
+
+
+
                 escape_attr(&shape_style(true)),
             );
         }
@@ -775,6 +804,7 @@ fn c4_write_unified_shape(
             );
         }
     }
+
     out.checkpoint()
 }
 
@@ -801,12 +831,15 @@ pub(crate) fn render_c4_diagram_svg_typed(
     let diagram_margin_y = c4_cfg.diagram_margin_y();
     let use_max_width = layout.use_max_width;
 
-    let bounds = layout.bounds.clone().unwrap_or(Bounds {
-        min_x: diagram_margin_x,
-        min_y: diagram_margin_y,
-        max_x: diagram_margin_x + layout.width.max(1.0),
-        max_y: diagram_margin_y + layout.height.max(1.0),
-    });
+    let bounds = match (layout.bounds.clone(), Bounds {
+            min_x: diagram_margin_x,
+            min_y: diagram_margin_y,
+            max_x: diagram_margin_x + layout.width.max(1.0),
+            max_y: diagram_margin_y + layout.height.max(1.0),
+        }) {
+        (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+        (::core::option::Option::None, alternate) => alternate,
+    };
     let box_w = (bounds.max_x - bounds.min_x).max(1.0);
     let box_h = (bounds.max_y - bounds.min_y).max(1.0);
     let width = (box_w + 2.0 * diagram_margin_x).max(1.0);
@@ -820,7 +853,10 @@ pub(crate) fn render_c4_diagram_svg_typed(
         .filter(|s| !s.is_empty());
     let mut typography_receipt = typography_theme.begin_terminal_receipt();
     let mut text_paint_receipt = text_paint.begin_terminal_receipt();
-    let extra_vert_for_title = if title.is_some() { 60.0 } else { 0.0 };
+    let extra_vert_for_title = match title {
+        ::core::option::Option::Some(_) => { 60.0 },
+        ::core::option::Option::None => { 0.0 },
+    };
 
     let viewbox_x = bounds.min_x - diagram_margin_x;
     let viewbox_y = -(diagram_margin_y + extra_vert_for_title);
@@ -860,7 +896,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
         .write_open(&mut out, root_spec, root_chrome)?;
     options.checkpoint_emit()?;
 
-    if let Some(title) = model
+    if let Some(title_2) = model
         .acc_title
         .as_deref()
         .map(|s| s.trim())
@@ -870,10 +906,11 @@ pub(crate) fn render_c4_diagram_svg_typed(
             &mut out,
             r#"<title id="chart-title-{id}">{text}</title>"#,
             id = diagram_id,
-            text = escape_xml(title)
+            text = escape_xml(title_2)
         );
         out.checkpoint()?;
     }
+
     if let Some(descr) = model
         .acc_descr
         .as_deref()
@@ -891,10 +928,12 @@ pub(crate) fn render_c4_diagram_svg_typed(
 
     out.push_str("<style>");
     out.checkpoint()?;
+
     {
         let mut css_out = super::super::output::XmlTextOutput::new(&mut out);
         let css_emission =
             write_c4_css_with_typography(&mut css_out, diagram_id, typography_theme)?;
+
         if let Some(receipt) = typography_receipt.as_mut() {
             receipt.record_css_emission(
                 &css_emission.font_family,
@@ -903,15 +942,18 @@ pub(crate) fn render_c4_diagram_svg_typed(
                 css_emission.root_typography_emitted,
             );
         }
-        // Preserve the root inheritance used by source-directed colors as well as the title.
+
+
         if let Some(fill) = text_paint.fill_css() {
             let _ = write!(&mut css_out, "#{}{{fill:{};}}", diagram_id, fill);
             css_out.checkpoint()?;
         }
+
         if let Some(receipt) = text_paint_receipt.as_mut() {
             receipt.record_css(text_paint.fill_css());
         }
     }
+
     out.push_str("</style>");
     out.checkpoint()?;
     out.push_str("<g/>");
@@ -920,32 +962,41 @@ pub(crate) fn render_c4_diagram_svg_typed(
 
     let mut shape_meta: std::collections::HashMap<&str, &C4SvgModelShape> =
         std::collections::HashMap::new();
+
     for s in &model.shapes {
         shape_meta.insert(s.alias.as_str(), s);
     }
+
     let mut boundary_meta: std::collections::HashMap<&str, &C4SvgModelBoundary> =
         std::collections::HashMap::new();
+
     for b in &model.boundaries {
         boundary_meta.insert(b.alias.as_str(), b);
     }
+
     let mut cluster_theme_receipt = cluster_theme.begin_terminal_receipt();
     let mut boundary_emission_ordinal = 0usize;
     let hand_drawn_randomness = options.rough_randomness(
-        effective_config
+        match effective_config
             .get("handDrawnSeed")
-            .and_then(serde_json::Value::as_f64)
-            .unwrap_or(0.0),
+            .and_then(serde_json::Value::as_f64) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.0,
+        },
         "render.c4.roughjs",
     );
 
     for item in c4_paint_order(layout)? {
         options.checkpoint_emit()?;
+
         match item {
             C4PaintItem::BoundaryBackground(index) => {
                 let boundary = &layout.boundaries[index];
+
                 if !cluster_theme.has_separate_background(&boundary.alias) {
                     continue;
                 }
+
                 let (fill, _, radius) = cluster_theme
                     .boundary_tokens(&boundary.alias)
                     .expect("prepared boundary background");
@@ -961,6 +1012,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
                     radius,
                 );
                 out.checkpoint()?;
+
                 if let Some(receipt) = cluster_theme_receipt.as_mut() {
                     receipt.record_checkpointed_background(&boundary.alias, fill, radius);
                 }
@@ -977,12 +1029,14 @@ pub(crate) fn render_c4_diagram_svg_typed(
                 let bg_color = paint.background.as_str();
                 let border_color = paint.border.as_str();
                 let font_color = paint.text.as_str();
-                let Some(meta) = meta else {
+
+                let Some(meta_2) = meta else {
                     return Err(crate::Error::InvalidModel {
                         message: format!("c4: missing model shape {}", s.alias),
                     });
                 };
-                let node_shape = crate::c4::c4_node_shape(meta);
+
+                let node_shape = crate::c4::c4_node_shape(meta_2);
                 let classes = c4_shape_classes(s.type_c4_shape.as_str());
                 let _ = write!(
                     &mut out,
@@ -992,9 +1046,11 @@ pub(crate) fn render_c4_diagram_svg_typed(
                     escape_attr_display(scoped_svg_id(diagram_id, &s.alias)),
                     classes,
                 );
+
                 if look != crate::c4::C4Look::Classic {
                     let _ = write!(out, r#" data-look="{}""#, look.as_str());
                 }
+
                 out.push_str(">");
                 out.checkpoint()?;
 
@@ -1067,25 +1123,29 @@ pub(crate) fn render_c4_diagram_svg_typed(
                 out.checkpoint()?;
                 let mut section_y = 0.0;
                 let mut shape_text_visible = false;
+
                 for (class, block) in sections {
-                    if let Some(block) = block {
+                    if let Some(block_2) = block {
                         shape_text_visible |= c4_write_unified_section(
                             &mut out,
                             class,
-                            block,
+                            block_2,
                             total_width,
                             section_y,
                             font_color,
                         );
                         out.checkpoint()?;
-                        section_y += block.height + 3.0;
+                        section_y += block_2.height + 3.0;
                     }
                 }
+
                 out.push_str("</g></g></g>");
                 out.checkpoint()?;
+
                 if shape_text_visible && let Some(receipt) = text_paint_receipt.as_mut() {
                     receipt.record_owned_color(font_color);
                 }
+
                 if let Some(receipt) = text_paint_receipt.as_mut() {
                     receipt.record_element(index, paint);
                 }
@@ -1099,6 +1159,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
                     }
                 })?;
                 let is_node_type = meta.and_then(|m| m.node_type.as_deref()).is_some();
+
                 let Some((fill_color, stroke_color, boundary_radius_attr)) =
                     cluster_theme.boundary_tokens(&b.alias)
                 else {
@@ -1106,6 +1167,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
                         message: format!("C4 cluster theme plan is missing boundary `{}`", b.alias),
                     });
                 };
+
                 let terminal_fill = if cluster_theme.has_separate_background(&b.alias) {
                     "none"
                 } else {
@@ -1114,6 +1176,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
 
                 out.push_str("<g>");
                 out.checkpoint()?;
+
                 if is_node_type {
                     let _ = write!(
                         &mut out,
@@ -1141,7 +1204,9 @@ pub(crate) fn render_c4_diagram_svg_typed(
                         boundary_radius_attr,
                     );
                 }
+
                 out.checkpoint()?;
+
                 if let Some(receipt) = cluster_theme_receipt.as_mut() {
                     receipt.record_checkpointed_boundary(
                         boundary_emission_ordinal,
@@ -1152,6 +1217,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
                         boundary_radius_attr,
                     );
                 }
+
                 boundary_emission_ordinal = boundary_emission_ordinal.saturating_add(1);
 
                 let boundary_font = typography_theme.boundary_font();
@@ -1174,6 +1240,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
                         attrs: &[("fill", font_color)],
                     },
                 )?;
+
                 if let Some(ty) = &b.ty
                     && !ty.text.trim().is_empty()
                 {
@@ -1194,6 +1261,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
                         },
                     )?;
                 }
+
                 if let Some(descr) = &b.descr
                     && !descr.text.trim().is_empty()
                 {
@@ -1216,6 +1284,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
 
                 out.push_str("</g>");
                 out.checkpoint()?;
+
                 if boundary_text_visible && let Some(receipt) = text_paint_receipt.as_mut() {
                     receipt.record_owned_color(font_color);
                     receipt.record_boundary(index, font_color);
@@ -1223,10 +1292,12 @@ pub(crate) fn render_c4_diagram_svg_typed(
             }
         }
     }
+
     write_c4_relation_defs(&mut out, diagram_id)?;
 
     out.push_str("<g>");
     out.checkpoint()?;
+
     for (idx, rel) in layout.rels.iter().enumerate() {
         let paint = text_paint
             .relation_paint(idx)
@@ -1248,6 +1319,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
         } else {
             "arrowend".to_owned()
         };
+
         if paint.themed_markers {
             let _ = write!(
                 out,
@@ -1261,79 +1333,96 @@ pub(crate) fn render_c4_diagram_svg_typed(
             );
             out.checkpoint()?;
         }
+
         let arrowhead_url = scoped_svg_url(diagram_id, &arrowhead);
         let arrowend_url = scoped_svg_url(diagram_id, &arrowend);
-        let offset_x = rel.offset_x.unwrap_or(0) as f64;
-        let offset_y = rel.offset_y.unwrap_or(0) as f64;
+        let offset_x = (match rel.offset_x {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        }) as f64;
+        let offset_y = (match rel.offset_y {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        }) as f64;
 
-        if idx == 0 {
-            let _ = write!(
-                &mut out,
-                r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke-width="1" stroke="{}""#,
-                fmt(rel.start_point.x),
-                fmt(rel.start_point.y),
-                fmt(rel.end_point.x),
-                fmt(rel.end_point.y),
-                escape_attr(stroke_color)
-            );
-            out.checkpoint()?;
-            if rel.rel_type != "rel_b" {
+        match idx {
+            0 => {
                 let _ = write!(
                     &mut out,
-                    r#" marker-end="{}""#,
-                    escape_attr_display(arrowhead_url)
+                    r#"<line x1="{}" y1="{}" x2="{}" y2="{}" stroke-width="1" stroke="{}""#,
+                    fmt(rel.start_point.x),
+                    fmt(rel.start_point.y),
+                    fmt(rel.end_point.x),
+                    fmt(rel.end_point.y),
+                    escape_attr(stroke_color)
                 );
                 out.checkpoint()?;
-            }
-            if rel.rel_type == "birel" || rel.rel_type == "rel_b" {
+
+                if rel.rel_type != "rel_b" {
+                    let _ = write!(
+                        &mut out,
+                        r#" marker-end="{}""#,
+                        escape_attr_display(arrowhead_url)
+                    );
+                    out.checkpoint()?;
+                }
+
+                if rel.rel_type == "birel" || rel.rel_type == "rel_b" {
+                    let _ = write!(
+                        &mut out,
+                        r#" marker-start="{}""#,
+                        escape_attr_display(arrowend_url)
+                    );
+                    out.checkpoint()?;
+                }
+
+                out.push_str(r#" style="fill: none;"/>"#);
+                out.checkpoint()?;
+            },
+            _ => {
+                let cx = rel.start_point.x + (rel.end_point.x - rel.start_point.x) / 2.0
+                    - (rel.end_point.x - rel.start_point.x) / 4.0;
+                let cy = rel.start_point.y + (rel.end_point.y - rel.start_point.y) / 2.0;
+                let d = format!(
+                    "M{} {} Q{} {} {} {}",
+                    fmt(rel.start_point.x),
+                    fmt(rel.start_point.y),
+                    fmt(cx),
+                    fmt(cy),
+                    fmt(rel.end_point.x),
+                    fmt(rel.end_point.y)
+                );
                 let _ = write!(
                     &mut out,
-                    r#" marker-start="{}""#,
-                    escape_attr_display(arrowend_url)
+                    r#"<path fill="none" stroke-width="1" stroke="{}" d="{}""#,
+                    escape_attr(stroke_color),
+                    escape_attr(&d)
                 );
                 out.checkpoint()?;
-            }
-            out.push_str(r#" style="fill: none;"/>"#);
-            out.checkpoint()?;
-        } else {
-            let cx = rel.start_point.x + (rel.end_point.x - rel.start_point.x) / 2.0
-                - (rel.end_point.x - rel.start_point.x) / 4.0;
-            let cy = rel.start_point.y + (rel.end_point.y - rel.start_point.y) / 2.0;
-            let d = format!(
-                "M{} {} Q{} {} {} {}",
-                fmt(rel.start_point.x),
-                fmt(rel.start_point.y),
-                fmt(cx),
-                fmt(cy),
-                fmt(rel.end_point.x),
-                fmt(rel.end_point.y)
-            );
-            let _ = write!(
-                &mut out,
-                r#"<path fill="none" stroke-width="1" stroke="{}" d="{}""#,
-                escape_attr(stroke_color),
-                escape_attr(&d)
-            );
-            out.checkpoint()?;
-            if rel.rel_type != "rel_b" {
-                let _ = write!(
-                    &mut out,
-                    r#" marker-end="{}""#,
-                    escape_attr_display(arrowhead_url)
-                );
+
+                if rel.rel_type != "rel_b" {
+                    let _ = write!(
+                        &mut out,
+                        r#" marker-end="{}""#,
+                        escape_attr_display(arrowhead_url)
+                    );
+                    out.checkpoint()?;
+                }
+
+                if rel.rel_type == "birel" || rel.rel_type == "rel_b" {
+                    let _ = write!(
+                        &mut out,
+                        r#" marker-start="{}""#,
+                        escape_attr_display(arrowend_url)
+                    );
+                    out.checkpoint()?;
+                }
+
+                out.push_str("/>");
                 out.checkpoint()?;
-            }
-            if rel.rel_type == "birel" || rel.rel_type == "rel_b" {
-                let _ = write!(
-                    &mut out,
-                    r#" marker-start="{}""#,
-                    escape_attr_display(arrowend_url)
-                );
-                out.checkpoint()?;
-            }
-            out.push_str("/>");
-            out.checkpoint()?;
+            },
         }
+
         options.checkpoint_emit()?;
 
         let midx = rel.start_point.x.min(rel.end_point.x)
@@ -1363,6 +1452,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
                 attrs: &[("fill", text_color)],
             },
         )?;
+
         if label_visible && let Some(receipt) = text_paint_receipt.as_mut() {
             receipt.record_owned_color(text_color);
         }
@@ -1384,18 +1474,21 @@ pub(crate) fn render_c4_diagram_svg_typed(
                     attrs: &[("fill", text_color), ("font-style", "italic")],
                 },
             )?;
+
             if techn_visible && let Some(receipt) = text_paint_receipt.as_mut() {
                 receipt.record_owned_color(text_color);
             }
         }
+
         if let Some(receipt) = text_paint_receipt.as_mut() {
             receipt.record_relation(idx, paint);
         }
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
-    if let Some(title) = title {
+    if let Some(title_3) = title {
         let title_x = (width - 2.0 * diagram_margin_x) / 2.0 - 4.0 * diagram_margin_x;
         let title_y = bounds.min_y + diagram_margin_y;
         let _ = write!(
@@ -1404,32 +1497,39 @@ pub(crate) fn render_c4_diagram_svg_typed(
             fmt(title_x),
             fmt(title_y),
         );
+
         if let Some(fill) = text_paint.title_fill_css() {
             let _ = write!(&mut out, r#" fill="{}""#, escape_attr(fill));
         }
-        let _ = write!(&mut out, ">{}</text>", escape_xml(&title));
+
+        let _ = write!(&mut out, ">{}</text>", escape_xml(&title_3));
         out.checkpoint()?;
+
         if let Some(receipt) = text_paint_receipt.as_mut() {
-            receipt.record_title(&title, text_paint.title_fill_css());
+            receipt.record_title(&title_3, text_paint.title_fill_css());
         }
+
         if let Some(receipt) = typography_receipt.as_mut() {
-            receipt.record_title_text(&title);
+            receipt.record_title_text(&title_3);
         }
     }
 
     out.push_str("</svg>");
     options.checkpoint_emit()?;
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if cluster_theme_receipt.is_some_and(|receipt| !cluster_theme.record_terminal(receipt)) {
         return Err(crate::Error::InvalidModel {
             message: "C4 cluster theme receipt did not match the terminal SVG".to_string(),
         });
     }
+
     if typography_receipt.is_some_and(|receipt| !typography_theme.record_terminal(receipt)) {
         return Err(crate::Error::InvalidModel {
             message: "C4 typography receipt did not match the terminal SVG".to_string(),
         });
     }
+
     if let Some(receipt) = text_paint_receipt
         && !text_paint.record_terminal(receipt)
     {
@@ -1437,6 +1537,7 @@ pub(crate) fn render_c4_diagram_svg_typed(
             message: "C4 text paint receipt did not match the terminal SVG".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 

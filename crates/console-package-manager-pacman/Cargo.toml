@@ -1,0 +1,16 @@
+[package]
+name = "console-package-manager-pacman"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+console-core-external-programs.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-never.workspace = true
+console-how-far.workspace = true
+console-operating-system-linux.workspace = true
+
+[lints]
+workspace = true

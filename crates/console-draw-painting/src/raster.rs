@@ -13,7 +13,7 @@ use console_core_geometry::Size;
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index, narrow_f32};
 use console_core_path_rasterizer::{
-  Color, ColorU8, FillRule, Mask, Paint, Path, PathBuilder, PixmapMut, FloatRectangle, Transform,
+  Color, ColorU8, FillRule, FloatRectangle, Mask, Paint, Path, PathBuilder, PixmapMut, Transform,
 };
 use console_core_paths::Point;
 use console_core_shapes::Clip;

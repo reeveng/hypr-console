@@ -9,6 +9,7 @@ use crate::diagram_theme::{ThemeTarget, ThemeVariant};
 
 const HARD_SHADOW: &str = "hard-shadow";
 
+#[must_use]
 pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
     let mut design = build_cross_family_recipe(palette);
     color_token(
@@ -67,6 +68,7 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
         "Font weight for XY chart titles.",
         900.0,
     );
+
     for (family, target, has_shadow) in [
         (DiagramFamilyId::FLOWCHART, ThemeTarget::Node, true),
         (DiagramFamilyId::FLOWCHART, ThemeTarget::Edge, false),
@@ -84,6 +86,7 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
             shape_style("border-width", has_shadow),
         ));
     }
+
     for (family, target, weight) in [
         (
             DiagramFamilyId::FLOWCHART,
@@ -115,6 +118,7 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
             .rules
             .push(rule(Some(family), target, None, weighted(weight)));
     }
+
     for (variant, width, has_shadow) in [
         (ThemeVariant::Bar, "border-width", true),
         (ThemeVariant::Line, "chart-line-width", false),
@@ -126,7 +130,8 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
             shape_style(width, has_shadow),
         ));
     }
-    // The distinct zero-based 2n/3n/5n accent roles retain authored order and precedence.
+
+
     for (period, id, label, color) in [
         (2, "accent-even", "Every second node", "#FFE66D"),
         (3, "accent-third", "Every third node", "#4ECDC4"),
@@ -154,9 +159,11 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
         });
         design.rules.push(entry);
     }
+
     design
 }
 
+#[must_use]
 fn shape_style(width: &str, has_shadow: bool) -> ThemeDesignStyleV1 {
     ThemeDesignStyleV1 {
         stroke: Some(literal(ThemeDesignStrokeV1 {

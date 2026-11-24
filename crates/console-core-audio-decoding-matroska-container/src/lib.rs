@@ -13,7 +13,7 @@ mod demuxer;
 mod ebml;
 mod extra;
 mod fault;
-mod ids;
+use console_core_matroska_blocks::identifiers as ids;
 mod lacing;
 mod scan;
 mod segment;

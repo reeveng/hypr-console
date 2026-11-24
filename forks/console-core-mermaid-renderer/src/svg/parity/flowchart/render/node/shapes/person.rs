@@ -15,6 +15,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_person(
 ) {
     let (w, head_radius, body_height, body_radius, body_top, body_path, head_center_y) =
         prepare_person_geometry(ctx, common, label);
+
     if common.look_is_hand_drawn() {
         let _ = write!(
             out,
@@ -24,6 +25,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_person(
     } else {
         out.push_str(r#"<g class="basic label-container">"#);
     }
+
     if common.look_is_hand_drawn() {
         if let Some((fill_d, stroke_d)) =
             super::super::helpers::timed_node_roughjs(common.timing, details, || {
@@ -43,7 +45,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_person(
                 escape_attr(common.fill_color),
                 escape_attr(&stroke_d),
                 escape_attr(common.stroke_color),
-                fmt_display(common.stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
                 escape_attr(common.stroke_dasharray),
             );
         } else {
@@ -54,6 +56,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_person(
                 escape_attr(common.style),
             );
         }
+
         if let Some((fill_d, stroke_d)) =
             super::super::helpers::timed_node_roughjs(common.timing, details, || {
                 roughjs_paths_for_circle(
@@ -74,7 +77,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_person(
                 escape_attr(common.fill_color),
                 escape_attr(&stroke_d),
                 escape_attr(common.stroke_color),
-                fmt_display(common.stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
                 escape_attr(common.stroke_dasharray),
             );
         } else {
@@ -102,12 +105,14 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_person(
             escape_attr(common.style),
         );
     }
+
     out.push_str("</g>");
 
     let body_center_y = body_top + body_height / 2.0;
     label.dy = body_center_y;
 }
 
+#[must_use]
 fn prepare_person_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
@@ -162,6 +167,7 @@ pub(super) fn advance_person_rough_geometry(
     if !common.look_is_hand_drawn() {
         return;
     }
+
     let (_, head_radius, _, _, _, body_path, _) = prepare_person_geometry(ctx, common, label);
     let target = super::super::roughjs::RoughGeometryTarget::Query;
     let _ = super::super::helpers::prepare_node_path(common, &body_path, target);

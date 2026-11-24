@@ -2,6 +2,9 @@
 //!
 //! Extraction sums each group of adjacent luma samples, scales it by
 //! eight divided by the group size and subtracts the rounded block average.
+//! AV1 CfL widths are multiples of four. The row guard and residual iterator
+//! lend complete groups. The kernel borrows one row at a time and validates
+//! the shape before writing any pixels.
 
 #![forbid(unsafe_code)]
 
@@ -25,7 +28,6 @@ struct ProjectionCoefficients {
   maximum: int32x4_t,
 }
 
-/// Applies the signed CfL correction and clips four pixels to the bit depth.
 #[archmage::rite(neon)]
 fn cfl_lane4(ac: int32x4_t, coeff: ProjectionCoefficients) -> Result<int32x4_t, Never> {
   let product = vmulq_s32(ac, coeff.alpha);
@@ -40,8 +42,6 @@ fn cfl_lane4(ac: int32x4_t, coeff: ProjectionCoefficients) -> Result<int32x4_t, 
   ))
 }
 
-/// AV1 CfL widths are multiples of four. The row guard and the AC iterator
-/// lend exactly that width, so each operation has a complete four-pixel group.
 #[arcane]
 fn cfl_row_8bpc(
   _token: Arm64,
@@ -97,9 +97,6 @@ fn cfl_row_16bpc(
   Ok(())
 }
 
-/// A token boundary per row keeps the same short write guard as scalar CfL.
-/// Holding the entire block's guard was measured to cost more than the kernel
-/// saves. An unsupported or incomplete block falls through before any writes.
 pub(crate) fn cfl_pred_dispatch<BD: BitDepth>(
   dst: &mut ReconDst<'_>,
   ac: &[i16],
@@ -138,11 +135,11 @@ pub(crate) fn cfl_pred_dispatch<BD: BitDepth>(
     None => return Ok(PredictionDispatch::ScalarFallback),
   };
   let Ok(columns) = index(width);
-  let Ok(rows) = index(height);
+  let extent = Size { width: u64::from(width), height: u64::from(height) };
   let mut residual_rows = active.chunks_exact(columns);
-  let Ok(()) = match BD::BPC {
+  let written = match BD::BPC {
     BPC::BPC8 => {
-      dst.for_rows_mut::<BitDepth8, _>(columns, rows, |_row, pixels| match residual_rows.next() {
+      dst.for_rows_mut::<BitDepth8, _>(extent, |_row, pixels| match residual_rows.next() {
         Some(residual) => {
           let Ok(()) = cfl_row_8bpc(token, pixels, residual, &projection);
         }
@@ -152,7 +149,7 @@ pub(crate) fn cfl_pred_dispatch<BD: BitDepth>(
     BPC::BPC16 => {
       let bitdepth_max = bd.bitdepth_max().as_::<c_int>();
 
-      dst.for_rows_mut::<BitDepth16, _>(columns, rows, |_row, pixels| {
+      dst.for_rows_mut::<BitDepth16, _>(extent, |_row, pixels| {
         match residual_rows.next() {
           Some(residual) => {
             let Ok(()) = cfl_row_16bpc(token, pixels, residual, &projection, bitdepth_max);
@@ -163,7 +160,13 @@ pub(crate) fn cfl_pred_dispatch<BD: BitDepth>(
     }
   };
 
-  Ok(PredictionDispatch::Applied)
+  match written {
+    Ok(()) => Ok(PredictionDispatch::Applied),
+    Err(problem) => {
+      console_core_logging::debug!("Invalid AV1 NEON chroma destination: {problem:?}");
+      Ok(PredictionDispatch::ScalarFallback)
+    }
+  }
 }
 
 #[cfg(all(test, target_arch = "aarch64", not(feature = "c-ffi")))]
@@ -191,7 +194,6 @@ mod cfl_parity {
     }
   }
 
-  /// Returns (neon, scalar) pixel buffers, and whether NEON claimed the cell.
   fn run<BD: BitDepth>(
     w: usize,
     h: usize,
@@ -226,18 +228,22 @@ mod cfl_parity {
         );
         matches!(dispatched, super::PredictionDispatch::Applied)
       } else {
-        let mut fixed = [0i16; crate::src::internal::SCRATCH_AC_TXTP_LEN];
+        let mut fixed: crate::src::internal::CoefficientScratch<i16> = [0; 32 * 32];
         fixed[..ac.len()].copy_from_slice(ac);
-        crate::src::ipred::cfl_pred_scalar_for_test::<BD>(
+        let result = crate::src::ipred::cfl_pred_scalar_for_test::<BD>(
           &mut crate::src::owned_recon::ReconDst::Pic(dst),
-          w as i32,
-          h as i32,
-          dc,
           &fixed,
-          alpha,
+          super::CflProjection {
+            size: console_core_geometry::Size {
+              width: w as i32,
+              height: h as i32,
+            },
+            dc,
+            alpha,
+          },
           bd,
         );
-        true
+        result.is_ok()
       };
       comp.copy_pixels_to::<BD>(&mut out);
       (out, handled)
@@ -573,6 +579,7 @@ pub(crate) fn cfl_ac_dispatch<BD: BitDepth>(
   let Ok(source_width) = index(region.visible.width.wrapping_shl(horizontal));
   let Ok(destination_width) = index(width);
   let Ok(written_width) = index(region.visible.width);
+
   for (ordinal, row) in
     (0u64..region.visible.height).zip(coefficients.chunks_exact_mut(destination_width.max(1)))
   {
@@ -580,11 +587,23 @@ pub(crate) fn cfl_ac_dispatch<BD: BitDepth>(
     let Ok(displacement) =
       console_core_number_conversion::wrapped_offset(row_number.wrapping_mul(row_advance));
     let Ok(picture) = y_src.at(displacement);
-    let Ok(above) = picture.slice::<BD>(source_width);
+    let above = match picture.slice::<BD>(source_width) {
+      Ok(samples) => samples,
+      Err(problem) => {
+        console_core_logging::debug!("Invalid AV1 NEON chroma source: {problem:?}");
+        return Ok(PredictionDispatch::ScalarFallback);
+      }
+    };
     let below = match region.layout {
       Rav1dPixelLayoutSubSampled::I420 => {
         let Ok(next) = picture.at(pixel_stride);
-        let Ok(guard) = next.slice::<BD>(source_width);
+        let guard = match next.slice::<BD>(source_width) {
+          Ok(samples) => samples,
+          Err(problem) => {
+            console_core_logging::debug!("Invalid AV1 NEON chroma source: {problem:?}");
+            return Ok(PredictionDispatch::ScalarFallback);
+          }
+        };
         Some(guard)
       }
       Rav1dPixelLayoutSubSampled::I422 | Rav1dPixelLayoutSubSampled::I444 => None,
@@ -601,6 +620,7 @@ pub(crate) fn cfl_ac_dispatch<BD: BitDepth>(
           Some(pixels) => pixels,
           None => return Ok(PredictionDispatch::ScalarFallback),
         };
+
         match (region.layout, below.as_deref()) {
           (Rav1dPixelLayoutSubSampled::I420, Some(reference)) => {
             let Ok(converted) = reinterpret_slice::<_, u8>(reference);
@@ -631,6 +651,7 @@ pub(crate) fn cfl_ac_dispatch<BD: BitDepth>(
           Some(pixels) => pixels,
           None => return Ok(PredictionDispatch::ScalarFallback),
         };
+
         match (region.layout, below.as_deref()) {
           (Rav1dPixelLayoutSubSampled::I420, Some(reference)) => {
             let Ok(converted) = reinterpret_slice::<_, u16>(reference);
@@ -693,7 +714,7 @@ mod cfl_ac_parity {
 
   use crate::include::common::bitdepth::{BitDepth, BitDepth8, BitDepth16};
   use crate::include::dav1d::picture::Rav1dPictureDataComponent;
-  use crate::src::internal::SCRATCH_AC_TXTP_LEN;
+  use crate::src::internal::CoefficientScratch;
 
   struct Rng(u64);
 
@@ -719,7 +740,6 @@ mod cfl_ac_parity {
     }
   }
 
-  #[allow(clippy::too_many_arguments)]
   #[must_use]
   fn run<BD: BitDepth>(
     pixels: &[BD::Pixel],
@@ -741,7 +761,7 @@ mod cfl_ac_parity {
       let comp = Rav1dPictureDataComponent::wrap_buf::<BD>(&mut px, stride);
       let dst = comp.with_offset::<BD>();
 
-      let mut ac = [0x5A5Ai16; SCRATCH_AC_TXTP_LEN];
+      let mut ac: CoefficientScratch<i16> = [0x5A5A; 32 * 32];
       let layout = match (ss_hor, ss_ver) {
         (true, true) => Some(super::Rav1dPixelLayoutSubSampled::I420),
         (true, false) => Some(super::Rav1dPixelLayoutSubSampled::I422),
@@ -761,9 +781,11 @@ mod cfl_ac_parity {
             layout: sampling,
           };
           let source = crate::src::owned_recon::ReconSrc::Pic(dst);
+
           match simd {
             true => {
               let Ok(outcome) = super::cfl_ac_dispatch::<BD>(&mut ac, &source, extraction);
+
               matches!(outcome, super::PredictionDispatch::Applied)
             }
             false => {

@@ -12,7 +12,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn try_render_image_square(
     label: &super::super::FlowchartNodeLabelState<'_>,
     details: &mut FlowchartRenderDetails,
 ) -> Option<super::super::emission::FlowchartNodeLabelEmissionReceipt> {
-    // Port of Mermaid `imageSquare.ts` (`image-shape default`).
+
     if let Some(img_href) = common.node_img.filter(|s| !s.trim().is_empty()) {
         let (
             label_padding,
@@ -28,7 +28,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn try_render_image_square(
         ) = prepare_image_geometry(ctx, common, label);
         let x0 = -image_width / 2.0;
         let y0 = -image_height / 2.0;
-        // Mermaid `imageSquare` fills with a straight rect (not rough).
+
         let rect_fill_path = format!(
             "M{} {} L{} {} L{} {} L{} {}",
             fmt_display(x0),
@@ -51,8 +51,8 @@ pub(in crate::svg::parity::flowchart::render::node) fn try_render_image_square(
             escape_xml_display(&rect_fill_path),
             escape_xml_display(common.fill_color)
         );
-        if let Some(stroke_d) =
-            super::super::helpers::timed_node_roughjs(common.timing, details, || {
+
+        match super::super::helpers::timed_node_roughjs(common.timing, details, || {
                 roughjs_stroke_path_for_svg_path(
                     &rect_stroke_path,
                     common.stroke_width,
@@ -60,20 +60,23 @@ pub(in crate::svg::parity::flowchart::render::node) fn try_render_image_square(
                     common.work_meter,
                     common.hand_drawn_seed,
                 )
-            })
-        {
-            let _ = write!(
-                out,
-                r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/>"#,
-                escape_xml_display(&stroke_d),
-                escape_xml_display(common.stroke_color),
-                fmt_display(common.stroke_width as f64),
-                escape_xml_display(common.stroke_dasharray)
-            );
+            }) {
+            Some(stroke_d) => {
+                let _ = write!(
+                    out,
+                    r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/>"#,
+                    escape_xml_display(&stroke_d),
+                    escape_xml_display(common.stroke_color),
+                    fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                    escape_xml_display(common.stroke_dasharray)
+                );
+            },
+            ::core::option::Option::None => {},
         }
+
         out.push_str("</g>");
 
-        // Label group uses a background class in Mermaid's image/icon helpers.
+
         let label_dy = if top_label {
             -image_height / 2.0 - label_bbox_h / 2.0 - label_padding / 2.0
         } else {
@@ -126,12 +129,14 @@ pub(in crate::svg::parity::flowchart::render::node) fn try_render_image_square(
         );
 
         out.push_str("</g>");
+
         if common.wrapped_in_a {
             out.push_str("</a>");
         }
+
         return Some(label_receipt);
     } else {
-        // Fall back to a normal node if the image URL is missing.
+
         let w = common.layout_node.width.max(1.0);
         let h = common.layout_node.height.max(1.0);
         let _ = write!(
@@ -143,12 +148,13 @@ pub(in crate::svg::parity::flowchart::render::node) fn try_render_image_square(
             fmt_display(w),
             fmt_display(h)
         );
-        // Keep default label rendering.
+
     }
 
     None
 }
 
+#[must_use]
 fn prepare_image_geometry(
     ctx: &FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
@@ -159,13 +165,14 @@ fn prepare_image_geometry(
     let top_label = common.node_pos == Some("t");
 
     let mut metrics = common.label_metrics(ctx, label);
+
     if !has_label {
         metrics.width = 0.0;
         metrics.height = 0.0;
     }
 
-    // Mermaid's `labelHelper(...)` wraps image labels in `.labelBkg`; the flowchart
-    // stylesheet adds 2px padding to the nested `<p>`, so DOM `getBBox()` includes +4px.
+
+
     let label_bbox_w = metrics.width + if has_label { 4.0 } else { 0.0 };
     let label_bbox_h = metrics.height + if has_label { 4.0 } else { 0.0 };
     let geometry = crate::flowchart::ImageSquareGeometry::from_label(
@@ -183,7 +190,7 @@ fn prepare_image_geometry(
 
     let x0 = -image_width / 2.0;
     let y0 = -image_height / 2.0;
-    // Stroke uses RoughJS and must be a closed path so the left edge is included.
+
     let rect_stroke_path = format!(
         "M{} {} L{} {} L{} {} L{} {} L{} {}",
         fmt_display(x0),

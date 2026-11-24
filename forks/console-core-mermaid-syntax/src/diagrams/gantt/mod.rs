@@ -43,10 +43,12 @@ pub(crate) use parse::parse_gantt_json_and_editor_facts;
 const ALL_WEEKDAYS_MASK: u8 = 0b0111_1111;
 const MAX_CONSECUTIVE_EXCLUDED_DAYS: usize = 366;
 
+#[must_use]
 fn weekday_mask_monday_based(iso_weekday: u32) -> u8 {
     1u8 << (iso_weekday.saturating_sub(1) as u8)
 }
 
+#[must_use]
 fn excluded_weekdays_mask(excludes: &[String], weekend: &str) -> u8 {
     let mut mask = 0u8;
 
@@ -70,8 +72,9 @@ fn excluded_weekdays_mask(excludes: &[String], weekend: &str) -> u8 {
             "sunday" => Some(7),
             _ => None,
         };
-        if let Some(weekday) = weekday {
-            mask |= weekday_mask_monday_based(weekday);
+
+        if let Some(weekday_2) = weekday {
+            mask |= weekday_mask_monday_based(weekday_2);
         }
     }
 
@@ -87,9 +90,11 @@ fn validate_excludes_leave_a_working_weekday(db: &GanttDb) -> Result<()> {
             "invalid excludes: excludes every weekday".to_string(),
         ));
     }
+
     Ok(())
 }
 
+#[must_use]
 fn is_invalid_date(db: &GanttDb, date: OffsetDateTime, date_format: &str) -> bool {
     let formatted = format_dayjs_like(date, date_format);
     let date_only = format_dayjs_like(date, "YYYY-MM-DD");
@@ -108,7 +113,8 @@ fn is_invalid_date(db: &GanttDb, date: OffsetDateTime, date_format: &str) -> boo
             _ => 6u32,
         };
         let local = crate::runtime::datetime_to_local_civil(date);
-        let iso = local.weekday().number_from_monday(); // 1..=7
+        let iso = local.weekday().number_from_monday();
+
         if iso == weekend_start || iso == weekend_start + 1 {
             return true;
         }
@@ -118,6 +124,7 @@ fn is_invalid_date(db: &GanttDb, date: OffsetDateTime, date_format: &str) -> boo
         .weekday()
         .full_name()
         .to_lowercase();
+
     if db.excludes.iter().any(|v| v == &weekday) {
         return true;
     }
@@ -138,19 +145,24 @@ fn fix_task_dates(
     let mut invalid = false;
     let mut render_end_time: Option<OffsetDateTime> = None;
     let mut consecutive_invalid_days = 0usize;
+
     while start_time <= end_time {
         if !invalid {
             render_end_time = Some(end_time);
         }
+
         invalid = is_invalid_date(db, start_time, date_format);
+
         if invalid {
             consecutive_invalid_days += 1;
+
             if consecutive_invalid_days > MAX_CONSECUTIVE_EXCLUDED_DAYS {
                 return Err(Error::diagram_parse_fallback(
                     "gantt".to_string(),
                     "invalid excludes: no includable date found within one year".to_string(),
                 ));
             }
+
             let checked_value = add_days_local(end_time, 1).ok_or_else(|| {
                 Error::diagram_parse_fallback(
                     "gantt".to_string(),
@@ -161,6 +173,7 @@ fn fix_task_dates(
         } else {
             consecutive_invalid_days = 0;
         }
+
         let checked_value_2 = add_days_local(start_time, 1).ok_or_else(|| {
             Error::diagram_parse_fallback(
                 "gantt".to_string(),
@@ -169,6 +182,7 @@ fn fix_task_dates(
         })?;
         start_time = checked_value_2;
     }
+
     Ok((end_time, render_end_time))
 }
 

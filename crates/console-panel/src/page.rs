@@ -45,6 +45,7 @@ use console_core_color::Oklch;
 use console_core_controls::{Slider, Switch};
 use console_core_never::Never;
 use console_core_number_conversion::{fitted, index};
+use console_core_state_machine::{EffectDependencies, Service};
 use console_program_contract::Command;
 use std::num::NonZeroU32;
 use std::path::PathBuf;
@@ -159,6 +160,14 @@ pub type Confirmation = Box<dyn FnOnce(&dyn Showing, u32) + Send + Sync>;
 pub enum ActionOutcome {
   Close,
   Stay,
+}
+
+impl EffectDependencies for ActionOutcome {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Close | Self::Stay => &[Service::Panels],
+    })
+  }
 }
 
 pub type Act = Retained<dyn Fn(&dyn Showing) -> ActionOutcome + Send + Sync>;
@@ -1086,6 +1095,18 @@ pub enum Set {
   InTheMiddle,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PagePosition {
+  pub key: Option<String>,
+  pub scroll: i32,
+}
+
+#[derive(Clone)]
+pub struct PagePositions {
+  pub(crate) read: Retained<dyn Fn() -> Option<PagePosition> + Send + Sync>,
+  pub(crate) changed: Retained<dyn Fn(PagePosition) + Send + Sync>,
+}
+
 #[derive(Clone)]
 pub struct Page {
   pub title: String,
@@ -1099,6 +1120,7 @@ pub struct Page {
   pub stirs: Option<OnWake>,
   pub set: Set,
   pub selecting: Vec<Selecting>,
+  pub(crate) positions: Option<PagePositions>,
 }
 
 pub const SELECT: &str = "Select";
@@ -1175,6 +1197,7 @@ impl Page {
       stirs: None,
       set: Set::FromTheTop,
       selecting: Vec::new(),
+      positions: None,
     })
   }
 
@@ -1190,7 +1213,7 @@ impl Page {
       };
 
       let then: Confirmation = Box::new(move |showing_2, _| {
-        let Ok(trashing) = trashing(&keys_2);
+        let Ok(trashing) = console_gio::trash_command(&keys_2);
         let Ok(task) = Task::of(trashing);
 
         showing_2.run(task);
@@ -1257,6 +1280,21 @@ impl Page {
     Ok(self)
   }
 
+  pub fn remembering_position(
+    mut self,
+    read: impl Fn() -> Option<PagePosition> + Send + Sync + 'static,
+    changed: impl Fn(PagePosition) + Send + Sync + 'static,
+  ) -> Result<Self, Never> {
+    let Ok(read_2) = retained(read);
+    let Ok(changed_2) = retained(changed);
+    self.positions = Some(PagePositions {
+      read: read_2,
+      changed: changed_2,
+    });
+
+    Ok(self)
+  }
+
   pub fn meanwhile(
     mut self,
     rows: impl Fn() -> Vec<Row> + Send + Sync + 'static,
@@ -1292,18 +1330,6 @@ impl Page {
 
     Ok(self)
   }
-}
-
-pub fn trashing(keys: &[String]) -> Result<Command, Never> {
-  let arguments = ["trash", "--"]
-    .iter()
-    .map(|word| (*word).to_string())
-    .chain(keys.iter().cloned())
-    .collect();
-  let program =
-    console_program_contract::Executable::External(console_core_external_programs::Program::Gio);
-
-  Ok(Command { program, arguments })
 }
 
 pub fn find(pages: &[Page], name: Option<&str>) -> Result<u32, Never> {

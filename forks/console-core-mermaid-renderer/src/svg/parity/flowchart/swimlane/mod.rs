@@ -13,6 +13,7 @@ pub(super) use endpoint_clip::clip_swimlane_endpoints;
 
 pub(super) use cluster::render_swimlane_cluster;
 
+#[must_use]
 fn is_pool_cluster(ctx: &FlowchartRenderCtx<'_>, id: &str) -> bool {
     ctx.subgraphs_by_id.get(id).is_some_and(|group| {
         group
@@ -28,6 +29,7 @@ fn is_pool_cluster(ctx: &FlowchartRenderCtx<'_>, id: &str) -> bool {
     })
 }
 
+#[must_use]
 fn uses_pool_shell(ctx: &FlowchartRenderCtx<'_>, id: &str) -> bool {
     is_pool_cluster(ctx, id)
         && (id != "__swimlane_default__"
@@ -38,6 +40,7 @@ fn uses_pool_shell(ctx: &FlowchartRenderCtx<'_>, id: &str) -> bool {
                 .all(|node| ctx.parent.contains_key(node.id.as_str())))
 }
 
+#[must_use]
 pub(super) fn is_lane_or_pool_cluster(ctx: &FlowchartRenderCtx<'_>, id: &str) -> bool {
     ctx.swimlane_lanes_by_id.get(id).is_some_and(|group| {
         group.parent_id.is_none()
@@ -58,6 +61,7 @@ pub(super) struct SwimlaneTerminalGeometry {
     pub title_label: LayoutLabel,
 }
 
+#[must_use]
 pub(super) fn swimlane_terminal_geometry(
     lane: &crate::model::SwimlaneLaneLayout,
     direction: crate::model::SwimlaneDirection,
@@ -172,6 +176,7 @@ pub(in crate::svg::parity) fn swimlane_edge_geometry(
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn adapt_swimlane_layout(
     model: &crate::flowchart::FlowchartModel,
     layout: &SwimlaneLayout,
@@ -287,10 +292,17 @@ pub(super) fn apply_swimlane_edge_curves<'a>(
         .zip(layout.edge_owners.iter())
         .map(|(edge, owner)| (owner, edge.curve.as_str()))
         .collect();
+
     for edge in render_edges {
-        let Some(curve) = curve_by_owner.get(&edge.key).copied() else {
-            continue;
+        let curve = {
+            let optional_curve = curve_by_owner.get(&edge.key).copied();
+
+            match optional_curve {
+                Some(matched_curve) => matched_curve,
+                ::core::option::Option::None => continue,
+            }
         };
+
         edge.edge.to_mut().interpolate = Some(curve.to_string());
     }
 }
@@ -315,9 +327,11 @@ pub(super) fn apply_line_hops_to_edge_geometries(
             "swimlane"
         })
         .and_then(|value| value.get("lineHops"));
+
     if line_hops_value.and_then(serde_json::Value::as_bool) == Some(false) {
         return Ok(());
     }
+
     let jump_style = if line_hops_value.and_then(serde_json::Value::as_str) == Some("gap") {
         LineHopStyle::Gap
     } else {
@@ -353,7 +367,8 @@ pub(super) fn apply_line_hops_to_edge_geometries(
         .filter_map(|edge| {
             let semantic = edge.edge.as_ref();
             let cache_entry = edge_path_cache.get(&edge.key)?;
-            let adapter_id = transport_plan.id(edge.key)?.to_string();
+            let checked_value = transport_plan.id(edge.key)?;
+            let adapter_id = checked_value.to_string();
             let (arrow_type_start, arrow_type_end) =
                 super::edge_geom::arrow_types_for_edge(semantic.edge_type.as_deref());
             Some(OwnedLineHopEdge {
@@ -406,17 +421,31 @@ pub(super) fn apply_line_hops_to_edge_geometries(
         {
             continue;
         }
-        let Some(key) = edge_key_by_id.get(path.edge_id).copied() else {
-            continue;
+
+        let key = {
+            let optional_key = edge_key_by_id.get(path.edge_id).copied();
+
+            match optional_key {
+                Some(matched_key) => matched_key,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(cache_entry) = edge_path_cache.get_mut(&key) else {
-            continue;
+
+        let cache_entry = {
+            let optional_cache_entry = edge_path_cache.get_mut(&key);
+
+            match optional_cache_entry {
+                Some(matched_cache_entry) => matched_cache_entry,
+                ::core::option::Option::None => continue,
+            }
         };
+
         cache_entry.geom.d = path.path;
         cache_entry.geom.pb = svg_path_bounds_from_d(&cache_entry.geom.d);
         cache_entry.geom.path_length = svg_path_length_from_d(&cache_entry.geom.d);
         cache_entry.geom.line_hop_applied = true;
     }
+
     Ok(())
 }
 
@@ -630,8 +659,8 @@ mod tests {
                 assert_points_eq(&horizontal.data_points, &horizontal_points);
                 assert_points_eq(&horizontal.label_path_points, &horizontal_points);
 
-                // This original dotted Neo mask has a 4px marker clearance, but the
-                // upstream rewrite takes its fourth number (2), even without a visible hop.
+
+
                 let original_style = "stroke-dasharray: 0 0 2 2 4; stroke-dashoffset: 0;";
                 let rewritten = crate::svg::parity::line_hops::rewrite_style_after_line_hop(
                     original_style,

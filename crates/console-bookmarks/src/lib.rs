@@ -32,7 +32,7 @@ use std::path::{Path, PathBuf};
 
 use console_applications::entry::{self, Application};
 use console_applications::words;
-use console_core_external_programs::Program;
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 
 pub const MARK: &str = "console-bookmark-";
@@ -180,7 +180,7 @@ fn free(said: &str, host: Host<'_>, taken: &BTreeSet<String>) -> Result<String, 
 }
 
 pub fn application(bookmark: &Bookmark, icon: Option<&Path>) -> Result<Application, Never> {
-  let Ok(open) = Program::XdgOpen.name();
+  let Ok(open) = InternalProgram::Open.path();
 
   let command = words::join_quoted(&[open.to_string(), bookmark.url.clone()])?;
 
@@ -509,10 +509,11 @@ d\thttps://example.com/\tA page
     let Ok(read) = console_applications::words::without_field_codes(&opened.command);
     let Ok(split) = console_applications::words::split(&read);
 
+    let path = InternalProgram::Open.path()?;
     assert_eq!(
       split,
       Some(vec![
-        "xdg-open".to_string(),
+        path.to_string(),
         "https://example.com/?q=a b&r=2".to_string()
       ])
     );

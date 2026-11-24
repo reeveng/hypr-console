@@ -41,33 +41,43 @@ pub(crate) struct LangiumString {
     pub(crate) consumed: usize,
 }
 
+#[must_use]
 pub(crate) fn is_ecmascript_line_terminator(ch: char) -> bool {
     matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}')
 }
 
 /// Parses the shared Langium `STRING` terminal and applies `DefaultValueConverter` unescaping.
+#[must_use]
 pub(crate) fn parse_langium_string(input: &str, input_start: usize) -> Option<LangiumString> {
     let mut chars = input.char_indices();
     let (_, quote) = chars.next()?;
+
     if !matches!(quote, '"' | '\'') {
         return None;
     }
 
     let mut value = String::new();
     let mut escaped = false;
+
     for (index, ch) in chars {
         if escaped {
             if is_ecmascript_line_terminator(ch) {
                 return None;
             }
+
             value.push(ch);
             escaped = false;
             continue;
         }
-        if ch == '\\' {
-            escaped = true;
-            continue;
+
+        match ch {
+            '\\' => {
+                escaped = true;
+                continue;
+            },
+            _ => {},
         }
+
         if ch == quote {
             let consumed = index + ch.len_utf8();
             return Some(LangiumString {
@@ -77,37 +87,46 @@ pub(crate) fn parse_langium_string(input: &str, input_start: usize) -> Option<La
                 consumed,
             });
         }
+
         value.push(ch);
     }
+
     None
 }
 
 /// Returns the visible prefix before a Langium `SINGLE_LINE_COMMENT` outside a STRING token.
+#[must_use]
 pub(crate) fn strip_langium_inline_comment(line: &str) -> &str {
     let mut quote: Option<char> = None;
     let mut escaped = false;
     let mut chars = line.char_indices().peekable();
+
     while let Some((index, ch)) = chars.next() {
         if escaped {
             escaped = false;
             continue;
         }
+
         if quote.is_some() && ch == '\\' {
             escaped = true;
             continue;
         }
+
         if matches!(ch, '"' | '\'') {
             match quote {
                 Some(open) if open == ch => quote = None,
                 None => quote = Some(ch),
-                _ => {}
+                ::core::option::Option::Some(_) => {}
             }
+
             continue;
         }
+
         if quote.is_none() && ch == '%' && chars.peek().is_some_and(|(_, next)| *next == '%') {
             return &line[..index];
         }
     }
+
     line
 }
 
@@ -119,6 +138,7 @@ pub(crate) enum LangiumCommonField {
 }
 
 impl LangiumCommonField {
+    #[must_use]
     pub(crate) fn directive(self) -> &'static str {
         match self {
             Self::Title => "title",
@@ -164,6 +184,7 @@ impl LangiumCommonFacts {
         self.ordered.push(fact);
     }
 
+    #[must_use]
     pub(crate) fn iter(&self) -> impl Iterator<Item = &LangiumCommonFact> {
         self.ordered.iter()
     }
@@ -173,6 +194,7 @@ impl LangiumCommonFacts {
         &self.ordered
     }
 
+    #[must_use]
     pub(crate) fn last(&self, field: LangiumCommonField) -> Option<&LangiumCommonFact> {
         self.ordered.iter().rev().find(|fact| fact.field == field)
     }
@@ -220,6 +242,7 @@ pub(crate) fn push_langium_common_recovery(
 /// A successful result consumes the terminal and its required `EOL` (`NEWLINE+ | EOF`). An
 /// unterminated block `accDescr` is returned as a recovered fact so editor projections can retain
 /// its prefix and partial payload; strict family parsers must reject results with a diagnostic.
+#[must_use]
 pub(crate) fn parse_langium_common(source: &str, offset: usize) -> Option<LangiumCommonParse> {
     let input = source.get(offset..)?;
     let leading = horizontal_whitespace_len(input);
@@ -229,15 +252,19 @@ pub(crate) fn parse_langium_common(source: &str, offset: usize) -> Option<Langiu
     if token.starts_with("accDescr") {
         return parse_acc_descr(source, offset, token_start);
     }
+
     if token.starts_with("accTitle") {
         return parse_acc_title(source, offset, token_start);
     }
+
     if token.starts_with("title") {
         return parse_title(source, offset, token_start);
     }
+
     None
 }
 
+#[must_use]
 fn parse_title(source: &str, offset: usize, token_start: usize) -> Option<LangiumCommonParse> {
     let keyword_end = token_start + "title".len();
     let checked_value = source.get(keyword_end..)?;
@@ -257,13 +284,16 @@ fn parse_title(source: &str, offset: usize, token_start: usize) -> Option<Langiu
     )
 }
 
+#[must_use]
 fn parse_acc_title(source: &str, offset: usize, token_start: usize) -> Option<LangiumCommonParse> {
     let keyword_end = token_start + "accTitle".len();
     let checked_value = source.get(keyword_end..)?;
     let colon = keyword_end + horizontal_whitespace_len(checked_value);
+
     if source.as_bytes().get(colon) != Some(&b':') {
         return None;
     }
+
     let capture_start = colon + 1;
     let raw_end = inline_terminal_end(source, capture_start);
     parsed_inline(
@@ -275,10 +305,12 @@ fn parse_acc_title(source: &str, offset: usize, token_start: usize) -> Option<La
     )
 }
 
+#[must_use]
 fn parse_acc_descr(source: &str, offset: usize, token_start: usize) -> Option<LangiumCommonParse> {
     let keyword_end = token_start + "accDescr".len();
     let checked_value = source.get(keyword_end..)?;
     let horizontal_end = keyword_end + horizontal_whitespace_len(checked_value);
+
     if source.as_bytes().get(horizontal_end) == Some(&b':') {
         let capture_start = horizontal_end + 1;
         let raw_end = inline_terminal_end(source, capture_start);
@@ -292,10 +324,13 @@ fn parse_acc_descr(source: &str, offset: usize, token_start: usize) -> Option<La
     }
 
     let opening = skip_javascript_whitespace(source, keyword_end);
+
     if source.as_bytes().get(opening) != Some(&b'{') {
         return None;
     }
+
     let content_start = opening + 1;
+
     let Some(relative_close) = { let checked_value_2 = source.get(content_start..)?; checked_value_2 }.find('}') else {
         let raw_end = source.len();
         let (value, value_span) = normalized_block_value(source, content_start, raw_end);
@@ -332,6 +367,7 @@ fn parse_acc_descr(source: &str, offset: usize, token_start: usize) -> Option<La
     })
 }
 
+#[must_use]
 fn parsed_inline(
     source: &str,
     offset: usize,
@@ -358,15 +394,19 @@ fn parsed_inline(
     })
 }
 
+#[must_use]
 fn inline_terminal_end(source: &str, start: usize) -> usize {
     let bytes = source.as_bytes();
     let mut cursor = start;
-    while cursor < bytes.len() {
+
+    for _ in (::core::ops::Range { start: cursor, end: bytes.len() }) {
         if matches!(bytes[cursor], b'\n' | b'\r') || bytes.get(cursor..cursor + 2) == Some(b"%%") {
             break;
         }
-        cursor += 1;
+
+        cursor = (::core::num::Wrapping(cursor) + ::core::num::Wrapping(1)).0;
     }
+
     cursor
 }
 
@@ -375,19 +415,23 @@ struct ConsumedEol {
     trailing_whitespace_span: Option<SourceSpan>,
 }
 
+#[must_use]
 fn consume_required_eol(source: &str, raw_end: usize) -> Option<ConsumedEol> {
     let checked_value = source.get(raw_end..)?;
     let mut cursor = raw_end + horizontal_whitespace_len(checked_value);
     let checked_value_2 = source.get(cursor..)?;
+
     if checked_value_2.starts_with("%%") {
         cursor = inline_terminal_end(source, cursor + 2);
     }
+
     if cursor == source.len() {
         return Some(ConsumedEol {
             end: cursor,
             trailing_whitespace_span: None,
         });
     }
+
     cursor = consume_newline(source, cursor)?;
     let mut trailing_whitespace_span = None;
 
@@ -396,6 +440,7 @@ fn consume_required_eol(source: &str, raw_end: usize) -> Option<ConsumedEol> {
         let mut next = cursor + horizontal_whitespace_len({ let checked_value_3 = source.get(cursor..)?; checked_value_3 });
         let checked_value_4 = source.get(next..)?;
         let comment = checked_value_4.starts_with("%%");
+
         if comment {
             next = inline_terminal_end(source, next + 2);
         } else if next > trivia_start
@@ -403,16 +448,22 @@ fn consume_required_eol(source: &str, raw_end: usize) -> Option<ConsumedEol> {
         {
             trailing_whitespace_span = Some(SourceSpan::new(trivia_start, next));
         }
+
         if next == source.len() {
             return Some(ConsumedEol {
                 end: next,
                 trailing_whitespace_span,
             });
         }
-        if let Some(after_newline) = consume_newline(source, next) {
-            cursor = after_newline;
-            continue;
+
+        match consume_newline(source, next) {
+            Some(after_newline) => {
+                cursor = after_newline;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         return Some(ConsumedEol {
             end: trivia_start,
             trailing_whitespace_span,
@@ -420,14 +471,18 @@ fn consume_required_eol(source: &str, raw_end: usize) -> Option<ConsumedEol> {
     }
 }
 
+#[must_use]
 fn consume_newline(source: &str, offset: usize) -> Option<usize> {
     let checked_value = source.get(offset..)?;
+
     if checked_value.starts_with("\r\n") {
         return Some(offset + 2);
     }
+
     (source.as_bytes().get(offset) == Some(&b'\n')).then_some(offset + 1)
 }
 
+#[must_use]
 fn horizontal_whitespace_len(input: &str) -> usize {
     input
         .chars()
@@ -436,28 +491,41 @@ fn horizontal_whitespace_len(input: &str) -> usize {
         .sum()
 }
 
+#[must_use]
 fn is_horizontal_whitespace(ch: char) -> bool {
     matches!(ch, ' ' | '\t')
 }
 
+#[must_use]
 fn skip_javascript_whitespace(source: &str, start: usize) -> usize {
     let mut cursor = start;
-    let Some(rest) = source.get(start..) else {
-        return cursor;
+
+    let rest = {
+        let optional_rest = source.get(start..);
+
+        match optional_rest {
+            Some(matched_rest) => matched_rest,
+            ::core::option::Option::None => return cursor,
+        }
     };
+
     for ch in rest.chars() {
         if !is_javascript_whitespace(ch) {
             break;
         }
+
         cursor += ch.len_utf8();
     }
+
     cursor
 }
 
+#[must_use]
 fn is_javascript_whitespace(ch: char) -> bool {
     ch.is_whitespace() || matches!(ch, '\u{000B}' | '\u{000C}' | '\u{FEFF}')
 }
 
+#[must_use]
 fn normalized_block_value(source: &str, start: usize, end: usize) -> (String, SourceSpan) {
     let raw = &source[start..end];
     let leading = raw.len() - raw.trim_start().len();
@@ -474,27 +542,33 @@ fn normalized_block_value(source: &str, start: usize, end: usize) -> (String, So
     (value, value_span)
 }
 
+#[must_use]
 fn collapse_horizontal_runs(value: &str) -> String {
     let mut output = String::with_capacity(value.len());
     let mut horizontal = String::new();
+
     for ch in value.chars() {
         if is_horizontal_whitespace(ch) {
             horizontal.push(ch);
             continue;
         }
+
         if horizontal.len() >= 2 {
             output.push(' ');
         } else {
             output.push_str(&horizontal);
         }
+
         horizontal.clear();
         output.push(ch);
     }
+
     if horizontal.len() >= 2 {
         output.push(' ');
     } else {
         output.push_str(&horizontal);
     }
+
     output
 }
 

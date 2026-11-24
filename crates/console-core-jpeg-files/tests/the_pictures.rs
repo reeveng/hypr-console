@@ -14,6 +14,7 @@ const WHOLE: Size<u32> = Size {
   width: 75,
   height: 53,
 };
+const SUBSAMPLED_RGB: &[u8] = include_bytes!("pictures/subsampled.rgb");
 
 const TURNED: Size<u32> = Size {
   width: 53,
@@ -135,22 +136,13 @@ fn every_layout_a_camera_writes_comes_back_as_libjpeg_draws_it() -> Result<(), B
       include_bytes!("pictures/halved.jpg"),
       include_bytes!("pictures/halved.rgb"),
     ),
-    (
-      include_bytes!("pictures/subsampled.jpg"),
-      include_bytes!("pictures/subsampled.rgb"),
-    ),
+    (include_bytes!("pictures/subsampled.jpg"), SUBSAMPLED_RGB),
     (
       include_bytes!("pictures/grey.jpg"),
       include_bytes!("pictures/grey.rgb"),
     ),
-    (
-      include_bytes!("pictures/progressive.jpg"),
-      include_bytes!("pictures/progressive.rgb"),
-    ),
-    (
-      include_bytes!("pictures/restarts.jpg"),
-      include_bytes!("pictures/restarts.rgb"),
-    ),
+    (include_bytes!("pictures/progressive.jpg"), SUBSAMPLED_RGB),
+    (include_bytes!("pictures/restarts.jpg"), SUBSAMPLED_RGB),
   ];
 
   for (bytes, expected) in pictures {
@@ -376,7 +368,7 @@ fn a_file_that_stops_before_its_picture_ends_is_drawn_as_far_as_it_goes()
 
   assert_eq!(picture.size, WHOLE);
 
-  let top = difference(&picture, include_bytes!("pictures/subsampled.rgb"))?;
+  let top = difference(&picture, SUBSAMPLED_RGB)?;
 
   assert!(top.most > 0, "the bottom half cannot be the picture");
 

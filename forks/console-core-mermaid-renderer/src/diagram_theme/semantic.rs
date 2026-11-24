@@ -127,6 +127,7 @@ impl ThemeTarget {
         Self::JourneyTask,
     ];
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::Canvas => "canvas",
@@ -184,10 +185,12 @@ impl ThemeTarget {
     }
 
     /// Parses one known semantic target identifier.
+    #[must_use]
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.iter().copied().find(|target| target.id() == id)
     }
 
+    #[must_use]
     pub(crate) fn valid_for(self, family: DiagramFamilyId) -> bool {
         match self {
             Self::State
@@ -413,6 +416,7 @@ impl ThemeVariant {
         Self::Line,
     ];
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::Default => "default",
@@ -454,6 +458,7 @@ impl OrdinalSelector {
         Ok(selector)
     }
 
+    #[must_use]
     pub const fn matches(self, one_based_index: usize) -> bool {
         match self {
             Self::Exact(index) => index != 0 && one_based_index == index,
@@ -476,7 +481,7 @@ impl OrdinalSelector {
                     field: "style.ordinal",
                 })
             }
-            _ => Ok(()),
+            Self::Exact(_) | Self::Cycle { .. } => Ok(()),
         }
     }
 }
@@ -579,11 +584,13 @@ pub struct ThemeStylePatch {
 }
 
 impl ThemeStylePatch {
+    #[must_use]
     pub fn with_fill(mut self, fill: CanvasPaint) -> Self {
         self.paint.fill = Specified::Value(fill);
         self
     }
 
+    #[must_use]
     pub fn with_stroke(mut self, stroke: CanvasPaint) -> Self {
         self.stroke.paint = Specified::Value(stroke);
         self
@@ -599,9 +606,10 @@ impl ThemeStylePatch {
         mut self,
         values: impl IntoIterator<Item = f32>,
     ) -> Result<Self, ThemeCompileValidationError> {
-        let values = values.into_iter().collect::<Vec<_>>();
-        if values.is_empty()
-            || values
+        let values_2 = values.into_iter().collect::<Vec<_>>();
+
+        if values_2.is_empty()
+            || values_2
                 .iter()
                 .any(|value| !value.is_finite() || *value < 0.0)
         {
@@ -609,10 +617,12 @@ impl ThemeStylePatch {
                 field: "style.stroke_dasharray",
             });
         }
-        self.stroke.dasharray = Specified::Value(values);
+
+        self.stroke.dasharray = Specified::Value(values_2);
         Ok(self)
     }
 
+    #[must_use]
     pub fn with_padding(mut self, padding: InsetsPx) -> Self {
         self.spacing.padding = Specified::Value(padding);
         self
@@ -622,9 +632,9 @@ impl ThemeStylePatch {
         mut self,
         effect: impl Into<String>,
     ) -> Result<Self, ThemeCompileValidationError> {
-        let effect = effect.into();
-        super::effects::validate_effect_id(&effect)?;
-        self.effects.effect = Specified::Value(effect);
+        let effect_2 = <_ as ::core::convert::Into<::std::string::String>>::into(effect);
+        super::effects::validate_effect_id(&effect_2)?;
+        self.effects.effect = Specified::Value(effect_2);
         Ok(self)
     }
 
@@ -634,9 +644,11 @@ impl ThemeStylePatch {
         validate_optional_unit(&self.paint.fill_opacity, "style.fill_opacity")?;
         validate_optional_unit(&self.stroke.stroke_opacity, "style.stroke_opacity")?;
         validate_optional_nonnegative(&self.geometry.radius, "style.radius")?;
+
         if let Specified::Value(padding) = &self.spacing.padding {
             padding.validate("style.padding")?;
         }
+
         if let Specified::Value(dashes) = &self.stroke.dasharray
             && (dashes.is_empty()
                 || dashes
@@ -647,9 +659,11 @@ impl ThemeStylePatch {
                 field: "style.stroke_dasharray",
             });
         }
+
         self.typography.validate()
     }
 
+    #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
         matches!(self.paint.fill, Specified::Unspecified)
             && matches!(self.stroke.paint, Specified::Unspecified)
@@ -684,6 +698,7 @@ pub enum StrokeLineJoin {
 }
 
 impl StrokeLineCap {
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::Butt => "butt",
@@ -694,6 +709,7 @@ impl StrokeLineCap {
 }
 
 impl StrokeLineJoin {
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::Miter => "miter",
@@ -716,6 +732,7 @@ impl ThemeRule {
     /// Creates a base rule that applies to every variant of the target.
     ///
     /// Use [`Self::with_variant`] to restrict the rule to one named variant.
+    #[must_use]
     pub fn new(target: ThemeTarget, style: ThemeStylePatch) -> Self {
         Self {
             target,
@@ -726,38 +743,46 @@ impl ThemeRule {
         }
     }
 
+    #[must_use]
     pub fn for_family(mut self, family: DiagramFamilyId) -> Self {
         self.family = Some(family);
         self
     }
 
     /// Restricts this rule to one named semantic variant.
+    #[must_use]
     pub fn with_variant(mut self, variant: ThemeVariant) -> Self {
         self.variant = Some(variant);
         self
     }
 
+    #[must_use]
     pub fn with_ordinal(mut self, ordinal: OrdinalSelector) -> Self {
         self.ordinal = Some(ordinal);
         self
     }
 
+    #[must_use]
     pub const fn target(&self) -> ThemeTarget {
         self.target
     }
 
+    #[must_use]
     pub const fn family(&self) -> Option<DiagramFamilyId> {
         self.family
     }
 
+    #[must_use]
     pub const fn variant(&self) -> Option<ThemeVariant> {
         self.variant
     }
 
+    #[must_use]
     pub const fn ordinal(&self) -> Option<OrdinalSelector> {
         self.ordinal
     }
 
+    #[must_use]
     pub const fn style(&self) -> &ThemeStylePatch {
         &self.style
     }
@@ -768,6 +793,7 @@ impl ThemeRule {
                 field: "styles.rule",
             });
         }
+
         if self.target == ThemeTarget::Canvas
             && let Some(family) = self.family
         {
@@ -775,6 +801,7 @@ impl ThemeRule {
                 family: family.as_str(),
             });
         }
+
         if let Some(family) = self.family
             && !self.target.valid_for(family)
         {
@@ -783,9 +810,14 @@ impl ThemeRule {
                 family: family.as_str(),
             });
         }
-        if let Some(ordinal) = self.ordinal {
-            ordinal.validate()?;
+
+        match self.ordinal {
+            Some(ordinal) => {
+                ordinal.validate()?;
+            },
+            ::core::option::Option::None => {},
         }
+
         self.style.validate()
     }
 
@@ -813,24 +845,29 @@ impl OrdinalPalette {
     pub fn new(
         colors: impl IntoIterator<Item = ThemeColorValue>,
     ) -> Result<Self, ThemeCompileValidationError> {
-        let colors = colors.into_iter().collect::<Vec<_>>();
-        if colors.is_empty() {
+        let colors_2 = colors.into_iter().collect::<Vec<_>>();
+
+        if colors_2.is_empty() {
             return Err(ThemeCompileValidationError::InvalidCollection {
                 field: "styles.ordinal_palette",
             });
         }
-        if colors.len() > MAX_THEME_PALETTE_COLORS {
+
+        if colors_2.len() > MAX_THEME_PALETTE_COLORS {
             return Err(ThemeCompileValidationError::LimitExceeded {
                 field: "styles.ordinal_palette.colors",
             });
         }
-        Ok(Self { colors })
+
+        Ok(Self { colors: colors_2 })
     }
 
+    #[must_use]
     pub fn colors(&self) -> &[ThemeColorValue] {
         &self.colors
     }
 
+    #[must_use]
     pub fn color_for(&self, one_based_index: usize) -> Option<&ThemeColorValue> {
         let index = one_based_index.checked_sub(1)?;
         let palette_len = self.colors.len();
@@ -845,20 +882,24 @@ pub struct ThemeRuleSet {
 }
 
 impl ThemeRuleSet {
+    #[must_use]
     pub fn with_rule(mut self, rule: ThemeRule) -> Self {
         self.rules.push(rule);
         self
     }
 
+    #[must_use]
     pub fn with_ordinal_palette(mut self, target: ThemeTarget, palette: OrdinalPalette) -> Self {
         self.ordinal_palettes.push((target, palette));
         self
     }
 
+    #[must_use]
     pub fn rules(&self) -> &[ThemeRule] {
         &self.rules
     }
 
+    #[must_use]
     pub fn ordinal_palettes(&self) -> &[(ThemeTarget, OrdinalPalette)] {
         &self.ordinal_palettes
     }
@@ -869,32 +910,39 @@ impl ThemeRuleSet {
                 field: "styles.rules",
             });
         }
+
         if self.ordinal_palettes.len() > MAX_THEME_ORDINAL_PALETTES {
             return Err(ThemeCompileValidationError::LimitExceeded {
                 field: "styles.ordinal_palettes",
             });
         }
+
         for rule in &self.rules {
             rule.validate()?;
         }
+
         let mut targets = std::collections::BTreeSet::new();
+
         for (target, palette) in &self.ordinal_palettes {
             if !targets.insert(*target) {
                 return Err(ThemeCompileValidationError::DuplicateId {
                     field: "styles.ordinal_palette.target",
                 });
             }
+
             if palette.colors.is_empty() {
                 return Err(ThemeCompileValidationError::InvalidCollection {
                     field: "styles.ordinal_palette",
                 });
             }
+
             if palette.colors.len() > MAX_THEME_PALETTE_COLORS {
                 return Err(ThemeCompileValidationError::LimitExceeded {
                     field: "styles.ordinal_palette.colors",
                 });
             }
         }
+
         Ok(())
     }
 }
@@ -906,6 +954,7 @@ fn validate_nonnegative(
     if !value.is_finite() || value < 0.0 {
         return Err(ThemeCompileValidationError::InvalidNumber { field });
     }
+
     Ok(())
 }
 
@@ -913,9 +962,10 @@ fn validate_optional_nonnegative(
     value: &Specified<f32>,
     field: &'static str,
 ) -> Result<(), ThemeCompileValidationError> {
-    if let Specified::Value(value) = value {
-        validate_nonnegative(*value, field)?;
+    if let Specified::Value(value_2) = value {
+        validate_nonnegative(*value_2, field)?;
     }
+
     Ok(())
 }
 
@@ -923,11 +973,12 @@ fn validate_optional_unit(
     value: &Specified<f32>,
     field: &'static str,
 ) -> Result<(), ThemeCompileValidationError> {
-    if let Specified::Value(value) = value
-        && (!value.is_finite() || !(0.0..=1.0).contains(value))
+    if let Specified::Value(value_2) = value
+        && (!value_2.is_finite() || !(0.0..=1.0).contains(value_2))
     {
         return Err(ThemeCompileValidationError::InvalidNumber { field });
     }
+
     Ok(())
 }
 

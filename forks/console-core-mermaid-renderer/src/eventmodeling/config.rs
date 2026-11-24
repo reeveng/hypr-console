@@ -9,6 +9,7 @@ pub(crate) struct EventModelingConfigView<'a> {
 }
 
 impl<'a> EventModelingConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             eventmodeling_config: effective_config
@@ -17,22 +18,29 @@ impl<'a> EventModelingConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> EventModelingLayoutSettings {
         EventModelingLayoutSettings {
-            padding: self
-                .eventmodeling_f64("padding")
-                .unwrap_or(DEFAULT_PADDING)
+            padding: match self
+                .eventmodeling_f64("padding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_PADDING,
+            }
                 .max(0.0),
-            use_max_width: self
-                .eventmodeling_bool("useMaxWidth")
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
+            use_max_width: match self
+                .eventmodeling_bool("useMaxWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
         }
     }
 
+    #[must_use]
     fn eventmodeling_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.eventmodeling_config, &[key])
     }
 
+    #[must_use]
     fn eventmodeling_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.eventmodeling_config, &[key])
     }

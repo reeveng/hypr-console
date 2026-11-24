@@ -21,6 +21,7 @@ pub(crate) fn parse_mermaid_inline_object_controlled(
     feature = "diagram-swimlane",
     feature = "diagram-sequence"
 ))]
+#[must_use]
 pub(crate) fn value_to_string(v: &Value) -> Option<String> {
     match v {
         Value::String(s) => Some(s.clone()),
@@ -31,6 +32,7 @@ pub(crate) fn value_to_string(v: &Value) -> Option<String> {
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane",))]
+#[must_use]
 pub(crate) fn value_to_bool(v: &Value) -> Option<bool> {
     match v {
         Value::Bool(b) => Some(*b),
@@ -44,10 +46,11 @@ pub(crate) fn value_to_bool(v: &Value) -> Option<bool> {
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane",))]
+#[must_use]
 pub(crate) fn value_to_f64(v: &Value) -> Option<f64> {
     match v {
         Value::Number(n) => n.as_f64(),
-        Value::String(s) => s.trim().parse::<f64>().ok(),
+        Value::String(s) => match s.trim().parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None },
         _ => None,
     }
 }

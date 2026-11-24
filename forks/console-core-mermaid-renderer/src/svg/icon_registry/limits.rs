@@ -54,6 +54,7 @@ impl IconRegistryResourceLimitId {
         Self::MaxCoordinateMagnitude,
     ];
 
+    #[must_use]
     pub const fn stable_id(self) -> &'static str {
         match self {
             Self::MaxPacks => "max_icon_registry_packs",
@@ -81,6 +82,7 @@ impl IconRegistryResourceLimitId {
         }
     }
 
+    #[must_use]
     pub const fn fixed_value(self) -> u64 {
         match self {
             Self::MaxPacks => 16,
@@ -101,8 +103,8 @@ impl IconRegistryResourceLimitId {
             Self::MaxAliasFanout => 1_024,
             Self::MaxBuildWorkUnits => 4_000_000,
             Self::MaxXmlElementsPerBody => 4_096,
-            // Leave structural headroom beneath the WASM whole-SVG backend cap for wrappers and
-            // diagram embedding. The final document validator remains authoritative.
+
+
             Self::MaxXmlDepthPerBody => crate::resources::MAX_PORTABLE_ICON_BODY_XML_DEPTH as u64,
             Self::MaxIdRewriteEditsPerBody => 16_384,
             Self::MaxRetainedXmlPlanBytes => 16 * MIB,
@@ -129,6 +131,7 @@ pub struct IconRegistryResourceLimitDescriptor {
     pub caller_configurable: bool,
 }
 
+#[must_use]
 const fn descriptor(
     id: IconRegistryResourceLimitId,
     phase: &'static str,
@@ -283,6 +286,7 @@ pub const ICON_REGISTRY_RESOURCE_LIMIT_DESCRIPTORS: &[IconRegistryResourceLimitD
     ),
 ];
 
+#[must_use]
 pub const fn icon_registry_resource_limit_descriptors()
 -> &'static [IconRegistryResourceLimitDescriptor] {
     ICON_REGISTRY_RESOURCE_LIMIT_DESCRIPTORS
@@ -315,6 +319,7 @@ pub(super) struct IconRegistryBuildLimits {
 }
 
 impl IconRegistryBuildLimits {
+    #[must_use]
     pub const fn fixed() -> Self {
         Self {
             max_packs: IconRegistryResourceLimitId::MaxPacks.fixed_value() as usize,

@@ -1,16 +1,18 @@
+#[must_use]
 pub(super) fn resolve_icon_key(icon_name: &str, fallback_prefix: Option<&str>) -> Option<String> {
     if icon_name.is_empty() || icon_name.trim() != icon_name {
         return None;
     }
 
-    // Mirror Iconify's `stringToIcon(value, true, allowSimpleName)` ordering. A leading provider
-    // is syntax only for this in-process registry: remove it first, then parse colon or dash forms.
-    // Read at most four components so malformed input cannot allocate in proportion to the number
-    // of separators before it is rejected.
+
+
+
+
     let mut parts = icon_name.splitn(4, ':');
     let first = parts.next()?;
     let second = parts.next();
     let third = parts.next();
+
     if parts.next().is_some() {
         return None;
     }
@@ -31,17 +33,20 @@ pub(super) fn resolve_icon_key(icon_name: &str, fallback_prefix: Option<&str>) -
         }
     };
 
-    if let Some((prefix, name)) = qualified {
-        return (valid_identifier(prefix) && valid_identifier(name))
-            .then(|| canonical_key(prefix, name));
+    match qualified {
+        Some((prefix, name)) => {
+            return (valid_identifier(prefix) && valid_identifier(name))
+                .then(|| canonical_key(prefix, name));
+        },
+        ::core::option::Option::None => {},
     }
 
-    let icon_name = simple_name?;
+    let icon_name_2 = simple_name?;
 
-    // Iconify parses the dash shorthand before applying a simple-name fallback. In particular,
-    // `aws-lambda` names the `aws:lambda` icon even in Architecture, while a truly simple name
-    // such as `database` can resolve through `mermaid-architecture`.
-    if let Some((prefix, name)) = icon_name.split_once('-')
+
+
+
+    if let Some((prefix, name)) = icon_name_2.split_once('-')
         && valid_identifier(prefix)
         && valid_identifier(name)
     {
@@ -51,18 +56,28 @@ pub(super) fn resolve_icon_key(icon_name: &str, fallback_prefix: Option<&str>) -
     if provider_present {
         return None;
     }
-    let fallback_prefix = fallback_prefix.filter(|prefix| valid_identifier(prefix))?;
-    valid_identifier(icon_name).then(|| canonical_key(fallback_prefix, icon_name))
+
+    let fallback_prefix_2 = fallback_prefix.filter(|prefix| valid_identifier(prefix))?;
+    valid_identifier(icon_name_2).then(|| canonical_key(fallback_prefix_2, icon_name_2))
 }
 
+#[must_use]
 pub(super) fn valid_identifier(value: &str) -> bool {
     let mut segments = value.split('-');
-    let Some(first) = segments.next() else {
-        return false;
+
+    let first = {
+        let optional_first = segments.next();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return false,
+        }
     };
+
     valid_identifier_segment(first) && segments.all(valid_identifier_segment)
 }
 
+#[must_use]
 fn valid_identifier_segment(value: &str) -> bool {
     !value.is_empty()
         && value
@@ -70,6 +85,7 @@ fn valid_identifier_segment(value: &str) -> bool {
             .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
 }
 
+#[must_use]
 pub(super) fn canonical_key(prefix: &str, name: &str) -> String {
     let mut key = String::with_capacity(prefix.len() + name.len() + 1);
     key.push_str(prefix);

@@ -13,6 +13,7 @@ use crate::diagrams::langium_common::{
     parse_langium_common, parse_langium_string,
 };
 
+#[must_use]
 fn parse_layout_direction(value: &str) -> Option<ArchitectureLayoutDirection> {
     match value {
         "row" => Some(ArchitectureLayoutDirection::Row),
@@ -118,6 +119,7 @@ struct StatementFailure {
 }
 
 impl StatementFailure {
+    #[must_use]
     fn new(
         error: Error,
         #[cfg(feature = "editor-facts")] facts: Vec<ArchitectureTraceFact>,
@@ -149,6 +151,7 @@ struct ArchitectureStatementParser<'a> {
 }
 
 impl<'a> ArchitectureStatementParser<'a> {
+    #[must_use]
     fn new(
         input: &'a str,
         base_offset: usize,
@@ -169,6 +172,7 @@ impl<'a> ArchitectureStatementParser<'a> {
         #[cfg(feature = "editor-facts")]
         let span = SourceSpan::new(self.base_offset, self.base_offset + self.input.len());
         let statement = self.parse_statement();
+
         match statement {
             Ok(statement) => Ok(ArchitectureTraceEntry {
                 statement: Some(statement),
@@ -193,15 +197,19 @@ impl<'a> ArchitectureStatementParser<'a> {
         if self.next_is_keyword("group") {
             return self.parse_group();
         }
+
         if self.next_is_keyword("service") {
             return self.parse_service();
         }
+
         if self.next_is_keyword("junction") {
             return self.parse_junction();
         }
+
         if self.next_is_keyword("align") {
             return self.parse_alignment();
         }
+
         self.parse_edge()
     }
 
@@ -262,9 +270,10 @@ impl<'a> ArchitectureStatementParser<'a> {
         let mut icon = None;
         let mut icon_text = None;
         self.skip_ws();
+
         match self.peek_char() {
             Some('(') => {
-                icon = self.parse_icon()?;
+                icon = { let checked_value = self.parse_icon()?; checked_value };
                 #[cfg(feature = "editor-facts")]
                 if let Some(value) = &icon {
                     #[cfg(feature = "editor-facts")]
@@ -276,7 +285,7 @@ impl<'a> ArchitectureStatementParser<'a> {
                 }
             }
             Some('"' | '\'') => {
-                icon_text = Some(self.parse_string()?);
+                icon_text = Some({ let checked_value_2 = self.parse_string()?; checked_value_2 });
                 #[cfg(feature = "editor-facts")]
                 self.push_payload(
                     icon_text.as_ref().expect("icon text was just parsed"),
@@ -286,6 +295,7 @@ impl<'a> ArchitectureStatementParser<'a> {
             }
             _ => {}
         }
+
         let title = self.parse_title()?;
         #[cfg(feature = "editor-facts")]
         if let Some(title) = &title {
@@ -344,6 +354,7 @@ impl<'a> ArchitectureStatementParser<'a> {
     fn parse_alignment(&mut self) -> Result<ArchitectureStatement> {
         self.expect_keyword("align");
         let direction = self.parse_raw_id("invalid align direction")?;
+
         if parse_layout_direction(&direction.value).is_none() {
             return Err(Error::diagram_parse_exact(
                 "architecture",
@@ -351,6 +362,7 @@ impl<'a> ArchitectureStatementParser<'a> {
                 direction.selection,
             ));
         }
+
         #[cfg(feature = "editor-facts")]
         self.push_payload(
             &direction,
@@ -359,6 +371,7 @@ impl<'a> ArchitectureStatementParser<'a> {
         );
 
         let mut members = Vec::new();
+
         while {
             self.skip_ws();
             !self.is_eof()
@@ -371,12 +384,14 @@ impl<'a> ArchitectureStatementParser<'a> {
                 EditorSemanticKind::Variable,
             )?);
         }
+
         if members.len() < 2 {
             return Err(self.insertion_error(&format!(
                 "An align directive requires at least two members; got {}",
                 members.len()
             )));
         }
+
         Ok(ArchitectureStatement::Alignment { direction, members })
     }
 
@@ -406,8 +421,8 @@ impl<'a> ArchitectureStatementParser<'a> {
             None
         } else if self.remaining().starts_with('-') {
             self.pos += 1;
-            let title = self
-                .parse_title()?
+            let title = { let checked_value = self
+                .parse_title()?; checked_value }
                 .ok_or_else(|| self.insertion_error("expected edge title"))?;
             #[cfg(feature = "editor-facts")]
             self.push_payload(
@@ -463,6 +478,7 @@ impl<'a> ArchitectureStatementParser<'a> {
         #[cfg(feature = "editor-facts")] kind: EditorSemanticKind,
     ) -> Result<ArchitectureIdentifier> {
         let token = self.parse_raw_id(message)?;
+
         if is_architecture_reserved_id(&token.value) {
             return Err(Error::diagram_parse_exact(
                 "architecture",
@@ -470,6 +486,7 @@ impl<'a> ArchitectureStatementParser<'a> {
                 token.selection,
             ));
         }
+
         #[cfg(feature = "editor-facts")]
         self.push_entity(&token, detail, kind);
         Ok(ArchitectureIdentifier {
@@ -485,6 +502,7 @@ impl<'a> ArchitectureStatementParser<'a> {
         #[cfg(feature = "editor-facts")] kind: EditorSemanticKind,
     ) -> Result<ArchitectureIdentifier> {
         let token = self.parse_raw_id(message)?;
+
         if is_architecture_reserved_id(&token.value) {
             return Err(Error::diagram_parse_exact(
                 "architecture",
@@ -492,6 +510,7 @@ impl<'a> ArchitectureStatementParser<'a> {
                 token.selection,
             ));
         }
+
         #[cfg(feature = "editor-facts")]
         self.push_reference(&token, detail, kind);
         Ok(ArchitectureIdentifier {
@@ -505,49 +524,68 @@ impl<'a> ArchitectureStatementParser<'a> {
         let start = self.pos;
         let mut last_word_end = None;
         let mut seen = false;
+
         while let Some(ch) = self.peek_char() {
             let word = ch.is_ascii_alphanumeric() || ch == '_';
+
             if !seen {
                 if !word {
                     return Err(self.insertion_error(message));
                 }
+
                 seen = true;
             } else if !word && ch != '-' {
                 break;
             }
+
             self.bump();
+
             if word {
                 last_word_end = Some(self.pos);
             }
         }
-        let Some(end) = last_word_end else {
-            return Err(self.insertion_error(message));
+
+        let end = match last_word_end {
+            Some(matched_end) => matched_end,
+            ::core::option::Option::None => return Err(self.insertion_error(message)),
         };
+
         self.pos = end;
         Ok(self.spanned(self.input[start..end].to_string(), start, end, start, end))
     }
 
     fn parse_icon(&mut self) -> Result<Option<ArchitectureSpannedValue>> {
         self.skip_ws();
+
         if self.peek_char() != Some('(') {
             return Ok(None);
         }
+
         let start = self.pos;
         self.bump();
         let selection_start = self.pos;
+
         while let Some(ch) = self.peek_char() {
-            if ch == ')' {
-                break;
+            match ch {
+                ')' => {
+                    break;
+                },
+                _ => {},
             }
+
             if !(ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | ':')) {
                 return Err(self.exact_char_error("invalid architecture icon", ch));
             }
+
             self.bump();
         }
+
         let selection_end = self.pos;
+
         if selection_end == selection_start || self.peek_char() != Some(')') {
             return Err(self.insertion_error("unterminated architecture icon"));
         }
+
         self.bump();
         Ok(Some(
             self.spanned(
@@ -565,13 +603,16 @@ impl<'a> ArchitectureStatementParser<'a> {
     fn parse_string(&mut self) -> Result<ArchitectureSpannedValue> {
         self.skip_ws();
         let start = self.pos;
+
         if !matches!(self.peek_char(), Some('"' | '\'')) {
             return Err(self.insertion_error("expected quoted service icon text"));
         }
+
         let Some(parsed) = parse_langium_string(&self.input[start..], start) else {
             self.pos = self.input.len();
             return Err(self.insertion_error("unterminated quoted service icon text"));
         };
+
         self.pos = start + parsed.consumed;
         Ok(self.spanned(
             parsed.value,
@@ -584,16 +625,20 @@ impl<'a> ArchitectureStatementParser<'a> {
 
     fn parse_title(&mut self) -> Result<Option<ArchitectureSpannedValue>> {
         self.skip_ws();
+
         if self.peek_char() != Some('[') {
             return Ok(None);
         }
+
         let start = self.pos;
         self.bump();
         let selection_start = self.pos;
         let quote = self.peek_char().filter(|ch| matches!(ch, '"' | '\''));
-        if let Some(quote) = quote {
+
+        if let Some(quote_2) = quote {
             self.bump();
             let mut escaped = false;
+
             while let Some(ch) = self.peek_char() {
                 if escaped {
                     if is_ecmascript_line_terminator(ch) {
@@ -601,44 +646,66 @@ impl<'a> ArchitectureStatementParser<'a> {
                             "escaped line terminator is not valid in an architecture title",
                         ));
                     }
+
                     escaped = false;
                     self.bump();
                     continue;
                 }
-                if ch == '\\' {
-                    escaped = true;
-                    self.bump();
-                    continue;
+
+                match ch {
+                    '\\' => {
+                        escaped = true;
+                        self.bump();
+                        continue;
+                    },
+                    _ => {},
                 }
-                if ch == quote {
+
+                if ch == quote_2 {
                     break;
                 }
+
                 self.bump();
             }
-            if self.peek_char() != Some(quote) {
+
+            if self.peek_char() != Some(quote_2) {
                 return Err(self.insertion_error("unterminated architecture title"));
             }
+
             self.bump();
         } else {
             let mut count = 0usize;
+
             while let Some(ch) = self.peek_char() {
-                if ch == ']' {
-                    break;
+                match ch {
+                    ']' => {
+                        break;
+                    },
+                    _ => {},
                 }
+
                 if matches!(ch, '[' | '\r' | '\n') {
                     return Err(self.exact_char_error("invalid architecture title", ch));
                 }
+
                 count += 1;
                 self.bump();
             }
-            if count == 0 {
-                return Err(self.insertion_error("empty architecture title"));
+
+            match count {
+                0 => {
+                    return Err(self.insertion_error("empty architecture title"));
+                },
+                _ => {},
             }
         }
+
         let selection_end = self.pos;
+
         if self.peek_char() != Some(']') {
             return Err(self.insertion_error("unterminated architecture title"));
         }
+
         self.bump();
         let raw = &self.input[selection_start..selection_end];
         Ok(Some(self.spanned(
@@ -657,9 +724,16 @@ impl<'a> ArchitectureStatementParser<'a> {
     ) -> Result<ArchitectureSpannedValue> {
         self.skip_ws();
         let start = self.pos;
-        let Some(ch) = self.bump() else {
-            return Err(self.insertion_error(missing_message));
+
+        let ch = {
+            let optional_ch = self.bump();
+
+            match optional_ch {
+                Some(matched_ch) => matched_ch,
+                ::core::option::Option::None => return Err(self.insertion_error(missing_message)),
+            }
         };
+
         if !matches!(ch, 'L' | 'R' | 'T' | 'B') {
             return Err(Error::diagram_parse_exact(
                 "architecture",
@@ -667,11 +741,13 @@ impl<'a> ArchitectureStatementParser<'a> {
                 SourceSpan::new(self.base_offset + start, self.base_offset + self.pos),
             ));
         }
+
         Ok(self.spanned(ch.to_string(), start, self.pos, start, self.pos))
     }
 
     fn parse_arrow_into(&mut self) -> Option<bool> {
         self.skip_ws();
+
         if matches!(self.peek_char(), Some('<' | '>')) {
             self.bump();
             Some(true)
@@ -682,6 +758,7 @@ impl<'a> ArchitectureStatementParser<'a> {
 
     fn parse_group_modifier(&mut self) -> Option<bool> {
         self.skip_ws();
+
         if self.remaining().starts_with("{group}") {
             self.pos += "{group}".len();
             Some(true)
@@ -753,6 +830,7 @@ impl<'a> ArchitectureStatementParser<'a> {
         });
     }
 
+    #[must_use]
     fn next_is_keyword(&self, keyword: &str) -> bool {
         let remaining = self.remaining().trim_start_matches([' ', '\t']);
         remaining.starts_with(keyword)
@@ -769,10 +847,13 @@ impl<'a> ArchitectureStatementParser<'a> {
 
     fn consume_keyword(&mut self, keyword: &str) -> bool {
         self.skip_ws();
+
         if !self.remaining().starts_with(keyword) {
             return false;
         }
+
         let tail = &self.remaining()[keyword.len()..];
+
         if tail
             .chars()
             .next()
@@ -780,6 +861,7 @@ impl<'a> ArchitectureStatementParser<'a> {
         {
             return false;
         }
+
         self.pos += keyword.len();
         true
     }
@@ -794,18 +876,22 @@ impl<'a> ArchitectureStatementParser<'a> {
 
     fn expect_syntax_char(&mut self, expected: char, message: &str) -> Result<()> {
         self.skip_ws();
+
         if self.peek_char() != Some(expected) {
             return Err(self.insertion_error(message));
         }
+
         self.bump();
         Ok(())
     }
 
     fn finish(&mut self) -> Result<()> {
         self.skip_ws();
+
         if self.is_eof() {
             return Ok(());
         }
+
         let start = self.pos;
         let end = self.input.len();
         Err(Error::diagram_parse_exact(
@@ -815,6 +901,7 @@ impl<'a> ArchitectureStatementParser<'a> {
         ))
     }
 
+    #[must_use]
     fn spanned(
         &self,
         value: String,
@@ -834,10 +921,12 @@ impl<'a> ArchitectureStatementParser<'a> {
         }
     }
 
+    #[must_use]
     fn insertion_error(&self, message: &str) -> Error {
         Error::diagram_parse_insertion_point("architecture", message, self.base_offset + self.pos)
     }
 
+    #[must_use]
     fn exact_char_error(&self, message: &str, ch: char) -> Error {
         Error::diagram_parse_exact(
             "architecture",
@@ -849,14 +938,17 @@ impl<'a> ArchitectureStatementParser<'a> {
         )
     }
 
+    #[must_use]
     fn remaining(&self) -> &'a str {
         &self.input[self.pos..]
     }
 
+    #[must_use]
     fn is_eof(&self) -> bool {
         self.pos >= self.input.len()
     }
 
+    #[must_use]
     fn peek_char(&self) -> Option<char> {
         self.remaining().chars().next()
     }
@@ -874,14 +966,18 @@ impl<'a> ArchitectureStatementParser<'a> {
     }
 }
 
+#[must_use]
 fn convert_architecture_title(raw: &str) -> String {
     let trimmed = raw.trim();
+
     let Some(quote @ ('"' | '\'')) = trimmed.chars().next() else {
         return trimmed.to_string();
     };
+
     if trimmed.len() < quote.len_utf8() * 2 || !trimmed.ends_with(quote) {
         return trimmed.to_string();
     }
+
     let inner = &trimmed[quote.len_utf8()..trimmed.len() - quote.len_utf8()];
     inner
         .replace("\\\"", "\"")
@@ -944,7 +1040,7 @@ pub(super) fn parse_semantic_model_controlled(
         control,
     )?;
     let model = match construction.model {
-        Ok(db) => Ok(db.semantic_model_controlled(control)?),
+        Ok(db) => Ok({ let checked_value = db.semantic_model_controlled(control)?; checked_value }),
         Err(error) => Err(error),
     };
     Ok(crate::family::SemanticConstruction {
@@ -999,14 +1095,14 @@ fn construct_semantic_source_controlled(
     };
     #[cfg(not(feature = "editor-facts"))]
     let mode = ArchitectureParseMode::Strict;
-    let trace = match parse_trace_controlled(
+    let trace = match { let checked_value = parse_trace_controlled(
         code,
         diagram_type,
         mode,
         #[cfg(feature = "editor-facts")]
         editor_demand,
         control,
-    )? {
+    )?; checked_value } {
         Ok(trace) => trace,
         Err(error) => {
             #[cfg(feature = "editor-facts")]
@@ -1089,9 +1185,11 @@ fn parse_trace_controlled(
     while let Some(line) = lines.next() {
         control.checkpoint()?;
         let (trimmed, trimmed_start) = trimmed_statement_with_offset(line.text, line.start);
+
         if trimmed.is_empty() {
             continue;
         }
+
         let Some(rest_with_ws) = trimmed.strip_prefix("architecture-beta") else {
             return Ok(handle_header_error(
                 &mut trace,
@@ -1101,6 +1199,7 @@ fn parse_trace_controlled(
                 trimmed.len(),
             ));
         };
+
         if rest_with_ws
             .chars()
             .next()
@@ -1114,9 +1213,11 @@ fn parse_trace_controlled(
                 trimmed.len(),
             ));
         }
+
         found_header = true;
         let leading = rest_with_ws.len() - rest_with_ws.trim_start().len();
         let rest = rest_with_ws.trim_start();
+
         if !rest.is_empty() {
             let common_start = trimmed_start + "architecture-beta".len();
             let statement_start = common_start + leading;
@@ -1135,6 +1236,7 @@ fn parse_trace_controlled(
             };
             trace.entries.push(entry);
         }
+
         break;
     }
 
@@ -1151,9 +1253,11 @@ fn parse_trace_controlled(
     while let Some(line) = lines.next() {
         control.checkpoint()?;
         let (trimmed, trimmed_start) = trimmed_statement_with_offset(line.text, line.start);
+
         if trimmed.is_empty() {
             continue;
         }
+
         let entry = match parse_trace_statement(
             code,
             &mut lines,
@@ -1194,9 +1298,11 @@ fn handle_header_error(
             SourceSpan::new(start, start + len),
         )
     };
+
     if mode == ArchitectureParseMode::Strict {
         return Err(error);
     }
+
     trace.entries.push(ArchitectureTraceEntry {
         statement: None,
         #[cfg(feature = "editor-facts")]
@@ -1237,6 +1343,7 @@ fn parse_trace_statement(
         )
         .parse()
     };
+
     match parsed {
         Ok(entry) => Ok(entry),
         Err(failure) if mode == ArchitectureParseMode::Strict => Err(*failure.error),
@@ -1308,6 +1415,7 @@ fn architecture_common_trace_entry(
     })
 }
 
+#[must_use]
 fn architecture_common_value(fact: &LangiumCommonFact) -> ArchitectureSpannedValue {
     ArchitectureSpannedValue {
         value: fact.value.clone(),
@@ -1329,20 +1437,24 @@ fn extend_quoted_statement<'a>(
 
     let mut quote = None;
     let mut escaped = false;
+
     for (relative, ch) in code[statement_start..].char_indices() {
         let offset = statement_start + relative;
+
         if let Some(active_quote) = quote {
             if escaped {
                 if is_ecmascript_line_terminator(ch) {
                     lines.offset = line_ending_end(code, offset);
                     return code[statement_start..offset].trim_end_matches([' ', '\t']);
                 }
+
                 escaped = false;
             } else if ch == '\\' {
                 escaped = true;
             } else if ch == active_quote {
                 quote = None;
             }
+
             continue;
         }
 
@@ -1361,9 +1473,11 @@ fn extend_quoted_statement<'a>(
     code[statement_start..].trim_end_matches([' ', '\t'])
 }
 
+#[must_use]
 fn open_quote_at_end(input: &str) -> Option<char> {
     let mut quote = None;
     let mut escaped = false;
+
     for ch in input.chars() {
         if let Some(active_quote) = quote {
             if escaped {
@@ -1377,15 +1491,18 @@ fn open_quote_at_end(input: &str) -> Option<char> {
             quote = Some(ch);
         }
     }
+
     quote.filter(|_| !escaped)
 }
 
+#[must_use]
 fn next_physical_line_offset(code: &str, offset: usize) -> usize {
     code[offset..]
         .find('\n')
         .map_or(code.len(), |relative| offset + relative + 1)
 }
 
+#[must_use]
 fn line_ending_end(code: &str, offset: usize) -> usize {
     if code[offset..].starts_with("\r\n") {
         offset + 2
@@ -1445,9 +1562,10 @@ impl ArchitectureTrace {
         let mut db = ArchitectureDb::default();
 
         for (index, entry) in self.entries.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             match entry.statement.as_ref() {
                 Some(ArchitectureStatement::Title(value)) => db.set_title(value.value.clone()),
                 Some(ArchitectureStatement::AccTitle(value)) => {
@@ -1459,10 +1577,12 @@ impl ArchitectureTrace {
                 _ => {}
             }
         }
+
         for (index, entry) in self.entries.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             if let Some(ArchitectureStatement::Group {
                 id,
                 icon,
@@ -1479,10 +1599,12 @@ impl ArchitectureTrace {
                 return Ok(Err(error));
             }
         }
+
         for (index, entry) in self.entries.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             if let Some(ArchitectureStatement::Service {
                 id,
                 icon,
@@ -1501,30 +1623,36 @@ impl ArchitectureTrace {
                 return Ok(Err(error));
             }
         }
+
         for (index, entry) in self.entries.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             if let Some(ArchitectureStatement::Junction { id, in_group }) = entry.statement.as_ref()
                 && let Err(error) = db.add_junction(id.clone(), in_group.clone())
             {
                 return Ok(Err(error));
             }
         }
+
         for (index, entry) in self.entries.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             if let Some(ArchitectureStatement::Edge(edge)) = entry.statement.as_ref()
                 && let Err(error) = db.add_edge(edge.clone())
             {
                 return Ok(Err(error));
             }
         }
+
         for (index, entry) in self.entries.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             if let Some(ArchitectureStatement::Alignment { direction, members }) =
                 entry.statement.as_ref()
                 && let Err(error) = db.add_layout_hint_controlled(
@@ -1537,6 +1665,7 @@ impl ArchitectureTrace {
                 return Ok(Err(error));
             }
         }
+
         control.checkpoint()?;
         Ok(Ok(db))
     }

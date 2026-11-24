@@ -5,8 +5,11 @@ use console_core_geometry::Point;
 use console_core_never::Never;
 use console_core_number_conversion::{fixed_index, index, wrapped};
 use console_core_pixel_buffers::{RowLayout, RowLayoutError, copy_clamped_window};
+use console_core_simd::Simd;
 use console_core_size::Size;
-use console_core_video_interpolation::{convolve8, round_shift};
+use console_core_video_interpolation::{
+  FilterTaps, TapSpanOutsideSource, convolve8, filter_8tap_u16_row, round_shift,
+};
 
 use crate::frame::{Frame, Line};
 use crate::places::{after, read, span, span_mut};
@@ -177,6 +180,7 @@ fn source_window<'a>(
   fetch_window(reference, origin, block, buffer)
 }
 
+#[doc = "Uses narrow SIMD kernels on short 8-bit rows and the 16-bit accumulator on wide 8-bit rows."]
 fn predict_unscaled(
   reference: &RefPlane<'_>,
   motion: Motion,
@@ -201,6 +205,13 @@ fn predict_unscaled(
   let maximum = 1i32
     .wrapping_shl(u32::from(motion.bit_depth))
     .wrapping_sub(1);
+  let simd = match (horizontal_phase, vertical_phase, maximum, shape.width) {
+    (0, 0, _, _) | (_, _, 255, 32..) => None,
+    _ => {
+      let Ok(available) = Simd::available();
+      available.skip(1).last()
+    }
+  };
   let Ok(horizontal) = taps(FilterPhase {
     filter: motion.filter,
     phase: horizontal_phase,
@@ -240,7 +251,7 @@ fn predict_unscaled(
             width: shape.width,
           },
         );
-        let Ok(()) = filter_row(samples, 1, horizontal, maximum, destination);
+        let Ok(()) = filter_row(simd, samples, 1, horizontal, maximum, destination);
       }
     }
     (0, _) => {
@@ -254,7 +265,7 @@ fn predict_unscaled(
             width: shape.width,
           },
         );
-        let Ok(()) = filter_row(samples, source.stride, vertical, maximum, destination);
+        let Ok(()) = filter_row(simd, samples, source.stride, vertical, maximum, destination);
       }
     }
     _ => {
@@ -268,7 +279,7 @@ fn predict_unscaled(
             width: shape.width,
           },
         );
-        let Ok(()) = filter_row(samples, 1, horizontal, maximum, destination);
+        let Ok(()) = filter_row(simd, samples, 1, horizontal, maximum, destination);
       }
 
       for row in 0..shape.height {
@@ -280,7 +291,7 @@ fn predict_unscaled(
             width: shape.width,
           },
         );
-        let Ok(()) = filter_row(samples, shape.width, vertical, maximum, destination);
+        let Ok(()) = filter_row(simd, samples, shape.width, vertical, maximum, destination);
       }
     }
   }
@@ -303,6 +314,7 @@ fn destination_row(
 
 #[inline(always)]
 fn filter_row(
+  simd: Option<Simd>,
   source: &[u16],
   step: u64,
   coefficients: &[i16; 8],
@@ -310,30 +322,39 @@ fn filter_row(
   output: &mut [u16],
 ) -> Result<(), Never> {
   match output.len() {
-    4 => filter_row_n::<4>(source, step, coefficients, maximum, output),
-    8 => filter_row_n::<8>(source, step, coefficients, maximum, output),
-    16 => filter_row_n::<16>(source, step, coefficients, maximum, output),
-    32 => filter_row_n::<32>(source, step, coefficients, maximum, output),
-    64 => filter_row_n::<64>(source, step, coefficients, maximum, output),
-    _ => {
-      for (column, pixel) in output.iter_mut().enumerate() {
-        let Ok(x) = fixed_index(column);
-        let sum = convolve8(coefficients, |tap| {
-          let Ok(k) = fixed_index(tap);
-          let Ok(sample) = read(source, x.wrapping_add(k.wrapping_mul(step)));
-          i32::from(sample)
-        });
-        let Ok(sample) = finish_sample(SampleSum { sum, maximum });
-        *pixel = sample;
-      }
-
-      Ok(())
-    }
+    4 => filter_row_n::<4>(simd, source, step, coefficients, maximum, output),
+    8 => filter_row_n::<8>(simd, source, step, coefficients, maximum, output),
+    16 => filter_row_n::<16>(simd, source, step, coefficients, maximum, output),
+    32 => filter_row_n::<32>(simd, source, step, coefficients, maximum, output),
+    64 => filter_row_n::<64>(simd, source, step, coefficients, maximum, output),
+    _ => filter_scalar_row(source, step, coefficients, maximum, output),
   }
+}
+
+fn filter_scalar_row(
+  source: &[u16],
+  step: u64,
+  coefficients: &[i16; 8],
+  maximum: i32,
+  output: &mut [u16],
+) -> Result<(), Never> {
+  for (column, pixel) in output.iter_mut().enumerate() {
+    let Ok(x) = fixed_index(column);
+    let sum = convolve8(coefficients, |tap| {
+      let Ok(k) = fixed_index(tap);
+      let Ok(sample) = read(source, x.wrapping_add(k.wrapping_mul(step)));
+      i32::from(sample)
+    });
+    let Ok(sample) = finish_sample(SampleSum { sum, maximum });
+    *pixel = sample;
+  }
+
+  Ok(())
 }
 
 #[inline(always)]
 fn filter_row_n<const WIDTH: usize>(
+  simd: Option<Simd>,
   source: &[u16],
   step: u64,
   coefficients: &[i16; 8],
@@ -345,9 +366,32 @@ fn filter_row_n<const WIDTH: usize>(
     None => return Ok(()),
   };
 
-  match maximum {
-    255 => filter_row_8_bit(source, step, coefficients, destination),
-    _ => filter_row_high_depth(source, step, coefficients, maximum, destination),
+  match (maximum, simd) {
+    (255, None) => filter_row_8_bit(source, step, coefficients, destination),
+    (sample_maximum, capability) => {
+      let Ok(clip) = wrapped(sample_maximum);
+      let backend = match capability {
+        Some(selected) => selected,
+        None => Simd::SCALAR,
+      };
+
+      match filter_8tap_u16_row::<7>(
+        backend,
+        source,
+        coefficients,
+        FilterTaps {
+          step,
+          bias: 64,
+          maximum: clip,
+        },
+        destination,
+      ) {
+        Ok(()) => Ok(()),
+        Err(_missing_taps) => {
+          filter_scalar_row(source, step, coefficients, sample_maximum, destination)
+        }
+      }
+    }
   }
 }
 
@@ -387,41 +431,6 @@ fn filter_row_8_bit<const WIDTH: usize>(
   Ok(())
 }
 
-#[inline(always)]
-fn filter_row_high_depth<const WIDTH: usize>(
-  source: &[u16],
-  step: u64,
-  coefficients: &[i16; 8],
-  maximum: i32,
-  output: &mut [u16; WIDTH],
-) -> Result<(), Never> {
-  let mut sums = [0i32; WIDTH];
-
-  for (tap, &coefficient) in coefficients.iter().enumerate() {
-    let Ok(k) = fixed_index(tap);
-    let Ok(at) = index(k.wrapping_mul(step));
-    let samples = match source
-      .get(at..)
-      .and_then(|tail| tail.first_chunk::<WIDTH>())
-    {
-      Some(samples) => samples,
-      None => return Ok(()),
-    };
-    let weight = i32::from(coefficient);
-
-    for (sum, &sample) in sums.iter_mut().zip(samples) {
-      *sum = sum.wrapping_add(weight.wrapping_mul(i32::from(sample)));
-    }
-  }
-
-  for (pixel, sum) in output.iter_mut().zip(sums) {
-    let Ok(sample) = finish_sample(SampleSum { sum, maximum });
-    *pixel = sample;
-  }
-
-  Ok(())
-}
-
 struct SampleSum {
   sum: i32,
   maximum: i32,
@@ -450,6 +459,8 @@ fn predict_scaled(
     .wrapping_add(8);
   let Ok(intermediate_rows) = wrapped::<_, u64>(rows.max(0));
   let Ok(()) = scaled_horizontal(reference, motion, intermediate_rows, maximum, intermediate);
+  let Ok(simd) = Simd::detected();
+  let Ok(clip) = wrapped::<_, u16>(maximum);
 
   for row in 0..motion.height {
     let Ok(vertical) = wrapped::<_, i32>(row);
@@ -467,6 +478,30 @@ fn predict_scaled(
         width: motion.width,
       },
     );
+
+    let source = start.checked_mul(motion.width).and_then(|offset| {
+      let Ok(at) = index(offset);
+      intermediate.get(at..)
+    });
+    let filtered = match source {
+      Some(readable) => Some(filter_8tap_u16_row::<7>(
+        simd,
+        readable,
+        coefficients,
+        FilterTaps {
+          step: motion.width,
+          bias: 64,
+          maximum: clip,
+        },
+        destination,
+      )),
+      None => None,
+    };
+
+    match filtered {
+      Some(Ok(())) => continue,
+      Some(Err(TapSpanOutsideSource)) | None => {}
+    }
 
     for (column, pixel) in destination.iter_mut().enumerate() {
       let Ok(x) = fixed_index(column);
@@ -545,13 +580,14 @@ fn scaled_horizontal(
 mod tests {
   use super::*;
 
-  fn reference_frame() -> Result<Frame, Never> {
+  fn reference_frame(bit_depth: u8) -> Result<Frame, Never> {
+    let range = 1_u64.wrapping_shl(u32::from(bit_depth));
     let data: Vec<u16> = (0..1200u64)
       .map(|i| {
         let value = i
           .wrapping_mul(37)
           .wrapping_add(i.wrapping_div(40).wrapping_mul(11))
-          .wrapping_rem(256);
+          .wrapping_rem(range.max(1));
         let Ok(sample) = wrapped::<_, u16>(value);
         sample
       })
@@ -563,7 +599,7 @@ mod tests {
     let info = crate::frame::FrameInfo {
       size,
       subsampling: crate::frame::Subsampling { x: 1, y: 1 },
-      bit_depth: 8,
+      bit_depth,
       color_space: 0,
       color_range: crate::frame::SampleRange::Limited,
       render: size,
@@ -583,7 +619,51 @@ mod tests {
 
   #[test]
   fn scaled_path_with_unit_step_matches_unscaled() {
-    let Ok(frame) = reference_frame();
+    for bit_depth in [8, 10, 12] {
+      let Ok(()) = compare_scaled_and_unscaled(bit_depth);
+    }
+  }
+
+  #[test]
+  fn scaled_vertical_filter_keeps_zero_filled_taps_at_a_short_scratch_boundary() {
+    let Ok(frame) = reference_frame(8);
+    let reference = RefPlane {
+      frame: &frame,
+      plane: 0,
+      last_x: 39,
+      last_y: 29,
+    };
+    let motion = Motion {
+      x: 0,
+      y: 0,
+      step_x: 16,
+      step_y: 32,
+      width: 8,
+      height: 4,
+      filter: 0,
+      bit_depth: 8,
+    };
+    let mut output = [[u16::MAX; 8]; 4];
+    let mut intermediate = [0; 64];
+    let Ok(()) = predict_scaled(
+      &reference,
+      motion,
+      output.as_flattened_mut(),
+      &mut intermediate,
+    );
+
+    let [first, second, third, last] = &output;
+
+    for (row, y) in [first, second, third].into_iter().zip([0, 2, 4]) {
+      let Ok(reference_row) = reference.row(y);
+      assert_eq!(Some(row), reference_row.first_chunk::<8>());
+    }
+
+    assert_eq!(*last, [0; 8]);
+  }
+
+  fn compare_scaled_and_unscaled(bit_depth: u8) -> Result<(), Never> {
+    let Ok(frame) = reference_frame(bit_depth);
     let reference = RefPlane {
       frame: &frame,
       plane: 0,
@@ -596,12 +676,13 @@ mod tests {
       for (x, y) in [
         (0, 0),
         (5, 3),
+        (117, 160),
         (117, 155),
         (-40, -3),
         (577, 415),
         (160, 168),
       ] {
-        for (width, height) in [(4u64, 4u64), (8, 8), (16, 8)] {
+        for (width, height) in [(4u64, 4u64), (8, 8), (16, 8), (32, 8), (64, 8)] {
           let size = width.wrapping_mul(height);
           let Ok(mut a) = crate::frame::filled::<u16, 128>(size, 0);
           let Ok(mut b) = crate::frame::filled::<u16, 128>(size, 0);
@@ -613,13 +694,18 @@ mod tests {
             width,
             height,
             filter,
-            bit_depth: 8,
+            bit_depth,
           };
           let Ok(()) = predict_unscaled(&reference, motion, &mut a, &mut tmp, &mut [0; 5041]);
           let Ok(()) = predict_scaled(&reference, motion, &mut b, &mut tmp);
-          assert_eq!(a, b, "filter {filter} pos ({x},{y}) {width}x{height}");
+          assert_eq!(
+            a, b,
+            "{bit_depth}-bit filter {filter} pos ({x},{y}) {width}x{height}"
+          );
         }
       }
     }
+
+    Ok(())
   }
 }

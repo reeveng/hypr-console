@@ -7,6 +7,9 @@ use crate::spec_tables::{DEFAULT_SCALING_INTER, DEFAULT_SCALING_INTRA};
 use crate::tables::scan_diag;
 use console_core_never::Never;
 use console_core_number_conversion::{fixed_index, index, wrapped};
+use console_core_video_decoding_bitstream::video_usability_information::{
+  VideoSignal, read_aspect_ratio, read_video_signal,
+};
 use console_core_video_decoding_bitstream::{BitReader, FlagBit};
 use std::ops::Range;
 
@@ -361,7 +364,7 @@ pub fn skip_hrd(
       ::core::option::Option::Some(()) => {
         let ue = r.read_ue()?;
         cpb_cnt = u32::wrapping_add(ue, 1);
-        ensure!(cpb_cnt <= 32, "cpb_cnt_minus1 out of range");
+        ensure(cpb_cnt <= 32, || "cpb_cnt_minus1 out of range")?;
       }
       ::core::option::Option::None => {}
     }
@@ -431,49 +434,27 @@ pub struct Vui {
 
 impl Default for Vui {
   fn default() -> Self {
+    let signal = VideoSignal::UNSPECIFIED;
+
     Vui {
       sar: (0, 0),
       full_range: false,
-      colour_primaries: 2,
-      transfer_characteristics: 2,
-      matrix_coefficients: 2,
+      colour_primaries: signal.colour_primaries,
+      transfer_characteristics: signal.transfer_characteristics,
+      matrix_coefficients: signal.matrix_coefficients,
       field_seq: false,
       timing: None,
     }
   }
 }
 
-const SAR_TABLE: [(u16, u16); 17] = [
-  (0, 0),
-  (1, 1),
-  (12, 11),
-  (10, 11),
-  (16, 11),
-  (40, 33),
-  (24, 11),
-  (20, 11),
-  (32, 11),
-  (80, 33),
-  (18, 11),
-  (15, 11),
-  (64, 33),
-  (160, 99),
-  (4, 3),
-  (3, 2),
-  (2, 1),
-];
-
-fn parse_vui(r: &mut BitReader, max_sub_layers_minus1: u32) -> Result<Vui> {
-  let mut vui = Vui::default();
-  let aspect_ratio = r.read_flag()?;
-
-  match aspect_ratio {
-    FlagBit::One => {
-      let checked_value = read_aspect_ratio(r)?;
-      vui.sar = checked_value;
-    }
-    FlagBit::Zero => {}
-  }
+fn parse_video_usability_information(
+  r: &mut BitReader,
+  max_sub_layers_minus1: u32,
+) -> Result<Vui> {
+  let mut information = Vui::default();
+  let aspect_ratio = read_aspect_ratio(r)?;
+  information.sar = aspect_ratio.sample_aspect_ratio;
 
   let overscan = r.read_flag()?;
 
@@ -482,12 +463,11 @@ fn parse_vui(r: &mut BitReader, max_sub_layers_minus1: u32) -> Result<Vui> {
     FlagBit::Zero => {}
   }
 
-  let video_signal = r.read_flag()?;
-
-  match video_signal {
-    FlagBit::One => read_video_signal(r, &mut vui)?,
-    FlagBit::Zero => {}
-  }
+  let signal = read_video_signal(r)?;
+  information.full_range = signal.range == FlagBit::One;
+  information.colour_primaries = signal.colour_primaries;
+  information.transfer_characteristics = signal.transfer_characteristics;
+  information.matrix_coefficients = signal.matrix_coefficients;
 
   let chroma_location = r.read_flag()?;
 
@@ -501,7 +481,7 @@ fn parse_vui(r: &mut BitReader, max_sub_layers_minus1: u32) -> Result<Vui> {
 
   r.skip(1)?;
   let field_sequence = r.read_flag()?;
-  vui.field_seq = field_sequence == FlagBit::One;
+  information.field_seq = field_sequence == FlagBit::One;
   r.skip(1)?;
   let window = r.read_flag()?;
 
@@ -518,8 +498,8 @@ fn parse_vui(r: &mut BitReader, max_sub_layers_minus1: u32) -> Result<Vui> {
 
   match timing {
     FlagBit::One => {
-      let clock = read_vui_timing(r, max_sub_layers_minus1)?;
-      vui.timing = Some(clock);
+      let clock = read_video_usability_timing(r, max_sub_layers_minus1)?;
+      information.timing = Some(clock);
     }
     FlagBit::Zero => {}
   }
@@ -537,55 +517,13 @@ fn parse_vui(r: &mut BitReader, max_sub_layers_minus1: u32) -> Result<Vui> {
     FlagBit::Zero => {}
   }
 
-  Ok(vui)
+  Ok(information)
 }
 
-fn read_byte(r: &mut BitReader, bits: u32) -> Result<u8> {
-  let field = r.read_bits(bits)?;
-  let Ok(value) = wrapped::<_, u8>(field);
-  Ok(value)
-}
-
-fn read_aspect_ratio(r: &mut BitReader) -> Result<(u16, u16)> {
-  let id = r.read_bits(8)?;
-
-  match id {
-    255 => {
-      let width = r.read_bits(16)?;
-      let height = r.read_bits(16)?;
-      let Ok(width_2) = wrapped::<_, u16>(width);
-      let Ok(height_2) = wrapped::<_, u16>(height);
-      Ok((width_2, height_2))
-    }
-    id_2 => {
-      let Ok(ratio) = read(&SAR_TABLE, u64::from(id_2));
-      Ok(ratio)
-    }
-  }
-}
-
-fn read_video_signal(r: &mut BitReader, vui: &mut Vui) -> Result<()> {
-  r.skip(3)?;
-  let range = r.read_flag()?;
-  vui.full_range = range == FlagBit::One;
-  let colour = r.read_flag()?;
-
-  match colour {
-    FlagBit::One => {
-      let checked_value_2 = read_byte(r, 8)?;
-      vui.colour_primaries = checked_value_2;
-      let checked_value_3 = read_byte(r, 8)?;
-      vui.transfer_characteristics = checked_value_3;
-      let checked_value_4 = read_byte(r, 8)?;
-      vui.matrix_coefficients = checked_value_4;
-    }
-    FlagBit::Zero => {}
-  }
-
-  Ok(())
-}
-
-fn read_vui_timing(r: &mut BitReader, max_sub_layers_minus1: u32) -> Result<(u32, u32)> {
+fn read_video_usability_timing(
+  r: &mut BitReader,
+  max_sub_layers_minus1: u32,
+) -> Result<(u32, u32)> {
   let units = r.read_bits(32)?;
   let scale = r.read_bits(32)?;
   let proportional = r.read_flag()?;
@@ -714,10 +652,10 @@ fn read_scaling_row(
       FlagBit::Zero => {
         let prediction = r.read_ue()?;
         let delta = u64::from(prediction).wrapping_mul(delta_step);
-        ensure!(
+        ensure(
           delta <= ordinal,
-          "scaling_list_pred_matrix_id_delta out of range"
-        );
+          || "scaling_list_pred_matrix_id_delta out of range",
+        )?;
         let position = ScalingPredictor {
           destination: ordinal,
           delta,
@@ -775,10 +713,10 @@ fn read_scaling_coefficients(
   match size {
     ScalingSize::Sixteen | ScalingSize::ThirtyTwo => {
       let dc = r.read_se()?;
-      ensure!(
+      ensure(
         (-7..=247).contains(&dc),
-        "scaling_list_dc_coef_minus8 out of range"
-      );
+        || "scaling_list_dc_coef_minus8 out of range",
+      )?;
       start = dc.wrapping_add(8);
     }
     ScalingSize::Four | ScalingSize::Eight => {}
@@ -793,10 +731,10 @@ fn read_scaling_coefficients(
 
   for (coefficient, _) in row.iter_mut().zip(0..count) {
     let delta = r.read_se()?;
-    ensure!(
+    ensure(
       (-128..=127).contains(&delta),
-      "scaling_list_delta_coef out of range"
-    );
+      || "scaling_list_delta_coef out of range",
+    )?;
     let Ok(delta_2) = wrapped::<_, u8>(delta);
     next = next.wrapping_add(delta_2);
     *coefficient = next;
@@ -891,7 +829,7 @@ impl StRps {
           }
           None => 1,
         };
-        ensure!(delta <= position, "delta_idx_minus1 out of range");
+        ensure(delta <= position, || "delta_idx_minus1 out of range")?;
         let Ok(at) = index(position.wrapping_sub(delta));
         let source = match sets.get(at) {
           Some(source) => source,
@@ -906,10 +844,10 @@ impl StRps {
 fn parse_absolute_rps(r: &mut BitReader) -> Result<StRps> {
   let negative = r.read_ue()?;
   let positive = r.read_ue()?;
-  ensure!(
+  ensure(
     negative <= 16 && positive <= 16 && negative.wrapping_add(positive) <= 16,
-    "too many pictures in RPS"
-  );
+    || "too many pictures in RPS",
+  )?;
   let s0 = read_rps_deltas(r, negative, RpsDirection::Negative)?;
   let s1 = read_rps_deltas(r, positive, RpsDirection::Positive)?;
   Ok(StRps { s0, s1 })
@@ -933,11 +871,11 @@ fn read_rps_deltas(
 
     match direction {
       RpsDirection::Negative => {
-        ensure!(delta <= 32768, "delta_poc_s0_minus1 out of range");
+        ensure(delta <= 32768, || "delta_poc_s0_minus1 out of range")?;
         poc = poc.wrapping_sub(delta);
       }
       RpsDirection::Positive => {
-        ensure!(delta <= 32768, "delta_poc_s1_minus1 out of range");
+        ensure(delta <= 32768, || "delta_poc_s1_minus1 out of range")?;
         poc = poc.wrapping_add(delta);
       }
     }
@@ -958,7 +896,7 @@ fn read_rps_delta(r: &mut BitReader) -> Result<i32> {
 fn parse_relative_rps(r: &mut BitReader, source: &StRps) -> Result<StRps> {
   let sign = r.read_flag()?;
   let delta = read_rps_delta(r)?;
-  ensure!(delta <= 32768, "abs_delta_rps_minus1 out of range");
+  ensure(delta <= 32768, || "abs_delta_rps_minus1 out of range")?;
   let delta_2 = match sign {
     FlagBit::One => delta.wrapping_neg(),
     FlagBit::Zero => delta,
@@ -989,7 +927,7 @@ fn parse_relative_rps(r: &mut BitReader, source: &StRps) -> Result<StRps> {
     .collect();
   let out = StRps { s0, s1 };
   let Ok(count) = fixed_index(out.s0.len().wrapping_add(out.s1.len()));
-  ensure!(count <= 16, "too many pictures in RPS");
+  ensure(count <= 16, || "too many pictures in RPS")?;
   Ok(out)
 }
 
@@ -1099,16 +1037,16 @@ fn read_sps_format(r: &mut BitReader) -> Result<SpsFormat> {
     numeric_value
   };
   let max_sub_layers_minus1 = r.read_bits(3)?;
-  ensure!(
+  ensure(
     max_sub_layers_minus1 <= 6,
-    "sps_max_sub_layers_minus1 out of range"
-  );
+    || "sps_max_sub_layers_minus1 out of range",
+  )?;
   r.skip(1)?;
   let ptl = parse_ptl(r, SyntaxField::Present, max_sub_layers_minus1)?;
   let id = r.read_ue()?;
-  ensure!(id < 16, "sps_seq_parameter_set_id out of range");
+  ensure(id < 16, || "sps_seq_parameter_set_id out of range")?;
   let chroma_format_idc = r.read_ue()?;
-  ensure!(chroma_format_idc <= 3, "chroma_format_idc out of range");
+  ensure(chroma_format_idc <= 3, || "chroma_format_idc out of range")?;
   let separate_colour_plane = match ::core::primitive::bool::then_some(chroma_format_idc == 3, ())
   {
     ::core::option::Option::Some(()) => matches!(
@@ -1122,10 +1060,10 @@ fn read_sps_format(r: &mut BitReader) -> Result<SpsFormat> {
   };
   let width = r.read_ue()?;
   let height = r.read_ue()?;
-  ensure!(
+  ensure(
     width > 0 && height > 0 && width <= 16888 && height <= 16888,
-    "picture size {width}x{height} out of range"
-  );
+    || format!("picture size {width}x{height} out of range"),
+  )?;
   let mut conf_win = (0, 0, 0, 0);
 
   let flag = matches!(
@@ -1151,16 +1089,16 @@ fn read_sps_format(r: &mut BitReader) -> Result<SpsFormat> {
   let bit_depth_luma = u32::wrapping_add(ue, 8);
   let r_ue = r.read_ue()?;
   let bit_depth_chroma = u32::wrapping_add(r_ue, 8);
-  ensure!(
+  ensure(
     bit_depth_luma <= 16 && bit_depth_chroma <= 16,
-    "bit depth out of range"
-  );
+    || "bit depth out of range",
+  )?;
   let checked_value = r.read_ue()?;
   let log2_max_poc_lsb = u32::wrapping_add(checked_value, 4);
-  ensure!(
+  ensure(
     log2_max_poc_lsb <= 16,
-    "log2_max_pic_order_cnt_lsb_minus4 out of range"
-  );
+    || "log2_max_pic_order_cnt_lsb_minus4 out of range",
+  )?;
   Ok(SpsFormat {
     vps_id,
     max_sub_layers_minus1,
@@ -1218,10 +1156,10 @@ fn read_sps_coding(r: &mut BitReader, format: &SpsFormat) -> Result<SpsCoding> {
     latency = checked_value_8;
   }
 
-  ensure!(
+  ensure(
     dpb <= 16 && reorder <= 16,
-    "sps_max_dec_pic_buffering out of range"
-  );
+    || "sps_max_dec_pic_buffering out of range",
+  )?;
   let checked_value_2 = r.read_ue()?;
   let log2_min_cb = u32::wrapping_add(checked_value_2, 3);
   let checked_value_9 = r.read_ue()?;
@@ -1230,26 +1168,26 @@ fn read_sps_coding(r: &mut BitReader, format: &SpsFormat) -> Result<SpsCoding> {
   let log2_min_tb = u32::wrapping_add(checked_value_3, 2);
   let checked_value_10 = r.read_ue()?;
   let log2_max_tb = u32::wrapping_add(log2_min_tb, checked_value_10);
-  ensure!(
+  ensure(
     (4..=6).contains(&log2_ctb) && log2_min_cb <= log2_ctb,
-    "CTB size out of range"
-  );
-  ensure!(
+    || "CTB size out of range",
+  )?;
+  ensure(
     log2_min_tb < log2_min_cb && log2_max_tb <= log2_ctb.min(5),
-    "transform block sizes out of range"
-  );
-  ensure!(
+    || "transform block sizes out of range",
+  )?;
+  ensure(
     ::core::primitive::u32::wrapping_rem(width, u32::wrapping_shl(1, log2_min_cb)) == 0
       && ::core::primitive::u32::wrapping_rem(height, u32::wrapping_shl(1, log2_min_cb)) == 0,
-    "picture size not a multiple of MinCbSizeY"
-  );
+    || "picture size not a multiple of MinCbSizeY",
+  )?;
   let max_th_depth_inter = r.read_ue()?;
   let max_th_depth_intra = r.read_ue()?;
-  ensure!(
+  ensure(
     max_th_depth_inter <= u32::wrapping_sub(log2_ctb, log2_min_tb)
       && max_th_depth_intra <= u32::wrapping_sub(log2_ctb, log2_min_tb),
-    "transform hierarchy depth out of range"
-  );
+    || "transform hierarchy depth out of range",
+  )?;
   Ok(SpsCoding {
     dpb,
     reorder,
@@ -1343,11 +1281,11 @@ fn read_sps_tools(
       });
       let checked_value_3 = r.read_flag()?;
       pcm_loop_filter_disabled = checked_value_3;
-      ensure!(
+      ensure(
         pcm_bit_depth_luma <= bit_depth_luma && pcm_bit_depth_chroma <= bit_depth_chroma,
-        "PCM bit depth out of range"
-      );
-      ensure!(log2_max_pcm <= log2_ctb.min(5), "PCM size out of range");
+        || "PCM bit depth out of range",
+      )?;
+      ensure(log2_max_pcm <= log2_ctb.min(5), || "PCM size out of range")?;
     }
     PictureTool::Disabled => {}
   }
@@ -1383,7 +1321,7 @@ fn read_sps_references(r: &mut BitReader, format: &SpsFormat) -> Result<SpsRefer
   } = *format;
   let checked_value_4 = r.read_ue()?;
   let Ok(num_st) = console_core_number_conversion::wrapped_index(checked_value_4);
-  ensure!(num_st <= 64, "num_short_term_ref_pic_sets out of range");
+  ensure(num_st <= 64, || "num_short_term_ref_pic_sets out of range")?;
   let mut st_rps = Vec::new();
 
   for i in 0..num_st {
@@ -1398,7 +1336,7 @@ fn read_sps_references(r: &mut BitReader, format: &SpsFormat) -> Result<SpsRefer
   match long_term_refs_present {
     SyntaxField::Present => {
       let n = r.read_ue()?;
-      ensure!(n <= 32, "num_long_term_ref_pics_sps out of range");
+      ensure(n <= 32, || "num_long_term_ref_pics_sps out of range")?;
 
       for _ in 0..n {
         let r_bits = r.read_bits(log2_max_poc_lsb)?;
@@ -1427,8 +1365,10 @@ fn read_sps_references(r: &mut BitReader, format: &SpsFormat) -> Result<SpsRefer
   );
   let vui = match ::core::primitive::bool::then_some(r_flag, ()) {
     ::core::option::Option::Some(()) => {
-      let vui = parse_vui(r, max_sub_layers_minus1)?;
-      Some(vui)
+      let video_usability_information =
+        parse_video_usability_information(r, max_sub_layers_minus1)?;
+
+      Some(video_usability_information)
     }
     ::core::option::Option::None => None,
   };
@@ -1448,7 +1388,7 @@ fn read_sps_extensions(r: &mut BitReader) -> Result<(u8, bool)> {
   match present {
     FlagBit::Zero => Ok((0, false)),
     FlagBit::One => {
-      let flags = read_byte(r, 8)?;
+      let flags = r.read_byte()?;
       let has_range_extension = match flags & 0x80 {
         0x80 => {
           let range_tools = r.read_bits(9)?;
@@ -1693,9 +1633,9 @@ struct PpsPrefix {
 
 fn read_pps_prefix(r: &mut BitReader) -> Result<PpsPrefix> {
   let id = r.read_ue()?;
-  ensure!(id < 64, "pps_pic_parameter_set_id out of range");
+  ensure(id < 64, || "pps_pic_parameter_set_id out of range")?;
   let sps_id = r.read_ue()?;
-  ensure!(sps_id < 16, "pps_seq_parameter_set_id out of range");
+  ensure(sps_id < 16, || "pps_seq_parameter_set_id out of range")?;
   let checked_value_5 = r.read_flag()?;
   let dependent_slice_segments_enabled = PictureTool::from(checked_value_5);
   let checked_value_6 = r.read_flag()?;
@@ -1709,10 +1649,10 @@ fn read_pps_prefix(r: &mut BitReader) -> Result<PpsPrefix> {
   let num_ref_idx_l0_default = u32::wrapping_add(ue, 1);
   let r_ue = r.read_ue()?;
   let num_ref_idx_l1_default = u32::wrapping_add(r_ue, 1);
-  ensure!(
+  ensure(
     num_ref_idx_l0_default <= 15 && num_ref_idx_l1_default <= 15,
-    "num_ref_idx_default_active out of range"
-  );
+    || "num_ref_idx_default_active out of range",
+  )?;
   Ok(PpsPrefix {
     id,
     sps_id,
@@ -1753,16 +1693,16 @@ fn read_pps_quantization(r: &mut BitReader) -> Result<PpsQuantization> {
     PictureTool::Enabled => r.read_ue()?,
     PictureTool::Disabled => 0,
   };
-  ensure!(
+  ensure(
     diff_cu_qp_delta_depth <= 3,
-    "diff_cu_qp_delta_depth out of range"
-  );
+    || "diff_cu_qp_delta_depth out of range",
+  )?;
   let cb_qp_offset = r.read_se()?;
   let cr_qp_offset = r.read_se()?;
-  ensure!(
+  ensure(
     (-12..=12).contains(&cb_qp_offset) && (-12..=12).contains(&cr_qp_offset),
-    "chroma QP offset out of range"
-  );
+    || "chroma QP offset out of range",
+  )?;
   let checked_value_12 = r.read_flag()?;
   let slice_chroma_qp_offsets_present = SyntaxField::from(checked_value_12);
   let checked_value_13 = r.read_flag()?;
@@ -1835,10 +1775,10 @@ fn read_pps_tiles(r: &mut BitReader) -> Result<PpsTiles> {
   let rows = r.read_ue()?;
   result.num_tile_columns = columns.wrapping_add(1);
   result.num_tile_rows = rows.wrapping_add(1);
-  ensure!(
+  ensure(
     result.num_tile_columns <= 64 && result.num_tile_rows <= 64,
-    "too many tiles"
-  );
+    || "too many tiles",
+  )?;
   let uniform = r.read_flag()?;
 
   match uniform {
@@ -1911,10 +1851,10 @@ fn read_pps_deblocking(r: &mut BitReader) -> Result<PpsDeblocking> {
           beta_offset_div2 = r_se;
           let checked_value_4 = r.read_se()?;
           tc_offset_div2 = checked_value_4;
-          ensure!(
+          ensure(
             (-6..=6).contains(&beta_offset_div2) && (-6..=6).contains(&tc_offset_div2),
-            "deblocking offsets out of range"
-          );
+            || "deblocking offsets out of range",
+          )?;
         }
         FlagBit::One => {}
       }
@@ -1960,10 +1900,10 @@ fn read_pps_tail(r: &mut BitReader, transform_skip: PictureTool) -> Result<PpsTa
   let lists_modification_present = SyntaxField::from(checked_value_28);
   let checked_value = r.read_ue()?;
   let log2_parallel_merge_level = u32::wrapping_add(checked_value, 2);
-  ensure!(
+  ensure(
     log2_parallel_merge_level <= 6,
-    "log2_parallel_merge_level out of range"
-  );
+    || "log2_parallel_merge_level out of range",
+  )?;
   let checked_value_29 = r.read_flag()?;
   let slice_header_extension_present = SyntaxField::from(checked_value_29);
   let (extension_flags, range_extension) = read_pps_extensions(r, transform_skip)?;
@@ -1992,7 +1932,7 @@ fn read_pps_extensions(
   match present {
     FlagBit::Zero => Ok((0, ExtensionTools::Base)),
     FlagBit::One => {
-      let flags = read_byte(r, 8)?;
+      let flags = r.read_byte()?;
       let tools = match flags & 0x80 {
         0x80 => read_pps_range_extension(r, transform_skip)?,
         _ => ExtensionTools::Base,
@@ -2114,10 +2054,10 @@ impl Layout {
     let Ok(height_ctbs) = sps.pic_height_in_ctbs();
     let columns = pps.num_tile_columns;
     let rows = pps.num_tile_rows;
-    ensure!(
+    ensure(
       columns <= width_ctbs && rows <= height_ctbs,
-      "more tiles than CTBs"
-    );
+      || "more tiles than CTBs",
+    )?;
     let col_bd = tile_boundaries(
       TileAxis {
         extent: width_ctbs,
@@ -2136,10 +2076,10 @@ impl Layout {
     )?;
 
     let area = u64::from(width_ctbs).wrapping_mul(u64::from(height_ctbs));
-    ensure!(
+    ensure(
       area <= MAX_CTBS_PER_PICTURE,
-      "CTB addresses exceed the picture layout"
-    );
+      || "CTB addresses exceed the picture layout",
+    )?;
     let Ok(count) = index(area);
     let mut layout = Layout {
       width_ctbs,
@@ -2209,10 +2149,10 @@ fn tile_boundaries(axis: TileAxis<'_>, spacing: TileSpacing) -> Result<Vec<u32>>
     }
     TileSpacing::Explicit => {
       let Ok(explicit_count) = fixed_index(axis.explicit.len());
-      ensure!(
+      ensure(
         explicit_count.wrapping_add(1) == u64::from(count.get()),
-        "index or range outside the buffer"
-      );
+        || "index or range outside the buffer",
+      )?;
       let mut boundary = 0;
 
       for &extent in axis.explicit {

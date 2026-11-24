@@ -1,0 +1,9 @@
+# Allow the desktop user to write the battery driver's end threshold.
+SUBSYSTEM!="power_supply", GOTO="console_charge_limit_end"
+ACTION!="add|change", GOTO="console_charge_limit_end"
+ATTR{scope}=="Device", GOTO="console_charge_limit_end"
+ACTION=="change", TEST{0020}=="charge_control_end_threshold", GOTO="console_charge_limit_end"
+ATTR{type}=="Battery", TEST{0200}=="charge_control_end_threshold", \
+  RUN+="/usr/bin/chgrp video /sys%p/charge_control_end_threshold", \
+  RUN+="/usr/bin/chmod g+w /sys%p/charge_control_end_threshold"
+LABEL="console_charge_limit_end"

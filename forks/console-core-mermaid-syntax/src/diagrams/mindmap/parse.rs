@@ -154,6 +154,7 @@ pub(crate) fn parse_mindmap_model_for_render_controlled(
     }
 }
 
+#[must_use]
 fn mindmap_failure(
     error: Error,
     #[cfg(feature = "editor-facts")] facts: Option<EditorSemanticFacts>,
@@ -196,14 +197,19 @@ fn construct_mindmap_semantic_source_controlled(
         EditorFactsDemand::Recovery => Some(EditorSemanticFacts::new()),
         EditorFactsDemand::Capture => Some(mindmap_editor_facts_from_parsed(&parsed, control)?),
     };
-    if let Some(error) = first_error {
-        return Ok(Err(mindmap_failure(
-            error,
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-        )));
+
+    match first_error {
+        Some(error) => {
+            return Ok(Err(mindmap_failure(
+                error,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            )));
+        },
+        ::core::option::Option::None => {},
     }
-    let db = match mindmap_db_from_events(parsed.events, diagram_type, config, control)? {
+
+    let db = match { let checked_value = mindmap_db_from_events(parsed.events, diagram_type, config, control)?; checked_value } {
         Ok(db) => db,
         Err(error) => {
             return Ok(Err(mindmap_failure(
@@ -231,25 +237,32 @@ fn mindmap_db_from_events(
     db.clear();
 
     for (index, event) in events.into_iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         match event {
             MindmapParsedEvent::Node(node) => {
                 let selection = node.selection;
-                if let Err(error) = db.add_node_controlled(
-                    super::db::MindmapNodeInput {
-                        indent_level: node.indent as i32,
-                        id_raw: &node.id_raw,
-                        descr_raw: &node.descr_raw,
-                        descr_is_markdown: node.descr_is_markdown,
-                        ty: node.ty,
-                        diagram_type,
-                    },
-                    config,
-                    control,
-                )? {
-                    return Ok(Err(error.with_exact_span_if_missing(selection)));
+
+                {
+                    match db.add_node_controlled(
+                            super::db::MindmapNodeInput {
+                                indent_level: node.indent as i32,
+                                id_raw: &node.id_raw,
+                                descr_raw: &node.descr_raw,
+                                descr_is_markdown: node.descr_is_markdown,
+                                ty: node.ty,
+                                diagram_type,
+                            },
+                            config,
+                            control,
+                        )? {
+                        Err(error) => {
+                            return Ok(Err(error.with_exact_span_if_missing(selection)));
+                        },
+                        ::core::result::Result::Ok(_) => {},
+                    };
                 }
             }
             MindmapParsedEvent::Class(class) => {
@@ -398,6 +411,7 @@ fn mindmap_editor_facts_from_parsed(
     Ok(facts)
 }
 
+#[must_use]
 fn absolute_mindmap_span(base: usize, span: SourceSpan) -> SourceSpan {
     SourceSpan::new(base + span.start, base + span.end)
 }
@@ -440,7 +454,7 @@ fn record_mindmap_error(
     span: SourceSpan,
 ) {
     first_error.get_or_insert_with(|| {
-        Error::diagram_parse_exact(diagram_type.to_string(), message.into(), span)
+        Error::diagram_parse_exact(diagram_type.to_string(), <_ as ::core::convert::Into<::std::string::String>>::into(message), span)
     });
 }
 
@@ -481,14 +495,17 @@ fn handle_mindmap_line(
     let (indent, rest) = split_indent(line);
     let rest_offset = line.len().saturating_sub(rest.len());
     let rest = rest.trim_end();
+
     if rest.is_empty() {
         return MindmapLineOutcome::Done;
     }
+
     let statement_start = line_start + rest_offset;
     let statement_span = SourceSpan::new(statement_start, statement_start + rest.len());
 
     if starts_with_case_insensitive(rest, "::icon(") {
         let after = &rest["::icon(".len()..];
+
         let Some(end) = after.find(')') else {
             record_mindmap_error(
                 first_error,
@@ -498,8 +515,10 @@ fn handle_mindmap_line(
             );
             return MindmapLineOutcome::Done;
         };
+
         let icon_raw = &after[..end];
         let icon = icon_raw.trim();
+
         if icon.is_empty() {
             record_mindmap_error(
                 first_error,
@@ -509,6 +528,7 @@ fn handle_mindmap_line(
             );
             return MindmapLineOutcome::Done;
         }
+
         #[cfg(feature = "editor-facts")]
         let icon_leading = icon_raw.len() - icon_raw.trim_start().len();
         #[cfg(feature = "editor-facts")]
@@ -535,44 +555,51 @@ fn handle_mindmap_line(
         return MindmapLineOutcome::Done;
     }
 
-    if let Some(after) = rest.strip_prefix(":::") {
-        let class = after.trim();
-        if class.is_empty() {
-            record_mindmap_error(
-                first_error,
-                diagram_type,
-                "mindmap class is empty",
-                statement_span,
-            );
+    match rest.strip_prefix(":::") {
+        Some(after) => {
+            let class = after.trim();
+
+            if class.is_empty() {
+                record_mindmap_error(
+                    first_error,
+                    diagram_type,
+                    "mindmap class is empty",
+                    statement_span,
+                );
+                return MindmapLineOutcome::Done;
+            }
+
+            #[cfg(feature = "editor-facts")]
+            let class_leading = after.len() - after.trim_start().len();
+            #[cfg(feature = "editor-facts")]
+            let class_start = statement_start + ":::".len() + class_leading;
+            #[cfg(feature = "editor-facts")]
+            let tokens = if parsed.capture_editor {
+                parsed.directive_prefixes.push(":::".to_string());
+                mindmap_payload_tokens(class, class_start)
+            } else {
+                Vec::new()
+            };
+            parsed
+                .events
+                .push(MindmapParsedEvent::Class(MindmapParsedPayloadLine {
+                    value: class.to_string(),
+                    #[cfg(feature = "editor-facts")]
+                    span: statement_span,
+                    #[cfg(feature = "editor-facts")]
+                    tokens,
+                }));
             return MindmapLineOutcome::Done;
-        }
-        #[cfg(feature = "editor-facts")]
-        let class_leading = after.len() - after.trim_start().len();
-        #[cfg(feature = "editor-facts")]
-        let class_start = statement_start + ":::".len() + class_leading;
-        #[cfg(feature = "editor-facts")]
-        let tokens = if parsed.capture_editor {
-            parsed.directive_prefixes.push(":::".to_string());
-            mindmap_payload_tokens(class, class_start)
-        } else {
-            Vec::new()
-        };
-        parsed
-            .events
-            .push(MindmapParsedEvent::Class(MindmapParsedPayloadLine {
-                value: class.to_string(),
-                #[cfg(feature = "editor-facts")]
-                span: statement_span,
-                #[cfg(feature = "editor-facts")]
-                tokens,
-            }));
-        return MindmapLineOutcome::Done;
+        },
+        ::core::option::Option::None => {},
     }
 
     let rest = strip_inline_comment(rest).trim_end();
+
     if rest.is_empty() {
         return MindmapLineOutcome::Done;
     }
+
     let statement_span = SourceSpan::new(statement_start, statement_start + rest.len());
     #[cfg(feature = "editor-facts")]
     let editor_demand = if parsed.capture_editor {
@@ -580,6 +607,7 @@ fn handle_mindmap_line(
     } else {
         EditorFactsDemand::Omit
     };
+
     match parse_node_spec(
         rest,
         #[cfg(feature = "editor-facts")]
@@ -649,36 +677,43 @@ fn finish_pending_mindmap_line(
     record_mindmap_error(first_error, diagram_type, message, statement_span);
 }
 
+#[must_use]
 fn is_safe_mindmap_statement(line: &str) -> bool {
     let (_, rest) = split_indent(line);
-    let rest = strip_inline_comment(rest).trim();
-    if rest.is_empty() {
+    let rest_2 = strip_inline_comment(rest).trim();
+
+    if rest_2.is_empty() {
         return false;
     }
-    if starts_with_case_insensitive(rest, "::icon(") || rest.starts_with(":::") {
+
+    if starts_with_case_insensitive(rest_2, "::icon(") || rest_2.starts_with(":::") {
         return true;
     }
 
-    starts_node_spec(rest)
+    starts_node_spec(rest_2)
 }
 
+#[must_use]
 fn pending_mindmap_line_should_synchronize(
     pending: &PendingMindmapLine,
     physical_line: &str,
 ) -> bool {
     let (indent, rest) = split_indent(physical_line);
-    let rest = rest.trim_end();
-    if rest.is_empty()
+    let rest_2 = rest.trim_end();
+
+    if rest_2.is_empty()
         || pending.syntax.state.syntax.has_open_text()
         || indent > pending.syntax.state.original_indent
     {
         return false;
     }
+
     if indent == pending.syntax.state.original_indent
-        && rest.starts_with(pending.syntax.state.syntax.expected_closing())
+        && rest_2.starts_with(pending.syntax.state.syntax.expected_closing())
     {
         return false;
     }
+
     indent <= pending.syntax.state.original_indent && is_safe_mindmap_statement(physical_line)
 }
 
@@ -698,23 +733,28 @@ fn process_mindmap_physical_line(
         finish_pending_mindmap_line(current, first_error, diagram_type);
     }
 
-    if let Some(mut current) = pending.take() {
-        current.text.push('\n');
-        current.text.push_str(physical_line);
-        match handle_mindmap_line(
-            &current.text,
-            current.start,
-            parsed,
-            first_error,
-            diagram_type,
-        ) {
-            MindmapLineOutcome::Done => {}
-            MindmapLineOutcome::NeedMoreInput(syntax) => {
-                current.syntax = syntax;
-                *pending = Some(current);
+    match pending.take() {
+        Some(mut current) => {
+            current.text.push('\n');
+            current.text.push_str(physical_line);
+
+            match handle_mindmap_line(
+                &current.text,
+                current.start,
+                parsed,
+                first_error,
+                diagram_type,
+            ) {
+                MindmapLineOutcome::Done => {}
+                MindmapLineOutcome::NeedMoreInput(syntax) => {
+                    current.syntax = syntax;
+                    *pending = Some(current);
+                }
             }
-        }
-        return;
+
+            return;
+        },
+        ::core::option::Option::None => {},
     }
 
     if let MindmapLineOutcome::NeedMoreInput(syntax) =
@@ -753,9 +793,11 @@ fn parse_mindmap_lines(
         let line = segment.strip_suffix('\n').unwrap_or(segment);
         let statement = strip_inline_comment(line);
         let trimmed = statement.trim();
+
         if trimmed.is_empty() {
             continue;
         }
+
         let leading = statement.len() - statement.trim_start().len();
         let keyword_start = line_start + leading;
         let is_header = trimmed.eq_ignore_ascii_case("mindmap");
@@ -765,14 +807,18 @@ fn parse_mindmap_lines(
                 .chars()
                 .next()
                 .is_some_and(char::is_whitespace);
+
         if is_header || has_tail {
             found_header = true;
+
             if has_tail {
                 let tail_start = leading + "mindmap".len();
                 header_tail = Some((&line[tail_start..], line_start + tail_start));
             }
+
             break;
         }
+
         record_mindmap_error(
             &mut first_error,
             diagram_type,
@@ -783,13 +829,17 @@ fn parse_mindmap_lines(
     }
 
     if !found_header {
-        if first_error.is_none() {
-            first_error = Some(Error::diagram_parse_insertion_point(
-                diagram_type.to_string(),
-                "expected mindmap header",
-                code.len(),
-            ));
+        match first_error {
+            ::core::option::Option::None => {
+                first_error = Some(Error::diagram_parse_insertion_point(
+                    diagram_type.to_string(),
+                    "expected mindmap header",
+                    code.len(),
+                ));
+            },
+            ::core::option::Option::Some(_) => {},
         }
+
         return Ok(MindmapParseOutcome {
             parsed,
             first_error,
@@ -797,16 +847,21 @@ fn parse_mindmap_lines(
     }
 
     let mut pending = None;
-    if let Some((tail, tail_start)) = header_tail {
-        process_mindmap_physical_line(
-            tail,
-            tail_start,
-            &mut pending,
-            &mut parsed,
-            &mut first_error,
-            diagram_type,
-        );
+
+    match header_tail {
+        Some((tail, tail_start)) => {
+            process_mindmap_physical_line(
+                tail,
+                tail_start,
+                &mut pending,
+                &mut parsed,
+                &mut first_error,
+                diagram_type,
+            );
+        },
+        ::core::option::Option::None => {},
     }
+
     for segment in lines {
         control.checkpoint()?;
         let line_start = offset;
@@ -821,8 +876,12 @@ fn parse_mindmap_lines(
             diagram_type,
         );
     }
-    if let Some(pending) = pending {
-        finish_pending_mindmap_line(pending, &mut first_error, diagram_type);
+
+    match pending {
+        Some(pending) => {
+            finish_pending_mindmap_line(pending, &mut first_error, diagram_type);
+        },
+        ::core::option::Option::None => {},
     }
 
     control.checkpoint()?;

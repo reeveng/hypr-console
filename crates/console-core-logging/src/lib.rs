@@ -5,6 +5,7 @@
 //! Freestanding builds need a sink to emit diagnostics.
 
 #![no_std]
+#![cfg_attr(feature = "std", forbid(unsafe_code))]
 
 #[cfg(any(feature = "std", test))]
 extern crate std;
@@ -13,7 +14,7 @@ extern crate std;
 pub mod orbit;
 
 use core::fmt;
-#[cfg(target_has_atomic = "ptr")]
+#[cfg(all(not(feature = "std"), target_has_atomic = "ptr"))]
 use core::{
   ptr::{from_ref, null_mut},
   sync::atomic::{AtomicPtr, Ordering},
@@ -59,7 +60,24 @@ pub struct Sink {
   pub write: fn(Record<'_>),
 }
 
-#[cfg(target_has_atomic = "ptr")]
+#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
+#[cfg_attr(
+  dylint_lib = "explicit044_no_ambient_value",
+  expect(
+    explicit044_no_ambient_value,
+    reason = "libraries emit diagnostics to the one sink the process host installs at startup"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit068_no_global_mutable_state",
+  expect(
+    explicit068_no_global_mutable_state,
+    reason = "the host installs one diagnostic destination for all the libraries in its process"
+  )
+)]
+static INSTALLED: std::sync::OnceLock<&'static Sink> = std::sync::OnceLock::new();
+
+#[cfg(all(not(feature = "std"), target_has_atomic = "ptr"))]
 #[cfg_attr(
   dylint_lib = "explicit044_no_ambient_value",
   expect(
@@ -87,7 +105,12 @@ impl fmt::Display for AlreadyInstalled {
 
 impl core::error::Error for AlreadyInstalled {}
 
-#[cfg(target_has_atomic = "ptr")]
+#[cfg(all(feature = "std", target_has_atomic = "ptr"))]
+pub fn install(sink: &'static Sink) -> Result<(), AlreadyInstalled> {
+  INSTALLED.set(sink).map_err(|_installed| AlreadyInstalled)
+}
+
+#[cfg(all(not(feature = "std"), target_has_atomic = "ptr"))]
 pub fn install(sink: &'static Sink) -> Result<(), AlreadyInstalled> {
   INSTALLED
     .compare_exchange(
@@ -123,7 +146,9 @@ fn stderr(record: Record<'_>) -> Result<(), Never> {
 
 #[doc(hidden)]
 pub fn sink_for(severity: Severity) -> Result<Option<&'static Sink>, Never> {
-  #[cfg(target_has_atomic = "ptr")]
+  #[cfg(all(feature = "std", target_has_atomic = "ptr"))]
+  let sink = INSTALLED.get().copied().or(DEFAULT);
+  #[cfg(all(not(feature = "std"), target_has_atomic = "ptr"))]
   #[cfg_attr(
     dylint_lib = "explicit058_contain_unsafe",
     expect(

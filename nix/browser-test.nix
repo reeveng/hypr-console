@@ -53,7 +53,7 @@ let
         StandardOutput = "tty";
         StandardError = "inherit";
         TTYPath = "/dev/ttyS0";
-        ExecStart = "${pkgs.dbus}/bin/dbus-run-session --dbus-daemon=${pkgs.dbus}/bin/dbus-daemon -- ${browser}/bin/console-browser-check --guest-${engine} ${browser}/bin/console-browser-window";
+        ExecStart = "${pkgs.dbus}/bin/dbus-run-session --dbus-daemon=${pkgs.dbus}/bin/dbus-daemon -- ${browser}/bin/console-browser-check --guest-${engine} ${browser}/bin/console-application-browser";
       };
     };
   });

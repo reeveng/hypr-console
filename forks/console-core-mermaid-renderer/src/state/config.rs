@@ -15,16 +15,18 @@ const DEFAULT_STATE_NODE_SPACING: f64 = 50.0;
 const DEFAULT_STATE_RANK_SPACING: f64 = 50.0;
 const DEFAULT_STATE_PADDING: f64 = 8.0;
 const DEFAULT_STATE_TITLE_TOP_MARGIN: f64 = 25.0;
-// Mermaid state defaults set minNodeWidth to 120 in config.schema.yaml.
+
 const DEFAULT_STATE_LABEL_MIN_WIDTH: f64 = 120.0;
 const DEFAULT_HTML_LABEL_WRAPPING_WIDTH: f64 = 200.0;
 #[cfg(test)]
 const DEFAULT_STATE_FONT_FAMILY: &str = "\"trebuchet ms\", verdana, arial, sans-serif";
 
+#[must_use]
 pub(super) fn state_node_is_effective_group(n: &StateNode) -> bool {
     n.is_group && n.shape != "note"
 }
 
+#[must_use]
 pub(super) fn normalize_dir(direction: &str) -> String {
     match direction.trim().to_uppercase().as_str() {
         "TB" | "TD" => "TB".to_string(),
@@ -35,6 +37,7 @@ pub(super) fn normalize_dir(direction: &str) -> String {
     }
 }
 
+#[must_use]
 pub(super) fn rank_dir_from(direction: &str) -> RankDir {
     match normalize_dir(direction).as_str() {
         "TB" => RankDir::TB,
@@ -45,11 +48,13 @@ pub(super) fn rank_dir_from(direction: &str) -> RankDir {
     }
 }
 
+#[must_use]
 pub(super) fn decode_html_entities_once(text: &str) -> std::borrow::Cow<'_, str> {
     if text.contains('ﬂ') || text.contains('¶') || text.contains('#') {
         return merman_model::text::decode_mermaid_entities_to_unicode(text);
     }
 
+    #[must_use]
     fn decode_html_entity(entity: &str) -> Option<char> {
         match entity {
             "nbsp" => Some(' '),
@@ -66,9 +71,9 @@ pub(super) fn decode_html_entities_once(text: &str) -> std::borrow::Cow<'_, str>
                     .strip_prefix("#x")
                     .or_else(|| entity.strip_prefix("#X"))
                 {
-                    u32::from_str_radix(hex, 16).ok().and_then(char::from_u32)
+                    match u32::from_str_radix(hex, 16) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }.and_then(char::from_u32)
                 } else if let Some(dec) = entity.strip_prefix('#') {
-                    dec.parse::<u32>().ok().and_then(char::from_u32)
+                    match dec.parse::<u32>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }.and_then(char::from_u32)
                 } else {
                     None
                 }
@@ -82,24 +87,33 @@ pub(super) fn decode_html_entities_once(text: &str) -> std::borrow::Cow<'_, str>
 
     let mut out = String::with_capacity(text.len());
     let mut i = 0usize;
+
     while let Some(rel) = text[i..].find('&') {
         let amp = i + rel;
         out.push_str(&text[i..amp]);
         let tail = &text[amp + 1..];
-        if let Some(semi_rel) = tail.find(';') {
-            let semi = amp + 1 + semi_rel;
-            let entity = &text[amp + 1..semi];
-            if let Some(decoded) = decode_html_entity(entity) {
-                out.push(decoded);
-            } else {
-                out.push_str(&text[amp..=semi]);
-            }
-            i = semi + 1;
-            continue;
+
+        match tail.find(';') {
+            Some(semi_rel) => {
+                let semi = amp + 1 + semi_rel;
+                let entity = &text[amp + 1..semi];
+
+                if let Some(decoded) = decode_html_entity(entity) {
+                    out.push(decoded);
+                } else {
+                    out.push_str(&text[amp..=semi]);
+                }
+
+                i = semi + 1;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         out.push('&');
         i = amp + 1;
     }
+
     out.push_str(&text[i..]);
     std::borrow::Cow::Owned(out)
 }
@@ -111,6 +125,7 @@ pub(crate) struct StateConfigView<'a> {
 }
 
 impl<'a> StateConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -119,6 +134,7 @@ impl<'a> StateConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn layout_settings(
         &self,
         direction: &str,
@@ -142,6 +158,7 @@ impl<'a> StateConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn render_settings(
         &self,
         compatibility: &super::StateCompatibilityPlan,
@@ -150,11 +167,13 @@ impl<'a> StateConfigView<'a> {
         StateRenderSettings {
             title_top_margin: self.title_top_margin(),
             diagram_look: compatibility.diagram_look().to_string(),
-            hand_drawn_seed: self
+            hand_drawn_seed: match self
                 .effective_config
                 .get("handDrawnSeed")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0),
+                .and_then(Value::as_f64) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            },
             html_labels,
             html_label_wrapping_width: self.html_label_wrapping_width(),
             label_min_width: self.state_label_min_width(),
@@ -163,18 +182,21 @@ impl<'a> StateConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn title_top_margin(&self) -> f64 {
-        self.state_compat_f64("titleTopMargin")
-            .unwrap_or(DEFAULT_STATE_TITLE_TOP_MARGIN)
+        match self.state_compat_f64("titleTopMargin") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_STATE_TITLE_TOP_MARGIN,
+        }
             .max(0.0)
     }
 
     #[cfg(test)]
     pub(crate) fn text_style(&self) -> TextStyle {
-        // Mermaid state diagram v2 uses HTML labels (foreignObject) by default, inheriting the
-        // global `#id{font-size: ...}` rule (defaults to 16px). The 10px
-        // `g.stateGroup text{font-size:10px}` rule applies to SVG `<text>` elements, not HTML
-        // labels.
+
+
+
+
         let font_family = config_string_or_first_array(self.effective_config, &["fontFamily"])
             .or_else(|| {
                 config_string_or_first_array(
@@ -183,8 +205,8 @@ impl<'a> StateConfigView<'a> {
                 )
             })
             .or_else(|| Some(DEFAULT_STATE_FONT_FAMILY.to_string()));
-        // Mermaid CLI baselines show state labels inheriting the SVG root font-size rule
-        // (`themeVariables.fontSize`, typically a `"NNpx"` string).
+
+
         let font_size =
             crate::config::config_theme_or_root_font_size_px(self.effective_config, 16.0).max(1.0);
         TextStyle {
@@ -195,56 +217,75 @@ impl<'a> StateConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn state_label_min_width(&self) -> f64 {
-        self.state_compat_f64("minNodeWidth")
-            .unwrap_or(DEFAULT_STATE_LABEL_MIN_WIDTH)
+        match self.state_compat_f64("minNodeWidth") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_STATE_LABEL_MIN_WIDTH,
+        }
             .max(0.0)
     }
 
+    #[must_use]
     pub(crate) fn html_label_wrapping_width(&self) -> f64 {
-        config_f64_css_px(self.state_config, &["wrappingWidth"])
-            .filter(|width| *width != 0.0)
-            .or_else(|| config_f64_css_px(self.flowchart_config, &["wrappingWidth"]))
-            .unwrap_or(DEFAULT_HTML_LABEL_WRAPPING_WIDTH)
+        match config_f64_css_px(self.state_config, &["wrappingWidth"])
+            .filter(|width| !::core::matches!(::core::primitive::f64::classify(*width), ::core::num::FpCategory::Zero))
+            .or_else(|| config_f64_css_px(self.flowchart_config, &["wrappingWidth"])) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_HTML_LABEL_WRAPPING_WIDTH,
+        }
             .max(0.0)
     }
 
+    #[must_use]
     pub(crate) fn state_padding(&self) -> f64 {
-        self.state_compat_f64("padding")
-            .unwrap_or(DEFAULT_STATE_PADDING)
+        match self.state_compat_f64("padding") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_STATE_PADDING,
+        }
             .max(0.0)
     }
 
+    #[must_use]
     fn root_string(&self, key: &str) -> Option<String> {
         config_string(self.effective_config, &[key])
     }
 
+    #[must_use]
     fn root_compat_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.effective_config, &[key])
     }
 
+    #[must_use]
     fn flowchart_compat_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.flowchart_config, &[key])
     }
 
+    #[must_use]
     fn state_compat_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.state_config, &[key])
     }
 
+    #[must_use]
     fn layout_spacing(&self, key: &str, default: f64) -> f64 {
-        let renderer_spacing = self
+        let renderer_spacing = match self
             .state_compat_f64(key)
-            .filter(|value| *value != 0.0)
-            .unwrap_or(default);
-        [
+            .filter(|value| !::core::matches!(::core::primitive::f64::classify(*value), ::core::num::FpCategory::Zero)) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => default,
+        };
+
+        match [
             self.root_compat_f64(key),
             Some(renderer_spacing),
             self.flowchart_compat_f64(key),
         ]
         .into_iter()
         .flatten()
-        .find(|value| *value != 0.0)
-        .unwrap_or(default)
+        .find(|value| !::core::matches!(::core::primitive::f64::classify(*value), ::core::num::FpCategory::Zero)) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => default,
+        }
     }
 }
 
@@ -268,6 +309,7 @@ pub(crate) struct StateRenderSettings {
     pub(crate) security_level_loose: bool,
 }
 
+#[must_use]
 fn state_wrap_mode(html_labels: bool) -> WrapMode {
     if html_labels {
         WrapMode::HtmlLike

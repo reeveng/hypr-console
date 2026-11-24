@@ -37,6 +37,7 @@ pub(crate) struct SequenceRoleTypographyConfig {
 }
 
 impl SequenceRoleTypographyConfig {
+    #[must_use]
     pub(crate) const fn measurement_style(&self) -> &TextStyle {
         &self.measurement_style
     }
@@ -62,6 +63,7 @@ impl SequenceRoleTypographyConfig {
         }
     }
 
+    #[must_use]
     pub(crate) fn config_owns(&self, property: ThemeTypographyProperty) -> bool {
         self.config_owned_properties.contains(&property)
     }
@@ -74,6 +76,7 @@ pub(crate) struct SequenceConfigView<'a> {
 }
 
 impl<'a> SequenceConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -82,6 +85,7 @@ impl<'a> SequenceConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn from_mermaid_config(effective_config: &'a PresentationConfig) -> Self {
         Self {
             effective_config: effective_config.as_value(),
@@ -93,54 +97,69 @@ impl<'a> SequenceConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn path_overrides_typed_default(&self, path: &str) -> bool {
         self.config_provenance
             .is_some_and(|config| config.config_path_overrides_typed_default(path))
     }
 
+    #[must_use]
     pub(crate) fn sequence_bool(&self, key: &str, default: bool) -> bool {
-        self.sequence_config_bool(key).unwrap_or(default)
+        match self.sequence_config_bool(key) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => default,
+        }
     }
 
+    #[must_use]
     pub(crate) fn sequence_config_bool(&self, key: &str) -> Option<bool> {
         self.sequence_config.get(key).and_then(Value::as_bool)
     }
 
+    #[must_use]
     fn sequence_json_number_or(&self, key: &str, default: f64) -> f64 {
-        self.sequence_json_number(key).unwrap_or(default)
+        match self.sequence_json_number(key) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => default,
+        }
     }
 
+    #[must_use]
     pub(crate) fn sequence_json_number(&self, key: &str) -> Option<f64> {
         self.sequence_config.get(key).and_then(Value::as_f64)
     }
 
+    #[must_use]
     pub(crate) fn sequence_json_number_min(&self, key: &str, default: f64, min: f64) -> f64 {
         self.sequence_json_number_or(key, default).max(min)
     }
 
+    #[must_use]
     pub(crate) fn root_bool(&self, key: &str) -> Option<bool> {
         self.effective_config.get(key).and_then(Value::as_bool)
     }
 
+    #[must_use]
     pub(crate) fn sequence_string(&self, key: &str) -> Option<String> {
         crate::config::config_string(self.sequence_config, &[key])
     }
 
+    #[must_use]
     fn parse_font_weight(value: &Value) -> Option<String> {
         use cssparser::ToCss;
 
         let raw = match value {
-            Value::String(value) => value.clone(),
-            Value::Number(value) => value.to_string(),
+            Value::String(value_2) => value_2.clone(),
+            Value::Number(value_3) => value_3.to_string(),
             _ => return None,
         };
         let mut parser = cssparser::Parser::new(&raw);
         let token = parser.next().ok()?;
         let css = match token {
-            cssparser::Token::Number { value, .. } if (1.0..=1000.0).contains(value) => {
+            cssparser::Token::Number { value: value_4, .. } if (1.0..=1000.0).contains(value_4) => {
                 token.to_css_string()
             }
-            cssparser::Token::Ident(value)
+            cssparser::Token::Ident(value_5)
                 if [
                     "normal",
                     "bold",
@@ -153,19 +172,24 @@ impl<'a> SequenceConfigView<'a> {
                     "revert-layer",
                 ]
                 .iter()
-                .any(|keyword| value.eq_ignore_ascii_case(keyword)) =>
+                .any(|keyword| value_5.eq_ignore_ascii_case(keyword)) =>
             {
-                value.to_ascii_lowercase()
+                value_5.to_ascii_lowercase()
             }
             _ => return None,
         };
         parser.is_exhausted().then_some(css)
     }
 
+    #[must_use]
     fn sequence_compat_f64(&self, key: &str, default: f64) -> f64 {
-        crate::config::config_f64(self.sequence_config, &[key]).unwrap_or(default)
+        match crate::config::config_f64(self.sequence_config, &[key]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => default,
+        }
     }
 
+    #[must_use]
     fn sequence_compat_f64_min(&self, key: &str, default: f64, min: f64) -> f64 {
         self.sequence_compat_f64(key, default).max(min)
     }
@@ -178,6 +202,7 @@ impl<'a> SequenceConfigView<'a> {
         self.resolve_role_typography_with_typed_properties(role, &BTreeSet::new())
     }
 
+    #[must_use]
     pub(crate) fn resolve_role_typography_with_typed_properties(
         &self,
         role: SequenceTypographyConfigRole,
@@ -229,9 +254,9 @@ impl<'a> SequenceConfigView<'a> {
             role_font_family.is_some() && self.path_overrides_typed_default(family_path);
         let typed_font_stack = typed_theme_properties.contains(&ThemeTypographyProperty::FontStack);
         let root_font_family_present = root_font_family_value.is_some();
-        // Mermaid mirrors truthy root font values, including generated defaults, over the
-        // role-local Sequence value. A role-local config only bypasses a generated root value
-        // when that property participates in typed-theme ownership.
+
+
+
         let (font_family, _font_stack_measurement_winner) = if root_font_family_owns {
             (
                 root_font_family,
@@ -273,7 +298,10 @@ impl<'a> SequenceConfigView<'a> {
         let root_font_size_present = root_font_size_value.is_some();
         let (font_size, _font_size_measurement_winner) = if root_font_size_owns {
             (
-                root_font_size.unwrap_or(16.0),
+                match root_font_size {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 16.0,
+                },
                 Some(SequenceTypographyMeasurementWinner { path: "fontSize" }),
             )
         } else if typed_font_size && role_font_size_owns {
@@ -283,7 +311,10 @@ impl<'a> SequenceConfigView<'a> {
             )
         } else if root_font_size_present {
             (
-                root_font_size.unwrap_or(16.0),
+                match root_font_size {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 16.0,
+                },
                 Some(SequenceTypographyMeasurementWinner { path: "fontSize" }),
             )
         } else if let Some(value) = role_font_size {
@@ -334,17 +365,20 @@ impl<'a> SequenceConfigView<'a> {
         };
 
         let mut config_owned_properties = BTreeSet::new();
+
         if theme_variable_font_family_owns
             || root_font_family_owns
             || (role_font_family_owns && (typed_font_stack || !root_font_family_present))
         {
             config_owned_properties.insert(ThemeTypographyProperty::FontStack);
         }
+
         if root_font_size_owns
             || (role_font_size_owns && (typed_font_size || !root_font_size_present))
         {
             config_owned_properties.insert(ThemeTypographyProperty::FontSize);
         }
+
         if root_font_weight_owns
             || (role_font_weight_owns
                 && (root_font_weight_value.is_none()
@@ -395,6 +429,7 @@ pub(super) struct SequenceLayoutSettings {
 }
 
 impl SequenceLayoutSettings {
+    #[must_use]
     pub(super) fn from_effective_config(
         effective_config: &Value,
         typography: &super::typography::SequenceTypographyPlan,

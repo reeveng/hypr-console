@@ -35,10 +35,13 @@ use unicode_segmentation::{ClusterKind, UnicodeSegmentation};
 pub enum RenderEnvironmentError {
     #[error(transparent)]
     Cancelled(#[from] merman_model::OperationCancelled),
+
     #[error(transparent)]
     Runtime(#[from] RuntimePolicyError),
+
     #[error(transparent)]
     ThemeAdmission(#[from] ThemeAdmissionError),
+
     #[error(transparent)]
     ThemeResource(#[from] ThemeResourceLimitExceeded),
 }
@@ -60,6 +63,7 @@ impl TextMeasurementPhase {
         Self::ComputedLength,
     ];
 
+    #[must_use]
     const fn index(self) -> usize {
         match self {
             Self::Layout => 0,
@@ -76,14 +80,17 @@ pub struct MeasurementProfileId(Arc<str>);
 
 impl MeasurementProfileId {
     pub fn new(value: impl Into<String>) -> Result<Self, InvalidMeasurementProfileIdentity> {
-        let value = value.into();
-        let value = value.trim();
-        if value.is_empty() {
+        let value_2 = <_ as ::core::convert::Into<::std::string::String>>::into(value);
+        let value_3 = value_2.trim();
+
+        if value_3.is_empty() {
             return Err(InvalidMeasurementProfileIdentity::EmptyProfile);
         }
-        Ok(Self(Arc::from(value)))
+
+        Ok(Self(Arc::from(value_3)))
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -108,14 +115,16 @@ impl TextMeasurementProfileIdentity {
         profile: MeasurementProfileId,
         version: impl Into<String>,
     ) -> Result<Self, InvalidMeasurementProfileIdentity> {
-        let version = version.into();
-        let version = version.trim();
-        if version.is_empty() {
+        let version_2 = <_ as ::core::convert::Into<::std::string::String>>::into(version);
+        let version_3 = version_2.trim();
+
+        if version_3.is_empty() {
             return Err(InvalidMeasurementProfileIdentity::EmptyVersion);
         }
+
         Ok(Self {
             profile,
-            version: Arc::from(version),
+            version: Arc::from(version_3),
             decorators: Arc::from([]),
         })
     }
@@ -129,26 +138,33 @@ impl TextMeasurementProfileIdentity {
         S: Into<String>,
     {
         let mut validated = Vec::new();
+
         for decorator in decorators {
-            let decorator = decorator.into();
-            let decorator = decorator.trim();
-            if decorator.is_empty() {
+            let decorator_2 = <_ as ::core::convert::Into<::std::string::String>>::into(decorator);
+            let decorator_3 = decorator_2.trim();
+
+            if decorator_3.is_empty() {
                 return Err(InvalidMeasurementProfileIdentity::EmptyDecorator);
             }
-            validated.push(Arc::from(decorator));
+
+            validated.push(Arc::from(decorator_3));
         }
+
         self.decorators = validated.into();
         Ok(self)
     }
 
+    #[must_use]
     pub fn profile(&self) -> &MeasurementProfileId {
         &self.profile
     }
 
+    #[must_use]
     pub fn version(&self) -> &str {
         &self.version
     }
 
+    #[must_use]
     pub fn decorators(&self) -> &[Arc<str>] {
         &self.decorators
     }
@@ -173,6 +189,7 @@ pub struct TextMeasurementProfile {
 }
 
 impl TextMeasurementProfile {
+    #[must_use]
     pub fn new(
         identity: TextMeasurementProfileIdentity,
         backend: Arc<dyn TextMeasurer + Send + Sync>,
@@ -184,10 +201,12 @@ impl TextMeasurementProfile {
         }
     }
 
+    #[must_use]
     pub fn identity(&self) -> &TextMeasurementProfileIdentity {
         &self.identity
     }
 
+    #[must_use]
     fn new_builtin(
         identity: TextMeasurementProfileIdentity,
         backend: Arc<dyn TextMeasurer + Send + Sync>,
@@ -227,6 +246,7 @@ pub(crate) struct BuiltinTextMeasurementOperationCarrier {
 }
 
 impl BuiltinTextMeasurementOperationCarrier {
+    #[must_use]
     pub(crate) const fn into_inline_html(self) -> Option<InlineHtmlMeasurementCarrier> {
         match (self.phase, self.operation) {
             (TextMeasurementPhase::Wrap, TextMeasurementOperation::WrappedWithRawWidth) => {
@@ -236,6 +256,7 @@ impl BuiltinTextMeasurementOperationCarrier {
         }
     }
 
+    #[must_use]
     pub(crate) fn into_svg_computed_length(
         self,
         style: &TextStyle,
@@ -248,6 +269,7 @@ impl BuiltinTextMeasurementOperationCarrier {
         }
     }
 
+    #[must_use]
     pub(crate) fn into_html_line_width(self, style: &TextStyle) -> Option<BuiltinHtmlLineWidth> {
         match (self.profile, self.phase, self.operation) {
             (
@@ -271,20 +293,24 @@ pub(crate) struct InlineHtmlMeasurementCarrier {
 }
 
 impl InlineHtmlMeasurementCarrier {
+    #[must_use]
     pub(crate) const fn opaque() -> Self {
         Self { builtin: None }
     }
 
+    #[must_use]
     const fn builtin(profile: BuiltinTextMeasurementProfile) -> Self {
         Self {
             builtin: Some(profile),
         }
     }
 
+    #[must_use]
     pub(crate) const fn is_builtin(self) -> bool {
         self.builtin.is_some()
     }
 
+    #[must_use]
     pub(crate) fn begin_inline_html_width(self, style: &TextStyle) -> Option<BuiltinHtmlLineWidth> {
         self.builtin
             .map(|_| BuiltinHtmlLineWidth::deterministic(style, 0.0))
@@ -331,8 +357,9 @@ enum BuiltinHtmlLineWidthSource {
 }
 
 impl BuiltinHtmlLineWidth {
+    #[must_use]
     pub(crate) fn deterministic(style: &TextStyle, char_width_factor: f64) -> Self {
-        let source = if char_width_factor == 0.0 {
+        let source = if ::core::matches!(::core::primitive::f64::classify(char_width_factor), ::core::num::FpCategory::Zero) {
             BuiltinHtmlLineWidthSource::Heuristic(BuiltinInlineRawLineWidth::new(style))
         } else {
             BuiltinHtmlLineWidthSource::Uniform {
@@ -353,6 +380,7 @@ impl BuiltinHtmlLineWidth {
         {
             self.pushed_chunks = self.pushed_chunks.saturating_add(1);
         }
+
         match &mut self.source {
             BuiltinHtmlLineWidthSource::Heuristic(line) => line.push_text(text),
             BuiltinHtmlLineWidthSource::Uniform { char_count, .. } => {
@@ -362,6 +390,7 @@ impl BuiltinHtmlLineWidth {
         }
     }
 
+    #[must_use]
     pub(crate) fn width_px(&self) -> f64 {
         let width = match &self.source {
             BuiltinHtmlLineWidthSource::Heuristic(line) => line.width_px(),
@@ -371,7 +400,7 @@ impl BuiltinHtmlLineWidth {
                 char_count,
             } => *char_count as f64 * *font_size * *char_width_factor,
         };
-        // An unwrapped built-in HTML measurement starts its maximum-width fold at zero.
+
         width.max(0.0)
     }
 
@@ -396,6 +425,7 @@ impl BuiltinHtmlLineWidth {
         {
             self.pushed_chunks = 0;
         }
+
         match &mut self.source {
             BuiltinHtmlLineWidthSource::Heuristic(line) => line.reset(),
             BuiltinHtmlLineWidthSource::Uniform { char_count, .. } => *char_count = 0,
@@ -430,12 +460,14 @@ pub(crate) struct BuiltinSvgComputedLength {
     )
 )]
 impl BuiltinSvgComputedLength {
+    #[must_use]
     fn new(style: &TextStyle) -> Self {
         Self {
             line: BuiltinInlineRawLineWidth::new(style),
         }
     }
 
+    #[must_use]
     pub(crate) fn deterministic(style: &TextStyle) -> Self {
         Self::new(style)
     }
@@ -444,8 +476,10 @@ impl BuiltinSvgComputedLength {
         self.line.push_text(text);
     }
 
+    #[must_use]
     pub(crate) fn width_px(&self) -> f64 {
         let width = self.line.width_px();
+
         if width.is_finite() && width >= 0.0 {
             width
         } else {
@@ -459,6 +493,7 @@ impl BuiltinSvgComputedLength {
 }
 
 impl BuiltinInlineRawLineWidth {
+    #[must_use]
     fn new(style: &TextStyle) -> Self {
         Self {
             font_size: style.font_size.max(1.0),
@@ -470,6 +505,7 @@ impl BuiltinInlineRawLineWidth {
         if text.is_empty() {
             return;
         }
+
         let state = self.state.get_mut();
         state.pending_grapheme.push_str(text);
         state.pending_width_dirty = true;
@@ -482,8 +518,8 @@ impl BuiltinInlineRawLineWidth {
 
         #[cfg(test)]
         {
-            // Charge the full pending input to both boundary discovery and width estimation. This
-            // is a conservative structural upper bound, not a count of CPU instructions.
+
+
             let next_charge = state
                 .grapheme_input_byte_charge
                 .get()
@@ -493,6 +529,7 @@ impl BuiltinInlineRawLineWidth {
 
         let Ok(graphemes) = state.pending_grapheme.grapheme_indices(ClusterKind::Extended);
         let last_grapheme_start = graphemes.last().map_or(0, |(index, _)| index as usize);
+
         if last_grapheme_start > 0 {
             append_text_width_em(
                 &mut state.committed_em,
@@ -500,10 +537,12 @@ impl BuiltinInlineRawLineWidth {
             );
             state.pending_grapheme.drain(..last_grapheme_start);
         }
+
         state.pending_em = estimate_text_width_em(&state.pending_grapheme);
         state.pending_width_dirty = false;
     }
 
+    #[must_use]
     fn width_px(&self) -> f64 {
         let mut state = self.state.borrow_mut();
         Self::refresh_width(&mut state);
@@ -529,6 +568,7 @@ impl BuiltinInlineRawLineWidth {
     }
 }
 
+#[must_use]
 fn deterministic_profile() -> TextMeasurementProfile {
     let profile = MeasurementProfileId::new("merman.deterministic-text")
         .expect("static deterministic profile id is valid");
@@ -584,10 +624,12 @@ pub struct TextMeasurementSummary {
 }
 
 impl TextMeasurementSummary {
+    #[must_use]
     pub fn provenance(&self) -> &TextMeasurementProvenance {
         &self.provenance
     }
 
+    #[must_use]
     pub const fn count(&self) -> u64 {
         self.count
     }
@@ -600,6 +642,7 @@ pub struct TextMeasurementReport {
 }
 
 impl TextMeasurementReport {
+    #[must_use]
     pub fn entries(&self) -> &[TextMeasurementSummary] {
         &self.entries
     }
@@ -621,6 +664,7 @@ impl TextMeasurementRouteOutcome {
         Self::Fallback(HostFallbackReason::Error),
     ];
 
+    #[must_use]
     const fn index(self) -> usize {
         match self {
             Self::Profile => 0,
@@ -649,6 +693,7 @@ impl Default for TextMeasurementRecorder {
 }
 
 impl TextMeasurementRecorder {
+    #[must_use]
     const fn slot(
         phase: TextMeasurementPhase,
         operation: TextMeasurementOperation,
@@ -671,6 +716,7 @@ impl TextMeasurementRecorder {
         });
     }
 
+    #[must_use]
     fn has_host_measurements(&self) -> bool {
         TextMeasurementPhase::ALL.into_iter().any(|phase| {
             TextMeasurementOperation::ALL.into_iter().any(|operation| {
@@ -681,15 +727,21 @@ impl TextMeasurementRecorder {
         })
     }
 
+    #[must_use]
     fn report(&self, policy: &TextMeasurementPolicy) -> TextMeasurementReport {
         let mut entries = Vec::new();
+
         for phase in TextMeasurementPhase::ALL {
             for operation in TextMeasurementOperation::ALL {
-                for outcome in TextMeasurementRouteOutcome::ALL {
+                'over_outcome_3: for outcome in TextMeasurementRouteOutcome::ALL {
                     let count =
                         self.counts[Self::slot(phase, operation, outcome)].load(Ordering::Relaxed);
-                    if count == 0 {
-                        continue;
+
+                    match count {
+                        0 => {
+                            continue 'over_outcome_3;
+                        },
+                        _ => {},
                     }
 
                     let provenance = match (&policy.routes[phase.index()], outcome) {
@@ -731,6 +783,7 @@ impl TextMeasurementRecorder {
                 }
             }
         }
+
         TextMeasurementReport { entries }
     }
 }
@@ -745,26 +798,30 @@ pub struct HostTextMeasurementError {
 
 impl HostTextMeasurementError {
     /// Creates an error reported by the host callback or its transport.
+    #[must_use]
     pub fn new(message: impl Into<String>) -> Self {
         Self {
-            message: Arc::from(message.into()),
+            message: Arc::from(<_ as ::core::convert::Into<::std::string::String>>::into(message)),
             fallback_reason: HostFallbackReason::Error,
         }
     }
 
     /// Creates an error for a callback value that violates the measurement contract.
     #[doc(hidden)]
+    #[must_use]
     pub fn invalid_value(message: impl Into<String>) -> Self {
         Self {
-            message: Arc::from(message.into()),
+            message: Arc::from(<_ as ::core::convert::Into<::std::string::String>>::into(message)),
             fallback_reason: HostFallbackReason::Invalid,
         }
     }
 
+    #[must_use]
     pub fn message(&self) -> &str {
         &self.message
     }
 
+    #[must_use]
     fn fallback_reason(&self) -> HostFallbackReason {
         self.fallback_reason
     }
@@ -850,16 +907,19 @@ impl fmt::Debug for TextMeasurementPolicy {
 }
 
 impl TextMeasurementPolicy {
+    #[must_use]
     pub fn deterministic() -> Self {
         Self::uniform(deterministic_profile())
     }
 
+    #[must_use]
     pub fn uniform(profile: TextMeasurementProfile) -> Self {
         Self {
             routes: std::array::from_fn(|_| TextMeasurementRouteConfig::Profile(profile.clone())),
         }
     }
 
+    #[must_use]
     pub fn with_profile_for_phase(
         mut self,
         phase: TextMeasurementPhase,
@@ -869,6 +929,7 @@ impl TextMeasurementPolicy {
         self
     }
 
+    #[must_use]
     pub fn host_display(
         identity: TextMeasurementProfileIdentity,
         host: Arc<dyn HostTextMeasurer>,
@@ -877,6 +938,7 @@ impl TextMeasurementPolicy {
         Self::host_display_with_fallback(identity, host, host_phases, deterministic_profile())
     }
 
+    #[must_use]
     pub fn host_display_with_fallback(
         identity: TextMeasurementProfileIdentity,
         host: Arc<dyn HostTextMeasurer>,
@@ -884,6 +946,7 @@ impl TextMeasurementPolicy {
         fallback: TextMeasurementProfile,
     ) -> Self {
         let mut policy = Self::uniform(fallback.clone());
+
         for phase in host_phases {
             policy.routes[phase.index()] = TextMeasurementRouteConfig::Host {
                 identity: identity.clone(),
@@ -891,9 +954,11 @@ impl TextMeasurementPolicy {
                 fallback: fallback.clone(),
             };
         }
+
         policy
     }
 
+    #[must_use]
     pub fn route(&self, phase: TextMeasurementPhase) -> TextMeasurementRoute {
         match &self.routes[phase.index()] {
             TextMeasurementRouteConfig::Profile(profile) => TextMeasurementRoute {
@@ -913,6 +978,7 @@ impl TextMeasurementPolicy {
         }
     }
 
+    #[must_use]
     pub fn routes(&self) -> [TextMeasurementRoute; 4] {
         TextMeasurementPhase::ALL.map(|phase| self.route(phase))
     }
@@ -972,6 +1038,7 @@ impl CancelledTextMeasurement for (TextMetrics, Option<f64>) {
 }
 
 impl RoutedTextMeasurer<'_> {
+    #[must_use]
     fn controlled_cancellation_value<T: CancelledTextMeasurement>(&self) -> Option<T> {
         let phase = self.controlled_operation_phase?;
         self.work_meter
@@ -980,6 +1047,7 @@ impl RoutedTextMeasurer<'_> {
             .then(T::cancelled)
     }
 
+    #[must_use]
     fn phase_for(&self, operation: TextMeasurementOperation) -> TextMeasurementPhase {
         match operation {
             TextMeasurementOperation::ComputedLength => TextMeasurementPhase::ComputedLength,
@@ -1008,6 +1076,7 @@ impl RoutedTextMeasurer<'_> {
         }
     }
 
+    #[must_use]
     pub(crate) fn builtin_operation_carrier(
         &self,
         operation: TextMeasurementOperation,
@@ -1015,6 +1084,7 @@ impl RoutedTextMeasurer<'_> {
         self.builtin_operation_carrier_for_phase(self.phase_for(operation), operation)
     }
 
+    #[must_use]
     fn builtin_operation_carrier_for_phase(
         &self,
         phase: TextMeasurementPhase,
@@ -1024,19 +1094,20 @@ impl RoutedTextMeasurer<'_> {
             TextMeasurementRouteConfig::Profile(profile) => {
                 profile
                     .builtin
-                    .map(|profile| BuiltinTextMeasurementOperationCarrier {
-                        profile,
+                    .map(|profile_2| BuiltinTextMeasurementOperationCarrier {
+                        profile: profile_2,
                         phase,
                         operation,
                     })
             }
-            // A host-routed operation remains observable even when its fallback is built-in. It
-            // must stay opaque so callback order, failure position, and provenance cannot be
-            // predicted away.
+
+
+
             TextMeasurementRouteConfig::Host { .. } => None,
         }
     }
 
+    #[must_use]
     fn resolve<T: CancelledTextMeasurement>(
         &self,
         request: HostTextMeasurementRequest<'_>,
@@ -1045,26 +1116,41 @@ impl RoutedTextMeasurer<'_> {
     ) -> T {
         let phase = request.phase;
         let operation = request.operation;
-        if let Some(cancelled) = self.controlled_cancellation_value() {
-            return cancelled;
+
+        match self.controlled_cancellation_value() {
+            Some(cancelled) => {
+                return cancelled;
+            },
+            ::core::option::Option::None => {},
         }
+
         match &self.policy.routes[phase.index()] {
             TextMeasurementRouteConfig::Profile(profile) => {
                 let value = profile_call(profile.backend.as_ref());
                 self.recorder
                     .record(phase, operation, TextMeasurementRouteOutcome::Profile);
-                if let Some(cancelled) = self.controlled_cancellation_value() {
-                    return cancelled;
+
+                match self.controlled_cancellation_value() {
+                    Some(cancelled) => {
+                        return cancelled;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 value
             }
             TextMeasurementRouteConfig::Host {
                 backend, fallback, ..
             } => {
                 let attempt = backend.measure_with_control(request, self.work_meter.control());
-                if let Some(cancelled) = self.controlled_cancellation_value() {
-                    return cancelled;
+
+                match self.controlled_cancellation_value() {
+                    Some(cancelled) => {
+                        return cancelled;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 let decoded = match &attempt {
                     Ok(Some(value)) if validate_host_text_measurement(&request, value).is_ok() => {
                         decode_host(*value)
@@ -1072,10 +1158,14 @@ impl RoutedTextMeasurer<'_> {
                     Ok(None) | Err(_) => None,
                     Ok(Some(_)) => None,
                 };
-                if let Some(value) = decoded {
-                    self.recorder
-                        .record(phase, operation, TextMeasurementRouteOutcome::Host);
-                    return value;
+
+                match decoded {
+                    Some(value) => {
+                        self.recorder
+                            .record(phase, operation, TextMeasurementRouteOutcome::Host);
+                        return value;
+                    },
+                    ::core::option::Option::None => {},
                 }
 
                 let reason = match attempt {
@@ -1083,26 +1173,36 @@ impl RoutedTextMeasurer<'_> {
                     Ok(None) => HostFallbackReason::Missing,
                     Err(error) => error.fallback_reason(),
                 };
-                // `TextMeasurer` is intentionally infallible. A controlled route therefore
-                // observes the canonical operation before entering another opaque backend and
-                // returns a neutral value only to unwind toward the caller's fallible boundary.
-                if let Some(cancelled) = self.controlled_cancellation_value() {
-                    return cancelled;
+
+
+
+                match self.controlled_cancellation_value() {
+                    Some(cancelled) => {
+                        return cancelled;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 let value = profile_call(fallback.backend.as_ref());
                 self.recorder.record(
                     phase,
                     operation,
                     TextMeasurementRouteOutcome::Fallback(reason),
                 );
-                if let Some(cancelled) = self.controlled_cancellation_value() {
-                    return cancelled;
+
+                match self.controlled_cancellation_value() {
+                    Some(cancelled) => {
+                        return cancelled;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 value
             }
         }
     }
 
+    #[must_use]
     fn request<'a>(
         &self,
         operation: TextMeasurementOperation,
@@ -1169,8 +1269,8 @@ impl TextMeasurer for RoutedTextMeasurer<'_> {
     }
 
     fn measure_html_line_width_px(&self, text: &str, style: &TextStyle) -> f64 {
-        // A candidate is already decoded, single-line text. Use its raw advance without
-        // normalizing it as a complete HTML label, while retaining the Wrap route and callbacks.
+
+
         self.resolve(
             HostTextMeasurementRequest {
                 operation: TextMeasurementOperation::CanvasMeasureTextWidth,
@@ -1554,27 +1654,31 @@ impl TextMeasurer for RoutedTextMeasurer<'_> {
     }
 }
 
+#[must_use]
 fn decode_host_metrics(measurement: HostTextMeasurement) -> Option<TextMetrics> {
     match measurement {
         HostTextMeasurement::Metrics(metrics) => Some(metrics),
-        _ => None,
+        HostTextMeasurement::Length(_) | HostTextMeasurement::HorizontalExtents { .. } | HostTextMeasurement::WrappedWithRawWidth { .. } => None,
     }
 }
 
+#[must_use]
 fn decode_host_length(measurement: HostTextMeasurement) -> Option<f64> {
     match measurement {
         HostTextMeasurement::Length(length) => Some(length),
-        _ => None,
+        HostTextMeasurement::Metrics(_) | HostTextMeasurement::HorizontalExtents { .. } | HostTextMeasurement::WrappedWithRawWidth { .. } => None,
     }
 }
 
+#[must_use]
 fn decode_host_extents(measurement: HostTextMeasurement) -> Option<(f64, f64)> {
     match measurement {
         HostTextMeasurement::HorizontalExtents { left, right } => Some((left, right)),
-        _ => None,
+        HostTextMeasurement::Metrics(_) | HostTextMeasurement::Length(_) | HostTextMeasurement::WrappedWithRawWidth { .. } => None,
     }
 }
 
+#[must_use]
 fn decode_host_wrapped_with_raw_width(
     measurement: HostTextMeasurement,
 ) -> Option<(TextMetrics, Option<f64>)> {
@@ -1582,7 +1686,7 @@ fn decode_host_wrapped_with_raw_width(
         HostTextMeasurement::WrappedWithRawWidth { metrics, raw_width } => {
             Some((metrics, raw_width))
         }
-        _ => None,
+        HostTextMeasurement::Metrics(_) | HostTextMeasurement::Length(_) | HostTextMeasurement::HorizontalExtents { .. } => None,
     }
 }
 
@@ -1605,6 +1709,7 @@ pub fn validate_host_text_measurement(
         }
     };
     let required_kind = request.operation.required_result_kind();
+
     if result_kind != required_kind {
         return Err(HostTextMeasurementError::invalid_value(format!(
             "host text measurement operation `{}` requires `{}` but returned `{}`",
@@ -1625,6 +1730,7 @@ pub fn validate_host_text_measurement(
                 && raw_width.is_none_or(|value| value.is_finite() && value >= 0.0)
         }
     };
+
     if valid {
         Ok(())
     } else {
@@ -1636,6 +1742,7 @@ pub fn validate_host_text_measurement(
     }
 }
 
+#[must_use]
 fn valid_metrics(request: &HostTextMeasurementRequest<'_>, metrics: &TextMetrics) -> bool {
     metrics.width.is_finite()
         && metrics.height.is_finite()
@@ -1645,6 +1752,7 @@ fn valid_metrics(request: &HostTextMeasurementRequest<'_>, metrics: &TextMetrics
         && metrics.line_count <= request.text.len().saturating_add(1)
 }
 
+#[must_use]
 fn valid_extents(left: f64, right: f64) -> bool {
     left.is_finite()
         && right.is_finite()
@@ -1659,10 +1767,12 @@ fn default_math_backend() -> Option<ConfiguredMathBackend> {
 }
 
 #[cfg(not(feature = "math"))]
+#[must_use]
 fn default_math_backend() -> Option<ConfiguredMathBackend> {
     None
 }
 
+#[must_use]
 fn default_theme_resource_ceiling() -> Arc<ThemeResourcePolicy> {
     static CEILING: OnceLock<Arc<ThemeResourcePolicy>> = OnceLock::new();
     Arc::clone(CEILING.get_or_init(|| Arc::new(ThemeResourcePolicy::interactive())))
@@ -1712,6 +1822,7 @@ impl RenderEnvironment {
     /// When the `math` capability is compiled, the environment also installs its built-in math
     /// renderer. Builds without that capability leave the service absent so family admission can
     /// return a typed missing-capability error.
+    #[must_use]
     pub fn deterministic() -> Self {
         Self {
             text_measurement: TextMeasurementPolicy::deterministic(),
@@ -1733,9 +1844,10 @@ impl RenderEnvironment {
     ///
     /// Timing remains an explicit opt-in because it adds work and observable diagnostics.
     pub fn try_native() -> Result<Self, RuntimePolicyError> {
-        Ok(Self::deterministic().with_runtime_policy(RuntimePolicy::try_native()?))
+        Ok(Self::deterministic().with_runtime_policy({ let checked_value = RuntimePolicy::try_native()?; checked_value }))
     }
 
+    #[must_use]
     pub fn with_text_measurement_policy(mut self, policy: TextMeasurementPolicy) -> Self {
         self.text_measurement = policy;
         self
@@ -1745,6 +1857,7 @@ impl RenderEnvironment {
     ///
     /// This is primarily useful to artifact owners whose public feature contract can be narrower
     /// than Cargo's resolved dependency feature union.
+    #[must_use]
     pub const fn with_capability_policy(mut self, policy: RenderCapabilityPolicy) -> Self {
         self.capability_policy = policy;
         self
@@ -1754,6 +1867,7 @@ impl RenderEnvironment {
     ///
     /// Facades use this to select the canonical compiled capability instead of duplicating Cargo
     /// feature checks in each transport layer.
+    #[must_use]
     pub fn with_compiled_math_renderer(mut self) -> Self {
         self.math_backend = default_math_backend();
         self
@@ -1768,25 +1882,30 @@ impl RenderEnvironment {
         self
     }
 
+    #[must_use]
     pub fn without_math_renderer(mut self) -> Self {
         self.math_backend = None;
         self
     }
 
+    #[must_use]
     pub fn with_icon_registry(mut self, registry: IconRegistry) -> Self {
         self.icon_registry = Some(registry);
         self
     }
 
+    #[must_use]
     pub fn with_runtime_policy(mut self, policy: RuntimePolicy) -> Self {
         self.runtime_policy = policy;
         self
     }
 
+    #[must_use]
     pub fn runtime_policy(&self) -> &RuntimePolicy {
         &self.runtime_policy
     }
 
+    #[must_use]
     pub const fn with_resource_policy(mut self, policy: RenderResourcePolicy) -> Self {
         self.resource_policy = policy;
         self
@@ -1796,29 +1915,35 @@ impl RenderEnvironment {
     ///
     /// Theme compilation supplies exact retained assets for custom catalogs. The unchanged default
     /// path uses [`FontCatalog::system_fonts`], which does not enumerate or freeze host fonts.
+    #[must_use]
     pub fn with_font_catalog(mut self, catalog: FontCatalog) -> Self {
         self.font_catalog = catalog;
         self
     }
 
+    #[must_use]
     pub const fn font_catalog(&self) -> &FontCatalog {
         &self.font_catalog
     }
 
+    #[must_use]
     pub fn with_font_source_policy(mut self, policy: FontSourcePolicy) -> Self {
         self.font_source_policy = policy;
         self
     }
 
+    #[must_use]
     pub const fn font_source_policy(&self) -> &FontSourcePolicy {
         &self.font_source_policy
     }
 
+    #[must_use]
     pub fn with_theme_admission_policy(mut self, policy: ThemeAdmissionPolicy) -> Self {
         self.theme_admission_policy = policy;
         self
     }
 
+    #[must_use]
     pub const fn theme_admission_policy(&self) -> &ThemeAdmissionPolicy {
         &self.theme_admission_policy
     }
@@ -1827,15 +1952,18 @@ impl RenderEnvironment {
     ///
     /// A compiled theme contributes only a prior restriction. Session creation takes the
     /// pointwise minimum, so a theme can never widen this host authority.
+    #[must_use]
     pub fn with_theme_resource_ceiling(mut self, ceiling: ThemeResourcePolicy) -> Self {
         self.theme_resource_ceiling = Arc::new(ceiling);
         self
     }
 
+    #[must_use]
     pub fn theme_resource_ceiling(&self) -> &ThemeResourcePolicy {
         &self.theme_resource_ceiling
     }
 
+    #[must_use]
     pub const fn with_theme_portability_requirement(
         mut self,
         requirement: ThemePortabilityRequirement,
@@ -1844,6 +1972,7 @@ impl RenderEnvironment {
         self
     }
 
+    #[must_use]
     pub const fn theme_portability_requirement(&self) -> ThemePortabilityRequirement {
         self.theme_portability
     }
@@ -1984,8 +2113,8 @@ impl RenderEnvironment {
             .clone();
         Ok(RenderSession {
             text_measurement: self.text_measurement.clone(),
-            // Embedded catalogs are rejected before session construction. System fonts
-            // retain the ordinary measurement lane without a catalog preparation result.
+
+
             measurement_recorder: Box::default(),
             capability_policy: self.capability_policy,
             math_backend: self.math_backend.clone(),
@@ -2023,6 +2152,7 @@ enum SessionThemeResources {
 }
 
 impl SessionThemeResources {
+    #[must_use]
     fn theme(&self) -> Option<&DiagramTheme> {
         match self {
             Self::Environment { .. } => None,
@@ -2030,6 +2160,7 @@ impl SessionThemeResources {
         }
     }
 
+    #[must_use]
     fn font_catalog(&self) -> &FontCatalog {
         match self {
             Self::Environment { font_catalog, .. } => font_catalog,
@@ -2037,6 +2168,7 @@ impl SessionThemeResources {
         }
     }
 
+    #[must_use]
     fn font_source_policy(&self) -> &FontSourcePolicy {
         match self {
             Self::Environment {
@@ -2046,6 +2178,7 @@ impl SessionThemeResources {
         }
     }
 
+    #[must_use]
     fn admission(&self) -> Option<&ResolvedThemeAdmission> {
         match self {
             Self::Environment { .. } => None,
@@ -2053,15 +2186,18 @@ impl SessionThemeResources {
         }
     }
 
+    #[must_use]
     fn portability_requirement(&self) -> Option<ThemePortabilityRequirement> {
         self.admission()
             .map(ResolvedThemeAdmission::portability_requirement)
     }
 
+    #[must_use]
     fn theme_recipe_report(&self) -> Option<&ThemeRecipeReport> {
         self.theme().map(DiagramTheme::report)
     }
 
+    #[must_use]
     fn theme_host_admission_report(&self) -> Option<ThemeHostAdmissionReport> {
         self.admission().map(ResolvedThemeAdmission::report)
     }
@@ -2077,6 +2213,7 @@ struct ResolvedSessionThemeResources {
 }
 
 impl ResolvedSessionThemeResources {
+    #[must_use]
     fn new(resources: SessionThemeResources, effective_policy: Arc<ThemeResourcePolicy>) -> Self {
         Self {
             resources,
@@ -2084,34 +2221,42 @@ impl ResolvedSessionThemeResources {
         }
     }
 
+    #[must_use]
     fn effective_policy(&self) -> &Arc<ThemeResourcePolicy> {
         &self.effective_policy
     }
 
+    #[must_use]
     fn theme(&self) -> Option<&DiagramTheme> {
         self.resources.theme()
     }
 
+    #[must_use]
     fn font_catalog(&self) -> &FontCatalog {
         self.resources.font_catalog()
     }
 
+    #[must_use]
     fn font_source_policy(&self) -> &FontSourcePolicy {
         self.resources.font_source_policy()
     }
 
+    #[must_use]
     fn admission(&self) -> Option<&ResolvedThemeAdmission> {
         self.resources.admission()
     }
 
+    #[must_use]
     fn portability_requirement(&self) -> Option<ThemePortabilityRequirement> {
         self.resources.portability_requirement()
     }
 
+    #[must_use]
     fn theme_recipe_report(&self) -> Option<&ThemeRecipeReport> {
         self.resources.theme_recipe_report()
     }
 
+    #[must_use]
     fn theme_host_admission_report(&self) -> Option<ThemeHostAdmissionReport> {
         self.resources.theme_host_admission_report()
     }
@@ -2120,7 +2265,7 @@ impl ResolvedSessionThemeResources {
 /// Opaque operation session. Family code receives only the narrow projection it needs.
 pub struct RenderSession {
     text_measurement: TextMeasurementPolicy,
-    // Keep movable family artifacts compact for bounded worker stacks.
+
     measurement_recorder: Box<TextMeasurementRecorder>,
     capability_policy: RenderCapabilityPolicy,
     math_backend: Option<ConfiguredMathBackend>,
@@ -2136,10 +2281,12 @@ pub struct RenderSession {
 }
 
 impl RenderSession {
+    #[must_use]
     pub fn text_measurer(&self, default_phase: TextMeasurementPhase) -> RoutedTextMeasurer<'_> {
         self.routed_text_measurer(default_phase, None)
     }
 
+    #[must_use]
     pub(crate) fn controlled_text_measurer(
         &self,
         default_phase: TextMeasurementPhase,
@@ -2148,6 +2295,7 @@ impl RenderSession {
         self.routed_text_measurer(default_phase, Some(operation_phase))
     }
 
+    #[must_use]
     fn routed_text_measurer(
         &self,
         default_phase: TextMeasurementPhase,
@@ -2162,93 +2310,115 @@ impl RenderSession {
         }
     }
 
+    #[must_use]
     pub fn text_measurement_route(&self, phase: TextMeasurementPhase) -> TextMeasurementRoute {
         self.text_measurement.route(phase)
     }
 
+    #[must_use]
     pub(crate) fn has_host_measurements(&self) -> bool {
         self.measurement_recorder.has_host_measurements()
     }
 
+    #[must_use]
     pub fn text_measurement_report(&self) -> TextMeasurementReport {
         self.measurement_recorder.report(&self.text_measurement)
     }
 
+    #[must_use]
     pub fn operation_context(&self) -> &OperationContext {
         &self.operation_context
     }
 
+    #[must_use]
     pub fn operation_timing(&self) -> Option<OperationTiming> {
         self.operation_context.timing()
     }
 
+    #[must_use]
     pub const fn unix_millis(&self) -> i64 {
         self.operation_context.unix_millis()
     }
 
+    #[must_use]
     pub const fn local_date(&self) -> merman_model::time::CivilDate {
         self.operation_context.today_local()
     }
 
+    #[must_use]
     pub fn local_time_zone(&self) -> &merman_model::time::LocalTimeZone {
         self.operation_context.local_time_zone()
     }
 
+    #[must_use]
     pub fn render_seed(&self) -> NonZeroU64 {
         self.operation_context.derive_nonzero_u64("render.root", 0)
     }
 
+    #[must_use]
     pub const fn resource_policy(&self) -> RenderResourcePolicy {
         self.resource_policy
     }
 
     /// Borrows the immutable operation policy for internal validation without copying it.
+    #[must_use]
     pub(crate) const fn resource_policy_ref(&self) -> &RenderResourcePolicy {
         &self.resource_policy
     }
 
     /// Returns the immutable host/theme resource intersection captured for this operation.
+    #[must_use]
     pub(crate) fn effective_theme_resource_policy(&self) -> Arc<ThemeResourcePolicy> {
         Arc::clone(self.resolved_theme_resources.effective_policy())
     }
 
+    #[must_use]
     pub fn theme(&self) -> Option<&DiagramTheme> {
         self.resolved_theme_resources.theme()
     }
 
+    #[must_use]
     pub fn theme_recipe_fingerprint(&self) -> Option<ThemeRecipeFingerprint> {
         self.theme().map(DiagramTheme::recipe_fingerprint)
     }
 
+    #[must_use]
     pub(crate) fn theme_compatibility_recipe(&self) -> Option<&ThemeCompatibilityRecipe> {
         self.theme_compatibility_recipe.as_ref()
     }
 
+    #[must_use]
     pub fn theme_recipe_report(&self) -> Option<&ThemeRecipeReport> {
         self.resolved_theme_resources.theme_recipe_report()
     }
 
+    #[must_use]
     pub fn theme_host_admission_report(&self) -> Option<ThemeHostAdmissionReport> {
         self.resolved_theme_resources.theme_host_admission_report()
     }
 
+    #[must_use]
     pub fn font_catalog(&self) -> &FontCatalog {
         self.resolved_theme_resources.font_catalog()
     }
 
+    #[must_use]
     pub fn font_source_policy(&self) -> &FontSourcePolicy {
         self.resolved_theme_resources.font_source_policy()
     }
 
+    #[must_use]
     pub fn theme_portability_requirement(&self) -> Option<ThemePortabilityRequirement> {
         self.resolved_theme_resources.portability_requirement()
     }
 
     /// Returns the effective host/theme portability requirement frozen for this operation.
+    #[must_use]
     pub const fn portability_requirement(&self) -> ThemePortabilityRequirement {
         self.portability_requirement
     }
 
+    #[must_use]
     pub fn trusted_theme_lanes(&self) -> &TrustedThemeLanes {
         &self.trusted_theme_lanes
     }
@@ -2260,11 +2430,13 @@ impl RenderSession {
         if !self.trusted_theme_lanes.contains(lane) {
             return Err(ThemeAdmissionError::TrustedThemeLaneDenied(lane));
         }
+
         self.trusted_theme_lane_usage
             .fetch_or(lane.usage_mask(), Ordering::Relaxed);
         Ok(())
     }
 
+    #[must_use]
     fn used_trusted_theme_lanes(&self) -> TrustedThemeLanes {
         let usage = self.trusted_theme_lane_usage.load(Ordering::Relaxed);
         TrustedThemeLanes::from_allowed(
@@ -2276,10 +2448,12 @@ impl RenderSession {
     }
 
     /// Reports effective operation availability after policy and backend/service resolution.
+    #[must_use]
     pub(crate) fn supports_capability(&self, capability: RenderCapability) -> bool {
         if !self.capability_policy.allows(capability) {
             return false;
         }
+
         match capability {
             RenderCapability::LayoutCytoscape => crate::layout_cytoscape_available(),
             RenderCapability::LayoutElk => crate::layout_elk_available(),
@@ -2290,6 +2464,7 @@ impl RenderSession {
         }
     }
 
+    #[must_use]
     pub(crate) fn work_meter(&self) -> &Arc<OperationWorkMeter> {
         &self.work_meter
     }
@@ -2299,22 +2474,26 @@ impl RenderSession {
         self.work_meter().checkpoint(phase).map_err(Into::into)
     }
 
+    #[must_use]
     pub(crate) fn math_renderer(&self) -> Option<&(dyn MathRenderer + Send + Sync)> {
         self.math_backend().map(ConfiguredMathBackend::renderer)
     }
 
     /// Returns the operation-selected math backend, retaining whether it is native-capable.
+    #[must_use]
     pub(crate) fn math_backend(&self) -> Option<&ConfiguredMathBackend> {
         self.supports_capability(RenderCapability::Math)
             .then_some(())
             .and(self.math_backend.as_ref())
     }
 
+    #[must_use]
     pub fn icon_registry(&self) -> Option<&IconRegistry> {
         self.icon_registry.as_ref()
     }
 
     /// Freezes the observable policy and provenance accumulated so far.
+    #[must_use]
     pub fn report(&self) -> RenderSessionReport {
         RenderSessionReport {
             measurement_routes: self.text_measurement.routes(),
@@ -2363,73 +2542,90 @@ pub struct RenderSessionReport {
 }
 
 impl RenderSessionReport {
+    #[must_use]
     pub fn measurement_routes(&self) -> &[TextMeasurementRoute; 4] {
         &self.measurement_routes
     }
 
+    #[must_use]
     pub fn measurement(&self) -> &TextMeasurementReport {
         &self.measurement
     }
 
+    #[must_use]
     pub fn operation_context(&self) -> &OperationContext {
         &self.operation_context
     }
 
+    #[must_use]
     pub const fn unix_millis(&self) -> i64 {
         self.operation_context.unix_millis()
     }
 
+    #[must_use]
     pub const fn local_date(&self) -> merman_model::time::CivilDate {
         self.operation_context.today_local()
     }
 
+    #[must_use]
     pub fn local_time_zone(&self) -> &LocalTimeZoneProvenance {
         &self.local_time_zone
     }
 
+    #[must_use]
     pub fn render_seed(&self) -> NonZeroU64 {
         self.operation_context.derive_nonzero_u64("render.root", 0)
     }
 
+    #[must_use]
     pub const fn resource_policy(&self) -> RenderResourcePolicy {
         self.resource_policy
     }
 
+    #[must_use]
     pub(crate) fn effective_theme_resource_policy(&self) -> &ThemeResourcePolicy {
         &self.effective_theme_resource_policy
     }
 
+    #[must_use]
     pub fn theme_recipe_fingerprint(&self) -> Option<ThemeRecipeFingerprint> {
         self.theme_recipe_report
             .as_ref()
             .map(ThemeRecipeReport::theme_recipe_fingerprint)
     }
 
+    #[must_use]
     pub const fn theme_recipe_report(&self) -> Option<&ThemeRecipeReport> {
         self.theme_recipe_report.as_ref()
     }
 
+    #[must_use]
     pub const fn theme_host_admission_report(&self) -> Option<&ThemeHostAdmissionReport> {
         self.theme_host_admission_report.as_ref()
     }
 
     /// Returns the effective host/theme portability requirement frozen for this operation.
+    #[must_use]
     pub const fn portability_requirement(&self) -> ThemePortabilityRequirement {
         self.portability_requirement
     }
 
+    #[must_use]
     pub const fn font_catalog_fingerprint(&self) -> FontCatalogFingerprint {
         self.font_catalog_fingerprint
     }
 
+    #[must_use]
     pub const fn font_source_policy(&self) -> &FontSourcePolicy {
         &self.font_source_policy
     }
 
+    #[must_use]
     pub const fn trusted_theme_lanes(&self) -> &TrustedThemeLanes {
         &self.trusted_theme_lanes
     }
 
+    #[must_use]
     pub const fn used_trusted_theme_lanes(&self) -> &TrustedThemeLanes {
         &self.used_trusted_theme_lanes
     }
@@ -2438,11 +2634,13 @@ impl RenderSessionReport {
     ///
     /// This value is useful for resource-policy calibration. It is not elapsed time, an
     /// instruction count, or a portable latency estimate.
+    #[must_use]
     pub const fn layout_work_units(&self) -> usize {
         self.layout_work_units
     }
 
     /// Returns the peak owner-accounted prepared-text bytes retained by the operation.
+    #[must_use]
     pub const fn prepared_text_retained_bytes_peak(&self) -> usize {
         self.prepared_text_retained_bytes_peak
     }
@@ -3271,8 +3469,8 @@ mod tests {
             ),
             ("<b<br/>tail", &["<b<", "br", "/>tail"]),
             ("wide<br / >literal", &["wide<br ", "/ ", ">literal"]),
-            // ECMAScript `\s` also includes form feed. The headless built-in intentionally keeps
-            // that spelling literal until browser-grade HTML parsing is available.
+
+
             (
                 "wide<br\u{000C}/>literal",
                 &["wide<br", "\u{000C}", "/>literal"],
@@ -3567,8 +3765,8 @@ mod tests {
             }
         }
 
-        // HTML has already been decoded before a line reaches this accumulator. A label such
-        // as `&lt;br&gt;` must keep its literal spelling rather than introduce another line.
+
+
         let mut literal = BuiltinHtmlLineWidth::deterministic(&style, 0.0);
         literal.push_text("a<br>b");
         assert_eq!(
@@ -3629,8 +3827,8 @@ mod tests {
             );
         }
 
-        // Even a deterministic backend remains opaque when admitted as an ordinary custom
-        // profile; concrete operation authority comes from the route, not its backend type.
+
+
         let custom = TextMeasurementProfile::new(
             identity("test.custom-deterministic", "v1", &[]),
             Arc::new(DeterministicTextMeasurer::default()),

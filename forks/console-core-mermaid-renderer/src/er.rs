@@ -40,37 +40,41 @@ pub(crate) struct ErBoxLabel {
 }
 
 impl ErBoxLabel {
+    #[must_use]
     pub(crate) fn from_source(source: &str) -> Self {
         Self::from_source_with_generic_types(source, true)
     }
 
+    #[must_use]
     fn from_source_with_generic_types(source: &str, expand_generic_types: bool) -> Self {
-        // erBox receives source spelling. Browser entity decoding belongs to createText's
-        // HTML insertion or SVG word terminals, after authored line breaks are selected.
+
+
         let restored = merman_model::text::restore_mermaid_entity_spelling(source);
-        let source = restored.as_ref().trim();
+        let source_2 = restored.as_ref().trim();
         let parsed = if expand_generic_types {
-            merman_model::text::parse_generic_types(source)
+            merman_model::text::parse_generic_types(source_2)
         } else {
-            source.to_string()
+            source_2.to_string()
         };
-        let generic_workaround = parsed != source;
+        let generic_workaround = parsed != source_2;
         let markdown_input = if generic_workaround {
             parsed.replace('<', "&lt;").replace('>', "&gt;")
         } else {
-            source.to_string()
+            source_2.to_string()
         };
         let xhtml_fragment =
             crate::text::mermaid_markdown_to_xhtml_label_fragment(&markdown_input, true);
         let rendered_text = if generic_workaround {
-            // addText restores only angle-bracket spellings through textContent after
-            // createText. Other entities retain the depth left by the terminal decoder.
-            crate::text::mermaid_xhtml_label_text_content(&xhtml_fragment)
-                .unwrap_or(parsed)
+
+
+            match (crate::text::mermaid_xhtml_label_text_content(&xhtml_fragment), parsed) {
+                (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+                (::core::option::Option::None, alternate) => alternate,
+            }
                 .replace("&lt;", "<")
                 .replace("&gt;", ">")
         } else {
-            source.to_string()
+            source_2.to_string()
         };
 
         Self {
@@ -82,22 +86,27 @@ impl ErBoxLabel {
         }
     }
 
+    #[must_use]
     pub(crate) fn markdown_input(&self) -> &str {
         &self.markdown_input
     }
 
+    #[must_use]
     pub(crate) fn rendered_text(&self) -> &str {
         &self.rendered_text
     }
 
+    #[must_use]
     pub(crate) fn xhtml_fragment(&self) -> &str {
         &self.xhtml_fragment
     }
 
+    #[must_use]
     pub(crate) fn uses_generic_workaround(&self) -> bool {
         self.generic_workaround
     }
 
+    #[must_use]
     pub(crate) fn svg_text_source(&self) -> &str {
         if self.generic_workaround {
             &self.rendered_text
@@ -106,6 +115,7 @@ impl ErBoxLabel {
         }
     }
 
+    #[must_use]
     pub(crate) fn visible_style_facts(&self) -> &crate::text::VisibleTextStyleFacts {
         self.visible_style_facts.get_or_init(|| {
             crate::text::VisibleTextStyleFacts::from_xhtml_fragment(&self.xhtml_fragment)
@@ -123,6 +133,7 @@ pub(crate) struct ErPreparedRelationshipLabel {
 }
 
 impl ErPreparedRelationshipLabel {
+    #[must_use]
     fn new(text: &str, measurer: &dyn TextMeasurer, style: &TextStyle, html_labels: bool) -> Self {
         let source = text.trim().to_string();
         let xhtml_fragment = crate::text::mermaid_markdown_to_xhtml_label_fragment(&source, true);
@@ -141,8 +152,8 @@ impl ErPreparedRelationshipLabel {
                 WrapMode::HtmlLike,
             )
         } else {
-            // The shared SVG path measures retained word rows after createText entity decoding.
-            // A literal `<br>` in a terminal word must not become another source line break.
+
+
             crate::text::measure_markdown_with_inline_styles(
                 measurer,
                 &source,
@@ -160,14 +171,17 @@ impl ErPreparedRelationshipLabel {
         }
     }
 
+    #[must_use]
     pub(crate) fn xhtml_fragment(&self) -> &str {
         &self.xhtml_fragment
     }
 
+    #[must_use]
     fn dimensions(&self) -> (f64, f64) {
         (self.metrics.width.max(0.0), self.metrics.height.max(0.0))
     }
 
+    #[must_use]
     pub(crate) fn visible_style_facts(&self) -> &crate::text::VisibleTextStyleFacts {
         self.visible_style_facts.get_or_init(|| {
             if self.html_labels {
@@ -189,6 +203,7 @@ pub(crate) struct ErPreparedLabels {
 }
 
 impl ErPreparedLabels {
+    #[must_use]
     fn prepare(
         model: &merman_model::families::er::ErDiagramModel,
         measurer: &dyn TextMeasurer,
@@ -231,22 +246,27 @@ impl ErPreparedLabels {
         }
     }
 
+    #[must_use]
     pub(crate) fn entity(&self, entity_id: &str) -> Option<&ErEntityMeasure> {
         self.entity_measures.get(entity_id)
     }
 
+    #[must_use]
     pub(crate) fn relationship(&self, index: usize) -> Option<&ErPreparedRelationshipLabel> {
         self.relationship_labels.get(index)
     }
 
+    #[must_use]
     pub(crate) const fn entity_font_size_px(&self) -> f64 {
         self.entity_font_size_px
     }
 
+    #[must_use]
     pub(crate) const fn attribute_font_size_px(&self) -> f64 {
         self.attribute_font_size_px
     }
 
+    #[must_use]
     pub(crate) const fn relationship_font_size_px(&self) -> f64 {
         self.relationship_font_size_px
     }
@@ -273,6 +293,7 @@ pub(crate) fn er_box_label_metrics(
     er_box_label_metrics_with_wrap_mode(label, measurer, style, wrap_mode)
 }
 
+#[must_use]
 pub(crate) fn er_box_label_metrics_with_wrap_mode(
     label: &ErBoxLabel,
     measurer: &dyn TextMeasurer,
@@ -290,14 +311,15 @@ pub(crate) fn er_box_label_metrics_with_wrap_mode(
     match wrap_mode {
         WrapMode::HtmlLike => {
             if label.uses_generic_workaround() {
-                // erBox assigns the workaround result through textContent. Its final nowrap
-                // HTML text collapses ASCII whitespace but never interprets literal markup.
+
+
                 let line = label
                     .rendered_text()
                     .split(crate::text::is_html_collapsible_ascii_whitespace)
                     .filter(|part| !part.is_empty())
                     .collect::<Vec<_>>()
                     .join(" ");
+
                 if line.is_empty() {
                     return TextMetrics {
                         width: 0.0,
@@ -305,6 +327,7 @@ pub(crate) fn er_box_label_metrics_with_wrap_mode(
                         line_count: 0,
                     };
                 }
+
                 TextMetrics {
                     width: measurer.measure_html_line_width_px(&line, style),
                     height: measurer.measure_html_line_height_px(&line, style),
@@ -332,6 +355,7 @@ pub(crate) fn er_box_label_metrics_with_wrap_mode(
     }
 }
 
+#[must_use]
 fn er_subgraph_title_metrics(
     subgraph: &ErSubgraph,
     measurer: &dyn TextMeasurer,
@@ -343,6 +367,7 @@ fn er_subgraph_title_metrics(
     } else {
         WrapMode::SvgLike
     };
+
     if subgraph.label_type == "string" || subgraph.label_type == "text" {
         measurer.measure_wrapped(&subgraph.title, style, None, wrap_mode)
     } else {
@@ -355,6 +380,7 @@ fn er_subgraph_title_metrics(
     }
 }
 
+#[must_use]
 pub(crate) fn calculate_text_width_like_mermaid_px(
     measurer: &dyn TextMeasurer,
     style: &TextStyle,
@@ -394,6 +420,7 @@ pub(crate) struct ErEntityMeasure {
     pub rows: Vec<ErEntityMeasureRow>,
 }
 
+#[must_use]
 pub(crate) fn measure_entity_box(
     entity: &ErEntity,
     measurer: &dyn TextMeasurer,
@@ -401,30 +428,30 @@ pub(crate) fn measure_entity_box(
     attr_style: &TextStyle,
     settings: ErEntityMeasurementSettings,
 ) -> ErEntityMeasure {
-    // Measure through the same HTML/SVG branch used by Mermaid erBox.ts and the painter.
-    // The operation-owned measurer supplies browser metrics or the deterministic fallback.
 
-    // Mermaid's ER renderer (erBox.ts) uses `config.htmlLabels` inconsistently:
-    // - It passes `useHtmlLabels: config.htmlLabels` into `createText`, where `undefined`
-    //   effectively behaves as `true` due to JS default parameters.
-    // - It uses `if (!config.htmlLabels) { PADDING *= 1.25; TEXT_PADDING *= 1.25; }`, where
-    //   `undefined` behaves as `false` and triggers the multiplier even when HTML labels are used.
-    //
-    // Upstream SVG fixtures at Mermaid@11.12.2 reflect this quirk. The padding multiplier still
-    // keys off the raw truthiness (`undefined` behaves like `false`) even though the rendered labels
-    // use HTML `<foreignObject>` output by default.
+
+
+
+
+
+
+
+
+
+
+
     let html_labels_raw = settings.html_labels_raw;
 
-    // Mermaid ER unified shape (`erBox.ts`) uses:
-    // - PADDING = config.er.diagramPadding (default 20 in Mermaid 11.12.2 schema defaults)
-    // - TEXT_PADDING = config.er.entityPadding (default 15)
+
+
+
     let mut padding = settings.diagram_padding;
     let mut text_padding = settings.entity_padding;
     let min_w = settings.min_entity_width;
     let wrapping_width_px = settings.wrapping_width_px;
 
-    // Attribute-free entities use drawRect/labelHelper, which does not call addText's
-    // parseGenericTypes workaround.
+
+
     let label = ErBoxLabel::from_source_with_generic_types(
         entity.label_source_for_render(),
         !entity.attributes.is_empty(),
@@ -437,18 +464,18 @@ pub(crate) fn measure_entity_box(
     );
     let label_html_width = label_metrics.width.max(0.0);
 
-    // No attributes: use `drawRect`-like padding rules from Mermaid erBox.ts.
+
     if entity.attributes.is_empty() {
         let label_pad_x = padding;
         let label_pad_y = padding * 1.5;
-        // Mermaid's `drawRect` branch clamps to `minEntityWidth` based on `calculateTextWidth()`,
-        // not on the HTML label bbox. Preserve that quirk: upstream can end up with nodes that are
-        // narrower than `minEntityWidth` when `calculateTextWidth()` is larger than the HTML bbox
-        // used by `drawRect`.
+
+
+
+
         let calc_w =
             calculate_text_width_like_mermaid_px(measurer, label_style, label.markdown_input());
-        // The painter emits this same prepared terminal. Reusing its metrics preserves
-        // entity depth and avoids measuring encoded source as already-decoded text.
+
+
         let unformatted_label_metrics = label_metrics;
         let clamp_to_min_w = (calc_w as f64 + label_pad_x * 2.0) < min_w;
         let width = if clamp_to_min_w {
@@ -481,8 +508,8 @@ pub(crate) fn measure_entity_box(
         };
     }
 
-    // Mermaid erBox.ts only applies the `* 1.25` multiplier after the "drawRect" early-return.
-    // Keep that behavior: nodes without an attribute table should *not* inherit the multiplier.
+
+
     if !html_labels_raw {
         padding *= 1.25;
         text_padding *= 1.25;
@@ -555,8 +582,8 @@ pub(crate) fn measure_entity_box(
             + text_padding;
 
         let cell_max_widths_px = if settings.label_wrap_mode == WrapMode::HtmlLike {
-            [&type_label, &name_label, &key_label, &comment_label].map(|label| {
-                calculate_text_width_like_mermaid_px(measurer, attr_style, label.markdown_input())
+            [&type_label, &name_label, &key_label, &comment_label].map(|label_2| {
+                calculate_text_width_like_mermaid_px(measurer, attr_style, label_2.markdown_input())
                     + 100
             })
         } else {
@@ -578,32 +605,38 @@ pub(crate) fn measure_entity_box(
     let mut total_width_sections = 4usize;
     let mut has_key = true;
     let mut has_comment = true;
+
     if max_keys_col_w <= padding {
         has_key = false;
         max_keys_col_w = 0.0;
         total_width_sections = total_width_sections.saturating_sub(1);
     }
+
     if max_comment_col_w <= padding {
         has_comment = false;
         max_comment_col_w = 0.0;
         total_width_sections = total_width_sections.saturating_sub(1);
     }
 
-    // Mermaid adds extra padding to attribute components to accommodate the entity name width.
-    // Mermaid uses the HTML label bbox (`getBoundingClientRect`) as `nameBBox.width`.
+
+
     let name_w_min = label_html_width + padding * 2.0;
     let mut max_width = max_type_col_w + max_name_col_w + max_keys_col_w + max_comment_col_w;
+
     if name_w_min - max_width > 0.0 && total_width_sections > 0 {
         let diff = name_w_min - max_width;
         let per = diff / total_width_sections as f64;
         max_type_col_w += per;
         max_name_col_w += per;
+
         if has_key {
             max_keys_col_w += per;
         }
+
         if has_comment {
             max_comment_col_w += per;
         }
+
         max_width = max_type_col_w + max_name_col_w + max_keys_col_w + max_comment_col_w;
     }
 
@@ -642,32 +675,54 @@ pub(crate) fn measure_entity_box(
     }
 }
 
+#[must_use]
 fn parse_er_rel_idx_from_edge_name(name: &str) -> Option<usize> {
     let rest = name.strip_prefix("er-rel-")?;
     let mut end = 0usize;
+
     for (idx, ch) in rest.char_indices() {
         if !ch.is_ascii_digit() {
             break;
         }
+
         end = idx + ch.len_utf8();
     }
-    if end == 0 {
-        return None;
+
+    match end {
+        0 => {
+            return None;
+        },
+        _ => {},
     }
-    rest[..end].parse::<usize>().ok()
+
+    match rest[..end].parse::<usize>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }
 }
 
+#[must_use]
 fn is_er_self_loop_dummy_node_id(id: &str) -> bool {
-    // Mermaid's dagre renderer creates self-loop helper nodes using `${nodeId}---${nodeId}---{1|2}`.
-    let Some((base, suffix)) = id.rsplit_once("---") else {
-        return false;
+
+    let (base, suffix) = {
+        let optional_base = id.rsplit_once("---");
+
+        match optional_base {
+            Some((matched_base, matched_suffix)) => (matched_base, matched_suffix),
+            ::core::option::Option::None => return false,
+        }
     };
+
     if !matches!(suffix, "1" | "2") {
         return false;
     }
-    let Some((left, right)) = base.split_once("---") else {
-        return false;
+
+    let (left, right) = {
+        let optional_left = base.split_once("---");
+
+        match optional_left {
+            Some((matched_left, matched_right)) => (matched_left, matched_right),
+            ::core::option::Option::None => return false,
+        }
     };
+
     left == right
 }
 
@@ -691,6 +746,7 @@ enum ErSelfLoopSide {
     Right,
 }
 
+#[must_use]
 fn er_default_self_loop_side(rankdir: RankDir) -> ErSelfLoopSide {
     match rankdir {
         RankDir::BT => ErSelfLoopSide::Bottom,
@@ -700,22 +756,31 @@ fn er_default_self_loop_side(rankdir: RankDir) -> ErSelfLoopSide {
     }
 }
 
+#[must_use]
 fn er_self_loop_side(
     node: &NodeLabel,
     hints: impl IntoIterator<Item = (f64, f64)>,
     rankdir: RankDir,
 ) -> ErSelfLoopSide {
-    let hints = hints.into_iter().collect::<Vec<_>>();
-    if hints.is_empty() {
+    let hints_2 = hints.into_iter().collect::<Vec<_>>();
+
+    if hints_2.is_empty() {
         return er_default_self_loop_side(rankdir);
     }
 
-    let (sum_x, sum_y) = hints.iter().fold((0.0, 0.0), |(x, y), (hint_x, hint_y)| {
+    let (sum_x, sum_y) = hints_2.iter().fold((0.0, 0.0), |(x, y), (hint_x, hint_y)| {
         (x + hint_x, y + hint_y)
     });
-    let count = hints.len() as f64;
-    let dx = sum_x / count - node.x.unwrap_or(0.0);
-    let dy = sum_y / count - node.y.unwrap_or(0.0);
+    let count = hints_2.len() as f64;
+    let dx = sum_x / count - match node.x {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+    let dy = sum_y / count - match node.y {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+
     if dx.abs() > dy.abs() {
         if dx > 0.0 {
             ErSelfLoopSide::Right
@@ -731,13 +796,20 @@ fn er_self_loop_side(
     }
 }
 
+#[must_use]
 fn er_self_loop_points(
     node: &NodeLabel,
     side: ErSelfLoopSide,
     label_width: f64,
 ) -> Vec<LayoutPoint> {
-    let x = node.x.unwrap_or(0.0);
-    let y = node.y.unwrap_or(0.0);
+    let x = match node.x {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+    let y = match node.y {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
     let half_width = node.width / 2.0;
     let half_height = node.height / 2.0;
     let max_span = (node.width * 0.8).clamp(36.0, 100.0);
@@ -823,10 +895,10 @@ fn er_self_loop_points(
         ],
     };
 
-    // Mermaid's edge painter clips the first/last points against the node by shooting a ray from
-    // the node center toward the adjacent inner bend. Keep the compact route's inner points
-    // intact, but expose the same boundary intersections in the public LayoutEdge so the
-    // headless SVG path/data-points match the browser renderer.
+
+
+
+
     if points.len() >= 4 {
         let first_inner = points[1].clone();
         let last_index = points.len() - 1;
@@ -835,16 +907,24 @@ fn er_self_loop_points(
         let last_boundary = er_intersect_node_rect(node, &last_inner);
         points[last_index] = last_boundary;
     }
+
     points
 }
 
+#[must_use]
 fn er_intersect_node_rect(node: &NodeLabel, point: &LayoutPoint) -> LayoutPoint {
-    // Port of Mermaid's intersect.rect: the ray starts at the node center and ends at the
-    // requested route point. This deliberately handles the self-loop endpoint case separately
-    // from `clip_edge_endpoints`, whose segment clipping assumes the point is already inside the
-    // rectangle and would leave raw boundary coordinates unchanged.
-    let x = node.x.unwrap_or(0.0);
-    let y = node.y.unwrap_or(0.0);
+
+
+
+
+    let x = match node.x {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+    let y = match node.y {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
     let dx = point.x - x;
     let dy = point.y - y;
     let mut half_width = node.width / 2.0;
@@ -854,7 +934,8 @@ fn er_intersect_node_rect(node: &NodeLabel, point: &LayoutPoint) -> LayoutPoint 
         if dy < 0.0 {
             half_height = -half_height;
         }
-        let sx = if dy == 0.0 {
+
+        let sx = if ::core::matches!(::core::primitive::f64::classify(dy), ::core::num::FpCategory::Zero) {
             0.0
         } else {
             (half_height * dx) / dy
@@ -864,7 +945,8 @@ fn er_intersect_node_rect(node: &NodeLabel, point: &LayoutPoint) -> LayoutPoint 
         if dx < 0.0 {
             half_width = -half_width;
         }
-        let sy = if dx == 0.0 {
+
+        let sy = if ::core::matches!(::core::primitive::f64::classify(dx), ::core::num::FpCategory::Zero) {
             0.0
         } else {
             (half_width * dy) / dx
@@ -878,6 +960,7 @@ fn er_intersect_node_rect(node: &NodeLabel, point: &LayoutPoint) -> LayoutPoint 
     }
 }
 
+#[must_use]
 fn er_self_loop_label_position(
     points: &[LayoutPoint],
     side: ErSelfLoopSide,
@@ -885,9 +968,16 @@ fn er_self_loop_label_position(
     label_height: f64,
     node: &NodeLabel,
 ) -> (f64, f64) {
-    let x = node.x.unwrap_or(0.0);
-    let y = node.y.unwrap_or(0.0);
+    let x = match node.x {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+    let y = match node.y {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
     let gap = 4.0;
+
     match side {
         ErSelfLoopSide::Bottom => (
             x,
@@ -928,45 +1018,59 @@ fn er_self_loop_label_position(
     }
 }
 
-// Layout-engine fallback used before SVG path insertion. This deliberately stays outside the SVG
-// parity layer: rendered-path change detection and five-decimal placement belong to
-// `svg::parity::edge_label_geometry`, while this function only supplies a missing Dagre/ELK anchor.
+
+
+
+#[must_use]
 fn calc_label_position(points: &[LayoutPoint]) -> Option<(f64, f64)> {
-    if points.is_empty() {
-        return None;
+    match points {
+        [] => {
+            return None;
+        },
+        [_, ..] => {},
     }
+
     if points.len() == 1 {
         return Some((points[0].x, points[0].y));
     }
 
     let mut total = 0.0;
+
     for i in 1..points.len() {
         let dx = points[i].x - points[i - 1].x;
         let dy = points[i].y - points[i - 1].y;
         total += (dx * dx + dy * dy).sqrt();
     }
+
     let mut remaining = total / 2.0;
+
     for i in 1..points.len() {
         let p0 = &points[i - 1];
         let p1 = &points[i];
         let dx = p1.x - p0.x;
         let dy = p1.y - p0.y;
         let seg = (dx * dx + dy * dy).sqrt();
-        if seg == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(seg), ::core::num::FpCategory::Zero) {
             continue;
         }
+
         if seg < remaining {
             remaining -= seg;
             continue;
         }
+
         let t = (remaining / seg).clamp(0.0, 1.0);
         return Some((p0.x + t * dx, p0.y + t * dy));
     }
-    Some((points.last()?.x, points.last()?.y))
+
+    let checked_value = points.last()?;
+    Some((checked_value.x, points.last()?.y))
 }
 
 type Rect = crate::geom::Box2;
 
+#[must_use]
 fn intersect_segment_with_rect(
     p0: &LayoutPoint,
     p1: &LayoutPoint,
@@ -974,7 +1078,8 @@ fn intersect_segment_with_rect(
 ) -> Option<LayoutPoint> {
     let dx = p1.x - p0.x;
     let dy = p1.y - p0.y;
-    if dx == 0.0 && dy == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(dx), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f64::classify(dy), ::core::num::FpCategory::Zero) {
         return None;
     }
 
@@ -988,10 +1093,13 @@ fn intersect_segment_with_rect(
     if dx.abs() > eps {
         for x_edge in [min_x, max_x] {
             let t = (x_edge - p0.x) / dx;
+
             if t < -eps || t > 1.0 + eps {
                 continue;
             }
+
             let y = p0.y + t * dy;
+
             if y + eps >= min_y && y <= max_y + eps {
                 candidates.push((t, LayoutPoint { x: x_edge, y }));
             }
@@ -1001,17 +1109,23 @@ fn intersect_segment_with_rect(
     if dy.abs() > eps {
         for y_edge in [min_y, max_y] {
             let t = (y_edge - p0.y) / dy;
+
             if t < -eps || t > 1.0 + eps {
                 continue;
             }
+
             let x = p0.x + t * dx;
+
             if x + eps >= min_x && x <= max_x + eps {
                 candidates.push((t, LayoutPoint { x, y: y_edge }));
             }
         }
     }
 
-    candidates.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.sort_by(|a, b| match a.0.partial_cmp(&b.0) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => std::cmp::Ordering::Equal,
+    });
     candidates
         .into_iter()
         .find(|(t, _)| *t >= 0.0)
@@ -1022,12 +1136,15 @@ fn clip_edge_endpoints(points: &mut [LayoutPoint], from: Rect, to: Rect) {
     if points.len() < 2 {
         return;
     }
+
     if from.contains_point(points[0].x, points[0].y)
         && let Some(p) = intersect_segment_with_rect(&points[0], &points[1], from)
     {
         points[0] = p;
     }
+
     let last = points.len() - 1;
+
     if to.contains_point(points[last].x, points[last].y)
         && let Some(p) = intersect_segment_with_rect(&points[last], &points[last - 1], to)
     {
@@ -1035,13 +1152,14 @@ fn clip_edge_endpoints(points: &mut [LayoutPoint], from: Rect, to: Rect) {
     }
 }
 
+#[must_use]
 fn er_marker_id(card: &str, suffix: &str) -> Option<String> {
     match card {
         "ONLY_ONE" => Some(format!("ONLY_ONE_{suffix}")),
         "ZERO_OR_ONE" => Some(format!("ZERO_OR_ONE_{suffix}")),
         "ONE_OR_MORE" => Some(format!("ONE_OR_MORE_{suffix}")),
         "ZERO_OR_MORE" => Some(format!("ZERO_OR_MORE_{suffix}")),
-        // Mermaid CLI ER output does not emit a dedicated MD_PARENT marker.
+
         "MD_PARENT" => None,
         _ => None,
     }
@@ -1101,11 +1219,12 @@ fn validate_er_relationship_endpoints(
         .map(|entity| entity.id.as_str())
         .collect();
     node_ids.extend(model.subgraphs.iter().map(|subgraph| subgraph.id.as_str()));
+
     for relationship in &model.relationships {
-        // The render model indexes entities by source name, while relationships store the
-        // renderer-facing generated `entity-*` ids.  Validate against the entity values rather
-        // than the map keys; checking the keys would reject every ordinary parsed relationship
-        // before Dagre/ELK gets a chance to lay it out.
+
+
+
+
         if !node_ids.contains(relationship.entity_a.as_str())
             || !node_ids.contains(relationship.entity_b.as_str())
         {
@@ -1117,6 +1236,7 @@ fn validate_er_relationship_endpoints(
             });
         }
     }
+
     Ok(())
 }
 
@@ -1166,19 +1286,23 @@ fn layout_er_diagram_dagre_typed(
         2,
     )?;
     let parent_count = work_control.checked_add(membership_count, helper_count)?;
-    if parent_count != 0 {
-        let slots = work_control.checked_add(
-            work_control.checked_add(model.entities.len(), model.subgraphs.len())?,
-            helper_count,
-        )?;
-        // Only Dagre builds this parent plan. Admit its scratch, checked forest batch and
-        // numeric-key updates conservatively before allocating any of that derived graph.
-        let height = usize::BITS as usize - slots.saturating_sub(1).leading_zeros() as usize + 1;
-        let parent_work = work_control.checked_mul(
-            work_control.checked_add(slots, parent_count)?,
-            work_control.checked_mul(height, 12)?,
-        )?;
-        work_control.charge_adapter(parent_work)?;
+
+    match parent_count {
+        0 => {},
+        _ => {
+            let slots = work_control.checked_add(
+                work_control.checked_add(model.entities.len(), model.subgraphs.len())?,
+                helper_count,
+            )?;
+
+
+            let height = usize::BITS as usize - slots.saturating_sub(1).leading_zeros() as usize + 1;
+            let parent_work = work_control.checked_mul(
+                work_control.checked_add(slots, parent_count)?,
+                work_control.checked_mul(height, 12)?,
+            )?;
+            work_control.charge_adapter(parent_work)?;
+        },
     }
 
     let ErLayoutSettings {
@@ -1193,20 +1317,22 @@ fn layout_er_diagram_dagre_typed(
     let mut g = Graph::<NodeLabel, EdgeLabel, GraphLabel>::new(GraphOptions {
         directed: true,
         multigraph: true,
-        // Mermaid's Dagre adapter always enables `compound: true`, even without clusters.
+
         compound: true,
     });
     let rankdir = graph_label.rankdir;
     g.set_graph(graph_label);
 
+    #[must_use]
     fn parse_entity_counter_from_id(id: &str) -> Option<usize> {
         let (_prefix, tail) = id.rsplit_once('-')?;
-        tail.parse::<usize>().ok()
+
+        match tail.parse::<usize>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }
     }
 
-    // Groups are first-class compound nodes in Mermaid's ER graph. Keep the source names in the
-    // semantic model and translate entity members to their renderer-facing `entity-*` ids only
-    // at this boundary.
+
+
+
     let subgraph_ids: HashSet<&str> = model
         .subgraphs
         .iter()
@@ -1224,8 +1350,8 @@ fn layout_er_diagram_dagre_typed(
         .collect();
     let mut subgraph_title_metrics: HashMap<String, (f64, f64)> = HashMap::new();
 
-    // Insert groups in reverse declaration order, matching Mermaid's `getData()` projection and
-    // keeping nested group order deterministic for Dagre's compound ranking.
+
+
     for subgraph in model.subgraphs.iter().rev() {
         let metrics =
             er_subgraph_title_metrics(subgraph, measurer, &label_style, relationship_html_labels);
@@ -1249,7 +1375,7 @@ fn layout_er_diagram_dagre_typed(
         g.set_node(subgraph.id.clone(), node_label);
     }
 
-    // Nodes.
+
     let mut entities_in_layout_order: Vec<&ErEntity> = model.entities.values().collect();
     entities_in_layout_order.sort_by(|a, b| {
         let a_key = (parse_entity_counter_from_id(&a.id), a.id.as_str());
@@ -1258,13 +1384,14 @@ fn layout_er_diagram_dagre_typed(
     });
 
     for e in entities_in_layout_order {
-        // Mermaid's `getData()` omits an entity whose source name collides with a subgraph id.
+
         if entity_name_by_id
             .get(e.id.as_str())
             .is_some_and(|name| subgraph_ids.contains(*name))
         {
             continue;
         }
+
         let measure = prepared_labels
             .entity(&e.id)
             .ok_or_else(|| Error::InvalidModel {
@@ -1280,20 +1407,22 @@ fn layout_er_diagram_dagre_typed(
         );
     }
 
-    // Retain the last membership assignment in its original mutation order. Graphlib's checked
-    // batch requires each child once; replaying only its last assignment preserves reparenting and
-    // ordinary child-key order without a potentially quadratic ancestor scan per declaration.
+
+
+
     let mut parent_assignments = Vec::new();
     let mut last_parent_assignment = HashMap::new();
+
     for subgraph in &model.subgraphs {
-        for member in &subgraph.nodes {
+        'over_member_2: for member in &subgraph.nodes {
             let child_id = if subgraph_ids.contains(member.as_str()) {
                 member.clone()
             } else if let Some(entity_id) = entity_id_by_name.get(member.as_str()) {
                 (*entity_id).to_string()
             } else {
-                continue;
+                continue 'over_member_2;
             };
+
             if child_id != subgraph.id
                 && let (Some(child), Some(parent)) = (g.node_ix(&child_id), g.node_ix(&subgraph.id))
             {
@@ -1303,9 +1432,9 @@ fn layout_er_diagram_dagre_typed(
         }
     }
 
-    // Edges. Mermaid ER uses edge labels ("roleA") and the unified renderer routes through the
-    // generic dagre pipeline, which accounts for label bbox in spacing. Mirror that by giving
-    // dagre real label sizes here.
+
+
+
     for (idx, r) in model.relationships.iter().enumerate() {
         if g.node(&r.entity_a).is_none() || g.node(&r.entity_b).is_none() {
             return Err(Error::InvalidModel {
@@ -1316,10 +1445,10 @@ fn layout_er_diagram_dagre_typed(
             });
         }
 
-        // Mermaid's dagre renderer splits self-loops into three edges and introduces two helper
-        // nodes (labelRect). Mermaid initializes them at 10x10, but after `updateNodeBounds(...)`
-        // an empty labelRect collapses to ~0.1x0.1 and that is what Dagre uses for spacing.
-        // Match that here for layout parity.
+
+
+
+
         if r.entity_a == r.entity_b {
             let node_id = r.entity_a.as_str();
             let special_1 = format!("{node_id}---{node_id}---1");
@@ -1339,6 +1468,7 @@ fn layout_er_diagram_dagre_typed(
                     },
                 );
             }
+
             if g.node(&special_2).is_none() {
                 g.set_node(
                     special_2.clone(),
@@ -1349,25 +1479,36 @@ fn layout_er_diagram_dagre_typed(
                     },
                 );
             }
-            if let Some(parent) = parent {
-                for helper in [&special_1, &special_2] {
-                    if let Some(child) = g.node_ix(helper) {
-                        last_parent_assignment.insert(child, parent_assignments.len());
-                        parent_assignments.push((child, parent));
+
+            match parent {
+                Some(parent_2) => {
+                    for helper in [&special_1, &special_2] {
+                        {
+                            match g.node_ix(helper) {
+                                Some(child) => {
+                                    last_parent_assignment.insert(child, parent_assignments.len());
+                                    parent_assignments.push((child, parent_2));
+                                },
+                                ::core::option::Option::None => {},
+                            };
+                        }
                     }
-                }
+                },
+                ::core::option::Option::None => {},
             }
 
             let (label_w, label_h) = if r.role_a.trim().is_empty() {
                 (0.0, 0.0)
             } else {
-                prepared_labels
+                match prepared_labels
                     .relationship(idx)
-                    .map(ErPreparedRelationshipLabel::dimensions)
-                    .unwrap_or_default()
+                    .map(ErPreparedRelationshipLabel::dimensions) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => (0.0, 0.0),
+                }
             };
 
-            // First segment: keep start marker, no label.
+
             g.set_edge_named(
                 r.entity_a.clone(),
                 special_1.clone(),
@@ -1383,7 +1524,7 @@ fn layout_er_diagram_dagre_typed(
                 }),
             );
 
-            // Mid segment: carries the relationship label, no markers.
+
             g.set_edge_named(
                 special_1.clone(),
                 special_2.clone(),
@@ -1399,7 +1540,7 @@ fn layout_er_diagram_dagre_typed(
                 }),
             );
 
-            // Last segment: keep end marker, no label.
+
             g.set_edge_named(
                 special_2.clone(),
                 r.entity_a.clone(),
@@ -1422,10 +1563,12 @@ fn layout_er_diagram_dagre_typed(
         let (label_w, label_h) = if r.role_a.trim().is_empty() {
             (0.0, 0.0)
         } else {
-            prepared_labels
+            match prepared_labels
                 .relationship(idx)
-                .map(ErPreparedRelationshipLabel::dimensions)
-                .unwrap_or_default()
+                .map(ErPreparedRelationshipLabel::dimensions) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => (0.0, 0.0),
+            }
         };
         g.set_edge_named(
             r.entity_a.clone(),
@@ -1443,8 +1586,8 @@ fn layout_er_diagram_dagre_typed(
         );
     }
 
-    // The adapter reservation precedes this scratch and all helper expansion. Check the sticky
-    // operation terminal again after label measurement, before reporting an invalid forest.
+
+
     work_control.checked_add(0, 0)?;
     let mut ordinal = 0;
     parent_assignments.retain(|(child, _)| {
@@ -1452,19 +1595,23 @@ fn layout_er_diagram_dagre_typed(
         ordinal += 1;
         keep
     });
-    if let Err(error) = g.try_set_unparented_parents_ix(&parent_assignments) {
-        let message = match error {
-            dugong::graphlib::GraphError::ParentCycle {
-                child_ix,
-                parent_ix,
-            } => format!(
-                "ER parent cycle setting {} as parent of {}",
-                g.node_id_by_ix(parent_ix).unwrap_or("<removed>"),
-                g.node_id_by_ix(child_ix).unwrap_or("<removed>"),
-            ),
-            error => format!("invalid ER parent assignments: {error}"),
-        };
-        return Err(Error::InvalidModel { message });
+
+    match g.try_set_unparented_parents_ix(&parent_assignments) {
+        Err(error) => {
+            let message = match error {
+                dugong::graphlib::GraphError::ParentCycle {
+                    child_ix,
+                    parent_ix,
+                } => format!(
+                    "ER parent cycle setting {} as parent of {}",
+                    g.node_id_by_ix(parent_ix).unwrap_or("<removed>"),
+                    g.node_id_by_ix(child_ix).unwrap_or("<removed>"),
+                ),
+                error_2 => format!("invalid ER parent assignments: {error}", error = error_2),
+            };
+            return Err(Error::InvalidModel { message });
+        },
+        ::core::result::Result::Ok(_) => {},
     }
 
     dugong::layout_controlled(&mut g, work_control)
@@ -1472,55 +1619,78 @@ fn layout_er_diagram_dagre_typed(
 
     let mut nodes: Vec<LayoutNode> = Vec::new();
     let mut clusters = Vec::new();
+
     for id in g.node_ids() {
-        let Some(n) = g.node(&id) else {
-            continue;
+        let n = {
+            let optional_n = g.node(&id);
+
+            match optional_n {
+                Some(matched_n) => matched_n,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let is_cluster = subgraph_ids.contains(id.as_str());
-        let x = n.x.unwrap_or(0.0);
-        let y = n.y.unwrap_or(0.0);
+        let x = match n.x {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.0,
+        };
+        let y = match n.y {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.0,
+        };
         let mut width = n.width.max(1.0);
         let mut height = n.height.max(1.0);
+
         if is_cluster {
-            let (title_width, title_height) = subgraph_title_metrics
+            let (title_width, title_height) = match subgraph_title_metrics
                 .get(&id)
-                .copied()
-                .unwrap_or((0.0, 0.0));
-            // Mermaid's ER group renderer keeps an 8px title inset and widens empty groups to
-            // contain their title. Compound Dagre groups already include their children; only
-            // the title-driven minimum is added here.
+                .copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => (0.0, 0.0),
+            };
+
+
+
             width = width.max(title_width + 16.0);
             height = height.max(title_height + 16.0);
-            if let Some(subgraph) = model.subgraphs.iter().find(|subgraph| subgraph.id == id) {
-                let padding = 8.0;
-                let title_label = LayoutLabel {
-                    x,
-                    y: y - height / 2.0 + padding + title_height / 2.0,
-                    width: title_width,
-                    height: title_height,
+
+            {
+                match model.subgraphs.iter().find(|subgraph| subgraph.id == id) {
+                    Some(subgraph) => {
+                        let padding = 8.0;
+                        let title_label = LayoutLabel {
+                            x,
+                            y: y - height / 2.0 + padding + title_height / 2.0,
+                            width: title_width,
+                            height: title_height,
+                        };
+                        let effective_dir = subgraph
+                            .dir
+                            .clone()
+                            .unwrap_or_else(|| model.direction.clone());
+                        clusters.push(crate::model::LayoutCluster {
+                            id: id.clone(),
+                            x,
+                            y,
+                            width,
+                            height,
+                            diff: (title_width - width) / 2.0 - padding / 2.0,
+                            offset_y: title_height - padding / 2.0,
+                            title: subgraph.title.clone(),
+                            title_label,
+                            requested_dir: subgraph.dir.clone(),
+                            effective_dir,
+                            padding,
+                            title_margin_top: 0.0,
+                            title_margin_bottom: 0.0,
+                        });
+                    },
+                    ::core::option::Option::None => {},
                 };
-                let effective_dir = subgraph
-                    .dir
-                    .clone()
-                    .unwrap_or_else(|| model.direction.clone());
-                clusters.push(crate::model::LayoutCluster {
-                    id: id.clone(),
-                    x,
-                    y,
-                    width,
-                    height,
-                    diff: (title_width - width) / 2.0 - padding / 2.0,
-                    offset_y: title_height - padding / 2.0,
-                    title: subgraph.title.clone(),
-                    title_label,
-                    requested_dir: subgraph.dir.clone(),
-                    effective_dir,
-                    padding,
-                    title_margin_top: 0.0,
-                    title_margin_bottom: 0.0,
-                });
             }
         }
+
         nodes.push(LayoutNode {
             id: id.clone(),
             x,
@@ -1532,19 +1702,28 @@ fn layout_er_diagram_dagre_typed(
             label_height: None,
         });
     }
+
     nodes.sort_by(|a, b| a.id.cmp(&b.id));
     clusters.sort_by(|a, b| a.id.cmp(&b.id));
 
     let mut node_rect_by_id: HashMap<String, Rect> = HashMap::new();
+
     for n in &nodes {
         node_rect_by_id.insert(n.id.clone(), Rect::from_center(n.x, n.y, n.width, n.height));
     }
 
     let mut edges_by_id: HashMap<String, LayoutEdgeParts> = HashMap::new();
+
     for key in g.edge_keys() {
-        let Some(e) = g.edge_by_key(&key) else {
-            continue;
+        let e = {
+            let optional_e = g.edge_by_key(&key);
+
+            match optional_e {
+                Some(matched_e) => matched_e,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let mut points = e
             .points
             .iter()
@@ -1563,22 +1742,28 @@ fn layout_er_diagram_dagre_typed(
             .and_then(|idx| model.relationships.get(idx).map(|_| idx));
 
         let rel = rel_idx.and_then(|idx| model.relationships.get(idx));
-        let role = rel.map(|r| r.role_a.clone()).unwrap_or_default();
+        let role = match rel.map(|r| r.role_a.clone()) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
 
-        let (base_start_marker, base_end_marker, stroke_dasharray) = if let Some(rel) = rel {
-            let card_a = rel.rel_spec.card_a.as_str();
-            let card_b = rel.rel_spec.card_b.as_str();
-            let rel_type = rel.rel_spec.rel_type.as_str();
-            let start_marker = er_marker_id(card_b, "START");
-            let end_marker = er_marker_id(card_a, "END");
-            let stroke_dasharray = if rel_type == "NON_IDENTIFYING" {
-                Some("8,8".to_string())
-            } else {
-                None
-            };
-            (start_marker, end_marker, stroke_dasharray)
-        } else {
-            (None, None, None)
+        let (base_start_marker, base_end_marker, stroke_dasharray) = match rel {
+            Some(rel_2) => {
+                let card_a = rel_2.rel_spec.card_a.as_str();
+                let card_b = rel_2.rel_spec.card_b.as_str();
+                let rel_type = rel_2.rel_spec.rel_type.as_str();
+                let start_marker = er_marker_id(card_b, "START");
+                let end_marker = er_marker_id(card_a, "END");
+                let stroke_dasharray = if rel_type == "NON_IDENTIFYING" {
+                    Some("8,8".to_string())
+                } else {
+                    None
+                };
+                (start_marker, end_marker, stroke_dasharray)
+            },
+            ::core::option::Option::None => {
+                (None, None, None)
+            },
         };
 
         if !is_er_self_loop_dummy_node_id(&key.v)
@@ -1606,16 +1791,20 @@ fn layout_er_diagram_dagre_typed(
             if role.trim().is_empty() || id.ends_with("-cyclic-0") || id.ends_with("-cyclic-2") {
                 None
             } else {
-                let (w, h) = rel_idx
+                let (w, h) = match rel_idx
                     .and_then(|index| prepared_labels.relationship(index))
-                    .map(ErPreparedRelationshipLabel::dimensions)
-                    .unwrap_or_default();
-                // Mermaid uses Dagre's computed edge label center (`edge.x/edge.y`) rather than a
-                // polyline midpoint. Prefer those coordinates when present.
+                    .map(ErPreparedRelationshipLabel::dimensions) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => (0.0, 0.0),
+                };
+
+
                 let (x, y) =
-                    e.x.zip(e.y)
-                        .or_else(|| calc_label_position(&points))
-                        .unwrap_or((0.0, 0.0));
+                    match e.x.zip(e.y)
+                        .or_else(|| calc_label_position(&points)) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => (0.0, 0.0),
+                    };
                 Some(LayoutLabel {
                     x,
                     y,
@@ -1642,9 +1831,9 @@ fn layout_er_diagram_dagre_typed(
         );
     }
 
-    // Keep the Dagre graph projection intact for layout artifacts. Mermaid's common painter
-    // consumes a second projection where self-loop segments are merged into one visible edge;
-    // build that projection below without discarding the helper ranks from the canonical layout.
+
+
+
     let to_layout_edge = |edge: LayoutEdgeParts| LayoutEdge {
         id: edge.id,
         from: edge.from,
@@ -1670,8 +1859,10 @@ fn layout_er_diagram_dagre_typed(
     layout_edges.sort_by(|left, right| left.id.cmp(&right.id));
 
     let mut render_edges: Vec<LayoutEdge> = Vec::with_capacity(model.relationships.len());
+
     for (idx, relationship) in model.relationships.iter().enumerate() {
         let edge_id = format!("er-rel-{idx}");
+
         if relationship.entity_a == relationship.entity_b {
             let first_id = format!("{edge_id}-cyclic-0");
             let last_id = format!("{edge_id}-cyclic-2");
@@ -1680,11 +1871,16 @@ fn layout_er_diagram_dagre_typed(
             let last = edges_by_id.get(&last_id).cloned();
 
             let Some(node) = g.node(&relationship.entity_a).cloned() else {
-                if let Some(edge) = middle.or(first).or(last) {
-                    render_edges.push(to_layout_edge(edge));
+                match middle.or(first).or(last) {
+                    Some(edge) => {
+                        render_edges.push(to_layout_edge(edge));
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 continue;
             };
+
             let dummy_ids = [
                 format!("{}---{}---1", relationship.entity_a, relationship.entity_a),
                 format!("{}---{}---2", relationship.entity_a, relationship.entity_a),
@@ -1692,8 +1888,9 @@ fn layout_er_diagram_dagre_typed(
             let mut hints = dummy_ids
                 .iter()
                 .filter_map(|id| g.node(id))
-                .filter_map(|node| Some((node.x?, node.y?)))
+                .filter_map(|node_2| Some(({ let checked_value_2 = node_2.x?; checked_value_2 }, { let checked_value_3 = node_2.y?; checked_value_3 })))
                 .collect::<Vec<_>>();
+
             if hints.is_empty() {
                 for part in [first.as_ref(), middle.as_ref(), last.as_ref()]
                     .into_iter()
@@ -1702,20 +1899,24 @@ fn layout_er_diagram_dagre_typed(
                     hints.extend(part.points.iter().map(|point| (point.x, point.y)));
                 }
             }
+
             let side = er_self_loop_side(&node, hints, rankdir);
             let label = middle
                 .as_ref()
                 .and_then(|part| part.label.clone())
                 .or_else(|| first.as_ref().and_then(|part| part.label.clone()))
                 .or_else(|| last.as_ref().and_then(|part| part.label.clone()));
-            let label_width = label.as_ref().map(|label| label.width).unwrap_or(0.0);
+            let label_width = match label.as_ref().map(|label_2| label_2.width) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0.0,
+            };
             let points = er_self_loop_points(&node, side, label_width);
-            let label = label.map(|mut label| {
+            let label_4 = label.map(|mut label_3| {
                 let (x, y) =
-                    er_self_loop_label_position(&points, side, label.width, label.height, &node);
-                label.x = x;
-                label.y = y;
-                label
+                    er_self_loop_label_position(&points, side, label_3.width, label_3.height, &node);
+                label_3.x = x;
+                label_3.y = y;
+                label_3
             });
             let self_loop_cluster = subgraph_ids
                 .contains(relationship.entity_a.as_str())
@@ -1728,7 +1929,7 @@ fn layout_er_diagram_dagre_typed(
                 from_cluster: self_loop_cluster.clone(),
                 to_cluster: self_loop_cluster,
                 points,
-                label,
+                label: label_4,
                 start_label_left: None,
                 start_label_right: None,
                 end_label_left: None,
@@ -1756,23 +1957,31 @@ fn layout_er_diagram_dagre_typed(
     })
 }
 
+#[must_use]
 fn er_layout_bounds(nodes: &[LayoutNode], edges: &[LayoutEdge]) -> Option<Bounds> {
     let mut points: Vec<(f64, f64)> = Vec::new();
+
     for node in nodes {
         let half_width = node.width / 2.0;
         let half_height = node.height / 2.0;
         points.push((node.x - half_width, node.y - half_height));
         points.push((node.x + half_width, node.y + half_height));
     }
+
     for edge in edges {
         points.extend(edge.points.iter().map(|point| (point.x, point.y)));
-        if let Some(label) = &edge.label {
-            let half_width = label.width / 2.0;
-            let half_height = label.height / 2.0;
-            points.push((label.x - half_width, label.y - half_height));
-            points.push((label.x + half_width, label.y + half_height));
+
+        match &edge.label {
+            Some(label) => {
+                let half_width = label.width / 2.0;
+                let half_height = label.height / 2.0;
+                points.push((label.x - half_width, label.y - half_height));
+                points.push((label.x + half_width, label.y + half_height));
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     Bounds::from_points(points)
 }
 
@@ -1964,7 +2173,7 @@ fn layout_er_diagram_elk_typed(
 
     out_nodes.sort_by(|left, right| left.id.cmp(&right.id));
     out_edges.sort_by(|left, right| left.id.cmp(&right.id));
-    // Mermaid paints groups by stable ancestor depth, then paints leaf nodes above them.
+
     clusters.sort_by_key(|cluster| paint_index_by_id.get(cluster.id.as_str()).copied());
     let bounds = er_layout_bounds(&out_nodes, &out_edges);
     Ok(ErDiagramLayout {
@@ -2150,8 +2359,8 @@ fn er_elk_graph(
         },
         nodes,
         edges,
-        // Mermaid's ELK adapter sets `spacing.baseValue = 40`; the source-backed adapter owns
-        // that exact option projection, so family-specific Dagre spacing does not leak into ELK.
+
+
         spacing: elk::Spacing::default(),
         options: er_elk_layout_options(effective_config),
     })
@@ -2419,8 +2628,8 @@ mod tests {
         let config = serde_json::json!({ "htmlLabels": false });
         let settings = super::ErConfigView::new(&config).entity_measurement_settings();
         let style = default_style();
-        // Source entities remain encoded until the retained SVG words are emitted.
-        // Only an authored break may add another row.
+
+
         for (comment, comment_words, comment_lines) in [
             ("book &lt;br&gt; title", &["book", " <br>", " title"][..], 1),
             (

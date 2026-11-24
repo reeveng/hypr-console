@@ -46,6 +46,7 @@ impl RawPreparedMathLabel {
         Self::with_max_line_height(html, metrics, max_line_height_px, None)
     }
 
+    #[must_use]
     fn with_max_line_height(
         html: impl Into<String>,
         metrics: TextMetrics,
@@ -53,7 +54,7 @@ impl RawPreparedMathLabel {
         max_math_height_px: Option<f64>,
     ) -> Self {
         Self {
-            html: html.into(),
+            html: <_ as ::core::convert::Into<::std::string::String>>::into(html),
             metrics,
             max_line_height_px,
             max_math_height_px,
@@ -61,6 +62,7 @@ impl RawPreparedMathLabel {
         }
     }
 
+    #[must_use]
     fn with_native_projection(
         html: impl Into<String>,
         metrics: TextMetrics,
@@ -69,7 +71,7 @@ impl RawPreparedMathLabel {
         native_projection: PreparedMathNativeProjection,
     ) -> Self {
         Self {
-            html: html.into(),
+            html: <_ as ::core::convert::Into<::std::string::String>>::into(html),
             metrics,
             max_line_height_px,
             max_math_height_px: Some(max_math_height_px),
@@ -105,22 +107,27 @@ impl PreparedMathNativeProjection {
         }
     }
 
+    #[must_use]
     pub(crate) fn svg(&self) -> &str {
         &self.svg
     }
 
+    #[must_use]
     pub(crate) const fn width_px(&self) -> f64 {
         self.width_px
     }
 
+    #[must_use]
     pub(crate) const fn height_px(&self) -> f64 {
         self.height_px
     }
 
+    #[must_use]
     pub(crate) const fn fingerprint(&self) -> super::PreparedMathProjectionFingerprint {
         self.fingerprint
     }
 
+    #[must_use]
     pub(crate) fn retained_bytes(&self) -> usize {
         std::mem::size_of::<Self>().saturating_add(self.svg.len())
     }
@@ -148,6 +155,7 @@ pub(crate) struct PrepareMathLabelRequest<'a> {
 }
 
 impl<'a> PrepareMathLabelRequest<'a> {
+    #[must_use]
     pub(crate) const fn flowchart(
         text: &'a str,
         config: &'a PresentationConfig,
@@ -171,16 +179,19 @@ impl<'a> PrepareMathLabelRequest<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) const fn with_text_measurer(mut self, text_measurer: &'a dyn TextMeasurer) -> Self {
         self.text_measurer = Some(text_measurer);
         self
     }
 
+    #[must_use]
     pub(crate) const fn with_owner_retained_bytes(mut self, retained_bytes: usize) -> Self {
         self.owner_retained_bytes = retained_bytes;
         self
     }
 
+    #[must_use]
     pub(crate) const fn with_occurrence_id(
         mut self,
         occurrence_id: &'a super::PreparedMathOccurrenceId,
@@ -189,6 +200,7 @@ impl<'a> PrepareMathLabelRequest<'a> {
         self
     }
 
+    #[must_use]
     pub(crate) const fn sequence(
         text: &'a str,
         config: &'a PresentationConfig,
@@ -236,30 +248,37 @@ impl PreparedMathLabel {
         }
     }
 
+    #[must_use]
     pub(crate) const fn metrics(&self) -> TextMetrics {
         self.metrics
     }
 
+    #[must_use]
     pub(crate) const fn max_line_height_px(&self) -> f64 {
         self.max_line_height_px
     }
 
+    #[must_use]
     pub(crate) const fn max_math_height_px(&self) -> Option<f64> {
         self.max_math_height_px
     }
 
+    #[must_use]
     pub(crate) fn browser_xhtml(&self) -> &str {
         &self.browser_xhtml
     }
 
+    #[must_use]
     pub(crate) fn native_projection(&self) -> Option<&Arc<PreparedMathNativeProjection>> {
         self.native_projection.as_ref()
     }
 
+    #[must_use]
     pub(crate) const fn style_assurance(&self) -> &super::PreparedMathStyleAssurance {
         &self.style_assurance
     }
 
+    #[must_use]
     pub(crate) fn expectation(
         &self,
         expected_emissions: usize,
@@ -276,8 +295,9 @@ impl PreparedMathLabel {
     }
 
     /// Exact bytes owned by this artifact under the prepared-math accounting contract.
+    #[must_use]
     pub(crate) fn retained_bytes(&self) -> usize {
-        std::mem::size_of::<Self>()
+        match std::mem::size_of::<Self>()
             .checked_add(self.browser_xhtml.len())
             .and_then(|bytes| {
                 bytes.checked_add(
@@ -293,8 +313,10 @@ impl PreparedMathLabel {
                         .as_ref()
                         .map_or(0, |occurrence_id| occurrence_id.as_str().len()),
                 )
-            })
-            .unwrap_or(usize::MAX)
+            }) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => usize::MAX,
+        }
     }
 }
 
@@ -314,6 +336,7 @@ pub(crate) enum MathPreparationOutcome {
 }
 
 impl MathPreparationOutcome {
+    #[must_use]
     pub(crate) fn prepared(&self) -> Option<&PreparedMathLabel> {
         match self {
             Self::Prepared(prepared) => Some(prepared),
@@ -356,11 +379,13 @@ impl ConfiguredMathBackend {
     /// in-process memory ceiling for hostile input. The constrained profile therefore rejects math
     /// during capability planning, before a backend or child process is invoked. A future bounded
     /// sink backend can make this decision backend-specific without weakening that boundary.
+    #[must_use]
     pub(crate) const fn supports_resource_policy(&self, policy: RenderResourcePolicy) -> bool {
         !matches!(policy.profile(), RenderResourceProfile::Constrained)
     }
 
     /// Compatibility view used only by legacy, non-prepared projection paths.
+    #[must_use]
     pub(crate) fn renderer(&self) -> &(dyn MathRenderer + Send + Sync) {
         match *self {
             #[cfg(feature = "math")]
@@ -376,6 +401,7 @@ impl ConfiguredMathBackend {
         work_meter: &Arc<OperationWorkMeter>,
     ) -> Result<MathPreparationOutcome, OperationWorkError> {
         work_meter.preflight_prepared_text_retained_bytes(request.owner_retained_bytes)?;
+
         match *self {
             #[cfg(feature = "math")]
             Self::CompiledRatex => {
@@ -566,9 +592,9 @@ fn prepare_external(
     request: PrepareMathLabelRequest<'_>,
     work_meter: &Arc<OperationWorkMeter>,
 ) -> Result<MathPreparationOutcome, OperationWorkError> {
-    // The compatibility backend returns an allocated String, so its first output allocation is
-    // necessarily outside host admission. Family sidecars reserve the exact retained bytes before
-    // keeping the result; final bounded SVG emission remains authoritative for serialized bytes.
+
+
+
     let metrics = match request.shell {
         MathLabelShell::Flowchart => renderer
             .measure_html_label(
@@ -640,6 +666,7 @@ fn finish_external_preparation(
         max_math_height_px,
         native_projection,
     } = prepared;
+
     if !valid_metrics(&metrics)
         || !max_line_height_px.is_finite()
         || max_line_height_px < 0.0
@@ -649,11 +676,16 @@ fn finish_external_preparation(
     {
         return Ok(None);
     }
-    let Some(browser_xhtml) =
-        browser_payload(&html, native_projection.as_deref(), request, work_meter)?
-    else {
-        return Ok(None);
+
+    let browser_xhtml = {
+        let optional_browser_xhtml = browser_payload(&html, native_projection.as_deref(), request, work_meter)?;
+
+        match optional_browser_xhtml {
+            Some(matched_browser_xhtml) => matched_browser_xhtml,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let artifact = PreparedMathLabel {
         metrics,
         max_line_height_px,
@@ -671,6 +703,7 @@ fn finish_external_preparation(
     Ok(Some(artifact))
 }
 
+#[must_use]
 fn valid_metrics(metrics: &TextMetrics) -> bool {
     metrics.width.is_finite()
         && metrics.height.is_finite()
@@ -700,13 +733,14 @@ fn resolve_output_error(
     match error {
         HtmlOutputError::Limit { attempted } => {
             let additional = retained_prefix.saturating_add(attempted);
+
             match work_meter.preflight_prepared_text_retained_bytes(additional) {
-                Err(error) => Err(error),
+                Err(error_2) => Err(error_2),
                 Ok(()) => Ok(None),
             }
         }
         HtmlOutputError::Allocation => Ok(None),
-        HtmlOutputError::Operation(error) => Err(error),
+        HtmlOutputError::Operation(error_3) => Err(error_3),
     }
 }
 
@@ -723,10 +757,13 @@ fn browser_payload(
     const SUFFIX: &str = "</span>";
     const OCCURRENCE_PREFIX: &str = r#"" data-merman-prepared-math-occurrence=""#;
 
-    let prefix = if native_projection.is_some() {
-        PREFIX_AVAILABLE
-    } else {
-        PREFIX_UNAVAILABLE
+    let prefix = match native_projection {
+        ::core::option::Option::Some(_) => {
+            PREFIX_AVAILABLE
+        },
+        ::core::option::Option::None => {
+            PREFIX_UNAVAILABLE
+        },
     };
 
     let retained_prefix = prepared_math_retained_prefix(request)
@@ -751,10 +788,10 @@ fn browser_payload(
         Err(error) => return resolve_output_error(error, retained_prefix, work_meter),
     };
     let escaped_style = match escape_xml_attribute(&style, sink) {
-        Ok(style) => style,
+        Ok(style_2) => style_2,
         Err(error) => return resolve_output_error(error, retained_prefix, work_meter),
     };
-    let fixed_bytes = prefix
+    let fixed_bytes = match prefix
         .len()
         .checked_add(escaped_style.len())
         .and_then(|bytes| bytes.checked_add(BODY.len()))
@@ -762,11 +799,14 @@ fn browser_payload(
             request.occurrence_id.map_or(Some(bytes), |occurrence_id| {
                 bytes
                     .checked_add(OCCURRENCE_PREFIX.len())
-                    .and_then(|bytes| bytes.checked_add(occurrence_id.as_str().len()))
+                    .and_then(|bytes_2| bytes_2.checked_add(occurrence_id.as_str().len()))
             })
         })
-        .and_then(|bytes| bytes.checked_add(SUFFIX.len()))
-        .unwrap_or(usize::MAX);
+        .and_then(|bytes| bytes.checked_add(SUFFIX.len())) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => usize::MAX,
+    };
+
     if fixed_bytes > max_browser_bytes {
         return resolve_output_error(
             HtmlOutputError::Limit {
@@ -783,46 +823,52 @@ fn browser_payload(
         &parse_work,
         OperationPhase::Layout,
     );
-    let rendered = match merman_markup::sanitize::sanitize_xhtml_with_sink(
+    let rendered_2 = match merman_markup::sanitize::sanitize_xhtml_with_sink(
         rendered,
         request.config.as_config(),
         &body_sink,
     ) {
         Ok(sanitized) => sanitized,
         Err(SanitizeFailure::Output(error)) => {
-            let error = match error {
+            let error_3 = match error {
                 HtmlOutputError::Limit { attempted } => HtmlOutputError::Limit {
                     attempted: fixed_bytes.saturating_add(attempted),
                 },
                 HtmlOutputError::Allocation => HtmlOutputError::Allocation,
-                HtmlOutputError::Operation(error) => HtmlOutputError::Operation(error),
+                HtmlOutputError::Operation(error_2) => HtmlOutputError::Operation(error_2),
             };
-            return resolve_output_error(error, retained_prefix, work_meter);
+            return resolve_output_error(error_3, retained_prefix, work_meter);
         }
         Err(SanitizeFailure::RejectedInput | SanitizeFailure::InvalidUtf8Output) | Err(_) => {
             return Ok(None);
         }
     };
-    let final_len = fixed_bytes.saturating_add(rendered.len());
+    let final_len = fixed_bytes.saturating_add(rendered_2.len());
     let mut payload = match sink.string_with_capacity(final_len) {
         Ok(payload) => payload,
         Err(error) => return resolve_output_error(error, retained_prefix, work_meter),
     };
     payload.push_str(prefix);
     payload.push_str(&escaped_style);
-    if let Some(occurrence_id) = request.occurrence_id {
-        payload.push_str(OCCURRENCE_PREFIX);
-        payload.push_str(occurrence_id.as_str());
+
+    match request.occurrence_id {
+        Some(occurrence_id) => {
+            payload.push_str(OCCURRENCE_PREFIX);
+            payload.push_str(occurrence_id.as_str());
+        },
+        ::core::option::Option::None => {},
     }
+
     payload.push_str(BODY);
-    payload.push_str(&rendered);
+    payload.push_str(&rendered_2);
     payload.push_str(SUFFIX);
     debug_assert_eq!(payload.len(), final_len);
     Ok(Some(payload))
 }
 
+#[must_use]
 fn prepared_math_retained_prefix(request: PrepareMathLabelRequest<'_>) -> usize {
-    request
+    match request
         .owner_retained_bytes
         .checked_add(std::mem::size_of::<PreparedMathLabel>())
         .and_then(|bytes| {
@@ -831,8 +877,10 @@ fn prepared_math_retained_prefix(request: PrepareMathLabelRequest<'_>) -> usize 
                     .occurrence_id
                     .map_or(0, |occurrence_id| occurrence_id.as_str().len()),
             )
-        })
-        .unwrap_or(usize::MAX)
+        }) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => usize::MAX,
+    }
 }
 
 fn preflight_raw_math_output(
@@ -860,33 +908,43 @@ fn resolved_wrapper_style(
     push_bounded(&mut declarations, "px;color:", sink)?;
     push_bounded(&mut declarations, foreground.trim(), sink)?;
     push_bounded(&mut declarations, ";", sink)?;
-    if let Some(font_family) = style
+
+    match style
         .font_family
         .as_deref()
-        .filter(|value| crate::mermaid_style::is_safe_css_font_family_value(value))
-    {
-        push_bounded(&mut declarations, "font-family:", sink)?;
-        push_bounded(&mut declarations, font_family, sink)?;
-        push_bounded(&mut declarations, ";", sink)?;
+        .filter(|value| crate::mermaid_style::is_safe_css_font_family_value(value)) {
+        Some(font_family) => {
+            push_bounded(&mut declarations, "font-family:", sink)?;
+            push_bounded(&mut declarations, font_family, sink)?;
+            push_bounded(&mut declarations, ";", sink)?;
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(font_weight) = style
+
+    match style
         .font_weight
         .as_deref()
-        .filter(|value| crate::mermaid_style::is_supported_css_font_weight_value(value))
-    {
-        push_bounded(&mut declarations, "font-weight:", sink)?;
-        push_bounded(&mut declarations, font_weight.trim(), sink)?;
-        push_bounded(&mut declarations, ";", sink)?;
+        .filter(|value| crate::mermaid_style::is_supported_css_font_weight_value(value)) {
+        Some(font_weight) => {
+            push_bounded(&mut declarations, "font-weight:", sink)?;
+            push_bounded(&mut declarations, font_weight.trim(), sink)?;
+            push_bounded(&mut declarations, ";", sink)?;
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(font_style) = style
+
+    match style
         .font_style
         .as_deref()
-        .filter(|value| crate::mermaid_style::is_supported_css_font_style_value(value))
-    {
-        push_bounded(&mut declarations, "font-style:", sink)?;
-        push_bounded(&mut declarations, font_style.trim(), sink)?;
-        push_bounded(&mut declarations, ";", sink)?;
+        .filter(|value| crate::mermaid_style::is_supported_css_font_style_value(value)) {
+        Some(font_style) => {
+            push_bounded(&mut declarations, "font-style:", sink)?;
+            push_bounded(&mut declarations, font_style.trim(), sink)?;
+            push_bounded(&mut declarations, ";", sink)?;
+        },
+        ::core::option::Option::None => {},
     }
+
     Ok(declarations)
 }
 
@@ -895,20 +953,23 @@ fn escape_xml_attribute(
     sink: HtmlSanitizeSink<'_>,
 ) -> Result<String, HtmlOutputError> {
     let mut escaped = sink.string_with_capacity(0)?;
+
     for character in value.chars() {
         let mut encoded = [0; 4];
-        let value = match character {
+        let value_2 = match character {
             '&' => "&amp;",
             '"' => "&quot;",
             '<' => "&lt;",
             '>' => "&gt;",
             _ => character.encode_utf8(&mut encoded),
         };
-        push_bounded(&mut escaped, value, sink)?;
+        push_bounded(&mut escaped, value_2, sink)?;
     }
+
     Ok(escaped)
 }
 
+#[must_use]
 fn effective_font_size(requested: f64) -> f64 {
     if requested.is_finite() {
         requested.max(1.0)
@@ -1303,13 +1364,15 @@ pub(super) fn fmt_num(n: f64) -> String {
     format_number(n)
 }
 
+#[must_use]
 fn format_number(n: f64) -> String {
     let value = format!("{n:.6}");
-    let value = value.trim_end_matches('0').trim_end_matches('.');
-    if value.is_empty() || value == "-" {
+    let value_2 = value.trim_end_matches('0').trim_end_matches('.');
+
+    if value_2.is_empty() || value_2 == "-" {
         "0".to_string()
     } else {
-        value.to_string()
+        value_2.to_string()
     }
 }
 

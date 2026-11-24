@@ -74,6 +74,7 @@ impl IshikawaSemanticSource {
             control.checkpoint()?;
             node.text = sanitize_text(&node.text, config);
         }
+
         nodes_to_semantic_model_controlled(self.nodes, control)
     }
 }
@@ -239,6 +240,7 @@ pub(crate) fn parse_ishikawa_semantic_model_controlled(
                     },
                 }
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 crate::family::SemanticConstruction {
@@ -289,6 +291,7 @@ fn construct_ishikawa_semantic_source_controlled(
         let line_start = offset;
         offset += segment.len();
         let line = strip_line_ending(segment);
+
         if is_space_or_comment_line(line) {
             continue;
         }
@@ -297,8 +300,12 @@ fn construct_ishikawa_semantic_source_controlled(
             match parse_ishikawa_header_line(line, line_start, diagram_type) {
                 Ok(header) => {
                     header_seen = true;
-                    if let Some(root) = header.root {
-                        nodes.push(root);
+
+                    match header.root {
+                        Some(root) => {
+                            nodes.push(root);
+                        },
+                        ::core::option::Option::None => {},
                     }
                 }
                 Err(error) => {
@@ -306,6 +313,7 @@ fn construct_ishikawa_semantic_source_controlled(
                     first_error.get_or_insert((error, span));
                 }
             }
+
             continue;
         }
 
@@ -341,23 +349,28 @@ fn construct_ishikawa_semantic_source_controlled(
             push_ishikawa_node_fact(facts, node, index == 0);
         }
     }
-    if let Some(failure) = first_error {
-        let error = failure.0;
-        #[cfg(feature = "editor-facts")]
-        let span = failure.1;
-        #[cfg(feature = "editor-facts")]
-        if let Some(facts) = &mut editor_facts {
-            facts.mark_recovered_from_parse_error(
-                format!("ishikawa parser recovered after parse error: {error}"),
-                Some(span),
-            );
-        }
-        return Ok(Err(IshikawaParseFailure {
-            error: Box::new(error),
+
+    match first_error {
+        Some(failure) => {
+            let error = failure.0;
             #[cfg(feature = "editor-facts")]
-            editor_facts: editor_facts.map(Box::new),
-        }));
+            let span = failure.1;
+            #[cfg(feature = "editor-facts")]
+            if let Some(facts) = &mut editor_facts {
+                facts.mark_recovered_from_parse_error(
+                    format!("ishikawa parser recovered after parse error: {error}"),
+                    Some(span),
+                );
+            }
+            return Ok(Err(IshikawaParseFailure {
+                error: Box::new(error),
+                #[cfg(feature = "editor-facts")]
+                editor_facts: editor_facts.map(Box::new),
+            }));
+        },
+        ::core::option::Option::None => {},
     }
+
     control.checkpoint()?;
     Ok(Ok(IshikawaSemanticSource {
         nodes,
@@ -373,11 +386,14 @@ fn parse_ishikawa_header_line(
 ) -> Result<IshikawaHeader> {
     let trimmed_start = line.len().saturating_sub(line.trim_start().len());
     let trimmed = &line[trimmed_start..];
+
     for header in ["ishikawa-beta", "ishikawa"] {
         if !starts_with_ignore_ascii_case(trimmed, header) {
             continue;
         }
+
         let rest = &trimmed[header.len()..];
+
         if rest
             .chars()
             .next()
@@ -385,10 +401,13 @@ fn parse_ishikawa_header_line(
         {
             continue;
         }
+
         let text = rest.trim();
+
         if text.is_empty() {
             return Ok(IshikawaHeader { root: None });
         }
+
         #[cfg(feature = "editor-facts")]
         let rel = rest.len().saturating_sub(rest.trim_start().len());
         #[cfg(feature = "editor-facts")]
@@ -421,6 +440,7 @@ fn parse_ishikawa_node_line(line: &str, line_start: usize, diagram_type: &str) -
         .count();
     let body = &line[indent..];
     let text = body.trim();
+
     if text.is_empty() {
         return Err(Error::diagram_parse_exact(
             diagram_type.to_string(),
@@ -470,19 +490,28 @@ fn nodes_to_semantic_model_controlled(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<IshikawaDiagramModel> {
     let mut iter = nodes.into_iter();
-    let Some(root) = iter.next() else {
-        return Ok(IshikawaDiagramModel::default());
+
+    let root = {
+        let optional_root = iter.next();
+
+        match optional_root {
+            Some(matched_root) => matched_root,
+            ::core::option::Option::None => return Ok(IshikawaDiagramModel::default()),
+        }
     };
+
     let mut arena = vec![IshikawaNode {
         text: root.text,
         children: Vec::new(),
     }];
     let mut stack = vec![(0usize, 0usize)];
     let mut base_level = None;
+
     for flat in iter {
         control.checkpoint()?;
         let base = *base_level.get_or_insert(flat.raw_level);
         let level = flat.raw_level.saturating_sub(base) + 1;
+
         while stack.len() > 1
             && stack
                 .last()
@@ -491,7 +520,11 @@ fn nodes_to_semantic_model_controlled(
             control.checkpoint()?;
             stack.pop();
         }
-        let parent = stack.last().map(|(id, _)| *id).unwrap_or(0);
+
+        let parent = match stack.last().map(|(id, _)| *id) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        };
         let id = arena.len();
         arena.push(IshikawaNode {
             text: flat.text,
@@ -500,6 +533,7 @@ fn nodes_to_semantic_model_controlled(
         arena[parent].children.push(id);
         stack.push((id, level));
     }
+
     control.checkpoint()?;
     Ok(IshikawaDiagramModel {
         title: Some(arena[0].text.clone()),
@@ -509,11 +543,13 @@ fn nodes_to_semantic_model_controlled(
     })
 }
 
+#[must_use]
 fn is_space_or_comment_line(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed.is_empty() || trimmed.starts_with("%%")
 }
 
+#[must_use]
 fn starts_with_ignore_ascii_case(value: &str, prefix: &str) -> bool {
     value
         .get(..prefix.len())

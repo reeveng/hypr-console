@@ -15,6 +15,7 @@ const SOFT_CYAN_GLOW: &str = "soft-cyan-glow";
 const KEYWORD_GLOW: &str = "keyword-glow";
 const NOTE_TEXT_GLOW: &str = "note-text-glow";
 
+#[must_use]
 pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
     let mut design = build_cross_family_recipe(palette);
     color_token(
@@ -33,7 +34,7 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
         "Shared magenta source for linked accents, note colors, and note glows.",
         "#ff00ff",
     );
-    // These bindings are source intent, not an equality-based inference over output colors.
+
     for id in [
         "text",
         "subtle-text",
@@ -47,10 +48,12 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
         design.tokens.get_mut(id).expect("shared color role").value =
             ThemeDesignTokenValueV1::Color(reference("neon-cyan"));
     }
+
     for id in ["accent", "note-border", "note-text"] {
         design.tokens.get_mut(id).expect("shared color role").value =
             ThemeDesignTokenValueV1::Color(reference("neon-magenta"));
     }
+
     length_token(
         &mut design,
         "body-border-width",
@@ -86,11 +89,12 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
         .canvas
         .as_mut()
         .expect("shared design owns a canvas")
+
         .layers = vec![
         screen_layer(ThemeDesignPaintObjectV1::RadialGradient {
             center_x: literal(ThemeLengthWireV1::Percent { percent: 50.0 }),
             center_y: literal(ThemeLengthWireV1::Percent { percent: 50.0 }),
-            // CSS farthest-corner radius, converted to SVG's normalized diagonal radius.
+
             radius: literal(ThemeLengthWireV1::Percent {
                 percent: 100.0 / std::f32::consts::SQRT_2,
             }),
@@ -158,6 +162,7 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
             vec![shadow(color, 0.0, sigma, opacity)],
         );
     }
+
     effect_token(
         &mut design,
         SHAPE_GLOW,
@@ -168,6 +173,7 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
             shadow("neon-cyan", 0.0, 16.0, 0.3),
         ],
     );
+
     for (family, target, effect, width, radius, label_weight, paint) in [
         (
             DiagramFamilyId::SEQUENCE,
@@ -301,25 +307,36 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
         } else {
             ThemeDesignStyleV1::default()
         };
-        if let Some(id) = effect {
-            style.effect = SpecifiedWireV1::Value(reference(id));
+
+        match effect {
+            Some(id) => {
+                style.effect = SpecifiedWireV1::Value(reference(id));
+            },
+            ::core::option::Option::None => {},
         }
+
         if radius {
             style.radius = SpecifiedWireV1::Value(reference("body-radius"));
         }
-        if let Some(id) = width {
-            style.stroke = Some(literal(ThemeDesignStrokeV1 {
-                width: SpecifiedWireV1::Value(reference(id)),
-                paint: if paint {
-                    SpecifiedWireV1::Value(super::design::paint("neon-cyan"))
-                } else {
-                    SpecifiedWireV1::Unspecified
-                },
-                ..Default::default()
-            }));
+
+        match width {
+            Some(id) => {
+                style.stroke = Some(literal(ThemeDesignStrokeV1 {
+                    width: SpecifiedWireV1::Value(reference(id)),
+                    paint: if paint {
+                        SpecifiedWireV1::Value(super::design::paint("neon-cyan"))
+                    } else {
+                        SpecifiedWireV1::Unspecified
+                    },
+                    ..Default::default()
+                }));
+            },
+            ::core::option::Option::None => {},
         }
+
         design.rules.push(rule(Some(family), target, None, style));
     }
+
     append_xy_series(&mut design);
     append_xy_text(&mut design);
     let mut tick = style(None, Some("neon-cyan"));
@@ -346,7 +363,7 @@ fn append_xy_text(design: &mut ThemeDesignV1) {
         None,
         legend,
     ));
-    // CSS text-shadow blur is twice the SVG Gaussian standard deviation.
+
     for (target, size, weight, sigma, opacity) in [
         (ThemeTarget::Title, Some(18.0), Some(700.0), 7.5, 0.8),
         (ThemeTarget::AxisTitle, Some(13.0), None, 5.0, 0.6),
@@ -388,6 +405,7 @@ fn append_xy_series(design: &mut ThemeDesignV1) {
             "Dedicated XY chart bar and line color, including its matching glow.",
             color,
         );
+
         for (kind, width, sigma, opacity) in [
             (ThemeVariant::Bar, 2.0, 8.0, 0.4),
             (ThemeVariant::Line, 3.0, 6.0, 0.5),
@@ -404,12 +422,15 @@ fn append_xy_series(design: &mut ThemeDesignV1) {
                 (kind == ThemeVariant::Bar).then_some(color_id.as_str()),
                 Some(&color_id),
             );
+
             if kind == ThemeVariant::Bar {
                 patch.fill_opacity = SpecifiedWireV1::Value(literal(0.2));
             }
+
             if let Some(ThemeValueV1::Literal(stroke)) = patch.stroke.as_mut() {
                 stroke.width = SpecifiedWireV1::Value(px(width));
             }
+
             patch.effect = SpecifiedWireV1::Value(reference(&effect_id));
             let mut entry = rule(
                 Some(DiagramFamilyId::XY_CHART),
@@ -428,6 +449,7 @@ fn append_xy_series(design: &mut ThemeDesignV1) {
     }
 }
 
+#[must_use]
 fn screen_layer(paint: ThemeDesignPaintObjectV1) -> ThemeDesignCanvasLayerV1 {
     ThemeDesignCanvasLayerV1 {
         paint: literal(ThemeDesignPaintV1::Structured(paint)),
@@ -438,6 +460,7 @@ fn screen_layer(paint: ThemeDesignPaintObjectV1) -> ThemeDesignCanvasLayerV1 {
     }
 }
 
+#[must_use]
 fn grid_line(angle_degrees: f32) -> ThemeDesignPaintObjectV1 {
     ThemeDesignPaintObjectV1::LinearGradient {
         angle_degrees: literal(angle_degrees),

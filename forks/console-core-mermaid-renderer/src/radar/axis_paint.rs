@@ -47,6 +47,7 @@ impl RadarAxisPaintPlan {
         )
     }
 
+    #[must_use]
     pub(crate) fn baseline_with_binding(
         binding: &super::RadarCssBinding,
         axis_count: usize,
@@ -81,7 +82,12 @@ impl RadarAxisPaintPlan {
         work_meter: &OperationWorkMeter,
     ) -> crate::Result<Self> {
         let mut plan = Self::baseline_with_binding(binding, axis_count);
-        let Some(theme) = theme else { return Ok(plan) };
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
         plan.evidence = FamilyThemeOutcomes::default();
         let owns_line = config.config_paint_overrides_typed_default("themeVariables.lineColor");
         let axis_path = if value_at(config.as_value(), &["radar", "axisColor"])
@@ -93,42 +99,47 @@ impl RadarAxisPaintPlan {
             "themeVariables.radar.axisColor"
         };
         let owns_axis = config.config_paint_overrides_typed_default(axis_path);
-        // Base lineColor styles marker classes that Radar never instantiates. Retain the
-        // historical CSS projection, but only axisColor has actual paint terminals here.
+
+
         let source_owns_paint = owns_axis;
-        let static_style = theme.style_with_work_meter(
+        let static_style = theme_2.style_with_work_meter(
             ThemeTarget::Axis,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
-        // Clear and unsupported strokes also suppress the fill fallback.
+
         plan.paint = if static_style.stroke_resolution().winner().is_some() {
             resolve_direct_static_stroke(
-                theme,
+                theme_2,
                 &static_style,
                 &[ThemeTarget::Axis],
                 DirectStaticSelectorDomain::Default,
             )
         } else {
             resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &static_style,
                 &[ThemeTarget::Axis],
                 DirectStaticSelectorDomain::Default,
             )
         };
-        if let Some(paint) = &plan.paint {
-            if !owns_line {
-                plan.line_color = paint.css().into();
-            }
-            if !owns_axis {
-                plan.axis_color = paint.css().into();
-            }
+
+        match &plan.paint {
+            Some(paint) => {
+                if !owns_line {
+                    plan.line_color = <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(paint.css());
+                }
+
+                if !owns_axis {
+                    plan.axis_color = <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(paint.css());
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
         let mut observations = BTreeMap::<usize, RuleObservation>::new();
-        let routes = theme
+        let routes = theme_2
             .family_mechanism_routes()
             .iter()
             .copied()
@@ -142,13 +153,15 @@ impl RadarAxisPaintPlan {
                 )
             })
             .collect::<Vec<_>>();
+
         for route in &routes {
             if let FamilyThemeMechanism::RuleFacet { rule_index, .. } = route.mechanism() {
                 observations.entry(rule_index).or_default();
             }
         }
-        // Static CSS shares one winner across every axis. Only ordinal selectors need a
-        // per-axis reconciliation pass, even though their unsupported outcomes remain residual.
+
+
+
         let has_ordinal_rules = routes.iter().any(|route| {
             matches!(
                 route.mechanism(),
@@ -158,9 +171,9 @@ impl RadarAxisPaintPlan {
                 }
             )
         });
-        // Stroke-or-fill selection suppresses the palette fallback even when the chosen
-        // stroke is Clear or Unsupported. A static stroke survives at every occurrence;
-        // otherwise collect only the axes where an ordinal stroke actually wins.
+
+
+
         let mut fill_overridden =
             if source_owns_paint || static_style.stroke_resolution().winner().is_some() {
                 work_meter.charge(axis_count)?;
@@ -175,56 +188,70 @@ impl RadarAxisPaintPlan {
         } else {
             usize::from(axis_count != 0)
         };
+
         for ordinal in 1..=observations_count {
             let ordinal_style;
             let style = if has_ordinal_rules {
-                ordinal_style = theme.style_with_work_meter(
+                ordinal_style = { let checked_value = theme_2.style_with_work_meter(
                     ThemeTarget::Axis,
                     ThemeVariant::Default,
                     Some(ordinal),
                     work_meter,
-                )?;
+                )?; checked_value };
                 &ordinal_style
             } else {
                 &static_style
             };
+
             if has_ordinal_rules && style.stroke_resolution().winner().is_some() {
-                if fill_overridden.is_none() {
-                    work_meter.charge(axis_count)?;
-                    fill_overridden = Some(vec![false; axis_count]);
+                match fill_overridden {
+                    ::core::option::Option::None => {
+                        work_meter.charge(axis_count)?;
+                        fill_overridden = Some(vec![false; axis_count]);
+                    },
+                    ::core::option::Option::Some(_) => {},
                 }
+
                 fill_overridden
                     .as_mut()
                     .expect("allocated stroke fallback mask")[ordinal - 1] = true;
             }
+
             work_meter.charge(routes.len())?;
-            for route in &routes {
+
+            'over_route_2: for route in &routes {
                 let FamilyThemeMechanism::RuleFacet {
                     rule_index, facet, ..
                 } = route.mechanism()
                 else {
                     unreachable!()
                 };
+
                 let property = resolved_style_property_for_facet(facet);
+
                 if !style.winner_rule_properties().any(|(candidate, origin)| {
                     candidate == property && origin.rule_index() == rule_index
                 }) {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 let is_paint = matches!(
                     property,
                     ResolvedStyleProperty::Fill | ResolvedStyleProperty::Stroke
                 );
+
                 if is_paint
                     && (source_owns_paint
                         || (property == ResolvedStyleProperty::Fill
                             && style.stroke_resolution().winner().is_some()))
                 {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 let observation = observations
                     .get_mut(&rule_index)
                     .expect("registered Axis route");
+
                 match route.disposition() {
                     FamilyThemeDisposition::Unsupported => {
                         observation
@@ -240,60 +267,75 @@ impl RadarAxisPaintPlan {
                     {
                         observation.pending = true;
                     }
-                    _ => observation.incomplete = true,
+                    FamilyThemeDisposition::TypedAdapter => observation.incomplete = true,
                 }
             }
         }
+
         let mut fallback_domain = UnsupportedTerminalDomain::fallbacks_only(
             ThemeTarget::Axis,
             TerminalVariantDomain::uniform(axis_count, ThemeVariant::Default),
         );
-        if let Some(overridden) = fill_overridden.as_deref() {
-            // Rule facets are owned above. For fallback reconciliation, either the source
-            // or Radar's selected stroke owns the paint channel at these occurrences.
-            fallback_domain = fallback_domain.with_source_owned_fill(overridden);
+
+        match fill_overridden.as_deref() {
+            Some(overridden) => {
+
+
+                fallback_domain = fallback_domain.with_source_owned_fill(overridden);
+            },
+            ::core::option::Option::None => {},
         }
+
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut plan.evidence,
             &[fallback_domain],
             work_meter,
         )?;
+
         for (index, observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: ThemeTarget::Axis,
             };
+
             if let Some(reason) = observation.residual {
                 plan.evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // A sibling facet without a terminal owner must remain incomplete.
+
             } else if observation.pending {
                 plan.pending_rule = Some(index);
             } else {
                 plan.evidence.mark_not_applicable(key);
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn line_color(&self) -> &str {
         &self.line_color
     }
+
+    #[must_use]
     pub(crate) fn axis_color(&self) -> &str {
         &self.axis_color
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> Option<RadarAxisPaintReceipt> {
         self.pending_rule.map(|_| RadarAxisPaintReceipt::new(self))
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: RadarAxisPaintReceipt) -> bool {
         self.pending_rule.is_some() && receipt.proves(self) && self.terminal_receipt.set(()).is_ok()
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if let Some(index) = self.pending_rule
             && self.terminal_receipt.get().is_some()
             && let Some(paint) = &self.paint
@@ -321,6 +363,7 @@ pub(crate) struct RadarAxisPaintReceipt {
 }
 
 impl RadarAxisPaintReceipt {
+    #[must_use]
     fn new(plan: &RadarAxisPaintPlan) -> Self {
         Self {
             expected_line: plan.line_color.clone(),
@@ -339,6 +382,7 @@ impl RadarAxisPaintReceipt {
             && value == self.expected_line.as_ref();
         *{ let [_explicit_part, ..] = &mut self.css; _explicit_part } = true;
     }
+
     pub(crate) fn record_axis_line_css(&mut self, class: &str, stroke: &str) {
         self.valid &= !match self.css { [_, _explicit_element, ..] => _explicit_element }
             && (match self.css { [_explicit_element, ..] => _explicit_element })
@@ -348,6 +392,7 @@ impl RadarAxisPaintReceipt {
             && stroke == self.expected_axis.as_ref();
         *{ let [_, _explicit_part, ..] = &mut self.css; _explicit_part } = true;
     }
+
     pub(crate) fn record_axis_label_css(&mut self, class: &str, color: &str) {
         self.valid &= !match self.css { [_, _, _explicit_element, ..] => _explicit_element }
             && (match self.css { [_, _explicit_element, ..] => _explicit_element })
@@ -357,6 +402,7 @@ impl RadarAxisPaintReceipt {
             && color == self.expected_axis.as_ref();
         *{ let [_, _, _explicit_part, ..] = &mut self.css; _explicit_part } = true;
     }
+
     pub(crate) fn record_axis_line(&mut self, index: usize, class: &str) {
         self.valid &= self.css == [true; 3]
             && index == self.next_line
@@ -364,6 +410,7 @@ impl RadarAxisPaintReceipt {
             && class == "radarAxisLine";
         self.next_line = self.next_line.saturating_add(1);
     }
+
     pub(crate) fn record_axis_label(&mut self, index: usize, class: &str) {
         self.valid &= self.css == [true; 3]
             && index == self.next_label
@@ -371,6 +418,8 @@ impl RadarAxisPaintReceipt {
             && class == "radarAxisLabel";
         self.next_label = self.next_label.saturating_add(1);
     }
+
+    #[must_use]
     fn proves(&self, plan: &RadarAxisPaintPlan) -> bool {
         self.valid
             && self.css == [true; 3]
@@ -516,7 +565,7 @@ mod tests {
                 PresentationConfig::empty_object(),
                 3,
             );
-            // Best-effort CSS retains its static fallback; this is not proof of the ordinal request.
+
             assert_eq!(plan.axis_color(), "#123456");
             assert_eq!(plan.begin_terminal_receipt().is_some(), static_pending);
             let evidence = collect_evidence(&theme, |evidence| plan.record_evidence(evidence));

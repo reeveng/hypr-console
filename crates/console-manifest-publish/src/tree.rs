@@ -138,7 +138,7 @@ mod tests {
 
   #[test]
   fn the_crate_that_talks_to_the_player_is_not_the_player() {
-    let Ok(source) = is_fork("crates/console-music/src/player.rs");
+    let Ok(source) = is_fork("crates/console-application-music/src/player.rs");
 
     assert_eq!(source, Fork::No);
   }

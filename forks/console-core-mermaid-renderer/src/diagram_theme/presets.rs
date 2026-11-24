@@ -32,10 +32,12 @@ pub enum ThemePreset {
 }
 
 impl ThemePreset {
+    #[must_use]
     pub const fn id(self) -> &'static str {
         catalog::entry_at(self as usize).id()
     }
 
+    #[must_use]
     pub const fn is_dark(self) -> bool {
         catalog::entry_at(self as usize).is_dark()
     }
@@ -54,6 +56,7 @@ pub struct ThemePresetParseError {
 }
 
 impl ThemePresetParseError {
+    #[must_use]
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -77,6 +80,7 @@ impl ThemePresetQualifiedCell {
     ///
     /// IDs are open strings. Consumers must understand the profile and admission status before
     /// relying on the claim; an unknown value is never equivalent to portable support.
+    #[must_use]
     pub const fn new(
         family_id: &'static str,
         output_id: &'static str,
@@ -92,21 +96,25 @@ impl ThemePresetQualifiedCell {
     }
 
     /// Returns the stable diagram-family identifier.
+    #[must_use]
     pub const fn family_id(self) -> &'static str {
         self.family_id
     }
 
     /// Returns the stable render-output identifier.
+    #[must_use]
     pub const fn output_id(self) -> &'static str {
         self.output_id
     }
 
     /// Identifies the qualification scenario and its required resource conditions.
+    #[must_use]
     pub const fn profile_id(self) -> &'static str {
         self.profile_id
     }
 
     /// Returns the observed target admission class, such as `portable` or `host_dependent`.
+    #[must_use]
     pub const fn admission_status(self) -> &'static str {
         self.admission_status
     }
@@ -118,21 +126,26 @@ pub struct ThemePresetDescriptor {
 }
 
 impl ThemePresetDescriptor {
+    #[must_use]
     pub(super) const fn from_catalog_index(catalog_index: u8) -> Self {
         Self { catalog_index }
     }
 
+    #[must_use]
     const fn entry(self) -> &'static catalog::PresetCatalogEntry {
         catalog::entry_at(self.catalog_index as usize)
     }
 
     /// Describes this recipe under the effective compiler policy without granting qualification.
+    #[must_use]
     pub fn describe(self, compiler: &DiagramThemeCompiler) -> ThemePresetMetadataV1 {
-        let availability_reason_ids = compiler
+        let availability_reason_ids = match compiler
             .validate_preset(self.preset())
             .err()
-            .map(|error| vec![theme_preset_unavailability_reason(&error).to_owned()])
-            .unwrap_or_default();
+            .map(|error| vec![theme_preset_unavailability_reason(&error).to_owned()]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        };
         ThemePresetMetadataV1 {
             id: self.id().to_owned(),
             display_name: self.display_name().to_owned(),
@@ -162,14 +175,17 @@ impl ThemePresetDescriptor {
         }
     }
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         self.entry().id()
     }
 
+    #[must_use]
     pub const fn display_name(self) -> &'static str {
         self.entry().display_name()
     }
 
+    #[must_use]
     pub const fn is_dark(self) -> bool {
         self.entry().is_dark()
     }
@@ -179,31 +195,38 @@ impl ThemePresetDescriptor {
     /// Built-in presets are usable alpha inventory, not stable compatibility promises. A future
     /// maturity promotion is backed by a different qualified descriptor revision rather than by
     /// the preset's presence in this catalog alone.
+    #[must_use]
     pub const fn maturity(self) -> &'static str {
         self.entry().maturity()
     }
 
+    #[must_use]
     pub const fn preset(self) -> ThemePreset {
         self.entry().preset()
     }
 
+    #[must_use]
     pub const fn qualified_cells(self) -> &'static [ThemePresetQualifiedCell] {
         self.entry().qualified_cells()
     }
 
+    #[must_use]
     pub const fn export_kind(self) -> &'static str {
         self.entry().export_kind()
     }
 
+    #[must_use]
     pub const fn license_expression(self) -> &'static str {
         self.entry().license_expression()
     }
 
+    #[must_use]
     pub const fn required_attribution(self) -> Option<&'static str> {
         self.entry().required_attribution()
     }
 }
 
+#[must_use]
 pub const fn theme_preset_descriptors() -> &'static [ThemePresetDescriptor] {
     catalog::descriptors()
 }
@@ -212,6 +235,7 @@ pub const fn theme_preset_descriptors() -> &'static [ThemePresetDescriptor] {
 ///
 /// Availability uses recipe validation under the compiler's resource policy. Maturity and scoped
 /// qualification declarations come directly from the catalog and are not promoted by validation.
+#[must_use]
 pub fn describe_theme_presets(compiler: &DiagramThemeCompiler) -> Vec<ThemePresetMetadataV1> {
     theme_preset_descriptors()
         .iter()
@@ -230,10 +254,11 @@ impl From<&ThemePresetQualifiedCell> for ThemePresetQualifiedCellV1 {
     }
 }
 
+#[must_use]
 fn theme_preset_unavailability_reason(error: &ThemeDesignCompileError) -> &'static str {
     match error {
-        ThemeDesignCompileError::Materialization(error)
-            if error.diagnostic().code() == "theme-authoring.resource-limit-exceeded" =>
+        ThemeDesignCompileError::Materialization(error_2)
+            if error_2.diagnostic().code() == "theme-authoring.resource-limit-exceeded" =>
         {
             "theme-preset.resource-policy-rejected"
         }
@@ -439,7 +464,7 @@ mod tests {
             ));
             let config = &themed.metadata().effective_config;
             assert_eq!(config.get_str("theme"), Some(selected));
-            // Unadapted terminals still consume the selected Mermaid palette.
+
             for key in ["themeVariables.cScale0", "themeVariables.mainBkg"] {
                 assert_eq!(
                     config.get_str(key),
@@ -843,7 +868,7 @@ mod tests {
         };
         design.tokens.get_mut("neon-cyan").unwrap().value =
             ThemeDesignTokenValueV1::Color(ThemeValueV1::Literal("#123456".to_owned()));
-        // Detach exactly the explicit Flowchart edge override, retaining every other binding.
+
         let edge = design
             .rules
             .iter_mut()
@@ -1295,7 +1320,7 @@ mod tests {
             &ThemeResourcePolicy::interactive(),
         )
         .unwrap();
-        // Both authored input and concrete expansion count toward the host's encoded-byte limit.
+
         let size = serde_json::to_vec(&complete_spec)
             .unwrap()
             .len()
@@ -1615,8 +1640,8 @@ mod tests {
                 Some(palette.border),
             );
 
-            // Family-qualified fallbacks must not become static winners for palette-owned
-            // families that share the same semantic target.
+
+
             assert_style(
                 &theme,
                 DiagramFamilyId::KANBAN,

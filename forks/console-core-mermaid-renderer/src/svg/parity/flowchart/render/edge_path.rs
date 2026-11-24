@@ -41,9 +41,10 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_edge_path(
     let hand_drawn = data_look.is_hand_drawn();
     let emitted_styles = ctx.edge_style_plan.edge_for(key)?;
     let animation = ctx.edge_style_plan.animation_for(key)?;
+    let checked_value = ctx.edge_style_plan
+            .emitted_source_stroke_status_for(key, hand_drawn)?;
     let stroke_precedence = crate::flowchart::FlowchartFacetPrecedence::new(
-        ctx.edge_style_plan
-            .emitted_source_stroke_status_for(key, hand_drawn)?,
+        checked_value,
         ctx.edge_stroke_config_override,
     );
     let typed_stroke = ctx.edge_theme.stroke_value(stroke_precedence, true);
@@ -54,9 +55,10 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_edge_path(
     let stroke_width = ctx.edge_style_plan.stroke_width_for(key)?;
     let stroke_width_precedence = stroke_width.precedence();
     let typed_stroke_width = stroke_width.typed_value();
+    let checked_value_2 = ctx.edge_style_plan
+            .emitted_source_stroke_dasharray_status_for(key, hand_drawn)?;
     let stroke_dasharray_precedence = crate::flowchart::FlowchartFacetPrecedence::new(
-        ctx.edge_style_plan
-            .emitted_source_stroke_dasharray_status_for(key, hand_drawn)?,
+        checked_value_2,
         false,
     );
     let edge_writer_supports_typed_dasharray = !hand_drawn;
@@ -70,12 +72,13 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_edge_path(
         .filter(|c| (c.origin_x - origin_x).abs() <= 1e-9 && (c.origin_y - origin_y).abs() <= 1e-9)
         .map(|c| &c.geom);
 
-    // Trace collection recomputes the geometry before graph-wide postprocessing for diagnostics, but the emitted SVG
-    // must still consume the post-processed cache. Enabling diagnostics must not alter rendering.
+
+
     let owned_geom = if cached_geom.is_none() || trace_enabled {
         if let Some(layout_edge) = ctx.layout_edges_by_key.get(&key) {
             ctx.work_meter.charge(layout_edge.points.len().max(2))?;
         }
+
         flowchart_compute_edge_path_geom(
             FlowchartEdgePathGeomRequest {
                 ctx,
@@ -96,6 +99,7 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_edge_path(
         let Some(g) = owned_geom.as_ref() else {
             let source_residuals =
                 emitted_styles.emitted_shape_source_residuals(edge.id.as_str(), false);
+
             if ctx.resolved_theme.is_some() || !source_residuals.is_empty() {
                 ctx.theme_evidence.record_edge_emission(
                     ctx.edge_theme,
@@ -121,8 +125,10 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_edge_path(
                     ctx.work_meter,
                 )?;
             }
+
             return Ok(());
         };
+
         g
     };
     let d = geom.d.as_str();
@@ -133,22 +139,25 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_edge_path(
         && !animation.is_active()
         && let Some(path_length) = flowchart_neo_edge_path_length(geom, edge)
     {
-        Some(FlowchartNeoEdgeMaskPlan::prepare(
+        let checked_value_3 = FlowchartNeoEdgeMaskPlan::prepare(
             path_length,
             edge,
             geom.line_hop_applied,
             ctx.work_meter,
-        )?)
+        )?;
+        Some(checked_value_3)
     } else {
         None
     };
-    let d = geom.emitted_d_for_label.as_deref().unwrap_or(d);
+    let d_2 = geom.emitted_d_for_label.as_deref().unwrap_or(d);
 
     scratch.edge_class_attr.clear();
     css::write_flowchart_edge_class_attr(&mut scratch.edge_class_attr, edge, animation);
+
     if hand_drawn {
         scratch.edge_class_attr.push_str(" transition");
     }
+
     scratch.edge_marker_attrs.clear();
     marker_plan.push_edge_marker_attributes_for(
         &mut scratch.edge_marker_attrs,
@@ -176,7 +185,7 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_edge_path(
     let edge_receipt = FlowchartEdgeSvgEmission {
         edge_dom_id,
         edge,
-        d,
+        d: d_2,
         data_points_b64: &data_points_b64,
         data_look,
         hand_drawn,
@@ -194,18 +203,20 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_edge_path(
         line_hop_applied: geom.line_hop_applied,
     };
     ctx.checkpoint_emit()?;
-    let edge_receipt = edge_receipt.append_to(out, source_style_svg_bytes, ctx.work_meter)?;
+    let edge_receipt_2 = edge_receipt.append_to(out, source_style_svg_bytes, ctx.work_meter)?;
+
     if let Some((id, effect, region, _)) = &effect_application {
         ctx.effect_evidence.record_application(effect, id, *region);
     }
+
     marker_plan.record_edge_checkpoint(
         super::super::defs::FlowchartMarkerPathCheckpoint {
             key,
-            has_geometry: !d.is_empty(),
-            attributes: edge_receipt.marker_attributes(out.as_str()),
+            has_geometry: !d_2.is_empty(),
+            attributes: edge_receipt_2.marker_attributes(out.as_str()),
         },
-        ctx.edge_style_plan
-            .emitted_source_stroke_status_for(key, hand_drawn)?,
+        { let checked_value_4 = ctx.edge_style_plan
+            .emitted_source_stroke_status_for(key, hand_drawn)?; checked_value_4 },
         ctx.edge_stroke_config_override,
         ctx.document_ids().marker_scope(),
         ctx.diagram_type,
@@ -216,32 +227,34 @@ pub(in crate::svg::parity::flowchart) fn render_flowchart_edge_path(
 
     let source_residuals =
         emitted_styles.emitted_edge_source_residuals(edge.id.as_str(), hand_drawn);
+
     if ctx.resolved_theme.is_some() || !source_residuals.is_empty() {
         ctx.theme_evidence.record_edge_emission(
             ctx.edge_theme,
             crate::flowchart::FlowchartEdgeThemeEmission {
                 effect: crate::flowchart::FlowchartThemeFacetEmission::new(
                     effect_precedence,
-                    !d.is_empty()
-                        && (edge_receipt.typed_effect || ctx.edge_theme.effect_is_cleared()),
+                    !d_2.is_empty()
+                        && (edge_receipt_2.typed_effect || ctx.edge_theme.effect_is_cleared()),
                 ),
                 stroke: crate::flowchart::FlowchartThemeFacetEmission::new(
                     stroke_precedence,
-                    edge_receipt.typed_stroke_verified(),
+                    edge_receipt_2.typed_stroke_verified(),
                 ),
                 stroke_width: crate::flowchart::FlowchartThemeFacetEmission::new(
                     stroke_width_precedence,
-                    edge_receipt.typed_stroke_width_verified(),
+                    edge_receipt_2.typed_stroke_width_verified(),
                 ),
                 stroke_dasharray: crate::flowchart::FlowchartThemeFacetEmission::new(
                     stroke_dasharray_precedence,
-                    edge_receipt.typed_stroke_dasharray_verified(),
+                    edge_receipt_2.typed_stroke_dasharray_verified(),
                 ),
             },
             &source_residuals,
             ctx.work_meter,
         )?;
     }
+
     Ok(())
 }
 
@@ -274,19 +287,23 @@ struct FlowchartEdgePathEmissionReceipt {
 }
 
 impl FlowchartEdgePathEmissionReceipt {
+    #[must_use]
     fn marker_attributes<'a>(&self, output: &'a str) -> Option<&'a str> {
         let (start, end) = self.marker_attribute_span?;
         output.get(start..end)
     }
 
+    #[must_use]
     const fn typed_stroke_verified(self) -> bool {
         self.typed_stroke
     }
 
+    #[must_use]
     const fn typed_stroke_width_verified(self) -> bool {
         self.typed_stroke_width
     }
 
+    #[must_use]
     const fn typed_stroke_dasharray_verified(self) -> bool {
         self.typed_stroke_dasharray
     }
@@ -305,13 +322,15 @@ where
         let neo_mask_svg_bytes = self
             .neo_edge_mask
             .map_or(0, FlowchartNeoEdgeMaskPlan::serialized_bytes);
-        // Marker attributes are already owned by `FlowchartMarkerEmissionPlan`; only the repeated
-        // source-style payload and the Neo mask remain disjoint producer contributions here.
+
+
         let Some(projected_contribution) = source_style_svg_bytes.checked_add(neo_mask_svg_bytes)
         else {
             work_meter.check_svg_append(usize::MAX, 1)?;
+
             unreachable!("overflowing Flowchart edge contribution must be rejected")
         };
+
         let neo_mask_work = self
             .neo_edge_mask
             .map_or(0, FlowchartNeoEdgeMaskPlan::work_units);
@@ -323,10 +342,12 @@ where
         let rewritten_style = if self.line_hop_applied {
             work_meter.check_svg_append(0, projected_contribution)?;
             let mut style = String::with_capacity(projected_contribution);
+
             if let Some(mask) = self.neo_edge_mask {
                 mask.write_to(&mut style)
                     .expect("writing into a String cannot fail");
             }
+
             self.write_source_style(&mut style)
                 .expect("writing into a String cannot fail");
             Some(
@@ -338,18 +359,19 @@ where
         } else {
             None
         };
-        let projected_contribution = rewritten_style
+        let projected_contribution_2 = rewritten_style
             .as_ref()
             .map_or(projected_contribution, String::len);
-        let serialized_bytes = self.serialized_bytes(projected_contribution, work_meter)?;
+        let serialized_bytes = self.serialized_bytes(projected_contribution_2, work_meter)?;
 
-        // This is the only whole-edge boundary. Every byte from `<path` through `/>` is counted
-        // against the current document before any part of the edge reaches the output buffer.
+
+
         work_meter.check_svg_append(out.len(), serialized_bytes)?;
-        work_meter.charge_svg_bytes(projected_contribution)?;
+        work_meter.charge_svg_bytes(projected_contribution_2)?;
         work_meter.charge(edge_work)?;
 
         let before = out.len();
+
         if self.write_to(out, rewritten_style.as_deref()).is_err() {
             return match out.checkpoint() {
                 Err(error) => Err(error),
@@ -359,6 +381,7 @@ where
                 }),
             };
         }
+
         out.checkpoint()?;
         debug_assert_eq!(out.len() - before, serialized_bytes);
         let marker_attribute_span = out
@@ -395,14 +418,17 @@ where
 
     fn write_to(&self, out: &mut impl fmt::Write, rewritten_style: Option<&str>) -> fmt::Result {
         self.write_prefix_to(out)?;
+
         if let Some(style) = rewritten_style {
             out.write_str(style)?;
         } else {
             if let Some(mask) = self.neo_edge_mask {
                 mask.write_to(out)?;
             }
+
             self.write_source_style(out)?;
         }
+
         self.write_suffix_to(out)
     }
 
@@ -420,18 +446,22 @@ where
             write!(out, "{}", escape_xml_display(stroke))?;
             out.write_str(" !important")?;
         }
+
         if let Some(stroke_width) = self.typed_stroke_width {
             write!(out, ";stroke-width:{stroke_width}px !important")?;
         }
+
         if let Some(stroke_dasharray) = self.typed_stroke_dasharray {
             out.write_str(";stroke-dasharray:")?;
-            // Typed dasharrays are canonical finite-number sequences separated by ASCII spaces.
+
             out.write_str(stroke_dasharray)?;
             out.write_str(" !important")?;
         }
+
         if self.hand_drawn {
             out.write_str(r##"" stroke="#000" stroke-width="1" fill="none"##)?;
         }
+
         write!(
             out,
             r#"" data-edge="true" data-et="edge" data-id="{}" data-points="{}" data-look="{}""#,
@@ -439,9 +469,11 @@ where
             self.data_points_b64,
             escape_xml_display(self.data_look.as_str()),
         )?;
+
         if let Some(reference) = self.effect_reference {
             write!(out, r#" filter="{}""#, escape_xml_display(reference))?;
         }
+
         out.write_str(self.marker_attrs)?;
         out.write_str(" />")
     }
@@ -457,9 +489,13 @@ where
             .iter()
             .enumerate()
         {
-            if index != 0 {
-                out.write_char(';')?;
+            match index {
+                0 => {},
+                _ => {
+                    out.write_char(';')?;
+                },
             }
+
             write!(
                 out,
                 "{}:{}",
@@ -467,6 +503,7 @@ where
                 escape_xml_display(declaration.source_value())
             )?;
         }
+
         if !self
             .emitted_styles
             .emitted_edge_class_declarations()
@@ -474,6 +511,7 @@ where
         {
             out.write_char(';')?;
         }
+
         if self.default_edge_style.is_empty() && self.edge.style.is_empty() {
             out.write_char(';')
         } else {
@@ -490,11 +528,16 @@ fn write_style_joined(
     second: &[String],
 ) -> fmt::Result {
     for (index, part) in first.iter().chain(second).enumerate() {
-        if index != 0 {
-            out.write_char(';')?;
+        match index {
+            0 => {},
+            _ => {
+                out.write_char(';')?;
+            },
         }
+
         write!(out, "{}", escape_xml_display(part))?;
     }
+
     Ok(())
 }
 
@@ -510,6 +553,7 @@ impl FlowchartEdgeSvgByteCounter {
             self.overflowed = true;
             return Err(fmt::Error);
         };
+
         self.bytes = bytes;
         Ok(())
     }
@@ -517,8 +561,10 @@ impl FlowchartEdgeSvgByteCounter {
     fn finish(self, work_meter: &crate::resources::OperationWorkMeter) -> crate::Result<usize> {
         if self.overflowed {
             work_meter.check_svg_append(usize::MAX, 1)?;
+
             unreachable!("overflowing Flowchart edge serialization must be rejected")
         }
+
         Ok(self.bytes)
     }
 }
@@ -529,6 +575,7 @@ impl fmt::Write for FlowchartEdgeSvgByteCounter {
     }
 }
 
+#[must_use]
 fn flowchart_neo_edge_path_length(
     geom: &FlowchartEdgePathGeom,
     edge: &crate::flowchart::FlowEdge,
@@ -540,6 +587,7 @@ fn flowchart_neo_edge_path_length(
     }
 }
 
+#[must_use]
 fn flowchart_neo_marker_mask_offset(arrow_type: Option<&str>) -> f64 {
     match arrow_type {
         Some("arrow_point" | "arrow_open_head") => 4.0,
@@ -577,10 +625,10 @@ impl FlowchartNeoEdgeMaskPlan {
         let repeated_dash_pairs = matches!(edge.stroke.as_deref(), Some("dotted" | "dashed"))
             .then(|| (middle_length / 4.0).floor().max(0.0) as usize);
 
-        let middle_bytes = if let Some(repeated_dash_pairs) = repeated_dash_pairs {
+        let middle_bytes = if let Some(repeated_dash_pairs_2) = repeated_dash_pairs {
             NEO_EDGE_MASK_DASH_PAIR
                 .len()
-                .checked_mul(repeated_dash_pairs)
+                .checked_mul(repeated_dash_pairs_2)
         } else {
             formatted_svg_number_bytes(middle_length).checked_add(1)
         };
@@ -591,8 +639,10 @@ impl FlowchartNeoEdgeMaskPlan {
             .and_then(|bytes| bytes.checked_add(middle_bytes?))
             .and_then(|bytes| bytes.checked_add(formatted_svg_number_bytes(end_offset)))
             .and_then(|bytes| bytes.checked_add(NEO_EDGE_MASK_SUFFIX.len()));
-        let Some(serialized_bytes) = serialized_bytes else {
+
+        let Some(serialized_bytes_2) = serialized_bytes else {
             work_meter.check_svg_append(usize::MAX, 1)?;
+
             unreachable!("overflowing Neo edge mask projection must be rejected")
         };
 
@@ -601,21 +651,27 @@ impl FlowchartNeoEdgeMaskPlan {
             middle_length,
             end_offset,
             repeated_dash_pairs,
-            serialized_bytes,
+            serialized_bytes: serialized_bytes_2,
         })
     }
 
+    #[must_use]
     const fn serialized_bytes(self) -> usize {
         self.serialized_bytes
     }
 
+    #[must_use]
     fn work_units(self) -> usize {
-        self.repeated_dash_pairs.unwrap_or(0)
+        match self.repeated_dash_pairs {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        }
     }
 
     fn write_to(self, out: &mut impl fmt::Write) -> fmt::Result {
         out.write_str(NEO_EDGE_MASK_PREFIX)?;
         write!(out, "{} ", fmt(self.start_offset))?;
+
         if let Some(repeated_dash_pairs) = self.repeated_dash_pairs {
             for _ in 0..repeated_dash_pairs {
                 out.write_str(NEO_EDGE_MASK_DASH_PAIR)?;
@@ -623,6 +679,7 @@ impl FlowchartNeoEdgeMaskPlan {
         } else {
             write!(out, "{} ", fmt(self.middle_length))?;
         }
+
         write!(out, "{}{}", fmt(self.end_offset), NEO_EDGE_MASK_SUFFIX)
     }
 }
@@ -637,6 +694,7 @@ impl std::fmt::Write for SvgNumberByteCounter {
     }
 }
 
+#[must_use]
 fn formatted_svg_number_bytes(value: f64) -> usize {
     let mut counter = SvgNumberByteCounter::default();
     let _ = write!(&mut counter, "{}", fmt(value));

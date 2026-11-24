@@ -2,8 +2,9 @@
 
 use crate::include::common::bitdepth::BitDepth;
 use crate::src::owned_recon::ReconDst;
+use crate::src::strided::Strided as _;
 use console_core_geometry::Size;
-use console_core_number_conversion::{checked_index, checked_offset, fixed_offset};
+use console_core_number_conversion::{checked_index, checked_offset};
 use console_core_pixel_buffers::RowLayout;
 use core::fmt::Display;
 use std::io::{self, Write as _};
@@ -61,9 +62,7 @@ pub fn hex_dump_pic<BD: BitDepth>(
   let width =
     checked_index(size.width).map_err(|_outside_indices| io::ErrorKind::InvalidInput)?;
   let Ok(source) = buf.as_src();
-  let Ok(stride) = fixed_offset(match buf.pixel_stride::<BD>() {
-    Ok(pixel_stride) => pixel_stride,
-  });
+  let Ok(stride) = buf.fixed_pixel_stride::<BD>();
   let mut out = io::stdout().lock();
   write!(out, "{what}")?;
 
@@ -75,7 +74,9 @@ pub fn hex_dump_pic<BD: BitDepth>(
     let offset =
       checked_offset(position).map_err(|_outside_offsets| io::ErrorKind::InvalidInput)?;
     let Ok(row) = source.at(offset);
-    let Ok(pixels) = row.slice::<BD>(width);
+    let pixels = row.slice::<BD>(width).map_err(|fault| {
+      io::Error::new(io::ErrorKind::InvalidData, format!("invalid debug row: {fault:?}"))
+    })?;
 
     for &pixel in &*pixels {
       write!(out, " {}", BD::display(pixel))?;

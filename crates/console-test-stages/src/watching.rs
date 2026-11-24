@@ -117,37 +117,38 @@ use console_core_never::Never;
 use console_core_number_conversion::toward_zero_u16;
 use console_how_far::Bar;
 use console_notifications::saying::{Content, Notification};
-use console_notifications::updating::{self, Progress};
+use console_notifications::updating::Progress;
 use console_waiting::{Ready, Schedule, until, until_some};
 
-use crate::device::{Device, shell_quote};
+use crate::device::Device;
 use crate::lasting::{Ahead, WHOLE, about, crept, over};
 
 pub fn writing(far: &Progress) -> Result<String, Never> {
-  let Ok(where_at) = updating::at();
-  let Ok(written) = updating::serialize(far);
+  let Ok(console) = console_core_internal_programs::InternalProgram::Console.path();
 
-  let at = where_at.display().to_string();
-  let beside = format!("{at}.writing");
-  let Ok(said) = shell_quote(&written);
-  let Ok(holding) = holding_of(&at);
-  let Ok(holding_2) = shell_quote(&holding);
-  let Ok(writing) = shell_quote(&beside);
-  let Ok(where_) = shell_quote(&at);
-
-  Ok(format!(
-    "mkdir -p {holding} && printf %s {said} > {writing} && mv {writing} {where_}",
-    holding = holding_2
-  ))
+  console_core_external_programs::shell::join([
+    console,
+    "device-progress",
+    "write",
+    &far.permille.to_string(),
+    &far.label,
+  ])
 }
 
 pub fn show_progress(device: &mut Device, ahead: &Ahead, doing: &str) -> Result<(), Never> {
   let Ok(permille) = ahead.far();
-  let Ok(said) = writing(&Progress {
-    permille,
-    label: doing.to_string(),
-  });
-  let Ok(_) = device.ssh(&said);
+  let Ok(console) = console_core_internal_programs::InternalProgram::Console.path();
+
+  match device.ssh_args(&[
+    console,
+    "device-progress",
+    "write",
+    &permille.to_string(),
+    doing,
+  ]) {
+    Ok(_) => {}
+    Err(fault) => console_core_logging::warn!("console-test-stages: {fault}"),
+  }
 
   Ok(())
 }
@@ -289,34 +290,32 @@ impl Watching {
     self.bar.set_progress(into, &late)
   }
 
-  pub fn tick(&mut self) -> Result<String, Never> {
+  pub fn tick(&mut self) -> Result<Option<Progress>, Never> {
     let Ok(()) = self.redraw();
 
     match self.ended {
-      Ended::Yes => return Ok(String::new()),
+      Ended::Yes => return Ok(None),
       Ended::No => {}
     }
 
     let ahead = match &self.ahead {
       Some(ahead) => ahead,
-      None => return Ok(String::new()),
+      None => return Ok(None),
     };
 
     let Ok(far) = ahead.along(self.started.elapsed());
 
     match ::core::primitive::bool::then_some(far == self.said, ()) {
-      ::core::option::Option::Some(()) => return Ok(String::new()),
+      ::core::option::Option::Some(()) => return Ok(None),
       ::core::option::Option::None => {}
     }
 
     self.said = far;
 
-    let Ok(said) = writing(&Progress {
+    Ok(Some(Progress {
       permille: far,
       label: self.doing.clone(),
-    });
-
-    Ok(format!("; {said}"))
+    }))
   }
 
   pub fn quiet(&mut self) -> Result<(), Never> {
@@ -481,32 +480,27 @@ fn draw_until_ended(watching: &Mutex<Watching>, stop: &AtomicBool) -> Result<(),
 }
 
 pub fn done_showing(device: &mut Device) -> Result<(), Never> {
-  let Ok(where_at) = updating::at();
-  let Ok(at) = shell_quote(&where_at.display().to_string());
-  let Ok(_) = device.ssh(&format!("rm -f {at}"));
+  let Ok(console) = console_core_internal_programs::InternalProgram::Console.path();
+
+  match device.ssh_args(&[console, "device-progress", "clear"]) {
+    Ok(_) => {}
+    Err(fault) => console_core_logging::warn!("console-test-stages: {fault}"),
+  }
 
   Ok(())
-}
-
-fn holding_of(at: &str) -> Result<String, Never> {
-  Ok(match at.rsplit_once('/') {
-    Some((above, _)) => above.to_string(),
-    None => ".".to_string(),
-  })
 }
 
 pub fn notify(device: &mut Device, notification: &Notification) -> Result<Option<u32>, Never> {
   let Ok(said) = notification.arguments();
 
-  let arguments: Vec<String> = said
-    .iter()
-    .map(|word| {
-      let Ok(quoted) = shell_quote(word);
-
-      quoted
-    })
-    .collect();
-  let Ok(said_2) = device.in_session(&arguments.join(" "));
+  let arguments: Vec<&str> = said.iter().map(String::as_str).collect();
+  let said_2 = match device.in_session(&arguments) {
+    Ok(said_3) => said_3,
+    Err(fault) => {
+      console_core_logging::warn!("console-test-stages: {fault}");
+      return Ok(None);
+    }
+  };
 
   Ok(match said_2.trim().parse::<u32>() {
     Ok(id) => Some(id),
@@ -662,7 +656,7 @@ mod tests {
   }
 
   #[test]
-  fn the_strip_is_told_after_the_command_rather_than_before_it() {
+  fn a_tick_hands_over_the_progress_for_the_current_check() {
     let Ok(mut watching) = Watching::of(2);
     let Ok(carried) = crate::lasting::reading("010-one 1000\n020-two 1000\n");
     let Ok(ahead) = Ahead::from(&crate::lasting::Lengths::default(), &carried, &[&ONE, &TWO]);
@@ -671,9 +665,9 @@ mod tests {
 
     let Ok(said) = watching.tick();
 
-    assert!(
-      said.starts_with("; "),
-      "the strip is written in front of the press rather than behind it: {said}"
+    assert_eq!(
+      said.as_ref().map(|progress| progress.label.as_str()),
+      Some(ONE.name)
     );
   }
 
@@ -689,7 +683,7 @@ mod tests {
     let Ok(said) = watching.tick();
 
     assert_eq!(
-      said, "",
+      said, None,
       "the run had ended and its strip been taken off the device, and the next command \
              written after that put it back"
     );
@@ -702,11 +696,9 @@ mod tests {
       label: "120-a-page".to_string(),
     });
 
-    assert!(said.contains("/run/console/updating"), "{said}");
-    assert!(said.contains("400 120-a-page"), "{said}");
     assert!(
-      said.ends_with("/run/console/updating'"),
-      "the bar hears the file moved into place, and nothing after it: {said}"
+      said.ends_with("device-progress write 400 120-a-page"),
+      "{said}"
     );
   }
 
@@ -808,14 +800,5 @@ mod tests {
     });
 
     assert_eq!(reached.far, WHOLE);
-  }
-
-  #[test]
-  fn the_directory_the_strip_is_written_in_is_the_one_holding_it() {
-    assert_eq!(
-      holding_of("/run/console/updating"),
-      Ok("/run/console".to_string())
-    );
-    assert_eq!(holding_of("updating"), Ok(".".to_string()));
   }
 }

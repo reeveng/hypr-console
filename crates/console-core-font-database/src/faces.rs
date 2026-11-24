@@ -1,5 +1,7 @@
 //! What a face says about itself: its families and PostScript name, its style, weight and stretch.
 //!
+//! An invalid record ends the scan, preserving the database's original reader behavior.
+//!
 //! The family is the typographic family where the font names one and the
 //! family name where it does not, which is what keeps "Arial" rather than
 //! "Arial Bold". A name record is read when it is Unicode, and a Macintosh
@@ -18,8 +20,13 @@
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
-use crate::ttf_parser::{self, Language, PlatformId, name_id};
-use crate::{FaceInfo, ID, Pitch, Source, Stretch, Style, Weight};
+use console_core_font_reading::tables::{
+  name::NameId, os2::SelectionFlags, post::Post as PostTable,
+};
+use console_core_font_reading::{FileRef, FontRef, Presence, TableProvider, TopLevelTable};
+use console_core_number_conversion::fixed_index;
+
+use crate::{FaceInfo, ID, Language, Pitch, Source, Stretch, Style, Weight};
 use console_core_never::Never;
 
 #[derive(Debug)]
@@ -67,23 +74,28 @@ pub(crate) fn read(
   data: &[u8],
   origin: &dyn core::fmt::Display,
 ) -> Result<Vec<FaceInfo>, Never> {
-  let Ok(collection) = ttf_parser::fonts_in_collection(data);
-  let many = match collection {
-    Some(many) => many,
-    None => 1,
-  };
   let mut faces = Vec::new();
+  let font = match FileRef::new(data) {
+    Ok(font) => font,
+    Err(_malformed) => {
+      let Ok(()) = warn_refusal(0, origin, &Refusal::MalformedFont);
 
-  for index in 0..many {
-    match parse_face_info(source.clone(), data, index) {
+      return Ok(faces);
+    }
+  };
+  let Ok(fonts) = font.fonts();
+
+  for (index, font_2) in fonts.enumerate() {
+    let Ok(position) = fixed_index(index);
+    let Ok(index_2) = console_core_number_conversion::fitted::<_, u32>(position);
+    let parsed = font_2
+      .map_err(|_malformed| Refusal::MalformedFont)
+      .and_then(|face| parse_face_info(source.clone(), &face, index_2));
+
+    match parsed {
       Ok(face) => faces.push(face),
       Err(refusal) => {
-        console_core_logging::warn!(
-          "Failed to load a font face {} from {} cause {}.",
-          index,
-          origin,
-          refusal
-        )
+        let Ok(()) = warn_refusal(position, origin, &refusal);
       }
     }
   }
@@ -91,13 +103,30 @@ pub(crate) fn read(
   Ok(faces)
 }
 
-fn parse_face_info(source: Source, data: &[u8], index: u32) -> Result<FaceInfo, Refusal> {
-  let raw_face =
-    ttf_parser::RawFace::parse(data, index).map_err(|_malformed| Refusal::MalformedFont)?;
-  let Ok(named) = parse_names(&raw_face);
+fn warn_refusal(
+  index: u64,
+  origin: &dyn core::fmt::Display,
+  refusal: &Refusal,
+) -> Result<(), Never> {
+  console_core_logging::warn!(
+    "Failed to load a font face {} from {} cause {}.",
+    index,
+    origin,
+    refusal
+  );
+
+  Ok(())
+}
+
+fn parse_face_info(
+  source: Source,
+  raw_face: &FontRef<'_>,
+  index: u32,
+) -> Result<FaceInfo, Refusal> {
+  let Ok(named) = parse_names(raw_face);
   let naming = named.ok_or(Refusal::UnnamedFont)?;
-  let Ok((upright_style, weight, stretch)) = parse_os2(&raw_face);
-  let Ok(post) = parse_post(&raw_face);
+  let Ok((upright_style, weight, stretch)) = parse_os2(raw_face);
+  let Ok(post) = parse_post(raw_face);
   let style = match (upright_style, post.slant) {
     (Style::Normal, Slant::Slanted) => Style::Italic,
     (Style::Normal, Slant::Upright)
@@ -118,19 +147,63 @@ fn parse_face_info(source: Source, data: &[u8], index: u32) -> Result<FaceInfo, 
   })
 }
 
-fn parse_names(raw_face: &ttf_parser::RawFace) -> Result<Option<Naming>, Never> {
-  let Ok(name_tag) = ttf_parser::Tag::from_bytes(b"name");
-  let Ok(table) = raw_face.table(name_tag);
-  let name_data = match table {
-    Some(name_data) => name_data,
+#[derive(Clone, Copy)]
+struct FaceName<'a> {
+  identifier: NameId,
+  encoding: NameEncoding,
+  language: Language,
+  bytes: &'a [u8],
+}
+
+fn parse_names(raw_face: &FontRef<'_>) -> Result<Option<Naming>, Never> {
+  let table = match raw_face.name() {
+    Ok(table) => table,
+    Err(_missing_or_malformed) => return Ok(None),
+  };
+  let Ok(version) = table.version();
+  let Ok(storage_range) = match version {
+    0 => table.name_record_byte_range(),
+    1 => table.lang_tag_record_byte_range(),
+    _unknown => return Ok(None),
+  };
+  let Ok(records) = table.name_record();
+  let Ok(data) = table.offset_data();
+  let Ok(storage_offset) = table.storage_offset();
+  let Ok(storage) = data.split_off(u64::from(storage_offset).max(storage_range.end));
+  let storage_3 = match storage {
+    Some(storage_2) => storage_2,
     None => return Ok(None),
   };
-  let Ok(parsed) = ttf_parser::name::Table::parse(name_data);
-  let names = match parsed {
-    Some(name_table) => name_table.names,
-    None => return Ok(None),
-  };
-  let Ok(mut families) = families_of(&names);
+  let mut names = records.iter().map_while(|record| {
+    let Ok(platform) = record.platform_id();
+    let Ok(encoding_id) = record.encoding_id();
+    let Ok(language_id) = record.language_id();
+    let Ok(identifier) = record.name_id();
+    let encoding = match (platform, encoding_id) {
+      (0, _) | (3, 0 | 1) => NameEncoding::Unicode,
+      (1, 0) => NameEncoding::MacintoshRoman,
+      (1..=4, _) => NameEncoding::Unsupported,
+      _unknown => return None,
+    };
+    let Ok(language) = match (platform, encoding_id, language_id) {
+      (3, _, language) => Language::windows_language(language),
+      (1, 0, 0) => Ok(Language::English_UnitedStates),
+      _other => Ok(Language::Unknown),
+    };
+    let name = match record.string(storage_3) {
+      Ok(name) => name,
+      Err(_outside_storage) => return None,
+    };
+    let Ok(bytes) = name.as_bytes();
+
+    Some(FaceName {
+      identifier,
+      encoding,
+      language,
+      bytes,
+    })
+  });
+  let Ok(mut families) = families_of(names.clone());
 
   let through_english = match families
     .iter()
@@ -150,10 +223,8 @@ fn parse_names(raw_face: &ttf_parser::RawFace) -> Result<Option<Naming>, Never> 
     [_, ..] => {}
   }
 
-  let post_script = names.into_iter().find(|name| {
-    let Ok(encoding) = encoding_of(name);
-
-    name.name_id == name_id::POST_SCRIPT_NAME && encoding != NameEncoding::Unsupported
+  let post_script = names.find(|name| {
+    name.identifier == NameId::POSTSCRIPT_NAME && name.encoding != NameEncoding::Unsupported
   });
   let post_script_name = match post_script {
     Some(name) => name_to_unicode(&name)?,
@@ -166,96 +237,66 @@ fn parse_names(raw_face: &ttf_parser::RawFace) -> Result<Option<Naming>, Never> 
   }))
 }
 
-fn families_of(names: &ttf_parser::name::Names) -> Result<Vec<(String, Language)>, Never> {
-  let Ok(typographic) = collect_families(name_id::TYPOGRAPHIC_FAMILY, names);
+fn families_of<'a>(
+  names: impl Iterator<Item = FaceName<'a>> + Clone,
+) -> Result<Vec<(String, Language)>, Never> {
+  let Ok(typographic) = collect_families(NameId::TYPOGRAPHIC_FAMILY_NAME, names.clone());
 
   match typographic.as_slice() {
-    [] => collect_families(name_id::FAMILY, names),
+    [] => collect_families(NameId::FAMILY_NAME, names),
     [_, ..] => Ok(typographic),
   }
 }
 
-fn collect_families(
-  name_id: u16,
-  names: &ttf_parser::name::Names,
+fn collect_families<'a>(
+  identifier: NameId,
+  names: impl Iterator<Item = FaceName<'a>> + Clone,
 ) -> Result<Vec<(String, Language)>, Never> {
+  let matching = names.filter(|name| name.identifier == identifier);
   let mut families = Vec::new();
 
-  for name in names.into_iter().filter(|name| name.name_id == name_id) {
-    let Ok(encoding) = encoding_of(&name);
+  for name in matching
+    .clone()
+    .filter(|name| name.encoding == NameEncoding::Unicode)
+  {
+    let Ok(decoded) = name_to_unicode(&name);
 
-    match encoding {
-      NameEncoding::Unicode => {
-        let Ok(family) = family_of(&name);
-
-        families.extend(family);
-      }
-      NameEncoding::MacintoshRoman | NameEncoding::Unsupported => {}
-    }
+    families.extend(decoded.map(|family| (family, name.language)));
   }
 
-  let english = families
+  match families
     .iter()
-    .find(|(_, language)| *language == Language::English_UnitedStates);
-
-  match english {
+    .find(|(_, language)| *language == Language::English_UnitedStates)
+  {
     Some(_american_english_family) => {}
     None => {
-      let roman = names
-        .into_iter()
-        .filter(|name| name.name_id == name_id)
-        .find_map(|name| {
-          let Ok(encoding) = encoding_of(&name);
+      families.extend(
+        matching
+          .filter(|name| name.encoding == NameEncoding::MacintoshRoman)
+          .find_map(|name| {
+            let Ok(decoded) = name_to_unicode(&name);
 
-          match encoding {
-            NameEncoding::MacintoshRoman => {
-              let Ok(family) = family_of(&name);
-
-              family
-            }
-            NameEncoding::Unicode | NameEncoding::Unsupported => None,
-          }
-        });
-
-      families.extend(roman);
+            decoded.map(|family| (family, name.language))
+          }),
+      );
     }
   }
 
   Ok(families)
 }
 
-fn family_of(name: &ttf_parser::name::Name) -> Result<Option<(String, Language)>, Never> {
-  let Ok(decoded) = name_to_unicode(name);
-  let Ok(language) = name.language();
-
-  Ok(decoded.map(|family| (family, language)))
-}
-
-fn encoding_of(name: &ttf_parser::name::Name) -> Result<NameEncoding, Never> {
-  let Ok(unicode) = name.unicode_encoding();
-
-  Ok(match unicode {
-    ttf_parser::name::UnicodeEncoding::Unicode => NameEncoding::Unicode,
-    ttf_parser::name::UnicodeEncoding::Other => match (name.platform_id, name.encoding_id) {
-      (PlatformId::Macintosh, 0) => NameEncoding::MacintoshRoman,
-      (PlatformId::Macintosh, 1..)
-      | (PlatformId::Unicode | PlatformId::Iso | PlatformId::Windows | PlatformId::Custom, _) => {
-        NameEncoding::Unsupported
-      }
-    },
-  })
-}
-
-pub(crate) fn name_to_unicode(name: &ttf_parser::name::Name) -> Result<Option<String>, Never> {
-  let Ok(encoding) = encoding_of(name);
-  let units: Vec<u16> = match encoding {
-    NameEncoding::Unicode => {
-      let Ok(units) = ttf_parser::LazyArray16::<u16>::new(name.name);
-
-      units.into_iter().collect()
-    }
+fn name_to_unicode(name: &FaceName<'_>) -> Result<Option<String>, Never> {
+  let units: Vec<u16> = match name.encoding {
+    NameEncoding::Unicode => name
+      .bytes
+      .as_chunks::<2>()
+      .0
+      .iter()
+      .copied()
+      .map(u16::from_be_bytes)
+      .collect(),
     NameEncoding::MacintoshRoman => name
-      .name
+      .bytes
       .iter()
       .map(|byte| {
         let Ok(unit) = console_core_macintosh_roman::decode(*byte);
@@ -276,70 +317,100 @@ pub(crate) fn name_to_unicode(name: &ttf_parser::name::Name) -> Result<Option<St
   })
 }
 
-fn parse_os2(raw_face: &ttf_parser::RawFace) -> Result<(Style, Weight, Stretch), Never> {
-  let Ok(os2_tag) = ttf_parser::Tag::from_bytes(b"OS/2");
-  let Ok(table) = raw_face.table(os2_tag);
-  let parsed = match table {
-    Some(os2_data) => ttf_parser::os2::Table::parse(os2_data)?,
-    None => None,
+fn parse_os2(raw_face: &FontRef<'_>) -> Result<(Style, Weight, Stretch), Never> {
+  let defaults = (Style::Normal, Weight::NORMAL, Stretch::Normal);
+  let table = match raw_face.os2() {
+    Ok(table) => table,
+    Err(_missing_or_malformed) => return Ok(defaults),
   };
-  let os2 = match parsed {
-    Some(os2) => os2,
-    None => return Ok((Style::Normal, Weight::NORMAL, Stretch::Normal)),
+  let Ok(version) = table.version();
+  let minimum_length = match version {
+    0 => 78,
+    1 => 86,
+    2..=4 => 96,
+    5 => 100,
+    _unknown => return Ok(defaults),
   };
-  let Ok(slope) = os2.style();
-  let style = match slope {
-    ttf_parser::Style::Normal => Style::Normal,
-    ttf_parser::Style::Italic => Style::Italic,
-    ttf_parser::Style::Oblique => Style::Oblique,
+  let Ok(data) = table.offset_data();
+  let Ok(length) = data.len();
+
+  match length.cmp(&minimum_length) {
+    core::cmp::Ordering::Less => return Ok(defaults),
+    core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {}
+  }
+
+  let Ok(selection) = table.fs_selection();
+  let Ok(italic) = selection.contains(SelectionFlags::ITALIC);
+  let Ok(oblique) = selection.contains(SelectionFlags::OBLIQUE);
+  let style = match (italic, oblique, version) {
+    (Presence::Present, _, _) => Style::Italic,
+    (Presence::Absent, Presence::Present, 4..) => Style::Oblique,
+    _upright => Style::Normal,
   };
-  let Ok(weight_class) = os2.weight();
-  let Ok(weight) = weight_class.to_number();
-  let Ok(stretch) = os2.width();
+  let Ok(weight) = table.us_weight_class();
+  let Ok(width) = table.us_width_class();
+  let Ok(stretch) = Stretch::from_width_class(width);
 
   Ok((style, Weight(weight), stretch))
 }
 
-fn parse_post(raw_face: &ttf_parser::RawFace) -> Result<Post, Never> {
-  let Ok(post_tag) = ttf_parser::Tag::from_bytes(b"post");
-  let Ok(table) = raw_face.table(post_tag);
-  let data = match table {
-    Some(data) => data,
-    None => {
-      return Ok(Post {
-        pitch: Pitch::Proportional,
-        slant: Slant::Upright,
-      });
-    }
+fn parse_post(raw_face: &FontRef<'_>) -> Result<Post, Never> {
+  let default = Post {
+    pitch: Pitch::Proportional,
+    slant: Slant::Upright,
   };
-  let pitch = match data.get(12..16) {
-    Some([0, 0, 0, 0]) => Pitch::Proportional,
-    Some(_) | None => Pitch::Fixed,
+  let data = match raw_face.table_data(PostTable::TAG) {
+    Ok(Some(data)) => data,
+    Ok(None) => return Ok(default),
+    Err(_unreadable_post_table) => return Ok(default),
   };
-  let slant = match data.get(4..8) {
-    Some([0, 0, 0, 0]) => Slant::Upright,
-    Some(_) | None => Slant::Slanted,
+  let pitch = match data.read_at::<u32>(12) {
+    Ok(0) => Pitch::Proportional,
+    Ok(_) => Pitch::Fixed,
+    Err(_missing_pitch_flag) => Pitch::Fixed,
+  };
+  let slant = match data.read_at::<i32>(4) {
+    Ok(0) => Slant::Upright,
+    Ok(_) => Slant::Slanted,
+    Err(_missing_slant_angle) => Slant::Slanted,
   };
 
   Ok(Post { pitch, slant })
 }
 
 #[cfg(test)]
-mod macintosh_roman_tests {
-  use super::{name_to_unicode, ttf_parser};
+mod tests {
+  use crate::Database;
+
+  use super::{FaceName, Language, NameEncoding, NameId, name_to_unicode};
 
   #[test]
   fn macintosh_font_names_use_the_shared_encoding() {
-    let name = ttf_parser::name::Name {
-      platform_id: ttf_parser::PlatformId::Macintosh,
-      encoding_id: 0,
-      language_id: 0,
-      name_id: ttf_parser::name_id::FAMILY,
-      name: b"Caf\x8e \x11",
+    let name = FaceName {
+      identifier: NameId::FAMILY_NAME,
+      encoding: NameEncoding::MacintoshRoman,
+      language: Language::English_UnitedStates,
+      bytes: b"Caf\x8e \x11",
     };
-
     let Ok(unicode) = name_to_unicode(&name);
 
     assert_eq!(unicode.as_deref(), Some("Café ⌘"));
+  }
+
+  #[test]
+  fn reads_format_one_name_records_before_the_language_tag_count() {
+    let mut font = b"\0\x01\0\0\0\x01\0\0\0\0\0\0name\0\0\0\0\0\0\0\x1c\0\0\0\x24".to_vec();
+    font.extend_from_slice(b"\0\x01\0\x02\0\x20");
+    font.extend_from_slice(b"\0\x03\0\x01\x04\x09\0\x01\0\x02\0\0");
+    font.extend_from_slice(b"\0\x03\0\x01\x04\x09\0\x06\0\x02\0\x02");
+    font.extend_from_slice(b"\0\0\0A\0B");
+    let Ok(mut database) = Database::new();
+    let Ok(()) = database.load_font_data(font);
+    let Ok(mut faces) = database.faces();
+
+    assert_eq!(
+      faces.next().map(|face| face.post_script_name.as_str()),
+      Some("B")
+    );
   }
 }

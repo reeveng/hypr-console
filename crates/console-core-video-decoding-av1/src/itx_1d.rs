@@ -579,15 +579,7 @@ fn inv_dct16_1d_internal_c(
       DctInput::LowOdd => DctInput::Full,
       DctInput::Full | DctInput::LowHalf => input,
     };
-    inv_dct8_1d_internal_c(
-      c,
-      even_stride,
-      CoefficientBounds {
-        lower: min,
-        upper: max,
-      },
-      even_input,
-    )?;
+    inv_dct8_1d_internal_c(c, even_stride, bounds, even_input)?;
 
     let [
       mut t8a,
@@ -1393,6 +1385,52 @@ fn butterfly_dct64_odd_pairs(
   ])
 }
 
+struct Dct64ReducedAngle {
+  cosine: i32,
+  sine: i32,
+}
+
+impl Dct64ReducedAngle {
+  fn forward(&self, [first, second]: [i32; 2]) -> Result<[i32; 2], Never> {
+    let reduced = 4096i32.wrapping_sub(self.cosine);
+    let inverse = self.cosine.wrapping_sub(4096);
+    let low = round_shift(
+      first
+        .wrapping_mul(reduced)
+        .wrapping_add(second.wrapping_mul(self.sine)),
+      12,
+    )
+    .wrapping_sub(first);
+    let high = round_shift(
+      first
+        .wrapping_mul(self.sine)
+        .wrapping_add(second.wrapping_mul(inverse)),
+      12,
+    )
+    .wrapping_add(second);
+    Ok([low, high])
+  }
+
+  fn reverse(&self, [first, second]: [i32; 2]) -> Result<[i32; 2], Never> {
+    let reduced = 4096i32.wrapping_sub(self.cosine);
+    let low = round_shift(
+      first
+        .wrapping_mul(self.sine.wrapping_neg())
+        .wrapping_add(second.wrapping_mul(reduced)),
+      12,
+    )
+    .wrapping_sub(second);
+    let high = round_shift(
+      first
+        .wrapping_mul(reduced)
+        .wrapping_add(second.wrapping_mul(self.sine)),
+      12,
+    )
+    .wrapping_sub(first);
+    Ok([low, high])
+  }
+}
+
 #[inline]
 fn rotate_dct64_odd_pairs(
   [
@@ -1430,20 +1468,12 @@ fn rotate_dct64_odd_pairs(
     t63,
   ]: [i32; 32],
 ) -> Result<[i32; 32], Never> {
-  let t33a = round_shift(
-    t33
-      .wrapping_mul(4096_i32.wrapping_sub(4076))
-      .wrapping_add(t62.wrapping_mul(401)),
-    12,
-  )
-  .wrapping_sub(t33);
-  let t34a = round_shift(
-    t34
-      .wrapping_mul(-401)
-      .wrapping_add(t61.wrapping_mul(4096_i32.wrapping_sub(4076))),
-    12,
-  )
-  .wrapping_sub(t61);
+  let first = Dct64ReducedAngle {
+    cosine: 4076,
+    sine: 401,
+  };
+  let Ok([t33a, t62a]) = first.forward([t33, t62]);
+  let Ok([t34a, t61a]) = first.reverse([t34, t61]);
   let t37a = round_shift(
     t37.wrapping_mul(-1299).wrapping_add(t58.wrapping_mul(1583)),
     11,
@@ -1454,20 +1484,12 @@ fn rotate_dct64_odd_pairs(
       .wrapping_add(t57.wrapping_mul(-1299)),
     11,
   );
-  let t41a = round_shift(
-    t41
-      .wrapping_mul(4096_i32.wrapping_sub(3612))
-      .wrapping_add(t54.wrapping_mul(1931)),
-    12,
-  )
-  .wrapping_sub(t41);
-  let t42a = round_shift(
-    t42
-      .wrapping_mul(-1931)
-      .wrapping_add(t53.wrapping_mul(4096_i32.wrapping_sub(3612))),
-    12,
-  )
-  .wrapping_sub(t53);
+  let middle = Dct64ReducedAngle {
+    cosine: 3612,
+    sine: 1931,
+  };
+  let Ok([t41a, t54a]) = middle.forward([t41, t54]);
+  let Ok([t42a, t53a]) = middle.reverse([t42, t53]);
   let t45a = round_shift(
     t45
       .wrapping_mul(-1189)
@@ -1475,20 +1497,11 @@ fn rotate_dct64_odd_pairs(
     12,
   )
   .wrapping_add(t50);
-  let t46a = round_shift(
-    t46
-      .wrapping_mul(4096_i32.wrapping_sub(3920))
-      .wrapping_add(t49.wrapping_mul(-1189)),
-    12,
-  )
-  .wrapping_sub(t46);
-  let t49a = round_shift(
-    t46
-      .wrapping_mul(-1189)
-      .wrapping_add(t49.wrapping_mul(3920_i32.wrapping_sub(4096))),
-    12,
-  )
-  .wrapping_add(t49);
+  let center = Dct64ReducedAngle {
+    cosine: 3920,
+    sine: -1189,
+  };
+  let Ok([t46a, t49a]) = center.forward([t46, t49]);
   let t50a = round_shift(
     t45
       .wrapping_mul(3920_i32.wrapping_sub(4096))
@@ -1496,20 +1509,6 @@ fn rotate_dct64_odd_pairs(
     12,
   )
   .wrapping_add(t45);
-  let t53a = round_shift(
-    t42
-      .wrapping_mul(4096_i32.wrapping_sub(3612))
-      .wrapping_add(t53.wrapping_mul(1931)),
-    12,
-  )
-  .wrapping_sub(t42);
-  let t54a = round_shift(
-    t41
-      .wrapping_mul(1931)
-      .wrapping_add(t54.wrapping_mul(3612_i32.wrapping_sub(4096))),
-    12,
-  )
-  .wrapping_add(t54);
   let t57a = round_shift(
     t38.wrapping_mul(-1299).wrapping_add(t57.wrapping_mul(1583)),
     11,
@@ -1518,20 +1517,6 @@ fn rotate_dct64_odd_pairs(
     t37.wrapping_mul(1583).wrapping_add(t58.wrapping_mul(1299)),
     11,
   );
-  let t61a = round_shift(
-    t34
-      .wrapping_mul(4096_i32.wrapping_sub(4076))
-      .wrapping_add(t61.wrapping_mul(401)),
-    12,
-  )
-  .wrapping_sub(t34);
-  let t62a = round_shift(
-    t33
-      .wrapping_mul(401)
-      .wrapping_add(t62.wrapping_mul(4076_i32.wrapping_sub(4096))),
-    12,
-  )
-  .wrapping_add(t62);
 
   Ok([
     t32, t33a, t34a, t35, t36, t37a, t38a, t39, t40, t41a, t42a, t43, t44, t45a, t46a, t47, t48,
@@ -1655,34 +1640,14 @@ fn rotate_dct64_odd_quarters(
     t63a,
   ]: [i32; 32],
 ) -> Result<[i32; 32], Never> {
-  let t34a = round_shift(
-    t34
-      .wrapping_mul(4096_i32.wrapping_sub(4017))
-      .wrapping_add(t61.wrapping_mul(799)),
-    12,
-  )
-  .wrapping_sub(t34);
-  let t35 = round_shift(
-    t35a
-      .wrapping_mul(4096_i32.wrapping_sub(4017))
-      .wrapping_add(t60a.wrapping_mul(799)),
-    12,
-  )
-  .wrapping_sub(t35a);
-  let t36 = round_shift(
-    t36a
-      .wrapping_mul(-799)
-      .wrapping_add(t59a.wrapping_mul(4096_i32.wrapping_sub(4017))),
-    12,
-  )
-  .wrapping_sub(t59a);
-  let t37a = round_shift(
-    t37
-      .wrapping_mul(-799)
-      .wrapping_add(t58.wrapping_mul(4096_i32.wrapping_sub(4017))),
-    12,
-  )
-  .wrapping_sub(t58);
+  let angle = Dct64ReducedAngle {
+    cosine: 4017,
+    sine: 799,
+  };
+  let Ok([t34a, t61a]) = angle.forward([t34, t61]);
+  let Ok([t35, t60]) = angle.forward([t35a, t60a]);
+  let Ok([t36, t59]) = angle.reverse([t36a, t59a]);
+  let Ok([t37a, t58a]) = angle.reverse([t37, t58]);
   let t42a = round_shift(
     t42.wrapping_mul(-1138).wrapping_add(t53.wrapping_mul(1703)),
     11,
@@ -1725,34 +1690,6 @@ fn rotate_dct64_odd_quarters(
     t42.wrapping_mul(1703).wrapping_add(t53.wrapping_mul(1138)),
     11,
   );
-  let t58a = round_shift(
-    t37
-      .wrapping_mul(4096_i32.wrapping_sub(4017))
-      .wrapping_add(t58.wrapping_mul(799)),
-    12,
-  )
-  .wrapping_sub(t37);
-  let t59 = round_shift(
-    t36a
-      .wrapping_mul(4096_i32.wrapping_sub(4017))
-      .wrapping_add(t59a.wrapping_mul(799)),
-    12,
-  )
-  .wrapping_sub(t36a);
-  let t60 = round_shift(
-    t35a
-      .wrapping_mul(799)
-      .wrapping_add(t60a.wrapping_mul(4017_i32.wrapping_sub(4096))),
-    12,
-  )
-  .wrapping_add(t60a);
-  let t61a = round_shift(
-    t34
-      .wrapping_mul(799)
-      .wrapping_add(t61.wrapping_mul(4017_i32.wrapping_sub(4096))),
-    12,
-  )
-  .wrapping_add(t61);
 
   Ok([
     t32a, t33, t34a, t35, t36, t37a, t38, t39a, t40a, t41, t42a, t43, t44, t45a, t46, t47a, t48a,

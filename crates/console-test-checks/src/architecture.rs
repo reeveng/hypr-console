@@ -489,8 +489,18 @@ u_str ESTAB  0      0      * 301 * 302 users:((\"pipewire\",pid=30,fd=5))
         Kind::Builds,
         "console_scale",
       ),
-      ("console-books", "books", Kind::Builds, "books"),
-      ("console-books", "books", Kind::Subscribes, "Theme"),
+      (
+        "console-application-books",
+        "console-application-books",
+        Kind::Builds,
+        "console_application_books",
+      ),
+      (
+        "console-application-books",
+        "console-application-books",
+        Kind::Subscribes,
+        "Theme",
+      ),
     ]);
 
     Ok(Architecture {
@@ -536,7 +546,11 @@ u_str ESTAB  0      0      * 301 * 302 users:((\"pipewire\",pid=30,fd=5))
 
   #[test]
   fn an_app_a_person_opened_is_theirs_whoever_started_it() {
-    let Ok(processes) = running(&[(1, 0, "systemd"), (20, 1, "console-bar"), (30, 1, "books")]);
+    let Ok(processes) = running(&[
+      (1, 0, "systemd"),
+      (20, 1, "console-bar"),
+      (30, 1, "console-application-books"),
+    ]);
     let seen = Seen {
       units: BTreeSet::from([String::from("console-bar.service")]),
       processes,

@@ -21,6 +21,7 @@ pub enum StandaloneSvgTerminalStatus {
 }
 
 impl StandaloneSvgTerminalStatus {
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::Unverified => "unverified",
@@ -51,6 +52,7 @@ struct StandaloneSvg {
 }
 
 impl StandaloneSvgArtifact {
+    #[must_use]
     pub(crate) fn from_resvg_compatible(svg: ResvgCompatibleSvg) -> Self {
         Self {
             inner: StandaloneSvgArtifactKind::ResvgCompatible(svg),
@@ -69,8 +71,8 @@ impl StandaloneSvgArtifact {
             == ThemePortabilityRequirement::BestEffort
             && pipeline.preset() != SvgPipelinePreset::ResvgSafe
         {
-            // The producer owns serialization. Ordinary SVG generation does not request
-            // native admission or a second interpretation of its completed document.
+
+
             (StandaloneSvgTerminalStatus::Unverified, None)
         } else {
             let validation = if pipeline.preset() == SvgPipelinePreset::ResvgSafe {
@@ -79,6 +81,7 @@ impl StandaloneSvgArtifact {
                 final_validation::observe_resvg_compatibility_with_execution(&svg, execution)
             };
             execution.checkpoint()?;
+
             match validation {
                 Ok(terminal) => (
                     StandaloneSvgTerminalStatus::Compatible,
@@ -114,6 +117,7 @@ impl StandaloneSvgArtifact {
         })
     }
 
+    #[must_use]
     pub fn as_str(&self) -> &str {
         match &self.inner {
             StandaloneSvgArtifactKind::ResvgCompatible(svg) => svg.as_str(),
@@ -122,10 +126,12 @@ impl StandaloneSvgArtifact {
     }
 
     /// Returns the exact selected SVG bytes.
+    #[must_use]
     pub fn native_export_svg(&self) -> &str {
         self.as_str()
     }
 
+    #[must_use]
     pub const fn selected_pipeline(&self) -> SvgPipelinePreset {
         match &self.inner {
             StandaloneSvgArtifactKind::ResvgCompatible(svg) => svg.finalization_report.preset,
@@ -133,6 +139,7 @@ impl StandaloneSvgArtifact {
         }
     }
 
+    #[must_use]
     pub const fn terminal_status(&self) -> StandaloneSvgTerminalStatus {
         match &self.inner {
             StandaloneSvgArtifactKind::ResvgCompatible(_) => {
@@ -142,6 +149,7 @@ impl StandaloneSvgArtifact {
         }
     }
 
+    #[must_use]
     pub const fn finalization_report(&self) -> Option<&SvgFinalizationReport> {
         match &self.inner {
             StandaloneSvgArtifactKind::ResvgCompatible(svg) => Some(&svg.finalization_report),
@@ -149,11 +157,13 @@ impl StandaloneSvgArtifact {
         }
     }
 
+    #[must_use]
     pub fn text_fonts_are_self_contained(&self) -> bool {
         self.finalization_report()
             .is_some_and(|report| report.font_seal().is_complete())
     }
 
+    #[must_use]
     pub fn as_resvg_compatible(&self) -> Option<&ResvgCompatibleSvg> {
         match &self.inner {
             StandaloneSvgArtifactKind::ResvgCompatible(svg) => Some(svg),
@@ -161,6 +171,7 @@ impl StandaloneSvgArtifact {
         }
     }
 
+    #[must_use]
     pub fn into_string(self) -> String {
         match self.inner {
             StandaloneSvgArtifactKind::ResvgCompatible(svg) => svg.into_string(),

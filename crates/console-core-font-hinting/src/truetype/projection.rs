@@ -3,94 +3,46 @@
 use super::graphics::{CoordAxis, GraphicsState};
 use raw::types::{F26Dot6, Point};
 
+const UNIT_VECTOR: i32 = 0x4000;
+
+fn axis(vector: Point<i32>) -> Result<CoordAxis, console_core_never::Never> {
+  Ok(match (vector.x, vector.y) {
+    (UNIT_VECTOR, _) => CoordAxis::X,
+    (_, UNIT_VECTOR) => CoordAxis::Y,
+    _ => CoordAxis::Both,
+  })
+}
+
 impl GraphicsState<'_> {
   pub fn update_projection_state(&mut self) -> Result<(), console_core_never::Never> {
-    let _: () = {
-      const ONE: i32 = 0x4000;
-
-      match ::core::primitive::bool::then_some(self.freedom_vector.x == ONE, ()) {
-        ::core::option::Option::Some(()) => {
-          self.fdotp = self.proj_vector.x;
-        }
-        ::core::option::Option::None => {
-          match ::core::primitive::bool::then_some(self.freedom_vector.y == ONE, ()) {
-            ::core::option::Option::Some(()) => {
-              self.fdotp = self.proj_vector.y;
-            }
-            ::core::option::Option::None => {
-              let px = self.proj_vector.x;
-              let py = self.proj_vector.y;
-              let fx = self.freedom_vector.x;
-              let fy = self.freedom_vector.y;
-              self.fdotp = i32::wrapping_shr(
-                i32::wrapping_add(i32::wrapping_mul(px, fx), i32::wrapping_mul(py, fy)),
-                14_u32,
-              );
-            }
-          }
-        }
-      }
-
-      self.proj_axis = CoordAxis::Both;
-
-      match ::core::primitive::bool::then_some(self.proj_vector.x == ONE, ()) {
-        ::core::option::Option::Some(()) => {
-          self.proj_axis = CoordAxis::X;
-        }
-        ::core::option::Option::None => {
-          match ::core::primitive::bool::then_some(self.proj_vector.y == ONE, ()) {
-            ::core::option::Option::Some(()) => {
-              self.proj_axis = CoordAxis::Y;
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-      }
-
-      self.dual_proj_axis = CoordAxis::Both;
-
-      match ::core::primitive::bool::then_some(self.dual_proj_vector.x == ONE, ()) {
-        ::core::option::Option::Some(()) => {
-          self.dual_proj_axis = CoordAxis::X;
-        }
-        ::core::option::Option::None => {
-          match ::core::primitive::bool::then_some(self.dual_proj_vector.y == ONE, ()) {
-            ::core::option::Option::Some(()) => {
-              self.dual_proj_axis = CoordAxis::Y;
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-      }
-
-      self.freedom_axis = CoordAxis::Both;
-
-      match ::core::primitive::bool::then_some(self.fdotp == ONE, ()) {
-        ::core::option::Option::Some(()) => {
-          match ::core::primitive::bool::then_some(self.freedom_vector.x == ONE, ()) {
-            ::core::option::Option::Some(()) => {
-              self.freedom_axis = CoordAxis::X;
-            }
-            ::core::option::Option::None => {
-              match ::core::primitive::bool::then_some(self.freedom_vector.y == ONE, ()) {
-                ::core::option::Option::Some(()) => {
-                  self.freedom_axis = CoordAxis::Y;
-                }
-                ::core::option::Option::None => {}
-              }
-            }
-          }
-        }
-        ::core::option::Option::None => {}
-      }
-
-      match ::core::primitive::bool::then_some(self.fdotp.abs() < 0x400, ()) {
-        ::core::option::Option::Some(()) => {
-          self.fdotp = ONE;
-        }
-        ::core::option::Option::None => {}
+    let Ok(proj_axis) = axis(self.proj_vector);
+    let Ok(dual_proj_axis) = axis(self.dual_proj_vector);
+    let Ok(freedom_axis) = axis(self.freedom_vector);
+    let product = match freedom_axis {
+      CoordAxis::X => self.proj_vector.x,
+      CoordAxis::Y => self.proj_vector.y,
+      CoordAxis::Both => {
+        let px = self.proj_vector.x;
+        let py = self.proj_vector.y;
+        let fx = self.freedom_vector.x;
+        let fy = self.freedom_vector.y;
+        i32::wrapping_shr(
+          i32::wrapping_add(i32::wrapping_mul(px, fx), i32::wrapping_mul(py, fy)),
+          14,
+        )
       }
     };
+    self.proj_axis = proj_axis;
+    self.dual_proj_axis = dual_proj_axis;
+    self.freedom_axis = match product {
+      UNIT_VECTOR => freedom_axis,
+      _ => CoordAxis::Both,
+    };
+    self.fdotp = match (product.unsigned_abs() < 0x400).then_some(()) {
+      Some(()) => UNIT_VECTOR,
+      None => product,
+    };
+
     Ok(())
   }
 

@@ -35,6 +35,7 @@ pub(crate) struct SequenceThemeEvidenceRecorder {
 }
 
 impl SequenceThemeEvidenceRecorder {
+    #[must_use]
     pub(crate) fn new(enabled: bool) -> Self {
         Self {
             state: enabled.then(|| RefCell::new(SequenceThemeEvidenceState::default())),
@@ -50,37 +51,43 @@ impl SequenceThemeEvidenceRecorder {
     ) -> crate::Result<Self> {
         let mut recorder = Self::new(theme.is_some());
         recorder.expected_title = title.map(Into::into);
-        let Some(theme) = theme else {
-            return Ok(recorder);
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(recorder),
         };
+
         let source_owned = config.config_paint_overrides_typed_default("themeVariables.textColor");
         let title_fill = SingleTitleFillPlan::resolve(
-            theme,
-            title.is_some_and(|title| !title.trim().is_empty()),
+            theme_2,
+            title.is_some_and(|title_2| !title_2.trim().is_empty()),
             source_owned,
             FamilyThemeOutcomes::default(),
             work,
         )?;
         recorder.title_fill_owned = source_owned || title_fill.fill_css().is_some();
-        if title.is_some_and(|title| !title.trim().is_empty()) && !recorder.title_fill_owned {
-            let style = theme.style_with_work_meter(
+
+        if title.is_some_and(|title_3| !title_3.trim().is_empty()) && !recorder.title_fill_owned {
+            let style = theme_2.style_with_work_meter(
                 ThemeTarget::Text,
                 ThemeVariant::Default,
                 None,
                 work,
             )?;
-            // Sequence's generic Text domain remains residual. Its scalar title fallback
-            // does not certify the other role labels, effects, or ordinal requests.
+
+
             recorder.title_fallback = match style.fill() {
                 Some(CanvasPaint::Solid(color)) => Some(color.as_css().into_boxed_str()),
-                Some(CanvasPaint::Transparent) => Some("transparent".into()),
+                Some(CanvasPaint::Transparent) => Some(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from("transparent")),
                 _ => None,
             };
         }
+
         recorder.title_fill = Some(title_fill);
         Ok(recorder)
     }
 
+    #[must_use]
     pub(crate) fn title_fill_css(&self) -> Option<&str> {
         self.title_fill
             .as_ref()
@@ -88,6 +95,7 @@ impl SequenceThemeEvidenceRecorder {
             .or(self.title_fallback.as_deref())
     }
 
+    #[must_use]
     pub(crate) fn record_title_emission(&self, title: &str, fill: Option<&str>) -> bool {
         Some(title) == self.expected_title.as_deref()
             && fill == self.title_fill_css()
@@ -113,53 +121,63 @@ impl SequenceThemeEvidenceRecorder {
         actor_stroke_overridden: bool,
         actor_style_receipt: SequenceActorThemeReceipt,
     ) {
-        let Some(state) = &self.state else {
-            return;
+        let state = match &self.state {
+            Some(matched_state) => matched_state,
+            ::core::option::Option::None => return,
         };
-        let mut state = state.borrow_mut();
-        state.actor_count = actor_count;
-        state.actor_fill_emitted = actor_count != 0 && actor_fill_emitted;
-        state.actor_fill_unhandled = actor_count != 0 && actor_fill_unhandled;
-        state.actor_fill_overridden = actor_count != 0 && actor_fill_overridden;
-        state.actor_stroke_emitted = actor_count != 0 && actor_stroke_emitted;
-        state.actor_stroke_unhandled = actor_count != 0 && actor_stroke_unhandled;
-        state.actor_stroke_overridden = actor_count != 0 && actor_stroke_overridden;
-        state.actor_style_receipt = actor_style_receipt;
+
+        let mut state_2 = state.borrow_mut();
+        state_2.actor_count = actor_count;
+        state_2.actor_fill_emitted = actor_count != 0 && actor_fill_emitted;
+        state_2.actor_fill_unhandled = actor_count != 0 && actor_fill_unhandled;
+        state_2.actor_fill_overridden = actor_count != 0 && actor_fill_overridden;
+        state_2.actor_stroke_emitted = actor_count != 0 && actor_stroke_emitted;
+        state_2.actor_stroke_unhandled = actor_count != 0 && actor_stroke_unhandled;
+        state_2.actor_stroke_overridden = actor_count != 0 && actor_stroke_overridden;
+        state_2.actor_style_receipt = actor_style_receipt;
     }
 
     pub(crate) fn record_note_emission(&self, emission: SequenceStaticRectThemeEmission) {
-        let Some(state) = &self.state else {
-            return;
+        let state = match &self.state {
+            Some(matched_state) => matched_state,
+            ::core::option::Option::None => return,
         };
-        let mut state = state.borrow_mut();
-        state.note = emission;
+
+        let mut state_2 = state.borrow_mut();
+        state_2.note = emission;
     }
 
     pub(crate) fn record_lifeline_emission(&self, emission: SequenceLifelineThemeEmission) {
-        let Some(state) = &self.state else {
-            return;
+        let state = match &self.state {
+            Some(matched_state) => matched_state,
+            ::core::option::Option::None => return,
         };
-        let mut state = state.borrow_mut();
-        state.lifeline = emission;
+
+        let mut state_2 = state.borrow_mut();
+        state_2.lifeline = emission;
     }
 
     pub(crate) fn record_message_emission(&self, emission: SequenceMessageThemeEmission) {
-        let Some(state) = &self.state else {
-            return;
+        let state = match &self.state {
+            Some(matched_state) => matched_state,
+            ::core::option::Option::None => return,
         };
-        let mut state = state.borrow_mut();
-        state.message = emission;
+
+        let mut state_2 = state.borrow_mut();
+        state_2.message = emission;
     }
 
     pub(crate) fn record_sequence_number_emission(
         &self,
         emission: SequenceNumberLabelThemeEmission,
     ) {
-        let Some(state) = &self.state else {
-            return;
+        let state = match &self.state {
+            Some(matched_state) => matched_state,
+            ::core::option::Option::None => return,
         };
-        let mut state = state.borrow_mut();
-        state.sequence_number = emission;
+
+        let mut state_2 = state.borrow_mut();
+        state_2.sequence_number = emission;
     }
 
     pub(crate) fn record_control_emission(
@@ -167,29 +185,36 @@ impl SequenceThemeEvidenceRecorder {
         target: ThemeTarget,
         emission: SequenceControlThemeEmission,
     ) {
-        let Some(state) = &self.state else {
-            return;
+        let state = match &self.state {
+            Some(matched_state) => matched_state,
+            ::core::option::Option::None => return,
         };
-        let mut state = state.borrow_mut();
+
+        let mut state_2 = state.borrow_mut();
+
         if target == ThemeTarget::Loop {
-            state.loop_frame = emission;
+            state_2.loop_frame = emission;
         } else {
-            state.keyword_background = emission;
+            state_2.keyword_background = emission;
         }
     }
 
     pub(crate) fn record_activation_emission(&self, emission: SequenceStaticRectThemeEmission) {
-        let Some(state) = &self.state else {
-            return;
+        let state = match &self.state {
+            Some(matched_state) => matched_state,
+            ::core::option::Option::None => return,
         };
-        let mut state = state.borrow_mut();
-        state.activation = emission;
+
+        let mut state_2 = state.borrow_mut();
+        state_2.activation = emission;
     }
 
     pub(crate) fn record_typography_emission(&self, receipt: SequenceTypographyThemeReceipt) {
-        let Some(state) = &self.state else {
-            return;
+        let state = match &self.state {
+            Some(matched_state) => matched_state,
+            ::core::option::Option::None => return,
         };
+
         let mut state = state.borrow_mut();
         debug_assert!(
             state.typography.is_none(),
@@ -205,10 +230,12 @@ impl SequenceThemeEvidenceRecorder {
         title_present: bool,
         work: &OperationWorkMeter,
     ) -> Result<(), OperationWorkError> {
-        let Some(theme) = theme else {
-            return Ok(());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(()),
         };
-        if !theme.family_mechanism_routes().iter().any(|route| {
+
+        if !theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -225,19 +252,28 @@ impl SequenceThemeEvidenceRecorder {
             return Ok(());
         }
 
-        let Some(state) = &self.state else {
-            return Ok(());
+        let state = match &self.state {
+            Some(matched_state) => matched_state,
+            ::core::option::Option::None => return Ok(()),
         };
-        let mut state = state.borrow_mut();
-        let Some(typography) = state.typography.as_ref() else {
-            return Ok(());
+
+        let mut state_2 = state.borrow_mut();
+
+        let typography = {
+            let optional_typography = state_2.typography.as_ref();
+
+            match optional_typography {
+                Some(matched_typography) => matched_typography,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         let title_count = usize::from(title_present);
         let text_count = typography
             .role_label_candidate_count()
-            .saturating_add(state.sequence_number.receipt.text_candidates)
+            .saturating_add(state_2.sequence_number.receipt.text_candidates)
             .saturating_add(title_count);
-        let number = &state.sequence_number;
+        let number = &state_2.sequence_number;
         let number_fill_covered = number.receipt.text_candidates == 0
             || (number.fill_emitted
                 && !number.fill_overridden
@@ -257,13 +293,13 @@ impl SequenceThemeEvidenceRecorder {
                 TerminalVariantDomain::uniform(title_count, ThemeVariant::Default),
             ),
         ];
-        let domains = if self.title_fill.is_some() {
+        let domains_2 = if self.title_fill.is_some() {
             { let [_explicit_part @ .., _] = &domains; let _explicit_slice: &[_] = _explicit_part; _explicit_slice }
         } else {
             { let _explicit_part = &domains; let _explicit_slice: &[_] = _explicit_part; _explicit_slice }
         };
-        reconcile_unsupported_terminal_domains(theme, &mut evidence, domains, work)?;
-        state.unsupported_text = Some(evidence);
+        reconcile_unsupported_terminal_domains(theme_2, &mut evidence, domains_2, work)?;
+        state_2.unsupported_text = Some(evidence);
         Ok(())
     }
 
@@ -273,16 +309,25 @@ impl SequenceThemeEvidenceRecorder {
         canonical: &mut FamilyThemeEvidence,
     ) {
         let evidence = canonical;
-        if let Some(title_fill) = &self.title_fill {
-            title_fill.record_evidence(evidence);
+
+        match &self.title_fill {
+            Some(title_fill) => {
+                title_fill.record_evidence(evidence);
+            },
+            ::core::option::Option::None => {},
         }
-        let Some(theme) = theme else {
-            return;
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return,
         };
-        let Some(state) = &self.state else {
-            return;
+
+        let state = match &self.state {
+            Some(matched_state) => matched_state,
+            ::core::option::Option::None => return,
         };
-        let state = state.borrow();
+
+        let state_2 = state.borrow();
 
         let mut actor_rules = BTreeMap::<usize, SequenceRuleObservation>::new();
         let mut lifeline_rules = BTreeMap::<usize, SequenceRuleObservation>::new();
@@ -294,7 +339,7 @@ impl SequenceThemeEvidenceRecorder {
         let mut activation_rules = BTreeMap::<usize, SequenceRuleObservation>::new();
         let mut typography_rules =
             BTreeMap::<ThemeTarget, BTreeMap<usize, SequenceRuleObservation>>::new();
-        let base_typography_routes = theme
+        let base_typography_routes = theme_2
             .family_mechanism_routes()
             .iter()
             .copied()
@@ -302,16 +347,16 @@ impl SequenceThemeEvidenceRecorder {
                 FamilyThemeMechanism::BaseTypography(property) => {
                     Some((property, route.disposition()))
                 }
-                _ => None,
+                FamilyThemeMechanism::RuleFacet { .. } | FamilyThemeMechanism::OrdinalPalette { .. } | FamilyThemeMechanism::EffectBinding { .. } => None,
             })
             .collect::<Vec<_>>();
 
-        // Seed every Actor rule and every static rule for directly owned surfaces before
-        // checking winners, including rules with only unsupported facets.
-        // This keeps superseded rules, unmatched ordinal selectors, and empty terminal models in
-        // the ledger so the final pass can classify them as explicitly not applicable instead of
-        // leaving required keys unaccounted.
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+
+
+
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             if let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Actor,
@@ -320,6 +365,7 @@ impl SequenceThemeEvidenceRecorder {
             {
                 actor_rules.entry(rule_index).or_default();
             }
+
             if let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Lifeline,
@@ -332,6 +378,7 @@ impl SequenceThemeEvidenceRecorder {
             {
                 lifeline_rules.entry(rule_index).or_default();
             }
+
             if let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Message,
@@ -344,6 +391,7 @@ impl SequenceThemeEvidenceRecorder {
             {
                 message_rules.entry(rule_index).or_default();
             }
+
             if let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::SequenceNumberLabel,
@@ -352,6 +400,7 @@ impl SequenceThemeEvidenceRecorder {
             {
                 sequence_number_rules.entry(rule_index).or_default();
             }
+
             if let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: target @ (ThemeTarget::Loop | ThemeTarget::LoopLabelBackground),
@@ -368,6 +417,7 @@ impl SequenceThemeEvidenceRecorder {
                     .entry(rule_index)
                     .or_default();
             }
+
             if let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Note,
@@ -380,6 +430,7 @@ impl SequenceThemeEvidenceRecorder {
             {
                 note_rules.entry(rule_index).or_default();
             }
+
             if let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Activation,
@@ -392,6 +443,7 @@ impl SequenceThemeEvidenceRecorder {
             {
                 activation_rules.entry(rule_index).or_default();
             }
+
             if let FamilyThemeMechanism::RuleFacet {
                 rule_index, target, ..
             } = route.mechanism()
@@ -405,7 +457,7 @@ impl SequenceThemeEvidenceRecorder {
             }
         }
 
-        for route in theme.family_mechanism_routes().iter().copied() {
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::BaseTypography(_) => {}
                 FamilyThemeMechanism::RuleFacet {
@@ -418,20 +470,31 @@ impl SequenceThemeEvidenceRecorder {
                     selector,
                     facet,
                 } => {
-                    let Some(role) = crate::sequence::SequenceTypographyRole::from_target(target)
-                    else {
-                        continue;
+                    let role = {
+                        let optional_role = crate::sequence::SequenceTypographyRole::from_target(target);
+
+                        match optional_role {
+                            Some(matched_role) => matched_role,
+                            ::core::option::Option::None => continue,
+                        }
                     };
-                    let Some(receipt) = state.typography.as_ref().map(|receipt| receipt.role(role))
-                    else {
-                        continue;
+
+                    let receipt = {
+                        let optional_receipt = state_2.typography.as_ref().map(|receipt| receipt.role(role));
+
+                        match optional_receipt {
+                            Some(matched_receipt_2) => matched_receipt_2,
+                            ::core::option::Option::None => continue,
+                        }
                     };
+
                     let Some(observation) = typography_rules
                         .get_mut(&target)
                         .and_then(|rules| rules.get_mut(&rule_index))
                     else {
                         continue;
                     };
+
                     observe_typography_rule(
                         receipt,
                         observation,
@@ -453,11 +516,17 @@ impl SequenceThemeEvidenceRecorder {
                     }
                 ) =>
                 {
-                    let Some(observation) = lifeline_rules.get_mut(&rule_index) else {
-                        continue;
+                    let observation = {
+                        let optional_observation = lifeline_rules.get_mut(&rule_index);
+
+                        match optional_observation {
+                            Some(matched_observation) => matched_observation,
+                            ::core::option::Option::None => continue,
+                        }
                     };
+
                     observe_lifeline_rule(
-                        &state.lifeline,
+                        &state_2.lifeline,
                         observation,
                         route.disposition(),
                         rule_index,
@@ -477,11 +546,17 @@ impl SequenceThemeEvidenceRecorder {
                     }
                 ) =>
                 {
-                    let Some(observation) = message_rules.get_mut(&rule_index) else {
-                        continue;
+                    let observation = {
+                        let optional_observation = message_rules.get_mut(&rule_index);
+
+                        match optional_observation {
+                            Some(matched_observation) => matched_observation,
+                            ::core::option::Option::None => continue,
+                        }
                     };
+
                     observe_message_rule(
-                        &state.message,
+                        &state_2.message,
                         observation,
                         route.disposition(),
                         rule_index,
@@ -497,7 +572,7 @@ impl SequenceThemeEvidenceRecorder {
                 } => {
                     let observation = sequence_number_rules.entry(rule_index).or_default();
                     observe_sequence_number_rule(
-                        &state.sequence_number,
+                        &state_2.sequence_number,
                         observation,
                         route.disposition(),
                         rule_index,
@@ -523,11 +598,12 @@ impl SequenceThemeEvidenceRecorder {
                     else {
                         continue;
                     };
+
                     observe_control_rule(
                         if target == ThemeTarget::Loop {
-                            &state.loop_frame
+                            &state_2.loop_frame
                         } else {
-                            &state.keyword_background
+                            &state_2.keyword_background
                         },
                         observation,
                         route.disposition(),
@@ -543,28 +619,34 @@ impl SequenceThemeEvidenceRecorder {
                     facet,
                 } => {
                     let observation = actor_rules.entry(rule_index).or_default();
-                    if state.actor_count == 0
-                        || !state
+
+                    if state_2.actor_count == 0
+                        || !state_2
                             .actor_style_receipt
                             .route_won(rule_index, selector, facet)
                     {
                         continue;
                     }
+
                     observation.applicable = true;
-                    if state.actor_fill_overridden && matches!(facet, FamilyThemeRuleFacet::Fill(_))
+
+                    if state_2.actor_fill_overridden && matches!(facet, FamilyThemeRuleFacet::Fill(_))
                     {
                         continue;
                     }
-                    if state.actor_stroke_overridden
+
+                    if state_2.actor_stroke_overridden
                         && matches!(facet, FamilyThemeRuleFacet::Stroke(_))
                     {
                         continue;
                     }
-                    if state.actor_style_receipt.stroke_width_overridden
+
+                    if state_2.actor_style_receipt.stroke_width_overridden
                         && facet == FamilyThemeRuleFacet::StrokeWidth
                     {
                         continue;
                     }
+
                     match route.disposition() {
                         FamilyThemeDisposition::TypedAdapter
                             if matches!(
@@ -574,15 +656,17 @@ impl SequenceThemeEvidenceRecorder {
                                 )
                             ) =>
                         {
-                            if state.actor_fill_unhandled {
+                            if state_2.actor_fill_unhandled {
                                 observation
                                     .residual
                                     .get_or_insert(FamilyThemeResidualReason::UnsupportedPaint);
                                 continue;
                             }
-                            if !state.actor_fill_emitted {
+
+                            if !state_2.actor_fill_emitted {
                                 continue;
                             }
+
                             match facet {
                                 FamilyThemeRuleFacet::Fill(FamilyThemePaintKind::Transparent) => {
                                     observation
@@ -607,15 +691,17 @@ impl SequenceThemeEvidenceRecorder {
                                 )
                             ) =>
                         {
-                            if state.actor_stroke_unhandled {
+                            if state_2.actor_stroke_unhandled {
                                 observation
                                     .residual
                                     .get_or_insert(FamilyThemeResidualReason::UnsupportedPaint);
                                 continue;
                             }
-                            if !state.actor_stroke_emitted {
+
+                            if !state_2.actor_stroke_emitted {
                                 continue;
                             }
+
                             match facet {
                                 FamilyThemeRuleFacet::Stroke(FamilyThemePaintKind::Transparent) => {
                                     observation
@@ -638,11 +724,11 @@ impl SequenceThemeEvidenceRecorder {
                                 FamilyThemeRuleFacet::StrokeWidth | FamilyThemeRuleFacet::Radius
                             ) =>
                         {
-                            if state.actor_style_receipt.geometry_unhandled.get() {
+                            if state_2.actor_style_receipt.geometry_unhandled.get() {
                                 observation
                                     .residual
                                     .get_or_insert(FamilyThemeResidualReason::UnsupportedGeometry);
-                            } else if !state.actor_style_receipt.geometry_complete() {
+                            } else if !state_2.actor_style_receipt.geometry_complete() {
                                 observation.incomplete = true;
                             } else {
                                 observation.capabilities.insert(
@@ -657,7 +743,8 @@ impl SequenceThemeEvidenceRecorder {
                         FamilyThemeDisposition::TypedAdapter
                             if facet == FamilyThemeRuleFacet::Effect =>
                         {
-                            let receipt = &state.actor_style_receipt;
+                            let receipt = &state_2.actor_style_receipt;
+
                             if receipt.effect_unhandled || receipt.geometry_unhandled.get() {
                                 observation
                                     .residual
@@ -668,6 +755,7 @@ impl SequenceThemeEvidenceRecorder {
                                 observation
                                     .capabilities
                                     .insert(ThemeCapability::SemanticRules);
+
                                 if !receipt.effect_cleared {
                                     observation.capabilities.extend([
                                         ThemeCapability::Shadow,
@@ -698,10 +786,10 @@ impl SequenceThemeEvidenceRecorder {
                 {
                     let (surface, observation) = match target {
                         ThemeTarget::Note => {
-                            (&state.note, note_rules.entry(rule_index).or_default())
+                            (&state_2.note, note_rules.entry(rule_index).or_default())
                         }
                         ThemeTarget::Activation => (
-                            &state.activation,
+                            &state_2.activation,
                             activation_rules.entry(rule_index).or_default(),
                         ),
                         _ => unreachable!("guarded by the static rectangle target pattern"),
@@ -718,8 +806,9 @@ impl SequenceThemeEvidenceRecorder {
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::Actor,
                 } => {
-                    let key = theme.family_mechanism_key(route);
-                    if state.actor_count == 0 {
+                    let key = theme_2.family_mechanism_key(route);
+
+                    if state_2.actor_count == 0 {
                         evidence.mark_not_applicable(key);
                     } else if matches!(route.disposition(), FamilyThemeDisposition::Unsupported) {
                         evidence.mark_residual(
@@ -735,38 +824,44 @@ impl SequenceThemeEvidenceRecorder {
                         | ThemeTarget::LoopLabel),
                     ..
                 } => {
-                    let key = theme.family_mechanism_key(route);
-                    if let Some(typography) = &state.typography {
-                        let receipt = typography.role(
-                            crate::sequence::SequenceTypographyRole::from_target(target)
-                                .expect("matched text effect target"),
-                        );
-                        if receipt.label_candidate_count() == 0
-                            || (receipt.effect_requested && !receipt.effect_binding_used)
-                        {
-                            evidence.mark_not_applicable(key);
-                        } else if receipt.effect_unhandled {
-                            evidence
-                                .mark_residual(key, FamilyThemeResidualReason::UnsupportedEffect);
-                        } else if receipt.effect_complete()
-                            && receipt.effect_applications.get() == 0
-                        {
-                            evidence.mark_not_applicable(key);
-                        } else if receipt.effect_complete() {
-                            evidence.mark_applied_with_capabilities(
-                                key,
-                                [ThemeCapability::Shadow, ThemeCapability::SvgFilter],
+                    let key = theme_2.family_mechanism_key(route);
+
+                    match &state_2.typography {
+                        Some(typography) => {
+                            let receipt = typography.role(
+                                crate::sequence::SequenceTypographyRole::from_target(target)
+                                    .expect("matched text effect target"),
                             );
-                        }
+
+                            if receipt.label_candidate_count() == 0
+                                || (receipt.effect_requested && !receipt.effect_binding_used)
+                            {
+                                evidence.mark_not_applicable(key);
+                            } else if receipt.effect_unhandled {
+                                evidence
+                                    .mark_residual(key, FamilyThemeResidualReason::UnsupportedEffect);
+                            } else if receipt.effect_complete()
+                                && receipt.effect_applications.get() == 0
+                            {
+                                evidence.mark_not_applicable(key);
+                            } else if receipt.effect_complete() {
+                                evidence.mark_applied_with_capabilities(
+                                    key,
+                                    [ThemeCapability::Shadow, ThemeCapability::SvgFilter],
+                                );
+                            }
+                        },
+                        ::core::option::Option::None => {},
                     }
                 }
                 FamilyThemeMechanism::EffectBinding {
                     target: ThemeTarget::Actor,
                     ..
                 } => {
-                    let key = theme.family_mechanism_key(route);
-                    let receipt = &state.actor_style_receipt;
-                    if state.actor_count == 0
+                    let key = theme_2.family_mechanism_key(route);
+                    let receipt = &state_2.actor_style_receipt;
+
+                    if state_2.actor_count == 0
                         || (receipt.effect_requested && !receipt.effect_binding_used)
                     {
                         evidence.mark_not_applicable(key);
@@ -783,12 +878,13 @@ impl SequenceThemeEvidenceRecorder {
                     target: target @ (ThemeTarget::Loop | ThemeTarget::LoopLabelBackground),
                     ..
                 } => {
-                    let key = theme.family_mechanism_key(route);
+                    let key = theme_2.family_mechanism_key(route);
                     let receipt = if target == ThemeTarget::Loop {
-                        &state.loop_frame.receipt
+                        &state_2.loop_frame.receipt
                     } else {
-                        &state.keyword_background.receipt
+                        &state_2.keyword_background.receipt
                     };
+
                     if receipt.surface_candidates.get() == 0
                         || (receipt.effect_requested && !receipt.effect_binding_used)
                     {
@@ -806,8 +902,9 @@ impl SequenceThemeEvidenceRecorder {
                     target: ThemeTarget::Lifeline,
                     ..
                 } => {
-                    let key = theme.family_mechanism_key(route);
-                    let receipt = &state.lifeline.receipt;
+                    let key = theme_2.family_mechanism_key(route);
+                    let receipt = &state_2.lifeline.receipt;
+
                     if receipt.candidate_count() == 0
                         || (receipt.effect_requested && !receipt.effect_binding_used)
                     {
@@ -825,8 +922,9 @@ impl SequenceThemeEvidenceRecorder {
                     target: ThemeTarget::Message,
                     ..
                 } => {
-                    let key = theme.family_mechanism_key(route);
-                    let receipt = &state.message.receipt;
+                    let key = theme_2.family_mechanism_key(route);
+                    let receipt = &state_2.message.receipt;
+
                     if receipt.candidate_count() == 0
                         || (receipt.effect_requested && !receipt.effect_binding_used)
                     {
@@ -844,13 +942,14 @@ impl SequenceThemeEvidenceRecorder {
                     target: target @ (ThemeTarget::Note | ThemeTarget::Activation),
                     ..
                 } => {
-                    let key = theme.family_mechanism_key(route);
+                    let key = theme_2.family_mechanism_key(route);
                     let surface = if target == ThemeTarget::Note {
-                        &state.note
+                        &state_2.note
                     } else {
-                        &state.activation
+                        &state_2.activation
                     };
                     let receipt = &surface.receipt;
+
                     if surface.surface_count == 0
                         || (receipt.effect_requested && !receipt.effect_binding_used)
                     {
@@ -867,11 +966,11 @@ impl SequenceThemeEvidenceRecorder {
                 FamilyThemeMechanism::RuleFacet { .. }
                 | FamilyThemeMechanism::OrdinalPalette { .. }
                 | FamilyThemeMechanism::EffectBinding { .. } => {
-                    // This narrow adapter owns Actor, unqualified static Lifeline paint, Message
-                    // stroke, SequenceNumberLabel fill, Loop surface paint, and Note/Activation
-                    // paint evidence. Message fill is observed only to account for its
-                    // participation in the shared signalColor projection. Other Sequence targets
-                    // and selector classes remain unaccounted unless compatibility rejects them.
+
+
+
+
+
                 }
             }
         }
@@ -881,54 +980,62 @@ impl SequenceThemeEvidenceRecorder {
                 index: rule_index,
                 target: ThemeTarget::Actor,
             };
-            if state.actor_count == 0 || !observation.applicable {
+
+            if state_2.actor_count == 0 || !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // A future direct facet reached the actor but has no terminal receipt yet.
+
             } else if observation.capabilities.is_empty() {
                 evidence.mark_not_applicable(key);
             } else {
                 evidence.mark_applied_with_capabilities(key, observation.capabilities);
             }
         }
+
         finish_line_rules(
             evidence,
             ThemeTarget::Lifeline,
-            state.lifeline.receipt.candidate_count(),
+            state_2.lifeline.receipt.candidate_count(),
             lifeline_rules,
         );
         finish_line_rules(
             evidence,
             ThemeTarget::Message,
-            state.message.receipt.candidate_count(),
+            state_2.message.receipt.candidate_count(),
             message_rules,
         );
-        finish_sequence_number_rules(evidence, &state.sequence_number, sequence_number_rules);
+        finish_sequence_number_rules(evidence, &state_2.sequence_number, sequence_number_rules);
+
         for (target, rules) in loop_rules {
             finish_control_rules(
                 evidence,
                 target,
                 if target == ThemeTarget::Loop {
-                    &state.loop_frame
+                    &state_2.loop_frame
                 } else {
-                    &state.keyword_background
+                    &state_2.keyword_background
                 },
                 rules,
             );
         }
-        finish_static_rect_rules(evidence, ThemeTarget::Note, &state.note, note_rules);
+
+        finish_static_rect_rules(evidence, ThemeTarget::Note, &state_2.note, note_rules);
         finish_static_rect_rules(
             evidence,
             ThemeTarget::Activation,
-            &state.activation,
+            &state_2.activation,
             activation_rules,
         );
-        finish_base_typography(evidence, state.typography.as_ref(), &base_typography_routes);
-        finish_typography_rules(evidence, state.typography.as_ref(), typography_rules);
-        if let Some(unsupported_text) = &state.unsupported_text {
-            evidence.merge_borrowed(unsupported_text);
+        finish_base_typography(evidence, state_2.typography.as_ref(), &base_typography_routes);
+        finish_typography_rules(evidence, state_2.typography.as_ref(), typography_rules);
+
+        match &state_2.unsupported_text {
+            Some(unsupported_text) => {
+                evidence.merge_borrowed(unsupported_text);
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
@@ -938,17 +1045,23 @@ fn finish_base_typography(
     receipt: Option<&SequenceTypographyThemeReceipt>,
     routes: &[(ThemeTypographyProperty, FamilyThemeDisposition)],
 ) {
-    if routes.is_empty() {
-        return;
+    match routes {
+        [] => {
+            return;
+        },
+        [_, ..] => {},
     }
-    let Some(receipt) = receipt else {
-        return;
+
+    let receipt_2 = match receipt {
+        Some(matched_receipt) => matched_receipt,
+        ::core::option::Option::None => return,
     };
+
     for (property, disposition) in routes {
         let key = crate::diagram_theme::FamilyThemeMechanismKey::Typography(*property);
         let relevant_occurrences = match property {
             ThemeTypographyProperty::FontStack | ThemeTypographyProperty::FontSize => {
-                receipt.base_property_relevant_occurrences(*property)
+                receipt_2.base_property_relevant_occurrences(*property)
             }
             ThemeTypographyProperty::FontWeight
             | ThemeTypographyProperty::FontStyle
@@ -959,27 +1072,31 @@ fn finish_base_typography(
             | ThemeTypographyProperty::Decoration
             | ThemeTypographyProperty::TextAlign
             | ThemeTypographyProperty::WhiteSpace
-            | ThemeTypographyProperty::Wrap => receipt.base_relevant_occurrences(),
+            | ThemeTypographyProperty::Wrap => receipt_2.base_relevant_occurrences(),
         };
+
         match disposition {
             FamilyThemeDisposition::Unsupported => {
-                if relevant_occurrences == 0 {
-                    evidence.mark_not_applicable(key);
-                } else {
-                    evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
+                match relevant_occurrences {
+                    0 => {
+                        evidence.mark_not_applicable(key);
+                    },
+                    _ => {
+                        evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
+                    },
                 }
             }
             FamilyThemeDisposition::TypedAdapter => {
-                if relevant_occurrences == 0 || !receipt.base.has_typed_property(*property) {
+                if relevant_occurrences == 0 || !receipt_2.base.has_typed_property(*property) {
                     evidence.mark_not_applicable(key);
-                } else if receipt.base_property_incomplete(*property) {
+                } else if receipt_2.base_property_incomplete(*property) {
                     evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
-                } else if receipt.base_property_applied(*property) {
+                } else if receipt_2.base_property_applied(*property) {
                     evidence.mark_applied_with_capabilities(key, [ThemeCapability::Typography]);
                 } else {
-                    // A visible typed route whose terminal evidence is missing or mismatched is
-                    // not "not applicable". Keep it residual so strict portability cannot be
-                    // satisfied by a false ownership claim.
+
+
+
                     evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
                 }
             }
@@ -996,18 +1113,20 @@ fn finish_typography_rules(
         let role = crate::sequence::SequenceTypographyRole::from_target(target)
             .expect("Sequence typography rules are keyed only by role targets");
         let candidate_count =
-            receipt.map_or(0, |receipt| receipt.role(role).label_candidate_count());
+            receipt.map_or(0, |receipt_2| receipt_2.role(role).label_candidate_count());
+
         for (rule_index, observation) in rules {
             let key = crate::diagram_theme::FamilyThemeMechanismKey::Rule {
                 index: rule_index,
                 target,
             };
+
             if candidate_count == 0 || !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // The rule reached a terminal label candidate without a complete writer seal.
+
             } else if observation.capabilities.is_empty() {
                 evidence.mark_not_applicable(key);
             } else {
@@ -1028,12 +1147,13 @@ fn finish_line_rules(
             index: rule_index,
             target,
         };
+
         if candidate_count == 0 || !observation.applicable {
             evidence.mark_not_applicable(key);
         } else if let Some(reason) = observation.residual {
             evidence.mark_residual(key, reason);
         } else if observation.incomplete {
-            // A selected line style reached a candidate without a complete terminal writer seal.
+
         } else if observation.capabilities.is_empty() {
             evidence.mark_not_applicable(key);
         } else {
@@ -1052,12 +1172,13 @@ fn finish_sequence_number_rules(
             index: rule_index,
             target: ThemeTarget::SequenceNumberLabel,
         };
+
         if sequence_number.receipt.text_candidates == 0 || !observation.applicable {
             evidence.mark_not_applicable(key);
         } else if let Some(reason) = observation.residual {
             evidence.mark_residual(key, reason);
         } else if observation.incomplete {
-            // A SequenceNumberLabel winner reached text without a complete stylesheet/text seal.
+
         } else if observation.capabilities.is_empty() {
             evidence.mark_not_applicable(key);
         } else {
@@ -1077,12 +1198,13 @@ fn finish_control_rules(
             index: rule_index,
             target,
         };
+
         if surface.receipt.surface_candidates.get() == 0 || !observation.applicable {
             evidence.mark_not_applicable(key);
         } else if let Some(reason) = observation.residual {
             evidence.mark_residual(key, reason);
         } else if observation.incomplete {
-            // A Loop winner reached a label-box candidate without a complete CSS/DOM seal.
+
         } else if observation.capabilities.is_empty() {
             evidence.mark_not_applicable(key);
         } else {
@@ -1102,12 +1224,13 @@ fn finish_static_rect_rules(
             index: rule_index,
             target,
         };
+
         if surface.surface_count == 0 || !observation.applicable {
             evidence.mark_not_applicable(key);
         } else if let Some(reason) = observation.residual {
             evidence.mark_residual(key, reason);
         } else if observation.incomplete {
-            // A direct facet reached a rectangle but the terminal writer did not seal it.
+
         } else if observation.capabilities.is_empty() {
             evidence.mark_not_applicable(key);
         } else {

@@ -9,6 +9,7 @@ pub struct ParseOptions {
 
 impl ParseOptions {
     /// Strict parsing: return detection and diagram-parser failures.
+    #[must_use]
     pub fn strict() -> Self {
         Self {
             suppress_errors: false,
@@ -16,6 +17,7 @@ impl ParseOptions {
     }
 
     /// Lenient model parsing: retain detected parser failures as `error` diagrams.
+    #[must_use]
     pub fn lenient() -> Self {
         Self {
             suppress_errors: true,

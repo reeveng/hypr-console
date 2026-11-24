@@ -18,7 +18,7 @@ pub(super) enum HtmlTextFragment {
         text: String,
         typography: ResolvedFallbackTypography,
         white_space: HtmlWhiteSpace,
-        // Common ancestry depth and mode at the boundary with the previous text leaf.
+
         boundary_white_space: Option<(usize, HtmlWhiteSpace)>,
     },
     HardBreak,
@@ -43,15 +43,18 @@ pub(super) struct FallbackTextRun<'a> {
 }
 
 impl NormalizedFallbackText {
+    #[must_use]
     pub(super) fn is_empty(&self) -> bool {
         self.source.is_empty()
     }
 
     fn push_range(&mut self, start: usize, typography: &ResolvedFallbackTypography) {
         let end = self.source.len();
+
         if start == end {
             return;
         }
+
         if let Some(previous) = self.runs.last_mut()
             && previous.range.end == start
             && previous.typography == *typography
@@ -65,6 +68,7 @@ impl NormalizedFallbackText {
         }
     }
 
+    #[must_use]
     fn runs_for_range<'a>(
         &'a self,
         text: &'a str,
@@ -86,9 +90,11 @@ impl NormalizedFallbackText {
                 } else {
                     run.range.end.min(source_end) - source_start
                 };
+
                 if start >= end {
                     return None;
                 }
+
                 Some(FallbackTextRun {
                     text: &text[start..end],
                     typography: &run.typography,
@@ -97,6 +103,7 @@ impl NormalizedFallbackText {
             })
     }
 
+    #[must_use]
     pub(super) fn line_runs<'a>(
         &'a self,
         line: &'a PlannedHtmlLine,
@@ -104,6 +111,7 @@ impl NormalizedFallbackText {
         self.runs_for_range(&line.text, line.source_range.clone(), line.selected_hyphen)
     }
 
+    #[must_use]
     pub(super) fn has_inline_styles(
         &self,
         line: &PlannedHtmlLine,
@@ -141,32 +149,43 @@ impl NormalizedFallbackText {
             &mut |text, range, selected_hyphen| {
                 let mut width = 0.0;
                 let mut group: Option<(&ResolvedFallbackTypography, usize, usize)> = None;
+
                 for run in self.runs_for_range(text, range, selected_hyphen) {
                     let start = run.offset;
                     let end = start + run.text.len();
+
                     match group {
                         Some((typography, previous_start, previous_end))
                             if previous_end == start && same_font(typography, run.typography) =>
                         {
                             group = Some((typography, previous_start, end));
                         }
-                        previous => {
-                            if let Some((typography, start, end)) = previous {
-                                width += measurer.measure_html_line_width_px(
-                                    &text[start..end],
-                                    &typography.text_style(),
-                                );
+                        previous @ (::core::option::Option::None | ::core::option::Option::Some(_)) => {
+                            match previous {
+                                Some((typography, start_2, end_2)) => {
+                                    width += measurer.measure_html_line_width_px(
+                                        &text[start_2..end_2],
+                                        &typography.text_style(),
+                                    );
+                                },
+                                ::core::option::Option::None => {},
                             }
+
                             group = Some((run.typography, start, end));
                         }
                     }
                 }
-                if let Some((typography, start, end)) = group {
-                    width += measurer
-                        .measure_html_line_width_px(&text[start..end], &typography.text_style());
-                } else {
-                    width = measurer.measure_html_line_width_px(text, fallback);
+
+                match group {
+                    Some((typography, start, end)) => {
+                        width += measurer
+                            .measure_html_line_width_px(&text[start..end], &typography.text_style());
+                    },
+                    ::core::option::Option::None => {
+                        width = measurer.measure_html_line_width_px(text, fallback);
+                    },
                 }
+
                 Ok(width)
             },
             checkpoint,
@@ -174,6 +193,7 @@ impl NormalizedFallbackText {
     }
 }
 
+#[must_use]
 fn same_font(left: &ResolvedFallbackTypography, right: &ResolvedFallbackTypography) -> bool {
     left.font_family == right.font_family
         && left.font_size.to_bits() == right.font_size.to_bits()
@@ -196,14 +216,17 @@ fn replace_with_checkpoint<E>(
         checkpoint()?;
         return Ok(input.to_string());
     }
+
     let mut output = String::with_capacity(input.len());
     let mut cursor = 0usize;
+
     while let Some(relative) = find_with_checkpoints(&input[cursor..], needle, checkpoint)? {
         let start = cursor + relative;
         output.push_str(&input[cursor..start]);
         output.push_str(replacement);
         cursor = start + needle.len();
     }
+
     output.push_str(&input[cursor..]);
     checkpoint()?;
     Ok(output)
@@ -218,8 +241,8 @@ fn decode_mermaid_entity_placeholders<'a, E>(
     }
 
     let restored = replace_with_checkpoint(text, "ﬂ°°", "&#", checkpoint)?;
-    let restored = replace_with_checkpoint(&restored, "ﬂ°", "&", checkpoint)?;
-    replace_with_checkpoint(&restored, "¶ß", ";", checkpoint).map(Cow::Owned)
+    let restored_2 = replace_with_checkpoint(&restored, "ﬂ°", "&", checkpoint)?;
+    replace_with_checkpoint(&restored_2, "¶ß", ";", checkpoint).map(Cow::Owned)
 }
 
 fn decode_html_entities<E>(
@@ -228,21 +251,27 @@ fn decode_html_entities<E>(
 ) -> Result<String, E> {
     checkpoint()?;
     let mut current = text.to_string();
+
     for _ in 0..3 {
         checkpoint()?;
+
         if !current.contains('&') && !current.contains('ﬂ') && !current.contains('¶') {
             break;
         }
-        // Mermaid's placeholders are not HTML entities. Restore that wrapper first,
-        // then let the shared HTML entity decoder handle the browser-facing syntax.
+
+
+
         let restored = decode_mermaid_entity_placeholders(&current, checkpoint)?;
         checkpoint()?;
         let next = decode_html_entities_streaming(restored.as_ref(), checkpoint)?;
+
         if next == current {
             break;
         }
+
         current = next;
     }
+
     Ok(current)
 }
 
@@ -260,6 +289,7 @@ fn decode_html_entities_streaming<E>(
             DecodedHtmlFragment::Borrowed(value) => output.push_str(value),
             DecodedHtmlFragment::Scalar(value) => output.push(value),
         }
+
         Ok(())
     })?;
     Ok(output)
@@ -271,15 +301,19 @@ fn normalize_html_source_newlines<E>(
 ) -> Result<String, E> {
     let mut result = String::with_capacity(text.len());
     let mut previous_cr = false;
+
     for (index, ch) in text.chars().enumerate() {
         checkpoint_loop(index, checkpoint)?;
+
         if ch == '\n' && previous_cr {
             previous_cr = false;
             continue;
         }
+
         previous_cr = ch == '\r';
         result.push(if previous_cr { '\n' } else { ch });
     }
+
     checkpoint()?;
     Ok(result)
 }
@@ -289,8 +323,10 @@ pub(super) fn normalized_foreign_object_text<E>(
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<NormalizedFallbackText, E> {
     let mut normalized = NormalizedFallbackText::default();
+
     for (index, fragment) in fragments.iter().enumerate() {
         checkpoint_loop(index, checkpoint)?;
+
         match fragment {
             HtmlTextFragment::HardBreak => normalized.source.hard_break(),
             HtmlTextFragment::Text {
@@ -299,16 +335,21 @@ pub(super) fn normalized_foreign_object_text<E>(
                 boundary_white_space,
                 typography,
             } => {
-                if let Some((depth, mode)) = boundary_white_space {
-                    normalized.source.inline_boundary(*depth, *mode);
+                match boundary_white_space {
+                    Some((depth, mode)) => {
+                        normalized.source.inline_boundary(*depth, *mode);
+                    },
+                    ::core::option::Option::None => {},
                 }
-                // HTML parsing normalizes literal source CR before resolving character references.
-                let text = normalize_html_source_newlines(text, checkpoint)?;
-                // Mermaid's literal escape is an explicit break independently of CSS mode.
-                for (part_index, part) in text.split("\\n").enumerate() {
+
+
+                let text_2 = normalize_html_source_newlines(text, checkpoint)?;
+
+                for (part_index, part) in text_2.split("\\n").enumerate() {
                     if part_index > 0 {
                         normalized.source.hard_break();
                     }
+
                     let decoded = decode_html_entities(part, checkpoint)?;
                     let start = normalized.source.len();
                     normalized
@@ -319,6 +360,7 @@ pub(super) fn normalized_foreign_object_text<E>(
             }
         }
     }
+
     checkpoint()?;
     Ok(normalized)
 }
@@ -345,10 +387,15 @@ pub(super) fn extract_inline_html_style_property<E>(
     property: &str,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<Option<String>, E> {
-    let Some(style) = extract_exact_double_quoted_attr_with_checkpoints(html, "style", checkpoint)?
-    else {
-        return Ok(None);
+    let style = {
+        let optional_style = extract_exact_double_quoted_attr_with_checkpoints(html, "style", checkpoint)?;
+
+        match optional_style {
+            Some(matched_style) => matched_style,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     extract_style_property_with_checkpoints(style, property, checkpoint)
 }
 
@@ -357,13 +404,13 @@ pub(super) fn foreign_object_html_wrapping<E>(
     inner: &str,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<Option<f64>, E> {
-    // Width belongs to the label container; wrapping permissions belong to each text run.
+
     let css_width = extract_inline_html_style_property(inner, "width", checkpoint)?
         .and_then(|value| parse_css_px_value(&value));
     let max_width = extract_inline_html_style_property(inner, "max-width", checkpoint)?
         .and_then(|value| parse_css_px_value(&value));
     let attr_width = extract_exact_double_quoted_attr_with_checkpoints(tag, "width", checkpoint)?
-        .and_then(|value| value.parse::<f64>().ok());
+        .and_then(|value| match value.parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None });
     let width = match (css_width, max_width) {
         (Some(width), Some(maximum)) => Some(width.min(maximum)),
         _ => css_width.or(max_width).or(attr_width),

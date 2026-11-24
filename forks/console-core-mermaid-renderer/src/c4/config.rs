@@ -53,6 +53,7 @@ pub(crate) enum C4Look {
 }
 
 impl C4Look {
+    #[must_use]
     fn from_diagram_look(look: DiagramLook<'_>) -> Self {
         match look.as_str() {
             "neo" => Self::Neo,
@@ -61,6 +62,7 @@ impl C4Look {
         }
     }
 
+    #[must_use]
     pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Classic => "classic",
@@ -69,10 +71,12 @@ impl C4Look {
         }
     }
 
+    #[must_use]
     pub(crate) const fn is_neo(self) -> bool {
         matches!(self, Self::Neo)
     }
 
+    #[must_use]
     pub(crate) const fn is_hand_drawn(self) -> bool {
         matches!(self, Self::HandDrawn)
     }
@@ -84,6 +88,7 @@ pub(crate) struct C4ConfigView<'a> {
 }
 
 impl<'a> C4ConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -91,6 +96,7 @@ impl<'a> C4ConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn look(&self) -> C4Look {
         C4Look::from_diagram_look(config_diagram_look(self.effective_config))
     }
@@ -100,12 +106,16 @@ impl<'a> C4ConfigView<'a> {
         self.layout_settings_with_prepared_fonts(&self.boundary_font(), &self.message_font())
     }
 
+    #[must_use]
     pub(crate) fn shape_padding(&self) -> f64 {
-        self.c4_f64("c4ShapePadding")
-            .unwrap_or(DEFAULT_C4_SHAPE_PADDING)
+        match self.c4_f64("c4ShapePadding") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_C4_SHAPE_PADDING,
+        }
             .max(0.0)
     }
 
+    #[must_use]
     pub(crate) fn layout_settings_with_prepared_fonts(
         &self,
         boundary: &TextStyle,
@@ -113,28 +123,47 @@ impl<'a> C4ConfigView<'a> {
     ) -> C4LayoutSettings {
         C4LayoutSettings {
             look: self.look(),
-            diagram_margin_x: self
-                .c4_f64("diagramMarginX")
-                .unwrap_or(DEFAULT_DIAGRAM_MARGIN_X)
+            diagram_margin_x: match self
+                .c4_f64("diagramMarginX") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_DIAGRAM_MARGIN_X,
+            }
                 .max(0.0),
-            diagram_margin_y: self
-                .c4_f64("diagramMarginY")
-                .unwrap_or(DEFAULT_DIAGRAM_MARGIN_Y)
+            diagram_margin_y: match self
+                .c4_f64("diagramMarginY") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_DIAGRAM_MARGIN_Y,
+            }
                 .max(0.0),
-            c4_shape_margin: self
-                .c4_f64("c4ShapeMargin")
-                .unwrap_or(DEFAULT_C4_SHAPE_MARGIN)
+            c4_shape_margin: match self
+                .c4_f64("c4ShapeMargin") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_C4_SHAPE_MARGIN,
+            }
                 .max(0.0),
-            c4_shape_padding: self
-                .c4_f64("c4ShapePadding")
-                .unwrap_or(DEFAULT_C4_SHAPE_PADDING)
+            c4_shape_padding: match self
+                .c4_f64("c4ShapePadding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_C4_SHAPE_PADDING,
+            }
                 .max(0.0),
-            width: self.c4_f64("width").unwrap_or(DEFAULT_WIDTH).max(1.0),
-            height: self.c4_f64("height").unwrap_or(DEFAULT_HEIGHT).max(1.0),
-            wrap: self.c4_bool("wrap").unwrap_or(DEFAULT_WRAP),
-            next_line_padding_x: self
-                .c4_f64("nextLinePaddingX")
-                .unwrap_or(DEFAULT_NEXT_LINE_PADDING_X),
+            width: match self.c4_f64("width") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_WIDTH,
+            }.max(1.0),
+            height: match self.c4_f64("height") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_HEIGHT,
+            }.max(1.0),
+            wrap: match self.c4_bool("wrap") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_WRAP,
+            },
+            next_line_padding_x: match self
+                .c4_f64("nextLinePaddingX") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_NEXT_LINE_PADDING_X,
+            },
             boundary_font_family: boundary.font_family.clone(),
             boundary_font_size: boundary.font_size,
             boundary_font_weight: boundary.font_weight.clone(),
@@ -145,24 +174,34 @@ impl<'a> C4ConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn color(&self, key: &str, fallback: &str) -> String {
         self.c4_string(key).unwrap_or_else(|| fallback.to_string())
     }
 
+    #[must_use]
     pub(crate) fn font_family(&self, key: &str) -> String {
-        config_string(self.c4_config, &[key])
-            .map(|s| s.trim().trim_end_matches(';').trim().to_string())
-            .unwrap_or_else(|| C4_DEFAULT_FONT_FAMILY.to_string())
+        match config_string(self.c4_config, &[key])
+            .map(|s| s.trim().trim_end_matches(';').trim().to_string()) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => C4_DEFAULT_FONT_FAMILY.to_string(),
+        }
     }
 
+    #[must_use]
     pub(crate) fn font_size(&self, key: &str, fallback: f64) -> f64 {
-        config_f64_css_px(self.c4_config, &[key]).unwrap_or(fallback)
+        match config_f64_css_px(self.c4_config, &[key]) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => fallback,
+        }
     }
 
+    #[must_use]
     pub(crate) fn font_weight(&self, key: &str) -> Option<String> {
         config_css_number_or_string(self.c4_config, &[key])
     }
 
+    #[must_use]
     pub(crate) fn boundary_font(&self) -> TextStyle {
         TextStyle {
             font_family: Some(self.font_family("boundaryFontFamily")),
@@ -172,6 +211,7 @@ impl<'a> C4ConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn message_font(&self) -> TextStyle {
         TextStyle {
             font_family: Some(self.font_family("messageFontFamily")),
@@ -181,6 +221,7 @@ impl<'a> C4ConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn shape_font(&self, type_c4_shape: &str) -> TextStyle {
         let key_family = format!("{type_c4_shape}FontFamily");
         let key_size = format!("{type_c4_shape}FontSize");
@@ -194,28 +235,41 @@ impl<'a> C4ConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn use_max_width(&self) -> bool {
-        self.c4_bool("useMaxWidth").unwrap_or(DEFAULT_USE_MAX_WIDTH)
+        match self.c4_bool("useMaxWidth") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+        }
     }
 
+    #[must_use]
     pub(crate) fn diagram_margin_x(&self) -> f64 {
-        self.c4_f64("diagramMarginX")
-            .unwrap_or(DEFAULT_DIAGRAM_MARGIN_X)
+        match self.c4_f64("diagramMarginX") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_DIAGRAM_MARGIN_X,
+        }
     }
 
+    #[must_use]
     pub(crate) fn diagram_margin_y(&self) -> f64 {
-        self.c4_f64("diagramMarginY")
-            .unwrap_or(DEFAULT_DIAGRAM_MARGIN_Y)
+        match self.c4_f64("diagramMarginY") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_DIAGRAM_MARGIN_Y,
+        }
     }
 
+    #[must_use]
     fn c4_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.c4_config, &[key])
     }
 
+    #[must_use]
     fn c4_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.c4_config, &[key])
     }
 
+    #[must_use]
     fn c4_string(&self, key: &str) -> Option<String> {
         config_string(self.c4_config, &[key])
     }
@@ -242,6 +296,7 @@ pub(crate) struct C4LayoutSettings {
 }
 
 impl C4LayoutSettings {
+    #[must_use]
     pub(crate) fn boundary_font(&self) -> TextStyle {
         TextStyle {
             font_family: self.boundary_font_family.clone(),
@@ -251,6 +306,7 @@ impl C4LayoutSettings {
         }
     }
 
+    #[must_use]
     pub(crate) fn message_font(&self) -> TextStyle {
         TextStyle {
             font_family: self.message_font_family.clone(),
@@ -261,6 +317,7 @@ impl C4LayoutSettings {
     }
 }
 
+#[must_use]
 pub(crate) const fn default_use_max_width() -> bool {
     DEFAULT_USE_MAX_WIDTH
 }

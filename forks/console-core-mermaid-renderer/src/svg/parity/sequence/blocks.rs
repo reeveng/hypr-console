@@ -45,6 +45,7 @@ pub(super) struct SimpleSequenceBlock<'a> {
 }
 
 impl<'a> SequenceBlockRenderContext<'a> {
+    #[must_use]
     fn loop_text_context(&self) -> LoopTextRenderContext<'_> {
         LoopTextRenderContext {
             measurer: self.measurer,
@@ -60,6 +61,7 @@ impl<'a> SequenceBlockRenderContext<'a> {
         }
     }
 
+    #[must_use]
     fn label_wrap_width(&self, label_id: &str, fallback: Option<f64>) -> Option<f64> {
         self.block_widths_by_id
             .get(label_id)
@@ -103,10 +105,7 @@ fn write_control_line(
 
 fn write_block_frame(
     out: &mut impl SvgOutput,
-    x1: f64,
-    x2: f64,
-    y1: f64,
-    y2: f64,
+    WriteBlockFrameArguments { x1, x2, y1, y2 }: WriteBlockFrameArguments,
     ctx: &SequenceBlockRenderContext<'_>,
 ) -> Result<()> {
     for coordinates in [
@@ -117,7 +116,15 @@ fn write_block_frame(
     ] {
         write_control_line(out, coordinates, false, ctx)?;
     }
+
     Ok(())
+}
+
+struct WriteBlockFrameArguments {
+    x1: f64,
+    x2: f64,
+    y1: f64,
+    y2: f64,
 }
 
 pub(super) fn write_block_label_box(
@@ -130,7 +137,7 @@ pub(super) fn write_block_label_box(
     let label_box_width = ctx.label_box_width;
     let neo_height = if ctx.is_neo { 15.0 } else { 0.0 };
     let label_box_height = ctx.label_box_height + neo_height;
-    let label_box_height = if label_box_height == 0.0 {
+    let label_box_height_2 = if ::core::matches!(::core::primitive::f64::classify(label_box_height), ::core::num::FpCategory::Zero) {
         20.0
     } else {
         label_box_height
@@ -140,7 +147,7 @@ pub(super) fn write_block_label_box(
     let x1 = frame_x1;
     let y1 = frame_y1;
     let x2 = x1 + label_box_width;
-    let y3 = y1 + label_box_height;
+    let y3 = y1 + label_box_height_2;
     let y2 = y3 - 7.0;
     let x3 = x2 - 8.4;
     let application = ctx.keyword_paint.begin_terminal(
@@ -170,7 +177,7 @@ pub(super) fn write_block_label_box(
         .finish_terminal(application.as_ref(), ctx.shadow_evidence);
     let label_cx = (x1 + label_box_width / 2.0).round();
     let label_cy = sequence_drawn_text_y(
-        sequence_drawn_text_first_y(y1 + label_box_height / 2.0, ctx.box_text_margin),
+        sequence_drawn_text_first_y(y1 + label_box_height_2 / 2.0, ctx.box_text_margin),
         ctx.box_text_margin,
         0.0,
     );
@@ -180,9 +187,11 @@ pub(super) fn write_block_label_box(
     );
     let shadow = if ctx.text_shadow.needs_bounds() {
         let mut terminal_style = typography.terminal_text_style().clone();
+
         if !typography.requires_resolved_emission() {
             terminal_style.font_size = ctx.loop_text_style.font_size;
         }
+
         ctx.text_shadow.write_definition(
             out,
             label,
@@ -195,10 +204,12 @@ pub(super) fn write_block_label_box(
     } else {
         None
     };
-    let filter = shadow
+    let filter = match shadow
         .as_ref()
-        .map(|s| format!(" filter=\"{}\"", escape_attr(&s.filter)))
-        .unwrap_or_default();
+        .map(|s| format!(" filter=\"{}\"", escape_attr(&s.filter))) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => ::std::string::String::new(),
+    };
     let _ = write!(
         out,
         r#"<text x="{x}" y="{y}" text-anchor="middle" dominant-baseline="middle" alignment-baseline="middle" class="labelText" style="{style}"{filter}>{label}</text>"#,
@@ -225,11 +236,13 @@ pub(super) fn render_simple_sequence_block(
     ctx: &SequenceBlockRenderContext<'_>,
 ) -> Result<()> {
     ctx.checkpoints.checkpoint()?;
+
     let Some(layout) = block.layout else {
         ctx.typography_receipt
             .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
         return Ok(());
     };
+
     let Some((frame_x1, frame_x2, _min_left)) = resolved_block_frame_x(
         block.geometry,
         layout,
@@ -241,20 +254,24 @@ pub(super) fn render_simple_sequence_block(
             .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
         return Ok(());
     };
-    let frame_x2 = frame_x2.max(frame_x1 + ctx.label_box_width);
+
+    let frame_x2_2 = frame_x2.max(frame_x1 + ctx.label_box_width);
 
     let frame_y1 = layout.start_y;
     let frame_y2 = layout.stop_y;
 
     write_control_structure_group_open(out, block.control_id);
-    write_block_frame(out, frame_x1, frame_x2, frame_y1, frame_y2, ctx)?;
+    write_block_frame(out, self::WriteBlockFrameArguments { x1: frame_x1, x2: frame_x2_2, y1: frame_y1, y2: frame_y2 }, ctx)?;
     write_block_label_box(out, frame_x1, frame_y1, block.block_label, ctx)?;
     let label_box_right = frame_x1 + ctx.label_box_width;
-    let text_x = (label_box_right + frame_x2) / 2.0;
+    let text_x = (label_box_right + frame_x2_2) / 2.0;
     let text_y = frame_y1 + ctx.box_margin + ctx.box_text_margin;
     let label =
-        display_block_label(block.raw_label, true).unwrap_or_else(|| "\u{200B}".to_string());
-    let max_w = ctx.label_wrap_width(block.label_id, Some((frame_x2 - label_box_right).max(0.0)));
+        match display_block_label(block.raw_label, true) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "\u{200B}".to_string(),
+        };
+    let max_w = ctx.label_wrap_width(block.label_id, Some((frame_x2_2 - label_box_right).max(0.0)));
     let loop_text_ctx = ctx.loop_text_context();
     write_loop_text_lines(
         out,
@@ -278,13 +295,18 @@ fn section_separator_ys(
     checkpoints: SequenceEmitCheckpoints<'_>,
 ) -> Result<Option<Vec<f64>>> {
     let mut separator_ys = Vec::with_capacity(sections.len().saturating_sub(1));
+
     for (section_index, section) in sections.iter().skip(1).enumerate() {
         checkpoints.checkpoint_loop(section_index)?;
-        let Some(separator_y) = section.separator_y else {
-            return Ok(None);
+
+        let separator_y = match section.separator_y {
+            Some(matched_separator_y) => matched_separator_y,
+            ::core::option::Option::None => return Ok(None),
         };
+
         separator_ys.push(separator_y);
     }
+
     checkpoints.checkpoint()?;
     Ok(Some(separator_ys))
 }
@@ -297,28 +319,34 @@ pub(super) fn render_sectioned_sequence_block(
     layout: Option<&SequenceBlockLayout>,
     ctx: &SequenceBlockRenderContext<'_>,
 ) -> Result<()> {
-    if sections.is_empty() {
-        ctx.typography_receipt
-            .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
-        return Ok(());
+    match sections {
+        [] => {
+            ctx.typography_receipt
+                .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
+            return Ok(());
+        },
+        [_, ..] => {},
     }
 
     let geometry = sequence_block_section_geometry(sections);
-    let Some(layout) = layout else {
+
+    let Some(layout_2) = layout else {
         ctx.typography_receipt
             .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
         return Ok(());
     };
+
     let Some(sep_ys) = section_separator_ys(sections, ctx.checkpoints)? else {
         ctx.typography_receipt
             .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
         return Ok(());
     };
+
     ctx.checkpoints.checkpoint()?;
 
     let Some((frame_x1, frame_x2, _min_left)) = resolved_block_frame_x(
         geometry,
-        layout,
+        layout_2,
         ctx.actor_nodes_by_id,
         (ctx.default_frame_x1, ctx.default_frame_x2),
         None,
@@ -327,67 +355,87 @@ pub(super) fn render_sectioned_sequence_block(
             .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
         return Ok(());
     };
-    let frame_x2 = frame_x2.max(frame_x1 + ctx.label_box_width);
 
-    let frame_y1 = layout.start_y;
-    let frame_y2 = layout.stop_y;
+    let frame_x2_2 = frame_x2.max(frame_x1 + ctx.label_box_width);
+
+    let frame_y1 = layout_2.start_y;
+    let frame_y2 = layout_2.stop_y;
 
     write_control_structure_group_open(out, control_id);
 
-    // frame
-    write_block_frame(out, frame_x1, frame_x2, frame_y1, frame_y2, ctx)?;
 
-    // separators (dashed)
-    // Keep separator endpoints identical to the frame endpoints to match upstream
-    // Mermaid output and avoid sub-pixel gaps at the frame border.
+    write_block_frame(out, self::WriteBlockFrameArguments { x1: frame_x1, x2: frame_x2_2, y1: frame_y1, y2: frame_y2 }, ctx)?;
+
+
+
+
     let dash_x1 = frame_x1;
-    let dash_x2 = frame_x2;
+    let dash_x2 = frame_x2_2;
+
     for (separator_index, y) in sep_ys.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(separator_index)?;
         write_control_line(out, [dash_x1, *y, dash_x2, *y], true, ctx)?;
     }
 
-    // label box + label text
+
     write_block_label_box(out, frame_x1, frame_y1, block_label, ctx)?;
 
-    // section labels
+
     let label_box_right = frame_x1 + ctx.label_box_width;
-    let main_text_x = (label_box_right + frame_x2) / 2.0;
-    let center_text_x = (frame_x1 + frame_x2) / 2.0;
+    let main_text_x = (label_box_right + frame_x2_2) / 2.0;
+    let center_text_x = (frame_x1 + frame_x2_2) / 2.0;
+
     for (i, sec) in sections.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(i)?;
-        let Some(label_text) = display_block_label(sec.raw_label, i == 0) else {
-            continue;
+
+        let label_text = {
+            let optional_label_text = display_block_label(sec.raw_label, i == 0);
+
+            match optional_label_text {
+                Some(matched_label_text) => matched_label_text,
+                ::core::option::Option::None => continue,
+            }
         };
-        if i == 0 {
-            let y = frame_y1 + ctx.box_margin + ctx.box_text_margin;
-            let max_w =
-                ctx.label_wrap_width(sec.label_id, Some((frame_x2 - label_box_right).max(0.0)));
-            let loop_text_ctx = ctx.loop_text_context();
-            write_loop_text_lines(
-                out,
-                &loop_text_ctx,
-                LoopTextPlacement {
-                    x: main_text_x,
-                    y0: y,
-                    block_start_y: frame_y1,
-                    max_width: max_w,
-                    use_tspan: true,
-                },
-                sec.label_id,
-                &label_text,
-            )?;
-            continue;
+
+        match i {
+            0 => {
+                let y = frame_y1 + ctx.box_margin + ctx.box_text_margin;
+                let max_w =
+                    ctx.label_wrap_width(sec.label_id, Some((frame_x2_2 - label_box_right).max(0.0)));
+                let loop_text_ctx = ctx.loop_text_context();
+                write_loop_text_lines(
+                    out,
+                    &loop_text_ctx,
+                    LoopTextPlacement {
+                        x: main_text_x,
+                        y0: y,
+                        block_start_y: frame_y1,
+                        max_width: max_w,
+                        use_tspan: true,
+                    },
+                    sec.label_id,
+                    &label_text,
+                )?;
+                continue;
+            },
+            _ => {},
         }
+
         let y =
-            sep_ys.get(i - 1).copied().unwrap_or(frame_y1) + ctx.box_margin + ctx.box_text_margin;
+            (match sep_ys.get(i - 1).copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => frame_y1,
+            }) + ctx.box_margin + ctx.box_text_margin;
         let loop_text_ctx = ctx.loop_text_context();
         write_section_title_lines(
             out,
             &loop_text_ctx,
             center_text_x,
             y,
-            sep_ys.get(i - 1).copied().unwrap_or(frame_y1),
+            match sep_ys.get(i - 1).copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => frame_y1,
+            },
             ctx.label_wrap_width(sec.label_id, None),
             sec.label_id,
             &label_text,
@@ -405,28 +453,34 @@ pub(super) fn render_critical_sequence_block(
     layout: Option<&SequenceBlockLayout>,
     ctx: &SequenceBlockRenderContext<'_>,
 ) -> Result<()> {
-    if sections.is_empty() {
-        ctx.typography_receipt
-            .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
-        return Ok(());
+    match sections {
+        [] => {
+            ctx.typography_receipt
+                .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
+            return Ok(());
+        },
+        [_, ..] => {},
     }
 
     let geometry = sequence_block_section_geometry(sections);
-    let Some(layout) = layout else {
+
+    let Some(layout_2) = layout else {
         ctx.typography_receipt
             .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
         return Ok(());
     };
+
     let Some(sep_ys) = section_separator_ys(sections, ctx.checkpoints)? else {
         ctx.typography_receipt
             .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
         return Ok(());
     };
+
     ctx.checkpoints.checkpoint()?;
 
     let Some((frame_x1, frame_x2, _min_left)) = resolved_block_frame_x(
         geometry,
-        layout,
+        layout_2,
         ctx.actor_nodes_by_id,
         (ctx.default_frame_x1, ctx.default_frame_x2),
         Some(sections.len()),
@@ -435,65 +489,85 @@ pub(super) fn render_critical_sequence_block(
             .record_missing_text_effect(crate::sequence::SequenceTextSurface::ControlKeyword);
         return Ok(());
     };
-    let frame_x2 = frame_x2.max(frame_x1 + ctx.label_box_width);
 
-    let frame_y1 = layout.start_y;
-    let frame_y2 = layout.stop_y;
+    let frame_x2_2 = frame_x2.max(frame_x1 + ctx.label_box_width);
+
+    let frame_y1 = layout_2.start_y;
+    let frame_y2 = layout_2.stop_y;
 
     write_control_structure_group_open(out, control_id);
 
-    // frame
-    write_block_frame(out, frame_x1, frame_x2, frame_y1, frame_y2, ctx)?;
 
-    // separators (dashed)
+    write_block_frame(out, self::WriteBlockFrameArguments { x1: frame_x1, x2: frame_x2_2, y1: frame_y1, y2: frame_y2 }, ctx)?;
+
+
     let dash_x1 = frame_x1;
-    let dash_x2 = frame_x2;
+    let dash_x2 = frame_x2_2;
+
     for (separator_index, y) in sep_ys.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(separator_index)?;
         write_control_line(out, [dash_x1, *y, dash_x2, *y], true, ctx)?;
     }
 
-    // label box + label text
+
     write_block_label_box(out, frame_x1, frame_y1, "critical", ctx)?;
 
-    // section labels
+
     let label_box_right = frame_x1 + ctx.label_box_width;
-    let main_text_x = (label_box_right + frame_x2) / 2.0;
-    let center_text_x = (frame_x1 + frame_x2) / 2.0;
+    let main_text_x = (label_box_right + frame_x2_2) / 2.0;
+    let center_text_x = (frame_x1 + frame_x2_2) / 2.0;
+
     for (i, sec) in sections.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(i)?;
-        let Some(label_text) = display_block_label(sec.raw_label, i == 0) else {
-            continue;
+
+        let label_text = {
+            let optional_label_text = display_block_label(sec.raw_label, i == 0);
+
+            match optional_label_text {
+                Some(matched_label_text) => matched_label_text,
+                ::core::option::Option::None => continue,
+            }
         };
-        if i == 0 {
-            let y = frame_y1 + ctx.box_margin + ctx.box_text_margin;
-            let max_w =
-                ctx.label_wrap_width(sec.label_id, Some((frame_x2 - label_box_right).max(0.0)));
-            let loop_text_ctx = ctx.loop_text_context();
-            write_loop_text_lines(
-                out,
-                &loop_text_ctx,
-                LoopTextPlacement {
-                    x: main_text_x,
-                    y0: y,
-                    block_start_y: frame_y1,
-                    max_width: max_w,
-                    use_tspan: true,
-                },
-                sec.label_id,
-                &label_text,
-            )?;
-            continue;
+
+        match i {
+            0 => {
+                let y = frame_y1 + ctx.box_margin + ctx.box_text_margin;
+                let max_w =
+                    ctx.label_wrap_width(sec.label_id, Some((frame_x2_2 - label_box_right).max(0.0)));
+                let loop_text_ctx = ctx.loop_text_context();
+                write_loop_text_lines(
+                    out,
+                    &loop_text_ctx,
+                    LoopTextPlacement {
+                        x: main_text_x,
+                        y0: y,
+                        block_start_y: frame_y1,
+                        max_width: max_w,
+                        use_tspan: true,
+                    },
+                    sec.label_id,
+                    &label_text,
+                )?;
+                continue;
+            },
+            _ => {},
         }
+
         let y =
-            sep_ys.get(i - 1).copied().unwrap_or(frame_y1) + ctx.box_margin + ctx.box_text_margin;
+            (match sep_ys.get(i - 1).copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => frame_y1,
+            }) + ctx.box_margin + ctx.box_text_margin;
         let loop_text_ctx = ctx.loop_text_context();
         write_section_title_lines(
             out,
             &loop_text_ctx,
             center_text_x,
             y,
-            sep_ys.get(i - 1).copied().unwrap_or(frame_y1),
+            match sep_ys.get(i - 1).copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => frame_y1,
+            },
             ctx.label_wrap_width(sec.label_id, None),
             sec.label_id,
             &label_text,

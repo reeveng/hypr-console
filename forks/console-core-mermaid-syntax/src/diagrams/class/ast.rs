@@ -135,6 +135,7 @@ impl ActionArena {
                     },
                 })?;
         }
+
         self.construction_steps = self.construction_steps.saturating_add(1);
         Ok(())
     }
@@ -145,6 +146,7 @@ impl ActionArena {
         control: &crate::OperationControl,
     ) -> GrammarResult<ActionList> {
         let mut list = ActionList::default();
+
         for action in actions {
             self.checkpoint(control)?;
             let index = self.records.len();
@@ -162,6 +164,7 @@ impl ActionArena {
             )?;
             list = checked_value;
         }
+
         Ok(list)
     }
 
@@ -172,13 +175,18 @@ impl ActionArena {
         control: &crate::OperationControl,
     ) -> GrammarResult<ActionList> {
         self.checkpoint(control)?;
-        if let (Some(tail), Some(head)) = (first.tail, rest.head) {
-            self.records[tail].next = Some(head);
-            #[cfg(test)]
-            {
-                self.action_links += 1;
-            }
+
+        match (first.tail, rest.head) {
+            (Some(tail), Some(head)) => {
+                self.records[tail].next = Some(head);
+                #[cfg(test)]
+                {
+                    self.action_links += 1;
+                }
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
+
         Ok(ActionList {
             head: first.head.or(rest.head),
             tail: rest.tail.or(first.tail),
@@ -209,13 +217,18 @@ impl ActionArena {
         control: &crate::OperationControl,
     ) -> GrammarResult<(ActionList, ClassIdList)> {
         let actions = self.concat(first.0, rest.0, control)?;
-        if let (Some(tail), Some(head)) = (first.1.tail, rest.1.head) {
-            self.class_ids[tail].next = Some(head);
-            #[cfg(test)]
-            {
-                self.class_id_links += 1;
-            }
+
+        match (first.1.tail, rest.1.head) {
+            (Some(tail), Some(head)) => {
+                self.class_ids[tail].next = Some(head);
+                #[cfg(test)]
+                {
+                    self.class_id_links += 1;
+                }
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
+
         Ok((
             actions,
             ClassIdList {
@@ -234,12 +247,14 @@ impl ActionArena {
     ) -> GrammarResult<ActionList> {
         let mut class_ids = Vec::new();
         let mut next = body.1.head;
+
         while let Some(index) = next {
             self.checkpoint(control)?;
             let record = &mut self.class_ids[index];
             next = record.next;
             class_ids.extend(record.id.take());
         }
+
         let start = self.push_actions(
             [Action::AddNamespace {
                 id: namespace.clone(),
@@ -261,6 +276,7 @@ impl ActionArena {
         self.concat(list, end, control)
     }
 
+    #[must_use]
     pub(super) fn into_actions(self, list: ActionList) -> Actions {
         Actions {
             arena: self,

@@ -35,7 +35,7 @@
 //! report. Eighteen of them in a shell loop take sixty-six milliseconds and reach
 //! the pad as one press and one release, which is what `290` was walking on: a
 //! walk of eighteen squares that moved one, or four on a slower loop, with no
-//! error anywhere to say which. So a walk waits `LET_GO` between one chord and
+//! error anywhere to say which. So a walk waits 120 milliseconds between one chord and
 //! the next. The number is the daemon's rather than this file's, and reading it
 //! again means asking for a chord and watching the pad's own node for what came
 //! out of it.
@@ -52,8 +52,11 @@
 //! kept and never showed, so a whole evening of timeouts read as bad Wi-Fi. The
 //! link is printed on its own line whenever ssh says one.
 
-use console_core_external_programs::Program;
+use console_compositor::{Query, Request};
+use console_core_external_programs::{Program, shell};
+use console_core_internal_programs::InternalProgram;
 use console_core_number_conversion::fitted;
+pub use shell::quote as shell_quote;
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -61,15 +64,15 @@ use std::time::Duration;
 use console_core_geometry::Point;
 use console_core_never::Never;
 pub use console_input_gamepad::devices::TriggerTravel;
+use console_input_gamepad::front;
 use console_input_gamepad::profile::{Kind, Profile};
 use console_input_gamepad::router::every_profile;
 use console_input_gamepad::vocabulary;
+use console_session::reaching::{self, Whom};
 
 use crate::Error;
 use crate::checking::{CheckResult, cannot, failed, less_than, more_than};
 use crate::picture::{Picture, where_};
-
-const NOTHING_SAID: &str = "";
 
 const EMPTY_WORKSPACE: &str = "empty";
 
@@ -123,23 +126,6 @@ const SENDEVENT: &str = "InputPlumber's SendEvent panics on its own runtime rath
      emitting anything, so nothing here can hold a button down or pull a trigger; \
      press instead, and see the backlog";
 
-const BUS: (&str, &str, &str) = (
-  "org.shadowblip.InputPlumber",
-  "/org/shadowblip/InputPlumber/CompositeDevice0",
-  "org.shadowblip.Input.CompositeDevice",
-);
-
-fn session_environment(whom: &str) -> Result<String, Never> {
-  Ok(format!(
-    "export XDG_RUNTIME_DIR=/run/user/$(id -u {whom}); \
-         export HYPRLAND_INSTANCE_SIGNATURE=$(ls -1t \"$XDG_RUNTIME_DIR/hypr\" 2>/dev/null | head -1); \
-         export WAYLAND_DISPLAY=$(ls -1t \"$XDG_RUNTIME_DIR\" 2>/dev/null \
-         | grep -E '^wayland-[0-9]+$' | head -1); \
-         [ -n \"$HYPRLAND_INSTANCE_SIGNATURE\" ] || \
-         {{ echo 'nothing on the device is in a Hyprland session' >&2; exit 1; }}"
-  ))
-}
-
 fn logins(said: &str) -> Result<Vec<&str>, Never> {
   Ok(
     said
@@ -150,8 +136,6 @@ fn logins(said: &str) -> Result<Vec<&str>, Never> {
 }
 
 const LOGIN: &str = "https://login.tailscale.com/";
-
-pub const LET_GO: f64 = 0.12;
 
 pub const SETTLED: f64 = 0.6;
 
@@ -179,6 +163,11 @@ struct Value<'a>(&'a str);
 struct Came {
   which: String,
   where_: String,
+}
+
+struct RecordedCommand<'a> {
+  label: &'a str,
+  script: &'a str,
 }
 
 #[cfg_attr(
@@ -402,12 +391,26 @@ impl<'watch> Device<'watch> {
     let discovered = match told {
       Some(said) => said,
       None => {
-        let Ok(said) = self.ssh(
-          "set -- $(ls -1 /home 2>/dev/null); \
-                     if [ $# -eq 1 ]; then echo \"$1\"; else id -nu 1000; fi",
-        );
+        let Ok(homes) = console_device_name::homes();
+        let Ok(listed) = self.discovery_output(&homes);
 
-        said
+        let Ok(home) = console_device_name::sole_home(&listed);
+
+        match home {
+          Some(name) => name.to_owned(),
+          None => {
+            let Ok(fallback) = console_device_name::fallback();
+            let Ok(found) = self.discovery_output(&fallback);
+
+            let Ok(owner) = console_device_name::account(&found);
+
+            match owner {
+              Some(present) => present,
+              None => "",
+            }
+            .to_owned()
+          }
+        }
       }
     };
 
@@ -436,58 +439,149 @@ impl<'watch> Device<'watch> {
     Ok(())
   }
 
-  fn along(&mut self) -> Result<String, Never> {
+  fn along(&mut self) -> Result<Option<console_notifications::updating::Progress>, Never> {
     let watching = match self.watching {
       Some(watching) => watching,
-      None => return Ok(String::new()),
+      None => return Ok(None),
     };
 
     let Ok(held) = crate::watching::lock(watching);
 
     match held {
       Some(mut acquired) => acquired.tick(),
-      None => Ok(String::new()),
+      None => Ok(None),
     }
   }
 
   pub fn ssh(&mut self, command: &str) -> Result<String, Never> {
-    self.done.push(command.to_string());
+    let Ok(along) = self.along();
+    let asked = match along {
+      Some(progress) => {
+        let Ok(writing) = crate::watching::writing(&progress);
+        format!("{command}; {writing}")
+      }
+      None => command.to_owned(),
+    };
+
+    Ok(
+      match self.ssh_output(RecordedCommand {
+        label: command,
+        script: &asked,
+      }) {
+        Ok(Some(output)) => {
+          let ssh_text = self.ssh_text(&output.stdout, "stdout")?;
+
+          ssh_text.trim().to_owned()
+        }
+        Ok(None) => String::new(),
+        Err(fault) => {
+          console_core_logging::warn!("console-test-stages: ssh {}: {fault}", self.host);
+          String::new()
+        }
+      },
+    )
+  }
+
+  fn ssh_output(
+    &mut self,
+    recorded: RecordedCommand<'_>,
+  ) -> std::io::Result<Option<std::process::Output>> {
+    self.done.push(recorded.label.to_owned());
 
     match self.dry_run {
-      DryRun::Pretend => return Ok(String::new()),
+      DryRun::Pretend => return Ok(None),
       DryRun::Really => {}
     }
 
-    let Ok(along) = self.along();
-    let asked = format!("{command}{along}");
     let Ok(mut asking) = Program::Ssh.command();
+    let output = asking
+      .args(["-o", "BatchMode=yes", "--", &self.host, recorded.script])
+      .output()?;
+    let Ok(complained) = self.ssh_text(&output.stderr, "stderr");
+    let Ok(links) = logins(complained);
 
-    let done = asking
-      .args(["-o", "BatchMode=yes", &self.host, &asked])
-      .output();
+    for link in links {
+      eprintln!(
+        "\nconsole-test-stages: {} will not answer until this is approved in a browser:\n\n    {link}\n",
+        self.host
+      );
+    }
 
-    Ok(match done {
-      Ok(done_2) => {
-        let complained = self.ssh_text(&done_2.stderr, "stderr")?;
-        let Ok(links) = logins(complained);
+    Ok(Some(output))
+  }
 
-        for link in links {
-          eprintln!(
-            "\nconsole-test-stages: {} will not answer until this is approved in a browser:\n\n    {link}\n",
-            self.host
-          );
-        }
-
-        let said = self.ssh_text(&done_2.stdout, "stdout")?;
-
-        said.trim().to_string()
+  pub fn ssh_args(&mut self, arguments: &[&str]) -> Result<String, Error> {
+    let Ok(command) = shell::join(arguments);
+    let Ok(along) = self.along();
+    let asked = match along {
+      Some(progress) => {
+        let Ok(console) = InternalProgram::Console.path();
+        let amount = progress.permille.to_string();
+        let Ok(wrapped) = shell::join(
+          [console, "device-progress", "then", &amount, &progress.label]
+            .into_iter()
+            .chain(arguments.iter().copied()),
+        );
+        wrapped
       }
-      Err(fault) => {
-        console_core_logging::warn!("console-test-stages: ssh {}: {fault}", self.host);
+      None => command.clone(),
+    };
+    let remote = self
+      .ssh_output(RecordedCommand {
+        label: &command,
+        script: &asked,
+      })
+      .map_err(Error::Machine)?;
 
+    let output = match remote {
+      Some(matched_output) => matched_output,
+      ::core::option::Option::None => return Ok(String::new()),
+    };
+
+    let Ok(stdout) = self.ssh_text(&output.stdout, "stdout");
+    let Ok(stderr) = self.ssh_text(&output.stderr, "stderr");
+
+    match ::core::primitive::bool::then_some(output.status.success(), ()) {
+      ::core::option::Option::Some(()) => Ok(stdout.trim().to_owned()),
+      ::core::option::Option::None => Err(Error::RemoteCommand {
+        host: self.host.clone(),
+        command: match arguments.first().copied() {
+          ::core::option::Option::Some(present) => present,
+          ::core::option::Option::None => "",
+        }
+        .to_owned(),
+        status: output.status,
+        stderr: stderr.trim().to_owned(),
+      }),
+    }
+  }
+
+  fn discovery_output(&mut self, arguments: &[&str]) -> Result<String, Never> {
+    Ok(match self.ssh_args(arguments) {
+      Ok(output) => output,
+      Err(fault) => {
+        console_core_logging::debug!("discovering the account on {}: {fault}", self.host);
         String::new()
       }
     })
+  }
+
+  pub fn inspect(&mut self, arguments: &[&str]) -> Result<String, Error> {
+    let Ok(console) = InternalProgram::Console.path();
+    let mut words = vec![console, "device-inspect"];
+    words.extend_from_slice(arguments);
+
+    self.ssh_args(&words)
+  }
+
+  fn inspect_as_user(&mut self, arguments: &[&str]) -> Result<String, Error> {
+    let Ok(whom) = self.whoever();
+    let Ok(console) = InternalProgram::Console.path();
+    let mut command = vec![console, "device-inspect"];
+    command.extend_from_slice(arguments);
+    let Ok(words) = reaching::user_words(Whom(&whom), &command);
+
+    self.ssh_args(&words)
   }
 
   fn ssh_text<'text>(&self, bytes: &'text [u8], stream: &str) -> Result<&'text str, Never> {
@@ -504,18 +598,43 @@ impl<'watch> Device<'watch> {
     })
   }
 
-  pub fn in_session(&mut self, command: &str) -> Result<String, Never> {
+  pub fn in_session(&mut self, arguments: &[&str]) -> Result<String, Error> {
     let Ok(whom) = self.whoever();
-    let Ok(session) = session_environment(&whom);
-    let asked = format!("{session} && {command}");
+    let Ok(command) = reaching::session_words(None, arguments);
+    let Ok(words) = reaching::user_words(Whom(&whom), &command);
 
-    self.user(&asked)
+    self.ssh_args(&words)
   }
 
+  fn session_output(&mut self, arguments: &[&str]) -> Result<String, Never> {
+    Ok(match self.in_session(arguments) {
+      Ok(said) => said,
+      Err(fault) => {
+        console_core_logging::warn!("console-test-stages: {fault}");
+        String::new()
+      }
+    })
+  }
+
+  #[cfg_attr(
+    dylint_lib = "explicit082_no_built_shell_line",
+    expect(
+      explicit082_no_built_shell_line,
+      reason = "test scenarios explicitly supply a shell program; the SSH transport quotes it as one word and forwards its text verbatim"
+    )
+  )]
   pub fn user(&mut self, command: &str) -> Result<String, Never> {
     let Ok(whom) = self.whoever();
-    let Ok(quoted) = shell_quote(command);
-    let asked = format!("machinectl shell --uid={whom} .host /bin/sh -c {quoted}");
+    let owner = format!("--uid={whom}");
+    let Ok(asked) = shell::join([
+      "machinectl",
+      "shell",
+      &owner,
+      ".host",
+      "/bin/sh",
+      "-c",
+      command,
+    ]);
 
     self.ssh(&asked)
   }
@@ -524,7 +643,8 @@ impl<'watch> Device<'watch> {
     &mut self,
     at: &str,
   ) -> Result<Vec<console_panel::description::Description>, Never> {
-    let Ok(said) = self.in_session(&format!("cat {at} 2>/dev/null"));
+    let Ok(console) = InternalProgram::Console.path();
+    let Ok(said) = self.session_output(&[console, "device-runtime-file", "read", at]);
 
     Ok(
       said
@@ -537,8 +657,24 @@ impl<'watch> Device<'watch> {
     )
   }
 
-  pub fn hypr(&mut self, command: &str) -> Result<String, Never> {
-    self.in_session(&format!("hyprctl {command}"))
+  fn compositor_command(&mut self, arguments: &[&str]) -> Result<String, Never> {
+    let Ok(program) = console_compositor::session::control_name();
+    let mut words = vec![program];
+    words.extend_from_slice(arguments);
+
+    self.session_output(&words)
+  }
+
+  pub fn compositor_text(&mut self, query: Query) -> Result<String, Never> {
+    let Ok(arguments) = query.words();
+
+    self.compositor_command(arguments)
+  }
+
+  fn dispatch(&mut self, lua: &str) -> Result<String, Never> {
+    let Ok(verb) = Request::Dispatch.word();
+
+    self.compositor_command(&[verb, lua])
   }
 
   fn loaded(&mut self) -> Result<Option<Profile>, Never> {
@@ -563,10 +699,10 @@ impl<'watch> Device<'watch> {
   fn chorded(&mut self, capabilities: &[String]) -> Result<String, Never> {
     self.taken = None;
 
-    let Ok(chord) = chord(capabilities);
-    let Ok(asked) = calling(&chord);
+    let Ok(words) = calling(capabilities);
+    let Ok(asked) = shell::join(&words);
 
-    self.ssh(&asked)
+    self.ssh(&format!("{asked} 2>&1"))
   }
 
   pub fn press(&mut self, button: &str) -> Result<(), Never> {
@@ -582,21 +718,19 @@ impl<'watch> Device<'watch> {
     Ok(())
   }
 
-  pub fn presses(&mut self, button: &str, times: u32) -> Result<(), Never> {
+  pub fn presses(&mut self, button: &str, times: u32) -> Result<(), Error> {
     self.taken = None;
 
     let Ok(found) = self.capability(button);
 
     let capability = match found {
-      Some(capability) => capability,
-      None => return Ok(()),
+      Some(matched_capability) => matched_capability,
+      ::core::option::Option::None => return Ok(()),
     };
 
-    let Ok(chord) = chord(&[capability]);
-    let Ok(asked) = calling(&chord);
-    let Ok(_) = self.ssh(&format!(
-      "for _ in $(seq {times}); do {asked}; sleep {LET_GO}; done"
-    ));
+    let count = times.to_string();
+    let Ok(console) = InternalProgram::Console.path();
+    self.ssh_args(&[console, "device-repeat-chord", &count, &capability])?;
 
     Ok(())
   }
@@ -694,14 +828,9 @@ impl<'watch> Device<'watch> {
 
   fn axis(&mut self, capability: &str, value: Value<'_>) -> CheckResult {
     let Ok(quoted) = shell_quote(capability);
-    let value_2 = value.0;
-    let asked = format!(
-      "busctl --system call {} {} {} SendEvent sv {quoted} {value} 2>&1",
-      BUS.0,
-      BUS.1,
-      BUS.2,
-      value = value_2
-    );
+    let Ok(words) = front::event_arguments();
+    let Ok(call) = shell::join(words);
+    let asked = format!("{call} {quoted} {} 2>&1", value.0);
     let Ok(said) = self.ssh(&asked);
 
     match ::core::primitive::bool::then_some(said.contains("Call failed"), ()) {
@@ -720,79 +849,79 @@ impl<'watch> Device<'watch> {
   }
 
   pub fn touch(&mut self, at: (u32, u32)) -> CheckResult {
-    self.tapped(
-      &format!("{} {}", at.0, at.1),
-      format!("nothing could be pressed at {at:?}"),
-    )
+    self.tapped(&[&at.0.to_string(), &at.1.to_string()])
   }
 
-  fn tapped(&mut self, asked: &str, otherwise: String) -> CheckResult {
+  fn tapped(&mut self, arguments: &[&str]) -> CheckResult {
     self.taken = None;
 
     let Ok(whom) = self.whoever();
-    let Ok(session) = session_environment(&whom);
-    let Ok(said) = self.ssh(&format!("{{ {session} && console-tap {asked}; }} 2>&1"));
+    let Ok(tap) = InternalProgram::Tap.name();
+    let mut command = vec![tap];
+    command.extend_from_slice(arguments);
+    let Ok(words) = reaching::session_words(Some(Whom(&whom)), &command);
+    self.ssh_args(&words)?;
 
-    match (
-      said.contains("console-tap:"),
-      said.contains("Hyprland session"),
-    ) {
-      (true, _) | (_, true) => cannot(&format!("{otherwise}: {}", said.trim())),
-      (false, false) => Ok(()),
-    }
+    Ok(())
   }
 
   pub fn swipe(&mut self, from: (u32, u32), to: (u32, u32)) -> CheckResult {
-    self.tapped(
-      &format!("--swipe {} {} {} {}", from.0, from.1, to.0, to.1),
-      format!("no finger could be drawn from {from:?} to {to:?}"),
-    )
+    self.tapped(&[
+      "--swipe",
+      &from.0.to_string(),
+      &from.1.to_string(),
+      &to.0.to_string(),
+      &to.1.to_string(),
+    ])
   }
 
   pub fn point(&mut self, at: (u32, u32)) -> CheckResult {
-    self.pointing(None, at, String::new())
+    self.pointing(None, at, &[])
   }
 
   pub fn click(&mut self, at: (u32, u32)) -> CheckResult {
-    self.pointing(None, at, " --click".to_string())
+    self.pointing(None, at, &["--click"])
   }
 
   pub fn scroll(&mut self, at: (u32, u32), notches: i32) -> CheckResult {
-    self.pointing(None, at, format!(" --scroll {notches}"))
+    self.pointing(None, at, &["--scroll", &notches.to_string()])
   }
 
   pub fn point_in(&mut self, namespace: &str, at: (u32, u32)) -> CheckResult {
-    self.pointing(Some(namespace), at, String::new())
+    self.pointing(Some(namespace), at, &[])
   }
 
   pub fn click_in(&mut self, namespace: &str, at: (u32, u32)) -> CheckResult {
-    self.pointing(Some(namespace), at, " --click".to_string())
+    self.pointing(Some(namespace), at, &["--click"])
   }
 
   pub fn scroll_in(&mut self, namespace: &str, at: (u32, u32), notches: i32) -> CheckResult {
-    self.pointing(Some(namespace), at, format!(" --scroll {notches}"))
+    self.pointing(Some(namespace), at, &["--scroll", &notches.to_string()])
   }
 
-  fn pointing(&mut self, inside: Option<&str>, at: (u32, u32), doing: String) -> CheckResult {
+  fn pointing(&mut self, inside: Option<&str>, at: (u32, u32), doing: &[&str]) -> CheckResult {
     self.taken = None;
 
-    let within = match inside {
-      Some(namespace) => format!("--in {namespace} "),
-      None => String::new(),
-    };
+    let x = at.0.to_string();
+    let y = at.1.to_string();
+    let Ok(point) = InternalProgram::Point.name();
+    let mut words = vec![point];
 
-    let Ok(said) = self.in_session(&format!(
-      "console-point {within}{} {}{doing} 2>&1",
-      at.0, at.1
-    ));
+    match inside {
+      Some(namespace) => words.extend(["--in", namespace]),
+      None => {}
+    }
 
-    match (said.contains("console-point:"), said.contains("not found")) {
-      (_, true) => cannot("this device has no console-point; deploy before pointing at it"),
-      (true, false) => failed(format!(
-        "the pointer could not be put at {at:?}: {}",
-        said.trim()
-      )),
-      (false, false) => Ok(()),
+    words.extend([x.as_str(), y.as_str()]);
+    words.extend_from_slice(doing);
+
+    match self.in_session(&words) {
+      Ok(_) => Ok(()),
+      Err(fault @ Error::RemoteCommand { status, .. }) => match status.code() {
+        Some(97) => cannot("this device has no console-point; deploy before pointing at it"),
+        Some(_) | None => failed(format!("the pointer could not be put at {at:?}: {fault}")),
+      },
+      Err(fault) => failed(format!("the pointer could not be put at {at:?}: {fault}")),
     }
   }
 
@@ -820,7 +949,7 @@ impl<'watch> Device<'watch> {
   }
 
   pub fn layer(&mut self, namespace: &str) -> Result<Option<(u32, u32, u32, u32)>, Never> {
-    let Ok(said) = self.hypr("layers -j");
+    let Ok(said) = self.compositor_text(Query::Layers);
     let Ok(read) = parse_answer(console_compositor::Layers, &said);
 
     let surfaces = match read {
@@ -860,9 +989,9 @@ impl<'watch> Device<'watch> {
   }
 
   pub fn exec_cmd(&mut self, command: &str) -> Result<String, Never> {
-    let Ok(quoted) = shell_quote(&format!("hl.dsp.exec_cmd(\"{command}\")"));
-
-    self.hypr(&format!("dispatch {quoted}"))
+    let Ok(lua) =
+      console_compositor::lua::exec(command, console_compositor::lua::Exec::Dispatcher);
+    self.dispatch(&lua)
   }
 
   pub fn addresses(&mut self) -> Result<Vec<String>, Never> {
@@ -959,8 +1088,7 @@ impl<'watch> Device<'watch> {
   pub fn go_to(&mut self, workspace: &str) -> Result<Outcome, Never> {
     let wanted = workspace.to_string();
     let Ok(lua) = console_compositor::onto(&wanted, console_compositor::Carrying::None);
-    let Ok(quoted) = shell_quote(&lua);
-    let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
+    let Ok(_) = self.dispatch(&lua);
 
     self.until::<Never>(
       |seen| {
@@ -979,8 +1107,7 @@ impl<'watch> Device<'watch> {
 
   pub fn to_an_empty_workspace(&mut self) -> Result<Outcome, Never> {
     let Ok(lua) = console_compositor::onto(EMPTY_WORKSPACE, console_compositor::Carrying::None);
-    let Ok(quoted) = shell_quote(&lua);
-    let Ok(_) = self.hypr(&format!("dispatch {quoted}"));
+    let Ok(_) = self.dispatch(&lua);
 
     self.until::<Never>(
       |seen| {
@@ -1103,7 +1230,7 @@ impl<'watch> Device<'watch> {
   }
 
   pub fn workspace(&mut self) -> Result<String, Never> {
-    let Ok(said) = self.hypr("activeworkspace -j");
+    let Ok(said) = self.compositor_text(Query::ActiveWorkspace);
     let Ok(found) = read(&said);
 
     let found_3 = match found {
@@ -1120,7 +1247,7 @@ impl<'watch> Device<'watch> {
   }
 
   fn clients(&mut self) -> Result<Vec<serde_json::Value>, Never> {
-    let Ok(said) = self.hypr("clients -j");
+    let Ok(said) = self.compositor_text(Query::Clients);
     let Ok(found) = read(&said);
 
     let found_3 = match found {
@@ -1134,7 +1261,7 @@ impl<'watch> Device<'watch> {
   }
 
   pub fn windows_open(&mut self) -> Result<Vec<console_compositor::Window>, Never> {
-    let Ok(said) = self.hypr("clients -j");
+    let Ok(said) = self.compositor_text(Query::Clients);
     let Ok(found) = read(&said);
 
     Ok(match found {
@@ -1180,12 +1307,10 @@ impl<'watch> Device<'watch> {
     )
   }
 
-  pub fn types(&mut self, words: &str) -> Result<String, Never> {
-    let Ok(whom) = self.whoever();
-    let Ok(session) = session_environment(&whom);
-    let Ok(quoted) = shell_quote(words);
+  pub fn types(&mut self, words: &str) -> Result<String, Error> {
+    let Ok(wtype) = Program::Wtype.name();
 
-    self.user(&format!("{session} && wtype {quoted}"))
+    self.in_session(&[wtype, "--", words])
   }
 
   pub fn press_chord(&mut self, held: &[&str], key: &str) -> CheckResult {
@@ -1211,7 +1336,7 @@ impl<'watch> Device<'watch> {
   }
 
   pub fn windows_here(&mut self) -> Result<i64, Never> {
-    let Ok(said) = self.hypr("activeworkspace -j");
+    let Ok(said) = self.compositor_text(Query::ActiveWorkspace);
     let Ok(found) = read(&said);
 
     let found_3 = match found {
@@ -1228,7 +1353,7 @@ impl<'watch> Device<'watch> {
   }
 
   pub fn keyboard(&mut self) -> Result<Ready, Never> {
-    let Ok(said) = self.hypr("layers -j");
+    let Ok(said) = self.compositor_text(Query::Layers);
 
     Ok(
       match ::core::primitive::bool::then_some(said.contains("console-keyboard"), ()) {
@@ -1244,16 +1369,18 @@ impl<'watch> Device<'watch> {
       DryRun::Really => {}
     }
 
-    let asked = format!(
-      "busctl --system get-property {} {} {} ProfileName",
-      BUS.0, BUS.1, BUS.2
-    );
+    let Ok(words) = front::profile_name_command();
+    let Ok(asked) = shell::join(words);
     let Ok(said) = self.ssh(&asked);
+    let Ok(name) = front::quoted_string(&said);
 
-    Ok(match said.split('"').rev().nth(1) {
-      Some(inside) => inside.to_string(),
-      None => String::new(),
-    })
+    Ok(
+      match name {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => "",
+      }
+      .to_owned(),
+    )
   }
 
   pub fn brightness(&mut self) -> Result<Level, Never> {
@@ -1305,40 +1432,12 @@ impl<'watch> Device<'watch> {
     self.user("sed -n 's/^gtk-icon-theme-name=//p' ~/.config/gtk-4.0/settings.ini | head -1")
   }
 
-  pub fn icons_missing(&mut self, theme: &str, names: &[&str]) -> Result<Vec<String>, Never> {
-    let asked = format!(
-      "seen=''; todo={theme}; \
-             while [ -n \"$todo\" ]; do \
-               next=''; \
-               for one in $todo; do \
-                 case \" $seen \" in *\" $one \"*) continue ;; esac; \
-                 seen=\"$seen $one\"; \
-                 next=\"$next $(sed -n 's/^Inherits=//p' \
-                   /usr/share/icons/$one/index.theme 2>/dev/null | head -1 | tr ',' ' ')\"; \
-               done; \
-               todo=$next; \
-             done; \
-             where=''; \
-             for one in $seen hicolor; do where=\"$where /usr/share/icons/$one\"; done; \
-             have=$(find -L $where \\( -name '*.svg' -o -name '*.png' \\) \
-               -printf '%f\\n' 2>/dev/null | sed 's/\\.[^.]*$//' | sort -u); \
-             for name in {names}; do \
-               printf '%s\\n' \"$have\" | grep -qxF \"$name\" || echo \"$name\"; \
-             done",
-      theme = theme,
-      names = names.join(" ")
-    );
+  pub fn icons_missing(&mut self, theme: &str, names: &[&str]) -> Result<Vec<String>, Error> {
+    let mut arguments = vec!["icons-missing", theme];
+    arguments.extend_from_slice(names);
+    let said = self.inspect_as_user(&arguments)?;
 
-    let Ok(said) = self.user(&asked);
-
-    Ok(
-      said
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(str::to_string)
-        .collect(),
-    )
+    Ok(said.lines().map(str::to_owned).collect())
   }
 
   pub fn files(&mut self, where_: &str) -> Result<Vec<String>, Never> {
@@ -1362,7 +1461,7 @@ impl<'watch> Device<'watch> {
   }
 
   pub fn menus(&mut self) -> Result<Vec<String>, Never> {
-    let Ok(said) = self.hypr("layers -j");
+    let Ok(said) = self.compositor_text(Query::Layers);
     let Ok(read) = read(&said);
 
     let found = match read {
@@ -1487,39 +1586,10 @@ impl<'watch> Device<'watch> {
     )
   }
 
-  pub fn frame_cache(&mut self, picture: &str) -> Result<(Option<i64>, Option<i64>), Never> {
-    let Ok(quoted) = shell_quote(picture);
-    let Ok(said) = self.user(&format!(
-      "find ~/.cache/awww -type f -exec stat -c %Y {{}} + 2>/dev/null \
-             | sort -n | tail -1; echo --; stat -c %Y {quoted} 2>/dev/null"
-    ));
-    let mut halves = said.split("--");
-    let last = |half: Option<&str>| {
-      let mut found = None;
+  pub fn wallpaper(&mut self) -> Result<String, Error> {
+    let Ok(paper) = InternalProgram::Paper.path();
 
-      let said_3 = match half {
-        Some(said_2) => said_2,
-        None => NOTHING_SAID,
-      };
-
-      for word in said_3.split_whitespace() {
-        found = match word.parse::<i64>() {
-          Ok(number) => Some(number),
-          Err(_not_a_number) => found,
-        };
-      }
-
-      found
-    };
-
-    Ok((last(halves.next()), last(halves.next())))
-  }
-
-  pub fn wallpaper(&mut self) -> Result<String, Never> {
-    let Ok(whom) = self.whoever();
-    let Ok(session) = session_environment(&whom);
-
-    self.user(&format!("{session} && awww query"))
+    self.in_session(&[paper, "query"])
   }
 
   fn fetch_picture(&mut self, shot: &std::path::Path) -> Result<(), Never> {
@@ -1638,7 +1708,7 @@ impl<'watch> Device<'watch> {
   }
 
   fn shown(&mut self) -> Result<Option<console_screen::Screen>, Never> {
-    let Ok(said) = self.hypr("monitors -j");
+    let Ok(said) = self.compositor_text(Query::Monitors);
     let Ok(read) = read(&said);
 
     let found = match read {
@@ -1809,27 +1879,8 @@ fn read(said: &str) -> Result<Option<serde_json::Value>, Never> {
   })
 }
 
-pub fn shell_quote(said: &str) -> Result<String, Never> {
-  Ok(format!("'{}'", said.replace('\'', r"'\''")))
-}
-
-fn chord(capabilities: &[String]) -> Result<String, Never> {
-  let mut words = vec![format!("as {}", capabilities.len())];
-
-  for one in capabilities {
-    let Ok(one_2) = shell_quote(one);
-
-    words.push(one_2);
-  }
-
-  Ok(words.join(" "))
-}
-
-fn calling(chord: &str) -> Result<String, Never> {
-  Ok(format!(
-    "busctl --system call {} {} {} SendButtonChord {chord} 2>&1",
-    BUS.0, BUS.1, BUS.2
-  ))
+fn calling(capabilities: &[String]) -> Result<Vec<String>, Never> {
+  front::chord_arguments(capabilities)
 }
 
 #[cfg(test)]
@@ -1937,8 +1988,23 @@ mod tests {
   #[test]
   fn a_chord_says_how_many_it_is_before_it_says_what_they_are() {
     assert_eq!(
-      super::chord(&["Gamepad:Button:South".to_string()]),
-      Ok("as 1 'Gamepad:Button:South'".to_string())
+      super::calling(&["Gamepad:Button:South".to_string()]).as_deref(),
+      Ok(
+        [
+          "busctl",
+          "--system",
+          "call",
+          front::BUS,
+          front::OBJECT,
+          front::INTERFACE,
+          "SendButtonChord",
+          "as",
+          "1",
+          "Gamepad:Button:South",
+        ]
+        .map(str::to_owned)
+        .as_slice()
+      )
     );
   }
 
@@ -1950,8 +2016,24 @@ mod tests {
     let other_2 = other.ok_or("a letter")?;
 
     assert_eq!(
-      super::chord(&[one_2, other_2]),
-      Ok("as 2 'Keyboard:KeyLeftMeta' 'Keyboard:KeyI'".to_string())
+      super::calling(&[one_2, other_2]).as_deref(),
+      Ok(
+        [
+          "busctl",
+          "--system",
+          "call",
+          front::BUS,
+          front::OBJECT,
+          front::INTERFACE,
+          "SendButtonChord",
+          "as",
+          "2",
+          "Keyboard:KeyLeftMeta",
+          "Keyboard:KeyI",
+        ]
+        .map(str::to_owned)
+        .as_slice()
+      )
     );
 
     Ok(())

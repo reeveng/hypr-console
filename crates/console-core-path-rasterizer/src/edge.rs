@@ -218,13 +218,13 @@ struct QuadraticAxis {
 impl QuadraticAxis {
   fn new([start, control, end]: [FDot6; 3], bits: u32) -> Result<Self, Never> {
     let [bend, slope, _] = bezier::quadratic_coefficients([start, control, end].map(Wrapping));
-    let slope = slope.0.wrapping_shl(9);
-    let bend = bend.0.wrapping_shl(9);
+    let slope_2 = slope.0.wrapping_shl(9);
+    let bend_2 = bend.0.wrapping_shl(9);
 
     Ok(Self {
       at: start.wrapping_shl(10),
-      delta: slope.wrapping_add(bend.wrapping_shr(bits)),
-      change: bend.wrapping_shr(bits.saturating_sub(1)),
+      delta: slope_2.wrapping_add(bend_2.wrapping_shr(bits)),
+      change: bend_2.wrapping_shr(bits.saturating_sub(1)),
       end: end.wrapping_shl(10),
     })
   }
@@ -352,19 +352,19 @@ impl CubicAxis {
   fn new([start, first, second, end]: [FDot6; 4], bits: CubicBits) -> Result<Self, Never> {
     let [inflection, bend, slope, _] =
       bezier::cubic_coefficients([start, first, second, end].map(Wrapping), Wrapping(3));
-    let slope = slope.0.wrapping_shl(bits.coefficient_shift);
-    let bend = bend.0.wrapping_shl(bits.coefficient_shift);
-    let inflection = inflection.0.wrapping_shl(bits.coefficient_shift);
-    let third = inflection
+    let slope_2 = slope.0.wrapping_shl(bits.coefficient_shift);
+    let bend_2 = bend.0.wrapping_shl(bits.coefficient_shift);
+    let inflection_2 = inflection.0.wrapping_shl(bits.coefficient_shift);
+    let third = inflection_2
       .wrapping_mul(3)
       .wrapping_shr(bits.subdivision.saturating_sub(1));
 
     Ok(Self {
       at: start.wrapping_shl(10),
-      delta: slope
-        .wrapping_add(bend.wrapping_shr(bits.subdivision))
-        .wrapping_add(inflection.wrapping_shr(bits.subdivision.wrapping_mul(2))),
-      change: bend.wrapping_mul(2).wrapping_add(third),
+      delta: slope_2
+        .wrapping_add(bend_2.wrapping_shr(bits.subdivision))
+        .wrapping_add(inflection_2.wrapping_shr(bits.subdivision.wrapping_mul(2))),
+      change: bend_2.wrapping_mul(2).wrapping_add(third),
       third,
       end: end.wrapping_shl(10),
     })

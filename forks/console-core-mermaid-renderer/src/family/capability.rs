@@ -20,49 +20,63 @@ pub struct RenderCapabilityPlan {
 
 impl RenderCapabilityPlan {
     /// Returns the detected Mermaid diagram type used by render dispatch.
+    #[must_use]
     pub fn diagram_type(&self) -> &str {
         &self.diagram_type
     }
 
     /// Returns the authoritative typed render family selected before layout starts.
+    #[must_use]
     pub const fn family_id(&self) -> DiagramFamilyId {
         self.family_id
     }
 
     /// Placement modes supported by this actual typed render family.
+    #[must_use]
     pub fn supported_layout_adaptations(&self) -> &'static [LayoutAdaptation] {
         supported_layout_adaptations(self.family_id)
     }
 
     /// Returns every optional capability this operation requires.
+    #[must_use]
     pub fn required_capabilities(&self) -> &[RenderCapability] {
         &self.required
     }
 
     /// Returns the required capabilities unavailable in the planned render session.
+    #[must_use]
     pub fn missing_capabilities(&self) -> &[RenderCapability] {
         &self.missing
     }
 
     /// Iterates over stable semantic IDs for every required capability.
+    #[must_use]
     pub fn required_capability_ids(&self) -> impl ExactSizeIterator<Item = &'static str> + '_ {
         self.required.iter().copied().map(RenderCapability::id)
     }
 
     /// Iterates over stable semantic IDs for every missing capability.
+    #[must_use]
     pub fn missing_capability_ids(&self) -> impl ExactSizeIterator<Item = &'static str> + '_ {
         self.missing.iter().copied().map(RenderCapability::id)
     }
 
     /// Reports whether the planned render session satisfies every requirement.
+    #[must_use]
     pub fn is_ready(&self) -> bool {
         self.missing.is_empty()
     }
 
     pub(super) fn ensure_available(&self) -> Result<()> {
-        let Some(capability) = self.missing.first().copied() else {
-            return Ok(());
+        let capability = {
+            let optional_capability = self.missing.first().copied();
+
+            match optional_capability {
+                Some(matched_capability) => matched_capability,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         Err(Error::MissingCapability {
             capability,
             diagram_type: self.diagram_type.clone(),
@@ -71,6 +85,7 @@ impl RenderCapabilityPlan {
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn semantic_flowchart_requires_math(model: &diagrams::flowchart::FlowchartModel) -> bool {
     model
         .nodes
@@ -87,6 +102,7 @@ fn semantic_flowchart_requires_math(model: &diagrams::flowchart::FlowchartModel)
 }
 
 #[cfg(feature = "diagram-sequence")]
+#[must_use]
 fn sequence_requires_math(model: &diagrams::sequence::SequenceDiagramModel) -> bool {
     model
         .actors
@@ -98,6 +114,7 @@ fn sequence_requires_math(model: &diagrams::sequence::SequenceDiagramModel) -> b
 }
 
 #[cfg(feature = "diagram-mindmap")]
+#[must_use]
 fn mindmap_requires_math(model: &diagrams::mindmap::MindmapDiagramRenderModel) -> bool {
     model
         .nodes
@@ -106,6 +123,7 @@ fn mindmap_requires_math(model: &diagrams::mindmap::MindmapDiagramRenderModel) -
         .any(crate::math::contains_delimited_math)
 }
 
+#[must_use]
 fn parsed_render_requires_math(parsed: &PresentationDiagram) -> bool {
     match parsed.model() {
         #[cfg(feature = "diagram-usecase")]
@@ -156,6 +174,7 @@ fn parsed_render_requires_math(parsed: &PresentationDiagram) -> bool {
     }
 }
 
+#[must_use]
 fn capability_is_available(capability: RenderCapability, session: &RenderSession) -> bool {
     session.supports_capability(capability)
 }
@@ -164,11 +183,13 @@ fn capability_is_available(capability: RenderCapability, session: &RenderSession
     unused_variables,
     reason = "Dispatch inputs depend on the selected diagram families."
 )]
+#[must_use]
 fn required_capabilities(parsed: &PresentationDiagram) -> Vec<RenderCapability> {
     let mut required = Vec::with_capacity(2);
     let meta = parsed.metadata();
     let model = parsed.model();
     let effective_config = &meta.effective_config;
+
     match model {
         #[cfg(feature = "diagram-architecture")]
         RenderSemanticModel::Architecture(_) => {
@@ -176,8 +197,13 @@ fn required_capabilities(parsed: &PresentationDiagram) -> Vec<RenderCapability> 
         }
         #[cfg(feature = "diagram-mindmap")]
         RenderSemanticModel::Mindmap(_) => {
-            if let Some(capability) = crate::mindmap::required_layout_capability(effective_config) {
-                required.push(capability);
+            {
+                match crate::mindmap::required_layout_capability(effective_config) {
+                    Some(capability) => {
+                        required.push(capability);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
         #[cfg(feature = "diagram-agentflow")]
@@ -235,6 +261,7 @@ fn required_capabilities(parsed: &PresentationDiagram) -> Vec<RenderCapability> 
     if parsed_render_requires_math(parsed) {
         required.push(RenderCapability::Math);
     }
+
     required
 }
 
@@ -244,6 +271,7 @@ fn required_capabilities(parsed: &PresentationDiagram) -> Vec<RenderCapability> 
     clippy::match_like_matches_macro,
     reason = "Each arm has a distinct feature condition that only coincides in all-family builds."
 )]
+#[must_use]
 pub fn supports_diagram_type(diagram_type: &str) -> bool {
     match merman_model::family::diagram_type_family_kind(diagram_type) {
         Some("error") => true,
@@ -289,6 +317,7 @@ fn validate_paired_render_model(parsed: &PresentationDiagram) -> Result<DiagramF
     let meta = parsed.metadata();
     let model = parsed.model();
     let diagram_type = meta.diagram_type.as_str();
+
     if let RenderSemanticModel::CustomJson(custom) = model {
         return Err(Error::NonRenderableCustomModel {
             diagram_type: meta.diagram_type.clone(),
@@ -311,6 +340,7 @@ fn validate_paired_render_model(parsed: &PresentationDiagram) -> Result<DiagramF
             diagram_type: diagram_type.to_owned(),
         });
     }
+
     parsed.family_id().ok_or_else(|| Error::InvalidModel {
         message: format!(
             "render model variant {} has no built-in family for diagram type: {diagram_type}",
@@ -319,6 +349,7 @@ fn validate_paired_render_model(parsed: &PresentationDiagram) -> Result<DiagramF
     })
 }
 
+#[must_use]
 fn supported_layout_adaptations(family: DiagramFamilyId) -> &'static [LayoutAdaptation] {
     if family == DiagramFamilyId::KANBAN {
         &[LayoutAdaptation::None, LayoutAdaptation::FitWidth]
@@ -336,16 +367,20 @@ pub fn validate_layout_options(
     if options.adaptation == LayoutAdaptation::None {
         return Ok(());
     }
+
     let family = validate_paired_render_model(parsed)?;
+
     if !supported_layout_adaptations(family).contains(&options.adaptation) {
         return Err(Error::UnsupportedLayoutAdaptation {
             adaptation: options.adaptation.id(),
             diagram_type: parsed.metadata().diagram_type.clone(),
         });
     }
+
     if !options.container_width.is_finite() || options.container_width <= 0.0 {
         return Err(Error::InvalidAdaptationWidth);
     }
+
     Ok(())
 }
 
@@ -365,6 +400,7 @@ fn validate_render_input(
 ) -> Result<DiagramFamilyId> {
     let family = validate_paired_render_model(parsed)?;
     let meta = parsed.metadata();
+
     if !meta
         .effective_config
         .theme_compatibility()
@@ -372,6 +408,7 @@ fn validate_render_input(
     {
         return Err(Error::ThemeParseBindingMismatch);
     }
+
     session
         .work_meter()
         .preflight_parsed_render(parsed, OperationPhase::Layout)?;

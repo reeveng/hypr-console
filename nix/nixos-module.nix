@@ -12,6 +12,8 @@ let
     install -Dm644 ${source + "/files/usr/local/share/wireplumber/scripts/console-balanced-playback.lua"} \
       "$out/share/wireplumber/scripts/console-balanced-playback.lua"
   '';
+  applicationVolumes = pkgs.writeTextDir "share/pipewire/pipewire-pulse.conf.d/console-electron.conf"
+    (builtins.readFile (source + "/files/home/@user@/.config/pipewire/pipewire-pulse.conf.d/console-electron.conf"));
   minimumRust = (builtins.fromTOML (builtins.readFile (source + "/Cargo.toml")))
     .workspace.package.rust-version;
   replace = text: builtins.replaceStrings
@@ -78,7 +80,7 @@ let
       ${pkgs.coreutils}/bin/install -Dm600 ${monitor} "$HOME/.config/console/hypr/monitor.lua"
     fi
     trap '${pkgs.systemd}/bin/systemctl --user stop console.target || true' EXIT
-    ${pkgs.hyprland}/bin/start-hyprland -- --config "$HOME/.config/console/hypr/hyprland.lua"
+    ${package}/bin/console-compositor start "$HOME/.config/console/hypr/hyprland.lua"
   '';
   session = pkgs.runCommand "console-wayland-session" {
     passthru.providedSessions = [ "console" ];
@@ -131,6 +133,7 @@ in
       enable = true;
       alsa.enable = true;
       pulse.enable = true;
+      configPackages = [ applicationVolumes ];
       wireplumber.configPackages = [ balancedPlayback ];
     };
     security.rtkit.enable = true;
@@ -143,7 +146,10 @@ in
     services.udev.extraRules = builtins.replaceStrings
       [ "/usr/bin/chgrp" "/usr/bin/chmod" ]
       [ "${pkgs.coreutils}/bin/chgrp" "${pkgs.coreutils}/bin/chmod" ]
-      (builtins.readFile (source + "/files/etc/udev/rules.d/90-console-backlight.rules"));
+      (builtins.concatStringsSep "\n" (map (name: builtins.readFile (source + "/files/etc/udev/rules.d/${name}")) [
+        "90-console-backlight.rules"
+        "91-console-charge-limit.rules"
+      ]));
     environment.systemPackages = [ package environment ];
     environment.pathsToLink = [ "/share/applications" "/share/icons" ];
     fonts.packages = [ pkgs.noto-fonts pkgs.noto-fonts-cjk-sans
@@ -159,7 +165,25 @@ in
     environment.etc = builtins.listToAttrs (map (name: {
       name = "systemd/user/${name}";
       value.text = replace (builtins.readFile (unitRoot + "/${name}"));
-    }) drops);
+    }) drops) // {
+      "console/hypridle.conf".text = replace (builtins.readFile (source + "/files/etc/console/hypridle.conf"));
+      "console-auth/console-fingerprint" = lib.mkIf config.services.fprintd.enable {
+        text = builtins.replaceStrings
+          [ "pam_fprintd.so" "pam_permit.so" ]
+          [ "${config.services.fprintd.package}/lib/security/pam_fprintd.so"
+            "${config.security.pam.package}/lib/security/pam_permit.so" ]
+          (builtins.readFile (source + "/files/etc/console-auth/console-fingerprint"));
+      };
+      "console-auth/console-lock-password".text = builtins.replaceStrings
+        [ "pam_unix.so" "pam_faillock.so" "pam_permit.so" ]
+        [ "${config.security.pam.pam_unixModulePath}"
+          "${config.security.pam.package}/lib/security/pam_faillock.so"
+          "${config.security.pam.package}/lib/security/pam_permit.so" ]
+        (builtins.readFile (source + "/files/etc/console-auth/console-lock-password"));
+      "console-auth/other".text = builtins.replaceStrings
+        [ "pam_deny.so" ] [ "${config.security.pam.package}/lib/security/pam_deny.so" ]
+        (builtins.readFile (source + "/files/etc/console-auth/other"));
+    };
     # No Arch sudoers, mkinitcpio, display-manager, package-manager or browser
     # policy files are copied. NixOS owns those integration points.
   };

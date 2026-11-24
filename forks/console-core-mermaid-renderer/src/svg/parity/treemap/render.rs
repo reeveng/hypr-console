@@ -3,6 +3,7 @@ use crate::treemap::{
     TREEMAP_SECTION_HEADER_HEIGHT_PX, TREEMAP_SECTION_INNER_PADDING_PX, TREEMAP_TITLE_CLASS,
 };
 
+#[must_use]
 fn treemap_group_decimal(value: &str) -> String {
     let (sign, unsigned) = value
         .strip_prefix('-')
@@ -11,13 +12,16 @@ fn treemap_group_decimal(value: &str) -> String {
     let (integer, fraction) = unsigned
         .split_once('.')
         .map_or((unsigned, ""), |(integer, fraction)| (integer, fraction));
-    let mut grouped = String::with_capacity(value.len() + integer.len() / 3);
+    let mut grouped = String::with_capacity(value.len() + integer.len().wrapping_div(3));
+
     for (index, digit) in integer.bytes().enumerate() {
         if index != 0 && (integer.len() - index).is_multiple_of(3) {
             grouped.push(',');
         }
+
         grouped.push(char::from(digit));
     }
+
     if fraction.is_empty() {
         format!("{sign}{grouped}")
     } else {
@@ -25,14 +29,17 @@ fn treemap_group_decimal(value: &str) -> String {
     }
 }
 
+#[must_use]
 fn treemap_js_number(value: f64) -> String {
     if !value.is_finite() {
         return "NaN".to_string();
     }
+
     let mut buffer = ryu_js::Buffer::new();
     let rendered = buffer
-        .format_finite(if value == -0.0 { 0.0 } else { value })
+        .format_finite(if ::core::matches!(::core::primitive::f64::classify(value), ::core::num::FpCategory::Zero) { 0.0 } else { value })
         .to_string();
+
     if let Some(rest) = rendered.strip_prefix('-') {
         format!("−{rest}")
     } else {
@@ -40,17 +47,20 @@ fn treemap_js_number(value: f64) -> String {
     }
 }
 
+#[must_use]
 fn treemap_exponential_parts(value: f64, significant_digits: usize) -> Option<(String, i32)> {
-    if !value.is_finite() || value == 0.0 {
+    if !value.is_finite() || ::core::matches!(::core::primitive::f64::classify(value), ::core::num::FpCategory::Zero) {
         return None;
     }
+
     let raw = format!("{:.*e}", significant_digits.saturating_sub(1), value.abs());
     let (mantissa, exponent) = raw.split_once('e')?;
     let digits = mantissa.replace('.', "");
-    let exponent = exponent.parse::<i32>().ok()?;
-    Some((digits, exponent))
+    let exponent_2 = match exponent.parse::<i32>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
+    Some((digits, exponent_2))
 }
 
+#[must_use]
 fn treemap_trim_decimal(mut value: String) -> String {
     if let Some(exponent_start) = value.find('e') {
         let exponent = value.split_off(exponent_start);
@@ -58,48 +68,61 @@ fn treemap_trim_decimal(mut value: String) -> String {
         mantissa.push_str(&exponent);
         return mantissa;
     }
+
     if let Some(dot) = value.find('.') {
         while value.ends_with('0') {
             value.pop();
         }
+
         if value.len() == dot + 1 {
             value.pop();
         }
     }
+
     value
 }
 
+#[must_use]
 fn treemap_format_significant(value: f64, precision: usize) -> String {
     if !value.is_finite() {
         return "NaN".to_string();
     }
-    if value == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(value), ::core::num::FpCategory::Zero) {
         return "0".to_string();
     }
 
-    let precision = precision.clamp(1, 21);
+    let precision_2 = precision.clamp(1, 21);
     let negative = value.is_sign_negative();
-    let Some((mut digits, exponent)) = treemap_exponential_parts(value, precision) else {
-        return treemap_js_number(value);
+
+    let (mut digits, exponent) = {
+        let optional_digits = treemap_exponential_parts(value, precision_2);
+
+        match optional_digits {
+            Some((matched_digits, matched_exponent_2)) => (matched_digits, matched_exponent_2),
+            ::core::option::Option::None => return treemap_js_number(value),
+        }
     };
+
     while digits.ends_with('0') {
         digits.pop();
     }
 
-    let mut formatted = if exponent >= precision as i32 || exponent < -6 {
+    let mut formatted = if exponent >= precision_2 as i32 || exponent < -6 {
         let mantissa = if digits.len() == 1 {
             digits
         } else {
             format!("{}.{}", &digits[..1], &digits[1..])
         };
-        let exponent = if exponent >= 0 {
+        let exponent_2 = if exponent >= 0 {
             format!("+{exponent}")
         } else {
             exponent.to_string()
         };
-        format!("{mantissa}e{exponent}")
+        format!("{mantissa}e{exponent}", exponent = exponent_2)
     } else {
         let decimal_position = exponent + 1;
+
         if decimal_position <= 0 {
             format!("0.{}{}", "0".repeat((-decimal_position) as usize), digits)
         } else if decimal_position as usize >= digits.len() {
@@ -114,6 +137,7 @@ fn treemap_format_significant(value: f64, precision: usize) -> String {
         }
     };
     formatted = treemap_trim_decimal(formatted);
+
     if negative {
         format!("−{formatted}")
     } else {
@@ -121,8 +145,10 @@ fn treemap_format_significant(value: f64, precision: usize) -> String {
     }
 }
 
+#[must_use]
 fn treemap_format_fixed(value: f64, precision: usize, grouped: bool) -> String {
     let formatted = format!("{:.*}", precision.min(20), value);
+
     if grouped {
         treemap_group_decimal(&formatted)
     } else if let Some(unsigned) = formatted.strip_prefix('-') {
@@ -132,15 +158,24 @@ fn treemap_format_fixed(value: f64, precision: usize, grouped: bool) -> String {
     }
 }
 
+#[must_use]
 fn treemap_format_scientific(value: f64, precision: usize) -> String {
     let raw = format!("{:.*e}", precision.min(20), value.abs());
-    let Some((mantissa, exponent)) = raw.split_once('e') else {
-        return raw;
+
+    let (mantissa, exponent) = {
+        let optional_mantissa = raw.split_once('e');
+
+        match optional_mantissa {
+            Some((matched_mantissa, matched_exponent)) => (matched_mantissa, matched_exponent),
+            ::core::option::Option::None => return raw,
+        }
     };
-    let exponent = exponent
+
+    let exponent_2 = exponent
         .parse::<i32>()
-        .map_or_else(|_| exponent.to_string(), |value| format!("{value:+}"));
-    let formatted = format!("{mantissa}e{exponent}");
+        .map_or_else(|_| exponent.to_string(), |value_2| format!("{value:+}", value = value_2));
+    let formatted = format!("{mantissa}e{exponent}", exponent = exponent_2);
+
     if value.is_sign_negative() {
         format!("−{formatted}")
     } else {
@@ -148,6 +183,7 @@ fn treemap_format_scientific(value: f64, precision: usize) -> String {
     }
 }
 
+#[must_use]
 fn treemap_format_precision(format_str: &str) -> Option<usize> {
     let dot = format_str.find('.')?;
     let digits = format_str[dot + 1..]
@@ -157,18 +193,27 @@ fn treemap_format_precision(format_str: &str) -> Option<usize> {
     (!digits.is_empty()).then(|| digits.parse().unwrap_or(6))
 }
 
+#[must_use]
 fn treemap_is_valid_but_unsupported_d3_format(format_str: &str) -> bool {
-    let format_str = format_str.trim();
-    let Some(type_char) = format_str.chars().last() else {
-        return false;
+    let format_str_2 = format_str.trim();
+
+    let type_char = {
+        let optional_type_char = format_str_2.chars().last();
+
+        match optional_type_char {
+            Some(matched_type_char) => matched_type_char,
+            ::core::option::Option::None => return false,
+        }
     };
+
     if !matches!(
         type_char,
         '%' | 'b' | 'c' | 'd' | 'e' | 'f' | 'g' | 'n' | 'o' | 'p' | 'r' | 's' | 'x' | 'X'
     ) {
         return false;
     }
-    let prefix = &format_str[..format_str.len() - type_char.len_utf8()];
+
+    let prefix = &format_str_2[..format_str_2.len() - type_char.len_utf8()];
     prefix.chars().all(|character| {
         character.is_ascii_digit()
             || matches!(
@@ -178,32 +223,43 @@ fn treemap_is_valid_but_unsupported_d3_format(format_str: &str) -> bool {
     })
 }
 
+#[must_use]
 fn treemap_default_format(value: f64) -> String {
     let mut formatted = treemap_format_significant(value, 12);
+
     if !formatted.contains('e') {
         formatted = treemap_group_decimal(&formatted);
     }
+
     formatted
 }
 
+#[must_use]
 fn treemap_format_standard(value: f64, format_str: &str) -> Option<String> {
-    let format_str = format_str.trim();
-    if format_str.is_empty() {
+    let format_str_2 = format_str.trim();
+
+    if format_str_2.is_empty() {
         return Some(treemap_js_number(value));
     }
 
-    let (grouped, body) = format_str
+    let (grouped, body) = format_str_2
         .strip_prefix(',')
-        .map_or((false, format_str), |rest| (true, rest));
+        .map_or((false, format_str_2), |rest| (true, rest));
+
     if body.contains(',') {
         return None;
     }
 
     let (precision, type_char) = if let Some(rest) = body.strip_prefix('.') {
         let digits = rest.chars().take_while(char::is_ascii_digit).count();
-        if digits == 0 {
-            return None;
+
+        match digits {
+            0 => {
+                return None;
+            },
+            _ => {},
         }
+
         let precision = rest[..digits].parse().unwrap_or(6);
         let suffix = &rest[digits..];
         let type_char = match suffix {
@@ -230,35 +286,52 @@ fn treemap_format_standard(value: f64, format_str: &str) -> Option<String> {
             "{}%",
             treemap_format_fixed(value * 100.0, precision.unwrap_or(6), false)
         )),
-        Some('e') => Some(treemap_format_scientific(value, precision.unwrap_or(6))),
-        Some('f') => Some(treemap_format_fixed(value, precision.unwrap_or(6), grouped)),
-        Some('g') => Some(treemap_format_significant(value, precision.unwrap_or(6))),
+        Some('e') => Some(treemap_format_scientific(value, match precision {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 6,
+        })),
+        Some('f') => Some(treemap_format_fixed(value, match precision {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 6,
+        }, grouped)),
+        Some('g') => Some(treemap_format_significant(value, match precision {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 6,
+        })),
         None => {
-            let mut formatted = treemap_format_significant(value, precision.unwrap_or(12));
+            let mut formatted = treemap_format_significant(value, match precision {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 12,
+            });
+
             if grouped && !formatted.contains('e') {
                 formatted = treemap_group_decimal(&formatted);
             }
+
             Some(formatted)
         }
         Some(_) => None,
     }
 }
 
+#[must_use]
 fn treemap_format_value(value: f64, format_str: &str) -> Option<String> {
-    let format_str = format_str.trim();
-    let format_str = if format_str.is_empty() {
+    let format_str_2 = format_str.trim();
+    let format_str_3 = if format_str_2.is_empty() {
         ","
     } else {
-        format_str
+        format_str_2
     };
-    if format_str == "$0,0" {
+
+    if format_str_3 == "$0,0" {
         return Some(format!(
             "${}",
             treemap_format_standard(value, ",").unwrap_or_else(|| treemap_default_format(value))
         ));
     }
-    if format_str.starts_with('$') && format_str.contains(',') {
-        let precision = treemap_format_precision(format_str)
+
+    if format_str_3.starts_with('$') && format_str_3.contains(',') {
+        let precision = treemap_format_precision(format_str_3)
             .map_or_else(String::new, |precision| format!(".{precision}"));
         return Some(format!(
             "${}",
@@ -266,15 +339,18 @@ fn treemap_format_value(value: f64, format_str: &str) -> Option<String> {
                 .unwrap_or_else(|| treemap_default_format(value))
         ));
     }
-    if let Some(rest) = format_str.strip_prefix('$') {
+
+    if let Some(rest) = format_str_3.strip_prefix('$') {
         if let Some(formatted) = treemap_format_standard(value, rest) {
             return Some(format!("${formatted}"));
         }
+
         return (!treemap_is_valid_but_unsupported_d3_format(rest))
             .then(|| treemap_default_format(value));
     }
-    treemap_format_standard(value, format_str).or_else(|| {
-        if treemap_is_valid_but_unsupported_d3_format(format_str) {
+
+    treemap_format_standard(value, format_str_3).or_else(|| {
+        if treemap_is_valid_but_unsupported_d3_format(format_str_3) {
             None
         } else {
             Some(treemap_default_format(value))
@@ -288,7 +364,7 @@ fn treemap_format_value_or_error(value: f64, format_str: &str) -> Result<String>
     })
 }
 
-// Treemap diagram SVG renderer implementation (split from parity.rs).
+
 
 fn measure_treemap_computed_length(
     measurer: &dyn crate::text::TextMeasurer,
@@ -317,24 +393,29 @@ fn fit_treemap_label_height(
                 .max(min_value_size)
     };
     work_meter.charge_emit_work(1)?;
+
     if font_size <= min_label_size || combined_height(font_size) <= available_height {
         return Ok(font_size);
     }
+
     if combined_height(min_label_size) > available_height {
         return Ok(min_label_size);
     }
 
-    // Font sizes are truncated before fitting. The original decrement loop selects the
-    // greatest fitting integer, or the minimum even when it does not fit. Search the same
-    // monotone predicate without assuming that subtracting 1 changes a large f64.
+
+
+
     let mut fitting = min_label_size;
     let mut too_large = font_size;
+
     loop {
         work_meter.charge_emit_work(1)?;
         let candidate = (fitting + (too_large - fitting) / 2.0).floor();
+
         if candidate <= fitting || candidate >= too_large {
             return Ok(fitting);
         }
+
         if combined_height(candidate) <= available_height {
             fitting = candidate;
         } else {
@@ -366,33 +447,43 @@ fn fit_treemap_label_width(
     }
 
     let mut measurement_matches = initial_style.matches_measurement(style);
-    if measure_treemap_computed_length(measurer, text, style, work_meter)? <= available_width
+
+    let checked_value = measure_treemap_computed_length(measurer, text, style, work_meter)?;
+
+    if checked_value <= available_width
         || font_size <= min_label_size
     {
         return Ok((font_size, measurement_matches));
     }
 
-    // The Mermaid loop walks down by one CSS pixel. Preserve its result for the monotone text
-    // measurement used by the renderer, but search the integer range in logarithmic work so a
-    // huge authored font size cannot force millions of host measurements.
+
+
+
     let mut fitting = min_label_size;
     let mut too_large = font_size;
+
     for _ in 0..MAX_WIDTH_SEARCH_STEPS {
         work_meter.charge_emit_work(1)?;
         let candidate = (fitting + (too_large - fitting) / 2.0).floor();
+
         if candidate <= fitting || candidate >= too_large {
             break;
         }
+
         style.font_size = candidate;
         measurement_matches &= initial_style
             .with_font_size_px(candidate)
             .matches_measurement(style);
-        if measure_treemap_computed_length(measurer, text, style, work_meter)? <= available_width {
+
+        let checked_value_2 = measure_treemap_computed_length(measurer, text, style, work_meter)?;
+
+        if checked_value_2 <= available_width {
             fitting = candidate;
         } else {
             too_large = candidate;
         }
     }
+
     style.font_size = fitting;
     measurement_matches &= initial_style
         .with_font_size_px(fitting)
@@ -439,21 +530,21 @@ pub(crate) fn render_treemap_diagram_svg(
     let title = layout.title.as_deref().filter(|t| !t.trim().is_empty());
     let mut typography_theme_receipt = typography_theme.begin_terminal_receipt(layout);
     let title_shift_y = layout.title_height;
-    let (title_text_style, title_bbox) = if let Some(title) = title {
+    let (title_text_style, title_bbox) = if let Some(title_2) = title {
         options
             .work_meter()
             .charge(1usize.saturating_add(theme.title_font_size.len().div_ceil(64)))?;
         let title_text_style = typography_theme.title_text_style(&theme.title_font_size);
-        let measurement_work = 1usize.saturating_add(title.len().div_ceil(64));
+        let measurement_work = 1usize.saturating_add(title_2.len().div_ceil(64));
         options
             .work_meter()
             .charge(measurement_work.saturating_mul(2))?;
         let style = title_text_style.style();
         let w = measurer
-            .measure_svg_raw_text_bbox_width_px(title, style)
+            .measure_svg_raw_text_bbox_width_px(title_2, style)
             .max(0.0);
         let h = measurer
-            .measure_svg_raw_text_bbox_height_px(title, style)
+            .measure_svg_raw_text_bbox_height_px(title_2, style)
             .max(0.0);
         (Some(title_text_style), Some((w, h)))
     } else {
@@ -477,6 +568,7 @@ pub(crate) fn render_treemap_diagram_svg(
     }
 
     impl TreemapViewBoxBounds {
+        #[must_use]
         const fn empty() -> Self {
             Self {
                 min_x: f64::INFINITY,
@@ -490,15 +582,18 @@ pub(crate) fn render_treemap_diagram_svg(
             let TreemapRect { x0, y0, x1, y1 } = rect;
             let w = x1 - x0;
             let h = y1 - y0;
+
             if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
                 return;
             }
+
             self.min_x = self.min_x.min(x0);
             self.min_y = self.min_y.min(y0);
             self.max_x = self.max_x.max(x1);
             self.max_y = self.max_y.max(y1);
         }
 
+        #[must_use]
         fn has_rects(self) -> bool {
             self.min_x.is_finite()
                 && self.min_y.is_finite()
@@ -510,9 +605,13 @@ pub(crate) fn render_treemap_diagram_svg(
     let mut viewbox_bounds = TreemapViewBoxBounds::empty();
 
     for s in &layout.sections {
-        if s.depth == 0 {
-            continue;
+        match s.depth {
+            0 => {
+                continue;
+            },
+            _ => {},
         }
+
         viewbox_bounds.include_rect(TreemapRect {
             x0: s.x0,
             y0: s.y0,
@@ -520,6 +619,7 @@ pub(crate) fn render_treemap_diagram_svg(
             y1: s.y1,
         });
     }
+
     for l in &layout.leaves {
         viewbox_bounds.include_rect(TreemapRect {
             x0: l.x0,
@@ -529,21 +629,23 @@ pub(crate) fn render_treemap_diagram_svg(
         });
     }
 
-    // Treemap sections/leaves are rendered under `<g class="treemapContainer" transform="translate(0, title_height)">`.
-    // Include that translation when computing the root viewport. Also include the title text's
-    // bbox (dominant-baseline="middle") so `parity-root` matches the upstream getBBox-derived
-    // viewBox w/h.
+
+
+
+
     if title_shift_y > 0.0 && viewbox_bounds.min_y.is_finite() && viewbox_bounds.max_y.is_finite() {
         viewbox_bounds.min_y += title_shift_y;
         viewbox_bounds.max_y += title_shift_y;
     }
-    if let (Some(title), Some(&(w, h))) = (title, title_bbox.as_ref()) {
+
+    if let (Some(title_3), Some(&(w, h))) = (title, title_bbox.as_ref()) {
         let cx = layout.width / 2.0;
         let cy = layout.title_height / 2.0;
+
         if !(w.is_finite() && h.is_finite() && w > 0.0 && h > 0.0) {
-            if !title.trim().is_empty() {
-                // If measurement is unexpectedly degenerate, still ensure we don't ignore the title
-                // region entirely.
+            if !title_3.trim().is_empty() {
+
+
                 viewbox_bounds.min_y = viewbox_bounds.min_y.min(0.0);
                 viewbox_bounds.max_y = viewbox_bounds.max_y.max(layout.title_height);
             }
@@ -597,14 +699,15 @@ pub(crate) fn render_treemap_diagram_svg(
             )?;
     out.checkpoint()?;
 
-    if let (Some(title), true) = (layout.acc_title.as_deref(), has_acc_title) {
+    if let (Some(title_4), true) = (layout.acc_title.as_deref(), has_acc_title) {
         let _ = write!(
             &mut out,
             r#"<title id="chart-title-{diagram_id}">{}</title>"#,
-            escape_xml(title)
+            escape_xml(title_4)
         );
         out.checkpoint()?;
     }
+
     if let (Some(descr), true) = (layout.acc_descr.as_deref(), has_acc_descr) {
         let _ = write!(
             &mut out,
@@ -620,12 +723,15 @@ pub(crate) fn render_treemap_diagram_svg(
             diagram_id,
             typography_theme,
         )?;
+
     if let Some(receipt) = title_theme_receipt.as_mut() {
         receipt.record_stylesheet(title_css_emission.class(), title_css_emission.fill());
     }
+
     if let Some(receipt) = typography_theme_receipt.as_mut() {
         receipt.record_css_emission(typography_css_emission);
     }
+
     out.push_str("<style>");
     super::super::output::XmlTextOutput::new(&mut out).push_str(&css);
     out.push_str("</style>");
@@ -633,19 +739,21 @@ pub(crate) fn render_treemap_diagram_svg(
     out.push_str("<g/>");
     out.checkpoint()?;
 
-    if let Some(title) = layout.title.as_deref().filter(|t| !t.trim().is_empty()) {
+    if let Some(title_5) = layout.title.as_deref().filter(|t| !t.trim().is_empty()) {
         let _ = write!(
             &mut out,
             r#"<text x="{x}" y="{y}" class="{class}" text-anchor="middle" dominant-baseline="middle">{text}</text>"#,
             x = fmt(layout.width / 2.0),
             y = fmt(layout.title_height / 2.0),
             class = TREEMAP_TITLE_CLASS,
-            text = escape_xml(title)
+            text = escape_xml(title_5)
         );
         out.checkpoint()?;
+
         if let Some(receipt) = title_theme_receipt.as_mut() {
             receipt.record_title_text(TREEMAP_TITLE_CLASS);
         }
+
         if let Some(receipt) = typography_theme_receipt.as_mut() {
             receipt.record_text(
                 crate::treemap::TreemapTextRole::Title,
@@ -691,10 +799,13 @@ pub(crate) fn render_treemap_diagram_svg(
         );
         out.checkpoint()?;
 
-        let header_style = if section.depth == 0 {
-            "display: none;"
-        } else {
-            ""
+        let header_style = match section.depth {
+            0 => {
+                "display: none;"
+            },
+            _ => {
+                ""
+            },
         };
         let _ = write!(
             &mut out,
@@ -735,17 +846,21 @@ pub(crate) fn render_treemap_diagram_svg(
             style = escape_attr(section_style)
         );
         out.checkpoint()?;
+
         if let Some(receipt) = typography_theme_receipt.as_mut() {
             receipt.record_node(true, i, fill, stroke, section_style);
         }
 
-        let mut label_text = if section.depth == 0 {
-            String::new()
-        } else {
-            options
-                .work_meter()
-                .charge(1usize.saturating_add(section.name.len().div_ceil(64)))?;
-            section.name.clone()
+        let mut label_text = match section.depth {
+            0 => {
+                String::new()
+            },
+            _ => {
+                options
+                    .work_meter()
+                    .charge(1usize.saturating_add(section.name.len().div_ceil(64)))?;
+                section.name.clone()
+            },
         };
 
         let label_fill = visual.label_fill.as_str();
@@ -761,6 +876,7 @@ pub(crate) fn render_treemap_diagram_svg(
                 id = section_clip_id.as_str(),
             );
             out.checkpoint()?;
+
             if let Some(receipt) = typography_theme_receipt.as_mut() {
                 receipt.record_text(
                     crate::treemap::TreemapTextRole::SectionLabel,
@@ -772,12 +888,13 @@ pub(crate) fn render_treemap_diagram_svg(
                 );
             }
         } else {
-            // Mirror Mermaid's truncation loop in `renderer.ts` (uses `getComputedTextLength()`).
+
             let total_header_width = w;
             let label_x_position = section_label_inset_x;
             let mut space_for_text_content =
                 total_header_width - label_x_position - section_label_inset_x;
-            if layout.show_values && section.value != 0.0 {
+
+            if layout.show_values && !::core::matches!(::core::primitive::f64::classify(section.value), ::core::num::FpCategory::Zero) {
                 let value_ends_at_x_relative = total_header_width - section_inner_padding;
                 let estimated_value_text_actual_width = section_label_reserved_value_width;
                 let gap_between_label_and_value = section_inner_padding;
@@ -786,10 +903,12 @@ pub(crate) fn render_treemap_diagram_svg(
                     - gap_between_label_and_value;
                 space_for_text_content = label_must_end_before_x - label_x_position;
             }
+
             let actual_available_width =
                 section_label_min_visible_width.max(space_for_text_content);
 
             let style = section_label_text_style.style();
+
             if measure_treemap_computed_length(
                 &computed_length_measurer,
                 &label_text,
@@ -807,8 +926,10 @@ pub(crate) fn render_treemap_diagram_svg(
                     .ok_or_else(|| options.work_meter().arithmetic_overflow())?;
                 let mut candidate = String::with_capacity(candidate_capacity);
                 candidate.push_str(&label_text);
-                while !candidate.is_empty() {
+
+                'inner_while_2: while !candidate.is_empty() {
                     candidate.pop();
+
                     if candidate.is_empty() {
                         if measure_treemap_computed_length(
                             &computed_length_measurer,
@@ -821,9 +942,12 @@ pub(crate) fn render_treemap_diagram_svg(
                         } else {
                             label_text = ellipsis.to_string();
                         }
-                        break;
+
+                        break 'inner_while_2;
                     }
+
                     candidate.push_str(ellipsis);
+
                     if measure_treemap_computed_length(
                         &computed_length_measurer,
                         &candidate,
@@ -832,8 +956,9 @@ pub(crate) fn render_treemap_diagram_svg(
                     )? <= actual_available_width
                     {
                         label_text = candidate;
-                        break;
+                        break 'inner_while_2;
                     }
+
                     candidate.truncate(candidate.len() - ellipsis.len());
                 }
             }
@@ -854,6 +979,7 @@ pub(crate) fn render_treemap_diagram_svg(
                 text = escape_xml(&label_text)
             );
             out.checkpoint()?;
+
             if let Some(receipt) = typography_theme_receipt.as_mut() {
                 receipt.record_text(
                     crate::treemap::TreemapTextRole::SectionLabel,
@@ -873,21 +999,25 @@ pub(crate) fn render_treemap_diagram_svg(
                 None,
                 Some("italic"),
             );
-            let value_text = if section.value != 0.0 {
+            let value_text = if !::core::matches!(::core::primitive::f64::classify(section.value), ::core::num::FpCategory::Zero) {
                 treemap_format_value_or_error(section.value, &layout.value_format)?
             } else {
                 String::new()
             };
-            let section_value_style = if section.depth == 0 {
-                "display: none;".to_string()
-            } else {
-                format!(
-                    "text-anchor: end; dominant-baseline: middle; font-size: {}px; fill:{fill}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;{suffix}",
-                    fmt(section_value_font_size),
-                    fill = escape_attr(value_fill),
-                    suffix = label_styles_suffix
-                )
+            let section_value_style = match section.depth {
+                0 => {
+                    "display: none;".to_string()
+                },
+                _ => {
+                    format!(
+                        "text-anchor: end; dominant-baseline: middle; font-size: {}px; fill:{fill}; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;{suffix}",
+                        fmt(section_value_font_size),
+                        fill = escape_attr(value_fill),
+                        suffix = label_styles_suffix
+                    )
+                },
             };
+
             if value_text.is_empty() {
                 let _ = write!(
                     &mut out,
@@ -906,7 +1036,9 @@ pub(crate) fn render_treemap_diagram_svg(
                     text = escape_xml(&value_text)
                 );
             }
+
             out.checkpoint()?;
+
             if let Some(receipt) = typography_theme_receipt.as_mut() {
                 receipt.record_text(
                     crate::treemap::TreemapTextRole::SectionValue,
@@ -975,6 +1107,7 @@ pub(crate) fn render_treemap_diagram_svg(
             style = escape_attr(leaf_rect_style)
         );
         out.checkpoint()?;
+
         if let Some(receipt) = typography_theme_receipt.as_mut() {
             receipt.record_node(false, i, fill, &visual.stroke, leaf_rect_style);
         }
@@ -998,6 +1131,7 @@ pub(crate) fn render_treemap_diagram_svg(
         let mut label_hidden = false;
         let mut label_font_size_mutated = false;
         let mut label_measurement_matches = true;
+
         if available_w < min_display_threshold || available_h < min_display_threshold {
             label_hidden = true;
         } else {
@@ -1024,6 +1158,7 @@ pub(crate) fn render_treemap_diagram_svg(
             )?;
 
             style.font_size = label_font_size;
+
             if is_complex_treemap {
                 if label_font_size < min_label_font_size || available_h < min_label_font_size {
                     label_hidden = true;
@@ -1032,6 +1167,7 @@ pub(crate) fn render_treemap_diagram_svg(
                 label_measurement_matches &= leaf_label_initial_style
                     .with_font_size_px(label_font_size)
                     .matches_measurement(&style);
+
                 if measure_treemap_computed_length(
                     &computed_length_measurer,
                     &leaf.name,
@@ -1044,8 +1180,9 @@ pub(crate) fn render_treemap_diagram_svg(
                     label_hidden = true;
                 }
             }
-            // Mermaid always calls `selection.style("font-size", ...)` after the fitting pass.
-            // That mutation replaces the authored `font-size !important` declaration.
+
+
+
             label_font_size_mutated = true;
         }
 
@@ -1061,9 +1198,11 @@ pub(crate) fn render_treemap_diagram_svg(
                 fill = escape_attr(leaf_label_fill),
                 suffix = label_styles_suffix
             );
+
             if label_hidden {
                 style.push_str(" display: none;");
             }
+
             style
         } else {
             let fill = visual.fitted_label_fill.as_str();
@@ -1072,12 +1211,15 @@ pub(crate) fn render_treemap_diagram_svg(
                 fs = fmt(label_font_size),
                 fill = escape_attr(fill),
             );
+
             if label_hidden {
                 s.push_str(" display: none;");
             }
+
             if !label_styles_without_font_size_suffix.is_empty() {
                 s.push_str(label_styles_without_font_size_suffix);
             }
+
             s
         };
 
@@ -1091,6 +1233,7 @@ pub(crate) fn render_treemap_diagram_svg(
             text = escape_xml(&leaf.name)
         );
         out.checkpoint()?;
+
         if let Some(receipt) = typography_theme_receipt.as_mut() {
             receipt.record_text(
                 crate::treemap::TreemapTextRole::LeafLabel,
@@ -1111,7 +1254,7 @@ pub(crate) fn render_treemap_diagram_svg(
         }
 
         if layout.show_values {
-            let value_text = if leaf.value != 0.0 {
+            let value_text = if !::core::matches!(::core::primitive::f64::classify(leaf.value), ::core::num::FpCategory::Zero) {
                 treemap_format_value_or_error(leaf.value, &layout.value_format)?
             } else {
                 String::new()
@@ -1120,7 +1263,7 @@ pub(crate) fn render_treemap_diagram_svg(
                 typography_theme.leaf_text_style(i, base_value_font_size);
             let mut final_value_text_style = leaf_value_initial_style.clone();
             let mut value_font_size = base_value_font_size;
-            let mut value_y = h / 2.0; // placeholder (overwritten when label is visible)
+            let mut value_y = h / 2.0;
             let mut value_hidden = true;
 
             if !label_hidden {
@@ -1146,6 +1289,7 @@ pub(crate) fn render_treemap_diagram_svg(
                     final_value_text_style.style(),
                     options.work_meter(),
                 )?;
+
                 if value_w_px <= available_w_for_value
                     && value_y + value_font_size <= max_value_bottom_y
                     && value_font_size >= min_value_font_size
@@ -1170,9 +1314,11 @@ pub(crate) fn render_treemap_diagram_svg(
                     suffix = label_styles_suffix,
                 )
             };
+
             if value_hidden {
                 value_style.push_str(" display: none;");
             }
+
             if !label_hidden && !label_styles_without_font_size_suffix.is_empty() {
                 value_style.push_str(label_styles_without_font_size_suffix);
             }
@@ -1197,7 +1343,9 @@ pub(crate) fn render_treemap_diagram_svg(
                     text = escape_xml(&value_text)
                 );
             }
+
             out.checkpoint()?;
+
             if let Some(receipt) = typography_theme_receipt.as_mut() {
                 receipt.record_text(
                     crate::treemap::TreemapTextRole::LeafValue,
@@ -1223,12 +1371,14 @@ pub(crate) fn render_treemap_diagram_svg(
     }
 
     out.push_str("</g></svg>\n");
-    let rooted = root_document.complete(out.finish()?)?;
+    let rooted = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if title_theme_receipt.is_some_and(|receipt| !title_theme.record_terminal(receipt)) {
         return Err(crate::Error::InvalidModel {
             message: "Treemap title theme receipt did not match the terminal SVG".to_string(),
         });
     }
+
     if let Some(receipt) = typography_theme_receipt
         && !typography_theme.record_terminal(
             receipt,
@@ -1240,6 +1390,7 @@ pub(crate) fn render_treemap_diagram_svg(
             message: "Treemap typography receipt did not match the terminal SVG".to_string(),
         });
     }
+
     Ok(rooted)
 }
 

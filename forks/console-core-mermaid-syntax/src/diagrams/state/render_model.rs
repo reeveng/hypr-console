@@ -47,19 +47,24 @@ pub(super) fn into_render_model(
     } = construction.model;
     debug_assert_eq!(nodes.len(), construction.presentation.len());
     let mut render_nodes = Vec::with_capacity(nodes.len());
+
     for (index, (node, presentation)) in
         nodes.into_iter().zip(construction.presentation).enumerate()
     {
         if index.is_multiple_of(128) {
             control.checkpoint()?;
         }
+
         render_nodes.push(render_node_from_semantic(node, presentation));
     }
+
     let mut render_edges = Vec::with_capacity(edges.len());
+
     for (index, edge) in edges.into_iter().enumerate() {
         if index.is_multiple_of(128) {
             control.checkpoint()?;
         }
+
         let arrow_type_end = if edge.classes == CSS_EDGE_NOTE_EDGE {
             ""
         } else if config.get_str("look") == Some("neo") {
@@ -76,6 +81,7 @@ pub(super) fn into_render_model(
             arrow_type_end: arrow_type_end.to_string(),
         });
     }
+
     control.checkpoint()?;
     Ok(StateDiagramRenderModel {
         document,
@@ -99,6 +105,7 @@ pub(crate) fn sanitize_common_db_fields(
     crate::common_db::sanitize_optional_acc_descr(&mut model.acc_descr, config);
 }
 
+#[must_use]
 fn render_node_from_semantic(
     node: StateNode,
     presentation: StateNodePresentation,

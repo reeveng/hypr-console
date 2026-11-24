@@ -103,7 +103,11 @@ fn skip_fill<B: ReadBitsLtr>(bs: &mut B) -> Result<Step, DecodeError> {
 }
 
 impl AlacDecoder {
-  fn copy_out(&mut self, channel: Option<&u32>, source: Option<&[i32]>) -> Result<(), DecodeError> {
+  fn copy_out(
+    &mut self,
+    channel: Option<&u32>,
+    source: Option<&[i32]>,
+  ) -> Result<(), DecodeError> {
     let (target, from) = match (channel, source) {
       (Some(&mapped), Some(samples)) => (mapped, samples),
       _ => return Err(DecodeError::Channel),
@@ -154,7 +158,11 @@ impl AlacDecoder {
     Ok(Step::Next)
   }
 
-  fn step<B: ReadBitsLtr>(&mut self, bs: &mut B, progress: &mut Progress) -> Result<Step, DecodeError> {
+  fn step<B: ReadBitsLtr>(
+    &mut self,
+    bs: &mut B,
+    progress: &mut Progress,
+  ) -> Result<Step, DecodeError> {
     let tag = bs.read_bits_leq32(BITS_PER_TAG)?;
     let outcome = match tag {
       TAG_SINGLE_CHANNEL | TAG_LOW_FREQUENCY => self.element(bs, progress, Coupling::Single),

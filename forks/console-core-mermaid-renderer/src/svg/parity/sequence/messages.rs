@@ -48,46 +48,74 @@ impl SequenceMessagePaintPlan {
             effect,
             ..Self::default()
         };
+
         if width.is_none() && plan.effect.is_none() {
             return Ok(plan);
         }
-        // Message CSS owns a 1.5px baseline independent of signalColor configuration.
-        let width = f64::from(width.unwrap_or(1.5));
+
+
+        let width_2 = f64::from(match width {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 1.5,
+        });
+
         for (index, message) in model.messages.iter().enumerate() {
             checkpoints.checkpoint_loop(index)?;
-            let Some(semantics) = message.signal_semantics() else {
-                continue;
+
+            let semantics = {
+                let optional_semantics = message.signal_semantics();
+
+                match optional_semantics {
+                    Some(matched_semantics) => matched_semantics,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let (Some(from), Some(to)) = (message.from.as_deref(), message.to.as_deref()) else {
-                continue;
+
+            let (from, to) = {
+                let outcome_from = (message.from.as_deref(), message.to.as_deref());
+
+                match outcome_from {
+                    (Some(matched_from), Some(matched_to)) => (matched_from, matched_to),
+                    (::core::option::Option::None, _)
+                    | (_, ::core::option::Option::None) => continue,
+                }
             };
-            let Some(edge) = edges.get(format!("msg-{}", message.id).as_str()) else {
-                continue;
+
+            let edge = {
+                let optional_edge = edges.get(format!("msg-{}", message.id).as_str());
+
+                match optional_edge {
+                    Some(matched_edge) => matched_edge,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let [p0, p1, ..] = edge.points.as_slice() else {
                 continue;
             };
+
             let points = if from == to {
                 self_message_points(edge, nodes, from, actor_height, right_angles)
             } else {
                 [(p0.x, p0.y), (p0.x, p0.y), (p1.x, p1.y), (p1.x, p1.y)]
             };
-            // The cubic's control hull bounds its curve; axis-aligned right-angle joins fit
-            // inside the same rectangle expanded by half the stroke width.
+
+
             let mut bounds = Bounds::from_points(points).expect("four message points");
-            bounds.min_x -= width / 2.0;
-            bounds.min_y -= width / 2.0;
-            bounds.max_x += width / 2.0;
-            bounds.max_y += width / 2.0;
+            bounds.min_x -= width_2 / 2.0;
+            bounds.min_y -= width_2 / 2.0;
+            bounds.max_x += width_2 / 2.0;
+            bounds.max_y += width_2 / 2.0;
+
             for (marker, source, (x, y)) in [
                 (semantics.source_marker, true, match points { [_explicit_element, ..] => _explicit_element }),
                 (semantics.target_marker, false, match points { [_, _, _, _explicit_element, ..] => _explicit_element }),
             ] {
-                // These hidden marker viewports are pinned in the Sequence defs. A rotation
-                // radius also covers the cubic endpoint tangent, without guessing its angle.
+
+
                 let radius = match endpoint_marker_local_id(marker, source) {
-                    Some("crosshead") => 11.0_f64.hypot(4.5) * width,
-                    Some("filled-head") => 15.5_f64.hypot(21.0) * width,
+                    Some("crosshead") => 11.0_f64.hypot(4.5) * width_2,
+                    Some("filled-head") => 15.5_f64.hypot(21.0) * width_2,
                     Some("arrowhead") => 7.9_f64.hypot(7.0),
                     Some("solidTopArrowHead") => 7.9_f64.hypot(7.25),
                     Some("solidBottomArrowHead") => 7.9_f64.hypot(11.25),
@@ -100,11 +128,13 @@ impl SequenceMessagePaintPlan {
                 bounds.max_x = bounds.max_x.max(x + radius);
                 bounds.max_y = bounds.max_y.max(y + radius);
             }
-            if let Some(effect) = &plan.effect {
+
+            if let Some(effect_2) = &plan.effect {
                 options
                     .work_meter()
-                    .charge(effect.stages().len().saturating_mul(3))?;
-                if let Some(shadow) = effect.materialize_user_space(
+                    .charge(effect_2.stages().len().saturating_mul(3))?;
+
+                if let Some(shadow) = effect_2.materialize_user_space(
                     &options.theme_resource_policy(),
                     bounds.min_x,
                     bounds.min_y,
@@ -126,7 +156,7 @@ impl SequenceMessagePaintPlan {
                             format!(
                                 "{}-message-{index}-theme-effect-{}",
                                 options.diagram_id_or("merman"),
-                                effect.id()
+                                effect_2.id()
                             ),
                             region,
                         ),
@@ -135,6 +165,7 @@ impl SequenceMessagePaintPlan {
                     receipt.effect_unhandled = true;
                 }
             }
+
             if let Some(total) = &mut plan.bounds {
                 total.min_x = total.min_x.min(bounds.min_x);
                 total.min_y = total.min_y.min(bounds.min_y);
@@ -144,9 +175,11 @@ impl SequenceMessagePaintPlan {
                 plan.bounds = Some(bounds);
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(super) fn len(&self) -> usize {
         self.shadows.len()
     }
@@ -156,22 +189,30 @@ impl SequenceMessagePaintPlan {
         Some(super::super::shadow::write_theme_shadow_application(
             out,
             id,
-            self.effect.as_ref()?,
+            { let checked_value = self.effect.as_ref()?; checked_value },
             *region,
         ))
     }
 
+    #[must_use]
     fn record_emission(&self, message_id: &str, recorder: &SvgShadowEvidenceRecorder) -> bool {
-        let (Some(effect), Some((id, region))) = (&self.effect, self.shadows.get(message_id))
-        else {
-            return false;
+        let (effect, id, region) = {
+            let outcome_effect = (&self.effect, self.shadows.get(message_id));
+
+            match outcome_effect {
+                (Some(matched_effect), Some((matched_id, matched_region))) => (matched_effect, matched_id, matched_region),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => return false,
+            }
         };
+
         recorder.record_application(effect, id, *region);
         true
     }
 }
 
 /// Shared control points keep self-message output and its paint bounds in agreement.
+#[must_use]
 fn self_message_points(
     edge: &crate::model::LayoutEdge,
     nodes: &FixedMap<&str, &LayoutNode>,
@@ -180,12 +221,18 @@ fn self_message_points(
     right_angles: bool,
 ) -> [(f64, f64); 4] {
     let p = &edge.points[0];
+
     if right_angles {
-        let actor_w = nodes
+        let actor_w = match nodes
             .get(format!("actor-top-{from}").as_str())
-            .map(|n| n.width)
-            .unwrap_or(actor_height);
-        let text_dx = edge.label.as_ref().map(|l| l.width / 2.0).unwrap_or(0.0);
+            .map(|n| n.width) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => actor_height,
+        };
+        let text_dx = match edge.label.as_ref().map(|l| l.width / 2.0) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.0,
+        };
         let dx = (actor_w / 2.0).max(text_dx);
         [
             (p.x, p.y),
@@ -225,6 +272,7 @@ pub(super) struct SequenceMessageRenderContext<'a> {
     pub(super) checkpoints: SequenceEmitCheckpoints<'a>,
 }
 
+#[must_use]
 fn marker_attr(attr_name: &str, diagram_id: SvgDiagramId<'_>, local_id: &str) -> String {
     format!(
         r#" {attr_name}="{}""#,
@@ -232,6 +280,7 @@ fn marker_attr(attr_name: &str, diagram_id: SvgDiagramId<'_>, local_id: &str) ->
     )
 }
 
+#[must_use]
 fn endpoint_marker_local_id(
     marker: SequenceMessageMarker,
     source_endpoint: bool,
@@ -256,6 +305,7 @@ fn endpoint_marker_local_id(
     }
 }
 
+#[must_use]
 fn message_data_attrs(msg_id: &str, from: &str, to: &str) -> String {
     format!(
         r#" data-et="message" data-id="i{msg_id}" data-from="{}" data-to="{}""#,
@@ -264,11 +314,13 @@ fn message_data_attrs(msg_id: &str, from: &str, to: &str) -> String {
     )
 }
 
+#[must_use]
 fn is_reverse_arrow_type(msg: &merman_model::families::sequence::SequenceMessage) -> bool {
     msg.signal_semantics()
         .is_some_and(|semantics| semantics.direction == SequenceMessageDirection::Reverse)
 }
 
+#[must_use]
 fn actor_center_x(ctx: &SequenceMessageRenderContext<'_>, actor_id: &str) -> Option<f64> {
     ctx.nodes_by_id
         .get(format!("actor-top-{actor_id}").as_str())
@@ -281,6 +333,7 @@ struct SequenceAutonumberActivationBounds {
 }
 
 impl SequenceAutonumberActivationBounds {
+    #[must_use]
     fn new(width: f64) -> Self {
         Self {
             width,
@@ -295,38 +348,57 @@ impl SequenceAutonumberActivationBounds {
     ) -> bool {
         match msg.semantic_kind() {
             SequenceMessageKind::ActivationStart => {
-                let Some(actor_id) = msg.from.as_deref() else {
-                    return true;
+                let actor_id = {
+                    let optional_actor_id = msg.from.as_deref();
+
+                    match optional_actor_id {
+                        Some(matched_actor_id) => matched_actor_id,
+                        ::core::option::Option::None => return true,
+                    }
                 };
+
                 if actor_center_x(ctx, actor_id).is_none() {
                     return true;
                 }
+
                 let depth = self.depths.entry(actor_id.to_string()).or_default();
                 *depth = depth.saturating_add(1);
                 true
             }
             SequenceMessageKind::ActivationEnd => {
-                let Some(actor_id) = msg.from.as_deref() else {
-                    return true;
+                let actor_id = {
+                    let optional_actor_id = msg.from.as_deref();
+
+                    match optional_actor_id {
+                        Some(matched_actor_id) => matched_actor_id,
+                        ::core::option::Option::None => return true,
+                    }
                 };
+
                 if let Some(depth) = self.depths.get_mut(actor_id) {
                     *depth = depth.saturating_sub(1);
                 }
+
                 true
             }
             _ => false,
         }
     }
 
+    #[must_use]
     fn actor_bounds(&self, actor_id: &str, center_x: f64) -> (f64, f64) {
         sequence_activation_stack_bounds(
-            self.depths.get(actor_id).copied().unwrap_or_default(),
+            match self.depths.get(actor_id).copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0,
+            },
             center_x,
             self.width,
         )
     }
 }
 
+#[must_use]
 fn sequence_number_marker_x(
     activation_bounds: &SequenceAutonumberActivationBounds,
     ctx: &SequenceMessageRenderContext<'_>,
@@ -369,27 +441,39 @@ fn write_central_connection_circles(
     line_y: f64,
     autonumber_visible: bool,
 ) {
-    let Some(decoration) = msg.central_decoration() else {
-        return;
+    let decoration = {
+        let optional_decoration = msg.central_decoration();
+
+        match optional_decoration {
+            Some(matched_decoration) => matched_decoration,
+            ::core::option::Option::None => return,
+        }
     };
+
     if decoration == SequenceCentralDecoration::None {
         return;
     }
 
-    let (Some(mut from_center), Some(mut to_center)) =
-        (actor_center_x(ctx, from), actor_center_x(ctx, to))
-    else {
-        return;
+    let (mut from_center, mut to_center) = {
+        let outcome_from_center = (actor_center_x(ctx, from), actor_center_x(ctx, to));
+
+        match outcome_from_center {
+            (Some(matched_from_center), Some(matched_to_center)) => (matched_from_center, matched_to_center),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return,
+        }
     };
+
     let is_left_to_right = from_center <= to_center;
     let is_reverse = is_reverse_arrow_type(msg);
-    let circle_offset = |is_left_to_right: bool, is_reverse: bool| {
-        let base_offset = if is_left_to_right {
+    let circle_offset = |is_left_to_right_2: bool, is_reverse_2: bool| {
+        let base_offset = if is_left_to_right_2 {
             CENTRAL_CONNECTION_CIRCLE_OFFSET
         } else {
             -CENTRAL_CONNECTION_CIRCLE_OFFSET
         };
-        if is_reverse {
+
+        if is_reverse_2 {
             -base_offset
         } else {
             base_offset
@@ -416,6 +500,7 @@ fn write_central_connection_circles(
     }
 
     out.push_str("<g>");
+
     if matches!(
         decoration,
         SequenceCentralDecoration::Source | SequenceCentralDecoration::Both
@@ -427,6 +512,7 @@ fn write_central_connection_circles(
             cy = fmt(line_y)
         );
     }
+
     if matches!(
         decoration,
         SequenceCentralDecoration::Target | SequenceCentralDecoration::Both
@@ -438,6 +524,7 @@ fn write_central_connection_circles(
             cy = fmt(line_y)
         );
     }
+
     out.push_str("</g>");
 }
 
@@ -447,10 +534,12 @@ pub(super) fn render_sequence_messages(
     theme_receipt: &mut crate::sequence::SequenceMessageThemeReceipt,
     sequence_number_receipt: &mut crate::sequence::SequenceNumberLabelThemeReceipt,
 ) -> crate::Result<()> {
-    let show_sequence_numbers = ctx
+    let show_sequence_numbers = match ctx
         .sanitize_config
-        .get_bool("sequence.showSequenceNumbers")
-        .unwrap_or(false);
+        .get_bool("sequence.showSequenceNumbers") {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => false,
+    };
     let mut autonumber_visible = false;
     let mut sequence_number = 1.0;
     let mut sequence_number_step = 1.0;
@@ -467,22 +556,27 @@ pub(super) fn render_sequence_messages(
         out.push_str("<g/>");
         out.checkpoint()?;
     }
+
     ctx.checkpoints.checkpoint()?;
 
     for (message_index, msg) in ctx.model.messages.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(message_index)?;
         out.checkpoint()?;
+
         match msg.semantic_kind() {
             SequenceMessageKind::Autonumber => {
                 if let SequenceSvgMessagePayload::Autonumber(autonumber) = &msg.message {
                     autonumber_visible = autonumber.visible;
+
                     if let Some(start) = autonumber.start {
                         sequence_number = start;
                     }
+
                     if let Some(step) = autonumber.step {
                         sequence_number_step = step;
                     }
                 }
+
                 continue;
             }
             SequenceMessageKind::ActivationStart | SequenceMessageKind::ActivationEnd => {
@@ -490,29 +584,49 @@ pub(super) fn render_sequence_messages(
                 continue;
             }
             SequenceMessageKind::Note => continue,
-            // Central decoration records are routed through the activation drawing path by
-            // upstream Mermaid, which leaves an empty group without a visible rectangle.
+
+
             SequenceMessageKind::CentralDecorationRecord => continue,
             SequenceMessageKind::Signal => {}
             SequenceMessageKind::Control | SequenceMessageKind::Unknown => continue,
         }
 
-        let Some(signal_semantics) = msg.signal_semantics() else {
-            continue;
+        let signal_semantics = {
+            let optional_signal_semantics = msg.signal_semantics();
+
+            match optional_signal_semantics {
+                Some(matched_signal_semantics) => matched_signal_semantics,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let sequence_number_visible = autonumber_visible || show_sequence_numbers;
         let current_sequence_number = sequence_number;
-        // Mermaid advances the sequence index for every signal, even while autonumber is hidden.
+
         sequence_number = round_sequence_number(sequence_number + sequence_number_step);
 
-        let (Some(from), Some(to)) = (msg.from.as_deref(), msg.to.as_deref()) else {
-            continue;
+        let (from, to) = {
+            let outcome_from = (msg.from.as_deref(), msg.to.as_deref());
+
+            match outcome_from {
+                (Some(matched_from), Some(matched_to)) => (matched_from, matched_to),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => continue,
+            }
         };
+
         theme_receipt.record_line_candidate();
         let edge_id = format!("msg-{}", msg.id);
-        let Some(edge) = ctx.edges_by_id.get(edge_id.as_str()).copied() else {
-            continue;
+
+        let edge = {
+            let optional_edge = ctx.edges_by_id.get(edge_id.as_str()).copied();
+
+            match optional_edge {
+                Some(matched_edge) => matched_edge,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if edge.points.len() < 2 {
             continue;
         }
@@ -527,9 +641,10 @@ pub(super) fn render_sequence_messages(
         };
 
         let text = msg.message_text();
+
         if let Some(lbl) = &edge.label {
             let bounded_width = (p0.x - p1.x).abs().max(0.0);
-            // Mermaid aligns message label text based on `sequence.messageAlign`.
+
             let label_start_x = p0.x.min(p1.x);
             let (label_x, label_anchor) = match ctx.message_align {
                 "right" => (label_start_x + bounded_width - ctx.wrap_padding, "end"),
@@ -539,6 +654,7 @@ pub(super) fn render_sequence_messages(
             let prepared_math = ctx.math_sidecar.terminal_for_occurrence(
                 &crate::sequence::SequenceMathOccurrence::Message(message_index),
             );
+
             if let Some(katex) = sequence_katex_label(
                 prepared_math,
                 ctx.message_text_style,
@@ -557,8 +673,8 @@ pub(super) fn render_sequence_messages(
                     &katex,
                 );
             } else if msg.wrap && !text.is_empty() {
-                // Mermaid wraps message labels to
-                // `max(boundedWidth + 2*wrapPadding, conf.width)`.
+
+
                 let wrap_w = (bounded_width
                     + SEQUENCE_MESSAGE_WRAP_PADDING_SIDES * ctx.wrap_padding)
                     .max(ctx.sequence_width)
@@ -626,7 +742,7 @@ pub(super) fn render_sequence_messages(
             .write_definition(out, &msg.id)
             .map(|reference| format!(r#" filter="{}""#, escape_attr(&reference)))
             .unwrap_or_default();
-        // Mermaid uses `stroke="none"` and assigns actual stroke via CSS.
+
         if from == to {
             let [(x, y), (x2, y2), (x3, y3), (x4, y4)] = self_message_points(
                 edge,
@@ -656,13 +772,16 @@ pub(super) fn render_sequence_messages(
                     y4 = fmt(y4)
                 )
             };
-            // Mermaid attaches an `x1` attribute to autonumbered self-reference paths even
-            // though the geometry lives in the `d` attribute.
+
+
             let path_x1 = if sequence_number_visible {
-                Some(if marker_start.is_some() {
-                    p0.x + 6.0
-                } else {
-                    p0.x
+                Some(match marker_start {
+                    ::core::option::Option::Some(_) => {
+                        p0.x + 6.0
+                    },
+                    ::core::option::Option::None => {
+                        p0.x
+                    },
                 })
             } else {
                 None
@@ -710,8 +829,8 @@ pub(super) fn render_sequence_messages(
             };
             let x = sequence_number_x;
             let y = p0.y;
-            // Autonumbers keep Mermaid's size ladder, so they borrow only the resolved font
-            // source attributes and do not participate in MessageLabel typography evidence.
+
+
             let sequence_number_style = ctx
                 .message_typography
                 .fixed_size_terminal_style()
@@ -740,6 +859,7 @@ pub(super) fn render_sequence_messages(
         let _ = (from, to);
         out.checkpoint()?;
         theme_receipt.record_line_emission();
+
         if ctx.paint_plan.record_emission(&msg.id, ctx.shadow_evidence)
             || theme_receipt.effect_cleared
         {
@@ -750,10 +870,12 @@ pub(super) fn render_sequence_messages(
     ctx.checkpoints.checkpoint()
 }
 
+#[must_use]
 fn round_sequence_number(value: f64) -> f64 {
     (value * 100.0).round() / 100.0
 }
 
+#[must_use]
 fn format_sequence_number(value: f64) -> String {
     if value.is_finite() {
         value.to_string()
@@ -784,6 +906,7 @@ fn render_sequence_message_text_lines<'a>(
     let drawn_style = sequence_drawn_text_style(layout.style, layout.config);
     let css = super::settings::sequence_text_style_attribute(layout.style);
     let mut preceding_height = 0.0;
+
     for (i, raw) in raw_lines.into_iter().enumerate() {
         checkpoints.checkpoint_loop(i)?;
         let y = sequence_drawn_text_y(layout.label_y, layout.margin, preceding_height);
@@ -805,6 +928,7 @@ fn render_sequence_message_text_lines<'a>(
         );
         out.checkpoint()?;
         typography_receipt.record_terminal_text(crate::sequence::SequenceTextSurface::MessageLabel);
+
         if layout.margin > 0.0 {
             preceding_height += measure_sequence_drawn_line_height(
                 layout.measurer,

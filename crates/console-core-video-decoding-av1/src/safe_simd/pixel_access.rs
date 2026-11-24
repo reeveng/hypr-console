@@ -571,28 +571,3 @@ macro_rules! wasm_storei32 {
 }
 #[cfg(target_arch = "wasm32")]
 pub(crate) use wasm_storei32;
-
-#[cfg(target_arch = "wasm32")]
-macro_rules! wasm_loadi64 {
-  ($src:expr) => {{
-    let bytes: &[u8] = $src;
-    let lo = i64::from_le_bytes([
-      bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
-    ]);
-    core::arch::wasm32::i64x2(lo, 0)
-  }};
-}
-#[cfg(target_arch = "wasm32")]
-pub(crate) use wasm_loadi64;
-
-#[cfg(target_arch = "wasm32")]
-macro_rules! wasm_storei64 {
-  ($dst:expr, $val:expr) => {{
-    let val = core::arch::wasm32::i64x2_extract_lane::<0>($val);
-    let bytes = val.to_le_bytes();
-    let dst: &mut [u8] = $dst;
-    dst[..8].copy_from_slice(&bytes);
-  }};
-}
-#[cfg(target_arch = "wasm32")]
-pub(crate) use wasm_storei64;

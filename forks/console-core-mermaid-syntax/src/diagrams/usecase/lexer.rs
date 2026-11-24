@@ -72,6 +72,7 @@ pub(super) enum TokenKind {
 }
 
 impl TokenKind {
+    #[must_use]
     pub(super) fn is_word(self) -> bool {
         matches!(
             self,
@@ -99,6 +100,7 @@ impl TokenKind {
         )
     }
 
+    #[must_use]
     pub(super) fn is_label_text(self) -> bool {
         self.is_word()
             || matches!(
@@ -119,6 +121,7 @@ impl TokenKind {
             )
     }
 
+    #[must_use]
     pub(super) fn is_style_component(self) -> bool {
         self.is_word()
             || matches!(
@@ -152,15 +155,18 @@ pub(super) struct Token {
 }
 
 impl Token {
+    #[must_use]
     pub(super) fn text(self, source: &str) -> &str {
         &source[self.span.start..self.span.end]
     }
 }
 
+#[must_use]
 fn word(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
 
+#[must_use]
 fn hws(byte: u8) -> bool {
     matches!(byte, b' ' | b'\t')
 }
@@ -175,11 +181,14 @@ fn scan_while(
         if offset & 1023 == 0 {
             control.checkpoint()?;
         }
+
         offset += 1;
     }
+
     Ok(offset)
 }
 
+#[must_use]
 fn issue(message: &str, start: usize, end: usize) -> ParseIssue {
     ParseIssue {
         message: message.to_owned(),
@@ -205,44 +214,54 @@ pub(super) fn lex(
     let mut offset = 0;
     let mut tokens = Vec::new();
     let mut indented_line_start = true;
+
     while offset < bytes.len() {
         control.checkpoint()?;
         let start = offset;
         let remaining = &source[start..];
         let byte = bytes[start];
+
         if hws(byte) {
             offset = scan_while(bytes, start, hws, control)?;
             continue;
         }
+
         if matches!(byte, b'\n' | b'\r') {
             offset += if remaining.starts_with("\r\n") { 2 } else { 1 };
             push(&mut tokens, NewLine, start, offset);
             indented_line_start = true;
             continue;
         }
+
         if remaining.starts_with("\"`") {
             offset = start + 2;
+
             while offset + 1 < bytes.len() && !(bytes[offset] == b'`' && bytes[offset + 1] == b'"')
             {
                 if offset & 1023 == 0 {
                     control.checkpoint()?;
                 }
+
                 offset += 1;
             }
+
             if offset + 1 >= bytes.len() {
                 return Ok(Err(issue("Unclosed Markdown string", start, bytes.len())));
             }
+
             offset += 2;
             push(&mut tokens, MarkdownString, start, offset);
             indented_line_start = false;
             continue;
         }
+
         if indented_line_start && remaining.starts_with("%%") {
             offset = scan_while(bytes, start + 2, |b| !matches!(b, b'\n' | b'\r'), control)?;
             push(&mut tokens, Comment, start, offset);
             indented_line_start = false;
             continue;
         }
+
         if indented_line_start {
             let accessibility = if remaining.starts_with("accTitle") {
                 Some((AccTitleLine, 8))
@@ -251,8 +270,10 @@ pub(super) fn lex(
             } else {
                 None
             };
+
             if let Some((kind, length)) = accessibility {
                 let delimiter = scan_while(bytes, start + length, hws, control)?;
+
                 if bytes.get(delimiter) == Some(&b':') {
                     offset = scan_while(
                         bytes,
@@ -264,8 +285,10 @@ pub(super) fn lex(
                     indented_line_start = false;
                     continue;
                 }
+
                 if kind == AccDescrLine && bytes.get(delimiter) == Some(&b'{') {
                     let end = scan_while(bytes, delimiter + 1, |b| b != b'}', control)?;
+
                     if end < bytes.len() {
                         offset = end + 1;
                         push(&mut tokens, AccDescrBlock, start, offset);
@@ -275,25 +298,32 @@ pub(super) fn lex(
                 }
             }
         }
+
         indented_line_start = false;
+
         if remaining.starts_with("json") && bytes.get(start + 4).is_some_and(|b| hws(*b)) {
             let id_start = scan_while(bytes, start + 4, hws, control)?;
             let id_end = scan_while(bytes, id_start, word, control)?;
             let at = scan_while(bytes, id_end, hws, control)?;
+
             if id_end > id_start && bytes.get(at) == Some(&b'@') {
                 let brace = scan_while(bytes, at + 1, hws, control)?;
+
                 if bytes.get(brace) == Some(&b'{') {
                     push(&mut tokens, JsonDeclarationStart, start, brace);
                     let mut depth = 0usize;
                     let mut quoted = false;
                     let mut escaped = false;
                     offset = brace;
-                    while offset < bytes.len() {
+
+                    'inner_while_2: while offset < bytes.len() {
                         if offset & 1023 == 0 {
                             control.checkpoint()?;
                         }
+
                         let byte = bytes[offset];
                         offset += 1;
+
                         if quoted {
                             if escaped {
                                 escaped = false;
@@ -308,24 +338,35 @@ pub(super) fn lex(
                             depth += 1;
                         } else if byte == b'}' {
                             depth -= 1;
-                            if depth == 0 {
-                                break;
+
+                            match depth {
+                                0 => {
+                                    break 'inner_while_2;
+                                },
+                                _ => {},
                             }
                         }
                     }
-                    if depth != 0 {
-                        return Ok(Err(issue("Unclosed JSON object", brace, bytes.len())));
+
+                    match depth {
+                        0 => {},
+                        _ => {
+                            return Ok(Err(issue("Unclosed JSON object", brace, bytes.len())));
+                        },
                     }
+
                     push(&mut tokens, JsonObjectLiteral, brace, offset);
                     continue;
                 }
             }
         }
+
         let identifier_end = if word(byte) {
             scan_while(bytes, start, word, control)?
         } else {
             start
         };
+
         let keywords = [
             ("usecase-beta", Usecase),
             ("actor", Actor),
@@ -364,11 +405,14 @@ pub(super) fn lex(
                 offset += image.len();
                 push(&mut tokens, kind, start, offset);
             }
+
             continue;
         }
+
         if remaining.starts_with("<<") {
             push(&mut tokens, StereotypeStart, start, start + 2);
             offset = start + 2;
+
             while offset < bytes.len()
                 && !matches!(bytes[offset], b'\n' | b'\r')
                 && !(bytes[offset] == b'>' && bytes.get(offset + 1) == Some(&b'>'))
@@ -376,20 +420,26 @@ pub(super) fn lex(
                 if offset & 1023 == 0 {
                     control.checkpoint()?;
                 }
+
                 offset += 1;
             }
+
             if bytes.get(offset..offset + 2) != Some(b">>") {
                 return Ok(Err(issue("Unclosed stereotype", start, offset)));
             }
+
             let stereotype = &source[start + 2..offset];
+
             if stereotype.is_empty() || stereotype.chars().all(is_ecmascript_whitespace) {
                 return Ok(Err(issue("Expected stereotype text", start + 2, offset)));
             }
+
             push(&mut tokens, StereotypeText, start + 2, offset);
             push(&mut tokens, StereotypeEnd, offset, offset + 2);
             offset += 2;
             continue;
         }
+
         let fixed = [
             ("--|>", Generalization),
             ("..>", DependencyArrow),
@@ -403,6 +453,7 @@ pub(super) fn lex(
             push(&mut tokens, kind, start, offset);
             continue;
         }
+
         if remaining.starts_with("--") {
             let dash_end = scan_while(bytes, start + 2, |b| b == b'-', control)?;
             let (kind, end) = if bytes.get(dash_end) == Some(&b'>') {
@@ -418,30 +469,37 @@ pub(super) fn lex(
             push(&mut tokens, kind, start, offset);
             continue;
         }
+
         if remaining.starts_with("<--") {
             offset = scan_while(bytes, start + 3, |b| b == b'-', control)?;
             push(&mut tokens, BackwardSolid, start, offset);
             continue;
         }
+
         if remaining.starts_with("o--") || remaining.starts_with("x--") {
             offset += 3;
             push(
                 &mut tokens,
-                if byte == b'o' {
-                    BackwardCircle
-                } else {
-                    BackwardCross
+                match byte {
+                    b'o' => {
+                        BackwardCircle
+                    },
+                    _ => {
+                        BackwardCross
+                    },
                 },
                 start,
                 offset,
             );
             continue;
         }
+
         if remaining.starts_with("@{") {
             offset += 2;
             push(&mut tokens, MetadataStart, start, offset);
             continue;
         }
+
         if matches!(byte, b'"' | b'\'') {
             offset = scan_while(
                 bytes,
@@ -449,46 +507,61 @@ pub(super) fn lex(
                 |b| b != byte && !matches!(b, b'\n' | b'\r'),
                 control,
             )?;
+
             if bytes.get(offset) != Some(&byte) {
                 return Ok(Err(issue("Unclosed quoted string", start, offset)));
             }
+
             offset += 1;
             push(&mut tokens, PlainString, start, offset);
             continue;
         }
-        if byte == b'#' {
-            let end = scan_while(bytes, start + 1, |b| b.is_ascii_hexdigit(), control)?;
-            if end > start + 1 {
-                offset = end;
-                push(&mut tokens, HashColor, start, offset);
-                continue;
-            }
+
+        match byte {
+            b'#' => {
+                let end = scan_while(bytes, start + 1, |b| b.is_ascii_hexdigit(), control)?;
+
+                if end > start + 1 {
+                    offset = end;
+                    push(&mut tokens, HashColor, start, offset);
+                    continue;
+                }
+            },
+            _ => {},
         }
+
         if byte.is_ascii_alphabetic() || byte == b'_' {
             let mut css_end = identifier_end;
+
             while bytes.get(css_end) == Some(&b'-')
                 && bytes.get(css_end + 1).is_some_and(|b| word(*b))
             {
                 css_end = scan_while(bytes, css_end + 1, word, control)?;
             }
+
             if css_end > identifier_end {
                 offset = css_end;
                 push(&mut tokens, CssIdentifier, start, offset);
                 continue;
             }
         }
+
         let mut number_end = start;
+
         if byte.is_ascii_digit()
             || (byte == b'.' && bytes.get(start + 1).is_some_and(u8::is_ascii_digit))
         {
             number_end = scan_while(bytes, start, |b| b.is_ascii_digit(), control)?;
+
             if bytes.get(number_end) == Some(&b'.')
                 && bytes.get(number_end + 1).is_some_and(u8::is_ascii_digit)
             {
                 number_end = scan_while(bytes, number_end + 1, |b| b.is_ascii_digit(), control)?;
             }
+
             number_end = scan_while(bytes, number_end, |b| b.is_ascii_alphabetic(), control)?;
         }
+
         if identifier_end > start || number_end > start {
             offset = identifier_end.max(number_end);
             push(
@@ -503,11 +576,13 @@ pub(super) fn lex(
             );
             continue;
         }
+
         if remaining.starts_with("\\,") {
             offset += 2;
             push(&mut tokens, CssEscapedComma, start, offset);
             continue;
         }
+
         let kind = match byte {
             b'@' => At,
             b'{' => LeftBrace,
@@ -538,6 +613,7 @@ pub(super) fn lex(
         };
         push(&mut tokens, kind, start, offset);
     }
+
     push(&mut tokens, Eof, bytes.len(), bytes.len());
     Ok(Ok(tokens))
 }

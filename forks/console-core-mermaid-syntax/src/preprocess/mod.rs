@@ -117,6 +117,7 @@ struct LocalConfigKeyEvidence {
 }
 
 impl PreprocessResult {
+    #[must_use]
     pub fn code(&self) -> &str {
         self.source.text()
     }
@@ -130,18 +131,23 @@ pub(crate) fn select_family_parser_source_controlled(
     control: &OperationControl,
 ) -> OperationControlResult<PreprocessedSource> {
     control.checkpoint()?;
+
     if matches!(diagram_type, "agentflow" | "eventmodeling")
-        && let Some(with_comments) = with_comments
+        && let Some(with_comments_2) = with_comments
     {
-        let max_text_size = config
+        let max_text_size = match config
             .as_value()
             .get("maxTextSize")
-            .and_then(Value::as_u64)
-            .unwrap_or(50_000);
-        if with_comments.text().encode_utf16().count() as u64 <= max_text_size {
-            return prepare_parser_text_controlled(with_comments, control);
+            .and_then(Value::as_u64) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 50_000,
+        };
+
+        if with_comments_2.text().encode_utf16().count() as u64 <= max_text_size {
+            return prepare_parser_text_controlled(with_comments_2, control);
         }
     }
+
     Ok(source)
 }
 
@@ -203,7 +209,7 @@ pub(crate) fn preprocess_builtin_semantic_with_directive_recovery_controlled(
     control: &OperationControl,
 ) -> OperationControlResult<Result<PreprocessResult>> {
     let detector = |text: &str, control: &OperationControl| {
-        Ok(crate::detect::detect_builtin_controlled(text, control)?.map(|fact| fact.id))
+        Ok({ let checked_value_2 = crate::detect::detect_builtin_controlled(text, control)?; checked_value_2 }.map(|fact| fact.id))
     };
     Ok(preprocess_source_capture_controlled(
         input,
@@ -252,7 +258,7 @@ fn preprocess_source_capture_controlled(
     #[cfg(test)]
     PREPROCESS_COUNT.set(PREPROCESS_COUNT.get() + 1);
 
-    // Mermaid 12 passes the complete DiagramCode to Diagram.fromText on both public paths.
+
     let mut source = PreprocessedSource::new_controlled(input, control)?;
     control.checkpoint()?;
     #[cfg(feature = "editor-facts")]
@@ -321,6 +327,7 @@ fn preprocess_source_capture_controlled(
             });
         }
     };
+
     if frontmatter_len > 0 {
         #[cfg(feature = "editor-facts")]
         if capture_editor_evidence {
@@ -353,29 +360,43 @@ fn preprocess_source_capture_controlled(
             && !processed_directives.recovered_incomplete_directive
             && processed_directives.appearance_capture.map_spans(&source);
     }
-    if let Some(panic) = processed_directives.panic {
-        control.checkpoint()?;
-        return Ok(PreprocessCaptureOutcome {
-            outcome: PreprocessCaptureResult::Panicked(panic),
+
+    match processed_directives.panic {
+        Some(panic) => {
+            control.checkpoint()?;
+            return Ok(PreprocessCaptureOutcome {
+                outcome: PreprocessCaptureResult::Panicked(panic),
+                #[cfg(feature = "editor-facts")]
+                source_config,
+            });
+        },
+        ::core::option::Option::None => {},
+    }
+
+    match processed_directives.error {
+        Some(error) => {
             #[cfg(feature = "editor-facts")]
-            source_config,
-        });
+            source_config.mark_rewrite_unsafe();
+
+            if first_error.is_none() {
+                first_error = Some(error);
+            }
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(error) = processed_directives.error {
-        #[cfg(feature = "editor-facts")]
-        source_config.mark_rewrite_unsafe();
-        if first_error.is_none() {
-            first_error = Some(error);
-        }
+
+    match first_error {
+        Some(error) => {
+            control.checkpoint()?;
+            return Ok(PreprocessCaptureOutcome {
+                outcome: PreprocessCaptureResult::Failed(error),
+                #[cfg(feature = "editor-facts")]
+                source_config,
+            });
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(error) = first_error {
-        control.checkpoint()?;
-        return Ok(PreprocessCaptureOutcome {
-            outcome: PreprocessCaptureResult::Failed(error),
-            #[cfg(feature = "editor-facts")]
-            source_config,
-        });
-    }
+
     #[cfg(feature = "editor-facts")]
     if processed_directives.recovered_incomplete_directive {
         source.mark_recovered_incomplete_directive();
@@ -418,8 +439,8 @@ fn preprocess_source_capture_controlled(
     frontmatter_config.deep_merge(processed_directives.config.as_value());
 
     control.checkpoint()?;
-    // These families opt into Mermaid's comment-preserving parser input. Keep the existing
-    // edit map with that buffer so editor byte spans and domain lexer positions remain distinct.
+
+
     let preserve_comments = match diagram_type {
         Some(diagram_type) => matches!(diagram_type, "agentflow" | "eventmodeling"),
         None => {
@@ -474,9 +495,9 @@ fn append_frontmatter_evidence(
         .and_then(|(full, local_body)| {
             let full = source.try_map_span(SourceSpan::new(full.start, full.end))?;
             let body = map_frontmatter_body_span_to_original(source, local_body)?;
-            // The mapped body end is the exact edit boundary used by the existing insertion
-            // projection. For CRLF it intentionally sits between `\r` and `\n`; the projection
-            // replaces that boundary with a complete CRLF-delimited config block.
+
+
+
             let insert = SourceSpan::new(body.end, body.end);
             Some(FrontmatterSourceEvidence::new(
                 full,
@@ -523,10 +544,10 @@ fn map_frontmatter_body_span_to_original(
     body: FrontmatterByteSpan,
 ) -> Option<SourceSpan> {
     let mut mapped = source.try_map_span(SourceSpan::new(body.start, body.end))?;
-    // The frontmatter locator intentionally leaves the `\r` from a CRLF immediately before the
-    // closing delimiter inside the body range. Preprocessing normalizes that pair to one `\n`,
-    // whose left boundary maps before the original `\r`. Recover the locator's original boundary
-    // from the same edit map without rescanning or retaining source text.
+
+
+
+
     if source.text().as_bytes().get(body.end) == Some(&b'\n') {
         let newline = source.try_map_span(SourceSpan::new(body.end, body.end + 1))?;
         if newline.end.saturating_sub(newline.start) == 2 && mapped.end == newline.start {
@@ -603,7 +624,7 @@ fn cleanup_text_controlled(
     strip_leading_utf8_bom(source, control)?;
     normalize_crlf_controlled(source, control)?;
 
-    // Mermaid performs this HTML attribute rewrite as part of preprocessing.
+
     normalize_html_tag_attributes_like_upstream_controlled(source, control)?;
     control.checkpoint()
 }
@@ -616,6 +637,7 @@ fn strip_leading_utf8_bom(
         source.set_first_line_column_offset(1);
         source.apply_edits(vec![SourceEdit::delete(0..'\u{feff}'.len_utf8())], control)?;
     }
+
     Ok(())
 }
 
@@ -634,12 +656,14 @@ fn remove_mermaid_comments_controlled(
     let mut whitespace_start = 0usize;
     let mut cursor = 0usize;
     let mut at_line_start = true;
+
     while cursor < text.len() {
         let ch = text[cursor..]
             .chars()
             .next()
             .expect("comment scan position must contain a character");
         checkpoints.scanned(ch.len_utf8())?;
+
         if at_line_start && is_js_regex_whitespace(ch) {
             cursor += ch.len_utf8();
             #[cfg(feature = "editor-facts")]
@@ -648,8 +672,10 @@ fn remove_mermaid_comments_controlled(
             }
             continue;
         }
+
         if at_line_start && let Some(after_marker) = text[cursor..].strip_prefix("%%") {
             let has_comment_body = after_marker.chars().next().is_some_and(|ch| ch != '\n');
+
             if !after_marker.starts_with('{') && has_comment_body {
                 let newline = find_newline_controlled(text, cursor + 2, &mut checkpoints)?;
                 let line_end = newline.map_or(text.len(), |newline| newline + 1);
@@ -670,8 +696,10 @@ fn remove_mermaid_comments_controlled(
                 continue;
             }
         }
+
         at_line_start = false;
         cursor += ch.len_utf8();
+
         if matches!(ch, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
             #[cfg(feature = "editor-facts")]
             {
@@ -681,6 +709,7 @@ fn remove_mermaid_comments_controlled(
             at_line_start = true;
         }
     }
+
     checkpoints.finish()?;
     #[cfg(feature = "editor-facts")]
     for (index, expected_span) in comments.into_iter().enumerate() {
@@ -694,17 +723,23 @@ fn remove_mermaid_comments_controlled(
 
     let mut checkpoints = ControlledScanCheckpoints::new(control)?;
     let mut leading_whitespace = 0usize;
+
     for ch in source.text().chars() {
         checkpoints.scanned(ch.len_utf8())?;
+
         if !is_js_regex_whitespace(ch) {
             break;
         }
+
         leading_whitespace += ch.len_utf8();
     }
+
     checkpoints.finish()?;
+
     if leading_whitespace > 0 {
         source.apply_edits(vec![SourceEdit::delete(0..leading_whitespace)], control)?;
     }
+
     control.checkpoint()
 }
 
@@ -726,8 +761,10 @@ fn normalize_crlf_controlled(
     let mut checkpoints = ControlledScanCheckpoints::new(control)?;
     let mut edits = Vec::new();
     let mut cursor = 0usize;
+
     while cursor < bytes.len() {
         checkpoints.scanned(1)?;
+
         if bytes[cursor] == b'\r' {
             let end = cursor + usize::from(bytes.get(cursor + 1) == Some(&b'\n')) + 1;
             edits.push(SourceEdit::replace(
@@ -744,6 +781,7 @@ fn normalize_crlf_controlled(
             cursor += 1;
         }
     }
+
     checkpoints.finish()?;
     source.apply_edits(edits, control)?;
     control.checkpoint()
@@ -767,28 +805,33 @@ fn normalize_html_tag_attributes_like_upstream_controlled(
 
     while let Some(start) = find_ascii_pattern_controlled(text, probe, b"<", &mut checkpoints)? {
         let tag_start = start + 1;
+
         if match <[_]>::get(&*bytes, tag_start) { ::core::option::Option::Some(&checked_element) => !is_mermaid_js_word_byte(checked_element), ::core::option::Option::None => true } {
             probe = tag_start;
             continue;
         }
 
         let mut tag_end = tag_start + 1;
+
         while match <[_]>::get(&*bytes, tag_end) { ::core::option::Option::Some(&checked_element) => is_mermaid_js_word_byte(checked_element), ::core::option::Option::None => false } {
             checkpoints.scanned(1)?;
             tag_end += 1;
         }
 
-        let Some(end) = find_ascii_pattern_controlled(text, tag_end, b">", &mut checkpoints)?
-        else {
-            // No later `<` can form a closed tag when the remaining suffix has no `>`.
-            // Advancing by one here made malformed input rescan the same suffix O(n^2).
-            break;
+        let end = {
+            let optional_end = find_ascii_pattern_controlled(text, tag_end, b">", &mut checkpoints)?;
+
+            match optional_end {
+                Some(matched_end) => matched_end,
+                ::core::option::Option::None => break,
+            }
         };
 
         html_attribute_quote_edits_controlled(text, tag_end, end, &mut edits, &mut checkpoints)?;
 
         probe = end + 1;
     }
+
     checkpoints.finish()?;
     source.apply_edits(edits, control)?;
     control.checkpoint()
@@ -808,10 +851,12 @@ fn html_attribute_quote_edits_controlled(
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<()> {
     let mut probe = attributes_start;
+
     while let Some(start) =
         find_ascii_pattern_in_range_controlled(text, probe, attributes_end, b"=\"", checkpoints)?
     {
         let value_start = start + 2;
+
         let Some(end) = find_ascii_pattern_in_range_controlled(
             text,
             value_start,
@@ -839,6 +884,7 @@ fn html_attribute_quote_edits_controlled(
 
         probe = end + 1;
     }
+
     Ok(())
 }
 
@@ -846,11 +892,11 @@ fn encode_mermaid_entities_like_upstream_controlled(
     source: &mut PreprocessedSource,
     control: &OperationControl,
 ) -> OperationControlResult<()> {
-    // Mirrors Mermaid `encodeEntities` (Mermaid@11.12.2):
-    //
-    // 1) Protect `style...:#...;` and `classDef...:#...;` so color hex fragments are not mistaken
-    //    as entities by the `/#\\w+;/g` pass.
-    // 2) Encode `#<name>;` and `#<number>;` sequences into placeholders that do not contain `#`/`;`.
+
+
+
+
+
     strip_hex_style_semicolons_like_upstream_controlled(source, "style", control)?;
     strip_hex_style_semicolons_like_upstream_controlled(source, "classDef", control)?;
     encode_entity_placeholders_like_upstream_controlled(source, control)?;
@@ -875,6 +921,7 @@ fn encode_entity_placeholders_like_upstream_controlled(
 
     while let Some(start) = find_ascii_pattern_controlled(text, cursor, b"#", &mut checkpoints)? {
         let mut end = start + 1;
+
         while match <[_]>::get(&*bytes, end) { ::core::option::Option::Some(&checked_element) => is_mermaid_js_word_byte(checked_element), ::core::option::Option::None => false } {
             checkpoints.scanned(1)?;
             end += 1;
@@ -883,13 +930,16 @@ fn encode_entity_placeholders_like_upstream_controlled(
         if end > start + 1 && bytes.get(end) == Some(&b';') {
             let inner = &text[start + 1..end];
             let mut all_digits = true;
-            for byte in inner.bytes() {
+
+            'over_byte_2: for byte in inner.bytes() {
                 checkpoints.scanned(1)?;
+
                 if !byte.is_ascii_digit() {
                     all_digits = false;
-                    break;
+                    break 'over_byte_2;
                 }
             }
+
             let prefix = if all_digits { "ﬂ°°" } else { "ﬂ°" };
             edits.push(SourceEdit::replace(
                 start..start + 1,
@@ -906,11 +956,13 @@ fn encode_entity_placeholders_like_upstream_controlled(
             cursor = start + 1;
         }
     }
+
     checkpoints.finish()?;
     source.apply_edits(edits, control)?;
     control.checkpoint()
 }
 
+#[must_use]
 fn is_mermaid_js_word_byte(byte: u8) -> bool {
     byte.is_ascii_alphanumeric() || byte == b'_'
 }
@@ -936,10 +988,13 @@ fn strip_hex_style_semicolons_like_upstream_controlled(
             &mut edits,
             &mut checkpoints,
         )?;
-        let Some(newline) = newline else {
-            break;
+
+        let newline_2 = match newline {
+            Some(matched_newline) => matched_newline,
+            ::core::option::Option::None => break,
         };
-        line_start = newline + 1;
+
+        line_start = newline_2 + 1;
     }
 
     checkpoints.finish()?;
@@ -956,12 +1011,14 @@ fn collect_hex_style_semicolon_edits_controlled(
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<()> {
     let mut cursor = line_start;
+
     while let Some(semicolon) =
         { let checked_value = find_hex_style_match_controlled(text, line_start, line_end, keyword, cursor, checkpoints)?; checked_value }
     {
         edits.push(SourceEdit::delete(semicolon..semicolon + 1));
         cursor = semicolon + 1;
     }
+
     Ok(())
 }
 
@@ -983,6 +1040,7 @@ fn find_hex_style_match_controlled(
     else {
         return Ok(None);
     };
+
     find_hex_style_match_end_controlled(text, start + keyword.len(), line_end, checkpoints)
 }
 
@@ -993,38 +1051,50 @@ fn find_hex_style_match_end_controlled(
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<Option<usize>> {
     let mut probe = search_start;
+
     while let Some(colon) =
         find_ascii_pattern_in_range_controlled(text, probe, line_end, b":", checkpoints)?
     {
         let mut hash = None;
         let mut token_end = colon + 1;
-        for (rel, ch) in text[colon + 1..line_end].char_indices() {
+
+        'inner_for_2: for (rel, ch) in text[colon + 1..line_end].char_indices() {
             checkpoints.scanned(ch.len_utf8())?;
+
             if ch.is_whitespace() {
                 token_end = colon + 1 + rel;
-                break;
+                break 'inner_for_2;
             }
+
             token_end = colon + 1 + rel + ch.len_utf8();
-            if ch == '#' {
-                hash = Some(colon + 1 + rel);
-                break;
+
+            match ch {
+                '#' => {
+                    hash = Some(colon + 1 + rel);
+                    break 'inner_for_2;
+                },
+                _ => {},
             }
         }
 
-        if let Some(hash) = hash {
-            return rfind_ascii_byte_in_range_controlled(
-                text,
-                hash + 1,
-                line_end,
-                b';',
-                checkpoints,
-            );
+        match hash {
+            Some(hash_2) => {
+                return rfind_ascii_byte_in_range_controlled(
+                    text,
+                    hash_2 + 1,
+                    line_end,
+                    b';',
+                    checkpoints,
+                );
+            },
+            ::core::option::Option::None => {},
         }
 
-        // Skip the complete value token. Re-probing at every byte after a colon makes a
-        // long colon-heavy line quadratic when no hexadecimal color is present.
+
+
         probe = token_end.max(colon + 1);
     }
+
     Ok(None)
 }
 
@@ -1037,10 +1107,12 @@ fn rfind_ascii_byte_in_range_controlled(
 ) -> OperationControlResult<Option<usize>> {
     for offset in (start..end.min(text.len())).rev() {
         checkpoints.scanned(1)?;
+
         if text.as_bytes()[offset] == needle {
             return Ok(Some(offset));
         }
     }
+
     Ok(None)
 }
 
@@ -1073,6 +1145,7 @@ enum FrontmatterYamlInput<'a> {
 }
 
 impl FrontmatterYamlInput<'_> {
+    #[must_use]
     fn text(&self) -> &str {
         match self {
             Self::Plain(text) => text.as_ref(),
@@ -1124,6 +1197,7 @@ fn process_frontmatter_controlled(
     control: &OperationControl,
 ) -> OperationControlResult<FrontmatterCapture> {
     control.checkpoint()?;
+
     let Some(location) = locate_frontmatter_block_controlled(input, control)? else {
         return Ok(FrontmatterCapture {
             result: Ok(ProcessedFrontmatter {
@@ -1145,6 +1219,7 @@ fn process_frontmatter_controlled(
             fields: None,
         });
     };
+
     let body = &input[location.body.start..location.body.end];
     let yaml_input = dedented_frontmatter_yaml_input_controlled(
         body,
@@ -1172,9 +1247,9 @@ fn process_frontmatter_controlled(
                 rewrite_safe = captured.rewrite_safe;
                 keys.reserve(captured.keys.len());
                 for key in captured.keys {
-                    // Compose exactly once through each coordinate space: parser span in the dedented
-                    // YAML input -> body-relative source -> cleaned preprocess source. The outer source
-                    // edit map is applied later when the operation evidence is appended.
+
+
+
                     let mapped = key.span.and_then(|span| {
                         map_frontmatter_yaml_span_to_preprocessed_source(
                             &yaml_input,
@@ -1201,6 +1276,7 @@ fn process_frontmatter_controlled(
                 )?
             }
         }
+
         #[cfg(not(feature = "editor-facts"))]
         {
             crate::yaml_config::parse_yaml_value_controlled(
@@ -1231,38 +1307,55 @@ fn process_frontmatter_controlled(
             });
         }
     };
-    if let Err(cancelled) = control.checkpoint() {
-        crate::json_value::drop_value_nonrecursive(Value::Object(parsed_obj));
-        return Err(cancelled);
+
+    match control.checkpoint() {
+        Err(cancelled) => {
+            crate::json_value::drop_value_nonrecursive(Value::Object(parsed_obj));
+            return Err(cancelled);
+        },
+        ::core::result::Result::Ok(_) => {},
     }
 
     let mut title = None;
     let mut display_mode = None;
 
-    if let Some(t) = parsed_obj
+    match parsed_obj
         .get("title")
-        .filter(|value| frontmatter_truthy(value))
-    {
-        title = Some(frontmatter_to_string(t));
+        .filter(|value| frontmatter_truthy(value)) {
+        Some(t) => {
+            title = Some(frontmatter_to_string(t));
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(dm) = parsed_obj
+
+    match parsed_obj
         .get("displayMode")
-        .filter(|value| frontmatter_truthy(value))
-    {
-        display_mode = Some(frontmatter_to_string(dm));
+        .filter(|value| frontmatter_truthy(value)) {
+        Some(dm) => {
+            display_mode = Some(frontmatter_to_string(dm));
+        },
+        ::core::option::Option::None => {},
     }
 
     let mut config = MermaidConfig::empty_object();
     merge_top_level_frontmatter_diagram_configs(&parsed_obj, &mut config);
-    if let Some(v) = parsed_obj
+
+    match parsed_obj
         .get("config")
-        .filter(|value| frontmatter_truthy(value))
-    {
-        config.deep_merge(v);
+        .filter(|value| frontmatter_truthy(value)) {
+        Some(v) => {
+            config.deep_merge(v);
+        },
+        ::core::option::Option::None => {},
     }
+
     crate::config::mirror_legacy_font_family_into_theme_variables(&mut config);
-    if let Some(dm) = display_mode {
-        config.set_value("gantt.displayMode", Value::String(dm));
+
+    match display_mode {
+        Some(dm) => {
+            config.set_value("gantt.displayMode", Value::String(dm));
+        },
+        ::core::option::Option::None => {},
     }
 
     #[cfg(feature = "editor-facts")]
@@ -1305,6 +1398,7 @@ fn dedented_frontmatter_yaml_input_controlled<'a>(
     {
         dedent_frontmatter_body_controlled(body, indent, control).map(FrontmatterYamlInput::Plain)
     }
+
     #[cfg(feature = "editor-facts")]
     {
         if !capture_mode.collects() {
@@ -1340,6 +1434,7 @@ fn dedented_frontmatter_yaml_input_controlled<'a>(
 }
 
 /// Splits an optional frontmatter block using a private, non-cancellable parse control.
+#[must_use]
 pub fn split_frontmatter_block(input: &str) -> Option<FrontmatterBlock<'_>> {
     let control = OperationControl::new();
     split_frontmatter_block_controlled(input, &control)
@@ -1354,31 +1449,39 @@ pub fn locate_frontmatter_block_controlled<'a>(
     let mut checkpoints = ControlledScanCheckpoints::new(control)?;
     let indent_end = frontmatter_indent_end_controlled(input, &mut checkpoints)?;
     let indent = &input[..indent_end];
+
     if !input[indent_end..].starts_with("---") {
         checkpoints.finish()?;
         return Ok(None);
     }
 
-    // Match Mermaid's greedy opening whitespace and lazy body without regex backtracking.
+
     let mut opening_ends = Vec::new();
+
     for (offset, ch) in input[indent_end + 3..].char_indices() {
         checkpoints.scanned(ch.len_utf8())?;
+
         if !is_frontmatter_whitespace(ch) {
             break;
         }
+
         if matches!(ch, '\n' | '\r') {
             opening_ends.push(indent_end + 3 + offset);
         }
     }
+
     let Some(&first_opening_end) = opening_ends.first() else {
         checkpoints.finish()?;
         return Ok(None);
     };
+
     let earliest_body_start = first_opening_end + 1;
     let mut last_closing_fence = None;
+
     for (offset, ch) in input[earliest_body_start..].char_indices() {
         checkpoints.scanned(ch.len_utf8())?;
         let position = earliest_body_start + offset;
+
         if matches!(ch, '\n' | '\r')
             && frontmatter_closing_end_controlled(input, position, indent, &mut checkpoints)?
                 .is_some()
@@ -1386,36 +1489,48 @@ pub fn locate_frontmatter_block_controlled<'a>(
             last_closing_fence = Some(position);
         }
     }
-    let Some(last_closing_fence) = last_closing_fence else {
+
+    let Some(last_closing_fence_2) = last_closing_fence else {
         checkpoints.finish()?;
         return Ok(None);
     };
-    let body_start = opening_ends
+
+    let body_start = (match opening_ends
         .into_iter()
-        .rfind(|&end| end < last_closing_fence)
-        .unwrap_or(first_opening_end)
+        .rfind(|&end| end < last_closing_fence_2) {
+        ::core::option::Option::Some(explicit_present) => explicit_present,
+        ::core::option::Option::None => first_opening_end,
+    })
         + 1;
-    for (offset, ch) in input[body_start..=last_closing_fence].char_indices() {
+
+    for (offset, ch) in input[body_start..=last_closing_fence_2].char_indices() {
         checkpoints.scanned(ch.len_utf8())?;
+
         if !matches!(ch, '\n' | '\r') {
             continue;
         }
+
         let body_end = body_start + offset;
-        if let Some(end) =
-            frontmatter_closing_end_controlled(input, body_end, indent, &mut checkpoints)?
+
         {
-            checkpoints.finish()?;
-            return Ok(Some(FrontmatterBlockLocation {
-                full: FrontmatterByteSpan { start: 0, end },
-                body: FrontmatterByteSpan {
-                    start: body_start,
-                    end: body_end,
+            match frontmatter_closing_end_controlled(input, body_end, indent, &mut checkpoints)? {
+                Some(end) => {
+                    checkpoints.finish()?;
+                    return Ok(Some(FrontmatterBlockLocation {
+                        full: FrontmatterByteSpan { start: 0, end },
+                        body: FrontmatterByteSpan {
+                            start: body_start,
+                            end: body_end,
+                        },
+                        indent,
+                        stripped: &input[end..],
+                    }));
                 },
-                indent,
-                stripped: &input[end..],
-            }));
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     checkpoints.finish()?;
     Ok(None)
 }
@@ -1425,9 +1540,15 @@ pub fn split_frontmatter_block_controlled<'a>(
     input: &'a str,
     control: &OperationControl,
 ) -> OperationControlResult<Option<FrontmatterBlock<'a>>> {
-    let Some(location) = locate_frontmatter_block_controlled(input, control)? else {
-        return Ok(None);
+    let location = {
+        let optional_location = locate_frontmatter_block_controlled(input, control)?;
+
+        match optional_location {
+            Some(matched_location) => matched_location,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let body = &input[location.body.start..location.body.end];
     let dedented_body = dedent_frontmatter_body_controlled(body, location.indent, control)?;
     control.checkpoint()?;
@@ -1479,8 +1600,9 @@ pub fn parse_frontmatter_yaml_fields_bounded_controlled(
 fn frontmatter_fields_from_yaml_value(
     parsed: std::result::Result<Value, String>,
 ) -> std::result::Result<Map<String, Value>, String> {
-    let parsed = parsed?;
-    match parsed {
+    let parsed_2 = parsed?;
+
+    match parsed_2 {
         Value::Object(map) => Ok(map),
         other => {
             crate::json_value::drop_value_nonrecursive(other);
@@ -1489,6 +1611,7 @@ fn frontmatter_fields_from_yaml_value(
     }
 }
 
+#[must_use]
 pub fn diagram_config_key_for_type(diagram_type: &str) -> &str {
     crate::family::config_namespace_for_diagram_type(diagram_type).unwrap_or(diagram_type)
 }
@@ -1509,10 +1632,12 @@ impl<'a> ControlledScanCheckpoints<'a> {
 
     fn scanned(&mut self, bytes: usize) -> OperationControlResult<()> {
         self.bytes_since_checkpoint = self.bytes_since_checkpoint.saturating_add(bytes);
+
         while self.bytes_since_checkpoint >= CONTROLLED_SCAN_CHECKPOINT_BYTES {
             self.control.checkpoint()?;
             self.bytes_since_checkpoint -= CONTROLLED_SCAN_CHECKPOINT_BYTES;
         }
+
         Ok(())
     }
 
@@ -1528,10 +1653,12 @@ fn find_newline_controlled(
 ) -> OperationControlResult<Option<usize>> {
     for (offset, byte) in input.as_bytes()[start..].iter().enumerate() {
         checkpoints.scanned(1)?;
+
         if *byte == b'\n' {
             return Ok(Some(start + offset));
         }
     }
+
     Ok(None)
 }
 
@@ -1541,20 +1668,25 @@ fn find_physical_line_ending_controlled(
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<Option<(usize, usize)>> {
     let bytes = input.as_bytes();
+
     for offset in start..bytes.len() {
         checkpoints.scanned(1)?;
+
         match bytes[offset] {
             b'\r' => {
                 let end = offset + 1 + usize::from(bytes.get(offset + 1) == Some(&b'\n'));
+
                 if end == offset + 2 {
                     checkpoints.scanned(1)?;
                 }
+
                 return Ok(Some((offset, end)));
             }
             b'\n' => return Ok(Some((offset, offset + 1))),
             _ => {}
         }
     }
+
     Ok(None)
 }
 
@@ -1563,16 +1695,21 @@ fn frontmatter_indent_end_controlled(
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<usize> {
     let mut end = 0usize;
+
     for (idx, ch) in line.char_indices() {
         checkpoints.scanned(ch.len_utf8())?;
+
         if ch == '\n' || ch == '\r' || !is_frontmatter_whitespace(ch) {
             break;
         }
+
         end = idx + ch.len_utf8();
     }
+
     Ok(end)
 }
 
+#[must_use]
 fn is_frontmatter_whitespace(ch: char) -> bool {
     (ch.is_whitespace() && ch != '\u{0085}') || ch == '\u{feff}'
 }
@@ -1584,24 +1721,32 @@ fn frontmatter_closing_end_controlled(
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<Option<usize>> {
     let fence_start = preceding_line_break + 1;
+
     if !frontmatter_has_prefix_controlled(&input[fence_start..], indent, checkpoints)? {
         return Ok(None);
     }
+
     let fence_end = fence_start + indent.len();
+
     if !input[fence_end..].starts_with("---") {
         return Ok(None);
     }
+
     let whitespace_start = fence_end + 3;
     let mut end = None;
+
     for (offset, ch) in input[whitespace_start..].char_indices() {
         checkpoints.scanned(ch.len_utf8())?;
+
         if !is_frontmatter_whitespace(ch) {
             break;
         }
+
         if matches!(ch, '\n' | '\r') {
             end = Some(whitespace_start + offset + 1);
         }
     }
+
     Ok(end)
 }
 
@@ -1613,15 +1758,18 @@ fn frontmatter_has_prefix_controlled(
     if text.len() < prefix.len() {
         return Ok(false);
     }
+
     for (actual, expected) in text.as_bytes()[..prefix.len()]
         .iter()
         .zip(prefix.as_bytes())
     {
         checkpoints.scanned(1)?;
+
         if actual != expected {
             return Ok(false);
         }
     }
+
     Ok(true)
 }
 
@@ -1638,6 +1786,7 @@ fn dedent_frontmatter_body_controlled<'a>(
     let mut checkpoints = ControlledScanCheckpoints::new(control)?;
     let mut out = String::with_capacity(body.len());
     let mut line_start = 0usize;
+
     loop {
         let line_ending = find_physical_line_ending_controlled(body, line_start, &mut checkpoints)?;
         let (line_end, next_line_start) = line_ending.unwrap_or((body.len(), body.len()));
@@ -1648,19 +1797,24 @@ fn dedent_frontmatter_body_controlled<'a>(
             line
         };
         push_frontmatter_str_controlled(&mut out, content, &mut checkpoints)?;
+
         if line_end == body.len() {
             break;
         }
+
         push_frontmatter_str_controlled(
             &mut out,
             &body[line_end..next_line_start],
             &mut checkpoints,
         )?;
+
         if next_line_start == body.len() {
             break;
         }
+
         line_start = next_line_start;
     }
+
     checkpoints.finish()?;
     Ok(Cow::Owned(out))
 }
@@ -1672,10 +1826,12 @@ fn push_frontmatter_str_controlled(
 ) -> OperationControlResult<()> {
     let mut chunk_start = 0usize;
     let mut chunk_len = 0usize;
+
     for (idx, ch) in text.char_indices() {
         let ch_len = ch.len_utf8();
         checkpoints.scanned(ch_len)?;
         chunk_len += ch_len;
+
         if chunk_len >= CONTROLLED_SCAN_CHECKPOINT_BYTES {
             let chunk_end = idx + ch_len;
             out.push_str(&text[chunk_start..chunk_end]);
@@ -1683,24 +1839,27 @@ fn push_frontmatter_str_controlled(
             chunk_len = 0;
         }
     }
+
     out.push_str(&text[chunk_start..]);
     Ok(())
 }
 
+#[must_use]
 fn frontmatter_truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(value) => !value.is_empty(),
+        Value::Bool(value_2) => *value_2,
+        Value::Number(value_3) => value_3.as_f64().is_some_and(|value_4| !::core::matches!(::core::primitive::f64::classify(value_4), ::core::num::FpCategory::Zero)),
+        Value::String(value_5) => !value_5.is_empty(),
         Value::Array(_) | Value::Object(_) => true,
     }
 }
 
+#[must_use]
 fn frontmatter_to_string(value: &Value) -> String {
     match value {
-        Value::String(value) => value.clone(),
-        Value::Number(value) => value.to_string(),
+        Value::String(value_2) => value_2.clone(),
+        Value::Number(value_3) => value_3.to_string(),
         Value::Bool(true) => "true".to_string(),
         Value::Bool(false) => "false".to_string(),
         Value::Null => "null".to_string(),
@@ -1712,20 +1871,30 @@ fn merge_top_level_frontmatter_diagram_configs(
     parsed_obj: &serde_json::Map<String, Value>,
     config: &mut MermaidConfig,
 ) {
-    // Mermaid upstream only consumes `config`, but users commonly read docs examples as allowing
-    // diagram config namespaces at the YAML root. Keep this compatibility narrow and explicit.
+
+
     for fact in crate::family::frontmatter_config_aliases() {
-        if let Some(value) = parsed_obj.get(fact.source) {
-            config.set_value(
-                fact.namespace,
-                crate::json_value::clone_value_nonrecursive(value),
-            );
+        {
+            match parsed_obj.get(fact.source) {
+                Some(value) => {
+                    config.set_value(
+                        fact.namespace,
+                        crate::json_value::clone_value_nonrecursive(value),
+                    );
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
     for &key in crate::family::frontmatter_config_namespaces() {
-        if let Some(value) = parsed_obj.get(key) {
-            config.set_value(key, crate::json_value::clone_value_nonrecursive(value));
+        {
+            match parsed_obj.get(key) {
+                Some(value) => {
+                    config.set_value(key, crate::json_value::clone_value_nonrecursive(value));
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 }
@@ -1771,6 +1940,7 @@ fn process_directives_controlled(
     #[cfg(feature = "editor-facts")]
     let mut appearance_complete = true;
     let blocks = directive_blocks_controlled(input, directive_recovery, control)?;
+
     if blocks.is_empty() {
         return Ok(ProcessedDirectives {
             config: MermaidConfig::empty_object(),
@@ -1789,16 +1959,19 @@ fn process_directives_controlled(
             appearance_complete,
         });
     }
+
     #[cfg(feature = "editor-facts")]
     let recovered_incomplete_directive = blocks.iter().any(|block| !block.complete);
     let mut directives = Vec::new();
     #[cfg(feature = "editor-facts")]
     let mut evidence = Vec::new();
     let mut first_error = None;
+
     for (index, block) in blocks.iter().enumerate() {
-        if index % 32 == 0 {
+        if index.wrapping_rem(32) == 0 {
             control.checkpoint()?;
         }
+
         if !block.complete {
             #[cfg(feature = "editor-facts")]
             if !capture_mode.collects() {
@@ -1807,6 +1980,7 @@ fn process_directives_controlled(
             #[cfg(not(feature = "editor-facts"))]
             continue;
         }
+
         let parsed = parse_directive_like_upstream_capture_controlled(
             block.raw,
             #[cfg(feature = "editor-facts")]
@@ -1815,55 +1989,62 @@ fn process_directives_controlled(
             block.complete,
             control,
         )?;
-        if let Some(directive) = parsed.directive {
-            #[cfg(feature = "editor-facts")]
-            let mut directive = directive;
-            #[cfg(feature = "editor-facts")]
-            if matches!(directive.ty.as_str(), "init" | "initialize") {
-                appearance_complete &= directive.arguments_complete;
-            }
-            #[cfg(feature = "editor-facts")]
-            if capture_mode.collects() {
-                directive.appearance_owner = Some(SourceAppearanceOwner {
-                    origin: SourceConfigOrigin::Directive {
-                        directive_index: evidence.len(),
-                    },
-                    construct_span: SourceSpan::new(block.range.start, block.range.end),
-                });
-                let keyword_span = SourceSpan::new(
-                    block.raw_start.saturating_add(directive.keyword_span.start),
-                    block.raw_start.saturating_add(directive.keyword_span.end),
-                );
-                let keys = directive
-                    .config_keys
-                    .iter()
-                    .map(|key| LocalConfigKeyEvidence {
-                        path: key.path.clone(),
-                        span: key.span.as_ref().map(|span| {
-                            SourceSpan::new(
-                                block.raw_start.saturating_add(span.start),
-                                block.raw_start.saturating_add(span.end),
-                            )
-                        }),
-                        rewrite_safe: key.rewrite_safe,
-                    })
-                    .collect();
-                evidence.push(LocalDirectiveEvidence {
-                    keyword: directive.ty.clone(),
-                    full_span: SourceSpan::new(block.range.start, block.range.end),
-                    keyword_span,
-                    complete: block.complete,
-                    rewrite_safe: block.complete && directive.rewrite_safe,
-                    keys,
-                });
-            }
-            if block.complete && parsed.error.is_none() {
-                directives.push(directive);
-            }
+
+        match parsed.directive {
+            Some(directive) => {
+                #[cfg(feature = "editor-facts")]
+                let mut directive = directive;
+                #[cfg(feature = "editor-facts")]
+                if matches!(directive.ty.as_str(), "init" | "initialize") {
+                    appearance_complete &= directive.arguments_complete;
+                }
+                #[cfg(feature = "editor-facts")]
+                if capture_mode.collects() {
+                    directive.appearance_owner = Some(SourceAppearanceOwner {
+                        origin: SourceConfigOrigin::Directive {
+                            directive_index: evidence.len(),
+                        },
+                        construct_span: SourceSpan::new(block.range.start, block.range.end),
+                    });
+                    let keyword_span = SourceSpan::new(
+                        block.raw_start.saturating_add(directive.keyword_span.start),
+                        block.raw_start.saturating_add(directive.keyword_span.end),
+                    );
+                    let keys = directive
+                        .config_keys
+                        .iter()
+                        .map(|key| LocalConfigKeyEvidence {
+                            path: key.path.clone(),
+                            span: key.span.as_ref().map(|span| {
+                                SourceSpan::new(
+                                    block.raw_start.saturating_add(span.start),
+                                    block.raw_start.saturating_add(span.end),
+                                )
+                            }),
+                            rewrite_safe: key.rewrite_safe,
+                        })
+                        .collect();
+                    evidence.push(LocalDirectiveEvidence {
+                        keyword: directive.ty.clone(),
+                        full_span: SourceSpan::new(block.range.start, block.range.end),
+                        keyword_span,
+                        complete: block.complete,
+                        rewrite_safe: block.complete && directive.rewrite_safe,
+                        keys,
+                    });
+                }
+
+                if block.complete && parsed.error.is_none() {
+                    directives.push(directive);
+                }
+            },
+            ::core::option::Option::None => {},
         }
+
         if block.complete && first_error.is_none() {
             first_error = parsed.error;
         }
+
         if first_error.is_some() {
             #[cfg(feature = "editor-facts")]
             if capture_mode.collects() {
@@ -1887,6 +2068,7 @@ fn process_directives_controlled(
             });
         }
     }
+
     control.checkpoint()?;
     let input_without_directives = remove_directive_blocks_controlled(input, &blocks, control)?;
     let wrap = directives.iter().any(|d| d.ty == "wrap");
@@ -1949,6 +2131,7 @@ fn process_directives_controlled(
                 detect_init()?
             }
         }
+
         #[cfg(not(feature = "editor-facts"))]
         {
             detect_init()?
@@ -1960,10 +2143,12 @@ fn process_directives_controlled(
             if first_error.is_none() {
                 first_error = Some(error);
             }
+
             MermaidConfig::empty_object()
         }
     };
     let mut merged = init;
+
     if wrap {
         merged.set_value("wrap", Value::Bool(true));
     }
@@ -2004,9 +2189,10 @@ fn detect_init_controlled(
         > 1;
 
     for (index, d) in directives.iter().enumerate() {
-        if index % 16 == 0 {
+        if index.wrapping_rem(16) == 0 {
             control.checkpoint()?;
         }
+
         if d.ty != "init" && d.ty != "initialize" {
             continue;
         }
@@ -2015,21 +2201,22 @@ fn detect_init_controlled(
             Some(v) => crate::json_value::clone_value_nonrecursive(v),
             None => Value::Object(Default::default()),
         };
-        // Mermaid sanitizes multiple init arguments before merging, so their legacy `config`
-        // key is filtered out. A single init remaps that key before source sanitization.
+
+
         if !multiple_inits
             && let Some(diagram_specific_value) = args
                 .as_object_mut()
                 .and_then(|object| object.remove("config"))
         {
-            // Legacy init uses the source detector ID, even when a parser type was supplied.
-            // Mermaid only remaps flowchart-v2; other IDs still pass through source admission.
+
+
             if let Ok(ty) = detector(input, control)? {
                 let key = if ty == "flowchart-v2" {
                     "flowchart"
                 } else {
                     ty
                 };
+
                 if let Value::Object(obj) = &mut args
                     && let Some(old) = obj.insert(key.to_string(), diagram_specific_value)
                 {
@@ -2039,6 +2226,7 @@ fn detect_init_controlled(
                 crate::json_value::drop_value_nonrecursive(diagram_specific_value);
             }
         }
+
         sanitize_directive_controlled(&mut args, control)?;
         crate::config::mirror_legacy_font_family_into_theme_variables_value(&mut args);
 
@@ -2086,21 +2274,28 @@ fn remove_directive_blocks_controlled<'a>(
     blocks: &[DirectiveBlock<'_>],
     control: &OperationControl,
 ) -> OperationControlResult<Cow<'a, str>> {
-    if blocks.is_empty() {
-        control.checkpoint()?;
-        return Ok(Cow::Borrowed(input));
+    match blocks {
+        [] => {
+            control.checkpoint()?;
+            return Ok(Cow::Borrowed(input));
+        },
+        [_, ..] => {},
     }
 
     let mut retained_bytes = input.len();
+
     for (index, block) in blocks.iter().enumerate() {
         if index.is_multiple_of(32) {
             control.checkpoint()?;
         }
+
         retained_bytes = retained_bytes.saturating_sub(block.range.len());
     }
+
     let mut output = String::with_capacity(retained_bytes);
     let mut checkpoints = ControlledScanCheckpoints::new(control)?;
     let mut cursor = 0usize;
+
     for block in blocks {
         push_frontmatter_str_controlled(
             &mut output,
@@ -2109,6 +2304,7 @@ fn remove_directive_blocks_controlled<'a>(
         )?;
         cursor = block.range.end;
     }
+
     push_frontmatter_str_controlled(&mut output, &input[cursor..], &mut checkpoints)?;
     checkpoints.finish()?;
     Ok(Cow::Owned(output))
@@ -2132,6 +2328,7 @@ fn directive_blocks_controlled<'a>(
     let mut checkpoints = ControlledScanCheckpoints::new(control)?;
     let mut blocks = Vec::new();
     let mut pos = 0;
+
     while let Some(start) = find_ascii_pattern_controlled(input, pos, b"%%{", &mut checkpoints)? {
         let content_start = start + 3;
         let close = find_ascii_pattern_controlled(input, content_start, b"}%%", &mut checkpoints)?;
@@ -2147,24 +2344,28 @@ fn directive_blocks_controlled<'a>(
                 close.filter(|close| next_open.is_none_or(|open| *close < open))
             }
         };
-        if let Some(content_end) = content_end {
-            let end = content_end + 3;
-            let raw = &input[content_start..content_end];
-            let (trimmed_start, trimmed_end) =
-                trim_whitespace_bounds_controlled(raw, &mut checkpoints)?;
-            blocks.push(DirectiveBlock {
-                raw: &raw[trimmed_start..trimmed_end],
-                #[cfg(feature = "editor-facts")]
-                raw_start: content_start + trimmed_start,
-                complete: true,
-                range: start..end,
-            });
-            pos = end;
-            continue;
+
+        match content_end {
+            Some(content_end) => {
+                let end = content_end + 3;
+                let raw = &input[content_start..content_end];
+                let (trimmed_start, trimmed_end) =
+                    trim_whitespace_bounds_controlled(raw, &mut checkpoints)?;
+                blocks.push(DirectiveBlock {
+                    raw: &raw[trimmed_start..trimmed_end],
+                    #[cfg(feature = "editor-facts")]
+                    raw_start: content_start + trimmed_start,
+                    complete: true,
+                    range: start..end,
+                });
+                pos = end;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let end = match directive_recovery {
-            // Mermaid's optional closing marker makes an unterminated directive consume to EOF.
+
             DirectiveRecoveryMode::Strict => input.len(),
             DirectiveRecoveryMode::RecoverLine => {
                 let line_end = find_line_break_controlled(input, content_start, &mut checkpoints)?
@@ -2205,18 +2406,23 @@ fn find_ascii_pattern_in_range_controlled(
     pattern: &[u8],
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<Option<usize>> {
-    let end = end.min(input.len());
-    if pattern.is_empty() || start > end || pattern.len() > end.saturating_sub(start) {
+    let end_2 = end.min(input.len());
+
+    if pattern.is_empty() || start > end_2 || pattern.len() > end_2.saturating_sub(start) {
         return Ok(None);
     }
+
     let bytes = input.as_bytes();
-    let last_start = end - pattern.len();
+    let last_start = end_2 - pattern.len();
+
     for cursor in start..=last_start {
         checkpoints.scanned(1)?;
+
         if &bytes[cursor..cursor + pattern.len()] == pattern {
             return Ok(Some(cursor));
         }
     }
+
     Ok(None)
 }
 
@@ -2227,10 +2433,12 @@ fn find_line_break_controlled(
 ) -> OperationControlResult<Option<usize>> {
     for (offset, byte) in input.as_bytes()[start..].iter().copied().enumerate() {
         checkpoints.scanned(1)?;
+
         if matches!(byte, b'\r' | b'\n') {
             return Ok(Some(start + offset));
         }
     }
+
     Ok(None)
 }
 
@@ -2277,8 +2485,8 @@ fn parse_directive_like_upstream_capture_controlled(
     #[cfg(feature = "editor-facts")] parse_arguments: bool,
     control: &OperationControl,
 ) -> OperationControlResult<DirectiveParseCapture> {
-    // Incomplete authoring evidence only needs the directive keyword. Avoid walking an
-    // arbitrarily large unfinished argument merely to normalize quotes that will not be parsed.
+
+
     #[cfg(feature = "editor-facts")]
     if !parse_arguments {
         return parse_directive_capture_controlled(raw, capture_mode, false, control);
@@ -2300,30 +2508,43 @@ fn normalize_directive_quotes_controlled<'a>(
 ) -> OperationControlResult<Cow<'a, str>> {
     let mut checkpoints = ControlledScanCheckpoints::new(control)?;
     let mut first_quote = None;
+
     for (index, byte) in raw.as_bytes().iter().copied().enumerate() {
         checkpoints.scanned(1)?;
-        if byte == b'\'' {
-            first_quote = Some(index);
-            break;
+
+        match byte {
+            b'\'' => {
+                first_quote = Some(index);
+                break;
+            },
+            _ => {},
         }
     }
-    let Some(first_quote) = first_quote else {
+
+    let Some(first_quote_2) = first_quote else {
         checkpoints.finish()?;
         return Ok(Cow::Borrowed(raw));
     };
 
     let mut normalized = String::with_capacity(raw.len());
     let mut cursor = 0usize;
-    for (relative, byte) in raw.as_bytes()[first_quote..].iter().copied().enumerate() {
+
+    for (relative, byte) in raw.as_bytes()[first_quote_2..].iter().copied().enumerate() {
         checkpoints.scanned(1)?;
-        if byte != b'\'' {
-            continue;
+
+        match byte {
+            b'\'' => {},
+            _ => {
+                continue;
+            },
         }
-        let quote = first_quote + relative;
+
+        let quote = first_quote_2 + relative;
         push_frontmatter_str_controlled(&mut normalized, &raw[cursor..quote], &mut checkpoints)?;
         normalized.push('"');
         cursor = quote + 1;
     }
+
     push_frontmatter_str_controlled(&mut normalized, &raw[cursor..], &mut checkpoints)?;
     checkpoints.finish()?;
     Ok(Cow::Owned(normalized))
@@ -2374,41 +2595,58 @@ fn sanitize_directive_controlled(
         if visited.is_multiple_of(64) {
             control.checkpoint()?;
         }
+
         visited = visited.saturating_add(1);
-        let Some(current) = directive_value_at_path_mut(value, &path) else {
-            continue;
+
+        let current = {
+            let optional_current = directive_value_at_path_mut(value, &path);
+
+            match optional_current {
+                Some(matched_current) => matched_current,
+                ::core::option::Option::None => continue,
+            }
         };
 
         match current {
             Value::Object(map) => {
-                if let Some(old) = map.remove("secure") {
-                    crate::json_value::drop_value_nonrecursive(old);
+                match map.remove("secure") {
+                    Some(old) => {
+                        crate::json_value::drop_value_nonrecursive(old);
+                    },
+                    ::core::option::Option::None => {},
                 }
 
                 let blocked_keys = map
                     .iter()
-                    .filter(|(key, value)| {
+                    .filter(|(key, value_2)| {
                         is_suspicious_directive_key(key)
                             || !crate::generated::is_default_config_key(key)
-                            || value.is_null()
+                            || value_2.is_null()
                     })
                     .map(|(key, _)| key)
                     .cloned()
                     .collect::<Vec<_>>();
+
                 for key in blocked_keys {
-                    if let Some(old) = map.remove(&key) {
-                        crate::json_value::drop_value_nonrecursive(old);
+                    {
+                        match map.remove(&key) {
+                            Some(old) => {
+                                crate::json_value::drop_value_nonrecursive(old);
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
 
                 let child_keys = map.keys().cloned().collect::<Vec<_>>();
-                for key in child_keys.into_iter().rev() {
+
+                'over_key_2: for key in child_keys.into_iter().rev() {
                     if let Some(kind) = directive_dictionary_kind(&key)
                         && map
                             .get_mut(&key)
                             .is_some_and(|child| sanitize_directive_dictionary(child, kind))
                     {
-                        continue;
+                        continue 'over_key_2;
                     }
 
                     let mut child_path = path.clone();
@@ -2424,19 +2662,22 @@ fn sanitize_directive_controlled(
                 }
             }
             Value::String(s) => {
-                // Presentation values from directives and frontmatter share the final source
-                // admission boundary. Do not erase rejected values here: deleting the override
-                // there lets the trusted host value survive instead of replacing it with "".
+
+
+
                 if path.iter().any(|segment| {
                     matches!(segment, DirectiveValuePathSegment::Key(key)
                         if crate::config::is_presentation_field(key))
                 }) {
                     continue;
                 }
+
                 if directive_path_is_css(&path) && !css_braces_are_balanced(s) {
                     *s = "{ /* ERROR: Unbalanced CSS */ }".to_string();
                 }
+
                 let blocked = s.contains('<') || s.contains('>') || s.contains("url(data:");
+
                 if blocked {
                     s.clear();
                 }
@@ -2444,9 +2685,11 @@ fn sanitize_directive_controlled(
             _ => {}
         }
     }
+
     control.checkpoint()
 }
 
+#[must_use]
 fn directive_path_is_css(path: &[DirectiveValuePathSegment]) -> bool {
     matches!(
         path.last(),
@@ -2457,29 +2700,40 @@ fn directive_path_is_css(path: &[DirectiveValuePathSegment]) -> bool {
     )
 }
 
+#[must_use]
 fn is_suspicious_directive_key(key: &str) -> bool {
     key.starts_with("__") || key.contains("proto") || key.contains("constr")
 }
 
+#[must_use]
 fn css_braces_are_balanced(css: &str) -> bool {
     let mut depth = 0usize;
+
     for ch in css.chars() {
         match ch {
             '{' => depth += 1,
             '}' => {
-                let Some(next) = depth.checked_sub(1) else {
-                    return false;
+                let next = {
+                    let optional_next = depth.checked_sub(1);
+
+                    match optional_next {
+                        Some(matched_next) => matched_next,
+                        ::core::option::Option::None => return false,
+                    }
                 };
+
                 depth = next;
             }
             _ => {}
         }
     }
+
     depth == 0
 }
 
+#[must_use]
 fn directive_dictionary_kind(key: &str) -> Option<DirectiveDictionaryKind> {
-    // Source: Mermaid 11.16 `sanitizeDirective.ts` DICTIONARY_CONFIG_PATTERNS.
+
     match key {
         "nodeColors" => Some(DirectiveDictionaryKind::NodeColors),
         "filenameIcons" | "extensionIcons" => Some(DirectiveDictionaryKind::IconReferences),
@@ -2488,10 +2742,10 @@ fn directive_dictionary_kind(key: &str) -> Option<DirectiveDictionaryKind> {
 }
 
 fn sanitize_directive_dictionary(value: &mut Value, kind: DirectiveDictionaryKind) -> bool {
-    let is_valid_value = |value: &Value| {
-        value.as_str().is_some_and(|value| match kind {
-            DirectiveDictionaryKind::NodeColors => is_valid_node_color(value),
-            DirectiveDictionaryKind::IconReferences => is_valid_icon_reference(value),
+    let is_valid_value = |value_2: &Value| {
+        value_2.as_str().is_some_and(|value_3| match kind {
+            DirectiveDictionaryKind::NodeColors => is_valid_node_color(value_3),
+            DirectiveDictionaryKind::IconReferences => is_valid_icon_reference(value_3),
         })
     };
 
@@ -2499,37 +2753,53 @@ fn sanitize_directive_dictionary(value: &mut Value, kind: DirectiveDictionaryKin
         Value::Object(map) => {
             let blocked_keys = map
                 .iter()
-                .filter(|(key, value)| is_suspicious_dictionary_key(key) || !is_valid_value(value))
+                .filter(|(key, value_4)| is_suspicious_dictionary_key(key) || !is_valid_value(value_4))
                 .map(|(key, _)| key.clone())
                 .collect::<Vec<_>>();
 
             for key in blocked_keys {
-                if let Some(old) = map.remove(&key) {
-                    crate::json_value::drop_value_nonrecursive(old);
+                {
+                    match map.remove(&key) {
+                        Some(old) => {
+                            crate::json_value::drop_value_nonrecursive(old);
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
+
             true
         }
         Value::Array(values) => {
-            for value in values.iter_mut().filter(|value| !is_valid_value(value)) {
-                let old = std::mem::replace(value, Value::Null);
+            for value_6 in values.iter_mut().filter(|value_5| !is_valid_value(value_5)) {
+                let old = std::mem::replace(value_6, Value::Null);
                 crate::json_value::drop_value_nonrecursive(old);
             }
+
             true
         }
         _ => false,
     }
 }
 
+#[must_use]
 fn is_suspicious_dictionary_key(key: &str) -> bool {
     is_suspicious_directive_key(key)
 }
 
+#[must_use]
 fn is_valid_icon_reference(value: &str) -> bool {
     let mut segments = value.split(':');
-    let Some(first) = segments.next() else {
-        return false;
+
+    let first = {
+        let optional_first = segments.next();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return false,
+        }
     };
+
     let second = segments.next();
 
     is_valid_icon_reference_segment(first)
@@ -2537,6 +2807,7 @@ fn is_valid_icon_reference(value: &str) -> bool {
         && segments.next().is_none()
 }
 
+#[must_use]
 fn is_valid_icon_reference_segment(segment: &str) -> bool {
     !segment.is_empty()
         && segment
@@ -2544,9 +2815,13 @@ fn is_valid_icon_reference_segment(segment: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
 }
 
+#[must_use]
 fn is_valid_node_color(value: &str) -> bool {
-    if let Some(hex) = value.strip_prefix('#') {
-        return (3..=8).contains(&hex.len()) && hex.bytes().all(|byte| byte.is_ascii_hexdigit());
+    match value.strip_prefix('#') {
+        Some(hex) => {
+            return (3..=8).contains(&hex.len()) && hex.bytes().all(|byte| byte.is_ascii_hexdigit());
+        },
+        ::core::option::Option::None => {},
     }
 
     if is_valid_node_color_function(value, "rgb(") || is_valid_node_color_function(value, "hsl(") {
@@ -2556,10 +2831,17 @@ fn is_valid_node_color(value: &str) -> bool {
     !value.is_empty() && value.bytes().all(|byte| byte.is_ascii_alphabetic())
 }
 
+#[must_use]
 fn is_valid_node_color_function(value: &str, prefix: &str) -> bool {
-    let Some(actual_prefix) = value.get(..prefix.len()) else {
-        return false;
+    let actual_prefix = {
+        let optional_actual_prefix = value.get(..prefix.len());
+
+        match optional_actual_prefix {
+            Some(matched_actual_prefix) => matched_actual_prefix,
+            ::core::option::Option::None => return false,
+        }
     };
+
     if !actual_prefix.eq_ignore_ascii_case(prefix) || !value.ends_with(')') {
         return false;
     }
@@ -2571,6 +2853,7 @@ fn is_valid_node_color_function(value: &str, prefix: &str) -> bool {
         })
 }
 
+#[must_use]
 fn is_js_regex_whitespace(ch: char) -> bool {
     if ('\u{2000}'..='\u{200A}').contains(&ch) {
         return true;
@@ -2609,6 +2892,7 @@ fn directive_value_at_path_mut<'a>(
             }
         }
     }
+
     Some(value)
 }
 
@@ -2633,6 +2917,7 @@ fn parse_directive_capture_controlled(
     let mut checkpoints = ControlledScanCheckpoints::new(control)?;
     let (raw_start, raw_end) = trim_whitespace_bounds_controlled(raw, &mut checkpoints)?;
     let raw = &raw[raw_start..raw_end];
+
     if raw.is_empty() {
         checkpoints.finish()?;
         return Ok(DirectiveParseCapture {
@@ -2642,20 +2927,28 @@ fn parse_directive_capture_controlled(
     }
 
     let mut type_end = 0usize;
+
     for (index, ch) in raw.char_indices() {
         checkpoints.scanned(ch.len_utf8())?;
+
         if !ch.is_ascii_alphanumeric() && ch != '_' {
             break;
         }
+
         type_end = index + ch.len_utf8();
     }
-    if type_end == 0 {
-        checkpoints.finish()?;
-        return Ok(DirectiveParseCapture {
-            directive: None,
-            error: None,
-        });
+
+    match type_end {
+        0 => {
+            checkpoints.finish()?;
+            return Ok(DirectiveParseCapture {
+                directive: None,
+                error: None,
+            });
+        },
+        _ => {},
     }
+
     let mut ty = String::with_capacity(type_end);
     push_frontmatter_str_controlled(&mut ty, &raw[..type_end], &mut checkpoints)?;
     #[cfg(feature = "editor-facts")]
@@ -2704,6 +2997,7 @@ fn parse_directive_capture_controlled(
         let rest_offset = raw_start
             .saturating_add(position)
             .saturating_add(rest_start);
+
         if rest.is_empty() {
             None
         } else if rest.starts_with('{') || rest.starts_with('[') {
@@ -2730,7 +3024,9 @@ fn parse_directive_capture_controlled(
                     }),
                 });
             }
+
             let checked_value = config_nesting_exceeds_limit_controlled(rest, control)?;
+
             if checked_value {
                 return Ok(DirectiveParseCapture {
                     directive: Some(Directive {
@@ -2754,6 +3050,7 @@ fn parse_directive_capture_controlled(
                     }),
                 });
             }
+
             checkpoints.finish()?;
             let captured = parse_directive_config_value_controlled(
                 rest,
@@ -2831,8 +3128,8 @@ fn parse_directive_config_value_controlled(
     control: &OperationControl,
 ) -> OperationControlResult<DirectiveConfigCapture> {
     control.checkpoint()?;
-    // `json5` has no cancellation hook. The caller enforces a hard input and nesting bound, so
-    // this is a bounded atomic parser region rather than an unbounded cancellation gap.
+
+
     let captured = {
         #[cfg(feature = "editor-facts")]
         {
@@ -2854,6 +3151,7 @@ fn parse_directive_config_value_controlled(
                 }
             }
         }
+
         #[cfg(not(feature = "editor-facts"))]
         {
             DirectiveConfigCapture {
@@ -2861,12 +3159,21 @@ fn parse_directive_config_value_controlled(
             }
         }
     };
-    if let Err(cancelled) = control.checkpoint() {
-        if let Some(value) = captured.value {
-            crate::json_value::drop_value_nonrecursive(value);
-        }
-        return Err(cancelled);
+
+    match control.checkpoint() {
+        Err(cancelled) => {
+            match captured.value {
+                Some(value) => {
+                    crate::json_value::drop_value_nonrecursive(value);
+                },
+                ::core::option::Option::None => {},
+            }
+
+            return Err(cancelled);
+        },
+        ::core::result::Result::Ok(_) => {},
     }
+
     Ok(captured)
 }
 
@@ -2882,10 +3189,12 @@ fn config_nesting_exceeds_limit_controlled(
     control: &OperationControl,
 ) -> OperationControlResult<bool> {
     let mut checkpoints = ControlledScanCheckpoints::new(control)?;
+
     if max_flow_collection_depth_controlled(text, &mut checkpoints)? > MAX_CONFIG_NESTING_DEPTH {
         checkpoints.finish()?;
         return Ok(true);
     }
+
     let exceeds =
         max_yaml_indent_depth_controlled(text, &mut checkpoints)? > MAX_CONFIG_NESTING_DEPTH;
     checkpoints.finish()?;
@@ -2903,19 +3212,29 @@ fn max_flow_collection_depth_controlled(
 
     for ch in text.chars() {
         checkpoints.scanned(ch.len_utf8())?;
-        if let Some(q) = quote {
-            if escaped {
-                escaped = false;
+
+        match quote {
+            Some(q) => {
+                if escaped {
+                    escaped = false;
+                    continue;
+                }
+
+                match ch {
+                    '\\' => {
+                        escaped = true;
+                        continue;
+                    },
+                    _ => {},
+                }
+
+                if ch == q {
+                    quote = None;
+                }
+
                 continue;
-            }
-            if ch == '\\' {
-                escaped = true;
-                continue;
-            }
-            if ch == q {
-                quote = None;
-            }
-            continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         match ch {
@@ -2945,7 +3264,7 @@ fn max_yaml_indent_depth_controlled(
     while line_start < text.len() {
         let newline = find_newline_controlled(text, line_start, checkpoints)?;
         let line_end = newline.unwrap_or(text.len());
-        let line_end =
+        let line_end_2 =
             if newline.is_some() && line_end > line_start && text.as_bytes()[line_end - 1] == b'\r'
             {
                 checkpoints.scanned(1)?;
@@ -2953,25 +3272,30 @@ fn max_yaml_indent_depth_controlled(
             } else {
                 line_end
             };
-        let line = &text[line_start..line_end];
+        let line = &text[line_start..line_end_2];
         let (trimmed_start, trimmed_end) = trim_whitespace_bounds_controlled(line, checkpoints)?;
         let trimmed = &line[trimmed_start..trimmed_end];
+
         if !trimmed.is_empty() && !trimmed.starts_with('#') {
             let indent = leading_ascii_space_count_controlled(line, checkpoints)?;
+
             while indents.last().is_some_and(|prev| indent <= *prev) {
                 checkpoints.scanned(1)?;
                 indents.pop();
             }
+
             indents.push(indent);
             let inline_sequence_depth =
                 yaml_inline_sequence_indicator_count_controlled(trimmed, checkpoints)?;
             max_depth = max_depth.max(indents.len() + inline_sequence_depth.saturating_sub(1));
         }
 
-        let Some(newline) = newline else {
-            break;
+        let newline_2 = match newline {
+            Some(matched_newline) => matched_newline,
+            ::core::option::Option::None => break,
         };
-        line_start = newline + 1;
+
+        line_start = newline_2 + 1;
     }
 
     Ok(max_depth)
@@ -2982,25 +3306,31 @@ fn trim_whitespace_bounds_controlled(
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<(usize, usize)> {
     let mut start = text.len();
+
     for (idx, ch) in text.char_indices() {
         checkpoints.scanned(ch.len_utf8())?;
+
         if !ch.is_whitespace() {
             start = idx;
             break;
         }
     }
+
     if start == text.len() {
         return Ok((text.len(), text.len()));
     }
 
     let mut end = start;
+
     for (idx, ch) in text.char_indices().rev() {
         checkpoints.scanned(ch.len_utf8())?;
+
         if !ch.is_whitespace() {
             end = idx + ch.len_utf8();
             break;
         }
     }
+
     Ok((start, end))
 }
 
@@ -3009,13 +3339,20 @@ fn leading_ascii_space_count_controlled(
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<usize> {
     let mut count = 0usize;
+
     for byte in text.bytes() {
         checkpoints.scanned(1)?;
-        if byte != b' ' {
-            break;
+
+        match byte {
+            b' ' => {},
+            _ => {
+                break;
+            },
         }
+
         count += 1;
     }
+
     Ok(count)
 }
 
@@ -3024,13 +3361,16 @@ fn trim_start_whitespace_controlled(
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<usize> {
     let mut start = text.len();
+
     for (idx, ch) in text.char_indices() {
         checkpoints.scanned(ch.len_utf8())?;
+
         if !ch.is_whitespace() {
             start = idx;
             break;
         }
     }
+
     Ok(start)
 }
 
@@ -3039,17 +3379,30 @@ fn yaml_inline_sequence_indicator_count_controlled(
     checkpoints: &mut ControlledScanCheckpoints<'_>,
 ) -> OperationControlResult<usize> {
     let mut count = 0usize;
+
     loop {
-        let Some(after_dash) = text.strip_prefix('-') else {
-            return Ok(count);
-        };
-        checkpoints.scanned(1)?;
-        if let Some(ch) = after_dash.chars().next() {
-            checkpoints.scanned(ch.len_utf8())?;
-            if !ch.is_whitespace() {
-                return Ok(count);
+        let after_dash = {
+            let optional_after_dash = text.strip_prefix('-');
+
+            match optional_after_dash {
+                Some(matched_after_dash) => matched_after_dash,
+                ::core::option::Option::None => return Ok(count),
             }
+        };
+
+        checkpoints.scanned(1)?;
+
+        match after_dash.chars().next() {
+            Some(ch) => {
+                checkpoints.scanned(ch.len_utf8())?;
+
+                if !ch.is_whitespace() {
+                    return Ok(count);
+                }
+            },
+            ::core::option::Option::None => {},
         }
+
         count += 1;
         let trimmed_start = trim_start_whitespace_controlled(after_dash, checkpoints)?;
         text = &after_dash[trimmed_start..];

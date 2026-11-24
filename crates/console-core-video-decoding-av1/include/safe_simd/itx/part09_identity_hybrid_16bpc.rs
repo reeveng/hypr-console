@@ -5,12 +5,14 @@ fn square_identity_residuals<const SIDE: usize>(
   scale: impl Fn(i32) -> i32,
 ) -> Rav1dResult<[[i32; SIDE]; SIDE]> {
   let (columns, tail) = coefficients.as_chunks::<SIDE>();
+
   match bool::then_some(columns.len() == SIDE && tail.is_empty(), ()) {
     Some(()) => {}
     None => return Err(Rav1dError::EINVAL),
   }
 
   let mut samples = [[0; SIDE]; SIDE];
+
   for (column, source) in (0u32..).zip(columns) {
     let Ok(position) = console_core_number_conversion::index(column);
 
@@ -36,7 +38,7 @@ fn inv_identity_add_4x4_16bpc_avx2(
 
   let coefficients = coeff.first_chunk_mut::<16>().ok_or(Rav1dError::EINVAL)?;
   let residuals = square_identity_residuals::<4>(coefficients, |value| {
-    let identity = |value: i32| value.wrapping_add(round_shift(value.wrapping_mul(1697), 12));
+    let identity = |coefficient: i32| coefficient.wrapping_add(round_shift(coefficient.wrapping_mul(1697), 12));
     identity(identity(value))
   })?;
   let stride = byte_stride.wrapping_div(2);
@@ -178,7 +180,10 @@ fn inv_txfm_add_identity_identity_16x8_16bpc_avx2_inner(
   };
   let columns = |desktop, residuals: &mut [i32], extent, _| {
     let Ok(avx512) = crate::src::cpu::summon_avx512();
-    let wide = avx512.map(|server| identity_shift_cols_avx512::<1>(server, residuals, extent));
+    let wide = match avx512 {
+      Some(server) => Some(identity_shift_cols_avx512::<1>(server, residuals, extent)),
+      None => None,
+    };
     let Ok(dispatch) = scratch_column_dispatch(wide);
 
     match dispatch {
@@ -247,7 +252,10 @@ fn inv_txfm_add_identity_identity_16x32_16bpc_avx2_inner(
   };
   let columns = |desktop, residuals: &mut [i32], extent, _| {
     let Ok(avx512) = crate::src::cpu::summon_avx512();
-    let wide = avx512.map(|server| identity_shift_cols_avx512::<2>(server, residuals, extent));
+    let wide = match avx512 {
+      Some(server) => Some(identity_shift_cols_avx512::<2>(server, residuals, extent)),
+      None => None,
+    };
     let Ok(dispatch) = scratch_column_dispatch(wide);
 
     match dispatch {
@@ -278,7 +286,10 @@ fn inv_txfm_add_identity_identity_32x16_16bpc_avx2_inner(
   };
   let columns = |desktop, residuals: &mut [i32], extent, _| {
     let Ok(avx512) = crate::src::cpu::summon_avx512();
-    let wide = avx512.map(|server| identity16_cols_avx512(server, residuals, extent));
+    let wide = match avx512 {
+      Some(server) => Some(identity16_cols_avx512(server, residuals, extent)),
+      None => None,
+    };
     let Ok(dispatch) = scratch_column_dispatch(wide);
 
     match dispatch {
@@ -331,7 +342,10 @@ fn inv_txfm_add_identity_identity_32x8_16bpc_avx2_inner(
   };
   let columns = |desktop, residuals: &mut [i32], extent, _| {
     let Ok(avx512) = crate::src::cpu::summon_avx512();
-    let wide = avx512.map(|server| identity_shift_cols_avx512::<1>(server, residuals, extent));
+    let wide = match avx512 {
+      Some(server) => Some(identity_shift_cols_avx512::<1>(server, residuals, extent)),
+      None => None,
+    };
     let Ok(dispatch) = scratch_column_dispatch(wide);
 
     match dispatch {

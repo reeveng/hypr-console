@@ -445,9 +445,7 @@ fn press_set(again: Again, into: Option<PathBuf>) -> Result<(), Unrendered> {
   }
 
   match ::core::primitive::bool::then_some(rendered > 0, ()) {
-    ::core::option::Option::Some(()) => {
-      let Ok(()) = forget_the_cache();
-    }
+    ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => {}
   }
 
@@ -544,9 +542,7 @@ fn press_hers(paths: &[PathBuf], into: Option<PathBuf>) -> Result<(), Unrendered
   }
 
   match ::core::primitive::bool::then_some(rendered > 0, ()) {
-    ::core::option::Option::Some(()) => {
-      let Ok(()) = forget_the_cache();
-    }
+    ::core::option::Option::Some(()) => {}
     ::core::option::Option::None => {}
   }
 
@@ -563,27 +559,6 @@ fn press_one(source: &Path, grade: &Grade, into: &Path) -> Result<(), Unrendered
   let rendered = write_one(source, grade, &stir, size, into)?;
 
   let Ok(()) = say(&into.display().to_string(), &rendered);
-
-  Ok(())
-}
-
-fn forget_the_cache() -> Result<(), Never> {
-  let Ok(said) = console_core_places::home();
-
-  let home = match said {
-    Some(home) => home,
-    None => return Ok(()),
-  };
-
-  let at = home.join(".cache/awww");
-
-  match std::fs::remove_dir_all(&at) {
-    Ok(()) => {}
-    Err(fault) => match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
-      Some(()) => {}
-      None => eprintln!("wallpaper-render: cleaning up {}: {fault}", at.display()),
-    },
-  }
 
   Ok(())
 }

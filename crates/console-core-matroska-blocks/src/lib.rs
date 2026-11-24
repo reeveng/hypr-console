@@ -1,4 +1,4 @@
-//! Matroska block headers and the frames a laced block holds, over borrowed bytes.
+//! Matroska element identifiers, common metadata, and block framing.
 //!
 //! A block is a track number, a timestamp relative to its cluster and some flags,
 //! followed by one frame or several laced together. Where each frame begins and
@@ -17,6 +17,9 @@
 #![forbid(unsafe_code)]
 
 extern crate alloc;
+
+pub mod elements;
+pub mod identifiers;
 
 use alloc::vec::Vec;
 use core::fmt;

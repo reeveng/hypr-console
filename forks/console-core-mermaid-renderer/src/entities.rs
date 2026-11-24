@@ -6,10 +6,12 @@
 use std::borrow::Cow;
 
 /// Decodes Mermaid's preprocessor placeholders before text is emitted or measured.
+#[must_use]
 pub(crate) fn decode_mermaid_entities_for_render_text(text: &str) -> Cow<'_, str> {
     if !text.contains('\u{fb02}') && !text.contains('\u{00b6}') && !text.contains('#') {
         return Cow::Borrowed(text);
     }
+
     merman_model::text::decode_mermaid_entities_to_unicode(text)
 }
 
@@ -18,10 +20,12 @@ pub(crate) fn decode_mermaid_entities_for_render_text(text: &str) -> Cow<'_, str
 /// SVG labels are assigned through `textContent`, so Mermaid decodes only the entities introduced
 /// by its sanitizer. Other spellings such as `&nbsp;`, `&#160;`, and unknown entities remain
 /// literal text and must continue to participate in text measurement with that spelling.
+#[must_use]
 pub(crate) fn decode_svg_text_content_entities(text: &str) -> Cow<'_, str> {
     if !text.contains("&lt;") && !text.contains("&gt;") && !text.contains("&amp;") {
         return Cow::Borrowed(text);
     }
+
     Cow::Owned(decode_stage1_lt_gt_amp(text))
 }
 
@@ -34,23 +38,29 @@ pub(crate) fn decode_svg_text_content_entities(text: &str) -> Cow<'_, str> {
 ///
 /// The replacement order matters: for example `&amp;quot;` becomes `"` (two-step), while
 /// `&amp;lt;` stays as `&lt;` (one-step).
+#[must_use]
 pub(crate) fn decode_entities_minimal(text: &str) -> String {
     merman_model::text::decode_entities_minimal(text)
 }
 
+#[must_use]
 pub(crate) fn decode_entities_minimal_cow(text: &str) -> Cow<'_, str> {
     if !text.contains('&') {
         return Cow::Borrowed(text);
     }
+
     Cow::Owned(decode_entities_minimal(text))
 }
 
+#[must_use]
 fn decode_stage1_lt_gt_amp(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let mut rest = text;
+
     while let Some(pos) = rest.find('&') {
         out.push_str(&rest[..pos]);
         let tail = &rest[pos..];
+
         if let Some(stripped) = tail.strip_prefix("&lt;") {
             out.push('<');
             rest = stripped;
@@ -65,6 +75,7 @@ fn decode_stage1_lt_gt_amp(text: &str) -> String {
             rest = &tail[1..];
         }
     }
+
     out.push_str(rest);
     out
 }

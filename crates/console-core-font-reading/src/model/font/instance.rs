@@ -230,6 +230,7 @@ impl FontInstanceBuilder {
         }
       }
     };
+
     Ok(())
   }
 
@@ -257,6 +258,7 @@ impl FontInstanceBuilder {
         }
       }
     };
+
     Ok(())
   }
 
@@ -287,6 +289,7 @@ impl FontInstanceBuilder {
         }
       }
     };
+
     Ok(())
   }
 
@@ -323,6 +326,7 @@ impl FontInstanceBuilder {
         }
       }
     };
+
     Ok(())
   }
 }
@@ -390,6 +394,7 @@ where
     );
     let Ok(()) = coords.clear_if_all_zeroes();
   };
+
   Ok(())
 }
 

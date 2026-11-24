@@ -57,6 +57,7 @@ pub(crate) enum SequenceBlock<'a> {
 }
 
 impl SequenceBlock<'_> {
+    #[must_use]
     pub(crate) fn geometry(&self) -> SequenceBlockGeometry<'_> {
         match self {
             Self::Alt { sections, .. }
@@ -68,6 +69,7 @@ impl SequenceBlock<'_> {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout(&self) -> Option<&SequenceBlockLayout> {
         match self {
             Self::Alt { layout, .. }
@@ -80,6 +82,7 @@ impl SequenceBlock<'_> {
     }
 }
 
+#[must_use]
 pub(crate) fn sequence_block_section_geometry<'a>(
     sections: &[AltSection<'a>],
 ) -> SequenceBlockGeometry<'a> {
@@ -130,8 +133,11 @@ impl<'a> BlockStackEntry<'a> {
             Self::Alt { sections, .. }
             | Self::Par { sections, .. }
             | Self::Critical { sections, .. } => {
-                if let Some(section) = sections.last_mut() {
-                    section.geometry.merge(geometry);
+                match sections.last_mut() {
+                    Some(section) => {
+                        section.geometry.merge(geometry);
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
             Self::Loop {
@@ -146,6 +152,7 @@ impl<'a> BlockStackEntry<'a> {
         }
     }
 
+    #[must_use]
     fn geometry(&self) -> SequenceBlockGeometry<'a> {
         match self {
             Self::Alt { sections, .. }
@@ -197,6 +204,7 @@ fn collect_sequence_blocks_with<'a>(
         let control = message
             .control_semantics()
             .map(|semantics| (semantics.kind, semantics.role));
+
         match (message.semantic_kind(), control) {
             (SequenceMessageKind::Note, _) => {
                 if !stack.is_empty() {
@@ -215,7 +223,7 @@ fn collect_sequence_blocks_with<'a>(
                 if let Some(entry) = pop_and_propagate(&mut stack)
                     && let BlockStackEntry::Loop {
                         label_id,
-                        raw_label,
+                        raw_label: raw_label_2,
                         geometry,
                         layout,
                     } = entry
@@ -227,7 +235,7 @@ fn collect_sequence_blocks_with<'a>(
                         SequenceBlock::Loop {
                             control_id: message.id.as_str(),
                             label_id,
-                            raw_label,
+                            raw_label: raw_label_2,
                             geometry,
                             layout,
                         },
@@ -246,7 +254,7 @@ fn collect_sequence_blocks_with<'a>(
                 if let Some(entry) = pop_and_propagate(&mut stack)
                     && let BlockStackEntry::Opt {
                         label_id,
-                        raw_label,
+                        raw_label: raw_label_3,
                         geometry,
                         layout,
                     } = entry
@@ -258,7 +266,7 @@ fn collect_sequence_blocks_with<'a>(
                         SequenceBlock::Opt {
                             control_id: message.id.as_str(),
                             label_id,
-                            raw_label,
+                            raw_label: raw_label_3,
                             geometry,
                             layout,
                         },
@@ -277,7 +285,7 @@ fn collect_sequence_blocks_with<'a>(
                 if let Some(entry) = pop_and_propagate(&mut stack)
                     && let BlockStackEntry::Break {
                         label_id,
-                        raw_label,
+                        raw_label: raw_label_4,
                         geometry,
                         layout,
                     } = entry
@@ -289,7 +297,7 @@ fn collect_sequence_blocks_with<'a>(
                         SequenceBlock::Break {
                             control_id: message.id.as_str(),
                             label_id,
-                            raw_label,
+                            raw_label: raw_label_4,
                             geometry,
                             layout,
                         },
@@ -311,7 +319,7 @@ fn collect_sequence_blocks_with<'a>(
                 if let Some(BlockStackEntry::Alt { sections, layout }) = stack.last_mut() {
                     let separator_y = layout
                         .as_deref()
-                        .and_then(|layout| layout.section_ys_by_id.get(&message.id))
+                        .and_then(|layout_2| layout_2.section_ys_by_id.get(&message.id))
                         .copied();
                     sections.push(AltSection {
                         label_id: message.id.as_str(),
@@ -356,7 +364,7 @@ fn collect_sequence_blocks_with<'a>(
                 if let Some(BlockStackEntry::Par { sections, layout }) = stack.last_mut() {
                     let separator_y = layout
                         .as_deref()
-                        .and_then(|layout| layout.section_ys_by_id.get(&message.id))
+                        .and_then(|layout_3| layout_3.section_ys_by_id.get(&message.id))
                         .copied();
                     sections.push(AltSection {
                         label_id: message.id.as_str(),
@@ -397,7 +405,7 @@ fn collect_sequence_blocks_with<'a>(
                 if let Some(BlockStackEntry::Critical { sections, layout }) = stack.last_mut() {
                     let separator_y = layout
                         .as_deref()
-                        .and_then(|layout| layout.section_ys_by_id.get(&message.id))
+                        .and_then(|layout_4| layout_4.section_ys_by_id.get(&message.id))
                         .copied();
                     sections.push(AltSection {
                         label_id: message.id.as_str(),
@@ -439,16 +447,24 @@ fn include_message_geometry<'a>(
     stack: &mut [BlockStackEntry<'a>],
     geometry: SequenceBlockGeometry<'a>,
 ) {
-    if let Some(entry) = stack.last_mut() {
-        entry.include_geometry(geometry);
+    match stack.last_mut() {
+        Some(entry) => {
+            entry.include_geometry(geometry);
+        },
+        ::core::option::Option::None => {},
     }
 }
 
 fn pop_and_propagate<'a>(stack: &mut Vec<BlockStackEntry<'a>>) -> Option<BlockStackEntry<'a>> {
     let entry = stack.pop()?;
-    if let Some(parent) = stack.last_mut() {
-        parent.include_geometry(entry.geometry());
+
+    match stack.last_mut() {
+        Some(parent) => {
+            parent.include_geometry(entry.geometry());
+        },
+        ::core::option::Option::None => {},
     }
+
     Some(entry)
 }
 
@@ -460,8 +476,14 @@ fn push_block<'a>(
 ) {
     let block_index = blocks.len();
     blocks.push(block);
-    if let Some(at_end) = blocks_by_end_index.get_mut(end_index) {
-        *at_end = Some(block_index);
+
+    {
+        match blocks_by_end_index.get_mut(end_index) {
+            Some(at_end) => {
+                *at_end = Some(block_index);
+            },
+            ::core::option::Option::None => {},
+        };
     }
 }
 

@@ -11,12 +11,14 @@ pub(super) struct Label {
     #[cfg(feature = "editor-facts")]
     pub span: SourceSpan,
 }
+
 #[derive(Debug, Clone)]
 pub(super) struct Property {
     pub key: String,
     pub value: Value,
     pub span: SourceSpan,
 }
+
 #[derive(Debug, Clone)]
 pub(super) struct Entity {
     pub id: String,
@@ -32,10 +34,12 @@ pub(super) struct Entity {
     pub stereotype: Option<String>,
     pub classes: Vec<String>,
 }
+
 #[derive(Debug)]
 pub(super) struct Boundary {
     pub entity: Entity,
 }
+
 #[derive(Debug)]
 pub(super) struct Relation {
     pub source: Entity,
@@ -44,34 +48,40 @@ pub(super) struct Relation {
     pub id_span: Option<SourceSpan>,
     pub span: SourceSpan,
 }
+
 #[derive(Debug)]
 pub(super) struct JsonDraft {
     pub node: UsecaseJsonNode,
     pub span: SourceSpan,
 }
+
 #[derive(Debug)]
 pub(super) struct Assignment {
     pub target: String,
     pub span: SourceSpan,
     pub metadata: Vec<Property>,
 }
+
 #[derive(Debug)]
 pub(super) struct ClassAssignment {
     pub targets: Vec<(String, SourceSpan)>,
     pub classes: Vec<String>,
 }
+
 #[derive(Debug)]
 pub(super) struct StyleAssignment {
     pub target: String,
     pub span: SourceSpan,
     pub styles: Vec<String>,
 }
+
 #[derive(Debug)]
 pub(super) struct Note {
     pub target: String,
     pub span: SourceSpan,
     pub label: Label,
 }
+
 #[derive(Default)]
 pub(super) struct Draft {
     pub entities: Vec<Entity>,
@@ -104,6 +114,7 @@ pub(super) struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    #[must_use]
     pub fn new(
         source: &'a str,
         tokens: Vec<Token>,
@@ -144,46 +155,63 @@ impl<'a> Parser<'a> {
             anonymous: 0,
         }
     }
+
     pub fn parse(&mut self) -> OperationControlResult<PResult<()>> {
         if let Err(issue) = self.expect(K::Usecase).and_then(|_| self.line_end()) {
             return Ok(Err(issue));
         }
+
         while self.kind() != K::Eof {
             self.control.checkpoint()?;
             let result = self.statement();
             self.control.checkpoint()?;
+
             if let Err(issue) = result {
                 return Ok(Err(issue));
             }
         }
+
         Ok(Ok(()))
     }
+
     fn checkpoint(&self) -> PResult<()> {
         self.control
             .checkpoint()
             .map_err(|_| ParseIssue::new("Operation cancelled", self.current().span))
     }
+
+    #[must_use]
     fn current(&self) -> &Token {
         &self.tokens[self.at]
     }
+
+    #[must_use]
     fn kind(&self) -> K {
         self.current().kind
     }
+
+    #[must_use]
     fn peek(&self, distance: usize) -> K {
         self.tokens
             .get(self.at + distance)
             .map_or(K::Eof, |token| token.kind)
     }
+
     fn take(&mut self) -> Token {
         let token = *self.current();
+
         if token.kind != K::Eof {
             self.at += 1;
         }
+
         token
     }
+
+    #[must_use]
     fn text(&self, token: &Token) -> &'a str {
         token.text(self.source)
     }
+
     fn eat(&mut self, kind: K) -> bool {
         if self.kind() == kind {
             self.take();
@@ -192,6 +220,7 @@ impl<'a> Parser<'a> {
             false
         }
     }
+
     fn expect(&mut self, kind: K) -> PResult<Token> {
         if self.kind() == kind {
             Ok(self.take())
@@ -202,6 +231,7 @@ impl<'a> Parser<'a> {
             ))
         }
     }
+
     fn line_end(&mut self) -> PResult<()> {
         if self.kind() == K::Eof || self.eat(K::NewLine) {
             Ok(())
@@ -212,6 +242,7 @@ impl<'a> Parser<'a> {
             ))
         }
     }
+
     fn statement(&mut self) -> PResult<()> {
         match self.kind() {
             K::NewLine => {
@@ -248,12 +279,14 @@ impl<'a> Parser<'a> {
             K::Direction => {
                 self.take();
                 let token = self.take();
+
                 if !matches!(token.kind, K::Td | K::Tb | K::Bt | K::Lr | K::Rl) {
                     return Err(ParseIssue::new(
                         "Expected Usecase direction TD, TB, BT, LR, or RL",
                         token.span,
                     ));
                 }
+
                 self.draft.direction = Some(
                     if token.kind == K::Td {
                         "TB"
@@ -297,7 +330,9 @@ impl<'a> Parser<'a> {
                         self.current().span,
                     ));
                 }
+
                 let mut source = self.entity(false, None)?;
+
                 if matches!(self.kind(), K::Eof | K::NewLine) {
                     source.declaration = true;
                     source.shape.get_or_insert(UsecaseNodeKind::UseCaseEllipse);
@@ -312,15 +347,18 @@ impl<'a> Parser<'a> {
             }
         }
     }
+
     fn actor_statement(&mut self, parent: Option<&str>, allow_relation: bool) -> PResult<()> {
         self.expect(K::Actor)?;
         let source = self.entity(true, parent)?;
+
         if allow_relation && !matches!(self.kind(), K::Comma | K::Eof | K::NewLine) {
             self.relation(source)?;
         } else {
             #[cfg(feature = "editor-facts")]
             self.record_entity(&source);
             self.draft.entities.push(source);
+
             while self.eat(K::Comma) {
                 let entity = self.entity(true, parent)?;
                 #[cfg(feature = "editor-facts")]
@@ -328,12 +366,15 @@ impl<'a> Parser<'a> {
                 self.draft.entities.push(entity);
             }
         }
+
         self.line_end()
     }
+
+    #[must_use]
     fn name(&self, token: &Token) -> (String, Label, bool) {
         let label = self.token_label(token);
         let generated = token.kind != K::Identifier;
-        // JavaScript /\W/g operates on UTF-16 code units, including surrogate pairs.
+
         let id = if generated {
             label
                 .text
@@ -351,6 +392,8 @@ impl<'a> Parser<'a> {
         };
         (id, label, generated)
     }
+
+    #[must_use]
     fn content_span(&self, token: &Token) -> SourceSpan {
         let trim = match token.kind {
             K::MarkdownString => 2,
@@ -359,6 +402,8 @@ impl<'a> Parser<'a> {
         };
         SourceSpan::new(token.span.start + trim, token.span.end - trim)
     }
+
+    #[must_use]
     fn token_label(&self, token: &Token) -> Label {
         let span = self.content_span(token);
         Label {
@@ -372,24 +417,30 @@ impl<'a> Parser<'a> {
             span,
         }
     }
+
     fn label(&mut self) -> PResult<Label> {
         if matches!(self.kind(), K::PlainString | K::MarkdownString) {
             let token = self.take();
             return Ok(self.token_label(&token));
         }
+
         if !self.kind().is_label_text() {
             return Err(ParseIssue::new(
                 "Expected Usecase label",
                 self.current().span,
             ));
         }
+
         let start = self.take().span.start;
+
         while self.kind().is_label_text() {
             if self.at.is_multiple_of(128) {
                 self.checkpoint()?;
             }
+
             self.take();
         }
+
         let span = SourceSpan::new(start, self.tokens[self.at - 1].span.end);
         Ok(Label {
             text: self.source[span.start..span.end].to_string(),
@@ -398,9 +449,11 @@ impl<'a> Parser<'a> {
             span,
         })
     }
+
     fn entity(&mut self, actor: bool, parent: Option<&str>) -> PResult<Entity> {
         self.entity_name(actor, parent, true)
     }
+
     fn entity_name(
         &mut self,
         actor: bool,
@@ -416,15 +469,17 @@ impl<'a> Parser<'a> {
                 self.current().span,
             ));
         }
+
         let token = self.take();
         let (id, mut label, generated) = self.name(&token);
         let span = self.content_span(&token);
         let mut shape = None;
+
         if token.kind == K::Identifier
             && (self.kind() == K::LeftParen || (!actor && self.kind() == K::LeftBracket))
         {
             let open = self.take();
-            label = self.label()?;
+            label = { let checked_value_2 = self.label()?; checked_value_2 };
             self.expect(if open.kind == K::LeftParen {
                 K::RightParen
             } else {
@@ -436,6 +491,7 @@ impl<'a> Parser<'a> {
                 UsecaseNodeKind::UseCaseRect
             });
         }
+
         let has_metadata = self.kind() == K::MetadataStart;
         let metadata = if has_metadata {
             self.metadata()?
@@ -443,9 +499,9 @@ impl<'a> Parser<'a> {
             Vec::new()
         };
         let stereotype = if allow_stereotype && self.eat(K::StereotypeStart) {
-            let token = self.expect(K::StereotypeText)?;
+            let token_2 = self.expect(K::StereotypeText)?;
             let value = self
-                .text(&token)
+                .text(&token_2)
                 .trim_matches(is_ecmascript_whitespace)
                 .to_string();
             self.expect(K::StereotypeEnd)?;
@@ -464,26 +520,33 @@ impl<'a> Parser<'a> {
             actor,
             shape,
             parent: parent
-                .filter(|parent| !parent.is_empty())
+                .filter(|parent_2| !parent_2.is_empty())
                 .map(str::to_owned),
             metadata,
             stereotype,
             classes,
         })
     }
+
     fn metadata(&mut self) -> PResult<Vec<Property>> {
         self.expect(K::MetadataStart)?;
+
         while self.eat(K::NewLine) {}
+
         let mut properties = Vec::new();
+
         if self.eat(K::RightBrace) {
             return Ok(properties);
         }
+
         loop {
             self.checkpoint()?;
             let key = self.take();
+
             if !matches!(key.kind, K::Identifier | K::PlainString) {
                 return Err(ParseIssue::new("Expected metadata property name", key.span));
             }
+
             self.expect(K::Colon)?;
             let value = self.take();
             let decoded = match value.kind {
@@ -513,35 +576,46 @@ impl<'a> Parser<'a> {
                 ));
             }
             properties.push(property);
+
             if self.eat(K::RightBrace) {
                 break;
             }
+
             let comma = self.eat(K::Comma);
             let mut newline = false;
+
             while self.eat(K::NewLine) {
                 newline = true;
             }
+
             if !comma && newline {
                 self.eat(K::Comma);
+
                 while self.eat(K::NewLine) {}
             }
+
             if !comma && !newline {
                 return Err(ParseIssue::new(
                     "Expected metadata separator or closing brace",
                     self.current().span,
                 ));
             }
+
             if self.eat(K::RightBrace) {
                 break;
             }
         }
+
         Ok(properties)
     }
+
     fn class_suffix(&mut self) -> PResult<Vec<String>> {
         let mut classes = Vec::new();
+
         if !self.eat(K::ClassSeparator) {
             return Ok(classes);
         }
+
         loop {
             let token = self.expect(K::Identifier)?;
             classes.push(self.text(&token).to_string());
@@ -555,15 +629,18 @@ impl<'a> Parser<'a> {
                     token.span,
                 ));
             }
+
             if !self.eat(K::Comma) {
                 break;
             }
         }
+
         Ok(classes)
     }
+
     fn boundary(&mut self) -> PResult<()> {
         self.expect(K::SystemBoundary)?;
-        // Boundary names have the entity name forms but no stereotype suffix.
+
         let mut entity = self.entity_name(false, None, false)?;
         entity.declaration = true;
         #[cfg(feature = "editor-facts")]
@@ -583,6 +660,7 @@ impl<'a> Parser<'a> {
                 }),
             );
         }
+
         if !entity.metadata.is_empty() {
             self.draft.metadata.push(Assignment {
                 target: entity.id.clone(),
@@ -590,11 +668,14 @@ impl<'a> Parser<'a> {
                 metadata: std::mem::take(&mut entity.metadata),
             });
         }
+
         self.line_end()?;
         let parent = entity.id.clone();
         self.draft.boundaries.push(Boundary { entity });
+
         while !matches!(self.kind(), K::End | K::Eof) {
             self.checkpoint()?;
+
             match self.kind() {
                 K::NewLine => {
                     self.take();
@@ -615,25 +696,33 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+
         self.expect(K::End)?;
         self.line_end()
     }
+
+    #[must_use]
     fn has_label_right(&self, allowed: &[K]) -> bool {
         let label_token =
             |kind: K| kind.is_label_text() || matches!(kind, K::PlainString | K::MarkdownString);
+
         if !label_token(self.kind()) {
             return false;
         }
+
         for token in self.tokens.iter().skip(self.at + 1) {
             if allowed.contains(&token.kind) {
                 return true;
             }
+
             if !label_token(token.kind) {
                 return false;
             }
         }
+
         false
     }
+
     fn relation(&mut self, source: Entity) -> PResult<()> {
         let start = self.current().span.start;
         let explicit = if self.kind() == K::Identifier && self.peek(1) == K::At {
@@ -662,6 +751,7 @@ impl<'a> Parser<'a> {
                 ));
             }
         };
+
         if first.kind == K::DependencyArrow {
             self.expect(K::Colon)?;
             let token = self.take();
@@ -698,15 +788,18 @@ impl<'a> Parser<'a> {
             } else {
                 &[]
             };
+
             if !allowed.is_empty() && self.has_label_right(allowed) {
-                label = Some(self.label()?);
+                label = Some({ let checked_value_2 = self.label()?; checked_value_2 });
                 last = self.take();
+
                 if !allowed.contains(&last.kind) {
                     return Err(ParseIssue::new(
                         "Invalid labeled relationship operator",
                         last.span,
                     ));
                 }
+
                 if first.kind == K::MarkerlessSolid {
                     arrow = match last.kind {
                         K::ForwardSolid => UsecaseArrowType::Point,
@@ -717,6 +810,7 @@ impl<'a> Parser<'a> {
                 }
             }
         }
+
         let target = self.entity(false, None)?;
         let minlen = if relation_type == UsecaseRelationshipType::Association
             && matches!(
@@ -755,13 +849,16 @@ impl<'a> Parser<'a> {
                 .with_rename_policy(EditorRenamePolicy::UsecaseIdentifier),
             );
         }
+
         for entity in [&source, &target] {
             #[cfg(feature = "editor-facts")]
             self.record_entity(entity);
+
             if entity.declaration {
                 self.draft.entities.push(entity.clone());
             }
         }
+
         let edge = UsecaseRelationship {
             id,
             explicit_id: explicit.is_some(),
@@ -791,6 +888,7 @@ impl<'a> Parser<'a> {
         });
         Ok(())
     }
+
     fn note(&mut self) -> PResult<()> {
         self.expect(K::Note)?;
         self.expect(K::For)?;
@@ -805,6 +903,7 @@ impl<'a> Parser<'a> {
         });
         self.line_end()
     }
+
     fn json(&mut self) -> PResult<()> {
         let opening = self.take();
         let raw = self.text(&opening);
@@ -849,17 +948,22 @@ impl<'a> Parser<'a> {
         });
         self.line_end()
     }
+
     fn identifier_list(&mut self) -> PResult<Vec<Token>> {
         let mut tokens = vec![self.expect(K::Identifier)?];
+
         while self.eat(K::Comma) {
             tokens.push({ let checked_value = self.expect(K::Identifier)?; checked_value });
         }
+
         Ok(tokens)
     }
+
     fn class_def(&mut self) -> PResult<()> {
         self.take();
         let names = self.identifier_list()?;
         let styles = self.styles()?;
+
         for token in names {
             #[cfg(feature = "editor-facts")]
             if self.editor_demand == EditorFactsDemand::Capture {
@@ -877,18 +981,22 @@ impl<'a> Parser<'a> {
                 styles: styles.clone(),
             });
         }
+
         self.line_end()
     }
+
     fn class_assignment(&mut self) -> PResult<()> {
         self.take();
         let tokens = self.identifier_list()?;
         let names = self.identifier_list()?;
         let mut targets = Vec::new();
+
         for token in tokens {
             #[cfg(feature = "editor-facts")]
             self.reference(self.text(&token), token.span, false);
             targets.push((self.text(&token).to_string(), token.span));
         }
+
         let classes = names
             .iter()
             .map(|token| self.text(token).to_string())
@@ -898,6 +1006,7 @@ impl<'a> Parser<'a> {
             .push(ClassAssignment { targets, classes });
         self.line_end()
     }
+
     fn style_assignment(&mut self) -> PResult<()> {
         self.take();
         let target = self.expect(K::Identifier)?;
@@ -911,11 +1020,14 @@ impl<'a> Parser<'a> {
         });
         self.line_end()
     }
+
     fn styles(&mut self) -> PResult<Vec<String>> {
         let mut styles = Vec::new();
+
         loop {
             let token = self.take();
             let start = token.span.start;
+
             if token.kind == K::MarkerlessSolid {
                 if !self.kind().is_word() {
                     return Err(ParseIssue::new(
@@ -923,28 +1035,37 @@ impl<'a> Parser<'a> {
                         self.current().span,
                     ));
                 }
+
                 self.take();
             } else if !token.kind.is_word() && token.kind != K::CssIdentifier {
                 return Err(ParseIssue::new("Expected CSS property", token.span));
             }
+
             self.expect(K::Colon)?;
+
             if !self.kind().is_style_component() {
                 return Err(ParseIssue::new("Expected CSS value", self.current().span));
             }
+
             while self.kind().is_style_component() {
                 if self.at.is_multiple_of(128) {
                     self.checkpoint()?;
                 }
+
                 self.take();
             }
+
             let end = self.tokens[self.at - 1].span.end;
             styles.push(self.source[start..end].replace("\\,", ","));
+
             if !self.eat(K::Comma) {
                 break;
             }
         }
+
         Ok(styles)
     }
+
     #[cfg(feature = "editor-facts")]
     fn reference(&mut self, id: &str, span: SourceSpan, generated: bool) {
         #[cfg(feature = "editor-facts")]
@@ -1007,8 +1128,8 @@ impl<'a> Parser<'a> {
         }
         use std::collections::{HashMap, HashSet};
 
-        // Completed declarations own identity even if a later statement is incomplete. Do not
-        // require a renderable model to bind references from the parser's recovery journal.
+
+
         let declarations =
             self.draft
                 .entities
@@ -1054,8 +1175,8 @@ impl<'a> Parser<'a> {
                 })
                 .or_insert(Some(kind));
         }
-        // Only completed relationships can introduce implicit use cases. A dangling style or
-        // note target must not become a declaration merely because parsing stopped later.
+
+
         for relation in &self.draft.relationships {
             self.control.checkpoint()?;
             for entity in [&relation.source, &relation.target] {
@@ -1089,7 +1210,7 @@ impl<'a> Parser<'a> {
                     }
                 }
                 Some(None) => {
-                    // Conflicting kinds and duplicate JSON/edge declarations cannot be renamed together.
+
                     symbol.rename_policy = EditorRenamePolicy::None;
                 }
                 None => {}

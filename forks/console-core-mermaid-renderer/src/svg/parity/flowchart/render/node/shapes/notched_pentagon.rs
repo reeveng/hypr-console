@@ -15,20 +15,25 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_notched_pentagon(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (path_data,) = prepare_notched_pentagon_geometry(ctx, common, label);
-    if let Some((fill_d, stroke_d)) = helpers::hand_drawn_path_pair(common, details, &path_data) {
-        let _ = write!(
-            out,
-            r##"<g class="basic label-container outer-path" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
-            escape_attr(common.rough_group_style),
-            escape_attr(&fill_d),
-            escape_attr(common.fill_color),
-            escape_attr(&stroke_d),
-            escape_attr(common.stroke_color),
-            util::fmt_display(common.stroke_width as f64),
-            escape_attr(common.stroke_dasharray),
-        );
-        return;
+
+    match helpers::hand_drawn_path_pair(common, details, &path_data) {
+        Some((fill_d, stroke_d)) => {
+            let _ = write!(
+                out,
+                r##"<g class="basic label-container outer-path" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
+                escape_attr(common.rough_group_style),
+                escape_attr(&fill_d),
+                escape_attr(common.fill_color),
+                escape_attr(&stroke_d),
+                escape_attr(common.stroke_color),
+                util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                escape_attr(common.stroke_dasharray),
+            );
+            return;
+        },
+        ::core::option::Option::None => {},
     }
+
     if common.look_is_hand_drawn() {
         let _ = write!(out, r#"<g class="basic label-container outer-path">"#);
         helpers::write_raw_filled_stroked_path(
@@ -44,7 +49,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_notched_pentagon(
     }
 
     let (fill_d, stroke_d) =
-        super::super::helpers::timed_node_roughjs(common.timing, details, || {
+        match super::super::helpers::timed_node_roughjs(common.timing, details, || {
             roughjs_paths_for_svg_path(
                 &path_data,
                 common.stroke_width,
@@ -52,8 +57,10 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_notched_pentagon(
                 common.work_meter,
                 common.hand_drawn_seed,
             )
-        })
-        .unwrap_or_else(|| ("M0,0".to_string(), "M0,0".to_string()));
+        }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ("M0,0".to_string(), "M0,0".to_string()),
+        };
     let _ = write!(
         out,
         r##"<g class="basic label-container outer-path"><path d="{}" stroke="none" stroke-width="0" fill="{}" style="{}"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}" style="{}"/></g>"##,
@@ -62,12 +69,13 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_notched_pentagon(
         escape_attr(common.style),
         escape_attr(&stroke_d),
         escape_attr(common.stroke_color),
-        util::fmt_display(common.stroke_width as f64),
+        util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         escape_attr(common.stroke_dasharray),
         escape_attr(common.style),
     );
 }
 
+#[must_use]
 fn prepare_notched_pentagon_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,

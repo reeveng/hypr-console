@@ -40,8 +40,6 @@ use console_core_number_conversion::{fitted, index, toward_zero_u64};
 use console_weather::conditions::Weather;
 use console_weather::here::Where;
 
-const NONE_OF_THEM: u64 = 0;
-
 pub const HOLD_SECONDS: f64 = 2.0 * 60.0 * 60.0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -112,76 +110,39 @@ pub struct Picture {
   pub moon: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Answers {
-  Yes,
-  No,
-}
+pub(super) fn specificity(tags: [&[String]; 4], outside: &Outside) -> Result<Option<u32>, Never> {
+  let Ok(sky) = outside.sky.word();
+  let Ok(weather) = outside.weather.map(Weather::word).transpose();
+  let Ok(season) = outside.season.word();
+  let Ok(moon) = outside.moon.word();
+  let mut score: u32 = 0;
 
-fn names(list: &[String], word: Option<&str>) -> Result<Answers, Never> {
-  match ::core::primitive::bool::then_some(list.is_empty(), ()) {
-    ::core::option::Option::Some(()) => return Ok(Answers::Yes),
-    ::core::option::Option::None => {}
-  }
-
-  Ok(
-    match ::core::primitive::bool::then_some(
-      word.is_some_and(|word_2| list.iter().any(|held| held.trim().to_lowercase() == word_2)),
-      (),
-    ) {
-      ::core::option::Option::Some(()) => Answers::Yes,
-      ::core::option::Option::None => Answers::No,
-    },
-  )
-}
-
-type Against<'a> = [(&'a Vec<String>, Option<&'static str>); 4];
-
-impl Picture {
-  fn against(&self, outside: &Outside) -> Result<Against<'_>, Never> {
-    let moon = outside.moon.word()?;
-
-    let season = outside.season.word()?;
-
-    let sky = outside.sky.word()?;
-
-    let weather = match outside.weather {
-      Some(weather) => {
-        let word = weather.word()?;
-
-        Some(word)
+  for (list, word) in tags
+    .into_iter()
+    .zip([Some(sky), weather, Some(season), Some(moon)])
+  {
+    match list {
+      [] => {
+        continue;
       }
-      None => None,
-    };
-
-    Ok([
-      (&self.moon, Some(moon)),
-      (&self.season, Some(season)),
-      (&self.sky, Some(sky)),
-      (&self.weather, weather),
-    ])
-  }
-
-  fn answers(&self, outside: &Outside) -> Result<Answers, Never> {
-    let against = self.against(outside)?;
-
-    for (list, word) in against {
-      let names = names(list, word)?;
-
-      match names {
-        Answers::Yes => {}
-        Answers::No => return Ok(Answers::No),
-      }
+      [_, ..] => {}
     }
 
-    Ok(Answers::Yes)
+    let matches = word.is_some_and(|tag| {
+      list
+        .iter()
+        .any(|candidate| candidate.trim().eq_ignore_ascii_case(tag))
+    });
+
+    match bool::then_some(matches, ()) {
+      None => return Ok(None),
+      Some(()) => {}
+    }
+
+    score = score.saturating_add(1);
   }
 
-  fn particular(&self, outside: &Outside) -> Result<u32, Never> {
-    let against = self.against(outside)?;
-
-    fitted(against.iter().filter(|(list, _)| !list.is_empty()).count())
-  }
+  Ok(Some(score))
 }
 
 #[derive(Debug, Clone)]
@@ -192,34 +153,33 @@ pub struct Set {
   pub pictures: Vec<Picture>,
 }
 
-fn suitable<'a>(pictures: &'a [Picture], outside: &Outside) -> Result<Vec<&'a Picture>, Never> {
-  let mut answering: Vec<(&Picture, u32)> = Vec::new();
+pub(super) fn rotate<T: Copy>(
+  matches: impl Iterator<Item = (T, u32)>,
+  turn: Turn,
+) -> Result<Option<T>, Never> {
+  let mut standing = Vec::new();
+  let mut best = 0;
 
-  for picture in pictures {
-    let answers = picture.answers(outside)?;
-
-    match answers {
-      Answers::Yes => {
-        let particular = picture.particular(outside)?;
-
-        answering.push((picture, particular));
+  for (picture, score) in matches {
+    match score.cmp(&best) {
+      std::cmp::Ordering::Greater => {
+        standing.clear();
+        best = score;
+        standing.push(picture);
       }
-      Answers::No => {}
+      std::cmp::Ordering::Equal => standing.push(picture),
+      std::cmp::Ordering::Less => {}
     }
   }
 
-  let best = match answering.iter().map(|(_, particular)| *particular).max() {
-    Some(best) => best,
-    None => return Ok(Vec::new()),
+  let Ok(count) = fitted::<_, u64>(standing.len());
+  let round = match turn.0.checked_rem(count) {
+    Some(round) => round,
+    None => return Ok(None),
   };
+  let Ok(at) = index(round);
 
-  Ok(
-    answering
-      .into_iter()
-      .filter(|(_, particular)| *particular == best)
-      .map(|(picture, _)| picture)
-      .collect(),
-  )
+  Ok(standing.get(at).copied())
 }
 
 pub fn choose<'a>(
@@ -227,16 +187,27 @@ pub fn choose<'a>(
   outside: &Outside,
   turn: Turn,
 ) -> Result<Option<&'a Picture>, Never> {
-  let standing = suitable(pictures, outside)?;
-  let Ok(count) = fitted::<_, u64>(standing.len().max(1));
-  let round = match turn.0.checked_rem(count) {
-    Some(round) => round,
-    None => NONE_OF_THEM,
-  };
+  choose_from(pictures.iter(), outside, turn)
+}
 
-  let Ok(at) = index(round);
-
-  Ok(standing.get(at).copied())
+pub(super) fn choose_from<'a>(
+  pictures: impl Iterator<Item = &'a Picture>,
+  outside: &Outside,
+  turn: Turn,
+) -> Result<Option<&'a Picture>, Never> {
+  rotate(
+    pictures.filter_map(|picture| {
+      let tags = [
+        ::core::convert::AsRef::<[_]>::as_ref(&picture.sky),
+        &picture.weather,
+        &picture.season,
+        &picture.moon,
+      ];
+      let Ok(matched) = specificity(tags, outside);
+      matched.map(|score| (picture, score))
+    }),
+    turn,
+  )
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
@@ -257,6 +228,20 @@ impl Default for Wanted {
 }
 
 impl Set {
+  pub fn load() -> Result<Option<Self>, Never> {
+    let Ok(at) = crate::place::table();
+    let Ok(stored) = console_core_atomic_writes::read(&at);
+
+    match stored {
+      Stored::Text(held) => Self::read(&held),
+      Stored::Absent => Ok(None),
+      Stored::Failed(fault) => {
+        console_core_logging::warn!("{}: {fault}", at.display());
+        Ok(None)
+      }
+    }
+  }
+
   pub fn read(held: &str) -> Result<Option<Set>, Never> {
     Ok(match toml::from_str(held) {
       Ok(set) => Some(set),
@@ -324,28 +309,15 @@ pub fn pinned<'a>(pictures: &'a [Picture], asked: &Wanted) -> Result<Option<&'a 
 }
 
 pub fn still(outside: &Outside, turn: Turn) -> Result<Option<PathBuf>, Never> {
-  let Ok(table) = crate::place::table();
-  let Ok(held) = console_core_atomic_writes::read(&table);
-
-  let set = match held {
-    Stored::Text(held_2) => Set::read(&held_2)?,
-    Stored::Absent => None,
-    Stored::Failed(fault) => {
-      console_core_logging::warn!("{}: {fault}", table.display());
-
-      None
-    }
+  let Ok(set) = Set::load();
+  let pictures: &[Picture] = match &set {
+    Some(table) => &table.pictures,
+    None => &[],
   };
-
-  let set_3 = match set {
-    Some(set_2) => set_2,
-    None => return Ok(None),
-  };
-
-  let chosen = choose(&set_3.pictures, outside, turn)?;
-
-  let found = match chosen.or_else(|| set_3.pictures.first()) {
-    Some(picture) => crate::place::picture(&picture.name)?,
+  let Ok(rules) = crate::rules::installed();
+  let Ok(picked) = crate::rules::pick(&rules, pictures, outside, turn);
+  let found = match picked {
+    Some(name) => crate::place::picture(name)?,
     None => None,
   };
 

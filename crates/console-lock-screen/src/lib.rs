@@ -29,7 +29,12 @@
 use console_core_never::Never;
 use console_core_words::Words;
 use console_login_window::protocol::{FromGreeter, ToGreeter};
-use console_login_window::stored_pattern::{self, Hash, Matched, NOT_THE_PATTERN, StoredPattern};
+use console_login_window::stored_pattern::{Hash, PatternAttempts, StoredPattern};
+
+pub mod idle;
+
+pub const PATTERN_UNAVAILABLE: &str =
+  "The saved pattern cannot be read. Choose another unlock method.";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Wanted {
@@ -38,6 +43,39 @@ pub enum Wanted {
 }
 
 pub const SETTING: &str = "lock-screen";
+const METHOD_SETTING: &str = "lock-screen-method";
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Words)]
+pub enum Method {
+  #[default]
+  #[words(key = "pattern", label = "Pattern")]
+  Pattern,
+  #[words(key = "fingerprint", label = "Fingerprint")]
+  Fingerprint,
+  #[words(key = "password", label = "Password")]
+  Password,
+}
+
+impl Method {
+  pub const ALL: [Self; 3] = [Self::Pattern, Self::Fingerprint, Self::Password];
+}
+
+pub fn preferred() -> Result<Method, Never> {
+  let Ok(value) = console_defaults::setting(METHOD_SETTING);
+  let Ok(chosen) = value.as_deref().map_or(Ok(None), Method::from_key);
+  Ok(match chosen {
+    ::core::option::Option::Some(present) => present,
+    ::core::option::Option::None => crate::Method::Pattern,
+  })
+}
+
+pub fn prefer(method: Method) -> Result<(), Never> {
+  let Ok(value) = method.key();
+  console_defaults::set(console_defaults::Setting {
+    key: METHOD_SETTING,
+    value,
+  })
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum LockScreen {
@@ -57,6 +95,10 @@ impl LockScreen {
 }
 
 pub fn read(setting: Option<&str>) -> Result<LockScreen, Never> {
+  read_switch(SETTING, setting)
+}
+
+fn read_switch(key: &str, setting: Option<&str>) -> Result<LockScreen, Never> {
   let said = match setting {
     Some(text) => text,
     None => return Ok(LockScreen::On),
@@ -66,9 +108,7 @@ pub fn read(setting: Option<&str>) -> Result<LockScreen, Never> {
   match found {
     Some(chosen) => Ok(chosen),
     None => {
-      eprintln!(
-        "console-lock-screen: {SETTING}={said} is neither on nor off; the screen still locks"
-      );
+      console_core_logging::warn!("{key}={said} is invalid; using on");
 
       Ok(LockScreen::On)
     }
@@ -82,12 +122,13 @@ pub fn current() -> Result<LockScreen, Never> {
 }
 
 pub fn choose(chosen: LockScreen) -> Result<(), Never> {
-  let Ok(key) = chosen.key();
+  set_switch(SETTING, chosen)
+}
 
-  console_defaults::set(console_defaults::Setting {
-    key: SETTING,
-    value: key,
-  })
+fn set_switch(key: &str, chosen: LockScreen) -> Result<(), Never> {
+  let Ok(value) = chosen.key();
+
+  console_defaults::set(console_defaults::Setting { key, value })
 }
 
 pub fn desired(stored: StoredPattern, chosen: LockScreen) -> Result<Wanted, Never> {
@@ -98,23 +139,28 @@ pub fn desired(stored: StoredPattern, chosen: LockScreen) -> Result<Wanted, Neve
   })
 }
 
-pub fn respond(said: &FromGreeter, hash: &Hash) -> Result<Option<ToGreeter>, Never> {
+pub fn respond(
+  said: &FromGreeter,
+  hash: Option<&Hash>,
+  attempts: &mut PatternAttempts,
+  now: std::time::Instant,
+) -> Result<Option<ToGreeter>, Never> {
   Ok(match said {
     FromGreeter::Login(letters) => {
-      let Ok(matched) = stored_pattern::matches(letters, hash);
-
-      Some(match matched {
-        Matched::Yes => ToGreeter::Welcome,
-        Matched::No => ToGreeter::Failed(NOT_THE_PATTERN.to_string()),
-      })
+      let Ok(reply) = match hash {
+        Some(hash_2) => attempts.check(letters, hash_2, now),
+        None => Ok(ToGreeter::Message(PATTERN_UNAVAILABLE.to_owned())),
+      };
+      Some(reply)
     }
-    FromGreeter::Terminal => None,
+    FromGreeter::Fingerprint | FromGreeter::Terminal => None,
   })
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
+  use console_login_window::stored_pattern::{self, NOT_THE_PATTERN};
 
   #[test]
   fn a_person_who_never_chose_a_pattern_is_never_locked() {
@@ -159,7 +205,12 @@ mod tests {
   #[test]
   fn the_pattern_that_was_chosen_unlocks() -> Result<(), Box<dyn std::error::Error>> {
     let aec = stored_pattern::hashed("aec")?;
-    let Ok(answer) = respond(&FromGreeter::Login("aec".to_string()), &aec);
+    let Ok(answer) = respond(
+      &FromGreeter::Login("aec".to_string()),
+      Some(&aec),
+      &mut PatternAttempts::default(),
+      std::time::Instant::now(),
+    );
 
     assert_eq!(answer, Some(ToGreeter::Welcome));
 
@@ -170,7 +221,12 @@ mod tests {
   fn any_other_pattern_is_refused_in_the_login_window_s_words()
   -> Result<(), Box<dyn std::error::Error>> {
     let aec = stored_pattern::hashed("aec")?;
-    let Ok(answer) = respond(&FromGreeter::Login("ace".to_string()), &aec);
+    let Ok(answer) = respond(
+      &FromGreeter::Login("ace".to_string()),
+      Some(&aec),
+      &mut PatternAttempts::default(),
+      std::time::Instant::now(),
+    );
 
     assert_eq!(answer, Some(ToGreeter::Failed(NOT_THE_PATTERN.to_string())));
 
@@ -178,10 +234,30 @@ mod tests {
   }
 
   #[test]
+  fn an_unreadable_pattern_cannot_unlock_the_session() {
+    let Ok(answer) = respond(
+      &FromGreeter::Login("abcd".to_owned()),
+      None,
+      &mut PatternAttempts::default(),
+      std::time::Instant::now(),
+    );
+
+    assert_eq!(
+      answer,
+      Some(ToGreeter::Message(PATTERN_UNAVAILABLE.to_owned()))
+    );
+  }
+
+  #[test]
   fn asking_for_a_terminal_over_a_locked_session_is_not_answered()
   -> Result<(), Box<dyn std::error::Error>> {
     let aec = stored_pattern::hashed("aec")?;
-    let Ok(answer) = respond(&FromGreeter::Terminal, &aec);
+    let Ok(answer) = respond(
+      &FromGreeter::Terminal,
+      Some(&aec),
+      &mut PatternAttempts::default(),
+      std::time::Instant::now(),
+    );
 
     assert_eq!(answer, None);
 

@@ -5,13 +5,26 @@ use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
+use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_operating_system_linux::program_runtime::commands::{Invocation, Linux, Timing};
-use console_program_contract::ExitStatus;
-use console_program_runtime::commands::{Launch, Platform, Reporter, Streams};
+use console_program_contract::{Command, ExitStatus};
+use console_program_runtime::commands::{self, Launch, Platform, Reporter, Streams};
 use console_waiting::{Outcome, Ready, Schedule, until};
 
 type Failure = Box<dyn std::error::Error>;
+
+#[test]
+fn a_registered_external_command_is_provided_as_an_absolute_executable() -> Result<(), Failure> {
+  let Ok(mut platform) = Linux::new(Timing::Inherited);
+  let Ok(command) = Command::external(Program::Sh, &["-c", "printf provided"]);
+  let invocation = commands::resolve(&mut platform, &command)?;
+
+  assert!(invocation.program.is_absolute());
+  assert_eq!(invocation.arguments, command.arguments);
+
+  Ok(())
+}
 
 #[cfg_attr(
   dylint_lib = "explicit082_no_built_shell_line",
@@ -36,9 +49,7 @@ fn shell(script: &str, arguments: &[String]) -> Result<Invocation, Never> {
 
 #[test]
 fn a_failed_command_keeps_both_outputs_and_literal_arguments() -> Result<(), Failure> {
-  let mut platform = Linux {
-    timing: Timing::Background,
-  };
+  let Ok(mut platform) = Linux::new(Timing::Background);
   let literal = "two words; $(not a command)".to_string();
   let Ok(invocation) = shell(
     "printf '%s\\n' \"$1\"; printf 'reason\\n' >&2; exit 7",
@@ -84,9 +95,7 @@ fn live_output_arrives_before_exit_and_stderr_is_drained_concurrently() -> Resul
   let directory = console_core_temporary_directories::fresh("command-progress")?;
   let gate = directory.join("gate");
   let gate_text = gate.to_str().ok_or("the fixture path is not UTF-8")?;
-  let mut platform = Linux {
-    timing: Timing::Background,
-  };
+  let Ok(mut platform) = Linux::new(Timing::Background);
   let Ok(invocation) = shell(
     "mkfifo \"$1\"; printf 'first\\n'; IFS= read -r reply < \"$1\"; head -c 1048576 /dev/zero >&2; printf 'last'",
     &[gate_text.to_string()],
@@ -114,9 +123,7 @@ fn a_background_launch_is_reaped_without_another_launch() -> Result<(), Failure>
   let pid_file = directory.join("pid");
   let pid_path = pid_file.to_str().ok_or("the fixture path is not UTF-8")?;
   let Ok(invocation) = shell("printf '%s' $$ > \"$1\"", &[pid_path.to_string()]);
-  let mut platform = Linux {
-    timing: Timing::Background,
-  };
+  let Ok(mut platform) = Linux::new(Timing::Background);
 
   platform.spawn(&invocation, Streams::QUIET, Launch::Background)?;
   let schedule = Schedule::of(Duration::from_secs(5))?;
@@ -155,9 +162,7 @@ fn capture_finishes_while_a_descendant_still_holds_an_output_pipe() -> Result<()
   use rustix::process::{Pid, PidfdFlags, pidfd_open};
 
   let Ok(invocation) = shell("sleep 3 & printf '%s' $!", &[]);
-  let mut platform = Linux {
-    timing: Timing::Background,
-  };
+  let Ok(mut platform) = Linux::new(Timing::Background);
   let completion = platform.run(&invocation, Streams::COLLECT, None)?;
   let raw = completion.output.parse::<i32>()?;
   let descendant = Pid::from_raw(raw).ok_or("the shell did not report a child process")?;
@@ -182,9 +187,7 @@ fn capture_finishes_while_a_descendant_still_holds_an_output_pipe() -> Result<()
 #[test]
 fn the_text_contract_reports_non_utf8_output() -> Result<(), Failure> {
   let Ok(invocation) = shell("printf '\\377'", &[]);
-  let mut platform = Linux {
-    timing: Timing::Background,
-  };
+  let Ok(mut platform) = Linux::new(Timing::Background);
 
   match platform.run(&invocation, Streams::COLLECT, None) {
     Ok(output) => return Err(Box::from(format!("accepted invalid UTF-8: {output:?}"))),
@@ -196,9 +199,7 @@ fn the_text_contract_reports_non_utf8_output() -> Result<(), Failure> {
 
 #[test]
 fn missing_programs_and_undrained_detached_pipes_are_errors() {
-  let mut platform = Linux {
-    timing: Timing::Background,
-  };
+  let Ok(mut platform) = Linux::new(Timing::Background);
   let invocation = Invocation {
     program: PathBuf::from("/no-such-command/program"),
     arguments: Vec::new(),

@@ -1,5 +1,6 @@
 use super::*;
 
+#[must_use]
 fn state_leaf_label_width(
     node: &StateSvgNode,
     ctx: &StateRenderCtx<'_>,
@@ -7,51 +8,56 @@ fn state_leaf_label_width(
     measured_width: f64,
 ) -> f64 {
     let width = measured_width.max(0.0);
+
     if matches!(node.shape.as_str(), "rect" | "note") && !label.is_empty() {
         width.max(node.min_width.unwrap_or(ctx.label_min_width).max(0.0))
     } else {
         width
     }
 }
+
 use crate::svg_security::{
     MermaidNavigationSecurity, normalize_mermaid_tooltip_attribute, prepare_mermaid_navigation_href,
 };
 
+#[must_use]
 fn rounded_rect_rough_cache_key(
     w: f64,
     h: f64,
     radius: f64,
     seed: roughr::core::RoughJsSeed,
 ) -> StateRoughCacheKey {
-    let radius = super::roughjs::normalized_rounded_rect_radius(w, h, radius);
+    let radius_2 = super::roughjs::normalized_rounded_rect_radius(w, h, radius);
     StateRoughCacheKey {
         tag: 6,
         a: w.to_bits(),
         b: h.to_bits(),
-        c: radius.to_bits(),
+        c: radius_2.to_bits(),
         seed,
     }
 }
 
+#[must_use]
 fn note_rough_cache_key(
     w: f64,
     h: f64,
     radius: f64,
     seed: roughr::core::RoughJsSeed,
 ) -> StateRoughCacheKey {
-    let radius = super::roughjs::normalized_rounded_rect_radius(w, h, radius);
+    let radius_2 = super::roughjs::normalized_rounded_rect_radius(w, h, radius);
     StateRoughCacheKey {
         tag: 5,
         a: w.to_bits(),
         b: h.to_bits(),
-        c: radius.to_bits(),
+        c: radius_2.to_bits(),
         seed,
     }
 }
 
+#[must_use]
 pub(super) fn state_rect_style(style: &str, radius: Option<f64>) -> std::borrow::Cow<'_, str> {
     match radius {
-        Some(radius) => std::borrow::Cow::Owned(format!(
+        Some(radius_2) => std::borrow::Cow::Owned(format!(
             "{}{}rx:{}px;ry:{}px;",
             style,
             if style.is_empty() || style.ends_with(';') {
@@ -59,8 +65,8 @@ pub(super) fn state_rect_style(style: &str, radius: Option<f64>) -> std::borrow:
             } else {
                 ";"
             },
-            fmt_display(radius.max(0.0)),
-            fmt_display(radius.max(0.0)),
+            fmt_display(radius_2.max(0.0)),
+            fmt_display(radius_2.max(0.0)),
         )),
         None => std::borrow::Cow::Borrowed(style),
     }
@@ -80,12 +86,24 @@ pub(super) fn render_state_node_svg(
     details: &mut StateRenderDetails,
     effect_outsets: &mut crate::diagram_theme::EffectOutsets,
 ) -> Result<()> {
-    let Some(node) = ctx.nodes_by_id.get(node_id).copied() else {
-        return Ok(());
+    let node = {
+        let optional_node = ctx.nodes_by_id.get(node_id).copied();
+
+        match optional_node {
+            Some(matched_node) => matched_node,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
-    let Some(ln) = ctx.layout_nodes_by_id.get(node_id).copied() else {
-        return Ok(());
+
+    let ln = {
+        let optional_ln = ctx.layout_nodes_by_id.get(node_id).copied();
+
+        match optional_ln {
+            Some(matched_ln) => matched_ln,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
+
     if ln.is_cluster {
         return Ok(());
     }
@@ -108,31 +126,45 @@ pub(super) fn render_state_node_svg(
     let node_text_style = node_style
         .map(crate::state::StateNodeStylePlan::text_style)
         .unwrap_or_else(|| ctx.style_plan.base_text_style());
-    let shape_style_attr = node_style
-        .map(crate::state::StateNodeStylePlan::shape_style_attr)
-        .unwrap_or_default();
-    let fill_path_style_attr = node_style
-        .map(crate::state::StateNodeStylePlan::fill_path_style_attr)
-        .unwrap_or_default();
-    let stroke_path_style_attr = node_style
-        .map(crate::state::StateNodeStylePlan::stroke_path_style_attr)
-        .unwrap_or_default();
-    let semantic_shape_style_attr = node_style
-        .map(crate::state::StateNodeStylePlan::semantic_shape_style_attr)
-        .unwrap_or_default();
-    let text_style_attr = node_style
-        .map(crate::state::StateNodeStylePlan::label_style_attr)
-        .unwrap_or_default();
-    let div_style_prefix = node_style
-        .map(crate::state::StateNodeStylePlan::div_style_prefix)
-        .unwrap_or_default();
+    let shape_style_attr = match node_style
+        .map(crate::state::StateNodeStylePlan::shape_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let fill_path_style_attr = match node_style
+        .map(crate::state::StateNodeStylePlan::fill_path_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let stroke_path_style_attr = match node_style
+        .map(crate::state::StateNodeStylePlan::stroke_path_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let semantic_shape_style_attr = match node_style
+        .map(crate::state::StateNodeStylePlan::semantic_shape_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let text_style_attr = match node_style
+        .map(crate::state::StateNodeStylePlan::label_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let div_style_prefix = match node_style
+        .map(crate::state::StateNodeStylePlan::div_style_prefix) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
     let fill_override = node_style.and_then(crate::state::StateNodeStylePlan::fill_override);
     let stroke_override = node_style.and_then(crate::state::StateNodeStylePlan::stroke_override);
     let stroke_width_override =
         node_style.and_then(crate::state::StateNodeStylePlan::stroke_width_override);
-    let classic_stroke_paint_width = node_style
-        .and_then(crate::state::StateNodeStylePlan::classic_stroke_paint_width)
-        .unwrap_or(0.0);
+    let classic_stroke_paint_width = match node_style
+        .and_then(crate::state::StateNodeStylePlan::classic_stroke_paint_width) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
     let radius_override = node_style.and_then(crate::state::StateNodeStylePlan::radius_override);
     let padding_override = node_style.and_then(crate::state::StateNodeStylePlan::padding_override);
 
@@ -160,17 +192,23 @@ pub(super) fn render_state_node_svg(
                     seed: ctx.hand_drawn_seed.seed(),
                 };
                 let rough_start = timing.start();
+
                 if timing.is_enabled() {
                     details.leaf_roughjs_calls += 1;
                     details.leaf_roughjs_unique.insert(key);
                 }
+
                 let path_d = ctx.rough_cache.get_or_build_circle(key, || {
-                    roughjs_circle_path_d(14.0, &ctx.hand_drawn_seed)
-                        .unwrap_or_else(|| "M0,0".to_string())
+                    match roughjs_circle_path_d(14.0, &ctx.hand_drawn_seed) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => "M0,0".to_string(),
+                    }
                 });
+
                 if let Some(start) = rough_start {
                     details.leaf_nodes_roughjs += start.elapsed();
                 }
+
                 let surface = compatibility
                     .node_shape_surface(node, crate::diagram_theme::ThemeTarget::SpecialState)
                     .expect("State start node must have a compatibility surface");
@@ -210,7 +248,9 @@ pub(super) fn render_state_node_svg(
                 drop(_g_emit);
                 return Ok(());
             }
+
             let mut semantic_style = semantic_shape_style_attr.to_string();
+
             if !small_shadow_attr.is_empty() {
                 let _ = write!(
                     semantic_style,
@@ -218,6 +258,7 @@ pub(super) fn render_state_node_svg(
                     ctx.diagram_id
                 );
             }
+
             let _g_emit = detail_guard(timing, &mut details.leaf_nodes_emit);
             let _ = write!(
                 out,
@@ -232,6 +273,7 @@ pub(super) fn render_state_node_svg(
         }
         "stateEnd" => {
             let rough_start = timing.start();
+
             if timing.is_enabled() {
                 details.leaf_roughjs_calls += 2;
                 details.leaf_roughjs_unique.insert(StateRoughCacheKey {
@@ -249,6 +291,7 @@ pub(super) fn render_state_node_svg(
                     seed: ctx.hand_drawn_seed.seed(),
                 });
             }
+
             let outer_key = StateRoughCacheKey {
                 tag: 1,
                 a: 14.0f64.to_bits(),
@@ -265,18 +308,24 @@ pub(super) fn render_state_node_svg(
             };
 
             let outer_d = ctx.rough_cache.get_or_build_circle(outer_key, || {
-                roughjs_circle_path_d(14.0, &ctx.hand_drawn_seed)
-                    .unwrap_or_else(|| "M0,0".to_string())
+                match roughjs_circle_path_d(14.0, &ctx.hand_drawn_seed) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "M0,0".to_string(),
+                }
             });
             let inner_d = ctx.rough_cache.get_or_build_circle(inner_key, || {
-                roughjs_circle_path_d(5.0, &ctx.hand_drawn_seed)
-                    .unwrap_or_else(|| "M0,0".to_string())
+                match roughjs_circle_path_d(5.0, &ctx.hand_drawn_seed) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "M0,0".to_string(),
+                }
             });
+
             if let Some(s) = rough_start {
                 details.leaf_nodes_roughjs += s.elapsed();
             }
-            // RoughJS emits the same base paints for every look. Neo's stylesheet supplies
-            // its final stroke; copying that CSS into inline style would change the cascade.
+
+
+
             let outer_surface = crate::state::StateTerminalSurface::SpecialEndOuterClassic;
             let inner_surface = crate::state::StateTerminalSurface::SpecialEndInnerClassic;
             let compatibility_outer_fill = compatibility.terminal_paint_css(
@@ -309,16 +358,20 @@ pub(super) fn render_state_node_svg(
             let fill_path_style_escaped = escape_attr(fill_path_style_attr);
             let stroke_path_style_escaped = escape_attr(stroke_path_style_attr);
             let inner_fill_path_style_escaped = escape_attr(
-                node_style
-                    .map(crate::state::StateNodeStylePlan::special_state_inner_fill_path_style_attr)
-                    .unwrap_or_default(),
+                match node_style
+                    .map(crate::state::StateNodeStylePlan::special_state_inner_fill_path_style_attr) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "",
+                },
             );
             let inner_stroke_path_style_escaped = escape_attr(
-                node_style
+                match node_style
                     .map(
                         crate::state::StateNodeStylePlan::special_state_inner_stroke_path_style_attr,
-                    )
-                    .unwrap_or_default(),
+                    ) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "",
+                },
             );
             let _g_emit = detail_guard(timing, &mut details.leaf_nodes_emit);
             let _ = write!(
@@ -333,9 +386,9 @@ pub(super) fn render_state_node_svg(
                 escape_attr(outer_fill),
                 fill_path_style_escaped,
                 outer_d.as_str(),
-                // Mermaid's stateEnd outer path keeps the compatibility stroke as its
-                // presentation attribute. A classDef override is emitted in `style`, where it
-                // can override that fallback without changing the terminal's base SVG shape.
+
+
+
                 escape_attr(&compatibility_outer_stroke),
                 fmt(outer_stroke_width),
                 stroke_path_style_escaped,
@@ -358,12 +411,14 @@ pub(super) fn render_state_node_svg(
                 c: 0,
                 seed: ctx.hand_drawn_seed.seed(),
             };
+
             if timing.is_enabled() {
                 details.leaf_roughjs_calls += 1;
                 details.leaf_roughjs_unique.insert(key);
             }
+
             let (fill_d, stroke_d) = ctx.rough_cache.get_or_build_paths(key, || {
-                roughjs_paths_for_rect(StateRoughRectSpec {
+                match roughjs_paths_for_rect(StateRoughRectSpec {
                     x: -w / 2.0,
                     y: -h / 2.0,
                     w,
@@ -372,12 +427,16 @@ pub(super) fn render_state_node_svg(
                     work_meter: ctx.work_meter,
                     phase: merman_model::OperationPhase::Emit,
                     randomness: &ctx.hand_drawn_seed,
-                })
-                .unwrap_or_else(|| ("M0,0".to_string(), "M0,0".to_string()))
+                }) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => ("M0,0".to_string(), "M0,0".to_string()),
+                }
             });
+
             if let Some(s) = rough_start {
                 details.leaf_nodes_roughjs += s.elapsed();
             }
+
             let surface = crate::state::StateTerminalSurface::SpecialForkJoinClassic;
             let compatibility_fill = compatibility.terminal_paint_css(
                 surface,
@@ -424,19 +483,24 @@ pub(super) fn render_state_node_svg(
                 c: 0,
                 seed: ctx.hand_drawn_seed.seed(),
             };
+
             if timing.is_enabled() {
                 details.leaf_roughjs_calls += 1;
                 details.leaf_roughjs_unique.insert(key);
             }
+
             let (fill_d, stroke_d) = ctx.rough_cache.get_or_build_paths(key, || {
-                roughjs_paths_for_svg_path(
+                match roughjs_paths_for_svg_path(
                     &mermaid_choice_diamond_path_data(w, h),
                     1.3,
                     "0 0",
                     &ctx.hand_drawn_seed,
-                )
-                .unwrap_or_else(|| ("M0,0".to_string(), "M0,0".to_string()))
+                ) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => ("M0,0".to_string(), "M0,0".to_string()),
+                }
             });
+
             if let Some(s) = rough_start {
                 details.leaf_nodes_roughjs += s.elapsed();
             }
@@ -504,24 +568,31 @@ pub(super) fn render_state_node_svg(
                 },
             );
             let metrics = &measurement.metrics;
+
             if let Some(s) = measure_start {
                 details.leaf_nodes_measure += s.elapsed();
             }
+
             let lw = state_leaf_label_width(node, ctx, &label, metrics.width);
             let lh = metrics.height.max(0.0);
             let rough_start = timing.start();
             let note_radius = super::roughjs::normalized_rounded_rect_radius(
                 w,
                 h,
-                radius_override.unwrap_or(0.0),
+                match radius_override {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                },
             );
             let key = note_rough_cache_key(w, h, note_radius, ctx.hand_drawn_seed.seed());
+
             if timing.is_enabled() {
                 details.leaf_roughjs_calls += 1;
                 details.leaf_roughjs_unique.insert(key);
             }
+
             let (fill_d, stroke_d) = ctx.rough_cache.get_or_build_paths(key, || {
-                if note_radius == 0.0 {
+                match if ::core::matches!(::core::primitive::f64::classify(note_radius), ::core::num::FpCategory::Zero) {
                     roughjs_paths_for_rect(StateRoughRectSpec {
                         x: -w / 2.0,
                         y: -h / 2.0,
@@ -539,12 +610,16 @@ pub(super) fn render_state_node_svg(
                         "0 0",
                         &ctx.hand_drawn_seed,
                     )
+                } {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => ("M0,0".to_string(), "M0,0".to_string()),
                 }
-                .unwrap_or_else(|| ("M0,0".to_string(), "M0,0".to_string()))
             });
+
             if let Some(s) = rough_start {
                 details.leaf_nodes_roughjs += s.elapsed();
             }
+
             let label_html_start = timing.start();
             let label_span_style = (!text_style_attr.is_empty()).then_some(text_style_attr);
             let label_dom = if ctx.html_labels {
@@ -556,9 +631,11 @@ pub(super) fn render_state_node_svg(
             } else {
                 state_native_svg_text_label(&label, measured_label, false, label_span_style)
             };
+
             if let Some(s) = label_html_start {
                 details.leaf_nodes_label_html += s.elapsed();
             }
+
             let surface = crate::state::StateTerminalSurface::NoteClassic;
             let compatibility_fill = compatibility.terminal_paint_css(
                 surface,
@@ -579,6 +656,7 @@ pub(super) fn render_state_node_svg(
             let stroke_path_style_escaped = escape_xml_display(stroke_path_style_attr);
             let label_style_escaped = escape_xml_display(text_style_attr);
             let _g_emit = detail_guard(timing, &mut details.leaf_nodes_emit);
+
             if ctx.html_labels {
                 let div_style = if measurement.uses_html_wrapping_table {
                     format!(
@@ -646,6 +724,7 @@ pub(super) fn render_state_node_svg(
                     label_dom
                 );
             }
+
             drop(_g_emit);
         }
         "rectWithTitle" => {
@@ -654,11 +733,13 @@ pub(super) fn render_state_node_svg(
                 .as_ref()
                 .map(state_value_to_label_text)
                 .unwrap_or_else(|| node.id.clone());
-            let desc = node
+            let desc = match node
                 .description
                 .as_ref()
-                .map(|v| v.join("\n"))
-                .unwrap_or_default();
+                .map(|v| v.join("\n")) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::string::String::new(),
+            };
             let measured_title = ctx
                 .label_sidecar
                 .measured_native_geometry(crate::state::StateLabelOwner::NodeTitle(node_id));
@@ -701,6 +782,7 @@ pub(super) fn render_state_node_svg(
                 },
                 crate::state::StateNativeLabelGeometry::layout_metrics,
             );
+
             if let Some(s) = measure_start {
                 details.leaf_nodes_measure += s.elapsed();
             }
@@ -734,9 +816,11 @@ pub(super) fn render_state_node_svg(
                     ),
                 )
             };
+
             if let Some(s) = label_html_start {
                 details.leaf_nodes_label_html += s.elapsed();
             }
+
             let rect_style = state_rect_style(shape_style_attr, radius_override);
             let shape_style_escaped = escape_xml_display(&rect_style);
             let divider_style_escaped = escape_xml_display(shape_style_attr);
@@ -756,6 +840,7 @@ pub(super) fn render_state_node_svg(
                 })
                 .unwrap_or_default();
             let _g_emit = detail_guard(timing, &mut details.leaf_nodes_emit);
+
             if ctx.html_labels {
                 let _ = write!(
                     out,
@@ -821,6 +906,7 @@ pub(super) fn render_state_node_svg(
                     desc_dom
                 );
             }
+
             drop(_g_emit);
         }
         _ => {
@@ -850,6 +936,7 @@ pub(super) fn render_state_node_svg(
                 },
             );
             let metrics = &measurement.metrics;
+
             if let Some(s) = measure_start {
                 details.leaf_nodes_measure += s.elapsed();
             }
@@ -860,6 +947,7 @@ pub(super) fn render_state_node_svg(
             let mut link_open = String::new();
             let mut link_close = String::new();
             let mut node_title_attr = String::new();
+
             if let Some(links) = ctx.links.get(node_id) {
                 let mut push_link = |link: &StateSvgLink| {
                     let title_attr = if link.tooltip.is_empty() {
@@ -872,6 +960,7 @@ pub(super) fn render_state_node_svg(
                         };
                         format!(r#" title="{}""#, escape_attr(tooltip))
                     };
+
                     if !title_attr.is_empty() {
                         node_title_attr = title_attr.clone();
                     }
@@ -896,13 +985,14 @@ pub(super) fn render_state_node_svg(
                     } else {
                         link_open.push_str(&format!(r#"<a{}>"#, title_attr));
                     }
+
                     link_close.push_str("</a>");
                 };
 
                 match links {
                     StateSvgLinks::One(link) => push_link(link),
-                    StateSvgLinks::Many(links) => {
-                        for link in links {
+                    StateSvgLinks::Many(links_2) => {
+                        for link in links_2 {
                             push_link(link);
                         }
                     }
@@ -943,6 +1033,7 @@ pub(super) fn render_state_node_svg(
             } else {
                 state_native_svg_text_label(&label, measured_label, false, label_span_style)
             };
+
             if let Some(s) = label_html_start {
                 details.leaf_nodes_label_html += s.elapsed();
             }
@@ -998,16 +1089,19 @@ pub(super) fn render_state_node_svg(
                     let attr = format!(r#" filter="{}""#, escape_attr(&filter_url));
                     (effect, scoped_filter_id, attr, region)
                 });
-                let effect_filter_attr = effect_filter
+                let effect_filter_attr = match effect_filter
                     .as_ref()
-                    .map(|(_, _, attr, _)| attr.as_str())
-                    .unwrap_or_default();
+                    .map(|(_, _, attr, _)| attr.as_str()) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "",
+                };
                 let rect_radius = radius_override
                     .unwrap_or(compatibility.rect_radius)
                     .max(0.0);
                 let rect_style_raw = state_rect_style(shape_style_attr, radius_override);
                 let rect_style = escape_xml_display(&rect_style_raw);
                 let _g_emit = detail_guard(timing, &mut details.leaf_nodes_emit);
+
                 if ctx.html_labels {
                     let _ = write!(
                         out,
@@ -1062,10 +1156,12 @@ pub(super) fn render_state_node_svg(
                         link_close
                     );
                 }
+
                 if let Some((effect, scoped_filter_id, _, region)) = effect_filter.as_ref() {
                     ctx.effect_evidence
                         .record_application(effect, scoped_filter_id, *region);
                 }
+
                 drop(_g_emit);
                 return Ok(());
             }
@@ -1074,27 +1170,36 @@ pub(super) fn render_state_node_svg(
             let rect_radius = super::roughjs::normalized_rounded_rect_radius(
                 w,
                 h,
-                radius_override.unwrap_or(5.0),
+                match radius_override {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 5.0,
+                },
             );
             let key = rounded_rect_rough_cache_key(w, h, rect_radius, ctx.hand_drawn_seed.seed());
+
             if timing.is_enabled() {
                 details.leaf_roughjs_calls += 1;
                 details.leaf_roughjs_unique.insert(key);
             }
+
             let (fill_d, stroke_d) = ctx.rough_cache.get_or_build_paths(key, || {
-                roughjs_paths_for_svg_path(
+                match roughjs_paths_for_svg_path(
                     &mermaid_rounded_rect_path_data(w, h, rect_radius),
                     1.3,
                     "0 0",
                     &ctx.hand_drawn_seed,
-                )
-                .unwrap_or_else(|| ("M0,0".to_string(), "M0,0".to_string()))
+                ) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => ("M0,0".to_string(), "M0,0".to_string()),
+                }
             });
+
             if let Some(s) = rough_start {
                 details.leaf_nodes_roughjs += s.elapsed();
             }
 
             let _g_emit = detail_guard(timing, &mut details.leaf_nodes_emit);
+
             if ctx.html_labels {
                 let _ = write!(
                     out,
@@ -1147,9 +1252,11 @@ pub(super) fn render_state_node_svg(
                     link_close
                 );
             }
+
             drop(_g_emit);
         }
     }
+
     Ok(())
 }
 

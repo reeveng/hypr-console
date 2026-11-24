@@ -58,6 +58,7 @@ console-core-number-conversion.workspace = true
 console-compositor.workspace = true
 console-onscreen.workspace = true
 console-events.workspace = true
+console-gio.workspace = true
 console-program-contract.workspace = true
 console-operating-system-linux.workspace = true
 console-program-runtime.workspace = true

@@ -129,6 +129,7 @@ impl OperationConfigBuilder {
                 .map(SourcePresentationConfig::as_config),
             &defaults,
         );
+
         match decision.materialization_plan(
             effective.get_str("theme"),
             engine.site_config.get_str("theme"),
@@ -137,34 +138,45 @@ impl OperationConfigBuilder {
                 decision.apply_to_presentation(&mut effective)
             }
             MaterializationPlan::Materialize { selected } => {
-                // Detection must observe initialized config. Keep that result only when its
-                // assignments actually need replay onto a newly materialized theme.
+
+
                 effective =
                     match Self::materialize_operation_theme(engine, &decision, &source, selected) {
                         Ok(config) => config,
-                        Err(error) => return Ok(Err(error.into())),
+                        Err(error) => return Ok(Err(<crate::error::Error as ::core::convert::From<crate::theme::ThemeResolutionError>>::from(error))),
                     };
-                if let Some(changes) = &detector_changes {
-                    changes.replay(&mut effective, control)?;
+
+                match &detector_changes {
+                    Some(changes) => {
+                        changes.replay(&mut effective, control)?;
+                    },
+                    ::core::option::Option::None => {},
                 }
-                // Detector writes cannot replace authored appearance. Scoped-key presence is
-                // checked again because replay can create or remove a scoped setting.
+
+
+
                 decision.apply_to_presentation(&mut effective);
             }
         }
-        // The explicit keyword is the only detector-level layout selection retained in Mermaid 12.
+
+
         if diagram_type == "flowchart-elk" {
             effective.set_value_explicit("layout", serde_json::Value::String("elk".to_owned()));
         }
-        if let Some(family) = family::operation_family_id(diagram_type, effective.as_config()) {
-            effective.freeze_family_paint_inputs(
-                family.as_str(),
-                engine.initialization_inputs.as_config(),
-                &source,
-                detector_changes.as_ref(),
-                control,
-            )?;
+
+        match family::operation_family_id(diagram_type, effective.as_config()) {
+            Some(family) => {
+                effective.freeze_family_paint_inputs(
+                    family.as_str(),
+                    engine.initialization_inputs.as_config(),
+                    &source,
+                    detector_changes.as_ref(),
+                    control,
+                )?;
+            },
+            ::core::option::Option::None => {},
         }
+
         effective.freeze_theme_compatibility();
         effective.seal_detector_mutations();
         Ok(Ok(effective))
@@ -177,8 +189,8 @@ impl OperationConfigBuilder {
         selected: crate::MermaidThemeId,
     ) -> std::result::Result<SourcePresentationConfig, theme::ThemeResolutionError> {
         let mut raw_config = engine.site_config.clone();
-        // Every actual theme recalculation consumes raw initialization and allowed source inputs.
-        // The inherited path instead keeps ordinary updates to initialized derivations.
+
+
         let initial_variables = engine
             .initialization_inputs
             .as_value()
@@ -200,8 +212,8 @@ struct PreparedPreprocessCapture {
     source_config: SourceConfigEvidence,
 }
 
-// The ready variant is the parse hot path and is moved exactly once into snapshot construction.
-// Boxing it would add one allocation to every parse only to shrink this short-lived control value.
+
+
 #[allow(clippy::large_enum_variant)]
 #[cfg(feature = "compat-json")]
 #[cfg(feature = "editor-facts")]
@@ -216,20 +228,24 @@ struct ParserSourceMap<'a> {
 }
 
 impl<'a> ParserSourceMap<'a> {
+    #[must_use]
     fn new(source: &'a PreprocessedSource) -> Self {
         Self { source }
     }
 
+    #[must_use]
     fn parser_input(&self) -> &'a str {
         self.source.text()
     }
 
+    #[must_use]
     fn remap_parse_error(&self, err: Error) -> Error {
         self.source.remap_parse_error(err)
     }
 }
 
 impl<'a> ParsePipeline<'a> {
+    #[must_use]
     pub(crate) fn detect(engine: &'a MermaidEngine, text: &'a str, options: ParseOptions) -> Self {
         Self {
             engine,
@@ -239,6 +255,7 @@ impl<'a> ParsePipeline<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn known_type(
         engine: &'a MermaidEngine,
         diagram_type: &'a str,
@@ -646,7 +663,7 @@ impl<'a> ParsePipeline<'a> {
     ) -> OperationControlResult<Result<Option<ParsedDiagramRender>>> {
         let operation_context = match self.engine.begin_operation() {
             Ok(context) => context,
-            Err(error) => return Ok(Err(error.into())),
+            Err(error) => return Ok(Err(<crate::error::Error as ::core::convert::From<::merman_model::runtime::RuntimePolicyError>>::from(error))),
         };
         self.parse_render_model_controlled_in_context(operation, &operation_context)
     }
@@ -700,8 +717,8 @@ impl<'a> ParsePipeline<'a> {
         )
     }
 
-    // These callbacks are the explicit stages of the parse pipeline; bundling them into an
-    // untyped options object would obscure their distinct ownership and lifetimes.
+
+
     #[allow(clippy::too_many_arguments)]
     fn parse_model_controlled_in_context<T, P, O>(
         &self,
@@ -749,25 +766,27 @@ impl<'a> ParsePipeline<'a> {
             };
             let preprocessed = self
                 .preprocess_for_with_directive_recovery_controlled(directive_recovery, &control)?;
+
             let Some((code, meta)) = (match preprocessed {
-                Ok(preprocessed) => preprocessed,
+                Ok(preprocessed_2) => preprocessed_2,
                 Err(error) => return Ok(Err(error)),
             }) else {
                 return Ok(Ok(None));
             };
+
             let preprocess = preprocess_start.map(merman_model::runtime::OperationTimer::elapsed);
             operation.checkpoint_at(OperationPhase::Semantic)?;
             let source_map = ParserSourceMap::new(&code);
 
             let parse_start = operation_timing.map(merman_model::runtime::OperationTiming::start);
             let parse_res = parse(self, source_map.parser_input(), &meta, &control);
-            let parse = parse_start.map(merman_model::runtime::OperationTimer::elapsed);
+            let parse_2 = parse_start.map(merman_model::runtime::OperationTimer::elapsed);
             control.checkpoint()?;
             operation.checkpoint_at(OperationPhase::Semantic)?;
 
             let mut sanitize_duration = None;
             let mut parsed_model_kind = None;
-            let model_result = match parse_res? {
+            let model_result = match { let checked_value = parse_res?; checked_value } {
                 Ok(mut model) => {
                     let sanitize_start =
                         operation_timing.map(merman_model::runtime::OperationTiming::start);
@@ -789,39 +808,42 @@ impl<'a> ParsePipeline<'a> {
                     }
 
                     let finalization = operation.for_phase(OperationPhase::Semantic);
-                    let meta = match meta.freeze_controlled(&finalization)? {
-                        Ok(meta) => meta,
+                    let meta_3 = match meta.freeze_controlled(&finalization)? {
+                        Ok(meta_2) => meta_2,
                         Err(error) => return Ok(Err(error)),
                     };
                     let output =
-                        match suppressed(&meta, &source_map.remap_parse_error(err), &finalization)?
+                        match suppressed(&meta_3, &source_map.remap_parse_error(err), &finalization)?
                         {
                             Ok(output) => output,
                             Err(error) => return Ok(Err(error)),
                         };
                     finalization.checkpoint()?;
-                    timing.log_suppressed_error(total_start, preprocess, parse, self.text.len());
+                    timing.log_suppressed_error(total_start, preprocess, parse_2, self.text.len());
                     return Ok(Ok(Some(output)));
                 }
             };
 
             let finalization = operation.for_phase(OperationPhase::Semantic);
-            let meta = match meta.freeze_controlled(&finalization)? {
-                Ok(meta) => meta,
+            let meta_5 = match meta.freeze_controlled(&finalization)? {
+                Ok(meta_4) => meta_4,
                 Err(error) => return Ok(Err(error)),
             };
-            let timing_diagram_type = total_start.as_ref().map(|_| meta.diagram_type.clone());
-            let output = match finish(meta, model, &finalization)? {
+            let timing_diagram_type = total_start.as_ref().map(|_| meta_5.diagram_type.clone());
+            let output = match finish(meta_5, model, &finalization)? {
                 Ok(output) => output,
                 Err(error) => return Ok(Err(error)),
             };
             finalization.checkpoint()?;
             timing.log_success(ParseTimingSuccess {
                 total_start,
-                diagram_type: timing_diagram_type.as_deref().unwrap_or_default(),
+                diagram_type: match timing_diagram_type.as_deref() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "",
+                },
                 model_kind: parsed_model_kind,
                 preprocess,
-                parse,
+                parse: parse_2,
                 sanitize: sanitize_duration,
                 input_bytes: self.text.len(),
             });
@@ -977,7 +999,7 @@ impl<'a> ParsePipeline<'a> {
         if let Some(ResolvedRenderParser::Custom(parser)) = render {
             let parsed = parser(code, meta, control);
             control.checkpoint()?;
-            return Ok(parsed?
+            return Ok({ let checked_value = parsed?; checked_value }
                 .map(RenderSemanticModel::CustomJson)
                 .map(RenderSemanticParseOutput::new));
         }
@@ -1011,6 +1033,7 @@ impl<'a> ParsePipeline<'a> {
         let builtin_without_render = matches!(semantic, Some(ResolvedSemanticParser::BuiltIn(_)));
         #[cfg(not(feature = "compat-json"))]
         let builtin_without_render = family::canonical_parser(&meta.diagram_type).is_some();
+
         if builtin_without_render {
             return Ok(Err(Error::diagram_parse_fallback(
                 meta.diagram_type.clone(),
@@ -1036,7 +1059,7 @@ impl<'a> ParsePipeline<'a> {
             self.preprocess_with_directive_recovery_controlled(directive_recovery, control)?;
         Ok(match preprocessed {
             Err(Error::DetectType(_)) if self.options.suppress_errors => Ok(None),
-            result => result.map(Some),
+            result @ (::core::result::Result::Ok(_) | ::core::result::Result::Err(_)) => result.map(Some),
         })
     }
 
@@ -1140,6 +1163,7 @@ impl<'a> ParsePipeline<'a> {
         control: &OperationControl,
     ) -> OperationControlResult<Result<(PreprocessedSource, SourcePresentationMetadata)>> {
         control.checkpoint()?;
+
         if pre.code().trim_start().starts_with("---") {
             return Ok(Err(Error::MalformedFrontMatter));
         }
@@ -1152,6 +1176,7 @@ impl<'a> ParsePipeline<'a> {
             Some(diagram_type) => diagram_type.to_string(),
             None => {
                 config.detector_checkpoint = Some(DetectorConfigCheckpoint::new(&config.effective));
+
                 match self.engine.registry.detect_type_precleaned_controlled(
                     pre.code(),
                     &mut config.effective,
@@ -1166,8 +1191,8 @@ impl<'a> ParsePipeline<'a> {
         if let Some(evidence) = source_evidence {
             evidence.freeze_appearance(&diagram_type, &config.source);
         }
-        // Public parse metadata follows upstream source authority. Rendering separately retains
-        // Merman's hardened secure keys and presentation-value admission.
+
+
         let upstream_defaults = crate::generated::upstream_default_config();
         let authored_authority = if self
             .engine
@@ -1220,6 +1245,7 @@ impl<'a> ParsePipeline<'a> {
 }
 
 impl ParseTiming {
+    #[must_use]
     fn operation_timing(
         self,
         context: &merman_model::runtime::OperationContext,
@@ -1238,8 +1264,9 @@ impl ParseTiming {
         parse: Option<std::time::Duration>,
         input_bytes: usize,
     ) {
-        let Some(start) = total_start else {
-            return;
+        let start = match total_start {
+            Some(matched_start) => matched_start,
+            ::core::option::Option::None => return,
         };
 
         match self {
@@ -1270,8 +1297,9 @@ impl ParseTiming {
     }
 
     fn log_success(self, success: ParseTimingSuccess<'_>) {
-        let Some(start) = success.total_start else {
-            return;
+        let start = match success.total_start {
+            Some(matched_start) => matched_start,
+            ::core::option::Option::None => return,
         };
 
         match self {
@@ -1315,10 +1343,11 @@ struct ParseTimingSuccess<'a> {
     input_bytes: usize,
 }
 
+#[must_use]
 fn sanitized_title(title: Option<&str>, effective_config: &MermaidConfig) -> Option<String> {
     title
-        .map(|title| sanitize::sanitize_text(title, effective_config))
-        .filter(|title| !title.is_empty())
+        .map(|title_2| sanitize::sanitize_text(title_2, effective_config))
+        .filter(|title_3| !title_3.is_empty())
 }
 
 #[cfg(test)]

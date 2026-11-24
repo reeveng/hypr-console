@@ -1,30 +1,35 @@
 use crate::model::LayoutPoint;
 
+#[must_use]
 fn js_round(value: f64, precision: i32) -> Option<f64> {
     if !value.is_finite() {
         return None;
     }
+
     let factor = 10_f64.powi(precision);
     let scaled = value * factor;
+
     if !factor.is_finite() || !scaled.is_finite() {
         return None;
     }
+
     let lower = scaled.floor();
     let rounded_integer = if scaled - lower < 0.5 {
         lower
     } else {
         lower + 1.0
     };
-    let rounded_integer = if rounded_integer == 0.0 && scaled.is_sign_negative() {
+    let rounded_integer_2 = if ::core::matches!(::core::primitive::f64::classify(rounded_integer), ::core::num::FpCategory::Zero) && scaled.is_sign_negative() {
         -0.0
     } else {
         rounded_integer
     };
-    let rounded = rounded_integer / factor;
+    let rounded = rounded_integer_2 / factor;
     rounded.is_finite().then_some(rounded)
 }
 
 /// Mirrors Mermaid 11.16 `utils.calcLabelPosition` for finite SVG geometry.
+#[must_use]
 pub(super) fn calc_label_position(label_path_points: &[LayoutPoint]) -> Option<LayoutPoint> {
     if label_path_points
         .iter()
@@ -47,55 +52,82 @@ pub(super) fn calc_label_position(label_path_points: &[LayoutPoint]) -> Option<L
             (dx * dx + dy * dy).sqrt()
         })
         .sum::<f64>();
+
     if !total_distance.is_finite() {
         return None;
     }
 
     let mut remaining_distance = total_distance / 2.0;
+
     for [segment_0, segment_1] in <[_]>::array_windows::<2>(label_path_points) {
         let previous = &*segment_0;
         let point = &*segment_1;
         let dx = point.x - previous.x;
         let dy = point.y - previous.y;
         let vector_distance = (dx * dx + dy * dy).sqrt();
-        if vector_distance == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(vector_distance), ::core::num::FpCategory::Zero) {
             return Some(previous.clone());
         }
+
         if vector_distance < remaining_distance {
             remaining_distance -= vector_distance;
             continue;
         }
 
         let ratio = remaining_distance / vector_distance;
+
         if ratio <= 0.0 {
             return Some(previous.clone());
         }
+
         if ratio >= 1.0 {
             return Some(point.clone());
         }
+
         return Some(LayoutPoint {
-            x: js_round((1.0 - ratio) * previous.x + ratio * point.x, 5)?,
-            y: js_round((1.0 - ratio) * previous.y + ratio * point.y, 5)?,
+            x: { let checked_value = js_round((1.0 - ratio) * previous.x + ratio * point.x, 5)?; checked_value },
+            y: { let checked_value_2 = js_round((1.0 - ratio) * previous.y + ratio * point.y, 5)?; checked_value_2 },
         });
     }
 
     None
 }
 
+#[must_use]
 pub(super) fn is_label_coordinate_in_path(point: &LayoutPoint, d_attr: &str) -> bool {
-    let Some(rounded_x) = js_rounded_number_string(point.x) else {
-        return false;
+    let rounded_x = {
+        let optional_rounded_x = js_rounded_number_string(point.x);
+
+        match optional_rounded_x {
+            Some(matched_rounded_x) => matched_rounded_x,
+            ::core::option::Option::None => return false,
+        }
     };
-    let Some(rounded_y) = js_rounded_number_string(point.y) else {
-        return false;
+
+    let rounded_y = {
+        let optional_rounded_y = js_rounded_number_string(point.y);
+
+        match optional_rounded_y {
+            Some(matched_rounded_y) => matched_rounded_y,
+            ::core::option::Option::None => return false,
+        }
     };
-    let Some(sanitized) = round_decimal_numbers_in_path(d_attr) else {
-        return false;
+
+    let sanitized = {
+        let optional_sanitized = round_decimal_numbers_in_path(d_attr);
+
+        match optional_sanitized {
+            Some(matched_sanitized) => matched_sanitized,
+            ::core::option::Option::None => return false,
+        }
     };
+
     sanitized.contains(&rounded_x) || sanitized.contains(&rounded_y)
 }
 
 /// Mermaid 12.1 keeps layout label offsets when paint-time clipping moves the route.
+#[must_use]
 pub(super) fn position_edge_label(
     dagre_anchor: LayoutPoint,
     original_path_points: Option<&[LayoutPoint]>,
@@ -105,35 +137,54 @@ pub(super) fn position_edge_label(
 ) -> LayoutPoint {
     let path_was_updated = points_were_explicitly_updated
         || label_path_points
-            .get(label_path_points.len() / 2)
+            .get(label_path_points.len().wrapping_div(2))
             .is_some_and(|midpoint| !is_label_coordinate_in_path(midpoint, rendered_d));
+
     if !path_was_updated {
         return dagre_anchor;
     }
 
-    let Some(updated_midpoint) = calc_label_position(label_path_points) else {
-        return dagre_anchor;
+    let updated_midpoint = {
+        let optional_updated_midpoint = calc_label_position(label_path_points);
+
+        match optional_updated_midpoint {
+            Some(matched_updated_midpoint) => matched_updated_midpoint,
+            ::core::option::Option::None => return dagre_anchor,
+        }
     };
-    let Some(original_path_points) = original_path_points else {
-        return updated_midpoint;
+
+    let original_path_points_2 = match original_path_points {
+        Some(matched_original_path_points) => matched_original_path_points,
+        ::core::option::Option::None => return updated_midpoint,
     };
-    let Some(original_midpoint) = calc_label_position(original_path_points) else {
-        return dagre_anchor;
+
+    let original_midpoint = {
+        let optional_original_midpoint = calc_label_position(original_path_points_2);
+
+        match optional_original_midpoint {
+            Some(matched_original_midpoint) => matched_original_midpoint,
+            ::core::option::Option::None => return dagre_anchor,
+        }
     };
+
     LayoutPoint {
         x: dagre_anchor.x + (updated_midpoint.x - original_midpoint.x),
         y: dagre_anchor.y + (updated_midpoint.y - original_midpoint.y),
     }
 }
 
+#[must_use]
 fn js_rounded_number_string(value: f64) -> Option<String> {
     let mut rounded = js_round(value, 0)?;
-    if rounded == -0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(rounded), ::core::num::FpCategory::Zero) {
         rounded = 0.0;
     }
+
     Some(ryu_js::Buffer::new().format_finite(rounded).to_string())
 }
 
+#[must_use]
 fn round_decimal_numbers_in_path(d_attr: &str) -> Option<String> {
     let mut out = String::new();
     let mut copied_until = 0usize;
@@ -141,22 +192,32 @@ fn round_decimal_numbers_in_path(d_attr: &str) -> Option<String> {
     let mut changed = false;
 
     while cursor < d_attr.len() {
-        if let Some(end) = decimal_number_match_end_at(d_attr, cursor) {
-            if !changed {
-                out = String::with_capacity(d_attr.len());
-                changed = true;
-            }
-            out.push_str(&d_attr[copied_until..cursor]);
-            let value = d_attr[cursor..end].parse::<f64>().ok()?;
-            out.push_str(&js_rounded_number_string(value)?);
-            copied_until = end;
-            cursor = end;
-            continue;
+        match decimal_number_match_end_at(d_attr, cursor) {
+            Some(end) => {
+                if !changed {
+                    out = String::with_capacity(d_attr.len());
+                    changed = true;
+                }
+
+                out.push_str(&d_attr[copied_until..cursor]);
+                let value = match d_attr[cursor..end].parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }?;
+                out.push_str(&js_rounded_number_string(value)?);
+                copied_until = end;
+                cursor = end;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
-        let Some(character) = d_attr[cursor..].chars().next() else {
-            break;
+        let character = {
+            let optional_character = d_attr[cursor..].chars().next();
+
+            match optional_character {
+                Some(matched_character) => matched_character,
+                ::core::option::Option::None => break,
+            }
         };
+
         cursor += character.len_utf8();
     }
 
@@ -168,10 +229,12 @@ fn round_decimal_numbers_in_path(d_attr: &str) -> Option<String> {
     }
 }
 
+#[must_use]
 fn decimal_number_match_end_at(value: &str, start: usize) -> Option<usize> {
     let digit_start = start;
     let mut cursor = consume_ascii_digits(value, start);
-    if cursor == digit_start || !value.get(cursor..)?.starts_with('.') {
+
+    if cursor == digit_start || !{ let checked_value = value.get(cursor..)?; checked_value }.starts_with('.') {
         return None;
     }
 
@@ -180,10 +243,12 @@ fn decimal_number_match_end_at(value: &str, start: usize) -> Option<usize> {
     (cursor != fraction_start).then_some(cursor)
 }
 
+#[must_use]
 fn consume_ascii_digits(value: &str, mut cursor: usize) -> usize {
     while value.as_bytes().get(cursor).is_some_and(u8::is_ascii_digit) {
         cursor += 1;
     }
+
     cursor
 }
 

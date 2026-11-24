@@ -96,49 +96,64 @@ pub(super) fn scan_flowchart_accessibility_controlled(
         let trimmed = line.trim_start();
         let prefix_start = start + line.len().saturating_sub(trimmed.len());
 
-        if let Some(after_prefix) = trimmed.strip_prefix("accTitle") {
-            let rest = after_prefix.trim_start();
-            if let Some(value) = rest.strip_prefix(':') {
-                title = Some(value.trim().to_string());
-                #[cfg(feature = "editor-facts")]
-                if editor_demand == EditorFactsDemand::Capture {
-                    statements.push(inline_statement(FlowchartAccessibilityDirective::Title));
+        match trimmed.strip_prefix("accTitle") {
+            Some(after_prefix) => {
+                let rest = after_prefix.trim_start();
+
+                {
+                    match rest.strip_prefix(':') {
+                        Some(value) => {
+                            title = Some(value.trim().to_string());
+                            #[cfg(feature = "editor-facts")]
+                            if editor_demand == EditorFactsDemand::Capture {
+                                statements.push(inline_statement(FlowchartAccessibilityDirective::Title));
+                            }
+                            mask_range_preserving_newlines(&mut masked, start, line_end, control)?;
+                            start = line_end;
+                            continue;
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
-                mask_range_preserving_newlines(&mut masked, start, line_end, control)?;
-                start = line_end;
-                continue;
-            }
+            },
+            ::core::option::Option::None => {},
         }
 
         let Some(after_prefix) = trimmed.strip_prefix("accDescr") else {
             start = line_end;
             continue;
         };
+
         let rest = after_prefix.trim_start();
         let whitespace = after_prefix.len().saturating_sub(rest.len());
         let delimiter_start = prefix_start + "accDescr".len() + whitespace;
 
-        if let Some(value) = rest.strip_prefix(':') {
-            description = Some(value.trim().to_string());
-            #[cfg(feature = "editor-facts")]
-            if editor_demand == EditorFactsDemand::Capture {
-                statements.push(inline_statement(
-                    FlowchartAccessibilityDirective::Description,
-                ));
-            }
-            mask_range_preserving_newlines(&mut masked, start, line_end, control)?;
-            start = line_end;
-            continue;
+        match rest.strip_prefix(':') {
+            Some(value) => {
+                description = Some(value.trim().to_string());
+                #[cfg(feature = "editor-facts")]
+                if editor_demand == EditorFactsDemand::Capture {
+                    statements.push(inline_statement(
+                        FlowchartAccessibilityDirective::Description,
+                    ));
+                }
+                mask_range_preserving_newlines(&mut masked, start, line_end, control)?;
+                start = line_end;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let Some(after_open) = rest.strip_prefix('{') else {
             start = line_end;
             continue;
         };
+
         let content_start = delimiter_start + 1;
         debug_assert_eq!(content_start, line_end - after_open.len());
         let closing_brace = find_byte_controlled(code, content_start, b'}', control)?;
         let content_end = closing_brace.unwrap_or(code.len());
+
         if closing_brace.is_some() {
             description = Some(code[content_start..content_end].trim().to_string());
         }
@@ -193,10 +208,17 @@ fn find_byte_controlled(
 ) -> OperationControlResult<Option<usize>> {
     for (chunk_index, chunk) in code.as_bytes()[start..].chunks(4096).enumerate() {
         control.checkpoint()?;
-        if let Some(relative) = chunk.iter().position(|byte| *byte == needle) {
-            return Ok(Some(start + chunk_index * 4096 + relative));
+
+        {
+            match chunk.iter().position(|byte| *byte == needle) {
+                Some(relative) => {
+                    return Ok(Some(start + chunk_index * 4096 + relative));
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     control.checkpoint()?;
     Ok(None)
 }
@@ -209,12 +231,14 @@ fn mask_range_preserving_newlines(
 ) -> OperationControlResult<()> {
     for chunk in bytes[start..end].chunks_mut(4096) {
         control.checkpoint()?;
+
         for byte in chunk {
             if *byte != b'\n' && *byte != b'\r' {
                 *byte = b' ';
             }
         }
     }
+
     Ok(())
 }
 

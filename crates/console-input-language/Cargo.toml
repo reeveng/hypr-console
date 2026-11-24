@@ -18,6 +18,7 @@ console-core-arguments.workspace = true
 console-input-alphabets.workspace = true
 console-compositor.workspace = true
 console-core-never.workspace = true
+console-core-logging.workspace = true
 console-core-number-conversion.workspace = true
 console-core-walking.workspace = true
 console-core-places.workspace = true

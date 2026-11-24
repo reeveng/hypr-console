@@ -71,9 +71,13 @@ pub(crate) enum FlowchartShape {
 
 impl FlowchartShape {
     pub(crate) fn resolve(name: &str) -> Result<Self> {
-        if let Some(shape) = super::bpmn::BpmnShape::resolve(name) {
-            return Ok(Self::Bpmn(shape));
+        match super::bpmn::BpmnShape::resolve(name) {
+            Some(shape) => {
+                return Ok(Self::Bpmn(shape));
+            },
+            ::core::option::Option::None => {},
         }
+
         let shape = match name {
             "anchor" => Self::Anchor,
             "bang" => Self::Bang,
@@ -164,9 +168,11 @@ pub(crate) fn validate_flowchart_model_shapes(
     for node in &model.nodes {
         FlowchartShape::resolve(node.layout_shape.as_deref().unwrap_or("squareRect"))?;
     }
+
     Ok(())
 }
 
+#[must_use]
 pub(crate) fn is_flowchart_process_shape(name: &str) -> bool {
     matches!(FlowchartShape::resolve(name), Ok(FlowchartShape::Process))
 }
@@ -191,6 +197,7 @@ struct PathBounds {
 }
 
 impl PathBounds {
+    #[must_use]
     fn origin() -> Self {
         Self {
             min_x: 0.0,
@@ -217,43 +224,54 @@ pub(crate) struct OrganicShapeGeometry {
 }
 
 impl OrganicShapeGeometry {
+    #[must_use]
     pub(crate) fn width(&self) -> f64 {
         (self.bounds.max_x - self.bounds.min_x).max(0.0)
     }
 
+    #[must_use]
     pub(crate) fn height(&self) -> f64 {
         (self.bounds.max_y - self.bounds.min_y).max(0.0)
     }
 
+    #[must_use]
     pub(crate) fn rendered_min_x(&self) -> f64 {
         self.bounds.min_x + self.translate_x
     }
 
+    #[must_use]
     pub(crate) fn rendered_min_y(&self) -> f64 {
         self.bounds.min_y + self.translate_y
     }
 
+    #[must_use]
     pub(crate) fn rendered_max_x(&self) -> f64 {
         self.bounds.max_x + self.translate_x
     }
 
+    #[must_use]
     pub(crate) fn rendered_max_y(&self) -> f64 {
         self.bounds.max_y + self.translate_y
     }
 }
 
+#[must_use]
 fn normalize_angle(mut angle: f64) -> f64 {
     let turn = 2.0 * std::f64::consts::PI;
     angle %= turn;
+
     if angle < 0.0 {
         angle += turn;
     }
+
     angle
 }
 
+#[must_use]
 fn angle_is_on_arc(angle: f64, start: f64, sweep: f64) -> bool {
     let turn = 2.0 * std::f64::consts::PI;
     let offset = normalize_angle(angle - start);
+
     if sweep >= 0.0 {
         offset <= sweep + 1.0e-12
     } else {
@@ -264,8 +282,14 @@ fn angle_is_on_arc(angle: f64, start: f64, sweep: f64) -> bool {
 fn include_arc_bounds(bounds: &mut PathBounds, svg_arc: &SvgArc) {
     bounds.include(svg_arc.from);
     bounds.include(svg_arc.to);
-    let Some(arc) = Arc::from_svg_arc(svg_arc) else {
-        return;
+
+    let arc = {
+        let optional_arc = Arc::from_svg_arc(svg_arc);
+
+        match optional_arc {
+            Some(matched_arc) => matched_arc,
+            ::core::option::Option::None => return,
+        }
     };
 
     let point_at = |angle: f64| {
@@ -286,6 +310,7 @@ fn include_arc_bounds(bounds: &mut PathBounds, svg_arc: &SvgArc) {
     let (sin_rotation, cos_rotation) = arc.x_rotation.sin_cos();
     let x_extreme = (-arc.radii.y * sin_rotation).atan2(arc.radii.x * cos_rotation);
     let y_extreme = (arc.radii.y * cos_rotation).atan2(arc.radii.x * sin_rotation);
+
     for angle in [
         x_extreme,
         x_extreme + std::f64::consts::PI,
@@ -298,6 +323,7 @@ fn include_arc_bounds(bounds: &mut PathBounds, svg_arc: &SvgArc) {
     }
 }
 
+#[must_use]
 fn organic_geometry(
     arcs: Vec<RelativeArc>,
     translate_x: f64,
@@ -305,6 +331,7 @@ fn organic_geometry(
 ) -> OrganicShapeGeometry {
     let mut bounds = PathBounds::origin();
     let mut current = Point::ORIGIN;
+
     for segment in &arcs {
         let next = Point::new(current.x + segment.dx, current.y + segment.dy);
         include_arc_bounds(
@@ -320,6 +347,7 @@ fn organic_geometry(
         );
         current = next;
     }
+
     bounds.include(Point::ORIGIN);
 
     OrganicShapeGeometry {
@@ -330,6 +358,7 @@ fn organic_geometry(
     }
 }
 
+#[must_use]
 pub(crate) fn bang_geometry(
     label_width: f64,
     label_height: f64,
@@ -373,6 +402,7 @@ pub(crate) fn bang_geometry(
     )
 }
 
+#[must_use]
 pub(crate) fn cloud_geometry(
     label_width: f64,
     label_height: f64,

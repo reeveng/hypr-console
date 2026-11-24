@@ -24,6 +24,7 @@ impl ClassNodePaintOutcomes {
         clippy::too_many_arguments,
         reason = "Each actual node paint retains its selected origin and whether the writer consumed it."
     )]
+    #[must_use]
     pub(crate) fn new(
         fill_winner: Option<usize>,
         stroke_winner: Option<usize>,
@@ -48,6 +49,7 @@ pub(crate) struct ClassMarkerPaintBinding {
 }
 
 impl ClassMarkerPaintBinding {
+    #[must_use]
     pub(crate) const fn new(name: &'static str) -> Self {
         Self { name }
     }
@@ -71,6 +73,7 @@ pub(crate) struct ClassThemeOutcomes {
 }
 
 impl ClassThemeOutcomes {
+    #[must_use]
     pub(super) fn new(
         enabled: bool,
         themed_markers: Vec<ClassMarkerPaintBinding>,
@@ -92,6 +95,7 @@ impl ClassThemeOutcomes {
         if !self.enabled {
             return;
         }
+
         self.summary
             .cluster_rules
             .extend(fill_rule.map(|rule| (rule, ResolvedStyleProperty::Fill)));
@@ -109,7 +113,9 @@ impl ClassThemeOutcomes {
         if !self.enabled || !visible {
             return;
         }
+
         self.summary.namespace_title_rules.insert(rule);
+
         if !inherits_paint {
             self.summary.unverified_namespace_titles.insert(rule);
         }
@@ -124,6 +130,7 @@ impl ClassThemeOutcomes {
         if !self.enabled {
             return;
         }
+
         self.summary.diagram_title_visible = visible;
         self.summary.diagram_title_paint = selected
             .filter(|_| visible)
@@ -134,28 +141,36 @@ impl ClassThemeOutcomes {
         if !self.enabled {
             return;
         }
+
         self.summary.node_count += 1;
+
         for (index, rule) in event.winners.into_iter().enumerate() {
-            let Some(rule) = rule else {
-                continue;
+            let rule_2 = match rule {
+                Some(matched_rule) => matched_rule,
+                ::core::option::Option::None => continue,
             };
+
             let (target, property) = match index {
                 0 => (ThemeTarget::Node, ResolvedStyleProperty::Fill),
                 1 => (ThemeTarget::Node, ResolvedStyleProperty::Stroke),
                 _ => (ThemeTarget::NodeLabel, ResolvedStyleProperty::Fill),
             };
-            let key = (rule, target, property);
+            let key = (rule_2, target, property);
             self.summary.selected_node_rules.insert(key);
+
             if !event.applied[index] {
                 continue;
             }
+
             self.summary.node_rules.insert(key);
+
             if index == 2 && !event.label_verified {
                 self.summary.unverified_node_rules.insert(key);
             }
         }
     }
 
+    #[must_use]
     pub(crate) fn themes_marker(&self, name: &str) -> bool {
         self.themed_markers.iter().any(|marker| marker.name == name)
     }
@@ -164,8 +179,9 @@ impl ClassThemeOutcomes {
         if !self.enabled {
             return;
         }
+
         self.summary.marker_count +=
-            usize::from(event.start_marker.is_some()) + usize::from(event.end_marker.is_some());
+            ::core::primitive::usize::wrapping_add(usize::from(event.start_marker.is_some()), usize::from(event.end_marker.is_some()));
         self.record_stroke(event.emitted_stroke);
         self.summary.typed_width |= event.typed_width_emitted;
         self.summary.unverified_width |= !event.typed_width_emitted;
@@ -175,6 +191,7 @@ impl ClassThemeOutcomes {
         if !self.enabled {
             return;
         }
+
         if let Some((rule, _)) = emitted
             && let Some(property) = self.stroke_property
         {
@@ -190,6 +207,7 @@ impl ClassThemeOutcomes {
         if !self.enabled {
             return;
         }
+
         self.summary.unverified_strokes.extend(stroke_rule);
         self.summary.unverified_width |= typed_width;
     }
@@ -209,6 +227,7 @@ impl ClassThemeOutcomes {
         }
     }
 
+    #[must_use]
     pub(super) fn into_summary(self) -> ClassThemeOutcomeSummary {
         self.summary
     }
@@ -235,25 +254,38 @@ pub(crate) struct ClassThemeOutcomeSummary {
 }
 
 impl ClassThemeOutcomeSummary {
+    #[must_use]
     pub(super) fn node_count(&self) -> usize {
         self.node_count
     }
+
+    #[must_use]
     pub(super) fn edge_label_background_count(&self) -> Option<usize> {
         self.background_count
     }
+
+    #[must_use]
     pub(super) fn applied_edge_label_background(&self, rule: usize) -> bool {
         self.background_rules.contains(&rule)
     }
+
+    #[must_use]
     pub(super) fn applied_namespace_title(&self, rule: usize) -> bool {
         self.namespace_title_rules.contains(&rule)
             && !self.unverified_namespace_titles.contains(&rule)
     }
+
+    #[must_use]
     pub(super) fn has_diagram_title(&self) -> bool {
         self.diagram_title_visible
     }
+
+    #[must_use]
     pub(super) fn applied_diagram_title(&self, rule: usize) -> bool {
         self.diagram_title_paint == Some((rule, true))
     }
+
+    #[must_use]
     pub(super) fn applied_cluster_paint(
         &self,
         rule: usize,
@@ -261,15 +293,23 @@ impl ClassThemeOutcomeSummary {
     ) -> bool {
         self.cluster_rules.contains(&(rule, property))
     }
+
+    #[must_use]
     pub(super) fn applied_stroke(&self, rule: usize, property: ResolvedStyleProperty) -> bool {
         self.typed_stroke == Some((rule, property)) && !self.unverified_strokes.contains(&rule)
     }
+
+    #[must_use]
     pub(super) fn applied_width(&self) -> bool {
         self.typed_width && !self.unverified_width
     }
+
+    #[must_use]
     pub(super) fn visible_marker_occurrence_count(&self) -> usize {
         self.marker_count
     }
+
+    #[must_use]
     pub(super) fn selected_node_paint(
         &self,
         rule: usize,
@@ -278,6 +318,8 @@ impl ClassThemeOutcomeSummary {
     ) -> bool {
         self.selected_node_rules.contains(&(rule, target, property))
     }
+
+    #[must_use]
     pub(super) fn has_node_paint(
         &self,
         rule: usize,
@@ -286,6 +328,8 @@ impl ClassThemeOutcomeSummary {
     ) -> bool {
         self.node_rules.contains(&(rule, target, property))
     }
+
+    #[must_use]
     pub(super) fn applied_node_paint(
         &self,
         rule: usize,

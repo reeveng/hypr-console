@@ -36,22 +36,25 @@ pub(crate) struct ErBaseFontSizePlan {
 }
 
 impl ErBaseFontSizePlan {
+    #[must_use]
     pub(crate) fn resolve(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &merman_model::presentation::PresentationConfig,
     ) -> Self {
         let configured_font_size_px =
-            crate::config::config_theme_or_root_font_size_px_opt(effective_config.as_value())
+            match crate::config::config_theme_or_root_font_size_px_opt(effective_config.as_value())
                 .or_else(|| {
                     crate::config::config_f64_css_px(
                         effective_config.as_value(),
                         &["er", "fontSize"],
                     )
-                })
-                .unwrap_or(16.0)
+                }) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 16.0,
+            }
                 .max(1.0);
-        let typed_requested = theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let typed_requested = theme.is_some_and(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 route.mechanism()
                     == FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontSize)
                     && route.disposition() == FamilyThemeDisposition::TypedAdapter
@@ -61,14 +64,14 @@ impl ErBaseFontSizePlan {
             && effective_config.config_path_overrides_typed_default("themeVariables.fontSize");
         let typed_active = typed_requested && !config_owns;
         let (font_size_px, font_size_css) = match theme {
-            Some(theme) if typed_active => {
-                let typed_font_size = theme.typography().font_size_px().max(1.0);
+            Some(theme_3) if typed_active => {
+                let typed_font_size = theme_3.typography().font_size_px().max(1.0);
                 (
                     f64::from(typed_font_size),
                     format!("{typed_font_size}px").into_boxed_str(),
                 )
             }
-            _ => (
+            ::core::option::Option::None | ::core::option::Option::Some(_) => (
                 configured_font_size_px,
                 format!("{configured_font_size_px}px").into_boxed_str(),
             ),
@@ -81,22 +84,27 @@ impl ErBaseFontSizePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_override_px(&self) -> Option<f64> {
         self.typed_active.then_some(self.font_size_px)
     }
 
+    #[must_use]
     fn font_size_css(&self) -> &str {
         &self.font_size_css
     }
 
+    #[must_use]
     const fn font_size_px(&self) -> f64 {
         self.font_size_px
     }
 
+    #[must_use]
     const fn typed_requested(&self) -> bool {
         self.typed_requested
     }
 
+    #[must_use]
     const fn typed_active(&self) -> bool {
         self.typed_active
     }
@@ -112,30 +120,37 @@ pub(crate) struct ErEntitySourceStyle {
 }
 
 impl ErEntitySourceStyle {
+    #[must_use]
     pub(crate) fn label_style(&self, html_labels: bool) -> String {
         visual::label_style(self, html_labels)
     }
 
+    #[must_use]
     pub(crate) fn rect_value(&self, property: &str) -> Option<&str> {
         last_source_style_value(&self.rect_declarations, property)
     }
 
+    #[must_use]
     pub(crate) fn text_value(&self, property: &str) -> Option<&str> {
         last_source_style_value(&self.text_declarations, property)
     }
 
+    #[must_use]
     pub(crate) fn fill(&self) -> Option<&str> {
         self.rect_value("fill")
     }
 
+    #[must_use]
     pub(crate) fn stroke(&self) -> Option<&str> {
         self.rect_value("stroke")
     }
 
+    #[must_use]
     fn owns_text_color(&self) -> bool {
         self.text_value("color").is_some()
     }
 
+    #[must_use]
     fn owns_text_font_size(&self) -> bool {
         self.text_declarations
             .iter()
@@ -145,6 +160,7 @@ impl ErEntitySourceStyle {
     }
 }
 
+#[must_use]
 pub(crate) fn compile_er_entity_source_style(
     entity: &merman_model::families::er::ErEntity,
     classes: &indexmap::IndexMap<String, merman_model::families::er::ErClassDef>,
@@ -156,6 +172,7 @@ pub(crate) fn compile_er_entity_source_style(
     )
 }
 
+#[must_use]
 pub(crate) fn compile_er_subgraph_source_style(
     subgraph: &merman_model::families::er::ErSubgraph,
     classes: &indexmap::IndexMap<String, merman_model::families::er::ErClassDef>,
@@ -167,6 +184,7 @@ pub(crate) fn compile_er_subgraph_source_style(
     )
 }
 
+#[must_use]
 fn compile_er_source_style<'a>(
     class_names: impl Iterator<Item = &'a str>,
     source_styles: &[String],
@@ -181,24 +199,44 @@ fn compile_er_source_style<'a>(
     let mut text_map = BTreeMap::<String, ErStyleDeclaration>::new();
 
     for raw in class_defs.iter().flat_map(|class_def| &class_def.styles) {
-        let Some(declaration) = ErStyleDeclaration::parse(raw) else {
-            continue;
+        let declaration = {
+            let optional_declaration = ErStyleDeclaration::parse(raw);
+
+            match optional_declaration {
+                Some(matched_declaration) => matched_declaration,
+                ::core::option::Option::None => continue,
+            }
         };
+
         insert_er_box_declaration(&mut rect_map, &mut text_map, declaration);
     }
+
     for raw in class_defs
         .iter()
         .flat_map(|class_def| &class_def.text_styles)
     {
-        let Some(declaration) = ErStyleDeclaration::parse(raw) else {
-            continue;
+        let declaration = {
+            let optional_declaration = ErStyleDeclaration::parse(raw);
+
+            match optional_declaration {
+                Some(matched_declaration) => matched_declaration,
+                ::core::option::Option::None => continue,
+            }
         };
+
         insert_er_text_declaration(&mut text_map, declaration);
     }
+
     for raw in source_styles {
-        let Some(declaration) = ErStyleDeclaration::parse(raw) else {
-            continue;
+        let declaration = {
+            let optional_declaration = ErStyleDeclaration::parse(raw);
+
+            match optional_declaration {
+                Some(matched_declaration) => matched_declaration,
+                ::core::option::Option::None => continue,
+            }
         };
+
         insert_er_box_declaration(&mut rect_map, &mut text_map, declaration.clone());
         insert_er_text_declaration(&mut text_map, declaration);
     }
@@ -236,17 +274,26 @@ fn charge_er_subgraph_class_style_work(
     work_meter: &OperationWorkMeter,
 ) -> Result<(), OperationWorkError> {
     let mut seen_classes = BTreeSet::new();
+
     for class_name in class_names {
         work_meter.charge(1usize.saturating_add(class_name.len()))?;
+
         if !seen_classes.insert(class_name.as_str()) {
             continue;
         }
-        if let Some(class) = classes.get(class_name) {
-            for raw in class.styles.iter().chain(&class.text_styles) {
-                work_meter.charge(1usize.saturating_add(raw.len()))?;
-            }
+
+        {
+            match classes.get(class_name) {
+                Some(class) => {
+                    for raw in class.styles.iter().chain(&class.text_styles) {
+                        work_meter.charge(1usize.saturating_add(raw.len()))?;
+                    }
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     Ok(())
 }
 
@@ -256,6 +303,7 @@ fn insert_er_box_declaration(
     declaration: ErStyleDeclaration,
 ) {
     let property = declaration.property();
+
     if matches!(
         property,
         "fill"
@@ -268,6 +316,7 @@ fn insert_er_box_declaration(
     ) {
         rect_map.insert(property.to_owned(), declaration.clone());
     }
+
     if crate::mermaid_style::is_label_style_key(property) {
         text_map.insert(property.to_owned(), declaration);
     }
@@ -278,11 +327,13 @@ fn insert_er_text_declaration(
     declaration: ErStyleDeclaration,
 ) {
     let property = declaration.property();
+
     if crate::mermaid_style::is_label_style_key(property) {
         text_map.insert(property.to_owned(), declaration);
     }
 }
 
+#[must_use]
 fn ordered_declarations(
     declarations: &BTreeMap<String, ErStyleDeclaration>,
     properties: &[&str],
@@ -293,6 +344,7 @@ fn ordered_declarations(
         .collect()
 }
 
+#[must_use]
 fn last_source_style_value<'a>(
     declarations: &'a [ErStyleDeclaration],
     property: &str,
@@ -364,8 +416,8 @@ impl ErEntityThemePlan {
             &inherited_font_stack,
             &base_font_size,
         );
-        // Layout is the final authority for entity visibility. Keep source indices intact
-        // because ordinal rules and paint checkpoints use semantic model identities.
+
+
         let visible_entity_ids = theme
             .into_iter()
             .flat_map(|_| layout.nodes.iter())
@@ -387,27 +439,40 @@ impl ErEntityThemePlan {
             .collect::<Vec<_>>();
         work_meter.charge(model.subgraphs.len())?;
         let mut subgraphs = BTreeMap::new();
+
         for subgraph in &model.subgraphs {
             subgraphs.entry(subgraph.id.as_str()).or_insert(subgraph);
         }
+
         let mut subgraph_source_styles = BTreeMap::new();
+
         for cluster in &layout.clusters {
-            let Some(subgraph) = subgraphs.get(cluster.id.as_str()) else {
-                continue;
+            let subgraph = {
+                let optional_subgraph = subgraphs.get(cluster.id.as_str());
+
+                match optional_subgraph {
+                    Some(matched_subgraph) => matched_subgraph,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if subgraph_source_styles.contains_key(&subgraph.id) {
                 continue;
             }
+
             work_meter.charge(1usize.saturating_add(subgraph.title.len()))?;
+
             for raw in &subgraph.css_styles {
                 work_meter.charge(1usize.saturating_add(raw.len()))?;
             }
+
             charge_er_subgraph_class_style_work(&subgraph.classes, &model.classes, work_meter)?;
             subgraph_source_styles.insert(
                 subgraph.id.clone(),
                 compile_er_subgraph_source_style(subgraph, &model.classes),
             );
         }
+
         let Some(theme) = theme else {
             return Self {
                 css_binding,
@@ -434,6 +499,7 @@ impl ErEntityThemePlan {
             }
             .prepare_visuals(model, work_meter);
         };
+
         let expectations = vec![EntityExpectation::default(); model.entities.len()];
         let needs_text_terminal_evidence = theme.family_mechanism_routes().iter().any(|route| {
             matches!(
@@ -449,6 +515,7 @@ impl ErEntityThemePlan {
         } else {
             BTreeMap::new()
         };
+
         if needs_text_terminal_evidence
             && let Some(title) = diagram_title
                 .map(str::trim)
@@ -460,6 +527,7 @@ impl ErEntityThemePlan {
                 &crate::text::VisibleTextStyleFacts::plain_text(title),
             );
         }
+
         let table_rows = collect_table_row_terminals(model);
 
         let mermaid_owns_fill = mermaid_owns_entity_fill(effective_config);
@@ -481,22 +549,30 @@ impl ErEntityThemePlan {
         } else {
             &BTreeMap::new()
         };
+
         if svg_subgraph_labels && needs_text_terminal_evidence {
             for cluster in &layout.clusters {
-                let Some(subgraph) = subgraphs.get(cluster.id.as_str()) else {
-                    continue;
+                let subgraph = {
+                    let optional_subgraph = subgraphs.get(cluster.id.as_str());
+
+                    match optional_subgraph {
+                        Some(matched_subgraph) => matched_subgraph,
+                        ::core::option::Option::None => continue,
+                    }
                 };
+
                 let source_style = visible_subgraph_styles
                     .get(&subgraph.id)
                     .expect("visible ER subgraph styles are indexed with layout clusters");
                 let facts = subgraph_svg_text_facts(subgraph, source_style);
                 insert_text_terminal(
                     &mut text_terminals,
-                    ErTextTerminalId::SubgraphLabel(subgraph.id.clone().into()),
+                    ErTextTerminalId::SubgraphLabel(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<::std::string::String>>::from(subgraph.id.clone())),
                     &facts,
                 );
             }
         }
+
         let source_owns_font_family = entity_terminal_occurrences.iter().any(|(ordinal, _)| {
             entity_source_styles[ordinal - 1]
                 .text_value("font-family")
@@ -520,16 +596,16 @@ impl ErEntityThemePlan {
         }) || visible_subgraph_styles
             .values()
             .any(ErEntitySourceStyle::owns_text_font_size);
-        let diagram_title = diagram_title
+        let diagram_title_2 = diagram_title
             .map(str::trim)
             .filter(|title| !title.is_empty());
         let has_visible_typography =
-            text_terminals.keys().any(visible_text_terminal) || diagram_title.is_some();
+            text_terminals.keys().any(visible_text_terminal) || diagram_title_2.is_some();
         let has_visible_base_typography = text_terminals.iter().any(|(terminal_id, terminal)| {
             visible_text_terminal(terminal_id)
                 && !terminal_id.is_relation_label()
                 && terminal.visible_run_count > 0
-        }) || diagram_title.is_some();
+        }) || diagram_title_2.is_some();
         let font_stack_requested = inherited_font_stack.typed_font_stack_requested();
         let font_stack_pending = has_visible_typography
             && font_stack_requested
@@ -560,7 +636,7 @@ impl ErEntityThemePlan {
                 .abs()
                     < 1e-6
                 && (layout.prepared_labels.relationship_font_size_px() - 14.0).abs() < 1e-6);
-        let mut expectations = expectations;
+        let mut expectations_2 = expectations;
         let mut winner_properties = BTreeSet::<(usize, ThemeTarget, ResolvedStyleProperty)>::new();
         let mut expected_capabilities =
             BTreeMap::<(usize, ThemeTarget, ResolvedStyleProperty), ThemeCapability>::new();
@@ -573,40 +649,51 @@ impl ErEntityThemePlan {
                 Some(entity_index + 1),
                 work_meter,
             )?;
+
             for (property, origin) in style.winner_rule_properties() {
                 winner_properties.insert((origin.rule_index(), ThemeTarget::Entity, property));
             }
 
             let source_style = &entity_source_styles[entity_index];
-            if let Some(expected) = typed_fill_expectation(
-                theme,
-                &style,
-                mermaid_owns_fill || source_style.fill().is_some(),
-            ) {
-                expected_capabilities.insert(
-                    (
-                        expected.rule_index,
-                        ThemeTarget::Entity,
-                        ResolvedStyleProperty::Fill,
-                    ),
-                    paint_capability_from_css(&expected.css),
-                );
-                expectations[entity_index].fill = Some(expected);
+
+            match typed_fill_expectation(
+                    theme,
+                    &style,
+                    mermaid_owns_fill || source_style.fill().is_some(),
+                ) {
+                Some(expected) => {
+                    expected_capabilities.insert(
+                        (
+                            expected.rule_index,
+                            ThemeTarget::Entity,
+                            ResolvedStyleProperty::Fill,
+                        ),
+                        paint_capability_from_css(&expected.css),
+                    );
+                    expectations_2[entity_index].fill = Some(expected);
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(expected) = typed_stroke_expectation(
-                theme,
-                &style,
-                mermaid_owns_stroke || source_style.stroke().is_some(),
-            ) {
-                expected_capabilities.insert(
-                    (
-                        expected.rule_index,
-                        ThemeTarget::Entity,
-                        ResolvedStyleProperty::Stroke,
-                    ),
-                    paint_capability_from_css(&expected.css),
-                );
-                expectations[entity_index].stroke = Some(expected);
+
+            {
+                match typed_stroke_expectation(
+                        theme,
+                        &style,
+                        mermaid_owns_stroke || source_style.stroke().is_some(),
+                    ) {
+                    Some(expected) => {
+                        expected_capabilities.insert(
+                            (
+                                expected.rule_index,
+                                ThemeTarget::Entity,
+                                ResolvedStyleProperty::Stroke,
+                            ),
+                            paint_capability_from_css(&expected.css),
+                        );
+                        expectations_2[entity_index].stroke = Some(expected);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
 
@@ -614,6 +701,7 @@ impl ErEntityThemePlan {
             if !visible_text_terminal(terminal_id) {
                 continue;
             }
+
             let target = if matches!(terminal_id, ErTextTerminalId::DiagramTitle) {
                 ThemeTarget::Title
             } else {
@@ -625,8 +713,9 @@ impl ErEntityThemePlan {
                 Some(text_index + 1),
                 work_meter,
             )?;
+
             if target == ThemeTarget::Title {
-                // Text retains its established global occurrence order; Title has one terminal.
+
                 text_style.merge_from(&theme.style_with_work_meter(
                     ThemeTarget::Title,
                     ThemeVariant::Default,
@@ -634,20 +723,24 @@ impl ErEntityThemePlan {
                     work_meter,
                 )?);
             }
-            for (property, origin) in text_style.winner_rule_properties() {
+
+            'inner_for_2: for (property, origin) in text_style.winner_rule_properties() {
                 if target == ThemeTarget::Title
                     && property == ResolvedStyleProperty::Fill
                     && title_fill_source_owned
                 {
-                    continue;
+                    continue 'inner_for_2;
                 }
+
                 winner_properties.insert((origin.rule_index(), origin.target(), property));
             }
+
             if terminal.inherited_color_run_count == 0
                 || text_terminal_source_owned(terminal_id, &entity_indices, &entity_source_styles)
             {
                 continue;
             }
+
             let mermaid_owns_text = match terminal_id {
                 ErTextTerminalId::DiagramTitle => title_fill_source_owned,
                 ErTextTerminalId::SubgraphLabel(id) => {
@@ -669,26 +762,34 @@ impl ErEntityThemePlan {
                     mermaid_owns_entity_text
                 }
             };
-            if let Some(expected) = typed_fill_expectation(theme, &text_style, mermaid_owns_text) {
-                let target = text_style
-                    .fill_resolution()
-                    .winner()
-                    .expect("resolved ER text fill")
-                    .target();
-                expected_capabilities.insert(
-                    (expected.rule_index, target, ResolvedStyleProperty::Fill),
-                    paint_capability_from_css(&expected.css),
-                );
-                terminal.paint = Some(expected);
+
+            {
+                match typed_fill_expectation(theme, &text_style, mermaid_owns_text) {
+                    Some(expected) => {
+                        let target_2 = text_style
+                            .fill_resolution()
+                            .winner()
+                            .expect("resolved ER text fill")
+                            .target();
+                        expected_capabilities.insert(
+                            (expected.rule_index, target_2, ResolvedStyleProperty::Fill),
+                            paint_capability_from_css(&expected.css),
+                        );
+                        terminal.paint = Some(expected);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
 
         text_terminals.retain(|terminal_id, _| visible_text_terminal(terminal_id));
-        let mut table_rows = table_rows;
-        for (table_index, (terminal_id, terminal)) in table_rows.iter_mut().enumerate() {
+        let mut table_rows_2 = table_rows;
+
+        for (table_index, (terminal_id, terminal)) in table_rows_2.iter_mut().enumerate() {
             if !visible_entity_ids.contains(terminal_id.entity_id()) {
                 continue;
             }
+
             let variant = terminal_id.variant();
             let style = theme.style_with_work_meter(
                 ThemeTarget::Table,
@@ -696,9 +797,11 @@ impl ErEntityThemePlan {
                 Some(table_index + 1),
                 work_meter,
             )?;
+
             for (property, origin) in style.winner_rule_properties() {
                 winner_properties.insert((origin.rule_index(), ThemeTarget::Table, property));
             }
+
             if table_terminal_source_owned(
                 terminal_id,
                 &entity_indices,
@@ -707,6 +810,7 @@ impl ErEntityThemePlan {
             ) {
                 continue;
             }
+
             let Some(expected) = typed_fill_expectation(
                 theme,
                 &style,
@@ -714,6 +818,7 @@ impl ErEntityThemePlan {
             ) else {
                 continue;
             };
+
             expected_capabilities.insert(
                 (
                     expected.rule_index,
@@ -725,8 +830,9 @@ impl ErEntityThemePlan {
             *terminal = Some(expected);
         }
 
-        table_rows.retain(|terminal_id, _| visible_entity_ids.contains(terminal_id.entity_id()));
+        table_rows_2.retain(|terminal_id, _| visible_entity_ids.contains(terminal_id.entity_id()));
         let mut relation_strokes = Vec::with_capacity(model.relationships.len());
+
         for relationship_index in 0..model.relationships.len() {
             let relation_style = theme.style_with_work_meter(
                 ThemeTarget::Relation,
@@ -734,12 +840,13 @@ impl ErEntityThemePlan {
                 Some(relationship_index + 1),
                 work_meter,
             )?;
-            // Relation.fill is the historical fallback for lineColor. A specified
-            // stroke (including Clear or unsupported paint) always owns that lane.
+
+
             let fill_fallback = matches!(
                 relation_style.stroke_resolution().specified(),
                 Specified::Unspecified
             );
+
             for (property, origin) in relation_style.winner_rule_properties() {
                 if property != ResolvedStyleProperty::Fill || fill_fallback {
                     winner_properties.insert((
@@ -749,6 +856,7 @@ impl ErEntityThemePlan {
                     ));
                 }
             }
+
             let (property, expected) = if fill_fallback {
                 (
                     ResolvedStyleProperty::Fill,
@@ -760,24 +868,33 @@ impl ErEntityThemePlan {
                     typed_stroke_expectation(theme, &relation_style, relation_stroke_source_owned),
                 )
             };
-            if let Some(expected) = &expected {
-                expected_capabilities.insert(
-                    (expected.rule_index, ThemeTarget::Relation, property),
-                    paint_capability_from_css(&expected.css),
-                );
+
+            match &expected {
+                Some(expected_2) => {
+                    expected_capabilities.insert(
+                        (expected_2.rule_index, ThemeTarget::Relation, property),
+                        paint_capability_from_css(&expected_2.css),
+                    );
+                },
+                ::core::option::Option::None => {},
             }
-            let style_suffix = expected
+
+            let style_suffix = match expected
                 .as_ref()
-                .map(|paint| format!(";stroke:{}", paint.css))
-                .unwrap_or_default();
+                .map(|paint| format!(";stroke:{}", paint.css)) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::string::String::new(),
+            };
             work_meter.charge(style_suffix.len())?;
             relation_strokes.push(ErRelationStrokeVisual {
                 paint: expected,
                 style_suffix,
             });
         }
+
         let mut evidence = FamilyThemeOutcomes::default();
         let mut observations = BTreeMap::<(usize, ThemeTarget), ErRuleObservation>::new();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
@@ -795,28 +912,38 @@ impl ErEntityThemePlan {
                         ThemeTarget::Entity => entity_count,
                         ThemeTarget::Relation => model.relationships.len(),
                         ThemeTarget::Text => text_terminals.len(),
-                        ThemeTarget::Title => usize::from(diagram_title.is_some()),
-                        ThemeTarget::Table => table_occurrence_count(&table_rows, selector),
+                        ThemeTarget::Title => usize::from(diagram_title_2.is_some()),
+                        ThemeTarget::Table => table_occurrence_count(&table_rows_2, selector),
                         _ => unreachable!("guarded ER theme target"),
                     };
                     let observation = observations.entry((rule_index, target)).or_default();
-                    // Winners were resolved at each visible terminal's original ordinal.
-                    // A count bound would renumber sparse domains after hidden terminals.
-                    if occurrence_count == 0 {
-                        continue;
+
+
+                    match occurrence_count {
+                        0 => {
+                            continue;
+                        },
+                        _ => {},
                     }
+
                     let property = resolved_style_property_for_facet(facet);
                     let route_won = winner_properties.contains(&(rule_index, target, property));
+
                     if !route_won {
                         continue;
                     }
+
                     observation.applicable = true;
+
                     match route.disposition() {
                         FamilyThemeDisposition::TypedAdapter => {
-                            if let Some(capability) =
-                                expected_capabilities.get(&(rule_index, target, property))
                             {
-                                observation.capabilities.insert(*capability);
+                                match expected_capabilities.get(&(rule_index, target, property)) {
+                                    Some(capability) => {
+                                        observation.capabilities.insert(*capability);
+                                    },
+                                    ::core::option::Option::None => {},
+                                };
                             }
                         }
                         FamilyThemeDisposition::Unsupported => {
@@ -829,24 +956,24 @@ impl ErEntityThemePlan {
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::Entity,
                 } => {
-                    // Reconciled below from each entity's final fill winner.
+
                 }
                 FamilyThemeMechanism::EffectBinding {
                     target: ThemeTarget::Entity,
                     ..
                 } => {
-                    // Reconciled below from each entity's final style.
+
                 }
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::Relation,
                 } => {
-                    // Reconciled below from each relation's final fill winner.
+
                 }
                 FamilyThemeMechanism::EffectBinding {
                     target: ThemeTarget::Relation,
                     ..
                 } => {
-                    // Reconciled below from each relation's final style.
+
                 }
                 FamilyThemeMechanism::BaseTypography(_)
                 | FamilyThemeMechanism::RuleFacet { .. }
@@ -873,7 +1000,7 @@ impl ErEntityThemePlan {
                 UnsupportedTerminalDomain::fallbacks_only(
                     ThemeTarget::Title,
                     TerminalVariantDomain::uniform(
-                        usize::from(diagram_title.is_some()),
+                        usize::from(diagram_title_2.is_some()),
                         ThemeVariant::Default,
                     ),
                 )
@@ -883,11 +1010,13 @@ impl ErEntityThemePlan {
         )?;
 
         let mut pending = BTreeMap::new();
+
         for ((rule_index, target), observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index: rule_index,
                 target,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
@@ -913,10 +1042,10 @@ impl ErEntityThemePlan {
             font_size_residual,
             font_size_not_applicable,
             font_size_layout_verified,
-            expectations,
+            expectations: expectations_2,
             text_terminal_evidence_enabled: needs_text_terminal_evidence,
             text_terminals,
-            table_rows,
+            table_rows: table_rows_2,
             relation_strokes,
             evidence,
             pending,
@@ -925,57 +1054,70 @@ impl ErEntityThemePlan {
         .prepare_visuals(model, work_meter)
     }
 
+    #[must_use]
     pub(crate) fn index_for_entity_id(&self, entity_id: &str) -> Option<usize> {
         self.entity_indices.get(entity_id).copied()
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &css_binding::ErCssBinding {
         &self.css_binding
     }
 
+    #[must_use]
     pub(crate) fn source_style(&self, entity_index: usize) -> Option<&ErEntitySourceStyle> {
         self.entity_source_styles.get(entity_index)
     }
 
+    #[must_use]
     pub(crate) fn subgraph_source_style(&self, id: &str) -> Option<&ErEntitySourceStyle> {
         self.subgraph_source_styles.get(id)
     }
 
+    #[must_use]
     pub(crate) fn relation_label_visual(&self, index: usize) -> Option<&visual::ErTextVisual> {
         self.text_terminals
             .get(&ErTextTerminalId::relation_label(index))
             .map(|t| &t.visual)
     }
 
+    #[must_use]
     pub(crate) fn title_visual(&self) -> Option<&visual::ErTextVisual> {
         self.text_terminals
             .get(&ErTextTerminalId::DiagramTitle)
             .map(|t| &t.visual)
     }
 
+    #[must_use]
     pub(crate) fn typed_fill(&self, entity_index: usize) -> Option<(usize, &str)> {
-        self.expectations
-            .get(entity_index)?
+        let checked_value = self.expectations
+            .get(entity_index)?;
+        checked_value
             .fill
             .as_ref()
             .map(|expected| (expected.rule_index, expected.css.as_str()))
     }
 
+    #[must_use]
     pub(crate) fn typed_stroke(&self, entity_index: usize) -> Option<(usize, &str)> {
-        self.expectations
-            .get(entity_index)?
+        let checked_value = self.expectations
+            .get(entity_index)?;
+        checked_value
             .stroke
             .as_ref()
             .map(|expected| (expected.rule_index, expected.css.as_str()))
     }
 
+    #[must_use]
     pub(crate) fn entity_name_visual(&self, entity_id: &str) -> Option<&visual::ErTextVisual> {
         if self.text_terminals.is_empty() {
             return None;
         }
+
         self.text_terminal_visual(&ErTextTerminalId::entity_name(entity_id))
     }
 
+    #[must_use]
     pub(crate) fn attribute_text_visual(
         &self,
         entity_id: &str,
@@ -985,15 +1127,18 @@ impl ErEntityThemePlan {
         if self.text_terminals.is_empty() {
             return None;
         }
+
         self.text_terminal_visual(&ErTextTerminalId::attribute(entity_id, row_index, role))
     }
 
+    #[must_use]
     pub(crate) fn records_subgraph_labels(&self) -> bool {
         self.text_terminals
             .keys()
             .any(|id| matches!(id, ErTextTerminalId::SubgraphLabel(_)))
     }
 
+    #[must_use]
     fn text_terminal_visual(&self, id: &ErTextTerminalId) -> Option<&visual::ErTextVisual> {
         self.text_terminals
             .get(id)
@@ -1001,6 +1146,7 @@ impl ErEntityThemePlan {
             .map(|terminal| &terminal.visual)
     }
 
+    #[must_use]
     pub(crate) fn typed_table_row(
         &self,
         entity_id: &str,
@@ -1009,26 +1155,31 @@ impl ErEntityThemePlan {
         if self.table_rows.is_empty() {
             return None;
         }
+
         self.table_rows
             .get(&ErTableRowTerminalId::new(entity_id, row_index))?
             .as_ref()
             .map(|expected| (expected.rule_index, expected.css.as_str()))
     }
 
+    #[must_use]
     pub(crate) fn has_relation_stroke(&self) -> bool {
         self.relation_strokes
             .iter()
             .any(|stroke| stroke.paint.is_some())
     }
 
+    #[must_use]
     pub(crate) fn typed_relation_stroke(&self, relationship_index: usize) -> Option<(usize, &str)> {
-        self.relation_strokes
-            .get(relationship_index)?
+        let checked_value = self.relation_strokes
+            .get(relationship_index)?;
+        checked_value
             .paint
             .as_ref()
             .map(|expected| (expected.rule_index, expected.css.as_str()))
     }
 
+    #[must_use]
     pub(crate) fn relation_stroke_style(&self, relationship_index: usize) -> &str {
         self.relation_strokes
             .get(relationship_index)
@@ -1036,14 +1187,17 @@ impl ErEntityThemePlan {
             .unwrap_or("")
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> ErEntityThemeReceipt<'_> {
         ErEntityThemeReceipt::new(self)
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: ErEntityThemeReceipt<'_>) -> bool {
         if self.pending.is_empty() && !self.font_stack_pending && !self.font_size_pending {
             return true;
         }
+
         self.terminal_receipt.set(receipt.into_outcomes()).is_ok()
     }
 
@@ -1053,6 +1207,7 @@ impl ErEntityThemePlan {
             .record_unsupported_typography_evidence(evidence, self.has_visible_typography);
         let font_stack_key =
             FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
         if self.font_stack_pending {
             if let Some(receipt) = self.terminal_receipt.get()
                 && receipt.matches_typography()
@@ -1073,7 +1228,9 @@ impl ErEntityThemePlan {
                 FamilyThemeResidualReason::UnsupportedTypography,
             );
         }
+
         let font_size_key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontSize);
+
         if self.font_size_pending {
             if let Some(receipt) = self.terminal_receipt.get()
                 && self.font_size_layout_verified
@@ -1095,9 +1252,16 @@ impl ErEntityThemePlan {
                 FamilyThemeResidualReason::UnsupportedTypography,
             );
         }
-        let Some(receipt) = self.terminal_receipt.get() else {
-            return;
+
+        let receipt = {
+            let optional_receipt = self.terminal_receipt.get();
+
+            match optional_receipt {
+                Some(matched_receipt) => matched_receipt,
+                ::core::option::Option::None => return,
+            }
         };
+
         for (key, capabilities) in &self.pending {
             let rule_index = match key {
                 FamilyThemeMechanismKey::Rule { index, .. } => *index,
@@ -1105,6 +1269,7 @@ impl ErEntityThemePlan {
                 | FamilyThemeMechanismKey::OrdinalPalette { .. }
                 | FamilyThemeMechanismKey::EffectBinding { .. } => continue,
             };
+
             if receipt.has_matching_rule(rule_index) {
                 evidence.mark_applied_with_capabilities(key.clone(), capabilities.iter().copied());
             } else if !receipt.has_effective_rule(rule_index) {
@@ -1114,6 +1279,7 @@ impl ErEntityThemePlan {
     }
 }
 
+#[must_use]
 fn typed_fill_expectation(
     theme: &ResolvedDiagramTheme,
     style: &ResolvedThemeStyle,
@@ -1122,13 +1288,16 @@ fn typed_fill_expectation(
     if mermaid_owns {
         return None;
     }
+
     let origin = style.fill_resolution().winner()?;
     let facet = FamilyThemeRuleFacet::fill(style.fill_resolution().specified())?;
+
     if theme.rule_facet_disposition(origin.rule_index(), facet)
         != Some(FamilyThemeDisposition::TypedAdapter)
     {
         return None;
     }
+
     let css = match style.fill_resolution().specified() {
         Specified::Value(crate::diagram_theme::CanvasPaint::Transparent) => {
             "transparent".to_string()
@@ -1146,6 +1315,7 @@ fn typed_fill_expectation(
     })
 }
 
+#[must_use]
 fn typed_stroke_expectation(
     theme: &ResolvedDiagramTheme,
     style: &ResolvedThemeStyle,
@@ -1154,15 +1324,18 @@ fn typed_stroke_expectation(
     if mermaid_owns {
         return None;
     }
+
     let origin = style.stroke_resolution().winner()?;
     let facet = FamilyThemeRuleFacet::stroke(style.stroke_resolution().specified())?;
+
     if theme.rule_facet_disposition(origin.rule_index(), facet)
         != Some(FamilyThemeDisposition::TypedAdapter)
     {
         return None;
     }
+
     let css = match style.stroke_resolution().specified() {
-        Specified::Value(crate::diagram_theme::CanvasPaint::Transparent) => "transparent".into(),
+        Specified::Value(crate::diagram_theme::CanvasPaint::Transparent) => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("transparent"),
         Specified::Value(crate::diagram_theme::CanvasPaint::Solid(color)) => color.as_css(),
         Specified::Unspecified
         | Specified::Clear
@@ -1176,6 +1349,7 @@ fn typed_stroke_expectation(
     })
 }
 
+#[must_use]
 pub(crate) fn subgraph_svg_text_facts(
     subgraph: &merman_model::families::er::ErSubgraph,
     source_style: &ErEntitySourceStyle,
@@ -1191,20 +1365,29 @@ pub(crate) fn subgraph_svg_text_facts(
     )
 }
 
+#[must_use]
 fn collect_text_terminals(
     model: &merman_model::families::er::ErDiagramModel,
     layout: &crate::model::ErDiagramLayout,
 ) -> BTreeMap<ErTextTerminalId, TextTerminalExpectation> {
     let mut terminals = BTreeMap::new();
+
     for entity in model.entities.values() {
-        let Some(measure) = layout.prepared_labels.entity(&entity.id) else {
-            continue;
+        let measure = {
+            let optional_measure = layout.prepared_labels.entity(&entity.id);
+
+            match optional_measure {
+                Some(matched_measure) => matched_measure,
+                ::core::option::Option::None => continue,
+            }
         };
+
         insert_text_terminal(
             &mut terminals,
             ErTextTerminalId::entity_name(&entity.id),
             measure.label.visible_style_facts(),
         );
+
         for (row_index, row) in measure.rows.iter().enumerate() {
             for (role, label) in [
                 (ErAttributeTextRole::Type, &row.type_label),
@@ -1222,15 +1405,22 @@ fn collect_text_terminals(
     }
 
     for relationship_index in 0..model.relationships.len() {
-        let Some(label) = layout.prepared_labels.relationship(relationship_index) else {
-            continue;
+        let label = {
+            let optional_label = layout.prepared_labels.relationship(relationship_index);
+
+            match optional_label {
+                Some(matched_label) => matched_label,
+                ::core::option::Option::None => continue,
+            }
         };
+
         insert_text_terminal(
             &mut terminals,
             ErTextTerminalId::relation_label(relationship_index),
             label.visible_style_facts(),
         );
     }
+
     terminals
 }
 
@@ -1252,6 +1442,7 @@ fn insert_text_terminal(
     }
 }
 
+#[must_use]
 fn collect_table_row_terminals(
     model: &merman_model::families::er::ErDiagramModel,
 ) -> BTreeMap<ErTableRowTerminalId, Option<ExpectedPaint>> {
@@ -1265,6 +1456,7 @@ fn collect_table_row_terminals(
         .collect()
 }
 
+#[must_use]
 fn text_terminal_source_owned(
     terminal_id: &ErTextTerminalId,
     entity_indices: &BTreeMap<String, usize>,
@@ -1277,6 +1469,7 @@ fn text_terminal_source_owned(
         .is_some_and(ErEntitySourceStyle::owns_text_color)
 }
 
+#[must_use]
 fn text_terminal_font_size_source_owned(
     terminal_id: &ErTextTerminalId,
     entity_indices: &BTreeMap<String, usize>,
@@ -1289,23 +1482,26 @@ fn text_terminal_font_size_source_owned(
         .is_some_and(ErEntitySourceStyle::owns_text_font_size)
 }
 
+#[must_use]
 fn table_terminal_source_owned(
     terminal_id: &ErTableRowTerminalId,
     entity_indices: &BTreeMap<String, usize>,
     entity_source_styles: &[ErEntitySourceStyle],
     source_fill_owns_odd_rows: bool,
 ) -> bool {
-    // Redux source declarations cover all row paths; other themes apply entity
-    // fill only to even rows. Use the same decision as the visual plan.
+
+
     if terminal_id.variant() != ThemeVariant::Even && !source_fill_owns_odd_rows {
         return false;
     }
+
     entity_indices
         .get(terminal_id.entity_id())
         .and_then(|index| entity_source_styles.get(*index))
         .is_some_and(|source_style| source_style.fill().is_some())
 }
 
+#[must_use]
 fn table_occurrence_count(
     table_rows: &BTreeMap<ErTableRowTerminalId, Option<ExpectedPaint>>,
     selector: FamilyThemeSelectorShape,
@@ -1323,6 +1519,7 @@ fn table_occurrence_count(
     }
 }
 
+#[must_use]
 fn mermaid_owns_entity_fill(config: &merman_model::presentation::PresentationConfig) -> bool {
     config.config_paint_overrides_typed_default("themeVariables.mainBkg")
         || (matches!(
@@ -1332,6 +1529,7 @@ fn mermaid_owns_entity_fill(config: &merman_model::presentation::PresentationCon
             && entity_palette_has_colors(config, "borderColorArray"))
 }
 
+#[must_use]
 fn mermaid_owns_entity_stroke(config: &merman_model::presentation::PresentationConfig) -> bool {
     config.config_paint_overrides_typed_default("themeVariables.nodeBorder")
         || (matches!(
@@ -1340,6 +1538,7 @@ fn mermaid_owns_entity_stroke(config: &merman_model::presentation::PresentationC
         ) && mermaid_owns_entity_palette(config, "borderColorArray"))
 }
 
+#[must_use]
 fn mermaid_owns_entity_palette(
     config: &merman_model::presentation::PresentationConfig,
     key: &str,
@@ -1348,17 +1547,19 @@ fn mermaid_owns_entity_palette(
         && config.config_paint_overrides_typed_default(&format!("themeVariables.{key}"))
 }
 
+#[must_use]
 fn entity_palette_has_colors(
     config: &merman_model::presentation::PresentationConfig,
     key: &str,
 ) -> bool {
-    // Match the writer's string-array consumer without allocating a second palette. Background
-    // colors need a border palette too: that palette determines the emitted per-entity CSS rules.
+
+
     config.as_value()["themeVariables"][key]
         .as_array()
         .is_some_and(|colors| colors.iter().any(serde_json::Value::is_string))
 }
 
+#[must_use]
 fn mermaid_owns_paint_input(
     config: &merman_model::presentation::PresentationConfig,
     input: merman_model::presentation::ErPaintInput,
@@ -1368,10 +1569,12 @@ fn mermaid_owns_paint_input(
         .is_none_or(|inputs| inputs.is_owned(input))
 }
 
+#[must_use]
 fn mermaid_owns_relation_stroke(config: &merman_model::presentation::PresentationConfig) -> bool {
     mermaid_owns_paint_input(config, merman_model::presentation::ErPaintInput::Line)
 }
 
+#[must_use]
 fn mermaid_owns_text_fill(
     config: &merman_model::presentation::PresentationConfig,
     html_labels: bool,
@@ -1383,6 +1586,7 @@ fn mermaid_owns_text_fill(
     }
 }
 
+#[must_use]
 fn mermaid_owns_table_fill(
     config: &merman_model::presentation::PresentationConfig,
     variant: ThemeVariant,
@@ -1402,6 +1606,7 @@ struct ErRuleObservation {
     capabilities: BTreeSet<ThemeCapability>,
 }
 
+#[must_use]
 fn paint_capability_from_css(css: &str) -> ThemeCapability {
     if css == "transparent" {
         ThemeCapability::TransparentPaint

@@ -46,23 +46,17 @@
 
 use std::time::Duration;
 
-use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_words::Words;
 use console_input_gamepad::devices::Has;
+use console_input_gamepad::front;
 use console_input_gamepad::router::{self, PROFILES};
 
 const THE_PROFILE: &str = "the profile";
 
 use console_core_arguments::{CommandLine, Operands, Subcommand};
-use console_core_state_machine::{Machine, Queue, Transition};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_program_contract::{Command, Effect, Event, Exit, ExitStatus, Subscription, Timer};
-
-const BUS: &str = "org.shadowblip.InputPlumber";
-
-const OBJECT: &str = "/org/shadowblip/InputPlumber/CompositeDevice0";
-
-const FACE: &str = "org.shadowblip.Input.CompositeDevice";
 
 const AGAIN: Timer = Timer {
   name: "the bus",
@@ -175,6 +169,14 @@ pub enum Buzz {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ProfileEffect {
   Buzzing(Buzz),
+}
+
+impl EffectDependencies for ProfileEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Buzzing(_) => &[Service::Input],
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -411,40 +413,17 @@ fn buzzing(subscriptions: &ProfileState) -> Result<Vec<Effect<ProfileEffect>>, N
 }
 
 fn reading() -> Result<Command, Never> {
-  Command::external(
-    ExternalProgram::Busctl,
-    &["--system", "get-property", BUS, OBJECT, FACE, "ProfileName"],
-  )
+  front::profile_name()
 }
 
 fn loading(file: &str) -> Result<Command, Never> {
-  Command::external(
-    ExternalProgram::Busctl,
-    &[
-      "--system",
-      "call",
-      BUS,
-      OBJECT,
-      FACE,
-      "LoadProfilePath",
-      "s",
-      file,
-    ],
-  )
+  front::load_profile(file)
 }
 
 pub fn parse_profile_name(said: &str) -> Result<Option<String>, Never> {
-  let (_taken, after) = match said.split_once('"') {
-    Some((_taken, after)) => (_taken, after),
-    None => return Ok(None),
-  };
+  let Ok(quoted) = front::quoted_string(said);
 
-  let (name, _taken_1) = match after.split_once('"') {
-    Some((name, _taken_1)) => (name, _taken_1),
-    None => return Ok(None),
-  };
-
-  Ok(Some(name.to_string()))
+  Ok(quoted.map(str::to_owned))
 }
 
 #[cfg(test)]

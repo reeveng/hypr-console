@@ -7,9 +7,18 @@
 use console_core_never::Never;
 
 pub fn of(live: &str, head: &[u8]) -> Result<u32, Never> {
-  if live == "/etc/sudoers" || live.starts_with("/etc/sudoers.d/") {
-    return Ok(0o440);
+  match {
+    ::core::primitive::bool::then_some(
+      live == "/etc/sudoers" || live.starts_with("/etc/sudoers.d/"),
+      (),
+    )
+  } {
+    ::core::option::Option::Some(()) => {
+      return Ok(0o440);
+    }
+    ::core::option::Option::None => {}
   }
+
   Ok(
     match ::core::primitive::bool::then_some(
       live.contains("/bin/") || live.contains("/sbin/"),

@@ -38,6 +38,7 @@ impl CynefinSurfaceReceipt {
         if !self.requested || text.trim().is_empty() {
             return;
         }
+
         self.visible_text = true;
         self.visible_text_fill += usize::from(matches!(
             role,
@@ -49,10 +50,12 @@ impl CynefinSurfaceReceipt {
         self.overridden_text_fill += 1;
     }
 
+    #[must_use]
     fn has_visible_text(&self) -> bool {
         self.visible_text
     }
 
+    #[must_use]
     fn has_visible_text_fill_surface(&self) -> bool {
         self.visible_text_fill > self.overridden_text_fill
     }
@@ -86,18 +89,18 @@ impl CynefinTypographyThemePlan {
         effective_config: &PresentationConfig,
         work_meter: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let text_fill = theme.and_then(|theme| {
-            let style = theme.style(ThemeTarget::Text, ThemeVariant::Default, None);
+        let text_fill = theme.and_then(|theme_2| {
+            let style = theme_2.style(ThemeTarget::Text, ThemeVariant::Default, None);
             resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Text],
                 DirectStaticSelectorDomain::Default,
             )
         });
         let text_fill_routes = theme
-            .map(|theme| {
-                theme
+            .map(|theme_3| {
+                theme_3
                     .family_mechanism_routes()
                     .iter()
                     .copied()
@@ -116,9 +119,9 @@ impl CynefinTypographyThemePlan {
                                 }
                             ) =>
                         {
-                            Some((theme.family_mechanism_key(route), rule_index))
+                            Some((theme_3.family_mechanism_key(route), rule_index))
                         }
-                        _ => None,
+                        FamilyThemeMechanism::BaseTypography(_) | FamilyThemeMechanism::RuleFacet { .. } | FamilyThemeMechanism::OrdinalPalette { .. } | FamilyThemeMechanism::EffectBinding { .. } => None,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice()
@@ -130,15 +133,16 @@ impl CynefinTypographyThemePlan {
                     .config_paint_overrides_typed_default("themeVariables.cynefin.textColor"));
         let mut evidence = FamilyThemeOutcomes::default();
         let mut unsupported_routes = cynefin_unsupported_routes(theme, &mut evidence).into_vec();
-        if let Some(theme) = theme
-            && theme.ordinal_palette_disposition(ThemeTarget::Text)
+
+        if let Some(theme_4) = theme
+            && theme_4.ordinal_palette_disposition(ThemeTarget::Text)
                 == Some(FamilyThemeDisposition::Unsupported)
         {
-            // Cynefin writes one shared text fill. Resolve its fallback without assigning
-            // ordinal identities to CSS selectors; ordinal rules retain their own residuals.
+
+
             let mut fallbacks = FamilyThemeOutcomes::default();
             reconcile_unsupported_terminal_domains(
-                theme,
+                theme_4,
                 &mut fallbacks,
                 &[UnsupportedTerminalDomain::static_fallbacks_only(
                     ThemeTarget::Text,
@@ -150,9 +154,11 @@ impl CynefinTypographyThemePlan {
             let palette_key = FamilyThemeMechanismKey::OrdinalPalette {
                 target: ThemeTarget::Text,
             };
+
             if fallbacks.not_applicable_mechanisms().contains(&palette_key) {
                 evidence.mark_not_applicable(palette_key.clone());
             }
+
             for residual in fallbacks
                 .residuals()
                 .iter()
@@ -164,13 +170,16 @@ impl CynefinTypographyThemePlan {
                 });
             }
         }
+
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
         let mut colors = super::cynefin_theme(effective_config.as_value());
         let base_colors = colors.clone();
+
         if !config_owns_text_fill && let Some(fill) = &text_fill {
             colors.text_color = fill.css().to_owned();
         }
+
         let common_css = crate::svg::PreparedCommonCss::new(
             effective_config.as_value(),
             Some(inherited_font_stack.font_family_css()),
@@ -190,26 +199,32 @@ impl CynefinTypographyThemePlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.common_css.font_family()
     }
 
+    #[must_use]
     pub(crate) fn common_css(&self) -> &crate::svg::PreparedCommonCss {
         &self.common_css
     }
 
+    #[must_use]
     pub(crate) fn colors(&self) -> &super::CynefinTheme {
         &self.colors
     }
 
+    #[must_use]
     pub(crate) fn base_colors(&self) -> &super::CynefinTheme {
         &self.base_colors
     }
 
+    #[must_use]
     pub(crate) fn config(&self) -> &PresentationConfig {
         &self.config
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> CynefinSurfaceReceipt {
         CynefinSurfaceReceipt {
             requested: self.inherited_font_stack.typography_requested()
@@ -219,15 +234,21 @@ impl CynefinTypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: CynefinSurfaceReceipt) -> bool {
         self.terminal_receipt.set(receipt).is_ok()
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
-        if let Some(receipt) = self.terminal_receipt.get() {
-            evidence.merge_borrowed(&receipt.paint_evidence);
+
+        match self.terminal_receipt.get() {
+            Some(receipt) => {
+                evidence.merge_borrowed(&receipt.paint_evidence);
+            },
+            ::core::option::Option::None => {},
         }
+
         for route in &self.unsupported_routes {
             let absent_text_fallback = matches!(
                 route.key,
@@ -238,12 +259,14 @@ impl CynefinTypographyThemePlan {
                 .terminal_receipt
                 .get()
                 .is_some_and(|receipt| !receipt.has_visible_text_fill_surface());
+
             if absent_text_fallback {
                 evidence.mark_not_applicable(route.key.clone());
             } else {
                 evidence.mark_residual(route.key.clone(), route.reason);
             }
         }
+
         let Some(receipt) = self.terminal_receipt.get() else {
             for (key, _) in &self.text_fill_routes {
                 if self.config_owns_text_fill {
@@ -253,15 +276,19 @@ impl CynefinTypographyThemePlan {
                         .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
                 }
             }
+
             return;
         };
+
         self.inherited_font_stack
             .record_unsupported_typography_evidence(evidence, receipt.has_visible_text());
         let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
         if !receipt.has_visible_text() {
             evidence.mark_not_applicable(key);
             return;
         }
+
         if self.inherited_font_stack.typed_font_stack_active() {
             evidence.mark_applied_with_capabilities(key, [ThemeCapability::Typography]);
         } else {
@@ -275,22 +302,26 @@ impl CynefinTypographyThemePlan {
                 InheritedFontStackOutcome::Inactive => {}
             }
         }
-        for (key, rule_index) in &self.text_fill_routes {
+
+        for (key_2, rule_index) in &self.text_fill_routes {
             if self.config_owns_text_fill || !receipt.has_visible_text_fill_surface() {
-                evidence.mark_not_applicable(key.clone());
+                evidence.mark_not_applicable(key_2.clone());
             } else if self
                 .text_fill
                 .as_ref()
                 .is_some_and(|fill| fill.rule_index() == *rule_index)
             {
-                if let Some(fill) = self.text_fill.as_ref() {
-                    evidence.mark_applied_with_capabilities(key.clone(), [fill.capability()]);
-                } else {
-                    evidence
-                        .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+                match self.text_fill.as_ref() {
+                    Some(fill) => {
+                        evidence.mark_applied_with_capabilities(key_2.clone(), [fill.capability()]);
+                    },
+                    ::core::option::Option::None => {
+                        evidence
+                            .mark_residual(key_2.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+                    },
                 }
             } else {
-                evidence.mark_not_applicable(key.clone());
+                evidence.mark_not_applicable(key_2.clone());
             }
         }
     }
@@ -300,10 +331,12 @@ fn cynefin_unsupported_routes(
     theme: Option<&ResolvedDiagramTheme>,
     evidence: &mut FamilyThemeOutcomes,
 ) -> Box<[CynefinUnsupportedRoute]> {
-    let Some(theme) = theme else {
-        return Box::new([]);
+    let theme_2 = match theme {
+        Some(matched_theme) => matched_theme,
+        ::core::option::Option::None => return Box::new([]),
     };
-    theme
+
+    theme_2
         .family_mechanism_routes()
         .iter()
         .copied()
@@ -316,9 +349,11 @@ fn cynefin_unsupported_routes(
             {
                 return None;
             }
+
             if route.disposition() != FamilyThemeDisposition::Unsupported {
                 return None;
             }
+
             if let FamilyThemeMechanism::RuleFacet {
                 target: ThemeTarget::Text,
                 selector:
@@ -333,9 +368,10 @@ fn cynefin_unsupported_routes(
             } = route.mechanism()
                 && variant != ThemeVariant::Default
             {
-                evidence.mark_not_applicable(theme.family_mechanism_key(route));
+                evidence.mark_not_applicable(theme_2.family_mechanism_key(route));
                 return None;
             }
+
             let reason = match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet { facet, .. } => {
                     unsupported_residual_for_facet(facet)
@@ -352,7 +388,7 @@ fn cynefin_unsupported_routes(
                 FamilyThemeMechanism::BaseTypography(_) => return None,
             };
             Some(CynefinUnsupportedRoute {
-                key: theme.family_mechanism_key(route),
+                key: theme_2.family_mechanism_key(route),
                 reason,
             })
         })

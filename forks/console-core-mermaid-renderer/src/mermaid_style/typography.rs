@@ -20,6 +20,7 @@ pub(crate) fn root_dependent_font_size<'a>(
 ) -> OperationControlResult<Option<(usize, &'a str)>> {
     let mut winner: Option<(bool, Option<(usize, &'a str)>)> = None;
     let mut ordinal = 0usize;
+
     for raw in styles {
         super::visit_style_declaration_boundaries_with_checkpoints(
             raw,
@@ -27,6 +28,7 @@ pub(crate) fn root_dependent_font_size<'a>(
             |boundary| {
                 let declaration_ordinal = ordinal;
                 ordinal = ordinal.saturating_add(1);
+
                 if let Some(size) = super::css_font_size_override(boundary.raw())
                     && winner
                         .as_ref()
@@ -51,18 +53,22 @@ pub(crate) fn root_dependent_font_size<'a>(
                                         .is_some()
                                         || declaration.svg_number_or_px() == Some(0.0)))
                         });
+
                     if !root_dependent && !clears_root_dependency {
                         return Ok(true);
                     }
+
                     winner = Some((
                         size.important(),
                         root_dependent.then_some((declaration_ordinal, boundary.raw())),
                     ));
                 }
+
                 Ok(true)
             },
         )?;
     }
+
     Ok(winner.and_then(|(_, declaration)| declaration))
 }
 
@@ -75,6 +81,7 @@ pub(crate) struct TextStyleCascade<'a> {
 }
 
 impl<'a> TextStyleCascade<'a> {
+    #[must_use]
     pub(crate) fn new(base: &'a TextStyle, context: CssFontSizeContext) -> Self {
         Self {
             base,
@@ -100,8 +107,14 @@ impl<'a> TextStyleCascade<'a> {
         ) {
             return;
         }
-        if let Some(parsed) = parse_css_value(value, CssValuePolicy::MermaidSourceStyle) {
-            self.observe_analyzed(property, parsed.value, important, &parsed.analysis);
+
+        {
+            match parse_css_value(value, CssValuePolicy::MermaidSourceStyle) {
+                Some(parsed) => {
+                    self.observe_analyzed(property, parsed.value, important, &parsed.analysis);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
@@ -119,9 +132,11 @@ impl<'a> TextStyleCascade<'a> {
             "font-style" => 3,
             _ => return,
         };
+
         if self.importance[index].is_some_and(|previous| previous && !important) {
             return;
         }
+
         let inherits = analysis.inherits_property_value();
         let valid = inherits
             || match property {
@@ -131,11 +146,14 @@ impl<'a> TextStyleCascade<'a> {
                 "font-style" => is_supported_css_font_style_value(value),
                 _ => unreachable!(),
             };
+
         if !valid {
             return;
         }
+
         self.importance[index] = Some(important);
         let style = self.style.to_mut();
+
         match property {
             "font-family" => {
                 style.font_family = if inherits {
@@ -157,12 +175,14 @@ impl<'a> TextStyleCascade<'a> {
                 style.font_weight = if inherits {
                     self.base.font_weight.clone()
                 } else {
-                    let inherited = self
+                    let inherited = match self
                         .base
                         .font_weight
                         .as_deref()
-                        .and_then(|value| crate::text::resolve_css_font_weight(value, 400))
-                        .unwrap_or(400);
+                        .and_then(|value_2| crate::text::resolve_css_font_weight(value_2, 400)) {
+                        ::core::option::Option::Some(present) => present,
+                        ::core::option::Option::None => 400,
+                    };
                     Some(
                         crate::text::resolve_css_font_weight(value, inherited)
                             .map_or_else(|| value.to_owned(), |weight| weight.to_string()),
@@ -180,6 +200,7 @@ impl<'a> TextStyleCascade<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn finish(self) -> Cow<'a, TextStyle> {
         if self.style.font_family == self.base.font_family
             && self.style.font_size == self.base.font_size

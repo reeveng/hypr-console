@@ -32,7 +32,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use console_compositor::Layer;
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
 use console_onscreen::Up;
 
 use crate::settings::SettingsTab;
@@ -73,6 +73,14 @@ pub enum PanelEvent {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PanelEffect {
   Start(Panel),
+}
+
+impl EffectDependencies for PanelEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Start(_) => &[Service::Panels],
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

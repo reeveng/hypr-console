@@ -157,6 +157,7 @@ pub enum Error {
 
 impl Error {
     /// Returns the error position.
+    #[must_use]
     pub fn pos(&self) -> TextPos {
         match *self {
             Error::InvalidXmlPrefixUri(pos) => pos,
@@ -283,14 +284,14 @@ impl core::fmt::Display for Error {
                 write!(
                     f,
                     "expected '{}' not '{}' at {}",
-                    *expected as char, *actual as char, pos
+                    <char as ::core::convert::From<::core::primitive::u8>>::from(*expected), <char as ::core::convert::From<::core::primitive::u8>>::from(*actual), pos
                 )
             }
             Error::InvalidChar2(expected, actual, pos) => {
                 write!(
                     f,
                     "expected {} not '{}' at {}",
-                    expected, *actual as char, pos
+                    expected, <char as ::core::convert::From<::core::primitive::u8>>::from(*actual), pos
                 )
             }
             Error::InvalidString(expected, pos) => {
@@ -458,6 +459,7 @@ struct TagNameSpan<'input> {
 
 impl<'input> TagNameSpan<'input> {
     #[inline]
+    #[must_use]
     fn new_null() -> Self {
         Self {
             prefix: "",
@@ -508,38 +510,50 @@ struct LoopDetector {
 impl LoopDetector {
     #[inline]
     fn inc_depth(&mut self, stream: &Stream) -> Result<()> {
-        if self.depth < 10 {
-            self.depth += 1;
-            Ok(())
-        } else {
-            Err(Error::EntityReferenceLoop(stream.gen_text_pos()))
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(self.depth), &::core::convert::identity(10)); _explicit_ordering } {
+            ::core::cmp::Ordering::Less => {
+                self.depth += 1;
+                Ok(())
+            },
+            ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {
+                Err(Error::EntityReferenceLoop(stream.gen_text_pos()))
+            },
         }
     }
 
     #[inline]
     fn dec_depth(&mut self) {
-        if self.depth > 0 {
-            self.depth -= 1;
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(self.depth), &::core::convert::identity(0)); _explicit_ordering } {
+            ::core::cmp::Ordering::Greater => {
+                self.depth -= 1;
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
         }
 
-        // Reset references count after reaching zero depth.
-        if self.depth == 0 {
-            self.references = 0;
+
+        match self.depth {
+            0 => {
+                self.references = 0;
+            },
+            _ => {},
         }
     }
 
     #[inline]
     fn inc_references(&mut self, stream: &Stream) -> Result<()> {
-        if self.depth == 0 {
-            // Allow infinite amount of references at zero depth.
-            Ok(())
-        } else {
-            if self.references == u8::MAX {
-                return Err(Error::EntityReferenceLoop(stream.gen_text_pos()));
-            }
+        match self.depth {
+            0 => {
 
-            self.references += 1;
-            Ok(())
+                Ok(())
+            },
+            _ => {
+                if self.references == u8::MAX {
+                    return Err(Error::EntityReferenceLoop(stream.gen_text_pos()));
+                }
+
+                self.references += 1;
+                Ok(())
+            },
         }
     }
 }
@@ -583,6 +597,7 @@ impl<'input> Context<'input> {
         for id in &self.awaiting_subtree {
             self.doc.nodes[id.get_usize()].next_subtree = Some(new_child_id);
         }
+
         self.awaiting_subtree.clear();
 
         if !appending_element {
@@ -599,12 +614,12 @@ impl<'input> Context<'input> {
         range: Range<usize>,
     ) -> Result<()> {
         if self.after_text.is_empty() {
-            let text = match &text {
-                Cow::Borrowed(text) => StringStorage::Borrowed(text),
-                Cow::Owned(text) => StringStorage::new_owned(text.as_str()),
+            let text_4 = match &text {
+                Cow::Borrowed(text_2) => StringStorage::Borrowed(text_2),
+                Cow::Owned(text_3) => StringStorage::new_owned(text_3.as_str()),
             };
 
-            self.append_node(NodeKind::Text(text), range)?;
+            self.append_node(NodeKind::Text(text_4), range)?;
         }
 
         self.after_text.push(text);
@@ -618,7 +633,7 @@ impl<'input> Context<'input> {
 
         let text = match &mut node.kind {
             NodeKind::Text(text) => text,
-            _ => unreachable!(),
+            NodeKind::Root | NodeKind::Element { .. } | NodeKind::PI(_) | NodeKind::Comment(_) => unreachable!(),
         };
 
         *text = StringStorage::new_owned(&self.after_text.join(""));
@@ -639,11 +654,11 @@ impl<'input> Context<'input> {
 }
 
 fn parse<'input>(text: &'input str, opt: ParsingOptions<'input>) -> Result<Document<'input>> {
-    // Trying to guess rough nodes and attributes amount.
+
     let nodes_capacity = memchr_iter(b'<', text.as_bytes()).count();
     let attributes_capacity = memchr_iter(b'=', text.as_bytes()).count();
 
-    // Init document.
+
     let mut doc = Document {
         text,
         nodes: Vec::with_capacity(nodes_capacity),
@@ -651,7 +666,7 @@ fn parse<'input>(text: &'input str, opt: ParsingOptions<'input>) -> Result<Docum
         namespaces: Namespaces::default(),
     };
 
-    // Add a root node.
+
     doc.nodes.push(NodeData {
         parent: None,
         prev_sibling: None,
@@ -682,8 +697,9 @@ fn parse<'input>(text: &'input str, opt: ParsingOptions<'input>) -> Result<Docum
 
     tokenizer::parse(text, allow_dtd, &mut ctx)?;
 
-    let mut doc = ctx.doc;
-    if !doc.root().children().any(|n| n.is_element()) {
+    let mut doc_2 = ctx.doc;
+
+    if !doc_2.root().children().any(|n| n.is_element()) {
         return Err(Error::NoRootNode);
     }
 
@@ -691,11 +707,11 @@ fn parse<'input>(text: &'input str, opt: ParsingOptions<'input>) -> Result<Docum
         return Err(Error::UnclosedRootNode);
     }
 
-    doc.nodes.shrink_to_fit();
-    doc.attributes.shrink_to_fit();
-    doc.namespaces.shrink_to_fit();
+    doc_2.nodes.shrink_to_fit();
+    doc_2.attributes.shrink_to_fit();
+    doc_2.namespaces.shrink_to_fit();
 
-    Ok(doc)
+    Ok(doc_2)
 }
 
 impl<'input> tokenizer::XmlEvents<'input> for Context<'input> {
@@ -769,34 +785,34 @@ fn process_attribute<'input>(
     value: StrSpan<'input>,
     ctx: &mut Context<'input>,
 ) -> Result<()> {
-    let value = normalize_attribute(value, ctx)?;
+    let value_2 = normalize_attribute(value, ctx)?;
 
     if prefix == XMLNS {
-        // The xmlns namespace MUST NOT be declared as the default namespace.
-        if value.as_str() == NS_XMLNS_URI {
+
+        if value_2.as_str() == NS_XMLNS_URI {
             let pos = ctx.doc.text_pos_at(range.start);
             return Err(Error::UnexpectedXmlnsUri(pos));
         }
 
-        let is_xml_ns_uri = value.as_str() == NS_XML_URI;
+        let is_xml_ns_uri = value_2.as_str() == NS_XML_URI;
 
-        // The prefix 'xml' is by definition bound to the namespace name
-        // http://www.w3.org/XML/1998/namespace.
-        // It MUST NOT be bound to any other namespace name.
+
+
+
         if local == NS_XML_PREFIX {
             if !is_xml_ns_uri {
                 let pos = ctx.doc.text_pos_at(range.start);
                 return Err(Error::InvalidXmlPrefixUri(pos));
             }
         } else {
-            // The xml namespace MUST NOT be bound to a non-xml prefix.
+
             if is_xml_ns_uri {
                 let pos = ctx.doc.text_pos_at(range.start);
                 return Err(Error::UnexpectedXmlUri(pos));
             }
         }
 
-        // Check for duplicated namespaces.
+
         if ctx
             .doc
             .namespaces
@@ -806,29 +822,29 @@ fn process_attribute<'input>(
             return Err(Error::DuplicatedNamespace(local.to_string(), pos));
         }
 
-        // Xml namespace should not be added to the namespaces.
+
         if !is_xml_ns_uri {
-            ctx.doc.namespaces.push_ns(Some(local), value)?;
+            ctx.doc.namespaces.push_ns(Some(local), value_2)?;
         }
     } else if local == XMLNS {
-        // The xml namespace MUST NOT be declared as the default namespace.
-        if value.as_str() == NS_XML_URI {
+
+        if value_2.as_str() == NS_XML_URI {
             let pos = ctx.doc.text_pos_at(range.start);
             return Err(Error::UnexpectedXmlUri(pos));
         }
 
-        // The xmlns namespace MUST NOT be declared as the default namespace.
-        if value.as_str() == NS_XMLNS_URI {
+
+        if value_2.as_str() == NS_XMLNS_URI {
             let pos = ctx.doc.text_pos_at(range.start);
             return Err(Error::UnexpectedXmlnsUri(pos));
         }
 
-        ctx.doc.namespaces.push_ns(None, value)?;
+        ctx.doc.namespaces.push_ns(None, value_2)?;
     } else {
         ctx.current_attributes.push(TempAttributeData {
             prefix,
             local,
-            value,
+            value: value_2,
             range,
             qname_len,
             eq_len,
@@ -844,16 +860,19 @@ fn process_element<'input>(
     ctx: &mut Context<'input>,
 ) -> Result<()> {
     if ctx.tag_name.name.is_empty() {
-        // May occur in XML like this:
-        // <!DOCTYPE test [ <!ENTITY p '</p>'> ]>
-        // <root>&p;</root>
 
-        if let tokenizer::ElementEnd::Close(..) = end_token {
-            return Err(Error::UnexpectedEntityCloseTag(
-                ctx.doc.text_pos_at(token_range.start),
-            ));
-        } else {
-            unreachable!("should be already checked by the tokenizer");
+
+
+
+        match end_token {
+            tokenizer::ElementEnd::Close(..) => {
+                return Err(Error::UnexpectedEntityCloseTag(
+                    ctx.doc.text_pos_at(token_range.start),
+                ));
+            },
+            tokenizer::ElementEnd::Open | tokenizer::ElementEnd::Empty => {
+                unreachable!("should be already checked by the tokenizer");
+            },
         }
     }
 
@@ -885,8 +904,8 @@ fn process_element<'input>(
         }
         tokenizer::ElementEnd::Close(prefix, local) => {
             let parent_node = &mut ctx.doc.nodes[ctx.parent_id.get_usize()];
-            // should never panic as we start with the single prefix of the
-            // root node and always push another one when changing the parent
+
+
             let parent_prefix = *ctx.parent_prefixes.last().unwrap();
 
             {
@@ -902,20 +921,24 @@ fn process_element<'input>(
                     ));
                 }
             }
+
             ctx.awaiting_subtree.push(ctx.parent_id);
 
-            if let Some(id) = parent_node.parent {
-                ctx.parent_id = id;
-                ctx.parent_prefixes.pop();
-                debug_assert!(!ctx.parent_prefixes.is_empty());
-            } else {
-                // May occur in XML like this:
-                // <!DOCTYPE test [ <!ENTITY p '<p></p></p>'> ]>
-                // <p>&p;&p;
+            match parent_node.parent {
+                Some(id) => {
+                    ctx.parent_id = id;
+                    ctx.parent_prefixes.pop();
+                    debug_assert!(!ctx.parent_prefixes.is_empty());
+                },
+                ::core::option::Option::None => {
 
-                return Err(Error::UnexpectedEntityCloseTag(
-                    ctx.doc.text_pos_at(token_range.start),
-                ));
+
+
+
+                    return Err(Error::UnexpectedEntityCloseTag(
+                        ctx.doc.text_pos_at(token_range.start),
+                    ));
+                },
             }
         }
         tokenizer::ElementEnd::Open => {
@@ -949,6 +972,7 @@ impl Context<'_> {
             self.doc.nodes[self.parent_id.get_usize()].kind
         {
             let parent_ns = *namespaces;
+
             if self.namespace_start_idx == self.doc.namespaces.tree_order.len() {
                 return parent_ns;
             }
@@ -983,13 +1007,13 @@ fn resolve_attributes(namespaces: ShortRange, ctx: &mut Context) -> Result<Short
 
     for attr in ctx.current_attributes.drain(..) {
         let namespace_idx = if attr.prefix == NS_XML_PREFIX {
-            // The prefix 'xml' is by definition bound to the namespace name
-            // http://www.w3.org/XML/1998/namespace. This namespace is added
-            // to the document on creation and is always element 0.
+
+
+
             Some(NamespaceIdx(0))
         } else if attr.prefix.is_empty() {
-            // 'The namespace name for an unprefixed attribute name
-            // always has no value.'
+
+
             None
         } else {
             get_ns_idx_by_prefix(namespaces, attr.range.start, attr.prefix, &ctx.doc)?
@@ -1000,9 +1024,9 @@ fn resolve_attributes(namespaces: ShortRange, ctx: &mut Context) -> Result<Short
             local_name: attr.local,
         };
 
-        // Check for duplicated attributes.
-        if ctx.doc.attributes[start_idx..].iter().any(|attr| {
-            attr.name.as_expanded_name(&ctx.doc) == attr_name.as_expanded_name(&ctx.doc)
+
+        if ctx.doc.attributes[start_idx..].iter().any(|attr_2| {
+            attr_2.name.as_expanded_name(&ctx.doc) == attr_name.as_expanded_name(&ctx.doc)
         }) {
             let pos = ctx.doc.text_pos_at(attr.range.start);
             return Err(Error::DuplicatedAttribute(attr.local.to_string(), pos));
@@ -1025,15 +1049,16 @@ fn process_text<'input>(
     range: Range<usize>,
     ctx: &mut Context<'input>,
 ) -> Result<()> {
-    // Add text as is if it has only valid characters.
+
     if memchr2(b'&', b'\r', text.as_bytes()).is_none() {
         ctx.append_text(Cow::Borrowed(text), range)?;
         return Ok(());
     }
 
     let mut text_buffer = TextBuffer::new();
-    let mut is_as_is = false; // TODO: explain
+    let mut is_as_is = false;
     let mut stream = Stream::from_substr(ctx.doc.text, range.clone());
+
     while !stream.at_end() {
         match parse_next_chunk(&mut stream, &ctx.entities)? {
             NextChunk::Byte(c) => {
@@ -1046,13 +1071,16 @@ fn process_text<'input>(
             }
             NextChunk::Char(c) => {
                 for b in CharToBytes::new(c) {
-                    if ctx.loop_detector.depth > 0 {
-                        text_buffer.push_from_text(b, stream.at_end());
-                    } else {
-                        // Characters not from entity should be added as is.
-                        // Not sure why... At least `lxml` produces the same result.
-                        text_buffer.push_raw(b);
-                        is_as_is = true;
+                    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(ctx.loop_detector.depth), &::core::convert::identity(0)); _explicit_ordering } {
+                        ::core::cmp::Ordering::Greater => {
+                            text_buffer.push_from_text(b, stream.at_end());
+                        },
+                        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+
+
+                            text_buffer.push_raw(b);
+                            is_as_is = true;
+                        },
                     }
                 }
             }
@@ -1066,16 +1094,16 @@ fn process_text<'input>(
                 ctx.loop_detector.inc_references(&stream)?;
                 ctx.loop_detector.inc_depth(&stream)?;
 
-                let text = if fragment.range().start == 0 {
+                let text_2 = if fragment.range().start == 0 {
                     fragment.as_str()
                 } else {
                     ctx.doc.text
                 };
 
-                let mut stream = Stream::from_substr(text, fragment.range());
+                let mut stream_2 = Stream::from_substr(text_2, fragment.range());
                 let prev_tag_name = ctx.tag_name;
                 ctx.tag_name = TagNameSpan::new_null();
-                tokenizer::parse_content(&mut stream, ctx)?;
+                tokenizer::parse_content(&mut stream_2, ctx)?;
                 ctx.tag_name = prev_tag_name;
                 text_buffer.clear();
 
@@ -1091,8 +1119,8 @@ fn process_text<'input>(
     Ok(())
 }
 
-// While the whole purpose of CDATA is to indicate to an XML library that this text
-// has to be stored as is, carriage return (`\r`) is still has to be replaced with `\n`.
+
+
 fn process_cdata<'input>(
     mut text: &'input str,
     range: Range<usize>,
@@ -1100,10 +1128,13 @@ fn process_cdata<'input>(
 ) -> Result<()> {
     let mut pos = memchr(b'\r', text.as_bytes());
 
-    // Add text as is if it has only valid characters.
-    if pos.is_none() {
-        ctx.append_text(Cow::Borrowed(text), range)?;
-        return Ok(());
+
+    match pos {
+        ::core::option::Option::None => {
+            ctx.append_text(Cow::Borrowed(text), range)?;
+            return Ok(());
+        },
+        ::core::option::Option::Some(_) => {},
     }
 
     let mut buf = String::new();
@@ -1138,41 +1169,45 @@ enum NextChunk<'a> {
 fn parse_next_chunk<'a>(stream: &mut Stream<'a>, entities: &[Entity<'a>]) -> Result<NextChunk<'a>> {
     debug_assert!(!stream.at_end());
 
-    // Safe, because we already checked that stream is not at the end.
-    // But we have an additional `debug_assert` above just in case.
+
+
     let c = stream.curr_byte_unchecked();
 
-    // Check for character/entity references.
-    if c == b'&' {
-        let start = stream.pos();
-        match stream.consume_reference() {
-            Some(Reference::Char(ch)) => Ok(NextChunk::Char(ch)),
-            Some(Reference::Entity(name)) => entities
-                .iter()
-                .find(|e| e.name == name)
-                .map(|e| NextChunk::Text(e.value))
-                .ok_or_else(|| {
+
+    match c {
+        b'&' => {
+            let start = stream.pos();
+
+            match stream.consume_reference() {
+                Some(Reference::Char(ch)) => Ok(NextChunk::Char(ch)),
+                Some(Reference::Entity(name)) => entities
+                    .iter()
+                    .find(|e| e.name == name)
+                    .map(|e| NextChunk::Text(e.value))
+                    .ok_or_else(|| {
+                        let pos = stream.gen_text_pos_from(start);
+                        Error::UnknownEntityReference(<::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(name), pos)
+                    }),
+                None => {
                     let pos = stream.gen_text_pos_from(start);
-                    Error::UnknownEntityReference(name.into(), pos)
-                }),
-            None => {
-                let pos = stream.gen_text_pos_from(start);
-                Err(Error::MalformedEntityReference(pos))
+                    Err(Error::MalformedEntityReference(pos))
+                }
             }
-        }
-    } else {
-        stream.advance(1);
-        Ok(NextChunk::Byte(c))
+        },
+        _ => {
+            stream.advance(1);
+            Ok(NextChunk::Byte(c))
+        },
     }
 }
 
-// https://www.w3.org/TR/REC-xml/#AVNormalize
+
 fn normalize_attribute<'input>(
     text: StrSpan<'input>,
     ctx: &mut Context<'input>,
 ) -> Result<StringStorage<'input>> {
-    // We assume that `&` indicates an entity or a character reference.
-    // But in rare cases it can be just an another character.
+
+
     if memchr2(b'&', b'\t', text.as_str().as_bytes()).is_some() || memchr2(b'\n', b'\r', text.as_str().as_bytes()).is_some() {
         let mut text_buffer = TextBuffer::new();
         _normalize_attribute(text, &mut text_buffer, ctx)?;
@@ -1184,35 +1219,46 @@ fn normalize_attribute<'input>(
 
 fn _normalize_attribute(text: StrSpan, buffer: &mut TextBuffer, ctx: &mut Context) -> Result<()> {
     let mut stream = Stream::from_substr(ctx.doc.text, text.range());
+
     while !stream.at_end() {
-        // Safe, because we already checked that the stream is not at the end.
+
         let c = stream.curr_byte_unchecked();
 
-        if c != b'&' {
-            stream.advance(1);
-            buffer.push_from_attr(c, stream.curr_byte().ok());
-            continue;
+        match c {
+            b'&' => {},
+            _ => {
+                stream.advance(1);
+                buffer.push_from_attr(c, stream.curr_byte().ok());
+                continue;
+            },
         }
 
-        // Check for character/entity references.
+
         let start = stream.pos();
+
         match stream.consume_reference() {
             Some(Reference::Char(ch)) => {
                 for b in CharToBytes::new(ch) {
-                    if ctx.loop_detector.depth > 0 {
-                        // Escaped `<` inside an ENTITY is an error.
-                        // Escaped `<` outside an ENTITY is ok.
-                        if b == b'<' {
-                            return Err(Error::InvalidAttributeValue(
-                                stream.gen_text_pos_from(start),
-                            ));
-                        }
+                    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(ctx.loop_detector.depth), &::core::convert::identity(0)); _explicit_ordering } {
+                        ::core::cmp::Ordering::Greater => {
 
-                        buffer.push_from_attr(b, None);
-                    } else {
-                        // Characters not from entity should be added as is.
-                        // Not sure why... At least `lxml` produces the same results.
-                        buffer.push_raw(b);
+
+                            match b {
+                                b'<' => {
+                                    return Err(Error::InvalidAttributeValue(
+                                        stream.gen_text_pos_from(start),
+                                    ));
+                                },
+                                _ => {},
+                            }
+
+                            buffer.push_from_attr(b, None);
+                        },
+                        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+
+
+                            buffer.push_raw(b);
+                        },
                     }
                 }
             }
@@ -1225,7 +1271,7 @@ fn _normalize_attribute(text: StrSpan, buffer: &mut TextBuffer, ctx: &mut Contex
                 }
                 None => {
                     let pos = stream.gen_text_pos_from(start);
-                    return Err(Error::UnknownEntityReference(name.into(), pos));
+                    return Err(Error::UnknownEntityReference(<::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(name), pos));
                 }
             },
             None => {
@@ -1244,10 +1290,10 @@ fn get_ns_idx_by_prefix(
     prefix: &str,
     doc: &Document<'_>,
 ) -> Result<Option<NamespaceIdx>> {
-    // Prefix CAN be empty when the default namespace was defined.
-    //
-    // Example:
-    // <e xmlns='http://www.w3.org'/>
+
+
+
+
     let prefix_opt = if prefix.is_empty() {
         None
     } else {
@@ -1259,28 +1305,29 @@ fn get_ns_idx_by_prefix(
         .find(|idx| doc.namespaces.get(**idx).name == prefix_opt);
 
     match idx {
-        Some(idx) => Ok(Some(*idx)),
+        Some(idx_2) => Ok(Some(*idx_2)),
         None => {
             if !prefix.is_empty() {
-                // If an URI was not found and prefix IS NOT empty than
-                // we have an unknown namespace.
-                //
-                // Example:
-                // <e random:a='b'/>
+
+
+
+
+
                 let pos = doc.text_pos_at(prefix_pos);
                 Err(Error::UnknownNamespace(prefix.to_string(), pos))
             } else {
-                // If an URI was not found and prefix IS empty than
-                // an element or an attribute doesn't have a namespace.
-                //
-                // Example:
-                // <e a='b'/>
+
+
+
+
+
                 Ok(None)
             }
         }
     }
 }
 
+#[must_use]
 fn gen_qname_string(prefix: &str, local: &str) -> String {
     if prefix.is_empty() {
         local.to_string()
@@ -1297,6 +1344,7 @@ struct CharToBytes {
 
 impl CharToBytes {
     #[inline]
+    #[must_use]
     fn new(c: char) -> Self {
         let mut buf = [0xFF; 4];
         c.encode_utf8(&mut buf);
@@ -1310,15 +1358,21 @@ impl Iterator for CharToBytes {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if self.idx < 4 {
-            let b = self.buf[self.idx as usize];
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(self.idx), &::core::convert::identity(4)); _explicit_ordering } {
+            ::core::cmp::Ordering::Less => {
+                let b = self.buf[<usize as ::core::convert::From<::core::primitive::u8>>::from(self.idx)];
 
-            if b != 0xFF {
-                self.idx += 1;
-                return Some(b);
-            } else {
-                self.idx = 4;
-            }
+                match b {
+                    0xFF => {
+                        self.idx = 4;
+                    },
+                    _ => {
+                        self.idx += 1;
+                        return Some(b);
+                    },
+                }
+            },
+            ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
         }
 
         None
@@ -1331,6 +1385,7 @@ struct TextBuffer {
 
 impl TextBuffer {
     #[inline]
+    #[must_use]
     fn new() -> Self {
         TextBuffer {
             buffer: Vec::with_capacity(32),
@@ -1343,12 +1398,12 @@ impl TextBuffer {
     }
 
     fn push_from_attr(&mut self, mut current: u8, next: Option<u8>) {
-        // \r in \r\n should be ignored.
+
         if current == b'\r' && next == Some(b'\n') {
             return;
         }
 
-        // \n, \r and \t should be converted into spaces.
+
         current = match current {
             b'\n' | b'\r' | b'\t' => b' ',
             _ => current,
@@ -1357,9 +1412,9 @@ impl TextBuffer {
         self.buffer.push(current);
     }
 
-    // Translate \r\n and any \r that is not followed by \n into a single \n character.
-    //
-    // https://www.w3.org/TR/xml/#sec-line-ends
+
+
+
     fn push_from_text(&mut self, c: u8, at_end: bool) {
         if self.buffer.last() == Some(&b'\r') {
             let idx = self.buffer.len() - 1;
@@ -1383,13 +1438,14 @@ impl TextBuffer {
     }
 
     #[inline]
+    #[must_use]
     fn is_empty(&self) -> bool {
         self.buffer.is_empty()
     }
 
     #[inline]
     fn finish(&mut self) -> String {
-        // `unwrap` is safe, because buffer must contain a valid UTF-8 string.
+
         String::from_utf8(take(&mut self.buffer)).unwrap()
     }
 }

@@ -35,10 +35,12 @@ impl FamilyThemeSupportSummary {
         }
     }
 
+    #[must_use]
     pub(super) const fn has_typed(self) -> bool {
         self.typed
     }
 
+    #[must_use]
     pub(super) const fn has_unsupported(self) -> bool {
         self.unsupported
     }
@@ -64,6 +66,7 @@ impl FamilyThemePaintKind {
         Self::Pattern,
     ];
 
+    #[must_use]
     fn from_specified(paint: &Specified<CanvasPaint>) -> Option<Self> {
         match paint {
             Specified::Unspecified => None,
@@ -78,10 +81,12 @@ impl FamilyThemePaintKind {
 }
 
 impl FamilyThemeRuleFacet {
+    #[must_use]
     pub(crate) fn fill(paint: &Specified<CanvasPaint>) -> Option<Self> {
         FamilyThemePaintKind::from_specified(paint).map(Self::Fill)
     }
 
+    #[must_use]
     pub(crate) fn stroke(paint: &Specified<CanvasPaint>) -> Option<Self> {
         FamilyThemePaintKind::from_specified(paint).map(Self::Stroke)
     }
@@ -116,6 +121,7 @@ pub(crate) enum FamilyThemeSelectorShape {
 }
 
 impl FamilyThemeSelectorShape {
+    #[must_use]
     fn from_rule(rule: &ThemeRule) -> Self {
         match rule.ordinal() {
             None => Self::Static {
@@ -132,6 +138,7 @@ impl FamilyThemeSelectorShape {
         }
     }
 
+    #[must_use]
     pub(crate) const fn ordinal_domain_intersects_occurrence_count(
         self,
         occurrence_count: usize,
@@ -175,6 +182,7 @@ pub(crate) struct FamilyThemeRoute {
 }
 
 impl FamilyThemeRoute {
+    #[must_use]
     const fn new(mechanism: FamilyThemeMechanism, disposition: FamilyThemeDisposition) -> Self {
         Self {
             mechanism,
@@ -182,20 +190,24 @@ impl FamilyThemeRoute {
         }
     }
 
+    #[must_use]
     pub(crate) const fn mechanism(self) -> FamilyThemeMechanism {
         self.mechanism
     }
 
+    #[must_use]
     pub(crate) const fn disposition(self) -> FamilyThemeDisposition {
         self.disposition
     }
 }
 
+#[must_use]
 pub(super) fn compile_base_typography_routes(
     family: DiagramFamilyId,
     style: &TextStyle,
 ) -> Vec<FamilyThemeRoute> {
     let mut routes = Vec::new();
+
     if style.is_specified(ThemeTypographyProperty::FontStack) {
         let disposition = classify_base_typography(family, ThemeTypographyProperty::FontStack);
         routes.push(FamilyThemeRoute::new(
@@ -203,39 +215,51 @@ pub(super) fn compile_base_typography_routes(
             disposition,
         ));
     }
+
     if style.is_specified(ThemeTypographyProperty::FontSize) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::FontSize);
     }
+
     if style.is_specified(ThemeTypographyProperty::FontWeight) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::FontWeight);
     }
+
     if style.is_specified(ThemeTypographyProperty::FontStyle) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::FontStyle);
     }
+
     if style.is_specified(ThemeTypographyProperty::LineHeight) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::LineHeight);
     }
+
     if style.is_specified(ThemeTypographyProperty::LetterSpacing) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::LetterSpacing);
     }
+
     if style.is_specified(ThemeTypographyProperty::WordSpacing) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::WordSpacing);
     }
+
     if style.is_specified(ThemeTypographyProperty::Transform) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::Transform);
     }
+
     if style.is_specified(ThemeTypographyProperty::Decoration) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::Decoration);
     }
+
     if style.is_specified(ThemeTypographyProperty::TextAlign) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::TextAlign);
     }
+
     if style.is_specified(ThemeTypographyProperty::WhiteSpace) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::WhiteSpace);
     }
+
     if style.is_specified(ThemeTypographyProperty::Wrap) {
         push_base_typography(&mut routes, family, ThemeTypographyProperty::Wrap);
     }
+
     routes
 }
 
@@ -250,6 +274,7 @@ fn push_base_typography(
     ));
 }
 
+#[must_use]
 pub(super) fn compile_rule_routes(
     family: DiagramFamilyId,
     rule_index: usize,
@@ -259,26 +284,35 @@ pub(super) fn compile_rule_routes(
     let selector = FamilyThemeSelectorShape::from_rule(rule);
     let style = rule.style();
     let mut routes = Vec::new();
-    if let Some(kind) = FamilyThemePaintKind::from_specified(&style.paint.fill) {
-        push_rule_facet(
-            &mut routes,
-            family,
-            rule_index,
-            target,
-            selector,
-            FamilyThemeRuleFacet::Fill(kind),
-        );
+
+    match FamilyThemePaintKind::from_specified(&style.paint.fill) {
+        Some(kind) => {
+            push_rule_facet(
+                &mut routes,
+                family,
+                rule_index,
+                target,
+                selector,
+                FamilyThemeRuleFacet::Fill(kind),
+            );
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(kind) = FamilyThemePaintKind::from_specified(&style.stroke.paint) {
-        push_rule_facet(
-            &mut routes,
-            family,
-            rule_index,
-            target,
-            selector,
-            FamilyThemeRuleFacet::Stroke(kind),
-        );
+
+    match FamilyThemePaintKind::from_specified(&style.stroke.paint) {
+        Some(kind) => {
+            push_rule_facet(
+                &mut routes,
+                family,
+                rule_index,
+                target,
+                selector,
+                FamilyThemeRuleFacet::Stroke(kind),
+            );
+        },
+        ::core::option::Option::None => {},
     }
+
     push_specified_rule_facet(
         &mut routes,
         family,
@@ -432,6 +466,7 @@ fn push_rule_facet(
     ));
 }
 
+#[must_use]
 pub(super) fn compile_ordinal_palette_route(
     family: DiagramFamilyId,
     target: ThemeTarget,
@@ -442,6 +477,7 @@ pub(super) fn compile_ordinal_palette_route(
     )
 }
 
+#[must_use]
 fn classify_ordinal_palette(
     family: DiagramFamilyId,
     target: ThemeTarget,
@@ -449,6 +485,7 @@ fn classify_ordinal_palette(
     if family == DiagramFamilyId::AGENTFLOW {
         return classify_ordinal_palette(DiagramFamilyId::FLOWCHART, target);
     }
+
     if family == DiagramFamilyId::STATE {
         return if matches!(
             target,
@@ -467,6 +504,7 @@ fn classify_ordinal_palette(
             FamilyThemeDisposition::Unsupported
         };
     }
+
     if (matches!(
         family,
         DiagramFamilyId::FLOWCHART
@@ -495,6 +533,7 @@ fn classify_ordinal_palette(
 ///
 /// This deliberately returns only aggregate disposition presence. Selectors, paint classes, route
 /// identities, and writer evidence remain private implementation details.
+#[must_use]
 pub(super) fn summarize_theme_support(
     family: DiagramFamilyId,
     target: ThemeTarget,
@@ -515,20 +554,24 @@ pub(super) fn summarize_theme_support(
     for_each_matrix_selector(|selector| {
         for_each_public_rule_facet(rule_facet, |matrix_facet| {
             let mut disposition = classify_rule_facet(family, target, selector, matrix_facet);
+
             if effect_binding.is_some_and(|binding| {
                 disposition != FamilyThemeDisposition::TypedAdapter
                     || binding != FamilyThemeDisposition::TypedAdapter
             }) {
                 disposition = FamilyThemeDisposition::Unsupported;
             }
+
             summary.record(disposition);
         });
     });
+
     if family == DiagramFamilyId::STATE {
-        // Paint already accounts for unsupported value kinds. Other facets do not encode Clear
-        // or exact terminal-surface admission, so State's typed routes still have a partial domain.
+
+
         summary.record(FamilyThemeDisposition::Unsupported);
     }
+
     summary
 }
 
@@ -536,11 +579,12 @@ pub(super) fn summarize_theme_support(
 ///
 /// The property match is only a contract-to-renderer vocabulary translation. Route ownership
 /// remains exclusively defined by `classify_base_typography`.
+#[must_use]
 pub(super) fn summarize_base_typography_support(
     family: DiagramFamilyId,
     property: ThemeSupportBaseTypographyPropertyV1,
 ) -> FamilyThemeSupportSummary {
-    let property = match property {
+    let property_2 = match property {
         ThemeSupportBaseTypographyPropertyV1::FontStack => ThemeTypographyProperty::FontStack,
         ThemeSupportBaseTypographyPropertyV1::FontSize => ThemeTypographyProperty::FontSize,
         ThemeSupportBaseTypographyPropertyV1::FontWeight => ThemeTypographyProperty::FontWeight,
@@ -558,7 +602,7 @@ pub(super) fn summarize_base_typography_support(
         _ => return FamilyThemeSupportSummary::default(),
     };
     let mut summary = FamilyThemeSupportSummary::default();
-    summary.record(classify_base_typography(family, property));
+    summary.record(classify_base_typography(family, property_2));
     summary
 }
 
@@ -625,6 +669,7 @@ fn for_each_public_rule_facet(
     }
 }
 
+#[must_use]
 pub(super) fn compile_effect_binding_route(
     family: DiagramFamilyId,
     binding_index: usize,
@@ -639,13 +684,16 @@ pub(super) fn compile_effect_binding_route(
     )
 }
 
+#[must_use]
 fn classify_effect_binding(family: DiagramFamilyId, target: ThemeTarget) -> FamilyThemeDisposition {
     if family == DiagramFamilyId::AGENTFLOW {
         return classify_effect_binding(DiagramFamilyId::FLOWCHART, target);
     }
+
     if family == DiagramFamilyId::USECASE && target == ThemeTarget::Node {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if (family == DiagramFamilyId::STATE && target == ThemeTarget::State)
         || (family == DiagramFamilyId::SEQUENCE
             && matches!(
@@ -683,6 +731,7 @@ fn classify_effect_binding(family: DiagramFamilyId, target: ThemeTarget) -> Fami
     }
 }
 
+#[must_use]
 fn classify_base_typography(
     family: DiagramFamilyId,
     property: ThemeTypographyProperty,
@@ -690,6 +739,7 @@ fn classify_base_typography(
     if family == DiagramFamilyId::AGENTFLOW {
         return classify_base_typography(DiagramFamilyId::FLOWCHART, property);
     }
+
     if family == DiagramFamilyId::USECASE
         && matches!(
             property,
@@ -698,6 +748,7 @@ fn classify_base_typography(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::STATE {
         return match property {
             ThemeTypographyProperty::FontStack
@@ -714,6 +765,7 @@ fn classify_base_typography(
             | ThemeTypographyProperty::Wrap => FamilyThemeDisposition::Unsupported,
         };
     }
+
     match property {
         ThemeTypographyProperty::FontStack => classify_font_stack(family),
         ThemeTypographyProperty::FontSize => classify_font_size(family),
@@ -730,6 +782,7 @@ fn classify_base_typography(
     }
 }
 
+#[must_use]
 fn classify_font_stack(family: DiagramFamilyId) -> FamilyThemeDisposition {
     if matches!(
         family,
@@ -768,9 +821,11 @@ fn classify_font_stack(family: DiagramFamilyId) -> FamilyThemeDisposition {
     ) {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     FamilyThemeDisposition::Unsupported
 }
 
+#[must_use]
 fn classify_font_size(family: DiagramFamilyId) -> FamilyThemeDisposition {
     if matches!(
         family,
@@ -797,10 +852,12 @@ fn classify_font_size(family: DiagramFamilyId) -> FamilyThemeDisposition {
     ) {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     FamilyThemeDisposition::Unsupported
 }
 
 /// State's possible terminal consumers, before source ownership and value-dependent admission.
+#[must_use]
 fn classify_state_rule_facet(
     target: ThemeTarget,
     facet: FamilyThemeRuleFacet,
@@ -850,8 +907,8 @@ fn classify_state_rule_facet(
                 && classify_base_typography(DiagramFamilyId::STATE, property)
                     == FamilyThemeDisposition::TypedAdapter
         }
-        // Clear suppresses a target binding on all node surfaces. A non-clear graph is admitted
-        // only for a classic State rectangle; the terminal adapter retains that distinction.
+
+
         FamilyThemeRuleFacet::Effect => matches!(
             target,
             ThemeTarget::State
@@ -860,6 +917,7 @@ fn classify_state_rule_facet(
                 | ThemeTarget::Note
         ),
     };
+
     if supported {
         FamilyThemeDisposition::TypedAdapter
     } else {
@@ -867,6 +925,7 @@ fn classify_state_rule_facet(
     }
 }
 
+#[must_use]
 pub(super) fn classify_rule_facet(
     family: DiagramFamilyId,
     target: ThemeTarget,
@@ -874,9 +933,10 @@ pub(super) fn classify_rule_facet(
     facet: FamilyThemeRuleFacet,
 ) -> FamilyThemeDisposition {
     if family == DiagramFamilyId::AGENTFLOW {
-        // Agentflow prepares and emits the shared Flowchart artifact without changing identity.
+
         return classify_rule_facet(DiagramFamilyId::FLOWCHART, target, selector, facet);
     }
+
     let static_default = matches!(
         selector,
         FamilyThemeSelectorShape::Static {
@@ -893,6 +953,7 @@ pub(super) fn classify_rule_facet(
             FamilyThemePaintKind::Solid | FamilyThemePaintKind::Transparent
         )
     );
+
     if family == DiagramFamilyId::USECASE && static_default {
         let body = matches!(
             target,
@@ -935,15 +996,18 @@ pub(super) fn classify_rule_facet(
             FamilyThemeRuleFacet::Effect => target == ThemeTarget::Node,
             _ => false,
         };
+
         if supported {
             return FamilyThemeDisposition::TypedAdapter;
         }
     }
+
     if static_default {
         let scalar_fill =
             solid_fill || facet == FamilyThemeRuleFacet::Fill(FamilyThemePaintKind::Clear);
         let scalar_stroke =
             solid_stroke || facet == FamilyThemeRuleFacet::Stroke(FamilyThemePaintKind::Clear);
+
         if (family == DiagramFamilyId::RADAR
             && ((target == ThemeTarget::Legend && scalar_fill)
                 || (target == ThemeTarget::ChartSeries && (scalar_fill || scalar_stroke))))
@@ -957,6 +1021,7 @@ pub(super) fn classify_rule_facet(
             return FamilyThemeDisposition::TypedAdapter;
         }
     }
+
     if matches!(family, DiagramFamilyId::CYNEFIN | DiagramFamilyId::WARDLEY) && static_default {
         let fill = matches!(
             facet,
@@ -974,6 +1039,7 @@ pub(super) fn classify_rule_facet(
                     | FamilyThemePaintKind::Clear
             )
         );
+
         if (matches!(target, ThemeTarget::Node | ThemeTarget::Marker) && (fill || stroke))
             || (matches!(
                 target,
@@ -987,6 +1053,7 @@ pub(super) fn classify_rule_facet(
             return FamilyThemeDisposition::TypedAdapter;
         }
     }
+
     if static_default
         && ((matches!(
             family,
@@ -1026,6 +1093,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::ER
         && target == ThemeTarget::Title
         && matches!(
@@ -1043,6 +1111,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(family, DiagramFamilyId::TREE_VIEW | DiagramFamilyId::PACKET)
         && target == ThemeTarget::Node
         && matches!(
@@ -1062,6 +1131,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if ((family == DiagramFamilyId::WARDLEY
         && matches!(target, ThemeTarget::Text | ThemeTarget::NodeLabel)
         && matches!(
@@ -1093,6 +1163,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::XY_CHART
         && matches!(
             target,
@@ -1122,6 +1193,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if target == ThemeTarget::AxisTick {
         return if family == DiagramFamilyId::XY_CHART
             && matches!(
@@ -1147,9 +1219,11 @@ pub(super) fn classify_rule_facet(
             FamilyThemeDisposition::Unsupported
         };
     }
+
     if matches!(target, ThemeTarget::AxisTitle | ThemeTarget::AxisLabel) {
         return FamilyThemeDisposition::Unsupported;
     }
+
     if family == DiagramFamilyId::XY_CHART
         && target == ThemeTarget::ChartSeries
         && matches!(
@@ -1183,7 +1257,7 @@ pub(super) fn classify_rule_facet(
         return FamilyThemeDisposition::TypedAdapter;
     }
 
-    // Plot-kind variants have no corresponding terminal in other family/target domains.
+
     if matches!(
         selector,
         FamilyThemeSelectorShape::Static {
@@ -1199,6 +1273,7 @@ pub(super) fn classify_rule_facet(
     if family == DiagramFamilyId::STATE {
         return classify_state_rule_facet(target, facet);
     }
+
     if matches!(
         family,
         DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE
@@ -1218,6 +1293,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::FLOWCHART
         && matches!(target, ThemeTarget::NodeLabel | ThemeTarget::EdgeLabel)
         && facet == FamilyThemeRuleFacet::Effect
@@ -1235,6 +1311,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::PACKET
         && matches!(
             target,
@@ -1258,6 +1335,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SANKEY
         && target == ThemeTarget::Text
         && matches!(
@@ -1275,6 +1353,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::INFO
         && target == ThemeTarget::Text
         && matches!(
@@ -1292,6 +1371,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::BLOCK | DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE
@@ -1311,6 +1391,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::BLOCK | DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE
@@ -1346,6 +1427,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SEQUENCE
         && matches!(
             target,
@@ -1371,6 +1453,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SEQUENCE
         && matches!(
             selector,
@@ -1394,6 +1477,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SEQUENCE
         && matches!(
             target,
@@ -1414,6 +1498,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SEQUENCE
         && target == ThemeTarget::SequenceNumberLabel
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -1426,6 +1511,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SEQUENCE
         && target == ThemeTarget::Message
         && matches!(
@@ -1446,6 +1532,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SEQUENCE
         && target == ThemeTarget::Lifeline
         && matches!(
@@ -1465,6 +1552,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SEQUENCE
         && target == ThemeTarget::Lifeline
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -1472,6 +1560,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SEQUENCE
         && matches!(
             target,
@@ -1487,6 +1576,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SEQUENCE
         && matches!(
             target,
@@ -1508,6 +1598,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::SEQUENCE
         && matches!(
             target,
@@ -1531,6 +1622,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE
@@ -1552,6 +1644,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE
@@ -1566,6 +1659,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::ARCHITECTURE
         && target == ThemeTarget::Cluster
         && matches!(
@@ -1589,6 +1683,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::ARCHITECTURE
         && target == ThemeTarget::Edge
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -1601,6 +1696,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::ARCHITECTURE
         && target == ThemeTarget::Text
         && matches!(
@@ -1618,6 +1714,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::ARCHITECTURE
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
         && matches!(
@@ -1639,6 +1736,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::CLASS
         && matches!(
             selector,
@@ -1668,6 +1766,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::MINDMAP
         && target == ThemeTarget::Node
         && matches!(
@@ -1687,6 +1786,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if ((family == DiagramFamilyId::MINDMAP
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None }))
         || (family == DiagramFamilyId::GIT_GRAPH
@@ -1707,6 +1807,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::GIT_GRAPH
         && matches!(
             selector,
@@ -1731,6 +1832,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::TREE_VIEW
         && matches!(
             selector,
@@ -1764,6 +1866,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::CLASS
         && target == ThemeTarget::Edge
         && matches!(
@@ -1776,6 +1879,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(family, DiagramFamilyId::GANTT | DiagramFamilyId::KANBAN)
         && target == ThemeTarget::Task
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -1783,6 +1887,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::KANBAN
         && target == ThemeTarget::Task
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -1795,6 +1900,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::KANBAN
         && target == ThemeTarget::Task
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -1807,6 +1913,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::GANTT
         && target == ThemeTarget::Task
         && (matches!(
@@ -1835,6 +1942,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::GANTT
         && target == ThemeTarget::Title
         && matches!(
@@ -1852,6 +1960,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::GANTT
         && target == ThemeTarget::Text
         && matches!(
@@ -1869,6 +1978,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::KANBAN
         && target == ThemeTarget::TaskLabel
         && matches!(
@@ -1884,6 +1994,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::TIMELINE
         && target == ThemeTarget::TimelineEvent
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -1894,6 +2005,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::TIMELINE
         && target == ThemeTarget::TimelineEvent
         && matches!(
@@ -1911,6 +2023,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::TIMELINE
         && matches!(target, ThemeTarget::TimelineEvent | ThemeTarget::Text)
         && matches!(
@@ -1928,6 +2041,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::TREE_VIEW
         && target == ThemeTarget::Edge
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -1935,6 +2049,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::JOURNEY
@@ -1958,6 +2073,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::JOURNEY
         && target == ThemeTarget::JourneyTask
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -1965,6 +2081,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::JOURNEY
         && target == ThemeTarget::JourneyTask
         && matches!(
@@ -1984,6 +2101,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::QUADRANT_CHART | DiagramFamilyId::XY_CHART
@@ -2005,6 +2123,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::QUADRANT_CHART | DiagramFamilyId::XY_CHART
@@ -2024,6 +2143,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::QUADRANT_CHART
         && target == ThemeTarget::ChartSeries
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -2031,6 +2151,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::QUADRANT_CHART
         && target == ThemeTarget::ChartSeries
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -2043,6 +2164,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::C4
         && matches!(
             target,
@@ -2068,6 +2190,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::C4
         && matches!(
             target,
@@ -2088,6 +2211,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::C4
         && target == ThemeTarget::Cluster
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -2095,6 +2219,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::C4
         && target == ThemeTarget::Cluster
         && matches!(selector, FamilyThemeSelectorShape::Static { variant: None })
@@ -2109,6 +2234,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::TREEMAP && target == ThemeTarget::Title {
         return if static_default
             && matches!(
@@ -2122,6 +2248,7 @@ pub(super) fn classify_rule_facet(
             FamilyThemeDisposition::Unsupported
         };
     }
+
     if family == DiagramFamilyId::TREEMAP
         && target == ThemeTarget::Text
         && matches!(
@@ -2139,6 +2266,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::VENN && target == ThemeTarget::Title {
         return if static_default
             && matches!(
@@ -2152,6 +2280,7 @@ pub(super) fn classify_rule_facet(
             FamilyThemeDisposition::Unsupported
         };
     }
+
     if family == DiagramFamilyId::VENN
         && target == ThemeTarget::Text
         && matches!(
@@ -2169,8 +2298,9 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::ZENUML {
-        let static_default = matches!(
+        let static_default_2 = matches!(
             selector,
             FamilyThemeSelectorShape::Static {
                 variant: None | Some(ThemeVariant::Default)
@@ -2210,12 +2340,13 @@ pub(super) fn classify_rule_facet(
             ),
             _ => false,
         };
-        return if static_default && supported_paint {
+        return if static_default_2 && supported_paint {
             FamilyThemeDisposition::TypedAdapter
         } else {
             FamilyThemeDisposition::Unsupported
         };
     }
+
     if family == DiagramFamilyId::CYNEFIN
         && target == ThemeTarget::Text
         && matches!(
@@ -2233,6 +2364,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::EVENT_MODELING | DiagramFamilyId::ISHIKAWA
@@ -2251,6 +2383,7 @@ pub(super) fn classify_rule_facet(
             FamilyThemeDisposition::Unsupported
         };
     }
+
     if family == DiagramFamilyId::REQUIREMENT
         && target == ThemeTarget::Text
         && matches!(
@@ -2268,6 +2401,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::REQUIREMENT
         && matches!(target, ThemeTarget::Requirement | ThemeTarget::Relation)
         && matches!(
@@ -2287,6 +2421,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::ER
         && target == ThemeTarget::Entity
         && matches!(
@@ -2306,6 +2441,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::ER
         && target == ThemeTarget::Table
         && matches!(
@@ -2323,6 +2459,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::ER
         && target == ThemeTarget::Relation
         && matches!(
@@ -2342,6 +2479,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::ER
         && matches!(
             (target, selector, facet),
@@ -2358,6 +2496,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         (family, target),
         (DiagramFamilyId::PIE, ThemeTarget::PieSlice)
@@ -2375,6 +2514,7 @@ pub(super) fn classify_rule_facet(
     ) {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         (family, target),
         (DiagramFamilyId::RAILROAD, ThemeTarget::Title)
@@ -2389,6 +2529,7 @@ pub(super) fn classify_rule_facet(
     ) {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::RAILROAD
         && target == ThemeTarget::Text
         && matches!(
@@ -2406,6 +2547,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::PIE
         && matches!(
             target,
@@ -2430,6 +2572,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::RADAR
         && target == ThemeTarget::Axis
         && matches!(
@@ -2449,6 +2592,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::RADAR
         && matches!(target, ThemeTarget::Title | ThemeTarget::Text)
         && matches!(
@@ -2466,6 +2610,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if family == DiagramFamilyId::BLOCK
         && matches!(
             target,
@@ -2489,6 +2634,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE
@@ -2506,6 +2652,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE | DiagramFamilyId::BLOCK
@@ -2527,7 +2674,8 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
-    // Node paint is resolved per emitted occurrence, including ordinal fill winners.
+
+
     if matches!(
         family,
         DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE
@@ -2548,6 +2696,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE
@@ -2569,6 +2718,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     if matches!(
         family,
         DiagramFamilyId::FLOWCHART | DiagramFamilyId::SWIMLANE
@@ -2588,6 +2738,7 @@ pub(super) fn classify_rule_facet(
     {
         return FamilyThemeDisposition::TypedAdapter;
     }
+
     FamilyThemeDisposition::Unsupported
 }
 

@@ -28,6 +28,7 @@ pub(crate) struct ClassThemeEvidenceRecorder {
 }
 
 impl ClassThemeEvidenceRecorder {
+    #[must_use]
     pub(crate) fn new(
         theme: Option<&ResolvedDiagramTheme>,
         expected_relation_paths: usize,
@@ -60,9 +61,12 @@ impl ClassThemeEvidenceRecorder {
         work_meter: &OperationWorkMeter,
     ) -> Result<FamilyThemeOutcomes, OperationWorkError> {
         let mut evidence = FamilyThemeOutcomes::default();
-        let Some(theme) = theme else {
-            return Ok(evidence);
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(evidence),
         };
+
         let receipt = self.outcomes.get();
         let receipt_summary = receipt;
         let has_relations = self.expected_relation_paths != 0;
@@ -74,28 +78,33 @@ impl ClassThemeEvidenceRecorder {
         let background_count =
             receipt.and_then(ClassThemeOutcomeSummary::edge_label_background_count);
         let mut background_winners = BTreeSet::new();
-        if let Some(count) = background_count.filter(|count| *count > 0) {
-            let has_ordinals = theme.family_rules().any(|(_, rule)| {
-                rule.target() == ThemeTarget::EdgeLabelBackground && rule.ordinal().is_some()
-            });
-            for ordinal in 1..=if has_ordinals { count } else { 1 } {
-                let style = theme.style_with_work_meter(
-                    ThemeTarget::EdgeLabelBackground,
-                    ThemeVariant::Default,
-                    has_ordinals.then_some(ordinal),
-                    work_meter,
-                )?;
-                background_winners.extend(style.winner_rule_properties().filter_map(
-                    |(property, origin)| {
-                        (!(property == ResolvedStyleProperty::Fill
-                            && plan.mermaid_owns_edge_label_background))
-                            .then_some((origin.rule_index(), property))
-                    },
-                ));
-            }
+
+        match background_count.filter(|count| *count > 0) {
+            Some(count) => {
+                let has_ordinals = theme_2.family_rules().any(|(_, rule)| {
+                    rule.target() == ThemeTarget::EdgeLabelBackground && rule.ordinal().is_some()
+                });
+
+                for ordinal in 1..=if has_ordinals { count } else { 1 } {
+                    let style = theme_2.style_with_work_meter(
+                        ThemeTarget::EdgeLabelBackground,
+                        ThemeVariant::Default,
+                        has_ordinals.then_some(ordinal),
+                        work_meter,
+                    )?;
+                    background_winners.extend(style.winner_rule_properties().filter_map(
+                        |(property, origin)| {
+                            (!(property == ResolvedStyleProperty::Fill
+                                && plan.mermaid_owns_edge_label_background))
+                                .then_some((origin.rule_index(), property))
+                        },
+                    ));
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
-        for route in theme.family_mechanism_routes().iter().copied() {
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
                     rule_index,
@@ -116,11 +125,15 @@ impl ClassThemeEvidenceRecorder {
                     let property = resolved_style_property_for_facet(facet);
                     let route_applies = match target {
                         ThemeTarget::EdgeLabelBackground => {
-                            if background_count.is_none() {
-                                observation.applicable = true;
-                                observation.incomplete = true;
-                                continue;
+                            match background_count {
+                                ::core::option::Option::None => {
+                                    observation.applicable = true;
+                                    observation.incomplete = true;
+                                    continue;
+                                },
+                                ::core::option::Option::Some(_) => {},
                             }
+
                             background_winners.contains(&(rule_index, property))
                         }
                         ThemeTarget::Edge => {
@@ -165,10 +178,13 @@ impl ClassThemeEvidenceRecorder {
                         }
                         _ => unreachable!("guarded Class evidence target"),
                     };
+
                     if !route_applies {
                         continue;
                     }
+
                     observation.applicable = true;
+
                     if matches!(
                         target,
                         ThemeTarget::Cluster
@@ -185,24 +201,24 @@ impl ClassThemeEvidenceRecorder {
                                     FamilyThemePaintKind::Transparent | FamilyThemePaintKind::Solid,
                                 ),
                             ) => {
-                                if receipt.is_some_and(|receipt| {
+                                if receipt.is_some_and(|receipt_2| {
                                     if target == ThemeTarget::EdgeLabelBackground {
                                         property == ResolvedStyleProperty::Fill
-                                            && receipt.applied_edge_label_background(rule_index)
+                                            && receipt_2.applied_edge_label_background(rule_index)
                                     } else if target == ThemeTarget::Title {
                                         property == ResolvedStyleProperty::Fill
                                             && (self.cluster_label_count == 0
                                                 || !plan
                                                     .namespace_title_plan
                                                     .route_won(rule_index, selector, facet)
-                                                || receipt.applied_namespace_title(rule_index))
+                                                || receipt_2.applied_namespace_title(rule_index))
                                             && (!has_diagram_title
                                                 || !plan
                                                     .diagram_title_plan
                                                     .route_won(rule_index, selector, facet)
-                                                || receipt.applied_diagram_title(rule_index))
+                                                || receipt_2.applied_diagram_title(rule_index))
                                     } else {
-                                        receipt.applied_cluster_paint(rule_index, property)
+                                        receipt_2.applied_cluster_paint(rule_index, property)
                                     }
                                 }) {
                                     observation.capabilities.insert(match facet {
@@ -218,17 +234,19 @@ impl ClassThemeEvidenceRecorder {
                                     observation.incomplete = true;
                                 }
                             }
-                            (FamilyThemeDisposition::Unsupported, facet) => {
+                            (FamilyThemeDisposition::Unsupported, facet_2) => {
                                 observation
                                     .residual
-                                    .get_or_insert(unsupported_residual_for_facet(facet));
+                                    .get_or_insert(unsupported_residual_for_facet(facet_2));
                             }
                             (FamilyThemeDisposition::TypedAdapter, _) => {
                                 observation.incomplete = true;
                             }
                         }
+
                         continue;
                     }
+
                     if matches!(target, ThemeTarget::Node | ThemeTarget::NodeLabel) {
                         match (route.disposition(), facet) {
                             (
@@ -261,17 +279,19 @@ impl ClassThemeEvidenceRecorder {
                                     facet,
                                 );
                             }
-                            (FamilyThemeDisposition::Unsupported, facet) => {
+                            (FamilyThemeDisposition::Unsupported, facet_3) => {
                                 observation
                                     .residual
-                                    .get_or_insert(unsupported_residual_for_facet(facet));
+                                    .get_or_insert(unsupported_residual_for_facet(facet_3));
                             }
                             (FamilyThemeDisposition::TypedAdapter, _) => {
                                 observation.incomplete = true;
                             }
                         }
+
                         continue;
                     }
+
                     match (route.disposition(), facet) {
                         (
                             FamilyThemeDisposition::TypedAdapter,
@@ -282,22 +302,25 @@ impl ClassThemeEvidenceRecorder {
                                 FamilyThemePaintKind::Transparent | FamilyThemePaintKind::Solid,
                             ),
                         ) => {
-                            if let Some((winner, css)) = plan.typed_stroke() {
-                                if winner != rule_index {
-                                    observation.incomplete = true;
-                                } else if receipt.is_some_and(|receipt| {
-                                    receipt.applied_stroke(rule_index, property)
-                                }) {
-                                    observation.capabilities.insert(if css == "transparent" {
-                                        ThemeCapability::TransparentPaint
+                            match plan.typed_stroke() {
+                                Some((winner, css)) => {
+                                    if winner != rule_index {
+                                        observation.incomplete = true;
+                                    } else if receipt.is_some_and(|receipt_3| {
+                                        receipt_3.applied_stroke(rule_index, property)
+                                    }) {
+                                        observation.capabilities.insert(if css == "transparent" {
+                                            ThemeCapability::TransparentPaint
+                                        } else {
+                                            ThemeCapability::SolidPaint
+                                        });
                                     } else {
-                                        ThemeCapability::SolidPaint
-                                    });
-                                } else {
+                                        observation.incomplete = true;
+                                    }
+                                },
+                                ::core::option::Option::None => {
                                     observation.incomplete = true;
-                                }
-                            } else {
-                                observation.incomplete = true;
+                                },
                             }
                         }
                         (
@@ -327,10 +350,10 @@ impl ClassThemeEvidenceRecorder {
                         (FamilyThemeDisposition::TypedAdapter, _) => {
                             observation.incomplete = true;
                         }
-                        (FamilyThemeDisposition::Unsupported, facet) => {
+                        (FamilyThemeDisposition::Unsupported, facet_4) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_4));
                         }
                     }
                 }
@@ -346,12 +369,13 @@ impl ClassThemeEvidenceRecorder {
                 index: rule_index,
                 target,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // Leaving the mechanism unaccounted makes strict completion fail closed.
+
             } else if !observation.capabilities.is_empty() {
                 evidence.mark_applied_with_capabilities(key, observation.capabilities);
             } else if observation.suppressed {
@@ -367,16 +391,20 @@ impl ClassThemeEvidenceRecorder {
             )
             .with_fill_fully_overridden(plan.cluster_plan.fill.config_owned()),
         );
-        if let Some(count) = receipt.and_then(ClassThemeOutcomeSummary::edge_label_background_count)
-        {
-            unsupported_domains.push(
-                UnsupportedTerminalDomain::fallbacks_only(
-                    ThemeTarget::EdgeLabelBackground,
-                    TerminalVariantDomain::uniform(count, ThemeVariant::Default),
-                )
-                .with_fill_fully_overridden(plan.mermaid_owns_edge_label_background),
-            );
+
+        match receipt.and_then(ClassThemeOutcomeSummary::edge_label_background_count) {
+            Some(count) => {
+                unsupported_domains.push(
+                    UnsupportedTerminalDomain::fallbacks_only(
+                        ThemeTarget::EdgeLabelBackground,
+                        TerminalVariantDomain::uniform(count, ThemeVariant::Default),
+                    )
+                    .with_fill_fully_overridden(plan.mermaid_owns_edge_label_background),
+                );
+            },
+            ::core::option::Option::None => {},
         }
+
         unsupported_domains.push(UnsupportedTerminalDomain::fallbacks_only(
             ThemeTarget::Node,
             TerminalVariantDomain::uniform(visible_node_count, ThemeVariant::Default),
@@ -385,22 +413,27 @@ impl ClassThemeEvidenceRecorder {
             ThemeTarget::NodeLabel,
             TerminalVariantDomain::uniform(visible_node_count, ThemeVariant::Default),
         ));
-        if let Some(marker_count) =
-            receipt_summary.map(ClassThemeOutcomeSummary::visible_marker_occurrence_count)
-        {
-            unsupported_domains.push(UnsupportedTerminalDomain::direct(
-                ThemeTarget::Marker,
-                TerminalVariantDomain::uniform(marker_count, ThemeVariant::Default),
-            ));
+
+        match receipt_summary.map(ClassThemeOutcomeSummary::visible_marker_occurrence_count) {
+            Some(marker_count) => {
+                unsupported_domains.push(UnsupportedTerminalDomain::direct(
+                    ThemeTarget::Marker,
+                    TerminalVariantDomain::uniform(marker_count, ThemeVariant::Default),
+                ));
+            },
+            ::core::option::Option::None => {},
         }
-        // Root and namespace title ordinals each start at one. Their fallback domain is
-        // the union; a property is suppressed only when every matching terminal owns it.
+
+
+
         let title_count = self.cluster_label_count.max(usize::from(has_diagram_title));
         let mut title_owned_fill = vec![plan.namespace_title_plan.fill.config_owned(); title_count];
+
         if has_diagram_title {
             title_owned_fill[0] = plan.diagram_title_plan.fill.config_owned()
                 && (self.cluster_label_count == 0 || title_owned_fill[0]);
         }
+
         unsupported_domains.push(
             UnsupportedTerminalDomain::fallbacks_only(
                 ThemeTarget::Title,
@@ -425,7 +458,7 @@ impl ClassThemeEvidenceRecorder {
             TerminalVariantDomain::uniform(self.expected_relation_paths, ThemeVariant::Default),
         ));
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut evidence,
             &unsupported_domains,
             work_meter,
@@ -452,11 +485,12 @@ fn observe_terminal_node_paint(
     property: ResolvedStyleProperty,
     facet: FamilyThemeRuleFacet,
 ) {
-    let Some(receipt) = receipt else {
+    let Some(receipt_2) = receipt else {
         observation.incomplete = true;
         return;
     };
-    if receipt.applied_node_paint(rule_index, target, property) {
+
+    if receipt_2.applied_node_paint(rule_index, target, property) {
         observation.capabilities.insert(match facet {
             FamilyThemeRuleFacet::Fill(FamilyThemePaintKind::Transparent)
             | FamilyThemeRuleFacet::Stroke(FamilyThemePaintKind::Transparent) => {
@@ -468,7 +502,7 @@ fn observe_terminal_node_paint(
             }
             _ => unreachable!("guarded Class direct node paint"),
         });
-    } else if !receipt.has_node_paint(rule_index, target, property) {
+    } else if !receipt_2.has_node_paint(rule_index, target, property) {
         observation.suppressed = true;
     } else {
         observation.incomplete = true;

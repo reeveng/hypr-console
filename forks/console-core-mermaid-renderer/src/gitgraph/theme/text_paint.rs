@@ -18,8 +18,8 @@ use crate::resources::OperationWorkMeter;
 
 use super::{GitGraphCommitKind, GitGraphLabelEvent, GitGraphLabelEvents, palette_slot};
 
-// Text supplies three paint sources; NodeLabel and EdgeLabel also compete for their own
-// label source by global rule order. Configuration owns each source independently.
+
+
 const SOURCES: [&str; 3] = [
     "themeVariables.textColor",
     "themeVariables.tagLabelColor",
@@ -32,6 +32,7 @@ const LABEL_TARGETS: [ThemeTarget; 3] = [
     ThemeTarget::EdgeLabel,
 ];
 
+#[must_use]
 fn source_mask(target: ThemeTarget) -> u8 {
     match target {
         ThemeTarget::Text => 0b111,
@@ -64,11 +65,12 @@ pub(crate) struct GitGraphTextPaintPlan {
 #[derive(Debug, Default)]
 struct TextTerminalFacts {
     sources: [usize; 3],
-    // Root title/branch text, tag text, and commit text, independent of fill ownership.
+
     text_visible: u8,
 }
 
 impl TextTerminalFacts {
+    #[must_use]
     fn visible_mask(&self) -> u8 {
         self.sources
             .iter()
@@ -78,6 +80,7 @@ impl TextTerminalFacts {
 }
 
 impl GitGraphTextPaintPlan {
+    #[must_use]
     pub(crate) fn baseline() -> Self {
         Self {
             fills: std::array::from_fn(|_| None),
@@ -96,25 +99,27 @@ impl GitGraphTextPaintPlan {
         title: Option<&str>,
         work: &OperationWorkMeter,
     ) -> crate::Result<Self> {
-        let Some(theme) = theme else {
-            return Ok(Self::baseline());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::baseline()),
         };
+
         let mut plan = Self {
             evidence: FamilyThemeOutcomes::default(),
             ..Self::baseline()
         };
         plan.title = title
             .map(str::trim)
-            .filter(|title| !title.is_empty())
+            .filter(|title_2| !title_2.is_empty())
             .map(Into::into);
         plan.title_fill = SingleTitleFillPlan::resolve(
-            theme,
+            theme_2,
             plan.title.is_some(),
             config.config_paint_overrides_typed_default("themeVariables.textColor"),
             FamilyThemeOutcomes::default(),
             work,
         )?;
-        plan.title_requested = theme.family_mechanism_routes().iter().any(|route| {
+        plan.title_requested = theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -128,8 +133,10 @@ impl GitGraphTextPaintPlan {
                 }
             )
         });
-        for route in theme.family_mechanism_routes() {
+
+        for route in theme_2.family_mechanism_routes() {
             work.charge(1)?;
+
             if matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -143,32 +150,34 @@ impl GitGraphTextPaintPlan {
                 }
             ) {
                 plan.observations
-                    .entry(theme.family_mechanism_key(*route))
+                    .entry(theme_2.family_mechanism_key(*route))
                     .or_default();
             }
         }
+
         if !plan.is_requested() {
             return Ok(plan);
         }
+
         let styles = [
-            theme.text_style_with_work_meter(
+            { let checked_value = theme_2.text_style_with_work_meter(
                 ThemeTarget::Text,
                 ThemeVariant::Default,
                 None,
                 work,
-            )?,
-            theme.text_style_with_work_meter(
+            )?; checked_value },
+            { let checked_value_2 = theme_2.text_style_with_work_meter(
                 ThemeTarget::NodeLabel,
                 ThemeVariant::Default,
                 None,
                 work,
-            )?,
-            theme.text_style_with_work_meter(
+            )?; checked_value_2 },
+            { let checked_value_3 = theme_2.text_style_with_work_meter(
                 ThemeTarget::EdgeLabel,
                 ThemeVariant::Default,
                 None,
                 work,
-            )?,
+            )?; checked_value_3 },
         ];
         let color_gen = config
             .get_str("theme")
@@ -180,7 +189,7 @@ impl GitGraphTextPaintPlan {
             (!owned[i])
                 .then(|| {
                     resolve_direct_static_fill(
-                        theme,
+                        theme_2,
                         &styles[i],
                         &[ThemeTarget::Text, LABEL_TARGETS[i]],
                         DirectStaticSelectorDomain::Default,
@@ -188,12 +197,21 @@ impl GitGraphTextPaintPlan {
                 })
                 .flatten()
         });
-        for route in theme.family_mechanism_routes() {
-            let key = theme.family_mechanism_key(*route);
-            let Some(observation) = plan.observations.get_mut(&key) else {
-                continue;
+
+        for route in theme_2.family_mechanism_routes() {
+            let key = theme_2.family_mechanism_key(*route);
+
+            let observation = {
+                let optional_observation = plan.observations.get_mut(&key);
+
+                match optional_observation {
+                    Some(matched_observation) => matched_observation,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             work.charge(1)?;
+
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
                     rule_index,
@@ -203,17 +221,19 @@ impl GitGraphTextPaintPlan {
                 } => {
                     let sources = source_mask(target);
                     let property = resolved_style_property_for_facet(facet);
+
                     if property == ResolvedStyleProperty::Fill {
-                        for ((i, style), owned_element) in styles.iter().enumerate().zip(<[_]>::iter(&owned)) {
+                        'inner_for_2: for ((i, style), owned_element) in styles.iter().enumerate().zip(<[_]>::iter(&owned)) {
                             if sources & (1 << i) == 0 || *owned_element {
-                                continue;
+                                continue 'inner_for_2;
                             }
+
                             let winner = style.fill_resolution().winner();
                             let won = winner.is_some_and(|origin| {
                                 origin.target() == target && origin.rule_index() == rule_index
                             });
-                            // Label paint has no semantic ordinal identity. Only a later static
-                            // winner supersedes an ordinal, regardless of the winner's target.
+
+
                             let unproved_ordinal = matches!(
                                 selector,
                                 FamilyThemeSelectorShape::Ordinal {
@@ -222,10 +242,13 @@ impl GitGraphTextPaintPlan {
                                 }
                             ) && winner
                                 .is_none_or(|origin| origin.rule_index() <= rule_index);
+
                             if !won && !unproved_ordinal {
-                                continue;
+                                continue 'inner_for_2;
                             }
+
                             let mask = 1 << i;
+
                             if route.disposition() == FamilyThemeDisposition::TypedAdapter
                                 && plan.fills[i]
                                     .as_ref()
@@ -239,10 +262,11 @@ impl GitGraphTextPaintPlan {
                             }
                         }
                     } else {
-                        for (i, style) in styles.iter().enumerate() {
+                        'inner_for_2: for (i, style) in styles.iter().enumerate() {
                             if sources & (1 << i) == 0 {
-                                continue;
+                                continue 'inner_for_2;
                             }
+
                             let won = style.winner_rule_properties().any(|(candidate, origin)| {
                                 candidate == property
                                     && origin.target() == target
@@ -258,8 +282,10 @@ impl GitGraphTextPaintPlan {
                                 ) && !style.winner_rule_properties().any(|(candidate, origin)| {
                                     candidate == property && origin.rule_index() > rule_index
                                 });
+
                             if won || unproved_ordinal {
                                 let reason = unsupported_residual_for_facet(facet);
+
                                 if reason == FamilyThemeResidualReason::UnsupportedTypography {
                                     observation.typography |= 1 << i;
                                 } else {
@@ -271,7 +297,8 @@ impl GitGraphTextPaintPlan {
                 }
                 FamilyThemeMechanism::OrdinalPalette { target } => {
                     let sources = source_mask(target);
-                    if theme.series_color(target, 1).is_some() {
+
+                    if theme_2.series_color(target, 1).is_some() {
                         for ((i, style), owned_element) in styles.iter().enumerate().zip(<[_]>::iter(&owned)) {
                             if sources & (1 << i) != 0
                                 && !*owned_element
@@ -283,19 +310,22 @@ impl GitGraphTextPaintPlan {
                                 observation.unsupported_fill |= 1 << i;
                             }
                         }
+
                         observation.fill_reason =
                             Some(FamilyThemeResidualReason::UnsupportedOrdinalPalette);
                     }
                 }
                 FamilyThemeMechanism::EffectBinding { target, .. } => {
                     let sources = source_mask(target);
-                    for (i, style) in styles.iter().enumerate() {
+
+                    'inner_for_2: for (i, style) in styles.iter().enumerate() {
                         if sources & (1 << i) == 0 {
-                            continue;
+                            continue 'inner_for_2;
                         }
-                        // A concrete role's effect winner can suppress its binding fallback.
+
+
                         if let Some(ResolvedThemeEffect::Binding { binding, .. }) =
-                            theme.resolve_effect(target, style.effect_resolution())
+                            theme_2.resolve_effect(target, style.effect_resolution())
                             && key
                                 == (FamilyThemeMechanismKey::EffectBinding {
                                     target: binding.target(),
@@ -312,21 +342,26 @@ impl GitGraphTextPaintPlan {
                 }
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn is_requested(&self) -> bool {
         !self.observations.is_empty() || self.title_requested
     }
 
+    #[must_use]
     pub(crate) fn title_fill_css(&self) -> Option<&str> {
         self.title_fill.fill_css()
     }
 
+    #[must_use]
     pub(crate) fn css_colors(&self) -> [Option<&str>; 3] {
         std::array::from_fn(|i| self.fills[i].as_ref().map(DirectStaticPaint::css))
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt<'a>(
         &'a self,
         layout: &'a GitGraphDiagramLayout,
@@ -350,6 +385,7 @@ impl GitGraphTextPaintPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, mut receipt: GitGraphTextPaintReceipt<'_>) -> bool {
         let complete = std::ptr::eq(receipt.plan, self)
             && receipt.valid
@@ -371,14 +407,16 @@ impl GitGraphTextPaintPlan {
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
         self.title_fill.record_evidence(evidence);
+
         for (key, observation) in &self.observations {
             let Some(facts) = self.terminal.get() else {
                 evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
                 continue;
             };
+
             let visible = facts.visible_mask();
-            // Paint/effect/geometry can consume text or root-inheriting shapes. Typography
-            // requires real text in the same role where this property remains the winner.
+
+
             let other_visible = visible | facts.text_visible;
             let other_reason = observation
                 .other
@@ -387,6 +425,7 @@ impl GitGraphTextPaintPlan {
                 .find_map(|(i, reason)| {
                     (other_visible & (1 << i) != 0).then_some(*reason).flatten()
                 });
+
             if let Some(reason) = other_reason {
                 evidence.mark_residual(key.clone(), reason);
             } else if facts.text_visible & observation.typography != 0 {
@@ -397,9 +436,11 @@ impl GitGraphTextPaintPlan {
             } else if observation.unsupported_fill & visible != 0 {
                 evidence.mark_residual(
                     key.clone(),
-                    observation
-                        .fill_reason
-                        .unwrap_or(FamilyThemeResidualReason::UnsupportedPaint),
+                    match observation
+                        .fill_reason {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => FamilyThemeResidualReason::UnsupportedPaint,
+                    },
                 );
             } else if observation.direct & visible != 0 {
                 let capabilities = self.fills.iter().enumerate().filter_map(|(i, fill)| {
@@ -421,7 +462,7 @@ pub(crate) struct GitGraphTextPaintReceipt<'a> {
     plan: &'a GitGraphTextPaintPlan,
     layout: &'a GitGraphDiagramLayout,
     branch_slots: &'a HashMap<&'a str, i64>,
-    // Branch backgrounds, ordinary commit outers, highlight outers, and branch text.
+
     root_geometry: [[bool; 8]; 4],
     root_cherry_pick: bool,
     css_recorded: bool,
@@ -436,11 +477,13 @@ pub(crate) struct GitGraphTextPaintReceipt<'a> {
 impl GitGraphTextPaintReceipt<'_> {
     pub(crate) fn record_css(&mut self, colors: [&str; 5]) {
         self.valid &= !self.css_recorded;
+
         for (source, actual) in [0, 0, 0, 1, 2].into_iter().zip(colors) {
             self.valid &= self.plan.fills[source]
                 .as_ref()
                 .is_none_or(|paint| paint.css() == actual);
         }
+
         self.css_recorded = true;
     }
 
@@ -462,7 +505,7 @@ impl GitGraphTextPaintReceipt<'_> {
         self.valid &= self.root_geometry[3].get(slot).copied() == Some(text_root_inherited);
         let text_visible = !name.trim().is_empty();
         *{ let [_explicit_part, ..] = &mut self.facts.sources; _explicit_part } +=
-            usize::from(root_inherited) + usize::from(text_root_inherited && text_visible);
+            ::core::primitive::usize::wrapping_add(usize::from(root_inherited), usize::from(text_root_inherited && text_visible));
         self.facts.text_visible |= u8::from(text_visible);
         self.next_branch += 1;
     }
@@ -479,18 +522,26 @@ impl GitGraphTextPaintReceipt<'_> {
             kind == GitGraphCommitKind::from_layout(commit)
                 && slot
                     == palette_slot(
-                        self.branch_slots
+                        match self.branch_slots
                             .get(commit.branch.as_str())
-                            .copied()
-                            .unwrap_or(0),
+                            .copied() {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => 0,
+                        },
                     )
         });
         let expected = match kind {
             GitGraphCommitKind::CherryPick => self.root_cherry_pick,
             GitGraphCommitKind::Highlight => {
-                self.root_geometry[2].get(slot).copied().unwrap_or(false)
+                match self.root_geometry[2].get(slot).copied() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => false,
+                }
             }
-            _ => self.root_geometry[1].get(slot).copied().unwrap_or(false),
+            GitGraphCommitKind::Normal | GitGraphCommitKind::Reverse | GitGraphCommitKind::Merge => match self.root_geometry[1].get(slot).copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            },
         };
         self.valid &= expected == root_inherited;
         *{ let [_explicit_part, ..] = &mut self.facts.sources; _explicit_part } += usize::from(root_inherited);
@@ -500,19 +551,19 @@ impl GitGraphTextPaintReceipt<'_> {
     pub(crate) fn record_commit_label(&mut self, index: usize, text: &str) {
         let event = self.labels.next();
         self.valid &= event == Some(GitGraphLabelEvent::Commit(index));
-        self.valid &= event.and_then(|event| event.text(self.layout)) == Some(text);
+        self.valid &= event.and_then(|event_2| event_2.text(self.layout)) == Some(text);
         *{ let [_, _, _explicit_part, ..] = &mut self.facts.sources; _explicit_part } += usize::from(!text.trim().is_empty());
-        self.facts.text_visible |= u8::from(!text.trim().is_empty()) << 2;
+        self.facts.text_visible |= ::core::primitive::u8::wrapping_shl(u8::from(!text.trim().is_empty()), 2_u32);
     }
 
     pub(crate) fn record_tag(&mut self, index: usize, output_index: usize, text: &str) {
         let event = self.labels.next();
         self.valid &= event == Some(GitGraphLabelEvent::Tag(index, output_index));
-        self.valid &= event.and_then(|event| event.text(self.layout)) == Some(text);
-        // Even an empty tag still emits a radius-1.5 colored hole.
+        self.valid &= event.and_then(|event_2| event_2.text(self.layout)) == Some(text);
+
         *{ let [_explicit_part, ..] = &mut self.facts.sources; _explicit_part } += 1;
         *{ let [_, _explicit_part, ..] = &mut self.facts.sources; _explicit_part } += usize::from(!text.trim().is_empty());
-        self.facts.text_visible |= u8::from(!text.trim().is_empty()) << 1;
+        self.facts.text_visible |= ::core::primitive::u8::wrapping_shl(u8::from(!text.trim().is_empty()), 1_u32);
     }
 
     pub(crate) fn record_title(&mut self, title: Option<&str>, fill: Option<&str>) {

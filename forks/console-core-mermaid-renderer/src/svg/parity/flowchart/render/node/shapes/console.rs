@@ -14,6 +14,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_console(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (glyph_band, radius, w, h, top, body_path) = prepare_console_geometry(ctx, common, label);
+
     if common.look_is_hand_drawn() {
         let _ = write!(
             out,
@@ -23,6 +24,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_console(
     } else {
         out.push_str(r#"<g class="basic label-container">"#);
     }
+
     if common.look_is_hand_drawn() {
         if let Some((fill_d, stroke_d)) =
             super::super::helpers::timed_node_roughjs(common.timing, details, || {
@@ -42,7 +44,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_console(
                 escape_attr(common.fill_color),
                 escape_attr(&stroke_d),
                 escape_attr(common.stroke_color),
-                fmt_display(common.stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
                 escape_attr(common.stroke_dasharray),
             );
         } else {
@@ -80,6 +82,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_console(
     label.dy = top + glyph_band + (h - glyph_band) / 2.0;
 }
 
+#[must_use]
 fn prepare_console_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
@@ -115,6 +118,7 @@ pub(super) fn advance_console_rough_geometry(
     if !common.look_is_hand_drawn() {
         return;
     }
+
     let (_, _, _, _, _, body_path) = prepare_console_geometry(ctx, common, label);
     let target = super::super::roughjs::RoughGeometryTarget::Query;
     let _ = super::super::helpers::prepare_node_path(common, &body_path, target);

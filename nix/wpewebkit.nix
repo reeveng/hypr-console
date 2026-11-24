@@ -22,6 +22,7 @@ clangStdenv.mkDerivation (finalAttrs: {
       inherit (builtins) storeDir;
       inherit (addDriverRunpath) driverLink;
     })
+    ./wpe-fingerprinting.patch
   ];
 
   nativeBuildInputs = [

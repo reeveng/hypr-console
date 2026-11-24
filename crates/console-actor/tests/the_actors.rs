@@ -10,8 +10,8 @@ use console_actor::{
   boot_buffered, boot_serializable,
 };
 use console_core_state_machine::{
-  Decoder, Encoder, Machine, Never, ParseError, Queue, Serializable, SerializableMachine,
-  Version, restore,
+  Decoder, EffectDependencies, Encoder, Machine, Never, ParseError, Queue, Serializable,
+  SerializableMachine, Service, Version, restore,
 };
 use console_core_temporary_directories::fresh;
 use console_waiting::{Schedule, until_some};
@@ -36,6 +36,14 @@ enum Request {
 enum Effect {
   StandingAt(Depth),
   Echoed(u64),
+}
+
+impl EffectDependencies for Effect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::StandingAt(_) | Self::Echoed(_) => &[],
+    })
+  }
 }
 
 impl Serializable for Depth {

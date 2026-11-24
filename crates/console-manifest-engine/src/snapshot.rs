@@ -180,15 +180,20 @@ pub enum Running {
   Snapshot(SnapshotNumber),
 }
 
-pub fn running(mounts: &str) -> Result<Running, Never> {
-  let root = mounts.lines().rev().find_map(|line| {
+#[must_use]
+pub fn root_in(mounts: &str) -> Result<Option<&str>, Never> {
+  Ok(mounts.lines().rev().find_map(|line| {
     let mut fields = line.split(' ');
 
     match (fields.nth(3), fields.next()) {
       (Some(held), Some("/")) => Some(held),
       (Some(_), Some(_) | None) | (None, _) => None,
     }
-  });
+  }))
+}
+
+pub fn running(mounts: &str) -> Result<Running, Never> {
+  let Ok(root) = root_in(mounts);
   let number = root
     .and_then(|held| held.split_once(SNAPSHOTS))
     .and_then(|(_, under)| under.split('/').next());

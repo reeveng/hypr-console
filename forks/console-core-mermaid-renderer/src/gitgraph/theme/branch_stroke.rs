@@ -43,6 +43,7 @@ pub(super) struct GitGraphBranchStrokePlan {
 }
 
 impl GitGraphBranchStrokePlan {
+    #[must_use]
     pub(super) fn baseline(expected_branch_line_count: usize) -> Self {
         Self {
             stroke: None,
@@ -61,8 +62,8 @@ impl GitGraphBranchStrokePlan {
     ) -> Result<Self, OperationWorkError> {
         let mut plan = Self::baseline(expected_branch_line_count);
         let config_owns_stroke = mermaid_owns_branch_stroke(effective_config);
-        // A fill fallback formerly created commitLineColor. An explicit lineColor alone
-        // cannot own this new source, unlike the existing direct Stroke route.
+
+
         let config_owns_fill =
             effective_config.config_paint_overrides_typed_default(COMMIT_LINE_COLOR_PATH);
         let has_ordinal_edge_rules = theme.family_rules().any(|(_, rule)| {
@@ -74,30 +75,34 @@ impl GitGraphBranchStrokePlan {
         let mut first_candidate = None::<Option<GitGraphBranchStroke>>;
         let mut candidates_match = true;
 
-        if expected_branch_line_count > 0 {
-            if has_ordinal_edge_rules {
-                for ordinal in 1..=expected_branch_line_count {
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(expected_branch_line_count), &::core::convert::identity(0)); _explicit_ordering } {
+            ::core::cmp::Ordering::Greater => {
+                if has_ordinal_edge_rules {
+                    for ordinal in 1..=expected_branch_line_count {
+                        let style = theme.style_with_work_meter(
+                            ThemeTarget::Edge,
+                            ThemeVariant::Default,
+                            Some(ordinal),
+                            work_meter,
+                        )?;
+                        let candidate = observe_style(theme, &style, &mut winner_properties);
+
+                        match first_candidate.as_ref() {
+                            None => first_candidate = Some(candidate),
+                            Some(first) => candidates_match &= first == &candidate,
+                        }
+                    }
+                } else {
                     let style = theme.style_with_work_meter(
                         ThemeTarget::Edge,
                         ThemeVariant::Default,
-                        Some(ordinal),
+                        None,
                         work_meter,
                     )?;
-                    let candidate = observe_style(theme, &style, &mut winner_properties);
-                    match first_candidate.as_ref() {
-                        None => first_candidate = Some(candidate),
-                        Some(first) => candidates_match &= first == &candidate,
-                    }
+                    first_candidate = Some(observe_style(theme, &style, &mut winner_properties));
                 }
-            } else {
-                let style = theme.style_with_work_meter(
-                    ThemeTarget::Edge,
-                    ThemeVariant::Default,
-                    None,
-                    work_meter,
-                )?;
-                first_candidate = Some(observe_style(theme, &style, &mut winner_properties));
-            }
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
         }
 
         let stroke = candidates_match
@@ -105,10 +110,10 @@ impl GitGraphBranchStrokePlan {
             .flatten();
         let stroke_winner = stroke
             .as_ref()
-            .map(|stroke| (stroke.rule_index, stroke.property));
-        // The retired bridge resolved without an ordinal. Preserve that static fill in
-        // BestEffort CSS when ordinal winners prevent a uniform terminal proof. This is
-        // deliberately separate from stroke_winner, which alone authorizes Applied.
+            .map(|stroke_2| (stroke_2.rule_index, stroke_2.property));
+
+
+
         let compatibility_fill = if stroke.is_none()
             && has_ordinal_edge_rules
             && expected_branch_line_count > 0
@@ -136,13 +141,16 @@ impl GitGraphBranchStrokePlan {
                     facet,
                 } => {
                     let observation = observations.entry(rule_index).or_default();
+
                     if !selector
                         .ordinal_domain_intersects_occurrence_count(expected_branch_line_count)
                     {
                         continue;
                     }
+
                     let property = resolved_style_property_for_facet(facet);
                     let route_won = winner_properties.contains(&(rule_index, property));
+
                     if !route_won {
                         continue;
                     }
@@ -152,12 +160,14 @@ impl GitGraphBranchStrokePlan {
                     {
                         continue;
                     }
+
                     observation.applicable = true;
+
                     match (route.disposition(), selector, facet) {
-                        (FamilyThemeDisposition::Unsupported, _, facet) => {
+                        (FamilyThemeDisposition::Unsupported, _, facet_2) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_2));
                         }
                         (
                             FamilyThemeDisposition::TypedAdapter,
@@ -185,10 +195,13 @@ impl GitGraphBranchStrokePlan {
             }
         }
 
-        if let Some(fill) = &compatibility_fill {
-            let observation = observations.entry(fill.rule_index).or_default();
-            observation.applicable = true;
-            observation.incomplete = true;
+        match &compatibility_fill {
+            Some(fill) => {
+                let observation = observations.entry(fill.rule_index).or_default();
+                observation.applicable = true;
+                observation.incomplete = true;
+            },
+            ::core::option::Option::None => {},
         }
 
         for (rule_index, observation) in observations {
@@ -196,6 +209,7 @@ impl GitGraphBranchStrokePlan {
                 index: rule_index,
                 target: ThemeTarget::Edge,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
@@ -210,23 +224,28 @@ impl GitGraphBranchStrokePlan {
             }
         }
 
-        if let Some(stroke) = stroke.or(compatibility_fill) {
-            let owned = if stroke.property == ResolvedStyleProperty::Fill {
-                config_owns_fill
-            } else {
-                config_owns_stroke
-            };
-            // Preserve a fill's BestEffort CSS even when a sibling property leaves a residual.
-            // The pending key is deliberately absent for such a mixed rule.
-            if !owned
-                && (stroke.property == ResolvedStyleProperty::Fill || plan.pending_key.is_some())
-            {
-                plan.stroke = Some(stroke);
-            }
+        match stroke.or(compatibility_fill) {
+            Some(stroke_3) => {
+                let owned = if stroke_3.property == ResolvedStyleProperty::Fill {
+                    config_owns_fill
+                } else {
+                    config_owns_stroke
+                };
+
+
+                if !owned
+                    && (stroke_3.property == ResolvedStyleProperty::Fill || plan.pending_key.is_some())
+                {
+                    plan.stroke = Some(stroke_3);
+                }
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(super) fn terminal_css(&self) -> Option<&str> {
         self.stroke
             .as_ref()
@@ -234,6 +253,7 @@ impl GitGraphBranchStrokePlan {
             .map(|stroke| stroke.css.as_ref())
     }
 
+    #[must_use]
     pub(super) fn stylesheet_css(&self) -> Option<&str> {
         self.stroke
             .as_ref()
@@ -241,6 +261,7 @@ impl GitGraphBranchStrokePlan {
             .map(|stroke| stroke.css.as_ref())
     }
 
+    #[must_use]
     pub(super) fn begin_terminal_receipt(&self) -> Option<GitGraphBranchStrokeReceipt> {
         self.stroke.as_ref().map(|stroke| {
             GitGraphBranchStrokeReceipt::new(
@@ -251,6 +272,7 @@ impl GitGraphBranchStrokePlan {
         })
     }
 
+    #[must_use]
     pub(super) fn record_terminal(&self, receipt: GitGraphBranchStrokeReceipt) -> bool {
         receipt.proves(self) && self.terminal_receipt.set(receipt).is_ok()
     }
@@ -279,6 +301,7 @@ pub(crate) struct GitGraphBranchStrokeReceipt {
 }
 
 impl GitGraphBranchStrokeReceipt {
+    #[must_use]
     fn new(
         expected_stroke: Box<str>,
         expected_branch_line_count: usize,
@@ -312,6 +335,7 @@ impl GitGraphBranchStrokeReceipt {
         self.next_branch_line = self.next_branch_line.saturating_add(1);
     }
 
+    #[must_use]
     fn proves(&self, plan: &GitGraphBranchStrokePlan) -> bool {
         self.values_match
             && self.css_recorded
@@ -344,6 +368,7 @@ fn observe_style(
     typed_static_branch_paint(theme, style)
 }
 
+#[must_use]
 fn typed_static_branch_paint(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
@@ -368,6 +393,7 @@ fn typed_static_branch_paint(
     let rule = theme
         .family_rules()
         .find_map(|(index, rule)| (index == origin.rule_index()).then_some(rule))?;
+
     if !matches!(rule.variant(), None | Some(ThemeVariant::Default))
         || rule.ordinal().is_some()
         || theme.rule_facet_disposition(origin.rule_index(), facet)
@@ -378,7 +404,7 @@ fn typed_static_branch_paint(
 
     match resolution.specified() {
         Specified::Value(CanvasPaint::Transparent) => Some(GitGraphBranchStroke {
-            css: "transparent".into(),
+            css: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from("transparent"),
             rule_index: origin.rule_index(),
             property,
             capability: ThemeCapability::TransparentPaint,
@@ -399,6 +425,7 @@ fn typed_static_branch_paint(
     }
 }
 
+#[must_use]
 fn mermaid_owns_branch_stroke(config: &PresentationConfig) -> bool {
     if config.get_str(COMMIT_LINE_COLOR_PATH).is_some() {
         config.config_paint_overrides_typed_default(COMMIT_LINE_COLOR_PATH)
@@ -407,6 +434,7 @@ fn mermaid_owns_branch_stroke(config: &PresentationConfig) -> bool {
     }
 }
 
+#[must_use]
 fn terminal_stroke(style: &str) -> Option<&str> {
     style.split(';').find_map(|declaration| {
         let (property, value) = declaration.split_once(':')?;

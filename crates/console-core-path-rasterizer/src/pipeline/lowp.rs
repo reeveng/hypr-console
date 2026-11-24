@@ -7,21 +7,8 @@ A lowp pipeline uses u16 instead of f32 for math.
 Because of that, it doesn't implement stages that require high precision.
 The pipeline compiler will automatically decide which one to use.
 
-Skia uses u16x8 (128bit) types for a generic CPU and u16x16 (256bit) for modern x86 CPUs.
-But instead of explicit SIMD instructions, it mainly relies on clang's vector extensions.
-And since they are unavailable in Rust, we have to do everything manually.
-
-According to our benchmarks, a SIMD-accelerated u16x8 in Rust is almost 2x slower than in Skia.
-Not sure why. For example, there are no div instruction for u16x8, so we have to use
-a basic scalar version. Which means unnecessary load/store. No idea what clang does in this case.
-Surprisingly, a SIMD-accelerated u16x8 is even slower than a scalar one. Again, not sure why.
-
-Therefore we are using scalar u16x16 by default and relying on rustc/llvm auto vectorization instead.
-When targeting a generic CPU, we're just 5-10% slower than Skia. While u16x8 is 30-40% slower.
-And while `-C target-cpu=haswell` boosts our performance by around 25%,
-we are still 40-60% behind Skia built for Haswell.
-
-On ARM AArch64 the story is different and explicit SIMD make our code up to 2-3x faster.
+The sixteen-lane operations use Rust's portable SIMD API when enabled. The
+compiler lowers them to the instructions available on the configured target.
 */
 
 use console_core_paths::{NormalizedF32, StrictNum};
@@ -37,6 +24,8 @@ pub type Lanes<T> = [T; 16];
 pub type StageFn = fn(p: &mut Pipeline) -> core::result::Result<(), console_core_never::Never>;
 
 pub struct Pipeline<'a, 'b: 'a> {
+    #[cfg(feature = "simd")]
+    simd: console_core_simd::Simd,
     functions: &'a [StageFn],
     pixmap: &'a mut SubPixmapMut<'b>,
     mask_ctx: super::MaskCtx<'a>,
@@ -157,6 +146,7 @@ pub(super) fn stage_function(stage: super::Stage) -> Result<Option<StageFn>, con
 
 #[inline(never)]
 pub fn start(
+    #[cfg(feature = "simd")] simd: console_core_simd::Simd,
     functions: &[StageFn],
     functions_tail: &[StageFn],
     rect: &ScreenIntRect,
@@ -166,6 +156,8 @@ pub fn start(
     pixmap: &mut SubPixmapMut,
 ) -> core::result::Result<(), console_core_never::Never> {
     let mut p = Pipeline {
+        #[cfg(feature = "simd")]
+        simd,
         functions: &[],
         pixmap,
         mask_ctx,
@@ -564,6 +556,22 @@ pub fn source_over_rgba(p: &mut Pipeline) -> core::result::Result<(), console_co
         Some(pixels) => pixels,
         None => return Ok(()),
     };
+
+    #[cfg(feature = "simd")]
+    match p.functions.is_empty().then_some(()) {
+        Some(()) => {
+            let Ok(compositing) = p.simd.source_over_rgba16(
+            [&p.r.0, &p.g.0, &p.b.0, &p.a.0],
+            bytemuck::cast_mut(pixels),
+            );
+
+            match compositing {
+                console_core_simd::RgbaCompositing::Applied => return Ok(()),
+                console_core_simd::RgbaCompositing::Unavailable => {}
+            }
+        }
+        None => {}
+    }
 
     let Ok(()) = load_8888(pixels, &mut p.dr, &mut p.dg, &mut p.db, &mut p.da);
     p.r = p.r + ({ let Ok(explicit_value) = div255(p.dr * ({ let Ok(explicit_value) = inv(p.a); explicit_value })); explicit_value });

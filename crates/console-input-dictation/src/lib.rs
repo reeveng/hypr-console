@@ -5,11 +5,10 @@
 //! what is said and writes it into whatever holds the focus, which is the same
 //! thing a keyboard does and none of the walking.
 //!
-//! Three programs already know how to do the parts of this. `pw-record` takes
-//! the microphone, `whisper-cli` turns a recording into words, and `wtype`
-//! writes them where a keyboard would have. What is here is the deciding: the
-//! shape of each of those calls, where the recording waits between the two
-//! presses, and what to do with what comes back.
+//! The audio service captures the microphone, `whisper-cli` turns the recording
+//! into words, and `wtype` writes them into the focused application. This
+//! library prepares the commands and chooses where recordings wait between
+//! presses.
 //!
 //! Nothing in this file touches a device or starts a program, so what would be
 //! run can be asked for and looked at without a microphone in the room.
@@ -20,6 +19,7 @@ pub mod languages;
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
+use console_audio_streams::{Pcm, Sample};
 use console_core_arguments::{Command, Flag, Operands, Takes};
 use console_core_external_programs::Program;
 use console_core_iteration::Step;
@@ -50,7 +50,13 @@ pub const MODEL: &str = "ggml-large-v3-turbo-q5_0.bin";
 pub const MODEL_FROM: &str =
   "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3-turbo-q5_0.bin";
 
-pub const RATE: &str = "16000";
+pub const RECORDING_FORMAT: Pcm = Pcm {
+  rate_hz: 16_000,
+  channels: 1,
+  sample: Sample::I16,
+};
+
+pub const RECORDING_STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 pub const THREADS: &str = "12";
 
@@ -199,21 +205,6 @@ pub fn compiling(at: &Path) -> Result<Vec<OsString>, Never> {
 
 pub fn whisper_binary(at: &Path) -> Result<PathBuf, Never> {
   Ok(at.join("build").join("bin").join(WHISPER_CLI))
-}
-
-pub fn recording(into: &Path) -> Result<Vec<OsString>, Never> {
-  let Ok(pw_record) = Program::PwRecord.name();
-
-  Ok(vec![
-    OsString::from(pw_record),
-    OsString::from("--rate"),
-    OsString::from(RATE),
-    OsString::from("--channels"),
-    OsString::from("1"),
-    OsString::from("--format"),
-    OsString::from("s16"),
-    into.as_os_str().to_os_string(),
-  ])
 }
 
 pub fn whisper_arguments(
@@ -566,13 +557,14 @@ mod tests {
 
   #[test]
   fn a_recording_is_one_channel_at_the_rate_the_hearing_wants() {
-    let Ok(arguments) = recording(Path::new("/run/said.wav"));
-    let Ok(pw_record) = Program::PwRecord.name();
-
-    assert!(arguments.first().is_some_and(|word| word == pw_record));
-    assert!(arguments.windows(2).any(|pair| pair == ["--rate", RATE]));
-    assert!(arguments.windows(2).any(|pair| pair == ["--channels", "1"]));
-    assert!(arguments.last().is_some_and(|word| word == "/run/said.wav"));
+    assert_eq!(
+      RECORDING_FORMAT,
+      Pcm {
+        rate_hz: 16_000,
+        channels: 1,
+        sample: Sample::I16,
+      }
+    );
   }
 
   #[test]
@@ -596,18 +588,6 @@ mod tests {
     );
     assert!(arguments.iter().any(|word| word == "--no-timestamps"));
     assert!(arguments.iter().any(|word| word == "--no-prints"));
-  }
-
-  #[test]
-  fn subprocess_paths_are_passed_in_their_original_bytes() {
-    use std::ffi::OsStr;
-    use std::os::unix::ffi::OsStrExt;
-
-    let raw = OsStr::from_bytes(b"/run/said-\xff.wav");
-    let path = Path::new(raw);
-    let Ok(arguments) = recording(path);
-
-    assert_eq!(arguments.last().map(OsString::as_os_str), Some(raw));
   }
 
   #[test]

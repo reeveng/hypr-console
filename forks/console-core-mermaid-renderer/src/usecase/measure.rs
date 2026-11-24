@@ -30,35 +30,42 @@ impl UsecasePreparedHtmlLabel {
     }
 }
 
+#[must_use]
 pub(super) fn number(config: &Value, key: &str, fallback: f64) -> f64 {
-    config
+    match config
         .get("usecase")
         .and_then(|value| value.get(key))
         .and_then(Value::as_f64)
-        .filter(|value| value.is_finite() && *value >= 0.0)
-        .unwrap_or(fallback)
+        .filter(|value| value.is_finite() && *value >= 0.0) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => fallback,
+    }
 }
 
+#[must_use]
 pub(super) fn text_style(config: &Value, actor: Option<bool>) -> TextStyle {
-    let Some(actor) = actor else {
+    let Some(actor_2) = actor else {
         return TextStyle {
             font_family: config
                 .pointer("/themeVariables/fontFamily")
                 .or_else(|| config.get("fontFamily"))
                 .and_then(Value::as_str)
                 .map(str::to_owned),
-            font_size: config
+            font_size: match config
                 .pointer("/themeVariables/fontSize")
                 .and_then(|value| {
                     value
                         .as_f64()
-                        .or_else(|| value.as_str()?.trim_end_matches("px").parse().ok())
-                })
-                .unwrap_or(16.0),
+                        .or_else(|| match { let checked_value = value.as_str()?; checked_value }.trim_end_matches("px").parse() { ::core::result::Result::Ok(value___) => ::core::option::Option::Some(value___), ::core::result::Result::Err(_invalid_float_) => ::core::option::Option::None })
+                }) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 16.0,
+            },
             ..Default::default()
         };
     };
-    let prefix = if actor { "actor" } else { "usecase" };
+
+    let prefix = if actor_2 { "actor" } else { "usecase" };
     let string = |suffix: &str, fallback: &str| {
         config
             .get("usecase")
@@ -72,19 +79,21 @@ pub(super) fn text_style(config: &Value, actor: Option<bool>) -> TextStyle {
         font_size: number(
             config,
             &format!("{prefix}FontSize"),
-            if actor { 14.0 } else { 12.0 },
+            if actor_2 { 14.0 } else { 12.0 },
         ),
         font_weight: Some(string("FontWeight", "normal")),
         font_style: None,
     }
 }
 
+#[must_use]
 pub(super) fn styles(
     model: &UsecaseDiagramModel,
     classes: &[String],
     inline: &[String],
 ) -> indexmap::IndexMap<String, String> {
     let mut values = indexmap::IndexMap::new();
+
     for name in std::iter::once("default").chain(classes.iter().map(String::as_str)) {
         if let Some(definition) = model
             .class_defs
@@ -94,6 +103,7 @@ pub(super) fn styles(
             apply_inline_styles(&mut values, &definition.styles);
         }
     }
+
     apply_inline_styles(&mut values, inline);
     values
 }
@@ -109,6 +119,7 @@ fn apply_inline_styles(values: &mut indexmap::IndexMap<String, String>, inline: 
     }
 }
 
+#[must_use]
 fn shape_style(styles: &indexmap::IndexMap<String, String>) -> String {
     styles
         .iter()
@@ -122,6 +133,7 @@ fn shape_style(styles: &indexmap::IndexMap<String, String>) -> String {
         .collect()
 }
 
+#[must_use]
 fn styled(
     inherited: &TextStyle,
     element_defaults: Option<&TextStyle>,
@@ -132,25 +144,30 @@ fn styled(
         inherited,
         crate::mermaid_style::CssFontSizeContext::new(inherited.font_size, root_font_size),
     );
-    // Role selectors match this element, not its parent. Their defaults compete
-    // with source declarations without changing the inherited relative-unit base.
+
+
     if let Some(defaults) = element_defaults {
         if let Some(family) = &defaults.font_family {
             cascade.observe("font-family", family, false);
         }
+
         cascade.observe("font-size", &format!("{}px", defaults.font_size), false);
+
         if let Some(weight) = &defaults.font_weight {
             cascade.observe("font-weight", weight, false);
         }
+
         if let Some(style) = &defaults.font_style {
             cascade.observe("font-style", style, false);
         }
     }
+
     for (key, value) in styles {
-        let value = value.trim_end_matches("!important").trim();
-        // The writer emits every compiled label declaration as important.
-        cascade.observe(key, value, true);
+        let value_2 = value.trim_end_matches("!important").trim();
+
+        cascade.observe(key, value_2, true);
     }
+
     cascade.finish().into_owned()
 }
 
@@ -163,13 +180,14 @@ struct LabelContext<'a> {
     theme_style: &'a UsecaseThemeStyle,
 }
 
+#[must_use]
 fn measure_plain_label(
     source: &str,
     style: &TextStyle,
     measurer: &dyn TextMeasurer,
 ) -> TextMetrics {
-    // Match the writer's source tokenization before decoding each textContent payload.
-    // Decoded rows are literal tspan text, not another input to label normalization.
+
+
     let lines = crate::text::DeterministicTextMeasurer::normalized_text_lines(source);
     let mut metrics = TextMetrics {
         width: 0.0,
@@ -177,14 +195,17 @@ fn measure_plain_label(
         line_count: lines.len(),
     };
     let mut vertical_bounds: Option<(f64, f64)> = None;
+
     for (index, line) in lines.iter().enumerate() {
         let visible = crate::text::non_markdown_svg_words(line)
             .map(crate::entities::decode_svg_text_content_entities)
             .collect::<Vec<_>>()
             .join(" ");
+
         if visible.is_empty() {
             continue;
         }
+
         metrics.width = metrics
             .width
             .max(measurer.measure_svg_tspan_text_bbox_width_px(&visible, style));
@@ -196,6 +217,7 @@ fn measure_plain_label(
             None => (top, bottom),
         });
     }
+
     metrics.height = vertical_bounds.map_or(0.0, |(top, bottom)| bottom - top);
     metrics
 }
@@ -209,21 +231,24 @@ fn label(
     context: &LabelContext<'_>,
     work: &OperationLayoutWorkControl,
 ) -> Result<UsecaseLabelPlan> {
-    let html = context
+    let html = match context
         .config
         .as_value()
         .get("htmlLabels")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
+        .and_then(Value::as_bool) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => true,
+    };
     let mode = if html {
         WrapMode::HtmlLike
     } else {
         WrapMode::SvgLike
     };
-    // Node `style` describes g.label; edge groups carry no inline font. Source
-    // styles then repeat on div/span in HTML or text in SVG, whose words reset
-    // inherited weight and style.
+
+
+
     let mut terminal_style = styled(style, None, context.styles, context.root_font_size);
+
     if html {
         terminal_style = styled(
             &terminal_style,
@@ -238,26 +263,29 @@ fn label(
         )
         .into_owned();
     }
+
     let source = create_text_source(text, label_type);
-    let source = source.as_ref();
+    let source_2 = source.as_ref();
     let math_renderer = context
         .math_renderer
-        .filter(|_| crate::math::contains_delimited_math(source));
+        .filter(|_| crate::math::contains_delimited_math(source_2));
     let html_content = if html {
         Some(
-            crate::math::render_math_html_label(source, context.config, math_renderer)
+            crate::math::render_math_html_label(source_2, context.config, math_renderer)
                 .unwrap_or_else(|| match label_type {
                     UsecaseLabelType::Text => {
-                        format!("<p>{}</p>", source.replace('\n', "<br/>"))
+                        format!("<p>{}</p>", source_2.replace('\n', "<br/>"))
                     }
                     UsecaseLabelType::Markdown => {
                         crate::text::mermaid_markdown_to_xhtml_label_fragment(
                             text,
-                            crate::config::config_bool(
+                            match crate::config::config_bool(
                                 context.config.as_value(),
                                 &["markdownAutoWrap"],
-                            )
-                            .unwrap_or(true),
+                            ) {
+                                ::core::option::Option::Some(option_value) => option_value,
+                                ::core::option::Option::None => true,
+                            },
                         )
                     }
                 }),
@@ -265,8 +293,8 @@ fn label(
     } else {
         None
     };
-    // The generated NBSP terminal has no automatic space breaks. Authored <br/> remains
-    // structural XHTML and is still measured as separate rows with no width constraint.
+
+
     let measurement_width = if html
         && label_type == UsecaseLabelType::Markdown
         && crate::config::config_bool(context.config.as_value(), &["markdownAutoWrap"])
@@ -279,7 +307,7 @@ fn label(
     let mut metrics =
         crate::math::math_label_metrics_for_layout(crate::math::MathLabelMetricsRequest {
             measurer: context.measurer,
-            raw_label: source,
+            raw_label: source_2,
             style: &terminal_style,
             max_width_px: measurement_width,
             wrap_mode: mode,
@@ -304,21 +332,22 @@ fn label(
                     mode,
                 )
             } else {
-                measure_plain_label(source, &terminal_style, context.measurer)
+                measure_plain_label(source_2, &terminal_style, context.measurer)
             }
         });
     let text_metrics = metrics;
-    // labelHelper.withMinWidth also widens the measured box for SVG labels.
+
     if !text.is_empty() {
         metrics.width = metrics.width.max(min_width);
     }
+
     Ok(UsecaseLabelPlan {
         text: text.to_owned(),
         label_type,
         text_metrics,
         metrics,
-        // HTML emits the g font again; retain it rather than re-emitting the
-        // terminal size and applying relative descendant declarations twice.
+
+
         style: if html { style.clone() } else { terminal_style },
         max_width,
         html: html_content
@@ -349,16 +378,17 @@ fn json_scalar_display(
 ) -> Result<String> {
     if value.is_null() {
         match infinity {
-            Some(UsecaseJsonInfinity::Positive) => return Ok("Infinity".into()),
-            Some(UsecaseJsonInfinity::Negative) => return Ok("-Infinity".into()),
+            Some(UsecaseJsonInfinity::Positive) => return Ok(<::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("Infinity")),
+            Some(UsecaseJsonInfinity::Negative) => return Ok(<::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("-Infinity")),
             None => {}
         }
     }
+
     Ok(match value {
-        Value::String(value) => return json_display_string(node, value),
+        Value::String(value_2) => return json_display_string(node, value_2),
         Value::Number(number) => number.as_f64().map_or_else(
             || number.to_string(),
-            |value| ryu_js::Buffer::new().format(value).to_string(),
+            |value_3| ryu_js::Buffer::new().format(value_3).to_string(),
         ),
         _ => value.to_string(),
     })
@@ -368,31 +398,36 @@ fn flatten_json(
     node: &UsecaseJsonNode,
     work: &mut OperationLayoutWorkControl,
 ) -> Result<Vec<(String, String, String)>> {
-    // Iterative traversal bounds stack use for externally constructed render models.
+
     let mut pending = vec![(&node.value, String::new(), String::new())];
     let mut rows = Vec::new();
+
     while let Some((value, path, pointer)) = pending.pop() {
         work.charge_adapter(1)?;
+
         match value {
             Value::Array(values)
                 if !values.is_empty()
                     && values
                         .iter()
-                        .all(|value| !value.is_array() && !value.is_object()) =>
+                        .all(|value_2| !value_2.is_array() && !value_2.is_object()) =>
             {
-                for (index, value) in values.iter().enumerate() {
+                for (index, value_3) in values.iter().enumerate() {
                     work.charge_adapter(1)?;
-                    let display = if index == 0 {
-                        path.clone()
-                    } else {
-                        String::new()
+                    let display = match index {
+                        0 => {
+                            path.clone()
+                        },
+                        _ => {
+                            String::new()
+                        },
                     };
-                    let value = json_scalar_display(
+                    let value_4 = json_scalar_display(
                         node,
-                        value,
+                        value_3,
                         node.non_finite_numbers.get(&format!("{pointer}/{index}")),
                     )?;
-                    rows.push((display, path.clone(), value));
+                    rows.push((display, path.clone(), value_4));
                 }
             }
             Value::Array(values) if !values.is_empty() => {
@@ -410,10 +445,11 @@ fn flatten_json(
                     .get(&pointer)
                     .cloned()
                     .unwrap_or_else(|| values.keys().cloned().collect());
+
                 for key in keys.into_iter().rev() {
                     if let Some(child) = values.get(&key) {
-                        // Keep encoded identity for lookup and pointers; only the
-                        // final UTF-8 SVG presentation replaces isolated surrogates.
+
+
                         let display_key = json_display_string(node, &key)?;
                         let child_path = if path.is_empty() {
                             display_key
@@ -432,11 +468,14 @@ fn flatten_json(
             )),
         }
     }
+
     Ok(rows)
 }
 
+#[must_use]
 fn escaped_markdown(text: &str) -> String {
     let mut escaped = String::new();
+
     for ch in text.chars() {
         match ch {
             '&' => escaped.push_str("&amp;"),
@@ -449,6 +488,7 @@ fn escaped_markdown(text: &str) -> String {
             _ => escaped.push(ch),
         }
     }
+
     escaped
 }
 
@@ -466,12 +506,15 @@ pub(super) fn measure(
         |text: &str| merman_markup::sanitize::sanitize_text(text, full_config.as_config());
     let min_width = number(config, "minNodeWidth", 120.0);
     let wrapping_width = Some(number(config, "wrappingWidth", 120.0));
-    let html = config
+    let html = match config
         .get("htmlLabels")
-        .and_then(Value::as_bool)
-        .unwrap_or(true);
+        .and_then(Value::as_bool) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => true,
+    };
     let root_font_size = css_binding.root_font.font_size;
     let mut nodes = Vec::new();
+
     for actor in [true, false] {
         for node in model
             .nodes
@@ -486,20 +529,20 @@ pub(super) fn measure(
                 &css_binding.usecase_font
             };
             let (inherited, element_defaults) = if html {
-                // HTML emits the computed role font inline on g.label.
+
                 (role_font, None)
             } else {
-                // Only SVG actor/business groups match a role selector; ordinary
-                // SVG labels inherit the root without .nodeLabel/.usecase-label.
+
+
                 let role_group =
                     actor || (node.business && node.kind == UsecaseNodeKind::UseCaseEllipse);
                 (&css_binding.root_font, role_group.then_some(role_font))
             };
             let theme_style = theme_plan.label(&node.id);
-            let inherited = theme_style.text_style(inherited);
-            let element_defaults =
+            let inherited_2 = theme_style.text_style(inherited);
+            let element_defaults_2 =
                 element_defaults.map(|defaults| theme_style.text_style(defaults));
-            let style = styled(&inherited, element_defaults.as_ref(), &css, root_font_size);
+            let style = styled(&inherited_2, element_defaults_2.as_ref(), &css, root_font_size);
             let label_context = LabelContext {
                 config: full_config,
                 measurer,
@@ -508,7 +551,7 @@ pub(super) fn measure(
                 root_font_size,
                 theme_style: &theme_style,
             };
-            // Sanitize before escaping or folding stereotypes, as UsecaseDB does.
+
             let source_label = sanitize(&node.label);
             let source_stereotype = node.stereotype.as_deref().map(sanitize);
             let folded_stereotype = !actor
@@ -544,7 +587,7 @@ pub(super) fn measure(
                 .as_ref()
                 .filter(|value| !value.is_empty() && !folded_stereotype)
                 .map(|value| {
-                    // The separate SVG stereotype lacks .actor-label/.usecase-label.
+
                     let stereotype_theme = theme_plan.stereotype(&node.id);
                     let stereotype_style = if html {
                         styled(
@@ -592,7 +635,7 @@ pub(super) fn measure(
                 };
             let ellipse = node.kind == UsecaseNodeKind::UseCaseEllipse;
             let (width, height) = if actor {
-                // usecaseActor.ts: one shared 56x72 glyph footprint for all four variants.
+
                 (
                     56.0_f64.max(label_width) + 20.0,
                     72.0 + 8.0 + content_height + 20.0,
@@ -622,7 +665,9 @@ pub(super) fn measure(
             });
         }
     }
+
     let generic = &css_binding.generic_font;
+
     for note in &model.notes {
         work.charge_adapter(1)?;
         let css = styles(model, &[], &[]);
@@ -662,6 +707,7 @@ pub(super) fn measure(
             dagre_helper: false,
         });
     }
+
     for node in &model.json_nodes {
         work.charge_adapter(1)?;
         let css = styles(model, &node.classes, &node.styles);
@@ -687,6 +733,7 @@ pub(super) fn measure(
         let mut rows = Vec::new();
         let mut key_width: f64 = 16.0;
         let mut value_width: f64 = 16.0;
+
         for (key, accessible_key, value) in flatten_json(node, work)? {
             work.charge_adapter(1)?;
             let key_label = label(
@@ -717,20 +764,23 @@ pub(super) fn measure(
                 height,
             });
         }
+
         let inner_width = (main.metrics.width + 16.0).max(key_width + value_width);
         value_width += (inner_width - key_width - value_width).max(0.0);
         let title_height = main.metrics.height + 8.0;
         let inner_height = title_height + rows.iter().map(|row| row.height).sum::<f64>();
-        let border_width = css
+        let border_width = match css
             .get("stroke-width")
-            .and_then(|value| value.trim_end_matches("px").parse::<f64>().ok())
+            .and_then(|value| match value.trim_end_matches("px").parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None })
             .filter(|value| value.is_finite() && *value >= 0.0)
             .or_else(|| {
                 theme_plan
                     .shell(&node.id)
-                    .and_then(|style| style.stroke_width)
-            })
-            .unwrap_or(1.0);
+                    .and_then(|style_2| style_2.stroke_width)
+            }) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 1.0,
+        };
         nodes.push(UsecaseNodePlan {
             id: node.id.clone(),
             source_style: shape_style(&css),
@@ -754,6 +804,7 @@ pub(super) fn measure(
             }),
         });
     }
+
     for boundary in &model.boundaries {
         work.charge_adapter(1)?;
         let css = styles(model, &boundary.classes, &boundary.styles);
@@ -793,11 +844,13 @@ pub(super) fn measure(
             dagre_helper: false,
         });
     }
+
     let mut edges = Vec::new();
+
     for edge in &model.relationships {
         work.charge_adapter(1)?;
         let mut css = styles(model, &edge.classes, &[]);
-        // Mermaid selects Neo marker margins from class styles before inline edge styles.
+
         let source_animated = css
             .iter()
             .any(|(key, value)| key.contains("animation") || value.contains("animation"));
@@ -851,8 +904,8 @@ pub(super) fn measure(
         };
         edges.push(UsecaseEdgePlan {
             source_style: shape_style(&css),
-            // Mermaid's marker margin decision observes compiled class animation, excluding
-            // inline path styles. Prepare that decision alongside the edge's other source facts.
+
+
             animated: edge.animate || edge.animation.is_some() || source_animated,
             original_id: None,
             self_loop_node: None,
@@ -861,9 +914,9 @@ pub(super) fn measure(
             source: edge.source.clone(),
             target: edge.target.clone(),
             label: text
-                .map(|text| {
+                .map(|text_2| {
                     let mut plan = label(
-                        &sanitize(text),
+                        &sanitize(text_2),
                         kind,
                         &style,
                         Some(200.0),
@@ -871,6 +924,7 @@ pub(super) fn measure(
                         &label_context,
                         work,
                     )?;
+
                     if full_config
                         .as_value()
                         .get("htmlLabels")
@@ -878,11 +932,12 @@ pub(super) fn measure(
                         == Some(false)
                         && !plan.text.is_empty()
                     {
-                        // insertEdgeLabel passes createText's padded background bbox to both
-                        // graph providers and the label-aware ELK terminal guard.
+
+
                         plan.metrics.width += 4.0;
                         plan.metrics.height += 4.0;
                     }
+
                     Ok::<_, crate::Error>(plan)
                 })
                 .transpose()?,
@@ -893,6 +948,7 @@ pub(super) fn measure(
             internal: false,
         });
     }
+
     for note in &model.notes {
         work.charge_adapter(1)?;
         edges.push(UsecaseEdgePlan {
@@ -912,12 +968,15 @@ pub(super) fn measure(
             internal: true,
         });
     }
+
     let ids: HashSet<_> = nodes.iter().map(|node| node.id.as_str()).collect();
+
     if ids.len() != nodes.len() {
         return Err(Error::InvalidModel {
-            message: "duplicate Usecase node id".into(),
+            message: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("duplicate Usecase node id"),
         });
     }
+
     for node in &nodes {
         if let Some(parent) = &node.parent
             && !model
@@ -930,6 +989,7 @@ pub(super) fn measure(
             });
         }
     }
+
     for edge in &edges {
         if !ids.contains(edge.source.as_str()) || !ids.contains(edge.target.as_str()) {
             return Err(Error::InvalidModel {
@@ -940,6 +1000,7 @@ pub(super) fn measure(
             });
         }
     }
+
     Ok((nodes, edges))
 }
 

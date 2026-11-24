@@ -8,7 +8,7 @@ include_checked_in_lalrpop_parser!(
     "sequence_grammar.rs"
 );
 
-// The source grammar and typed consumers share the model-owned numeric protocol.
+
 use merman_model::families::sequence::{
     LINETYPE_ACTIVE_END, LINETYPE_ACTIVE_START, LINETYPE_ALT_ELSE, LINETYPE_ALT_END,
     LINETYPE_ALT_START, LINETYPE_AUTONUMBER, LINETYPE_BIDIRECTIONAL_DOTTED,

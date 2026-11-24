@@ -37,13 +37,14 @@ use std::path::PathBuf;
 
 use console_core_external_programs::{EVERY, Origin};
 use console_core_internal_programs::EVERY as EVERY_INTERNAL;
+use console_manifest_engine::machines;
 use console_repository::sources::{Spelled, Word, of_every_crate, spells};
 use reading::{Failure, Section, read, root, section};
 
 fn sources() -> Result<Vec<(PathBuf, String)>, Failure> {
   let Ok(root) = root();
   let ourself = root.join(file!());
-  let declaring = root.join("crates/console-core-external-programs");
+  let declaring = root.join("crates/console-core-external-programs/src/lib.rs");
   let Ok(found) = of_every_crate(&root, &[&ourself, &declaring]);
   let mut read = Vec::new();
 
@@ -79,11 +80,11 @@ fn every_package_a_program_comes_from_is_in_the_manifest() -> Result<(), Failure
       let Ok(origin) = program.origin();
 
       match origin {
-        Origin::Package(named_2) => Some(named_2),
-        Origin::Arch | Origin::Developing | Origin::Handheld => None,
+        Origin::Package(package) => Some(package),
+        Origin::Arch | Origin::Developing | Origin::Handheld | Origin::Optional => None,
       }
     })
-    .filter(|named_3| !packages.contains(*named_3))
+    .filter(|package| !packages.contains(*package))
     .collect();
 
   assert!(missing.is_empty(), "[packages] does not name: {missing:?}");
@@ -94,8 +95,11 @@ fn every_package_a_program_comes_from_is_in_the_manifest() -> Result<(), Failure
 #[test]
 fn every_program_of_ours_that_is_run_is_in_the_manifest() -> Result<(), Failure> {
   let held = read("desktop.conf")?;
+  let overlays = read("machines.conf")?;
+  let Ok(every_machine) = machines::of_every(&overlays);
   let named = section(&held, Section::Build)?;
-  let built: BTreeSet<String> = named.into_iter().collect();
+  let machine_builds = section(&every_machine, Section::Build)?;
+  let built: BTreeSet<String> = named.into_iter().chain(machine_builds).collect();
   let missing: Vec<&str> = EVERY_INTERNAL
     .iter()
     .map(|ours| {

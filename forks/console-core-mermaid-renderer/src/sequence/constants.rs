@@ -5,14 +5,17 @@ pub(crate) const SEQUENCE_FRAME_GEOM_PAD_PX: f64 = 10.0;
 pub(crate) const SEQUENCE_ACTOR_POPUP_PANEL_BASE_HEIGHT: f64 = 20.0;
 pub(crate) const SEQUENCE_ACTOR_POPUP_ROW_HEIGHT: f64 = 30.0;
 
+#[must_use]
 pub(crate) fn sequence_text_dimensions_height_px(font_size_px: f64) -> f64 {
     (font_size_px.max(1.0) * (17.0 / 16.0)).round().max(1.0)
 }
 
+#[must_use]
 pub(crate) fn sequence_actor_popup_panel_height(link_count: usize) -> f64 {
     SEQUENCE_ACTOR_POPUP_PANEL_BASE_HEIGHT + (link_count as f64) * SEQUENCE_ACTOR_POPUP_ROW_HEIGHT
 }
 
+#[must_use]
 pub(crate) fn sequence_actor_popup_rect_height(
     actor_type: &str,
     visual_height: f64,
@@ -20,14 +23,15 @@ pub(crate) fn sequence_actor_popup_rect_height(
     is_neo: bool,
     mirror_actors: bool,
 ) -> f64 {
-    // drawPopup inherits the last drawActor call's rectData. Top drawing keeps the pre-shape
-    // actor height for collection, queue, and database shapes; mirrored drawing runs after shape mutation and uses
-    // the footer's visual node height. Neo collections shorten both rectData copies by six pixels.
+
+
+
     let height = if mirror_actors || !matches!(actor_type, "collections" | "queue" | "database") {
         visual_height
     } else {
         base_height
     };
+
     if actor_type == "collections" && is_neo {
         (height - 6.0).max(0.0)
     } else {
@@ -35,6 +39,7 @@ pub(crate) fn sequence_actor_popup_rect_height(
     }
 }
 
+#[must_use]
 pub(super) fn sequence_actor_visual_height(
     actor_type: &str,
     base_width: f64,
@@ -43,17 +48,18 @@ pub(super) fn sequence_actor_visual_height(
     has_prepared_math: bool,
 ) -> f64 {
     let legacy_height = match actor_type {
-        // Mermaid derives these from the actor-type glyph bbox + label box height.
-        // These heights are used by the footer actor rendering and affect the final SVG viewBox.
+
+
         "boundary" => (44.0 + label_box_height).max(1.0),
-        // Mermaid's database actor updates the actor height from the cylinder bbox after render.
-        // The cylinder uses `rect.width / 3`, then the label box height is added.
+
+
         "database" => ((base_width / 3.0) + label_box_height).max(1.0),
         "entity" => (44.0 + label_box_height).max(1.0),
-        // Control uses an extra label-box height in Mermaid.
+
         "control" => (44.0 + 2.0 * label_box_height).max(1.0),
         _ => base_height.max(1.0),
     };
+
     if has_prepared_math {
         legacy_height.max(base_height).max(1.0)
     } else {
@@ -61,6 +67,7 @@ pub(super) fn sequence_actor_visual_height(
     }
 }
 
+#[must_use]
 pub(super) fn sequence_actor_prepared_math_layout_height(
     actor_type: &str,
     base_width: f64,
@@ -109,18 +116,19 @@ pub(super) fn sequence_actor_prepared_math_layout_height(
         .max(1.0)
 }
 
+#[must_use]
 pub(super) fn sequence_actor_lifeline_start_y(
     actor_type: &str,
     base_height: f64,
     box_text_margin: f64,
 ) -> f64 {
     match actor_type {
-        // Hard-coded in Mermaid's sequence svgDraw.js for these actor types.
-        // Prepared math may make the terminal actor footprint taller than the legacy glyph. Keep
-        // the lifeline below the complete renderer-owned label projection in that case.
+
+
+
         "actor" | "boundary" => 80.0_f64.max(base_height),
         "control" | "entity" => 75.0_f64.max(base_height),
-        // For database, Mermaid starts the lifeline slightly below the actor box.
+
         "database" => base_height + 2.0 * box_text_margin,
         _ => base_height,
     }
@@ -128,6 +136,8 @@ pub(super) fn sequence_actor_lifeline_start_y(
 
 /// Mermaid's Neo participant row: glyph, gap, measured text, gap to the lifeline.
 pub(crate) const SEQUENCE_GLYPH_BAND_HEIGHT: f64 = 44.0;
+
+#[must_use]
 pub(crate) fn sequence_actor_stack_height(text_height: f64) -> f64 {
     SEQUENCE_GLYPH_BAND_HEIGHT + 6.0 + text_height + 6.0
 }
@@ -138,6 +148,7 @@ pub(crate) struct SequenceActorBands {
 }
 
 impl SequenceActorBands {
+    #[must_use]
     pub(crate) fn new(actor_y: f64, row_height: f64, text_height: f64, footer: bool) -> Self {
         if footer {
             let glyph_bottom_y = actor_y + 10.0 + SEQUENCE_GLYPH_BAND_HEIGHT;

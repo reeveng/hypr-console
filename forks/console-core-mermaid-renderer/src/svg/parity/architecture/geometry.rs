@@ -1,16 +1,19 @@
 use super::super::Bounds;
 use crate::architecture_metrics::architecture_svg_group_bbox_padding_px;
 
+#[must_use]
 pub(super) fn is_arch_dir_x(dir: char) -> bool {
     matches!(dir, 'L' | 'R')
 }
 
+#[must_use]
 pub(super) fn is_arch_dir_y(dir: char) -> bool {
     matches!(dir, 'T' | 'B')
 }
 
+#[must_use]
 pub(super) fn arrow_shift(dir: char, orig: f64, arrow_size: f64) -> f64 {
-    // Mermaid@11.12.2 `ArchitectureDirectionArrowShift`.
+
     match dir {
         'L' | 'T' => orig - arrow_size + 2.0,
         'R' | 'B' => orig - 2.0,
@@ -26,6 +29,7 @@ pub(super) fn extend_bounds(bounds: &mut Option<Bounds>, other: Bounds) {
     b.max_y = b.max_y.max(other.max_y);
 }
 
+#[must_use]
 pub(super) fn bounds_from_rect(x: f64, y: f64, w: f64, h: f64) -> Bounds {
     Bounds {
         min_x: x,
@@ -59,6 +63,7 @@ pub(super) struct GroupRectComputer<'a> {
 }
 
 impl<'a> GroupRectComputer<'a> {
+    #[must_use]
     pub(super) fn new(
         icon_size_px: f64,
         padding_px: f64,
@@ -81,6 +86,7 @@ impl<'a> GroupRectComputer<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn get(&self, group_id: &str) -> Option<&Bounds> {
         self.group_rects.get(group_id)
     }
@@ -92,76 +98,116 @@ impl<'a> GroupRectComputer<'a> {
         }
 
         let mut stack = vec![Step::Enter(group_id)];
+
         while let Some(step) = stack.pop() {
             match step {
                 Step::Enter(id) => {
                     if self.group_rects.contains_key(id) {
                         continue;
                     }
+
                     if !self.visiting.insert(id) {
                         continue;
                     }
+
                     stack.push(Step::Exit(id));
-                    if let Some(children) = self.child_groups.get(id) {
-                        for child in children.iter().rev() {
-                            if !self.group_rects.contains_key(child)
-                                && !self.visiting.contains(child)
-                            {
-                                stack.push(Step::Enter(child));
-                            }
-                        }
+
+                    {
+                        match self.child_groups.get(id) {
+                            Some(children) => {
+                                for child in children.iter().rev() {
+                                    if !self.group_rects.contains_key(child)
+                                        && !self.visiting.contains(child)
+                                    {
+                                        stack.push(Step::Enter(child));
+                                    }
+                                }
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
                 Step::Exit(id) => {
                     let mut content: Option<Bounds> = None;
-                    if let Some(svcs) = self.services_in_group.get(id) {
-                        for svc_id in svcs {
-                            if let Some(b) = self.service_bounds.get(svc_id) {
-                                let mut tmp = content;
-                                extend_bounds(&mut tmp, b.clone());
-                                content = tmp;
+
+                    match self.services_in_group.get(id) {
+                        Some(svcs) => {
+                            for svc_id in svcs {
+                                {
+                                    match self.service_bounds.get(svc_id) {
+                                        Some(b) => {
+                                            let mut tmp = content;
+                                            extend_bounds(&mut tmp, b.clone());
+                                            content = tmp;
+                                        },
+                                        ::core::option::Option::None => {},
+                                    };
+                                }
                             }
-                        }
-                    }
-                    if let Some(junctions) = self.junctions_in_group.get(id) {
-                        for junction_id in junctions {
-                            if let Some(b) = self.junction_bounds.get(junction_id) {
-                                let mut tmp = content;
-                                extend_bounds(&mut tmp, b.clone());
-                                content = tmp;
-                            }
-                        }
-                    }
-                    if let Some(children) = self.child_groups.get(id) {
-                        for child in children {
-                            let Some(b) = self.group_rects.get(child).cloned() else {
-                                continue;
-                            };
-                            let mut tmp = content;
-                            extend_bounds(&mut tmp, b);
-                            content = tmp;
-                        }
+                        },
+                        ::core::option::Option::None => {},
                     }
 
-                    // Upstream Mermaid draws group rectangles from Cytoscape `node.boundingBox()`
-                    // values and then offsets them by `halfIconSize`. The helper applies the
-                    // parent border and final bounding-box expansion phases after content union.
+                    match self.junctions_in_group.get(id) {
+                        Some(junctions) => {
+                            for junction_id in junctions {
+                                {
+                                    match self.junction_bounds.get(junction_id) {
+                                        Some(b) => {
+                                            let mut tmp = content;
+                                            extend_bounds(&mut tmp, b.clone());
+                                            content = tmp;
+                                        },
+                                        ::core::option::Option::None => {},
+                                    };
+                                }
+                            }
+                        },
+                        ::core::option::Option::None => {},
+                    }
+
+                    match self.child_groups.get(id) {
+                        Some(children) => {
+                            'over_child_2: for child in children {
+                                let b = {
+                                    let optional_b = self.group_rects.get(child).cloned();
+
+                                    match optional_b {
+                                        Some(matched_b) => matched_b,
+                                        ::core::option::Option::None => continue 'over_child_2,
+                                    }
+                                };
+
+                                let mut tmp = content;
+                                extend_bounds(&mut tmp, b);
+                                content = tmp;
+                            }
+                        },
+                        ::core::option::Option::None => {},
+                    }
+
+
+
+
                     let pad = architecture_svg_group_bbox_padding_px(self.padding_px);
-                    let b = if let Some(content) = content {
-                        Bounds {
-                            min_x: content.min_x - pad,
-                            min_y: content.min_y - pad,
-                            max_x: content.max_x + pad,
-                            max_y: content.max_y + pad,
-                        }
-                    } else {
-                        // Empty group: match Mermaid's "no children" fallback sizing behavior.
-                        Bounds {
-                            min_x: 0.0,
-                            min_y: 0.0,
-                            max_x: self.icon_size_px.max(1.0),
-                            max_y: self.icon_size_px.max(1.0),
-                        }
+                    let b = match content {
+                        Some(content_2) => {
+                            Bounds {
+                                min_x: content_2.min_x - pad,
+                                min_y: content_2.min_y - pad,
+                                max_x: content_2.max_x + pad,
+                                max_y: content_2.max_y + pad,
+                            }
+                        },
+                        ::core::option::Option::None => {
+
+                            Bounds {
+                                min_x: 0.0,
+                                min_y: 0.0,
+                                max_x: self.icon_size_px.max(1.0),
+                                max_y: self.icon_size_px.max(1.0),
+                            }
+                        },
                     };
                     self.group_rects.insert(id, b);
                     self.visiting.remove(id);

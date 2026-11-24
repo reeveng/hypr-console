@@ -44,8 +44,8 @@ png-format = [
     "dep:console-core-png-files",
     "dep:console-core-atomic-writes",
 ]
-simd = []
-std = ["console-core-curve-geometry/std", "console-core-logging/std", "console-core-paths/std"]
+simd = ["dep:console-core-simd"]
+std = ["console-core-curve-geometry/std", "console-core-logging/std", "console-core-paths/std", "console-core-simd?/std"]
 
 [lib]
 name = "console_core_path_rasterizer"
@@ -62,7 +62,7 @@ workspace = true
 
 [dependencies.bytemuck]
 version = "1.24"
-features = ["aarch64_simd"]
+features = ["aarch64_simd", "derive", "wasm_simd"]
 
 [dependencies.cfg-if]
 version = "1"
@@ -75,6 +75,10 @@ workspace = true
 
 [dependencies.console-core-point]
 workspace = true
+
+[dependencies.console-core-simd]
+workspace = true
+optional = true
 
 [dependencies.console-core-png-files]
 workspace = true

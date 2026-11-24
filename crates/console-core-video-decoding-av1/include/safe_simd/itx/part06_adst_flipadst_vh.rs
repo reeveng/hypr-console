@@ -241,12 +241,12 @@ fn inv_txfm_add_mixed_8x8_8bpc(
     *vector = loadu_256!(row);
   }
 
-  match passes.columns {
+  let Ok(()) = match passes.columns {
     Mixed8Pass::Dct => dct8_1d_cols8(token, &mut vectors, bounds),
     Mixed8Pass::Adst => adst8_1d_cols8(token, &mut vectors, bounds),
     Mixed8Pass::FlipAdst => flipadst8_1d_cols8(token, &mut vectors, bounds),
     Mixed8Pass::Identity => identity8_1d_cols8(token, &mut vectors, bounds),
-  }
+  };
 
   for (row, vector) in output_rows.iter_mut().zip(vectors) {
     storeu_256!(row, vector);

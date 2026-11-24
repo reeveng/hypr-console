@@ -44,6 +44,7 @@ struct PieSemanticSource {
 
 #[cfg(feature = "presentation")]
 impl PieSemanticSource {
+    #[must_use]
     fn into_render_parts(self) -> (PieDiagramModel, PieOutputData) {
         (self.model, self.output_data)
     }
@@ -170,6 +171,7 @@ pub(crate) fn parse_pie_semantic_model_controlled(
                     },
                 }
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 crate::family::SemanticConstruction {
@@ -260,21 +262,26 @@ fn construct_pie_semantic_source_controlled(
 
     while offset < code.len() {
         control.checkpoint()?;
+
         match parse_pie_statement(code, offset) {
             PieStatement::Common(parsed) => {
-                if let Some(diagnostic) = &parsed.diagnostic {
-                    #[cfg(feature = "editor-facts")]
-                    if let Some(facts) = &mut editor_facts {
-                        push_langium_common_recovery(facts, diagnostic);
-                    }
-                    first_error.get_or_insert_with(|| {
-                        Error::diagram_parse_insertion_point(
-                            diagram_type.to_string(),
-                            diagnostic.message.clone(),
-                            diagnostic.span.start,
-                        )
-                    });
+                match &parsed.diagnostic {
+                    Some(diagnostic) => {
+                        #[cfg(feature = "editor-facts")]
+                        if let Some(facts) = &mut editor_facts {
+                            push_langium_common_recovery(facts, diagnostic);
+                        }
+                        first_error.get_or_insert_with(|| {
+                            Error::diagram_parse_insertion_point(
+                                diagram_type.to_string(),
+                                diagnostic.message.clone(),
+                                diagnostic.span.start,
+                            )
+                        });
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 #[cfg(feature = "editor-facts")]
                 if let Some(facts) = editor_facts
                     .as_mut()
@@ -323,16 +330,19 @@ fn construct_pie_semantic_source_controlled(
 
     let mut sections = Vec::new();
     let mut seen = HashSet::new();
+
     for (index, section) in parsed_sections.into_iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         if section.value < 0.0 {
             if {
                 #[cfg(feature = "editor-facts")]
                 {
                     editor_facts.is_some()
                 }
+
                 #[cfg(not(feature = "editor-facts"))]
                 {
                     false
@@ -356,8 +366,10 @@ fn construct_pie_semantic_source_controlled(
                     )
                 });
             }
+
             continue;
         }
+
         if seen.insert(section.label.clone()) {
             sections.push(PieSection {
                 label: section.label,
@@ -367,12 +379,16 @@ fn construct_pie_semantic_source_controlled(
     }
 
     let common = LangiumCommonDbFields::from_facts(&common);
-    if let Some(error) = first_error {
-        return Ok(Err(family::CombinedSemanticFailure::new(
-            error,
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-        )));
+
+    match first_error {
+        Some(error) => {
+            return Ok(Err(family::CombinedSemanticFailure::new(
+                error,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            )));
+        },
+        ::core::option::Option::None => {},
     }
 
     control.checkpoint()?;
@@ -418,23 +434,31 @@ struct PieParsedSection {
     value_span: SourceSpan,
 }
 
+#[must_use]
 fn parse_pie_statement(code: &str, offset: usize) -> PieStatement {
-    if let Some(parsed) = parse_langium_common(code, offset) {
-        return PieStatement::Common(parsed);
+    match parse_langium_common(code, offset) {
+        Some(parsed) => {
+            return PieStatement::Common(parsed);
+        },
+        ::core::option::Option::None => {},
     }
 
     let (line, next_offset) = physical_line(code, offset);
     let visible = strip_inline_comment(line);
     let trimmed = visible.trim();
+
     if trimmed.is_empty() {
         return PieStatement::Empty { next_offset };
     }
 
-    if let Some(section) = parse_pie_section(line, offset) {
-        return PieStatement::Section {
-            section,
-            next_offset,
-        };
+    match parse_pie_section(line, offset) {
+        Some(section) => {
+            return PieStatement::Section {
+                section,
+                next_offset,
+            };
+        },
+        ::core::option::Option::None => {},
     }
 
     PieStatement::Unexpected {
@@ -448,6 +472,7 @@ fn parse_pie_statement(code: &str, offset: usize) -> PieStatement {
     }
 }
 
+#[must_use]
 fn parse_pie_section(line: &str, line_start: usize) -> Option<PieParsedSection> {
     let visible = strip_inline_comment(line);
     let leading = visible.len() - visible.trim_start().len();
@@ -472,25 +497,29 @@ fn parse_pie_section(line: &str, line_start: usize) -> Option<PieParsedSection> 
     })
 }
 
+#[must_use]
 fn parse_number_pie(input: &str) -> Option<f64> {
     let unsigned = input.strip_prefix('-').unwrap_or(input);
     let (integer, fraction) = match unsigned.split_once('.') {
         Some((integer, fraction)) => (integer, Some(fraction)),
         None => (unsigned, None),
     };
+
     if integer.is_empty() || !integer.bytes().all(|byte| byte.is_ascii_digit()) {
         return None;
     }
+
     match fraction {
-        Some(fraction)
-            if fraction.is_empty() || !fraction.bytes().all(|byte| byte.is_ascii_digit()) =>
+        Some(fraction_2)
+            if fraction_2.is_empty() || !fraction_2.bytes().all(|byte| byte.is_ascii_digit()) =>
         {
             return None;
         }
         None if integer.len() > 1 && integer.starts_with('0') => return None,
-        _ => {}
+        ::core::option::Option::None | ::core::option::Option::Some(_) => {}
     }
-    input.parse().ok()
+
+    match input.parse() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
 }
 
 struct ParsedQuotedString<'a> {
@@ -501,6 +530,7 @@ struct ParsedQuotedString<'a> {
     rest_start: usize,
 }
 
+#[must_use]
 fn parse_quoted_string(input: &str, input_start: usize) -> Option<ParsedQuotedString<'_>> {
     let parsed = parse_langium_string(input, input_start)?;
     Some(ParsedQuotedString {
@@ -512,6 +542,7 @@ fn parse_quoted_string(input: &str, input_start: usize) -> Option<ParsedQuotedSt
     })
 }
 
+#[must_use]
 fn trim_start_with_offset(input: &str, input_start: usize) -> (&str, usize) {
     let trimmed = input.trim_start();
     (trimmed, input_start + input.len() - trimmed.len())
@@ -559,15 +590,18 @@ fn pie_body_start_controlled(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<PieHeader> {
     let mut offset = 0usize;
+
     while offset < code.len() {
         control.checkpoint()?;
         let (line, next_offset) = physical_line(code, offset);
         let visible = strip_inline_comment(line);
         let trimmed = visible.trim_start();
+
         if trimmed.trim().is_empty() {
             offset = next_offset;
             continue;
         }
+
         let Some(header_len) = keyword_token_len(trimmed, "pie") else {
             let start = offset + visible.len() - trimmed.len();
             let token_length = trimmed
@@ -579,6 +613,7 @@ fn pie_body_start_controlled(
                 start + token_length,
             )));
         };
+
         let leading = visible.len() - trimmed.len();
         let header_start = offset + leading;
         let after_header = header_start + header_len;
@@ -598,9 +633,11 @@ fn pie_body_start_controlled(
             show_data_span,
         }));
     }
+
     Ok(PieHeader::Empty)
 }
 
+#[must_use]
 fn keyword_token_len(input: &str, keyword: &str) -> Option<usize> {
     let rest = input.strip_prefix(keyword)?;
     (rest.is_empty()
@@ -609,8 +646,10 @@ fn keyword_token_len(input: &str, keyword: &str) -> Option<usize> {
     .then_some(keyword.len())
 }
 
+#[must_use]
 fn physical_line(source: &str, offset: usize) -> (&str, usize) {
     let rest = &source[offset..];
+
     if let Some(newline) = rest.find('\n') {
         let line = rest[..newline]
             .strip_suffix('\r')
@@ -621,6 +660,7 @@ fn physical_line(source: &str, offset: usize) -> (&str, usize) {
     }
 }
 
+#[must_use]
 fn strip_inline_comment(line: &str) -> &str {
     strip_langium_inline_comment(line)
 }
@@ -1133,7 +1173,7 @@ mod output_data_tests {
         assert_eq!(empty_output, PieOutputData::Empty);
         assert_eq!(header_output, PieOutputData::Model);
         assert_eq!(PieOutputData::default(), PieOutputData::Model);
-        // Identical canonical values must not erase the source producer's distinct output shape.
+
         assert_eq!(
             serde_json::to_value(&empty).unwrap(),
             serde_json::to_value(&header).unwrap()

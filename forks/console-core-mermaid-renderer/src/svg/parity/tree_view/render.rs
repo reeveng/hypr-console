@@ -78,6 +78,7 @@ pub(crate) fn render_tree_view_diagram_svg_model(
         );
         out.checkpoint()?;
     }
+
     if let Some(descr) = acc_descr {
         let _ = write!(
             &mut out,
@@ -86,9 +87,10 @@ pub(crate) fn render_tree_view_diagram_svg_model(
         );
         out.checkpoint()?;
     }
+
     out.push_str("<style>");
-    // Icons are emitted inline for each resolved node, matching Mermaid's
-    // node-local DOM and keeping custom icon rendering scoped to that node.
+
+
     let mut tree_view_receipt = theme.begin_terminal_receipt(layout.nodes.len(), || {
         layout
             .nodes
@@ -123,6 +125,7 @@ pub(crate) fn render_tree_view_diagram_svg_model(
         effective_config,
         work_meter: options.work_meter(),
     };
+
     for line in &layout.lines {
         if line.kind == "horizontal"
             && let Some(node) = layout.nodes.get(next_node)
@@ -137,7 +140,9 @@ pub(crate) fn render_tree_view_diagram_svg_model(
             )?;
             next_node += 1;
         }
+
         let emitted_stroke_width_token = theme.terminal_stroke_width_token(line.stroke_width);
+
         if let Some(stroke_width_token) = emitted_stroke_width_token {
             let _ = write!(
                 &mut out,
@@ -159,11 +164,14 @@ pub(crate) fn render_tree_view_diagram_svg_model(
                 fmt(line.stroke_width),
             );
         }
+
         out.checkpoint()?;
+
         if let Some(receipt) = &mut tree_view_receipt {
             receipt.record_line(theme.line_color_css(), emitted_stroke_width_token);
         }
     }
+
     for node in layout.nodes.iter().skip(next_node) {
         push_tree_view_node(
             &mut out,
@@ -174,12 +182,15 @@ pub(crate) fn render_tree_view_diagram_svg_model(
             tree_view_receipt.as_mut(),
         )?;
     }
+
     out.push_str("</g></svg>\n");
     out.checkpoint()?;
-    let rooted = root_document.complete(out.finish()?)?;
+    let rooted = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if let Some(receipt) = tree_view_receipt {
         let _ = theme.record_terminal(receipt);
     }
+
     Ok(rooted)
 }
 
@@ -193,6 +204,7 @@ fn push_tree_view_node(
 ) -> Result<()> {
     out.push_str("<g>");
     let label_classes = tree_view_label_classes(node);
+
     if is_tree_view_highlight_class(node.css_class.as_deref()) {
         let rect_width =
             (*width_before_highlight - node.x + TREE_VIEW_HIGHLIGHT_RECT_EXTENSION).max(0.0);
@@ -204,13 +216,16 @@ fn push_tree_view_node(
             fmt(rect_width),
             fmt((node.height - 2.0).max(0.0))
         );
+
         if let Some(receipt) = tree_view_receipt.as_deref_mut() {
             receipt.record_highlight(&theme.css().highlight_bg, &theme.css().highlight_stroke);
         }
+
         *width_before_highlight += TREE_VIEW_HIGHLIGHT_WIDTH_GROWTH;
     }
+
     if let Some(icon) = node.resolved_icon.as_deref() {
-        let icon = tree_view_icon_svg(
+        let icon_2 = tree_view_icon_svg(
             icon,
             context.diagram_id,
             node.id,
@@ -218,8 +233,8 @@ fn push_tree_view_node(
             context.effective_config,
             context.work_meter,
         )?;
-        let current_color_use = icon.current_color_use;
-        let icon_svg = icon.svg;
+        let current_color_use = icon_2.current_color_use;
+        let icon_svg = icon_2.svg;
         let _ = write!(
             out,
             r#"<g class="treeView-node-icon" transform="translate({}, {})">{}</g>"#,
@@ -227,10 +242,12 @@ fn push_tree_view_node(
             fmt(node.y + context.layout.padding_y),
             icon_svg
         );
+
         if let Some(receipt) = tree_view_receipt.as_deref_mut() {
             receipt.record_icon(theme.icon_color_css(), current_color_use);
         }
     }
+
     let _ = write!(
         out,
         r#"<text dominant-baseline="middle" class="{}" x="{}" y="{}">{}</text>"#,
@@ -239,9 +256,11 @@ fn push_tree_view_node(
         fmt(node.label_y),
         escape_xml_display(&node.name)
     );
+
     if let Some(receipt) = tree_view_receipt {
         receipt.record_label(theme.label_color_css());
     }
+
     if let (Some(description), Some(description_x)) =
         (node.description.as_deref(), node.description_x)
     {
@@ -253,6 +272,7 @@ fn push_tree_view_node(
             escape_xml_display(description)
         );
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -285,19 +305,24 @@ fn push_tree_view_css(
         theme.highlight_bg,
         theme.highlight_stroke
     );
-    if let Some(receipt) = receipt {
-        receipt.record_font_size(&theme.label_font_size_css);
-        receipt.record_highlight_css(&theme.highlight_bg, &theme.highlight_stroke);
-        receipt.record_css(font_family, label_color, line_color, icon_color);
+
+    if let Some(receipt_2) = receipt {
+        receipt_2.record_font_size(&theme.label_font_size_css);
+        receipt_2.record_highlight_css(&theme.highlight_bg, &theme.highlight_stroke);
+        receipt_2.record_css(font_family, label_color, line_color, icon_color);
     }
+
     out.checkpoint()
 }
 
+#[must_use]
 fn tree_view_label_classes(node: &TreeViewNodeLayout) -> String {
     let mut classes = vec!["treeView-node-label".to_string()];
+
     if node.node_type == TREE_VIEW_DIRECTORY_NODE_TYPE {
         classes.push("treeView-node-dir".to_string());
     }
+
     if let Some(css_class) = node.css_class.as_deref() {
         classes.extend(
             css_class
@@ -306,6 +331,7 @@ fn tree_view_label_classes(node: &TreeViewNodeLayout) -> String {
                 .map(str::to_string),
         );
     }
+
     classes.join(" ")
 }
 
@@ -333,14 +359,14 @@ fn tree_view_icon_svg(
         });
     }
 
-    let node_id = node_id.to_string();
-    let icon_svg = match icon_registry {
+    let node_id_2 = node_id.to_string();
+    let icon_svg = match match icon_registry {
         Some(registry) => {
             let prefix = crate::svg::icon_registry::IconIdScopePrefix::from_parts(
                 &["tree-view-", diagram_id.semantic_str(), "-"],
                 work_meter,
             )?;
-            let id_scope = prefix.scope_parts(&[&node_id], work_meter)?;
+            let id_scope = prefix.scope_parts(&[&node_id_2], work_meter)?;
             registry.render_icon_with_paint_fact(crate::svg::icon_registry::IconRenderRequest {
                 icon_name: icon,
                 width_px: TREE_VIEW_ICON_SIZE,
@@ -360,18 +386,25 @@ fn tree_view_icon_svg(
             current_color_use,
             svg: rendered.into_svg(),
         }
-    })
-    .unwrap_or_else(|| TreeViewRenderedIcon {
-        svg: mermaid_unknown_icon_svg(fmt(TREE_VIEW_ICON_SIZE), fmt(TREE_VIEW_ICON_SIZE)),
-        current_color_use: crate::svg::IconCurrentColorUse::NotConsumed,
-    });
+    }) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => TreeViewRenderedIcon {
+            svg: mermaid_unknown_icon_svg(fmt(TREE_VIEW_ICON_SIZE), fmt(TREE_VIEW_ICON_SIZE)),
+            current_color_use: crate::svg::IconCurrentColorUse::NotConsumed,
+        },
+    };
     Ok(icon_svg)
 }
 
+#[must_use]
 fn tree_view_icon_body(icon: &str) -> Option<&'static str> {
-    match icon
-        .strip_prefix(TREE_VIEW_ICON_PREFIX)?
-        .strip_prefix(':')?
+    let checked_value = icon
+        .strip_prefix(TREE_VIEW_ICON_PREFIX)?;
+
+    let checked_value_2 = checked_value
+        .strip_prefix(':')?;
+
+    match checked_value_2
     {
         "folder" => Some(
             r#"<path fill="currentColor" d="M10.59 4.59A2 2 0 0 0 9.17 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.17z"/>"#,

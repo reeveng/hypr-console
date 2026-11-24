@@ -42,18 +42,18 @@ impl VennTypographyThemePlan {
         title_theme: &VennTitleThemePlan,
         work_meter: &OperationWorkMeter,
     ) -> crate::Result<Self> {
-        let text_fill = theme.and_then(|theme| {
-            let style = theme.style(ThemeTarget::Text, ThemeVariant::Default, None);
+        let text_fill = theme.and_then(|theme_2| {
+            let style = theme_2.style(ThemeTarget::Text, ThemeVariant::Default, None);
             resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Text],
                 DirectStaticSelectorDomain::Default,
             )
         });
         let text_fill_routes = theme
-            .map(|theme| {
-                theme
+            .map(|theme_3| {
+                theme_3
                     .family_mechanism_routes()
                     .iter()
                     .copied()
@@ -67,18 +67,18 @@ impl VennTypographyThemePlan {
                                 },
                             facet: FamilyThemeRuleFacet::Fill(_),
                         } if route.disposition() == FamilyThemeDisposition::TypedAdapter => {
-                            Some((theme.family_mechanism_key(route), rule_index))
+                            Some((theme_3.family_mechanism_key(route), rule_index))
                         }
-                        _ => None,
+                        FamilyThemeMechanism::BaseTypography(_) | FamilyThemeMechanism::RuleFacet { .. } | FamilyThemeMechanism::OrdinalPalette { .. } | FamilyThemeMechanism::EffectBinding { .. } => None,
                     })
                     .collect::<Vec<_>>()
                     .into_boxed_slice()
             })
             .unwrap_or_default();
-        // `vennSetTextColor` is the renderer's final Venn text-color role.  A caller may set
-        // `textColor` without owning that role: Default retains its constructor snapshot, while
-        // non-Default themes can derive `vennSetTextColor` and carry the ownership edge there.
-        // Check the resolved role rather than its possible source variables.
+
+
+
+
         let config_owns_text_fill = theme.is_some()
             && effective_config
                 .config_paint_overrides_typed_default("themeVariables.vennSetTextColor");
@@ -93,93 +93,102 @@ impl VennTypographyThemePlan {
                 .map(crate::family::DirectStaticPaint::css),
             work_meter,
         )?;
-        let core_paints = if theme.is_some() {
-            let circles = css_binding
-                .areas
-                .iter()
-                .filter_map(|area| match area {
-                    VennAreaPaintBinding::Circle(circle) => Some(circle),
-                    VennAreaPaintBinding::Intersection { .. } => None,
-                })
-                .collect::<Vec<_>>();
-            let config_owned = circles
-                .iter()
-                .map(|circle| {
-                    let path = circle
-                        .fill_config_role
-                        .map(|role| format!("themeVariables.venn{role}"))
-                        .unwrap_or_else(|| "themeVariables.primaryColor".into());
-                    effective_config.config_paint_overrides_typed_default(&path)
-                })
-                .collect::<Vec<_>>();
-            let source_fill = circles
-                .iter()
-                .zip(&config_owned)
-                .map(|(circle, &owned)| circle.source_fill_owned || owned)
-                .collect::<Vec<_>>();
-            let source_stroke = circles
-                .iter()
-                .zip(&config_owned)
-                .map(|(circle, &owned)| {
-                    circle.source_stroke_owned || (!circle.source_fill_owned && owned)
-                })
-                .collect::<Vec<_>>();
-            let source_label = circles
-                .iter()
-                .zip(layout.areas.iter().filter(|area| area.sets.len() == 1))
-                .map(|(circle, area)| {
-                    circle.source_text_owned || super::rendered_area_label(area).trim().is_empty()
-                })
-                .collect::<Vec<_>>();
-            let visible_label_sources = source_label
-                .iter()
-                .copied()
-                .zip(layout.areas.iter().filter(|area| area.sets.len() == 1))
-                .filter(|(_, area)| !super::rendered_area_label(area).trim().is_empty())
-                .map(|(owned, _)| owned)
-                .collect::<Vec<_>>();
-            let node = StaticSurfacePaint::resolve(
-                theme,
-                ThemeTarget::Node,
-                &source_fill,
-                &source_stroke,
-                work_meter,
-            )?;
-            let label = StaticSurfacePaint::resolve(
-                theme,
-                ThemeTarget::NodeLabel,
-                &visible_label_sources,
-                &vec![false; visible_label_sources.len()],
-                work_meter,
-            )?;
-            for (index, circle) in css_binding
-                .areas
-                .iter_mut()
-                .filter_map(|area| match area {
-                    VennAreaPaintBinding::Circle(circle) => Some(circle),
-                    VennAreaPaintBinding::Intersection { .. } => None,
-                })
-                .enumerate()
-            {
-                if !source_fill[index]
-                    && let Some(fill) = &node.fill
+        let core_paints = match theme {
+            ::core::option::Option::Some(_) => {
+                let circles = css_binding
+                    .areas
+                    .iter()
+                    .filter_map(|area| match area {
+                        VennAreaPaintBinding::Circle(circle) => Some(circle),
+                        VennAreaPaintBinding::Intersection { .. } => None,
+                    })
+                    .collect::<Vec<_>>();
+                let config_owned = circles
+                    .iter()
+                    .map(|circle| {
+                        let path = match circle
+                            .fill_config_role
+                            .map(|role| format!("themeVariables.venn{role}")) {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("themeVariables.primaryColor"),
+                        };
+                        effective_config.config_paint_overrides_typed_default(&path)
+                    })
+                    .collect::<Vec<_>>();
+                let source_fill = circles
+                    .iter()
+                    .zip(&config_owned)
+                    .map(|(circle, &owned)| circle.source_fill_owned || owned)
+                    .collect::<Vec<_>>();
+                let source_stroke = circles
+                    .iter()
+                    .zip(&config_owned)
+                    .map(|(circle, &owned)| {
+                        circle.source_stroke_owned || (!circle.source_fill_owned && owned)
+                    })
+                    .collect::<Vec<_>>();
+                let source_label = circles
+                    .iter()
+                    .zip(layout.areas.iter().filter(|area| area.sets.len() == 1))
+                    .map(|(circle, area)| {
+                        circle.source_text_owned || super::rendered_area_label(area).trim().is_empty()
+                    })
+                    .collect::<Vec<_>>();
+                let visible_label_sources = source_label
+                    .iter()
+                    .copied()
+                    .zip(layout.areas.iter().filter(|area| area.sets.len() == 1))
+                    .filter(|(_, area)| !super::rendered_area_label(area).trim().is_empty())
+                    .map(|(owned, _)| owned)
+                    .collect::<Vec<_>>();
+                let node = StaticSurfacePaint::resolve(
+                    theme,
+                    ThemeTarget::Node,
+                    &source_fill,
+                    &source_stroke,
+                    work_meter,
+                )?;
+                let label = StaticSurfacePaint::resolve(
+                    theme,
+                    ThemeTarget::NodeLabel,
+                    &visible_label_sources,
+                    &vec![false; visible_label_sources.len()],
+                    work_meter,
+                )?;
+
+                for (index, circle) in css_binding
+                    .areas
+                    .iter_mut()
+                    .filter_map(|area| match area {
+                        VennAreaPaintBinding::Circle(circle) => Some(circle),
+                        VennAreaPaintBinding::Intersection { .. } => None,
+                    })
+                    .enumerate()
                 {
-                    circle.fill = fill.css().to_owned();
+                    if !source_fill[index]
+                        && let Some(fill) = &node.fill
+                    {
+                        circle.fill = fill.css().to_owned();
+                    }
+
+                    if !source_stroke[index]
+                        && let Some(stroke) = &node.stroke
+                    {
+                        circle.stroke = stroke.css().to_owned();
+                    }
+
+                    if !source_label[index]
+                        && let Some(fill) = &label.fill
+                    {
+                        circle.text = fill.css().to_owned();
+                    }
                 }
-                if !source_stroke[index]
-                    && let Some(stroke) = &node.stroke
-                {
-                    circle.stroke = stroke.css().to_owned();
-                }
-                if !source_label[index]
-                    && let Some(fill) = &label.fill
-                {
-                    circle.text = fill.css().to_owned();
-                }
-            }
-            [node, label]
-        } else {
-            Default::default()
+
+                [node, label]
+            },
+            ::core::option::Option::None => {
+                Default::default()
+            },
         };
         Ok(Self {
             css_binding,
@@ -196,14 +205,17 @@ impl VennTypographyThemePlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &VennCssBinding {
         &self.css_binding
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.inherited_font_stack.font_family_css()
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> VennTypographyThemeReceipt {
         VennTypographyThemeReceipt {
             requested: self.inherited_font_stack.typography_requested()
@@ -212,6 +224,7 @@ impl VennTypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn stylesheet(
         &self,
         diagram_id: &str,
@@ -235,6 +248,7 @@ impl VennTypographyThemePlan {
         css
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: VennTypographyThemeReceipt) -> bool {
         self.terminal_receipt.set(receipt).is_ok()
     }
@@ -242,34 +256,44 @@ impl VennTypographyThemePlan {
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
         let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
         let Some(receipt) = self.terminal_receipt.get() else {
             self.inherited_font_stack
                 .record_unsupported_typography_evidence(evidence, true);
+
             if self.inherited_font_stack.typed_font_stack_requested() {
                 evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
             }
-            for (key, _) in &self.text_fill_routes {
+
+            for (key_2, _) in &self.text_fill_routes {
                 if self.config_owns_text_fill {
-                    evidence.mark_not_applicable(key.clone());
+                    evidence.mark_not_applicable(key_2.clone());
                 } else {
                     evidence
-                        .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+                        .mark_residual(key_2.clone(), FamilyThemeResidualReason::UnsupportedPaint);
                 }
             }
+
             return;
         };
+
         for paint in &self.core_paints {
             paint.record_evidence(evidence);
         }
+
         self.inherited_font_stack
             .record_unsupported_typography_evidence(evidence, receipt.visible_text);
+
         if !receipt.visible_text {
             evidence.mark_not_applicable(key);
-            for (key, _) in &self.text_fill_routes {
-                evidence.mark_not_applicable(key.clone());
+
+            for (key_3, _) in &self.text_fill_routes {
+                evidence.mark_not_applicable(key_3.clone());
             }
+
             return;
         }
+
         if self.inherited_font_stack.typed_font_stack_active() {
             evidence.mark_applied_with_capabilities(key, [ThemeCapability::Typography]);
         } else if self.inherited_font_stack.outcome() == InheritedFontStackOutcome::ConfigOwned {
@@ -277,23 +301,26 @@ impl VennTypographyThemePlan {
         } else if self.inherited_font_stack.typed_font_stack_requested() {
             evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
         }
-        for (key, rule_index) in &self.text_fill_routes {
+
+        for (key_4, rule_index) in &self.text_fill_routes {
             if self.config_owns_text_fill {
-                evidence.mark_not_applicable(key.clone());
+                evidence.mark_not_applicable(key_4.clone());
                 continue;
             }
+
             let Some(fill) = self
                 .text_fill
                 .as_ref()
                 .filter(|fill| fill.rule_index() == *rule_index)
             else {
-                evidence.mark_not_applicable(key.clone());
+                evidence.mark_not_applicable(key_4.clone());
                 continue;
             };
+
             if receipt.text_fill_terminal {
-                evidence.mark_applied_with_capabilities(key.clone(), [fill.capability()]);
+                evidence.mark_applied_with_capabilities(key_4.clone(), [fill.capability()]);
             } else {
-                evidence.mark_not_applicable(key.clone());
+                evidence.mark_not_applicable(key_4.clone());
             }
         }
     }
@@ -339,6 +366,7 @@ impl VennTypographyThemeReceipt {
         if !self.requested || text.trim().is_empty() {
             return;
         }
+
         self.visible_text = true;
         self.text_fill_terminal |= !source_owns_fill;
     }
@@ -357,16 +385,17 @@ impl VennTitleThemePlan {
         title: Option<&str>,
         work_meter: &OperationWorkMeter,
     ) -> crate::Result<Self> {
-        let Some(theme) = theme else {
+        let Some(theme_2) = theme else {
             return Ok(Self {
                 fill: SingleTitleFillPlan::default(),
             });
         };
-        let title_present = title.is_some_and(|title| !title.trim().is_empty());
+
+        let title_present = title.is_some_and(|title_2| !title_2.trim().is_empty());
         let config_owns_fill = effective_config
             .config_paint_overrides_typed_default("themeVariables.vennTitleTextColor");
         let fill = SingleTitleFillPlan::resolve(
-            theme,
+            theme_2,
             title_present,
             config_owns_fill,
             FamilyThemeOutcomes::default(),
@@ -375,13 +404,14 @@ impl VennTitleThemePlan {
         Ok(Self { fill })
     }
 
+    #[must_use]
     pub(crate) fn fill_css(&self) -> Option<&str> {
         self.fill.fill_css()
     }
 
     pub(crate) fn record_title(&self) {
         if self.fill.fill_css().is_some() {
-            self.fill.record_proven_terminal();
+            let _ = self.fill.record_proven_terminal();
         }
     }
 

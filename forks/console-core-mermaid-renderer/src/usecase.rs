@@ -21,6 +21,7 @@ pub(crate) use theme::{
 
 /// Mermaid's nonMarkdownToHTML/nonMarkdownToLines treat a literal \n as a line break.
 /// Keep the source label intact for accessibility while sharing its rendered text with measurement.
+#[must_use]
 pub(crate) fn normalize_plain_label_line_breaks(text: &str) -> std::borrow::Cow<'_, str> {
     if text.contains("\\n") {
         std::borrow::Cow::Owned(text.replace("\\n", "\n"))
@@ -120,18 +121,22 @@ impl UsecasePreparedArtifact {
         self.theme_plan.record_evidence(evidence);
     }
 
+    #[must_use]
     pub(crate) fn effect_evidence(&self) -> &crate::diagram_theme::SvgShadowEvidenceRecorder {
         &self.effect_evidence
     }
 
+    #[must_use]
     pub(crate) fn expected_effect_applications(&self) -> usize {
         self.theme_plan.expected_effect_applications()
     }
 
+    #[must_use]
     pub(crate) fn layout(&self) -> &UsecaseDiagramLayout {
         &self.layout
     }
 
+    #[must_use]
     pub(crate) fn edge_points(&self, edge: &LayoutEdge) -> Vec<crate::model::LayoutPoint> {
         self.edge_paths
             .get(&edge.id)
@@ -141,6 +146,7 @@ impl UsecasePreparedArtifact {
 }
 
 /// The literal source Mermaid passes to createText, before selecting its math branch.
+#[must_use]
 pub(crate) fn create_text_source(text: &str, kind: UsecaseLabelType) -> std::borrow::Cow<'_, str> {
     match kind {
         UsecaseLabelType::Markdown => std::borrow::Cow::Borrowed(text),
@@ -153,6 +159,7 @@ pub(crate) fn create_text_source(text: &str, kind: UsecaseLabelType) -> std::bor
     }
 }
 
+#[must_use]
 pub(crate) fn requires_math(
     model: &UsecaseDiagramModel,
     config: &merman_model::presentation::PresentationConfig,
@@ -160,6 +167,7 @@ pub(crate) fn requires_math(
     if config.as_value().get("htmlLabels").and_then(Value::as_bool) == Some(false) {
         return false;
     }
+
     let has_math = |(text, kind): (&str, UsecaseLabelType)| {
         let sanitized = merman_markup::sanitize::sanitize_text(text, config.as_config());
         crate::math::contains_delimited_math(&create_text_source(&sanitized, kind))
@@ -191,26 +199,30 @@ pub(crate) fn requires_math(
                 .as_deref()
                 .map(|text| (text, edge.label_type.unwrap_or_default()))
         }));
+
     if labels.any(has_math) {
         return true;
     }
-    // JSON cells show the complete leaf path, not each object key in isolation.
+
+
     let mut pending: Vec<_> = model
         .json_nodes
         .iter()
         .map(|node| (node, &node.value, String::new()))
         .collect();
+
     while let Some((node, value, path)) = pending.pop() {
         let display_has_math = |text: &str| {
             node.display_string(text)
-                .is_ok_and(|text| has_math((&text, UsecaseLabelType::Text)))
+                .is_ok_and(|text_2| has_math((&text_2, UsecaseLabelType::Text)))
         };
+
         match value {
             Value::Array(values)
                 if !values.is_empty()
                     && values
                         .iter()
-                        .all(|value| !value.is_array() && !value.is_object()) =>
+                        .all(|value_2| !value_2.is_array() && !value_2.is_object()) =>
             {
                 if has_math((&path, UsecaseLabelType::Text))
                     || values
@@ -226,18 +238,18 @@ pub(crate) fn requires_math(
                     values
                         .iter()
                         .enumerate()
-                        .map(|(index, value)| (node, value, format!("{path}[{index}]"))),
+                        .map(|(index, value_3)| (node, value_3, format!("{path}[{index}]"))),
                 );
             }
             Value::Object(values) if !values.is_empty() => {
-                pending.extend(values.iter().filter_map(|(key, value)| {
-                    let key = node.display_string(key).ok()?;
-                    let path = if path.is_empty() {
-                        key.into_owned()
+                pending.extend(values.iter().filter_map(|(key, value_4)| {
+                    let key_2 = node.display_string(key).ok()?;
+                    let path_2 = if path.is_empty() {
+                        key_2.into_owned()
                     } else {
-                        format!("{path}.{key}")
+                        format!("{path}.{key}", key = key_2)
                     };
-                    Some((node, value, path))
+                    Some((node, value_4, path_2))
                 }));
             }
             _ => {
@@ -249,6 +261,7 @@ pub(crate) fn requires_math(
             }
         }
     }
+
     false
 }
 
@@ -286,12 +299,14 @@ pub(crate) fn prepare_usecase_diagram(
         math_renderer,
         &mut work,
     )?;
+
     if crate::layout_backend::resolve_graph_layout(config_value).backend
         == crate::layout_backend::GraphLayoutBackend::Dagre
     {
         dagre::expand_self_loops(&mut nodes, &mut edges, &css_binding.generic_font, &mut work)?;
         theme_plan.retain_edge_terminals(&edges, &mut work)?;
     }
+
     let mut layout = layout::layout(
         model,
         config_value,

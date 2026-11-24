@@ -10,14 +10,18 @@
 //! real program run by the real loop, and the only thing the test supplies is
 //! the source, because the only sound card is the one it is running on.
 
+#![forbid(unsafe_code)]
+
 use std::error::Error;
+use std::io;
 use std::os::unix::net::UnixStream;
 use std::path::Path;
+use std::process::Command;
 use std::sync::mpsc::sync_channel;
 use std::time::Duration;
 
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
 use console_events::serving;
 use console_operating_system_linux::program_runtime::{Clock, Interpreter, run};
 use console_program_contract::event::Change;
@@ -40,6 +44,14 @@ struct Rocker {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum TestEffect {
   Logged(String),
+}
+
+impl EffectDependencies for TestEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Logged(_) => &[],
+    })
+  }
 }
 
 impl Machine for Rocker {
@@ -106,13 +118,14 @@ struct Keeping(Vec<String>);
 impl Interpreter for Keeping {
   type Event = Never;
   type Effect = TestEffect;
+  type Error = Never;
 
-  fn interpret(&mut self, acts: &TestEffect, _clock: &Clock) -> Vec<Event<Never>> {
+  fn interpret(&mut self, acts: &TestEffect, _clock: &Clock) -> Result<Vec<Event<Never>>, Never> {
     match acts {
       TestEffect::Logged(said) => self.0.push(said.clone()),
     }
 
-    Vec::new()
+    Ok(Vec::new())
   }
 }
 
@@ -132,28 +145,37 @@ fn up(at: &Path) -> Result<Outcome, Never> {
 }
 
 #[test]
-#[cfg_attr(
-  dylint_lib = "explicit044_no_ambient_value",
-  allow(
-    explicit044_no_ambient_value,
-    reason = "the runtime finds the pool where the session says its sockets are, and this binary is its own session: the one test in it points that at a folder of its own before anything reads it"
-  )
-)]
-#[cfg_attr(
-  dylint_lib = "explicit058_contain_unsafe",
-  expect(
-    explicit058_contain_unsafe,
-    reason = "this binary has one integration test and assigns its private runtime directory before starting any threads"
-  )
-)]
 fn a_program_that_asked_to_be_told_hears_the_pool_rather_than_a_line_on_the_journal()
 -> Result<(), Box<dyn Error>> {
   let where_ = console_core_temporary_directories::fresh("runtime-words")?;
+  let executable = std::env::current_exe()?;
+  let result = Command::new(executable)
+    .args([
+      "--ignored",
+      "--exact",
+      "the_runtime_in_a_private_event_pool",
+    ])
+    .env("XDG_RUNTIME_DIR", &where_)
+    .status();
+  std::fs::remove_dir_all(&where_)?;
+  let status = result?;
 
+  assert!(status.success(), "the isolated runtime test failed");
+
+  Ok(())
+}
+
+#[test]
+#[ignore = "run in the test's isolated XDG runtime directory"]
+fn the_runtime_in_a_private_event_pool() -> Result<(), Box<dyn Error>> {
+  let Ok(runtime) = console_core_places::runtime();
+  let where_ =
+    runtime.ok_or_else(|| io::Error::other("the event test needs its runtime directory"))?;
+  hears_the_pool(&where_)
+}
+
+fn hears_the_pool(where_: &Path) -> Result<(), Box<dyn Error>> {
   std::fs::create_dir_all(where_.join("console"))?;
-
-  // SAFETY: this binary has one test, and this runs before its server or runtime starts.
-  unsafe { std::env::set_var("XDG_RUNTIME_DIR", &where_) };
 
   let at = where_.join("console").join("events.sock");
   let (handing, handed) = sync_channel(1);
@@ -208,6 +230,5 @@ fn a_program_that_asked_to_be_told_hears_the_pool_rather_than_a_line_on_the_jour
   assert_eq!(code, std::process::ExitCode::SUCCESS);
   assert_eq!(held, vec!["sink 1 at 40%".to_string()]);
 
-  std::fs::remove_dir_all(&where_)?;
   Ok(())
 }

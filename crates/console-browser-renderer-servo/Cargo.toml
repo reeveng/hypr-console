@@ -22,3 +22,6 @@ url = "2.5"
 [profile.dev]
 debug = 0
 incremental = false
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(dylint_lib, values(any()))'] }

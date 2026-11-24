@@ -22,9 +22,10 @@ pub(crate) struct RebaseSvgIdsPostprocessor {
 }
 
 impl RebaseSvgIdsPostprocessor {
+    #[must_use]
     pub(crate) fn new(prefix: impl Into<String>) -> Self {
         Self {
-            prefix: super::super::super::sanitize_svg_id(&prefix.into()),
+            prefix: super::super::super::sanitize_svg_id(&<_ as ::core::convert::Into<::std::string::String>>::into(prefix)),
         }
     }
 }
@@ -49,19 +50,23 @@ impl SvgPostprocessor for RebaseSvgIdsPostprocessor {
         )?;
         let mut cadence = RebaseCadence::new(execution);
         let ids = collect_ids(&svg, &mut cadence)?;
+
         if ids.is_empty() {
             return Ok(svg);
         }
 
         let projected_bytes = projected_rebased_xml_bytes(&svg, &ids, &self.prefix, &mut cadence)?;
         execution.checkpoint()?;
-        let Some(projected_bytes) = projected_bytes else {
-            return Err(execution.svg_byte_count_overflow());
+
+        let projected_bytes_2 = match projected_bytes {
+            Some(matched_projected_bytes) => matched_projected_bytes,
+            ::core::option::Option::None => return Err(execution.svg_byte_count_overflow()),
         };
-        execution.preflight_svg_byte_count(projected_bytes)?;
+
+        execution.preflight_svg_byte_count(projected_bytes_2)?;
         execution.checkpoint()?;
 
-        rebase_xml(&svg, &ids, &self.prefix, projected_bytes, &mut cadence).map(Cow::Owned)
+        rebase_xml(&svg, &ids, &self.prefix, projected_bytes_2, &mut cadence).map(Cow::Owned)
     }
 }
 
@@ -74,6 +79,7 @@ struct RebaseCadence<'a> {
 }
 
 impl<'a> RebaseCadence<'a> {
+    #[must_use]
     const fn new(execution: SvgPostprocessExecution<'a>) -> Self {
         Self {
             execution,
@@ -89,6 +95,7 @@ impl<'a> RebaseCadence<'a> {
         if self.iterations.is_multiple_of(REBASE_CHECKPOINT_BATCH) {
             self.checkpoint()?;
         }
+
         self.iterations = self.iterations.wrapping_add(1);
         Ok(())
     }
@@ -100,10 +107,12 @@ struct CollectedIds {
 }
 
 impl CollectedIds {
+    #[must_use]
     fn is_empty(&self) -> bool {
         self.ids.is_empty()
     }
 
+    #[must_use]
     fn contains_id(&self, id: &str) -> bool {
         self.ids.contains(id)
     }
@@ -118,8 +127,9 @@ fn collect_ids(svg: &str, cadence: &mut RebaseCadence<'_>) -> Result<CollectedId
         cadence.tick()?;
         let event = reader.read_event();
         cadence.checkpoint()?;
-        let event = event.map_err(|error| rebase_error(format!("invalid SVG XML: {error}")))?;
-        match event {
+        let event_2 = event.map_err(|error| rebase_error(format!("invalid SVG XML: {error}")))?;
+
+        match event_2 {
             Event::Start(start) | Event::Empty(start) => {
                 collect_start_id(&start, &mut ids, cadence)?;
             }
@@ -139,23 +149,30 @@ fn collect_start_id(
 ) -> Result<()> {
     for attribute in start.attributes().with_checks(true) {
         cadence.tick()?;
-        let attribute =
+        let attribute_2 =
             attribute.map_err(|error| rebase_error(format!("invalid SVG attribute: {error}")))?;
-        if attribute.key.as_ref() != "id" {
+
+        if attribute_2.key.as_ref() != "id" {
             continue;
         }
-        let id = attribute
+
+        let id = attribute_2
             .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|error| rebase_error(format!("invalid SVG id: {error}")))?;
+
         if id.is_empty() {
             return Err(rebase_error("SVG id must not be empty"));
         }
-        let id = id.into_owned();
-        if ids.contains(id.as_str()) {
-            return Err(rebase_error(format!("duplicate SVG id {id:?}")));
+
+        let id_2 = id.into_owned();
+
+        if ids.contains(id_2.as_str()) {
+            return Err(rebase_error(format!("duplicate SVG id {id:?}", id = id_2)));
         }
-        ids.insert(id);
+
+        ids.insert(id_2);
     }
+
     Ok(())
 }
 
@@ -169,12 +186,13 @@ impl ProjectedByteCounter {
     fn add(&mut self, bytes: usize) {
         if !self.overflowed {
             match self.bytes.checked_add(bytes) {
-                Some(bytes) => self.bytes = bytes,
+                Some(bytes_2) => self.bytes = bytes_2,
                 None => self.overflowed = true,
             }
         }
     }
 
+    #[must_use]
     fn projected_bytes(self) -> Option<usize> {
         (!self.overflowed).then_some(self.bytes)
     }
@@ -215,6 +233,7 @@ impl<'a> ProjectedTextCounter<'a> {
 impl fmt::Write for ProjectedTextCounter<'_> {
     fn write_str(&mut self, value: &str) -> fmt::Result {
         let mut plain_start = 0usize;
+
         for (index, byte) in value.bytes().enumerate() {
             let escaped_bytes = match byte {
                 b'<' | b'>' => 4,
@@ -228,6 +247,7 @@ impl fmt::Write for ProjectedTextCounter<'_> {
             self.bytes.add(escaped_bytes);
             plain_start = index + 1;
         }
+
         self.bytes.add(value.len() - plain_start);
         Ok(())
     }
@@ -240,8 +260,8 @@ struct LogicalStyleText {
 
 impl LogicalStyleText {
     fn push_text(&mut self, text: &BytesText<'_>, cadence: &mut RebaseCadence<'_>) -> Result<()> {
-        let text = text.xml10_content();
-        self.push_str(&text, cadence)
+        let text_2 = text.xml10_content();
+        self.push_str(&text_2, cadence)
     }
 
     fn push_cdata(
@@ -249,8 +269,8 @@ impl LogicalStyleText {
         text: &quick_xml::events::BytesCData<'_>,
         cadence: &mut RebaseCadence<'_>,
     ) -> Result<()> {
-        let text = text.xml10_content();
-        self.push_str(&text, cadence)
+        let text_2 = text.xml10_content();
+        self.push_str(&text_2, cadence)
     }
 
     fn push_reference(
@@ -259,7 +279,7 @@ impl LogicalStyleText {
         cadence: &mut RebaseCadence<'_>,
     ) -> Result<()> {
         cadence.checkpoint()?;
-        self.css.push(resolve_style_reference(reference)?);
+        self.css.push({ let checked_value = resolve_style_reference(reference)?; checked_value });
         cadence.checkpoint()
     }
 
@@ -284,14 +304,17 @@ impl LogicalStyleText {
 }
 
 fn resolve_style_reference(reference: &BytesRef<'_>) -> Result<char> {
-    if let Some(value) = reference
+    match reference
         .resolve_char_ref()
-        .map_err(|error| rebase_error(format!("invalid style character reference: {error}")))?
-    {
-        return Ok(value);
+        .map_err(|error| rebase_error(format!("invalid style character reference: {error}")))? {
+        Some(value) => {
+            return Ok(value);
+        },
+        ::core::option::Option::None => {},
     }
 
     let name = reference.as_ref();
+
     match name {
         "amp" => Ok('&'),
         "apos" => Ok('\''),
@@ -304,6 +327,7 @@ fn resolve_style_reference(reference: &BytesRef<'_>) -> Result<char> {
     }
 }
 
+#[must_use]
 fn nested_style_xml_error() -> Error {
     rebase_error("a <style> element contains nested XML elements")
 }
@@ -323,32 +347,47 @@ fn projected_rebased_xml_bytes(
         cadence.tick()?;
         let event = reader.read_event();
         cadence.checkpoint()?;
-        let event = event.map_err(|error| rebase_error(format!("invalid SVG XML: {error}")))?;
-        match event {
+        let event_2 = event.map_err(|error| rebase_error(format!("invalid SVG XML: {error}")))?;
+
+        match event_2 {
             Event::Start(start) => {
-                if style_text.is_some() {
-                    return Err(nested_style_xml_error());
+                match style_text {
+                    ::core::option::Option::Some(_) => {
+                        return Err(nested_style_xml_error());
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 let is_style = start.local_name().as_ref().eq_ignore_ascii_case("style");
                 project_start(&start, ids, prefix, writer.get_mut(), false, cadence)?;
+
                 if is_style {
                     style_text = Some(LogicalStyleText::default());
                 }
             }
             Event::Empty(start) => {
-                if style_text.is_some() {
-                    return Err(nested_style_xml_error());
+                match style_text {
+                    ::core::option::Option::Some(_) => {
+                        return Err(nested_style_xml_error());
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 project_start(&start, ids, prefix, writer.get_mut(), true, cadence)?;
             }
             Event::End(end) => {
-                if let Some(style) = style_text.take() {
-                    if !end.local_name().as_ref().eq_ignore_ascii_case("style") {
-                        return Err(nested_style_xml_error());
-                    }
-                    let mut output = ProjectedTextCounter::xml_text(writer.get_mut());
-                    style.rewrite_to(ids, prefix, &mut output, cadence)?;
+                match style_text.take() {
+                    Some(style) => {
+                        if !end.local_name().as_ref().eq_ignore_ascii_case("style") {
+                            return Err(nested_style_xml_error());
+                        }
+
+                        let mut output = ProjectedTextCounter::xml_text(writer.get_mut());
+                        style.rewrite_to(ids, prefix, &mut output, cadence)?;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 writer.write_event(Event::End(end)).map_err(write_error)?;
             }
             Event::Text(text) if style_text.is_some() => {
@@ -370,14 +409,15 @@ fn projected_rebased_xml_bytes(
                     .push_reference(&reference, cadence)?;
             }
             Event::Comment(_) if style_text.is_some() => {
-                // XML comments are not part of the effective CSS text. Waiting until </style>
-                // lets selectors and url() tokens span Text/CDATA/comment boundaries exactly as
-                // they do in the browser.
+
+
+
             }
             Event::Eof => break,
             other => writer.write_event(other).map_err(write_error)?,
         }
     }
+
     Ok(writer.into_inner().projected_bytes())
 }
 
@@ -393,12 +433,13 @@ fn project_start(
     let name = start_name.as_ref();
     output.add(1);
     output.add(name.len());
+
     for attribute in start.attributes().with_checks(true) {
         cadence.tick()?;
-        let attribute =
+        let attribute_2 =
             attribute.map_err(|error| rebase_error(format!("invalid SVG attribute: {error}")))?;
-        let key = attribute.key.as_ref();
-        let value = attribute
+        let key = attribute_2.key.as_ref();
+        let value = attribute_2
             .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|error| rebase_error(format!("invalid attribute value: {error}")))?;
         output.add(1 + key.len() + 2);
@@ -406,6 +447,7 @@ fn project_start(
         rewrite_attribute_to(key, &value, ids, prefix, &mut escaped, cadence)?;
         output.add(1);
     }
+
     output.add(if empty { 2 } else { 1 });
     Ok(())
 }
@@ -424,13 +466,15 @@ fn rebase_xml(
     let mut writer = Writer::new(output);
     write_rebased_xml(svg, ids, prefix, &mut writer, cadence)?;
     cadence.checkpoint()?;
-    let output = writer.into_inner();
-    if output.len() != projected_bytes {
+    let output_2 = writer.into_inner();
+
+    if output_2.len() != projected_bytes {
         return Err(rebase_error(
             "rebased SVG byte projection changed during materialization",
         ));
     }
-    String::from_utf8(output)
+
+    String::from_utf8(output_2)
         .map_err(|error| rebase_error(format!("rebased SVG is not UTF-8: {error}")))
 }
 
@@ -449,26 +493,36 @@ fn write_rebased_xml<W: IoWrite>(
         cadence.tick()?;
         let event = reader.read_event();
         cadence.checkpoint()?;
-        let event = event.map_err(|error| rebase_error(format!("invalid SVG XML: {error}")))?;
-        match event {
+        let event_2 = event.map_err(|error| rebase_error(format!("invalid SVG XML: {error}")))?;
+
+        match event_2 {
             Event::Start(start) => {
-                if style_text.is_some() {
-                    return Err(nested_style_xml_error());
+                match style_text {
+                    ::core::option::Option::Some(_) => {
+                        return Err(nested_style_xml_error());
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 let is_style = start.local_name().as_ref().eq_ignore_ascii_case("style");
                 let rewritten = rewrite_start(start, ids, prefix, cadence)?;
                 writer
                     .write_event(Event::Start(rewritten))
                     .map_err(write_error)?;
                 cadence.checkpoint()?;
+
                 if is_style {
                     style_text = Some(LogicalStyleText::default());
                 }
             }
             Event::Empty(start) => {
-                if style_text.is_some() {
-                    return Err(nested_style_xml_error());
+                match style_text {
+                    ::core::option::Option::Some(_) => {
+                        return Err(nested_style_xml_error());
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 let rewritten = rewrite_start(start, ids, prefix, cadence)?;
                 writer
                     .write_event(Event::Empty(rewritten))
@@ -476,17 +530,22 @@ fn write_rebased_xml<W: IoWrite>(
                 cadence.checkpoint()?;
             }
             Event::End(end) => {
-                if let Some(style) = style_text.take() {
-                    if !end.local_name().as_ref().eq_ignore_ascii_case("style") {
-                        return Err(nested_style_xml_error());
-                    }
-                    let mut css = String::new();
-                    style.rewrite_to(ids, prefix, &mut css, cadence)?;
-                    writer
-                        .write_event(Event::Text(BytesText::new(&css)))
-                        .map_err(write_error)?;
-                    cadence.checkpoint()?;
+                match style_text.take() {
+                    Some(style) => {
+                        if !end.local_name().as_ref().eq_ignore_ascii_case("style") {
+                            return Err(nested_style_xml_error());
+                        }
+
+                        let mut css = String::new();
+                        style.rewrite_to(ids, prefix, &mut css, cadence)?;
+                        writer
+                            .write_event(Event::Text(BytesText::new(&css)))
+                            .map_err(write_error)?;
+                        cadence.checkpoint()?;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 writer.write_event(Event::End(end)).map_err(write_error)?;
             }
             Event::Text(text) if style_text.is_some() => {
@@ -508,12 +567,13 @@ fn write_rebased_xml<W: IoWrite>(
                     .push_reference(&reference, cadence)?;
             }
             Event::Comment(_) if style_text.is_some() => {
-                // See the projection pass: comments do not contribute to style text.
+
             }
             Event::Eof => break,
             other => writer.write_event(other).map_err(write_error)?,
         }
     }
+
     Ok(())
 }
 
@@ -525,17 +585,19 @@ fn rewrite_start(
 ) -> Result<BytesStart<'static>> {
     let name = start.name().as_ref().to_owned();
     let mut rewritten = BytesStart::new(name);
+
     for attribute in start.attributes().with_checks(true) {
         cadence.tick()?;
-        let attribute =
+        let attribute_2 =
             attribute.map_err(|error| rebase_error(format!("invalid SVG attribute: {error}")))?;
-        let key = attribute.key.as_ref();
-        let value = attribute
+        let key = attribute_2.key.as_ref();
+        let value = attribute_2
             .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|error| rebase_error(format!("invalid attribute value: {error}")))?;
-        let value = rewrite_attribute(key, &value, ids, prefix, cadence)?;
-        rewritten.push_attribute((key, value.as_str()));
+        let value_2 = rewrite_attribute(key, &value, ids, prefix, cadence)?;
+        rewritten.push_attribute((key, value_2.as_str()));
     }
+
     Ok(rewritten)
 }
 
@@ -561,9 +623,11 @@ fn rewrite_attribute_to<W: fmt::Write>(
 ) -> Result<()> {
     let name = qualified_name.rsplit(':').next().unwrap_or(qualified_name);
     let normalized_name = name.to_ascii_lowercase();
+
     if is_css_value_attribute(name) {
         return rewrite_component_values_to(value, ids, prefix, false, output, cadence);
     }
+
     match normalized_name.as_str() {
         "id" => {
             if ids.contains_id(value) {
@@ -576,18 +640,24 @@ fn rewrite_attribute_to<W: fmt::Write>(
             write_rebased(output, "#")?;
             write_rebased_reference(prefix, &value[1..], output, cadence)?;
         }
-        name if is_svg_idref_attribute(name) => {
+        name_2 if is_svg_idref_attribute(name_2) => {
             for (index, id) in value.split_ascii_whitespace().enumerate() {
                 cadence.tick()?;
-                if index != 0 {
-                    write_rebased(output, " ")?;
+
+                match index {
+                    0 => {},
+                    _ => {
+                        write_rebased(output, " ")?;
+                    },
                 }
+
                 write_rebased_reference(prefix, id, output, cadence)?;
             }
         }
         "begin" | "end" => rewrite_smil_timing_to(value, ids, prefix, output, cadence)?,
         _ => write_rebased(output, value)?,
     }
+
     Ok(())
 }
 
@@ -612,10 +682,11 @@ fn write_sanitized_prefix<W: fmt::Write>(
 ) -> Result<()> {
     for chunk in prefix.as_bytes().chunks(REBASE_PREFIX_CHECKPOINT_BYTES) {
         cadence.checkpoint()?;
-        let chunk = std::str::from_utf8(chunk)
+        let chunk_2 = std::str::from_utf8(chunk)
             .map_err(|_| rebase_error("sanitized SVG ID prefix is not ASCII"))?;
-        write_rebased(output, chunk)?;
+        write_rebased(output, chunk_2)?;
     }
+
     Ok(())
 }
 
@@ -627,11 +698,12 @@ fn serialize_sanitized_prefix<W: fmt::Write>(
 ) -> Result<()> {
     for chunk in prefix.as_bytes().chunks(REBASE_PREFIX_CHECKPOINT_BYTES) {
         cadence.checkpoint()?;
-        let chunk = std::str::from_utf8(chunk)
+        let chunk_2 = std::str::from_utf8(chunk)
             .map_err(|_| rebase_error("sanitized SVG ID prefix is not ASCII"))?;
-        serialize_name(chunk, output)
+        serialize_name(chunk_2, output)
             .map_err(|_| rebase_error(format!("failed to serialize rebased {context}")))?;
     }
+
     Ok(())
 }
 
@@ -642,9 +714,9 @@ fn serialize_rebased_identifier<W: fmt::Write>(
     context: &'static str,
     cadence: &mut RebaseCadence<'_>,
 ) -> Result<()> {
-    // `sanitize_svg_id` guarantees an ASCII alphabetic first prefix byte. Therefore the
-    // serialization of `prefix-id` is exactly the CSS name serialization of these three pieces,
-    // without constructing the potentially much larger joined identifier.
+
+
+
     serialize_sanitized_prefix(prefix, output, cadence, context)?;
     output
         .write_char('-')
@@ -691,15 +763,23 @@ fn rewrite_smil_timing_to<W: fmt::Write>(
 ) -> Result<()> {
     for (part_index, part) in value.split(';').enumerate() {
         cadence.tick()?;
-        if part_index != 0 {
-            write_rebased(output, ";")?;
+
+        match part_index {
+            0 => {},
+            _ => {
+                write_rebased(output, ";")?;
+            },
         }
+
         let trimmed = part.trim();
+
         let Some(index) = trimmed.find('.') else {
             write_rebased(output, trimmed)?;
             continue;
         };
+
         let eventbase = &trimmed[..index];
+
         if !ids.contains_id(eventbase)
             || !trimmed[index + 1..]
                 .chars()
@@ -709,9 +789,11 @@ fn rewrite_smil_timing_to<W: fmt::Write>(
             write_rebased(output, trimmed)?;
             continue;
         }
+
         write_rebased_reference(prefix, eventbase, output, cadence)?;
         write_rebased(output, &trimmed[index..])?;
     }
+
     Ok(())
 }
 
@@ -746,13 +828,14 @@ fn rewrite_parser<W: fmt::Write>(
     cadence: &mut RebaseCadence<'_>,
 ) -> Result<()> {
     let mut group_at_rule = None::<String>;
+
     loop {
         cadence.tick()?;
         let start = input.position();
         let token = input.next_including_whitespace_and_comments();
         cadence.checkpoint()?;
-        let token = match token {
-            Ok(token) => token.clone(),
+        let token_3 = match token {
+            Ok(token_2) => token_2.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => {
                 write_rebased(output, input.slice_from(start))?;
                 break;
@@ -760,14 +843,15 @@ fn rewrite_parser<W: fmt::Write>(
             Err(error) => return Err(rebase_error(format!("invalid CSS: {error:?}"))),
         };
         let end = input.position();
-        match token {
+
+        match token_3 {
             Token::AtKeyword(name) => {
-                let name = name.to_ascii_lowercase();
+                let name_2 = name.to_ascii_lowercase();
                 group_at_rule = matches!(
-                    name.as_str(),
+                    name_2.as_str(),
                     "container" | "document" | "layer" | "media" | "scope" | "supports"
                 )
-                .then_some(name);
+                .then_some(name_2);
                 write_rebased(output, input.slice(start..end))?;
             }
             Token::IDHash(id) | Token::Hash(id)
@@ -809,9 +893,14 @@ fn rewrite_parser<W: fmt::Write>(
                     }
                 });
                 cadence.checkpoint()?;
-                if let Some(error) = rewrite_error {
-                    return Err(error);
+
+                match rewrite_error {
+                    Some(error) => {
+                        return Err(error);
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 nested.map_err(|_| rebase_error("invalid CSS function"))?;
                 output
                     .write_char(')')
@@ -819,9 +908,9 @@ fn rewrite_parser<W: fmt::Write>(
             }
             Token::ParenthesisBlock | Token::SquareBracketBlock | Token::CurlyBracketBlock => {
                 write_rebased(output, input.slice(start..end))?;
-                let nested_hashes = if matches!(token, Token::CurlyBracketBlock) {
+                let nested_hashes = if matches!(token_3, Token::CurlyBracketBlock) {
                     group_at_rule.is_some()
-                } else if matches!(token, Token::ParenthesisBlock)
+                } else if matches!(token_3, Token::ParenthesisBlock)
                     && group_at_rule.as_deref() == Some("scope")
                 {
                     true
@@ -830,11 +919,12 @@ fn rewrite_parser<W: fmt::Write>(
                 };
                 let mut rewrite_error = None;
                 let nested = input.parse_nested_block(|nested| {
-                    let result = if matches!(token, Token::SquareBracketBlock) && nested_hashes {
+                    let result = if matches!(token_3, Token::SquareBracketBlock) && nested_hashes {
                         rewrite_attribute_selector_to(nested, prefix, output, cadence)
                     } else {
                         rewrite_parser(nested, ids, prefix, nested_hashes, output, cadence)
                     };
+
                     match result {
                         Ok(()) => Ok(()),
                         Err(error) => {
@@ -844,19 +934,25 @@ fn rewrite_parser<W: fmt::Write>(
                     }
                 });
                 cadence.checkpoint()?;
-                if let Some(error) = rewrite_error {
-                    return Err(error);
+
+                match rewrite_error {
+                    Some(error) => {
+                        return Err(error);
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 nested.map_err(|_| rebase_error("invalid nested CSS block"))?;
                 output
-                    .write_char(match token {
+                    .write_char(match token_3 {
                         Token::ParenthesisBlock => ')',
                         Token::SquareBracketBlock => ']',
                         Token::CurlyBracketBlock => '}',
                         _ => unreachable!(),
                     })
                     .map_err(|_| rebase_error("failed to write rebased CSS block terminator"))?;
-                if matches!(token, Token::CurlyBracketBlock) {
+
+                if matches!(token_3, Token::CurlyBracketBlock) {
                     group_at_rule = None;
                 }
             }
@@ -870,6 +966,7 @@ fn rewrite_parser<W: fmt::Write>(
             _ => write_rebased(output, input.slice(start..end))?,
         }
     }
+
     Ok(())
 }
 
@@ -881,13 +978,14 @@ fn rewrite_attribute_selector_to<W: fmt::Write>(
 ) -> Result<()> {
     let mut attribute_name = None::<String>;
     let mut operator = None::<AttributeMatchOperator>;
+
     loop {
         cadence.tick()?;
         let start = input.position();
         let token = input.next_including_whitespace_and_comments();
         cadence.checkpoint()?;
-        let token = match token {
-            Ok(token) => token.clone(),
+        let token_3 = match token {
+            Ok(token_2) => token_2.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => {
                 write_rebased(output, input.slice_from(start))?;
                 break;
@@ -899,7 +997,8 @@ fn rewrite_attribute_selector_to<W: fmt::Write>(
             }
         };
         let end = input.position();
-        match token {
+
+        match token_3 {
             Token::Ident(name) if operator.is_none() => {
                 attribute_name = Some(name.to_ascii_lowercase());
                 write_rebased(output, input.slice(start..end))?;
@@ -932,6 +1031,7 @@ fn rewrite_attribute_selector_to<W: fmt::Write>(
                 output.write_char('"').map_err(|_| {
                     rebase_error("failed to write rebased CSS attribute selector quote")
                 })?;
+
                 {
                     let mut escaped = CssStringWriter::new(output);
                     rewrite_selector_attribute_value_to(
@@ -943,6 +1043,7 @@ fn rewrite_attribute_selector_to<W: fmt::Write>(
                         cadence,
                     )?;
                 }
+
                 output.write_char('"').map_err(|_| {
                     rebase_error("failed to write rebased CSS attribute selector quote")
                 })?;
@@ -976,6 +1077,7 @@ fn rewrite_attribute_selector_to<W: fmt::Write>(
             _ => write_rebased(output, input.slice(start..end))?,
         }
     }
+
     Ok(())
 }
 
@@ -990,6 +1092,7 @@ enum AttributeMatchOperator {
 }
 
 impl AttributeMatchOperator {
+    #[must_use]
     fn preserves_id_value(self) -> bool {
         matches!(self, Self::Suffix | Self::Substring)
     }
@@ -1004,6 +1107,7 @@ fn serialize_selector_attribute_ident_to<W: fmt::Write>(
     cadence: &mut RebaseCadence<'_>,
 ) -> Result<()> {
     let context = "CSS attribute selector";
+
     match attribute_name {
         Some("id") if operator.preserves_id_value() => {
             serialize_identifier_with_checkpoints(value, output, cadence, context)
@@ -1016,11 +1120,17 @@ fn serialize_selector_attribute_ident_to<W: fmt::Write>(
         Some(name) if is_svg_idref_attribute(name) => {
             for (index, id) in value.split_ascii_whitespace().enumerate() {
                 cadence.tick()?;
-                if index != 0 {
-                    write_rebased(output, r"\ ")?;
+
+                match index {
+                    0 => {},
+                    _ => {
+                        write_rebased(output, r"\ ")?;
+                    },
                 }
+
                 serialize_rebased_identifier(prefix, id, output, context, cadence)?;
             }
+
             Ok(())
         }
         _ => serialize_identifier_with_checkpoints(value, output, cadence, context),
@@ -1036,6 +1146,7 @@ fn serialize_selector_attribute_id_hash_to<W: fmt::Write>(
     cadence: &mut RebaseCadence<'_>,
 ) -> Result<()> {
     let context = "CSS attribute selector";
+
     match attribute_name {
         Some("id") if operator.preserves_id_value() => {
             serialize_identifier_with_checkpoints(value, output, cadence, context)
@@ -1075,14 +1186,20 @@ fn rewrite_selector_attribute_value_to<W: fmt::Write>(
         Some(name) if is_svg_idref_attribute(name) => {
             for (index, id) in value.split_ascii_whitespace().enumerate() {
                 cadence.tick()?;
-                if index != 0 {
-                    write_rebased(output, " ")?;
+
+                match index {
+                    0 => {},
+                    _ => {
+                        write_rebased(output, " ")?;
+                    },
                 }
+
                 write_rebased_reference(prefix, id, output, cadence)?;
             }
         }
         _ => write_rebased(output, value)?,
     }
+
     Ok(())
 }
 
@@ -1098,6 +1215,7 @@ fn rewrite_url_or_nested_to<W: fmt::Write>(
     if !is_url {
         return rewrite_parser(input, ids, prefix, rewrite_hashes, output, cadence);
     }
+
     let body_start = input.position();
     let mut payload = None::<(SourcePosition, SourcePosition, Token<'_>)>;
     let mut has_multiple_payload_tokens = false;
@@ -1106,20 +1224,21 @@ fn rewrite_url_or_nested_to<W: fmt::Write>(
         let token_start = input.position();
         let token = input.next_including_whitespace_and_comments();
         cadence.checkpoint()?;
-        let token = match token {
-            Ok(token) => token.clone(),
+        let token_3 = match token {
+            Ok(token_2) => token_2.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => {
                 break input.position();
             }
             Err(error) => return Err(rebase_error(format!("invalid CSS URL: {error:?}"))),
         };
         let token_end = input.position();
-        match token {
+
+        match token_3 {
             Token::WhiteSpace(_) | Token::Comment(_) => {}
             Token::BadUrl(_) | Token::BadString(_) => {
                 return Err(rebase_error("invalid CSS URL token"));
             }
-            token if payload.is_none() => payload = Some((token_start, token_end, token)),
+            token_4 if payload.is_none() => payload = Some((token_start, token_end, token_4)),
             _ => has_multiple_payload_tokens = true,
         }
     };
@@ -1127,21 +1246,26 @@ fn rewrite_url_or_nested_to<W: fmt::Write>(
     if has_multiple_payload_tokens {
         return write_rebased(output, input.slice(body_start..body_end));
     }
-    let Some((token_start, token_end, token)) = payload else {
-        return write_rebased(output, input.slice(body_start..body_end));
+
+    let (token_start, token_end, token) = match payload {
+        Some((matched_token_start, matched_token_end, matched_token)) => (matched_token_start, matched_token_end, matched_token),
+        ::core::option::Option::None => return write_rebased(output, input.slice(body_start..body_end)),
     };
 
     write_rebased(output, input.slice(body_start..token_start))?;
+
     match token {
         Token::QuotedString(value) if value.starts_with('#') => {
             output
                 .write_char('"')
                 .map_err(|_| rebase_error("failed to write rebased CSS URL quote"))?;
+
             {
                 let mut escaped = CssStringWriter::new(output);
                 write_rebased(&mut escaped, "#")?;
                 write_rebased_reference(prefix, &value[1..], &mut escaped, cadence)?;
             }
+
             output
                 .write_char('"')
                 .map_err(|_| rebase_error("failed to write rebased CSS URL quote"))?;
@@ -1154,13 +1278,16 @@ fn rewrite_url_or_nested_to<W: fmt::Write>(
         }
         _ => write_rebased(output, input.slice(token_start..token_end))?,
     }
+
     write_rebased(output, input.slice(token_end..body_end))
 }
 
+#[must_use]
 fn rebase_error(message: impl Into<String>) -> Error {
     Error::svg_postprocess("rebase-svg-ids", message)
 }
 
+#[must_use]
 fn write_error(error: std::io::Error) -> Error {
     rebase_error(format!("failed to write rebased SVG: {error}"))
 }

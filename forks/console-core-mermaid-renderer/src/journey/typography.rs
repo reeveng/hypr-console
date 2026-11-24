@@ -55,6 +55,7 @@ impl JourneyTypographyThemePlan {
         Self::resolve_with_text_paint(theme, effective_config, None)
     }
 
+    #[must_use]
     pub(crate) fn resolve_with_text_paint(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &PresentationConfig,
@@ -62,28 +63,31 @@ impl JourneyTypographyThemePlan {
     ) -> Self {
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
-        let typed_font_size_requested = theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let typed_font_size_requested = theme.is_some_and(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 route.mechanism()
                     == FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontSize)
                     && route.disposition() == FamilyThemeDisposition::TypedAdapter
             })
         });
-        // Mermaid's inherited base-size owner is the theme-variable path. A top-level `fontSize`
-        // remains a compatibility fallback for the unthemed path and must not shadow a typed
-        // family theme value.
+
+
+
         let config_owns_font_size = typed_font_size_requested
             && effective_config.config_path_overrides_typed_default("themeVariables.fontSize");
         let configured_font_size =
             config_theme_font_size_css_or_root_number_px_opt(effective_config.as_value());
         let typed_font_size_active = typed_font_size_requested && !config_owns_font_size;
         let (font_size_px, font_size_css) = match (theme, typed_font_size_active) {
-            (Some(theme), true) => {
-                let font_size_px = f64::from(theme.typography().font_size_px()).max(1.0);
+            (Some(theme_3), true) => {
+                let font_size_px = f64::from(theme_3.typography().font_size_px()).max(1.0);
                 (font_size_px, format!("{font_size_px}px").into_boxed_str())
             }
             (_, false) | (None, true) => {
-                let font_size_px = configured_font_size.unwrap_or(16.0).max(1.0);
+                let font_size_px = match configured_font_size {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 16.0,
+                }.max(1.0);
                 (font_size_px, format!("{font_size_px}px").into_boxed_str())
             }
         };
@@ -105,26 +109,32 @@ impl JourneyTypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.css.common.font_family()
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &super::JourneyCssBinding {
         &self.css
     }
 
+    #[must_use]
     pub(crate) fn font_size_css(&self) -> &str {
         self.css.common.font_size_css()
     }
 
+    #[must_use]
     pub(crate) const fn font_size_px(&self) -> f64 {
         self.font_size_px
     }
 
+    #[must_use]
     pub(crate) fn typography_requested(&self) -> bool {
         self.inherited_font_stack.typography_requested() || self.typed_font_size_requested
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt<'a>(
         &'a self,
         layout: &'a JourneyDiagramLayout,
@@ -138,6 +148,7 @@ impl JourneyTypographyThemePlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: JourneyTypographyThemeReceipt<'_>) -> bool {
         receipt
             .seal()
@@ -146,6 +157,7 @@ impl JourneyTypographyThemePlan {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if !self.typography_requested() {
             return;
         }
@@ -204,7 +216,9 @@ impl JourneyTypographyThemePlan {
         if !requested {
             return;
         }
+
         let key = FamilyThemeMechanismKey::Typography(property);
+
         if !active {
             evidence.mark_not_applicable(key);
         } else if !terminal_proved {
@@ -218,6 +232,7 @@ impl JourneyTypographyThemePlan {
 }
 
 impl<'a> JourneyTypographyThemeReceipt<'a> {
+    #[must_use]
     fn new(
         expected_font_family_css: &'a str,
         expected_font_size_css: &'a str,
@@ -255,12 +270,18 @@ impl<'a> JourneyTypographyThemeReceipt<'a> {
     pub(crate) fn record_text_run(&mut self, text: &str) {
         let expected = self.expected_text_runs.get(self.next_text_run).copied();
         self.valid &= expected == Some(text);
-        if expected.is_some() {
-            self.next_text_run = self.next_text_run.saturating_add(1);
+
+        match expected {
+            ::core::option::Option::Some(_) => {
+                self.next_text_run = self.next_text_run.saturating_add(1);
+            },
+            ::core::option::Option::None => {},
         }
+
         self.has_visible_base_text |= !text.trim().is_empty();
     }
 
+    #[must_use]
     fn seal(self) -> Option<JourneyTypographyTerminalSeal> {
         (self.valid
             && self.css_emitted
@@ -272,6 +293,7 @@ impl<'a> JourneyTypographyThemeReceipt<'a> {
     }
 }
 
+#[must_use]
 fn journey_inherited_text_runs(layout: &JourneyDiagramLayout) -> Vec<&str> {
     layout
         .actor_legend

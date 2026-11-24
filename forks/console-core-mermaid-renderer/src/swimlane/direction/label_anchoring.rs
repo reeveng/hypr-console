@@ -61,6 +61,7 @@ struct Choice {
     anchor: Anchor,
 }
 
+#[must_use]
 fn marker_clearance_rect_for(points: &[LayoutPoint], at_start: bool) -> Option<RectBounds> {
     if points.len() < 2 {
         return None;
@@ -74,6 +75,7 @@ fn marker_clearance_rect_for(points: &[LayoutPoint], at_start: bool) -> Option<R
     let dx = inner.x - tip.x;
     let dy = inner.y - tip.y;
     let length = dx.abs() + dy.abs();
+
     if length < EPSILON {
         return None;
     }
@@ -106,6 +108,7 @@ fn marker_clearance_rect_for(points: &[LayoutPoint], at_start: bool) -> Option<R
     })
 }
 
+#[must_use]
 fn normalize_rect(rect: RectBounds) -> RectBounds {
     RectBounds {
         left: rect.left.min(rect.right),
@@ -115,6 +118,7 @@ fn normalize_rect(rect: RectBounds) -> RectBounds {
     }
 }
 
+#[must_use]
 fn point_inside_rect_inclusive(point: Anchor, rect: RectBounds) -> bool {
     point.x >= rect.left - EPSILON
         && point.x <= rect.right + EPSILON
@@ -122,6 +126,7 @@ fn point_inside_rect_inclusive(point: Anchor, rect: RectBounds) -> bool {
         && point.y <= rect.bottom + EPSILON
 }
 
+#[must_use]
 fn label_overlaps_own_marker(rect: RectBounds, points: &[LayoutPoint]) -> bool {
     let visible_points = dedupe_consecutive_points(points, EPSILON);
     [
@@ -133,19 +138,24 @@ fn label_overlaps_own_marker(rect: RectBounds, points: &[LayoutPoint]) -> bool {
     .any(|marker| rects_overlap(rect, normalize_rect(marker)))
 }
 
+#[must_use]
 fn collect_segments(points: &[LayoutPoint]) -> Vec<SegmentCandidate> {
     let mut segments = Vec::new();
+
     for (index, [pair_0, pair_1]) in ::core::iter::Iterator::enumerate(<[_]>::array_windows::<2>(points)) {
         let start = &*pair_0;
         let end = &*pair_1;
         let dx = (start.x - end.x).abs();
         let dy = (start.y - end.y).abs();
+
         if dx < EPSILON && dy < EPSILON {
             continue;
         }
+
         if dx >= EPSILON && dy >= EPSILON {
             continue;
         }
+
         segments.push(SegmentCandidate {
             index,
             length: dx + dy,
@@ -160,9 +170,11 @@ fn collect_segments(points: &[LayoutPoint]) -> Vec<SegmentCandidate> {
             },
         });
     }
+
     segments
 }
 
+#[must_use]
 fn rank_segments(
     pool: &[SegmentCandidate],
     label_long_axis: SegmentOrientation,
@@ -173,6 +185,7 @@ fn rank_segments(
     ranked.sort_by(|left, right| {
         let left_matches_long_axis = left.orientation == label_long_axis;
         let right_matches_long_axis = right.orientation == label_long_axis;
+
         if left_matches_long_axis != right_matches_long_axis {
             return right_matches_long_axis.cmp(&left_matches_long_axis);
         }
@@ -183,14 +196,17 @@ fn rank_segments(
         };
         let left_fits = left.length >= extent_for(left) + 2.0;
         let right_fits = right.length >= extent_for(right) + 2.0;
+
         if left_fits != right_fits {
             return right_fits.cmp(&left_fits);
         }
 
-        right
+        match right
             .length
-            .partial_cmp(&left.length)
-            .unwrap_or(Ordering::Equal)
+            .partial_cmp(&left.length) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => Ordering::Equal,
+        }
     });
     ranked
 }
@@ -210,6 +226,7 @@ struct AnchorSearch<'a> {
 }
 
 impl AnchorSearch<'_> {
+    #[must_use]
     fn anchor_at_parameter(&self, segment: SegmentCandidate, parameter: f64) -> Anchor {
         let start = &self.points[segment.index];
         let end = &self.points[segment.index + 1];
@@ -238,15 +255,20 @@ impl AnchorSearch<'_> {
     ) -> Result<Option<Placement>> {
         let centered_rect =
             RectBounds::from_center(anchor.x, anchor.y, self.label_width, self.label_height);
-        if let Some(lane) = self.find_containing_lane(centered_rect, work_budget)? {
-            return Ok(Some(Placement {
-                lane_id: lane.id.clone(),
-                anchor,
-                rect: centered_rect,
-            }));
+
+        match self.find_containing_lane(centered_rect, work_budget)? {
+            Some(lane) => {
+                return Ok(Some(Placement {
+                    lane_id: lane.id.clone(),
+                    anchor,
+                    rect: centered_rect,
+                }));
+            },
+            ::core::option::Option::None => {},
         }
 
         work_budget.charge(self.lane_groups.len())?;
+
         let Some(containing_lane) = self
             .lane_groups
             .iter()
@@ -254,10 +276,12 @@ impl AnchorSearch<'_> {
         else {
             return Ok(None);
         };
+
         let minimum_x = containing_lane.rect.left + self.label_width / 2.0 + LABEL_LANE_MARGIN;
         let maximum_x = containing_lane.rect.right - self.label_width / 2.0 - LABEL_LANE_MARGIN;
         let minimum_y = containing_lane.rect.top + self.label_height / 2.0 + LABEL_LANE_MARGIN;
         let maximum_y = containing_lane.rect.bottom - self.label_height / 2.0 - LABEL_LANE_MARGIN;
+
         if minimum_x > maximum_x || minimum_y > maximum_y {
             return Ok(None);
         }
@@ -281,6 +305,7 @@ impl AnchorSearch<'_> {
         )
     }
 
+    #[must_use]
     fn distance_along_segment(
         &self,
         segment: SegmentCandidate,
@@ -293,6 +318,7 @@ impl AnchorSearch<'_> {
         }
     }
 
+    #[must_use]
     fn label_clears_terminal_endpoints(&self, segment: SegmentCandidate, anchor: Anchor) -> bool {
         let half_extent = match segment.orientation {
             SegmentOrientation::Horizontal => self.label_width / 2.0,
@@ -304,16 +330,20 @@ impl AnchorSearch<'_> {
 
         if segment.index == first_visible_segment.index {
             let start = &self.points[segment.index];
+
             if self.distance_along_segment(segment, anchor, start) + EPSILON < required_distance {
                 return false;
             }
         }
+
         if segment.index == last_visible_segment.index {
             let end = &self.points[segment.index + 1];
+
             if self.distance_along_segment(segment, anchor, end) + EPSILON < required_distance {
                 return false;
             }
         }
+
         true
     }
 
@@ -367,35 +397,56 @@ impl AnchorSearch<'_> {
             self.label_width,
             self.label_height,
         );
+
         for segment in ranked {
-            for parameter in ALONG_SEGMENT_PARAMETERS {
+            'over_parameter_2: for parameter in ALONG_SEGMENT_PARAMETERS {
                 work_budget.charge(1)?;
                 let anchor = self.anchor_at_parameter(segment, parameter);
+
                 if !self.label_clears_terminal_endpoints(segment, anchor) {
-                    continue;
+                    continue 'over_parameter_2;
                 }
-                let Some(placement) = self.placement_for_anchor(anchor, work_budget)? else {
-                    continue;
+
+                let placement = {
+                    let optional_placement_2 = self.placement_for_anchor(anchor, work_budget)?;
+
+                    match optional_placement_2 {
+                        Some(matched_placement_2) => matched_placement_2,
+                        ::core::option::Option::None => continue 'over_parameter_2,
+                    }
                 };
+
                 work_budget.charge(self.points.len())?;
+
                 if label_overlaps_own_marker(placement.rect, self.points) {
-                    continue;
+                    continue 'over_parameter_2;
                 }
-                if self.overlaps_placed_label(placement.rect, work_budget)? {
-                    continue;
+
+                let checked_value = self.overlaps_placed_label(placement.rect, work_budget)?;
+
+                if checked_value {
+                    continue 'over_parameter_2;
                 }
-                if self.label_overlaps_foreign_node(placement.rect, work_budget)? {
-                    continue;
+
+                let checked_value_2 = self.label_overlaps_foreign_node(placement.rect, work_budget)?;
+
+                if checked_value_2 {
+                    continue 'over_parameter_2;
                 }
-                if self.label_overlaps_foreign_edge(placement.rect, work_budget)? {
-                    continue;
+
+                let checked_value_3 = self.label_overlaps_foreign_edge(placement.rect, work_budget)?;
+
+                if checked_value_3 {
+                    continue 'over_parameter_2;
                 }
+
                 return Ok(Some(Choice {
                     lane_id: placement.lane_id,
                     anchor: placement.anchor,
                 }));
             }
         }
+
         Ok(None)
     }
 
@@ -413,36 +464,55 @@ impl AnchorSearch<'_> {
             self.label_width,
             self.label_height,
         );
+
         for segment in ranked {
             work_budget.charge(1)?;
             let anchor = segment.midpoint;
+
             if require_endpoint_clearance && !self.label_clears_terminal_endpoints(segment, anchor)
             {
                 continue;
             }
-            let Some(placement) = self.placement_for_anchor(anchor, work_budget)? else {
-                continue;
+
+            let placement = {
+                let optional_placement = self.placement_for_anchor(anchor, work_budget)?;
+
+                match optional_placement {
+                    Some(matched_placement) => matched_placement,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             work_budget.charge(self.points.len())?;
+
             if label_overlaps_own_marker(placement.rect, self.points) {
                 continue;
             }
-            if self.overlaps_placed_label(placement.rect, work_budget)? {
+
+            let checked_value = self.overlaps_placed_label(placement.rect, work_budget)?;
+
+            if checked_value {
                 continue;
             }
-            if self.label_overlaps_foreign_node(placement.rect, work_budget)? {
+
+            let checked_value_2 = self.label_overlaps_foreign_node(placement.rect, work_budget)?;
+
+            if checked_value_2 {
                 continue;
             }
+
             if !allow_foreign_edge_overlap
-                && self.label_overlaps_foreign_edge(placement.rect, work_budget)?
+                && { let checked_value_3 = self.label_overlaps_foreign_edge(placement.rect, work_budget)?; checked_value_3 }
             {
                 continue;
             }
+
             return Ok(Some(Choice {
                 lane_id: placement.lane_id,
                 anchor: placement.anchor,
             }));
         }
+
         Ok(None)
     }
 
@@ -451,26 +521,37 @@ impl AnchorSearch<'_> {
         middle_pool: &[SegmentCandidate],
         work_budget: &mut LayoutWorkBudget,
     ) -> Result<Option<Choice>> {
-        if let Some(choice) = self.try_pool(middle_pool, work_budget)? {
-            return Ok(Some(choice));
+        match { let checked_value_4 = self.try_pool(middle_pool, work_budget)?; checked_value_4 } {
+            Some(choice) => {
+                return Ok(Some(choice));
+            },
+            ::core::option::Option::None => {},
         }
+
         if middle_pool.len() < self.segments.len()
-            && let Some(choice) = self.try_pool(self.segments, work_budget)?
+            && let Some(choice) = { let checked_value_2 = self.try_pool(self.segments, work_budget)?; checked_value_2 }
         {
             return Ok(Some(choice));
         }
+
         for (require_endpoint_clearance, allow_foreign_edge_overlap) in
             [(true, false), (false, false), (false, true)]
         {
-            if let Some(choice) = self.find_lane_containing_fallback(
-                self.segments,
-                require_endpoint_clearance,
-                allow_foreign_edge_overlap,
-                work_budget,
-            )? {
-                return Ok(Some(choice));
+            {
+                match { let checked_value_5 = self.find_lane_containing_fallback(
+                        self.segments,
+                        require_endpoint_clearance,
+                        allow_foreign_edge_overlap,
+                        work_budget,
+                    )?; checked_value_5 } {
+                    Some(choice) => {
+                        return Ok(Some(choice));
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
+
         Ok(None)
     }
 }
@@ -479,7 +560,7 @@ pub(super) fn anchor_labels_to_polyline(
     layout: &mut WorkingLayout,
     work_budget: &mut LayoutWorkBudget,
 ) -> Result<()> {
-    // `original_edges` is the renderable edge set; layout-only split edges live in `graph_edges`.
+
     work_budget.charge(layout.original_edges.len())?;
     let edge_segment_work = layout.original_edges.iter().fold(0usize, |total, edge| {
         total.saturating_add(edge.points.len().saturating_sub(1))
@@ -501,43 +582,70 @@ pub(super) fn anchor_labels_to_polyline(
     let mut lane_groups = Vec::new();
     let lane_model = crate::swimlane::lanes::LaneModel::new(&layout.nodes);
     work_budget.charge(layout.nodes.len())?;
+
     for node in layout.nodes.values() {
         if lane_model.is_lane(&node.id) {
-            if let Some(rect) = rect_of_node_bounds(node) {
-                lane_groups.push(RectEntry {
-                    id: node.id.clone(),
-                    rect,
-                });
+            match rect_of_node_bounds(node) {
+                Some(rect) => {
+                    lane_groups.push(RectEntry {
+                        id: node.id.clone(),
+                        rect,
+                    });
+                },
+                ::core::option::Option::None => {},
             }
+
             continue;
         }
+
         if node.kind == WorkingNodeKind::Group || node.kind == WorkingNodeKind::EdgeLabel {
             continue;
         }
-        if let Some(rect) = rect_of_node_bounds(node) {
-            foreign_node_rects.push(RectEntry {
-                id: node.id.clone(),
-                rect,
-            });
+
+        {
+            match rect_of_node_bounds(node) {
+                Some(rect) => {
+                    foreign_node_rects.push(RectEntry {
+                        id: node.id.clone(),
+                        rect,
+                    });
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
     let mut placed_label_rects = Vec::<RectEntry>::new();
     work_budget.charge(layout.original_edges.len())?;
+
     for edge in &layout.original_edges {
-        let Some(label_id) = edge.label_node_id.as_deref() else {
-            continue;
+        let label_id = {
+            let optional_label_id = edge.label_node_id.as_deref();
+
+            match optional_label_id {
+                Some(matched_label_id) => matched_label_id,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(label_node) = layout.nodes.get(label_id) else {
-            continue;
+
+        let label_node = {
+            let optional_label_node = layout.nodes.get(label_id);
+
+            match optional_label_node {
+                Some(matched_label_node) => matched_label_node,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if edge.points.len() < 2 || label_node.width <= 0.0 || label_node.height <= 0.0 {
             continue;
         }
+
         let label_width = label_node.width;
         let label_height = label_node.height;
         work_budget.charge(edge.points.len().saturating_sub(1))?;
         let segments = collect_segments(&edge.points);
+
         if segments.is_empty() {
             continue;
         }
@@ -574,19 +682,31 @@ pub(super) fn anchor_labels_to_polyline(
                 SegmentOrientation::Vertical
             },
         };
-        let Some(choice) = search.find_choice(middle_pool, work_budget)? else {
-            continue;
+
+        let choice = {
+            let optional_choice = search.find_choice(middle_pool, work_budget)?;
+
+            match optional_choice {
+                Some(matched_choice) => matched_choice,
+                ::core::option::Option::None => continue,
+            }
         };
 
         work_budget.charge(placed_label_rects.len())?;
-        if let Some(label_node) = layout.nodes.get_mut(label_id) {
-            label_node.x = choice.anchor.x;
-            label_node.y = choice.anchor.y;
-            label_node.parent_id = Some(choice.lane_id.clone());
-            label_node.top_lane_id = Some(choice.lane_id);
+
+        match layout.nodes.get_mut(label_id) {
+            Some(label_node_2) => {
+                label_node_2.x = choice.anchor.x;
+                label_node_2.y = choice.anchor.y;
+                label_node_2.parent_id = Some(choice.lane_id.clone());
+                label_node_2.top_lane_id = Some(choice.lane_id);
+            },
+            ::core::option::Option::None => {},
         }
+
         let chosen_rect =
             RectBounds::from_center(choice.anchor.x, choice.anchor.y, label_width, label_height);
+
         if let Some(prior) = placed_label_rects
             .iter_mut()
             .find(|placed| placed.id == label_id)
@@ -599,6 +719,7 @@ pub(super) fn anchor_labels_to_polyline(
             });
         }
     }
+
     Ok(())
 }
 

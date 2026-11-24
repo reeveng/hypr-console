@@ -38,6 +38,7 @@ use super::{
 
 type FlowSubgraphIndex<'a> = HashMap<&'a str, &'a FlowSubgraph>;
 
+#[must_use]
 fn rank_dir_from_flow(direction: &str) -> RankDir {
     match direction.trim().to_uppercase().as_str() {
         "TB" | "TD" => RankDir::TB,
@@ -48,19 +49,23 @@ fn rank_dir_from_flow(direction: &str) -> RankDir {
     }
 }
 
+#[must_use]
 fn normalize_dir(s: &str) -> String {
     s.trim().to_uppercase()
 }
 
+#[must_use]
 fn toggled_dir(parent: &str) -> String {
-    let parent = normalize_dir(parent);
-    if parent == "TB" || parent == "TD" {
+    let parent_2 = normalize_dir(parent);
+
+    if parent_2 == "TB" || parent_2 == "TD" {
         "LR".to_string()
     } else {
         "TB".to_string()
     }
 }
 
+#[must_use]
 fn flow_dir_from_rankdir(rankdir: RankDir) -> &'static str {
     match rankdir {
         RankDir::TB => "TB",
@@ -70,13 +75,19 @@ fn flow_dir_from_rankdir(rankdir: RankDir) -> &'static str {
     }
 }
 
+#[must_use]
 fn effective_cluster_dir(sg: &FlowSubgraph, parent_dir: &str, inherit_dir: bool) -> String {
-    if let Some(dir) = sg.dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
-        return normalize_dir(dir);
+    match sg.dir.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+        Some(dir) => {
+            return normalize_dir(dir);
+        },
+        ::core::option::Option::None => {},
     }
+
     if inherit_dir {
         return normalize_dir(parent_dir);
     }
+
     toggled_dir(parent_dir)
 }
 
@@ -106,9 +117,14 @@ fn compute_effective_dir_by_id(
         let mut cur = id.to_string();
         let mut parent_dir = loop {
             work_control.charge_adapter(1)?;
-            if let Some(dir) = memo.get(&cur) {
-                break dir.clone();
+
+            match memo.get(&cur) {
+                Some(dir) => {
+                    break dir.clone();
+                },
+                ::core::option::Option::None => {},
             }
+
             if !seen.insert(cur.clone()) {
                 let dir = toggled_dir(diagram_dir);
                 memo.insert(cur.clone(), dir.clone());
@@ -116,17 +132,28 @@ fn compute_effective_dir_by_id(
             }
 
             path.push(cur.clone());
-            let Some(parent) = g.parent(&cur).filter(|p| subgraphs_by_id.contains_key(*p)) else {
-                break normalize_dir(diagram_dir);
+
+            let parent = {
+                let optional_parent = g.parent(&cur).filter(|p| subgraphs_by_id.contains_key(*p));
+
+                match optional_parent {
+                    Some(matched_parent) => matched_parent,
+                    ::core::option::Option::None => break normalize_dir(diagram_dir),
+                }
             };
+
             cur = parent.to_string();
         };
 
         for node in path.into_iter().rev() {
             work_control.charge_adapter(1)?;
-            if let Some(dir) = memo.get(&node) {
-                parent_dir = dir.clone();
-                continue;
+
+            match memo.get(&node) {
+                Some(dir) => {
+                    parent_dir = dir.clone();
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
 
             let dir = subgraphs_by_id
@@ -136,14 +163,15 @@ fn compute_effective_dir_by_id(
             memo.insert(node, dir.clone());
             parent_dir = dir;
         }
+
         Ok(())
     }
 
     let mut memo: HashMap<String, String> = HashMap::new();
-    // `std::collections::HashMap` seeds each map independently, so walking its keys makes the
-    // amount of memoized parent-path work vary between otherwise identical renders. Mermaid's
-    // source order is already available here; use it for deterministic work accounting and error
-    // timing while retaining the map for lookups.
+
+
+
+
     for subgraph in subgraphs_in_order {
         work_control.charge_adapter(1)?;
         compute_one_iterative(
@@ -156,9 +184,11 @@ fn compute_effective_dir_by_id(
             work_control,
         )?;
     }
+
     Ok(memo)
 }
 
+#[must_use]
 fn dir_to_rankdir(dir: &str) -> RankDir {
     match normalize_dir(dir).as_str() {
         "TB" | "TD" => RankDir::TB,
@@ -195,6 +225,7 @@ struct FlowchartLayoutSegmentKey {
 }
 
 impl FlowchartLayoutSegmentKey {
+    #[must_use]
     fn new(owner_index: usize, self_loop: Option<&FlowchartSelfLoopSegmentMeta>) -> Self {
         Self {
             owner_index,
@@ -203,6 +234,7 @@ impl FlowchartLayoutSegmentKey {
     }
 }
 
+#[must_use]
 fn flowchart_layout_edge_key(
     edge: &FlowEdge,
     self_loop: Option<&FlowchartSelfLoopSegmentMeta>,
@@ -236,23 +268,26 @@ fn annotate_flowchart_edge_owner(label: &mut EdgeLabel, owner_index: usize) {
         .insert(EDGE_OWNER_INDEX_EXTRA.to_string(), Value::from(owner_index));
 }
 
+#[must_use]
 fn flowchart_edge_owner_index(label: &EdgeLabel) -> Option<usize> {
-    usize::try_from(label.extras.get(EDGE_OWNER_INDEX_EXTRA)?.as_u64()?).ok()
+    match usize::try_from(label.extras.get(EDGE_OWNER_INDEX_EXTRA)?.as_u64()?) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }
 }
 
+#[must_use]
 fn flowchart_layout_segment_key(label: &EdgeLabel) -> Option<FlowchartLayoutSegmentKey> {
     let owner_index = flowchart_edge_owner_index(label)?;
     let self_loop_order = label
         .extras
         .get(SELF_LOOP_ORDER_EXTRA)
         .and_then(Value::as_u64)
-        .and_then(|order| u8::try_from(order).ok());
+        .and_then(|order| match u8::try_from(order) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None });
     Some(FlowchartLayoutSegmentKey {
         owner_index,
         self_loop_order,
     })
 }
 
+#[must_use]
 fn flowchart_self_loop_segment_meta(label: &EdgeLabel) -> Option<FlowchartSelfLoopSegmentMeta> {
     let logical_edge_id = label.extras.get(SELF_LOOP_ID_EXTRA)?.as_str()?.to_string();
     let node_id = label
@@ -260,7 +295,7 @@ fn flowchart_self_loop_segment_meta(label: &EdgeLabel) -> Option<FlowchartSelfLo
         .get(SELF_LOOP_NODE_EXTRA)?
         .as_str()?
         .to_string();
-    let order = u8::try_from(label.extras.get(SELF_LOOP_ORDER_EXTRA)?.as_u64()?).ok()?;
+    let order = match u8::try_from(label.extras.get(SELF_LOOP_ORDER_EXTRA)?.as_u64()?) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }?;
     Some(FlowchartSelfLoopSegmentMeta {
         logical_edge_id,
         owner_index: flowchart_edge_owner_index(label)?,
@@ -269,6 +304,7 @@ fn flowchart_self_loop_segment_meta(label: &EdgeLabel) -> Option<FlowchartSelfLo
     })
 }
 
+#[must_use]
 fn merge_flowchart_self_loop_segments(
     model_edges: &[FlowEdge],
     layout_nodes: &[LayoutNode],
@@ -277,6 +313,7 @@ fn merge_flowchart_self_loop_segments(
 ) -> Vec<FlowchartLayoutEdgeCandidate> {
     let mut output = Vec::with_capacity(layout_edges.len());
     let mut segments_by_owner: IndexMap<usize, Vec<FlowchartLayoutEdgeCandidate>> = IndexMap::new();
+
     for candidate in layout_edges {
         if candidate.self_loop.is_some() {
             segments_by_owner
@@ -292,17 +329,20 @@ fn merge_flowchart_self_loop_segments(
         .iter()
         .map(|node| (node.id.as_str(), node))
         .collect();
+
     for (owner_index, mut segments) in segments_by_owner {
         if segments.len() != 3 {
             output.extend(segments);
             continue;
         }
+
         segments.sort_by_key(|candidate| {
             candidate
                 .self_loop
                 .as_ref()
                 .map_or(u8::MAX, |meta| meta.order)
         });
+
         if segments
             .iter()
             .filter_map(|candidate| candidate.self_loop.as_ref().map(|meta| meta.order))
@@ -319,11 +359,14 @@ fn merge_flowchart_self_loop_segments(
             .expect("sorted self-loop segment metadata");
         let middle = &segments[1].edge;
         let last = &segments[2].edge;
+
         let Some(original) = model_edges.get(owner_index) else {
             output.extend(segments);
             continue;
         };
+
         let node_id = first_meta.node_id.as_str();
+
         let Some(node) = nodes_by_id.get(node_id).copied() else {
             output.extend(segments);
             continue;
@@ -341,6 +384,7 @@ fn merge_flowchart_self_loop_segments(
                 y: helper.y,
             })
             .collect::<Vec<_>>();
+
         if hints.is_empty() {
             hints.extend(
                 [first, middle, last]
@@ -402,19 +446,24 @@ fn merge_flowchart_self_loop_segments(
     output
 }
 
+#[must_use]
 fn render_edge_label_for_layout<'a>(
     model: &'a FlowchartRenderModelRef<'_>,
     semantic_index: usize,
     edge: &'a FlowEdge,
     self_loop: Option<&FlowchartSelfLoopSegmentMeta>,
 ) -> Option<&'a str> {
-    if self_loop.is_some() {
-        edge.label.as_deref()
-    } else {
-        model.edge_label_for_render(semantic_index, edge)
+    match self_loop {
+        ::core::option::Option::Some(_) => {
+            edge.label.as_deref()
+        },
+        ::core::option::Option::None => {
+            model.edge_label_for_render(semantic_index, edge)
+        },
     }
 }
 
+#[must_use]
 fn edge_label_is_non_empty(
     model: &FlowchartRenderModelRef<'_>,
     semantic_index: usize,
@@ -437,19 +486,23 @@ fn lowest_common_parent(
 
     let mut ancestors = HashSet::new();
     let mut current = graph.parent(a);
+
     while let Some(parent) = current {
         work_control.charge_adapter(1)?;
         ancestors.insert(parent.to_string());
         current = graph.parent(parent);
     }
 
-    let mut current = graph.parent(b);
-    while let Some(parent) = current {
+    let mut current_2 = graph.parent(b);
+
+    while let Some(parent) = current_2 {
         work_control.charge_adapter(1)?;
+
         if ancestors.contains(parent) {
             return Ok(Some(parent.to_string()));
         }
-        current = graph.parent(parent);
+
+        current_2 = graph.parent(parent);
     }
 
     Ok(None)
@@ -468,11 +521,14 @@ fn extract_descendants(
         .children_iter(id)
         .map(str::to_string)
         .collect::<Vec<_>>();
+
     while let Some(node) = stack.pop() {
         work_control.charge_adapter(1)?;
+
         if !visited.insert(node.clone()) {
             continue;
         }
+
         let child_count = child_id_snapshot_work_upper_bound(graph, &node, work_control)?;
         work_control.charge_adapter(child_count)?;
         stack.extend(graph.children_iter(&node).map(str::to_string));
@@ -491,21 +547,32 @@ fn edge_in_cluster(
     if edge.v == cluster_id || edge.w == cluster_id {
         return Ok(false);
     }
-    let Some(cluster_descendants) = descendants.get(cluster_id) else {
-        return Ok(false);
+
+    let cluster_descendants = {
+        let optional_cluster_descendants = descendants.get(cluster_id);
+
+        match optional_cluster_descendants {
+            Some(matched_cluster_descendants) => matched_cluster_descendants,
+            ::core::option::Option::None => return Ok(false),
+        }
     };
+
     for descendant in cluster_descendants {
         work_control.charge_adapter(1)?;
+
         if descendant == &edge.v {
             return Ok(true);
         }
     }
+
     for descendant in cluster_descendants {
         work_control.charge_adapter(1)?;
+
         if descendant == &edge.w {
             return Ok(true);
         }
     }
+
     Ok(false)
 }
 
@@ -542,27 +609,32 @@ fn flowchart_find_common_edges(
         .map(|(v, w)| {
             (
                 if v == id1 { id2.to_string() } else { v },
-                // Mermaid's `findCommonEdges(...)` has an asymmetry here: it maps the `w` side
-                // back to `id1` rather than `id2`.
+
+
                 if w == id1 { id1.to_string() } else { w },
             )
         })
         .collect::<Vec<_>>();
 
     let mut out = Vec::new();
+
     for edge in edges1_prim {
         let mut found = false;
-        for candidate in &edges2 {
+
+        'over_candidate_2: for candidate in &edges2 {
             work_control.charge_adapter(1)?;
+
             if candidate == &edge {
                 found = true;
-                break;
+                break 'over_candidate_2;
             }
         }
+
         if found {
             out.push(edge);
         }
     }
+
     Ok(out)
 }
 
@@ -573,9 +645,14 @@ fn flowchart_find_non_cluster_child(
     work_control: &mut DagreOperationWorkControl,
 ) -> Result<Option<String>> {
     let child_count = graph.child_count(id);
-    if child_count == 0 {
-        return Ok(Some(id.to_string()));
+
+    match child_count {
+        0 => {
+            return Ok(Some(id.to_string()));
+        },
+        _ => {},
     }
+
     work_control.charge_adapter(child_id_snapshot_work_upper_bound(graph, id, work_control)?)?;
     let mut reserve: Option<String> = None;
     let mut visited: HashSet<String> = HashSet::new();
@@ -588,19 +665,26 @@ fn flowchart_find_non_cluster_child(
 
     while let Some(node) = stack.pop() {
         work_control.charge_adapter(1)?;
+
         if !visited.insert(node.clone()) {
             continue;
         }
-        let child_count = graph.child_count(&node);
-        if child_count != 0 {
-            work_control.charge_adapter(child_id_snapshot_work_upper_bound(
-                graph,
-                &node,
-                work_control,
-            )?)?;
-            stack.extend(graph.children(&node).into_iter().rev().map(str::to_string));
-            continue;
+
+        let child_count_2 = graph.child_count(&node);
+
+        match child_count_2 {
+            0 => {},
+            _ => {
+                work_control.charge_adapter(child_id_snapshot_work_upper_bound(
+                    graph,
+                    &node,
+                    work_control,
+                )?)?;
+                stack.extend(graph.children(&node).into_iter().rev().map(str::to_string));
+                continue;
+            },
         }
+
         if !flowchart_find_common_edges(graph, cluster_id, &node, work_control)?.is_empty() {
             reserve = Some(node);
         } else {
@@ -619,19 +703,24 @@ fn flowchart_is_node_in_extractable_cluster(
     work_control: &mut DagreOperationWorkControl,
 ) -> Result<bool> {
     let mut parent = graph.parent(node_id);
+
     while let Some(parent_id) = parent {
         work_control.charge_adapter(1)?;
+
         if parent_id == root_id {
             break;
         }
+
         if cluster_db
             .get(parent_id)
             .is_some_and(|entry| !entry.external_connections)
         {
             return Ok(true);
         }
+
         parent = graph.parent(parent_id);
     }
+
     Ok(false)
 }
 
@@ -644,29 +733,41 @@ fn flowchart_find_safe_anchor_node(
     work_control: &mut DagreOperationWorkControl,
 ) -> Result<Option<String>> {
     work_control.charge_adapter(graph.child_order_slot_count(cluster_id))?;
+
     for child in graph.children_iter(cluster_id) {
         if child == excluded_cluster {
             continue;
         }
-        if let Some(excluded_descendants) = descendants.get(excluded_cluster) {
-            let mut excluded = false;
-            for descendant in excluded_descendants {
-                work_control.charge_adapter(1)?;
-                if descendant == child {
-                    excluded = true;
-                    break;
+
+        match descendants.get(excluded_cluster) {
+            Some(excluded_descendants) => {
+                let mut excluded = false;
+
+                'over_descendant_2: for descendant in excluded_descendants {
+                    work_control.charge_adapter(1)?;
+
+                    if descendant == child {
+                        excluded = true;
+                        break 'over_descendant_2;
+                    }
                 }
-            }
-            if excluded {
-                continue;
-            }
+
+                if excluded {
+                    continue;
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
-        let Some(candidate) =
-            flowchart_find_non_cluster_child(child, graph, cluster_id, work_control)?
-        else {
-            continue;
+        let candidate = {
+            let optional_candidate = flowchart_find_non_cluster_child(child, graph, cluster_id, work_control)?;
+
+            match optional_candidate {
+                Some(matched_candidate) => matched_candidate,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !flowchart_is_node_in_extractable_cluster(
             graph,
             &candidate,
@@ -677,6 +778,7 @@ fn flowchart_find_safe_anchor_node(
             return Ok(Some(candidate));
         }
     }
+
     Ok(None)
 }
 
@@ -692,15 +794,23 @@ fn adjust_flowchart_clusters_and_edges(
         descendants: &HashMap<String, Vec<String>>,
         work_control: &mut DagreOperationWorkControl,
     ) -> Result<bool> {
-        let Some(cluster_descendants) = descendants.get(cluster_id) else {
-            return Ok(false);
+        let cluster_descendants = {
+            let optional_cluster_descendants = descendants.get(cluster_id);
+
+            match optional_cluster_descendants {
+                Some(matched_cluster_descendants) => matched_cluster_descendants,
+                ::core::option::Option::None => return Ok(false),
+            }
         };
+
         for descendant in cluster_descendants {
             work_control.charge_adapter(1)?;
+
             if descendant == node_id {
                 return Ok(true);
             }
         }
+
         Ok(false)
     }
 
@@ -712,10 +822,12 @@ fn adjust_flowchart_clusters_and_edges(
         std::collections::HashMap::new();
     let mut cluster_ids = Vec::new();
     work_control.charge_adapter(node_ids.len())?;
+
     for id in node_ids {
         if graph.child_count(&id) == 0 {
             continue;
         }
+
         descendants.insert(id.clone(), extract_descendants(&id, graph, work_control)?);
         let anchor_id = flowchart_find_non_cluster_child(&id, graph, &id, work_control)?
             .unwrap_or_else(|| id.clone());
@@ -731,25 +843,40 @@ fn adjust_flowchart_clusters_and_edges(
 
     for id in &cluster_ids {
         let mut has_external = false;
-        for edge in graph.edges() {
+
+        'over_edge_2: for edge in graph.edges() {
             work_control.charge_adapter(1)?;
             let v_is_descendant = is_descendant(&edge.v, id, &descendants, work_control)?;
             let w_is_descendant = is_descendant(&edge.w, id, &descendants, work_control)?;
+
             if v_is_descendant ^ w_is_descendant {
                 has_external = true;
-                break;
+                break 'over_edge_2;
             }
         }
-        if let Some(entry) = cluster_db.get_mut(id) {
-            entry.external_connections = has_external;
+
+        {
+            match cluster_db.get_mut(id) {
+                Some(entry) => {
+                    entry.external_connections = has_external;
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
     for id in &cluster_ids {
-        let Some(non_cluster_child) = cluster_db.get(id).map(|e| e.anchor_id.clone()) else {
-            continue;
+        let non_cluster_child = {
+            let optional_non_cluster_child = cluster_db.get(id).map(|e| e.anchor_id.clone());
+
+            match optional_non_cluster_child {
+                Some(matched_non_cluster_child) => matched_non_cluster_child,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let parent = graph.parent(&non_cluster_child);
+
         if parent.is_some_and(|p| p != id.as_str())
             && parent.is_some_and(|p| cluster_db.contains_key(p))
             && parent.is_some_and(|p| !cluster_db.get(p).is_some_and(|e| e.external_connections))
@@ -761,9 +888,11 @@ fn adjust_flowchart_clusters_and_edges(
 
         work_control.charge_adapter(graph.edge_count())?;
         let mut has_direct_outgoing_edge = false;
+
         for edge in graph.edges() {
             has_direct_outgoing_edge |= edge.v == *id;
         }
+
         let needs_safe_anchor = cluster_db
             .get(id)
             .is_some_and(|entry| entry.external_connections)
@@ -775,6 +904,7 @@ fn adjust_flowchart_clusters_and_edges(
                 &cluster_db,
                 work_control,
             )?;
+
         if needs_safe_anchor
             && let Some(excluded_cluster) = graph.parent(&non_cluster_child)
             && let Some(safe_anchor) = flowchart_find_safe_anchor_node(
@@ -791,16 +921,24 @@ fn adjust_flowchart_clusters_and_edges(
         }
     }
 
+    #[must_use]
     fn get_anchor_id(
         id: &str,
         cluster_db: &std::collections::HashMap<String, FlowchartClusterDbEntry>,
     ) -> String {
-        let Some(entry) = cluster_db.get(id) else {
-            return id.to_string();
+        let entry = {
+            let optional_entry = cluster_db.get(id);
+
+            match optional_entry {
+                Some(matched_entry) => matched_entry,
+                ::core::option::Option::None => return id.to_string(),
+            }
         };
+
         if !entry.external_connections {
             return id.to_string();
         }
+
         entry.anchor_id.clone()
     }
 
@@ -808,21 +946,27 @@ fn adjust_flowchart_clusters_and_edges(
         work_control.checked_add(graph.edge_slot_count(), graph.edge_count())?;
     work_control.charge_adapter(edge_snapshot_work)?;
     let edge_keys = graph.edge_keys();
+
     for ek in edge_keys {
         if !cluster_db.contains_key(&ek.v) && !cluster_db.contains_key(&ek.w) {
             continue;
         }
 
-        let Some(mut edge_label) = graph.edge_by_key(&ek).cloned() else {
-            continue;
+        let mut edge_label = {
+            let optional_edge_label = graph.edge_by_key(&ek).cloned();
+
+            match optional_edge_label {
+                Some(matched_edge_label) => matched_edge_label,
+                ::core::option::Option::None => continue,
+            }
         };
 
         let v = get_anchor_id(&ek.v, &cluster_db);
         let w = get_anchor_id(&ek.w, &cluster_db);
 
-        // Match Mermaid `adjustClustersAndEdges`: edges that touch cluster nodes are removed and
-        // re-inserted even when their endpoints do not change. This affects edge iteration order
-        // and therefore cycle-breaking determinism in Dagre's acyclic pass.
+
+
+
         let _ = graph.remove_edge_key(&ek);
 
         if v != ek.v {
@@ -831,6 +975,7 @@ fn adjust_flowchart_clusters_and_edges(
             {
                 entry.external_connections = true;
             }
+
             edge_label
                 .extras
                 .insert("fromCluster".to_string(), Value::String(ek.v.clone()));
@@ -842,6 +987,7 @@ fn adjust_flowchart_clusters_and_edges(
             {
                 entry.external_connections = true;
             }
+
             edge_label
                 .extras
                 .insert("toCluster".to_string(), Value::String(ek.w.clone()));
@@ -857,9 +1003,13 @@ fn adjust_flowchart_clusters_and_edges(
 }
 
 fn checked_n_log_n(value: usize, work_control: &DagreOperationWorkControl) -> Result<usize> {
-    if value <= 1 {
-        return Ok(0);
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(value), &::core::convert::identity(1)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+            return Ok(0);
+        },
+        ::core::cmp::Ordering::Greater => {},
     }
+
     let passes = usize::BITS as usize - (value - 1).leading_zeros() as usize;
     work_control.checked_mul(value, passes)
 }
@@ -869,11 +1019,14 @@ fn ordered_key_update_work_upper_bound(
     update_count: usize,
     work_control: &DagreOperationWorkControl,
 ) -> Result<usize> {
-    let height = if entry_bound <= 1 {
-        1
-    } else {
-        let log = usize::BITS as usize - (entry_bound - 1).leading_zeros() as usize;
-        work_control.checked_add(log, 1)?
+    let height = match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(entry_bound), &::core::convert::identity(1)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+            1
+        },
+        ::core::cmp::Ordering::Greater => {
+            let log = usize::BITS as usize - (entry_bound - 1).leading_zeros() as usize;
+            work_control.checked_add(log, 1)?
+        },
     };
     work_control.checked_mul(update_count, height)
 }
@@ -904,8 +1057,9 @@ fn charge_node_insertion_ordering(
     if graph.has_node(node_id) || !is_javascript_array_index(node_id) {
         return Ok(());
     }
+
     let final_node_count = work_control.checked_add(graph.node_count(), 1)?;
-    let ordered_maps = 1 + usize::from(graph.options().compound);
+    let ordered_maps = ::core::primitive::usize::wrapping_add(1, usize::from(graph.options().compound));
     let work = ordered_key_update_work_upper_bound(final_node_count, ordered_maps, work_control)?;
     work_control.charge_adapter(work)
 }
@@ -918,16 +1072,19 @@ fn charge_edge_endpoint_insertions(
 ) -> Result<()> {
     let v_missing = !graph.has_node(v);
     let w_missing = w != v && !graph.has_node(w);
-    let missing_count = usize::from(v_missing) + usize::from(w_missing);
-    if missing_count == 0 {
-        return Ok(());
+    let missing_count = ::core::primitive::usize::wrapping_add(usize::from(v_missing), usize::from(w_missing));
+
+    match missing_count {
+        0 => {
+            return Ok(());
+        },
+        _ => {},
     }
 
-    let numeric_count = usize::from(v_missing && is_javascript_array_index(v))
-        + usize::from(w_missing && is_javascript_array_index(w));
+    let numeric_count = ::core::primitive::usize::wrapping_add(usize::from(v_missing && is_javascript_array_index(v)), usize::from(w_missing && is_javascript_array_index(w)));
     let final_node_count = work_control.checked_add(graph.node_count(), missing_count)?;
     let ordered_updates =
-        work_control.checked_mul(numeric_count, 1 + usize::from(graph.options().compound))?;
+        work_control.checked_mul(numeric_count, ::core::primitive::usize::wrapping_add(1, usize::from(graph.options().compound)))?;
     let ordered_work =
         ordered_key_update_work_upper_bound(final_node_count, ordered_updates, work_control)?;
     work_control.charge_adapter(work_control.checked_add(missing_count, ordered_work)?)
@@ -978,7 +1135,7 @@ fn remove_node_work_upper_bound(
         0
     };
     let numeric_updates = work_control.checked_add(
-        work_control.checked_mul(numeric_node, 1 + usize::from(compound))?,
+        work_control.checked_mul(numeric_node, ::core::primitive::usize::wrapping_add(1, usize::from(compound)))?,
         promoted_numeric,
     )?;
     let ordered_map_work = ordered_key_update_work_upper_bound(
@@ -1002,16 +1159,23 @@ fn unparented_parent_batch_work_upper_bound(
     numeric_assignment_count: usize,
     work_control: &DagreOperationWorkControl,
 ) -> Result<usize> {
-    if assignment_count == 0 {
-        return Ok(0);
+    match assignment_count {
+        0 => {
+            return Ok(0);
+        },
+        _ => {},
     }
-    let height = if node_slots <= 1 {
-        0
-    } else {
-        usize::BITS as usize - (node_slots - 1).leading_zeros() as usize
+
+    let height = match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(node_slots), &::core::convert::identity(1)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+            0
+        },
+        ::core::cmp::Ordering::Greater => {
+            usize::BITS as usize - (node_slots - 1).leading_zeros() as usize
+        },
     };
-    // Union by rank bounds every pre-compression find to `height`. Account for two traversals per
-    // find, two finds per forest link, vector initialization/reservation, and one replay pass.
+
+
     let find_work = work_control.checked_mul(work_control.checked_add(height, 1)?, 4)?;
     let forest_items = work_control.checked_add(existing_parent_count, assignment_count)?;
     let union_work = work_control.checked_mul(forest_items, find_work)?;
@@ -1019,9 +1183,9 @@ fn unparented_parent_batch_work_upper_bound(
         work_control.checked_mul(node_slots, 6)?,
         work_control.checked_mul(assignment_count, 2)?,
     )?;
-    // Each array-index child requires one root-bucket removal and one target-bucket insertion.
-    // Callers derive this count while already traversing assignments in pinned Graphlib order, so
-    // ordinary IDs do not pay a logarithmic ordered-map term that cannot occur.
+
+
+
     let ordered_updates = work_control.checked_mul(numeric_assignment_count, 2)?;
     let ordered_work =
         ordered_key_update_work_upper_bound(node_slots, ordered_updates, work_control)?;
@@ -1043,9 +1207,13 @@ fn apply_unparented_parent_assignments(
     shape: UnparentedParentBatchShape,
     work_control: &mut DagreOperationWorkControl,
 ) -> Result<()> {
-    if assignments.is_empty() {
-        return Ok(());
+    match assignments {
+        [] => {
+            return Ok(());
+        },
+        [_, ..] => {},
     }
+
     let work = unparented_parent_batch_work_upper_bound(
         graph.node_slot_count(),
         shape.existing_parent_count,
@@ -1054,6 +1222,7 @@ fn apply_unparented_parent_assignments(
         work_control,
     )?;
     work_control.charge_adapter(work)?;
+
     match graph.try_set_unparented_parents_ix(assignments) {
         Ok(_) => Ok(()),
         Err(dugong::graphlib::GraphError::ParentCycle {
@@ -1083,7 +1252,7 @@ fn set_parent_controlled(
     let inserted_nodes = if child == parent {
         usize::from(!child_exists)
     } else {
-        usize::from(!child_exists) + usize::from(!parent_exists)
+        ::core::primitive::usize::wrapping_add(usize::from(!child_exists), usize::from(!parent_exists))
     };
     let final_node_slots = work_control.checked_add(graph.node_slot_count(), inserted_nodes)?;
     let child_is_numeric = is_javascript_array_index(child);
@@ -1104,14 +1273,13 @@ fn set_parent_controlled(
     let inserted_numeric_nodes = if child == parent {
         usize::from(!child_exists && child_is_numeric)
     } else {
-        usize::from(!child_exists && child_is_numeric)
-            + usize::from(!parent_exists && is_javascript_array_index(parent))
+        ::core::primitive::usize::wrapping_add(usize::from(!child_exists && child_is_numeric), usize::from(!parent_exists && is_javascript_array_index(parent)))
     };
     let final_numeric_nodes =
         work_control.checked_add(graph.array_index_node_count(), inserted_numeric_nodes)?;
     let insertion_updates = work_control.checked_mul(
         inserted_numeric_nodes,
-        1 + usize::from(graph.options().compound),
+        ::core::primitive::usize::wrapping_add(1, usize::from(graph.options().compound)),
     )?;
     let relation_updates = if relation_changes && child_is_numeric {
         2
@@ -1154,6 +1322,7 @@ fn copy_cluster(
     let mut nodes: Vec<(String, String)> = Vec::new();
     let mut visited: HashSet<String> = HashSet::new();
     let mut stack: Vec<CopyFrame> = Vec::new();
+
     if cluster_id != root_id {
         stack.push(CopyFrame {
             node: cluster_id.to_string(),
@@ -1161,6 +1330,7 @@ fn copy_cluster(
             expanded: true,
         });
     }
+
     let child_count = graph.child_count(cluster_id);
     let child_snapshot = child_id_snapshot_work_upper_bound(graph, cluster_id, work_control)?;
     work_control.charge_adapter(work_control.checked_add(child_snapshot, child_count)?)?;
@@ -1178,22 +1348,28 @@ fn copy_cluster(
 
     while let Some(frame) = stack.pop() {
         work_control.charge_adapter(1)?;
+
         if frame.expanded {
             nodes.push((frame.node, frame.owner_cluster));
             continue;
         }
+
         if !visited.insert(frame.node.clone()) {
             continue;
         }
 
-        let child_count = graph.child_count(&frame.node);
-        if child_count == 0 {
-            nodes.push((frame.node, frame.owner_cluster));
-            continue;
+        let child_count_2 = graph.child_count(&frame.node);
+
+        match child_count_2 {
+            0 => {
+                nodes.push((frame.node, frame.owner_cluster));
+                continue;
+            },
+            _ => {},
         }
 
-        let child_snapshot = child_id_snapshot_work_upper_bound(graph, &frame.node, work_control)?;
-        let child_clone_work = work_control.checked_add(child_snapshot, child_count)?;
+        let child_snapshot_2 = child_id_snapshot_work_upper_bound(graph, &frame.node, work_control)?;
+        let child_clone_work = work_control.checked_add(child_snapshot_2, child_count_2)?;
         work_control.charge_adapter(work_control.checked_add(child_clone_work, 1)?)?;
         stack.push(CopyFrame {
             node: frame.node.clone(),
@@ -1215,6 +1391,7 @@ fn copy_cluster(
 
     for (node, owner_cluster) in nodes {
         work_control.charge_adapter(1)?;
+
         if !graph.has_node(&node) {
             continue;
         }
@@ -1228,6 +1405,7 @@ fn copy_cluster(
         {
             set_parent_controlled(new_graph, &node, parent, work_control)?;
         }
+
         if owner_cluster != root_id && node != owner_cluster {
             set_parent_controlled(new_graph, &node, &owner_cluster, work_control)?;
         }
@@ -1235,31 +1413,44 @@ fn copy_cluster(
         let edge_snapshot_work =
             work_control.checked_add(graph.edge_slot_count(), graph.edge_count())?;
         work_control.charge_adapter(edge_snapshot_work)?;
-        for edge_key in graph.edge_keys() {
+
+        'over_edge_key_2: for edge_key in graph.edge_keys() {
             if !edge_in_cluster(&edge_key, root_id, descendants, work_control)? {
-                continue;
+                continue 'over_edge_key_2;
             }
-            let Some(label) = graph.edge_by_key(&edge_key).cloned() else {
-                continue;
+
+            let label = {
+                let optional_label_2 = graph.edge_by_key(&edge_key).cloned();
+
+                match optional_label_2 {
+                    Some(matched_label_2) => matched_label_2,
+                    ::core::option::Option::None => continue 'over_edge_key_2,
+                }
             };
+
             let root_descendants = descendants.get(root_id).map(Vec::as_slice).unwrap_or(&[]);
             let mut v_in = edge_key.v == root_id;
+
             if !v_in {
-                for descendant in root_descendants {
+                'over_descendant_3: for descendant in root_descendants {
                     work_control.charge_adapter(1)?;
+
                     if descendant == &edge_key.v {
                         v_in = true;
-                        break;
+                        break 'over_descendant_3;
                     }
                 }
             }
+
             let mut w_in = edge_key.w == root_id;
+
             if !w_in {
-                for descendant in root_descendants {
+                'over_descendant_3: for descendant in root_descendants {
                     work_control.charge_adapter(1)?;
+
                     if descendant == &edge_key.w {
                         w_in = true;
-                        break;
+                        break 'over_descendant_3;
                     }
                 }
             }
@@ -1307,9 +1498,9 @@ fn extract_clusters_recursively(
     _depth: usize,
     work_control: &mut DagreOperationWorkControl,
 ) -> Result<()> {
-    // Mermaid's recursive JavaScript extractor stops after depth 10 as a stack-safety bailout.
-    // Merman intentionally replaces that fixed cutoff with an explicit stack plus the shared work
-    // limit, preserving extraction semantics for deeper valid graphs without unbounded recursion.
+
+
+
     struct ExtractFrame {
         id: String,
         graph: Graph<NodeLabel, EdgeLabel, GraphLabel>,
@@ -1329,11 +1520,13 @@ fn extract_clusters_recursively(
         let node_ids = graph.node_ids();
         let mut descendants = HashMap::new();
         work_control.charge_adapter(node_ids.len())?;
+
         for id in &node_ids {
             if graph.child_count(id) == 0 {
                 continue;
             }
-            descendants.insert(id.clone(), extract_descendants(id, graph, work_control)?);
+
+            descendants.insert(id.clone(), { let checked_value = extract_descendants(id, graph, work_control)?; checked_value });
         }
 
         let mut extracted_here: Vec<ExtractedCluster> = Vec::new();
@@ -1343,14 +1536,14 @@ fn extract_clusters_recursively(
             .into_iter()
             .filter(|id| graph.has_node(id))
             .filter(|id| graph.child_count(id) != 0)
-            // Mermaid's Dagre extractor only promotes clusters without external connections.
-            // An explicit `direction` controls the nested graph's rankdir after extraction; it
-            // does not change whether the cluster is extracted. Keeping this predicate tied to
-            // the computed `externalConnections` flag also keeps cluster extraction, edge
-            // ownership, and the downstream render plan on the same semantic boundary.
-            //
-            // Reference:
-            // - `packages/mermaid/src/rendering-util/layout-algorithms/dagre/mermaid-graphlib.js`
+
+
+
+
+
+
+
+
             .filter(|id| {
                 external_connections_by_id
                     .get(id.as_str())
@@ -1362,6 +1555,7 @@ fn extract_clusters_recursively(
             if !graph.has_node(&id) {
                 continue;
             }
+
             if graph.child_count(&id) == 0 {
                 continue;
             }
@@ -1373,9 +1567,9 @@ fn extract_clusters_recursively(
                     directed: true,
                 });
 
-            // Mermaid's `extractor(...)` uses:
-            // - `clusterData.dir` when explicitly set for the subgraph
-            // - otherwise: toggle relative to the current graph's rankdir (TB<->LR)
+
+
+
             let dir = subgraphs_by_id
                 .get(id.as_str())
                 .and_then(|sg| sg.dir.as_deref())
@@ -1386,17 +1580,17 @@ fn extract_clusters_recursively(
 
             cluster_graph.set_graph(GraphLabel {
                 rankdir: dir_to_rankdir(&dir),
-                // Mermaid's cluster extractor initializes subgraphs with a fixed dagre config
-                // (nodesep/ranksep=50, marginx/marginy=8). Before each recursive render Mermaid then
-                // overrides `nodesep` to the parent graph value and `ranksep` to `parent.ranksep + 25`.
-                //
-                // We model that in headless mode by keeping the extractor defaults here, then applying
-                // the per-depth override inside `layout_graph_with_recursive_clusters(...)` right
-                // before laying out each extracted graph.
-                //
-                // Reference:
-                // - `packages/mermaid/src/rendering-util/layout-algorithms/dagre/mermaid-graphlib.js`
-                // - `packages/mermaid/src/rendering-util/layout-algorithms/dagre/index.js`
+
+
+
+
+
+
+
+
+
+
+
                 nodesep: 50.0,
                 ranksep: 50.0,
                 marginx: 8.0,
@@ -1428,9 +1622,9 @@ fn extract_clusters_recursively(
     let mut stack: Vec<ExtractFrame> = extracted_here
         .into_iter()
         .rev()
-        .map(|(id, graph)| ExtractFrame {
+        .map(|(id, graph_2)| ExtractFrame {
             id,
-            graph,
+            graph: graph_2,
             expanded: false,
         })
         .collect();
@@ -1450,12 +1644,13 @@ fn extract_clusters_recursively(
         )?;
         frame.expanded = true;
         stack.push(frame);
-        stack.extend(children.into_iter().rev().map(|(id, graph)| ExtractFrame {
+        stack.extend(children.into_iter().rev().map(|(id, graph_3)| ExtractFrame {
             id,
-            graph,
+            graph: graph_3,
             expanded: false,
         }));
     }
+
     Ok(())
 }
 
@@ -1545,31 +1740,38 @@ fn layout_flowchart_with_model(
     work_control: &mut DagreOperationWorkControl,
 ) -> Result<FlowchartLayout> {
     let render_model = FlowchartRenderModelRef::new(model, render_label_sources);
-    let model = &render_model;
-    // Shape validation is an adapter-owned full node scan. Charge it before touching the model so
-    // a low operation budget still bounds invalid inputs and preserves the old preflight's
-    // resource-error precedence when the scan itself cannot be admitted.
-    work_control.charge_adapter(model.nodes.len())?;
-    super::validate_flowchart_model_shapes(model)?;
+    let model_2 = &render_model;
+
+
+
+    work_control.charge_adapter(model_2.nodes.len())?;
+    super::validate_flowchart_model_shapes(model_2)?;
     let effective_config_value = effective_config.as_value();
 
-    // Project the lossless semantic edges through the collapsed-subgraph view before expanding
-    // self-loops. Boundary edges use the visible collapsed node as their endpoint, while edges
-    // wholly hidden by a collapsed subgraph are omitted.
-    work_control.charge_adapter(model.edges.len())?;
-    let mut projected_edges: Vec<FlowEdge> = Vec::with_capacity(model.edges.len());
-    let mut projected_edge_owner_indices: Vec<usize> = Vec::with_capacity(model.edges.len());
-    for (edge_index, edge) in model.edges.iter().enumerate() {
-        if let Some(projected) = super::project_flowchart_edge(edge, render_label_sources) {
-            projected_edges.push(projected);
-            projected_edge_owner_indices.push(edge_index);
+
+
+
+    work_control.charge_adapter(model_2.edges.len())?;
+    let mut projected_edges: Vec<FlowEdge> = Vec::with_capacity(model_2.edges.len());
+    let mut projected_edge_owner_indices: Vec<usize> = Vec::with_capacity(model_2.edges.len());
+
+    for (edge_index, edge) in model_2.edges.iter().enumerate() {
+        {
+            match super::project_flowchart_edge(edge, render_label_sources) {
+                Some(projected) => {
+                    projected_edges.push(projected);
+                    projected_edge_owner_indices.push(edge_index);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     work_control.charge_adapter(projected_edges.len())?;
 
-    // Mermaid's dagre adapter expands self-loop edges into a chain of two special label nodes plus
-    // three edges. This avoids `v == w` edges in Dagre and is required for SVG parity (Mermaid
-    // uses `*-cyclic-special-*` ids when rendering self-loops).
+
+
+
     let self_loop_count = projected_edges.iter().filter(|e| e.from == e.to).count();
     let derived_render_edges = work_control.checked_add(
         projected_edges.len(),
@@ -1584,10 +1786,12 @@ fn layout_flowchart_with_model(
     let mut self_loop_label_node_ids: Vec<String> = Vec::new();
     let mut self_loop_label_node_id_set: std::collections::HashSet<String> =
         std::collections::HashSet::new();
-    let merge_self_loops = super::flowchart_dagre_merges_self_loop_segments(&model.keyword);
+    let merge_self_loops = super::flowchart_dagre_merges_self_loop_segments(&model_2.keyword);
     let mut unmerged_first_slots = HashMap::new();
+
     for (projected_index, e) in projected_edges.iter().enumerate() {
         let edge_index = projected_edge_owner_indices[projected_index];
+
         if e.from != e.to {
             render_edges.push(std::borrow::Cow::Borrowed(e));
             render_edge_self_loop_meta.push(None);
@@ -1596,30 +1800,33 @@ fn layout_flowchart_with_model(
         }
 
         let mut helper_edges = super::flowchart_self_loop_helper_edges(e);
-        helper_edges.edge_mid.label = model
+        helper_edges.edge_mid.label = model_2
             .edge_label_for_render(edge_index, e)
             .map(str::to_owned);
+
         if self_loop_label_node_id_set.insert(helper_edges.special_id_1.clone()) {
             self_loop_label_node_ids.push(helper_edges.special_id_1.clone());
         }
+
         if self_loop_label_node_id_set.insert(helper_edges.special_id_2.clone()) {
             self_loop_label_node_ids.push(helper_edges.special_id_2.clone());
         }
 
-        // Mermaid clears the label text on the end segments, but keeps the label (if any) on the
-        // mid edge (`edgeMid` is a structuredClone of the original edge without label changes).
+
+
         let first_slot = if merge_self_loops {
             None
         } else {
             work_control.charge_adapter(1)?;
-            // Graphlib setEdge overwrites a parallel helper triple without moving its first
-            // insertion position. Keep both its geometry and label owner at those same slots.
+
+
             Some(
                 *unmerged_first_slots
                     .entry(e.from.as_str())
                     .or_insert(render_edges.len()),
             )
         };
+
         for (order, segment) in [
             helper_edges.edge1,
             helper_edges.edge_mid,
@@ -1638,6 +1845,7 @@ fn layout_flowchart_with_model(
                 .map(|first| work_control.checked_add(first, order))
                 .transpose()?
                 .unwrap_or(render_edges.len());
+
             if slot == render_edges.len() {
                 render_edges.push(std::borrow::Cow::Owned(segment));
                 render_edge_owner_indices.push(edge_index);
@@ -1649,6 +1857,7 @@ fn layout_flowchart_with_model(
             }
         }
     }
+
     let FlowchartLayoutSettings {
         nodesep,
         ranksep,
@@ -1698,58 +1907,63 @@ fn layout_flowchart_with_model(
         &text_style
     };
 
-    let diagram_direction = normalize_dir(model.direction.as_deref().unwrap_or("TB"));
-    let has_subgraphs = !model.subgraphs.is_empty();
-    work_control.charge_adapter(model.subgraphs.len())?;
-    // Parsed Mermaid 12.1 models already contain one canonical group per id. Public typed
-    // callers can still construct duplicate groups; retain first-owner presentation and merged
-    // membership for that supported input without rebuilding parser semantics here.
-    let mut subgraphs_by_id: FlowSubgraphIndex<'_> = HashMap::with_capacity(model.subgraphs.len());
+    let diagram_direction = normalize_dir(model_2.direction.as_deref().unwrap_or("TB"));
+    let has_subgraphs = !model_2.subgraphs.is_empty();
+    work_control.charge_adapter(model_2.subgraphs.len())?;
+
+
+
+    let mut subgraphs_by_id: FlowSubgraphIndex<'_> = HashMap::with_capacity(model_2.subgraphs.len());
     let mut subgraph_index_by_id: HashMap<&str, usize> =
-        HashMap::with_capacity(model.subgraphs.len());
+        HashMap::with_capacity(model_2.subgraphs.len());
     let mut canonical_subgraphs_in_order: Vec<(usize, &FlowSubgraph)> = Vec::new();
     let mut subgraph_members_by_id: HashMap<&str, Vec<&str>> = HashMap::new();
     let mut nonempty_subgraph_ids: HashSet<&str> = HashSet::new();
-    for (index, subgraph) in model.subgraphs.iter().enumerate() {
+
+    for (index, subgraph) in model_2.subgraphs.iter().enumerate() {
         let id = subgraph.id.as_str();
+
         if !subgraphs_by_id.contains_key(id) {
             subgraphs_by_id.insert(id, subgraph);
             subgraph_index_by_id.insert(id, index);
             canonical_subgraphs_in_order.push((index, subgraph));
         }
+
         subgraph_members_by_id
             .entry(id)
             .or_default()
             .extend(subgraph.nodes.iter().map(String::as_str));
+
         if !subgraph.nodes.is_empty() {
             nonempty_subgraph_ids.insert(id);
         }
     }
-    work_control.charge_adapter(model.subgraphs.len())?;
+
+    work_control.charge_adapter(model_2.subgraphs.len())?;
     let subgraph_ids: std::collections::HashSet<&str> =
-        model.subgraphs.iter().map(|sg| sg.id.as_str()).collect();
-    let collapsed_subgraph_ids: HashSet<&str> = model
+        model_2.subgraphs.iter().map(|sg| sg.id.as_str()).collect();
+    let collapsed_subgraph_ids: HashSet<&str> = model_2
         .subgraphs
         .iter()
-        .filter(|sg| model.is_subgraph_collapsed(sg.id.as_str()))
-        .filter(|sg| model.collapsed_replacement(sg.id.as_str()).is_none())
+        .filter(|sg| model_2.is_subgraph_collapsed(sg.id.as_str()))
+        .filter(|sg| model_2.collapsed_replacement(sg.id.as_str()).is_none())
         .map(|sg| sg.id.as_str())
         .collect();
-    // Only expanded, non-empty subgraphs participate in Dagre's compound-cluster pipeline.
-    // Collapsed subgraphs are ordinary leaf nodes; nested collapsed/expanded descendants replaced
-    // by an outer collapsed ancestor are omitted from the graph entirely.
-    let cluster_subgraph_ids: HashSet<&str> = model
+
+
+
+    let cluster_subgraph_ids: HashSet<&str> = model_2
         .subgraphs
         .iter()
         .filter(|sg| !collapsed_subgraph_ids.contains(sg.id.as_str()))
-        .filter(|sg| model.collapsed_replacement(sg.id.as_str()).is_none())
+        .filter(|sg| model_2.collapsed_replacement(sg.id.as_str()).is_none())
         .filter(|sg| !sg.nodes.is_empty())
         .map(|sg| sg.id.as_str())
         .collect();
     let mut g: Graph<NodeLabel, EdgeLabel, GraphLabel> = Graph::new(GraphOptions {
         multigraph: true,
-        // Mermaid's Dagre adapter always enables `compound: true`, even if there are no explicit
-        // subgraphs. This also allows `nestingGraph.run` to connect components during ranking.
+
+
         compound: true,
         directed: true,
     });
@@ -1767,22 +1981,26 @@ fn layout_flowchart_with_model(
     let mut cluster_node_labels: std::collections::HashMap<String, NodeLabel> =
         std::collections::HashMap::new();
     work_control.charge_adapter(canonical_subgraphs_in_order.len())?;
+
     for (_, sg) in &canonical_subgraphs_in_order {
-        if model.collapsed_replacement(sg.id.as_str()).is_some() {
+        if model_2.collapsed_replacement(sg.id.as_str()).is_some() {
             continue;
         }
+
         if collapsed_subgraph_ids.contains(sg.id.as_str()) {
             continue;
         }
+
         if !nonempty_subgraph_ids.contains(sg.id.as_str()) {
-            // Mermaid renders empty subgraphs as regular nodes. Keep the semantic `subgraph`
-            // definition around for styling/title, but size + lay it out as a leaf node.
+
+
             empty_subgraph_ids.push(sg.id.clone());
             continue;
         }
-        // Mermaid does not pre-size compound (subgraph) nodes based on title metrics for Dagre
-        // layout. Their dimensions are computed from children (border nodes) and then adjusted at
-        // render time for title width and configured margins.
+
+
+
+
         cluster_node_labels.insert(sg.id.clone(), NodeLabel::default());
     }
 
@@ -1791,23 +2009,25 @@ fn layout_flowchart_with_model(
     let mut leaf_label_metrics_by_id: HashMap<String, (f64, f64)> = HashMap::new();
     let collapsed_leaf_count = collapsed_subgraph_ids.len();
     let leaf_label_capacity = work_control.checked_add(
-        model.nodes.len(),
+        model_2.nodes.len(),
         work_control.checked_add(empty_subgraph_ids.len(), collapsed_leaf_count)?,
     )?;
     work_control.charge_adapter(leaf_label_capacity)?;
     leaf_label_metrics_by_id.reserve(leaf_label_capacity);
-    work_control.charge_adapter(model.nodes.len())?;
-    for (node_index, n) in model.nodes.iter().enumerate() {
-        // Mermaid treats the subgraph id as the "group node" id (a cluster can be referenced in
-        // edges). Avoid introducing a separate leaf node that would collide with the cluster node
-        // of the same id.
+    work_control.charge_adapter(model_2.nodes.len())?;
+
+    for (node_index, n) in model_2.nodes.iter().enumerate() {
+
+
+
         if subgraph_ids.contains(n.id.as_str())
-            || model.collapsed_replacement(n.id.as_str()).is_some()
+            || model_2.collapsed_replacement(n.id.as_str()).is_some()
         {
             continue;
         }
-        let raw_label = model.node_label_for_render(n).unwrap_or(&n.id);
-        let wrapping_width = super::bpmn::wrapping_width(n.layout_shape.as_deref(), wrapping_width);
+
+        let raw_label = model_2.node_label_for_render(n).unwrap_or(&n.id);
+        let wrapping_width_2 = super::bpmn::wrapping_width(n.layout_shape.as_deref(), wrapping_width);
         let label_type = n.label_type.as_deref().unwrap_or("text");
         let label_dom = (
             edge_html_labels,
@@ -1820,20 +2040,20 @@ fn layout_flowchart_with_model(
             ),
         );
         let structural = super::FlowchartStructuralLabelTypography::prepare(
-            &model.class_defs,
+            &model_2.class_defs,
             label_dom.0,
             label_dom.1,
             |units| work_control.charge_adapter(units),
         )?;
         let node_parent = label_typography.node_source_parent_style(
             node_label_base_style,
-            &model.class_defs,
+            &model_2.class_defs,
             (&n.classes, &n.styles, true),
             &structural,
         );
         let mut node_text_style = flowchart_effective_text_style_for_node_classes_with_provenance(
             node_parent.as_ref(),
-            &model.class_defs,
+            &model_2.class_defs,
             &n.classes,
             &n.styles,
         );
@@ -1853,7 +2073,7 @@ fn layout_flowchart_with_model(
                 raw_label,
                 label_type,
                 style: node_text_style.as_ref(),
-                max_width_px: Some(wrapping_width),
+                max_width_px: Some(wrapping_width_2),
                 wrap_mode: node_wrap_mode,
                 config: effective_config,
                 math_renderer,
@@ -1861,16 +2081,18 @@ fn layout_flowchart_with_model(
             node_text_style.terminal_foreground(),
             svg_width_mode,
         );
+
         if node_wrap_mode == WrapMode::HtmlLike && edge_html_labels {
             flowchart_apply_html_node_class_box_metrics(
                 &mut metrics,
                 raw_label,
                 label_type,
                 node_text_style.as_ref(),
-                &model.class_defs,
+                &model_2.class_defs,
                 &n.classes,
             );
         }
+
         metrics = metrics.with_label_min_width(
             raw_label,
             super::flowchart_node_label_min_width(
@@ -1886,7 +2108,7 @@ fn layout_flowchart_with_model(
             layout_direction: &diagram_direction,
             metrics,
             has_label: !raw_label.is_empty(),
-            wrapping_width,
+            wrapping_width: wrapping_width_2,
             node_constraint: n.constraint.as_deref(),
             padding: node_padding,
             look_is_neo,
@@ -1906,17 +2128,20 @@ fn layout_flowchart_with_model(
             },
         );
     }
+
     work_control.charge_adapter(canonical_subgraphs_in_order.len())?;
+
     for &(subgraph_index, sg) in &canonical_subgraphs_in_order {
         if nonempty_subgraph_ids.contains(sg.id.as_str())
             || collapsed_subgraph_ids.contains(sg.id.as_str())
-            || model.collapsed_replacement(sg.id.as_str()).is_some()
+            || model_2.collapsed_replacement(sg.id.as_str()).is_some()
         {
             continue;
         }
+
         let label_type = sg.label_type.as_deref().unwrap_or("text");
-        let (classes, styles) = model.effective_subgraph_css(subgraph_index, sg);
-        let title = model.subgraph_title_for_render(subgraph_index, sg);
+        let (classes, styles) = model_2.effective_subgraph_css(subgraph_index, sg);
+        let title = model_2.subgraph_title_for_render(subgraph_index, sg);
         let label_dom = (
             edge_html_labels,
             super::FlowchartLabelDom::node(
@@ -1928,28 +2153,28 @@ fn layout_flowchart_with_model(
             ),
         );
         let structural = super::FlowchartStructuralLabelTypography::prepare(
-            &model.class_defs,
+            &model_2.class_defs,
             label_dom.0,
             label_dom.1,
             |units| work_control.charge_adapter(units),
         )?;
         let parent_style = label_typography.node_source_parent_style(
             cluster_label_base_style,
-            &model.class_defs,
+            &model_2.class_defs,
             (classes, styles, false),
             &structural,
         );
         let mut sg_text_style = flowchart_effective_text_style_for_classes_with_provenance(
             parent_style.as_ref(),
-            &model.class_defs,
+            &model_2.class_defs,
             classes,
             styles,
         );
         structural.apply_to_content(&mut sg_text_style.style);
-        // Mermaid renders an empty subgraph through the ordinary node `labelHelper`: wrapping
-        // probes use `flowchart.wrappingWidth` and `getComputedTextLength()`, while the final label
-        // dimensions come from `getBBox()`. Selecting `ComputedLength` here would add a post-wrap
-        // per-line measurement pass that is absent upstream.
+
+
+
+
         let mut metrics = measure_flowchart_svg_label_for_layout_with_terminal_foreground(
             svg_label_sidecar,
             Some(FlowchartSvgLabelOwner::EmptySubgraphNode(subgraph_index)),
@@ -1967,16 +2192,18 @@ fn layout_flowchart_with_model(
             sg_text_style.terminal_foreground(),
             FlowchartSvgWidthMode::Bbox,
         );
+
         if node_wrap_mode == WrapMode::HtmlLike && edge_html_labels {
             flowchart_apply_html_node_class_box_metrics(
                 &mut metrics,
                 title,
                 label_type,
                 sg_text_style.as_ref(),
-                &model.class_defs,
+                &model_2.class_defs,
                 classes,
             );
         }
+
         leaf_label_metrics_by_id.insert(sg.id.clone(), (metrics.width, metrics.height));
         let (width, height) = node_layout_dimensions(NodeLayoutDimensionsRequest {
             layout_shape: Some("squareRect"),
@@ -2004,17 +2231,19 @@ fn layout_flowchart_with_model(
         );
     }
 
-    // A collapsed subgraph is laid out as a regular leaf node. Its title uses the same label
-    // preparation path as a subgraph title, but its outer dimensions reserve the separator and
-    // indicator rows rendered by `collapsedGroup`.
+
+
+
     work_control.charge_adapter(collapsed_leaf_count)?;
+
     for &(subgraph_index, sg) in &canonical_subgraphs_in_order {
         if !collapsed_subgraph_ids.contains(sg.id.as_str()) {
             continue;
         }
+
         let label_type = sg.label_type.as_deref().unwrap_or("text");
-        let (classes, styles) = model.effective_subgraph_css(subgraph_index, sg);
-        let title = model.subgraph_title_for_render(subgraph_index, sg);
+        let (classes, styles) = model_2.effective_subgraph_css(subgraph_index, sg);
+        let title = model_2.subgraph_title_for_render(subgraph_index, sg);
         let label_dom = (
             edge_html_labels,
             super::FlowchartLabelDom::node(
@@ -2026,7 +2255,7 @@ fn layout_flowchart_with_model(
             ),
         );
         let structural = super::FlowchartStructuralLabelTypography::prepare(
-            &model.class_defs,
+            &model_2.class_defs,
             label_dom.0,
             label_dom.1,
             |units| work_control.charge_adapter(units),
@@ -2036,15 +2265,15 @@ fn layout_flowchart_with_model(
         } else {
             &text_style
         };
-        let base_style = label_typography.node_source_parent_style(
+        let base_style_2 = label_typography.node_source_parent_style(
             base_style,
-            &model.class_defs,
+            &model_2.class_defs,
             (classes, styles, false),
             &structural,
         );
         let mut text_style_for_label = flowchart_effective_text_style_for_classes(
-            base_style.as_ref(),
-            &model.class_defs,
+            base_style_2.as_ref(),
+            &model_2.class_defs,
             classes,
             styles,
         );
@@ -2066,16 +2295,18 @@ fn layout_flowchart_with_model(
             None,
             FlowchartSvgWidthMode::Bbox,
         );
+
         if node_wrap_mode == WrapMode::HtmlLike && edge_html_labels {
             flowchart_apply_html_node_class_box_metrics(
                 &mut metrics,
                 title,
                 label_type,
                 text_style_for_label.as_ref(),
-                &model.class_defs,
+                &model_2.class_defs,
                 classes,
             );
         }
+
         leaf_label_metrics_by_id.insert(sg.id.clone(), (metrics.width, metrics.height));
         leaf_node_labels.insert(
             sg.id.clone(),
@@ -2087,91 +2318,116 @@ fn layout_flowchart_with_model(
         );
     }
 
-    // Mermaid constructs the Dagre graph by:
-    // 1) inserting subgraph (cluster) nodes first (in reverse `subgraphs[]` order), then
-    // 2) inserting vertex nodes (in FlowDB `Map` insertion order),
-    // and setting `parentId` as each node is inserted.
-    //
-    // Matching property creation matters because Graphlib exposes JavaScript `Object.keys`
-    // order: array-index IDs enumerate numerically before ordinary IDs in creation order. That
-    // order affects compound children, anchor selection, and deterministic layout tie-breaking.
+
+
+
+
+
+
+
+
     let mut inserted: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut parent_assigned: std::collections::HashSet<String> = std::collections::HashSet::new();
     let insert_one = |id: &str,
                       g: &mut Graph<NodeLabel, EdgeLabel, GraphLabel>,
-                      inserted: &mut std::collections::HashSet<String>,
-                      work_control: &mut DagreOperationWorkControl|
+                      inserted_2: &mut std::collections::HashSet<String>,
+                      work_control_2: &mut DagreOperationWorkControl|
      -> Result<()> {
-        if inserted.contains(id) {
+        if inserted_2.contains(id) {
             return Ok(());
         }
-        if let Some(lbl) = cluster_node_labels.get(id).cloned() {
-            charge_node_insertion_ordering(g, id, work_control)?;
-            g.set_node(id.to_string(), lbl);
-            inserted.insert(id.to_string());
-            return Ok(());
+
+        match cluster_node_labels.get(id).cloned() {
+            Some(lbl) => {
+                charge_node_insertion_ordering(g, id, work_control_2)?;
+                g.set_node(id.to_string(), lbl);
+                inserted_2.insert(id.to_string());
+                return Ok(());
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(lbl) = leaf_node_labels.get(id).cloned() {
-            charge_node_insertion_ordering(g, id, work_control)?;
-            g.set_node(id.to_string(), lbl);
-            inserted.insert(id.to_string());
+
+        match leaf_node_labels.get(id).cloned() {
+            Some(lbl) => {
+                charge_node_insertion_ordering(g, id, work_control_2)?;
+                g.set_node(id.to_string(), lbl);
+                inserted_2.insert(id.to_string());
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(())
     };
 
     let mut existing_parent_count = 0usize;
+
     if has_subgraphs {
-        // Match Mermaid's `FlowDB.getData()` parent assignment: build `parentId` by iterating
-        // subgraphs in reverse order and recording each membership.
+
+
         let mut parent_by_id: std::collections::HashMap<String, String> =
             std::collections::HashMap::new();
-        let membership_count = model.subgraphs.iter().try_fold(0usize, |total, subgraph| {
+        let membership_count = model_2.subgraphs.iter().try_fold(0usize, |total, subgraph| {
             work_control.checked_add(total, subgraph.nodes.len())
         })?;
         let hierarchy_validation_work =
-            work_control.checked_add(membership_count, model.subgraphs.len())?;
+            work_control.checked_add(membership_count, model_2.subgraphs.len())?;
         work_control.charge_adapter(hierarchy_validation_work)?;
-        for sg in model.subgraphs.iter().rev() {
+
+        for sg in model_2.subgraphs.iter().rev() {
             for child in &sg.nodes {
                 parent_by_id.insert(child.clone(), sg.id.clone());
             }
         }
 
         let insert_with_parent = |id: &str,
-                                  g: &mut Graph<NodeLabel, EdgeLabel, GraphLabel>,
-                                  inserted: &mut std::collections::HashSet<String>,
-                                  parent_assigned: &mut std::collections::HashSet<String>,
+                                  g_2: &mut Graph<NodeLabel, EdgeLabel, GraphLabel>,
+                                  inserted_3: &mut std::collections::HashSet<String>,
+                                  parent_assigned_2: &mut std::collections::HashSet<String>,
                                   parent_assignments: &mut Vec<(usize, usize)>,
                                   numeric_parent_assignments: &mut usize,
-                                  work_control: &mut DagreOperationWorkControl|
+                                  work_control_3: &mut DagreOperationWorkControl|
          -> Result<()> {
-            insert_one(id, g, inserted, work_control)?;
-            if !parent_assigned.insert(id.to_string()) {
+            insert_one(id, g_2, inserted_3, work_control_3)?;
+
+            if !parent_assigned_2.insert(id.to_string()) {
                 return Ok(());
             }
-            if let Some(parent) = parent_by_id.get(id) {
-                charge_node_insertion_ordering(g, parent, work_control)?;
-                g.ensure_node_ref(parent);
-                if let (Some(child_ix), Some(parent_ix)) = (g.node_ix(id), g.node_ix(parent)) {
-                    parent_assignments.push((child_ix, parent_ix));
-                    *numeric_parent_assignments += usize::from(is_javascript_array_index(id));
-                }
+
+            match parent_by_id.get(id) {
+                Some(parent) => {
+                    charge_node_insertion_ordering(g_2, parent, work_control_3)?;
+                    g_2.ensure_node_ref(parent);
+
+                    {
+                        match (g_2.node_ix(id), g_2.node_ix(parent)) {
+                            (Some(child_ix), Some(parent_ix)) => {
+                                parent_assignments.push((child_ix, parent_ix));
+                                *numeric_parent_assignments += usize::from(is_javascript_array_index(id));
+                            },
+                            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
+                        };
+                    }
+                },
+                ::core::option::Option::None => {},
             }
+
             Ok(())
         };
 
         let insertion_visits = work_control.checked_add(
-            work_control.checked_add(model.subgraphs.len(), model.nodes.len())?,
-            model.vertex_calls.len(),
+            work_control.checked_add(model_2.subgraphs.len(), model_2.nodes.len())?,
+            model_2.vertex_calls.len(),
         )?;
         let insertion_work = work_control.checked_add(insertion_visits, parent_by_id.len())?;
         work_control.charge_adapter(insertion_work)?;
         let mut parent_assignments = Vec::with_capacity(parent_by_id.len());
         let mut numeric_parent_assignments = 0usize;
-        for sg in model.subgraphs.iter().rev() {
-            if model.collapsed_replacement(sg.id.as_str()).is_some() {
+
+        for sg in model_2.subgraphs.iter().rev() {
+            if model_2.collapsed_replacement(sg.id.as_str()).is_some() {
                 continue;
             }
+
             insert_with_parent(
                 sg.id.as_str(),
                 &mut g,
@@ -2182,10 +2438,12 @@ fn layout_flowchart_with_model(
                 work_control,
             )?;
         }
-        for n in &model.nodes {
-            if model.collapsed_replacement(n.id.as_str()).is_some() {
+
+        for n in &model_2.nodes {
+            if model_2.collapsed_replacement(n.id.as_str()).is_some() {
                 continue;
             }
+
             insert_with_parent(
                 n.id.as_str(),
                 &mut g,
@@ -2196,10 +2454,12 @@ fn layout_flowchart_with_model(
                 work_control,
             )?;
         }
-        for id in &model.vertex_calls {
-            if model.collapsed_replacement(id.as_str()).is_some() {
+
+        for id in &model_2.vertex_calls {
+            if model_2.collapsed_replacement(id.as_str()).is_some() {
                 continue;
             }
+
             insert_with_parent(
                 id.as_str(),
                 &mut g,
@@ -2210,6 +2470,7 @@ fn layout_flowchart_with_model(
                 work_control,
             )?;
         }
+
         apply_unparented_parent_assignments(
             &mut g,
             &parent_assignments,
@@ -2221,53 +2482,69 @@ fn layout_flowchart_with_model(
         )?;
         existing_parent_count = parent_assignments.len();
     } else {
-        // No subgraphs: insertion order still matters for deterministic Dagre tie-breaking.
+
         let insertion_work =
-            work_control.checked_add(model.nodes.len(), model.vertex_calls.len())?;
+            work_control.checked_add(model_2.nodes.len(), model_2.vertex_calls.len())?;
         work_control.charge_adapter(insertion_work)?;
-        for n in &model.nodes {
+
+        for n in &model_2.nodes {
             insert_one(n.id.as_str(), &mut g, &mut inserted, work_control)?;
         }
-        for id in &model.vertex_calls {
+
+        for id in &model_2.vertex_calls {
             insert_one(id.as_str(), &mut g, &mut inserted, work_control)?;
         }
     }
 
-    // Materialize self-loop helper label nodes and place them in the same parent cluster as the
-    // base node (if any), matching Mermaid `@11.12.2` dagre layout adapter behavior.
+
+
     work_control.charge_adapter(self_loop_label_node_ids.len())?;
     let mut self_loop_parent_assignments = Vec::new();
     let mut numeric_self_loop_parent_assignments = 0usize;
+
     for id in &self_loop_label_node_ids {
         if !g.has_node(id) {
             charge_node_insertion_ordering(&g, id, work_control)?;
             g.set_node(
                 id.clone(),
                 NodeLabel {
-                    // Mermaid initializes these labelRect nodes at 10x10, but then immediately
-                    // runs `insertNode(...)` + `updateNodeBounds(...)` before Dagre layout. For an
-                    // empty `labelRect`, the measured bbox collapses to ~0.1x0.1 and that is what
-                    // Dagre actually sees for spacing. Match that here for layout parity.
-                    width: 0.1_f32 as f64,
-                    height: 0.1_f32 as f64,
+
+
+
+
+                    width: <f64 as ::core::convert::From<::core::primitive::f32>>::from(0.1_f32),
+                    height: <f64 as ::core::convert::From<::core::primitive::f32>>::from(0.1_f32),
                     ..Default::default()
                 },
             );
         }
-        let Some((base, _)) = id.split_once("---") else {
-            continue;
+
+        let base = {
+            let optional_base = id.split_once("---");
+
+            match optional_base {
+                Some((matched_base, _)) => matched_base,
+                ::core::option::Option::None => continue,
+            }
         };
-        if let Some(p) = g.parent(base) {
-            let child_ix = g
-                .node_ix(id)
-                .expect("a self-loop helper node is present after insertion");
-            let parent_ix = g
-                .node_ix(p)
-                .expect("the base node parent is present in the layout graph");
-            self_loop_parent_assignments.push((child_ix, parent_ix));
-            numeric_self_loop_parent_assignments += usize::from(is_javascript_array_index(id));
+
+        {
+            match g.parent(base) {
+                Some(p) => {
+                    let child_ix = g
+                        .node_ix(id)
+                        .expect("a self-loop helper node is present after insertion");
+                    let parent_ix = g
+                        .node_ix(p)
+                        .expect("the base node parent is present in the layout graph");
+                    self_loop_parent_assignments.push((child_ix, parent_ix));
+                    numeric_self_loop_parent_assignments += usize::from(is_javascript_array_index(id));
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     apply_unparented_parent_assignments(
         &mut g,
         &self_loop_parent_assignments,
@@ -2280,7 +2557,7 @@ fn layout_flowchart_with_model(
 
     let effective_dir_by_id = if has_subgraphs {
         compute_effective_dir_by_id(
-            &model.subgraphs,
+            &model_2.subgraphs,
             &subgraphs_by_id,
             &g,
             &diagram_direction,
@@ -2292,22 +2569,25 @@ fn layout_flowchart_with_model(
     };
 
     work_control.charge_adapter(render_edges.len())?;
+
     for ((e, self_loop_meta), edge_owner_index) in render_edges
         .iter()
         .zip(&render_edge_self_loop_meta)
         .zip(&render_edge_owner_indices)
     {
-        // Mermaid 11.16 stores helper identity as edge metadata. The graph key is intentionally
-        // node-scoped, so a later parallel self-loop overwrites the earlier triple in Graphlib.
+
+
         let edge_key = flowchart_layout_edge_key(e, self_loop_meta.as_ref());
 
         let from = e.from.clone();
         let to = e.to.clone();
 
-        if edge_label_is_non_empty(model, *edge_owner_index, e, self_loop_meta.as_ref()) {
+        if edge_label_is_non_empty(model_2, *edge_owner_index, e, self_loop_meta.as_ref()) {
             let label_text =
-                render_edge_label_for_layout(model, *edge_owner_index, e, self_loop_meta.as_ref())
-                    .unwrap_or_default();
+                match render_edge_label_for_layout(model_2, *edge_owner_index, e, self_loop_meta.as_ref()) {
+                    ::core::option::Option::Some(explicit_present) => explicit_present,
+                    ::core::option::Option::None => "",
+                };
             let label_type = e.label_type.as_deref().unwrap_or("text");
             let edge_key_identity = crate::flowchart::FlowchartEdgeKey::new(*edge_owner_index);
             let edge_parent = edge_style_plan.label_parent_style_for(
@@ -2315,9 +2595,9 @@ fn layout_flowchart_with_model(
                 edge_label_base_style,
                 &label_typography,
             )?;
-            let edge_label_base_style = edge_parent.as_ref();
+            let edge_label_base_style_2 = edge_parent.as_ref();
             let edge_text_style = edge_style_plan
-                .edge_label_text_style_for(edge_key_identity, edge_label_base_style)?;
+                .edge_label_text_style_for(edge_key_identity, edge_label_base_style_2)?;
             let metrics = if label_type == "markdown" && edge_wrap_mode != WrapMode::HtmlLike {
                 crate::text::measure_wrapped_markdown_with_inline_styles(
                     measurer,
@@ -2338,8 +2618,8 @@ fn layout_flowchart_with_model(
                         measurer,
                         raw_label: label_text,
                         label_type,
-                        // Mermaid wraps the temporary SVG text before applying `labelStyle`.
-                        style: edge_label_base_style,
+
+                        style: edge_label_base_style_2,
                         max_width_px: Some(edge_label_wrapping_width),
                         wrap_mode: edge_wrap_mode,
                         config: effective_config,
@@ -2371,30 +2651,35 @@ fn layout_flowchart_with_model(
             let (label_width, label_height) = if edge_html_labels {
                 (metrics.width.max(1.0), metrics.height.max(1.0))
             } else {
-                // Mermaid's SVG edge-labels include a padded background rect (+2px left/right and
-                // +2px top/bottom).
+
+
                 (
                     (metrics.width + 4.0).max(1.0),
                     (metrics.height + 4.0).max(1.0),
                 )
             };
-            let (label_width, label_height) =
+            let (label_width_2, label_height_2) =
                 edge_label_padding.padded_size(label_width, label_height);
 
             let minlen = e.length.max(1);
             let mut el = EdgeLabel {
-                width: label_width,
-                height: label_height,
+                width: label_width_2,
+                height: label_height_2,
                 labelpos: LabelPos::C,
-                // Dagre layout defaults `labeloffset` to 10 when unspecified.
+
                 labeloffset: 10.0,
                 minlen,
                 weight: 1.0,
                 ..Default::default()
             };
-            if let Some(meta) = self_loop_meta {
-                annotate_flowchart_self_loop_segment(&mut el, meta);
+
+            match self_loop_meta {
+                Some(meta) => {
+                    annotate_flowchart_self_loop_segment(&mut el, meta);
+                },
+                ::core::option::Option::None => {},
             }
+
             annotate_flowchart_edge_owner(&mut el, *edge_owner_index);
 
             g.set_edge_named(from, to, Some(edge_key), Some(el));
@@ -2403,15 +2688,20 @@ fn layout_flowchart_with_model(
                 width: 0.0,
                 height: 0.0,
                 labelpos: LabelPos::C,
-                // Dagre layout defaults `labeloffset` to 10 when unspecified.
+
                 labeloffset: 10.0,
                 minlen: e.length.max(1),
                 weight: 1.0,
                 ..Default::default()
             };
-            if let Some(meta) = self_loop_meta {
-                annotate_flowchart_self_loop_segment(&mut el, meta);
+
+            match self_loop_meta {
+                Some(meta) => {
+                    annotate_flowchart_self_loop_segment(&mut el, meta);
+                },
+                ::core::option::Option::None => {},
             }
+
             annotate_flowchart_edge_owner(&mut el, *edge_owner_index);
             g.set_edge_named(from, to, Some(edge_key), Some(el));
         }
@@ -2428,16 +2718,35 @@ fn layout_flowchart_with_model(
     let mut edge_key_by_segment: HashMap<FlowchartLayoutSegmentKey, String> = HashMap::new();
     let edge_snapshot_work = work_control.checked_add(g.edge_slot_count(), g.edge_count())?;
     work_control.charge_adapter(edge_snapshot_work)?;
+
     for ek in g.edge_keys() {
-        let Some(edge_key) = ek.name.as_deref() else {
-            continue;
+        let edge_key = {
+            let optional_edge_key = ek.name.as_deref();
+
+            match optional_edge_key {
+                Some(matched_edge_key) => matched_edge_key,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(label) = g.edge_by_key(&ek) else {
-            continue;
+
+        let label = {
+            let optional_label = g.edge_by_key(&ek);
+
+            match optional_label {
+                Some(matched_label) => matched_label,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(segment_key) = flowchart_layout_segment_key(label) else {
-            continue;
+
+        let segment_key = {
+            let optional_segment_key = flowchart_layout_segment_key(label);
+
+            match optional_segment_key {
+                Some(matched_segment_key) => matched_segment_key,
+                ::core::option::Option::None => continue,
+            }
         };
+
         edge_key_by_segment.insert(segment_key, edge_key.to_string());
         edge_endpoints_by_segment.insert(segment_key, (ek.v.clone(), ek.w.clone()));
     }
@@ -2447,6 +2756,7 @@ fn layout_flowchart_with_model(
         Graph<NodeLabel, EdgeLabel, GraphLabel>,
     > = std::collections::HashMap::new();
     let mut extracted_order = Vec::new();
+
     if has_subgraphs {
         extract_clusters_recursively(
             &mut g,
@@ -2457,34 +2767,54 @@ fn layout_flowchart_with_model(
             0,
             work_control,
         )?;
-        // Cluster extraction can rebind a cross-boundary edge to the cluster node. Refresh root
-        // endpoints after extraction so output lookup uses the surviving nodes.
-        let edge_snapshot_work = work_control.checked_add(g.edge_slot_count(), g.edge_count())?;
-        work_control.charge_adapter(edge_snapshot_work)?;
+
+
+        let edge_snapshot_work_2 = work_control.checked_add(g.edge_slot_count(), g.edge_count())?;
+        work_control.charge_adapter(edge_snapshot_work_2)?;
         edge_key_by_segment.clear();
         edge_endpoints_by_segment.clear();
+
         for ek in g.edge_keys() {
-            let Some(edge_key) = ek.name.as_deref() else {
-                continue;
+            let edge_key = {
+                let optional_edge_key = ek.name.as_deref();
+
+                match optional_edge_key {
+                    Some(matched_edge_key) => matched_edge_key,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let Some(label) = g.edge_by_key(&ek) else {
-                continue;
+
+            let label = {
+                let optional_label = g.edge_by_key(&ek);
+
+                match optional_label {
+                    Some(matched_label) => matched_label,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let Some(segment_key) = flowchart_layout_segment_key(label) else {
-                continue;
+
+            let segment_key = {
+                let optional_segment_key = flowchart_layout_segment_key(label);
+
+                match optional_segment_key {
+                    Some(matched_segment_key) => matched_segment_key,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             edge_key_by_segment.insert(segment_key, edge_key.to_string());
             edge_endpoints_by_segment.insert(segment_key, (ek.v, ek.w));
         }
     }
 
-    // Mermaid's flowchart-v2 renderer inserts node DOM elements in pinned Graphlib
-    // `graph.nodes()` order before Dagre layout, including recursively extracted cluster graphs.
-    // This per-root map is the render plan consumed by the SVG renderer, hierarchy ownership, and
-    // viewBox calculation; capture it from the same extracted graphs used for layout.
+
+
+
+
     let mut dom_node_order_by_root: std::collections::HashMap<String, Vec<String>> =
         std::collections::HashMap::new();
     let mut dom_order_work = node_id_snapshot_work_upper_bound(&g, work_control)?;
+
     for id in &extracted_order {
         let graph = extracted_graphs
             .get(id)
@@ -2492,14 +2822,17 @@ fn layout_flowchart_with_model(
         let graph_work = node_id_snapshot_work_upper_bound(graph, work_control)?;
         dom_order_work = work_control.checked_add(dom_order_work, graph_work)?;
     }
+
     work_control.charge_adapter(dom_order_work)?;
     dom_node_order_by_root.insert(String::new(), g.node_ids());
+
     for id in &extracted_order {
         let cg = extracted_graphs
             .get(id)
             .expect("the extraction order references an extracted graph");
         dom_node_order_by_root.insert(id.clone(), cg.node_ids());
     }
+
     type Rect = crate::geom::Box2;
 
     struct ClusterTitleMetricsContext<'a> {
@@ -2517,6 +2850,7 @@ fn layout_flowchart_with_model(
         svg_label_sidecar: Option<&'a FlowchartSvgLabelSidecarBuilder>,
     }
 
+    #[must_use]
     fn cluster_title_metrics_for_layout(
         id: &str,
         ctx: &ClusterTitleMetricsContext<'_>,
@@ -2580,62 +2914,107 @@ fn layout_flowchart_with_model(
             let node_snapshot_work = node_id_snapshot_work_upper_bound(g, work_control)?;
             work_control.charge_adapter(node_snapshot_work)?;
             let mut out: Option<Rect> = None;
+
             for id in g.node_ids() {
-                let Some(n) = g.node(&id) else { continue };
-                let (Some(x), Some(y)) = (n.x, n.y) else {
-                    continue;
+                let n = {
+                    let optional_n = g.node(&id);
+
+                    match optional_n {
+                        Some(matched_n) => matched_n,
+                        ::core::option::Option::None => continue,
+                    }
                 };
+
+                let (x, y) = {
+                    let outcome_x = (n.x, n.y);
+
+                    match outcome_x {
+                        (Some(matched_x), Some(matched_y)) => (matched_x, matched_y),
+                        (::core::option::Option::None, _)
+                        | (_, ::core::option::Option::None) => continue,
+                    }
+                };
+
                 let mut width = n.width;
                 let mut height = n.height;
                 let is_cluster_node = extracted.contains_key(&id) && g.child_count(&id) == 0;
                 let is_non_recursive_cluster =
                     subgraph_id_set.contains(id.as_str()) && g.child_count(&id) != 0;
 
-                // Mermaid increases cluster node height by `subGraphTitleTotalMargin` *after* Dagre
-                // layout (just before rendering), and `updateNodeBounds(...)` measures the DOM
-                // bbox after that expansion. Mirror that here for non-recursive clusters.
-                //
-                // For leaf clusterNodes (recursively rendered clusters), the node's width/height
-                // comes directly from `updateNodeBounds(...)`, so do not add margins again.
+
+
+
+
+
+
                 if !is_cluster_node && is_non_recursive_cluster {
                     if title_total_margin > 0.0 {
                         height = (height + title_total_margin).max(1.0);
                     }
-                    if let Some((title_w, title_h)) =
-                        cluster_title_metrics_for_layout(&id, title_metrics_ctx)
+
                     {
-                        width = width.max(title_w + cluster_padding);
-                        height = height.max(title_h + title_total_margin);
+                        match cluster_title_metrics_for_layout(&id, title_metrics_ctx) {
+                            Some((title_w, title_h)) => {
+                                width = width.max(title_w + cluster_padding);
+                                height = height.max(title_h + title_total_margin);
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
 
                 let r = Rect::from_center(x, y, width, height);
-                if let Some(ref mut cur) = out {
-                    cur.union(r);
-                } else {
-                    out = Some(r);
+
+                match out {
+                    Some(ref mut cur) => {
+                        cur.union(r);
+                    },
+                    ::core::option::Option::None => {
+                        out = Some(r);
+                    },
                 }
             }
+
             let edge_snapshot_work =
                 work_control.checked_add(g.edge_slot_count(), g.edge_count())?;
             work_control.charge_adapter(edge_snapshot_work)?;
+
             for ek in g.edge_keys() {
-                let Some(e) = g.edge_by_key(&ek) else {
-                    continue;
+                let e = {
+                    let optional_e = g.edge_by_key(&ek);
+
+                    match optional_e {
+                        Some(matched_e) => matched_e,
+                        ::core::option::Option::None => continue,
+                    }
                 };
-                let (Some(x), Some(y)) = (e.x, e.y) else {
-                    continue;
+
+                let (x, y) = {
+                    let outcome_x = (e.x, e.y);
+
+                    match outcome_x {
+                        (Some(matched_x), Some(matched_y)) => (matched_x, matched_y),
+                        (::core::option::Option::None, _)
+                        | (_, ::core::option::Option::None) => continue,
+                    }
                 };
+
                 if e.width <= 0.0 && e.height <= 0.0 {
                     continue;
                 }
+
                 let r = Rect::from_center(x, y, e.width, e.height);
-                if let Some(ref mut cur) = out {
-                    cur.union(r);
-                } else {
-                    out = Some(r);
+
+                match out {
+                    Some(ref mut cur) => {
+                        cur.union(r);
+                    },
+                    ::core::option::Option::None => {
+                        out = Some(r);
+                    },
                 }
             }
+
             Ok(out)
         }
 
@@ -2660,14 +3039,14 @@ fn layout_flowchart_with_model(
             return;
         }
 
-        // Mermaid v11.12.2 adjusts Y positions after Dagre layout:
-        // - regular nodes: +subGraphTitleTotalMargin/2
-        // - clusterNode nodes (recursively rendered clusters): +subGraphTitleTotalMargin
-        // - pure cluster nodes (non-recursive clusters): no y-shift (but height grows elsewhere)
+
+
+
+
         for id in graph.node_ids() {
-            // A cluster is only a Mermaid "clusterNode" placeholder if it is a leaf in the
-            // current graph. Extracted graphs contain an injected parent cluster node with the
-            // same id (and children), which must follow the pure-cluster path.
+
+
+
             let is_cluster_node = extracted.contains_key(&id) && graph.child_count(&id) == 0;
             let delta_y = if is_cluster_node {
                 y_shift * 2.0
@@ -2676,24 +3055,46 @@ fn layout_flowchart_with_model(
             } else {
                 y_shift
             };
+
             if delta_y.abs() > 1e-9 {
-                let Some(y) = graph.node(&id).and_then(|n| n.y) else {
-                    continue;
+                let y = {
+                    let optional_y = graph.node(&id).and_then(|n| n.y);
+
+                    match optional_y {
+                        Some(matched_y) => matched_y,
+                        ::core::option::Option::None => continue,
+                    }
                 };
-                if let Some(n) = graph.node_mut(&id) {
-                    n.y = Some(y + delta_y);
+
+                {
+                    match graph.node_mut(&id) {
+                        Some(n) => {
+                            n.y = Some(y + delta_y);
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         }
 
-        // Mermaid shifts all edge points and the edge label position by +subGraphTitleTotalMargin/2.
+
         for ek in graph.edge_keys() {
-            let Some(e) = graph.edge_mut_by_key(&ek) else {
-                continue;
+            let e = {
+                let optional_e = graph.edge_mut_by_key(&ek);
+
+                match optional_e {
+                    Some(matched_e) => matched_e,
+                    ::core::option::Option::None => continue,
+                }
             };
-            if let Some(y) = e.y {
-                e.y = Some(y + y_shift);
+
+            match e.y {
+                Some(y) => {
+                    e.y = Some(y + y_shift);
+                },
+                ::core::option::Option::None => {},
             }
+
             for p in &mut e.points {
                 p.y += y_shift;
             }
@@ -2723,6 +3124,7 @@ fn layout_flowchart_with_model(
             child_ids: Option<Vec<String>>,
         }
 
+        #[must_use]
         fn recursive_child_ids(
             graph: &Graph<NodeLabel, EdgeLabel, GraphLabel>,
             extracted: &std::collections::HashMap<String, Graph<NodeLabel, EdgeLabel, GraphLabel>>,
@@ -2730,9 +3132,9 @@ fn layout_flowchart_with_model(
             graph
                 .node_ids()
                 .into_iter()
-                // Only recurse into extracted graphs for leaf cluster nodes ("clusterNode" in
-                // Mermaid). Child graphs also get their parent cluster node injected, with
-                // children, and must not recurse back into themselves.
+
+
+
                 .filter(|id| graph.child_count(id) == 0 && extracted.contains_key(id))
                 .collect()
         }
@@ -2754,15 +3156,19 @@ fn layout_flowchart_with_model(
                 .checked_add(final_node_order_slots, final_node_count)?;
             ctx.work_control.charge_adapter(snapshot_work)?;
 
-            if inserts_cluster != 0 {
-                let lbl = ctx
-                    .cluster_node_labels
-                    .get(cluster_id)
-                    .cloned()
-                    .unwrap_or_default();
-                charge_node_insertion_ordering(graph, cluster_id, ctx.work_control)?;
-                graph.set_node(cluster_id.to_string(), lbl);
+            match inserts_cluster {
+                0 => {},
+                _ => {
+                    let lbl = ctx
+                        .cluster_node_labels
+                        .get(cluster_id)
+                        .cloned()
+                        .unwrap_or_default();
+                    charge_node_insertion_ordering(graph, cluster_id, ctx.work_control)?;
+                    graph.set_node(cluster_id.to_string(), lbl);
+                },
             }
+
             let node_ids = graph.node_ids();
             let cluster_ix = graph
                 .node_ix(cluster_id)
@@ -2770,10 +3176,12 @@ fn layout_flowchart_with_model(
             let mut parent_assignments = Vec::new();
             let mut existing_parent_count = usize::from(graph.parent(cluster_id).is_some());
             let mut numeric_parent_assignments = 0usize;
+
             for node_id in node_ids {
                 if node_id == cluster_id {
                     continue;
                 }
+
                 if graph.parent(&node_id).is_some() {
                     existing_parent_count += 1;
                 } else {
@@ -2784,6 +3192,7 @@ fn layout_flowchart_with_model(
                     numeric_parent_assignments += usize::from(is_javascript_array_index(&node_id));
                 }
             }
+
             apply_unparented_parent_assignments(
                 graph,
                 &parent_assignments,
@@ -2802,14 +3211,20 @@ fn layout_flowchart_with_model(
             ctx: &mut RecursiveLayoutContext<'_>,
         ) -> Result<()> {
             for id in ids {
-                let Some(child) = ctx.extracted.get(id) else {
-                    continue;
+                let child = {
+                    let optional_child = ctx.extracted.get(id);
+
+                    match optional_child {
+                        Some(matched_child) => matched_child,
+                        ::core::option::Option::None => continue,
+                    }
                 };
-                // In Mermaid, `updateNodeBounds(...)` measures the recursively rendered `<g
-                // class="root">` group. In that render path, the child graph contains a node
-                // matching the cluster id (inserted via `graph.setNode(parentCluster.id, ...)`),
-                // whose computed compound bounds correspond to the cluster box measured in the DOM.
-                if let Some(r) = extracted_graph_bbox_rect(
+
+
+
+
+
+                if let Some(r) = { let checked_value = extracted_graph_bbox_rect(
                     child,
                     ctx.title_total_margin,
                     ctx.extracted,
@@ -2817,10 +3232,15 @@ fn layout_flowchart_with_model(
                     ctx.title_metrics_ctx,
                     ctx.cluster_padding,
                     ctx.work_control,
-                )? {
-                    if let Some(n) = graph.node_mut(id) {
-                        n.width = r.width().max(1.0);
-                        n.height = r.height().max(1.0);
+                )?; checked_value } {
+                    {
+                        match graph.node_mut(id) {
+                            Some(n) => {
+                                n.width = r.width().max(1.0);
+                                n.height = r.height().max(1.0);
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 } else if let Some(n_child) = child.node(id)
                     && let Some(n) = graph.node_mut(id)
@@ -2829,6 +3249,7 @@ fn layout_flowchart_with_model(
                     n.height = n_child.height.max(1.0);
                 }
             }
+
             Ok(())
         }
 
@@ -2836,15 +3257,20 @@ fn layout_flowchart_with_model(
             graph: &mut Graph<NodeLabel, EdgeLabel, GraphLabel>,
             ctx: &mut RecursiveLayoutContext<'_>,
         ) -> Result<()> {
-            if let Err(error) = dugong::layout_controlled(graph, &mut *ctx.work_control) {
-                return Err(ctx.work_control.map_dugong_error(error));
+            match dugong::layout_controlled(graph, &mut *ctx.work_control) {
+                Err(error) => {
+                    return Err(ctx.work_control.map_dugong_error(error));
+                },
+                ::core::result::Result::Ok(_) => {},
             }
-            // The pinned Mermaid title-shift pass is a strict no-op at the default zero margin.
-            // Avoid materializing point counts and graph snapshots that the mutation would never
-            // consume.
+
+
+
+
             if ctx.y_shift.abs() < 1e-9 {
                 return Ok(());
             }
+
             ctx.work_control.charge_adapter(graph.edge_slot_count())?;
             let point_work = graph.edges().try_fold(0usize, |total, edge_key| {
                 let points = graph
@@ -2889,6 +3315,7 @@ fn layout_flowchart_with_model(
                     None => node_id_snapshot_work_upper_bound(graph, ctx.work_control)?,
                 };
                 ctx.work_control.charge_adapter(graph_snapshot_work)?;
+
                 let Some((child_ids, parent_nodesep, parent_ranksep)) = (match &cluster_id {
                     Some(id) => ctx.extracted.get(id).map(|g| {
                         (
@@ -2907,20 +3334,26 @@ fn layout_flowchart_with_model(
                 };
 
                 let mut child_frames = Vec::with_capacity(child_ids.len());
+
                 for child_id in child_ids.iter().rev() {
-                    // Match Mermaid `recursiveRender` behavior: before laying out a recursively
-                    // rendered cluster graph, override `nodesep` to the parent graph spacing and
-                    // `ranksep` to `parent.ranksep + 25`. This compounds for nested recursive
-                    // clusters.
-                    if let Some(child) = ctx.extracted.get_mut(child_id) {
-                        child.graph_mut().nodesep = parent_nodesep;
-                        child.graph_mut().ranksep = parent_ranksep + 25.0;
+
+
+
+
+                    match ctx.extracted.get_mut(child_id) {
+                        Some(child) => {
+                            child.graph_mut().nodesep = parent_nodesep;
+                            child.graph_mut().ranksep = parent_ranksep + 25.0;
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     child_frames.push(LayoutFrame {
                         cluster_id: Some(child_id.clone()),
                         child_ids: None,
                     });
                 }
+
                 stack.push(LayoutFrame {
                     cluster_id,
                     child_ids: Some(child_ids),
@@ -2929,28 +3362,38 @@ fn layout_flowchart_with_model(
                 continue;
             };
 
-            if let Some(cluster_id) = frame.cluster_id {
-                let Some(mut current) = ctx.extracted.remove(&cluster_id) else {
-                    continue;
-                };
-                update_child_cluster_bounds(&mut current, &child_ids, ctx)?;
-                inject_parent_cluster(&mut current, &cluster_id, ctx)?;
-                layout_one_graph(&mut current, ctx)?;
-                ctx.extracted.insert(cluster_id, current);
-            } else {
-                update_child_cluster_bounds(graph, &child_ids, ctx)?;
-                layout_one_graph(graph, ctx)?;
+            match frame.cluster_id {
+                Some(cluster_id) => {
+                    let mut current = {
+                        let optional_current = ctx.extracted.remove(&cluster_id);
+
+                        match optional_current {
+                            Some(matched_current) => matched_current,
+                            ::core::option::Option::None => continue,
+                        }
+                    };
+
+                    update_child_cluster_bounds(&mut current, &child_ids, ctx)?;
+                    inject_parent_cluster(&mut current, &cluster_id, ctx)?;
+                    layout_one_graph(&mut current, ctx)?;
+                    ctx.extracted.insert(cluster_id, current);
+                },
+                ::core::option::Option::None => {
+                    update_child_cluster_bounds(graph, &child_ids, ctx)?;
+                    layout_one_graph(graph, ctx)?;
+                },
             }
         }
+
         Ok(())
     }
 
     {
         let title_metrics_ctx = ClusterTitleMetricsContext {
-            model,
+            model: model_2,
             subgraphs_by_id: &subgraphs_by_id,
             subgraph_index_by_id: &subgraph_index_by_id,
-            class_defs: &model.class_defs,
+            class_defs: &model_2.class_defs,
             measurer,
             text_style: &text_style,
             html_label_text_style: &html_label_text_style,
@@ -3001,22 +3444,25 @@ fn layout_flowchart_with_model(
         FlowchartSelfLoopSegmentMeta,
     > = std::collections::HashMap::new();
     let leaf_node_id_work = work_control.checked_add(
-        model.nodes.len(),
+        model_2.nodes.len(),
         work_control.checked_add(self_loop_label_node_ids.len(), empty_subgraph_ids.len())?,
     )?;
     work_control.charge_adapter(leaf_node_id_work)?;
-    let mut leaf_node_ids: std::collections::HashSet<String> = model
+    let mut leaf_node_ids: std::collections::HashSet<String> = model_2
         .nodes
         .iter()
         .filter(|n| !subgraph_ids.contains(n.id.as_str()))
         .map(|n| n.id.clone())
         .collect();
+
     for id in &self_loop_label_node_ids {
         leaf_node_ids.insert(id.clone());
     }
+
     for id in &empty_subgraph_ids {
         leaf_node_ids.insert(id.clone());
     }
+
     for id in &collapsed_subgraph_ids {
         leaf_node_ids.insert((*id).to_string());
     }
@@ -3070,36 +3516,47 @@ fn layout_flowchart_with_model(
             work_control: &mut DagreOperationWorkControl,
         ) -> Result<Option<Rect>> {
             let mut visiting: std::collections::HashSet<String> = std::collections::HashSet::new();
+
             if !visiting.insert(id.to_string()) {
                 return Ok(None);
             }
+
             let mut out: Option<Rect> = None;
             let child_count = child_id_snapshot_work_upper_bound(graph, id, work_control)?;
             work_control.charge_adapter(child_count)?;
             let mut stack: Vec<String> =
                 graph.children(id).into_iter().map(str::to_string).collect();
+
             while let Some(node) = stack.pop() {
                 work_control.charge_adapter(1)?;
+
                 if let Some(n) = graph.node(&node)
                     && let (Some(x), Some(y)) = (n.x, n.y)
                 {
                     let r = Rect::from_center(x, y, n.width, n.height);
-                    if let Some(ref mut cur) = out {
-                        cur.union(r);
-                    } else {
-                        out = Some(r);
+
+                    match out {
+                        Some(ref mut cur) => {
+                            cur.union(r);
+                        },
+                        ::core::option::Option::None => {
+                            out = Some(r);
+                        },
                     }
                 }
+
                 let child_count = child_id_snapshot_work_upper_bound(graph, &node, work_control)?;
                 work_control.charge_adapter(
                     work_control.checked_add(child_count, graph.child_count(&node))?,
                 )?;
+
                 for child in graph.children(&node) {
                     if visiting.insert(child.to_string()) {
                         stack.push(child.to_string());
                     }
                 }
             }
+
             Ok(out)
         }
 
@@ -3111,36 +3568,54 @@ fn layout_flowchart_with_model(
         while let Some(frame) = stack.pop() {
             let node_snapshot_work = node_id_snapshot_work_upper_bound(frame.graph, work_control)?;
             work_control.charge_adapter(node_snapshot_work)?;
-            for id in frame.graph.node_ids() {
-                let Some(n) = frame.graph.node(&id) else {
-                    continue;
+
+            'over_id_2_: for id in frame.graph.node_ids() {
+                let n = {
+                    let optional_n = frame.graph.node(&id);
+
+                    match optional_n {
+                        Some(matched_n) => matched_n,
+                        ::core::option::Option::None => continue 'over_id_2_,
+                    }
                 };
-                let x = n.x.unwrap_or(0.0) + frame.offset.0;
-                let y = n.y.unwrap_or(0.0) + frame.offset.1;
+
+                let x = (match n.x {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                }) + frame.offset.0;
+                let y = (match n.y {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                }) + frame.offset.1;
+
                 if inputs.leaf_node_ids.contains(&id) {
                     out.base_pos.insert(id.clone(), (x, y));
                     out.leaf_rects
                         .insert(id.clone(), Rect::from_center(x, y, n.width, n.height));
-                    continue;
+                    continue 'over_id_2_;
                 }
             }
 
-            // Capture the layout-computed compound bounds for non-extracted clusters.
-            //
-            // Upstream Dagre computes compound-node geometry from border nodes and then removes the
-            // border dummy nodes (`removeBorderNodes`). Our dugong parity pipeline mirrors that, so
-            // prefer the compound node's own x/y/width/height when available.
+
+
+
+
+
             work_control.charge_adapter(node_snapshot_work)?;
-            for id in frame.graph.node_ids() {
+
+            'over_id_2: for id in frame.graph.node_ids() {
                 if !inputs.subgraph_ids.contains(id.as_str()) {
-                    continue;
+                    continue 'over_id_2;
                 }
+
                 if inputs.extracted_graphs.contains_key(&id) {
-                    continue;
+                    continue 'over_id_2;
                 }
+
                 if out.cluster_rects_from_graph.contains_key(&id) {
-                    continue;
+                    continue 'over_id_2;
                 }
+
                 if let Some(n) = frame.graph.node(&id)
                     && let (Some(x), Some(y)) = (n.x, n.y)
                     && n.width > 0.0
@@ -3149,12 +3624,18 @@ fn layout_flowchart_with_model(
                     let mut r = Rect::from_center(x, y, n.width, n.height);
                     r.translate(frame.offset.0, frame.offset.1);
                     out.cluster_rects_from_graph.insert(id, r);
-                    continue;
+                    continue 'over_id_2;
                 }
 
-                let Some(mut r) = subtree_rect_iterative(frame.graph, &id, work_control)? else {
-                    continue;
+                let mut r = {
+                    let optional_r = subtree_rect_iterative(frame.graph, &id, work_control)?;
+
+                    match optional_r {
+                        Some(matched_r) => matched_r,
+                        ::core::option::Option::None => continue 'over_id_2,
+                    }
                 };
+
                 r.translate(frame.offset.0, frame.offset.1);
                 out.cluster_rects_from_graph.insert(id, r);
             }
@@ -3171,13 +3652,26 @@ fn layout_flowchart_with_model(
                 .checked_add(frame.graph.edge_slot_count(), frame.graph.edge_count())?;
             let edge_work = work_control.checked_add(edge_snapshot_work, edge_point_work)?;
             work_control.charge_adapter(edge_work)?;
-            for ek in frame.graph.edge_keys() {
-                let Some(lbl) = frame.graph.edge_by_key(&ek) else {
-                    continue;
+
+            'over_ek_2: for ek in frame.graph.edge_keys() {
+                let lbl = {
+                    let optional_lbl = frame.graph.edge_by_key(&ek);
+
+                    match optional_lbl {
+                        Some(matched_lbl) => matched_lbl,
+                        ::core::option::Option::None => continue 'over_ek_2,
+                    }
                 };
-                let Some(segment_key) = flowchart_layout_segment_key(lbl) else {
-                    continue;
+
+                let segment_key = {
+                    let optional_segment_key = flowchart_layout_segment_key(lbl);
+
+                    match optional_segment_key {
+                        Some(matched_segment_key) => matched_segment_key,
+                        ::core::option::Option::None => continue 'over_ek_2,
+                    }
                 };
+
                 let owner_index = segment_key.owner_index;
 
                 if let (Some(x), Some(y)) = (lbl.x, lbl.y)
@@ -3226,43 +3720,84 @@ fn layout_flowchart_with_model(
                     out.edge_override_to_cluster.insert(segment_key, to_cluster);
                     out.edge_override_endpoints
                         .insert(segment_key, (ek.v.clone(), ek.w.clone()));
-                    if let Some(meta) = flowchart_self_loop_segment_meta(lbl) {
-                        out.edge_override_self_loop_meta.insert(segment_key, meta);
+
+                    {
+                        match flowchart_self_loop_segment_meta(lbl) {
+                            Some(meta) => {
+                                out.edge_override_self_loop_meta.insert(segment_key, meta);
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
             }
 
             let mut child_frames = Vec::new();
             work_control.charge_adapter(node_snapshot_work)?;
-            for id in frame.graph.node_ids() {
-                // Only recurse into extracted graphs for leaf cluster nodes ("clusterNode" in Mermaid).
-                // The recursively rendered graph itself also contains a node with the same id (the
-                // parent cluster node injected before layout), which has children and must not recurse.
+
+            'over_id_2: for id in frame.graph.node_ids() {
+
+
+
                 if frame.graph.child_count(&id) != 0 {
-                    continue;
+                    continue 'over_id_2;
                 }
-                let Some(child) = inputs.extracted_graphs.get(&id) else {
-                    continue;
+
+                let child = {
+                    let optional_child_2 = inputs.extracted_graphs.get(&id);
+
+                    match optional_child_2 {
+                        Some(matched_child_2) => matched_child_2,
+                        ::core::option::Option::None => continue 'over_id_2,
+                    }
                 };
-                let Some(n) = frame.graph.node(&id) else {
-                    continue;
+
+                let n = {
+                    let optional_n_2 = frame.graph.node(&id);
+
+                    match optional_n_2 {
+                        Some(matched_n_2) => matched_n_2,
+                        ::core::option::Option::None => continue 'over_id_2,
+                    }
                 };
-                let (Some(px), Some(py)) = (n.x, n.y) else {
-                    continue;
+
+                let (px, py) = {
+                    let outcome_px = (n.x, n.y);
+
+                    match outcome_px {
+                        (Some(matched_px), Some(matched_py)) => (matched_px, matched_py),
+                        (::core::option::Option::None, _)
+                        | (_, ::core::option::Option::None) => continue 'over_id_2,
+                    }
                 };
+
                 let parent_x = px + frame.offset.0;
                 let parent_y = py + frame.offset.1;
-                let Some(cnode) = child.node(&id) else {
-                    continue;
+
+                let cnode = {
+                    let optional_cnode = child.node(&id);
+
+                    match optional_cnode {
+                        Some(matched_cnode) => matched_cnode,
+                        ::core::option::Option::None => continue 'over_id_2,
+                    }
                 };
-                let (Some(cx), Some(cy)) = (cnode.x, cnode.y) else {
-                    continue;
+
+                let (cx, cy) = {
+                    let outcome_cx = (cnode.x, cnode.y);
+
+                    match outcome_cx {
+                        (Some(matched_cx), Some(matched_cy)) => (matched_cx, matched_cy),
+                        (::core::option::Option::None, _)
+                        | (_, ::core::option::Option::None) => continue 'over_id_2,
+                    }
                 };
+
                 let child_offset = (parent_x - cx, parent_y - cy);
-                // The extracted cluster's footprint in the parent graph is the clusterNode itself.
-                // Our recursive layout step updates the parent graph's node `width/height` to match
-                // Mermaid's `updateNodeBounds(...)` behavior (including any title margin). Avoid
-                // adding `title_total_margin` again here.
+
+
+
+
                 let r = Rect::from_center(parent_x, parent_y, n.width, n.height);
                 out.extracted_cluster_rects.insert(id.clone(), r);
                 out.extracted_cluster_base_widths
@@ -3273,10 +3808,12 @@ fn layout_flowchart_with_model(
                     is_root: false,
                 });
             }
+
             for child in child_frames.into_iter().rev() {
                 stack.push(child);
             }
         }
+
         Ok(())
     }
 
@@ -3286,6 +3823,7 @@ fn layout_flowchart_with_model(
         std::collections::HashMap::new();
     let mut extracted_cluster_base_widths: std::collections::HashMap<String, f64> =
         std::collections::HashMap::new();
+
     {
         let place_graph_inputs = PlaceGraphInputs {
             extracted_graphs: &extracted_graphs,
@@ -3323,7 +3861,7 @@ fn layout_flowchart_with_model(
         .zip(&render_edge_self_loop_meta)
         .zip(&render_edge_owner_indices)
         .filter(|((edge, self_loop), owner_index)| {
-            edge_label_is_non_empty(model, **owner_index, edge.as_ref(), self_loop.as_ref())
+            edge_label_is_non_empty(model_2, **owner_index, edge.as_ref(), self_loop.as_ref())
         })
         .map(|(_, owner_index)| *owner_index)
         .collect();
@@ -3338,34 +3876,53 @@ fn layout_flowchart_with_model(
         let edge_snapshot_work =
             work_control.checked_add(graph.edge_slot_count(), graph.edge_count())?;
         work_control.charge_adapter(edge_snapshot_work)?;
+
         for ek in graph.edge_keys() {
-            let Some(label) = graph.edge_by_key(&ek) else {
-                continue;
+            let label = {
+                let optional_label = graph.edge_by_key(&ek);
+
+                match optional_label {
+                    Some(matched_label) => matched_label,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let Some(owner_index) = flowchart_edge_owner_index(label) else {
-                continue;
+
+            let owner_index = {
+                let optional_owner_index = flowchart_edge_owner_index(label);
+
+                match optional_owner_index {
+                    Some(matched_owner_index) => matched_owner_index,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if !labeled_edges.contains(&owner_index) {
                 continue;
             }
-            // Mermaid's recursive cluster extractor removes the root cluster node from the
-            // extracted graph. In that case, the "lowest common parent" of edges whose endpoints
-            // belong to the extracted cluster becomes `None`, even though the label should still
-            // participate in the extracted cluster's bounding box. Use `implicit_root` to map
-            // those labels back to the extracted cluster id.
+
+
+
+
+
+
             let parent = lowest_common_parent(graph, &ek.v, &ek.w, work_control)?
                 .or_else(|| implicit_root.map(|s| s.to_string()));
-            let Some(parent) = parent else {
-                continue;
+
+            let parent = match parent {
+                Some(matched_parent) => matched_parent,
+                ::core::option::Option::None => continue,
             };
+
             out.entry(parent)
                 .or_default()
                 .push(format!("edge-label::{owner_index}"));
         }
+
         Ok(())
     }
 
     collect_extra_children(&g, &labeled_edges, None, &mut extra_children, work_control)?;
+
     for cluster_id in &extracted_order {
         let cg = extracted_graphs
             .get(cluster_id)
@@ -3379,27 +3936,35 @@ fn layout_flowchart_with_model(
         )?;
     }
 
-    // Ensure Mermaid-style self-loop helper nodes participate in cluster bounding/packing.
-    // These nodes are not part of the semantic `subgraph ... end` membership list, but are
-    // parented into the same clusters as their base node.
+
+
+
     work_control.charge_adapter(self_loop_label_node_ids.len())?;
+
     for id in &self_loop_label_node_ids {
-        if let Some(p) = g.parent(id) {
-            extra_children
-                .entry(p.to_string())
-                .or_default()
-                .push(id.clone());
+        {
+            match g.parent(id) {
+                Some(p) => {
+                    extra_children
+                        .entry(p.to_string())
+                        .or_default()
+                        .push(id.clone());
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
     let mut out_nodes: Vec<LayoutNode> = Vec::new();
-    work_control.charge_adapter(model.nodes.len())?;
-    for n in &model.nodes {
+    work_control.charge_adapter(model_2.nodes.len())?;
+
+    for n in &model_2.nodes {
         if subgraph_ids.contains(n.id.as_str())
-            || model.collapsed_replacement(n.id.as_str()).is_some()
+            || model_2.collapsed_replacement(n.id.as_str()).is_some()
         {
             continue;
         }
+
         let (x, y) = base_pos
             .get(&n.id)
             .copied()
@@ -3423,7 +3988,9 @@ fn layout_flowchart_with_model(
             label_height: leaf_label_metrics_by_id.get(&n.id).map(|v| v.1),
         });
     }
+
     work_control.charge_adapter(empty_subgraph_ids.len())?;
+
     for id in &empty_subgraph_ids {
         let (x, y) = base_pos
             .get(id)
@@ -3448,7 +4015,9 @@ fn layout_flowchart_with_model(
             label_height: leaf_label_metrics_by_id.get(id).map(|v| v.1),
         });
     }
+
     work_control.charge_adapter(collapsed_subgraph_ids.len())?;
+
     for id in &collapsed_subgraph_ids {
         let (x, y) = base_pos
             .get(*id)
@@ -3473,7 +4042,9 @@ fn layout_flowchart_with_model(
             label_height: leaf_label_metrics_by_id.get(*id).map(|v| v.1),
         });
     }
+
     work_control.charge_adapter(self_loop_label_node_ids.len())?;
+
     for id in &self_loop_label_node_ids {
         let (x, y) = base_pos
             .get(id)
@@ -3506,7 +4077,7 @@ fn layout_flowchart_with_model(
     let mut cluster_base_widths: std::collections::HashMap<String, f64> =
         std::collections::HashMap::new();
     let mut visiting: std::collections::HashSet<String> = std::collections::HashSet::new();
-    let cluster_membership_work = model.subgraphs.iter().try_fold(0usize, |total, subgraph| {
+    let cluster_membership_work = model_2.subgraphs.iter().try_fold(0usize, |total, subgraph| {
         work_control.checked_add(total, subgraph.nodes.len())
     })?;
     let extra_cluster_work = extra_children
@@ -3514,14 +4085,14 @@ fn layout_flowchart_with_model(
         .try_fold(0usize, |total, children| {
             work_control.checked_add(total, children.len())
         })?;
-    // `compute_cluster_rect` visits every computed subgraph membership once while expanding the
-    // explicit stack and once while folding child rectangles. The outer materialization loop and
-    // both stack frames add three subgraph-local visits. Extracted/empty subgraphs may do less,
-    // but this checked owner-local upper bound admits every scan and stack allocation before the
-    // first cluster rectangle is planned.
+
+
+
+
+
     let cluster_work = work_control.checked_add(
         work_control.checked_add(
-            work_control.checked_mul(model.subgraphs.len(), 3)?,
+            work_control.checked_mul(model_2.subgraphs.len(), 3)?,
             work_control.checked_mul(cluster_membership_work, 2)?,
         )?,
         extra_cluster_work,
@@ -3559,13 +4130,16 @@ fn layout_flowchart_with_model(
         ctx: &ClusterRectContext<'_>,
         state: &mut ClusterRectState<'_>,
     ) -> Result<(Rect, f64)> {
-        if let Some(r) = state.cluster_rects.get(id).copied() {
-            let base_width = state
-                .cluster_base_widths
-                .get(id)
-                .copied()
-                .unwrap_or_else(|| r.width());
-            return Ok((r, base_width));
+        match state.cluster_rects.get(id).copied() {
+            Some(r) => {
+                let base_width = state
+                    .cluster_base_widths
+                    .get(id)
+                    .copied()
+                    .unwrap_or_else(|| r.width());
+                return Ok((r, base_width));
+            },
+            ::core::option::Option::None => {},
         }
 
         struct ClusterRectFrame {
@@ -3599,11 +4173,14 @@ fn layout_flowchart_with_model(
                     id: frame.id.clone(),
                     expanded: true,
                 });
-                let members = ctx
+                let members = match ctx
                     .subgraph_members_by_id
                     .get(frame.id.as_str())
-                    .map(Vec::as_slice)
-                    .unwrap_or_default();
+                    .map(Vec::as_slice) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => &[],
+                };
+
                 for member in members.iter().rev() {
                     if ctx.subgraphs_by_id.contains_key(*member)
                         && !state.cluster_rects.contains_key(*member)
@@ -3614,6 +4191,7 @@ fn layout_flowchart_with_model(
                         });
                     }
                 }
+
                 continue;
             }
 
@@ -3624,43 +4202,64 @@ fn layout_flowchart_with_model(
             };
 
             let mut content: Option<Rect> = None;
-            let members = ctx
+            let members = match ctx
                 .subgraph_members_by_id
                 .get(frame.id.as_str())
-                .map(Vec::as_slice)
-                .unwrap_or_default();
+                .map(Vec::as_slice) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => &[],
+            };
+
             for member in members {
                 let member_rect = if let Some(r) = ctx.leaf_rects.get(*member).copied() {
                     Some(r)
                 } else if ctx.subgraphs_by_id.contains_key(*member) {
-                    Some(state.cluster_rects.get(*member).copied().ok_or_else(|| {
+                    let checked_value = state.cluster_rects.get(*member).copied().ok_or_else(|| {
                         Error::InvalidModel {
                             message: format!("missing computed subgraph rect for {member}"),
                         }
-                    })?)
+                    })?;
+                    Some(checked_value)
                 } else {
                     None
                 };
 
-                if let Some(r) = member_rect {
-                    if let Some(ref mut cur) = content {
-                        cur.union(r);
-                    } else {
-                        content = Some(r);
-                    }
+                match member_rect {
+                    Some(r) => {
+                        match content {
+                            Some(ref mut cur) => {
+                                cur.union(r);
+                            },
+                            ::core::option::Option::None => {
+                                content = Some(r);
+                            },
+                        }
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
 
-            if let Some(extra) = ctx.extra_children.get(&frame.id) {
-                for child in extra {
-                    if let Some(r) = ctx.leaf_rects.get(child).copied() {
-                        if let Some(ref mut cur) = content {
-                            cur.union(r);
-                        } else {
-                            content = Some(r);
+            match ctx.extra_children.get(&frame.id) {
+                Some(extra) => {
+                    for child in extra {
+                        {
+                            match ctx.leaf_rects.get(child).copied() {
+                                Some(r) => {
+                                    match content {
+                                        Some(ref mut cur) => {
+                                            cur.union(r);
+                                        },
+                                        ::core::option::Option::None => {
+                                            content = Some(r);
+                                        },
+                                    }
+                                },
+                                ::core::option::Option::None => {},
+                            };
                         }
                     }
-                }
+                },
+                ::core::option::Option::None => {},
             }
 
             let label_type = sg.label_type.as_deref().unwrap_or("text");
@@ -3703,41 +4302,46 @@ fn layout_flowchart_with_model(
                 text_style.terminal_foreground(),
                 FlowchartSvgWidthMode::Bbox,
             );
-            let mut rect = if let Some(r) = content {
-                r
-            } else {
-                Rect::from_center(
-                    0.0,
-                    0.0,
-                    title_metrics.width.max(1.0),
-                    title_metrics.height.max(1.0),
-                )
+            let mut rect = match content {
+                Some(r) => {
+                    r
+                },
+                ::core::option::Option::None => {
+                    Rect::from_center(
+                        0.0,
+                        0.0,
+                        title_metrics.width.max(1.0),
+                        title_metrics.height.max(1.0),
+                    )
+                },
             };
 
-            // Expand to provide the cluster's internal padding.
+
             rect.pad(ctx.cluster_padding);
 
-            // Mermaid computes `node.diff` using the pre-widened layout node width, then may widen the
-            // rect to fit the label bbox during rendering.
+
+
             let base_width = rect.width();
 
-            // Mermaid 11.16 `rendering-elements/clusters.js` sets the rect width to
-            // `max(node.width, labelBBox.width + node.padding)`.
+
+
             let min_width = title_metrics.width.max(1.0) + ctx.cluster_padding;
+
             if rect.width() < min_width {
                 let (cx, cy) = rect.center();
                 rect = Rect::from_center(cx, cy, min_width, rect.height());
             }
 
-            // Extend height to reserve space for subgraph title margins (Mermaid does this after layout).
+
             if ctx.title_total_margin > 0.0 {
                 let (cx, cy) = rect.center();
                 rect =
                     Rect::from_center(cx, cy, rect.width(), rect.height() + ctx.title_total_margin);
             }
 
-            // Keep the cluster tall enough to accommodate the title bbox if needed.
+
             let min_height = title_metrics.height.max(1.0) + ctx.title_total_margin;
+
             if rect.height() < min_height {
                 let (cx, cy) = rect.center();
                 rect = Rect::from_center(cx, cy, rect.width(), min_height);
@@ -3779,6 +4383,7 @@ fn layout_flowchart_with_model(
         cluster_padding: f64,
     }
 
+    #[must_use]
     fn adjust_cluster_rect_for_title(
         mut rect: Rect,
         declaration_ordinal: usize,
@@ -3826,22 +4431,24 @@ fn layout_flowchart_with_model(
         let title_w = title_metrics.width.max(1.0);
         let title_h = title_metrics.height.max(1.0);
 
-        // Mermaid cluster "rect" widens to fit the raw title bbox (no added padding),
-        // even when the cluster bounds come from Dagre border nodes.
+
+
         let min_w = title_w + ctx.cluster_padding;
+
         if rect.width() < min_w {
             let (cx, cy) = rect.center();
             rect = Rect::from_center(cx, cy, min_w, rect.height());
         }
 
-        // Mermaid adds `subGraphTitleTotalMargin` to cluster height after layout.
+
         if add_title_total_margin && ctx.title_total_margin > 0.0 {
             let (cx, cy) = rect.center();
             rect = Rect::from_center(cx, cy, rect.width(), rect.height() + ctx.title_total_margin);
         }
 
-        // Keep the cluster tall enough for the title bbox (including title margins).
+
         let min_h = title_h + ctx.title_total_margin;
+
         if rect.height() < min_h {
             let (cx, cy) = rect.center();
             rect = Rect::from_center(cx, cy, rect.width(), min_h);
@@ -3851,11 +4458,11 @@ fn layout_flowchart_with_model(
     }
 
     let cluster_rect_ctx = ClusterRectContext {
-        model,
+        model: model_2,
         subgraphs_by_id: &subgraphs_by_id,
         subgraph_index_by_id: &subgraph_index_by_id,
         subgraph_members_by_id: &subgraph_members_by_id,
-        class_defs: &model.class_defs,
+        class_defs: &model_2.class_defs,
         leaf_rects: &leaf_rects,
         extra_children: &extra_children,
         measurer,
@@ -3875,8 +4482,8 @@ fn layout_flowchart_with_model(
         visiting: &mut visiting,
     };
     let title_adjust_ctx = ClusterTitleAdjustContext {
-        model,
-        class_defs: &model.class_defs,
+        model: model_2,
+        class_defs: &model_2.class_defs,
         subgraph_index_by_id: &subgraph_index_by_id,
         measurer,
         text_style: &text_style,
@@ -3894,12 +4501,13 @@ fn layout_flowchart_with_model(
         if !cluster_subgraph_ids.contains(sg.id.as_str()) {
             continue;
         }
-        let title = model.subgraph_title_for_render(subgraph_index, sg);
+
+        let title = model_2.subgraph_title_for_render(subgraph_index, sg);
 
         let (rect, base_width) = if extracted_graphs.contains_key(&sg.id) {
-            // For extracted (recursive) clusters, match Mermaid's `updateNodeBounds(...)` intent by
-            // taking the rendered child-graph content bbox (including border nodes) as the cluster
-            // node's bounds.
+
+
+
             let rect = extracted_cluster_rects
                 .get(&sg.id)
                 .copied()
@@ -3912,7 +4520,7 @@ fn layout_flowchart_with_model(
                 .get(&sg.id)
                 .copied()
                 .unwrap_or_else(|| rect.width());
-            let rect = adjust_cluster_rect_for_title(
+            let rect_2 = adjust_cluster_rect_for_title(
                 rect,
                 subgraph_index,
                 sg,
@@ -3921,7 +4529,7 @@ fn layout_flowchart_with_model(
                 false,
                 &title_adjust_ctx,
             );
-            (rect, base_width)
+            (rect_2, base_width)
         } else if let Some(r) = cluster_rects_from_graph.get(&sg.id).copied() {
             let base_width = r.width();
             let rect = adjust_cluster_rect_for_title(
@@ -3946,10 +4554,10 @@ fn layout_flowchart_with_model(
         } else {
             &text_style
         };
-        let (classes, styles) = model.effective_subgraph_css(subgraph_index, sg);
+        let (classes, styles) = model_2.effective_subgraph_css(subgraph_index, sg);
         let title_text_style = flowchart_effective_text_style_for_classes_with_provenance(
             base_style,
-            &model.class_defs,
+            &model_2.class_defs,
             classes,
             styles,
         );
@@ -3977,10 +4585,10 @@ fn layout_flowchart_with_model(
             height: title_metrics.height,
         };
 
-        // `dagre-wrapper/clusters.js` (shape `rect`) sets `padding = 0 * node.padding`.
-        // The cluster label is positioned at `node.x - bbox.width/2`, and `node.diff` is:
-        // - `(bbox.width - node.width)/2 - node.padding/2` when the box widens to fit the title
-        // - otherwise `-node.padding/2`.
+
+
+
+
         let title_w = title_metrics.width.max(1.0);
         let diff = if base_width <= title_w {
             (title_w - base_width) / 2.0 - cluster_padding / 2.0
@@ -4014,7 +4622,7 @@ fn layout_flowchart_with_model(
         out_nodes.push(LayoutNode {
             id: sg.id.clone(),
             x: cx,
-            // Mermaid does not shift pure cluster nodes by `subGraphTitleTotalMargin / 2`.
+
             y: cy,
             width: rect.width(),
             height: rect.height(),
@@ -4023,6 +4631,7 @@ fn layout_flowchart_with_model(
             label_height: None,
         });
     }
+
     let cluster_sort_work = checked_n_log_n(clusters.len(), work_control)?;
     work_control.charge_adapter(cluster_sort_work)?;
     clusters.sort_by(|a, b| a.id.cmp(&b.id));
@@ -4034,6 +4643,7 @@ fn layout_flowchart_with_model(
         work_control.checked_add(total, points)
     })?;
     let mut extracted_edge_point_work = 0usize;
+
     for id in &extracted_order {
         let graph = extracted_graphs
             .get(id)
@@ -4049,11 +4659,13 @@ fn layout_flowchart_with_model(
                     work_control.checked_add(inner_total, points)
                 })?;
     }
+
     let edge_projection_work = work_control.checked_add(
         render_edges.len(),
         work_control.checked_add(root_edge_point_work, extracted_edge_point_work)?,
     )?;
     work_control.charge_adapter(edge_projection_work)?;
+
     for ((e, expected_self_loop_meta), owner_index) in render_edges
         .iter()
         .zip(&render_edge_self_loop_meta)
@@ -4070,20 +4682,26 @@ fn layout_flowchart_with_model(
             layout_to,
             actual_self_loop_meta,
         ) = if let Some(points) = edge_override_points.get(&segment_key) {
-            let from_cluster = edge_override_from_cluster
+            let from_cluster = match (edge_override_from_cluster
                 .get(&segment_key)
-                .cloned()
-                .unwrap_or(None);
-            let to_cluster = edge_override_to_cluster
+                .cloned(), None) {
+                (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+                (::core::option::Option::None, alternate) => alternate,
+            };
+            let to_cluster = match (edge_override_to_cluster
                 .get(&segment_key)
-                .cloned()
-                .unwrap_or(None);
+                .cloned(), None) {
+                (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+                (::core::option::Option::None, alternate) => alternate,
+            };
             (
                 points.clone(),
-                edge_override_label
+                match (edge_override_label
                     .get(&segment_key)
-                    .cloned()
-                    .unwrap_or(None),
+                    .cloned(), None) {
+                    (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+                    (::core::option::Option::None, alternate) => alternate,
+                },
                 from_cluster,
                 to_cluster,
                 edge_override_endpoints
@@ -4097,23 +4715,41 @@ fn layout_flowchart_with_model(
                 edge_override_self_loop_meta.get(&segment_key).cloned(),
             )
         } else {
-            let Some((v, w)) = edge_endpoints_by_segment.get(&segment_key).cloned() else {
-                continue;
+            let (v, w) = {
+                let optional_v = edge_endpoints_by_segment.get(&segment_key).cloned();
+
+                match optional_v {
+                    Some((matched_v, matched_w)) => (matched_v, matched_w),
+                    ::core::option::Option::None => continue,
+                }
             };
-            let Some(edge_key) = edge_key_by_segment.get(&segment_key).map(String::as_str) else {
-                continue;
+
+            let edge_key = {
+                let optional_edge_key = edge_key_by_segment.get(&segment_key).map(String::as_str);
+
+                match optional_edge_key {
+                    Some(matched_edge_key) => matched_edge_key,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let Some(label) = g.edge(&v, &w, Some(edge_key)) else {
-                continue;
+
+            let label = {
+                let optional_label = g.edge(&v, &w, Some(edge_key));
+
+                match optional_label {
+                    Some(matched_label) => matched_label,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let from_cluster = label
                 .extras
                 .get("fromCluster")
-                .and_then(|v| v.as_str().map(|s| s.to_string()));
+                .and_then(|v_2| v_2.as_str().map(|s| s.to_string()));
             let to_cluster = label
                 .extras
                 .get("toCluster")
-                .and_then(|v| v.as_str().map(|s| s.to_string()));
+                .and_then(|v_3| v_3.as_str().map(|s| s.to_string()));
             let points = label
                 .points
                 .iter()
@@ -4142,18 +4778,18 @@ fn layout_flowchart_with_model(
             )
         };
 
-        // Graphlib identifies a multiedge by (v, w, name). Parallel self-loops reuse all three
-        // helper keys, so the later logical edge overwrites the earlier triple. Only materialize
-        // the helper segments whose metadata survived that overwrite.
+
+
+
         if expected_self_loop_meta.is_some()
             && actual_self_loop_meta.as_ref() != expected_self_loop_meta.as_ref()
         {
             continue;
         }
 
-        // Match Mermaid's dagre adapter: self-loop special edges on group nodes are annotated with
-        // `fromCluster` / `toCluster` so downstream renderers can clip routes to the cluster
-        // boundary.
+
+
+
         if cluster_subgraph_ids.contains(e.from.as_str())
             && actual_self_loop_meta
                 .as_ref()
@@ -4161,6 +4797,7 @@ fn layout_flowchart_with_model(
         {
             from_cluster = Some(e.from.clone());
         }
+
         if cluster_subgraph_ids.contains(e.to.as_str())
             && actual_self_loop_meta
                 .as_ref()
@@ -4193,12 +4830,12 @@ fn layout_flowchart_with_model(
 
     let merged_edges = if merge_self_loops {
         let merge_work = work_control.checked_add(
-            work_control.checked_add(model.edges.len(), out_edge_candidates.len())?,
+            work_control.checked_add(model_2.edges.len(), out_edge_candidates.len())?,
             out_nodes.len(),
         )?;
         work_control.charge_adapter(merge_work)?;
         merge_flowchart_self_loop_segments(
-            &model.edges,
+            &model_2.edges,
             &out_nodes,
             &diagram_direction,
             out_edge_candidates,
@@ -4222,43 +4859,55 @@ fn layout_flowchart_with_model(
         .map(|candidate| candidate.edge)
         .collect::<Vec<_>>();
 
-    // Mermaid's flowchart renderer uses shape-specific intersection functions for edge endpoints
-    // (e.g. diamond nodes). Our Dagre-ish layout currently treats all nodes as rectangles, so the
-    // first/last points can land on the bounding box rather than the actual polygon boundary.
-    //
-    // Adjust the first/last edge points to match Mermaid's shape intersection behavior for the
-    // shapes that materially differ from rectangles.
+
+
+
+
+
+
     let endpoint_work = work_control.checked_add(
-        work_control.checked_add(model.nodes.len(), out_nodes.len())?,
+        work_control.checked_add(model_2.nodes.len(), out_nodes.len())?,
         out_edges.len(),
     )?;
     work_control.charge_adapter(endpoint_work)?;
     let mut node_shape_by_id: HashMap<&str, &str> = HashMap::new();
-    for n in &model.nodes {
-        if let Some(s) = n.layout_shape.as_deref() {
-            node_shape_by_id.insert(n.id.as_str(), s);
+
+    for n in &model_2.nodes {
+        match n.layout_shape.as_deref() {
+            Some(s) => {
+                node_shape_by_id.insert(n.id.as_str(), s);
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     let mut layout_node_by_id: HashMap<&str, &LayoutNode> = HashMap::new();
+
     for n in &out_nodes {
         layout_node_by_id.insert(n.id.as_str(), n);
     }
 
+    #[must_use]
     fn diamond_intersection(node: &LayoutNode, toward: &LayoutPoint) -> Option<LayoutPoint> {
         let vx = toward.x - node.x;
         let vy = toward.y - node.y;
+
         if !(vx.is_finite() && vy.is_finite()) {
             return None;
         }
+
         if vx.abs() <= 1e-12 && vy.abs() <= 1e-12 {
             return None;
         }
+
         let hw = (node.width / 2.0).max(1e-9);
         let hh = (node.height / 2.0).max(1e-9);
         let denom = vx.abs() / hw + vy.abs() / hh;
+
         if !(denom.is_finite() && denom > 0.0) {
             return None;
         }
+
         let t = 1.0 / denom;
         Some(LayoutPoint {
             x: node.x + vx * t,
@@ -4278,12 +4927,14 @@ fn layout_flowchart_with_model(
                 .get(e.from.as_str())
                 .copied()
                 .unwrap_or("squareRect");
+
             if matches!(shape, "diamond" | "question" | "diam")
                 && let Some(p) = diamond_intersection(node, &e.points[1])
             {
                 e.points[0] = p;
             }
         }
+
         if let Some(node) = layout_node_by_id.get(e.to.as_str())
             && !node.is_cluster
         {
@@ -4291,10 +4942,17 @@ fn layout_flowchart_with_model(
                 .get(e.to.as_str())
                 .copied()
                 .unwrap_or("squareRect");
+
             if matches!(shape, "diamond" | "question" | "diam") {
                 let n = e.points.len();
-                if let Some(p) = diamond_intersection(node, &e.points[n - 2]) {
-                    e.points[n - 1] = p;
+
+                {
+                    match diamond_intersection(node, &e.points[n - 2]) {
+                        Some(p) => {
+                            e.points[n - 1] = p;
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         }
@@ -4412,7 +5070,7 @@ flowchart TD
     #[cfg(feature = "diagram-flowchart")]
     #[test]
     fn dagre_preserves_operation_computed_length_precision() {
-        // Isolate host precision from Mermaid 12's minimum label width.
+
         let parsed = MermaidEngine::new()
             .parse_diagram_for_render_model_sync(
                 "%%{init: {\"htmlLabels\": false, \"flowchart\": {\"htmlLabels\": false, \"minNodeWidth\": 0}}}%%\nflowchart TB\nA[alpha]\n",
@@ -4965,10 +5623,10 @@ flowchart TD
                 remove_node_work_upper_bound(&ordinary, "parent", &work_control).unwrap();
             let ordered_term =
                 ordered_key_update_work_upper_bound(width, width, &work_control).unwrap();
-            // Ordinary-key promotion leaves a root tombstone to scan, while array-index
-            // promotion removes from the B-tree without that physical slot. Correct for the
-            // representation difference before asserting that the logarithmic update term is
-            // present in the numeric bound.
+
+
+
+
             let root_tombstone_savings = ordinary
                 .root_child_order_slot_count()
                 .saturating_sub(numeric.root_child_order_slot_count());
@@ -5079,9 +5737,9 @@ flowchart TD
 
     #[test]
     fn parent_batch_matches_mermaid_graphlib_assignment_order() {
-        // Mermaid applies the final FlowDB parents through Graphlib `setParent` in this order.
-        // The atomic Graphlib batch must identify the same offending assignment so the
-        // source-backed error names the same child and parent without a duplicate preflight.
+
+
+
         fn sequential_parent_walk_reference(
             order: &[&str],
             parent_by_id: &HashMap<String, String>,

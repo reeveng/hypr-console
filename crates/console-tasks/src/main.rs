@@ -18,11 +18,13 @@ use console_core_atomic_writes::Stored;
 use console_core_external_programs::{Installed, Program, installed};
 use console_core_never::Never;
 use console_operating_system_linux::program_lifetime::alongside;
+use console_operating_system_linux::program_runtime::{self, Clock, Interpreter};
 use console_operating_system_linux::systemd::{Scopes, nothing_left_in, scopes};
+use console_program_contract::{Event, Exit};
 use console_tasks::reached::{
   self, Affected, Change, Dependency, Kind, LOCK, MANIFEST, Member, Package, Scope,
 };
-use console_tasks::ready::{self, Earlier, Record, Same, Step, Tree};
+use console_tasks::ready::{Before, Checkout, Ready, ReadyEffect, ReadyEvent, Step, Tree};
 use console_tasks::task::{self, Task};
 
 const MOST: &str = "MemoryHigh=32G";
@@ -54,6 +56,7 @@ enum TaskError {
   Metadata(String),
   NoRoot(String),
   Unwritten(String),
+  Ready(String),
   NoToolchain,
 }
 
@@ -68,6 +71,7 @@ impl fmt::Display for TaskError {
       }
       TaskError::NoRoot(why) => write!(to, "not inside this tree: {why}"),
       TaskError::Unwritten(why) => write!(to, "the pass could not be written down: {why}"),
+      TaskError::Ready(why) => to.write_str(why),
       TaskError::NoToolchain => write!(
         to,
         "rustup is not on PATH, and the lint suite asks it which toolchain it is"
@@ -275,7 +279,7 @@ const NEXTEST: [&str; 6] = [
   "fail",
 ];
 
-fn tree_state() -> Result<(String, Tree), TaskError> {
+fn tree_state() -> Result<Checkout, TaskError> {
   let now = answer(Program::Git, &["rev-parse", "HEAD^{tree}"])?;
   let loose = answer(Program::Git, &["status", "--porcelain"])?;
   let tree = match ::core::primitive::bool::then_some(loose.trim().is_empty(), ()) {
@@ -283,7 +287,10 @@ fn tree_state() -> Result<(String, Tree), TaskError> {
     ::core::option::Option::None => Tree::Loose,
   };
 
-  Ok((now.trim().to_string(), tree))
+  Ok(Checkout {
+    tree_id: now.trim().to_string(),
+    tree,
+  })
 }
 
 fn passed_at() -> Result<PathBuf, TaskError> {
@@ -293,59 +300,80 @@ fn passed_at() -> Result<PathBuf, TaskError> {
 }
 
 fn ready(root: &Path) -> Result<(), TaskError> {
-  let (now, before) = tree_state()?;
-  let at = passed_at()?;
-  let Ok(held) = console_core_atomic_writes::read(&at);
-  let recorded = match held {
-    Stored::Text(said) => Some(said),
-    Stored::Absent => None,
-    Stored::Failed(why) => return Err(TaskError::Unread(format!("{}: {why}", at.display()))),
-  };
-  let Ok(earlier) = ready::earlier(before, &now, recorded.as_deref());
-  let since = match earlier {
-    Earlier::Passed => {
-      println!("ready already passed on this tree ({now}), nothing to ask again");
+  let completed =
+    program_runtime::execute::<Ready, _>("cargo x", &(), &mut ReadyInterpreter { root })
+      .map_err(|fault| TaskError::Ready(fault.to_string()))?;
 
-      return Ok(());
-    }
-    Earlier::Ask { since } => since,
-  };
-  let scope = reached_since(root, since)?;
-  let Ok(flags) = scope.flags();
-
-  println!(
-    "the tests, clippy and the rules are asked of: {}",
-    flags.join(" ")
-  );
-
-  let Ok(steps) = ready::steps(&scope);
-
-  for step in steps {
-    ask(&step)?;
+  match completed.exit {
+    Exit::Success => Ok(()),
+    Exit::Failure(fault) => Err(TaskError::Ready(fault)),
   }
-
-  written_down(&at, &now, before)
 }
 
-fn written_down(at: &Path, then: &str, before: Tree) -> Result<(), TaskError> {
-  let (now, after) = tree_state()?;
-  let same = match ::core::primitive::bool::then_some(now == then, ()) {
-    ::core::option::Option::Some(()) => Same::Yes,
-    ::core::option::Option::None => Same::No,
-  };
-  let Ok(record) = ready::record(before, after, same);
+struct ReadyInterpreter<'a> {
+  root: &'a Path,
+}
 
-  match record {
-    Record::Write => console_core_atomic_writes::whole(at, format!("{now}\n").as_bytes())
-      .map_err(|why| TaskError::Unwritten(why.to_string())),
-    Record::Leave => {
-      println!(
-        "ready passed, but the tree was not committed and still, so the pass is not written down"
-      );
+impl Interpreter for ReadyInterpreter<'_> {
+  type Event = ReadyEvent;
+  type Effect = ReadyEffect;
+  type Error = Never;
 
-      Ok(())
+  fn interpret(
+    &mut self,
+    effect: &ReadyEffect,
+    _clock: &Clock,
+  ) -> Result<Vec<Event<ReadyEvent>>, Never> {
+    let reply = match self.perform(effect) {
+      Ok(reply) => reply,
+      Err(fault) => ReadyEvent::Failed(fault.to_string()),
+    };
+
+    Ok(vec![Event::Custom(reply)])
+  }
+}
+
+impl ReadyInterpreter<'_> {
+  fn perform(&self, effect: &ReadyEffect) -> Result<ReadyEvent, TaskError> {
+    match effect {
+      ReadyEffect::Inspect => inspect_ready(),
+      ReadyEffect::FindScope(since) => {
+        reached_since(self.root, since.clone()).map(ReadyEvent::ScopeFound)
+      }
+      ReadyEffect::Check(step) => Ok(ReadyEvent::Checked {
+        step: step.clone(),
+        result: ask(step).map_err(|fault| fault.to_string()),
+      }),
+      ReadyEffect::RecheckTree => tree_state().map(ReadyEvent::TreeRechecked),
+      ReadyEffect::RecordPass { path, tree_id } => {
+        console_core_atomic_writes::whole(path, format!("{tree_id}\n").as_bytes())
+          .map_err(|why| TaskError::Unwritten(why.to_string()))?;
+
+        Ok(ReadyEvent::PassRecorded)
+      }
     }
   }
+}
+
+fn inspect_ready() -> Result<ReadyEvent, TaskError> {
+  let checkout = tree_state()?;
+  let pass_file = passed_at()?;
+  let Ok(held) = console_core_atomic_writes::read(&pass_file);
+  let last_pass = match held {
+    Stored::Text(said) => Some(said),
+    Stored::Absent => None,
+    Stored::Failed(why) => {
+      return Err(TaskError::Unread(format!("{}: {why}", pass_file.display())));
+    }
+  };
+
+  Ok(ReadyEvent::Inspected {
+    before: Before {
+      checkout,
+      pass_file,
+    },
+    last_pass,
+  })
 }
 
 fn ask(step: &Step) -> Result<(), TaskError> {
@@ -586,8 +614,11 @@ fn reached_since(root: &Path, since: Option<String>) -> Result<Scope, TaskError>
     Reply::No => return Ok(Scope::Workspace),
   }
 
-  let (now, _tree) = tree_state()?;
-  let between = answer(Program::Git, &["diff", "--name-only", &revision, &now])?;
+  let checkout = tree_state()?;
+  let between = answer(
+    Program::Git,
+    &["diff", "--name-only", &revision, &checkout.tree_id],
+  )?;
   let uncommitted = answer(Program::Git, &["diff", "--name-only", "HEAD"])?;
   let untracked = answer(
     Program::Git,

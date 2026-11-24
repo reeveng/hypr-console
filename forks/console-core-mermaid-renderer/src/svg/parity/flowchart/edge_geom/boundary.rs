@@ -8,6 +8,7 @@ pub(in crate::svg::parity::flowchart) struct BoundaryNode {
     pub(in crate::svg::parity::flowchart) height: f64,
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn boundary_for_node(
     ctx: &FlowchartRenderCtx<'_>,
     node_id: &str,
@@ -22,6 +23,7 @@ pub(in crate::svg::parity::flowchart) fn boundary_for_node(
             height: n.height,
         });
     }
+
     let n = ctx.layout_clusters_by_id.get(node_id)?;
     Some(BoundaryNode {
         x: n.x + ctx.tx - origin_x,
@@ -31,6 +33,7 @@ pub(in crate::svg::parity::flowchart) fn boundary_for_node(
     })
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn boundary_for_cluster(
     ctx: &FlowchartRenderCtx<'_>,
     cluster_id: &str,

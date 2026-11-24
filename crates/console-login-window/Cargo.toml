@@ -14,11 +14,12 @@ name = "login-window"
 path = "src/bin/login-window.rs"
 
 [dependencies]
+console-bus.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
 console-operating-system-linux.workspace = true
 console-core-arguments.workspace = true
 console-applications.workspace = true
 console-core-external-programs.workspace = true
-console-core-ini-files.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-never.workspace = true
 console-core-iteration.workspace = true
@@ -26,10 +27,13 @@ console-core-number-conversion.workspace = true
 console-core-internal-programs.workspace = true
 console-core-places.workspace = true
 console-login-session.workspace = true
+console-session.workspace = true
+console-session-plasma.workspace = true
 rustix.workspace = true
 
 [lints]
 workspace = true
 
 [dev-dependencies]
+rustix = { workspace = true, features = ["pty", "termios"] }
 console-core-temporary-directories.workspace = true

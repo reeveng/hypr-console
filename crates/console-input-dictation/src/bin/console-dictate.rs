@@ -26,22 +26,22 @@ use std::os::fd::{AsFd, OwnedFd};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode, Stdio};
 
+use console_audio_streams::{finish_recording, record_wav};
 use console_core_arguments::{Presence, Reason, ValidationError};
 use console_core_atomic_writes::Stored;
 use console_core_external_programs::Program;
 use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_input_dictation::{
-  BUILD, COMMAND, FETCH, Note, VoiceActivity, cloning, compiling, configuring, detect_speech,
-  fetching, languages, making, model, recording, recording_path, serialize_note, taking, tidy,
-  told_by, typing, whisper, whisper_arguments, whisper_binary,
+  BUILD, COMMAND, FETCH, Note, RECORDING_FORMAT, VoiceActivity, cloning, compiling, configuring,
+  detect_speech, fetching, languages, making, model, recording_path, serialize_note, taking,
+  tidy, told_by, typing, whisper, whisper_arguments, whisper_binary,
 };
 use console_program_lifetime::let_go;
 use console_response_times::{Wait, Waiting};
-use rustix::event::{PollFd, PollFlags, Timespec, poll};
 use rustix::fs::{FileType, FlockOperation, Mode, OFlags, flock, fstat, open};
 use rustix::io::Errno;
-use rustix::process::{Pid, PidfdFlags, Signal, pidfd_open, pidfd_send_signal};
+use rustix::process::{Pid, PidfdFlags, pidfd_open};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Task {
@@ -246,18 +246,7 @@ fn listen(note_at: &Path) -> io::Result<()> {
   let press = std::process::id();
   let Ok(into) = recording_path(press);
 
-  let Ok(arguments) = recording(&into);
-  let (program, rest) = arguments
-    .split_first()
-    .ok_or_else(|| io::Error::other("No recording app is installed."))?;
-
-  let mut starting = Command::new(program);
-  starting
-    .args(rest)
-    .stdin(Stdio::null())
-    .stdout(Stdio::null());
-
-  let mut child = starting.spawn()?;
+  let mut child = record_wav(RECORDING_FORMAT, &into)?;
   let saved = save_recorder(&child, press, note_at);
 
   match saved {
@@ -356,25 +345,19 @@ fn read_out(recorded: &Path, waiting: &mut Waiting) -> Result<(), Never> {
 }
 
 fn stop(process: &OwnedFd) -> io::Result<()> {
-  match pidfd_send_signal(process, Signal::INT) {
-    Ok(()) => {}
-    Err(Errno::SRCH) => return Ok(()),
-    Err(fault) => return Err(io::Error::from(fault)),
-  }
-
-  let mut watch = [PollFd::from_borrowed_fd(process.as_fd(), PollFlags::IN)];
-  let _ready = poll(&mut watch, Some(&LEAVING))?;
-  let ended = watch
-    .first()
-    .is_some_and(|ready| ready.revents().intersects(PollFlags::IN | PollFlags::HUP));
-
-  match bool::then_some(ended, ()) {
-    Some(()) => Ok(()),
-    None => Err(io::Error::new(
-      io::ErrorKind::TimedOut,
-      "the microphone has not finished saving the recording",
-    )),
-  }
+  finish_recording(
+    process.as_fd(),
+    console_input_dictation::RECORDING_STOP_TIMEOUT,
+  )
+  .map_err(|error| {
+    match ::core::primitive::bool::then_some(error.kind() == io::ErrorKind::TimedOut, ()) {
+      ::core::option::Option::Some(()) => io::Error::new(
+        io::ErrorKind::TimedOut,
+        "the microphone has not finished saving the recording",
+      ),
+      ::core::option::Option::None => error,
+    }
+  })
 }
 
 #[derive(Debug)]
@@ -784,11 +767,6 @@ fn download(model: &Path, coming: &Path) -> Result<(), DictationError> {
   std::fs::rename(coming, model).map_err(DictationError::Machine)
 }
 
-const LEAVING: Timespec = Timespec {
-  tv_sec: 2,
-  tv_nsec: 0,
-};
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Until(u32);
 
@@ -797,18 +775,17 @@ const UNTIL_IT_CHANGES: Until = Until(0);
 const BRIEFLY: Until = Until(2_000);
 
 fn notify(what: &str, until: Until) -> Result<(), Never> {
-  let Ok(mut saying) = Program::NotifySend.command();
+  let options = console_operating_system_linux::notification::Options {
+    app_name: Some("Console"),
+    icon: Some("audio-input-microphone"),
+    expire_ms: Some(until.0),
+    urgency: console_operating_system_linux::notification::Urgency::Low,
+    synchronous_key: Some("console-dictate"),
+    ..Default::default()
+  };
+  let Ok(mut saying) = options.command(what, None);
 
   saying
-    .args([
-      "--app-name=Console",
-      "--urgency=low",
-      &format!("--expire-time={}", until.0),
-      "--hint=string:x-canonical-private-synchronous:console-dictate",
-      "--icon=audio-input-microphone",
-      "--",
-      what,
-    ])
     .stdin(Stdio::null())
     .stdout(Stdio::null())
     .stderr(Stdio::null());

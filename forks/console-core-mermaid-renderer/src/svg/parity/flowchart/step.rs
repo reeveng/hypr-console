@@ -13,6 +13,7 @@ pub(super) struct FlowchartSteps {
 }
 
 impl FlowchartSteps {
+    #[must_use]
     pub(super) fn new(
         model: &crate::flowchart::FlowchartModel,
         config: &merman_model::presentation::PresentationConfig,
@@ -20,11 +21,13 @@ impl FlowchartSteps {
         let flowchart = config.as_value().get("flowchart");
         Self {
             count: model.step_count(),
-            duration: flowchart
+            duration: match flowchart
                 .and_then(|value| value.get("stepDuration"))
                 .and_then(serde_json::Value::as_f64)
-                .filter(|value| value.is_finite() && *value > 0.0)
-                .unwrap_or(1.0),
+                .filter(|value| value.is_finite() && *value > 0.0) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 1.0,
+            },
             numbers: flowchart
                 .and_then(|value| value.get("stepNumbers"))
                 .and_then(serde_json::Value::as_bool)
@@ -36,11 +39,13 @@ impl FlowchartSteps {
     fn timing(&self, step: f64) -> crate::Result<(f64, f64, f64)> {
         let begin = (step - 1.0) * self.duration;
         let gap = (self.count.max(step) - 1.0) * self.duration;
+
         if !begin.is_finite() || !gap.is_finite() || !(gap + self.duration).is_finite() {
             return Err(crate::Error::InvalidModel {
                 message: "Flowchart step timing exceeds the finite SVG clock range".to_owned(),
             });
         }
+
         Ok((begin, self.duration, gap))
     }
 
@@ -48,6 +53,7 @@ impl FlowchartSteps {
         if !self.emitted.get() {
             return;
         }
+
         let scope = super::css::FlowchartCssSelectorDiagramId::new(diagram_id);
         let _ = write!(
             out,
@@ -56,15 +62,18 @@ impl FlowchartSteps {
     }
 }
 
+#[must_use]
 fn animation_id(value: &str) -> String {
     let mut id = String::from("step_");
+
     for character in value.chars() {
         if character.is_ascii_alphanumeric() {
             id.push(character);
         } else {
-            let _ = write!(id, "_{:x}_", character as u32);
+            let _ = write!(id, "_{:x}_", <u32 as ::core::convert::From<::core::primitive::char>>::from(character));
         }
     }
+
     id
 }
 
@@ -73,9 +82,10 @@ fn step_color<'a>(
     key: crate::flowchart::FlowchartEdgeKey,
     typed_stroke: Option<&'a str>,
 ) -> crate::Result<&'a str> {
-    let source = ctx
+    let checked_value = ctx
         .edge_style_plan
-        .edge_for(key)?
+        .edge_for(key)?;
+    let source = checked_value
         .edge_marker_color(ctx.compatibility.look.is_hand_drawn());
     Ok(typed_stroke
         .or(source)
@@ -98,9 +108,11 @@ pub(super) fn write_edge_marks(
     else {
         return Ok(());
     };
+
     if path.is_empty() {
         return Ok(());
     }
+
     ctx.work_meter
         .charge(path.len().saturating_mul(2).saturating_add(1))?;
     let (begin, duration, gap) = ctx.steps.timing(step)?;
@@ -114,9 +126,9 @@ pub(super) fn write_edge_marks(
     let color = step_color(ctx, key, typed_stroke)?;
     let parked = parked_transform(path);
     let mut number = ryu_js::Buffer::new();
-    let begin = number.format(begin).to_owned();
-    let duration = number.format(duration).to_owned();
-    let gap = number.format(gap);
+    let begin_2 = number.format(begin).to_owned();
+    let duration_2 = number.format(duration).to_owned();
+    let gap_2 = number.format(gap);
     let _ = write!(
         out,
         r#"<path class="edge-step-highlight" aria-hidden="true" d="{}" fill="none" stroke="{}" stroke-width="4" stroke-linecap="round" stroke-opacity="0.6" pointer-events="none" transform="{}" data-step="{}"><animateTransform attributeName="transform" type="scale" values="1;1" dur="{duration}s" begin="{motion}.begin" fill="remove"/></path><circle class="edge-step-dot" r="4" aria-hidden="true" transform="{}" data-step="{}" fill="{}" stroke="none"><animateMotion id="{motion}" path="{}" dur="{duration}s" begin="{begin}s;{motion}.end+{gap}s" fill="remove"/><animateTransform attributeName="transform" type="scale" values="1;1" dur="{duration}s" begin="{motion}.begin" fill="remove"/></circle>"#,
@@ -128,19 +140,20 @@ pub(super) fn write_edge_marks(
         fmt(step),
         escape_attr(color),
         escape_attr(path),
-    );
+     begin = begin_2, duration = duration_2, gap = gap_2);
     out.checkpoint()?;
     ctx.steps.emitted.set(true);
     Ok(())
 }
 
+#[must_use]
 fn parked_transform(path: &str) -> String {
     match svgtypes::PathParser::from(path).next() {
         Some(Ok(svgtypes::PathSegment::MoveTo { x, y, .. })) => {
             let mut number = ryu_js::Buffer::new();
-            let x = number.format(x).to_owned();
-            let y = number.format(y);
-            format!("translate({x},{y}) scale(0)")
+            let x_2 = number.format(x).to_owned();
+            let y_2 = number.format(y);
+            format!("translate({x},{y}) scale(0)", x = x_2, y = y_2)
         }
         _ => "scale(0)".to_owned(),
     }
@@ -155,6 +168,7 @@ struct Obstacle {
 }
 
 impl Obstacle {
+    #[must_use]
     fn square(point: kurbo::Point, half: f64) -> Self {
         Self {
             x: point.x,
@@ -164,6 +178,7 @@ impl Obstacle {
         }
     }
 
+    #[must_use]
     fn room(self, point: kurbo::Point) -> f64 {
         let dx = ((point.x - self.x).abs() - self.half_width).max(0.0);
         let dy = ((point.y - self.y).abs() - self.half_height).max(0.0);
@@ -171,12 +186,15 @@ impl Obstacle {
     }
 }
 
+#[must_use]
 fn arrow_obstacle(tip: kurbo::Point, from: kurbo::Point) -> Obstacle {
     let delta = tip - from;
     let length = delta.hypot();
-    if length == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(length), ::core::num::FpCategory::Zero) {
         return Obstacle::square(tip, 12.0);
     }
+
     let along = delta / length;
     let center = tip - along * 6.0;
     let half = (along.x.abs() + along.y.abs()) * 6.0;
@@ -195,11 +213,12 @@ struct PathSampler {
 }
 
 impl PathSampler {
+    #[must_use]
     fn new(path: &str, points: &[crate::model::LayoutPoint]) -> Self {
         let segments = kurbo::BezPath::from_svg(path)
             .ok()
-            .map(|path| {
-                path.segments()
+            .map(|path_2| {
+                path_2.segments()
                     .map(|segment| (segment, segment.arclen(1e-6)))
                     .collect::<Vec<_>>()
             })
@@ -225,14 +244,18 @@ impl PathSampler {
         }
     }
 
+    #[must_use]
     fn sample(&self, fraction: f64) -> Option<kurbo::Point> {
         let mut remaining = self.length * fraction;
+
         for (segment, length) in &self.segments {
             if remaining <= *length && *length > 0.0 {
                 return Some(segment.eval(segment.inv_arclen(remaining, 1e-6)));
             }
+
             remaining -= length;
         }
+
         self.segments
             .last()
             .map(|(segment, _)| segment.eval(1.0))
@@ -248,25 +271,30 @@ fn choose_position(
     work.charge(sampler.segments.len().saturating_mul(63))?;
     let mut candidates = Vec::with_capacity(27);
     let centers = BADGE_FRACTIONS.map(|fraction| sampler.sample(fraction));
+
     for point in centers {
         candidates.extend(point);
     }
+
     for (fraction, point) in BADGE_FRACTIONS.into_iter().zip(centers) {
-        if let (Some(point), Some(before), Some(after)) = (
+        if let (Some(point_2), Some(before), Some(after)) = (
             point,
             sampler.sample((fraction - 0.01).max(0.0)),
             sampler.sample((fraction + 0.01).min(1.0)),
         ) {
             let delta = after - before;
             let length = delta.hypot();
+
             if length > 0.0 {
                 let offset = kurbo::Vec2::new(-delta.y, delta.x) * (14.0 / length);
-                candidates.extend([point + offset, point - offset]);
+                candidates.extend([point_2 + offset, point_2 - offset]);
             }
         }
     }
+
     let mut best = None;
     let mut best_room = f64::NEG_INFINITY;
+
     for point in candidates
         .into_iter()
         .filter(|point| point.x.is_finite() && point.y.is_finite())
@@ -276,25 +304,29 @@ fn choose_position(
             .iter()
             .map(|obstacle| obstacle.room(point))
             .fold(f64::INFINITY, f64::min);
+
         if room >= 2.0 {
             return Ok(Some(point));
         }
+
         if room > best_room {
             best_room = room;
             best = Some(point);
         }
     }
+
     Ok(best)
 }
 
+#[must_use]
 fn contrast(first: &str, second: &str) -> f64 {
     let luminance = |color| {
-        ThemeColor::parse(color).ok().map(|color| {
+        ThemeColor::parse(color).ok().map(|color_2| {
             [ColorChannel::Red, ColorChannel::Green, ColorChannel::Blue]
                 .into_iter()
                 .zip([0.2126, 0.7152, 0.0722])
                 .map(|(channel, weight)| {
-                    let srgb = color.channel(channel) / 255.0;
+                    let srgb = color_2.channel(channel) / 255.0;
                     weight
                         * if srgb <= 0.03928 {
                             srgb / 12.92
@@ -305,28 +337,35 @@ fn contrast(first: &str, second: &str) -> f64 {
                 .sum::<f64>()
         })
     };
+
     match (luminance(first), luminance(second)) {
-        (Some(first), Some(second)) => (first.max(second) + 0.05) / (first.min(second) + 0.05),
+        (Some(first_2), Some(second_2)) => (first_2.max(second_2) + 0.05) / (first_2.min(second_2) + 0.05),
         _ => 0.0,
     }
 }
 
+#[must_use]
 fn text_color<'a>(fill: &str, candidates: impl IntoIterator<Item = &'a str>) -> &'a str {
     let mut best = "#ffffff";
     let mut best_ratio = -1.0;
+
     for color in candidates.into_iter().chain(["#ffffff", "#000000"]) {
         if color.is_empty() {
             continue;
         }
+
         let ratio = contrast(fill, color);
+
         if ratio >= 4.5 {
             return color;
         }
+
         if ratio > best_ratio {
             best = color;
             best_ratio = ratio;
         }
     }
+
     best
 }
 
@@ -351,12 +390,16 @@ impl StepBadges {
         labels: &super::paint::FlowchartEdgeLabels,
     ) -> crate::Result<Self> {
         let mut result = Self::default();
-        if !ctx.steps.numbers || ctx.steps.count == 0.0 {
+
+        if !ctx.steps.numbers || ::core::matches!(::core::primitive::f64::classify(ctx.steps.count), ::core::num::FpCategory::Zero) {
             return Ok(result);
         }
+
         let mut obstacles = Vec::new();
+
         for id in hierarchy.rendered_node_ids() {
             ctx.work_meter.charge(1)?;
+
             if let Some(node) = ctx.layout_nodes_by_id.get(id) {
                 let offsets = hierarchy
                     .effective_parent(id)
@@ -371,15 +414,23 @@ impl StepBadges {
                 });
             }
         }
+
         for edge in hierarchy.ordered_edges() {
             ctx.work_meter.charge(1)?;
-            let Some(entry) = cache.get(&edge.key) else {
-                continue;
+
+            let entry = {
+                let optional_entry = cache.get(&edge.key);
+
+                match optional_entry {
+                    Some(matched_entry) => matched_entry,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if let Some(label) = ctx
                 .layout_edges_by_key
                 .get(&edge.key)
-                .and_then(|edge| edge.label.as_ref())
+                .and_then(|edge_2| edge_2.label.as_ref())
                 && let Some(point) = labels.position(edge.key)
             {
                 obstacles.push(Obstacle {
@@ -389,16 +440,20 @@ impl StepBadges {
                     half_height: label.height / 2.0,
                 });
             }
+
             let points = &entry.geom.data_points;
             let global = |point: &crate::model::LayoutPoint| {
                 kurbo::Point::new(point.x + entry.origin_x, point.y + entry.abs_top_transform)
             };
+
             if points.len() >= 2 {
                 let (start, end) =
                     super::edge_geom::arrow_types_for_edge(edge.edge.edge_type.as_deref());
+
                 if start.is_some_and(|marker| marker != "none") {
                     obstacles.push(arrow_obstacle(global(&points[0]), global(&points[1])));
                 }
+
                 if end.is_some_and(|marker| marker != "none") {
                     obstacles.push(arrow_obstacle(
                         global(&points[points.len() - 1]),
@@ -407,8 +462,10 @@ impl StepBadges {
                 }
             }
         }
+
         for edge in hierarchy.ordered_edges() {
             ctx.work_meter.charge(1)?;
+
             let Some(step) = edge
                 .edge
                 .step
@@ -416,9 +473,16 @@ impl StepBadges {
             else {
                 continue;
             };
-            let Some(entry) = cache.get(&edge.key) else {
-                continue;
+
+            let entry = {
+                let optional_entry = cache.get(&edge.key);
+
+                match optional_entry {
+                    Some(matched_entry) => matched_entry,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let geom = &entry.geom;
             ctx.work_meter
                 .charge(geom.d.len().saturating_add(geom.data_points.len()))?;
@@ -435,18 +499,27 @@ impl StepBadges {
                     ..*obstacle
                 })
                 .collect();
-            let Some(point) = choose_position(&sampler, &local, ctx.work_meter)? else {
-                continue;
+
+            let point = {
+                let optional_point = choose_position(&sampler, &local, ctx.work_meter)?;
+
+                match optional_point {
+                    Some(matched_point) => matched_point,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let point = point + kurbo::Vec2::new(entry.origin_x, entry.abs_top_transform);
-            let precedence = crate::flowchart::FlowchartFacetPrecedence::new(
-                ctx.edge_style_plan.emitted_source_stroke_status_for(
+
+            let point_2 = point + kurbo::Vec2::new(entry.origin_x, entry.abs_top_transform);
+            let checked_value = ctx.edge_style_plan.emitted_source_stroke_status_for(
                     edge.key,
                     ctx.compatibility.look.is_hand_drawn(),
-                )?,
+                )?;
+            let precedence = crate::flowchart::FlowchartFacetPrecedence::new(
+                checked_value,
                 ctx.edge_stroke_config_override,
             );
-            let color = step_color(ctx, edge.key, ctx.edge_theme.stroke_value(precedence, true))?
+            let checked_value_2 = step_color(ctx, edge.key, ctx.edge_theme.stroke_value(precedence, true))?;
+            let color = checked_value_2
                 .to_owned();
             result
                 .by_root
@@ -454,13 +527,14 @@ impl StepBadges {
                 .or_default()
                 .push(result.badges.len());
             result.badges.push(Badge {
-                point,
+                point: point_2,
                 step,
                 color,
                 origin: kurbo::Vec2::new(entry.origin_x, entry.abs_top_transform),
             });
-            obstacles.push(Obstacle::square(point, BADGE_RADIUS));
+            obstacles.push(Obstacle::square(point_2, BADGE_RADIUS));
         }
+
         Ok(result)
     }
 
@@ -485,18 +559,29 @@ impl StepBadges {
         ctx: &FlowchartRenderCtx<'_>,
         root: Option<&str>,
     ) -> crate::Result<()> {
-        let Some(indices) = self.by_root.get(root.unwrap_or("")) else {
-            return Ok(());
+        let indices = {
+            let optional_indices = self.by_root.get(root.unwrap_or(""));
+
+            match optional_indices {
+                Some(matched_indices) => matched_indices,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         out.push_str(r#"<g class="edge-step-badges">"#);
-        let background = ctx
+        let background = match ctx
             .config
-            .get_str("themeVariables.background")
-            .unwrap_or_default();
-        let primary = ctx
+            .get_str("themeVariables.background") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "",
+        };
+        let primary = match ctx
             .config
-            .get_str("themeVariables.primaryTextColor")
-            .unwrap_or_default();
+            .get_str("themeVariables.primaryTextColor") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "",
+        };
+
         for index in indices {
             ctx.checkpoint_emit()?;
             let badge = &self.badges[*index];
@@ -512,6 +597,7 @@ impl StepBadges {
                 fmt(badge.step)
             );
         }
+
         out.push_str("</g>");
         out.checkpoint()
     }

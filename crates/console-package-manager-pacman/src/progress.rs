@@ -1,0 +1,169 @@
+//! What pacman says while it installs, read for how far it has got.
+//!
+//! The packages stage is nothing on almost every apply and minutes on the one
+//! after someone adds a package, and for those minutes the line under it did
+//! not move: pacman was told to be quiet, its output went to the terminal
+//! unread, and nothing here knew whether it was fetching, unpacking or hung.
+//!
+//! Pacman is read instead of guessed at. Two of the lines it prints say where
+//! it is and both are stable enough to lean on -- ` name downloading...` while
+//! it fetches, which is the shape it takes when no one is watching it from a
+//! terminal, and `(2/3) installing name` while it writes, which carries its own
+//! count and its own total. Everything else it says is passed through to the
+//! screen and counted as nothing: the keyring, the integrity check and the file
+//! conflicts each print counts of their own, restarting at one, and a bar that
+//! believed them would fill four times over.
+//!
+use console_core_never::Never;
+
+use console_how_far as how_far;
+
+const VERBS: [&str; 5] = [
+  "installing",
+  "upgrading",
+  "reinstalling",
+  "downgrading",
+  "removing",
+];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PacmanOutput {
+  Downloading(String),
+  Installing { done: u32, many: u32, name: String },
+  Other,
+}
+
+pub(super) fn parse_line(line: &str) -> Result<PacmanOutput, Never> {
+  let Ok(plain) = how_far::plain(line);
+  let said = plain.trim();
+
+  let downloading = match said.strip_suffix("downloading...") {
+    Some(downloading) => downloading,
+    None => return counted(said),
+  };
+
+  Ok(PacmanOutput::Downloading(downloading.trim().to_string()))
+}
+
+fn counted(said: &str) -> Result<PacmanOutput, Never> {
+  let rest = match said.strip_prefix('(') {
+    Some(rest) => rest,
+    None => return Ok(PacmanOutput::Other),
+  };
+
+  let (count, doing) = match rest.split_once(')') {
+    Some((count, doing)) => (count, doing),
+    None => return Ok(PacmanOutput::Other),
+  };
+
+  let (done, many) = match count.split_once('/') {
+    Some((done, many)) => (done, many),
+    None => return Ok(PacmanOutput::Other),
+  };
+
+  let done_3 = match done.trim().parse::<u32>() {
+    Ok(done_2) => done_2,
+    Err(_not_a_number) => return Ok(PacmanOutput::Other),
+  };
+
+  let many_3 = match many.trim().parse::<u32>() {
+    Ok(many_2) => many_2,
+    Err(_not_a_number) => return Ok(PacmanOutput::Other),
+  };
+
+  let doing_2 = doing.trim();
+
+  let verb = match VERBS.iter().find(|verb| doing_2.starts_with(*verb)) {
+    Some(verb) => verb,
+    None => return Ok(PacmanOutput::Other),
+  };
+
+  Ok(PacmanOutput::Installing {
+    done: done_3,
+    many: many_3,
+    name: doing_2.trim_start_matches(*verb).trim().to_string(),
+  })
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn the_line_that_names_a_package_being_written_carries_its_own_count() {
+    assert_eq!(
+      parse_line("(2/3) installing console-fonts"),
+      Ok(PacmanOutput::Installing {
+        done: 2,
+        many: 3,
+        name: "console-fonts".to_string()
+      })
+    );
+    assert_eq!(
+      parse_line("( 7/12) upgrading linux-firmware"),
+      Ok(PacmanOutput::Installing {
+        done: 7,
+        many: 12,
+        name: "linux-firmware".to_string()
+      })
+    );
+  }
+
+  #[test]
+  fn a_count_that_is_not_about_a_package_moves_nothing() {
+    for line in [
+      "(3/3) checking keys in keyring",
+      "(1/3) checking package integrity",
+      "(2/3) loading package files",
+      "(3/3) checking for file conflicts",
+      "(1/1) checking available disk space",
+    ] {
+      assert_eq!(
+        parse_line(line),
+        Ok(PacmanOutput::Other),
+        "{line} was counted"
+      );
+    }
+  }
+
+  #[test]
+  fn the_line_pacman_prints_when_no_one_is_watching_it_names_a_download() {
+    assert_eq!(
+      parse_line(" linux-firmware-20240909.1-1-any downloading..."),
+      Ok(PacmanOutput::Downloading(
+        "linux-firmware-20240909.1-1-any".to_string()
+      ))
+    );
+  }
+
+  #[test]
+  fn what_it_says_in_color_is_read_the_same_as_what_it_says_plain() {
+    assert_eq!(
+      parse_line("\u{1b}[0;1m(2/3)\u{1b}[0m installing console-fonts"),
+      Ok(PacmanOutput::Installing {
+        done: 2,
+        many: 3,
+        name: "console-fonts".to_string()
+      })
+    );
+  }
+
+  #[test]
+  fn everything_else_it_says_is_passed_through_and_counted_as_nothing() {
+    for line in [
+      ":: Retrieving packages...",
+      ":: Processing package changes...",
+      "warning: console-fonts-1.0 is up to date -- reinstalling",
+      "",
+      "(",
+      "(x/3) installing nothing",
+      "(1/) installing nothing",
+    ] {
+      assert_eq!(
+        parse_line(line),
+        Ok(PacmanOutput::Other),
+        "{line:?} was read as progress"
+      );
+    }
+  }
+}

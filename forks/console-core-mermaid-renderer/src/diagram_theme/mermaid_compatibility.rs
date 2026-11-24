@@ -7,6 +7,7 @@ use super::DiagramThemeSpec;
 /// Typed canvas, typography, semantic rules, palettes, and effects are consumed by the selected
 /// render family. Projecting any of them into global Mermaid configuration would create a second
 /// cascade and allow one family's roles to affect unrelated renderers.
+#[must_use]
 pub(super) fn compile(spec: &DiagramThemeSpec) -> MermaidConfig {
     spec.mermaid().to_mermaid_config()
 }

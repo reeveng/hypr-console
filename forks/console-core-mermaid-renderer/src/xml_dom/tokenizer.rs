@@ -29,12 +29,15 @@ trait XmlCharExt {
 impl XmlCharExt for char {
     #[inline]
     fn is_xml_name_start(&self) -> bool {
-        // Check for ASCII first.
-        if *self as u32 <= 128 {
-            return (*self as u8).is_xml_name_start();
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(<u32 as ::core::convert::From<::core::primitive::char>>::from(*self)), &::core::convert::identity(128)); _explicit_ordering } {
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+                return (*self as u8).is_xml_name_start();
+            },
+            ::core::cmp::Ordering::Greater => {},
         }
 
-        matches!(*self as u32,
+        matches!(<u32 as ::core::convert::From<::core::primitive::char>>::from(*self),
             0x0000C0..=0x0000D6
             | 0x0000D8..=0x0000F6
             | 0x0000F8..=0x0002FF
@@ -51,12 +54,15 @@ impl XmlCharExt for char {
 
     #[inline]
     fn is_xml_name(&self) -> bool {
-        // Check for ASCII first.
-        if *self as u32 <= 128 {
-            return (*self as u8).is_xml_name();
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(<u32 as ::core::convert::From<::core::primitive::char>>::from(*self)), &::core::convert::identity(128)); _explicit_ordering } {
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+                return (*self as u8).is_xml_name();
+            },
+            ::core::cmp::Ordering::Greater => {},
         }
 
-        matches!(*self as u32, 0x0000B7
+        matches!(<u32 as ::core::convert::From<::core::primitive::char>>::from(*self), 0x0000B7
                 | 0x0000C0..=0x0000D6
                 | 0x0000D8..=0x0000F6
                 | 0x0000F8..=0x0002FF
@@ -75,13 +81,16 @@ impl XmlCharExt for char {
 
     #[inline]
     fn is_xml_char(&self) -> bool {
-        // Does not check for surrogate code points U+D800-U+DFFF,
-        // since that check was performed by Rust when the `&str` was constructed.
-        if (*self as u32) < 0x20 {
-            return (*self as u8).is_xml_space();
+
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(<u32 as ::core::convert::From<::core::primitive::char>>::from(*self)), &::core::convert::identity(0x20)); _explicit_ordering } {
+            ::core::cmp::Ordering::Less => {
+                return (*self as u8).is_xml_space();
+            },
+            ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
         }
 
-        !matches!(*self as u32, 0xFFFF | 0xFFFE)
+        !matches!(<u32 as ::core::convert::From<::core::primitive::char>>::from(*self), 0xFFFF | 0xFFFE)
     }
 }
 
@@ -131,7 +140,7 @@ fn is_xml_str(s: &str, value_start: usize, stream: &mut Stream<'_>) -> Result<()
     if s.as_bytes().is_ascii() {
         for (i, b) in s.as_bytes().iter().enumerate() {
             if !b.is_xml_char() {
-                return Err(Error::NonXmlChar(*b as char, stream.gen_text_pos_from(value_start + i)));
+                return Err(Error::NonXmlChar(<char as ::core::convert::From<::core::primitive::u8>>::from(*b), stream.gen_text_pos_from(value_start + i)));
             }
         }
 
@@ -183,45 +192,48 @@ impl<'input> StrSpan<'input> {
     }
 
     #[inline]
+    #[must_use]
     pub fn range(&self) -> Range<usize> {
         self.start..(self.start + self.text.len())
     }
 
     #[inline]
+    #[must_use]
     pub fn as_str(&self) -> &'input str {
         self.text
     }
 
     #[inline]
+    #[must_use]
     fn slice_region(&self, start: usize, end: usize) -> &'input str {
         &self.text[start..end]
     }
 }
 
 pub enum Token<'input> {
-    // <?target content?>
+
     ProcessingInstruction(&'input str, Option<&'input str>, Range<usize>),
 
-    // <!-- text -->
+
     Comment(&'input str, Range<usize>),
 
-    // <!ENTITY ns_extend "http://test.com">
+
     EntityDeclaration(&'input str, StrSpan<'input>),
 
-    // <ns:elem
+
     ElementStart(&'input str, &'input str, usize),
 
-    // ns:attr="value"
+
     Attribute(Range<usize>, u16, u8, &'input str, &'input str, StrSpan<'input>),
 
     ElementEnd(ElementEnd<'input>, Range<usize>),
 
-    // Contains text between elements including whitespaces.
-    // Basically everything between `>` and `<`.
-    // Except `]]>`, which is not allowed and will lead to an error.
+
+
+
     Text(&'input str, Range<usize>),
 
-    // <![CDATA[text]]>
+
     Cdata(&'input str, Range<usize>),
 }
 
@@ -242,7 +254,7 @@ pub trait XmlEvents<'input> {
     fn resolve_entity(&mut self, _pub_id: Option<&str>, _uri: &str) -> core::result::Result<Option<&'input str>, String> { Ok(None) }
 }
 
-// document ::= prolog element Misc*
+
 pub fn parse<'input>(
     text: &'input str,
     allow_dtd: bool,
@@ -255,6 +267,7 @@ pub fn parse<'input>(
     parse_misc(s, events)?;
 
     s.skip_spaces();
+
     if s.starts_with(b"<!DOCTYPE") {
         if !allow_dtd {
             return Err(Error::DtdDetected);
@@ -265,7 +278,8 @@ pub fn parse<'input>(
     }
 
     s.skip_spaces();
-    if s.curr_byte().ok() == Some(b'<') && parse_start_tag(s, events)? {
+
+    if s.curr_byte().ok() == Some(b'<') && { let checked_value = parse_start_tag(s, events)?; checked_value } {
         parse_content(s, events)?;
     }
 
@@ -278,10 +292,11 @@ pub fn parse<'input>(
     Ok(())
 }
 
-// Misc ::= Comment | PI | S
+
 fn parse_misc<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'input>) -> Result<()> {
     while !s.at_end() {
         s.skip_spaces();
+
         if s.starts_with(b"<!--") {
             parse_comment(s, events)?;
         } else if s.starts_with(b"<?") {
@@ -294,11 +309,11 @@ fn parse_misc<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'input
     Ok(())
 }
 
-// XMLDecl ::= '<?xml' VersionInfo EncodingDecl? SDDecl? S? '?>'
-//
-// We don't actually return a token for the XML declaration and only validate it.
+
+
+
 fn parse_declaration(s: &mut Stream) -> Result<()> {
-    // Skip UTF-8 BOM.
+
     if s.starts_with(&[0xEF, 0xBB, 0xBF]) {
         s.advance(3);
     }
@@ -321,14 +336,15 @@ fn parse_declaration(s: &mut Stream) -> Result<()> {
         Ok(())
     }
 
-    s.advance(5); // <?xml
+    s.advance(5);
     consume_spaces(s)?;
 
-    // The `version` "attribute" is mandatory.
+
     if !s.starts_with(b"version") {
-        // Will trigger the InvalidString error, which is what we want.
+
         return s.skip_string(b"version");
     }
+
     let _ = parse_attribute(s)?;
     consume_spaces(s)?;
 
@@ -347,11 +363,11 @@ fn parse_declaration(s: &mut Stream) -> Result<()> {
     Ok(())
 }
 
-// '<!--' ((Char - '-') | ('-' (Char - '-')))* '-->'
+
 fn parse_comment<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'input>) -> Result<()> {
     let start = s.pos();
     s.advance(4);
-    let text = s.consume_chars(|s, c| !(c == '-' && s.starts_with(b"-->")))?;
+    let text = s.consume_chars(|s_2, c| !(c == '-' && s_2.starts_with(b"-->")))?;
     s.skip_string(b"-->")?;
 
     if text.contains("--") {
@@ -368,8 +384,8 @@ fn parse_comment<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'in
     Ok(())
 }
 
-// PI       ::= '<?' PITarget (S (Char* - (Char* '?>' Char*)))? '?>'
-// PITarget ::= Name - (('X' | 'x') ('M' | 'm') ('L' | 'l'))
+
+
 fn parse_pi<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'input>) -> Result<()> {
     if s.starts_with(b"<?xml ") {
         return Err(Error::UnexpectedDeclaration(s.gen_text_pos()));
@@ -379,8 +395,8 @@ fn parse_pi<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'input>)
     s.advance(2);
     let target = s.consume_name()?;
     s.skip_spaces();
-    let content = s.consume_chars(|s, c| !(c == '?' && s.starts_with(b"?>")))?;
-    let content = if !content.is_empty() {
+    let content = s.consume_chars(|s_2, c| !(c == '?' && s_2.starts_with(b"?>")))?;
+    let content_2 = if !content.is_empty() {
         Some(content)
     } else {
         None
@@ -389,7 +405,7 @@ fn parse_pi<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'input>)
     s.skip_string(b"?>")?;
 
     let range = s.range_from(start);
-    events.token(Token::ProcessingInstruction(target, content, range))?;
+    events.token(Token::ProcessingInstruction(target, content_2, range))?;
     Ok(())
 }
 
@@ -403,9 +419,11 @@ fn parse_doctype<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'in
         return Ok(());
     }
 
-    s.advance(1); // [
+    s.advance(1);
+
     while !s.at_end() {
         s.skip_spaces();
+
         if s.starts_with(b"<!ENTITY") {
             parse_entity_decl(s, events)?;
         } else if s.starts_with(b"<!--") {
@@ -413,9 +431,10 @@ fn parse_doctype<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'in
         } else if s.starts_with(b"<?") {
             parse_pi(s, events)?;
         } else if s.starts_with(b"]") {
-            // DTD ends with ']' S? '>', therefore we have to skip possible spaces.
+
             s.advance(1);
             s.skip_spaces();
+
             match s.curr_byte() {
                 Ok(b'>') => {
                     s.advance(1);
@@ -444,7 +463,7 @@ fn parse_doctype<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'in
     Ok(())
 }
 
-// doctypedecl ::= '<!DOCTYPE' S Name (S ExternalID)? S? ('[' intSubset ']' S?)? '>'
+
 fn parse_doctype_start(s: &mut Stream) -> Result<()> {
     s.advance(9);
 
@@ -456,6 +475,7 @@ fn parse_doctype_start(s: &mut Stream) -> Result<()> {
     s.skip_spaces();
 
     let c = s.curr_byte()?;
+
     if c != b'[' && c != b'>' {
         return Err(Error::InvalidChar2("'[' or '>'", c, s.gen_text_pos()));
     }
@@ -463,7 +483,7 @@ fn parse_doctype_start(s: &mut Stream) -> Result<()> {
     Ok(())
 }
 
-// ExternalID ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
+
 fn parse_external_id<'input>(s: &mut Stream<'input>) -> Result<Option<(Option<&'input str>, &'input str)>> {
     let v = if s.starts_with(b"SYSTEM") || s.starts_with(b"PUBLIC") {
         let start = s.pos();
@@ -479,9 +499,9 @@ fn parse_external_id<'input>(s: &mut Stream<'input>) -> Result<Option<(Option<&'
             Some((None, first))
         } else {
             s.consume_spaces()?;
-            let quote = s.consume_quote()?;
-            let second = s.consume_bytes(|c| c != quote);
-            s.consume_byte(quote)?;
+            let quote_2 = s.consume_quote()?;
+            let second = s.consume_bytes(|c| c != quote_2);
+            s.consume_byte(quote_2)?;
 
             Some((Some(first), second))
         }
@@ -492,9 +512,9 @@ fn parse_external_id<'input>(s: &mut Stream<'input>) -> Result<Option<(Option<&'
     Ok(v)
 }
 
-// EntityDecl  ::= GEDecl | PEDecl
-// GEDecl      ::= '<!ENTITY' S Name S EntityDef S? '>'
-// PEDecl      ::= '<!ENTITY' S '%' S Name S PEDef S? '>'
+
+
+
 fn parse_entity_decl<'input>(
     s: &mut Stream<'input>,
     events: &mut impl XmlEvents<'input>,
@@ -511,32 +531,38 @@ fn parse_entity_decl<'input>(
 
     let name = s.consume_name()?;
     s.consume_spaces()?;
-    if let Some(definition) = parse_entity_def(s, events, is_ge)? {
-        events.token(Token::EntityDeclaration(name, definition))?;
+
+    match parse_entity_def(s, events, is_ge)? {
+        Some(definition) => {
+            events.token(Token::EntityDeclaration(name, definition))?;
+        },
+        ::core::option::Option::None => {},
     }
+
     s.skip_spaces();
     s.consume_byte(b'>')?;
 
     Ok(())
 }
 
-// EntityDef   ::= EntityValue | (ExternalID NDataDecl?)
-// PEDef       ::= EntityValue | ExternalID
-// EntityValue ::= '"' ([^%&"] | PEReference | Reference)* '"' |  "'" ([^%&']
-//                             | PEReference | Reference)* "'"
-// ExternalID  ::= 'SYSTEM' S SystemLiteral | 'PUBLIC' S PubidLiteral S SystemLiteral
-// NDataDecl   ::= S 'NDATA' S Name
+
+
+
+
+
+
 fn parse_entity_def<'input>(
     s: &mut Stream<'input>,
     events: &mut impl XmlEvents<'input>,
     is_ge: bool,
 ) -> Result<Option<StrSpan<'input>>> {
     let c = s.curr_byte()?;
+
     match c {
         b'"' | b'\'' => {
             let quote = s.consume_quote()?;
             let start = s.pos();
-            s.skip_bytes(|c| c != quote);
+            s.skip_bytes(|c_2| c_2 != quote);
             let value = s.slice_back_span(start);
             s.consume_byte(quote)?;
             Ok(Some(value))
@@ -545,23 +571,24 @@ fn parse_entity_def<'input>(
             if let Some((pub_id, uri)) = parse_external_id(s)? {
                 if is_ge {
                     s.skip_spaces();
+
                     if s.starts_with(b"NDATA") {
                         s.advance(5);
                         s.consume_spaces()?;
                         s.skip_name()?;
-                        // TODO: NDataDecl is not supported
+
                     }
                 }
 
                 let value = events.resolve_entity(pub_id, uri).map_err(|msg| Error::EntityResolver(s.gen_text_pos(), msg))?;
 
                 match value {
-                    Some(value) => {
-                        let mut stream = Stream::new(value);
+                    Some(value_2) => {
+                        let mut stream = Stream::new(value_2);
                         parse_declaration(&mut stream)?;
-                        let value = StrSpan::from(&value[stream.pos..]);
+                        let value_3 = StrSpan::from(&value_2[stream.pos..]);
 
-                        Ok(Some(value))
+                        Ok(Some(value_3))
                     }
                     None => Ok(None),
                 }
@@ -582,60 +609,64 @@ fn consume_decl(s: &mut Stream) -> Result<()> {
     Ok(())
 }
 
-// EmptyElemTag ::= '<' Name (S Attribute)* S? '/>'
-// STag         ::= '<' Name (S Attribute)* S? '>'
-//
-// Returns `true` for a start tag, i.e. when the element's content still has to be parsed.
+
+
+
+
 fn parse_start_tag<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'input>) -> Result<bool> {
     let start = s.pos();
-    s.advance(1); // <
+    s.advance(1);
     let (prefix, local) = s.consume_qname()?;
     events.token(Token::ElementStart(prefix, local, start))?;
 
     let mut open = false;
+
     while !s.at_end() {
         let has_space = s.starts_with_space();
         s.skip_spaces();
-        let start = s.pos();
-        match s.curr_byte()? {
+        let start_2 = s.pos();
+
+        let checked_value = s.curr_byte()?;
+
+        match checked_value {
             b'/' => {
                 s.advance(1);
                 s.consume_byte(b'>')?;
-                let range = s.range_from(start);
+                let range = s.range_from(start_2);
                 events.token(Token::ElementEnd(ElementEnd::Empty, range))?;
                 break;
             }
             b'>' => {
                 s.advance(1);
-                let range = s.range_from(start);
+                let range = s.range_from(start_2);
                 events.token(Token::ElementEnd(ElementEnd::Open, range))?;
                 open = true;
                 break;
             }
             _ => {
-                // An attribute must be preceded with a whitespace.
+
                 if !has_space {
-                    // Will always trigger an error. Which is what we want.
+
                     s.consume_spaces()?;
                 }
 
-                // Manual inlining of `parse_attribute` for performance.
-                // We cannot mark `parse_attribute` as `#[inline(always)]`
-                // because it will blow up the binary size.
-                let (prefix, local) = s.consume_qname()?;
+
+
+
+                let (prefix_2, local_2) = s.consume_qname()?;
                 let qname_end = s.pos();
-                let qname_len = u16::try_from(qname_end - start).unwrap_or(u16::MAX);
+                let qname_len = u16::try_from(qname_end - start_2).unwrap_or(u16::MAX);
                 s.consume_eq()?;
                 let eq_len = u8::try_from(s.pos() - qname_end).unwrap_or(u8::MAX);
                 let quote = s.consume_quote()?;
-                // The attribute value must not contain the < character.
+
                 let value_start = s.pos();
                 s.advance_until2(quote, b'<')?;
                 let value = s.slice_back_span(value_start);
                 is_xml_str(value.as_str(), value_start, s)?;
                 s.consume_byte(quote)?;
                 let end = s.pos();
-                events.token(Token::Attribute(start..end, qname_len, eq_len, prefix, local, value))?;
+                events.token(Token::Attribute(start_2..end, qname_len, eq_len, prefix_2, local_2, value))?;
             }
         }
     }
@@ -643,15 +674,15 @@ fn parse_start_tag<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'
     Ok(open)
 }
 
-// Attribute ::= Name Eq AttValue
+
 fn parse_attribute<'input>(
     s: &mut Stream<'input>,
 ) -> Result<(&'input str, &'input str, StrSpan<'input>)> {
     let (prefix, local) = s.consume_qname()?;
     s.consume_eq()?;
     let quote = s.consume_quote()?;
-    let quote_c = quote as char;
-    // The attribute value must not contain the < character.
+    let quote_c = <char as ::core::convert::From<::core::primitive::u8>>::from(quote);
+
     let value_start = s.pos();
     s.skip_chars(|_, c| c != quote_c && c != '<')?;
     let value = s.slice_back_span(value_start);
@@ -659,12 +690,12 @@ fn parse_attribute<'input>(
     Ok((prefix, local, value))
 }
 
-// content ::= CharData? ((element | Reference | CDSect | PI | Comment) CharData?)*
-// element ::= EmptyElemTag | STag content ETag
-//
-// Nested elements are parsed iteratively, tracking the depth explicitly
-// instead of recursing, so deeply nested documents cannot overflow the stack.
-// An end tag at depth 0 closes the caller's element and ends this call.
+
+
+
+
+
+
 pub fn parse_content<'input>(
     s: &mut Stream<'input>,
     events: &mut impl XmlEvents<'input>,
@@ -677,6 +708,7 @@ pub fn parse_content<'input>(
                 Ok(b'!') => {
                     if s.starts_with(b"<!--") {
                         parse_comment(s, events)?;
+
                     } else if s.starts_with(b"<![CDATA[") {
                         parse_cdata(s, events)?;
                     } else {
@@ -686,13 +718,20 @@ pub fn parse_content<'input>(
                 Ok(b'?') => parse_pi(s, events)?,
                 Ok(b'/') => {
                     parse_close_element(s, events)?;
-                    if depth == 0 {
-                        break;
+
+                    match depth {
+                        0 => {
+                            break;
+                        },
+                        _ => {},
                     }
+
                     depth -= 1;
                 }
                 Ok(_) => {
-                    if parse_start_tag(s, events)? {
+                    let checked_value = parse_start_tag(s, events)?;
+
+                    if checked_value {
                         depth = depth.checked_add(1).ok_or(Error::NodesLimitReached)?;
                     }
                 }
@@ -706,27 +745,27 @@ pub fn parse_content<'input>(
     Ok(())
 }
 
-// CDSect  ::= CDStart CData CDEnd
-// CDStart ::= '<![CDATA['
-// CData   ::= (Char* - (Char* ']]>' Char*))
-// CDEnd   ::= ']]>'
+
+
+
+
 fn parse_cdata<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'input>) -> Result<()> {
     let start = s.pos();
-    s.advance(9); // <![CDATA[
-    let text = s.consume_chars(|s, c| !(c == ']' && s.starts_with(b"]]>")))?;
+    s.advance(9);
+    let text = s.consume_chars(|s_2, c| !(c == ']' && s_2.starts_with(b"]]>")))?;
     s.skip_string(b"]]>")?;
     let range = s.range_from(start);
     events.token(Token::Cdata(text, range))?;
     Ok(())
 }
 
-// '</' Name S? '>'
+
 fn parse_close_element<'input>(
     s: &mut Stream<'input>,
     events: &mut impl XmlEvents<'input>,
 ) -> Result<()> {
     let start = s.pos();
-    s.advance(2); // </
+    s.advance(2);
 
     let (prefix, tag_name) = s.consume_qname()?;
     s.skip_spaces();
@@ -744,10 +783,10 @@ fn parse_text<'input>(s: &mut Stream<'input>, events: &mut impl XmlEvents<'input
     let start = s.pos();
     let text = s.consume_chars(|_, c| c != '<')?;
 
-    // According to the spec, `]]>` must not appear inside a Text node.
-    // https://www.w3.org/TR/xml/#syntax
-    //
-    // Search for `>` first, since it's a bit faster than looking for `]]>`.
+
+
+
+
     if text.contains('>') && text.contains("]]>") {
         return Err(Error::InvalidCharacterData(s.gen_text_pos()));
     }
@@ -780,29 +819,33 @@ pub struct Stream<'input> {
 
 impl<'input> Stream<'input> {
     #[inline]
+    #[must_use]
     pub fn new(text: &'input str) -> Self {
         Stream {
             pos: 0,
             end: text.len(),
-            span: text.into(),
+            span: <crate::xml_dom::tokenizer::StrSpan<'_> as ::core::convert::From<&::core::primitive::str>>::from(text),
         }
     }
 
     #[inline]
+    #[must_use]
     pub fn from_substr(text: &'input str, fragment: Range<usize>) -> Self {
         Stream {
             pos: fragment.start,
             end: fragment.end,
-            span: text.into(),
+            span: <crate::xml_dom::tokenizer::StrSpan<'_> as ::core::convert::From<&::core::primitive::str>>::from(text),
         }
     }
 
     #[inline]
+    #[must_use]
     pub fn pos(&self) -> usize {
         self.pos
     }
 
     #[inline]
+    #[must_use]
     pub fn at_end(&self) -> bool {
         self.pos >= self.end
     }
@@ -817,6 +860,7 @@ impl<'input> Stream<'input> {
     }
 
     #[inline]
+    #[must_use]
     pub fn curr_byte_unchecked(&self) -> u8 {
         self.span.text.as_bytes()[self.pos]
     }
@@ -831,6 +875,7 @@ impl<'input> Stream<'input> {
     }
 
     #[inline]
+    #[must_use]
     fn as_bytes(&self) -> &[u8] {
         &self.span.text.as_bytes()[self.pos..self.end]
     }
@@ -842,12 +887,14 @@ impl<'input> Stream<'input> {
     }
 
     #[inline]
+    #[must_use]
     fn starts_with(&self, text: &[u8]) -> bool {
         self.span.text.as_bytes()[self.pos..self.end].starts_with(text)
     }
 
     fn consume_byte(&mut self, c: u8) -> Result<()> {
         let curr = self.curr_byte()?;
+
         if curr != c {
             return Err(Error::InvalidChar(c, curr, self.gen_text_pos()));
         }
@@ -856,14 +903,14 @@ impl<'input> Stream<'input> {
         Ok(())
     }
 
-    // Unlike `consume_byte()` will not return any errors.
+
     fn try_consume_byte(&mut self, c: u8) -> bool {
         match self.curr_byte() {
             Ok(b) if b == c => {
                 self.advance(1);
                 true
             }
-            _ => false,
+            ::core::result::Result::Ok(_) | ::core::result::Result::Err(_) => false,
         }
     }
 
@@ -871,7 +918,7 @@ impl<'input> Stream<'input> {
         if !self.starts_with(text) {
             let pos = self.gen_text_pos();
 
-            // Assume that all input `text` are valid UTF-8 strings, so unwrap is safe.
+
             let expected = str::from_utf8(text).unwrap();
 
             return Err(Error::InvalidString(expected, pos));
@@ -939,6 +986,7 @@ impl<'input> Stream<'input> {
     }
 
     #[inline]
+    #[must_use]
     fn slice_back(&self, pos: usize) -> &'input str {
         self.span.slice_region(pos, self.pos)
     }
@@ -949,6 +997,7 @@ impl<'input> Stream<'input> {
     }
 
     #[inline]
+    #[must_use]
     fn range_from(&self, start: usize) -> Range<usize> {
         start..self.pos
     }
@@ -961,11 +1010,12 @@ impl<'input> Stream<'input> {
     }
 
     #[inline]
+    #[must_use]
     fn starts_with_space(&self) -> bool {
         !self.at_end() && self.curr_byte_unchecked().is_xml_space()
     }
 
-    // Like `skip_spaces()`, but checks that first char is actually a space.
+
     fn consume_spaces(&mut self) -> Result<()> {
         if self.at_end() {
             return Err(Error::UnexpectedEndOfStream);
@@ -1000,9 +1050,13 @@ impl<'input> Stream<'input> {
                 (value, 10)
             };
 
-            let n = u32::from_str_radix(value, radix).ok()?;
+            let n = match u32::from_str_radix(value, radix) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
 
-            let c = char::from_u32(n).unwrap_or('\u{FFFD}');
+            let c = match char::from_u32(n) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => '\u{FFFD}',
+            };
+
             if !c.is_xml_char() {
                 return None;
             }
@@ -1010,6 +1064,7 @@ impl<'input> Stream<'input> {
             Reference::Char(c)
         } else {
             let name = self.consume_name().ok()?;
+
             match name {
                 "quot" => Reference::Char('"'),
                 "amp" => Reference::Char('&'),
@@ -1031,6 +1086,7 @@ impl<'input> Stream<'input> {
         self.skip_name()?;
 
         let name = self.slice_back(start);
+
         if name.is_empty() {
             return Err(Error::InvalidName(self.gen_text_pos_from(start)));
         }
@@ -1042,12 +1098,16 @@ impl<'input> Stream<'input> {
     fn skip_name(&mut self) -> Result<()> {
         let start = self.pos();
         let mut iter = self.chars();
-        if let Some(c) = iter.next() {
-            if c.is_xml_name_start() {
-                self.advance(c.len_utf8());
-            } else {
-                return Err(Error::InvalidName(self.gen_text_pos_from(start)));
-            }
+
+        match iter.next() {
+            Some(c) => {
+                if c.is_xml_name_start() {
+                    self.advance(c.len_utf8());
+                } else {
+                    return Err(Error::InvalidName(self.gen_text_pos_from(start)));
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
         for c in iter {
@@ -1071,61 +1131,75 @@ impl<'input> Stream<'input> {
         let mut splitter = None;
 
         while !self.at_end() {
-            // Check for ASCII first for performance reasons.
+
             let b = self.curr_byte_unchecked();
-            if b < 128 {
-                if b == b':' {
-                    if splitter.is_none() {
-                        splitter = Some(self.pos());
+
+            match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(b), &::core::convert::identity(128)); _explicit_ordering } {
+                ::core::cmp::Ordering::Less => {
+                    if b == b':' {
+                        match splitter {
+                            ::core::option::Option::None => {
+                                splitter = Some(self.pos());
+                                self.advance(1);
+                            },
+                            ::core::option::Option::Some(_) => {
+
+                                return Err(Error::InvalidName(self.gen_text_pos_from(start)));
+                            },
+                        }
+                    } else if b.is_xml_name() {
                         self.advance(1);
                     } else {
-                        // Multiple `:` is an error.
-                        return Err(Error::InvalidName(self.gen_text_pos_from(start)));
+                        break;
                     }
-                } else if b.is_xml_name() {
-                    self.advance(1);
-                } else {
-                    break;
-                }
-            } else {
-                // Fallback to Unicode code point.
-                match self.chars().next() {
-                    Some(c) if c.is_xml_name() => {
-                        self.advance(c.len_utf8());
+                },
+                ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {
+
+                    match self.chars().next() {
+                        Some(c) if c.is_xml_name() => {
+                            self.advance(c.len_utf8());
+                        }
+                        ::core::option::Option::None | ::core::option::Option::Some(_) => break,
                     }
-                    _ => break,
-                }
+                },
             }
         }
 
-        let (prefix, local) = if let Some(splitter) = splitter {
-            let prefix = self.span.slice_region(start, splitter);
-            let local = self.slice_back(splitter + 1);
-            (prefix, local)
-        } else {
-            let local = self.slice_back(start);
-            // Slice an empty prefix. This way we can preserve attribute start position.
-            (self.span.slice_region(start, start), local)
+        let (prefix, local) = match splitter {
+            Some(splitter_2) => {
+                let prefix = self.span.slice_region(start, splitter_2);
+                let local = self.slice_back(splitter_2 + 1);
+                (prefix, local)
+            },
+            ::core::option::Option::None => {
+                let local = self.slice_back(start);
+
+                (self.span.slice_region(start, start), local)
+            },
         };
 
+        #[must_use]
         fn is_xml_name_start(name: &str) -> bool {
-            if let Some(b) = name.as_bytes().first() {
-                if *b < 128 {
-                    return b.is_xml_name_start();
-                } else if let Some(c) = name.chars().next() {
-                    return c.is_xml_name_start();
-                }
+            match name.as_bytes().first() {
+                Some(b) => {
+                    if *b < 128 {
+                        return b.is_xml_name_start();
+                    } else if let Some(c) = name.chars().next() {
+                        return c.is_xml_name_start();
+                    }
+                },
+                ::core::option::Option::None => {},
             }
 
             false
         }
 
-        // Prefix must be empty or start with a `NameStartChar`.
+
         if !prefix.is_empty() && !is_xml_name_start(prefix) {
             return Err(Error::InvalidName(self.gen_text_pos_from(start)));
         }
 
-        // Local name must start with a `NameStartChar`.
+
         if !is_xml_name_start(local) {
             return Err(Error::InvalidName(self.gen_text_pos_from(start)));
         }
@@ -1143,6 +1217,7 @@ impl<'input> Stream<'input> {
 
     fn consume_quote(&mut self) -> Result<u8> {
         let c = self.curr_byte()?;
+
         if c == b'\'' || c == b'"' {
             self.advance(1);
             Ok(c)
@@ -1155,6 +1230,7 @@ impl<'input> Stream<'input> {
     ///
     /// This operation is very expensive. Use only for errors.
     #[inline(never)]
+    #[must_use]
     pub fn gen_text_pos(&self) -> TextPos {
         let text = self.span.as_str();
         let end = self.pos;
@@ -1168,14 +1244,17 @@ impl<'input> Stream<'input> {
     ///
     /// This operation is very expensive. Use only for errors.
     #[inline(never)]
+    #[must_use]
     pub fn gen_text_pos_from(&self, pos: usize) -> TextPos {
         let mut s = self.clone();
         s.pos = core::cmp::min(pos, s.span.as_str().len());
         s.gen_text_pos()
     }
 
+    #[must_use]
     fn calc_curr_row(text: &str, end: usize) -> u32 {
         let mut row = 1;
+
         for c in &text.as_bytes()[..end] {
             if *c == b'\n' {
                 row += 1;
@@ -1185,13 +1264,18 @@ impl<'input> Stream<'input> {
         row
     }
 
+    #[must_use]
     fn calc_curr_col(text: &str, end: usize) -> u32 {
         let mut col = 1;
+
         for c in text[..end].chars().rev() {
-            if c == '\n' {
-                break;
-            } else {
-                col += 1;
+            match c {
+                '\n' => {
+                    break;
+                },
+                _ => {
+                    col += 1;
+                },
             }
         }
 

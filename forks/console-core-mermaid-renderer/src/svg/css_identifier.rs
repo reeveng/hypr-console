@@ -9,12 +9,13 @@ use std::fmt::Write;
 /// attributes and CSS `url(#fragment)` values use their own escaping paths.
 ///
 /// Borrows the identifier when serialization preserves its spelling.
+#[must_use]
 pub(crate) fn escape_css_identifier(identifier: &str) -> Cow<'_, str> {
     let first = identifier.chars().next();
     let mut escaped: Option<String> = None;
 
     for (index, (byte_index, character)) in identifier.char_indices().enumerate() {
-        let code_point = character as u32;
+        let code_point = <u32 as ::core::convert::From<::core::primitive::char>>::from(character);
         let is_null = character == '\0';
         let is_control = code_point <= 0x1f || code_point == 0x7f;
         let is_leading_digit =
@@ -28,32 +29,37 @@ pub(crate) fn escape_css_identifier(identifier: &str) -> Cow<'_, str> {
             || !character.is_ascii();
 
         if !is_null && !is_hex_escape && !is_single_hyphen && is_literal {
-            if let Some(escaped) = &mut escaped {
-                escaped.push(character);
+            match &mut escaped {
+                Some(escaped_2) => {
+                    escaped_2.push(character);
+                },
+                ::core::option::Option::None => {},
             }
+
             continue;
         }
 
-        let escaped = escaped.get_or_insert_with(|| {
-            let mut escaped = String::with_capacity(identifier.len());
-            escaped.push_str(&identifier[..byte_index]);
-            escaped
+        let escaped_4 = escaped.get_or_insert_with(|| {
+            let mut escaped_3 = String::with_capacity(identifier.len());
+            escaped_3.push_str(&identifier[..byte_index]);
+            escaped_3
         });
+
         if is_null {
-            escaped.push('\u{fffd}');
+            escaped_4.push('\u{fffd}');
         } else if is_hex_escape {
-            write!(escaped, "\\{code_point:x} ")
+            write!(escaped_4, "\\{code_point:x} ")
                 .expect("writing a CSS identifier escape to String cannot fail");
         } else if is_single_hyphen {
-            escaped.push_str("\\-");
+            escaped_4.push_str("\\-");
         } else {
-            escaped.push('\\');
-            escaped.push(character);
+            escaped_4.push('\\');
+            escaped_4.push(character);
         }
     }
 
     match escaped {
-        Some(escaped) => Cow::Owned(escaped),
+        Some(escaped_5) => Cow::Owned(escaped_5),
         None => Cow::Borrowed(identifier),
     }
 }

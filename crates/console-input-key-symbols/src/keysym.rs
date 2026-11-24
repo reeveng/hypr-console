@@ -285,19 +285,7 @@ impl Keysym {
 
             Ok(Keysym(u32::from(byte.to_ascii_uppercase())))
           }
-          ::core::option::Option::None => {
-            let Ok(mapping) = KEYSYM_TO_UPPER_KEYSYM.candidate(&held);
-
-            Ok(match mapping {
-              Some(found) => {
-                match ::core::primitive::bool::then_some(u32::from(found.keysym) == held, ()) {
-                  ::core::option::Option::Some(()) => Self(found.other),
-                  ::core::option::Option::None => self,
-                }
-              }
-              None => self,
-            })
-          }
+          ::core::option::Option::None => self.legacy_uppercase(),
         }
       }
       ::core::option::Option::None => {
@@ -309,6 +297,16 @@ impl Keysym {
         }
       }
     }
+  }
+
+  fn legacy_uppercase(self) -> Result<Self, Never> {
+    let Ok(mapping) = KEYSYM_TO_UPPER_KEYSYM.candidate(&self.0);
+    let exact = mapping.filter(|found| u32::from(found.keysym) == self.0);
+
+    Ok(match exact {
+      Some(found) => Self(found.other),
+      None => self,
+    })
   }
 
   #[cold]

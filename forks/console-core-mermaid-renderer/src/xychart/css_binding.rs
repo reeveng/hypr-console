@@ -17,17 +17,18 @@ pub(super) struct XyChartCssBinding {
 }
 
 impl XyChartCssBinding {
+    #[must_use]
     pub(super) fn resolve(config: &Value) -> Self {
         let variables = config.get("themeVariables");
         let raw = |key: &str| {
             variables
-                .and_then(|variables| variables.get(key))
+                .and_then(|variables_2| variables_2.get(key))
                 .and_then(Value::as_str)
         };
         let nested = |key: &str| {
             variables
-                .and_then(|variables| variables.get("xyChart"))
-                .and_then(|variables| variables.get(key))
+                .and_then(|variables_3| variables_3.get("xyChart"))
+                .and_then(|variables_4| variables_4.get(key))
                 .and_then(Value::as_str)
         };
         let primary_text = raw("primaryTextColor").unwrap_or("#131300");

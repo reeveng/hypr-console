@@ -1059,6 +1059,7 @@ where
     {
       let Ok(()) = Self::open_contour(&mut self.contour_start, self.sink);
     };
+
     Ok(())
   }
 
@@ -1179,6 +1180,7 @@ where
       let Ok(()) = self.ensure_open();
       self.sink.line_to(x, y);
     };
+
     Ok(())
   }
 
@@ -1268,6 +1270,7 @@ where
       self.stack.clear();
       self.stack_ix = 0;
     };
+
     Ok(())
   }
 }
@@ -1939,90 +1942,41 @@ mod tests {
   use crate::{FontData, FontRead, tables::variations::ItemVariationStore, types::F2Dot14};
 
   #[test]
-  fn cff2_example_subr() -> ::core::result::Result<(), crate::test_support::Failure> {
+  fn cff2_example_subr() -> Result<(), crate::test_support::Failure> {
+    use crate::test_support::fixture_value;
     use Command::*;
-    let charstring = &*match <[_]>::get(&*font_test_data::cff2::EXAMPLE, 0xc8..=0xe1) {
-      ::core::option::Option::Some(indexed_value) => indexed_value,
-      ::core::option::Option::None => {
-        return ::core::result::Result::Err(crate::test_support::Failure::from(
-          crate::read::ReadError::OutOfBounds,
-        ));
-      }
-    };
-    let store = ItemVariationStore::read({
-      let Ok(explicit_value) =
-        FontData::new(&*match <[_]>::get(&*font_test_data::cff2::EXAMPLE, 18..) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::test_support::Failure::from(
-              crate::read::ReadError::OutOfBounds,
-            ));
-          }
-        });
-      explicit_value
-    })?;
-    let coords = &[{
-      let Ok(value) = F2Dot14::from_f32(0.0);
-      value
-    }];
-    let blend_state =
-      crate::test_support::fixture_value(BlendState::new(store, coords, 0), "fixture value")?;
+
+    let cff2 = font_test_data::cff2::EXAMPLE;
+    let charstring = fixture_value(cff2.get(0xc8..=0xe1), "CFF2 example subroutine")?;
+    let variations = fixture_value(cff2.get(18..), "CFF2 example variation store")?;
+    let Ok(variation_data) = FontData::new(variations);
+    let store = ItemVariationStore::read(variation_data)?;
+    let coords = &[F2Dot14::ZERO];
+    let blend = fixture_value(
+      BlendState::new(store, coords, 0),
+      "CFF2 example blend state",
+    )?;
     let mut commands = CaptureCommandSink::default();
-    crate::test_support::fixture_value(
-      evaluate(
-        &NullContext(CharstringKind::Type2),
-        Some(blend_state),
-        charstring,
-        &mut commands,
-      ),
-      "fixture value",
+    evaluate(
+      &NullContext(CharstringKind::Type2),
+      Some(blend),
+      charstring,
+      &mut commands,
     )?;
 
+    let Ok(left) = Fixed::from_i32(50);
+    let Ok(right) = Fixed::from_i32(550);
+    let Ok(top) = Fixed::from_i32(500);
     let expected = &[
-      Move(
-        {
-          let Ok(explicit_value) = Fixed::from_f64(50.0);
-          explicit_value
-        },
-        Fixed::ZERO,
-      ),
-      Line(
-        {
-          let Ok(explicit_value) = Fixed::from_f64(550.0);
-          explicit_value
-        },
-        Fixed::ZERO,
-      ),
-      Line(
-        {
-          let Ok(value) = Fixed::from_f64(550.0);
-          value
-        },
-        {
-          let Ok(value) = Fixed::from_f64(500.0);
-          value
-        },
-      ),
-      Line(
-        {
-          let Ok(value) = Fixed::from_f64(50.0);
-          value
-        },
-        {
-          let Ok(value) = Fixed::from_f64(500.0);
-          value
-        },
-      ),
-      Line(
-        {
-          let Ok(explicit_value) = Fixed::from_f64(50.0);
-          explicit_value
-        },
-        Fixed::ZERO,
-      ),
+      Move(left, Fixed::ZERO),
+      Line(right, Fixed::ZERO),
+      Line(right, top),
+      Line(left, top),
+      Line(left, Fixed::ZERO),
     ];
     assert_eq!(&commands.0, expected);
-    ::core::result::Result::Ok(())
+
+    Ok(())
   }
 
   #[test]

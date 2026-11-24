@@ -3,7 +3,6 @@
 use console_core_number_conversion::{fitted, index};
 #[cfg(feature = "c-ffi")]
 use console_core_number_conversion::{fixed_index, indices_from};
-use console_core_synchronization::nonpoison::try_guard;
 
 use crate::include::common::intops::clip_u8;
 use crate::include::common::intops::ulog2;
@@ -73,6 +72,7 @@ use crate::src::internal::Rav1dTileGroup;
 use crate::src::internal::Rav1dTileGroupHeader;
 use crate::src::levels::ObuMetaType;
 use crate::src::log::Rav1dLog as _;
+use crate::src::managed::Strictness;
 use crate::src::mem::try_arc;
 use crate::src::picture::rav1d_picture_copy_props;
 use crate::src::picture::{PictureFlags, Rav1dThreadPicture};
@@ -90,11 +90,11 @@ enum HeaderCompliance {
   Relaxed,
 }
 
-impl From<bool> for HeaderCompliance {
-  fn from(strict: bool) -> Self {
-    match strict.then_some(()) {
-      Some(()) => Self::Strict,
-      None => Self::Relaxed,
+impl From<Strictness> for HeaderCompliance {
+  fn from(strictness: Strictness) -> Self {
+    match strictness {
+      Strictness::Strict => Self::Strict,
+      Strictness::Lenient => Self::Relaxed,
     }
   }
 }
@@ -3005,29 +3005,17 @@ fn parse_frame_hdr(
     1.. => return parse_existing_frame_header(state, seqhdr, layer, gb),
   }
 
-  let NewFramePrefix {
-    frame_presentation_delay,
+  let (mut header, dimensions) = frame_prefix_header(seqhdr, layer, &debug, gb)?;
+  let Rav1dFrameHeader {
     frame_type,
-    show_frame,
-    showable_frame,
-    error_resilient_mode,
-    disable_cdf_update,
-    screen_tools,
-    force_integer_mv,
-    frame_id,
-    dimensions,
     frame_offset,
-    primary_ref_frame,
-  } = parse_new_frame_prefix(seqhdr, &debug, gb)?;
-  let BufferRemovalTimes {
-    present: buffer_removal_time_present,
-    points: operating_points,
-  } = parse_buffer_removal_times(seqhdr, &layer, gb)?;
-  let ParseFrameHdrArguments {
-    temporal_id,
-    spatial_id,
-  } = layer;
-  let allow_screen_content_tools = matches!(screen_tools, ScreenContentTools::Enabled);
+    frame_id,
+    show_frame,
+    error_resilient_mode,
+    allow_screen_content_tools,
+    force_integer_mv,
+    ..
+  } = header;
 
   let refresh_frame_flags;
   let size;
@@ -3069,7 +3057,7 @@ fn parse_frame_hdr(
       }
 
       match ::core::primitive::bool::then_some(
-        c.strict_std_compliance
+        matches!(c.strictness, Strictness::Strict)
           && frame_type == Rav1dFrameType::Intra
           && refresh_frame_flags == 0xff,
         (),
@@ -3163,36 +3151,15 @@ fn parse_frame_hdr(
 
   let Ok(()) = debug.post(gb, "frametype-specific-bits");
 
-  let mut header = Rav1dFrameHeader {
-    size,
-    frame_type,
-    frame_offset,
-    temporal_id,
-    spatial_id,
-    show_existing_frame,
-    existing_frame_idx: 0,
-    frame_id,
-    frame_presentation_delay,
-    show_frame,
-    showable_frame,
-    error_resilient_mode,
-    disable_cdf_update,
-    allow_screen_content_tools,
-    force_integer_mv,
-    frame_size_override: dimensions == FrameDimensions::Override,
-    primary_ref_frame,
-    buffer_removal_time_present,
-    operating_points,
-    refresh_frame_flags,
-    allow_intrabc: intrabc == IntraBlockCopy::Allowed,
-    frame_ref_short_signaling,
-    refidx,
-    hp: precision == GlobalMvPrecision::EighthPel,
-    subpel_filter_mode,
-    switchable_motion_mode,
-    use_ref_frame_mvs,
-    ..Default::default()
-  };
+  header.size = size;
+  header.refresh_frame_flags = refresh_frame_flags;
+  header.allow_intrabc = intrabc == IntraBlockCopy::Allowed;
+  header.frame_ref_short_signaling = frame_ref_short_signaling;
+  header.refidx = refidx;
+  header.hp = precision == GlobalMvPrecision::EighthPel;
+  header.subpel_filter_mode = subpel_filter_mode;
+  header.switchable_motion_mode = switchable_motion_mode;
+  header.use_ref_frame_mvs = use_ref_frame_mvs;
   let quantization = parse_frame_filters(state, seqhdr, &mut header, intrabc, &debug, gb)?;
   parse_frame_features(
     state,
@@ -3204,6 +3171,60 @@ fn parse_frame_hdr(
     gb,
   )?;
   Ok(header)
+}
+
+fn frame_prefix_header(
+  seqhdr: &Rav1dSequenceHeader,
+  layer: ParseFrameHdrArguments,
+  debug: &Debug,
+  gb: &mut GetBits,
+) -> Rav1dResult<(Rav1dFrameHeader, FrameDimensions)> {
+  let NewFramePrefix {
+    frame_presentation_delay,
+    frame_type,
+    show_frame,
+    showable_frame,
+    error_resilient_mode,
+    disable_cdf_update,
+    screen_tools,
+    force_integer_mv,
+    frame_id,
+    dimensions,
+    frame_offset,
+    primary_ref_frame,
+  } = parse_new_frame_prefix(seqhdr, debug, gb)?;
+  let BufferRemovalTimes {
+    present: buffer_removal_time_present,
+    points: operating_points,
+  } = parse_buffer_removal_times(seqhdr, &layer, gb)?;
+  let ParseFrameHdrArguments {
+    temporal_id,
+    spatial_id,
+  } = layer;
+  let allow_screen_content_tools = matches!(screen_tools, ScreenContentTools::Enabled);
+
+  Ok((
+    Rav1dFrameHeader {
+      frame_type,
+      frame_offset,
+      temporal_id,
+      spatial_id,
+      frame_id,
+      frame_presentation_delay,
+      show_frame,
+      showable_frame,
+      error_resilient_mode,
+      disable_cdf_update,
+      allow_screen_content_tools,
+      force_integer_mv,
+      frame_size_override: dimensions == FrameDimensions::Override,
+      primary_ref_frame,
+      buffer_removal_time_present,
+      operating_points,
+      ..Default::default()
+    },
+    dimensions,
+  ))
 }
 
 struct ParseFrameHdrArguments {
@@ -3406,7 +3427,7 @@ fn existing_picture(
 ) -> Rav1dResult<Rav1dThreadPicture> {
   let Ok(position) = console_core_number_conversion::index(slot);
   let reference = state.refs.get(position).ok_or(EINVAL)?;
-  let itut_t35 = Rav1dITUTT35::to_immut(&mut state.itut_t35)?;
+  let Ok(itut_t35) = Rav1dITUTT35::freeze(std::mem::take(&mut state.itut_t35));
   let mut picture = reference.p.clone();
   let Ok(()) = rav1d_picture_copy_props(
     &mut picture.p,
@@ -3425,7 +3446,7 @@ fn refresh_existing_key(state: &mut Rav1dState, slot: u8) -> Rav1dResult {
   let (original, later_references) = references.split_first_mut().ok_or(EINVAL)?;
   let (earlier_cdf, cdfs) = state.cdf.split_at_mut_checked(position).ok_or(EINVAL)?;
   let (original_cdf, later_cdf) = cdfs.split_first_mut().ok_or(EINVAL)?;
-  original.p.showable = false;
+  let Ok(()) = original.p.presentation.consume_showability();
 
   let other_references = earlier_references.iter_mut().chain(later_references);
   let other_cdfs = earlier_cdf.iter_mut().chain(later_cdf);
@@ -3462,8 +3483,15 @@ fn present_existing_frame(
     FrameDecoding::Decode => {}
   }
 
+  use crate::src::picture::FramePresentation;
+  let showable = matches!(
+    reference.p.presentation,
+    FramePresentation::HiddenShowable | FramePresentation::VisibleShowable
+  );
+
   match ::core::primitive::bool::then_some(
-    reference.p.p.data.is_none() || (decoder.strict_std_compliance && !reference.p.showable),
+    reference.p.p.data.is_none()
+      || (matches!(decoder.strictness, Strictness::Strict) && !showable),
     (),
   ) {
     ::core::option::Option::Some(()) => return Err(EINVAL),
@@ -3486,7 +3514,7 @@ fn present_existing_frame(
       } = reserve_delayed_frame(decoder, state)?;
       let Ok(delayed_index) = console_core_number_conversion::index(index);
       let mut picture = existing_picture(state, slot, props)?;
-      picture.visible = true;
+      let Ok(()) = picture.presentation.show();
       let delayed = state
         .frame_thread
         .out_delayed
@@ -3566,10 +3594,9 @@ fn install_sequence_header(
   state: &mut Rav1dState,
   gb: &mut GetBits,
 ) -> Rav1dResult {
-  let seq_hdr =
-    parse_seq_hdr(gb, HeaderCompliance::from(c.strict_std_compliance)).inspect_err(|_| {
-      writeln!(c.logger, "Error parsing sequence header");
-    })?;
+  let seq_hdr = parse_seq_hdr(gb, HeaderCompliance::from(c.strictness)).inspect_err(|_| {
+    writeln!(c.logger, "Error parsing sequence header");
+  })?;
 
   gb.check()?;
 
@@ -3763,7 +3790,7 @@ fn parse_frame_obu(
   state.n_tiles = 0;
 
   match (kind != Rav1dObuType::Frame).then_some(()) {
-    Some(()) => check_trailing_bits(gb, HeaderCompliance::from(c.strict_std_compliance))?,
+    Some(()) => check_trailing_bits(gb, HeaderCompliance::from(c.strictness))?,
     None => {}
   }
 
@@ -3817,7 +3844,7 @@ fn parse_metadata_obu(
         format_args!("max-frame-average-light-level: {max_frame_average_light_level}"),
       );
 
-      check_trailing_bits(gb, HeaderCompliance::from(c.strict_std_compliance))?;
+      check_trailing_bits(gb, HeaderCompliance::from(c.strictness))?;
 
       let arc = try_arc(Rav1dContentLightLevel {
         max_content_light_level,
@@ -3854,7 +3881,7 @@ fn parse_metadata_obu(
       let Ok(()) = debug_3.log(&gb, format_args!("max-luminance: {max_luminance}"));
       let Ok(min_luminance) = gb.get_bits(32);
       let Ok(()) = debug_3.log(&gb, format_args!("min-luminance: {min_luminance}"));
-      check_trailing_bits(gb, HeaderCompliance::from(c.strict_std_compliance))?;
+      check_trailing_bits(gb, HeaderCompliance::from(c.strictness))?;
 
       let arc = try_arc(Rav1dMasteringDisplay {
         primaries,
@@ -3876,8 +3903,7 @@ fn parse_metadata_obu(
               &[::core::primitive::u8],
             >>::from(payload),
           };
-          let mut messages = try_guard(state.itut_t35.try_lock()).ok_or(EINVAL)?;
-          messages.push(itut_t35);
+          state.itut_t35.push(itut_t35);
         }
         Err(T35Error::Malformed) => {
           writeln!(c.logger, "Malformed ITU-T T.35 metadata message format");
@@ -3906,7 +3932,7 @@ fn parse_obus(
   props: &Rav1dDataProps,
   gb: &mut GetBits,
 ) -> Rav1dResult<()> {
-  let header = read_obu_header(gb, HeaderCompliance::from(c.strict_std_compliance))?;
+  let header = read_obu_header(gb, HeaderCompliance::from(c.strictness))?;
   let Ok(admission) = header.for_operating_point(state.operating_point_idc);
 
   match admission {

@@ -2862,6 +2862,7 @@ hull starts at the last row. See [`Self::block_hull`]."###]
 #[cfg(feature = "c-ffi")]
 pub struct Rav1dPictureData {
   pub data: [Rav1dPictureDataComponent; 3],
+  pub(crate) frame_progress: Option<[std::sync::atomic::AtomicU32; 2]>,
   pub(crate) allocator_data: Option<Dav1dOpaquePointer>,
   pub(crate) allocator: Rav1dPicAllocator,
 }
@@ -2869,6 +2870,7 @@ pub struct Rav1dPictureData {
 #[cfg(not(feature = "c-ffi"))]
 pub struct Rav1dPictureData {
   pub data: [Rav1dPictureDataComponent; 3],
+  pub(crate) frame_progress: Option<[std::sync::atomic::AtomicU32; 2]>,
   pub(crate) allocator: Rav1dPicAllocator,
 }
 
@@ -2879,6 +2881,7 @@ impl Drop for Rav1dPictureData {
       data,
       allocator_data,
       allocator,
+      ..
     } = self;
     let Ok(()) = allocator.dealloc_picture_data(data, *allocator_data);
   }
@@ -3433,6 +3436,86 @@ impl From<Rav1dPicAllocator> for Dav1dPicAllocator {
 }
 
 #[cfg(feature = "c-ffi")]
+pub(crate) enum BufferReturn {
+  Free,
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the C picture release callback may return the buffer after its decoder has closed"
+    )
+  )]
+  Recycle(Arc<MemPool<u8>>),
+}
+
+#[doc = "# Safety
+
+The allocation callback must lend every initialized plane to the picture until the matching release callback."]
+#[cfg(feature = "c-ffi")]
+#[cfg_attr(
+  dylint_lib = "explicit058_contain_unsafe",
+  expect(
+    explicit058_contain_unsafe,
+    reason = "C allocation descriptors are paired with their release callback"
+  )
+)]
+unsafe fn allocated_picture_planes(
+  picture: &Rav1dPicture,
+  data: [Option<NonNull<c_void>>; 3],
+) -> Rav1dResult<[Rav1dPictureDataComponent; 3]> {
+  let [luma, chroma] = picture.stride.map(|stride| {
+    let Ok(fixed) = console_core_number_conversion::fixed_offset(stride);
+    fixed
+  });
+  let [luma_bytes, chroma_bytes] = picture.p.pic_len([luma, chroma])?;
+  let y_layout = CPlaneLayout {
+    length: luma_bytes,
+    stride: luma,
+  };
+  let uv_layout = CPlaneLayout {
+    length: chroma_bytes,
+    stride: chroma,
+  };
+  let [y, u, v] = data.map(|pointer| pointer.map(NonNull::cast));
+
+  match {
+    ::core::primitive::bool::then_some(
+      y.is_none()
+        || (picture.p.layout != Rav1dPixelLayout::I400 && (u.is_none() || v.is_none())),
+      (),
+    )
+  } {
+    ::core::option::Option::Some(()) => {
+      return Err(EINVAL);
+    }
+    ::core::option::Option::None => {}
+  }
+
+  // SAFETY: A successful allocation callback lends each initialized plane until release.
+  let (y_2, u_2, v_2) = unsafe {
+    (
+      {
+        let checked_value = Rav1dPictureDataComponentInner::new(y, y_layout)?;
+        checked_value
+      },
+      {
+        let checked_value_2 = Rav1dPictureDataComponentInner::new(u, uv_layout)?;
+        checked_value_2
+      },
+      {
+        let checked_value_3 = Rav1dPictureDataComponentInner::new(v, uv_layout)?;
+        checked_value_3
+      },
+    )
+  };
+
+  Ok([y_2, u_2, v_2].map(|inner| {
+    let Ok(component) = Rav1dPictureDataComponent::from_parts(inner);
+    component
+  }))
+}
+
+#[cfg(feature = "c-ffi")]
 impl Rav1dPicAllocator {
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
@@ -3478,7 +3561,10 @@ impl Rav1dPicAllocator {
     };
     let mut pic_c = Dav1dPicture::from(pic);
     let status = match &self.default_pool {
-      Some(pool) => Self::default_picture_alloc_with_pool(&mut pic_c, Arc::clone(pool)),
+      Some(pool) => {
+        let release = BufferReturn::Recycle(Arc::clone(pool));
+        Self::allocate_default_buffer(&mut pic_c, release)
+      }
       None => {
         // SAFETY: The initialized picture has empty allocation fields and a live callback cookie.
         let status = unsafe { (self.alloc_picture_callback)(&mut pic_c, self.cookie) };
@@ -3508,59 +3594,10 @@ impl Rav1dPicAllocator {
       }
     };
 
-    let make_components = || -> Rav1dResult<[Rav1dPictureDataComponent; 3]> {
-      let [luma, chroma] = picture.stride.map(|stride| {
-        let Ok(fixed) = console_core_number_conversion::fixed_offset(stride);
-        fixed
-      });
-      let [luma_bytes, chroma_bytes] = picture.p.pic_len([luma, chroma])?;
-      let y_layout = CPlaneLayout {
-        length: luma_bytes,
-        stride: luma,
-      };
-      let uv_layout = CPlaneLayout {
-        length: chroma_bytes,
-        stride: chroma,
-      };
-      let [y, u, v] = data.map(|pointer| pointer.map(NonNull::cast));
+    // SAFETY: The successful allocator call above lent these planes until release.
+    let mapped_planes = unsafe { allocated_picture_planes(&picture, data) };
 
-      match {
-        ::core::primitive::bool::then_some(
-          y.is_none()
-            || (picture.p.layout != Rav1dPixelLayout::I400 && (u.is_none() || v.is_none())),
-          (),
-        )
-      } {
-        ::core::option::Option::Some(()) => {
-          return Err(EINVAL);
-        }
-        ::core::option::Option::None => {}
-      }
-
-      // SAFETY: A successful allocation callback lends each initialized plane until release.
-      let (y_2, u_2, v_2) = unsafe {
-        (
-          {
-            let checked_value = Rav1dPictureDataComponentInner::new(y, y_layout)?;
-            checked_value
-          },
-          {
-            let checked_value_2 = Rav1dPictureDataComponentInner::new(u, uv_layout)?;
-            checked_value_2
-          },
-          {
-            let checked_value_3 = Rav1dPictureDataComponentInner::new(v, uv_layout)?;
-            checked_value_3
-          },
-        )
-      };
-
-      Ok([y_2, u_2, v_2].map(|inner| {
-        let Ok(component) = Rav1dPictureDataComponent::from_parts(inner);
-        component
-      }))
-    };
-    let components = match make_components() {
+    let components = match mapped_planes {
       Ok(components) => components,
       Err(error) => {
         let Ok(()) = self.release_buffers(data, allocator_data);
@@ -3570,6 +3607,7 @@ impl Rav1dPicAllocator {
 
     picture.data = Some(Arc::new(Rav1dPictureData {
       data: components,
+      frame_progress: None,
       allocator_data,
       allocator: self.clone(),
     }));
@@ -3690,6 +3728,7 @@ impl Rav1dPicAllocator {
       stride: [y_stride, uv_stride],
       data: Some(Arc::new(Rav1dPictureData {
         data,
+        frame_progress: None,
         allocator: self.clone(),
       })),
       ..Default::default()

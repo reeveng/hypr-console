@@ -91,7 +91,7 @@ pub(super) fn render_class_split_edge_paths<'edges, O: SvgOutput>(
     bounds_dx: f64,
     bounds_dy: f64,
 ) -> crate::Result<ClassEdgePathEmission<'edges>> {
-    let local_ctx = local_edge_context(ctx, bounds_dx, bounds_dy);
+    let local_ctx = local_edge_context(ctx, self::LocalEdgeContextArguments { bounds_dx, bounds_dy });
     render_class_edge_paths(out, content_bounds, detail, theme_receipt, &local_ctx)
 }
 
@@ -110,7 +110,7 @@ pub(super) fn render_class_split_edge_labels<O: SvgOutput>(
     bounds_dy: f64,
     path_emission: &ClassEdgePathEmission<'_>,
 ) -> crate::Result<()> {
-    let local_ctx = local_edge_context(ctx, bounds_dx, bounds_dy);
+    let local_ctx = local_edge_context(ctx, self::LocalEdgeContextArguments { bounds_dx, bounds_dy });
     render_class_edge_labels(
         out,
         content_bounds,
@@ -122,10 +122,10 @@ pub(super) fn render_class_split_edge_labels<O: SvgOutput>(
     )
 }
 
+#[must_use]
 fn local_edge_context<'a>(
     ctx: &ClassSplitEdgeGroupsRenderContext<'a>,
-    bounds_dx: f64,
-    bounds_dy: f64,
+    LocalEdgeContextArguments { bounds_dx, bounds_dy }: LocalEdgeContextArguments,
 ) -> ClassEdgeGroupsRenderContext<'a> {
     ClassEdgeGroupsRenderContext {
         edges: ctx.edges,
@@ -156,4 +156,9 @@ fn local_edge_context<'a>(
         capture_text_facts: ctx.capture_text_facts,
         emit: ctx.emit,
     }
+}
+
+struct LocalEdgeContextArguments {
+    bounds_dx: f64,
+    bounds_dy: f64,
 }

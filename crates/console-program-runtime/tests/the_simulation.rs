@@ -9,15 +9,15 @@ use std::time::Duration;
 
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue, Transition};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_program_contract::{
-  Answer, Command, Effect, Event, Exit, ExitStatus, FileWrite, Fork, Task, JobId, JobOwner,
-  Subscription, Timer, WriteAnswer, WriteFailure, WriteStage,
+  Answer, Command, Effect, EffectKind, Event, Exit, ExitStatus, FileWrite, Fork, JobId, JobOwner,
+  Subscription, Task, Timer, WriteAnswer, WriteFailure, WriteStage,
 };
 use console_program_lifetime::threads;
 use console_program_runtime::simulation::{After, Expected, Simulation, SimulationError};
 use console_program_runtime::{
-  ExecutionError, Inline, Invocation, Limit, PlacementError, Platform, Seeded, Subscribed,
+  Clock, ExecutionError, Inline, Invocation, Limit, PlacementError, Platform, Seeded, Subscribed,
   TransitionExecutor, Wake, execute, execute_with, provide,
 };
 
@@ -33,6 +33,14 @@ const LATE: Timer = Timer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 enum Work {
   Record(u32),
+}
+
+impl EffectDependencies for Work {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Record(_) => &[],
+    })
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -415,7 +423,7 @@ fn missing_arrivals_fail_instead_of_hanging() {
 
   assert!(matches!(
     result,
-    Err(ExecutionError::Platform(SimulationError::MissingArrival))
+    Err(ExecutionError::Receive(SimulationError::MissingArrival))
   ));
 }
 
@@ -430,9 +438,10 @@ fn unexpected_effects_fail_instead_of_being_stubbed_as_success() {
 
   assert!(matches!(
     result,
-    Err(ExecutionError::Platform(SimulationError::UnexpectedEffect(
-      0
-    )))
+    Err(ExecutionError::Perform {
+      effect: EffectKind::Custom,
+      error: SimulationError::UnexpectedEffect(0),
+    })
   ));
 }
 
@@ -447,10 +456,51 @@ fn unfinished_scripts_cannot_be_reported_as_complete() {
 
   assert_eq!(
     result.map(|_completed| ()),
-    Err(ExecutionError::Platform(SimulationError::Unfinished {
-      effects: 1,
-      arrivals: 0
-    }))
+    Err(ExecutionError::Cleanup {
+      error: SimulationError::Unfinished {
+        effects: 1,
+        arrivals: 0
+      },
+      outcome: Ok(Exit::Success),
+    })
+  );
+}
+
+#[test]
+fn cleanup_preserves_a_runtime_failure_and_a_program_exit() {
+  let remaining = Expected {
+    effect: Effect::Custom(Work::Record(1)),
+    replies: Vec::new(),
+  };
+  let Ok(mut world) = Simulation::<Request, Work>::new(vec![remaining.clone()], Subscribed::No);
+
+  assert_eq!(
+    execute::<Program, _>(&Rules::default(), &mut world, Limit::Turns(0)).map(|_| ()),
+    Err(ExecutionError::Cleanup {
+      error: SimulationError::Unfinished {
+        effects: 1,
+        arrivals: 0
+      },
+      outcome: Err(Box::new(ExecutionError::TurnLimit(0))),
+    })
+  );
+
+  let exit = Exit::Failure("the program refused to continue".to_string());
+  let rules = Rules {
+    initialized: vec![Effect::Stop(exit.clone())],
+    ..Rules::default()
+  };
+  let Ok(mut world_2) = Simulation::<Request, Work>::new(vec![remaining], Subscribed::No);
+
+  assert_eq!(
+    execute::<Program, _>(&rules, &mut world_2, Limit::Turns(10)).map(|_| ()),
+    Err(ExecutionError::Cleanup {
+      error: SimulationError::Unfinished {
+        effects: 1,
+        arrivals: 0
+      },
+      outcome: Ok(exit),
+    })
   );
 }
 
@@ -740,11 +790,7 @@ fn a_duplicate_reply_cannot_settle_a_new_fork_with_the_same_job_key() -> Result<
 
 struct Backwards(Cell<u32>);
 
-impl Platform for Backwards {
-  type Event = Request;
-  type Effect = Work;
-  type Error = Never;
-
+impl Clock for Backwards {
   fn elapsed(&self) -> Result<Duration, Never> {
     let reading = self.0.get();
 
@@ -755,6 +801,12 @@ impl Platform for Backwards {
       1.. => Duration::ZERO,
     })
   }
+}
+
+impl Platform for Backwards {
+  type Event = Request;
+  type Effect = Work;
+  type Error = Never;
 
   fn listening(&self) -> Result<Subscribed, Never> {
     Ok(Subscribed::No)

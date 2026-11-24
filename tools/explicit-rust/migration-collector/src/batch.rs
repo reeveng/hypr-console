@@ -147,19 +147,7 @@ pub fn inventory<'a>(
             if automatic {
                 site["automatic"] = json!(true);
             }
-            if site.get("help").is_none()
-                && let Some(help) =
-                    message["children"]
-                        .as_array()
-                        .into_iter()
-                        .flatten()
-                        .find(|child| {
-                            child["level"] == "help"
-                                && child["spans"].as_array().is_some_and(Vec::is_empty)
-                        })
-            {
-                site["help"] = help["message"].clone();
-            }
+            record_guidance(site, message);
         }
     }
     let mut by_rule = BTreeMap::<String, usize>::new();
@@ -175,6 +163,90 @@ pub fn inventory<'a>(
         "review_patterns": review_patterns(sites.values()),
         "findings": sites.into_values().collect::<Vec<_>>(),
     }))
+}
+
+fn record_guidance(site: &mut Value, message: &Value) {
+    for child in message["children"].as_array().into_iter().flatten() {
+        let Some(text) = child["message"].as_str() else {
+            continue;
+        };
+        let mut spans = child["spans"].as_array().into_iter().flatten();
+        match child["level"].as_str() {
+            Some("help") => {
+                let field = if spans.any(|span| span["suggested_replacement"].is_string()) {
+                    "suggestion"
+                } else {
+                    "help"
+                };
+                if site.get(field).is_none() {
+                    site[field] = json!(text);
+                }
+            }
+            Some("note") if site.get("related").is_none() => {
+                if let Some(span) = spans.find(|span| span["is_primary"] == true) {
+                    site["related"] = json!({
+                        "file": span["file_name"], "line": span["line_start"],
+                        "column": span["column_start"], "message": text,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+pub fn write_findings<'a>(
+    output: &mut impl Write,
+    findings: impl IntoIterator<Item = &'a Value>,
+) -> Outcome<()> {
+    for site in findings {
+        let file = site["file"].as_str().unwrap_or_default();
+        let rule = site["rule"].as_str().unwrap_or_default();
+        let message = site["message"].as_str().unwrap_or_default();
+        let automatic = site["automatic"] == true;
+        let status = if automatic {
+            "automatic suggestion"
+        } else {
+            "manual review"
+        };
+        writeln!(
+            output,
+            "{file}:{}:{} [{rule}, {status}] {message}",
+            site["line"], site["column"],
+        )?;
+        if let Some(related) = site.get("related") {
+            let file = related["file"].as_str().unwrap_or_default();
+            let note = related["message"].as_str().unwrap_or_default();
+            writeln!(
+                output,
+                "  note: {file}:{}:{} {note}",
+                related["line"], related["column"],
+            )?;
+        }
+        let help = site["help"].as_str();
+        let suggestion = site["suggestion"].as_str();
+        if let Some(help) = help {
+            writeln!(output, "  help: {help}")?;
+        }
+        if let Some(suggestion) = suggestion.filter(|text| Some(*text) != help) {
+            writeln!(output, "  suggestion: {suggestion}")?;
+        }
+        if help.is_none() && suggestion.is_none() {
+            if automatic {
+                writeln!(
+                    output,
+                    "  help: preview with `just explicit-batch fix --package PACKAGE --rules {rule} --selected-rules-only`",
+                )?;
+            } else {
+                writeln!(
+                    output,
+                    "  help: see tools/explicit-rust/{rule}/src/lib.rs for the rule's guidance",
+                )?;
+            }
+        }
+        writeln!(output)?;
+    }
+    Ok(())
 }
 
 fn span_anchor(span: &Value) -> String {
@@ -234,6 +306,7 @@ fn review_patterns<'a>(sites: impl IntoIterator<Item = &'a Value>) -> Vec<Value>
         let rule = site["rule"].as_str().unwrap_or_default();
         let guidance = site["help"]
             .as_str()
+            .or_else(|| site["suggestion"].as_str())
             .or_else(|| site["message"].as_str())
             .unwrap_or_default();
         let directory = site["file"]
@@ -722,6 +795,38 @@ mod tests {
         assert_eq!(result["automatic_by_rule"]["explicit013_breathing_room"], 1);
         assert_eq!(result["findings"][0]["automatic"], true);
         assert_eq!(result["findings"][1]["automatic"], false);
+    }
+
+    #[test]
+    fn findings_show_lint_help_suggestion_and_related_location() {
+        let fixture = Fixture::new();
+        let mut automatic = fixture.message(0);
+        automatic["children"][0]["level"] = json!("help");
+        automatic["children"][0]["message"] = json!("add a blank line");
+        let mut manual = fixture.message(4);
+        manual["code"]["code"] = json!("explicit105_no_blocking_in_handler");
+        manual["message"] = json!("blocking call in an event handler");
+        manual["children"] = json!([
+            {"level": "note", "message": "this helper blocks", "spans": [{
+                "file_name": "crates/example/src/lib.rs", "line_start": 7,
+                "column_start": 5, "is_primary": true,
+            }]},
+            {"level": "help", "message": "offer an effect and handle its reply", "spans": []},
+        ]);
+
+        let report = inventory(&fixture.root, [&automatic, &manual], &fixture.snapshot()).unwrap();
+        let mut output = Vec::new();
+        write_findings(&mut output, report["findings"].as_array().unwrap()).unwrap();
+        assert_eq!(
+            String::from_utf8(output).unwrap(),
+            concat!(
+                "crates/example/src/lib.rs:2:1 [explicit013_breathing_room, automatic suggestion] a decision wants space\n",
+                "  suggestion: add a blank line\n\n",
+                "crates/example/src/lib.rs:2:1 [explicit105_no_blocking_in_handler, manual review] blocking call in an event handler\n",
+                "  note: crates/example/src/lib.rs:7:5 this helper blocks\n",
+                "  help: offer an effect and handle its reply\n\n",
+            ),
+        );
     }
 
     #[test]

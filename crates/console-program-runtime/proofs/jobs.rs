@@ -1,14 +1,14 @@
 //! `cargo kani -p console-program-runtime --lib --harness jobs`.
 
-use console_program_contract::{JobId, JobOwner};
+use console_program_contract::{JobId, JobOwner, Task};
 
 use super::*;
 
 const FIRST: JobOwner = JobOwner("first");
 const OTHER: JobOwner = JobOwner("other");
 
-fn job() -> Job {
-  Job {
+fn job() -> Task {
+  Task {
     owner: if kani::any() { FIRST } else { OTHER },
     id: JobId(kani::any()),
   }

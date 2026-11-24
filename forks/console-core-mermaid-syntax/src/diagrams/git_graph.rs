@@ -207,39 +207,47 @@ struct XorShift64Star {
 }
 
 impl XorShift64Star {
+    #[must_use]
     fn new(seed: u64) -> Self {
         let mut state = seed;
-        if state == 0 {
-            state = 1;
+
+        match state {
+            0 => {
+                state = 1;
+            },
+            _ => {},
         }
+
         Self { state }
     }
 
     fn next_u64(&mut self) -> u64 {
-        // Mirrors the seeded upstream renderer script used by `xtask gen-upstream-svgs`:
-        //   x ^= x >> 12; x ^= x << 25; x ^= x >> 27; return x * 0x2545F4914F6CDD1D (mod 2^64)
+
+
         let mut x = self.state;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
+        x ^= ::core::primitive::u64::wrapping_shr(x, 12_u32);
+        x ^= ::core::primitive::u64::wrapping_shl(x, 25_u32);
+        x ^= ::core::primitive::u64::wrapping_shr(x, 27_u32);
         self.state = x;
         x.wrapping_mul(0x2545F4914F6CDD1D)
     }
 
     fn next_hex_digit(&mut self) -> u8 {
-        // Seeded upstream uses `Math.floor(Math.random() * 16)` where `Math.random()` is derived
-        // from `next_u64() >> 11` (53 bits). This is equivalent to taking the top nibble of
-        // `next_u64()`.
-        ((self.next_u64() >> 60) & 0xF) as u8
+
+
+
+        (::core::primitive::u64::wrapping_shr(self.next_u64(), 60_u32) & 0xF) as u8
     }
 
     fn make_random_hex(&mut self, len: usize) -> String {
         const HEX: &[u8; 16] = b"0123456789abcdef";
         let mut out = String::with_capacity(len);
+
         for _ in 0..len {
-            let idx = self.next_hex_digit() as usize;
-            out.push(HEX[idx] as char);
+            let idx = <usize as ::core::convert::From<::core::primitive::u8>>::from(self.next_hex_digit());
+            out.push(<char as ::core::convert::From<::core::primitive::u8>>::from(HEX[idx]));
         }
+
         out
     }
 }
@@ -258,18 +266,21 @@ impl GitGraphDb {
         self.acc_title.clear();
         self.acc_descr.clear();
 
-        // Mermaid gitGraph auto-generates commit ids using `utils.random({ length: 7 })`, which
-        // depends on `Math.random()`. For deterministic test runs (and for reproducible upstream
-        // SVG baselines), we allow injecting a seed.
-        //
-        // When unset, we keep Mermaid's non-deterministic behavior (random per run).
+
+
+
+
+
         self.prng = seeded_gitgraph_prng(config);
 
         let main = config
             .get_str("gitGraph.mainBranchName")
             .unwrap_or("main")
             .to_string();
-        let main_order = config_i64(config, "gitGraph.mainBranchOrder").unwrap_or(0);
+        let main_order = match config_i64(config, "gitGraph.mainBranchOrder") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        };
         self.curr_branch = main.clone();
 
         self.branches.insert(main.clone(), None);
@@ -283,10 +294,13 @@ impl GitGraphDb {
     }
 
     fn next_id(&mut self) -> String {
-        if let Some(prng) = self.prng.as_mut() {
-            prng.make_random_hex(7)
-        } else {
-            crate::runtime::generated_id_hex("git-graph.commit-id", self.seq as u64, 7)
+        match self.prng.as_mut() {
+            Some(prng) => {
+                prng.make_random_hex(7)
+            },
+            ::core::option::Option::None => {
+                crate::runtime::generated_id_hex("git-graph.commit-id", ::core::primitive::i64::cast_unsigned(self.seq), 7)
+            },
         }
     }
 
@@ -314,11 +328,13 @@ impl GitGraphDb {
             id
         };
 
-        let parents = self
+        let parents = match self
             .head
             .as_ref()
-            .map(|h| vec![h.clone()])
-            .unwrap_or_default();
+            .map(|h| vec![h.clone()]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        };
 
         let new_commit = Commit {
             id: commit_id.clone(),
@@ -334,6 +350,7 @@ impl GitGraphDb {
         self.seq += 1;
 
         self.head = Some(new_commit.id.clone());
+
         if self.commits.contains_key(&new_commit.id) {
             self.warning_facts.push(
                 DiagramWarningFact::new(
@@ -352,6 +369,7 @@ impl GitGraphDb {
 
     fn branch(&mut self, mut branch_db: BranchDb, config: &MermaidConfig) -> Result<()> {
         branch_db.name = sanitize_text(&branch_db.name, config);
+
         if self.branches.contains_key(&branch_db.name) {
             return Err(Error::diagram_parse_fallback(
                 "gitGraph".to_string(),
@@ -376,29 +394,38 @@ impl GitGraphDb {
     }
 
     fn checkout(&mut self, branch: &str, config: &MermaidConfig) -> Result<()> {
-        let branch = sanitize_text(branch, config);
-        if !self.branches.contains_key(&branch) {
+        let branch_2 = sanitize_text(branch, config);
+
+        if !self.branches.contains_key(&branch_2) {
             return Err(Error::diagram_parse_fallback(
                 "gitGraph".to_string(),
                 format!(
                     "Trying to checkout branch which is not yet created. (Help try using \"branch {}\")",
-                    branch
+                    branch_2
                 ),
             ));
         }
-        self.curr_branch = branch.clone();
-        let id = self.branches.get(&branch).cloned().unwrap_or_default();
+
+        self.curr_branch = branch_2.clone();
+        let id = match self.branches.get(&branch_2).cloned() {
+            ::core::option::Option::Some(explicit_present) => explicit_present,
+            ::core::option::Option::None => ::core::option::Option::None,
+        };
         self.head = id;
         Ok(())
     }
 
     fn merge(&mut self, mut merge_db: MergeDb, config: &MermaidConfig) -> Result<()> {
         merge_db.branch = sanitize_text(&merge_db.branch, config);
-        if let Some(custom_id) = merge_db.id.as_mut() {
-            *custom_id = sanitize_text(custom_id, config);
-            if custom_id.is_empty() {
-                merge_db.id = None;
-            }
+
+        match merge_db.id.as_mut() {
+            Some(custom_id) => {
+                *custom_id = sanitize_text(custom_id, config);
+                if custom_id.is_empty() {
+                    merge_db.id = None;
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
         let current_branch = self.curr_branch.clone();
@@ -424,6 +451,7 @@ impl GitGraphDb {
                 ),
             ));
         };
+
         let Some(current_commit) = self.commits.get(current_head_id).cloned() else {
             return Err(Error::diagram_parse_fallback(
                 "gitGraph".to_string(),
@@ -454,6 +482,7 @@ impl GitGraphDb {
                 ),
             ));
         };
+
         let Some(other_commit) = self.commits.get(other_head_id).cloned() else {
             return Err(Error::diagram_parse_fallback(
                 "gitGraph".to_string(),
@@ -546,6 +575,7 @@ impl GitGraphDb {
                     .to_string(),
             ));
         };
+
         if !cp.parent.is_empty() && !(source_commit.parents.iter().any(|p| p == &cp.parent)) {
             return Err(Error::diagram_parse_fallback("gitGraph".to_string(), "Invalid operation: The specified parent commit is not an immediate parent of the cherry-picked commit.".to_string()));
         }
@@ -563,19 +593,25 @@ impl GitGraphDb {
                 ));
             }
 
-            let current_commit_id = self
+            let current_commit_id = match (self
                 .branches
                 .get(&self.curr_branch)
-                .cloned()
-                .unwrap_or(None);
-            if current_commit_id.is_none() {
-                return Err(Error::diagram_parse_fallback(
-                    "gitGraph".to_string(),
-                    format!(
-                        "Incorrect usage of \"cherry-pick\". Current branch ({})has no commits",
-                        self.curr_branch
-                    ),
-                ));
+                .cloned(), None) {
+                (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+                (::core::option::Option::None, alternate) => alternate,
+            };
+
+            match current_commit_id {
+                ::core::option::Option::None => {
+                    return Err(Error::diagram_parse_fallback(
+                        "gitGraph".to_string(),
+                        format!(
+                            "Incorrect usage of \"cherry-pick\". Current branch ({})has no commits",
+                            self.curr_branch
+                        ),
+                    ));
+                },
+                ::core::option::Option::Some(_) => {},
             }
 
             let tags = match cp.tags {
@@ -586,20 +622,24 @@ impl GitGraphDb {
                     .collect::<Vec<_>>(),
                 None => {
                     let mut tag = format!("cherry-pick:{}", source_commit.id);
+
                     if source_commit.commit_type == COMMIT_TYPE_MERGE {
                         tag.push_str(&format!("|parent:{}", cp.parent));
                     }
+
                     vec![tag]
                 }
             };
 
             let seq = self.seq;
             let new_id = format!("{seq}-{}", self.next_id());
-            let parents = self
+            let parents = match self
                 .head
                 .as_ref()
-                .map(|h| vec![h.clone(), source_commit.id.clone()])
-                .unwrap_or_default();
+                .map(|h| vec![h.clone(), source_commit.id.clone()]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            };
             let commit = Commit {
                 id: new_id.clone(),
                 message: format!(
@@ -631,10 +671,12 @@ impl GitGraphDb {
     ) -> crate::OperationControlResult<GitGraphDiagramModel> {
         let branches = self.branches_in_order_controlled(control)?;
         let mut commits = Vec::with_capacity(self.commits.len());
+
         for commit in self.commits.into_values() {
             control.checkpoint()?;
             commits.push(commit_to_model(commit));
         }
+
         control.checkpoint()?;
         commits.sort_by_key(|commit| commit.seq);
         control.checkpoint()?;
@@ -656,6 +698,7 @@ impl GitGraphDb {
         control: &crate::OperationControl,
     ) -> crate::OperationControlResult<Vec<GitGraphBranch>> {
         let mut entries: Vec<(String, f64)> = Vec::new();
+
         for (i, name) in self.branch_config_order.iter().enumerate() {
             control.checkpoint()?;
             let cfg = self.branch_config.get(name);
@@ -668,33 +711,43 @@ impl GitGraphDb {
         }
 
         control.checkpoint()?;
-        entries.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+        entries.sort_by(|a, b| match a.1.partial_cmp(&b.1) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => std::cmp::Ordering::Equal,
+        });
         let mut branches = Vec::with_capacity(entries.len());
+
         for (name, _) in entries {
             control.checkpoint()?;
             branches.push(GitGraphBranch { name });
         }
+
         Ok(branches)
     }
 }
 
+#[must_use]
 fn config_i64(config: &MermaidConfig, dotted_path: &str) -> Option<i64> {
     let mut cur = config.as_value();
+
     for seg in dotted_path.split('.') {
         let checked_value = cur.as_object()?;
         let checked_value_2 = checked_value.get(seg)?;
         cur = checked_value_2;
     }
+
     cur.as_i64()
 }
 
+#[must_use]
 fn seeded_gitgraph_prng(config: &MermaidConfig) -> Option<XorShift64Star> {
     config_i64(config, "gitGraph.seed")
-        .and_then(|v| u64::try_from(v).ok())
+        .and_then(|v| match u64::try_from(v) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None })
         .filter(|v| *v != 0)
         .map(XorShift64Star::new)
 }
 
+#[must_use]
 fn commit_to_model(c: Commit) -> GitGraphCommit {
     GitGraphCommit {
         id: c.id,
@@ -728,6 +781,7 @@ struct LineParser<'a> {
 }
 
 impl<'a> LineParser<'a> {
+    #[must_use]
     fn new(input: &'a str) -> Self {
         Self {
             input,
@@ -736,15 +790,18 @@ impl<'a> LineParser<'a> {
         }
     }
 
+    #[must_use]
     fn with_base(mut self, base_offset: usize) -> Self {
         self.base_offset = base_offset;
         self
     }
 
+    #[must_use]
     fn is_eof(&self) -> bool {
         self.pos >= self.input.len()
     }
 
+    #[must_use]
     fn peek_char(&self) -> Option<char> {
         self.input[self.pos..].chars().next()
     }
@@ -758,16 +815,20 @@ impl<'a> LineParser<'a> {
     fn skip_ws(&mut self, control: &crate::OperationControl) -> crate::OperationControlResult<()> {
         control.checkpoint()?;
         let mut next_checkpoint = self.pos.saturating_add(4096);
+
         while self.peek_char().is_some_and(|c| c.is_whitespace()) {
             self.bump();
+
             if self.pos >= next_checkpoint {
                 control.checkpoint()?;
                 next_checkpoint = self.pos.saturating_add(4096);
             }
         }
+
         Ok(())
     }
 
+    #[must_use]
     fn remaining(&self) -> &'a str {
         &self.input[self.pos..]
     }
@@ -779,19 +840,24 @@ impl<'a> LineParser<'a> {
         self.skip_ws(control)?;
         let start = self.pos;
         let mut next_checkpoint = self.pos.saturating_add(4096);
+
         while let Some(c) = self.peek_char() {
             if c.is_whitespace() || c == ':' {
                 break;
             }
+
             self.bump();
+
             if self.pos >= next_checkpoint {
                 control.checkpoint()?;
                 next_checkpoint = self.pos.saturating_add(4096);
             }
         }
+
         if self.pos == start {
             return Ok(None);
         }
+
         Ok(Some(SpannedValue {
             text: self.input[start..self.pos].to_string(),
             span: SourceSpan::new(self.base_offset + start, self.base_offset + self.pos),
@@ -805,12 +871,20 @@ impl<'a> LineParser<'a> {
     ) -> crate::OperationControlResult<Option<(SourceSpan, SourceSpan)>> {
         self.skip_ws(control)?;
         let rest = self.remaining();
-        let Some(after_name) = rest.strip_prefix(name) else {
-            return Ok(None);
+
+        let after_name = {
+            let optional_after_name = rest.strip_prefix(name);
+
+            match optional_after_name {
+                Some(matched_after_name) => matched_after_name,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         if !after_name.starts_with(':') {
             return Ok(None);
         }
+
         let keyword_start = self.base_offset + self.pos;
         self.pos += name.len();
         let keyword = SourceSpan::new(keyword_start, keyword_start + name.len());
@@ -824,6 +898,7 @@ impl<'a> LineParser<'a> {
         control: &crate::OperationControl,
     ) -> crate::OperationControlResult<Result<SpannedValue>> {
         self.skip_ws(control)?;
+
         let Some(parsed) = parse_langium_string(self.remaining(), self.base_offset + self.pos)
         else {
             return Ok(Err(Error::diagram_parse_fallback(
@@ -831,6 +906,7 @@ impl<'a> LineParser<'a> {
                 "expected quoted string".to_string(),
             )));
         };
+
         control.checkpoint()?;
         self.pos += parsed.consumed;
         Ok(Ok(SpannedValue {
@@ -844,35 +920,44 @@ impl<'a> LineParser<'a> {
         control: &crate::OperationControl,
     ) -> crate::OperationControlResult<Result<SpannedValue>> {
         self.skip_ws(control)?;
+
         if matches!(self.peek_char(), Some('"' | '\'')) {
             return self.parse_quoted_spanned(control);
         }
+
         let start = self.pos;
         let mut next_checkpoint = self.pos.saturating_add(4096);
+
         while let Some(c) = self.peek_char() {
             if c.is_whitespace() {
                 break;
             }
+
             self.bump();
+
             if self.pos >= next_checkpoint {
                 control.checkpoint()?;
                 next_checkpoint = self.pos.saturating_add(4096);
             }
         }
+
         if self.pos == start {
             return Ok(Err(Error::diagram_parse_fallback(
                 "gitGraph".to_string(),
                 "expected name".to_string(),
             )));
         }
+
         let text = &self.input[start..self.pos];
         let checked_value = is_gitgraph_reference_controlled(text, control)?;
+
         if !checked_value {
             return Ok(Err(Error::diagram_parse_fallback(
                 "gitGraph".to_string(),
                 format!("invalid gitGraph reference: {text}"),
             )));
         }
+
         Ok(Ok(SpannedValue {
             text: text.to_string(),
             span: SourceSpan::new(self.base_offset + start, self.base_offset + self.pos),
@@ -887,19 +972,23 @@ impl<'a> LineParser<'a> {
         self.skip_ws(control)?;
         let start = self.pos;
         let mut next_checkpoint = self.pos.saturating_add(4096);
+
         while self.peek_char().is_some_and(|ch| !ch.is_whitespace()) {
             self.bump();
+
             if self.pos >= next_checkpoint {
                 control.checkpoint()?;
                 next_checkpoint = self.pos.saturating_add(4096);
             }
         }
+
         if self.pos == start {
             return Ok(Err(Error::diagram_parse_fallback(
                 "gitGraph".to_string(),
                 format!("expected {expected}"),
             )));
         }
+
         Ok(Ok(SpannedValue {
             text: self.input[start..self.pos].to_string(),
             span: SourceSpan::new(self.base_offset + start, self.base_offset + self.pos),
@@ -912,9 +1001,11 @@ impl<'a> LineParser<'a> {
         control: &crate::OperationControl,
     ) -> crate::OperationControlResult<Result<()>> {
         self.skip_ws(control)?;
+
         if self.is_eof() {
             return Ok(Ok(()));
         }
+
         Ok(Err(Error::diagram_parse_fallback(
             "gitGraph".to_string(),
             format!("unexpected {command} argument: {}", self.remaining()),
@@ -942,11 +1033,13 @@ fn is_gitgraph_reference_controlled(
     value: &str,
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<bool> {
+    #[must_use]
     fn is_word(byte: u8) -> bool {
         byte.is_ascii_alphanumeric() || byte == b'_'
     }
 
     let bytes = value.as_bytes();
+
     if !bytes.first().is_some_and(|byte| is_word(*byte))
         || !bytes
             .last()
@@ -954,14 +1047,17 @@ fn is_gitgraph_reference_controlled(
     {
         return Ok(false);
     }
+
     for (index, byte) in bytes.iter().enumerate() {
-        if index % 4096 == 0 {
+        if index.wrapping_rem(4096) == 0 {
             control.checkpoint()?;
         }
+
         if !is_word(*byte) && !matches!(*byte, b'-' | b'.' | b'/') {
             return Ok(false);
         }
     }
+
     Ok(true)
 }
 
@@ -972,12 +1068,14 @@ fn parse_gitgraph_int(value: &SpannedValue) -> Result<i64> {
             .first()
             .is_some_and(|byte| matches!(*byte, b'1'..=b'9'))
             && bytes[1..].iter().all(u8::is_ascii_digit));
+
     if !valid {
         return Err(Error::diagram_parse_fallback(
             "gitGraph".to_string(),
             format!("invalid branch order: {}", value.text),
         ));
     }
+
     value
         .text
         .parse::<i64>()
@@ -1067,6 +1165,7 @@ fn command_parse_result<T>(
     })
 }
 
+#[must_use]
 fn unexpected_gitgraph_argument(
     command: &str,
     parser: &LineParser<'_>,
@@ -1095,6 +1194,7 @@ fn parse_git_graph_command(
     let line = raw.trim_end_matches('\r');
     let visible = strip_langium_inline_comment(line);
     let trimmed = visible.trim();
+
     if trimmed.is_empty() || trimmed.starts_with("%%") {
         return Ok(None);
     }
@@ -1105,9 +1205,16 @@ fn parse_git_graph_command(
         line_start + trimmed_start + trimmed.len(),
     );
     let mut parser = LineParser::new(trimmed).with_base(line_start + trimmed_start);
-    let Some(command) = parser.parse_word_until_ws_or_colon_spanned(control)? else {
-        return Ok(None);
+
+    let command = {
+        let optional_command = parser.parse_word_until_ws_or_colon_spanned(control)?;
+
+        match optional_command {
+            Some(matched_command) => matched_command,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     #[cfg(feature = "editor-facts")]
     let mut editor_facts = (editor_demand == EditorFactsDemand::Capture).then(Vec::new);
 
@@ -1120,15 +1227,18 @@ fn parse_git_graph_command(
                 commit_type: COMMIT_TYPE_NORMAL,
                 tags: Vec::new(),
             };
+
             loop {
                 control.checkpoint()?;
                 parser.skip_ws(control)?;
+
                 if parser.is_eof() {
                     break;
                 }
+
                 if matches!(parser.peek_char(), Some('"' | '\'')) {
                     let message = command_parse_result(
-                        parser.parse_quoted_spanned(control)?,
+                        { let checked_value_3 = parser.parse_quoted_spanned(control)?; checked_value_3 },
                         #[cfg(feature = "editor-facts")]
                         &editor_facts,
                         statement_span,
@@ -1144,9 +1254,10 @@ fn parse_git_graph_command(
                     commit.msg = message.text;
                     continue;
                 }
+
                 if parser.consume_argument_name("id", control)?.is_some() {
                     let value = command_parse_result(
-                        parser.parse_quoted_spanned(control)?,
+                        { let checked_value_4 = parser.parse_quoted_spanned(control)?; checked_value_4 },
                         #[cfg(feature = "editor-facts")]
                         &editor_facts,
                         statement_span,
@@ -1162,9 +1273,10 @@ fn parse_git_graph_command(
                     commit.id = value.text;
                     continue;
                 }
+
                 if parser.consume_argument_name("msg", control)?.is_some() {
                     let value = command_parse_result(
-                        parser.parse_quoted_spanned(control)?,
+                        { let checked_value_5 = parser.parse_quoted_spanned(control)?; checked_value_5 },
                         #[cfg(feature = "editor-facts")]
                         &editor_facts,
                         statement_span,
@@ -1180,9 +1292,10 @@ fn parse_git_graph_command(
                     commit.msg = value.text;
                     continue;
                 }
+
                 if parser.consume_argument_name("tag", control)?.is_some() {
                     let value = command_parse_result(
-                        parser.parse_quoted_spanned(control)?,
+                        { let checked_value_6 = parser.parse_quoted_spanned(control)?; checked_value_6 },
                         #[cfg(feature = "editor-facts")]
                         &editor_facts,
                         statement_span,
@@ -1198,6 +1311,7 @@ fn parse_git_graph_command(
                     commit.tags.push(value.text);
                     continue;
                 }
+
                 if parser.consume_argument_name("type", control)?.is_some() {
                     let value = command_parse_result(
                         parser.parse_bare_token_spanned("commit type", control)?,
@@ -1221,20 +1335,21 @@ fn parse_git_graph_command(
                     )?;
                     continue;
                 }
-                return Err(unexpected_gitgraph_argument(
+
+                return Err(<crate::diagrams::git_graph::GitGraphCommandParseAbort as ::core::convert::From<crate::diagrams::git_graph::GitGraphCommandParseError>>::from(unexpected_gitgraph_argument(
                     "commit",
                     &parser,
                     #[cfg(feature = "editor-facts")]
                     editor_facts,
                     statement_span,
-                )
-                .into());
+                )));
             }
+
             GitGraphOperation::Commit(commit)
         }
         "branch" => {
             let name = command_parse_result(
-                parser.parse_name_token_spanned(control)?,
+                { let checked_value_7 = parser.parse_name_token_spanned(control)?; checked_value_7 },
                 #[cfg(feature = "editor-facts")]
                 &editor_facts,
                 statement_span,
@@ -1249,17 +1364,18 @@ fn parse_git_graph_command(
             );
             let mut order = 0i64;
             parser.skip_ws(control)?;
+
             if !parser.is_eof() {
                 let Some(_) = parser.consume_argument_name("order", control)? else {
-                    return Err(unexpected_gitgraph_argument(
+                    return Err(<crate::diagrams::git_graph::GitGraphCommandParseAbort as ::core::convert::From<crate::diagrams::git_graph::GitGraphCommandParseError>>::from(unexpected_gitgraph_argument(
                         "branch",
                         &parser,
                         #[cfg(feature = "editor-facts")]
                         editor_facts,
                         statement_span,
-                    )
-                    .into());
+                    )));
                 };
+
                 let value = command_parse_result(
                     parser.parse_bare_token_spanned("branch order", control)?,
                     #[cfg(feature = "editor-facts")]
@@ -1281,6 +1397,7 @@ fn parse_git_graph_command(
                     statement_span,
                 )?;
             }
+
             command_parse_result(
                 parser.expect_eof("branch", control)?,
                 #[cfg(feature = "editor-facts")]
@@ -1294,7 +1411,7 @@ fn parse_git_graph_command(
         }
         "checkout" | "switch" => {
             let name = command_parse_result(
-                parser.parse_name_token_spanned(control)?,
+                { let checked_value_8 = parser.parse_name_token_spanned(control)?; checked_value_8 },
                 #[cfg(feature = "editor-facts")]
                 &editor_facts,
                 statement_span,
@@ -1317,7 +1434,7 @@ fn parse_git_graph_command(
         }
         "merge" => {
             let branch = command_parse_result(
-                parser.parse_name_token_spanned(control)?,
+                { let checked_value_9 = parser.parse_name_token_spanned(control)?; checked_value_9 },
                 #[cfg(feature = "editor-facts")]
                 &editor_facts,
                 statement_span,
@@ -1336,15 +1453,18 @@ fn parse_git_graph_command(
                 commit_type: None,
                 tags: Vec::new(),
             };
+
             loop {
                 control.checkpoint()?;
                 parser.skip_ws(control)?;
+
                 if parser.is_eof() {
                     break;
                 }
+
                 if parser.consume_argument_name("id", control)?.is_some() {
                     let value = command_parse_result(
-                        parser.parse_quoted_spanned(control)?,
+                        { let checked_value_10 = parser.parse_quoted_spanned(control)?; checked_value_10 },
                         #[cfg(feature = "editor-facts")]
                         &editor_facts,
                         statement_span,
@@ -1360,9 +1480,10 @@ fn parse_git_graph_command(
                     merge.id = Some(value.text);
                     continue;
                 }
+
                 if parser.consume_argument_name("tag", control)?.is_some() {
                     let value = command_parse_result(
-                        parser.parse_quoted_spanned(control)?,
+                        { let checked_value_11 = parser.parse_quoted_spanned(control)?; checked_value_11 },
                         #[cfg(feature = "editor-facts")]
                         &editor_facts,
                         statement_span,
@@ -1378,6 +1499,7 @@ fn parse_git_graph_command(
                     merge.tags.push(value.text);
                     continue;
                 }
+
                 if parser.consume_argument_name("type", control)?.is_some() {
                     let value = command_parse_result(
                         parser.parse_bare_token_spanned("merge type", control)?,
@@ -1401,15 +1523,16 @@ fn parse_git_graph_command(
                     )?);
                     continue;
                 }
-                return Err(unexpected_gitgraph_argument(
+
+                return Err(<crate::diagrams::git_graph::GitGraphCommandParseAbort as ::core::convert::From<crate::diagrams::git_graph::GitGraphCommandParseError>>::from(unexpected_gitgraph_argument(
                     "merge",
                     &parser,
                     #[cfg(feature = "editor-facts")]
                     editor_facts,
                     statement_span,
-                )
-                .into());
+                )));
             }
+
             GitGraphOperation::Merge(merge)
         }
         "cherry-pick" => {
@@ -1419,15 +1542,18 @@ fn parse_git_graph_command(
                 parent: String::new(),
                 tags: None,
             };
+
             loop {
                 control.checkpoint()?;
                 parser.skip_ws(control)?;
+
                 if parser.is_eof() {
                     break;
                 }
+
                 if parser.consume_argument_name("id", control)?.is_some() {
                     let value = command_parse_result(
-                        parser.parse_quoted_spanned(control)?,
+                        { let checked_value_12 = parser.parse_quoted_spanned(control)?; checked_value_12 },
                         #[cfg(feature = "editor-facts")]
                         &editor_facts,
                         statement_span,
@@ -1443,9 +1569,10 @@ fn parse_git_graph_command(
                     cherry_pick.id = value.text;
                     continue;
                 }
+
                 if parser.consume_argument_name("parent", control)?.is_some() {
                     let value = command_parse_result(
-                        parser.parse_quoted_spanned(control)?,
+                        { let checked_value_13 = parser.parse_quoted_spanned(control)?; checked_value_13 },
                         #[cfg(feature = "editor-facts")]
                         &editor_facts,
                         statement_span,
@@ -1461,9 +1588,10 @@ fn parse_git_graph_command(
                     cherry_pick.parent = value.text;
                     continue;
                 }
+
                 if parser.consume_argument_name("tag", control)?.is_some() {
                     let value = command_parse_result(
-                        parser.parse_quoted_spanned(control)?,
+                        { let checked_value_14 = parser.parse_quoted_spanned(control)?; checked_value_14 },
                         #[cfg(feature = "editor-facts")]
                         &editor_facts,
                         statement_span,
@@ -1482,19 +1610,20 @@ fn parse_git_graph_command(
                         .push(value.text);
                     continue;
                 }
-                return Err(unexpected_gitgraph_argument(
+
+                return Err(<crate::diagrams::git_graph::GitGraphCommandParseAbort as ::core::convert::From<crate::diagrams::git_graph::GitGraphCommandParseError>>::from(unexpected_gitgraph_argument(
                     "cherry-pick",
                     &parser,
                     #[cfg(feature = "editor-facts")]
                     editor_facts,
                     statement_span,
-                )
-                .into());
+                )));
             }
+
             GitGraphOperation::CherryPick(cherry_pick)
         }
         _ => {
-            return Err(GitGraphCommandParseError {
+            return Err(<crate::diagrams::git_graph::GitGraphCommandParseAbort as ::core::convert::From<crate::diagrams::git_graph::GitGraphCommandParseError>>::from(GitGraphCommandParseError {
                 error: Box::new(Error::diagram_parse_exact(
                     "gitGraph".to_string(),
                     format!("Unknown statement: {}", command.text),
@@ -1503,8 +1632,7 @@ fn parse_git_graph_command(
                 #[cfg(feature = "editor-facts")]
                 editor_facts,
                 recovery_span: statement_span,
-            }
-            .into());
+            }));
         }
     };
 
@@ -1714,7 +1842,7 @@ fn construct_git_graph_semantic_source_controlled(
     #[cfg(test)]
     crate::diagrams::langium_common::record_family_syntax_construction("gitGraph");
 
-    let header = match parse_gitgraph_header(code, control)? {
+    let header = match { let checked_value_3 = parse_gitgraph_header(code, control)?; checked_value_3 } {
         Ok(header) => header,
         Err(error) => {
             return Ok(Err(gitgraph_parse_failure(
@@ -1740,32 +1868,43 @@ fn construct_git_graph_semantic_source_controlled(
         editor_demand,
         control,
     )?;
-    if let Some(error) = first_error {
-        return Ok(Err(gitgraph_parse_failure(
-            error,
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-            #[cfg(feature = "editor-facts")]
-            SourceSpan::new(0, code.len()),
-        )));
+
+    match first_error {
+        Some(error) => {
+            return Ok(Err(gitgraph_parse_failure(
+                error,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+                #[cfg(feature = "editor-facts")]
+                SourceSpan::new(0, code.len()),
+            )));
+        },
+        ::core::option::Option::None => {},
     }
+
     let common = LangiumCommonDbFields::from_facts(&common);
     let mut db = new_gitgraph_db();
     db.clear(effective_config);
     apply_gitgraph_common_fields(&mut db, &common);
-    if let Some(direction) = header.direction {
-        db.set_direction(&direction);
+
+    match header.direction {
+        Some(direction) => {
+            db.set_direction(&direction);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Err(error) =
-        apply_git_graph_commands_controlled(commands, &mut db, effective_config, control)?
-    {
-        return Ok(Err(gitgraph_parse_failure(
-            error,
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-            #[cfg(feature = "editor-facts")]
-            SourceSpan::new(0, code.len()),
-        )));
+
+    match apply_git_graph_commands_controlled(commands, &mut db, effective_config, control)? {
+        Err(error) => {
+            return Ok(Err(gitgraph_parse_failure(
+                error,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+                #[cfg(feature = "editor-facts")]
+                SourceSpan::new(0, code.len()),
+            )));
+        },
+        ::core::result::Result::Ok(_) => {},
     }
 
     let model = db.into_model_controlled(diagram_type, control)?;
@@ -1785,6 +1924,7 @@ fn new_gitgraph_editor_facts(demand: EditorFactsDemand) -> Option<EditorSemantic
     })
 }
 
+#[must_use]
 fn gitgraph_parse_failure(
     error: Error,
     #[cfg(feature = "editor-facts")] mut editor_facts: Option<EditorSemanticFacts>,
@@ -1813,21 +1953,25 @@ fn parse_gitgraph_header(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<Result<GitGraphHeader>> {
     let mut offset = 0usize;
+
     while offset < code.len() {
         control.checkpoint()?;
         let (line, next_offset) = physical_line(code, offset);
         let visible = line.split_once("%%").map_or(line, |(before, _)| before);
         let trimmed = visible.trim_start();
+
         if trimmed.trim().is_empty() {
             offset = next_offset;
             continue;
         }
+
         let Some(after_keyword) = trimmed.strip_prefix("gitGraph") else {
             return Ok(Err(Error::diagram_parse_fallback(
                 "gitGraph".to_string(),
                 "expected gitGraph header".to_string(),
             )));
         };
+
         if after_keyword
             .chars()
             .next()
@@ -1858,22 +2002,31 @@ fn parse_gitgraph_header(
                 body_start: colon + 1,
             }));
         }
-        for direction in ["LR", "TB", "BT"] {
-            let Some(after_direction) = rest.strip_prefix(direction) else {
-                continue;
+
+        'over_direction_2: for direction in ["LR", "TB", "BT"] {
+            let after_direction = {
+                let optional_after_direction = rest.strip_prefix(direction);
+
+                match optional_after_direction {
+                    Some(matched_after_direction) => matched_after_direction,
+                    ::core::option::Option::None => continue 'over_direction_2,
+                }
             };
+
             if after_direction
                 .chars()
                 .next()
                 .is_some_and(|ch| !ch.is_whitespace() && ch != ':')
             {
-                continue;
+                continue 'over_direction_2;
             }
+
             let direction_ws = after_direction
                 .chars()
                 .take_while(|ch| matches!(ch, ' ' | '\t'))
                 .map(char::len_utf8)
                 .sum::<usize>();
+
             if after_direction.as_bytes().get(direction_ws) == Some(&b':') {
                 let direction_start = body_start + whitespace;
                 let direction_end = direction_start + direction.len();
@@ -1884,6 +2037,7 @@ fn parse_gitgraph_header(
                 }));
             }
         }
+
         return Ok(Ok(GitGraphHeader {
             direction: None,
             body_start,
@@ -1908,32 +2062,44 @@ fn collect_gitgraph_commands(
     #[cfg(feature = "editor-facts")]
     let mut editor_facts = new_gitgraph_editor_facts(editor_demand);
     let mut first_error = None;
+
     while offset < code.len() {
         control.checkpoint()?;
-        if let Some(parsed) = parse_langium_common(code, offset) {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                push_langium_common_editor_fact(facts, &parsed.fact, "gitGraph");
-            }
-            if let Some(diagnostic) = parsed.diagnostic {
-                first_error.get_or_insert_with(|| {
-                    Error::diagram_parse_insertion_point(
-                        diagram_type.to_string(),
-                        diagnostic.message,
-                        diagnostic.span.start,
-                    )
-                });
-            }
-            common.push(parsed.fact);
-            offset += parsed.consumed;
-            continue;
+
+        match parse_langium_common(code, offset) {
+            Some(parsed) => {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    push_langium_common_editor_fact(facts, &parsed.fact, "gitGraph");
+                }
+
+                match parsed.diagnostic {
+                    Some(diagnostic) => {
+                        first_error.get_or_insert_with(|| {
+                            Error::diagram_parse_insertion_point(
+                                diagram_type.to_string(),
+                                diagnostic.message,
+                                diagnostic.span.start,
+                            )
+                        });
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                common.push(parsed.fact);
+                offset += parsed.consumed;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         let line_start = offset;
         let (line, next_offset) = physical_line(code, offset);
         offset = next_offset;
+
         match parse_git_graph_command(
             line,
             line_start,
@@ -1968,6 +2134,7 @@ fn collect_gitgraph_commands(
             }
         }
     }
+
     Ok(GitGraphSyntaxOutcome {
         commands,
         common,
@@ -1978,13 +2145,24 @@ fn collect_gitgraph_commands(
 }
 
 fn apply_gitgraph_common_fields(db: &mut GitGraphDb, common: &LangiumCommonDbFields) {
-    db.acc_descr = common.acc_descr.clone().unwrap_or_default();
-    db.acc_title = common.acc_title.clone().unwrap_or_default();
-    db.title = common.title.clone().unwrap_or_default();
+    db.acc_descr = match common.acc_descr.clone() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => ::std::string::String::new(),
+    };
+    db.acc_title = match common.acc_title.clone() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => ::std::string::String::new(),
+    };
+    db.title = match common.title.clone() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => ::std::string::String::new(),
+    };
 }
 
+#[must_use]
 fn physical_line(source: &str, offset: usize) -> (&str, usize) {
     let rest = &source[offset..];
+
     if let Some(newline) = rest.find('\n') {
         let line = rest[..newline]
             .strip_suffix('\r')
@@ -1995,6 +2173,7 @@ fn physical_line(source: &str, offset: usize) -> (&str, usize) {
     }
 }
 
+#[must_use]
 fn new_gitgraph_db() -> GitGraphDb {
     #[cfg(test)]
     GITGRAPH_SEMANTIC_CONSTRUCTION_COUNT.set(GITGRAPH_SEMANTIC_CONSTRUCTION_COUNT.get() + 1);
@@ -2023,8 +2202,14 @@ fn apply_git_graph_commands_controlled(
 ) -> crate::OperationControlResult<Result<()>> {
     for command in commands {
         control.checkpoint()?;
-        if let Err(error) = command.apply(db, effective_config) {
-            return Ok(Err(error));
+
+        {
+            match command.apply(db, effective_config) {
+                Err(error) => {
+                    return Ok(Err(error));
+                },
+                ::core::result::Result::Ok(_) => {},
+            };
         }
     }
 

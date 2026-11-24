@@ -3,7 +3,10 @@
 use crate::error::{Error, Result, ensure, invalid, unsupported};
 use crate::tables::*;
 use console_core_never::Never;
-use console_core_number_conversion::{index, wrapped};
+use console_core_number_conversion::index;
+use console_core_video_decoding_bitstream::video_usability_information::{
+  VideoSignal, read_aspect_ratio, read_video_signal,
+};
 use console_core_video_decoding_bitstream::{BitReader, FlagBit, Remaining};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -194,7 +197,7 @@ fn parse_scaling_list<const N: usize>(r: &mut BitReader) -> Result<Option<[u8; N
     match ::core::primitive::bool::then_some(next != 0, ()) {
       ::core::option::Option::Some(()) => {
         let delta = r.read_se()?;
-        ensure!((-128..=127).contains(&delta), "delta_scale out of range");
+        ensure((-128..=127).contains(&delta), || "delta_scale out of range")?;
         next = ::core::primitive::i32::wrapping_rem(
           i32::wrapping_add(i32::wrapping_add(last, delta), 256),
           256,
@@ -344,7 +347,7 @@ pub struct HrdParameters {
 fn parse_hrd(r: &mut BitReader) -> Result<HrdParameters> {
   let ue = r.read_ue()?;
   let cpb_cnt = u32::wrapping_add(ue, 1);
-  ensure!(cpb_cnt <= 32, "cpb_cnt_minus1 out of range");
+  ensure(cpb_cnt <= 32, || "cpb_cnt_minus1 out of range")?;
   let mut h = HrdParameters {
     cpb_cnt,
     bit_rate_scale: ({
@@ -429,15 +432,17 @@ pub struct Vui {
 
 impl Default for Vui {
   fn default() -> Self {
+    let signal = VideoSignal::UNSPECIFIED;
+
     Self {
       aspect_ratio_idc: 0,
       sar: (0, 0),
       overscan_appropriate: None,
-      video_format: 5,
+      video_format: signal.format,
       full_range: false,
-      colour_primaries: 2,
-      transfer_characteristics: 2,
-      matrix_coefficients: 2,
+      colour_primaries: signal.colour_primaries,
+      transfer_characteristics: signal.transfer_characteristics,
+      matrix_coefficients: signal.matrix_coefficients,
       chroma_loc: None,
       timing: None,
       nal_hrd: None,
@@ -460,59 +465,6 @@ pub struct BitstreamRestriction {
   pub max_dec_frame_buffering: u32,
 }
 
-const SAR_TABLE: [(u16, u16); 17] = [
-  (0, 0),
-  (1, 1),
-  (12, 11),
-  (10, 11),
-  (16, 11),
-  (40, 33),
-  (24, 11),
-  (20, 11),
-  (32, 11),
-  (80, 33),
-  (18, 11),
-  (15, 11),
-  (64, 33),
-  (160, 99),
-  (4, 3),
-  (3, 2),
-  (2, 1),
-];
-
-fn read_aspect_ratio(reader: &mut BitReader, vui: &mut Vui) -> Result<()> {
-  let checked_value = reader.read_flag()?;
-
-  match checked_value {
-    FlagBit::Zero => return Ok(()),
-    FlagBit::One => {}
-  }
-
-  let idc = reader.read_bits(8)?;
-  let Ok(id) = wrapped::<_, u8>(idc);
-  vui.aspect_ratio_idc = id;
-
-  match id {
-    255 => {
-      let horizontal = reader.read_bits(16)?;
-      let vertical = reader.read_bits(16)?;
-      let Ok(width) = wrapped::<_, u16>(horizontal);
-      let Ok(height) = wrapped::<_, u16>(vertical);
-      vui.sar = (width, height);
-    }
-    _ => {
-      let Ok(position) = index(id);
-
-      match SAR_TABLE.get(position) {
-        Some(ratio) => vui.sar = *ratio,
-        None => {}
-      }
-    }
-  }
-
-  Ok(())
-}
-
 fn parse_bitstream_restriction(reader: &mut BitReader) -> Result<BitstreamRestriction> {
   let flag = reader.read_flag()?;
   let motion_vectors_over_pic_boundaries = matches!(flag, FlagBit::One);
@@ -533,42 +485,6 @@ fn parse_bitstream_restriction(reader: &mut BitReader) -> Result<BitstreamRestri
   })
 }
 
-fn read_short_field(reader: &mut BitReader, width: u32) -> Result<u8> {
-  let bits = reader.read_bits(width)?;
-  let Ok(value) = wrapped(bits);
-  Ok(value)
-}
-
-fn read_video_signal(reader: &mut BitReader, vui: &mut Vui) -> Result<()> {
-  let checked_value = reader.read_flag()?;
-
-  match checked_value {
-    FlagBit::Zero => return Ok(()),
-    FlagBit::One => {}
-  }
-
-  let checked_value_2 = read_short_field(reader, 3)?;
-  vui.video_format = checked_value_2;
-  let full_range = reader.read_flag()?;
-  vui.full_range = full_range == FlagBit::One;
-
-  let checked_value_3 = reader.read_flag()?;
-
-  match checked_value_3 {
-    FlagBit::One => {
-      let checked_value_4 = read_short_field(reader, 8)?;
-      vui.colour_primaries = checked_value_4;
-      let checked_value_5 = read_short_field(reader, 8)?;
-      vui.transfer_characteristics = checked_value_5;
-      let checked_value_6 = read_short_field(reader, 8)?;
-      vui.matrix_coefficients = checked_value_6;
-    }
-    FlagBit::Zero => {}
-  }
-
-  Ok(())
-}
-
 fn optional_hrd(reader: &mut BitReader) -> Result<Option<HrdParameters>> {
   let checked_value = reader.read_flag()?;
 
@@ -581,21 +497,28 @@ fn optional_hrd(reader: &mut BitReader) -> Result<Option<HrdParameters>> {
   }
 }
 
-fn parse_vui(reader: &mut BitReader) -> Result<Vui> {
-  let mut vui = Vui::default();
-  read_aspect_ratio(reader, &mut vui)?;
+fn parse_video_usability_information(reader: &mut BitReader) -> Result<Vui> {
+  let mut information = Vui::default();
+  let ratio = read_aspect_ratio(reader)?;
+  information.aspect_ratio_idc = ratio.identifier;
+  information.sar = ratio.sample_aspect_ratio;
 
   let checked_value = reader.read_flag()?;
 
   match checked_value {
     FlagBit::One => {
       let overscan = reader.read_flag()?;
-      vui.overscan_appropriate = Some(overscan == FlagBit::One);
+      information.overscan_appropriate = Some(overscan == FlagBit::One);
     }
     FlagBit::Zero => {}
   }
 
-  read_video_signal(reader, &mut vui)?;
+  let signal = read_video_signal(reader)?;
+  information.video_format = signal.format;
+  information.full_range = signal.range == FlagBit::One;
+  information.colour_primaries = signal.colour_primaries;
+  information.transfer_characteristics = signal.transfer_characteristics;
+  information.matrix_coefficients = signal.matrix_coefficients;
 
   let checked_value_2 = reader.read_flag()?;
 
@@ -603,7 +526,7 @@ fn parse_vui(reader: &mut BitReader) -> Result<Vui> {
     FlagBit::One => {
       let top = reader.read_ue()?;
       let bottom = reader.read_ue()?;
-      vui.chroma_loc = Some((top, bottom));
+      information.chroma_loc = Some((top, bottom));
     }
     FlagBit::Zero => {}
   }
@@ -615,32 +538,32 @@ fn parse_vui(reader: &mut BitReader) -> Result<Vui> {
       let units = reader.read_bits(32)?;
       let scale = reader.read_bits(32)?;
       let fixed = reader.read_flag()?;
-      vui.timing = Some((units, scale, fixed == FlagBit::One));
+      information.timing = Some((units, scale, fixed == FlagBit::One));
     }
     FlagBit::Zero => {}
   }
 
   let nal_hrd = optional_hrd(reader)?;
   let vcl_hrd = optional_hrd(reader)?;
-  vui.nal_hrd = nal_hrd;
-  vui.vcl_hrd = vcl_hrd;
+  information.nal_hrd = nal_hrd;
+  information.vcl_hrd = vcl_hrd;
 
-  match (vui.nal_hrd.is_some(), vui.vcl_hrd.is_some()) {
+  match (information.nal_hrd.is_some(), information.vcl_hrd.is_some()) {
     (false, false) => {}
     _ => {
       let low_delay = reader.read_flag()?;
-      vui.low_delay_hrd = low_delay == FlagBit::One;
+      information.low_delay_hrd = low_delay == FlagBit::One;
     }
   }
 
   let picture_structure = reader.read_flag()?;
-  vui.pic_struct_present = picture_structure == FlagBit::One;
+  information.pic_struct_present = picture_structure == FlagBit::One;
 
   let Ok(remaining_bits) = reader.bits_left();
 
   match remaining_bits {
     0 => {
-      return Ok(vui);
+      return Ok(information);
     }
     _ => {}
   }
@@ -649,7 +572,7 @@ fn parse_vui(reader: &mut BitReader) -> Result<Vui> {
 
   match checked_value_11 {
     FlagBit::One => {
-      vui.bitstream_restriction = match parse_bitstream_restriction(reader) {
+      information.bitstream_restriction = match parse_bitstream_restriction(reader) {
         Ok(restriction) => Some(restriction),
         Err(_incomplete_optional_restriction) => None,
       };
@@ -657,7 +580,7 @@ fn parse_vui(reader: &mut BitReader) -> Result<Vui> {
     FlagBit::Zero => {}
   }
 
-  Ok(vui)
+  Ok(information)
 }
 
 #[derive(Clone, Debug)]
@@ -729,7 +652,7 @@ fn parse_sequence_format(reader: &mut BitReader, profile: u8) -> Result<Sequence
   }
 
   let chroma_format_idc = reader.read_ue()?;
-  ensure!(chroma_format_idc <= 3, "chroma_format_idc out of range");
+  ensure(chroma_format_idc <= 3, || "chroma_format_idc out of range")?;
   let separate_colour_plane = match chroma_format_idc {
     3 => reader.read_flag()?,
     _ => FlagBit::Zero,
@@ -738,10 +661,10 @@ fn parse_sequence_format(reader: &mut BitReader, profile: u8) -> Result<Sequence
   let chroma_depth_encoded = reader.read_ue()?;
   let bit_depth_luma = luma_depth_encoded.wrapping_add(8);
   let bit_depth_chroma = chroma_depth_encoded.wrapping_add(8);
-  ensure!(
+  ensure(
     bit_depth_luma <= 14 && bit_depth_chroma <= 14,
-    "bit depth out of range"
-  );
+    || "bit depth out of range",
+  )?;
   let bypass = reader.read_flag()?;
   let matrices = reader.read_flag()?;
   let scaling_lists = match matrices {
@@ -786,10 +709,10 @@ fn read_poc_syntax(reader: &mut BitReader) -> Result<PocSyntax> {
     0 => {
       let encoded = reader.read_ue()?;
       poc.log2_lsb = encoded.wrapping_add(4);
-      ensure!(
+      ensure(
         poc.log2_lsb <= 16,
-        "log2_max_pic_order_cnt_lsb out of range"
-      );
+        || "log2_max_pic_order_cnt_lsb out of range",
+      )?;
     }
     1 => {
       let always_zero = reader.read_flag()?;
@@ -799,10 +722,10 @@ fn read_poc_syntax(reader: &mut BitReader) -> Result<PocSyntax> {
       let checked_value_2 = reader.read_se()?;
       poc.top_to_bottom = checked_value_2;
       let cycle = reader.read_ue()?;
-      ensure!(
+      ensure(
         cycle <= 255,
-        "num_ref_frames_in_pic_order_cnt_cycle out of range"
-      );
+        || "num_ref_frames_in_pic_order_cnt_cycle out of range",
+      )?;
 
       for _ in 0..cycle {
         let offset = reader.read_se()?;
@@ -830,7 +753,7 @@ fn read_sequence_geometry(reader: &mut BitReader) -> Result<SequenceGeometry> {
   let height = reader.read_ue()?;
   let columns = width.wrapping_add(1);
   let rows = height.wrapping_add(1);
-  ensure!(columns <= 1024 && rows <= 1024, "picture too large");
+  ensure(columns <= 1024 && rows <= 1024, || "picture too large")?;
   let frame_mode = reader.read_flag()?;
   let coding = FrameCoding::from(frame_mode);
   let adaptive = match coding {
@@ -866,11 +789,11 @@ fn validate_crop(sps: &Sps) -> Result<()> {
       let Ok((x, y)) = sps.crop_unit();
       let Ok(width) = sps.width();
       let Ok(height) = sps.height();
-      ensure!(
+      ensure(
         left.wrapping_add(right).wrapping_mul(x) < width
           && top.wrapping_add(bottom).wrapping_mul(y) < height,
-        "frame cropping exceeds picture size"
-      );
+        || "frame cropping exceeds picture size",
+      )?;
     }
     None => {}
   }
@@ -881,24 +804,32 @@ fn validate_crop(sps: &Sps) -> Result<()> {
 impl Sps {
   pub fn parse(rbsp: &[u8]) -> Result<Self> {
     let Ok(mut reader) = BitReader::new(rbsp);
-    let profile_idc = read_short_field(&mut reader, 8)?;
-    let constraint_flags = read_short_field(&mut reader, 8)?;
-    let level_idc = read_short_field(&mut reader, 8)?;
+    let profile_idc = reader.read_byte()?;
+    let constraint_flags = reader.read_byte()?;
+    let level_idc = reader.read_byte()?;
     let id = reader.read_ue()?;
-    ensure!(id < 32, "seq_parameter_set_id {id} out of range");
+    ensure(id < 32, || {
+      format!("seq_parameter_set_id {id} out of range")
+    })?;
     let format = parse_sequence_format(&mut reader, profile_idc)?;
     let frame_bits = reader.read_ue()?;
     let log2_max_frame_num = frame_bits.wrapping_add(4);
-    ensure!(log2_max_frame_num <= 16, "log2_max_frame_num out of range");
+    ensure(
+      log2_max_frame_num <= 16,
+      || "log2_max_frame_num out of range",
+    )?;
     let poc = read_poc_syntax(&mut reader)?;
     let max_num_ref_frames = reader.read_ue()?;
-    ensure!(max_num_ref_frames <= 16, "max_num_ref_frames out of range");
+    ensure(
+      max_num_ref_frames <= 16,
+      || "max_num_ref_frames out of range",
+    )?;
     let gaps = reader.read_flag()?;
     let geometry = read_sequence_geometry(&mut reader)?;
     let checked_value = reader.read_flag()?;
     let vui = match checked_value {
       FlagBit::One => {
-        let parsed = parse_vui(&mut reader)?;
+        let parsed = parse_video_usability_information(&mut reader)?;
         Some(parsed)
       }
       FlagBit::Zero => None,
@@ -1295,10 +1226,10 @@ fn read_picture_extensions(
   };
 
   let second_chroma_qp_index_offset = reader.read_se()?;
-  ensure!(
+  ensure(
     (-12..=12).contains(&second_chroma_qp_index_offset),
-    "second_chroma_qp_index_offset out of range"
-  );
+    || "second_chroma_qp_index_offset out of range",
+  )?;
   Ok(PictureExtensions {
     transform_8x8_mode: mode,
     pic_scaling_matrix_present: matrix_flag,
@@ -1322,10 +1253,10 @@ fn read_picture_defaults(reader: &mut BitReader) -> Result<PictureDefaults> {
   let l1 = reader.read_ue()?;
   let ref_l0 = l0.wrapping_add(1);
   let ref_l1 = l1.wrapping_add(1);
-  ensure!(
+  ensure(
     ref_l0 <= 32 && ref_l1 <= 32,
-    "num_ref_idx_default_active out of range"
-  );
+    || "num_ref_idx_default_active out of range",
+  )?;
   let weighted = reader.read_flag()?;
   let weighting = PredictionWeighting::from(weighted);
   let bipred = reader.read_bits(2)?;
@@ -1334,10 +1265,10 @@ fn read_picture_defaults(reader: &mut BitReader) -> Result<PictureDefaults> {
   let qp = initial_qp.wrapping_add(26);
   let qs = initial_qs.wrapping_add(26);
   let chroma_offset = reader.read_se()?;
-  ensure!(
+  ensure(
     (-12..=12).contains(&chroma_offset),
-    "chroma_qp_index_offset out of range"
-  );
+    || "chroma_qp_index_offset out of range",
+  )?;
   Ok(PictureDefaults {
     ref_l0,
     ref_l1,
@@ -1353,9 +1284,9 @@ impl Pps {
   pub fn parse(rbsp: &[u8], spss: &[Option<Sps>]) -> Result<Pps> {
     let Ok(mut r) = BitReader::new(rbsp);
     let id = r.read_ue()?;
-    ensure!(id < 256, "pic_parameter_set_id out of range");
+    ensure(id < 256, || "pic_parameter_set_id out of range")?;
     let sps_id = r.read_ue()?;
-    ensure!(sps_id < 32, "seq_parameter_set_id out of range");
+    ensure(sps_id < 32, || "seq_parameter_set_id out of range")?;
     let sps = spss
       .get({
         let Ok(numeric_value) = console_core_number_conversion::wrapped_index(sps_id);
@@ -1369,7 +1300,7 @@ impl Pps {
     let bottom_field_pic_order_in_frame_present = SyntaxField::from(checked_value_5);
     let ue = r.read_ue()?;
     let num_slice_groups = u32::wrapping_add(ue, 1);
-    ensure!(num_slice_groups <= 8, "num_slice_groups out of range");
+    ensure(num_slice_groups <= 8, || "num_slice_groups out of range")?;
     let slice_group_map_type = read_slice_group_map(&mut r, num_slice_groups)?;
 
     let defaults = read_picture_defaults(&mut r)?;

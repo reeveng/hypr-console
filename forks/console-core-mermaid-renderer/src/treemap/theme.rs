@@ -40,6 +40,7 @@ struct TreemapSourceTextStyle {
 }
 
 impl TreemapSourceTextStyle {
+    #[must_use]
     fn resolve(
         &self,
         root_font_family_css: &str,
@@ -107,7 +108,9 @@ impl TreemapSourceTextStyle {
         }
     }
 
+    #[must_use]
     fn retained_bytes(&self) -> Option<usize> {
+        #[must_use]
         fn override_bytes(value: &TreemapSourceTextOverride<Box<str>>) -> usize {
             match value {
                 TreemapSourceTextOverride::Value(value) => value.len(),
@@ -132,29 +135,34 @@ pub(crate) struct TreemapResolvedTextStyle {
 }
 
 impl TreemapResolvedTextStyle {
+    #[must_use]
     pub(crate) const fn style(&self) -> &crate::text::TextStyle {
         &self.style
     }
 
+    #[must_use]
     pub(crate) const fn font_family_ownership(
         &self,
     ) -> crate::mermaid_style::CssFontFamilyOwnership {
         self.font_family_ownership
     }
 
+    #[must_use]
     pub(crate) const fn verified(&self) -> bool {
         self.verified
     }
 
+    #[must_use]
     pub(crate) fn with_font_size_px(&self, font_size_px: f64) -> Self {
         let mut resolved = self.clone();
         resolved.style.font_size = font_size_px;
         resolved
     }
 
+    #[must_use]
     pub(crate) fn matches_measurement(&self, actual: &crate::text::TextStyle) -> bool {
         actual.font_family == self.style.font_family
-            && actual.font_size == self.style.font_size
+            && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&actual.font_size, &self.style.font_size) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
             && actual.font_weight == self.style.font_weight
             && actual.font_style == self.style.font_style
     }
@@ -207,8 +215,8 @@ impl TreemapTypographyThemePlan {
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
         let text_style = theme
-            .map(|theme| {
-                theme.style_with_work_meter(
+            .map(|theme_2| {
+                theme_2.style_with_work_meter(
                     ThemeTarget::Text,
                     ThemeVariant::Default,
                     None,
@@ -216,9 +224,9 @@ impl TreemapTypographyThemePlan {
                 )
             })
             .transpose()?;
-        let text_fill = theme.zip(text_style.as_ref()).and_then(|(theme, style)| {
+        let text_fill = theme.zip(text_style.as_ref()).and_then(|(theme_3, style)| {
             resolve_direct_static_fill(
-                theme,
+                theme_3,
                 style,
                 &[ThemeTarget::Text],
                 DirectStaticSelectorDomain::Default,
@@ -242,10 +250,10 @@ impl TreemapTypographyThemePlan {
         let mut retained_reservation = work_meter
             .reserve_prepared_text_retained_bytes(retained_upper_bound)
             .map_err(crate::Error::from)?;
-        // This count only feeds unsupported typography evidence. Source styles still need to be
-        // resolved below for ordinary measurement and rendering, but an unthemed plan has no
-        // typography evidence to reconcile and must not scan every visible label just to compute
-        // an unused count.
+
+
+
+
         let tracks_typography_evidence =
             theme.is_some() && inherited_font_stack.typography_requested();
         let mut possible_participating_text_count = if tracks_typography_evidence {
@@ -259,39 +267,51 @@ impl TreemapTypographyThemePlan {
             0
         };
         let mut section_source_styles = Vec::with_capacity(layout.sections.len());
+
         for section in &layout.sections {
             let style = resolve_treemap_source_text_style(
-                section.css_compiled_styles.as_deref().unwrap_or_default(),
+                match section.css_compiled_styles.as_deref() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => &[],
+                },
                 root_font_size_px,
                 work_meter.as_ref(),
             )?;
+
             if tracks_typography_evidence {
                 possible_participating_text_count = possible_participating_text_count
                     .saturating_add(
-                        usize::from(section.depth != 0 && !section.name.trim().is_empty())
-                            + usize::from(
-                                layout.show_values && section.depth != 0 && section.value != 0.0,
-                            ),
+                        ::core::primitive::usize::wrapping_add(usize::from(section.depth != 0 && !section.name.trim().is_empty()), usize::from(
+                                layout.show_values && section.depth != 0 && !::core::matches!(::core::primitive::f64::classify(section.value), ::core::num::FpCategory::Zero),
+                            )),
                     );
             }
+
             section_source_styles.push(style);
         }
+
         let mut leaf_source_styles = Vec::with_capacity(layout.leaves.len());
+
         for leaf in &layout.leaves {
             let style = resolve_treemap_source_text_style(
-                leaf.css_compiled_styles.as_deref().unwrap_or_default(),
+                match leaf.css_compiled_styles.as_deref() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => &[],
+                },
                 root_font_size_px,
                 work_meter.as_ref(),
             )?;
+
             if tracks_typography_evidence {
                 possible_participating_text_count = possible_participating_text_count
                     .saturating_add(
-                        usize::from(!leaf.name.trim().is_empty())
-                            + usize::from(layout.show_values && leaf.value != 0.0),
+                        ::core::primitive::usize::wrapping_add(usize::from(!leaf.name.trim().is_empty()), usize::from(layout.show_values && !::core::matches!(::core::primitive::f64::classify(leaf.value), ::core::num::FpCategory::Zero))),
                     );
             }
+
             leaf_source_styles.push(style);
         }
+
         let retained_bytes = section_source_styles
             .iter()
             .chain(&leaf_source_styles)
@@ -306,17 +326,27 @@ impl TreemapTypographyThemePlan {
             effective_config.as_value(),
             inherited_font_stack.font_family_css(),
         )?;
-        if let Some(fill) = title_fill {
-            css.title_color = fill.to_owned();
+
+        match title_fill {
+            Some(fill) => {
+                css.title_color = fill.to_owned();
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(fill) = text_fill.as_ref() {
-            if !label_config_owns_text_fill {
-                css.label_color = fill.css().to_owned();
-            }
-            if !value_config_owns_text_fill {
-                css.value_color = fill.css().to_owned();
-            }
+
+        match text_fill.as_ref() {
+            Some(fill) => {
+                if !label_config_owns_text_fill {
+                    css.label_color = fill.css().to_owned();
+                }
+
+                if !value_config_owns_text_fill {
+                    css.value_color = fill.css().to_owned();
+                }
+            },
+            ::core::option::Option::None => {},
         }
+
         Self {
             css,
             inherited_font_stack,
@@ -338,26 +368,31 @@ impl TreemapTypographyThemePlan {
         .prepare_node_visuals(layout, &work_meter, theme, effective_config)
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.css.common.font_family()
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &super::css_binding::TreemapCssBinding {
         &self.css
     }
 
+    #[must_use]
     pub(crate) fn section_visual(&self, index: usize) -> Option<&node_visual::TreemapNodeVisual> {
         self.section_source_styles
             .get(index)
             .map(|source| &source.visual)
     }
 
+    #[must_use]
     pub(crate) fn leaf_visual(&self, index: usize) -> Option<&node_visual::TreemapNodeVisual> {
         self.leaf_source_styles
             .get(index)
             .map(|source| &source.visual)
     }
 
+    #[must_use]
     pub(crate) fn label_text_fill_css(&self) -> Option<&str> {
         (!self.label_config_owns_text_fill)
             .then_some(self.text_fill.as_ref())
@@ -365,6 +400,7 @@ impl TreemapTypographyThemePlan {
             .map(DirectStaticPaint::css)
     }
 
+    #[must_use]
     pub(crate) fn value_text_fill_css(&self) -> Option<&str> {
         (!self.value_config_owns_text_fill)
             .then_some(self.text_fill.as_ref())
@@ -372,13 +408,14 @@ impl TreemapTypographyThemePlan {
             .map(DirectStaticPaint::css)
     }
 
+    #[must_use]
     pub(crate) fn title_text_style(&self, title_font_size_css: &str) -> TreemapResolvedTextStyle {
-        let title_font_size_css = crate::mermaid_style::strip_css_important(title_font_size_css);
-        let title_font_size_px = if title_font_size_css.eq_ignore_ascii_case("inherit") {
+        let title_font_size_css_2 = crate::mermaid_style::strip_css_important(title_font_size_css);
+        let title_font_size_px = if title_font_size_css_2.eq_ignore_ascii_case("inherit") {
             Some(self.root_font_size_px)
         } else {
             crate::mermaid_style::resolve_mermaid_font_size_px(
-                title_font_size_css,
+                title_font_size_css_2,
                 crate::mermaid_style::CssFontSizeContext::new(
                     self.root_font_size_px,
                     self.root_font_size_px,
@@ -388,7 +425,10 @@ impl TreemapTypographyThemePlan {
         let mut resolved = TreemapSourceTextStyle::default().resolve(
             self.font_family_css(),
             self.root_font_size_px,
-            title_font_size_px.unwrap_or(14.0),
+            match title_font_size_px {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 14.0,
+            },
             None,
             None,
         );
@@ -396,6 +436,7 @@ impl TreemapTypographyThemePlan {
         resolved
     }
 
+    #[must_use]
     pub(crate) fn section_text_style(
         &self,
         index: usize,
@@ -426,6 +467,7 @@ impl TreemapTypographyThemePlan {
             })
     }
 
+    #[must_use]
     pub(crate) fn leaf_text_style(
         &self,
         index: usize,
@@ -454,6 +496,7 @@ impl TreemapTypographyThemePlan {
             })
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(
         &self,
         layout: &TreemapDiagramLayout,
@@ -471,25 +514,42 @@ impl TreemapTypographyThemePlan {
         work_meter: &OperationWorkMeter,
     ) -> crate::Result<bool> {
         let node_label_terminals = receipt.node_label_terminals.take();
-        let Some(mut seal) = receipt.seal() else {
-            return Ok(false);
+
+        let mut seal = {
+            let optional_seal = receipt.seal();
+
+            match optional_seal {
+                Some(matched_seal) => matched_seal,
+                ::core::option::Option::None => return Ok(false),
+            }
         };
+
         let mut fallback_evidence = FamilyThemeOutcomes::default();
-        if let Some(terminals) = node_label_terminals {
-            let Some(theme) = theme else { return Ok(false) };
-            node_visual::record_text_paint_evidence(
-                theme,
-                &terminals,
-                &mut fallback_evidence,
-                work_meter,
-            )?;
+
+        match node_label_terminals {
+            Some(terminals) => {
+                let theme_2 = match theme {
+                    Some(matched_theme) => matched_theme,
+                    ::core::option::Option::None => return Ok(false),
+                };
+
+                node_visual::record_text_paint_evidence(
+                    theme_2,
+                    &terminals,
+                    &mut fallback_evidence,
+                    work_meter,
+                )?;
+            },
+            ::core::option::Option::None => {},
         }
+
         seal.fallback_evidence = Some(fallback_evidence);
         Ok(self.terminal_receipt.set(seal).is_ok())
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         for (key, capabilities) in &self.node_pending {
             if self.terminal_receipt.get().is_some() {
                 evidence.mark_applied_with_capabilities(key.clone(), capabilities.iter().copied());
@@ -497,12 +557,14 @@ impl TreemapTypographyThemePlan {
                 evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
             }
         }
+
         let Some(receipt) = self.terminal_receipt.get() else {
             self.inherited_font_stack
                 .record_unsupported_typography_evidence(
                     evidence,
                     self.possible_participating_text_count != 0,
                 );
+
             if self.inherited_font_stack.typed_font_stack_requested()
                 && self.possible_participating_text_count != 0
             {
@@ -513,19 +575,26 @@ impl TreemapTypographyThemePlan {
                     FamilyThemeResidualReason::UnsupportedTypography,
                 );
             }
+
             return;
         };
 
-        if let Some(fallback) = &receipt.fallback_evidence {
-            evidence.merge_borrowed(fallback);
+        match &receipt.fallback_evidence {
+            Some(fallback) => {
+                evidence.merge_borrowed(fallback);
+            },
+            ::core::option::Option::None => {},
         }
+
         if self.inherited_font_stack.typography_requested() {
             self.inherited_font_stack
                 .record_unsupported_typography_evidence(evidence, receipt.participating_count != 0);
+
             if self.inherited_font_stack.typed_font_stack_requested() {
                 let key = FamilyThemeMechanismKey::Typography(
                     crate::diagram_theme::ThemeTypographyProperty::FontStack,
                 );
+
                 match self.inherited_font_stack.outcome() {
                     InheritedFontStackOutcome::ConfigOwned => evidence.mark_not_applicable(key),
                     InheritedFontStackOutcome::Typed
@@ -575,15 +644,22 @@ fn treemap_source_style_retained_upper_bound(
     for declaration_lists in layout
         .sections
         .iter()
-        .map(|section| section.css_compiled_styles.as_deref().unwrap_or_default())
+        .map(|section| match section.css_compiled_styles.as_deref() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => &[],
+        })
         .chain(
             layout
                 .leaves
                 .iter()
-                .map(|leaf| leaf.css_compiled_styles.as_deref().unwrap_or_default()),
+                .map(|leaf| match leaf.css_compiled_styles.as_deref() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => &[],
+                }),
         )
     {
         work_meter.charge(1)?;
+
         for declaration_list in declaration_lists {
             work_meter.charge(1)?;
             retained_bytes = retained_bytes
@@ -607,6 +683,7 @@ pub(crate) struct TreemapTypographyCssEmission<'a> {
 }
 
 impl<'a> TreemapTypographyCssEmission<'a> {
+    #[must_use]
     pub(crate) fn new(
         font_family_css: &'a str,
         base_typography_emitted: bool,
@@ -623,22 +700,27 @@ impl<'a> TreemapTypographyCssEmission<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.font_family_css
     }
 
+    #[must_use]
     pub(crate) const fn base_typography_emitted(&self) -> bool {
         self.base_typography_emitted
     }
 
+    #[must_use]
     pub(crate) const fn root_typography_emitted(&self) -> bool {
         self.root_typography_emitted
     }
 
+    #[must_use]
     pub(crate) fn label_text_fill_css(&self) -> &str {
         self.label_text_fill_css
     }
 
+    #[must_use]
     pub(crate) fn value_text_fill_css(&self) -> &str {
         self.value_text_fill_css
     }
@@ -694,6 +776,7 @@ struct TreemapTypographyTerminalSeal {
 }
 
 impl<'a> TreemapTypographyThemeReceipt<'a> {
+    #[must_use]
     fn new(plan: &'a TreemapTypographyThemePlan, layout: &TreemapDiagramLayout) -> Self {
         Self {
             plan,
@@ -727,7 +810,7 @@ impl<'a> TreemapTypographyThemeReceipt<'a> {
                         .sections
                         .len()
                         .saturating_add(layout.leaves.len())
-                        .saturating_mul(1 + usize::from(layout.show_values)),
+                        .saturating_mul(::core::primitive::usize::wrapping_add(1, usize::from(layout.show_values))),
                 )
             }),
         }
@@ -738,26 +821,42 @@ impl<'a> TreemapTypographyThemeReceipt<'a> {
         self.css_matches = emission.base_typography_emitted()
             && emission.root_typography_emitted()
             && emission.font_family_css() == self.expected_font_family_css;
-        if let Some(expected) = self.expected_label_text_fill_css {
-            self.label_text_fill_matches = emission.label_text_fill_css() == expected;
+
+        match self.expected_label_text_fill_css {
+            Some(expected) => {
+                self.label_text_fill_matches = emission.label_text_fill_css() == expected;
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(expected) = self.expected_value_text_fill_css {
-            self.value_text_fill_matches = emission.value_text_fill_css() == expected;
+
+        match self.expected_value_text_fill_css {
+            Some(expected) => {
+                self.value_text_fill_matches = emission.value_text_fill_css() == expected;
+            },
+            ::core::option::Option::None => {},
         }
+
         self.css_emitted = true;
     }
 
+    #[must_use]
     fn expected_role(&self, terminal_index: usize) -> Option<TreemapTextRole> {
         let mut index = terminal_index;
+
         if self.title_expected {
-            if index == 0 {
-                return Some(TreemapTextRole::Title);
+            match index {
+                0 => {
+                    return Some(TreemapTextRole::Title);
+                },
+                _ => {},
             }
+
             index = index.saturating_sub(1);
         }
 
         let stride = usize::from(self.show_values).saturating_add(1);
         let section_terminals = self.section_count.saturating_mul(stride);
+
         if index < section_terminals {
             return Some(if self.show_values && index % stride == 1 {
                 TreemapTextRole::SectionValue
@@ -765,8 +864,10 @@ impl<'a> TreemapTypographyThemeReceipt<'a> {
                 TreemapTextRole::SectionLabel
             });
         }
+
         index = index.saturating_sub(section_terminals);
         let leaf_terminals = self.leaf_count.saturating_mul(stride);
+
         if index < leaf_terminals {
             return Some(if self.show_values && index % stride == 1 {
                 TreemapTextRole::LeafValue
@@ -774,9 +875,11 @@ impl<'a> TreemapTypographyThemeReceipt<'a> {
                 TreemapTextRole::LeafLabel
             });
         }
+
         None
     }
 
+    #[must_use]
     fn expected_terminal_count(&self) -> usize {
         let stride = usize::from(self.show_values).saturating_add(1);
         usize::from(self.title_expected)
@@ -803,8 +906,8 @@ impl<'a> TreemapTypographyThemeReceipt<'a> {
         } else {
             self.plan.leaf_visual(index)
         };
-        self.terminal_matches &= visual.is_some_and(|visual| {
-            visual.fill == fill && visual.stroke == stroke && visual.rect_style == style
+        self.terminal_matches &= visual.is_some_and(|visual_2| {
+            visual_2.fill == fill && visual_2.stroke == stroke && visual_2.rect_style == style
         });
         self.next_node = self.next_node.saturating_add(1);
     }
@@ -818,11 +921,10 @@ impl<'a> TreemapTypographyThemeReceipt<'a> {
         measurement_matches: bool,
         emitted_fill: &str,
     ) {
-        let stride = 1 + usize::from(self.show_values);
+        let stride = ::core::primitive::usize::wrapping_add(1, usize::from(self.show_values));
         let index = self
             .next_role
-            .saturating_sub(usize::from(self.title_expected))
-            / stride;
+            .saturating_sub(usize::from(self.title_expected)).wrapping_div(stride);
         let visual = if role == TreemapTextRole::Title {
             None
         } else if index < self.section_count {
@@ -835,31 +937,36 @@ impl<'a> TreemapTypographyThemeReceipt<'a> {
             role,
             TreemapTextRole::SectionValue | TreemapTextRole::LeafValue
         );
-        let role_owns_fill = visual.is_some_and(|visual| visual.node_label_winner);
-        let expected_paint = visual.and_then(|visual| {
+        let role_owns_fill = visual.is_some_and(|visual_2| visual_2.node_label_winner);
+        let expected_paint = visual.and_then(|visual_3| {
             if value_role {
-                visual.value_paint.as_ref()
+                visual_3.value_paint.as_ref()
             } else {
-                visual.label_paint.as_ref()
+                visual_3.label_paint.as_ref()
             }
         });
+
         if participates {
-            if let Some(visual) = visual {
-                let (plain, fitted) = if value_role {
-                    (&visual.value_fill, &visual.fitted_value_fill)
-                } else {
-                    (&visual.label_fill, &visual.fitted_label_fill)
-                };
-                self.terminal_matches &= emitted_fill == plain || emitted_fill == fitted;
+            match visual {
+                Some(visual_4) => {
+                    let (plain, fitted) = if value_role {
+                        (&visual_4.value_fill, &visual_4.fitted_value_fill)
+                    } else {
+                        (&visual_4.label_fill, &visual_4.fitted_label_fill)
+                    };
+                    self.terminal_matches &= emitted_fill == plain || emitted_fill == fitted;
+                },
+                ::core::option::Option::None => {},
             }
+
             if role != TreemapTextRole::Title
                 && let Some(terminals) = &mut self.node_label_terminals
             {
                 terminals.push(node_visual::TreemapLabelTerminal {
-                    ordinal: visual.map_or(0, |visual| visual.ordinal),
+                    ordinal: visual.map_or(0, |visual_5| visual_5.ordinal),
                     source_owned: self.config_owned_text_fill[usize::from(value_role)]
                         || fill_ownership == TreemapTextFillOwnership::SourceOwned
-                        || visual.is_some_and(|visual| visual.label_palette_owned),
+                        || visual.is_some_and(|visual_6| visual_6.label_palette_owned),
                     unverified: fill_ownership == TreemapTextFillOwnership::Unverified,
                     paint: expected_paint
                         .map(|paint| (paint.rule_index(), paint.capability()))
@@ -872,20 +979,25 @@ impl<'a> TreemapTypographyThemeReceipt<'a> {
                 });
             }
         }
+
         self.terminal_matches &= self.expected_role(self.next_role) == Some(role);
         self.terminal_matches &= self.css_emitted;
         self.next_role = self.next_role.saturating_add(1);
+
         if !participates {
             return;
         }
+
         self.participating_count = self.participating_count.saturating_add(1);
         let inherited_matches = resolved.font_family_ownership()
             != crate::mermaid_style::CssFontFamilyOwnership::Inherited
             || resolved.style().font_family.as_deref() == Some(self.expected_font_family_css);
+
         if !resolved.verified() || !measurement_matches || !inherited_matches {
             self.unverified_count = self.unverified_count.saturating_add(1);
             return;
         }
+
         match resolved.font_family_ownership() {
             crate::mermaid_style::CssFontFamilyOwnership::Inherited => {}
             crate::mermaid_style::CssFontFamilyOwnership::SourceOwned => {
@@ -897,6 +1009,7 @@ impl<'a> TreemapTypographyThemeReceipt<'a> {
         }
     }
 
+    #[must_use]
     fn seal(self) -> Option<TreemapTypographyTerminalSeal> {
         (self.css_emitted
             && self.css_matches
@@ -933,11 +1046,13 @@ fn resolve_treemap_source_text_style(
             |boundary| {
                 work_meter.charge(1)?;
                 let raw = boundary.raw();
+
                 let Some(declaration) = crate::mermaid_style::parse_style_declaration(raw) else {
                     let property = raw
                         .split_once(':')
                         .map(|(property, _)| property.trim())
                         .unwrap_or_else(|| raw.trim());
+
                     match property {
                         "font-family" => style.font_family = TreemapSourceTextOverride::Unverified,
                         "font-size" => style.font_size_px = TreemapSourceTextOverride::Unverified,
@@ -948,24 +1063,25 @@ fn resolve_treemap_source_text_style(
                         }
                         _ => {}
                     }
+
                     return Ok(true);
                 };
 
-                // Mermaid's Treemap style splitter uses exact, case-sensitive keys before the
-                // declarations reach the browser. Keep that boundary instead of treating this as
-                // a general CSS cascade.
+
+
+
                 match declaration.property_source().trim() {
                     "font-family" => {
                         style.font_family = if declaration.important() {
-                            // Upstream appends its own `!important`; accepting an authored one
-                            // would produce an invalid doubled priority token.
+
+
                             TreemapSourceTextOverride::Unverified
                         } else if declaration.inherits_property_value() {
                             TreemapSourceTextOverride::Inherited
                         } else if crate::mermaid_style::is_static_css_font_family_list(
                             declaration.value(),
                         ) {
-                            TreemapSourceTextOverride::Value(declaration.value().into())
+                            TreemapSourceTextOverride::Value(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(declaration.value()))
                         } else {
                             TreemapSourceTextOverride::Unverified
                         };
@@ -995,7 +1111,7 @@ fn resolve_treemap_source_text_style(
                         } else if crate::mermaid_style::is_supported_css_font_weight_value(
                             declaration.value(),
                         ) {
-                            TreemapSourceTextOverride::Value(declaration.value().into())
+                            TreemapSourceTextOverride::Value(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(declaration.value()))
                         } else {
                             TreemapSourceTextOverride::Unverified
                         };
@@ -1008,7 +1124,7 @@ fn resolve_treemap_source_text_style(
                         } else if crate::mermaid_style::is_supported_css_font_style_value(
                             declaration.value(),
                         ) {
-                            TreemapSourceTextOverride::Value(declaration.value().into())
+                            TreemapSourceTextOverride::Value(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(declaration.value()))
                         } else {
                             TreemapSourceTextOverride::Unverified
                         };
@@ -1037,10 +1153,12 @@ fn resolve_treemap_source_text_style(
                     }
                     _ => {}
                 }
+
                 Ok(true)
             },
         )?;
     }
+
     Ok(style)
 }
 
@@ -1057,17 +1175,18 @@ impl TreemapTitleThemePlan {
         title: Option<&str>,
         work_meter: &OperationWorkMeter,
     ) -> crate::Result<Self> {
-        let Some(theme) = theme else {
+        let Some(theme_2) = theme else {
             return Ok(Self {
                 fill: SingleTitleFillPlan::default(),
             });
         };
-        let title_present = title.is_some_and(|title| !title.trim().is_empty());
+
+        let title_present = title.is_some_and(|title_2| !title_2.trim().is_empty());
         let config_owns_fill = effective_config
             .config_paint_overrides_typed_default("treemap.titleColor")
             || effective_config.config_paint_overrides_typed_default("themeVariables.titleColor");
         let fill = SingleTitleFillPlan::resolve(
-            theme,
+            theme_2,
             title_present,
             config_owns_fill,
             FamilyThemeOutcomes::default(),
@@ -1076,14 +1195,17 @@ impl TreemapTitleThemePlan {
         Ok(Self { fill })
     }
 
+    #[must_use]
     pub(crate) fn fill_css(&self) -> Option<&str> {
         self.fill.fill_css()
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> Option<TreemapTitleThemeReceipt<'_>> {
         self.fill.fill_css().map(TreemapTitleThemeReceipt::new)
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: TreemapTitleThemeReceipt<'_>) -> bool {
         self.fill
             .fill_css()
@@ -1105,6 +1227,7 @@ pub(crate) struct TreemapTitleThemeReceipt<'a> {
 }
 
 impl<'a> TreemapTitleThemeReceipt<'a> {
+    #[must_use]
     fn new(expected_fill: &'a str) -> Self {
         Self {
             expected_fill,
@@ -1119,6 +1242,7 @@ impl<'a> TreemapTitleThemeReceipt<'a> {
             self.terminal_matches = false;
             return;
         }
+
         self.terminal_matches &= emitted_class == super::TREEMAP_TITLE_CLASS;
         self.terminal_matches &= emitted_fill == self.expected_fill;
         self.css_emitted = true;
@@ -1129,6 +1253,7 @@ impl<'a> TreemapTitleThemeReceipt<'a> {
         self.terminal_matches &= emitted_class == super::TREEMAP_TITLE_CLASS;
     }
 
+    #[must_use]
     fn proves(&self, expected_fill: &str) -> bool {
         self.expected_fill == expected_fill
             && self.css_emitted

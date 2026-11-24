@@ -41,6 +41,7 @@ pub(super) struct ArchitectureEdgeStrokePlan {
 }
 
 impl ArchitectureEdgeStrokePlan {
+    #[must_use]
     pub(super) fn baseline() -> Self {
         Self {
             stroke: None,
@@ -66,36 +67,40 @@ impl ArchitectureEdgeStrokePlan {
         let mut first_candidate = None::<Option<ArchitectureEdgeStroke>>;
         let mut candidates_match = true;
 
-        if edge_count > 0 {
-            if has_ordinal_edge_rules {
-                for ordinal in 1..=edge_count {
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(edge_count), &::core::convert::identity(0)); _explicit_ordering } {
+            ::core::cmp::Ordering::Greater => {
+                if has_ordinal_edge_rules {
+                    for ordinal in 1..=edge_count {
+                        let style = theme.style_with_work_meter(
+                            ThemeTarget::Edge,
+                            ThemeVariant::Default,
+                            Some(ordinal),
+                            work_meter,
+                        )?;
+                        let candidate = observe_style(theme, &style, &mut winner_properties);
+
+                        match first_candidate.as_ref() {
+                            None => first_candidate = Some(candidate),
+                            Some(first) => candidates_match &= first == &candidate,
+                        }
+                    }
+                } else {
                     let style = theme.style_with_work_meter(
                         ThemeTarget::Edge,
                         ThemeVariant::Default,
-                        Some(ordinal),
+                        None,
                         work_meter,
                     )?;
-                    let candidate = observe_style(theme, &style, &mut winner_properties);
-                    match first_candidate.as_ref() {
-                        None => first_candidate = Some(candidate),
-                        Some(first) => candidates_match &= first == &candidate,
-                    }
+                    first_candidate = Some(observe_style(theme, &style, &mut winner_properties));
                 }
-            } else {
-                let style = theme.style_with_work_meter(
-                    ThemeTarget::Edge,
-                    ThemeVariant::Default,
-                    None,
-                    work_meter,
-                )?;
-                first_candidate = Some(observe_style(theme, &style, &mut winner_properties));
-            }
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
         }
 
         let stroke = candidates_match
             .then(|| first_candidate.flatten())
             .flatten();
-        let stroke_rule = stroke.as_ref().map(|stroke| stroke.rule_index);
+        let stroke_rule = stroke.as_ref().map(|stroke_2| stroke_2.rule_index);
         let mut observations = BTreeMap::<usize, ArchitectureEdgeRuleObservation>::new();
 
         for route in theme.family_mechanism_routes().iter().copied() {
@@ -107,16 +112,19 @@ impl ArchitectureEdgeStrokePlan {
                     facet,
                 } => {
                     let observation = observations.entry(rule_index).or_default();
+
                     if config_owns_stroke
                         && resolved_style_property_for_facet(facet) == ResolvedStyleProperty::Stroke
                     {
                         continue;
                     }
+
                     if !selector.ordinal_domain_intersects_occurrence_count(edge_count) {
                         continue;
                     }
-                    // Winners come only from actual Default edge terminals. A qualified
-                    // selector still needs to match and win before it can be unsupported.
+
+
+
                     if !winner_properties
                         .contains(&(rule_index, resolved_style_property_for_facet(facet)))
                     {
@@ -124,11 +132,12 @@ impl ArchitectureEdgeStrokePlan {
                     }
 
                     observation.applicable = true;
+
                     match (route.disposition(), selector, facet) {
-                        (FamilyThemeDisposition::Unsupported, _, facet) => {
+                        (FamilyThemeDisposition::Unsupported, _, facet_2) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_2));
                         }
                         (
                             FamilyThemeDisposition::TypedAdapter,
@@ -147,13 +156,13 @@ impl ArchitectureEdgeStrokePlan {
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::Edge,
                 } => {
-                    // Reconciled below from the final style of each actual edge occurrence.
+
                 }
                 FamilyThemeMechanism::EffectBinding {
                     target: ThemeTarget::Edge,
                     ..
                 } => {
-                    // Reconciled below from the final style of each actual edge occurrence.
+
                 }
                 FamilyThemeMechanism::BaseTypography(_)
                 | FamilyThemeMechanism::RuleFacet { .. }
@@ -177,12 +186,13 @@ impl ArchitectureEdgeStrokePlan {
                 index: rule_index,
                 target: ThemeTarget::Edge,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // Selector-qualified, mixed-facet, or compatibility routes remain fail-closed.
+
             } else if observation.pending {
                 debug_assert!(plan.pending_key.is_none());
                 plan.pending_key = Some(key);
@@ -194,9 +204,11 @@ impl ArchitectureEdgeStrokePlan {
         if !config_owns_stroke && plan.pending_key.is_some() {
             plan.stroke = stroke;
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(super) fn terminal_stroke(&self) -> Option<&str> {
         self.stroke.as_ref().map(|stroke| stroke.css.as_ref())
     }
@@ -223,6 +235,7 @@ fn observe_style(
     typed_static_stroke(theme, style)
 }
 
+#[must_use]
 fn typed_static_stroke(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
@@ -241,10 +254,12 @@ fn typed_static_stroke(
     })
 }
 
+#[must_use]
 fn mermaid_owns_edge_stroke(config: &PresentationConfig) -> bool {
     if config.config_paint_overrides_typed_default(ARCH_EDGE_COLOR_PATH) {
         return true;
     }
+
     config.config_paint_overrides_typed_default(LINE_COLOR_PATH)
         && config.get_str(ARCH_EDGE_COLOR_PATH) == config.get_str(LINE_COLOR_PATH)
 }

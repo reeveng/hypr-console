@@ -8,6 +8,7 @@ struct StateEdgeBoundaryNode {
     height: f64,
 }
 
+#[must_use]
 fn state_edge_outside_node(
     node: &StateEdgeBoundaryNode,
     point: &crate::model::LayoutPoint,
@@ -19,6 +20,7 @@ fn state_edge_outside_node(
     dx >= w || dy >= h
 }
 
+#[must_use]
 fn state_edge_rect_intersection(
     node: &StateEdgeBoundaryNode,
     inside_point: &crate::model::LayoutPoint,
@@ -38,7 +40,7 @@ fn state_edge_rect_intersection(
         } else {
             y - h - outside_point.y
         };
-        let r = if q_abs == 0.0 {
+        let r = if ::core::matches!(::core::primitive::f64::classify(q_abs), ::core::num::FpCategory::Zero) {
             0.0
         } else {
             (r_abs * q) / q_abs
@@ -60,12 +62,15 @@ fn state_edge_rect_intersection(
             res.x = outside_point.x;
             res.y = outside_point.y;
         }
-        if r_abs == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(r_abs), ::core::num::FpCategory::Zero) {
             res.x = outside_point.x;
         }
-        if q_abs == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(q_abs), ::core::num::FpCategory::Zero) {
             res.y = outside_point.y;
         }
+
         return res;
     }
 
@@ -74,7 +79,7 @@ fn state_edge_rect_intersection(
     } else {
         x - w - outside_point.x
     };
-    let q = if r_abs == 0.0 {
+    let q = if ::core::matches!(::core::primitive::f64::classify(r_abs), ::core::num::FpCategory::Zero) {
         0.0
     } else {
         (q_abs * r) / r_abs
@@ -94,23 +99,30 @@ fn state_edge_rect_intersection(
         ix = outside_point.x;
         iy = outside_point.y;
     }
-    if r_abs == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(r_abs), ::core::num::FpCategory::Zero) {
         ix = outside_point.x;
     }
-    if q_abs == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(q_abs), ::core::num::FpCategory::Zero) {
         iy = outside_point.y;
     }
 
     crate::model::LayoutPoint { x: ix, y: iy }
 }
 
+#[must_use]
 fn state_edge_cut_path_at_intersect(
     input: &[crate::model::LayoutPoint],
     boundary: &StateEdgeBoundaryNode,
 ) -> Vec<crate::model::LayoutPoint> {
-    if input.is_empty() {
-        return Vec::new();
+    match input {
+        [] => {
+            return Vec::new();
+        },
+        [_, ..] => {},
     }
+
     let mut out: Vec<crate::model::LayoutPoint> = Vec::new();
     let mut last_point_outside = input[0].clone();
     let mut is_inside = false;
@@ -118,26 +130,31 @@ fn state_edge_cut_path_at_intersect(
 
     for point in input {
         if !state_edge_outside_node(boundary, point) && !is_inside {
-            // Mermaid's dagre-wrapper cuts an edge as it *enters* a cluster boundary.
-            // `state_edge_rect_intersection` expects the point *inside* the rectangle first.
+
+
             let inter = state_edge_rect_intersection(boundary, point, &last_point_outside);
+
             if !out
                 .iter()
                 .any(|p| (p.x - inter.x).abs() <= EPS && (p.y - inter.y).abs() <= EPS)
             {
                 out.push(inter);
             }
+
             is_inside = true;
         } else {
             last_point_outside = point.clone();
+
             if !is_inside {
                 out.push(point.clone());
             }
         }
     }
+
     out
 }
 
+#[must_use]
 fn state_edge_boundary_for_cluster(
     ctx: &StateRenderCtx<'_>,
     cluster_id: &str,
@@ -145,9 +162,10 @@ fn state_edge_boundary_for_cluster(
     oy: f64,
 ) -> Option<StateEdgeBoundaryNode> {
     let mut resolved = cluster_id;
+
     if !ctx.layout_clusters_by_id.contains_key(resolved) {
-        // Mermaid's state diagram edges sometimes annotate cluster endpoints as `state-<id>-<n>`
-        // while the cluster itself is keyed by `<id>`.
+
+
         if let Some(rest) = resolved.strip_prefix("state-")
             && let Some((base, suffix)) = rest.rsplit_once('-')
             && !base.is_empty()
@@ -167,6 +185,7 @@ fn state_edge_boundary_for_cluster(
     })
 }
 
+#[must_use]
 fn state_edge_boundary_for_layout_node(
     ctx: &StateRenderCtx<'_>,
     node_id: &str,
@@ -182,6 +201,7 @@ fn state_edge_boundary_for_layout_node(
     })
 }
 
+#[must_use]
 fn state_edge_clip_self_loop_points_to_node(
     ctx: &StateRenderCtx<'_>,
     le: &crate::model::LayoutEdge,
@@ -193,10 +213,10 @@ fn state_edge_clip_self_loop_points_to_node(
         return None;
     }
 
-    // Mermaid clips only when insertEdge receives endpoint nodes with an intersect callback.
-    // A direct self-loop on a composite without cluster endpoint metadata receives the cluster
-    // itself, so its Dagre points must remain intact. Explicit cluster endpoints still carry the
-    // helper nodes that own the intersection callbacks.
+
+
+
+
     if le.from_cluster.is_none()
         && le.to_cluster.is_none()
         && (ctx.layout_clusters_by_id.contains_key(le.from.as_str())
@@ -215,8 +235,12 @@ fn state_edge_clip_self_loop_points_to_node(
         y: boundary.y,
     };
     let inner = &input[1..input.len() - 1];
-    if inner.is_empty() {
-        return None;
+
+    match inner {
+        [] => {
+            return None;
+        },
+        [_, ..] => {},
     }
 
     let mut out = Vec::with_capacity(inner.len() + 2);
@@ -230,6 +254,7 @@ fn state_edge_clip_self_loop_points_to_node(
     Some(out)
 }
 
+#[must_use]
 fn state_edge_find_adjacent_point(
     point_a: &crate::model::LayoutPoint,
     point_b: &crate::model::LayoutPoint,
@@ -245,21 +270,23 @@ fn state_edge_find_adjacent_point(
     }
 }
 
+#[must_use]
 fn state_edge_is_corner_point(
     prev: &crate::model::LayoutPoint,
     curr: &crate::model::LayoutPoint,
     next: &crate::model::LayoutPoint,
 ) -> bool {
-    (prev.x == curr.x
-        && curr.y == next.y
+    (<::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&prev.x, &curr.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
+        && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&curr.y, &next.y) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
         && (curr.x - next.x).abs() > 5.0
         && (curr.y - prev.y).abs() > 5.0)
-        || (prev.y == curr.y
-            && curr.x == next.x
+        || (<::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&prev.y, &curr.y) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
+            && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&curr.x, &next.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
             && (curr.x - prev.x).abs() > 5.0
             && (curr.y - next.y).abs() > 5.0)
 }
 
+#[must_use]
 fn state_edge_fix_corners(
     line_data: &[crate::model::LayoutPoint],
 ) -> Vec<crate::model::LayoutPoint> {
@@ -268,6 +295,7 @@ fn state_edge_fix_corners(
     }
 
     let mut out = Vec::with_capacity(line_data.len());
+
     for (idx, point) in line_data.iter().enumerate() {
         let is_corner = idx > 0
             && idx + 1 < line_data.len()
@@ -288,11 +316,13 @@ fn state_edge_fix_corners(
         out.push(new_prev_point.clone());
 
         let mut new_corner_point = corner_point.clone();
+
         if (next_point.x - prev_point.x).abs() > 10.0 && (next_point.y - prev_point.y).abs() >= 10.0
         {
             let a = std::f64::consts::SQRT_2 * 2.0;
             let r = 5.0;
-            if corner_point.x == new_prev_point.x {
+
+            if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&corner_point.x, &new_prev_point.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
                 new_corner_point = crate::model::LayoutPoint {
                     x: if x_diff < 0.0 {
                         new_prev_point.x - r + a
@@ -324,9 +354,11 @@ fn state_edge_fix_corners(
         out.push(new_corner_point);
         out.push(new_next_point);
     }
+
     out
 }
 
+#[must_use]
 fn state_marker_offset_for(arrow_type_end: Option<&str>) -> Option<f64> {
     match arrow_type_end {
         Some("arrow_barb_neo") => Some(5.5),
@@ -334,20 +366,27 @@ fn state_marker_offset_for(arrow_type_end: Option<&str>) -> Option<f64> {
     }
 }
 
+#[must_use]
 fn state_rounded_end_marker_offset_points(
     input: &[crate::model::LayoutPoint],
     arrow_type_end: Option<&str>,
 ) -> Vec<crate::model::LayoutPoint> {
-    let Some(offset) = state_marker_offset_for(arrow_type_end) else {
-        return input.to_vec();
+    let offset = {
+        let optional_offset = state_marker_offset_for(arrow_type_end);
+
+        match optional_offset {
+            Some(matched_offset) => matched_offset,
+            ::core::option::Option::None => return input.to_vec(),
+        }
     };
+
     if input.len() < 2 {
         return input.to_vec();
     }
 
-    // Mermaid's rounded-edge branch applies markerOffsets to the terminal point
-    // before generating the rounded path. It moves only that point; the linear
-    // branch below additionally handles short terminal stubs.
+
+
+
     let mut out = input.to_vec();
     let end = &input[input.len() - 1];
     let previous = &input[input.len() - 2];
@@ -359,10 +398,12 @@ fn state_rounded_end_marker_offset_points(
     out
 }
 
+#[must_use]
 fn state_line_with_end_marker_offset_points(
     input: &[crate::model::LayoutPoint],
     arrow_type_end: Option<&str>,
 ) -> Vec<crate::model::LayoutPoint> {
+    #[must_use]
     fn calculate_delta_and_angle(
         a: &crate::model::LayoutPoint,
         b: &crate::model::LayoutPoint,
@@ -373,9 +414,15 @@ fn state_line_with_end_marker_offset_points(
         (angle, delta_x, delta_y)
     }
 
-    let Some(end_marker_height) = state_marker_offset_for(arrow_type_end) else {
-        return input.to_vec();
+    let end_marker_height = {
+        let optional_end_marker_height = state_marker_offset_for(arrow_type_end);
+
+        match optional_end_marker_height {
+            Some(matched_end_marker_height) => matched_end_marker_height,
+            ::core::option::Option::None => return input.to_vec(),
+        }
     };
+
     if input.len() < 2 {
         return input.to_vec();
     }
@@ -387,6 +434,7 @@ fn state_line_with_end_marker_offset_points(
     let extra_room = 1.0;
 
     let mut out = Vec::with_capacity(input.len());
+
     for (idx, point) in input.iter().enumerate() {
         let mut offset_x = 0.0;
         let mut offset_y = 0.0;
@@ -401,11 +449,13 @@ fn state_line_with_end_marker_offset_points(
 
         let diff_x = (point.x - end.x).abs();
         let diff_y = (point.y - end.y).abs();
+
         if diff_x < end_marker_height && diff_x > 0.0 && diff_y < end_marker_height {
             let mut adjustment = end_marker_height + extra_room - diff_x;
             adjustment *= if !x_direction_is_left { -1.0 } else { 1.0 };
             offset_x -= adjustment;
         }
+
         if diff_y < end_marker_height && diff_y > 0.0 && diff_x < end_marker_height {
             let mut adjustment = end_marker_height + extra_room - diff_y;
             adjustment *= if !y_direction_is_down { -1.0 } else { 1.0 };
@@ -429,6 +479,7 @@ pub(super) struct StatePreparedEdgeGeometry {
     points_were_explicitly_updated: bool,
 }
 
+#[must_use]
 fn state_edge_finish_geometry(
     original_label_path_points: Vec<crate::model::LayoutPoint>,
     data_points: Vec<crate::model::LayoutPoint>,
@@ -436,8 +487,8 @@ fn state_edge_finish_geometry(
     arrow_type_end: Option<&str>,
     points_were_explicitly_updated: bool,
 ) -> StatePreparedEdgeGeometry {
-    // Mermaid keeps `paths.updatedPath` before `fixCorners`, marker offsets, and curve encoding.
-    // Only the rendered SVG path consumes these projected curve points.
+
+
     let mut points_for_curve = label_path_points
         .iter()
         .filter(|point| !point.y.is_nan())
@@ -455,6 +506,7 @@ fn state_edge_finish_geometry(
     }
 }
 
+#[must_use]
 pub(super) fn state_edge_prepare_geometry(
     ctx: &StateRenderCtx<'_>,
     le: &crate::model::LayoutEdge,
@@ -497,29 +549,33 @@ pub(super) fn state_edge_prepare_geometry(
             points_were_explicitly_updated: false,
         };
     }
+
     let mut raw_local_points: Vec<crate::model::LayoutPoint> = Vec::new();
+
     for p in &le.points {
         raw_local_points.push(crate::model::LayoutPoint {
             x: p.x - origin_x,
             y: p.y - origin_y,
         });
     }
-    // `data-points` is captured immediately after endpoint clipping. A later cluster cut changes
-    // the label path and rendered `d`, but deliberately does not rewrite this attribute.
+
+
+
     let data_points =
         state_edge_clip_self_loop_points_to_node(ctx, le, &raw_local_points, origin_x, origin_y)
             .unwrap_or_else(|| raw_local_points.clone());
     let mut label_path_points = data_points.clone();
     let mut points_were_explicitly_updated = false;
 
-    // Match Mermaid `rendering-elements/edges.js insertEdge`: `toCluster` restarts from the
-    // original edge points, while `fromCluster` continues from the current cut path.
+
+
     if let Some(tc) = le.to_cluster.as_deref()
         && let Some(boundary) = state_edge_boundary_for_cluster(ctx, tc, origin_x, origin_y)
     {
         label_path_points = state_edge_cut_path_at_intersect(&raw_local_points, &boundary);
         points_were_explicitly_updated = true;
     }
+
     if let Some(fc) = le.from_cluster.as_deref()
         && let Some(boundary) = state_edge_boundary_for_cluster(ctx, fc, origin_x, origin_y)
     {
@@ -563,6 +619,7 @@ fn write_state_edge_path(
     let data_points = base64::engine::general_purpose::STANDARD
         .encode(serde_json::to_vec(&geometry.data_points).unwrap_or_default());
     let mut original_style = String::new();
+
     if state_data_look(ctx) == "neo"
         && let Some(length) = super::super::svg_path_length_from_d(&geometry.rendered_d)
     {
@@ -577,7 +634,9 @@ fn write_state_edge_path(
             false,
         );
     }
+
     original_style.push_str("fill:none;;;fill:none");
+
     if let Some(style) = ctx
         .style_plan
         .edge(edge_id)
@@ -587,6 +646,7 @@ fn write_state_edge_path(
         original_style.push(';');
         original_style.push_str(style);
     }
+
     let style = if let Some(path) = hopped_d {
         super::super::line_hops::rewrite_style_after_line_hop(&original_style, path, work_meter)?
     } else {
@@ -603,9 +663,11 @@ fn write_state_edge_path(
         data_points,
         escape_xml_display(state_data_look(ctx))
     );
-    if let Some(marker_end) = marker_end {
-        let _ = write!(out, r#" marker-end="{}""#, escape_xml_display(marker_end));
+
+    if let Some(marker_end_2) = marker_end {
+        let _ = write!(out, r#" marker-end="{}""#, escape_xml_display(marker_end_2));
     }
+
     out.push_str("/>");
     out.checkpoint()?;
     Ok(())
@@ -629,10 +691,12 @@ pub(super) fn render_state_edge_path(
     } else {
         "edge-thickness-normal edge-pattern-solid".to_string()
     };
+
     for c in edge.classes.split_whitespace() {
         if c.trim().is_empty() {
             continue;
         }
+
         classes.push(' ');
         classes.push_str(c.trim());
     }
@@ -664,9 +728,15 @@ pub(super) fn render_state_edge_path(
         _ => None,
     };
 
-    let Some(le) = ctx.layout_edges_by_id.get(edge.id.as_str()).copied() else {
-        return Ok(());
+    let le = {
+        let optional_le = ctx.layout_edges_by_id.get(edge.id.as_str()).copied();
+
+        match optional_le {
+            Some(matched_le) => matched_le,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
+
     write_state_edge_path(
         out,
         ctx,
@@ -688,10 +758,13 @@ pub(super) fn render_state_edge_label(
     origin_x: f64,
     origin_y: f64,
 ) {
+    #[must_use]
     fn fallback_background_metadata_attr(id: &str, fill: Option<&str>) -> String {
-        let Some(fill) = fill else {
-            return String::new();
+        let fill = match fill {
+            Some(matched_fill) => matched_fill,
+            ::core::option::Option::None => return String::new(),
         };
+
         format!(
             r#" {}="state-transition-label-background:{}" {}="{}""#,
             crate::svg::fallback::FALLBACK_OCCURRENCE_DATA_ATTR,
@@ -701,10 +774,12 @@ pub(super) fn render_state_edge_label(
         )
     }
 
+    #[must_use]
     fn edge_label_div_style(label_w: f64, prefix: &str, background: &str) -> String {
-        // Mermaid uses `createText(..., { width: 200 })` for state edge labels and flips the XHTML
-        // `<div>` container to wrapping mode when the label reaches the max width.
+
+
         let max_width = crate::text::MERMAID_CREATE_TEXT_DEFAULT_WIDTH_PX;
+
         if label_w >= max_width - 1e-3 {
             format!(
                 "{}{}display: table; white-space: break-spaces; line-height: 1.5; max-width: {}px; text-align: center; width: {}px;",
@@ -776,6 +851,7 @@ pub(super) fn render_state_edge_label(
         } else {
             (w, h)
         };
+
         if html_labels {
             let fallback_background_metadata_attr =
                 fallback_background_metadata_attr(id, fallback_background_fill);
@@ -836,12 +912,16 @@ pub(super) fn render_state_edge_label(
     }
 
     let edge_style = ctx.style_plan.edge(edge.id.as_str());
-    let label_style = edge_style
-        .map(crate::state::StateEdgeStylePlan::label_style_attr)
-        .unwrap_or_default();
-    let label_div_prefix = edge_style
-        .map(crate::state::StateEdgeStylePlan::label_div_style_prefix)
-        .unwrap_or_default();
+    let label_style = match edge_style
+        .map(crate::state::StateEdgeStylePlan::label_style_attr) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => "",
+    };
+    let label_div_prefix = match edge_style
+        .map(crate::state::StateEdgeStylePlan::label_div_style_prefix) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => "",
+    };
     let html_background_style = edge_style
         .map(crate::state::StateEdgeStylePlan::label_background_div_style_prefix)
         .filter(|style| !style.is_empty())
@@ -864,11 +944,13 @@ pub(super) fn render_state_edge_label(
     } else {
         std::borrow::Cow::Borrowed(edge.label.as_str())
     };
-    let label_text = label_text.trim();
-    if label_text.is_empty() {
+    let label_text_2 = label_text.trim();
+
+    if label_text_2.is_empty() {
         if ctx.uses_elk_adapter_dom {
             return;
         }
+
         write_empty_edge_label(
             out,
             &edge.id,
@@ -878,11 +960,23 @@ pub(super) fn render_state_edge_label(
         );
         return;
     }
-    let Some(le) = ctx.layout_edges_by_id.get(edge.id.as_str()).copied() else {
-        return;
+
+    let le = {
+        let optional_le = ctx.layout_edges_by_id.get(edge.id.as_str()).copied();
+
+        match optional_le {
+            Some(matched_le) => matched_le,
+            ::core::option::Option::None => return,
+        }
     };
-    let Some(lbl) = le.label.as_ref() else {
-        return;
+
+    let lbl = {
+        let optional_lbl = le.label.as_ref();
+
+        match optional_lbl {
+            Some(matched_lbl) => matched_lbl,
+            ::core::option::Option::None => return,
+        }
     };
 
     let geometry = state_edge_prepare_geometry(
@@ -908,7 +1002,7 @@ pub(super) fn render_state_edge_label(
     write_visible_edge_label(
         out,
         &edge.id,
-        label_text,
+        label_text_2,
         ctx.label_sidecar
             .measured_native_geometry(crate::state::StateLabelOwner::Edge(&edge.id)),
         label_position,

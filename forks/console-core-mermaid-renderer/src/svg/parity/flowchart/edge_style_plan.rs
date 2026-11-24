@@ -18,6 +18,7 @@ enum EdgeLabelTypographyPurpose {
 }
 
 impl PreparedEdgeLabelTypography {
+    #[must_use]
     fn matches_base(&self, base: &crate::text::TextStyle) -> bool {
         self.base.font_family == base.font_family
             && self.base.font_size.to_bits() == base.font_size.to_bits()
@@ -31,6 +32,7 @@ impl PreparedEdgeLabelTypography {
         work: Option<&Arc<crate::resources::OperationWorkMeter>>,
     ) -> crate::Result<Self> {
         let mut retained = std::mem::size_of::<Self>();
+
         for typography in [base, &style] {
             for value in [
                 &typography.font_family,
@@ -40,8 +42,9 @@ impl PreparedEdgeLabelTypography {
                 retained = retained.saturating_add(value.as_ref().map_or(0, String::len));
             }
         }
+
         let reservation = work
-            .map(|work| work.reserve_prepared_text_retained_bytes(retained))
+            .map(|work_2| work_2.reserve_prepared_text_retained_bytes(retained))
             .transpose()?;
         Ok(Self {
             base: base.clone(),
@@ -99,18 +102,22 @@ impl FlowchartStructuralEdgePathStyle {
             .collect::<Vec<_>>();
         definitions.sort_unstable_by_key(|(index, _, _)| *index);
         let mut styles = Vec::with_capacity(definitions.len());
+
         for (_, class, declarations) in definitions {
             for declaration in declarations {
                 work.charge(declaration.len())?;
             }
-            // Inspect the same safe CSSOM projection emitted by the stylesheet. In particular,
-            // invalid and resource-bearing raw class declarations must not become source owners.
+
+
+
             let (shape, _) = css::flowchart_classdef_css_declarations(declarations);
+
             if shape.is_empty() {
                 continue;
             }
-            // The CSSOM projection is a semicolon-delimited CSS declaration list, whereas the
-            // compatibility compiler accepts individual declarations or Mermaid comma groups.
+
+
+
             let mut emitted_declarations = Vec::new();
             crate::mermaid_style::visit_style_declaration_boundaries_with_checkpoints(
                 &shape,
@@ -137,12 +144,14 @@ impl FlowchartStructuralEdgePathStyle {
                 },
             });
         }
+
         Ok(styles)
     }
 
+    #[must_use]
     fn matches_path(&self, html_labels: bool, edges_group: bool, nested_root: bool) -> bool {
-        // Native `.CLASS path` reaches descendants; HTML `.CLASS > *` reaches only the edge
-        // group's direct path children. Recursive Dagre roots are nested beneath `.nodes`.
+
+
         match self.class {
             "edgePaths" => true,
             "edges" => edges_group,
@@ -186,16 +195,19 @@ pub(in crate::svg::parity::flowchart) struct FlowchartEdgeStrokeWidthResolution 
 }
 
 impl FlowchartEdgeStrokeWidthResolution {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn precedence(
         self,
     ) -> crate::flowchart::FlowchartFacetPrecedence {
         self.precedence
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn typed_value(self) -> Option<f32> {
         self.typed_value
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn paint_outset(self) -> Option<f64> {
         self.paint_value.map(|value| f64::from(value) / 2.0)
     }
@@ -222,10 +234,12 @@ impl FlowchartEdgeStylePlan {
         )?;
         plan.edge_stroke_width_config_override =
             effective_config.config_path_overrides_typed_default("themeVariables.strokeWidth");
+
         if !model.edges.is_empty() {
             plan.structural_path_styles =
                 FlowchartStructuralEdgePathStyle::prepare(&model.class_defs, work_meter)?;
         }
+
         Ok(plan)
     }
 
@@ -286,12 +300,15 @@ impl FlowchartEdgeStylePlan {
                     &edge.style,
                     Some(work_meter),
                 )?;
+
                 let Some(projected_source_style_bytes) = emission
                     .projected_edge_source_style_bytes(default_edge_style, &edge.style, hand_drawn)
                 else {
                     work_meter.check_svg_append(usize::MAX, 1)?;
+
                     unreachable!("overflowing edge source-style projection must be rejected")
                 };
+
                 let source_stroke_width_status = if hand_drawn {
                     crate::flowchart::FlowchartSourceFacetStatus::Absent
                 } else {
@@ -409,28 +426,36 @@ impl FlowchartEdgeStylePlan {
         work: &crate::resources::OperationWorkMeter,
     ) -> crate::Result<()> {
         let occurrence = self.occurrence(key)?;
+
         if occurrence.path_sources.get().is_some() {
             return Ok(());
         }
+
         let mut sources = FlowchartEdgePathSourceFacets::default();
+
         for style in &self.structural_path_styles {
             work.charge(1)?;
+
             if !style.matches_path(html_labels, edges_group, nested_root) {
                 continue;
             }
-            // Every generated class declaration is important and has the same specificity.
-            // Catalog order therefore chooses each property independently.
+
+
+
             if !style.facets.stroke.is_absent() {
                 sources.stroke = style.facets.stroke;
             }
+
             if !style.facets.stroke_width.is_absent() {
                 sources.stroke_width = style.facets.stroke_width;
                 sources.stroke_width_value = style.facets.stroke_width_value;
             }
+
             if !style.facets.stroke_dasharray.is_absent() {
                 sources.stroke_dasharray = style.facets.stroke_dasharray;
             }
         }
+
         let _ = occurrence.path_sources.set(sources);
         Ok(())
     }
@@ -480,6 +505,7 @@ impl FlowchartEdgeStylePlan {
         work: &crate::resources::OperationWorkMeter,
     ) -> crate::Result<Self> {
         let hand_drawn = flowchart_config_diagram_look(config).is_hand_drawn();
+
         for (index, edge) in model.edges.iter().enumerate() {
             work.checkpoint(merman_model::OperationPhase::Layout)?;
             let key = crate::flowchart::FlowchartEdgeKey::new(index);
@@ -492,6 +518,7 @@ impl FlowchartEdgeStylePlan {
             )?;
             self.edge_occurrences[index].stroke_width = Some(width);
         }
+
         Ok(self)
     }
 
@@ -508,6 +535,7 @@ impl FlowchartEdgeStylePlan {
                     key.semantic_index()
                 ),
             })?;
+
         if let Some(source) = occurrence
             .path_sources
             .get()
@@ -521,14 +549,15 @@ impl FlowchartEdgeStylePlan {
                 self.edge_stroke_width_config_override,
             );
             resolved.typed_value = None;
-            // Generated class rules are important, but important declarations emitted directly
-            // on the path retain inline specificity. Unknown winners must stay unbounded.
+
+
             resolved.paint_value = match occurrence.artifact.emission.edge_important_stroke_width()
             {
                 Some(declaration) => admitted_flowchart_source_stroke_width(declaration.value()),
                 None => source.stroke_width_value,
             };
         }
+
         Ok(resolved)
     }
 
@@ -559,8 +588,8 @@ impl FlowchartEdgeStylePlan {
             crate::flowchart::FlowchartSourceFacetStatus::Admitted => {
                 artifact.source_stroke_width_value
             }
-            // Dynamic or invalid source CSS still owns precedence, but it has no numeric paint
-            // extent that the headless viewport can safely claim.
+
+
             crate::flowchart::FlowchartSourceFacetStatus::Unverified => None,
             crate::flowchart::FlowchartSourceFacetStatus::Absent => {
                 typed_value.or(Some(class_value))
@@ -590,7 +619,8 @@ impl FlowchartEdgeStylePlan {
         &self,
         key: crate::flowchart::FlowchartEdgeKey,
     ) -> crate::Result<FlowchartEdgeAnimationResolution> {
-        Ok(self.occurrence(key)?.animation)
+        let checked_value = self.occurrence(key)?;
+        Ok(checked_value.animation)
     }
 
     pub(crate) fn edge_label_text_style_for<'a>(
@@ -598,8 +628,9 @@ impl FlowchartEdgeStylePlan {
         key: crate::flowchart::FlowchartEdgeKey,
         base: &'a crate::text::TextStyle,
     ) -> crate::Result<crate::flowchart::FlowchartTextStyleResolution<'a>> {
-        let mut resolved = self
-            .edge_for(key)?
+        let checked_value = self
+            .edge_for(key)?;
+        let mut resolved = checked_value
             .effective_edge_label_text_style_with_provenance(base);
         self.record_layout_typography(
             key,
@@ -607,14 +638,17 @@ impl FlowchartEdgeStylePlan {
             resolved.as_ref(),
             EdgeLabelTypographyPurpose::Ordinary,
         )?;
-        let prepared = self
-            .occurrence(key)?
+        let checked_value_2 = self
+            .occurrence(key)?;
+        let prepared = checked_value_2
             .layout_typography
             .get()
             .expect("recorded layout typography");
+
         if prepared.matches_base(base) {
             resolved.style = std::borrow::Cow::Borrowed(&prepared.style);
         }
+
         Ok(resolved)
     }
 
@@ -623,7 +657,8 @@ impl FlowchartEdgeStylePlan {
         key: crate::flowchart::FlowchartEdgeKey,
         base: &'a crate::text::TextStyle,
     ) -> crate::Result<crate::flowchart::FlowchartTextStyleResolution<'a>> {
-        let mut resolved = match self.occurrence(key)?.swimlane_label.as_deref() {
+        let checked_value = self.occurrence(key)?;
+        let mut resolved = match checked_value.swimlane_label.as_deref() {
             Some(styles) => styles.effective_edge_label_text_style_with_provenance(base),
             None => crate::flowchart::FlowchartTextStyleResolution::borrowed(base),
         };
@@ -633,17 +668,21 @@ impl FlowchartEdgeStylePlan {
             resolved.as_ref(),
             EdgeLabelTypographyPurpose::SwimlaneLabelRect,
         )?;
-        let prepared = self
-            .occurrence(key)?
+        let checked_value_2 = self
+            .occurrence(key)?;
+        let prepared = checked_value_2
             .layout_typography
             .get()
             .expect("recorded layout typography");
+
         if prepared.matches_base(base) {
             resolved.style = std::borrow::Cow::Borrowed(&prepared.style);
         }
+
         Ok(resolved)
     }
 
+    #[must_use]
     pub(crate) fn with_typography_work_meter(
         mut self,
         work: Arc<crate::resources::OperationWorkMeter>,
@@ -662,9 +701,11 @@ impl FlowchartEdgeStylePlan {
         let occurrence = self.occurrence(key)?;
         debug_assert_eq!(occurrence.typography_purpose, purpose);
         let slot = &occurrence.layout_typography;
+
         if slot.get().is_some() {
             return Ok(());
         }
+
         let prepared =
             PreparedEdgeLabelTypography::new(base, style.clone(), self.typography_work.as_ref())?;
         let _ = slot.set(Arc::new(prepared));
@@ -705,6 +746,7 @@ impl FlowchartEdgeStylePlan {
             if !occurrence.has_label && occurrence.layout_typography.get().is_none() {
                 continue;
             }
+
             debug_assert_eq!(
                 occurrence.typography_purpose == EdgeLabelTypographyPurpose::SwimlaneLabelRect,
                 swimlane
@@ -717,10 +759,12 @@ impl FlowchartEdgeStylePlan {
                 !source.source_font_size_status().is_absent(),
             );
             let base = parent.as_ref();
+
             if let Some(terminal) = occurrence.terminal_typography.get() {
                 debug_assert!(terminal.matches_base(base));
                 continue;
             }
+
             let terminal = if let Some(layout) = occurrence
                 .layout_typography
                 .get()
@@ -731,7 +775,7 @@ impl FlowchartEdgeStylePlan {
                 let style = if swimlane {
                     occurrence.swimlane_label.as_deref().map_or_else(
                         || base.clone(),
-                        |source| source.effective_edge_label_text_style(base).into_owned(),
+                        |source_2| source_2.effective_edge_label_text_style(base).into_owned(),
                     )
                 } else {
                     occurrence
@@ -740,14 +784,15 @@ impl FlowchartEdgeStylePlan {
                         .effective_edge_label_text_style(base)
                         .into_owned()
                 };
-                Arc::new(PreparedEdgeLabelTypography::new(
+                Arc::new({ let checked_value = PreparedEdgeLabelTypography::new(
                     base,
                     style,
                     self.typography_work.as_ref(),
-                )?)
+                )?; checked_value })
             };
             let _ = occurrence.terminal_typography.set(terminal);
         }
+
         Ok(())
     }
 
@@ -755,7 +800,8 @@ impl FlowchartEdgeStylePlan {
         &self,
         key: crate::flowchart::FlowchartEdgeKey,
     ) -> crate::Result<&crate::text::TextStyle> {
-        self.occurrence(key)?
+        let checked_value = self.occurrence(key)?;
+        checked_value
             .terminal_typography
             .get()
             .map(|prepared| &prepared.style)
@@ -784,14 +830,16 @@ impl FlowchartEdgeStylePlan {
         &self,
         key: crate::flowchart::FlowchartEdgeKey,
     ) -> crate::Result<usize> {
-        Ok(self.occurrence(key)?.artifact.projected_source_style_bytes)
+        let checked_value = self.occurrence(key)?;
+        Ok(checked_value.artifact.projected_source_style_bytes)
     }
 
     pub(in crate::svg::parity::flowchart) fn swimlane_label_for(
         &self,
         key: crate::flowchart::FlowchartEdgeKey,
     ) -> crate::Result<Option<&FlowchartCompiledStyles>> {
-        Ok(self.occurrence(key)?.swimlane_label.as_deref())
+        let checked_value = self.occurrence(key)?;
+        Ok(checked_value.swimlane_label.as_deref())
     }
 
     #[cfg(test)]
@@ -1123,7 +1171,7 @@ mod tests {
                 .resolve_edge_stroke_width(key, &edge, &edge_theme, 1.3, hand_drawn)
                 .unwrap();
             plan.edge_occurrences[0].stroke_width = Some(original);
-            // Native .nodes path reaches an edge below a recursive Dagre root.
+
             plan.bind_path_sources_for(key, false, false, true, &meter)
                 .unwrap();
             let resolved = plan.stroke_width_for(key).unwrap();

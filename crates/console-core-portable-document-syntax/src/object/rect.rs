@@ -21,7 +21,9 @@ impl<'a> Readable<'a> for Rectangle {
   }
 }
 
-fn from_arr(array: &Array<'_>) -> core::result::Result<Option<Rectangle>, console_core_never::Never> {
+fn from_arr(
+  array: &Array<'_>,
+) -> core::result::Result<Option<Rectangle>, console_core_never::Never> {
   let Ok(mut iter) = array.iter::<f32>();
   let x0 = f64::from(match iter.next() {
     Some(value) => value,

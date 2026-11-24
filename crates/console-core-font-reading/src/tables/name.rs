@@ -1,4 +1,6 @@
 //! The [name (Naming)](https://docs.microsoft.com/en-us/typography/opentype/spec/name) table
+//!
+//! [`NameString::as_bytes`] returns the name in its original encoding.
 
 include!("../../generated/generated_name.rs");
 
@@ -117,6 +119,10 @@ pub struct NameString<'a> {
 }
 
 impl<'a> NameString<'a> {
+  pub fn as_bytes(&self) -> Result<&'a [u8], Never> {
+    Ok(self.data)
+  }
+
   #[must_use]
   #[cfg_attr(
     dylint_lib = "explicit002_infallible_result",

@@ -53,6 +53,7 @@ struct QuadrantChartTextOccurrences {
 }
 
 impl QuadrantChartTextOccurrences {
+    #[must_use]
     fn from_layout(layout: &QuadrantChartDiagramLayout) -> Self {
         Self {
             quadrants: layout.quadrants.len(),
@@ -98,6 +99,7 @@ struct QuadrantChartTypedPointFill {
 }
 
 impl QuadrantChartPointFillExpectation {
+    #[must_use]
     const fn typed_rule_index(&self) -> Option<usize> {
         match self.owner {
             QuadrantChartPointFillOwner::Typed { .. } => Some(self.rule_index),
@@ -105,6 +107,7 @@ impl QuadrantChartPointFillExpectation {
         }
     }
 
+    #[must_use]
     const fn typed_capability(&self) -> Option<ThemeCapability> {
         match self.owner {
             QuadrantChartPointFillOwner::Typed { capability } => Some(capability),
@@ -129,7 +132,8 @@ impl QuadrantChartPointThemePlan {
             effective_config.as_value(),
             Some(inherited_font_stack.font_family_css()),
         );
-        let Some(theme) = theme else {
+
+        let Some(theme_2) = theme else {
             return Ok(Self {
                 css,
                 common_css,
@@ -170,15 +174,19 @@ impl QuadrantChartPointThemePlan {
 
         let mut has_ordinal_series_rules = false;
         let mut static_series_rules = BTreeSet::new();
-        for (rule_index, rule) in theme.family_rules() {
+
+        for (rule_index, rule) in theme_2.family_rules() {
             if rule.target() != ThemeTarget::ChartSeries {
                 continue;
             }
+
             has_ordinal_series_rules |= rule.ordinal().is_some();
+
             if rule.variant().is_none() && rule.ordinal().is_none() {
                 static_series_rules.insert(rule_index);
             }
         }
+
         let mut points = vec![QuadrantChartPointThemeExpectation::default(); point_count];
         let mut occurrence_winners = BTreeSet::<(usize, ResolvedStyleProperty)>::new();
         let mut unowned_radius_winners = BTreeSet::<(usize, ResolvedStyleProperty)>::new();
@@ -187,10 +195,10 @@ impl QuadrantChartPointThemePlan {
         let mut suppressed_fill_rules = BTreeSet::<usize>::new();
 
         if point_count != 0 && has_ordinal_series_rules {
-            for (point_index, radius_has_higher_priority_owner) in
+            for (point_index, radius_has_higher_priority_owner_2) in
                 radius_has_higher_priority_owner.iter().copied().enumerate()
             {
-                let style = theme.style_with_work_meter(
+                let style = theme_2.style_with_work_meter(
                     ThemeTarget::ChartSeries,
                     ThemeVariant::Default,
                     Some(point_index + 1),
@@ -198,16 +206,22 @@ impl QuadrantChartPointThemePlan {
                 )?;
                 let winners = winner_properties(&style);
                 occurrence_winners.extend(winners.iter().copied());
-                if !radius_has_higher_priority_owner {
+
+                if !radius_has_higher_priority_owner_2 {
                     unowned_radius_winners.extend(winners);
-                    if let Some(radius) =
-                        typed_radius_override(theme, &style, mermaid_point_radius_px)
+
                     {
-                        typed_radius_rules.insert(radius.rule_index);
-                        points[point_index].radius = Some(radius);
+                        match typed_radius_override(theme_2, &style, mermaid_point_radius_px) {
+                            Some(radius) => {
+                                typed_radius_rules.insert(radius.rule_index);
+                                points[point_index].radius = Some(radius);
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
-                let typed_fill = typed_fill_candidate(theme, &style, &static_series_rules);
+
+                let typed_fill = typed_fill_candidate(theme_2, &style, &static_series_rules);
                 record_fill_expectation(
                     &mut points[point_index].fill,
                     point_fill_expectation(
@@ -222,7 +236,7 @@ impl QuadrantChartPointThemePlan {
                 );
             }
         } else if point_count != 0 {
-            let style = theme.style_with_work_meter(
+            let style = theme_2.style_with_work_meter(
                 ThemeTarget::ChartSeries,
                 ThemeVariant::Default,
                 None,
@@ -230,21 +244,31 @@ impl QuadrantChartPointThemePlan {
             )?;
             let winners = winner_properties(&style);
             occurrence_winners.extend(winners.iter().copied());
-            let typed_fill = typed_fill_candidate(theme, &style, &static_series_rules);
-            if unowned_point_count != 0 {
-                unowned_radius_winners.extend(winners);
-                let radius_override = typed_radius_override(theme, &style, mermaid_point_radius_px);
-                if let Some(radius) = &radius_override {
-                    typed_radius_rules.insert(radius.rule_index);
-                }
-                for (point_index, radius_has_higher_priority_owner) in
-                    radius_has_higher_priority_owner.iter().copied().enumerate()
-                {
-                    if !radius_has_higher_priority_owner {
-                        points[point_index].radius = radius_override.clone();
+            let typed_fill = typed_fill_candidate(theme_2, &style, &static_series_rules);
+
+            match unowned_point_count {
+                0 => {},
+                _ => {
+                    unowned_radius_winners.extend(winners);
+                    let radius_override = typed_radius_override(theme_2, &style, mermaid_point_radius_px);
+
+                    match &radius_override {
+                        Some(radius) => {
+                            typed_radius_rules.insert(radius.rule_index);
+                        },
+                        ::core::option::Option::None => {},
                     }
-                }
+
+                    for (point_index, radius_has_higher_priority_owner_3) in
+                        radius_has_higher_priority_owner.iter().copied().enumerate()
+                    {
+                        if !radius_has_higher_priority_owner_3 {
+                            points[point_index].radius = radius_override.clone();
+                        }
+                    }
+                },
             }
+
             for (point_index, expectation) in points.iter_mut().enumerate() {
                 record_fill_expectation(
                     &mut expectation.fill,
@@ -271,7 +295,8 @@ impl QuadrantChartPointThemePlan {
             })
             .collect::<Vec<_>>();
         let mut observations = BTreeMap::<usize, QuadrantChartSeriesRuleObservation>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
                     rule_index,
@@ -281,9 +306,11 @@ impl QuadrantChartPointThemePlan {
                 } => {
                     let observation = observations.entry(rule_index).or_default();
                     let property = resolved_style_property_for_facet(facet);
+
                     if !selector.ordinal_domain_intersects_occurrence_count(point_count) {
                         continue;
                     }
+
                     let radius_facet = facet == FamilyThemeRuleFacet::Radius;
                     let applicable_point_count = if radius_facet {
                         unowned_point_count
@@ -303,11 +330,13 @@ impl QuadrantChartPointThemePlan {
                                 ..
                             }
                     );
+
                     if applicable_point_count == 0 || (!route_won && !qualified_variant) {
                         continue;
                     }
 
                     observation.applicable = true;
+
                     match (route.disposition(), selector, facet) {
                         (
                             FamilyThemeDisposition::TypedAdapter,
@@ -338,10 +367,10 @@ impl QuadrantChartPointThemePlan {
                                 observation.incomplete = true;
                             }
                         }
-                        (FamilyThemeDisposition::Unsupported, _, facet) => {
+                        (FamilyThemeDisposition::Unsupported, _, facet_2) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_2));
                         }
                         (FamilyThemeDisposition::TypedAdapter, _, _) => {
                             observation.incomplete = true;
@@ -351,13 +380,13 @@ impl QuadrantChartPointThemePlan {
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::ChartSeries,
                 } => {
-                    // Reconciled below from each point's final fill winner.
+
                 }
                 FamilyThemeMechanism::EffectBinding {
                     target: ThemeTarget::ChartSeries,
                     ..
                 } => {
-                    // Reconciled below from each point's final style.
+
                 }
                 FamilyThemeMechanism::BaseTypography(_)
                 | FamilyThemeMechanism::RuleFacet { .. }
@@ -367,7 +396,7 @@ impl QuadrantChartPointThemePlan {
         }
 
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut evidence,
             &[
                 UnsupportedTerminalDomain::fallbacks_only(
@@ -375,7 +404,7 @@ impl QuadrantChartPointThemePlan {
                     TerminalVariantDomain::uniform(point_count, ThemeVariant::Default),
                 )
                 .with_source_owned_fill(&source_owned_fill),
-                // Quadrant captions and point labels are not legend terminals.
+
                 UnsupportedTerminalDomain::direct(
                     ThemeTarget::Legend,
                     TerminalVariantDomain::uniform(0, ThemeVariant::Default),
@@ -385,17 +414,19 @@ impl QuadrantChartPointThemePlan {
         )?;
 
         let mut pending = BTreeMap::new();
+
         for (rule_index, observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index: rule_index,
                 target: ThemeTarget::ChartSeries,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // Mixed rules stay unaccounted until every winning facet has a terminal owner.
+
             } else if observation.pending.requires_terminal_proof() {
                 pending.insert(key, observation.pending);
             } else {
@@ -415,10 +446,12 @@ impl QuadrantChartPointThemePlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn css(&self) -> &QuadrantChartCssBinding {
         &self.css
     }
 
+    #[must_use]
     pub(super) fn point_binding<'a>(
         &'a self,
         index: usize,
@@ -428,21 +461,23 @@ impl QuadrantChartPointThemePlan {
     ) -> QuadrantChartPointBinding<'a> {
         let expectation = self.points.get(index);
         QuadrantChartPointBinding {
-            radius: point
+            radius: match point
                 .styles
                 .radius
                 .map(|value| value as f64)
                 .or_else(|| class_styles.and_then(|style| style.radius.map(|value| value as f64)))
                 .or_else(|| {
-                    expectation.and_then(|expectation| {
-                        expectation.radius.as_ref().map(|radius| radius.value_px)
+                    expectation.and_then(|expectation_2| {
+                        expectation_2.radius.as_ref().map(|radius| radius.value_px)
                     })
-                })
-                .unwrap_or(default_radius),
+                }) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => default_radius,
+            },
             fill: super::point_source_fill(point, class_styles)
                 .or_else(|| {
-                    expectation.and_then(|expectation| {
-                        expectation.fill.as_ref().map(|fill| fill.css.as_ref())
+                    expectation.and_then(|expectation_3| {
+                        expectation_3.fill.as_ref().map(|fill| fill.css.as_ref())
                     })
                 })
                 .unwrap_or(&self.css.quadrant_point_fill),
@@ -461,18 +496,22 @@ impl QuadrantChartPointThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn common_css(&self) -> &crate::svg::PreparedCommonCss {
         &self.common_css
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.inherited_font_stack.font_family_css()
     }
 
+    #[must_use]
     pub(crate) fn point_count(&self) -> usize {
         self.point_count
     }
 
+    #[must_use]
     pub(crate) fn radius_override_px(&self, point_index: usize) -> Option<f64> {
         self.points
             .get(point_index)
@@ -480,6 +519,7 @@ impl QuadrantChartPointThemePlan {
             .map(|radius| radius.value_px)
     }
 
+    #[must_use]
     pub(crate) fn radius_override_token(&self, point_index: usize) -> Option<&str> {
         self.points
             .get(point_index)
@@ -487,6 +527,7 @@ impl QuadrantChartPointThemePlan {
             .map(|radius| radius.token.as_ref())
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(
         &self,
         layout: &QuadrantChartDiagramLayout,
@@ -504,16 +545,19 @@ impl QuadrantChartPointThemePlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: QuadrantChartPointThemeReceipt) -> bool {
         receipt.proves_complete() && self.terminal_receipt.set(receipt).is_ok()
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         let Some(receipt) = self.terminal_receipt.get() else {
             if self.inherited_font_stack.typography_requested() {
                 self.inherited_font_stack
                     .record_unsupported_typography_evidence(evidence, true);
+
                 if self.inherited_font_stack.typed_font_stack_requested() {
                     evidence.mark_residual(
                         FamilyThemeMechanismKey::Typography(
@@ -523,14 +567,18 @@ impl QuadrantChartPointThemePlan {
                     );
                 }
             }
+
             return;
         };
+
         self.inherited_font_stack
             .record_unsupported_typography_evidence(evidence, receipt.has_visible_text());
+
         if self.inherited_font_stack.typed_font_stack_requested() {
             let key = FamilyThemeMechanismKey::Typography(
                 crate::diagram_theme::ThemeTypographyProperty::FontStack,
             );
+
             if !receipt.has_visible_text() {
                 evidence.mark_not_applicable(key);
             } else if receipt.proves_font_stack()
@@ -550,6 +598,7 @@ impl QuadrantChartPointThemePlan {
                 }
             }
         }
+
         for (key, pending) in &self.pending {
             let rule_index = match key {
                 FamilyThemeMechanismKey::Rule { index, .. } => *index,
@@ -557,6 +606,7 @@ impl QuadrantChartPointThemePlan {
                 | FamilyThemeMechanismKey::OrdinalPalette { .. }
                 | FamilyThemeMechanismKey::EffectBinding { .. } => continue,
             };
+
             if receipt.proves_rule(rule_index, pending) {
                 evidence.mark_applied_with_capabilities(
                     key.clone(),
@@ -567,6 +617,7 @@ impl QuadrantChartPointThemePlan {
     }
 }
 
+#[must_use]
 fn point_has_source_radius(
     point: &QuadrantChartPointModel,
     class_styles: Option<&QuadrantChartStyles>,
@@ -575,6 +626,7 @@ fn point_has_source_radius(
         || class_styles.is_some_and(|class_style| class_style.radius.is_some())
 }
 
+#[must_use]
 fn winner_properties(
     style: &crate::diagram_theme::ResolvedThemeStyle,
 ) -> BTreeSet<(usize, ResolvedStyleProperty)> {
@@ -590,28 +642,37 @@ fn record_fill_expectation(
     typed_fill_capabilities: &mut BTreeMap<usize, ThemeCapability>,
     suppressed_fill_rules: &mut BTreeSet<usize>,
 ) {
-    let Some(fill) = fill else {
-        return;
+    let fill_2 = match fill {
+        Some(matched_fill) => matched_fill,
+        ::core::option::Option::None => return,
     };
-    if let Some(capability) = fill.typed_capability() {
-        typed_fill_capabilities.insert(fill.rule_index, capability);
-    } else {
-        suppressed_fill_rules.insert(fill.rule_index);
+
+    match fill_2.typed_capability() {
+        Some(capability) => {
+            typed_fill_capabilities.insert(fill_2.rule_index, capability);
+        },
+        ::core::option::Option::None => {
+            suppressed_fill_rules.insert(fill_2.rule_index);
+        },
     }
-    *slot = Some(fill);
+
+    *slot = Some(fill_2);
 }
 
+#[must_use]
 fn typed_radius_override(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
     mermaid_point_radius_px: f64,
 ) -> Option<QuadrantChartPointRadius> {
     let origin = style.radius_resolution().winner()?;
+
     if theme.rule_facet_disposition(origin.rule_index(), FamilyThemeRuleFacet::Radius)
         != Some(FamilyThemeDisposition::TypedAdapter)
     {
         return None;
     }
+
     match style.radius_resolution().specified() {
         Specified::Value(value) => Some(QuadrantChartPointRadius {
             value_px: f64::from(*value),
@@ -627,6 +688,7 @@ fn typed_radius_override(
     }
 }
 
+#[must_use]
 fn typed_fill_candidate(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
@@ -634,6 +696,7 @@ fn typed_fill_candidate(
 ) -> Option<QuadrantChartTypedPointFill> {
     let origin = style.fill_resolution().winner()?;
     let facet = FamilyThemeRuleFacet::fill(style.fill_resolution().specified())?;
+
     if !static_series_rules.contains(&origin.rule_index())
         || theme.rule_facet_disposition(origin.rule_index(), facet)
             != Some(FamilyThemeDisposition::TypedAdapter)
@@ -664,6 +727,7 @@ fn typed_fill_candidate(
     })
 }
 
+#[must_use]
 fn point_fill_expectation(
     typed_fill: Option<&QuadrantChartTypedPointFill>,
     point: &QuadrantChartPointModel,
@@ -671,7 +735,7 @@ fn point_fill_expectation(
     config_owns_fill: bool,
     mermaid_point_fill_css: &str,
 ) -> Option<QuadrantChartPointFillExpectation> {
-    let typed_fill = typed_fill?;
+    let typed_fill_2 = typed_fill?;
     let (css, owner) = if let Some(source_fill) = super::point_source_fill(point, class_styles) {
         (Arc::from(source_fill), QuadrantChartPointFillOwner::Source)
     } else if config_owns_fill {
@@ -681,15 +745,15 @@ fn point_fill_expectation(
         )
     } else {
         (
-            typed_fill.css.clone(),
+            typed_fill_2.css.clone(),
             QuadrantChartPointFillOwner::Typed {
-                capability: typed_fill.capability,
+                capability: typed_fill_2.capability,
             },
         )
     };
     Some(QuadrantChartPointFillExpectation {
         css,
-        rule_index: typed_fill.rule_index,
+        rule_index: typed_fill_2.rule_index,
         owner,
     })
 }
@@ -713,6 +777,7 @@ pub(crate) struct QuadrantChartPointThemeReceipt {
 }
 
 impl QuadrantChartPointThemeReceipt {
+    #[must_use]
     fn new(
         expectations: Box<[QuadrantChartPointThemeExpectation]>,
         expected_text: QuadrantChartTextOccurrences,
@@ -726,7 +791,7 @@ impl QuadrantChartPointThemeReceipt {
             expected_text,
             emitted_text: QuadrantChartTextOccurrences::default(),
             visible_text_count: 0,
-            expected_font_family_css: expected_font_family_css.into(),
+            expected_font_family_css: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(expected_font_family_css),
             typography_requested,
             css_emitted: false,
             css_emission_unique: true,
@@ -745,10 +810,12 @@ impl QuadrantChartPointThemeReceipt {
         if !self.typography_requested {
             return;
         }
+
         if self.css_emitted {
             self.css_emission_unique = false;
             return;
         }
+
         let expected = self.expected_font_family_css.as_ref();
         self.css_emitted = true;
         self.css_font_family_matches = root_font_family_css == expected
@@ -771,6 +838,7 @@ impl QuadrantChartPointThemeReceipt {
                 self.emitted_text.titles = self.emitted_text.titles.saturating_add(1);
             }
         }
+
         if !text.trim().is_empty() {
             self.visible_text_count = self.visible_text_count.saturating_add(1);
         }
@@ -802,11 +870,14 @@ impl QuadrantChartPointThemeReceipt {
             self.attributes_match = false;
             return;
         }
+
         self.next_point_index = self.next_point_index.saturating_add(1);
+
         let Some(expected) = self.expectations.get(point_index) else {
             self.attributes_match = false;
             return;
         };
+
         let radius_matches =
             emitted_radius_token == expected.radius.as_ref().map(|radius| radius.token.as_ref());
         let fill_matches = expected
@@ -817,25 +888,35 @@ impl QuadrantChartPointThemeReceipt {
         self.attributes_match &= terminal_matches;
 
         if terminal_matches {
-            if let Some(radius) = &expected.radius {
-                self.radius_rules.insert(radius.rule_index);
+            match &expected.radius {
+                Some(radius) => {
+                    self.radius_rules.insert(radius.rule_index);
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(rule_index) = expected
-                .fill
-                .as_ref()
-                .and_then(QuadrantChartPointFillExpectation::typed_rule_index)
+
             {
-                self.fill_rules.insert(rule_index);
+                match expected
+                    .fill
+                    .as_ref()
+                    .and_then(QuadrantChartPointFillExpectation::typed_rule_index) {
+                    Some(rule_index) => {
+                        self.fill_rules.insert(rule_index);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }
 
+    #[must_use]
     fn proves_complete(&self) -> bool {
         self.next_point_index == self.expectations.len()
             && self.attributes_match
             && self.proves_typography()
     }
 
+    #[must_use]
     fn proves_typography(&self) -> bool {
         !self.typography_requested
             || (self.css_emission_unique
@@ -843,14 +924,17 @@ impl QuadrantChartPointThemeReceipt {
                 && self.emitted_text == self.expected_text)
     }
 
+    #[must_use]
     fn proves_font_stack(&self) -> bool {
         self.proves_typography()
     }
 
+    #[must_use]
     fn has_visible_text(&self) -> bool {
         self.visible_text_count != 0
     }
 
+    #[must_use]
     fn proves_rule(&self, rule_index: usize, pending: &QuadrantChartPointPendingEvidence) -> bool {
         self.proves_complete()
             && (!pending.radius || self.radius_rules.contains(&rule_index))
@@ -882,6 +966,7 @@ struct QuadrantChartPointPendingEvidence {
 }
 
 impl QuadrantChartPointPendingEvidence {
+    #[must_use]
     const fn requires_terminal_proof(&self) -> bool {
         self.radius || self.fill
     }

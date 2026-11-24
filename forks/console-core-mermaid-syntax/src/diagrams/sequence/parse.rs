@@ -120,6 +120,7 @@ pub(super) enum SequenceSemanticFailure {
 }
 
 impl SequenceSemanticFailure {
+    #[must_use]
     pub(super) fn into_parse_error_for_type(
         self,
         diagram_type: &str,
@@ -265,7 +266,7 @@ pub(super) fn construct_sequence_semantic_source(
         }
     };
 
-    let db = match build_sequence_db(actions, wrap_enabled, control)? {
+    let db = match { let checked_value = build_sequence_db(actions, wrap_enabled, control)?; checked_value } {
         Ok(db) => db,
         Err(message) => {
             return Ok(Err(Box::new(SequenceSemanticFailure::Db {
@@ -290,17 +291,26 @@ fn build_sequence_db(
     control: &OperationControl,
 ) -> OperationControlResult<std::result::Result<SequenceDb, String>> {
     let mut db = SequenceDb::new(wrap_enabled);
+
     for (index, action) in actions.into_iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
-        if let Err(error) = db.apply_controlled(action, control)? {
-            return Ok(Err(error));
+
+        {
+            match { let checked_value_2 = db.apply_controlled(action, control)?; checked_value_2 } {
+                Err(error) => {
+                    return Ok(Err(error));
+                },
+                ::core::result::Result::Ok(_) => {},
+            };
         }
     }
+
     Ok(Ok(db))
 }
 
+#[must_use]
 pub(super) fn sequence_wrap_enabled_from_config(config: &MermaidConfig) -> Option<bool> {
     config
         .as_value()

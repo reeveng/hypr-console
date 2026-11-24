@@ -5,58 +5,80 @@ use crate::journey::{
 };
 use merman_model::families::journey::JourneyDiagramModel;
 
+#[must_use]
 fn fmt_task_face_y(v: Option<f64>) -> String {
-    v.map(|x| fmt(x).to_string())
-        .unwrap_or_else(|| "NaN".to_string())
+    match v.map(|x| fmt(x).to_string()) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "NaN".to_string(),
+    }
 }
 
+#[must_use]
 fn split_html_br_lines(text: &str) -> Vec<String> {
     let b = text.as_bytes();
     let mut out = Vec::new();
     let mut cur = String::new();
     let mut i = 0usize;
+
     while i < b.len() {
         if b[i] != b'<' {
-            let Some(ch) = text.get(i..).and_then(|rest| rest.chars().next()) else {
-                break;
+            let ch = {
+                let optional_ch = text.get(i..).and_then(|rest| rest.chars().next());
+
+                match optional_ch {
+                    Some(matched_ch) => matched_ch,
+                    ::core::option::Option::None => break,
+                }
             };
+
             cur.push(ch);
             i += ch.len_utf8();
             continue;
         }
+
         if i + 3 >= b.len() {
             cur.push('<');
             i += 1;
             continue;
         }
+
         if b[i + 1] == b'/' {
             cur.push('<');
             i += 1;
             continue;
         }
+
         let b1 = b[i + 1];
         let b2 = b[i + 2];
+
         if !matches!(b1, b'b' | b'B') || !matches!(b2, b'r' | b'R') {
             cur.push('<');
             i += 1;
             continue;
         }
+
         let mut j = i + 3;
+
         while j < b.len() && matches!(b[j], b' ' | b'\t' | b'\r' | b'\n') {
             j += 1;
         }
-        if j < b.len() && b[j] == b'/' {
+
+        if match <[_]>::get(&*b, j) { ::core::option::Option::Some(&checked_element) => checked_element == b'/', ::core::option::Option::None => false } {
             j += 1;
         }
-        if j < b.len() && b[j] == b'>' {
+
+        if match <[_]>::get(&*b, j) { ::core::option::Option::Some(&checked_element) => checked_element == b'>', ::core::option::Option::None => false } {
             out.push(std::mem::take(&mut cur));
             i = j + 1;
             continue;
         }
+
         cur.push('<');
         i += 1;
     }
+
     out.push(cur);
+
     if out.is_empty() {
         vec!["".to_string()]
     } else {
@@ -123,6 +145,7 @@ fn write_text_candidate(
 
     let lines = split_html_br_lines(content);
     let n = lines.len().max(1) as f64;
+
     for (i, line) in lines.into_iter().enumerate() {
         let dy = (i as f64) * task_font_size - (task_font_size * (n - 1.0)) / 2.0;
         let _ = write!(
@@ -160,16 +183,21 @@ fn write_task_rect<'a>(
         fmt(task.y),
         escape_attr(&task.fill)
     );
+
     if fill.is_some() || stroke.is_some() {
         out.push_str(r#" style=""#);
-        if let Some(fill) = fill {
-            let _ = write!(out, "fill:{};", escape_attr(fill));
+
+        if let Some(fill_2) = fill {
+            let _ = write!(out, "fill:{};", escape_attr(fill_2));
         }
-        if let Some(stroke) = stroke {
-            let _ = write!(out, "stroke:{};", escape_attr(stroke));
+
+        if let Some(stroke_2) = stroke {
+            let _ = write!(out, "stroke:{};", escape_attr(stroke_2));
         }
+
         out.push('"');
     }
+
     let _ = write!(
         out,
         r#" width="{}" height="{}" rx="{}" ry="{}" class="task task-type-{}"/>"#,
@@ -189,6 +217,7 @@ fn write_section_rect(
 ) {
     let class = format!("journey-section section-type-{}", section.num);
     out.push_str("<g>");
+
     match palette_fill {
         Some(palette_fill) => {
             let _ = write!(
@@ -226,6 +255,7 @@ struct JourneyCss {
     root_typography_emitted: bool,
 }
 
+#[must_use]
 fn journey_css_with_resolved_typography(
     diagram_id: impl SvgDiagramIdValue,
     theme: &JourneyCssBinding,
@@ -241,53 +271,64 @@ fn journey_css_with_resolved_typography(
     let font = theme.common.font_family();
     let text_color = theme.text_color.as_str();
     let line_color = theme.common.line_color();
+
     if let Some(receipt) = text_receipt.as_deref_mut() {
         receipt.record_css(text_color);
     }
 
-    // Mermaid's journey diagram reuses the historical "user-journey" stylesheet, post-processed by
-    // Mermaid's CSS pipeline (nesting expansion + id scoping + minification).
+
+
     let _ = write!(
         &mut out,
         r#"#{} .label{{font-family:{};color:{};}}"#,
         diagram_id, font, text_color
     );
+
     if let Some(receipt) = text_receipt.as_deref_mut() {
         receipt.record_css(text_color);
     }
+
     let _ = write!(&mut out, r#"#{} .mouth{{stroke:#666;}}"#, diagram_id);
     let _ = write!(
         &mut out,
         r#"#{} line{{stroke:{};}}"#,
         diagram_id, text_color
     );
+
     if let Some(receipt) = text_receipt.as_deref_mut() {
         receipt.record_css(text_color);
     }
+
     let _ = write!(
         &mut out,
         r#"#{} .legend{{fill:{};font-family:{};}}"#,
         diagram_id, text_color, font
     );
+
     if let Some(receipt) = text_receipt.as_deref_mut() {
         receipt.record_css(text_color);
     }
+
     let _ = write!(
         &mut out,
         r#"#{} .label text{{fill:{};}}"#,
         diagram_id, text_color
     );
+
     if let Some(receipt) = text_receipt.as_deref_mut() {
         receipt.record_css(text_color);
     }
+
     let _ = write!(
         &mut out,
         r#"#{} .label{{color:{};}}"#,
         diagram_id, text_color
     );
+
     if let Some(receipt) = text_receipt {
         receipt.record_css(text_color);
     }
+
     let _ = write!(
         &mut out,
         r#"#{} .face{{fill:{};stroke:#999;}}"#,
@@ -349,6 +390,7 @@ fn journey_css_with_resolved_typography(
         r#"#{} div.mermaidTooltip{{position:absolute;text-align:center;max-width:200px;padding:2px;font-family:{};font-size:12px;background:{};border:1px solid {};border-radius:2px;pointer-events:none;z-index:100;}}"#,
         diagram_id, font, theme.tertiary_color, theme.border2
     );
+
     if emit_palette_css {
         for (i, fill) in theme.fill_types.iter().enumerate() {
             let _ = write!(
@@ -358,15 +400,17 @@ fn journey_css_with_resolved_typography(
             );
         }
     }
+
     for (i, fill) in theme.actor_colors.iter().enumerate() {
-        if let Some(fill) = fill {
+        if let Some(fill_2) = fill {
             let _ = write!(
                 &mut out,
                 r#"#{} .actor-{}{{fill:{};}}"#,
-                diagram_id, i, fill
+                diagram_id, i, fill_2
             );
         }
     }
+
     let _ = write!(
         &mut out,
         r#"#{} .label-icon{{display:inline-block;height:1em;overflow:visible;vertical-align:-0.125em;}}"#,
@@ -411,30 +455,34 @@ pub(crate) fn render_journey_diagram_svg_model(
             message: "Journey task theme count did not match the layout".to_string(),
         });
     }
+
     let diagram_id = options.diagram_id_or("merman");
 
-    let diagram_title = layout
+    let diagram_title_2 = layout
         .title
         .as_deref()
         .or(diagram_title)
         .map(str::trim)
         .filter(|t| !t.is_empty());
-    let title_from_meta = layout.title.is_none() && diagram_title.is_some();
+    let title_from_meta = layout.title.is_none() && diagram_title_2.is_some();
 
-    let bounds = layout.bounds.clone().unwrap_or(Bounds {
-        min_x: 0.0,
-        min_y: -JOURNEY_VIEWBOX_TOP_PAD_PX,
-        max_x: 100.0,
-        max_y: 100.0,
-    });
+    let bounds = match (layout.bounds.clone(), Bounds {
+            min_x: 0.0,
+            min_y: -JOURNEY_VIEWBOX_TOP_PAD_PX,
+            max_x: 100.0,
+            max_y: 100.0,
+        }) {
+        (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+        (::core::option::Option::None, alternate) => alternate,
+    };
     let vb_min_x = bounds.min_x;
     let vb_min_y = bounds.min_y;
     let vb_w = (bounds.max_x - bounds.min_x).max(1.0);
     let mut vb_h = (bounds.max_y - bounds.min_y).max(1.0);
-    // Mermaid journey titles can also come from YAML frontmatter (`---\ntitle: ...\n---`).
-    // When the title is supplied via frontmatter, our semantic/layout layer currently leaves
-    // `layout.title` empty. Upstream still accounts for the title when sizing the root viewBox,
-    // so mirror that here to keep `parity-root` stable.
+
+
+
+
     if title_from_meta {
         vb_h += JOURNEY_TITLE_EXTRA_HEIGHT_PX;
     }
@@ -503,6 +551,7 @@ pub(crate) fn render_journey_diagram_svg_model(
             text = escape_xml(title)
         );
     }
+
     if let Some(desc) = model.acc_descr.as_deref() {
         let _ = write!(
             &mut out,
@@ -511,10 +560,11 @@ pub(crate) fn render_journey_diagram_svg_model(
             text = escape_xml(desc)
         );
     }
+
     out.checkpoint()?;
 
     let mut text_receipt =
-        text_paint.begin_terminal_receipt(layout, diagram_title.is_some(), options.work_meter())?;
+        text_paint.begin_terminal_receipt(layout, diagram_title_2.is_some(), options.work_meter())?;
     let css = journey_css_with_resolved_typography(
         diagram_id,
         theme,
@@ -522,6 +572,7 @@ pub(crate) fn render_journey_diagram_svg_model(
         text_receipt.as_mut(),
     );
     let mut typography_receipt = typography_theme.begin_terminal_receipt(layout);
+
     if let Some(receipt) = typography_receipt.as_mut() {
         receipt.record_css_emission(
             &css.font_family,
@@ -530,6 +581,7 @@ pub(crate) fn render_journey_diagram_svg_model(
             css.root_typography_emitted,
         );
     }
+
     out.push_str("<style>");
     super::super::output::XmlTextOutput::new(&mut out).push_str(&css.css);
     out.push_str("</style>");
@@ -546,6 +598,7 @@ pub(crate) fn render_journey_diagram_svg_model(
     if let Some(receipt) = text_receipt.as_mut() {
         receipt.record_label(crate::journey::JourneyTextPaintRole::Arrowhead, None);
     }
+
     for item in &layout.actor_legend {
         let _ = write!(
             &mut out,
@@ -556,6 +609,7 @@ pub(crate) fn render_journey_diagram_svg_model(
             fill = escape_attr(&item.color),
             r = fmt(item.circle_r),
         );
+
         for line in &item.label_lines {
             let _ = write!(
                 &mut out,
@@ -565,22 +619,26 @@ pub(crate) fn render_journey_diagram_svg_model(
                 tx = fmt(line.tspan_x),
                 text = escape_xml(&line.text),
             );
+
             if let Some(receipt) = typography_receipt.as_mut() {
                 receipt.record_text_run(&line.text);
             }
+
             if let Some(receipt) = text_receipt.as_mut() {
                 receipt.record_label(crate::journey::JourneyTextPaintRole::Legend, None);
             }
         }
+
         out.checkpoint()?;
     }
 
     let mut section_iter = layout.sections.iter();
     let mut section_index = 0usize;
-    // Match layout's empty initial section: tasks before the first section have no header.
+
     let mut last_section = "";
     let mut task_theme_receipt: Option<crate::journey::JourneyTaskThemeReceipt> =
         task_theme.begin_terminal_receipt();
+
     for (task_index, task) in layout.tasks.iter().enumerate() {
         if last_section != task.section {
             let section = section_iter
@@ -612,18 +670,21 @@ pub(crate) fn render_journey_diagram_svg_model(
             )?;
             out.push_str("</g>");
             out.checkpoint()?;
+
             if let Some(receipt) = text_receipt.as_mut() {
                 receipt.record_label(
                     crate::journey::JourneyTextPaintRole::Section,
                     Some(&theme.text_color),
                 );
             }
+
             if let Some(receipt) = task_theme_receipt.as_mut() {
                 receipt.record_checkpointed_section(
                     section_index,
                     task_theme.terminal_palette_fill_for_section(section_index),
                 );
             }
+
             section_index += 1;
         }
 
@@ -703,12 +764,13 @@ pub(crate) fn render_journey_diagram_svg_model(
         {
             receipt.record_label(crate::journey::JourneyTextPaintRole::Mouth, None);
         }
+
         out.push_str("</g>");
 
         let emitted_fill = task_theme.terminal_fill_css_for_task(task_index);
         let emitted_stroke = task_theme
             .terminal_stroke_for_task(task_index)
-            .map(|(_, css)| css);
+            .map(|(_, css_2)| css_2);
         let (emitted_rx, emitted_ry) = write_task_rect(
             &mut out,
             task,
@@ -750,12 +812,14 @@ pub(crate) fn render_journey_diagram_svg_model(
 
         out.push_str("</g>");
         out.checkpoint()?;
+
         if let Some(receipt) = text_receipt.as_mut() {
             receipt.record_label(
                 crate::journey::JourneyTextPaintRole::Task,
                 Some(&theme.text_color),
             );
         }
+
         if let Some(receipt) = task_theme_receipt.as_mut() {
             receipt.record_checkpointed_task_with_terminal_paint(
                 task_index,
@@ -767,7 +831,7 @@ pub(crate) fn render_journey_diagram_svg_model(
         }
     }
 
-    if let Some(title) = diagram_title {
+    if let Some(title) = diagram_title_2 {
         let _ = write!(
             &mut out,
             r#"<text x="{x}" font-size="{fs}" font-weight="bold" y="{y}" fill="{fill}" font-family="{ff}">{text}</text>"#,
@@ -779,6 +843,7 @@ pub(crate) fn render_journey_diagram_svg_model(
             text = escape_xml(title),
         );
         out.checkpoint()?;
+
         if let Some(receipt) = text_receipt.as_mut() {
             receipt.record_title(title, title_color);
         }
@@ -795,25 +860,30 @@ pub(crate) fn render_journey_diagram_svg_model(
     );
 
     out.push_str("</svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if let Some(mut receipt) = text_receipt {
         receipt.record_line();
+
         if !text_paint.record_terminal(receipt) {
             return Err(crate::Error::InvalidModel {
                 message: "Journey text paint receipt did not match the terminal SVG".to_owned(),
             });
         }
     }
+
     if task_theme_receipt.is_some_and(|receipt| !task_theme.record_terminal(receipt)) {
         return Err(crate::Error::InvalidModel {
             message: "Journey task radius receipt did not match the terminal SVG".to_string(),
         });
     }
+
     if typography_receipt.is_some_and(|receipt| !typography_theme.record_terminal(receipt)) {
         return Err(crate::Error::InvalidModel {
             message: "Journey typography receipt did not match the terminal SVG".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 

@@ -19,7 +19,8 @@ use crate::reading::Reader;
 use crate::refinement;
 use crate::standard::Standard;
 use crate::text::{
-  self, CornerPosition, Integers, Orientation, Refining, Selection, Selections, Source, code_length,
+  self, CornerPosition, Integers, Orientation, Refining, Selection, Selections, Source,
+  code_length,
 };
 
 const MAX_SYMBOLS: u32 = 65_535;

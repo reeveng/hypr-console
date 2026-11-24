@@ -16,6 +16,68 @@
 
 pub const HOST: &str = "CONSOLE_HOST";
 
+use console_core_external_programs::{Program, shell};
+use console_core_never::Never;
+
+pub fn homes() -> Result<[&'static str; 6], Never> {
+  let Ok(ls) = Program::Ls.name();
+
+  Ok([
+    ls,
+    "-1Lp",
+    "--color=never",
+    "--quoting-style=literal",
+    "--",
+    "/home",
+  ])
+}
+
+pub fn fallback() -> Result<[&'static str; 4], Never> {
+  let Ok(id) = Program::Id.name();
+
+  Ok([id, "-nu", "--", "1000"])
+}
+
+pub fn homes_command() -> Result<String, Never> {
+  let Ok(words) = homes();
+
+  shell::join(words)
+}
+
+pub fn fallback_command() -> Result<String, Never> {
+  let Ok(words) = fallback();
+
+  shell::join(words)
+}
+
+pub fn sole_home(said: &str) -> Result<Option<&str>, Never> {
+  let mut homes = said.lines();
+  let first = match homes
+    .next()
+    .and_then(|directory| directory.strip_suffix('/'))
+  {
+    Some(directory) => directory,
+    None => return Ok(None),
+  };
+
+  match homes.next() {
+    None => account(first),
+    Some(_another_line) => Ok(None),
+  }
+}
+
+pub fn account(said: &str) -> Result<Option<&str>, Never> {
+  let name = said.trim_end_matches('\n');
+
+  let valid = !name.is_empty()
+    && name
+      .bytes()
+      .all(|byte| byte.is_ascii_alphanumeric() || b"_.-$".contains(&byte))
+    && !matches!(name, "." | "..");
+
+  Ok(valid.then_some(name))
+}
+
 #[derive(Debug)]
 pub struct Unnamed(pub std::env::VarError);
 
@@ -39,5 +101,20 @@ pub fn device() -> Result<String, Unnamed> {
     Ok(said) => Ok(said),
     Err(std::env::VarError::NotPresent) => Ok(String::new()),
     Err(fault) => Err(Unnamed(fault)),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn only_a_single_directory_supplies_the_owner_name() {
+    assert_eq!(sole_home("someone/\n"), Ok(Some("someone")));
+    assert_eq!(sole_home("someone/\nother/\n"), Ok(None));
+    assert_eq!(sole_home("someone/\nnotes\n"), Ok(None));
+    assert_eq!(sole_home("someone\n"), Ok(None));
+    assert_eq!(sole_home("unexpected syntax; no/\n"), Ok(None));
+    assert_eq!(account("another_user\n"), Ok(Some("another_user")));
   }
 }

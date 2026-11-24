@@ -51,7 +51,18 @@ fn every_kind_of_frame_comes_back_as_giflib_draws_it() -> Result<(), Box<dyn Err
 
 #[test]
 fn a_table_that_fills_comes_back_whether_it_is_cleared_or_kept() -> Result<(), Box<dyn Error>> {
-  for (name, gif, rgba) in [fixture!("full-table-cleared"), fixture!("full-table-kept")] {
+  let rgba = include_bytes!("pictures/full-table-cleared.rgba").as_slice();
+
+  for (name, gif) in [
+    (
+      "full-table-cleared",
+      include_bytes!("pictures/full-table-cleared.gif").as_slice(),
+    ),
+    (
+      "full-table-kept",
+      include_bytes!("pictures/full-table-kept.gif").as_slice(),
+    ),
+  ] {
     let picture = decoded(gif)?;
 
     assert_eq!(

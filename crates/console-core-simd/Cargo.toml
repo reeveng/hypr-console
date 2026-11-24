@@ -1,0 +1,22 @@
+[package]
+name = "console-core-simd"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[features]
+default = ["std"]
+std = ["dep:console-core-simd-x86", "dep:console-core-simd-aarch64"]
+
+[target.'cfg(target_arch = "x86_64")'.dependencies]
+console-core-simd-x86 = { path = "../console-core-simd-x86", optional = true }
+
+[target.'cfg(target_arch = "aarch64")'.dependencies]
+console-core-simd-aarch64 = { path = "../console-core-simd-aarch64", optional = true }
+
+[dependencies.console-core-number-conversion]
+workspace = true
+
+[lints]
+workspace = true

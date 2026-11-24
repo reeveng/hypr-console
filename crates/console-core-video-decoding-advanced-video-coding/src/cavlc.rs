@@ -89,7 +89,7 @@ impl VlcTable {
         &::core::primitive::str,
       >>::from("index or range outside the buffer"))
     })?;
-    ensure!(*encoded != 0, "invalid VLC code");
+    ensure(*encoded != 0, || "invalid VLC code")?;
     let [value, width] = encoded.to_le_bytes();
     reader.skip(u64::from(width))?;
     Ok(value)
@@ -195,7 +195,7 @@ fn read_token(reader: &mut BitReader, tables: &Tables, context: i32) -> Result<C
 fn read_level_code(reader: &mut BitReader, suffix_length: u32) -> Result<i32> {
   let Ok(bits) = reader.peek(32);
   let prefix = bits.leading_zeros();
-  ensure!(prefix <= 25, "level_prefix too large");
+  ensure(prefix <= 25, || "level_prefix too large")?;
   reader.skip(u64::from(prefix).wrapping_add(1))?;
   let suffix_size = match (prefix, suffix_length) {
     (14, 0) => 4,
@@ -300,10 +300,10 @@ fn read_total_zeros(
     >>::from("index or range outside the buffer"))
   })?;
   let zeros = table.decode(reader)?;
-  ensure!(
+  ensure(
     u64::from(zeros).wrapping_add(u64::from(token.total)) <= capacity,
-    "total_zeros out of range"
-  );
+    || "total_zeros out of range",
+  )?;
   Ok(zeros)
 }
 
@@ -343,7 +343,7 @@ fn write_levels(
           >>::from("index or range outside the buffer"))
         })?;
         let run = table.decode(reader)?;
-        ensure!(run <= zeros, "run_before out of range");
+        ensure(run <= zeros, || "run_before out of range")?;
         run
       }
     };
@@ -368,10 +368,10 @@ pub(crate) fn residual_block(
   }
 
   let Ok(capacity) = fixed_index(coefficients.len());
-  ensure!(
+  ensure(
     u64::from(token.total) <= capacity,
-    "TotalCoeff exceeds maxNumCoeff"
-  );
+    || "TotalCoeff exceeds maxNumCoeff",
+  )?;
   let levels = read_levels(reader, token)?;
   let zeros = read_total_zeros(reader, tables, token, capacity)?;
   write_levels(reader, tables, &levels, token, zeros, coefficients)?;

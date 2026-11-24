@@ -14,27 +14,36 @@ pub(crate) struct FlowchartClassDefStyles {
 }
 
 impl FlowchartClassDefStyles {
+    #[must_use]
     pub(crate) fn prepare(declarations: &[String]) -> Self {
         let mut styles = Self::default();
+
         for raw in declarations {
             Self::set(&mut styles.shape, raw);
-            // Preserve FlowDB's source-sensitive textStyles transform before CSSOM identity.
+
             if raw.contains("color") {
-                let raw = raw
+                let raw_2 = raw
                     .replacen("fill", "bgFill", 1)
                     .replacen("color", "fill", 1);
-                Self::set(&mut styles.text, &raw);
+                Self::set(&mut styles.text, &raw_2);
             }
         }
+
         styles
     }
 
     fn set(styles: &mut IndexMap<String, Arc<PreparedSourceStyleDeclaration>>, raw: &str) {
-        let Some(declaration) = PreparedSourceStyleDeclaration::parse(raw) else {
-            return;
+        let declaration = {
+            let optional_declaration = PreparedSourceStyleDeclaration::parse(raw);
+
+            match optional_declaration {
+                Some(matched_declaration) => matched_declaration,
+                ::core::option::Option::None => return,
+            }
         };
+
         let property = declaration.property().to_owned();
-        // CSSOM replacement moves a normalized property to its final declaration position.
+
         styles.shift_remove(&property);
         styles.insert(property, Arc::new(declaration));
     }
@@ -50,6 +59,7 @@ pub(crate) struct FlowchartLabelDom<'a> {
 }
 
 impl<'a> FlowchartLabelDom<'a> {
+    #[must_use]
     pub(crate) fn node(
         shape: &'a str,
         label: &'a str,
@@ -65,6 +75,7 @@ impl<'a> FlowchartLabelDom<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn cluster(label: &'a str, label_type: &'a str, html: bool) -> Self {
         Self {
             node: None,
@@ -76,46 +87,59 @@ impl<'a> FlowchartLabelDom<'a> {
 
     /// The number is the fixed terminal depth, used only to distinguish direct glyph/content
     /// declarations from inherited outer-shell fonts. ClassDef order breaks ties at one depth.
+    #[must_use]
     fn classes(self) -> Vec<(&'static str, u8)> {
-        let mut classes = if let Some((shape, hand_drawn)) = self.node {
-            let wrapper = if shape == "imageSquare" {
-                "image-shape"
-            } else if shape.starts_with("icon") {
-                "icon-shape"
-            } else if hand_drawn {
-                "rough-node"
-            } else {
-                "node"
-            };
-            let mut classes = vec![("root", 0), ("nodes", 0), (wrapper, 0), ("label", 1)];
-            if shape == "note" {
-                classes.push(("noteLabel", 1));
-            }
-            if let Some(shape) = super::bpmn::BpmnShape::resolve(shape) {
-                classes.extend(
-                    shape
-                        .classes()
-                        .split_ascii_whitespace()
-                        .map(|class| (class, 0)),
-                );
-            }
-            if self.html && matches!(wrapper, "image-shape" | "icon-shape") {
-                classes.push(("labelBkg", 0));
-            }
-            classes
-        } else {
-            vec![
-                ("root", 0),
-                ("clusters", 0),
-                ("cluster", 0),
-                ("cluster-label", 1),
-            ]
+        let mut classes = match self.node {
+            Some((shape, hand_drawn)) => {
+                let wrapper = if shape == "imageSquare" {
+                    "image-shape"
+                } else if shape.starts_with("icon") {
+                    "icon-shape"
+                } else if hand_drawn {
+                    "rough-node"
+                } else {
+                    "node"
+                };
+                let mut classes = vec![("root", 0), ("nodes", 0), (wrapper, 0), ("label", 1)];
+
+                if shape == "note" {
+                    classes.push(("noteLabel", 1));
+                }
+
+                match super::bpmn::BpmnShape::resolve(shape) {
+                    Some(shape_2) => {
+                        classes.extend(
+                            shape_2
+                                .classes()
+                                .split_ascii_whitespace()
+                                .map(|class| (class, 0)),
+                        );
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                if self.html && matches!(wrapper, "image-shape" | "icon-shape") {
+                    classes.push(("labelBkg", 0));
+                }
+
+                classes
+            },
+            ::core::option::Option::None => {
+                vec![
+                    ("root", 0),
+                    ("clusters", 0),
+                    ("cluster", 0),
+                    ("cluster-label", 1),
+                ]
+            },
         };
+
         if self.html {
-            // The shared paragraph projection proves a real direct child of nodeLabel.
-            // Unsupported raw block/Math descendants retain their existing local boundaries.
+
+
             if crate::text::mermaid_markdown_wants_paragraph_wrap(self.label) {
                 classes.push(("nodeLabel", 2));
+
                 if self.node.is_some() && self.label_type == "markdown" {
                     classes.push(("markdown-node-label", 2));
                 }
@@ -123,6 +147,7 @@ impl<'a> FlowchartLabelDom<'a> {
         } else {
             classes.extend([("text-outer-tspan", 2), ("row", 2)]);
         }
+
         classes
     }
 }
@@ -137,15 +162,17 @@ pub(crate) struct FlowchartStructuralFontSource {
 }
 
 impl FlowchartStructuralFontSource {
+    #[must_use]
     pub(crate) const fn owns_content(&self) -> bool {
         self.content_owned
     }
 
+    #[must_use]
     pub(crate) fn measurable(&self) -> bool {
         match self.declaration.property() {
             "font-family" => crate::text::parse_css_font_stack(self.declaration.value()).is_some(),
-            // Relative sizes may be applied at several matching spans/ancestors. Admit only
-            // absolute values here rather than inventing a CSS inheritance evaluator.
+
+
             "font-size" => {
                 self.declaration
                     .svg_number_or_px()
@@ -161,6 +188,7 @@ impl FlowchartStructuralFontSource {
         }
     }
 
+    #[must_use]
     fn status(&self) -> FlowchartSourceFacetStatus {
         FlowchartSourceFacetStatus::from_parts(true, self.measurable())
     }
@@ -181,28 +209,40 @@ impl FlowchartStructuralLabelTypography {
         mut charge: impl FnMut(usize) -> crate::Result<()>,
     ) -> crate::Result<Self> {
         let mut result = Self::default();
+
         if class_defs.is_empty() {
             return Ok(result);
         }
+
         charge(dom.label.len())?;
         let classes = dom.classes();
-        // Inspect only the fixed DOM shells, then restore stylesheet order. This avoids a
-        // complete class catalog scan for every node while charging all parsed source bytes.
+
+
         let mut matching = Vec::new();
+
         for (class, depth) in classes {
             charge(1)?;
-            if let Some((index, class, declarations)) = class_defs.get_full(class) {
-                matching.push((index, class, declarations, depth));
+
+            {
+                match class_defs.get_full(class) {
+                    Some((index, class_2, declarations)) => {
+                        matching.push((index, class_2, declarations, depth));
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
+
         matching.sort_by_key(|(index, ..)| *index);
+
         for (_, class, declarations, shell_depth) in matching {
             for declaration in declarations {
                 charge(declaration.len())?;
             }
+
             let styles = FlowchartClassDefStyles::prepare(declarations);
-            // Native .class tspan is emitted in both CSS label modes. HTML glyphs use color
-            // from .class span or the proven nodeLabel direct children, never shape fill.
+
+
             let foreground = if !dom.html {
                 styles.text.get("fill")
             } else if css_html_labels {
@@ -211,6 +251,7 @@ impl FlowchartStructuralLabelTypography {
                 None
             };
             let foreground_depth = if dom.html && shell_depth == 2 { 2 } else { 0 };
+
             if let Some(declaration) = foreground
                 && result
                     .foreground
@@ -225,17 +266,20 @@ impl FlowchartStructuralLabelTypography {
                     content_owned: false,
                 });
             }
+
             if dom.html && !css_html_labels {
                 continue;
             }
+
             let label_styles = if css_html_labels {
                 &styles.shape
             } else {
                 &styles.text
             };
+
             for (ordinal, (property, declaration)) in label_styles.iter().enumerate() {
-                // With HTML selectors but native labels, root/nodes family inheritance stops
-                // at the default .label family; node/BPMN>* directly reaches that label group.
+
+
                 let (depth, content_owned) = if dom.html {
                     (u8::from(shell_depth == 2), shell_depth == 2)
                 } else if css_html_labels {
@@ -262,21 +306,24 @@ impl FlowchartStructuralLabelTypography {
                     }
                     _ => [false, false],
                 };
-                for (affected, stack, slot) in [
+
+                'inner_for_3: for (affected_2, stack, slot) in [
                     (match affected { [_explicit_element, ..] => _explicit_element }, true, &mut result.font_stack),
                     (match affected { [_, _explicit_element, ..] => _explicit_element }, false, &mut result.font_size),
                 ] {
-                    if !affected
+                    if !affected_2
                         || (!dom.html
                             && css_html_labels
                             && stack
                             && matches!(class.as_str(), "root" | "nodes" | "clusters"))
                     {
-                        continue;
+                        continue 'inner_for_3;
                     }
+
                     if slot.as_ref().is_some_and(|current| current.depth > depth) {
-                        continue;
+                        continue 'inner_for_3;
                     }
+
                     *slot = Some(FlowchartStructuralFontSource {
                         declaration: Arc::clone(declaration),
                         class_id: Arc::from(class.as_str()),
@@ -287,21 +334,25 @@ impl FlowchartStructuralLabelTypography {
                 }
             }
         }
+
         Ok(result)
     }
 
+    #[must_use]
     pub(crate) fn font_stack_status(&self) -> FlowchartSourceFacetStatus {
         self.font_stack
             .as_ref()
             .map_or(FlowchartSourceFacetStatus::Absent, |source| source.status())
     }
 
+    #[must_use]
     pub(crate) fn font_size_status(&self) -> FlowchartSourceFacetStatus {
         self.font_size
             .as_ref()
             .map_or(FlowchartSourceFacetStatus::Absent, |source| source.status())
     }
 
+    #[must_use]
     pub(crate) fn foreground_status(&self) -> FlowchartSourceFacetStatus {
         self.foreground
             .as_ref()
@@ -313,14 +364,17 @@ impl FlowchartStructuralLabelTypography {
             })
     }
 
+    #[must_use]
     pub(crate) fn apply_to_parent<'a>(&self, parent: Cow<'a, TextStyle>) -> Cow<'a, TextStyle> {
         if self.font_stack.is_none() && self.font_size.is_none() {
             return parent;
         }
+
         let mut cascade = crate::mermaid_style::TextStyleCascade::new(
             &parent,
             crate::mermaid_style::CssFontSizeContext::uniform(parent.font_size),
         );
+
         for source in self.font_stack.iter().chain(&self.font_size) {
             if source.measurable() && !source.content_owned {
                 cascade.observe(
@@ -330,6 +384,7 @@ impl FlowchartStructuralLabelTypography {
                 );
             }
         }
+
         Cow::Owned(cascade.finish().into_owned())
     }
 
@@ -342,10 +397,12 @@ impl FlowchartStructuralLabelTypography {
         {
             return;
         }
+
         let mut cascade = crate::mermaid_style::TextStyleCascade::new(
             style.as_ref(),
             crate::mermaid_style::CssFontSizeContext::uniform(style.font_size),
         );
+
         for source in self.font_stack.iter().chain(&self.font_size) {
             if source.measurable() && source.content_owned {
                 cascade.observe(
@@ -355,6 +412,7 @@ impl FlowchartStructuralLabelTypography {
                 );
             }
         }
+
         *style = Cow::Owned(cascade.finish().into_owned());
     }
 }

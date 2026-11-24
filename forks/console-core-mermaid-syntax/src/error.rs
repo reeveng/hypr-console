@@ -13,14 +13,16 @@ pub struct InternalFailure {
 }
 
 impl InternalFailure {
+    #[must_use]
     pub fn message(&self) -> &str {
         &self.message
     }
 
     /// Creates an internal subsystem failure without attributing it to authored input.
+    #[must_use]
     pub fn new(message: impl Into<String>) -> Self {
         Self {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
         }
     }
 }
@@ -127,49 +129,58 @@ mod tests {
 }
 
 impl ParseDiagnostic {
+    #[must_use]
     pub fn new(message: impl Into<String>) -> Self {
         Self {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span: None,
             span_kind: ParseDiagnosticSpanKind::Fallback,
             code: None,
         }
     }
 
+    #[must_use]
     pub fn with_span(mut self, span: SourceSpan, span_kind: ParseDiagnosticSpanKind) -> Self {
         self.span = Some(span);
         self.span_kind = span_kind;
         self
     }
 
+    #[must_use]
     pub fn with_code(mut self, code: impl Into<String>) -> Self {
-        self.code = Some(code.into());
+        self.code = Some(<_ as ::core::convert::Into<::std::string::String>>::into(code));
         self
     }
 
+    #[must_use]
     pub fn map_span(mut self, map: impl FnOnce(SourceSpan) -> SourceSpan) -> Self {
         self.span = self.span.map(map);
         self
     }
 
+    #[must_use]
     pub(crate) fn without_span(mut self) -> Self {
         self.span = None;
         self.span_kind = ParseDiagnosticSpanKind::Fallback;
         self
     }
 
+    #[must_use]
     pub fn message(&self) -> &str {
         &self.message
     }
 
+    #[must_use]
     pub fn span(&self) -> Option<SourceSpan> {
         self.span
     }
 
+    #[must_use]
     pub fn span_kind(&self) -> ParseDiagnosticSpanKind {
         self.span_kind
     }
 
+    #[must_use]
     pub fn code(&self) -> Option<&str> {
         self.code.as_deref()
     }
@@ -230,6 +241,7 @@ impl Error {
         feature = "diagram-radar",
         feature = "diagram-mindmap"
     ))]
+    #[must_use]
     pub(crate) fn with_exact_span_if_missing(self, span: SourceSpan) -> Self {
         match self {
             Self::DiagramParse {
@@ -243,6 +255,7 @@ impl Error {
         }
     }
 
+    #[must_use]
     pub fn diagram_parse_fallback(
         diagram_type: impl Into<String>,
         message: impl Into<String>,
@@ -250,6 +263,7 @@ impl Error {
         Self::diagram_parse_diagnostic(diagram_type, ParseDiagnostic::new(message))
     }
 
+    #[must_use]
     pub fn diagram_parse_exact(
         diagram_type: impl Into<String>,
         message: impl Into<String>,
@@ -261,6 +275,7 @@ impl Error {
         )
     }
 
+    #[must_use]
     pub fn diagram_parse_insertion_point(
         diagram_type: impl Into<String>,
         message: impl Into<String>,
@@ -275,6 +290,7 @@ impl Error {
         )
     }
 
+    #[must_use]
     pub fn diagram_parse_fallback_at(
         diagram_type: impl Into<String>,
         message: impl Into<String>,
@@ -286,12 +302,13 @@ impl Error {
         )
     }
 
+    #[must_use]
     pub fn diagram_parse_diagnostic(
         diagram_type: impl Into<String>,
         diagnostic: ParseDiagnostic,
     ) -> Self {
         Self::DiagramParse {
-            diagram_type: diagram_type.into(),
+            diagram_type: <_ as ::core::convert::Into<::std::string::String>>::into(diagram_type),
             diagnostic,
         }
     }

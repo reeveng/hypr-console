@@ -13,29 +13,35 @@ thread_local! {
     static OPERATION_CONTEXT: RefCell<Option<OperationContext>> = const { RefCell::new(None) };
 }
 
+#[must_use]
 pub(crate) fn with_operation_context<R>(context: &OperationContext, f: impl FnOnce() -> R) -> R {
     OPERATION_CONTEXT.with(|cell| {
         let previous = cell.replace(Some(context.clone()));
+
         struct Restore<'a> {
             cell: &'a RefCell<Option<OperationContext>>,
             previous: Option<OperationContext>,
         }
+
         impl Drop for Restore<'_> {
             fn drop(&mut self) {
                 self.cell.replace(self.previous.take());
             }
         }
+
         let _restore = Restore { cell, previous };
         f()
     })
 }
 
 #[cfg(any(test, feature = "diagram-gantt"))]
+#[must_use]
 pub(crate) fn today_local() -> CivilDate {
     active_operation_context().today_local()
 }
 
 #[cfg(feature = "diagram-gantt")]
+#[must_use]
 pub(crate) fn resolve_local_datetime(local: CivilDateTime) -> Option<OffsetDateTime> {
     active_operation_context()
         .local_time_zone()
@@ -43,14 +49,18 @@ pub(crate) fn resolve_local_datetime(local: CivilDateTime) -> Option<OffsetDateT
 }
 
 #[cfg(feature = "diagram-gantt")]
+#[must_use]
 pub(crate) fn datetime_to_local(datetime: OffsetDateTime) -> OffsetDateTime {
-    active_operation_context()
+    match active_operation_context()
         .local_time_zone()
-        .at_instant(datetime.timestamp_millis())
-        .unwrap_or(datetime)
+        .at_instant(datetime.timestamp_millis()) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => datetime,
+    }
 }
 
 #[cfg(feature = "diagram-gantt")]
+#[must_use]
 pub(crate) fn datetime_to_local_civil(datetime: OffsetDateTime) -> CivilDateTime {
     datetime_to_local(datetime).local_datetime()
 }
@@ -61,6 +71,7 @@ pub(crate) fn datetime_to_local_civil(datetime: OffsetDateTime) -> CivilDateTime
     feature = "diagram-git-graph",
     feature = "diagram-mindmap"
 ))]
+#[must_use]
 pub(crate) fn generated_id_hex(domain: &str, counter: u64, len: usize) -> String {
     let context = active_operation_context();
     context.derive_hex(domain, counter, len)
@@ -73,14 +84,17 @@ pub(crate) fn generated_id_hex(domain: &str, counter: u64, len: usize) -> String
     feature = "diagram-git-graph",
     feature = "diagram-mindmap"
 ))]
+#[must_use]
 pub(crate) fn active_operation_context() -> OperationContext {
-    OPERATION_CONTEXT
-        .with(|cell| cell.borrow().clone())
-        .unwrap_or_else(|| {
+    match OPERATION_CONTEXT
+        .with(|cell| cell.borrow().clone()) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => {
             RuntimePolicy::deterministic()
                 .begin_operation()
                 .expect("the deterministic runtime policy is infallible")
-        })
+        },
+    }
 }
 
 #[cfg(test)]

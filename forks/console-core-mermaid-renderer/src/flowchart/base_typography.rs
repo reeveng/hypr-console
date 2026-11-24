@@ -81,6 +81,7 @@ pub(crate) struct FlowchartBaseTypographyLabelEmission {
 }
 
 impl FlowchartBaseTypographyLabelEmission {
+    #[must_use]
     pub(crate) const fn new(
         owner: Option<super::FlowchartSvgLabelOwner>,
         typography_applicable: bool,
@@ -88,7 +89,7 @@ impl FlowchartBaseTypographyLabelEmission {
     ) -> Self {
         Self {
             owner: match owner {
-                Some(owner) => Some(FlowchartBaseTypographyOccurrence::Label(owner)),
+                Some(owner_2) => Some(FlowchartBaseTypographyOccurrence::Label(owner_2)),
                 None => None,
             },
             typography_applicable,
@@ -102,6 +103,7 @@ impl FlowchartBaseTypographyLabelEmission {
         }
     }
 
+    #[must_use]
     pub(crate) const fn diagram_title() -> Self {
         Self {
             owner: Some(FlowchartBaseTypographyOccurrence::DiagramTitle),
@@ -116,6 +118,7 @@ impl FlowchartBaseTypographyLabelEmission {
         }
     }
 
+    #[must_use]
     pub(crate) const fn with_source_facets(
         mut self,
         font_stack: super::FlowchartSourceFacetStatus,
@@ -126,6 +129,7 @@ impl FlowchartBaseTypographyLabelEmission {
         self
     }
 
+    #[must_use]
     pub(crate) const fn with_target_selection(mut self, font_stack: bool, font_size: bool) -> Self {
         self.target_font_stack_selected = font_stack;
         self.target_font_size_selected = font_size;
@@ -134,6 +138,7 @@ impl FlowchartBaseTypographyLabelEmission {
 }
 
 impl FlowchartBaseTypographyPlan {
+    #[must_use]
     pub(crate) fn resolve(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &PresentationConfig,
@@ -146,7 +151,7 @@ impl FlowchartBaseTypographyPlan {
         let configured_html_style =
             config.html_label_measurement_base_style(&configured_text_style);
 
-        let Some(theme) = theme else {
+        let Some(theme_2) = theme else {
             return Self::new(
                 configured_font_family,
                 configured_font_size,
@@ -164,7 +169,8 @@ impl FlowchartBaseTypographyPlan {
         let mut typed_font_stack = false;
         let mut typed_font_size = false;
         let mut unsupported_properties = BTreeSet::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontStack)
                     if route.disposition() == FamilyThemeDisposition::TypedAdapter =>
@@ -191,12 +197,12 @@ impl FlowchartBaseTypographyPlan {
         let typed_font_stack_applied = typed_font_stack && !ownership.font_stack;
         let typed_font_size_applied = typed_font_size && !ownership.font_size;
         let font_family = if typed_font_stack_applied {
-            theme.typography().font_stack().as_css()
+            theme_2.typography().font_stack().as_css()
         } else {
             configured_font_family
         };
         let font_size = if typed_font_size_applied {
-            f64::from(theme.typography().font_size_px())
+            f64::from(theme_2.typography().font_size_px())
         } else {
             configured_font_size
         };
@@ -232,6 +238,7 @@ impl FlowchartBaseTypographyPlan {
         clippy::too_many_arguments,
         reason = "The plan stores independent typography ownership and measurement inputs"
     )]
+    #[must_use]
     fn new(
         font_family_css: String,
         font_size_px: f64,
@@ -259,6 +266,7 @@ impl FlowchartBaseTypographyPlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(
         &self,
         effective_config: &serde_json::Value,
@@ -272,6 +280,7 @@ impl FlowchartBaseTypographyPlan {
         settings
     }
 
+    #[must_use]
     pub(crate) fn render_styles(
         &self,
         effective_config: &serde_json::Value,
@@ -296,6 +305,7 @@ impl FlowchartBaseTypographyPlan {
         html_label_text_style.font_size = self.inner.html_font_size_px;
     }
 
+    #[must_use]
     pub(crate) fn requires_terminal_evidence(&self) -> bool {
         !matches!(self.inner.outcome, FlowchartBaseTypographyOutcome::Inactive)
             || !self.inner.unsupported_properties.is_empty()
@@ -305,6 +315,7 @@ impl FlowchartBaseTypographyPlan {
         if !self.requires_terminal_evidence() {
             return;
         }
+
         *self
             .inner
             .terminal_receipt
@@ -321,6 +332,7 @@ impl FlowchartBaseTypographyPlan {
         if !self.requires_terminal_evidence() {
             return;
         }
+
         let mut receipt = self
             .inner
             .terminal_receipt
@@ -336,12 +348,14 @@ impl FlowchartBaseTypographyPlan {
         if !self.requires_terminal_evidence() || !emission.typography_applicable {
             return;
         }
+
         let mut receipt = self
             .inner
             .terminal_receipt
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         receipt.visible_text = true;
+
         if self.inner.typed_font_stack_selected {
             match property_occurrence_status(
                 emission.owner,
@@ -358,6 +372,7 @@ impl FlowchartBaseTypographyPlan {
                 }
             }
         }
+
         if self.inner.typed_font_size_selected {
             match property_occurrence_status(
                 emission.owner,
@@ -387,20 +402,24 @@ impl FlowchartBaseTypographyPlan {
             .terminal_receipt
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
+
         if !receipt.visible_text {
             if self.inner.typed_font_stack_requested {
                 evidence.mark_not_applicable(FamilyThemeMechanismKey::Typography(
                     ThemeTypographyProperty::FontStack,
                 ));
             }
+
             if self.inner.typed_font_size_requested {
                 evidence.mark_not_applicable(FamilyThemeMechanismKey::Typography(
                     ThemeTypographyProperty::FontSize,
                 ));
             }
+
             for property in &self.inner.unsupported_properties {
                 evidence.mark_not_applicable(FamilyThemeMechanismKey::Typography(*property));
             }
+
             return;
         }
 
@@ -418,6 +437,7 @@ impl FlowchartBaseTypographyPlan {
                     receipt.font_size_applied,
                     receipt.font_size_unverified,
                 );
+
                 for (property, requested, selected, status) in [
                     (
                         ThemeTypographyProperty::FontStack,
@@ -435,7 +455,9 @@ impl FlowchartBaseTypographyPlan {
                     if !requested {
                         continue;
                     }
+
                     let key = FamilyThemeMechanismKey::Typography(property);
+
                     if !selected || status.is_not_applicable() {
                         evidence.mark_not_applicable(key);
                     } else if status.is_applied() {
@@ -464,6 +486,7 @@ impl FlowchartBaseTypographyPlan {
             }
             FlowchartBaseTypographyOutcome::Inactive => {}
         }
+
         for property in &self.inner.unsupported_properties {
             evidence.mark_residual(
                 FamilyThemeMechanismKey::Typography(*property),
@@ -480,15 +503,18 @@ enum FlowchartBaseTypographyOccurrenceStatus {
     Unverified,
 }
 
+#[must_use]
 fn property_occurrence_status(
     owner: Option<FlowchartBaseTypographyOccurrence>,
     writer_verified: bool,
     source: super::FlowchartSourceFacetStatus,
     target_selected: bool,
 ) -> FlowchartBaseTypographyOccurrenceStatus {
-    let Some(_) = owner else {
-        return FlowchartBaseTypographyOccurrenceStatus::Unverified;
+    match owner {
+        Some(_) => (),
+        ::core::option::Option::None => return FlowchartBaseTypographyOccurrenceStatus::Unverified,
     };
+
     if !source.is_absent() || target_selected {
         FlowchartBaseTypographyOccurrenceStatus::Shadowed
     } else if writer_verified {
@@ -507,15 +533,18 @@ enum FlowchartBaseTypographyPropertyStatus {
 }
 
 impl FlowchartBaseTypographyPropertyStatus {
+    #[must_use]
     const fn is_applied(self) -> bool {
         matches!(self, Self::Applied)
     }
 
+    #[must_use]
     const fn is_not_applicable(self) -> bool {
         matches!(self, Self::Inactive | Self::NotApplicable)
     }
 }
 
+#[must_use]
 fn property_terminal_status(
     selected: bool,
     stylesheet_verified: bool,

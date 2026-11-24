@@ -1,0 +1,68 @@
+name: Rust checks
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+
+permissions:
+  contents: read
+
+jobs:
+  rust:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 80
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-05-28
+      CARGO_BUILD_JOBS: 4
+    steps:
+      - name: Fetch revisions
+        shell: bash
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -euo pipefail
+          git init --quiet .
+          remote="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY.git"
+          git fetch --quiet --depth 1 "$remote" "$GITHUB_REF"
+          git checkout --quiet --detach FETCH_HEAD
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]]; then
+            git fetch --quiet --deepen 1 "$remote" "$GITHUB_REF"
+            BASE=$(git rev-parse HEAD^)
+          else
+            git fetch --quiet --depth 1 "$remote" "$BASE"
+          fi
+          printf 'BASE=%s\n' "$BASE" >> "$GITHUB_ENV"
+
+      - name: Install pinned Rust toolchain
+        run: rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal --component rustc-dev,llvm-tools-preview --target x86_64-unknown-uefi
+
+      - name: Check unsafe Rust baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p target/unsafe-rust
+          sysroot=$(rustc --print sysroot)
+          rustc --edition=2024 -O -L "$sysroot/lib" -C "link-args=-Wl,-rpath,$sysroot/lib" \
+            tools/unsafe-rust.rs -o target/unsafe-rust/check
+          target/unsafe-rust/check "$BASE"
+
+      - name: Check rasterizer feature combinations
+        run: |
+          set -euo pipefail
+          cargo test --locked -p console-core-path-rasterizer --lib
+          cargo test --locked -p console-core-path-rasterizer --lib --no-default-features --features std
+          cargo test --locked -p console-core-path-rasterizer --lib --no-default-features --features no-std-float,simd
+          cargo check --locked -p console-core-path-rasterizer --no-default-features --features no-std-float
+
+      - name: Install Explicit Rust build tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y libcrypt-dev libpam0g-dev libwayland-dev pkg-config
+          cargo install --locked cargo-dylint@6.3.0 dylint-link@6.3.0
+
+      - name: Audit Explicit Rust in changed packages
+        run: bash tools/explicit-rust/ci.sh "$BASE"

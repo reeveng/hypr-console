@@ -41,6 +41,7 @@ pub(crate) type FootnoteLabel<'a> = UniCase<CowStr<'a>>;
 /// either returns `Some(k)`, where `k` is the number of bytes to skip,
 /// or `None` to abort parsing the label.
 /// Returns the number of bytes read (including closing bracket) and label on success.
+#[must_use]
 pub(crate) fn scan_link_label_rest<'t>(
     text: &'t str,
     linebreak_handler: &dyn Fn(&[u8]) -> Option<usize>,
@@ -50,7 +51,7 @@ pub(crate) fn scan_link_label_rest<'t>(
     let mut ix = 0;
     let mut only_white_space = true;
     let mut codepoints = 0;
-    // no worries, doesn't allocate until we push things onto it
+
     let mut label = String::new();
     let mut mark = 0;
 
@@ -64,15 +65,18 @@ pub(crate) fn scan_link_label_rest<'t>(
             },
             ::core::option::Option::None => {},
         }
-        match *bytes.get(ix)? {
+
+        let checked_value = bytes.get(ix)?;
+
+        match *checked_value {
             b'[' => return None,
             b']' => break,
-            // Backslash escapes in link references are normally untouched, but
-            // tables are an exception, because they're parsed as-if the tables
-            // were parsed in a discrete pass, changing `\|` to `|`, and then
-            // passing the changed string to the inline parser.
+
+
+
+
             b'|' if is_in_table && ix != 0 && bytes.get(ix - 1) == Some(&b'\\') => {
-                // only way to reach this spot is to have `\\|` (even number of `\` before `|`)
+
                 label.push_str(&text[mark..ix - 1]);
                 label.push('|');
                 ix += 1;
@@ -80,7 +84,7 @@ pub(crate) fn scan_link_label_rest<'t>(
                 mark = ix;
             }
             b'\\' if is_in_table && bytes.get(ix + 1) == Some(&b'|') => {
-                // only way to reach this spot is to have `\|` (odd number of `\` before `|`)
+
                 label.push_str(&text[mark..ix]);
                 label.push('|');
                 ix += 2;
@@ -88,13 +92,13 @@ pub(crate) fn scan_link_label_rest<'t>(
                 only_white_space = false;
                 mark = ix;
             }
-            b'\\' if is_ascii_punctuation(*bytes.get(ix + 1)?) => {
+            b'\\' if is_ascii_punctuation(*{ let checked_value_2 = bytes.get(ix + 1)?; checked_value_2 }) => {
                 ix += 2;
                 codepoints += 2;
                 only_white_space = false;
             }
             b if is_ascii_whitespace(b) => {
-                // normalize labels by collapsing whitespaces, including linebreaks
+
                 let mut whitespaces = 0;
                 let mut linebreaks = 0;
                 let whitespace_start = ix;
@@ -103,6 +107,7 @@ pub(crate) fn scan_link_label_rest<'t>(
                     match scan_eol(&bytes[ix..]) {
                         Some(eol_bytes) => {
                             linebreaks += 1;
+
                             match {
                                 let _explicit_decision = ::core::primitive::bool::then_some(linebreaks > 1, ());
                                 _explicit_decision
@@ -112,9 +117,10 @@ pub(crate) fn scan_link_label_rest<'t>(
                                 },
                                 ::core::option::Option::None => {},
                             }
+
                             ix += eol_bytes;
                             ix += linebreak_handler(&bytes[ix..])?;
-                            whitespaces += 2; // indicate that we need to replace
+                            whitespaces += 2;
                         },
                         ::core::option::Option::None => {
                             whitespaces += match {
@@ -128,6 +134,7 @@ pub(crate) fn scan_link_label_rest<'t>(
                         },
                     }
                 }
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(whitespaces > 1, ());
                     _explicit_decision
@@ -146,6 +153,7 @@ pub(crate) fn scan_link_label_rest<'t>(
             b => {
                 only_white_space = false;
                 ix += 1;
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(b & 0b1000_0000 != 0, ());
                     _explicit_decision
@@ -167,23 +175,26 @@ pub(crate) fn scan_link_label_rest<'t>(
             let cow = match mark {
                 0 => {
                     let asciiws: &[_] = &[' ', '\r', '\n', '\t'];
-                    text[..ix].trim_matches(asciiws).into()
+                    <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(text[..ix].trim_matches(asciiws))
                 },
                 _ => {
                     label.push_str(&text[mark..ix]);
+
                     while matches!(
                         label.as_bytes().last(),
                         Some(&b' ' | &b'\r' | &b'\n' | &b'\t')
                     ) {
                         label.pop();
                     }
+
                     while matches!(
                         label.as_bytes().first(),
                         Some(&b' ' | &b'\r' | &b'\n' | &b'\t')
                     ) {
                         label.remove(0);
                     }
-                    label.into()
+
+                    <crate::strings::CowStr<'_> as ::core::convert::From<::std::string::String>>::from(label)
                 },
             };
             Some((ix + 1, cow))
@@ -198,7 +209,7 @@ mod test {
     #[test]
     fn whitespace_normalization() {
         let input = "«\t\tBlurry Eyes\t\t»][blurry_eyes]";
-        let expected_output = "« Blurry Eyes »"; // regular spaces!
+        let expected_output = "« Blurry Eyes »";
 
         let (_bytes, normalized_label) = scan_link_label_rest(input, &|_| None, false).unwrap();
         assert_eq!(expected_output, normalized_label.as_ref());

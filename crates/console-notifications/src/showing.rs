@@ -27,8 +27,10 @@ use console_core_geometry::{Point, Size};
 use console_core_never::Never;
 use console_core_number_conversion::{Float, fitted, index, toward_zero_i32};
 use console_core_shapes::{Edge as Border, Panel, Round, Shape, Text};
+use console_draw_painting::{Lines, Run, at_most};
 
 use crate::reading::Urgency;
+use crate::serving::{Action, Choice, Target};
 
 pub use console_onscreen::NOTIFICATION as WHO;
 
@@ -108,21 +110,25 @@ pub const BODY: TextStyle = TextStyle::Callout;
 #[derive(Debug, Clone, PartialEq)]
 pub struct CardContent<'a> {
   pub id: u32,
+  pub raised: u64,
   pub summary: &'a str,
   pub body: &'a str,
   pub urgency: Urgency,
   pub value: Option<i64>,
+  pub actions: &'a [Action],
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Card {
   pub shapes: Vec<Shape>,
   pub height: u32,
+  buttons: Vec<HitRegion>,
+  body_choice: Choice,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct HitRegion {
-  pub id: u32,
+  pub target: Target,
   pub panel: Panel,
 }
 
@@ -166,7 +172,7 @@ pub fn card(
   wearing: &Wearing,
   at: Point<i32>,
 ) -> Result<Card, Never> {
-  let Ok(tall) = height(measured, saying.value);
+  let Ok(base_height) = height(measured, saying.value);
   let Ok(worn) = worn(wearing, saying.urgency);
   let Ok(wide) = fitted::<i32, u32>(WIDE);
   let Ok(inner) = x();
@@ -178,6 +184,8 @@ pub fn card(
   let Ok(summary_weight) = SUMMARY.weight();
   let Ok(body_font) = BODY.font();
   let Ok(body_weight) = BODY.weight();
+  let Ok(controls) = buttons(saying, wearing, at, base_height);
+  let tall = controls.height;
 
   let mut shapes = vec![Shape::Panel(Panel {
     at,
@@ -215,7 +223,7 @@ pub fn card(
         width: inner_2,
         said: saying.body.to_string(),
         weight: body_weight,
-        font: body_font,
+        font: body_font.clone(),
         ink: worn.ink,
       }));
 
@@ -257,20 +265,147 @@ pub fn card(
     None => {}
   }
 
+  shapes.extend(controls.shapes);
   Ok(Card {
     shapes,
     height: tall,
+    buttons: controls.regions,
+    body_choice: controls.body_choice,
   })
 }
 
+struct Buttons {
+  height: u32,
+  regions: Vec<HitRegion>,
+  shapes: Vec<Shape>,
+  body_choice: Choice,
+}
+
+impl Buttons {
+  fn push(
+    &mut self,
+    region: HitRegion,
+    label: &str,
+    wearing: &Wearing,
+    gap: u32,
+  ) -> Result<(), Never> {
+    let panel = region.panel;
+    self.regions.push(region);
+    self.shapes.push(Shape::Panel(panel));
+    let Ok(words) = button_label(label, &panel, wearing);
+    self.shapes.push(words);
+    self.height = self
+      .height
+      .saturating_add(gap)
+      .saturating_add(panel.size.height);
+    Ok(())
+  }
+}
+
+fn buttons(
+  saying: &CardContent<'_>,
+  wearing: &Wearing,
+  at: Point<i32>,
+  base_height: u32,
+) -> Result<Buttons, Never> {
+  let Ok(gap) = gap();
+  let Ok(button_height) = fitted::<i32, u32>(EM.saturating_mul(2));
+  let margin = EDGE.saturating_add(PAD);
+  let Ok(bottom_inset) = fitted::<i32, u32>(margin);
+  let Ok(round) = fitted::<i32, u32>(ROUND);
+  let Ok(inner) = x();
+  let Ok(button_width) = fitted::<i32, u32>(inner);
+  let mut controls = Buttons {
+    height: base_height,
+    regions: Vec::new(),
+    shapes: Vec::new(),
+    body_choice: Choice::Dismiss,
+  };
+
+  for (ordinal, action) in (0_u32..).zip(saying.actions) {
+    let choice = Choice::Invoke(ordinal);
+
+    match action.key.as_str() {
+      "default" => {
+        controls.body_choice = choice;
+        continue;
+      }
+      _ => {}
+    }
+
+    match action.label.as_str() {
+      "" => continue,
+      _ => {}
+    }
+
+    let offset = controls
+      .height
+      .saturating_sub(bottom_inset)
+      .saturating_add(gap);
+    let Ok(top) = fitted::<u32, i32>(offset);
+    let panel = Panel {
+      at: Point {
+        x: at.x.saturating_add(margin),
+        y: at.y.saturating_add(top),
+      },
+      size: Size {
+        width: button_width,
+        height: button_height,
+      },
+      round: Round(round),
+      fill: wearing.ground,
+      edge: Border::None,
+    };
+    let region = HitRegion {
+      target: Target {
+        id: saying.id,
+        raised: saying.raised,
+        choice,
+      },
+      panel,
+    };
+    let Ok(()) = controls.push(region, &action.label, wearing, gap);
+  }
+
+  Ok(controls)
+}
+
+fn button_label(label: &str, panel: &Panel, wearing: &Wearing) -> Result<Shape, Never> {
+  let Ok(insets) = twice(PAD);
+  let width = panel.size.width.saturating_sub(insets);
+  let Ok(font) = BODY.font();
+  let Ok(weight) = BODY.weight();
+  let Ok(said) = at_most(
+    Run {
+      said: label,
+      weight,
+      width,
+    },
+    &font,
+    Lines(1),
+  );
+
+  Ok(Shape::Text(Text {
+    at: Point {
+      x: panel.at.x.saturating_add(PAD),
+      y: panel.at.y.saturating_add(PAD),
+    },
+    width,
+    said,
+    weight,
+    font,
+    ink: wearing.text,
+  }))
+}
+
 impl Stack {
-  pub fn on(&self, at: Point<i32>) -> Result<Option<u32>, Never> {
+  pub fn on(&self, at: Point<i32>) -> Result<Option<Target>, Never> {
     Ok(
       self
         .touching
         .iter()
         .find_map(|touching| match touching.panel.covers(at) {
-          Ok(console_core_shapes::Covers::Yes) => Some(touching.id),
+          Ok(console_core_shapes::Covers::Yes) => Some(touching.target),
           Ok(console_core_shapes::Covers::No) | Err(_) => None,
         }),
     )
@@ -289,8 +424,13 @@ pub fn cards(said: &[(CardContent<'_>, Measured)], wearing: &Wearing) -> Result<
     let Ok(at) = fitted::<u32, i32>(down);
     let Ok(card) = card(saying, measured, wearing, Point { x: 0, y: at });
 
+    touching.extend(card.buttons);
     touching.push(HitRegion {
-      id: saying.id,
+      target: Target {
+        id: saying.id,
+        raised: saying.raised,
+        choice: card.body_choice,
+      },
       panel: Panel {
         at: Point { x: 0, y: at },
         size: Size {
@@ -398,10 +538,12 @@ mod tests {
 
   pub(super) const SAYING: CardContent<'static> = CardContent {
     id: 1,
+    raised: 1,
     summary: "something happened",
     body: "",
     urgency: Urgency::Normal,
     value: None,
+    actions: &[],
   };
 
   #[test]
@@ -584,18 +726,32 @@ mod tests {
     let Ok(into) = fitted::<u32, i32>(one.saturating_add(gap).saturating_add(2));
     let Ok(found) = stack.on(Point { x: 10, y: into });
 
-    assert_eq!(found, Some(9));
+    let first_target = Target {
+      id: 7,
+      raised: 1,
+      choice: Choice::Dismiss,
+    };
+    assert_eq!(
+      found,
+      Some(Target {
+        id: 9,
+        ..first_target
+      })
+    );
 
     use console_draw_surface::{KeyboardFocus, Keysym, layer_focus::Selection};
-    let actions: Vec<_> = stack.touching.iter().map(|region| region.id).collect();
+    let actions: Vec<_> = stack.touching.iter().map(|region| region.target).collect();
     let mut selected = Selection::Idle;
     let now = std::time::Instant::now();
     let Ok(()) = selected.enter(&actions, now);
     let Ok(()) = selected.observe(KeyboardFocus::Here, now);
     assert_eq!(selected.pressed(Keysym::Down, &actions), Ok(None));
     assert_eq!(selected.pressed(Keysym::Return, &actions), Ok(found));
-    let Ok(()) = selected.keep(&[7]);
-    assert_eq!(selected.pressed(Keysym::Return, &[7]), Ok(Some(7)));
+    let Ok(()) = selected.keep(&[first_target]);
+    assert_eq!(
+      selected.pressed(Keysym::Return, &[first_target]),
+      Ok(Some(first_target))
+    );
 
     Ok(())
   }

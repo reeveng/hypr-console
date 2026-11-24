@@ -17,6 +17,7 @@ pub(super) struct SequenceRectOpen {
 }
 
 impl SequenceRectOpen {
+    #[must_use]
     pub(super) fn new(start_id: String, top_y: f64) -> Self {
         Self {
             start_id,
@@ -27,13 +28,18 @@ impl SequenceRectOpen {
 
     pub(super) fn include_min_max(&mut self, min_x: f64, max_x: f64, max_y: f64) {
         let r = Box2::from_min_max(min_x, self.top_y, max_x, max_y);
-        if let Some(ref mut cur) = self.bounds {
-            cur.union(r);
-        } else {
-            self.bounds = Some(r);
+
+        match self.bounds {
+            Some(ref mut cur) => {
+                cur.union(r);
+            },
+            ::core::option::Option::None => {
+                self.bounds = Some(r);
+            },
         }
     }
 
+    #[must_use]
     pub(super) fn close(self, actor_center_bounds: (f64, f64)) -> ClosedSequenceRect {
         let rect_left = self
             .bounds
@@ -90,11 +96,14 @@ pub(super) fn sequence_rect_stack_x_bounds(
     ctx: SequenceRectStackBoundsContext<'_>,
 ) -> Result<HashMap<String, (f64, f64)>> {
     let mut edges_by_id = HashMap::with_capacity(ctx.edges.len());
+
     for (edge_index, edge) in ctx.edges.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(edge_index)?;
         edges_by_id.insert(edge.id.as_str(), edge);
     }
+
     let mut nodes_by_id = HashMap::with_capacity(ctx.nodes.len());
+
     for (node_index, node) in ctx.nodes.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(node_index)?;
         nodes_by_id.insert(node.id.as_str(), node);
@@ -105,6 +114,7 @@ pub(super) fn sequence_rect_stack_x_bounds(
 
     for (message_index, msg) in ctx.model.messages.iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(message_index)?;
+
         match msg.control_semantics() {
             Some(semantics)
                 if semantics.kind != SequenceControlKind::Rect
@@ -130,10 +140,11 @@ pub(super) fn sequence_rect_stack_x_bounds(
             {
                 close_stack_frame(&mut stack, ctx.box_margin, true, &mut rect_bounds);
             }
-            _ => {
+            ::core::option::Option::None | ::core::option::Option::Some(_) => {
                 if stack.is_empty() {
                     continue;
                 }
+
                 if let Some((x1, x2)) = message_x_range(
                     msg,
                     ctx.actor_index,
@@ -168,6 +179,7 @@ struct StackFrameBounds {
 }
 
 impl StackFrameBounds {
+    #[must_use]
     fn empty() -> Self {
         Self {
             min_x: f64::INFINITY,
@@ -180,6 +192,7 @@ impl StackFrameBounds {
         self.max_x = self.max_x.max(max_x);
     }
 
+    #[must_use]
     fn is_finite(self) -> bool {
         self.min_x.is_finite() && self.max_x.is_finite()
     }
@@ -192,6 +205,7 @@ struct StackFrame {
 }
 
 impl StackFrame {
+    #[must_use]
     fn control() -> Self {
         Self {
             kind: StackFrameKind::Control,
@@ -199,6 +213,7 @@ impl StackFrame {
         }
     }
 
+    #[must_use]
     fn rect(start_id: String) -> Self {
         Self {
             kind: StackFrameKind::Rect { start_id },
@@ -213,8 +228,13 @@ fn close_stack_frame(
     record_rect: bool,
     rect_bounds: &mut HashMap<String, (f64, f64)>,
 ) {
-    let Some(frame) = stack.pop() else {
-        return;
+    let frame = {
+        let optional_frame = stack.pop();
+
+        match optional_frame {
+            Some(matched_frame) => matched_frame,
+            ::core::option::Option::None => return,
+        }
     };
 
     if record_rect
@@ -234,6 +254,7 @@ fn close_stack_frame(
     }
 }
 
+#[must_use]
 fn message_x_range(
     msg: &SequenceMessage,
     actor_index: &HashMap<&str, usize>,
@@ -248,9 +269,16 @@ fn message_x_range(
         return Some((n.x - n.width / 2.0, n.x + n.width / 2.0));
     }
 
-    let (Some(from), Some(to)) = (msg.from.as_deref(), msg.to.as_deref()) else {
-        return None;
+    let (from, to) = {
+        let outcome_from = (msg.from.as_deref(), msg.to.as_deref());
+
+        match outcome_from {
+            (Some(matched_from), Some(matched_to)) => (matched_from, matched_to),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return None,
+        }
     };
+
     let edge_id = format!("msg-{}", msg.id);
     let e = edges_by_id.get(edge_id.as_str()).copied()?;
 
@@ -260,20 +288,26 @@ fn message_x_range(
             .first()
             .map(|p| p.x)
             .or_else(|| actor_index.get(from).map(|&i| actor_centers_x[i] + 1.0))?;
-        let label_width = e.label.as_ref().map(|label| label.width).unwrap_or(1.0);
+        let label_width = match e.label.as_ref().map(|label| label.width) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 1.0,
+        };
         let dx = (label_width / 2.0).max(actor_width_min / 2.0);
         return Some((line_x - dx, line_x + dx));
     }
 
     let mut min_x = f64::INFINITY;
     let mut max_x = f64::NEG_INFINITY;
+
     for p in &e.points {
         min_x = min_x.min(p.x);
         max_x = max_x.max(p.x);
     }
+
     if !min_x.is_finite() || !max_x.is_finite() {
         return None;
     }
+
     Some((min_x, max_x))
 }
 

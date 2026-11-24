@@ -34,8 +34,10 @@
 //! every rule can be asked of a machine that is not in the room -- including
 //! the machine this desktop has never run on, which is the one that matters.
 
-use console_core_external_programs::Program;
+use console_bus::cli;
+use console_bus::messages::{Message, Value, Whom};
 use console_core_never::Never;
+use console_program_contract::Command;
 
 use crate::devices::Has;
 use std::collections::BTreeSet;
@@ -43,56 +45,149 @@ use std::collections::BTreeSet;
 pub const BUS: &str = "org.shadowblip.InputPlumber";
 pub const OBJECT: &str = "/org/shadowblip/InputPlumber/CompositeDevice0";
 pub const INTERFACE: &str = "org.shadowblip.Input.CompositeDevice";
+const SEND_CHORD: &str = "SendButtonChord";
+const SOURCE_DEVICES: &str = "SourceDevicePaths";
+
+fn property(property: &str) -> Result<[&str; 6], Never> {
+  Ok(["--system", "get-property", BUS, OBJECT, INTERFACE, property])
+}
+
+fn bus_call(method: &str) -> Result<[&str; 6], Never> {
+  Ok(["--system", "call", BUS, OBJECT, INTERFACE, method])
+}
+
+fn property_command(property_name: &'static str) -> Result<Vec<&'static str>, Never> {
+  let Ok(words) = property(property_name);
+
+  cli::arguments(words)
+}
 
 pub fn capabilities_command() -> Result<Vec<&'static str>, Never> {
-  let Ok(busctl) = Program::Busctl.name();
-
-  Ok(vec![
-    busctl,
-    "--system",
-    "get-property",
-    BUS,
-    OBJECT,
-    INTERFACE,
-    "Capabilities",
-  ])
+  property_command("Capabilities")
 }
 
 pub fn profile_path_command() -> Result<Vec<&'static str>, Never> {
-  let Ok(busctl) = Program::Busctl.name();
+  property_command("ProfilePath")
+}
 
-  Ok(vec![
-    busctl,
-    "--system",
-    "get-property",
-    BUS,
-    OBJECT,
-    INTERFACE,
-    "ProfilePath",
-  ])
+pub fn profile_name_command() -> Result<Vec<&'static str>, Never> {
+  property_command("ProfileName")
+}
+
+pub fn profile_name() -> Result<Command, Never> {
+  let Ok(words) = property("ProfileName");
+
+  cli::effect(&words)
+}
+
+fn load_profile_arguments(path: &str) -> Result<[&str; 8], Never> {
+  let Ok([scope, call, bus, object, interface, method]) = bus_call("LoadProfilePath");
+
+  Ok([scope, call, bus, object, interface, method, "s", path])
 }
 
 pub fn load_profile_command(path: &str) -> Result<Vec<String>, Never> {
-  Program::Busctl.arguments(&[
+  let Ok(words) = load_profile_arguments(path);
+
+  cli::owned_arguments(words)
+}
+
+pub fn load_profile(path: &str) -> Result<Command, Never> {
+  let Ok(words) = load_profile_arguments(path);
+
+  cli::effect(&words)
+}
+
+fn chord_words(capabilities: &[impl AsRef<str>]) -> Result<Vec<String>, Never> {
+  let Ok(call) = bus_call(SEND_CHORD);
+
+  Ok(
+    call
+      .into_iter()
+      .map(str::to_owned)
+      .chain(["as".to_owned(), capabilities.len().to_string()])
+      .chain(capabilities.iter().map(|name| name.as_ref().to_owned()))
+      .collect(),
+  )
+}
+
+pub fn chord_arguments(capabilities: &[impl AsRef<str>]) -> Result<Vec<String>, Never> {
+  let Ok(words) = chord_words(capabilities);
+
+  cli::owned_arguments(words)
+}
+
+pub fn chord_command(capabilities: &[impl AsRef<str>]) -> Result<std::process::Command, Never> {
+  let Ok(words) = chord_words(capabilities);
+
+  cli::command(words)
+}
+
+pub fn chord_message(capabilities: &[impl AsRef<str>]) -> Result<Message, Never> {
+  let Ok(request) = Message::call(&Whom {
+    to: BUS,
+    at: OBJECT,
+    on: INTERFACE,
+    calling: SEND_CHORD,
+  });
+  let words = capabilities
+    .iter()
+    .map(|name| Value::Word(name.as_ref().to_owned()))
+    .collect();
+  request.carrying("as", vec![Value::List(words)])
+}
+
+pub fn event_arguments() -> Result<Vec<String>, Never> {
+  let Ok([scope, call, bus, object, interface, method]) = bus_call("SendEvent");
+
+  cli::owned_arguments([scope, call, bus, object, interface, method, "sv"])
+}
+
+pub fn composite_devices() -> Result<std::process::Command, Never> {
+  cli::command(["--system", "--list", "tree", BUS])
+}
+
+pub fn source_devices(object: &str) -> Result<std::process::Command, Never> {
+  cli::command([
     "--system",
-    "call",
+    "--json=short",
+    "get-property",
     BUS,
-    OBJECT,
+    object,
     INTERFACE,
-    "LoadProfilePath",
-    "s",
-    path,
+    SOURCE_DEVICES,
   ])
 }
 
-pub fn one_said(said: &str) -> Result<Option<String>, Never> {
-  Ok(
-    said
-      .split('"')
-      .nth(1)
-      .filter(|said_2| !said_2.is_empty())
-      .map(str::to_string),
+pub fn source_device_paths(object: &str) -> Result<Message, Never> {
+  let Ok(request) = Message::call(&Whom {
+    to: BUS,
+    at: object,
+    on: "org.freedesktop.DBus.Properties",
+    calling: "Get",
+  });
+  request.carrying(
+    "ss",
+    vec![
+      Value::Word(INTERFACE.to_owned()),
+      Value::Word(SOURCE_DEVICES.to_owned()),
+    ],
   )
+}
+
+pub fn quoted_string(said: &str) -> Result<Option<&str>, Never> {
+  let quoted = said
+    .split_once('"')
+    .and_then(|(_, rest)| rest.split_once('"'))
+    .map(|(value, _)| value);
+
+  Ok(quoted)
+}
+
+pub fn one_said(said: &str) -> Result<Option<String>, Never> {
+  let Ok(quoted) = quoted_string(said);
+
+  Ok(quoted.filter(|value| !value.is_empty()).map(str::to_owned))
 }
 
 pub const DEVICES: &str = "/proc/bus/input/devices";
@@ -329,6 +424,24 @@ B: PROP=0
 B: EV=1b
 B: ABS=10000000003
 ";
+
+  #[test]
+  fn a_chord_sends_the_capability_list_as_dbus_strings() {
+    let keys = ["Gamepad:Button:South", "Gamepad:Button:East"];
+    let Ok(request) = chord_message(&keys);
+
+    assert_eq!(request.destination.as_deref(), Some(BUS));
+    assert_eq!(request.path.as_deref(), Some(OBJECT));
+    assert_eq!(request.interface.as_deref(), Some(INTERFACE));
+    assert_eq!(request.member.as_deref(), Some(SEND_CHORD));
+    assert_eq!(request.shape, "as");
+    assert_eq!(
+      request.values,
+      [Value::List(
+        keys.map(|key| Value::Word(key.to_owned())).to_vec()
+      )]
+    );
+  }
 
   #[test]
   fn what_the_machine_said_is_read_as_what_it_has() -> Result<(), &'static str> {

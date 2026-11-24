@@ -14,16 +14,39 @@ name = "console-kernel"
 path = "src/main.rs"
 test = false
 
+[features]
+hosted-compute = ["dep:console-core-state-machine", "dep:console-operating-system-linux"]
+
+[[example]]
+name = "gpu-checksums"
+required-features = ["hosted-compute"]
+
+[[example]]
+name = "compute-benchmark"
+required-features = ["hosted-compute"]
+
 [dependencies]
 console-browser-site-isolation.workspace = true
 console-core-bitmap-font.workspace = true
 console-core-checksums.workspace = true
 console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false }
+console-core-operation-slots = { path = "../console-core-operation-slots" }
 console-core-urls = { path = "../console-core-urls", default-features = false, features = ["alloc"] }
 console-core-web-engine.workspace = true
 console-kernel-handles.workspace = true
 console-kernel-heap.workspace = true
+
+[target.'cfg(target_os = "uefi")'.dependencies]
+console-core-state-machine = { path = "../console-core-state-machine", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+console-core-state-machine = { workspace = true, optional = true }
+console-operating-system-linux = { workspace = true, optional = true }
+
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+console-program-contract.workspace = true
 
 [lints]
 workspace = true

@@ -18,30 +18,39 @@ pub(crate) struct TreeViewCssBinding {
 }
 
 impl TreeViewCssBinding {
+    #[must_use]
     pub(super) fn configured_color(config: &Value, key: &str) -> Option<String> {
         config_string(config, &["themeVariables", "treeView", key])
     }
 
+    #[must_use]
     pub(super) fn configured_font_size_css(config: &Value) -> Option<String> {
         config_css_number_or_string(config, &["themeVariables", "treeView", "labelFontSize"])
     }
 
+    #[must_use]
     pub(super) fn with_font_family(config: &Value, font_family: &str) -> Self {
         let color = |key, fallback: &str| {
             Self::configured_color(config, key).unwrap_or_else(|| fallback.to_string())
         };
         Self {
             font_family: font_family.to_owned(),
-            label_font_size: config_f64_css_px(
+            label_font_size: match config_f64_css_px(
                 config,
                 &["themeVariables", "treeView", "labelFontSize"],
-            )
-            .unwrap_or(16.0)
+            ) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 16.0,
+            }
             .max(1.0),
-            label_font_size_css: Self::configured_font_size_css(config)
-                .unwrap_or_else(|| "16px".to_string()),
-            line_thickness: config_f64(config, &["treeView", "lineThickness"])
-                .unwrap_or(super::DEFAULT_LINE_THICKNESS)
+            label_font_size_css: match Self::configured_font_size_css(config) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => "16px".to_string(),
+            },
+            line_thickness: match config_f64(config, &["treeView", "lineThickness"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => super::DEFAULT_LINE_THICKNESS,
+            }
                 .max(0.0),
             label_color: color("labelColor", "black"),
             line_color: color("lineColor", "black"),

@@ -13,29 +13,23 @@
 //! terminal belongs to a session now. A plain open is asked the same, so the
 //! test is seen telling a taken terminal from a free one.
 
+#![forbid(unsafe_code)]
+
 use std::error::Error;
-use std::ffi::{c_int, c_ulong};
 use std::fs::{File, OpenOptions};
 use std::io;
-use std::os::fd::AsRawFd;
+use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::process::Command;
 
 use console_core_never::Never;
 use console_login_window::system;
+use rustix::{pty, termios};
 
 const OPENING: &str = "CONSOLE_TEST_OPENING";
 const TERMINAL: &str = "CONSOLE_TEST_TERMINAL";
 const THE_WINDOW: &str = "the login window";
 const PLAINLY: &str = "plainly";
-
-const TIOCGPTN: c_ulong = 0x8004_5430;
-const TIOCSPTLCK: c_ulong = 0x4004_5431;
-const TIOCGSID: c_ulong = 0x5429;
-
-unsafe extern "C" {
-  fn ioctl(descriptor: c_int, request: c_ulong, ...) -> c_int;
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Owned {
@@ -50,81 +44,22 @@ enum Owned {
     reason = "the multiplexer is a device that hands out terminals, and opening it to read and write is how one is asked for; nothing is written to a file"
   )
 )]
-#[cfg_attr(
-  dylint_lib = "explicit090_no_raw_descriptor",
-  expect(
-    explicit090_no_raw_descriptor,
-    reason = "the C PTY ioctls accept a descriptor number; master owns it until both requests finish"
-  )
-)]
 fn pseudo() -> Result<(File, PathBuf), io::Error> {
   let master = OpenOptions::new()
     .read(true)
     .write(true)
     .open("/dev/ptmx")?;
-  let mut number: c_int = 0;
-  let mut locked: c_int = 0;
+  pty::unlockpt(&master)?;
+  let name = pty::ptsname(&master, Vec::new())?;
+  let name_2 = std::ffi::OsString::from_vec(name.into_bytes());
 
-  #[cfg_attr(
-    dylint_lib = "explicit058_contain_unsafe",
-    expect(
-      explicit058_contain_unsafe,
-      reason = "the test unlocks its private pseudoterminal through the C TIOCSPTLCK ABI"
-    )
-  )]
-  // SAFETY: a descriptor this frame owns, and a pointer to an int it owns.
-  let unlocked = unsafe { ioctl(master.as_raw_fd(), TIOCSPTLCK, &mut locked) };
-
-  assert_eq!(
-    unlocked,
-    0,
-    "the pseudo-terminal would not unlock: {}",
-    io::Error::last_os_error()
-  );
-
-  #[cfg_attr(
-    dylint_lib = "explicit058_contain_unsafe",
-    expect(
-      explicit058_contain_unsafe,
-      reason = "the kernel reports the test pseudoterminal's number through the C TIOCGPTN ABI"
-    )
-  )]
-  // SAFETY: a descriptor this frame owns, and writable storage for a C int.
-  let named = unsafe { ioctl(master.as_raw_fd(), TIOCGPTN, &mut number) };
-
-  assert_eq!(
-    named,
-    0,
-    "the pseudo-terminal has no number: {}",
-    io::Error::last_os_error()
-  );
-
-  Ok((master, PathBuf::from(format!("/dev/pts/{number}"))))
+  Ok((master, PathBuf::from(name_2)))
 }
 
-#[cfg_attr(
-  dylint_lib = "explicit090_no_raw_descriptor",
-  expect(
-    explicit090_no_raw_descriptor,
-    reason = "this single C TIOCGSID request borrows the terminal number while its File remains live"
-  )
-)]
 fn owned(terminal: &File) -> Result<Owned, Never> {
-  let mut session: c_int = 0;
-
-  #[cfg_attr(
-    dylint_lib = "explicit058_contain_unsafe",
-    expect(
-      explicit058_contain_unsafe,
-      reason = "the test observes the controlling-terminal session through the kernel's TIOCGSID request"
-    )
-  )]
-  // SAFETY: a descriptor the caller owns, and a pointer to an int this frame owns.
-  let asked = unsafe { ioctl(terminal.as_raw_fd(), TIOCGSID, &mut session) };
-
-  Ok(match asked {
-    0 => Owned::BySomebody,
-    _ => Owned::ByNobody,
+  Ok(match termios::tcgetsid(terminal) {
+    Ok(_session) => Owned::BySomebody,
+    Err(_no_session) => Owned::ByNobody,
   })
 }
 

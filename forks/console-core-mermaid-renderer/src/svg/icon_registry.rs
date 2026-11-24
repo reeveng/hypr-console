@@ -33,6 +33,7 @@ const ICON_ID_SCOPE_CHECKPOINT_BYTES: usize = 4 * 1024;
 pub(in crate::svg) struct IconIdScope(u64);
 
 impl IconIdScope {
+    #[must_use]
     pub(super) const fn hash(self) -> u64 {
         self.0
     }
@@ -82,9 +83,10 @@ fn controlled_hash_icon_scope_parts(
             .ok_or_else(|| work_meter.arithmetic_overflow())
     })?;
 
-    // Reject the complete scan before touching caller-sized bytes. No scope buffer is allocated.
+
     work_meter.charge(scan_bytes)?;
     work_meter.checkpoint(OperationPhase::Emit)?;
+
     for part in parts {
         for chunk in part.as_bytes().chunks(ICON_ID_SCOPE_CHECKPOINT_BYTES) {
             let Ok(next) = fnv1a::update64(hash, chunk);
@@ -92,6 +94,7 @@ fn controlled_hash_icon_scope_parts(
             work_meter.checkpoint(OperationPhase::Emit)?;
         }
     }
+
     Ok(hash)
 }
 
@@ -107,6 +110,7 @@ pub(in crate::svg) fn icon_id_scope_for_test(value: &str) -> IconIdScope {
     IconIdScope(hash)
 }
 
+#[must_use]
 pub(in crate::svg) fn mermaid_unknown_icon_svg(
     width: impl fmt::Display,
     height: impl fmt::Display,
@@ -139,10 +143,12 @@ impl fmt::Debug for IconRegistryBuilder {
 }
 
 impl IconRegistryBuilder {
+    #[must_use]
     pub fn new() -> Self {
         Self::with_limits(IconRegistryBuildLimits::fixed())
     }
 
+    #[must_use]
     fn with_limits(limits: IconRegistryBuildLimits) -> Self {
         Self {
             limits,
@@ -159,6 +165,7 @@ impl IconRegistryBuilder {
         let next_pack_count = pack_index.checked_add(1).ok_or_else(|| {
             build_arithmetic_error(Some(pack_index), "icon pack count overflowed")
         })?;
+
         if next_pack_count > self.limits.max_packs {
             return Err(build_limit_error(
                 Some(pack_index),
@@ -171,6 +178,7 @@ impl IconRegistryBuilder {
         }
 
         let json = pack.json();
+
         if json.len() > self.limits.max_pack_bytes {
             return Err(build_limit_error(
                 Some(pack_index),
@@ -181,9 +189,11 @@ impl IconRegistryBuilder {
             )
             .with_registration_name(registration_name));
         }
+
         let next_input_bytes = self.input_bytes.checked_add(json.len()).ok_or_else(|| {
             build_arithmetic_error(Some(pack_index), "aggregate icon pack bytes overflowed")
         })?;
+
         if next_input_bytes > self.limits.max_input_bytes {
             return Err(build_limit_error(
                 Some(pack_index),
@@ -226,8 +236,10 @@ impl IconRegistryBuilder {
                 icons: pack_icons,
             } = pack;
             prefixes.insert(prefix.clone());
+
             for (name, icon) in pack_icons {
                 let key = lookup::canonical_key(&prefix, &name);
+
                 if icons.insert(key, icon).is_some() {
                     return Err(IconRegistryBuildError::new(
                         IconRegistryBuildErrorKind::DuplicateIcon,
@@ -276,20 +288,25 @@ impl IconRegistry {
         packs: impl IntoIterator<Item = IconPack<'a>>,
     ) -> Result<Self, IconRegistryBuildError> {
         let mut builder = IconRegistryBuilder::new();
+
         for pack in packs {
-            builder = builder.add_pack(pack)?;
+            builder = { let checked_value = builder.add_pack(pack)?; checked_value };
         }
+
         builder.build()
     }
 
+    #[must_use]
     pub fn len(&self) -> usize {
         self.inner.icons.len()
     }
 
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.inner.icons.is_empty()
     }
 
+    #[must_use]
     pub fn is_pack_registered(&self, prefix: &str) -> bool {
         self.inner.prefixes.contains(prefix)
     }
@@ -298,9 +315,15 @@ impl IconRegistry {
         &self,
         request: IconRenderRequest<'_>,
     ) -> crate::Result<Option<String>> {
-        let Some(key) = lookup::resolve_icon_key(request.icon_name, request.fallback_prefix) else {
-            return Ok(None);
+        let key = {
+            let optional_key = lookup::resolve_icon_key(request.icon_name, request.fallback_prefix);
+
+            match optional_key {
+                Some(matched_key) => matched_key,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         self.inner
             .icons
             .get(&key)
@@ -312,9 +335,15 @@ impl IconRegistry {
         &self,
         request: IconRenderRequest<'_>,
     ) -> crate::Result<Option<RenderedIcon>> {
-        let Some(key) = lookup::resolve_icon_key(request.icon_name, request.fallback_prefix) else {
-            return Ok(None);
+        let key = {
+            let optional_key = lookup::resolve_icon_key(request.icon_name, request.fallback_prefix);
+
+            match optional_key {
+                Some(matched_key) => matched_key,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         self.inner
             .icons
             .get(&key)
@@ -338,7 +367,7 @@ pub(in crate::svg) fn bpmn_icon_svg(
         .work_meter
         .charge_emit_work(request.icon_name.len())?;
     let key = lookup::resolve_icon_key(request.icon_name, request.fallback_prefix);
-    let use_builtin = key.as_deref().is_some_and(|key| key.starts_with("bpmn:"))
+    let use_builtin = key.as_deref().is_some_and(|key_2| key_2.starts_with("bpmn:"))
         && registry.is_none_or(|registry| !registry.is_pack_registered("bpmn"));
     let rendered = if use_builtin {
         static BUILTIN: std::sync::OnceLock<IconRegistry> = std::sync::OnceLock::new();
@@ -350,7 +379,7 @@ pub(in crate::svg) fn bpmn_icon_svg(
             .render_icon(request)?
     } else {
         registry
-            .map(|registry| registry.render_icon(request))
+            .map(|registry_2| registry_2.render_icon(request))
             .transpose()?
             .flatten()
     };
@@ -375,10 +404,12 @@ pub(in crate::svg) struct RenderedIcon {
 }
 
 impl RenderedIcon {
+    #[must_use]
     pub(in crate::svg) fn into_svg(self) -> String {
         self.svg
     }
 
+    #[must_use]
     pub(in crate::svg) const fn current_color_use(&self) -> IconCurrentColorUse {
         self.current_color_use
     }
@@ -409,6 +440,7 @@ pub(in crate::svg) fn scope_svg_internal_ids(
         .map_err(|_| crate::Error::icon_processing("built-in icon ID scoping failed"))
 }
 
+#[must_use]
 fn build_limit_error(
     pack_index: Option<usize>,
     id: IconRegistryResourceLimitId,
@@ -424,6 +456,7 @@ fn build_limit_error(
     .with_limit(id, actual, maximum)
 }
 
+#[must_use]
 fn build_arithmetic_error(
     pack_index: Option<usize>,
     message: &'static str,
@@ -435,6 +468,7 @@ fn build_arithmetic_error(
     )
 }
 
+#[must_use]
 fn build_allocation_error(
     pack_index: Option<usize>,
     message: &'static str,

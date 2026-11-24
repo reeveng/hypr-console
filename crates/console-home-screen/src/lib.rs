@@ -100,8 +100,11 @@ pub fn keep(home: &Path, standing: Standing, layout: &HomeScreen) -> Result<(), 
     Stored::Failed(fault) => return Err(Unkept::Unread(there, fault)),
   };
 
+  let mut current = theirs.clone();
+  let Ok(()) =
+    current.update_application_names(|name| layout.where_(name).is_ok_and(|spot| spot.is_some()));
   let grid = grid(home, other)?;
-  let Ok(followed) = theirs.followed(layout, grid);
+  let Ok(followed) = current.followed(layout, grid);
 
   match LayoutChange::from(followed == theirs) {
     LayoutChange::Unchanged => Ok(()),
@@ -171,7 +174,13 @@ pub fn standing() -> Result<Standing, console_compositor::HyprctlError> {
   })
 }
 
-pub const APPLICATION: [&str; 5] = ["Files", "Music", "Download", "Notifications", "Buttons"];
+pub const APPLICATION: [&str; 5] = [
+  "Console Files",
+  "Console Music",
+  "Console Downloads",
+  "Notifications",
+  "Buttons",
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Spot {
@@ -467,6 +476,29 @@ impl HomeScreen {
 
   pub fn at(&self, spot: Spot) -> Result<Option<&str>, Never> {
     Ok(self.placed.get(&spot).map(String::as_str))
+  }
+
+  pub fn update_application_names(
+    &mut self,
+    installed: impl Fn(&str) -> bool,
+  ) -> Result<(), Never> {
+    let renamed: BTreeMap<&str, &str> = console_applications::counts::RENAMED
+      .into_iter()
+      .filter(|(old, new)| !installed(old) && installed(new))
+      .collect();
+
+    for name in self.placed.values_mut() {
+      {
+        match renamed.get(name.as_str()) {
+          Some(new) => {
+            *name = (*new).to_owned();
+          }
+          ::core::option::Option::None => {}
+        };
+      }
+    }
+
+    Ok(())
   }
 
   pub fn place(&mut self, spot: Spot, name: &str) -> Result<(), Never> {
@@ -1138,7 +1170,7 @@ mod tests {
 
   #[test]
   fn a_machine_that_has_never_had_one_opens_on_what_it_uses_most() {
-    let order: Vec<String> = ["Aether", "Files", "Music", "Steam"]
+    let order: Vec<String> = ["Aether", "Console Files", "Console Music", "Steam"]
       .iter()
       .map(|said| said.to_string())
       .collect();
@@ -1146,7 +1178,7 @@ mod tests {
 
     assert_eq!(
       home.at(Spot::FIRST),
-      Ok(Some("Files")),
+      Ok(Some("Console Files")),
       "the desktop's own come first"
     );
     assert_eq!(
@@ -1155,7 +1187,7 @@ mod tests {
         row: 0,
         column: 1
       }),
-      Ok(Some("Music"))
+      Ok(Some("Console Music"))
     );
 
     let third = Spot {
@@ -1182,10 +1214,10 @@ mod tests {
 
   #[test]
   fn one_of_ours_that_is_not_installed_leaves_no_hole() {
-    let order: Vec<String> = vec!["Music".to_string(), "Steam".to_string()];
+    let order: Vec<String> = vec!["Console Music".to_string(), "Steam".to_string()];
     let Ok(home) = HomeScreen::first(&order, GRID);
 
-    assert_eq!(home.at(Spot::FIRST), Ok(Some("Music")));
+    assert_eq!(home.at(Spot::FIRST), Ok(Some("Console Music")));
     assert_eq!(
       home.at(Spot {
         pane: 0,
@@ -1195,6 +1227,24 @@ mod tests {
       Ok(Some("Steam"))
     );
     assert_eq!(count(&home), Ok(2));
+  }
+
+  #[test]
+  fn an_application_that_changed_its_name_keeps_its_home_screen_square() {
+    let Ok(mut home) = HomeScreen::read("0\t0\t0\tFiles\n0\t0\t1\tNotes\n");
+    let Ok(()) = home.update_application_names(|name| {
+      matches!(name, "Console Files" | "Notes" | "Console Notes")
+    });
+
+    assert_eq!(home.at(Spot::FIRST), Ok(Some("Console Files")));
+    assert_eq!(
+      home.at(Spot {
+        pane: 0,
+        row: 0,
+        column: 1
+      }),
+      Ok(Some("Notes"))
+    );
   }
 
   #[test]

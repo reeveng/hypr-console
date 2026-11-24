@@ -70,26 +70,32 @@ pub(super) struct OrthogonalSegment {
     pub vertical: bool,
 }
 
+#[must_use]
 pub(super) fn same_point(left: &LayoutPoint, right: &LayoutPoint, epsilon: f64) -> bool {
     (left.x - right.x).abs() < epsilon && (left.y - right.y).abs() < epsilon
 }
 
+#[must_use]
 pub(super) fn same_x(left: &LayoutPoint, right: &LayoutPoint, epsilon: f64) -> bool {
     (left.x - right.x).abs() < epsilon
 }
 
+#[must_use]
 pub(super) fn same_y(left: &LayoutPoint, right: &LayoutPoint, epsilon: f64) -> bool {
     (left.y - right.y).abs() < epsilon
 }
 
+#[must_use]
 pub(super) fn is_horizontal_segment(start: &LayoutPoint, end: &LayoutPoint, epsilon: f64) -> bool {
     same_y(start, end, epsilon) && (start.x - end.x).abs() > epsilon
 }
 
+#[must_use]
 pub(super) fn is_vertical_segment(start: &LayoutPoint, end: &LayoutPoint, epsilon: f64) -> bool {
     same_x(start, end, epsilon) && (start.y - end.y).abs() > epsilon
 }
 
+#[must_use]
 pub(super) fn overlap_length(
     first_start: f64,
     first_end: f64,
@@ -101,6 +107,7 @@ pub(super) fn overlap_length(
     .max(0.0)
 }
 
+#[must_use]
 pub(super) fn same_axis_segment_overlap_length(
     first: &OrthogonalSegment,
     second: &OrthogonalSegment,
@@ -109,12 +116,15 @@ pub(super) fn same_axis_segment_overlap_length(
     if first.horizontal && second.horizontal && same_y(&first.a, &second.a, epsilon) {
         return overlap_length(first.a.x, first.b.x, second.a.x, second.b.x);
     }
+
     if first.vertical && second.vertical && same_x(&first.a, &second.a, epsilon) {
         return overlap_length(first.a.y, first.b.y, second.a.y, second.b.y);
     }
+
     0.0
 }
 
+#[must_use]
 pub(super) fn orthogonal_segments_for_points(
     points: &[LayoutPoint],
     epsilon: f64,
@@ -136,6 +146,7 @@ pub(super) fn orthogonal_segments_for_points(
         .collect()
 }
 
+#[must_use]
 pub(super) fn count_orthogonal_bends(points: &[LayoutPoint], epsilon: f64) -> usize {
     orthogonal_segments_for_points(points, epsilon)
         .windows(2)
@@ -143,13 +154,14 @@ pub(super) fn count_orthogonal_bends(points: &[LayoutPoint], epsilon: f64) -> us
         .count()
 }
 
+#[must_use]
 pub(in crate::swimlane) fn routes_touch_at_bend(
     first: &[LayoutPoint],
     second: &[LayoutPoint],
     tolerance: f64,
 ) -> bool {
-    let first = orthogonal_segments_for_points(&dedupe_consecutive_points(first, EPSILON), EPSILON);
-    let second =
+    let first_2 = orthogonal_segments_for_points(&dedupe_consecutive_points(first, EPSILON), EPSILON);
+    let second_2 =
         orthogonal_segments_for_points(&dedupe_consecutive_points(second, EPSILON), EPSILON);
     let touches = |bends: &[OrthogonalSegment], segments: &[OrthogonalSegment]| {
         bends
@@ -168,11 +180,13 @@ pub(in crate::swimlane) fn routes_touch_at_bend(
                 })
             })
     };
-    touches(&first, &second) || touches(&second, &first)
+    touches(&first_2, &second_2) || touches(&second_2, &first_2)
 }
 
+#[must_use]
 pub(super) fn dedupe_consecutive_points(points: &[LayoutPoint], epsilon: f64) -> Vec<LayoutPoint> {
     let mut result = Vec::with_capacity(points.len());
+
     for point in points {
         if result
             .last()
@@ -181,9 +195,11 @@ pub(super) fn dedupe_consecutive_points(points: &[LayoutPoint], epsilon: f64) ->
             result.push(point.clone());
         }
     }
+
     result
 }
 
+#[must_use]
 pub(super) fn classify_three_segment_route(
     points: &[LayoutPoint],
     epsilon: f64,
@@ -191,6 +207,7 @@ pub(super) fn classify_three_segment_route(
     let [p0, p1, p2, p3] = points else {
         return None;
     };
+
     let kind = if is_horizontal_segment(p0, p1, epsilon)
         && is_vertical_segment(p1, p2, epsilon)
         && is_horizontal_segment(p2, p3, epsilon)
@@ -210,6 +227,7 @@ pub(super) fn classify_three_segment_route(
     })
 }
 
+#[must_use]
 pub(super) fn segment_bounds_overlap_rect(
     start: &LayoutPoint,
     end: &LayoutPoint,
@@ -226,6 +244,7 @@ pub(super) fn segment_bounds_overlap_rect(
         && segment_min_y < rect.bottom + buffer
 }
 
+#[must_use]
 pub(super) fn rect_contains_rect(outer: RectBounds, inner: RectBounds) -> bool {
     outer.left <= inner.left
         && outer.right >= inner.right
@@ -233,6 +252,7 @@ pub(super) fn rect_contains_rect(outer: RectBounds, inner: RectBounds) -> bool {
         && outer.bottom >= inner.bottom
 }
 
+#[must_use]
 pub(super) fn rects_overlap(first: RectBounds, second: RectBounds) -> bool {
     first.left < second.right
         && first.right > second.left
@@ -240,23 +260,27 @@ pub(super) fn rects_overlap(first: RectBounds, second: RectBounds) -> bool {
         && first.bottom > second.top
 }
 
+#[must_use]
 pub(super) fn rect_of_node_bounds(node: &WorkingNode) -> Option<RectBounds> {
     (node.width > 0.0 && node.height > 0.0)
         .then(|| RectBounds::from_center(node.x, node.y, node.width, node.height))
 }
 
+#[must_use]
 fn node_bounds_info_for(node: &WorkingNode) -> Option<NodeBoundsInfo> {
     if node.kind == WorkingNodeKind::Group {
         return None;
     }
+
     Some(NodeBoundsInfo {
         id: node.id.clone(),
-        rect: rect_of_node_bounds(node)?,
+        rect: { let checked_value = rect_of_node_bounds(node)?; checked_value },
         cx: node.x,
         cy: node.y,
     })
 }
 
+#[must_use]
 pub(super) fn port_for_rect_side(node: &NodeBoundsInfo, side: RectSide) -> LayoutPoint {
     match side {
         RectSide::Top => LayoutPoint {
@@ -278,6 +302,7 @@ pub(super) fn port_for_rect_side(node: &NodeBoundsInfo, side: RectSide) -> Layou
     }
 }
 
+#[must_use]
 pub(super) fn build_orthogonal_port_path(
     source: &LayoutPoint,
     source_side: RectSide,
@@ -296,10 +321,12 @@ pub(super) fn build_orthogonal_port_path(
             || (source_side == RectSide::Left
                 && destination_side == RectSide::Right
                 && source.x > destination.x);
+
         if opposing_direction {
             if same_y(source, destination, epsilon) {
                 return Some(vec![source.clone(), destination.clone()]);
             }
+
             let middle_x = (source.x + destination.x) / 2.0;
             return Some(vec![
                 source.clone(),
@@ -314,10 +341,12 @@ pub(super) fn build_orthogonal_port_path(
                 destination.clone(),
             ]);
         }
+
         if source_side == destination_side {
             if same_y(source, destination, epsilon) {
                 return None;
             }
+
             let intermediate_x = if source_side == RectSide::Left {
                 source.x.min(destination.x) - anchor
             } else {
@@ -336,6 +365,7 @@ pub(super) fn build_orthogonal_port_path(
                 destination.clone(),
             ]);
         }
+
         return None;
     }
 
@@ -344,6 +374,7 @@ pub(super) fn build_orthogonal_port_path(
             if same_x(source, destination, epsilon) {
                 return None;
             }
+
             let intermediate_y = if source_side == RectSide::Top {
                 source.y.min(destination.y) - anchor
             } else {
@@ -362,18 +393,22 @@ pub(super) fn build_orthogonal_port_path(
                 destination.clone(),
             ]);
         }
+
         let same_direction = (source_side == RectSide::Bottom
             && destination_side == RectSide::Top
             && source.y < destination.y)
             || (source_side == RectSide::Top
                 && destination_side == RectSide::Bottom
                 && source.y > destination.y);
+
         if !same_direction {
             return None;
         }
+
         if same_x(source, destination, epsilon) {
             return Some(vec![source.clone(), destination.clone()]);
         }
+
         let middle_y = (source.y + destination.y) / 2.0;
         return Some(vec![
             source.clone(),
@@ -424,6 +459,7 @@ pub(super) fn build_orthogonal_port_path(
     })
 }
 
+#[must_use]
 pub(super) fn build_same_side_track_path(
     source: &LayoutPoint,
     side: RectSide,
@@ -459,46 +495,66 @@ pub(super) fn build_same_side_track_path(
     }
 }
 
+#[must_use]
 pub(super) fn collect_real_node_bounds(
     layout: &WorkingLayout,
 ) -> (IndexMap<String, NodeBoundsInfo>, Vec<RectEntry>) {
     let mut node_info_by_id = IndexMap::new();
     let mut real_node_rects = Vec::new();
+
     for node in layout.nodes.values() {
         if node.kind == WorkingNodeKind::EdgeLabel {
             continue;
         }
-        let Some(info) = node_bounds_info_for(node) else {
-            continue;
+
+        let info = {
+            let optional_info = node_bounds_info_for(node);
+
+            match optional_info {
+                Some(matched_info) => matched_info,
+                ::core::option::Option::None => continue,
+            }
         };
+
         real_node_rects.push(RectEntry {
             id: info.id.clone(),
             rect: info.rect,
         });
         node_info_by_id.insert(info.id.clone(), info);
     }
+
     (node_info_by_id, real_node_rects)
 }
 
+#[must_use]
 pub(super) fn collect_node_rect_entries(
     layout: &WorkingLayout,
 ) -> (Vec<RectEntry>, Vec<RectEntry>) {
     let mut real_node_rects = Vec::new();
     let mut label_node_rects = Vec::new();
+
     for node in layout.nodes.values() {
-        let Some(info) = node_bounds_info_for(node) else {
-            continue;
+        let info = {
+            let optional_info = node_bounds_info_for(node);
+
+            match optional_info {
+                Some(matched_info) => matched_info,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let entry = RectEntry {
             id: info.id,
             rect: info.rect,
         };
+
         if node.kind == WorkingNodeKind::EdgeLabel {
             label_node_rects.push(entry);
         } else {
             real_node_rects.push(entry);
         }
     }
+
     (real_node_rects, label_node_rects)
 }
 
@@ -527,6 +583,7 @@ pub(super) fn collect_layout_node_rects(
         .collect()
 }
 
+#[must_use]
 pub(super) fn get_node_pair_geometry(
     edge: &WorkingEdge,
     node_info_by_id: &IndexMap<String, NodeBoundsInfo>,
@@ -535,6 +592,7 @@ pub(super) fn get_node_pair_geometry(
     if edge.from.is_empty() || edge.to.is_empty() {
         return None;
     }
+
     let source = node_info_by_id.get(&edge.from)?;
     let destination = node_info_by_id.get(&edge.to)?;
     Some(NodePairGeometry {
@@ -547,6 +605,7 @@ pub(super) fn get_node_pair_geometry(
     })
 }
 
+#[must_use]
 pub(super) fn segment_hits_any_rect(
     start: &LayoutPoint,
     end: &LayoutPoint,
@@ -560,6 +619,7 @@ pub(super) fn segment_hits_any_rect(
     })
 }
 
+#[must_use]
 pub(in crate::swimlane) fn orthogonal_segments_strictly_cross(
     first_start: &LayoutPoint,
     first_end: &LayoutPoint,
@@ -571,6 +631,7 @@ pub(in crate::swimlane) fn orthogonal_segments_strictly_cross(
     let first_vertical = same_x(first_start, first_end, epsilon);
     let second_horizontal = same_y(second_start, second_end, epsilon);
     let second_vertical = same_x(second_start, second_end, epsilon);
+
     if !((first_horizontal && second_vertical) || (first_vertical && second_horizontal)) {
         return false;
     }
@@ -592,6 +653,7 @@ pub(in crate::swimlane) fn orthogonal_segments_strictly_cross(
         && horizontal_y < vertical_max_y - epsilon
 }
 
+#[must_use]
 pub(super) fn orthogonal_segments_cross(
     first_start: &LayoutPoint,
     first_end: &LayoutPoint,
@@ -604,9 +666,11 @@ pub(super) fn orthogonal_segments_cross(
     let first_vertical = same_x(first_start, first_end, epsilon);
     let second_horizontal = same_y(second_start, second_end, epsilon);
     let second_vertical = same_x(second_start, second_end, epsilon);
+
     if (first_horizontal && second_horizontal) || (first_vertical && second_vertical) {
         return false;
     }
+
     if !(first_horizontal || first_vertical) || !(second_horizontal || second_vertical) {
         return false;
     }
@@ -627,6 +691,7 @@ pub(super) fn orthogonal_segments_cross(
     let vertical_x = vertical_start.x;
     let vertical_min_y = vertical_start.y.min(vertical_end.y);
     let vertical_max_y = vertical_start.y.max(vertical_end.y);
+
     if vertical_x < horizontal_min_x
         || vertical_x > horizontal_max_x
         || horizontal_y < vertical_min_y
@@ -646,6 +711,7 @@ pub(super) fn orthogonal_segments_cross(
     !(matches_horizontal_endpoint && matches_vertical_endpoint)
 }
 
+#[must_use]
 pub(super) fn same_axis_segments_overlap(
     first_start: &LayoutPoint,
     first_end: &LayoutPoint,
@@ -657,15 +723,19 @@ pub(super) fn same_axis_segments_overlap(
     let first_vertical = same_x(first_start, first_end, epsilon);
     let second_horizontal = same_y(second_start, second_end, epsilon);
     let second_vertical = same_x(second_start, second_end, epsilon);
+
     if first_vertical && second_vertical && same_x(first_start, second_start, epsilon) {
         return overlap_length(first_start.y, first_end.y, second_start.y, second_end.y) > epsilon;
     }
+
     if first_horizontal && second_horizontal && same_y(first_start, second_start, epsilon) {
         return overlap_length(first_start.x, first_end.x, second_start.x, second_end.x) > epsilon;
     }
+
     false
 }
 
+#[must_use]
 pub(super) fn segment_conflicts_with_any_edge(
     start: &LayoutPoint,
     end: &LayoutPoint,
@@ -678,6 +748,7 @@ pub(super) fn segment_conflicts_with_any_edge(
         if excluded_edge_id.is_some_and(|excluded| edge.id == excluded) {
             return false;
         }
+
         edge.points.windows(2).any(|segment| {
             let other_start = &segment[0];
             let other_end = &segment[1];
@@ -688,10 +759,12 @@ pub(super) fn segment_conflicts_with_any_edge(
     })
 }
 
+#[must_use]
 fn strictly_between(value: f64, first: f64, second: f64) -> bool {
     value > first.min(second) + EPSILON && value < first.max(second) - EPSILON
 }
 
+#[must_use]
 fn is_collinear_intermediate(
     previous: &LayoutPoint,
     current: &LayoutPoint,
@@ -700,44 +773,64 @@ fn is_collinear_intermediate(
     if same_x(previous, current, EPSILON) && same_x(current, next, EPSILON) {
         return strictly_between(current.y, previous.y, next.y);
     }
+
     if same_y(previous, current, EPSILON) && same_y(current, next, EPSILON) {
         return strictly_between(current.x, previous.x, next.x);
     }
+
     false
 }
 
+#[must_use]
 fn simplify_polyline_once(points: &[LayoutPoint]) -> (Vec<LayoutPoint>, bool) {
     let mut changed = false;
     let mut output = Vec::with_capacity(points.len());
     let mut index = 0;
+
     while index < points.len() {
         let current = &points[index];
         let next = points.get(index + 1);
-        if let (Some(previous), Some(next)) = (output.last(), next) {
-            if same_point(previous, next, EPSILON) {
-                index += 2;
-                changed = true;
-                continue;
-            }
-            if is_collinear_intermediate(previous, current, next) {
-                index += 1;
-                changed = true;
-                continue;
-            }
+
+        match (output.last(), next) {
+            (Some(previous), Some(next_2)) => {
+                if same_point(previous, next_2, EPSILON) {
+                    index += 2;
+                    changed = true;
+                    continue;
+                }
+
+                if is_collinear_intermediate(previous, current, next_2) {
+                    index += 1;
+                    changed = true;
+                    continue;
+                }
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
+
         output.push(current.clone());
         index += 1;
     }
+
     (output, changed)
 }
 
+#[must_use]
 pub(super) fn orthogonalize_polyline(points: &[LayoutPoint]) -> Vec<LayoutPoint> {
-    let Some(first) = points.first() else {
-        return Vec::new();
+    let first = {
+        let optional_first = points.first();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return Vec::new(),
+        }
     };
+
     let mut cleaned = vec![first.clone()];
+
     for current in &points[1..] {
         let previous = cleaned.last().expect("the first point is present");
+
         if !same_x(previous, current, EPSILON) && !same_y(previous, current, EPSILON) {
             let incoming_vertical = cleaned
                 .get(cleaned.len().wrapping_sub(2))
@@ -755,23 +848,30 @@ pub(super) fn orthogonalize_polyline(points: &[LayoutPoint]) -> Vec<LayoutPoint>
             };
             cleaned.push(corner);
         }
+
         cleaned.push(current.clone());
     }
+
     dedupe_consecutive_points(&cleaned, EPSILON)
 }
 
+#[must_use]
 pub(in crate::swimlane) fn simplify_polyline(points: &[LayoutPoint]) -> Vec<LayoutPoint> {
     if points.len() < 3 {
         return points.to_vec();
     }
+
     let mut work = points.to_vec();
+
     for _ in 0..32 {
         let (next, changed) = simplify_polyline_once(&work);
         work = next;
+
         if !changed {
             break;
         }
     }
+
     work
 }
 

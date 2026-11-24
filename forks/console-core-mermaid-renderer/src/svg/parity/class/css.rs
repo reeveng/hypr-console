@@ -14,6 +14,7 @@ fn write_class_marker_css(
         id, marker_id_suffix, id, marker_class, fill, line_color
     );
 }
+
 fn write_class_icon_css(out: &mut impl SvgOutput, id: &str) {
     let _ = write!(
         out,
@@ -30,15 +31,19 @@ fn write_class_palette_css(
     if theme.palette.is_empty() {
         return out.checkpoint();
     }
+
     let look = &theme.palette_look;
+
     for (index, (border, background)) in theme.palette.iter().enumerate() {
         let _ = write!(
             out,
             r#"#{id} [data-look="{look}"][data-color-id="color-{index}"].node .outer-path path{{stroke:{border};"#
         );
-        if let Some(background) = background {
-            let _ = write!(out, "fill:{background};");
+
+        if let Some(background_2) = background {
+            let _ = write!(out, "fill:{background};", background = background_2);
         }
+
         out.push('}');
         let _ = write!(
             out,
@@ -46,6 +51,7 @@ fn write_class_palette_css(
         );
         out.checkpoint()?;
     }
+
     Ok(())
 }
 

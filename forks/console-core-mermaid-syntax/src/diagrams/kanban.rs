@@ -70,9 +70,13 @@ struct KanbanPresentationPolicy {
 
 #[cfg(feature = "presentation")]
 impl KanbanPresentationPolicy {
+    #[must_use]
     fn from_config(config: &MermaidConfig) -> Self {
         Self {
-            padding: get_i64(config, "mindmap.padding").unwrap_or(10),
+            padding: match get_i64(config, "mindmap.padding") {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 10,
+            },
         }
     }
 
@@ -89,6 +93,7 @@ impl KanbanPresentationPolicy {
                 )
             })?;
         }
+
         Ok(())
     }
 }
@@ -172,6 +177,7 @@ struct KanbanLineCursor<'a> {
 }
 
 impl<'a> KanbanLineCursor<'a> {
+    #[must_use]
     fn new(source: &'a str) -> Self {
         Self { source, offset: 0 }
     }
@@ -196,6 +202,7 @@ impl<'a> KanbanLineCursor<'a> {
         })
     }
 
+    #[must_use]
     fn offset(&self) -> usize {
         self.offset
     }
@@ -209,10 +216,12 @@ impl KanbanDb {
 
         let section_level = self.nodes[0].level;
         let mut last_section_idx: Option<usize> = None;
+
         for (idx, node) in self.nodes.iter().enumerate().rev() {
             if node.level == section_level && last_section_idx.is_none() {
                 last_section_idx = Some(idx);
             }
+
             if node.level < section_level {
                 return Err(Error::diagram_parse_exact(
                     "kanban",
@@ -225,14 +234,16 @@ impl KanbanDb {
             }
         }
 
-        let Some(last_section_idx) = last_section_idx else {
-            return Ok(None);
+        let last_section_idx_2 = match last_section_idx {
+            Some(matched_last_section_idx) => matched_last_section_idx,
+            ::core::option::Option::None => return Ok(None),
         };
 
-        if level == self.nodes[last_section_idx].level {
+        if level == self.nodes[last_section_idx_2].level {
             return Ok(None);
         }
-        Ok(Some(last_section_idx))
+
+        Ok(Some(last_section_idx_2))
     }
 
     fn decorate_last(
@@ -241,14 +252,27 @@ impl KanbanDb {
         icon: Option<String>,
         config: &MermaidConfig,
     ) {
-        let Some(last) = self.nodes.last_mut() else {
-            return;
+        let last = {
+            let optional_last = self.nodes.last_mut();
+
+            match optional_last {
+                Some(matched_last) => matched_last,
+                ::core::option::Option::None => return,
+            }
         };
-        if let Some(icon) = icon {
-            last.icon = Some(sanitize_text(&icon, config));
+
+        match icon {
+            Some(icon_2) => {
+                last.icon = Some(sanitize_text(&icon_2, config));
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(class) = class {
-            last.css_classes = Some(sanitize_text(&class, config));
+
+        match class {
+            Some(class_2) => {
+                last.css_classes = Some(sanitize_text(&class_2, config));
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -261,6 +285,7 @@ impl KanbanDb {
         config: &MermaidConfig,
     ) -> Result<()> {
         let mut id = sanitize_text(&spec.id_raw, config);
+
         if id.is_empty() {
             id = format!("kbn{}", self.next_auto_id);
             self.next_auto_id += 1;
@@ -282,18 +307,26 @@ impl KanbanDb {
             shape: None,
         };
 
-        if let Some((shape_data, document)) = shape_data {
-            apply_shape_data(&mut node, document.as_value(), shape_data.span)?;
-            node.metadata = Some(document);
+        match shape_data {
+            Some((shape_data_2, document)) => {
+                apply_shape_data(&mut node, document.as_value(), shape_data_2.span)?;
+                node.metadata = Some(document);
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(section_idx) = { let checked_value = self.get_section_index(level)?; checked_value } {
-            node.parent_id = Some(self.nodes[section_idx].id.clone());
+        match { let checked_value = self.get_section_index(level)?; checked_value } {
+            Some(section_idx) => {
+                node.parent_id = Some(self.nodes[section_idx].id.clone());
+            },
+            ::core::option::Option::None => {},
         }
+
         self.nodes.push(node);
         Ok(())
     }
 
+    #[must_use]
     fn into_semantic_model(self, config: &MermaidConfig) -> KanbanDiagramModel {
         KanbanDiagramModel {
             nodes: self
@@ -321,8 +354,13 @@ impl KanbanDb {
 }
 
 fn apply_shape_data(node: &mut KanbanNode, document: &Value, span: SourceSpan) -> Result<()> {
-    let Some(obj) = document.as_object() else {
-        return Ok(());
+    let obj = {
+        let optional_obj = document.as_object();
+
+        match optional_obj {
+            Some(matched_obj) => matched_obj,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
 
     if let Some(Value::String(shape)) = obj.get("shape") {
@@ -333,6 +371,7 @@ fn apply_shape_data(node: &mut KanbanNode, document: &Value, span: SourceSpan) -
                 span,
             ));
         }
+
         if shape == "kanbanItem" {
             node.shape = Some(shape.clone());
         }
@@ -341,22 +380,39 @@ fn apply_shape_data(node: &mut KanbanNode, document: &Value, span: SourceSpan) -
     if let Some(Value::String(label)) = obj.get("label") {
         node.label = label.clone();
     }
-    if let Some(icon) = obj.get("icon") {
-        node.icon = Some(value_to_string(icon));
+
+    match obj.get("icon") {
+        Some(icon) => {
+            node.icon = Some(value_to_string(icon));
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(assigned) = obj.get("assigned") {
-        node.assigned = Some(value_to_string(assigned));
+
+    match obj.get("assigned") {
+        Some(assigned) => {
+            node.assigned = Some(value_to_string(assigned));
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(ticket) = obj.get("ticket") {
-        node.ticket = Some(value_to_string(ticket));
+
+    match obj.get("ticket") {
+        Some(ticket) => {
+            node.ticket = Some(value_to_string(ticket));
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(priority) = obj.get("priority") {
-        node.priority = Some(value_to_string(priority));
+
+    match obj.get("priority") {
+        Some(priority) => {
+            node.priority = Some(value_to_string(priority));
+        },
+        ::core::option::Option::None => {},
     }
 
     Ok(())
 }
 
+#[must_use]
 fn value_to_string(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
@@ -367,35 +423,46 @@ fn value_to_string(v: &Value) -> String {
     }
 }
 
+#[must_use]
 fn strip_inline_comment(line: &str) -> &str {
     let mut in_quote = false;
     let mut in_backtick_quote = false;
 
     let mut it = line.char_indices().peekable();
+
     while let Some((idx, ch)) = it.next() {
         if in_backtick_quote {
             if ch == '`' && it.peek().is_some_and(|(_, next)| *next == '"') {
                 in_backtick_quote = false;
                 it.next();
             }
+
             continue;
         }
 
         if in_quote {
-            if ch == '"' {
-                in_quote = false;
+            match ch {
+                '"' => {
+                    in_quote = false;
+                },
+                _ => {},
             }
+
             continue;
         }
 
-        if ch == '"' {
-            if it.peek().is_some_and(|(_, next)| *next == '`') {
-                in_backtick_quote = true;
-                it.next();
+        match ch {
+            '"' => {
+                if it.peek().is_some_and(|(_, next)| *next == '`') {
+                    in_backtick_quote = true;
+                    it.next();
+                    continue;
+                }
+
+                in_quote = true;
                 continue;
-            }
-            in_quote = true;
-            continue;
+            },
+            _ => {},
         }
 
         if ch == '%' && it.peek().is_some_and(|(_, next)| *next == '%') {
@@ -412,6 +479,7 @@ fn parse_node_spec_for_render(
     #[cfg(feature = "editor-facts")] editor_demand: EditorFactsDemand,
 ) -> Result<ParsedKanbanNode> {
     let input = input.trim_end();
+
     if input.is_empty() {
         return Err(Error::diagram_parse_insertion_point(
             "kanban",
@@ -420,48 +488,53 @@ fn parse_node_spec_for_render(
         ));
     }
 
-    if let Some((start, end)) = node_delimiter_pair_at_start(input) {
-        let inner_start = input_start + start.len();
-        let (inner, tail) = match extract_delimited(input, start, end) {
-            Ok(parts) => parts,
-            Err(message) => {
-                return Err(Error::diagram_parse_insertion_point(
+    match node_delimiter_pair_at_start(input) {
+        Some((start, end)) => {
+            let inner_start = input_start + start.len();
+            let (inner, tail) = match extract_delimited(input, start, end) {
+                Ok(parts) => parts,
+                Err(message) => {
+                    return Err(Error::diagram_parse_insertion_point(
+                        "kanban",
+                        message,
+                        input_start + input.len(),
+                    ));
+                }
+            };
+            let label = parse_kanban_label(
+                inner,
+                #[cfg(feature = "editor-facts")]
+                inner_start,
+            );
+            let closing_start = inner_start + inner.len();
+
+            if !tail.trim().is_empty() {
+                let tail_start = input_start + input.len() - tail.len();
+                let leading = tail.len() - tail.trim_start().len();
+                let trailing = tail.trim_end().len();
+                let span = SourceSpan::new(tail_start + leading, tail_start + trailing);
+                return Err(Error::diagram_parse_exact(
                     "kanban",
-                    message,
-                    input_start + input.len(),
+                    "unexpected trailing input",
+                    span,
                 ));
             }
-        };
-        let label = parse_kanban_label(
-            inner,
-            #[cfg(feature = "editor-facts")]
-            inner_start,
-        );
-        let closing_start = inner_start + inner.len();
-        if !tail.trim().is_empty() {
-            let tail_start = input_start + input.len() - tail.len();
-            let leading = tail.len() - tail.trim_start().len();
-            let trailing = tail.trim_end().len();
-            let span = SourceSpan::new(tail_start + leading, tail_start + trailing);
-            return Err(Error::diagram_parse_exact(
-                "kanban",
-                "unexpected trailing input",
-                span,
-            ));
-        }
-        let ty = node_type_for(start, end);
-        return Ok(ParsedKanbanNode {
-            spec: KanbanNodeSpec {
-                id_raw: label.text.clone(),
-                descr_raw: label.text.clone(),
-                ty,
-            },
-            #[cfg(feature = "editor-facts")]
-            entity: matches!(editor_demand, EditorFactsDemand::Capture).then_some(label),
-            #[cfg(feature = "editor-facts")]
-            label: None,
-            span: SourceSpan::new(input_start, closing_start + end.len()),
-        });
+
+            let ty = node_type_for(start, end);
+            return Ok(ParsedKanbanNode {
+                spec: KanbanNodeSpec {
+                    id_raw: label.text.clone(),
+                    descr_raw: label.text.clone(),
+                    ty,
+                },
+                #[cfg(feature = "editor-facts")]
+                entity: matches!(editor_demand, EditorFactsDemand::Capture).then_some(label),
+                #[cfg(feature = "editor-facts")]
+                label: None,
+                span: SourceSpan::new(input_start, closing_start + end.len()),
+            });
+        },
+        ::core::option::Option::None => {},
     }
 
     let (id_raw, rest) = split_node_id(input);
@@ -472,6 +545,7 @@ fn parse_node_spec_for_render(
         span: SourceSpan::new(input_start, input_start + id_raw.len()),
     });
     let rest = rest.trim_end();
+
     if rest.is_empty() {
         return Ok(ParsedKanbanNode {
             spec: KanbanNodeSpec {
@@ -513,6 +587,7 @@ fn parse_node_spec_for_render(
         inner_start,
     );
     let closing_start = inner_start + inner.len();
+
     if !tail.trim().is_empty() {
         let tail_start = rest_start + rest.len() - tail.len();
         let leading = tail.len() - tail.trim_start().len();
@@ -524,6 +599,7 @@ fn parse_node_spec_for_render(
             span,
         ));
     }
+
     let ty = node_type_for(start, end);
     Ok(ParsedKanbanNode {
         spec: KanbanNodeSpec {
@@ -539,23 +615,32 @@ fn parse_node_spec_for_render(
     })
 }
 
+#[must_use]
 fn parse_kanban_label(raw: &str, #[cfg(feature = "editor-facts")] raw_start: usize) -> SpannedText {
-    if let Some(raw) = raw.strip_prefix("\"`") {
-        let raw = raw.strip_suffix("`\"").unwrap_or(raw);
-        return SpannedText {
-            text: raw.to_string(),
-            #[cfg(feature = "editor-facts")]
-            span: SourceSpan::new(raw_start + 2, raw_start + 2 + raw.len()),
-        };
+    match raw.strip_prefix("\"`") {
+        Some(raw) => {
+            let raw = raw.strip_suffix("`\"").unwrap_or(raw);
+            return SpannedText {
+                text: raw.to_string(),
+                #[cfg(feature = "editor-facts")]
+                span: SourceSpan::new(raw_start + 2, raw_start + 2 + raw.len()),
+            };
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(raw) = raw.strip_prefix('"') {
-        let raw = raw.strip_suffix('"').unwrap_or(raw);
-        return SpannedText {
-            text: raw.to_string(),
-            #[cfg(feature = "editor-facts")]
-            span: SourceSpan::new(raw_start + 1, raw_start + 1 + raw.len()),
-        };
+
+    match raw.strip_prefix('"') {
+        Some(raw) => {
+            let raw = raw.strip_suffix('"').unwrap_or(raw);
+            return SpannedText {
+                text: raw.to_string(),
+                #[cfg(feature = "editor-facts")]
+                span: SourceSpan::new(raw_start + 1, raw_start + 1 + raw.len()),
+            };
+        },
+        ::core::option::Option::None => {},
     }
+
     SpannedText {
         text: raw.to_string(),
         #[cfg(feature = "editor-facts")]
@@ -563,17 +648,21 @@ fn parse_kanban_label(raw: &str, #[cfg(feature = "editor-facts")] raw_start: usi
     }
 }
 
+#[must_use]
 fn split_node_id(input: &str) -> (&str, &str) {
     let bytes = input.as_bytes();
+
     for (idx, b) in bytes.iter().enumerate() {
         match b {
             b'(' | b')' | b'[' | b'{' | b'}' => return (&input[..idx], &input[idx..]),
             _ => {}
         }
     }
+
     (input, "")
 }
 
+#[must_use]
 fn node_delimiter_pair_at_start(input: &str) -> Option<(&'static str, &'static str)> {
     let pairs: &[(&str, &str)] = &[
         ("(-", "-)"),
@@ -591,6 +680,7 @@ fn node_delimiter_pair_at_start(input: &str) -> Option<(&'static str, &'static s
             return Some((*start, *end));
         }
     }
+
     None
 }
 
@@ -602,11 +692,13 @@ fn extract_delimited<'a>(
     if !input.starts_with(start) {
         return Err("expected delimiter start".to_string());
     }
+
     let mut in_quote = false;
     let mut in_backtick_quote = false;
 
     let start_len = start.len();
     let mut it = input[start_len..].char_indices().peekable();
+
     while let Some((off, ch)) = it.next() {
         let idx = start_len + off;
 
@@ -615,24 +707,33 @@ fn extract_delimited<'a>(
                 in_backtick_quote = false;
                 it.next();
             }
+
             continue;
         }
 
         if in_quote {
-            if ch == '"' {
-                in_quote = false;
+            match ch {
+                '"' => {
+                    in_quote = false;
+                },
+                _ => {},
             }
+
             continue;
         }
 
-        if ch == '"' {
-            if it.peek().is_some_and(|(_, next)| *next == '`') {
-                in_backtick_quote = true;
-                it.next();
+        match ch {
+            '"' => {
+                if it.peek().is_some_and(|(_, next)| *next == '`') {
+                    in_backtick_quote = true;
+                    it.next();
+                    continue;
+                }
+
+                in_quote = true;
                 continue;
-            }
-            in_quote = true;
-            continue;
+            },
+            _ => {},
         }
 
         if input[idx..].starts_with(end) {
@@ -645,6 +746,7 @@ fn extract_delimited<'a>(
     Err("unterminated node delimiter".to_string())
 }
 
+#[must_use]
 fn node_type_for(start: &str, end: &str) -> i32 {
     match start {
         "[" => NODE_TYPE_RECT,
@@ -664,13 +766,16 @@ fn node_type_for(start: &str, end: &str) -> i32 {
 }
 
 #[cfg(feature = "presentation")]
+#[must_use]
 fn get_i64(cfg: &MermaidConfig, dotted_path: &str) -> Option<i64> {
     let mut cur = cfg.as_value();
+
     for segment in dotted_path.split('.') {
         let checked_value = cur.as_object()?;
         let checked_value_2 = checked_value.get(segment)?;
         cur = checked_value_2;
     }
+
     cur.as_i64().or_else(|| cur.as_f64().map(|f| f as i64))
 }
 
@@ -929,8 +1034,10 @@ fn consume_shape_data(
 
     loop {
         let it = rest.char_indices().peekable();
-        for (idx, ch) in it {
+
+        'inner_for_2: for (idx, ch) in it {
             let source_offset = current_scan_start + idx;
+
             if !in_quote && ch == '}' {
                 #[cfg(feature = "editor-facts")]
                 let fields = if let Some(mut metadata) = metadata.take() {
@@ -941,6 +1048,7 @@ fn consume_shape_data(
                 };
                 let after_close = &rest[idx + ch.len_utf8()..];
                 let visible_tail = strip_inline_comment(after_close);
+
                 if !visible_tail.trim().is_empty() {
                     let leading = visible_tail.len() - visible_tail.trim_start().len();
                     let trailing = visible_tail.trim_end().len();
@@ -952,6 +1060,7 @@ fn consume_shape_data(
                         span,
                     ));
                 }
+
                 return Ok(KanbanShapeData {
                     text: out,
                     span: SourceSpan::new(block_start, source_offset + ch.len_utf8()),
@@ -959,26 +1068,29 @@ fn consume_shape_data(
                     fields,
                 });
             }
+
             #[cfg(feature = "editor-facts")]
             if let Some(metadata) = &mut metadata {
                 metadata.consume(source_offset, ch);
             }
+
             if in_quote {
                 if ch == '"' {
                     out.push_str(&replace_newline_whitespace_with_br(&quoted));
                     quoted.clear();
                     out.push('"');
                     in_quote = false;
-                    continue;
+                    continue 'inner_for_2;
                 }
+
                 quoted.push(ch);
-                continue;
+                continue 'inner_for_2;
             }
 
             if ch == '"' {
                 out.push('"');
                 in_quote = true;
-                continue;
+                continue 'inner_for_2;
             }
 
             out.push(ch);
@@ -1000,29 +1112,39 @@ fn consume_shape_data(
                 lines.offset(),
             ));
         };
+
         if in_quote {
             quoted.push('\n');
         } else {
             out.push('\n');
         }
+
         rest = next_line.text;
         current_scan_start = next_line.start;
     }
 }
 
+#[must_use]
 fn replace_newline_whitespace_with_br(s: &str) -> String {
     let mut out = String::new();
     let mut it = s.chars().peekable();
+
     while let Some(ch) = it.next() {
-        if ch == '\n' {
-            while it.peek().is_some_and(|c| c.is_whitespace()) {
-                it.next();
-            }
-            out.push_str("<br/>");
-            continue;
+        match ch {
+            '\n' => {
+                while it.peek().is_some_and(|c| c.is_whitespace()) {
+                    it.next();
+                }
+
+                out.push_str("<br/>");
+                continue;
+            },
+            _ => {},
         }
+
         out.push(ch);
     }
+
     out
 }
 
@@ -1035,30 +1157,40 @@ fn split_node_and_shape_data(
     let mut in_quote = false;
     let mut in_backtick_quote = false;
     let mut it = rest.char_indices().peekable();
+
     while let Some((idx, ch)) = it.next() {
         if in_backtick_quote {
             if ch == '`' && it.peek().is_some_and(|(_, next)| *next == '"') {
                 in_backtick_quote = false;
                 it.next();
             }
+
             continue;
         }
 
         if in_quote {
-            if ch == '"' {
-                in_quote = false;
+            match ch {
+                '"' => {
+                    in_quote = false;
+                },
+                _ => {},
             }
+
             continue;
         }
 
-        if ch == '"' {
-            if it.peek().is_some_and(|(_, next)| *next == '`') {
-                in_backtick_quote = true;
-                it.next();
+        match ch {
+            '"' => {
+                if it.peek().is_some_and(|(_, next)| *next == '`') {
+                    in_backtick_quote = true;
+                    it.next();
+                    continue;
+                }
+
+                in_quote = true;
                 continue;
-            }
-            in_quote = true;
-            continue;
+            },
+            _ => {},
         }
 
         if rest[idx..].starts_with("@{") {
@@ -1103,6 +1235,7 @@ fn construct_kanban_semantic_source_controlled(
     let mut lines = KanbanLineCursor::new(code);
     let header_tail = loop {
         control.checkpoint()?;
+
         let Some(line) = lines.next() else {
             let span = SourceSpan::new(lines.offset(), lines.offset());
             return Ok(Err(KanbanParseFailure {
@@ -1117,12 +1250,15 @@ fn construct_kanban_semantic_source_controlled(
                 span,
             }));
         };
+
         let visible = strip_inline_comment(line.text);
         let visible_start = visible.len() - visible.trim_start().len();
         let visible_end = visible.trim_end().len();
+
         if visible_start >= visible_end {
             continue;
         }
+
         let trimmed = &visible[visible_start..visible_end];
         let trimmed_start = line.start + visible_start;
         let after_keyword = trimmed
@@ -1131,13 +1267,20 @@ fn construct_kanban_semantic_source_controlled(
             .filter(|after| {
                 after.is_empty() || after.chars().next().is_some_and(char::is_whitespace)
             });
-        if let Some(after_keyword) = after_keyword {
-            let keyword_end = trimmed_start + "kanban".len();
-            if !after_keyword.trim().is_empty() {
-                break Some((after_keyword.to_string(), keyword_end));
-            }
-            break None;
+
+        match after_keyword {
+            Some(after_keyword) => {
+                let keyword_end = trimmed_start + "kanban".len();
+
+                if !after_keyword.trim().is_empty() {
+                    break Some((after_keyword.to_string(), keyword_end));
+                }
+
+                break None;
+            },
+            ::core::option::Option::None => {},
         }
+
         let span = SourceSpan::new(trimmed_start, trimmed_start + trimmed.len());
         return Ok(Err(KanbanParseFailure {
             error: Box::new(Error::diagram_parse_exact(
@@ -1153,6 +1296,7 @@ fn construct_kanban_semantic_source_controlled(
     };
 
     control.checkpoint()?;
+
     if let Some((tail, tail_start)) = &header_tail
         && let Err(error) = parse_kanban_statement(
             &mut lines,
@@ -1180,55 +1324,68 @@ fn construct_kanban_semantic_source_controlled(
             fallback,
         );
     }
+
     control.checkpoint()?;
+
     while let Some(source_line) = lines.next() {
         control.checkpoint()?;
-        if let Err(error) = parse_kanban_statement(
-            &mut lines,
-            KanbanStatementContext {
-                db: &mut db,
-                #[cfg(feature = "editor-facts")]
-                facts: editor_facts.as_mut(),
-                config,
-                #[cfg(feature = "editor-facts")]
-                editor_demand,
-                #[cfg(feature = "presentation")]
-                presentation,
-                control,
-            },
-            source_line.text,
-            source_line.start,
-        )? {
-            #[cfg(feature = "editor-facts")]
-            let fallback = SourceSpan::new(
-                source_line.start,
-                source_line.start + source_line.text.len(),
-            );
-            record_kanban_failure(
-                &mut first_failure,
-                error,
-                #[cfg(feature = "editor-facts")]
-                fallback,
-            );
+
+        {
+            match parse_kanban_statement(
+                    &mut lines,
+                    KanbanStatementContext {
+                        db: &mut db,
+                        #[cfg(feature = "editor-facts")]
+                        facts: editor_facts.as_mut(),
+                        config,
+                        #[cfg(feature = "editor-facts")]
+                        editor_demand,
+                        #[cfg(feature = "presentation")]
+                        presentation,
+                        control,
+                    },
+                    source_line.text,
+                    source_line.start,
+                )? {
+                Err(error) => {
+                    #[cfg(feature = "editor-facts")]
+                    let fallback = SourceSpan::new(
+                        source_line.start,
+                        source_line.start + source_line.text.len(),
+                    );
+                    record_kanban_failure(
+                        &mut first_failure,
+                        error,
+                        #[cfg(feature = "editor-facts")]
+                        fallback,
+                    );
+                },
+                ::core::result::Result::Ok(_) => {},
+            };
         }
     }
+
     #[cfg(feature = "editor-facts")]
     let editor_facts = editor_demand.finish_facts(editor_facts);
-    if let Some(failure) = first_failure {
-        #[cfg(feature = "editor-facts")]
-        let mut failure = failure;
-        #[cfg(feature = "editor-facts")]
-        {
-            failure.editor_facts = editor_facts;
-        }
-        Ok(Err(failure))
-    } else {
-        control.checkpoint()?;
-        Ok(Ok(KanbanSemanticSource {
-            db,
+
+    match first_failure {
+        Some(failure) => {
             #[cfg(feature = "editor-facts")]
-            editor_facts,
-        }))
+            let mut failure = failure;
+            #[cfg(feature = "editor-facts")]
+            {
+                failure.editor_facts = editor_facts;
+            }
+            Ok(Err(failure))
+        },
+        ::core::option::Option::None => {
+            control.checkpoint()?;
+            Ok(Ok(KanbanSemanticSource {
+                db,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            }))
+        },
     }
 }
 
@@ -1281,14 +1438,18 @@ fn parse_kanban_statement(
     } = context;
     control.checkpoint()?;
     let line = strip_inline_comment(source).trim_end();
+
     if line.trim().is_empty() {
         return Ok(Ok(()));
     }
+
     let (indent, rest) = split_indent(line);
     let rest = rest.trim_end();
+
     if rest.is_empty() {
         return Ok(Ok(()));
     }
+
     let rest_start = source_start + line.len() - rest.len();
 
     if starts_with_case_insensitive(rest, "::icon(") {
@@ -1308,6 +1469,7 @@ fn parse_kanban_statement(
                 rest_start + value_start + trailing,
             ),
         };
+
         let Some(close) = close else {
             return Ok(Err(Error::diagram_parse_insertion_point(
                 "kanban",
@@ -1315,9 +1477,11 @@ fn parse_kanban_statement(
                 rest_start + rest.len(),
             )));
         };
+
         let close_start = rest_start + value_start + close;
         let after_close = &suffix[close + 1..];
         let visible_tail = strip_inline_comment(after_close);
+
         if !visible_tail.trim().is_empty() {
             let leading = visible_tail.len() - visible_tail.trim_start().len();
             let trailing = visible_tail.trim_end().len();
@@ -1329,13 +1493,16 @@ fn parse_kanban_statement(
                 span,
             )));
         }
+
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_deref_mut() {
             facts.push_directive_prefix("icon");
         }
+
         if icon.text.is_empty() {
             return Ok(Ok(()));
         }
+
         db.decorate_last(None, Some(icon.text.clone()), config);
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = facts.as_deref_mut() {
@@ -1350,36 +1517,41 @@ fn parse_kanban_statement(
         return Ok(Ok(()));
     }
 
-    if let Some(after) = rest.strip_prefix(":::") {
-        let class_raw = after.trim();
-        #[cfg(feature = "editor-facts")]
-        let leading = after.len() - after.trim_start().len();
-        let class_name = SpannedText {
-            text: class_raw.to_string(),
+    match rest.strip_prefix(":::") {
+        Some(after) => {
+            let class_raw = after.trim();
             #[cfg(feature = "editor-facts")]
-            span: SourceSpan::new(
-                rest_start + 3 + leading,
-                rest_start + 3 + leading + class_raw.len(),
-            ),
-        };
-        db.decorate_last(Some(class_name.text.clone()), None, config);
-        if !class_name.text.is_empty() {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = facts.as_deref_mut() {
-                facts.push_directive_prefix(":::");
+            let leading = after.len() - after.trim_start().len();
+            let class_name = SpannedText {
+                text: class_raw.to_string(),
+                #[cfg(feature = "editor-facts")]
+                span: SourceSpan::new(
+                    rest_start + 3 + leading,
+                    rest_start + 3 + leading + class_raw.len(),
+                ),
+            };
+            db.decorate_last(Some(class_name.text.clone()), None, config);
+
+            if !class_name.text.is_empty() {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = facts.as_deref_mut() {
+                    facts.push_directive_prefix(":::");
+                }
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = facts.as_deref_mut() {
+                    facts.push_symbol(EditorSemanticSymbol::payload(
+                        class_name.text,
+                        Some("kanban class".to_string()),
+                        EditorSemanticKind::Class,
+                        class_name.span,
+                        class_name.span,
+                    ));
+                }
             }
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = facts.as_deref_mut() {
-                facts.push_symbol(EditorSemanticSymbol::payload(
-                    class_name.text,
-                    Some("kanban class".to_string()),
-                    EditorSemanticKind::Class,
-                    class_name.span,
-                    class_name.span,
-                ));
-            }
-        }
-        return Ok(Ok(()));
+
+            return Ok(Ok(()));
+        },
+        ::core::option::Option::None => {},
     }
 
     let (node_part, shape_data) = match split_node_and_shape_data(
@@ -1392,9 +1564,11 @@ fn parse_kanban_statement(
         Ok(parsed) => parsed,
         Err(error) => return Ok(Err(error)),
     };
+
     if node_part.trim().is_empty() {
         return Ok(Ok(()));
     }
+
     let parsed = match parse_node_spec_for_render(
         &node_part,
         rest_start,
@@ -1434,15 +1608,21 @@ fn parse_kanban_statement(
         }
         None => None,
     };
+
     #[cfg(feature = "presentation")]
     if let Some(presentation) = presentation
         && let Err(error) = presentation.validate_node(parsed.spec.ty, parsed.span)
     {
         return Ok(Err(error));
     }
-    if let Err(error) = db.add_node(indent, parsed.spec, parsed.span, shape_data, config) {
-        return Ok(Err(error));
+
+    match db.add_node(indent, parsed.spec, parsed.span, shape_data, config) {
+        Err(error) => {
+            return Ok(Err(error));
+        },
+        ::core::result::Result::Ok(_) => {},
     }
+
     #[cfg(feature = "editor-facts")]
     if let Some(facts) = facts {
         let entity = parsed.entity.expect("captured node entity");
@@ -1567,8 +1747,14 @@ fn into_render_model(
     model: KanbanDiagramModel,
     config: &MermaidConfig,
 ) -> Result<KanbanDiagramRenderModel> {
-    let width = get_i64(config, "mindmap.maxNodeWidth").unwrap_or(200);
-    let base_padding = get_i64(config, "mindmap.padding").unwrap_or(10);
+    let width = match get_i64(config, "mindmap.maxNodeWidth") {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 200,
+    };
+    let base_padding = match get_i64(config, "mindmap.padding") {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 10,
+    };
     let nodes = model
         .nodes
         .into_iter()
@@ -1607,22 +1793,25 @@ fn into_render_model(
             }))
         })
         .collect::<Result<Vec<_>>>()?;
-    // Mermaid emits each section followed by every card with that section ID. Repeated
-    // authored section IDs therefore intentionally repeat their matching cards.
+
+
     let (sections, cards): (Vec<_>, Vec<_>) = nodes.into_iter().partition(|node| node.is_group);
-    let mut nodes = Vec::new();
+    let mut nodes_2 = Vec::new();
+
     for section in sections {
         let section_id = section.id.clone();
-        nodes.push(section);
-        nodes.extend(
+        nodes_2.push(section);
+        nodes_2.extend(
             cards
                 .iter()
                 .filter(|card| card.parent_id.as_deref() == Some(section_id.as_str()))
                 .cloned(),
         );
     }
-    Ok(KanbanDiagramRenderModel { nodes })
+
+    Ok(KanbanDiagramRenderModel { nodes: nodes_2 })
 }
+
 #[cfg(feature = "compat-json")]
 pub(crate) fn parse_kanban(code: &str, meta: &SourcePresentationMetadata) -> Result<Value> {
     let model =

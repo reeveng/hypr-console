@@ -15,16 +15,18 @@ use crate::settings::SettingsTab;
 pub enum Placement {
   #[default]
   Top,
+  Bottom,
   Left,
   Right,
 }
 
 impl Placement {
-  pub const EVERY: [Self; 3] = [Self::Top, Self::Left, Self::Right];
+  pub const EVERY: [Self; 4] = [Self::Top, Self::Bottom, Self::Left, Self::Right];
 
   pub const fn name(self) -> Result<&'static str, Never> {
     Ok(match self {
       Self::Top => "Top",
+      Self::Bottom => "Bottom",
       Self::Left => "Left",
       Self::Right => "Right",
     })

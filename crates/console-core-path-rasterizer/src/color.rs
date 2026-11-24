@@ -1,3 +1,5 @@
+#![forbid(unsafe_code)]
+
 use crate::{math::approx_powf, pipeline};
 use console_core_paths::{NormalizedF32, Scalar};
 use console_core_paths::{StrictNormalized, StrictNum};
@@ -120,26 +122,8 @@ impl core::fmt::Debug for ColorU8 {
 }
 
 #[repr(transparent)]
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, bytemuck::Zeroable, bytemuck::Pod)]
 pub struct PremultipliedColorU8([u8; 4]);
-
-#[cfg_attr(
-  dylint_lib = "explicit058_contain_unsafe",
-  expect(
-    explicit058_contain_unsafe,
-    reason = "the transparent byte array has a valid all-zero representation, which is the transparent color"
-  )
-)]
-unsafe impl bytemuck::Zeroable for PremultipliedColorU8 {}
-
-#[cfg_attr(
-  dylint_lib = "explicit058_contain_unsafe",
-  expect(
-    explicit058_contain_unsafe,
-    reason = "the transparent wrapper has exactly four bytes, no padding and no invalid Rust bit pattern"
-  )
-)]
-unsafe impl bytemuck::Pod for PremultipliedColorU8 {}
 
 impl PremultipliedColorU8 {
   pub const TRANSPARENT: Self = Self([0; 4]);
@@ -314,10 +298,6 @@ impl Color {
     a: NV_ONE,
   };
 
-  #[expect(
-    clippy::missing_safety_doc,
-    reason = "every component is clamped into range by NormalizedF32::nearest, so the caller is promising nothing; the unsafe stays because the signature is public"
-  )]
   #[cfg_attr(
     dylint_lib = "explicit024_no_swappable_params",
     expect(
@@ -332,7 +312,7 @@ impl Color {
       reason = "the public channel fractions are clamped to the normalized range within this constructor"
     )
   )]
-  pub const unsafe fn from_rgba_unchecked(
+  pub const fn from_rgba_unchecked(
     r: f32,
     g: f32,
     b: f32,

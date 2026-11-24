@@ -1,5 +1,6 @@
 use super::BoundaryNode;
 
+#[must_use]
 fn outside_node(node: &BoundaryNode, point: &crate::model::LayoutPoint) -> bool {
     let dx = (point.x - node.x).abs();
     let dy = (point.y - node.y).abs();
@@ -8,6 +9,7 @@ fn outside_node(node: &BoundaryNode, point: &crate::model::LayoutPoint) -> bool 
     dx >= w || dy >= h
 }
 
+#[must_use]
 fn rect_intersection(
     node: &BoundaryNode,
     outside_point: &crate::model::LayoutPoint,
@@ -28,7 +30,7 @@ fn rect_intersection(
         } else {
             y - h - outside_point.y
         };
-        let r = if q_abs == 0.0 {
+        let r = if ::core::matches!(::core::primitive::f64::classify(q_abs), ::core::num::FpCategory::Zero) {
             0.0
         } else {
             (r_abs * q) / q_abs
@@ -50,12 +52,15 @@ fn rect_intersection(
             res.x = outside_point.x;
             res.y = outside_point.y;
         }
-        if r_abs == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(r_abs), ::core::num::FpCategory::Zero) {
             res.x = outside_point.x;
         }
-        if q_abs == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(q_abs), ::core::num::FpCategory::Zero) {
             res.y = outside_point.y;
         }
+
         return res;
     }
 
@@ -64,7 +69,7 @@ fn rect_intersection(
     } else {
         x - w - outside_point.x
     };
-    let q = if r_abs == 0.0 {
+    let q = if ::core::matches!(::core::primitive::f64::classify(r_abs), ::core::num::FpCategory::Zero) {
         0.0
     } else {
         (q_abs * r) / r_abs
@@ -84,10 +89,12 @@ fn rect_intersection(
         ix = outside_point.x;
         iy = outside_point.y;
     }
-    if r_abs == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(r_abs), ::core::num::FpCategory::Zero) {
         ix = outside_point.x;
     }
-    if q_abs == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(q_abs), ::core::num::FpCategory::Zero) {
         iy = outside_point.y;
     }
 
@@ -100,9 +107,14 @@ pub(in crate::svg::parity::flowchart) fn cut_path_at_intersect_into(
     out: &mut Vec<crate::model::LayoutPoint>,
 ) {
     out.clear();
-    if input.is_empty() {
-        return;
+
+    match input {
+        [] => {
+            return;
+        },
+        [_, ..] => {},
     }
+
     out.reserve(input.len() + 1);
 
     let mut last_point_outside = input[0].clone();
@@ -112,15 +124,18 @@ pub(in crate::svg::parity::flowchart) fn cut_path_at_intersect_into(
     for point in input {
         if !outside_node(boundary, point) && !is_inside {
             let inter = rect_intersection(boundary, &last_point_outside, point);
+
             if !out
                 .iter()
                 .any(|p| (p.x - inter.x).abs() <= EPS && (p.y - inter.y).abs() <= EPS)
             {
                 out.push(inter);
             }
+
             is_inside = true;
         } else {
             last_point_outside = point.clone();
+
             if !is_inside {
                 out.push(crate::model::LayoutPoint {
                     x: point.x,
@@ -136,11 +151,17 @@ pub(in crate::svg::parity::flowchart) fn dedup_consecutive_points_into(
     out: &mut Vec<crate::model::LayoutPoint>,
 ) {
     out.clear();
-    if input.is_empty() {
-        return;
+
+    match input {
+        [] => {
+            return;
+        },
+        [_, ..] => {},
     }
+
     const EPS: f64 = 1e-9;
     out.reserve(input.len());
+
     for p in input {
         if out
             .last()
@@ -148,6 +169,7 @@ pub(in crate::svg::parity::flowchart) fn dedup_consecutive_points_into(
         {
             continue;
         }
+
         out.push(crate::model::LayoutPoint { x: p.x, y: p.y });
     }
 }

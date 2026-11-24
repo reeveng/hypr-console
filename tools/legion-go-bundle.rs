@@ -2,9 +2,33 @@
 //! the commit that supplied the manifest.
 
 use std::collections::BTreeSet;
+use std::convert::Infallible;
 use std::error::Error;
+use std::fs::{self, File};
+use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitCode};
+
+enum Tool {
+  Git,
+  Cargo,
+  Console,
+  Tar,
+  DiskFree,
+}
+
+impl Tool {
+  fn command(self) -> Result<Command, Infallible> {
+    let executable = match self {
+      Self::Git => "git",
+      Self::Cargo => "cargo",
+      Self::Console => "target/release/console",
+      Self::Tar => "tar",
+      Self::DiskFree => "df",
+    };
+    Ok(Command::new(executable))
+  }
+}
 
 fn main() -> ExitCode {
   match bundle() {
@@ -17,85 +41,151 @@ fn main() -> ExitCode {
 }
 
 fn programs(path: &Path, wanted: &str) -> Result<BTreeSet<String>, Box<dyn Error>> {
-  let manifest = std::fs::read_to_string(path)?;
+  let manifest = fs::read_to_string(path)?;
   let mut names = BTreeSet::new();
-  let mut reading = false;
+  let mut section = None;
 
   for line in manifest.lines() {
-    let entry = line.split('#').next().unwrap_or_default().trim();
-    if entry.starts_with('[') {
-      reading = entry == wanted;
-    } else if reading && !entry.is_empty() {
-      if !entry.starts_with(|character: char| character.is_ascii_lowercase())
-        || !entry
-          .bytes()
-          .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
-      {
-        return Err(format!("Invalid executable name {entry:?} in {}", path.display()).into());
+    let entry = line
+      .split_once('#')
+      .map_or(line, |(before, _)| before)
+      .trim();
+
+    match (entry.as_bytes(), section) {
+      ([b'[', ..], _) => section = (entry == wanted).then_some(()),
+      ([], _) | (_, None) => {}
+      ([first, rest @ ..], Some(())) => {
+        let valid = first.is_ascii_lowercase()
+          && rest
+            .iter()
+            .all(|byte| matches!(byte, b'a'..=b'z' | b'0'..=b'9' | b'-'));
+
+        match valid.then_some(()) {
+          Some(()) => {
+            names.insert(entry.to_owned());
+          }
+          None => {
+            return Err(Box::<dyn Error>::from(format!(
+              "Invalid executable name {entry:?} in {}",
+              path.display()
+            )));
+          }
+        }
       }
-      names.insert(entry.to_owned());
     }
   }
 
-  if names.is_empty() {
-    return Err(format!("No {wanted} entries in {}", path.display()).into());
+  match names.is_empty().then_some(()) {
+    Some(()) => Err(Box::<dyn Error>::from(format!(
+      "No {wanted} entries in {}",
+      path.display()
+    ))),
+    None => Ok(names),
   }
-  Ok(names)
 }
 
 fn checked(command: &mut Command) -> Result<(), Box<dyn Error>> {
   let status = command.status()?;
-  if status.success() {
-    Ok(())
-  } else {
-    Err(format!("{command:?} exited with {status}").into())
+
+  match status.success().then_some(()) {
+    Some(()) => Ok(()),
+    None => Err(Box::<dyn Error>::from(format!(
+      "{command:?} exited with {status}"
+    ))),
+  }
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit040_no_torn_write",
+  expect(
+    explicit040_no_torn_write,
+    reason = "the standalone release builder writes a fresh sibling, syncs it, and renames it over the revision record"
+  )
+)]
+fn write_revision(staging: &Path, revision: &[u8]) -> io::Result<()> {
+  let temporary = staging
+    .join("revision")
+    .with_extension(std::process::id().to_string());
+  let file = File::create_new(&temporary)?;
+  let published = (|mut revision_file: File| {
+    revision_file.write_all(revision)?;
+    revision_file.sync_all()?;
+    fs::rename(&temporary, staging.join("revision"))
+  })(file);
+
+  match published {
+    Ok(()) => {
+      let directory = File::open(staging)?;
+      directory.sync_all()
+    }
+    Err(fault) => {
+      match fs::remove_file(&temporary) {
+        Ok(()) => {}
+        Err(cleanup) => eprintln!("could not remove {}: {cleanup}", temporary.display()),
+      }
+
+      Err(fault)
+    }
   }
 }
 
 fn bundle() -> Result<(), Box<dyn Error>> {
-  let [output] = std::env::args_os()
+  let [destination] = std::env::args_os()
     .skip(1)
     .collect::<Vec<_>>()
     .try_into()
     .map_err(|_| "Usage: legion-go-bundle OUTPUT.tar.gz")?;
-  let output = std::path::absolute(output)?;
+  let output = std::path::absolute(destination)?;
   let mut names = programs(Path::new("desktop.conf"), "[build]")?;
-  names.extend(programs(Path::new("machines.conf"), "[legion-go.build]")?);
+  let machine_programs = programs(Path::new("machines.conf"), "[legion-go.build]")?;
+  names.extend(machine_programs);
 
-  let revision = Command::new("git").args(["rev-parse", "HEAD"]).output()?;
-  if !revision.status.success() {
-    return Err("could not resolve the source revision".into());
+  let Ok(mut git) = Tool::Git.command();
+  let revision = git.args(["rev-parse", "HEAD"]).output()?;
+
+  match revision.status.success().then_some(()) {
+    Some(()) => {}
+    None => {
+      return Err(Box::<dyn Error>::from(
+        "could not resolve the source revision",
+      ));
+    }
   }
 
-  let mut build = Command::new("cargo");
+  let Ok(mut build) = Tool::Cargo.command();
   build
     .env(
       "CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUSTFLAGS",
       "-C target-cpu=x86-64-v3",
     )
     .args(["build", "--locked", "--release", "--target-dir", "target"]);
+
   for program in &names {
     build.args(["--bin", program]);
   }
+
   checked(&mut build)?;
-  checked(Command::new("target/release/console").arg("--help"))?;
+  let Ok(mut console) = Tool::Console.command();
+  checked(console.arg("--help"))?;
 
   let staging = PathBuf::from("target/legion-go-release");
-  std::fs::create_dir_all(&staging)?;
-  std::fs::write(staging.join("revision"), revision.stdout)?;
+  fs::create_dir_all(&staging)?;
+  write_revision(&staging, &revision.stdout)?;
 
-  // Read the executables in place to avoid a second copy on the runner.
-  let mut tar = Command::new("tar");
+  let staging_path = fs::canonicalize(staging)?;
+  let binaries_path = fs::canonicalize("target/release")?;
+  let Ok(mut tar) = Tool::Tar.command();
   tar
     .args(["-czf"])
     .arg(output)
     .arg("--transform=s|^|bin/|;s|^bin/revision$|revision|")
     .arg("-C")
-    .arg(std::fs::canonicalize(staging)?)
+    .arg(staging_path)
     .arg("revision")
     .arg("-C")
-    .arg(std::fs::canonicalize("target/release")?)
+    .arg(binaries_path)
     .args(names);
   checked(&mut tar)?;
-  checked(Command::new("df").args(["-h", "."]))
+  let Ok(mut disk_free) = Tool::DiskFree.command();
+  checked(disk_free.args(["-h", "."]))
 }

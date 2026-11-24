@@ -39,7 +39,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_note(
             escape_attr(note_fill),
             escape_attr(&stroke_d),
             escape_attr(note_stroke),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.stroke_dasharray),
         );
     } else if common.look_is_hand_drawn() {
@@ -53,7 +53,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_note(
             fmt(h),
             escape_attr(note_fill),
             escape_attr(note_stroke),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         );
     } else if let Some((fill_d, stroke_d)) =
         super::super::helpers::timed_node_roughjs(common.timing, details, || {
@@ -82,13 +82,13 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_note(
             r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}" style="{}"/>"#,
             escape_attr(&stroke_d),
             escape_attr(note_stroke),
-            fmt_display(common.stroke_width as f64),
+            fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.stroke_dasharray),
             escape_attr(common.style)
         );
         out.push_str("</g>");
     } else {
-        // Fallback: basic rect.
+
         let _ = write!(
             out,
             r#"<rect class="basic label-container outer-path" style="{}" x="{}" y="{}" width="{}" height="{}"/>"#,
@@ -101,6 +101,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_note(
     }
 }
 
+#[must_use]
 fn note_geometry(common: &super::super::FlowchartNodeGeometry<'_>) -> (f64, f64, f64, f64) {
     let w = common.layout_node.width.max(1.0);
     let h = common.layout_node.height.max(1.0);
@@ -112,6 +113,7 @@ fn note_geometry(common: &super::super::FlowchartNodeGeometry<'_>) -> (f64, f64,
 
 pub(super) fn advance_rough_geometry(common: &super::super::FlowchartNodeGeometry<'_>) {
     let (w, h, x, y) = note_geometry(common);
+
     if common.look_is_hand_drawn() {
         let path = format!("M{} {} H{} V{} H{} Z", x, y, x + w, y + h, x);
         let _ = super::super::helpers::prepare_node_path(

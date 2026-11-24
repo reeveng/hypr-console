@@ -26,6 +26,7 @@ struct PreparedGraph {
 
 trait StatePreparationWorkControl {
     fn charge(&mut self, units: usize) -> Result<()>;
+
     fn checked_mul(&self, left: usize, right: usize) -> Result<usize>;
 }
 
@@ -58,6 +59,7 @@ impl Drop for PreparedGraph {
     fn drop(&mut self) {
         let extracted = std::mem::take(&mut self.extracted);
         let mut stack: Vec<PreparedGraph> = extracted.into_values().collect();
+
         while let Some(mut graph) = stack.pop() {
             let children = std::mem::take(&mut graph.extracted);
             stack.extend(children.into_values());
@@ -79,12 +81,15 @@ pub(super) struct HiddenPrefixMatcher {
 }
 
 impl HiddenPrefixMatcher {
+    #[must_use]
     fn from_prefixes(prefixes: impl IntoIterator<Item = String>) -> Self {
         let mut matcher = Self {
             nodes: vec![HiddenPrefixTrieNode::default()],
         };
+
         for prefix in prefixes {
             let mut node_idx = 0usize;
+
             for ch in prefix.chars() {
                 let next = if let Some(&next) = matcher.nodes[node_idx].children.get(&ch) {
                     next
@@ -96,23 +101,35 @@ impl HiddenPrefixMatcher {
                 };
                 node_idx = next;
             }
+
             matcher.nodes[node_idx].terminal = true;
         }
+
         matcher
     }
 
+    #[must_use]
     pub(super) fn is_hidden(&self, id: &str) -> bool {
         let mut node_idx = 0usize;
+
         for (byte_idx, ch) in id.char_indices() {
-            let Some(&next) = self.nodes[node_idx].children.get(&ch) else {
-                return false;
+            let next = {
+                let optional_next = self.nodes[node_idx].children.get(&ch);
+
+                match optional_next {
+                    Some(&matched_next) => matched_next,
+                    ::core::option::Option::None => return false,
+                }
             };
+
             node_idx = next;
             let rest = &id[byte_idx + ch.len_utf8()..];
+
             if self.nodes[node_idx].terminal && (rest.is_empty() || rest.starts_with("----")) {
                 return true;
             }
         }
+
         self.nodes[node_idx].terminal
     }
 }
@@ -148,6 +165,7 @@ struct StateDagreInput {
     html_labels: bool,
 }
 
+#[must_use]
 fn get_extras_string(
     extras: &std::collections::BTreeMap<String, Value>,
     key: &str,
@@ -167,9 +185,10 @@ fn set_extras_string(
 }
 
 fn set_extras_i32(extras: &mut std::collections::BTreeMap<String, Value>, key: &str, value: i32) {
-    extras.insert(key.to_string(), Value::Number(value.into()));
+    extras.insert(key.to_string(), Value::Number(<::serde_json::Number as ::core::convert::From<::core::primitive::i32>>::from(value)));
 }
 
+#[must_use]
 pub(super) fn edge_label_metrics(
     edge_id: &str,
     label: &str,
@@ -181,6 +200,7 @@ pub(super) fn edge_label_metrics(
     if label.trim().is_empty() {
         return (0.0, 0.0);
     }
+
     let wrapping_width = crate::text::MERMAID_CREATE_TEXT_DEFAULT_WIDTH_PX;
     let request = super::StateLabelMetricsRequest {
         owner: super::StateLabelOwner::Edge(edge_id),
@@ -202,14 +222,14 @@ pub(super) fn edge_label_metrics(
                     wrap_mode,
                 )
             },
-            |sidecar| sidecar.measure_for_layout(request),
+            |sidecar_2| sidecar_2.measure_for_layout(request),
         )
         .metrics;
     let owner = super::StateLabelOwner::Edge(edge_id);
     let measured_edge_geometry =
-        sidecar.and_then(|sidecar| sidecar.measured_native_geometry(owner));
-    // For SVG edge labels, `createText(..., addSvgBackground=true)` adds a background rect with a
-    // 2px padding.
+        sidecar.and_then(|sidecar_3| sidecar_3.measured_native_geometry(owner));
+
+
     if let Some(geometry) = measured_edge_geometry.as_ref() {
         metrics = geometry.layout_metrics();
     } else if wrap_mode == WrapMode::SvgLike {
@@ -220,6 +240,7 @@ pub(super) fn edge_label_metrics(
     (metrics.width.max(0.0), metrics.height.max(0.0))
 }
 
+#[must_use]
 fn node_label_metrics(
     node_id: &str,
     label: &str,
@@ -249,13 +270,14 @@ fn node_label_metrics(
                     wrap_mode,
                 )
             },
-            |sidecar| sidecar.measure_for_layout(request),
+            |sidecar_2| sidecar_2.measure_for_layout(request),
         )
         .metrics;
 
     (metrics.width.max(0.0), metrics.height.max(0.0))
 }
 
+#[must_use]
 pub(super) fn title_label_metrics(
     owner: super::StateLabelOwner<'_>,
     label: &str,
@@ -264,8 +286,8 @@ pub(super) fn title_label_metrics(
     wrap_mode: WrapMode,
     sidecar: Option<&super::StateLabelSidecarBuilder>,
 ) -> (f64, f64) {
-    // Mermaid state diagram cluster titles use `createLabel(...)` (nowrap) rather than
-    // `createText(...)` (width constrained).
+
+
     let request = super::StateLabelMetricsRequest {
         owner,
         text: label,
@@ -298,7 +320,7 @@ pub(super) fn title_label_metrics(
                     uses_html_wrapping_table: false,
                 }
             },
-            |sidecar| sidecar.measure_for_layout(request),
+            |sidecar_2| sidecar_2.measure_for_layout(request),
         )
         .metrics;
 
@@ -317,18 +339,22 @@ fn extract_descendants(
         .rev()
         .map(|s| s.to_string())
         .collect();
+
     while let Some(node) = stack.pop() {
         if !visited.insert(node.clone()) {
             continue;
         }
+
         out.push(node.clone());
         let children = graph.children(&node);
+
         for child in children.iter().rev() {
             stack.push(child.to_string());
         }
     }
 }
 
+#[must_use]
 fn is_descendant(descendants: &HashMap<String, HashSet<String>>, id: &str, ancestor: &str) -> bool {
     descendants
         .get(ancestor)
@@ -361,19 +387,21 @@ fn find_common_edges<W: StatePreparationWorkControl>(
         .map(|(v, w)| {
             (
                 if v == id1 { id2.to_string() } else { v },
-                // Mermaid's `findCommonEdges(...)` has an asymmetry here: it maps the `w` side
-                // back to `id1` rather than `id2` (Mermaid@11.12.2).
+
+
                 if w == id1 { id1.to_string() } else { w },
             )
         })
         .collect();
 
     let mut out = Vec::new();
+
     for e1 in edges1_prim {
         if edges2.contains(&e1) {
             out.push(e1);
         }
     }
+
     Ok(out)
 }
 
@@ -384,33 +412,43 @@ fn find_non_cluster_child<W: StatePreparationWorkControl>(
     work_control: &mut W,
 ) -> Result<Option<String>> {
     let children = graph.children(id);
+
     if children.is_empty() {
         return Ok(Some(id.to_string()));
     }
+
     let mut reserve: Option<String> = None;
     let mut visited: HashSet<String> = HashSet::new();
     let mut stack: Vec<String> = children.iter().rev().map(|s| s.to_string()).collect();
+
     while let Some(node) = stack.pop() {
         if !visited.insert(node.clone()) {
             continue;
         }
-        let children = graph.children(&node);
-        if !children.is_empty() {
-            for child in children.iter().rev() {
+
+        let children_2 = graph.children(&node);
+
+        if !children_2.is_empty() {
+            for child in children_2.iter().rev() {
                 stack.push(child.to_string());
             }
+
             continue;
         }
+
         let common_edges = find_common_edges(graph, cluster_id, &node, work_control)?;
+
         if !common_edges.is_empty() {
             reserve = Some(node);
         } else {
             return Ok(Some(node));
         }
     }
+
     Ok(reserve)
 }
 
+#[must_use]
 fn state_is_node_in_extractable_cluster(
     graph: &Graph<NodeLabel, EdgeLabel, GraphLabel>,
     node_id: &str,
@@ -418,18 +456,22 @@ fn state_is_node_in_extractable_cluster(
     external: &HashMap<String, bool>,
 ) -> bool {
     let mut parent = graph.parent(node_id);
+
     while let Some(parent_id) = parent {
         if parent_id == root_id {
             break;
         }
+
         if external
             .get(parent_id)
             .is_some_and(|has_external| !*has_external)
         {
             return true;
         }
+
         parent = graph.parent(parent_id);
     }
+
     false
 }
 
@@ -442,19 +484,26 @@ fn state_find_safe_anchor_node<W: StatePreparationWorkControl>(
     work_control: &mut W,
 ) -> Result<Option<String>> {
     work_control.charge(graph.node_slot_count())?;
+
     for child in graph.children(cluster_id) {
         if child == excluded_cluster || is_descendant(descendants, child, excluded_cluster) {
             continue;
         }
 
-        let Some(candidate) = find_non_cluster_child(graph, child, cluster_id, work_control)?
-        else {
-            continue;
+        let candidate = {
+            let optional_candidate = find_non_cluster_child(graph, child, cluster_id, work_control)?;
+
+            match optional_candidate {
+                Some(matched_candidate) => matched_candidate,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !state_is_node_in_extractable_cluster(graph, &candidate, cluster_id, external) {
             return Ok(Some(candidate));
         }
     }
+
     Ok(None)
 }
 
@@ -471,10 +520,12 @@ fn prepare_graph<W: StatePreparationWorkControl>(
     };
 
     let mut stack: Vec<Vec<String>> = vec![Vec::new()];
+
     while let Some(path) = stack.pop() {
         let prepared = prepared_graph_at_path_mut(&mut root, &path)?;
         let mut child_ids = prepare_graph_one_level(prepared, cluster_dir, work_control)?;
         child_ids.reverse();
+
         for child_id in child_ids {
             let mut child_path = path.clone();
             child_path.push(child_id);
@@ -490,6 +541,7 @@ fn prepared_graph_at_path_mut<'a>(
     path: &[String],
 ) -> Result<&'a mut PreparedGraph> {
     let mut current = root;
+
     for id in path {
         current = current
             .extracted
@@ -498,6 +550,7 @@ fn prepared_graph_at_path_mut<'a>(
                 message: format!("missing prepared cluster graph: {id}"),
             })?;
     }
+
     Ok(current)
 }
 
@@ -519,6 +572,7 @@ fn prepare_graph_one_level<W: StatePreparationWorkControl>(
 
     work_control.charge(graph.edge_slot_count())?;
     let edge_keys = graph.edge_keys();
+
     if !edge_keys.is_empty() {
         for id in &cluster_ids {
             let mut vec: Vec<String> = Vec::new();
@@ -529,34 +583,48 @@ fn prepare_graph_one_level<W: StatePreparationWorkControl>(
 
         for id in &cluster_ids {
             work_control.charge(edge_keys.len())?;
-            for e in &edge_keys {
+
+            'over_e_2: for e in &edge_keys {
                 let d1 = is_descendant(&descendants, &e.v, id);
                 let d2 = is_descendant(&descendants, &e.w, id);
+
                 if d1 ^ d2 {
                     external.insert(id.clone(), true);
-                    break;
+                    break 'over_e_2;
                 }
             }
         }
     }
 
     let mut anchor: HashMap<String, String> = HashMap::new();
+
     if !edge_keys.is_empty() {
         for id in &cluster_ids {
-            let Some(a) = find_non_cluster_child(graph, id, id, work_control)? else {
-                continue;
+            let a = {
+                let optional_a = find_non_cluster_child(graph, id, id, work_control)?;
+
+                match optional_a {
+                    Some(matched_a) => matched_a,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             anchor.insert(id.clone(), a);
         }
     }
 
-    // Match Mermaid 11.16's anchor stabilization before cluster edges are rebound. The first
-    // leaf selected by findNonClusterChild can live inside a sibling cluster that the extractor
-    // later replaces with a placeholder. Prefer an ancestor that survives extraction, or a safe
-    // sibling leaf for a directly outgoing cluster edge.
+
+
+
+
     for id in &cluster_ids {
-        let Some(non_cluster_child) = anchor.get(id).cloned() else {
-            continue;
+        let non_cluster_child = {
+            let optional_non_cluster_child = anchor.get(id).cloned();
+
+            match optional_non_cluster_child {
+                Some(matched_non_cluster_child) => matched_non_cluster_child,
+                ::core::option::Option::None => continue,
+            }
         };
 
         if let Some(parent) = graph.parent(&non_cluster_child).map(str::to_string)
@@ -570,9 +638,13 @@ fn prepare_graph_one_level<W: StatePreparationWorkControl>(
 
         work_control.charge(edge_keys.len())?;
         let has_direct_outgoing_edge = edge_keys.iter().any(|edge| edge.v == *id);
-        let needs_safe_anchor = external.get(id).copied().unwrap_or(false)
+        let needs_safe_anchor = (match external.get(id).copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        })
             && has_direct_outgoing_edge
             && state_is_node_in_extractable_cluster(graph, &non_cluster_child, id, &external);
+
         if needs_safe_anchor
             && let Some(excluded_cluster) = graph.parent(&non_cluster_child).map(str::to_string)
             && let Some(safe_anchor) = state_find_safe_anchor_node(
@@ -588,11 +660,11 @@ fn prepare_graph_one_level<W: StatePreparationWorkControl>(
         }
     }
 
-    // Adjust edges that touch cluster ids by rewriting them to anchor nodes.
-    //
-    // Match Mermaid `adjustClustersAndEdges(graph)`: edges incident on cluster nodes are removed
-    // and re-inserted even when their endpoints do not change. This affects edge insertion order
-    // and can change deterministic tie-breaking in Dagre's acyclic pass.
+
+
+
+
+
     for key in edge_keys {
         let mut from_cluster: Option<String> = None;
         let mut to_cluster: Option<String> = None;
@@ -601,6 +673,7 @@ fn prepare_graph_one_level<W: StatePreparationWorkControl>(
 
         let touches_cluster =
             cluster_ids.iter().any(|c| c == &v) || cluster_ids.iter().any(|c| c == &w);
+
         if !touches_cluster {
             continue;
         }
@@ -612,6 +685,7 @@ fn prepare_graph_one_level<W: StatePreparationWorkControl>(
             from_cluster = Some(v.clone());
             v = a.clone();
         }
+
         if cluster_ids.iter().any(|c| c == &w)
             && *external.get(&w).unwrap_or(&false)
             && let Some(a) = anchor.get(&w)
@@ -620,50 +694,71 @@ fn prepare_graph_one_level<W: StatePreparationWorkControl>(
             w = a.clone();
         }
 
-        let Some(old_label) = graph.edge_by_key(&key).cloned() else {
-            continue;
+        let old_label = {
+            let optional_old_label = graph.edge_by_key(&key).cloned();
+
+            match optional_old_label {
+                Some(matched_old_label) => matched_old_label,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let _ = graph.remove_edge_key(&key);
 
         let mut new_label = old_label;
+
         if let Some(fc) = from_cluster.as_deref() {
             set_extras_string(&mut new_label.extras, "fromCluster", fc);
         }
+
         if let Some(tc) = to_cluster.as_deref() {
             set_extras_string(&mut new_label.extras, "toCluster", tc);
         }
+
         graph.set_edge_named(v, w, key.name.clone(), Some(new_label));
     }
 
-    // Extract clusters without external connections into subgraphs for nested layout. Mermaid
-    // 11.17.2 does not let an explicit direction override the external-connection guard.
-    //
-    // Mermaid@11.12.2 `dagre-wrapper` extractor does not require clusters to be root-level. It
-    // extracts any cluster node that has children and no external connections, then relies on the
-    // nested render pass to (optionally) inject the cluster root node back into the subgraph
-    // for sizing/padding.
+
+
+
+
+
+
+
     let mut candidate_roots: Vec<String> = Vec::new();
+
     for id in graph.node_ids() {
         if graph.children(&id).is_empty() {
             continue;
         }
+
         if *external.get(&id).unwrap_or(&false) {
             continue;
         }
+
         candidate_roots.push(id);
     }
+
+    #[must_use]
     fn cluster_depth(g: &Graph<NodeLabel, EdgeLabel, GraphLabel>, id: &str) -> usize {
         let mut depth = 0usize;
         let mut cur = id;
+
         while let Some(parent) = g.parent(cur) {
             depth += 1;
             cur = parent;
-            if depth > 128 {
-                break;
+
+            match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(depth), &::core::convert::identity(128)); _explicit_ordering } {
+                ::core::cmp::Ordering::Greater => {
+                    break;
+                },
+                ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
             }
         }
+
         depth
     }
+
     candidate_roots.sort_by(|a, b| {
         cluster_depth(graph, a)
             .cmp(&cluster_depth(graph, b))
@@ -671,15 +766,20 @@ fn prepare_graph_one_level<W: StatePreparationWorkControl>(
     });
 
     let mut child_ids = Vec::new();
+
     for cluster_id in candidate_roots {
         if !graph.has_node(&cluster_id) || graph.children(&cluster_id).is_empty() {
             continue;
         }
+
         let parent_dir = graph.graph().rankdir;
         let requested = cluster_dir(&cluster_id).map(|d| rank_dir_from(&d));
-        // Mermaid keeps nested state graphs in the same rank direction by default. Only apply
-        // a different direction when explicitly requested by the cluster itself.
-        let dir = requested.unwrap_or(parent_dir);
+
+
+        let dir = match requested {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => parent_dir,
+        };
         let nodesep = graph.graph().nodesep;
         let ranksep = graph.graph().ranksep + 25.0;
         let marginx = graph.graph().marginx;
@@ -717,14 +817,14 @@ fn extract_cluster_graph<W: StatePreparationWorkControl>(
         });
     }
 
-    // Mermaid's cluster extractor uses a somewhat surprising copy algorithm:
-    // - It walks leaf nodes in a deterministic-but-mutation-sensitive order.
-    // - For each leaf, it calls `graph.edges(node)` (Graphlib ignores the argument and returns
-    //   *all* edges), inserting edges opportunistically while the source graph is being mutated.
-    //
-    // This affects edge insertion order in the extracted graph and can change Dagre's cycle
-    // breaking tie-breakers (notably for cyclic-special self-loop expansions). Mirror that
-    // behavior for parity.
+
+
+
+
+
+
+
+
     let mut descendants: Vec<String> = Vec::new();
     work_control.charge(graph.node_slot_count())?;
     extract_descendants(graph, cluster_id, &mut descendants);
@@ -755,8 +855,10 @@ fn extract_cluster_graph<W: StatePreparationWorkControl>(
 
     while !stack.is_empty() {
         let frame_idx = stack.len() - 1;
+
         let Some((node, current_cluster_id)) = ({
             let frame = &mut stack[frame_idx];
+
             if frame.next_index >= frame.nodes.len() {
                 None
             } else {
@@ -779,9 +881,11 @@ fn extract_cluster_graph<W: StatePreparationWorkControl>(
                 .iter()
                 .map(|s| s.to_string())
                 .collect();
+
             if node != cluster_id {
                 child_nodes.push(node.clone());
             }
+
             stack.push(CopyFrame {
                 current_cluster_id: node,
                 nodes: child_nodes,
@@ -799,34 +903,45 @@ fn extract_cluster_graph<W: StatePreparationWorkControl>(
         {
             sub.set_parent(node.clone(), parent.to_string());
         }
+
         if current_cluster_id != cluster_id && node != current_cluster_id {
             sub.set_parent(node.clone(), current_cluster_id);
         }
 
-        // NOTE: Mermaid uses `graph.edges(node)` but Graphlib ignores the argument and
-        // returns all edges. Mirror that by iterating the full edge set each time.
+
+
         work_control.charge(graph.edge_slot_count())?;
         let edge_keys = graph.edge_keys();
-        for ek in edge_keys {
+
+        'over_ek_2: for ek in edge_keys {
             if ek.v == cluster_id || ek.w == cluster_id {
-                continue;
-            }
-            let Some(label) = graph.edge_by_key(&ek).cloned() else {
-                continue;
-            };
-            let v_inside = descendants_set.contains(&ek.v);
-            let w_inside = descendants_set.contains(&ek.w);
-            if !v_inside && !w_inside {
-                continue;
-            }
-            if v_inside && w_inside {
-                sub.set_edge_named(ek.v, ek.w, ek.name, Some(label));
-                continue;
+                continue 'over_ek_2;
             }
 
-            // `edgeInCluster` in Mermaid intentionally admits either endpoint. Since 11.16,
-            // cross-boundary edges are kept in the outer graph and rebound to the extracted root
-            // instead of auto-creating the external endpoint inside the child graph.
+            let label = {
+                let optional_label = graph.edge_by_key(&ek).cloned();
+
+                match optional_label {
+                    Some(matched_label) => matched_label,
+                    ::core::option::Option::None => continue 'over_ek_2,
+                }
+            };
+
+            let v_inside = descendants_set.contains(&ek.v);
+            let w_inside = descendants_set.contains(&ek.w);
+
+            if !v_inside && !w_inside {
+                continue 'over_ek_2;
+            }
+
+            if v_inside && w_inside {
+                sub.set_edge_named(ek.v, ek.w, ek.name, Some(label));
+                continue 'over_ek_2;
+            }
+
+
+
+
             let outer_v = if v_inside {
                 cluster_id.to_string()
             } else {
@@ -869,10 +984,12 @@ fn inject_root_cluster_node(g: &mut Graph<NodeLabel, EdgeLabel, GraphLabel>, roo
     }
 
     let node_ids: Vec<String> = g.node_ids().into_iter().map(|s| s.to_string()).collect();
+
     for v in node_ids {
         if v == root_id {
             continue;
         }
+
         if g.parent(&v).is_none() {
             g.set_parent(v, root_id.to_string());
         }
@@ -894,14 +1011,17 @@ fn layout_prepared(
 
         if visited {
             let mut extracted_fragments = HashMap::new();
+
             for child_id in child_ids {
                 let mut child_path = path.clone();
                 child_path.push(child_id.clone());
+
                 let Some(result) = completed.remove(&child_path) else {
                     return Err(Error::InvalidModel {
                         message: format!("missing prepared cluster layout: {child_id}"),
                     });
                 };
+
                 extracted_fragments.insert(child_id, result);
             }
 
@@ -912,6 +1032,7 @@ fn layout_prepared(
         }
 
         stack.push((path.clone(), true));
+
         for child_id in child_ids.into_iter().rev() {
             let mut child_path = path.clone();
             child_path.push(child_id);
@@ -932,10 +1053,10 @@ fn layout_prepared_node(
     work_control: &mut OperationLayoutWorkControl,
 ) -> Result<(LayoutFragments, Rect)> {
     if let Some(root_id) = prepared.root_cluster_id.clone() {
-        // Mermaid's dagre-wrapper nested render pass injects the parent cluster node into the
-        // extracted graph and parents top-level nodes to it. This is required for Dagre’s
-        // compound border nodes to yield the same “outer padding” used by upstream when sizing
-        // clusterNode placeholders via `updateNodeBounds(...)`.
+
+
+
+
         inject_root_cluster_node(&mut prepared.graph, &root_id);
     }
 
@@ -950,25 +1071,38 @@ fn layout_prepared_node(
                 message: format!("missing cluster placeholder node: {id}"),
             });
         };
+
         n.width = bounds.width().max(1.0);
         n.height = bounds.height().max(1.0);
     }
 
-    // State diagrams use Mermaid's unified Dagre renderer, so use Dugong's canonical pipeline
-    // here (edge label proxies, BK positioning, etc.).
+
+
     dugong::layout_controlled(&mut prepared.graph, work_control)
         .map_err(|error| work_control.map_dugong_error(error))?;
 
     for id in prepared.graph.node_ids() {
-        let Some(n) = prepared.graph.node(&id) else {
-            continue;
+        let n = {
+            let optional_n = prepared.graph.node(&id);
+
+            match optional_n {
+                Some(matched_n) => matched_n,
+                ::core::option::Option::None => continue,
+            }
         };
+
         fragments.nodes.insert(
             id.clone(),
             LayoutNode {
                 id: id.clone(),
-                x: n.x.unwrap_or(0.0),
-                y: n.y.unwrap_or(0.0),
+                x: match n.x {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                },
+                y: match n.y {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                },
                 width: n.width,
                 height: n.height,
                 is_cluster: false,
@@ -979,20 +1113,28 @@ fn layout_prepared_node(
     }
 
     for key in prepared.graph.edge_keys() {
-        let Some(e) = prepared.graph.edge_by_key(&key) else {
-            continue;
+        let e = {
+            let optional_e = prepared.graph.edge_by_key(&key);
+
+            match optional_e {
+                Some(matched_e) => matched_e,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let original_id = get_extras_string(&e.extras, "originalId").unwrap_or_else(|| {
             key.name
                 .clone()
                 .unwrap_or_else(|| format!("edge:{}:{}", key.v, key.w))
         });
         let logical_self_loop_id = get_extras_string(&e.extras, "selfLoopId");
-        let segment = e
+        let segment = (match e
             .extras
             .get("segment")
-            .and_then(|v| v.as_i64())
-            .unwrap_or(0) as i32;
+            .and_then(|v| v.as_i64()) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        }) as i32;
         let original_from =
             get_extras_string(&e.extras, "originalFrom").unwrap_or_else(|| key.v.clone());
         let original_to =
@@ -1000,12 +1142,12 @@ fn layout_prepared_node(
         let from_cluster = get_extras_string(&e.extras, "fromCluster");
         let to_cluster = get_extras_string(&e.extras, "toCluster");
 
-        // Mermaid's dagre wrapper emits "edgeLabel" placeholder groups even when the visible
-        // label is empty. Dagre still assigns an `(x, y)` label position for those edges, and the
-        // placeholders can affect the root `svg.getBBox()` (and therefore `viewBox/max-width`).
-        //
-        // Preserve the label center even when `width/height` are 0 so downstream renderers can
-        // place the placeholders like upstream.
+
+
+
+
+
+
         let label = match (e.x, e.y) {
             (Some(x), Some(y)) => Some(LayoutLabel {
                 x,
@@ -1035,14 +1177,15 @@ fn layout_prepared_node(
         });
     }
 
-    // Merge extracted fragments into this graph, translating them by the cluster placeholder
-    // position.
+
+
     for (cluster_id, (mut sub_frag, sub_bounds)) in extracted_fragments {
         let Some(cluster_node) = fragments.nodes.get(&cluster_id).cloned() else {
             return Err(Error::InvalidModel {
                 message: format!("missing cluster placeholder layout: {cluster_id}"),
             });
         };
+
         let (sub_cx, sub_cy) = sub_bounds.center();
         let dx = cluster_node.x - sub_cx;
         let dy = cluster_node.y - sub_cy;
@@ -1051,11 +1194,13 @@ fn layout_prepared_node(
             n.x += dx;
             n.y += dy;
         }
+
         for seg in &mut sub_frag.edge_segments {
             for p in &mut seg.points {
                 p.x += dx;
                 p.y += dy;
             }
+
             if let Some(l) = seg.label.as_mut() {
                 l.x += dx;
                 l.y += dy;
@@ -1067,28 +1212,35 @@ fn layout_prepared_node(
     }
 
     let mut points: Vec<(f64, f64)> = Vec::new();
+
     for n in fragments.nodes.values() {
         let r = Rect::from_center(n.x, n.y, n.width, n.height);
         points.push((r.min_x(), r.min_y()));
         points.push((r.max_x(), r.max_y()));
     }
+
     for e in &fragments.edge_segments {
         for p in &e.points {
             points.push((p.x, p.y));
         }
+
         if let Some(l) = &e.label {
             let r = Rect::from_center(l.x, l.y, l.width, l.height);
             points.push((r.min_x(), r.min_y()));
             points.push((r.max_x(), r.max_y()));
         }
     }
-    let bounds = Bounds::from_points(points)
-        .map(|b| Rect::from_min_max(b.min_x, b.min_y, b.max_x, b.max_y))
-        .unwrap_or_else(|| Rect::from_min_max(0.0, 0.0, 0.0, 0.0));
+
+    let bounds = match Bounds::from_points(points)
+        .map(|b| Rect::from_min_max(b.min_x, b.min_y, b.max_x, b.max_y)) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => Rect::from_min_max(0.0, 0.0, 0.0, 0.0),
+    };
 
     Ok((fragments, bounds))
 }
 
+#[must_use]
 fn merge_edge_segments(mut segments: Vec<EdgeSegment>) -> Vec<LayoutEdge> {
     segments.sort_by(|a, b| {
         a.original_id
@@ -1098,6 +1250,7 @@ fn merge_edge_segments(mut segments: Vec<EdgeSegment>) -> Vec<LayoutEdge> {
 
     let mut out: Vec<LayoutEdge> = Vec::new();
     let mut i = 0usize;
+
     while i < segments.len() {
         let id = segments[i].original_id.clone();
         let from = segments[i].original_from.clone();
@@ -1111,28 +1264,39 @@ fn merge_edge_segments(mut segments: Vec<EdgeSegment>) -> Vec<LayoutEdge> {
 
         while i < segments.len() && segments[i].original_id == id {
             let seg = &segments[i];
-            if from_cluster.is_none() {
-                from_cluster = seg.from_cluster.clone();
+
+            match from_cluster {
+                ::core::option::Option::None => {
+                    from_cluster = seg.from_cluster.clone();
+                },
+                ::core::option::Option::Some(_) => {},
             }
-            if to_cluster.is_none() {
-                to_cluster = seg.to_cluster.clone();
+
+            match to_cluster {
+                ::core::option::Option::None => {
+                    to_cluster = seg.to_cluster.clone();
+                },
+                ::core::option::Option::Some(_) => {},
             }
+
             if label.is_none() {
                 label = seg.label.clone();
             }
 
-            for (idx, p) in seg.points.iter().enumerate() {
+            'inner_for_3: for (idx, p) in seg.points.iter().enumerate() {
                 if points.is_empty() {
                     points.push(p.clone());
-                    continue;
+                    continue 'inner_for_3;
                 }
+
                 if idx == 0
                     && points.last().is_some_and(|last| {
                         (last.x - p.x).abs() < 1e-9 && (last.y - p.y).abs() < 1e-9
                     })
                 {
-                    continue;
+                    continue 'inner_for_3;
                 }
+
                 points.push(p.clone());
             }
 
@@ -1160,6 +1324,7 @@ fn merge_edge_segments(mut segments: Vec<EdgeSegment>) -> Vec<LayoutEdge> {
     out
 }
 
+#[must_use]
 fn merge_self_loop_segment_fallback(id: String, mut segments: Vec<EdgeSegment>) -> LayoutEdge {
     segments.sort_by_key(|segment| segment.segment);
     let first = &segments[0];
@@ -1178,13 +1343,15 @@ fn merge_self_loop_segment_fallback(id: String, mut segments: Vec<EdgeSegment>) 
         .or_else(|| segments.iter().find_map(|segment| segment.label.clone()));
 
     let mut points = Vec::new();
+
     for segment in &segments {
-        for point in &segment.points {
+        'over_point_2: for point in &segment.points {
             if points.last().is_some_and(|last: &LayoutPoint| {
                 (last.x - point.x).abs() < 1e-9 && (last.y - point.y).abs() < 1e-9
             }) {
-                continue;
+                continue 'over_point_2;
             }
+
             points.push(point.clone());
         }
     }
@@ -1207,6 +1374,7 @@ fn merge_self_loop_segment_fallback(id: String, mut segments: Vec<EdgeSegment>) 
     }
 }
 
+#[must_use]
 fn compact_self_loop_edges(
     segments: Vec<EdgeSegment>,
     nodes: &[LayoutNode],
@@ -1215,35 +1383,41 @@ fn compact_self_loop_edges(
 ) -> Vec<LayoutEdge> {
     let mut groups: BTreeMap<String, Vec<EdgeSegment>> = BTreeMap::new();
     let mut passthrough = Vec::new();
+
     for segment in segments {
         let Some(id) = segment.logical_self_loop_id.clone() else {
             passthrough.push(segment);
             continue;
         };
+
         groups.entry(id).or_default().push(segment);
     }
 
     let mut edges = Vec::with_capacity(groups.len());
-    for (id, mut segments) in groups {
-        segments.sort_by_key(|segment| segment.segment);
+
+    for (id, mut segments_2) in groups {
+        segments_2.sort_by_key(|segment| segment.segment);
         let is_complete_group =
-            segments.len() == 3 && segments.iter().map(|segment| segment.segment).eq([0, 1, 2]);
+            segments_2.len() == 3 && segments_2.iter().map(|segment| segment.segment).eq([0, 1, 2]);
+
         if !is_complete_group {
-            edges.push(merge_self_loop_segment_fallback(id, segments));
+            edges.push(merge_self_loop_segment_fallback(id, segments_2));
             continue;
         }
 
-        let first = &segments[0];
+        let first = &segments_2[0];
         let from = first.original_from.clone();
         let to = first.original_to.clone();
+
         if from != to
-            || segments
+            || segments_2
                 .iter()
                 .any(|segment| segment.original_from != from || segment.original_to != to)
         {
-            edges.push(merge_self_loop_segment_fallback(id, segments));
+            edges.push(merge_self_loop_segment_fallback(id, segments_2));
             continue;
         }
+
         let Some((node_x, node_y, node_width, node_height)) = nodes
             .iter()
             .find(|node| node.id == from)
@@ -1255,7 +1429,7 @@ fn compact_self_loop_edges(
                     .map(|cluster| (cluster.x, cluster.y, cluster.width, cluster.height))
             })
         else {
-            edges.push(merge_self_loop_segment_fallback(id, segments));
+            edges.push(merge_self_loop_segment_fallback(id, segments_2));
             continue;
         };
 
@@ -1265,31 +1439,32 @@ fn compact_self_loop_edges(
         ];
         let mut hints: Vec<LayoutPoint> = helper_ids
             .iter()
-            .filter_map(|id| {
+            .filter_map(|id_2| {
                 nodes
                     .iter()
-                    .find(|node| node.id == *id)
+                    .find(|node| node.id == *id_2)
                     .map(|node| LayoutPoint {
                         x: node.x,
                         y: node.y,
                     })
             })
             .collect();
+
         if hints.is_empty() {
             hints.extend(
-                segments
+                segments_2
                     .iter()
                     .flat_map(|segment| segment.points.iter().cloned()),
             );
         }
 
-        let mut label = segments
+        let mut label = segments_2
             .iter()
             .find(|segment| segment.segment == 1)
             .and_then(|segment| segment.label.clone())
-            .or_else(|| segments.iter().find_map(|segment| segment.label.clone()));
-        let label_width = label.as_ref().map_or(0.0, |label| label.width);
-        let label_height = label.as_ref().map_or(0.0, |label| label.height);
+            .or_else(|| segments_2.iter().find_map(|segment| segment.label.clone()));
+        let label_width = label.as_ref().map_or(0.0, |label_2| label_2.width);
+        let label_height = label.as_ref().map_or(0.0, |label_3| label_3.height);
         let geometry = compact_self_loop_geometry(
             &LayoutPoint {
                 x: node_x,
@@ -1302,19 +1477,19 @@ fn compact_self_loop_edges(
             Size::new(label_width, label_height),
         );
 
-        if let Some(label) = label.as_mut() {
-            label.x = geometry.label_center.x;
-            label.y = geometry.label_center.y;
+        if let Some(label_4) = label.as_mut() {
+            label_4.x = geometry.label_center.x;
+            label_4.y = geometry.label_center.y;
         }
 
         edges.push(LayoutEdge {
             id,
             from,
             to,
-            from_cluster: segments
+            from_cluster: segments_2
                 .iter()
                 .find_map(|segment| segment.from_cluster.clone()),
-            to_cluster: segments
+            to_cluster: segments_2
                 .iter()
                 .find_map(|segment| segment.to_cluster.clone()),
             points: geometry.points,
@@ -1337,8 +1512,8 @@ fn state_layout_adapter_work(
     model: &StateDiagramModel,
     work_control: &OperationLayoutWorkControl,
 ) -> Result<usize> {
-    // This node tranche already reserves the linear parent-index and traversal work below.
-    // Keep semantic cycle validation inside this reservation so its W/W-1 boundary stays stable.
+
+
     let node_work = work_control.checked_mul(model.nodes.len(), 12)?;
     let edge_work = work_control.checked_mul(model.edges.len(), 8)?;
     let state_work = work_control.checked_mul(model.states.len(), 4)?;
@@ -1428,22 +1603,33 @@ pub(crate) fn layout_state_diagram_typed_with_work_meter(
     )
 }
 
+#[must_use]
 pub(super) fn state_hidden_prefixes(model: &StateDiagramModel) -> HiddenPrefixMatcher {
     let mut hidden_prefixes: Vec<String> = Vec::new();
+
     for (id, st) in &model.states {
-        let Some(note) = st.note.as_ref() else {
-            continue;
+        let note = {
+            let optional_note = st.note.as_ref();
+
+            match optional_note {
+                Some(matched_note) => matched_note,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if note.text.trim().is_empty() {
             continue;
         }
+
         if note.position.is_none() {
             hidden_prefixes.push(id.clone());
         }
     }
+
     HiddenPrefixMatcher::from_prefixes(hidden_prefixes)
 }
 
+#[must_use]
 fn dagre_id_for_node(n: &StateNode) -> String {
     if n.dom_id.trim().is_empty() {
         n.id.clone()
@@ -1452,6 +1638,7 @@ fn dagre_id_for_node(n: &StateNode) -> String {
     }
 }
 
+#[must_use]
 pub(super) fn note_group_owner_id(id: &str) -> Option<&str> {
     let (owner, _) = id.rsplit_once("----parent")?;
     (!owner.is_empty()).then_some(owner)
@@ -1513,21 +1700,23 @@ pub(super) fn state_node_dimensions(
                 settings.wrap_mode,
                 label_sidecar,
             );
-            let tw = crate::text::TextMetrics {
+            let tw_2 = crate::text::TextMetrics {
                 width: tw,
                 height: th,
                 line_count: 1,
             }
             .with_label_min_width(&label_text, settings.label_min_width, None)
             .width;
-            (tw + padding * 2.0, th + padding * 2.0)
+            (tw_2 + padding * 2.0, th + padding * 2.0)
         }
         "rectWithTitle" => {
-            let desc = n
+            let desc = match n
                 .description
                 .as_ref()
-                .map(|v| v.join("\n"))
-                .unwrap_or_default();
+                .map(|v| v.join("\n")) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::string::String::new(),
+            };
             let title_wrap_mode = if settings.html_labels {
                 WrapMode::HtmlLike
             } else {
@@ -1565,21 +1754,27 @@ pub(super) fn state_node_dimensions(
                 settings.wrap_mode,
                 label_sidecar,
             );
-            let tw = crate::text::TextMetrics {
+            let tw_3 = crate::text::TextMetrics {
                 width: tw,
                 height: th,
                 line_count: 1,
             }
             .with_label_min_width(&label_text, settings.label_min_width, None)
             .width;
-            // Mermaid converts `rect` into `roundedRect` when rx/ry is set.
+
             let radius = node_style
                 .and_then(super::StateNodeStylePlan::radius_override)
-                .unwrap_or_else(|| n.rx.unwrap_or(0.0).min(n.ry.unwrap_or(0.0)));
+                .unwrap_or_else(|| match n.rx {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                }.min(match n.ry {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                }));
             let has_rounding = radius > 0.0;
             let pad_x = if has_rounding { padding } else { padding * 2.0 };
             let pad_y = padding;
-            (tw + pad_x * 2.0, th + pad_y * 2.0)
+            (tw_3 + pad_x * 2.0, th + pad_y * 2.0)
         }
         other => {
             return Err(Error::InvalidModel {
@@ -1598,16 +1793,17 @@ fn build_state_diagram_dagre_input(
     label_sidecar: Option<&super::StateLabelSidecarBuilder>,
     mut work_control: Option<&mut OperationLayoutWorkControl>,
 ) -> Result<StateDagreInput> {
-    // Mermaid accepts some historical "floating note" syntaxes in the parser but does not render them.
-    // Keep them in the semantic model/snapshots, but exclude them from layout so they do not shift
-    // visible nodes/edges (and therefore do not affect root viewBox/max-width parity).
+
+
+
     let hidden_prefixes = state_hidden_prefixes(model);
 
-    // The semantic model keeps one generated note group per note so side-specific note metadata
-    // remains observable. Mermaid's layout graph, however, uses one physical parent cluster per
-    // state and lets the last note declaration replace that cluster's metadata. Keep both layers
-    // explicit: map all generated groups for an owner to the last declaration's layout identity.
+
+
+
+
     let mut last_note_group_by_owner: HashMap<String, String> = HashMap::new();
+
     for n in &model.nodes {
         if n.shape == "noteGroup"
             && let Some(owner) = note_group_owner_id(&n.id)
@@ -1615,7 +1811,9 @@ fn build_state_diagram_dagre_input(
             last_note_group_by_owner.insert(owner.to_string(), n.id.clone());
         }
     }
+
     let mut note_group_canonical_by_semantic_id: HashMap<String, String> = HashMap::new();
+
     for n in &model.nodes {
         if n.shape == "noteGroup"
             && let Some(owner) = note_group_owner_id(&n.id)
@@ -1626,11 +1824,14 @@ fn build_state_diagram_dagre_input(
     }
 
     let mut raw_dagre_id_by_semantic_id: HashMap<String, String> = HashMap::new();
+
     for n in &model.nodes {
         raw_dagre_id_by_semantic_id.insert(n.id.clone(), dagre_id_for_node(n));
     }
+
     let mut dagre_id_by_semantic_id: HashMap<String, String> = HashMap::new();
     let mut dir_by_dagre_id: HashMap<String, Option<String>> = HashMap::new();
+
     for n in &model.nodes {
         let layout_semantic_id = note_group_canonical_by_semantic_id
             .get(&n.id)
@@ -1651,8 +1852,8 @@ fn build_state_diagram_dagre_input(
     let wrap_mode = settings.wrap_mode;
     let wrapping_width = settings.wrapping_width;
 
-    if let Some(work_control) = work_control.as_deref_mut() {
-        let helper_count = work_control.checked_mul(
+    if let Some(work_control_2) = work_control.as_deref_mut() {
+        let helper_count = work_control_2.checked_mul(
             model
                 .edges
                 .iter()
@@ -1660,7 +1861,7 @@ fn build_state_diagram_dagre_input(
                 .count(),
             2,
         )?;
-        let parent_count = work_control.checked_add(
+        let parent_count = work_control_2.checked_add(
             model
                 .nodes
                 .iter()
@@ -1668,20 +1869,24 @@ fn build_state_diagram_dagre_input(
                 .count(),
             helper_count,
         )?;
-        if parent_count != 0 {
-            let slots = work_control.checked_add(
-                work_control.checked_mul(model.nodes.len(), 2)?,
-                work_control.checked_mul(model.edges.len(), 4)?,
-            )?;
-            // Dagre alone assembles this actual-ID forest. Include forward placeholders and
-            // helpers in a conservative scratch/batch bound before the parent plan is allocated.
-            let height =
-                usize::BITS as usize - slots.saturating_sub(1).leading_zeros() as usize + 1;
-            let parent_work = work_control.checked_mul(
-                work_control.checked_add(slots, parent_count)?,
-                work_control.checked_mul(height, 12)?,
-            )?;
-            work_control.charge_adapter(parent_work)?;
+
+        match parent_count {
+            0 => {},
+            _ => {
+                let slots = work_control_2.checked_add(
+                    work_control_2.checked_mul(model.nodes.len(), 2)?,
+                    work_control_2.checked_mul(model.edges.len(), 4)?,
+                )?;
+
+
+                let height =
+                    usize::BITS as usize - slots.saturating_sub(1).leading_zeros() as usize + 1;
+                let parent_work = work_control_2.checked_mul(
+                    work_control_2.checked_add(slots, parent_count)?,
+                    work_control_2.checked_mul(height, 12)?,
+                )?;
+                work_control_2.charge_adapter(parent_work)?;
+            },
         }
     }
 
@@ -1690,21 +1895,23 @@ fn build_state_diagram_dagre_input(
         multigraph: true,
         compound: true,
     });
-    // Mermaid 11.16's Dagre adapter leaves `ranker` unset, so Dagre uses `network-simplex`.
+
     graph.set_graph(graph_label);
 
-    // Pre-size nodes (leaf nodes only). Cluster nodes start with a tiny placeholder size.
-    // Mermaid's renderer interleaves `setNode` and `setParent` for each node. Graphlib inserts a
-    // parent that has not been seen yet when `setParent` runs, so preserving this operation order
-    // is observable in Dagre's insertion-order tie breaking.
-    // Ensure referenced parents at that same point, but defer ownership until the actual layout
-    // IDs (including intentional note-group merges) and helper nodes form one checked forest.
+
+
+
+
+
+
     let mut parent_assignments = Vec::new();
     let mut last_parent_assignment = HashMap::new();
+
     for n in &model.nodes {
         if hidden_prefixes.is_hidden(n.id.as_str()) {
             continue;
         }
+
         let dagre_id = dagre_id_by_semantic_id
             .get(&n.id)
             .cloned()
@@ -1726,6 +1933,7 @@ fn build_state_diagram_dagre_input(
         };
 
         graph.set_node(dagre_id.clone(), node_label);
+
         if let Some(parent) = n
             .parent_id
             .as_ref()
@@ -1736,17 +1944,18 @@ fn build_state_diagram_dagre_input(
                 .cloned()
                 .unwrap_or_else(|| parent.clone());
             graph.ensure_node_ref(&parent_id);
-            if let (Some(child), Some(parent)) =
+
+            if let (Some(child), Some(parent_2)) =
                 (graph.node_ix(&dagre_id), graph.node_ix(&parent_id))
             {
                 last_parent_assignment.insert(child, parent_assignments.len());
-                parent_assignments.push((child, parent));
+                parent_assignments.push((child, parent_2));
             }
         }
     }
 
-    // Add edges. For self-loops, split into 3 edges with 2 tiny dummy nodes (Mermaid wrapper
-    // behavior).
+
+
     for e in &model.edges {
         if hidden_prefixes.is_hidden(e.id.as_str())
             || hidden_prefixes.is_hidden(e.start.as_str())
@@ -1754,6 +1963,7 @@ fn build_state_diagram_dagre_input(
         {
             continue;
         }
+
         let edge_style = style_plan.edge(&e.id);
         let edge_label_typography = edge_style
             .map(super::StateEdgeStylePlan::resolved_label_typography)
@@ -1802,21 +2012,21 @@ fn build_state_diagram_dagre_input(
         let id1 = format!("{node_id}-cyclic-special-1");
         let idm = format!("{node_id}-cyclic-special-mid");
         let id2 = format!("{node_id}-cyclic-special-2");
-        // Mermaid uses fixed self-loop helper node ids (`${nodeId}---${nodeId}---{1|2}`), not
-        // per-edge ids. This means multiple self-loop transitions on the same node collide in the
-        // layout graph; match upstream behavior for parity.
+
+
+
         let special1 = format!("{node_id}---{node_id}---1");
         let special2 = format!("{node_id}---{node_id}---2");
 
         graph.set_node(
             special1.clone(),
             NodeLabel {
-                // Mermaid's renderer initially seeds these dummy nodes with `10x10`, but then
-                // `labelRect` renders them as `0.1x0.1` and `updateNodeBounds(...)` overwrites
-                // `node.width/height` *before* Dagre layout runs.
-                //
-                // Mirror the effective size seen by Dagre to keep cyclic self-loop layouts and
-                // root viewBox parity stable.
+
+
+
+
+
+
                 width: 0.1,
                 height: 0.1,
                 ..Default::default()
@@ -1834,11 +2044,12 @@ fn build_state_diagram_dagre_input(
             .node_ix(&node_dagre_id)
             .and_then(|child| last_parent_assignment.get(&child))
             .map(|&index| parent_assignments[index].1);
-        if let Some(parent) = parent {
+
+        if let Some(parent_3) = parent {
             for helper in [&special1, &special2] {
                 if let Some(child) = graph.node_ix(helper) {
                     last_parent_assignment.insert(child, parent_assignments.len());
-                    parent_assignments.push((child, parent));
+                    parent_assignments.push((child, parent_3));
                 }
             }
         }
@@ -1862,10 +2073,10 @@ fn build_state_diagram_dagre_input(
         set_extras_string(&mut edge2.extras, "originalId", &id2);
         set_extras_string(&mut edge2.extras, "selfLoopId", &e.id);
 
-        // Mermaid uses different edge *names* (graphlib multigraph keys) from the edge `.id`
-        // property for cyclic-special helper edges. This impacts edge iteration order and can
-        // affect Dagre's cycle-breaking tie-breakers. Mermaid 11.16 corrected the third helper
-        // edge name to use the same `cyclic-special` spelling as the first two segments.
+
+
+
+
         let name1 = format!("{node_id}-cyclic-special-0");
         let name_mid = format!("{node_id}-cyclic-special-1");
         let name2 = format!("{node_id}-cyclic-special-2");
@@ -1880,19 +2091,21 @@ fn build_state_diagram_dagre_input(
         graph.set_edge_named(special2, node_dagre_id, Some(name2), Some(edge2));
     }
 
-    if let Some(work_control) = work_control {
-        // A label callback may have terminated the operation since the prepaid adapter tranche.
-        // Preserve that terminal before attempting the batch or reporting malformed model data.
-        work_control.checked_add(0, 0)?;
+    if let Some(work_control_3) = work_control {
+
+
+        work_control_3.checked_add(0, 0)?;
     }
-    // Repeated semantic rows and note groups may share a layout ID. Retain its last parent
-    // assignment in mutation order, preserving Graphlib's child ordering and overwrite semantics.
+
+
+
     let mut ordinal = 0;
     parent_assignments.retain(|(child, _)| {
         let keep = last_parent_assignment.get(child) == Some(&ordinal);
         ordinal += 1;
         keep
     });
+
     if let Err(error) = graph.try_set_unparented_parents_ix(&parent_assignments) {
         let message = match error {
             dugong::graphlib::GraphError::ParentCycle {
@@ -1903,7 +2116,7 @@ fn build_state_diagram_dagre_input(
                 graph.node_id_by_ix(parent_ix).unwrap_or("<removed>"),
                 graph.node_id_by_ix(child_ix).unwrap_or("<removed>"),
             ),
-            error => format!("invalid state layout parent assignments: {error}"),
+            error_2 => format!("invalid state layout parent assignments: {error}", error = error_2),
         };
         return Err(Error::InvalidModel { message });
     }
@@ -1929,7 +2142,7 @@ fn layout_state_diagram_inner(
     label_sidecar: Option<&super::StateLabelSidecarBuilder>,
     work_control: &mut OperationLayoutWorkControl,
 ) -> Result<StateDiagramLayout> {
-    // Parent validation is covered by the adapter reservation charged before entering this call.
+
     validate_state_parent_cycles(model)?;
     let StateDagreInput {
         graph,
@@ -1962,16 +2175,19 @@ fn layout_state_diagram_inner(
         .map(|n| n.id.as_str())
         .collect();
 
-    // Build output nodes from semantic nodes only.
+
     let mut out_nodes: Vec<LayoutNode> = Vec::new();
+
     for n in &model.nodes {
         if hidden_prefixes.is_hidden(n.id.as_str()) {
             continue;
         }
+
         let dagre_id = dagre_id_by_semantic_id
             .get(&n.id)
             .map(|s| s.as_str())
             .unwrap_or(n.id.as_str());
+
         let Some(pos) = fragments.nodes.get(dagre_id) else {
             return Err(Error::InvalidModel {
                 message: format!("missing positioned node: {}", n.id),
@@ -1992,12 +2208,13 @@ fn layout_state_diagram_inner(
         }
     }
 
-    // Preserve Mermaid's hidden self-loop helper nodes (`${nodeId}---${nodeId}---{1|2}`).
-    //
-    // These nodes are not part of the semantic model and are not rendered as visible nodes, but
-    // Mermaid's SVG output uses their positioned bounding boxes to place `0.1 x 0.1` placeholder
-    // rects which can affect `svg.getBBox()` and therefore the root `viewBox/max-width`.
+
+
+
+
+
     let mut helper_ids: HashSet<String> = HashSet::new();
+
     for e in &model.edges {
         if hidden_prefixes.is_hidden(e.id.as_str())
             || hidden_prefixes.is_hidden(e.start.as_str())
@@ -2005,17 +2222,26 @@ fn layout_state_diagram_inner(
         {
             continue;
         }
+
         if e.start != e.end {
             continue;
         }
+
         let node_id = e.start.as_str();
         helper_ids.insert(format!("{node_id}---{node_id}---1"));
         helper_ids.insert(format!("{node_id}---{node_id}---2"));
     }
+
     for id in helper_ids {
-        let Some(pos) = fragments.nodes.get(&id) else {
-            continue;
+        let pos = {
+            let optional_pos = fragments.nodes.get(&id);
+
+            match optional_pos {
+                Some(matched_pos) => matched_pos,
+                ::core::option::Option::None => continue,
+            }
         };
+
         out_nodes.push(LayoutNode {
             id,
             x: pos.x,
@@ -2029,42 +2255,53 @@ fn layout_state_diagram_inner(
     }
 
     let mut clusters: Vec<LayoutCluster> = Vec::new();
+
     for n in &model.nodes {
         if hidden_prefixes.is_hidden(n.id.as_str()) {
             continue;
         }
+
         if !state_node_is_effective_group(n) {
             continue;
         }
+
         if note_group_canonical_by_semantic_id
             .get(&n.id)
             .is_some_and(|canonical| canonical != &n.id)
         {
             continue;
         }
+
         let dagre_id = dagre_id_by_semantic_id
             .get(&n.id)
             .map(|s| s.as_str())
             .unwrap_or(n.id.as_str());
+
         let Some(pos) = fragments.nodes.get(dagre_id) else {
             return Err(Error::InvalidModel {
                 message: format!("missing positioned cluster node: {}", n.id),
             });
         };
 
-        let mut title = n
+        let mut title = match n
             .label
             .as_ref()
-            .map(state_value_to_label_text)
-            .unwrap_or_default();
+            .map(state_value_to_label_text) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
+
         if title.trim().is_empty() {
             title = n.id.clone();
         }
+
         let node_style = style_plan.node(&n.id);
-        let pad = node_style
+        let pad = match node_style
             .and_then(super::StateNodeStylePlan::padding_override)
-            .or(n.padding)
-            .unwrap_or(8.0)
+            .or(n.padding) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 8.0,
+        }
             .max(0.0);
         let cluster_label_typography = node_style
             .map(super::StateNodeStylePlan::resolved_cluster_label_typography)
@@ -2105,8 +2342,8 @@ fn layout_state_diagram_inner(
             )
         };
 
-        // Mermaid expands cluster width to ensure the title fits, but does not re-run Dagre after
-        // that adjustment (so child node positions remain unchanged).
+
+
         let min_cluster_width = if title.trim().is_empty() {
             0.0
         } else {
@@ -2128,6 +2365,7 @@ fn layout_state_diagram_inner(
             "noteGroup" => 0.0,
             _ => {
                 let padded_label_width = tw + pad;
+
                 if rect.width() <= padded_label_width {
                     (padded_label_width - rect.width()) / 2.0 - pad
                 } else {
@@ -2194,8 +2432,8 @@ fn layout_state_diagram_inner(
         rankdir,
     ));
 
-    // Mermaid 12's drawRect uses a rectangular intersection even when its visible
-    // corners are rounded. Polygon intersection no longer adds the historical half pixel.
+
+
     {
         use crate::elk_edge_geometry::{Outline, Shape};
         let layout_nodes: HashMap<&str, &LayoutNode> = out_nodes
@@ -2207,10 +2445,12 @@ fn layout_state_diagram_inner(
             .iter()
             .map(|node| (node.id.as_str(), node))
             .collect();
+
         for edge in &mut out_edges {
             if edge.points.len() < 2 || edge.from == edge.to {
                 continue;
             }
+
             let endpoints = [
                 (edge.from.as_str(), 0, 1),
                 (
@@ -2219,16 +2459,22 @@ fn layout_state_diagram_inner(
                     edge.points.len() - 2,
                 ),
             ];
-            // Read both targets before modifying endpoints (two-point paths share them).
+
             let targets = [
                 edge.points[endpoints[0].2].clone(),
                 edge.points[endpoints[1].2].clone(),
             ];
-            for ((id, endpoint, _), target) in endpoints.into_iter().zip(targets) {
-                let (Some(&node), Some(&semantic)) = (layout_nodes.get(id), semantic_nodes.get(id))
-                else {
-                    continue;
+            'inner_for_2: for ((id, endpoint, _), target) in endpoints.into_iter().zip(targets) {
+                let (node, semantic) = {
+                    let outcome_node = (layout_nodes.get(id), semantic_nodes.get(id));
+
+                    match outcome_node {
+                        (Some(&matched_node), Some(&matched_semantic)) => (matched_node, matched_semantic),
+                        (::core::option::Option::None, _)
+                        | (_, ::core::option::Option::None) => continue 'inner_for_2,
+                    }
                 };
+
                 let outline = match semantic.shape.as_str() {
                     "stateStart" | "stateEnd" => Outline::Ellipse,
                     "choice" => Outline::Diamond,
@@ -2240,31 +2486,37 @@ fn layout_state_diagram_inner(
                     intersection: None,
                 }
                 .intersect(&target);
+
                 if hit.x.is_finite() && hit.y.is_finite() {
                     edge.points[endpoint] = hit;
                 }
             }
         }
     }
+
     out_edges.sort_by(|a, b| a.id.cmp(&b.id));
 
     let bounds = {
         let mut points: Vec<(f64, f64)> = Vec::new();
+
         for n in &out_nodes {
             let r = Rect::from_center(n.x, n.y, n.width, n.height);
             points.push((r.min_x(), r.min_y()));
             points.push((r.max_x(), r.max_y()));
         }
+
         for e in &out_edges {
             for p in &e.points {
                 points.push((p.x, p.y));
             }
+
             if let Some(l) = &e.label {
                 let r = Rect::from_center(l.x, l.y, l.width, l.height);
                 points.push((r.min_x(), r.min_y()));
                 points.push((r.max_x(), r.max_y()));
             }
         }
+
         Bounds::from_points(points)
     };
 
@@ -2295,7 +2547,7 @@ fn validate_state_parent_cycles_with_step(
 ) -> Result<()> {
     use StateParentVisitState::{Complete, Unvisited, Visiting};
 
-    // The last node with a duplicate id owns its parent, matching the previous HashMap collect.
+
     let index_by_id = model
         .nodes
         .iter()
@@ -2305,21 +2557,24 @@ fn validate_state_parent_cycles_with_step(
     let mut state = vec![Unvisited; model.nodes.len()];
     let mut path = Vec::new();
 
-    // Every input row is checked once. A canonical node follows its parent only while Unvisited,
-    // then becomes Complete with the rest of its path, so successful parent hops are also O(N).
+
+
     for node in &model.nodes {
-        // `state_layout_adapter_work` reserves the corresponding node work before this function.
+
         before_step();
+
         let Some(&start) = index_by_id.get(node.id.as_str()) else {
             unreachable!("the State parent index contains every model node")
         };
+
         if state[start] == Complete {
             continue;
         }
 
         path.clear();
         let mut current = start;
-        loop {
+
+        'inner_loop_2: loop {
             match state[current] {
                 Unvisited => {
                     state[current] = Visiting;
@@ -2333,24 +2588,38 @@ fn validate_state_parent_cycles_with_step(
                         ),
                     });
                 }
-                Complete => break,
+                Complete => break 'inner_loop_2,
             }
 
-            let Some(parent_id) = model.nodes[current].parent_id.as_deref() else {
-                break;
+            let parent_id = {
+                let optional_parent_id = model.nodes[current].parent_id.as_deref();
+
+                match optional_parent_id {
+                    Some(matched_parent_id) => matched_parent_id,
+                    ::core::option::Option::None => break 'inner_loop_2,
+                }
             };
-            // The test hook runs before following every user-controlled parent link.
+
+
             before_step();
-            let Some(&parent) = index_by_id.get(parent_id) else {
-                break;
+
+            let parent = {
+                let optional_parent = index_by_id.get(parent_id);
+
+                match optional_parent {
+                    Some(&matched_parent) => matched_parent,
+                    ::core::option::Option::None => break 'inner_loop_2,
+                }
             };
+
             current = parent;
         }
 
-        while let Some(index) = path.pop() {
+        for index in ::core::iter::from_fn(|| path.pop()) {
             state[index] = Complete;
         }
     }
+
     Ok(())
 }
 
@@ -2656,7 +2925,7 @@ mod tests {
             ),
             (250.123_456_789, 17.25)
         );
-        // Keep this padding control below createText's 200px wrapping width.
+
         let measurer = NonLatticeMeasurer {
             width: 73.123_456_789,
             height: 17.25,

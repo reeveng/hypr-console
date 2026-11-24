@@ -20,15 +20,18 @@ pub struct DiagramThemeCompiler {
 }
 
 impl DiagramThemeCompiler {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn with_resource_policy(mut self, resources: ThemeResourcePolicy) -> Self {
         self.resources = resources;
         self
     }
 
+    #[must_use]
     pub const fn resource_policy(&self) -> &ThemeResourcePolicy {
         &self.resources
     }
@@ -72,13 +75,13 @@ impl DiagramThemeCompiler {
             .requirements()
             .clone()
             .with_required_capabilities(inferred_capabilities);
-        let spec = Arc::new(spec);
-        let mermaid_config = super::mermaid_compatibility::compile(&spec);
+        let spec_2 = Arc::new(spec);
+        let mermaid_config = super::mermaid_compatibility::compile(&spec_2);
         let family_programs = Arc::new(super::family_program::FamilyThemeProgramCache::new(
-            Arc::clone(&spec),
+            Arc::clone(&spec_2),
         ));
         let fingerprint =
-            super::canonical::recipe_fingerprint(&spec, &catalog, &effective_requirements);
+            super::canonical::recipe_fingerprint(&spec_2, &catalog, &effective_requirements);
         let compatibility_recipe = merman_model::presentation::ThemeCompatibilityRecipe::try_new(
             fingerprint,
             mermaid_config,
@@ -95,7 +98,7 @@ impl DiagramThemeCompiler {
         );
         Ok(super::DiagramTheme(Arc::new(super::CompiledDiagramTheme {
             source_map,
-            spec,
+            spec: spec_2,
             catalog,
             resource_restriction: self.resources.clone(),
             requirements: effective_requirements,
@@ -123,27 +126,26 @@ impl DiagramThemeCompiler {
     ) -> Result<super::DiagramTheme, ThemeCompileError> {
         super::definition_admission::check_typed_input_encoded_bytes(&self.resources, &spec)
             .map_err(|error| match error {
-                super::definition_admission::ThemeInputEncodingError::ResourceLimit(error) => {
-                    ThemeCompileError::ResourceLimit(error)
+                super::definition_admission::ThemeInputEncodingError::ResourceLimit(error_2) => {
+                    ThemeCompileError::ResourceLimit(error_2)
                 }
                 super::definition_admission::ThemeInputEncodingError::InvalidEncoding => {
-                    ThemeCompileValidationError::InvalidValue {
+                    <crate::diagram_theme::compiler::ThemeCompileError as ::core::convert::From<crate::diagram_theme::ThemeCompileValidationError>>::from(ThemeCompileValidationError::InvalidValue {
                         field: "complete_spec",
-                    }
-                    .into()
+                    })
                 }
             })?;
         self.compile_spec_wire_with_sources(spec, super::source::ThemeWireSources::CompleteSpec)
     }
 
-    // Designs and presets admit their authored or composed wire before using this path.
+
     pub(super) fn compile_spec_wire_with_sources(
         &self,
         spec: super::DiagramThemeSpecWireV1,
         sources: super::source::ThemeWireSources,
     ) -> Result<super::DiagramTheme, ThemeCompileError> {
-        let (spec, sources) = super::wire_decode::decode(spec, &self.resources, sources)?;
-        self.compile_with_sources(spec, sources)
+        let (spec_2, sources_2) = super::wire_decode::decode(spec, &self.resources, sources)?;
+        self.compile_with_sources(spec_2, sources_2)
     }
 
     pub fn compile_preset(
@@ -167,14 +169,14 @@ impl DiagramThemeCompiler {
         &self,
         spec: super::DiagramThemeSpecWireV1,
     ) -> Result<(), ThemeCompileError> {
-        // Built-in recipes do not supply embedded font assets. Validate their decoded spec
-        // without constructing a family cache, compatibility plan, or recipe fingerprint.
-        let (spec, _) = super::wire_decode::decode(
+
+
+        let (spec_2, _) = super::wire_decode::decode(
             spec,
             &self.resources,
             super::source::ThemeWireSources::None,
         )?;
-        self.validate_spec(&spec)
+        self.validate_spec(&spec_2)
     }
 
     /// Compiles a saved recipe through the same authoring and complete-spec admission paths.
@@ -187,10 +189,10 @@ impl DiagramThemeCompiler {
                 let spec =
                     super::materialize_theme_design_with_resource_policy(&design, &self.resources)?;
                 let sources = super::source::ThemeWireSources::for_design(&design);
-                Ok(self.compile_spec_wire_with_sources(spec, sources)?)
+                Ok({ let checked_value = self.compile_spec_wire_with_sources(spec, sources)?; checked_value })
             }
             merman_theme_contract::ThemeRecipeV1::CompleteSpec { complete_spec } => {
-                Ok(self.compile_spec_wire(complete_spec)?)
+                Ok({ let checked_value_2 = self.compile_spec_wire(complete_spec)?; checked_value_2 })
             }
         }
     }
@@ -213,56 +215,65 @@ impl DiagramThemeCompiler {
     }
 }
 
+#[must_use]
 fn preset_export_error(
     error: ThemeCompileError,
 ) -> merman_theme_contract::ThemeMaterializationErrorV1 {
     use merman_theme_contract::{ThemeMaterializationDiagnosticV1, ThemeMaterializationErrorV1};
     let diagnostic = match error {
-        ThemeCompileError::ResourceLimit(error) => {
+        ThemeCompileError::ResourceLimit(error_2) => {
             ThemeMaterializationDiagnosticV1::resource_limit_exceeded(
                 "",
-                error.limit,
-                error.actual,
-                error.max,
+                error_2.limit,
+                error_2.actual,
+                error_2.max,
                 "complete preset exceeds the caller-owned resource policy",
             )
         }
-        error => ThemeMaterializationDiagnosticV1::invalid_token_value(
+        error_3 => ThemeMaterializationDiagnosticV1::invalid_token_value(
             "",
             "complete-preset-recipe",
-            error.to_string(),
+            error_3.to_string(),
         ),
     };
     ThemeMaterializationErrorV1::from_diagnostic(diagnostic)
 }
 
+#[must_use]
 fn infer_required_capabilities(
     spec: &DiagramThemeSpec,
     root_plan: &RootThemePlan,
 ) -> BTreeSet<ThemeCapability> {
     let mut required = BTreeSet::new();
+
     if !spec.styles().rules().is_empty() {
         required.insert(ThemeCapability::SemanticTokens);
         required.insert(ThemeCapability::SemanticRules);
     }
+
     if !spec.styles().ordinal_palettes().is_empty() {
         required.insert(ThemeCapability::OrdinalPalette);
     }
+
     collect_typography_capabilities(spec.typography(), &mut required);
     required.extend(root_plan.required_capabilities());
+
     for rule in spec.styles().rules() {
         collect_style_patch_capabilities(rule.style(), &mut required);
     }
 
     let mut referenced_effects = BTreeSet::new();
+
     for binding in spec.effects().bindings() {
         referenced_effects.insert(binding.effect_id());
     }
+
     for rule in spec.styles().rules() {
         if let Specified::Value(effect_id) = &rule.style().effects.effect {
             referenced_effects.insert(effect_id.as_str());
         }
     }
+
     for effect_id in referenced_effects {
         let graph = spec
             .effects()
@@ -270,6 +281,7 @@ fn infer_required_capabilities(
             .expect("validated effect reference must resolve");
         collect_effect_graph_capabilities(graph, &mut required);
     }
+
     required
 }
 
@@ -278,10 +290,13 @@ fn infer_required_capabilities(
 pub enum ThemeCompileError {
     #[error(transparent)]
     CompatibilityRecipe(#[from] merman_model::presentation::ThemeCompatibilityRecipeError),
+
     #[error(transparent)]
     Validation(#[from] ThemeCompileValidationError),
+
     #[error(transparent)]
     FontCatalog(#[from] FontCatalogError),
+
     #[error(transparent)]
     ResourceLimit(#[from] ThemeResourceLimitExceeded),
 }

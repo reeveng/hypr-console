@@ -14,6 +14,7 @@ pub(in crate::svg::parity::flowchart) struct FlowchartEmitCheckpoint<'a> {
 }
 
 impl<'a> FlowchartEmitCheckpoint<'a> {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn new(
         checkpoint: &'a dyn Fn() -> crate::Result<()>,
     ) -> Self {
@@ -126,6 +127,7 @@ pub(in crate::svg::parity) struct FlowchartRenderCtx<'a> {
 }
 
 impl<'a> FlowchartRenderCtx<'a> {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn document_ids(
         &self,
     ) -> &super::document_ids::FlowchartDocumentIds {
@@ -144,6 +146,7 @@ impl<'a> FlowchartRenderCtx<'a> {
         })
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn subgraph_has_children(&self, id: &str) -> bool {
         self.subgraph_ids_with_children.contains(id)
     }
@@ -159,9 +162,11 @@ impl<'a> FlowchartRenderCtx<'a> {
         else {
             return;
         };
+
         plan.record_label_emission(emission);
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn is_subgraph_collapsed(&self, id: &str) -> bool {
         self.model.is_subgraph_collapsed(id)
     }

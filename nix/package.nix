@@ -45,6 +45,7 @@ rustPlatform.buildRustPackage {
   postInstall = ''
     mkdir -p "$out/libexec/arch-only" "$out/share/console"
     cp -r theme "$out/share/console/"
+    cp -r files/usr/local/share/console/bar-applets "$out/share/console/"
     mkdir -p "$out/share/applications" "$out/share/icons"
     cp files/usr/share/applications/console-*.desktop "$out/share/applications/"
     cp files/usr/share/icons/console-placeholder.svg "$out/share/icons/"

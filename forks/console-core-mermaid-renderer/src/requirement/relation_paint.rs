@@ -36,6 +36,7 @@ impl RequirementRelationPaintPlan {
         work_meter: &OperationWorkMeter,
     ) -> Result<Option<Self>, OperationWorkError> {
         let routes = theme.family_mechanism_routes();
+
         if !routes.iter().any(|route| {
             matches!(
                 route.mechanism(),
@@ -52,6 +53,7 @@ impl RequirementRelationPaintPlan {
         }) {
             return Ok(None);
         }
+
         let source_owned =
             config.config_paint_overrides_typed_default(REQUIREMENT_RELATION_PAINT_PATH);
         let style = theme.style_with_work_meter(
@@ -60,7 +62,7 @@ impl RequirementRelationPaintPlan {
             None,
             work_meter,
         )?;
-        // Any specified stroke, including Clear and unsupported paint, suppresses fill fallback.
+
         let fill_fallback = matches!(
             style.stroke_resolution().specified(),
             Specified::Unspecified
@@ -109,46 +111,53 @@ impl RequirementRelationPaintPlan {
         let mut winners = BTreeSet::new();
         let mut palette_applicable = false;
         let mut effect_bindings = BTreeSet::new();
-        let mut observe_style = |style: &crate::diagram_theme::ResolvedThemeStyle, ordinal| {
-            let fill_fallback = matches!(
-                style.stroke_resolution().specified(),
+        let mut observe_style = |style_2: &crate::diagram_theme::ResolvedThemeStyle, ordinal| {
+            let fill_fallback_2 = matches!(
+                style_2.stroke_resolution().specified(),
                 Specified::Unspecified
             );
-            for (property, origin) in style.winner_rule_properties() {
-                if property == ResolvedStyleProperty::Fill && (!fill_fallback || source_owned)
-                    || property == ResolvedStyleProperty::Stroke && source_owned
+
+            for (property_2, origin) in style_2.winner_rule_properties() {
+                if property_2 == ResolvedStyleProperty::Fill && (!fill_fallback_2 || source_owned)
+                    || property_2 == ResolvedStyleProperty::Stroke && source_owned
                 {
                     continue;
                 }
-                winners.insert((origin.rule_index(), property));
+
+                winners.insert((origin.rule_index(), property_2));
             }
+
             palette_applicable |= !source_owned
-                && fill_fallback
-                && matches!(style.fill_resolution().specified(), Specified::Unspecified)
+                && fill_fallback_2
+                && matches!(style_2.fill_resolution().specified(), Specified::Unspecified)
                 && theme.series_color(ThemeTarget::Relation, ordinal).is_some();
+
             if let Some(ResolvedThemeEffect::Binding { binding, .. }) =
-                theme.resolve_effect(ThemeTarget::Relation, style.effect_resolution())
+                theme.resolve_effect(ThemeTarget::Relation, style_2.effect_resolution())
             {
                 effect_bindings.insert(binding.effect_id().to_owned());
             }
         };
+
         if resolves_per_ordinal {
             for ordinal in 1..=model.relationships.len() {
-                let style = theme.style_with_work_meter(
+                let style_3 = theme.style_with_work_meter(
                     ThemeTarget::Relation,
                     ThemeVariant::Default,
                     Some(ordinal),
                     work_meter,
                 )?;
-                observe_style(&style, ordinal);
+                observe_style(&style_3, ordinal);
             }
         } else if !model.relationships.is_empty() {
             observe_style(&style, 1);
         }
 
         let mut observations = BTreeMap::new();
+
         for route in routes.iter().copied() {
             work_meter.charge(1)?;
+
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
                     rule_index,
@@ -157,15 +166,17 @@ impl RequirementRelationPaintPlan {
                     ..
                 } => {
                     let observation = observations.entry(rule_index).or_insert((false, None));
-                    let property = resolved_style_property_for_facet(facet);
-                    if !winners.contains(&(rule_index, property)) {
+                    let property_3 = resolved_style_property_for_facet(facet);
+
+                    if !winners.contains(&(rule_index, property_3)) {
                         continue;
                     }
+
                     if route.disposition() == FamilyThemeDisposition::TypedAdapter
                         && assignment
                             .as_ref()
                             .is_some_and(|(candidate_property, paint)| {
-                                *candidate_property == property && paint.rule_index() == rule_index
+                                *candidate_property == property_3 && paint.rule_index() == rule_index
                             })
                     {
                         observation.0 = true;
@@ -179,6 +190,7 @@ impl RequirementRelationPaintPlan {
                     target: ThemeTarget::Relation,
                 } => {
                     let key = theme.family_mechanism_key(route);
+
                     if palette_applicable {
                         evidence.mark_residual(
                             key,
@@ -198,6 +210,7 @@ impl RequirementRelationPaintPlan {
                         FamilyThemeMechanismKey::EffectBinding { effect_id, .. }
                             if effect_bindings.contains(effect_id)
                     );
+
                     if applicable {
                         evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedEffect);
                     } else {
@@ -209,8 +222,10 @@ impl RequirementRelationPaintPlan {
         }
 
         let mut pending = false;
+
         for (rule_index, (applied, residual)) in observations {
             let key = relation_rule_key(rule_index);
+
             if let Some(reason) = residual {
                 evidence.mark_residual(key, reason);
             } else if applied {
@@ -219,6 +234,7 @@ impl RequirementRelationPaintPlan {
                 evidence.mark_not_applicable(key);
             }
         }
+
         Ok(Some(Self {
             assignment,
             pending,
@@ -226,12 +242,14 @@ impl RequirementRelationPaintPlan {
         }))
     }
 
+    #[must_use]
     pub(crate) fn typed_color(&self) -> Option<(usize, &str)> {
         self.assignment
             .as_ref()
             .map(|(_, paint)| (paint.rule_index(), paint.css()))
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(
         &self,
         expected_path_count: usize,
@@ -249,6 +267,7 @@ impl RequirementRelationPaintPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: RequirementRelationPaintReceipt) -> bool {
         self.assignment.as_ref().is_some_and(|(property, paint)| {
             *property == receipt.property && *paint == receipt.expected
@@ -260,11 +279,13 @@ impl RequirementRelationPaintPlan {
         if !self.pending {
             return;
         }
+
         let (property, paint) = self
             .assignment
             .as_ref()
             .expect("pending static relation paint");
         let key = relation_rule_key(paint.rule_index());
+
         if self.terminal_receipt.get().is_some_and(|receipt| {
             receipt
                 .ledger
@@ -277,6 +298,7 @@ impl RequirementRelationPaintPlan {
     }
 }
 
+#[must_use]
 fn relation_rule_key(index: usize) -> FamilyThemeMechanismKey {
     FamilyThemeMechanismKey::Rule {
         index,
@@ -311,6 +333,7 @@ impl RequirementRelationPaintReceipt {
             self.values_match = false;
             return;
         };
+
         self.values_match &= !*emitted;
         *emitted = true;
     }
@@ -320,6 +343,7 @@ impl RequirementRelationPaintReceipt {
         self.emitted_path_count = self.emitted_path_count.saturating_add(1);
     }
 
+    #[must_use]
     fn proves_complete(&self) -> bool {
         self.values_match
             && self.css_emitted

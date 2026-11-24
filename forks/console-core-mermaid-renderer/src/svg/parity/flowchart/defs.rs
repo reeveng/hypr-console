@@ -31,6 +31,7 @@ enum FlowchartMarkerPaint {
 }
 
 impl FlowchartMarkerPaint {
+    #[must_use]
     fn color_scan_count(self) -> usize {
         match self {
             Self::None | Self::Stroke => 1,
@@ -38,9 +39,10 @@ impl FlowchartMarkerPaint {
         }
     }
 
+    #[must_use]
     fn source_owned_channels(self, source_admitted: bool, config_owned: bool) -> (bool, bool) {
-        // These flags prove source/config precedence, never visible stroke pixels. Neo margin
-        // shapes can own a stroke declaration while their fixed stroke width remains zero.
+
+
         match self {
             Self::None => (config_owned, config_owned),
             Self::Stroke => (config_owned, source_admitted),
@@ -55,8 +57,8 @@ impl FlowchartMarkerPaint {
                 let _ = write!(out, r#" stroke="{}""#, escape_xml_display(color));
             }
             Self::StrokeAndFill => {
-                let color = escape_xml_display(color);
-                let _ = write!(out, r#" stroke="{color}" fill="{color}""#);
+                let color_2 = escape_xml_display(color);
+                let _ = write!(out, r#" stroke="{color}" fill="{color}""#, color = color_2);
             }
         }
     }
@@ -80,15 +82,16 @@ struct FlowchartMarkerViewport {
 }
 
 impl FlowchartMarkerViewport {
+    #[must_use]
     fn rotation_radius(self) -> f64 {
-        // All built-in markers use a zero-origin viewBox and the SVG default
-        // xMidYMid meet mapping. The default hidden overflow clips to this viewport.
+
+
         let scale = ((match self.size { [_explicit_element, ..] => _explicit_element }) / (match self.view_box { [_explicit_element, ..] => _explicit_element })).min((match self.size { [_, _explicit_element, ..] => _explicit_element }) / (match self.view_box { [_, _explicit_element, ..] => _explicit_element }));
         let reference_x =
             (match self.reference { [_explicit_element, ..] => _explicit_element }) * scale + ((match self.size { [_explicit_element, ..] => _explicit_element }) - (match self.view_box { [_explicit_element, ..] => _explicit_element }) * scale) / 2.0;
         let reference_y =
             (match self.reference { [_, _explicit_element, ..] => _explicit_element }) * scale + ((match self.size { [_, _explicit_element, ..] => _explicit_element }) - (match self.view_box { [_, _explicit_element, ..] => _explicit_element }) * scale) / 2.0;
-        // The farthest viewport corner bounds the marker under any path tangent rotation.
+
         reference_x
             .abs()
             .max(((match self.size { [_explicit_element, ..] => _explicit_element }) - reference_x).abs())
@@ -294,6 +297,7 @@ const BPMN_MARKER_SHAPE_SPECS: [FlowchartMarkerShapeSpec; 4] = [
     },
 ];
 
+#[must_use]
 fn flowchart_marker_shape_spec(
     base: FlowchartMarkerBase,
     margin: bool,
@@ -328,6 +332,7 @@ struct FlowchartMarkerVariantKey {
 }
 
 impl FlowchartMarkerVariantKey {
+    #[must_use]
     fn paint(&self) -> FlowchartMarkerPaint {
         if self.typed_edge {
             match self.base {
@@ -335,7 +340,7 @@ impl FlowchartMarkerVariantKey {
                 | FlowchartMarkerBase::PointEnd
                 | FlowchartMarkerBase::CircleStart
                 | FlowchartMarkerBase::CircleEnd => FlowchartMarkerPaint::StrokeAndFill,
-                _ => FlowchartMarkerPaint::Stroke,
+                FlowchartMarkerBase::CrossStart | FlowchartMarkerBase::CrossEnd | FlowchartMarkerBase::OpenArrowStart | FlowchartMarkerBase::OpenArrowEnd | FlowchartMarkerBase::HollowCircleStart | FlowchartMarkerBase::HollowCircleEnd => FlowchartMarkerPaint::Stroke,
             }
         } else {
             flowchart_marker_shape_spec(self.base, self.margin).paint
@@ -361,16 +366,16 @@ impl<'a> PreparedFlowchartMarkerColor<'a> {
             .ok_or_else(|| work_meter.arithmetic_overflow())?;
         work_meter.charge(normalization_work)?;
         let id = marker_color_id(raw);
-        // Source marker ids contain only ASCII alphanumerics and underscores. The hyphen keeps
-        // typed edge paint separate even when source and theme colors normalize identically.
-        let id = if typed_edge && !id.is_empty() {
+
+
+        let id_2 = if typed_edge && !id.is_empty() {
             format!("theme-{id}")
         } else {
             id
         };
         Ok(Self {
             raw,
-            id,
+            id: id_2,
             typed_edge,
         })
     }
@@ -394,6 +399,7 @@ impl fmt::Write for MarkerAttributeMatcher<'_> {
         } else {
             self.matches = false;
         }
+
         Ok(())
     }
 }
@@ -433,6 +439,7 @@ pub(in crate::svg::parity::flowchart) struct FlowchartMarkerEmissionPlan {
 }
 
 impl FlowchartMarkerEmissionPlan {
+    #[must_use]
     fn new(hand_drawn: bool) -> Self {
         Self {
             #[cfg(test)]
@@ -459,9 +466,11 @@ impl FlowchartMarkerEmissionPlan {
         let mut plan = Self::new(hand_drawn);
         ctx.work_meter
             .charge(ctx.effect_eligibility.marker_route_work)?;
+
         if ctx.effect_eligibility.marker {
             plan.terminal = Some(Mutex::new(FlowchartMarkerTerminalReceipt::default()));
         }
+
         for &edge in hierarchy_plan.ordered_edges() {
             ctx.edge_style_plan.bind_path_sources_for(
                 edge.key,
@@ -471,14 +480,15 @@ impl FlowchartMarkerEmissionPlan {
                 ctx.work_meter,
             )?;
             let edge_styles = ctx.edge_style_plan.edge_for(edge.key)?;
+            let checked_value = ctx.edge_style_plan
+                    .emitted_source_stroke_status_for(edge.key, hand_drawn)?;
             let stroke_precedence = crate::flowchart::FlowchartFacetPrecedence::new(
-                ctx.edge_style_plan
-                    .emitted_source_stroke_status_for(edge.key, hand_drawn)?,
+                checked_value,
                 ctx.edge_stroke_config_override,
             );
             let typed_stroke = ctx.edge_theme.stroke_value(stroke_precedence, true);
             let marker_color = typed_stroke.or_else(|| edge_styles.edge_marker_color(hand_drawn));
-            let margin = neo && !ctx.edge_style_plan.animation_for(edge.key)?.is_active();
+            let margin = neo && !{ let checked_value_2 = ctx.edge_style_plan.animation_for(edge.key)?; checked_value_2 }.is_active();
             plan.register_edge_with_identity(
                 edge.key,
                 edge.edge,
@@ -490,6 +500,7 @@ impl FlowchartMarkerEmissionPlan {
                 ctx.work_meter,
             )?;
         }
+
         plan.finalize_svg_budget(
             ctx.document_ids().marker_scope(),
             ctx.diagram_type,
@@ -509,9 +520,11 @@ impl FlowchartMarkerEmissionPlan {
         diagram_type: &str,
         work_meter: &crate::resources::OperationWorkMeter,
     ) -> crate::Result<()> {
-        let Some(terminal) = &self.terminal else {
-            return Ok(());
+        let terminal = match &self.terminal {
+            Some(matched_terminal) => matched_terminal,
+            ::core::option::Option::None => return Ok(()),
         };
+
         let key = checkpoint.key;
         let references =
             self.edge_occurrences
@@ -522,23 +535,32 @@ impl FlowchartMarkerEmissionPlan {
                         key.semantic_index()
                     ),
                 })?;
-        let count = usize::from(references.start.is_some()) + usize::from(references.end.is_some());
-        if count == 0 {
-            if checkpoint
-                .attributes
-                .is_some_and(|attributes| !attributes.is_empty())
-            {
-                work_meter.charge(1)?;
-                terminal
-                    .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .valid = false;
-            }
-            return Ok(());
+        let count = ::core::primitive::usize::wrapping_add(usize::from(references.start.is_some()), usize::from(references.end.is_some()));
+
+        match count {
+            0 => {
+                if checkpoint
+                    .attributes
+                    .is_some_and(|attributes| !attributes.is_empty())
+                {
+                    work_meter.charge(1)?;
+                    terminal
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .valid = false;
+                }
+
+                return Ok(());
+            },
+            _ => {},
         }
-        work_meter.charge(1 + count + references.serialized_bytes.div_ceil(64))?;
+
+        work_meter.charge(count.wrapping_add(1) + references.serialized_bytes.div_ceil(64))?;
         let mut actual = MarkerAttributeMatcher {
-            remaining: checkpoint.attributes.unwrap_or_default(),
+            remaining: match checkpoint.attributes {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => "",
+            },
             matches: checkpoint.attributes.is_some(),
         };
         self.push_prepared_edge_marker_attributes(
@@ -548,14 +570,16 @@ impl FlowchartMarkerEmissionPlan {
             references,
         );
         let references_match = actual.matches && actual.remaining.is_empty();
-        let mut terminal = terminal
+        let mut terminal_2 = terminal
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let first_checkpoint = terminal.seen_edges.insert(key);
-        terminal.valid &= checkpoint.has_geometry && references_match && first_checkpoint;
-        if !terminal.valid {
+        let first_checkpoint = terminal_2.seen_edges.insert(key);
+        terminal_2.valid &= checkpoint.has_geometry && references_match && first_checkpoint;
+
+        if !terminal_2.valid {
             return Ok(());
         }
+
         for reference in [references.start, references.end].into_iter().flatten() {
             let paint = if !self.hand_drawn && reference.variant_index.is_some() {
                 flowchart_marker_shape_spec(reference.base, reference.margin).paint
@@ -566,9 +590,10 @@ impl FlowchartMarkerEmissionPlan {
                 source == crate::flowchart::FlowchartSourceFacetStatus::Admitted,
                 config_owned,
             );
-            terminal.fill_owners.push(fill);
-            terminal.stroke_owners.push(stroke);
+            terminal_2.fill_owners.push(fill);
+            terminal_2.stroke_owners.push(stroke);
         }
+
         Ok(())
     }
 
@@ -582,37 +607,48 @@ impl FlowchartMarkerEmissionPlan {
             TerminalVariantDomain, UnsupportedTerminalDomain,
             reconcile_unsupported_terminal_domains,
         };
-        let (Some(terminal), Some(theme)) = (&self.terminal, theme) else {
-            return Ok(None);
+
+        let (terminal, theme_2) = {
+            let outcome_terminal = (&self.terminal, theme);
+
+            match outcome_terminal {
+                (Some(matched_terminal), Some(matched_theme)) => (matched_terminal, matched_theme),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => return Ok(None),
+            }
         };
-        let terminal = terminal
+
+        let terminal_2 = terminal
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        work_meter.charge(self.edge_occurrences.len() + terminal.fill_owners.len())?;
+        work_meter.charge(self.edge_occurrences.len() + terminal_2.fill_owners.len())?;
         let mut evidence = crate::family::FamilyThemeOutcomes::default();
-        if !terminal.valid
+
+        if !terminal_2.valid
             || self.edge_occurrences.iter().any(|(key, references)| {
                 (references.start.is_some() || references.end.is_some())
-                    && !terminal.seen_edges.contains(key)
+                    && !terminal_2.seen_edges.contains(key)
             })
         {
-            // Expected references without a completed path are incomplete, not terminal-less.
+
             return Ok(Some(evidence));
         }
+
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut evidence,
             &[UnsupportedTerminalDomain::direct(
                 ThemeTarget::Marker,
-                TerminalVariantDomain::uniform(terminal.fill_owners.len(), ThemeVariant::Default),
+                TerminalVariantDomain::uniform(terminal_2.fill_owners.len(), ThemeVariant::Default),
             )
-            .with_source_owned_fill(&terminal.fill_owners)
-            .with_source_owned_stroke(&terminal.stroke_owners)],
+            .with_source_owned_fill(&terminal_2.fill_owners)
+            .with_source_owned_stroke(&terminal_2.stroke_owners)],
             work_meter,
         )?;
         Ok(Some(evidence))
     }
 
+    #[must_use]
     fn variant(&self, index: usize) -> (&FlowchartMarkerVariantKey, &str) {
         let (key, raw_color) = self
             .variants
@@ -661,10 +697,12 @@ impl FlowchartMarkerEmissionPlan {
             .into_iter()
             .flatten()
             .try_fold(0usize, |bytes, reference| {
-                let color_id_len = reference
+                let color_id_len = match reference
                     .variant_index
-                    .map(|index| self.variant(index).0.color_id.len())
-                    .unwrap_or_default();
+                    .map(|index| self.variant(index).0.color_id.len()) {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => 0,
+                };
                 bytes
                     .checked_add(diagram_id.len())
                     .and_then(|bytes| bytes.checked_add(diagram_type.len()))
@@ -690,6 +728,7 @@ impl FlowchartMarkerEmissionPlan {
             .entry(edge.id.clone())
             .or_default()
             .push(references.clone());
+
         if self.edge_occurrences.insert(key, references).is_some() {
             return Err(crate::Error::InvalidModel {
                 message: format!(
@@ -698,6 +737,7 @@ impl FlowchartMarkerEmissionPlan {
                 ),
             });
         }
+
         Ok(())
     }
 
@@ -730,40 +770,42 @@ impl FlowchartMarkerEmissionPlan {
     ) -> crate::Result<FlowchartMarkerReference> {
         work_meter.charge(1)?;
         self.bpmn_markers |= !base.supports_margin();
-        let margin = margin && base.supports_margin();
-        let Some(marker_color) = marker_color else {
+        let margin_2 = margin && base.supports_margin();
+
+        let Some(marker_color_2) = marker_color else {
             return Ok(FlowchartMarkerReference {
                 base,
-                margin,
+                margin: margin_2,
                 variant_index: None,
             });
         };
-        if marker_color.id.is_empty() {
+
+        if marker_color_2.id.is_empty() {
             return Ok(FlowchartMarkerReference {
                 base,
-                margin,
+                margin: margin_2,
                 variant_index: None,
             });
         }
 
         let key = FlowchartMarkerVariantKey {
             base,
-            margin,
-            color_id: marker_color.id.clone(),
-            typed_edge: marker_color.typed_edge,
+            margin: margin_2,
+            color_id: marker_color_2.id.clone(),
+            typed_edge: marker_color_2.typed_edge,
         };
         let variant_index = if let Some(index) = self.variants.get_index_of(&key) {
             index
         } else {
             work_meter.charge(1)?;
             let index = self.variants.len();
-            let replaced = self.variants.insert(key, marker_color.raw.to_string());
+            let replaced = self.variants.insert(key, marker_color_2.raw.to_string());
             debug_assert!(replaced.is_none());
             index
         };
         Ok(FlowchartMarkerReference {
             base,
-            margin,
+            margin: margin_2,
             variant_index: Some(variant_index),
         })
     }
@@ -799,9 +841,11 @@ impl FlowchartMarkerEmissionPlan {
         self.preflight_serialization_input(base_marker_input_bytes.div_ceil(64), work_meter)?;
         let mut base_counter = SvgByteCounter::default();
         push_base_markers(&mut base_counter, diagram_id, diagram_type);
+
         if self.bpmn_markers {
             push_bpmn_markers(&mut base_counter, diagram_id, diagram_type);
         }
+
         let base_marker_bytes = base_counter.finish(work_meter)?;
 
         let extra_marker_input_bytes = self.variants.iter().try_fold(
@@ -818,11 +862,11 @@ impl FlowchartMarkerEmissionPlan {
                     .ok_or_else(|| work_meter.arithmetic_overflow())?;
                 bytes
                     .checked_add(diagram_id.len())
-                    .and_then(|bytes| bytes.checked_add(diagram_type_bytes))
-                    .and_then(|bytes| bytes.checked_add(key.base.id_suffix().len()))
-                    .and_then(|bytes| bytes.checked_add(key.color_id.len()))
-                    .and_then(|bytes| bytes.checked_add(raw_color_bytes))
-                    .ok_or_else(|| work_meter.arithmetic_overflow().into())
+                    .and_then(|bytes_2| bytes_2.checked_add(diagram_type_bytes))
+                    .and_then(|bytes_3| bytes_3.checked_add(key.base.id_suffix().len()))
+                    .and_then(|bytes_4| bytes_4.checked_add(key.color_id.len()))
+                    .and_then(|bytes_5| bytes_5.checked_add(raw_color_bytes))
+                    .ok_or_else(|| <crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(work_meter.arithmetic_overflow()))
             },
         )?;
         self.preflight_serialization_input(extra_marker_input_bytes.div_ceil(64), work_meter)?;
@@ -841,6 +885,7 @@ impl FlowchartMarkerEmissionPlan {
             Some(projected) => projected,
             None => {
                 work_meter.check_svg_append(usize::MAX, 1)?;
+
                 unreachable!("overflowing marker projection must be rejected")
             }
         };
@@ -897,6 +942,7 @@ impl FlowchartMarkerEmissionPlan {
     }
 
     /// Bounds the selected marker paint around either endpoint under any rotation.
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn edge_paint_outset_for(
         &self,
         key: crate::flowchart::FlowchartEdgeKey,
@@ -904,6 +950,7 @@ impl FlowchartMarkerEmissionPlan {
         if self.hand_drawn {
             return None;
         }
+
         let references = self.edge_occurrences.get(&key)?;
         Some(
             [references.start, references.end]
@@ -949,11 +996,18 @@ impl FlowchartMarkerEmissionPlan {
         diagram_type: &str,
         references: &FlowchartEdgeMarkerReferences,
     ) {
-        if let Some(reference) = references.start {
-            self.push_marker_attribute(out, "start", diagram_id, diagram_type, reference);
+        match references.start {
+            Some(reference) => {
+                self.push_marker_attribute(out, "start", diagram_id, diagram_type, reference);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(reference) = references.end {
-            self.push_marker_attribute(out, "end", diagram_id, diagram_type, reference);
+
+        match references.end {
+            Some(reference) => {
+                self.push_marker_attribute(out, "end", diagram_id, diagram_type, reference);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -1008,6 +1062,7 @@ pub(in crate::svg::parity::flowchart) struct FlowchartDefs<'a> {
     work_meter: &'a crate::resources::OperationWorkMeter,
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn prepare_flowchart_defs<'a>(
     diagram_id: &'a str,
     diagram_type: &'a str,
@@ -1032,9 +1087,11 @@ impl FlowchartDefs<'_> {
             .check_svg_append(out.len(), self.marker_plan.base_marker_bytes)?;
         let before = out.len();
         push_base_markers(out, self.diagram_id, self.diagram_type);
+
         if self.marker_plan.bpmn_markers {
             push_bpmn_markers(out, self.diagram_id, self.diagram_type);
         }
+
         debug_assert_eq!(out.len() - before, self.marker_plan.base_marker_bytes);
         out.checkpoint()
     }
@@ -1060,6 +1117,7 @@ impl FlowchartDefs<'_> {
 fn push_base_markers(out: &mut impl fmt::Write, diagram_id: &str, diagram_type: &str) {
     let id = escape_xml(diagram_id);
     let ty = escape_xml(diagram_type);
+
     for spec in FLOWCHART_MARKER_SHAPE_SPECS {
         let _ = write!(
             out,
@@ -1068,16 +1126,19 @@ fn push_base_markers(out: &mut impl fmt::Write, diagram_id: &str, diagram_type: 
             ty.as_str(),
             spec.base.id_suffix()
         );
+
         if spec.margin {
             let _ = out.write_str("-margin");
         }
+
         let _ = write!(out, r#"" class="{} {}""#, spec.marker_class, ty.as_str());
         let _ = out.write_str(spec.shape);
         let _ = out.write_str("/></marker>");
     }
+
     if diagram_type == "agentflow" {
-        // Mermaid eagerly registers these after the ordinary marker set, even without
-        // hierarchy edges. Keep them on the same namespace and resource-budget path.
+
+
         for (suffix, shape) in AGENTFLOW_HIERARCHY_MARKERS {
             let _ = write!(
                 out,
@@ -1086,18 +1147,23 @@ fn push_base_markers(out: &mut impl fmt::Write, diagram_id: &str, diagram_type: 
         }
     }
 }
+
+#[must_use]
 fn marker_color_id(color: &str) -> String {
-    // Mermaid's DOM marker id coloring logic (Mermaid 12) uses:
-    // `strokeColor.replace(/[^\dA-Za-z]/g, '_')`
-    //
-    // Important: this does not trim whitespace. As a result, values like `" orange"` (leading
-    // space captured from `style="...stroke: orange;..."`) produce a leading `_` in the color id,
-    // which in turn yields a `__orange` suffix in the final marker id.
+
+
+
+
+
+
     let raw = color.trim_end_matches(';');
+
     if raw.trim().is_empty() {
         return String::new();
     }
+
     let mut out = String::with_capacity(raw.len());
+
     for code_unit in raw.encode_utf16() {
         if code_unit <= 0x7f && (code_unit as u8).is_ascii_alphanumeric() {
             out.push(char::from(code_unit as u8));
@@ -1105,6 +1171,7 @@ fn marker_color_id(color: &str) -> String {
             out.push('_');
         }
     }
+
     out
 }
 
@@ -1137,15 +1204,18 @@ fn write_flowchart_marker_id_xml(
     let _ = write!(out, "{}", escape_xml_display(diagram_type));
     let _ = out.write_char('-');
     let _ = out.write_str(base.id_suffix());
+
     if margin {
         let _ = out.write_str("-margin");
     }
 
-    let Some(color_id) = color_id else {
-        return;
+    let color_id_2 = match color_id {
+        Some(matched_color_id) => matched_color_id,
+        ::core::option::Option::None => return,
     };
+
     let _ = out.write_char('_');
-    let _ = out.write_str(color_id);
+    let _ = out.write_str(color_id_2);
 }
 
 fn push_extra_marker(
@@ -1156,13 +1226,13 @@ fn push_extra_marker(
     raw_color: &str,
     security_level_loose: bool,
 ) {
-    let raw_color = raw_color.trim_end_matches(';');
+    let raw_color_2 = raw_color.trim_end_matches(';');
     let normalized_color;
     let color = if security_level_loose {
-        Some(raw_color)
+        Some(raw_color_2)
     } else {
         normalized_color =
-            merman_markup::sanitize::dompurify_normalize_dom_uri_attribute(raw_color);
+            merman_markup::sanitize::dompurify_normalize_dom_uri_attribute(raw_color_2);
         normalized_color.as_deref()
     };
     let spec = flowchart_marker_shape_spec(key.base, key.margin);
@@ -1183,9 +1253,14 @@ fn push_extra_marker(
         escape_xml_display(diagram_type)
     );
     let _ = out.write_str(spec.shape);
-    if let Some(color) = color {
-        key.paint().push(out, color);
+
+    match color {
+        Some(color_2) => {
+            key.paint().push(out, color_2);
+        },
+        ::core::option::Option::None => {},
     }
+
     let _ = out.write_str("/></marker>");
 }
 
@@ -1204,6 +1279,7 @@ impl fmt::Write for SvgByteCounter {
                 self.overflowed = true;
             }
         }
+
         Ok(())
     }
 }
@@ -1212,8 +1288,10 @@ impl SvgByteCounter {
     fn finish(self, work_meter: &crate::resources::OperationWorkMeter) -> crate::Result<usize> {
         if self.overflowed {
             work_meter.check_svg_append(usize::MAX, 1)?;
+
             unreachable!("overflowing SVG count must be rejected")
         }
+
         Ok(self.bytes)
     }
 }

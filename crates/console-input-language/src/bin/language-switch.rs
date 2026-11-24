@@ -37,7 +37,7 @@
 //! its own, because only one of them can be the one being typed on.
 
 use console_input_alphabets::wearing;
-use console_input_language::{COMMAND, Switch, along, at, layouts};
+use console_input_language::{COMMAND, Switch, along, at, layouts, reload_screen};
 
 fn main() -> std::process::ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
@@ -125,6 +125,8 @@ fn main() -> std::process::ExitCode {
 
     println!("{} is typing {}", keyboard.name, wants.says);
   }
+
+  let Ok(()) = reload_screen();
 
   match keyboards.as_slice() {
     [] => eprintln!("language-switch: the compositor lists no keyboard at all"),

@@ -35,13 +35,13 @@ pub struct SourcePresentationConfig {
     mutation_revision: u64,
 }
 
-// Only detector checkpoints advance this clock. Ordinary setters perform a read, not a
-// contended increment, while writes to an older clone still acquire the current epoch.
+
+
 static DETECTOR_EPOCH: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 struct MutationStamp {
-    // Zero denotes a framework write or a completed operation's sealed assignment.
+
     detector_epoch: u64,
     revision: u64,
 }
@@ -68,15 +68,18 @@ impl Default for SourcePresentationConfig {
 }
 
 impl SourcePresentationConfig {
+    #[must_use]
     pub fn empty_object() -> Self {
         Self::from_config(MermaidConfig::empty_object())
     }
 
+    #[must_use]
     pub fn from_value(value: Value) -> Self {
         Self::from_config(MermaidConfig::from_value(value))
     }
 
     /// Starts an unbound presentation lifecycle from raw configuration values.
+    #[must_use]
     pub fn from_config(inputs: MermaidConfig) -> Self {
         Self {
             inputs,
@@ -89,23 +92,28 @@ impl SourcePresentationConfig {
         }
     }
 
+    #[must_use]
     pub fn as_config(&self) -> &MermaidConfig {
         &self.inputs
     }
 
+    #[must_use]
     pub fn as_value(&self) -> &Value {
         self.inputs.as_value()
     }
 
+    #[must_use]
     pub fn get_str(&self, dotted_path: &str) -> Option<&str> {
         self.inputs.get_str(dotted_path)
     }
 
+    #[must_use]
     pub fn get_bool(&self, dotted_path: &str) -> Option<bool> {
         self.inputs.get_bool(dotted_path)
     }
 
     /// Palette identity retained from a successful theme evaluation, including inherited palettes.
+    #[must_use]
     pub const fn materialized_theme(&self) -> Option<crate::MermaidThemeId> {
         self.materialized_theme
     }
@@ -124,10 +132,12 @@ impl SourcePresentationConfig {
             .clone_value_bounded_controlled(max_retained_bytes, max_nesting_depth, control)
     }
 
+    #[must_use]
     pub(crate) fn is_empty_object(&self) -> bool {
         self.inputs.is_empty_object()
     }
 
+    #[must_use]
     pub(crate) fn is_pristine_empty_object(&self) -> bool {
         self.is_empty_object()
             && self.theme_compatibility.is_none()
@@ -137,8 +147,8 @@ impl SourcePresentationConfig {
     }
 
     pub(crate) fn refresh_initialization_mutations_after(&mut self, before: &Self) {
-        // Initialization deep-merges record their unique paths in BTreeSet order. Retain that
-        // order and read the detector clock separately for every original public assignment.
+
+
         for stamp in Arc::make_mut(&mut self.mutation_paths).values_mut() {
             if stamp.revision > before.mutation_revision {
                 stamp.detector_epoch = DETECTOR_EPOCH.load(Ordering::Relaxed);
@@ -147,8 +157,8 @@ impl SourcePresentationConfig {
     }
 
     pub(crate) fn inherit_initialization_mutation_epochs(&mut self, initialized: &Self) {
-        // Theme calculation keeps inherited assignments but can overwrite a path with a later
-        // framework revision. Only the original assignments inherit the installation's epochs.
+
+
         for (path, stamp) in Arc::make_mut(&mut self.mutation_paths) {
             if let Some(inherited) = initialized.mutation_paths.get(path)
                 && stamp.revision == inherited.revision
@@ -158,6 +168,7 @@ impl SourcePresentationConfig {
         }
     }
 
+    #[must_use]
     pub(crate) fn has_tracking_theme_compatibility(&self) -> bool {
         matches!(
             self.theme_compatibility,
@@ -202,6 +213,7 @@ impl SourcePresentationConfig {
         }
     }
 
+    #[must_use]
     pub(crate) fn from_theme_compatibility_recipe(binding: ThemeCompatibilityRecipe) -> Self {
         let ownership = ThemeCompatibilityOwnership::from_config(
             binding.clone(),
@@ -229,9 +241,11 @@ impl SourcePresentationConfig {
         control.checkpoint()?;
         let theme_compatibility = if let Some(binding) = config.theme_compatibility().recipe() {
             let mut fields = Vec::new();
+
             for field in config.theme_compatibility().mermaid_fields() {
                 control.checkpoint()?;
                 let mut paths = Vec::new();
+
                 for path in field.shared_assignment_paths().iter() {
                     control.checkpoint()?;
                     paths.push(ThemeCompatibilityPathOwnership {
@@ -239,12 +253,14 @@ impl SourcePresentationConfig {
                         owned: true,
                     });
                 }
+
                 fields.push(ThemeCompatibilityFieldOwnership {
                     opaque_id: Arc::from(field.opaque_id()),
                     kind: field.kind(),
                     paths,
                 });
             }
+
             Some(ThemeCompatibilityState::Frozen(Arc::new(
                 ThemeCompatibilityOwnership {
                     binding: binding.clone(),
@@ -279,7 +295,7 @@ impl SourcePresentationConfig {
         self.freeze_theme_compatibility();
         let (recipe, fields, family_paint_inputs) = match &self.theme_compatibility {
             Some(ThemeCompatibilityState::Frozen(ownership)) => {
-                let fields = match ownership.freeze_fields_controlled(policy, control)? {
+                let fields = match { let checked_value_2 = ownership.freeze_fields_controlled(policy, control)?; checked_value_2 } {
                     Ok(fields) => fields,
                     Err(error) => return Ok(Err(error)),
                 };
@@ -334,6 +350,7 @@ impl SourcePresentationConfig {
         else {
             return;
         };
+
         self.theme_compatibility = Some(state);
     }
 
@@ -342,10 +359,15 @@ impl SourcePresentationConfig {
         target: &Self,
         before: &Self,
     ) {
-        let Some(ThemeCompatibilityState::Tracking(ownership)) = self.theme_compatibility.as_mut()
-        else {
-            return;
+        let ownership = {
+            let outcome_ownership = self.theme_compatibility.as_mut();
+
+            match outcome_ownership {
+                Some(ThemeCompatibilityState::Tracking(matched_ownership)) => matched_ownership,
+                ::core::option::Option::Some(crate::config::presentation::ThemeCompatibilityState::Frozen(..)) | ::core::option::Option::None => return,
+            }
         };
+
         for field in &mut Arc::make_mut(ownership).fields {
             for path in &mut field.paths {
                 if path.owned && !target.path_was_mutated_after(before, &path.path) {
@@ -359,15 +381,26 @@ impl SourcePresentationConfig {
         &mut self,
         normalized: &Map<String, Value>,
     ) {
-        let Some(ThemeCompatibilityState::Tracking(ownership)) = self.theme_compatibility.as_mut()
-        else {
-            return;
+        let ownership = {
+            let outcome_ownership = self.theme_compatibility.as_mut();
+
+            match outcome_ownership {
+                Some(ThemeCompatibilityState::Tracking(matched_ownership)) => matched_ownership,
+                ::core::option::Option::Some(crate::config::presentation::ThemeCompatibilityState::Frozen(..)) | ::core::option::Option::None => return,
+            }
         };
+
         for field in &mut Arc::make_mut(ownership).fields {
-            for path in &mut field.paths {
-                let Some(key) = path.path.strip_prefix("themeVariables.") else {
-                    continue;
+            'over_path_2: for path in &mut field.paths {
+                let key = {
+                    let optional_key = path.path.strip_prefix("themeVariables.");
+
+                    match optional_key {
+                        Some(matched_key) => matched_key,
+                        ::core::option::Option::None => continue 'over_path_2,
+                    }
                 };
+
                 if path.owned && !normalized.contains_key(key) {
                     path.owned = false;
                 }
@@ -376,12 +409,18 @@ impl SourcePresentationConfig {
     }
 
     pub(crate) fn freeze_theme_compatibility(&mut self) {
-        let Some(ThemeCompatibilityState::Tracking(ownership)) = self.theme_compatibility.as_ref()
-        else {
-            return;
+        let ownership = {
+            let outcome_ownership = self.theme_compatibility.as_ref();
+
+            match outcome_ownership {
+                Some(ThemeCompatibilityState::Tracking(matched_ownership)) => matched_ownership,
+                ::core::option::Option::Some(crate::config::presentation::ThemeCompatibilityState::Frozen(..)) | ::core::option::Option::None => return,
+            }
         };
+
         self.theme_compatibility = Some(ThemeCompatibilityState::Frozen(Arc::clone(ownership)));
     }
+
     #[cfg(test)]
     pub(crate) fn config_path_overrides_typed_default(&self, dotted_path: &str) -> bool {
         self.explicit_config_owns_path(dotted_path)
@@ -409,13 +448,16 @@ impl SourcePresentationConfig {
         self.source_theme_palette = source_selected;
     }
 
+    #[must_use]
     pub(crate) fn theme_variable_has_calculation_owner(&self, variable: &str) -> bool {
         let source_path = format!("themeVariables.{variable}");
+
         if self.explicit_config_owns_path(&source_path) {
             return true;
         }
-        // Theme calculation precedes freezing. Read the same surviving physical inputs that
-        // propagation can extend, without changing the renderer's frozen-admission predicate.
+
+
+
         match self.theme_compatibility.as_ref() {
             Some(
                 ThemeCompatibilityState::Tracking(ownership)
@@ -430,6 +472,7 @@ impl SourcePresentationConfig {
         }
     }
 
+    #[must_use]
     pub(crate) fn has_theme_variable_calculation_owners(&self) -> bool {
         if self.explicit_config_paths.contains("")
             || self.explicit_config_paths.contains("themeVariables")
@@ -444,6 +487,7 @@ impl SourcePresentationConfig {
         {
             return true;
         }
+
         match self.theme_compatibility.as_ref() {
             Some(
                 ThemeCompatibilityState::Tracking(ownership)
@@ -462,8 +506,8 @@ impl SourcePresentationConfig {
         let source_path = format!("themeVariables.{source}");
         let target_path: Arc<str> = Arc::from(format!("themeVariables.{target}"));
 
-        // Derived ownership follows exact calculation inputs. A parent `themeVariables` owner
-        // must not implicitly claim every variable produced by a theme program.
+
+
         if self.explicit_config_paths.contains(source_path.as_str()) {
             Arc::make_mut(&mut self.explicit_config_paths).insert(Arc::clone(&target_path));
         }
@@ -475,6 +519,7 @@ impl SourcePresentationConfig {
                         .paths
                         .iter()
                         .any(|path| path.owned && path.path.as_ref() == source_path.as_str());
+
                     if owns_source
                         && !field
                             .paths
@@ -497,8 +542,9 @@ impl SourcePresentationConfig {
                     {
                         continue;
                     }
-                    // The old frozen representation had already removed shadowed paths. An
-                    // actual later calculation could therefore restore this derived target.
+
+
+
                     if let Some(path) = field.paths.iter_mut().find(|path| path.path == target_path)
                     {
                         path.owned = true;
@@ -514,6 +560,7 @@ impl SourcePresentationConfig {
         }
     }
 
+    #[must_use]
     pub(crate) fn path_was_mutated_after(&self, before: &Self, dotted_path: &str) -> bool {
         self.mutation_paths.iter().any(|(candidate, revision)| {
             before
@@ -524,28 +571,34 @@ impl SourcePresentationConfig {
         })
     }
 
+    #[must_use]
     pub(crate) fn explicit_config_owns_path(&self, dotted_path: &str) -> bool {
         if self.explicit_config_paths.is_empty() {
             return false;
         }
+
         if dotted_path.is_empty() {
             return !self.explicit_config_paths.is_empty();
         }
+
         let owns = |path: &str| {
             #[cfg(test)]
             super::record_config_work(|work| work.explicit_path_candidates += 1);
             self.explicit_config_paths.contains(path)
         };
+
         if owns("") || owns(dotted_path) {
             return true;
         }
+
         for (index, _) in dotted_path.match_indices('.') {
             if owns(&dotted_path[..index]) {
                 return true;
             }
         }
-        // Descendants are contiguous in lexical order. Starting at the dotted prefix
-        // avoids unrelated keys such as `a-ignored` hiding an owned `a.child`.
+
+
+
         let prefix = format!("{dotted_path}.");
         #[cfg(test)]
         super::record_config_work(|work| work.explicit_path_candidates += 1);
@@ -569,47 +622,64 @@ impl SourcePresentationConfig {
 
     fn replace_detector_segments(&mut self, path: &[&str], value: Option<&Value>) {
         let Some((key, parents)) = path.split_last() else {
-            if let Some(value) = value {
-                replace_value_nonrecursive(
-                    self.inputs.as_value_mut(),
-                    clone_value_nonrecursive(value),
-                );
+            match value {
+                Some(value_2) => {
+                    replace_value_nonrecursive(
+                        self.inputs.as_value_mut(),
+                        clone_value_nonrecursive(value_2),
+                    );
+                },
+                ::core::option::Option::None => {},
             }
+
             return;
         };
-        if let Some(value) = value {
-            let mut parent = self.inputs.as_value_mut();
-            for segment in parents {
+
+        match value {
+            Some(value_3) => {
+                let mut parent = self.inputs.as_value_mut();
+
+                for segment in parents {
+                    if !parent.is_object() {
+                        replace_value_nonrecursive(parent, Value::Object(Map::new()));
+                    }
+
+                    parent = parent
+                        .as_object_mut()
+                        .expect("object parent")
+                        .entry((*segment).to_owned())
+                        .or_insert(Value::Null);
+                }
+
                 if !parent.is_object() {
                     replace_value_nonrecursive(parent, Value::Object(Map::new()));
                 }
-                parent = parent
-                    .as_object_mut()
-                    .expect("object parent")
-                    .entry((*segment).to_owned())
-                    .or_insert(Value::Null);
-            }
-            if !parent.is_object() {
-                replace_value_nonrecursive(parent, Value::Object(Map::new()));
-            }
-            if let Some(removed) = parent
-                .as_object_mut()
-                .expect("object parent")
-                .insert((*key).to_owned(), clone_value_nonrecursive(value))
-            {
-                drop_value_nonrecursive(removed);
-            }
-        } else {
-            let parent = parents
-                .iter()
-                .try_fold(self.inputs.as_value_mut(), |value, segment| {
-                    value.as_object_mut()?.get_mut(*segment)
-                });
-            if let Some(parent) = parent.and_then(Value::as_object_mut)
-                && let Some(removed) = parent.remove(*key)
-            {
-                drop_value_nonrecursive(removed);
-            }
+
+                {
+                    match parent
+                        .as_object_mut()
+                        .expect("object parent")
+                        .insert((*key).to_owned(), clone_value_nonrecursive(value_3)) {
+                        Some(removed) => {
+                            drop_value_nonrecursive(removed);
+                        },
+                        ::core::option::Option::None => {},
+                    };
+                }
+            },
+            ::core::option::Option::None => {
+                let parent = parents
+                    .iter()
+                    .try_fold(self.inputs.as_value_mut(), |value_4, segment| {
+                        value_4.as_object_mut()?.get_mut(*segment)
+                    });
+
+                if let Some(parent_2) = parent.and_then(Value::as_object_mut)
+                    && let Some(removed) = parent_2.remove(*key)
+                {
+                    drop_value_nonrecursive(removed);
+                }
+            },
         }
     }
 
@@ -646,9 +716,9 @@ impl SourcePresentationConfig {
     }
 
     pub(crate) fn commit_legacy_theme_variables(&mut self, variables: Map<String, Value>) {
-        // Legacy resolution used to publish normalized inputs before the final variables.
-        // Preserve both framework mutation revisions for detector replay, but publish only the
-        // complete result after every fallible calculation has succeeded.
+
+
+
         self.record_mutation("themeVariables", false);
         self.set_value_preserving_theme_compatibility("themeVariables", Value::Object(variables));
     }
@@ -667,9 +737,11 @@ impl SourcePresentationConfig {
             .merge_with_mutation_observer(other, &mut |segments| {
                 mutation_paths.insert(segments.join("."));
             });
+
         for path in mutation_paths {
             self.shadow_theme_compatibility_path(&path);
             self.record_mutation(&path, !explicit);
+
             if explicit {
                 self.mark_explicit_config_path(&path);
             }
@@ -681,8 +753,8 @@ impl SourcePresentationConfig {
     }
 
     pub(crate) fn seal_detector_mutations(&mut self) {
-        // A completed nested operation carries its existing explicit metadata, not setter events
-        // that an enclosing detector can reinterpret as its own assignments.
+
+
         if self
             .mutation_paths
             .values()
@@ -751,6 +823,7 @@ pub(crate) struct DetectorConfigChanges {
 }
 
 impl DetectorConfigCheckpoint {
+    #[must_use]
     pub(crate) fn new(config: &SourcePresentationConfig) -> Self {
         let epoch = DETECTOR_EPOCH
             .try_update(Ordering::Relaxed, Ordering::Relaxed, |epoch| {
@@ -777,14 +850,18 @@ impl DetectorConfigCheckpoint {
             .filter(|(_, stamp)| stamp.detector_epoch >= self.epoch)
             .map(|(path, _)| Arc::clone(path))
             .collect::<Vec<_>>();
+
         if !explicit_paths.is_empty() {
             Arc::make_mut(&mut after.explicit_config_paths).extend(explicit_paths.iter().cloned());
         }
+
         let values_changed = !std::ptr::eq(self.before.inputs.as_value(), after.inputs.as_value())
             && !config_values_equal(self.before.as_value(), after.as_value(), Some(control))?;
+
         if !values_changed && !transferred_explicit_ownership && explicit_paths.is_empty() {
             return Ok(None);
         }
+
         Ok(Some(DetectorConfigChanges {
             before: values_changed.then_some(self.before),
             after: after.clone(),
@@ -800,9 +877,10 @@ impl DetectorConfigChanges {
         &self.explicit_paths
     }
 
+    #[must_use]
     pub(crate) fn claimed_paths(&self) -> impl Iterator<Item = &Arc<str>> {
-        // Completed nested operations seal their setter events, but replacement still transfers
-        // their explicit owners. Ordinary initialized config must not become detector claims.
+
+
         self.explicit_paths
             .iter()
             .filter(|_| !self.transferred_explicit_ownership)
@@ -814,15 +892,18 @@ impl DetectorConfigChanges {
             )
     }
 
+    #[must_use]
     pub(crate) fn value_changed_at(&self, path: &str) -> bool {
-        let Some(before) = &self.before else {
-            return false;
+        let before = match &self.before {
+            Some(matched_before) => matched_before,
+            ::core::option::Option::None => return false,
         };
+
         match (
             config_value_at(before.as_value(), path),
             config_value_at(self.after.as_value(), path),
         ) {
-            (Some(before), Some(after)) => !config_values_equal(before, after, None)
+            (Some(before_2), Some(after)) => !config_values_equal(before_2, after, None)
                 .expect("comparison without operation control cannot cancel"),
             (None, None) => false,
             _ => true,
@@ -834,97 +915,111 @@ impl DetectorConfigChanges {
         target: &mut SourcePresentationConfig,
         control: &OperationControl,
     ) -> OperationControlResult<()> {
-        // Whole-config replacement transfers its explicit metadata. Materialization must not
-        // resurrect owners from the pre-detection host/source config; appearance is reapplied later.
+
+
         if self.transferred_explicit_ownership {
             target.explicit_config_paths = Arc::clone(&self.after.explicit_config_paths);
         }
-        // Values alone do not acquire explicit ownership, but a changed compatibility binding
-        // cannot retain its previous owner. Inspect exact bound paths, not structural parents.
+
+
+
         if let Some(ThemeCompatibilityState::Tracking(ownership)) = &mut target.theme_compatibility
         {
             for field in &mut Arc::make_mut(ownership).fields {
                 for path in &mut field.paths {
                     control.checkpoint()?;
+
                     if path.owned && self.value_changed_at(&path.path) {
                         path.owned = false;
                     }
                 }
             }
         }
-        if let Some(before) = &self.before {
-            enum Frame<'a> {
-                Visit(Option<&'a Value>, Option<&'a Value>),
-                Object {
-                    before: &'a Map<String, Value>,
-                    after: &'a Map<String, Value>,
-                    before_entries: serde_json::map::Iter<'a>,
-                    after_entries: serde_json::map::Iter<'a>,
-                },
-                LeaveChild,
-            }
-            let mut path = Vec::new();
-            let mut pending = vec![Frame::Visit(
-                Some(before.as_value()),
-                Some(self.after.as_value()),
-            )];
-            while let Some(frame) = pending.pop() {
-                control.checkpoint()?;
-                #[cfg(test)]
-                record_config_work(|work| {
-                    work.detector_replay_steps += 1;
-                    work.detector_replay_peak_frames =
-                        work.detector_replay_peak_frames.max(pending.len() + 1);
-                    work.detector_replay_peak_path_segments =
-                        work.detector_replay_peak_path_segments.max(path.len());
-                });
-                match frame {
-                    Frame::Visit(Some(Value::Object(before)), Some(Value::Object(after))) => {
-                        pending.push(Frame::Object {
-                            before,
-                            after,
-                            before_entries: before.iter(),
-                            after_entries: after.iter(),
-                        });
-                    }
-                    Frame::Visit(Some(before), Some(after))
-                        if config_values_equal(before, after, Some(control))? => {}
-                    Frame::Visit(None, None) => {}
-                    Frame::Visit(_, after) => target.replace_detector_segments(&path, after),
-                    Frame::Object {
-                        before,
-                        after,
-                        mut before_entries,
-                        mut after_entries,
-                    } => {
-                        let child = before_entries
-                            .next()
-                            .map(|(key, value)| (key.as_str(), Some(value), after.get(key)))
-                            .or_else(|| {
-                                after_entries
-                                    .find(|(key, _)| !before.contains_key(*key))
-                                    .map(|(key, value)| (key.as_str(), None, Some(value)))
-                            });
-                        if let Some((key, before_child, after_child)) = child {
+
+        match &self.before {
+            Some(before) => {
+                enum Frame<'a> {
+                    Visit(Option<&'a Value>, Option<&'a Value>),
+                    Object {
+                        before: &'a Map<String, Value>,
+                        after: &'a Map<String, Value>,
+                        before_entries: serde_json::map::Iter<'a>,
+                        after_entries: serde_json::map::Iter<'a>,
+                    },
+                    LeaveChild,
+                }
+
+                let mut path = Vec::new();
+
+                let mut pending = vec![Frame::Visit(
+                    Some(before.as_value()),
+                    Some(self.after.as_value()),
+                )];
+                while let Some(frame) = pending.pop() {
+                    control.checkpoint()?;
+                    #[cfg(test)]
+                    record_config_work(|work| {
+                        work.detector_replay_steps += 1;
+                        work.detector_replay_peak_frames =
+                            work.detector_replay_peak_frames.max(pending.len() + 1);
+                        work.detector_replay_peak_path_segments =
+                            work.detector_replay_peak_path_segments.max(path.len());
+                    });
+
+                    match frame {
+                        Frame::Visit(Some(Value::Object(before)), Some(Value::Object(after))) => {
                             pending.push(Frame::Object {
                                 before,
                                 after,
-                                before_entries,
-                                after_entries,
+                                before_entries: before.iter(),
+                                after_entries: after.iter(),
                             });
-                            path.push(key);
-                            pending.push(Frame::LeaveChild);
-                            pending.push(Frame::Visit(before_child, after_child));
+                        }
+                        Frame::Visit(Some(before), Some(after))
+                            if config_values_equal(before, after, Some(control))? => {}
+                        Frame::Visit(None, None) => {}
+                        Frame::Visit(_, after) => target.replace_detector_segments(&path, after),
+                        Frame::Object {
+                            before,
+                            after,
+                            mut before_entries,
+                            mut after_entries,
+                        } => {
+                            let child = before_entries
+                                .next()
+                                .map(|(key, value)| (key.as_str(), Some(value), after.get(key)))
+                                .or_else(|| {
+                                    after_entries
+                                        .find(|(key, _)| !before.contains_key(*key))
+                                        .map(|(key, value)| (key.as_str(), None, Some(value)))
+                                });
+
+                            match child {
+                                Some((key, before_child, after_child)) => {
+                                    pending.push(Frame::Object {
+                                        before,
+                                        after,
+                                        before_entries,
+                                        after_entries,
+                                    });
+                                    path.push(key);
+                                    pending.push(Frame::LeaveChild);
+                                    pending.push(Frame::Visit(before_child, after_child));
+                                },
+                                ::core::option::Option::None => {},
+                            }
+                        }
+                        Frame::LeaveChild => {
+                            path.pop();
                         }
                     }
-                    Frame::LeaveChild => {
-                        path.pop();
-                    }
                 }
-            }
+            },
+            ::core::option::Option::None => {},
         }
-        // Rebuild both newly assigned and transferred explicit values, even when they matched
-        // the old initialized theme. Sealed nested assignments are owners, not new events.
+
+
+
         for path in self.claimed_paths() {
             control.checkpoint()?;
             target.shadow_theme_compatibility_path(path);
@@ -932,14 +1027,17 @@ impl DetectorConfigChanges {
             target.mark_explicit_config_path(path);
             target.replace_detector_value(path, config_value_at(self.after.as_value(), path));
         }
+
         Ok(())
     }
 }
 
+#[must_use]
 fn config_value_at<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
     if path.is_empty() {
         return Some(root);
     }
+
     path.split('.')
         .try_fold(root, |value, segment| { let checked_value = value.as_object()?; checked_value }.get(segment))
 }
@@ -947,8 +1045,8 @@ fn config_value_at<'a>(root: &'a Value, path: &str) -> Option<&'a Value> {
 #[derive(Debug, Clone)]
 enum ThemeCompatibilityState {
     Tracking(Arc<ThemeCompatibilityOwnership>),
-    // This source phase flag retains the exact source ownership graph. The canonical immutable
-    // field representation is built once at the controlled data-export boundary.
+
+
     Frozen(Arc<ThemeCompatibilityOwnership>),
 }
 
@@ -973,8 +1071,10 @@ struct ThemeCompatibilityPathOwnership {
 }
 
 impl ThemeCompatibilityOwnership {
+    #[must_use]
     fn from_config(binding: ThemeCompatibilityRecipe, config: &Value) -> Self {
         let mut fields = Vec::new();
+
         let Some(root) = config.as_object() else {
             return Self {
                 binding,
@@ -991,8 +1091,9 @@ impl ThemeCompatibilityOwnership {
         }
 
         let variables = root.get("themeVariables").and_then(Value::as_object);
+
         if root.contains_key("darkMode")
-            || variables.is_some_and(|variables| variables.contains_key("darkMode"))
+            || variables.is_some_and(|variables_2| variables_2.contains_key("darkMode"))
         {
             fields.push(ThemeCompatibilityFieldOwnership::new(
                 ThemeCompatibilityFieldKind::DarkMode,
@@ -1000,18 +1101,21 @@ impl ThemeCompatibilityOwnership {
             ));
         }
 
-        if let Some(variables) = variables {
-            fields.extend(
-                variables
-                    .keys()
-                    .filter(|key| key.as_str() != "darkMode")
-                    .map(|key| {
-                        ThemeCompatibilityFieldOwnership::new(
-                            ThemeCompatibilityFieldKind::Variable,
-                            [format!("themeVariables.{key}")],
-                        )
-                    }),
-            );
+        match variables {
+            Some(variables_3) => {
+                fields.extend(
+                    variables_3
+                        .keys()
+                        .filter(|key| key.as_str() != "darkMode")
+                        .map(|key| {
+                            ThemeCompatibilityFieldOwnership::new(
+                                ThemeCompatibilityFieldKind::Variable,
+                                [format!("themeVariables.{key}")],
+                            )
+                        }),
+                );
+            },
+            ::core::option::Option::None => {},
         }
 
         Self {
@@ -1038,62 +1142,106 @@ impl ThemeCompatibilityOwnership {
     ) -> OperationControlResult<
         std::result::Result<Arc<[ThemeCompatibilityField]>, PresentationConfigError>,
     > {
-        // Bound the complete source ownership walk before creating per-field sorting indexes or
-        // cloning path handles. Shadowed paths still cost work even though they are not exported.
+
+
         let mut work = ModelComplexity::default();
+
         for field in &self.fields {
             control.checkpoint()?;
-            let Some(items) = work.items.checked_add(1) else {
-                return Ok(Err(PresentationConfigError::SizeOverflow));
+
+            let items = {
+                let optional_items = work.items.checked_add(1);
+
+                match optional_items {
+                    Some(matched_items) => matched_items,
+                    ::core::option::Option::None => return Ok(Err(PresentationConfigError::SizeOverflow)),
+                }
             };
-            let Some(text_bytes) = work.text_bytes.checked_add(field.opaque_id.len()) else {
-                return Ok(Err(PresentationConfigError::SizeOverflow));
+
+            let text_bytes = {
+                let optional_text_bytes = work.text_bytes.checked_add(field.opaque_id.len());
+
+                match optional_text_bytes {
+                    Some(matched_text_bytes) => matched_text_bytes,
+                    ::core::option::Option::None => return Ok(Err(PresentationConfigError::SizeOverflow)),
+                }
             };
+
             work = ModelComplexity::new(items, text_bytes, 0);
-            if let Err(error) = policy.check_model_complexity(work) {
-                return Ok(Err(error.into()));
+
+            match policy.check_model_complexity(work) {
+                Err(error) => {
+                    return Ok(Err(<::merman_model::presentation::PresentationConfigError as ::core::convert::From<::merman_model::resources::InputResourceLimitExceeded>>::from(error)));
+                },
+                ::core::result::Result::Ok(_) => {},
             }
+
             for path in &field.paths {
                 control.checkpoint()?;
-                let Some(items) = work.items.checked_add(1) else {
-                    return Ok(Err(PresentationConfigError::SizeOverflow));
+
+                let items_2 = {
+                    let optional_items = work.items.checked_add(1);
+
+                    match optional_items {
+                        Some(matched_items) => matched_items,
+                        ::core::option::Option::None => return Ok(Err(PresentationConfigError::SizeOverflow)),
+                    }
                 };
-                let Some(text_bytes) = work.text_bytes.checked_add(path.path.len()) else {
-                    return Ok(Err(PresentationConfigError::SizeOverflow));
+
+                let text_bytes_2 = {
+                    let optional_text_bytes = work.text_bytes.checked_add(path.path.len());
+
+                    match optional_text_bytes {
+                        Some(matched_text_bytes) => matched_text_bytes,
+                        ::core::option::Option::None => return Ok(Err(PresentationConfigError::SizeOverflow)),
+                    }
                 };
-                work = ModelComplexity::new(items, text_bytes, 0);
-                if let Err(error) = policy.check_model_complexity(work) {
-                    return Ok(Err(error.into()));
+
+                work = ModelComplexity::new(items_2, text_bytes_2, 0);
+
+                {
+                    match policy.check_model_complexity(work) {
+                        Err(error) => {
+                            return Ok(Err(<::merman_model::presentation::PresentationConfigError as ::core::convert::From<::merman_model::resources::InputResourceLimitExceeded>>::from(error)));
+                        },
+                        ::core::result::Result::Ok(_) => {},
+                    };
                 }
             }
         }
 
         let mut fields = Vec::new();
+
         for field in &self.fields {
             control.checkpoint()?;
             let mut surviving_paths = BTreeSet::new();
+
             for path in &field.paths {
                 control.checkpoint()?;
+
                 if path.owned {
                     surviving_paths.insert(Arc::clone(&path.path));
                 }
             }
+
             if surviving_paths.is_empty() {
                 continue;
             }
+
             let paths = surviving_paths.into_iter().collect::<Vec<_>>().into();
-            let field = match ThemeCompatibilityField::try_new_controlled(
+            let field_3 = match ThemeCompatibilityField::try_new_controlled(
                 Arc::clone(&field.opaque_id),
                 field.kind,
                 paths,
                 policy,
                 control,
             )? {
-                Ok(field) => field,
+                Ok(field_2) => field_2,
                 Err(error) => return Ok(Err(error)),
             };
-            fields.push(field);
+            fields.push(field_3);
         }
+
         control.checkpoint()?;
         Ok(Ok(fields.into()))
     }
@@ -1110,13 +1258,14 @@ impl ThemeCompatibilityOwnership {
 }
 
 impl ThemeCompatibilityFieldOwnership {
+    #[must_use]
     fn new<I, P>(kind: ThemeCompatibilityFieldKind, paths: I) -> Self
     where
         I: IntoIterator<Item = P>,
         P: Into<Arc<str>>,
     {
-        let paths = paths.into_iter().map(Into::into).collect::<Vec<Arc<str>>>();
-        let primary_path = paths
+        let paths_2 = paths.into_iter().map(Into::into).collect::<Vec<Arc<str>>>();
+        let primary_path = paths_2
             .first()
             .expect("theme compatibility conceptual fields must own at least one path");
         let opaque_id = match kind {
@@ -1127,7 +1276,7 @@ impl ThemeCompatibilityFieldOwnership {
         Self {
             opaque_id,
             kind,
-            paths: paths
+            paths: paths_2
                 .into_iter()
                 .map(|path| ThemeCompatibilityPathOwnership { path, owned: true })
                 .collect(),
@@ -1135,6 +1284,7 @@ impl ThemeCompatibilityFieldOwnership {
     }
 }
 
+#[must_use]
 fn dotted_paths_overlap(left: &str, right: &str) -> bool {
     left.is_empty()
         || right.is_empty()
@@ -1150,15 +1300,16 @@ fn dotted_paths_overlap(left: &str, right: &str) -> bool {
 /// Source parse entrypoints do not accept a model admission policy. Keep their existing lack of
 /// an implicit config ceiling; construction remains iterative, checked, and cancellable. Hosts
 /// supplying frozen data use the explicit policy accepted by the model constructor.
+#[must_use]
 pub(crate) fn source_config_construction_policy() -> InputResourcePolicy {
     InputResourcePolicy::for_profile(ResourceProfile::UnboundedForTrustedInput)
 }
 
+#[must_use]
 pub(crate) fn presentation_config_error(error: PresentationConfigError) -> crate::Error {
-    crate::InternalFailure::new(format!(
+    <crate::error::Error as ::core::convert::From<crate::error::InternalFailure>>::from(crate::InternalFailure::new(format!(
         "invalid frozen presentation configuration: {error}"
-    ))
-    .into()
+    )))
 }
 
 #[cfg(test)]

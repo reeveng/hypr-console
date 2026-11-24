@@ -1,6 +1,6 @@
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_core_paths::{IntRect, IntSize, FloatRectangle};
+use console_core_paths::{FloatRectangle, IntRect, IntSize};
 use console_core_size::Size;
 
 pub type PixelPosition = console_core_point::Point<u32>;

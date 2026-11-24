@@ -4,7 +4,7 @@ PartOf=console.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/bin/console-clipboard --watch
+ExecStart=/usr/local/bin/console-application-clipboard --watch
 Restart=on-failure
 RestartSec=2
 UMask=0077

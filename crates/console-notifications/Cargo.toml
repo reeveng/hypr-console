@@ -37,6 +37,7 @@ path = "src/bin/console-upload-errors.rs"
 console-core-logging = { workspace = true, features = ["std"] }
 console-core-fonts.workspace = true
 console-bus.workspace = true
+console-operating-system-linux.workspace = true
 console-events.workspace = true
 console-core-number-conversion.workspace = true
 console-core-color.workspace = true

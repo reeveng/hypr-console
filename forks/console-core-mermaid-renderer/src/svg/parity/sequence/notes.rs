@@ -42,20 +42,35 @@ impl SequenceNotePaintPlan {
             effect,
             ..Self::default()
         };
+
         if plan.stroke_width.is_none() && plan.effect.is_none() {
             return Ok(plan);
         }
-        // Notes have the SVG 1px default; actor strokeWidth does not apply here.
-        let width = f64::from(stroke_width.unwrap_or(1.0));
+
+
+        let width = f64::from(match stroke_width {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 1.0,
+        });
+
         for (index, message) in model.messages.iter().enumerate() {
             options.work_meter().charge(1)?;
+
             if message.semantic_kind() != SequenceMessageKind::Note {
                 continue;
             }
+
             let node_id = format!("note-{}", message.id);
-            let Some(node) = nodes.get(node_id.as_str()) else {
-                continue;
+
+            let node = {
+                let optional_node = nodes.get(node_id.as_str());
+
+                match optional_node {
+                    Some(matched_node) => matched_node,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let (left, top) = node_left_top(node);
             let mut bounds = Bounds {
                 min_x: left - width / 2.0,
@@ -63,11 +78,13 @@ impl SequenceNotePaintPlan {
                 max_x: left + node.width + width / 2.0,
                 max_y: top + node.height + width / 2.0,
             };
-            if let Some(effect) = &plan.effect {
+
+            if let Some(effect_2) = &plan.effect {
                 options
                     .work_meter()
-                    .charge(effect.stages().len().saturating_mul(3))?;
-                if let Some(materialized) = effect.materialize_rect(
+                    .charge(effect_2.stages().len().saturating_mul(3))?;
+
+                if let Some(materialized) = effect_2.materialize_rect(
                     &options.theme_resource_policy(),
                     node.width,
                     node.height,
@@ -75,7 +92,7 @@ impl SequenceNotePaintPlan {
                 )? {
                     let region = materialized.region();
                     let [x, y, w, h] = region.as_array().map(f64::from);
-                    // Use the same outward-rounded region as the filter writer.
+
                     bounds = Bounds {
                         min_x: left + x * node.width,
                         min_y: top + y * node.height,
@@ -88,7 +105,7 @@ impl SequenceNotePaintPlan {
                             format!(
                                 "{}-note-{index}-theme-effect-{}",
                                 options.diagram_id_or("merman"),
-                                effect.id()
+                                effect_2.id()
                             ),
                             region,
                         ),
@@ -97,6 +114,7 @@ impl SequenceNotePaintPlan {
                     receipt.effect_unhandled = true;
                 }
             }
+
             if let Some(total) = &mut plan.bounds {
                 total.min_x = total.min_x.min(bounds.min_x);
                 total.min_y = total.min_y.min(bounds.min_y);
@@ -106,9 +124,11 @@ impl SequenceNotePaintPlan {
                 plan.bounds = Some(bounds);
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(super) fn len(&self) -> usize {
         self.shadows.len()
     }
@@ -141,16 +161,19 @@ pub(super) fn render_sequence_note(
     if msg.semantic_kind() != SequenceMessageKind::Note {
         return Ok(());
     }
+
     ctx.checkpoints.checkpoint()?;
 
     let id = &msg.id;
     let raw = msg.message_text();
     let node_id = format!("note-{id}");
+
     let Some(n) = ctx.nodes_by_id.get(node_id.as_str()).copied() else {
         ctx.typography_receipt
             .record_missing_text_effect(crate::sequence::SequenceTextSurface::NoteLabel);
         return Ok(());
     };
+
     let (x, y) = node_left_top(n);
     let (text_x, text_anchor) = match ctx.sanitize_config.get_str("sequence.noteAlign") {
         Some("left" | "start") => ((x + ctx.note_margin).round(), "start"),
@@ -163,8 +186,8 @@ pub(super) fn render_sequence_note(
         .shadows
         .get(&node_id)
         .zip(ctx.paint.effect.as_ref());
-    let filter = shadow.map(|((id, region), effect)| {
-        super::super::shadow::write_theme_shadow_application(out, id, effect, *region)
+    let filter = shadow.map(|((id_2, region), effect)| {
+        super::super::shadow::write_theme_shadow_application(out, id_2, effect, *region)
     });
     let _ = write!(out, r#"<g data-et="note" data-id="i{}">"#, escape_attr(id));
     let _ = write!(
@@ -180,12 +203,15 @@ pub(super) fn render_sequence_note(
             ""
         },
     );
+
     if let Some(width) = ctx.paint.stroke_width {
         let _ = write!(out, r#" stroke-width="{}""#, fmt(f64::from(width)));
     }
+
     if let Some(radius) = ctx.paint.radius {
         let _ = write!(out, r#" rx="{r}" ry="{r}""#, r = fmt(f64::from(radius)));
     }
+
     if let Some(filter) = &filter {
         let _ = write!(
             out,
@@ -195,19 +221,23 @@ pub(super) fn render_sequence_note(
     } else if theme_receipt.effect_cleared {
         out.push_str(r#" style="filter:none;""#);
     }
+
     out.push_str("/>");
     theme_receipt.record_rect_emission();
-    if let Some(((id, region), effect)) = shadow {
-        ctx.shadow_evidence.record_application(effect, id, *region);
+
+    if let Some(((id_3, region), effect)) = shadow {
+        ctx.shadow_evidence.record_application(effect, id_3, *region);
         theme_receipt.record_effect_emission();
     } else if theme_receipt.effect_cleared {
         theme_receipt.record_effect_emission();
     }
+
     let prepared_math =
         ctx.math_sidecar
             .terminal_for_occurrence(&crate::sequence::SequenceMathOccurrence::Note(
                 message_index,
             ));
+
     if let Some(katex) = sequence_katex_label(
         prepared_math,
         ctx.note_text_style,
@@ -232,11 +262,11 @@ pub(super) fn render_sequence_note(
             crate::sequence::SequenceTextSurface::NoteLabel,
         );
     } else if msg.wrap {
-        // Mermaid@11.12.2 (Sequence) wraps notes *after* placement width is known:
-        //   noteModel.message = wrapLabel(msg.message, noteModel.width - 2*wrapPadding, noteFont)
-        //
-        // Layout already computed the note box width (`n.width`) to match Mermaid's
-        // `noteModel.width`, so wrap to `n.width - 2*wrapPadding` here.
+
+
+
+
+
         let lines = sequence_note_final_wrapped_lines(
             raw,
             n.width,
@@ -263,6 +293,7 @@ pub(super) fn render_sequence_note(
             ctx,
         )?;
     }
+
     out.push_str("</g>");
     ctx.checkpoints.checkpoint()
 }
@@ -278,6 +309,7 @@ fn render_sequence_note_lines<'a>(
     let drawn_style = sequence_drawn_text_style(ctx.note_text_style, ctx.sanitize_config);
     let css = super::settings::sequence_text_style_attribute(ctx.note_text_style);
     let mut preceding_height = 0.0;
+
     for (i, line) in lines.into_iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(i)?;
         let decoded = crate::sequence::prepare_sequence_text_line(line);
@@ -288,13 +320,13 @@ fn render_sequence_note_lines<'a>(
         };
         let y = sequence_drawn_text_y(text_y, ctx.note_margin, preceding_height);
         let style = ctx.note_typography.terminal_style("", css.clone());
-        // SVG whitespace and the zero-width placeholder have no painted glyphs.
-        // Keep the line for layout, but do not create an empty native filter group.
+
+
         let paintless = ctx.text_shadow.is_paintless(text);
         let shadow = (!paintless)
             .then_some(ctx)
-            .map(|ctx| {
-                ctx.text_shadow.write_definition(
+            .map(|ctx_2| {
+                ctx_2.text_shadow.write_definition(
                     out,
                     text,
                     text_x,
@@ -304,16 +336,18 @@ fn render_sequence_note_lines<'a>(
                         "end" => super::text_effect::TextShadowBaseline::NoteEnd,
                         _ => super::text_effect::TextShadowBaseline::NoteMiddle,
                     },
-                    ctx.note_typography.terminal_text_style(),
-                    ctx.measurer,
+                    ctx_2.note_typography.terminal_text_style(),
+                    ctx_2.measurer,
                 )
             })
             .transpose()?
             .flatten();
-        let filter = shadow
+        let filter = match shadow
             .as_ref()
-            .map(|shadow| format!(" filter=\"{}\"", escape_attr(&shadow.filter)))
-            .unwrap_or_default();
+            .map(|shadow_2| format!(" filter=\"{}\"", escape_attr(&shadow_2.filter))) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
         let _ = write!(
             &mut *out,
             r#"<text x="{x}" y="{y}" text-anchor="{text_anchor}" dominant-baseline="middle" alignment-baseline="middle" class="noteText" dy="1em" style="{style}"{filter}><tspan x="{x}">{text}</tspan></text>"#,
@@ -332,6 +366,7 @@ fn render_sequence_note_lines<'a>(
             ctx.typography_receipt,
             crate::sequence::SequenceTextSurface::NoteLabel,
         );
+
         if ctx.note_margin > 0.0 {
             preceding_height += measure_sequence_drawn_line_height(
                 ctx.measurer,
@@ -342,6 +377,7 @@ fn render_sequence_note_lines<'a>(
             )?;
         }
     }
+
     ctx.checkpoints.checkpoint()
 }
 

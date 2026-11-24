@@ -13,6 +13,7 @@ pub struct Bounds {
 }
 
 impl Bounds {
+    #[must_use]
     pub fn from_points(points: impl IntoIterator<Item = (f64, f64)>) -> Option<Self> {
         let mut it = points.into_iter();
         let (x0, y0) = it.next()?;
@@ -22,12 +23,14 @@ impl Bounds {
             max_x: x0,
             max_y: y0,
         };
+
         for (x, y) in it {
             b.min_x = b.min_x.min(x);
             b.min_y = b.min_y.min(y);
             b.max_x = b.max_x.max(x);
             b.max_y = b.max_y.max(y);
         }
+
         Some(b)
     }
 }
@@ -185,6 +188,7 @@ impl EdgePaintGeometryOutput {
     /// Bumped whenever the payload shape changes incompatibly.
     pub const SCHEMA_VERSION: u32 = 1;
 
+    #[must_use]
     pub fn new(diagram_type: String, edges: Vec<EdgePaintGeometry>) -> Self {
         Self {
             schema_version: Self::SCHEMA_VERSION,
@@ -193,14 +197,17 @@ impl EdgePaintGeometryOutput {
         }
     }
 
+    #[must_use]
     pub const fn schema_version(&self) -> u32 {
         self.schema_version
     }
 
+    #[must_use]
     pub fn diagram_type(&self) -> &str {
         &self.diagram_type
     }
 
+    #[must_use]
     pub fn edges(&self) -> &[EdgePaintGeometry] {
         &self.edges
     }
@@ -223,9 +230,14 @@ impl EdgePaintGeometryOutput {
             terminal: None,
         };
         let result = serde_json::to_writer(&mut output, self);
-        if let Some(error) = output.terminal {
-            return Err(error.into());
+
+        match output.terminal {
+            Some(error) => {
+                return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error));
+            },
+            ::core::option::Option::None => {},
         }
+
         result?;
         meter.checkpoint(merman_model::OperationPhase::Emit)?;
         Ok(())
@@ -242,18 +254,23 @@ struct GeometryJsonWriter<'a, W> {
 impl<W: std::io::Write> std::io::Write for GeometryJsonWriter<'_, W> {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
         for chunk in bytes.chunks(1024) {
-            if let Err(error) = self
+            match self
                 .meter
-                .preflight_geometry_json_bytes(self.written, chunk.len())
-            {
-                self.terminal = Some(error);
-                return Err(std::io::Error::other("edge geometry output terminated"));
+                .preflight_geometry_json_bytes(self.written, chunk.len()) {
+                Err(error) => {
+                    self.terminal = Some(error);
+                    return Err(std::io::Error::other("edge geometry output terminated"));
+                },
+                ::core::result::Result::Ok(_) => {},
             }
+
             self.writer.write_all(chunk)?;
             self.written += chunk.len();
         }
+
         Ok(bytes.len())
     }
+
     fn flush(&mut self) -> std::io::Result<()> {
         self.writer.flush()
     }
@@ -781,6 +798,7 @@ pub enum SwimlaneDirection {
     feature = "diagram-mindmap"
 ))]
 impl SwimlaneDirection {
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::Tb => "TB",

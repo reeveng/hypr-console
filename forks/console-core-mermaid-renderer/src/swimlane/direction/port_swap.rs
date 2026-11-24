@@ -27,26 +27,42 @@ pub(super) fn port_swap_to_l_shape(
     let (node_info_by_id, real_node_rects) = collect_real_node_bounds(layout);
 
     work_budget.charge(layout.original_edges.len())?;
+
     for edge_index in 0..layout.original_edges.len() {
         let edge = layout.original_edges[edge_index].clone();
+
         if edge.points.len() < 4 {
             continue;
         }
 
         let deduped = dedupe_consecutive_points(&edge.points, EPSILON);
-        let Some(route) = classify_three_segment_route(&deduped, EPSILON) else {
-            continue;
+
+        let route = {
+            let optional_route = classify_three_segment_route(&deduped, EPSILON);
+
+            match optional_route {
+                Some(matched_route) => matched_route,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(node_pair) = get_node_pair_geometry(&edge, &node_info_by_id, EPSILON) else {
-            continue;
+
+        let node_pair = {
+            let optional_node_pair = get_node_pair_geometry(&edge, &node_info_by_id, EPSILON);
+
+            match optional_node_pair {
+                Some(matched_node_pair) => matched_node_pair,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if node_pair.collinear_x || node_pair.collinear_y {
             continue;
         }
 
         let is_hvh = route.kind == ThreeSegmentRouteKind::Hvh;
         let mut replacement = None;
-        for delta in TRY_DELTAS {
+
+        'over_delta_2: for delta in TRY_DELTAS {
             let (first, corner, destination) = if is_hvh {
                 let destination_below = node_pair.dst_info.cy > node_pair.src_info.cy;
                 let source_y = if destination_below {
@@ -55,11 +71,13 @@ pub(super) fn port_swap_to_l_shape(
                     node_pair.src_info.rect.top
                 };
                 let source_x = node_pair.src_info.cx + delta;
+
                 if source_x <= node_pair.src_info.rect.left + EPSILON
                     || source_x >= node_pair.src_info.rect.right - EPSILON
                 {
-                    continue;
+                    continue 'over_delta_2;
                 }
+
                 (
                     LayoutPoint {
                         x: source_x,
@@ -79,11 +97,13 @@ pub(super) fn port_swap_to_l_shape(
                     node_pair.src_info.rect.left
                 };
                 let source_y = node_pair.src_info.cy + delta;
+
                 if source_y <= node_pair.src_info.rect.top + EPSILON
                     || source_y >= node_pair.src_info.rect.bottom - EPSILON
                 {
-                    continue;
+                    continue 'over_delta_2;
                 }
+
                 (
                     LayoutPoint {
                         x: source_x,
@@ -99,13 +119,16 @@ pub(super) fn port_swap_to_l_shape(
 
             let first_segment_degenerate = same_point(&first, &corner, EPSILON);
             let second_segment_degenerate = same_point(&corner, &destination, EPSILON);
+
             if first_segment_degenerate && second_segment_degenerate {
-                continue;
+                continue 'over_delta_2;
             }
 
             work_budget.charge(1)?;
+
             if !first_segment_degenerate {
                 work_budget.charge(real_node_rects.len())?;
+
                 if segment_hits_any_rect(
                     &first,
                     &corner,
@@ -113,11 +136,13 @@ pub(super) fn port_swap_to_l_shape(
                     &[node_pair.src_id.as_str()],
                     1.0,
                 ) {
-                    continue;
+                    continue 'over_delta_2;
                 }
             }
+
             if !second_segment_degenerate {
                 work_budget.charge(real_node_rects.len())?;
+
                 if segment_hits_any_rect(
                     &corner,
                     &destination,
@@ -125,7 +150,7 @@ pub(super) fn port_swap_to_l_shape(
                     &[node_pair.dst_id.as_str()],
                     1.0,
                 ) {
-                    continue;
+                    continue 'over_delta_2;
                 }
             }
 
@@ -155,8 +180,9 @@ pub(super) fn port_swap_to_l_shape(
                     true,
                 )
             };
+
             if first_segment_conflicts || second_segment_conflicts {
-                continue;
+                continue 'over_delta_2;
             }
 
             replacement = Some(if first_segment_degenerate {
@@ -166,13 +192,17 @@ pub(super) fn port_swap_to_l_shape(
             } else {
                 vec![first, corner, destination]
             });
-            break;
+            break 'over_delta_2;
         }
 
-        if let Some(points) = replacement {
-            layout.original_edges[edge_index].points = points;
+        match replacement {
+            Some(points) => {
+                layout.original_edges[edge_index].points = points;
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     Ok(())
 }
 

@@ -1,16 +1,21 @@
 use merman_model::source::SourceSpan;
 
+#[must_use]
 pub(crate) fn line_content_end(source: &str, end: usize) -> usize {
-    let end = end.min(source.len());
-    end.checked_sub(1)
-        .filter(|index| source.as_bytes().get(*index) == Some(&b'\r'))
-        .unwrap_or(end)
+    let end_2 = end.min(source.len());
+
+    match end_2.checked_sub(1)
+        .filter(|index| source.as_bytes().get(*index) == Some(&b'\r')) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => end_2,
+    }
 }
 
 #[allow(
     dead_code,
     reason = "Shared parser facilities have different consumers in each family selection."
 )]
+#[must_use]
 pub(crate) fn has_ascii_separator(source: &str, start: usize, end: usize) -> bool {
     source.get(start..end).is_some_and(|slice| {
         !slice.is_empty() && slice.as_bytes().iter().all(u8::is_ascii_whitespace)
@@ -21,21 +26,23 @@ pub(crate) fn has_ascii_separator(source: &str, start: usize, end: usize) -> boo
     dead_code,
     reason = "Shared parser facilities have different consumers in each family selection."
 )]
+#[must_use]
 pub(crate) fn trailing_ascii_whitespace_slot(
     source: &str,
     start: usize,
     end: usize,
 ) -> Option<SourceSpan> {
-    let end = line_content_end(source, end);
-    let slice = source.get(start..end)?;
+    let end_2 = line_content_end(source, end);
+    let slice = source.get(start..end_2)?;
     (!slice.is_empty() && slice.as_bytes().last().is_some_and(u8::is_ascii_whitespace))
-        .then_some(SourceSpan::new(end, end))
+        .then_some(SourceSpan::new(end_2, end_2))
 }
 
 #[allow(
     dead_code,
     reason = "Shared parser facilities have different consumers in each family selection."
 )]
+#[must_use]
 pub(crate) fn source_value_span(source: &str, span: SourceSpan, value: &str) -> Option<SourceSpan> {
     let slice = source.get(span.start..span.end)?;
     let relative_start = slice.find(value)?;
@@ -49,6 +56,7 @@ pub(crate) fn source_value_span(source: &str, span: SourceSpan, value: &str) -> 
     dead_code,
     reason = "Shared parser facilities have different consumers in each family selection."
 )]
+#[must_use]
 pub(crate) fn keyword_value_span(
     source: &str,
     statement_start: usize,
@@ -59,10 +67,13 @@ pub(crate) fn keyword_value_span(
     let trimmed = raw.trim_start();
     let leading = raw.len().saturating_sub(trimmed.len());
     let keyword_source = trimmed.get(..keyword.len())?;
+
     if !keyword_source.eq_ignore_ascii_case(keyword) {
         return None;
     }
+
     let after_keyword = trimmed.get(keyword.len()..)?;
+
     if after_keyword
         .chars()
         .next()
@@ -70,6 +81,7 @@ pub(crate) fn keyword_value_span(
     {
         return None;
     }
+
     let whitespace = after_keyword
         .chars()
         .take_while(|ch| ch.is_whitespace())

@@ -30,6 +30,7 @@ pub(crate) fn layout_ishikawa_diagram_typed(
     measurer: &dyn TextMeasurer,
 ) -> Result<IshikawaDiagramLayout> {
     let cfg = IshikawaConfigView::new(effective_config).layout_settings();
+
     let Some(root_id) = model.root else {
         return Ok(IshikawaDiagramLayout {
             bounds: Some(Bounds {
@@ -72,19 +73,22 @@ pub(crate) fn layout_ishikawa_diagram_typed(
     let mut spine_x = 0.0;
     let mut spine_y = SPINE_BASE_LENGTH;
 
-    if causes.is_empty() {
-        draw_head(&mut ctx, spine_x, spine_y, &root.text)?;
-        let spine = draw_line(
-            &mut ctx,
-            spine_x,
-            spine_y,
-            spine_x,
-            spine_y,
-            "ishikawa-spine",
-            false,
-        );
-        ctx.spine = Some(spine);
-        return Ok(ctx.into_layout());
+    match causes {
+        [] => {
+            draw_head(&mut ctx, spine_x, spine_y, &root.text)?;
+            let spine = draw_line(
+                &mut ctx,
+                spine_x,
+                spine_y,
+                spine_x,
+                spine_y,
+                "ishikawa-spine",
+                false,
+            );
+            ctx.spine = Some(spine);
+            return Ok(ctx.into_layout());
+        },
+        [_, ..] => {},
     }
 
     spine_x -= 20.0;
@@ -96,6 +100,7 @@ pub(crate) fn layout_ishikawa_diagram_typed(
 
     let mut upper_len = SPINE_BASE_LENGTH;
     let mut lower_len = SPINE_BASE_LENGTH;
+
     if descendant_total > 0 {
         let pool = SPINE_BASE_LENGTH * 2.0;
         let min_len = SPINE_BASE_LENGTH * 0.3;
@@ -111,9 +116,15 @@ pub(crate) fn layout_ishikawa_diagram_typed(
     draw_head(&mut ctx, 0.0, spine_y, &root.text)?;
 
     for causes_pair in causes.chunks(2) {
-        let Some(upper_cause) = causes_pair.first() else {
-            continue;
+        let upper_cause = {
+            let optional_upper_cause = causes_pair.first();
+
+            match optional_upper_cause {
+                Some(matched_upper_cause) => matched_upper_cause,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let mut pair_min_text_x = f64::INFINITY;
         let upper = draw_branch(
             &mut ctx,
@@ -136,6 +147,7 @@ pub(crate) fn layout_ishikawa_diagram_typed(
             )
         });
         ctx.pairs.push(IshikawaPairLayout { upper, lower });
+
         if pair_min_text_x.is_finite() {
             spine_x = pair_min_text_x;
         }
@@ -176,20 +188,24 @@ fn side_stats<'a>(
 fn count_descendants(records: &[IshikawaNode], root: usize, seen: &mut [bool]) -> Result<usize> {
     let mut count = 0usize;
     let mut stack = vec![root];
+
     while let Some(id) = stack.pop() {
         let Some(node) = records.get(id) else {
             return Err(Error::InvalidModel {
                 message: "ishikawa child ID is out of range".to_string(),
             });
         };
+
         if std::mem::replace(&mut seen[id], true) {
             return Err(Error::InvalidModel {
                 message: "cyclic or repeated ishikawa child relationship".to_string(),
             });
         }
+
         count += 1;
         stack.extend(node.children.iter().copied());
     }
+
     Ok(count.saturating_sub(1))
 }
 
@@ -205,13 +221,17 @@ struct LayoutCtx<'a> {
 }
 
 impl LayoutCtx<'_> {
+    #[must_use]
     fn into_layout(self) -> IshikawaDiagramLayout {
-        let padded = self.bounds.finish(self.cfg.padding).unwrap_or(Bounds {
-            min_x: 0.0,
-            min_y: 0.0,
-            max_x: 1.0,
-            max_y: 1.0,
-        });
+        let padded = match (self.bounds.finish(self.cfg.padding), Bounds {
+                min_x: 0.0,
+                min_y: 0.0,
+                max_x: 1.0,
+                max_y: 1.0,
+            }) {
+            (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+            (::core::option::Option::None, alternate) => alternate,
+        };
         let total_width = (padded.max_x - padded.min_x).max(1.0);
         let total_height = (padded.max_y - padded.min_y).max(1.0);
         let viewbox_x = padded.min_x;
@@ -291,7 +311,10 @@ fn draw_branch(
 ) -> IshikawaBranchLayout {
     let records = ctx.records;
     let children = node.children.as_slice();
-    let line_len = length * if children.is_empty() { 0.2 } else { 1.0 };
+    let line_len = length * match children {
+        [] => { 0.2 },
+        [_, ..] => { 1.0 },
+    };
     let dx = -COS_A * line_len;
     let dy = SIN_A * line_len * direction;
     let end_x = start_x + dx;
@@ -310,17 +333,21 @@ fn draw_branch(
     *pair_min_text_x = pair_min_text_x.min(cause_label.bbox.min_x);
     let label_group = label_group_layout(ctx, cause_label);
 
-    if children.is_empty() {
-        return IshikawaBranchLayout {
-            line,
-            label_group,
-            sub_groups: Vec::new(),
-        };
+    match children {
+        [] => {
+            return IshikawaBranchLayout {
+                line,
+                label_group,
+                sub_groups: Vec::new(),
+            };
+        },
+        [_, ..] => {},
     }
 
     let flattened = flatten_tree(records, children, direction);
     let entry_count = flattened.entries.len();
     let mut ys = vec![start_y; entry_count];
+
     for (slot, entry_idx) in flattened.y_order.iter().enumerate() {
         ys[*entry_idx] = start_y + dy * ((slot + 1) as f64 / (entry_count + 1) as f64);
     }
@@ -349,21 +376,24 @@ fn draw_branch(
 
     for (i, entry) in flattened.entries.iter().enumerate() {
         let y = ys[i];
-        let parent = bones.get(&entry.parent_index).copied().unwrap_or(BoneInfo {
-            x0: start_x,
-            y0: start_y,
-            x1: end_x,
-            y1: end_y,
-            child_count: children.len(),
-            children_drawn: 0,
-        });
+        let parent = match (bones.get(&entry.parent_index).copied(), BoneInfo {
+                x0: start_x,
+                y0: start_y,
+                x1: end_x,
+                y1: end_y,
+                child_count: children.len(),
+                children_drawn: 0,
+            }) {
+            (::core::option::Option::Some(option_value), _) => option_value,
+            (::core::option::Option::None, alternate) => alternate,
+        };
 
-        let (bx0, by0, bx1, line, text) = if entry.depth % 2 == 0 {
+        let (bx0, by0, bx1, line_4, text) = if entry.depth.wrapping_rem(2) == 0 {
             let dy_parent = parent.y1 - parent.y0;
             let bx0 = lerp(
                 parent.x0,
                 parent.x1,
-                if dy_parent != 0.0 {
+                if !::core::matches!(::core::primitive::f64::classify(dy_parent), ::core::num::FpCategory::Zero) {
                     (y - parent.y0) / dy_parent
                 } else {
                     0.5
@@ -375,7 +405,7 @@ fn draw_branch(
                 } else {
                     BONE_STUB
                 };
-            let line = draw_line(ctx, bx0, y, bx1, y, "ishikawa-sub-branch", true);
+            let line_2 = draw_line(ctx, bx0, y, bx1, y, "ishikawa-sub-branch", true);
             let text = text_layout(
                 ctx,
                 &entry.text,
@@ -385,9 +415,9 @@ fn draw_branch(
                 TextAnchor::End,
                 VerticalMode::Middle,
             );
-            (bx0, y, bx1, line, text)
+            (bx0, y, bx1, line_2, text)
         } else {
-            let parent = bones.entry(entry.parent_index).or_insert(BoneInfo {
+            let parent_2 = bones.entry(entry.parent_index).or_insert(BoneInfo {
                 x0: start_x,
                 y0: start_y,
                 x1: end_x,
@@ -395,16 +425,16 @@ fn draw_branch(
                 child_count: children.len(),
                 children_drawn: 0,
             });
-            let k = parent.children_drawn;
-            parent.children_drawn += 1;
+            let k = parent_2.children_drawn;
+            parent_2.children_drawn += 1;
             let bx0 = lerp(
-                parent.x0,
-                parent.x1,
-                (parent.child_count - k) as f64 / (parent.child_count + 1) as f64,
+                parent_2.x0,
+                parent_2.x1,
+                (parent_2.child_count - k) as f64 / (parent_2.child_count + 1) as f64,
             );
-            let by0 = parent.y0;
+            let by0 = parent_2.y0;
             let bx1 = bx0 + diagonal_x * ((y - by0) / diagonal_y);
-            let line = draw_line(ctx, bx0, by0, bx1, y, "ishikawa-sub-branch", true);
+            let line_3 = draw_line(ctx, bx0, by0, bx1, y, "ishikawa-sub-branch", true);
             let text = text_layout(
                 ctx,
                 &entry.text,
@@ -418,16 +448,16 @@ fn draw_branch(
                     VerticalMode::Hanging
                 },
             );
-            (bx0, by0, bx1, line, text)
+            (bx0, by0, bx1, line_3, text)
         };
 
         *pair_min_text_x = pair_min_text_x.min(text.bbox.min_x);
         ctx.bounds.include_bounds(&text.bbox);
-        sub_groups.push(IshikawaSubGroupLayout { line, label: text });
+        sub_groups.push(IshikawaSubGroupLayout { line: line_4, label: text });
 
         if entry.child_count > 0 {
             bones.insert(
-                i as isize,
+                i.cast_signed(),
                 BoneInfo {
                     x0: bx0,
                     y0: by0,
@@ -461,6 +491,7 @@ struct LabelEntry {
     child_count: usize,
 }
 
+#[must_use]
 fn flatten_tree(records: &[IshikawaNode], children: &[usize], direction: f64) -> FlattenedTree {
     enum Action<'a> {
         Visit {
@@ -520,26 +551,29 @@ fn flatten_tree(records: &[IshikawaNode], children: &[usize], direction: f64) ->
                     parent_index,
                     child_count,
                 });
-                if depth % 2 == 0 {
+
+                if ::core::primitive::usize::wrapping_rem(depth, 2) == 0 {
                     out.y_order.push(idx);
+
                     if child_count > 0 {
                         push_nodes(
                             &mut stack,
                             records,
                             &node.children,
-                            idx as isize,
+                            idx.cast_signed(),
                             depth + 1,
                             direction,
                         );
                     }
                 } else {
                     stack.push(Action::PushY(idx));
+
                     if child_count > 0 {
                         push_nodes(
                             &mut stack,
                             records,
                             &node.children,
-                            idx as isize,
+                            idx.cast_signed(),
                             depth + 1,
                             direction,
                         );
@@ -571,6 +605,7 @@ enum TextAnchor {
 }
 
 impl TextAnchor {
+    #[must_use]
     fn as_str(self) -> &'static str {
         match self {
             Self::Start => "start",
@@ -610,6 +645,7 @@ fn label_group_layout(
     }
 }
 
+#[must_use]
 fn text_layout(
     ctx: &LayoutCtx<'_>,
     text: &str,
@@ -641,15 +677,17 @@ fn text_layout(
         VerticalMode::Baseline => y - compatibility_height,
         VerticalMode::Hanging => y,
     };
-    let (min_y, height) = ishikawa_measured_vertical_bounds(
+    let (min_y, height) = match ishikawa_measured_vertical_bounds(
         ctx.measurer,
         &lines,
         &measure_style,
         line_height,
         y,
         vertical_mode,
-    )
-    .unwrap_or((compatibility_min_y, compatibility_height));
+    ) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => (compatibility_min_y, compatibility_height),
+    };
 
     IshikawaTextLayout {
         text: text.to_string(),
@@ -669,6 +707,7 @@ fn text_layout(
     }
 }
 
+#[must_use]
 fn ishikawa_measured_vertical_bounds(
     measurer: &dyn TextMeasurer,
     lines: &[String],
@@ -677,12 +716,17 @@ fn ishikawa_measured_vertical_bounds(
     y: f64,
     vertical_mode: VerticalMode,
 ) -> Option<(f64, f64)> {
-    if lines.is_empty() {
-        return None;
+    match lines {
+        [] => {
+            return None;
+        },
+        [_, ..] => {},
     }
+
     let first_baseline = y - lines.len().saturating_sub(1) as f64 * line_height / 2.0;
     let mut min_y = f64::INFINITY;
     let mut max_y = f64::NEG_INFINITY;
+
     for (index, line) in lines.iter().enumerate() {
         let offset = match vertical_mode {
             VerticalMode::Middle => {
@@ -702,9 +746,11 @@ fn ishikawa_measured_vertical_bounds(
         min_y = min_y.min(row_y);
         max_y = max_y.max(row_y + height);
     }
+
     Some((min_y, (max_y - min_y).max(0.0)))
 }
 
+#[must_use]
 fn ishikawa_text_measure_style(class_name: &str, font_size: f64, font_family: &str) -> TextStyle {
     if class_name == "ishikawa-head-label" {
         TextStyle {
@@ -728,6 +774,7 @@ struct TextHorizontalBounds {
     right: f64,
 }
 
+#[must_use]
 fn ishikawa_text_bbox_x(
     ctx: &LayoutCtx<'_>,
     lines: &[String],
@@ -757,6 +804,7 @@ fn ishikawa_text_bbox_x(
     out
 }
 
+#[must_use]
 fn ishikawa_anchored_line_bbox_x(
     ctx: &LayoutCtx<'_>,
     line: &str,
@@ -790,6 +838,7 @@ fn ishikawa_anchored_line_bbox_x(
     }
 }
 
+#[must_use]
 fn ishikawa_text_bbox_height_px(class_name: &str, font_size: f64) -> f64 {
     if class_name == "ishikawa-head-label" {
         16.0
@@ -798,6 +847,7 @@ fn ishikawa_text_bbox_height_px(class_name: &str, font_size: f64) -> f64 {
     }
 }
 
+#[must_use]
 fn ishikawa_middle_bbox_y_offset_px(class_name: &str, font_size: f64) -> f64 {
     if class_name == "ishikawa-head-label" {
         0.0
@@ -827,12 +877,14 @@ fn draw_line(
     }
 }
 
+#[must_use]
 fn wrap_text(text: &str, max_chars: usize) -> String {
     if text.len() <= max_chars {
         return text.to_string();
     }
 
     let mut lines: Vec<String> = Vec::new();
+
     for word in text.split_whitespace() {
         if let Some(last) = lines.last_mut()
             && last.len() + 1 + word.len() <= max_chars
@@ -841,6 +893,7 @@ fn wrap_text(text: &str, max_chars: usize) -> String {
             last.push_str(word);
             continue;
         }
+
         lines.push(word.to_string());
     }
 
@@ -851,6 +904,7 @@ fn wrap_text(text: &str, max_chars: usize) -> String {
     }
 }
 
+#[must_use]
 fn split_lines(text: &str) -> Vec<String> {
     text.replace("<br/>", "\n")
         .replace("<br>", "\n")
@@ -859,6 +913,7 @@ fn split_lines(text: &str) -> Vec<String> {
         .collect()
 }
 
+#[must_use]
 fn lerp(a: f64, b: f64, t: f64) -> f64 {
     a + (b - a) * t
 }
@@ -873,6 +928,7 @@ struct BoundsAcc {
 }
 
 impl BoundsAcc {
+    #[must_use]
     fn new() -> Self {
         Self {
             min_x: 0.0,
@@ -892,6 +948,7 @@ impl BoundsAcc {
             self.has_value = true;
             return;
         }
+
         self.min_x = self.min_x.min(x);
         self.max_x = self.max_x.max(x);
         self.min_y = self.min_y.min(y);
@@ -908,6 +965,7 @@ impl BoundsAcc {
         self.include_point(bounds.max_x, bounds.max_y);
     }
 
+    #[must_use]
     fn finish(self, padding: f64) -> Option<Bounds> {
         self.has_value.then_some(Bounds {
             min_x: self.min_x - padding,

@@ -1,0 +1,26 @@
+//! The music, asked for.
+//!
+//! What it holds and why it is drawn this way is `console_application_music::card`'s own head.
+//! This is the program someone types and the desktop opens: it takes the screen,
+//! asks the host to draw the card on it, and holds the screen until the card is
+//! gone.
+
+use std::process::ExitCode;
+
+use console_panel::card::{Panel, opened};
+
+fn main() -> ExitCode {
+  let asked: Vec<String> = std::env::args().skip(1).collect();
+
+  let Ok(code) = opened(
+    &asked,
+    Panel {
+      who: console_application_music::WHO,
+      command: console_application_music::COMMAND,
+      door: console_application_music::door,
+      card: console_application_music::card,
+    },
+  );
+
+  code
+}

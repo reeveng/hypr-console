@@ -52,6 +52,7 @@ enum PendingSourceProvenance {
 }
 
 impl PendingSourceProvenance {
+    #[must_use]
     fn bind(
         &self,
         owner_id: &str,
@@ -79,6 +80,7 @@ impl PendingSourceProvenance {
         }
     }
 
+    #[must_use]
     fn bind_for_emission(
         &self,
         owner_id: &str,
@@ -98,13 +100,16 @@ impl PendingSourceProvenance {
                 *declaration_ordinal,
             );
         }
+
         self.bind(owner_id, channel)
     }
 
+    #[must_use]
     const fn is_inline(&self) -> bool {
         matches!(self, Self::Inline { .. })
     }
 
+    #[must_use]
     fn class_id(&self) -> Option<&str> {
         match self {
             Self::AssignedClass { class_id, .. } => Some(class_id),
@@ -112,6 +117,7 @@ impl PendingSourceProvenance {
         }
     }
 
+    #[must_use]
     fn terminal_foreground_provenance(
         &self,
     ) -> crate::flowchart::FlowchartTerminalForegroundProvenance {
@@ -134,10 +140,12 @@ struct SourceFacetDeclaration {
 }
 
 impl SourceFacetDeclaration {
+    #[must_use]
     fn status(&self) -> crate::flowchart::FlowchartSourceFacetStatus {
         crate::flowchart::FlowchartSourceFacetStatus::from_parts(true, self.admitted)
     }
 
+    #[must_use]
     fn evidence(
         &self,
         owner_id: &str,
@@ -164,8 +172,8 @@ impl SourceFacetDeclaration {
             emission.generated_class_css(),
         );
         let declaration = self.prepared.bind(provenance);
-        let residual = reason.map(|reason| {
-            crate::diagram_theme::SourceStyleResidual::from_declaration(&declaration, reason)
+        let residual = reason.map(|reason_2| {
+            crate::diagram_theme::SourceStyleResidual::from_declaration(&declaration, reason_2)
         });
         let status = if emitted {
             self.status()
@@ -183,6 +191,7 @@ struct PendingSourceDeclaration {
 }
 
 impl PendingSourceDeclaration {
+    #[must_use]
     fn bind(
         &self,
         owner_id: &str,
@@ -206,6 +215,7 @@ struct PendingInvalidSourceDeclaration {
 }
 
 impl PendingInvalidSourceDeclaration {
+    #[must_use]
     fn bind(&self, owner_id: &str) -> crate::diagram_theme::SourceStyleResidual {
         crate::diagram_theme::SourceStyleResidual::invalid_prepared(
             Arc::clone(&self.raw),
@@ -238,10 +248,12 @@ impl FlowchartPreparedClassStyles {
         work_meter: Option<&crate::resources::OperationWorkMeter>,
     ) -> std::result::Result<Self, crate::resources::OperationWorkError> {
         let mut selected = FixedSet::default();
+
         for class_id in class_ids {
             charge_style_work(work_meter, 1)?;
             selected.insert(class_id);
         }
+
         Self::prepare_selected(class_defs, &selected, work_meter)
     }
 
@@ -259,10 +271,13 @@ impl FlowchartPreparedClassStyles {
         let mut classes = IndexMap::new();
         #[cfg(test)]
         let mut parsed_declaration_count = 0usize;
+
         for (_, class_id, declarations) in selected_definitions {
             let mut prepared = Vec::new();
+
             for raw_group in declarations {
                 charge_style_scan(work_meter, raw_group.len())?;
+
                 for raw in crate::flowchart::flowchart_split_mermaid_style_decls(raw_group) {
                     charge_style_work(work_meter, 1)?;
                     #[cfg(test)]
@@ -285,8 +300,10 @@ impl FlowchartPreparedClassStyles {
                     prepared.push(declaration);
                 }
             }
+
             classes.insert(Arc::from(class_id.as_str()), prepared);
         }
+
         Ok(Self {
             classes,
             #[cfg(test)]
@@ -294,6 +311,7 @@ impl FlowchartPreparedClassStyles {
         })
     }
 
+    #[must_use]
     fn get_index_of(&self, class_id: &str) -> Option<usize> {
         self.classes.get_index_of(class_id)
     }
@@ -308,7 +326,7 @@ fn charge_style_scan(
     work_meter: Option<&crate::resources::OperationWorkMeter>,
     bytes: usize,
 ) -> std::result::Result<(), crate::resources::OperationWorkError> {
-    let chunks = bytes.saturating_add(63) / 64;
+    let chunks = bytes.saturating_add(63).wrapping_div(64);
     charge_style_work(work_meter, chunks.saturating_add(1))
 }
 
@@ -316,9 +334,10 @@ fn charge_style_work(
     work_meter: Option<&crate::resources::OperationWorkMeter>,
     units: usize,
 ) -> std::result::Result<(), crate::resources::OperationWorkError> {
-    if let Some(work_meter) = work_meter {
-        work_meter.charge(units)?;
+    if let Some(work_meter_2) = work_meter {
+        work_meter_2.charge(units)?;
     }
+
     Ok(())
 }
 
@@ -334,6 +353,7 @@ pub(in crate::svg::parity::flowchart) struct FlowchartNodeSourceEvidence {
 }
 
 impl FlowchartCompiledStyles {
+    #[must_use]
     pub(super) fn source_label_filter_status(
         &self,
     ) -> crate::flowchart::FlowchartSourceFacetStatus {
@@ -348,8 +368,9 @@ impl FlowchartCompiledStyles {
         }
     }
 
+    #[must_use]
     pub(super) fn label_shadow_source_is_bounded(&self) -> bool {
-        // Shape-only stroke/filter declarations do not own the separate SVG text terminal.
+
         self.label_sources.iter().all(|source| {
             matches!(
                 source.prepared.property(),
@@ -368,6 +389,7 @@ impl FlowchartCompiledStyles {
             .any(|source| source.channel == crate::diagram_theme::SourceStyleChannel::Label)
     }
 
+    #[must_use]
     pub(super) fn edge_shadow_source_is_bounded(&self) -> bool {
         !self.shape_sources.iter().any(|source| {
             matches!(
@@ -384,6 +406,7 @@ impl FlowchartCompiledStyles {
         })
     }
 
+    #[must_use]
     pub(super) fn node_shadow_source_is_bounded(&self) -> bool {
         !self
             .shape_sources
@@ -391,6 +414,7 @@ impl FlowchartCompiledStyles {
             .any(|source| node_shadow_geometry_is_overridden(source.prepared.property()))
     }
 
+    #[must_use]
     pub(super) fn source_filter_status(&self) -> crate::flowchart::FlowchartSourceFacetStatus {
         if self
             .shape_sources
@@ -403,6 +427,7 @@ impl FlowchartCompiledStyles {
         }
     }
 
+    #[must_use]
     fn invalid_source_residuals(
         &self,
         owner_id: &str,
@@ -415,16 +440,19 @@ impl FlowchartCompiledStyles {
             .collect()
     }
 
+    #[must_use]
     pub(super) fn emitted_edge_class_declarations(
         &self,
     ) -> &[Arc<crate::diagram_theme::PreparedSourceStyleDeclaration>] {
         &self.edge_class_declarations
     }
 
+    #[must_use]
     pub(super) const fn edge_animation_active(&self) -> Option<bool> {
         self.edge_animation_active
     }
 
+    #[must_use]
     pub(super) fn edge_marker_color(&self, hand_drawn: bool) -> Option<&str> {
         let source = if hand_drawn {
             self.inline_stroke_source.as_ref()?
@@ -438,6 +466,7 @@ impl FlowchartCompiledStyles {
         })
     }
 
+    #[must_use]
     pub(super) fn projected_edge_source_style_bytes(
         &self,
         default_edge_style: &[String],
@@ -445,6 +474,7 @@ impl FlowchartCompiledStyles {
         hand_drawn: bool,
     ) -> Option<usize> {
         let joined_inline = projected_joined_style_bytes(default_edge_style, edge_style)?;
+
         if hand_drawn {
             return Some(joined_inline);
         }
@@ -476,6 +506,7 @@ impl FlowchartCompiledStyles {
 
     /// Drops node-only compiled payload while preserving every path, marker, label, and evidence
     /// input consumed by Flowchart edge rendering.
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn into_edge_artifact(
         mut self,
         hand_drawn: bool,
@@ -491,15 +522,17 @@ impl FlowchartCompiledStyles {
         self.generated_shape_sources = Vec::new();
 
         if hand_drawn {
-            // Hand-drawn edges emit inline shape declarations directly and report assigned-class
-            // declarations as unsupported. The semantic winner list supplies the latter evidence.
+
+
             self.edge_class_shape_sources = Vec::new();
         }
+
         self
     }
 
     /// Swimlane edge-label nodes consume label typography plus shape residuals, but never edge
     /// path declarations or node shape facets.
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn into_swimlane_edge_label_artifact(mut self) -> Self {
         self.edge_class_declarations = Vec::new();
         self.edge_class_shape_sources = Vec::new();
@@ -520,6 +553,7 @@ impl FlowchartCompiledStyles {
         self
     }
 
+    #[must_use]
     pub(super) fn effective_edge_label_text_style<'a>(
         &self,
         base: &'a crate::text::TextStyle,
@@ -528,6 +562,7 @@ impl FlowchartCompiledStyles {
             .style
     }
 
+    #[must_use]
     pub(super) fn effective_edge_label_text_style_with_provenance<'a>(
         &self,
         base: &'a crate::text::TextStyle,
@@ -537,12 +572,14 @@ impl FlowchartCompiledStyles {
             crate::mermaid_style::CssFontSizeContext::uniform(base.font_size),
         );
         let mut terminal_foreground = None;
+
         for declaration in &self.label_sources {
             cascade.observe(
                 declaration.prepared.property(),
                 declaration.prepared.value(),
                 declaration.prepared.important(),
             );
+
             if declaration.prepared.property().trim() == "color" {
                 terminal_foreground = Some(crate::flowchart::FlowchartTerminalForeground::new(
                     declaration.prepared.value(),
@@ -550,26 +587,34 @@ impl FlowchartCompiledStyles {
                 ));
             }
         }
+
         crate::flowchart::FlowchartTextStyleResolution {
             style: cascade.finish(),
             terminal_foreground,
         }
     }
 
+    #[must_use]
     pub(super) fn source_fill_status(&self) -> crate::flowchart::FlowchartSourceFacetStatus {
-        self.fill_source
+        match self.fill_source
             .as_ref()
-            .map(SourceFacetDeclaration::status)
-            .unwrap_or(crate::flowchart::FlowchartSourceFacetStatus::Absent)
+            .map(SourceFacetDeclaration::status) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => crate::flowchart::FlowchartSourceFacetStatus::Absent,
+        }
     }
 
+    #[must_use]
     pub(super) fn source_stroke_status(&self) -> crate::flowchart::FlowchartSourceFacetStatus {
-        self.stroke_source
+        match self.stroke_source
             .as_ref()
-            .map(SourceFacetDeclaration::status)
-            .unwrap_or(crate::flowchart::FlowchartSourceFacetStatus::Absent)
+            .map(SourceFacetDeclaration::status) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => crate::flowchart::FlowchartSourceFacetStatus::Absent,
+        }
     }
 
+    #[must_use]
     pub(super) fn emitted_edge_source_stroke_status(
         &self,
         hand_drawn: bool,
@@ -579,20 +624,27 @@ impl FlowchartCompiledStyles {
         } else {
             self.stroke_source.as_ref()
         };
-        source
-            .map(SourceFacetDeclaration::status)
-            .unwrap_or(crate::flowchart::FlowchartSourceFacetStatus::Absent)
+
+        match source
+            .map(SourceFacetDeclaration::status) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => crate::flowchart::FlowchartSourceFacetStatus::Absent,
+        }
     }
 
+    #[must_use]
     pub(super) fn source_stroke_width_status(
         &self,
     ) -> crate::flowchart::FlowchartSourceFacetStatus {
-        self.stroke_width_source
+        match self.stroke_width_source
             .as_ref()
-            .map(SourceFacetDeclaration::status)
-            .unwrap_or(crate::flowchart::FlowchartSourceFacetStatus::Absent)
+            .map(SourceFacetDeclaration::status) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => crate::flowchart::FlowchartSourceFacetStatus::Absent,
+        }
     }
 
+    #[must_use]
     pub(super) fn admitted_stroke_width_value(&self) -> Option<f32> {
         self.stroke_width
             .as_deref()
@@ -602,6 +654,7 @@ impl FlowchartCompiledStyles {
     /// The path writer emits assigned-class declarations before inline declarations.
     /// Its last important width outranks generated structural class CSS. Hand-drawn edge
     /// artifacts already omit assigned-class transport from edge_class_shape_sources.
+    #[must_use]
     pub(super) fn edge_important_stroke_width(
         &self,
     ) -> Option<&crate::diagram_theme::PreparedSourceStyleDeclaration> {
@@ -619,15 +672,19 @@ impl FlowchartCompiledStyles {
             .map(|source| source.prepared.as_ref())
     }
 
+    #[must_use]
     pub(super) fn source_stroke_dasharray_status(
         &self,
     ) -> crate::flowchart::FlowchartSourceFacetStatus {
-        self.stroke_dasharray_source
+        match self.stroke_dasharray_source
             .as_ref()
-            .map(SourceFacetDeclaration::status)
-            .unwrap_or(crate::flowchart::FlowchartSourceFacetStatus::Absent)
+            .map(SourceFacetDeclaration::status) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => crate::flowchart::FlowchartSourceFacetStatus::Absent,
+        }
     }
 
+    #[must_use]
     pub(super) fn emitted_edge_source_stroke_dasharray_status(
         &self,
         hand_drawn: bool,
@@ -635,22 +692,27 @@ impl FlowchartCompiledStyles {
         if !hand_drawn {
             return self.source_stroke_dasharray_status();
         }
+
         self.inline_stroke_dasharray_status
     }
 
     /// Numeric source winners transported directly to rectangle inline styles.
     /// Materialize each axis as geometry too: native SVG readers may ignore CSS rx/ry.
+    #[must_use]
     pub(super) fn rectangle_source_radii(&self) -> [Option<f64>; 2] {
         let mut radii = [None; 2];
+
         for source in &self.radius_sources {
             if source.admitted {
                 let axis = usize::from(source.prepared.property() == "ry");
                 radii[axis] = crate::mermaid_style::parse_svg_number_or_px(source.prepared.value());
             }
         }
+
         radii
     }
 
+    #[must_use]
     pub(super) fn source_radius_status(&self) -> crate::flowchart::FlowchartSourceFacetStatus {
         self.radius_sources.iter().fold(
             crate::flowchart::FlowchartSourceFacetStatus::Absent,
@@ -658,13 +720,17 @@ impl FlowchartCompiledStyles {
         )
     }
 
+    #[must_use]
     pub(super) fn source_font_stack_status(&self) -> crate::flowchart::FlowchartSourceFacetStatus {
-        self.font_stack_source
+        match self.font_stack_source
             .as_ref()
-            .map(SourceFacetDeclaration::status)
-            .unwrap_or(crate::flowchart::FlowchartSourceFacetStatus::Absent)
+            .map(SourceFacetDeclaration::status) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => crate::flowchart::FlowchartSourceFacetStatus::Absent,
+        }
     }
 
+    #[must_use]
     pub(super) fn emitted_source_font_stack_status(
         &self,
         receipt: crate::svg::parity::flowchart::render::node::emission::FlowchartNodeLabelEmissionReceipt,
@@ -680,20 +746,27 @@ impl FlowchartCompiledStyles {
         source.merge(receipt.local_font_stack_source())
     }
 
+    #[must_use]
     pub(super) fn source_font_size_status(&self) -> crate::flowchart::FlowchartSourceFacetStatus {
-        self.font_size_source
+        match self.font_size_source
             .as_ref()
-            .map(SourceFacetDeclaration::status)
-            .unwrap_or(crate::flowchart::FlowchartSourceFacetStatus::Absent)
+            .map(SourceFacetDeclaration::status) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => crate::flowchart::FlowchartSourceFacetStatus::Absent,
+        }
     }
 
+    #[must_use]
     pub(super) fn source_font_weight_status(&self) -> crate::flowchart::FlowchartSourceFacetStatus {
-        self.font_weight_source
+        match self.font_weight_source
             .as_ref()
-            .map(SourceFacetDeclaration::status)
-            .unwrap_or(crate::flowchart::FlowchartSourceFacetStatus::Absent)
+            .map(SourceFacetDeclaration::status) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => crate::flowchart::FlowchartSourceFacetStatus::Absent,
+        }
     }
 
+    #[must_use]
     pub(super) fn emitted_source_font_weight_status(
         &self,
         receipt: crate::svg::parity::flowchart::render::node::emission::FlowchartNodeLabelEmissionReceipt,
@@ -708,12 +781,14 @@ impl FlowchartCompiledStyles {
         }
     }
 
+    #[must_use]
     pub(super) fn source_label_foreground_status(
         &self,
     ) -> crate::flowchart::FlowchartSourceFacetStatus {
         self.label_foreground_status
     }
 
+    #[must_use]
     pub(super) fn emitted_source_label_foreground_status(
         &self,
         receipt: crate::svg::parity::flowchart::render::node::emission::FlowchartNodeLabelEmissionReceipt,
@@ -728,6 +803,7 @@ impl FlowchartCompiledStyles {
         }
     }
 
+    #[must_use]
     pub(super) fn emitted_source_font_size_status(
         &self,
         receipt: crate::svg::parity::flowchart::render::node::emission::FlowchartNodeLabelEmissionReceipt,
@@ -743,6 +819,7 @@ impl FlowchartCompiledStyles {
         source.merge(receipt.local_font_size_source())
     }
 
+    #[must_use]
     pub(super) fn shape_source_evidence(
         &self,
         owner_id: &str,
@@ -807,6 +884,7 @@ impl FlowchartCompiledStyles {
 
         for direct_source in &self.shape_sources {
             let property = direct_source.prepared.property();
+
             if matches!(
                 property,
                 "fill" | "stroke" | "stroke-width" | "stroke-dasharray" | "rx" | "ry"
@@ -814,6 +892,7 @@ impl FlowchartCompiledStyles {
             {
                 continue;
             }
+
             let generated_source = generated_source_winner(
                 &self.generated_shape_sources,
                 property,
@@ -830,6 +909,7 @@ impl FlowchartCompiledStyles {
                 },
                 emission.generated_class_css(),
             );
+
             if let Some(reason) = shape_source_residual_reason(&declaration, emission.reach()) {
                 residuals.push(crate::diagram_theme::SourceStyleResidual::from_declaration(
                     &declaration,
@@ -848,6 +928,7 @@ impl FlowchartCompiledStyles {
         }
     }
 
+    #[must_use]
     pub(super) fn label_source_residuals(
         &self,
         owner_id: &str,
@@ -861,6 +942,7 @@ impl FlowchartCompiledStyles {
         )
     }
 
+    #[must_use]
     pub(super) fn emitted_shape_source_residuals(
         &self,
         owner_id: &str,
@@ -874,6 +956,7 @@ impl FlowchartCompiledStyles {
         self.emitted_shape_source_residuals_with_receipt(owner_id, receipt)
     }
 
+    #[must_use]
     pub(super) fn emitted_shape_source_residuals_with_receipt(
         &self,
         owner_id: &str,
@@ -905,6 +988,7 @@ impl FlowchartCompiledStyles {
         residuals
     }
 
+    #[must_use]
     pub(super) fn emitted_edge_source_residuals(
         &self,
         owner_id: &str,
@@ -927,6 +1011,7 @@ impl FlowchartCompiledStyles {
                 },
             )
         };
+
         if hand_drawn {
             residuals.extend(
                 self.shape_sources
@@ -950,9 +1035,11 @@ impl FlowchartCompiledStyles {
                     .filter_map(|source| collect_residual(source, true)),
             );
         }
+
         residuals
     }
 
+    #[must_use]
     pub(super) fn emitted_label_source_residuals(
         &self,
         owner_id: &str,
@@ -974,6 +1061,7 @@ impl FlowchartCompiledStyles {
         )
     }
 
+    #[must_use]
     fn emitted_label_source_residuals_with_prepared_typography(
         &self,
         owner_id: &str,
@@ -994,8 +1082,8 @@ impl FlowchartCompiledStyles {
                 false,
             );
             let verified = match declaration.property() {
-                "font-family" => prepared_font_stack_reach?.is_verified(),
-                "font-size" => prepared_font_size_reach?.is_verified(),
+                "font-family" => { let checked_value = prepared_font_stack_reach?; checked_value }.is_verified(),
+                "font-size" => { let checked_value_2 = prepared_font_size_reach?; checked_value_2 }.is_verified(),
                 _ => typography_verified,
             };
             label_source_residual_reason(&declaration, verified).map(|reason| {
@@ -1005,6 +1093,7 @@ impl FlowchartCompiledStyles {
         residuals
     }
 
+    #[must_use]
     pub(super) fn emitted_html_label_source_residuals(
         &self,
         owner_id: &str,
@@ -1017,22 +1106,31 @@ impl FlowchartCompiledStyles {
     }
 }
 
+#[must_use]
 fn marker_source_value(declaration: &crate::diagram_theme::PreparedSourceStyleDeclaration) -> &str {
-    let Some((_, source_value)) = declaration.raw().split_once(':') else {
-        return declaration.value();
+    let source_value = {
+        let optional_source_value = declaration.raw().split_once(':');
+
+        match optional_source_value {
+            Some((_, matched_source_value)) => matched_source_value,
+            ::core::option::Option::None => return declaration.value(),
+        }
     };
-    let source_value = source_value.trim_end_matches(';');
+
+    let source_value_2 = source_value.trim_end_matches(';');
+
     if !declaration.important() {
-        return source_value;
+        return source_value_2;
     }
 
     let value = declaration.value();
-    source_value
+    source_value_2
         .find(value)
-        .map(|offset| &source_value[..offset + value.len()])
+        .map(|offset| &source_value_2[..offset + value.len()])
         .unwrap_or(value)
 }
 
+#[must_use]
 fn flowchart_edge_animation_declaration_active(
     declaration: &crate::diagram_theme::PreparedSourceStyleDeclaration,
 ) -> Option<bool> {
@@ -1084,27 +1182,32 @@ const FLOWCHART_ANIMATION_SHORTHAND_KEYWORDS: &[&str] = &[
     "auto",
 ];
 
+#[must_use]
 fn flowchart_animation_identifier_matches(value: &str, candidates: &[&str]) -> bool {
     candidates
         .iter()
         .any(|candidate| value.eq_ignore_ascii_case(candidate))
 }
 
+#[must_use]
 fn parse_flowchart_animation_name(value: &str) -> Option<bool> {
     let mut parser = Parser::new(value);
     let names = parser
         .parse_comma_separated(parse_flowchart_animation_name_component)
         .ok()?;
+
     if names.len() != 1 && names.contains(&FlowchartAnimationNameComponent::CssWide) {
         return None;
     }
+
     Some(names.contains(&FlowchartAnimationNameComponent::Active))
 }
 
 fn parse_flowchart_animation_name_component<'i>(
     parser: &mut Parser<'i>,
 ) -> std::result::Result<FlowchartAnimationNameComponent, cssparser::ParseError<()>> {
-    let token = parser.next()?.clone();
+    let checked_value = parser.next()?;
+    let token = checked_value.clone();
     let component = match token {
         Token::Ident(name) if name.eq_ignore_ascii_case("none") => {
             FlowchartAnimationNameComponent::Inactive
@@ -1128,6 +1231,7 @@ fn parse_flowchart_animation_name_component<'i>(
     Ok(component)
 }
 
+#[must_use]
 fn parse_flowchart_animation_shorthand(value: &str) -> Option<bool> {
     let mut parser = Parser::new(value);
     parser
@@ -1148,12 +1252,15 @@ fn parse_flowchart_single_animation<'i>(
         let token = match parser.next_including_whitespace() {
             Ok(token) => token.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<()> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
+
         if matches!(token, Token::WhiteSpace(_)) {
             continue;
         }
+
         component_count = component_count.saturating_add(1);
+
         match token {
             Token::Ident(name) if crate::diagram_theme::is_css_wide_keyword(name.as_ref()) => {
                 css_wide = true;
@@ -1163,6 +1270,7 @@ fn parse_flowchart_single_animation<'i>(
                 if name_seen {
                     return Err(cssparser::ParseError::custom(()));
                 }
+
                 name_seen = true;
                 active_name = true;
             }
@@ -1179,10 +1287,13 @@ fn parse_flowchart_single_animation<'i>(
                         name.as_ref(),
                         FLOWCHART_ANIMATION_FUNCTIONS,
                     );
+
                 if !known {
                     return Err(cssparser::ParseError::custom(()));
                 }
+
                 consume_flowchart_animation_function(parser)?;
+
                 if dynamic {
                     active_name = true;
                 }
@@ -1194,6 +1305,7 @@ fn parse_flowchart_single_animation<'i>(
     if component_count == 0 || (css_wide && component_count != 1) {
         return Err(cssparser::ParseError::custom(()));
     }
+
     Ok(active_name)
 }
 
@@ -1202,14 +1314,17 @@ fn consume_flowchart_animation_function<'i>(
 ) -> std::result::Result<(), cssparser::ParseError<()>> {
     parser.parse_nested_block(|nested| {
         while nested.next_including_whitespace().is_ok() {}
+
         Ok(())
     })
 }
 
+#[must_use]
 fn flowchart_animation_shorthand_keyword(value: &str) -> bool {
     flowchart_animation_identifier_matches(value, FLOWCHART_ANIMATION_SHORTHAND_KEYWORDS)
 }
 
+#[must_use]
 fn projected_joined_style_bytes(a: &[String], b: &[String]) -> Option<usize> {
     a.iter()
         .chain(b)
@@ -1221,6 +1336,7 @@ fn projected_joined_style_bytes(a: &[String], b: &[String]) -> Option<usize> {
         })
 }
 
+#[must_use]
 pub(super) fn sanitized_xhtml_source_residuals(
     owner_id: &str,
     sanitized_xhtml: &str,
@@ -1256,6 +1372,7 @@ pub(super) fn sanitized_xhtml_source_residuals(
                     ));
                     break;
                 }
+
                 depth = depth.saturating_add(1);
             }
             Ok(Event::Empty(element)) => {
@@ -1282,15 +1399,20 @@ pub(super) fn sanitized_xhtml_source_residuals(
                     ));
                     break;
                 };
+
                 depth = next_depth;
             }
             Ok(Event::Eof) => {
-                if depth != 0 {
-                    residuals.push(invalid_sanitized_xhtml_residual(
-                        owner_id,
-                        declaration_ordinal,
-                    ));
+                match depth {
+                    0 => {},
+                    _ => {
+                        residuals.push(invalid_sanitized_xhtml_residual(
+                            owner_id,
+                            declaration_ordinal,
+                        ));
+                    },
                 }
+
                 break;
             }
             Ok(_) => {}
@@ -1307,6 +1429,7 @@ pub(super) fn sanitized_xhtml_source_residuals(
     residuals
 }
 
+#[must_use]
 pub(super) fn sanitized_xhtml_typography_statuses(
     sanitized_xhtml: &str,
 ) -> (
@@ -1336,47 +1459,60 @@ pub(super) fn sanitized_xhtml_typography_statuses(
         };
 
         let mut renderer_math_wrapper = false;
+
         for attribute in element.attributes() {
-            let Ok(attribute) = attribute else {
-                return (Unverified, Unverified);
+            let attribute_2 = match attribute {
+                Ok(matched_attribute) => matched_attribute,
+                ::core::result::Result::Err(_) => return (Unverified, Unverified),
             };
-            let name = attribute.key.local_name();
+
+            let name = attribute_2.key.local_name();
             renderer_math_wrapper |= matches!(
                 name.as_ref(),
                 "data-merman-prepared-math-native" | "data-merman-prepared-math-occurrence"
             );
         }
 
-        for attribute in element.attributes() {
-            let Ok(attribute) = attribute else {
-                return (Unverified, Unverified);
+        'over_attribute_2: for attribute in element.attributes() {
+            let attribute_3 = match attribute {
+                Ok(matched_attribute) => matched_attribute,
+                ::core::result::Result::Err(_) => return (Unverified, Unverified),
             };
-            let name = attribute.key.local_name();
+
+            let name = attribute_3.key.local_name();
             let is_style = name.as_ref().eq_ignore_ascii_case("style");
             let is_class = name.as_ref().eq_ignore_ascii_case("class");
+
             if (!is_style && !is_class) || renderer_math_wrapper {
-                continue;
+                continue 'over_attribute_2;
             }
-            let Ok(value) = attribute.normalized_value(XmlVersion::Implicit1_0) else {
+
+            let Ok(value) = attribute_3.normalized_value(XmlVersion::Implicit1_0) else {
                 return (Unverified, Unverified);
             };
-            let value = value.trim();
-            if value.is_empty() {
-                continue;
+
+            let value_2 = value.trim();
+
+            if value_2.is_empty() {
+                continue 'over_attribute_2;
             }
+
             if is_class {
                 font_stack = font_stack.merge(Unverified);
                 font_size = font_size.merge(Unverified);
-                continue;
+                continue 'over_attribute_2;
             }
 
-            let mut parser = Parser::new(value);
-            while !parser.is_exhausted() {
+            let mut parser = Parser::new(value_2);
+
+            'inner_while_3: while !parser.is_exhausted() {
                 let start = parser.position();
                 let property = parser.parse_until_after(Delimiter::Semicolon, |declaration| {
                     let property = declaration.expect_ident_cloned()?.to_ascii_lowercase();
                     declaration.expect_colon()?;
+
                     while declaration.next_including_whitespace().is_ok() {}
+
                     Ok::<_, cssparser::ParseError<()>>(property)
                 });
                 let raw = parser
@@ -1388,7 +1524,7 @@ pub(super) fn sanitized_xhtml_typography_statuses(
                     Some("font-family") => (true, false),
                     Some("font-size") => (false, true),
                     Some("font") | Some("all") => (true, true),
-                    _ => continue,
+                    _ => continue 'inner_while_3,
                 };
                 let provenance = crate::diagram_theme::SourceStyleProvenance::label_style(
                     "sanitized-xhtml-fragment",
@@ -1405,9 +1541,11 @@ pub(super) fn sanitized_xhtml_typography_statuses(
                         }
                         Ok(_) | Err(_) => Unverified,
                     };
+
                 if affects_stack {
                     font_stack = font_stack.merge(status);
                 }
+
                 if affects_size {
                     font_size = font_size.merge(status);
                 }
@@ -1420,6 +1558,7 @@ pub(super) fn sanitized_xhtml_typography_statuses(
 
 /// Generated selectors on the actual edge ancestors can override path filters or enlarge their
 /// source geometry. These declarations have no writer-owned geometry receipt yet.
+#[must_use]
 pub(super) fn edge_shadow_structural_styles_are_bounded(
     class_defs: &IndexMap<String, Vec<String>>,
     ancestor_classes: &[&str],
@@ -1460,6 +1599,7 @@ pub(super) fn edge_shadow_structural_styles_are_bounded(
     })
 }
 
+#[must_use]
 fn node_shadow_geometry_is_overridden(property: &str) -> bool {
     matches!(
         property,
@@ -1482,6 +1622,7 @@ fn node_shadow_geometry_is_overridden(property: &str) -> bool {
     )
 }
 
+#[must_use]
 pub(super) fn node_shadow_structural_styles_are_bounded(
     class_defs: &IndexMap<String, Vec<String>>,
     classes: &[&str],
@@ -1504,6 +1645,7 @@ pub(super) fn node_shadow_structural_styles_are_bounded(
 
 /// Generated class selectors can style descendants of the label shell without appearing in
 /// the sanitized fragment. Their inheritance is not represented by the label measurement plan.
+#[must_use]
 pub(super) fn html_label_structural_font_weight_is_unverified(
     class_defs: &IndexMap<String, Vec<String>>,
     shell_classes: &[&str],
@@ -1525,6 +1667,7 @@ pub(super) fn html_label_structural_font_weight_is_unverified(
 
 /// Ancestor class rules are already folded into the outer label's measured style. A nested
 /// span can receive a new declaration from `.class span`, bypassing that inherited winner.
+#[must_use]
 pub(super) fn html_label_font_weight_status<'a>(
     class_defs: &IndexMap<String, Vec<String>>,
     shell_classes: &[&str],
@@ -1534,6 +1677,7 @@ pub(super) fn html_label_font_weight_status<'a>(
     if html_label_structural_font_weight_is_unverified(class_defs, shell_classes) {
         return crate::flowchart::FlowchartSourceFacetStatus::Unverified;
     }
+
     let unmeasured_descendant_weight = contains_ascii_case_insensitive(sanitized_xhtml, b"span")
         && ancestor_classes
             .into_iter()
@@ -1549,6 +1693,7 @@ fn sanitized_xhtml_font_weight_status(
 }
 
 /// Inline weight changes and descendant selector winners are not represented in measurement.
+#[must_use]
 fn inspect_xhtml_font_weight(
     sanitized_xhtml: &str,
     unmeasured_descendant_weight: bool,
@@ -1567,20 +1712,31 @@ fn inspect_xhtml_font_weight(
             }
             Ok(Event::Empty(element)) => element,
             Ok(Event::End(_)) => {
-                let Some(next_depth) = depth.checked_sub(1) else {
-                    return Unverified;
+                let next_depth = {
+                    let optional_next_depth = depth.checked_sub(1);
+
+                    match optional_next_depth {
+                        Some(matched_next_depth) => matched_next_depth,
+                        ::core::option::Option::None => return Unverified,
+                    }
                 };
+
                 depth = next_depth;
                 continue;
             }
-            Ok(Event::Eof) => return if depth == 0 { Absent } else { Unverified },
+            Ok(Event::Eof) => return match depth {
+                0 => { Absent },
+                _ => { Unverified },
+            },
             Ok(_) => continue,
             Err(_) => return Unverified,
         };
         let name = element.local_name();
+
         if unmeasured_descendant_weight && name.as_ref().eq_ignore_ascii_case("span") {
             return Unverified;
         }
+
         if [
             "b", "strong", "h1", "h2", "h3", "h4", "h5", "h6", "th", "button", "input", "select",
             "optgroup", "option", "textarea", "math", "svg", "style",
@@ -1592,29 +1748,35 @@ fn inspect_xhtml_font_weight(
         }
 
         for attribute in element.attributes() {
-            let Ok(attribute) = attribute else {
+            let attribute_2 = match attribute {
+                Ok(matched_attribute) => matched_attribute,
+                ::core::result::Result::Err(_) => return Unverified,
+            };
+
+            let name_2 = attribute_2.key.local_name();
+
+            let Ok(value) = attribute_2.normalized_value(XmlVersion::Implicit1_0) else {
                 return Unverified;
             };
-            let name = attribute.key.local_name();
-            let Ok(value) = attribute.normalized_value(XmlVersion::Implicit1_0) else {
-                return Unverified;
-            };
-            if name.as_ref().eq_ignore_ascii_case("class") && !value.trim().is_empty()
-                || name
+
+            if name_2.as_ref().eq_ignore_ascii_case("class") && !value.trim().is_empty()
+                || name_2
                     .as_ref()
                     .eq_ignore_ascii_case("data-merman-prepared-math-native")
-                || name
+                || name_2
                     .as_ref()
                     .eq_ignore_ascii_case("data-merman-prepared-math-occurrence")
             {
                 return Unverified;
             }
-            if name.as_ref().eq_ignore_ascii_case("style") {
+
+            if name_2.as_ref().eq_ignore_ascii_case("style") {
                 let mut affects_weight = false;
                 crate::mermaid_style::visit_parsed_style_declarations(&value, |declaration| {
                     affects_weight |=
                         matches!(declaration.property(), "font-weight" | "font" | "all");
                 });
+
                 if affects_weight {
                     return Unverified;
                 }
@@ -1630,8 +1792,8 @@ fn inspect_sanitized_xhtml_element(
     residuals: &mut Vec<crate::diagram_theme::SourceStyleResidual>,
 ) -> std::result::Result<(), ()> {
     for attribute in element.attributes() {
-        let attribute = attribute.map_err(|_| ())?;
-        let name = attribute.key.local_name();
+        let attribute_2 = attribute.map_err(|_| ())?;
+        let name = attribute_2.key.local_name();
         let is_style = name.as_ref().eq_ignore_ascii_case("style");
         let is_class = name.as_ref().eq_ignore_ascii_case("class");
         let legacy_font_property = if element.local_name().as_ref().eq_ignore_ascii_case("font") {
@@ -1645,14 +1807,17 @@ fn inspect_sanitized_xhtml_element(
         } else {
             None
         };
+
         if !is_style && !is_class && legacy_font_property.is_none() {
             continue;
         }
-        let value = attribute
+
+        let value = attribute_2
             .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|_| ())?;
-        let value = value.trim();
-        if value.is_empty() {
+        let value_2 = value.trim();
+
+        if value_2.is_empty() {
             continue;
         }
 
@@ -1662,7 +1827,8 @@ fn inspect_sanitized_xhtml_element(
                 crate::diagram_theme::SourceStyleChannel::Label,
                 *declaration_ordinal,
             );
-            let raw = format!("{property}:{value}");
+            let raw = format!("{property}:{value}", value = value_2);
+
             match crate::diagram_theme::SourceStyleDeclaration::parse(&raw, provenance) {
                 Ok(declaration) => {
                     residuals.push(crate::diagram_theme::SourceStyleResidual::from_declaration(
@@ -1672,18 +1838,20 @@ fn inspect_sanitized_xhtml_element(
                 }
                 Err(residual) => residuals.push(residual),
             }
+
             *declaration_ordinal = declaration_ordinal.saturating_add(1);
             continue;
         }
 
         if is_style {
             crate::mermaid_style::visit_style_declaration_boundaries_with_checkpoints(
-                value,
+                value_2,
                 &mut || Ok::<(), ()>(()),
                 |boundary| {
                     let raw = boundary.raw();
                     let mut parser = Parser::new(raw);
                     let mut meaningful = false;
+
                     while let Ok(token) = parser.next_including_whitespace_and_comments() {
                         if !matches!(
                             token,
@@ -1693,14 +1861,17 @@ fn inspect_sanitized_xhtml_element(
                             break;
                         }
                     }
+
                     if !meaningful {
                         return Ok(true);
                     }
+
                     let provenance = crate::diagram_theme::SourceStyleProvenance::label_style(
                         owner_id,
                         crate::diagram_theme::SourceStyleChannel::Label,
                         *declaration_ordinal,
                     );
+
                     *declaration_ordinal = declaration_ordinal.saturating_add(1);
                     match crate::diagram_theme::SourceStyleDeclaration::parse(raw, provenance) {
                         Ok(declaration) => {
@@ -1716,6 +1887,7 @@ fn inspect_sanitized_xhtml_element(
                         }
                         Err(residual) => residuals.push(residual),
                     }
+
                     Ok(true)
                 },
             )?;
@@ -1728,7 +1900,8 @@ fn inspect_sanitized_xhtml_element(
             *declaration_ordinal,
         );
         *declaration_ordinal = declaration_ordinal.saturating_add(1);
-        let raw = synthetic_class_declaration(value);
+        let raw = synthetic_class_declaration(value_2);
+
         match crate::diagram_theme::SourceStyleDeclaration::parse(&raw, provenance) {
             Ok(declaration) => {
                 residuals.push(crate::diagram_theme::SourceStyleResidual::from_declaration(
@@ -1739,9 +1912,11 @@ fn inspect_sanitized_xhtml_element(
             Err(residual) => residuals.push(residual),
         }
     }
+
     Ok(())
 }
 
+#[must_use]
 fn invalid_sanitized_xhtml_residual(
     owner_id: &str,
     declaration_ordinal: usize,
@@ -1756,23 +1931,27 @@ fn invalid_sanitized_xhtml_residual(
     )
 }
 
+#[must_use]
 fn synthetic_class_declaration(value: &str) -> String {
     let mut raw = String::with_capacity("class:\"\"".len() + value.len());
     raw.push_str("class:\"");
+
     for ch in value.chars() {
         match ch {
             '\\' => raw.push_str("\\\\"),
             '"' => raw.push_str("\\\""),
             '\n' | '\r' | '\0' => {
-                let _ = write!(raw, "\\{:x} ", ch as u32);
+                let _ = write!(raw, "\\{:x} ", <u32 as ::core::convert::From<::core::primitive::char>>::from(ch));
             }
             _ => raw.push(ch),
         }
     }
+
     raw.push('"');
     raw
 }
 
+#[must_use]
 fn contains_ascii_case_insensitive(haystack: &str, needle: &[u8]) -> bool {
     haystack
         .as_bytes()
@@ -1780,6 +1959,7 @@ fn contains_ascii_case_insensitive(haystack: &str, needle: &[u8]) -> bool {
         .any(|window| window.eq_ignore_ascii_case(needle))
 }
 
+#[must_use]
 fn emitted_shape_source<'a>(
     direct_source: &'a PendingSourceDeclaration,
     generated_source: Option<&'a PendingSourceDeclaration>,
@@ -1796,6 +1976,7 @@ fn emitted_shape_source<'a>(
             .class_id()
             .is_some_and(wrapper_has_class),
     );
+
     if direct_source.provenance.is_inline()
         || !receipt.generated_selector_overrides_direct()
         || generated_source.is_none()
@@ -1803,10 +1984,11 @@ fn emitted_shape_source<'a>(
         return (direct_source, direct_emission);
     }
 
-    let generated_source = generated_source.expect("generated source checked above");
-    (generated_source, receipt.source_shape_emission(false, true))
+    let generated_source_2 = generated_source.expect("generated source checked above");
+    (generated_source_2, receipt.source_shape_emission(false, true))
 }
 
+#[must_use]
 fn source_paint_evidence(
     direct_source: Option<&SourceFacetDeclaration>,
     generated_source: Option<&PendingSourceDeclaration>,
@@ -1818,45 +2000,47 @@ fn source_paint_evidence(
     crate::flowchart::FlowchartSourceFacetStatus,
     Option<crate::diagram_theme::SourceStyleResidual>,
 ) {
-    let Some(direct_source) = direct_source else {
-        return (crate::flowchart::FlowchartSourceFacetStatus::Absent, None);
+    let direct_source_2 = match direct_source {
+        Some(matched_direct_source) => matched_direct_source,
+        ::core::option::Option::None => return (crate::flowchart::FlowchartSourceFacetStatus::Absent, None),
     };
 
-    let direct_inline = direct_source.provenance.is_inline();
-    let direct_wrapper_has_class = direct_source
+    let direct_inline = direct_source_2.provenance.is_inline();
+    let direct_wrapper_has_class = direct_source_2
         .provenance
         .class_id()
         .is_some_and(wrapper_has_class);
     let direct_emission = if fill {
         receipt.source_fill_emission(
-            direct_source.admitted,
+            direct_source_2.admitted,
             direct_inline,
             direct_wrapper_has_class,
         )
     } else {
         receipt.source_stroke_emission(
-            direct_source.admitted,
+            direct_source_2.admitted,
             direct_inline,
             direct_wrapper_has_class,
         )
     };
+
     if direct_inline
         || (direct_emission.reach().is_verified()
             && (!receipt.generated_selector_overrides_direct()
                 || generated_source.is_some_and(|generated| {
-                    generated.prepared.property() == direct_source.prepared.property()
-                        && generated.prepared.value() == direct_source.prepared.value()
+                    generated.prepared.property() == direct_source_2.prepared.property()
+                        && generated.prepared.value() == direct_source_2.prepared.value()
                 })))
         || generated_source.is_none()
     {
-        return direct_source.evidence(owner_id, direct_emission);
+        return direct_source_2.evidence(owner_id, direct_emission);
     }
 
-    let generated_source = generated_source.expect("generated source checked above");
+    let generated_source_2 = generated_source.expect("generated source checked above");
     let generated_paint = SourceFacetDeclaration {
-        prepared: Arc::clone(&generated_source.prepared),
-        provenance: generated_source.provenance.clone(),
-        admitted: admitted_flowchart_source_paint(generated_source.prepared.value()),
+        prepared: Arc::clone(&generated_source_2.prepared),
+        provenance: generated_source_2.provenance.clone(),
+        admitted: admitted_flowchart_source_paint(generated_source_2.prepared.value()),
     };
     let generated_emission = if fill {
         receipt.source_fill_emission(generated_paint.admitted, false, true)
@@ -1866,6 +2050,7 @@ fn source_paint_evidence(
     generated_paint.evidence(owner_id, generated_emission)
 }
 
+#[must_use]
 fn source_stroke_width_evidence(
     direct_source: Option<&SourceFacetDeclaration>,
     generated_source: Option<&PendingSourceDeclaration>,
@@ -1876,37 +2061,39 @@ fn source_stroke_width_evidence(
     crate::flowchart::FlowchartSourceFacetStatus,
     Option<crate::diagram_theme::SourceStyleResidual>,
 ) {
-    let Some(direct_source) = direct_source else {
-        return (crate::flowchart::FlowchartSourceFacetStatus::Absent, None);
+    let direct_source_2 = match direct_source {
+        Some(matched_direct_source) => matched_direct_source,
+        ::core::option::Option::None => return (crate::flowchart::FlowchartSourceFacetStatus::Absent, None),
     };
 
-    let direct_inline = direct_source.provenance.is_inline();
-    let direct_wrapper_has_class = direct_source
+    let direct_inline = direct_source_2.provenance.is_inline();
+    let direct_wrapper_has_class = direct_source_2
         .provenance
         .class_id()
         .is_some_and(wrapper_has_class);
     let direct_emission = receipt.source_stroke_width_emission(
-        direct_source.admitted,
+        direct_source_2.admitted,
         direct_inline,
         direct_wrapper_has_class,
     );
+
     if direct_inline
         || (direct_emission.reach().is_verified()
             && (!receipt.stroke_width_selector_overrides_direct()
                 || generated_source.is_some_and(|generated| {
-                    generated.prepared.property() == direct_source.prepared.property()
-                        && generated.prepared.value() == direct_source.prepared.value()
+                    generated.prepared.property() == direct_source_2.prepared.property()
+                        && generated.prepared.value() == direct_source_2.prepared.value()
                 })))
         || generated_source.is_none()
     {
-        return direct_source.evidence(owner_id, direct_emission);
+        return direct_source_2.evidence(owner_id, direct_emission);
     }
 
-    let generated_source = generated_source.expect("generated source checked above");
+    let generated_source_2 = generated_source.expect("generated source checked above");
     let generated_width = SourceFacetDeclaration {
-        prepared: Arc::clone(&generated_source.prepared),
-        provenance: generated_source.provenance.clone(),
-        admitted: admitted_flowchart_source_stroke_width(generated_source.prepared.value())
+        prepared: Arc::clone(&generated_source_2.prepared),
+        provenance: generated_source_2.provenance.clone(),
+        admitted: admitted_flowchart_source_stroke_width(generated_source_2.prepared.value())
             .is_some(),
     };
     generated_width.evidence(
@@ -1915,6 +2102,7 @@ fn source_stroke_width_evidence(
     )
 }
 
+#[must_use]
 fn source_stroke_dasharray_evidence(
     direct_source: Option<&SourceFacetDeclaration>,
     generated_source: Option<&PendingSourceDeclaration>,
@@ -1925,37 +2113,39 @@ fn source_stroke_dasharray_evidence(
     crate::flowchart::FlowchartSourceFacetStatus,
     Option<crate::diagram_theme::SourceStyleResidual>,
 ) {
-    let Some(direct_source) = direct_source else {
-        return (crate::flowchart::FlowchartSourceFacetStatus::Absent, None);
+    let direct_source_2 = match direct_source {
+        Some(matched_direct_source) => matched_direct_source,
+        ::core::option::Option::None => return (crate::flowchart::FlowchartSourceFacetStatus::Absent, None),
     };
 
-    let direct_inline = direct_source.provenance.is_inline();
-    let direct_wrapper_has_class = direct_source
+    let direct_inline = direct_source_2.provenance.is_inline();
+    let direct_wrapper_has_class = direct_source_2
         .provenance
         .class_id()
         .is_some_and(wrapper_has_class);
     let direct_emission = receipt.source_stroke_dasharray_emission(
-        direct_source.admitted,
+        direct_source_2.admitted,
         direct_inline,
         direct_wrapper_has_class,
     );
+
     if direct_inline
         || (direct_emission.reach().is_verified()
             && (!receipt.stroke_dasharray_selector_overrides_direct()
                 || generated_source.is_some_and(|generated| {
-                    generated.prepared.property() == direct_source.prepared.property()
-                        && generated.prepared.value() == direct_source.prepared.value()
+                    generated.prepared.property() == direct_source_2.prepared.property()
+                        && generated.prepared.value() == direct_source_2.prepared.value()
                 })))
         || generated_source.is_none()
     {
-        return direct_source.evidence(owner_id, direct_emission);
+        return direct_source_2.evidence(owner_id, direct_emission);
     }
 
-    let generated_source = generated_source.expect("generated source checked above");
+    let generated_source_2 = generated_source.expect("generated source checked above");
     let generated_dasharray = SourceFacetDeclaration {
-        prepared: Arc::clone(&generated_source.prepared),
-        provenance: generated_source.provenance.clone(),
-        admitted: valid_stroke_dasharray(generated_source.prepared.value()),
+        prepared: Arc::clone(&generated_source_2.prepared),
+        provenance: generated_source_2.provenance.clone(),
+        admitted: valid_stroke_dasharray(generated_source_2.prepared.value()),
     };
     generated_dasharray.evidence(
         owner_id,
@@ -1963,6 +2153,7 @@ fn source_stroke_dasharray_evidence(
     )
 }
 
+#[must_use]
 fn source_radius_evidence(
     direct_sources: &[SourceFacetDeclaration],
     generated_sources: &[PendingSourceDeclaration],
@@ -1975,6 +2166,7 @@ fn source_radius_evidence(
 ) {
     let mut status = crate::flowchart::FlowchartSourceFacetStatus::Absent;
     let mut residuals = Vec::new();
+
     for direct_source in direct_sources {
         let generated_source = generated_source_winner(
             generated_sources,
@@ -1999,30 +2191,33 @@ fn source_radius_evidence(
                             && generated.prepared.value() == direct_source.prepared.value()
                     })));
         let (component_status, residual) = match generated_source {
-            Some(generated_source) if !prefer_direct => {
+            Some(generated_source_2) if !prefer_direct => {
                 let generated_radius = SourceFacetDeclaration {
-                    prepared: Arc::clone(&generated_source.prepared),
-                    provenance: generated_source.provenance.clone(),
-                    admitted: admitted_flowchart_source_radius(generated_source.prepared.value()),
+                    prepared: Arc::clone(&generated_source_2.prepared),
+                    provenance: generated_source_2.provenance.clone(),
+                    admitted: admitted_flowchart_source_radius(generated_source_2.prepared.value()),
                 };
                 generated_radius.evidence(
                     owner_id,
                     receipt.source_radius_emission(generated_radius.admitted, false, true),
                 )
             }
-            _ => direct_source.evidence(owner_id, direct_emission),
+            ::core::option::Option::None | ::core::option::Option::Some(_) => direct_source.evidence(owner_id, direct_emission),
         };
         status = merge_source_facet_status(status, component_status);
         residuals.extend(residual);
     }
+
     (status, residuals)
 }
 
+#[must_use]
 fn merge_source_facet_status(
     left: crate::flowchart::FlowchartSourceFacetStatus,
     right: crate::flowchart::FlowchartSourceFacetStatus,
 ) -> crate::flowchart::FlowchartSourceFacetStatus {
     use crate::flowchart::FlowchartSourceFacetStatus::{Absent, Admitted, Unverified};
+
     match (left, right) {
         (Unverified, _) | (_, Unverified) => Unverified,
         (Admitted, _) | (_, Admitted) => Admitted,
@@ -2030,6 +2225,7 @@ fn merge_source_facet_status(
     }
 }
 
+#[must_use]
 fn generated_source_winner<'a>(
     sources: &'a [PendingSourceDeclaration],
     property: &str,
@@ -2042,13 +2238,14 @@ fn generated_source_winner<'a>(
                 && source.provenance.class_id().is_some_and(wrapper_has_class)
         })
         .fold(None, |winner, candidate| match winner {
-            Some(winner) if winner.prepared.important() && !candidate.prepared.important() => {
-                Some(winner)
+            Some(winner_2) if winner_2.prepared.important() && !candidate.prepared.important() => {
+                Some(winner_2)
             }
-            _ => Some(candidate),
+            ::core::option::Option::None | ::core::option::Option::Some(_) => Some(candidate),
         })
 }
 
+#[must_use]
 fn shape_source_residual_reason(
     declaration: &crate::diagram_theme::SourceStyleDeclaration,
     reach: crate::svg::parity::flowchart::render::node::emission::FlowchartNodeFacetReach,
@@ -2056,6 +2253,7 @@ fn shape_source_residual_reason(
     emitted_shape_source_residual_reason(declaration, reach.is_verified())
 }
 
+#[must_use]
 pub(super) fn emitted_shape_source_residual_reason(
     declaration: &crate::diagram_theme::SourceStyleDeclaration,
     source_style_verified: bool,
@@ -2082,6 +2280,7 @@ pub(super) fn emitted_shape_source_residual_reason(
         ),
         _ => return Some(SourceStyleResidualReason::UnsupportedProperty),
     };
+
     if !valid {
         Some(SourceStyleResidualReason::InvalidValue)
     } else if !source_style_verified {
@@ -2091,6 +2290,7 @@ pub(super) fn emitted_shape_source_residual_reason(
     }
 }
 
+#[must_use]
 pub(super) fn label_source_residual_reason(
     declaration: &crate::diagram_theme::SourceStyleDeclaration,
     typography_verified: bool,
@@ -2100,6 +2300,7 @@ pub(super) fn label_source_residual_reason(
     if declaration.property().starts_with("--") {
         return None;
     }
+
     if !portable_source_value(declaration.value()) {
         return Some(SourceStyleResidualReason::InvalidValue);
     }
@@ -2112,6 +2313,7 @@ pub(super) fn label_source_residual_reason(
             ) {
                 return Some(SourceStyleResidualReason::UnsupportedSurface);
             }
+
             declaration
                 .resolve_font_size_px(crate::mermaid_style::CssFontSizeContext::uniform(16.0))
                 .is_some()
@@ -2141,6 +2343,7 @@ pub(super) fn label_source_residual_reason(
         }
         _ => return Some(SourceStyleResidualReason::UnsupportedProperty),
     };
+
     if !valid {
         Some(SourceStyleResidualReason::InvalidValue)
     } else if !typography_verified {
@@ -2150,62 +2353,73 @@ pub(super) fn label_source_residual_reason(
     }
 }
 
+#[must_use]
 fn portable_source_value(value: &str) -> bool {
-    let value = value.trim();
+    let value_2 = value.trim();
     !matches!(
-        value.to_ascii_lowercase().as_str(),
+        value_2.to_ascii_lowercase().as_str(),
         "currentcolor" | "inherit" | "initial" | "revert" | "revert-layer" | "unset"
-    ) && crate::mermaid_style::is_resource_free_css_value(value)
+    ) && crate::mermaid_style::is_resource_free_css_value(value_2)
 }
 
+#[must_use]
 fn valid_stroke_dasharray(value: &str) -> bool {
     use cssparser::{BasicParseErrorKind, Parser, Token};
 
-    let value = value.trim();
-    if value.eq_ignore_ascii_case("none") {
+    let value_2 = value.trim();
+
+    if value_2.eq_ignore_ascii_case("none") {
         return true;
     }
-    if !portable_source_value(value) {
+
+    if !portable_source_value(value_2) {
         return false;
     }
 
-    let mut parser = Parser::new(value);
+    let mut parser = Parser::new(value_2);
     let mut count = 0usize;
     let mut separator_seen = true;
     let mut comma_pending = false;
+
     loop {
         let token = match parser.next_including_whitespace() {
             Ok(token) => token,
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => break,
             Err(_) => return false,
         };
+
         match token {
             Token::WhiteSpace(_) => {
-                if count != 0 {
-                    separator_seen = true;
+                match count {
+                    0 => {},
+                    _ => {
+                        separator_seen = true;
+                    },
                 }
             }
             Token::Comma => {
                 if count == 0 || comma_pending {
                     return false;
                 }
+
                 separator_seen = true;
                 comma_pending = true;
             }
-            Token::Number { value, .. }
+            Token::Number { value: value_3, .. }
             | Token::Percentage {
-                unit_value: value, ..
-            } if value.is_finite() && *value >= 0.0 => {
+                unit_value: value_3, ..
+            } if value_3.is_finite() && *value_3 >= 0.0 => {
                 if count != 0 && !separator_seen {
                     return false;
                 }
+
                 count += 1;
                 separator_seen = false;
                 comma_pending = false;
             }
-            Token::Dimension { value, unit, .. }
-                if value.is_finite()
-                    && *value >= 0.0
+            Token::Dimension { value: value_4, unit, .. }
+                if value_4.is_finite()
+                    && *value_4 >= 0.0
                     && matches!(
                         unit.to_ascii_lowercase().as_str(),
                         "px" | "em" | "rem" | "cm" | "mm" | "q" | "in" | "pc" | "pt"
@@ -2214,6 +2428,7 @@ fn valid_stroke_dasharray(value: &str) -> bool {
                 if count != 0 && !separator_seen {
                     return false;
                 }
+
                 count += 1;
                 separator_seen = false;
                 comma_pending = false;
@@ -2225,6 +2440,7 @@ fn valid_stroke_dasharray(value: &str) -> bool {
     count != 0 && !comma_pending
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn flowchart_compile_styles(
     class_defs: &IndexMap<String, Vec<String>>,
     classes: &[String],
@@ -2251,10 +2467,10 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
     inline_styles_b: &[String],
     work_meter: Option<&crate::resources::OperationWorkMeter>,
 ) -> std::result::Result<FlowchartCompiledStyles, crate::resources::OperationWorkError> {
-    // Ported from Mermaid `handDrawnShapeStyles.compileStyles()` / `styles2String()`:
-    // - preserve insertion order of the first occurrence of a key
-    // - later declarations of equal priority override values without changing order
-    // - an earlier `!important` declaration remains the winner over later normal declarations
+
+
+
+
     struct OrderedDeclaration {
         prepared: Arc<crate::diagram_theme::PreparedSourceStyleDeclaration>,
         provenance: PendingSourceProvenance,
@@ -2265,7 +2481,9 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
         order: Vec<OrderedDeclaration>,
         idx: FixedMap<String, usize>,
     }
+
     impl SemanticMap {
+        #[must_use]
         fn get(&self, property: &str) -> Option<&OrderedDeclaration> {
             self.idx
                 .get(property)
@@ -2278,14 +2496,17 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
             provenance: PendingSourceProvenance,
         ) {
             let property = prepared.property().to_string();
+
             if let Some(&index) = self.idx.get(&property) {
                 if self.order[index].prepared.important() && !prepared.important() {
                     return;
                 }
+
                 self.order[index].prepared = prepared;
                 self.order[index].provenance = provenance;
                 return;
             }
+
             self.idx.insert(property.clone(), self.order.len());
             self.order.push(OrderedDeclaration {
                 prepared,
@@ -2303,13 +2524,16 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
     impl EmissionMap {
         fn set(&mut self, prepared: Arc<crate::diagram_theme::PreparedSourceStyleDeclaration>) {
             let property = prepared.property_css().to_string();
+
             if let Some(&index) = self.idx.get(&property) {
                 if self.order[index].important() && !prepared.important() {
                     return;
                 }
+
                 self.order[index] = prepared;
                 return;
             }
+
             self.idx.insert(property, self.order.len());
             self.order.push(prepared);
         }
@@ -2329,20 +2553,30 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
             if !matches!(prepared.property(), "animation" | "animation-name") {
                 return Ok(());
             }
+
             charge_style_scan(work_meter, prepared.value().len())?;
-            let Some(active) = flowchart_edge_animation_declaration_active(prepared) else {
-                return Ok(());
+
+            let active = {
+                let optional_active = flowchart_edge_animation_declaration_active(prepared);
+
+                match optional_active {
+                    Some(matched_active) => matched_active,
+                    ::core::option::Option::None => return Ok(()),
+                }
             };
+
             if self
                 .winner
                 .is_some_and(|(_, important)| important && !prepared.important())
             {
                 return Ok(());
             }
+
             self.winner = Some((active, prepared.important()));
             Ok(())
         }
 
+        #[must_use]
         fn active(&self) -> Option<bool> {
             self.winner.map(|(active, _)| active)
         }
@@ -2358,12 +2592,20 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
     let mut invalid_sources = Vec::new();
 
     let mut declaration_ordinal = 0usize;
+
     for (assignment_ordinal, c) in classes.iter().enumerate() {
-        let Some((class_id, declarations)) = class_styles.classes.get_key_value(c.as_str()) else {
-            continue;
+        let (class_id, declarations) = {
+            let optional_class_id = class_styles.classes.get_key_value(c.as_str());
+
+            match optional_class_id {
+                Some((matched_class_id, matched_declarations)) => (matched_class_id, matched_declarations),
+                ::core::option::Option::None => continue,
+            }
         };
+
         charge_style_work(work_meter, declarations.len())?;
-        for declaration in declarations {
+
+        'over_declaration_2: for declaration in declarations {
             let ordinal = declaration_ordinal;
             declaration_ordinal = declaration_ordinal.saturating_add(1);
             let provenance = PendingSourceProvenance::AssignedClass {
@@ -2384,9 +2626,10 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
                         label_foreground: *label_foreground,
                         provenance,
                     });
-                    continue;
+                    continue 'over_declaration_2;
                 }
             };
+
             if !crate::flowchart::flowchart_is_source_spelled_label_style_key(
                 prepared.property_css(),
             ) {
@@ -2396,6 +2639,7 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
                     provenance: provenance.clone(),
                 });
             }
+
             animation_name.observe(&prepared, work_meter)?;
             emission.set(Arc::clone(&prepared));
             semantic.set(prepared, provenance);
@@ -2404,13 +2648,15 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
 
     for raw_group in inline_styles_a.iter().chain(inline_styles_b.iter()) {
         charge_style_scan(work_meter, raw_group.len())?;
-        for raw in crate::flowchart::flowchart_split_mermaid_style_decls(raw_group) {
+
+        'over_raw_2: for raw in crate::flowchart::flowchart_split_mermaid_style_decls(raw_group) {
             charge_style_work(work_meter, 1)?;
             let ordinal = declaration_ordinal;
             declaration_ordinal = declaration_ordinal.saturating_add(1);
             let provenance = PendingSourceProvenance::Inline {
                 declaration_ordinal: ordinal,
             };
+
             let Some(declaration) =
                 crate::diagram_theme::PreparedSourceStyleDeclaration::parse(raw)
             else {
@@ -2421,8 +2667,9 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
                     label_foreground,
                     provenance,
                 });
-                continue;
+                continue 'over_raw_2;
             };
+
             let prepared = Arc::new(declaration);
             inline_declarations.push(OrderedDeclaration {
                 prepared: Arc::clone(&prepared),
@@ -2470,29 +2717,38 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
     css_classes.sort_unstable_by_key(|(index, _)| *index);
     css_classes.dedup_by_key(|(index, _)| *index);
     let mut css_declaration_ordinal = 0usize;
+
     for (assignment_ordinal, class_id) in css_classes {
-        let Some((prepared_class_id, declarations)) =
-            class_styles.classes.get_key_value(class_id.as_str())
-        else {
-            continue;
+        let (prepared_class_id, declarations) = {
+            let optional_prepared_class_id = class_styles.classes.get_key_value(class_id.as_str());
+
+            match optional_prepared_class_id {
+                Some((matched_prepared_class_id, matched_declarations)) => (matched_prepared_class_id, matched_declarations),
+                ::core::option::Option::None => continue,
+            }
         };
-        for declaration in declarations {
-            let declaration_ordinal = css_declaration_ordinal;
+
+        'over_declaration_2_: for declaration in declarations {
+            let declaration_ordinal_2 = css_declaration_ordinal;
             css_declaration_ordinal = css_declaration_ordinal.saturating_add(1);
-            let PreparedClassDeclaration::Valid(prepared) = declaration else {
-                continue;
+
+            let prepared = match declaration {
+                PreparedClassDeclaration::Valid(matched_prepared) => matched_prepared,
+                crate::svg::parity::flowchart::style::PreparedClassDeclaration::Invalid { .. } => continue 'over_declaration_2_,
             };
+
             if crate::flowchart::flowchart_is_source_spelled_label_style_key(
                 prepared.property_css(),
             ) {
-                continue;
+                continue 'over_declaration_2_;
             }
+
             generated_shape_sources.push(PendingSourceDeclaration {
                 prepared: Arc::clone(prepared),
                 provenance: PendingSourceProvenance::AssignedClass {
                     class_id: Arc::clone(prepared_class_id),
                     assignment_ordinal,
-                    declaration_ordinal,
+                    declaration_ordinal: declaration_ordinal_2,
                 },
             });
         }
@@ -2501,16 +2757,19 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
     for declaration in &emission.order {
         let property_css = declaration.property_css();
         let v = declaration.value();
+
         if crate::flowchart::flowchart_is_source_spelled_label_style_key(property_css) {
             if !label_style.is_empty() {
                 label_style.push(';');
             }
+
             let _ = write!(&mut label_style, "{property_css}:{v} !important");
             label_div_decls.push((property_css.to_string(), v.to_string()));
         } else {
             if !node_style.is_empty() {
                 node_style.push(';');
             }
+
             let _ = write!(&mut node_style, "{property_css}:{v} !important");
         }
     }
@@ -2521,6 +2780,7 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
         let source_label_style = crate::flowchart::flowchart_is_source_spelled_label_style_key(
             declaration.prepared.property_css(),
         );
+
         if source_label_style {
             label_sources.push(PendingSourceDeclaration {
                 prepared: Arc::clone(&declaration.prepared),
@@ -2532,6 +2792,7 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
                 provenance: declaration.provenance.clone(),
             });
         }
+
         match k {
             "fill" => {
                 let admitted = admitted_flowchart_source_paint(v);
@@ -2630,12 +2891,14 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
             admitted: admitted_flowchart_source_paint(declaration.prepared.value()),
         });
     }
+
     if let Some(declaration) = inline_semantic.get("stroke-dasharray") {
         inline_stroke_dasharray_status = crate::flowchart::FlowchartSourceFacetStatus::from_parts(
             true,
             valid_stroke_dasharray(declaration.prepared.value()),
         );
     }
+
     inline_shape_sources.extend(
         inline_declarations
             .iter()
@@ -2679,12 +2942,15 @@ pub(in crate::svg::parity::flowchart) fn flowchart_compile_prepared_styles(
     })
 }
 
+#[must_use]
 fn classify_invalid_source_style(raw: &str) -> (crate::diagram_theme::SourceStyleChannel, bool) {
-    let property = raw
+    let property = match raw
         .trim()
         .split_once(':')
-        .map(|(property, _)| property.trim())
-        .unwrap_or_default();
+        .map(|(property, _)| property.trim()) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
     let channel = if crate::flowchart::flowchart_is_source_spelled_label_style_key(property) {
         crate::diagram_theme::SourceStyleChannel::Label
     } else {
@@ -2695,20 +2961,24 @@ fn classify_invalid_source_style(raw: &str) -> (crate::diagram_theme::SourceStyl
     (channel, label_foreground)
 }
 
+#[must_use]
 fn admitted_flowchart_source_paint(value: &str) -> bool {
     value.trim().eq_ignore_ascii_case("none")
         || merman_markup::theme_color::ThemeColor::parse(value.trim()).is_ok()
 }
 
+#[must_use]
 pub(super) fn admitted_flowchart_source_stroke_width(value: &str) -> Option<f32> {
-    let value = crate::mermaid_style::parse_svg_number_or_px(value)?;
-    (value <= f32::MAX as f64).then_some(value as f32)
+    let value_2 = crate::mermaid_style::parse_svg_number_or_px(value)?;
+    (value_2 <= <f64 as ::core::convert::From<::core::primitive::f32>>::from(f32::MAX)).then_some(value_2 as f32)
 }
 
+#[must_use]
 fn admitted_flowchart_source_radius(value: &str) -> bool {
-    crate::mermaid_style::parse_svg_number_or_px(value).is_some_and(|value| value >= 0.0)
+    crate::mermaid_style::parse_svg_number_or_px(value).is_some_and(|value_2| value_2 >= 0.0)
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn flowchart_compile_node_styles(
     class_defs: &IndexMap<String, Vec<String>>,
     classes: &[String],
@@ -2728,41 +2998,48 @@ pub(in crate::svg::parity) fn flowchart_compile_node_styles(
     )
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn flowchart_label_div_style_prefix(
     styles: &FlowchartCompiledStyles,
     color_as_rgb: bool,
 ) -> String {
+    #[must_use]
     fn div_style_survives_mermaid_overrides(key: &str) -> bool {
         !matches!(key, "line-height" | "text-align" | "white-space")
     }
 
     let mut out = String::new();
+
     for (key, value) in &styles.label_div_decls {
-        let key = key.trim();
-        let value = value.trim();
-        if key.is_empty() || value.is_empty() || !div_style_survives_mermaid_overrides(key) {
+        let key_2 = key.trim();
+        let value_2 = value.trim();
+
+        if key_2.is_empty() || value_2.is_empty() || !div_style_survives_mermaid_overrides(key_2) {
             continue;
         }
-        if key == "color" {
+
+        if key_2 == "color" {
             if color_as_rgb {
-                let color = super::super::util::cssom_color_value(value);
+                let color = super::super::util::cssom_color_value(value_2);
                 let _ = write!(&mut out, "color: {color} !important; ");
             } else {
                 let _ = write!(
                     &mut out,
                     "color: {} !important; ",
-                    value.to_ascii_lowercase()
+                    value_2.to_ascii_lowercase()
                 );
             }
         } else {
-            let _ = write!(&mut out, "{key}: {value} !important; ");
+            let _ = write!(&mut out, "{key}: {value} !important; ", key = key_2, value = value_2);
         }
     }
+
     out
 }
 
-// Structural classes are not part of the label's admitted typography request. Keep any
-// possible glyph geometry, inherited stroke, or filter override outside a positive receipt.
+
+
+#[must_use]
 pub(super) fn label_shadow_structural_styles_are_bounded(
     class_defs: &IndexMap<String, Vec<String>>,
     classes: &[&str],

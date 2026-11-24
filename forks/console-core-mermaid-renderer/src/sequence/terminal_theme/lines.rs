@@ -1,5 +1,6 @@
 use super::*;
 use crate::diagram_theme::{ResolvedStyleProperty, SvgShadowEffect};
+
 #[derive(Debug, Default)]
 pub(crate) struct SequencePreparedMessageTheme {
     pub(crate) typed_stroke: Option<String>,
@@ -33,13 +34,15 @@ impl SequencePreparedMessageTheme {
                 ..Self::default()
             });
         }
-        let Some(theme) = theme else {
+
+        let Some(theme_2) = theme else {
             return Ok(Self {
                 stroke_overridden,
                 ..Self::default()
             });
         };
-        let has_rule_routes = theme.family_mechanism_routes().iter().any(|route| {
+
+        let has_rule_routes = theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -54,6 +57,7 @@ impl SequencePreparedMessageTheme {
                 }
             )
         });
+
         if !has_rule_routes {
             return Ok(Self {
                 stroke_overridden,
@@ -61,16 +65,16 @@ impl SequencePreparedMessageTheme {
             });
         }
 
-        let style = theme.style_with_work_meter(
+        let style = theme_2.style_with_work_meter(
             ThemeTarget::Message,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
-        // Mermaid has one signalColor for the entire Message surface. A winning stroke is the
-        // primary source; when it is absent, a winning fill is projected into that same CSS color.
-        // Keep the selected property even when its paint cannot be emitted so evidence can account
-        // for the losing facet and fail closed for unsupported winners.
+
+
+
+
         let selected_property = if style.stroke_resolution().winner().is_some() {
             Some(ResolvedStyleProperty::Stroke)
         } else if style.fill_resolution().winner().is_some() {
@@ -80,8 +84,8 @@ impl SequencePreparedMessageTheme {
         };
         let typed_stroke = (!stroke_overridden)
             .then(|| match selected_property {
-                Some(ResolvedStyleProperty::Stroke) => typed_static_sequence_stroke(theme, &style),
-                Some(ResolvedStyleProperty::Fill) => typed_static_sequence_fill(theme, &style),
+                Some(ResolvedStyleProperty::Stroke) => typed_static_sequence_stroke(theme_2, &style),
+                Some(ResolvedStyleProperty::Fill) => typed_static_sequence_fill(theme_2, &style),
                 _ => None,
             })
             .flatten();
@@ -91,7 +95,7 @@ impl SequencePreparedMessageTheme {
             effect_binding_used,
             effect_cleared,
             effect_unhandled,
-        } = prepare_sequence_effect(theme, ThemeTarget::Message, style.effect_resolution());
+        } = prepare_sequence_effect(theme_2, ThemeTarget::Message, style.effect_resolution());
         Ok(SequencePreparedMessageTheme {
             effect,
             typed_stroke,
@@ -107,11 +111,14 @@ impl SequencePreparedMessageTheme {
         })
     }
 
+    #[must_use]
     pub(crate) fn fresh_receipt(&self) -> crate::sequence::SequenceMessageThemeReceipt {
         let mut receipt = crate::sequence::SequenceMessageThemeReceipt::default();
+
         if let Some(style) = &self.selected_style {
             receipt.record_static_style(style);
         }
+
         receipt.effect_requested = self.effect_requested;
         receipt.effect_binding_used = self.effect_binding_used;
         receipt.effect_cleared = self.effect_cleared;
@@ -119,6 +126,7 @@ impl SequencePreparedMessageTheme {
         receipt
     }
 }
+
 #[derive(Debug, Default)]
 pub(crate) struct SequencePreparedLifelineTheme {
     pub(crate) typed_stroke: Option<String>,
@@ -153,17 +161,20 @@ impl SequencePreparedLifelineTheme {
                 ..Self::default()
             });
         }
-        let Some(theme) = theme else {
+
+        let Some(theme_2) = theme else {
             return Ok(Self {
                 stroke_overridden: paint_overridden,
                 ..Self::default()
             });
         };
+
         let mut has_routes = false;
         let mut has_typed_fill = false;
         let mut has_typed_stroke = false;
         let mut has_typed_stroke_width = false;
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             if matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::EffectBinding {
@@ -173,6 +184,7 @@ impl SequencePreparedLifelineTheme {
             ) {
                 has_routes = true;
             }
+
             let FamilyThemeMechanism::RuleFacet {
                 target: ThemeTarget::Lifeline,
                 selector:
@@ -185,7 +197,9 @@ impl SequencePreparedLifelineTheme {
             else {
                 continue;
             };
+
             has_routes = true;
+
             match facet {
                 FamilyThemeRuleFacet::Fill(kind) => {
                     has_typed_fill |= route.disposition() == FamilyThemeDisposition::TypedAdapter
@@ -205,7 +219,7 @@ impl SequencePreparedLifelineTheme {
                     has_typed_stroke_width =
                         route.disposition() == FamilyThemeDisposition::TypedAdapter;
                 }
-                _ => {}
+                FamilyThemeRuleFacet::StrokeDasharray | FamilyThemeRuleFacet::StrokeLinecap | FamilyThemeRuleFacet::StrokeLinejoin | FamilyThemeRuleFacet::Opacity | FamilyThemeRuleFacet::FillOpacity | FamilyThemeRuleFacet::StrokeOpacity | FamilyThemeRuleFacet::Radius | FamilyThemeRuleFacet::Padding | FamilyThemeRuleFacet::Typography(_) | FamilyThemeRuleFacet::Effect => {}
             }
         }
 
@@ -215,7 +229,8 @@ impl SequencePreparedLifelineTheme {
                 ..Self::default()
             });
         }
-        let style = theme.style_with_work_meter(
+
+        let style = theme_2.style_with_work_meter(
             ThemeTarget::Lifeline,
             ThemeVariant::Default,
             None,
@@ -234,15 +249,15 @@ impl SequencePreparedLifelineTheme {
                     css_paint(style.stroke())
                 }
                 Some(ResolvedStyleProperty::Fill) if has_typed_fill => css_paint(style.fill()),
-                _ => None,
+                ::core::option::Option::None | ::core::option::Option::Some(_) => None,
             })
             .flatten();
         let typed_stroke_width = has_typed_stroke_width
             .then(|| style.stroke_width())
             .flatten();
-        // `Clear` intentionally has no CSS override value: every terminal Lifeline writer already
-        // emits Mermaid's `0.5px` baseline. Keep the resolved winner separate from the optional CSS
-        // value so the same completed actor-line receipt can seal both Value and Clear.
+
+
+
         let typed_stroke_width_won =
             has_typed_stroke_width && style.stroke_width_resolution().winner().is_some();
         let SequencePreparedEffect {
@@ -251,7 +266,7 @@ impl SequencePreparedLifelineTheme {
             effect_binding_used,
             effect_cleared,
             effect_unhandled,
-        } = prepare_sequence_effect(theme, ThemeTarget::Lifeline, style.effect_resolution());
+        } = prepare_sequence_effect(theme_2, ThemeTarget::Lifeline, style.effect_resolution());
         Ok(SequencePreparedLifelineTheme {
             effect,
             typed_stroke,
@@ -267,11 +282,14 @@ impl SequencePreparedLifelineTheme {
         })
     }
 
+    #[must_use]
     pub(crate) fn fresh_receipt(&self) -> crate::sequence::SequenceLifelineThemeReceipt {
         let mut receipt = crate::sequence::SequenceLifelineThemeReceipt::default();
+
         if let Some(style) = &self.selected_style {
             receipt.record_static_style(style);
         }
+
         receipt.effect_requested = self.effect_requested;
         receipt.effect_binding_used = self.effect_binding_used;
         receipt.effect_cleared = self.effect_cleared;

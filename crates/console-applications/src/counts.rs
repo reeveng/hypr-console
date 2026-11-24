@@ -8,6 +8,20 @@ use std::collections::BTreeMap;
 
 const NEVER_OPENED: u64 = 0;
 
+pub const RENAMED: [(&str, &str); 11] = [
+  ("Books", "Console Books"),
+  ("Calculator", "Console Calculator"),
+  ("Camera", "Console Camera"),
+  ("Clipboard History", "Console Clipboard History"),
+  ("Download", "Console Downloads"),
+  ("Files", "Console Files"),
+  ("Habits", "Console Habits"),
+  ("Music", "Console Music"),
+  ("Notes", "Console Notes"),
+  ("Task Manager", "Console Task Manager"),
+  ("Viewer", "Console Viewer"),
+];
+
 pub fn read(said: &str) -> Result<BTreeMap<String, u64>, Never> {
   Ok(
     said
@@ -44,14 +58,24 @@ pub fn increment(
 }
 
 pub fn order(names: &[String], counts: &BTreeMap<String, u64>) -> Result<Vec<String>, Never> {
+  let installed: std::collections::BTreeSet<&str> = names.iter().map(String::as_str).collect();
+  let previous: BTreeMap<&str, u64> = RENAMED
+    .into_iter()
+    .filter(|(old, _)| !installed.contains(old))
+    .filter_map(|(old, new)| counts.get(old).map(|count| (new, *count)))
+    .collect();
   let mut order: Vec<String> = names.to_vec();
   order.sort_by_key(|name| {
     let opened = match counts.get(name).copied() {
-      Some(opened) => opened,
-      None => NEVER_OPENED,
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => NEVER_OPENED,
     };
+    let opened_2 = opened.saturating_add(match previous.get(name.as_str()).copied() {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => NEVER_OPENED,
+    });
 
-    (std::cmp::Reverse(opened), name.to_lowercase())
+    (std::cmp::Reverse(opened_2), name.to_lowercase())
   });
 
   Ok(order)
@@ -100,6 +124,22 @@ mod tests {
     assert_eq!(
       order(&opened, &counts),
       names(&["Firefox", "Alacritty", "Blender", "Zed"])
+    );
+  }
+
+  #[test]
+  fn a_renamed_application_keeps_its_count_if_the_old_label_is_free() {
+    let Ok(counts) = read("3 Books\n2 Console Books\n4 Firefox\n");
+    let Ok(opened) = names(&["Console Books", "Firefox"]);
+    assert_eq!(
+      order(&opened, &counts),
+      names(&["Console Books", "Firefox"])
+    );
+
+    let Ok(opened_2) = names(&["Books", "Console Books", "Firefox"]);
+    assert_eq!(
+      order(&opened_2, &counts),
+      names(&["Firefox", "Books", "Console Books"])
     );
   }
 

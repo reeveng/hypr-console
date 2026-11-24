@@ -64,12 +64,19 @@ pub fn run_captured(arguments: &[&str]) -> Result<CommandOutput, Never> {
     }
   };
 
-  Ok(match Command::new(program).args(rest).output() {
+  capture(Command::new(program).args(rest))
+}
+
+pub fn capture(command: &mut Command) -> Result<CommandOutput, Never> {
+  let output = command.output();
+  let program = command.get_program();
+
+  Ok(match output {
     Ok(done) => match output_text(&done.stdout) {
       Ok(out) => {
         let said = match output_text(&done.stderr) {
           Ok(diagnostic) => diagnostic,
-          Err(fault) => format!("{program} returned a diagnostic in invalid UTF-8: {fault}"),
+          Err(fault) => format!("{program:?} returned a diagnostic in invalid UTF-8: {fault}"),
         };
         let ran = match ::core::primitive::bool::then_some(done.status.success(), ()) {
           ::core::option::Option::Some(()) => Ran::Fine,
@@ -80,13 +87,13 @@ pub fn run_captured(arguments: &[&str]) -> Result<CommandOutput, Never> {
       }
       Err(fault) => CommandOutput {
         out: String::new(),
-        said: format!("{program} returned invalid UTF-8: {fault}"),
+        said: format!("{program:?} returned invalid UTF-8: {fault}"),
         ran: Ran::Badly,
       },
     },
     Err(fault) => CommandOutput {
       out: String::new(),
-      said: format!("{program}: {fault}"),
+      said: format!("{program:?}: {fault}"),
       ran: Ran::Badly,
     },
   })
@@ -107,54 +114,6 @@ pub fn run_seen(arguments: &[&str]) -> Result<Ran, Never> {
   let done = match Command::new(program).args(rest).status() {
     Ok(done) => done.success(),
     Err(_would_not_start) => false,
-  };
-
-  Ok(match ::core::primitive::bool::then_some(done, ()) {
-    ::core::option::Option::Some(()) => Ran::Fine,
-    ::core::option::Option::None => Ran::Badly,
-  })
-}
-
-pub fn run_watched<M>(
-  arguments: &[&str],
-  handed: &mut M,
-  heard: impl Fn(&mut M, &str),
-) -> Result<Ran, Never> {
-  use std::io::{BufRead, BufReader};
-
-  let (program, rest) = match arguments.split_first() {
-    Some((program, rest)) => (program, rest),
-    None => return Ok(Ran::Badly),
-  };
-
-  let mut starting = Command::new(program);
-
-  starting.args(rest).stdout(std::process::Stdio::piped());
-
-  let mut child = match console_operating_system_linux::program_lifetime::alongside(&mut starting)
-  {
-    Ok(child) => child,
-
-    Err(fault) => {
-      eprintln!("console: {program}: {fault}");
-
-      return Ok(Ran::Badly);
-    }
-  };
-  let Ok(reading) = child.take_stdout();
-
-  match reading {
-    Some(said) => {
-      for line in BufReader::new(said).lines().map_while(Result::ok) {
-        heard(handed, &line);
-      }
-    }
-    None => {}
-  }
-
-  let done = match child.wait() {
-    Ok(done) => done.success(),
-    Err(_would_not_wait) => false,
   };
 
   Ok(match ::core::primitive::bool::then_some(done, ()) {
@@ -335,18 +294,6 @@ pub fn sizes_under(roots: &[&str]) -> Result<Output, Never> {
   run(&arguments)
 }
 
-pub fn installed_packages() -> Result<Vec<String>, Never> {
-  let Ok(pacman) = Program::Pacman.name();
-
-  words_of_output(&[pacman, "-Qq"])
-}
-
-pub fn wanted_packages() -> Result<Vec<String>, Never> {
-  let Ok(pacman) = Program::Pacman.name();
-
-  words_of_output(&[pacman, "-Qeq"])
-}
-
 #[cfg_attr(
   dylint_lib = "explicit086_no_climbing_join",
   expect(
@@ -367,12 +314,6 @@ pub fn home_path(user: User<'_>) -> Result<PathBuf, Never> {
       ::core::option::Option::None => PathBuf::from("/home/@user@"),
     },
   )
-}
-
-fn words_of_output(arguments: &[&str]) -> Result<Vec<String>, Never> {
-  let Ok(said) = run(arguments);
-
-  Ok(said.out.split_whitespace().map(str::to_owned).collect())
 }
 
 pub fn stage_file(from: &Path, live: &str) -> Result<(), Unapplied> {
@@ -434,14 +375,13 @@ pub fn stage_file(from: &Path, live: &str) -> Result<(), Unapplied> {
     .map_err(|fault| complain("its owner", fault))
 }
 
-// Staging handles release executables as well as configuration files.
 const MAX_STAGING_BYTES: u32 = 67_108_864;
 
 fn staging_bytes(from: &Path) -> std::io::Result<Vec<u8>> {
   let held = console_core_atomic_writes::read_prefix(from, MAX_STAGING_BYTES.saturating_add(1))?;
 
   match u32::try_from(held.len()) {
-    Ok(length) if length <= MAX_STAGING_BYTES => Ok(held),
+    Ok(0..=MAX_STAGING_BYTES) => Ok(held),
     Ok(_) | Err(_) => Err(std::io::Error::from(std::io::ErrorKind::FileTooLarge)),
   }
 }
@@ -757,6 +697,13 @@ mod tests {
   type Failure = Box<dyn std::error::Error>;
 
   #[test]
+  #[cfg_attr(
+    dylint_lib = "explicit040_no_torn_write",
+    expect(
+      explicit040_no_torn_write,
+      reason = "the test creates and resizes a sparse fixture in its own scratch directory"
+    )
+  )]
   fn staging_reads_large_programs_without_truncating_them() -> Result<(), Failure> {
     let directory = console_core_temporary_directories::fresh("manifest-stage")?;
     let at = directory.join("program");
@@ -769,7 +716,9 @@ mod tests {
     let oversized = staging_bytes(&at);
     std::fs::remove_dir_all(directory)?;
 
-    assert_eq!(u32::try_from(staged?.len())?, length);
+    let staged_bytes = staged?;
+    let staged_length = u32::try_from(staged_bytes.len())?;
+    assert_eq!(staged_length, length);
     assert_eq!(
       oversized.map_err(|fault| fault.kind()),
       Err(std::io::ErrorKind::FileTooLarge)

@@ -75,7 +75,7 @@ const OFFERED: [&str; 2] = ["Europe/Amsterdam", "Europe/London"];
 
 const ANSWERS: f64 = 10.0;
 
-const TOLD: &str = "$XDG_RUNTIME_DIR/console-check-hour.jsonl";
+const TOLD: &str = "console-check-hour.jsonl";
 
 const STEPS: u32 = 200;
 
@@ -201,9 +201,18 @@ fn console_put_away(stage: &mut Device) -> Result<(), Never> {
 }
 
 fn asked_for(stage: &mut Device, tab: &str) -> Result<Outcome, Never> {
-  let Ok(_) = stage.in_session(&format!("rm -f {TOLD}"));
+  let Ok(console) = console_core_internal_programs::InternalProgram::Console.path();
+
+  match stage.in_session(&[console, "device-runtime-file", "remove", TOLD]) {
+    Ok(_) => {}
+    Err(fault) => {
+      eprintln!("console-check: {fault}");
+      return Ok(Outcome::RanOut);
+    }
+  }
+
   let Ok(_) = stage.exec_cmd(&format!(
-    "CONSOLE_PANEL_TELLS={TOLD} {} {tab}",
+    "CONSOLE_PANEL_TELLS=\"$XDG_RUNTIME_DIR/{TOLD}\" {} {tab}",
     console_settings::WHO
   ));
 

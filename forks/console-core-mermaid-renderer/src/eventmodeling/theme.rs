@@ -25,6 +25,7 @@ struct EventModelingTextOccurrences {
 }
 
 impl EventModelingTextOccurrences {
+    #[must_use]
     fn from_layout(layout: &EventModelingDiagramLayout) -> Self {
         Self {
             swimlanes: layout
@@ -40,6 +41,7 @@ impl EventModelingTextOccurrences {
         }
     }
 
+    #[must_use]
     const fn total(self) -> usize {
         self.swimlanes.saturating_add(self.boxes)
     }
@@ -92,6 +94,7 @@ impl EventModelingTextThemePlan {
             .unwrap_or_default();
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
+
         let Some(theme) = theme else {
             let configured_font_size_css = config_css_number_or_string(
                 effective_config.as_value(),
@@ -126,6 +129,7 @@ impl EventModelingTextThemePlan {
         };
         let mut source_fill = Vec::new();
         let mut source_stroke = Vec::new();
+
         for box_layout in &layout.boxes {
             let role = match box_layout.model_entity_type.as_str() {
                 "ui" => Some("Ui"),
@@ -136,10 +140,11 @@ impl EventModelingTextThemePlan {
                 _ => None,
             };
             source_fill
-                .push(role.is_some_and(|role| owns(&format!("themeVariables.em{role}Fill"))));
+                .push(role.is_some_and(|role_2| owns(&format!("themeVariables.em{role}Fill", role = role_2))));
             source_stroke
-                .push(role.is_some_and(|role| owns(&format!("themeVariables.em{role}Stroke"))));
+                .push(role.is_some_and(|role_3| owns(&format!("themeVariables.em{role}Stroke", role = role_3))));
         }
+
         let node = StaticSurfacePaint::resolve(
             Some(theme),
             ThemeTarget::Node,
@@ -189,18 +194,35 @@ impl EventModelingTextThemePlan {
             &vec![false; occurrences.swimlanes],
             work_meter,
         )?;
-        if let Some(fill) = &cluster.fill {
-            css_binding.swimlane_background_fill = fill.css().to_owned();
+
+        match &cluster.fill {
+            Some(fill) => {
+                css_binding.swimlane_background_fill = fill.css().to_owned();
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(stroke) = &cluster.stroke {
-            css_binding.swimlane_background_stroke = stroke.css().to_owned();
+
+        match &cluster.stroke {
+            Some(stroke) => {
+                css_binding.swimlane_background_stroke = stroke.css().to_owned();
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(stroke) = &edge.stroke {
-            css_binding.relation_stroke = stroke.css().to_owned();
+
+        match &edge.stroke {
+            Some(stroke) => {
+                css_binding.relation_stroke = stroke.css().to_owned();
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(fill) = &marker.fill {
-            css_binding.arrowhead_fill = fill.css().to_owned();
+
+        match &marker.fill {
+            Some(fill) => {
+                css_binding.arrowhead_fill = fill.css().to_owned();
+            },
+            ::core::option::Option::None => {},
         }
+
         let style = (occurrences.total() != 0)
             .then(|| {
                 theme.text_style_with_work_meter(
@@ -211,8 +233,8 @@ impl EventModelingTextThemePlan {
                 )
             })
             .transpose()?;
-        // Text ordinals follow actual SVG emission: visible swimlane labels, then box labels.
-        // Role paint overrides only fill, leaving unsupported sibling properties observable.
+
+
         let source_owned_fill = std::iter::repeat_n(
             config_owns_fill || cluster_label.fill.is_some(),
             occurrences.swimlanes,
@@ -223,6 +245,7 @@ impl EventModelingTextThemePlan {
         ))
         .collect::<Vec<_>>();
         let mut winner_properties = BTreeSet::new();
+
         for (index, fill_owned) in source_owned_fill.iter().copied().enumerate() {
             let occurrence_style = theme.style_with_work_meter(
                 ThemeTarget::Text,
@@ -237,14 +260,15 @@ impl EventModelingTextThemePlan {
                     .map(|(property, origin)| (origin.rule_index(), property)),
             );
         }
+
         let role_fill_covers_text = (occurrences.boxes == 0 || node_label.fill.is_some())
             && (occurrences.swimlanes == 0 || cluster_label.fill.is_some());
         let typed_fill = (!config_owns_fill && !role_fill_covers_text)
             .then(|| {
-                style.as_ref().and_then(|style| {
+                style.as_ref().and_then(|style_2| {
                     resolve_direct_static_fill(
                         theme,
-                        style,
+                        style_2,
                         &[ThemeTarget::Text],
                         DirectStaticSelectorDomain::Unqualified,
                     )
@@ -255,6 +279,7 @@ impl EventModelingTextThemePlan {
         let mut evidence = FamilyThemeOutcomes::default();
         let mut observations = BTreeMap::<usize, EventModelingTextRuleObservation>::new();
         let mut typed_font_size = false;
+
         for route in theme.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
@@ -265,9 +290,11 @@ impl EventModelingTextThemePlan {
                 } => {
                     let observation = observations.entry(rule_index).or_default();
                     let property = resolved_style_property_for_facet(facet);
+
                     if !winner_properties.contains(&(rule_index, property)) {
                         continue;
                     }
+
                     observation.applicable = true;
 
                     match (route.disposition(), facet) {
@@ -279,10 +306,10 @@ impl EventModelingTextThemePlan {
                             observation.pending_fill =
                                 typed_fill.as_ref().map(DirectStaticPaint::capability);
                         }
-                        (FamilyThemeDisposition::Unsupported, facet) => {
+                        (FamilyThemeDisposition::Unsupported, facet_2) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_2));
                         }
                         (FamilyThemeDisposition::TypedAdapter, _) => {
                             observation.incomplete = true;
@@ -292,13 +319,13 @@ impl EventModelingTextThemePlan {
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::Text,
                 } => {
-                    // Reconciled below from the final text style of each actual terminal.
+
                 }
                 FamilyThemeMechanism::EffectBinding {
                     target: ThemeTarget::Text,
                     ..
                 } => {
-                    // Reconciled below from the final text style of each actual terminal.
+
                 }
                 FamilyThemeMechanism::RuleFacet {
                     target: ThemeTarget::Title,
@@ -311,8 +338,8 @@ impl EventModelingTextThemePlan {
                     target: ThemeTarget::Title,
                     ..
                 } => {
-                    // Event Modeling has no visual title terminal. Accessibility metadata is root
-                    // chrome and is intentionally not the semantic Title styling target.
+
+
                     evidence.mark_not_applicable(theme.family_mechanism_key(route));
                 }
                 FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontSize)
@@ -322,9 +349,9 @@ impl EventModelingTextThemePlan {
                 }
                 FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontStack)
                     if route.disposition() == FamilyThemeDisposition::TypedAdapter => {}
-                // Base typography is reconciled by property in `record_evidence`. The shared
-                // inherited-font plan records every Unsupported property so mixed requests do
-                // not make a supported sibling disappear from the terminal writer.
+
+
+
                 FamilyThemeMechanism::BaseTypography(_) => {}
                 FamilyThemeMechanism::RuleFacet { .. }
                 | FamilyThemeMechanism::OrdinalPalette { .. }
@@ -344,17 +371,19 @@ impl EventModelingTextThemePlan {
         )?;
 
         let mut pending = BTreeMap::new();
+
         for (rule_index, observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index: rule_index,
                 target: ThemeTarget::Text,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // Mixed rules remain fail-closed until every winning facet has a terminal owner.
+
             } else if let Some(capability) = observation.pending_fill {
                 pending.insert(key, capability);
             } else {
@@ -375,9 +404,13 @@ impl EventModelingTextThemePlan {
             .map(String::into_boxed_str)
         };
 
-        if let Some(fill) = typed_fill {
-            css_binding.text_color = fill.css().to_owned();
+        match typed_fill {
+            Some(fill) => {
+                css_binding.text_color = fill.css().to_owned();
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(Self {
             css_binding,
             inherited_font_stack,
@@ -400,6 +433,7 @@ impl EventModelingTextThemePlan {
         })
     }
 
+    #[must_use]
     fn baseline_from_occurrences(
         css_binding: super::EventModelingCssBinding,
         occurrences: EventModelingTextOccurrences,
@@ -423,10 +457,12 @@ impl EventModelingTextThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &super::EventModelingCssBinding {
         &self.css_binding
     }
 
+    #[must_use]
     pub(crate) fn box_fill<'a>(&'a self, ordinal: usize, baseline: &'a str) -> &'a str {
         self.box_ownership
             .get(ordinal)
@@ -436,6 +472,7 @@ impl EventModelingTextThemePlan {
             .unwrap_or(baseline)
     }
 
+    #[must_use]
     pub(crate) fn box_stroke<'a>(&'a self, ordinal: usize, baseline: &'a str) -> &'a str {
         self.box_ownership
             .get(ordinal)
@@ -445,6 +482,7 @@ impl EventModelingTextThemePlan {
             .unwrap_or(baseline)
     }
 
+    #[must_use]
     pub(crate) fn relation_stroke<'a>(&'a self, baseline: &'a str) -> &'a str {
         self.core_paints
             .edge
@@ -468,21 +506,30 @@ impl EventModelingTextThemePlan {
             out,
             "#{diagram_id} {{ fill: {fill}; color: {fill}; }}#{diagram_id} .em-swimlane text,#{diagram_id} .em-box span {{ font-family: {font};"
         );
-        if let Some(font_size) = self.font_size_css.as_deref() {
-            let _ = write!(out, " font-size: {font_size};");
+
+        match self.font_size_css.as_deref() {
+            Some(font_size) => {
+                let _ = write!(out, " font-size: {font_size};");
+            },
+            ::core::option::Option::None => {},
         }
+
         let _ = write!(out, " }}#{diagram_id} .em-relation {{ fill: none; }}");
+
         for (paint, selector) in [
             (&self.core_paints.node_label, ".em-box span"),
             (&self.core_paints.cluster_label, ".em-swimlane text"),
         ] {
-            if let Some(fill) = paint.fill.as_ref() {
-                let _ = write!(
-                    out,
-                    "#{diagram_id} {selector} {{ fill: {}; color: {}; }}",
-                    fill.css(),
-                    fill.css()
-                );
+            match paint.fill.as_ref() {
+                Some(fill_2) => {
+                    let _ = write!(
+                        out,
+                        "#{diagram_id} {selector} {{ fill: {}; color: {}; }}",
+                        fill_2.css(),
+                        fill_2.css()
+                    );
+                },
+                ::core::option::Option::None => {},
             }
         }
     }
@@ -500,13 +547,17 @@ impl EventModelingTextThemePlan {
                 paint.record_evidence(evidence);
             }
         }
+
         evidence.merge_borrowed(&self.evidence);
+
         for (key, capability) in &self.pending {
             evidence.mark_applied_with_capabilities(key.clone(), [*capability]);
         }
+
         let has_visible_terminals = self.occurrences.total() != 0;
         self.inherited_font_stack
             .record_unsupported_typography_evidence(evidence, has_visible_terminals);
+
         let properties = [
             (
                 ThemeTypographyProperty::FontStack,
@@ -523,7 +574,9 @@ impl EventModelingTextThemePlan {
             if !requested {
                 continue;
             }
+
             let key = FamilyThemeMechanismKey::Typography(property);
+
             if !has_visible_terminals || !active {
                 evidence.mark_not_applicable(key);
             } else {

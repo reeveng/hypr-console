@@ -11,7 +11,7 @@ use crate::edge::{Edge, LineEdge};
 use crate::edge_builder::{BasicEdgeBuilder, ShiftedIntRect};
 use crate::fixed_point::{FDot16, fdot6, fdot16};
 use crate::geom::{IntRectExt, ScreenIntRect};
-use crate::{ContainsAnswer, FillRule, IntRect, LengthU32, Path, FloatRectangle, UpdateAnswer};
+use crate::{ContainsAnswer, FillRule, FloatRectangle, IntRect, LengthU32, Path, UpdateAnswer};
 
 pub fn fill_path(
   path: &Path,

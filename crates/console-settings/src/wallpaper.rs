@@ -16,8 +16,15 @@
 //! is the other, and only the second is here, so the tab can be asked what it
 //! would show without a machine to ask.
 
+use std::collections::HashSet;
+
 use console_core_never::Never;
 use console_panel::page::{Aside, Handler, NOW, Row};
+use console_wallpaper::rules::{Category, Rule};
+
+use crate::rows::Chosen;
+
+pub const SETS: &str = "Wallpaper sets";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Offered {
@@ -61,6 +68,7 @@ pub fn wallpaper_rows(
   found: &Found<'_>,
   follow: impl Fn(bool) -> Handler,
   show: impl Fn(&str) -> Handler,
+  sets: Handler,
   take: Handler,
   find: Handler,
 ) -> Result<Vec<Row>, Never> {
@@ -71,14 +79,16 @@ pub fn wallpaper_rows(
     dropped,
   } = found;
   let Ok(weather) = Row::new(
-    "Follow the weather",
+    "Follow time and weather",
     Aside(match ::core::primitive::bool::then_some(following, ()) {
       ::core::option::Option::Some(()) => NOW,
       ::core::option::Option::None => "",
     }),
     follow(!following),
   );
-  let mut rows = vec![weather];
+  let Ok(sets_2) = Row::new(SETS, Aside(""), sets);
+  let Ok(sets_3) = sets_2.opening();
+  let mut rows = vec![weather, sets_3];
 
   for picture in pictures {
     let Ok(row) = Row::new(
@@ -127,6 +137,88 @@ pub fn wallpaper_rows(
   Ok(rows)
 }
 
+#[derive(Debug, Clone, Copy)]
+pub enum Edit {
+  Automatic,
+  Condition(Category, &'static str),
+  Reset,
+}
+
+#[derive(Clone, Copy)]
+pub enum RuleSource {
+  Default,
+  Customized,
+}
+
+pub fn rule_rows(
+  picture: &str,
+  rule: &Rule,
+  source: RuleSource,
+  back: impl Chosen,
+  edit: impl Fn(Edit) -> Handler,
+) -> Result<Vec<Row>, Never> {
+  let Ok(back_2) = Row::back(SETS, back);
+  let Ok(title) = Row::naming(picture, Aside(""));
+  let Ok(automatic) = Row::new(
+    "Use in automatic rotation",
+    Aside(
+      match { ::core::primitive::bool::then_some(rule.automatic, ()) } {
+        ::core::option::Option::Some(()) => NOW,
+        ::core::option::Option::None => "",
+      },
+    ),
+    edit(Edit::Automatic),
+  );
+  let mut rows = vec![back_2, title, automatic];
+
+  for category in Category::EVERY {
+    let Ok(tags) = rule.tags(category);
+    let selected_tags: HashSet<_> = tags
+      .iter()
+      .map(|entry| entry.trim().to_ascii_lowercase())
+      .collect();
+    let Ok(category_label) = category.label();
+    let Ok(heading) = Row::naming(
+      category_label,
+      Aside(match tags {
+        [] => "Any",
+        [_, ..] => "",
+      }),
+    );
+    rows.push(heading);
+
+    let Ok(options) = category.options();
+
+    for tag in options {
+      let Ok(label) = Offered::of(tag);
+      let name = match { ::core::primitive::bool::then_some(tag == "cloud", ()) } {
+        ::core::option::Option::Some(()) => "Cloudy",
+        ::core::option::Option::None => &label.says,
+      };
+      let selected = selected_tags.contains(&tag.to_ascii_lowercase());
+      let Ok(row) = Row::new(
+        name,
+        Aside(match ::core::primitive::bool::then_some(selected, ()) {
+          ::core::option::Option::Some(()) => NOW,
+          ::core::option::Option::None => "",
+        }),
+        edit(Edit::Condition(category, tag)),
+      );
+      rows.push(row);
+    }
+  }
+
+  match source {
+    RuleSource::Customized => {
+      let Ok(reset) = Row::new("Restore default rules", Aside(""), edit(Edit::Reset));
+      rows.push(reset);
+    }
+    RuleSource::Default => {}
+  }
+
+  Ok(rows)
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
@@ -167,6 +259,7 @@ mod tests {
 
         does
       },
+      choose.clone(),
       choose,
       follow,
     )
@@ -228,13 +321,13 @@ mod tests {
   fn the_picture_on_the_screen_is_marked_however_it_was_chosen() -> Result<(), &'static str> {
     let Ok(followed) = following(0);
     let Ok(followed_says) = says(&followed);
-    let up = followed.get(1).ok_or(A_ROW)?;
+    let up = followed.get(2).ok_or(A_ROW)?;
 
     assert_eq!(up.now(), Ok(Active::Yes), "{followed_says:?}");
 
     let Ok(pinned) = pinned("her-own-photo");
     let Ok(pinned_says) = says(&pinned);
-    let up_2 = pinned.get(2).ok_or(A_ROW)?;
+    let up_2 = pinned.get(3).ok_or(A_ROW)?;
 
     assert_eq!(up_2.now(), Ok(Active::Yes), "{pinned_says:?}");
 
@@ -250,7 +343,7 @@ mod tests {
       up: "her-own-photo",
       dropped: 0,
     });
-    let other = rows.get(1).ok_or(A_ROW)?;
+    let other = rows.get(2).ok_or(A_ROW)?;
 
     assert_eq!(other.aside, "Abi Toads");
 

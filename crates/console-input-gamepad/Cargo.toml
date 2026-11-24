@@ -22,6 +22,7 @@ required-features = ["read"]
 read = ["dep:console-core-bounded-reads", "dep:serde_yaml_ng"]
 
 [dependencies]
+console-bus.workspace = true
 console-core-bounded-reads = { workspace = true, optional = true }
 console-core-external-programs.workspace = true
 console-core-geometry.workspace = true

@@ -9,10 +9,10 @@ use quick_xml::events::{BytesStart, Event};
 use std::cell::Cell;
 
 const WORK_BYTES_PER_UNIT: usize = 256;
-// XML attribute escaping expands one source scalar by at most `&quot;` (six bytes).
-// This also covers spelling out the closing names of admitted self-closing SVG elements.
-// Per-element additions cover the longest supported default namespace declaration, an XLink
-// binding, and Mermaid's target hook. The outer SVG and optional transform add two elements.
+
+
+
+
 const SANITIZER_MAX_BYTE_EXPANSION: usize = "&quot;".len();
 const SANITIZER_MAX_ADDED_BYTES_PER_ELEMENT: usize =
     r#" xmlns="http://www.w3.org/1998/Math/MathML""#.len()
@@ -36,6 +36,7 @@ struct BoundedSanitizeSink<'a> {
 }
 
 impl<'a> BoundedSanitizeSink<'a> {
+    #[must_use]
     const fn new(
         max_output_bytes: usize,
         max_parse_input_bytes: usize,
@@ -49,6 +50,7 @@ impl<'a> BoundedSanitizeSink<'a> {
         }
     }
 
+    #[must_use]
     const fn output_limit_error(&self) -> BoundedSanitizeError {
         BoundedSanitizeError::OutputLimitExceeded {
             max_bytes: self.max_output_bytes,
@@ -78,17 +80,20 @@ impl SanitizeOutputSink for BoundedSanitizeSink<'_> {
         retained_bytes: usize,
     ) -> Result<(), Self::Error> {
         self.checkpoint()?;
+
         if input_bytes > self.max_parse_input_bytes {
             return Err(BoundedSanitizeError::ParseInputLimitExceeded {
                 max_bytes: self.max_parse_input_bytes,
             });
         }
+
         if nodes == 0 && retained_bytes == 0 {
             self.parse_work.set(0);
         }
-        // Charge tokenizer input, tree construction/policy visits, and retained markup before
-        // each parser allocation. A second Mermaid sanitization stage starts a new accounting
-        // epoch; it still contributes to the same operation ledger.
+
+
+
+
         let work = nodes
             .checked_mul(2)
             .and_then(|work| work.checked_add(ceil_div(input_bytes, WORK_BYTES_PER_UNIT)))
@@ -106,9 +111,11 @@ impl SanitizeOutputSink for BoundedSanitizeSink<'_> {
         let next = current
             .checked_add(additional)
             .ok_or_else(|| self.output_limit_error())?;
+
         if next > self.max_output_bytes {
             return Err(self.output_limit_error());
         }
+
         Ok(next)
     }
 
@@ -192,7 +199,7 @@ fn render_resolved_icon_inner(
         observe_paint_fact,
     )?;
 
-    // Both ledgers are charged before cloning the retained body or allocating the assembled SVG.
+
     request.work_meter.charge_emit_work(work_units)?;
     request.work_meter.charge_svg_bytes(projected_svg_bytes)?;
 
@@ -201,14 +208,15 @@ fn render_resolved_icon_inner(
     raw_svg.push_str(&open);
     raw_svg.push_str(&body);
     raw_svg.push_str("</svg>");
+
     if raw_svg.len() > projected_svg_bytes {
         return Err(crate::Error::icon_processing(
             "assembled icon SVG exceeded its precharged size",
         ));
     }
 
-    // Mermaid performs sanitization after transforms, deterministic ID replacement, and outer SVG
-    // assembly. The effective request config must therefore be applied on every render.
+
+
     let requested_growth = sanitizer_ceiling - projected_svg_bytes;
     let growth_reservation = request
         .work_meter
@@ -225,18 +233,22 @@ fn render_resolved_icon_inner(
     ) {
         Ok(sanitized) => sanitized,
         Err(SanitizeFailure::Output(BoundedSanitizeError::Control(error))) => {
-            return Err(error.into());
+            return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error));
         }
         Err(SanitizeFailure::Output(BoundedSanitizeError::OutputLimitExceeded { .. })) => {
             request
                 .work_meter
                 .reconcile_svg_bytes(reserved_svg_bytes, 0)?;
-            if let Some(error) = growth_reservation.limit_error {
-                return Err(request
-                    .work_meter
-                    .terminate_absolute_resource_error(error, OperationPhase::Emit)
-                    .into());
+
+            match growth_reservation.limit_error {
+                Some(error) => {
+                    return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(request
+                        .work_meter
+                        .terminate_absolute_resource_error(error, OperationPhase::Emit)));
+                },
+                ::core::option::Option::None => {},
             }
+
             return Err(crate::Error::icon_processing(
                 "icon SVG sanitizer exceeded its fixed expansion ceiling",
             ));
@@ -277,6 +289,7 @@ fn render_resolved_icon_inner(
             ));
         }
     };
+
     if sanitized.is_empty() {
         request
             .work_meter
@@ -285,6 +298,7 @@ fn render_resolved_icon_inner(
             "sanitization removed the complete icon SVG",
         ));
     }
+
     let validation = validate_well_formed_svg_with_controls(
         &sanitized,
         &mut || {
@@ -300,23 +314,29 @@ fn render_resolved_icon_inner(
                 .map_err(crate::Error::from)
         },
     );
-    if let Err(error) = validation {
-        if matches!(
-            &error,
-            crate::Error::Cancelled(_)
-                | crate::Error::ResourceLimitExceeded(_)
-                | crate::Error::OperationResourceTerminal(_)
-        ) {
-            return Err(error);
-        }
-        request.work_meter.checkpoint(OperationPhase::Postprocess)?;
-        request
-            .work_meter
-            .reconcile_svg_bytes(reserved_svg_bytes, 0)?;
-        return Err(crate::Error::icon_processing(
-            "sanitizer produced invalid SVG XML",
-        ));
+
+    match validation {
+        Err(error) => {
+            if matches!(
+                &error,
+                crate::Error::Cancelled(_)
+                    | crate::Error::ResourceLimitExceeded(_)
+                    | crate::Error::OperationResourceTerminal(_)
+            ) {
+                return Err(error);
+            }
+
+            request.work_meter.checkpoint(OperationPhase::Postprocess)?;
+            request
+                .work_meter
+                .reconcile_svg_bytes(reserved_svg_bytes, 0)?;
+            return Err(crate::Error::icon_processing(
+                "sanitizer produced invalid SVG XML",
+            ));
+        },
+        ::core::result::Result::Ok(_) => {},
     }
+
     let current_color_use = if observe_paint_fact {
         observe_current_color_use(&sanitized, request.work_meter)?
     } else {
@@ -365,12 +385,12 @@ fn icon_render_work_units(
         0
     };
     ceil_div(icon.body.source_len(), WORK_BYTES_PER_UNIT)
-        // Assembly is bounded by the transformed source. Tokenizer/tree work is charged by
-        // check_parse_storage before allocation, independently of emitted output length.
+
+
         .checked_add(projected_work)
-        // At most two Mermaid serialization stages plus final XML validation.
+
         .and_then(|work| work.checked_add(sanitizer_work.checked_mul(3)?))
-        // The optional paint-fact scan is only charged for callers that consume its result.
+
         .and_then(|work| work.checked_add(paint_scan_work))
         .and_then(|work| work.checked_add(edit_work))
         .and_then(|work| work.checked_add(1))
@@ -400,6 +420,7 @@ struct IconCurrentColorObservation {
 }
 
 impl IconCurrentColorObservation {
+    #[must_use]
     const fn finish(self) -> IconCurrentColorUse {
         if self.consumed && !self.fixed && !self.unverified {
             IconCurrentColorUse::Consumed
@@ -436,8 +457,10 @@ fn observe_current_color_use(
     reader.config_mut().enable_all_checks(true);
     let mut observation = IconCurrentColorObservation::default();
     let mut paint_stack = Vec::new();
+
     loop {
         work_meter.checkpoint(OperationPhase::Postprocess)?;
+
         match reader.read_event() {
             Ok(Event::Start(element)) => {
                 let inherited = paint_stack.last().copied().unwrap_or_default();
@@ -465,6 +488,7 @@ fn observe_current_color_use(
             }
         }
     }
+
     work_meter.checkpoint(OperationPhase::Postprocess)?;
     Ok(observation.finish())
 }
@@ -476,8 +500,9 @@ fn observe_icon_element(
     observation: &mut IconCurrentColorObservation,
 ) -> crate::Result<IconPaintContext> {
     let tag = element.name().local_name();
-    let tag = tag.as_ref();
-    if tag.eq_ignore_ascii_case("style") || tag.eq_ignore_ascii_case("use") {
+    let tag_2 = tag.as_ref();
+
+    if tag_2.eq_ignore_ascii_case("style") || tag_2.eq_ignore_ascii_case("use") {
         observation.unverified = true;
     }
 
@@ -485,33 +510,35 @@ fn observe_icon_element(
     let mut stroke = None;
     let mut inline_fill = None;
     let mut inline_stroke = None;
+
     for attribute in element.attributes() {
-        let attribute = attribute.map_err(|_| {
+        let attribute_2 = attribute.map_err(|_| {
             crate::Error::icon_processing(
                 "validated icon SVG paint scan encountered an invalid attribute",
             )
         })?;
-        let name = attribute.key.local_name();
-        let name = name.as_ref();
-        let value = attribute
+        let name = attribute_2.key.local_name();
+        let name_2 = name.as_ref();
+        let value = attribute_2
             .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|_| {
                 crate::Error::icon_processing(
                     "validated icon SVG paint scan could not decode an attribute",
                 )
             })?;
-        let value = value.trim();
-        if name.eq_ignore_ascii_case("class") || name.eq_ignore_ascii_case("color") {
-            if !value.is_empty() {
+        let value_2 = value.trim();
+
+        if name_2.eq_ignore_ascii_case("class") || name_2.eq_ignore_ascii_case("color") {
+            if !value_2.is_empty() {
                 observation.unverified = true;
             }
-        } else if name.eq_ignore_ascii_case("fill") {
-            fill = Some(classify_icon_paint_value(value));
-        } else if name.eq_ignore_ascii_case("stroke") {
-            stroke = Some(classify_icon_paint_value(value));
-        } else if name.eq_ignore_ascii_case("style") {
+        } else if name_2.eq_ignore_ascii_case("fill") {
+            fill = Some(classify_icon_paint_value(value_2));
+        } else if name_2.eq_ignore_ascii_case("stroke") {
+            stroke = Some(classify_icon_paint_value(value_2));
+        } else if name_2.eq_ignore_ascii_case("style") {
             observe_inline_paint(
-                value,
+                value_2,
                 work_meter,
                 &mut inline_fill,
                 &mut inline_stroke,
@@ -522,10 +549,10 @@ fn observe_icon_element(
 
     let inherit = |paint: Option<IconPaintValue>, fallback| match paint {
         None | Some(IconPaintValue::Inherit) => fallback,
-        Some(paint) => paint,
+        Some(paint_2) => paint_2,
     };
     let context = IconPaintContext {
-        non_rendering: inherited.non_rendering || is_non_rendering_container(tag),
+        non_rendering: inherited.non_rendering || is_non_rendering_container(tag_2),
         fill: inherit(
             inline_fill.map(|winner| winner.value).or(fill),
             inherited.fill,
@@ -535,11 +562,12 @@ fn observe_icon_element(
             inherited.stroke,
         ),
     };
-    if is_direct_paint_terminal(tag) && !context.non_rendering {
-        // A line has no fill surface. Every other admitted direct terminal can paint
-        // an inherited fill; a missing fill therefore retains SVG's fixed black default.
+
+    if is_direct_paint_terminal(tag_2) && !context.non_rendering {
+
+
         for paint in [
-            (!tag.eq_ignore_ascii_case("line")).then_some(context.fill),
+            (!tag_2.eq_ignore_ascii_case("line")).then_some(context.fill),
             Some(context.stroke),
         ]
         .into_iter()
@@ -555,6 +583,7 @@ fn observe_icon_element(
             }
         }
     }
+
     Ok(context)
 }
 
@@ -578,6 +607,7 @@ fn observe_inline_paint(
                 observation.unverified = true;
                 return Ok(true);
             };
+
             let destination = match declaration.property() {
                 "fill" => Some(&mut *fill),
                 "stroke" => Some(&mut *stroke),
@@ -587,29 +617,33 @@ fn observe_inline_paint(
                 }
                 _ => None,
             };
-            if let Some(destination) = destination
-                && destination.is_none_or(|current| declaration.important() || !current.important)
+
+            if let Some(destination_2) = destination
+                && destination_2.is_none_or(|current| declaration.important() || !current.important)
             {
-                *destination = Some(InlinePaintWinner {
+                *destination_2 = Some(InlinePaintWinner {
                     value: classify_icon_paint_value(declaration.value()),
                     important: declaration.important(),
                 });
             }
+
             Ok(true)
         },
     )
 }
 
+#[must_use]
 fn classify_icon_paint_value(value: &str) -> IconPaintValue {
-    let value = value.trim();
-    if value.eq_ignore_ascii_case("currentcolor") {
+    let value_2 = value.trim();
+
+    if value_2.eq_ignore_ascii_case("currentcolor") {
         IconPaintValue::CurrentColor
-    } else if value.eq_ignore_ascii_case("none") || value.eq_ignore_ascii_case("transparent") {
+    } else if value_2.eq_ignore_ascii_case("none") || value_2.eq_ignore_ascii_case("transparent") {
         IconPaintValue::NoPaint
-    } else if value.eq_ignore_ascii_case("inherit") {
+    } else if value_2.eq_ignore_ascii_case("inherit") {
         IconPaintValue::Inherit
-    } else if let Ok(color) = merman_markup::theme_color::ThemeColor::parse(value) {
-        if color.rgba_channels().alpha == 0.0 {
+    } else if let Ok(color) = merman_markup::theme_color::ThemeColor::parse(value_2) {
+        if ::core::matches!(::core::primitive::f64::classify(color.rgba_channels().alpha), ::core::num::FpCategory::Zero) {
             IconPaintValue::NoPaint
         } else {
             IconPaintValue::Fixed
@@ -619,6 +653,7 @@ fn classify_icon_paint_value(value: &str) -> IconPaintValue {
     }
 }
 
+#[must_use]
 fn is_direct_paint_terminal(tag: &str) -> bool {
     [
         "circle", "ellipse", "line", "path", "polygon", "polyline", "rect", "text", "tspan",
@@ -627,6 +662,7 @@ fn is_direct_paint_terminal(tag: &str) -> bool {
     .any(|candidate| tag.eq_ignore_ascii_case(candidate))
 }
 
+#[must_use]
 fn is_non_rendering_container(tag: &str) -> bool {
     [
         "clipPath",
@@ -643,6 +679,7 @@ fn is_non_rendering_container(tag: &str) -> bool {
     .any(|candidate| tag.eq_ignore_ascii_case(candidate))
 }
 
+#[must_use]
 const fn ceil_div(value: usize, divisor: usize) -> usize {
     value / divisor + if value.is_multiple_of(divisor) { 0 } else { 1 }
 }
@@ -653,6 +690,7 @@ fn render_dimension(value: f64, name: &'static str) -> crate::Result<String> {
             "requested icon {name} is not finite and positive"
         )));
     }
+
     Ok(js_number(value))
 }
 
@@ -666,9 +704,11 @@ struct TransformedIcon {
 
 impl TransformedIcon {
     fn projected_body_bytes(&self, body: &ValidatedIconBody) -> crate::Result<usize> {
-        let Some((start, end)) = &self.wrapper else {
-            return Ok(body.scoped_len());
+        let (start, end) = match &self.wrapper {
+            Some((matched_start, matched_end)) => (matched_start, matched_end),
+            ::core::option::Option::None => return Ok(body.scoped_len()),
         };
+
         body.transformed_scoped_len(start.len(), end.len())
             .map_err(|_| crate::Error::icon_processing("transformed icon size overflowed"))
     }
@@ -679,6 +719,7 @@ impl TransformedIcon {
                 .scope(scope)
                 .map_err(|_| crate::Error::icon_processing("validated icon ID scoping failed"));
         };
+
         body.scope_transformed(scope, start, end)
             .map_err(|_| crate::Error::icon_processing("validated icon transform assembly failed"))
     }
@@ -717,6 +758,7 @@ fn transformed_icon(icon: &ResolvedIcon) -> crate::Result<TransformedIcon> {
     }
 
     rotation = rotation.rem_euclid(4);
+
     match rotation {
         1 => {
             let center = height / 2.0 + top;
@@ -742,7 +784,8 @@ fn transformed_icon(icon: &ResolvedIcon) -> crate::Result<TransformedIcon> {
         }
         _ => {}
     }
-    if rotation % 2 == 1 {
+
+    if ::core::primitive::i32::wrapping_rem(rotation, 2) == 1 {
         std::mem::swap(&mut left, &mut top);
         std::mem::swap(&mut width, &mut height);
     }
@@ -754,6 +797,7 @@ fn transformed_icon(icon: &ResolvedIcon) -> crate::Result<TransformedIcon> {
             ));
         }
     }
+
     let wrapper = (!transformations.is_empty()).then(|| {
         (
             format!(r#"<g transform="{}">"#, transformations.join(" ")),
@@ -769,6 +813,7 @@ fn transformed_icon(icon: &ResolvedIcon) -> crate::Result<TransformedIcon> {
     })
 }
 
+#[must_use]
 fn escape_xml_attr(value: &str) -> String {
     crate::xml::strip_forbidden_xml_1_0_chars(value)
         .replace('&', "&amp;")
@@ -777,10 +822,12 @@ fn escape_xml_attr(value: &str) -> String {
         .replace('>', "&gt;")
 }
 
+#[must_use]
 fn js_number(mut value: f64) -> String {
-    if value == -0.0 {
+    if ::core::matches!(::core::primitive::f64::classify(value), ::core::num::FpCategory::Zero) {
         value = 0.0;
     }
+
     let mut buffer = ryu_js::Buffer::new();
     buffer.format_finite(value).to_string()
 }

@@ -25,6 +25,7 @@ struct OutsideTracks {
 }
 
 impl OutsideTracks {
+    #[must_use]
     fn for_side(self, side: RectSide) -> f64 {
         match side {
             RectSide::Top => self.top,
@@ -93,6 +94,7 @@ struct PairScoringContext<'a> {
     base_segments: &'a IndexMap<usize, Vec<OrthogonalSegment>>,
 }
 
+#[must_use]
 fn outside_tracks(node_info_by_id: &IndexMap<String, NodeBoundsInfo>) -> Option<OutsideTracks> {
     (!node_info_by_id.is_empty()).then(|| OutsideTracks {
         top: node_info_by_id
@@ -118,6 +120,7 @@ fn outside_tracks(node_info_by_id: &IndexMap<String, NodeBoundsInfo>) -> Option<
     })
 }
 
+#[must_use]
 fn outward_tracks_for_side(side: RectSide, outside: OutsideTracks) -> Vec<f64> {
     let outward = if matches!(side, RectSide::Left | RectSide::Top) {
         -1.0
@@ -129,35 +132,46 @@ fn outward_tracks_for_side(side: RectSide, outside: OutsideTracks) -> Vec<f64> {
         .collect()
 }
 
+#[must_use]
 fn crossing_snapshot(edges: &[WorkingEdge], replacements: &ReplacementMap) -> CrossingSnapshot {
     let mut count = 0;
     let mut pairs = Vec::new();
     let mut edge_set = IndexSet::new();
     let mut edge_order = Vec::new();
+
     for first in 0..edges.len() {
         let first_points = points_for(edges, first, replacements);
-        for second in first + 1..edges.len() {
+
+        'over_second_2_: for second in first + 1..edges.len() {
             let pair_count = crossing_count_between_paths(
                 &first_points,
                 &points_for(edges, second, replacements),
             );
-            if pair_count == 0 {
-                continue;
+
+            match pair_count {
+                0 => {
+                    continue 'over_second_2_;
+                },
+                _ => {},
             }
+
             count += pair_count;
             pairs.push(CrossingPair {
                 first,
                 second,
                 count: pair_count,
             });
+
             if edge_set.insert(first) {
                 edge_order.push(first);
             }
+
             if edge_set.insert(second) {
                 edge_order.push(second);
             }
         }
     }
+
     edge_order.sort_unstable();
     CrossingSnapshot {
         count,
@@ -176,6 +190,7 @@ fn crossing_count_with_replacements(
     if replacements.is_empty() {
         return Ok(current.count);
     }
+
     work_budget.charge(current.pairs.len())?;
     let current_affected: usize = current
         .pairs
@@ -187,39 +202,50 @@ fn crossing_count_with_replacements(
         .sum();
     work_budget.charge(unordered_pair_count(edges.len()))?;
     let mut replacement_affected = 0;
+
     for first in 0..edges.len() {
         let first_changed = replacements.contains_key(&first);
         let first_points = points_for(edges, first, replacements);
-        for second in first + 1..edges.len() {
+
+        'over_second_2: for second in first + 1..edges.len() {
             if !first_changed && !replacements.contains_key(&second) {
-                continue;
+                continue 'over_second_2;
             }
+
             replacement_affected += crossing_count_between_paths(
                 &first_points,
                 &points_for(edges, second, replacements),
             );
         }
     }
+
     Ok(current.count - current_affected + replacement_affected)
 }
 
+#[must_use]
 fn crossing_components(snapshot: &CrossingSnapshot) -> Vec<Vec<usize>> {
     let mut neighbors: IndexMap<usize, IndexSet<usize>> = IndexMap::new();
+
     for pair in &snapshot.pairs {
         neighbors.entry(pair.first).or_default().insert(pair.second);
         neighbors.entry(pair.second).or_default().insert(pair.first);
     }
+
     let mut components = Vec::new();
     let mut seen = IndexSet::new();
+
     for &edge_index in &snapshot.edges {
         if seen.contains(&edge_index) {
             continue;
         }
+
         let mut queue = vec![edge_index];
         let mut component = Vec::new();
         seen.insert(edge_index);
+
         while let Some(current) = queue.pop() {
             component.push(current);
+
             if let Some(next_edges) = neighbors.get(&current) {
                 for &next in next_edges {
                     if seen.insert(next) {
@@ -228,11 +254,14 @@ fn crossing_components(snapshot: &CrossingSnapshot) -> Vec<Vec<usize>> {
                 }
             }
         }
+
         component.sort_unstable();
+
         if component.len() > 1 {
             components.push(component);
         }
     }
+
     components
 }
 
@@ -249,6 +278,7 @@ fn pair_search_groups(
             .saturating_add(snapshot.edges.len()),
     )?;
     let mut groups = Vec::new();
+
     for component in crossing_components(snapshot) {
         work_budget.charge(component.len().saturating_mul(3))?;
         let component_set: IndexSet<_> = component.iter().copied().collect();
@@ -258,6 +288,7 @@ fn pair_search_groups(
             .collect();
         let mut group = component;
         work_budget.charge(edges.len())?;
+
         for (edge_index, edge) in edges.iter().enumerate() {
             if !component_set.contains(&edge_index)
                 && (endpoint_ids.contains(&edge.from) || endpoint_ids.contains(&edge.to))
@@ -265,18 +296,23 @@ fn pair_search_groups(
                 group.push(edge_index);
             }
         }
+
         group.sort_unstable();
         groups.push(group);
     }
+
     Ok(groups)
 }
 
+#[must_use]
 fn current_crossings_by_edge(snapshot: &CrossingSnapshot) -> IndexMap<usize, usize> {
     let mut result = IndexMap::new();
+
     for pair in &snapshot.pairs {
         *result.entry(pair.first).or_default() += pair.count;
         *result.entry(pair.second).or_default() += pair.count;
     }
+
     result
 }
 
@@ -316,10 +352,12 @@ fn path_hits_node(
     }))
 }
 
+#[must_use]
 fn side_is_horizontal(side: RectSide) -> bool {
     matches!(side, RectSide::Left | RectSide::Right)
 }
 
+#[must_use]
 fn local_track_for_same_side(
     source: &LayoutPoint,
     side: RectSide,
@@ -345,6 +383,7 @@ fn add_same_side_candidates(
     } else {
         1.0
     };
+
     let seeds = [
         local_track_for_same_side(source, source_side, destination),
         outside.for_side(source_side),
@@ -441,10 +480,11 @@ fn add_horizontal_pair_candidates(
     let y_tracks = outward_tracks_for_side(RectSide::Top, outside)
         .into_iter()
         .chain(outward_tracks_for_side(RectSide::Bottom, outside));
-    let y_tracks: Vec<_> = y_tracks.collect();
+    let y_tracks_2: Vec<_> = y_tracks.collect();
+
     for source_track in outward_tracks_for_side(source_side, outside) {
         for destination_track in outward_tracks_for_side(destination_side, outside) {
-            for &y_track in &y_tracks {
+            for &y_track in &y_tracks_2 {
                 push_orthogonal_candidate(
                     candidates,
                     vec![
@@ -484,10 +524,11 @@ fn add_vertical_pair_candidates(
     let x_tracks = outward_tracks_for_side(RectSide::Left, outside)
         .into_iter()
         .chain(outward_tracks_for_side(RectSide::Right, outside));
-    let x_tracks: Vec<_> = x_tracks.collect();
+    let x_tracks_2: Vec<_> = x_tracks.collect();
+
     for source_track in outward_tracks_for_side(source_side, outside) {
         for destination_track in outward_tracks_for_side(destination_side, outside) {
-            for &x_track in &x_tracks {
+            for &x_track in &x_tracks_2 {
                 push_orthogonal_candidate(
                     candidates,
                     vec![
@@ -516,6 +557,7 @@ fn add_vertical_pair_candidates(
     }
 }
 
+#[must_use]
 fn build_candidates_for_sides(
     source: &LayoutPoint,
     source_side: RectSide,
@@ -524,6 +566,7 @@ fn build_candidates_for_sides(
     outside: OutsideTracks,
 ) -> Vec<Vec<LayoutPoint>> {
     let mut candidates = Vec::new();
+
     if let Some(base) = build_orthogonal_port_path(
         source,
         source_side,
@@ -534,11 +577,14 @@ fn build_candidates_for_sides(
     ) {
         push_orthogonal_candidate(&mut candidates, base);
     }
+
     if source_side == destination_side {
         add_same_side_candidates(&mut candidates, source, source_side, destination, outside);
     }
+
     let source_horizontal = side_is_horizontal(source_side);
     let destination_horizontal = side_is_horizontal(destination_side);
+
     if source_horizontal && !destination_horizontal {
         add_horizontal_to_vertical_candidates(
             &mut candidates,
@@ -576,6 +622,7 @@ fn build_candidates_for_sides(
             outside,
         );
     }
+
     dedupe_candidate_paths(candidates)
 }
 
@@ -594,6 +641,7 @@ fn add_vertical_departure_outer_track_candidates(
         .into_iter()
         .chain(outward_tracks_for_side(RectSide::Bottom, outside))
         .collect();
+
     for side in SIDES {
         let destination = port_for_rect_side(destination_node, side);
         let target_y_tracks = if matches!(side, RectSide::Top | RectSide::Bottom) {
@@ -601,6 +649,7 @@ fn add_vertical_departure_outer_track_candidates(
         } else {
             external_y_tracks.clone()
         };
+
         for &track in &external_x_tracks {
             if side_is_horizontal(side) {
                 push_orthogonal_candidate(
@@ -620,6 +669,7 @@ fn add_vertical_departure_outer_track_candidates(
                     ],
                 );
             }
+
             for &target_track in &target_y_tracks {
                 push_orthogonal_candidate(
                     candidates,
@@ -661,6 +711,7 @@ fn add_horizontal_departure_outer_track_candidates(
         .into_iter()
         .chain(outward_tracks_for_side(RectSide::Bottom, outside))
         .collect();
+
     for side in SIDES {
         let destination = port_for_rect_side(destination_node, side);
         let target_x_tracks = if matches!(side, RectSide::Left | RectSide::Right) {
@@ -668,6 +719,7 @@ fn add_horizontal_departure_outer_track_candidates(
         } else {
             external_x_tracks.clone()
         };
+
         for &track in &external_y_tracks {
             if !side_is_horizontal(side) {
                 push_orthogonal_candidate(
@@ -687,6 +739,7 @@ fn add_horizontal_departure_outer_track_candidates(
                     ],
                 );
             }
+
             for &target_track in &target_x_tracks {
                 push_orthogonal_candidate(
                     candidates,
@@ -713,6 +766,7 @@ fn add_horizontal_departure_outer_track_candidates(
     }
 }
 
+#[must_use]
 fn terminal_preserving_outer_track_candidates(
     edge: &WorkingEdge,
     node_info_by_id: &IndexMap<String, NodeBoundsInfo>,
@@ -721,16 +775,26 @@ fn terminal_preserving_outer_track_candidates(
     if edge.from.is_empty() {
         return Vec::new();
     }
-    let Some(destination_node) = node_info_by_id.get(&edge.to) else {
-        return Vec::new();
+
+    let destination_node = {
+        let optional_destination_node = node_info_by_id.get(&edge.to);
+
+        match optional_destination_node {
+            Some(matched_destination_node) => matched_destination_node,
+            ::core::option::Option::None => return Vec::new(),
+        }
     };
+
     let points = dedupe_consecutive_points(&edge.points, EPSILON);
+
     if points.len() < 4 {
         return Vec::new();
     }
+
     let first = &points[0];
     let departure = &points[1];
     let mut candidates = Vec::new();
+
     if is_vertical_segment(first, departure, EPSILON) {
         add_vertical_departure_outer_track_candidates(
             &mut candidates,
@@ -748,23 +812,34 @@ fn terminal_preserving_outer_track_candidates(
             outside,
         );
     }
+
     candidates
 }
 
+#[must_use]
 fn candidate_paths_for(
     edge: &WorkingEdge,
     node_info_by_id: &IndexMap<String, NodeBoundsInfo>,
     outside: OutsideTracks,
 ) -> Vec<Vec<LayoutPoint>> {
-    let (Some(source_node), Some(destination_node)) = (
-        node_info_by_id.get(&edge.from),
-        node_info_by_id.get(&edge.to),
-    ) else {
-        return Vec::new();
+    let (source_node, destination_node) = {
+        let outcome_source_node = (
+            node_info_by_id.get(&edge.from),
+            node_info_by_id.get(&edge.to),
+        );
+
+        match outcome_source_node {
+            (Some(matched_source_node), Some(matched_destination_node)) => (matched_source_node, matched_destination_node),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return Vec::new(),
+        }
     };
+
     let mut candidates = Vec::new();
+
     for source_side in SIDES {
         let source_port = port_for_rect_side(source_node, source_side);
+
         for destination_side in SIDES {
             candidates.extend(build_candidates_for_sides(
                 &source_port,
@@ -775,6 +850,7 @@ fn candidate_paths_for(
             ));
         }
     }
+
     candidates.extend(terminal_preserving_outer_track_candidates(
         edge,
         node_info_by_id,
@@ -783,6 +859,7 @@ fn candidate_paths_for(
     candidates
 }
 
+#[must_use]
 fn current_segments_by_edge(edges: &[WorkingEdge]) -> IndexMap<usize, Vec<OrthogonalSegment>> {
     (0..edges.len())
         .map(|edge_index| {
@@ -804,10 +881,12 @@ fn shared_track_conflicts_for(
 ) -> Result<IndexSet<usize>> {
     work_budget.charge(edges.len().saturating_sub(1))?;
     let mut conflicts = IndexSet::new();
+
     for (other_index, other_edge) in edges.iter().enumerate() {
         if other_index == edge_index {
             continue;
         }
+
         let fallback;
         let other_segments = if let Some(segments) = base_segments.get(&other_index) {
             segments
@@ -815,12 +894,14 @@ fn shared_track_conflicts_for(
             fallback = segments_for(&dedupe_consecutive_points(&other_edge.points, EPSILON));
             &fallback
         };
+
         if shared_track_conflicts(candidate_segments, other_segments)
             || routes_touch_at_bend(candidate_path, &other_edge.points, ROUTE_TOUCH_TOLERANCE)
         {
             conflicts.insert(other_index);
         }
     }
+
     Ok(conflicts)
 }
 
@@ -841,11 +922,13 @@ fn pair_candidates_for(
     let edges = search.edges;
     let mut seen = IndexSet::new();
     let mut candidates = Vec::new();
+
     for raw_candidate in
         candidate_paths_for(&edges[edge_index], search.node_info_by_id, search.outside)
     {
         work_budget.charge(1)?;
         let candidate = simplify_polyline(&dedupe_consecutive_points(&raw_candidate, EPSILON));
+
         if path_hits_node(
             &edges[edge_index],
             &candidate,
@@ -856,6 +939,7 @@ fn pair_candidates_for(
         {
             continue;
         }
+
         let candidate_segments = segments_for(&candidate);
         work_budget.charge(edges.len().saturating_sub(1))?;
         let replacement_affected: usize = (0..edges.len())
@@ -868,12 +952,15 @@ fn pair_candidates_for(
             })
             .sum();
         let crossings = search.current.count
-            - search
+            - match search
                 .crossing_count_by_edge
                 .get(&edge_index)
-                .copied()
-                .unwrap_or(0)
+                .copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            }
             + replacement_affected;
+
         if crossings <= search.current.count {
             candidates.push(ScoredCandidate {
                 path: candidate.clone(),
@@ -885,6 +972,7 @@ fn pair_candidates_for(
             });
         }
     }
+
     candidates.sort_by(|first, second| {
         first
             .crossings
@@ -893,6 +981,7 @@ fn pair_candidates_for(
             .then_with(|| first.length.total_cmp(&second.length))
     });
     let mut retained = Vec::new();
+
     for candidate in candidates.into_iter().take(MAX_PAIR_CANDIDATES_PER_EDGE) {
         retained.push(PairCandidate {
             shared_track_conflicts: shared_track_conflicts_for(
@@ -909,6 +998,7 @@ fn pair_candidates_for(
             length: candidate.length,
         });
     }
+
     Ok(retained)
 }
 
@@ -937,10 +1027,12 @@ fn pair_crossing_count(
         .charge(1usize.saturating_add(context.edges.len().saturating_sub(2).saturating_mul(2)))?;
     let mut replacement_affected =
         crossing_count_between_segments(&first_candidate.segments, &second_candidate.segments);
+
     for other_index in 0..context.edges.len() {
         if other_index == first_edge || other_index == second_edge {
             continue;
         }
+
         replacement_affected += crossing_count_between_segments(
             &first_candidate.segments,
             &context.base_segments[&other_index],
@@ -949,9 +1041,11 @@ fn pair_crossing_count(
             &context.base_segments[&other_index],
         );
     }
+
     Ok(context.current.count - current_affected + replacement_affected)
 }
 
+#[must_use]
 fn conflicts_only_with(candidate: &PairCandidate, edge_index: usize) -> bool {
     candidate
         .shared_track_conflicts
@@ -959,11 +1053,13 @@ fn conflicts_only_with(candidate: &PairCandidate, edge_index: usize) -> bool {
         .all(|&conflict| conflict == edge_index)
 }
 
+#[must_use]
 fn candidates_share_track(first: &PairCandidate, second: &PairCandidate) -> bool {
     shared_track_conflicts(&first.segments, &second.segments)
         || routes_touch_at_bend(&first.path, &second.path, ROUTE_TOUCH_TOLERANCE)
 }
 
+#[must_use]
 fn pair_candidates_are_compatible(
     first: &PairOption,
     first_candidate: &PairCandidate,
@@ -991,9 +1087,11 @@ fn score_pair_replacement(
         second_candidate,
         work_budget,
     )?;
+
     if crossings >= context.current.count {
         return Ok(None);
     }
+
     Ok(Some(PairReplacementScore {
         replacements: ReplacementMap::from_iter([
             (first.edge_index, first_candidate.path.clone()),
@@ -1013,6 +1111,7 @@ fn score_pair_replacement(
     }))
 }
 
+#[must_use]
 fn pair_score_is_better(candidate: &PairReplacementScore, best: &PairReplacementScore) -> bool {
     candidate.crossings < best.crossings
         || (candidate.crossings == best.crossings
@@ -1028,11 +1127,13 @@ fn best_score_for_option_pair(
     work_budget: &mut LayoutWorkBudget,
 ) -> Result<PairReplacementScore> {
     for first_candidate in &first.candidates {
-        for second_candidate in &second.candidates {
+        'over_second_candidate_2: for second_candidate in &second.candidates {
             work_budget.charge(1)?;
+
             if !pair_candidates_are_compatible(first, first_candidate, second, second_candidate) {
-                continue;
+                continue 'over_second_candidate_2;
             }
+
             let Some(score) = score_pair_replacement(
                 context,
                 first,
@@ -1042,13 +1143,15 @@ fn best_score_for_option_pair(
                 work_budget,
             )?
             else {
-                continue;
+                continue 'over_second_candidate_2;
             };
+
             if pair_score_is_better(&score, &best) {
                 best = score;
             }
         }
     }
+
     Ok(best)
 }
 
@@ -1099,12 +1202,15 @@ fn best_paired_replacement(
     };
     let groups = pair_search_groups(edges, current, work_budget)?;
     let mut options_by_edge = IndexMap::new();
+
     for group in &groups {
-        for &edge_index in group {
+        'inner_for_2: for &edge_index in group {
             if options_by_edge.contains_key(&edge_index) {
-                continue;
+                continue 'inner_for_2;
             }
+
             let candidates = pair_candidates_for(&candidate_search, edge_index, work_budget)?;
+
             if !candidates.is_empty() {
                 options_by_edge.insert(
                     edge_index,
@@ -1133,6 +1239,7 @@ fn best_paired_replacement(
         bends: current_bends,
         length: current_length,
     };
+
     for group in groups {
         let crossing_edge_set: IndexSet<_> = group
             .iter()
@@ -1143,20 +1250,24 @@ fn best_paired_replacement(
             .iter()
             .filter_map(|edge_index| options_by_edge.get(edge_index))
             .collect();
+
         for first_index in 0..options.len() {
-            for second_index in first_index + 1..options.len() {
+            'over_second_index_3: for second_index in first_index + 1..options.len() {
                 work_budget.charge(1)?;
                 let first = options[first_index];
                 let second = options[second_index];
+
                 if !crossing_edge_set.contains(&first.edge_index)
                     && !crossing_edge_set.contains(&second.edge_index)
                 {
-                    continue;
+                    continue 'over_second_index_3;
                 }
+
                 best = best_score_for_option_pair(&scoring, first, second, best, work_budget)?;
             }
         }
     }
+
     Ok((!best.replacements.is_empty()).then_some(best.replacements))
 }
 
@@ -1167,16 +1278,27 @@ pub(in crate::swimlane::direction) fn resolve_rendered_orthogonal_crossings(
     work_budget.charge(layout.nodes.len())?;
     let (node_info_by_id, real_node_rects) = collect_real_node_bounds(layout);
     work_budget.charge(node_info_by_id.len().saturating_mul(4))?;
-    let Some(outside) = outside_tracks(&node_info_by_id) else {
-        return Ok(());
+
+    let outside = {
+        let optional_outside = outside_tracks(&node_info_by_id);
+
+        match optional_outside {
+            Some(matched_outside) => matched_outside,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
 
     for _ in 0..MAX_ITERATIONS {
         work_budget.charge(unordered_pair_count(layout.original_edges.len()))?;
         let current = crossing_snapshot(&layout.original_edges, &ReplacementMap::new());
-        if current.count == 0 {
-            return Ok(());
+
+        match current.count {
+            0 => {
+                return Ok(());
+            },
+            _ => {},
         }
+
         let mut best_edge = None;
         let mut best_path = None;
         let mut best_crossings = current.count;
@@ -1187,7 +1309,8 @@ pub(in crate::swimlane::direction) fn resolve_rendered_orthogonal_crossings(
                 &dedupe_consecutive_points(&layout.original_edges[edge_index].points, EPSILON),
                 EPSILON,
             );
-            for candidate in candidate_paths_for(
+
+            'over_candidate_3: for candidate in candidate_paths_for(
                 &layout.original_edges[edge_index],
                 &node_info_by_id,
                 outside,
@@ -1218,24 +1341,29 @@ pub(in crate::swimlane::direction) fn resolve_rendered_orthogonal_crossings(
                     work_budget,
                 )?;
                 let candidate_bends = count_orthogonal_bends(&candidate, EPSILON);
+
                 if candidate_hits_node || candidate_has_segment_conflict {
-                    continue;
+                    continue 'over_candidate_3;
                 }
+
                 let improves_current_edge = candidate_crossings < current.count
                     || (candidate_crossings == current.count
                         && candidate_bends < current_edge_bends);
+
                 if !improves_current_edge
                     || candidate_crossings > best_crossings
                     || (candidate_crossings == best_crossings && candidate_bends >= best_bends)
                 {
-                    continue;
+                    continue 'over_candidate_3;
                 }
+
                 best_edge = Some(edge_index);
                 best_path = Some(candidate);
                 best_crossings = candidate_crossings;
                 best_bends = candidate_bends;
             }
         }
+
         if let (Some(edge_index), Some(points)) = (best_edge, best_path) {
             layout.original_edges[edge_index].points = points;
             continue;
@@ -1252,8 +1380,10 @@ pub(in crate::swimlane::direction) fn resolve_rendered_orthogonal_crossings(
         else {
             return Ok(());
         };
+
         apply_replacements(&mut layout.original_edges, replacements);
     }
+
     Ok(())
 }
 

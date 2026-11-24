@@ -35,6 +35,7 @@ pub(crate) const VENN_INTERSECTION_CLASS: &str = "venn-intersection";
 pub(crate) const VENN_AREA_LABEL_CLASS: &str = "label";
 pub(crate) const VENN_TEXT_NODE_CLASS: &str = "venn-text-node";
 
+#[must_use]
 pub(crate) fn rendered_area_label(area: &VennAreaLayout) -> &str {
     if let Some(label) = area.label.as_deref().filter(|label| !label.is_empty()) {
         label
@@ -45,6 +46,7 @@ pub(crate) fn rendered_area_label(area: &VennAreaLayout) -> &str {
     }
 }
 
+#[must_use]
 pub(crate) fn rendered_text_node_label(node: &VennTextNodeLayout) -> &str {
     node.label.as_deref().unwrap_or(node.id.as_str())
 }
@@ -78,7 +80,10 @@ pub(crate) fn layout_venn_diagram_typed_with_work_meter(
                 .filter(|title| !title.is_empty())
         });
     let scale = cfg.width / REFERENCE_WIDTH;
-    let title_height = if title.is_some() { 48.0 * scale } else { 0.0 };
+    let title_height = match title {
+        ::core::option::Option::Some(_) => { 48.0 * scale },
+        ::core::option::Option::None => { 0.0 },
+    };
     let diagram_height = (cfg.height - title_height).max(1.0);
 
     let areas = ensure_pairwise_subsets_for_layout(
@@ -109,7 +114,7 @@ pub(crate) fn layout_venn_diagram_typed_with_work_meter(
         })?
     };
 
-    let areas = layout_areas
+    let areas_2 = layout_areas
         .iter()
         .map(|area| VennAreaLayout {
             sets: area.data.sets.clone(),
@@ -153,12 +158,13 @@ pub(crate) fn layout_venn_diagram_typed_with_work_meter(
         padding: cfg.padding,
         use_max_width: cfg.use_max_width,
         use_debug_layout: cfg.use_debug_layout,
-        areas,
+        areas: areas_2,
         text_areas,
         text_nodes,
     })
 }
 
+#[must_use]
 fn layout_text_nodes(
     model: &VennDiagramModel,
     layout_by_key: &HashMap<String, &VennLayoutArea>,
@@ -167,6 +173,7 @@ fn layout_text_nodes(
 ) -> (Vec<VennTextAreaLayout>, Vec<VennTextNodeLayout>) {
     let mut nodes_by_area: IndexMap<String, Vec<&merman_model::families::venn::VennTextNodeModel>> =
         IndexMap::new();
+
     for node in &model.text_nodes {
         nodes_by_area
             .entry(stable_sets_key(&node.sets))
@@ -176,10 +183,17 @@ fn layout_text_nodes(
 
     let mut text_areas = Vec::new();
     let mut text_nodes = Vec::new();
+
     for (key, nodes) in nodes_by_area {
-        let Some(area) = layout_by_key.get(&key).copied() else {
-            continue;
+        let area = {
+            let optional_area = layout_by_key.get(&key).copied();
+
+            match optional_area {
+                Some(matched_area) => matched_area,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if area.circles.is_empty() {
             continue;
         }
@@ -205,7 +219,8 @@ fn layout_text_nodes(
         } else {
             0.0
         };
-        if inner_radius == 0.0 && min_circle_radius.is_finite() {
+
+        if ::core::matches!(::core::primitive::f64::classify(inner_radius), ::core::num::FpCategory::Zero) && min_circle_radius.is_finite() {
             inner_radius = min_circle_radius * 0.6;
         }
 
@@ -230,11 +245,13 @@ fn layout_text_nodes(
         let cell_height = inner_height / rows as f64;
 
         let mut debug_cells = Vec::new();
+
         for (index, node) in nodes.iter().enumerate() {
             let col = index % cols;
             let row = index / cols;
             let cell_x = start_x + cell_width * col as f64;
             let cell_y = start_y + cell_height * row as f64;
+
             if use_debug_layout {
                 debug_cells.push(VennTextDebugCellLayout {
                     x: cell_x,
@@ -272,6 +289,7 @@ fn layout_text_nodes(
     (text_areas, text_nodes)
 }
 
+#[must_use]
 fn stable_sets_key(sets: &[String]) -> String {
     sets.join("|")
 }
@@ -297,6 +315,7 @@ fn ensure_pairwise_subsets_for_layout(
         let mut members = area.sets.clone();
         members.sort();
         let mut counted_members = Vec::<(String, usize)>::new();
+
         for member in members {
             if let Some((previous, count)) = counted_members.last_mut()
                 && previous == &member
@@ -306,22 +325,27 @@ fn ensure_pairwise_subsets_for_layout(
                 counted_members.push((member, 1));
             }
         }
+
         if counted_members.is_empty() {
             continue;
         }
+
         for left_index in 0..counted_members.len() {
             let right_start = if counted_members[left_index].1 >= 2 {
                 left_index
             } else {
                 left_index + 1
             };
-            for right_index in right_start..counted_members.len() {
+
+            'over_right_index_3: for right_index in right_start..counted_members.len() {
                 let left = &counted_members[left_index].0;
                 let right = &counted_members[right_index].0;
                 let pair = canonical_pair(left, right);
+
                 if existing_pairs.contains(&pair) {
-                    continue;
+                    continue 'over_right_index_3;
                 }
+
                 work_meter.preflight(
                     areas
                         .len()
@@ -348,20 +372,22 @@ fn ensure_pairwise_subsets_for_layout(
 
     areas.extend(synthetic);
 
-    // `venn.js` also creates zero-sized pairwise areas for every pair of singleton sets inside
-    // its layout kernel. Prove that expansion fits before entering the ported algorithm, without
-    // allocating those private helper areas here or changing the public/rendered area list.
+
+
+
     let mut singleton_ids = singleton_sizes.keys().collect::<Vec<_>>();
     singleton_ids.sort();
     let mut expanded_area_count = areas.len();
+
     for left_index in 0..singleton_ids.len() {
-        for right_index in left_index + 1..singleton_ids.len() {
+        'over_right_index_2: for right_index in left_index + 1..singleton_ids.len() {
             if existing_pairs.contains(&canonical_pair(
                 singleton_ids[left_index],
                 singleton_ids[right_index],
             )) {
-                continue;
+                continue 'over_right_index_2;
             }
+
             expanded_area_count = expanded_area_count.saturating_add(1);
             work_meter.preflight(expanded_area_count)?;
         }
@@ -378,6 +404,7 @@ fn ensure_pairwise_subsets_for_layout(
 /// expanded areas allows a small model to consume an unbounded amount of CPU. The estimate is
 /// intentionally saturating and conservative; it does not change the public raw kernel, which
 /// remains available to trusted callers without a render policy.
+#[must_use]
 fn venn_layout_work_units(areas: &[VennArea], options: &VennLayoutOptions) -> usize {
     let singleton_ids = areas
         .iter()
@@ -385,20 +412,20 @@ fn venn_layout_work_units(areas: &[VennArea], options: &VennLayoutOptions) -> us
         .map(|area| area.sets[0].as_str())
         .collect::<HashSet<_>>();
     let set_count = singleton_ids.len();
-    let pair_count = set_count.saturating_mul(set_count.saturating_sub(1)) / 2;
+    let pair_count = set_count.saturating_mul(set_count.saturating_sub(1)).wrapping_div(2);
 
-    // `add_missing_areas` may append every missing singleton pair. This is an upper bound, but
-    // avoids allocating a second expanded vector solely for the preflight estimate.
+
+
     let area_count = areas.len().saturating_add(pair_count);
 
-    // Constrained MDS evaluates every unordered set pair once per gradient iteration and restart.
+
     let mds_work = pair_count
         .saturating_mul(options.max_iterations)
         .saturating_mul(options.restarts);
 
-    // Nelder-Mead evaluates the loss several times per iteration and once for the initial
-    // simplex. The factor four covers the reflected/expanded/contracted/reduced branches while
-    // the simplex term covers the 2N+1 initial points.
+
+
+
     let simplex_evaluations = set_count.saturating_mul(2).saturating_add(1);
     let objective_evaluations = options
         .max_iterations
@@ -406,9 +433,9 @@ fn venn_layout_work_units(areas: &[VennArea], options: &VennLayoutOptions) -> us
         .saturating_add(simplex_evaluations);
     let optimizer_loss_work = area_count.saturating_mul(objective_evaluations);
 
-    // Geometry and intersection-area construction run once after optimization. A set area with
-    // many members can inspect all member pairs, so include the sum of squared area arities and
-    // the pairwise cluster pass.
+
+
+
     let intersection_work = areas.iter().fold(0usize, |total, area| {
         total.saturating_add(area.sets.len().saturating_mul(area.sets.len()))
     });
@@ -423,6 +450,7 @@ fn venn_layout_work_units(areas: &[VennArea], options: &VennLayoutOptions) -> us
         .saturating_add(geometry_work)
 }
 
+#[must_use]
 fn canonical_pair(left: &str, right: &str) -> (String, String) {
     if left <= right {
         (left.to_owned(), right.to_owned())
@@ -440,6 +468,7 @@ pub struct VennArea {
 }
 
 impl VennArea {
+    #[must_use]
     pub fn new(sets: impl IntoIterator<Item = impl Into<String>>, size: f64) -> Self {
         Self {
             sets: sets.into_iter().map(Into::into).collect(),
@@ -517,7 +546,7 @@ impl Default for VennLayoutOptions {
             scale_to_fit: None,
             symmetrical_text_centre: false,
             distinct: false,
-            // `diagram.js` helper defaults `round` to 2.
+
             round: Some(2),
             max_iterations: 500,
             restarts: 10,
@@ -585,22 +614,23 @@ struct XorShift64Star {
 }
 
 impl XorShift64Star {
+    #[must_use]
     fn new(seed: u64) -> Self {
         Self { state: seed.max(1) }
     }
 
     fn next_u64(&mut self) -> u64 {
         let mut x = self.state;
-        x ^= x >> 12;
-        x ^= x << 25;
-        x ^= x >> 27;
+        x ^= ::core::primitive::u64::wrapping_shr(x, 12_u32);
+        x ^= ::core::primitive::u64::wrapping_shl(x, 25_u32);
+        x ^= ::core::primitive::u64::wrapping_shr(x, 27_u32);
         self.state = x;
         x.wrapping_mul(0x2545F4914F6CDD1D_u64)
     }
 
     fn next_f64_unit(&mut self) -> f64 {
-        let u = self.next_u64() >> 11;
-        (u as f64) / ((1u64 << 53) as f64)
+        let u = ::core::primitive::u64::wrapping_shr(self.next_u64(), 11_u32);
+        (u as f64) / (::core::primitive::u64::wrapping_shl(1u64, 53_u32) as f64)
     }
 }
 
@@ -609,9 +639,11 @@ pub fn compute_venn_layout(
     options: &VennLayoutOptions,
 ) -> VennLayoutResult<Vec<VennLayoutArea>> {
     let mut solution = venn(data, options)?;
+
     if options.normalize {
         solution = normalize_solution(&solution, options.orientation);
     }
+
     let circles = scale_solution(
         &solution,
         options.width,
@@ -622,6 +654,7 @@ pub fn compute_venn_layout(
     let text_centres = compute_text_centres(&circles, data, options.symmetrical_text_centre);
 
     let mut helpers = Vec::with_capacity(data.len());
+
     for area in data {
         let area_circles: Vec<VennCircle> = area
             .sets
@@ -630,14 +663,16 @@ pub fn compute_venn_layout(
             .collect();
         let arcs = intersection_area_arcs(&area_circles);
         let path = arcs_to_path(&arcs, options.round);
-        let text = text_centres
+        let text = match (text_centres
             .get(&sets_key(&area.sets))
-            .copied()
-            .unwrap_or(VennTextPoint {
+            .copied(), VennTextPoint {
                 x: 0.0,
                 y: 0.0,
                 disjoint: true,
-            });
+            }) {
+            (::core::option::Option::Some(present), _) => present,
+            (::core::option::Option::None, alternate) => alternate,
+        };
         helpers.push(VennLayoutArea {
             data: area.clone(),
             text,
@@ -655,6 +690,7 @@ pub fn venn(sets: &[VennArea], options: &VennLayoutOptions) -> VennLayoutResult<
     let mut circles = best_initial_layout(&areas, options)?;
     let setids: Vec<String> = circles.keys().cloned().collect();
     let mut initial = Vec::with_capacity(setids.len() * 2);
+
     for setid in &setids {
         let circle = &circles[setid];
         initial.push(circle.x);
@@ -668,6 +704,7 @@ pub fn venn(sets: &[VennArea], options: &VennLayoutOptions) -> VennLayoutResult<
     let solution = nelder_mead(
         |values| {
             let mut current = Solution::new();
+
             for (i, setid) in setids.iter().enumerate() {
                 let base = &circles[setid];
                 current.insert(
@@ -680,6 +717,7 @@ pub fn venn(sets: &[VennArea], options: &VennLayoutOptions) -> VennLayoutResult<
                     },
                 );
             }
+
             loss_function(&current, &areas)
         },
         &initial,
@@ -687,22 +725,31 @@ pub fn venn(sets: &[VennArea], options: &VennLayoutOptions) -> VennLayoutResult<
     );
 
     for (i, setid) in setids.iter().enumerate() {
-        if let Some(circle) = circles.get_mut(setid) {
-            circle.x = solution.x[2 * i];
-            circle.y = solution.x[2 * i + 1];
+        {
+            match circles.get_mut(setid) {
+                Some(circle) => {
+                    circle.x = solution.x[2 * i];
+                    circle.y = solution.x[2 * i + 1];
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     Ok(circles)
 }
 
+#[must_use]
 fn add_missing_areas(areas: &[VennArea], distinct: bool) -> Vec<VennArea> {
     let mut out = areas.to_vec();
 
     if distinct {
         let mut count: HashMap<String, f64> = HashMap::new();
+
         for area in &out {
             for i in 0..area.sets.len() {
                 let si = &area.sets[i];
+
                 *count.entry(si.clone()).or_insert(0.0) += area.size;
                 for j in i + 1..area.sets.len() {
                     let sj = &area.sets[j];
@@ -711,6 +758,7 @@ fn add_missing_areas(areas: &[VennArea], distinct: bool) -> Vec<VennArea> {
                 }
             }
         }
+
         for area in &mut out {
             if area.sets.len() < 3
                 && let Some(size) = count.get(&area.sets.join(";")).copied()
@@ -722,6 +770,7 @@ fn add_missing_areas(areas: &[VennArea], distinct: bool) -> Vec<VennArea> {
 
     let mut ids = Vec::new();
     let mut pairs = HashSet::new();
+
     for area in &out {
         if area.sets.len() == 1 {
             ids.push(area.sets[0].clone());
@@ -735,23 +784,29 @@ fn add_missing_areas(areas: &[VennArea], distinct: bool) -> Vec<VennArea> {
 
     ids.sort();
     ids.dedup();
+
     for i in 0..ids.len() {
         for j in i + 1..ids.len() {
             let a = &ids[i];
             let b = &ids[j];
+
             if !pairs.contains(&format!("{a};{b}")) {
                 out.push(VennArea::new([a.clone(), b.clone()], 0.0));
             }
         }
     }
+
     out
 }
 
+#[must_use]
 pub fn distance_from_intersect_area(r1: f64, r2: f64, overlap: f64) -> f64 {
     let min_radius = r1.min(r2);
+
     if min_radius * min_radius * PI <= overlap + SMALL {
         return (r1 - r2).abs();
     }
+
     bisect(
         |distance| circle_overlap(r1, r2, distance) - overlap,
         0.0,
@@ -763,14 +818,17 @@ pub fn distance_from_intersect_area(r1: f64, r2: f64, overlap: f64) -> f64 {
 
 fn best_initial_layout(areas: &[VennArea], options: &VennLayoutOptions) -> VennResult<Solution> {
     let mut initial = greedy_layout(areas)?;
+
     if areas.len() >= 8 {
         let constrained = constrained_mds_layout(areas, options)?;
         let constrained_loss = loss_function(&constrained, areas);
         let greedy_loss = loss_function(&initial, areas);
+
         if constrained_loss + 1e-8 < greedy_loss {
             initial = constrained;
         }
     }
+
     Ok(initial)
 }
 
@@ -793,6 +851,7 @@ pub fn greedy_layout(areas: &[VennArea]) -> VennLayoutResult<VennSolution> {
             set_overlaps.insert(set, Vec::new());
         }
     }
+
     if circles.is_empty() {
         return Err(VennLayoutError::EmptySingleSetAreas);
     }
@@ -800,32 +859,59 @@ pub fn greedy_layout(areas: &[VennArea]) -> VennLayoutResult<VennSolution> {
     for area in areas.iter().filter(|a| a.sets.len() == 2) {
         let left = &area.sets[0];
         let right = &area.sets[1];
-        let Some(left_circle) = circles.get(left) else {
-            continue;
+
+        let left_circle = {
+            let optional_left_circle = circles.get(left);
+
+            match optional_left_circle {
+                Some(matched_left_circle) => matched_left_circle,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(right_circle) = circles.get(right) else {
-            continue;
+
+        let right_circle = {
+            let optional_right_circle = circles.get(right);
+
+            match optional_right_circle {
+                Some(matched_right_circle) => matched_right_circle,
+                ::core::option::Option::None => continue,
+            }
         };
-        let mut weight = area.weight.unwrap_or(1.0);
+
+        let mut weight = match area.weight {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 1.0,
+        };
+
         if area.size + SMALL
             >= (left_circle.radius * left_circle.radius * PI)
                 .min(right_circle.radius * right_circle.radius * PI)
         {
             weight = 0.0;
         }
-        if let Some(overlaps) = set_overlaps.get_mut(left) {
-            overlaps.push(SetOverlap {
-                set: right.clone(),
-                size: area.size,
-                weight,
-            });
+
+        match set_overlaps.get_mut(left) {
+            Some(overlaps) => {
+                overlaps.push(SetOverlap {
+                    set: right.clone(),
+                    size: area.size,
+                    weight,
+                });
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(overlaps) = set_overlaps.get_mut(right) {
-            overlaps.push(SetOverlap {
-                set: left.clone(),
-                size: area.size,
-                weight,
-            });
+
+        {
+            match set_overlaps.get_mut(right) {
+                Some(overlaps) => {
+                    overlaps.push(SetOverlap {
+                        set: left.clone(),
+                        size: area.size,
+                        weight,
+                    });
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
@@ -849,20 +935,24 @@ pub fn greedy_layout(areas: &[VennArea]) -> VennLayoutResult<VennSolution> {
 
     for item in most_overlapped.iter().skip(1) {
         let set_index = &item.set;
-        let mut overlap: Vec<SetOverlap> = set_overlaps
+        let mut overlap: Vec<SetOverlap> = match set_overlaps
             .get(set_index)
-            .cloned()
-            .unwrap_or_default()
+            .cloned() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        }
             .into_iter()
             .filter(|o| positioned.contains(&o.set))
             .collect();
         overlap.sort_by(|a, b| b.size.total_cmp(&a.size));
+
         if overlap.is_empty() {
             return Err(VennLayoutError::MissingPairwiseOverlap(set_index.clone()));
         }
 
         let set = circles[set_index].clone();
         let mut points = Vec::new();
+
         for j in 0..overlap.len() {
             let p1 = &circles[&overlap[j].set];
             let d1 = distance_from_intersect_area(set.radius, p1.radius, overlap[j].size);
@@ -905,12 +995,18 @@ pub fn greedy_layout(areas: &[VennArea]) -> VennLayoutResult<VennSolution> {
 
         let mut best_loss = 1e50;
         let mut best_point = points[0];
+
         for point in points {
-            if let Some(circle) = circles.get_mut(set_index) {
-                circle.x = point.x;
-                circle.y = point.y;
+            match circles.get_mut(set_index) {
+                Some(circle) => {
+                    circle.x = point.x;
+                    circle.y = point.y;
+                },
+                ::core::option::Option::None => {},
             }
+
             let local_loss = loss_function(&circles, areas);
+
             if local_loss < best_loss {
                 best_loss = local_loss;
                 best_point = point;
@@ -942,22 +1038,28 @@ fn position_set(
     set: &str,
     point: VennPoint,
 ) {
-    if let Some(circle) = circles.get_mut(set) {
-        circle.x = point.x;
-        circle.y = point.y;
+    match circles.get_mut(set) {
+        Some(circle) => {
+            circle.x = point.x;
+            circle.y = point.y;
+        },
+        ::core::option::Option::None => {},
     }
+
     positioned.insert(set.to_string());
 }
 
 fn constrained_mds_layout(areas: &[VennArea], options: &VennLayoutOptions) -> VennResult<Solution> {
     let mut sets = Vec::new();
     let mut setids = HashMap::new();
+
     for area in areas {
         if area.sets.len() == 1 {
             setids.insert(area.sets[0].clone(), sets.len());
             sets.push(area.clone());
         }
     }
+
     if sets.is_empty() {
         return Err(VennLayoutError::EmptySingleSetAreas);
     }
@@ -965,9 +1067,11 @@ fn constrained_mds_layout(areas: &[VennArea], options: &VennLayoutOptions) -> Ve
     let (mut distances, constraints) = get_distance_matrices(areas, &sets, &setids);
     let norm =
         norm2(&distances.iter().map(|row| norm2(row)).collect::<Vec<_>>()) / distances.len() as f64;
-    if !norm.is_finite() || norm == 0.0 {
+
+    if !norm.is_finite() || ::core::matches!(::core::primitive::f64::classify(norm), ::core::num::FpCategory::Zero) {
         return greedy_layout(areas);
     }
+
     for row in &mut distances {
         for value in row {
             *value /= norm;
@@ -976,6 +1080,7 @@ fn constrained_mds_layout(areas: &[VennArea], options: &VennLayoutOptions) -> Ve
 
     let mut rng = XorShift64Star::new(options.random_seed);
     let mut best: Option<CgState> = None;
+
     for _ in 0..options.restarts {
         let initial: Vec<f64> = (0..distances.len() * 2)
             .map(|_| rng.next_f64_unit())
@@ -985,6 +1090,7 @@ fn constrained_mds_layout(areas: &[VennArea], options: &VennLayoutOptions) -> Ve
             &initial,
             Some(options.max_iterations),
         );
+
         if best.as_ref().is_none_or(|b| current.fx < b.fx) {
             best = Some(current);
         }
@@ -994,6 +1100,7 @@ fn constrained_mds_layout(areas: &[VennArea], options: &VennLayoutOptions) -> Ve
         .map(|b| b.x)
         .unwrap_or_else(|| vec![0.0; distances.len() * 2]);
     let mut circles = Solution::new();
+
     for (i, set) in sets.iter().enumerate() {
         let setid = set.sets[0].clone();
         circles.insert(
@@ -1006,9 +1113,11 @@ fn constrained_mds_layout(areas: &[VennArea], options: &VennLayoutOptions) -> Ve
             },
         );
     }
+
     Ok(circles)
 }
 
+#[must_use]
 fn get_distance_matrices(
     areas: &[VennArea],
     sets: &[VennArea],
@@ -1018,12 +1127,24 @@ fn get_distance_matrices(
     let mut constraints = vec![vec![0; sets.len()]; sets.len()];
 
     for current in areas.iter().filter(|a| a.sets.len() == 2) {
-        let Some(&left) = setids.get(&current.sets[0]) else {
-            continue;
+        let left = {
+            let optional_left = setids.get(&current.sets[0]);
+
+            match optional_left {
+                Some(&matched_left) => matched_left,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(&right) = setids.get(&current.sets[1]) else {
-            continue;
+
+        let right = {
+            let optional_right = setids.get(&current.sets[1]);
+
+            match optional_right {
+                Some(&matched_right) => matched_right,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let r1 = libm::sqrt(sets[left].size / PI);
         let r2 = libm::sqrt(sets[right].size / PI);
         let distance = distance_from_intersect_area(r1, r2, current.size);
@@ -1031,11 +1152,13 @@ fn get_distance_matrices(
         distances[right][left] = distance;
 
         let mut constraint = 0;
+
         if current.size + SMALL >= sets[left].size.min(sets[right].size) {
             constraint = 1;
         } else if current.size <= SMALL {
             constraint = -1;
         }
+
         constraints[left][right] = constraint;
         constraints[right][left] = constraint;
     }
@@ -1051,10 +1174,12 @@ fn constrained_mds_gradient(
 ) -> f64 {
     fxprime.fill(0.0);
     let mut loss = 0.0;
+
     for i in 0..distances.len() {
         let xi = x[2 * i];
         let yi = x[2 * i + 1];
-        for j in i + 1..distances.len() {
+
+        'over_j_2: for j in i + 1..distances.len() {
             let xj = x[2 * j];
             let yj = x[2 * j + 1];
             let dij = distances[i][j];
@@ -1066,7 +1191,7 @@ fn constrained_mds_gradient(
             let delta = squared_distance - dij * dij;
 
             if (constraint > 0 && distance <= dij) || (constraint < 0 && distance >= dij) {
-                continue;
+                continue 'over_j_2;
             }
 
             loss += 2.0 * delta * delta;
@@ -1076,22 +1201,38 @@ fn constrained_mds_gradient(
             fxprime[2 * j + 1] += 4.0 * delta * (yj - yi);
         }
     }
+
     loss
 }
 
+#[must_use]
 pub fn loss_function(circles: &VennSolution, overlaps: &[VennArea]) -> f64 {
     let mut output = 0.0;
+
     for area in overlaps {
         if area.sets.len() == 1 {
             continue;
         }
+
         let overlap = if area.sets.len() == 2 {
-            let Some(left) = circles.get(&area.sets[0]) else {
-                continue;
+            let left = {
+                let optional_left = circles.get(&area.sets[0]);
+
+                match optional_left {
+                    Some(matched_left) => matched_left,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let Some(right) = circles.get(&area.sets[1]) else {
-                continue;
+
+            let right = {
+                let optional_right = circles.get(&area.sets[1]);
+
+                match optional_right {
+                    Some(matched_right) => matched_right,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             circle_overlap(left.radius, right.radius, distance(left, right))
         } else {
             let area_circles: Vec<VennCircle> = area
@@ -1101,22 +1242,27 @@ pub fn loss_function(circles: &VennSolution, overlaps: &[VennArea]) -> f64 {
                 .collect();
             intersection_area(&area_circles)
         };
-        let weight = area.weight.unwrap_or(1.0);
+        let weight = match area.weight {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 1.0,
+        };
         output += weight * (overlap - area.size) * (overlap - area.size);
     }
+
     output
 }
 
+#[must_use]
 pub fn normalize_solution(solution: &VennSolution, orientation: f64) -> VennSolution {
     let circles: Vec<VennCircle> = solution.values().cloned().collect();
     let mut clusters: Vec<Cluster> = disjoint_cluster(circles)
         .into_iter()
-        .map(|mut circles| {
-            orientate_circles(&mut circles, orientation);
-            let bounds = get_bounding_box(&circles);
+        .map(|mut circles_2| {
+            orientate_circles(&mut circles_2, orientation);
+            let bounds = get_bounding_box(&circles_2);
             let size = (bounds.x_max - bounds.x_min) * (bounds.y_max - bounds.y_min);
             Cluster {
-                circles,
+                circles: circles_2,
                 bounds,
                 size,
             }
@@ -1126,18 +1272,20 @@ pub fn normalize_solution(solution: &VennSolution, orientation: f64) -> VennSolu
     if clusters.is_empty() {
         return Solution::new();
     }
+
     clusters.sort_by(|a, b| b.size.total_cmp(&a.size));
-    let mut circles = clusters[0].circles.clone();
+    let mut circles_3 = clusters[0].circles.clone();
     let mut return_bounds = clusters[0].bounds;
     let spacing = (return_bounds.x_max - return_bounds.x_min) / 50.0;
 
     let mut index = 1;
+
     while index < clusters.len() {
         add_cluster(
             clusters.get(index),
             true,
             false,
-            &mut circles,
+            &mut circles_3,
             &return_bounds,
             spacing,
         );
@@ -1145,7 +1293,7 @@ pub fn normalize_solution(solution: &VennSolution, orientation: f64) -> VennSolu
             clusters.get(index + 1),
             false,
             true,
-            &mut circles,
+            &mut circles_3,
             &return_bounds,
             spacing,
         );
@@ -1153,15 +1301,15 @@ pub fn normalize_solution(solution: &VennSolution, orientation: f64) -> VennSolu
             clusters.get(index + 2),
             true,
             true,
-            &mut circles,
+            &mut circles_3,
             &return_bounds,
             spacing,
         );
         index += 3;
-        return_bounds = get_bounding_box(&circles);
+        return_bounds = get_bounding_box(&circles_3);
     }
 
-    circles_to_solution(circles)
+    circles_to_solution(circles_3)
 }
 
 #[derive(Debug, Clone)]
@@ -1179,19 +1327,23 @@ fn add_cluster(
     return_bounds: &Bounds,
     spacing: f64,
 ) {
-    let Some(cluster) = cluster else {
-        return;
+    let cluster_2 = match cluster {
+        Some(matched_cluster) => matched_cluster,
+        ::core::option::Option::None => return,
     };
-    let bounds = cluster.bounds;
+
+    let bounds = cluster_2.bounds;
     let mut x_offset = if right {
         return_bounds.x_max - bounds.x_min + spacing
     } else {
         let mut offset = return_bounds.x_max - bounds.x_max;
         let centering =
             (bounds.x_max - bounds.x_min) / 2.0 - (return_bounds.x_max - return_bounds.x_min) / 2.0;
+
         if centering < 0.0 {
             offset += centering;
         }
+
         offset
     };
     let mut y_offset = if bottom {
@@ -1200,18 +1352,23 @@ fn add_cluster(
         let mut offset = return_bounds.y_max - bounds.y_max;
         let centering =
             (bounds.y_max - bounds.y_min) / 2.0 - (return_bounds.y_max - return_bounds.y_min) / 2.0;
+
         if centering < 0.0 {
             offset += centering;
         }
+
         offset
     };
+
     if !x_offset.is_finite() {
         x_offset = 0.0;
     }
+
     if !y_offset.is_finite() {
         y_offset = 0.0;
     }
-    for circle in &cluster.circles {
+
+    for circle in &cluster_2.circles {
         let mut c = circle.clone();
         c.x += x_offset;
         c.y += y_offset;
@@ -1221,15 +1378,20 @@ fn add_cluster(
 
 fn orientate_circles(circles: &mut [VennCircle], orientation: f64) {
     circles.sort_by(|a, b| b.radius.total_cmp(&a.radius));
-    if let Some(largest) = circles.first().cloned() {
-        for circle in circles.iter_mut() {
-            circle.x -= largest.x;
-            circle.y -= largest.y;
-        }
+
+    match circles.first().cloned() {
+        Some(largest) => {
+            for circle in circles.iter_mut() {
+                circle.x -= largest.x;
+                circle.y -= largest.y;
+            }
+        },
+        ::core::option::Option::None => {},
     }
 
     if circles.len() == 2 {
         let dist = distance(&circles[0], &circles[1]);
+
         if dist < (circles[1].radius - circles[0].radius).abs() {
             circles[1].x = circles[0].x + circles[0].radius - circles[1].radius - SMALL;
             circles[1].y = circles[0].y;
@@ -1240,6 +1402,7 @@ fn orientate_circles(circles: &mut [VennCircle], orientation: f64) {
         let rotation = libm::atan2(circles[1].x, circles[1].y) - orientation;
         let c = libm::cos(rotation);
         let s = libm::sin(rotation);
+
         for circle in circles.iter_mut() {
             let x = circle.x;
             let y = circle.y;
@@ -1250,14 +1413,18 @@ fn orientate_circles(circles: &mut [VennCircle], orientation: f64) {
 
     if circles.len() > 2 {
         let mut angle = libm::atan2(circles[2].x, circles[2].y) - orientation;
+
         while angle < 0.0 {
             angle += TAU;
         }
+
         while angle > TAU {
             angle -= TAU;
         }
+
         if angle > PI {
             let slope = circles[1].y / (SMALL + circles[1].x);
+
             for circle in circles.iter_mut() {
                 let d = (circle.x + slope * circle.y) / (1.0 + slope * slope);
                 circle.x = 2.0 * d - circle.x;
@@ -1267,6 +1434,7 @@ fn orientate_circles(circles: &mut [VennCircle], orientation: f64) {
     }
 }
 
+#[must_use]
 pub fn disjoint_cluster(circles: Vec<VennCircle>) -> Vec<Vec<VennCircle>> {
     let n = circles.len();
     let mut parent: Vec<usize> = (0..n).collect();
@@ -1275,6 +1443,7 @@ pub fn disjoint_cluster(circles: Vec<VennCircle>) -> Vec<Vec<VennCircle>> {
         if parent[x] != x {
             parent[x] = find(parent, parent[x]);
         }
+
         parent[x]
     }
 
@@ -1290,19 +1459,24 @@ pub fn disjoint_cluster(circles: Vec<VennCircle>) -> Vec<Vec<VennCircle>> {
 
     let mut order = Vec::new();
     let mut grouped: IndexMap<usize, Vec<VennCircle>> = IndexMap::new();
+
     for (i, circle) in circles.iter().enumerate().take(n) {
         let root = find(&mut parent, i);
+
         if !grouped.contains_key(&root) {
             order.push(root);
         }
+
         grouped.entry(root).or_default().push(circle.clone());
     }
+
     order
         .into_iter()
         .filter_map(|root| grouped.shift_remove(&root))
         .collect()
 }
 
+#[must_use]
 pub fn scale_solution(
     solution: &VennSolution,
     width: f64,
@@ -1311,25 +1485,29 @@ pub fn scale_solution(
     scale_to_fit: Option<f64>,
 ) -> VennSolution {
     let circles: Vec<VennCircle> = solution.values().cloned().collect();
-    let width = width - 2.0 * padding;
-    let height = height - 2.0 * padding;
+    let width_2 = width - 2.0 * padding;
+    let height_2 = height - 2.0 * padding;
     let bounds = get_bounding_box(&circles);
-    if bounds.x_max == bounds.x_min || bounds.y_max == bounds.y_min {
+
+    if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&bounds.x_max, &bounds.x_min) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) || <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&bounds.y_max, &bounds.y_min) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
         return solution.clone();
     }
 
-    let (x_scaling, y_scaling) = if let Some(scale_to_fit) = scale_to_fit {
-        let to_scale_diameter = libm::sqrt(scale_to_fit / PI) * 2.0;
-        (width / to_scale_diameter, height / to_scale_diameter)
-    } else {
-        (
-            width / (bounds.x_max - bounds.x_min),
-            height / (bounds.y_max - bounds.y_min),
-        )
+    let (x_scaling, y_scaling) = match scale_to_fit {
+        Some(scale_to_fit_2) => {
+            let to_scale_diameter = libm::sqrt(scale_to_fit_2 / PI) * 2.0;
+            (width_2 / to_scale_diameter, height_2 / to_scale_diameter)
+        },
+        ::core::option::Option::None => {
+            (
+                width_2 / (bounds.x_max - bounds.x_min),
+                height_2 / (bounds.y_max - bounds.y_min),
+            )
+        },
     };
     let scaling = y_scaling.min(x_scaling);
-    let x_offset = (width - (bounds.x_max - bounds.x_min) * scaling) / 2.0;
-    let y_offset = (height - (bounds.y_max - bounds.y_min) * scaling) / 2.0;
+    let x_offset = (width_2 - (bounds.x_max - bounds.x_min) * scaling) / 2.0;
+    let y_offset = (height_2 - (bounds.y_max - bounds.y_min) * scaling) / 2.0;
 
     circles_to_solution(
         circles
@@ -1344,6 +1522,7 @@ pub fn scale_solution(
     )
 }
 
+#[must_use]
 fn get_bounding_box(circles: &[VennCircle]) -> Bounds {
     let mut bounds = Bounds {
         x_min: f64::INFINITY,
@@ -1351,33 +1530,43 @@ fn get_bounding_box(circles: &[VennCircle]) -> Bounds {
         y_min: f64::INFINITY,
         y_max: f64::NEG_INFINITY,
     };
+
     for circle in circles {
         bounds.x_min = bounds.x_min.min(circle.x - circle.radius);
         bounds.x_max = bounds.x_max.max(circle.x + circle.radius);
         bounds.y_min = bounds.y_min.min(circle.y - circle.radius);
         bounds.y_max = bounds.y_max.max(circle.y + circle.radius);
     }
+
     bounds
 }
 
+#[must_use]
 fn circles_to_solution(circles: Vec<VennCircle>) -> Solution {
     let mut solution = Solution::new();
+
     for circle in circles {
         solution.insert(circle.set.clone(), circle);
     }
+
     solution
 }
 
+#[must_use]
 pub fn intersection_area(circles: &[VennCircle]) -> f64 {
     intersection_area_stats(circles).area
 }
 
+#[must_use]
 fn intersection_area_stats(circles: &[VennCircle]) -> AreaStats {
-    if circles.is_empty() {
-        return AreaStats {
-            area: 0.0,
-            arcs: Vec::new(),
-        };
+    match circles {
+        [] => {
+            return AreaStats {
+                area: 0.0,
+                arcs: Vec::new(),
+            };
+        },
+        [_, ..] => {},
     }
 
     let intersection_points = get_intersection_points(circles);
@@ -1392,12 +1581,15 @@ fn intersection_area_stats(circles: &[VennCircle]) -> AreaStats {
 
     if inner_points.len() > 1 {
         let center = get_center(inner_points.iter().map(|p| p.point));
+
         for point in &mut inner_points {
             point.angle = libm::atan2(point.point.x - center.x, point.point.y - center.y);
         }
+
         inner_points.sort_by(|a, b| b.angle.total_cmp(&a.angle));
 
         let mut p2 = inner_points[inner_points.len() - 1].clone();
+
         for p1 in &inner_points {
             polygon_area += (p2.point.x + p1.point.x) * (p1.point.y - p2.point.y);
             let mid_point = VennPoint {
@@ -1406,17 +1598,20 @@ fn intersection_area_stats(circles: &[VennCircle]) -> AreaStats {
             };
             let mut arc: Option<VennArc> = None;
 
-            for parent in p1.parent_index {
+            'over_parent_2: for parent in p1.parent_index {
                 if !p2.parent_index.contains(&parent) {
-                    continue;
+                    continue 'over_parent_2;
                 }
+
                 let circle = &circles[parent];
                 let a1 = libm::atan2(p1.point.x - circle.x, p1.point.y - circle.y);
                 let a2 = libm::atan2(p2.point.x - circle.x, p2.point.y - circle.y);
                 let mut angle_diff = a2 - a1;
+
                 if angle_diff < 0.0 {
                     angle_diff += TAU;
                 }
+
                 let a = a2 - angle_diff / 2.0;
                 let mut width = distance_points(
                     mid_point,
@@ -1425,9 +1620,11 @@ fn intersection_area_stats(circles: &[VennCircle]) -> AreaStats {
                         y: circle.y + circle.radius * libm::cos(a),
                     },
                 );
+
                 if width > circle.radius * 2.0 {
                     width = circle.radius * 2.0;
                 }
+
                 if arc.as_ref().is_none_or(|current| current.width > width) {
                     arc = Some(VennArc {
                         circle: circle.clone(),
@@ -1440,14 +1637,18 @@ fn intersection_area_stats(circles: &[VennCircle]) -> AreaStats {
                 }
             }
 
-            if let Some(arc) = arc {
-                arc_area += circle_area(arc.circle.radius, arc.width);
-                arcs.push(arc);
-                p2 = p1.clone();
+            match arc {
+                Some(arc_2) => {
+                    arc_area += circle_area(arc_2.circle.radius, arc_2.width);
+                    arcs.push(arc_2);
+                    p2 = p1.clone();
+                },
+                ::core::option::Option::None => {},
             }
         }
     } else {
         let mut smallest = &circles[0];
+
         for circle in circles.iter().skip(1) {
             if circle.radius < smallest.radius {
                 smallest = circle;
@@ -1455,6 +1656,7 @@ fn intersection_area_stats(circles: &[VennCircle]) -> AreaStats {
         }
 
         let mut disjoint = false;
+
         for circle in circles {
             if distance(circle, smallest) > (smallest.radius - circle.radius).abs() {
                 disjoint = true;
@@ -1491,14 +1693,17 @@ fn intersection_area_stats(circles: &[VennCircle]) -> AreaStats {
     }
 }
 
+#[must_use]
 fn contained_in_circles(point: VennPoint, circles: &[VennCircle]) -> bool {
     circles
         .iter()
         .all(|circle| distance_point_circle(point, circle) < circle.radius + SMALL)
 }
 
+#[must_use]
 fn get_intersection_points(circles: &[VennCircle]) -> Vec<IntersectionPoint> {
     let mut out = Vec::new();
+
     for (i, circles_element) in <[_]>::iter(circles).enumerate() {
         for j in i + 1..circles.len() {
             for point in circle_circle_intersection(&*circles_element, &circles[j]) {
@@ -1510,13 +1715,16 @@ fn get_intersection_points(circles: &[VennCircle]) -> Vec<IntersectionPoint> {
             }
         }
     }
+
     out
 }
 
+#[must_use]
 pub fn circle_area(r: f64, width: f64) -> f64 {
     r * r * libm::acos(1.0 - width / r) - (r - width) * libm::sqrt(width * (2.0 * r - width))
 }
 
+#[must_use]
 pub fn distance(p1: &VennCircle, p2: &VennCircle) -> f64 {
     distance_points(
         VennPoint { x: p1.x, y: p1.y },
@@ -1524,6 +1732,7 @@ pub fn distance(p1: &VennCircle, p2: &VennCircle) -> f64 {
     )
 }
 
+#[must_use]
 fn distance_point_circle(point: VennPoint, circle: &VennCircle) -> f64 {
     distance_points(
         point,
@@ -1534,28 +1743,34 @@ fn distance_point_circle(point: VennPoint, circle: &VennCircle) -> f64 {
     )
 }
 
+#[must_use]
 fn distance_points(p1: VennPoint, p2: VennPoint) -> f64 {
     let dx = p1.x - p2.x;
     let dy = p1.y - p2.y;
     libm::sqrt(dx * dx + dy * dy)
 }
 
+#[must_use]
 pub fn circle_overlap(r1: f64, r2: f64, d: f64) -> f64 {
     if d >= r1 + r2 {
         return 0.0;
     }
+
     if d <= (r1 - r2).abs() {
         return PI * r1.min(r2) * r1.min(r2);
     }
+
     let w1 = r1 - (d * d - r2 * r2 + r1 * r1) / (2.0 * d);
     let w2 = r2 - (d * d - r1 * r1 + r2 * r2) / (2.0 * d);
     circle_area(r1, w1) + circle_area(r2, w2)
 }
 
+#[must_use]
 pub fn circle_circle_intersection(p1: &VennCircle, p2: &VennCircle) -> Vec<VennPoint> {
     let d = distance(p1, p2);
     let r1 = p1.radius;
     let r2 = p2.radius;
+
     if d >= r1 + r2 || d <= (r1 - r2).abs() {
         return Vec::new();
     }
@@ -1579,21 +1794,29 @@ pub fn circle_circle_intersection(p1: &VennCircle, p2: &VennCircle) -> Vec<VennP
     ]
 }
 
+#[must_use]
 fn get_center(points: impl IntoIterator<Item = VennPoint>) -> VennPoint {
     let mut count = 0usize;
     let mut center = VennPoint { x: 0.0, y: 0.0 };
+
     for point in points {
         center.x += point.x;
         center.y += point.y;
         count += 1;
     }
-    if count > 0 {
-        center.x /= count as f64;
-        center.y /= count as f64;
+
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(count), &::core::convert::identity(0)); _explicit_ordering } {
+        ::core::cmp::Ordering::Greater => {
+            center.x /= count as f64;
+            center.y /= count as f64;
+        },
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
     }
+
     center
 }
 
+#[must_use]
 fn compute_text_centres(
     circles: &Solution,
     areas: &[VennArea],
@@ -1601,19 +1824,27 @@ fn compute_text_centres(
 ) -> HashMap<String, VennTextPoint> {
     let overlapped = get_overlapping_circles(circles);
     let mut out = HashMap::new();
+
     for area in areas {
         let areaids: HashSet<&str> = area.sets.iter().map(String::as_str).collect();
         let mut exclude = HashSet::new();
+
         for set in &area.sets {
-            if let Some(overlaps) = overlapped.get(set) {
-                for overlap in overlaps {
-                    exclude.insert(overlap.as_str());
-                }
+            {
+                match overlapped.get(set) {
+                    Some(overlaps) => {
+                        for overlap in overlaps {
+                            exclude.insert(overlap.as_str());
+                        }
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
 
         let mut interior = Vec::new();
         let mut exterior = Vec::new();
+
         for (setid, circle) in circles {
             if areaids.contains(setid.as_str()) {
                 interior.push(circle.clone());
@@ -1621,28 +1852,35 @@ fn compute_text_centres(
                 exterior.push(circle.clone());
             }
         }
+
         out.insert(
             sets_key(&area.sets),
             compute_text_centre(&interior, &exterior, symmetrical_text_centre),
         );
     }
+
     out
 }
 
+#[must_use]
 pub fn compute_text_centre(
     interior: &[VennCircle],
     exterior: &[VennCircle],
     symmetrical_text_centre: bool,
 ) -> VennTextPoint {
-    if interior.is_empty() {
-        return VennTextPoint {
-            x: 0.0,
-            y: 0.0,
-            disjoint: true,
-        };
+    match interior {
+        [] => {
+            return VennTextPoint {
+                x: 0.0,
+                y: 0.0,
+                disjoint: true,
+            };
+        },
+        [_, ..] => {},
     }
 
     let mut points = Vec::new();
+
     for c in interior {
         points.push(VennPoint { x: c.x, y: c.y });
         points.push(VennPoint {
@@ -1665,8 +1903,10 @@ pub fn compute_text_centre(
 
     let mut initial = points[0];
     let mut margin = circle_margin(points[0], interior, exterior);
+
     for point in points.into_iter().skip(1) {
         let m = circle_margin(point, interior, exterior);
+
         if m >= margin {
             initial = point;
             margin = m;
@@ -1699,6 +1939,7 @@ pub fn compute_text_centre(
     let valid_exterior = exterior.iter().all(|circle| {
         distance_point_circle(VennPoint { x: ret.x, y: ret.y }, circle) >= circle.radius
     });
+
     if valid_interior && valid_exterior {
         return ret;
     }
@@ -1712,6 +1953,7 @@ pub fn compute_text_centre(
     }
 
     let area_stats = intersection_area_stats(interior);
+
     if area_stats.arcs.is_empty() {
         return VennTextPoint {
             x: 0.0,
@@ -1719,6 +1961,7 @@ pub fn compute_text_centre(
             disjoint: true,
         };
     }
+
     if area_stats.arcs.len() == 1 {
         return VennTextPoint {
             x: area_stats.arcs[0].circle.x,
@@ -1726,8 +1969,12 @@ pub fn compute_text_centre(
             disjoint: false,
         };
     }
-    if !exterior.is_empty() {
-        return compute_text_centre(interior, &[], false);
+
+    match exterior {
+        [_, ..] => {
+            return compute_text_centre(interior, &[], false);
+        },
+        [] => {},
     }
 
     let center = get_center(area_stats.arcs.iter().map(|arc| arc.p1));
@@ -1738,29 +1985,37 @@ pub fn compute_text_centre(
     }
 }
 
+#[must_use]
 fn circle_margin(current: VennPoint, interior: &[VennCircle], exterior: &[VennCircle]) -> f64 {
     let mut margin = interior[0].radius - distance_point_circle(current, &interior[0]);
+
     for circle in interior.iter().skip(1) {
         margin = margin.min(circle.radius - distance_point_circle(current, circle));
     }
+
     for circle in exterior {
         margin = margin.min(distance_point_circle(current, circle) - circle.radius);
     }
+
     margin
 }
 
+#[must_use]
 fn get_overlapping_circles(circles: &Solution) -> HashMap<String, Vec<String>> {
     let mut out: HashMap<String, Vec<String>> = circles
         .keys()
         .map(|setid| (setid.clone(), Vec::new()))
         .collect();
     let ids: Vec<String> = circles.keys().cloned().collect();
+
     for i in 0..ids.len() {
         let ci = &ids[i];
         let a = &circles[ci];
+
         for cj in ids.iter().skip(i + 1) {
             let b = &circles[cj];
             let d = distance(a, b);
+
             if d + b.radius <= a.radius + SMALL {
                 out.entry(cj.clone()).or_default().push(ci.clone());
             } else if d + a.radius <= b.radius + SMALL {
@@ -1768,24 +2023,36 @@ fn get_overlapping_circles(circles: &Solution) -> HashMap<String, Vec<String>> {
             }
         }
     }
+
     out
 }
 
+#[must_use]
 fn intersection_area_arcs(circles: &[VennCircle]) -> Vec<VennArc> {
-    if circles.is_empty() {
-        return Vec::new();
+    match circles {
+        [] => {
+            return Vec::new();
+        },
+        [_, ..] => {},
     }
+
     intersection_area_stats(circles).arcs
 }
 
+#[must_use]
 pub fn intersection_area_path(circles: &[VennCircle], round: Option<usize>) -> String {
     arcs_to_path(&intersection_area_arcs(circles), round)
 }
 
+#[must_use]
 fn arcs_to_path(arcs: &[VennArc], round: Option<usize>) -> String {
-    if arcs.is_empty() {
-        return "M 0 0".to_string();
+    match arcs {
+        [] => {
+            return "M 0 0".to_string();
+        },
+        [_, ..] => {},
     }
+
     if arcs.len() == 1 {
         let circle = &arcs[0].circle;
         return circle_path(
@@ -1800,6 +2067,7 @@ fn arcs_to_path(arcs: &[VennArc], round: Option<usize>) -> String {
     push_js_number(&mut out, round_path_value(arcs[0].p2.x, round));
     out.push(' ');
     push_js_number(&mut out, round_path_value(arcs[0].p2.y, round));
+
     for arc in arcs {
         out.push_str(" \nA ");
         let radius = round_path_value(arc.circle.radius, round);
@@ -1815,9 +2083,11 @@ fn arcs_to_path(arcs: &[VennArc], round: Option<usize>) -> String {
         out.push(' ');
         push_js_number(&mut out, round_path_value(arc.p1.y, round));
     }
+
     out
 }
 
+#[must_use]
 fn circle_path(x: f64, y: f64, r: f64) -> String {
     let mut out = String::new();
     out.push_str("\nM ");
@@ -1842,13 +2112,17 @@ fn circle_path(x: f64, y: f64, r: f64) -> String {
     out
 }
 
+#[must_use]
 fn round_path_value(v: f64, round: Option<usize>) -> f64 {
-    let Some(round) = round else {
-        return v;
+    let round_2 = match round {
+        Some(matched_round) => matched_round,
+        ::core::option::Option::None => return v,
     };
-    let factor = 10_f64.powi(round as i32);
+
+    let factor = 10_f64.powi(round_2 as i32);
     let out = ((v * factor) + 0.5).floor() / factor;
-    if out == -0.0 { 0.0 } else { out }
+
+    if ::core::matches!(::core::primitive::f64::classify(out), ::core::num::FpCategory::Zero) { 0.0 } else { out }
 }
 
 fn push_js_number(out: &mut String, mut v: f64) {
@@ -1856,17 +2130,21 @@ fn push_js_number(out: &mut String, mut v: f64) {
         out.push('0');
         return;
     }
-    if v == -0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(v), ::core::num::FpCategory::Zero) {
         v = 0.0;
     }
+
     let mut buf = Buffer::new();
     out.push_str(buf.format_finite(v));
 }
 
+#[must_use]
 fn sets_key(sets: &[String]) -> String {
     sets.join(",")
 }
 
+#[must_use]
 fn bisect<F>(mut f: F, mut a: f64, b: f64, max_iterations: usize, tolerance: f64) -> f64
 where
     F: FnMut(f64) -> f64,
@@ -1874,29 +2152,37 @@ where
     let f_a = f(a);
     let f_b = f(b);
     let mut delta = b - a;
+
     if f_a * f_b > 0.0 {
         return a;
     }
-    if f_a == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(f_a), ::core::num::FpCategory::Zero) {
         return a;
     }
-    if f_b == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(f_b), ::core::num::FpCategory::Zero) {
         return b;
     }
+
     for _ in 0..max_iterations {
         delta /= 2.0;
         let mid = a + delta;
         let f_mid = f(mid);
+
         if f_mid * f_a >= 0.0 {
             a = mid;
         }
-        if delta.abs() < tolerance || f_mid == 0.0 {
+
+        if delta.abs() < tolerance || ::core::matches!(::core::primitive::f64::classify(f_mid), ::core::num::FpCategory::Zero) {
             return mid;
         }
     }
+
     a + delta
 }
 
+#[must_use]
 fn nelder_mead<F>(mut f: F, x0: &[f64], parameters: &OptimParams) -> OptimResult
 where
     F: FnMut(&[f64]) -> f64,
@@ -1905,8 +2191,14 @@ where
     let max_iterations = parameters.max_iterations.unwrap_or(n * 200);
     let non_zero_delta = 1.05;
     let zero_delta = 0.001;
-    let min_error_delta = parameters.min_error_delta.unwrap_or(1e-6);
-    let min_tolerance = parameters.min_error_delta.unwrap_or(1e-5);
+    let min_error_delta = match parameters.min_error_delta {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 1e-6,
+    };
+    let min_tolerance = match parameters.min_error_delta {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 1e-5,
+    };
     let rho = 1.0;
     let chi = 2.0;
     let psi = -0.5;
@@ -1917,9 +2209,10 @@ where
         x: x0.to_vec(),
         fx: f(x0),
     });
+
     for i in 0..n {
         let mut point = x0.to_vec();
-        point[i] = if point[i] != 0.0 {
+        point[i] = if !::core::matches!(::core::primitive::f64::classify(point[i]), ::core::num::FpCategory::Zero) {
             point[i] * non_zero_delta
         } else {
             zero_delta
@@ -1936,11 +2229,13 @@ where
     for _ in 0..max_iterations {
         simplex.sort_by(|a, b| a.fx.total_cmp(&b.fx));
         let mut max_diff: f64 = 0.0;
+
         if simplex.len() > 1 {
             for i in 0..n {
                 max_diff = max_diff.max((simplex[0].x[i] - simplex[1].x[i]).abs());
             }
         }
+
         if (simplex[0].fx - simplex[n].fx).abs() < min_error_delta && max_diff < min_tolerance {
             break;
         }
@@ -1950,15 +2245,18 @@ where
             for point in simplex.iter().take(n) {
                 *centroid_value += point.x[i];
             }
+
             *centroid_value /= n as f64;
         }
 
         let worst = simplex[n].x.clone();
         weighted_sum(&mut reflected, 1.0 + rho, &centroid, -rho, &worst);
         let reflected_fx = f(&reflected);
+
         if reflected_fx < simplex[0].fx {
             weighted_sum(&mut expanded, 1.0 + chi, &centroid, -chi, &worst);
             let expanded_fx = f(&expanded);
+
             if expanded_fx < reflected_fx {
                 update_simplex(&mut simplex[n], &expanded, expanded_fx);
             } else {
@@ -1966,9 +2264,11 @@ where
             }
         } else if reflected_fx >= simplex[n - 1].fx {
             let mut should_reduce = false;
+
             if reflected_fx > simplex[n].fx {
                 weighted_sum(&mut contracted, 1.0 + psi, &centroid, -psi, &worst);
                 let contracted_fx = f(&contracted);
+
                 if contracted_fx < simplex[n].fx {
                     update_simplex(&mut simplex[n], &contracted, contracted_fx);
                 } else {
@@ -1983,6 +2283,7 @@ where
                     &worst,
                 );
                 let contracted_fx = f(&contracted);
+
                 if contracted_fx < reflected_fx {
                     update_simplex(&mut simplex[n], &contracted, contracted_fx);
                 } else {
@@ -1994,7 +2295,9 @@ where
                 if sigma >= 1.0 {
                     break;
                 }
+
                 let best = simplex[0].x.clone();
+
                 for point in simplex.iter_mut().skip(1) {
                     let current = point.x.clone();
                     weighted_sum(&mut point.x, 1.0 - sigma, &best, sigma, &current);
@@ -2023,6 +2326,7 @@ fn update_simplex(point: &mut SimplexPoint, value: &[f64], fx: f64) {
     point.fx = fx;
 }
 
+#[must_use]
 fn conjugate_gradient<F>(mut f: F, initial: &[f64], max_iterations: Option<usize>) -> CgState
 where
     F: FnMut(&[f64], &mut [f64]) -> f64,
@@ -2036,14 +2340,15 @@ where
     let mut yk = initial.to_vec();
     let mut pk = current.fxprime.clone();
     let mut a = 1.0;
-    let max_iterations = max_iterations.unwrap_or(initial.len() * 20);
+    let max_iterations_2 = max_iterations.unwrap_or(initial.len() * 20);
 
     current.fx = f(&current.x, &mut current.fxprime);
     scale(&mut pk, &current.fxprime, -1.0);
 
-    for _ in 0..max_iterations {
+    for _ in 0..max_iterations_2 {
         a = wolfe_line_search(&mut f, &pk, &current, &mut next, a);
-        if a == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(a), ::core::num::FpCategory::Zero) {
             scale(&mut pk, &current.fxprime, -1.0);
         } else {
             weighted_sum(&mut yk, 1.0, &next.fxprime, -1.0, &current.fxprime);
@@ -2078,7 +2383,8 @@ where
     let mut a0 = 0.0;
     let c1 = 1e-6;
     let c2 = 0.1;
-    if a == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(a), ::core::num::FpCategory::Zero) {
         a = 1.0;
     }
 
@@ -2087,21 +2393,26 @@ where
         next.fx = f(&next.x, &mut next.fxprime);
         let phi = next.fx;
         let phi_prime = dot(&next.fxprime, pk);
+
         if phi > phi0 + c1 * a * phi_prime0 || (iteration > 0 && phi >= phi_old) {
             return zoom(
                 f, pk, current, next, a0, a, phi_old, phi0, phi_prime0, c1, c2,
             );
         }
+
         if phi_prime.abs() <= -c2 * phi_prime0 {
             return a;
         }
+
         if phi_prime >= 0.0 {
             return zoom(f, pk, current, next, a, a0, phi, phi0, phi_prime0, c1, c2);
         }
+
         phi_old = phi;
         a0 = a;
         a *= 2.0;
     }
+
     a
 }
 
@@ -2128,39 +2439,45 @@ where
         next.fx = f(&next.x, &mut next.fxprime);
         let phi = next.fx;
         let phi_prime = dot(&next.fxprime, pk);
+
         if phi > phi0 + c1 * a * phi_prime0 || phi >= phi_lo {
             a_high = a;
         } else {
             if phi_prime.abs() <= -c2 * phi_prime0 {
                 return a;
             }
+
             if phi_prime * (a_high - a_lo) >= 0.0 {
                 a_high = a_lo;
             }
+
             a_lo = a;
             phi_lo = phi;
         }
     }
+
     0.0
 }
 
+#[must_use]
 fn dot(a: &[f64], b: &[f64]) -> f64 {
-    a.iter().zip(b).map(|(a, b)| a * b).sum()
+    a.iter().zip(b).map(|(a_2, b_2)| a_2 * b_2).sum()
 }
 
+#[must_use]
 fn norm2(a: &[f64]) -> f64 {
     libm::sqrt(dot(a, a))
 }
 
 fn scale(ret: &mut [f64], value: &[f64], c: f64) {
-    for (out, value) in ret.iter_mut().zip(value) {
-        *out = value * c;
+    for (out, value_2) in ret.iter_mut().zip(value) {
+        *out = value_2 * c;
     }
 }
 
 fn weighted_sum(ret: &mut [f64], w1: f64, v1: &[f64], w2: f64, v2: &[f64]) {
-    for ((out, v1), v2) in ret.iter_mut().zip(v1).zip(v2) {
-        *out = w1 * v1 + w2 * v2;
+    for ((out, v1_2), v2_2) in ret.iter_mut().zip(v1).zip(v2) {
+        *out = w1 * v1_2 + w2 * v2_2;
     }
 }
 

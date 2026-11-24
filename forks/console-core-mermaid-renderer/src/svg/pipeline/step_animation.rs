@@ -6,6 +6,7 @@ use std::collections::{HashMap, HashSet};
 
 const SVG_NAMESPACE: &str = "http://www.w3.org/2000/svg";
 
+#[must_use]
 fn reject() -> Error {
     Error::svg_postprocess(
         "validate-edge-step-animation",
@@ -28,6 +29,7 @@ fn attributes(node: Node<'_, '_>, names: &[&str]) -> Result<()> {
     )
 }
 
+#[must_use]
 fn is_svg(node: Node<'_, '_>, name: &str) -> bool {
     node.tag_name().name() == name
         && node
@@ -46,19 +48,20 @@ fn number(value: &str) -> Result<f64> {
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || b".eE+-".contains(&byte)),
     )?;
-    value
-        .parse::<f64>()
-        .ok()
-        .filter(|value| value.is_finite() && *value >= 0.0)
+    match value
+        .parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
+        .filter(|value_2| value_2.is_finite() && *value_2 >= 0.0)
         .ok_or_else(reject)
 }
 
 fn seconds(value: &str) -> Result<f64> {
-    number(value.strip_suffix('s').ok_or_else(reject)?)
+    let checked_value = value.strip_suffix('s').ok_or_else(reject)?;
+    number(checked_value)
 }
 
 fn children<'a, 'input>(node: Node<'a, 'input>) -> Result<Vec<Node<'a, 'input>>> {
     let mut children = Vec::new();
+
     for child in node.children() {
         if child.is_element() {
             children.push(child);
@@ -66,6 +69,7 @@ fn children<'a, 'input>(node: Node<'a, 'input>) -> Result<Vec<Node<'a, 'input>>>
             require(child.text().is_none_or(|text| text.trim().is_empty()))?;
         }
     }
+
     Ok(children)
 }
 
@@ -86,26 +90,30 @@ fn validate_transform(node: Node<'_, '_>, motion: &str, duration: &str) -> Resul
     )
 }
 
+#[must_use]
 fn animation_id(value: &str) -> String {
     use std::fmt::Write;
     let mut output = String::from("step_");
+
     for character in value.chars() {
         if character.is_ascii_alphanumeric() {
             output.push(character);
         } else {
-            let _ = write!(output, "_{:x}_", character as u32);
+            let _ = write!(output, "_{:x}_", <u32 as ::core::convert::From<::core::primitive::char>>::from(character));
         }
     }
+
     output
 }
 
 fn validate_path(path: &str, parked: &str, execution: SvgPostprocessExecution<'_>) -> Result<()> {
     let mut first = None;
+
     for segment in svgtypes::PathParser::from(path) {
         execution.checkpoint()?;
-        let segment = segment.map_err(|_| reject())?;
+        let segment_2 = segment.map_err(|_| reject())?;
         use svgtypes::PathSegment;
-        let finite = match segment {
+        let finite = match segment_2 {
             PathSegment::MoveTo { x, y, .. }
             | PathSegment::LineTo { x, y, .. }
             | PathSegment::SmoothQuadratic { x, y, .. } => x.is_finite() && y.is_finite(),
@@ -139,23 +147,31 @@ fn validate_path(path: &str, parked: &str, execution: SvgPostprocessExecution<'_
             PathSegment::ClosePath { .. } => true,
         };
         require(finite)?;
-        if first.is_none() {
-            let PathSegment::MoveTo { x, y, .. } = segment else {
-                return Err(reject());
-            };
-            first = Some((x, y));
+
+        match first {
+            ::core::option::Option::None => {
+                let PathSegment::MoveTo { x, y, .. } = segment_2 else {
+                    return Err(reject());
+                };
+
+                first = Some((x, y));
+            },
+            ::core::option::Option::Some(_) => {},
         }
     }
+
     let (x, y) = first.ok_or_else(reject)?;
+
     if parked == "scale(0)" {
         return Ok(());
     }
+
     let translation = parked
         .strip_prefix("translate(")
         .and_then(|value| value.strip_suffix(") scale(0)"))
         .ok_or_else(reject)?;
     let (park_x, park_y) = translation.split_once(',').ok_or_else(reject)?;
-    let coordinate = |value: &str| value.parse::<f64>().ok().filter(|value| value.is_finite());
+    let coordinate = |value: &str| match value.parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }.filter(|value_2| value_2.is_finite());
     require(coordinate(park_x) == Some(x) && coordinate(park_y) == Some(y))
 }
 
@@ -168,6 +184,7 @@ pub(super) fn validate(
     let mut ids = HashMap::new();
     let root = document.root_element();
     let mut forbidden_containers = vec![false; document.descendants().len()];
+
     for node in document.descendants().filter(Node::is_element) {
         execution.checkpoint()?;
         let inherited = node
@@ -175,11 +192,19 @@ pub(super) fn validate(
             .is_some_and(|parent| forbidden_containers[parent.id().get_usize()]);
         forbidden_containers[node.id().get_usize()] =
             inherited || (node != root && (is_svg(node, "svg") || is_svg(node, "foreignObject")));
-        if let Some(id) = node.attribute("id") {
-            *ids.entry(id).or_insert(0usize) += 1;
+
+        {
+            match node.attribute("id") {
+                Some(id) => {
+                    *ids.entry(id).or_insert(0usize) += 1;
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     let mut common_timing = None;
+
     for dot in document
         .descendants()
         .filter(|node| node.attribute("class") == Some("edge-step-dot"))
@@ -247,7 +272,7 @@ pub(super) fn validate(
         let step = number(attribute(dot, "data-step")?)?;
         require(
             step > 0.0
-                && step.fract() == 0.0
+                && ::core::matches!(::core::primitive::f64::classify(step.fract()), ::core::num::FpCategory::Zero)
                 && attribute(highlight, "data-step")? == attribute(dot, "data-step")?,
         )?;
         let dot_children = children(dot)?;
@@ -288,26 +313,32 @@ pub(super) fn validate(
         let (begin, gap) = timing
             .split_once(&format!(";{motion_id}.end+"))
             .ok_or_else(reject)?;
-        let begin = seconds(begin)?;
-        let gap = seconds(gap)?;
-        let count = gap / duration + 1.0;
+        let begin_2 = seconds(begin)?;
+        let gap_2 = seconds(gap)?;
+        let count = gap_2 / duration + 1.0;
         let count_tolerance = 4.0 * f64::EPSILON * count;
         require(
-            begin == (step - 1.0) * duration
+            begin_2 == (step - 1.0) * duration
                 && count.is_finite()
-                && (gap + duration).is_finite()
-                && gap >= begin
+                && (gap_2 + duration).is_finite()
+                && gap_2 >= begin_2
                 && (count - count.round()).abs() <= count_tolerance,
         )?;
-        if let Some((common_duration, common_gap)) = common_timing {
-            require((duration, gap) == (common_duration, common_gap))?;
+
+        match common_timing {
+            Some((common_duration, common_gap)) => {
+                require((duration, gap_2) == (common_duration, common_gap))?;
+            },
+            ::core::option::Option::None => {},
         }
-        common_timing = Some((duration, gap));
+
+        common_timing = Some((duration, gap_2));
         let path = attribute(motion, "path")?;
         let parked = attribute(dot, "transform")?;
         require(
             attribute(highlight, "d")? == path && attribute(highlight, "transform")? == parked,
         )?;
+
         if let Some(fill) = dot.attribute("fill") {
             require(
                 dot.attribute("stroke") == Some("none")
@@ -319,6 +350,7 @@ pub(super) fn validate(
                     && highlight.attribute("stroke") == Some("currentColor"),
             )?;
         }
+
         validate_path(path, parked, execution)?;
         validate_transform(dot_children[1], motion_id, duration_text)?;
         validate_transform(highlight_children[0], motion_id, duration_text)?;
@@ -330,9 +362,11 @@ pub(super) fn validate(
             highlight_children[0].id(),
         ]);
     }
+
     for node in document.descendants().filter(Node::is_element) {
         execution.checkpoint()?;
         let name = node.tag_name().name();
+
         if matches!(
             name.to_ascii_lowercase().as_str(),
             "animatemotion" | "animatetransform"
@@ -343,6 +377,7 @@ pub(super) fn validate(
             require(allowed.contains(&node.id()))?;
         }
     }
+
     Ok(allowed)
 }
 
@@ -353,12 +388,15 @@ pub(super) fn project_static<'a>(
     if !svg.contains("edge-step-") {
         return Ok(svg);
     }
+
     execution.checkpoint()?;
     let document = Document::parse(&svg).map_err(|_| reject())?;
     let allowed = validate(&document, execution)?;
     let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+
     for node in document.descendants().filter(Node::is_element) {
         execution.checkpoint()?;
+
         if (allowed.contains(&node.id())
             && node
                 .attribute("class")
@@ -367,27 +405,37 @@ pub(super) fn project_static<'a>(
         {
             let range = node.range();
             require(range.start < range.end && svg.get(range.clone()).is_some())?;
-            if let Some(previous) = ranges.last() {
-                require(range.start >= previous.start)?;
-                if range.start < previous.end {
-                    require(range.end <= previous.end)?;
-                    continue;
-                }
+
+            match ranges.last() {
+                Some(previous) => {
+                    require(range.start >= previous.start)?;
+
+                    if range.start < previous.end {
+                        require(range.end <= previous.end)?;
+                        continue;
+                    }
+                },
+                ::core::option::Option::None => {},
             }
+
             ranges.push(range);
         }
     }
+
     if ranges.is_empty() {
         return Ok(svg);
     }
+
     let mut output = String::with_capacity(svg.len());
     let mut cursor = 0;
+
     for range in ranges {
         execution.checkpoint()?;
-        output.push_str(svg.get(cursor..range.start).ok_or_else(reject)?);
+        output.push_str({ let checked_value = svg.get(cursor..range.start).ok_or_else(reject)?; checked_value });
         cursor = range.end;
     }
-    output.push_str(svg.get(cursor..).ok_or_else(reject)?);
+
+    output.push_str({ let checked_value_2 = svg.get(cursor..).ok_or_else(reject)?; checked_value_2 });
     execution.checkpoint()?;
     Ok(Cow::Owned(output))
 }

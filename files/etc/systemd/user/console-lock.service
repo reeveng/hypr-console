@@ -1,17 +1,15 @@
 [Unit]
 Description=Lock Screen
 # Not part of console.target and not wanted by it. The lock is started when
-# the idle daemon asks for it and ends when the pattern is drawn, and a target
+# the idle daemon asks for it and ends after a successful unlock, and a target
 # stopping must not be a way to end it: a lock that could be stopped from
 # outside by stopping something else is not holding anything.
 
 [Service]
 # Ready means locked. `lock-screen` tells systemd once the compositor has said
-# the session is locked, so a `systemctl start` returns only then -- which is
-# what the hook before a suspend waits on. With no pattern chosen it says so
-# at once and exits, and the start returns just as quickly with nothing
-# locked. Ten seconds is a compositor that never answered, and a suspend that
-# goes ahead after it is better than one that never does.
+# the session is locked, so a `systemctl start` returns only then. With no
+# pattern chosen it reports readiness at once and exits. While locking before
+# suspend, hypridle waits for the compositor's lock notification.
 Type=notify
 NotifyAccess=main
 TimeoutStartSec=10
@@ -23,6 +21,7 @@ ExecStopPost=-/usr/local/bin/console-report-crash %n
 # nobody can get past without another machine.
 Restart=on-failure
 RestartSec=1
+LimitCORE=0
 
 # It reads the pattern out of the home directory and writes nothing there.
 ProtectHome=read-only

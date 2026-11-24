@@ -1,21 +1,27 @@
 use super::*;
 
+#[must_use]
 pub(super) fn state_is_hidden(ctx: &StateRenderCtx<'_>, id: &str) -> bool {
     ctx.hidden_prefixes
         .iter()
         .any(|p| id == p || id.starts_with(&format!("{p}----")))
 }
 
+#[must_use]
 pub(super) fn state_data_look<'a>(ctx: &'a StateRenderCtx<'_>) -> &'a str {
     let look = ctx.serialized_diagram_look.trim();
+
     if look.is_empty() { "classic" } else { look }
 }
 
+#[must_use]
 pub(super) fn state_effective_look<'a>(ctx: &'a StateRenderCtx<'_>) -> &'a str {
     let look = ctx.diagram_look.trim();
+
     if look.is_empty() { "classic" } else { look }
 }
 
+#[must_use]
 pub(super) fn state_note_owner_id(id: &str) -> &str {
     id.rsplit_once("----parent")
         .map(|(owner, _)| owner)
@@ -55,11 +61,13 @@ impl std::fmt::Display for StateScopedDomIdAttr<'_, '_> {
 }
 
 impl<'a, 'b> StateScopedDomId<'a, 'b> {
+    #[must_use]
     pub(super) fn attr(self) -> StateScopedDomIdAttr<'a, 'b> {
         StateScopedDomIdAttr(self)
     }
 }
 
+#[must_use]
 pub(super) fn state_scoped_dom_id<'a, 'b>(
     ctx: &StateRenderCtx<'a>,
     id: &'b str,
@@ -70,6 +78,7 @@ pub(super) fn state_scoped_dom_id<'a, 'b>(
     }
 }
 
+#[must_use]
 pub(super) fn state_node_scoped_dom_id<'a, 'b>(
     ctx: &'b StateRenderCtx<'a>,
     node_id: &'b str,
@@ -82,46 +91,68 @@ pub(super) fn state_node_scoped_dom_id<'a, 'b>(
         .unwrap_or_else(|| state_scoped_dom_id(ctx, node_id))
 }
 
+#[must_use]
 fn state_leaf_context_impl<'a>(
     ctx: &'a StateRenderCtx<'_>,
     id: &str,
     respect_nested_roots: bool,
 ) -> Option<&'a str> {
     let mut p = ctx.parent.get(id).copied();
+
     while p.is_some() {
         let pid = state_strip_note_group(ctx, p)?;
-        let Some(pn) = ctx.nodes_by_id.get(pid).copied() else {
-            return Some(pid);
+
+        let pn = {
+            let optional_pn = ctx.nodes_by_id.get(pid).copied();
+
+            match optional_pn {
+                Some(matched_pn) => matched_pn,
+                ::core::option::Option::None => return Some(pid),
+            }
         };
+
         if pn.is_group && pn.shape != "noteGroup" {
             if !respect_nested_roots || ctx.nested_roots.contains(pid) {
                 return Some(pid);
             }
+
             p = ctx.parent.get(pid).copied();
             continue;
         }
+
         p = ctx.parent.get(pid).copied();
     }
+
     None
 }
 
+#[must_use]
 fn state_strip_note_group<'a>(
     ctx: &'a StateRenderCtx<'_>,
     mut parent: Option<&'a str>,
 ) -> Option<&'a str> {
     while let Some(pid) = parent {
-        let Some(pn) = ctx.nodes_by_id.get(pid).copied() else {
-            return Some(pid);
+        let pn = {
+            let optional_pn = ctx.nodes_by_id.get(pid).copied();
+
+            match optional_pn {
+                Some(matched_pn) => matched_pn,
+                ::core::option::Option::None => return Some(pid),
+            }
         };
+
         if pn.shape == "noteGroup" {
             parent = ctx.parent.get(pid).copied();
             continue;
         }
+
         return Some(pid);
     }
+
     None
 }
 
+#[must_use]
 fn state_insertion_context_impl<'a>(
     ctx: &'a StateRenderCtx<'_>,
     cluster_id: &str,
@@ -130,6 +161,7 @@ fn state_insertion_context_impl<'a>(
     state_leaf_context_impl(ctx, cluster_id, respect_nested_roots)
 }
 
+#[must_use]
 fn state_endpoint_context_impl<'a>(
     ctx: &'a StateRenderCtx<'_>,
     id: &str,
@@ -141,25 +173,33 @@ fn state_endpoint_context_impl<'a>(
     {
         return state_insertion_context_impl(ctx, id, respect_nested_roots);
     }
+
     state_leaf_context_impl(ctx, id, respect_nested_roots)
 }
 
+#[must_use]
 fn state_context_chain_impl<'a>(
     ctx: &'a StateRenderCtx<'_>,
     mut c: Option<&'a str>,
     respect_nested_roots: bool,
 ) -> Vec<Option<&'a str>> {
     let mut out = Vec::new();
+
     loop {
         out.push(c);
-        let Some(id) = c else {
-            break;
+
+        let id = match c {
+            Some(matched_id) => matched_id,
+            ::core::option::Option::None => break,
         };
+
         c = state_insertion_context_impl(ctx, id, respect_nested_roots);
     }
+
     out
 }
 
+#[must_use]
 fn state_edge_context_impl<'a>(
     ctx: &'a StateRenderCtx<'_>,
     edge: &StateSvgEdge,
@@ -169,14 +209,17 @@ fn state_edge_context_impl<'a>(
     let b = state_endpoint_context_impl(ctx, edge.end.as_str(), respect_nested_roots);
     let ca = state_context_chain_impl(ctx, a, respect_nested_roots);
     let cb = state_context_chain_impl(ctx, b, respect_nested_roots);
+
     for anc in cb {
         if ca.contains(&anc) {
             return anc;
         }
     }
+
     None
 }
 
+#[must_use]
 pub(super) fn state_endpoint_context_raw<'a>(
     ctx: &'a StateRenderCtx<'_>,
     id: &str,
@@ -184,6 +227,7 @@ pub(super) fn state_endpoint_context_raw<'a>(
     state_endpoint_context_impl(ctx, id, false)
 }
 
+#[must_use]
 pub(super) fn state_context_chain_raw<'a>(
     ctx: &'a StateRenderCtx<'_>,
     c: Option<&'a str>,
@@ -191,6 +235,7 @@ pub(super) fn state_context_chain_raw<'a>(
     state_context_chain_impl(ctx, c, false)
 }
 
+#[must_use]
 pub(super) fn state_edge_context_raw<'a>(
     ctx: &'a StateRenderCtx<'_>,
     edge: &StateSvgEdge,
@@ -198,10 +243,12 @@ pub(super) fn state_edge_context_raw<'a>(
     state_edge_context_impl(ctx, edge, false)
 }
 
+#[must_use]
 pub(super) fn state_leaf_context<'a>(ctx: &'a StateRenderCtx<'_>, id: &str) -> Option<&'a str> {
     state_leaf_context_impl(ctx, id, true)
 }
 
+#[must_use]
 pub(super) fn state_insertion_context<'a>(
     ctx: &'a StateRenderCtx<'_>,
     cluster_id: &str,
@@ -209,6 +256,7 @@ pub(super) fn state_insertion_context<'a>(
     state_insertion_context_impl(ctx, cluster_id, true)
 }
 
+#[must_use]
 pub(super) fn state_edge_context<'a>(
     ctx: &'a StateRenderCtx<'_>,
     edge: &StateSvgEdge,
@@ -216,6 +264,7 @@ pub(super) fn state_edge_context<'a>(
     state_edge_context_impl(ctx, edge, true)
 }
 
+#[must_use]
 pub(super) fn state_is_shadowed_self_loop_edge(
     ctx: &StateRenderCtx<'_>,
     edge: &StateSvgEdge,

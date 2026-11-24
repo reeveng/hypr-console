@@ -38,18 +38,28 @@ struct MarkerPaintSignature {
 }
 
 impl MarkerPaintSignature {
+    #[must_use]
     fn style(&self) -> String {
         let mut style = String::new();
-        if let Some(fill) = &self.fill {
-            style.push_str("fill:");
-            style.push_str(fill);
-            style.push(';');
+
+        match &self.fill {
+            Some(fill) => {
+                style.push_str("fill:");
+                style.push_str(fill);
+                style.push(';');
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(stroke) = &self.stroke {
-            style.push_str("stroke:");
-            style.push_str(stroke);
-            style.push(';');
+
+        match &self.stroke {
+            Some(stroke) => {
+                style.push_str("stroke:");
+                style.push_str(stroke);
+                style.push(';');
+            },
+            ::core::option::Option::None => {},
         }
+
         style
     }
 }
@@ -62,12 +72,17 @@ pub(crate) struct BlockMarkerDefinition {
 }
 
 impl BlockMarkerDefinition {
+    #[must_use]
     pub(crate) const fn kind(&self) -> BaseEdgeMarkerKind {
         self.kind
     }
+
+    #[must_use]
     pub(crate) fn suffix(&self) -> &str {
         &self.suffix
     }
+
+    #[must_use]
     pub(crate) fn paint_style(&self) -> &str {
         &self.paint_style
     }
@@ -87,10 +102,11 @@ struct MarkerReferenceBinding {
 }
 
 impl MarkerReferenceBinding {
+    #[must_use]
     fn signature(&self) -> MarkerPaintSignature {
         MarkerPaintSignature {
-            fill: self.fill.as_ref().map(|paint| paint.css().into()),
-            stroke: self.stroke.as_ref().map(|paint| paint.css().into()),
+            fill: self.fill.as_ref().map(|paint| <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(paint.css())),
+            stroke: self.stroke.as_ref().map(|paint| <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(paint.css())),
         }
     }
 }
@@ -149,8 +165,13 @@ impl BlockMarkerPaintPlan {
             references: Vec::new(),
             evidence: FamilyThemeOutcomes::default(),
         };
-        let Some(theme) = theme else { return Ok(plan) };
-        if !theme.family_mechanism_routes().iter().any(|route| {
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
+        if !theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -166,12 +187,14 @@ impl BlockMarkerPaintPlan {
         }) {
             return Ok(plan);
         }
+
         let config_fill =
             config.config_paint_overrides_typed_default("themeVariables.arrowheadColor");
         let config_stroke = config.config_paint_overrides_typed_default("themeVariables.lineColor");
         let mut marker_properties = BTreeSet::new();
         let mut cross_properties = BTreeSet::new();
         let mut block_properties = BTreeSet::new();
+
         for class in model.class_defs.values() {
             work.charge(1)?;
             let properties = match class.id.as_str() {
@@ -180,24 +203,34 @@ impl BlockMarkerPaintPlan {
                 "block" => &mut block_properties,
                 _ => continue,
             };
+
             for raw in &class.styles {
                 work.charge(1usize.saturating_add(raw.len().div_ceil(64)))?;
-                if let Some(declaration) = crate::mermaid_style::parse_style_declaration(raw) {
-                    properties.insert(declaration.property().to_string());
+
+                {
+                    match crate::mermaid_style::parse_style_declaration(raw) {
+                        Some(declaration) => {
+                            properties.insert(declaration.property().to_string());
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         }
-        let has_ordinal = theme
+
+        let has_ordinal = theme_2
             .family_rules()
             .any(|(_, rule)| rule.target() == ThemeTarget::Marker && rule.ordinal().is_some());
         let static_style =
-            theme.style_with_work_meter(ThemeTarget::Marker, ThemeVariant::Default, None, work)?;
+            theme_2.style_with_work_meter(ThemeTarget::Marker, ThemeVariant::Default, None, work)?;
         let mut winners = BTreeSet::new();
         let mut capabilities = BTreeMap::new();
         let mut owned_fills = Vec::new();
         let mut owned_strokes = Vec::new();
+
         for edge in &model.edges {
             work.charge(1)?;
+
             let kinds = [
                 BaseEdgeMarkerKind::from_arrow(edge.arrow_type_start.as_deref(), true),
                 BaseEdgeMarkerKind::from_arrow(edge.arrow_type_end.as_deref(), false),
@@ -206,18 +239,27 @@ impl BlockMarkerPaintPlan {
                 plan.paths.push(None);
                 continue;
             }
+
             let mut path = MarkerPathBinding {
                 references: [None; 2],
             };
-            for (side, kind) in kinds.into_iter().enumerate() {
-                let Some(kind) = kind else { continue };
+
+            'inner_for_2: for (side, kind) in kinds.into_iter().enumerate() {
+                let kind_2 = match kind {
+                    Some(matched_kind) => matched_kind,
+                    ::core::option::Option::None => continue 'inner_for_2,
+                };
+
                 let reference_index = plan.references.len();
                 path.references[side] = Some(reference_index);
                 let reference_owned = block_properties.contains("marker")
-                    || block_properties.contains(if side == 0 {
-                        "marker-start"
-                    } else {
-                        "marker-end"
+                    || block_properties.contains(match side {
+                        0 => {
+                            "marker-start"
+                        },
+                        _ => {
+                            "marker-end"
+                        },
                     })
                     || block_properties.contains("all");
                 let source_owns = |property| {
@@ -225,22 +267,22 @@ impl BlockMarkerPaintPlan {
                         || marker_properties.contains(property)
                         || marker_properties.contains("all")
                         || block_properties.contains(property)
-                        || (kind.cross()
+                        || (kind_2.cross()
                             && (cross_properties.contains(property)
                                 || cross_properties.contains("all")))
                 };
-                let fill_owned = config_fill || source_owns("fill") || kind.cross();
+                let fill_owned = config_fill || source_owns("fill") || kind_2.cross();
                 let stroke_owned = config_stroke || source_owns("stroke");
                 owned_fills.push(fill_owned);
                 owned_strokes.push(stroke_owned);
                 let ordinal_style;
                 let style = if has_ordinal {
-                    ordinal_style = theme.style_with_work_meter(
+                    ordinal_style = { let checked_value = theme_2.style_with_work_meter(
                         ThemeTarget::Marker,
                         ThemeVariant::Default,
                         Some(reference_index + 1),
                         work,
-                    )?;
+                    )?; checked_value };
                     &ordinal_style
                 } else {
                     &static_style
@@ -258,7 +300,7 @@ impl BlockMarkerPaintPlan {
                 let fill = (!fill_owned)
                     .then(|| {
                         resolve_direct_static_fill(
-                            theme,
+                            theme_2,
                             style,
                             &[ThemeTarget::Marker],
                             DirectStaticSelectorDomain::Default,
@@ -269,7 +311,7 @@ impl BlockMarkerPaintPlan {
                 let stroke = (!stroke_owned)
                     .then(|| {
                         resolve_direct_static_stroke(
-                            theme,
+                            theme_2,
                             style,
                             &[ThemeTarget::Marker],
                             DirectStaticSelectorDomain::Default,
@@ -277,26 +319,34 @@ impl BlockMarkerPaintPlan {
                     })
                     .flatten()
                     .map(DirectPaintExpectation::from_paint);
+
                 for (property, paint) in [
                     (ResolvedStyleProperty::Fill, fill.as_ref()),
                     (ResolvedStyleProperty::Stroke, stroke.as_ref()),
                 ] {
-                    if let Some(paint) = paint {
-                        capabilities.insert((paint.rule_index(), property), paint.capability());
+                    match paint {
+                        Some(paint_2) => {
+                            capabilities.insert((paint_2.rule_index(), property), paint_2.capability());
+                        },
+                        ::core::option::Option::None => {},
                     }
                 }
+
                 plan.references.push(MarkerReferenceBinding {
-                    kind,
+                    kind: kind_2,
                     definition: 0,
                     fill,
                     stroke,
                 });
             }
+
             plan.paths.push(Some(path));
         }
+
         plan.assign_definitions();
         let mut observations = BTreeMap::<usize, RuleObservation>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Marker,
@@ -306,12 +356,16 @@ impl BlockMarkerPaintPlan {
             else {
                 continue;
             };
+
             let observation = observations.entry(rule_index).or_default();
             let property = resolved_style_property_for_facet(facet);
+
             if !winners.contains(&(rule_index, property)) {
                 continue;
             }
+
             observation.applicable = true;
+
             match route.disposition() {
                 FamilyThemeDisposition::TypedAdapter => {
                     if let Some(capability) = capabilities.get(&(rule_index, property)) {
@@ -327,11 +381,13 @@ impl BlockMarkerPaintPlan {
                 }
             }
         }
+
         for (index, observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: ThemeTarget::Marker,
             };
+
             if !observation.applicable {
                 plan.evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
@@ -341,8 +397,9 @@ impl BlockMarkerPaintPlan {
                     .mark_applied_with_capabilities(key, observation.capabilities.into_values());
             }
         }
+
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut plan.evidence,
             &[UnsupportedTerminalDomain::fallbacks_only(
                 ThemeTarget::Marker,
@@ -364,8 +421,8 @@ impl BlockMarkerPaintPlan {
                 paint_style: String::new(),
             })
             .collect();
-        // Partition references by final paint, not by rule id: equal paint can safely share
-        // geometry while unsupported ordinal winners keep their unmodified definition.
+
+
         for (base_index, kind) in BaseEdgeMarkerKind::ALL.into_iter().enumerate() {
             let mut signatures = self
                 .references
@@ -373,11 +430,19 @@ impl BlockMarkerPaintPlan {
                 .filter(|reference| reference.kind == kind)
                 .map(MarkerReferenceBinding::signature)
                 .collect::<BTreeSet<_>>();
-            let Some(base_signature) = signatures.pop_first() else {
-                continue;
+
+            let base_signature = {
+                let optional_base_signature = signatures.pop_first();
+
+                match optional_base_signature {
+                    Some(matched_base_signature) => matched_base_signature,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             self.definitions[base_index].paint_style = base_signature.style();
             let mut assignments = BTreeMap::from([(base_signature, base_index)]);
+
             for signature in signatures {
                 let index = self.definitions.len();
                 self.definitions.push(BlockMarkerDefinition {
@@ -387,6 +452,7 @@ impl BlockMarkerPaintPlan {
                 });
                 assignments.insert(signature, index);
             }
+
             for reference in self
                 .references
                 .iter_mut()
@@ -397,22 +463,28 @@ impl BlockMarkerPaintPlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn definitions(&self) -> &[BlockMarkerDefinition] {
         &self.definitions
     }
 
+    #[must_use]
     fn reference_definition(&self, edge_index: usize, start: bool) -> Option<usize> {
-        let path = self.paths.get(edge_index)?.as_ref()?;
+        let checked_value = self.paths.get(edge_index)?;
+        let path = checked_value.as_ref()?;
         let reference = &self.references[path.references[usize::from(!start)]?];
         Some(reference.definition)
     }
 
+    #[must_use]
     pub(crate) fn final_reference(
         &self,
         edge_index: usize,
         start: bool,
     ) -> Option<(BaseEdgeMarkerKind, &str)> {
-        match self.final_references.get(edge_index)?[usize::from(!start)]? {
+        let checked_value = self.final_references.get(edge_index)?[usize::from(!start)]?;
+
+        match checked_value {
             FinalMarkerReference::Base(kind) => Some((kind, kind.suffix())),
             FinalMarkerReference::Definition(index) => {
                 let definition = &self.definitions[index];

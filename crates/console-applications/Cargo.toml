@@ -19,6 +19,14 @@ console-core-logging = { workspace = true, features = ["std"] }
 console-core-never.workspace = true
 console-core-number-conversion.workspace = true
 console-core-picture-sizes.workspace = true
+console-gio.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "launcher_search"
+harness = false
 
 [lints]
 workspace = true

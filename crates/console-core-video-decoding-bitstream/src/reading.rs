@@ -133,6 +133,13 @@ impl<'a> BitReader<'a> {
   }
 
   #[inline]
+  pub fn read_byte(&mut self) -> Result<u8, BitError> {
+    let bits = self.read_bits(8)?;
+    let Ok(value) = fitted::<u32, u8>(bits);
+
+    Ok(value)
+  }
+
   pub fn read_flag(&mut self) -> Result<FlagBit, BitError> {
     let bit = self.read_bits(1)?;
 

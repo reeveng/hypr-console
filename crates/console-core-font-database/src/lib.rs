@@ -13,28 +13,32 @@
 //! bytes are asked for. `make_shared_face_data` keeps one mapping instead, and a
 //! caller of it promises that the file is not changed for as long as any face
 //! shares that mapping.
+//!
+//! [`Database::new_in`] clears the caller's storage and uses it for faces.
 
 #![cfg_attr(not(feature = "std"), no_std)]
+#![forbid(unsafe_code)]
 
 extern crate alloc;
 
 mod faces;
 #[cfg(feature = "fs")]
 mod files;
+mod language;
 mod matching;
 #[cfg(feature = "fs")]
 mod system;
-mod ttf_parser;
+mod table;
 
 #[cfg(not(feature = "std"))]
 use alloc::{string::String, vec::Vec};
 
-pub use ttf_parser::Language;
-pub use ttf_parser::Width as Stretch;
+pub use language::Language;
+pub use table::{FaceSlot, FaceTableFull, ID};
 
-use alloc::sync::Arc;
+use alloc::{borrow::Cow, sync::Arc};
 use console_core_never::Never;
-use slotmap::SlotMap;
+use table::FaceTable;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Emptiness {
@@ -51,34 +55,14 @@ impl From<bool> for Emptiness {
   }
 }
 
-#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd, Debug, Default)]
-pub struct ID(InnerId);
-
-slotmap::new_key_type! {
-    struct InnerId;
-}
-
-impl ID {
-  #[inline]
-  pub fn dummy() -> Result<Self, Never> {
-    Ok(Self(InnerId::from(slotmap::KeyData::from_ffi(u64::MAX))))
-  }
-}
-
-impl core::fmt::Display for ID {
-  fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-    write!(f, "{}", (self.0).0.as_ffi())
-  }
-}
-
 #[derive(Clone, Debug)]
-pub struct Database {
-  faces: SlotMap<InnerId, FaceInfo>,
-  family_serif: String,
-  family_sans_serif: String,
-  family_cursive: String,
-  family_fantasy: String,
-  family_monospace: String,
+pub struct Database<S = Vec<FaceSlot>> {
+  faces: FaceTable<S>,
+  family_serif: Cow<'static, str>,
+  family_sans_serif: Cow<'static, str>,
+  family_cursive: Cow<'static, str>,
+  family_fantasy: Cow<'static, str>,
+  family_monospace: Cow<'static, str>,
 }
 
 impl Default for Database {
@@ -92,14 +76,7 @@ impl Default for Database {
 impl Database {
   #[inline]
   pub fn new() -> Result<Self, Never> {
-    Ok(Database {
-      faces: SlotMap::with_key(),
-      family_serif: String::from("Times New Roman"),
-      family_sans_serif: String::from("Arial"),
-      family_cursive: String::from("Comic Sans MS"),
-      family_fantasy: String::from("Impact"),
-      family_monospace: String::from("Courier New"),
-    })
+    Self::from_slots(Vec::new())
   }
 
   pub fn load_font_data(&mut self, data: Vec<u8>) -> Result<(), Never> {
@@ -118,30 +95,62 @@ impl Database {
     let mut loaded = Vec::new();
 
     for face in read.into_iter().flatten() {
-      let Ok(id) = self.push_face_info(face);
-
-      loaded.push(id);
+      match self.push_face_info(face) {
+        Ok(id) => loaded.push(id),
+        Err(full) => {
+          console_core_logging::warn!("loading font source: {full}");
+          break;
+        }
+      }
     }
 
     Ok(loaded)
   }
 
-  pub fn push_face_info(&mut self, mut info: FaceInfo) -> Result<ID, Never> {
-    Ok(ID(self.faces.insert_with_key(|key| {
-      info.id = ID(key);
-      info
-    })))
+  pub fn push_face_info(&mut self, info: FaceInfo) -> Result<ID, FaceTableFull> {
+    self.faces.insert(info)
+  }
+}
+
+impl<'a> Database<&'a mut [FaceSlot]> {
+  pub fn new_in(slots: &'a mut [FaceSlot]) -> Result<Self, Never> {
+    slots.fill_with(|| FaceSlot::EMPTY);
+
+    Self::from_slots(slots)
   }
 
+  pub fn push_face_info(&mut self, info: FaceInfo) -> Result<ID, FaceTableFull> {
+    self.faces.try_insert(info)
+  }
+}
+
+impl<S: AsMut<[FaceSlot]>> Database<S> {
   pub fn remove_face(&mut self, id: ID) -> Result<(), Never> {
-    let _removed = self.faces.remove(id.0);
+    let Ok(_removed) = self.faces.remove(id);
 
     Ok(())
+  }
+}
+
+impl<Storage> Database<Storage> {
+  fn from_slots(slots: Storage) -> Result<Self, Never> {
+    let Ok(faces) = FaceTable::new(slots);
+
+    Ok(Self {
+      faces,
+      family_serif: Cow::Borrowed("Times New Roman"),
+      family_sans_serif: Cow::Borrowed("Arial"),
+      family_cursive: Cow::Borrowed("Comic Sans MS"),
+      family_fantasy: Cow::Borrowed("Impact"),
+      family_monospace: Cow::Borrowed("Courier New"),
+    })
   }
 
   #[inline]
   pub fn is_empty(&self) -> Result<Emptiness, Never> {
-    Ok(Emptiness::from(self.faces.is_empty()))
+    let Ok(length) = self.faces.len();
+
+    Ok(Emptiness::from(length == 0))
   }
 
   #[allow(
@@ -150,14 +159,14 @@ impl Database {
   )]
   #[inline]
   pub fn len(&self) -> Result<u32, Never> {
-    console_core_number_conversion::fitted(self.faces.len())
+    self.faces.len()
   }
 
   pub fn set_serif_family<S>(&mut self, family: S) -> Result<(), Never>
   where
     String: From<S>,
   {
-    self.family_serif = String::from(family);
+    self.family_serif = Cow::Owned(String::from(family));
 
     Ok(())
   }
@@ -166,7 +175,7 @@ impl Database {
   where
     String: From<S>,
   {
-    self.family_sans_serif = String::from(family);
+    self.family_sans_serif = Cow::Owned(String::from(family));
 
     Ok(())
   }
@@ -175,7 +184,7 @@ impl Database {
   where
     String: From<S>,
   {
-    self.family_cursive = String::from(family);
+    self.family_cursive = Cow::Owned(String::from(family));
 
     Ok(())
   }
@@ -184,7 +193,7 @@ impl Database {
   where
     String: From<S>,
   {
-    self.family_fantasy = String::from(family);
+    self.family_fantasy = Cow::Owned(String::from(family));
 
     Ok(())
   }
@@ -193,7 +202,7 @@ impl Database {
   where
     String: From<S>,
   {
-    self.family_monospace = String::from(family);
+    self.family_monospace = Cow::Owned(String::from(family));
 
     Ok(())
   }
@@ -201,14 +210,16 @@ impl Database {
   pub fn family_name<'a>(&'a self, family: &'a Family) -> Result<&'a str, Never> {
     Ok(match family {
       Family::Name(name) => name,
-      Family::Serif => self.family_serif.as_str(),
-      Family::SansSerif => self.family_sans_serif.as_str(),
-      Family::Cursive => self.family_cursive.as_str(),
-      Family::Fantasy => self.family_fantasy.as_str(),
-      Family::Monospace => self.family_monospace.as_str(),
+      Family::Serif => self.family_serif.as_ref(),
+      Family::SansSerif => self.family_sans_serif.as_ref(),
+      Family::Cursive => self.family_cursive.as_ref(),
+      Family::Fantasy => self.family_fantasy.as_ref(),
+      Family::Monospace => self.family_monospace.as_ref(),
     })
   }
+}
 
+impl<S: AsRef<[FaceSlot]>> Database<S> {
   pub fn query(&self, query: &Query) -> Result<Option<ID>, Never> {
     let mut preference = alloc::collections::BTreeMap::new();
 
@@ -218,7 +229,8 @@ impl Database {
       preference.entry(name).or_insert(place);
     }
 
-    let carried = self.faces.iter().filter_map(|(_, face)| {
+    let Ok(faces) = self.faces.iter();
+    let carried = faces.filter_map(|face| {
       let earliest = face
         .families
         .iter()
@@ -238,11 +250,11 @@ impl Database {
 
   #[inline]
   pub fn faces(&self) -> Result<impl Iterator<Item = &FaceInfo> + '_, Never> {
-    Ok(self.faces.iter().map(|(_, info)| info))
+    self.faces.iter()
   }
 
   pub fn face(&self, id: ID) -> Result<Option<&FaceInfo>, Never> {
-    Ok(self.faces.get(id.0))
+    self.faces.get(id)
   }
 
   pub fn face_source(&self, id: ID) -> Result<Option<(Source, u32)>, Never> {
@@ -413,6 +425,51 @@ impl Weight {
   pub const EXTRA_BOLD: Weight = Weight(800);
 
   pub const BLACK: Weight = Weight(900);
+}
+
+#[derive(Clone, Copy, Eq, PartialEq, Ord, PartialOrd, Debug, Hash, Default)]
+pub enum Stretch {
+  UltraCondensed,
+  ExtraCondensed,
+  Condensed,
+  SemiCondensed,
+  #[default]
+  Normal,
+  SemiExpanded,
+  Expanded,
+  ExtraExpanded,
+  UltraExpanded,
+}
+
+impl Stretch {
+  #[inline]
+  pub fn to_number(self) -> Result<u16, Never> {
+    Ok(match self {
+      Stretch::UltraCondensed => 1,
+      Stretch::ExtraCondensed => 2,
+      Stretch::Condensed => 3,
+      Stretch::SemiCondensed => 4,
+      Stretch::Normal => 5,
+      Stretch::SemiExpanded => 6,
+      Stretch::Expanded => 7,
+      Stretch::ExtraExpanded => 8,
+      Stretch::UltraExpanded => 9,
+    })
+  }
+
+  pub(crate) fn from_width_class(class: u16) -> Result<Self, Never> {
+    Ok(match class {
+      1 => Self::UltraCondensed,
+      2 => Self::ExtraCondensed,
+      3 => Self::Condensed,
+      4 => Self::SemiCondensed,
+      6 => Self::SemiExpanded,
+      7 => Self::Expanded,
+      8 => Self::ExtraExpanded,
+      9 => Self::UltraExpanded,
+      _ => Self::Normal,
+    })
+  }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Hash, Default)]

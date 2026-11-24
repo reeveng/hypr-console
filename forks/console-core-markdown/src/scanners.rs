@@ -30,7 +30,7 @@ use crate::{Alignment, LinkType};
 
 use memchr::memchr;
 
-// sorted for binary search
+
 const HTML_TAGS: [&str; 62] = [
     "address",
     "article",
@@ -103,33 +103,34 @@ pub(crate) struct LineStart<'a> {
     bytes: &'a [u8],
     ix: usize,
 
-    // The index in `bytes` after the last tab we scanned; initially
-    // zero.
-    //
-    // Thus, there are no tab characters between `ix` and here, and for
-    // the purpose of defining block structure, this position can be
-    // considered to fall on a tab stop.
-    //
-    // This is only valid while scanning the initial portion of the
-    // line; methods that work with interior structure don't bother to
-    // update it.
+
+
+
+
+
+
+
+
+
+
     tab_start: usize,
 
-    // In contexts where spaces help to define block structure, tabs
-    // behave as if they were replaced by spaces with a tab stop of 4
-    // characters.
-    //
-    // If we have scanned past a tab character but not consumed all
-    // the horizontal width it contributed, this is the number of
-    // spaces logically remaining, before the character at `ix`.
+
+
+
+
+
+
+
     spaces_remaining: usize,
 
-    // no thematic breaks can occur before this offset.
-    // this prevents scanning over and over up to a certain point
+
+
     min_hrule_offset: usize,
 }
 
 impl<'a> LineStart<'a> {
+    #[must_use]
     pub(crate) fn new(bytes: &[u8]) -> LineStart<'_> {
         LineStart {
             bytes,
@@ -158,8 +159,8 @@ impl<'a> LineStart<'a> {
 
     /// Returns unused remainder of spaces.
     fn scan_space_inner(&mut self, mut n_space: usize) -> usize {
-        // Consume any common prefix between the number of spaces we
-        // want and the number of unscanned tab-introduced spaces.
+
+
         let n_from_remaining = self.spaces_remaining.min(n_space);
         self.spaces_remaining -= n_from_remaining;
         n_space -= n_from_remaining;
@@ -171,18 +172,19 @@ impl<'a> LineStart<'a> {
                     n_space -= 1;
                 }
                 b'\t' => {
-                    let spaces = 4 - (self.ix - self.tab_start) % 4;
+                    let spaces = (::core::num::Wrapping(4) - ::core::num::Wrapping((self.ix - self.tab_start).wrapping_rem(4))).0;
                     self.ix += 1;
                     self.tab_start = self.ix;
                     let n = spaces.min(n_space);
                     n_space -= n;
 
-                    // Record the unscanned portion of the tab.
+
                     self.spaces_remaining = spaces - n;
                 }
                 _ => break,
             }
         }
+
         n_space
     }
 
@@ -196,11 +198,14 @@ impl<'a> LineStart<'a> {
     }
 
     /// Determine whether we're at end of line (includes end of file).
+    #[must_use]
     pub(crate) fn is_at_eol(&self) -> bool {
-        self.bytes
+        match self.bytes
             .get(self.ix)
-            .map(|&c| c == b'\r' || c == b'\n')
-            .unwrap_or(true)
+            .map(|&c| c == b'\r' || c == b'\n') {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => true,
+        }
     }
 
     fn scan_ch(&mut self, c: u8) -> bool {
@@ -228,14 +233,17 @@ impl<'a> LineStart<'a> {
             },
             ::core::option::Option::None => {},
         }
+
         let prefix = &self.bytes[self.ix..self.ix + tag.len()];
         let ok = prefix.eq_ignore_ascii_case(tag);
+
         match ::core::primitive::bool::then_some(ok, ()) {
             ::core::option::Option::Some(()) => {
                 self.ix += tag.len();
             },
             ::core::option::Option::None => {},
         }
+
         ok
     }
 
@@ -289,6 +297,7 @@ impl<'a> LineStart<'a> {
                         },
                     },
                 };
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(tag.is_some() && self.scan_ch(b']'), ());
                     _explicit_decision
@@ -313,12 +322,14 @@ impl<'a> LineStart<'a> {
                 None
             },
         };
+
         match tag {
             ::core::option::Option::None => {
                 self.ix = saved_ix;
             },
             ::core::option::Option::Some(_) => {},
         }
+
         tag
     }
 
@@ -353,22 +364,24 @@ impl<'a> LineStart<'a> {
         indent: usize,
     ) -> Option<usize> {
         let save = self.clone();
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(self.scan_ch(b':'), ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
-                let save = self.clone();
+                let save_2 = self.clone();
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(self.scan_space(5), ());
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
-                        *self = save;
+                        *self = save_2;
                         Some(indent + 1 + self.scan_space_upto(1))
                     },
                     ::core::option::Option::None => {
-                        *self = save;
+                        *self = save_2;
                         Some(indent + 1 + self.scan_space_upto(5))
                     },
                 }
@@ -390,12 +403,14 @@ impl<'a> LineStart<'a> {
         indent: usize,
     ) -> Option<(u8, u64, usize)> {
         let save = self.clone();
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(self.ix < self.bytes.len(), ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
                 let c = self.bytes[self.ix];
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(c == b'-' || c == b'+' || c == b'*', ());
                     _explicit_decision
@@ -406,7 +421,7 @@ impl<'a> LineStart<'a> {
                             _explicit_decision
                         } {
                             ::core::option::Option::Some(()) => {
-                                // there could be an hrule here
+
                                 match scan_hrule(&self.bytes[self.ix..]) {
                                     Err(min_offset) => {
                                         self.min_hrule_offset = min_offset;
@@ -419,7 +434,9 @@ impl<'a> LineStart<'a> {
                             },
                             ::core::option::Option::None => {},
                         }
+
                         self.ix += 1;
+
                         match {
                             let _explicit_decision = ::core::primitive::bool::then_some(self.scan_space(1) || self.is_at_eol(), ());
                             _explicit_decision
@@ -438,28 +455,31 @@ impl<'a> LineStart<'a> {
                             let start_ix = self.ix;
                             let mut ix = self.ix + 1;
                             let mut val = u64::from(c - b'0');
+
                             while ix < self.bytes.len() && ix - start_ix < 10 {
-                                let c = self.bytes[ix];
+                                let c_2 = self.bytes[ix];
                                 ix += 1;
+
                                 match {
-                                    let _explicit_decision = ::core::primitive::bool::then_some(c.is_ascii_digit(), ());
+                                    let _explicit_decision = ::core::primitive::bool::then_some(c_2.is_ascii_digit(), ());
                                     _explicit_decision
                                 } {
                                     ::core::option::Option::Some(()) => {
-                                        val = val * 10 + u64::from(c - b'0');
+                                        val = val * 10 + u64::from(c_2 - b'0');
                                     },
                                     ::core::option::Option::None => match {
-                                        let _explicit_decision = ::core::primitive::bool::then_some(c == b')' || c == b'.', ());
+                                        let _explicit_decision = ::core::primitive::bool::then_some(c_2 == b')' || c_2 == b'.', ());
                                         _explicit_decision
                                     } {
                                         ::core::option::Option::Some(()) => {
                                             self.ix = ix;
+
                                             match {
                                                 let _explicit_decision = ::core::primitive::bool::then_some(self.scan_space(1) || self.is_at_eol(), ());
                                                 _explicit_decision
                                             } {
                                                 ::core::option::Option::Some(()) => {
-                                                    return self.finish_list_marker(c, val, indent + 1 + ix - start_ix);
+                                                    return self.finish_list_marker(c_2, val, indent + 1 + ix - start_ix);
                                                 },
                                                 ::core::option::Option::None => {
                                                     break;
@@ -479,6 +499,7 @@ impl<'a> LineStart<'a> {
             },
             ::core::option::Option::None => {},
         }
+
         *self = save;
         None
     }
@@ -491,7 +512,7 @@ impl<'a> LineStart<'a> {
     ) -> Option<(u8, u64, usize)> {
         let save = self.clone();
 
-        // skip the rest of the line if it's blank
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(scan_blank_line(&self.bytes[self.ix..]).is_some(), ());
             _explicit_decision
@@ -503,6 +524,7 @@ impl<'a> LineStart<'a> {
         }
 
         let post_indent = self.scan_space_upto(4);
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(post_indent < 4, ());
             _explicit_decision
@@ -514,6 +536,7 @@ impl<'a> LineStart<'a> {
                 *self = save;
             },
         }
+
         Some((c, start, indent))
     }
 
@@ -533,6 +556,7 @@ impl<'a> LineStart<'a> {
             },
             ::core::option::Option::None => {},
         }
+
         let is_checked = match self.bytes.get(self.ix) {
             Some(&c) if is_ascii_whitespace_no_nl(c) => {
                 self.ix += 1;
@@ -547,6 +571,7 @@ impl<'a> LineStart<'a> {
                 return None;
             }
         };
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(!self.scan_ch(b']'), ());
             _explicit_decision
@@ -557,12 +582,15 @@ impl<'a> LineStart<'a> {
             },
             ::core::option::Option::None => {},
         }
+
         match {
-            let _explicit_decision = ::core::primitive::bool::then_some(!self
+            let _explicit_decision = ::core::primitive::bool::then_some(!(match self
             .bytes
             .get(self.ix)
-            .map(|&b| is_ascii_whitespace(b))
-            .unwrap_or(false), ());
+            .map(|&b| is_ascii_whitespace(b)) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => false,
+            }), ());
             _explicit_decision
         } {
             ::core::option::Option::Some(()) => {
@@ -571,42 +599,52 @@ impl<'a> LineStart<'a> {
             },
             ::core::option::Option::None => {},
         }
+
         Some(is_checked)
     }
 
+    #[must_use]
     pub(crate) fn bytes_scanned(&self) -> usize {
         self.ix
     }
 
+    #[must_use]
     pub(crate) fn remaining_space(&self) -> usize {
         self.spaces_remaining
     }
 }
 
+#[must_use]
 pub(crate) fn is_ascii_whitespace(c: u8) -> bool {
     (0x09..=0x0d).contains(&c) || c == b' '
 }
 
+#[must_use]
 pub(crate) fn is_ascii_whitespace_no_nl(c: u8) -> bool {
     c == b'\t' || c == 0x0b || c == 0x0c || c == b' '
 }
 
+#[must_use]
 fn is_ascii_alpha(c: u8) -> bool {
     c.is_ascii_alphabetic()
 }
 
+#[must_use]
 fn is_ascii_alphanumeric(c: u8) -> bool {
     matches!(c, b'0'..=b'9' | b'a'..=b'z' | b'A'..=b'Z')
 }
 
+#[must_use]
 fn is_ascii_letterdigitdash(c: u8) -> bool {
     c == b'-' || is_ascii_alphanumeric(c)
 }
 
+#[must_use]
 fn is_digit(c: u8) -> bool {
     c.is_ascii_digit()
 }
 
+#[must_use]
 fn is_valid_unquoted_attr_value_char(c: u8) -> bool {
     !matches!(
         c,
@@ -614,7 +652,8 @@ fn is_valid_unquoted_attr_value_char(c: u8) -> bool {
     )
 }
 
-// scan a single character
+
+#[must_use]
 pub(crate) fn scan_ch(data: &[u8], c: u8) -> usize {
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(match <[_]>::get(&*data, 0) { ::core::option::Option::Some(&checked_element) => checked_element == c, ::core::option::Option::None => false }, ());
@@ -629,6 +668,7 @@ pub(crate) fn scan_ch(data: &[u8], c: u8) -> usize {
     }
 }
 
+#[must_use]
 pub(crate) fn scan_while<F>(data: &[u8], mut f: F) -> usize
 where
     F: FnMut(u8) -> bool,
@@ -636,6 +676,7 @@ where
     data.iter().take_while(|&&c| f(c)).count()
 }
 
+#[must_use]
 pub(crate) fn scan_rev_while<F>(data: &[u8], mut f: F) -> usize
 where
     F: FnMut(u8) -> bool,
@@ -643,20 +684,24 @@ where
     data.iter().rev().take_while(|&&c| f(c)).count()
 }
 
+#[must_use]
 pub(crate) fn scan_ch_repeat(data: &[u8], c: u8) -> usize {
     scan_while(data, |x| x == c)
 }
 
-// Note: this scans ASCII whitespace only, for Unicode whitespace use
-// a different function.
+
+
+#[must_use]
 pub(crate) fn scan_whitespace_no_nl(data: &[u8]) -> usize {
     scan_while(data, is_ascii_whitespace_no_nl)
 }
 
+#[must_use]
 fn scan_attr_value_chars(data: &[u8]) -> usize {
     scan_while(data, is_valid_unquoted_attr_value_char)
 }
 
+#[must_use]
 pub(crate) fn scan_eol(bytes: &[u8]) -> Option<usize> {
     match bytes {
         &[] => Some(0),
@@ -667,17 +712,20 @@ pub(crate) fn scan_eol(bytes: &[u8]) -> Option<usize> {
     }
 }
 
+#[must_use]
 pub(crate) fn scan_blank_line(bytes: &[u8]) -> Option<usize> {
     let i = scan_whitespace_no_nl(bytes);
     scan_eol(&bytes[i..]).map(|n| i + n)
 }
 
+#[must_use]
 pub(crate) fn scan_nextline(bytes: &[u8]) -> usize {
     memchr(b'\n', bytes).map_or(bytes.len(), |x| x + 1)
 }
 
-// return: end byte for closing code fence, or None
-// if the line is not a closing code fence
+
+
+#[must_use]
 pub(crate) fn scan_closing_code_fence(
     bytes: &[u8],
     fence_char: u8,
@@ -692,8 +740,10 @@ pub(crate) fn scan_closing_code_fence(
         },
         ::core::option::Option::None => {},
     }
+
     let mut i = 0;
     let num_fence_chars_found = scan_ch_repeat(&bytes[i..], fence_char);
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(num_fence_chars_found < n_fence_char, ());
         _explicit_decision
@@ -703,24 +753,28 @@ pub(crate) fn scan_closing_code_fence(
         },
         ::core::option::Option::None => {},
     }
+
     i += num_fence_chars_found;
     let num_trailing_spaces = scan_ch_repeat(&bytes[i..], b' ');
     i += num_trailing_spaces;
     scan_eol(&bytes[i..]).map(|_| i)
 }
 
-// return: end byte for closing metadata block, or None
-// if the line is not a closing metadata block
+
+
+#[must_use]
 pub(crate) fn scan_closing_metadata_block(bytes: &[u8], fence_char: u8) -> Option<usize> {
     let mut i = 0;
     let mut num_fence_chars_found = scan_ch_repeat(&bytes[i..], fence_char);
+
     match num_fence_chars_found {
         3 => {},
         _ => {
-            // if YAML style metadata block the closing character can also be `.`
+
             match fence_char {
                 b'-' => {
                     num_fence_chars_found = scan_ch_repeat(&bytes[i..], b'.');
+
                     match num_fence_chars_found {
                         3 => {},
                         _ => {
@@ -734,22 +788,26 @@ pub(crate) fn scan_closing_metadata_block(bytes: &[u8], fence_char: u8) -> Optio
             }
         },
     }
+
     i += num_fence_chars_found;
     let num_trailing_spaces = scan_ch_repeat(&bytes[i..], b' ');
     i += num_trailing_spaces;
     scan_eol(&bytes[i..]).map(|_| i)
 }
 
-// returned pair is (number of bytes, number of spaces)
+
+#[must_use]
 pub(crate) fn calc_indent(text: &[u8], max: usize) -> (usize, usize) {
     let mut spaces = 0;
     let mut offset = 0;
 
     for (i, &b) in text.iter().enumerate() {
         offset = i;
+
         match b {
             b' ' => {
                 spaces += 1;
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(spaces == max, ());
                     _explicit_decision
@@ -762,6 +820,7 @@ pub(crate) fn calc_indent(text: &[u8], max: usize) -> (usize, usize) {
             }
             b'\t' => {
                 let new_spaces = spaces + 4 - (spaces & 3);
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(new_spaces > max, ());
                     _explicit_decision
@@ -771,6 +830,7 @@ pub(crate) fn calc_indent(text: &[u8], max: usize) -> (usize, usize) {
                     },
                     ::core::option::Option::None => {},
                 }
+
                 spaces = new_spaces;
             }
             _ => break,
@@ -797,7 +857,9 @@ pub(crate) fn scan_hrule(bytes: &[u8]) -> Result<usize, usize> {
         },
         ::core::option::Option::None => {},
     }
+
     let c = bytes[0];
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(!(c == b'*' || c == b'-' || c == b'_'), ());
         _explicit_decision
@@ -807,13 +869,17 @@ pub(crate) fn scan_hrule(bytes: &[u8]) -> Result<usize, usize> {
         },
         ::core::option::Option::None => {},
     }
+
     let mut n = 0;
     let mut i = 0;
 
     while i < bytes.len() {
         match bytes[i] {
             b'\n' | b'\r' => {
-                i += scan_eol(&bytes[i..]).unwrap_or(0);
+                i += match scan_eol(&bytes[i..]) {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => 0,
+                };
                 break;
             }
             c2 if c2 == c => {
@@ -822,8 +888,10 @@ pub(crate) fn scan_hrule(bytes: &[u8]) -> Result<usize, usize> {
             b' ' | b'\t' => (),
             _ => return Err(i),
         }
+
         i += 1;
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(n >= 3, ());
         _explicit_decision
@@ -840,8 +908,10 @@ pub(crate) fn scan_hrule(bytes: &[u8]) -> Result<usize, usize> {
 /// Scan an ATX heading opening sequence.
 ///
 /// Returns number of bytes in prefix and level.
+#[must_use]
 pub(crate) fn scan_atx_heading(data: &[u8]) -> Option<HeadingLevel> {
     let level = scan_ch_repeat(data, b'#');
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(data.get(level).copied().map_or(true, is_ascii_whitespace), ());
         _explicit_decision
@@ -858,8 +928,9 @@ pub(crate) fn scan_atx_heading(data: &[u8]) -> Option<HeadingLevel> {
 /// Scan a setext heading underline.
 ///
 /// Returns number of bytes in line (including trailing newline) and level.
+#[must_use]
 pub(crate) fn scan_setext_heading(data: &[u8]) -> Option<(usize, HeadingLevel)> {
-    let c = *data.first()?;
+    let c = ::core::option::Option::<&_>::copied(data.first())?;
     let level = match c {
         b'=' => {
             HeadingLevel::H1
@@ -878,10 +949,12 @@ pub(crate) fn scan_setext_heading(data: &[u8]) -> Option<(usize, HeadingLevel)> 
     Some((i, level))
 }
 
-// returns number of bytes in line (including trailing
-// newline) and column alignments
+
+
+#[must_use]
 pub(crate) fn scan_table_head(data: &[u8]) -> (usize, Vec<Alignment>) {
     let (mut i, spaces) = calc_indent(data, 4);
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(spaces > 3 || i == data.len(), ());
         _explicit_decision
@@ -891,12 +964,14 @@ pub(crate) fn scan_table_head(data: &[u8]) -> (usize, Vec<Alignment>) {
         },
         ::core::option::Option::None => {},
     }
+
     let mut cols = vec![];
     let mut active_col = Alignment::None;
     let mut start_col = true;
     let mut found_pipe = false;
     let mut found_hyphen = false;
     let mut found_hyphen_in_col = false;
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(data[i] == b'|', ());
         _explicit_decision
@@ -907,6 +982,7 @@ pub(crate) fn scan_table_head(data: &[u8]) -> (usize, Vec<Alignment>) {
         },
         ::core::option::Option::None => {},
     }
+
     for c in &data[i..] {
         match scan_eol(&data[i..]) {
             Some(n) => {
@@ -915,6 +991,7 @@ pub(crate) fn scan_table_head(data: &[u8]) -> (usize, Vec<Alignment>) {
             },
             ::core::option::Option::None => {},
         }
+
         match *c {
             b' ' => (),
             b':' => {
@@ -936,23 +1013,26 @@ pub(crate) fn scan_table_head(data: &[u8]) -> (usize, Vec<Alignment>) {
                 found_pipe = true;
                 cols.push(active_col);
                 active_col = Alignment::None;
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(!found_hyphen_in_col, ());
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
-                        // It isn't a table head if it has back-to-back pipes.
+
                         return (0, vec![]);
                     },
                     ::core::option::Option::None => {},
                 }
+
                 found_hyphen_in_col = false;
             }
             _ => {
-                // It isn't a table head if it has characters outside the allowed set.
+
                 return (0, vec![]);
             }
         }
+
         i += 1;
     }
 
@@ -965,13 +1045,14 @@ pub(crate) fn scan_table_head(data: &[u8]) -> (usize, Vec<Alignment>) {
         },
         ::core::option::Option::None => {},
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(!found_pipe || !found_hyphen, ());
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
-            // It isn't a table head if it doesn't have a least one pipe or hyphen.
-            // It's a list, a header, or a thematic break.
+
+
             return (0, vec![]);
         },
         ::core::option::Option::None => {},
@@ -983,8 +1064,10 @@ pub(crate) fn scan_table_head(data: &[u8]) -> (usize, Vec<Alignment>) {
 /// Scan code fence.
 ///
 /// Returns number of bytes scanned and the char that is repeated to make the code fence.
+#[must_use]
 pub(crate) fn scan_code_fence(data: &[u8]) -> Option<(usize, u8)> {
-    let c = *data.first()?;
+    let c = ::core::option::Option::<&_>::copied(data.first())?;
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(!(c == b'`' || c == b'~'), ());
         _explicit_decision
@@ -994,7 +1077,9 @@ pub(crate) fn scan_code_fence(data: &[u8]) -> Option<(usize, u8)> {
         },
         ::core::option::Option::None => {},
     }
+
     let i = 1 + scan_ch_repeat(&data[1..], c);
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(i >= 3, ());
         _explicit_decision
@@ -1004,7 +1089,7 @@ pub(crate) fn scan_code_fence(data: &[u8]) -> Option<(usize, u8)> {
                 b'`' => {
                     let suffix = &data[i..];
                     let next_line = i + scan_nextline(suffix);
-                    // FIXME: make sure this is correct
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(suffix[..(next_line - i)].iter().any(|&b| b == b'`'), ());
                         _explicit_decision
@@ -1017,6 +1102,7 @@ pub(crate) fn scan_code_fence(data: &[u8]) -> Option<(usize, u8)> {
                 },
                 _ => {},
             }
+
             Some((i, c))
         },
         ::core::option::Option::None => {
@@ -1033,18 +1119,20 @@ pub(crate) fn scan_code_fence(data: &[u8]) -> Option<(usize, u8)> {
 ///
 /// In addition, they cannot be empty (closing sequence in the next line) and
 /// the next line cannot be an empty line.
+#[must_use]
 pub(crate) fn scan_metadata_block(
     data: &[u8],
     yaml_style_enabled: bool,
     pluses_style_enabled: bool,
 ) -> Option<(usize, u8)> {
-    // Only if metadata blocks are enabled
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(yaml_style_enabled || pluses_style_enabled, ());
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
-            let c = *data.first()?;
+            let c = ::core::option::Option::<&_>::copied(data.first())?;
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(!((c == b'-' && yaml_style_enabled) || (c == b'+' && pluses_style_enabled)), ());
                 _explicit_decision
@@ -1054,12 +1142,14 @@ pub(crate) fn scan_metadata_block(
                 },
                 ::core::option::Option::None => {},
             }
+
             let i = 1 + scan_ch_repeat(&data[1..], c);
-            // Only trailing spaces after the delimiters in the line
+
             let next_line = scan_nextline(&data[i..]);
-            for c in &data[i..i + next_line] {
+
+            for c_2 in &data[i..i + next_line] {
                 match {
-                    let _explicit_decision = ::core::primitive::bool::then_some(!c.is_ascii_whitespace(), ());
+                    let _explicit_decision = ::core::primitive::bool::then_some(!c_2.is_ascii_whitespace(), ());
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
@@ -1068,16 +1158,18 @@ pub(crate) fn scan_metadata_block(
                     ::core::option::Option::None => {},
                 }
             }
+
             match i {
                 3 => {
-                    // Search the closing sequence
+
                     let mut j = i;
                     let mut first_line = true;
+
                     while j < data.len() {
                         j += scan_nextline(&data[j..]);
                         let closed = scan_closing_metadata_block(&data[j..], c).is_some();
-                        // The first line of the metadata block cannot be an empty line
-                        // nor the end of the block
+
+
                         match ::core::primitive::bool::then_some(first_line, ()) {
                             ::core::option::Option::Some(()) => {
                                 match {
@@ -1089,10 +1181,12 @@ pub(crate) fn scan_metadata_block(
                                     },
                                     ::core::option::Option::None => {},
                                 }
+
                                 first_line = false;
                             },
                             ::core::option::Option::None => {},
                         }
+
                         match ::core::primitive::bool::then_some(closed, ()) {
                             ::core::option::Option::Some(()) => {
                                 return Some((i, c));
@@ -1100,6 +1194,7 @@ pub(crate) fn scan_metadata_block(
                             ::core::option::Option::None => {},
                         }
                     }
+
                     None
                 },
                 _ => {
@@ -1113,6 +1208,7 @@ pub(crate) fn scan_metadata_block(
     }
 }
 
+#[must_use]
 pub(crate) fn scan_blockquote_start(data: &[u8]) -> Option<usize> {
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(data.first().copied() == Some(b'>'), ());
@@ -1139,13 +1235,17 @@ pub(crate) fn scan_blockquote_start(data: &[u8]) -> Option<usize> {
 }
 
 /// return number of bytes scanned, delimiter, start index, and indent
+#[must_use]
 pub(crate) fn scan_listitem(bytes: &[u8]) -> Option<(usize, u8, usize, usize)> {
-    let mut c = *bytes.first()?;
+    let checked_value = bytes.first()?;
+    let mut c = *checked_value;
     let (w, start) = match c {
         b'-' | b'+' | b'*' => (1, 0),
         b'0'..=b'9' => {
             let (length, start) = parse_decimal(bytes, 9);
-            c = *bytes.get(length)?;
+            let checked_value_2 = bytes.get(length)?;
+            c = *checked_value_2;
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(!(c == b'.' || c == b')'), ());
                 _explicit_decision
@@ -1155,14 +1255,16 @@ pub(crate) fn scan_listitem(bytes: &[u8]) -> Option<(usize, u8, usize, usize)> {
                 },
                 ::core::option::Option::None => {},
             }
+
             (length + 1, start)
         }
         _ => {
             return None;
         }
     };
-    // TODO: replace calc_indent with scan_leading_whitespace, for tab correctness
+
     let (mut postn, mut postindent) = calc_indent(&bytes[w..], 5);
+
     match postindent {
         0 => {
             scan_eol(&bytes[w..])?;
@@ -1179,6 +1281,7 @@ pub(crate) fn scan_listitem(bytes: &[u8]) -> Option<(usize, u8, usize, usize)> {
             ::core::option::Option::None => {},
         },
     }
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(scan_blank_line(&bytes[w..]).is_some(), ());
         _explicit_decision
@@ -1189,10 +1292,12 @@ pub(crate) fn scan_listitem(bytes: &[u8]) -> Option<(usize, u8, usize, usize)> {
         },
         ::core::option::Option::None => {},
     }
+
     Some((w + postn, c, start, w + postindent))
 }
 
-// returns (number of bytes, parsed decimal)
+
+#[must_use]
 fn parse_decimal(bytes: &[u8], limit: usize) -> (usize, usize) {
     match bytes
         .iter()
@@ -1200,12 +1305,13 @@ fn parse_decimal(bytes: &[u8], limit: usize) -> (usize, usize) {
         .take_while(|&&b| is_digit(b))
         .try_fold((0, 0usize), |(count, acc), c| {
             let digit = usize::from(c - b'0');
+
             match acc
                 .checked_mul(10)
                 .and_then(|ten_acc| ten_acc.checked_add(digit))
             {
                 Some(number) => Ok((count + 1, number)),
-                // stop early on overflow
+
                 None => Err((count, acc)),
             }
         }) {
@@ -1213,29 +1319,31 @@ fn parse_decimal(bytes: &[u8], limit: usize) -> (usize, usize) {
     }
 }
 
-// returns (number of bytes, parsed hex)
+
+#[must_use]
 fn parse_hex(bytes: &[u8], limit: usize) -> (usize, usize) {
     match bytes
         .iter()
         .take(limit)
         .try_fold((0, 0usize), |(count, acc), c| {
-            let mut c = *c;
+            let mut c_2 = *c;
             let digit = match {
-                let _explicit_decision = ::core::primitive::bool::then_some(c.is_ascii_digit(), ());
+                let _explicit_decision = ::core::primitive::bool::then_some(c_2.is_ascii_digit(), ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
-                    usize::from(c - b'0')
+                    usize::from(c_2 - b'0')
                 },
                 ::core::option::Option::None => {
-                    // make lower case
-                    c |= 0x20;
+
+                    c_2 |= 0x20;
+
                     match {
-                        let _explicit_decision = ::core::primitive::bool::then_some((b'a'..=b'f').contains(&c), ());
+                        let _explicit_decision = ::core::primitive::bool::then_some((b'a'..=b'f').contains(&c_2), ());
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
-                            usize::from(c - b'a' + 10)
+                            usize::from(c_2 - b'a' + 10)
                         },
                         ::core::option::Option::None => {
                             return Err((count, acc));
@@ -1243,12 +1351,13 @@ fn parse_hex(bytes: &[u8], limit: usize) -> (usize, usize) {
                     }
                 },
             };
+
             match acc
                 .checked_mul(16)
                 .and_then(|sixteen_acc| sixteen_acc.checked_add(digit))
             {
                 Some(number) => Ok((count + 1, number)),
-                // stop early on overflow
+
                 None => Err((count, acc)),
             }
         }) {
@@ -1256,20 +1365,25 @@ fn parse_hex(bytes: &[u8], limit: usize) -> (usize, usize) {
     }
 }
 
+#[must_use]
 fn char_from_codepoint(input: usize) -> Option<char> {
     let codepoint = match input.try_into() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }?;
+
     match codepoint {
         0 => {
             return None;
         },
         _ => {},
     }
+
     char::from_u32(codepoint)
 }
 
-// doesn't bother to check data[0] == '&'
+
+#[must_use]
 pub(crate) fn scan_entity(bytes: &[u8]) -> (usize, Option<CowStr<'static>>) {
     let mut end = 1;
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(bytes.get(end) == Some(&b'#'), ());
         _explicit_decision
@@ -1299,14 +1413,19 @@ pub(crate) fn scan_entity(bytes: &[u8]) -> (usize, Option<CowStr<'static>>) {
                 ::core::option::Option::None => {
                     (
                         end + 1,
-                        Some(char_from_codepoint(codepoint).unwrap_or('\u{FFFD}').into()),
+                        Some(<crate::strings::CowStr<'_> as ::core::convert::From<::core::primitive::char>>::from(match char_from_codepoint(codepoint) {
+                            ::core::option::Option::Some(present) => present,
+                            ::core::option::Option::None => '\u{FFFD}',
+                        })),
                     )
                 },
             };
         },
         ::core::option::Option::None => {},
     }
+
     end += scan_while(&bytes[end..], is_ascii_alphanumeric);
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(bytes.get(end) == Some(&b';'), ());
         _explicit_decision
@@ -1314,22 +1433,24 @@ pub(crate) fn scan_entity(bytes: &[u8]) -> (usize, Option<CowStr<'static>>) {
         ::core::option::Option::Some(()) => {
             match entities::get_entity(&bytes[1..end]) {
                 Some(value) => {
-                    return (end + 1, Some(value.into()));
+                    return (end + 1, Some(<crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(value)));
                 },
                 ::core::option::Option::None => {},
             }
         },
         ::core::option::Option::None => {},
     }
+
     (0, None)
 }
 
+#[must_use]
 pub(crate) fn scan_wikilink_pipe(data: &str, start_ix: usize, len: usize) -> Option<(usize, &str)> {
     let bytes = data.as_bytes();
     let end_ix = std::cmp::min(start_ix + len, bytes.len());
     let mut i = start_ix;
 
-    while i < end_ix {
+    for _ in (::core::ops::Range { start: i, end: end_ix }) {
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(bytes[i] == b'|', ());
             _explicit_decision
@@ -1339,14 +1460,17 @@ pub(crate) fn scan_wikilink_pipe(data: &str, start_ix: usize, len: usize) -> Opt
             },
             ::core::option::Option::None => {},
         }
-        i += 1;
+
+        i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
     }
+
     None
 }
 
-// note: dest returned is raw, still needs to be unescaped
-// TODO: check that nested parens are really not allowed for refdefs
-// TODO(performance): this func should probably its own unescaping
+
+
+
+#[must_use]
 pub(crate) fn scan_link_dest(
     data: &str,
     start_ix: usize,
@@ -1357,8 +1481,9 @@ pub(crate) fn scan_link_dest(
 
     match i {
         0 => {
-            // non-pointy links
+
             let mut nest = 0;
+
             while i < bytes.len() {
                 match bytes[i] {
                     0x0..=0x20 => {
@@ -1374,6 +1499,7 @@ pub(crate) fn scan_link_dest(
                             },
                             ::core::option::Option::None => {},
                         }
+
                         nest += 1;
                     }
                     b')' => {
@@ -1383,6 +1509,7 @@ pub(crate) fn scan_link_dest(
                             },
                             _ => {},
                         }
+
                         nest -= 1;
                     }
                     b'\\' if match <[_]>::get(&*bytes, i + 1) { ::core::option::Option::Some(&checked_element) => is_ascii_punctuation(checked_element), ::core::option::Option::None => false } => {
@@ -1390,18 +1517,21 @@ pub(crate) fn scan_link_dest(
                     }
                     _ => {}
                 }
+
                 i += 1;
             }
+
             match nest {
                 0 => {},
                 _ => {
                     return None;
                 },
             }
+
             Some((i, &data[start_ix..(start_ix + i)]))
         },
         _ => {
-            // pointy links
+
             while i < bytes.len() {
                 match bytes[i] {
                     b'\n' | b'\r' | b'<' => return None,
@@ -1411,24 +1541,28 @@ pub(crate) fn scan_link_dest(
                     }
                     _ => {}
                 }
+
                 i += 1;
             }
+
             None
         },
     }
 }
 
 /// Returns bytes scanned
+#[must_use]
 fn scan_attribute_name(data: &[u8]) -> Option<usize> {
     let (&c, tail) = data.split_first()?;
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(is_ascii_alpha(c) || c == b'_' || c == b':', ());
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
             Some(
-                1 + scan_while(tail, |c| {
-                    is_ascii_alphanumeric(c) || c == b'_' || c == b'.' || c == b':' || c == b'-'
+                1 + scan_while(tail, |c_2| {
+                    is_ascii_alphanumeric(c_2) || c_2 == b'_' || c_2 == b'.' || c_2 == b':' || c_2 == b'-'
                 }),
             )
         },
@@ -1451,6 +1585,7 @@ fn scan_attribute(
     ix += scan_attribute_name(&data[ix..])?;
     let ix_after_attribute = ix;
     ix = scan_whitespace_with_newline_handler_without_buffer(data, ix, newline_handler)?;
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(data.get(ix) == Some(&b'='), ());
         _explicit_decision
@@ -1469,7 +1604,7 @@ fn scan_attribute(
             Some(ix)
         },
         ::core::option::Option::None => {
-            // Leave whitespace for next attribute.
+
             Some(ix_after_attribute)
         },
     }
@@ -1495,6 +1630,7 @@ fn scan_whitespace_with_newline_handler(
             },
             ::core::option::Option::None => {},
         }
+
         match scan_eol(&data[i..]) {
             Some(eol_bytes) => {
                 let handler = newline_handler?;
@@ -1530,6 +1666,7 @@ fn scan_whitespace_with_newline_handler(
 /// copy skipped data into a buffer. Typically, if this function
 /// returns `Some`, a call to `scan_whitespace_with_newline_handler` will
 /// soon follow.
+#[must_use]
 fn scan_whitespace_with_newline_handler_without_buffer(
     data: &[u8],
     mut i: usize,
@@ -1545,6 +1682,7 @@ fn scan_whitespace_with_newline_handler_without_buffer(
             },
             ::core::option::Option::None => {},
         }
+
         match scan_eol(&data[i..]) {
             Some(eol_bytes) => {
                 let handler = newline_handler?;
@@ -1569,9 +1707,12 @@ fn scan_attribute_value(
     buffer: &mut Vec<u8>,
     buffer_ix: &mut usize,
 ) -> Option<usize> {
-    match *data.get(i)? {
+    let checked_value = data.get(i)?;
+
+    match *checked_value {
         b @ b'"' | b @ b'\'' => {
             i += 1;
+
             while i < data.len() {
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(data[i] == b, ());
@@ -1582,6 +1723,7 @@ fn scan_attribute_value(
                     },
                     ::core::option::Option::None => {},
                 }
+
                 match scan_eol(&data[i..]) {
                     Some(eol_bytes) => {
                         let handler = newline_handler?;
@@ -1598,6 +1740,7 @@ fn scan_attribute_value(
                             },
                             ::core::option::Option::None => {},
                         }
+
                         i += skipped_bytes;
                     },
                     ::core::option::Option::None => {
@@ -1605,13 +1748,14 @@ fn scan_attribute_value(
                     },
                 }
             }
+
             return None;
         }
         b' ' | b'=' | b'>' | b'<' | b'`' | b'\n' | b'\r' => {
             return None;
         }
         _ => {
-            // unquoted attribute value
+
             i += scan_attr_value_chars(&data[i..]);
         }
     }
@@ -1619,33 +1763,35 @@ fn scan_attribute_value(
     Some(i)
 }
 
-// Remove backslash escapes and resolve entities
+
+#[must_use]
 pub(crate) fn unescape<'a, I: Into<CowStr<'a>>>(input: I, is_in_table: bool) -> CowStr<'a> {
-    let input = input.into();
+    let input_2 = <_ as ::core::convert::Into<crate::strings::CowStr<'_>>>::into(input);
     let mut result = String::new();
     let mut mark = 0;
     let mut i = 0;
-    let bytes = input.as_bytes();
+    let bytes = input_2.as_bytes();
+
     while i < bytes.len() {
         match bytes[i..] {
-            // Tables are special, because they're parsed as-if the tables
-            // were parsed in a discrete pass, changing `\|` to `|`, and then
-            // passing the changed string to the inline parser.
+
+
+
             [b'\\', b'\\', b'|', ..] if is_in_table => {
-                // even number of `\`s before pipe
-                // odd number is handled in the normal way below
-                result.push_str(&input[mark..i]);
+
+
+                result.push_str(&input_2[mark..i]);
                 mark = i + 2;
                 i += 3;
             }
             [b'\\', cx, ..] if is_ascii_punctuation(cx) => {
-                result.push_str(&input[mark..i]);
+                result.push_str(&input_2[mark..i]);
                 mark = i + 1;
                 i += 2;
             }
             [b'&', ..] => match scan_entity(&bytes[i..]) {
                 (n, Some(value)) => {
-                    result.push_str(&input[mark..i]);
+                    result.push_str(&input_2[mark..i]);
                     result.push_str(&value);
                     i += n;
                     mark = i;
@@ -1653,29 +1799,32 @@ pub(crate) fn unescape<'a, I: Into<CowStr<'a>>>(input: I, is_in_table: bool) -> 
                 _ => i += 1,
             },
             [b'\r', ..] => {
-                result.push_str(&input[mark..i]);
+                result.push_str(&input_2[mark..i]);
                 i += 1;
                 mark = i;
             }
             _ => i += 1,
         }
     }
+
     match mark {
         0 => {
-            input
+            input_2
         },
         _ => {
-            result.push_str(&input[mark..]);
-            result.into()
+            result.push_str(&input_2[mark..]);
+            <crate::strings::CowStr<'_> as ::core::convert::From<::std::string::String>>::from(result)
         },
     }
 }
 
 /// Assumes `data` is preceded by `<`.
+#[must_use]
 pub(crate) fn starts_html_block_type_6(data: &[u8]) -> bool {
     let i = scan_ch(data, b'/');
     let tail = &data[i..];
     let n = scan_while(tail, is_ascii_alphanumeric);
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(!is_html_tag(&tail[..n]), ());
         _explicit_decision
@@ -1685,13 +1834,15 @@ pub(crate) fn starts_html_block_type_6(data: &[u8]) -> bool {
         },
         ::core::option::Option::None => {},
     }
-    // Starting condition says the next byte must be either a space, a tab,
-    // the end of the line, the string >, or the string />
-    let tail = &tail[n..];
-    (match <[_]>::get(&*tail, 0) { ::core::option::Option::Some(&checked_element) => checked_element == b' ' || checked_element == b'\t' || checked_element == b'\r' || checked_element == b'\n' || checked_element == b'>', ::core::option::Option::None => true })
-        || tail.len() >= 2 && &tail[..2] == b"/>"
+
+
+
+    let tail_2 = &tail[n..];
+    (match <[_]>::get(&*tail_2, 0) { ::core::option::Option::Some(&checked_element) => checked_element == b' ' || checked_element == b'\t' || checked_element == b'\r' || checked_element == b'\n' || checked_element == b'>', ::core::option::Option::None => true })
+        || tail_2.len() >= 2 && &tail_2[..2] == b"/>"
 }
 
+#[must_use]
 fn is_html_tag(tag: &[u8]) -> bool {
     match &(HTML_TAGS
         .binary_search_by(|probe| {
@@ -1701,8 +1852,8 @@ fn is_html_tag(tag: &[u8]) -> bool {
             probe_bytes_iter
                 .zip(tag_bytes_iter)
                 .find_map(|(&a, &b)| {
-                    // We can compare case insensitively because the probes are
-                    // all lower case alpha strings.
+
+
                     match a.cmp(&(b | 0x20)) {
                         std::cmp::Ordering::Equal => None,
                         inequality => Some(inequality),
@@ -1714,9 +1865,10 @@ fn is_html_tag(tag: &[u8]) -> bool {
 
 /// Assumes that `data` starts with `<`.
 /// Returns the index into data directly after the html tag on success.
+#[must_use]
 pub(crate) fn scan_html_type_7(data: &[u8]) -> Option<usize> {
-    // Block type html does not allow for newlines, so we
-    // do not pass a newline handler.
+
+
     let (_span, i) = scan_html_block_inner(data, None)?;
     scan_blank_line(&data[i..])?;
     Some(i)
@@ -1729,6 +1881,7 @@ pub(crate) fn scan_html_type_7(data: &[u8]) -> Option<usize> {
 /// multiple leafs (e.g. over multiple lines in a blockquote),
 /// the html is returned as a vector of bytes.
 /// If no bytes were skipped, the buffer will be empty.
+#[must_use]
 pub(crate) fn scan_html_block_inner(
     data: &[u8],
     newline_handler: Option<&dyn Fn(&[u8]) -> usize>,
@@ -1738,12 +1891,14 @@ pub(crate) fn scan_html_block_inner(
 
     let close_tag_bytes = scan_ch(&data[1..], b'/');
     let l = scan_while(&data[(1 + close_tag_bytes)..], is_ascii_alpha);
+
     match l {
         0 => {
             return None;
         },
         _ => {},
     }
+
     let mut i = 1 + close_tag_bytes + l;
     i += scan_while(&data[i..], is_ascii_letterdigitdash);
 
@@ -1751,8 +1906,10 @@ pub(crate) fn scan_html_block_inner(
         0 => {
             loop {
                 let old_i = i;
-                loop {
+
+                'inner_loop_2: loop {
                     i += scan_whitespace_no_nl(&data[i..]);
+
                     match scan_eol(&data[i..]) {
                         Some(eol_bytes) => {
                             match eol_bytes {
@@ -1761,6 +1918,7 @@ pub(crate) fn scan_html_block_inner(
                                 },
                                 _ => {},
                             }
+
                             let handler = newline_handler?;
                             i += eol_bytes;
                             let skipped_bytes = handler(&data[i..]);
@@ -1787,23 +1945,26 @@ pub(crate) fn scan_html_block_inner(
                             }
                         },
                         ::core::option::Option::None => {
-                            break;
+                            break 'inner_loop_2;
                         },
                     }
                 }
+
                 if let Some(b'/') | Some(b'>') = data.get(i) {
                     break;
                 }
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(old_i == i, ());
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
-                        // No whitespace, which is mandatory.
+
                         return None;
                     },
                     ::core::option::Option::None => {},
                 }
+
                 i = scan_attribute(data, i, newline_handler, &mut buffer, &mut last_buf_index)?;
             }
         },
@@ -1828,6 +1989,7 @@ pub(crate) fn scan_html_block_inner(
         },
         ::core::option::Option::None => {
             i += 1;
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(!buffer.is_empty(), ());
                 _explicit_decision
@@ -1837,12 +1999,14 @@ pub(crate) fn scan_html_block_inner(
                 },
                 ::core::option::Option::None => {},
             }
+
             Some((buffer, i))
         },
     }
 }
 
 /// Returns (next_byte_offset, uri, type)
+#[must_use]
 pub(crate) fn scan_autolink(text: &str, start_ix: usize) -> Option<(usize, CowStr<'_>, LinkType)> {
     scan_uri(text, start_ix)
         .map(|(bytes, uri)| (bytes, uri, LinkType::Autolink))
@@ -1850,10 +2014,11 @@ pub(crate) fn scan_autolink(text: &str, start_ix: usize) -> Option<(usize, CowSt
 }
 
 /// Returns (next_byte_offset, uri)
+#[must_use]
 fn scan_uri(text: &str, start_ix: usize) -> Option<(usize, CowStr<'_>)> {
     let bytes = &text.as_bytes()[start_ix..];
 
-    // scheme's first byte must be an ascii letter
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(match <[_]>::get(&*bytes, 0) { ::core::option::Option::Some(&checked_element) => !is_ascii_alpha(checked_element), ::core::option::Option::None => true }, ());
         _explicit_decision
@@ -1869,16 +2034,17 @@ fn scan_uri(text: &str, start_ix: usize) -> Option<(usize, CowStr<'_>)> {
     while i < bytes.len() {
         let c = bytes[i];
         i += 1;
+
         match c {
-            c if is_ascii_alphanumeric(c) => (),
+            c_2 if is_ascii_alphanumeric(c_2) => (),
             b'.' | b'-' | b'+' => (),
             b':' => break,
             _ => return None,
         }
     }
 
-    // scheme length must be between 2 and 32 characters long. scheme
-    // must be followed by colon
+
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(!(3..=33).contains(&i), ());
         _explicit_decision
@@ -1889,29 +2055,32 @@ fn scan_uri(text: &str, start_ix: usize) -> Option<(usize, CowStr<'_>)> {
         ::core::option::Option::None => {},
     }
 
-    while i < bytes.len() {
+    for _ in (::core::ops::Range { start: i, end: bytes.len() }) {
         match bytes[i] {
             b'>' => return Some((start_ix + i + 1, text[start_ix..(start_ix + i)].into())),
             b'\0'..=b' ' | b'<' => return None,
             _ => (),
         }
-        i += 1;
+
+        i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
     }
 
     None
 }
 
 /// Returns (next_byte_offset, email)
+#[must_use]
 fn scan_email(text: &str, start_ix: usize) -> Option<(usize, CowStr<'_>)> {
-    // using a regex library would be convenient, but doing it by hand is not too bad
+
     let bytes = &text.as_bytes()[start_ix..];
     let mut i = 0;
 
     while i < bytes.len() {
         let c = bytes[i];
         i += 1;
+
         match c {
-            c if is_ascii_alphanumeric(c) => (),
+            c_2 if is_ascii_alphanumeric(c_2) => (),
             b'.' | b'!' | b'#' | b'$' | b'%' | b'&' | b'\'' | b'*' | b'+' | b'/' | b'=' | b'?'
             | b'^' | b'_' | b'`' | b'{' | b'|' | b'}' | b'~' | b'-' => (),
             b'@' if i > 1 => break,
@@ -1923,17 +2092,18 @@ fn scan_email(text: &str, start_ix: usize) -> Option<(usize, CowStr<'_>)> {
         let label_start_ix = i;
         let mut fresh_label = true;
 
-        while i < bytes.len() {
+        'inner_for_2: for _ in (::core::ops::Range { start: i, end: bytes.len() }) {
             match bytes[i] {
                 c if is_ascii_alphanumeric(c) => (),
                 b'-' if fresh_label => {
                     return None;
                 }
                 b'-' => (),
-                _ => break,
+                _ => break 'inner_for_2,
             }
+
             fresh_label = false;
-            i += 1;
+            i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
         }
 
         match {
@@ -1955,6 +2125,7 @@ fn scan_email(text: &str, start_ix: usize) -> Option<(usize, CowStr<'_>)> {
             },
             ::core::option::Option::None => {},
         }
+
         i += 1;
     }
 
@@ -1978,15 +2149,17 @@ pub(crate) fn scan_inline_html_comment(
     mut ix: usize,
     scan_guard: &mut HtmlScanGuard,
 ) -> Option<usize> {
-    let c = *bytes.get(ix)?;
+    let c = ::core::option::Option::<&_>::copied(bytes.get(ix))?;
     ix += 1;
+
     match c {
-        // An HTML comment consists of `<!-->`, `<!--->`, or  `<!--`, a string of characters not
-        // including the string `-->`, and `-->`.
+
+
         b'-' if ix > scan_guard.comment => {
-            // HTML comment needs two hyphens after the !.
+
             match {
-                let _explicit_decision = ::core::primitive::bool::then_some(*bytes.get(ix)? != b'-', ());
+                let checked_value = bytes.get(ix)?;
+                let _explicit_decision = ::core::primitive::bool::then_some(*checked_value != b'-', ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
@@ -1994,18 +2167,20 @@ pub(crate) fn scan_inline_html_comment(
                 },
                 ::core::option::Option::None => {},
             }
-            // Yes, we're intentionally going backwards.
-            // We want the cursor to point here:
-            //
-            //     <!--
-            //       ^
-            //
-            // This way, the `<!-->` case is covered by the loop below.
+
+
+
+
+
+
+
+
             ix -= 1;
 
             while let Some(x) = memchr(b'-', &bytes[ix..]) {
                 ix += x + 1;
                 scan_guard.comment = ix;
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(bytes.get(ix) == Some(&b'-') && bytes.get(ix + 1) == Some(&b'>'), ());
                     _explicit_decision
@@ -2016,10 +2191,11 @@ pub(crate) fn scan_inline_html_comment(
                     ::core::option::Option::None => {},
                 }
             }
+
             None
         }
-        // A CDATA section consists of the string `<![CDATA[`, a string of characters not
-        // including the string `]]>`, and the string `]]>`.
+
+
         b'[' if bytes[ix..].starts_with(b"CDATA[") && ix > scan_guard.cdata => {
             ix += b"CDATA[".len();
             ix = memchr(b']', &bytes[ix..]).map_or(bytes.len(), |x| ix + x);
@@ -2039,10 +2215,11 @@ pub(crate) fn scan_inline_html_comment(
                 },
             }
         }
-        // A declaration consists of the string `<!`, an ASCII letter, zero or more characters not
-        // including the character >, and the character >.
+
+
         _ if c.is_ascii_alphabetic() && ix > scan_guard.declaration => {
             ix = memchr(b'>', &bytes[ix..]).map_or(bytes.len(), |x| ix + x);
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(bytes.get(ix) != Some(&b'>'), ());
                 _explicit_decision
@@ -2076,8 +2253,10 @@ pub(crate) fn scan_inline_html_processing(
         },
         ::core::option::Option::None => {},
     }
+
     while let Some(offset) = memchr(b'?', &bytes[ix..]) {
         ix += offset + 1;
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(bytes.get(ix) == Some(&b'>'), ());
             _explicit_decision
@@ -2088,6 +2267,7 @@ pub(crate) fn scan_inline_html_processing(
             ::core::option::Option::None => {},
         }
     }
+
     scan_guard.processing = ix;
     None
 }

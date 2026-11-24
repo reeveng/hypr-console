@@ -19,29 +19,10 @@
 //! The write end never closes, because the process it speaks for is what it
 //! outlives. The read end is handed to whoever asked and the loop owns it.
 
-use std::os::fd::{AsRawFd, BorrowedFd, OwnedFd};
+use std::os::fd::OwnedFd;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicI32, Ordering};
 
 use console_core_never::Never;
-
-const NOWHERE: i32 = -1;
-
-#[cfg_attr(
-  dylint_lib = "explicit044_no_ambient_value",
-  allow(
-    explicit044_no_ambient_value,
-    reason = "a signal handler takes nothing and is handed nothing, so where to say a signal arrived is the one thing that cannot be passed in; it is the process's own pipe and it is written once"
-  )
-)]
-#[cfg_attr(
-  dylint_lib = "explicit068_no_global_mutable_state",
-  expect(
-    explicit068_no_global_mutable_state,
-    reason = "the OS signal callback must locate the process-owned pipe without allocating or taking a lock"
-  )
-)]
-static TELLING: AtomicI32 = AtomicI32::new(NOWHERE);
 
 #[cfg_attr(
   dylint_lib = "explicit044_no_ambient_value",
@@ -71,27 +52,16 @@ pub fn signal_pipe() -> Result<Option<OwnedFd>, Never> {
     }
   };
 
-  #[cfg_attr(
-    dylint_lib = "explicit090_no_raw_descriptor",
-    expect(
-      explicit090_no_raw_descriptor,
-      reason = "the signal handler has no closure state; HELD owns the pipe for its lifetime and the published number is borrowed only to signal it"
-    )
-  )]
-  let raw = tell.as_raw_fd();
-
   match HELD.set(tell) {
     Ok(()) => {}
     Err(_this_process_has_already_asked) => return Ok(Some(hear)),
   }
 
-  TELLING.store(raw, Ordering::SeqCst);
-
   #[cfg_attr(
     dylint_lib = "explicit095_no_unsafe_in_a_handler",
     expect(
       explicit095_no_unsafe_in_a_handler,
-      reason = "the permanent pipe remains owned by HELD; BorrowedFd::borrow_raw only wraps its number on the stack"
+      reason = "OnceLock::get is documented to never block and does not run initialization"
     )
   )]
   #[cfg_attr(
@@ -102,7 +72,7 @@ pub fn signal_pipe() -> Result<Option<OwnedFd>, Never> {
     )
   )]
   let answering = {
-    // SAFETY: on_signal does one atomic load, borrows a permanent descriptor and writes a nonblocking byte.
+    // SAFETY: OnceLock::get never blocks or initializes; the handler only looks up the already owned descriptor and writes a nonblocking byte.
     unsafe { console_signals::install_handler(&console_signals::STOPPING, on_signal) }
   };
 
@@ -115,24 +85,11 @@ pub fn signal_pipe() -> Result<Option<OwnedFd>, Never> {
 }
 
 extern "C" fn on_signal(_number: core::ffi::c_int) {
-  let telling = TELLING.load(Ordering::SeqCst);
-
-  match telling {
-    NOWHERE => {}
-    fd => {
-      let said: [u8; 1] = [1];
-
-      #[cfg_attr(
-        dylint_lib = "explicit058_contain_unsafe",
-        expect(
-          explicit058_contain_unsafe,
-          reason = "the signal handler can borrow only the atomic descriptor number; HELD owns the write end throughout the process lifetime"
-        )
-      )]
-      // SAFETY: the pipe write end stays owned by HELD during this nonblocking write.
-      let held = unsafe { BorrowedFd::borrow_raw(fd) };
-      let _one_stop_is_enough_when_the_pipe_is_full = rustix::io::write(held, &said);
+  match HELD.get() {
+    Some(telling) => {
+      let _one_stop_is_enough_when_the_pipe_is_full = rustix::io::write(telling, &[1]);
     }
+    None => {}
   }
 }
 

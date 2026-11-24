@@ -130,10 +130,12 @@ enum ClassSemanticFailure {
 }
 
 impl ClassSemanticFailure {
+    #[must_use]
     fn into_parse_error(self, diagram_type: &str, fallback_offset: usize) -> Error {
         self.parse_error(diagram_type, fallback_offset)
     }
 
+    #[must_use]
     fn parse_error(&self, diagram_type: &str, fallback_offset: usize) -> Error {
         match self {
             Self::Grammar { error, .. } => Error::diagram_parse_diagnostic(
@@ -230,16 +232,23 @@ fn construct_class_semantic_source<'a>(
     };
 
     let mut db = ClassDb::new(config);
+
     for (index, action) in actions.into_iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
-        if let Err(message) = db.apply(action) {
-            return Ok(Err(Box::new(ClassSemanticFailure::Db {
-                message,
-                #[cfg(feature = "editor-facts")]
-                editor_facts,
-            })));
+
+        {
+            match db.apply(action) {
+                Err(message) => {
+                    return Ok(Err(Box::new(ClassSemanticFailure::Db {
+                        message,
+                        #[cfg(feature = "editor-facts")]
+                        editor_facts,
+                    })));
+                },
+                ::core::result::Result::Ok(_) => {},
+            };
         }
     }
 
@@ -356,6 +365,7 @@ pub(crate) fn parse_class_typed_with_render_context_controlled(
         EditorFactsDemand::Omit,
         control,
     )?;
+
     match construction {
         Ok(source) => {
             let model = source.db.into_semantic_model(&meta.diagram_type);

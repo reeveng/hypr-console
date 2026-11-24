@@ -57,23 +57,8 @@ pub(crate) fn bind(command: &mut Command) -> Result<(), Never> {
   Ok(())
 }
 
-#[cfg_attr(
-  dylint_lib = "explicit058_contain_unsafe",
-  expect(
-    explicit058_contain_unsafe,
-    reason = "session separation must happen in the child before exec; this boundary owns the hook, whose body only calls rustix setsid and propagates its errno without allocating or locking"
-  )
-)]
 pub(crate) fn detach(command: &mut Command) -> Result<(), Never> {
-  // SAFETY: setsid is one async-signal-safe system call after fork. Failure
-  // prevents the launch instead of silently leaving it in the old session.
-  unsafe {
-    command.pre_exec(|| {
-      rustix::process::setsid()?;
-
-      Ok(())
-    });
-  }
+  command.setsid(true);
 
   Ok(())
 }

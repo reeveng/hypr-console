@@ -1,9 +1,11 @@
 use super::*;
 
+#[must_use]
 pub(super) fn state_viewport_bounds_from_layout(layout: &StateDiagramLayout) -> Option<Bounds> {
     fn include_rect(bounds: &mut Option<Bounds>, min_x: f64, min_y: f64, max_x: f64, max_y: f64) {
         let w = (max_x - min_x).abs();
         let h = (max_y - min_y).abs();
+
         if w < 1e-9 && h < 1e-9 {
             return;
         }
@@ -37,14 +39,14 @@ pub(super) fn state_viewport_bounds_from_layout(layout: &StateDiagramLayout) -> 
         );
 
         let tl = &c.title_label;
-        let left = tl.x - tl.width / 2.0;
-        let top = tl.y - tl.height / 2.0;
+        let left_2 = tl.x - tl.width / 2.0;
+        let top_2 = tl.y - tl.height / 2.0;
         include_rect(
             &mut bounds,
-            left,
-            top,
-            left + tl.width.max(0.0),
-            top + tl.height.max(0.0),
+            left_2,
+            top_2,
+            left_2 + tl.width.max(0.0),
+            top_2 + tl.height.max(0.0),
         );
     }
 

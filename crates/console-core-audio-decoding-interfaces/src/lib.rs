@@ -14,6 +14,8 @@ pub mod codecs;
 pub use console_core_audio_samples::conv;
 pub mod errors;
 pub mod formats;
+pub mod genres;
+pub mod id3v2;
 pub use console_core_byte_streams as io;
 pub mod meta;
 pub mod probe;

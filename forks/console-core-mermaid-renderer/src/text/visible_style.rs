@@ -59,6 +59,7 @@ impl VisibleTextStyleFacts {
         (result, FACT_COLLECTIONS.get() - before)
     }
 
+    #[must_use]
     const fn empty(parse_valid: bool) -> Self {
         Self {
             parse_valid,
@@ -73,29 +74,36 @@ impl VisibleTextStyleFacts {
         }
     }
 
+    #[must_use]
     pub(crate) const fn not_requested() -> Self {
         Self::empty(false)
     }
 
+    #[must_use]
     pub(crate) fn from_xhtml_fragment(fragment: &str) -> Self {
         #[cfg(test)]
         FACT_COLLECTIONS.set(FACT_COLLECTIONS.get() + 1);
         let wrapped = format!("<merman-visible-text>{fragment}</merman-visible-text>");
+
         let Ok(document) = crate::xml_dom::Document::parse(&wrapped) else {
             return Self::empty(false);
         };
+
         let mut facts = Self::empty(true);
         collect_visible_facts(document.root_element(), &mut facts);
         facts
     }
 
+    #[must_use]
     pub(crate) fn plain_text(text: &str) -> Self {
         #[cfg(test)]
         FACT_COLLECTIONS.set(FACT_COLLECTIONS.get() + 1);
         let mut facts = Self::empty(true);
+
         if !trim_html_collapsible_ascii_whitespace(text).is_empty() {
             facts.observe(VisibleTextOwners::INHERITED);
         }
+
         facts
     }
 
@@ -103,6 +111,7 @@ impl VisibleTextStyleFacts {
     ///
     /// SVG label writers emit Markdown tokens as escaped text and only vary weight/style. Inline
     /// HTML attributes therefore remain visible text and cannot own `color` or `font-family`.
+    #[must_use]
     pub(crate) fn from_svg_markdown_projection(markdown: &str) -> Self {
         let has_visible_text = super::mermaid_markdown_to_lines(markdown, true)
             .iter()
@@ -111,54 +120,81 @@ impl VisibleTextStyleFacts {
         Self::plain_text(if has_visible_text { markdown } else { "" })
     }
 
+    #[must_use]
     pub(crate) fn with_unmeasured_typography(mut self, font_family: bool, font_size: bool) -> Self {
         if font_family {
             self.inherited_font_family_runs = 0;
         }
+
         if font_size {
             self.inherited_font_size_runs = 0;
         }
+
         self
     }
 
+    #[must_use]
     pub(crate) const fn parse_valid(&self) -> bool {
         self.parse_valid
     }
+
+    #[must_use]
     pub(crate) const fn has_visible_runs(&self) -> bool {
         self.visible_runs != 0
     }
+
+    #[must_use]
     pub(crate) const fn visible_run_count(&self) -> usize {
         self.visible_runs
     }
+
+    #[must_use]
     pub(crate) const fn inherited_color_run_count(&self) -> usize {
         self.inherited_color_runs
     }
+
     /// CSS classes may override inherited color without a locally known declaration.
+    #[must_use]
     pub(crate) const fn unverified_color_run_count(&self) -> usize {
         self.unverified_color_runs
     }
+
     /// Portable paint cannot resolve CSS variables or document-dependent inline colors.
+    #[must_use]
     pub(crate) const fn unverified_portable_color_run_count(&self) -> usize {
         self.unverified_portable_color_runs
     }
+
+    #[must_use]
     pub(crate) const fn inherited_font_family_run_count(&self) -> usize {
         self.inherited_font_family_runs
     }
+
+    #[must_use]
     pub(crate) const fn unverified_font_family_run_count(&self) -> usize {
         self.visible_runs - self.inherited_font_family_runs
     }
+
+    #[must_use]
     pub(crate) const fn inherited_font_size_run_count(&self) -> usize {
         self.inherited_font_size_runs
     }
+
+    #[must_use]
     pub(crate) const fn unverified_font_size_run_count(&self) -> usize {
         self.visible_runs - self.inherited_font_size_runs
     }
+
+    #[must_use]
     pub(crate) const fn unverified_font_weight_run_count(&self) -> usize {
         self.visible_runs - self.inherited_font_weight_runs
     }
+
+    #[must_use]
     pub(crate) const fn unverified_font_style_run_count(&self) -> usize {
         self.visible_runs - self.inherited_font_style_runs
     }
+
     #[cfg(test)]
     fn non_inherited_color_run_count(&self) -> usize {
         self.visible_runs - self.inherited_color_runs
@@ -184,15 +220,18 @@ impl VisibleTextStyleFacts {
 }
 
 fn collect_visible_facts(root: crate::xml_dom::Node<'_, '_>, facts: &mut VisibleTextStyleFacts) {
-    // roxmltree's descendants are a flat preorder range. Each ancestor state is pushed and
-    // popped once, retaining inheritance without recursion or repeated ancestor scans.
+
+
     let mut parents = Vec::<(crate::xml_dom::NodeId, VisibleTextOwners)>::new();
     let mut stylesheet_present = false;
+
     for node in root.descendants() {
         let parent = node.parent().map(|parent| parent.id());
+
         while parents.last().map(|(id, _)| *id) != parent && !parents.is_empty() {
             parents.pop();
         }
+
         let inherited = parents
             .last()
             .map_or(VisibleTextOwners::INHERITED, |(_, owners)| *owners);
@@ -261,25 +300,29 @@ fn collect_visible_facts(root: crate::xml_dom::Node<'_, '_>, facts: &mut Visible
         } else {
             inherited
         };
+
         if node.is_element() && is_fontawesome_icon(node) {
             facts.observe(owners);
         }
+
         if node.is_text()
             && !node
                 .parent()
-                .is_some_and(|parent| parent.tag_name().name().eq_ignore_ascii_case("style"))
+                .is_some_and(|parent_2| parent_2.tag_name().name().eq_ignore_ascii_case("style"))
             && node
                 .text()
                 .is_some_and(|text| !trim_html_collapsible_ascii_whitespace(text).is_empty())
         {
             facts.observe(owners);
         }
+
         if node.is_element() {
             parents.push((node.id(), owners));
         }
     }
+
     if stylesheet_present {
-        // An adopted stylesheet may target any visible run. Do not interpret arbitrary CSS.
+
         facts.inherited_color_runs = 0;
         facts.unverified_color_runs = facts.visible_runs;
         facts.unverified_portable_color_runs = facts.visible_runs;
@@ -290,6 +333,7 @@ fn collect_visible_facts(root: crate::xml_dom::Node<'_, '_>, facts: &mut Visible
     }
 }
 
+#[must_use]
 fn inline_typography_owner(
     style: Option<&str>,
     property: &str,
@@ -302,21 +346,26 @@ fn inline_typography_owner(
     } else {
         inherited
     };
-    let Some(style) = style else {
-        return local;
+
+    let style_2 = match style {
+        Some(matched_style) => matched_style,
+        ::core::option::Option::None => return local,
     };
+
     let mut winner: Option<(bool, &str)> = None;
-    crate::mermaid_style::visit_parsed_style_declarations(style, |declaration| {
+    crate::mermaid_style::visit_parsed_style_declarations(style_2, |declaration| {
         let reset = declaration.property() == "all"
             && ["inherit", "initial", "unset", "revert", "revert-layer"]
                 .iter()
                 .any(|keyword| declaration.value().trim().eq_ignore_ascii_case(keyword));
+
         if (declaration.property() == property || declaration.property() == "font" || reset)
             && winner.is_none_or(|(important, _)| declaration.important() || !important)
         {
             winner = Some((declaration.important(), declaration.value()));
         }
     });
+
     match winner {
         None => local,
         Some((important, value))
@@ -330,29 +379,36 @@ fn inline_typography_owner(
     }
 }
 
+#[must_use]
 fn inline_color_owner(
     style: Option<&str>,
     parent: &VisibleTextColorOwner,
     local: &VisibleTextColorOwner,
     has_css_class: bool,
 ) -> VisibleTextColorOwner {
-    let Some(style) = style else {
-        return *local;
+    let style_2 = match style {
+        Some(matched_style) => matched_style,
+        ::core::option::Option::None => return *local,
     };
+
     let mut winner: Option<(bool, &str)> = None;
-    crate::mermaid_style::visit_parsed_style_declarations(style, |declaration| {
+    crate::mermaid_style::visit_parsed_style_declarations(style_2, |declaration| {
         if declaration.property() != "color"
             || !crate::mermaid_style::is_safe_browser_css_color_value(declaration.value())
         {
             return;
         }
+
         if winner.is_none_or(|(important, _)| declaration.important() || !important) {
             winner = Some((declaration.important(), declaration.value()));
         }
     });
-    let Some((important, value)) = winner else {
-        return *local;
+
+    let (important, value) = match winner {
+        Some((matched_important, matched_value)) => (matched_important, matched_value),
+        ::core::option::Option::None => return *local,
     };
+
     if matches!(
         value.trim().to_ascii_lowercase().as_str(),
         "currentcolor" | "inherit" | "unset"
@@ -370,6 +426,7 @@ fn inline_color_owner(
     }
 }
 
+#[must_use]
 fn inline_font_family_owner(
     style: Option<&str>,
     parent: &VisibleTextTypographyOwner,
@@ -388,6 +445,7 @@ fn inline_font_family_owner(
     }
 }
 
+#[must_use]
 fn inline_font_size_owner(
     style: Option<&str>,
     parent: &VisibleTextTypographyOwner,
@@ -406,15 +464,18 @@ fn inline_font_size_owner(
     }
 }
 
+#[must_use]
 fn is_fontawesome_icon(node: crate::xml_dom::Node<'_, '_>) -> bool {
     node.tag_name().name().eq_ignore_ascii_case("i")
         && node.attribute("class").is_some_and(|class| {
             let mut has_prefix = false;
             let mut has_icon = false;
+
             for token in class.split_ascii_whitespace() {
                 has_prefix |= matches!(token, "fa" | "fab" | "fak" | "fal" | "far" | "fas");
                 has_icon |= token.starts_with("fa-");
             }
+
             has_prefix && has_icon
         })
 }

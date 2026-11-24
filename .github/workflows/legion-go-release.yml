@@ -12,6 +12,8 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
+    env:
+      RUSTUP_TOOLCHAIN: nightly-2026-05-28
     permissions:
       contents: write
     steps:
@@ -30,9 +32,10 @@ jobs:
           set -euo pipefail
           mkdir -p target
           docker run --rm --volume "$PWD:/build" --workdir /build \
-            --env CARGO_BUILD_JOBS=4 archlinux:base-devel bash -euc '
-              pacman -Syu --needed --noconfirm git libxcrypt pam rust wayland
+            --env CARGO_BUILD_JOBS=4 --env RUSTUP_TOOLCHAIN archlinux:base-devel bash -euc '
+              pacman -Syu --needed --noconfirm git libxcrypt pam rustup wayland
               pacman -Scc --noconfirm
+              rustup toolchain install "$RUSTUP_TOOLCHAIN" --profile minimal
               git config --global --add safe.directory /build
               rustc --edition=2024 -O tools/legion-go-bundle.rs -o target/legion-go-bundle
               target/legion-go-bundle /build/legion-go-x86_64.tar.gz

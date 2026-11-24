@@ -958,15 +958,14 @@ impl Interpreted<'_> {
     let Ok(reach) = interp.reach();
 
     match (slot, reach) {
-      (Slot::First, Reachability::LevelOne | Reachability::EveryLevel) | (Slot::Later, Reachability::EveryLevel) => {
-        match interp.virtual_modifier {
-          Some(modifier) => {
-            let Ok(to_mask) = modifier.val.to_mask();
-            *self.virtual_modifiers.get_or_insert_default() |= to_mask;
-          }
-          None => {}
+      (Slot::First, Reachability::LevelOne | Reachability::EveryLevel)
+      | (Slot::Later, Reachability::EveryLevel) => match interp.virtual_modifier {
+        Some(modifier) => {
+          let Ok(to_mask) = modifier.val.to_mask();
+          *self.virtual_modifiers.get_or_insert_default() |= to_mask;
         }
-      }
+        None => {}
+      },
       (Slot::Later, Reachability::LevelOne) => {}
     }
 
@@ -3139,15 +3138,10 @@ impl SymbolsResolver<'_, '_, '_, '_> {
             None => self.set_key_default(decl, span, FieldPath::Qualified),
           },
           SymbolsVariable::AllowNone => self.set_key_default(decl, span, FieldPath::Bare),
-          SymbolsVariable::GroupName => {
-            match ::core::primitive::bool::then_some(cs.len() > 1, ()) {
-              ::core::option::Option::Some(()) => self.unknown_field(decl),
-              ::core::option::Option::None => match c.index {
-                None => self.unknown_field(decl),
-                Some(subscript) => self.handle_group_name_default(mm, decl, span, subscript),
-              },
-            }
-          }
+          SymbolsVariable::GroupName => match (cs, c.index) {
+            ([_], Some(subscript)) => self.handle_group_name_default(mm, decl, span, subscript),
+            ([], _) | ([_], None) | ([_, _, ..], _) => self.unknown_field(decl),
+          },
           SymbolsVariable::Action => {
             let res = eval_action_default(
               self.r.interner,

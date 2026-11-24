@@ -134,8 +134,8 @@ impl<'a> MemoryMap<'a> {
     Ok(map)
   }
 
-  fn regions(&self) -> impl Iterator<Item = (u32, Region)> + Clone + use<'a> {
-    self.descriptors.clone().filter_map(|descriptor| {
+  fn regions(&self) -> Result<impl Iterator<Item = (u32, Region)> + Clone + use<'a>, Never> {
+    Ok(self.descriptors.clone().filter_map(|descriptor| {
       let (kind, rest) = descriptor.split_first_chunk::<4>()?;
       let (_padding, rest_2) = rest.split_first_chunk::<4>()?;
       let (start, rest_3) = rest_2.split_first_chunk::<8>()?;
@@ -149,15 +149,16 @@ impl<'a> MemoryMap<'a> {
           pages: u64::from_le_bytes(*pages),
         },
       ))
-    })
+    }))
   }
 
   fn validate(&self) -> Result<(), MemoryError> {
     let mut previous_start = 0;
     let mut previous_end = 0;
     let mut unordered = false;
+    let Ok(regions) = self.regions();
 
-    for (_, region) in self.regions() {
+    for (_, region) in regions {
       match (region.pages, region.start.is_multiple_of(PAGE)) {
         (0, _) => return Err(MemoryError::EmptyRegion(region.start)),
         (_, false) => return Err(MemoryError::UnalignedRegion(region.start)),
@@ -171,25 +172,36 @@ impl<'a> MemoryMap<'a> {
       }
 
       previous_start = region.start;
-      previous_end = region.end()?;
+      let checked_value = region.end()?;
+      previous_end = checked_value;
     }
 
-    match unordered {
-      true => self.validate_unordered(),
-      false => Ok(()),
+    match ::core::primitive::bool::then_some(unordered, ()) {
+      ::core::option::Option::Some(()) => self.validate_unordered(),
+      ::core::option::Option::None => Ok(()),
     }
   }
 
   fn validate_unordered(&self) -> Result<(), MemoryError> {
-    let mut remaining = self.regions();
+    let Ok(regions) = self.regions();
+    let comparisons = self.descriptors.clone().scan(regions, |remaining, _| {
+      let (_, region) = remaining.next()?;
 
-    while let Some((_, region)) = remaining.next() {
+      Some((region, remaining.clone()))
+    });
+
+    for (region, later_regions) in comparisons {
       let end = region.end()?;
 
-      for (_, later) in remaining.clone() {
-        match region.start < later.end()? && later.start < end {
-          true => return Err(MemoryError::OverlappingRegions),
-          false => {}
+      for (_, later) in later_regions {
+        let checked_value = later.end()?;
+
+        match ::core::primitive::bool::then_some(
+          region.start < checked_value && later.start < end,
+          (),
+        ) {
+          ::core::option::Option::Some(()) => return Err(MemoryError::OverlappingRegions),
+          ::core::option::Option::None => {}
         }
       }
     }
@@ -198,11 +210,9 @@ impl<'a> MemoryMap<'a> {
   }
 
   pub fn usable(&self) -> Result<impl Iterator<Item = Region> + use<'a>, Never> {
-    Ok(
-      self
-        .regions()
-        .filter_map(|(kind, region)| (kind == CONVENTIONAL).then_some(region)),
-    )
+    let Ok(regions) = self.regions();
+
+    Ok(regions.filter_map(|(kind, region)| (kind == CONVENTIONAL).then_some(region)))
   }
 
   pub fn usable_bytes(&self) -> Result<u64, MemoryError> {
@@ -237,12 +247,15 @@ impl<'a> Frames<'a> {
 
     let bytes = pages.checked_mul(PAGE).ok_or(MemoryError::Overflow)?;
     let cursor = self.next;
-    match self.region_end.saturating_sub(cursor) >= bytes {
-      true => {
-        self.next = cursor.checked_add(bytes).ok_or(MemoryError::Overflow)?;
+
+    match ::core::primitive::bool::then_some(self.region_end.saturating_sub(cursor) >= bytes, ())
+    {
+      ::core::option::Option::Some(()) => {
+        let checked_value = cursor.checked_add(bytes).ok_or(MemoryError::Overflow)?;
+        self.next = checked_value;
         return Ok(cursor);
       }
-      false => {}
+      ::core::option::Option::None => {}
     }
 
     let Ok(usable) = self.map.usable();
@@ -252,18 +265,19 @@ impl<'a> Frames<'a> {
       let from = region.start.max(cursor);
       let end = region.end()?;
 
-      match end.saturating_sub(from) >= bytes {
-        true => {
+      match ::core::primitive::bool::then_some(end.saturating_sub(from) >= bytes, ()) {
+        ::core::option::Option::Some(()) => {
           lowest = Some(lowest.map_or((from, end), |previous: (u64, u64)| {
             previous.min((from, end))
           }));
         }
-        false => {}
+        ::core::option::Option::None => {}
       }
     }
 
     let (from, end) = lowest.ok_or(MemoryError::OutOfFrames)?;
-    self.next = from.checked_add(bytes).ok_or(MemoryError::Overflow)?;
+    let checked_value_2 = from.checked_add(bytes).ok_or(MemoryError::Overflow)?;
+    self.next = checked_value_2;
     self.region_end = end;
 
     Ok(from)

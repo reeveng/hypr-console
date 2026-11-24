@@ -27,26 +27,31 @@ pub(crate) const JOURNEY_FACE_RADIUS_PX: f64 = 15.0;
 const JOURNEY_FACE_BASE_Y_PX: f64 = 300.0;
 const JOURNEY_FACE_SCORE_STEP_Y_PX: f64 = 30.0;
 
+#[must_use]
 fn actors_from_tasks(tasks: &[JourneyTask]) -> Vec<String> {
     let mut set = BTreeSet::<String>::new();
+
     for t in tasks {
         for p in &t.people {
             set.insert(p.to_string());
         }
     }
+
     set.into_iter().collect()
 }
 
+#[must_use]
 fn wrap_actor_label_lines(
     person: &str,
     max_label_width: f64,
     measurer: &dyn TextMeasurer,
     style: &TextStyle,
 ) -> Vec<String> {
-    let max_label_width = max_label_width.max(1.0);
+    let max_label_width_2 = max_label_width.max(1.0);
     let full_text_width =
         journey_actor_legend_text_bounding_client_rect_width_px(person, measurer, style);
-    if full_text_width <= max_label_width {
+
+    if full_text_width <= max_label_width_2 {
         return vec![person.to_string()];
     }
 
@@ -63,31 +68,39 @@ fn wrap_actor_label_lines(
 
         let test_width =
             journey_actor_legend_text_bounding_client_rect_width_px(&test_line, measurer, style);
-        if test_width > max_label_width {
+
+        if test_width > max_label_width_2 {
             if !current_line.is_empty() {
                 lines.push(std::mem::take(&mut current_line));
             }
+
             current_line = word.to_string();
 
             let word_width =
                 journey_actor_legend_text_bounding_client_rect_width_px(word, measurer, style);
-            if word_width > max_label_width {
+
+            if word_width > max_label_width_2 {
                 let mut broken_word = String::new();
+
                 for ch in word.chars() {
                     broken_word.push(ch);
                     let candidate = format!("{broken_word}-");
                     let candidate_width = journey_actor_legend_text_bounding_client_rect_width_px(
                         &candidate, measurer, style,
                     );
-                    if candidate_width > max_label_width {
+
+                    if candidate_width > max_label_width_2 {
                         let mut head = broken_word.clone();
                         head.pop();
+
                         if !head.is_empty() {
                             lines.push(format!("{head}-"));
                         }
+
                         broken_word = ch.to_string();
                     }
                 }
+
                 current_line = broken_word;
             }
         } else {
@@ -106,6 +119,7 @@ fn wrap_actor_label_lines(
     }
 }
 
+#[must_use]
 fn journey_actor_legend_text_bounding_client_rect_width_px(
     line: &str,
     measurer: &dyn TextMeasurer,
@@ -116,12 +130,14 @@ fn journey_actor_legend_text_bounding_client_rect_width_px(
         .max(0.0)
 }
 
+#[must_use]
 fn journey_actor_legend_line_width_px(
     line: &str,
     measurer: &dyn TextMeasurer,
     style: &TextStyle,
 ) -> f64 {
     let width = journey_actor_legend_text_bounding_client_rect_width_px(line, measurer, style);
+
     if width.is_finite() && width > 0.0 {
         width
     } else {
@@ -162,11 +178,12 @@ pub(crate) fn layout_journey_diagram_typed_with_resolved_typography(
     };
 
     let mut actor_map: BTreeMap<String, (i64, String)> = BTreeMap::new();
+
     for (i, actor) in actors.iter().enumerate() {
         let pos = i as i64;
         let color = cfg
             .actor_colours
-            .get(i % cfg.actor_colours.len().max(1))
+            .get(i.wrapping_rem(cfg.actor_colours.len().max(1)))
             .cloned()
             .unwrap_or_else(|| "#8FBC8F".to_string());
         actor_map.insert(actor.clone(), (pos, color));
@@ -181,6 +198,7 @@ pub(crate) fn layout_journey_diagram_typed_with_resolved_typography(
     let legend_circle_r = JOURNEY_LEGEND_CIRCLE_R_PX;
     let legend_line_step_y = 20.0;
     let mut y_pos = 60.0;
+
     for actor in actors.iter() {
         let (pos, color) = actor_map
             .get(actor)
@@ -189,6 +207,7 @@ pub(crate) fn layout_journey_diagram_typed_with_resolved_typography(
 
         let lines = wrap_actor_label_lines(actor, cfg.max_label_width, measurer, &legend_style);
         let mut label_lines: Vec<JourneyActorLegendLineLayout> = Vec::new();
+
         for (index, line) in lines.iter().enumerate() {
             let x = 40.0;
             let y = y_pos + legend_circle_r + (index as f64) * legend_line_step_y;
@@ -202,6 +221,7 @@ pub(crate) fn layout_journey_diagram_typed_with_resolved_typography(
             });
 
             let line_width = journey_actor_legend_line_width_px(line, measurer, &legend_style);
+
             if line_width > max_actor_label_width && line_width > cfg.left_margin_base - line_width
             {
                 max_actor_label_width = line_width;
@@ -234,6 +254,7 @@ pub(crate) fn layout_journey_diagram_typed_with_resolved_typography(
     let mut current_num: i64 = 0;
 
     let mut stopx = left_margin;
+
     for (i, task) in model.tasks.iter().enumerate() {
         let x = (i as f64) * cfg.task_margin + (i as f64) * cfg.cell_width + left_margin;
         let is_new_section = last_section != task.section;
@@ -248,13 +269,15 @@ pub(crate) fn layout_journey_diagram_typed_with_resolved_typography(
                 .unwrap_or_else(|| "#CCC".to_string());
 
             let mut count: i64 = 0;
-            for t in model.tasks.iter().skip(i) {
+
+            'over_t_2: for t in model.tasks.iter().skip(i) {
                 if t.section == task.section {
                     count += 1;
                 } else {
-                    break;
+                    break 'over_t_2;
                 }
             }
+
             let section_width =
                 cfg.cell_width * (count as f64) + cfg.diagram_margin_x * ((count - 1) as f64);
 
@@ -295,10 +318,17 @@ pub(crate) fn layout_journey_diagram_typed_with_resolved_typography(
 
         let mut actor_circles = Vec::new();
         let mut cx = x + 14.0;
-        for p in &task.people {
-            let Some((pos, color)) = actor_map.get(p).cloned() else {
-                continue;
+
+        'over_p_2: for p in &task.people {
+            let (pos, color) = {
+                let optional_pos = actor_map.get(p).cloned();
+
+                match optional_pos {
+                    Some((matched_pos, matched_color)) => (matched_pos, matched_color),
+                    ::core::option::Option::None => continue 'over_p_2,
+                }
             };
+
             actor_circles.push(JourneyTaskActorCircleLayout {
                 actor: p.to_string(),
                 pos,
@@ -351,10 +381,13 @@ pub(crate) fn layout_journey_diagram_typed_with_resolved_typography(
         .as_deref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let extra_vert_for_title = if title.is_some() {
-        JOURNEY_TITLE_EXTRA_HEIGHT_PX
-    } else {
-        0.0
+    let extra_vert_for_title = match title {
+        ::core::option::Option::Some(_) => {
+            JOURNEY_TITLE_EXTRA_HEIGHT_PX
+        },
+        ::core::option::Option::None => {
+            0.0
+        },
     };
 
     let viewbox_top_pad = JOURNEY_VIEWBOX_TOP_PAD_PX;

@@ -20,6 +20,7 @@ pub(crate) struct QuadrantChartCssBinding {
 }
 
 impl QuadrantChartCssBinding {
+    #[must_use]
     pub(crate) fn resolve(config: &Value) -> Self {
         let value = |key: &str, fallback: &str| {
             config

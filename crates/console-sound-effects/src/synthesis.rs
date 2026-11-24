@@ -1,4 +1,4 @@
-//! A cue turned into the samples pw-cat is handed, with no machine in it.
+//! Render a cue as PCM samples.
 //!
 //! Every pitch is a degree of the major pentatonic, the idea codincod took from
 //! Kit Langton's `TaskSounds`: any two notes that overlap are consonant by

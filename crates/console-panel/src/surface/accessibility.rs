@@ -442,11 +442,16 @@ impl Snapshot {
       y1: f64::from(at.y) + f64::from(size.height),
     });
     let Ok(region) = slot(hit.lands);
-    if let (Lands::Picker { .. }, Some((index, selected))) = (hit.lands, row) {
-      let Ok(key) = row_key(selected, index);
-      let Ok(children) = self.picker_choices(ids, (state.here, key), hit, selected);
-      node.set_children(children);
+
+    match (hit.lands, row) {
+      (Lands::Picker { .. }, Some((index, selected))) => {
+        let Ok(key) = row_key(selected, index);
+        let Ok(children_2) = self.picker_choices(ids, (state.here, key), hit, selected);
+        node.set_children(children_2);
+      }
+      _ => {}
     }
+
     let Ok(inserted) = match (row, hit.lands) {
       (Some((index, selected)), _) => {
         let Ok(key) = row_key(selected, index);
@@ -494,26 +499,42 @@ impl Snapshot {
     picker: HitRegion,
     row: &Row,
   ) -> Result<Vec<NodeId>, Never> {
-    let Some(choices) = row.choices.as_ref() else {
-      return Ok(Vec::new());
+    let choices = {
+      let optional_choices = row.choices.as_ref();
+
+      match optional_choices {
+        Some(matched_choices) => matched_choices,
+        ::core::option::Option::None => return Ok(Vec::new()),
+      }
     };
+
     let mut children = Vec::new();
 
     for (index, value) in choices.said.iter().enumerate() {
       let Ok(which) = console_core_number_conversion::fitted::<_, u32>(index);
       let Ok(mut choice) = named(Role::RadioButton, value);
-      choice.set_toggled(match which == choices.chosen {
-        true => Toggled::True,
-        false => Toggled::False,
-      });
-      if which != choices.chosen {
-        choice.add_action(Action::Click);
+      choice.set_toggled(
+        match ::core::primitive::bool::then_some(which == choices.chosen, ()) {
+          ::core::option::Option::Some(()) => Toggled::True,
+          ::core::option::Option::None => Toggled::False,
+        },
+      );
+
+      match { ::core::primitive::bool::then_some(which != choices.chosen, ()) } {
+        ::core::option::Option::Some(()) => {
+          choice.add_action(Action::Click);
+        }
+        ::core::option::Option::None => {}
       }
+
       let Ok(inserted) = self.insert(ids, ("choice", tab, &key, which, value), choice);
 
-      if let Some(id) = inserted {
-        let _prior_target = self.targets.insert(id, Target::Choice { picker, which });
-        children.push(id);
+      match inserted {
+        Some(id) => {
+          let _prior_target = self.targets.insert(id, Target::Choice { picker, which });
+          children.push(id);
+        }
+        ::core::option::Option::None => {}
       }
     }
 
@@ -847,19 +868,19 @@ pub(super) fn perform(
   }: Requested,
 ) -> Result<ActionOutcome, Never> {
   Ok(match (action, target) {
-    (Action::Click, Some(Target::Region(target))) => {
-      let at = target.panel.at;
+    (Action::Click, Some(Target::Region(target_2))) => {
+      let at = target_2.panel.at;
       let Ok(half_width) = console_core_number_conversion::fitted::<_, i32>(
-        target.panel.size.width.saturating_div(2),
+        target_2.panel.size.width.saturating_div(2),
       );
       let Ok(half_height) = console_core_number_conversion::fitted::<_, i32>(
-        target.panel.size.height.saturating_div(2),
+        target_2.panel.size.height.saturating_div(2),
       );
       let point = Point {
         x: at.x.saturating_add(half_width),
         y: at.y.saturating_add(half_height),
       };
-      let Ok(outcome) = super::tapped(state, Some(target.lands), point, card);
+      let Ok(outcome) = super::tapped(state, Some(target_2.lands), point, card);
       outcome
     }
     (
@@ -907,8 +928,8 @@ pub(super) fn perform(
       state.at = Some(row);
       state.beside = Beside::No;
       let Ok(outcome) = super::nudge_level(&state.rows, row, step);
-      let Ok(outcome) = super::carried_out(&mut state.model, &state.rows, outcome);
-      outcome
+      let Ok(outcome_2) = super::carried_out(&mut state.model, &state.rows, outcome);
+      outcome_2
     }
     (
       Action::SetValue,
@@ -917,9 +938,8 @@ pub(super) fn perform(
         ..
       })),
     ) => {
-      if let Some(ActionData::NumericValue(value)) = data {
-        let Ok(()) = set_level(&state.rows, row, value);
-      }
+      let Ok(()) = set_level(&state.rows, row, data);
+
       ActionOutcome::Stay
     }
     (Action::ScrollUp | Action::ScrollDown, None) => {
@@ -936,24 +956,45 @@ pub(super) fn perform(
   })
 }
 
-fn set_level(rows: &[Row], row: u32, value: f64) -> Result<(), Never> {
+fn set_level(rows: &[Row], row: u32, data: Option<ActionData>) -> Result<(), Never> {
+  let value = match data {
+    Some(ActionData::NumericValue(value)) => value,
+    Some(
+      ActionData::CustomAction(_)
+      | ActionData::Value(_)
+      | ActionData::ScrollUnit(_)
+      | ActionData::ScrollHint(_)
+      | ActionData::ScrollToPoint(_)
+      | ActionData::SetScrollOffset(_)
+      | ActionData::SetTextSelection(_),
+    )
+    | None => return Ok(()),
+  };
   let Ok(selected) = nth(rows, row);
-  let Some((Some(Control::Slider(slider)), Some(level))) =
-    selected.map(|row| (row.control, row.level.as_ref()))
-  else {
-    return Ok(());
+
+  let (slider, level) = match selected.map(|entry| (entry.control, entry.level.as_ref())) {
+    Some((Some(Control::Slider(slider)), Some(level))) => (slider, level),
+    Some((Some(Control::Slider(_)), None) | (Some(Control::Switch(_)) | None, _)) | None => {
+      return Ok(());
+    }
   };
 
-  if value.is_finite() {
-    let Ok(requested) = console_core_number_conversion::whole_u32(value);
-    let Ok(most) = slider.most();
-    let Ok(at) = slider.at();
-    let Ok(from) = console_core_number_conversion::fitted::<u32, i32>(at);
-    let Ok(to) = console_core_number_conversion::fitted::<u32, i32>(requested.min(most.get()));
+  match { ::core::primitive::bool::then_some(value.is_finite(), ()) } {
+    ::core::option::Option::Some(()) => {
+      let Ok(requested) = console_core_number_conversion::whole_u32(value);
+      let Ok(most) = slider.most();
+      let Ok(at) = slider.at();
+      let Ok(from) = console_core_number_conversion::fitted::<u32, i32>(at);
+      let Ok(to) = console_core_number_conversion::fitted::<u32, i32>(requested.min(most.get()));
 
-    if from != to {
-      level(to.saturating_sub(from));
+      match { ::core::primitive::bool::then_some(from != to, ()) } {
+        ::core::option::Option::Some(()) => {
+          level(to.saturating_sub(from));
+        }
+        ::core::option::Option::None => {}
+      }
     }
+    ::core::option::Option::None => {}
   }
 
   Ok(())

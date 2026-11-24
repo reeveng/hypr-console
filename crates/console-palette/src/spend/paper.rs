@@ -22,22 +22,7 @@ pub fn spend(palette: &Palette) -> Result<String, Short> {
   let ground = palette.must(GROUND)?;
 
   Ok(format!(
-    "# Written by console-palette from theme/palette.toml.\n\
-         #\n\
-         # awww wants six hex digits and no hash, and a hash would start a\n\
-         # comment here anyway.\n\
-         #\n\
-         # The dash is what makes this a color and not a condition of the\n\
-         # background coming up. The daemon says it is ready when it is\n\
-         # listening, which is not when it has been told about a screen; asked\n\
-         # in that gap it answers \"none of the requested outputs are valid\"\n\
-         # and exits, and an ExecStartPost that exits fails the unit. On the\n\
-         # device that took the whole background down and dependency-failed\n\
-         # the unit that says which wallpaper is up -- over a color that\n\
-         # console-wallpaper covers a second later. Seen during an apply, where the\n\
-         # desktop is stopped and started faster than a daemon can find a\n\
-         # screen.\n\
-         ExecStartPost=-/usr/bin/awww clear {ground}"
+    "# Written by console-palette from theme/palette.toml.\nExecStart=/usr/local/bin/console-paper serve {ground}"
   ))
 }
 
@@ -48,29 +33,11 @@ mod tests {
   use std::error::Error;
 
   #[test]
-  fn a_color_that_cannot_be_set_does_not_take_the_background_down() -> Result<(), Box<dyn Error>>
-  {
-    let palette = blossom()?;
-    let unit = spend(&palette)?;
-    let line = unit
-      .lines()
-      .find(|line| line.starts_with("ExecStartPost="))
-      .ok_or("a line that sets the ground")?;
-    assert!(
-      line.starts_with("ExecStartPost=-"),
-      "{line:?} makes the ground a condition of the background"
-    );
-
-    Ok(())
-  }
-
-  #[test]
   fn the_ground_is_set_and_no_picture_is_named() -> Result<(), Box<dyn Error>> {
     let palette = blossom()?;
     let unit = spend(&palette)?;
-    assert!(unit.contains("awww clear "));
+    assert!(unit.contains("console-paper serve "));
     assert!(!unit.contains(".webp"), "{unit:?} names a picture");
-    assert!(!unit.contains("awww img"), "{unit:?} paints a picture");
 
     Ok(())
   }

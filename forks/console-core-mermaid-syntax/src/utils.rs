@@ -2,6 +2,7 @@
 
 pub(crate) use merman_markup::url::{format_url, sanitize_url};
 
+#[must_use]
 pub(crate) fn cleanup_mermaid_comments(input: &str) -> std::borrow::Cow<'_, str> {
     if !input.contains("%%") {
         return std::borrow::Cow::Borrowed(input.trim_start());
@@ -9,19 +10,27 @@ pub(crate) fn cleanup_mermaid_comments(input: &str) -> std::borrow::Cow<'_, str>
 
     let mut out = String::with_capacity(input.len());
     let mut removed = false;
+
     for line in input.split_inclusive('\n') {
         let trimmed = line.trim_start();
-        if let Some(after_marker) = trimmed.strip_prefix("%%") {
-            let has_comment_body = after_marker.chars().next().is_some_and(|ch| ch != '\n');
-            if !after_marker.starts_with('{') && has_comment_body {
-                removed = true;
-                continue;
-            }
+
+        match trimmed.strip_prefix("%%") {
+            Some(after_marker) => {
+                let has_comment_body = after_marker.chars().next().is_some_and(|ch| ch != '\n');
+
+                if !after_marker.starts_with('{') && has_comment_body {
+                    removed = true;
+                    continue;
+                }
+            },
+            ::core::option::Option::None => {},
         }
+
         out.push_str(line);
     }
 
     let trimmed = out.trim_start();
+
     if !removed && trimmed.len() == input.len() {
         std::borrow::Cow::Borrowed(input)
     } else {

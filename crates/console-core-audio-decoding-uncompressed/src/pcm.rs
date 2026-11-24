@@ -236,8 +236,12 @@ impl Pcm {
       Encoding::S32(order) => Lane::explicit(frames, spec, order, Bits(32), coded).map(Pcm::S32),
       Encoding::F32(order) => Lane::implicit(frames, spec, order, Bits(32), coded).map(Pcm::F32),
       Encoding::F64(order) => Lane::implicit(frames, spec, order, Bits(64), coded).map(Pcm::F64),
-      Encoding::ALaw => Lane::implicit(frames, spec, Order::Little, Bits(16), coded).map(Pcm::ALaw),
-      Encoding::MuLaw => Lane::implicit(frames, spec, Order::Little, Bits(16), coded).map(Pcm::MuLaw),
+      Encoding::ALaw => {
+        Lane::implicit(frames, spec, Order::Little, Bits(16), coded).map(Pcm::ALaw)
+      }
+      Encoding::MuLaw => {
+        Lane::implicit(frames, spec, Order::Little, Bits(16), coded).map(Pcm::MuLaw)
+      }
     }
   }
 

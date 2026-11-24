@@ -85,11 +85,13 @@ fn validate(
     })?;
     checkpoint()?;
     let root = document.root_element();
+
     if !root.tag_name().name().eq_ignore_ascii_case("svg") {
         return Err(static_validation_error(
             "rendered document root is not <svg>",
         ));
     }
+
     let root_id = unnamespaced_attribute(root, "id");
     let root_dimension_limit = root_dimension_limit(limits);
     let step_elements = if css_stage == CssStage::Admission && svg.contains("edge-step-") {
@@ -100,6 +102,7 @@ fn validate(
 
     let mut ids = BTreeSet::new();
     let mut inside_foreign_objects = vec![false; document.descendants().len()];
+
     for (iteration, node) in document
         .descendants()
         .filter(crate::xml_dom::Node::is_element)
@@ -115,19 +118,27 @@ fn validate(
                     .tag_name()
                     .namespace()
                     .is_none_or(|namespace| namespace == SVG_NAMESPACE));
-        if let Some(id) = unnamespaced_attribute(node, "id") {
-            if id.is_empty() {
-                return Err(static_validation_error("rendered SVG contains an empty id"));
-            }
-            if !ids.insert(id.to_string()) {
-                return Err(static_validation_error(format!(
-                    "rendered SVG contains duplicate id {id:?}"
-                )));
-            }
+
+        {
+            match unnamespaced_attribute(node, "id") {
+                Some(id) => {
+                    if id.is_empty() {
+                        return Err(static_validation_error("rendered SVG contains an empty id"));
+                    }
+
+                    if !ids.insert(id.to_string()) {
+                        return Err(static_validation_error(format!(
+                            "rendered SVG contains duplicate id {id:?}"
+                        )));
+                    }
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
     let mut attribute_iteration = 0usize;
+
     for (node_iteration, node) in document
         .descendants()
         .filter(crate::xml_dom::Node::is_element)
@@ -140,20 +151,23 @@ fn validate(
         let safe_xhtml = foreign_objects == ForeignObjectPolicy::AllowSafeXhtml
             && namespace == Some(XHTML_NAMESPACE)
             && inside_foreign_object;
+
         if !safe_xhtml
-            && let Some(namespace) = namespace
-            && namespace != SVG_NAMESPACE
+            && let Some(namespace_2) = namespace
+            && namespace_2 != SVG_NAMESPACE
         {
             return Err(static_validation_error(format!(
                 "rendered SVG contains non-SVG element <{element}> in namespace {namespace:?}"
-            )));
+            , namespace = namespace_2)));
         }
+
         let allowed_foreign_object = foreign_objects == ForeignObjectPolicy::AllowSafeXhtml
             && element.eq_ignore_ascii_case("foreignObject")
             && node
                 .tag_name()
                 .namespace()
-                .is_none_or(|namespace| namespace == SVG_NAMESPACE);
+                .is_none_or(|namespace_3| namespace_3 == SVG_NAMESPACE);
+
         if element.eq_ignore_ascii_case("base")
             || (matches_active_svg_element(element)
                 && !allowed_foreign_object
@@ -164,6 +178,7 @@ fn validate(
                 "rendered SVG contains forbidden <{element}> content"
             )));
         }
+
         if safe_xhtml {
             if !is_allowed_static_xhtml_element(element) {
                 return Err(static_validation_error(format!(
@@ -181,6 +196,7 @@ fn validate(
             attribute_iteration = attribute_iteration.saturating_add(1);
             let name = attribute.name();
             let value = attribute.value();
+
             if node == root && attribute.namespace().is_none() {
                 if matches!(name.to_ascii_lowercase().as_str(), "width" | "height") {
                     validate_root_layout_value_with_checkpoint(
@@ -194,16 +210,19 @@ fn validate(
                     )?;
                 }
             }
+
             if name.eq_ignore_ascii_case("base") {
                 return Err(static_validation_error(format!(
                     "rendered SVG contains forbidden base attribute {name:?}"
                 )));
             }
+
             if is_event_attribute(name) {
                 return Err(static_validation_error(format!(
                     "rendered SVG contains event attribute {name:?}"
                 )));
             }
+
             if is_forbidden_embedding_attribute(name)
                 || (inside_foreign_object
                     && is_forbidden_xhtml_attribute(name)
@@ -215,19 +234,23 @@ fn validate(
                     "rendered SVG contains forbidden embedding attribute {name:?}"
                 )));
             }
+
             if name.eq_ignore_ascii_case("href") {
-                if let Some(namespace) = attribute.namespace()
-                    && namespace != XLINK_NAMESPACE
+                if let Some(namespace_4) = attribute.namespace()
+                    && namespace_4 != XLINK_NAMESPACE
                 {
                     return Err(static_validation_error(format!(
                         "rendered SVG contains href in unsupported namespace {namespace:?}"
-                    )));
+                    , namespace = namespace_4)));
                 }
+
                 validate_href(element, value, &ids, execution)?;
             }
+
             if is_svg_idref_attribute(name) {
                 validate_idrefs(name, value, &ids, execution)?;
             }
+
             if matches!(
                 name.to_ascii_lowercase().as_str(),
                 "src" | "data" | "poster"
@@ -237,11 +260,14 @@ fn validate(
                     "rendered SVG contains external resource attribute {name:?}"
                 )));
             }
+
             if is_css_value_attribute(name) {
                 validate_css(value, &ids, false, execution)?;
+
                 if node == root && name.eq_ignore_ascii_case("style") {
                     validate_root_layout_declaration_text(value, root_dimension_limit, execution)?;
                 }
+
                 if css_stage == CssStage::Final && name.eq_ignore_ascii_case("style") {
                     validate_resvg_css_declaration_list_with_checkpoints(value, &mut checkpoint)
                         .map_err(|error| {
@@ -257,25 +283,32 @@ fn validate(
 
         if element.eq_ignore_ascii_case("style") {
             let mut css = String::new();
+
             for (child_iteration, child) in node.children().enumerate() {
                 checkpoint_loop(child_iteration, &mut checkpoint)?;
-                if let Some(text) = child.text() {
-                    checkpoint()?;
-                    css.push_str(text);
-                    checkpoint()?;
+
+                match child.text() {
+                    Some(text) => {
+                        checkpoint()?;
+                        css.push_str(text);
+                        checkpoint()?;
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
+
             validate_css(&css, &ids, true, execution)?;
-            let root_id = root_id.ok_or_else(|| {
+            let root_id_2 = root_id.ok_or_else(|| {
                 static_validation_error("rendered SVG with embedded CSS must have a root id")
             })?;
             validate_stylesheet_scope(
                 &css,
-                root_id,
+                root_id_2,
                 css_stage == CssStage::Admission,
                 root_dimension_limit,
                 execution,
             )?;
+
             if css_stage == CssStage::Final {
                 validate_resvg_css_stylesheet_with_checkpoints(&css, &mut checkpoint).map_err(
                     |error| {
@@ -287,6 +320,7 @@ fn validate(
             }
         }
     }
+
     validate_browser_reference_expansion(&document, execution)?;
     checkpoint()
 }
@@ -298,6 +332,7 @@ fn validate_browser_reference_expansion(
     let mut checkpoint = || execution.checkpoint();
     checkpoint()?;
     let mut elements = Vec::new();
+
     for (iteration, node) in document
         .descendants()
         .filter(crate::xml_dom::Node::is_element)
@@ -306,6 +341,7 @@ fn validate_browser_reference_expansion(
         checkpoint_loop(iteration, &mut checkpoint)?;
         elements.push(node);
     }
+
     checkpoint()?;
     let mut indices = HashMap::with_capacity(elements.len());
     let mut ids = HashMap::new();
@@ -314,9 +350,14 @@ fn validate_browser_reference_expansion(
     for (index, node) in elements.iter().copied().enumerate() {
         checkpoint_loop(index, &mut checkpoint)?;
         indices.insert(node.id(), index);
-        if let Some(id) = unnamespaced_attribute(node, "id") {
-            ids.insert(id, index);
+
+        match unnamespaced_attribute(node, "id") {
+            Some(id) => {
+                ids.insert(id, index);
+            },
+            ::core::option::Option::None => {},
         }
+
         if let Some(parent) = node.parent_element()
             && let Some(&parent_index) = indices.get(&parent.id())
         {
@@ -326,6 +367,7 @@ fn validate_browser_reference_expansion(
 
     for (index, node) in elements.iter().copied().enumerate() {
         checkpoint_loop(index, &mut checkpoint)?;
+
         if !node.tag_name().name().eq_ignore_ascii_case("use")
             || node
                 .tag_name()
@@ -334,13 +376,21 @@ fn validate_browser_reference_expansion(
         {
             continue;
         }
+
         let href = unnamespaced_attribute(node, "href")
             .or_else(|| node.attribute((XLINK_NAMESPACE, "href")));
+
         let Some(target) = href.and_then(|value| value.trim().strip_prefix('#')) else {
             continue;
         };
-        if let Some(&target_index) = ids.get(target) {
-            dependencies[index].push((target_index, 1));
+
+        {
+            match ids.get(target) {
+                Some(&target_index) => {
+                    dependencies[index].push((target_index, 1));
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
@@ -362,6 +412,7 @@ fn validate_browser_reference_expansion(
     checkpoint()
 }
 
+#[must_use]
 fn unnamespaced_attribute<'a, 'input>(
     node: crate::xml_dom::Node<'a, 'input>,
     name: &str,
@@ -371,11 +422,13 @@ fn unnamespaced_attribute<'a, 'input>(
         .map(|attribute| attribute.value())
 }
 
+#[must_use]
 fn is_event_attribute(name: &str) -> bool {
     name.get(..2)
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case("on"))
 }
 
+#[must_use]
 fn is_allowed_static_svg_element(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -438,6 +491,7 @@ fn is_allowed_static_svg_element(name: &str) -> bool {
     )
 }
 
+#[must_use]
 fn is_allowed_static_xhtml_element(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -500,6 +554,7 @@ fn is_allowed_static_xhtml_element(name: &str) -> bool {
     )
 }
 
+#[must_use]
 fn is_forbidden_xhtml_element(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -525,6 +580,7 @@ fn is_forbidden_xhtml_element(name: &str) -> bool {
     )
 }
 
+#[must_use]
 fn is_forbidden_xhtml_attribute(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -543,6 +599,7 @@ fn is_forbidden_xhtml_attribute(name: &str) -> bool {
     )
 }
 
+#[must_use]
 fn is_forbidden_embedding_attribute(name: &str) -> bool {
     matches!(
         name.to_ascii_lowercase().as_str(),
@@ -558,18 +615,22 @@ fn validate_href(
 ) -> Result<()> {
     let mut checkpoint = || execution.checkpoint();
     checkpoint()?;
-    let value = value.trim();
-    if let Some(target) = value.strip_prefix('#') {
-        return require_local_target(target, ids, "href").map_err(static_validation_error);
+    let value_2 = value.trim();
+
+    match value_2.strip_prefix('#') {
+        Some(target) => {
+            return require_local_target(target, ids, "href").map_err(static_validation_error);
+        },
+        ::core::option::Option::None => {},
     }
 
     if matches!(element.to_ascii_lowercase().as_str(), "image" | "feimage")
-        && value
+        && value_2
             .get(..5)
             .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:"))
     {
         checkpoint()?;
-        let result = validate_inline_raster(value).map_err(static_validation_error);
+        let result = validate_inline_raster(value_2).map_err(static_validation_error);
         checkpoint()?;
         return result;
     }
@@ -577,17 +638,21 @@ fn validate_href(
     if !element.eq_ignore_ascii_case("a") {
         return Err(static_validation_error(format!(
             "rendered <{element}> references a non-local resource {value:?}"
-        )));
+        , value = value_2)));
     }
 
-    let mut compact = String::with_capacity(value.len());
-    for (iteration, character) in value.chars().enumerate() {
+    let mut compact = String::with_capacity(value_2.len());
+
+    for (iteration, character) in value_2.chars().enumerate() {
         checkpoint_loop(iteration, &mut checkpoint)?;
+
         if !character.is_ascii_control() && !character.is_ascii_whitespace() {
             compact.extend(character.to_lowercase());
         }
     }
+
     checkpoint()?;
+
     if compact.starts_with("javascript:")
         || compact.starts_with("vbscript:")
         || compact.starts_with("data:")
@@ -596,8 +661,9 @@ fn validate_href(
     {
         return Err(static_validation_error(format!(
             "rendered SVG contains unsafe navigation href {value:?}"
-        )));
+        , value = value_2)));
     }
+
     Ok(())
 }
 
@@ -605,6 +671,7 @@ fn validate_inline_raster(value: &str) -> std::result::Result<(), String> {
     if !is_safe_data_image_url(value) {
         return Err("rendered SVG contains an invalid inline raster data URL".to_string());
     }
+
     if matches!(value, C4_PERSON_IMG | C4_EXTERNAL_PERSON_IMG) {
         Ok(())
     } else {
@@ -622,6 +689,7 @@ fn require_local_target(
             "rendered SVG {context} references missing local id {target:?}"
         ));
     }
+
     Ok(())
 }
 
@@ -634,15 +702,18 @@ fn validate_idrefs(
     let mut checkpoint = || execution.checkpoint();
     checkpoint()?;
     let mut references = value.split_ascii_whitespace().peekable();
+
     if references.peek().is_none() {
         return Err(static_validation_error(format!(
             "rendered SVG contains an empty {attribute} reference"
         )));
     }
+
     for (iteration, reference) in references.enumerate() {
         checkpoint_loop(iteration, &mut checkpoint)?;
         require_local_target(reference, ids, attribute).map_err(static_validation_error)?;
     }
+
     checkpoint()
 }
 
@@ -677,8 +748,8 @@ fn validate_stylesheet_scope(
         )
         .map_err(|error| match error.kind {
             ParseErrorKind::Custom(message) => message,
-            ParseErrorKind::Basic(error) => {
-                format!("rendered SVG contains invalid scoped CSS: {error}")
+            ParseErrorKind::Basic(error_2) => {
+                format!("rendered SVG contains invalid scoped CSS: {error}", error = error_2)
             }
         })
     })
@@ -691,6 +762,7 @@ struct StaticCssControl<'a> {
 }
 
 impl<'a> StaticCssControl<'a> {
+    #[must_use]
     fn new(execution: SvgPostprocessExecution<'a>) -> Self {
         Self {
             execution,
@@ -699,15 +771,19 @@ impl<'a> StaticCssControl<'a> {
         }
     }
 
+    #[must_use]
     fn observe(&self) -> bool {
         if self.error.borrow().is_some() {
             return false;
         }
+
         let iteration = self.iterations.get();
         self.iterations.set(iteration.saturating_add(1));
+
         if iteration & 63 != 0 {
             return true;
         }
+
         match self.execution.checkpoint() {
             Ok(()) => true,
             Err(error) => {
@@ -717,6 +793,7 @@ impl<'a> StaticCssControl<'a> {
         }
     }
 
+    #[must_use]
     fn take_error(&self) -> Option<Error> {
         self.error.borrow_mut().take()
     }
@@ -729,9 +806,14 @@ fn run_css_validation<T>(
     execution.checkpoint()?;
     let control = StaticCssControl::new(execution);
     let result = validate(&control);
-    if let Some(error) = control.take_error() {
-        return Err(error);
+
+    match control.take_error() {
+        Some(error) => {
+            return Err(error);
+        },
+        ::core::option::Option::None => {},
     }
+
     execution.checkpoint()?;
     result.map_err(static_validation_error)
 }
@@ -774,6 +856,7 @@ impl<'i> AtRuleParser<'i> for ScopedRuleParser<'_, '_, '_> {
         input: &mut Parser<'i>,
     ) -> std::result::Result<Self::Prelude, ParseError<Self::Error>> {
         consume_scoped_css_tokens(input, self.nesting, self.control)?;
+
         if matches!(
             name.to_ascii_lowercase().as_str(),
             "container" | "document" | "layer" | "media" | "scope" | "supports"
@@ -868,11 +951,13 @@ fn validate_scoped_rule_list(
     control: &StaticCssControl<'_>,
 ) -> std::result::Result<(), ParseError<String>> {
     css_parse_checkpoint(control)?;
+
     if nesting >= CSS_NESTING_HARD_LIMIT {
         return Err(ParseError::custom(
             "rendered SVG CSS exceeds the nesting limit".to_string(),
         ));
     }
+
     let mut parser = ScopedRuleParser {
         root_id,
         nesting,
@@ -880,9 +965,11 @@ fn validate_scoped_rule_list(
         root_dimension_limit,
         control,
     };
+
     for rule in StyleSheetParser::new(input, &mut parser) {
         rule.map_err(|(error, _, _)| error)?;
     }
+
     Ok(())
 }
 
@@ -897,6 +984,7 @@ fn validate_selector_list_scope(
     let mut current_targets_root = false;
     let mut any_targets_root = false;
     let mut pending_descendant = false;
+
     loop {
         css_parse_checkpoint(control)?;
         let token = match input.next_including_whitespace_and_comments() {
@@ -907,12 +995,14 @@ fn validate_selector_list_scope(
                         targets_root: any_targets_root || current_targets_root,
                     });
                 }
+
                 return Err(ParseError::custom(
                     "rendered SVG contains an empty CSS selector".to_string(),
                 ));
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<::std::string::String> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
+
         match token {
             Token::WhiteSpace(_) if saw_root => pending_descendant = true,
             Token::WhiteSpace(_) | Token::Comment(_) => {}
@@ -948,6 +1038,7 @@ fn validate_selector_list_scope(
                     current_targets_root = false;
                     pending_descendant = false;
                 }
+
                 input.parse_nested_block(|nested| {
                     consume_scoped_css_tokens(nested, nesting + 1, control)
                 })?;
@@ -977,21 +1068,22 @@ fn validate_root_layout_declaration_text(
         validate_root_layout_declarations(&mut input, 0, root_dimension_limit, control).map_err(
             |error| match error.kind {
                 ParseErrorKind::Custom(message) => message,
-                ParseErrorKind::Basic(error) => {
-                    format!("rendered SVG contains invalid root CSS: {error}")
+                ParseErrorKind::Basic(error_2) => {
+                    format!("rendered SVG contains invalid root CSS: {error}", error = error_2)
                 }
             },
         )
     })
 }
 
+#[must_use]
 fn map_controlled_css_error(
     error: CssValidationError<Error>,
     describe: impl FnOnce(String) -> String,
 ) -> Error {
     match error {
         CssValidationError::Invalid(message) => static_validation_error(describe(message)),
-        CssValidationError::Checkpoint(error) => error,
+        CssValidationError::Checkpoint(error_2) => error_2,
     }
 }
 
@@ -1002,11 +1094,13 @@ fn validate_root_layout_declarations(
     control: &StaticCssControl<'_>,
 ) -> std::result::Result<(), ParseError<String>> {
     css_parse_checkpoint(control)?;
+
     if nesting >= CSS_NESTING_HARD_LIMIT {
         return Err(ParseError::custom(
             "rendered SVG CSS exceeds the nesting limit".to_string(),
         ));
     }
+
     while !input.is_exhausted() {
         css_parse_checkpoint(control)?;
         input.parse_until_after(cssparser::Delimiter::Semicolon, |declaration| {
@@ -1014,6 +1108,7 @@ fn validate_root_layout_declarations(
             let property = declaration.expect_ident_cloned()?;
             declaration.expect_colon()?;
             let normalized = property.to_ascii_lowercase();
+
             if is_root_size_property(&normalized) {
                 let value_start = declaration.position();
                 consume_scoped_css_tokens(declaration, nesting + 1, control)?;
@@ -1036,14 +1131,17 @@ fn validate_root_layout_declarations(
                     "rendered SVG root layout cannot set {property}"
                 )));
             }
+
             Ok(())
         })?;
     }
+
     Ok(())
 }
 
-// The Usecase renderer emits only these six literal font variables on the root.
-// Do not admit arbitrary custom properties or deferred values such as var()/url().
+
+
+#[must_use]
 fn usecase_root_font_property(property: &str) -> Option<&'static str> {
     match property {
         "--mermaid-usecase-actor-font-size" | "--mermaid-usecase-font-size" => Some("font-size"),
@@ -1064,11 +1162,14 @@ fn validate_usecase_root_font_value(
     control: &StaticCssControl<'_>,
 ) -> std::result::Result<(), ParseError<String>> {
     let invalid = || format!("rendered SVG root layout has invalid Usecase {property}");
+
     if property == "font-family" {
         let mut has_family = false;
         let mut quoted_family = false;
+
         while !input.is_exhausted() {
             css_parse_checkpoint(control)?;
+
             match input.next()? {
                 Token::Ident(name)
                     if !quoted_family
@@ -1089,12 +1190,13 @@ fn validate_usecase_root_font_value(
                 _ => return Err(ParseError::custom(invalid())),
             }
         }
+
         if !has_family {
             return Err(ParseError::custom(invalid()));
         }
     } else {
         css_parse_checkpoint(control)?;
-        let valid = match (property, input.next()?) {
+        let valid = match (property, { let checked_value = input.next()?; checked_value }) {
             ("font-size", Token::Dimension { value, unit, .. }) => {
                 value.is_finite()
                     && *value >= 0.0
@@ -1109,14 +1211,18 @@ fn validate_usecase_root_font_value(
                 .any(|allowed| value.eq_ignore_ascii_case(allowed)),
             _ => false,
         };
+
         if !valid {
             return Err(ParseError::custom(invalid()));
         }
+
         input.expect_exhausted()?;
     }
+
     Ok(())
 }
 
+#[must_use]
 fn is_allowed_root_presentation_property(property: &str) -> bool {
     matches!(
         property,
@@ -1157,6 +1263,7 @@ fn is_allowed_root_presentation_property(property: &str) -> bool {
     )
 }
 
+#[must_use]
 fn is_root_size_property(property: &str) -> bool {
     matches!(
         property,
@@ -1175,6 +1282,7 @@ fn is_root_size_property(property: &str) -> bool {
     )
 }
 
+#[must_use]
 fn root_dimension_limit(limits: &RenderResourcePolicy) -> f64 {
     limits
         .value(ResourceLimitId::MaxSvgBytes)
@@ -1198,18 +1306,22 @@ fn validate_root_dimension(
     value: &str,
     limit: f64,
 ) -> std::result::Result<(), String> {
-    let value = value.trim();
-    if value.eq_ignore_ascii_case("auto") {
+    let value_2 = value.trim();
+
+    if value_2.eq_ignore_ascii_case("auto") {
         return Ok(());
     }
-    let length = value
+
+    let length = value_2
         .parse::<Length>()
-        .map_err(|_| format!("rendered SVG root layout has invalid {property} value {value:?}"))?;
+        .map_err(|_| format!("rendered SVG root layout has invalid {property} value {value:?}", value = value_2))?;
+
     if !length.number.is_finite() || length.number <= 0.0 {
         return Err(format!(
             "rendered SVG root layout requires positive finite {property}"
         ));
     }
+
     match length.unit {
         LengthUnit::None | LengthUnit::Px if length.number <= limit => Ok(()),
         LengthUnit::Percent if length.number <= 100.0 => Ok(()),
@@ -1225,14 +1337,16 @@ fn validate_root_dimension(
 fn validate_root_view_box(value: &str, limit: f64) -> std::result::Result<(), String> {
     let mut values = NumberListParser::from(value);
     let mut parsed = [0.0; 4];
+
     for slot in &mut parsed {
         *slot = values
             .next()
             .ok_or_else(|| "rendered SVG root layout has an invalid viewBox".to_string())?
             .map_err(|_| "rendered SVG root layout has an invalid viewBox".to_string())?;
     }
+
     if values.next().is_some()
-        || parsed.iter().any(|value| !value.is_finite())
+        || parsed.iter().any(|value_2| !value_2.is_finite())
         || (match parsed { [_, _, _explicit_element, ..] => _explicit_element }) <= 0.0
         || (match parsed { [_, _, _, _explicit_element, ..] => _explicit_element }) <= 0.0
         || (match parsed { [_explicit_element, ..] => _explicit_element }).abs() > limit
@@ -1242,6 +1356,7 @@ fn validate_root_view_box(value: &str, limit: f64) -> std::result::Result<(), St
     {
         return Err("rendered SVG root layout has an unbounded viewBox".to_string());
     }
+
     Ok(())
 }
 
@@ -1251,18 +1366,21 @@ fn consume_scoped_css_tokens(
     control: &StaticCssControl<'_>,
 ) -> std::result::Result<(), ParseError<String>> {
     css_parse_checkpoint(control)?;
+
     if nesting >= CSS_NESTING_HARD_LIMIT {
         return Err(ParseError::custom(
             "rendered SVG CSS exceeds the nesting limit".to_string(),
         ));
     }
+
     loop {
         css_parse_checkpoint(control)?;
         let token = match input.next_including_whitespace_and_comments() {
             Ok(token) => token.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => return Ok(()),
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<::std::string::String> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
+
         if matches!(
             token,
             Token::Function(_)
@@ -1285,9 +1403,11 @@ fn validate_css_parser(
     control: &StaticCssControl<'_>,
 ) -> std::result::Result<(), String> {
     css_checkpoint(control)?;
+
     if nesting >= CSS_NESTING_HARD_LIMIT {
         return Err("rendered SVG CSS exceeds the nesting limit".to_string());
     }
+
     loop {
         css_checkpoint(control)?;
         let token = match input.next_including_whitespace_and_comments() {
@@ -1295,6 +1415,7 @@ fn validate_css_parser(
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => return Ok(()),
             Err(error) => return Err(format!("rendered SVG contains invalid CSS: {error:?}")),
         };
+
         match token {
             Token::AtKeyword(name) if stylesheet && name.eq_ignore_ascii_case("import") => {
                 return Err("rendered SVG contains a forbidden CSS @import".to_string());
@@ -1306,6 +1427,7 @@ fn validate_css_parser(
                         "rendered SVG contains a forbidden CSS image-set function".to_string()
                     );
                 }
+
                 let is_url = name.eq_ignore_ascii_case("url");
                 input
                     .parse_nested_block(|nested| {
@@ -1334,11 +1456,12 @@ fn validate_css_parser(
     }
 }
 
+#[must_use]
 fn nested_css_error(error: ParseError<String>, context: &str) -> String {
     match error.kind {
         ParseErrorKind::Custom(message) => message,
-        ParseErrorKind::Basic(error) => {
-            format!("rendered SVG contains an invalid CSS {context}: {error}")
+        ParseErrorKind::Basic(error_2) => {
+            format!("rendered SVG contains an invalid CSS {context}: {error}", error = error_2)
         }
     }
 }
@@ -1350,6 +1473,7 @@ fn validate_quoted_css_url(
     control: &StaticCssControl<'_>,
 ) -> std::result::Result<(), String> {
     let mut payload = None::<Token<'_>>;
+
     loop {
         css_checkpoint(control)?;
         let token = match input.next_including_whitespace_and_comments() {
@@ -1361,12 +1485,13 @@ fn validate_quoted_css_url(
                 ));
             }
         };
+
         match token {
             Token::WhiteSpace(_) | Token::Comment(_) => {}
             Token::BadUrl(_) | Token::BadString(_) => {
                 return Err("rendered SVG contains an invalid CSS URL token".to_string());
             }
-            token if payload.is_none() => payload = Some(token),
+            token_2 if payload.is_none() => payload = Some(token_2),
             _ => return Err("rendered SVG contains a malformed CSS URL".to_string()),
         }
     }
@@ -1389,6 +1514,7 @@ fn validate_css_url(
             "rendered SVG contains a non-local CSS URL {value:?}"
         ));
     };
+
     validate_local_css_target(target, ids, require_target)
 }
 
@@ -1400,6 +1526,7 @@ fn validate_local_css_target(
     if target.is_empty() {
         return Err("rendered SVG contains an empty local CSS URL".to_string());
     }
+
     if require_target {
         require_local_target(target, ids, "CSS URL")
     } else {
@@ -1407,10 +1534,11 @@ fn validate_local_css_target(
     }
 }
 
+#[must_use]
 fn static_validation_error(message: impl Into<String>) -> Error {
     Error::SvgPostprocess {
         pass: STATIC_VALIDATION_PASS.to_string(),
-        message: message.into(),
+        message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
     }
 }
 

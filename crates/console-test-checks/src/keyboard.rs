@@ -259,7 +259,17 @@ fn type_into_page(stage: &mut Device) -> Result<CheckResult, Never> {
     }
   }
 
-  let Ok(_) = stage.types(TYPED);
+  match stage.types(TYPED) {
+    Ok(_) => {}
+    Err(fault) => {
+      return Ok(Err(
+        <::console_test_stages::checking::Why as ::core::convert::From<
+          ::console_test_stages::Error,
+        >>::from(fault),
+      ));
+    }
+  }
+
   let Ok(arrived) = stage.until(|stage_3| titled(stage_3, &format!("GOT[{TYPED}]")), ARRIVES);
   let Ok(()) = stage.press("x");
   let Ok(_) = stage.until(away, ARRIVES);

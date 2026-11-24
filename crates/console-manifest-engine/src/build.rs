@@ -62,9 +62,12 @@ pub fn verify_prebuilt<'a>(
     let checked =
       std::fs::symlink_metadata(&path).map_err(|fault| Unapplied::Read(path.clone(), fault))?;
 
-    match checked.is_file() && checked.permissions().mode() & 0o111 != 0 {
-      true => {}
-      false => return Err(Unapplied::NotAnExecutable(path)),
+    match ::core::primitive::bool::then_some(
+      checked.is_file() && checked.permissions().mode() & 0o111 != 0,
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {}
+      ::core::option::Option::None => return Err(Unapplied::NotAnExecutable(path)),
     }
   }
 

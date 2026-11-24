@@ -132,6 +132,7 @@ pub(super) struct Token {
 }
 
 impl Token {
+    #[must_use]
     fn new(kind: TokenKind, start: usize, end: usize) -> Self {
         Self {
             kind,
@@ -140,6 +141,7 @@ impl Token {
         }
     }
 
+    #[must_use]
     fn on_channel(mut self, channel: TokenChannel) -> Self {
         self.channel = channel;
         self
@@ -158,12 +160,15 @@ pub(super) fn lex_controlled(
 ) -> OperationControlResult<Vec<Token>> {
     let mut tokens = Vec::new();
     let lexer = Lexer::new(source);
+
     for token in lexer {
-        if tokens.len() % 128 == 0 {
+        if tokens.len().wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         tokens.push(token);
     }
+
     control.checkpoint()?;
     Ok(tokens)
 }
@@ -179,14 +184,17 @@ pub(super) fn parser_tokens_controlled(
     control: &OperationControl,
 ) -> OperationControlResult<Vec<Token>> {
     let mut parser_tokens = Vec::new();
+
     for (index, token) in tokens.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         if token.channel == TokenChannel::Default {
             parser_tokens.push(token.clone());
         }
     }
+
     control.checkpoint()?;
     Ok(parser_tokens)
 }
@@ -208,6 +216,7 @@ enum LexerMode {
 }
 
 impl<'a> Lexer<'a> {
+    #[must_use]
     fn new(source: &'a str) -> Self {
         Self {
             source,
@@ -219,10 +228,12 @@ impl<'a> Lexer<'a> {
         }
     }
 
+    #[must_use]
     fn rest(&self) -> &'a str {
         &self.source[self.offset..]
     }
 
+    #[must_use]
     fn starts_with(&self, value: &str) -> bool {
         self.rest().starts_with(value)
     }
@@ -247,6 +258,7 @@ impl<'a> Lexer<'a> {
     fn word(&mut self) -> Token {
         let start = self.offset;
         self.bump_char();
+
         while self
             .rest()
             .chars()
@@ -255,6 +267,7 @@ impl<'a> Lexer<'a> {
         {
             self.bump_char();
         }
+
         let value = &self.source[start..self.offset];
         let kind = if matches!(value, "const" | "readonly" | "static" | "await") {
             TokenKind::Modifier
@@ -263,17 +276,21 @@ impl<'a> Lexer<'a> {
                 .map(TokenKind::Keyword)
                 .unwrap_or_else(|| TokenKind::Identifier(value.to_string()))
         };
+
         if !matches!(kind, TokenKind::Keyword(Keyword::Title)) && value != "zenuml" {
             self.title_allowed = false;
         }
+
         let channel = if matches!(kind, TokenKind::Modifier) {
             TokenChannel::Modifier
         } else {
             TokenChannel::Default
         };
+
         if matches!(kind, TokenKind::Keyword(Keyword::Title)) {
             self.mode = LexerMode::Title;
         }
+
         Token::new(kind, start, self.offset).on_channel(channel)
     }
 
@@ -282,11 +299,13 @@ impl<'a> Lexer<'a> {
         self.offset = scan_ascii_digits(self.source, self.offset);
         let digits_end = self.offset;
         let mut has_dot = false;
+
         if self.starts_with(".") {
             has_dot = true;
             self.offset += 1;
             self.offset = scan_ascii_digits(self.source, self.offset);
         }
+
         let numeric_end = self.offset;
         let unit_end = known_unit_end(self.source, numeric_end);
         let digit_name_end = (!has_dot)
@@ -294,13 +313,13 @@ impl<'a> Lexer<'a> {
             .flatten();
 
         let kind = match (unit_end, digit_name_end) {
-            (Some(unit_end), Some(name_end)) if name_end > unit_end => {
+            (Some(unit_end_2), Some(name_end)) if name_end > unit_end_2 => {
                 self.offset = name_end;
                 TokenKind::DigitLeadingName(self.source[start..name_end].to_string())
             }
-            (Some(unit_end), _) => {
-                self.offset = unit_end;
-                TokenKind::NumberUnit(self.source[start..unit_end].to_string())
+            (Some(unit_end_3), _) => {
+                self.offset = unit_end_3;
+                TokenKind::NumberUnit(self.source[start..unit_end_3].to_string())
             }
             (None, Some(name_end)) => {
                 self.offset = name_end;
@@ -319,18 +338,22 @@ impl<'a> Lexer<'a> {
         let start = self.offset;
         let digit_start = start + 1;
         let digits_end = scan_ascii_digits(self.source, digit_start);
+
         if digits_end == digit_start {
             return self.fixed(1, TokenKind::Dot);
         }
 
-        if let Some(unit_end) = known_unit_end(self.source, digits_end) {
-            self.offset = unit_end;
-            self.title_allowed = false;
-            return Token::new(
-                TokenKind::NumberUnit(self.source[start..unit_end].to_string()),
-                start,
-                unit_end,
-            );
+        match known_unit_end(self.source, digits_end) {
+            Some(unit_end) => {
+                self.offset = unit_end;
+                self.title_allowed = false;
+                return Token::new(
+                    TokenKind::NumberUnit(self.source[start..unit_end].to_string()),
+                    start,
+                    unit_end,
+                );
+            },
+            ::core::option::Option::None => {},
         }
 
         if self.source[digits_end..]
@@ -354,6 +377,7 @@ impl<'a> Lexer<'a> {
         let start = self.offset;
         let number_start = start + 1;
         let mut end = scan_ascii_digits(self.source, number_start);
+
         if end > number_start {
             if self.source[end..].starts_with('.') {
                 end = scan_ascii_digits(self.source, end + 1);
@@ -361,12 +385,14 @@ impl<'a> Lexer<'a> {
         } else if self.source[number_start..].starts_with('.') {
             let digits_start = number_start + 1;
             end = scan_ascii_digits(self.source, digits_start);
+
             if end == digits_start {
                 return None;
             }
         } else {
             return None;
         }
+
         self.offset = end;
         self.title_allowed = false;
         Some(Token::new(
@@ -381,26 +407,40 @@ impl<'a> Lexer<'a> {
         self.offset += 1;
         let mut value = String::new();
         let mut closed = false;
+
         while self.offset < self.source.len() {
             if self.starts_with("\"\"") {
                 value.push('"');
                 self.offset += 2;
                 continue;
             }
-            let Some(ch) = self.rest().chars().next() else {
-                break;
+
+            let ch = {
+                let optional_ch = self.rest().chars().next();
+
+                match optional_ch {
+                    Some(matched_ch) => matched_ch,
+                    ::core::option::Option::None => break,
+                }
             };
-            if ch == '"' {
-                self.offset += 1;
-                closed = true;
-                break;
+
+            match ch {
+                '"' => {
+                    self.offset += 1;
+                    closed = true;
+                    break;
+                },
+                _ => {},
             }
+
             if matches!(ch, '\r' | '\n') {
                 break;
             }
+
             value.push(ch);
             self.offset += ch.len_utf8();
         }
+
         self.title_allowed = false;
         Token::new(
             TokenKind::StringLiteral { value, closed },
@@ -412,6 +452,7 @@ impl<'a> Lexer<'a> {
     fn annotation(&mut self) -> Token {
         let start = self.offset;
         self.offset += 1;
+
         while self
             .rest()
             .bytes()
@@ -420,6 +461,7 @@ impl<'a> Lexer<'a> {
         {
             self.offset += 1;
         }
+
         let value = &self.source[start..self.offset];
         let kind = if value.eq_ignore_ascii_case("@starter") {
             TokenKind::StarterAnnotation
@@ -435,6 +477,7 @@ impl<'a> Lexer<'a> {
     fn color(&mut self) -> Option<Token> {
         let start = self.offset;
         self.offset += 1;
+
         while self
             .rest()
             .bytes()
@@ -443,10 +486,12 @@ impl<'a> Lexer<'a> {
         {
             self.offset += 1;
         }
+
         if self.offset == start + 1 {
             self.offset = start;
             return None;
         }
+
         self.title_allowed = false;
         Some(Token::new(
             TokenKind::Color(self.source[start..self.offset].to_string()),
@@ -459,6 +504,7 @@ impl<'a> Lexer<'a> {
         let start = self.offset;
         self.offset += 2;
         let body_start = self.offset;
+
         while self
             .rest()
             .chars()
@@ -467,6 +513,7 @@ impl<'a> Lexer<'a> {
         {
             self.bump_char();
         }
+
         let value = self.source[body_start..self.offset].to_string();
         Token::new(TokenKind::Comment(value), start, self.offset).on_channel(TokenChannel::Comment)
     }
@@ -480,6 +527,7 @@ impl<'a> Lexer<'a> {
         {
             self.bump_char();
         }
+
         self.title_allowed = false;
         Token::new(
             TokenKind::Divider(self.source[start..self.offset].trim().to_string()),
@@ -490,6 +538,7 @@ impl<'a> Lexer<'a> {
 
     fn event_payload(&mut self) -> Option<Token> {
         let start = self.offset;
+
         while self
             .rest()
             .chars()
@@ -498,6 +547,7 @@ impl<'a> Lexer<'a> {
         {
             self.bump_char();
         }
+
         (start < self.offset).then(|| {
             Token::new(
                 TokenKind::EventPayload(self.source[start..self.offset].trim().to_string()),
@@ -509,6 +559,7 @@ impl<'a> Lexer<'a> {
 
     fn title_content(&mut self) -> Option<Token> {
         let start = self.offset;
+
         while self
             .rest()
             .chars()
@@ -517,6 +568,7 @@ impl<'a> Lexer<'a> {
         {
             self.bump_char();
         }
+
         (start < self.offset).then(|| {
             Token::new(
                 TokenKind::TitleContent(self.source[start..self.offset].to_string()),
@@ -551,74 +603,107 @@ impl Iterator for Lexer<'_> {
                 return Some(self.mode_end(TokenKind::EventEnd));
             }
             LexerMode::Event => {
-                if let Some(payload) = self.event_payload() {
-                    return Some(payload);
+                {
+                    match self.event_payload() {
+                        Some(payload) => {
+                            return Some(payload);
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
             LexerMode::Title if matches!(self.rest().chars().next(), Some('\r' | '\n')) => {
                 return Some(self.mode_end(TokenKind::TitleEnd));
             }
             LexerMode::Title => {
-                if let Some(content) = self.title_content() {
-                    return Some(content);
+                {
+                    match self.title_content() {
+                        Some(content) => {
+                            return Some(content);
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
             LexerMode::Default => {}
         }
+
         if self.offset >= self.source.len() {
             if self.emitted_eof {
                 return None;
             }
+
             self.emitted_eof = true;
             return Some(Token::new(TokenKind::Eof, self.offset, self.offset));
         }
 
         let before_space = self.offset;
         self.skip_horizontal_space();
+
         if self.offset >= self.source.len() {
             return self.next();
         }
+
         if before_space == self.line_start && self.starts_with("==") {
             return Some(self.divider(before_space));
         }
 
         let start = self.offset;
         let ch = self.rest().chars().next()?;
+
         if matches!(ch, '\r' | '\n') {
             if ch == '\r' && self.starts_with("\r\n") {
                 self.offset += 2;
             } else {
                 self.bump_char();
             }
+
             self.line_start = self.offset;
             return Some(
                 Token::new(TokenKind::LineBreak, start, self.offset)
                     .on_channel(TokenChannel::Hidden),
             );
         }
+
         if self.starts_with("//") {
             return Some(self.comment());
         }
+
         if is_identifier_start(ch) {
             return Some(self.word());
         }
+
         if ch.is_ascii_digit() {
             return Some(self.number());
         }
-        if ch == '.' {
-            return Some(self.dot_or_number());
+
+        match ch {
+            '.' => {
+                return Some(self.dot_or_number());
+            },
+            _ => {},
         }
+
         if ch == '$'
             && let Some(money) = self.money()
         {
             return Some(money);
         }
-        if ch == '"' {
-            return Some(self.string());
+
+        match ch {
+            '"' => {
+                return Some(self.string());
+            },
+            _ => {},
         }
-        if ch == '@' {
-            return Some(self.annotation());
+
+        match ch {
+            '@' => {
+                return Some(self.annotation());
+            },
+            _ => {},
         }
+
         if ch == '#'
             && let Some(color) = self.color()
         {
@@ -672,14 +757,17 @@ impl Iterator for Lexer<'_> {
     }
 }
 
+#[must_use]
 fn is_identifier_start(ch: char) -> bool {
     ch == '_' || is_unicode_letter(ch)
 }
 
+#[must_use]
 fn is_identifier_continue(ch: char) -> bool {
     ch == '_' || is_unicode_letter(ch) || is_unicode_decimal_number(ch)
 }
 
+#[must_use]
 fn is_unicode_letter(ch: char) -> bool {
     matches!(
         get_general_category(ch),
@@ -691,10 +779,12 @@ fn is_unicode_letter(ch: char) -> bool {
     )
 }
 
+#[must_use]
 fn is_unicode_decimal_number(ch: char) -> bool {
     get_general_category(ch) == GeneralCategory::DecimalNumber
 }
 
+#[must_use]
 fn scan_ascii_digits(source: &str, mut offset: usize) -> usize {
     while source
         .as_bytes()
@@ -703,24 +793,32 @@ fn scan_ascii_digits(source: &str, mut offset: usize) -> usize {
     {
         offset += 1;
     }
+
     offset
 }
 
+#[must_use]
 fn digit_leading_name_end(source: &str, digits_end: usize) -> Option<usize> {
     let first = source[digits_end..].chars().next()?;
+
     if !is_unicode_letter(first) {
         return None;
     }
+
     let mut end = digits_end + first.len_utf8();
+
     while let Some(ch) = source[end..].chars().next() {
         if !is_identifier_continue(ch) {
             break;
         }
+
         end += ch.len_utf8();
     }
+
     Some(end)
 }
 
+#[must_use]
 fn known_unit_end(source: &str, number_end: usize) -> Option<usize> {
     KNOWN_UNITS
         .iter()
@@ -729,6 +827,7 @@ fn known_unit_end(source: &str, number_end: usize) -> Option<usize> {
         .map(|unit| number_end + unit.len())
 }
 
+#[must_use]
 fn keyword(value: &str, title_allowed: bool, source: &str, after_word: usize) -> Option<Keyword> {
     Some(match value {
         "as" => Keyword::As,
@@ -757,6 +856,7 @@ fn keyword(value: &str, title_allowed: bool, source: &str, after_word: usize) ->
     })
 }
 
+#[must_use]
 fn title_right_edge_is_directive(source: &str, mut offset: usize) -> bool {
     while source[offset..]
         .chars()
@@ -765,6 +865,7 @@ fn title_right_edge_is_directive(source: &str, mut offset: usize) -> bool {
     {
         offset += source[offset..].chars().next().map_or(0, char::len_utf8);
     }
+
     !source[offset..]
         .chars()
         .next()

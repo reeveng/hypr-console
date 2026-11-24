@@ -6,7 +6,7 @@ fn write_packet_css(
     diagram_id: &str,
     typography_theme: &crate::packet::PacketTypographyThemePlan,
 ) -> Result<()> {
-    // Keep `:root` last (matches upstream Mermaid packet SVG baselines).
+
     let id = crate::svg::escape_css_identifier(diagram_id);
     let font = typography_theme.font_family_css();
     let style = typography_theme.css_binding();
@@ -77,12 +77,15 @@ pub(crate) fn render_packet_diagram_svg_model(
     let title_role = crate::packet::PacketTextRole::Title;
     let bit_order = crate::packet::PacketConfigView::new(effective_config).bit_order();
 
-    let bounds = layout.bounds.clone().unwrap_or(Bounds {
-        min_x: 0.0,
-        min_y: 0.0,
-        max_x: layout.width.max(1.0),
-        max_y: layout.height.max(1.0),
-    });
+    let bounds = match (layout.bounds.clone(), Bounds {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: layout.width.max(1.0),
+            max_y: layout.height.max(1.0),
+        }) {
+        (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+        (::core::option::Option::None, alternate) => alternate,
+    };
     let vb_min_x = bounds.min_x;
     let vb_min_y = bounds.min_y;
     let vb_w = (bounds.max_x - bounds.min_x).max(1.0);
@@ -120,6 +123,7 @@ pub(crate) fn render_packet_diagram_svg_model(
         );
         out.checkpoint()?;
     }
+
     if let Some(d) = model.acc_descr.as_deref() {
         let _ = write!(
             &mut out,
@@ -141,10 +145,12 @@ pub(crate) fn render_packet_diagram_svg_model(
     out.checkpoint()?;
 
     let mut emitted_blocks = 0usize;
+
     for word in &layout.words {
         out.push_str("<g>");
         out.checkpoint()?;
-        for b in &word.blocks {
+
+        'over_b_2: for b in &word.blocks {
             emitted_blocks = emitted_blocks.saturating_add(1);
             let _ = write!(
                 &mut out,
@@ -165,11 +171,14 @@ pub(crate) fn render_packet_diagram_svg_model(
 
             if !layout.show_bits {
                 out.checkpoint()?;
+
                 if let Some(output) = text_output.as_mut() {
                     output.record_non_empty_text(label_role, &b.label, options.work_meter())?;
                 }
-                continue;
+
+                continue 'over_b_2;
             }
+
             let (leading_bit, trailing_bit) = match bit_order {
                 crate::packet::PacketBitOrder::Ascending => (b.start, b.end),
                 crate::packet::PacketBitOrder::Descending => (b.end, b.start),
@@ -191,6 +200,7 @@ pub(crate) fn render_packet_diagram_svg_model(
                 anchor = start_anchor,
                 text = leading_bit
             );
+
             if !is_single_block {
                 let _ = write!(
                     &mut out,
@@ -201,21 +211,26 @@ pub(crate) fn render_packet_diagram_svg_model(
                     text = trailing_bit
                 );
             }
+
             out.checkpoint()?;
+
             if let Some(output) = text_output.as_mut() {
                 output.record_non_empty_text(label_role, &b.label, options.work_meter())?;
                 output.record_text(byte_start_role, options.work_meter())?;
+
                 if !is_single_block {
                     output.record_text(byte_end_role, options.work_meter())?;
                 }
             }
         }
+
         out.push_str("</g>");
         out.checkpoint()?;
     }
 
     let total_row_height = layout.row_height + layout.padding_y;
     let title_y = layout.height - total_row_height / 2.0;
+
     match terminal_title {
         Some(title) => {
             let _ = write!(
@@ -237,7 +252,9 @@ pub(crate) fn render_packet_diagram_svg_model(
             );
         }
     }
+
     out.checkpoint()?;
+
     if terminal_title.is_some()
         && let Some(output) = text_output.as_mut()
     {
@@ -245,11 +262,13 @@ pub(crate) fn render_packet_diagram_svg_model(
     }
 
     out.push_str("</svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
     let mut theme_output = text_output.map(crate::packet::PacketTextOutput::finish);
+
     if let Some(output) = theme_output.as_mut() {
         typography_theme.finish_blocks(output, emitted_blocks, options.work_meter())?;
     }
+
     Ok((rooted_svg, theme_output))
 }
 

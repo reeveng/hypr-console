@@ -36,33 +36,36 @@ impl ArchitectureTypographyEmission {
 }
 
 impl ArchitectureTypographyThemePlan {
+    #[must_use]
     pub(crate) fn resolve(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &PresentationConfig,
     ) -> Self {
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
-        let typed_font_size_requested = theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let typed_font_size_requested = theme.is_some_and(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 route.mechanism()
                     == FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontSize)
                     && route.disposition() == FamilyThemeDisposition::TypedAdapter
             })
         });
-        // Only the explicit theme-variable path owns this property. A top-level `fontSize` is a
-        // Mermaid-compatible fallback and must not shadow an active typed base size.
+
+
         let config_owns_font_size = typed_font_size_requested
             && effective_config.config_path_overrides_typed_default("themeVariables.fontSize");
         let typed_font_size_active = typed_font_size_requested && !config_owns_font_size;
         let font_size_px = match (theme, typed_font_size_active) {
-            (Some(theme), true) => f64::from(theme.typography().font_size_px()).max(1.0),
-            _ => config_theme_font_size_css_or_root_number_px_opt(effective_config.as_value())
-                .unwrap_or(16.0)
+            (Some(theme_3), true) => f64::from(theme_3.typography().font_size_px()).max(1.0),
+            _ => match config_theme_font_size_css_or_root_number_px_opt(effective_config.as_value()) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 16.0,
+            }
                 .max(1.0),
         };
-        let font_size_px = crate::number_format::canonicalize_number(font_size_px).max(1.0);
+        let font_size_px_2 = crate::number_format::canonicalize_number(font_size_px).max(1.0);
         let font_size_css: Box<str> =
-            format!("{}px", crate::number_format::canonical_number(font_size_px)).into_boxed_str();
+            format!("{}px", crate::number_format::canonical_number(font_size_px_2)).into_boxed_str();
 
         let css_binding = super::super::ArchitectureCssBinding::resolve(
             effective_config.as_value(),
@@ -72,40 +75,46 @@ impl ArchitectureTypographyThemePlan {
         Self {
             css_binding,
             inherited_font_stack,
-            font_size_px,
+            font_size_px: font_size_px_2,
             typed_font_size_requested,
             typed_font_size_active,
             evidence: FamilyThemeOutcomes::default(),
         }
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.inherited_font_stack.font_family_css()
     }
 
+    #[must_use]
     pub(crate) const fn css_binding(&self) -> &super::super::ArchitectureCssBinding {
         &self.css_binding
     }
 
+    #[must_use]
     pub(crate) const fn font_size_px(&self) -> f64 {
         self.font_size_px
     }
 
+    #[must_use]
     pub(crate) fn typography_requested(&self) -> bool {
         self.inherited_font_stack.typography_requested() || self.typed_font_size_requested
     }
 
+    #[must_use]
     pub(crate) fn begin_emission(&self) -> Option<ArchitectureTypographyEmission> {
         self.typography_requested()
             .then(ArchitectureTypographyEmission::default)
     }
 
+    #[must_use]
     pub(crate) fn finish_evidence(
         &self,
         emission: Option<ArchitectureTypographyEmission>,
     ) -> FamilyThemeOutcomes {
         let mut evidence = self.evidence.clone();
-        let has_visible_terminals = emission.is_some_and(|emission| emission.visible);
+        let has_visible_terminals = emission.is_some_and(|emission_2| emission_2.visible);
         self.inherited_font_stack
             .mark_unsupported_typography_evidence(&mut evidence, has_visible_terminals);
 
@@ -137,7 +146,9 @@ impl ArchitectureTypographyThemePlan {
         if !requested {
             return;
         }
+
         let key = FamilyThemeMechanismKey::Typography(property);
+
         if !active {
             evidence.mark_not_applicable(key);
             return;
@@ -214,7 +225,7 @@ mod tests {
         .expect("unowned frozen values should be valid");
         let plan = ArchitectureTypographyThemePlan::resolve(Some(&theme), &config);
 
-        // These frozen values deliberately declare no explicit configuration owners.
+
         assert_eq!(plan.font_size_px(), 18.0);
         assert!(plan.typed_font_size_active);
     }

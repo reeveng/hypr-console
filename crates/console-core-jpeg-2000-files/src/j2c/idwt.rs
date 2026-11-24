@@ -11,7 +11,8 @@ use super::decode::{DecompositionStorage, TileDecodeContext, TileDecompositions}
 use super::rect::IntRect;
 use crate::error::{DecodingError, Result};
 use crate::j2c::Header;
-use crate::math::{self, Float32x8, Level, SIMD_WIDTH, Simd, dispatch};
+use crate::math::{self, SIMD_WIDTH};
+use console_core_simd::{FusedF32, WaveletLift as Lifting};
 
 pub(crate) struct IDWTOutput {
   pub(crate) coefficients: Vec<f32>,
@@ -134,16 +135,15 @@ fn filter_2d(
   let bands = Bands { ll, hl, lh, hh };
   let rect = decomposition.rect;
 
-  dispatch!(Level::new(), simd => {
-    interleave(simd, bands, output, rect)?;
-    filter_horizontal(output, rect, transform)?;
-    filter_vertical(simd, output, rect, transform)
-  })
+  let Ok(simd) = math::simd();
+  interleave(simd, bands, output, rect)?;
+  filter_horizontal(output, rect, transform)?;
+  filter_vertical(simd, output, rect, transform)
 }
 
 #[inline(always)]
-fn interleave<S: Simd>(
-  simd: S,
+fn interleave(
+  simd: Option<FusedF32>,
   bands: Bands<'_>,
   output: &mut Vec<f32>,
   rect: IntRect,
@@ -254,8 +254,8 @@ impl<'a> BandRows<'a> {
 }
 
 #[inline(always)]
-fn interleave_row<S: Simd>(
-  simd: S,
+fn interleave_row(
+  simd: Option<FusedF32>,
   [first, second]: [&[f32]; 2],
   output: &mut [f32],
 ) -> Result<()> {
@@ -273,33 +273,28 @@ fn interleave_row<S: Simd>(
   let (simd_output, scalar_output) = output
     .split_at_mut_checked(full_output_width)
     .ok_or(DecodingError::InvalidPrecinct)?;
-  let (first_chunks, _) = first_simd.as_chunks::<SIMD_WIDTH>();
-  let (second_chunks, _) = second_simd.as_chunks::<SIMD_WIDTH>();
-  let (output_chunks, _) = simd_output.as_chunks_mut::<{ SIMD_WIDTH * 2 }>();
+  let (complete_pairs, _) = simd_output.as_chunks_mut::<2>();
+  let written = match simd {
+    Some(cpu) => {
+      let Ok(prefix) = cpu.interleave(first_simd, second_simd, complete_pairs);
+      prefix
+    }
+    None => 0,
+  };
+  let Ok(skip) = index(written);
 
-  for ((first_chunk, second_chunk), out_chunk) in
-    first_chunks.iter().zip(second_chunks).zip(output_chunks)
+  for ((&a, &b), pair) in first_simd
+    .iter()
+    .zip(second_simd)
+    .zip(complete_pairs)
+    .skip(skip)
   {
-    let Ok(a) = Float32x8::from_slice(simd, first_chunk);
-    let Ok(b) = Float32x8::from_slice(simd, second_chunk);
-    let (halves, _) = out_chunk.as_chunks_mut::<SIMD_WIDTH>();
-    let (low, high) = match halves {
-      [low, high] => (low, high),
-      _ => {
-        return Err(crate::error::DecodeError::Decoding(
-          DecodingError::InvalidPrecinct,
-        ));
-      }
-    };
-    let Ok(low_values) = a.zip_low(b);
-    let Ok(high_values) = a.zip_high(b);
-    let Ok(()) = low_values.store(low);
-    let Ok(()) = high_values.store(high);
+    *pair = [a, b];
   }
 
-  let (pairs, last) = scalar_output.as_chunks_mut::<2>();
+  let (scalar_pairs, last) = scalar_output.as_chunks_mut::<2>();
 
-  for ((a, b), [left, right]) in first_tail.iter().zip(second_tail).zip(pairs.iter_mut()) {
+  for ((a, b), [left, right]) in first_tail.iter().zip(second_tail).zip(scalar_pairs) {
     *left = *a;
     *right = *b;
   }
@@ -322,78 +317,40 @@ const NEG_DELTA: f32 = -0.443_506_87;
 const KAPPA: f32 = 1.230_174_1;
 const INV_KAPPA: f32 = 1.0 / KAPPA;
 
-#[derive(Clone, Copy)]
-enum Lifting {
-  ReversibleUpdate,
-  ReversiblePredict,
-  Irreversible(f32),
-}
-
 struct Neighbors<T> {
   current: T,
   before: T,
   after: T,
 }
 
-impl Lifting {
-  #[inline(always)]
-  fn scalar(self, samples: Neighbors<f32>) -> core::result::Result<f32, Never> {
-    let Neighbors {
-      current,
-      before,
-      after,
-    } = samples;
-    let sum = before + after;
+#[inline(always)]
+fn lift_sample(step: Lifting, samples: Neighbors<f32>) -> core::result::Result<f32, Never> {
+  let Neighbors {
+    current,
+    before,
+    after,
+  } = samples;
+  let sum = before + after;
 
-    match self {
-      Self::ReversibleUpdate => {
-        let Ok(update) = math::mul_add(math::MultiplyAdd {
-          value: math::Sample(sum),
-          factor: math::Gain(0.25),
-          offset: math::Sample(0.5),
-        });
-        let Ok(rounded) = math::floor_f32(math::Sample(update));
-        Ok(current - rounded)
-      }
-      Self::ReversiblePredict => {
-        let Ok(rounded) = math::floor_f32(math::Sample(sum * 0.5));
-        Ok(current + rounded)
-      }
-      Self::Irreversible(weight) => math::mul_add(math::MultiplyAdd {
+  match step {
+    Lifting::ReversibleUpdate => {
+      let Ok(update) = math::mul_add(math::MultiplyAdd {
         value: math::Sample(sum),
-        factor: math::Gain(weight),
-        offset: math::Sample(current),
-      }),
+        factor: math::Gain(0.25),
+        offset: math::Sample(0.5),
+      });
+      let Ok(rounded) = math::floor_f32(math::Sample(update));
+      Ok(current - rounded)
     }
-  }
-
-  #[inline(always)]
-  fn lanes<S: Simd>(
-    self,
-    simd: S,
-    samples: Neighbors<Float32x8<S>>,
-  ) -> core::result::Result<Float32x8<S>, Never> {
-    let Neighbors {
-      current,
-      before,
-      after,
-    } = samples;
-    let sum = before + after;
-
-    match self {
-      Self::ReversibleUpdate => {
-        let Ok(rounded) = ((sum + 2.0) * 0.25).floor();
-        Ok(current - rounded)
-      }
-      Self::ReversiblePredict => {
-        let Ok(rounded) = (sum * 0.5).floor();
-        Ok(current + rounded)
-      }
-      Self::Irreversible(weight) => {
-        let Ok(weights) = Float32x8::splat(simd, crate::math::Sample(weight));
-        sum.mul_add(weights, current)
-      }
+    Lifting::ReversiblePredict => {
+      let Ok(rounded) = math::floor_f32(math::Sample(sum * 0.5));
+      Ok(current + rounded)
     }
+    Lifting::Irreversible(weight) => math::mul_add(math::MultiplyAdd {
+      value: math::Sample(sum),
+      factor: math::Gain(weight),
+      offset: math::Sample(current),
+    }),
   }
 }
 
@@ -481,11 +438,14 @@ fn lift_row(scanline: &mut [f32], parity: u32, step: Lifting) -> Result<()> {
     let sample = scanline
       .get_mut(current)
       .ok_or(DecodingError::InvalidPrecinct)?;
-    let Ok(lifted) = step.scalar(Neighbors {
-      current: *sample,
-      before: a,
-      after: b,
-    });
+    let Ok(lifted) = lift_sample(
+      step,
+      Neighbors {
+        current: *sample,
+        before: a,
+        after: b,
+      },
+    );
     *sample = lifted;
   }
 
@@ -493,8 +453,8 @@ fn lift_row(scanline: &mut [f32], parity: u32, step: Lifting) -> Result<()> {
 }
 
 #[inline(always)]
-fn filter_vertical<S: Simd>(
-  simd: S,
+fn filter_vertical(
+  simd: Option<FusedF32>,
   coefficients: &mut [f32],
   rect: IntRect,
   transform: WaveletTransform,
@@ -581,8 +541,8 @@ fn filter_vertical<S: Simd>(
 }
 
 #[inline(always)]
-fn lift_columns<S: Simd>(
-  simd: S,
+fn lift_columns(
+  simd: Option<FusedF32>,
   coefficients: &mut [f32],
   raster: Size<u32>,
   parity: u32,
@@ -614,7 +574,7 @@ fn lift_columns<S: Simd>(
         ));
       }
     };
-    let Ok(()) = lift_column_row(
+    lift_column_row(
       simd,
       step,
       RowNeighbors {
@@ -622,52 +582,73 @@ fn lift_columns<S: Simd>(
         before,
         after,
       },
-    );
+    )?;
   }
 
   Ok(())
 }
 
 #[inline(always)]
-fn lift_column_row<S: Simd>(
-  simd: S,
-  step: Lifting,
-  rows: RowNeighbors<'_>,
-) -> core::result::Result<(), Never> {
+#[doc = "Uses the vector equations for complete groups of eight and scalar row-lift rounding for the boundary samples."]
+fn lift_column_row(simd: Option<FusedF32>, step: Lifting, rows: RowNeighbors<'_>) -> Result<()> {
   let RowNeighbors {
     current,
     before,
     after,
   } = rows;
-  let (current_chunks, current_tail) = current.as_chunks_mut::<SIMD_WIDTH>();
-  let (before_chunks, before_tail) = before.as_chunks::<SIMD_WIDTH>();
-  let (after_chunks, after_tail) = after.as_chunks::<SIMD_WIDTH>();
+  let Ok(measured) = fixed_index(current.len().min(before.len()).min(after.len()));
+  let Ok(lanes) = fixed_index(SIMD_WIDTH);
+  let complete = measured.wrapping_sub(measured.wrapping_rem(lanes.max(1)));
+  let Ok(boundary) = index(complete);
+  let (main, tail) = current
+    .split_at_mut_checked(boundary)
+    .ok_or(DecodingError::InvalidPrecinct)?;
+  let (previous, previous_tail) = before
+    .split_at_checked(boundary)
+    .ok_or(DecodingError::InvalidPrecinct)?;
+  let (following, following_tail) = after
+    .split_at_checked(boundary)
+    .ok_or(DecodingError::InvalidPrecinct)?;
+  let written = match simd {
+    Some(cpu) => {
+      let Ok(prefix) = cpu.lift(step, main, previous, following);
+      prefix
+    }
+    None => 0,
+  };
+  let Ok(skip) = index(written);
 
-  for ((out, a), b) in current_chunks
-    .iter_mut()
-    .zip(before_chunks)
-    .zip(after_chunks)
-  {
-    let Ok(current_2) = Float32x8::from_slice(simd, out);
-    let Ok(before_2) = Float32x8::from_slice(simd, a);
-    let Ok(after_2) = Float32x8::from_slice(simd, b);
-    let Ok(value) = step.lanes(
-      simd,
-      Neighbors {
-        current: current_2,
-        before: before_2,
-        after: after_2,
-      },
-    );
-    let Ok(()) = value.store(out);
+  for ((out, &a), &b) in main.iter_mut().zip(previous).zip(following).skip(skip) {
+    let sum = a + b;
+    *out = match step {
+      Lifting::ReversibleUpdate => {
+        let Ok(rounded) = math::floor_f32(math::Sample((sum + 2.0) * 0.25));
+        *out - rounded
+      }
+      Lifting::ReversiblePredict => {
+        let Ok(rounded) = math::floor_f32(math::Sample(sum * 0.5));
+        *out + rounded
+      }
+      Lifting::Irreversible(gain) => {
+        let Ok(value) = math::vector_mul_add(math::MultiplyAdd {
+          value: math::Sample(sum),
+          factor: math::Gain(gain),
+          offset: math::Sample(*out),
+        });
+        value
+      }
+    };
   }
 
-  for ((out, before_3), after_3) in current_tail.iter_mut().zip(before_tail).zip(after_tail) {
-    let Ok(value) = step.scalar(Neighbors {
-      current: *out,
-      before: *before_3,
-      after: *after_3,
-    });
+  for ((out, &a), &b) in tail.iter_mut().zip(previous_tail).zip(following_tail) {
+    let Ok(value) = lift_sample(
+      step,
+      Neighbors {
+        current: *out,
+        before: a,
+        after: b,
+      },
+    );
     *out = value;
   }
 

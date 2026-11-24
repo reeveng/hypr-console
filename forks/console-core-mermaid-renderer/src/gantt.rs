@@ -16,22 +16,28 @@ mod theme;
 use task_bar::GanttTaskBarState;
 pub(crate) use theme::{GanttTaskTheme, GanttTaskThemeReceipt};
 
-// Mermaid falls back to 1200 only when the parent element exposes no `offsetWidth`.
+
 const DEFAULT_CONTAINER_WIDTH: f64 = 1200.0;
 const MS_PER_DAY: i64 = 86_400_000;
 
+#[must_use]
 fn instant_to_local(ms: i64, local_time_zone: &LocalTimeZone) -> Option<OffsetDateTime> {
     local_time_zone.at_instant(ms)
 }
 
+#[must_use]
 fn cfg_i64(cfg: &serde_json::Value, path: &[&str]) -> Option<i64> {
     let mut cur = cfg;
+
     for k in path {
-        cur = cur.get(*k)?;
+        let checked_value = cur.get(*k)?;
+        cur = checked_value;
     }
+
     cur.as_i64()
 }
 
+#[must_use]
 fn month_name_short(m: u32) -> &'static str {
     match m {
         1 => "Jan",
@@ -50,6 +56,7 @@ fn month_name_short(m: u32) -> &'static str {
     }
 }
 
+#[must_use]
 fn month_name_long(m: u32) -> &'static str {
     match m {
         1 => "January",
@@ -68,12 +75,15 @@ fn month_name_long(m: u32) -> &'static str {
     }
 }
 
+#[must_use]
 fn ordinal_suffix(n: u32) -> &'static str {
-    let nn = n % 100;
+    let nn = ::core::primitive::u32::wrapping_rem(n, 100);
+
     if (11..=13).contains(&nn) {
         return "th";
     }
-    match n % 10 {
+
+    match ::core::primitive::u32::wrapping_rem(n, 10) {
         1 => "st",
         2 => "nd",
         3 => "rd",
@@ -81,26 +91,40 @@ fn ordinal_suffix(n: u32) -> &'static str {
     }
 }
 
+#[must_use]
 fn format_dayjs_like(ms: i64, fmt: &str, local_time_zone: &LocalTimeZone) -> Option<String> {
     let dt = instant_to_local(ms, local_time_zone)?;
     let civil = dt.local_datetime();
-    let fmt = fmt.trim();
+    let fmt_2 = fmt.trim();
 
     let mut out = String::new();
-    let chars: Vec<char> = fmt.chars().collect();
+    let chars: Vec<char> = fmt_2.chars().collect();
     let mut i = 0;
+
     while i < chars.len() {
         let c = chars[i];
-        if c == '[' {
-            i += 1;
-            while i < chars.len() && chars[i] != ']' {
-                out.push(chars[i]);
+
+        match c {
+            '[' => {
                 i += 1;
-            }
-            if i < chars.len() && chars[i] == ']' {
-                i += 1;
-            }
-            continue;
+
+                'inner_for_2_: for _ in (::core::ops::Range { start: i, end: chars.len() }) {
+                    match chars[i] {
+                        ']' => break 'inner_for_2_,
+                        _ => {},
+                    };
+
+                    out.push(chars[i]);
+                    i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
+                }
+
+                if match <[_]>::get(&chars, i) { ::core::option::Option::Some(&checked_element) => checked_element == ']', ::core::option::Option::None => false } {
+                    i += 1;
+                }
+
+                continue;
+            },
+            _ => {},
         }
 
         let rest: String = chars[i..].iter().collect();
@@ -111,60 +135,70 @@ fn format_dayjs_like(ms: i64, fmt: &str, local_time_zone: &LocalTimeZone) -> Opt
         .into_iter()
         .find(|t| rest.starts_with(t));
 
-        if let Some(t) = token {
-            match t {
-                "YYYY" => out.push_str(&format!("{:04}", civil.year())),
-                "YY" => out.push_str(&format!("{:02}", (civil.year() % 100).abs())),
-                "MMMM" => out.push_str(month_name_long(civil.month())),
-                "MMM" => out.push_str(month_name_short(civil.month())),
-                "MM" => out.push_str(&format!("{:02}", civil.month())),
-                "M" => out.push_str(&format!("{}", civil.month())),
-                "DD" => out.push_str(&format!("{:02}", civil.day())),
-                "D" => out.push_str(&format!("{}", civil.day())),
-                "Do" => out.push_str(&format!("{}{}", civil.day(), ordinal_suffix(civil.day()))),
-                "dddd" => out.push_str(civil.weekday().full_name()),
-                "ddd" => out.push_str(civil.weekday().short_name()),
-                "HH" => out.push_str(&format!("{:02}", civil.hour())),
-                "H" => out.push_str(&format!("{}", civil.hour())),
-                "hh" => {
-                    let h = civil.hour() % 12;
-                    let h = if h == 0 { 12 } else { h };
-                    out.push_str(&format!("{:02}", h));
+        match token {
+            Some(t) => {
+                match t {
+                    "YYYY" => out.push_str(&format!("{:04}", civil.year())),
+                    "YY" => out.push_str(&format!("{:02}", ::core::primitive::i32::wrapping_rem(civil.year(), 100).abs())),
+                    "MMMM" => out.push_str(month_name_long(civil.month())),
+                    "MMM" => out.push_str(month_name_short(civil.month())),
+                    "MM" => out.push_str(&format!("{:02}", civil.month())),
+                    "M" => out.push_str(&format!("{}", civil.month())),
+                    "DD" => out.push_str(&format!("{:02}", civil.day())),
+                    "D" => out.push_str(&format!("{}", civil.day())),
+                    "Do" => out.push_str(&format!("{}{}", civil.day(), ordinal_suffix(civil.day()))),
+                    "dddd" => out.push_str(civil.weekday().full_name()),
+                    "ddd" => out.push_str(civil.weekday().short_name()),
+                    "HH" => out.push_str(&format!("{:02}", civil.hour())),
+                    "H" => out.push_str(&format!("{}", civil.hour())),
+                    "hh" => {
+                        let h = ::core::primitive::u32::wrapping_rem(civil.hour(), 12);
+                        let h_2 = match h {
+                            0 => { 12 },
+                            _ => { h },
+                        };
+                        out.push_str(&format!("{:02}", h_2));
+                    }
+                    "h" => {
+                        let h = ::core::primitive::u32::wrapping_rem(civil.hour(), 12);
+                        let h_3 = match h {
+                            0 => { 12 },
+                            _ => { h },
+                        };
+                        out.push_str(&format!("{}", h_3));
+                    }
+                    "mm" => out.push_str(&format!("{:02}", civil.minute())),
+                    "m" => out.push_str(&format!("{}", civil.minute())),
+                    "ss" => out.push_str(&format!("{:02}", civil.second())),
+                    "s" => out.push_str(&format!("{}", civil.second())),
+                    "SSS" => out.push_str(&format!("{:03}", civil.millisecond())),
+                    "A" => out.push_str(if civil.hour() < 12 { "AM" } else { "PM" }),
+                    "a" => out.push_str(if civil.hour() < 12 { "am" } else { "pm" }),
+                    "Z" => {
+                        let off = dt.offset().seconds();
+                        let sign = if off >= 0 { '+' } else { '-' };
+                        let off_2 = off.abs();
+                        let hh = ::core::primitive::i32::wrapping_div(off_2, 3600);
+                        let mm = ::core::primitive::i32::wrapping_div(::core::primitive::i32::wrapping_rem(off_2, 3600), 60);
+                        out.push_str(&format!("{sign}{:02}:{:02}", hh, mm));
+                    }
+                    "ZZ" => {
+                        let off = dt.offset().seconds();
+                        let sign = if off >= 0 { '+' } else { '-' };
+                        let off_3 = off.abs();
+                        let hh = ::core::primitive::i32::wrapping_div(off_3, 3600);
+                        let mm = ::core::primitive::i32::wrapping_div(::core::primitive::i32::wrapping_rem(off_3, 3600), 60);
+                        out.push_str(&format!("{sign}{:02}{:02}", hh, mm));
+                    }
+                    "x" => out.push_str(&format!("{ms}")),
+                    "X" => out.push_str(&format!("{}", dt.timestamp_seconds())),
+                    _ => {}
                 }
-                "h" => {
-                    let h = civil.hour() % 12;
-                    let h = if h == 0 { 12 } else { h };
-                    out.push_str(&format!("{}", h));
-                }
-                "mm" => out.push_str(&format!("{:02}", civil.minute())),
-                "m" => out.push_str(&format!("{}", civil.minute())),
-                "ss" => out.push_str(&format!("{:02}", civil.second())),
-                "s" => out.push_str(&format!("{}", civil.second())),
-                "SSS" => out.push_str(&format!("{:03}", civil.millisecond())),
-                "A" => out.push_str(if civil.hour() < 12 { "AM" } else { "PM" }),
-                "a" => out.push_str(if civil.hour() < 12 { "am" } else { "pm" }),
-                "Z" => {
-                    let off = dt.offset().seconds();
-                    let sign = if off >= 0 { '+' } else { '-' };
-                    let off = off.abs();
-                    let hh = off / 3600;
-                    let mm = (off % 3600) / 60;
-                    out.push_str(&format!("{sign}{:02}:{:02}", hh, mm));
-                }
-                "ZZ" => {
-                    let off = dt.offset().seconds();
-                    let sign = if off >= 0 { '+' } else { '-' };
-                    let off = off.abs();
-                    let hh = off / 3600;
-                    let mm = (off % 3600) / 60;
-                    out.push_str(&format!("{sign}{:02}{:02}", hh, mm));
-                }
-                "x" => out.push_str(&format!("{ms}")),
-                "X" => out.push_str(&format!("{}", dt.timestamp_seconds())),
-                _ => {}
-            }
-            i += t.len();
-            continue;
+
+                i += t.len();
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         out.push(c);
@@ -174,10 +208,12 @@ fn format_dayjs_like(ms: i64, fmt: &str, local_time_zone: &LocalTimeZone) -> Opt
     Some(out)
 }
 
+#[must_use]
 fn format_yyyy_mm_dd(ms: i64, local_time_zone: &LocalTimeZone) -> Option<String> {
     format_dayjs_like(ms, "YYYY-MM-DD", local_time_zone)
 }
 
+#[must_use]
 fn weekend_start_day(weekend: &str) -> u32 {
     match weekend {
         "friday" => 5,
@@ -185,6 +221,7 @@ fn weekend_start_day(weekend: &str) -> u32 {
     }
 }
 
+#[must_use]
 fn is_invalid_date(
     ms: i64,
     date_format: &str,
@@ -193,11 +230,22 @@ fn is_invalid_date(
     weekend: &str,
     local_time_zone: &LocalTimeZone,
 ) -> bool {
-    let Some(formatted_date) = format_dayjs_like(ms, date_format, local_time_zone) else {
-        return false;
+    let formatted_date = {
+        let optional_formatted_date = format_dayjs_like(ms, date_format, local_time_zone);
+
+        match optional_formatted_date {
+            Some(matched_formatted_date) => matched_formatted_date,
+            ::core::option::Option::None => return false,
+        }
     };
-    let Some(date_only) = format_yyyy_mm_dd(ms, local_time_zone) else {
-        return false;
+
+    let date_only = {
+        let optional_date_only = format_yyyy_mm_dd(ms, local_time_zone);
+
+        match optional_date_only {
+            Some(matched_date_only) => matched_date_only,
+            ::core::option::Option::None => return false,
+        }
     };
 
     if includes
@@ -207,19 +255,27 @@ fn is_invalid_date(
         return false;
     }
 
-    let Some(dt) = instant_to_local(ms, local_time_zone) else {
-        return false;
+    let dt = {
+        let optional_dt = instant_to_local(ms, local_time_zone);
+
+        match optional_dt {
+            Some(matched_dt) => matched_dt,
+            ::core::option::Option::None => return false,
+        }
     };
+
     let iso_weekday = dt.weekday().number_from_monday();
 
     if excludes.iter().any(|t| t == "weekends") {
         let start = weekend_start_day(weekend);
+
         if iso_weekday == start || iso_weekday == start + 1 {
             return true;
         }
     }
 
     let weekday_lower = dt.weekday().full_name().to_lowercase();
+
     if excludes.iter().any(|t| t == &weekday_lower) {
         return true;
     }
@@ -229,55 +285,73 @@ fn is_invalid_date(
         .any(|t| t == &formatted_date || t == &date_only)
 }
 
+#[must_use]
 pub(crate) fn start_of_day_ms(ms: i64, local_time_zone: &LocalTimeZone) -> Option<i64> {
-    let date = instant_to_local(ms, local_time_zone)?.date();
+    let checked_value = instant_to_local(ms, local_time_zone)?;
+    let date = checked_value.date();
+    let checked_value_2 = local_time_zone
+            .resolve_local(date.at_midnight())?;
     Some(
-        local_time_zone
-            .resolve_local(date.at_midnight())?
+        checked_value_2
             .timestamp_millis(),
     )
 }
 
+#[must_use]
 fn add_local_days_ms(ms: i64, days: i64, local_time_zone: &LocalTimeZone) -> Option<i64> {
-    let local = instant_to_local(ms, local_time_zone)?.local_datetime();
+    let checked_value = instant_to_local(ms, local_time_zone)?;
+    let local = checked_value.local_datetime();
+    let checked_value_2 = local_time_zone
+            .resolve_local({ let checked_value_8 = local.checked_add_days(days)?; checked_value_8 })?;
     Some(
-        local_time_zone
-            .resolve_local(local.checked_add_days(days)?)?
+        checked_value_2
             .timestamp_millis(),
     )
 }
 
+#[must_use]
 fn end_of_day_ms(ms: i64, local_time_zone: &LocalTimeZone) -> Option<i64> {
     let start = start_of_day_ms(ms, local_time_zone)?;
-    add_local_days_ms(start, 1, local_time_zone)?.checked_sub(1)
+    let checked_value = add_local_days_ms(start, 1, local_time_zone)?;
+    checked_value.checked_sub(1)
 }
 
+#[must_use]
 fn absolute_millis_between(a: i64, b: i64) -> i128 {
-    (i128::from(a) - i128::from(b)).abs()
+    ::core::primitive::i128::wrapping_sub(i128::from(a), i128::from(b)).abs()
 }
 
+#[must_use]
 fn scale_time(ms: i64, min_ms: i64, max_ms: i64, range: f64) -> f64 {
-    if max_ms <= min_ms {
-        // D3 scaleTime returns the midpoint of the range for degenerate domains.
-        // This matters for fixtures where parsing fails and `startTime == endTime` (width=0).
-        return (range / 2.0).round();
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(max_ms), &::core::convert::identity(min_ms)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+
+
+            return (range / 2.0).round();
+        },
+        ::core::cmp::Ordering::Greater => {},
     }
-    let elapsed = i128::from(ms) - i128::from(min_ms);
-    let span = i128::from(max_ms) - i128::from(min_ms);
+
+    let elapsed = ::core::primitive::i128::wrapping_sub(i128::from(ms), i128::from(min_ms));
+    let span = ::core::primitive::i128::wrapping_sub(i128::from(max_ms), i128::from(min_ms));
     let t = elapsed as f64 / span as f64;
     (t * range).round()
 }
 
+#[must_use]
 fn collect_categories(tasks: &[GanttRenderTask]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
+
     for t in tasks {
         if t.vert {
             continue;
         }
+
         if !out.iter().any(|x| x == &t.task_type) {
             out.push(t.task_type.clone());
         }
     }
+
     out
 }
 
@@ -292,27 +366,33 @@ fn get_max_intersections(tasks: &mut [GanttRenderTask], order_offset: i64) -> i6
     });
 
     let mut max_i: i64 = 0;
+
     for idx in sorted {
-        for (j, slot) in timeline.iter_mut().enumerate() {
+        'inner_for_2: for (j, slot) in timeline.iter_mut().enumerate() {
             if tasks[idx].start_ms >= *slot {
                 *slot = tasks[idx].end_ms;
                 tasks[idx].order = j as i64 + order_offset;
                 max_i = max_i.max(j as i64);
-                break;
+                break 'inner_for_2;
             }
         }
     }
+
     max_i
 }
 
+#[must_use]
 fn tick_step(start: f64, stop: f64, count: f64) -> i64 {
     if !start.is_finite() || !stop.is_finite() || !count.is_finite() || count <= 0.0 {
         return 1;
     }
+
     let span = (stop - start).abs();
+
     if span <= 0.0 {
         return 1;
     }
+
     let step0 = span / count;
     let power = 10f64.powf(step0.log10().floor());
     let error = step0 / power;
@@ -328,11 +408,12 @@ fn tick_step(start: f64, stop: f64, count: f64) -> i64 {
     (factor * power).round().max(1.0) as i64
 }
 
+#[must_use]
 fn auto_tick_interval(min_ms: i64, max_ms: i64) -> (i64, &'static str) {
-    // Matches the shape of d3-time's default tick interval selection (used by Mermaid when no
-    // custom tickInterval is specified). The key properties we need for SVG DOM parity are:
-    // - choosing from the same "nice" interval set (e.g. 1h/3h/6h/12h, not 2h)
-    // - aligning ticks to interval boundaries (handled in build_ticks)
+
+
+
+
     const TARGET_TICKS: f64 = 10.0;
     const MS: f64 = 1.0;
     const SEC: f64 = 1_000.0;
@@ -347,6 +428,7 @@ fn auto_tick_interval(min_ms: i64, max_ms: i64) -> (i64, &'static str) {
     let target = span_ms / TARGET_TICKS;
 
     let mut intervals: Vec<(f64, i64, &'static str)> = Vec::new();
+
     for (every, unit_ms) in [
         (1, MS),
         (2, MS),
@@ -360,6 +442,7 @@ fn auto_tick_interval(min_ms: i64, max_ms: i64) -> (i64, &'static str) {
     ] {
         intervals.push((unit_ms * every as f64, every, "millisecond"));
     }
+
     for (every, unit_ms, unit) in [
         (1, SEC, "second"),
         (5, SEC, "second"),
@@ -382,16 +465,24 @@ fn auto_tick_interval(min_ms: i64, max_ms: i64) -> (i64, &'static str) {
     ] {
         intervals.push((unit_ms * (every as f64), every, unit));
     }
-    intervals.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+    intervals.sort_by(|a, b| match a.0.partial_cmp(&b.0) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => std::cmp::Ordering::Equal,
+    });
 
     let mut i = 0usize;
+
     while i < intervals.len() && intervals[i].0 < target {
         i += 1;
     }
 
-    if i == 0 {
-        let (_dur, every, unit) = intervals[0];
-        return (every, unit);
+    match i {
+        0 => {
+            let (_dur, every, unit) = intervals[0];
+            return (every, unit);
+        },
+        _ => {},
     }
 
     if i >= intervals.len() {
@@ -401,6 +492,7 @@ fn auto_tick_interval(min_ms: i64, max_ms: i64) -> (i64, &'static str) {
 
     let (d0, e0, u0) = intervals[i - 1];
     let (d1, e1, u1) = intervals[i];
+
     if target / d0 < d1 / target {
         (e0, u0)
     } else {
@@ -408,11 +500,13 @@ fn auto_tick_interval(min_ms: i64, max_ms: i64) -> (i64, &'static str) {
     }
 }
 
+#[must_use]
 fn parse_tick_interval(s: &str) -> Option<(i64, &str)> {
-    let s = s.trim();
+    let s_2 = s.trim();
     let mut num = String::new();
     let mut idx = 0;
-    for ch in s.chars() {
+
+    for ch in s_2.chars() {
         if ch.is_ascii_digit() {
             num.push(ch);
             idx += 1;
@@ -420,11 +514,15 @@ fn parse_tick_interval(s: &str) -> Option<(i64, &str)> {
             break;
         }
     }
-    let every = num.parse::<i64>().ok()?;
+
+    let every = match num.parse::<i64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
+
     if every <= 0 {
         return None;
     }
-    let unit = &s[idx..];
+
+    let unit = &s_2[idx..];
+
     match unit {
         "millisecond" | "second" | "minute" | "hour" | "day" | "week" | "month" => {
             Some((every, unit))
@@ -433,6 +531,7 @@ fn parse_tick_interval(s: &str) -> Option<(i64, &str)> {
     }
 }
 
+#[must_use]
 fn add_interval(ms: i64, every: i64, unit: &str, local_time_zone: &LocalTimeZone) -> Option<i64> {
     let elapsed_millis = match unit {
         "millisecond" => Some(every),
@@ -441,21 +540,28 @@ fn add_interval(ms: i64, every: i64, unit: &str, local_time_zone: &LocalTimeZone
         "hour" => every.checked_mul(3_600_000),
         _ => None,
     };
-    if let Some(elapsed_millis) = elapsed_millis {
-        return ms.checked_add(elapsed_millis);
+
+    match elapsed_millis {
+        Some(elapsed_millis_2) => {
+            return ms.checked_add(elapsed_millis_2);
+        },
+        ::core::option::Option::None => {},
     }
 
-    let local = instant_to_local(ms, local_time_zone)?.local_datetime();
+    let checked_value = instant_to_local(ms, local_time_zone)?;
+    let local = checked_value.local_datetime();
     let next = match unit {
         "day" => local.checked_add_days(every)?,
-        "week" => local.checked_add_days(every.checked_mul(7)?)?,
+        "week" => local.checked_add_days({ let checked_value_2 = every.checked_mul(7)?; checked_value_2 })?,
         "month" => local.checked_add_months(every)?,
         "year" => local.checked_add_years(every)?,
         _ => return None,
     };
-    Some(local_time_zone.resolve_local(next)?.timestamp_millis())
+    let checked_value_3 = local_time_zone.resolve_local(next)?;
+    Some(checked_value_3.timestamp_millis())
 }
 
+#[must_use]
 fn weekday_from_str(s: &str) -> Option<Weekday> {
     match s.trim().to_ascii_lowercase().as_str() {
         "monday" => Some(Weekday::Monday),
@@ -469,6 +575,7 @@ fn weekday_from_str(s: &str) -> Option<Weekday> {
     }
 }
 
+#[must_use]
 fn civil_with_time(date: CivilDate, time: CivilDateTime) -> Option<CivilDateTime> {
     date.at_hms_milli(
         time.hour(),
@@ -484,6 +591,7 @@ struct ElapsedTickState {
     field: i64,
 }
 
+#[must_use]
 fn ceil_elapsed_tick_start_with(
     min_ms: i64,
     every: i64,
@@ -497,41 +605,47 @@ fn ceil_elapsed_tick_start_with(
     } else {
         floor
     };
-    let every = every.max(1);
+    let every_2 = every.max(1);
 
     loop {
-        if state_at(candidate)?.field.rem_euclid(every) == 0 {
+        let checked_value = state_at(candidate)?;
+
+        if checked_value.field.rem_euclid(every_2) == 0 {
             return Some(candidate);
         }
-        candidate = candidate.checked_add(unit_millis)?;
+
+        let checked_value_2 = candidate.checked_add(unit_millis)?;
+        candidate = checked_value_2;
     }
 }
 
+#[must_use]
 fn elapsed_tick_state(
     ms: i64,
     unit: &str,
     local_time_zone: &LocalTimeZone,
 ) -> Option<ElapsedTickState> {
-    let local = instant_to_local(ms, local_time_zone)?.local_datetime();
+    let checked_value = instant_to_local(ms, local_time_zone)?;
+    let local = checked_value.local_datetime();
+
     match unit {
         "second" => Some(ElapsedTickState {
             lower_millis: i64::from(local.millisecond()),
             field: i64::from(local.second()),
         }),
         "minute" => Some(ElapsedTickState {
-            lower_millis: i64::from(local.second()) * 1_000 + i64::from(local.millisecond()),
+            lower_millis: ::core::primitive::i64::wrapping_add(::core::primitive::i64::wrapping_mul(i64::from(local.second()), 1_000), i64::from(local.millisecond())),
             field: i64::from(local.minute()),
         }),
         "hour" => Some(ElapsedTickState {
-            lower_millis: i64::from(local.minute()) * 60_000
-                + i64::from(local.second()) * 1_000
-                + i64::from(local.millisecond()),
+            lower_millis: ::core::primitive::i64::wrapping_add(::core::primitive::i64::wrapping_add(::core::primitive::i64::wrapping_mul(i64::from(local.minute()), 60_000), ::core::primitive::i64::wrapping_mul(i64::from(local.second()), 1_000)), i64::from(local.millisecond())),
             field: i64::from(local.hour()),
         }),
         _ => None,
     }
 }
 
+#[must_use]
 fn ceil_tick_start(
     min_ms: i64,
     every: i64,
@@ -539,194 +653,285 @@ fn ceil_tick_start(
     week_start: Option<&str>,
     local_time_zone: &LocalTimeZone,
 ) -> Option<i64> {
-    if let Some(unit_millis) = match unit {
-        "second" => Some(1_000),
-        "minute" => Some(60_000),
-        "hour" => Some(3_600_000),
-        _ => None,
-    } {
-        return ceil_elapsed_tick_start_with(min_ms, every, unit_millis, |ms| {
-            elapsed_tick_state(ms, unit, local_time_zone)
-        });
+    match match unit {
+            "second" => Some(1_000),
+            "minute" => Some(60_000),
+            "hour" => Some(3_600_000),
+            _ => None,
+        } {
+        Some(unit_millis) => {
+            return ceil_elapsed_tick_start_with(min_ms, every, unit_millis, |ms| {
+                elapsed_tick_state(ms, unit, local_time_zone)
+            });
+        },
+        ::core::option::Option::None => {},
     }
 
     let start = match unit {
         "millisecond" => {
             let e = every.max(1);
-            // D3's `millisecond.every(e)` aligns using `Math.floor(date / e) * e`, and `range`
-            // starts at `ceil(start)`. Use Euclidean division so negative timestamps match D3.
+
+
             let r = min_ms.rem_euclid(e);
-            let aligned = if r == 0 {
-                min_ms
-            } else {
-                min_ms.checked_add(e.checked_sub(r)?)?
+            let aligned = match r {
+                0 => {
+                    min_ms
+                },
+                _ => {
+                    let checked_value_8 = e.checked_sub(r)?;
+                    min_ms.checked_add(checked_value_8)?
+                },
             };
             return Some(aligned);
         }
         "day" => {
-            let local = instant_to_local(min_ms, local_time_zone)?.local_datetime();
+            let checked_value_2 = instant_to_local(min_ms, local_time_zone)?;
+            let local = checked_value_2.local_datetime();
             let mut cur = local.date().at_midnight();
+
             if cur < local {
-                cur = cur.checked_add_days(1)?;
+                let checked_value_3 = cur.checked_add_days(1)?;
+                cur = checked_value_3;
             }
+
             let e = every.max(1);
+
             while i64::from(cur.day0()).rem_euclid(e) != 0 {
-                cur = cur.checked_add_days(1)?;
+                let checked_value_4 = cur.checked_add_days(1)?;
+                cur = checked_value_4;
             }
+
             cur
         }
         "week" => {
-            let local = instant_to_local(min_ms, local_time_zone)?.local_datetime();
-            let epoch = CivilDate::new(1970, 1, 4)?; // Sunday
-            let start = week_start
-                .and_then(weekday_from_str)
-                .unwrap_or(Weekday::Sunday);
+            let checked_value_5 = instant_to_local(min_ms, local_time_zone)?;
+            let local = checked_value_5.local_datetime();
+            let epoch = CivilDate::new(1970, 1, 4)?;
+            let start = match week_start
+                .and_then(weekday_from_str) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => Weekday::Sunday,
+            };
 
             let mut d = local.date();
             let cur_wd = i64::from(d.weekday().number_from_sunday() - 1);
             let start_wd = i64::from(start.number_from_sunday() - 1);
             let delta = (cur_wd - start_wd).rem_euclid(7);
-            d = d.checked_sub_days(delta)?;
+            let checked_value_6 = d.checked_sub_days(delta)?;
+            d = checked_value_6;
             let mut cur = d.at_midnight();
+
             if cur < local {
-                cur = cur.checked_add_days(7)?;
+                let checked_value_7 = cur.checked_add_days(7)?;
+                cur = checked_value_7;
             }
 
             let e = every.max(1);
+
             if e > 1 {
                 let mut ws = cur.date();
                 let weeks = ws.days_since(epoch).div_euclid(7);
                 let rem = weeks.rem_euclid(e);
-                if rem != 0 {
-                    let delta_days = e.checked_sub(rem)?.checked_mul(7)?;
-                    ws = ws.checked_add_days(delta_days)?;
+
+                match rem {
+                    0 => {},
+                    _ => {
+                        let checked_value_9 = e.checked_sub(rem)?;
+                        let delta_days = checked_value_9.checked_mul(7)?;
+                        let checked_value_12 = ws.checked_add_days(delta_days)?;
+                        ws = checked_value_12;
+                    },
                 }
+
                 cur = ws.at_midnight();
             }
+
             cur
         }
         "month" => {
-            let local = instant_to_local(min_ms, local_time_zone)?.local_datetime();
-            let month_index = |y: i32, m: u32| (y as i64) * 12 + (m as i64 - 1);
+            let checked_value_10 = instant_to_local(min_ms, local_time_zone)?;
+            let local = checked_value_10.local_datetime();
+            let month_index = |y: i32, m: u32| ::core::primitive::i64::wrapping_add(::core::primitive::i64::wrapping_mul(<i64 as ::core::convert::From<::core::primitive::i32>>::from(y), 12), ::core::primitive::i64::wrapping_sub(<i64 as ::core::convert::From<::core::primitive::u32>>::from(m), 1));
 
             let mut y = local.year();
             let mut m = local.month();
-            let mut cur = CivilDate::new(y, m, 1)?.at_midnight();
+            let checked_value_11 = CivilDate::new(y, m, 1)?;
+            let mut cur = checked_value_11.at_midnight();
+
             if cur < local {
-                if m == 12 {
-                    m = 1;
-                    y = y.checked_add(1)?;
-                } else {
-                    m = m.checked_add(1)?;
+                match m {
+                    12 => {
+                        m = 1;
+                        let checked_value_13 = y.checked_add(1)?;
+                        y = checked_value_13;
+                    },
+                    _ => {
+                        let checked_value_15 = m.checked_add(1)?;
+                        m = checked_value_15;
+                    },
                 }
-                cur = CivilDate::new(y, m, 1)?.at_midnight();
+
+                let checked_value_14 = CivilDate::new(y, m, 1)?;
+                cur = checked_value_14.at_midnight();
             }
 
             let e = every.max(1);
+
             if e > 1 {
                 let mut idx = month_index(y, m);
                 let rem = idx.rem_euclid(e);
-                if rem != 0 {
-                    idx = idx.checked_add(e.checked_sub(rem)?)?;
-                    y = idx.div_euclid(12).try_into().ok()?;
-                    m = u32::try_from(idx.rem_euclid(12)).ok()?.checked_add(1)?;
-                    cur = CivilDate::new(y, m, 1)?.at_midnight();
+
+                match rem {
+                    0 => {},
+                    _ => {
+                        let checked_value_16 = idx.checked_add({ let checked_value_17 = e.checked_sub(rem)?; checked_value_17 })?;
+                        idx = checked_value_16;
+                        let checked_value_18 = match idx.div_euclid(12).try_into() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range_) => ::core::option::Option::None }?;
+                        y = checked_value_18;
+                        let checked_value_19 = match u32::try_from(idx.rem_euclid(12)) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range_) => ::core::option::Option::None }?;
+                        let checked_value_20 = checked_value_19.checked_add(1)?;
+                        m = checked_value_20;
+                        let checked_value_25 = CivilDate::new(y, m, 1)?;
+                        cur = checked_value_25.at_midnight();
+                    },
                 }
             }
+
             cur
         }
         "year" => {
-            let local = instant_to_local(min_ms, local_time_zone)?.local_datetime();
+            let checked_value_21 = instant_to_local(min_ms, local_time_zone)?;
+            let local = checked_value_21.local_datetime();
             let mut y = i64::from(local.year());
-            let initial_year: i32 = y.try_into().ok()?;
-            let mut cur = CivilDate::new(initial_year, 1, 1)?.at_midnight();
+            let initial_year: i32 = match y.try_into() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }?;
+            let checked_value_22 = CivilDate::new(initial_year, 1, 1)?;
+            let mut cur = checked_value_22.at_midnight();
+
             if cur < local {
-                y = y.checked_add(1)?;
-                let year: i32 = y.try_into().ok()?;
-                cur = CivilDate::new(year, 1, 1)?.at_midnight();
+                let checked_value_23 = y.checked_add(1)?;
+                y = checked_value_23;
+                let year: i32 = match y.try_into() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }?;
+                let checked_value_24 = CivilDate::new(year, 1, 1)?;
+                cur = checked_value_24.at_midnight();
             }
+
             let e = every.max(1);
+
             if e > 1 {
                 let rem = y.rem_euclid(e);
-                if rem != 0 {
-                    y = y.checked_add(e.checked_sub(rem)?)?;
-                    let year: i32 = y.try_into().ok()?;
-                    cur = CivilDate::new(year, 1, 1)?.at_midnight();
+
+                match rem {
+                    0 => {},
+                    _ => {
+                        let checked_value_26 = y.checked_add({ let checked_value_27 = e.checked_sub(rem)?; checked_value_27 })?;
+                        y = checked_value_26;
+                        let year: i32 = match y.try_into() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range_) => ::core::option::Option::None }?;
+                        let checked_value_29 = CivilDate::new(year, 1, 1)?;
+                        cur = checked_value_29.at_midnight();
+                    },
                 }
             }
+
             cur
         }
         _ => return None,
     };
 
-    Some(local_time_zone.resolve_local(start)?.timestamp_millis())
+    let checked_value_28 = local_time_zone.resolve_local(start)?;
+    Some(checked_value_28.timestamp_millis())
 }
 
+#[must_use]
 fn add_d3_time_day_every(ms: i64, every: i64, local_time_zone: &LocalTimeZone) -> Option<i64> {
-    let local = instant_to_local(ms, local_time_zone)?.local_datetime();
+    let checked_value = instant_to_local(ms, local_time_zone)?;
+    let local = checked_value.local_datetime();
 
     let e = every.max(1);
+
     if e <= 1 {
         return add_interval(ms, 1, "day", local_time_zone);
     }
 
-    // D3's `timeDay.every(e)` uses a filtered interval based on `(date.getDate() - 1) % e`.
-    // This means the modulus resets at month boundaries, and the "next tick" is not simply
-    // `+e days` for months with non-multiple-of-e lengths.
+
+
+
     let mut next_date = local.date().checked_add_days(1)?;
+
     while i64::from(next_date.day0()).rem_euclid(e) != 0 {
-        next_date = next_date.checked_add_days(1)?;
+        let checked_value_2 = next_date.checked_add_days(1)?;
+        next_date = checked_value_2;
     }
+
     let next = civil_with_time(next_date, local)?;
-    Some(local_time_zone.resolve_local(next)?.timestamp_millis())
+    let checked_value_3 = local_time_zone.resolve_local(next)?;
+    Some(checked_value_3.timestamp_millis())
 }
 
+#[must_use]
 fn axis_format_to_strftime(axis_format: &str, date_format: &str, cfg_axis_format: &str) -> String {
     if !axis_format.trim().is_empty() {
-        // Mermaid preserves any leading/trailing whitespace in `axisFormat` (it is treated as
-        // literal text by d3-time-format). Keep the raw string for DOM parity.
+
+
         return axis_format.to_string();
     }
+
     if date_format.trim() == "D" {
         return "%d".to_string();
     }
+
     if !cfg_axis_format.trim().is_empty() {
         return cfg_axis_format.to_string();
     }
+
     "%Y-%m-%d".to_string()
 }
 
 fn write_d3_padded(out: &mut String, value: i64, fill: Option<char>, width: usize) {
-    if value < 0 {
-        out.push('-');
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(value), &::core::convert::identity(0)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less => {
+            out.push('-');
+        },
+        ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
     }
+
     let absolute = value.unsigned_abs();
-    let digits = if absolute == 0 {
-        1
-    } else {
-        absolute.ilog10() as usize + 1
+    let digits = match absolute {
+        0 => {
+            1
+        },
+        _ => {
+            absolute.ilog10() as usize + 1
+        },
     };
-    if let Some(fill) = fill {
-        for _ in 0..width.saturating_sub(digits) {
-            out.push(fill);
-        }
+
+    match fill {
+        Some(fill_2) => {
+            for _ in 0..width.saturating_sub(digits) {
+                out.push(fill_2);
+            }
+        },
+        ::core::option::Option::None => {},
     }
+
     let _ = write!(out, "{absolute}");
 }
 
+#[must_use]
 fn d3_week_number(date: CivilDate, week_start: Weekday) -> u32 {
     let january_first = CivilDate::new(date.year(), 1, 1).expect("January 1 is always valid");
     let january_index = january_first.weekday().number_from_sunday() - 1;
     let start_index = week_start.number_from_sunday() - 1;
-    let first_start = (i64::from(start_index) - i64::from(january_index)).rem_euclid(7) as u32;
+    let first_start = ::core::primitive::i64::wrapping_sub(i64::from(start_index), i64::from(january_index)).rem_euclid(7) as u32;
     let ordinal0 = date.ordinal() - 1;
+
     if ordinal0 < first_start {
         0
     } else {
-        1 + (ordinal0 - first_start) / 7
+        ::core::primitive::u32::wrapping_add(1, ::core::primitive::u32::wrapping_div(ordinal0 - first_start, 7))
     }
 }
 
+#[must_use]
 fn format_axis_tick_label(datetime: OffsetDateTime, axis_format: &str) -> String {
     let mut out = String::new();
     format_axis_tick_label_into(datetime, datetime.local_datetime(), axis_format, &mut out);
@@ -742,20 +947,33 @@ fn format_axis_tick_label_into(
     let mut it = axis_format.chars().peekable();
 
     while let Some(ch) = it.next() {
-        if ch != '%' {
-            out.push(ch);
-            continue;
+        match ch {
+            '%' => {},
+            _ => {
+                out.push(ch);
+                continue;
+            },
         }
 
-        let Some(next) = it.next() else {
-            // d3-time-format drops an incomplete trailing directive.
-            break;
+        let next = {
+            let optional_next_2 = it.next();
+
+            match optional_next_2 {
+                Some(matched_next_2) => matched_next_2,
+                ::core::option::Option::None => break,
+            }
         };
 
         let (fill, directive) = if matches!(next, '-' | '_' | '0') {
-            let Some(directive) = it.next() else {
-                break;
+            let directive = {
+                let optional_directive = it.next();
+
+                match optional_directive {
+                    Some(matched_directive) => matched_directive,
+                    ::core::option::Option::None => break,
+                }
             };
+
             (
                 match next {
                     '-' => None,
@@ -765,7 +983,10 @@ fn format_axis_tick_label_into(
                 directive,
             )
         } else {
-            (Some(if next == 'e' { ' ' } else { '0' }), next)
+            (Some(match next {
+                'e' => { ' ' },
+                _ => { '0' },
+            }), next)
         };
 
         match directive {
@@ -779,12 +1000,15 @@ fn format_axis_tick_label_into(
                 write_d3_padded(out, i64::from(local.millisecond()), fill, 3);
                 out.push_str("000");
             }
-            'g' => write_d3_padded(out, local.date().iso_week().year() % 100, fill, 2),
-            'G' => write_d3_padded(out, local.date().iso_week().year() % 10_000, fill, 4),
+            'g' => write_d3_padded(out, ::core::primitive::i64::wrapping_rem(local.date().iso_week().year(), 100), fill, 2),
+            'G' => write_d3_padded(out, ::core::primitive::i64::wrapping_rem(local.date().iso_week().year(), 10_000), fill, 4),
             'H' => write_d3_padded(out, i64::from(local.hour()), fill, 2),
             'I' => {
-                let hour = local.hour() % 12;
-                write_d3_padded(out, i64::from(if hour == 0 { 12 } else { hour }), fill, 2);
+                let hour = ::core::primitive::u32::wrapping_rem(local.hour(), 12);
+                write_d3_padded(out, i64::from(match hour {
+                    0 => { 12 },
+                    _ => { hour },
+                }), fill, 2);
             }
             'j' => write_d3_padded(out, i64::from(local.date().ordinal()), fill, 3),
             'L' => write_d3_padded(out, i64::from(local.millisecond()), fill, 3),
@@ -792,7 +1016,7 @@ fn format_axis_tick_label_into(
             'M' => write_d3_padded(out, i64::from(local.minute()), fill, 2),
             'p' => out.push_str(if local.hour() >= 12 { "PM" } else { "AM" }),
             'q' => {
-                let _ = write!(out, "{}", (local.month0() / 3) + 1);
+                let _ = write!(out, "{}", ::core::primitive::u32::wrapping_add(::core::primitive::u32::wrapping_div(local.month0(), 3), 1));
             }
             'Q' => {
                 let _ = write!(out, "{}", datetime.timestamp_millis());
@@ -822,16 +1046,16 @@ fn format_axis_tick_label_into(
             ),
             'x' => format_axis_tick_label_into(datetime, local, "%-m/%-d/%Y", out),
             'X' => format_axis_tick_label_into(datetime, local, "%-I:%M:%S %p", out),
-            'y' => write_d3_padded(out, i64::from(local.year()) % 100, fill, 2),
-            'Y' => write_d3_padded(out, i64::from(local.year()) % 10_000, fill, 4),
+            'y' => write_d3_padded(out, ::core::primitive::i64::wrapping_rem(i64::from(local.year()), 100), fill, 2),
+            'Y' => write_d3_padded(out, ::core::primitive::i64::wrapping_rem(i64::from(local.year()), 10_000), fill, 4),
             'Z' => {
                 let seconds = datetime.offset().seconds();
                 let sign = if seconds < 0 { '-' } else { '+' };
-                let minutes = seconds.unsigned_abs() / 60;
-                let _ = write!(out, "{sign}{:02}{:02}", minutes / 60, minutes % 60);
+                let minutes = ::core::primitive::u32::wrapping_div(seconds.unsigned_abs(), 60);
+                let _ = write!(out, "{sign}{:02}{:02}", ::core::primitive::u32::wrapping_div(minutes, 60), ::core::primitive::u32::wrapping_rem(minutes, 60));
             }
             '%' => out.push('%'),
-            // d3-time-format emits the unknown directive character without the leading `%`.
+
             unknown => out.push(unknown),
         }
     }
@@ -848,6 +1072,7 @@ struct GanttTickRequest<'a> {
     local_time_zone: &'a LocalTimeZone,
 }
 
+#[must_use]
 fn build_ticks(request: GanttTickRequest<'_>) -> Vec<GanttAxisTickLayout> {
     let GanttTickRequest {
         min_ms,
@@ -861,6 +1086,7 @@ fn build_ticks(request: GanttTickRequest<'_>) -> Vec<GanttAxisTickLayout> {
     } = request;
     const MAX_TICK_COUNT: f64 = 10_000.0;
 
+    #[must_use]
     fn estimate_ticks(min_ms: i64, max_ms: i64, every: i64, unit: &str) -> f64 {
         if every <= 0 || min_ms > max_ms {
             return f64::INFINITY;
@@ -874,10 +1100,11 @@ fn build_ticks(request: GanttTickRequest<'_>) -> Vec<GanttAxisTickLayout> {
             "hour" => (every as f64) * 3_600_000.0,
             "day" => (every as f64) * (MS_PER_DAY as f64),
             "week" => (every as f64) * (MS_PER_DAY as f64) * 7.0,
-            // dayjs.duration({ month: n }).asMilliseconds() uses a fixed 30-day lattice.
+
             "month" => (every as f64) * (MS_PER_DAY as f64) * 30.0,
             _ => return f64::INFINITY,
         };
+
         if interval_ms <= 0.0 {
             return f64::INFINITY;
         }
@@ -885,13 +1112,13 @@ fn build_ticks(request: GanttTickRequest<'_>) -> Vec<GanttAxisTickLayout> {
         (time_diff_ms / interval_ms).ceil()
     }
 
-    // Mermaid skips applying custom ticks when the interval would generate an excessive amount of
-    // tick marks (it falls back to d3's automatic tick selection instead).
+
+
     let parsed = tick_interval
         .and_then(parse_tick_interval)
         .filter(|(every, unit)| estimate_ticks(min_ms, max_ms, *every, unit) <= MAX_TICK_COUNT);
     let (every, unit) = parsed.unwrap_or_else(|| auto_tick_interval(min_ms, max_ms));
-    let week_start = if parsed.is_some() && unit == "week" {
+    let week_start_2 = if parsed.is_some() && unit == "week" {
         week_start
     } else {
         None
@@ -899,16 +1126,23 @@ fn build_ticks(request: GanttTickRequest<'_>) -> Vec<GanttAxisTickLayout> {
 
     let mut ticks = Vec::new();
     let mut cur =
-        ceil_tick_start(min_ms, every, unit, week_start, local_time_zone).unwrap_or(min_ms);
+        match ceil_tick_start(min_ms, every, unit, week_start_2, local_time_zone) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => min_ms,
+        };
     let max_ticks = 2000;
+
     for _ in 0..max_ticks {
         if cur > max_ms {
             break;
         }
+
         let x = scale_time(cur, min_ms, max_ms, range) + left_padding;
-        let label = instant_to_local(cur, local_time_zone)
-            .map(|datetime| format_axis_tick_label(datetime, axis_format))
-            .unwrap_or_default();
+        let label = match instant_to_local(cur, local_time_zone)
+            .map(|datetime| format_axis_tick_label(datetime, axis_format)) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
         ticks.push(GanttAxisTickLayout {
             time_ms: cur,
             x,
@@ -919,14 +1153,19 @@ fn build_ticks(request: GanttTickRequest<'_>) -> Vec<GanttAxisTickLayout> {
         } else {
             add_interval(cur, every, unit, local_time_zone)
         };
-        let Some(next) = next else {
-            break;
+
+        let next_2 = match next {
+            Some(matched_next) => matched_next,
+            ::core::option::Option::None => break,
         };
-        if next <= cur {
+
+        if next_2 <= cur {
             break;
         }
-        cur = next;
+
+        cur = next_2;
     }
+
     ticks
 }
 
@@ -935,17 +1174,28 @@ fn build_ticks(request: GanttTickRequest<'_>) -> Vec<GanttAxisTickLayout> {
 /// In particular, `index % 0` is `NaN` in JavaScript rather than a thrown division error. The
 /// class suffix is observable in Mermaid SVG, so preserve that behavior at the language boundary
 /// instead of relying on Rust's integer remainder operator at every call site.
+#[must_use]
 pub(crate) fn gantt_section_class_suffix(
     task_type: &str,
     categories: &[String],
     number_section_styles: i64,
 ) -> String {
-    let Some(index) = categories.iter().position(|category| category == task_type) else {
-        return "0".to_string();
+    let index = {
+        let optional_index = categories.iter().position(|category| category == task_type);
+
+        match optional_index {
+            Some(matched_index) => matched_index,
+            ::core::option::Option::None => return "0".to_string(),
+        }
     };
-    if number_section_styles == 0 {
-        return "NaN".to_string();
+
+    match number_section_styles {
+        0 => {
+            return "NaN".to_string();
+        },
+        _ => {},
     }
+
     ((index as i64) % number_section_styles).to_string()
 }
 
@@ -963,41 +1213,71 @@ pub(crate) fn layout_gantt_diagram_typed(
             message: "Gantt task theme count did not match the semantic model".to_string(),
         });
     }
+
     let mut m = model.clone();
     let title = m.title.as_deref().or(diagram_title).map(str::to_owned);
 
     let gantt_cfg = config.get("gantt").unwrap_or(config);
-    let bar_gap = cfg_f64(gantt_cfg, &["barGap"]).unwrap_or(4.0);
-    let bar_height = cfg_f64(gantt_cfg, &["barHeight"]).unwrap_or(20.0);
-    let top_padding = cfg_f64(gantt_cfg, &["topPadding"]).unwrap_or(50.0);
-    let left_padding = cfg_f64(gantt_cfg, &["leftPadding"]).unwrap_or(75.0);
-    let right_padding = cfg_f64(gantt_cfg, &["rightPadding"]).unwrap_or(75.0);
-    let grid_line_start_padding = cfg_f64(gantt_cfg, &["gridLineStartPadding"]).unwrap_or(35.0);
-    let title_top_margin = cfg_f64(gantt_cfg, &["titleTopMargin"]).unwrap_or(25.0);
+    let bar_gap = match cfg_f64(gantt_cfg, &["barGap"]) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 4.0,
+    };
+    let bar_height = match cfg_f64(gantt_cfg, &["barHeight"]) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 20.0,
+    };
+    let top_padding = match cfg_f64(gantt_cfg, &["topPadding"]) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 50.0,
+    };
+    let left_padding = match cfg_f64(gantt_cfg, &["leftPadding"]) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 75.0,
+    };
+    let right_padding = match cfg_f64(gantt_cfg, &["rightPadding"]) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 75.0,
+    };
+    let grid_line_start_padding = match cfg_f64(gantt_cfg, &["gridLineStartPadding"]) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 35.0,
+    };
+    let title_top_margin = match cfg_f64(gantt_cfg, &["titleTopMargin"]) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 25.0,
+    };
     let font_size = task_theme.css_binding().task_font_size;
     let section_font_size = task_theme.css_binding().section_font_size;
-    let number_section_styles = cfg_i64(gantt_cfg, &["numberSectionStyles"]).unwrap_or(4);
+    let number_section_styles = match cfg_i64(gantt_cfg, &["numberSectionStyles"]) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 4,
+    };
 
     let cfg_display_mode = gantt_cfg
         .get("displayMode")
         .and_then(|v| v.as_str())
         .unwrap_or("")
         .to_string();
-    let cfg_top_axis = cfg_bool(gantt_cfg, &["topAxis"]).unwrap_or(false);
+    let cfg_top_axis = match cfg_bool(gantt_cfg, &["topAxis"]) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => false,
+    };
     let cfg_axis_format = gantt_cfg
         .get("axisFormat")
         .and_then(|v| v.as_str())
         .unwrap_or("%Y-%m-%d");
 
-    let container_width = if container_width.is_finite() && container_width > 0.0 {
+    let container_width_2 = if container_width.is_finite() && container_width > 0.0 {
         container_width
     } else {
         DEFAULT_CONTAINER_WIDTH
     };
-    let width = gantt_cfg
+    let width = match gantt_cfg
         .get("useWidth")
-        .and_then(|v| v.as_f64())
-        .unwrap_or(container_width);
+        .and_then(|v| v.as_f64()) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => container_width_2,
+    };
     let gap = bar_height + bar_gap;
 
     let row_task_count = m.tasks.iter().filter(|task| !task.vert).count();
@@ -1005,13 +1285,16 @@ pub(crate) fn layout_gantt_diagram_typed(
     let is_compact = m.display_mode == "compact" || cfg_display_mode == "compact";
 
     let mut category_heights: Vec<(String, i64)> = Vec::new();
+
     if is_compact {
         let mut section_order: Vec<String> = Vec::new();
         let mut section_map: HashMap<String, Vec<usize>> = HashMap::new();
+
         for (idx, t) in m.tasks.iter().enumerate() {
             if t.vert {
                 continue;
             }
+
             match section_map.entry(t.section.clone()) {
                 Entry::Occupied(mut entry) => entry.get_mut().push(idx),
                 Entry::Vacant(entry) => {
@@ -1022,14 +1305,20 @@ pub(crate) fn layout_gantt_diagram_typed(
         }
 
         let mut order_offset: i64 = 0;
+
         for sec in section_order {
-            let idxs = section_map.get(&sec).cloned().unwrap_or_default();
+            let idxs = match section_map.get(&sec).cloned() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            };
             let mut subset: Vec<GanttRenderTask> =
                 idxs.iter().map(|&i| m.tasks[i].clone()).collect();
             let max_i = get_max_intersections(&mut subset, order_offset);
+
             for (pos, &orig_idx) in idxs.iter().enumerate() {
                 m.tasks[orig_idx].order = subset[pos].order;
             }
+
             let height = max_i + 1;
             order_offset += height;
             category_heights.push((sec, height));
@@ -1046,6 +1335,7 @@ pub(crate) fn layout_gantt_diagram_typed(
     }
 
     let mut height = 2.0 * top_padding;
+
     if is_compact {
         for (_k, h) in &category_heights {
             height += *h as f64 * gap;
@@ -1056,33 +1346,46 @@ pub(crate) fn layout_gantt_diagram_typed(
 
     let has_tasks = !m.tasks.is_empty();
     let (min_ms, max_ms) = if has_tasks {
-        let min_ms = m.tasks.iter().map(|t| t.start_ms).min().unwrap_or(0);
-        let max_ms = m.tasks.iter().map(|t| t.end_ms).max().unwrap_or(min_ms);
+        let min_ms = match m.tasks.iter().map(|t| t.start_ms).min() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        };
+        let max_ms = match m.tasks.iter().map(|t| t.end_ms).max() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => min_ms,
+        };
         (min_ms, max_ms)
     } else {
         (0, 0)
     };
     let range = (width - left_padding - right_padding).max(1.0);
     let span_ms = absolute_millis_between(max_ms, min_ms);
-    let max_exclude_span_ms = i128::from(MS_PER_DAY) * 365 * 5;
+    let max_exclude_span_ms = ::core::primitive::i128::wrapping_mul(::core::primitive::i128::wrapping_mul(i128::from(MS_PER_DAY), 365), 5);
     let has_excludes_layer = has_tasks
         && (!m.excludes.is_empty() || !m.includes.is_empty())
         && span_ms <= max_exclude_span_ms;
 
-    // Sort by start time for rendering while retaining the source semantic occurrence. Theme
-    // selectors are resolved against source order, so a render-order index is not interchangeable
-    // with the semantic occurrence index.
+
+
+
     let mut indexed_tasks = std::mem::take(&mut m.tasks)
         .into_iter()
         .enumerate()
         .collect::<Vec<_>>();
     indexed_tasks.sort_by_key(|(_, task)| task.start_ms);
 
-    // Exclude day ranges.
+
     let mut excludes_layout: Vec<GanttExcludeRangeLayout> = Vec::new();
+
     if has_excludes_layer {
-        let mut cur = start_of_day_ms(min_ms, local_time_zone).unwrap_or(min_ms);
-        let max_day = start_of_day_ms(max_ms, local_time_zone).unwrap_or(max_ms);
+        let mut cur = match start_of_day_ms(min_ms, local_time_zone) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => min_ms,
+        };
+        let max_day = match start_of_day_ms(max_ms, local_time_zone) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => max_ms,
+        };
         let mut range_start: Option<i64> = None;
         let mut range_end: Option<i64> = None;
         let mut append_range = |start_ms: i64, last_day_ms: i64| {
@@ -1092,7 +1395,10 @@ pub(crate) fn layout_gantt_diagram_typed(
                     .unwrap_or_else(|| "invalid".to_string())
             );
             let x0 = scale_time(start_ms, min_ms, max_ms, range) + left_padding;
-            let end_ms = end_of_day_ms(last_day_ms, local_time_zone).unwrap_or(last_day_ms);
+            let end_ms = match end_of_day_ms(last_day_ms, local_time_zone) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => last_day_ms,
+            };
             let x1 = scale_time(end_ms, min_ms, max_ms, range) + left_padding;
             excludes_layout.push(GanttExcludeRangeLayout {
                 id,
@@ -1114,52 +1420,70 @@ pub(crate) fn layout_gantt_diagram_typed(
                 &m.weekend,
                 local_time_zone,
             );
+
             if invalid {
-                if range_start.is_none() {
-                    range_start = Some(cur);
-                    range_end = Some(cur);
-                } else {
-                    range_end = Some(cur);
+                match range_start {
+                    ::core::option::Option::None => {
+                        range_start = Some(cur);
+                        range_end = Some(cur);
+                    },
+                    ::core::option::Option::Some(_) => {
+                        range_end = Some(cur);
+                    },
                 }
             } else if let (Some(start_ms), Some(last_day_ms)) =
                 (range_start.take(), range_end.take())
             {
                 append_range(start_ms, last_day_ms);
             }
-            let Some(next) = add_local_days_ms(cur, 1, local_time_zone) else {
-                break;
+
+            let next = {
+                let optional_next = add_local_days_ms(cur, 1, local_time_zone);
+
+                match optional_next {
+                    Some(matched_next) => matched_next,
+                    ::core::option::Option::None => break,
+                }
             };
+
             if next <= cur {
                 break;
             }
+
             cur = next;
         }
-        // Mermaid only materializes a range when a later valid day closes it.
-        // A trailing invalid range therefore remains absent from the SVG.
+
+
+
     }
 
-    // Background rows.
-    //
-    // Mermaid draws the row rectangles by iterating the tasks in their render order (sorted by
-    // `startTime`). This means the row insertion order is *not* necessarily ascending by `order`
-    // (e.g. forward references can cause `order=0` to have the latest start date).
+
+
+
+
+
     let mut row_orders: Vec<i64> = Vec::new();
+
     for (_, t) in &indexed_tasks {
         if t.vert {
             continue;
         }
+
         if !row_orders.contains(&t.order) {
             row_orders.push(t.order);
         }
     }
 
     let mut rows: Vec<GanttRowLayout> = Vec::new();
+
     for order in &row_orders {
-        let ttype = indexed_tasks
+        let ttype = match indexed_tasks
             .iter()
             .find(|(_, t)| t.order == *order)
-            .map(|(_, t)| t.task_type.clone())
-            .unwrap_or_default();
+            .map(|(_, t)| t.task_type.clone()) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
 
         let sec_num = gantt_section_class_suffix(&ttype, &categories, number_section_styles);
 
@@ -1174,11 +1498,11 @@ pub(crate) fn layout_gantt_diagram_typed(
         });
     }
 
-    // Tasks (bars + labels).
-    // Mermaid gantt task labels inherit the diagram font family (defaulting to
-    // `"trebuchet ms", verdana, arial, sans-serif`), not the axis group's `sans-serif`.
-    // The family-local theme plan owns this value so measurement and terminal CSS share one
-    // resolved winner.
+
+
+
+
+
     let task_font_family = task_theme.font_family_css().to_string();
     let text_style = TextStyle {
         font_family: Some(task_font_family.clone()),
@@ -1188,6 +1512,7 @@ pub(crate) fn layout_gantt_diagram_typed(
     };
 
     let mut tasks: Vec<GanttTaskLayout> = Vec::new();
+
     for (semantic_task_index, t) in &indexed_tasks {
         let task_radius = task_theme
             .radius_px(*semantic_task_index)
@@ -1197,6 +1522,7 @@ pub(crate) fn layout_gantt_diagram_typed(
         let render_end_x = scale_time(t.render_end_ms.unwrap_or(t.end_ms), min_ms, max_ms, range);
 
         let mut bar_x = start_x + left_padding;
+
         if t.milestone {
             bar_x = start_x + left_padding + 0.5 * (end_x - start_x) - 0.5 * bar_height;
         }
@@ -1223,13 +1549,17 @@ pub(crate) fn layout_gantt_diagram_typed(
 
         let task_state_class = GanttTaskBarState::from_task(t).bar_class_prefix();
         let mut task_class = format!(" {task_state_class}");
+
         if t.milestone {
             task_class = format!(" milestone{task_class}");
         }
+
         if t.vert {
             task_class = format!(" vert{task_class}");
         }
+
         task_class.push_str(&sec_num.to_string());
+
         if !t.classes.is_empty() {
             task_class.push(' ');
             task_class.push_str(&t.classes.join(" "));
@@ -1246,20 +1576,22 @@ pub(crate) fn layout_gantt_diagram_typed(
             class: format!("task{task_class}"),
         };
 
-        // Mermaid measures `textWidth` via `this.getBBox().width`, which does not include trailing
-        // whitespace. Preserve the original task text for rendering, but trim it for measurement.
+
+
         let text_width = text_measurer
             .measure_svg_raw_text_bbox_width_px(t.task.trim_end(), &text_style)
             .max(0.0);
 
-        // Mermaid uses `renderEndTime` for the X-position calculation but `endTime` for the class
-        // overflow check. Mirror this quirk for DOM parity.
+
+
         let mut start_x_for_label = start_x;
         let mut end_x_for_label = render_end_x;
+
         if t.milestone {
             start_x_for_label += 0.5 * (end_x - start_x) - 0.5 * bar_height;
             end_x_for_label = start_x_for_label + bar_height;
         }
+
         let start_x_for_class = start_x;
         let end_x_for_class = if t.milestone {
             start_x + bar_height
@@ -1291,8 +1623,8 @@ pub(crate) fn layout_gantt_diagram_typed(
             format!("{} ", t.classes.join(" "))
         };
 
-        // Mermaid checks overflow for both horizontal and vertical labels:
-        // `if (textWidth > endX - startX) { ... }` (Mermaid@11.12.2 ganttRenderer.js).
+
+
         let class_overflows = text_width > (end_x_for_class - start_x_for_class).abs();
         let outside_left =
             class_overflows && (end_x_for_class + text_width + 1.5 * left_padding > width);
@@ -1334,9 +1666,10 @@ pub(crate) fn layout_gantt_diagram_typed(
         });
     }
 
-    // Section titles.
+
     let mut section_titles: Vec<GanttSectionTitleLayout> = Vec::new();
     let mut prev_gap: i64 = 0;
+
     for (idx, (sec, h)) in category_heights.iter().enumerate() {
         let lines = mermaid_html_breaks_to_newlines(sec)
             .split('\n')
@@ -1346,11 +1679,14 @@ pub(crate) fn layout_gantt_diagram_typed(
 
         let sec_num = gantt_section_class_suffix(sec, &categories, number_section_styles);
 
-        let y = if idx == 0 {
-            (*h as f64 * gap) / 2.0 + top_padding
-        } else {
-            prev_gap += category_heights[idx - 1].1;
-            (*h as f64 * gap) / 2.0 + prev_gap as f64 * gap + top_padding
+        let y = match idx {
+            0 => {
+                (*h as f64 * gap) / 2.0 + top_padding
+            },
+            _ => {
+                prev_gap += category_heights[idx - 1].1;
+                (*h as f64 * gap) / 2.0 + prev_gap as f64 * gap + top_padding
+            },
         };
 
         section_titles.push(GanttSectionTitleLayout {

@@ -30,26 +30,32 @@ pub(crate) fn collect_lexical_events<S: TokenScanner>(
 ) -> crate::OperationControlResult<Vec<S::Event>> {
     let mut events = Vec::new();
     let mut steps = 0usize;
+
     loop {
         if steps.is_multiple_of(128) {
             control.checkpoint()?;
         }
+
         match scanner.scan_step() {
             ScanStep::Emit(event) => events.push(event),
             ScanStep::Skip => {}
             ScanStep::End => break,
         }
+
         steps = steps.wrapping_add(1);
     }
+
     control.checkpoint()?;
     Ok(events)
 }
 
+#[must_use]
 pub(crate) fn strip_line_ending(segment: &str) -> &str {
-    let segment = segment.strip_suffix('\n').unwrap_or(segment);
-    segment.strip_suffix('\r').unwrap_or(segment)
+    let segment_2 = segment.strip_suffix('\n').unwrap_or(segment);
+    segment_2.strip_suffix('\r').unwrap_or(segment_2)
 }
 
+#[must_use]
 pub(crate) fn consume_line_ending(source: &str, offset: usize) -> Option<usize> {
     match source.as_bytes().get(offset).copied()? {
         b'\r' if source.as_bytes().get(offset + 1) == Some(&b'\n') => Some(offset + 2),
@@ -66,6 +72,7 @@ pub(crate) struct LineCursor<'a> {
 }
 
 impl<'a> LineCursor<'a> {
+    #[must_use]
     pub(crate) fn new(code: &'a str) -> Self {
         Self {
             source: code,
@@ -76,9 +83,13 @@ impl<'a> LineCursor<'a> {
     }
 
     pub(crate) fn next_line(&mut self) -> Option<(&'a str, usize)> {
-        if let Some((start, end)) = self.same_line_remainder.take() {
-            return Some((strip_line_ending(&self.source[start..end]), start));
+        match self.same_line_remainder.take() {
+            Some((start, end)) => {
+                return Some((strip_line_ending(&self.source[start..end]), start));
+            },
+            ::core::option::Option::None => {},
         }
+
         let segment = self.segments.next()?;
         let line_start = self.offset;
         self.offset += segment.len();
@@ -100,11 +111,13 @@ impl<'a> LineCursor<'a> {
         self.same_line_remainder = Some((start, end));
     }
 
+    #[must_use]
     pub(crate) fn offset(&self) -> usize {
         self.offset
     }
 }
 
+#[must_use]
 pub(crate) fn physical_line_at(source: &str, offset: usize) -> (&str, usize) {
     let rest = &source[offset..];
     let (segment, next_offset) = match rest.find('\n') {
@@ -114,10 +127,12 @@ pub(crate) fn physical_line_at(source: &str, offset: usize) -> (&str, usize) {
     (strip_line_ending(segment), next_offset)
 }
 
+#[must_use]
 pub(crate) fn starts_with_case_insensitive(haystack: &str, needle: &str) -> bool {
     if haystack.len() < needle.len() {
         return false;
     }
+
     haystack
         .as_bytes()
         .iter()
@@ -131,36 +146,44 @@ pub(crate) fn starts_with_case_insensitive(haystack: &str, needle: &str) -> bool
             .map(|b| b.to_ascii_lowercase()))
 }
 
+#[must_use]
 pub(crate) fn split_indent_by<F>(line: &str, mut is_indent_char: F) -> (usize, &str)
 where
     F: FnMut(char) -> bool,
 {
     let mut indent_chars = 0usize;
     let mut byte_idx = line.len();
+
     for (idx, ch) in line.char_indices() {
         if is_indent_char(ch) {
             indent_chars += 1;
             continue;
         }
+
         byte_idx = idx;
         break;
     }
+
     if indent_chars == 0 {
         byte_idx = 0;
     } else if byte_idx == line.len() {
         byte_idx = line.len();
     }
+
     (indent_chars, &line[byte_idx..])
 }
 
+#[must_use]
 pub(crate) fn split_indent(line: &str) -> (usize, &str) {
     split_indent_by(line, char::is_whitespace)
 }
 
+#[must_use]
 pub(crate) fn split_ascii_indent(line: &str) -> (usize, &str) {
     split_indent_by(line, |ch| matches!(ch, ' ' | '\t'))
 }
 
+#[must_use]
 pub(crate) fn leading_whitespace_len(s: &str) -> usize {
     s.chars()
         .take_while(|ch| ch.is_whitespace())
@@ -168,18 +191,22 @@ pub(crate) fn leading_whitespace_len(s: &str) -> usize {
         .sum()
 }
 
+#[must_use]
 pub(crate) fn is_ecmascript_inline_whitespace(ch: char) -> bool {
     is_ecmascript_whitespace(ch) && !matches!(ch, '\r' | '\n')
 }
 
+#[must_use]
 pub(crate) fn split_statement_suffix_hash_or_semi(s: &str) -> &str {
     let mut end = s.len();
+
     for (i, c) in s.char_indices() {
         if c == '#' || c == ';' {
             end = i;
             break;
         }
     }
+
     &s[..end]
 }
 

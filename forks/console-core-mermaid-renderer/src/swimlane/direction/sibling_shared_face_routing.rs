@@ -25,6 +25,7 @@ enum ShiftAxis {
     Y,
 }
 
+#[must_use]
 fn crowds_face_neighbour(
     edges: &[WorkingEdge],
     edge_index: usize,
@@ -47,7 +48,8 @@ fn crowds_face_neighbour(
     };
     let side = |point: &LayoutPoint| {
         let delta = across(point) - centre_across;
-        if delta == 0.0 { 0.0 } else { delta.signum() }
+
+        if ::core::matches!(::core::primitive::f64::classify(delta), ::core::num::FpCategory::Zero) { 0.0 } else { delta.signum() }
     };
     edges
         .iter()
@@ -65,6 +67,7 @@ fn crowds_face_neighbour(
         })
 }
 
+#[must_use]
 fn pair_key<'a>(first: &'a str, second: &'a str) -> (&'a str, &'a str) {
     if first < second {
         (first, second)
@@ -85,22 +88,37 @@ fn label_clearance_for(
     let target_pair = pair_key(source_id, destination_id);
     let mut maximum_half_extent: f64 = 0.0;
     work_budget.charge(edges.len())?;
+
     for (other_index, edge) in edges.iter().enumerate() {
         if other_index != edge_index && pair_key(&edge.from, &edge.to) != target_pair {
             continue;
         }
-        let Some(label_node_id) = edge.label_node_id.as_deref() else {
-            continue;
+
+        let label_node_id = {
+            let optional_label_node_id = edge.label_node_id.as_deref();
+
+            match optional_label_node_id {
+                Some(matched_label_node_id) => matched_label_node_id,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(dimensions) = label_dimensions_by_id.get(label_node_id) else {
-            continue;
+
+        let dimensions = {
+            let optional_dimensions = label_dimensions_by_id.get(label_node_id);
+
+            match optional_dimensions {
+                Some(matched_dimensions) => matched_dimensions,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let half_extent = match axis {
             ShiftAxis::X => dimensions.width / 2.0,
             ShiftAxis::Y => dimensions.height / 2.0,
         };
         maximum_half_extent = maximum_half_extent.max(half_extent);
     }
+
     if maximum_half_extent > 0.0 {
         Ok(maximum_half_extent + LABEL_CLEARANCE_BUFFER)
     } else {
@@ -132,14 +150,23 @@ pub(super) fn straighten_collinear_sibling_detours(
         .collect::<HashMap<_, _>>();
 
     work_budget.charge(layout.original_edges.len())?;
+
     for edge_index in 0..layout.original_edges.len() {
         let edge = layout.original_edges[edge_index].clone();
+
         if classify_three_segment_route(&edge.points, EPSILON).is_none() {
             continue;
         }
-        let Some(node_pair) = get_node_pair_geometry(&edge, &node_info_by_id, EPSILON) else {
-            continue;
+
+        let node_pair = {
+            let optional_node_pair = get_node_pair_geometry(&edge, &node_info_by_id, EPSILON);
+
+            match optional_node_pair {
+                Some(matched_node_pair) => matched_node_pair,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if node_pair.collinear_x == node_pair.collinear_y {
             continue;
         }
@@ -189,6 +216,7 @@ pub(super) fn straighten_collinear_sibling_detours(
         };
         let excluded_node_ids = [node_pair.src_id.as_str(), node_pair.dst_id.as_str()];
         work_budget.charge(real_node_rects.len())?;
+
         if segment_hits_any_rect(
             &target_source,
             &target_destination,
@@ -210,36 +238,41 @@ pub(super) fn straighten_collinear_sibling_detours(
         )?;
         let effective_shift = label_shift.max(PORT_SHIFT);
         let mut crowded = None;
-        for delta in [0.0, effective_shift, -effective_shift] {
+
+        'over_delta_2: for delta in [0.0, effective_shift, -effective_shift] {
             let mut shifted_source = target_source.clone();
             let mut shifted_destination = target_destination.clone();
+
             match shift_axis {
                 ShiftAxis::X => {
                     shifted_source.x += delta;
                     shifted_destination.x += delta;
+
                     if shifted_source.x <= node_pair.src_info.rect.left
                         || shifted_source.x >= node_pair.src_info.rect.right
                         || shifted_destination.x <= node_pair.dst_info.rect.left
                         || shifted_destination.x >= node_pair.dst_info.rect.right
                     {
-                        continue;
+                        continue 'over_delta_2;
                     }
                 }
                 ShiftAxis::Y => {
                     shifted_source.y += delta;
                     shifted_destination.y += delta;
+
                     if shifted_source.y <= node_pair.src_info.rect.top
                         || shifted_source.y >= node_pair.src_info.rect.bottom
                         || shifted_destination.y <= node_pair.dst_info.rect.top
                         || shifted_destination.y >= node_pair.dst_info.rect.bottom
                     {
-                        continue;
+                        continue 'over_delta_2;
                     }
                 }
             }
 
             work_budget.charge(1)?;
             work_budget.charge(real_node_rects.len())?;
+
             if segment_hits_any_rect(
                 &shifted_source,
                 &shifted_destination,
@@ -247,9 +280,11 @@ pub(super) fn straighten_collinear_sibling_detours(
                 &excluded_node_ids,
                 1.0,
             ) {
-                continue;
+                continue 'over_delta_2;
             }
+
             work_budget.charge(layout.original_edges.len())?;
+
             if segment_conflicts_with_any_edge(
                 &shifted_source,
                 &shifted_destination,
@@ -258,7 +293,7 @@ pub(super) fn straighten_collinear_sibling_detours(
                 EPSILON,
                 false,
             ) {
-                continue;
+                continue 'over_delta_2;
             }
 
             work_budget.charge(layout.original_edges.len().saturating_mul(2))?;
@@ -278,19 +313,30 @@ pub(super) fn straighten_collinear_sibling_detours(
                 shift_axis,
             );
             let rescued = vec![shifted_source, shifted_destination];
+
             if crowds {
-                if crowded.is_none() {
-                    crowded = Some(rescued);
+                match crowded {
+                    ::core::option::Option::None => {
+                        crowded = Some(rescued);
+                    },
+                    ::core::option::Option::Some(_) => {},
                 }
-                continue;
+
+                continue 'over_delta_2;
             }
+
             crowded = Some(rescued);
-            break;
+            break 'over_delta_2;
         }
-        if let Some(points) = crowded {
-            layout.original_edges[edge_index].points = points;
+
+        match crowded {
+            Some(points) => {
+                layout.original_edges[edge_index].points = points;
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     Ok(())
 }
 

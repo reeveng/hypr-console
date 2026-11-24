@@ -10,13 +10,19 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_icon(
     label: &super::super::FlowchartNodeLabelState<'_>,
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) -> crate::Result<super::super::emission::FlowchartNodeLabelEmissionReceipt> {
-    // Port of Mermaid `icon.ts` (`icon-shape default`).
+
     let has_label = !label.text.is_empty();
     let label_padding = if has_label { 8.0 } else { 0.0 };
     let top_label = common.node_pos == Some("t");
 
-    let asset_h = common.node_asset_height.unwrap_or(48.0);
-    let asset_w = common.node_asset_width.unwrap_or(48.0);
+    let asset_h = match common.node_asset_height {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 48.0,
+    };
+    let asset_w = match common.node_asset_width {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 48.0,
+    };
     let icon_size = asset_h.max(asset_w);
 
     let height = icon_size;
@@ -26,12 +32,13 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_icon(
     let mut metrics = common
         .label_emission
         .metrics(ctx, Some(common.layout_node), label);
+
     if !has_label {
         metrics.width = 0.0;
         metrics.height = 0.0;
     }
 
-    // Mermaid's `labelHelper(...)` wraps icon labels in `.labelBkg` (2px padding).
+
     let label_bbox_w = metrics.width + if has_label { 4.0 } else { 0.0 };
     let label_bbox_h = metrics.height + if has_label { 4.0 } else { 0.0 };
 
@@ -44,7 +51,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_icon(
         -label_bbox_h / 2.0 - label_padding / 2.0
     };
 
-    // Icon border/background (Mermaid uses RoughJS `rc.rectangle(...)` with stroke/fill "none").
+
     let icon_path = format!(
         "M{} {} L{} {} L{} {} L{} {}",
         fmt(x),
@@ -95,35 +102,40 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_icon(
         label_bbox_h,
     );
 
-    // Outer bbox helper node (transparent fill, no stroke) — emitted after the label group.
+
     let _ = write!(
         out,
         r#"<g><path d="{}" stroke="none" stroke-width="0" fill="transparent"/></g>"#,
         escape_attr(&outer_path)
     );
 
-    if let Some(icon_name) = common.node_icon.filter(|icon| !icon.trim().is_empty()) {
-        let icon_tx = -icon_size / 2.0;
-        let icon_ty = icon_dy - icon_size / 2.0;
-        let icon_svg = super::super::helpers::icon_svg_or_placeholder(
-            ctx,
-            common.node_id,
-            icon_name,
-            icon_size,
-        )?;
-        let _ = write!(
-            out,
-            r#"<g transform="translate({},{})" style="color: {};"><g>{}</g></g>"#,
-            fmt(icon_tx),
-            fmt(icon_ty),
-            escape_attr(common.stroke_color),
-            icon_svg,
-        );
+    match common.node_icon.filter(|icon| !icon.trim().is_empty()) {
+        Some(icon_name) => {
+            let icon_tx = -icon_size / 2.0;
+            let icon_ty = icon_dy - icon_size / 2.0;
+            let icon_svg = super::super::helpers::icon_svg_or_placeholder(
+                ctx,
+                common.node_id,
+                icon_name,
+                icon_size,
+            )?;
+            let _ = write!(
+                out,
+                r#"<g transform="translate({},{})" style="color: {};"><g>{}</g></g>"#,
+                fmt(icon_tx),
+                fmt(icon_ty),
+                escape_attr(common.stroke_color),
+                icon_svg,
+            );
+        },
+        ::core::option::Option::None => {},
     }
 
     out.push_str("</g>");
+
     if common.wrapped_in_a {
         out.push_str("</a>");
     }
+
     Ok(label_receipt)
 }

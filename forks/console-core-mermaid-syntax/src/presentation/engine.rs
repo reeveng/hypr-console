@@ -31,6 +31,7 @@ struct SiteConfigInitialization {
 }
 
 impl SiteConfigInitialization {
+    #[must_use]
     fn for_pristine_install(&self, overrides: &SourcePresentationConfig) -> Self {
         let mut initialized = self.clone();
         initialized
@@ -39,22 +40,33 @@ impl SiteConfigInitialization {
         initialized
             .site_config
             .refresh_initialization_mutations_after(&generated::default_presentation_config());
-        if let Ok(effective) = &mut initialized.default_effective_config {
-            effective.inherit_initialization_mutation_epochs(&initialized.site_config);
+
+        match &mut initialized.default_effective_config {
+            Ok(effective) => {
+                effective.inherit_initialization_mutation_epochs(&initialized.site_config);
+            },
+            ::core::result::Result::Err(_) => {},
         }
+
         initialized
     }
 
+    #[must_use]
     fn new(
         theme_config: Option<SourcePresentationConfig>,
         overrides: &SourcePresentationConfig,
     ) -> Self {
         let mut site_config = generated::default_presentation_config();
         let mut initialization_inputs = SourcePresentationConfig::empty_object();
-        if let Some(theme_config) = theme_config {
-            initialization_inputs.deep_merge(theme_config.as_value());
-            merge_theme_compatibility_config(&mut site_config, theme_config);
+
+        match theme_config {
+            Some(theme_config_2) => {
+                initialization_inputs.deep_merge(theme_config_2.as_value());
+                merge_theme_compatibility_config(&mut site_config, theme_config_2);
+            },
+            ::core::option::Option::None => {},
         }
+
         initialization_inputs.deep_merge(overrides.as_value());
         merge_site_config_override(&mut site_config, overrides.clone());
         let default_effective_config = build_default_effective_config(&site_config);
@@ -79,8 +91,8 @@ fn merge_site_config_override(
     mut site_config: SourcePresentationConfig,
 ) {
     site_config.mirror_legacy_font_family();
-    // initialize() normalizes an unknown global theme before it becomes a user layer.
-    // Scoped themes instead fall through during diagram appearance resolution.
+
+
     if site_config.as_value().get("theme").is_some_and(|value| {
         !value.is_null()
             && !value
@@ -90,6 +102,7 @@ fn merge_site_config_override(
     {
         site_config.set_value("theme", theme.clone());
     }
+
     let explicit_secure_policy = site_config
         .as_value()
         .get("secure")
@@ -97,11 +110,14 @@ fn merge_site_config_override(
         .map(crate::json_value::clone_value_nonrecursive);
     target.deep_merge_explicit(site_config.as_value());
 
-    // Merman adds host-level hardening beyond Mermaid's upstream defaults. An explicit site
-    // policy is host authority, so it replaces that added list after the source-compatible array
-    // merge instead of making the hardening impossible to opt out of.
-    if let Some(secure) = explicit_secure_policy {
-        target.set_value_explicit("secure", secure);
+
+
+
+    match explicit_secure_policy {
+        Some(secure) => {
+            target.set_value_explicit("secure", secure);
+        },
+        ::core::option::Option::None => {},
     }
 }
 
@@ -219,13 +235,14 @@ impl Default for MermaidEngine {
 
 impl MermaidEngine {
     /// Creates an engine using the pinned Mermaid baseline registries and default site config.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Creates an engine backed by all native system adapters.
     pub fn try_native() -> std::result::Result<Self, merman_model::runtime::RuntimePolicyError> {
-        Ok(Self::new().with_runtime_policy(merman_model::runtime::RuntimePolicy::try_native()?))
+        Ok(Self::new().with_runtime_policy({ let checked_value = merman_model::runtime::RuntimePolicy::try_native()?; checked_value }))
     }
 
     pub(crate) fn default_effective_config(&self) -> Result<SourcePresentationConfig> {
@@ -236,6 +253,7 @@ impl MermaidEngine {
     ///
     /// This exists primarily to make fixture snapshots deterministic. The default runtime policy
     /// uses the Unix epoch; native callers must explicitly select [`MermaidEngine::try_native`].
+    #[must_use]
     pub fn with_fixed_today(mut self, today: Option<time::CivilDate>) -> Self {
         self.runtime_policy = self.runtime_policy.with_fixed_today(today);
         self
@@ -246,31 +264,35 @@ impl MermaidEngine {
         mut self,
         offset_minutes: i32,
     ) -> std::result::Result<Self, merman_model::runtime::RuntimePolicyError> {
-        self.runtime_policy = self
+        self.runtime_policy = { let checked_value = self
             .runtime_policy
-            .try_with_fixed_local_offset_minutes(offset_minutes)?;
+            .try_with_fixed_local_offset_minutes(offset_minutes)?; checked_value };
         Ok(self)
     }
 
     /// Installs an already-resolved local timezone without consulting ambient process state.
+    #[must_use]
     pub fn with_local_time_zone(mut self, time_zone: time::LocalTimeZone) -> Self {
         self.runtime_policy = self.runtime_policy.with_local_time_zone(time_zone);
         self
     }
 
     /// Replaces the complete runtime policy used to begin future operations.
+    #[must_use]
     pub fn with_runtime_policy(mut self, policy: merman_model::runtime::RuntimePolicy) -> Self {
         self.runtime_policy = policy;
         self
     }
 
     /// Replays a previously frozen runtime context without consulting system state.
+    #[must_use]
     pub fn with_operation_context(self, context: merman_model::runtime::OperationContext) -> Self {
         self.with_runtime_policy(
             merman_model::runtime::RuntimePolicy::from_operation_context(context),
         )
     }
 
+    #[must_use]
     pub fn runtime_policy(&self) -> &merman_model::runtime::RuntimePolicy {
         &self.runtime_policy
     }
@@ -285,19 +307,23 @@ impl MermaidEngine {
     }
 
     /// Returns the fixed local timezone offset configured for this engine.
+    #[must_use]
     pub fn fixed_local_offset_minutes(&self) -> Option<i32> {
         self.runtime_policy.fixed_local_offset_minutes()
     }
 
+    #[must_use]
     pub fn local_time_zone(&self) -> &time::LocalTimeZone {
         self.runtime_policy.local_time_zone()
     }
 
     /// Applies site-level Mermaid config defaults.
+    #[must_use]
     pub fn with_site_config(mut self, site_config: SourcePresentationConfig) -> Self {
         if site_config.is_empty_object() && !site_config.has_tracking_theme_compatibility() {
             return self;
         }
+
         merge_site_config_override(&mut self.site_config_overrides, site_config);
         self.rebuild_site_config();
         self
@@ -305,6 +331,7 @@ impl MermaidEngine {
 
     /// Installs a normalized theme recipe through the source owner's initialization cache.
     /// Host site configuration retains precedence over the recipe's compatibility inputs.
+    #[must_use]
     pub fn with_theme_plan(self, plan: &ThemeCompatibilityPlan) -> Self {
         plan.install(self)
     }
@@ -327,11 +354,17 @@ impl MermaidEngine {
     ///
     /// `None` restores the pinned Mermaid defaults. An explicit config is merged onto those
     /// defaults without inheriting values from the engine's previous site config.
+    #[must_use]
     pub fn with_exact_site_config(mut self, site_config: Option<SourcePresentationConfig>) -> Self {
         self.site_config_overrides = SourcePresentationConfig::empty_object();
-        if let Some(site_config) = site_config {
-            merge_site_config_override(&mut self.site_config_overrides, site_config);
+
+        match site_config {
+            Some(site_config_2) => {
+                merge_site_config_override(&mut self.site_config_overrides, site_config_2);
+            },
+            ::core::option::Option::None => {},
         }
+
         self.rebuild_site_config();
         self
     }
@@ -347,6 +380,7 @@ impl MermaidEngine {
     }
 
     /// Returns the detector registry used for automatic diagram type detection.
+    #[must_use]
     pub fn registry(&self) -> &DetectorRegistry {
         &self.registry
     }
@@ -369,6 +403,7 @@ impl MermaidEngine {
     }
 
     /// Returns the typed render-model parser registry.
+    #[must_use]
     pub fn render_diagram_registry(&self) -> &RenderDiagramRegistry {
         &self.render_diagram_registry
     }

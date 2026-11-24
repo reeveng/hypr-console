@@ -38,6 +38,7 @@ impl TimelineTypographyThemePlan {
         Self::resolve_with_text(theme, effective_config, None)
     }
 
+    #[must_use]
     pub(crate) fn resolve_with_text(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &PresentationConfig,
@@ -45,24 +46,24 @@ impl TimelineTypographyThemePlan {
     ) -> Self {
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
-        let typed_font_size_requested = theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let typed_font_size_requested = theme.is_some_and(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 route.mechanism()
                     == FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontSize)
                     && route.disposition() == FamilyThemeDisposition::TypedAdapter
             })
         });
-        // Root `fontSize` remains Timeline's independent layout-offset owner. Only an explicit
-        // theme-variable value shadows the typed base-size route itself.
+
+
         let config_owns_font_size = typed_font_size_requested
             && effective_config.config_path_overrides_typed_default("themeVariables.fontSize");
         let typed_font_size_active = typed_font_size_requested && !config_owns_font_size;
         let (font_size_px, font_size_css) = match theme {
-            Some(theme) if typed_font_size_active => {
-                let font_size_px = theme.typography().font_size_px().max(1.0);
+            Some(theme_3) if typed_font_size_active => {
+                let font_size_px = theme_3.typography().font_size_px().max(1.0);
                 (f64::from(font_size_px), format!("{font_size_px}px"))
             }
-            _ => {
+            ::core::option::Option::None | ::core::option::Option::Some(_) => {
                 let font_size_px =
                     config_theme_or_root_font_size_px(effective_config.as_value(), 16.0).max(1.0);
                 (font_size_px, format!("{font_size_px}px"))
@@ -74,9 +75,14 @@ impl TimelineTypographyThemePlan {
             inherited_font_stack.font_family_css().to_owned(),
             font_size_css,
         );
-        if let Some(fill) = text_fill {
-            common_css = common_css.with_text_color(fill);
+
+        match text_fill {
+            Some(fill) => {
+                common_css = common_css.with_text_color(fill);
+            },
+            ::core::option::Option::None => {},
         }
+
         let layout_settings = super::TimelineConfigView::new(effective_config.as_value())
             .layout_settings_with_resolved_typography(
                 Some(inherited_font_stack.font_family_css()),
@@ -94,22 +100,27 @@ impl TimelineTypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &super::TimelineCssBinding {
         &self.css_binding
     }
 
+    #[must_use]
     pub(crate) fn common_css(&self) -> &crate::svg::PreparedCommonCss {
         &self.common_css
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> &super::config::TimelineLayoutSettings {
         &self.layout_settings
     }
 
+    #[must_use]
     pub(crate) fn typography_requested(&self) -> bool {
         self.inherited_font_stack.typography_requested() || self.typed_font_size_requested
     }
 
+    #[must_use]
     pub(crate) fn begin_emission(&self) -> Option<TimelineTypographyOutcome> {
         self.typography_requested()
             .then(TimelineTypographyOutcome::default)
@@ -121,6 +132,7 @@ impl TimelineTypographyThemePlan {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if !self.typography_requested() {
             return;
         }
@@ -128,6 +140,7 @@ impl TimelineTypographyThemePlan {
         let Some(outcome) = self.terminal.get() else {
             self.inherited_font_stack
                 .record_unsupported_typography_evidence(evidence, true);
+
             for (property, requested, active) in [
                 (
                     ThemeTypographyProperty::FontStack,
@@ -143,18 +156,22 @@ impl TimelineTypographyThemePlan {
                 if !requested {
                     continue;
                 }
+
                 let key = FamilyThemeMechanismKey::Typography(property);
+
                 if active {
                     evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
                 } else {
                     evidence.mark_not_applicable(key);
                 }
             }
+
             return;
         };
 
         self.inherited_font_stack
             .record_unsupported_typography_evidence(evidence, outcome.has_visible_base_text);
+
         for (property, requested, active) in [
             (
                 ThemeTypographyProperty::FontStack,
@@ -170,7 +187,9 @@ impl TimelineTypographyThemePlan {
             if !requested {
                 continue;
             }
+
             let key = FamilyThemeMechanismKey::Typography(property);
+
             if !outcome.has_visible_base_text || !active {
                 evidence.mark_not_applicable(key);
             } else if !self.css_binding.section_font_weight_is_measurable() {

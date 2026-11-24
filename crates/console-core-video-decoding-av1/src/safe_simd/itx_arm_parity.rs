@@ -35,6 +35,13 @@
 //! exactly the 16x16 `H_DCT` defect (dav1d's `def_fn_16x16 dct, identity`
 //! uses `eob_half = 8`; the port hardcoded 36 for every type).
 
+//!
+//! A seeded xorshift stream makes each failed case reproducible. The sampled
+//! sweeps bracket known early-exit thresholds, and the exhaustive sweeps also
+//! check every legal end-of-block position. Each run requires a minimum number
+//! of cases and checks that the NEON path actually handled them. High-magnitude
+//! 10- and 12-bit cases exercise clipping beyond the 8-bit intermediate range.
+
 #![cfg(all(test, target_arch = "aarch64", not(feature = "c-ffi")))]
 
 use crate::include::common::bitdepth::{BitDepth, BitDepth8, BitDepth16};
@@ -42,8 +49,6 @@ use crate::include::dav1d::picture::Rav1dPictureDataComponent;
 use crate::src::levels::{self, TxClass, TxfmSize, TxfmType};
 use crate::src::scan::dav1d_scans;
 use crate::src::tables::dav1d_tx_type_class;
-
-/// xorshift64*, so any failure reproduces from its seed.
 struct Rng(u64);
 
 impl Rng {
@@ -74,10 +79,6 @@ impl Rng {
 fn log2(n: usize) -> u32 {
   n.trailing_zeros()
 }
-
-/// Coefficient positions a legal bitstream can make nonzero at this `eob`.
-///
-/// Mirrors `src/recon.rs::decode_coefs_class`'s `eob -> rc` derivation.
 #[must_use]
 fn reachable_positions(tx: TxfmSize, tx_type: TxfmType, eob: usize) -> Vec<usize> {
   let Ok(extent) = tx.extent();
@@ -107,13 +108,6 @@ fn reachable_positions(tx: TxfmSize, tx_type: TxfmType, eob: usize) -> Vec<usize
       .collect(),
   }
 }
-
-/// Run one (size, type, eob, coefficients, pixels) cell through both paths.
-///
-/// Returns `(neon_pixels, scalar_pixels, neon_took_the_simd_path)`. The third
-/// element is the liveness signal: `itxfm_add_dispatch` returns `false` for
-/// any shape it has no kernel for, and without checking it this test would
-/// happily compare the scalar reference against itself.
 #[must_use]
 fn run_cell(
   tx: TxfmSize,
@@ -147,8 +141,10 @@ fn run_cell(
           let Ok(size_ordinal) = tx.ordinal();
           assert_eq!(
             crate::src::itx::itxfm_add_scalar_fallback::<BitDepth8>(
-              size_ordinal,
-              tx_type,
+              crate::src::itx::ScalarTransformCase {
+                size_ordinal,
+                kind: tx_type
+              },
               &mut dst,
               &mut cf,
               eob,
@@ -169,8 +165,6 @@ fn run_cell(
   let (scalar, _) = run(false);
   (neon, scalar, handled)
 }
-
-/// Result accumulator: which parameter cells ran, which diverged.
 #[derive(Default)]
 struct Report {
   cells: usize,
@@ -202,13 +196,6 @@ impl Report {
       ::core::option::Option::None => {}
     }
   }
-
-  /// Fail on any divergence, AND on a run that never reached a NEON kernel.
-  ///
-  /// Both halves of the liveness gate matter. `cells >= min_live` catches a
-  /// sweep that stopped enumerating; `live == cells` catches the subtler
-  /// one — `itxfm_add_dispatch` returning `false` for a shape, which would
-  /// silently turn this into scalar-vs-scalar and go green forever.
   fn finish(self, what: &str, min_live: usize) {
     assert!(
       self.cells >= min_live,
@@ -236,10 +223,6 @@ impl Report {
     );
   }
 }
-
-/// The (size, type) pairs `itxfm_add_dispatch` wires to a NEON kernel at 8bpc.
-///
-/// WHT_WHT is excluded: it is lossless-only and has no `eob` skip structure.
 #[must_use]
 fn wired_cells() -> Vec<(TxfmSize, TxfmType)> {
   use TxfmSize::*;
@@ -280,14 +263,6 @@ fn wired_cells() -> Vec<(TxfmSize, TxfmType)> {
 
   out
 }
-
-/// `eob` values worth trying for a given scan length.
-///
-/// Every group-skip threshold in the aarch64 kernels sits at one of dav1d's
-/// `eob_*` constants, so the sweep includes each of them and each one minus
-/// one — the pair that brackets a wrong threshold — plus the small values and
-/// the dense end. `itx_8bpc_every_eob_small_coeffs` covers the gaps between
-/// them exhaustively; this sampled list keeps the other magnitude arms cheap.
 #[must_use]
 fn eob_sweep(n: usize) -> Vec<i32> {
   let mut v: Vec<i32> = vec![0, 1, 2, 3, 7, 8, 9, 15, 16, 17];
@@ -406,8 +381,6 @@ fn sweep_with(scale: i32, seed: u64, what: &str, every_eob: bool) {
 
   rep.finish(what, 1400);
 }
-
-/// Coefficient magnitudes in the range ordinary inter/intra residuals occupy.
 #[test]
 fn itx_8bpc_matches_scalar_small_coeffs() {
   sweep(
@@ -416,9 +389,6 @@ fn itx_8bpc_matches_scalar_small_coeffs() {
     "aarch64 8bpc itx (|coeff| <= 64)",
   );
 }
-
-/// An order of magnitude up: enough for the row transform's intermediate
-/// clipping to engage on the larger sizes.
 #[test]
 fn itx_8bpc_matches_scalar_medium_coeffs() {
   sweep(
@@ -427,12 +397,6 @@ fn itx_8bpc_matches_scalar_medium_coeffs() {
     "aarch64 8bpc itx (|coeff| <= 1024)",
   );
 }
-
-/// EVERY legal `eob`, for every wired (size, type).
-///
-/// The sampled list above brackets the thresholds this session knew about; a
-/// wrong constant nobody has named yet would sit in one of its gaps. This arm
-/// leaves no gap: ~13k cells, about a second in release.
 #[test]
 fn itx_8bpc_every_eob_small_coeffs() {
   sweep_with(
@@ -442,9 +406,6 @@ fn itx_8bpc_every_eob_small_coeffs() {
     true,
   );
 }
-
-/// One 16bpc cell through both paths. Same shape as [`run_cell`], but the
-/// coefficients are `i32`, the pixels `u16`, and `bd` carries `bitdepth_max`.
 #[must_use]
 fn run_cell_16(
   tx: TxfmSize,
@@ -479,8 +440,10 @@ fn run_cell_16(
           let Ok(size_ordinal) = tx.ordinal();
           assert_eq!(
             crate::src::itx::itxfm_add_scalar_fallback::<BitDepth16>(
-              size_ordinal,
-              tx_type,
+              crate::src::itx::ScalarTransformCase {
+                size_ordinal,
+                kind: tx_type
+              },
               &mut dst,
               &mut cf,
               eob,
@@ -501,12 +464,6 @@ fn run_cell_16(
   let (scalar, _) = run(false);
   (neon, scalar, handled)
 }
-
-/// The (size, type) pairs `itxfm_add_dispatch` wires to `itx_arm_hbd`.
-///
-/// Every shape with `max(w, h) <= 16`, every non-WHT type — that is the whole
-/// set `hbd_supported` admits, so this list and the dispatch cannot drift
-/// apart without the liveness gate in [`Report::finish`] firing.
 #[must_use]
 fn wired_cells_16() -> Vec<(TxfmSize, TxfmType)> {
   use TxfmSize::*;
@@ -618,8 +575,6 @@ fn sweep16(scale: i32, seed: u64, bitdepth_max: u16, what: &str, every_eob: bool
 
   rep.finish(what, 1400);
 }
-
-/// 10-bit, ordinary residual magnitudes.
 #[test]
 fn itx_10bpc_matches_scalar_small_coeffs() {
   sweep16(
@@ -630,13 +585,6 @@ fn itx_10bpc_matches_scalar_small_coeffs() {
     false,
   );
 }
-
-/// 10-bit, magnitudes large enough to drive the row/column clips.
-///
-/// At 10bpc those clips are `+-(1 << 17)` (row) and `+-(1 << 15)` (column), so
-/// a port that kept the 8bpc `i16` state — which is exactly what the
-/// `itx_arm_neon_*` 16bpc entry points do — fails here and not in the small
-/// arm above.
 #[test]
 fn itx_10bpc_matches_scalar_large_coeffs() {
   sweep16(
@@ -647,8 +595,6 @@ fn itx_10bpc_matches_scalar_large_coeffs() {
     false,
   );
 }
-
-/// 12-bit: the widest clips the decoder can ask for.
 #[test]
 fn itx_12bpc_matches_scalar_large_coeffs() {
   sweep16(
@@ -659,8 +605,6 @@ fn itx_12bpc_matches_scalar_large_coeffs() {
     false,
   );
 }
-
-/// EVERY legal `eob` at 10bpc, for every wired (size, type).
 #[test]
 fn itx_10bpc_every_eob_small_coeffs() {
   sweep16(
@@ -671,11 +615,6 @@ fn itx_10bpc_every_eob_small_coeffs() {
     true,
   );
 }
-
-/// The sanity check on the sweep itself: the positions it fills must be the
-/// ones the coefficient decoder can reach, and the mapping must actually
-/// differ between the three transform classes. If this fails, every other
-/// result in this module is suspect.
 #[test]
 fn reachable_positions_track_the_transform_class() {
   assert_eq!(

@@ -21,13 +21,15 @@ pub(super) struct PreparedNodeEffect {
 }
 
 impl PreparedNodeEffect {
+    #[must_use]
     pub(super) fn shadow(&self) -> Option<MaterializedShadowEffect> {
         match self.filter {
             PreparedNodeFilter::Shadow(shadow) => Some(shadow),
-            _ => None,
+            PreparedNodeFilter::Retain | PreparedNodeFilter::Clear => None,
         }
     }
 
+    #[must_use]
     pub(super) fn replaces_look_filter(&self) -> bool {
         !matches!(self.filter, PreparedNodeFilter::Retain)
     }
@@ -56,20 +58,41 @@ impl FlowchartNodeEffects {
                 ctx.class_defs,
                 &["basic", "label-container"],
             );
+
         for id in hierarchy.rendered_node_ids() {
             ctx.emit.checkpoint()?;
+
             if ctx.document_ids().synthetic_label(id).is_some() {
                 continue;
             }
-            let Some(node) = ctx.layout_nodes_by_id.get(id) else {
-                continue;
+
+            let node = {
+                let optional_node = ctx.layout_nodes_by_id.get(id);
+
+                match optional_node {
+                    Some(matched_node) => matched_node,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let Some(info) = resolve_node_render_info(ctx, id) else {
-                continue;
+
+            let info = {
+                let optional_info = resolve_node_render_info(ctx, id);
+
+                match optional_info {
+                    Some(matched_info) => matched_info,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let Some(prepared) = ctx.prepared_nodes.node(id) else {
-                continue;
+
+            let prepared = {
+                let optional_prepared = ctx.prepared_nodes.node(id);
+
+                match optional_prepared {
+                    Some(matched_prepared) => matched_prepared,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let style = &prepared.style;
             let source = &prepared.source;
             let selection = &prepared.selection;
@@ -83,12 +106,12 @@ impl FlowchartNodeEffects {
                     structural_source_bounded
                 };
             let geometry = if style.effect().is_some() || style.effect_is_cleared() {
-                node_shadow_geometry(shape, node.width, node.height, look == "neo")
+                node_shadow_geometry(shape, self::NodeShadowGeometryArguments { width: node.width, height: node.height }, look == "neo")
             } else {
                 None
             };
-            // Relative CSS widths require host geometry. Do not attach a filter whose region
-            // would clip the source by substituting the renderer default stroke width.
+
+
             let shadow = if source_filter.is_absent()
                 && source_geometry_bounded
                 && source_stroke_width != FlowchartSourceFacetStatus::Unverified
@@ -97,8 +120,8 @@ impl FlowchartNodeEffects {
                 if let (Some(effect), Some((_, _, width, height))) = (style.effect(), geometry) {
                     let half_stroke = f64::from(selection.effect_stroke_width) / 2.0;
                     let (horizontal, vertical) = if shape == FlowchartShape::Diamond {
-                        // Use the full miter envelope. A smaller source miter limit or a round/
-                        // bevel join can only reduce it, never clip the actual source stroke.
+
+
                         let diagonal = width.hypot(height);
                         (
                             half_stroke * diagonal / height,
@@ -124,8 +147,8 @@ impl FlowchartNodeEffects {
             } else {
                 None
             };
-            let filter = if let Some(shadow) = shadow {
-                PreparedNodeFilter::Shadow(shadow)
+            let filter = if let Some(shadow_2) = shadow {
+                PreparedNodeFilter::Shadow(shadow_2)
             } else if style.effect_is_cleared()
                 && source_filter.is_absent()
                 && source_geometry_bounded
@@ -136,14 +159,14 @@ impl FlowchartNodeEffects {
                             FlowchartShape::SmallCircle | FlowchartShape::FramedCircle
                         ))
             {
-                // Classic shapes without a body filter need no physical suppression. Neo
-                // needs a terminal that can replace all default filters for that silhouette.
+
+
                 PreparedNodeFilter::Clear
             } else {
                 PreparedNodeFilter::Retain
             };
-            let bounds = shadow.zip(geometry).map(|(shadow, (x, y, width, height))| {
-                let outsets = shadow.outsets();
+            let bounds = shadow.zip(geometry).map(|(shadow_3, (x, y, width, height))| {
+                let outsets = shadow_3.outsets();
                 (
                     x - outsets.left,
                     y - outsets.top,
@@ -151,6 +174,7 @@ impl FlowchartNodeEffects {
                     y + height + outsets.bottom,
                 )
             });
+
             if plan
                 .nodes
                 .insert(id.to_owned(), PreparedNodeEffect { filter, bounds })
@@ -161,13 +185,16 @@ impl FlowchartNodeEffects {
                 });
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(super) fn node(&self, id: &str) -> Option<&PreparedNodeEffect> {
         self.nodes.get(id)
     }
 
+    #[must_use]
     pub(super) fn expected_applications(&self) -> usize {
         self.nodes
             .values()
@@ -175,6 +202,7 @@ impl FlowchartNodeEffects {
             .count()
     }
 
+    #[must_use]
     pub(super) fn has_paint_bounds(&self) -> bool {
         self.nodes.values().any(|node| node.bounds.is_some())
     }
@@ -193,31 +221,37 @@ impl FlowchartNodeEffects {
     }
 }
 
-// These terminals paint a complete shape before the separate label writer runs. Other
-// shapes retain an explicit residual until their actual paint geometry has a terminal adapter.
+
+
+#[must_use]
 fn node_shadow_geometry(
     shape: FlowchartShape,
-    width: f64,
-    height: f64,
+    NodeShadowGeometryArguments { width, height }: NodeShadowGeometryArguments,
     neo: bool,
 ) -> Option<(f64, f64, f64, f64)> {
-    let width = width.max(1.0);
-    let height = height.max(1.0);
+    let width_2 = width.max(1.0);
+    let height_2 = height.max(1.0);
+
     match shape {
         FlowchartShape::Process | FlowchartShape::RoundedRectangle => {
-            Some((-width / 2.0, -height / 2.0, width, height))
+            Some((-width_2 / 2.0, -height_2 / 2.0, width_2, height_2))
         }
-        FlowchartShape::Diamond => Some((-width / 2.0 + 0.5, -height / 2.0, width, height)),
+        FlowchartShape::Diamond => Some((-width_2 / 2.0 + 0.5, -height_2 / 2.0, width_2, height_2)),
         FlowchartShape::Circle => {
-            let diameter = width.min(height).max(1.0);
+            let diameter = width_2.min(height_2).max(1.0);
             Some((-diameter / 2.0, -diameter / 2.0, diameter, diameter))
         }
         FlowchartShape::DoubleCircle => {
             let geometry =
-                crate::flowchart::DoubleCircleGeometry::from_outer_diameter(width.min(height), neo);
+                crate::flowchart::DoubleCircleGeometry::from_outer_diameter(width_2.min(height_2), neo);
             let radius = geometry.outer_radius;
             Some((-radius, -radius, radius * 2.0, radius * 2.0))
         }
         _ => None,
     }
+}
+
+struct NodeShadowGeometryArguments {
+    width: f64,
+    height: f64,
 }

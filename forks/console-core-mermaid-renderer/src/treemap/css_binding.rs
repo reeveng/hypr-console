@@ -38,7 +38,10 @@ impl TreemapCssBinding {
             .or_else(|| optional_color("titleColor"))
             .unwrap_or_else(|| text_color.clone());
         let raw_theme_name =
-            config_string(config, &["theme"]).unwrap_or_else(|| "default".to_owned());
+            match config_string(config, &["theme"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => "default".to_owned(),
+            };
         let default_theme = raw_theme_name == "default";
         let theme_name = raw_theme_name.trim().to_ascii_lowercase();
         let label_text_color = color("labelTextColor", "black");
@@ -66,9 +69,13 @@ impl TreemapCssBinding {
             .collect();
         let color_scale_label = (0..12)
             .map(|i| -> crate::Result<String> {
-                if let Some(color) = optional_color(&format!("cScaleLabel{i}")) {
-                    return Ok(color);
+                match optional_color(&format!("cScaleLabel{i}")) {
+                    Some(color_2) => {
+                        return Ok(color_2);
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 Ok(match theme_name.as_str() {
                     "dark" | "forest" => scale_label_color.clone(),
                     "neutral" => {
@@ -114,6 +121,7 @@ impl TreemapCssBinding {
         })
     }
 
+    #[must_use]
     pub(crate) fn readable_leaf_label_fill(
         &self,
         leaf_fill: &str,
@@ -131,6 +139,7 @@ impl TreemapCssBinding {
     }
 }
 
+#[must_use]
 fn default_c_scale(index: usize) -> &'static str {
     match index {
         0 => "hsl(240, 100%, 76.2745098039%)",
@@ -148,6 +157,7 @@ fn default_c_scale(index: usize) -> &'static str {
     }
 }
 
+#[must_use]
 fn default_c_scale_peer(index: usize) -> &'static str {
     match index {
         0 => "hsl(240, 100%, 61.2745098039%)",
@@ -165,23 +175,32 @@ fn default_c_scale_peer(index: usize) -> &'static str {
     }
 }
 
+#[must_use]
 fn is_transparent(color: &str) -> bool {
-    ThemeColor::parse(color.trim()).is_ok_and(|color| color.channel(ColorChannel::Alpha) == 0.0)
+    ThemeColor::parse(color.trim()).is_ok_and(|color_2| ::core::matches!(::core::primitive::f64::classify(color_2.channel(ColorChannel::Alpha)), ::core::num::FpCategory::Zero))
 }
 
+#[must_use]
 fn is_white_like(color: &str) -> bool {
-    ThemeColor::parse(color.trim()).is_ok_and(|color| {
-        color.channel(ColorChannel::Red) >= 250.0
-            && color.channel(ColorChannel::Green) >= 250.0
-            && color.channel(ColorChannel::Blue) >= 250.0
+    ThemeColor::parse(color.trim()).is_ok_and(|color_2| {
+        color_2.channel(ColorChannel::Red) >= 250.0
+            && color_2.channel(ColorChannel::Green) >= 250.0
+            && color_2.channel(ColorChannel::Blue) >= 250.0
     })
 }
 
+#[must_use]
 fn style_has_non_empty_decl(style: &str, property: &str) -> bool {
     style.split(';').any(|declaration| {
-        let Some((key, value)) = declaration.split_once(':') else {
-            return false;
+        let (key, value) = {
+            let optional_key = declaration.split_once(':');
+
+            match optional_key {
+                Some((matched_key, matched_value)) => (matched_key, matched_value),
+                ::core::option::Option::None => return false,
+            }
         };
+
         key.trim().eq_ignore_ascii_case(property) && !value.trim().is_empty()
     })
 }

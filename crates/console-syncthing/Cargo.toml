@@ -11,6 +11,9 @@ path = "src/main.rs"
 
 [dependencies]
 console-core-external-programs.workspace = true
+console-core-never.workspace = true
+console-core-places.workspace = true
+console-waiting.workspace = true
 
 [lints]
 workspace = true

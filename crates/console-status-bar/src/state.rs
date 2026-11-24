@@ -290,7 +290,7 @@ impl BarState {
 
   pub fn configured(&self, preferences: &Preferences, filling: Filling) -> Result<Layout, Never> {
     let clock = match preferences.placement {
-      Placement::Top => &self.clock,
+      Placement::Top | Placement::Bottom => &self.clock,
       Placement::Left | Placement::Right => {
         let Ok(time) = crate::clock::time_only(&self.clock);
 

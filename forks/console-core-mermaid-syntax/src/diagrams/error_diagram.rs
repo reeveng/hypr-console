@@ -10,6 +10,7 @@ use serde_json::Value;
 
 pub(crate) use merman_model::families::error::ErrorDiagramModel;
 
+#[must_use]
 pub(crate) fn suppressed_error_model(error: &Error) -> ErrorDiagramModel {
     ErrorDiagramModel {
         diagram_type: "error".to_string(),
@@ -91,6 +92,7 @@ pub(crate) fn suppressed_error_render_diagram_controlled(
 }
 
 #[cfg(feature = "presentation")]
+#[must_use]
 fn suppressed_error_metadata(
     source_meta: &merman_model::presentation::PresentationMetadata,
 ) -> merman_model::presentation::PresentationMetadata {

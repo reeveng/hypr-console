@@ -547,6 +547,185 @@ fn a_picture_lands_where_it_was_put_in_the_colors_it_was_handed() -> Result<(), 
 }
 
 #[test]
+fn a_full_frame_picture_matches_the_rasterizer_before_drawing_the_overlay()
+-> Result<(), Box<dyn Error>> {
+  use console_core_shapes::Cropped;
+
+  let overlay = red_square(10)?;
+
+  for alpha in [255, 128] {
+    let mut bytes = [200_u8, 100, 50, 255].repeat(800);
+
+    match bytes.last_mut() {
+      Some(last) => {
+        *last = alpha;
+      }
+      ::core::option::Option::None => {}
+    }
+
+    let pixels = Pixels {
+      width: WIDE,
+      height: TALL,
+      stride: WIDE.saturating_mul(4),
+      bytes,
+    };
+    let origin = Point { x: 0, y: 0 };
+    let mut actual = [50_u8, 100, 200, 255].repeat(801);
+    let mut expected = actual.clone();
+    over_picture(
+      &mut actual,
+      WHOLE,
+      Picture {
+        at: origin,
+        size: WHOLE.points,
+        pixels: &pixels,
+      },
+      std::slice::from_ref(&overlay),
+    )?;
+    over(
+      &mut expected,
+      WHOLE,
+      &[
+        Shape::Cropped(Cropped {
+          at: origin,
+          size: WHOLE.points,
+          pixels,
+          from: Point { x: 0.0, y: 0.0 },
+          seen: Size {
+            width: f64::from(WIDE),
+            height: f64::from(TALL),
+          },
+        }),
+        overlay.clone(),
+      ],
+    )?;
+    assert_eq!(actual, expected, "final source pixel alpha {alpha}");
+  }
+
+  Ok(())
+}
+
+#[test]
+fn a_scaled_full_frame_matches_the_bilinear_rasterizer() -> Result<(), Box<dyn Error>> {
+  for (from, to) in [
+    ((7, 5), (11, 8)),
+    ((7, 5), (4, 3)),
+    ((1, 5), (7, 9)),
+    ((7, 1), (11, 8)),
+    ((11, 8), (11, 8)),
+  ] {
+    let source_size = Size {
+      width: from.0,
+      height: from.1,
+    };
+    let frame = Frame {
+      points: Size {
+        width: 7,
+        height: 5,
+      },
+      device: Size {
+        width: to.0,
+        height: to.1,
+      },
+    };
+
+    for alpha in [255, 128] {
+      compare_scaled_frame(source_size, frame, alpha)?;
+    }
+  }
+
+  Ok(())
+}
+
+fn checkerboard(size: Size<u32>, edge_alpha: u8) -> Result<Pixels, Box<dyn Error>> {
+  let mut bytes = Vec::new();
+
+  for y in 0..size.height {
+    for x in 0..size.width {
+      let Ok(red) = fitted(x.saturating_mul(31));
+      let Ok(green) = fitted(y.saturating_mul(43));
+      let blue = match (x.wrapping_add(y) & 1) {
+        0 => 255,
+        _ => 0,
+      };
+      bytes.extend_from_slice(&[red, green, blue, 255]);
+    }
+  }
+
+  let edge = bytes.last_mut().ok_or("empty source fixture")?;
+  *edge = edge_alpha;
+
+  Ok(Pixels {
+    width: size.width,
+    height: size.height,
+    stride: size.width.saturating_mul(4),
+    bytes,
+  })
+}
+
+fn compare_scaled_frame(from: Size<u32>, frame: Frame, alpha: u8) -> Result<(), Box<dyn Error>> {
+  use console_core_shapes::Cropped;
+
+  let origin = Point { x: 0, y: 0 };
+  let source = checkerboard(from, alpha)?;
+  let area = frame.device.width.saturating_mul(frame.device.height);
+  let Ok(pixels) = index(area);
+  let mut actual = [20_u8, 30, 40, 255].repeat(pixels);
+  let mut expected = actual.clone();
+  over_picture(
+    &mut actual,
+    frame,
+    Picture {
+      at: origin,
+      size: frame.points,
+      pixels: &source,
+    },
+    &[],
+  )?;
+  over(
+    &mut expected,
+    frame,
+    &[Shape::Cropped(Cropped {
+      at: origin,
+      size: frame.points,
+      pixels: source,
+      from: Point { x: 0.0, y: 0.0 },
+      seen: Size {
+        width: f64::from(from.width),
+        height: f64::from(from.height),
+      },
+    })],
+  )?;
+
+  match alpha {
+    255 => {
+      for (painted, reference) in actual
+        .as_chunks::<4>()
+        .0
+        .iter()
+        .zip(expected.as_chunks::<4>().0)
+      {
+        assert!(
+          painted
+            .iter()
+            .zip(reference)
+            .all(|(&a, &b)| a.abs_diff(b) <= 1),
+          "{from:?} -> {:?}: {painted:?} differed from {reference:?}",
+          frame.device
+        );
+      }
+    }
+    _ => assert_eq!(
+      actual, expected,
+      "{from:?} -> {:?} with partial alpha",
+      frame.device
+    ),
+  }
+
+  Ok(())
+}
+
+#[test]
 fn a_picture_that_is_partly_see_through_is_drawn_over_what_was_under_it()
 -> Result<(), Box<dyn Error>> {
   let white = color("ffffff")?;

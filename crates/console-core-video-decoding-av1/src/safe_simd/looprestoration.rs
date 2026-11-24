@@ -3100,6 +3100,73 @@ mod tests {
   }
 
   #[cfg(target_arch = "x86_64")]
+  fn check_sgr_case(
+    (source8, source16): (&RestorationPixels<u8>, &RestorationPixels<u16>),
+    versions: [Option<SgrComputation>; 2],
+    extent: Size<u64>,
+    radius: BoxRadius,
+    strength: u32,
+  ) -> Rav1dResult {
+    let Size { width, height } = extent;
+    let mut scalar8: RestorationDeltas<_> = [0_i16; _];
+    let mut vector8 = scalar8;
+    let mut scalar16: RestorationDeltas<_> = [0_i32; _];
+    let mut vector16 = scalar16;
+
+    compute_sgr8(
+      SgrComputation::Scalar,
+      SgrStage {
+        padded: source8,
+        residual: &mut scalar8,
+        extent,
+        radius,
+        strength,
+        maximum: 255,
+      },
+    )?;
+    compute_sgr16(
+      SgrComputation::Scalar,
+      SgrStage {
+        padded: source16,
+        residual: &mut scalar16,
+        extent,
+        radius,
+        strength,
+        maximum: 4095,
+      },
+    )?;
+
+    for version in versions.into_iter().flatten() {
+      compute_sgr8(
+        version,
+        SgrStage {
+          padded: source8,
+          residual: &mut vector8,
+          extent,
+          radius,
+          strength,
+          maximum: 255,
+        },
+      )?;
+      compute_sgr16(
+        version,
+        SgrStage {
+          padded: source16,
+          residual: &mut vector16,
+          extent,
+          radius,
+          strength,
+          maximum: 4095,
+        },
+      )?;
+      assert_eq!(scalar8, vector8, "eight-bit {width}x{height}");
+      assert_eq!(scalar16, vector16, "twelve-bit {width}x{height}");
+    }
+
+    Ok(())
+  }
+
+  #[cfg(target_arch = "x86_64")]
   #[test]
   fn sgr_vector_windows_match_scalar_filters() -> Rav1dResult {
     let Ok(_tokens) = crate::src::safe_simd::token_test_lock();
@@ -3140,60 +3207,7 @@ mod tests {
       let extent = Size { width, height };
 
       for (radius, strength) in [(BoxRadius::One, 255), (BoxRadius::Two, 140)] {
-        let mut scalar8: RestorationDeltas<_> = [0_i16; _];
-        let mut vector8 = scalar8;
-        let mut scalar16: RestorationDeltas<_> = [0_i32; _];
-        let mut vector16 = scalar16;
-
-        compute_sgr8(
-          SgrComputation::Scalar,
-          SgrStage {
-            padded: &source8,
-            residual: &mut scalar8,
-            extent,
-            radius,
-            strength,
-            maximum: 255,
-          },
-        )?;
-        compute_sgr16(
-          SgrComputation::Scalar,
-          SgrStage {
-            padded: &source16,
-            residual: &mut scalar16,
-            extent,
-            radius,
-            strength,
-            maximum: 4095,
-          },
-        )?;
-
-        for version in versions.into_iter().flatten() {
-          compute_sgr8(
-            version,
-            SgrStage {
-              padded: &source8,
-              residual: &mut vector8,
-              extent,
-              radius,
-              strength,
-              maximum: 255,
-            },
-          )?;
-          compute_sgr16(
-            version,
-            SgrStage {
-              padded: &source16,
-              residual: &mut vector16,
-              extent,
-              radius,
-              strength,
-              maximum: 4095,
-            },
-          )?;
-          assert_eq!(scalar8, vector8, "eight-bit {width}x{height}");
-          assert_eq!(scalar16, vector16, "twelve-bit {width}x{height}");
-        }
+        check_sgr_case((&source8, &source16), versions, extent, radius, strength)?;
       }
     }
 
@@ -3271,12 +3285,39 @@ mod tests {
   }
 
   #[cfg(target_arch = "x86_64")]
+  fn wiener_fixture_filter<BD: BitDepth>(
+    a: i16,
+  ) -> Result<LooprestorationParams, console_core_never::Never> {
+    use crate::include::common::bitdepth::BPC;
+
+    let center = match BD::BPC {
+      BPC::BPC8 => 0i16,
+      BPC::BPC16 => 128,
+    };
+    let outer_sum = a.wrapping_mul(2);
+    Ok(LooprestorationParams {
+      filter: [
+        [
+          a,
+          -6,
+          11,
+          center.wrapping_sub(10).wrapping_sub(outer_sum),
+          11,
+          -6,
+          a,
+          0,
+        ],
+        [a, -4, 6, 124i16.wrapping_sub(outer_sum), 6, -4, a, 0],
+      ],
+    })
+  }
+
+  #[cfg(target_arch = "x86_64")]
   fn check_wiener<BD: BitDepth>(
     depth: BD,
     sample: impl Fn(u32) -> BD::Pixel,
     simd: impl Fn(RestorationPadding<'_, BD>, &LooprestorationParams) -> Result<(), RowLayoutError>,
   ) -> Rav1dResult {
-    use crate::include::common::bitdepth::BPC;
     use crate::include::dav1d::picture::{PictureThreading, Rav1dPictureDataComponent};
     use crate::src::looprestoration::wiener_rust;
     use crate::src::with_offset::WithOffset;
@@ -3287,29 +3328,10 @@ mod tests {
     let original: Vec<_> = (0..STRIDE.wrapping_mul(HEIGHT)).map(sample).collect();
     let lpf = DisjointMut::new(AlignedVec64::default());
     let left = [[BD::Pixel::from(0); 4]; 64];
-    let center = match BD::BPC {
-      BPC::BPC8 => 0i16,
-      BPC::BPC16 => 128,
-    };
 
     for (width, height) in [(7, 4), (31, 4), (383, 64), (384, 64)] {
       for (a, threads) in [(0i16, 1), (2, 8)] {
-        let outer_sum = a.wrapping_mul(2);
-        let params = LooprestorationParams {
-          filter: [
-            [
-              a,
-              -6,
-              11,
-              center.wrapping_sub(10).wrapping_sub(outer_sum),
-              11,
-              -6,
-              a,
-              0,
-            ],
-            [a, -4, 6, 124i16.wrapping_sub(outer_sum), 6, -4, a, 0],
-          ],
-        };
+        let Ok(params) = wiener_fixture_filter::<BD>(a);
         let mut scalar_pixels = AlignedVec64::new();
         let mut simd_pixels = AlignedVec64::new();
 
@@ -3335,36 +3357,20 @@ mod tests {
         let at = |data| WithOffset { data, offset: 0 };
         let Ok(scalar_width) = fixed_index(width);
         let Ok(scalar_height) = fixed_index(height);
-        wiener_rust::<BD>(
-          RestorationPadding {
-            picture: at(&scalar),
-            backup: &left,
-            lines: &lpf,
-            offset: 0,
-            size: Size {
-              width: scalar_width,
-              height: scalar_height,
-            },
-            edges: LrEdgeFlags::empty(),
+        let padding = |plane| RestorationPadding {
+          picture: at(plane),
+          backup: &left,
+          lines: &lpf,
+          offset: 0,
+          size: Size {
+            width: scalar_width,
+            height: scalar_height,
           },
-          &params,
-          depth,
-        )?;
-        simd(
-          RestorationPadding {
-            picture: at(&vector),
-            backup: &left,
-            lines: &lpf,
-            offset: 0,
-            size: Size {
-              width: scalar_width,
-              height: scalar_height,
-            },
-            edges: LrEdgeFlags::empty(),
-          },
-          &params,
-        )
-        .map_err(|_simd| Rav1dError::EINVAL)?;
+          edges: LrEdgeFlags::empty(),
+        };
+
+        wiener_rust::<BD>(padding(&scalar), &params, depth)?;
+        simd(padding(&vector), &params).map_err(|_simd| Rav1dError::EINVAL)?;
         assert!(
           *scalar.slice::<BD, _>(..) == *vector.slice::<BD, _>(..),
           "Wiener output differs at {width}x{height}, {threads} workers",

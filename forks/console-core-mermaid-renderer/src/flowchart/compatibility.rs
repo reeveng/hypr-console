@@ -43,6 +43,7 @@ pub(crate) struct FlowchartCompatibilityBinding {
 }
 
 impl FlowchartCompatibilityBinding {
+    #[must_use]
     pub(crate) fn resolve(config: &Value) -> Self {
         let theme = |key: &str, fallback: &str| {
             config_string(config, &["themeVariables", key]).unwrap_or_else(|| fallback.to_owned())
@@ -107,19 +108,23 @@ impl FlowchartCompatibilityBinding {
                 config.get("theme").and_then(Value::as_str),
                 Some("redux-color" | "redux-dark-color")
             ) {
-                config
+                match config
                     .pointer("/themeVariables/borderColorArray")
                     .and_then(Value::as_array)
-                    .cloned()
-                    .unwrap_or_default()
+                    .cloned() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => ::std::vec::Vec::new(),
+                }
             } else {
                 Vec::new()
             },
-            palette_backgrounds: config
+            palette_backgrounds: match config
                 .pointer("/themeVariables/bkgColorArray")
                 .and_then(Value::as_array)
-                .cloned()
-                .unwrap_or_default(),
+                .cloned() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            },
             palette_look: config
                 .get("look")
                 .and_then(Value::as_str)
@@ -132,15 +137,19 @@ impl FlowchartCompatibilityBinding {
                 .unwrap_or("classic")
                 .to_owned(),
             html_labels: super::FlowchartConfigView::new(config).effective_html_labels(),
-            node_stroke_width: crate::config::config_f64(
+            node_stroke_width: match crate::config::config_f64(
                 config,
                 &["themeVariables", "strokeWidth"],
             )
-            .filter(|value| value.is_finite() && *value >= 0.0 && *value <= f32::MAX as f64)
-            .map(|value| value as f32)
-            .unwrap_or(1.3),
-            node_corner_radius: crate::config::config_f64(config, &["themeVariables", "radius"])
-                .unwrap_or(5.0)
+            .filter(|value| value.is_finite() && *value >= 0.0 && *value <= <f64 as ::core::convert::From<::core::primitive::f32>>::from(f32::MAX))
+            .map(|value| value as f32) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 1.3,
+            },
+            node_corner_radius: match crate::config::config_f64(config, &["themeVariables", "radius"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 5.0,
+            }
                 .max(0.0),
         }
     }
@@ -162,16 +171,21 @@ pub(crate) struct FlowchartEffectEligibility {
 }
 
 impl FlowchartEffectEligibility {
+    #[must_use]
     fn resolve(theme: Option<&crate::diagram_theme::ResolvedDiagramTheme>) -> Self {
         use crate::diagram_theme::{FamilyThemeMechanism, FamilyThemeRuleFacet, ThemeTarget};
-        let Some(theme) = theme else {
-            return Self::default();
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Self::default(),
         };
+
         let mut eligibility = Self {
-            marker_route_work: theme.family_mechanism_routes().len(),
+            marker_route_work: theme_2.family_mechanism_routes().len(),
             ..Self::default()
         };
-        for route in theme.family_mechanism_routes() {
+
+        for route in theme_2.family_mechanism_routes() {
             match route.mechanism() {
                 FamilyThemeMechanism::EffectBinding {
                     target: ThemeTarget::Edge,
@@ -205,6 +219,7 @@ impl FlowchartEffectEligibility {
                 _ => {}
             }
         }
+
         eligibility
     }
 }
@@ -219,9 +234,9 @@ impl FlowchartPreparedTheme {
         Ok(Self {
             effects: FlowchartEffectEligibility::resolve(theme),
             compatibility: FlowchartCompatibilityBinding::resolve(config.as_value()),
-            text_surface: super::FlowchartTextSurfacePaintPlan::resolve(
+            text_surface: { let checked_value = super::FlowchartTextSurfacePaintPlan::resolve(
                 theme, config, node_owned, work,
-            )?,
+            )?; checked_value },
         })
     }
 }

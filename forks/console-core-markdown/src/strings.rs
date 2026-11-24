@@ -51,6 +51,7 @@ impl TryFrom<&str> for InlineStr {
 
     fn try_from(s: &str) -> Result<InlineStr, StringTooLongError> {
         let len = s.len();
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(len <= MAX_INLINE_STR_LEN, ());
             _explicit_decision
@@ -58,8 +59,8 @@ impl TryFrom<&str> for InlineStr {
             ::core::option::Option::Some(()) => {
                 let mut inner = [0u8; MAX_INLINE_STR_LEN];
                 inner[..len].copy_from_slice(s.as_bytes());
-                let len = len as u8;
-                Ok(Self { inner, len })
+                let len_2 = len as u8;
+                Ok(Self { inner, len: len_2 })
             },
             ::core::option::Option::None => {
                 Err(StringTooLongError)
@@ -72,7 +73,7 @@ impl Deref for InlineStr {
     type Target = str;
 
     fn deref(&self) -> &str {
-        let len = self.len as usize;
+        let len = <usize as ::core::convert::From<::core::primitive::u8>>::from(self.len);
         from_utf8(&self.inner[..len]).unwrap()
     }
 }
@@ -142,15 +143,15 @@ impl<'a> From<String> for CowStr<'a> {
 
 impl<'a> From<char> for CowStr<'a> {
     fn from(c: char) -> Self {
-        CowStr::Inlined(c.into())
+        CowStr::Inlined(<crate::strings::InlineStr as ::core::convert::From<::core::primitive::char>>::from(c))
     }
 }
 
 impl<'a> From<Cow<'a, str>> for CowStr<'a> {
     fn from(s: Cow<'a, str>) -> Self {
         match s {
-            Cow::Borrowed(s) => CowStr::Borrowed(s),
-            Cow::Owned(s) => CowStr::Boxed(s.into_boxed_str()),
+            Cow::Borrowed(s_2) => CowStr::Borrowed(s_2),
+            Cow::Owned(s_3) => CowStr::Boxed(s_3.into_boxed_str()),
         }
     }
 }
@@ -158,9 +159,9 @@ impl<'a> From<Cow<'a, str>> for CowStr<'a> {
 impl<'a> From<CowStr<'a>> for Cow<'a, str> {
     fn from(s: CowStr<'a>) -> Self {
         match s {
-            CowStr::Boxed(s) => Cow::Owned(s.to_string()),
-            CowStr::Inlined(s) => Cow::Owned(s.to_string()),
-            CowStr::Borrowed(s) => Cow::Borrowed(s),
+            CowStr::Boxed(s_2) => Cow::Owned(s_2.to_string()),
+            CowStr::Inlined(s_3) => Cow::Owned(s_3.to_string()),
+            CowStr::Borrowed(s_4) => Cow::Borrowed(s_4),
         }
     }
 }
@@ -174,9 +175,9 @@ impl<'a> From<Cow<'a, char>> for CowStr<'a> {
 impl<'a> From<CowStr<'a>> for String {
     fn from(s: CowStr<'a>) -> Self {
         match s {
-            CowStr::Boxed(s) => s.into(),
-            CowStr::Inlined(s) => s.as_ref().into(),
-            CowStr::Borrowed(s) => s.into(),
+            CowStr::Boxed(s_2) => <::std::string::String as ::core::convert::From<::std::boxed::Box<::core::primitive::str>>>::from(s_2),
+            CowStr::Inlined(s_3) => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(s_3.as_ref()),
+            CowStr::Borrowed(s_4) => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(s_4),
         }
     }
 }
@@ -200,20 +201,22 @@ impl<'a> Borrow<str> for CowStr<'a> {
 }
 
 impl<'a> CowStr<'a> {
+    #[must_use]
     pub fn into_string(self) -> String {
         match self {
-            CowStr::Boxed(b) => b.into(),
+            CowStr::Boxed(b) => <::std::string::String as ::core::convert::From<::std::boxed::Box<::core::primitive::str>>>::from(b),
             CowStr::Borrowed(b) => b.to_owned(),
             CowStr::Inlined(s) => s.deref().to_owned(),
         }
     }
 
+    #[must_use]
     pub fn into_static(self) -> CowStr<'static> {
         match self {
             CowStr::Boxed(b) => CowStr::Boxed(b),
             CowStr::Borrowed(b) => match InlineStr::try_from(b) {
                 Ok(inline) => CowStr::Inlined(inline),
-                Err(_) => CowStr::Boxed(b.into()),
+                Err(_) => CowStr::Boxed(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(b)),
             },
             CowStr::Inlined(s) => CowStr::Inlined(s),
         }
@@ -260,7 +263,7 @@ mod test_special_string {
 
     #[test]
     fn max_inline_str_len_atleast_four() {
-        // we need 4 bytes to store a char
+
         assert!(MAX_INLINE_STR_LEN >= 4);
     }
 

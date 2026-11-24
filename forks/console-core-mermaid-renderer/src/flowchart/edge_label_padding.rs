@@ -17,6 +17,7 @@ pub(crate) struct FlowchartEdgeLabelContentBox {
 }
 
 impl FlowchartEdgeLabelPadding {
+    #[must_use]
     pub(crate) fn from_insets(insets: crate::diagram_theme::InsetsPx) -> Self {
         Self {
             top: f64::from(insets.top),
@@ -26,26 +27,32 @@ impl FlowchartEdgeLabelPadding {
         }
     }
 
+    #[must_use]
     pub(crate) const fn is_zero(self) -> bool {
-        self.top == 0.0 && self.right == 0.0 && self.bottom == 0.0 && self.left == 0.0
+        ::core::matches!(::core::primitive::f64::classify(self.top), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f64::classify(self.right), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f64::classify(self.bottom), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f64::classify(self.left), ::core::num::FpCategory::Zero)
     }
 
+    #[must_use]
     pub(crate) const fn top(self) -> f64 {
         self.top
     }
 
+    #[must_use]
     pub(crate) const fn left(self) -> f64 {
         self.left
     }
 
+    #[must_use]
     pub(crate) const fn horizontal(self) -> f64 {
         self.left + self.right
     }
 
+    #[must_use]
     pub(crate) const fn vertical(self) -> f64 {
         self.top + self.bottom
     }
 
+    #[must_use]
     pub(crate) fn padded_size(self, width: f64, height: f64) -> (f64, f64) {
         (
             width.max(0.0) + self.horizontal(),
@@ -53,6 +60,7 @@ impl FlowchartEdgeLabelPadding {
         )
     }
 
+    #[must_use]
     pub(crate) fn content_box(
         self,
         padded_width: f64,

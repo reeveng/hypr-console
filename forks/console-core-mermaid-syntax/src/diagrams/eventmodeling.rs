@@ -43,6 +43,7 @@ pub(crate) fn sanitize_common_db_fields(
     crate::common_db::sanitize_optional_acc_title(&mut model.acc_title, config);
     crate::common_db::sanitize_optional_acc_descr(&mut model.acc_descr, config);
 }
+
 #[cfg(feature = "compat-json")]
 pub(crate) fn parse_eventmodeling(code: &str, meta: &SourcePresentationMetadata) -> Result<Value> {
     construct_eventmodeling_semantic_source(code, meta)
@@ -116,7 +117,7 @@ pub(crate) fn parse_eventmodeling_model_for_render_controlled(
         Ok(source) => source,
         Err(failure) => return Ok(Err(*failure.error)),
     };
-    Ok(Ok(source.into_render_model_controlled(meta, control)?))
+    Ok(Ok({ let checked_value_2 = source.into_render_model_controlled(meta, control)?; checked_value_2 }))
 }
 
 pub(crate) fn parse_eventmodeling_semantic_model_controlled(
@@ -162,6 +163,7 @@ pub(crate) fn parse_eventmodeling_semantic_model_controlled(
                     },
                 }
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 crate::family::SemanticConstruction {
@@ -357,20 +359,26 @@ impl EventModelingSemanticSource {
         control.checkpoint()?;
         let common = LangiumCommonDbFields::from_facts(&self.syntax.common);
         let mut frames = Vec::with_capacity(self.syntax.frames.len());
+
         for frame in self.syntax.frames {
             control.checkpoint()?;
             let mut source_frames = Vec::with_capacity(frame.source_frames.len());
+
             for source in frame.source_frames {
                 control.checkpoint()?;
                 source_frames.push(source.text);
             }
-            let data_inline_value = if let Some(data) = frame.data_inline_value {
-                control.checkpoint()?;
-                let value = sanitize_text(&data.text, config);
-                control.checkpoint()?;
-                Some(value)
-            } else {
-                None
+
+            let data_inline_value = match frame.data_inline_value {
+                Some(data) => {
+                    control.checkpoint()?;
+                    let value = sanitize_text(&data.text, config);
+                    control.checkpoint()?;
+                    Some(value)
+                },
+                ::core::option::Option::None => {
+                    None
+                },
             };
             frames.push(EventModelingFrame {
                 name: frame.name,
@@ -383,7 +391,9 @@ impl EventModelingSemanticSource {
             });
             control.checkpoint()?;
         }
+
         let mut data_entities = Vec::with_capacity(self.syntax.data_entities.len());
+
         for data in self.syntax.data_entities {
             control.checkpoint()?;
             let data_block_value = sanitize_text(&data.block_text, config);
@@ -393,6 +403,7 @@ impl EventModelingSemanticSource {
                 data_block_value,
             });
         }
+
         control.checkpoint()?;
         Ok(EventModelingDiagramModel {
             title: common.title.map(|value| sanitize_text(&value, config)),
@@ -478,31 +489,13 @@ fn construct_eventmodeling_semantic_source_controlled(
 
     let mut syntax = EventModelingSyntaxFacts::default();
     let mut cursor = EventModelingCursor::new(code, control);
-    if let Err(error) = cursor.skip_hidden(diagram_type) {
-        control.checkpoint()?;
-        #[cfg(feature = "editor-facts")]
-        let fallback = cursor.insertion_span();
-        return Ok(Err(eventmodeling_failure_controlled(
-            error,
-            #[cfg(feature = "editor-facts")]
-            syntax,
-            #[cfg(feature = "editor-facts")]
-            fallback,
-            #[cfg(feature = "editor-facts")]
-            editor_demand,
-            #[cfg(feature = "editor-facts")]
-            control,
-        )?));
-    }
-    control.checkpoint()?;
-    let header = parse_eventmodeling_header_cursor(&mut cursor, diagram_type);
-    control.checkpoint()?;
-    match header {
-        Ok(header) => syntax.header = Some(header),
+
+    match cursor.skip_hidden(diagram_type) {
         Err(error) => {
+            control.checkpoint()?;
             #[cfg(feature = "editor-facts")]
             let fallback = cursor.insertion_span();
-            return Ok(Err(eventmodeling_failure_controlled(
+            return Ok(Err({ let checked_value_4 = eventmodeling_failure_controlled(
                 error,
                 #[cfg(feature = "editor-facts")]
                 syntax,
@@ -512,35 +505,73 @@ fn construct_eventmodeling_semantic_source_controlled(
                 editor_demand,
                 #[cfg(feature = "editor-facts")]
                 control,
-            )?));
+            )?; checked_value_4 }));
+        },
+        ::core::result::Result::Ok(_) => {},
+    }
+
+    control.checkpoint()?;
+    let header = parse_eventmodeling_header_cursor(&mut cursor, diagram_type);
+    control.checkpoint()?;
+
+    match header {
+        Ok(header) => syntax.header = Some(header),
+        Err(error) => {
+            #[cfg(feature = "editor-facts")]
+            let fallback = cursor.insertion_span();
+            return Ok(Err({ let checked_value_3 = eventmodeling_failure_controlled(
+                error,
+                #[cfg(feature = "editor-facts")]
+                syntax,
+                #[cfg(feature = "editor-facts")]
+                fallback,
+                #[cfg(feature = "editor-facts")]
+                editor_demand,
+                #[cfg(feature = "editor-facts")]
+                control,
+            )?; checked_value_3 }));
         }
     }
 
     let mut first_failure = None;
+
     loop {
         control.checkpoint()?;
-        if let Err(error) = cursor.skip_hidden(diagram_type) {
-            control.checkpoint()?;
-            let span = eventmodeling_error_span(&error, cursor.insertion_span());
-            first_failure.get_or_insert((error, span));
-            break;
+
+        match cursor.skip_hidden(diagram_type) {
+            Err(error) => {
+                control.checkpoint()?;
+                let span = eventmodeling_error_span(&error, cursor.insertion_span());
+                first_failure.get_or_insert((error, span));
+                break;
+            },
+            ::core::result::Result::Ok(_) => {},
         }
+
         if cursor.is_eof() {
             break;
         }
 
-        if let Some(parsed) = parse_langium_common(code, cursor.offset()) {
-            cursor.set_offset(cursor.offset() + parsed.consumed);
-            syntax.common.push(parsed.fact);
-            if let Some(diagnostic) = parsed.diagnostic {
-                let error = Error::diagram_parse_insertion_point(
-                    diagram_type.to_string(),
-                    diagnostic.message,
-                    diagnostic.span.start,
-                );
-                first_failure.get_or_insert((error, diagnostic.span));
-            }
-            continue;
+        match parse_langium_common(code, cursor.offset()) {
+            Some(parsed) => {
+                cursor.set_offset(cursor.offset() + parsed.consumed);
+                syntax.common.push(parsed.fact);
+
+                match parsed.diagnostic {
+                    Some(diagnostic) => {
+                        let error = Error::diagram_parse_insertion_point(
+                            diagram_type.to_string(),
+                            diagnostic.message,
+                            diagnostic.span.start,
+                        );
+                        first_failure.get_or_insert((error, diagnostic.span));
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let statement_start = cursor.offset();
@@ -591,43 +622,57 @@ fn construct_eventmodeling_semantic_source_controlled(
         };
 
         control.checkpoint()?;
-        if let Err(error) = result {
-            let span = eventmodeling_error_span(&error, cursor.insertion_span());
-            first_failure.get_or_insert((error, span));
-            if cursor.is_eof() {
-                break;
-            }
-            cursor.recover_to_next_statement(statement_start);
-            control.checkpoint()?;
+
+        match result {
+            Err(error) => {
+                let span = eventmodeling_error_span(&error, cursor.insertion_span());
+                first_failure.get_or_insert((error, span));
+
+                if cursor.is_eof() {
+                    break;
+                }
+
+                cursor.recover_to_next_statement(statement_start);
+                control.checkpoint()?;
+            },
+            ::core::result::Result::Ok(_) => {},
         }
     }
 
-    if let Some(error) = validate_eventmodeling_semantics(
-        &mut syntax,
-        diagram_type,
-        #[cfg(feature = "editor-facts")]
-        editor_demand,
-        control,
-    )? {
-        let span = eventmodeling_error_span(&error, cursor.insertion_span());
-        first_failure.get_or_insert((error, span));
-    }
-    if let Some(failure) = first_failure {
-        let error = failure.0;
-        #[cfg(feature = "editor-facts")]
-        let span = failure.1;
-        return Ok(Err(eventmodeling_failure_controlled(
-            error,
-            #[cfg(feature = "editor-facts")]
-            syntax,
-            #[cfg(feature = "editor-facts")]
-            span,
+    match validate_eventmodeling_semantics(
+            &mut syntax,
+            diagram_type,
             #[cfg(feature = "editor-facts")]
             editor_demand,
-            #[cfg(feature = "editor-facts")]
             control,
-        )?));
+        )? {
+        Some(error) => {
+            let span = eventmodeling_error_span(&error, cursor.insertion_span());
+            first_failure.get_or_insert((error, span));
+        },
+        ::core::option::Option::None => {},
     }
+
+    match first_failure {
+        Some(failure) => {
+            let error = failure.0;
+            #[cfg(feature = "editor-facts")]
+            let span = failure.1;
+            return Ok(Err({ let checked_value_5 = eventmodeling_failure_controlled(
+                error,
+                #[cfg(feature = "editor-facts")]
+                syntax,
+                #[cfg(feature = "editor-facts")]
+                span,
+                #[cfg(feature = "editor-facts")]
+                editor_demand,
+                #[cfg(feature = "editor-facts")]
+                control,
+            )?; checked_value_5 }));
+        },
+        ::core::option::Option::None => {},
+    }
+
     #[cfg(feature = "editor-facts")]
     let editor_facts = match editor_demand {
         EditorFactsDemand::Capture | EditorFactsDemand::Recovery => {
@@ -664,6 +709,7 @@ struct EventModelingCursor<'a> {
 }
 
 impl<'a> EventModelingCursor<'a> {
+    #[must_use]
     fn new(source: &'a str, control: &'a crate::OperationControl) -> Self {
         Self {
             source,
@@ -672,6 +718,7 @@ impl<'a> EventModelingCursor<'a> {
         }
     }
 
+    #[must_use]
     fn offset(&self) -> usize {
         self.offset
     }
@@ -680,18 +727,27 @@ impl<'a> EventModelingCursor<'a> {
         self.offset = offset.min(self.source.len());
     }
 
+    #[must_use]
     fn is_eof(&self) -> bool {
         self.offset >= self.source.len()
     }
 
+    #[must_use]
     fn insertion_span(&self) -> SourceSpan {
         SourceSpan::new(self.offset, self.offset)
     }
 
+    #[must_use]
     fn starts_keyword(&self, keyword: &str) -> bool {
-        let Some(rest) = self.source[self.offset..].strip_prefix(keyword) else {
-            return false;
+        let rest = {
+            let optional_rest = self.source[self.offset..].strip_prefix(keyword);
+
+            match optional_rest {
+                Some(matched_rest) => matched_rest,
+                ::core::option::Option::None => return false,
+            }
         };
+
         rest.chars()
             .next()
             .is_none_or(|ch| !ch.is_ascii_alphanumeric() && ch != '_')
@@ -701,6 +757,7 @@ impl<'a> EventModelingCursor<'a> {
         if !self.starts_keyword(keyword) {
             return false;
         }
+
         self.offset += keyword.len();
         true
     }
@@ -709,20 +766,26 @@ impl<'a> EventModelingCursor<'a> {
         if !self.starts_literal(literal) {
             return false;
         }
+
         self.offset += literal.len();
         true
     }
 
+    #[must_use]
     fn starts_literal(&self, literal: &str) -> bool {
         self.source[self.offset..].starts_with(literal)
     }
 
+    #[must_use]
     fn unknown_statement_span(&self) -> SourceSpan {
         let rest = &self.source[self.offset..];
         let end = rest.find(['\r', '\n']).unwrap_or(rest.len());
         let visible = rest[..end].trim_end();
         let len = if visible.is_empty() {
-            rest.chars().next().map(char::len_utf8).unwrap_or_default()
+            match rest.chars().next().map(char::len_utf8) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0,
+            }
         } else {
             visible.len()
         };
@@ -732,18 +795,22 @@ impl<'a> EventModelingCursor<'a> {
     fn recover_to_next_statement(&mut self, statement_start: usize) {
         self.offset = statement_start.min(self.source.len());
         let mut next_checkpoint = self.offset.saturating_add(4096);
+
         while self.offset < self.source.len() {
             let ch = self.source[self.offset..]
                 .chars()
                 .next()
                 .expect("eventmodeling recovery offset must be a character boundary");
             self.offset += ch.len_utf8();
+
             if self.offset >= next_checkpoint {
                 if self.control.checkpoint().is_err() {
                     break;
                 }
+
                 next_checkpoint = self.offset.saturating_add(4096);
             }
+
             if ch == '\n' || ch == '\r' {
                 break;
             }
@@ -755,25 +822,33 @@ impl<'a> EventModelingCursor<'a> {
             if self.control.checkpoint().is_err() {
                 return Ok(());
             }
+
             let mut next_checkpoint = self.offset.saturating_add(4096);
-            while self.offset < self.source.len() {
+
+            'inner_while_2: while self.offset < self.source.len() {
                 let ch = self.source[self.offset..].chars().next().unwrap();
+
                 if !ch.is_whitespace() {
-                    break;
+                    break 'inner_while_2;
                 }
+
                 self.offset += ch.len_utf8();
+
                 if self.offset >= next_checkpoint {
                     if self.control.checkpoint().is_err() {
                         return Ok(());
                     }
+
                     next_checkpoint = self.offset.saturating_add(4096);
                 }
             }
+
             if self.is_eof() {
                 return Ok(());
             }
 
             let rest = &self.source[self.offset..];
+
             if rest.starts_with("%%{") {
                 let Some(end) = rest.find("}%%") else {
                     return Err(Error::diagram_parse_insertion_point(
@@ -782,17 +857,21 @@ impl<'a> EventModelingCursor<'a> {
                         self.source.len(),
                     ));
                 };
+
                 self.offset += end + 3;
                 continue;
             }
+
             if rest.starts_with("%%") {
                 self.offset += rest.find(['\r', '\n']).unwrap_or(rest.len());
                 continue;
             }
+
             if rest.starts_with("//") {
                 self.offset += rest.find(['\r', '\n']).unwrap_or(rest.len());
                 continue;
             }
+
             if rest.starts_with("/*") {
                 let Some(end) = rest.find("*/") else {
                     return Err(Error::diagram_parse_insertion_point(
@@ -801,15 +880,18 @@ impl<'a> EventModelingCursor<'a> {
                         self.source.len(),
                     ));
                 };
+
                 self.offset += end + 2;
                 continue;
             }
+
             if rest.starts_with("---")
                 && let Some(end) = eventmodeling_yaml_end(self.source, self.offset, self.control)
             {
                 self.offset = end;
                 continue;
             }
+
             return Ok(());
         }
     }
@@ -818,9 +900,11 @@ impl<'a> EventModelingCursor<'a> {
         self.skip_hidden(diagram_type)?;
         let start = self.offset;
         let mut next_checkpoint = self.offset.saturating_add(4096);
+
         while self.offset < self.source.len() {
             let rest = &self.source[self.offset..];
             let ch = rest.chars().next().unwrap();
+
             if ch.is_whitespace()
                 || rest.starts_with("->>")
                 || rest.starts_with("[[")
@@ -829,14 +913,18 @@ impl<'a> EventModelingCursor<'a> {
             {
                 break;
             }
+
             self.offset += ch.len_utf8();
+
             if self.offset >= next_checkpoint {
                 if self.control.checkpoint().is_err() {
                     break;
                 }
+
                 next_checkpoint = self.offset.saturating_add(4096);
             }
         }
+
         if start == self.offset {
             return Err(Error::diagram_parse_insertion_point(
                 diagram_type.to_string(),
@@ -844,6 +932,7 @@ impl<'a> EventModelingCursor<'a> {
                 start,
             ));
         }
+
         Ok(EventModelingFieldSpan {
             text: self.source[start..self.offset].to_string(),
             span: SourceSpan::new(start, self.offset),
@@ -851,6 +940,7 @@ impl<'a> EventModelingCursor<'a> {
     }
 }
 
+#[must_use]
 fn eventmodeling_yaml_end(
     source: &str,
     start: usize,
@@ -863,6 +953,7 @@ fn eventmodeling_yaml_end(
         .unwrap_or(&rest[..opening_newline]);
     let checked_value = opening
         .strip_prefix("---")?;
+
     if !checked_value
         .bytes()
         .all(|byte| matches!(byte, b' ' | b'\t'))
@@ -871,19 +962,25 @@ fn eventmodeling_yaml_end(
     }
 
     let mut cursor = start + opening_newline + 1;
+
     while cursor <= source.len() {
         if control.checkpoint().is_err() {
             return None;
         }
+
         let (line, next) = physical_line_at(source, cursor);
+
         if line.trim_end_matches([' ', '\t']) == "---" {
             return Some(next);
         }
+
         if next == cursor || next == source.len() {
             break;
         }
+
         cursor = next;
     }
+
     None
 }
 
@@ -912,13 +1009,18 @@ fn eventmodeling_failure_controlled(
     })
 }
 
+#[must_use]
 fn eventmodeling_error_span(error: &Error, fallback: SourceSpan) -> SourceSpan {
     match error {
-        Error::DiagramParse { diagnostic, .. } => diagnostic.span().unwrap_or(fallback),
+        Error::DiagramParse { diagnostic, .. } => match diagnostic.span() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => fallback,
+        },
         _ => fallback,
     }
 }
 
+#[must_use]
 fn eventmodeling_exact_error(
     diagram_type: &str,
     message: impl Into<String>,
@@ -927,6 +1029,7 @@ fn eventmodeling_exact_error(
     Error::diagram_parse_exact(diagram_type.to_string(), message, span)
 }
 
+#[must_use]
 fn is_eventmodeling_id(value: &str) -> bool {
     let mut chars = value.chars();
     chars
@@ -941,6 +1044,7 @@ fn take_eventmodeling_id_cursor(
     expected: &str,
 ) -> Result<EventModelingFieldSpan> {
     let field = cursor.take_token(diagram_type, expected)?;
+
     if !is_eventmodeling_id(&field.text) {
         return Err(eventmodeling_exact_error(
             diagram_type,
@@ -948,6 +1052,7 @@ fn take_eventmodeling_id_cursor(
             field.span,
         ));
     }
+
     Ok(field)
 }
 
@@ -965,7 +1070,9 @@ fn take_eventmodeling_qualified_name_cursor(
         if cursor.control.checkpoint().is_err() {
             break;
         }
+
         let segment_start = cursor.offset;
+
         let Some(first) = cursor.source[cursor.offset..].chars().next() else {
             return Err(Error::diagram_parse_insertion_point(
                 diagram_type.to_string(),
@@ -973,36 +1080,47 @@ fn take_eventmodeling_qualified_name_cursor(
                 cursor.offset,
             ));
         };
+
         if first != '_' && !first.is_ascii_alphabetic() {
             let invalid = cursor.take_token(diagram_type, expected)?;
             let span = SourceSpan::new(start, invalid.span.end);
             return Err(eventmodeling_exact_error(diagram_type, expected, span));
         }
+
         cursor.offset += first.len_utf8();
         let mut next_checkpoint = cursor.offset.saturating_add(4096);
-        while let Some(ch) = cursor.source[cursor.offset..].chars().next() {
+
+        'inner_while_2: while let Some(ch) = cursor.source[cursor.offset..].chars().next() {
             if ch != '_' && !ch.is_ascii_alphanumeric() {
-                break;
+                break 'inner_while_2;
             }
+
             cursor.offset += ch.len_utf8();
+
             if cursor.offset >= next_checkpoint {
                 if cursor.control.checkpoint().is_err() {
-                    break;
+                    break 'inner_while_2;
                 }
+
                 next_checkpoint = cursor.offset.saturating_add(4096);
             }
         }
+
         let segment_span = SourceSpan::new(segment_start, cursor.offset);
+
         if !text.is_empty() {
             text.push('.');
         }
+
         text.push_str(&cursor.source[segment_span.start..segment_span.end]);
         end = segment_span.end;
 
         cursor.skip_hidden(diagram_type)?;
+
         if !cursor.source[cursor.offset..].starts_with('.') {
             break;
         }
+
         cursor.offset += 1;
         cursor.skip_hidden(diagram_type)?;
     }
@@ -1019,6 +1137,7 @@ fn take_eventmodeling_frame_id_cursor(
     expected: &str,
 ) -> Result<EventModelingFieldSpan> {
     let field = cursor.take_token(diagram_type, expected)?;
+
     if field.text.is_empty()
         || field.text.len() > 3
         || !field.text.bytes().all(|byte| byte.is_ascii_digit())
@@ -1029,6 +1148,7 @@ fn take_eventmodeling_frame_id_cursor(
             field.span,
         ));
     }
+
     Ok(field)
 }
 
@@ -1037,6 +1157,7 @@ fn take_eventmodeling_entity_type_cursor(
     diagram_type: &str,
 ) -> Result<EventModelingFieldSpan> {
     let field = cursor.take_token(diagram_type, "expected eventmodeling entity type")?;
+
     if !EVENTMODELING_ENTITY_TYPES.contains(&field.text.as_str()) {
         return Err(eventmodeling_exact_error(
             diagram_type,
@@ -1044,6 +1165,7 @@ fn take_eventmodeling_entity_type_cursor(
             field.span,
         ));
     }
+
     Ok(field)
 }
 
@@ -1052,6 +1174,7 @@ fn parse_eventmodeling_header_cursor(
     diagram_type: &str,
 ) -> Result<EventModelingFieldSpan> {
     let start = cursor.offset();
+
     if !cursor.consume_keyword("eventmodeling") {
         let token = cursor
             .take_token(diagram_type, "expected eventmodeling")
@@ -1069,6 +1192,7 @@ fn parse_eventmodeling_header_cursor(
             eventmodeling_exact_error(diagram_type, "expected eventmodeling", token.span)
         });
     }
+
     Ok(EventModelingFieldSpan {
         text: "eventmodeling".to_string(),
         span: SourceSpan::new(start, cursor.offset()),
@@ -1113,14 +1237,18 @@ fn parse_eventmodeling_frame_cursor(
     )?;
 
     let mut source_frames = Vec::new();
+
     loop {
         if cursor.control.checkpoint().is_err() {
             break;
         }
+
         cursor.skip_hidden(diagram_type)?;
+
         if !cursor.starts_literal("->>") {
             break;
         }
+
         cursor.consume_literal("->>");
         source_frames.push(take_eventmodeling_frame_id_cursor(
             cursor,
@@ -1138,6 +1266,7 @@ fn parse_eventmodeling_frame_cursor(
             "expected eventmodeling data reference",
         )?;
         cursor.skip_hidden(diagram_type)?;
+
         if !cursor.starts_literal("]]") {
             return Err(Error::diagram_parse_insertion_point(
                 diagram_type.to_string(),
@@ -1145,6 +1274,7 @@ fn parse_eventmodeling_frame_cursor(
                 cursor.offset(),
             ));
         }
+
         cursor.consume_literal("]]");
         Some(reference)
     } else {
@@ -1176,11 +1306,14 @@ fn parse_eventmodeling_optional_data_type(
     diagram_type: &str,
 ) -> Result<Option<EventModelingFieldSpan>> {
     cursor.skip_hidden(diagram_type)?;
+
     if !cursor.starts_literal("`") {
         return Ok(None);
     }
+
     cursor.consume_literal("`");
     let field = cursor.take_token(diagram_type, "expected eventmodeling data type")?;
+
     if !EVENTMODELING_DATA_TYPES.contains(&field.text.as_str()) {
         return Err(eventmodeling_exact_error(
             diagram_type,
@@ -1188,7 +1321,9 @@ fn parse_eventmodeling_optional_data_type(
             field.span,
         ));
     }
+
     cursor.skip_hidden(diagram_type)?;
+
     if !cursor.starts_literal("`") {
         return Err(Error::diagram_parse_insertion_point(
             diagram_type.to_string(),
@@ -1196,6 +1331,7 @@ fn parse_eventmodeling_optional_data_type(
             cursor.offset(),
         ));
     }
+
     cursor.consume_literal("`");
     Ok(Some(field))
 }
@@ -1209,24 +1345,34 @@ fn parse_eventmodeling_optional_inline(
 )> {
     let data_type = parse_eventmodeling_optional_data_type(cursor, diagram_type)?;
     cursor.skip_hidden(diagram_type)?;
+
     let Some(delimiter) = cursor.source[cursor.offset..].chars().next() else {
-        if data_type.is_some() {
-            return Err(Error::diagram_parse_insertion_point(
-                diagram_type.to_string(),
-                "expected eventmodeling inline data",
-                cursor.offset(),
-            ));
+        match data_type {
+            ::core::option::Option::Some(_) => {
+                return Err(Error::diagram_parse_insertion_point(
+                    diagram_type.to_string(),
+                    "expected eventmodeling inline data",
+                    cursor.offset(),
+                ));
+            },
+            ::core::option::Option::None => {},
         }
+
         return Ok((None, None));
     };
+
     if !matches!(delimiter, '{' | '"' | '\'') {
-        if data_type.is_some() {
-            return Err(Error::diagram_parse_insertion_point(
-                diagram_type.to_string(),
-                "expected eventmodeling inline data",
-                cursor.offset(),
-            ));
+        match data_type {
+            ::core::option::Option::Some(_) => {
+                return Err(Error::diagram_parse_insertion_point(
+                    diagram_type.to_string(),
+                    "expected eventmodeling inline data",
+                    cursor.offset(),
+                ));
+            },
+            ::core::option::Option::None => {},
         }
+
         return Ok((None, None));
     }
 
@@ -1234,12 +1380,15 @@ fn parse_eventmodeling_optional_inline(
     let rest = &cursor.source[start..];
     let line_end = rest.find(['\r', '\n']).unwrap_or(rest.len());
     let line = &rest[..line_end];
-    let end = if delimiter == '{' {
-        line.rfind('}').map(|index| start + index + 1)
-    } else {
-        line[delimiter.len_utf8()..]
-            .rfind(delimiter)
-            .map(|index| start + delimiter.len_utf8() + index + delimiter.len_utf8())
+    let end = match delimiter {
+        '{' => {
+            line.rfind('}').map(|index| start + index + 1)
+        },
+        _ => {
+            line[delimiter.len_utf8()..]
+                .rfind(delimiter)
+                .map(|index| start + delimiter.len_utf8() + index + delimiter.len_utf8())
+        },
     }
     .ok_or_else(|| {
         Error::diagram_parse_insertion_point(
@@ -1292,16 +1441,21 @@ fn parse_eventmodeling_block_cursor(
             });
         }
     };
-    if let Err(error) = cursor.skip_hidden(diagram_type) {
-        return Err(FailedEventModelingBlock {
-            error: Box::new(error),
-            #[cfg(feature = "editor-facts")]
-            data_type: _data_type,
-            text: String::new(),
-            #[cfg(feature = "editor-facts")]
-            span: cursor.insertion_span(),
-        });
+
+    match cursor.skip_hidden(diagram_type) {
+        Err(error) => {
+            return Err(FailedEventModelingBlock {
+                error: Box::new(error),
+                #[cfg(feature = "editor-facts")]
+                data_type: _data_type,
+                text: String::new(),
+                #[cfg(feature = "editor-facts")]
+                span: cursor.insertion_span(),
+            });
+        },
+        ::core::result::Result::Ok(_) => {},
     }
+
     if !cursor.starts_literal("{") {
         let span = cursor.insertion_span();
         return Err(FailedEventModelingBlock {
@@ -1321,6 +1475,7 @@ fn parse_eventmodeling_block_cursor(
     let block_start = cursor.offset;
     cursor.consume_literal("{");
     let after_open = &cursor.source[cursor.offset..];
+
     let Some(newline_rel) = after_open.find('\n') else {
         let span = SourceSpan::new(block_start, cursor.source.len());
         return Err(FailedEventModelingBlock {
@@ -1336,9 +1491,11 @@ fn parse_eventmodeling_block_cursor(
             span,
         });
     };
+
     let before_newline = after_open[..newline_rel]
         .strip_suffix('\r')
         .unwrap_or(&after_open[..newline_rel]);
+
     if !before_newline
         .bytes()
         .all(|byte| matches!(byte, b' ' | b'\t'))
@@ -1364,16 +1521,20 @@ fn parse_eventmodeling_block_cursor(
             span,
         });
     }
+
     cursor.offset += newline_rel + 1;
 
     let mut line_start = cursor.offset;
+
     while line_start < cursor.source.len() {
         if cursor.control.checkpoint().is_err() {
             break;
         }
+
         if cursor.source[line_start..].starts_with('}') {
             let block_end = line_start + 1;
             let after = &cursor.source[block_end..];
+
             if after.is_empty() || after.chars().next().is_some_and(char::is_whitespace) {
                 cursor.offset = block_end;
                 return Ok(ParsedEventModelingBlock {
@@ -1385,10 +1546,13 @@ fn parse_eventmodeling_block_cursor(
                 });
             }
         }
+
         let (_, next) = physical_line_at(cursor.source, line_start);
+
         if next <= line_start || next == cursor.source.len() {
             break;
         }
+
         line_start = next;
     }
 
@@ -1442,6 +1606,7 @@ fn parse_eventmodeling_data_cursor(
             });
         }
     };
+
     match parse_eventmodeling_block_cursor(cursor, diagram_type) {
         Ok(block) => Ok(EventModelingDataEntityFacts {
             name,
@@ -1500,6 +1665,7 @@ fn parse_eventmodeling_note_cursor(
             });
         }
     };
+
     match parse_eventmodeling_block_cursor(cursor, diagram_type) {
         Ok(_block) => Ok(EventModelingNoteFacts {
             #[cfg(feature = "editor-facts")]
@@ -1527,6 +1693,7 @@ fn parse_eventmodeling_note_cursor(
     }
 }
 
+#[must_use]
 fn is_eventmodeling_top_level_start(cursor: &EventModelingCursor<'_>) -> bool {
     [
         "title",
@@ -1551,11 +1718,14 @@ fn parse_eventmodeling_gwt_group(
     stop_keywords: &[&str],
 ) -> Result<Vec<EventModelingGwtStatementFacts>> {
     let mut statements = Vec::new();
+
     loop {
         if cursor.control.checkpoint().is_err() {
             break;
         }
+
         cursor.skip_hidden(diagram_type)?;
+
         if cursor.is_eof()
             || stop_keywords
                 .iter()
@@ -1564,6 +1734,7 @@ fn parse_eventmodeling_gwt_group(
         {
             break;
         }
+
         let _model_entity_type = take_eventmodeling_entity_type_cursor(cursor, diagram_type)?;
         let _entity_reference = take_eventmodeling_id_cursor(
             cursor,
@@ -1577,6 +1748,7 @@ fn parse_eventmodeling_gwt_group(
             entity_reference: _entity_reference,
         });
     }
+
     if statements.is_empty() {
         return Err(Error::diagram_parse_insertion_point(
             diagram_type.to_string(),
@@ -1584,6 +1756,7 @@ fn parse_eventmodeling_gwt_group(
             cursor.offset(),
         ));
     }
+
     Ok(statements)
 }
 
@@ -1598,6 +1771,7 @@ fn parse_eventmodeling_gwt_cursor(
         "expected eventmodeling gwt source frame",
     )?;
     cursor.skip_hidden(diagram_type)?;
+
     if !cursor.consume_keyword("given") {
         return Err(Error::diagram_parse_insertion_point(
             diagram_type.to_string(),
@@ -1605,6 +1779,7 @@ fn parse_eventmodeling_gwt_cursor(
             cursor.offset(),
         ));
     }
+
     let _given = parse_eventmodeling_gwt_group(cursor, diagram_type, &["when", "then"])?;
     cursor.skip_hidden(diagram_type)?;
     let _when = if cursor.consume_keyword("when") {
@@ -1613,6 +1788,7 @@ fn parse_eventmodeling_gwt_cursor(
         Vec::new()
     };
     cursor.skip_hidden(diagram_type)?;
+
     if !cursor.consume_keyword("then") {
         return Err(Error::diagram_parse_insertion_point(
             diagram_type.to_string(),
@@ -1620,6 +1796,7 @@ fn parse_eventmodeling_gwt_cursor(
             cursor.offset(),
         ));
     }
+
     let _then = parse_eventmodeling_gwt_group(cursor, diagram_type, &[])?;
     Ok(EventModelingGwtFacts {
         #[cfg(feature = "editor-facts")]
@@ -1641,8 +1818,10 @@ fn validate_eventmodeling_semantics(
 ) -> crate::OperationControlResult<Option<Error>> {
     let mut frame_types = HashMap::with_capacity(syntax.frames.len());
     let mut duplicate_frame = None;
+
     for frame in &syntax.frames {
         control.checkpoint()?;
+
         match frame_types.entry(frame.name.clone()) {
             std::collections::hash_map::Entry::Vacant(entry) => {
                 entry.insert(frame.model_entity_type.clone());
@@ -1658,6 +1837,7 @@ fn validate_eventmodeling_semantics(
             }
         }
     }
+
     #[cfg(feature = "editor-facts")]
     if editor_demand.needs_recovery() {
         let mut data_names = HashSet::with_capacity(syntax.data_entities.len());

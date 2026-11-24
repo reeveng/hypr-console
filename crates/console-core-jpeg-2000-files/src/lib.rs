@@ -53,7 +53,7 @@ but the difference gap should not be too large.
 
 # Safety
 By default, the crate has the `simd` feature enabled, which uses the
-[`fearless_simd`](https://github.com/linebender/fearless_simd) crate to accelerate
+shared SIMD dispatcher to accelerate
 important parts of the pipeline. If you want to eliminate any usage of unsafe
 in this crate as well as its dependencies, you can simply disable this
 feature, at the cost of worse decoding performance. Unsafe code is forbidden
@@ -84,7 +84,7 @@ pub mod error;
 pub(crate) mod log;
 pub(crate) mod math;
 
-use crate::math::{Float32x8, Level, SIMD_WIDTH, Simd, dispatch};
+use crate::math::SIMD_WIDTH;
 pub use error::{
   ColorError, DecodeError, DecodingError, FormatError, MarkerError, Result, TileError,
   ValidationError,
@@ -501,14 +501,10 @@ fn convert_color_space(image: &mut DecodedImage<'_>, bit_depth: u8) -> Result<()
   {
     Some(jp2::colr::ColorSpace::Enumerated(e)) => match e {
       EnumeratedColorspace::Sycc => {
-        dispatch!(Level::new(), simd => {
-            sycc_to_rgb(simd, image.decoded_components, bit_depth)
-        })?;
+        sycc_to_rgb(image.decoded_components, bit_depth)?;
       }
       EnumeratedColorspace::CieLab(cielab) => {
-        dispatch!(Level::new(), simd => {
-            cielab_to_rgb(simd, image.decoded_components, bit_depth, cielab)
-        })?;
+        cielab_to_rgb(image.decoded_components, bit_depth, cielab)?;
       }
       EnumeratedColorspace::BiLevel1
       | EnumeratedColorspace::YCbCr1
@@ -663,12 +659,7 @@ fn resolve_palette_indices(
 }
 
 #[inline(always)]
-fn cielab_to_rgb<S: Simd>(
-  simd: S,
-  components: &mut [ComponentData],
-  bit_depth: u8,
-  lab: &CieLab,
-) -> Result<()> {
+fn cielab_to_rgb(components: &mut [ComponentData], bit_depth: u8, lab: &CieLab) -> Result<()> {
   let (l, a, b) = match components {
     [l, a, b, ..] => (l, a, b),
     _ => return Err(DecodeError::Color(ColorError::LabConversionFailed)),
@@ -713,34 +704,24 @@ fn cielab_to_rgb<S: Simd>(
   let Ok((b_scale, b_offset)) =
     lab_normalization(b_params, LabOutput::Chroma(math::Sample(bit_max / 255.0)));
 
-  let Ok(l_offset_v) = Float32x8::splat(simd, crate::math::Sample(l_offset));
-  let Ok(l_scale_v) = Float32x8::splat(simd, crate::math::Sample(l_scale));
-  let Ok(a_offset_v) = Float32x8::splat(simd, crate::math::Sample(a_offset));
-  let Ok(a_scale_v) = Float32x8::splat(simd, crate::math::Sample(a_scale));
-  let Ok(b_offset_v) = Float32x8::splat(simd, crate::math::Sample(b_offset));
-  let Ok(b_scale_v) = Float32x8::splat(simd, crate::math::Sample(b_scale));
-
   let Ok(l_samples) = l.container.samples_mut();
   let Ok(a_samples) = a.container.samples_mut();
   let Ok(b_samples) = b.container.samples_mut();
+  let Ok(measured) = fixed_index(l_samples.len().min(a_samples.len()).min(b_samples.len()));
+  let Ok(lanes) = fixed_index(SIMD_WIDTH);
+  let complete = measured.wrapping_sub(measured.wrapping_rem(lanes.max(1)));
+  let Ok(count) = index(complete);
+  let Ok(backend) = math::simd();
 
-  for ((l_chunk, a_chunk), b_chunk) in l_samples
-    .as_chunks_mut::<SIMD_WIDTH>()
-    .0
-    .iter_mut()
-    .zip(a_samples.as_chunks_mut::<SIMD_WIDTH>().0)
-    .zip(b_samples.as_chunks_mut::<SIMD_WIDTH>().0)
-  {
-    let Ok(l_v) = Float32x8::from_slice(simd, l_chunk);
-    let Ok(a_v) = Float32x8::from_slice(simd, a_chunk);
-    let Ok(b_v) = Float32x8::from_slice(simd, b_chunk);
-
-    let Ok(mul_add) = l_v.mul_add(l_scale_v, l_offset_v);
-    let Ok(()) = mul_add.store(l_chunk);
-    let Ok(a_v_mul_add) = a_v.mul_add(a_scale_v, a_offset_v);
-    let Ok(()) = a_v_mul_add.store(a_chunk);
-    let Ok(b_v_mul_add) = b_v.mul_add(b_scale_v, b_offset_v);
-    let Ok(()) = b_v_mul_add.store(b_chunk);
+  for (samples, gain, offset) in [
+    (l_samples, l_scale, l_offset),
+    (a_samples, a_scale, a_offset),
+    (b_samples, b_scale, b_offset),
+  ] {
+    let prefix = samples
+      .get_mut(..count)
+      .ok_or(ValidationError::InvalidDimensions)?;
+    let Ok(()) = math::affine(backend, prefix, math::Gain(gain), math::Sample(offset));
   }
 
   Ok(())
@@ -776,7 +757,7 @@ fn lab_normalization(
 }
 
 #[inline(always)]
-fn sycc_to_rgb<S: Simd>(simd: S, components: &mut [ComponentData], bit_depth: u8) -> Result<()> {
+fn sycc_to_rgb(components: &mut [ComponentData], bit_depth: u8) -> Result<()> {
   let bits = u32::from(bit_depth);
   let Ok(offset) = narrow_f32(f64::from(1u32.wrapping_shl(bits.wrapping_sub(1))));
   let Ok(max_value) = narrow_f32(f64::from(1u32.wrapping_shl(bits).wrapping_sub(1)));
@@ -786,45 +767,17 @@ fn sycc_to_rgb<S: Simd>(simd: S, components: &mut [ComponentData], bit_depth: u8
     _ => return Err(DecodeError::Color(ColorError::SyccConversionFailed)),
   };
 
-  let Ok(offset_v) = Float32x8::splat(simd, crate::math::Sample(offset));
-  let Ok(max_v) = Float32x8::splat(simd, crate::math::Sample(max_value));
-  let Ok(zero_v) = Float32x8::splat(simd, crate::math::Sample(0.0));
-  let Ok(cr_to_r) = Float32x8::splat(simd, crate::math::Sample(1.402));
-  let Ok(cb_to_g) = Float32x8::splat(simd, crate::math::Sample(-0.344136));
-  let Ok(cr_to_g) = Float32x8::splat(simd, crate::math::Sample(-0.714136));
-  let Ok(cb_to_b) = Float32x8::splat(simd, crate::math::Sample(1.772));
-
   let Ok(y_samples) = y.container.samples_mut();
   let Ok(cb_samples) = cb.container.samples_mut();
   let Ok(cr_samples) = cr.container.samples_mut();
-
-  for ((y_chunk, cb_chunk), cr_chunk) in y_samples
-    .as_chunks_mut::<SIMD_WIDTH>()
-    .0
-    .iter_mut()
-    .zip(cb_samples.as_chunks_mut::<SIMD_WIDTH>().0)
-    .zip(cr_samples.as_chunks_mut::<SIMD_WIDTH>().0)
-  {
-    let Ok(y_v) = Float32x8::from_slice(simd, y_chunk);
-    let Ok(float32x8) = Float32x8::from_slice(simd, cb_chunk);
-    let cb_v = float32x8 - offset_v;
-    let cr_v = (match Float32x8::from_slice(simd, cr_chunk) {
-      Ok(value) => value,
-    }) - offset_v;
-
-    let Ok(r) = cr_v.mul_add(cr_to_r, y_v);
-
-    let Ok(mul_add) = cb_v.mul_add(cb_to_g, y_v);
-    let Ok(g) = cr_v.mul_add(cr_to_g, mul_add);
-
-    let Ok(b) = cb_v.mul_add(cb_to_b, y_v);
-
-    for (value, output) in [(r, y_chunk), (g, cb_chunk), (b, cr_chunk)] {
-      let Ok(upper) = value.min(max_v);
-      let Ok(bounded) = upper.max(zero_v);
-      let Ok(()) = bounded.store(output);
-    }
-  }
+  let Ok(()) = math::color(
+    console_core_simd::ComponentTransform::Ycbcr {
+      offset,
+      gains: [1.402, -0.344136, -0.714136, 1.772],
+      maximum: Some(max_value),
+    },
+    [y_samples, cb_samples, cr_samples],
+  );
 
   Ok(())
 }

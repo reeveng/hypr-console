@@ -38,6 +38,7 @@ pub(crate) struct MindmapCssBinding {
 }
 
 impl MindmapCssBinding {
+    #[must_use]
     pub(super) fn new(config: &PresentationConfig, plan: &MindmapNodePalettePlan) -> Self {
         let raw = config.as_value();
         let token = |key: &str, fallback: &str| {
@@ -46,11 +47,16 @@ impl MindmapCssBinding {
                 .unwrap_or(fallback)
                 .to_owned()
         };
-        let theme = config.get_str("theme").unwrap_or_default();
-        let use_gradient = raw
+        let theme = match config.get_str("theme") {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "",
+        };
+        let use_gradient = match raw
             .pointer("/themeVariables/useGradient")
-            .and_then(crate::config::json_bool)
-            .unwrap_or(false);
+            .and_then(crate::config::json_bool) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        };
         let gradient = use_gradient
             .then(|| {
                 Some((
@@ -106,23 +112,26 @@ impl MindmapCssBinding {
                 raw,
                 &["themeVariables", "mindmap", "labelTextColor"],
             ),
-            theme: theme.into(),
-            look: crate::config::mermaid_config_diagram_look(config)
-                .as_str()
-                .into(),
+            theme: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(theme),
+            look: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(crate::config::mermaid_config_diagram_look(config)
+                .as_str()),
             root_fill,
             root_label,
             tokens,
-            stroke_width: crate::config::config_css_number_or_string(
+            stroke_width: match crate::config::config_css_number_or_string(
                 raw,
                 &["themeVariables", "strokeWidth"],
-            )
-            .unwrap_or_else(|| "2".into()),
-            drop_shadow: crate::config::config_css_number_or_string(
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("2"),
+            },
+            drop_shadow: match crate::config::config_css_number_or_string(
                 raw,
                 &["themeVariables", "dropShadow"],
-            )
-            .unwrap_or_else(|| "none".into()),
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("none"),
+            },
             use_gradient,
             gradient,
             shadow_flood: if theme.contains("dark") {
@@ -130,8 +139,8 @@ impl MindmapCssBinding {
             } else {
                 "#000000"
             },
-            cluster_background: token("clusterBkg", "#ffffde").into(),
-            cluster_border: token("clusterBorder", "#aaaa33").into(),
+            cluster_background: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<::std::string::String>>::from(token("clusterBkg", "#ffffde")),
+            cluster_border: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<::std::string::String>>::from(token("clusterBorder", "#aaaa33")),
             node_fill_ownership: MindmapNodeFillOwnership::from_config(config),
             neo_fill_source: if use_gradient
                 || matches!(
@@ -147,15 +156,18 @@ impl MindmapCssBinding {
         }
     }
 
+    #[must_use]
     pub(crate) fn model_look<'a>(&'a self, model_look: &'a str) -> &'a str {
-        let model_look = model_look.trim();
-        if model_look.is_empty() || model_look == "default" {
+        let model_look_2 = model_look.trim();
+
+        if model_look_2.is_empty() || model_look_2 == "default" {
             &self.look
         } else {
-            model_look
+            model_look_2
         }
     }
 
+    #[must_use]
     pub(super) fn label_fill_owned(
         &self,
         config: &PresentationConfig,
@@ -169,15 +181,17 @@ impl MindmapCssBinding {
         };
         let root = has_class("section-root");
         let neo = self.model_look(&node.look) == "neo" && has_class("mindmap-node");
-        // The Classic disabled text rule wins over section text, but root/Neo overrides win
-        // after it. HTML span color has its own explicit section rule.
+
+
         if !html && !neo && !root && has_class("disabled") {
             return true;
         }
+
         if html && !neo && node.icon.is_some() && self.label_text.is_some() {
             return config
                 .config_paint_overrides_typed_default("themeVariables.mindmap.labelTextColor");
         }
+
         let node_border_role = || {
             if config.get_str("themeVariables.nodeBorder").is_some() {
                 "themeVariables.nodeBorder"
@@ -190,9 +204,9 @@ impl MindmapCssBinding {
         {
             node_border_role().to_string()
         } else if root && !neo {
-            "themeVariables.gitBranchLabel0".into()
+            <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("themeVariables.gitBranchLabel0")
         } else if neo && self.theme.as_ref() == "neutral" {
-            "themeVariables.cScaleLabel1".into()
+            <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("themeVariables.cScaleLabel1")
         } else {
             let slot = if root && neo {
                 Some(0)
@@ -200,20 +214,23 @@ impl MindmapCssBinding {
                 node.css_classes
                     .split_whitespace()
                     .filter_map(|class| {
-                        let section = class.strip_prefix("section-")?.parse::<i32>().ok()?;
-                        let section = if section >= super::theme::MINDMAP_SECTION_COUNT as i32 {
+                        let checked_value = class.strip_prefix("section-")?;
+                        let section = match checked_value.parse::<i32>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
+                        let section_2 = if section >= super::theme::MINDMAP_SECTION_COUNT as i32 {
                             section % super::theme::MINDMAP_SECTION_COUNT as i32
                         } else {
                             section
                         };
-                        usize::try_from(section + 1)
-                            .ok()
+                        match usize::try_from(section_2 + 1) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }
                             .filter(|slot| *slot < self.sections.len())
                     })
                     .max()
             };
-            slot.map(|slot| format!("themeVariables.cScaleLabel{slot}"))
-                .unwrap_or_else(|| "themeVariables.textColor".into())
+
+            match slot.map(|slot_2| format!("themeVariables.cScaleLabel{slot}", slot = slot_2)) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("themeVariables.textColor"),
+            }
         };
         config.config_paint_overrides_typed_default(&role)
     }

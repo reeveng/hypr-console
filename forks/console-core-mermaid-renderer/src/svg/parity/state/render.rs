@@ -52,29 +52,37 @@ fn render_state_diagram_svg_with_plan(
     let _g_build_ctx = timing.section(&mut timings.build_ctx);
 
     let mut hidden_prefixes: Vec<String> = Vec::new();
+
     for (id, st) in &model.states {
-        let Some(note) = st.note.as_ref() else {
-            continue;
+        let note = {
+            let optional_note = st.note.as_ref();
+
+            match optional_note {
+                Some(matched_note) => matched_note,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if note.text.trim().is_empty() {
             continue;
         }
+
         if note.position.is_none() {
             hidden_prefixes.push(id.clone());
         }
     }
 
-    // Mermaid computes the final root viewport from DOM `svg.getBBox()` plus a fixed padding
-    // (`setupViewPortForSVG(svg, padding=8)`). It does *not* pre-normalize the coordinate space by
-    // shifting the entire rendered graph to start at (0,0).
-    //
-    // Keep the top-level origin at (0,0) and derive `viewBox` / `max-width` later from the emitted
-    // SVG bounds approximation (see below).
+
+
+
+
+
+
     let viewport_padding = 8.0;
     let origin_x = 0.0;
     let origin_y = 0.0;
 
-    let diagram_title = diagram_title
+    let diagram_title_2 = diagram_title
         .map(|s| s.trim())
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string());
@@ -99,39 +107,44 @@ fn render_state_diagram_svg_with_plan(
 
     let mut nodes_by_id: FixedMap<&str, &StateSvgNode> =
         FixedMap::with_capacity_and_hasher(model.nodes.len(), Default::default());
+
     for n in &model.nodes {
         nodes_by_id.insert(n.id.as_str(), n);
     }
 
     let mut layout_nodes_by_id: FixedMap<&str, &LayoutNode> =
         FixedMap::with_capacity_and_hasher(layout.nodes.len(), Default::default());
+
     for n in &layout.nodes {
         layout_nodes_by_id.insert(n.id.as_str(), n);
     }
 
     let mut layout_edges_by_id: FixedMap<&str, &crate::model::LayoutEdge> =
         FixedMap::with_capacity_and_hasher(layout.edges.len(), Default::default());
+
     for e in &layout.edges {
         layout_edges_by_id.insert(e.id.as_str(), e);
     }
 
     let mut layout_clusters_by_id: FixedMap<&str, &LayoutCluster> =
         FixedMap::with_capacity_and_hasher(layout.clusters.len(), Default::default());
+
     for c in &layout.clusters {
         layout_clusters_by_id.insert(c.id.as_str(), c);
     }
 
     let mut parent: FixedMap<&str, &str> =
         FixedMap::with_capacity_and_hasher(model.nodes.len(), Default::default());
+
     for n in &model.nodes {
         if let Some(p) = n.parent_id.as_deref() {
             parent.insert(n.id.as_str(), p);
         }
     }
 
-    // Mermaid's state diagram DOM insertion order follows the order of `StateDB.getData().nodes`
-    // (see `dataFetcher.ts` + dagre renderer `graph.nodes()` iteration). Our semantic model's
-    // `nodes` already preserves that first-seen insertion order, so use it directly.
+
+
+
     let node_order: Vec<&str> = model.nodes.iter().map(|n| n.id.as_str()).collect();
 
     let mut ctx = StateRenderCtx {
@@ -169,11 +182,13 @@ fn render_state_diagram_svg_with_plan(
         rough_cache,
     };
 
+    #[must_use]
     fn compute_state_nested_roots(ctx: &StateRenderCtx<'_>) -> std::collections::BTreeSet<String> {
         let mut out: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
 
         let mut composite_self_loops: std::collections::HashSet<&str> =
             std::collections::HashSet::new();
+
         for e in ctx.edges {
             if state_is_hidden(ctx, e.start.as_str())
                 || state_is_hidden(ctx, e.end.as_str())
@@ -181,13 +196,22 @@ fn render_state_diagram_svg_with_plan(
             {
                 continue;
             }
+
             if e.start != e.end {
                 continue;
             }
+
             let id = e.start.as_str();
-            let Some(n) = ctx.nodes_by_id.get(id).copied() else {
-                continue;
+
+            let n = {
+                let optional_n = ctx.nodes_by_id.get(id).copied();
+
+                match optional_n {
+                    Some(matched_n) => matched_n,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if n.is_group && n.shape != "noteGroup" {
                 composite_self_loops.insert(id);
             }
@@ -195,6 +219,7 @@ fn render_state_diagram_svg_with_plan(
 
         let mut composite_externals: std::collections::HashSet<&str> =
             std::collections::HashSet::new();
+
         for e in ctx.edges {
             if state_is_hidden(ctx, e.start.as_str())
                 || state_is_hidden(ctx, e.end.as_str())
@@ -202,35 +227,53 @@ fn render_state_diagram_svg_with_plan(
             {
                 continue;
             }
+
             let a = state_endpoint_context_raw(ctx, e.start.as_str());
             let b = state_endpoint_context_raw(ctx, e.end.as_str());
             let ca = state_context_chain_raw(ctx, a);
             let cb = state_context_chain_raw(ctx, b);
 
-            for anc in &ca {
+            'over_anc_2: for anc in &ca {
                 let Some(id) = *anc else {
-                    continue;
+                    continue 'over_anc_2;
                 };
+
                 if cb.contains(anc) {
-                    continue;
+                    continue 'over_anc_2;
                 }
-                let Some(n) = ctx.nodes_by_id.get(id).copied() else {
-                    continue;
+
+                let n = {
+                    let optional_n_2 = ctx.nodes_by_id.get(id).copied();
+
+                    match optional_n_2 {
+                        Some(matched_n_2) => matched_n_2,
+                        ::core::option::Option::None => continue 'over_anc_2,
+                    }
                 };
+
                 if n.is_group && n.shape != "noteGroup" {
                     composite_externals.insert(id);
                 }
             }
-            for anc in &cb {
+
+            'over_anc_2: for anc in &cb {
                 let Some(id) = *anc else {
-                    continue;
+                    continue 'over_anc_2;
                 };
+
                 if ca.contains(anc) {
-                    continue;
+                    continue 'over_anc_2;
                 }
-                let Some(n) = ctx.nodes_by_id.get(id).copied() else {
-                    continue;
+
+                let n = {
+                    let optional_n_2 = ctx.nodes_by_id.get(id).copied();
+
+                    match optional_n_2 {
+                        Some(matched_n_2) => matched_n_2,
+                        ::core::option::Option::None => continue 'over_anc_2,
+                    }
                 };
+
                 if n.is_group && n.shape != "noteGroup" {
                     composite_externals.insert(id);
                 }
@@ -244,60 +287,89 @@ fn render_state_diagram_svg_with_plan(
             {
                 continue;
             }
-            // Mermaid avoids creating a nested root for composites that have a self-loop edge on
-            // the composite itself (e.g. `Active --> Active`).
+
+
+
             if composite_self_loops.contains(e.start.as_str()) && e.start == e.end {
                 continue;
             }
-            let Some(c) = state_edge_context_raw(ctx, e) else {
-                continue;
+
+            let c = {
+                let optional_c = state_edge_context_raw(ctx, e);
+
+                match optional_c {
+                    Some(matched_c) => matched_c,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if composite_externals.contains(c) {
                 continue;
             }
+
             out.insert(c.to_string());
         }
 
-        // Mermaid usually renders composite states in a nested root even when they don't contain
-        // internal transitions, but it avoids doing so when the composite has a self-loop edge.
+
+
         for (child_id, parent_id) in &ctx.parent {
             if state_is_hidden(ctx, child_id) || state_is_hidden(ctx, parent_id) {
                 continue;
             }
+
             if composite_self_loops.contains(parent_id) {
                 continue;
             }
+
             if composite_externals.contains(parent_id) {
                 continue;
             }
-            let Some(pn) = ctx.nodes_by_id.get(parent_id).copied() else {
-                continue;
+
+            let pn = {
+                let optional_pn = ctx.nodes_by_id.get(parent_id).copied();
+
+                match optional_pn {
+                    Some(matched_pn) => matched_pn,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if pn.is_group && pn.shape != "noteGroup" {
                 out.insert((*parent_id).to_string());
             }
         }
 
-        // If a nested graph is needed for a descendant composite state, Mermaid also nests
-        // its composite state ancestors.
+
+
         let seeds: Vec<String> = out.iter().cloned().collect();
+
         for cid in seeds {
             let mut cur: Option<&str> = Some(cid.as_str());
-            while let Some(id) = cur {
-                let Some(pid) = ctx.parent.get(id).copied() else {
-                    break;
+
+            'inner_while_2: while let Some(id) = cur {
+                let pid = {
+                    let optional_pid = ctx.parent.get(id).copied();
+
+                    match optional_pid {
+                        Some(matched_pid) => matched_pid,
+                        ::core::option::Option::None => break 'inner_while_2,
+                    }
                 };
+
                 let Some(pn) = ctx.nodes_by_id.get(pid).copied() else {
                     cur = Some(pid);
-                    continue;
+                    continue 'inner_while_2;
                 };
+
                 if pn.is_group && pn.shape != "noteGroup" {
                     if composite_self_loops.contains(pid) || composite_externals.contains(pid) {
                         cur = Some(pid);
-                        continue;
+                        continue 'inner_while_2;
                     }
+
                     out.insert(pid.to_string());
                 }
+
                 cur = Some(pid);
             }
         }
@@ -345,6 +417,7 @@ fn render_state_diagram_svg_with_plan(
         );
         out.push_str("</title>");
     }
+
     if has_acc_descr {
         let _ = write!(
             &mut out,
@@ -354,11 +427,12 @@ fn render_state_diagram_svg_with_plan(
         );
         out.push_str("</desc>");
     }
+
     out.checkpoint()?;
 
-    // Mermaid emits a single `<style>` element with diagram-scoped CSS. Stream it directly into
-    // the bounded document so a large public diagram id or class catalog cannot allocate an
-    // unbounded temporary stylesheet before `MaxSvgBytes` admission.
+
+
+
     out.push_str("<style>");
     write_state_css(
         &mut super::super::output::XmlTextOutput::new(&mut out),
@@ -368,13 +442,13 @@ fn render_state_diagram_svg_with_plan(
     out.push_str("</style>");
     out.checkpoint()?;
 
-    // Mermaid wraps diagram content (defs + root) in a single `<g>` element.
+
     out.push_str("<g>");
     state_markers(&mut out, diagram_id, &ctx);
 
-    // `svg.getBBox()` does not include `<style>` and typically excludes non-rendered `<defs>`
-    // content from the rendered bbox. Scan only the rendered graph payload to reduce overhead
-    // in our SVG bounds approximation.
+
+
+
     let bounds_scan_start = out.len();
     let mut detail = StateRenderDetails::default();
     let mut effect_outsets = crate::diagram_theme::EffectOutsets::default();
@@ -400,14 +474,16 @@ fn render_state_diagram_svg_with_plan(
     let _g_viewbox = timing.section(&mut timings.viewbox);
     let _g_scan = timing.section(&mut viewbox_svg_scan);
     let geometry_bounds =
-        svg_emitted_bounds_from_svg(&out.as_str()[bounds_scan_start..bounds_scan_end])
-            .or_else(|| state_viewport_bounds_from_layout(layout))
-            .unwrap_or(Bounds {
+        match (svg_emitted_bounds_from_svg(&out.as_str()[bounds_scan_start..bounds_scan_end])
+            .or_else(|| state_viewport_bounds_from_layout(layout)), Bounds {
                 min_x: 0.0,
                 min_y: 0.0,
                 max_x: 100.0,
                 max_y: 100.0,
-            });
+            }) {
+            (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+            (::core::option::Option::None, alternate) => alternate,
+        };
     let mut paint_bounds = geometry_bounds.clone();
     paint_bounds.min_x -= effect_outsets.left;
     paint_bounds.max_x += effect_outsets.right;
@@ -415,10 +491,10 @@ fn render_state_diagram_svg_with_plan(
     paint_bounds.max_y += effect_outsets.bottom;
     drop(_g_scan);
 
-    let title_emission = if let Some(title) = diagram_title.as_deref() {
-        // Mermaid centers the title using the pre-title geometry bbox. Paint-only effect outsets
-        // expand the viewport, but they do not move diagram geometry or its title anchor:
-        // `x = bbox.x + bbox.width/2`, `y = -titleTopMargin`.
+    let title_emission = if let Some(title) = diagram_title_2.as_deref() {
+
+
+
         let title_x = (geometry_bounds.min_x + geometry_bounds.max_x) / 2.0;
         let title_y = -title_top_margin;
 
@@ -450,7 +526,7 @@ fn render_state_diagram_svg_with_plan(
         viewport_padding,
     );
 
-    let root_document = root_context.finish_document(
+    let root_document_2 = root_context.finish_document(
         &mut out,
         root_document,
         root_svg::RootViewportSpec::responsive(root_bounds)
@@ -467,6 +543,7 @@ fn render_state_diagram_svg_with_plan(
             fmt(title_x),
             fmt(title_y),
         );
+
         if !style_plan.title_style_attr().is_empty() {
             let _ = write!(
                 &mut out,
@@ -474,11 +551,13 @@ fn render_state_diagram_svg_with_plan(
                 escape_attr_display(style_plan.title_style_attr())
             );
         }
+
         let _ = write!(&mut out, ">{}</text>", escape_xml_display(title));
         out.checkpoint()?;
     }
+
     out.push_str("</svg>\n");
-    let out = out.finish()?;
+    let out_2 = out.finish()?;
 
     style_plan.record_output_visibility(options.debug.include_nodes, options.debug.include_edges);
 
@@ -486,6 +565,7 @@ fn render_state_diagram_svg_with_plan(
     timings.total = total_timer
         .map(merman_model::runtime::OperationTimer::elapsed)
         .unwrap_or_default();
+
     if timing.is_enabled() {
         eprintln!(
             "[render-timing] diagram=stateDiagram total={:?} deserialize={:?} build_ctx={:?} render_svg={:?} viewbox={:?} viewbox_svg_scan={:?} finalize={:?} root_calls={} clusters={:?} edge_paths={:?} edge_labels={:?} leaf_nodes={:?} leaf_style_parse={:?} leaf_roughjs={:?} leaf_roughjs_calls={} leaf_roughjs_unique={} leaf_measure={:?} leaf_label_html={:?} leaf_emit={:?} nested_roots={:?} self_loop_placeholders={:?}",
@@ -512,7 +592,8 @@ fn render_state_diagram_svg_with_plan(
             detail.self_loop_placeholders,
         );
     }
-    root_document.complete(out)
+
+    root_document_2.complete(out_2)
 }
 
 fn prepare_state_line_hop_paths(
@@ -529,6 +610,7 @@ fn prepare_state_line_hop_paths(
     {
         return Ok(FixedMap::default());
     }
+
     options.work_meter().charge(ctx.edges.len())?;
     let point_count = ctx
         .edges
@@ -550,6 +632,7 @@ fn prepare_state_line_hop_paths(
     }
 
     let mut owned_edges = Vec::new();
+
     for edge in ctx.edges {
         if state_is_hidden(ctx, edge.start.as_str())
             || state_is_hidden(ctx, edge.end.as_str())
@@ -557,9 +640,16 @@ fn prepare_state_line_hop_paths(
         {
             continue;
         }
-        let Some(layout_edge) = ctx.layout_edges_by_id.get(edge.id.as_str()).copied() else {
-            continue;
+
+        let layout_edge = {
+            let optional_layout_edge = ctx.layout_edges_by_id.get(edge.id.as_str()).copied();
+
+            match optional_layout_edge {
+                Some(matched_layout_edge) => matched_layout_edge,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let geometry = state_edge_prepare_geometry(
             ctx,
             layout_edge,
@@ -616,13 +706,13 @@ fn render_state_root(
     options.checkpoint_emit()?;
     let (parent_origin_x, parent_origin_y) = parent_origin;
 
-    // Mermaid's dagre-wrapper uses a fixed graph margin (`marginx/marginy=8`). For nested state
-    // roots (extracted cluster graphs), Mermaid keeps the root cluster frame at x/y=8 in the
-    // nested coordinate space and compensates via the root group's `translate(...)`.
-    //
-    // If we anchor the nested origin at the cluster's top-left, the emitted cluster rect starts at
-    // (0,0) and the root group's transform drifts from upstream DOM. Shift the origin by the fixed
-    // margin so nested roots start at (8,8), matching Mermaid's SVG structure more closely.
+
+
+
+
+
+
+
     const GRAPH_MARGIN_PX: f64 = 8.0;
 
     let (origin_x, origin_y, transform_attr) = if let Some(root_id) = root {
@@ -651,9 +741,10 @@ fn render_state_root(
 
     let _ = write!(out, r#"<g class="root"{}>"#, transform_attr);
 
-    // clusters
+
     let _g_clusters = detail_guard(timing, &mut details.clusters);
     out.push_str(r#"<g class="clusters">"#);
+
     if let Some(root_id) = root {
         render_state_cluster(out, ctx, root_id, origin_x, origin_y);
         out.checkpoint()?;
@@ -663,24 +754,36 @@ fn render_state_root(
         if root == Some(cluster_id) {
             continue;
         }
+
         if !ctx.layout_clusters_by_id.contains_key(cluster_id) {
             continue;
         }
+
         if state_is_hidden(ctx, cluster_id) {
             continue;
         }
+
         if ctx.nested_roots.contains(cluster_id) {
             continue;
         }
-        let Some(node) = ctx.nodes_by_id.get(cluster_id).copied() else {
-            continue;
+
+        let node = {
+            let optional_node = ctx.nodes_by_id.get(cluster_id).copied();
+
+            match optional_node {
+                Some(matched_node) => matched_node,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !node.is_group || node.shape == "noteGroup" {
             continue;
         }
+
         if state_insertion_context(ctx, cluster_id) != root {
             continue;
         }
+
         render_state_cluster(out, ctx, cluster_id, origin_x, origin_y);
         out.checkpoint()?;
     }
@@ -689,33 +792,52 @@ fn render_state_root(
         if !ctx.layout_clusters_by_id.contains_key(cluster_id) {
             continue;
         }
-        let Some(cluster) = ctx.layout_clusters_by_id.get(cluster_id).copied() else {
-            continue;
+
+        let cluster = {
+            let optional_cluster = ctx.layout_clusters_by_id.get(cluster_id).copied();
+
+            match optional_cluster {
+                Some(matched_cluster) => matched_cluster,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if state_is_hidden(ctx, cluster_id) {
             continue;
         }
-        let Some(node) = ctx.nodes_by_id.get(cluster_id).copied() else {
-            continue;
+
+        let node = {
+            let optional_node = ctx.nodes_by_id.get(cluster_id).copied();
+
+            match optional_node {
+                Some(matched_node) => matched_node,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if node.shape != "noteGroup" {
             continue;
         }
+
         let note_owner = state_note_owner_id(cluster_id);
+
         if ctx.hidden_prefixes.iter().any(|p| p == note_owner) {
             continue;
         }
+
         let has_position = ctx
             .states
             .get(note_owner)
             .and_then(|s| s.note.as_ref())
             .and_then(|n| n.position.as_ref())
             .is_some();
+
         if !has_position {
             continue;
         }
 
         let target_root = state_insertion_context(ctx, note_owner);
+
         if target_root != root {
             continue;
         }
@@ -736,16 +858,18 @@ fn render_state_root(
         );
         out.checkpoint()?;
     }
+
     out.push_str("</g>");
     drop(_g_clusters);
 
-    // edge paths
+
     let _g_edge_paths = detail_guard(timing, &mut details.edge_paths);
     out.push_str(if ctx.uses_elk_adapter_dom {
         r#"<g class="edges edgePaths">"#
     } else {
         r#"<g class="edgePaths">"#
     });
+
     if ctx.include_edges {
         for edge in ctx.edges {
             if state_is_hidden(ctx, edge.start.as_str())
@@ -754,12 +878,15 @@ fn render_state_root(
             {
                 continue;
             }
+
             if state_edge_context(ctx, edge) != root {
                 continue;
             }
+
             if state_is_shadowed_self_loop_edge(ctx, edge) {
                 continue;
             }
+
             if let Some(layout_edge) = ctx.layout_edges_by_id.get(edge.id.as_str()) {
                 let original_path_work = ctx
                     .elk_edge_paths
@@ -767,16 +894,19 @@ fn render_state_root(
                     .map_or(layout_edge.points.len(), Vec::len);
                 options.work_meter().charge(original_path_work)?;
             }
+
             render_state_edge_path(out, ctx, edge, origin_x, origin_y, options.work_meter())?;
             options.checkpoint_emit()?;
         }
     }
+
     out.push_str("</g>");
     drop(_g_edge_paths);
 
-    // edge labels
+
     let _g_edge_labels = detail_guard(timing, &mut details.edge_labels);
     out.push_str(r#"<g class="edgeLabels">"#);
+
     if ctx.include_edges {
         for edge in ctx.edges {
             if state_is_hidden(ctx, edge.start.as_str())
@@ -785,12 +915,15 @@ fn render_state_root(
             {
                 continue;
             }
+
             if state_edge_context(ctx, edge) != root {
                 continue;
             }
+
             if state_is_shadowed_self_loop_edge(ctx, edge) {
                 continue;
             }
+
             if let Some(layout_edge) = ctx.layout_edges_by_id.get(edge.id.as_str()) {
                 let original_path_work = ctx
                     .elk_edge_paths
@@ -798,23 +931,33 @@ fn render_state_root(
                     .map_or(layout_edge.points.len(), Vec::len);
                 options.work_meter().charge(original_path_work)?;
             }
+
             render_state_edge_label(out, ctx, edge, origin_x, origin_y);
             out.checkpoint()?;
         }
     }
+
     out.push_str("</g>");
     drop(_g_edge_labels);
 
-    // nodes (leaf nodes + nested roots)
+
     out.push_str(r#"<g class="nodes">"#);
     let mut nested: Vec<&str> = Vec::new();
+
     for &id in &ctx.node_order {
-        let Some(n) = ctx.nodes_by_id.get(id).copied() else {
-            continue;
+        let n = {
+            let optional_n = ctx.nodes_by_id.get(id).copied();
+
+            match optional_n {
+                Some(matched_n) => matched_n,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if state_is_hidden(ctx, id) {
             continue;
         }
+
         if n.is_group
             && n.shape != "noteGroup"
             && ctx.nested_roots.contains(id)
@@ -826,19 +969,29 @@ fn render_state_root(
 
     if ctx.include_nodes {
         let leaf_start = timing.start();
+
         for &id in &ctx.node_order {
-            let Some(n) = ctx.layout_nodes_by_id.get(id).copied() else {
-                continue;
+            let n = {
+                let optional_n = ctx.layout_nodes_by_id.get(id).copied();
+
+                match optional_n {
+                    Some(matched_n) => matched_n,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if state_is_hidden(ctx, id) {
                 continue;
             }
+
             if n.is_cluster {
                 continue;
             }
+
             if state_leaf_context(ctx, id) != root {
                 continue;
             }
+
             render_state_node_svg(
                 out,
                 ctx,
@@ -851,6 +1004,7 @@ fn render_state_root(
             )?;
             out.checkpoint()?;
         }
+
         if let Some(s) = leaf_start {
             details.leaf_nodes += s.elapsed();
         }
@@ -869,14 +1023,16 @@ fn render_state_root(
             effect_outsets,
         )?;
         out.checkpoint()?;
+
         if let Some(s) = nested_start {
             details.nested_roots += s.elapsed();
         }
     }
 
-    // Dagre adds dummy edgeLabel nodes for self loops; ELK retains the original edges.
+
     if ctx.include_edges && !ctx.uses_elk_adapter_dom {
         let _g_placeholders = detail_guard(timing, &mut details.self_loop_placeholders);
+
         for edge in ctx.edges {
             if state_is_hidden(ctx, edge.start.as_str())
                 || state_is_hidden(ctx, edge.end.as_str())
@@ -884,12 +1040,15 @@ fn render_state_root(
             {
                 continue;
             }
+
             if edge.start != edge.end {
                 continue;
             }
+
             if state_edge_context(ctx, edge) != root {
                 continue;
             }
+
             if state_is_shadowed_self_loop_edge(ctx, edge) {
                 continue;
             }
@@ -899,15 +1058,18 @@ fn render_state_root(
             let id2 = format!("{start}---{start}---2");
 
             for id in [id1, id2] {
-                let (cx, cy) = ctx
+                let (cx, cy) = match ctx
                     .layout_nodes_by_id
                     .get(id.as_str())
                     .map(|n| {
                         let x = (n.x - n.width / 2.0) - origin_x;
                         let y = (n.y - n.height / 2.0) - origin_y;
                         (x, y)
-                    })
-                    .unwrap_or((0.0, 0.0));
+                    }) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => (0.0, 0.0),
+                };
+
                 if ctx.html_labels {
                     let _ = write!(
                         out,
@@ -925,9 +1087,11 @@ fn render_state_root(
                         fmt_display(cy),
                     );
                 }
+
                 out.checkpoint()?;
             }
         }
+
         drop(_g_placeholders);
     }
 
@@ -936,6 +1100,7 @@ fn render_state_root(
     out.checkpoint()
 }
 
+#[must_use]
 fn state_hand_drawn_rect_paths(
     x: f64,
     y: f64,
@@ -958,6 +1123,7 @@ fn state_hand_drawn_rect_paths(
         .unwrap_or_else(|| (path.clone(), path))
 }
 
+#[must_use]
 fn state_hand_drawn_terminal_style(property: &str, compatibility: &str, direct: &str) -> String {
     format!("{property}:{compatibility};{direct}")
 }
@@ -969,8 +1135,13 @@ fn render_state_cluster(
     origin_x: f64,
     origin_y: f64,
 ) {
-    let Some(cluster) = ctx.layout_clusters_by_id.get(cluster_id).copied() else {
-        return;
+    let cluster = {
+        let optional_cluster = ctx.layout_clusters_by_id.get(cluster_id).copied();
+
+        match optional_cluster {
+            Some(matched_cluster) => matched_cluster,
+            ::core::option::Option::None => return,
+        }
     };
 
     let data_look = state_data_look(ctx);
@@ -998,33 +1169,50 @@ fn render_state_cluster(
     let dom_id = state_node_scoped_dom_id(ctx, cluster_id);
     let cluster_node = ctx.nodes_by_id.get(cluster_id).copied();
     let node_style = ctx.style_plan.node(cluster_id);
-    let body_style = node_style
-        .map(crate::state::StateNodeStylePlan::shape_style_attr)
-        .unwrap_or_default();
-    let header_style = node_style
-        .map(crate::state::StateNodeStylePlan::composite_header_style_attr)
-        .unwrap_or_default();
-    let body_fill_path_style = node_style
-        .map(crate::state::StateNodeStylePlan::fill_path_style_attr)
-        .unwrap_or_default();
-    let body_stroke_path_style = node_style
-        .map(crate::state::StateNodeStylePlan::stroke_path_style_attr)
-        .unwrap_or_default();
-    let header_fill_path_style = node_style
-        .map(crate::state::StateNodeStylePlan::composite_header_fill_path_style_attr)
-        .unwrap_or_default();
-    let header_stroke_path_style = node_style
-        .map(crate::state::StateNodeStylePlan::composite_header_stroke_path_style_attr)
-        .unwrap_or_default();
-    let label_style = node_style
-        .map(crate::state::StateNodeStylePlan::label_style_attr)
-        .unwrap_or_default();
-    let label_div_prefix = node_style
-        .map(crate::state::StateNodeStylePlan::div_style_prefix)
-        .unwrap_or_default();
+    let body_style = match node_style
+        .map(crate::state::StateNodeStylePlan::shape_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let header_style = match node_style
+        .map(crate::state::StateNodeStylePlan::composite_header_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let body_fill_path_style = match node_style
+        .map(crate::state::StateNodeStylePlan::fill_path_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let body_stroke_path_style = match node_style
+        .map(crate::state::StateNodeStylePlan::stroke_path_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let header_fill_path_style = match node_style
+        .map(crate::state::StateNodeStylePlan::composite_header_fill_path_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let header_stroke_path_style = match node_style
+        .map(crate::state::StateNodeStylePlan::composite_header_stroke_path_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let label_style = match node_style
+        .map(crate::state::StateNodeStylePlan::label_style_attr) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+    let label_div_prefix = match node_style
+        .map(crate::state::StateNodeStylePlan::div_style_prefix) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
     let title_style = node_style
         .map(|style| {
             let header_text_style = style.composite_header_text_style_attr();
+
             if header_text_style.is_empty() {
                 style.label_style_attr()
             } else {
@@ -1035,6 +1223,7 @@ fn render_state_cluster(
     let title_div_prefix = node_style
         .map(|style| {
             let header_text_prefix = style.composite_header_text_div_style_prefix();
+
             if header_text_prefix.is_empty() {
                 style.div_style_prefix()
             } else {
@@ -1062,10 +1251,13 @@ fn render_state_cluster(
         escape_attr(class),
         dom_id.attr()
     );
+
     if shape != "divider" {
         let _ = write!(out, r#" data-id="{}""#, escape_attr(cluster_id));
     }
+
     let _ = write!(out, r#" data-look="{}""#, escape_attr(data_look));
+
     if ctx.palette_size > 0
         && let Some(color_index) = ctx
             .nodes_by_id
@@ -1078,6 +1270,7 @@ fn render_state_cluster(
             color_index % ctx.palette_size
         );
     }
+
     out.push('>');
 
     if shape == "divider" {
@@ -1125,6 +1318,7 @@ fn render_state_cluster(
             );
             return;
         }
+
         let _ = write!(
             out,
             r#"<g><rect class="divider" style="{}"{} x="{}" y="{}" width="{}" height="{}" data-look="{}"/></g></g>"#,
@@ -1312,8 +1506,8 @@ mod tests {
             .iter()
             .find(|edge| edge.classes.contains("note-edge"))
             .unwrap();
-        // Supply controlled provider routes to the real State paint path. The note crosses an
-        // unrelated transition, while the labelled transition is deliberately away from both.
+
+
         let edges: Vec<crate::model::LayoutEdge> = model
             .edges
             .iter()

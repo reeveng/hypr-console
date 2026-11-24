@@ -20,6 +20,7 @@ pub(in crate::svg::parity) enum RoughGeometryTarget {
 }
 
 impl RoughGeometryTarget {
+    #[must_use]
     const fn phase(self) -> OperationPhase {
         match self {
             Self::Svg => OperationPhase::Emit,
@@ -35,6 +36,7 @@ pub(in crate::svg::parity) struct RoughPathPair {
 }
 
 impl RoughPathPair {
+    #[must_use]
     fn new(fill: roughr::core::OpSet<f64>, stroke: roughr::core::OpSet<f64>) -> Self {
         Self {
             fill,
@@ -43,6 +45,7 @@ impl RoughPathPair {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity) fn into_svg_paths(
         self,
         work_meter: &OperationWorkMeter,
@@ -51,6 +54,7 @@ impl RoughPathPair {
             ops_to_svg_path_d(&self.fill),
             ops_to_svg_path_d(&self.stroke),
         ));
+
         match self.reservation {
             Some(reservation) => reconcile_hand_drawn_path(work_meter, reservation, paths),
             None => paths,
@@ -58,6 +62,7 @@ impl RoughPathPair {
     }
 }
 
+#[must_use]
 fn reserve_for_target(
     target: RoughGeometryTarget,
     svg_bytes: usize,
@@ -69,8 +74,8 @@ fn reserve_for_target(
     }
 }
 
-// Mermaid's `userNodeOverrides(...)` defaults for hand-drawn flowchart shapes.
-// Keep these in one place so every object shape uses the same RoughJS contract.
+
+
 const HAND_DRAWN_ROUGHNESS: f32 = 0.7;
 const HAND_DRAWN_FILL_WEIGHT: f32 = 4.0;
 const HAND_DRAWN_HACHURE_GAP: f32 = 5.2;
@@ -88,13 +93,16 @@ struct HandDrawnPathBudget {
     svg_bytes: usize,
 }
 
+#[must_use]
 fn ceil_to_usize(value: f64) -> Option<usize> {
     if !value.is_finite() || value < 0.0 || value > usize::MAX as f64 {
         return None;
     }
+
     Some(value.ceil() as usize)
 }
 
+#[must_use]
 fn hand_drawn_geometry_budget(
     path_length: f64,
     width: f64,
@@ -111,9 +119,9 @@ fn hand_drawn_geometry_budget(
         return None;
     }
 
-    // RoughR's path sampler uses `(1 + roughness) / 2` as its simplification distance. Use the
-    // same lower bound here so the admission estimate does not undercount sampled points when a
-    // caller selects a smoother path.
+
+
+
     let sample_distance = ((1.0 + f64::from(roughness.max(0.0))) / 2.0).max(0.1);
     let point_count = ceil_to_usize(path_length.max(1.0) / sample_distance)?.checked_add(1)?;
     let diagonal = width.abs().hypot(height.abs()).max(1.0);
@@ -132,6 +140,7 @@ fn hand_drawn_geometry_budget(
     clippy::too_many_arguments,
     reason = "Geometry admission keeps upstream bounds and sampling inputs explicit with target-specific accounting."
 )]
+#[must_use]
 fn admit_hand_drawn_geometry(
     target: RoughGeometryTarget,
     path_length: f64,
@@ -155,19 +164,26 @@ fn admit_hand_drawn_geometry(
     reserve_for_target(target, budget.svg_bytes, work_meter)
 }
 
+#[must_use]
 fn reserve_hand_drawn_svg_bytes(
     svg_bytes: usize,
     work_meter: &OperationWorkMeter,
 ) -> Option<crate::resources::SvgByteReservation> {
     let reservation = work_meter.reserve_svg_bytes_up_to(svg_bytes).ok()?;
-    if let Some(error) = reservation.limit_error {
-        let _ = work_meter.reconcile_svg_bytes(reservation.additional_bytes, 0);
-        let _ = work_meter.terminate_absolute_resource_error(error, OperationPhase::Emit);
-        return None;
+
+    match reservation.limit_error {
+        Some(error) => {
+            let _ = work_meter.reconcile_svg_bytes(reservation.additional_bytes, 0);
+            let _ = work_meter.terminate_absolute_resource_error(error, OperationPhase::Emit);
+            return None;
+        },
+        ::core::option::Option::None => {},
     }
+
     Some(reservation)
 }
 
+#[must_use]
 fn admit_hand_drawn_path(
     target: RoughGeometryTarget,
     path_data: &str,
@@ -189,6 +205,7 @@ fn admit_hand_drawn_path(
     )
 }
 
+#[must_use]
 fn admit_hand_drawn_rect(
     target: RoughGeometryTarget,
     width: f64,
@@ -209,6 +226,7 @@ fn admit_hand_drawn_rect(
     )
 }
 
+#[must_use]
 fn admit_hand_drawn_circle(
     target: RoughGeometryTarget,
     diameter: f64,
@@ -231,6 +249,7 @@ fn admit_hand_drawn_circle(
     reserve_for_target(target, budget.svg_bytes, work_meter)
 }
 
+#[must_use]
 fn reconcile_hand_drawn_path(
     work_meter: &OperationWorkMeter,
     reservation: crate::resources::SvgByteReservation,
@@ -240,13 +259,16 @@ fn reconcile_hand_drawn_path(
         let _ = work_meter.reconcile_svg_bytes(reservation.additional_bytes, 0);
         return None;
     };
+
     let actual_bytes = fill_d.len().checked_add(stroke_d.len())?;
+
     if work_meter
         .reconcile_svg_bytes(reservation.additional_bytes, actual_bytes)
         .is_err()
     {
         return None;
     }
+
     (!fill_d.is_empty() && !stroke_d.is_empty()).then_some((fill_d, stroke_d))
 }
 
@@ -254,18 +276,21 @@ pub(in crate::svg::parity) use crate::svg::parity::roughjs_common::{
     RoughRectSpec, roughjs_circle_path_d, roughjs_paths_for_rect,
 };
 
+#[must_use]
 fn parse_stroke_dash_pair(stroke_dasharray: &str) -> (f64, f64) {
     let dash = stroke_dasharray.trim().replace(',', " ");
     let mut nums = dash
         .split_whitespace()
-        .filter_map(|t| t.parse::<f32>().ok());
+        .filter_map(|t| match t.parse::<f32>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None });
+
     match (nums.next(), nums.next()) {
-        (Some(a), Some(b)) => (a as f64, b as f64),
-        (Some(a), None) => (a as f64, a as f64),
+        (Some(a), Some(b)) => (<f64 as ::core::convert::From<::core::primitive::f32>>::from(a), <f64 as ::core::convert::From<::core::primitive::f32>>::from(b)),
+        (Some(a), None) => (<f64 as ::core::convert::From<::core::primitive::f32>>::from(a), <f64 as ::core::convert::From<::core::primitive::f32>>::from(a)),
         _ => (0.0, 0.0),
     }
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_paths_for_svg_path(
     svg_path_data: &str,
     stroke_width: f32,
@@ -284,6 +309,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_svg_path(
     .and_then(|paths| paths.into_svg_paths(work_meter))
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_paths_for_svg_path(
     target: RoughGeometryTarget,
     svg_path_data: &str,
@@ -303,6 +329,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_svg_path(
     )
 }
 
+#[must_use]
 fn prepare_solid_svg_path(
     target: RoughGeometryTarget,
     svg_path_data: &str,
@@ -355,13 +382,16 @@ fn prepare_solid_svg_path(
                 control,
             )?;
             let mut retained = 0;
+
             for index in 0..fill.ops.len() {
                 roughr::work::WorkControl::charge(control, 1)?;
+
                 if index == 0 || fill.ops[index].op != roughr::core::OpType::Move {
                     fill.ops.swap(retained, index);
                     retained += 1;
                 }
             }
+
             fill.ops.truncate(retained);
             Ok(fill)
         } else {
@@ -372,6 +402,7 @@ fn prepare_solid_svg_path(
     .ok()
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_paths_for_svg_path_single_set(
     svg_path_data: &str,
     stroke_width: f32,
@@ -390,6 +421,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_svg_path_single_set(
     .and_then(|paths| paths.into_svg_paths(work_meter))
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_paths_for_svg_path_single_set(
     target: RoughGeometryTarget,
     svg_path_data: &str,
@@ -409,6 +441,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_svg_path_single_set(
     )
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_stroke_path_for_svg_path(
     svg_path_data: &str,
     stroke_width: f32,
@@ -427,6 +460,7 @@ pub(in crate::svg::parity) fn roughjs_stroke_path_for_svg_path(
     .map(|opset| ops_to_svg_path_d(&opset))
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_stroke_path_for_svg_path(
     target: RoughGeometryTarget,
     svg_path_data: &str,
@@ -459,6 +493,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_stroke_path_for_svg_path(
     .ok()
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_hand_drawn_stroke_path_for_svg_path(
     svg_path_data: &str,
     roughness: f32,
@@ -475,6 +510,7 @@ pub(in crate::svg::parity) fn roughjs_hand_drawn_stroke_path_for_svg_path(
     .map(|opset| ops_to_svg_path_d(&opset))
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_hand_drawn_stroke_path_for_svg_path(
     target: RoughGeometryTarget,
     svg_path_data: &str,
@@ -502,6 +538,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_hand_drawn_stroke_path_for_svg_pat
 }
 
 #[allow(clippy::too_many_arguments)]
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_hachure_paths_for_svg_path(
     svg_path_data: &str,
     stroke_width: f32,
@@ -530,6 +567,7 @@ pub(in crate::svg::parity) fn roughjs_hachure_paths_for_svg_path(
     clippy::too_many_arguments,
     reason = "The RoughJS adapter keeps upstream geometry, stroke, accounting, and randomness explicit."
 )]
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_hachure_paths_for_svg_path(
     target: RoughGeometryTarget,
     svg_path_data: &str,
@@ -566,7 +604,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_hachure_paths_for_svg_path(
         let mut sets = roughr::points_on_path::points_on_normalized_segments_with_control::<f64>(
             &segments,
             Some(1.0),
-            Some((1.0 + roughness as f64) / 2.0),
+            Some((1.0 + <f64 as ::core::convert::From<::core::primitive::f32>>::from(roughness)) / 2.0),
             control,
         )?;
         let fill =
@@ -581,9 +619,13 @@ pub(in crate::svg::parity) fn roughjs_prepare_hachure_paths_for_svg_path(
     let (fill, stroke) = match generated {
         Ok(paths) => paths,
         Err(_) => {
-            if let Some(reservation) = reservation {
-                let _ = work_meter.reconcile_svg_bytes(reservation.additional_bytes, 0);
+            match reservation {
+                Some(reservation_2) => {
+                    let _ = work_meter.reconcile_svg_bytes(reservation_2.additional_bytes, 0);
+                },
+                ::core::option::Option::None => {},
             }
+
             return None;
         }
     };
@@ -595,6 +637,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_hachure_paths_for_svg_path(
 }
 
 /// Render a path with Mermaid's default hand-drawn node options.
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_paths_for_hand_drawn_svg_path(
     svg_path_data: &str,
     stroke_width: f32,
@@ -613,6 +656,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_hand_drawn_svg_path(
     .and_then(|paths| paths.into_svg_paths(work_meter))
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_paths_for_hand_drawn_svg_path(
     target: RoughGeometryTarget,
     svg_path_data: &str,
@@ -639,6 +683,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_hand_drawn_svg_path(
 /// Mermaid uses this variant for small decorations (for example the tag on a tagged rectangle):
 /// the outer shape is hatched, while the decoration is a rough solid fill.  Keeping the option
 /// choice here avoids making individual shape renderers emulate RoughJS configuration.
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_paths_for_hand_drawn_solid_svg_path(
     svg_path_data: &str,
     stroke_width: f32,
@@ -657,6 +702,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_hand_drawn_solid_svg_path(
     .and_then(|paths| paths.into_svg_paths(work_meter))
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_paths_for_hand_drawn_solid_svg_path(
     target: RoughGeometryTarget,
     svg_path_data: &str,
@@ -665,8 +711,8 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_hand_drawn_solid_svg_pat
     work_meter: &OperationWorkMeter,
     randomness: &RoughRandomness,
 ) -> Option<RoughPathPair> {
-    // Generator.path uses paint presence to select operation sets. Actual CSS paint belongs to
-    // SVG emission, so neutral colors activate both sets without constraining source colors.
+
+
     let geometry_paint = roughr::Srgba::new(0.0, 0.0, 0.0, 1.0);
     let reservation = admit_hand_drawn_path(
         target,
@@ -701,9 +747,13 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_hand_drawn_solid_svg_pat
     }) {
         Ok(drawable) => drawable,
         Err(_) => {
-            if let Some(reservation) = reservation {
-                let _ = work_meter.reconcile_svg_bytes(reservation.additional_bytes, 0);
+            match reservation {
+                Some(reservation_2) => {
+                    let _ = work_meter.reconcile_svg_bytes(reservation_2.additional_bytes, 0);
+                },
+                ::core::option::Option::None => {},
             }
+
             return None;
         }
     };
@@ -728,15 +778,20 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_hand_drawn_solid_svg_pat
             reservation,
         }),
         _ => {
-            if let Some(reservation) = reservation {
-                let _ = work_meter.reconcile_svg_bytes(reservation.additional_bytes, 0);
+            match reservation {
+                Some(reservation_3) => {
+                    let _ = work_meter.reconcile_svg_bytes(reservation_3.additional_bytes, 0);
+                },
+                ::core::option::Option::None => {},
             }
+
             None
         }
     }
 }
 
 #[allow(clippy::too_many_arguments)]
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_hachure_paths_for_rect(
     x: f64,
     y: f64,
@@ -771,6 +826,7 @@ pub(in crate::svg::parity) fn roughjs_hachure_paths_for_rect(
     clippy::too_many_arguments,
     reason = "The RoughJS adapter keeps upstream geometry, stroke, accounting, and randomness explicit."
 )]
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_hachure_paths_for_rect(
     target: RoughGeometryTarget,
     x: f64,
@@ -822,9 +878,13 @@ pub(in crate::svg::parity) fn roughjs_prepare_hachure_paths_for_rect(
     let (fill, stroke) = match generated {
         Ok(paths) => paths,
         Err(_) => {
-            if let Some(reservation) = reservation {
-                let _ = work_meter.reconcile_svg_bytes(reservation.additional_bytes, 0);
+            match reservation {
+                Some(reservation_2) => {
+                    let _ = work_meter.reconcile_svg_bytes(reservation_2.additional_bytes, 0);
+                },
+                ::core::option::Option::None => {},
             }
+
             return None;
         }
     };
@@ -840,6 +900,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_hachure_paths_for_rect(
     clippy::too_many_arguments,
     reason = "The RoughJS rectangle adapter preserves the upstream geometry and stroke parameters alongside deterministic randomness."
 )]
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_paths_for_hand_drawn_rect(
     x: f64,
     y: f64,
@@ -868,6 +929,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_hand_drawn_rect(
     clippy::too_many_arguments,
     reason = "The RoughJS adapter keeps upstream geometry, stroke, accounting, and randomness explicit."
 )]
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_paths_for_hand_drawn_rect(
     target: RoughGeometryTarget,
     x: f64,
@@ -895,6 +957,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_hand_drawn_rect(
     )
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_hand_drawn_line_path(
     start: (f64, f64),
     end: (f64, f64),
@@ -915,6 +978,7 @@ pub(in crate::svg::parity) fn roughjs_hand_drawn_line_path(
     .map(|opset| ops_to_svg_path_d(&opset))
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_hand_drawn_line_path(
     target: RoughGeometryTarget,
     start: (f64, f64),
@@ -949,6 +1013,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_hand_drawn_line_path(
     .ok()
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_paths_for_polygon(
     points: &[(f64, f64)],
     stroke_width: f32,
@@ -965,6 +1030,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_polygon(
     .and_then(|paths| paths.into_svg_paths(work_meter))
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_paths_for_polygon(
     target: RoughGeometryTarget,
     points: &[(f64, f64)],
@@ -972,8 +1038,8 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_polygon(
     work_meter: &OperationWorkMeter,
     randomness: &RoughRandomness,
 ) -> Option<RoughPathPair> {
-    // Mirror RoughJS `generator.polygon(...)` generation order: outline first, then fill, then
-    // emit fill before outline.
+
+
     let mut opts = roughr::core::OptionsBuilder::default()
         .randomness(randomness.clone())
         .roughness(0.0)
@@ -990,10 +1056,12 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_polygon(
 
     controlled::generate(work_meter, target.phase(), |control| {
         let mut polygon = Vec::new();
+
         for &(x, y) in points {
             roughr::work::WorkControl::charge(control, 1)?;
             polygon.push(roughr::Point2D::new(x, y));
         }
+
         let stroke =
             roughr::renderer::linear_path_with_control(&polygon, true, &mut opts, control)?;
         let fill =
@@ -1003,6 +1071,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_polygon(
     .ok()
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_paths_for_circle(
     diameter: f64,
     stroke_width: f32,
@@ -1023,6 +1092,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_circle(
     .and_then(|paths| paths.into_svg_paths(work_meter))
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_paths_for_circle(
     target: RoughGeometryTarget,
     diameter: f64,
@@ -1048,6 +1118,7 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_circle(
     )
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_paths_for_circle_with_roughness(
     diameter: f64,
     stroke_width: f32,
@@ -1074,6 +1145,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_circle_with_roughness(
     clippy::too_many_arguments,
     reason = "The RoughJS adapter keeps upstream geometry, stroke, accounting, and randomness explicit."
 )]
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_prepare_paths_for_circle_with_roughness(
     target: RoughGeometryTarget,
     diameter: f64,
@@ -1147,9 +1219,13 @@ pub(in crate::svg::parity) fn roughjs_prepare_paths_for_circle_with_roughness(
     let (fill, stroke) = match generated {
         Ok(paths) => paths,
         Err(_) => {
-            if let Some(reservation) = reservation {
-                let _ = work_meter.reconcile_svg_bytes(reservation.additional_bytes, 0);
+            match reservation {
+                Some(reservation_2) => {
+                    let _ = work_meter.reconcile_svg_bytes(reservation_2.additional_bytes, 0);
+                },
+                ::core::option::Option::None => {},
             }
+
             return None;
         }
     };

@@ -541,10 +541,7 @@ fn kept_at(kept: &std::path::Path) -> Result<Option<i64>, Never> {
 }
 
 fn panel_on() -> Result<(), Never> {
-  let done = console_compositor::request(
-    console_compositor::Request::Dispatch,
-    r#"hl.dsp.dpms({ action = "enable" })"#,
-  )?;
+  let Ok(done) = console_compositor::DisplayPower::On.set();
 
   match done {
     console_compositor::DispatchResult::Success => {}

@@ -10,8 +10,10 @@ use crate::include::dav1d::headers::Rav1dFilterMode;
 use crate::include::dav1d::headers::Rav1dFrameHeader;
 use crate::include::dav1d::headers::Rav1dFrameHeaderQuant;
 use crate::include::dav1d::headers::Rav1dFrameHeaderTiling;
+use crate::include::dav1d::headers::Rav1dFrameType;
 use crate::include::dav1d::headers::Rav1dPixelLayout;
 use crate::include::dav1d::headers::Rav1dRestorationType;
+use crate::include::dav1d::headers::Rav1dSegmentationData;
 use crate::include::dav1d::headers::Rav1dSequenceHeader;
 use crate::include::dav1d::headers::Rav1dTxfmMode;
 use crate::include::dav1d::headers::Rav1dWarpedMotionParams;
@@ -20,7 +22,6 @@ use crate::include::dav1d::headers::SgrIdx;
 use crate::include::dav1d::picture::Rav1dPicture;
 use crate::src::align::AlignedVec64;
 use crate::src::c_arc::CArc;
-use crate::src::cdf::CdfMvComponent;
 use crate::src::cdf::CdfMvContext;
 use crate::src::cdf::CdfThreadContext;
 use crate::src::cdf::CdfThreading;
@@ -28,6 +29,7 @@ use crate::src::cdf::rav1d_cdf_thread_alloc;
 use crate::src::cdf::rav1d_cdf_thread_copy;
 use crate::src::cdf::rav1d_cdf_thread_init_static;
 use crate::src::cdf::rav1d_cdf_thread_update;
+use crate::src::cdf::{CdfModeInterContext, CdfMvComponent};
 use crate::src::ctx::case_set_al;
 use crate::src::ctx::{CaseSet, ContextRun};
 use crate::src::dequant_tables::dav1d_dq_tbl;
@@ -59,9 +61,8 @@ use crate::src::error::Rav1dError::EINVAL;
 use crate::src::error::Rav1dError::ENOMEM;
 use crate::src::error::Rav1dError::ENOPROTOOPT;
 use crate::src::error::Rav1dResult;
-use crate::src::extensions::OptionError as _;
-use crate::src::internal::Bxy;
 use crate::src::internal::ChromaNeighborPrediction;
+use crate::src::internal::CodedBlockInfo;
 use crate::src::internal::Rav1dBitDepthDSPContext;
 use crate::src::internal::Rav1dContext;
 use crate::src::internal::Rav1dContextTaskType;
@@ -72,9 +73,10 @@ use crate::src::internal::Rav1dFrameData;
 use crate::src::internal::Rav1dState;
 use crate::src::internal::Rav1dTaskContext;
 use crate::src::internal::Rav1dTileState;
-use crate::src::internal::Rav1dTileStateContext;
 use crate::src::internal::ScalableMotionParams;
 use crate::src::internal::TileStateRef;
+use crate::src::internal::{Bxy, FlushState};
+use crate::src::internal::{Rav1dTileStateContext, Rav1dTileStateTiling};
 use crate::src::internal::{RightEdgePixels, RightEdgeRows};
 use crate::src::intra_edge::EdgeIndex;
 use crate::src::intra_edge::IntraEdges;
@@ -90,6 +92,7 @@ use crate::src::levels::Av1BlockIntraInter;
 use crate::src::levels::BlockLevel;
 use crate::src::levels::BlockPartition;
 use crate::src::levels::BlockSize;
+use crate::src::levels::BlockWarp;
 use crate::src::levels::CFL_PRED;
 use crate::src::levels::CompInterType;
 use crate::src::levels::DC_PRED;
@@ -183,10 +186,9 @@ use crate::src::warpmv::rav1d_set_affine_mv2d;
 use crate::src::warpmv::{WarpValidity, rav1d_find_affine_int};
 use aligned::Aligned;
 use console_core_geometry::{Point, Rectangle, Size};
+use console_core_number_conversion::checked_index;
 use console_core_pixel_buffers::RowLayout;
-use console_core_synchronization::nonpoison::unpoison;
-#[allow(non_camel_case_types)]
-use std::array;
+use console_core_synchronization::nonpoison::{MutexGuard, wait_while};
 use std::cmp;
 use std::ffi::c_int;
 use std::iter;
@@ -646,64 +648,47 @@ fn read_tx_tree(
   Ok(())
 }
 
-fn neg_deinterleave(
-  diff: u8,
-  r#ref: SegmentId,
-  max: u8,
-) -> core::result::Result<u8, console_core_never::Never> {
-  Ok({
-    let Ok(ref_2) = console_core_number_conversion::wrapped::<_, u8>({
-      let Ok(explicit_value) = r#ref.get();
-      explicit_value
-    });
+struct SegmentRemap {
+  difference: u8,
+  limit: u8,
+}
 
-    match ::core::primitive::bool::then_some(ref_2 == 0, ()) {
-      ::core::option::Option::Some(()) => diff,
-      ::core::option::Option::None => {
-        match ::core::primitive::bool::then_some(u8::wrapping_add(ref_2, 1) >= max, ()) {
-          ::core::option::Option::Some(()) => max.wrapping_sub(u8::wrapping_add(diff, 1)),
-          ::core::option::Option::None => {
-            match ::core::primitive::bool::then_some(u8::wrapping_mul(2, ref_2) < max, ()) {
-              ::core::option::Option::Some(()) => {
-                match ::core::primitive::bool::then_some(diff <= u8::wrapping_mul(2, ref_2), ()) {
-                  ::core::option::Option::Some(()) => {
-                    match ::core::primitive::bool::then_some(diff & 1 != 0, ()) {
-                      ::core::option::Option::Some(()) => u8::wrapping_add(
-                        ref_2,
-                        u8::wrapping_shr(u8::wrapping_add(diff, 1), 1_u32),
-                      ),
-                      ::core::option::Option::None => {
-                        u8::wrapping_sub(ref_2, u8::wrapping_shr(diff, 1_u32))
-                      }
-                    }
-                  }
-                  ::core::option::Option::None => diff,
-                }
-              }
-              ::core::option::Option::None => {
-                match ::core::primitive::bool::then_some(
-                  diff <= u8::wrapping_mul(2, u8::wrapping_sub(u8::wrapping_sub(max, ref_2), 1)),
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    match ::core::primitive::bool::then_some(diff & 1 != 0, ()) {
-                      ::core::option::Option::Some(()) => u8::wrapping_add(
-                        ref_2,
-                        u8::wrapping_shr(u8::wrapping_add(diff, 1), 1_u32),
-                      ),
-                      ::core::option::Option::None => {
-                        u8::wrapping_sub(ref_2, u8::wrapping_shr(diff, 1_u32))
-                      }
-                    }
-                  }
-                  ::core::option::Option::None => max.wrapping_sub(u8::wrapping_add(diff, 1)),
-                }
-              }
-            }
-          }
-        }
-      }
-    }
+fn neg_deinterleave(
+  SegmentRemap { difference, limit }: SegmentRemap,
+  reference: SegmentId,
+) -> Result<u8, console_core_never::Never> {
+  let Ok(segment) = reference.get();
+  let Ok(center) = console_core_number_conversion::wrapped::<_, u8>(segment);
+
+  match bool::then_some(center == 0, ()) {
+    Some(()) => return Ok(difference),
+    None => {}
+  }
+
+  let mirrored = limit.wrapping_sub(difference.wrapping_add(1));
+
+  match bool::then_some(center.wrapping_add(1) >= limit, ()) {
+    Some(()) => return Ok(mirrored),
+    None => {}
+  }
+
+  let twice_center = center.wrapping_mul(2);
+  let (paired, unpaired) = match bool::then_some(twice_center < limit, ()) {
+    Some(()) => (twice_center, difference),
+    None => (
+      limit.wrapping_sub(center).wrapping_sub(1).wrapping_mul(2),
+      mirrored,
+    ),
+  };
+
+  match bool::then_some(difference > paired, ()) {
+    Some(()) => return Ok(unpaired),
+    None => {}
+  }
+
+  Ok(match bool::then_some(difference & 1 != 0, ()) {
+    Some(()) => center.wrapping_add(difference.wrapping_add(1).wrapping_shr(1)),
+    None => center.wrapping_sub(difference.wrapping_shr(1)),
   })
 }
 
@@ -899,7 +884,7 @@ fn find_matching_ref(
 
   match top_right_available.then_some(()) {
     Some(()) => {
-      let tile = f.tile(t.tile_index).ok_or(EINVAL)?;
+      let tile = f.tile(t.tile_index)?;
 
       match (origin.x.wrapping_add(query.block.width) < tile.tiling.col_end).then_some(()) {
         Some(()) => {
@@ -1465,7 +1450,7 @@ fn read_vartx_tree(
       ::core::result::Result::Ok(native_position) => native_position,
     })
     .ok_or(EINVAL)?;
-  let above = frame.above_context(task.above_index).ok_or(EINVAL)?;
+  let above = frame.above_context(task.above_index)?;
   let mut neighbors = TransformNeighborhood {
     above,
     left: &mut task.l,
@@ -1513,7 +1498,10 @@ fn read_vartx_tree(
       };
       let masks = read_variable_partitions(tile, &mut neighbors, frame_extent, rect, luma)?;
 
-      match debug_block_info!(frame, task.b) {
+      match {
+        let Ok(active_trace) = debug_block_info(frame, task.b);
+        active_trace
+      } {
         BlockTrace::Enabled => {
           let [root_mask, child_mask] = masks;
           println!(
@@ -1744,12 +1732,20 @@ fn splat_intraref(
   c.dsp.refmvs.splat_mv.call(rf, &t.rt, &tmpl, t.b, extent)
 }
 
+struct MotionVerticalExtent {
+  start: c_int,
+  height: c_int,
+  subsampling: c_int,
+}
+
 fn mc_lowest_px(
   dst: &mut c_int,
-  by4: c_int,
-  bh4: c_int,
+  MotionVerticalExtent {
+    start: by4,
+    height: bh4,
+    subsampling: ss_ver,
+  }: MotionVerticalExtent,
   mvy: i16,
-  ss_ver: c_int,
   smp: &ScalableMotionParams,
 ) -> core::result::Result<(), console_core_never::Never> {
   {
@@ -1848,158 +1844,77 @@ fn mc_lowest_px(
   Ok(())
 }
 
-#[inline(always)]
 fn affine_lowest_px(
-  t: &Rav1dTaskContext,
-  dst: &mut c_int,
-  b_dim: &[u8; 4],
-  wmp: &Rav1dWarpedMotionParams,
-  ss_ver: c_int,
-  ss_hor: c_int,
-) -> core::result::Result<(), console_core_never::Never> {
-  {
-    let &[width, height, ..] = b_dim;
+  task: &Rav1dTaskContext,
+  bottom: &mut i32,
+  &[width, height, ..]: &[u8; 4],
+  motion: &Rav1dWarpedMotionParams,
+  subsampling: Point<u32>,
+) -> Rav1dResult {
+  let width_pixels = i32::from(width).wrapping_mul(4_i32.wrapping_shr(subsampling.x));
+  let height_pixels = i32::from(height).wrapping_mul(4_i32.wrapping_shr(subsampling.y));
 
-    let h_mul = i32::wrapping_shr(4, {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-      numeric_value
-    });
-    let v_mul = i32::wrapping_shr(4, {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-      numeric_value
-    });
-    assert!(
-      i32::wrapping_mul(i32::from(width), h_mul) & 7 == 0
-        && i32::wrapping_mul(i32::from(height), v_mul) & 7 == 0
-    );
-    let mat = &wmp.matrix;
-    let y = i32::wrapping_sub(i32::wrapping_mul(i32::from(height), v_mul), 8);
-    let src_y = i32::wrapping_add(
-      i32::wrapping_mul(t.b.y, 4),
-      i32::wrapping_shl(i32::wrapping_add(y, 4), {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-        numeric_value
-      }),
-    );
-    let mat5_y = i64::wrapping_add(
-      i64::wrapping_mul(
-        {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i64>(match mat {
-            &[_, _, _, _, _, _explicit_element, ..] => _explicit_element,
-          });
-          numeric_value
-        },
-        {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i64>(src_y);
-          numeric_value
-        },
-      ),
-      {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i64>(match mat {
-          &[_, element, ..] => element,
-        });
-        numeric_value
-      },
-    );
-    let mut x = 0;
+  match (width_pixels, height_pixels) {
+    (8.., 8..) => {}
+    (..=7, _) | (_, ..=7) => return Err(EINVAL),
+  }
 
-    while x < i32::wrapping_mul(i32::from(width), h_mul) {
-      let src_x = i32::wrapping_add(
-        i32::wrapping_mul(t.b.x, 4),
-        i32::wrapping_shl(i32::wrapping_add(x, 4), {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-          numeric_value
-        }),
-      );
-      let mvy = i64::wrapping_shr(
-        i64::wrapping_add(
-          i64::wrapping_mul(
-            {
-              let Ok(numeric_value) =
-                console_core_number_conversion::wrapped::<_, i64>(match mat {
-                  &[_, _, _, _, _explicit_element, ..] => _explicit_element,
-                });
-              numeric_value
-            },
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i64>(src_x);
-              numeric_value
-            },
-          ),
-          mat5_y,
-        ),
-        {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-          numeric_value
-        },
-      );
-      let dy = i32::wrapping_sub(
-        {
-          let Ok(numeric_value) =
-            console_core_number_conversion::wrapped::<_, i32>(i64::wrapping_shr(mvy, 16_u32));
-          numeric_value
-        },
-        4,
-      );
+  match (width_pixels & 7) | (height_pixels & 7) {
+    0 => {}
+    ..=-1 | 1.. => return Err(EINVAL),
+  }
 
-      *dst = cmp::max(*dst, i32::wrapping_add(i32::wrapping_add(dy, 4), 8));
-      {
-        let numeric_amount = cmp::max(
-          8,
-          i32::wrapping_sub(i32::wrapping_mul(i32::from(width), h_mul), 8),
-        );
-        let numeric_target = &mut (x);
-        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-      };
-    }
-  };
+  let [_, offset_y, _, _, yx, yy] = motion.matrix;
+  let row = task
+    .b
+    .y
+    .wrapping_mul(4)
+    .wrapping_add(height_pixels.wrapping_sub(4).wrapping_shl(subsampling.y));
+  let vertical_motion = i64::from(yy)
+    .wrapping_mul(i64::from(row))
+    .wrapping_add(i64::from(offset_y));
+
+  for x in [0_i32, width_pixels.wrapping_sub(8)] {
+    let column = task
+      .b
+      .x
+      .wrapping_mul(4)
+      .wrapping_add(x.wrapping_add(4).wrapping_shl(subsampling.x));
+    let reference_y = i64::from(yx)
+      .wrapping_mul(i64::from(column))
+      .wrapping_add(vertical_motion)
+      .wrapping_shr(subsampling.y)
+      .wrapping_shr(16);
+    let Ok(reference_row) = console_core_number_conversion::wrapped::<_, i32>(reference_y);
+    *bottom = (*bottom).max(reference_row.wrapping_add(8));
+  }
 
   Ok(())
 }
 
-#[inline(never)]
 fn affine_lowest_px_luma(
-  t: &Rav1dTaskContext,
-  dst: &mut c_int,
-  b_dim: &[u8; 4],
-  wmp: &Rav1dWarpedMotionParams,
-) -> core::result::Result<(), console_core_never::Never> {
-  {
-    let Ok(()) = affine_lowest_px(t, dst, b_dim, wmp, 0, 0);
-  };
-
-  Ok(())
+  task: &Rav1dTaskContext,
+  bottom: &mut i32,
+  dimensions: &[u8; 4],
+  motion: &Rav1dWarpedMotionParams,
+) -> Rav1dResult {
+  affine_lowest_px(task, bottom, dimensions, motion, Point { x: 0, y: 0 })
 }
 
-#[inline(never)]
 fn affine_lowest_px_chroma(
-  t: &Rav1dTaskContext,
+  task: &Rav1dTaskContext,
   layout: Rav1dPixelLayout,
-  dst: &mut c_int,
-  b_dim: &[u8; 4],
-  wmp: &Rav1dWarpedMotionParams,
-) -> core::result::Result<(), console_core_never::Never> {
-  {
-    assert!(layout != Rav1dPixelLayout::I400);
-
-    match ::core::primitive::bool::then_some(layout == Rav1dPixelLayout::I444, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(()) = affine_lowest_px_luma(t, dst, b_dim, wmp);
-      }
-      ::core::option::Option::None => {
-        let Ok(()) = affine_lowest_px(
-          t,
-          dst,
-          b_dim,
-          wmp,
-          i32::from(layout & Rav1dPixelLayout::I420),
-          1,
-        );
-      }
-    };
+  bottom: &mut i32,
+  dimensions: &[u8; 4],
+  motion: &Rav1dWarpedMotionParams,
+) -> Rav1dResult {
+  let subsampling = match layout {
+    Rav1dPixelLayout::I400 => return Err(EINVAL),
+    Rav1dPixelLayout::I420 => Point { x: 1, y: 1 },
+    Rav1dPixelLayout::I422 => Point { x: 1, y: 0 },
+    Rav1dPixelLayout::I444 => Point { x: 0, y: 0 },
   };
-
-  Ok(())
+  affine_lowest_px(task, bottom, dimensions, motion, subsampling)
 }
 
 #[derive(Clone, Copy)]
@@ -2034,10 +1949,12 @@ fn track_overlap_neighbor(
   };
   let Ok(()) = mc_lowest_px(
     destination,
-    coverage.start,
-    coverage.end.wrapping_sub(coverage.start),
+    MotionVerticalExtent {
+      start: coverage.start,
+      height: coverage.end.wrapping_sub(coverage.start),
+      subsampling: vertical_subsampling,
+    },
     motion.y,
-    vertical_subsampling,
     vertical,
   );
   Ok(())
@@ -2060,7 +1977,7 @@ fn obmc_lowest_px(
     ::core::option::Option::None => {}
   }
 
-  let tile = f.tile(t.tile_index).ok_or(EINVAL)?;
+  let tile = f.tile(t.tile_index)?;
   let origin = Point { x: t.b.x, y: t.b.y };
   let grid = WarpNeighborGrid {
     blocks: &f.rf.r,
@@ -2170,18 +2087,21 @@ fn obmc_lowest_px(
         let Ok(&[_, neighbor_height, ..]) = block.bs.dimensions();
         let neighbor_height_2 = i32::from(neighbor_height);
 
-        if reference > 0 {
-          let start = t.b.y.wrapping_add(distance);
-          let overlap_height = iclip(neighbor_height_2, 2, block_height);
-          track_overlap_neighbor(
-            dst,
-            &f.svc,
-            plane,
-            vertical_subsampling,
-            start..start.wrapping_add(overlap_height),
-            block,
-          )?;
-          count = count.wrapping_add(1);
+        match reference {
+          1.. => {
+            let start = t.b.y.wrapping_add(distance);
+            let overlap_height = iclip(neighbor_height_2, 2, block_height);
+            track_overlap_neighbor(
+              dst,
+              &f.svc,
+              plane,
+              vertical_subsampling,
+              start..start.wrapping_add(overlap_height),
+              block,
+            )?;
+            count = count.wrapping_add(1);
+          }
+          _ => {}
         }
 
         distance = distance.wrapping_add(neighbor_height_2.max(2));
@@ -2243,7 +2163,10 @@ fn read_block_cdef(
     }
   }
 
-  match debug_block_info!(f, t.b) {
+  match {
+    let Ok(active_trace) = debug_block_info(f, t.b);
+    active_trace
+  } {
     BlockTrace::Enabled => {
       let Ok(position) = console_core_number_conversion::index(t.cur_sb_cdef_idx);
       let entry = indices.get(position).ok_or(EINVAL)?;
@@ -2271,7 +2194,7 @@ fn reset_superblock_cdef(
 
       t.cur_sb_cdef_idx = 0;
     }
-    _ => {
+    BlockLevel::Bl64x64 | BlockLevel::Bl32x32 | BlockLevel::Bl16x16 | BlockLevel::Bl8x8 => {
       let Ok(quadrant) = cdef_quadrant(t.b);
       let Ok(position) = console_core_number_conversion::index(quadrant);
       let entry = filter.cdef_idx.get(position).ok_or(EINVAL)?;
@@ -2296,7 +2219,8 @@ fn write_block_segments(
   let stride = u64::from(f.b4_stride);
   let end_column = column.checked_add(width).ok_or(EINVAL)?;
   let end_row = row.checked_add(height).ok_or(EINVAL)?;
-  let map = &f.cur_segmap.as_ref().ok_or(EINVAL)?.inner;
+  let cur_segmap = f.cur_segmap.as_ref().ok_or(EINVAL)?;
+  let map = &cur_segmap.inner;
   let Ok(length) = console_core_number_conversion::fixed_index(map.len());
   let end = end_row
     .saturating_sub(1)
@@ -2349,674 +2273,3387 @@ fn read_chroma_scale(
   Ok(scale)
 }
 
-fn decode_b(
-  c: &Rav1dContext,
-  t: &mut Rav1dTaskContext,
-  f: &Rav1dFrameData,
-  pass: &mut FrameThreadPassState,
-  bl: BlockLevel,
-  bs: BlockSize,
-  bp: BlockPartition,
-  intra_edge_flags: EdgeFlags,
-) -> Result<(), ()> {
-  let seq_hdr = &***f.seq_hdr.as_ref().ok_or(())?;
-  use std::fmt;
+fn bottom_motion_span(
+  task: &Rav1dTaskContext,
+  block: Size<c_int>,
+) -> Rav1dResult<std::ops::Range<u64>> {
+  let width = u64::try_from(block.width).map_err(|_| EINVAL)?;
+  let height = u64::try_from(block.height).map_err(|_| EINVAL)?;
+  let x = u64::try_from(task.b.x).map_err(|_| EINVAL)?;
+  let ring_row = u64::from(task.b.y.cast_unsigned() & 31);
+  let bottom = ring_row
+    .wrapping_add(5)
+    .wrapping_add(height)
+    .saturating_sub(1);
+  let Ok(row) = console_core_number_conversion::index(bottom);
+  let row_offset = task.rt.r.get(row).copied().ok_or(EINVAL)?;
+  let start = row_offset.checked_add(x).ok_or(EINVAL)?;
+  let end = start.checked_add(width).ok_or(EINVAL)?;
+  Ok(start..end)
+}
 
-  struct SignAbs(i32);
+enum SegmentPrediction {
+  Open,
+  Forced,
+}
 
-  impl fmt::Display for SignAbs {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-      let sign = match ::core::primitive::bool::then_some(self.0 < 0, ()) {
-        ::core::option::Option::Some(()) => "-",
-        ::core::option::Option::None => " ",
-      };
-      write!(f, "{}{:x}", sign, self.0.abs())
+fn segment_prediction(
+  segment: Option<&Rav1dSegmentationData>,
+) -> Result<SegmentPrediction, console_core_never::Never> {
+  Ok(match segment {
+    None
+    | Some(Rav1dSegmentationData {
+      globalmv: 0,
+      r#ref: -1,
+      skip: 0,
+      ..
+    }) => SegmentPrediction::Open,
+    Some(_) => SegmentPrediction::Forced,
+  })
+}
+
+enum WarpAvailability {
+  Disabled,
+  Allowed,
+}
+
+fn read_motion_mode(
+  msac: &mut MsacContext,
+  probabilities: &mut CdfModeInterContext,
+  block: BlockSize,
+  warp: WarpAvailability,
+) -> Rav1dResult<MotionMode> {
+  let Ok(ordinal) = block.ordinal();
+  let Ok(position) = console_core_number_conversion::index(ordinal);
+
+  match warp {
+    WarpAvailability::Allowed => {
+      let table = probabilities.motion_mode.get_mut(position).ok_or(EINVAL)?;
+      let Ok(code) = rav1d_msac_decode_symbol_adapt4(msac, table, 2);
+
+      match code {
+        0 => Ok(MotionMode::Translation),
+        1 => Ok(MotionMode::Obmc),
+        2 => Ok(MotionMode::Warp),
+        _ => Err(EINVAL),
+      }
+    }
+    WarpAvailability::Disabled => {
+      let table = probabilities.obmc.get_mut(position).ok_or(EINVAL)?;
+      let Ok(code) = rav1d_msac_decode_bool_adapt(msac, table);
+
+      match code {
+        EntropyBit::Zero => Ok(MotionMode::Translation),
+        EntropyBit::One => Ok(MotionMode::Obmc),
+      }
+    }
+  }
+}
+
+fn capture_block_warp(params: &Rav1dWarpedMotionParams) -> Rav1dResult<BlockWarp> {
+  match params.r#type {
+    Rav1dWarpedMotionType::Identity
+    | Rav1dWarpedMotionType::Translation
+    | Rav1dWarpedMotionType::RotZoom => Ok(BlockWarp::Identity),
+    Rav1dWarpedMotionType::Affine => {
+      let [_, _, xx, xy, yx, yy] = params.matrix;
+      let source = [xx.wrapping_sub(0x10000), xy, yx, yy.wrapping_sub(0x10000)];
+      let mut coefficients = [0; 4];
+
+      for (parameter, coefficient) in source.into_iter().zip(&mut coefficients) {
+        match parameter {
+          -8192..=8191 => {
+            let Ok(packed) = console_core_number_conversion::wrapped::<_, i16>(parameter);
+            *coefficient = packed;
+          }
+          ..=-8193 | 8192.. => return Err(EINVAL),
+        }
+      }
+
+      Ok(BlockWarp::Affine(coefficients))
+    }
+  }
+}
+
+struct SignAbs(i32);
+
+impl std::fmt::Display for SignAbs {
+  fn fmt(&self, out: &mut std::fmt::Formatter) -> std::fmt::Result {
+    let sign = match ::core::primitive::bool::then_some(self.0 < 0, ()) {
+      ::core::option::Option::Some(()) => "-",
+      ::core::option::Option::None => " ",
+    };
+    write!(out, "{}{:x}", sign, self.0.abs())
+  }
+}
+
+struct ReconstructionBlock {
+  size: BlockSize,
+  edge_flags: EdgeFlags,
+  frame_type: Rav1dFrameType,
+  luma: Rectangle<i32>,
+  chroma: Option<Rectangle<i32>>,
+}
+
+fn trace_motion_warp(
+  frame: &Rav1dFrameData,
+  task: &Rav1dTaskContext,
+  motion: Mv,
+) -> Result<(), console_core_never::Never> {
+  let Ok(trace) = debug_block_info(frame, task.b);
+
+  match trace {
+    BlockTrace::Disabled => {}
+    BlockTrace::Enabled => {
+      let [x, y, xx, xy, yx, yy] = task.warpmv.matrix.map(SignAbs);
+      let alpha = SignAbs(i32::from(task.warpmv.alpha()));
+      let beta = SignAbs(i32::from(task.warpmv.beta()));
+      let gamma = SignAbs(i32::from(task.warpmv.gamma()));
+      let delta = SignAbs(i32::from(task.warpmv.delta()));
+      println!(
+        "[ {x} {y} {xx}\n  {xy} {yx} {yy} ]\nalpha={alpha}, beta={beta}, gamma={gamma}, deta={delta}, mv=y:{},x:{}",
+        motion.y, motion.x,
+      );
     }
   }
 
-  let mut b_mem = Av1Block::default();
-  let b = match ::core::primitive::bool::then_some(t.frame_thread.pass != 0, ()) {
-    ::core::option::Option::Some(()) => {
-      let block = f.coded_block_position(t.b).map_err(|_invalid_block| ())?;
-      let Ok(index) = console_core_number_conversion::index(block);
-      &mut *f.frame_thread.b.index_mut(index)
-    }
-    ::core::option::Option::None => &mut b_mem,
-  };
+  Ok(())
+}
 
-  let ts = &*match f.tile(t.tile_index) {
-    ::core::option::Option::Some(indexed_value) => indexed_value,
-    ::core::option::Option::None => return ::core::result::Result::Err(()),
-  };
-  let ta = &*match f.above_context(t.above_index) {
-    ::core::option::Option::Some(indexed_value) => indexed_value,
-    ::core::option::Option::None => return ::core::result::Result::Err(()),
-  };
+fn restore_block_warp(
+  frame: &Rav1dFrameData,
+  task: &mut Rav1dTaskContext,
+  inter: &Av1BlockInter,
+  dimensions: Size<i32>,
+) -> Result<(), console_core_never::Never> {
+  let Ok(two_d) = inter.nd.two_d();
+  let Ok(warp) = two_d.warp();
+
+  match warp {
+    BlockWarp::Identity => task.warpmv.r#type = Rav1dWarpedMotionType::Identity,
+    BlockWarp::Affine([xx, xy, yx, yy]) => {
+      task.warpmv.r#type = Rav1dWarpedMotionType::Affine;
+      let [x, y, ..] = task.warpmv.matrix;
+      task.warpmv.matrix = [
+        x,
+        y,
+        i32::from(xx).wrapping_add(0x10000),
+        i32::from(xy),
+        i32::from(yx),
+        i32::from(yy).wrapping_add(0x10000),
+      ];
+      let area = Rectangle {
+        origin: Point {
+          x: task.b.x,
+          y: task.b.y,
+        },
+        size: dimensions,
+      };
+      let Ok(()) = rav1d_set_affine_mv2d(area, two_d.mv2d, &mut task.warpmv);
+      let Ok(WarpValidity::Usable | WarpValidity::Rejected) =
+        rav1d_get_shear_params(&task.warpmv);
+      let Ok(()) = trace_motion_warp(frame, task, two_d.mv2d);
+    }
+  }
+
+  Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum ReconstructedMotion {
+  Intra,
+  Inter { reference: i8, motion: Mv },
+}
+
+impl ReconstructedMotion {
+  fn install(
+    self,
+    block: &mut RefMvsBlock,
+    size: BlockSize,
+  ) -> Result<(), console_core_never::Never> {
+    let [reference, ..] = &mut block.r#ref.r#ref;
+
+    match self {
+      Self::Intra => *reference = 0,
+      Self::Inter {
+        reference: selected,
+        motion,
+      } => {
+        *reference = selected.wrapping_add(1);
+        let [first, ..] = &mut block.mv.mv;
+        *first = motion;
+      }
+    }
+
+    block.bs = size;
+    Ok(())
+  }
+}
+
+fn write_reconstructed_motion_edges(
+  frame: &Rav1dFrameData,
+  task: &Rav1dTaskContext,
+  size: BlockSize,
+  extent: Size<i32>,
+  motion: ReconstructedMotion,
+) -> Result<(), ()> {
+  let span = bottom_motion_span(task, extent).map_err(|_invalid_motion_row| ())?;
+  let Ok(columns) = console_core_number_conversion::indices(span);
+  let mut bottom = frame.rf.r.index_mut(columns);
+
+  for cell in &mut *bottom {
+    let Ok(()) = motion.install(cell, size);
+  }
+
+  drop(bottom);
+  let first = (task.b.y & 31).wrapping_add(5);
+  let Ok(first_index) = console_core_number_conversion::wrapped_index(first);
+  let Ok(height) = console_core_number_conversion::wrapped_index(extent.height);
+  let rows = task.rt.r.get(first_index..).ok_or(())?;
+  let right = rows.get(..height.wrapping_sub(1)).ok_or(())?;
+  let Ok(x) = console_core_number_conversion::wrapped::<_, u64>(task.b.x);
+  let Ok(width) = console_core_number_conversion::wrapped::<_, u64>(extent.width);
+
+  for &row_base in right {
+    let address = row_base.wrapping_add(x).wrapping_add(width).wrapping_sub(1);
+    let Ok(offset) = console_core_number_conversion::wrapped_index(address);
+    let mut cell = frame.rf.r.index_mut(offset);
+    let Ok(()) = motion.install(&mut cell, size);
+  }
+
+  Ok(())
+}
+
+fn reconstruct_decoded_block(
+  f: &Rav1dFrameData,
+  t: &mut Rav1dTaskContext,
+  ta: &BlockContext,
+  b: &Av1Block,
+  geometry: ReconstructionBlock,
+) -> Result<(), ()> {
+  let ReconstructionBlock {
+    size: bs,
+    edge_flags: intra_edge_flags,
+    frame_type,
+    luma:
+      Rectangle {
+        origin: Point { x: bx4, y: by4 },
+        size: Size {
+          width: bw4,
+          height: bh4,
+        },
+      },
+    chroma,
+  } = geometry;
   let Ok(bd_fn) = f.bd_fn();
-  let Ok(b_dim) = bs.dimensions();
-  let bx4 = t.b.x & 31;
-  let by4 = t.b.y & 31;
-  let ss_ver = i32::from(f.cur.p.layout == Rav1dPixelLayout::I420);
-  let ss_hor = i32::from(f.cur.p.layout != Rav1dPixelLayout::I444);
-  let cbx4 = i32::wrapping_shr(bx4, {
-    let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-    numeric_value
-  });
-  let cby4 = i32::wrapping_shr(by4, {
-    let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-    numeric_value
-  });
-  let Ok(bw4) = console_core_number_conversion::wrapped::<_, i32>(match b_dim {
-    &[element, ..] => element,
-  });
-  let Ok(bh4) = console_core_number_conversion::wrapped::<_, i32>(match b_dim {
-    &[_, element, ..] => element,
-  });
-  let w4 = cmp::min(bw4, i32::wrapping_sub(f.bw, t.b.x));
-  let h4 = cmp::min(bh4, i32::wrapping_sub(f.bh, t.b.y));
-  let cbw4 = i32::wrapping_shr(i32::wrapping_add(bw4, ss_hor), {
-    let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-    numeric_value
-  });
-  let cbh4 = i32::wrapping_shr(i32::wrapping_add(bh4, ss_ver), {
-    let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-    numeric_value
-  });
-  let have_left = t.b.x > ts.tiling.col_start;
-  let have_top = t.b.y > ts.tiling.row_start;
-  let neighbors = NeighborAvailability::from((have_top, have_left));
-  let has_chroma = f.cur.p.layout != Rav1dPixelLayout::I400
-    && (bw4 > ss_hor || t.b.x & 1 != 0)
-    && (bh4 > ss_ver || t.b.y & 1 != 0);
-  let frame_type = f.frame_hdr.as_ref().ok_or(())?.frame_type;
 
-  let FrameThreadPassState::First(ts_c) = pass else {
-    match &b.ii {
-      Av1BlockIntraInter::Intra(intra) => {
-        (bd_fn.recon_b_intra)(f, t, None, bs, intra_edge_flags, b, intra).map_err(|_| ())?;
+  let extent = Size {
+    width: bw4,
+    height: bh4,
+  };
+  let Ok(left_rows) = console_core_number_conversion::wrapped_index(bh4);
+  let Ok(left_start) = console_core_number_conversion::wrapped_index(by4);
+  let Ok(above_columns) = console_core_number_conversion::wrapped_index(bw4);
+  let Ok(above_start) = console_core_number_conversion::wrapped_index(bx4);
 
-        let y_mode = intra.y_mode;
-        let y_mode_nofilt = match ::core::primitive::bool::then_some(y_mode == FILTER_PRED, ()) {
-          ::core::option::Option::Some(()) => DC_PRED,
-          ::core::option::Option::None => y_mode,
-        };
-        case_set_al! {
-            <32, false>
-            l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4); numeric_value }),
-            a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4); numeric_value }),
-            mode = (y_mode_nofilt, y_mode_nofilt),
-            intra = (1, 1),
-        }
-
-        match ::core::primitive::bool::then_some(frame_type.is_inter_or_switch(), ()) {
-          ::core::option::Option::Some(()) => {
-            let ri = (::core::num::Wrapping({
-              let offset = *match <[_]>::get(
-                &t.rt.r,
-                (({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t.b.y);
-                  numeric_value
-                }) & 31)
-                  .wrapping_add(5)
-                  .wrapping_add({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4);
-                    numeric_value
-                  })
-                  .wrapping_sub(1),
-              ) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              };
-              let Ok(row) = console_core_number_conversion::wrapped_index(offset);
-              row
-            }) + ::core::num::Wrapping({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t.b.x);
-              numeric_value
-            }))
-            .0;
-            let r = &mut *f.rf.r.index_mut(
-              ri..ri.wrapping_add({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4);
-                numeric_value
-              }),
-            );
-
-            for block in r {
-              *{
-                let [_explicit_part, ..] = &mut block.r#ref.r#ref;
-                _explicit_part
-              } = 0;
-              block.bs = bs;
-            }
-
-            let rr = &*match <[_]>::get(
-              &(*match <[_]>::get(
-                &t.rt.r,
-                (({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t.b.y);
-                  numeric_value
-                }) & 31)
-                  .wrapping_add(5)..,
-              ) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              }),
-              ..({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4);
-                numeric_value
-              })
-              .wrapping_sub(1),
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            };
-
-            for &row_base in rr {
-              let Ok(row) = console_core_number_conversion::wrapped_index(row_base);
-              let block = &mut f.rf.r.index_mut(
-                (::core::num::Wrapping(row)
-                  + ::core::num::Wrapping({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t.b.x);
-                    numeric_value
-                  }))
-                .0
-                .wrapping_add({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4);
-                  numeric_value
-                })
-                .wrapping_sub(1),
-              );
-              *{
-                let [_explicit_part, ..] = &mut block.r#ref.r#ref;
-                _explicit_part
-              } = 0;
-              block.bs = bs;
-            }
-          }
-          ::core::option::Option::None => {}
-        }
-
-        match ::core::primitive::bool::then_some(has_chroma, ()) {
-          ::core::option::Option::Some(()) => {
-            case_set_al! {
-                <32, false>
-                l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cby4); numeric_value }),
-                a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbx4); numeric_value }),
-                uvmode = (intra.uv_mode, intra.uv_mode),
-            }
-          }
-          ::core::option::Option::None => {}
-        }
+  let (motion, uv_mode) = match &b.ii {
+    Av1BlockIntraInter::Intra(intra) => {
+      (bd_fn.recon_b_intra)(f, t, None, bs, intra_edge_flags, b, intra)
+        .map_err(|_invalid_reconstruction| ())?;
+      let mode = match (intra.y_mode == FILTER_PRED).then_some(()) {
+        Some(()) => DC_PRED,
+        None => intra.y_mode,
+      };
+      case_set_al! {
+        <32, false>
+        l: (&mut t.l, left_rows, left_start),
+        a: (ta, above_columns, above_start),
+        mode = (mode, mode),
+        intra = (1, 1),
       }
-      Av1BlockIntraInter::Inter(inter) => {
-        match ::core::primitive::bool::then_some(
-          frame_type.is_inter_or_switch()
-            && inter.comp_type.is_none()
-            && inter.motion_mode == MotionMode::Warp,
-          (),
-        ) {
-          ::core::option::Option::Some(()) => {
-            let Ok(two_d) = inter.nd.two_d();
 
-            match ::core::primitive::bool::then_some(
-              (match two_d.matrix {
-                [element, ..] => element,
-              }) == i16::MIN,
-              (),
-            ) {
-              ::core::option::Option::Some(()) => {
-                t.warpmv.r#type = Rav1dWarpedMotionType::Identity;
-              }
-              ::core::option::Option::None => {
-                t.warpmv.r#type = Rav1dWarpedMotionType::Affine;
-                let Ok(two_d_matrix) =
-                  console_core_number_conversion::wrapped::<_, i32>(match two_d.matrix {
-                    [element, ..] => element,
-                  });
-                *{
-                  let [_, _, _explicit_part, ..] = &mut t.warpmv.matrix;
-                  _explicit_part
-                } = i32::wrapping_add(two_d_matrix, 0x10000);
-                *{
-                  let [_, _, _, _explicit_part, ..] = &mut t.warpmv.matrix;
-                  _explicit_part
-                } = {
-                  let Ok(numeric_value) =
-                    console_core_number_conversion::wrapped::<_, i32>(match two_d.matrix {
-                      [_, element, ..] => element,
-                    });
-                  numeric_value
-                };
-                *{
-                  let [_, _, _, _, _explicit_part, ..] = &mut t.warpmv.matrix;
-                  _explicit_part
-                } = {
-                  let Ok(numeric_value) =
-                    console_core_number_conversion::wrapped::<_, i32>(match two_d.matrix {
-                      [_, _, element, ..] => element,
-                    });
-                  numeric_value
-                };
-                *{
-                  let [_, _, _, _, _, _explicit_part, ..] = &mut t.warpmv.matrix;
-                  _explicit_part
-                } = i32::wrapping_add(
-                  {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped::<_, i32>(match two_d.matrix {
-                        [_, _, _, element, ..] => element,
-                      });
-                    numeric_value
-                  },
-                  0x10000,
-                );
-                let block = Rectangle {
-                  origin: Point { x: t.b.x, y: t.b.y },
-                  size: Size {
-                    width: bw4,
-                    height: bh4,
-                  },
-                };
-                let Ok(()) = rav1d_set_affine_mv2d(block, two_d.mv2d, &mut t.warpmv);
-                let Ok(WarpValidity::Usable | WarpValidity::Rejected) =
-                  rav1d_get_shear_params(&t.warpmv);
-
-                match debug_block_info!(f, t.b) {
-                  BlockTrace::Enabled => {
-                    println!(
-                      "[ {} {} {}\n  {} {} {} ]\n\
-                            alpha={}, beta={}, gamma={}, deta={}, mv=y:{},x:{}",
-                      SignAbs(match t.warpmv.matrix {
-                        [element, ..] => element,
-                      }),
-                      SignAbs(match t.warpmv.matrix {
-                        [_, element, ..] => element,
-                      }),
-                      SignAbs(match t.warpmv.matrix {
-                        [_, _, element, ..] => element,
-                      }),
-                      SignAbs(match t.warpmv.matrix {
-                        [_, _, _, element, ..] => element,
-                      }),
-                      SignAbs(match t.warpmv.matrix {
-                        [_, _, _, _, _explicit_element, ..] => _explicit_element,
-                      }),
-                      SignAbs(match t.warpmv.matrix {
-                        [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
-                      }),
-                      SignAbs(<::core::primitive::i32 as ::core::convert::From<
-                        ::core::primitive::i16,
-                      >>::from(t.warpmv.alpha())),
-                      SignAbs(<::core::primitive::i32 as ::core::convert::From<
-                        ::core::primitive::i16,
-                      >>::from(t.warpmv.beta())),
-                      SignAbs(<::core::primitive::i32 as ::core::convert::From<
-                        ::core::primitive::i16,
-                      >>::from(t.warpmv.gamma())),
-                      SignAbs(<::core::primitive::i32 as ::core::convert::From<
-                        ::core::primitive::i16,
-                      >>::from(t.warpmv.delta())),
-                      two_d.mv2d.y,
-                      two_d.mv2d.x,
-                    );
-                  }
-                  BlockTrace::Disabled => {}
-                }
-              }
-            }
-          }
-          ::core::option::Option::None => {}
-        }
-
-        (bd_fn.recon_b_inter)(f, t, None, bs, b, inter)?;
-
-        let filter = &*match <[_]>::get(&dav1d_filter_dir, {
-          let Ok(table_index) = console_core_number_conversion::index(
-            crate::src::enum_map::EnumKey::ordinal(inter.filter2d),
-          );
-          table_index
-        }) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => return ::core::result::Result::Err(()),
-        };
-        case_set_al! {
-            <32, false>
-            l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4); numeric_value }),
-            a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4); numeric_value }),
-            filter[0] = (match filter { &[_explicit_element, ..] => _explicit_element }, match filter { &[_explicit_element, ..] => _explicit_element }),
-            filter[1] = (match filter { &[_, _explicit_element, ..] => _explicit_element }, match filter { &[_, _explicit_element, ..] => _explicit_element }),
-            intra = (0, 0),
-        }
-
-        match ::core::primitive::bool::then_some(frame_type.is_inter_or_switch(), ()) {
-          ::core::option::Option::Some(()) => {
-            let ri = (::core::num::Wrapping({
-              let offset = *match <[_]>::get(
-                &t.rt.r,
-                (({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t.b.y);
-                  numeric_value
-                }) & 31)
-                  .wrapping_add(5)
-                  .wrapping_add({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4);
-                    numeric_value
-                  })
-                  .wrapping_sub(1),
-              ) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              };
-              let Ok(row) = console_core_number_conversion::wrapped_index(offset);
-              row
-            }) + ::core::num::Wrapping({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t.b.x);
-              numeric_value
-            }))
-            .0;
-            let r = &mut *f.rf.r.index_mut(
-              ri..ri.wrapping_add({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4);
-                numeric_value
-              }),
-            );
-
-            for block in r {
-              *{
-                let [_explicit_part, ..] = &mut block.r#ref.r#ref;
-                _explicit_part
-              } = i8::wrapping_add(
-                match inter.r#ref {
-                  [element, ..] => element,
-                },
-                1,
-              );
-              *{
-                let [_explicit_part, ..] = &mut block.mv.mv;
-                _explicit_part
-              } = match inter.nd.one_d.mv {
-                [_explicit_element, ..] => _explicit_element,
-              };
-              block.bs = bs;
-            }
-
-            let rr = &*match <[_]>::get(
-              &(*match <[_]>::get(
-                &t.rt.r,
-                (({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t.b.y);
-                  numeric_value
-                }) & 31)
-                  .wrapping_add(5)..,
-              ) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              }),
-              ..({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4);
-                numeric_value
-              })
-              .wrapping_sub(1),
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            };
-
-            for &row_base in rr {
-              let Ok(row) = console_core_number_conversion::wrapped_index(row_base);
-              let block = &mut f.rf.r.index_mut(
-                (::core::num::Wrapping(row)
-                  + ::core::num::Wrapping({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(t.b.x);
-                    numeric_value
-                  }))
-                .0
-                .wrapping_add({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4);
-                  numeric_value
-                })
-                .wrapping_sub(1),
-              );
-              *{
-                let [_explicit_part, ..] = &mut block.r#ref.r#ref;
-                _explicit_part
-              } = i8::wrapping_add(
-                match inter.r#ref {
-                  [element, ..] => element,
-                },
-                1,
-              );
-              *{
-                let [_explicit_part, ..] = &mut block.mv.mv;
-                _explicit_part
-              } = match inter.nd.one_d.mv {
-                [_explicit_element, ..] => _explicit_element,
-              };
-              block.bs = bs;
-            }
-          }
-          ::core::option::Option::None => {}
-        }
-
-        match ::core::primitive::bool::then_some(has_chroma, ()) {
-          ::core::option::Option::Some(()) => {
-            case_set_al! {
-                <32, false>
-                l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cby4); numeric_value }),
-                a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbx4); numeric_value }),
-                uvmode = (DC_PRED, DC_PRED),
-            }
-          }
-          ::core::option::Option::None => {}
-        }
-      }
+      (ReconstructedMotion::Intra, intra.uv_mode)
     }
+    Av1BlockIntraInter::Inter(inter) => {
+      match (frame_type.is_inter_or_switch()
+        && inter.comp_type.is_none()
+        && inter.motion_mode == MotionMode::Warp)
+        .then_some(())
+      {
+        Some(()) => {
+          let Ok(()) = restore_block_warp(f, t, inter, extent);
+        }
+        None => {}
+      }
 
-    return Ok(());
+      (bd_fn.recon_b_inter)(f, t, None, bs, b, inter)?;
+      let Ok(filter_index) = console_core_number_conversion::index(
+        crate::src::enum_map::EnumKey::ordinal(inter.filter2d),
+      );
+      let &[horizontal, vertical] = dav1d_filter_dir.get(filter_index).ok_or(())?;
+      case_set_al! {
+        <32, false>
+        l: (&mut t.l, left_rows, left_start),
+        a: (ta, above_columns, above_start),
+        filter[0] = (horizontal, horizontal),
+        filter[1] = (vertical, vertical),
+        intra = (0, 0),
+      }
+
+      let [reference, ..] = inter.r#ref;
+      let [motion, ..] = inter.nd.one_d.mv;
+      (ReconstructedMotion::Inter { reference, motion }, DC_PRED)
+    }
   };
 
-  let ts_c_2 = &mut **ts_c;
+  match frame_type.is_inter_or_switch().then_some(()) {
+    Some(()) => write_reconstructed_motion_edges(f, t, bs, extent, motion)?,
+    None => {}
+  }
 
-  let cw4 = i32::wrapping_shr(i32::wrapping_add(w4, ss_hor), {
-    let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-    numeric_value
-  });
-  let ch4 = i32::wrapping_shr(i32::wrapping_add(h4, ss_ver), {
-    let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-    numeric_value
-  });
+  match chroma {
+    Some(Rectangle {
+      origin: Point { x, y },
+      size: Size { width, height },
+    }) => {
+      let Ok(row_count) = console_core_number_conversion::wrapped_index(height);
+      let Ok(column_count) = console_core_number_conversion::wrapped_index(width);
+      let Ok(left_row) = console_core_number_conversion::wrapped_index(y);
+      let Ok(above_column) = console_core_number_conversion::wrapped_index(x);
+      case_set_al! {
+        <32, false>
+        l: (&mut t.l, row_count, left_row),
+        a: (ta, column_count, above_column),
+        uvmode = (uv_mode, uv_mode),
+      }
+    }
+    None => {}
+  }
 
-  b.bl = bl;
-  b.bp = bp;
-  let Ok(block_code) = bs.ordinal();
-  b.bs = block_code;
+  Ok(())
+}
 
-  let mut seg = None;
-  let mut seg_pred = false;
-  let frame_hdr: &Rav1dFrameHeader = f.frame_hdr.as_ref().ok_or(())?;
-  let previous_block = Rectangle {
-    origin: Point { x: t.b.x, y: t.b.y },
+enum DrlStart {
+  NewMotion,
+  NearReference,
+}
+
+fn decode_drl_index(
+  tile: &mut Rav1dTileStateContext,
+  candidates: &[crate::src::refmvs::RefMvsCandidate; 8],
+  available: u8,
+  mode: DrlStart,
+) -> Result<DrlProximity, ()> {
+  let (mut selected, tested) = match mode {
+    DrlStart::NewMotion => (
+      DrlProximity::Nearest,
+      [(0_u8, DrlProximity::Nearer), (1, DrlProximity::Near)],
+    ),
+    DrlStart::NearReference => (
+      DrlProximity::Nearer,
+      [(1_u8, DrlProximity::Near), (2, DrlProximity::Nearish)],
+    ),
+  };
+
+  for (reference, next) in tested {
+    match (available > reference.saturating_add(1)).then_some(()) {
+      Some(()) => {}
+      None => break,
+    }
+
+    let context = get_drl_context(candidates, reference).map_err(|_invalid_context| ())?;
+    let Ok(position) = console_core_number_conversion::wrapped_index(context);
+    let cdf = tile.cdf.mi.drl_bit.get_mut(position).ok_or(())?;
+    let Ok(decision) = rav1d_msac_decode_bool_adapt(&mut tile.msac, cdf);
+
+    match decision {
+      EntropyBit::One => selected = next,
+      EntropyBit::Zero => break,
+    }
+  }
+
+  Ok(selected)
+}
+
+#[derive(Clone, Copy)]
+struct BlockDecodeGeometry {
+  dimensions: &'static [u8; 4],
+  luma: Rectangle<i32>,
+  visible_luma: Size<i32>,
+  chroma: Rectangle<i32>,
+  visible_chroma: Size<i32>,
+  subsampling: Point<i32>,
+  has_chroma: bool,
+}
+
+impl BlockDecodeGeometry {
+  fn new(
+    task: &Rav1dTaskContext,
+    frame: &Rav1dFrameData,
+    block: BlockSize,
+  ) -> Result<Self, console_core_never::Never> {
+    let Ok(dimensions) = block.dimensions();
+    let &[columns, rows, ..] = dimensions;
+    let source = task.b;
+    let layout = frame.cur.p.layout;
+    let horizontal = layout != Rav1dPixelLayout::I444;
+    let vertical = layout == Rav1dPixelLayout::I420;
+    let subsampling = Point {
+      x: i32::from(horizontal),
+      y: i32::from(vertical),
+    };
+    let origin = Point {
+      x: source.x & 31,
+      y: source.y & 31,
+    };
+    let width = i32::from(columns);
+    let height = i32::from(rows);
+    let size = Size { width, height };
+    let visible = Size {
+      width: width.min(frame.bw.wrapping_sub(source.x)),
+      height: height.min(frame.bh.wrapping_sub(source.y)),
+    };
+    let x_shift = u32::from(horizontal);
+    let y_shift = u32::from(vertical);
+    let chroma_origin = Point {
+      x: origin.x.wrapping_shr(x_shift),
+      y: origin.y.wrapping_shr(y_shift),
+    };
+    let chroma = Rectangle {
+      origin: chroma_origin,
+      size: Size {
+        width: width.wrapping_add(subsampling.x).wrapping_shr(x_shift),
+        height: height.wrapping_add(subsampling.y).wrapping_shr(y_shift),
+      },
+    };
+    let visible_chroma = Size {
+      width: visible
+        .width
+        .wrapping_add(subsampling.x)
+        .wrapping_shr(x_shift),
+      height: visible
+        .height
+        .wrapping_add(subsampling.y)
+        .wrapping_shr(y_shift),
+    };
+    let has_chroma = layout != Rav1dPixelLayout::I400
+      && (width > subsampling.x || source.x & 1 != 0)
+      && (height > subsampling.y || source.y & 1 != 0);
+
+    Ok(Self {
+      dimensions,
+      luma: Rectangle { origin, size },
+      visible_luma: visible,
+      chroma,
+      visible_chroma,
+      subsampling,
+      has_chroma,
+    })
+  }
+}
+
+#[derive(Clone, Copy)]
+enum SegmentOrigin {
+  Signalled,
+  Inherited,
+}
+
+struct BlockSyntaxContext<'frame> {
+  decoder: &'frame Rav1dContext,
+  frame: &'frame Rav1dFrameData,
+  frame_header: &'frame Rav1dFrameHeader,
+  sequence: &'frame Rav1dSequenceHeader,
+  tile: &'frame Rav1dTileState,
+  above: &'frame BlockContext,
+  geometry: BlockDecodeGeometry,
+  block: BlockSize,
+  edges: EdgeFlags,
+  neighbors: NeighborAvailability,
+  segment: Option<&'frame Rav1dSegmentationData>,
+  segment_origin: SegmentOrigin,
+}
+
+struct IntraDirection {
+  mode: u8,
+  angle: i8,
+}
+
+struct IntraChroma {
+  direction: IntraDirection,
+  alpha: [i8; 2],
+}
+
+enum SegmentCoding {
+  Lossless,
+  Quantized,
+}
+
+fn intra_segment_coding(
+  frame: &Rav1dFrameHeader,
+  segment: SegmentId,
+) -> Result<SegmentCoding, ()> {
+  let Ok(number) = segment.get();
+  let Ok(index) = console_core_number_conversion::index(number);
+  let lossless = frame.segmentation.lossless.get(index).copied().ok_or(())?;
+
+  Ok(match lossless.then_some(()) {
+    Some(()) => SegmentCoding::Lossless,
+    None => SegmentCoding::Quantized,
+  })
+}
+
+fn read_intra_angle(
+  entropy: &mut Rav1dTileStateContext,
+  mode: u8,
+  &[_, _, width_log, height_log]: &[u8; 4],
+) -> Result<i8, ()> {
+  let directional =
+    width_log.wrapping_add(height_log) >= 2 && (VERT_PRED..=VERT_LEFT_PRED).contains(&mode);
+
+  match directional.then_some(()) {
+    Some(()) => {
+      let Ok(index) = console_core_number_conversion::index(mode.wrapping_sub(VERT_PRED));
+      let cdf = entropy.cdf.m.angle_delta.get_mut(index).ok_or(())?;
+      let Ok(symbol) = rav1d_msac_decode_symbol_adapt8(&mut entropy.msac, cdf, 6);
+      let Ok(angle) = console_core_number_conversion::wrapped::<_, i8>(symbol);
+      Ok(angle.wrapping_sub(3))
+    }
+    None => Ok(0),
+  }
+}
+
+fn read_keyframe_luma_context(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+) -> Result<[u8; 2], ()> {
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let Ok(above_index) = console_core_number_conversion::wrapped_index(x);
+  let Ok(left_index) = console_core_number_conversion::wrapped_index(y);
+  let above = *syntax.above.mode.index(above_index);
+  let left = task.l.mode.get_mut().get(left_index).copied().ok_or(())?;
+  let Ok(above_mode) = console_core_number_conversion::index(above);
+  let Ok(left_mode) = console_core_number_conversion::index(left);
+  let above_context = dav1d_intra_mode_context
+    .get(above_mode)
+    .copied()
+    .ok_or(())?;
+  let left_context = dav1d_intra_mode_context.get(left_mode).copied().ok_or(())?;
+
+  Ok([above_context, left_context])
+}
+
+fn read_luma_intra_direction(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+) -> Result<IntraDirection, ()> {
+  let cdf = match syntax.frame_header.frame_type {
+    Rav1dFrameType::Inter | Rav1dFrameType::Switch => {
+      let Ok(block) = syntax.block.ordinal();
+      let Ok(index) = console_core_number_conversion::index(block);
+      let context = dav1d_ymode_size_context.get(index).copied().ok_or(())?;
+      let Ok(context_index) = console_core_number_conversion::index(context);
+      entropy.cdf.mi.y_mode.get_mut(context_index).ok_or(())?
+    }
+    Rav1dFrameType::Key | Rav1dFrameType::Intra => {
+      let [above, left] = read_keyframe_luma_context(syntax, task)?;
+      let Ok(above_index) = console_core_number_conversion::index(above);
+      let Ok(left_index) = console_core_number_conversion::index(left);
+      let row = entropy.cdf.kfym.get_mut(above_index).ok_or(())?;
+      row.get_mut(left_index).ok_or(())?
+    }
+  };
+  let Ok(mode_count) = console_core_number_conversion::wrapped::<_, u8>(N_INTRA_PRED_MODES);
+  let Ok(mode) =
+    rav1d_msac_decode_symbol_adapt16(&mut entropy.msac, cdf, mode_count.wrapping_sub(1));
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!("Post-ymode[{mode}]: r={}", entropy.msac.rng),
+    BlockTrace::Disabled => {}
+  }
+
+  let angle = read_intra_angle(entropy, mode, syntax.geometry.dimensions)?;
+
+  Ok(IntraDirection { mode, angle })
+}
+
+fn read_intra_chroma_alpha(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+) -> Result<[i8; 2], ()> {
+  let Ok(symbol) =
+    rav1d_msac_decode_symbol_adapt8(&mut entropy.msac, &mut *entropy.cdf.m.cfl_sign, 7);
+  let sign = symbol.wrapping_add(1);
+  let sign_u = sign.wrapping_div(3);
+  let sign_v = sign.wrapping_sub(sign_u.wrapping_mul(3));
+  let alpha_u = read_chroma_scale(
+    entropy,
+    ChromaScaleSigns {
+      current: sign_u,
+      opposite: sign_v,
+    },
+  )?;
+  let alpha_v = read_chroma_scale(
+    entropy,
+    ChromaScaleSigns {
+      current: sign_v,
+      opposite: sign_u,
+    },
+  )?;
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => {
+      console_core_logging::trace!("Post-uvalphas[{alpha_u}/{alpha_v}]: r={}", entropy.msac.rng);
+    }
+    BlockTrace::Disabled => {}
+  }
+
+  Ok([alpha_u, alpha_v])
+}
+
+fn read_chroma_intra_direction(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+  segment: SegmentId,
+  luma_mode: u8,
+) -> Result<IntraChroma, ()> {
+  match syntax.geometry.has_chroma.then_some(()) {
+    Some(()) => {}
+    None => {
+      return Ok(IntraChroma {
+        direction: IntraDirection { mode: 0, angle: 0 },
+        alpha: [0; 2],
+      });
+    }
+  }
+
+  let coding = intra_segment_coding(syntax.frame_header, segment)?;
+  let cfl_allowed = match coding {
+    SegmentCoding::Lossless => {
+      syntax.geometry.chroma.size
+        == (Size {
+          width: 1,
+          height: 1,
+        })
+    }
+    SegmentCoding::Quantized => {
+      let Ok(ordinal) = syntax.block.ordinal();
+      cfl_allowed_mask & 1u32.wrapping_shl(u32::from(ordinal)) != 0
+    }
+  };
+  let Ok(cfl_index) = console_core_number_conversion::index(u8::from(cfl_allowed));
+  let Ok(luma_index) = console_core_number_conversion::index(luma_mode);
+  let row = entropy.cdf.m.uv_mode.get_mut(cfl_index).ok_or(())?;
+  let cdf = row.get_mut(luma_index).ok_or(())?;
+  let Ok(count) = console_core_number_conversion::wrapped::<_, u8>(N_UV_INTRA_PRED_MODES);
+  let last = count.wrapping_sub(1).wrapping_sub(u8::from(!cfl_allowed));
+  let Ok(mode) = rav1d_msac_decode_symbol_adapt16(&mut entropy.msac, cdf, last);
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!("Post-uvmode[{mode}]: r={}", entropy.msac.rng),
+    BlockTrace::Disabled => {}
+  }
+
+  let (angle, alpha) = match (mode == CFL_PRED).then_some(()) {
+    Some(()) => {
+      let factors = read_intra_chroma_alpha(syntax, task, entropy)?;
+      (0, factors)
+    }
+    None => {
+      let direction = read_intra_angle(entropy, mode, syntax.geometry.dimensions)?;
+      (direction, [0; 2])
+    }
+  };
+
+  Ok(IntraChroma {
+    direction: IntraDirection { mode, angle },
+    alpha,
+  })
+}
+
+fn read_luma_palette_size(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+  block: PaletteRead,
+) -> Result<u8, ()> {
+  let above = checked_index(block.position.x).map_err(|_invalid_neighbor| ())?;
+  let left = checked_index(block.position.y).map_err(|_invalid_neighbor| ())?;
+  let above_size = *syntax.above.pal_sz.index(above);
+  let &left_size = task.l.pal_sz.get_mut().get(left).ok_or(())?;
+  let neighbors = u8::from(above_size > 0).wrapping_add(u8::from(left_size > 0));
+  let Ok(block_size) = console_core_number_conversion::index(block.size_context);
+  let Ok(context) = console_core_number_conversion::index(neighbors);
+  let row = entropy.cdf.m.pal_y.get_mut(block_size).ok_or(())?;
+  let probability = row.get_mut(context).ok_or(())?;
+  let Ok(selected) = rav1d_msac_decode_bool_adapt(&mut entropy.msac, probability);
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-y_pal[{}]: r={}",
+      selected == EntropyBit::One,
+      entropy.msac.rng
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  match selected {
+    EntropyBit::One => {
+      let Ok(dsp) = syntax.frame.bd_fn();
+      (dsp.read_pal_y)(task, syntax.frame, entropy, block).map_err(|_invalid_palette| ())
+    }
+    EntropyBit::Zero => Ok(0),
+  }
+}
+
+fn read_chroma_palette_size(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+  block: PaletteRead,
+  luma_size: u8,
+) -> Result<u8, ()> {
+  let Ok(context) = console_core_number_conversion::index(u8::from(luma_size > 0));
+  let probability = entropy.cdf.m.pal_uv.get_mut(context).ok_or(())?;
+  let Ok(selected) = rav1d_msac_decode_bool_adapt(&mut entropy.msac, probability);
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-uv_pal[{}]: r={}",
+      selected == EntropyBit::One,
+      entropy.msac.rng
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  match selected {
+    EntropyBit::One => {
+      let Ok(dsp) = syntax.frame.bd_fn();
+      (dsp.read_pal_uv)(task, syntax.frame, entropy, block).map_err(|_invalid_palette| ())
+    }
+    EntropyBit::Zero => Ok(0),
+  }
+}
+
+fn read_intra_palette_sizes(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+  [luma_mode, chroma_mode]: [u8; 2],
+) -> Result<[u8; 2], ()> {
+  let luma = syntax.geometry.luma;
+  let eligible = syntax.frame_header.allow_screen_content_tools
+    && luma.size.width.max(luma.size.height) <= 16
+    && luma.size.width.wrapping_add(luma.size.height) >= 4;
+
+  match eligible.then_some(()) {
+    Some(()) => {}
+    None => return Ok([0; 2]),
+  }
+
+  let &[_, _, width_log, height_log] = syntax.geometry.dimensions;
+  let size_context = width_log.wrapping_add(height_log).wrapping_sub(2);
+  let y = match (luma_mode == DC_PRED).then_some(()) {
+    Some(()) => read_luma_palette_size(
+      syntax,
+      task,
+      entropy,
+      PaletteRead {
+        size_context,
+        position: luma.origin,
+      },
+    )?,
+    None => 0,
+  };
+  let uv = match (syntax.geometry.has_chroma && chroma_mode == DC_PRED).then_some(()) {
+    Some(()) => read_chroma_palette_size(
+      syntax,
+      task,
+      entropy,
+      PaletteRead {
+        size_context,
+        position: luma.origin,
+      },
+      y,
+    )?,
+    None => 0,
+  };
+
+  Ok([y, uv])
+}
+
+fn select_filtered_intra_direction(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+  original: IntraDirection,
+  palette: u8,
+) -> Result<IntraDirection, ()> {
+  let &[_, _, width_log, height_log] = syntax.geometry.dimensions;
+  let enabled = original.mode == DC_PRED
+    && palette == 0
+    && width_log.max(height_log) <= 3
+    && syntax.sequence.filter_intra != 0;
+
+  match enabled.then_some(()) {
+    Some(()) => {}
+    None => return Ok(original),
+  }
+
+  let Ok(block) = syntax.block.ordinal();
+  let Ok(index) = console_core_number_conversion::index(block);
+  let probability = entropy.cdf.m.use_filter_intra.get_mut(index).ok_or(())?;
+  let Ok(selected) = rav1d_msac_decode_bool_adapt(&mut entropy.msac, probability);
+  let direction = match selected {
+    EntropyBit::One => {
+      let Ok(filter) =
+        rav1d_msac_decode_symbol_adapt8(&mut entropy.msac, &mut *entropy.cdf.m.filter_intra, 4);
+      let Ok(angle) = console_core_number_conversion::wrapped::<_, i8>(filter);
+      IntraDirection {
+        mode: FILTER_PRED,
+        angle,
+      }
+    }
+    EntropyBit::Zero => original,
+  };
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-filterintramode[{}/{}]: r={}",
+      direction.mode, direction.angle, entropy.msac.rng
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(direction)
+}
+
+struct IntraPalettePlane {
+  cells: PaletteCellBlock,
+  entries: u8,
+  plane: PalettePlane,
+}
+
+fn read_intra_palette_plane(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+  IntraPalettePlane {
+    cells,
+    entries,
+    plane,
+  }: IntraPalettePlane,
+) -> Result<(), ()> {
+  let scratch = task
+    .scratch
+    .inter_intra_mut()
+    .map_err(|_invalid_scratch| ())?;
+  let mut frame_output = match (task.frame_thread.pass != 0).then_some(()) {
+    Some(()) => {
+      let Ok(pass) = console_core_number_conversion::wrapped_index(task.frame_thread.pass & 1);
+      let buffer = syntax.tile.frame_thread.get(pass).ok_or(())?;
+      let samples = cells
+        .block
+        .width
+        .wrapping_mul(cells.block.height)
+        .wrapping_mul(8);
+      let Ok(length) = console_core_number_conversion::wrapped::<_, u32>(samples);
+      let Ok(start) = buffer
+        .pal_idx
+        .get_update(|offset| offset.wrapping_add(length));
+      let Ok(first) = console_core_number_conversion::index(start);
+      let Ok(count) = console_core_number_conversion::index(length);
+      Some(
+        syntax
+          .frame
+          .frame_thread
+          .pal_idx
+          .index_mut((first.., ..count)),
+      )
+    }
+    None => None,
+  };
+  let output = match (frame_output.as_deref_mut(), plane) {
+    (Some(buffer), _) => PaletteOutput::Separate(buffer),
+    (None, PalettePlane::Luma) => PaletteOutput::Separate(&mut scratch.pal_idx_y),
+    (None, PalettePlane::Chroma) => PaletteOutput::InPlace,
+  };
+  read_pal_indices(
+    entropy,
+    &syntax.decoder.dsp.pal,
+    PaletteIndexInput {
+      staging: &mut scratch.pal_idx_uv,
+      packed: output,
+      cells,
+      entries,
+      plane,
+    },
+  )
+  .map_err(|_invalid_palette| ())?;
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match (trace, plane) {
+    (BlockTrace::Enabled, PalettePlane::Luma) => {
+      println!("Post-y-pal-indices: r={}", entropy.msac.rng)
+    }
+    (BlockTrace::Enabled, PalettePlane::Chroma) => {
+      println!("Post-uv-pal-indices: r={}", entropy.msac.rng)
+    }
+    (BlockTrace::Disabled, _) => {}
+  }
+
+  Ok(())
+}
+
+fn read_intra_palette_indices(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+  [y, uv]: [u8; 2],
+) -> Result<(), ()> {
+  for (plane, block, visible, entries) in [
+    (
+      PalettePlane::Luma,
+      syntax.geometry.luma.size,
+      syntax.geometry.visible_luma,
+      y,
+    ),
+    (
+      PalettePlane::Chroma,
+      syntax.geometry.chroma.size,
+      syntax.geometry.visible_chroma,
+      uv,
+    ),
+  ] {
+    match entries {
+      0 => {}
+      _ => read_intra_palette_plane(
+        syntax,
+        task,
+        entropy,
+        IntraPalettePlane {
+          cells: PaletteCellBlock { block, visible },
+          entries,
+          plane,
+        },
+      )?,
+    }
+  }
+
+  Ok(())
+}
+
+fn read_intra_transform_depth(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+  info: &TxfmInfo,
+) -> Result<u8, ()> {
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let context = get_tx_ctx(
+    BlockNeighbors {
+      above: syntax.above,
+      left: &task.l,
+      location: Bxy { x, y },
+      availability: syntax.neighbors,
+    },
+    info,
+  )
+  .map_err(|_invalid_context| ())?;
+  let Ok(level_index) = console_core_number_conversion::index(info.max.wrapping_sub(1));
+  let Ok(context_index) = console_core_number_conversion::wrapped_index(context);
+  let row = entropy.cdf.m.txsz.get_mut(level_index).ok_or(())?;
+  let cdf = row.get_mut(context_index).ok_or(())?;
+  let Ok(depth) = rav1d_msac_decode_symbol_adapt4(&mut entropy.msac, cdf, info.max.min(2));
+
+  Ok(depth)
+}
+
+fn read_intra_transform(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  block: &mut Av1Block,
+  entropy: &mut Rav1dTileStateContext,
+) -> Result<TxfmSize, ()> {
+  let coding = intra_segment_coding(syntax.frame_header, block.seg_id)?;
+
+  match coding {
+    SegmentCoding::Lossless => {
+      block.uvtx = TxfmSize::S4x4;
+      return Ok(TxfmSize::S4x4);
+    }
+    SegmentCoding::Quantized => {}
+  }
+
+  let Ok(ordinal) = syntax.block.ordinal();
+  let Ok(index) = console_core_number_conversion::index(ordinal);
+  let allowed = dav1d_max_txfm_size_for_bs.get(index).ok_or(())?;
+  let mut transform = allowed.first().copied().ok_or(())?;
+  let Ok(chroma_index) =
+    console_core_number_conversion::index(syntax.frame.cur.p.layout.into_rav1d());
+  let chroma = allowed.get(chroma_index).copied().ok_or(())?;
+  block.uvtx = chroma;
+  let mut info = transform_info(transform).map_err(|_invalid_transform| ())?;
+  let Ok(minimum) = TxfmSize::S4x4.ordinal();
+
+  match (syntax.frame_header.txfm_mode == Rav1dTxfmMode::Switchable && info.max > minimum)
+    .then_some(())
+  {
+    Some(()) => {
+      let depth = read_intra_transform_depth(syntax, task, entropy, info)?;
+
+      for _ in 0..depth {
+        transform = info.sub;
+        let next = transform_info(transform).map_err(|_invalid_transform| ())?;
+        info = next;
+      }
+    }
+    None => {}
+  }
+
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!("Post-tx[{transform:?}]: r={}", entropy.msac.rng),
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(transform)
+}
+
+fn apply_intra_loopfilter(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  block: &Av1Block,
+  transform: TxfmSize,
+) -> Result<(), ()> {
+  match syntax.frame_header.loopfilter.level_y {
+    [0, 0] => return Ok(()),
+    _ => {}
+  }
+
+  let frame = syntax.frame;
+  let tile = syntax.tile;
+  let Ok(level_source) = tile.lflvl.get();
+  let local;
+  let levels = match level_source {
+    TileStateRef::Frame => &frame.lf.lvl,
+    TileStateRef::Local => {
+      let retained = tile.lflvlmem.try_read().ok_or(())?;
+      local = retained;
+      &*local
+    }
+  };
+  let mask = frame
+    .loop_filter_mask(task.lf_mask)
+    .map_err(|_invalid_mask| ())?;
+  let Ok(segment) = block.seg_id.get();
+  let Ok(segment_slot) = console_core_number_conversion::index(segment);
+  let segment_levels = levels.get(segment_slot).ok_or(())?;
+  let luma = syntax.geometry.luma;
+  let chroma = syntax.geometry.chroma;
+  let Ok(above_x) = console_core_number_conversion::wrapped_index(luma.origin.x);
+  let Ok(above_width) = console_core_number_conversion::wrapped_index(luma.size.width);
+  let Ok(left_y) = console_core_number_conversion::wrapped_index(luma.origin.y);
+  let Ok(left_height) = console_core_number_conversion::wrapped_index(luma.size.height);
+  let mut above_luma = syntax.above.tx_lpf_y.index_mut((above_x.., ..above_width));
+  let left_luma = task
+    .l
+    .tx_lpf_y
+    .get_mut()
+    .get_mut(left_y..)
+    .and_then(|rows| rows.get_mut(..left_height))
+    .ok_or(())?;
+  let mut above_chroma;
+  let chroma_edges = match syntax.geometry.has_chroma.then_some(()) {
+    Some(()) => {
+      let Ok(chroma_x) = console_core_number_conversion::wrapped_index(chroma.origin.x);
+      let Ok(chroma_width) = console_core_number_conversion::wrapped_index(chroma.size.width);
+      let Ok(chroma_y) = console_core_number_conversion::wrapped_index(chroma.origin.y);
+      let Ok(chroma_height) = console_core_number_conversion::wrapped_index(chroma.size.height);
+      above_chroma = syntax
+        .above
+        .tx_lpf_uv
+        .index_mut((chroma_x.., ..chroma_width));
+      let left_chroma = task
+        .l
+        .tx_lpf_uv
+        .get_mut()
+        .get_mut(chroma_y..)
+        .and_then(|rows| rows.get_mut(..chroma_height))
+        .ok_or(())?;
+      Some((&mut *above_chroma, left_chroma))
+    }
+    None => None,
+  };
+  let filtered = create_lf_mask(
+    FilterMaskBlock {
+      mask,
+      level_cache: &frame.lf.level,
+      stride: i64::from(frame.b4_stride),
+      levels: segment_levels,
+      origin: task.b,
+      frame: Size {
+        width: frame.w4,
+        height: frame.h4,
+      },
+      size: syntax.block,
+      ytx: transform,
+      uvtx: block.uvtx,
+      layout: frame.cur.p.layout,
+      luma: EdgeNeighbors {
+        above: &mut above_luma,
+        left: left_luma,
+      },
+      chroma: chroma_edges,
+    },
+    FilterMaskPrediction::Intra,
+  );
+
+  match filtered {
+    Ok(()) => Ok(()),
+    Err(fault) => {
+      console_core_logging::debug!("Could not create an AV1 intra filter mask: {fault:?}");
+      Err(())
+    }
+  }
+}
+
+fn write_intra_luma_context(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  block: &Av1Block,
+  intra: &Av1BlockIntra,
+  transform: &TxfmInfo,
+) -> Result<(), ()> {
+  let above = syntax.above;
+  let luma = syntax.geometry.luma;
+  let Ok(left_start) = console_core_number_conversion::wrapped_index(luma.origin.y);
+  let Ok(left_count) = console_core_number_conversion::wrapped_index(luma.size.height);
+  let Ok(above_start) = console_core_number_conversion::wrapped_index(luma.origin.x);
+  let Ok(above_count) = console_core_number_conversion::wrapped_index(luma.size.width);
+  let Ok(height_index) = console_core_number_conversion::index(transform.lh);
+  let Ok(width_index) = console_core_number_conversion::index(transform.lw);
+  let tx_height = TxfmSize::from_repr(height_index).ok_or(())?;
+  let tx_width = TxfmSize::from_repr(width_index).ok_or(())?;
+  let Ok(neighbor_height) = console_core_number_conversion::wrapped::<_, i8>(transform.lh);
+  let Ok(neighbor_width) = console_core_number_conversion::wrapped::<_, i8>(transform.lw);
+  let y_mode = match (intra.y_mode == FILTER_PRED).then_some(()) {
+    Some(()) => DC_PRED,
+    None => intra.y_mode,
+  };
+  let [y_palette, chroma_palette] = intra.pal_sz;
+  let uv_palette = match syntax.geometry.has_chroma.then_some(chroma_palette) {
+    Some(entries) => entries,
+    None => 0,
+  };
+  let predicted_segment = u8::from(matches!(syntax.segment_origin, SegmentOrigin::Inherited));
+
+  case_set_al! {
+    <32, false>
+    l: (&mut task.l, left_count, left_start)
+      also |case| {
+        let [_, chroma] = &mut task.pal_sz_uv;
+        let Ok(()) = case.set(chroma, uv_palette);
+      },
+    a: (above, above_count, above_start)
+      also |case| {
+        let [chroma, _] = &mut task.pal_sz_uv;
+        let Ok(()) = case.set(chroma, uv_palette);
+      },
+    tx_intra = (neighbor_height, neighbor_width),
+    tx = (tx_height, tx_width),
+    mode = (y_mode, y_mode),
+    pal_sz = (y_palette, y_palette),
+    seg_pred = (predicted_segment, predicted_segment),
+    skip_mode = (0, 0),
+    intra = (1, 1),
+    skip = (block.skip, block.skip),
+  }
+
+  match syntax.frame_header.frame_type {
+    Rav1dFrameType::Key | Rav1dFrameType::Intra => {}
+    Rav1dFrameType::Inter | Rav1dFrameType::Switch => {
+      let filter = Rav1dFilterMode::N_SWITCHABLE_FILTERS;
+      case_set_al! {
+        <32, false>
+        l: (&mut task.l, left_count, left_start),
+        a: (above, above_count, above_start),
+        comp_type = (None, None),
+        r#ref[0] = (-1, -1),
+        r#ref[1] = (-1, -1),
+        filter[0] = (filter, filter),
+        filter[1] = (filter, filter),
+      }
+    }
+  }
+
+  Ok(())
+}
+
+fn copy_intra_palette(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  entries: u8,
+  plane: PalettePlane,
+) -> Result<(), ()> {
+  match entries {
+    0 => Ok(()),
+    _ => {
+      let Ok(dsp) = syntax.frame.bd_fn();
+      (dsp.copy_pal_block)(
+        task,
+        syntax.frame,
+        PaletteCopy {
+          region: syntax.geometry.luma,
+          plane,
+        },
+      )
+      .map_err(|_invalid_palette| ())
+    }
+  }
+}
+
+fn update_intra_contexts(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  block: &Av1Block,
+  intra: &Av1BlockIntra,
+  transform: &TxfmInfo,
+) -> Result<(), ()> {
+  write_intra_luma_context(syntax, task, block, intra, transform)?;
+  let [y_palette, uv_palette] = intra.pal_sz;
+  copy_intra_palette(syntax, task, y_palette, PalettePlane::Luma)?;
+
+  match syntax.geometry.has_chroma.then_some(()) {
+    Some(()) => {
+      let chroma = syntax.geometry.chroma;
+      let Ok(left_start) = console_core_number_conversion::wrapped_index(chroma.origin.y);
+      let Ok(left_count) = console_core_number_conversion::wrapped_index(chroma.size.height);
+      let Ok(above_start) = console_core_number_conversion::wrapped_index(chroma.origin.x);
+      let Ok(above_count) = console_core_number_conversion::wrapped_index(chroma.size.width);
+      case_set_al! {
+        <32, false>
+        l: (&mut task.l, left_count, left_start),
+        a: (syntax.above, above_count, above_start),
+        uvmode = (intra.uv_mode, intra.uv_mode),
+      }
+      copy_intra_palette(syntax, task, uv_palette, PalettePlane::Chroma)?;
+    }
+    None => {}
+  }
+
+  match (syntax.frame_header.frame_type.is_inter_or_switch() || syntax.frame_header.allow_intrabc)
+    .then_some(())
+  {
+    Some(()) => splat_intraref(
+      syntax.decoder,
+      task,
+      &syntax.frame.rf,
+      syntax.block,
+      syntax.geometry.luma.size,
+    )
+    .map_err(|_invalid_motion| ()),
+    None => Ok(()),
+  }
+}
+
+fn decode_intra_syntax(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  block: &mut Av1Block,
+  entropy: &mut Rav1dTileStateContext,
+) -> Result<(), ()> {
+  let luma = read_luma_intra_direction(syntax, task, entropy)?;
+  let chroma = read_chroma_intra_direction(syntax, task, entropy, block.seg_id, luma.mode)?;
+  let palettes =
+    read_intra_palette_sizes(syntax, task, entropy, [luma.mode, chroma.direction.mode])?;
+  let [luma_palette, _] = palettes;
+  let direction = select_filtered_intra_direction(syntax, task, entropy, luma, luma_palette)?;
+  read_intra_palette_indices(syntax, task, entropy, palettes)?;
+  let transform = read_intra_transform(syntax, task, block, entropy)?;
+  let info = transform_info(transform).map_err(|_invalid_transform| ())?;
+  let intra = Av1BlockIntra {
+    y_mode: direction.mode,
+    uv_mode: chroma.direction.mode,
+    tx: transform,
+    pal_sz: palettes,
+    y_angle: direction.angle,
+    uv_angle: chroma.direction.angle,
+    cfl_alpha: chroma.alpha,
+  };
+  block.ii = Av1BlockIntraInter::Intra(intra);
+  let Ok(dsp) = syntax.frame.bd_fn();
+
+  match task.frame_thread.pass {
+    1 => (dsp.read_coef_blocks)(syntax.frame, task, entropy, syntax.block, block)
+      .map_err(|_invalid_coefficients| ())?,
+    _ => (dsp.recon_b_intra)(
+      syntax.frame,
+      task,
+      Some(entropy),
+      syntax.block,
+      syntax.edges,
+      block,
+      &intra,
+    )
+    .map_err(|_invalid_reconstruction| ())?,
+  }
+
+  apply_intra_loopfilter(syntax, task, block, transform)?;
+  update_intra_contexts(syntax, task, block, &intra, info)
+}
+
+struct IntrabcBorders {
+  top_left: Point<i32>,
+  right: i32,
+}
+
+fn intrabc_tile_borders(
+  syntax: &BlockSyntaxContext<'_>,
+) -> Result<IntrabcBorders, console_core_never::Never> {
+  let tile = &syntax.tile.tiling;
+  let geometry = syntax.geometry;
+  let Size { width, height } = geometry.luma.size;
+  let extra_left = geometry.has_chroma && width < 2 && geometry.subsampling.x != 0;
+  let extra_top = geometry.has_chroma && height < 2 && geometry.subsampling.y != 0;
+  let pad = width.wrapping_sub(1);
+  let right = (tile.col_end.wrapping_add(pad) & !pad).wrapping_mul(4);
+  let top_left = Point {
+    x: tile
+      .col_start
+      .wrapping_mul(4)
+      .wrapping_add(i32::from(extra_left).wrapping_mul(4)),
+    y: tile
+      .row_start
+      .wrapping_mul(4)
+      .wrapping_add(i32::from(extra_top).wrapping_mul(4)),
+  };
+
+  Ok(IntrabcBorders { top_left, right })
+}
+
+fn fit_intrabc_source(
+  mut source: Rectangle<i32>,
+  tile: IntrabcBorders,
+  superblock: Rectangle<i32>,
+) -> Result<Rectangle<i32>, ()> {
+  let source_right = source.origin.x.wrapping_add(source.size.width);
+  source.origin.x = match (
+    (source.origin.x < tile.top_left.x).then_some(()),
+    (source_right > tile.right).then_some(()),
+  ) {
+    (Some(()), _) => tile.top_left.x,
+    (None, Some(())) => source
+      .origin
+      .x
+      .wrapping_sub(source_right.wrapping_sub(tile.right)),
+    (None, None) => source.origin.x,
+  };
+  source.origin.y = source.origin.y.max(tile.top_left.y);
+  let right = source.origin.x.wrapping_add(source.size.width);
+  let bottom = source.origin.y.wrapping_add(source.size.height);
+
+  match (bottom > superblock.origin.y && right > superblock.origin.x).then_some(()) {
+    Some(()) => {
+      let vertical_overlap = bottom.wrapping_sub(superblock.origin.y);
+      let horizontal_overlap = right.wrapping_sub(superblock.origin.x);
+      let room_above = source.origin.y.wrapping_sub(tile.top_left.y);
+      let room_left = source.origin.x.wrapping_sub(tile.top_left.x);
+
+      match (
+        (room_above >= vertical_overlap).then_some(()),
+        (room_left >= horizontal_overlap).then_some(()),
+      ) {
+        (Some(()), _) => source.origin.y = source.origin.y.wrapping_sub(vertical_overlap),
+        (None, Some(())) => source.origin.x = source.origin.x.wrapping_sub(horizontal_overlap),
+        (None, None) => {}
+      }
+    }
+    None => {}
+  }
+
+  let superblock_bottom = superblock.origin.y.wrapping_add(superblock.size.height);
+  let bottom_after_shift = source.origin.y.wrapping_add(source.size.height);
+
+  match (bottom_after_shift > superblock_bottom).then_some(()) {
+    Some(()) => {
+      source.origin.y = source
+        .origin
+        .y
+        .wrapping_sub(bottom_after_shift.wrapping_sub(superblock_bottom))
+    }
+    None => {}
+  }
+
+  let crosses_current = source.origin.y.wrapping_add(source.size.height) > superblock.origin.y
+    && source.origin.x.wrapping_add(source.size.width) > superblock.origin.x;
+
+  match crosses_current.then_some(()) {
+    Some(()) => Err(()),
+    None => Ok(source),
+  }
+}
+
+fn correct_intrabc_motion(
+  syntax: &BlockSyntaxContext<'_>,
+  position: Bxy,
+  motion: Mv,
+) -> Result<Mv, ()> {
+  let destination = Point {
+    x: position.x.wrapping_mul(4),
+    y: position.y.wrapping_mul(4),
+  };
+  let luma = syntax.geometry.luma.size;
+  let source = Rectangle {
+    origin: Point {
+      x: destination
+        .x
+        .wrapping_add(i32::from(motion.x).wrapping_shr(3)),
+      y: destination
+        .y
+        .wrapping_add(i32::from(motion.y).wrapping_shr(3)),
+    },
     size: Size {
-      width: w4,
-      height: h4,
+      width: luma.width.wrapping_mul(4),
+      height: luma.height.wrapping_mul(4),
     },
   };
-  let previous_segment = || {
-    let pitch = i64::from(f.b4_stride);
-    let previous_map = f
-      .prev_segmap
-      .as_ref()
-      .map(|previous| previous.inner.as_ref());
-    get_prev_frame_segid(frame_hdr, previous_map, previous_block, pitch)
+  let sb128 = u32::from(syntax.sequence.sb128);
+  let address_shift = 4_u32.wrapping_add(sb128);
+  let pixel_shift = 6_u32.wrapping_add(sb128);
+  let span = 1_i32.wrapping_shl(pixel_shift);
+  let position_in_pixels = |coordinate: i32| {
+    coordinate
+      .wrapping_shr(address_shift)
+      .wrapping_shl(pixel_shift)
   };
+  let superblock = Rectangle {
+    origin: Point {
+      x: position_in_pixels(position.x),
+      y: position_in_pixels(position.y),
+    },
+    size: Size {
+      width: span,
+      height: span,
+    },
+  };
+  let Ok(tile) = intrabc_tile_borders(syntax);
+  let corrected = fit_intrabc_source(source, tile, superblock)?;
+  let Ok(x) = console_core_number_conversion::wrapped::<_, i16>(
+    corrected
+      .origin
+      .x
+      .wrapping_sub(destination.x)
+      .wrapping_mul(8),
+  );
+  let Ok(y) = console_core_number_conversion::wrapped::<_, i16>(
+    corrected
+      .origin
+      .y
+      .wrapping_sub(destination.y)
+      .wrapping_mul(8),
+  );
 
-  match ::core::primitive::bool::then_some(frame_hdr.segmentation.enabled != 0, ()) {
-    ::core::option::Option::Some(()) => {
-      match ::core::primitive::bool::then_some(frame_hdr.segmentation.update_map == 0, ()) {
-        ::core::option::Option::Some(()) => {
-          let checked_value_3 = previous_segment().map_err(|_previous_segment| ())?;
-          b.seg_id = checked_value_3;
-          let Ok(b_seg_id) = b.seg_id.get();
-          seg = Some(&*match <[_]>::get(
-            &frame_hdr.segmentation.seg_data.d,
-            match ::console_core_number_conversion::index(b_seg_id) {
-              ::core::result::Result::Ok(native_position__) => native_position__,
-            },
-          ) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => return ::core::result::Result::Err(()),
-          });
+  Ok(Mv { x, y })
+}
+
+fn read_intrabc_motion(
+  syntax: &BlockSyntaxContext<'_>,
+  t: &Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+) -> Result<Mv, ()> {
+  let mut candidates = [Default::default(); 8];
+  let mut candidate_context = 0;
+  let _count = rav1d_refmvs_find(
+    &t.rt,
+    &syntax.frame.rf,
+    &mut candidates,
+    &mut candidate_context,
+    crate::src::refmvs::RefMvsSearch {
+      references: crate::src::refmvs::RefMvsRefPair::from([0, -1]),
+      block: syntax.block,
+      edges: syntax.edges,
+      origin: Point { x: t.b.x, y: t.b.y },
+    },
+    syntax.frame_header,
+  )
+  .map_err(|_invalid_motion_neighbors| ())?;
+  let [first, second, ..] = candidates;
+  let [nearest, _] = first.mv.mv;
+  let [next, _] = second.mv.mv;
+  let mut predicted = match (
+    (nearest != Mv::ZERO).then_some(()),
+    (next != Mv::ZERO).then_some(()),
+  ) {
+    (Some(()), _) => nearest,
+    (None, Some(())) => next,
+    (None, None) => {
+      let sb128 = u32::from(syntax.sequence.sb128);
+      let superblock_before = t.b.y.wrapping_sub(16_i32.wrapping_shl(sb128));
+      let upwards = 512_i32.wrapping_shl(sb128).wrapping_neg();
+
+      match (superblock_before < syntax.tile.tiling.row_start).then_some(()) {
+        Some(()) => {
+          let Ok(x) =
+            console_core_number_conversion::wrapped::<_, i16>(upwards.wrapping_sub(2048));
+          Mv { x, y: 0 }
         }
-        ::core::option::Option::None => match ::core::primitive::bool::then_some(
-          frame_hdr.segmentation.seg_data.preskip != 0,
-          (),
-        ) {
-          ::core::option::Option::Some(()) => {
-            match ::core::primitive::bool::then_some(
-              frame_hdr.segmentation.temporal != 0 && {
-                let index = u8::wrapping_add(
-                  *ta.seg_pred.index({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4);
-                    numeric_value
-                  }),
-                  *match <[_]>::get(&**t.l.seg_pred.get_mut(), {
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4);
-                    numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                );
-                seg_pred = matches!(
-                  rav1d_msac_decode_bool_adapt(
-                    &mut ts_c_2.msac,
-                    &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.seg_pred, {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped_index(index);
-                      numeric_value
-                    }) {
-                      ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                  ),
-                  Ok(EntropyBit::One)
-                );
-                seg_pred
-              },
-              (),
-            ) {
-              ::core::option::Option::Some(()) => {
-                let checked_value_4 = previous_segment().map_err(|_previous_segment| ())?;
-                b.seg_id = checked_value_4;
-              }
-              ::core::option::Option::None => {
-                let segment_map = f.cur_segmap.as_ref().ok_or(())?;
-                let segment_stride = u64::from(f.b4_stride);
-                let (pred_seg_id, seg_ctx) =
-                  get_cur_frame_segid(t.b, neighbors, &segment_map.inner, segment_stride)
-                    .map_err(|_invalid_segment_map| ())?;
-                let Ok(diff) = rav1d_msac_decode_symbol_adapt8(
-                  &mut ts_c_2.msac,
-                  &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.m.seg_id, {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped_index(seg_ctx);
-                    numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                  u8::wrapping_sub(
-                    {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped::<_, u8>(SegmentId::COUNT);
-                      numeric_value
-                    },
-                    1,
-                  ),
-                );
-                let last_active_segid = frame_hdr.segmentation.seg_data.last_active_segid;
-                let Ok(last_active_seg_id_plus1) = console_core_number_conversion::wrapped::<_, u8>(
-                  i8::wrapping_add(last_active_segid, 1),
-                );
-                let Ok(mut seg_id) = neg_deinterleave(
-                  {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped::<_, u8>(diff);
-                    numeric_value
-                  },
-                  pred_seg_id,
-                  last_active_seg_id_plus1,
-                );
-
-                match ::core::primitive::bool::then_some(
-                  c.strictness >= Strictness::Strict
-                    && seg_id
-                      > ({
-                        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u8>(
-                          last_active_segid.max(0),
-                        );
-                        numeric_value
-                      }),
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    return Err(());
-                  }
-                  ::core::option::Option::None => {}
-                }
-
-                match ::core::primitive::bool::then_some(
-                  last_active_segid >= 0
-                    && seg_id
-                      > ({
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped::<_, u8>(last_active_segid);
-                        numeric_value
-                      }),
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    seg_id = 0;
-                  }
-                  ::core::option::Option::None => {}
-                }
-
-                let Ok(segment_id) = SegmentId::new(seg_id);
-                b.seg_id = segment_id.unwrap_or_default();
-              }
-            }
-
-            match debug_block_info!(f, t.b) {
-              BlockTrace::Enabled => {
-                println!("Post-segid[preskip;{}]: r={}", b.seg_id, ts_c_2.msac.rng);
-              }
-              BlockTrace::Disabled => {}
-            }
-
-            let Ok(b_seg_id) = b.seg_id.get();
-            seg = Some(&*match <[_]>::get(
-              &frame_hdr.segmentation.seg_data.d,
-              match ::console_core_number_conversion::index(b_seg_id) {
-                ::core::result::Result::Ok(native_position__) => native_position__,
-              },
-            ) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            });
-          }
-          ::core::option::Option::None => {}
-        },
+        None => {
+          let Ok(y) = console_core_number_conversion::wrapped::<_, i16>(upwards);
+          Mv { x: 0, y }
+        }
       }
     }
-    ::core::option::Option::None => {
-      b.seg_id = Default::default();
+  };
+
+  read_mv_residual(entropy, &mut predicted, ResidualPrecision::Integer)
+    .map_err(|_invalid_motion_residual| ())?;
+  let corrected = correct_intrabc_motion(syntax, t.b, predicted)?;
+  let Ok(trace) = debug_block_info(syntax.frame, t.b);
+
+  match trace {
+    BlockTrace::Enabled => {
+      console_core_logging::trace!(
+        "Post-dmv[{}/{},ref={}/{}|{}/{}]: r={}",
+        corrected.y,
+        corrected.x,
+        predicted.y,
+        predicted.x,
+        nearest.y,
+        nearest.x,
+        entropy.msac.rng,
+      );
+    }
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(corrected)
+}
+
+fn decode_intrabc_syntax(
+  syntax: &BlockSyntaxContext<'_>,
+  t: &mut Rav1dTaskContext,
+  b: &mut Av1Block,
+  entropy: &mut Rav1dTileStateContext,
+) -> Result<(), ()> {
+  let motion = read_intrabc_motion(syntax, t, entropy)?;
+  reconstruct_intrabc(syntax, t, b, entropy, motion)?;
+  let Ok(()) = update_intrabc_context(syntax, t, b);
+  Ok(())
+}
+
+fn reconstruct_intrabc(
+  syntax: &BlockSyntaxContext<'_>,
+  t: &mut Rav1dTaskContext,
+  b: &mut Av1Block,
+  entropy: &mut Rav1dTileStateContext,
+  motion: Mv,
+) -> Result<(), ()> {
+  let frame = syntax.frame;
+  let block = syntax.block;
+  let Ok(bd_fn) = frame.bd_fn();
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let transforms = read_vartx_tree(
+    t,
+    frame,
+    entropy,
+    b,
+    VariableTransformBlock {
+      size: block,
+      local: Bxy { x, y },
+    },
+  )
+  .map_err(|_invalid_transform_tree| ())?;
+  let VarTx {
+    uvtx,
+    max_ytx,
+    tx_split0,
+    tx_split1,
+  } = transforms;
+  let filter2d = match (t.frame_thread.pass == 1).then_some(()) {
+    Some(()) => Filter2d::Bilinear,
+    None => Filter2d::default(),
+  };
+  b.uvtx = uvtx;
+  let inter = Av1BlockInter {
+    nd: Av1BlockInterNd::from(Av1BlockInter1d {
+      mv: [motion, Mv::default()],
+      ..Av1BlockInter1d::default()
+    }),
+    comp_type: Default::default(),
+    inter_mode: Default::default(),
+    motion_mode: Default::default(),
+    drl_idx: Default::default(),
+    r#ref: Default::default(),
+    max_ytx,
+    filter2d,
+    interintra_type: Default::default(),
+    tx_split0,
+    tx_split1,
+  };
+  b.ii = Av1BlockIntraInter::Inter(inter);
+
+  match (t.frame_thread.pass == 1).then_some(()) {
+    Some(()) => {
+      (bd_fn.read_coef_blocks)(frame, t, entropy, block, b).map_err(|_invalid_coefficients| ())?
+    }
+    None => (bd_fn.recon_b_inter)(frame, t, Some(entropy), block, b, &inter)?,
+  }
+
+  splat_intrabc_mv(
+    syntax.decoder,
+    t,
+    &frame.rf,
+    block,
+    motion,
+    syntax.geometry.luma.size,
+  )
+  .map_err(|_invalid_reference_map| ())
+}
+
+fn update_intrabc_context(
+  syntax: &BlockSyntaxContext<'_>,
+  t: &mut Rav1dTaskContext,
+  b: &Av1Block,
+) -> Result<(), console_core_never::Never> {
+  let ta = syntax.above;
+  let b_dim = syntax.geometry.dimensions;
+  let has_chroma = syntax.geometry.has_chroma;
+  let seg_pred = matches!(syntax.segment_origin, SegmentOrigin::Inherited);
+  let Point { x: bx4, y: by4 } = syntax.geometry.luma.origin;
+  let Size {
+    width: bw4,
+    height: bh4,
+  } = syntax.geometry.luma.size;
+  let Point { x: cbx4, y: cby4 } = syntax.geometry.chroma.origin;
+  let Size {
+    width: cbw4,
+    height: cbh4,
+  } = syntax.geometry.chroma.size;
+
+  case_set_al! {
+      <32, false>
+
+      l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4); numeric_value })
+          also |case| { ({ let Ok(explicit_value) = case.set({ let [_, _explicit_part, ..] = &mut t.pal_sz_uv; _explicit_part }, 0); explicit_value }); },
+      a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4); numeric_value })
+          also |case| { ({ let Ok(explicit_value) = case.set({ let [_explicit_part, ..] = &mut t.pal_sz_uv; _explicit_part }, 0); explicit_value }); },
+      tx_intra = ({
+        let &[_, _, _, height] = b_dim;
+        let Ok(height_log) = console_core_number_conversion::wrapped::<_, i8>(height);
+        height_log
+      }, {
+        let &[_, _, width, _] = b_dim;
+        let Ok(width_log) = console_core_number_conversion::wrapped::<_, i8>(width);
+        width_log
+      }),
+      mode = (DC_PRED, DC_PRED),
+      pal_sz = (0, 0),
+      seg_pred = (<::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(seg_pred), <::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(seg_pred)),
+      skip_mode = (0, 0),
+      intra = (0, 0),
+      skip = (b.skip, b.skip),
+  }
+
+  match ::core::primitive::bool::then_some(has_chroma, ()) {
+    ::core::option::Option::Some(()) => {
+      case_set_al! {
+          <32, false>
+          l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cby4); numeric_value }),
+          a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbx4); numeric_value }),
+          uvmode = (DC_PRED, DC_PRED),
+      }
+    }
+    ::core::option::Option::None => {}
+  }
+
+  Ok(())
+}
+
+struct InterPredictionSyntax {
+  nd: Av1BlockInterNd,
+  comp_type: Option<CompInterType>,
+  inter_mode: u8,
+  motion_mode: MotionMode,
+  drl_idx: DrlProximity,
+  r#ref: [i8; 2],
+  interintra_type: Option<InterIntraType>,
+  needs_filter: SwitchableFilter,
+}
+
+enum SwitchableFilter {
+  Read,
+  Regular,
+}
+
+impl From<bool> for SwitchableFilter {
+  fn from(read: bool) -> Self {
+    match read {
+      true => Self::Read,
+      false => Self::Regular,
+    }
+  }
+}
+
+fn read_skip_motion(
+  syntax: &BlockSyntaxContext<'_>,
+  t: &Rav1dTaskContext,
+) -> Result<InterPredictionSyntax, ()> {
+  let r#ref = syntax.frame_header.skip_mode.refs.map(|raw| {
+    let Ok(reference) = console_core_number_conversion::wrapped::<_, i8>(raw);
+    reference
+  });
+  let mut mvstack = [Default::default(); 8];
+  let mut context = 0;
+  let _candidate_count = rav1d_refmvs_find(
+    &t.rt,
+    &syntax.frame.rf,
+    &mut mvstack,
+    &mut context,
+    crate::src::refmvs::RefMvsSearch {
+      references: RefMvsRefPair::from(r#ref.map(|reference| reference.wrapping_add(1))),
+      block: syntax.block,
+      edges: syntax.edges,
+      origin: Point { x: t.b.x, y: t.b.y },
+    },
+    syntax.frame_header,
+  )
+  .map_err(|_invalid_neighbors| ())?;
+
+  let [candidate, ..] = mvstack;
+  let [mut first, mut second] = candidate.mv.mv;
+  let Ok(()) = fix_mv_precision(syntax.frame_header, &mut first);
+  let Ok(()) = fix_mv_precision(syntax.frame_header, &mut second);
+  let Ok(trace) = debug_block_info(syntax.frame, t.b);
+
+  match trace {
+    BlockTrace::Enabled => {
+      let [first_ref, second_ref] = r#ref;
+      println!(
+        "Post-skipmodeblock[mv=1:y={},x={},2:y={},x={},refs={}+{}",
+        first.y, first.x, second.y, second.x, first_ref, second_ref,
+      );
+    }
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(InterPredictionSyntax {
+    nd: Av1BlockInterNd::from(Av1BlockInter1d {
+      mv: [first, second],
+      ..Default::default()
+    }),
+    comp_type: Some(CompInterType::Avg),
+    inter_mode: NEARESTMV_NEARESTMV,
+    motion_mode: Default::default(),
+    drl_idx: DrlProximity::Nearest,
+    r#ref,
+    interintra_type: None,
+    needs_filter: SwitchableFilter::Regular,
+  })
+}
+
+fn reference_bit(
+  entropy: &mut MsacContext,
+  table: &mut [[u16; 2]],
+  context: u8,
+) -> Result<EntropyBit, ()> {
+  let Ok(position) = console_core_number_conversion::index(context);
+  let cdf = table.get_mut(position).ok_or(())?;
+  let Ok(bit) = rav1d_msac_decode_bool_adapt(entropy, cdf);
+  Ok(bit)
+}
+
+fn reference_branch(
+  entropy: &mut MsacContext,
+  table: &mut [[[u16; 2]; 3]],
+  counts: &ReferenceCounts,
+  (level, context): (u8, ReferenceContext),
+) -> Result<EntropyBit, ()> {
+  let Ok(position) = console_core_number_conversion::index(level);
+  let row = table.get_mut(position).ok_or(())?;
+  let Ok(context_index) = counts.context(context);
+  reference_bit(entropy, row, context_index)
+}
+
+fn read_compound_opposite(
+  tile: &mut Rav1dTileStateContext,
+  counts: &ReferenceCounts,
+) -> Result<[i8; 2], ()> {
+  use ReferenceContext::{BackwardGroup, FarForward, ForwardGroup, NearBackward, NearForward};
+  let forward = &mut *tile.cdf.mi.comp_fwd_ref;
+  let group = reference_branch(&mut tile.msac, forward, counts, (0, ForwardGroup))?;
+  let (part, start) = match group {
+    EntropyBit::Zero => ((1, NearForward), 0_i8),
+    EntropyBit::One => ((2, FarForward), 2_i8),
+  };
+  let near = reference_branch(&mut tile.msac, forward, counts, part)?;
+  let first = match near {
+    EntropyBit::Zero => start,
+    EntropyBit::One => start.wrapping_add(1),
+  };
+
+  let backward = &mut *tile.cdf.mi.comp_bwd_ref;
+  let backward_group = reference_branch(&mut tile.msac, backward, counts, (0, BackwardGroup))?;
+  let second = match backward_group {
+    EntropyBit::One => 6,
+    EntropyBit::Zero => {
+      let near_backward = reference_branch(&mut tile.msac, backward, counts, (1, NearBackward))?;
+
+      match near_backward {
+        EntropyBit::Zero => 4,
+        EntropyBit::One => 5,
+      }
+    }
+  };
+
+  Ok([first, second])
+}
+
+fn read_compound_same(
+  tile: &mut Rav1dTileStateContext,
+  counts: &ReferenceCounts,
+) -> Result<[i8; 2], ()> {
+  use ReferenceContext::{Direction, FarForward, UnidirectionalPair};
+  let table = &mut *tile.cdf.mi.comp_uni_ref;
+  let backward = reference_branch(&mut tile.msac, table, counts, (0, Direction))?;
+
+  match backward {
+    EntropyBit::One => return Ok([4, 6]),
+    EntropyBit::Zero => {}
+  }
+
+  let group = reference_branch(&mut tile.msac, table, counts, (1, UnidirectionalPair))?;
+
+  match group {
+    EntropyBit::Zero => Ok([0, 1]),
+    EntropyBit::One => {
+      let far = reference_branch(&mut tile.msac, table, counts, (2, FarForward))?;
+
+      match far {
+        EntropyBit::Zero => Ok([0, 2]),
+        EntropyBit::One => Ok([0, 3]),
+      }
+    }
+  }
+}
+
+fn read_compound_references(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  tile: &mut Rav1dTileStateContext,
+) -> Result<[i8; 2], ()> {
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let neighbors = || BlockNeighbors {
+    above: syntax.above,
+    left: &task.l,
+    location: Bxy { x, y },
+    availability: syntax.neighbors,
+  };
+  let counts = ReferenceCounts::from_neighbors(neighbors()).map_err(|_invalid_reference| ())?;
+  let context = get_comp_dir_ctx(neighbors()).map_err(|_invalid_context| ())?;
+  let direction = reference_bit(&mut tile.msac, &mut *tile.cdf.mi.comp_dir, context)?;
+
+  match direction {
+    EntropyBit::One => read_compound_opposite(tile, &counts),
+    EntropyBit::Zero => read_compound_same(tile, &counts),
+  }
+}
+
+enum CompoundBlend {
+  Average,
+  Weighted,
+  Segment(EntropyBit),
+  Wedge { index: u8, sign: EntropyBit },
+}
+
+impl CompoundBlend {
+  fn parts(self) -> Result<(CompInterType, bool, u8), console_core_never::Never> {
+    Ok(match self {
+      Self::Average => (CompInterType::Avg, false, 0),
+      Self::Weighted => (CompInterType::WeightedAvg, false, 0),
+      Self::Segment(sign) => (CompInterType::Seg, sign == EntropyBit::One, 0),
+      Self::Wedge { index, sign } => (CompInterType::Wedge, sign == EntropyBit::One, index),
+    })
+  }
+}
+
+fn wedge_context(block: BlockSize) -> Result<u8, ()> {
+  let Ok(ordinal) = block.ordinal();
+  let Ok(position) = console_core_number_conversion::index(ordinal);
+  dav1d_wedge_ctx_lut.get(position).copied().ok_or(())
+}
+
+fn read_wedge_index(tile: &mut Rav1dTileStateContext, context: u8) -> Result<u8, ()> {
+  let Ok(position) = console_core_number_conversion::index(context);
+  let cdf = tile.cdf.mi.wedge_idx.get_mut(position).ok_or(())?;
+  let Ok(symbol) = rav1d_msac_decode_symbol_adapt16(&mut tile.msac, cdf, 15);
+  let Ok(value) = console_core_number_conversion::wrapped::<_, u8>(symbol);
+  Ok(value)
+}
+
+fn read_joint_compound(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  tile: &mut Rav1dTileStateContext,
+  references: [i8; 2],
+) -> Result<CompoundBlend, ()> {
+  match syntax.sequence.jnt_comp {
+    0 => return Ok(CompoundBlend::Average),
+    _ => {}
+  }
+
+  let frame = syntax.frame;
+  let reference_stamp = |slot| -> Result<u32, ()> {
+    let Ok(position) = console_core_number_conversion::wrapped_index(slot);
+    let reference = frame.refp.get(position).ok_or(())?;
+    let header = reference.p.frame_hdr.as_ref().ok_or(())?;
+    Ok(u32::from(header.frame_offset))
+  };
+  let [first_reference, second_reference] = references;
+  let first_hint = reference_stamp(first_reference)?;
+  let second_hint = reference_stamp(second_reference)?;
+  let current_header = frame.cur.frame_hdr.as_ref().ok_or(())?;
+  let hints = CompoundOrderHints {
+    width: syntax.sequence.order_hint_n_bits,
+    current: u32::from(current_header.frame_offset),
+    reference_hints: [first_hint, second_hint],
+  };
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let above = syntax.above;
+  let left = &task.l;
+  let context = get_jnt_comp_ctx(
+    hints,
+    BlockNeighbors {
+      above,
+      left,
+      location: Bxy { x, y },
+      availability: syntax.neighbors,
+    },
+  )
+  .map_err(|_invalid_context| ())?;
+  let choice = reference_bit(&mut tile.msac, &mut *tile.cdf.mi.jnt_comp, context)?;
+  let Ok(trace) = debug_block_info(frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => {
+      let Ok(column) = console_core_number_conversion::wrapped_index(x);
+      let Ok(row) = console_core_number_conversion::wrapped_index(y);
+      let [above_first, ..] = &above.r#ref;
+      let [left_first, ..] = &left.r#ref;
+      println!(
+        "Post-jnt_comp[{},ctx={}[ac:{:?},ar:{},lc:{:?},lr:{}]]: r={}",
+        choice == EntropyBit::One,
+        context,
+        *above.comp_type.index(column),
+        *above_first.index(column),
+        *left.comp_type.index(row),
+        *left_first.index(row),
+        tile.msac.rng,
+      );
+    }
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(match choice {
+    EntropyBit::One => CompoundBlend::Average,
+    EntropyBit::Zero => CompoundBlend::Weighted,
+  })
+}
+
+fn read_masked_compound(
+  syntax: &BlockSyntaxContext<'_>,
+  origin: Bxy,
+  tile: &mut Rav1dTileStateContext,
+) -> Result<CompoundBlend, ()> {
+  let Ok(ordinal) = syntax.block.ordinal();
+  let wedge =
+    match (wedge_allowed_mask & 1_u32.wrapping_shl(u32::from(ordinal)) != 0).then_some(()) {
+      Some(()) => {
+        let context = wedge_context(syntax.block)?;
+        let kind = reference_bit(&mut tile.msac, &mut *tile.cdf.mi.wedge_comp, context)?;
+
+        match kind {
+          EntropyBit::One => None,
+          EntropyBit::Zero => {
+            let index = read_wedge_index(tile, context)?;
+            Some(index)
+          }
+        }
+      }
+      None => None,
+    };
+  let Ok(sign) = rav1d_msac_decode_bool_equi(&mut tile.msac);
+  let blend = match wedge {
+    Some(index) => CompoundBlend::Wedge { index, sign },
+    None => CompoundBlend::Segment(sign),
+  };
+  let Ok(trace) = debug_block_info(syntax.frame, origin);
+
+  match trace {
+    BlockTrace::Enabled => {
+      let index = match wedge {
+        Some(value) => value,
+        None => 0,
+      };
+      println!(
+        "Post-seg/wedge[{},wedge_idx={},sign={}]: r={}",
+        wedge.is_some(),
+        index,
+        sign == EntropyBit::One,
+        tile.msac.rng,
+      );
+    }
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(blend)
+}
+
+fn read_compound_blend(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  tile: &mut Rav1dTileStateContext,
+  references: [i8; 2],
+) -> Result<CompoundBlend, ()> {
+  match syntax.sequence.masked_compound {
+    0 => return read_joint_compound(syntax, task, tile, references),
+    _ => {}
+  }
+
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let mask_context = get_mask_comp_ctx(BlockNeighbors {
+    above: syntax.above,
+    left: &task.l,
+    location: Bxy { x, y },
+    availability: syntax.neighbors,
+  })
+  .map_err(|_invalid_context| ())?;
+  let choice = reference_bit(&mut tile.msac, &mut *tile.cdf.mi.mask_comp, mask_context)?;
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-segwedge_vs_jntavg[{},ctx={}]: r={}",
+      choice == EntropyBit::One,
+      mask_context,
+      tile.msac.rng,
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  match choice {
+    EntropyBit::Zero => read_joint_compound(syntax, task, tile, references),
+    EntropyBit::One => read_masked_compound(syntax, task.b, tile),
+  }
+}
+
+fn compound_motion_candidates(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  references: [i8; 2],
+) -> Result<([crate::src::refmvs::RefMvsCandidate; 8], u8, i32), ()> {
+  let mut candidates = [Default::default(); 8];
+  let mut context = 0;
+  let count = rav1d_refmvs_find(
+    &task.rt,
+    &syntax.frame.rf,
+    &mut candidates,
+    &mut context,
+    crate::src::refmvs::RefMvsSearch {
+      references: RefMvsRefPair::from(references.map(|reference| reference.wrapping_add(1))),
+      block: syntax.block,
+      edges: syntax.edges,
+      origin: Point {
+        x: task.b.x,
+        y: task.b.y,
+      },
+    },
+    syntax.frame_header,
+  )
+  .map_err(|_invalid_neighbors| ())?;
+
+  Ok((candidates, count, context))
+}
+
+fn read_compound_mode(
+  tile: &mut Rav1dTileStateContext,
+  candidates: &BlockMotionCandidates<'_>,
+  trace: BlockTrace,
+) -> Result<u8, ()> {
+  let Ok(position) = console_core_number_conversion::wrapped_index(candidates.context);
+  let cdf = tile.cdf.mi.comp_inter_mode.get_mut(position).ok_or(())?;
+  let ceiling = N_COMP_INTER_PRED_MODES.wrapping_sub(1);
+  let Ok(mode) = rav1d_msac_decode_symbol_adapt8(&mut tile.msac, cdf, ceiling);
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-compintermode[{},ctx={},n_mvs={}]: r={}",
+      mode, candidates.context, candidates.count, tile.msac.rng,
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(mode)
+}
+
+fn select_compound_candidate(
+  tile: &mut Rav1dTileStateContext,
+  candidates: &BlockMotionCandidates<'_>,
+  mode: u8,
+  component_modes: [u8; 2],
+  trace: BlockTrace,
+) -> Result<DrlProximity, ()> {
+  let starting_at = match (mode, component_modes) {
+    (NEWMV_NEWMV, _) => (DrlStart::NewMotion, 1),
+    (_, [NEARMV, _] | [_, NEARMV]) => (DrlStart::NearReference, 2),
+    _ => return Ok(DrlProximity::Nearest),
+  };
+  let (start, threshold) = starting_at;
+  let selection = decode_drl_index(tile, candidates.stack, candidates.count, start)?;
+
+  match (trace, (candidates.count > threshold).then_some(())) {
+    (BlockTrace::Enabled, Some(())) => println!(
+      "Post-drlidx[{:?},n_mvs={}]: r={}",
+      selection, candidates.count, tile.msac.rng,
+    ),
+    (BlockTrace::Enabled, None) | (BlockTrace::Disabled, _) => {}
+  }
+
+  Ok(selection)
+}
+
+struct CompoundMotionSelection {
+  modes: [u8; 2],
+  references: [i8; 2],
+  initial: [Mv; 2],
+  filter: bool,
+}
+
+fn decode_compound_vectors(
+  syntax: &BlockSyntaxContext<'_>,
+  tile: &mut Rav1dTileStateContext,
+  origin: Bxy,
+  selection: CompoundMotionSelection,
+) -> Result<([Mv; 2], SwitchableFilter), ()> {
+  let CompoundMotionSelection {
+    modes,
+    references,
+    initial,
+    mut filter,
+  } = selection;
+  let header = syntax.frame_header;
+  let precision = match (header.hp, header.force_integer_mv) {
+    (false, true) => ResidualPrecision::Integer,
+    (false, false) | (true, true) => ResidualPrecision::QuarterPel,
+    (true, false) => ResidualPrecision::EighthPel,
+  };
+  let mut vectors = [Mv::default(); 2];
+
+  for (((output, mode), slot), mut vector) in
+    vectors.iter_mut().zip(modes).zip(references).zip(initial)
+  {
+    *output = match mode {
+      NEARMV | NEARESTMV => {
+        let Ok(()) = fix_mv_precision(header, &mut vector);
+        vector
+      }
+      GLOBALMV => {
+        let global = global_motion_vector(syntax, origin, slot)?;
+        filter |= global.filter;
+        global.motion
+      }
+      NEWMV => {
+        read_mv_residual(tile, &mut vector, precision).map_err(|_invalid_residual| ())?;
+        vector
+      }
+      _ => return Err(()),
+    };
+  }
+
+  Ok((vectors, SwitchableFilter::from(filter)))
+}
+
+fn read_compound_motion(
+  syntax: &BlockSyntaxContext<'_>,
+  t: &mut Rav1dTaskContext,
+  tile: &mut Rav1dTileStateContext,
+) -> Result<InterPredictionSyntax, ()> {
+  let references = read_compound_references(syntax, t, tile)?;
+  let Ok(trace) = debug_block_info(syntax.frame, t.b);
+
+  match trace {
+    BlockTrace::Enabled => {
+      let [first, second] = references;
+      println!("Post-refs[{}/{}]: r={}", first, second, tile.msac.rng);
+    }
+    BlockTrace::Disabled => {}
+  }
+
+  let (stack, count, context) = compound_motion_candidates(syntax, t, references)?;
+  let candidates = BlockMotionCandidates {
+    stack: &stack,
+    count,
+    context,
+  };
+  let inter_mode = read_compound_mode(tile, &candidates, trace)?;
+  let Ok(mode_index) = console_core_number_conversion::wrapped_index(inter_mode);
+  let &modes = dav1d_comp_inter_pred_modes.get(mode_index).ok_or(())?;
+  let drl_idx = select_compound_candidate(tile, &candidates, inter_mode, modes, trace)?;
+  let Ok(rank) = drl_idx.ordinal();
+  let Ok(position) = console_core_number_conversion::index(rank);
+  let predictor = stack.get(position).ok_or(())?;
+  let size = syntax.geometry.luma.size;
+  let selection = CompoundMotionSelection {
+    modes,
+    references,
+    initial: predictor.mv.mv,
+    filter: size.width.min(size.height) == 1 || inter_mode != GLOBALMV_GLOBALMV,
+  };
+  let (vectors, needs_filter) = decode_compound_vectors(syntax, tile, t.b, selection)?;
+
+  match trace {
+    BlockTrace::Enabled => {
+      let [first, second] = vectors;
+      println!(
+        "Post-residual_mv[1:y={},x={},2:y={},x={}]: r={}",
+        first.y, first.x, second.y, second.x, tile.msac.rng,
+      );
+    }
+    BlockTrace::Disabled => {}
+  }
+
+  let blend = read_compound_blend(syntax, t, tile, references)?;
+  let Ok((comp_type, mask_sign, wedge_idx)) = blend.parts();
+  let data = Av1BlockInter1d {
+    mv: vectors,
+    wedge_idx,
+    mask_sign: u8::from(mask_sign),
+    ..Default::default()
+  };
+
+  Ok(InterPredictionSyntax {
+    nd: Av1BlockInterNd::from(data),
+    comp_type: Some(comp_type),
+    inter_mode,
+    motion_mode: Default::default(),
+    drl_idx,
+    r#ref: references,
+    interintra_type: None,
+    needs_filter,
+  })
+}
+
+fn read_single_reference(
+  tile: &mut Rav1dTileStateContext,
+  counts: &ReferenceCounts,
+) -> Result<i8, ()> {
+  use ReferenceContext::{
+    BackwardGroup, Direction, FarForward, ForwardGroup, NearBackward, NearForward,
+  };
+  let table = &mut *tile.cdf.mi.r#ref;
+  let direction = reference_branch(&mut tile.msac, table, counts, (0, Direction))?;
+  let ((level, context), start) = match direction {
+    EntropyBit::One => {
+      let group = reference_branch(&mut tile.msac, table, counts, (1, BackwardGroup))?;
+
+      match group {
+        EntropyBit::One => return Ok(6),
+        EntropyBit::Zero => ((5, NearBackward), 4_i8),
+      }
+    }
+    EntropyBit::Zero => {
+      let group = reference_branch(&mut tile.msac, table, counts, (2, ForwardGroup))?;
+
+      match group {
+        EntropyBit::One => ((4, FarForward), 2_i8),
+        EntropyBit::Zero => ((3, NearForward), 0_i8),
+      }
+    }
+  };
+  let choice = reference_branch(&mut tile.msac, table, counts, (level, context))?;
+
+  Ok(match choice {
+    EntropyBit::Zero => start,
+    EntropyBit::One => start.wrapping_add(1),
+  })
+}
+
+struct SingleMotionVector {
+  mode: u8,
+  motion: Mv,
+  reference: DrlProximity,
+  filter: bool,
+}
+
+struct BlockMotionCandidates<'frame> {
+  stack: &'frame [crate::src::refmvs::RefMvsCandidate; 8],
+  count: u8,
+  context: i32,
+}
+
+fn first_candidate_motion(
+  stack: &[crate::src::refmvs::RefMvsCandidate; 8],
+  choice: DrlProximity,
+) -> Result<Mv, ()> {
+  let Ok(ordinal) = choice.ordinal();
+  let Ok(position) = console_core_number_conversion::index(ordinal);
+  let candidate = stack.get(position).ok_or(())?;
+  let [motion, _paired] = candidate.mv.mv;
+  Ok(motion)
+}
+
+fn read_new_motion_vector(
+  syntax: &BlockSyntaxContext<'_>,
+  tile: &mut Rav1dTileStateContext,
+  origin: Bxy,
+  candidates: &BlockMotionCandidates<'_>,
+) -> Result<SingleMotionVector, ()> {
+  let reference = decode_drl_index(
+    tile,
+    candidates.stack,
+    candidates.count,
+    DrlStart::NewMotion,
+  )?;
+  let mut motion = first_candidate_motion(candidates.stack, reference)?;
+  let header = syntax.frame_header;
+
+  match candidates.count {
+    0 | 1 => {
+      let Ok(()) = fix_mv_precision(header, &mut motion);
+    }
+    2.. => {}
+  }
+
+  let Ok(trace) = debug_block_info(syntax.frame, origin);
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-intermode[{},drl={:?}]: r={}",
+      NEWMV, reference, tile.msac.rng,
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  let precision = match (header.hp, header.force_integer_mv) {
+    (false, true) => ResidualPrecision::Integer,
+    (false, false) | (true, true) => ResidualPrecision::QuarterPel,
+    (true, false) => ResidualPrecision::EighthPel,
+  };
+  read_mv_residual(tile, &mut motion, precision).map_err(|_invalid_motion_residual| ())?;
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-residualmv[mv=y:{},x:{}]: r={}",
+      motion.y, motion.x, tile.msac.rng,
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(SingleMotionVector {
+    mode: NEWMV,
+    motion,
+    reference,
+    filter: true,
+  })
+}
+
+fn read_reference_motion_vector(
+  syntax: &BlockSyntaxContext<'_>,
+  tile: &mut Rav1dTileStateContext,
+  candidates: &BlockMotionCandidates<'_>,
+) -> Result<SingleMotionVector, ()> {
+  let Ok(context) =
+    console_core_number_conversion::wrapped::<_, u8>(candidates.context.wrapping_shr(4) & 15);
+  let nearby = reference_bit(&mut tile.msac, &mut *tile.cdf.mi.refmv_mode, context)?;
+  let (mode, reference) = match nearby {
+    EntropyBit::Zero => (NEARESTMV, DrlProximity::Nearest),
+    EntropyBit::One => {
+      let selected = decode_drl_index(
+        tile,
+        candidates.stack,
+        candidates.count,
+        DrlStart::NearReference,
+      )?;
+      (NEARMV, selected)
+    }
+  };
+  let mut motion = first_candidate_motion(candidates.stack, reference)?;
+
+  match reference {
+    DrlProximity::Nearest | DrlProximity::Nearer => {
+      let Ok(()) = fix_mv_precision(syntax.frame_header, &mut motion);
+    }
+    DrlProximity::Near | DrlProximity::Nearish => {}
+  }
+
+  Ok(SingleMotionVector {
+    mode,
+    motion,
+    reference,
+    filter: true,
+  })
+}
+
+fn global_motion_vector(
+  syntax: &BlockSyntaxContext<'_>,
+  origin: Bxy,
+  reference: i8,
+) -> Result<SingleMotionVector, ()> {
+  let Ok(position) = console_core_number_conversion::wrapped_index(reference);
+  let header = syntax.frame_header;
+  let warp = header.gmv.get(position).ok_or(())?;
+  let size = syntax.geometry.luma.size;
+  let Ok(motion) = get_gmv_2d(
+    warp,
+    Rectangle {
+      origin: Point {
+        x: origin.x,
+        y: origin.y,
+      },
+      size,
+    },
+    header,
+  );
+  let filter =
+    size.width.min(size.height) == 1 || warp.r#type == Rav1dWarpedMotionType::Translation;
+
+  Ok(SingleMotionVector {
+    mode: GLOBALMV,
+    motion,
+    reference: DrlProximity::Nearest,
+    filter,
+  })
+}
+
+fn read_single_motion_vector(
+  syntax: &BlockSyntaxContext<'_>,
+  tile: &mut Rav1dTileStateContext,
+  origin: Bxy,
+  reference: i8,
+  candidates: BlockMotionCandidates<'_>,
+) -> Result<SingleMotionVector, ()> {
+  let force_global = syntax
+    .segment
+    .is_some_and(|segment| segment.skip != 0 || segment.globalmv != 0);
+  let choice = match force_global.then_some(()) {
+    Some(()) => {
+      let selected = global_motion_vector(syntax, origin, reference)?;
+      selected
+    }
+    None => {
+      let Ok(new_context) =
+        console_core_number_conversion::wrapped::<_, u8>(candidates.context & 7);
+      let new_mode = reference_bit(&mut tile.msac, &mut *tile.cdf.mi.newmv_mode, new_context)?;
+
+      match new_mode {
+        EntropyBit::Zero => return read_new_motion_vector(syntax, tile, origin, &candidates),
+        EntropyBit::One => {}
+      }
+
+      let Ok(global_context) =
+        console_core_number_conversion::wrapped::<_, u8>(candidates.context.wrapping_shr(3) & 1);
+      let global = reference_bit(
+        &mut tile.msac,
+        &mut *tile.cdf.mi.globalmv_mode,
+        global_context,
+      )?;
+
+      match global {
+        EntropyBit::Zero => {
+          let selected = global_motion_vector(syntax, origin, reference)?;
+          selected
+        }
+        EntropyBit::One => {
+          let selected = read_reference_motion_vector(syntax, tile, &candidates)?;
+          selected
+        }
+      }
+    }
+  };
+  let Ok(trace) = debug_block_info(syntax.frame, origin);
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-intermode[{},drl={:?},mv=y:{},x:{},n_mvs={}]: r={}",
+      choice.mode,
+      choice.reference,
+      choice.motion.y,
+      choice.motion.x,
+      candidates.count,
+      tile.msac.rng,
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(choice)
+}
+
+enum InterIntraSyntax {
+  Off,
+  Blend(InterIntraPredMode),
+  Wedge { mode: InterIntraPredMode, index: u8 },
+}
+
+impl InterIntraSyntax {
+  fn parts(
+    self,
+  ) -> Result<(InterIntraPredMode, Option<InterIntraType>, u8), console_core_never::Never> {
+    Ok(match self {
+      Self::Off => (InterIntraPredMode::default(), None, 0),
+      Self::Blend(mode) => (mode, Some(InterIntraType::Blend), 0),
+      Self::Wedge { mode, index } => (mode, Some(InterIntraType::Wedge), index),
+    })
+  }
+}
+
+fn read_interintra_syntax(
+  syntax: &BlockSyntaxContext<'_>,
+  tile: &mut Rav1dTileStateContext,
+) -> Result<InterIntraSyntax, ()> {
+  let Ok(ordinal) = syntax.block.ordinal();
+  let Ok(size_index) = console_core_number_conversion::index(ordinal);
+  let &group = dav1d_ymode_size_context.get(size_index).ok_or(())?;
+
+  match (syntax.sequence.inter_intra != 0
+    && interintra_allowed_mask & 1_u32.wrapping_shl(u32::from(ordinal)) != 0)
+    .then_some(())
+  {
+    Some(()) => {}
+    None => return Ok(InterIntraSyntax::Off),
+  }
+
+  let present = reference_bit(&mut tile.msac, &mut *tile.cdf.mi.interintra, group)?;
+
+  match present {
+    EntropyBit::One => {}
+    EntropyBit::Zero => return Ok(InterIntraSyntax::Off),
+  }
+
+  let Ok(context) = console_core_number_conversion::index(group);
+  let cdf = tile.cdf.mi.interintra_mode.get_mut(context).ok_or(())?;
+  let Ok(count) = console_core_number_conversion::wrapped::<_, u8>(InterIntraPredMode::COUNT);
+  let Ok(symbol) = rav1d_msac_decode_symbol_adapt4(&mut tile.msac, cdf, count.wrapping_sub(1));
+  let Ok(position) = console_core_number_conversion::wrapped_index(symbol);
+  let mode = InterIntraPredMode::from_repr(position).ok_or(())?;
+  let wedge = wedge_context(syntax.block)?;
+  let selected = reference_bit(&mut tile.msac, &mut *tile.cdf.mi.interintra_wedge, wedge)?;
+
+  match selected {
+    EntropyBit::Zero => Ok(InterIntraSyntax::Blend(mode)),
+    EntropyBit::One => {
+      let index = read_wedge_index(tile, wedge)?;
+      Ok(InterIntraSyntax::Wedge { mode, index })
+    }
+  }
+}
+
+fn select_single_reference(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+) -> Result<i8, ()> {
+  match syntax.segment {
+    Some(segment) => {
+      match (segment.r#ref > 0).then_some(()) {
+        Some(()) => {
+          let Ok(reference) = console_core_number_conversion::wrapped::<_, i8>(segment.r#ref);
+          return Ok(reference.wrapping_sub(1));
+        }
+        None => {}
+      }
+
+      match (segment.globalmv != 0 || segment.skip != 0).then_some(()) {
+        Some(()) => return Ok(0),
+        None => {}
+      }
+    }
+    None => {}
+  }
+
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let references = ReferenceCounts::from_neighbors(BlockNeighbors {
+    above: syntax.above,
+    left: &task.l,
+    location: Bxy { x, y },
+    availability: syntax.neighbors,
+  })
+  .map_err(|_invalid_reference| ())?;
+  let selected = read_single_reference(entropy, &references)?;
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!("Post-ref[{selected}]: r={}", entropy.msac.rng),
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(selected)
+}
+
+fn single_reference_vector(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+  selected: i8,
+) -> Result<SingleMotionVector, ()> {
+  let mut stack = [Default::default(); 8];
+  let mut context = 0;
+  let count = rav1d_refmvs_find(
+    &task.rt,
+    &syntax.frame.rf,
+    &mut stack,
+    &mut context,
+    crate::src::refmvs::RefMvsSearch {
+      references: RefMvsRefPair {
+        r#ref: [selected.wrapping_add(1), -1],
+      },
+      block: syntax.block,
+      edges: syntax.edges,
+      origin: Point {
+        x: task.b.x,
+        y: task.b.y,
+      },
+    },
+    syntax.frame_header,
+  )
+  .map_err(|_invalid_motion_neighbors| ())?;
+  let candidates = BlockMotionCandidates {
+    stack: &stack,
+    count,
+    context,
+  };
+
+  read_single_motion_vector(syntax, entropy, task.b, selected, candidates)
+}
+
+fn trace_single_interintra(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  entropy: &MsacContext,
+  (mode, kind, wedge): (InterIntraPredMode, Option<InterIntraType>, u8),
+) -> Result<(), console_core_never::Never> {
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+  let Ok(block) = syntax.block.ordinal();
+  let permitted = syntax.sequence.inter_intra != 0
+    && interintra_allowed_mask & 1u32.wrapping_shl(u32::from(block)) != 0;
+
+  match (trace, permitted.then_some(())) {
+    (BlockTrace::Enabled, Some(())) => {
+      println!(
+        "Post-interintra[t={kind:?},m={mode:?},w={wedge}]: r={}",
+        entropy.rng
+      );
+    }
+    (BlockTrace::Enabled, None) | (BlockTrace::Disabled, _) => {}
+  }
+
+  Ok(())
+}
+
+fn overlap_neighbors(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+) -> Result<OddNeighborPrediction, ()> {
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let visible = syntax.geometry.visible_luma;
+
+  match syntax.neighbors {
+    NeighborAvailability::Left | NeighborAvailability::Both => {
+      let Ok(first) = console_core_number_conversion::wrapped_index(y);
+      let Ok(end) = console_core_number_conversion::wrapped_index(y.wrapping_add(visible.height));
+      let modes = task.l.intra.get_mut().get(first..end).ok_or(())?;
+      let Ok(prediction) = odd_neighbor_prediction(modes);
+
+      match prediction {
+        OddNeighborPrediction::HasInter => return Ok(prediction),
+        OddNeighborPrediction::IntraOnly => {}
+      }
+    }
+    NeighborAvailability::Top | NeighborAvailability::Neither => {}
+  }
+
+  match syntax.neighbors {
+    NeighborAvailability::Top | NeighborAvailability::Both => {
+      let Ok(first) = console_core_number_conversion::wrapped_index(x);
+      let Ok(end) = console_core_number_conversion::wrapped_index(x.wrapping_add(visible.width));
+      let modes = syntax.above.intra.index(first..end);
+      let Ok(prediction) = odd_neighbor_prediction(&modes);
+      Ok(prediction)
+    }
+    NeighborAvailability::Left | NeighborAvailability::Neither => {
+      Ok(OddNeighborPrediction::IntraOnly)
+    }
+  }
+}
+
+enum SingleMotionMode {
+  Translation,
+  Obmc,
+  LiveWarp,
+  StoredWarp(BlockWarp),
+}
+
+struct SingleModeInput {
+  selected: i8,
+  vector: Mv,
+  inter_mode: u8,
+  interintra: Option<InterIntraType>,
+}
+
+fn derive_single_warp(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  vector: Mv,
+  masks: [u64; 2],
+) -> Result<SingleMotionMode, ()> {
+  let grid = WarpNeighborGrid {
+    blocks: &syntax.frame.rf.r,
+    tile: &task.rt,
+    origin: Point {
+      x: task.b.x,
+      y: task.b.y,
+    },
+  };
+  let derived = derive_warpmv(
+    &grid,
+    syntax.geometry.luma.size,
+    masks,
+    vector,
+    task.warpmv.clone(),
+  )
+  .map_err(|_invalid_warp_sample| ())?;
+  task.warpmv = derived;
+  let Ok(()) = trace_motion_warp(syntax.frame, task, vector);
+
+  match task.frame_thread.pass {
+    0 => Ok(SingleMotionMode::LiveWarp),
+    _ => {
+      let recorded = capture_block_warp(&task.warpmv).map_err(|_invalid_warp| ())?;
+      Ok(SingleMotionMode::StoredWarp(recorded))
+    }
+  }
+}
+
+fn choose_single_motion_mode(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+  input: SingleModeInput,
+) -> Result<SingleMotionMode, ()> {
+  let header = syntax.frame_header;
+  let block = syntax.geometry.luma.size;
+  let signalled = header.switchable_motion_mode != 0
+    && input.interintra.is_none()
+    && block.width.min(block.height) >= 2;
+
+  match signalled.then_some(()) {
+    Some(()) => {}
+    None => return Ok(SingleMotionMode::Translation),
+  }
+
+  let Ok(index) = console_core_number_conversion::wrapped_index(input.selected);
+
+  match (!header.force_integer_mv && input.inter_mode == GLOBALMV).then_some(()) {
+    Some(()) => {
+      let global = header.gmv.get(index).ok_or(())?;
+
+      match (global.r#type > Rav1dWarpedMotionType::Translation).then_some(()) {
+        Some(()) => return Ok(SingleMotionMode::Translation),
+        None => {}
+      }
+    }
+    None => {}
+  }
+
+  let neighbors = overlap_neighbors(syntax, task)?;
+
+  match neighbors {
+    OddNeighborPrediction::IntraOnly => return Ok(SingleMotionMode::Translation),
+    OddNeighborPrediction::HasInter => {}
+  }
+
+  let masks = find_matching_ref(
+    syntax.frame,
+    task,
+    WarpNeighborQuery {
+      block,
+      visible: syntax.geometry.visible_luma,
+      availability: syntax.neighbors,
+      edge_flags: syntax.edges,
+      reference: input.selected,
+    },
+  )
+  .map_err(|_invalid_warp_neighbor| ())?;
+  let [luma_scale, _] = syntax.frame.svc.get(index).ok_or(())?;
+  let [above, left] = masks;
+  let allowed = luma_scale.scale == 0
+    && !header.force_integer_mv
+    && header.warp_motion != 0
+    && (above | left) != 0;
+  let availability = match allowed.then_some(()) {
+    Some(()) => WarpAvailability::Allowed,
+    None => WarpAvailability::Disabled,
+  };
+  let mode = read_motion_mode(
+    &mut entropy.msac,
+    &mut entropy.cdf.mi,
+    syntax.block,
+    availability,
+  )
+  .map_err(|_invalid_motion_mode| ())?;
+  let decoded = match mode {
+    MotionMode::Translation => SingleMotionMode::Translation,
+    MotionMode::Obmc => SingleMotionMode::Obmc,
+    MotionMode::Warp => derive_single_warp(syntax, task, input.vector, masks)?,
+  };
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-motionmode[{mode:?}]: r={} [mask: 0x{above:x}/0x{left:x}]",
+      entropy.msac.rng
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(decoded)
+}
+
+fn read_single_motion(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  entropy: &mut Rav1dTileStateContext,
+) -> Result<InterPredictionSyntax, ()> {
+  let selected = select_single_reference(syntax, task, entropy)?;
+  let SingleMotionVector {
+    mode: inter_mode,
+    motion,
+    reference: drl_idx,
+    filter,
+  } = single_reference_vector(syntax, task, entropy, selected)?;
+  let blending = read_interintra_syntax(syntax, entropy)?;
+  let Ok(parts @ (interintra_mode, interintra_type, wedge_idx)) = blending.parts();
+  let Ok(()) = trace_single_interintra(syntax, task, &entropy.msac, parts);
+  let mode = choose_single_motion_mode(
+    syntax,
+    task,
+    entropy,
+    SingleModeInput {
+      selected,
+      vector: motion,
+      inter_mode,
+      interintra: interintra_type,
+    },
+  )?;
+  let (motion_mode, warp, needs_filter) = match mode {
+    SingleMotionMode::Translation => (
+      MotionMode::Translation,
+      None,
+      SwitchableFilter::from(filter),
+    ),
+    SingleMotionMode::Obmc => (MotionMode::Obmc, None, SwitchableFilter::from(filter)),
+    SingleMotionMode::LiveWarp => (MotionMode::Warp, None, SwitchableFilter::Regular),
+    SingleMotionMode::StoredWarp(recorded) => {
+      (MotionMode::Warp, Some(recorded), SwitchableFilter::Regular)
+    }
+  };
+  let nd = match warp {
+    None => Av1BlockInterNd::from(Av1BlockInter1d {
+      mv: [motion, Default::default()],
+      wedge_idx,
+      interintra_mode: crate::src::levels::MaskedInterIntraPredMode::from(interintra_mode),
+      ..Default::default()
+    }),
+    Some(recorded) => {
+      let Ok(parameters) = Av1BlockInter2d::from_warp(motion, recorded);
+      Av1BlockInterNd::from(parameters)
+    }
+  };
+
+  Ok(InterPredictionSyntax {
+    nd,
+    comp_type: None,
+    inter_mode,
+    motion_mode,
+    drl_idx,
+    r#ref: [selected, -1],
+    interintra_type,
+    needs_filter,
+  })
+}
+
+fn filter_symbol(
+  tile: &mut Rav1dTileStateContext,
+  axis: FilterAxis,
+  context: u8,
+) -> Result<Rav1dFilterMode, ()> {
+  let [first, second] = &mut *tile.cdf.mi.filter;
+  let table = match axis {
+    FilterAxis::Vertical => first,
+    FilterAxis::Horizontal => second,
+  };
+  let Ok(position) = console_core_number_conversion::index(context);
+  let cdf = table.get_mut(position).ok_or(())?;
+  let ceiling = u8::from(Rav1dFilterMode::N_SWITCHABLE_FILTERS).wrapping_sub(1);
+  let Ok(symbol) = rav1d_msac_decode_symbol_adapt4(&mut tile.msac, cdf, ceiling);
+  let Ok(selection) = console_core_number_conversion::wrapped_index(symbol);
+  Rav1dFilterMode::from_repr(selection).ok_or(())
+}
+
+fn read_filter_pair(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  tile: &mut Rav1dTileStateContext,
+  prediction: &InterPredictionSyntax,
+) -> Result<[Rav1dFilterMode; 2], ()> {
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let neighbors = || BlockNeighbors {
+    above: syntax.above,
+    left: &task.l,
+    location: Bxy { x, y },
+    availability: syntax.neighbors,
+  };
+  let arity = match prediction.comp_type {
+    Some(_) => ReferenceArity::Compound,
+    None => ReferenceArity::Single,
+  };
+  let [reference, _partner] = prediction.r#ref;
+  let context = get_filter_ctx(neighbors(), arity, FilterAxis::Vertical, reference)
+    .map_err(|_invalid_context| ())?;
+  let first = filter_symbol(tile, FilterAxis::Vertical, context)?;
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match syntax.sequence.dual_filter {
+    0 => {
+      match trace {
+        BlockTrace::Enabled => println!(
+          "Post-subpel_filter[{:?},ctx={}]: r={}",
+          first, context, tile.msac.rng,
+        ),
+        BlockTrace::Disabled => {}
+      }
+
+      Ok([first; 2])
+    }
+    _ => {
+      let second_context = get_filter_ctx(neighbors(), arity, FilterAxis::Horizontal, reference)
+        .map_err(|_invalid_context| ())?;
+
+      match trace {
+        BlockTrace::Enabled => println!(
+          "Post-subpel_filter1[{:?},ctx={}]: r={}",
+          first, context, tile.msac.rng,
+        ),
+        BlockTrace::Disabled => {}
+      }
+
+      let second = filter_symbol(tile, FilterAxis::Horizontal, second_context)?;
+
+      match trace {
+        BlockTrace::Enabled => println!(
+          "Post-subpel_filter2[{:?},ctx={}]: r={}",
+          second, second_context, tile.msac.rng,
+        ),
+        BlockTrace::Disabled => {}
+      }
+
+      Ok([first, second])
+    }
+  }
+}
+
+fn read_block_filter(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  tile: &mut Rav1dTileStateContext,
+  prediction: &InterPredictionSyntax,
+) -> Result<(Filter2d, [Rav1dFilterMode; 2]), ()> {
+  let frame_mode = syntax.frame_header.subpel_filter_mode;
+  let modes = match frame_mode {
+    Rav1dFilterMode::Switchable => match prediction.needs_filter {
+      SwitchableFilter::Read => {
+        let pair = read_filter_pair(syntax, task, tile, prediction)?;
+        pair
+      }
+      SwitchableFilter::Regular => [Rav1dFilterMode::Regular8Tap; 2],
+    },
+    fixed @ (Rav1dFilterMode::Regular8Tap
+    | Rav1dFilterMode::Smooth8Tap
+    | Rav1dFilterMode::Sharp8Tap
+    | Rav1dFilterMode::Bilinear) => [fixed; 2],
+  };
+  let [horizontal, vertical] = modes;
+  let Ok(vertical_index) = console_core_number_conversion::index(u8::from(vertical));
+  let Ok(horizontal_index) = console_core_number_conversion::index(u8::from(horizontal));
+  let direction = dav1d_filter_2d.get(vertical_index).ok_or(())?;
+  let &kernel = direction.get(horizontal_index).ok_or(())?;
+  Ok((kernel, modes))
+}
+
+fn inter_filter_prediction<'splits>(
+  block: &Av1Block,
+  inter: &Av1BlockInter,
+  split_masks: &'splits [u16; 2],
+) -> Result<FilterMaskPrediction<'splits>, console_core_never::Never> {
+  let [reference, _partner] = inter.r#ref;
+  let global = match inter.comp_type {
+    Some(_) => GLOBALMV_GLOBALMV,
+    None => GLOBALMV,
+  };
+  let motion = match (inter.inter_mode == global).then_some(()) {
+    Some(()) => FilterMaskMotion::Global,
+    None => FilterMaskMotion::Other,
+  };
+  let scan = match block.skip {
+    0 => EdgeScan::AllTransforms,
+    _ => EdgeScan::Boundary,
+  };
+  Ok(FilterMaskPrediction::Inter {
+    reference: reference.wrapping_add(1),
+    motion,
+    scan,
+    split_masks,
+  })
+}
+
+fn publish_inter_loopfilter(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  block: &Av1Block,
+  inter: &Av1BlockInter,
+) -> Result<(), ()> {
+  let header = syntax.frame_header;
+
+  match header.loopfilter.level_y {
+    [0, 0] => return Ok(()),
+    _ => {}
+  }
+
+  let Ok(segment) = block.seg_id.get();
+  let Ok(segment_index) = console_core_number_conversion::index(segment);
+  let &lossless = header.segmentation.lossless.get(segment_index).ok_or(())?;
+  let [ytx, uvtx] = match lossless.then_some(()) {
+    Some(()) => [TxfmSize::S4x4; 2],
+    None => [inter.max_ytx, block.uvtx],
+  };
+  let frame = syntax.frame;
+  let Ok(level_source) = syntax.tile.lflvl.get();
+  let local_levels;
+  let all_levels = match level_source {
+    TileStateRef::Frame => &frame.lf.lvl,
+    TileStateRef::Local => {
+      let acquired = syntax.tile.lflvlmem.try_read().ok_or(())?;
+      local_levels = acquired;
+      &*local_levels
+    }
+  };
+  let levels = all_levels.get(segment_index).ok_or(())?;
+  let mask = frame
+    .loop_filter_mask(task.lf_mask)
+    .map_err(|_invalid_mask| ())?;
+  let above = syntax.above;
+  let Rectangle { origin, size } = syntax.geometry.luma;
+  let Ok(x) = console_core_number_conversion::wrapped_index(origin.x);
+  let Ok(y) = console_core_number_conversion::wrapped_index(origin.y);
+  let Ok(width) = console_core_number_conversion::wrapped_index(size.width);
+  let Ok(height) = console_core_number_conversion::wrapped_index(size.height);
+  let mut above_luma = above.tx_lpf_y.index_mut((x.., ..width));
+  let left_luma = task
+    .l
+    .tx_lpf_y
+    .get_mut()
+    .get_mut(y..)
+    .and_then(|rows| rows.get_mut(..height))
+    .ok_or(())?;
+  let mut above_chroma;
+  let chroma = match syntax.geometry.has_chroma.then_some(()) {
+    Some(()) => {
+      let Rectangle {
+        origin: chroma_origin,
+        size: chroma_size,
+      } = syntax.geometry.chroma;
+      let Ok(column) = console_core_number_conversion::wrapped_index(chroma_origin.x);
+      let Ok(row) = console_core_number_conversion::wrapped_index(chroma_origin.y);
+      let Ok(columns) = console_core_number_conversion::wrapped_index(chroma_size.width);
+      let Ok(rows) = console_core_number_conversion::wrapped_index(chroma_size.height);
+      above_chroma = above.tx_lpf_uv.index_mut((column.., ..columns));
+      let left = task
+        .l
+        .tx_lpf_uv
+        .get_mut()
+        .get_mut(row..)
+        .and_then(|available| available.get_mut(..rows))
+        .ok_or(())?;
+      Some((&mut *above_chroma, left))
+    }
+    None => None,
+  };
+  let split_masks = [u16::from(inter.tx_split0), inter.tx_split1];
+  let Ok(prediction) = inter_filter_prediction(block, inter, &split_masks);
+  let filter = FilterMaskBlock {
+    mask,
+    level_cache: &frame.lf.level,
+    stride: i64::from(frame.b4_stride),
+    levels,
+    origin: task.b,
+    frame: Size {
+      width: frame.w4,
+      height: frame.h4,
+    },
+    size: syntax.block,
+    ytx,
+    uvtx,
+    layout: frame.cur.p.layout,
+    luma: EdgeNeighbors {
+      above: &mut above_luma,
+      left: left_luma,
+    },
+    chroma,
+  };
+  create_lf_mask(filter, prediction).map_err(|error| {
+    console_core_logging::debug!("Could not create an AV1 inter filter mask: {error:?}");
+  })
+}
+
+fn select_inter_syntax(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  block: &Av1Block,
+  tile: &mut Rav1dTileStateContext,
+) -> Result<InterPredictionSyntax, ()> {
+  match block.skip_mode {
+    0 => {}
+    _ => return read_skip_motion(syntax, task),
+  }
+
+  let size = syntax.geometry.luma.size;
+  let switchable = matches!(
+    segment_prediction(syntax.segment),
+    Ok(SegmentPrediction::Open)
+  ) && syntax.frame_header.switchable_comp_refs != 0
+    && size.width.min(size.height) > 1;
+
+  match switchable.then_some(()) {
+    Some(()) => {}
+    None => return read_single_motion(syntax, task, tile),
+  }
+
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let context = get_comp_ctx(BlockNeighbors {
+    above: syntax.above,
+    left: &task.l,
+    location: Bxy { x, y },
+    availability: syntax.neighbors,
+  })
+  .map_err(|_invalid_context| ())?;
+  let compound = reference_bit(&mut tile.msac, &mut *tile.cdf.mi.comp, context)?;
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-compflag[{}]: r={}",
+      compound == EntropyBit::One,
+      tile.msac.rng,
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  match compound {
+    EntropyBit::One => read_compound_motion(syntax, task, tile),
+    EntropyBit::Zero => read_single_motion(syntax, task, tile),
+  }
+}
+
+fn publish_inter_neighbors(
+  syntax: &BlockSyntaxContext<'_>,
+  t: &mut Rav1dTaskContext,
+  b: &Av1Block,
+  inter: &Av1BlockInter,
+  filter: [Rav1dFilterMode; 2],
+) -> Result<(), console_core_never::Never> {
+  let ta = syntax.above;
+  let b_dim = syntax.geometry.dimensions;
+  let has_chroma = syntax.geometry.has_chroma;
+  let seg_pred = matches!(syntax.segment_origin, SegmentOrigin::Inherited);
+  let Point { x: bx4, y: by4 } = syntax.geometry.luma.origin;
+  let Size {
+    width: bw4,
+    height: bh4,
+  } = syntax.geometry.luma.size;
+  let Point { x: cbx4, y: cby4 } = syntax.geometry.chroma.origin;
+  let Size {
+    width: cbw4,
+    height: cbh4,
+  } = syntax.geometry.chroma.size;
+  let Av1BlockInter {
+    comp_type,
+    inter_mode,
+    r#ref,
+    ..
+  } = *inter;
+
+  case_set_al! {
+      <32, false>
+
+      l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4); numeric_value })
+          also |case| { ({ let Ok(explicit_value) = case.set({ let [_, _explicit_part, ..] = &mut t.pal_sz_uv; _explicit_part }, 0); explicit_value }); },
+      a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4); numeric_value })
+          also |case| { ({ let Ok(explicit_value) = case.set({ let [_explicit_part, ..] = &mut t.pal_sz_uv; _explicit_part }, 0); explicit_value }); },
+      seg_pred = (<::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(seg_pred), <::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(seg_pred)),
+      skip_mode = (b.skip_mode, b.skip_mode),
+      intra = (0, 0),
+      skip = (b.skip, b.skip),
+      pal_sz = (0, 0),
+      tx_intra = ({
+        let &[_, _, _, height] = b_dim;
+        let Ok(height_log) = console_core_number_conversion::wrapped::<_, i8>(height);
+        height_log
+      }, {
+        let &[_, _, width, _] = b_dim;
+        let Ok(width_log) = console_core_number_conversion::wrapped::<_, i8>(width);
+        width_log
+      }),
+      comp_type = (comp_type, comp_type),
+      filter[0] = (match filter { [_explicit_element, ..] => _explicit_element }, match filter { [_explicit_element, ..] => _explicit_element }),
+      filter[1] = (match filter { [_, _explicit_element, ..] => _explicit_element }, match filter { [_, _explicit_element, ..] => _explicit_element }),
+      mode = (inter_mode, inter_mode),
+      r#ref[0] = (match r#ref { [element, ..] => element }, match r#ref { [element, ..] => element }),
+      r#ref[1] = (match r#ref { [_, element, ..] => element }, match r#ref { [_, element, ..] => element }),
+  }
+
+  match ::core::primitive::bool::then_some(has_chroma, ()) {
+    ::core::option::Option::Some(()) => {
+      case_set_al! {
+          <32, false>
+          l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cby4); numeric_value }),
+          a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbx4); numeric_value }),
+          uvmode = (DC_PRED, DC_PRED),
+      }
+    }
+    ::core::option::Option::None => {}
+  }
+
+  Ok(())
+}
+
+fn decode_inter_syntax(
+  syntax: &BlockSyntaxContext<'_>,
+  t: &mut Rav1dTaskContext,
+  b: &mut Av1Block,
+  ts_c_2: &mut Rav1dTileStateContext,
+) -> Result<(), ()> {
+  let f = syntax.frame;
+  let bs = syntax.block;
+  let Ok(bd_fn) = f.bd_fn();
+  let prediction = select_inter_syntax(syntax, t, b, ts_c_2)?;
+  let (filter2d, filter) = read_block_filter(syntax, t, ts_c_2, &prediction)?;
+  let InterPredictionSyntax {
+    nd,
+    comp_type,
+    inter_mode,
+    motion_mode,
+    drl_idx,
+    r#ref,
+    interintra_type,
+    ..
+  } = prediction;
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let VarTx {
+    uvtx,
+    max_ytx,
+    tx_split0,
+    tx_split1,
+  } = read_vartx_tree(
+    t,
+    f,
+    ts_c_2,
+    b,
+    VariableTransformBlock {
+      size: bs,
+      local: Bxy { x, y },
+    },
+  )
+  .map_err(|_invalid_transform_tree| ())?;
+  b.uvtx = uvtx;
+  let inter = Av1BlockInter {
+    nd,
+    comp_type,
+    inter_mode,
+    motion_mode,
+    drl_idx,
+    r#ref,
+    max_ytx,
+    filter2d,
+    interintra_type,
+    tx_split0,
+    tx_split1,
+  };
+  b.ii = Av1BlockIntraInter::Inter(inter);
+
+  match t.frame_thread.pass {
+    1 => {
+      (bd_fn.read_coef_blocks)(f, t, ts_c_2, bs, b).map_err(|_invalid_coefficients| ())?;
+    }
+    _ => {
+      (bd_fn.recon_b_inter)(f, t, Some(ts_c_2), bs, b, &inter)?;
     }
   }
 
+  publish_inter_loopfilter(syntax, t, b, &inter)?;
+  let size = syntax.geometry.luma.size;
+  let decoder = syntax.decoder;
+
+  match comp_type {
+    Some(_) => {
+      splat_tworef_mv(decoder, t, &f.rf, bs, &inter, size).map_err(|_invalid_motion| ())?;
+    }
+    None => {
+      splat_oneref_mv(decoder, t, &f.rf, bs, &inter, size).map_err(|_invalid_motion| ())?;
+    }
+  }
+
+  let Ok(()) = publish_inter_neighbors(syntax, t, b, &inter, filter);
+  Ok(())
+}
+
+enum BlockPredictionForm {
+  Intra,
+  IntraCopy,
+  Inter,
+}
+
+struct BlockSyntaxPrefix<'frame> {
+  prediction: BlockPredictionForm,
+  segment: Option<&'frame Rav1dSegmentationData>,
+  segment_origin: SegmentOrigin,
+}
+
+fn read_block_skip_modes(
+  syntax: &BlockSyntaxContext<'_>,
+  t: &mut Rav1dTaskContext,
+  b: &mut Av1Block,
+  ts_c_2: &mut Rav1dTileStateContext,
+  seg: Option<&Rav1dSegmentationData>,
+) -> Result<(), ()> {
+  let f = syntax.frame;
+  let ta = syntax.above;
+  let frame_hdr = syntax.frame_header;
+  let Point { x: bx4, y: by4 } = syntax.geometry.luma.origin;
+  let Size {
+    width: bw4,
+    height: bh4,
+  } = syntax.geometry.luma.size;
+
   match ::core::primitive::bool::then_some(
-    seg
-      .map(|seg_10| seg_10.globalmv == 0 && seg_10.r#ref == -1 && seg_10.skip == 0)
-      .unwrap_or(true)
+    matches!(segment_prediction(seg), Ok(SegmentPrediction::Open))
       && frame_hdr.skip_mode.enabled != 0
       && cmp::min(bw4, bh4) > 1,
     (),
@@ -3049,7 +5686,10 @@ fn decode_b(
         Ok(EntropyBit::One)
       ));
 
-      match debug_block_info!(f, t.b) {
+      match {
+        let Ok(active_trace) = debug_block_info(f, t.b);
+        active_trace
+      } {
         BlockTrace::Enabled => {
           println!("Post-skipmode[{}]: r={}", b.skip_mode, ts_c_2.msac.rng);
         }
@@ -3100,7 +5740,10 @@ fn decode_b(
         Ok(EntropyBit::One)
       ));
 
-      match debug_block_info!(f, t.b) {
+      match {
+        let Ok(active_trace) = debug_block_info(f, t.b);
+        active_trace
+      } {
         BlockTrace::Enabled => {
           println!("Post-skip[{}]: r={}", b.skip, ts_c_2.msac.rng);
         }
@@ -3109,5433 +5752,965 @@ fn decode_b(
     }
   }
 
-  match ::core::primitive::bool::then_some(
-    frame_hdr.segmentation.enabled != 0
-      && frame_hdr.segmentation.update_map != 0
-      && frame_hdr.segmentation.seg_data.preskip == 0,
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      match ::core::primitive::bool::then_some(
-        b.skip == 0 && frame_hdr.segmentation.temporal != 0 && {
-          let index = u8::wrapping_add(
-            *ta.seg_pred.index({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4);
-              numeric_value
-            }),
-            *match <[_]>::get(&**t.l.seg_pred.get_mut(), {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4);
-              numeric_value
-            }) {
-              ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            },
-          );
-          seg_pred = matches!(
-            rav1d_msac_decode_bool_adapt(
-              &mut ts_c_2.msac,
-              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.seg_pred, {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(index);
-                numeric_value
-              }) {
-                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              },
-            ),
-            Ok(EntropyBit::One)
-          );
-          seg_pred
-        },
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let checked_value_7 = previous_segment().map_err(|_previous_segment| ())?;
-          b.seg_id = checked_value_7;
-        }
-        ::core::option::Option::None => {
-          let segment_map = f.cur_segmap.as_ref().ok_or(())?;
-          let segment_stride = u64::from(f.b4_stride);
-          let (pred_seg_id, seg_ctx) =
-            get_cur_frame_segid(t.b, neighbors, &segment_map.inner, segment_stride)
-              .map_err(|_invalid_segment_map| ())?;
-          b.seg_id = match ::core::primitive::bool::then_some(b.skip != 0, ()) {
-            ::core::option::Option::Some(()) => pred_seg_id,
-            ::core::option::Option::None => {
-              let Ok(diff) = rav1d_msac_decode_symbol_adapt8(
-                &mut ts_c_2.msac,
-                &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.m.seg_id, {
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(seg_ctx);
-                  numeric_value
-                }) {
-                  ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
-                u8::wrapping_sub(
-                  {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped::<_, u8>(SegmentId::COUNT);
-                    numeric_value
-                  },
-                  1,
-                ),
-              );
-              let last_active_segid = frame_hdr.segmentation.seg_data.last_active_segid;
-              let Ok(last_active_seg_id_plus1) = console_core_number_conversion::wrapped::<_, u8>(
-                i8::wrapping_add(last_active_segid, 1),
-              );
-              let Ok(mut seg_id) = neg_deinterleave(
-                {
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u8>(diff);
-                  numeric_value
-                },
-                pred_seg_id,
-                last_active_seg_id_plus1,
-              );
+  Ok(())
+}
 
-              match ::core::primitive::bool::then_some(
-                c.strictness >= Strictness::Strict
-                  && seg_id
-                    > ({
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u8>(
-                        last_active_segid.max(0),
-                      );
-                      numeric_value
-                    }),
-                (),
-              ) {
-                ::core::option::Option::Some(()) => {
-                  return Err(());
-                }
-                ::core::option::Option::None => {}
-              }
-
-              match ::core::primitive::bool::then_some(
-                last_active_segid >= 0
-                  && seg_id
-                    > ({
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped::<_, u8>(last_active_segid);
-                      numeric_value
-                    }),
-                (),
-              ) {
-                ::core::option::Option::Some(()) => {
-                  seg_id = 0;
-                }
-                ::core::option::Option::None => {}
-              }
-
-              let Ok(segment_id) = SegmentId::new(seg_id);
-
-              segment_id.unwrap_or_default()
-            }
-          };
-        }
-      }
-
-      let Ok(b_seg_id) = b.seg_id.get();
-      seg = Some(&*match <[_]>::get(
-        &frame_hdr.segmentation.seg_data.d,
-        match ::console_core_number_conversion::index(b_seg_id) {
-          ::core::result::Result::Ok(native_position__) => native_position__,
-        },
-      ) {
-        ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None => return ::core::result::Result::Err(()),
-      });
-
-      match debug_block_info!(f, t.b) {
-        BlockTrace::Enabled => {
-          println!("Post-segid[postskip;{}]: r={}", b.seg_id, ts_c_2.msac.rng);
-        }
-        BlockTrace::Disabled => {}
-      }
+fn read_scaled_delta(
+  entropy: &mut MsacContext,
+  cdf: &mut [u16; 4],
+  shift: u8,
+) -> Result<i32, console_core_never::Never> {
+  let Ok(symbol) = rav1d_msac_decode_symbol_adapt4(entropy, cdf, 3);
+  let magnitude = match symbol {
+    3 => {
+      let Ok(prefix) = rav1d_msac_decode_bools(entropy, 3);
+      let Ok(bits) = console_core_number_conversion::wrapped::<_, u8>(prefix);
+      let count = bits.wrapping_add(1);
+      let Ok(payload) = rav1d_msac_decode_bools(entropy, count);
+      let value = payload
+        .wrapping_add(1)
+        .wrapping_add(1_u32.wrapping_shl(u32::from(count)));
+      let Ok(signed) = console_core_number_conversion::wrapped::<_, i32>(value);
+      signed
     }
-    ::core::option::Option::None => {}
+    _ => i32::from(symbol),
+  };
+  let signed = match magnitude {
+    0 => return Ok(0),
+    _ => match rav1d_msac_decode_bool_equi(entropy) {
+      Ok(EntropyBit::Zero) => magnitude,
+      Ok(EntropyBit::One) => magnitude.wrapping_neg(),
+    },
+  };
+  Ok(signed.wrapping_mul(1_i32.wrapping_shl(u32::from(shift))))
+}
+
+fn read_loopfilter_deltas(
+  syntax: &BlockSyntaxContext<'_>,
+  origin: Bxy,
+  tile: &mut Rav1dTileStateContext,
+) -> Result<(), ()> {
+  let options = &syntax.frame_header.delta.lf;
+
+  match options.present {
+    0 => return Ok(()),
+    _ => {}
   }
 
-  match (b.skip == 0).then_some(()) {
+  let count = match (options.multi, syntax.frame.cur.p.layout) {
+    (0, _) => 1_u8,
+    (_, Rav1dPixelLayout::I400) => 2,
+    (_, Rav1dPixelLayout::I420 | Rav1dPixelLayout::I422 | Rav1dPixelLayout::I444) => 4,
+  };
+  let Ok(mut levels) = syntax.tile.last_delta_lf.get();
+  let Ok(trace) = debug_block_info(syntax.frame, origin);
+
+  for (slot, level) in (0..count).zip(&mut levels) {
+    let probability = slot.wrapping_add(options.multi);
+    let Ok(index) = console_core_number_conversion::index(probability);
+    let cdf = tile.cdf.m.delta_lf.get_mut(index).ok_or(())?;
+    let Ok(delta) = read_scaled_delta(&mut tile.msac, cdf, options.res_log2);
+    *level = clip(i32::from(*level).wrapping_add(delta), -63, 63);
+
+    match trace {
+      BlockTrace::Enabled => println!("Post-delta_lf[{}:{}]: r={}", slot, delta, tile.msac.rng),
+      BlockTrace::Disabled => {}
+    }
+  }
+
+  let Ok(()) = syntax.tile.last_delta_lf.set(levels);
+  Ok(())
+}
+
+fn update_delta_tables(
+  syntax: &BlockSyntaxContext<'_>,
+  previous_qidx: u8,
+  previous_lf: [i8; 4],
+) -> Result<(), ()> {
+  let tile = syntax.tile;
+  let header = syntax.frame_header;
+  let Ok(quantizer) = tile.last_qidx.get();
+
+  match (quantizer == header.quant.yac, quantizer != previous_qidx) {
+    (true, _) => {
+      let Ok(()) = tile.dq.set(TileStateRef::Frame);
+    }
+    (false, true) => {
+      init_quant_tables(syntax.sequence, header, quantizer, &tile.dqmem)
+        .map_err(|_invalid_quantizer| ())?;
+      let Ok(()) = tile.dq.set(TileStateRef::Local);
+    }
+    (false, false) => {}
+  }
+
+  let Ok(deltas) = tile.last_delta_lf.get();
+
+  match (deltas == [0; 4], deltas != previous_lf) {
+    (true, _) => {
+      let Ok(()) = tile.lflvl.set(TileStateRef::Frame);
+    }
+    (false, true) => {
+      {
+        let mut levels = tile.lflvlmem.try_write().ok_or(())?;
+        let Ok(()) = rav1d_calc_lf_values(&mut levels, header, &deltas);
+      }
+
+      let Ok(()) = tile.lflvl.set(TileStateRef::Local);
+    }
+    (false, false) => {}
+  }
+
+  Ok(())
+}
+
+fn read_block_delta(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  block: &Av1Block,
+  tile: &mut Rav1dTileStateContext,
+) -> Result<(), ()> {
+  let (superblock, alignment) = match syntax.sequence.sb128 {
+    0 => (BlockSize::Bs64x64, 15),
+    _ => (BlockSize::Bs128x128, 31),
+  };
+
+  match ((task.b.x | task.b.y) & alignment == 0).then_some(()) {
+    Some(()) => {}
+    None => return Ok(()),
+  }
+
+  let Ok(previous_qidx) = syntax.tile.last_qidx.get();
+  let options = &syntax.frame_header.delta.q;
+  let may_update = options.present != 0 && (syntax.block != superblock || block.skip == 0);
+  let Ok(previous_lf) = syntax.tile.last_delta_lf.get();
+
+  match may_update.then_some(()) {
     Some(()) => {
-      let size = Size {
-        width: bw4,
-        height: bh4,
-      };
-      read_block_cdef(f, t, &mut ts_c_2.msac, size).map_err(|_invalid_cdef| ())?;
+      let Ok(delta) =
+        read_scaled_delta(&mut tile.msac, &mut *tile.cdf.m.delta_q, options.res_log2);
+      let quantizer = clip(i32::from(previous_qidx).wrapping_add(delta), 1, 255);
+      let Ok(()) = syntax.tile.last_qidx.set(quantizer);
+      let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+      match trace {
+        BlockTrace::Enabled => println!(
+          "Post-delta_q[{}->{}]: r={}",
+          delta, quantizer, tile.msac.rng,
+        ),
+        BlockTrace::Disabled => {}
+      }
+
+      read_loopfilter_deltas(syntax, task.b, tile)?;
     }
     None => {}
   }
 
-  let not_sb128 = i32::from(seq_hdr.sb128 == 0);
+  update_delta_tables(syntax, previous_qidx, previous_lf)
+}
 
-  match ::core::primitive::bool::then_some(
-    t.b.x
-      & i32::wrapping_shr(31, {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(not_sb128);
-        numeric_value
-      })
-      == 0
-      && t.b.y
-        & i32::wrapping_shr(31, {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(not_sb128);
-          numeric_value
-        })
-        == 0,
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      let Ok(prev_qidx) = ts.last_qidx.get();
-      let have_delta_q = frame_hdr.delta.q.present != 0
-        && (bs
-          != (match ::core::primitive::bool::then_some(seq_hdr.sb128 != 0, ()) {
-            ::core::option::Option::Some(()) => BlockSize::Bs128x128,
-            ::core::option::Option::None => BlockSize::Bs64x64,
-          })
-          || b.skip == 0);
+struct SegmentHeader<'frame> {
+  features: Option<&'frame Rav1dSegmentationData>,
+  origin: SegmentOrigin,
+}
 
-      let Ok(prev_delta_lf) = ts.last_delta_lf.get();
+#[derive(Clone, Copy)]
+enum SegmentSyntax {
+  ReadDelta,
+  SpatialPrediction,
+}
 
-      match ::core::primitive::bool::then_some(have_delta_q, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(mut delta_q) = console_core_number_conversion::wrapped::<_, i32>({
-            let Ok(explicit_value) =
-              rav1d_msac_decode_symbol_adapt4(&mut ts_c_2.msac, &mut *ts_c_2.cdf.m.delta_q, 3);
-            explicit_value
-          });
+fn previous_block_segment(syntax: &BlockSyntaxContext<'_>, origin: Bxy) -> Result<SegmentId, ()> {
+  let frame = syntax.frame;
+  let map = frame.prev_segmap.as_ref().map(|prior| prior.inner.as_ref());
+  let area = Rectangle {
+    origin: Point {
+      x: origin.x,
+      y: origin.y,
+    },
+    size: syntax.geometry.visible_luma,
+  };
+  get_prev_frame_segid(syntax.frame_header, map, area, i64::from(frame.b4_stride))
+    .map_err(|_previous_segment| ())
+}
 
-          match ::core::primitive::bool::then_some(delta_q == 3, ()) {
-            ::core::option::Option::Some(()) => {
-              let n_bits = u8::wrapping_add(1, {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u8>({
-                  let Ok(explicit_value) = rav1d_msac_decode_bools(&mut ts_c_2.msac, 3);
-                  explicit_value
-                });
-                numeric_value
-              });
-              delta_q = {
-                let Ok(numeric_value) =
-                  console_core_number_conversion::wrapped::<_, i32>(u32::wrapping_add(
-                    u32::wrapping_add(
-                      {
-                        let Ok(explicit_value) =
-                          rav1d_msac_decode_bools(&mut ts_c_2.msac, n_bits);
-                        explicit_value
-                      },
-                      1,
-                    ),
-                    u32::wrapping_shl(1, {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped::<_, u32>(n_bits);
-                      numeric_value
-                    }),
-                  ));
-                numeric_value
-              };
-            }
-            ::core::option::Option::None => {}
-          }
+fn segment_features(
+  header: &Rav1dFrameHeader,
+  segment: SegmentId,
+) -> Result<&Rav1dSegmentationData, ()> {
+  let Ok(id) = segment.get();
+  let Ok(position) = console_core_number_conversion::index(id);
+  header.segmentation.seg_data.d.get(position).ok_or(())
+}
 
-          match ::core::primitive::bool::then_some(delta_q != 0, ()) {
-            ::core::option::Option::Some(()) => {
-              match ::core::primitive::bool::then_some(
-                matches!(
-                  rav1d_msac_decode_bool_equi(&mut ts_c_2.msac),
-                  Ok(EntropyBit::One)
-                ),
-                (),
-              ) {
-                ::core::option::Option::Some(()) => {
-                  delta_q = (delta_q).wrapping_neg();
-                }
-                ::core::option::Option::None => {}
-              }
-
-              {
-                let Ok(res_log2) =
-                  console_core_number_conversion::wrapped::<_, u32>(frame_hdr.delta.q.res_log2);
-                let numeric_amount = i32::wrapping_shl(1, res_log2);
-                let numeric_target = &mut (delta_q);
-                *numeric_target = i32::wrapping_mul(*numeric_target, numeric_amount);
-              };
-            }
-            ::core::option::Option::None => {}
-          }
-
-          let Ok(ts_last_qidx) = ts.last_qidx.get();
-          let last_qidx = clip(
-            i32::wrapping_add(
-              {
-                let Ok(numeric_value) =
-                  console_core_number_conversion::wrapped::<_, i32>(ts_last_qidx);
-                numeric_value
-              },
-              delta_q,
-            ),
-            1,
-            255,
-          );
-          let Ok(()) = ts.last_qidx.set(last_qidx);
-
-          match ::core::primitive::bool::then_some(
-            have_delta_q && debug_block_info!(f, t.b) == BlockTrace::Enabled,
-            (),
-          ) {
-            ::core::option::Option::Some(()) => {
-              println!(
-                "Post-delta_q[{}->{}]: r={}",
-                delta_q, last_qidx, ts_c_2.msac.rng
-              );
-            }
-            ::core::option::Option::None => {}
-          }
-
-          match ::core::primitive::bool::then_some(frame_hdr.delta.lf.present != 0, ()) {
-            ::core::option::Option::Some(()) => {
-              let n_lfs =
-                match ::core::primitive::bool::then_some(frame_hdr.delta.lf.multi != 0, ()) {
-                  ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(
-                    f.cur.p.layout != Rav1dPixelLayout::I400,
-                    (),
-                  ) {
-                    ::core::option::Option::Some(()) => 4,
-                    ::core::option::Option::None => 2,
-                  },
-                  ::core::option::Option::None => 1,
-                };
-
-              let Ok(mut last_delta_lf) = ts.last_delta_lf.get();
-
-              for i in 0..({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(n_lfs);
-                numeric_value
-              }) {
-                let Ok(multi) =
-                  console_core_number_conversion::wrapped_index(frame_hdr.delta.lf.multi);
-                let ::core::result::Result::Ok(delta_lf_index) =
-                  ::console_core_number_conversion::fixed_index(i.wrapping_add(multi));
-                let Ok(mut delta_lf) = console_core_number_conversion::wrapped::<_, i32>({
-                  let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt4(
-                    &mut ts_c_2.msac,
-                    &mut *match <[_]>::get_mut(
-                      &mut *ts_c_2.cdf.m.delta_lf,
-                      match ::console_core_number_conversion::index(delta_lf_index) {
-                        ::core::result::Result::Ok(native_position_) => native_position_,
-                      },
-                    ) {
-                      ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                    3,
-                  );
-                  explicit_value
-                });
-
-                match ::core::primitive::bool::then_some(delta_lf == 3, ()) {
-                  ::core::option::Option::Some(()) => {
-                    let n_bits = u8::wrapping_add(1, {
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u8>({
-                        let Ok(explicit_value) = rav1d_msac_decode_bools(&mut ts_c_2.msac, 3);
-                        explicit_value
-                      });
-                      numeric_value
-                    });
-                    delta_lf = {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped::<_, i32>(u32::wrapping_add(
-                          u32::wrapping_add(
-                            {
-                              let Ok(explicit_value) =
-                                rav1d_msac_decode_bools(&mut ts_c_2.msac, n_bits);
-                              explicit_value
-                            },
-                            1,
-                          ),
-                          u32::wrapping_shl(1, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped::<_, u32>(n_bits);
-                            numeric_value
-                          }),
-                        ));
-                      numeric_value
-                    };
-                  }
-                  ::core::option::Option::None => {}
-                }
-
-                match ::core::primitive::bool::then_some(delta_lf != 0, ()) {
-                  ::core::option::Option::Some(()) => {
-                    match ::core::primitive::bool::then_some(
-                      matches!(
-                        rav1d_msac_decode_bool_equi(&mut ts_c_2.msac),
-                        Ok(EntropyBit::One)
-                      ),
-                      (),
-                    ) {
-                      ::core::option::Option::Some(()) => {
-                        delta_lf = (delta_lf).wrapping_neg();
-                      }
-                      ::core::option::Option::None => {}
-                    }
-
-                    {
-                      let Ok(res_log2) = console_core_number_conversion::wrapped::<_, u32>(
-                        frame_hdr.delta.lf.res_log2,
-                      );
-                      let numeric_amount = i32::wrapping_shl(1, res_log2);
-                      let numeric_target = &mut (delta_lf);
-                      *numeric_target = i32::wrapping_mul(*numeric_target, numeric_amount);
-                    };
-                  }
-                  ::core::option::Option::None => {}
-                }
-
-                *match <[_]>::get_mut(&mut last_delta_lf, i) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                } = clip(
-                  i32::wrapping_add(
-                    {
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(
-                        *match <[_]>::get(&last_delta_lf, i) {
-                          ::core::option::Option::Some(indexed_value) => indexed_value,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        },
-                      );
-                      numeric_value
-                    },
-                    delta_lf,
-                  ),
-                  -63,
-                  63,
-                );
-
-                match ::core::primitive::bool::then_some(
-                  have_delta_q && debug_block_info!(f, t.b) == BlockTrace::Enabled,
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    println!("Post-delta_lf[{}:{}]: r={}", i, delta_lf, ts_c_2.msac.rng);
-                  }
-                  ::core::option::Option::None => {}
-                }
-              }
-
-              let Ok(()) = ts.last_delta_lf.set(last_delta_lf);
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let Ok(last_qidx) = ts.last_qidx.get();
-
-      match ::core::primitive::bool::then_some(last_qidx == frame_hdr.quant.yac, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(()) = ts.dq.set(TileStateRef::Frame);
-        }
-        ::core::option::Option::None => {
-          match ::core::primitive::bool::then_some(last_qidx != prev_qidx, ()) {
-            ::core::option::Option::Some(()) => {
-              init_quant_tables(seq_hdr, frame_hdr, last_qidx, &ts.dqmem)
-                .map_err(|_invalid_quantizer| ())?;
-              let Ok(()) = ts.dq.set(TileStateRef::Local);
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-      }
-
-      let Ok(last_delta_lf) = ts.last_delta_lf.get();
-
-      match ::core::primitive::bool::then_some(last_delta_lf == [0, 0, 0, 0], ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(()) = ts.lflvl.set(TileStateRef::Frame);
-        }
-        ::core::option::Option::None => {
-          match ::core::primitive::bool::then_some(last_delta_lf != prev_delta_lf, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(()) = rav1d_calc_lf_values(
-                &mut (*ts.lflvlmem.try_write().ok_or(())?),
-                frame_hdr,
-                &last_delta_lf,
-              );
-              let Ok(()) = ts.lflvl.set(TileStateRef::Local);
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-      }
-    }
-    ::core::option::Option::None => {}
+fn read_temporal_segment_bit(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &mut Rav1dTaskContext,
+  tile: &mut Rav1dTileStateContext,
+) -> Result<EntropyBit, ()> {
+  match syntax.frame_header.segmentation.temporal {
+    0 => return Ok(EntropyBit::Zero),
+    _ => {}
   }
 
-  let intra = match ::core::primitive::bool::then_some(b.skip_mode != 0, ()) {
-    ::core::option::Option::Some(()) => false,
-    ::core::option::Option::None => {
-      match ::core::primitive::bool::then_some(frame_hdr.frame_type.is_inter_or_switch(), ()) {
-        ::core::option::Option::Some(()) => {
-          match seg.filter(|seg_2| seg_2.r#ref >= 0 || seg_2.globalmv != 0) {
-            Some(seg_3) => seg_3.r#ref == 0,
-            None => {
-              let ictx = get_intra_ctx(BlockNeighbors {
-                above: ta,
-                left: &t.l,
-                location: Bxy { x: bx4, y: by4 },
-                availability: neighbors,
-              })
-              .map_err(|_invalid_context| ())?;
-              let intra = !matches!(
-                rav1d_msac_decode_bool_adapt(
-                  &mut ts_c_2.msac,
-                  &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.intra, {
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ictx);
-                    numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                ),
-                Ok(EntropyBit::One)
-              );
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let Ok(column) = console_core_number_conversion::wrapped_index(x);
+  let Ok(row) = console_core_number_conversion::wrapped_index(y);
+  let above = syntax.above.seg_pred.index(column);
+  let &left = task.l.seg_pred.get_mut().get(row).ok_or(())?;
+  reference_bit(
+    &mut tile.msac,
+    &mut *tile.cdf.mi.seg_pred,
+    above.wrapping_add(left),
+  )
+}
 
-              match debug_block_info!(f, t.b) {
-                BlockTrace::Enabled => {
-                  println!("Post-intra[{}]: r={}", intra, ts_c_2.msac.rng);
-                }
-                BlockTrace::Disabled => {}
-              }
+fn read_segment_residual(
+  syntax: &BlockSyntaxContext<'_>,
+  tile: &mut Rav1dTileStateContext,
+  predicted: SegmentId,
+  context: u8,
+) -> Result<SegmentId, ()> {
+  let Ok(position) = console_core_number_conversion::index(context);
+  let cdf = tile.cdf.m.seg_id.get_mut(position).ok_or(())?;
+  let Ok(count) = console_core_number_conversion::wrapped::<_, u8>(SegmentId::COUNT);
+  let Ok(difference) =
+    rav1d_msac_decode_symbol_adapt8(&mut tile.msac, cdf, count.wrapping_sub(1));
+  let last = syntax.frame_header.segmentation.seg_data.last_active_segid;
+  let limit = last.wrapping_add(1).cast_unsigned();
+  let Ok(value) = neg_deinterleave(SegmentRemap { difference, limit }, predicted);
 
-              intra
-            }
-          }
+  match (syntax.decoder.strictness >= Strictness::Strict && value > last.max(0).cast_unsigned())
+    .then_some(())
+  {
+    Some(()) => return Err(()),
+    None => {}
+  }
+
+  let id = match (last >= 0 && value > last.cast_unsigned()).then_some(()) {
+    Some(()) => 0,
+    None => value,
+  };
+  let Ok(segment) = SegmentId::new(id);
+  let Ok(minimum) = SegmentId::min();
+  Ok(match segment {
+    Some(decoded) => decoded,
+    None => minimum,
+  })
+}
+
+fn read_updated_segment<'frame>(
+  syntax: &BlockSyntaxContext<'frame>,
+  task: &mut Rav1dTaskContext,
+  block: &mut Av1Block,
+  tile: &mut Rav1dTileStateContext,
+  coding: SegmentSyntax,
+) -> Result<SegmentHeader<'frame>, ()> {
+  let temporal = match coding {
+    SegmentSyntax::ReadDelta => {
+      let bit = read_temporal_segment_bit(syntax, task, tile)?;
+      bit
+    }
+    SegmentSyntax::SpatialPrediction => EntropyBit::Zero,
+  };
+  let (id, origin) = match temporal {
+    EntropyBit::One => {
+      let previous = previous_block_segment(syntax, task.b)?;
+      (previous, SegmentOrigin::Inherited)
+    }
+    EntropyBit::Zero => {
+      let map = syntax.frame.cur_segmap.as_ref().ok_or(())?;
+      let pitch = u64::from(syntax.frame.b4_stride);
+      let (predicted, context) = get_cur_frame_segid(task.b, syntax.neighbors, &map.inner, pitch)
+        .map_err(|_invalid_segment_map| ())?;
+      let segment = match coding {
+        SegmentSyntax::ReadDelta => {
+          let decoded = read_segment_residual(syntax, tile, predicted, context)?;
+          decoded
         }
-        ::core::option::Option::None => {
-          match ::core::primitive::bool::then_some(frame_hdr.allow_intrabc, ()) {
-            ::core::option::Option::Some(()) => {
-              let intra = !matches!(
-                rav1d_msac_decode_bool_adapt(&mut ts_c_2.msac, &mut *ts_c_2.cdf.m.intrabc),
-                Ok(EntropyBit::One)
-              );
-
-              match debug_block_info!(f, t.b) {
-                BlockTrace::Enabled => {
-                  println!("Post-intrabcflag[{}]: r={}", intra, ts_c_2.msac.rng);
-                }
-                BlockTrace::Disabled => {}
-              }
-
-              intra
-            }
-            ::core::option::Option::None => true,
-          }
-        }
-      }
+        SegmentSyntax::SpatialPrediction => predicted,
+      };
+      (segment, SegmentOrigin::Signalled)
     }
   };
+  block.seg_id = id;
+  let features = segment_features(syntax.frame_header, id)?;
+  Ok(SegmentHeader {
+    features: Some(features),
+    origin,
+  })
+}
 
-  match ::core::primitive::bool::then_some(intra, ()) {
-    ::core::option::Option::Some(()) => {
-      let ymode_cdf =
-        match ::core::primitive::bool::then_some(frame_hdr.frame_type.is_inter_or_switch(), ()) {
-          ::core::option::Option::Some(()) => {
-            &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.y_mode, {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                *match <[_]>::get(&dav1d_ymode_size_context, {
-                  let Ok(table_index) = console_core_number_conversion::index({
-                    let Ok(ordinal) = bs.ordinal();
-                    ordinal
-                  });
-                  table_index
-                }) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
-              );
-              numeric_value
-            }) {
-              ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            }
-          }
-          ::core::option::Option::None => {
-            let Ok(ta_index) = console_core_number_conversion::wrapped_index(*ta.mode.index({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4);
-              numeric_value
-            }));
+fn read_before_skip<'frame>(
+  syntax: &BlockSyntaxContext<'frame>,
+  task: &mut Rav1dTaskContext,
+  block: &mut Av1Block,
+  tile: &mut Rav1dTileStateContext,
+) -> Result<SegmentHeader<'frame>, ()> {
+  let segmentation = &syntax.frame_header.segmentation;
+  let absent = SegmentHeader {
+    features: None,
+    origin: SegmentOrigin::Signalled,
+  };
 
-            &mut *match <[_]>::get_mut(
-              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.kfym, {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                  *match <[_]>::get(&dav1d_intra_mode_context, ta_index) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                );
-                numeric_value
-              }) {
-                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              },
-              {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                  *match <[_]>::get(&dav1d_intra_mode_context, {
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                      *match <[_]>::get(&**t.l.mode.get_mut(), {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(by4);
-                        numeric_value
-                      }) {
-                        ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                    );
-                    numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                );
-                numeric_value
-              },
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            }
-          }
-        };
-      let Ok(y_mode) = rav1d_msac_decode_symbol_adapt16(
-        &mut ts_c_2.msac,
-        ymode_cdf,
-        u8::wrapping_sub(
-          {
-            let Ok(numeric_value) =
-              console_core_number_conversion::wrapped::<_, u8>(N_INTRA_PRED_MODES);
-            numeric_value
-          },
-          1,
-        ),
-      );
+  match (
+    segmentation.enabled,
+    segmentation.update_map,
+    segmentation.seg_data.preskip,
+  ) {
+    (0, _, _) => {
+      block.seg_id = Default::default();
+      Ok(absent)
+    }
+    (_, 0, _) => {
+      let previous = previous_block_segment(syntax, task.b)?;
+      block.seg_id = previous;
+      let features = segment_features(syntax.frame_header, previous)?;
+      Ok(SegmentHeader {
+        features: Some(features),
+        origin: SegmentOrigin::Signalled,
+      })
+    }
+    (_, _, 0) => Ok(absent),
+    (_, _, _) => {
+      let header = read_updated_segment(syntax, task, block, tile, SegmentSyntax::ReadDelta)?;
+      let Ok(trace) = debug_block_info(syntax.frame, task.b);
 
-      match debug_block_info!(f, t.b) {
+      match trace {
         BlockTrace::Enabled => {
-          println!("Post-ymode[{}]: r={}", y_mode, ts_c_2.msac.rng);
+          println!("Post-segid[preskip;{}]: r={}", block.seg_id, tile.msac.rng)
         }
         BlockTrace::Disabled => {}
       }
 
-      let y_angle = match ::core::primitive::bool::then_some(
-        u8::wrapping_add(
-          match b_dim {
-            &[_, _, element, ..] => element,
-          },
-          match b_dim {
-            &[_, _, _, element, ..] => element,
-          },
-        ) >= 2
-          && (VERT_PRED..=VERT_LEFT_PRED).contains(&y_mode),
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let acdf = &mut *match <[_]>::get_mut(
-            &mut *ts_c_2.cdf.m.angle_delta,
-            ({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(y_mode);
-              numeric_value
-            })
-            .wrapping_sub({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(VERT_PRED);
-              numeric_value
-            }),
-          ) {
-            ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-            ::core::option::Option::None => return ::core::result::Result::Err(()),
-          };
-          let Ok(angle) = rav1d_msac_decode_symbol_adapt8(&mut ts_c_2.msac, acdf, 6);
-          i8::wrapping_sub(
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i8>(angle);
-              numeric_value
-            },
-            3,
-          )
-        }
-        ::core::option::Option::None => 0,
-      };
-
-      let uv_mode;
-      let uv_angle;
-      let cfl_alpha;
-
-      match ::core::primitive::bool::then_some(has_chroma, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(b_seg_id) = b.seg_id.get();
-          let cfl_allowed = match ::core::primitive::bool::then_some(
-            *match <[_]>::get(
-              &frame_hdr.segmentation.lossless,
-              match ::console_core_number_conversion::index(b_seg_id) {
-                ::core::result::Result::Ok(native_position__) => native_position__,
-              },
-            ) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            },
-            (),
-          ) {
-            ::core::option::Option::Some(()) => cbw4 == 1 && cbh4 == 1,
-            ::core::option::Option::None => {
-              (cfl_allowed_mask
-                & u32::wrapping_shl(1, {
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>({
-                    let Ok(ordinal) = bs.ordinal();
-                    ordinal
-                  });
-                  numeric_value
-                }))
-                != 0
-            }
-          };
-          let uvmode_cdf = &mut *match <[_]>::get_mut(
-            &mut *match <[_]>::get_mut(
-              &mut *ts_c_2.cdf.m.uv_mode,
-              match ::console_core_number_conversion::index::<::core::primitive::u8>(
-                ::core::primitive::u8::from(cfl_allowed),
-              ) {
-                ::core::result::Result::Ok(converted_position) => converted_position,
-              },
-            ) {
-              ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            },
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(y_mode);
-              numeric_value
-            },
-          ) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => return ::core::result::Result::Err(()),
-          };
-          uv_mode = {
-            let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt16(
-              &mut ts_c_2.msac,
-              uvmode_cdf,
-              u8::wrapping_sub(
-                u8::wrapping_sub(
-                  {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped::<_, u8>(N_UV_INTRA_PRED_MODES);
-                    numeric_value
-                  },
-                  1,
-                ),
-                u8::from(!cfl_allowed),
-              ),
-            );
-            explicit_value
-          };
-
-          match debug_block_info!(f, t.b) {
-            BlockTrace::Enabled => {
-              println!("Post-uvmode[{}]: r={}", uv_mode, ts_c_2.msac.rng);
-            }
-            BlockTrace::Disabled => {}
-          }
-
-          match ::core::primitive::bool::then_some(uv_mode == CFL_PRED, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(symbol) =
-                rav1d_msac_decode_symbol_adapt8(&mut ts_c_2.msac, &mut *ts_c_2.cdf.m.cfl_sign, 7);
-              let sign = symbol.wrapping_add(1);
-              let sign_u = sign.wrapping_div(3);
-              let sign_v = sign.wrapping_sub(sign_u.wrapping_mul(3));
-              let alpha_u = read_chroma_scale(
-                ts_c_2,
-                ChromaScaleSigns {
-                  current: sign_u,
-                  opposite: sign_v,
-                },
-              )?;
-              let alpha_v = read_chroma_scale(
-                ts_c_2,
-                ChromaScaleSigns {
-                  current: sign_v,
-                  opposite: sign_u,
-                },
-              )?;
-              cfl_alpha = [alpha_u, alpha_v];
-
-              match debug_block_info!(f, t.b) {
-                BlockTrace::Enabled => {
-                  console_core_logging::trace!(
-                    "Post-uvalphas[{alpha_u}/{alpha_v}]: r={}",
-                    ts_c_2.msac.rng
-                  );
-                }
-                BlockTrace::Disabled => {}
-              }
-
-              uv_angle = 0;
-            }
-            ::core::option::Option::None => match ::core::primitive::bool::then_some(
-              u8::wrapping_add(
-                match b_dim {
-                  &[_, _, element, ..] => element,
-                },
-                match b_dim {
-                  &[_, _, _, element, ..] => element,
-                },
-              ) >= 2
-                && (VERT_PRED..=VERT_LEFT_PRED).contains(&uv_mode),
-              (),
-            ) {
-              ::core::option::Option::Some(()) => {
-                let acdf = &mut *match <[_]>::get_mut(
-                  &mut *ts_c_2.cdf.m.angle_delta,
-                  ({
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped_index(uv_mode);
-                    numeric_value
-                  })
-                  .wrapping_sub({
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped_index(VERT_PRED);
-                    numeric_value
-                  }),
-                ) {
-                  ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                };
-                let Ok(angle) = rav1d_msac_decode_symbol_adapt8(&mut ts_c_2.msac, acdf, 6);
-                uv_angle = i8::wrapping_sub(
-                  {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped::<_, i8>(angle);
-                    numeric_value
-                  },
-                  3,
-                );
-                cfl_alpha = Default::default();
-              }
-              ::core::option::Option::None => {
-                uv_angle = 0;
-                cfl_alpha = Default::default();
-              }
-            },
-          }
-        }
-        ::core::option::Option::None => {
-          uv_mode = Default::default();
-          uv_angle = Default::default();
-          cfl_alpha = Default::default();
-        }
-      }
-
-      let mut pal_sz = [0; 2];
-
-      match ::core::primitive::bool::then_some(
-        frame_hdr.allow_screen_content_tools
-          && cmp::max(bw4, bh4) <= 16
-          && i32::wrapping_add(bw4, bh4) >= 4,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let sz_ctx = u8::wrapping_sub(
-            u8::wrapping_add(
-              match b_dim {
-                &[_, _, element, ..] => element,
-              },
-              match b_dim {
-                &[_, _, _, element, ..] => element,
-              },
-            ),
-            2,
-          );
-
-          match ::core::primitive::bool::then_some(y_mode == DC_PRED, ()) {
-            ::core::option::Option::Some(()) => {
-              let above = console_core_number_conversion::checked_index(bx4)
-                .map_err(|_invalid_neighbor| ())?;
-              let left = console_core_number_conversion::checked_index(by4)
-                .map_err(|_invalid_neighbor| ())?;
-              let above_size = *ta.pal_sz.index(above);
-              let &left_size = t.l.pal_sz.get_mut().get(left).ok_or(())?;
-              let pal_ctx = u8::from(above_size > 0).wrapping_add(u8::from(left_size > 0));
-              let use_y_pal = matches!(
-                rav1d_msac_decode_bool_adapt(
-                  &mut ts_c_2.msac,
-                  &mut *match <[_]>::get_mut(
-                    &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.m.pal_y, {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped_index(sz_ctx);
-                      numeric_value
-                    }) {
-                      ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                    match ::console_core_number_conversion::index(pal_ctx) {
-                      ::core::result::Result::Ok(native_position_) => native_position_,
-                    },
-                  ) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                ),
-                Ok(EntropyBit::One)
-              );
-
-              match debug_block_info!(f, t.b) {
-                BlockTrace::Enabled => {
-                  println!("Post-y_pal[{}]: r={}", use_y_pal, ts_c_2.msac.rng);
-                }
-                BlockTrace::Disabled => {}
-              }
-
-              match ::core::primitive::bool::then_some(use_y_pal, ()) {
-                ::core::option::Option::Some(()) => {
-                  let checked_value = (bd_fn.read_pal_y)(
-                    t,
-                    f,
-                    ts_c_2,
-                    PaletteRead {
-                      size_context: sz_ctx,
-                      position: Point { x: bx4, y: by4 },
-                    },
-                  )
-                  .map_err(|_invalid_palette| ())?;
-                  *{
-                    let [_explicit_part, ..] = &mut pal_sz;
-                    _explicit_part
-                  } = checked_value;
-                }
-                ::core::option::Option::None => {}
-              }
-            }
-            ::core::option::Option::None => {}
-          }
-
-          match ::core::primitive::bool::then_some(has_chroma && uv_mode == DC_PRED, ()) {
-            ::core::option::Option::Some(()) => {
-              let pal_ctx = (match pal_sz {
-                [element, ..] => element,
-              }) > 0;
-              let use_uv_pal = matches!(
-                rav1d_msac_decode_bool_adapt(
-                  &mut ts_c_2.msac,
-                  &mut *match <[_]>::get_mut(
-                    &mut *ts_c_2.cdf.m.pal_uv,
-                    match ::console_core_number_conversion::index::<::core::primitive::u8>(
-                      ::core::primitive::u8::from(pal_ctx),
-                    ) {
-                      ::core::result::Result::Ok(converted_position) => converted_position,
-                    },
-                  ) {
-                    ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                ),
-                Ok(EntropyBit::One)
-              );
-
-              match debug_block_info!(f, t.b) {
-                BlockTrace::Enabled => {
-                  println!("Post-uv_pal[{}]: r={}", use_uv_pal, ts_c_2.msac.rng);
-                }
-                BlockTrace::Disabled => {}
-              }
-
-              match ::core::primitive::bool::then_some(use_uv_pal, ()) {
-                ::core::option::Option::Some(()) => {
-                  let checked_value_2 = (bd_fn.read_pal_uv)(
-                    t,
-                    f,
-                    ts_c_2,
-                    PaletteRead {
-                      size_context: sz_ctx,
-                      position: Point { x: bx4, y: by4 },
-                    },
-                  )
-                  .map_err(|_invalid_palette| ())?;
-                  *{
-                    let [_, _explicit_part, ..] = &mut pal_sz;
-                    _explicit_part
-                  } = checked_value_2;
-                }
-                ::core::option::Option::None => {}
-              }
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let pal_sz = pal_sz;
-
-      let mut y_mode_3 = y_mode;
-      let mut y_angle_3 = y_angle;
-      let seq_hdr_2 = f.seq_hdr().map_err(|_missing_header| ())?;
-
-      match ::core::primitive::bool::then_some(
-        y_mode_3 == DC_PRED
-          && (match pal_sz {
-            [element, ..] => element,
-          }) == 0
-          && cmp::max(
-            match b_dim {
-              &[_, _, element, ..] => element,
-            },
-            match b_dim {
-              &[_, _, _, element, ..] => element,
-            },
-          ) <= 3
-          && seq_hdr_2.filter_intra != 0,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let is_filter = matches!(
-            rav1d_msac_decode_bool_adapt(
-              &mut ts_c_2.msac,
-              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.m.use_filter_intra, {
-                let Ok(table_index) = console_core_number_conversion::index({
-                  let Ok(ordinal) = bs.ordinal();
-                  ordinal
-                });
-                table_index
-              }) {
-                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              },
-            ),
-            Ok(EntropyBit::One)
-          );
-
-          match ::core::primitive::bool::then_some(is_filter, ()) {
-            ::core::option::Option::Some(()) => {
-              y_mode_3 = {
-                let Ok(numeric_value) =
-                  console_core_number_conversion::wrapped::<_, u8>(FILTER_PRED);
-                numeric_value
-              };
-              y_angle_3 = {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i8>({
-                  let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt8(
-                    &mut ts_c_2.msac,
-                    &mut *ts_c_2.cdf.m.filter_intra,
-                    4,
-                  );
-                  explicit_value
-                });
-                numeric_value
-              };
-            }
-            ::core::option::Option::None => {}
-          }
-
-          match debug_block_info!(f, t.b) {
-            BlockTrace::Enabled => {
-              println!(
-                "Post-filterintramode[{}/{}]: r={}",
-                y_mode_3, y_angle_3, ts_c_2.msac.rng,
-              );
-            }
-            BlockTrace::Disabled => {}
-          }
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let y_mode_2 = y_mode_3;
-      let y_angle_2 = y_angle_3;
-
-      match ::core::primitive::bool::then_some(
-        (match pal_sz {
-          [element, ..] => element,
-        }) != 0,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let scratch = t.scratch.inter_intra_mut().map_err(|_invalid_scratch| ())?;
-          let pal_idx = match ::core::primitive::bool::then_some(t.frame_thread.pass != 0, ()) {
-            ::core::option::Option::Some(()) => {
-              let p = t.frame_thread.pass & 1;
-              let frame_thread = &*match <[_]>::get(&ts.frame_thread, {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(p);
-                numeric_value
-              }) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              };
-              let Ok(len) = console_core_number_conversion::wrapped::<_, u32>(i32::wrapping_mul(
-                i32::wrapping_mul(bw4, bh4),
-                8,
-              ));
-              let Ok(pal_idx) = frame_thread
-                .pal_idx
-                .get_update(|i| u32::wrapping_add(i, len));
-              &mut *f.frame_thread.pal_idx.index_mut((
-                ({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(pal_idx);
-                  numeric_value
-                })..,
-                ..({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(len);
-                  numeric_value
-                }),
-              ))
-            }
-            ::core::option::Option::None => &mut scratch.pal_idx_y,
-          };
-          let [entries, _] = pal_sz;
-          read_pal_indices(
-            ts_c_2,
-            &c.dsp.pal,
-            PaletteIndexInput {
-              staging: &mut scratch.pal_idx_uv,
-              packed: PaletteOutput::Separate(pal_idx),
-              cells: PaletteCellBlock {
-                visible: Size {
-                  width: w4,
-                  height: h4,
-                },
-                block: Size {
-                  width: bw4,
-                  height: bh4,
-                },
-              },
-              entries,
-              plane: PalettePlane::Luma,
-            },
-          )
-          .map_err(|_palette| ())?;
-
-          match debug_block_info!(f, t.b) {
-            BlockTrace::Enabled => {
-              println!("Post-y-pal-indices: r={}", ts_c_2.msac.rng);
-            }
-            BlockTrace::Disabled => {}
-          }
-        }
-        ::core::option::Option::None => {}
-      }
-
-      match ::core::primitive::bool::then_some(
-        has_chroma
-          && (match pal_sz {
-            [_, element, ..] => element,
-          }) != 0,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let scratch = t.scratch.inter_intra_mut().map_err(|_invalid_scratch| ())?;
-          let mut pal_idx = match ::core::primitive::bool::then_some(t.frame_thread.pass != 0, ())
-          {
-            ::core::option::Option::Some(()) => {
-              let p = t.frame_thread.pass & 1;
-              let frame_thread = &*match <[_]>::get(&ts.frame_thread, {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(p);
-                numeric_value
-              }) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              };
-              let Ok(len) = console_core_number_conversion::wrapped::<_, u32>(i32::wrapping_mul(
-                i32::wrapping_mul(cbw4, cbh4),
-                8,
-              ));
-              let Ok(pal_idx) = frame_thread
-                .pal_idx
-                .get_update(|i| u32::wrapping_add(i, len));
-              Some(f.frame_thread.pal_idx.index_mut((
-                ({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(pal_idx);
-                  numeric_value
-                })..,
-                ..({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(len);
-                  numeric_value
-                }),
-              )))
-            }
-            ::core::option::Option::None => None,
-          };
-          let packed = match pal_idx.as_deref_mut() {
-            Some(output) => PaletteOutput::Separate(output),
-            None => PaletteOutput::InPlace,
-          };
-          let [_, entries] = pal_sz;
-          read_pal_indices(
-            ts_c_2,
-            &c.dsp.pal,
-            PaletteIndexInput {
-              staging: &mut scratch.pal_idx_uv,
-              packed,
-              cells: PaletteCellBlock {
-                visible: Size {
-                  width: cw4,
-                  height: ch4,
-                },
-                block: Size {
-                  width: cbw4,
-                  height: cbh4,
-                },
-              },
-              entries,
-              plane: PalettePlane::Chroma,
-            },
-          )
-          .map_err(|_palette| ())?;
-
-          match debug_block_info!(f, t.b) {
-            BlockTrace::Enabled => {
-              println!("Post-uv-pal-indices: r={}", ts_c_2.msac.rng);
-            }
-            BlockTrace::Disabled => {}
-          }
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let frame_hdr_2 = f.frame_hdr().map_err(|_missing_header| ())?;
-
-      let Ok(b_seg_id) = b.seg_id.get();
-      let tx = match ::core::primitive::bool::then_some(
-        *match <[_]>::get(
-          &frame_hdr_2.segmentation.lossless,
-          match ::console_core_number_conversion::index(b_seg_id) {
-            ::core::result::Result::Ok(native_position__) => native_position__,
-          },
-        ) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => return ::core::result::Result::Err(()),
-        },
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          b.uvtx = TxfmSize::S4x4;
-          b.uvtx
-        }
-        ::core::option::Option::None => {
-          let mut tx = *match <[_]>::get(
-            &(*match <[_]>::get(&dav1d_max_txfm_size_for_bs, {
-              let Ok(table_index) = console_core_number_conversion::index({
-                let Ok(ordinal) = bs.ordinal();
-                ordinal
-              });
-              table_index
-            }) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            }),
-            0,
-          ) {
-            ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-            ::core::option::Option::None => return ::core::result::Result::Err(()),
-          };
-          b.uvtx = *match <[_]>::get(
-            &(*match <[_]>::get(&dav1d_max_txfm_size_for_bs, {
-              let Ok(table_index) = console_core_number_conversion::index({
-                let Ok(ordinal) = bs.ordinal();
-                ordinal
-              });
-              table_index
-            }) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            }),
-            {
-              let Ok(table_index) =
-                console_core_number_conversion::index(f.cur.p.layout.into_rav1d());
-              table_index
-            },
-          ) {
-            ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-            ::core::option::Option::None => return ::core::result::Result::Err(()),
-          };
-          let mut t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, {
-            let Ok(table_index) = console_core_number_conversion::index({
-              let Ok(ordinal) = tx.ordinal();
-              ordinal
-            });
-            table_index
-          }) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => return ::core::result::Result::Err(()),
-          };
-
-          match ::core::primitive::bool::then_some(
-            frame_hdr_2.txfm_mode == Rav1dTxfmMode::Switchable
-              && t_dim.max > {
-                let Ok(ordinal) = TxfmSize::S4x4.ordinal();
-                ordinal
-              },
-            (),
-          ) {
-            ::core::option::Option::Some(()) => {
-              let tctx = get_tx_ctx(
-                BlockNeighbors {
-                  above: ta,
-                  left: &t.l,
-                  location: Bxy { x: bx4, y: by4 },
-                  availability: neighbors,
-                },
-                t_dim,
-              )
-              .map_err(|_invalid_context| ())?;
-              let tx_cdf = &mut *match <[_]>::get_mut(
-                &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.m.txsz, {
-                  let Ok(numeric_value) =
-                    console_core_number_conversion::wrapped_index(u8::wrapping_sub(t_dim.max, 1));
-                  numeric_value
-                }) {
-                  ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
-                {
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(tctx);
-                  numeric_value
-                },
-              ) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              };
-              let Ok(depth) = console_core_number_conversion::wrapped::<_, i32>({
-                let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt4(
-                  &mut ts_c_2.msac,
-                  tx_cdf,
-                  cmp::min(t_dim.max, 2),
-                );
-                explicit_value
-              });
-
-              for _ in 0..depth {
-                tx = t_dim.sub;
-                t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, {
-                  let Ok(table_index) = console_core_number_conversion::index({
-                    let Ok(ordinal) = tx.ordinal();
-                    ordinal
-                  });
-                  table_index
-                }) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                };
-              }
-            }
-            ::core::option::Option::None => {}
-          }
-
-          match debug_block_info!(f, t.b) {
-            BlockTrace::Enabled => {
-              println!("Post-tx[{:?}]: r={}", tx, ts_c_2.msac.rng);
-            }
-            BlockTrace::Disabled => {}
-          }
-
-          tx
-        }
-      };
-      let t_dim = &*match <[_]>::get(&dav1d_txfm_dimensions, {
-        let Ok(table_index) = console_core_number_conversion::index({
-          let Ok(ordinal) = tx.ordinal();
-          ordinal
-        });
-        table_index
-      }) {
-        ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None => return ::core::result::Result::Err(()),
-      };
-
-      let intra = Av1BlockIntra {
-        y_mode: y_mode_2,
-        uv_mode,
-        tx,
-        pal_sz,
-        y_angle: y_angle_2,
-        uv_angle,
-        cfl_alpha,
-      };
-      b.ii = Av1BlockIntraInter::Intra(intra);
-
-      match ::core::primitive::bool::then_some(t.frame_thread.pass == 1, ()) {
-        ::core::option::Option::Some(()) => {
-          (bd_fn.read_coef_blocks)(f, t, ts_c_2, bs, b).map_err(|_| ())?;
-        }
-        ::core::option::Option::None => {
-          (bd_fn.recon_b_intra)(f, t, Some(ts_c_2), bs, intra_edge_flags, b, &intra)
-            .map_err(|_| ())?;
-        }
-      }
-
-      let f_frame_hdr = f.frame_hdr().map_err(|_missing_header| ())?;
-
-      match ::core::primitive::bool::then_some(f_frame_hdr.loopfilter.level_y != [0, 0], ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(get) = ts.lflvl.get();
-          let lflvl = match get {
-            TileStateRef::Frame => &f.lf.lvl,
-            TileStateRef::Local => &*ts.lflvlmem.try_read().ok_or(())?,
-          };
-          let mut a_uv_guard;
-          let l_uv_slice;
-
-          match create_lf_mask(
-            FilterMaskBlock {
-              mask: {
-                let checked_value_5 =
-                  f.loop_filter_mask(t.lf_mask).map_err(|_invalid_mask| ())?;
-                checked_value_5
-              },
-              level_cache: &f.lf.level,
-              stride: i64::from(f.b4_stride),
-              levels: {
-                let Ok(segment) = b.seg_id.get();
-                lflvl
-                  .get(match ::console_core_number_conversion::index(segment) {
-                    ::core::result::Result::Ok(native_position___) => native_position___,
-                  })
-                  .ok_or(())?
-              },
-              origin: t.b,
-              frame: console_core_geometry::Size {
-                width: f.w4,
-                height: f.h4,
-              },
-              size: bs,
-              ytx: tx,
-              uvtx: b.uvtx,
-              layout: f.cur.p.layout,
-              luma: EdgeNeighbors {
-                above: &mut ta.tx_lpf_y.index_mut((
-                  ({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4);
-                    numeric_value
-                  })..,
-                  ..({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4);
-                    numeric_value
-                  }),
-                )),
-                left: &mut *match <[_]>::get_mut(
-                  &mut *match <[_]>::get_mut(
-                    &mut **t.l.tx_lpf_y.get_mut(),
-                    ({
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4);
-                      numeric_value
-                    })..,
-                  ) {
-                    ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                  ..({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4);
-                    numeric_value
-                  }),
-                ) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
-              },
-              chroma: match ::core::primitive::bool::then_some(has_chroma, ()) {
-                ::core::option::Option::Some(()) => {
-                  a_uv_guard = ta.tx_lpf_uv.index_mut((
-                    ({
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbx4);
-                      numeric_value
-                    })..,
-                    ..({
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbw4);
-                      numeric_value
-                    }),
-                  ));
-                  l_uv_slice = &mut *match <[_]>::get_mut(
-                    &mut *match <[_]>::get_mut(
-                      &mut **t.l.tx_lpf_uv.get_mut(),
-                      ({
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(cby4);
-                        numeric_value
-                      })..,
-                    ) {
-                      ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                    ..({
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbh4);
-                      numeric_value
-                    }),
-                  ) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  };
-                  Some((&mut a_uv_guard, l_uv_slice))
-                }
-                ::core::option::Option::None => None,
-              },
-            },
-            FilterMaskPrediction::Intra,
-          ) {
-            Ok(()) => {}
-            Err(error) => {
-              console_core_logging::debug!(
-                "Could not create an AV1 intra filter mask: {error:?}"
-              );
-              return Err(());
-            }
-          }
-        }
-
-        ::core::option::Option::None => {}
-      }
-
-      let y_mode_nofilt = match ::core::primitive::bool::then_some(y_mode_2 == FILTER_PRED, ()) {
-        ::core::option::Option::Some(()) => DC_PRED,
-        ::core::option::Option::None => y_mode_2,
-      };
-      let is_inter_or_switch = ({
-        let explicit_value = f.frame_hdr().map_err(|_missing_header| ())?;
-        explicit_value
-      })
-      .frame_type
-      .is_inter_or_switch();
-
-      let Ok(tx_height_index) = console_core_number_conversion::index(t_dim.lh);
-      let Ok(tx_width_index) = console_core_number_conversion::index(t_dim.lw);
-      let tx_height = TxfmSize::from_repr(tx_height_index).ok_or(())?;
-      let tx_width = TxfmSize::from_repr(tx_width_index).ok_or(())?;
-
-      case_set_al! {
-          <32, false>
-
-          l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4); numeric_value })
-
-              also |case| { ({ let Ok(explicit_value) = case.set({ let [_, _explicit_part, ..] = &mut t.pal_sz_uv; _explicit_part },
-
-              match has_chroma {
-                  true => { match pal_sz { [_, _explicit_element, ..] => _explicit_element } },
-
-                  false => { 0 },
-              }); explicit_value }); },
-
-          a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4); numeric_value })
-
-              also |case| { ({ let Ok(explicit_value) = case.set({ let [_explicit_part, ..] = &mut t.pal_sz_uv; _explicit_part },
-
-              match has_chroma {
-                  true => { match pal_sz { [_, _explicit_element, ..] => _explicit_element } },
-
-                  false => { 0 },
-              }); explicit_value }); },
-
-          tx_intra = ({ let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i8>(t_dim.lh); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i8>(t_dim.lw); numeric_value }),
-          tx = (tx_height, tx_width),
-          mode = (y_mode_nofilt, y_mode_nofilt),
-          pal_sz = (match pal_sz { [element, ..] => element }, match pal_sz { [element, ..] => element }),
-          seg_pred = (<::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(seg_pred), <::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(seg_pred)),
-          skip_mode = (0, 0),
-          intra = (1, 1),
-          skip = (b.skip, b.skip),
-      }
-
-      match ::core::primitive::bool::then_some(is_inter_or_switch, ()) {
-        ::core::option::Option::Some(()) => {
-          case_set_al! {
-              <32, false>
-              l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4); numeric_value }),
-              a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4); numeric_value }),
-              comp_type = (None, None),
-              r#ref[0] = (-1, -1),
-              r#ref[1] = (-1, -1),
-              filter[0] = (
-                  Rav1dFilterMode::N_SWITCHABLE_FILTERS,
-                  Rav1dFilterMode::N_SWITCHABLE_FILTERS
-              ),
-              filter[1] = (
-                  Rav1dFilterMode::N_SWITCHABLE_FILTERS,
-                  Rav1dFilterMode::N_SWITCHABLE_FILTERS
-              ),
-          }
-        }
-        ::core::option::Option::None => {}
-      }
-
-      match ::core::primitive::bool::then_some(
-        (match pal_sz {
-          [element, ..] => element,
-        }) != 0,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          (bd_fn.copy_pal_block)(
-            t,
-            f,
-            PaletteCopy {
-              region: Rectangle {
-                origin: Point { x: bx4, y: by4 },
-                size: Size {
-                  width: bw4,
-                  height: bh4,
-                },
-              },
-              plane: PalettePlane::Luma,
-            },
-          )
-          .map_err(|_invalid_palette| ())?;
-        }
-        ::core::option::Option::None => {}
-      }
-
-      match ::core::primitive::bool::then_some(has_chroma, ()) {
-        ::core::option::Option::Some(()) => {
-          case_set_al! {
-              <32, false>
-              l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cby4); numeric_value }),
-              a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbx4); numeric_value }),
-              uvmode = (uv_mode, uv_mode),
-          }
-
-          match ::core::primitive::bool::then_some(
-            (match pal_sz {
-              [_, element, ..] => element,
-            }) != 0,
-            (),
-          ) {
-            ::core::option::Option::Some(()) => {
-              (bd_fn.copy_pal_block)(
-                t,
-                f,
-                PaletteCopy {
-                  region: Rectangle {
-                    origin: Point { x: bx4, y: by4 },
-                    size: Size {
-                      width: bw4,
-                      height: bh4,
-                    },
-                  },
-                  plane: PalettePlane::Chroma,
-                },
-              )
-              .map_err(|_invalid_palette| ())?;
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let frame_hdr_3 = f.frame_hdr().map_err(|_missing_header| ())?;
-
-      match ::core::primitive::bool::then_some(
-        frame_hdr_3.frame_type.is_inter_or_switch() || frame_hdr_3.allow_intrabc,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          splat_intraref(
-            c,
-            t,
-            &f.rf,
-            bs,
-            Size {
-              width: bw4,
-              height: bh4,
-            },
-          )
-          .map_err(|_| ())?;
-        }
-        ::core::option::Option::None => {}
-      }
+      Ok(header)
     }
-    ::core::option::Option::None => {
-      match ::core::primitive::bool::then_some(frame_hdr.frame_type.is_key_or_intra(), ()) {
-        ::core::option::Option::Some(()) => {
-          let mut mvstack = [Default::default(); 8];
-          let mut ctx = 0;
-          let _candidate_count = rav1d_refmvs_find(
-            &t.rt,
-            &f.rf,
-            &mut mvstack,
-            &mut ctx,
-            crate::src::refmvs::RefMvsSearch {
-              references: <crate::src::refmvs::RefMvsRefPair as ::core::convert::From<
-                [::core::primitive::i8; 2],
-              >>::from([0, -1]),
-              block: bs,
-              edges: intra_edge_flags,
-              origin: Point { x: t.b.x, y: t.b.y },
-            },
-            frame_hdr,
-          )
-          .map_err(|_invalid_motion_neighbors| ())?;
-
-          let mut r#ref = match ::core::primitive::bool::then_some(
-            *match <[_]>::get(
-              &(*match <[_]>::get(&mvstack, 0) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              })
-              .mv
-              .mv,
-              0,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            } != Mv::ZERO,
-            (),
-          ) {
-            ::core::option::Option::Some(()) => *match <[_]>::get(
-              &(*match <[_]>::get(&mvstack, 0) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              })
-              .mv
-              .mv,
-              0,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            },
-            ::core::option::Option::None => match ::core::primitive::bool::then_some(
-              *match <[_]>::get(
-                &(*match <[_]>::get(&mvstack, 1) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                })
-                .mv
-                .mv,
-                0,
-              ) {
-                ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              } != Mv::ZERO,
-              (),
-            ) {
-              ::core::option::Option::Some(()) => *match <[_]>::get(
-                &(*match <[_]>::get(&mvstack, 1) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                })
-                .mv
-                .mv,
-                0,
-              ) {
-                ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              },
-              ::core::option::Option::None => {
-                let Ok(sb128) = console_core_number_conversion::wrapped::<_, u32>(seq_hdr.sb128);
-
-                match ::core::primitive::bool::then_some(
-                  i32::wrapping_sub(t.b.y, i32::wrapping_shl(16, sb128)) < ts.tiling.row_start,
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    let Ok(seq_hdr_sb128) =
-                      console_core_number_conversion::wrapped::<_, u32>(seq_hdr.sb128);
-                    let Ok(x) =
-                      console_core_number_conversion::wrapped::<_, i16>(i32::wrapping_sub(
-                        (i32::wrapping_shl(512, seq_hdr_sb128)).wrapping_neg(),
-                        2048,
-                      ));
-
-                    Mv { y: 0, x }
-                  }
-                  ::core::option::Option::None => {
-                    let Ok(seq_hdr_sb128) =
-                      console_core_number_conversion::wrapped::<_, u32>(seq_hdr.sb128);
-                    let Ok(y) = console_core_number_conversion::wrapped::<_, i16>(
-                      (i32::wrapping_shl(512, seq_hdr_sb128)).wrapping_neg(),
-                    );
-
-                    Mv { y, x: 0 }
-                  }
-                }
-              }
-            },
-          };
-
-          read_mv_residual(ts_c_2, &mut r#ref, ResidualPrecision::Integer)
-            .map_err(|_invalid_motion_residual| ())?;
-
-          let mut border_left = i32::wrapping_mul(ts.tiling.col_start, 4);
-          let mut border_top = i32::wrapping_mul(ts.tiling.row_start, 4);
-
-          match ::core::primitive::bool::then_some(has_chroma, ()) {
-            ::core::option::Option::Some(()) => {
-              match ::core::primitive::bool::then_some(bw4 < 2 && ss_hor != 0, ()) {
-                ::core::option::Option::Some(()) => {
-                  {
-                    let numeric_amount = 4;
-                    let numeric_target = &mut (border_left);
-                    *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-                  };
-                }
-                ::core::option::Option::None => {}
-              }
-
-              match ::core::primitive::bool::then_some(bh4 < 2 && ss_ver != 0, ()) {
-                ::core::option::Option::Some(()) => {
-                  {
-                    let numeric_amount = 4;
-                    let numeric_target = &mut (border_top);
-                    *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-                  };
-                }
-                ::core::option::Option::None => {}
-              }
-            }
-            ::core::option::Option::None => {}
-          }
-
-          let mut src_left = i32::wrapping_add(
-            i32::wrapping_mul(t.b.x, 4),
-            i32::wrapping_shr(
-              {
-                let Ok(numeric_value) =
-                  console_core_number_conversion::wrapped::<_, i32>(r#ref.x);
-                numeric_value
-              },
-              3_u32,
-            ),
-          );
-          let mut src_top = i32::wrapping_add(
-            i32::wrapping_mul(t.b.y, 4),
-            i32::wrapping_shr(
-              {
-                let Ok(numeric_value) =
-                  console_core_number_conversion::wrapped::<_, i32>(r#ref.y);
-                numeric_value
-              },
-              3_u32,
-            ),
-          );
-          let mut src_right = i32::wrapping_add(src_left, i32::wrapping_mul(bw4, 4));
-          let mut src_bottom = i32::wrapping_add(src_top, i32::wrapping_mul(bh4, 4));
-          let border_right = i32::wrapping_mul(
-            i32::wrapping_add(ts.tiling.col_end, i32::wrapping_sub(bw4, 1))
-              & !i32::wrapping_sub(bw4, 1),
-            4,
-          );
-
-          match ::core::primitive::bool::then_some(src_left < border_left, ()) {
-            ::core::option::Option::Some(()) => {
-              {
-                let numeric_amount = i32::wrapping_sub(border_left, src_left);
-                let numeric_target = &mut (src_right);
-                *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-              };
-
-              {
-                let numeric_amount = i32::wrapping_sub(border_left, src_left);
-                let numeric_target = &mut (src_left);
-                *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-              };
-            }
-            ::core::option::Option::None => {
-              match ::core::primitive::bool::then_some(src_right > border_right, ()) {
-                ::core::option::Option::Some(()) => {
-                  {
-                    let numeric_amount = i32::wrapping_sub(src_right, border_right);
-                    let numeric_target = &mut (src_left);
-                    *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-                  };
-
-                  {
-                    let numeric_amount = i32::wrapping_sub(src_right, border_right);
-                    let numeric_target = &mut (src_right);
-                    *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-                  };
-                }
-                ::core::option::Option::None => {}
-              }
-            }
-          }
-
-          match ::core::primitive::bool::then_some(src_top < border_top, ()) {
-            ::core::option::Option::Some(()) => {
-              {
-                let numeric_amount = i32::wrapping_sub(border_top, src_top);
-                let numeric_target = &mut (src_bottom);
-                *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-              };
-
-              {
-                let numeric_amount = i32::wrapping_sub(border_top, src_top);
-                let numeric_target = &mut (src_top);
-                *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-              };
-            }
-            ::core::option::Option::None => {}
-          }
-
-          let sbx = i32::wrapping_shl(
-            i32::wrapping_shr(t.b.x, {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                u8::wrapping_add(4, seq_hdr.sb128),
-              );
-              numeric_value
-            }),
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                u8::wrapping_add(6, seq_hdr.sb128),
-              );
-              numeric_value
-            },
-          );
-          let sby = i32::wrapping_shl(
-            i32::wrapping_shr(t.b.y, {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                u8::wrapping_add(4, seq_hdr.sb128),
-              );
-              numeric_value
-            }),
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                u8::wrapping_add(6, seq_hdr.sb128),
-              );
-              numeric_value
-            },
-          );
-          let sb_size = i32::wrapping_shl(1, {
-            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-              u8::wrapping_add(6, seq_hdr.sb128),
-            );
-            numeric_value
-          });
-
-          match ::core::primitive::bool::then_some(src_bottom > sby && src_right > sbx, ()) {
-            ::core::option::Option::Some(()) => {
-              match ::core::primitive::bool::then_some(
-                i32::wrapping_sub(src_top, border_top) >= i32::wrapping_sub(src_bottom, sby),
-                (),
-              ) {
-                ::core::option::Option::Some(()) => {
-                  {
-                    let numeric_amount = i32::wrapping_sub(src_bottom, sby);
-                    let numeric_target = &mut (src_top);
-                    *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-                  };
-
-                  {
-                    let numeric_amount = i32::wrapping_sub(src_bottom, sby);
-                    let numeric_target = &mut (src_bottom);
-                    *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-                  };
-                }
-                ::core::option::Option::None => match ::core::primitive::bool::then_some(
-                  i32::wrapping_sub(src_left, border_left) >= i32::wrapping_sub(src_right, sbx),
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    {
-                      let numeric_amount = i32::wrapping_sub(src_right, sbx);
-                      let numeric_target = &mut (src_left);
-                      *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-                    };
-
-                    {
-                      let numeric_amount = i32::wrapping_sub(src_right, sbx);
-                      let numeric_target = &mut (src_right);
-                      *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-                    };
-                  }
-                  ::core::option::Option::None => {}
-                },
-              }
-            }
-            ::core::option::Option::None => {}
-          }
-
-          match ::core::primitive::bool::then_some(
-            src_bottom > i32::wrapping_add(sby, sb_size),
-            (),
-          ) {
-            ::core::option::Option::Some(()) => {
-              {
-                let numeric_amount =
-                  i32::wrapping_sub(src_bottom, i32::wrapping_add(sby, sb_size));
-                let numeric_target = &mut (src_top);
-                *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-              };
-
-              {
-                let numeric_amount =
-                  i32::wrapping_sub(src_bottom, i32::wrapping_add(sby, sb_size));
-                let numeric_target = &mut (src_bottom);
-                *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-              };
-            }
-            ::core::option::Option::None => {}
-          }
-
-          match ::core::primitive::bool::then_some(src_bottom > sby && src_right > sbx, ()) {
-            ::core::option::Option::Some(()) => {
-              return Err(());
-            }
-            ::core::option::Option::None => {}
-          }
-
-          let prev_ref = r#ref;
-          let Ok(x) = console_core_number_conversion::wrapped::<_, i16>(i32::wrapping_mul(
-            i32::wrapping_sub(src_left, i32::wrapping_mul(t.b.x, 4)),
-            8,
-          ));
-          let Ok(y) = console_core_number_conversion::wrapped::<_, i16>(i32::wrapping_mul(
-            i32::wrapping_sub(src_top, i32::wrapping_mul(t.b.y, 4)),
-            8,
-          ));
-          let ref_2 = Mv { x, y };
-
-          match debug_block_info!(f, t.b) {
-            BlockTrace::Enabled => {
-              println!(
-                "Post-dmv[{}/{},ref={}/{}|{}/{}]: r={}",
-                ref_2.y,
-                ref_2.x,
-                prev_ref.y,
-                prev_ref.x,
-                (*match <[_]>::get(
-                  &(*match <[_]>::get(&mvstack, 0) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  })
-                  .mv
-                  .mv,
-                  0
-                ) {
-                  ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                })
-                .y,
-                (*match <[_]>::get(
-                  &(*match <[_]>::get(&mvstack, 0) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  })
-                  .mv
-                  .mv,
-                  0
-                ) {
-                  ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                })
-                .x,
-                ts_c_2.msac.rng,
-              );
-            }
-            BlockTrace::Disabled => {}
-          }
-
-          let VarTx {
-            uvtx,
-            max_ytx,
-            tx_split0,
-            tx_split1,
-          } = read_vartx_tree(
-            t,
-            f,
-            ts_c_2,
-            b,
-            VariableTransformBlock {
-              size: bs,
-              local: Bxy { x: bx4, y: by4 },
-            },
-          )
-          .map_err(|_invalid_transform_tree| ())?;
-
-          let filter2d = match ::core::primitive::bool::then_some(t.frame_thread.pass == 1, ()) {
-            ::core::option::Option::Some(()) => Filter2d::Bilinear,
-            ::core::option::Option::None => Default::default(),
-          };
-
-          b.uvtx = uvtx;
-          let inter = Av1BlockInter {
-            nd: <crate::src::levels::Av1BlockInterNd as ::core::convert::From<
-              crate::src::levels::Av1BlockInter1d,
-            >>::from(Av1BlockInter1d {
-              mv: [ref_2, Default::default()],
-              ..Default::default()
-            }),
-            comp_type: Default::default(),
-            inter_mode: Default::default(),
-            motion_mode: Default::default(),
-            drl_idx: Default::default(),
-            r#ref: Default::default(),
-            max_ytx,
-            filter2d,
-            interintra_type: Default::default(),
-            tx_split0,
-            tx_split1,
-          };
-          b.ii = Av1BlockIntraInter::Inter(inter);
-
-          match ::core::primitive::bool::then_some(t.frame_thread.pass == 1, ()) {
-            ::core::option::Option::Some(()) => {
-              (bd_fn.read_coef_blocks)(f, t, ts_c_2, bs, b).map_err(|_| ())?;
-            }
-            ::core::option::Option::None => {
-              (bd_fn.recon_b_inter)(f, t, Some(ts_c_2), bs, b, &inter)?;
-            }
-          }
-
-          splat_intrabc_mv(
-            c,
-            t,
-            &f.rf,
-            bs,
-            ref_2,
-            Size {
-              width: bw4,
-              height: bh4,
-            },
-          )
-          .map_err(|_| ())?;
-
-          case_set_al! {
-              <32, false>
-
-              l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4); numeric_value })
-                  also |case| { ({ let Ok(explicit_value) = case.set({ let [_, _explicit_part, ..] = &mut t.pal_sz_uv; _explicit_part }, 0); explicit_value }); },
-              a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4); numeric_value })
-                  also |case| { ({ let Ok(explicit_value) = case.set({ let [_explicit_part, ..] = &mut t.pal_sz_uv; _explicit_part }, 0); explicit_value }); },
-              tx_intra = ({
-                let &[_, _, _, height] = b_dim;
-                let Ok(height_log) = console_core_number_conversion::wrapped::<_, i8>(height);
-                height_log
-              }, {
-                let &[_, _, width, _] = b_dim;
-                let Ok(width_log) = console_core_number_conversion::wrapped::<_, i8>(width);
-                width_log
-              }),
-              mode = (DC_PRED, DC_PRED),
-              pal_sz = (0, 0),
-              seg_pred = (<::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(seg_pred), <::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(seg_pred)),
-              skip_mode = (0, 0),
-              intra = (0, 0),
-              skip = (b.skip, b.skip),
-          }
-
-          match ::core::primitive::bool::then_some(has_chroma, ()) {
-            ::core::option::Option::Some(()) => {
-              case_set_al! {
-                  <32, false>
-                  l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cby4); numeric_value }),
-                  a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbx4); numeric_value }),
-                  uvmode = (DC_PRED, DC_PRED),
-              }
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-        ::core::option::Option::None => {
-          let residual_precision = match (frame_hdr.hp, frame_hdr.force_integer_mv) {
-            (false, true) => ResidualPrecision::Integer,
-            (false, false) | (true, true) => ResidualPrecision::QuarterPel,
-            (true, false) => ResidualPrecision::EighthPel,
-          };
-
-          let mut has_subpel_filter;
-
-          let is_comp = match ::core::primitive::bool::then_some(b.skip_mode != 0, ()) {
-            ::core::option::Option::Some(()) => true,
-            ::core::option::Option::None => match ::core::primitive::bool::then_some(
-              seg
-                .map(|seg_4| seg_4.r#ref == -1 && seg_4.globalmv == 0 && seg_4.skip == 0)
-                .unwrap_or(true)
-                && frame_hdr.switchable_comp_refs != 0
-                && cmp::min(bw4, bh4) > 1,
-              (),
-            ) {
-              ::core::option::Option::Some(()) => {
-                let ctx = get_comp_ctx(BlockNeighbors {
-                  above: ta,
-                  left: &t.l,
-                  location: Bxy { x: bx4, y: by4 },
-                  availability: neighbors,
-                })
-                .map_err(|_invalid_context| ())?;
-                let is_comp = matches!(
-                  rav1d_msac_decode_bool_adapt(
-                    &mut ts_c_2.msac,
-                    &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.comp, {
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
-                      numeric_value
-                    }) {
-                      ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                  ),
-                  Ok(EntropyBit::One)
-                );
-
-                match debug_block_info!(f, t.b) {
-                  BlockTrace::Enabled => {
-                    println!("Post-compflag[{}]: r={}", is_comp, ts_c_2.msac.rng);
-                  }
-                  BlockTrace::Disabled => {}
-                }
-
-                is_comp
-              }
-              ::core::option::Option::None => false,
-            },
-          };
-
-          struct Inter {
-            nd: Av1BlockInterNd,
-            comp_type: Option<CompInterType>,
-            inter_mode: u8,
-            motion_mode: MotionMode,
-            drl_idx: DrlProximity,
-            r#ref: [i8; 2],
-            interintra_type: Option<InterIntraType>,
-          }
-
-          let Inter {
-            nd,
-            comp_type,
-            inter_mode,
-            motion_mode,
-            drl_idx,
-            r#ref,
-            interintra_type,
-          } = match ::core::primitive::bool::then_some(b.skip_mode != 0, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(refs) = console_core_number_conversion::wrapped::<_, i8>(
-                match frame_hdr.skip_mode.refs {
-                  [element, ..] => element,
-                },
-              );
-              let Ok(frame_hdr_refs) = console_core_number_conversion::wrapped::<_, i8>(
-                match frame_hdr.skip_mode.refs {
-                  [_, element, ..] => element,
-                },
-              );
-              let r#ref = [refs, frame_hdr_refs];
-              let comp_type = CompInterType::Avg;
-              let inter_mode = NEARESTMV_NEARESTMV;
-              let drl_idx = DrlProximity::Nearest;
-              has_subpel_filter = false;
-
-              let mut mvstack = [Default::default(); 8];
-              let mut ctx = 0;
-              let _candidate_count = rav1d_refmvs_find(
-                &t.rt,
-                &f.rf,
-                &mut mvstack,
-                &mut ctx,
-                crate::src::refmvs::RefMvsSearch {
-                  references: <crate::src::refmvs::RefMvsRefPair as ::core::convert::From<
-                    [::core::primitive::i8; 2],
-                  >>::from([
-                    i8::wrapping_add(
-                      match r#ref {
-                        [element, ..] => element,
-                      },
-                      1,
-                    ),
-                    i8::wrapping_add(
-                      match r#ref {
-                        [_, element, ..] => element,
-                      },
-                      1,
-                    ),
-                  ]),
-                  block: bs,
-                  edges: intra_edge_flags,
-                  origin: Point { x: t.b.x, y: t.b.y },
-                },
-                frame_hdr,
-              )
-              .map_err(|_invalid_motion_neighbors| ())?;
-
-              let mut mv1d = (*match <[_]>::get(&mvstack, 0) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              })
-              .mv
-              .mv;
-              let Ok(()) = fix_mv_precision(frame_hdr, {
-                let [_explicit_part, ..] = &mut mv1d;
-                _explicit_part
-              });
-              let Ok(()) = fix_mv_precision(frame_hdr, {
-                let [_, _explicit_part, ..] = &mut mv1d;
-                _explicit_part
-              });
-              let mv1d_2 = mv1d;
-
-              match debug_block_info!(f, t.b) {
-                BlockTrace::Enabled => {
-                  println!(
-                    "Post-skipmodeblock[mv=1:y={},x={},2:y={},x={},refs={}+{}",
-                    (*match <[_]>::get(&mv1d_2, 0) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    })
-                    .y,
-                    (*match <[_]>::get(&mv1d_2, 0) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    })
-                    .x,
-                    (*match <[_]>::get(&mv1d_2, 1) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    })
-                    .y,
-                    (*match <[_]>::get(&mv1d_2, 1) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    })
-                    .x,
-                    *match <[_]>::get(&r#ref, 0) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                    *match <[_]>::get(&r#ref, 1) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                  );
-                }
-                BlockTrace::Disabled => {}
-              }
-
-              Inter {
-                nd: <crate::src::levels::Av1BlockInterNd as ::core::convert::From<
-                  crate::src::levels::Av1BlockInter1d,
-                >>::from(Av1BlockInter1d {
-                  mv: mv1d_2,
-                  ..Default::default()
-                }),
-                comp_type: Some(comp_type),
-                inter_mode,
-                motion_mode: Default::default(),
-                drl_idx,
-                r#ref,
-                interintra_type: None,
-              }
-            }
-            ::core::option::Option::None => match ::core::primitive::bool::then_some(is_comp, ())
-            {
-              ::core::option::Option::Some(()) => {
-                let reference_counts = ReferenceCounts::from_neighbors(BlockNeighbors {
-                  above: ta,
-                  left: &t.l,
-                  location: Bxy { x: bx4, y: by4 },
-                  availability: neighbors,
-                })
-                .map_err(|_invalid_reference| ())?;
-                let dir_ctx = get_comp_dir_ctx(BlockNeighbors {
-                  above: ta,
-                  left: &t.l,
-                  location: Bxy { x: bx4, y: by4 },
-                  availability: neighbors,
-                })
-                .map_err(|_invalid_context| ())?;
-                let r#ref = match ::core::primitive::bool::then_some(
-                  matches!(
-                    rav1d_msac_decode_bool_adapt(
-                      &mut ts_c_2.msac,
-                      &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.comp_dir, {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(dir_ctx);
-                        numeric_value
-                      }) {
-                        ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                    ),
-                    Ok(EntropyBit::One)
-                  ),
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    let Ok(ctx1) = reference_counts.context(ReferenceContext::ForwardGroup);
-                    let ref0 = match ::core::primitive::bool::then_some(
-                      matches!(
-                        rav1d_msac_decode_bool_adapt(
-                          &mut ts_c_2.msac,
-                          &mut *match <[_]>::get_mut(
-                            &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.comp_fwd_ref, 0) {
-                              ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                              ::core::option::Option::None =>
-                                return ::core::result::Result::Err(()),
-                            },
-                            {
-                              let Ok(numeric_value) =
-                                console_core_number_conversion::wrapped_index(ctx1);
-                              numeric_value
-                            },
-                          ) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None =>
-                              return ::core::result::Result::Err(()),
-                          },
-                        ),
-                        Ok(EntropyBit::One)
-                      ),
-                      (),
-                    ) {
-                      ::core::option::Option::Some(()) => {
-                        let Ok(ctx2) = reference_counts.context(ReferenceContext::FarForward);
-                        i8::wrapping_add(
-                          2,
-                          i8::from(matches!(
-                            rav1d_msac_decode_bool_adapt(
-                              &mut ts_c_2.msac,
-                              &mut *match <[_]>::get_mut(
-                                &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.comp_fwd_ref, 2) {
-                                  ::core::option::Option::Some(indexed_value_4) =>
-                                    indexed_value_4,
-                                  ::core::option::Option::None => {
-                                    return ::core::result::Result::Err(());
-                                  }
-                                },
-                                {
-                                  let Ok(numeric_value) =
-                                    console_core_number_conversion::wrapped_index(ctx2);
-                                  numeric_value
-                                },
-                              ) {
-                                ::core::option::Option::Some(indexed_value) => indexed_value,
-                                ::core::option::Option::None => {
-                                  return ::core::result::Result::Err(());
-                                }
-                              },
-                            ),
-                            Ok(EntropyBit::One)
-                          )),
-                        )
-                      }
-                      ::core::option::Option::None => {
-                        let Ok(ctx2) = reference_counts.context(ReferenceContext::NearForward);
-                        i8::from(matches!(
-                          rav1d_msac_decode_bool_adapt(
-                            &mut ts_c_2.msac,
-                            &mut *match <[_]>::get_mut(
-                              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.comp_fwd_ref, 1) {
-                                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                                ::core::option::Option::None => {
-                                  return ::core::result::Result::Err(());
-                                }
-                              },
-                              {
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(ctx2);
-                                numeric_value
-                              },
-                            ) {
-                              ::core::option::Option::Some(indexed_value) => indexed_value,
-                              ::core::option::Option::None =>
-                                return ::core::result::Result::Err(()),
-                            },
-                          ),
-                          Ok(EntropyBit::One)
-                        ))
-                      }
-                    };
-
-                    let Ok(ctx3) = reference_counts.context(ReferenceContext::BackwardGroup);
-                    let ref1 = match ::core::primitive::bool::then_some(
-                      matches!(
-                        rav1d_msac_decode_bool_adapt(
-                          &mut ts_c_2.msac,
-                          &mut *match <[_]>::get_mut(
-                            &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.comp_bwd_ref, 0) {
-                              ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                              ::core::option::Option::None =>
-                                return ::core::result::Result::Err(()),
-                            },
-                            {
-                              let Ok(numeric_value) =
-                                console_core_number_conversion::wrapped_index(ctx3);
-                              numeric_value
-                            },
-                          ) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None =>
-                              return ::core::result::Result::Err(()),
-                          },
-                        ),
-                        Ok(EntropyBit::One)
-                      ),
-                      (),
-                    ) {
-                      ::core::option::Option::Some(()) => 6,
-                      ::core::option::Option::None => {
-                        let Ok(ctx4) = reference_counts.context(ReferenceContext::NearBackward);
-                        i8::wrapping_add(
-                          4,
-                          i8::from(matches!(
-                            rav1d_msac_decode_bool_adapt(
-                              &mut ts_c_2.msac,
-                              &mut *match <[_]>::get_mut(
-                                &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.comp_bwd_ref, 1) {
-                                  ::core::option::Option::Some(indexed_value_4) =>
-                                    indexed_value_4,
-                                  ::core::option::Option::None => {
-                                    return ::core::result::Result::Err(());
-                                  }
-                                },
-                                {
-                                  let Ok(numeric_value) =
-                                    console_core_number_conversion::wrapped_index(ctx4);
-                                  numeric_value
-                                },
-                              ) {
-                                ::core::option::Option::Some(indexed_value) => indexed_value,
-                                ::core::option::Option::None => {
-                                  return ::core::result::Result::Err(());
-                                }
-                              },
-                            ),
-                            Ok(EntropyBit::One)
-                          )),
-                        )
-                      }
-                    };
-
-                    [ref0, ref1]
-                  }
-                  ::core::option::Option::None => {
-                    let Ok(uctx_p) = reference_counts.context(ReferenceContext::Direction);
-
-                    match ::core::primitive::bool::then_some(
-                      matches!(
-                        rav1d_msac_decode_bool_adapt(
-                          &mut ts_c_2.msac,
-                          &mut *match <[_]>::get_mut(
-                            &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.comp_uni_ref, 0) {
-                              ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                              ::core::option::Option::None =>
-                                return ::core::result::Result::Err(()),
-                            },
-                            {
-                              let Ok(numeric_value) =
-                                console_core_number_conversion::wrapped_index(uctx_p);
-                              numeric_value
-                            },
-                          ) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None =>
-                              return ::core::result::Result::Err(()),
-                          },
-                        ),
-                        Ok(EntropyBit::One)
-                      ),
-                      (),
-                    ) {
-                      ::core::option::Option::Some(()) => [4, 6],
-                      ::core::option::Option::None => {
-                        let Ok(uctx_p1) =
-                          reference_counts.context(ReferenceContext::UnidirectionalPair);
-                        let mut r#ref = [
-                          0,
-                          i8::wrapping_add(
-                            1,
-                            i8::from(matches!(
-                              rav1d_msac_decode_bool_adapt(
-                                &mut ts_c_2.msac,
-                                &mut *match <[_]>::get_mut(
-                                  &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.comp_uni_ref, 1)
-                                  {
-                                    ::core::option::Option::Some(indexed_value_4) =>
-                                      indexed_value_4,
-                                    ::core::option::Option::None => {
-                                      return ::core::result::Result::Err(());
-                                    }
-                                  },
-                                  {
-                                    let Ok(numeric_value) =
-                                      console_core_number_conversion::wrapped_index(uctx_p1);
-                                    numeric_value
-                                  },
-                                ) {
-                                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                                  ::core::option::Option::None => {
-                                    return ::core::result::Result::Err(());
-                                  }
-                                },
-                              ),
-                              Ok(EntropyBit::One)
-                            )),
-                          ),
-                        ];
-
-                        match ::core::primitive::bool::then_some(
-                          (match r#ref {
-                            [_, element, ..] => element,
-                          }) == 2,
-                          (),
-                        ) {
-                          ::core::option::Option::Some(()) => {
-                            let Ok(uctx_p2) =
-                              reference_counts.context(ReferenceContext::FarForward);
-
-                            {
-                              let numeric_amount = i8::from(matches!(
-                                rav1d_msac_decode_bool_adapt(
-                                  &mut ts_c_2.msac,
-                                  &mut *match <[_]>::get_mut(
-                                    &mut *match <[_]>::get_mut(
-                                      &mut *ts_c_2.cdf.mi.comp_uni_ref,
-                                      2
-                                    ) {
-                                      ::core::option::Option::Some(indexed_value_4) => {
-                                        indexed_value_4
-                                      }
-                                      ::core::option::Option::None => {
-                                        return ::core::result::Result::Err(());
-                                      }
-                                    },
-                                    {
-                                      let Ok(numeric_value) =
-                                        console_core_number_conversion::wrapped_index(uctx_p2);
-                                      numeric_value
-                                    },
-                                  ) {
-                                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                                    ::core::option::Option::None => {
-                                      return ::core::result::Result::Err(());
-                                    }
-                                  },
-                                ),
-                                Ok(EntropyBit::One)
-                              ));
-                              let numeric_target = {
-                                let [_, _explicit_part, ..] = &mut r#ref;
-                                _explicit_part
-                              };
-                              *numeric_target = i8::wrapping_add(*numeric_target, numeric_amount);
-                            };
-                          }
-                          ::core::option::Option::None => {}
-                        }
-
-                        r#ref
-                      }
-                    }
-                  }
-                };
-
-                match debug_block_info!(f, t.b) {
-                  BlockTrace::Enabled => {
-                    println!(
-                      "Post-refs[{}/{}]: r={}",
-                      *match <[_]>::get(&r#ref, 0) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                      *match <[_]>::get(&r#ref, 1) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                      ts_c_2.msac.rng,
-                    );
-                  }
-                  BlockTrace::Disabled => {}
-                }
-
-                let mut mvstack = [Default::default(); 8];
-                let mut ctx = 0;
-                let n_mvs = rav1d_refmvs_find(
-                  &t.rt,
-                  &f.rf,
-                  &mut mvstack,
-                  &mut ctx,
-                  crate::src::refmvs::RefMvsSearch {
-                    references: <crate::src::refmvs::RefMvsRefPair as ::core::convert::From<
-                      [::core::primitive::i8; 2],
-                    >>::from([
-                      i8::wrapping_add(
-                        match r#ref {
-                          [element, ..] => element,
-                        },
-                        1,
-                      ),
-                      i8::wrapping_add(
-                        match r#ref {
-                          [_, element, ..] => element,
-                        },
-                        1,
-                      ),
-                    ]),
-                    block: bs,
-                    edges: intra_edge_flags,
-                    origin: Point { x: t.b.x, y: t.b.y },
-                  },
-                  frame_hdr,
-                )
-                .map_err(|_invalid_motion_neighbors| ())?;
-
-                let Ok(inter_mode) = rav1d_msac_decode_symbol_adapt8(
-                  &mut ts_c_2.msac,
-                  &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.comp_inter_mode, {
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx);
-                    numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                  u8::wrapping_sub(
-                    {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped::<_, u8>(N_COMP_INTER_PRED_MODES);
-                      numeric_value
-                    },
-                    1,
-                  ),
-                );
-
-                match debug_block_info!(f, t.b) {
-                  BlockTrace::Enabled => {
-                    println!(
-                      "Post-compintermode[{},ctx={},n_mvs={}]: r={}",
-                      inter_mode, ctx, n_mvs, ts_c_2.msac.rng,
-                    );
-                  }
-                  BlockTrace::Disabled => {}
-                }
-
-                let im = &*match <[_]>::get(&dav1d_comp_inter_pred_modes, {
-                  let Ok(numeric_value) =
-                    console_core_number_conversion::wrapped_index(inter_mode);
-                  numeric_value
-                }) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                };
-                let mut drl_idx = DrlProximity::Nearest;
-
-                match ::core::primitive::bool::then_some(inter_mode == NEWMV_NEWMV, ()) {
-                  ::core::option::Option::Some(()) => {
-                    match ::core::primitive::bool::then_some(n_mvs > 1, ()) {
-                      ::core::option::Option::Some(()) => {
-                        let drl_ctx_v1 =
-                          get_drl_context(&mvstack, 0).map_err(|_invalid_context| ())?;
-
-                        match ::core::primitive::bool::then_some(
-                          matches!(
-                            rav1d_msac_decode_bool_adapt(
-                              &mut ts_c_2.msac,
-                              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.drl_bit, {
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(drl_ctx_v1);
-                                numeric_value
-                              }) {
-                                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                                ::core::option::Option::None =>
-                                  return ::core::result::Result::Err(()),
-                              },
-                            ),
-                            Ok(EntropyBit::One)
-                          ),
-                          (),
-                        ) {
-                          ::core::option::Option::Some(()) => {
-                            drl_idx = DrlProximity::Nearer;
-
-                            match ::core::primitive::bool::then_some(n_mvs > 2, ()) {
-                              ::core::option::Option::Some(()) => {
-                                let drl_ctx_v2 =
-                                  get_drl_context(&mvstack, 1).map_err(|_invalid_context| ())?;
-
-                                match ::core::primitive::bool::then_some(
-                                  matches!(
-                                    rav1d_msac_decode_bool_adapt(
-                                      &mut ts_c_2.msac,
-                                      &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.drl_bit, {
-                                        let Ok(numeric_value) =
-                                          console_core_number_conversion::wrapped_index(
-                                            drl_ctx_v2,
-                                          );
-                                        numeric_value
-                                      }) {
-                                        ::core::option::Option::Some(indexed_value_4) =>
-                                          indexed_value_4,
-                                        ::core::option::Option::None => {
-                                          return ::core::result::Result::Err(());
-                                        }
-                                      },
-                                    ),
-                                    Ok(EntropyBit::One)
-                                  ),
-                                  (),
-                                ) {
-                                  ::core::option::Option::Some(()) => {
-                                    drl_idx = DrlProximity::Near;
-                                  }
-                                  ::core::option::Option::None => {}
-                                }
-                              }
-                              ::core::option::Option::None => {}
-                            }
-                          }
-                          ::core::option::Option::None => {}
-                        }
-
-                        match debug_block_info!(f, t.b) {
-                          BlockTrace::Enabled => {
-                            println!(
-                              "Post-drlidx[{:?},n_mvs={}]: r={}",
-                              drl_idx, n_mvs, ts_c_2.msac.rng,
-                            );
-                          }
-                          BlockTrace::Disabled => {}
-                        }
-                      }
-                      ::core::option::Option::None => {}
-                    }
-                  }
-                  ::core::option::Option::None => match ::core::primitive::bool::then_some(
-                    (match im {
-                      &[element, ..] => element,
-                    }) == NEARMV
-                      || (match im {
-                        &[_, element, ..] => element,
-                      }) == NEARMV,
-                    (),
-                  ) {
-                    ::core::option::Option::Some(()) => {
-                      drl_idx = DrlProximity::Nearer;
-
-                      match ::core::primitive::bool::then_some(n_mvs > 2, ()) {
-                        ::core::option::Option::Some(()) => {
-                          let drl_ctx_v2 =
-                            get_drl_context(&mvstack, 1).map_err(|_invalid_context| ())?;
-
-                          match ::core::primitive::bool::then_some(
-                            matches!(
-                              rav1d_msac_decode_bool_adapt(
-                                &mut ts_c_2.msac,
-                                &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.drl_bit, {
-                                  let Ok(numeric_value) =
-                                    console_core_number_conversion::wrapped_index(drl_ctx_v2);
-                                  numeric_value
-                                }) {
-                                  ::core::option::Option::Some(indexed_value_4) =>
-                                    indexed_value_4,
-                                  ::core::option::Option::None => {
-                                    return ::core::result::Result::Err(());
-                                  }
-                                },
-                              ),
-                              Ok(EntropyBit::One)
-                            ),
-                            (),
-                          ) {
-                            ::core::option::Option::Some(()) => {
-                              drl_idx = DrlProximity::Near;
-
-                              match ::core::primitive::bool::then_some(n_mvs > 3, ()) {
-                                ::core::option::Option::Some(()) => {
-                                  let drl_ctx_v3 = get_drl_context(&mvstack, 2)
-                                    .map_err(|_invalid_context| ())?;
-
-                                  match ::core::primitive::bool::then_some(
-                                    matches!(
-                                      rav1d_msac_decode_bool_adapt(
-                                        &mut ts_c_2.msac,
-                                        &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.drl_bit, {
-                                          let Ok(numeric_value) =
-                                            console_core_number_conversion::wrapped_index(
-                                              drl_ctx_v3,
-                                            );
-                                          numeric_value
-                                        }) {
-                                          ::core::option::Option::Some(indexed_value_4) => {
-                                            indexed_value_4
-                                          }
-                                          ::core::option::Option::None => {
-                                            return ::core::result::Result::Err(());
-                                          }
-                                        },
-                                      ),
-                                      Ok(EntropyBit::One)
-                                    ),
-                                    (),
-                                  ) {
-                                    ::core::option::Option::Some(()) => {
-                                      drl_idx = DrlProximity::Nearish;
-                                    }
-                                    ::core::option::Option::None => {}
-                                  }
-                                }
-                                ::core::option::Option::None => {}
-                              }
-                            }
-                            ::core::option::Option::None => {}
-                          }
-
-                          match debug_block_info!(f, t.b) {
-                            BlockTrace::Enabled => {
-                              println!(
-                                "Post-drlidx[{:?},n_mvs={}]: r={}",
-                                drl_idx, n_mvs, ts_c_2.msac.rng,
-                              );
-                            }
-                            BlockTrace::Disabled => {}
-                          }
-                        }
-                        ::core::option::Option::None => {}
-                      }
-                    }
-                    ::core::option::Option::None => {}
-                  },
-                }
-
-                let drl_idx_2 = drl_idx;
-
-                has_subpel_filter = cmp::min(bw4, bh4) == 1 || inter_mode != GLOBALMV_GLOBALMV;
-                let Ok(candidate_rank) = drl_idx_2.ordinal();
-                let Ok(candidate_index) = console_core_number_conversion::index(candidate_rank);
-                let predictors = match mvstack.get(candidate_index) {
-                  Some(candidate) => candidate.mv.mv.map(Some),
-                  None => [None; 2],
-                };
-                let mut mv1d = [Mv::default(); 2];
-
-                for (((motion, mode), slot), predictor) in
-                  mv1d.iter_mut().zip(*im).zip(r#ref).zip(predictors)
-                {
-                  *motion = match mode {
-                    NEARMV | NEARESTMV => {
-                      let mut vector = predictor.ok_or(())?;
-                      let Ok(()) = fix_mv_precision(frame_hdr, &mut vector);
-                      vector
-                    }
-                    GLOBALMV => {
-                      let Ok(reference_index) =
-                        console_core_number_conversion::wrapped_index(slot);
-                      let global = frame_hdr.gmv.get(reference_index).ok_or(())?;
-                      has_subpel_filter |= global.r#type == Rav1dWarpedMotionType::Translation;
-                      let block = Rectangle {
-                        origin: Point { x: t.b.x, y: t.b.y },
-                        size: Size {
-                          width: bw4,
-                          height: bh4,
-                        },
-                      };
-                      let Ok(vector) = get_gmv_2d(global, block, frame_hdr);
-                      vector
-                    }
-                    NEWMV => {
-                      let mut vector = predictor.ok_or(())?;
-                      read_mv_residual(ts_c_2, &mut vector, residual_precision)
-                        .map_err(|_invalid_motion_residual| ())?;
-                      vector
-                    }
-                    _ => return Err(()),
-                  };
-                }
-
-                match debug_block_info!(f, t.b) {
-                  BlockTrace::Enabled => {
-                    println!(
-                      "Post-residual_mv[1:y={},x={},2:y={},x={}]: r={}",
-                      (*match <[_]>::get(&mv1d, 0) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      })
-                      .y,
-                      (*match <[_]>::get(&mv1d, 0) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      })
-                      .x,
-                      (*match <[_]>::get(&mv1d, 1) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      })
-                      .y,
-                      (*match <[_]>::get(&mv1d, 1) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      })
-                      .x,
-                      ts_c_2.msac.rng,
-                    );
-                  }
-                  BlockTrace::Disabled => {}
-                }
-
-                let is_segwedge;
-
-                match ::core::primitive::bool::then_some(seq_hdr.masked_compound != 0, ()) {
-                  ::core::option::Option::Some(()) => {
-                    let mask_ctx = get_mask_comp_ctx(BlockNeighbors {
-                      above: ta,
-                      left: &t.l,
-                      location: Bxy { x: bx4, y: by4 },
-                      availability: neighbors,
-                    })
-                    .map_err(|_invalid_context| ())?;
-                    is_segwedge = matches!(
-                      rav1d_msac_decode_bool_adapt(
-                        &mut ts_c_2.msac,
-                        &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.mask_comp, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(mask_ctx);
-                          numeric_value
-                        }) {
-                          ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        },
-                      ),
-                      Ok(EntropyBit::One)
-                    );
-
-                    match debug_block_info!(f, t.b) {
-                      BlockTrace::Enabled => {
-                        println!(
-                          "Post-segwedge_vs_jntavg[{},ctx={}]: r={}",
-                          is_segwedge, mask_ctx, ts_c_2.msac.rng,
-                        );
-                      }
-                      BlockTrace::Disabled => {}
-                    }
-                  }
-                  ::core::option::Option::None => {
-                    is_segwedge = false;
-                  }
-                }
-
-                let comp_type;
-                let mask_sign;
-                let mut wedge_idx = Default::default();
-
-                match ::core::primitive::bool::then_some(!is_segwedge, ()) {
-                  ::core::option::Option::Some(()) => {
-                    match ::core::primitive::bool::then_some(seq_hdr.jnt_comp != 0, ()) {
-                      ::core::option::Option::Some(()) => {
-                        let reference_stamp = |slot| -> Result<u32, ()> {
-                          let Ok(position) = console_core_number_conversion::wrapped_index(slot);
-                          let reference = f.refp.get(position).ok_or(())?;
-                          let header = reference.p.frame_hdr.as_ref().ok_or(())?;
-                          Ok(u32::from(header.frame_offset))
-                        };
-                        let [first_reference, second_reference] = r#ref;
-                        let first_hint = reference_stamp(first_reference)?;
-                        let second_hint = reference_stamp(second_reference)?;
-                        let current_header = f.cur.frame_hdr.as_ref().ok_or(())?;
-                        let hints = CompoundOrderHints {
-                          width: seq_hdr.order_hint_n_bits,
-                          current: u32::from(current_header.frame_offset),
-                          reference_hints: [first_hint, second_hint],
-                        };
-                        let jnt_ctx = get_jnt_comp_ctx(
-                          hints,
-                          BlockNeighbors {
-                            above: ta,
-                            left: &t.l,
-                            location: Bxy { x: bx4, y: by4 },
-                            availability: neighbors,
-                          },
-                        )
-                        .map_err(|_invalid_context| ())?;
-                        comp_type = match ::core::primitive::bool::then_some(
-                          matches!(
-                            rav1d_msac_decode_bool_adapt(
-                              &mut ts_c_2.msac,
-                              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.jnt_comp, {
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(jnt_ctx);
-                                numeric_value
-                              }) {
-                                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                                ::core::option::Option::None =>
-                                  return ::core::result::Result::Err(()),
-                              },
-                            ),
-                            Ok(EntropyBit::One)
-                          ),
-                          (),
-                        ) {
-                          ::core::option::Option::Some(()) => CompInterType::Avg,
-                          ::core::option::Option::None => CompInterType::WeightedAvg,
-                        };
-
-                        match debug_block_info!(f, t.b) {
-                          BlockTrace::Enabled => {
-                            let a = ta;
-                            let l = &t.l;
-                            println!(
-                              "Post-jnt_comp[{},ctx={}[ac:{:?},ar:{},lc:{:?},lr:{}]]: r={}",
-                              comp_type == CompInterType::Avg,
-                              jnt_ctx,
-                              *a.comp_type.index({
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(bx4);
-                                numeric_value
-                              }),
-                              *(*match <[_]>::get(&a.r#ref, 0) {
-                                ::core::option::Option::Some(indexed_value) => indexed_value,
-                                ::core::option::Option::None =>
-                                  return ::core::result::Result::Err(()),
-                              })
-                              .index({
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(bx4);
-                                numeric_value
-                              }),
-                              *l.comp_type.index({
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(by4);
-                                numeric_value
-                              }),
-                              *(*match <[_]>::get(&l.r#ref, 0) {
-                                ::core::option::Option::Some(indexed_value) => indexed_value,
-                                ::core::option::Option::None =>
-                                  return ::core::result::Result::Err(()),
-                              })
-                              .index({
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(by4);
-                                numeric_value
-                              }),
-                              ts_c_2.msac.rng,
-                            );
-                          }
-                          BlockTrace::Disabled => {}
-                        }
-                      }
-                      ::core::option::Option::None => {
-                        comp_type = CompInterType::Avg;
-                      }
-                    }
-
-                    mask_sign = Default::default();
-                  }
-                  ::core::option::Option::None => {
-                    comp_type = match ::core::primitive::bool::then_some(
-                      wedge_allowed_mask
-                        & u32::wrapping_shl(1, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped::<_, u32>({
-                              let Ok(ordinal) = bs.ordinal();
-                              ordinal
-                            });
-                          numeric_value
-                        })
-                        != 0,
-                      (),
-                    ) {
-                      ::core::option::Option::Some(()) => {
-                        let Ok(ctx_2) = console_core_number_conversion::wrapped_index(
-                          *match <[_]>::get(&dav1d_wedge_ctx_lut, {
-                            let Ok(table_index) = console_core_number_conversion::index({
-                              let Ok(ordinal) = bs.ordinal();
-                              ordinal
-                            });
-                            table_index
-                          }) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None => {
-                              return ::core::result::Result::Err(());
-                            }
-                          },
-                        );
-                        let comp_type_2 = match ::core::primitive::bool::then_some(
-                          matches!(
-                            rav1d_msac_decode_bool_adapt(
-                              &mut ts_c_2.msac,
-                              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.wedge_comp, ctx_2) {
-                                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                                ::core::option::Option::None =>
-                                  return ::core::result::Result::Err(()),
-                              },
-                            ),
-                            Ok(EntropyBit::One)
-                          ),
-                          (),
-                        ) {
-                          ::core::option::Option::Some(()) => CompInterType::Seg,
-                          ::core::option::Option::None => CompInterType::Wedge,
-                        };
-
-                        match ::core::primitive::bool::then_some(
-                          comp_type_2 == CompInterType::Wedge,
-                          (),
-                        ) {
-                          ::core::option::Option::Some(()) => {
-                            wedge_idx = {
-                              let Ok(numeric_value) = console_core_number_conversion::wrapped::<
-                                _,
-                                u8,
-                              >({
-                                let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt16(
-                                  &mut ts_c_2.msac,
-                                  &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.wedge_idx, ctx_2)
-                                  {
-                                    ::core::option::Option::Some(indexed_value_4) => {
-                                      indexed_value_4
-                                    }
-                                    ::core::option::Option::None => {
-                                      return ::core::result::Result::Err(());
-                                    }
-                                  },
-                                  15,
-                                );
-                                explicit_value
-                              });
-                              numeric_value
-                            };
-                          }
-                          ::core::option::Option::None => {}
-                        }
-
-                        comp_type_2
-                      }
-                      ::core::option::Option::None => CompInterType::Seg,
-                    };
-
-                    mask_sign = matches!(
-                      rav1d_msac_decode_bool_equi(&mut ts_c_2.msac),
-                      Ok(EntropyBit::One)
-                    );
-
-                    match debug_block_info!(f, t.b) {
-                      BlockTrace::Enabled => {
-                        println!(
-                          "Post-seg/wedge[{},wedge_idx={},sign={}]: r={}",
-                          comp_type == CompInterType::Wedge,
-                          wedge_idx,
-                          mask_sign,
-                          ts_c_2.msac.rng,
-                        );
-                      }
-                      BlockTrace::Disabled => {}
-                    }
-                  }
-                }
-
-                let wedge_idx_2 = wedge_idx;
-
-                Inter {
-                  nd: <crate::src::levels::Av1BlockInterNd as ::core::convert::From<
-                    crate::src::levels::Av1BlockInter1d,
-                  >>::from(Av1BlockInter1d {
-                    mv: mv1d,
-                    wedge_idx: wedge_idx_2,
-                    mask_sign: u8::from(mask_sign),
-                    ..Default::default()
-                  }),
-                  comp_type: Some(comp_type),
-                  inter_mode,
-                  motion_mode: Default::default(),
-                  drl_idx: drl_idx_2,
-                  r#ref,
-                  interintra_type: None,
-                }
-              }
-              ::core::option::Option::None => {
-                let ref0 = match seg.filter(|seg_5| seg_5.r#ref > 0) {
-                  Some(seg_6) => i8::wrapping_sub(
-                    {
-                      let Ok(numeric_value) =
-                        console_core_number_conversion::wrapped::<_, i8>(seg_6.r#ref);
-                      numeric_value
-                    },
-                    1,
-                  ),
-                  None => match ::core::primitive::bool::then_some(
-                    seg
-                      .filter(|seg_7| seg_7.globalmv != 0 || seg_7.skip != 0)
-                      .is_some(),
-                    (),
-                  ) {
-                    ::core::option::Option::Some(()) => 0,
-                    ::core::option::Option::None => {
-                      let reference_counts = ReferenceCounts::from_neighbors(BlockNeighbors {
-                        above: ta,
-                        left: &t.l,
-                        location: Bxy { x: bx4, y: by4 },
-                        availability: neighbors,
-                      })
-                      .map_err(|_invalid_reference| ())?;
-                      let Ok(ctx1) = reference_counts.context(ReferenceContext::Direction);
-                      let ref0 = match ::core::primitive::bool::then_some(
-                        matches!(
-                          rav1d_msac_decode_bool_adapt(
-                            &mut ts_c_2.msac,
-                            &mut *match <[_]>::get_mut(
-                              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.r#ref, 0) {
-                                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                                ::core::option::Option::None =>
-                                  return ::core::result::Result::Err(()),
-                              },
-                              {
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(ctx1);
-                                numeric_value
-                              },
-                            ) {
-                              ::core::option::Option::Some(indexed_value) => indexed_value,
-                              ::core::option::Option::None =>
-                                return ::core::result::Result::Err(()),
-                            },
-                          ),
-                          Ok(EntropyBit::One)
-                        ),
-                        (),
-                      ) {
-                        ::core::option::Option::Some(()) => {
-                          let Ok(ctx2) =
-                            reference_counts.context(ReferenceContext::BackwardGroup);
-
-                          match ::core::primitive::bool::then_some(
-                            matches!(
-                              rav1d_msac_decode_bool_adapt(
-                                &mut ts_c_2.msac,
-                                &mut *match <[_]>::get_mut(
-                                  &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.r#ref, 1) {
-                                    ::core::option::Option::Some(indexed_value_4) =>
-                                      indexed_value_4,
-                                    ::core::option::Option::None => {
-                                      return ::core::result::Result::Err(());
-                                    }
-                                  },
-                                  {
-                                    let Ok(numeric_value) =
-                                      console_core_number_conversion::wrapped_index(ctx2);
-                                    numeric_value
-                                  },
-                                ) {
-                                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                                  ::core::option::Option::None => {
-                                    return ::core::result::Result::Err(());
-                                  }
-                                },
-                              ),
-                              Ok(EntropyBit::One)
-                            ),
-                            (),
-                          ) {
-                            ::core::option::Option::Some(()) => 6,
-                            ::core::option::Option::None => {
-                              let Ok(ctx3) =
-                                reference_counts.context(ReferenceContext::NearBackward);
-                              i8::wrapping_add(
-                                4,
-                                i8::from(matches!(
-                                  rav1d_msac_decode_bool_adapt(
-                                    &mut ts_c_2.msac,
-                                    &mut *match <[_]>::get_mut(
-                                      &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.r#ref, 5) {
-                                        ::core::option::Option::Some(indexed_value_4) => {
-                                          indexed_value_4
-                                        }
-                                        ::core::option::Option::None => {
-                                          return ::core::result::Result::Err(());
-                                        }
-                                      },
-                                      {
-                                        let Ok(numeric_value) =
-                                          console_core_number_conversion::wrapped_index(ctx3);
-                                        numeric_value
-                                      },
-                                    ) {
-                                      ::core::option::Option::Some(indexed_value) =>
-                                        indexed_value,
-                                      ::core::option::Option::None => {
-                                        return ::core::result::Result::Err(());
-                                      }
-                                    },
-                                  ),
-                                  Ok(EntropyBit::One)
-                                )),
-                              )
-                            }
-                          }
-                        }
-                        ::core::option::Option::None => {
-                          let Ok(ctx2) = reference_counts.context(ReferenceContext::ForwardGroup);
-
-                          match ::core::primitive::bool::then_some(
-                            matches!(
-                              rav1d_msac_decode_bool_adapt(
-                                &mut ts_c_2.msac,
-                                &mut *match <[_]>::get_mut(
-                                  &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.r#ref, 2) {
-                                    ::core::option::Option::Some(indexed_value_4) =>
-                                      indexed_value_4,
-                                    ::core::option::Option::None => {
-                                      return ::core::result::Result::Err(());
-                                    }
-                                  },
-                                  {
-                                    let Ok(numeric_value) =
-                                      console_core_number_conversion::wrapped_index(ctx2);
-                                    numeric_value
-                                  },
-                                ) {
-                                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                                  ::core::option::Option::None => {
-                                    return ::core::result::Result::Err(());
-                                  }
-                                },
-                              ),
-                              Ok(EntropyBit::One)
-                            ),
-                            (),
-                          ) {
-                            ::core::option::Option::Some(()) => {
-                              let Ok(ctx3) =
-                                reference_counts.context(ReferenceContext::FarForward);
-                              i8::wrapping_add(
-                                2,
-                                i8::from(matches!(
-                                  rav1d_msac_decode_bool_adapt(
-                                    &mut ts_c_2.msac,
-                                    &mut *match <[_]>::get_mut(
-                                      &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.r#ref, 4) {
-                                        ::core::option::Option::Some(indexed_value_4) => {
-                                          indexed_value_4
-                                        }
-                                        ::core::option::Option::None => {
-                                          return ::core::result::Result::Err(());
-                                        }
-                                      },
-                                      {
-                                        let Ok(numeric_value) =
-                                          console_core_number_conversion::wrapped_index(ctx3);
-                                        numeric_value
-                                      },
-                                    ) {
-                                      ::core::option::Option::Some(indexed_value) =>
-                                        indexed_value,
-                                      ::core::option::Option::None => {
-                                        return ::core::result::Result::Err(());
-                                      }
-                                    },
-                                  ),
-                                  Ok(EntropyBit::One)
-                                )),
-                              )
-                            }
-                            ::core::option::Option::None => {
-                              let Ok(ctx3) =
-                                reference_counts.context(ReferenceContext::NearForward);
-                              i8::from(matches!(
-                                rav1d_msac_decode_bool_adapt(
-                                  &mut ts_c_2.msac,
-                                  &mut *match <[_]>::get_mut(
-                                    &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.r#ref, 3) {
-                                      ::core::option::Option::Some(indexed_value_4) => {
-                                        indexed_value_4
-                                      }
-                                      ::core::option::Option::None => {
-                                        return ::core::result::Result::Err(());
-                                      }
-                                    },
-                                    {
-                                      let Ok(numeric_value) =
-                                        console_core_number_conversion::wrapped_index(ctx3);
-                                      numeric_value
-                                    },
-                                  ) {
-                                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                                    ::core::option::Option::None => {
-                                      return ::core::result::Result::Err(());
-                                    }
-                                  },
-                                ),
-                                Ok(EntropyBit::One)
-                              ))
-                            }
-                          }
-                        }
-                      };
-
-                      match debug_block_info!(f, t.b) {
-                        BlockTrace::Enabled => {
-                          println!("Post-ref[{}]: r={}", ref0, ts_c_2.msac.rng);
-                        }
-                        BlockTrace::Disabled => {}
-                      }
-
-                      ref0
-                    }
-                  },
-                };
-                let r#ref = [ref0, -1];
-
-                let mut mvstack = [Default::default(); 8];
-                let mut ctx = 0;
-                let n_mvs = rav1d_refmvs_find(
-                  &t.rt,
-                  &f.rf,
-                  &mut mvstack,
-                  &mut ctx,
-                  crate::src::refmvs::RefMvsSearch {
-                    references: RefMvsRefPair {
-                      r#ref: [
-                        i8::wrapping_add(
-                          match r#ref {
-                            [element, ..] => element,
-                          },
-                          1,
-                        ),
-                        -1,
-                      ],
-                    },
-                    block: bs,
-                    edges: intra_edge_flags,
-                    origin: Point { x: t.b.x, y: t.b.y },
-                  },
-                  frame_hdr,
-                )
-                .map_err(|_invalid_motion_neighbors| ())?;
-
-                let inter_mode;
-                let mut mv1d0;
-                let mut drl_idx;
-
-                match ::core::primitive::bool::then_some(
-                  (match seg.map(|seg_8| seg_8.skip != 0 || seg_8.globalmv != 0) {
-                    ::core::option::Option::Some(option_value) => option_value,
-                    ::core::option::Option::None => false,
-                  }) || matches!(
-                    rav1d_msac_decode_bool_adapt(
-                      &mut ts_c_2.msac,
-                      &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.newmv_mode, {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(ctx & 7);
-                        numeric_value
-                      }) {
-                        ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                    ),
-                    Ok(EntropyBit::One)
-                  ),
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    match ::core::primitive::bool::then_some(
-                      (match seg.map(|seg_9| seg_9.skip != 0 || seg_9.globalmv != 0) {
-                        ::core::option::Option::Some(option_value) => option_value,
-                        ::core::option::Option::None => false,
-                      }) || !matches!(
-                        rav1d_msac_decode_bool_adapt(
-                          &mut ts_c_2.msac,
-                          &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.globalmv_mode, {
-                            let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                              i32::wrapping_shr(ctx, 3_u32) & 1,
-                            );
-                            numeric_value
-                          }) {
-                            ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                            ::core::option::Option::None =>
-                              return ::core::result::Result::Err(()),
-                          },
-                        ),
-                        Ok(EntropyBit::One)
-                      ),
-                      (),
-                    ) {
-                      ::core::option::Option::Some(()) => {
-                        inter_mode = GLOBALMV;
-                        let Ok(gmv_2d) = get_gmv_2d(
-                          &*match <[_]>::get(&frame_hdr.gmv, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped_index(match r#ref {
-                                [element, ..] => element,
-                              });
-                            numeric_value
-                          }) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None => {
-                              return ::core::result::Result::Err(());
-                            }
-                          },
-                          Rectangle {
-                            origin: Point { x: t.b.x, y: t.b.y },
-                            size: Size {
-                              width: bw4,
-                              height: bh4,
-                            },
-                          },
-                          frame_hdr,
-                        );
-                        mv1d0 = gmv_2d;
-                        has_subpel_filter = cmp::min(bw4, bh4) == 1
-                          || (*match <[_]>::get(&frame_hdr.gmv, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped_index(match r#ref {
-                                [element, ..] => element,
-                              });
-                            numeric_value
-                          }) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None => {
-                              return ::core::result::Result::Err(());
-                            }
-                          })
-                          .r#type
-                            == Rav1dWarpedMotionType::Translation;
-
-                        drl_idx = Default::default();
-                      }
-                      ::core::option::Option::None => {
-                        has_subpel_filter = true;
-
-                        match ::core::primitive::bool::then_some(
-                          matches!(
-                            rav1d_msac_decode_bool_adapt(
-                              &mut ts_c_2.msac,
-                              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.refmv_mode, {
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(
-                                    i32::wrapping_shr(ctx, 4_u32) & 15,
-                                  );
-                                numeric_value
-                              }) {
-                                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                                ::core::option::Option::None =>
-                                  return ::core::result::Result::Err(()),
-                              },
-                            ),
-                            Ok(EntropyBit::One)
-                          ),
-                          (),
-                        ) {
-                          ::core::option::Option::Some(()) => {
-                            inter_mode = NEARMV;
-                            drl_idx = DrlProximity::Nearer;
-
-                            match ::core::primitive::bool::then_some(n_mvs > 2, ()) {
-                              ::core::option::Option::Some(()) => {
-                                let drl_ctx_v2 =
-                                  get_drl_context(&mvstack, 1).map_err(|_invalid_context| ())?;
-
-                                match ::core::primitive::bool::then_some(
-                                  matches!(
-                                    rav1d_msac_decode_bool_adapt(
-                                      &mut ts_c_2.msac,
-                                      &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.drl_bit, {
-                                        let Ok(numeric_value) =
-                                          console_core_number_conversion::wrapped_index(
-                                            drl_ctx_v2,
-                                          );
-                                        numeric_value
-                                      }) {
-                                        ::core::option::Option::Some(indexed_value_4) => {
-                                          indexed_value_4
-                                        }
-                                        ::core::option::Option::None => {
-                                          return ::core::result::Result::Err(());
-                                        }
-                                      },
-                                    ),
-                                    Ok(EntropyBit::One)
-                                  ),
-                                  (),
-                                ) {
-                                  ::core::option::Option::Some(()) => {
-                                    drl_idx = DrlProximity::Near;
-
-                                    match ::core::primitive::bool::then_some(n_mvs > 3, ()) {
-                                      ::core::option::Option::Some(()) => {
-                                        let drl_ctx_v3 = get_drl_context(&mvstack, 2)
-                                          .map_err(|_invalid_context| ())?;
-
-                                        match ::core::primitive::bool::then_some(
-                                          matches!(
-                                            rav1d_msac_decode_bool_adapt(
-                                              &mut ts_c_2.msac,
-                                              &mut *match <[_]>::get_mut(
-                                                &mut *ts_c_2.cdf.mi.drl_bit,
-                                                {
-                                                  let Ok(numeric_value) =
-                                                    console_core_number_conversion::wrapped_index(
-                                                      drl_ctx_v3,
-                                                    );
-                                                  numeric_value
-                                                }
-                                              ) {
-                                                ::core::option::Option::Some(indexed_value_4) => {
-                                                  indexed_value_4
-                                                }
-                                                ::core::option::Option::None => {
-                                                  return ::core::result::Result::Err(());
-                                                }
-                                              },
-                                            ),
-                                            Ok(EntropyBit::One)
-                                          ),
-                                          (),
-                                        ) {
-                                          ::core::option::Option::Some(()) => {
-                                            drl_idx = DrlProximity::Nearish;
-                                          }
-                                          ::core::option::Option::None => {}
-                                        }
-                                      }
-                                      ::core::option::Option::None => {}
-                                    }
-                                  }
-                                  ::core::option::Option::None => {}
-                                }
-                              }
-                              ::core::option::Option::None => {}
-                            }
-                          }
-                          ::core::option::Option::None => {
-                            inter_mode = NEARESTMV;
-                            drl_idx = DrlProximity::Nearest;
-                          }
-                        }
-
-                        mv1d0 = *match <[_]>::get(
-                          &(*match <[_]>::get(&mvstack, {
-                            let Ok(table_index) = console_core_number_conversion::index({
-                              let Ok(ordinal) = drl_idx.ordinal();
-                              ordinal
-                            });
-                            table_index
-                          }) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None => {
-                              return ::core::result::Result::Err(());
-                            }
-                          })
-                          .mv
-                          .mv,
-                          0,
-                        ) {
-                          ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        };
-
-                        match ::core::primitive::bool::then_some(drl_idx < DrlProximity::Near, ())
-                        {
-                          ::core::option::Option::Some(()) => {
-                            let Ok(()) = fix_mv_precision(frame_hdr, &mut mv1d0);
-                          }
-                          ::core::option::Option::None => {}
-                        }
-                      }
-                    }
-
-                    match debug_block_info!(f, t.b) {
-                      BlockTrace::Enabled => {
-                        println!(
-                          "Post-intermode[{},drl={:?},mv=y:{},x:{},n_mvs={}]: r={}",
-                          inter_mode, drl_idx, mv1d0.y, mv1d0.x, n_mvs, ts_c_2.msac.rng,
-                        );
-                      }
-                      BlockTrace::Disabled => {}
-                    }
-                  }
-                  ::core::option::Option::None => {
-                    has_subpel_filter = true;
-                    inter_mode = NEWMV;
-                    drl_idx = DrlProximity::Nearest;
-
-                    match ::core::primitive::bool::then_some(n_mvs > 1, ()) {
-                      ::core::option::Option::Some(()) => {
-                        let drl_ctx_v1 =
-                          get_drl_context(&mvstack, 0).map_err(|_invalid_context| ())?;
-
-                        match ::core::primitive::bool::then_some(
-                          matches!(
-                            rav1d_msac_decode_bool_adapt(
-                              &mut ts_c_2.msac,
-                              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.drl_bit, {
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(drl_ctx_v1);
-                                numeric_value
-                              }) {
-                                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                                ::core::option::Option::None =>
-                                  return ::core::result::Result::Err(()),
-                              },
-                            ),
-                            Ok(EntropyBit::One)
-                          ),
-                          (),
-                        ) {
-                          ::core::option::Option::Some(()) => {
-                            drl_idx = DrlProximity::Nearer;
-
-                            match ::core::primitive::bool::then_some(n_mvs > 2, ()) {
-                              ::core::option::Option::Some(()) => {
-                                let drl_ctx_v2 =
-                                  get_drl_context(&mvstack, 1).map_err(|_invalid_context| ())?;
-
-                                match ::core::primitive::bool::then_some(
-                                  matches!(
-                                    rav1d_msac_decode_bool_adapt(
-                                      &mut ts_c_2.msac,
-                                      &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.drl_bit, {
-                                        let Ok(numeric_value) =
-                                          console_core_number_conversion::wrapped_index(
-                                            drl_ctx_v2,
-                                          );
-                                        numeric_value
-                                      }) {
-                                        ::core::option::Option::Some(indexed_value_4) => {
-                                          indexed_value_4
-                                        }
-                                        ::core::option::Option::None => {
-                                          return ::core::result::Result::Err(());
-                                        }
-                                      },
-                                    ),
-                                    Ok(EntropyBit::One)
-                                  ),
-                                  (),
-                                ) {
-                                  ::core::option::Option::Some(()) => {
-                                    drl_idx = DrlProximity::Near;
-                                  }
-                                  ::core::option::Option::None => {}
-                                }
-                              }
-                              ::core::option::Option::None => {}
-                            }
-                          }
-                          ::core::option::Option::None => {}
-                        }
-                      }
-                      ::core::option::Option::None => {}
-                    }
-
-                    match ::core::primitive::bool::then_some(n_mvs > 1, ()) {
-                      ::core::option::Option::Some(()) => {
-                        mv1d0 = *match <[_]>::get(
-                          &(*match <[_]>::get(&mvstack, {
-                            let Ok(table_index) = console_core_number_conversion::index({
-                              let Ok(ordinal) = drl_idx.ordinal();
-                              ordinal
-                            });
-                            table_index
-                          }) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None => {
-                              return ::core::result::Result::Err(());
-                            }
-                          })
-                          .mv
-                          .mv,
-                          0,
-                        ) {
-                          ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        };
-                      }
-                      ::core::option::Option::None => {
-                        assert_eq!(drl_idx, DrlProximity::Nearest);
-                        mv1d0 = *match <[_]>::get(
-                          &(*match <[_]>::get(&mvstack, 0) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None => {
-                              return ::core::result::Result::Err(());
-                            }
-                          })
-                          .mv
-                          .mv,
-                          0,
-                        ) {
-                          ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        };
-                        let Ok(()) = fix_mv_precision(frame_hdr, &mut mv1d0);
-                      }
-                    }
-
-                    match debug_block_info!(f, t.b) {
-                      BlockTrace::Enabled => {
-                        println!(
-                          "Post-intermode[{},drl={:?}]: r={}",
-                          inter_mode, drl_idx, ts_c_2.msac.rng,
-                        );
-                      }
-                      BlockTrace::Disabled => {}
-                    }
-
-                    read_mv_residual(ts_c_2, &mut mv1d0, residual_precision)
-                      .map_err(|_invalid_motion_residual| ())?;
-
-                    match debug_block_info!(f, t.b) {
-                      BlockTrace::Enabled => {
-                        println!(
-                          "Post-residualmv[mv=y:{},x:{}]: r={}",
-                          mv1d0.y, mv1d0.x, ts_c_2.msac.rng,
-                        );
-                      }
-                      BlockTrace::Disabled => {}
-                    }
-                  }
-                }
-
-                let drl_idx_3 = drl_idx;
-                let mv1d0_2 = mv1d0;
-
-                let interintra_mode;
-                let interintra_type;
-                let mut wedge_idx = Default::default();
-                let Ok(ii_sz_grp) = console_core_number_conversion::wrapped::<_, i32>(
-                  *match <[_]>::get(&dav1d_ymode_size_context, {
-                    let Ok(table_index) = console_core_number_conversion::index({
-                      let Ok(ordinal) = bs.ordinal();
-                      ordinal
-                    });
-                    table_index
-                  }) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                );
-
-                match ::core::primitive::bool::then_some(
-                  seq_hdr.inter_intra != 0
-                    && interintra_allowed_mask
-                      & u32::wrapping_shl(1, {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped::<_, u32>({
-                            let Ok(ordinal) = bs.ordinal();
-                            ordinal
-                          });
-                        numeric_value
-                      })
-                      != 0
-                    && matches!(
-                      rav1d_msac_decode_bool_adapt(
-                        &mut ts_c_2.msac,
-                        &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.interintra, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(ii_sz_grp);
-                          numeric_value
-                        }) {
-                          ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        },
-                      ),
-                      Ok(EntropyBit::One)
-                    ),
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    interintra_mode = InterIntraPredMode::from_repr({
-                      let Ok(numeric_value) = console_core_number_conversion::wrapped_index({
-                        let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt4(
-                          &mut ts_c_2.msac,
-                          &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.interintra_mode, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped_index(ii_sz_grp);
-                            numeric_value
-                          }) {
-                            ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                            ::core::option::Option::None => {
-                              return ::core::result::Result::Err(());
-                            }
-                          },
-                          u8::wrapping_sub(
-                            {
-                              let Ok(numeric_value) =
-                                console_core_number_conversion::wrapped::<_, u8>(
-                                  InterIntraPredMode::COUNT,
-                                );
-                              numeric_value
-                            },
-                            1,
-                          ),
-                        );
-                        explicit_value
-                      });
-                      numeric_value
-                    })
-                    .ok_or(())?;
-                    let Ok(wedge_ctx) = console_core_number_conversion::wrapped::<_, i32>(
-                      *match <[_]>::get(&dav1d_wedge_ctx_lut, {
-                        let Ok(table_index) = console_core_number_conversion::index({
-                          let Ok(ordinal) = bs.ordinal();
-                          ordinal
-                        });
-                        table_index
-                      }) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                    );
-                    let ii_type = match ::core::primitive::bool::then_some(
-                      matches!(
-                        rav1d_msac_decode_bool_adapt(
-                          &mut ts_c_2.msac,
-                          &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.interintra_wedge, {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped_index(wedge_ctx);
-                            numeric_value
-                          }) {
-                            ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                            ::core::option::Option::None =>
-                              return ::core::result::Result::Err(()),
-                          },
-                        ),
-                        Ok(EntropyBit::One)
-                      ),
-                      (),
-                    ) {
-                      ::core::option::Option::Some(()) => InterIntraType::Wedge,
-                      ::core::option::Option::None => InterIntraType::Blend,
-                    };
-                    interintra_type = Some(ii_type);
-
-                    match ::core::primitive::bool::then_some(ii_type == InterIntraType::Wedge, ())
-                    {
-                      ::core::option::Option::Some(()) => {
-                        wedge_idx = {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped::<_, u8>({
-                              let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt16(
-                                &mut ts_c_2.msac,
-                                &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.wedge_idx, {
-                                  let Ok(numeric_value) =
-                                    console_core_number_conversion::wrapped_index(wedge_ctx);
-                                  numeric_value
-                                }) {
-                                  ::core::option::Option::Some(indexed_value_4) => {
-                                    indexed_value_4
-                                  }
-                                  ::core::option::Option::None => {
-                                    return ::core::result::Result::Err(());
-                                  }
-                                },
-                                15,
-                              );
-                              explicit_value
-                            });
-                          numeric_value
-                        };
-                      }
-                      ::core::option::Option::None => {}
-                    }
-                  }
-                  ::core::option::Option::None => {
-                    interintra_mode = Default::default();
-                    interintra_type = None;
-                  }
-                }
-
-                let wedge_idx_3 = wedge_idx;
-
-                match ::core::primitive::bool::then_some(
-                  debug_block_info!(f, t.b) == BlockTrace::Enabled
-                    && seq_hdr.inter_intra != 0
-                    && interintra_allowed_mask
-                      & u32::wrapping_shl(1, {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped::<_, u32>({
-                            let Ok(ordinal) = bs.ordinal();
-                            ordinal
-                          });
-                        numeric_value
-                      })
-                      != 0,
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    println!(
-                      "Post-interintra[t={:?},m={:?},w={}]: r={}",
-                      interintra_type, interintra_mode, wedge_idx_3, ts_c_2.msac.rng,
-                    );
-                  }
-                  ::core::option::Option::None => {}
-                }
-
-                let motion_mode;
-                let mut matrix = None;
-
-                match ::core::primitive::bool::then_some(
-                  frame_hdr.switchable_motion_mode != 0
-                    && interintra_type.is_none()
-                    && cmp::min(bw4, bh4) >= 2
-                    && !(!frame_hdr.force_integer_mv
-                      && inter_mode == GLOBALMV
-                      && (*match <[_]>::get(&frame_hdr.gmv, {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(match r#ref {
-                            [element, ..] => element,
-                          });
-                        numeric_value
-                      }) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      })
-                      .r#type
-                        > Rav1dWarpedMotionType::Translation)
-                    && (have_left
-                      && matches!(
-                        odd_neighbor_prediction(&*match <[_]>::get(
-                          &**t.l.intra.get_mut(),
-                          ({
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped_index(by4);
-                            numeric_value
-                          })..({
-                            let Ok(numeric_value) = console_core_number_conversion::wrapped_index(
-                              i32::wrapping_add(by4, h4),
-                            );
-                            numeric_value
-                          }),
-                        ) {
-                          ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        }),
-                        Ok(OddNeighborPrediction::HasInter)
-                      )
-                      || have_top
-                        && matches!(
-                          odd_neighbor_prediction(&ta.intra.index(
-                            ({
-                              let Ok(numeric_value) =
-                                console_core_number_conversion::wrapped_index(bx4);
-                              numeric_value
-                            })..({
-                              let Ok(numeric_value) =
-                                console_core_number_conversion::wrapped_index(i32::wrapping_add(
-                                  bx4, w4,
-                                ));
-                              numeric_value
-                            }),
-                          )),
-                          Ok(OddNeighborPrediction::HasInter)
-                        )),
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    let [reference, _other] = r#ref;
-                    let mask = find_matching_ref(
-                      f,
-                      t,
-                      WarpNeighborQuery {
-                        block: Size {
-                          width: bw4,
-                          height: bh4,
-                        },
-                        visible: Size {
-                          width: w4,
-                          height: h4,
-                        },
-                        availability: NeighborAvailability::from((have_top, have_left)),
-                        edge_flags: intra_edge_flags,
-                        reference,
-                      },
-                    )
-                    .map_err(|_invalid_warp_neighbor| ())?;
-                    let allow_warp = i32::from(
-                      (*match <[_]>::get(
-                        &(*match <[_]>::get(&f.svc, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(match r#ref {
-                              [element, ..] => element,
-                            });
-                          numeric_value
-                        }) {
-                          ::core::option::Option::Some(indexed_value) => indexed_value,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        }),
-                        0,
-                      ) {
-                        ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      })
-                      .scale
-                        == 0
-                        && !frame_hdr.force_integer_mv
-                        && frame_hdr.warp_motion != 0
-                        && (match mask {
-                          [element, ..] => element,
-                        }) | (match mask {
-                          [_, element, ..] => element,
-                        }) != 0,
-                    );
-
-                    motion_mode = MotionMode::from_repr(
-                      match ::core::primitive::bool::then_some(allow_warp != 0, ()) {
-                        ::core::option::Option::Some(()) => {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index({
-                              let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt4(
-                                &mut ts_c_2.msac,
-                                &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.motion_mode, {
-                                  let Ok(table_index) = console_core_number_conversion::index({
-                                    let Ok(ordinal) = bs.ordinal();
-                                    ordinal
-                                  });
-                                  table_index
-                                }) {
-                                  ::core::option::Option::Some(indexed_value_4) => {
-                                    indexed_value_4
-                                  }
-                                  ::core::option::Option::None => {
-                                    return ::core::result::Result::Err(());
-                                  }
-                                },
-                                2,
-                              );
-                              explicit_value
-                            });
-                          numeric_value
-                        }
-                        ::core::option::Option::None => {
-                          match ::console_core_number_conversion::index::<::core::primitive::u8>(
-                            ::core::primitive::u8::from(matches!(
-                              rav1d_msac_decode_bool_adapt(
-                                &mut ts_c_2.msac,
-                                &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.obmc, {
-                                  let Ok(table_index) = console_core_number_conversion::index({
-                                    let Ok(ordinal) = bs.ordinal();
-                                    ordinal
-                                  });
-                                  table_index
-                                }) {
-                                  ::core::option::Option::Some(indexed_value_4) =>
-                                    indexed_value_4,
-                                  ::core::option::Option::None => {
-                                    return ::core::result::Result::Err(());
-                                  }
-                                },
-                              ),
-                              Ok(EntropyBit::One)
-                            )),
-                          ) {
-                            ::core::result::Result::Ok(converted_position) => converted_position,
-                          }
-                        }
-                      },
-                    )
-                    .ok_or(())?;
-
-                    match ::core::primitive::bool::then_some(motion_mode == MotionMode::Warp, ())
-                    {
-                      ::core::option::Option::Some(()) => {
-                        has_subpel_filter = false;
-                        let grid = WarpNeighborGrid {
-                          blocks: &f.rf.r,
-                          tile: &t.rt,
-                          origin: Point { x: t.b.x, y: t.b.y },
-                        };
-                        t.warpmv = derive_warpmv(
-                          &grid,
-                          Size {
-                            width: bw4,
-                            height: bh4,
-                          },
-                          mask,
-                          mv1d0_2,
-                          t.warpmv.clone(),
-                        )
-                        .map_err(|_invalid_warp_sample| ())?;
-
-                        match debug_block_info!(f, t.b) {
-                          BlockTrace::Enabled => {
-                            println!(
-                              "[ {} {} {}\n  {} {} {} ]\n\
-                            alpha={}, beta={}, gamma={}, deta={}, mv=y:{},x:{}",
-                              SignAbs(match t.warpmv.matrix {
-                                [element, ..] => element,
-                              }),
-                              SignAbs(match t.warpmv.matrix {
-                                [_, element, ..] => element,
-                              }),
-                              SignAbs(match t.warpmv.matrix {
-                                [_, _, element, ..] => element,
-                              }),
-                              SignAbs(match t.warpmv.matrix {
-                                [_, _, _, element, ..] => element,
-                              }),
-                              SignAbs(match t.warpmv.matrix {
-                                [_, _, _, _, _explicit_element, ..] => _explicit_element,
-                              }),
-                              SignAbs(match t.warpmv.matrix {
-                                [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
-                              }),
-                              SignAbs(<::core::primitive::i32 as ::core::convert::From<
-                                ::core::primitive::i16,
-                              >>::from(t.warpmv.alpha())),
-                              SignAbs(<::core::primitive::i32 as ::core::convert::From<
-                                ::core::primitive::i16,
-                              >>::from(t.warpmv.beta())),
-                              SignAbs(<::core::primitive::i32 as ::core::convert::From<
-                                ::core::primitive::i16,
-                              >>::from(t.warpmv.gamma())),
-                              SignAbs(<::core::primitive::i32 as ::core::convert::From<
-                                ::core::primitive::i16,
-                              >>::from(t.warpmv.delta())),
-                              mv1d0_2.y,
-                              mv1d0_2.x,
-                            );
-                          }
-                          BlockTrace::Disabled => {}
-                        }
-
-                        match ::core::primitive::bool::then_some(t.frame_thread.pass != 0, ()) {
-                          ::core::option::Option::Some(()) => {
-                            matrix = Some(
-                              match ::core::primitive::bool::then_some(
-                                t.warpmv.r#type == Rav1dWarpedMotionType::Affine,
-                                (),
-                              ) {
-                                ::core::option::Option::Some(()) => [
-                                  i32::wrapping_sub(
-                                    match t.warpmv.matrix {
-                                      [_, _, element, ..] => element,
-                                    },
-                                    0x10000,
-                                  ),
-                                  match t.warpmv.matrix {
-                                    [_, _, _, _explicit_element, ..] => _explicit_element,
-                                  },
-                                  match t.warpmv.matrix {
-                                    [_, _, _, _, _explicit_element, ..] => _explicit_element,
-                                  },
-                                  i32::wrapping_sub(
-                                    match t.warpmv.matrix {
-                                      [_, _, _, _, _, _explicit_element, ..] => _explicit_element,
-                                    },
-                                    0x10000,
-                                  ),
-                                ]
-                                .map(|coef| {
-                                  let Ok(coef) =
-                                    console_core_number_conversion::wrapped::<_, i16>(coef);
-
-                                  debug_assert!(coef < i16::wrapping_shl(1, 13_u32));
-                                  debug_assert!(
-                                    coef >= (i16::wrapping_shl(1, 13_u32)).wrapping_neg()
-                                  );
-                                  coef
-                                }),
-                                ::core::option::Option::None => [i16::MIN, 0, 0, 0],
-                              },
-                            );
-                          }
-                          ::core::option::Option::None => {}
-                        }
-                      }
-                      ::core::option::Option::None => {}
-                    }
-
-                    match debug_block_info!(f, t.b) {
-                      BlockTrace::Enabled => {
-                        println!(
-                          "Post-motionmode[{:?}]: r={} [mask: 0x{:x}/0x{:x}]",
-                          motion_mode,
-                          ts_c_2.msac.rng,
-                          *match <[_]>::get(&mask, 0) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None =>
-                              return ::core::result::Result::Err(()),
-                          },
-                          *match <[_]>::get(&mask, 1) {
-                            ::core::option::Option::Some(indexed_value) => indexed_value,
-                            ::core::option::Option::None =>
-                              return ::core::result::Result::Err(()),
-                          },
-                        );
-                      }
-                      BlockTrace::Disabled => {}
-                    }
-                  }
-                  ::core::option::Option::None => {
-                    motion_mode = MotionMode::Translation;
-                  }
-                }
-
-                let matrix_2 = matrix;
-
-                Inter {
-                  nd: match matrix_2 {
-                    None => <crate::src::levels::Av1BlockInterNd as ::core::convert::From<
-                      crate::src::levels::Av1BlockInter1d,
-                    >>::from(Av1BlockInter1d {
-                      mv: [mv1d0_2, Default::default()],
-                      wedge_idx: wedge_idx_3,
-                      interintra_mode:
-                        <crate::src::levels::MaskedInterIntraPredMode as ::core::convert::From<
-                          crate::src::levels::InterIntraPredMode,
-                        >>::from(interintra_mode),
-                      ..Default::default()
-                    }),
-                    Some(matrix_3) => {
-                      <crate::src::levels::Av1BlockInterNd as ::core::convert::From<
-                        crate::src::levels::Av1BlockInter2d,
-                      >>::from(Av1BlockInter2d {
-                        mv2d: mv1d0_2,
-                        matrix: matrix_3,
-                      })
-                    }
-                  },
-                  comp_type: None,
-                  inter_mode,
-                  motion_mode,
-                  drl_idx: drl_idx_3,
-                  r#ref,
-                  interintra_type,
-                }
-              }
-            },
-          };
-
-          let filter = match ::core::primitive::bool::then_some(
-            frame_hdr.subpel_filter_mode == Rav1dFilterMode::Switchable,
-            (),
-          ) {
-            ::core::option::Option::Some(()) => {
-              match ::core::primitive::bool::then_some(has_subpel_filter, ()) {
-                ::core::option::Option::Some(()) => {
-                  let references = match comp_type {
-                    Some(_) => ReferenceArity::Compound,
-                    None => ReferenceArity::Single,
-                  };
-                  let [filter_reference, _other_reference] = r#ref;
-                  let ctx1 = get_filter_ctx(
-                    BlockNeighbors {
-                      above: ta,
-                      left: &t.l,
-                      location: Bxy { x: bx4, y: by4 },
-                      availability: neighbors,
-                    },
-                    references,
-                    FilterAxis::Vertical,
-                    filter_reference,
-                  )
-                  .map_err(|_invalid_context| ())?;
-                  let filter0 = Rav1dFilterMode::from_repr({
-                    let Ok(numeric_value) = console_core_number_conversion::wrapped_index({
-                      let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt4(
-                        &mut ts_c_2.msac,
-                        &mut *match <[_]>::get_mut(
-                          &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.filter, 0) {
-                            ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                            ::core::option::Option::None => {
-                              return ::core::result::Result::Err(());
-                            }
-                          },
-                          {
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped_index(ctx1);
-                            numeric_value
-                          },
-                        ) {
-                          ::core::option::Option::Some(indexed_value) => indexed_value,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        },
-                        u8::wrapping_sub(u8::from(Rav1dFilterMode::N_SWITCHABLE_FILTERS), 1),
-                      );
-                      explicit_value
-                    });
-                    numeric_value
-                  })
-                  .ok_or(())?;
-
-                  match ::core::primitive::bool::then_some(seq_hdr.dual_filter != 0, ()) {
-                    ::core::option::Option::Some(()) => {
-                      let ctx2 = get_filter_ctx(
-                        BlockNeighbors {
-                          above: ta,
-                          left: &t.l,
-                          location: Bxy { x: bx4, y: by4 },
-                          availability: neighbors,
-                        },
-                        references,
-                        FilterAxis::Horizontal,
-                        filter_reference,
-                      )
-                      .map_err(|_invalid_context| ())?;
-
-                      match debug_block_info!(f, t.b) {
-                        BlockTrace::Enabled => {
-                          println!(
-                            "Post-subpel_filter1[{:?},ctx={}]: r={}",
-                            filter0, ctx1, ts_c_2.msac.rng,
-                          );
-                        }
-                        BlockTrace::Disabled => {}
-                      }
-
-                      let filter1 = Rav1dFilterMode::from_repr({
-                        let Ok(numeric_value) = console_core_number_conversion::wrapped_index({
-                          let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt4(
-                            &mut ts_c_2.msac,
-                            &mut *match <[_]>::get_mut(
-                              &mut *match <[_]>::get_mut(&mut *ts_c_2.cdf.mi.filter, 1) {
-                                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                                ::core::option::Option::None => {
-                                  return ::core::result::Result::Err(());
-                                }
-                              },
-                              {
-                                let Ok(numeric_value) =
-                                  console_core_number_conversion::wrapped_index(ctx2);
-                                numeric_value
-                              },
-                            ) {
-                              ::core::option::Option::Some(indexed_value) => indexed_value,
-                              ::core::option::Option::None => {
-                                return ::core::result::Result::Err(());
-                              }
-                            },
-                            u8::wrapping_sub(u8::from(Rav1dFilterMode::N_SWITCHABLE_FILTERS), 1),
-                          );
-                          explicit_value
-                        });
-                        numeric_value
-                      })
-                      .ok_or(())?;
-
-                      match debug_block_info!(f, t.b) {
-                        BlockTrace::Enabled => {
-                          println!(
-                            "Post-subpel_filter2[{:?},ctx={}]: r={}",
-                            filter1, ctx2, ts_c_2.msac.rng,
-                          );
-                        }
-                        BlockTrace::Disabled => {}
-                      }
-
-                      [filter0, filter1]
-                    }
-                    ::core::option::Option::None => {
-                      match debug_block_info!(f, t.b) {
-                        BlockTrace::Enabled => {
-                          println!(
-                            "Post-subpel_filter[{:?},ctx={}]: r={}",
-                            filter0, ctx1, ts_c_2.msac.rng
-                          );
-                        }
-                        BlockTrace::Disabled => {}
-                      }
-
-                      [filter0; 2]
-                    }
-                  }
-                }
-                ::core::option::Option::None => [Rav1dFilterMode::Regular8Tap; 2],
-              }
-            }
-            ::core::option::Option::None => [frame_hdr.subpel_filter_mode; 2],
-          };
-          let [horizontal, vertical] = filter;
-          let Ok(vertical_index) = console_core_number_conversion::index(u8::from(vertical));
-          let Ok(horizontal_index) = console_core_number_conversion::index(u8::from(horizontal));
-          let direction = dav1d_filter_2d.get(vertical_index).ok_or(())?;
-          let &filter2d = direction.get(horizontal_index).ok_or(())?;
-
-          let VarTx {
-            uvtx,
-            max_ytx,
-            tx_split0,
-            tx_split1,
-          } = read_vartx_tree(
-            t,
-            f,
-            ts_c_2,
-            b,
-            VariableTransformBlock {
-              size: bs,
-              local: Bxy { x: bx4, y: by4 },
-            },
-          )
-          .map_err(|_invalid_transform_tree| ())?;
-
-          b.uvtx = uvtx;
-          let inter = Av1BlockInter {
-            nd,
-            comp_type,
-            inter_mode,
-            motion_mode,
-            drl_idx,
-            r#ref,
-            max_ytx,
-            filter2d,
-            interintra_type,
-            tx_split0,
-            tx_split1,
-          };
-          b.ii = Av1BlockIntraInter::Inter(inter);
-
-          match ::core::primitive::bool::then_some(t.frame_thread.pass == 1, ()) {
-            ::core::option::Option::Some(()) => {
-              (bd_fn.read_coef_blocks)(f, t, ts_c_2, bs, b).map_err(|_| ())?;
-            }
-            ::core::option::Option::None => {
-              (bd_fn.recon_b_inter)(f, t, Some(ts_c_2), bs, b, &inter)?;
-            }
-          }
-
-          let frame_hdr_4 = f.frame_hdr().map_err(|_missing_header| ())?;
-
-          match ::core::primitive::bool::then_some(frame_hdr_4.loopfilter.level_y != [0, 0], ()) {
-            ::core::option::Option::Some(()) => {
-              let is_globalmv = i32::from(
-                inter_mode
-                  == match ::core::primitive::bool::then_some(is_comp, ()) {
-                    ::core::option::Option::Some(()) => GLOBALMV_GLOBALMV,
-                    ::core::option::Option::None => GLOBALMV,
-                  },
-              );
-              let tx_split = [
-                ({
-                  let Ok(numeric_value) =
-                    console_core_number_conversion::wrapped::<_, u16>(tx_split0);
-                  numeric_value
-                }),
-                tx_split1,
-              ];
-              let mut ytx = max_ytx;
-              let mut uvtx_2 = b.uvtx;
-
-              let Ok(b_seg_id) = b.seg_id.get();
-
-              match ::core::primitive::bool::then_some(
-                *match <[_]>::get(
-                  &frame_hdr_4.segmentation.lossless,
-                  match ::console_core_number_conversion::index(b_seg_id) {
-                    ::core::result::Result::Ok(native_position__) => native_position__,
-                  },
-                ) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
-                (),
-              ) {
-                ::core::option::Option::Some(()) => {
-                  ytx = TxfmSize::S4x4;
-                  uvtx_2 = TxfmSize::S4x4;
-                }
-                ::core::option::Option::None => {}
-              }
-
-              let Ok(get) = ts.lflvl.get();
-              let lflvl = match get {
-                TileStateRef::Frame => &f.lf.lvl,
-                TileStateRef::Local => &*ts.lflvlmem.try_read().ok_or(())?,
-              };
-              let mut a_uv_guard;
-              let l_uv_slice;
-
-              match create_lf_mask(
-                FilterMaskBlock {
-                  mask: {
-                    let checked_value_6 =
-                      f.loop_filter_mask(t.lf_mask).map_err(|_invalid_mask| ())?;
-                    checked_value_6
-                  },
-                  level_cache: &f.lf.level,
-                  stride: i64::from(f.b4_stride),
-                  levels: {
-                    let Ok(segment) = b.seg_id.get();
-                    lflvl
-                      .get(match ::console_core_number_conversion::index(segment) {
-                        ::core::result::Result::Ok(native_position___) => native_position___,
-                      })
-                      .ok_or(())?
-                  },
-                  origin: t.b,
-                  frame: console_core_geometry::Size {
-                    width: f.w4,
-                    height: f.h4,
-                  },
-                  size: bs,
-                  ytx: ytx,
-                  uvtx: uvtx_2,
-                  layout: f.cur.p.layout,
-                  luma: EdgeNeighbors {
-                    above: &mut ta.tx_lpf_y.index_mut((
-                      ({
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(bx4);
-                        numeric_value
-                      })..,
-                      ..({
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(bw4);
-                        numeric_value
-                      }),
-                    )),
-                    left: &mut *match <[_]>::get_mut(
-                      &mut *match <[_]>::get_mut(
-                        &mut **t.l.tx_lpf_y.get_mut(),
-                        ({
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(by4);
-                          numeric_value
-                        })..,
-                      ) {
-                        ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                      ..({
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(bh4);
-                        numeric_value
-                      }),
-                    ) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                  },
-                  chroma: match ::core::primitive::bool::then_some(has_chroma, ()) {
-                    ::core::option::Option::Some(()) => {
-                      a_uv_guard = ta.tx_lpf_uv.index_mut((
-                        ({
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(cbx4);
-                          numeric_value
-                        })..,
-                        ..({
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(cbw4);
-                          numeric_value
-                        }),
-                      ));
-                      l_uv_slice = &mut *match <[_]>::get_mut(
-                        &mut *match <[_]>::get_mut(
-                          &mut **t.l.tx_lpf_uv.get_mut(),
-                          ({
-                            let Ok(numeric_value) =
-                              console_core_number_conversion::wrapped_index(cby4);
-                            numeric_value
-                          })..,
-                        ) {
-                          ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        },
-                        ..({
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(cbh4);
-                          numeric_value
-                        }),
-                      ) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      };
-                      Some((&mut *a_uv_guard, l_uv_slice))
-                    }
-                    ::core::option::Option::None => None,
-                  },
-                },
-                FilterMaskPrediction::Inter {
-                  reference: match r#ref {
-                    [first, ..] => first.wrapping_add(1),
-                  },
-                  motion: match is_globalmv {
-                    0 => FilterMaskMotion::Other,
-                    _ => FilterMaskMotion::Global,
-                  },
-                  scan: match b.skip {
-                    0 => EdgeScan::AllTransforms,
-                    _ => EdgeScan::Boundary,
-                  },
-                  split_masks: &tx_split,
-                },
-              ) {
-                Ok(()) => {}
-                Err(error) => {
-                  console_core_logging::debug!(
-                    "Could not create an AV1 inter filter mask: {error:?}"
-                  );
-                  return Err(());
-                }
-              }
-            }
-
-            ::core::option::Option::None => {}
-          }
-
-          match ::core::primitive::bool::then_some(is_comp, ()) {
-            ::core::option::Option::Some(()) => {
-              splat_tworef_mv(
-                c,
-                t,
-                &f.rf,
-                bs,
-                &inter,
-                Size {
-                  width: bw4,
-                  height: bh4,
-                },
-              )
-              .map_err(|_| ())?;
-            }
-            ::core::option::Option::None => {
-              splat_oneref_mv(
-                c,
-                t,
-                &f.rf,
-                bs,
-                &inter,
-                Size {
-                  width: bw4,
-                  height: bh4,
-                },
-              )
-              .map_err(|_| ())?;
-            }
-          }
-
-          case_set_al! {
-              <32, false>
-
-              l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4); numeric_value })
-                  also |case| { ({ let Ok(explicit_value) = case.set({ let [_, _explicit_part, ..] = &mut t.pal_sz_uv; _explicit_part }, 0); explicit_value }); },
-              a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx4); numeric_value })
-                  also |case| { ({ let Ok(explicit_value) = case.set({ let [_explicit_part, ..] = &mut t.pal_sz_uv; _explicit_part }, 0); explicit_value }); },
-              seg_pred = (<::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(seg_pred), <::core::primitive::u8 as ::core::convert::From<::core::primitive::bool>>::from(seg_pred)),
-              skip_mode = (b.skip_mode, b.skip_mode),
-              intra = (0, 0),
-              skip = (b.skip, b.skip),
-              pal_sz = (0, 0),
-              tx_intra = ({
-                let &[_, _, _, height] = b_dim;
-                let Ok(height_log) = console_core_number_conversion::wrapped::<_, i8>(height);
-                height_log
-              }, {
-                let &[_, _, width, _] = b_dim;
-                let Ok(width_log) = console_core_number_conversion::wrapped::<_, i8>(width);
-                width_log
-              }),
-              comp_type = (comp_type, comp_type),
-              filter[0] = (match filter { [_explicit_element, ..] => _explicit_element }, match filter { [_explicit_element, ..] => _explicit_element }),
-              filter[1] = (match filter { [_, _explicit_element, ..] => _explicit_element }, match filter { [_, _explicit_element, ..] => _explicit_element }),
-              mode = (inter_mode, inter_mode),
-              r#ref[0] = (match r#ref { [element, ..] => element }, match r#ref { [element, ..] => element }),
-              r#ref[1] = (match r#ref { [_, element, ..] => element }, match r#ref { [_, element, ..] => element }),
-          }
-
-          match ::core::primitive::bool::then_some(has_chroma, ()) {
-            ::core::option::Option::Some(()) => {
-              case_set_al! {
-                  <32, false>
-                  l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbh4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cby4); numeric_value }),
-                  a: (ta, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbw4); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cbx4); numeric_value }),
-                  uvmode = (DC_PRED, DC_PRED),
-              }
-            }
-            ::core::option::Option::None => {}
-          }
-        }
+  }
+}
+
+fn read_after_skip<'frame>(
+  syntax: &BlockSyntaxContext<'frame>,
+  task: &mut Rav1dTaskContext,
+  block: &mut Av1Block,
+  tile: &mut Rav1dTileStateContext,
+  before: SegmentHeader<'frame>,
+) -> Result<SegmentHeader<'frame>, ()> {
+  let segmentation = &syntax.frame_header.segmentation;
+
+  match (
+    segmentation.enabled,
+    segmentation.update_map,
+    segmentation.seg_data.preskip,
+  ) {
+    (0, _, _) | (_, 0, _) | (_, _, 1..) => return Ok(before),
+    (_, _, 0) => {}
+  }
+
+  let coding = match block.skip {
+    0 => SegmentSyntax::ReadDelta,
+    _ => SegmentSyntax::SpatialPrediction,
+  };
+  let header = read_updated_segment(syntax, task, block, tile, coding)?;
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!("Post-segid[postskip;{}]: r={}", block.seg_id, tile.msac.rng),
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(header)
+}
+
+fn read_prediction_form(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  block: &Av1Block,
+  tile: &mut Rav1dTileStateContext,
+  segment: Option<&Rav1dSegmentationData>,
+) -> Result<BlockPredictionForm, ()> {
+  let header = syntax.frame_header;
+
+  match block.skip_mode {
+    0 => {}
+    _ => {
+      return Ok(match header.frame_type.is_key_or_intra().then_some(()) {
+        Some(()) => BlockPredictionForm::IntraCopy,
+        None => BlockPredictionForm::Inter,
+      });
+    }
+  }
+
+  match header.frame_type.is_inter_or_switch().then_some(()) {
+    Some(()) => read_inter_or_intra(syntax, task, tile, segment),
+    None => {
+      match header.allow_intrabc.then_some(()) {
+        Some(()) => {}
+        None => return Ok(BlockPredictionForm::Intra),
+      }
+
+      let Ok(copy) = rav1d_msac_decode_bool_adapt(&mut tile.msac, &mut *tile.cdf.m.intrabc);
+      let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+      match trace {
+        BlockTrace::Enabled => println!(
+          "Post-intrabcflag[{}]: r={}",
+          copy == EntropyBit::Zero,
+          tile.msac.rng,
+        ),
+        BlockTrace::Disabled => {}
+      }
+
+      Ok(match copy {
+        EntropyBit::Zero => BlockPredictionForm::Intra,
+        EntropyBit::One => BlockPredictionForm::IntraCopy,
+      })
+    }
+  }
+}
+
+fn read_inter_or_intra(
+  syntax: &BlockSyntaxContext<'_>,
+  task: &Rav1dTaskContext,
+  tile: &mut Rav1dTileStateContext,
+  segment: Option<&Rav1dSegmentationData>,
+) -> Result<BlockPredictionForm, ()> {
+  match segment.filter(|features| features.r#ref >= 0 || features.globalmv != 0) {
+    Some(features) => {
+      return Ok(match features.r#ref {
+        0 => BlockPredictionForm::Intra,
+        _ => BlockPredictionForm::Inter,
+      });
+    }
+    None => {}
+  }
+
+  let Point { x, y } = syntax.geometry.luma.origin;
+  let context = get_intra_ctx(BlockNeighbors {
+    above: syntax.above,
+    left: &task.l,
+    location: Bxy { x, y },
+    availability: syntax.neighbors,
+  })
+  .map_err(|_invalid_context| ())?;
+  let inter = reference_bit(&mut tile.msac, &mut *tile.cdf.mi.intra, context)?;
+  let Ok(trace) = debug_block_info(syntax.frame, task.b);
+
+  match trace {
+    BlockTrace::Enabled => println!(
+      "Post-intra[{}]: r={}",
+      inter == EntropyBit::Zero,
+      tile.msac.rng,
+    ),
+    BlockTrace::Disabled => {}
+  }
+
+  Ok(match inter {
+    EntropyBit::Zero => BlockPredictionForm::Intra,
+    EntropyBit::One => BlockPredictionForm::Inter,
+  })
+}
+
+fn read_block_prefix<'frame>(
+  syntax: &BlockSyntaxContext<'frame>,
+  t: &mut Rav1dTaskContext,
+  b: &mut Av1Block,
+  tile: &mut Rav1dTileStateContext,
+) -> Result<BlockSyntaxPrefix<'frame>, ()> {
+  let before = read_before_skip(syntax, t, b, tile)?;
+  read_block_skip_modes(syntax, t, b, tile, before.features)?;
+  let decoded = read_after_skip(syntax, t, b, tile, before)?;
+
+  match b.skip {
+    0 => {
+      read_block_cdef(syntax.frame, t, &mut tile.msac, syntax.geometry.luma.size)
+        .map_err(|_invalid_cdef| ())?;
+    }
+    _ => {}
+  }
+
+  read_block_delta(syntax, t, b, tile)?;
+  let prediction = read_prediction_form(syntax, t, b, tile, decoded.features)?;
+  Ok(BlockSyntaxPrefix {
+    prediction,
+    segment: decoded.features,
+    segment_origin: decoded.origin,
+  })
+}
+
+#[derive(Clone, Copy)]
+struct TrackedChroma {
+  dimensions: Size<i32>,
+  vertical_subsampling: i32,
+}
+
+struct ReferenceTrackingGeometry<'a> {
+  dimensions: &'a [u8; 4],
+  visible: Size<i32>,
+  chroma: Option<TrackedChroma>,
+}
+
+struct ReferenceTracking<'a> {
+  frame: &'a Rav1dFrameData,
+  header: &'a Rav1dFrameHeader,
+  task: &'a Rav1dTaskContext,
+  inter: &'a Av1BlockInter,
+  geometry: ReferenceTrackingGeometry<'a>,
+}
+
+#[derive(Clone, Copy)]
+enum TrackedPlane {
+  Luma,
+  Chroma(TrackedChroma),
+}
+
+enum ReferenceProjection {
+  Translated,
+  Warped,
+}
+
+impl ReferenceTracking<'_> {
+  fn affine_motion(
+    &self,
+    reference: u8,
+    count: ReferenceArity,
+    plane: TrackedPlane,
+  ) -> Rav1dResult<Option<&Rav1dWarpedMotionParams>> {
+    let &[width, height, ..] = self.geometry.dimensions;
+    let allowed_size = match (count, plane) {
+      (ReferenceArity::Single, TrackedPlane::Luma) => width.min(height) > 1,
+      (ReferenceArity::Compound, TrackedPlane::Luma) => true,
+      (_, TrackedPlane::Chroma(chroma)) => {
+        chroma.dimensions.width.min(chroma.dimensions.height) > 1
+      }
+    };
+
+    match allowed_size.then_some(()) {
+      Some(()) => {}
+      None => return Ok(None),
+    }
+
+    let global_mode = match count {
+      ReferenceArity::Single => GLOBALMV,
+      ReferenceArity::Compound => GLOBALMV_GLOBALMV,
+    };
+    let Ok(index) = console_core_number_conversion::index(reference);
+    let global_warp = match (self.inter.inter_mode == global_mode).then_some(()) {
+      Some(()) => {
+        let &allowed = self.frame.gmv_warp_allowed.get(index).ok_or(EINVAL)?;
+        allowed != 0
+      }
+      None => false,
+    };
+    let local_warp = matches!(count, ReferenceArity::Single)
+      && self.inter.motion_mode == MotionMode::Warp
+      && self.task.warpmv.r#type > Rav1dWarpedMotionType::Translation;
+
+    match (global_warp || local_warp).then_some(()) {
+      Some(()) => {}
+      None => return Ok(None),
+    }
+
+    match (count, self.inter.motion_mode) {
+      (ReferenceArity::Single, MotionMode::Warp) => Ok(Some(&self.task.warpmv)),
+      (ReferenceArity::Single, MotionMode::Translation | MotionMode::Obmc)
+      | (ReferenceArity::Compound, _) => {
+        let global = self.header.gmv.get(index).ok_or(EINVAL)?;
+        Ok(Some(global))
       }
     }
   }
 
-  let frame_header = f.frame_hdr.as_ref().ok_or(())?;
+  fn translated_extent(
+    &self,
+    count: ReferenceArity,
+    plane: TrackedPlane,
+  ) -> Result<MotionVerticalExtent, console_core_never::Never> {
+    let &[_, luma_height, ..] = self.geometry.dimensions;
+    let height = i32::from(luma_height);
+    let start = self.task.b.y;
+    Ok(match (count, plane) {
+      (_, TrackedPlane::Luma) => MotionVerticalExtent {
+        start,
+        height,
+        subsampling: 0,
+      },
+      (ReferenceArity::Compound, TrackedPlane::Chroma(chroma)) => MotionVerticalExtent {
+        start,
+        height,
+        subsampling: chroma.vertical_subsampling,
+      },
+      (ReferenceArity::Single, TrackedPlane::Chroma(chroma)) => {
+        let subsampling = chroma.vertical_subsampling;
+        MotionVerticalExtent {
+          start: start & !subsampling,
+          height: height.wrapping_shl(u32::from(height == subsampling)),
+          subsampling,
+        }
+      }
+    })
+  }
 
-  match (frame_header.segmentation.enabled != 0 && frame_header.segmentation.update_map != 0)
-    .then_some(())
-  {
+  fn record(
+    &self,
+    lowest: &mut [[c_int; 2]; 7],
+    reference: i8,
+    motion: Mv,
+    count: ReferenceArity,
+    plane: TrackedPlane,
+  ) -> Rav1dResult<ReferenceProjection> {
+    let ordinal = u8::try_from(reference).map_err(|_negative_reference| EINVAL)?;
+    let Ok(index) = console_core_number_conversion::index(ordinal);
+    let [luma, chroma] = lowest.get_mut(index).ok_or(EINVAL)?;
+    let affine = self.affine_motion(ordinal, count, plane)?;
+
+    match (affine, plane) {
+      (Some(parameters), TrackedPlane::Luma) => {
+        affine_lowest_px_luma(self.task, luma, self.geometry.dimensions, parameters)?;
+        Ok(ReferenceProjection::Warped)
+      }
+      (Some(parameters), TrackedPlane::Chroma(_)) => {
+        affine_lowest_px_chroma(
+          self.task,
+          self.frame.cur.p.layout,
+          chroma,
+          self.geometry.dimensions,
+          parameters,
+        )?;
+        Ok(ReferenceProjection::Warped)
+      }
+      (None, _) => {
+        let [_, scale] = self.frame.svc.get(index).ok_or(EINVAL)?;
+        let dst = match plane {
+          TrackedPlane::Luma => luma,
+          TrackedPlane::Chroma(_) => chroma,
+        };
+        let Ok(extent) = self.translated_extent(count, plane);
+        let Ok(()) = mc_lowest_px(dst, extent, motion.y, scale);
+        Ok(ReferenceProjection::Translated)
+      }
+    }
+  }
+
+  fn track_overlap(
+    &self,
+    lowest: &mut [[c_int; 2]; 7],
+    projection: ReferenceProjection,
+    plane: OverlapPlane,
+  ) -> Rav1dResult {
+    match (projection, self.inter.motion_mode) {
+      (ReferenceProjection::Translated, MotionMode::Obmc) => {
+        let region = OverlapBlock {
+          visible: self.geometry.visible,
+          dimensions: *self.geometry.dimensions,
+          plane,
+        };
+        obmc_lowest_px(self.frame, self.task, lowest, region)
+      }
+      (ReferenceProjection::Warped, _)
+      | (ReferenceProjection::Translated, MotionMode::Translation | MotionMode::Warp) => Ok(()),
+    }
+  }
+
+  fn track_shared_chroma(
+    &self,
+    lowest: &mut [[c_int; 2]; 7],
+    prediction: ChromaNeighborPrediction,
+    chroma: TrackedChroma,
+  ) -> Rav1dResult {
+    let Ok(index) = console_core_number_conversion::index(prediction.reference);
+    let [_, destination] = lowest.get_mut(index).ok_or(EINVAL)?;
+    let [_, scale] = self.frame.svc.get(index).ok_or(EINVAL)?;
+    let &[_, height, ..] = self.geometry.dimensions;
+    let extent = MotionVerticalExtent {
+      start: prediction.position.y,
+      height: i32::from(height),
+      subsampling: chroma.vertical_subsampling,
+    };
+    let Ok(()) = mc_lowest_px(destination, extent, prediction.vector.y, scale);
+    Ok(())
+  }
+
+  fn track_single_chroma(
+    &self,
+    lowest: &mut [[c_int; 2]; 7],
+    reference: i8,
+    motion: Mv,
+    chroma: TrackedChroma,
+  ) -> Rav1dResult {
+    let &[width, height, ..] = self.geometry.dimensions;
+    let luma = Size {
+      width: i32::from(width),
+      height: i32::from(height),
+    };
+    let shared = self.frame.chroma_motion_neighbors(self.task, luma)?;
+
+    match shared {
+      Some(neighbors) => {
+        for neighbor in [neighbors.diagonal, neighbors.left, neighbors.above]
+          .into_iter()
+          .flatten()
+        {
+          self.track_shared_chroma(lowest, neighbor, chroma)?;
+        }
+
+        let ordinal = u8::try_from(reference).map_err(|_negative_reference| EINVAL)?;
+        let local = ChromaNeighborPrediction {
+          position: self.task.b,
+          vector: motion,
+          reference: ordinal,
+        };
+        self.track_shared_chroma(lowest, local, chroma)
+      }
+      None => {
+        let plane = TrackedPlane::Chroma(chroma);
+        let projection = self.record(lowest, reference, motion, ReferenceArity::Single, plane)?;
+        self.track_overlap(lowest, projection, OverlapPlane::Chroma)
+      }
+    }
+  }
+
+  fn update(&self, lowest: &mut [[c_int; 2]; 7]) -> Rav1dResult {
+    let vectors = self.inter.nd.one_d.mv;
+    let references = self.inter.r#ref;
+
+    match self.inter.comp_type {
+      None => {
+        let [reference, _] = references;
+        let [motion, _] = vectors;
+        let projection = self.record(
+          lowest,
+          reference,
+          motion,
+          ReferenceArity::Single,
+          TrackedPlane::Luma,
+        )?;
+        self.track_overlap(lowest, projection, OverlapPlane::Luma)?;
+
+        match self.geometry.chroma {
+          Some(chroma) => self.track_single_chroma(lowest, reference, motion, chroma),
+          None => Ok(()),
+        }
+      }
+      Some(_) => {
+        for (reference, motion) in references.into_iter().zip(vectors) {
+          let _projection = self.record(
+            lowest,
+            reference,
+            motion,
+            ReferenceArity::Compound,
+            TrackedPlane::Luma,
+          )?;
+        }
+
+        match self.geometry.chroma {
+          Some(chroma) => {
+            for (reference, motion) in references.into_iter().zip(vectors) {
+              let _projection = self.record(
+                lowest,
+                reference,
+                motion,
+                ReferenceArity::Compound,
+                TrackedPlane::Chroma(chroma),
+              )?;
+            }
+          }
+          None => {}
+        }
+
+        Ok(())
+      }
+    }
+  }
+}
+
+fn record_block_reference_rows(
+  tracking: ReferenceTracking<'_>,
+  tile: &Rav1dTileState,
+) -> Rav1dResult {
+  let shift =
+    u32::try_from(tracking.frame.sb_shift).map_err(|_invalid_superblock_shift| EINVAL)?;
+  let row = tracking
+    .task
+    .b
+    .y
+    .wrapping_sub(tile.tiling.row_start)
+    .wrapping_shr(shift);
+  let position = tracking.frame.lowest_pixel_position(tile, row)?;
+  let Ok(index) = console_core_number_conversion::index(position);
+  let mut lowest = tracking.frame.lowest_pixel_mem.index_mut(index);
+  tracking.update(&mut lowest)
+}
+
+fn record_nonskipped_block(
+  frame: &Rav1dFrameData,
+  task: &Rav1dTaskContext,
+  rectangle: Rectangle<i32>,
+) -> Rav1dResult {
+  let x = u32::try_from(rectangle.origin.x).map_err(|_outside_mask| EINVAL)?;
+  let y = u32::try_from(rectangle.origin.y).map_err(|_outside_mask| EINVAL)?;
+  let width = u32::try_from(rectangle.size.width).map_err(|_outside_mask| EINVAL)?;
+  let height = u32::try_from(rectangle.size.height).map_err(|_outside_mask| EINVAL)?;
+
+  match width {
+    1..=32 => {}
+    0 | 33.. => return Err(EINVAL),
+  }
+
+  let start = y.wrapping_shr(1);
+  let end = start.checked_add(height.div_ceil(2)).ok_or(EINVAL)?;
+  let Ok(range) = console_core_number_conversion::indices(start..end);
+  let filter = frame.loop_filter_mask(task.lf_mask)?;
+  let rows = filter.noskip_mask.get(range).ok_or(EINVAL)?;
+  let bits = u32::MAX
+    .wrapping_shr(32_u32.wrapping_sub(width))
+    .wrapping_shl(x & 15);
+  let Ok(mask) = console_core_number_conversion::wrapped::<_, u16>(bits);
+
+  for [left, right] in rows {
+    let column = match x & 16 {
+      0 => left,
+      _ => right,
+    };
+    let Ok(()) = column.update(|previous| previous | mask);
+
+    match width {
+      32 => {
+        let Ok(()) = right.update(|previous| previous | mask);
+      }
+      _ => {}
+    }
+  }
+
+  Ok(())
+}
+
+fn record_decoded_block_references(
+  frame: &Rav1dFrameData,
+  task: &Rav1dTaskContext,
+  tile: &Rav1dTileState,
+  header: &Rav1dFrameHeader,
+  block: &Av1Block,
+  geometry: BlockDecodeGeometry,
+) -> Rav1dResult {
+  let track =
+    (task.frame_thread.pass == 1 && header.frame_type.is_inter_or_switch()).then_some(());
+  let inter = match (&block.ii, track) {
+    (Av1BlockIntraInter::Inter(inter), Some(())) => inter,
+    (Av1BlockIntraInter::Intra(_), _) | (Av1BlockIntraInter::Inter(_), None) => return Ok(()),
+  };
+  let chroma = geometry.has_chroma.then_some(TrackedChroma {
+    dimensions: geometry.chroma.size,
+    vertical_subsampling: geometry.subsampling.y,
+  });
+  let tracking = ReferenceTracking {
+    frame,
+    header,
+    task,
+    inter,
+    geometry: ReferenceTrackingGeometry {
+      dimensions: geometry.dimensions,
+      visible: geometry.visible_luma,
+      chroma,
+    },
+  };
+  record_block_reference_rows(tracking, tile)
+}
+
+fn decode_b(
+  c: &Rav1dContext,
+  t: &mut Rav1dTaskContext,
+  f: &Rav1dFrameData,
+  pass: &mut FrameThreadPassState,
+  bl: BlockLevel,
+  bs: BlockSize,
+  bp: BlockPartition,
+  intra_edge_flags: EdgeFlags,
+) -> Result<(), ()> {
+  let seq_hdr = f.seq_hdr().map_err(|_missing_header| ())?;
+  let mut b_mem = Av1Block::default();
+  let b = match ::core::primitive::bool::then_some(t.frame_thread.pass != 0, ()) {
+    ::core::option::Option::Some(()) => {
+      let block = f.coded_block_position(t.b).map_err(|_invalid_block| ())?;
+      let Ok(index) = console_core_number_conversion::index(block);
+      &mut *f.frame_thread.b.index_mut(index)
+    }
+    ::core::option::Option::None => &mut b_mem,
+  };
+
+  let ts = f.tile(t.tile_index).map_err(|_invalid_tile| ())?;
+  let ta = f
+    .above_context(t.above_index)
+    .map_err(|_invalid_context| ())?;
+  let Ok(geometry) = BlockDecodeGeometry::new(t, f, bs);
+  let have_left = t.b.x > ts.tiling.col_start;
+  let have_top = t.b.y > ts.tiling.row_start;
+  let neighbors = NeighborAvailability::from((have_top, have_left));
+  let header = f.frame_hdr().map_err(|_missing_header| ())?;
+  let frame_type = header.frame_type;
+
+  let ts_c = match pass {
+    FrameThreadPassState::First(first_pass) => first_pass,
+    FrameThreadPassState::Second => {
+      let replay = ReconstructionBlock {
+        size: bs,
+        edge_flags: intra_edge_flags,
+        frame_type,
+        luma: geometry.luma,
+        chroma: geometry.has_chroma.then_some(geometry.chroma),
+      };
+      return reconstruct_decoded_block(f, t, ta, b, replay);
+    }
+  };
+
+  let ts_c_2 = &mut **ts_c;
+
+  b.bl = bl;
+  b.bp = bp;
+  let Ok(block_code) = bs.ordinal();
+  b.bs = block_code;
+
+  let mut syntax = BlockSyntaxContext {
+    decoder: c,
+    frame: f,
+    frame_header: header,
+    sequence: seq_hdr,
+    tile: ts,
+    above: ta,
+    geometry,
+    block: bs,
+    edges: intra_edge_flags,
+    neighbors,
+    segment: None,
+    segment_origin: SegmentOrigin::Signalled,
+  };
+  let prefix = read_block_prefix(&syntax, t, b, ts_c_2)?;
+  syntax.segment = prefix.segment;
+  syntax.segment_origin = prefix.segment_origin;
+
+  let decoded = match prefix.prediction {
+    BlockPredictionForm::Intra => decode_intra_syntax(&syntax, t, b, ts_c_2),
+    BlockPredictionForm::IntraCopy => decode_intrabc_syntax(&syntax, t, b, ts_c_2),
+    BlockPredictionForm::Inter => decode_inter_syntax(&syntax, t, b, ts_c_2),
+  };
+  decoded?;
+
+  match (header.segmentation.enabled != 0 && header.segmentation.update_map != 0).then_some(()) {
     Some(()) => {
       let block = Rectangle {
         origin: Point { x: t.b.x, y: t.b.y },
-        size: Size {
-          width: bw4,
-          height: bh4,
-        },
+        size: geometry.luma.size,
       };
       write_block_segments(f, block, b.seg_id).map_err(|_invalid_segment_map| ())?;
     }
     None => {}
   }
 
-  match ::core::primitive::bool::then_some(b.skip == 0, ()) {
-    ::core::option::Option::Some(()) => {
-      let mask = u32::wrapping_shl(
-        u32::wrapping_shr(!0u32, {
-          let Ok(numeric_value) =
-            console_core_number_conversion::wrapped::<_, u32>(i32::wrapping_sub(32, bw4));
-          numeric_value
-        }),
-        {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(bx4 & 15);
-          numeric_value
-        },
-      );
-      let bx_idx = i32::wrapping_shr(bx4 & 16, 4_u32);
-
-      for noskip_mask in &*match <[_]>::get(
-        &(*match <[_]>::get(
-          &f.loop_filter_mask(t.lf_mask)
-            .map_err(|_invalid_mask| ())?
-            .noskip_mask,
-          ({
-            let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by4);
-            numeric_value
-          })
-          .wrapping_shr(1_u32)..,
-        ) {
-          ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-          ::core::option::Option::None => return ::core::result::Result::Err(()),
-        }),
-        ..({
-          let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bh4);
-          numeric_value
-        })
-        .div_ceil(2),
-      ) {
-        ::core::option::Option::Some(indexed_value_3) => indexed_value_3,
-        ::core::option::Option::None => return ::core::result::Result::Err(()),
-      } {
-        let Ok(()) = (*match <[_]>::get(&*noskip_mask, {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx_idx);
-          numeric_value
-        }) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => return ::core::result::Result::Err(()),
-        })
-        .update(|it| {
-          it | ({
-            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u16>(mask);
-            numeric_value
-          })
-        });
-
-        match ::core::primitive::bool::then_some(bw4 == 32, ()) {
-          ::core::option::Option::Some(()) => {
-            let Ok(()) = (*match <[_]>::get(&*noskip_mask, 1) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            })
-            .update(|it| {
-              it | ({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u16>(mask);
-                numeric_value
-              })
-            });
-          }
-          ::core::option::Option::None => {}
-        }
-      }
-    }
-    ::core::option::Option::None => {}
+  match b.skip {
+    0 => record_nonskipped_block(f, t, geometry.luma).map_err(|_invalid_mask| ())?,
+    _ => {}
   }
 
-  match &b.ii {
-    Av1BlockIntraInter::Inter(inter)
-      if t.frame_thread.pass == 1 && frame_header.frame_type.is_inter_or_switch() =>
-    {
-      let sby = i32::wrapping_shr(i32::wrapping_sub(t.b.y, ts.tiling.row_start), {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(f.sb_shift);
-        numeric_value
-      });
-      let position = f
-        .lowest_pixel_position(ts, sby)
-        .map_err(|_outside_tile| ())?;
-      let Ok(address) = console_core_number_conversion::index(position);
-      let mut lowest_px = f.lowest_pixel_mem.index_mut(address);
-
-      match ::core::primitive::bool::then_some(inter.comp_type.is_none(), ()) {
-        ::core::option::Option::Some(()) => {
-          match ::core::primitive::bool::then_some(
-            cmp::min(bw4, bh4) > 1
-              && (inter.inter_mode == GLOBALMV
-                && *match <[_]>::get(&f.gmv_warp_allowed, {
-                  let Ok(numeric_value) =
-                    console_core_number_conversion::wrapped_index(match inter.r#ref {
-                      [element, ..] => element,
-                    });
-                  numeric_value
-                }) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                } != 0
-                || inter.motion_mode == MotionMode::Warp
-                  && t.warpmv.r#type > Rav1dWarpedMotionType::Translation),
-            (),
-          ) {
-            ::core::option::Option::Some(()) => {
-              let Ok(()) = affine_lowest_px_luma(
-                t,
-                &mut *match <[_]>::get_mut(
-                  &mut *match <[_]>::get_mut(&mut *lowest_px, {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped_index(match inter.r#ref {
-                        [element, ..] => element,
-                      });
-                    numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                  0,
-                ) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
-                b_dim,
-                match ::core::primitive::bool::then_some(
-                  inter.motion_mode == MotionMode::Warp,
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => &t.warpmv,
-                  ::core::option::Option::None => &*match <[_]>::get(&frame_header.gmv, {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped_index(match inter.r#ref {
-                        [element, ..] => element,
-                      });
-                    numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                },
-              );
-            }
-            ::core::option::Option::None => {
-              let Ok(()) = mc_lowest_px(
-                &mut *match <[_]>::get_mut(
-                  &mut *match <[_]>::get_mut(&mut *lowest_px, {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped_index(match inter.r#ref {
-                        [element, ..] => element,
-                      });
-                    numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                  0,
-                ) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
-                t.b.y,
-                bh4,
-                (*match <[_]>::get(&inter.nd.one_d.mv, 0) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                })
-                .y,
-                0,
-                &*match <[_]>::get(
-                  &(*match <[_]>::get(&f.svc, {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped_index(match inter.r#ref {
-                        [element, ..] => element,
-                      });
-                    numeric_value
-                  }) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  }),
-                  1,
-                ) {
-                  ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
-              );
-
-              match ::core::primitive::bool::then_some(inter.motion_mode == MotionMode::Obmc, ())
-              {
-                ::core::option::Option::Some(()) => {
-                  obmc_lowest_px(
-                    f,
-                    t,
-                    &mut lowest_px,
-                    OverlapBlock {
-                      visible: Size {
-                        width: w4,
-                        height: h4,
-                      },
-                      dimensions: *b_dim,
-                      plane: OverlapPlane::Luma,
-                    },
-                  )
-                  .map_err(|_invalid_overlap| ())?;
-                }
-                ::core::option::Option::None => {}
-              }
-            }
-          }
-
-          match ::core::primitive::bool::then_some(has_chroma, ()) {
-            ::core::option::Option::Some(()) => {
-              let extent = Size {
-                width: bw4,
-                height: bh4,
-              };
-              match f
-                .chroma_motion_neighbors(t, extent)
-                .map_err(|_invalid_neighbor| ())?
-              {
-                Some(neighbors) => {
-                  let update_lowest =
-                    |lowest: &mut [[c_int; 2]; 7], prediction: ChromaNeighborPrediction| {
-                      let Ok(reference) =
-                        console_core_number_conversion::index(prediction.reference);
-                      let [_, chroma] = lowest.get_mut(reference).ok_or(())?;
-                      let [_, scale] = f.svc.get(reference).ok_or(())?;
-                      let Ok(()) = mc_lowest_px(
-                        chroma,
-                        prediction.position.y,
-                        bh4,
-                        prediction.vector.y,
-                        ss_ver,
-                        scale,
-                      );
-                      Ok(())
-                    };
-
-                  for neighbor in [neighbors.diagonal, neighbors.left, neighbors.above]
-                    .into_iter()
-                    .flatten()
-                  {
-                    update_lowest(&mut lowest_px, neighbor)?;
-                  }
-                  let [reference, _] = inter.r#ref;
-                  let [vector, _] = inter.nd.one_d.mv;
-                  let reference = u8::try_from(reference).map_err(|_invalid_reference| ())?;
-                  update_lowest(
-                    &mut lowest_px,
-                    ChromaNeighborPrediction {
-                      position: t.b,
-                      vector,
-                      reference,
-                    },
-                  )?;
-                }
-                ::core::option::Option::None => match ::core::primitive::bool::then_some(
-                  cmp::min(cbw4, cbh4) > 1
-                    && (inter.inter_mode == GLOBALMV
-                      && *match <[_]>::get(&f.gmv_warp_allowed, {
-                        let Ok(numeric_value) =
-                          console_core_number_conversion::wrapped_index(match inter.r#ref {
-                            [element, ..] => element,
-                          });
-                        numeric_value
-                      }) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      } != 0
-                      || inter.motion_mode == MotionMode::Warp
-                        && t.warpmv.r#type > Rav1dWarpedMotionType::Translation),
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    let Ok(()) = affine_lowest_px_chroma(
-                      t,
-                      f.cur.p.layout,
-                      &mut *match <[_]>::get_mut(
-                        &mut *match <[_]>::get_mut(&mut *lowest_px, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(match inter.r#ref {
-                              [element, ..] => element,
-                            });
-                          numeric_value
-                        }) {
-                          ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        },
-                        1,
-                      ) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                      b_dim,
-                      match ::core::primitive::bool::then_some(
-                        inter.motion_mode == MotionMode::Warp,
-                        (),
-                      ) {
-                        ::core::option::Option::Some(()) => &t.warpmv,
-                        ::core::option::Option::None => &*match <[_]>::get(&frame_header.gmv, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(match inter.r#ref {
-                              [element, ..] => element,
-                            });
-                          numeric_value
-                        }) {
-                          ::core::option::Option::Some(indexed_value) => indexed_value,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        },
-                      },
-                    );
-                  }
-                  ::core::option::Option::None => {
-                    let Ok(()) = mc_lowest_px(
-                      &mut *match <[_]>::get_mut(
-                        &mut *match <[_]>::get_mut(&mut *lowest_px, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(match inter.r#ref {
-                              [element, ..] => element,
-                            });
-                          numeric_value
-                        }) {
-                          ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        },
-                        1,
-                      ) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                      t.b.y & !ss_ver,
-                      i32::wrapping_shl(bh4, {
-                        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                          i32::from(bh4 == ss_ver),
-                        );
-                        numeric_value
-                      }),
-                      (*match <[_]>::get(&inter.nd.one_d.mv, 0) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      })
-                      .y,
-                      ss_ver,
-                      &*match <[_]>::get(
-                        &(*match <[_]>::get(&f.svc, {
-                          let Ok(numeric_value) =
-                            console_core_number_conversion::wrapped_index(match inter.r#ref {
-                              [element, ..] => element,
-                            });
-                          numeric_value
-                        }) {
-                          ::core::option::Option::Some(indexed_value) => indexed_value,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        }),
-                        1,
-                      ) {
-                        ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                    );
-
-                    match ::core::primitive::bool::then_some(
-                      inter.motion_mode == MotionMode::Obmc,
-                      (),
-                    ) {
-                      ::core::option::Option::Some(()) => {
-                        obmc_lowest_px(
-                          f,
-                          t,
-                          &mut lowest_px,
-                          OverlapBlock {
-                            visible: Size {
-                              width: w4,
-                              height: h4,
-                            },
-                            dimensions: *b_dim,
-                            plane: OverlapPlane::Chroma,
-                          },
-                        )
-                        .map_err(|_invalid_overlap| ())?;
-                      }
-                      ::core::option::Option::None => {}
-                    }
-                  }
-                },
-              }
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-        ::core::option::Option::None => {
-          let refmvs = || {
-            std::iter::zip(inter.r#ref, inter.nd.one_d.mv).map(|(r#ref, mv)| {
-              (
-                ({
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(r#ref);
-                  numeric_value
-                }),
-                mv,
-              )
-            })
-          };
-
-          for (r#ref, mv) in refmvs() {
-            match ::core::primitive::bool::then_some(
-              inter.inter_mode == GLOBALMV_GLOBALMV
-                && *match <[_]>::get(&f.gmv_warp_allowed, r#ref) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                } != 0,
-              (),
-            ) {
-              ::core::option::Option::Some(()) => {
-                let Ok(()) = affine_lowest_px_luma(
-                  t,
-                  &mut *match <[_]>::get_mut(
-                    &mut *match <[_]>::get_mut(&mut *lowest_px, r#ref) {
-                      ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                    0,
-                  ) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                  b_dim,
-                  &*match <[_]>::get(&frame_header.gmv, r#ref) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                );
-              }
-              ::core::option::Option::None => {
-                let Ok(()) = mc_lowest_px(
-                  &mut *match <[_]>::get_mut(
-                    &mut *match <[_]>::get_mut(&mut *lowest_px, r#ref) {
-                      ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                    0,
-                  ) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                  t.b.y,
-                  bh4,
-                  mv.y,
-                  0,
-                  &*match <[_]>::get(
-                    &(*match <[_]>::get(&f.svc, r#ref) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    }),
-                    1,
-                  ) {
-                    ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                );
-              }
-            }
-          }
-
-          for (r#ref, mv) in refmvs() {
-            match ::core::primitive::bool::then_some(
-              inter.inter_mode == GLOBALMV_GLOBALMV
-                && *match <[_]>::get(&f.gmv_warp_allowed, r#ref) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                } != 0,
-              (),
-            ) {
-              ::core::option::Option::Some(()) => {
-                let Ok(()) = affine_lowest_px_luma(
-                  t,
-                  &mut *match <[_]>::get_mut(
-                    &mut *match <[_]>::get_mut(&mut *lowest_px, r#ref) {
-                      ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                    0,
-                  ) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                  b_dim,
-                  &*match <[_]>::get(&frame_header.gmv, r#ref) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                );
-              }
-              ::core::option::Option::None => {
-                let Ok(()) = mc_lowest_px(
-                  &mut *match <[_]>::get_mut(
-                    &mut *match <[_]>::get_mut(&mut *lowest_px, r#ref) {
-                      ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    },
-                    0,
-                  ) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                  t.b.y,
-                  bh4,
-                  mv.y,
-                  0,
-                  &*match <[_]>::get(
-                    &(*match <[_]>::get(&f.svc, r#ref) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    }),
-                    1,
-                  ) {
-                    ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  },
-                );
-              }
-            }
-          }
-
-          match ::core::primitive::bool::then_some(has_chroma, ()) {
-            ::core::option::Option::Some(()) => {
-              for (r#ref, mv) in refmvs() {
-                match ::core::primitive::bool::then_some(
-                  inter.inter_mode == GLOBALMV_GLOBALMV
-                    && cmp::min(cbw4, cbh4) > 1
-                    && *match <[_]>::get(&f.gmv_warp_allowed, r#ref) {
-                      ::core::option::Option::Some(indexed_value) => indexed_value,
-                      ::core::option::Option::None => return ::core::result::Result::Err(()),
-                    } != 0,
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    let Ok(()) = affine_lowest_px_chroma(
-                      t,
-                      f.cur.p.layout,
-                      &mut *match <[_]>::get_mut(
-                        &mut *match <[_]>::get_mut(&mut *lowest_px, r#ref) {
-                          ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        },
-                        1,
-                      ) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                      b_dim,
-                      &*match <[_]>::get(&frame_header.gmv, r#ref) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                    );
-                  }
-                  ::core::option::Option::None => {
-                    let Ok(()) = mc_lowest_px(
-                      &mut *match <[_]>::get_mut(
-                        &mut *match <[_]>::get_mut(&mut *lowest_px, r#ref) {
-                          ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        },
-                        1,
-                      ) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                      t.b.y,
-                      bh4,
-                      mv.y,
-                      ss_ver,
-                      &*match <[_]>::get(
-                        &(*match <[_]>::get(&f.svc, r#ref) {
-                          ::core::option::Option::Some(indexed_value) => indexed_value,
-                          ::core::option::Option::None => return ::core::result::Result::Err(()),
-                        }),
-                        1,
-                      ) {
-                        ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                        ::core::option::Option::None => return ::core::result::Result::Err(()),
-                      },
-                    );
-                  }
-                }
-              }
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-      }
-    }
-    Av1BlockIntraInter::Intra(_) | Av1BlockIntraInter::Inter(_) => {}
-  }
-
-  Ok(())
+  record_decoded_block_references(f, t, ts, header, b, geometry)
+    .map_err(|_invalid_reference_footprint| ())
 }
 
 enum FrameThreadPassState<'a> {
@@ -8543,17 +6718,944 @@ enum FrameThreadPassState<'a> {
   Second,
 }
 
+#[derive(Clone, Copy)]
+struct PartitionCursor {
+  origin: Bxy,
+  level: BlockLevel,
+  edge: EdgeIndex,
+}
+
+enum PartitionCoverage {
+  TopLeft,
+  TopRow,
+  LeftColumn,
+  AllQuadrants,
+}
+
+struct SplitPartition {
+  origin: Bxy,
+  child_level: BlockLevel,
+  step: i32,
+  edges: [EdgeIndex; 4],
+  coverage: PartitionCoverage,
+}
+
+impl SplitPartition {
+  fn children(self) -> Result<[Option<PartitionCursor>; 4], console_core_never::Never> {
+    let [top_left, top_right, bottom_left, bottom_right] = self.edges;
+    let Bxy { x, y } = self.origin;
+    let right = x.wrapping_add(self.step);
+    let bottom = y.wrapping_add(self.step);
+    let children = match self.coverage {
+      PartitionCoverage::TopLeft => [Some((x, y, top_left)), None, None, None],
+      PartitionCoverage::TopRow => [
+        Some((x, y, top_left)),
+        Some((right, y, top_right)),
+        None,
+        None,
+      ],
+      PartitionCoverage::LeftColumn => [
+        Some((x, y, top_left)),
+        Some((x, bottom, bottom_left)),
+        None,
+        None,
+      ],
+      PartitionCoverage::AllQuadrants => [
+        Some((x, y, top_left)),
+        Some((right, y, top_right)),
+        Some((x, bottom, bottom_left)),
+        Some((right, bottom, bottom_right)),
+      ],
+    };
+    Ok(children.map(|child| {
+      child.map(|(child_x, child_y, edge)| PartitionCursor {
+        origin: Bxy {
+          x: child_x,
+          y: child_y,
+        },
+        level: self.child_level,
+        edge,
+      })
+    }))
+  }
+}
+
+enum PartitionStep {
+  Complete,
+  Split(SplitPartition),
+}
+
+const PARTITION_SPLIT_COUNT: u8 = 4;
+const PARTITION_STACK_CAPACITY: u8 = 1u8.wrapping_add(3u8.wrapping_mul(PARTITION_SPLIT_COUNT));
+const PARTITION_NODE_LIMIT: u32 = 1u32
+  .wrapping_add(4)
+  .wrapping_add(16)
+  .wrapping_add(64)
+  .wrapping_add(256);
+
 fn decode_sb(
   c: &Rav1dContext,
   t: &mut Rav1dTaskContext,
   f: &Rav1dFrameData,
   pass: &mut FrameThreadPassState,
-  bl: BlockLevel,
-  edge_index: EdgeIndex,
+  level: BlockLevel,
+  edge: EdgeIndex,
 ) -> Result<(), ()> {
+  let origin = t.b;
+  let root = PartitionCursor {
+    origin,
+    level,
+    edge,
+  };
+  let mut stack = [None;
+    match console_core_number_conversion::const_u8_index(PARTITION_STACK_CAPACITY) {
+      Ok(capacity) => capacity,
+    }];
+  let [first, ..] = &mut stack;
+  *first = Some(root);
+  let mut size = 1u8;
+
+  for _node in 0..PARTITION_NODE_LIMIT {
+    let last = match size.checked_sub(1) {
+      Some(last) => last,
+      None => break,
+    };
+    let Ok(slot) = console_core_number_conversion::index(last);
+    let entry = stack.get_mut(slot).ok_or(())?;
+    let next = entry.take().ok_or(())?;
+    size = last;
+    t.b = next.origin;
+    let step = decode_partition(c, t, f, pass, next)?;
+
+    match step {
+      PartitionStep::Complete => {}
+      PartitionStep::Split(branch) => {
+        let Ok(children) = branch.children();
+
+        for child in children.into_iter().rev().flatten() {
+          let Ok(child_slot) = console_core_number_conversion::index(size);
+          let sibling = stack.get_mut(child_slot).ok_or(())?;
+          *sibling = Some(child);
+          size = size.wrapping_add(1);
+        }
+      }
+    }
+  }
+
+  match size {
+    0 => {
+      t.b = origin;
+      Ok(())
+    }
+    _ => Err(()),
+  }
+}
+
+fn partition_cdf(
+  cdf: &mut crate::src::cdf::CdfContext,
+  level: BlockLevel,
+  context: u8,
+) -> Result<&mut [u16; 16], ()> {
+  let Ok(ordinal) = level.ordinal();
+  let Ok(level_index) = console_core_number_conversion::index(ordinal);
+  let Ok(context_index) = console_core_number_conversion::index(context);
+  let row = cdf.m.partition.get_mut(level_index).ok_or(())?;
+  row.get_mut(context_index).ok_or(())
+}
+
+fn partition_block_sizes(
+  level: BlockLevel,
+  partition: BlockPartition,
+) -> Result<[BlockSize; 2], ()> {
+  let Ok(level_number) = level.ordinal();
+  let Ok(partition_number) = partition.ordinal();
+  let Ok(level_index) = console_core_number_conversion::index(level_number);
+  let Ok(partition_index) = console_core_number_conversion::index(partition_number);
+  let row = dav1d_block_sizes.get(level_index).ok_or(())?;
+  row.get(partition_index).copied().ok_or(())
+}
+
+struct PartitionLayout {
+  cursor: PartitionCursor,
+  partition: BlockPartition,
+  superblock: SuperblockSize,
+  half: i32,
+}
+
+fn align_subblock_coefficients(tile: &Rav1dTileState, task: &Rav1dTaskContext) -> Result<(), ()> {
+  match (cfg!(target_arch = "x86_64") && task.frame_thread.pass != 0).then_some(()) {
+    Some(()) => {}
+    None => return Ok(()),
+  }
+
+  let Ok(pass) = console_core_number_conversion::wrapped_index(task.frame_thread.pass & 1);
+  let storage = tile.frame_thread.get(pass).ok_or(())?;
+  let Ok(()) = storage.cf.update(|count| count.wrapping_add(31) & !31);
+  Ok(())
+}
+
+fn decode_partition_layout(
+  c: &Rav1dContext,
+  t: &mut Rav1dTaskContext,
+  f: &Rav1dFrameData,
+  pass: &mut FrameThreadPassState,
+  layout: PartitionLayout,
+  tile: &Rav1dTileState,
+) -> Result<PartitionStep, ()> {
+  let PartitionLayout {
+    cursor: PartitionCursor {
+      origin,
+      level: bl,
+      edge: edge_index,
+    },
+    partition: bp,
+    superblock: superblock_size,
+    half: hsz,
+  } = layout;
+  let intra_edge = &IntraEdges::DEFAULT;
+  let [primary_size, secondary_size] = partition_block_sizes(bl, bp)?;
+
+  match bp {
+    BlockPartition::None => {
+      let node = intra_edge
+        .node(superblock_size, edge_index)
+        .map_err(|_edge| ())?;
+      decode_b(c, t, f, pass, bl, primary_size, bp, node.o)?;
+    }
+    BlockPartition::H => {
+      let node = intra_edge
+        .node(superblock_size, edge_index)
+        .map_err(|_edge| ())?;
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        match node.h {
+          [_explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        match node.h {
+          [_, _explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+    }
+    BlockPartition::V => {
+      let node = intra_edge
+        .node(superblock_size, edge_index)
+        .map_err(|_edge| ())?;
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        match node.v {
+          [_explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        match node.v {
+          [_, _explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+    }
+    BlockPartition::Split => {
+      let Ok(decrease) = bl.decrease();
+
+      match decrease {
+        None => {
+          let tip = intra_edge
+            .tip(superblock_size, edge_index)
+            .map_err(|_edge| ())?;
+          assert!(hsz == 1);
+          decode_b(
+            c,
+            t,
+            f,
+            pass,
+            bl,
+            BlockSize::Bs4x4,
+            bp,
+            EdgeFlags::ALL_TR_AND_BL,
+          )?;
+          let tl_filter = t.tl_4x4_filter;
+
+          {
+            let numeric_amount = 1;
+            let numeric_target = &mut (t.b.x);
+            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+          };
+
+          decode_b(
+            c,
+            t,
+            f,
+            pass,
+            bl,
+            BlockSize::Bs4x4,
+            bp,
+            match tip.split {
+              [_explicit_element, ..] => _explicit_element,
+            },
+          )?;
+
+          {
+            let numeric_amount = 1;
+            let numeric_target = &mut (t.b.x);
+            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+          };
+
+          {
+            let numeric_amount = 1;
+            let numeric_target = &mut (t.b.y);
+            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+          };
+
+          decode_b(
+            c,
+            t,
+            f,
+            pass,
+            bl,
+            BlockSize::Bs4x4,
+            bp,
+            match tip.split {
+              [_, _explicit_element, ..] => _explicit_element,
+            },
+          )?;
+
+          {
+            let numeric_amount = 1;
+            let numeric_target = &mut (t.b.x);
+            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+          };
+
+          t.tl_4x4_filter = tl_filter;
+          decode_b(
+            c,
+            t,
+            f,
+            pass,
+            bl,
+            BlockSize::Bs4x4,
+            bp,
+            match tip.split {
+              [_, _, _explicit_element, ..] => _explicit_element,
+            },
+          )?;
+
+          {
+            let numeric_amount = 1;
+            let numeric_target = &mut (t.b.x);
+            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+          };
+
+          {
+            let numeric_amount = 1;
+            let numeric_target = &mut (t.b.y);
+            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+          };
+
+          align_subblock_coefficients(tile, t)?;
+        }
+        Some(next_bl) => {
+          let branch = intra_edge
+            .branch(superblock_size, edge_index)
+            .map_err(|_edge| ())?;
+          return Ok(PartitionStep::Split(SplitPartition {
+            origin,
+            child_level: next_bl,
+            step: hsz,
+            edges: branch.split,
+            coverage: PartitionCoverage::AllQuadrants,
+          }));
+        }
+      }
+    }
+    BlockPartition::TopSplit => {
+      let node = intra_edge
+        .node(superblock_size, edge_index)
+        .map_err(|_edge| ())?;
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        EdgeFlags::ALL_TR_AND_BL,
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        match node.v {
+          [_, _explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        secondary_size,
+        bp,
+        match node.h {
+          [_, _explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+    }
+    BlockPartition::BottomSplit => {
+      let node = intra_edge
+        .node(superblock_size, edge_index)
+        .map_err(|_edge| ())?;
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        match node.h {
+          [_explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        secondary_size,
+        bp,
+        match node.v {
+          [_explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(c, t, f, pass, bl, secondary_size, bp, EdgeFlags::EMPTY)?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+    }
+    BlockPartition::LeftSplit => {
+      let node = intra_edge
+        .node(superblock_size, edge_index)
+        .map_err(|_edge| ())?;
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        EdgeFlags::ALL_TR_AND_BL,
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        match node.h {
+          [_, _explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        secondary_size,
+        bp,
+        match node.v {
+          [_, _explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+    }
+    BlockPartition::RightSplit => {
+      let node = intra_edge
+        .node(superblock_size, edge_index)
+        .map_err(|_edge| ())?;
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        match node.v {
+          [_explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        secondary_size,
+        bp,
+        match node.h {
+          [_explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(c, t, f, pass, bl, secondary_size, bp, EdgeFlags::EMPTY)?;
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+
+      {
+        let numeric_amount = hsz;
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+    }
+    BlockPartition::H4 => {
+      let branch = intra_edge
+        .branch(superblock_size, edge_index)
+        .map_err(|_edge| ())?;
+      let node = &branch.node;
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        match node.h {
+          [_explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(c, t, f, pass, bl, primary_size, bp, branch.h4)?;
+
+      {
+        let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        EdgeFlags::ALL_LEFT_HAS_BOTTOM,
+      )?;
+
+      {
+        let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      match ::core::primitive::bool::then_some(t.b.y < f.bh, ()) {
+        ::core::option::Option::Some(()) => {
+          decode_b(
+            c,
+            t,
+            f,
+            pass,
+            bl,
+            primary_size,
+            bp,
+            match node.h {
+              [_, _explicit_element, ..] => _explicit_element,
+            },
+          )?;
+        }
+        ::core::option::Option::None => {}
+      }
+
+      {
+        let numeric_amount = i32::wrapping_shr(i32::wrapping_mul(hsz, 3), 1_u32);
+        let numeric_target = &mut (t.b.y);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+    }
+    BlockPartition::V4 => {
+      let branch = intra_edge
+        .branch(superblock_size, edge_index)
+        .map_err(|_edge| ())?;
+      let node = &branch.node;
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        match node.v {
+          [_explicit_element, ..] => _explicit_element,
+        },
+      )?;
+
+      {
+        let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(c, t, f, pass, bl, primary_size, bp, branch.v4)?;
+
+      {
+        let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      decode_b(
+        c,
+        t,
+        f,
+        pass,
+        bl,
+        primary_size,
+        bp,
+        EdgeFlags::ALL_TOP_HAS_RIGHT,
+      )?;
+
+      {
+        let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
+      };
+
+      match ::core::primitive::bool::then_some(t.b.x < f.bw, ()) {
+        ::core::option::Option::Some(()) => {
+          decode_b(
+            c,
+            t,
+            f,
+            pass,
+            bl,
+            primary_size,
+            bp,
+            match node.v {
+              [_, _explicit_element, ..] => _explicit_element,
+            },
+          )?;
+        }
+        ::core::option::Option::None => {}
+      }
+
+      {
+        let numeric_amount = i32::wrapping_shr(i32::wrapping_mul(hsz, 3), 1_u32);
+        let numeric_target = &mut (t.b.x);
+        *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
+      };
+    }
+  }
+
+  Ok(PartitionStep::Complete)
+}
+
+enum BoundaryDecision {
+  Split,
+  Unsplit,
+}
+
+struct PartitionBoundary {
+  level: BlockLevel,
+  edge: PartitionEdge,
+  frame_offset: u8,
+}
+
+fn read_partition_boundary(
+  frame: &Rav1dFrameData,
+  task: &Rav1dTaskContext,
+  input: Option<(u8, &mut Rav1dTileStateContext)>,
+  boundary: PartitionBoundary,
+) -> Result<BoundaryDecision, ()> {
+  let (context, entropy) = match input {
+    Some(source) => source,
+    None => {
+      let position = frame
+        .coded_block_position(task.b)
+        .map_err(|_invalid_block| ())?;
+      let Ok(index) = console_core_number_conversion::index(position);
+      let block = frame.frame_thread.b.index(index);
+
+      return Ok(match (block.bl != boundary.level).then_some(()) {
+        Some(()) => BoundaryDecision::Split,
+        None => BoundaryDecision::Unsplit,
+      });
+    }
+  };
+
+  let cdf = partition_cdf(&mut entropy.cdf, boundary.level, context)?;
+  let Ok(probability) = gather_partition_probability(cdf, boundary.level, boundary.edge);
+  let Ok(bit) = rav1d_msac_decode_bool(&mut entropy.msac, probability);
+  let position = match (bit, boundary.edge, frame.cur.p.layout) {
+    (EntropyBit::One, _, _) => BlockPartition::Split,
+    (EntropyBit::Zero, PartitionEdge::Top, _) => BlockPartition::H,
+    (EntropyBit::Zero, PartitionEdge::Left, Rav1dPixelLayout::I422) => return Err(()),
+    (
+      EntropyBit::Zero,
+      PartitionEdge::Left,
+      Rav1dPixelLayout::I400 | Rav1dPixelLayout::I420 | Rav1dPixelLayout::I444,
+    ) => BlockPartition::V,
+  };
+  let Ok(trace) = debug_block_info(frame, task.b);
+
+  match trace {
+    BlockTrace::Disabled => {}
+    BlockTrace::Enabled => {
+      println!(
+        "poc={},y={},x={},bl={:?},ctx={},bp={:?}: r={}",
+        boundary.frame_offset,
+        task.b.y,
+        task.b.x,
+        boundary.level,
+        context,
+        position,
+        entropy.msac.rng,
+      );
+    }
+  }
+
+  Ok(match bit {
+    EntropyBit::One => BoundaryDecision::Split,
+    EntropyBit::Zero => BoundaryDecision::Unsplit,
+  })
+}
+
+fn read_partition_symbol(
+  frame: &Rav1dFrameData,
+  task: &Rav1dTaskContext,
+  input: Option<(u8, &mut Rav1dTileStateContext)>,
+  level: BlockLevel,
+  frame_offset: u8,
+) -> Result<BlockPartition, ()> {
+  let (context, entropy) = match input {
+    Some(source) => source,
+    None => {
+      let position = frame
+        .coded_block_position(task.b)
+        .map_err(|_invalid_block| ())?;
+      let Ok(index) = console_core_number_conversion::index(position);
+      let block = frame.frame_thread.b.index(index);
+      return Ok(match (block.bl == level).then_some(()) {
+        Some(()) => block.bp,
+        None => BlockPartition::Split,
+      });
+    }
+  };
+
+  let cdf = partition_cdf(&mut entropy.cdf, level, context)?;
+  let Ok(level_number) = level.ordinal();
+  let Ok(level_index) = console_core_number_conversion::index(level_number);
+  let &symbols = dav1d_partition_type_count.get(level_index).ok_or(())?;
+  let Ok(symbol) = rav1d_msac_decode_symbol_adapt16(&mut entropy.msac, cdf, symbols);
+  let Ok(symbol_index) = console_core_number_conversion::wrapped_index(symbol);
+  let partition = BlockPartition::from_repr(symbol_index).ok_or(())?;
+
+  let prohibited = frame.cur.p.layout == Rav1dPixelLayout::I422
+    && matches!(
+      partition,
+      BlockPartition::V
+        | BlockPartition::V4
+        | BlockPartition::LeftSplit
+        | BlockPartition::RightSplit
+    );
+
+  match prohibited.then_some(()) {
+    Some(()) => return Err(()),
+    None => {}
+  }
+
+  let Ok(trace) = debug_block_info(frame, task.b);
+
+  match trace {
+    BlockTrace::Disabled => {}
+    BlockTrace::Enabled => {
+      println!(
+        "poc={},y={},x={},bl={:?},ctx={},bp={:?}: r={}",
+        frame_offset, task.b.y, task.b.x, level, context, partition, entropy.msac.rng,
+      );
+    }
+  }
+
+  Ok(partition)
+}
+
+fn decode_partition(
+  c: &Rav1dContext,
+  t: &mut Rav1dTaskContext,
+  f: &Rav1dFrameData,
+  pass: &mut FrameThreadPassState,
+  cursor: PartitionCursor,
+) -> Result<PartitionStep, ()> {
+  let PartitionCursor {
+    origin,
+    level: bl,
+    edge: edge_index,
+  } = cursor;
   let ts = &*match f.tile(t.tile_index) {
-    ::core::option::Option::Some(indexed_value) => indexed_value,
-    ::core::option::Option::None => return ::core::result::Result::Err(()),
+    Ok(indexed_value) => indexed_value,
+    Err(_invalid_slot) => return ::core::result::Result::Err(()),
   };
   let hsz = i32::wrapping_shr(16, {
     let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>({
@@ -8580,21 +7682,19 @@ fn decode_sb(
       let intra_edge_branch = intra_edge
         .branch(superblock_size, edge_index)
         .map_err(|_edge| ())?;
-      return decode_sb(
-        c,
-        t,
-        f,
-        pass,
-        next_bl,
-        match intra_edge_branch.split {
-          [_explicit_element, ..] => _explicit_element,
-        },
-      );
+      return Ok(PartitionStep::Split(SplitPartition {
+        origin,
+        child_level: next_bl,
+        step: hsz,
+        edges: intra_edge_branch.split,
+        coverage: PartitionCoverage::TopLeft,
+      }));
     }
     ::core::option::Option::None => {}
   }
 
-  let frame_hdr = &***f.frame_hdr.as_ref().ok_or(())?;
+  let f_frame_hdr = f.frame_hdr.as_ref().ok_or(())?;
+  let frame_hdr = &***f_frame_hdr;
 
   let bp;
   let mut bx8 = 0;
@@ -8615,8 +7715,8 @@ fn decode_sb(
       by8 = i32::wrapping_shr(t.b.y & 31, 1_u32);
 
       let ta = &*match f.above_context(t.above_index) {
-        ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None => return ::core::result::Result::Err(()),
+        Ok(indexed_value) => indexed_value,
+        Err(_invalid_slot) => return ::core::result::Result::Err(()),
       };
       let partition_ctx = get_partition_ctx(
         BlockNeighbors {
@@ -8636,1202 +7736,103 @@ fn decode_sb(
 
   match ::core::primitive::bool::then_some(have_h_split && have_v_split, ()) {
     ::core::option::Option::Some(()) => {
-      match ctx {
-        Some((ctx_2, ts_c)) => {
-          let pc = &mut *match <[_]>::get_mut(
-            &mut *match <[_]>::get_mut(&mut *ts_c.cdf.m.partition, {
-              let Ok(table_index) = console_core_number_conversion::index({
-                let Ok(ordinal) = bl.ordinal();
-                ordinal
-              });
-              table_index
-            }) {
-              ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            },
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx_2);
-              numeric_value
-            },
-          ) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => return ::core::result::Result::Err(()),
-          };
-          bp = BlockPartition::from_repr({
-            let Ok(numeric_value) = console_core_number_conversion::wrapped_index({
-              let Ok(explicit_value) = rav1d_msac_decode_symbol_adapt16(
-                &mut ts_c.msac,
-                pc,
-                *match <[_]>::get(&dav1d_partition_type_count, {
-                  let Ok(table_index) = console_core_number_conversion::index({
-                    let Ok(ordinal) = bl.ordinal();
-                    ordinal
-                  });
-                  table_index
-                }) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                },
-              );
-              explicit_value
-            });
-            numeric_value
-          })
-          .ok_or(())?;
+      let parsed = read_partition_symbol(f, t, ctx, bl, frame_hdr.frame_offset)?;
+      bp = parsed;
 
-          match ::core::primitive::bool::then_some(
-            f.cur.p.layout == Rav1dPixelLayout::I422
-              && matches!(
-                bp,
-                BlockPartition::V
-                  | BlockPartition::V4
-                  | BlockPartition::LeftSplit
-                  | BlockPartition::RightSplit
-              ),
-            (),
-          ) {
-            ::core::option::Option::Some(()) => {
-              return Err(());
-            }
-            ::core::option::Option::None => {}
-          }
-
-          match debug_block_info!(f, t.b) {
-            BlockTrace::Enabled => {
-              println!(
-                "poc={},y={},x={},bl={:?},ctx={},bp={:?}: r={}",
-                frame_hdr.frame_offset, t.b.y, t.b.x, bl, ctx_2, bp, ts_c.msac.rng,
-              );
-            }
-            BlockTrace::Disabled => {}
-          }
-        }
-        ::core::option::Option::None => {
-          let block = f.coded_block_position(t.b).map_err(|_invalid_block| ())?;
-          let Ok(index) = console_core_number_conversion::index(block);
-          let b = f.frame_thread.b.index(index);
-          bp = match ::core::primitive::bool::then_some(b.bl == bl, ()) {
-            ::core::option::Option::Some(()) => b.bp,
-            ::core::option::Option::None => BlockPartition::Split,
-          };
-        }
-      }
-
-      let b = &*match <[_]>::get(
-        &(*match <[_]>::get(&dav1d_block_sizes, {
-          let Ok(table_index) = console_core_number_conversion::index({
-            let Ok(ordinal) = bl.ordinal();
-            ordinal
-          });
-          table_index
-        }) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => return ::core::result::Result::Err(()),
-        }),
-        {
-          let Ok(table_index) = console_core_number_conversion::index({
-            let Ok(ordinal) = bp.ordinal();
-            ordinal
-          });
-          table_index
+      let layout = PartitionLayout {
+        cursor: PartitionCursor {
+          origin,
+          level: bl,
+          edge: edge_index,
         },
-      ) {
-        ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-        ::core::option::Option::None => return ::core::result::Result::Err(()),
+        partition: bp,
+        superblock: superblock_size,
+        half: hsz,
       };
-
-      match bp {
-        BlockPartition::None => {
-          let node = intra_edge
-            .node(superblock_size, edge_index)
-            .map_err(|_edge| ())?;
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            node.o,
-          )?;
-        }
-        BlockPartition::H => {
-          let node = intra_edge
-            .node(superblock_size, edge_index)
-            .map_err(|_edge| ())?;
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.h {
-              [_explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.h {
-              [_, _explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-        }
-        BlockPartition::V => {
-          let node = intra_edge
-            .node(superblock_size, edge_index)
-            .map_err(|_edge| ())?;
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.v {
-              [_explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.v {
-              [_, _explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-        }
-        BlockPartition::Split => {
-          let Ok(decrease) = bl.decrease();
-
-          match decrease {
-            None => {
-              let tip = intra_edge
-                .tip(superblock_size, edge_index)
-                .map_err(|_edge| ())?;
-              assert!(hsz == 1);
-              decode_b(
-                c,
-                t,
-                f,
-                pass,
-                bl,
-                BlockSize::Bs4x4,
-                bp,
-                EdgeFlags::ALL_TR_AND_BL,
-              )?;
-              let tl_filter = t.tl_4x4_filter;
-
-              {
-                let numeric_amount = 1;
-                let numeric_target = &mut (t.b.x);
-                *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-              };
-
-              decode_b(
-                c,
-                t,
-                f,
-                pass,
-                bl,
-                BlockSize::Bs4x4,
-                bp,
-                match tip.split {
-                  [_explicit_element, ..] => _explicit_element,
-                },
-              )?;
-
-              {
-                let numeric_amount = 1;
-                let numeric_target = &mut (t.b.x);
-                *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-              };
-
-              {
-                let numeric_amount = 1;
-                let numeric_target = &mut (t.b.y);
-                *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-              };
-
-              decode_b(
-                c,
-                t,
-                f,
-                pass,
-                bl,
-                BlockSize::Bs4x4,
-                bp,
-                match tip.split {
-                  [_, _explicit_element, ..] => _explicit_element,
-                },
-              )?;
-
-              {
-                let numeric_amount = 1;
-                let numeric_target = &mut (t.b.x);
-                *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-              };
-
-              t.tl_4x4_filter = tl_filter;
-              decode_b(
-                c,
-                t,
-                f,
-                pass,
-                bl,
-                BlockSize::Bs4x4,
-                bp,
-                match tip.split {
-                  [_, _, _explicit_element, ..] => _explicit_element,
-                },
-              )?;
-
-              {
-                let numeric_amount = 1;
-                let numeric_target = &mut (t.b.x);
-                *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-              };
-
-              {
-                let numeric_amount = 1;
-                let numeric_target = &mut (t.b.y);
-                *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-              };
-
-              match ::core::primitive::bool::then_some(
-                cfg!(target_arch = "x86_64") && t.frame_thread.pass != 0,
-                (),
-              ) {
-                ::core::option::Option::Some(()) => {
-                  let Ok(p) =
-                    console_core_number_conversion::wrapped_index(t.frame_thread.pass & 1);
-                  let Ok(()) = (*match <[_]>::get(&ts.frame_thread, p) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  })
-                  .cf
-                  .update(|cf| u32::wrapping_add(cf, 31) & !31);
-                }
-                ::core::option::Option::None => {}
-              }
-            }
-            Some(next_bl) => {
-              let branch = intra_edge
-                .branch(superblock_size, edge_index)
-                .map_err(|_edge| ())?;
-              decode_sb(
-                c,
-                t,
-                f,
-                pass,
-                next_bl,
-                match branch.split {
-                  [_explicit_element, ..] => _explicit_element,
-                },
-              )?;
-
-              {
-                let numeric_amount = hsz;
-                let numeric_target = &mut (t.b.x);
-                *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-              };
-
-              decode_sb(
-                c,
-                t,
-                f,
-                pass,
-                next_bl,
-                match branch.split {
-                  [_, _explicit_element, ..] => _explicit_element,
-                },
-              )?;
-
-              {
-                let numeric_amount = hsz;
-                let numeric_target = &mut (t.b.x);
-                *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-              };
-
-              {
-                let numeric_amount = hsz;
-                let numeric_target = &mut (t.b.y);
-                *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-              };
-
-              decode_sb(
-                c,
-                t,
-                f,
-                pass,
-                next_bl,
-                match branch.split {
-                  [_, _, _explicit_element, ..] => _explicit_element,
-                },
-              )?;
-
-              {
-                let numeric_amount = hsz;
-                let numeric_target = &mut (t.b.x);
-                *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-              };
-
-              decode_sb(
-                c,
-                t,
-                f,
-                pass,
-                next_bl,
-                match branch.split {
-                  [_, _, _, _explicit_element, ..] => _explicit_element,
-                },
-              )?;
-
-              {
-                let numeric_amount = hsz;
-                let numeric_target = &mut (t.b.x);
-                *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-              };
-
-              {
-                let numeric_amount = hsz;
-                let numeric_target = &mut (t.b.y);
-                *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-              };
-            }
-          }
-        }
-        BlockPartition::TopSplit => {
-          let node = intra_edge
-            .node(superblock_size, edge_index)
-            .map_err(|_edge| ())?;
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            EdgeFlags::ALL_TR_AND_BL,
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.v {
-              [_, _explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_, _explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.h {
-              [_, _explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-        }
-        BlockPartition::BottomSplit => {
-          let node = intra_edge
-            .node(superblock_size, edge_index)
-            .map_err(|_edge| ())?;
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.h {
-              [_explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_, _explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.v {
-              [_explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_, _explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            EdgeFlags::EMPTY,
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-        }
-        BlockPartition::LeftSplit => {
-          let node = intra_edge
-            .node(superblock_size, edge_index)
-            .map_err(|_edge| ())?;
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            EdgeFlags::ALL_TR_AND_BL,
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.h {
-              [_, _explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_, _explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.v {
-              [_, _explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-        }
-        BlockPartition::RightSplit => {
-          let node = intra_edge
-            .node(superblock_size, edge_index)
-            .map_err(|_edge| ())?;
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.v {
-              [_explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_, _explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.h {
-              [_explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_, _explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            EdgeFlags::EMPTY,
-          )?;
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-
-          {
-            let numeric_amount = hsz;
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-        }
-        BlockPartition::H4 => {
-          let branch = intra_edge
-            .branch(superblock_size, edge_index)
-            .map_err(|_edge| ())?;
-          let node = &branch.node;
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.h {
-              [_explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            branch.h4,
-          )?;
-
-          {
-            let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            EdgeFlags::ALL_LEFT_HAS_BOTTOM,
-          )?;
-
-          {
-            let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          match ::core::primitive::bool::then_some(t.b.y < f.bh, ()) {
-            ::core::option::Option::Some(()) => {
-              decode_b(
-                c,
-                t,
-                f,
-                pass,
-                bl,
-                match b {
-                  &[_explicit_element, ..] => _explicit_element,
-                },
-                bp,
-                match node.h {
-                  [_, _explicit_element, ..] => _explicit_element,
-                },
-              )?;
-            }
-            ::core::option::Option::None => {}
-          }
-
-          {
-            let numeric_amount = i32::wrapping_shr(i32::wrapping_mul(hsz, 3), 1_u32);
-            let numeric_target = &mut (t.b.y);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-        }
-        BlockPartition::V4 => {
-          let branch = intra_edge
-            .branch(superblock_size, edge_index)
-            .map_err(|_edge| ())?;
-          let node = &branch.node;
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            match node.v {
-              [_explicit_element, ..] => _explicit_element,
-            },
-          )?;
-
-          {
-            let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            branch.v4,
-          )?;
-
-          {
-            let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          decode_b(
-            c,
-            t,
-            f,
-            pass,
-            bl,
-            match b {
-              &[_explicit_element, ..] => _explicit_element,
-            },
-            bp,
-            EdgeFlags::ALL_TOP_HAS_RIGHT,
-          )?;
-
-          {
-            let numeric_amount = i32::wrapping_shr(hsz, 1_u32);
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-          };
-
-          match ::core::primitive::bool::then_some(t.b.x < f.bw, ()) {
-            ::core::option::Option::Some(()) => {
-              decode_b(
-                c,
-                t,
-                f,
-                pass,
-                bl,
-                match b {
-                  &[_explicit_element, ..] => _explicit_element,
-                },
-                bp,
-                match node.v {
-                  [_, _explicit_element, ..] => _explicit_element,
-                },
-              )?;
-            }
-            ::core::option::Option::None => {}
-          }
-
-          {
-            let numeric_amount = i32::wrapping_shr(i32::wrapping_mul(hsz, 3), 1_u32);
-            let numeric_target = &mut (t.b.x);
-            *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-          };
-        }
+      let decoded = decode_partition_layout(c, t, f, pass, layout, ts)?;
+
+      match decoded {
+        PartitionStep::Complete => {}
+        PartitionStep::Split(children) => return Ok(PartitionStep::Split(children)),
       }
     }
     ::core::option::Option::None => match ::core::primitive::bool::then_some(have_h_split, ()) {
       ::core::option::Option::Some(()) => {
-        let is_split;
-
-        match ctx {
-          Some((ctx_3, ts_c)) => {
-            let pc = &mut *match <[_]>::get_mut(
-              &mut *match <[_]>::get_mut(&mut *ts_c.cdf.m.partition, {
-                let Ok(table_index) = console_core_number_conversion::index({
-                  let Ok(ordinal) = bl.ordinal();
-                  ordinal
-                });
-                table_index
-              }) {
-                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              },
-              {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx_3);
-                numeric_value
-              },
-            ) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            };
-            is_split = matches!(
-              rav1d_msac_decode_bool(&mut ts_c.msac, {
-                let Ok(explicit_value) = gather_partition_probability(pc, bl, PartitionEdge::Top);
-                explicit_value
-              }),
-              Ok(EntropyBit::One)
-            );
-
-            match debug_block_info!(f, t.b) {
-              BlockTrace::Enabled => {
-                println!(
-                  "poc={},y={},x={},bl={:?},ctx={},bp={:?}: r={}",
-                  frame_hdr.frame_offset,
-                  t.b.y,
-                  t.b.x,
-                  bl,
-                  ctx_3,
-                  match is_split {
-                    true => {
-                      BlockPartition::Split
-                    }
-                    false => {
-                      BlockPartition::H
-                    }
-                  },
-                  ts_c.msac.rng,
-                );
-              }
-              BlockTrace::Disabled => {}
-            }
-          }
-          ::core::option::Option::None => {
-            let block = f.coded_block_position(t.b).map_err(|_invalid_block| ())?;
-            let Ok(index) = console_core_number_conversion::index(block);
-            let b = &f.frame_thread.b.index(index);
-            is_split = b.bl != bl;
-          }
-        }
+        let boundary = read_partition_boundary(
+          f,
+          t,
+          ctx,
+          PartitionBoundary {
+            level: bl,
+            edge: PartitionEdge::Top,
+            frame_offset: frame_hdr.frame_offset,
+          },
+        )?;
 
         let Ok(bl_decrease) = bl.decrease();
         let next_bl = bl_decrease.ok_or(())?;
 
-        match ::core::primitive::bool::then_some(is_split, ()) {
-          ::core::option::Option::Some(()) => {
+        match boundary {
+          BoundaryDecision::Split => {
             let branch = intra_edge
               .branch(superblock_size, edge_index)
               .map_err(|_edge| ())?;
-            bp = BlockPartition::Split;
-            decode_sb(
-              c,
-              t,
-              f,
-              pass,
-              next_bl,
-              match branch.split {
-                [_explicit_element, ..] => _explicit_element,
-              },
-            )?;
-
-            {
-              let numeric_amount = hsz;
-              let numeric_target = &mut (t.b.x);
-              *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-            };
-
-            decode_sb(
-              c,
-              t,
-              f,
-              pass,
-              next_bl,
-              match branch.split {
-                [_, _explicit_element, ..] => _explicit_element,
-              },
-            )?;
-
-            {
-              let numeric_amount = hsz;
-              let numeric_target = &mut (t.b.x);
-              *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-            };
+            return Ok(PartitionStep::Split(SplitPartition {
+              origin,
+              child_level: next_bl,
+              step: hsz,
+              edges: branch.split,
+              coverage: PartitionCoverage::TopRow,
+            }));
           }
-          ::core::option::Option::None => {
+          BoundaryDecision::Unsplit => {
             let node = intra_edge
               .node(superblock_size, edge_index)
               .map_err(|_edge| ())?;
             bp = BlockPartition::H;
-            decode_b(
-              c,
-              t,
-              f,
-              pass,
-              bl,
-              *match <[_]>::get(
-                &(*match <[_]>::get(
-                  &(*match <[_]>::get(&dav1d_block_sizes, {
-                    let Ok(table_index) = console_core_number_conversion::index({
-                      let Ok(ordinal) = bl.ordinal();
-                      ordinal
-                    });
-                    table_index
-                  }) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  }),
-                  {
-                    let Ok(table_index) = console_core_number_conversion::index({
-                      let Ok(ordinal) = bp.ordinal();
-                      ordinal
-                    });
-                    table_index
-                  },
-                ) {
-                  ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                }),
-                0,
-              ) {
-                ::core::option::Option::Some(indexed_value_3) => indexed_value_3,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              },
-              bp,
-              match node.h {
-                [_explicit_element, ..] => _explicit_element,
-              },
-            )?;
+            let [primary_size, _] = partition_block_sizes(bl, bp)?;
+            let [flags, ..] = node.h;
+            decode_b(c, t, f, pass, bl, primary_size, bp, flags)?;
           }
         }
       }
       ::core::option::Option::None => {
         assert!(have_v_split);
-        let is_split;
-
-        match ctx {
-          Some((ctx_4, ts_c)) => {
-            let pc = &mut *match <[_]>::get_mut(
-              &mut *match <[_]>::get_mut(&mut *ts_c.cdf.m.partition, {
-                let Ok(table_index) = console_core_number_conversion::index({
-                  let Ok(ordinal) = bl.ordinal();
-                  ordinal
-                });
-                table_index
-              }) {
-                ::core::option::Option::Some(indexed_value_4) => indexed_value_4,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              },
-              {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(ctx_4);
-                numeric_value
-              },
-            ) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            };
-            is_split = matches!(
-              rav1d_msac_decode_bool(&mut ts_c.msac, {
-                let Ok(explicit_value) =
-                  gather_partition_probability(pc, bl, PartitionEdge::Left);
-                explicit_value
-              }),
-              Ok(EntropyBit::One)
-            );
-
-            match ::core::primitive::bool::then_some(
-              f.cur.p.layout == Rav1dPixelLayout::I422 && !is_split,
-              (),
-            ) {
-              ::core::option::Option::Some(()) => {
-                return Err(());
-              }
-              ::core::option::Option::None => {}
-            }
-
-            match debug_block_info!(f, t.b) {
-              BlockTrace::Enabled => {
-                println!(
-                  "poc={},y={},x={},bl={:?},ctx={},bp={:?}: r={}",
-                  frame_hdr.frame_offset,
-                  t.b.y,
-                  t.b.x,
-                  bl,
-                  ctx_4,
-                  match is_split {
-                    true => {
-                      BlockPartition::Split
-                    }
-                    false => {
-                      BlockPartition::V
-                    }
-                  },
-                  ts_c.msac.rng,
-                );
-              }
-              BlockTrace::Disabled => {}
-            }
-          }
-          ::core::option::Option::None => {
-            let block = f.coded_block_position(t.b).map_err(|_invalid_block| ())?;
-            let Ok(index) = console_core_number_conversion::index(block);
-            let b = &f.frame_thread.b.index(index);
-            is_split = b.bl != bl;
-          }
-        }
+        let boundary = read_partition_boundary(
+          f,
+          t,
+          ctx,
+          PartitionBoundary {
+            level: bl,
+            edge: PartitionEdge::Left,
+            frame_offset: frame_hdr.frame_offset,
+          },
+        )?;
 
         let Ok(bl_decrease) = bl.decrease();
         let next_bl = bl_decrease.ok_or(())?;
 
-        match ::core::primitive::bool::then_some(is_split, ()) {
-          ::core::option::Option::Some(()) => {
+        match boundary {
+          BoundaryDecision::Split => {
             let branch = intra_edge
               .branch(superblock_size, edge_index)
               .map_err(|_edge| ())?;
-            bp = BlockPartition::Split;
-            decode_sb(
-              c,
-              t,
-              f,
-              pass,
-              next_bl,
-              match branch.split {
-                [_explicit_element, ..] => _explicit_element,
-              },
-            )?;
-
-            {
-              let numeric_amount = hsz;
-              let numeric_target = &mut (t.b.y);
-              *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-            };
-
-            decode_sb(
-              c,
-              t,
-              f,
-              pass,
-              next_bl,
-              match branch.split {
-                [_, _, _explicit_element, ..] => _explicit_element,
-              },
-            )?;
-
-            {
-              let numeric_amount = hsz;
-              let numeric_target = &mut (t.b.y);
-              *numeric_target = i32::wrapping_sub(*numeric_target, numeric_amount);
-            };
+            return Ok(PartitionStep::Split(SplitPartition {
+              origin,
+              child_level: next_bl,
+              step: hsz,
+              edges: branch.split,
+              coverage: PartitionCoverage::LeftColumn,
+            }));
           }
-          ::core::option::Option::None => {
+          BoundaryDecision::Unsplit => {
             let node = intra_edge
               .node(superblock_size, edge_index)
               .map_err(|_edge| ())?;
             bp = BlockPartition::V;
-            decode_b(
-              c,
-              t,
-              f,
-              pass,
-              bl,
-              *match <[_]>::get(
-                &(*match <[_]>::get(
-                  &(*match <[_]>::get(&dav1d_block_sizes, {
-                    let Ok(table_index) = console_core_number_conversion::index({
-                      let Ok(ordinal) = bl.ordinal();
-                      ordinal
-                    });
-                    table_index
-                  }) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => return ::core::result::Result::Err(()),
-                  }),
-                  {
-                    let Ok(table_index) = console_core_number_conversion::index({
-                      let Ok(ordinal) = bp.ordinal();
-                      ordinal
-                    });
-                    table_index
-                  },
-                ) {
-                  ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                }),
-                0,
-              ) {
-                ::core::option::Option::Some(indexed_value_3) => indexed_value_3,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              },
-              bp,
-              match node.v {
-                [_explicit_element, ..] => _explicit_element,
-              },
-            )?;
+            let [primary_size, _] = partition_block_sizes(bl, bp)?;
+            let [flags, ..] = node.v;
+            decode_b(c, t, f, pass, bl, primary_size, bp, flags)?;
           }
         }
       }
@@ -9844,85 +7845,87 @@ fn decode_sb(
     (),
   ) {
     ::core::option::Option::Some(()) => {
-      let above = f.above_context(t.above_index).ok_or(())?;
+      let above = f.above_context(t.above_index).map_err(|_invalid_slot| ())?;
+      let Ok(level) = bl.ordinal();
+      let Ok(partition) = bp.ordinal();
+      let Ok(level_index) = console_core_number_conversion::index(level);
+      let Ok(partition_index) = console_core_number_conversion::index(partition);
+      let [horizontal, vertical] = &dav1d_al_part_ctx;
+      let horizontal_level = horizontal.get(level_index).ok_or(())?;
+      let vertical_level = vertical.get(level_index).ok_or(())?;
+      let horizontal_context = horizontal_level.get(partition_index).copied().ok_or(())?;
+      let vertical_context = vertical_level.get(partition_index).copied().ok_or(())?;
+      let Ok(run) = console_core_number_conversion::wrapped_index(hsz);
+      let Ok(left_start) = console_core_number_conversion::wrapped_index(by8);
+      let Ok(above_start) = console_core_number_conversion::wrapped_index(bx8);
       case_set_al! {
           <16, false>
-          l: (&mut t.l, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(hsz); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(by8); numeric_value }),
-          a: (above, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(hsz); numeric_value }, { let Ok(numeric_value) = console_core_number_conversion::wrapped_index(bx8); numeric_value }),
-          partition = (
-              (*match &dav1d_al_part_ctx { [_, element, ..] => element })[{ let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = bl.ordinal(); ordinal }); table_index }][{ let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = bp.ordinal(); ordinal }); table_index }],
-              (*match &dav1d_al_part_ctx { [element, ..] => element })[{ let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = bl.ordinal(); ordinal }); table_index }][{ let Ok(table_index) = console_core_number_conversion::index({ let Ok(ordinal) = bp.ordinal(); ordinal }); table_index }]
-          ),
+          l: (&mut t.l, run, left_start),
+          a: (above, run, above_start),
+          partition = (vertical_context, horizontal_context),
       }
     }
     ::core::option::Option::None => {}
   }
 
-  Ok(())
+  Ok(PartitionStep::Complete)
+}
+
+enum ContextInitialization {
+  PredictionOnly,
+  Full,
 }
 
 fn reset_context(
   ctx: &mut BlockContext,
-  keyframe: bool,
-  pass: c_int,
-) -> core::result::Result<(), console_core_never::Never> {
-  {
-    ctx
-      .intra
-      .get_mut()
-      .fill(<::core::primitive::u8 as ::core::convert::From<
-        ::core::primitive::bool,
-      >>::from(keyframe));
-    ctx.uvmode.get_mut().fill(DC_PRED);
+  frame: Rav1dFrameType,
+  update: ContextInitialization,
+) -> Result<(), console_core_never::Never> {
+  ctx.intra.get_mut().fill(u8::from(frame.is_key_or_intra()));
+  ctx.uvmode.get_mut().fill(DC_PRED);
 
-    match ::core::primitive::bool::then_some(keyframe, ()) {
-      ::core::option::Option::Some(()) => {
-        ctx.mode.get_mut().fill(DC_PRED);
+  match frame {
+    Rav1dFrameType::Key | Rav1dFrameType::Intra => ctx.mode.get_mut().fill(DC_PRED),
+    Rav1dFrameType::Inter | Rav1dFrameType::Switch => {}
+  }
+
+  match update {
+    ContextInitialization::PredictionOnly => return Ok(()),
+    ContextInitialization::Full => {}
+  }
+
+  ctx.partition.get_mut().fill(0);
+  ctx.skip.get_mut().fill(0);
+  ctx.skip_mode.get_mut().fill(0);
+  ctx.tx_lpf_y.get_mut().fill(2);
+  ctx.tx_lpf_uv.get_mut().fill(1);
+  ctx.tx_intra.get_mut().fill(-1);
+  ctx.tx.get_mut().fill(TxfmSize::S64x64);
+
+  match frame {
+    Rav1dFrameType::Key | Rav1dFrameType::Intra => {}
+    Rav1dFrameType::Inter | Rav1dFrameType::Switch => {
+      for reference in &mut ctx.r#ref {
+        reference.get_mut().fill(-1);
       }
-      ::core::option::Option::None => {}
+
+      ctx.comp_type.get_mut().fill(None);
+      ctx.mode.get_mut().fill(NEARESTMV);
     }
+  }
 
-    match ::core::primitive::bool::then_some(pass == 2, ()) {
-      ::core::option::Option::Some(()) => {
-        return Ok(());
-      }
-      ::core::option::Option::None => {}
-    }
+  ctx.lcoef.get_mut().fill(0x40);
 
-    ctx.partition.get_mut().fill(0);
-    ctx.skip.get_mut().fill(0);
-    ctx.skip_mode.get_mut().fill(0);
-    ctx.tx_lpf_y.get_mut().fill(2);
-    ctx.tx_lpf_uv.get_mut().fill(1);
-    ctx.tx_intra.get_mut().fill(-1);
-    ctx.tx.get_mut().fill(TxfmSize::S64x64);
+  for coefficient in &mut ctx.ccoef {
+    coefficient.get_mut().fill(0x40);
+  }
 
-    match ::core::primitive::bool::then_some(!keyframe, ()) {
-      ::core::option::Option::Some(()) => {
-        for r#ref in &mut ctx.r#ref {
-          r#ref.get_mut().fill(-1);
-        }
+  for filter in &mut ctx.filter {
+    filter.get_mut().fill(Rav1dFilterMode::N_SWITCHABLE_FILTERS);
+  }
 
-        ctx.comp_type.get_mut().fill(None);
-        ctx.mode.get_mut().fill(NEARESTMV);
-      }
-      ::core::option::Option::None => {}
-    }
-
-    ctx.lcoef.get_mut().fill(0x40);
-
-    for ccoef in &mut ctx.ccoef {
-      ccoef.get_mut().fill(0x40);
-    }
-
-    for filter in &mut ctx.filter {
-      filter.get_mut().fill(Rav1dFilterMode::N_SWITCHABLE_FILTERS);
-    }
-
-    ctx.seg_pred.get_mut().fill(0);
-    ctx.pal_sz.get_mut().fill(0);
-  };
-
+  ctx.seg_pred.get_mut().fill(0);
+  ctx.pal_sz.get_mut().fill(0);
   Ok(())
 }
 
@@ -9944,204 +7947,287 @@ fn adjacent_tile_boundaries(starts: &[u16], tile: u32) -> Rav1dResult<[i32; 2]> 
   Ok([i32::from(first), i32::from(next)])
 }
 
-fn setup_tile(
-  c: &Rav1dContext,
-  ts: &mut Rav1dTileState,
-  seq_hdr: &Rav1dSequenceHeader,
-  frame_hdr: &Rav1dFrameHeader,
-  SetupTileArguments {
-    bitdepth_max,
-    sb_shift,
-  }: SetupTileArguments,
-  cur: &Rav1dPicture,
-  bw: i32,
-  bh: i32,
-  frame_thread: &Rav1dFrameContextFrameThread,
-  sr_sb128w: i32,
-  sb128w: i32,
-  lf: &mut Rav1dFrameContextLf,
-  in_cdf: &CdfThreadContext,
-  data: CArc<[u8]>,
-  tile_row: u32,
-  tile_col: u32,
-  tile_start_off: u32,
+struct SetupTileArguments {
+  bitdepth_max: i32,
+  sb_shift: i32,
+  frame: Size<i32>,
+  superblock_widths: SuperblockWidths,
+  tile: Point<u32>,
+  palette_start: u32,
+}
+
+struct SuperblockWidths {
+  scaled: i32,
+  coded: i32,
+}
+
+struct TileSetupFrame<'a> {
+  sequence: &'a Rav1dSequenceHeader,
+  header: &'a Rav1dFrameHeader,
+  picture: &'a Rav1dPicture,
+  buffers: &'a Rav1dFrameContextFrameThread,
+  restoration: &'a mut Rav1dFrameContextLf,
+}
+
+struct TileEntropyInput<'a> {
+  initial_cdf: &'a CdfThreadContext,
+  payload: CArc<[u8]>,
+}
+
+fn set_tile_buffer_offsets(
+  tile: &Rav1dTileState,
+  frame: &TileSetupFrame<'_>,
+  settings: &SetupTileArguments,
 ) -> Rav1dResult {
-  let initialized_cdf = rav1d_cdf_thread_copy(in_cdf)?;
-
-  {
-    let columns = adjacent_tile_boundaries(&frame_hdr.tiling.col_start_sb, tile_col)?;
-    let rows = adjacent_tile_boundaries(&frame_hdr.tiling.row_start_sb, tile_row)?;
-    let [col_sb_start, col_sb_end] = columns;
-    let [row_sb_start, row_sb_end] = rows;
-    let col_sb128_start = col_sb_start.wrapping_shr(u32::from(seq_hdr.sb128 == 0));
-    let &[coefficient_scale, palette_scale] = ss_size_mul.checked(cur.p.layout)?;
-
-    for pass in &ts.frame_thread {
-      let palette_offset = match frame_thread.pal_idx.is_empty().then_some(()) {
-        Some(()) => 0,
-        None => tile_start_off
-          .wrapping_mul(u32::from(palette_scale))
-          .wrapping_div(8),
-      };
-      let coding_offset = tile_start_off.wrapping_mul(u32::from(coefficient_scale));
-      let block_index = match frame_thread.cbi.is_empty().then_some(()) {
-        Some(()) => 0,
-        None => coding_offset.wrapping_div(64),
-      };
-      let coefficients = match frame_thread.cf.is_empty().then_some(()) {
-        Some(()) => 0,
-        None => {
-          let bpc = BPC::from_bitdepth_max(bitdepth_max);
-          bpc.coef_stride(coding_offset.wrapping_shr(u32::from(seq_hdr.hbd == 0)))
-        }
-      };
-      let Ok(()) = pass.pal_idx.set(palette_offset);
-      let Ok(()) = pass.cbi_idx.set(block_index);
-      let Ok(()) = pass.cf.set(coefficients);
-    }
-
-    let mut tile_context = ts.context.try_lock().ok_or(EINVAL)?;
-    let ts_c = &mut *tile_context;
-    ts_c.cdf = initialized_cdf;
-    ts.last_qidx = <crate::src::relaxed_atomic::RelaxedAtomic<::core::primitive::u8> as ::core::convert::From<::core::primitive::u8>>::from(frame_hdr.quant.yac);
-    ts.last_delta_lf = Default::default();
-
-    let updates = match frame_hdr.disable_cdf_update {
-      0 => crate::src::msac::CdfUpdates::Allowed,
-      _ => crate::src::msac::CdfUpdates::Frozen,
-    };
-    let Ok(msac_context) = MsacContext::new(data, updates, &c.dsp.msac);
-    ts_c.msac = msac_context;
-
-    ts.tiling.row = {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(tile_row);
-      numeric_value
-    };
-    ts.tiling.col = {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(tile_col);
-      numeric_value
-    };
-    ts.tiling.col_start = i32::wrapping_shl(col_sb_start, {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(sb_shift);
-      numeric_value
-    });
-    ts.tiling.col_end = cmp::min(
-      i32::wrapping_shl(col_sb_end, {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(sb_shift);
-        numeric_value
-      }),
-      bw,
-    );
-    ts.tiling.row_start = i32::wrapping_shl(row_sb_start, {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(sb_shift);
-      numeric_value
-    });
-    ts.tiling.row_end = cmp::min(
-      i32::wrapping_shl(row_sb_end, {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(sb_shift);
-        numeric_value
-      }),
-      bh,
-    );
-    let diff_width = (match frame_hdr.size.width {
-      [element, ..] => element,
-    }) != (match frame_hdr.size.width {
-      [_, element, ..] => element,
-    });
-
-    let (sb_idx, unit_idx) = match ::core::primitive::bool::then_some(diff_width, ()) {
-      ::core::option::Option::Some(()) => (
-        i32::wrapping_mul(i32::wrapping_shr(ts.tiling.row_start, 5_u32), sr_sb128w),
-        i32::wrapping_shr(ts.tiling.row_start & 16, 3_u32),
-      ),
-      ::core::option::Option::None => (
-        i32::wrapping_add(
-          i32::wrapping_mul(i32::wrapping_shr(ts.tiling.row_start, 5_u32), sb128w),
-          col_sb128_start,
-        ),
-        i32::wrapping_add(
-          i32::wrapping_shr(ts.tiling.row_start & 16, 3_u32),
-          i32::wrapping_shr(ts.tiling.col_start & 16, 4_u32),
-        ),
-      ),
-    };
-
-    let [luma_unit, chroma_unit] = frame_hdr.restoration.unit_size;
-    let plane_mask = lf.restore_planes.bits();
-
-    for (plane, previous) in (0u8..).zip(ts.lr_ref.get_mut()) {
-      match plane_mask.wrapping_shr(u32::from(plane)) & 1 {
-        0 => continue,
-        _ => {}
-      }
-
-      let (superblock, quadrant) = match diff_width.then_some(()) {
-        Some(()) => {
-          let horizontal_subsampling =
-            u8::from(plane != 0 && cur.p.layout != Rav1dPixelLayout::I444);
-          let size = match plane {
-            0 => luma_unit,
-            _ => chroma_unit,
-          };
-          let denominator = i32::from(frame_hdr.size.super_res.width_scale_denominator);
-          let round = 8i32.wrapping_shl(u32::from(size)).wrapping_sub(1);
-          let scaled_column = ts
-            .tiling
-            .col_start
-            .wrapping_mul(4)
-            .wrapping_mul(denominator)
-            .wrapping_shr(u32::from(horizontal_subsampling))
-            .wrapping_add(round)
-            .wrapping_shr(u32::from(size.wrapping_add(3)));
-          let x =
-            scaled_column.wrapping_shl(u32::from(size.wrapping_add(horizontal_subsampling)));
-          let block_x = x.wrapping_shr(7);
-
-          match (block_x >= sr_sb128w).then_some(()) {
-            Some(()) => continue,
-            None => {}
-          }
-
-          (
-            sb_idx.wrapping_add(block_x),
-            unit_idx.wrapping_add((x & 64).wrapping_shr(6)),
-          )
-        }
-        None => (sb_idx, unit_idx),
-      };
-
-      let block_index = console_core_number_conversion::checked_index(superblock)
-        .map_err(|_outside_mask| EINVAL)?;
-      let unit_index = console_core_number_conversion::checked_index(quadrant)
-        .map_err(|_outside_unit| EINVAL)?;
-      let Ok(plane_index) = console_core_number_conversion::index(plane);
-      let mask = lf.lr_mask.get_mut(block_index).ok_or(EINVAL)?;
-      let units = mask.lr.get_mut(plane_index).ok_or(EINVAL)?;
-      let reference = units.get_mut(unit_index).ok_or(EINVAL)?;
-      let unit = reference.get_mut();
-      *unit = Av1RestorationUnit {
-        filter_v: [3, -7, 15],
-        filter_h: [3, -7, 15],
-        sgr_weights: [-32, 31],
-        ..*unit
-      };
-      *previous = *unit;
-    }
-
-    match ::core::primitive::bool::then_some(c.tc.len() > 1, ()) {
-      ::core::option::Option::Some(()) => {
-        ts.progress.fill_with(|| AtomicI32::new(row_sb_start));
-      }
-      ::core::option::Option::None => {}
+  let &[coefficient_scale, palette_scale] = ss_size_mul.checked(frame.picture.p.layout)?;
+  let palette = match frame.buffers.pal_idx.is_empty().then_some(()) {
+    Some(()) => 0,
+    None => settings
+      .palette_start
+      .wrapping_mul(u32::from(palette_scale))
+      .wrapping_div(8),
+  };
+  let coding = settings
+    .palette_start
+    .wrapping_mul(u32::from(coefficient_scale));
+  let blocks = match frame.buffers.cbi.is_empty().then_some(()) {
+    Some(()) => 0,
+    None => coding.wrapping_div(64),
+  };
+  let coefficients = match frame.buffers.cf.is_empty().then_some(()) {
+    Some(()) => 0,
+    None => {
+      let bpc = BPC::from_bitdepth_max(settings.bitdepth_max);
+      bpc.coef_stride(coding.wrapping_shr(u32::from(frame.sequence.hbd == 0)))
     }
   };
+
+  for pass in &tile.frame_thread {
+    let Ok(()) = pass.pal_idx.set(palette);
+    let Ok(()) = pass.cbi_idx.set(blocks);
+    let Ok(()) = pass.cf.set(coefficients);
+  }
 
   Ok(())
 }
 
-struct SetupTileArguments {
-  bitdepth_max: i32,
-  sb_shift: i32,
+struct TileSuperblockBoundaries {
+  rows: [i32; 2],
+  columns: [i32; 2],
+}
+
+impl TileSuperblockBoundaries {
+  fn from_header(header: &Rav1dFrameHeader, position: Point<u32>) -> Rav1dResult<Self> {
+    let columns = adjacent_tile_boundaries(&header.tiling.col_start_sb, position.x)?;
+    let rows = adjacent_tile_boundaries(&header.tiling.row_start_sb, position.y)?;
+    Ok(Self { rows, columns })
+  }
+
+  fn tiling(&self, settings: &SetupTileArguments) -> Rav1dResult<Rav1dTileStateTiling> {
+    let col = i32::try_from(settings.tile.x).map_err(|_outside_columns| EINVAL)?;
+    let row = i32::try_from(settings.tile.y).map_err(|_outside_rows| EINVAL)?;
+    let Ok(shift) = console_core_number_conversion::wrapped::<_, u32>(settings.sb_shift);
+    let [first_column, last_column] = self.columns;
+    let [first_row, last_row] = self.rows;
+    Ok(Rav1dTileStateTiling {
+      col,
+      row,
+      col_start: first_column.wrapping_shl(shift),
+      col_end: last_column.wrapping_shl(shift).min(settings.frame.width),
+      row_start: first_row.wrapping_shl(shift),
+      row_end: last_row.wrapping_shl(shift).min(settings.frame.height),
+    })
+  }
+}
+
+struct TileRestorationPosition {
+  superblock: i32,
+  quadrant: i32,
+}
+
+enum TileRestorationColumns {
+  Coded,
+  Upscaled { width_blocks: i32, denominator: i32 },
+}
+
+struct TileRestorationLayout {
+  origin: TileRestorationPosition,
+  column_start: i32,
+  unit_size: [u8; 2],
+  pixel_layout: Rav1dPixelLayout,
+  columns: TileRestorationColumns,
+}
+
+impl TileRestorationLayout {
+  fn position(
+    &self,
+    plane: u8,
+  ) -> Result<Option<TileRestorationPosition>, console_core_never::Never> {
+    match self.columns {
+      TileRestorationColumns::Coded => Ok(Some(TileRestorationPosition {
+        superblock: self.origin.superblock,
+        quadrant: self.origin.quadrant,
+      })),
+      TileRestorationColumns::Upscaled {
+        width_blocks,
+        denominator,
+      } => {
+        let horizontal_subsampling =
+          u8::from(plane != 0 && self.pixel_layout != Rav1dPixelLayout::I444);
+        let [luma, chroma] = self.unit_size;
+        let unit = match plane {
+          0 => luma,
+          _ => chroma,
+        };
+        let round = 8i32.wrapping_shl(u32::from(unit)).wrapping_sub(1);
+        let column = self
+          .column_start
+          .wrapping_mul(4)
+          .wrapping_mul(denominator)
+          .wrapping_shr(u32::from(horizontal_subsampling))
+          .wrapping_add(round)
+          .wrapping_shr(u32::from(unit.wrapping_add(3)));
+        let x = column.wrapping_shl(u32::from(unit.wrapping_add(horizontal_subsampling)));
+        let block = x.wrapping_shr(7);
+
+        match block.cmp(&width_blocks) {
+          cmp::Ordering::Less => Ok(Some(TileRestorationPosition {
+            superblock: self.origin.superblock.wrapping_add(block),
+            quadrant: self.origin.quadrant.wrapping_add((x & 64).wrapping_shr(6)),
+          })),
+          cmp::Ordering::Equal | cmp::Ordering::Greater => Ok(None),
+        }
+      }
+    }
+  }
+}
+
+fn reset_tile_restoration(
+  units: &mut [Av1RestorationUnit; 3],
+  filter: &mut Rav1dFrameContextLf,
+  layout: TileRestorationLayout,
+) -> Rav1dResult {
+  let planes = filter.restore_planes.bits();
+
+  for (plane, previous) in (0u8..).zip(units) {
+    match planes.wrapping_shr(u32::from(plane)) & 1 {
+      0 => continue,
+      _ => {}
+    }
+
+    let Ok(placement) = layout.position(plane);
+    let TileRestorationPosition {
+      superblock,
+      quadrant,
+    } = match placement {
+      Some(position) => position,
+      None => continue,
+    };
+    let block = console_core_number_conversion::checked_index(superblock)
+      .map_err(|_outside_mask| EINVAL)?;
+    let index =
+      console_core_number_conversion::checked_index(quadrant).map_err(|_outside_unit| EINVAL)?;
+    let Ok(plane_index) = console_core_number_conversion::index(plane);
+    let mask = filter.lr_mask.get_mut(block).ok_or(EINVAL)?;
+    let plane_units = mask.lr.get_mut(plane_index).ok_or(EINVAL)?;
+    let reference = plane_units.get_mut(index).ok_or(EINVAL)?;
+    let unit = reference.get_mut();
+    *unit = Av1RestorationUnit {
+      filter_v: [3, -7, 15],
+      filter_h: [3, -7, 15],
+      sgr_weights: [-32, 31],
+      ..*unit
+    };
+    *previous = *unit;
+  }
+
+  Ok(())
+}
+
+fn setup_tile(
+  decoder: &Rav1dContext,
+  tile: &mut Rav1dTileState,
+  frame: TileSetupFrame<'_>,
+  settings: SetupTileArguments,
+  input: TileEntropyInput<'_>,
+) -> Rav1dResult {
+  let initial_cdf = rav1d_cdf_thread_copy(input.initial_cdf)?;
+  let boundaries = TileSuperblockBoundaries::from_header(frame.header, settings.tile)?;
+  set_tile_buffer_offsets(tile, &frame, &settings)?;
+  let mut context = tile.context.try_lock().ok_or(EINVAL)?;
+  context.cdf = initial_cdf;
+  tile.last_qidx = RelaxedAtomic::from(frame.header.quant.yac);
+  tile.last_delta_lf = Default::default();
+  let updates = match frame.header.disable_cdf_update {
+    0 => crate::src::msac::CdfUpdates::Allowed,
+    _ => crate::src::msac::CdfUpdates::Frozen,
+  };
+  let Ok(entropy) = MsacContext::new(input.payload, updates, &decoder.dsp.msac);
+  context.msac = entropy;
+  let tiling = boundaries.tiling(&settings)?;
+  tile.tiling = tiling;
+  let [coded, restored] = frame.header.size.width;
+  let [column_start, _] = boundaries.columns;
+  let sb128_row = tile.tiling.row_start.wrapping_shr(5);
+  let quadrant_y = (tile.tiling.row_start & 16).wrapping_shr(3);
+  let (origin, columns) = match coded.cmp(&restored) {
+    cmp::Ordering::Equal => {
+      let sb128_col = column_start.wrapping_shr(u32::from(frame.sequence.sb128 == 0));
+      let origin = TileRestorationPosition {
+        superblock: sb128_row
+          .wrapping_mul(settings.superblock_widths.coded)
+          .wrapping_add(sb128_col),
+        quadrant: quadrant_y.wrapping_add((tile.tiling.col_start & 16).wrapping_shr(4)),
+      };
+      (origin, TileRestorationColumns::Coded)
+    }
+    cmp::Ordering::Less | cmp::Ordering::Greater => {
+      let width_blocks = settings.superblock_widths.scaled;
+      let origin = TileRestorationPosition {
+        superblock: sb128_row.wrapping_mul(width_blocks),
+        quadrant: quadrant_y,
+      };
+      let denominator = i32::from(frame.header.size.super_res.width_scale_denominator);
+      (
+        origin,
+        TileRestorationColumns::Upscaled {
+          width_blocks,
+          denominator,
+        },
+      )
+    }
+  };
+  let restoration = TileRestorationLayout {
+    origin,
+    column_start: tile.tiling.col_start,
+    unit_size: frame.header.restoration.unit_size,
+    pixel_layout: frame.picture.p.layout,
+    columns,
+  };
+  reset_tile_restoration(tile.lr_ref.get_mut(), frame.restoration, restoration)?;
+
+  match decoder.tc.len() {
+    0 | 1 => {}
+    2.. => {
+      let [first_row, _] = boundaries.rows;
+      tile.progress.fill_with(|| AtomicI32::new(first_row));
+    }
+  }
+
+  Ok(())
+}
+
+fn read_optional_restoration_type(
+  entropy: &mut MsacContext,
+  probabilities: &mut [u16; 2],
+  enabled: Rav1dRestorationType,
+) -> Result<Rav1dRestorationType, console_core_never::Never> {
+  let Ok(use_filter) = rav1d_msac_decode_bool_adapt(entropy, probabilities);
+
+  Ok(match use_filter {
+    EntropyBit::One => enabled,
+    EntropyBit::Zero => Rav1dRestorationType::None,
+  })
 }
 
 fn read_restoration_info(
@@ -10168,28 +8254,32 @@ fn read_restoration_info(
         _ => Rav1dRestorationType::Wiener,
       }
     }
-    others => {
-      let probability = match others {
-        Rav1dRestorationType::Wiener => &mut *cdf.m.restore_wiener,
-        _ => &mut *cdf.m.restore_sgrproj,
-      };
-      let selected = matches!(
-        rav1d_msac_decode_bool_adapt(msac, probability),
-        Ok(EntropyBit::One)
-      );
-
-      match ::core::primitive::bool::then_some(selected, ()) {
-        ::core::option::Option::Some(()) => others,
-        ::core::option::Option::None => Rav1dRestorationType::None,
-      }
+    Rav1dRestorationType::Wiener => {
+      let Ok(selected) =
+        read_optional_restoration_type(msac, &mut cdf.m.restore_wiener, frame_type);
+      selected
     }
+    Rav1dRestorationType::SgrProj(_) => {
+      let Ok(selected) =
+        read_optional_restoration_type(msac, &mut cdf.m.restore_sgrproj, frame_type);
+      selected
+    }
+    Rav1dRestorationType::None => return Err(EINVAL),
   };
 
-  fn read_subexpression(
-    msac: &mut MsacContext,
+  struct RestorationSubexpression {
     reference: i8,
     order: u8,
     adjustment: i8,
+  }
+
+  fn read_subexpression(
+    msac: &mut MsacContext,
+    RestorationSubexpression {
+      reference,
+      order,
+      adjustment,
+    }: RestorationSubexpression,
   ) -> Result<i8, console_core_never::Never> {
     let Ok(base) =
       console_core_number_conversion::wrapped::<_, u32>(reference.wrapping_add(adjustment));
@@ -10213,20 +8303,43 @@ fn read_restoration_info(
       {
         let outer = match plane {
           0 => {
-            let Ok(value) = read_subexpression(msac, outer_reference, 1, 5);
+            let Ok(value) = read_subexpression(
+              msac,
+              RestorationSubexpression {
+                reference: outer_reference,
+                order: 1,
+                adjustment: 5,
+              },
+            );
             value
           }
           _ => 0,
         };
-        let Ok(middle) = read_subexpression(msac, middle_reference, 2, 23);
-        let Ok(inner) = read_subexpression(msac, inner_reference, 3, 17);
+        let Ok(middle) = read_subexpression(
+          msac,
+          RestorationSubexpression {
+            reference: middle_reference,
+            order: 2,
+            adjustment: 23,
+          },
+        );
+        let Ok(inner) = read_subexpression(
+          msac,
+          RestorationSubexpression {
+            reference: inner_reference,
+            order: 3,
+            adjustment: 17,
+          },
+        );
         *filter = [outer, middle, inner];
       }
 
       lr.sgr_weights = reference.sgr_weights;
       let mut references_2 = ts.lr_ref.try_write().ok_or(EINVAL)?;
 
-      *references_2.get_mut(plane_index).ok_or(EINVAL)? = *lr;
+      let saved = references_2.get_mut(plane_index).ok_or(EINVAL)?;
+      *saved = *lr;
+
       match { ::core::primitive::bool::then_some(debug_block_info == BlockTrace::Enabled, ()) } {
         ::core::option::Option::Some(()) => {
           let [v0, v1, v2] = lr.filter_v;
@@ -10249,14 +8362,28 @@ fn read_restoration_info(
       let outer = match outer_scale {
         0 => 0,
         _ => {
-          let Ok(value) = read_subexpression(msac, outer_reference, 4, 96);
+          let Ok(value) = read_subexpression(
+            msac,
+            RestorationSubexpression {
+              reference: outer_reference,
+              order: 4,
+              adjustment: 96,
+            },
+          );
           value
         }
       };
       let inner = match inner_scale {
         0 => 95,
         _ => {
-          let Ok(value) = read_subexpression(msac, inner_reference, 4, 32);
+          let Ok(value) = read_subexpression(
+            msac,
+            RestorationSubexpression {
+              reference: inner_reference,
+              order: 4,
+              adjustment: 32,
+            },
+          );
           value
         }
       };
@@ -10265,7 +8392,9 @@ fn read_restoration_info(
       lr.filter_h = reference.filter_h;
       let mut references_3 = ts.lr_ref.try_write().ok_or(EINVAL)?;
 
-      *references_3.get_mut(plane_index).ok_or(EINVAL)? = *lr;
+      let saved = references_3.get_mut(plane_index).ok_or(EINVAL)?;
+      *saved = *lr;
+
       match { ::core::primitive::bool::then_some(debug_block_info == BlockTrace::Enabled, ()) } {
         ::core::option::Option::Some(()) => {
           console_core_logging::trace!(
@@ -10311,48 +8440,205 @@ fn check_trailing_bits_after_symbol_coder(msac: &MsacContext) -> Result<(), ()> 
   }
 }
 
-pub(crate) fn rav1d_decode_tile_sbrow(
+struct RestorationGrid {
+  plane: u8,
+  kind: Rav1dRestorationType,
+  unit_shift: u8,
+  horizontal: u8,
+}
+
+impl RestorationGrid {
+  fn unit_size(&self) -> Result<i32, console_core_never::Never> {
+    Ok(1_i32.wrapping_shl(u32::from(self.unit_shift)))
+  }
+
+  fn read_unit(
+    &self,
+    frame: &Rav1dFrameData,
+    tile: &Rav1dTileState,
+    block: Bxy,
+    address: Point<i32>,
+  ) -> Result<(), ()> {
+    let Ok(superblock) = console_core_number_conversion::wrapped_index(address.x);
+    let Ok(unit) = console_core_number_conversion::wrapped_index(address.y);
+    let Ok(plane) = console_core_number_conversion::index(self.plane);
+    let mask = frame.lf.lr_mask.get(superblock).ok_or(())?;
+    let row = mask.lr.get(plane).ok_or(())?;
+    let mut output = row.get(unit).and_then(|one| one.try_write()).ok_or(())?;
+    let Ok(trace) = debug_block_info(frame, block);
+    read_restoration_info(tile, &mut output, self.plane, self.kind, trace)
+      .map_err(|_invalid_restoration| ())
+  }
+
+  fn read_scaled(
+    &self,
+    frame: &Rav1dFrameData,
+    tile: &Rav1dTileState,
+    block: Bxy,
+    denominator: i32,
+  ) -> Result<(), ()> {
+    let Ok(unit_size) = self.unit_size();
+    let horizontal = u32::from(self.horizontal);
+    let unit_shift = u32::from(self.unit_shift);
+    let width = frame
+      .sr_cur
+      .p
+      .p
+      .w
+      .wrapping_add(i32::from(self.horizontal))
+      .wrapping_shr(horizontal);
+    let half = unit_size.wrapping_shr(1);
+    let count = width.wrapping_add(half).wrapping_shr(unit_shift).max(1);
+    let rounding = unit_size.wrapping_mul(8).wrapping_sub(1);
+    let shift = u32::from(self.unit_shift.wrapping_add(3));
+    let scaled = |column: i32| {
+      column
+        .wrapping_mul(4)
+        .wrapping_mul(denominator)
+        .wrapping_shr(horizontal)
+        .wrapping_add(rounding)
+        .wrapping_shr(shift)
+    };
+    let first = scaled(block.x);
+    let end = scaled(block.x.wrapping_add(frame.sb_step)).min(count);
+    let row_offset = block.y.wrapping_shr(5).wrapping_mul(frame.sr_sb128w);
+    let row_unit = (block.y & 16).wrapping_shr(3);
+    let pixel_shift = u32::from(self.unit_shift.wrapping_add(self.horizontal));
+
+    for column in first..end {
+      let x = column.wrapping_shl(pixel_shift);
+      let address = Point {
+        x: row_offset.wrapping_add(x.wrapping_shr(7)),
+        y: row_unit.wrapping_add((x & 64).wrapping_shr(6)),
+      };
+      self.read_unit(frame, tile, block, address)?;
+    }
+
+    Ok(())
+  }
+
+  fn read_unscaled(
+    &self,
+    frame: &Rav1dFrameData,
+    tile: &Rav1dTileState,
+    block: Bxy,
+  ) -> Result<(), ()> {
+    let Ok(unit_size) = self.unit_size();
+    let horizontal = u32::from(self.horizontal);
+    let column = block.x.wrapping_mul(4).wrapping_shr(horizontal);
+    let width = frame
+      .cur
+      .p
+      .w
+      .wrapping_add(i32::from(self.horizontal))
+      .wrapping_shr(horizontal);
+    let half = unit_size.wrapping_shr(1);
+
+    match (column & unit_size.wrapping_sub(1) != 0
+      || (column != 0 && column.wrapping_add(half) > width))
+      .then_some(())
+    {
+      Some(()) => return Ok(()),
+      None => {}
+    }
+
+    let address = Point {
+      x: block
+        .y
+        .wrapping_shr(5)
+        .wrapping_mul(frame.sr_sb128w)
+        .wrapping_add(block.x.wrapping_shr(5)),
+      y: (block.y & 16)
+        .wrapping_shr(3)
+        .wrapping_add((block.x & 16).wrapping_shr(4)),
+    };
+    self.read_unit(frame, tile, block, address)
+  }
+}
+
+fn decode_superblock_restoration(
+  frame: &Rav1dFrameData,
+  task: &Rav1dTaskContext,
+  tile: &Rav1dTileState,
+) -> Result<(), ()> {
+  let header = frame.frame_hdr().map_err(|_missing_header| ())?;
+  let [width, upscaled] = header.size.width;
+  let denominator = i32::from(header.size.super_res.width_scale_denominator);
+  let [luma_unit, chroma_unit] = header.restoration.unit_size;
+
+  for plane in 0u8..3 {
+    match (frame
+      .lf
+      .restore_planes
+      .bits()
+      .wrapping_shr(u32::from(plane))
+      & 1
+      == 0)
+      .then_some(())
+    {
+      Some(()) => continue,
+      None => {}
+    }
+
+    let is_chroma = plane != 0;
+    let vertical = i32::from(is_chroma && frame.cur.p.layout == Rav1dPixelLayout::I420);
+    let horizontal = u8::from(is_chroma && frame.cur.p.layout != Rav1dPixelLayout::I444);
+    let Ok(vertical_shift) = console_core_number_conversion::wrapped::<_, u32>(vertical);
+    let unit_shift = match is_chroma.then_some(()) {
+      Some(()) => chroma_unit,
+      None => luma_unit,
+    };
+    let row = task.b.y.wrapping_mul(4).wrapping_shr(vertical_shift);
+    let height = frame
+      .cur
+      .p
+      .h
+      .wrapping_add(vertical)
+      .wrapping_shr(vertical_shift);
+    let size = 1_i32.wrapping_shl(u32::from(unit_shift));
+
+    match (row & size.wrapping_sub(1) != 0
+      || (row != 0 && row.wrapping_add(size.wrapping_shr(1)) > height))
+      .then_some(())
+    {
+      Some(()) => continue,
+      None => {}
+    }
+
+    let Ok(index) = console_core_number_conversion::index(plane);
+    let kind = header.restoration.r#type.get(index).copied().ok_or(())?;
+    let grid = RestorationGrid {
+      plane,
+      kind,
+      unit_shift,
+      horizontal,
+    };
+
+    match width.cmp(&upscaled) {
+      cmp::Ordering::Equal => grid.read_unscaled(frame, tile, task.b)?,
+      cmp::Ordering::Less | cmp::Ordering::Greater => {
+        grid.read_scaled(frame, tile, task.b, denominator)?
+      }
+    }
+  }
+
+  Ok(())
+}
+
+fn prepare_tile_row(
   c: &Rav1dContext,
   t: &mut Rav1dTaskContext,
   f: &Rav1dFrameData,
+  ts: &Rav1dTileState,
+  frame_hdr: &Rav1dFrameHeader,
 ) -> Result<(), ()> {
-  let seq_hdr = &***f.seq_hdr.as_ref().ok_or(())?;
-  let root_bl = match ::core::primitive::bool::then_some(seq_hdr.sb128 != 0, ()) {
-    ::core::option::Option::Some(()) => BlockLevel::Bl128x128,
-    ::core::option::Option::None => BlockLevel::Bl64x64,
-  };
-  let ts = &*match f.tile(t.tile_index) {
-    ::core::option::Option::Some(indexed_value) => indexed_value,
-    ::core::option::Option::None => return ::core::result::Result::Err(()),
-  };
-  let sb_step = f.sb_step;
-  let tile_row = ts.tiling.row;
-  let tile_col = ts.tiling.col;
-  let f_frame_hdr = f.frame_hdr.as_ref().ok_or(())?;
-  let frame_hdr = &***f_frame_hdr;
-  let Ok(col_sb_start) = console_core_number_conversion::wrapped::<_, i32>(*match <[_]>::get(
-    &frame_hdr.tiling.col_start_sb,
-    {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(tile_col);
-      numeric_value
-    },
-  ) {
-    ::core::option::Option::Some(indexed_value) => indexed_value,
-    ::core::option::Option::None => return ::core::result::Result::Err(()),
-  });
-  let col_sb128_start = i32::wrapping_shr(col_sb_start, {
-    let Ok(numeric_value) =
-      console_core_number_conversion::wrapped::<_, u32>(i32::from(seq_hdr.sb128 == 0));
-    numeric_value
-  });
-
   match ::core::primitive::bool::then_some(
     frame_hdr.frame_type.is_inter_or_switch() || frame_hdr.allow_intrabc,
     (),
   ) {
     ::core::option::Option::Some(()) => {
       let Ok(row_shift) = console_core_number_conversion::wrapped::<_, u32>(f.sb_shift);
-      t.rt = rav1d_refmvs_tile_sbrow_init(
+      let reference_motion = rav1d_refmvs_tile_sbrow_init(
         &f.rf,
         SpatialMvRegion {
           columns: RefmvsTileRange {
@@ -10374,6 +8660,7 @@ pub(crate) fn rav1d_decode_tile_sbrow(
         },
       )
       .map_err(|_invalid_motion_row| ())?;
+      t.rt = reference_motion;
     }
     ::core::option::Option::None => {}
   }
@@ -10396,13 +8683,132 @@ pub(crate) fn rav1d_decode_tile_sbrow(
     ::core::option::Option::None => {}
   }
 
-  let Ok(()) = reset_context(
-    &mut t.l,
-    frame_hdr.frame_type.is_key_or_intra(),
-    t.frame_thread.pass,
-  );
+  let initialization = match t.frame_thread.pass {
+    2 => ContextInitialization::PredictionOnly,
+    _ => ContextInitialization::Full,
+  };
+  let Ok(()) = reset_context(&mut t.l, frame_hdr.frame_type, initialization);
 
   crate::src::owned_recon::arm_sbrow(f, t).map_err(|_invalid_band| ())?;
+
+  Ok(())
+}
+
+fn store_tile_right_edge(
+  f: &Rav1dFrameData,
+  t: &mut Rav1dTaskContext,
+  tile_col: i32,
+) -> Result<(), ()> {
+  let checked_value_4 = u64::try_from(f.bh).map_err(|_invalid_height| ())?;
+  let padded_height = checked_value_4.wrapping_add(31) & !31;
+  let column = u64::try_from(tile_col).map_err(|_invalid_tile| ())?;
+  let row = u64::try_from(t.b.y).map_err(|_invalid_row| ())?;
+  let edge_step = u64::try_from(f.sb_step).map_err(|_invalid_superblock| ())?;
+  let vertical = u32::from(f.cur.p.layout == Rav1dPixelLayout::I420);
+  let edge_range = |shift| {
+    let first = (row & 16).wrapping_shr(shift);
+    let end = first.wrapping_add(edge_step.wrapping_shr(shift));
+    first..end
+  };
+  let Ok(y_range) = console_core_number_conversion::indices(edge_range(0));
+  let Ok(uv_range) = console_core_number_conversion::indices(edge_range(vertical));
+  let y_values = t.l.tx_lpf_y.get_mut().get(y_range).ok_or(())?;
+  let uv_values = t.l.tx_lpf_uv.get_mut().get(uv_range).ok_or(())?;
+  let y_offset = padded_height.wrapping_mul(column).wrapping_add(row);
+  let uv_offset = padded_height
+    .wrapping_shr(vertical)
+    .wrapping_mul(column)
+    .wrapping_add(row.wrapping_shr(vertical));
+  f.lf
+    .tx_lpf_right_edge
+    .store(RightEdgeRows {
+      luma: RightEdgePixels {
+        start: y_offset,
+        values: y_values,
+      },
+      chroma: RightEdgePixels {
+        start: uv_offset,
+        values: uv_values,
+      },
+    })
+    .map_err(|_invalid_edge| ())?;
+
+  Ok(())
+}
+
+fn validate_tile_row(
+  strictness: Strictness,
+  f: &Rav1dFrameData,
+  t: &Rav1dTaskContext,
+  ts: &Rav1dTileState,
+) -> Result<(), ()> {
+  {
+    let context = ts.context.try_lock().ok_or(())?;
+    context.msac.check().map_err(|_invalid_entropy_table| ())?;
+
+    match context.msac.cnt {
+      ..=-15 => return Err(()),
+      -14.. => {}
+    }
+  }
+
+  match (strictness >= Strictness::Strict).then_some(()) {
+    None => return Ok(()),
+    Some(()) => {}
+  }
+
+  let header = f.frame_hdr().map_err(|_missing_header| ())?;
+  let Ok(next_tile) =
+    console_core_number_conversion::wrapped_index(ts.tiling.row.wrapping_add(1));
+  let end = header
+    .tiling
+    .row_start_sb
+    .get(next_tile)
+    .copied()
+    .ok_or(())?;
+  let Ok(shift) = console_core_number_conversion::wrapped::<_, u32>(f.sb_shift);
+  let next = t.b.y.wrapping_shr(shift).wrapping_add(1);
+
+  match next.cmp(&i32::from(end)) {
+    cmp::Ordering::Less => Ok(()),
+    cmp::Ordering::Equal | cmp::Ordering::Greater => {
+      let context = ts.context.try_lock().ok_or(())?;
+      check_trailing_bits_after_symbol_coder(&context.msac)
+    }
+  }
+}
+
+pub(crate) fn rav1d_decode_tile_sbrow(
+  c: &Rav1dContext,
+  t: &mut Rav1dTaskContext,
+  f: &Rav1dFrameData,
+) -> Result<(), ()> {
+  let sequence = f.seq_hdr().map_err(|_missing_header| ())?;
+  let root_bl = match sequence.sb128 {
+    0 => BlockLevel::Bl64x64,
+    _ => BlockLevel::Bl128x128,
+  };
+  let ts = f.tile(t.tile_index).map_err(|_missing_tile| ())?;
+  let sb_step = f.sb_step;
+  let superblock_step = match sb_step {
+    16 => 16u32,
+    32 => 32,
+    _ => return Err(()),
+  };
+  let Ok(step) = console_core_number_conversion::index(superblock_step);
+  let tile_row = ts.tiling.row;
+  let tile_col = ts.tiling.col;
+  let frame_hdr = f.frame_hdr().map_err(|_missing_header| ())?;
+  let Ok(column) = console_core_number_conversion::wrapped_index(tile_col);
+  let col_sb_start = frame_hdr
+    .tiling
+    .col_start_sb
+    .get(column)
+    .copied()
+    .ok_or(())?;
+  let col_sb128_start = i32::from(col_sb_start).wrapping_shr(u32::from(sequence.sb128 == 0));
+
+  prepare_tile_row(c, t, f, ts, frame_hdr)?;
 
   match ::core::primitive::bool::then_some(t.frame_thread.pass == 2, ()) {
     ::core::option::Option::Some(()) => {
@@ -10420,10 +8826,7 @@ pub(crate) fn rav1d_decode_tile_sbrow(
       let checked_value = u32::try_from(context).map_err(|_invalid_above_context| ())?;
       t.above_index = checked_value;
 
-      for bx in (ts.tiling.col_start..ts.tiling.col_end).step_by({
-        let Ok(numeric_value) = console_core_number_conversion::wrapped_index(sb_step);
-        numeric_value
-      }) {
+      for bx in (ts.tiling.col_start..ts.tiling.col_end).step_by(step.max(1)) {
         t.b.x = bx;
 
         match ::core::primitive::bool::then_some(c.flush.load(Ordering::Acquire), ()) {
@@ -10436,16 +8839,7 @@ pub(crate) fn rav1d_decode_tile_sbrow(
         let Ok(root) = EdgeIndex::root();
         decode_sb(c, t, f, &mut FrameThreadPassState::Second, root_bl, root)?;
 
-        match ::core::primitive::bool::then_some(
-          t.b.x & 16 != 0
-            || ({
-              let explicit_value = f.seq_hdr().map_err(|_missing_header| ())?;
-              explicit_value
-            })
-            .sb128
-              != 0,
-          (),
-        ) {
+        match ::core::primitive::bool::then_some(t.b.x & 16 != 0 || sequence.sb128 != 0, ()) {
           ::core::option::Option::Some(()) => {
             t.above_index = t.above_index.wrapping_add(1);
           }
@@ -10494,10 +8888,7 @@ pub(crate) fn rav1d_decode_tile_sbrow(
   let checked_value_3 = u32::try_from(mask_position).map_err(|_invalid_mask| ())?;
   t.lf_mask = Some(checked_value_3);
 
-  for bx in (ts.tiling.col_start..ts.tiling.col_end).step_by({
-    let Ok(numeric_value) = console_core_number_conversion::wrapped_index(sb_step);
-    numeric_value
-  }) {
+  for bx in (ts.tiling.col_start..ts.tiling.col_end).step_by(step.max(1)) {
     t.b.x = bx;
 
     match ::core::primitive::bool::then_some(c.flush.load(Ordering::Acquire), ()) {
@@ -10509,286 +8900,17 @@ pub(crate) fn rav1d_decode_tile_sbrow(
 
     reset_superblock_cdef(f, t, root_bl).map_err(|_invalid_cdef| ())?;
 
-    let frame_hdr_2 = &***f.frame_hdr.as_ref().ok_or(())?;
-
-    'over_p_2: for plane in 0_u8..3 {
-      let Ok(p) = console_core_number_conversion::index(plane);
-
-      match ::core::primitive::bool::then_some(
-        u8::wrapping_shr(f.lf.restore_planes.bits(), {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(plane);
-          numeric_value
-        }) & 1
-          == 0,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          continue 'over_p_2;
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let ss_ver = i32::from(p != 0 && f.cur.p.layout == Rav1dPixelLayout::I420);
-      let ss_hor = i32::from(p != 0 && f.cur.p.layout != Rav1dPixelLayout::I444);
-      let unit_size_log2 = *match <[_]>::get(
-        &frame_hdr_2.restoration.unit_size,
-        match ::console_core_number_conversion::index::<::core::primitive::u8>(
-          ::core::primitive::u8::from(p != 0),
-        ) {
-          ::core::result::Result::Ok(converted_position) => converted_position,
-        },
-      ) {
-        ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None => return ::core::result::Result::Err(()),
-      };
-      let y = i32::wrapping_shr(i32::wrapping_mul(t.b.y, 4), {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-        numeric_value
-      });
-      let h = i32::wrapping_shr(i32::wrapping_add(f.cur.p.h, ss_ver), {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_ver);
-        numeric_value
-      });
-
-      let unit_size = i32::wrapping_shl(1, {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(unit_size_log2);
-        numeric_value
-      });
-      let Ok(mask) =
-        console_core_number_conversion::wrapped::<_, u32>(i32::wrapping_sub(unit_size, 1));
-
-      match ::core::primitive::bool::then_some(
-        ({
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(y);
-          numeric_value
-        }) & mask
-          != 0,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          continue 'over_p_2;
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let half_unit = i32::wrapping_shr(unit_size, 1_u32);
-
-      match ::core::primitive::bool::then_some(y != 0 && i32::wrapping_add(y, half_unit) > h, ())
-      {
-        ::core::option::Option::Some(()) => {
-          continue 'over_p_2;
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let frame_type = *match <[_]>::get(&frame_hdr_2.restoration.r#type, {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped_index(p);
-        numeric_value
-      }) {
-        ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None => return ::core::result::Result::Err(()),
-      };
-
-      match ::core::primitive::bool::then_some(
-        (match frame_hdr_2.size.width {
-          [element, ..] => element,
-        }) != (match frame_hdr_2.size.width {
-          [_, element, ..] => element,
-        }),
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let w = i32::wrapping_shr(i32::wrapping_add(f.sr_cur.p.p.w, ss_hor), {
-            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-            numeric_value
-          });
-          let n_units = cmp::max(
-            1,
-            i32::wrapping_shr(i32::wrapping_add(w, half_unit), {
-              let Ok(numeric_value) =
-                console_core_number_conversion::wrapped::<_, u32>(unit_size_log2);
-              numeric_value
-            }),
-          );
-
-          let Ok(d) = console_core_number_conversion::wrapped::<_, i32>(
-            frame_hdr_2.size.super_res.width_scale_denominator,
-          );
-          let rnd = i32::wrapping_sub(i32::wrapping_mul(unit_size, 8), 1);
-          let shift = u8::wrapping_add(unit_size_log2, 3);
-          let x0 = i32::wrapping_shr(
-            i32::wrapping_add(
-              i32::wrapping_shr(i32::wrapping_mul(i32::wrapping_mul(4, t.b.x), d), {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                numeric_value
-              }),
-              rnd,
-            ),
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(shift);
-              numeric_value
-            },
-          );
-          let x1 = i32::wrapping_shr(
-            i32::wrapping_add(
-              i32::wrapping_shr(
-                i32::wrapping_mul(i32::wrapping_mul(4, i32::wrapping_add(t.b.x, sb_step)), d),
-                {
-                  let Ok(numeric_value) =
-                    console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-                  numeric_value
-                },
-              ),
-              rnd,
-            ),
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(shift);
-              numeric_value
-            },
-          );
-
-          for x in x0..cmp::min(x1, n_units) {
-            let px_x = i32::wrapping_shl(x, {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(
-                u8::wrapping_add(unit_size_log2, {
-                  let Ok(numeric_value) =
-                    console_core_number_conversion::wrapped::<_, u8>(ss_hor);
-                  numeric_value
-                }),
-              );
-              numeric_value
-            });
-            let sb_idx = i32::wrapping_add(
-              i32::wrapping_mul(i32::wrapping_shr(t.b.y, 5_u32), f.sr_sb128w),
-              i32::wrapping_shr(px_x, 7_u32),
-            );
-            let unit_idx = i32::wrapping_add(
-              i32::wrapping_shr(t.b.y & 16, 3_u32),
-              i32::wrapping_shr(px_x & 64, 6_u32),
-            );
-            let mut lr = (*match <[_]>::get(
-              &(*match <[_]>::get(
-                &(*match <[_]>::get(&f.lf.lr_mask, {
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped_index(sb_idx);
-                  numeric_value
-                }) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => return ::core::result::Result::Err(()),
-                })
-                .lr,
-                p,
-              ) {
-                ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              }),
-              {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(unit_idx);
-                numeric_value
-              },
-            ) {
-              ::core::option::Option::Some(indexed_value_3) => indexed_value_3,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            })
-            .try_write()
-            .ok_or(())?;
-
-            read_restoration_info(ts, &mut lr, plane, frame_type, debug_block_info!(f, t.b))
-              .map_err(|_invalid_restoration| ())?;
-          }
-        }
-        ::core::option::Option::None => {
-          let x = i32::wrapping_shr(i32::wrapping_mul(4, t.b.x), {
-            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-            numeric_value
-          });
-
-          match ::core::primitive::bool::then_some(
-            ({
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(x);
-              numeric_value
-            }) & mask
-              != 0,
-            (),
-          ) {
-            ::core::option::Option::Some(()) => {
-              continue 'over_p_2;
-            }
-            ::core::option::Option::None => {}
-          }
-
-          let w = i32::wrapping_shr(i32::wrapping_add(f.cur.p.w, ss_hor), {
-            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-            numeric_value
-          });
-
-          match ::core::primitive::bool::then_some(
-            x != 0 && i32::wrapping_add(x, half_unit) > w,
-            (),
-          ) {
-            ::core::option::Option::Some(()) => {
-              continue 'over_p_2;
-            }
-            ::core::option::Option::None => {}
-          }
-
-          let sb_idx = i32::wrapping_add(
-            i32::wrapping_mul(i32::wrapping_shr(t.b.y, 5_u32), f.sr_sb128w),
-            i32::wrapping_shr(t.b.x, 5_u32),
-          );
-          let unit_idx = i32::wrapping_add(
-            i32::wrapping_shr(t.b.y & 16, 3_u32),
-            i32::wrapping_shr(t.b.x & 16, 4_u32),
-          );
-          let mut lr = (*match <[_]>::get(
-            &(*match <[_]>::get(
-              &(*match <[_]>::get(&f.lf.lr_mask, {
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(sb_idx);
-                numeric_value
-              }) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => return ::core::result::Result::Err(()),
-              })
-              .lr,
-              p,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => return ::core::result::Result::Err(()),
-            }),
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped_index(unit_idx);
-              numeric_value
-            },
-          ) {
-            ::core::option::Option::Some(indexed_value_3) => indexed_value_3,
-            ::core::option::Option::None => return ::core::result::Result::Err(()),
-          })
-          .try_write()
-          .ok_or(())?;
-
-          read_restoration_info(ts, &mut lr, plane, frame_type, debug_block_info!(f, t.b))
-            .map_err(|_invalid_restoration| ())?;
-        }
-      }
-    }
+    decode_superblock_restoration(f, t, ts)?;
 
     {
-      let tile = f.tile(t.tile_index).ok_or(())?;
+      let tile = f.tile(t.tile_index).map_err(|_invalid_slot| ())?;
       let mut context_2 = tile.context.try_lock().ok_or(())?;
       let Ok(root_edge) = EdgeIndex::root();
       let mut pass = FrameThreadPassState::First(&mut context_2);
       decode_sb(c, t, f, &mut pass, root_bl, root_edge)?;
     }
 
-    match ::core::primitive::bool::then_some(
-      t.b.x & 16 != 0
-        || ({
-          let explicit_value = f.seq_hdr().map_err(|_missing_header| ())?;
-          explicit_value
-        })
-        .sb128
-          != 0,
-      (),
-    ) {
+    match ::core::primitive::bool::then_some(t.b.x & 16 != 0 || sequence.sb128 != 0, ()) {
       ::core::option::Option::Some(()) => {
         t.above_index = t.above_index.wrapping_add(1);
 
@@ -10798,17 +8920,8 @@ pub(crate) fn rav1d_decode_tile_sbrow(
     }
   }
 
-  let f_seq_hdr = f.seq_hdr().map_err(|_missing_header| ())?;
-
   match ::core::primitive::bool::then_some(
-    f_seq_hdr.ref_frame_mvs != 0
-      && c.tc.len() > 1
-      && ({
-        let explicit_value = f.frame_hdr().map_err(|_missing_header| ())?;
-        explicit_value
-      })
-      .frame_type
-      .is_inter_or_switch(),
+    sequence.ref_frame_mvs != 0 && c.tc.len() > 1 && frame_hdr.frame_type.is_inter_or_switch(),
     (),
   ) {
     ::core::option::Option::Some(()) => {
@@ -10840,88 +8953,8 @@ pub(crate) fn rav1d_decode_tile_sbrow(
   let Ok(bd_fn) = f.bd_fn();
   (bd_fn.stitch_recon_band)(f, t).map_err(|_invalid_band| ())?;
 
-  let checked_value_4 = u64::try_from(f.bh).map_err(|_invalid_height| ())?;
-  let padded_height = checked_value_4.wrapping_add(31) & !31;
-  let column = u64::try_from(tile_col).map_err(|_invalid_tile| ())?;
-  let row = u64::try_from(t.b.y).map_err(|_invalid_row| ())?;
-  let step = u64::try_from(sb_step).map_err(|_invalid_superblock| ())?;
-  let vertical = u32::from(f.cur.p.layout == Rav1dPixelLayout::I420);
-  let edge_range = |shift| {
-    let first = (row & 16).wrapping_shr(shift);
-    let end = first.wrapping_add(step.wrapping_shr(shift));
-    first..end
-  };
-  let Ok(y_range) = console_core_number_conversion::indices(edge_range(0));
-  let Ok(uv_range) = console_core_number_conversion::indices(edge_range(vertical));
-  let y_values = t.l.tx_lpf_y.get_mut().get(y_range).ok_or(())?;
-  let uv_values = t.l.tx_lpf_uv.get_mut().get(uv_range).ok_or(())?;
-  let y_offset = padded_height.wrapping_mul(column).wrapping_add(row);
-  let uv_offset = padded_height
-    .wrapping_shr(vertical)
-    .wrapping_mul(column)
-    .wrapping_add(row.wrapping_shr(vertical));
-  f.lf
-    .tx_lpf_right_edge
-    .store(RightEdgeRows {
-      luma: RightEdgePixels {
-        start: y_offset,
-        values: y_values,
-      },
-      chroma: RightEdgePixels {
-        start: uv_offset,
-        values: uv_values,
-      },
-    })
-    .map_err(|_invalid_edge| ())?;
-
-  {
-    let tile_context = ts.context.try_lock().ok_or(())?;
-    tile_context
-      .msac
-      .check()
-      .map_err(|_invalid_entropy_table| ())?;
-
-    match (tile_context.msac.cnt <= -15).then_some(()) {
-      Some(()) => return Err(()),
-      None => {}
-    }
-  }
-
-  match ::core::primitive::bool::then_some(
-    c.strict_std_compliance
-      && i32::wrapping_add(
-        i32::wrapping_shr(t.b.y, {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(f.sb_shift);
-          numeric_value
-        }),
-        1,
-      ) >= <::core::primitive::i32 as ::core::convert::From<::core::primitive::u16>>::from(
-        *match <[_]>::get(
-          &({
-            let explicit_value = f.frame_hdr().map_err(|_missing_header| ())?;
-            explicit_value
-          })
-          .tiling
-          .row_start_sb,
-          ({
-            let Ok(numeric_value) = console_core_number_conversion::wrapped_index(tile_row);
-            numeric_value
-          })
-          .wrapping_add(1),
-        ) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => return ::core::result::Result::Err(()),
-        },
-      ),
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      return check_trailing_bits_after_symbol_coder(&ts.context.try_lock().ok_or(())?.msac);
-    }
-    ::core::option::Option::None => {}
-  }
-
-  Ok(())
+  store_tile_right_edge(f, t, tile_col)?;
+  validate_tile_row(c.strictness, f, t, ts)
 }
 
 #[derive(Clone, Copy)]
@@ -11029,7 +9062,11 @@ fn configure_cdef_lines(lf: &mut Rav1dFrameContextLf, layout: FilterLineLayout) 
         ..luma
       };
       let next_chroma = y.end()?;
-      let [u, v] = separate_chroma_lines(next_chroma, uv_pitch, rows)?;
+      let [u, v] = separate_chroma_lines(FilterLineBuffer {
+        base: next_chroma,
+        pitch: uv_pitch,
+        rows,
+      })?;
       let y_offset = y.offset(0)?;
       lf.cdef_lpf_line = [y_offset, u, v];
     }
@@ -11038,8 +9075,7 @@ fn configure_cdef_lines(lf: &mut Rav1dFrameContextLf, layout: FilterLineLayout) 
   Ok(())
 }
 
-fn separate_chroma_lines(base: u64, pitch: i64, rows: u64) -> Rav1dResult<[u64; 2]> {
-  let cb = FilterLineBuffer { base, pitch, rows };
+fn separate_chroma_lines(cb: FilterLineBuffer) -> Rav1dResult<[u64; 2]> {
   let cr_base = cb.end()?;
   let cr = FilterLineBuffer {
     base: cr_base,
@@ -11070,89 +9106,105 @@ fn configure_restoration_lines(
     rows,
   };
   let chroma_base = luma.end()?;
-  let [u, v] = separate_chroma_lines(chroma_base, uv_pitch, rows)?;
+  let [u, v] = separate_chroma_lines(FilterLineBuffer {
+    base: chroma_base,
+    pitch: uv_pitch,
+    rows,
+  })?;
   let y = luma.offset(0)?;
   lf.lr_lpf_line = [y, u, v];
   Ok(())
 }
 
-pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) -> Rav1dResult {
-  let mut f = fc.data.try_write().ok_or(EINVAL)?;
-  let f_2 = &mut *f;
+fn compound_distance_weight([left, right]: [u8; 2]) -> Result<u8, console_core_never::Never> {
+  use cmp::Ordering::{Equal, Greater, Less};
 
+  let nearer = left.min(right);
+  let farther = left.max(right).wrapping_mul(2);
+  let ratios = [3, 5, 7].map(|near_factor| nearer.wrapping_mul(near_factor).cmp(&farther));
+  let [first, second] = match ratios {
+    [Greater, _, _] => [9, 7],
+    [Equal | Less, Greater, _] => [11, 5],
+    [Equal | Less, Equal | Less, Greater] => [12, 4],
+    [Equal | Less, Equal | Less, Equal | Less] => [13, 3],
+  };
+
+  Ok(match left.cmp(&right) {
+    Greater => first,
+    Equal | Less => second,
+  })
+}
+
+fn assign_compound_weights(frame: &mut Rav1dFrameData, order_hint_bits: u8) -> Rav1dResult {
+  let header = frame.cur.frame_hdr.as_ref().ok_or(EINVAL)?;
+  let Ok(current) = console_core_number_conversion::wrapped::<_, i32>(header.frame_offset);
+  let distances = frame.refp.each_ref().map(|reference| {
+    let offset = match reference.p.frame_hdr.as_ref() {
+      Some(reference_header) => reference_header.frame_offset,
+      None => 0,
+    };
+    let Ok(target) = console_core_number_conversion::wrapped::<_, i32>(offset);
+    let Ok(difference) = get_poc_diff(
+      order_hint_bits,
+      OrderHintComparison {
+        target,
+        origin: current,
+      },
+    );
+    let Ok(distance) =
+      console_core_number_conversion::wrapped::<_, u8>(difference.unsigned_abs().min(31));
+    distance
+  });
+
+  for (i, (weights, first)) in frame.jnt_weights.iter_mut().zip(distances).enumerate() {
+    for (weight, second) in weights.iter_mut().zip(distances).skip(i.wrapping_add(1)) {
+      let Ok(value) = compound_distance_weight([second, first]);
+      *weight = value;
+    }
+  }
+
+  Ok(())
+}
+
+fn mark_tile_row_starts(
+  markers: &mut Vec<u8>,
+  superblock_rows: i32,
+  tiling: &Rav1dFrameHeaderTiling,
+) -> Rav1dResult {
+  let height = console_core_number_conversion::checked_index(superblock_rows)
+    .map_err(|_invalid_height| EINVAL)?;
+  markers.try_resize(height, 0).map_err(|_allocate| ENOMEM)?;
+  let mut sby = 0u32;
+
+  for tile_row in 0..tiling.rows {
+    let Ok(position) = console_core_number_conversion::index(sby);
+    let first = markers.get_mut(position).ok_or(EINVAL)?;
+    *first = tile_row;
+    sby = sby.wrapping_add(1);
+    let Ok(next_tile) =
+      console_core_number_conversion::index(u32::from(tile_row).wrapping_add(1));
+    let limit = tiling.row_start_sb.get(next_tile).copied().ok_or(EINVAL)?;
+
+    for y in sby..u32::from(limit) {
+      let Ok(row) = console_core_number_conversion::index(y);
+      let marker = markers.get_mut(row).ok_or(EINVAL)?;
+      *marker = 0;
+      sby = y.wrapping_add(1);
+    }
+  }
+
+  Ok(())
+}
+
+fn initialize_frame_tile_tables(c: &Rav1dContext, f_2: &mut Rav1dFrameData) -> Rav1dResult {
   let header = f_2.frame_hdr.as_ref().ok_or(EINVAL)?;
   let tiles = u32::from(header.tiling.cols).wrapping_mul(u32::from(header.tiling.rows));
   let workers = u32::try_from(c.tc.len()).map_err(|_too_many_workers| EINVAL)?;
   let parallelism = crate::src::internal::ScratchParallelism { workers, tiles };
   let Ok(()) = f_2.configure_scratch_parallelism(parallelism);
 
-  f_2
-    .lf
-    .start_of_tile_row
-    .try_resize(
-      {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped_index(f_2.sbh);
-        numeric_value
-      },
-      0,
-    )
-    .map_err(|_| ENOMEM)?;
-
-  let f_2_frame_hdr = f_2.frame_hdr.as_ref().ok_or(EINVAL)?;
-  let frame_hdr = &***f_2_frame_hdr;
-  let mut sby = 0;
-
-  for tile_row in 0..frame_hdr.tiling.rows {
-    *match <[_]>::get_mut(&mut f_2.lf.start_of_tile_row, {
-      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(sby);
-      numeric_value
-    }) {
-      ::core::option::Option::Some(indexed_value) => indexed_value,
-      ::core::option::Option::None => {
-        return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-      }
-    } = tile_row;
-
-    {
-      let numeric_amount = 1;
-      let numeric_target = &mut (sby);
-      *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-    };
-
-    while sby
-      < ({
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(
-          *match <[_]>::get(&frame_hdr.tiling.row_start_sb, {
-            let Ok(numeric_value) =
-              console_core_number_conversion::wrapped_index(u8::wrapping_add(tile_row, 1));
-            numeric_value
-          }) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          },
-        );
-        numeric_value
-      })
-    {
-      *match <[_]>::get_mut(&mut f_2.lf.start_of_tile_row, {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped_index(sby);
-        numeric_value
-      }) {
-        ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None => {
-          return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-        }
-      } = 0;
-
-      {
-        let numeric_amount = 1;
-        let numeric_target = &mut (sby);
-        *numeric_target = i32::wrapping_add(*numeric_target, numeric_amount);
-      };
-    }
-  }
+  let frame_hdr = f_2.frame_hdr.as_deref().ok_or(EINVAL)?;
+  mark_tile_row_starts(&mut f_2.lf.start_of_tile_row, f_2.sbh, &frame_hdr.tiling)?;
 
   let Ok(frame_hdr_cols) =
     console_core_number_conversion::wrapped::<_, i32>(frame_hdr.tiling.cols);
@@ -11207,11 +9259,17 @@ pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) 
     )
     .map_err(|_| ENOMEM)?;
 
+  Ok(())
+}
+
+fn initialize_frame_thread_storage(c: &Rav1dContext, f_2: &mut Rav1dFrameData) -> Rav1dResult {
+  let header = f_2.frame_hdr.as_deref().ok_or(EINVAL)?;
+  let frame_hdr = &**header;
   let num_sb128 = i32::wrapping_mul(f_2.sb128w, f_2.sb128h);
-  let size_mul = &ss_size_mul[f_2.cur.p.layout];
+  let &[coefficient_scale, palette_scale] = ss_size_mul.checked(f_2.cur.p.layout)?;
   let f_2_seq_hdr = f_2.seq_hdr.as_ref().ok_or(EINVAL)?;
   let seq_hdr = &***f_2_seq_hdr;
-  let hbd = i32::from(seq_hdr.hbd != 0);
+  let bit_depth_shift = u32::from(seq_hdr.hbd != 0);
 
   match ::core::primitive::bool::then_some(c.fc.len() > 1, ()) {
     ::core::option::Option::Some(()) => {
@@ -11272,13 +9330,7 @@ pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) 
         }
       }
 
-      let cbi_sz = i32::wrapping_mul(num_sb128, {
-        let Ok(numeric_value) =
-          console_core_number_conversion::wrapped::<_, i32>(match size_mul {
-            &[element, ..] => element,
-          });
-        numeric_value
-      });
+      let cbi_sz = num_sb128.wrapping_mul(i32::from(coefficient_scale));
       f_2
         .frame_thread
         .cbi
@@ -11290,23 +9342,11 @@ pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) 
           .wrapping_mul(32)
           .wrapping_mul(32)
           .wrapping_div(4),
-          Default::default,
+          || RelaxedAtomic::from(CodedBlockInfo::INITIAL),
         )
         .map_err(|_| ENOMEM)?;
 
-      let cf_sz = i32::wrapping_shl(
-        i32::wrapping_mul(num_sb128, {
-          let Ok(numeric_value) =
-            console_core_number_conversion::wrapped::<_, i32>(match size_mul {
-              &[element, ..] => element,
-            });
-          numeric_value
-        }),
-        {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(hbd);
-          numeric_value
-        },
-      );
+      let cf_sz = cbi_sz.wrapping_shl(bit_depth_shift);
       f_2
         .frame_thread
         .cf
@@ -11324,30 +9364,11 @@ pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) 
 
       match ::core::primitive::bool::then_some(frame_hdr.allow_screen_content_tools, ()) {
         ::core::option::Option::Some(()) => {
-          f_2
-            .frame_thread
-            .pal
-            .try_resize(
-              ({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(num_sb128);
-                numeric_value
-              })
-              .wrapping_mul(16)
-              .wrapping_mul(16)
-              .wrapping_shl({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(hbd);
-                numeric_value
-              }),
-            )
-            .map_err(|_| ENOMEM)?;
+          let superblocks = u64::try_from(num_sb128).map_err(|_invalid_palette_grid| EINVAL)?;
+          let palette_entries = superblocks.wrapping_mul(256).wrapping_shl(bit_depth_shift);
+          f_2.frame_thread.pal.try_resize(palette_entries)?;
 
-          let pal_idx_sz = i32::wrapping_mul(num_sb128, {
-            let Ok(numeric_value) =
-              console_core_number_conversion::wrapped::<_, i32>(match size_mul {
-                &[_, element, ..] => element,
-              });
-            numeric_value
-          });
+          let pal_idx_sz = num_sb128.wrapping_mul(i32::from(palette_scale));
           f_2
             .frame_thread
             .pal_idx
@@ -11364,17 +9385,24 @@ pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) 
             .map_err(|_| ENOMEM)?;
         }
         ::core::option::Option::None => match f_2.frame_thread.pal.pixels() {
-          crate::src::internal::PalettePixels::Present => {
+          Ok(crate::src::internal::PalettePixels::Present) => {
             let _ = mem::take(&mut f_2.frame_thread.pal);
             let _ = mem::take(&mut f_2.frame_thread.pal_idx);
           }
-          crate::src::internal::PalettePixels::Empty => {}
+          Ok(crate::src::internal::PalettePixels::Empty) => {}
         },
       }
     }
     ::core::option::Option::None => {}
   }
 
+  Ok(())
+}
+
+fn initialize_frame_filters(c: &Rav1dContext, f_2: &mut Rav1dFrameData) -> Rav1dResult {
+  let header = f_2.frame_hdr.as_deref().ok_or(EINVAL)?;
+  let frame_hdr = &**header;
+  let seq_hdr = f_2.seq_hdr.as_deref().ok_or(EINVAL)?;
   let bitdepth = BPC::from_bitdepth_max(f_2.bitdepth_max);
   let superblock_rows = u64::try_from(f_2.sbh).map_err(|_invalid_height| EINVAL)?;
   let cdef_rows = superblock_rows.checked_mul(4).ok_or(ENOMEM)?;
@@ -11404,6 +9432,12 @@ pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) 
   let restored_pitch = f_2.sr_cur.p.stride.map(pitch);
   configure_restoration_lines(&mut f_2.lf, bitdepth, restored_pitch, restoration_rows)?;
 
+  initialize_loop_filter_masks(c, f_2)
+}
+
+fn initialize_loop_filter_masks(c: &Rav1dContext, f_2: &mut Rav1dFrameData) -> Rav1dResult {
+  let num_sb128 = f_2.sb128w.wrapping_mul(f_2.sb128h);
+  let frame_hdr = f_2.frame_hdr.as_deref().ok_or(EINVAL)?;
   f_2.lf.mask.clear();
   f_2
     .lf
@@ -11418,16 +9452,27 @@ pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) 
     .map_err(|_| ENOMEM)?;
 
   {
+    const MAX_SUPERBLOCKS_PER_AXIS: u64 = 65_536 / 128;
+    const MAX_LEVEL_ENTRIES: u64 = MAX_SUPERBLOCKS_PER_AXIS
+      .wrapping_mul(MAX_SUPERBLOCKS_PER_AXIS)
+      .wrapping_mul(4096)
+      .wrapping_add(3);
     let superblocks = u64::try_from(num_sb128).map_err(|_invalid_block_count| EINVAL)?;
     let length = superblocks.wrapping_mul(4096).wrapping_add(3);
+
+    match length.cmp(&MAX_LEVEL_ENTRIES) {
+      cmp::Ordering::Greater => return Err(EINVAL),
+      cmp::Ordering::Equal | cmp::Ordering::Less => {}
+    }
+
     let level_len = console_core_number_conversion::checked_index(length)
       .map_err(|_outside_allocation| ENOMEM)?;
+
     f_2
       .lf
       .level
-      .try_reserve(level_len.saturating_sub(f_2.lf.level.len()))
-      .map_err(|_| ENOMEM)?;
-    f_2.lf.level.resize_with(level_len, || AtomicU8::new(0));
+      .try_resize_with(level_len, || AtomicU8::new(0))
+      .map_err(|_allocate| ENOMEM)?;
   }
 
   match ::core::primitive::bool::then_some(c.fc.len() > 1, ()) {
@@ -11490,6 +9535,14 @@ pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) 
 
   let Ok(()) = rav1d_calc_lf_values(&mut f_2.lf.lvl, &frame_hdr, &[0, 0, 0, 0]);
 
+  Ok(())
+}
+
+fn initialize_frame_edge_storage(c: &Rav1dContext, f_2: &mut Rav1dFrameData) -> Rav1dResult {
+  let header = f_2.frame_hdr.as_deref().ok_or(EINVAL)?;
+  let frame_hdr = &**header;
+  let seq_hdr = f_2.seq_hdr.as_deref().ok_or(EINVAL)?;
+  let bitdepth = BPC::from_bitdepth_max(f_2.bitdepth_max);
   let luma_columns = u64::try_from(f_2.sb128w).map_err(|_invalid_width| EINVAL)?;
   let superblock_rows_2 = u64::try_from(f_2.sbh).map_err(|_invalid_height| EINVAL)?;
   let blocks = luma_columns.checked_mul(superblock_rows_2).ok_or(ENOMEM)?;
@@ -11536,119 +9589,23 @@ pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) 
 
   init_quant_matrices(&frame_hdr.quant, &mut f_2.qm)?;
 
-  match ::core::primitive::bool::then_some(frame_hdr.switchable_comp_refs != 0, ()) {
-    ::core::option::Option::Some(()) => {
-      let Ok(cur_frame_offset) = console_core_number_conversion::wrapped::<_, i32>(
-        f_2.cur.frame_hdr.as_ref().ok_or(EINVAL)?.frame_offset,
-      );
-      let ref_pocs: [_; 7] =
-        array::from_fn(
-          |i| match f_2.refp[i].p.frame_hdr.as_ref().map(|h| h.frame_offset) {
-            ::core::option::Option::Some(option_value) => option_value,
-            ::core::option::Option::None => 0,
-          },
-        );
-
-      for (i, &poc_i) in ref_pocs.iter().enumerate() {
-        for (j, &poc_j) in ref_pocs.iter().enumerate().skip(i.wrapping_add(1)) {
-          let d = [poc_j, poc_i].map(|poc| {
-            let Ok(ref_poc) = console_core_number_conversion::wrapped::<_, i32>(poc);
-            let Ok(poc_diff) = get_poc_diff(
-              seq_hdr.order_hint_n_bits,
-              OrderHintComparison {
-                target: ref_poc,
-                origin: cur_frame_offset,
-              },
-            );
-
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u8>(cmp::min(
-                poc_diff.unsigned_abs(),
-                31,
-              ));
-              numeric_value
-            }
-          });
-          let order = (match d {
-            [element, ..] => element,
-          }) <= (match d {
-            [_, element, ..] => element,
-          });
-
-          static quant_dist_weight: [[u8; 2]; 3] = [[2, 3], [2, 5], [2, 7]];
-          static quant_dist_lookup_table: [[u8; 2]; 4] = [[9, 7], [11, 5], [12, 4], [13, 3]];
-
-          let ::core::result::Result::Ok(k) = ::console_core_number_conversion::fixed_index(
-            quant_dist_weight
-              .into_iter()
-              .position(|weight| {
-                let c_2 = [order, !order].map(|order_2| {
-                  weight[match ::console_core_number_conversion::index::<::core::primitive::u8>(
-                    ::core::primitive::u8::from(order_2),
-                  ) {
-                    ::core::result::Result::Ok(converted_position) => converted_position,
-                  }]
-                });
-                let dc: [_; 2] = array::from_fn(|i_2| u8::wrapping_mul(d[i_2], c_2[i_2]));
-                !order
-                  && (match dc {
-                    [element, ..] => element,
-                  }) < (match dc {
-                    [_, element, ..] => element,
-                  })
-                  || order
-                    && (match dc {
-                      [element, ..] => element,
-                    }) > (match dc {
-                      [_, element, ..] => element,
-                    })
-              })
-              .unwrap_or(quant_dist_weight.len()),
-          );
-
-          *match <[_]>::get_mut(
-            &mut (*match <[_]>::get_mut(&mut f_2.jnt_weights, i) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            }),
-            j,
-          ) {
-            ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          } = *match <[_]>::get(
-            &(*match <[_]>::get(
-              &quant_dist_lookup_table,
-              match ::console_core_number_conversion::index(k) {
-                ::core::result::Result::Ok(native_position_) => native_position_,
-              },
-            ) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            }),
-            match ::console_core_number_conversion::index::<::core::primitive::u8>(
-              ::core::primitive::u8::from(order),
-            ) {
-              ::core::result::Result::Ok(converted_position) => converted_position,
-            },
-          ) {
-            ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          };
-        }
-      }
+  match frame_hdr.switchable_comp_refs {
+    0 => {}
+    _ => {
+      assign_compound_weights(f_2, seq_hdr.order_hint_n_bits)?;
     }
-    ::core::option::Option::None => {}
   }
 
-  let Ok(()) = crate::src::owned_recon::frame_setup(c, f_2);
+  Ok(())
+}
+
+pub(crate) fn rav1d_decode_frame_init(c: &Rav1dContext, fc: &Rav1dFrameContext) -> Rav1dResult {
+  let mut frame = fc.data.try_write().ok_or(EINVAL)?;
+  initialize_frame_tile_tables(c, &mut frame)?;
+  initialize_frame_thread_storage(c, &mut frame)?;
+  initialize_frame_filters(c, &mut frame)?;
+  initialize_frame_edge_storage(c, &mut frame)?;
+  let Ok(()) = crate::src::owned_recon::frame_setup(c, &mut frame);
 
   Ok(())
 }
@@ -11666,7 +9623,11 @@ fn split_tile_payload(
       let (prefix, remaining) = CArc::split_at(data, u64::from(width))?;
       let mut encoded = [0; 4];
       let destination = encoded.get_mut(..prefix.len()).ok_or(EINVAL)?;
-      destination.copy_from_slice(&prefix);
+
+      for (byte, &encoded_byte) in destination.iter_mut().zip(prefix.iter()) {
+        *byte = encoded_byte;
+      }
+
       let size = u64::from(u32::from_le_bytes(encoded)).wrapping_add(1);
       (remaining, size)
     }
@@ -11688,7 +9649,8 @@ mod tile_payload_tests {
 
   #[test]
   fn tile_sizes_are_little_endian_and_relative_to_the_remaining_view() -> Rav1dResult {
-    let (first, rest) = split_tile_payload(owned(&[1, 0, 9, 8, 7, 6])?, Some(2))?;
+    let payload = owned(&[1, 0, 9, 8, 7, 6])?;
+    let (first, rest) = split_tile_payload(payload, Some(2))?;
     let (last, empty) = split_tile_payload(rest, None)?;
     assert_eq!(&*first, &[9, 8]);
     assert_eq!(&*last, &[7, 6]);
@@ -11720,14 +9682,51 @@ mod tile_payload_tests {
   }
 }
 
+fn initialize_above_contexts(
+  context: &Rav1dContext,
+  above: &mut [BlockContext],
+  frame_type: Rav1dFrameType,
+  contexts_per_pass: u64,
+) -> Rav1dResult {
+  match context.tc.len() {
+    0 | 1 => return Ok(()),
+    _ => {}
+  }
+
+  let threading = match context.fc.len() {
+    0 | 1 => CdfThreading::Serial,
+    _ => CdfThreading::ParallelFrames,
+  };
+  let passes = match threading {
+    CdfThreading::Serial => 1,
+    CdfThreading::ParallelFrames => 2,
+  };
+  let total = contexts_per_pass.wrapping_mul(passes);
+  let Ok(context_count) = console_core_number_conversion::index(total);
+  let contexts = above.get_mut(..context_count).ok_or(EINVAL)?;
+
+  for (position, above_context) in (0_u64..).zip(contexts) {
+    let initialization = match (&threading, position.cmp(&contexts_per_pass)) {
+      (CdfThreading::ParallelFrames, cmp::Ordering::Equal | cmp::Ordering::Greater) => {
+        ContextInitialization::PredictionOnly
+      }
+      (CdfThreading::ParallelFrames, cmp::Ordering::Less) | (CdfThreading::Serial, _) => {
+        ContextInitialization::Full
+      }
+    };
+    let Ok(()) = reset_context(above_context, frame_type, initialization);
+  }
+
+  Ok(())
+}
+
 pub(crate) fn rav1d_decode_frame_init_cdf(
   c: &Rav1dContext,
   fc: &Rav1dFrameContext,
   f: &mut Rav1dFrameData,
   in_cdf: &CdfThreadContext,
 ) -> Rav1dResult {
-  let f_frame_hdr = f.frame_hdr.as_ref().ok_or(EINVAL)?;
-  let frame_hdr = &***f_frame_hdr;
+  let frame_hdr = f.frame_hdr.as_deref().ok_or(EINVAL)?;
 
   match ::core::primitive::bool::then_some(frame_hdr.refresh_context != 0, ()) {
     ::core::option::Option::Some(()) => {
@@ -11747,80 +9746,68 @@ pub(crate) fn rav1d_decode_frame_init_cdf(
   let sb128_width = u64::try_from(f.sb128w).map_err(|_invalid_width| EINVAL)?;
   let contexts_per_pass = sb128_width.checked_mul(rows).ok_or(EINVAL)?;
 
-  let mut tile_row = 0u32;
-  let mut tile_col = 0u32;
+  let mut tile_position = Point { x: 0u32, y: 0u32 };
+  let Ok(update) = console_core_number_conversion::wrapped_index(tiling.update);
   let Ok(()) = fc.task_thread.update_set.set(false);
 
   for tile in &f.tiles {
-    let start =
-      console_core_number_conversion::checked_index(tile.hdr.start).map_err(|_| EINVAL)?;
-    let end = console_core_number_conversion::checked_index(tile.hdr.end).map_err(|_| EINVAL)?;
+    let start = checked_index(tile.hdr.start).map_err(|_invalid_start| EINVAL)?;
+    let end = checked_index(tile.hdr.end).map_err(|_invalid_end| EINVAL)?;
 
     let mut data = tile.data.data.clone().ok_or(EINVAL)?;
 
-    for (j, (ts, tile_start_off)) in iter::zip(
-      &mut *match <[_]>::get_mut(&mut f.ts, ..end.wrapping_add(1)) {
-        ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None => {
-          return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-        }
-      },
-      match ::core::primitive::bool::then_some(uses_2pass, ()) {
-        ::core::option::Option::Some(()) => {
-          &*match <[_]>::get(&f.frame_thread.tile_start_off, ..end.wrapping_add(1)) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          }
-        }
-        ::core::option::Option::None => &[],
-      }
-      .iter()
-      .copied()
-      .chain(iter::repeat_n(0, end.wrapping_add(1))),
-    )
-    .enumerate()
-    .skip(start)
-    {
+    let last = checked_index(i64::from(tile.hdr.end).wrapping_add(1))
+      .map_err(|_invalid_tile_span| EINVAL)?;
+    let slots = f.ts.get_mut(..last).ok_or(EINVAL)?;
+    let starts = match uses_2pass.then_some(()) {
+      Some(()) => f.frame_thread.tile_start_off.get(..last).ok_or(EINVAL)?,
+      None => &[],
+    };
+    let offsets = starts.iter().copied().chain(iter::repeat_n(0, last));
+
+    for (j, (ts, tile_start_off)) in slots.iter_mut().zip(offsets).enumerate().skip(start) {
       let size_bytes = (j != end).then_some(tiling.n_bytes);
       let (cur_data, rest_data) = split_tile_payload(data, size_bytes)?;
       let seq_hdr = f.seq_hdr.as_ref().ok_or(EINVAL)?;
       setup_tile(
         c,
         ts,
-        &***seq_hdr,
-        frame_hdr,
-        self::SetupTileArguments {
+        TileSetupFrame {
+          sequence: &***seq_hdr,
+          header: frame_hdr,
+          picture: &f.cur,
+          buffers: &f.frame_thread,
+          restoration: &mut f.lf,
+        },
+        SetupTileArguments {
           bitdepth_max: f.bitdepth_max,
           sb_shift: f.sb_shift,
+          frame: Size {
+            width: f.bw,
+            height: f.bh,
+          },
+          superblock_widths: SuperblockWidths {
+            scaled: f.sr_sb128w,
+            coded: f.sb128w,
+          },
+          tile: tile_position,
+          palette_start: tile_start_off,
         },
-        &f.cur,
-        f.bw,
-        f.bh,
-        &f.frame_thread,
-        f.sr_sb128w,
-        f.sb128w,
-        &mut f.lf,
-        in_cdf,
-        cur_data,
-        tile_row,
-        tile_col,
-        tile_start_off,
+        TileEntropyInput {
+          initial_cdf: in_cdf,
+          payload: cur_data,
+        },
       )?;
 
-      tile_col = tile_col.wrapping_add(1);
+      tile_position.x = tile_position.x.wrapping_add(1);
 
-      match ::core::primitive::bool::then_some(tile_col == cols, ()) {
+      match ::core::primitive::bool::then_some(tile_position.x == cols, ()) {
         ::core::option::Option::Some(()) => {
-          tile_col = 0;
-
-          tile_row = tile_row.wrapping_add(1);
+          tile_position.x = 0;
+          tile_position.y = tile_position.y.wrapping_add(1);
         }
         ::core::option::Option::None => {}
       }
-
-      let Ok(update) = console_core_number_conversion::wrapped_index(tiling.update);
 
       match ::core::primitive::bool::then_some(j == update && frame_hdr.refresh_context != 0, ())
       {
@@ -11834,144 +9821,162 @@ pub(crate) fn rav1d_decode_frame_init_cdf(
     }
   }
 
-  match ::core::primitive::bool::then_some(c.tc.len() > 1, ()) {
-    ::core::option::Option::Some(()) => {
-      let total = contexts_per_pass.wrapping_mul(u64::from(uses_2pass).wrapping_add(1));
-      let Ok(context_count) = console_core_number_conversion::index(total);
-      let contexts = f.a.get_mut(..context_count).ok_or(EINVAL)?;
+  initialize_above_contexts(c, &mut f.a, frame_hdr.frame_type, contexts_per_pass)
+}
 
-      for (position, context) in (0_u64..).zip(contexts) {
-        let pass = match uses_2pass.then_some(()) {
-          Some(()) => 1_i32.wrapping_add(i32::from(position >= contexts_per_pass)),
-          None => 0,
-        };
-        let Ok(()) = reset_context(context, frame_hdr.frame_type.is_key_or_intra(), pass);
-      }
+struct FrameTileRow {
+  tile_row: u32,
+  superblock_row: i32,
+  columns: u32,
+}
+
+fn decode_frame_row(
+  c: &Rav1dContext,
+  task: &mut Rav1dTaskContext,
+  frame: &Rav1dFrameData,
+  row: FrameTileRow,
+) -> Rav1dResult {
+  let sequence = frame.seq_hdr()?;
+  let header = frame.frame_hdr()?;
+  let shift = u32::from(sequence.sb128).wrapping_add(4);
+  task.b.y = row.superblock_row.wrapping_shl(shift);
+  let row_end = task.b.y.wrapping_add(frame.sb_step).wrapping_shr(1);
+  let Ok(tile_row) = console_core_number_conversion::wrapped::<_, i32>(row.tile_row);
+
+  match header.use_ref_frame_mvs {
+    0 => {}
+    _ => {
+      c.dsp.refmvs.load_tmvs.call(
+        &frame.rf,
+        &frame.ref_mvs,
+        tile_row,
+        TemporalMvRegion {
+          columns: 0..frame.bw.wrapping_shr(1),
+          rows: task.b.y.wrapping_shr(1)..row_end,
+        },
+      )?;
     }
-    ::core::option::Option::None => {}
+  }
+
+  for column in 0..row.columns {
+    task.tile_index = row.tile_row.wrapping_mul(row.columns).wrapping_add(column);
+    rav1d_decode_tile_sbrow(c, task, frame).map_err(|()| EINVAL)?;
+  }
+
+  match header.frame_type.is_inter_or_switch().then_some(()) {
+    Some(()) => {
+      c.dsp.refmvs.save_tmvs.call(
+        &task.rt,
+        &frame.rf,
+        &frame.mvs,
+        TemporalMvRegion {
+          columns: 0..frame.bw.wrapping_shr(1),
+          rows: task.b.y.wrapping_shr(1)..row_end,
+        },
+      )?;
+    }
+    None => {}
+  }
+
+  let Ok(backend) = frame.bd_fn();
+  (backend.filter_sbrow)(c, frame, task, row.superblock_row)
+}
+
+fn rav1d_decode_frame_main(c: &Rav1dContext, f: &mut Rav1dFrameData) -> Rav1dResult {
+  let task_slot = match c.tc.as_ref() {
+    [single] => single,
+    [] | [_, _, ..] => return Err(EINVAL),
+  };
+  let thread = match &task_slot.task {
+    Rav1dContextTaskType::Single(task) => task,
+    Rav1dContextTaskType::Worker => return Err(EINVAL),
+  };
+  let mut task = thread.lock();
+  let header = f.frame_hdr()?;
+  let row_starts = header.tiling.row_start_sb;
+  let rows = u32::from(header.tiling.rows);
+  let columns = u32::from(header.tiling.cols);
+  let frame_type = header.frame_type;
+  let context_width = u64::try_from(f.sb128w).map_err(|_invalid_width| EINVAL)?;
+  let context_count = context_width.wrapping_mul(u64::from(rows));
+  let Ok(context_end) = console_core_number_conversion::index(context_count);
+  let contexts = f.a.get_mut(..context_end).ok_or(EINVAL)?;
+
+  for context in contexts {
+    let Ok(()) = reset_context(context, frame_type, ContextInitialization::Full);
+  }
+
+  let Ok(row_boundaries) = console_core_number_conversion::index(rows.wrapping_add(1));
+  let boundaries = row_starts.get(..row_boundaries).ok_or(EINVAL)?;
+  let Ok(stop) = c.stop_token();
+
+  for (tile_row, row_bounds) in (0_u32..).zip(boundaries.windows(2)) {
+    let [start, end] = <[u16; 2]>::try_from(row_bounds).map_err(|_incomplete_row| EINVAL)?;
+    let frame_end = i32::from(end).min(f.sbh);
+
+    for superblock_row in i32::from(start)..frame_end {
+      match &stop {
+        Some(token) => token.check().map_err(|_stop_requested| ECANCELED)?,
+        None => {}
+      }
+
+      let row = FrameTileRow {
+        tile_row,
+        superblock_row,
+        columns,
+      };
+      decode_frame_row(c, &mut task, f, row)?;
+    }
   }
 
   Ok(())
 }
 
-fn rav1d_decode_frame_main(c: &Rav1dContext, f: &mut Rav1dFrameData) -> Rav1dResult {
-  assert!(c.tc.len() == 1);
+fn check_frame_reference_progress(frame: &Rav1dFrameData) -> Rav1dResult {
+  for reference in &frame.refp {
+    let Ok(counters) = reference.progress();
 
-  let Rav1dContextTaskType::Single(t) = &(*match <[_]>::get(&*c.tc, 0) {
-    ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-    ::core::option::Option::None => {
-      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
+    match (&reference.p.frame_hdr, counters) {
+      (None, _) => {}
+      (Some(_), Some([_, reconstruction])) => {
+        let position = reconstruction.load(Ordering::SeqCst);
+
+        match position {
+          FRAME_ERROR => return Err(EINVAL),
+          _ => {}
+        }
+      }
+      (Some(_), None) => return Err(EINVAL),
     }
-  })
-  .task
-  else {
-    return Err(EINVAL);
-  };
-
-  let mut t_2 = t.lock();
-
-  let frame_hdr = &***f.frame_hdr.as_ref().ok_or(EINVAL)?;
-
-  for ctx in &mut *match <[_]>::get_mut(
-    &mut f.a,
-    ..({
-      let Ok(numeric_value) = console_core_number_conversion::wrapped_index(f.sb128w);
-      numeric_value
-    })
-    .wrapping_mul({
-      let Ok(numeric_value) =
-        console_core_number_conversion::wrapped_index(frame_hdr.tiling.rows);
-      numeric_value
-    }),
-  ) {
-    ::core::option::Option::Some(indexed_value) => indexed_value,
-    ::core::option::Option::None => {
-      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-    }
-  } {
-    let Ok(()) = reset_context(ctx, frame_hdr.frame_type.is_key_or_intra(), 0);
   }
 
-  let Rav1dFrameHeaderTiling { rows, cols, .. } = frame_hdr.tiling;
-  let Ok(row_boundaries) = console_core_number_conversion::index(u32::from(rows).wrapping_add(1));
-  let columns = u32::from(cols);
-  let row_start_sb = frame_hdr.tiling.row_start_sb;
+  Ok(())
+}
 
-  let Ok(stop) = c.stop_token();
+fn finalize_frame_cdf(
+  frame: &mut Rav1dFrameData,
+  outcome: Rav1dResult,
+) -> Result<(), console_core_never::Never> {
+  match frame
+    .frame_hdr
+    .as_ref()
+    .map(|header| header.refresh_context)
+  {
+    None | Some(0) => {}
+    Some(_) => {
+      let Ok(progress) = frame.out_cdf.progress();
+      let Ok(tile_error) = console_core_number_conversion::wrapped::<_, u32>(TILE_ERROR);
+      let position = match outcome {
+        Ok(()) => 1,
+        Err(_decode_error) => tile_error,
+      };
 
-  let boundaries = row_start_sb.get(..row_boundaries).ok_or(EINVAL)?;
-
-  for (tile_row, sbh_start_end) in (0_u32..).zip(boundaries.windows(2)) {
-    let [sbh_start, sbh_end] =
-      <[u16; 2]>::try_from(sbh_start_end).map_err(|_incomplete_row| EINVAL)?;
-
-    let sbh_end_2 = cmp::min(
-      <::core::primitive::i32 as ::core::convert::From<::core::primitive::u16>>::from(sbh_end),
-      f.sbh,
-    );
-
-    for sby in
-      <::core::primitive::i32 as ::core::convert::From<::core::primitive::u16>>::from(sbh_start)
-        ..sbh_end_2
-    {
-      if let Some(stop_2) = &stop
-        && stop_2.check().is_err()
-      {
-        return Err(ECANCELED);
+      match progress {
+        Some(counter) => counter.store(position, Ordering::SeqCst),
+        None => {}
       }
 
-      let f_seq_hdr = f.seq_hdr.as_ref().ok_or(EINVAL)?;
-      let seq_hdr = &***f_seq_hdr;
-      let frame_hdr_2 = &***f.frame_hdr.as_ref().ok_or(EINVAL)?;
-      t_2.b.y = i32::wrapping_shl(sby, {
-        let Ok(numeric_value) =
-          console_core_number_conversion::wrapped::<_, u32>(u8::wrapping_add(4, seq_hdr.sb128));
-        numeric_value
-      });
-      let by_end = i32::wrapping_shr(i32::wrapping_add(t_2.b.y, f.sb_step), 1_u32);
-
-      match ::core::primitive::bool::then_some(frame_hdr_2.use_ref_frame_mvs != 0, ()) {
-        ::core::option::Option::Some(()) => {
-          c.dsp.refmvs.load_tmvs.call(
-            &f.rf,
-            &f.ref_mvs,
-            {
-              let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(tile_row);
-              numeric_value
-            },
-            TemporalMvRegion {
-              columns: 0..f.bw.wrapping_shr(1),
-              rows: t_2.b.y.wrapping_shr(1)..by_end,
-            },
-          )?;
-        }
-        ::core::option::Option::None => {}
-      }
-
-      for col in 0..columns {
-        t_2.tile_index = tile_row.wrapping_mul(columns).wrapping_add(col);
-        rav1d_decode_tile_sbrow(c, &mut t_2, f).map_err(|()| EINVAL)?;
-      }
-
-      let f_frame_hdr = f.frame_hdr()?;
-
-      match ::core::primitive::bool::then_some(f_frame_hdr.frame_type.is_inter_or_switch(), ()) {
-        ::core::option::Option::Some(()) => {
-          c.dsp.refmvs.save_tmvs.call(
-            &t_2.rt,
-            &f.rf,
-            &f.mvs,
-            TemporalMvRegion {
-              columns: 0..f.bw.wrapping_shr(1),
-              rows: t_2.b.y.wrapping_shr(1)..by_end,
-            },
-          )?;
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let Ok(bd_fn) = f.bd_fn();
-      (bd_fn.filter_sbrow)(c, f, &mut t_2, sby)?;
+      drop(mem::take(&mut frame.out_cdf));
     }
   }
 
@@ -11981,103 +9986,57 @@ fn rav1d_decode_frame_main(c: &Rav1dContext, f: &mut Rav1dFrameData) -> Rav1dRes
 pub(crate) fn rav1d_decode_frame_exit(
   c: &Rav1dContext,
   fc: &Rav1dFrameContext,
-  mut retval: Rav1dResult,
+  outcome: Rav1dResult,
 ) -> Rav1dResult {
-  let task_thread = &fc.task_thread;
+  let tasks = &fc.task_thread;
+  let mut frame = fc.data.write();
 
-  let mut f = fc.data.write();
-
-  match ::core::primitive::bool::then_some(f.sr_cur.p.data.is_some(), ()) {
-    ::core::option::Option::Some(()) => {
-      task_thread.error.store(0, Ordering::Relaxed);
-    }
-    ::core::option::Option::None => {}
-  }
-
-  let cf = f.frame_thread.cf.get_mut();
-
-  match ::core::primitive::bool::then_some(c.fc.len() > 1 && retval.is_err(), ()) {
-    ::core::option::Option::Some(()) => {
-      cf.fill_with(Default::default);
-    }
-    ::core::option::Option::None => {}
-  }
-
-  match ::core::primitive::bool::then_some(
-    retval.is_ok() && c.fc.len() > 1 && c.strict_std_compliance,
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      match ::core::primitive::bool::then_some(
-        f.refp.iter().any(|rf| {
-          rf.p.frame_hdr.is_some()
-            && rf.progress.as_ref().unwrap()[1].load(Ordering::SeqCst) == FRAME_ERROR
-        }),
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          retval = Err(EINVAL);
-          task_thread.error.store(1, Ordering::SeqCst);
-          (*match <[_]>::get(&**f.sr_cur.progress.as_mut().unwrap(), 1) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          })
-          .store(FRAME_ERROR, Ordering::SeqCst);
-        }
-        ::core::option::Option::None => {}
-      }
-    }
-    ::core::option::Option::None => {}
-  }
-
-  let _ = mem::take(&mut f.refp);
-  let _ = mem::take(&mut f.ref_mvs);
-  let _ = mem::take(&mut f.cur);
-  let _ = mem::take(&mut f.sr_cur);
-  let _ = mem::take(&mut *fc.in_cdf.try_write().unwrap());
-
-  match &f.frame_hdr {
-    Some(frame_hdr) => {
-      match ::core::primitive::bool::then_some(frame_hdr.refresh_context != 0, ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(progress) = f.out_cdf.progress();
-
-          match progress {
-            Some(progress_2) => {
-              progress_2.store(
-                match retval {
-                  ::core::result::Result::Ok(_) => 1,
-                  ::core::result::Result::Err(_) => {
-                    let Ok(numeric_value) =
-                      console_core_number_conversion::wrapped::<_, u32>(TILE_ERROR);
-                    numeric_value
-                  }
-                },
-                Ordering::SeqCst,
-              );
-            }
-            None => {}
-          }
-
-          let _ = mem::take(&mut f.out_cdf);
-        }
-        ::core::option::Option::None => {}
-      }
-    }
+  match &frame.sr_cur.p.data {
+    Some(_) => tasks.error.store(0, Ordering::Relaxed),
     None => {}
   }
 
-  let _ = mem::take(&mut f.cur_segmap);
-  let _ = mem::take(&mut f.prev_segmap);
-  let _ = mem::take(&mut f.mvs);
-  let _ = mem::take(&mut f.seq_hdr);
-  let _ = mem::take(&mut f.frame_hdr);
-  f.tiles.clear();
-  task_thread.finished.store(true, Ordering::SeqCst);
-  *task_thread.retval.try_lock().unwrap() = retval.err();
-  retval
+  let checked = match (outcome, c.fc.len(), c.strictness >= Strictness::Strict) {
+    (Err(error), 2.., _) => {
+      frame.frame_thread.cf.get_mut().fill_with(Default::default);
+      Err(error)
+    }
+    (Ok(()), 2.., true) => match check_frame_reference_progress(&frame) {
+      Ok(()) => Ok(()),
+      Err(error) => {
+        tasks.error.store(1, Ordering::SeqCst);
+
+        let Ok(counters) = frame.sr_cur.progress();
+
+        match counters {
+          Some([_, reconstruction]) => reconstruction.store(FRAME_ERROR, Ordering::SeqCst),
+          None => {}
+        }
+
+        Err(error)
+      }
+    },
+    (known, _, _) => known,
+  };
+
+  drop(mem::take(&mut frame.refp));
+  drop(mem::take(&mut frame.ref_mvs));
+  drop(mem::take(&mut frame.cur));
+  drop(mem::take(&mut frame.sr_cur));
+  drop(mem::take(&mut *fc.in_cdf.write()));
+  let Ok(()) = finalize_frame_cdf(&mut frame, checked);
+  drop(mem::take(&mut frame.cur_segmap));
+  drop(mem::take(&mut frame.prev_segmap));
+  drop(mem::take(&mut frame.mvs));
+  drop(mem::take(&mut frame.seq_hdr));
+  drop(mem::take(&mut frame.frame_hdr));
+  frame.tiles.clear();
+  *tasks.retval.lock() = match checked {
+    Ok(()) => None,
+    Err(error) => Some(error),
+  };
+  tasks.finished.store(true, Ordering::SeqCst);
+  checked
 }
 
 pub(crate) fn rav1d_publish_tile_cdf(
@@ -12092,140 +10051,605 @@ pub(crate) fn rav1d_publish_tile_cdf(
   Ok(())
 }
 
-pub(crate) fn rav1d_decode_frame(c: &Rav1dContext, fc: &Rav1dFrameContext) -> Rav1dResult {
-  assert!(c.fc.len() == 1);
+fn recover_frame_workers(
+  context: &Rav1dContext,
+  frame: &Rav1dFrameContext,
+  mut scheduler: MutexGuard<'_, ()>,
+) -> Result<(), console_core_never::Never> {
+  let control = &context.task_thread;
+  context.flush.store(true, Ordering::SeqCst);
+  control.cond.notify_all();
 
-  let mut res = rav1d_decode_frame_init(c, fc);
-
-  {
-    let mut f = fc.data.try_write().ok_or(EINVAL)?;
-
-    match res {
-      ::core::result::Result::Ok(_) => {
-        res = match fc.in_cdf() {
-          Ok(input) => rav1d_decode_frame_init_cdf(c, fc, &mut f, &input),
-          Err(error) => Err(error),
-        };
-      }
-      ::core::result::Result::Err(_) => {}
-    }
-
-    match res {
-      ::core::result::Result::Ok(_) => {
-        match ::core::primitive::bool::then_some(c.tc.len() > 1, ()) {
-          ::core::option::Option::Some(()) => {
-            res = rav1d_task_create_tile_sbrow(fc, &f, TileQueueStage::Reconstruction);
-            drop(f);
-            let ttd = &*c.task_thread;
-            let mut task_thread_lock = ttd.lock.lock();
-            ttd.cond.notify_one();
-
-            match res {
-              ::core::result::Result::Ok(_) => {
-                while (*match <[_]>::get(&fc.task_thread.done, 0) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                })
-                .load(Ordering::SeqCst)
-                  == 0
-                  || fc.task_thread.task_counter.load(Ordering::SeqCst) > 0
-                {
-                  match ::core::primitive::bool::then_some(
-                    ttd.panicked.load(Ordering::SeqCst),
-                    (),
-                  ) {
-                    ::core::option::Option::Some(()) => {
-                      c.flush.store(true, Ordering::SeqCst);
-                      ttd.cond.notify_all();
-
-                      for tc in c.tc.iter() {
-                        while let crate::src::internal::FlushState::Waiting = tc.flush_state() {
-                          task_thread_lock = unpoison(tc.thread_data.cond.wait(task_thread_lock));
-                        }
-                      }
-
-                      let Ok(()) = fc.task_thread.tasks.clear();
-                      ttd.first.store(0, Ordering::SeqCst);
-                      let Ok(length) =
-                        console_core_number_conversion::wrapped::<_, u32>(c.fc.len());
-                      let Ok(()) = ttd.cur.set(length);
-                      ttd.reset_task_cur.store(None, Ordering::SeqCst);
-                      ttd.cond_signaled.store(0, Ordering::SeqCst);
-                      c.flush.store(false, Ordering::SeqCst);
-                      res = Err(EGeneric);
-                      break;
-                    }
-                    ::core::option::Option::None => {}
-                  }
-
-                  task_thread_lock = unpoison(fc.task_thread.cond.wait(task_thread_lock));
-                }
-              }
-              ::core::result::Result::Err(_) => {}
-            }
-
-            drop(task_thread_lock);
-
-            match res {
-              ::core::result::Result::Ok(_) => {
-                let result = fc.task_thread.retval.try_lock().ok_or(EINVAL)?;
-                res = result.err_or(());
-              }
-              ::core::result::Result::Err(_) => {}
-            }
-          }
-          ::core::option::Option::None => {
-            res = rav1d_decode_frame_main(c, &mut f);
-            let f_frame_hdr = f.frame_hdr.as_ref().ok_or(EINVAL)?;
-            let frame_hdr = &***f_frame_hdr;
-
-            match ::core::primitive::bool::then_some(
-              res.is_ok()
-                && frame_hdr.refresh_context != 0
-                && ({
-                  let Ok(explicit_value) = fc.task_thread.update_set.get();
-                  explicit_value
-                }),
-              (),
-            ) {
-              ::core::option::Option::Some(()) => {
-                res = rav1d_publish_tile_cdf(&f, frame_hdr);
-              }
-              ::core::option::Option::None => {}
-            }
-          }
-        }
-      }
-      ::core::result::Result::Err(_) => {}
-    }
+  for worker in context.tc.iter() {
+    scheduler = wait_while(&worker.thread_data.cond, scheduler, |_state| {
+      matches!(worker.flush_state(), Ok(FlushState::Waiting))
+    });
   }
 
-  rav1d_decode_frame_exit(c, fc, res)
+  let Ok(()) = frame.task_thread.tasks.clear();
+  control.first.store(0, Ordering::SeqCst);
+  let Ok(frame_count) = console_core_number_conversion::wrapped::<_, u32>(context.fc.len());
+  let Ok(()) = control.cur.set(frame_count);
+  control.reset_task_cur.store(None, Ordering::SeqCst);
+  control.cond_signaled.store(0, Ordering::SeqCst);
+  context.flush.store(false, Ordering::SeqCst);
+  drop(scheduler);
+  Ok(())
+}
+
+fn await_frame_reconstruction(
+  context: &Rav1dContext,
+  frame: &Rav1dFrameContext,
+  queued: Rav1dResult,
+) -> Rav1dResult {
+  let control = &context.task_thread;
+  let tasks = &frame.task_thread;
+  let [reconstruction, _entropy] = &tasks.done;
+  let waiting = control.lock.lock();
+  control.cond.notify_one();
+  queued?;
+
+  let pending = || {
+    reconstruction.load(Ordering::SeqCst) == 0 || tasks.task_counter.load(Ordering::SeqCst) > 0
+  };
+  let scheduler = wait_while(&tasks.cond, waiting, |_state| {
+    !control.panicked.load(Ordering::SeqCst) && pending()
+  });
+
+  match pending().then_some(()) {
+    Some(()) => {
+      let Ok(()) = recover_frame_workers(context, frame, scheduler);
+      Err(EGeneric)
+    }
+    None => {
+      drop(scheduler);
+      let result = tasks.retval.try_lock().ok_or(EINVAL)?;
+
+      match *result {
+        Some(error) => Err(error),
+        None => Ok(()),
+      }
+    }
+  }
+}
+
+fn reconstruct_frame(context: &Rav1dContext, frame: &Rav1dFrameContext) -> Rav1dResult {
+  let mut data = frame.data.try_write().ok_or(EINVAL)?;
+
+  {
+    let input = frame.in_cdf()?;
+    rav1d_decode_frame_init_cdf(context, frame, &mut data, &input)?;
+  }
+
+  match context.tc.len() {
+    0 => Err(EINVAL),
+    1 => {
+      rav1d_decode_frame_main(context, &mut data)?;
+      let header = data.frame_hdr()?;
+      let Ok(update_set) = frame.task_thread.update_set.get();
+
+      match (header.refresh_context, update_set) {
+        (0, _) | (_, false) => Ok(()),
+        (_, true) => rav1d_publish_tile_cdf(&data, header),
+      }
+    }
+    2.. => {
+      let queued = rav1d_task_create_tile_sbrow(frame, &data, TileQueueStage::Reconstruction);
+      drop(data);
+      await_frame_reconstruction(context, frame, queued)
+    }
+  }
+}
+
+pub(crate) fn rav1d_decode_frame(c: &Rav1dContext, fc: &Rav1dFrameContext) -> Rav1dResult {
+  match c.fc.len() {
+    1 => {}
+    0 | 2.. => return Err(EINVAL),
+  }
+
+  let result = match rav1d_decode_frame_init(c, fc) {
+    Ok(()) => reconstruct_frame(c, fc),
+    Err(error) => Err(error),
+  };
+  rav1d_decode_frame_exit(c, fc, result)
+}
+
+#[derive(Clone, Copy)]
+struct ResolutionScale {
+  input: i32,
+  output: i32,
 }
 
 fn get_upscale_x0(
-  in_w: c_int,
-  out_w: c_int,
-  step: c_int,
-) -> core::result::Result<c_int, console_core_never::Never> {
-  Ok({
-    let err = i32::wrapping_sub(
-      i32::wrapping_mul(out_w, step),
-      i32::wrapping_shl(in_w, 14_u32),
-    );
-    let x0 = i32::wrapping_sub(
-      i32::wrapping_add(
-        i32::wrapping_add(
-          (i32::wrapping_shl(i32::wrapping_sub(out_w, in_w), 13_u32)).wrapping_neg(),
-          i32::wrapping_shr(out_w, 1_u32),
-        ) / out_w,
-        128,
-      ),
-      ::core::primitive::i32::wrapping_div(err, 2),
-    );
-    x0 & 0x3fff
+  ResolutionScale { input, output }: ResolutionScale,
+  step: i32,
+) -> Rav1dResult<i32> {
+  let difference = output.wrapping_sub(input);
+  let error = output
+    .wrapping_mul(step)
+    .wrapping_sub(input.wrapping_shl(14));
+  let offset = difference
+    .wrapping_shl(13)
+    .wrapping_neg()
+    .wrapping_add(output.wrapping_shr(1));
+  let prediction = offset.checked_div(output).ok_or(EINVAL)?;
+  let position = prediction
+    .wrapping_add(128)
+    .wrapping_sub(error.wrapping_div(2));
+  Ok(position & 0x3fff)
+}
+
+fn scale_factor(ResolutionScale { input, output }: ResolutionScale) -> Rav1dResult<i32> {
+  let scaled = input.wrapping_shl(14).wrapping_add(output.wrapping_shr(1));
+  scaled.checked_div(output).ok_or(EINVAL)
+}
+
+fn discard_submitted_frame(
+  fc: &Rav1dFrameContext,
+  f: &mut Rav1dFrameData,
+  out: &mut Rav1dThreadPicture,
+  cached_error_props: &mut Rav1dDataProps,
+  m: &Rav1dDataProps,
+) -> core::result::Result<(), console_core_never::Never> {
+  {
+    fc.task_thread.error.store(1, Ordering::Relaxed);
+    drop(mem::take(&mut *fc.in_cdf.write()));
+
+    match ::core::primitive::bool::then_some(
+      f.frame_hdr
+        .as_ref()
+        .is_some_and(|hdr| hdr.refresh_context != 0),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => {
+        let _ = mem::take(&mut f.out_cdf);
+      }
+      ::core::option::Option::None => {}
+    }
+
+    for (reference, motion) in f.refp.iter_mut().zip(&mut f.ref_mvs) {
+      match &reference.p.frame_hdr {
+        Some(_) => drop(mem::take(reference)),
+        None => {}
+      }
+
+      drop(mem::take(motion));
+    }
+
+    let _ = mem::take(out);
+    let _ = mem::take(&mut f.cur);
+    let _ = mem::take(&mut f.sr_cur);
+    let _ = mem::take(&mut f.mvs);
+    let _ = mem::take(&mut f.seq_hdr);
+    let _ = mem::take(&mut f.frame_hdr);
+    *cached_error_props = m.clone();
+
+    f.tiles.clear();
+    fc.task_thread.finished.store(true, Ordering::SeqCst);
+  };
+
+  Ok(())
+}
+
+fn configure_picture_scaling(frame: &mut Rav1dFrameData) -> Rav1dResult {
+  let luma = ResolutionScale {
+    input: frame.cur.p.w,
+    output: frame.sr_cur.p.p.w,
+  };
+  let horizontal = i32::from(frame.cur.p.layout != Rav1dPixelLayout::I444);
+  let Ok(shift) = console_core_number_conversion::wrapped::<_, u32>(horizontal);
+  let chroma = ResolutionScale {
+    input: luma.input.wrapping_add(horizontal).wrapping_shr(shift),
+    output: luma.output.wrapping_add(horizontal).wrapping_shr(shift),
+  };
+  let luma_step = scale_factor(luma)?;
+  let chroma_step = scale_factor(chroma)?;
+  let luma_start = get_upscale_x0(luma, luma_step)?;
+  let chroma_start = get_upscale_x0(chroma, chroma_step)?;
+  frame.resize_step = [luma_step, chroma_step];
+  frame.resize_start = [luma_start, chroma_start];
+
+  Ok(())
+}
+
+fn initialize_submission_geometry(
+  c: &Rav1dContext,
+  fc: &Rav1dFrameContext,
+  frame: &mut Rav1dFrameData,
+) -> Rav1dResult<crate::src::internal::ScratchParallelism> {
+  let header = frame.frame_hdr()?;
+  let [width, _scaled] = header.size.width;
+  let height = header.size.height;
+  let tiles = u32::from(header.tiling.cols).wrapping_mul(u32::from(header.tiling.rows));
+  let sequence = frame.seq_hdr()?;
+  let block_shift = u32::from(sequence.sb128);
+  frame.w4 = width.wrapping_add(3).wrapping_shr(2);
+  frame.h4 = height.wrapping_add(3).wrapping_shr(2);
+  frame.bw = width.wrapping_add(7).wrapping_shr(3).wrapping_shl(1);
+  frame.bh = height.wrapping_add(7).wrapping_shr(3).wrapping_shl(1);
+  frame.sb128w = frame.bw.wrapping_add(31).wrapping_shr(5);
+  frame.sb128h = frame.bh.wrapping_add(31).wrapping_shr(5);
+  let shift = 4u32.wrapping_add(block_shift);
+  let Ok(signed_shift) = console_core_number_conversion::wrapped::<_, i32>(shift);
+  frame.sb_shift = signed_shift;
+  frame.sb_step = 16_i32.wrapping_shl(block_shift);
+  frame.sbh = frame
+    .bh
+    .wrapping_add(frame.sb_step)
+    .wrapping_sub(1)
+    .wrapping_shr(shift);
+  let padded_width = frame.bw.wrapping_add(31) & !31;
+  let stride = u32::try_from(padded_width).map_err(|_negative_stride| EINVAL)?;
+  frame.b4_stride = stride;
+  let bit_depth = u32::from(frame.cur.p.bpc);
+  frame.bitdepth_max = 1_i32.wrapping_shl(bit_depth).wrapping_sub(1);
+  fc.task_thread.error.store(0, Ordering::Relaxed);
+  let workers = u32::try_from(c.tc.len()).map_err(|_too_many_workers| EINVAL)?;
+  let Ok(tile_count) = console_core_number_conversion::wrapped::<_, i32>(tiles);
+  let passes_shift = u32::from(c.fc.len() > 1);
+  let tasks = tile_count
+    .wrapping_add(frame.sbh)
+    .wrapping_shl(passes_shift);
+  fc.task_thread.task_counter.store(tasks, Ordering::SeqCst);
+
+  Ok(crate::src::internal::ScratchParallelism { workers, tiles })
+}
+
+fn refreshed_references<'a>(
+  flags: u8,
+  references: &'a mut [crate::src::internal::Rav1dContextRefs; 8],
+  cdfs: &'a mut [CdfThreadContext; 8],
+) -> Result<
+  impl Iterator<
+    Item = (
+      &'a mut crate::src::internal::Rav1dContextRefs,
+      &'a mut CdfThreadContext,
+    ),
+  >,
+  console_core_never::Never,
+> {
+  Ok(
+    (0u32..8)
+      .zip(references.iter_mut().zip(cdfs))
+      .filter_map(move |(bit, slot)| (flags & 1u8.wrapping_shl(bit) != 0).then_some(slot)),
+  )
+}
+
+fn publish_reference_frames(
+  context: &Rav1dFrameContext,
+  frame: &Rav1dFrameData,
+  references: &mut [crate::src::internal::Rav1dContextRefs; 8],
+  cdfs: &mut [CdfThreadContext; 8],
+) -> Rav1dResult {
+  let header = frame.frame_hdr()?;
+  let Ok(refreshed) = refreshed_references(header.refresh_frame_flags, references, cdfs);
+
+  for (reference, cdf) in refreshed {
+    match reference.p.p.frame_hdr.as_ref() {
+      Some(_) => drop(mem::take(&mut reference.p)),
+      None => {}
+    }
+
+    reference.p = frame.sr_cur.clone();
+    *cdf = match (header.refresh_context != 0).then_some(()) {
+      Some(()) => frame.out_cdf.clone(),
+      None => {
+        let current = context.in_cdf()?;
+        current.clone()
+      }
+    };
+    reference.segmap = frame.cur_segmap.clone();
+    drop(mem::take(&mut reference.refmvs));
+    reference.refmvs = (!header.allow_intrabc).then(|| frame.mvs.clone()).flatten();
+    reference.refpoc = frame.refpoc;
+  }
+
+  Ok(())
+}
+
+fn clear_reference_frames(
+  flags: u8,
+  references: &mut [crate::src::internal::Rav1dContextRefs; 8],
+  cdfs: &mut [CdfThreadContext; 8],
+) -> Result<(), console_core_never::Never> {
+  let Ok(refreshed) = refreshed_references(flags, references, cdfs);
+
+  for (reference, cdf) in refreshed {
+    match reference.p.p.frame_hdr.as_ref() {
+      Some(_) => drop(mem::take(&mut reference.p)),
+      None => {}
+    }
+
+    drop(mem::take(cdf));
+    drop(reference.segmap.take());
+    drop(reference.refmvs.take());
+  }
+
+  Ok(())
+}
+
+fn initialize_submission_cdf(
+  context: &Rav1dFrameContext,
+  header: &Rav1dFrameHeader,
+  previous: &[CdfThreadContext; 8],
+) -> Rav1dResult {
+  let initial = match (header.primary_ref_frame == RAV1D_PRIMARY_REF_NONE).then_some(()) {
+    Some(()) => {
+      let Ok(provided) = rav1d_cdf_thread_init_static(header.quant.yac);
+      provided
+    }
+    None => {
+      let Ok(position) = console_core_number_conversion::index(header.primary_ref_frame);
+      let &reference = header.refidx.get(position).ok_or(EINVAL)?;
+      let Ok(index) = console_core_number_conversion::wrapped_index(reference);
+      let source = previous.get(index).ok_or(EINVAL)?;
+      source.clone()
+    }
+  };
+  let mut storage = context.in_cdf.try_write().ok_or(EINVAL)?;
+  *storage = initial;
+
+  Ok(())
+}
+
+fn motion_grid(size: Size<i32>) -> Result<Size<i32>, console_core_never::Never> {
+  Ok(Size {
+    width: size.width.wrapping_add(7).wrapping_shr(3).wrapping_shl(1),
+    height: size.height.wrapping_add(7).wrapping_shr(3).wrapping_shl(1),
+  })
+}
+
+fn initialize_reference_motion(
+  frame: &mut Rav1dFrameData,
+  references: &[crate::src::internal::Rav1dContextRefs; 8],
+  coded_widths: &[i32; 7],
+  parallelism: &crate::src::internal::ScratchParallelism,
+) -> Rav1dResult {
+  let header = frame.frame_hdr.as_deref().ok_or(EINVAL)?;
+
+  match (header.frame_type.is_inter_or_switch() || header.allow_intrabc).then_some(()) {
+    Some(()) => {}
+    None => {
+      frame.mvs = None;
+      frame.ref_mvs.fill_with(Default::default);
+      return Ok(());
+    }
+  }
+
+  let superblock_rows = u64::try_from(frame.sb128h).map_err(|_negative_height| EINVAL)?;
+  let length = superblock_rows
+    .wrapping_mul(16)
+    .wrapping_mul(u64::from(frame.b4_stride.wrapping_shr(1)));
+  let motion = crate::src::disjoint_mut::dm_arc_try_new(length, Default::default(), parallelism)?;
+  frame.mvs = Some(motion);
+
+  match header.allow_intrabc.then_some(()) {
+    Some(()) => frame.refpoc.fill(0),
+    None => {
+      for (reference, output) in frame.refp.iter().zip(&mut frame.refpoc) {
+        let reference_header = reference.p.frame_hdr.as_deref().ok_or(EINVAL)?;
+        let Ok(frame_offset) =
+          console_core_number_conversion::wrapped::<_, u32>(reference_header.frame_offset);
+        *output = frame_offset;
+      }
+    }
+  }
+
+  match header.use_ref_frame_mvs {
+    0 => {
+      frame.ref_mvs.fill_with(Default::default);
+      return Ok(());
+    }
+    _ => {}
+  }
+
+  let current = Size {
+    width: frame.bw,
+    height: frame.bh,
+  };
+
+  for position in 0u32..7 {
+    let Ok(slot) = console_core_number_conversion::index(position);
+    let &reference = header.refidx.get(slot).ok_or(EINVAL)?;
+    let Ok(index) = console_core_number_conversion::wrapped_index(reference);
+    let &width = coded_widths.get(slot).ok_or(EINVAL)?;
+    let picture = frame.refp.get(slot).ok_or(EINVAL)?;
+    let Ok(grid) = motion_grid(Size {
+      width,
+      height: picture.p.p.h,
+    });
+    let output = frame.ref_mvs.get_mut(slot).ok_or(EINVAL)?;
+    *output = match (grid == current).then_some(()) {
+      Some(()) => {
+        let source = references.get(index).ok_or(EINVAL)?;
+        source.refmvs.clone()
+      }
+      None => None,
+    };
+    let source = references.get(index).ok_or(EINVAL)?;
+    let positions = frame.refrefpoc.get_mut(slot).ok_or(EINVAL)?;
+    *positions = source.refpoc;
+  }
+
+  Ok(())
+}
+
+fn initialize_segment_maps(
+  frame: &mut Rav1dFrameData,
+  references: &[crate::src::internal::Rav1dContextRefs; 8],
+  coded_widths: &[i32; 7],
+  parallelism: &crate::src::internal::ScratchParallelism,
+) -> Rav1dResult {
+  let header = frame.frame_hdr.as_deref().ok_or(EINVAL)?;
+
+  match header.segmentation.enabled {
+    0 => {
+      frame.cur_segmap = None;
+      frame.prev_segmap = None;
+      return Ok(());
+    }
+    _ => {}
+  }
+
+  frame.prev_segmap = None;
+
+  match (header.segmentation.temporal != 0 || header.segmentation.update_map == 0).then_some(()) {
+    Some(()) => {
+      let Ok(slot) = console_core_number_conversion::index(header.primary_ref_frame);
+      let &width = coded_widths.get(slot).ok_or(EINVAL)?;
+      let picture = frame.refp.get(slot).ok_or(EINVAL)?;
+      let Ok(grid) = motion_grid(Size {
+        width,
+        height: picture.p.p.h,
+      });
+
+      match (grid
+        == (Size {
+          width: frame.bw,
+          height: frame.bh,
+        }))
+      .then_some(())
+      {
+        Some(()) => {
+          let &reference = header.refidx.get(slot).ok_or(EINVAL)?;
+          let Ok(index) = console_core_number_conversion::wrapped_index(reference);
+          let source = references.get(index).ok_or(EINVAL)?;
+          frame.prev_segmap = source.segmap.clone();
+        }
+        None => {}
+      }
+    }
+    None => {}
+  }
+
+  let current = match (
+    (header.segmentation.update_map != 0).then_some(()),
+    &frame.prev_segmap,
+  ) {
+    (None, Some(previous)) => previous.clone(),
+    (Some(()), _) | (None, None) => {
+      let rows = u64::try_from(frame.sb128h).map_err(|_negative_height| EINVAL)?;
+      let length = u64::from(frame.b4_stride)
+        .wrapping_mul(32)
+        .wrapping_mul(rows);
+      let allocation =
+        crate::src::disjoint_mut::dm_arc_try_new(length, Default::default(), parallelism)?;
+      allocation
+    }
+  };
+  frame.cur_segmap = Some(current);
+
+  Ok(())
+}
+
+enum ReferenceSize {
+  Suitable,
+  OutsideLimits,
+}
+
+fn reference_fits_frame(
+  reference: Size<i32>,
+  coded: Size<i32>,
+) -> Result<ReferenceSize, console_core_never::Never> {
+  Ok(
+    match (coded.width.wrapping_mul(2) >= reference.width
+      && coded.height.wrapping_mul(2) >= reference.height
+      && coded.width <= reference.width.wrapping_mul(16)
+      && coded.height <= reference.height.wrapping_mul(16))
+    .then_some(())
+    {
+      Some(()) => ReferenceSize::Suitable,
+      None => ReferenceSize::OutsideLimits,
+    },
+  )
+}
+
+fn configure_reference_scale(
+  [horizontal, vertical]: &mut [ScalableMotionParams; 2],
+  reference: Size<i32>,
+  coded: Size<i32>,
+) -> Rav1dResult {
+  match (reference == coded).then_some(()) {
+    Some(()) => {
+      vertical.scale = 0;
+      horizontal.scale = 0;
+    }
+    None => {
+      let input_scale = scale_factor(ResolutionScale {
+        input: reference.width,
+        output: coded.width,
+      })?;
+      horizontal.scale = input_scale;
+      let row_scale = scale_factor(ResolutionScale {
+        input: reference.height,
+        output: coded.height,
+      })?;
+      vertical.scale = row_scale;
+      horizontal.step = horizontal.scale.wrapping_add(8).wrapping_shr(4);
+      vertical.step = vertical.scale.wrapping_add(8).wrapping_shr(4);
+    }
+  }
+
+  Ok(())
+}
+
+fn launch_submitted_frame(
+  context: &Rav1dContext,
+  frame: &Rav1dFrameContext,
+  state: &mut Rav1dState,
+  refreshed: u8,
+) -> Rav1dResult {
+  match context.fc.len() {
+    1 => {
+      let decoded = rav1d_decode_frame(context, frame);
+
+      match decoded {
+        Ok(()) => Ok(()),
+        Err(fault) => {
+          drop(mem::take(&mut state.out));
+          let Ok(()) = clear_reference_frames(refreshed, &mut state.refs, &mut state.cdf);
+          let mut data = frame.data.try_write().ok_or(EINVAL)?;
+          let Ok(()) = discard_submitted_frame(
+            frame,
+            &mut data,
+            &mut state.out,
+            &mut state.cached_error_props,
+            &state.in_0.m,
+          );
+          Err(fault)
+        }
+      }
+    }
+    _ => match rav1d_task_frame_init(context, frame) {
+      Ok(()) => Ok(()),
+      Err(fault) => rav1d_decode_frame_exit(context, frame, Err(fault)),
+    },
+  }
+}
+
+enum PrimaryReference {
+  NotRequired,
+  Ready,
+  MissingPicture,
+}
+
+fn inspect_primary_reference(
+  header: &Rav1dFrameHeader,
+  references: &[crate::src::internal::Rav1dContextRefs; 8],
+) -> Rav1dResult<PrimaryReference> {
+  match header.primary_ref_frame {
+    RAV1D_PRIMARY_REF_NONE => return Ok(PrimaryReference::NotRequired),
+    _ => {}
+  }
+
+  let Ok(position) = console_core_number_conversion::index(header.primary_ref_frame);
+  let &reference = header.refidx.get(position).ok_or(EINVAL)?;
+  let Ok(index) = console_core_number_conversion::wrapped_index(reference);
+  let primary = references.get(index).ok_or(EINVAL)?;
+
+  Ok(match primary.p.p.data.as_ref() {
+    Some(_) => PrimaryReference::Ready,
+    None => PrimaryReference::MissingPicture,
   })
 }
 
@@ -12258,59 +10682,19 @@ pub fn rav1d_submit_frame(c: &Rav1dContext, state: &mut Rav1dState) -> Rav1dResu
     ),
   };
 
-  let mut f = fc.data.try_write().ok_or(EINVAL)?;
-  let seq_hdr = state.seq_hdr.clone().ok_or(EINVAL)?;
-  f.seq_hdr = Some(seq_hdr.clone());
+  let mut frame_guard = fc.data.try_write().ok_or(EINVAL)?;
+  let f = &mut *frame_guard;
+  let seq_hdr = state.seq_hdr.as_ref().ok_or(EINVAL)?;
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "a pending frame retains the shared stable Rust and C sequence-header representations for its output picture"
+    )
+  )]
+  let retained_sequence = seq_hdr.clone();
+  f.seq_hdr = Some(retained_sequence);
   f.frame_hdr = mem::take(&mut state.frame_hdr);
-
-  fn on_error(
-    fc: &Rav1dFrameContext,
-    f: &mut Rav1dFrameData,
-    out: &mut Rav1dThreadPicture,
-    cached_error_props: &mut Rav1dDataProps,
-    m: &Rav1dDataProps,
-  ) -> core::result::Result<(), console_core_never::Never> {
-    {
-      fc.task_thread.error.store(1, Ordering::Relaxed);
-      let _ = mem::take(&mut *fc.in_cdf.try_write().unwrap());
-
-      match ::core::primitive::bool::then_some(
-        f.frame_hdr
-          .as_ref()
-          .is_some_and(|hdr| hdr.refresh_context != 0),
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let _ = mem::take(&mut f.out_cdf);
-        }
-        ::core::option::Option::None => {}
-      }
-
-      for i in 0..7 {
-        match ::core::primitive::bool::then_some(f.refp[i].p.frame_hdr.is_some(), ()) {
-          ::core::option::Option::Some(()) => {
-            let _ = mem::take(&mut f.refp[i]);
-          }
-          ::core::option::Option::None => {}
-        }
-
-        let _ = mem::take(&mut f.ref_mvs[i]);
-      }
-
-      let _ = mem::take(out);
-      let _ = mem::take(&mut f.cur);
-      let _ = mem::take(&mut f.sr_cur);
-      let _ = mem::take(&mut f.mvs);
-      let _ = mem::take(&mut f.seq_hdr);
-      let _ = mem::take(&mut f.frame_hdr);
-      *cached_error_props = m.clone();
-
-      f.tiles.clear();
-      fc.task_thread.finished.store(true, Ordering::SeqCst);
-    };
-
-    Ok(())
-  }
 
   let bpc = u8::wrapping_add(8, u8::wrapping_mul(2, seq_hdr.hbd));
   let Ok(get) = Rav1dBitDepthDSPContext::get(bpc);
@@ -12319,529 +10703,88 @@ pub fn rav1d_submit_frame(c: &Rav1dContext, state: &mut Rav1dState) -> Rav1dResu
     Some(dsp) => f.dsp = dsp,
     None => {
       writeln!(c.logger, "Compiled without support for {bpc}-bit decoding",);
-      let Ok(()) = on_error(
-        fc,
-        &mut f,
-        out,
-        &mut state.cached_error_props,
-        &state.in_0.m,
-      );
+      let Ok(()) =
+        discard_submitted_frame(fc, f, out, &mut state.cached_error_props, &state.in_0.m);
       return Err(ENOPROTOOPT);
     }
   };
 
-  fn scale_fac(
-    ref_sz: i32,
-    this_sz: i32,
-  ) -> core::result::Result<i32, console_core_never::Never> {
-    Ok({
-      i32::wrapping_add(
-        i32::wrapping_shl(ref_sz, 14_u32),
-        i32::wrapping_shr(this_sz, 1_u32),
-      ) / this_sz
-    })
-  }
-
   let mut ref_coded_width = <[i32; 7]>::default();
-  let f_frame_hdr = f.frame_hdr.as_ref().ok_or(EINVAL)?;
-  let frame_hdr = f_frame_hdr.clone();
+  let frame_hdr = f.frame_hdr.as_deref().ok_or(EINVAL)?;
 
   let Ok(frame_hdr_cols) = console_core_number_conversion::wrapped_index(frame_hdr.tiling.cols);
   let Ok(frame_hdr_rows) = console_core_number_conversion::wrapped_index(frame_hdr.tiling.rows);
   rav1d_disjoint_mut::set_tile_concurrency(frame_hdr_cols.wrapping_mul(frame_hdr_rows));
 
-  match ::core::primitive::bool::then_some(frame_hdr.frame_type.is_inter_or_switch(), ()) {
-    ::core::option::Option::Some(()) => {
-      match ::core::primitive::bool::then_some(
-        frame_hdr.primary_ref_frame != RAV1D_PRIMARY_REF_NONE,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let Ok(pri_ref) =
-            console_core_number_conversion::wrapped_index(*match <[_]>::get(&frame_hdr.refidx, {
-              let Ok(numeric_value) =
-                console_core_number_conversion::wrapped_index(frame_hdr.primary_ref_frame);
-              numeric_value
-            }) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            });
+  match frame_hdr.frame_type {
+    Rav1dFrameType::Key | Rav1dFrameType::Intra => {}
+    Rav1dFrameType::Inter | Rav1dFrameType::Switch => {
+      let primary = inspect_primary_reference(frame_hdr, &state.refs)?;
 
-          match ::core::primitive::bool::then_some(
-            (*match <[_]>::get(&state.refs, pri_ref) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .p
-            .p
-            .data
-            .is_none(),
-            (),
-          ) {
-            ::core::option::Option::Some(()) => {
-              let Ok(()) = on_error(
-                fc,
-                &mut f,
-                out,
-                &mut state.cached_error_props,
-                &state.in_0.m,
-              );
-              return Err(EINVAL);
-            }
-            ::core::option::Option::None => {}
-          }
+      match primary {
+        PrimaryReference::NotRequired | PrimaryReference::Ready => {}
+        PrimaryReference::MissingPicture => {
+          let Ok(()) =
+            discard_submitted_frame(fc, f, out, &mut state.cached_error_props, &state.in_0.m);
+          return Err(EINVAL);
         }
-        ::core::option::Option::None => {}
       }
 
-      for i in 0..7 {
-        let Ok(refidx) = console_core_number_conversion::wrapped_index(*match <[_]>::get(
-          &frame_hdr.refidx,
-          i,
-        ) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-          }
-        });
+      let [width, _scaled] = frame_hdr.size.width;
+      let dimensions = Size {
+        width,
+        height: frame_hdr.size.height,
+      };
 
-        match ::core::primitive::bool::then_some(
-          (*match <[_]>::get(&state.refs, refidx) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          })
-          .p
-          .p
-          .data
-          .is_none()
-            || i32::wrapping_mul(
-              match frame_hdr.size.width {
-                [element, ..] => element,
-              },
-              2,
-            ) < (*match <[_]>::get(&state.refs, refidx) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .p
-            .p
-            .p
-            .w
-            || i32::wrapping_mul(frame_hdr.size.height, 2)
-              < (*match <[_]>::get(&state.refs, refidx) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              })
-              .p
-              .p
-              .p
-              .h
-            || (match frame_hdr.size.width {
-              [element, ..] => element,
-            }) > i32::wrapping_mul(
-              (*match <[_]>::get(&state.refs, refidx) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              })
-              .p
-              .p
-              .p
-              .w,
-              16,
-            )
-            || frame_hdr.size.height
-              > i32::wrapping_mul(
-                (*match <[_]>::get(&state.refs, refidx) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                })
-                .p
-                .p
-                .p
-                .h,
-                16,
-              )
-            || seq_hdr.layout
-              != (*match <[_]>::get(&state.refs, refidx) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              })
-              .p
-              .p
-              .p
-              .layout
-            || bpc
-              != (*match <[_]>::get(&state.refs, refidx) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              })
-              .p
-              .p
-              .p
-              .bpc,
-          (),
-        ) {
-          ::core::option::Option::Some(()) => {
-            for j in 0..i {
-              let _ = mem::take(&mut *match <[_]>::get_mut(&mut f.refp, j) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              });
-            }
+      for (position, &reference) in (0u32..7).zip(&frame_hdr.refidx) {
+        let Ok(index) = console_core_number_conversion::wrapped_index(reference);
+        let source = state.refs.get(index).ok_or(EINVAL)?;
+        let parameters = &source.p.p.p;
+        let reference_size = Size {
+          width: parameters.w,
+          height: parameters.h,
+        };
+        let Ok(fits) = reference_fits_frame(reference_size, dimensions);
 
-            let Ok(()) = on_error(
-              fc,
-              &mut f,
-              out,
-              &mut state.cached_error_props,
-              &state.in_0.m,
-            );
+        match (
+          fits,
+          (source.p.p.data.is_some()
+            && seq_hdr.layout == parameters.layout
+            && bpc == parameters.bpc)
+            .then_some(()),
+        ) {
+          (ReferenceSize::Suitable, Some(())) => {}
+          (ReferenceSize::OutsideLimits, _) | (ReferenceSize::Suitable, None) => {
+            let Ok(()) =
+              discard_submitted_frame(fc, f, out, &mut state.cached_error_props, &state.in_0.m);
             return Err(EINVAL);
           }
-          ::core::option::Option::None => {}
         }
 
-        *match <[_]>::get_mut(&mut f.refp, i) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-          }
-        } = (*match <[_]>::get(&state.refs, refidx) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-          }
-        })
-        .p
-        .clone();
-        *match <[_]>::get_mut(&mut ref_coded_width, i) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-          }
-        } = *match <[_]>::get(
-          &(*match <[_]>::get(&state.refs, refidx) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          })
-          .p
-          .p
-          .frame_hdr
-          .as_ref()
-          .unwrap()
-          .size
-          .width,
-          0,
-        ) {
-          ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-          }
-        };
+        let Ok(slot) = console_core_number_conversion::index(position);
+        let destination = f.refp.get_mut(slot).ok_or(EINVAL)?;
+        *destination = source.p.clone();
+        let reference_header = source.p.p.frame_hdr.as_deref().ok_or(EINVAL)?;
+        let [coded, _upscaled] = reference_header.size.width;
+        let recorded_width = ref_coded_width.get_mut(slot).ok_or(EINVAL)?;
+        *recorded_width = coded;
 
-        match ::core::primitive::bool::then_some(
-          (match frame_hdr.size.width {
-            [element, ..] => element,
-          }) != (*match <[_]>::get(&state.refs, refidx) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          })
-          .p
-          .p
-          .p
-          .w || frame_hdr.size.height
-            != (*match <[_]>::get(&state.refs, refidx) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .p
-            .p
-            .p
-            .h,
-          (),
-        ) {
-          ::core::option::Option::Some(()) => {
-            (*match <[_]>::get_mut(
-              &mut (*match <[_]>::get_mut(&mut f.svc, i) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              }),
-              0,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .scale = {
-              let Ok(explicit_value) = scale_fac(
-                (*match <[_]>::get(&state.refs, refidx) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                })
-                .p
-                .p
-                .p
-                .w,
-                match frame_hdr.size.width {
-                  [element, ..] => element,
-                },
-              );
-              explicit_value
-            };
-            (*match <[_]>::get_mut(
-              &mut (*match <[_]>::get_mut(&mut f.svc, i) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              }),
-              1,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .scale = {
-              let Ok(explicit_value) = scale_fac(
-                (*match <[_]>::get(&state.refs, refidx) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                })
-                .p
-                .p
-                .p
-                .h,
-                frame_hdr.size.height,
-              );
-              explicit_value
-            };
-            (*match <[_]>::get_mut(
-              &mut (*match <[_]>::get_mut(&mut f.svc, i) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              }),
-              0,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .step = i32::wrapping_shr(
-              i32::wrapping_add(
-                (*match <[_]>::get(
-                  &(*match <[_]>::get(&f.svc, i) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => {
-                      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                    }
-                  }),
-                  0,
-                ) {
-                  ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                })
-                .scale,
-                8,
-              ),
-              4_u32,
-            );
-            (*match <[_]>::get_mut(
-              &mut (*match <[_]>::get_mut(&mut f.svc, i) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              }),
-              1,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .step = i32::wrapping_shr(
-              i32::wrapping_add(
-                (*match <[_]>::get(
-                  &(*match <[_]>::get(&f.svc, i) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => {
-                      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                    }
-                  }),
-                  1,
-                ) {
-                  ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                })
-                .scale,
-                8,
-              ),
-              4_u32,
-            );
-          }
-          ::core::option::Option::None => {
-            (*match <[_]>::get_mut(
-              &mut (*match <[_]>::get_mut(&mut f.svc, i) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              }),
-              1,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .scale = 0;
-            (*match <[_]>::get_mut(
-              &mut (*match <[_]>::get_mut(&mut f.svc, i) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              }),
-              0,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .scale = (*match <[_]>::get(
-              &(*match <[_]>::get(&f.svc, i) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              }),
-              1,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .scale;
-          }
-        }
-
-        *match <[_]>::get_mut(&mut f.gmv_warp_allowed, i) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-          }
-        } = u8::from(
-          (*match <[_]>::get(&frame_hdr.gmv, i) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          })
-          .r#type
-            > Rav1dWarpedMotionType::Translation
+        let scaling = f.svc.get_mut(slot).ok_or(EINVAL)?;
+        configure_reference_scale(scaling, reference_size, dimensions)?;
+        let warp = frame_hdr.gmv.get(slot).ok_or(EINVAL)?;
+        let [horizontal, _vertical] = scaling;
+        let allowed = f.gmv_warp_allowed.get_mut(slot).ok_or(EINVAL)?;
+        *allowed = u8::from(
+          warp.r#type > Rav1dWarpedMotionType::Translation
             && !frame_hdr.force_integer_mv
-            && rav1d_get_shear_params(&*match <[_]>::get(&frame_hdr.gmv, i) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            }) == Ok(WarpValidity::Usable)
-            && (*match <[_]>::get(
-              &(*match <[_]>::get(&f.svc, i) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              }),
-              0,
-            ) {
-              ::core::option::Option::Some(indexed_value_2) => indexed_value_2,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .scale
-              == 0,
+            && rav1d_get_shear_params(warp) == Ok(WarpValidity::Usable)
+            && horizontal.scale == 0,
         );
       }
     }
-    ::core::option::Option::None => {}
   }
 
-  match ::core::primitive::bool::then_some(
-    frame_hdr.primary_ref_frame == RAV1D_PRIMARY_REF_NONE,
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      *fc.in_cdf.try_write().unwrap() = {
-        let Ok(explicit_value) = rav1d_cdf_thread_init_static(frame_hdr.quant.yac);
-        explicit_value
-      };
-    }
-    ::core::option::Option::None => {
-      let Ok(pri_ref) =
-        console_core_number_conversion::wrapped_index(*match <[_]>::get(&frame_hdr.refidx, {
-          let Ok(numeric_value) =
-            console_core_number_conversion::wrapped_index(frame_hdr.primary_ref_frame);
-          numeric_value
-        }) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-          }
-        });
-      *fc.in_cdf.try_write().unwrap() = (*match <[_]>::get(&state.cdf, pri_ref) {
-        ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None => {
-          return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-        }
-      })
-      .clone();
-    }
-  }
+  initialize_submission_cdf(fc, frame_hdr, &state.cdf)?;
 
   match ::core::primitive::bool::then_some(frame_hdr.refresh_context != 0, ()) {
     ::core::option::Option::Some(()) => {
@@ -12853,13 +10796,8 @@ pub fn rav1d_submit_frame(c: &Rav1dContext, state: &mut Rav1dState) -> Rav1dResu
 
       match res {
         Err(e) => {
-          let Ok(()) = on_error(
-            fc,
-            &mut f,
-            out,
-            &mut state.cached_error_props,
-            &state.in_0.m,
-          );
+          let Ok(()) =
+            discard_submitted_frame(fc, f, out, &mut state.cached_error_props, &state.in_0.m);
           return Err(e);
         }
         Ok(res_2) => {
@@ -12879,7 +10817,7 @@ pub fn rav1d_submit_frame(c: &Rav1dContext, state: &mut Rav1dState) -> Rav1dResu
   let itut_t35 = mem::take(&mut state.itut_t35);
   let res = rav1d_thread_picture_alloc(
     c,
-    &mut f,
+    f,
     ThreadPictureRequest {
       content_light: state.content_light.clone(),
       mastering_display: state.mastering_display.clone(),
@@ -12891,119 +10829,40 @@ pub fn rav1d_submit_frame(c: &Rav1dContext, state: &mut Rav1dState) -> Rav1dResu
   );
 
   match res {
-    ::core::result::Result::Err(_) => {
-      let Ok(()) = on_error(
-        fc,
-        &mut f,
-        out,
-        &mut state.cached_error_props,
-        &state.in_0.m,
-      );
-      return res;
+    Err(fault) => {
+      let Ok(()) =
+        discard_submitted_frame(fc, f, out, &mut state.cached_error_props, &state.in_0.m);
+      return Err(fault);
     }
-    ::core::result::Result::Ok(_) => {}
+    Ok(()) => {}
   }
 
-  let f_seq_hdr = f.seq_hdr.as_ref().ok_or(EINVAL)?;
-  let seq_hdr_2 = f_seq_hdr.clone();
-  let checked_value = f.frame_hdr.as_ref().ok_or(EINVAL)?;
-  let frame_hdr_2 = checked_value.clone();
+  let header = f.frame_hdr()?;
+  let [coded_width, display_width] = header.size.width;
+  let show_frame = header.show_frame;
 
-  match ::core::primitive::bool::then_some(
-    (match frame_hdr_2.size.width {
-      [element, ..] => element,
-    }) != (match frame_hdr_2.size.width {
-      [_, element, ..] => element,
-    }),
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      let f_2 = &mut *f;
-      let res_3 = rav1d_picture_alloc_copy(
-        &c.logger,
-        &mut f_2.cur,
-        match frame_hdr_2.size.width {
-          [element, ..] => element,
-        },
-        &f_2.sr_cur.p,
-      );
+  match coded_width.cmp(&display_width) {
+    cmp::Ordering::Equal => f.cur = f.sr_cur.p.clone(),
+    cmp::Ordering::Less | cmp::Ordering::Greater => {
+      let allocated = rav1d_picture_alloc_copy(&c.logger, &mut f.cur, coded_width, &f.sr_cur.p);
 
-      match res_3 {
-        ::core::result::Result::Err(_) => {
-          let Ok(()) = on_error(fc, f_2, out, &mut state.cached_error_props, &state.in_0.m);
-          return res_3;
+      match allocated {
+        Ok(()) => {}
+        Err(fault) => {
+          let Ok(()) =
+            discard_submitted_frame(fc, f, out, &mut state.cached_error_props, &state.in_0.m);
+          return Err(fault);
         }
-        ::core::result::Result::Ok(_) => {}
       }
-    }
-    ::core::option::Option::None => {
-      f.cur = f.sr_cur.p.clone();
-    }
-  }
 
-  match ::core::primitive::bool::then_some(
-    (match frame_hdr_2.size.width {
-      [element, ..] => element,
-    }) != (match frame_hdr_2.size.width {
-      [_, element, ..] => element,
-    }),
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      *{
-        let [_explicit_part, ..] = &mut f.resize_step;
-        _explicit_part
-      } = {
-        let Ok(explicit_value) = scale_fac(f.cur.p.w, f.sr_cur.p.p.w);
-        explicit_value
-      };
-      let ss_hor = i32::from(f.cur.p.layout != Rav1dPixelLayout::I444);
-      let in_cw = i32::wrapping_shr(i32::wrapping_add(f.cur.p.w, ss_hor), {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-        numeric_value
-      });
-      let out_cw = i32::wrapping_shr(i32::wrapping_add(f.sr_cur.p.p.w, ss_hor), {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(ss_hor);
-        numeric_value
-      });
-      *{
-        let [_, _explicit_part, ..] = &mut f.resize_step;
-        _explicit_part
-      } = {
-        let Ok(explicit_value) = scale_fac(in_cw, out_cw);
-        explicit_value
-      };
-      let Ok(upscale_x0) = get_upscale_x0(
-        f.cur.p.w,
-        f.sr_cur.p.p.w,
-        match f.resize_step {
-          [element, ..] => element,
-        },
-      );
-      *{
-        let [_explicit_part, ..] = &mut f.resize_start;
-        _explicit_part
-      } = upscale_x0;
-      *{
-        let [_, _explicit_part, ..] = &mut f.resize_start;
-        _explicit_part
-      } = {
-        let Ok(explicit_value) = get_upscale_x0(
-          in_cw,
-          out_cw,
-          match f.resize_step {
-            [_, element, ..] => element,
-          },
-        );
-        explicit_value
-      };
+      configure_picture_scaling(f)?;
     }
-    ::core::option::Option::None => {}
   }
 
   match ::core::primitive::bool::then_some(c.fc.len() == 1, ()) {
     ::core::option::Option::Some(()) => match ::core::primitive::bool::then_some(
-      frame_hdr_2.show_frame != 0 || c.output_invisible_frames,
+      show_frame != 0
+        || c.frame_visibility == crate::src::internal::FrameVisibilityPolicy::IncludeInvisible,
       (),
     ) {
       ::core::option::Option::Some(()) => {
@@ -13020,545 +10879,14 @@ pub fn rav1d_submit_frame(c: &Rav1dContext, state: &mut Rav1dState) -> Rav1dResu
     }
   }
 
-  f.w4 = i32::wrapping_shr(
-    i32::wrapping_add(
-      match frame_hdr_2.size.width {
-        [element, ..] => element,
-      },
-      3,
-    ),
-    2_u32,
-  );
-  f.h4 = i32::wrapping_shr(i32::wrapping_add(frame_hdr_2.size.height, 3), 2_u32);
-  f.bw = i32::wrapping_shl(
-    i32::wrapping_shr(
-      i32::wrapping_add(
-        match frame_hdr_2.size.width {
-          [element, ..] => element,
-        },
-        7,
-      ),
-      3_u32,
-    ),
-    1_u32,
-  );
-  f.bh = i32::wrapping_shl(
-    i32::wrapping_shr(i32::wrapping_add(frame_hdr_2.size.height, 7), 3_u32),
-    1_u32,
-  );
-  f.sb128w = i32::wrapping_shr(i32::wrapping_add(f.bw, 31), 5_u32);
-  f.sb128h = i32::wrapping_shr(i32::wrapping_add(f.bh, 31), 5_u32);
-  let Ok(sb128) = console_core_number_conversion::wrapped::<_, i32>(seq_hdr_2.sb128);
-  f.sb_shift = i32::wrapping_add(4, sb128);
-  let Ok(seq_hdr_2_sb128) = console_core_number_conversion::wrapped::<_, u32>(seq_hdr_2.sb128);
-  f.sb_step = i32::wrapping_shl(16, seq_hdr_2_sb128);
-  f.sbh = i32::wrapping_shr(i32::wrapping_sub(i32::wrapping_add(f.bh, f.sb_step), 1), {
-    let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(f.sb_shift);
-    numeric_value
-  });
-  let padded_width = f.bw.wrapping_add(31) & !31;
-  let checked_value_2 = u32::try_from(padded_width).map_err(|_negative_stride| EINVAL)?;
-  f.b4_stride = checked_value_2;
-  let Ok(f_bpc) = console_core_number_conversion::wrapped::<_, u32>(f.cur.p.bpc);
-  f.bitdepth_max = i32::wrapping_sub(i32::wrapping_shl(1, f_bpc), 1);
-  fc.task_thread.error.store(0, Ordering::Relaxed);
-  let uses_2pass = i32::from(c.fc.len() > 1);
-  let cols = frame_hdr_2.tiling.cols;
-  let rows = frame_hdr_2.tiling.rows;
-  fc.task_thread.task_counter.store(
-    i32::wrapping_shl(
-      i32::wrapping_add(
-        i32::wrapping_mul(
-          {
-            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(cols);
-            numeric_value
-          },
-          {
-            let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, i32>(rows);
-            numeric_value
-          },
-        ),
-        f.sbh,
-      ),
-      {
-        let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(uses_2pass);
-        numeric_value
-      },
-    ),
-    Ordering::SeqCst,
-  );
+  let parallelism = initialize_submission_geometry(c, fc, f)?;
+  initialize_reference_motion(f, &state.refs, &ref_coded_width, &parallelism)?;
+  initialize_segment_maps(f, &state.refs, &ref_coded_width, &parallelism)?;
+  let submitted_header = f.frame_hdr()?;
+  let refresh_frame_flags = submitted_header.refresh_frame_flags;
+  publish_reference_frames(fc, f, &mut state.refs, &mut state.cdf)?;
 
-  match ::core::primitive::bool::then_some(
-    frame_hdr_2.frame_type.is_inter_or_switch() || frame_hdr_2.allow_intrabc,
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      let superblock_rows = u64::try_from(f.sb128h).map_err(|_negative_height| EINVAL)?;
-      let mvs_sz = superblock_rows
-        .wrapping_mul(16)
-        .wrapping_mul(u64::from(f.b4_stride.wrapping_shr(1)));
-      let mut mvs = crate::src::disjoint_mut::dm_arc_try_new(mvs_sz, Default::default())?;
-      let motion_buffer = std::sync::Arc::get_mut(&mut mvs.inner).ok_or(EGeneric)?;
-      motion_buffer.configure_parallelism(
-        c.tc.len(),
-        ({
-          let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cols);
-          numeric_value
-        })
-        .wrapping_mul({
-          let Ok(numeric_value) = console_core_number_conversion::wrapped_index(rows);
-          numeric_value
-        }),
-      );
-      f.mvs = Some(mvs);
+  drop(frame_guard);
 
-      match ::core::primitive::bool::then_some(!frame_hdr_2.allow_intrabc, ()) {
-        ::core::option::Option::Some(()) => {
-          for i in 0..7 {
-            let Ok(frame_offset) = console_core_number_conversion::wrapped::<_, u32>(
-              (*match <[_]>::get(&f.refp, i) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              })
-              .p
-              .frame_hdr
-              .as_ref()
-              .ok_or(EINVAL)?
-              .frame_offset,
-            );
-            *match <[_]>::get_mut(&mut f.refpoc, i) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            } = frame_offset;
-          }
-        }
-        ::core::option::Option::None => {
-          f.refpoc.fill(0);
-        }
-      }
-
-      match ::core::primitive::bool::then_some(frame_hdr_2.use_ref_frame_mvs != 0, ()) {
-        ::core::option::Option::Some(()) => {
-          for i in 0..7 {
-            let Ok(refidx) = console_core_number_conversion::wrapped_index(*match <[_]>::get(
-              &frame_hdr_2.refidx,
-              i,
-            ) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            });
-            let ref_w = i32::wrapping_shl(
-              i32::wrapping_shr(
-                i32::wrapping_add(
-                  *match <[_]>::get(&ref_coded_width, i) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => {
-                      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                    }
-                  },
-                  7,
-                ),
-                3_u32,
-              ),
-              1_u32,
-            );
-            let ref_h = i32::wrapping_shl(
-              i32::wrapping_shr(
-                i32::wrapping_add(
-                  (*match <[_]>::get(&f.refp, i) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => {
-                      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                    }
-                  })
-                  .p
-                  .p
-                  .h,
-                  7,
-                ),
-                3_u32,
-              ),
-              1_u32,
-            );
-
-            match ::core::primitive::bool::then_some(ref_w == f.bw && ref_h == f.bh, ()) {
-              ::core::option::Option::Some(()) => {
-                *match <[_]>::get_mut(&mut f.ref_mvs, i) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                } = (*match <[_]>::get(&state.refs, refidx) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                })
-                .refmvs
-                .clone();
-              }
-              ::core::option::Option::None => {
-                *match <[_]>::get_mut(&mut f.ref_mvs, i) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                } = None;
-              }
-            }
-
-            *match <[_]>::get_mut(&mut f.refrefpoc, i) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            } = (*match <[_]>::get(&state.refs, refidx) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .refpoc;
-          }
-        }
-        ::core::option::Option::None => {
-          f.ref_mvs.fill_with(Default::default);
-        }
-      }
-    }
-    ::core::option::Option::None => {
-      f.mvs = None;
-      f.ref_mvs.fill_with(Default::default);
-    }
-  }
-
-  match ::core::primitive::bool::then_some(frame_hdr_2.segmentation.enabled != 0, ()) {
-    ::core::option::Option::Some(()) => {
-      f.prev_segmap = None;
-
-      match ::core::primitive::bool::then_some(
-        frame_hdr_2.segmentation.temporal != 0 || frame_hdr_2.segmentation.update_map == 0,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let Ok(pri_ref) =
-            console_core_number_conversion::wrapped_index(frame_hdr_2.primary_ref_frame);
-          assert!(
-            pri_ref
-              != ({
-                let Ok(numeric_value) =
-                  console_core_number_conversion::wrapped_index(RAV1D_PRIMARY_REF_NONE);
-                numeric_value
-              })
-          );
-          let ref_w = i32::wrapping_shl(
-            i32::wrapping_shr(
-              i32::wrapping_add(
-                *match <[_]>::get(&ref_coded_width, pri_ref) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                },
-                7,
-              ),
-              3_u32,
-            ),
-            1_u32,
-          );
-          let ref_h = i32::wrapping_shl(
-            i32::wrapping_shr(
-              i32::wrapping_add(
-                (*match <[_]>::get(&f.refp, pri_ref) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                })
-                .p
-                .p
-                .h,
-                7,
-              ),
-              3_u32,
-            ),
-            1_u32,
-          );
-
-          match ::core::primitive::bool::then_some(ref_w == f.bw && ref_h == f.bh, ()) {
-            ::core::option::Option::Some(()) => {
-              let Ok(frame_hdr_2_refidx) = console_core_number_conversion::wrapped_index(
-                *match <[_]>::get(&frame_hdr_2.refidx, pri_ref) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                },
-              );
-              f.prev_segmap = (*match <[_]>::get(&state.refs, frame_hdr_2_refidx) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              })
-              .segmap
-              .clone();
-            }
-            ::core::option::Option::None => {}
-          }
-        }
-        ::core::option::Option::None => {}
-      }
-
-      f.cur_segmap = Some(
-        match (
-          frame_hdr_2.segmentation.update_map != 0,
-          f.prev_segmap.as_mut(),
-        ) {
-          (true, _) | (false, None) => {
-            let superblock_rows = u64::try_from(f.sb128h).map_err(|_negative_height| EINVAL)?;
-            let segmap_size = u64::from(f.b4_stride)
-              .wrapping_mul(32)
-              .wrapping_mul(superblock_rows);
-            let mut segmap =
-              crate::src::disjoint_mut::dm_arc_try_new(segmap_size, Default::default())?;
-            let segment_buffer = std::sync::Arc::get_mut(&mut segmap.inner).ok_or(EGeneric)?;
-            segment_buffer.configure_parallelism(
-              c.tc.len(),
-              ({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(cols);
-                numeric_value
-              })
-              .wrapping_mul({
-                let Ok(numeric_value) = console_core_number_conversion::wrapped_index(rows);
-                numeric_value
-              }),
-            );
-            segmap
-          }
-          (_, Some(prev_segmap)) => prev_segmap.clone(),
-        },
-      );
-    }
-    ::core::option::Option::None => {
-      f.cur_segmap = None;
-      f.prev_segmap = None;
-    }
-  }
-
-  let Ok(refresh_frame_flags) =
-    console_core_number_conversion::wrapped::<_, u32>(frame_hdr_2.refresh_frame_flags);
-
-  for i in 0..8 {
-    match ::core::primitive::bool::then_some(
-      refresh_frame_flags
-        & u32::wrapping_shl(1, {
-          let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(i);
-          numeric_value
-        })
-        != 0,
-      (),
-    ) {
-      ::core::option::Option::Some(()) => {
-        match ::core::primitive::bool::then_some(
-          (*match <[_]>::get(&state.refs, i) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          })
-          .p
-          .p
-          .frame_hdr
-          .is_some(),
-          (),
-        ) {
-          ::core::option::Option::Some(()) => {
-            let _ = mem::take(
-              &mut (*match <[_]>::get_mut(&mut state.refs, i) {
-                ::core::option::Option::Some(indexed_value) => indexed_value,
-                ::core::option::Option::None => {
-                  return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                }
-              })
-              .p,
-            );
-          }
-          ::core::option::Option::None => {}
-        }
-
-        (*match <[_]>::get_mut(&mut state.refs, i) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-          }
-        })
-        .p = f.sr_cur.clone();
-
-        match ::core::primitive::bool::then_some(frame_hdr_2.refresh_context != 0, ()) {
-          ::core::option::Option::Some(()) => {
-            *match <[_]>::get_mut(&mut state.cdf, i) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            } = f.out_cdf.clone();
-          }
-          ::core::option::Option::None => {
-            *match <[_]>::get_mut(&mut state.cdf, i) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            } = fc.in_cdf.try_read().unwrap().clone();
-          }
-        }
-
-        (*match <[_]>::get_mut(&mut state.refs, i) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-          }
-        })
-        .segmap = f.cur_segmap.clone();
-        let _ = mem::take(
-          &mut (*match <[_]>::get_mut(&mut state.refs, i) {
-            ::core::option::Option::Some(indexed_value) => indexed_value,
-            ::core::option::Option::None => {
-              return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-            }
-          })
-          .refmvs,
-        );
-
-        match ::core::primitive::bool::then_some(!frame_hdr_2.allow_intrabc, ()) {
-          ::core::option::Option::Some(()) => {
-            (*match <[_]>::get_mut(&mut state.refs, i) {
-              ::core::option::Option::Some(indexed_value) => indexed_value,
-              ::core::option::Option::None => {
-                return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-              }
-            })
-            .refmvs = f.mvs.clone();
-          }
-          ::core::option::Option::None => {}
-        }
-
-        (*match <[_]>::get_mut(&mut state.refs, i) {
-          ::core::option::Option::Some(indexed_value) => indexed_value,
-          ::core::option::Option::None => {
-            return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-          }
-        })
-        .refpoc = f.refpoc;
-      }
-      ::core::option::Option::None => {}
-    }
-  }
-
-  drop(f);
-
-  match ::core::primitive::bool::then_some(c.fc.len() == 1, ()) {
-    ::core::option::Option::Some(()) => {
-      let res_4 = rav1d_decode_frame(c, &fc);
-
-      match res_4 {
-        ::core::result::Result::Err(_) => {
-          let _ = mem::take(&mut state.out);
-
-          for i in 0..8 {
-            match ::core::primitive::bool::then_some(
-              refresh_frame_flags
-                & u32::wrapping_shl(1, {
-                  let Ok(numeric_value) = console_core_number_conversion::wrapped::<_, u32>(i);
-                  numeric_value
-                })
-                != 0,
-              (),
-            ) {
-              ::core::option::Option::Some(()) => {
-                match ::core::primitive::bool::then_some(
-                  (*match <[_]>::get(&state.refs, i) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => {
-                      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                    }
-                  })
-                  .p
-                  .p
-                  .frame_hdr
-                  .is_some(),
-                  (),
-                ) {
-                  ::core::option::Option::Some(()) => {
-                    let _ = mem::take(
-                      &mut (*match <[_]>::get_mut(&mut state.refs, i) {
-                        ::core::option::Option::Some(indexed_value) => indexed_value,
-                        ::core::option::Option::None => {
-                          return ::core::result::Result::Err(
-                            crate::src::error::Rav1dError::EINVAL,
-                          );
-                        }
-                      })
-                      .p,
-                    );
-                  }
-                  ::core::option::Option::None => {}
-                }
-
-                let _ = mem::take(&mut *match <[_]>::get_mut(&mut state.cdf, i) {
-                  ::core::option::Option::Some(indexed_value) => indexed_value,
-                  ::core::option::Option::None => {
-                    return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                  }
-                });
-                let _ = mem::take(
-                  &mut (*match <[_]>::get_mut(&mut state.refs, i) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => {
-                      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                    }
-                  })
-                  .segmap,
-                );
-                let _ = mem::take(
-                  &mut (*match <[_]>::get_mut(&mut state.refs, i) {
-                    ::core::option::Option::Some(indexed_value) => indexed_value,
-                    ::core::option::Option::None => {
-                      return ::core::result::Result::Err(crate::src::error::Rav1dError::EINVAL);
-                    }
-                  })
-                  .refmvs,
-                );
-              }
-              ::core::option::Option::None => {}
-            }
-          }
-
-          let mut f_3 = fc.data.try_write().unwrap();
-          let Ok(()) = on_error(
-            fc,
-            &mut f_3,
-            &mut state.out,
-            &mut state.cached_error_props,
-            &state.in_0.m,
-          );
-          return res_4;
-        }
-        ::core::result::Result::Ok(_) => {}
-      }
-    }
-    ::core::option::Option::None => match rav1d_task_frame_init(c, fc) {
-      Ok(()) => {}
-      Err(error) => return rav1d_decode_frame_exit(c, fc, Err(error)),
-    },
-  }
-
-  Ok(())
+  launch_submitted_frame(c, fc, state, refresh_frame_flags)
 }

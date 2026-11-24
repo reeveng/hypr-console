@@ -34,24 +34,27 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_process_rectangle(
         None
     };
 
-    if let Some((fill_d, stroke_d)) = rough_paths {
-        let _ = write!(
-            out,
-            r#"<g class="basic label-container" style="{}"><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"#,
-            escape_attr(common.rough_group_style),
-            escape_attr(&fill_d),
-            escape_attr(common.fill_color),
-            fmt_display(HAND_DRAWN_FILL_WEIGHT as f64),
-            escape_attr(&stroke_d),
-            escape_attr(common.stroke_color),
-            common.stroke_width,
-            escape_attr(common.stroke_dasharray),
-        );
-        return super::super::emission::FlowchartNodeShapeEmissionReceipt::hand_drawn_process();
+    match rough_paths {
+        Some((fill_d, stroke_d)) => {
+            let _ = write!(
+                out,
+                r#"<g class="basic label-container" style="{}"><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"#,
+                escape_attr(common.rough_group_style),
+                escape_attr(&fill_d),
+                escape_attr(common.fill_color),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(HAND_DRAWN_FILL_WEIGHT)),
+                escape_attr(&stroke_d),
+                escape_attr(common.stroke_color),
+                common.stroke_width,
+                escape_attr(common.stroke_dasharray),
+            );
+            return super::super::emission::FlowchartNodeShapeEmissionReceipt::hand_drawn_process();
+        },
+        ::core::option::Option::None => {},
     }
 
-    // Keep Mermaid's square default while preserving explicit Neo configuration
-    // and the independently admitted typed/source geometry channels.
+
+
     let radius = common
         .typed_corner_radius
         .or(common.configured_corner_radius);

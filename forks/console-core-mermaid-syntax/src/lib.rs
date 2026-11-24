@@ -148,11 +148,13 @@ pub use presentation::{
 use merman_model::MAX_DIAGRAM_NESTING_DEPTH;
 
 /// Returns Mermaid theme names supported by the pinned baseline.
+#[must_use]
 pub fn supported_themes() -> &'static [&'static str] {
     MermaidThemeId::NAMES
 }
 
 /// Returns the typed Mermaid theme catalog for the pinned baseline.
+#[must_use]
 pub fn supported_theme_ids() -> &'static [MermaidThemeId] {
     MermaidThemeId::ALL
 }
@@ -162,6 +164,7 @@ pub fn supported_theme_ids() -> &'static [MermaidThemeId] {
 /// Aliases share their catalog-owned metadata name. This does not promise an output adapter;
 /// use the complete [`diagram_family_capabilities`] catalog to distinguish known identities
 /// from available implementations.
+#[must_use]
 pub fn supported_diagrams() -> &'static [&'static str] {
     family::supported_diagram_metadata_ids()
 }
@@ -170,6 +173,7 @@ pub fn supported_diagrams() -> &'static [&'static str] {
 ///
 /// Identity, detector, header, and configuration facts are retained independently of the parser,
 /// editor, and typed render-model callbacks compiled into this build.
+#[must_use]
 pub fn diagram_family_capabilities() -> &'static [DiagramFamilyCapability] {
     family::diagram_family_capabilities()
 }
@@ -177,6 +181,7 @@ pub fn diagram_family_capabilities() -> &'static [DiagramFamilyCapability] {
 /// Returns each compiled concrete built-in typed render-model family exactly once.
 ///
 /// This is independent of output adapters and deduplicates aliases sharing a typed model.
+#[must_use]
 pub fn built_in_typed_render_families() -> &'static [BuiltInTypedRenderFamily] {
     family::built_in_typed_render_families()
 }
@@ -185,6 +190,7 @@ pub fn built_in_typed_render_families() -> &'static [BuiltInTypedRenderFamily] {
 ///
 /// A header identifies a known family; actionable suggestions must also check that its semantic
 /// parser is available in [`diagram_family_capabilities`].
+#[must_use]
 pub fn diagram_header_facts() -> &'static [DiagramHeaderFact] {
     family::diagram_header_facts()
 }

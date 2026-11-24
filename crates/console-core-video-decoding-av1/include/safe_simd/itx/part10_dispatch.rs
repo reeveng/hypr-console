@@ -191,20 +191,9 @@ struct TransformDestination {
 }
 
 #[cfg(target_arch = "x86_64")]
-type DirectKernel<P, C> = fn(
-  Desktop64, &mut [P], u64, &mut [C], i32,
-);
-
-#[cfg(target_arch = "x86_64")]
 type CheckedKernel<P, C> = fn(
   Desktop64, &mut [P], u64, &mut [C], i32,
 ) -> Rav1dResult;
-
-#[cfg(target_arch = "x86_64")]
-enum SimdKernel<P, C> {
-  Direct(DirectKernel<P, C>),
-  Checked(CheckedKernel<P, C>),
-}
 
 #[cfg(target_arch = "x86_64")]
 #[derive(Debug, PartialEq, Eq)]
@@ -216,7 +205,7 @@ pub(crate) enum TransformDispatch {
 #[cfg(target_arch = "x86_64")]
 fn apply_simd_kernel<P, C>(
   token: Desktop64,
-  kernel: SimdKernel<P, C>,
+  kernel: CheckedKernel<P, C>,
   dst: &mut [P],
   window: TransformDestination,
   coeff: &mut [C],
@@ -226,14 +215,7 @@ fn apply_simd_kernel<P, C>(
   let Ok(native_first) = console_core_number_conversion::index(window.first);
   let pixels = dst.get_mut(native_first..).ok_or(Rav1dError::EINVAL)?;
 
-  match kernel {
-    SimdKernel::Direct(transform) => {
-      transform(token, pixels, stride, coeff, bitdepth_max);
-    }
-    SimdKernel::Checked(transform) => {
-      transform(token, pixels, stride, coeff, bitdepth_max)?;
-    }
-  }
+  kernel(token, pixels, stride, coeff, bitdepth_max)?;
 
   Ok(TransformDispatch::Applied)
 }
@@ -241,52 +223,52 @@ fn apply_simd_kernel<P, C>(
 #[cfg(target_arch = "x86_64")]
 fn select_8bpc_kernel(
   plan: SimdTransform,
-) -> Result<Option<SimdKernel<u8, i16>>, console_core_never::Never> {
+) -> Result<Option<CheckedKernel<u8, i16>>, console_core_never::Never> {
   use TxfmSize::*;
 
-  let kernel = match (plan.size, plan.kind) {
-    (S4x4, WHT_WHT) => SimdKernel::Checked(inv_txfm_add_wht_wht_4x4_8bpc_avx2_inner),
-    (S4x4, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_4x4_8bpc_avx2_inner),
-    (R4x8, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_4x8_8bpc_avx2_inner),
-    (R8x4, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_8x4_8bpc_avx2_inner),
-    (R4x16, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_4x16_8bpc_avx2_inner),
-    (R16x4, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_16x4_8bpc_avx2_inner),
-    (S8x8, DCT_DCT) => SimdKernel::Direct(inv_txfm_add_dct_dct_8x8_8bpc_avx2_inner),
-    (R8x16, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_8x16_8bpc_avx2_inner),
-    (R16x8, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_16x8_8bpc_avx2_inner),
-    (R8x32, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_8x32_8bpc_avx2_inner),
-    (R32x8, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_32x8_8bpc_avx2_inner),
-    (S16x16, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_16x16_8bpc_avx2_inner),
-    (R16x32, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_16x32_8bpc_avx2_inner),
-    (R32x16, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_32x16_8bpc_avx2_inner),
-    (R16x64, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_16x64_8bpc_avx2_inner),
-    (R64x16, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_64x16_8bpc_avx2_inner),
-    (S32x32, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_32x32_8bpc_avx2_inner),
-    (R32x64, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_32x64_8bpc_avx2_inner),
-    (R64x32, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_64x32_8bpc_avx2_inner),
-    (S64x64, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_64x64_8bpc_avx2_inner),
-    (S4x4, IDTX) => SimdKernel::Direct(inv_identity_add_4x4_8bpc_avx2),
-    (S8x8, IDTX) => SimdKernel::Direct(inv_identity_add_8x8_8bpc_avx2),
-    (S16x16, IDTX) => SimdKernel::Direct(inv_identity_add_16x16_8bpc_avx2),
-    (R8x32, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_8x32_8bpc_avx2_inner),
-    (R32x8, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_32x8_8bpc_avx2_inner),
-    (R16x32, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_16x32_8bpc_avx2_inner),
-    (R32x16, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_32x16_8bpc_avx2_inner),
-    (S32x32, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_32x32_8bpc_avx2_inner),
-    (S16x16, ADST_DCT) => SimdKernel::Checked(inv_txfm_add_dct_adst_16x16_8bpc_avx2_inner),
-    (S16x16, DCT_ADST) => SimdKernel::Checked(inv_txfm_add_adst_dct_16x16_8bpc_avx2_inner),
-    (S16x16, ADST_ADST) => SimdKernel::Checked(inv_txfm_add_adst_adst_16x16_8bpc_avx2_inner),
-    (S16x16, FLIPADST_DCT) => SimdKernel::Checked(inv_txfm_add_dct_flipadst_16x16_8bpc_avx2_inner),
-    (S16x16, DCT_FLIPADST) => SimdKernel::Checked(inv_txfm_add_flipadst_dct_16x16_8bpc_avx2_inner),
-    (S16x16, FLIPADST_FLIPADST) => SimdKernel::Checked(inv_txfm_add_flipadst_flipadst_16x16_8bpc_avx2_inner),
-    (S16x16, ADST_FLIPADST) => SimdKernel::Checked(inv_txfm_add_flipadst_adst_16x16_8bpc_avx2_inner),
-    (S16x16, FLIPADST_ADST) => SimdKernel::Checked(inv_txfm_add_adst_flipadst_16x16_8bpc_avx2_inner),
-    (S16x16, H_DCT) => SimdKernel::Checked(inv_txfm_add_dct_identity_16x16_8bpc_avx2_inner),
-    (S16x16, V_DCT) => SimdKernel::Checked(inv_txfm_add_identity_dct_16x16_8bpc_avx2_inner),
-    (S16x16, H_ADST) => SimdKernel::Checked(inv_txfm_add_adst_identity_16x16_8bpc_avx2_inner),
-    (S16x16, V_ADST) => SimdKernel::Checked(inv_txfm_add_identity_adst_16x16_8bpc_avx2_inner),
-    (S16x16, H_FLIPADST) => SimdKernel::Checked(inv_txfm_add_flipadst_identity_16x16_8bpc_avx2_inner),
-    (S16x16, V_FLIPADST) => SimdKernel::Checked(inv_txfm_add_identity_flipadst_16x16_8bpc_avx2_inner),
+  let kernel: CheckedKernel<u8, i16> = match (plan.size, plan.kind) {
+    (S4x4, WHT_WHT) => inv_txfm_add_wht_wht_4x4_8bpc_avx2_inner,
+    (S4x4, DCT_DCT) => inv_txfm_add_dct_dct_4x4_8bpc_avx2_inner,
+    (R4x8, DCT_DCT) => inv_txfm_add_dct_dct_4x8_8bpc_avx2_inner,
+    (R8x4, DCT_DCT) => inv_txfm_add_dct_dct_8x4_8bpc_avx2_inner,
+    (R4x16, DCT_DCT) => inv_txfm_add_dct_dct_4x16_8bpc_avx2_inner,
+    (R16x4, DCT_DCT) => inv_txfm_add_dct_dct_16x4_8bpc_avx2_inner,
+    (S8x8, DCT_DCT) => inv_txfm_add_dct_dct_8x8_8bpc_avx2_inner,
+    (R8x16, DCT_DCT) => inv_txfm_add_dct_dct_8x16_8bpc_avx2_inner,
+    (R16x8, DCT_DCT) => inv_txfm_add_dct_dct_16x8_8bpc_avx2_inner,
+    (R8x32, DCT_DCT) => inv_txfm_add_dct_dct_8x32_8bpc_avx2_inner,
+    (R32x8, DCT_DCT) => inv_txfm_add_dct_dct_32x8_8bpc_avx2_inner,
+    (S16x16, DCT_DCT) => inv_txfm_add_dct_dct_16x16_8bpc_avx2_inner,
+    (R16x32, DCT_DCT) => inv_txfm_add_dct_dct_16x32_8bpc_avx2_inner,
+    (R32x16, DCT_DCT) => inv_txfm_add_dct_dct_32x16_8bpc_avx2_inner,
+    (R16x64, DCT_DCT) => inv_txfm_add_dct_dct_16x64_8bpc_avx2_inner,
+    (R64x16, DCT_DCT) => inv_txfm_add_dct_dct_64x16_8bpc_avx2_inner,
+    (S32x32, DCT_DCT) => inv_txfm_add_dct_dct_32x32_8bpc_avx2_inner,
+    (R32x64, DCT_DCT) => inv_txfm_add_dct_dct_32x64_8bpc_avx2_inner,
+    (R64x32, DCT_DCT) => inv_txfm_add_dct_dct_64x32_8bpc_avx2_inner,
+    (S64x64, DCT_DCT) => inv_txfm_add_dct_dct_64x64_8bpc_avx2_inner,
+    (S4x4, IDTX) => inv_identity_add_4x4_8bpc_avx2,
+    (S8x8, IDTX) => inv_identity_add_8x8_8bpc_avx2,
+    (S16x16, IDTX) => inv_identity_add_16x16_8bpc_avx2,
+    (R8x32, IDTX) => inv_txfm_add_identity_identity_8x32_8bpc_avx2_inner,
+    (R32x8, IDTX) => inv_txfm_add_identity_identity_32x8_8bpc_avx2_inner,
+    (R16x32, IDTX) => inv_txfm_add_identity_identity_16x32_8bpc_avx2_inner,
+    (R32x16, IDTX) => inv_txfm_add_identity_identity_32x16_8bpc_avx2_inner,
+    (S32x32, IDTX) => inv_txfm_add_identity_identity_32x32_8bpc_avx2_inner,
+    (S16x16, ADST_DCT) => inv_txfm_add_dct_adst_16x16_8bpc_avx2_inner,
+    (S16x16, DCT_ADST) => inv_txfm_add_adst_dct_16x16_8bpc_avx2_inner,
+    (S16x16, ADST_ADST) => inv_txfm_add_adst_adst_16x16_8bpc_avx2_inner,
+    (S16x16, FLIPADST_DCT) => inv_txfm_add_dct_flipadst_16x16_8bpc_avx2_inner,
+    (S16x16, DCT_FLIPADST) => inv_txfm_add_flipadst_dct_16x16_8bpc_avx2_inner,
+    (S16x16, FLIPADST_FLIPADST) => inv_txfm_add_flipadst_flipadst_16x16_8bpc_avx2_inner,
+    (S16x16, ADST_FLIPADST) => inv_txfm_add_flipadst_adst_16x16_8bpc_avx2_inner,
+    (S16x16, FLIPADST_ADST) => inv_txfm_add_adst_flipadst_16x16_8bpc_avx2_inner,
+    (S16x16, H_DCT) => inv_txfm_add_dct_identity_16x16_8bpc_avx2_inner,
+    (S16x16, V_DCT) => inv_txfm_add_identity_dct_16x16_8bpc_avx2_inner,
+    (S16x16, H_ADST) => inv_txfm_add_adst_identity_16x16_8bpc_avx2_inner,
+    (S16x16, V_ADST) => inv_txfm_add_identity_adst_16x16_8bpc_avx2_inner,
+    (S16x16, H_FLIPADST) => inv_txfm_add_flipadst_identity_16x16_8bpc_avx2_inner,
+    (S16x16, V_FLIPADST) => inv_txfm_add_identity_flipadst_16x16_8bpc_avx2_inner,
     _ => return Ok(None),
   };
   Ok(Some(kernel))
@@ -295,44 +277,44 @@ fn select_8bpc_kernel(
 #[cfg(target_arch = "x86_64")]
 fn select_16bpc_kernel(
   plan: SimdTransform,
-) -> Result<Option<SimdKernel<u16, i32>>, console_core_never::Never> {
+) -> Result<Option<CheckedKernel<u16, i32>>, console_core_never::Never> {
   use TxfmSize::*;
 
-  let kernel = match (plan.size, plan.kind) {
-    (S4x4, WHT_WHT) => SimdKernel::Checked(inv_txfm_add_wht_wht_4x4_16bpc_avx2_inner),
-    (S4x4, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_4x4_16bpc_avx2_inner),
-    (R4x8, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_4x8_16bpc_avx2_inner),
-    (R8x4, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_8x4_16bpc_avx2_inner),
-    (R4x16, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_4x16_16bpc_avx2_inner),
-    (R16x4, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_16x4_16bpc_avx2_inner),
-    (S8x8, DCT_DCT) => SimdKernel::Direct(inv_txfm_add_dct_dct_8x8_16bpc_avx2_inner),
-    (R8x16, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_8x16_16bpc_avx2_inner),
-    (R16x8, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_16x8_16bpc_avx2_inner),
-    (R8x32, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_8x32_16bpc_avx2_inner),
-    (R32x8, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_32x8_16bpc_avx2_inner),
-    (S16x16, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_16x16_16bpc_avx2_inner),
-    (R16x32, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_16x32_16bpc_avx2_inner),
-    (R32x16, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_32x16_16bpc_avx2_inner),
-    (R16x64, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_16x64_16bpc_avx2_inner),
-    (R64x16, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_64x16_16bpc_avx2_inner),
-    (S32x32, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_32x32_16bpc_avx2_inner),
-    (R32x64, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_32x64_16bpc_avx2_inner),
-    (R64x32, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_64x32_16bpc_avx2_inner),
-    (S64x64, DCT_DCT) => SimdKernel::Checked(inv_txfm_add_dct_dct_64x64_16bpc_avx2_inner),
-    (S4x4, IDTX) => SimdKernel::Checked(inv_identity_add_4x4_16bpc_avx2),
-    (R4x8, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_4x8_16bpc_avx2_inner),
-    (R8x4, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_8x4_16bpc_avx2_inner),
-    (R4x16, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_4x16_16bpc_avx2_inner),
-    (R16x4, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_16x4_16bpc_avx2_inner),
-    (S8x8, IDTX) => SimdKernel::Checked(inv_identity_add_8x8_16bpc_avx2),
-    (R8x16, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_8x16_16bpc_avx2_inner),
-    (R16x8, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_16x8_16bpc_avx2_inner),
-    (R8x32, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_8x32_16bpc_avx2_inner),
-    (R32x8, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_32x8_16bpc_avx2_inner),
-    (S16x16, IDTX) => SimdKernel::Checked(inv_identity_add_16x16_16bpc_avx2),
-    (R16x32, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_16x32_16bpc_avx2_inner),
-    (R32x16, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_32x16_16bpc_avx2_inner),
-    (S32x32, IDTX) => SimdKernel::Checked(inv_txfm_add_identity_identity_32x32_16bpc_avx2_inner),
+  let kernel: CheckedKernel<u16, i32> = match (plan.size, plan.kind) {
+    (S4x4, WHT_WHT) => inv_txfm_add_wht_wht_4x4_16bpc_avx2_inner,
+    (S4x4, DCT_DCT) => inv_txfm_add_dct_dct_4x4_16bpc_avx2_inner,
+    (R4x8, DCT_DCT) => inv_txfm_add_dct_dct_4x8_16bpc_avx2_inner,
+    (R8x4, DCT_DCT) => inv_txfm_add_dct_dct_8x4_16bpc_avx2_inner,
+    (R4x16, DCT_DCT) => inv_txfm_add_dct_dct_4x16_16bpc_avx2_inner,
+    (R16x4, DCT_DCT) => inv_txfm_add_dct_dct_16x4_16bpc_avx2_inner,
+    (S8x8, DCT_DCT) => inv_txfm_add_dct_dct_8x8_16bpc_avx2_inner,
+    (R8x16, DCT_DCT) => inv_txfm_add_dct_dct_8x16_16bpc_avx2_inner,
+    (R16x8, DCT_DCT) => inv_txfm_add_dct_dct_16x8_16bpc_avx2_inner,
+    (R8x32, DCT_DCT) => inv_txfm_add_dct_dct_8x32_16bpc_avx2_inner,
+    (R32x8, DCT_DCT) => inv_txfm_add_dct_dct_32x8_16bpc_avx2_inner,
+    (S16x16, DCT_DCT) => inv_txfm_add_dct_dct_16x16_16bpc_avx2_inner,
+    (R16x32, DCT_DCT) => inv_txfm_add_dct_dct_16x32_16bpc_avx2_inner,
+    (R32x16, DCT_DCT) => inv_txfm_add_dct_dct_32x16_16bpc_avx2_inner,
+    (R16x64, DCT_DCT) => inv_txfm_add_dct_dct_16x64_16bpc_avx2_inner,
+    (R64x16, DCT_DCT) => inv_txfm_add_dct_dct_64x16_16bpc_avx2_inner,
+    (S32x32, DCT_DCT) => inv_txfm_add_dct_dct_32x32_16bpc_avx2_inner,
+    (R32x64, DCT_DCT) => inv_txfm_add_dct_dct_32x64_16bpc_avx2_inner,
+    (R64x32, DCT_DCT) => inv_txfm_add_dct_dct_64x32_16bpc_avx2_inner,
+    (S64x64, DCT_DCT) => inv_txfm_add_dct_dct_64x64_16bpc_avx2_inner,
+    (S4x4, IDTX) => inv_identity_add_4x4_16bpc_avx2,
+    (R4x8, IDTX) => inv_txfm_add_identity_identity_4x8_16bpc_avx2_inner,
+    (R8x4, IDTX) => inv_txfm_add_identity_identity_8x4_16bpc_avx2_inner,
+    (R4x16, IDTX) => inv_txfm_add_identity_identity_4x16_16bpc_avx2_inner,
+    (R16x4, IDTX) => inv_txfm_add_identity_identity_16x4_16bpc_avx2_inner,
+    (S8x8, IDTX) => inv_identity_add_8x8_16bpc_avx2,
+    (R8x16, IDTX) => inv_txfm_add_identity_identity_8x16_16bpc_avx2_inner,
+    (R16x8, IDTX) => inv_txfm_add_identity_identity_16x8_16bpc_avx2_inner,
+    (R8x32, IDTX) => inv_txfm_add_identity_identity_8x32_16bpc_avx2_inner,
+    (R32x8, IDTX) => inv_txfm_add_identity_identity_32x8_16bpc_avx2_inner,
+    (S16x16, IDTX) => inv_identity_add_16x16_16bpc_avx2,
+    (R16x32, IDTX) => inv_txfm_add_identity_identity_16x32_16bpc_avx2_inner,
+    (R32x16, IDTX) => inv_txfm_add_identity_identity_32x16_16bpc_avx2_inner,
+    (S32x32, IDTX) => inv_txfm_add_identity_identity_32x32_16bpc_avx2_inner,
     _ => return Ok(None),
   };
   Ok(Some(kernel))
@@ -485,15 +467,11 @@ pub(crate) fn itxfm_add_dispatch<BD: BitDepth>(
   };
 
   let Ok(extent) = size.extent();
-  let Ok(width) = console_core_number_conversion::index(extent.width);
-  let Ok(height) = console_core_number_conversion::index(extent.height);
+  let Ok(bounds) = extent.map(u64::from);
   let plan = SimdTransform { size, kind, end_of_block: eob };
   let bitdepth_max = bd.into_c();
   let coefficient_bytes = zerocopy::IntoBytes::as_mut_bytes(coeff);
-  let Ok(filtered) = dst.with_block_mut::<BD, _, _>(width, height, coefficient_bytes, |pixels, offset, step, coefficients_bytes| {
-    let Ok(first) = console_core_number_conversion::fixed_index(offset);
-    let Ok(byte_stride) = console_core_number_conversion::fixed_offset(step);
-
+  let guarded = dst.with_block_mut::<BD, _, _>(bounds, coefficient_bytes, |pixels, first, byte_stride, coefficients_bytes| {
     match BD::BPC {
       BPC::BPC8 => {
         let window = TransformDestination { first, byte_stride };
@@ -517,6 +495,7 @@ pub(crate) fn itxfm_add_dispatch<BD: BitDepth>(
       }
     }
   });
+  let filtered = guarded.and_then(core::convert::identity);
 
   Ok(match filtered {
     Ok(outcome) => outcome,

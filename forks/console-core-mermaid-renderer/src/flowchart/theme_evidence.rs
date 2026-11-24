@@ -27,6 +27,7 @@ enum FlowchartPaintOutcome {
 }
 
 impl FlowchartPaintOutcome {
+    #[must_use]
     fn value(&self) -> Option<&str> {
         match self {
             Self::Candidate { value, .. } => Some(value),
@@ -60,6 +61,7 @@ enum FlowchartPaddingOutcome {
 }
 
 impl FlowchartPaddingOutcome {
+    #[must_use]
     const fn value(&self) -> Option<super::FlowchartEdgeLabelPadding> {
         match self {
             Self::Candidate { value, .. } => Some(*value),
@@ -69,6 +71,7 @@ impl FlowchartPaddingOutcome {
 }
 
 impl FlowchartScalarOutcome {
+    #[must_use]
     const fn value(&self) -> Option<f32> {
         match self {
             Self::Candidate { value, .. } => Some(*value),
@@ -101,6 +104,7 @@ enum FlowchartTypographyOutcome {
 }
 
 impl FlowchartDasharrayOutcome {
+    #[must_use]
     fn value(&self) -> Option<&str> {
         match self {
             Self::Candidate { value, .. } => Some(value),
@@ -124,6 +128,7 @@ enum FlowchartEffectOutcome {
 }
 
 impl FlowchartEffectOutcome {
+    #[must_use]
     fn effect(&self) -> Option<&SvgShadowEffect> {
         match self {
             Self::Candidate { effect, .. } => Some(effect),
@@ -139,6 +144,7 @@ enum FlowchartOrdinalPaletteOutcome {
 }
 
 impl FlowchartOrdinalPaletteOutcome {
+    #[must_use]
     fn value(&self) -> Option<&str> {
         match self {
             Self::Candidate { value } => Some(value),
@@ -155,6 +161,7 @@ pub(crate) enum FlowchartSourceFacetStatus {
 }
 
 impl FlowchartSourceFacetStatus {
+    #[must_use]
     pub(crate) const fn from_parts(declared: bool, admitted: bool) -> Self {
         if admitted {
             Self::Admitted
@@ -165,14 +172,17 @@ impl FlowchartSourceFacetStatus {
         }
     }
 
+    #[must_use]
     const fn overrides_theme(self) -> bool {
         !matches!(self, Self::Absent)
     }
 
+    #[must_use]
     pub(crate) const fn is_absent(self) -> bool {
         matches!(self, Self::Absent)
     }
 
+    #[must_use]
     pub(crate) const fn merge(self, other: Self) -> Self {
         match (self, other) {
             (Self::Unverified, _) | (_, Self::Unverified) => Self::Unverified,
@@ -189,6 +199,7 @@ pub(crate) struct FlowchartFacetPrecedence {
 }
 
 impl FlowchartFacetPrecedence {
+    #[must_use]
     pub(crate) const fn new(
         source: FlowchartSourceFacetStatus,
         mermaid_config_overrides_typed: bool,
@@ -199,6 +210,7 @@ impl FlowchartFacetPrecedence {
         }
     }
 
+    #[must_use]
     const fn overrides_theme(self) -> bool {
         self.source.overrides_theme() || self.mermaid_config_overrides_typed
     }
@@ -211,6 +223,7 @@ pub(crate) struct FlowchartThemeFacetEmission {
 }
 
 impl FlowchartThemeFacetEmission {
+    #[must_use]
     pub(crate) const fn new(precedence: FlowchartFacetPrecedence, verified: bool) -> Self {
         Self {
             precedence,
@@ -218,6 +231,7 @@ impl FlowchartThemeFacetEmission {
         }
     }
 
+    #[must_use]
     const fn absent() -> Self {
         Self::new(
             FlowchartFacetPrecedence::new(FlowchartSourceFacetStatus::Absent, false),
@@ -236,6 +250,7 @@ pub(crate) struct FlowchartShapeFacetEmissionReceipt {
 }
 
 impl FlowchartShapeFacetEmissionReceipt {
+    #[must_use]
     pub(crate) const fn none() -> Self {
         Self {
             fill: false,
@@ -246,6 +261,7 @@ impl FlowchartShapeFacetEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(crate) const fn all() -> Self {
         Self {
             fill: true,
@@ -256,6 +272,7 @@ impl FlowchartShapeFacetEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(crate) const fn merge(self, other: Self) -> Self {
         Self {
             fill: self.fill || other.fill,
@@ -266,6 +283,7 @@ impl FlowchartShapeFacetEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(crate) fn verifies(self, property: &str) -> bool {
         match property {
             "fill" => self.fill,
@@ -368,6 +386,7 @@ pub(crate) struct FlowchartEdgeThemeStyle {
 }
 
 impl FlowchartEdgeThemeStyle {
+    #[must_use]
     pub(crate) fn label_effect(&self) -> Option<&SvgShadowEffect> {
         self.label
             .effect
@@ -375,6 +394,7 @@ impl FlowchartEdgeThemeStyle {
             .and_then(FlowchartEffectOutcome::effect)
     }
 
+    #[must_use]
     pub(crate) fn label_effect_is_cleared(&self) -> bool {
         matches!(
             self.label.effect,
@@ -382,10 +402,12 @@ impl FlowchartEdgeThemeStyle {
         )
     }
 
+    #[must_use]
     pub(crate) fn effect_is_cleared(&self) -> bool {
         matches!(self.effect, Some(FlowchartEffectOutcome::Cleared { .. }))
     }
 
+    #[must_use]
     pub(crate) fn effect(&self) -> Option<&SvgShadowEffect> {
         self.effect
             .as_ref()
@@ -396,19 +418,23 @@ impl FlowchartEdgeThemeStyle {
         theme: Option<&ResolvedDiagramTheme>,
         work_meter: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let Some(theme) = theme else {
-            return Ok(Self::default());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::default()),
         };
-        let mut resolved = Self::resolve_shape(theme, None, work_meter)?;
-        work_meter.charge(theme.family_mechanism_routes().len())?;
-        if theme
+
+        let mut resolved = Self::resolve_shape(theme_2, None, work_meter)?;
+        work_meter.charge(theme_2.family_mechanism_routes().len())?;
+
+        if theme_2
             .family_rules()
             .any(|(_, rule)| rule.target() == ThemeTarget::Edge && rule.ordinal().is_some())
         {
-            resolved.ordinal_theme = Some(theme.clone());
+            resolved.ordinal_theme = Some(theme_2.clone());
         }
+
         resolved.label =
-            resolve_label_theme_style(theme, ThemeTarget::EdgeLabel, None, work_meter)?;
+            { let checked_value = resolve_label_theme_style(theme_2, ThemeTarget::EdgeLabel, None, work_meter)?; checked_value };
         Ok(resolved)
     }
 
@@ -425,14 +451,16 @@ impl FlowchartEdgeThemeStyle {
         )?;
         let mut resolved = Self { ..Self::default() };
 
-        // Fill is a semantic fallback for the stroke terminal, not a second SVG paint channel.
-        // An explicit stroke owns that terminal even when its value is Clear or unsupported.
+
+
         let fill_is_stroke = matches!(
             style.stroke_resolution().specified(),
             Specified::Unspecified
         );
+
         for (property, origin) in style.winner_rule_properties() {
             let rule_index = origin.rule_index();
+
             match property {
                 ResolvedStyleProperty::Stroke => {
                     resolved.stroke = resolve_paint(
@@ -463,12 +491,12 @@ impl FlowchartEdgeThemeStyle {
                         );
                     }
                 }
-                ResolvedStyleProperty::Typography(property) => record_incomplete_facet(
+                ResolvedStyleProperty::Typography(property_2) => record_incomplete_facet(
                     theme,
                     &mut resolved.incomplete_rules,
                     &mut resolved.residual_rules,
                     rule_index,
-                    FamilyThemeRuleFacet::Typography(property),
+                    FamilyThemeRuleFacet::Typography(property_2),
                 ),
                 ResolvedStyleProperty::Effect => {}
                 ResolvedStyleProperty::StrokeLinecap
@@ -489,13 +517,18 @@ impl FlowchartEdgeThemeStyle {
 
         resolved.effect =
             resolve_effect_for_target(theme, ThemeTarget::Edge, style.effect_resolution());
-        if let Some(effect) = resolved.effect() {
-            work_meter.charge(effect.stages().len())?;
+
+        match resolved.effect() {
+            Some(effect) => {
+                work_meter.charge(effect.stages().len())?;
+            },
+            ::core::option::Option::None => {},
         }
 
         Ok(resolved)
     }
 
+    #[must_use]
     pub(crate) fn stroke_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -506,6 +539,7 @@ impl FlowchartEdgeThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn stroke_dasharray_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -520,6 +554,7 @@ impl FlowchartEdgeThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn stroke_width_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -534,6 +569,7 @@ impl FlowchartEdgeThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn font_stack_selected(&self, precedence: FlowchartFacetPrecedence) -> bool {
         !precedence.overrides_theme()
             && matches!(
@@ -542,6 +578,7 @@ impl FlowchartEdgeThemeStyle {
             )
     }
 
+    #[must_use]
     pub(crate) fn font_size_selected(&self, precedence: FlowchartFacetPrecedence) -> bool {
         !precedence.overrides_theme()
             && matches!(
@@ -550,6 +587,7 @@ impl FlowchartEdgeThemeStyle {
             )
     }
 
+    #[must_use]
     pub(crate) fn font_weight_selected(&self, precedence: FlowchartFacetPrecedence) -> bool {
         !precedence.overrides_theme()
             && matches!(
@@ -558,6 +596,7 @@ impl FlowchartEdgeThemeStyle {
             )
     }
 
+    #[must_use]
     pub(crate) fn edge_label_padding(&self) -> super::FlowchartEdgeLabelPadding {
         self.label
             .padding
@@ -566,6 +605,7 @@ impl FlowchartEdgeThemeStyle {
             .unwrap_or_default()
     }
 
+    #[must_use]
     pub(crate) fn padding_selected(&self, precedence: FlowchartFacetPrecedence) -> bool {
         !precedence.overrides_theme()
             && matches!(
@@ -585,6 +625,7 @@ pub(crate) struct FlowchartClusterThemeStyle {
 }
 
 impl FlowchartClusterThemeStyle {
+    #[must_use]
     pub(crate) fn requests_shape_style(&self) -> bool {
         self.fill.is_some() || self.stroke.is_some() || self.stroke_width.is_some()
     }
@@ -594,10 +635,12 @@ impl FlowchartClusterThemeStyle {
         ordinal: Option<usize>,
         work_meter: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let Some(theme) = theme else {
-            return Ok(Self::default());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::default()),
         };
-        let style = theme.style_with_work_meter(
+
+        let style = theme_2.style_with_work_meter(
             ThemeTarget::Cluster,
             ThemeVariant::Default,
             ordinal,
@@ -607,10 +650,11 @@ impl FlowchartClusterThemeStyle {
 
         for (property, origin) in style.winner_rule_properties() {
             let rule_index = origin.rule_index();
+
             match property {
                 ResolvedStyleProperty::Fill => {
                     resolved.fill = resolve_paint(
-                        theme,
+                        theme_2,
                         rule_index,
                         style.fill_resolution(),
                         FamilyThemeRuleFacet::fill,
@@ -618,21 +662,21 @@ impl FlowchartClusterThemeStyle {
                 }
                 ResolvedStyleProperty::Stroke => {
                     resolved.stroke = resolve_paint(
-                        theme,
+                        theme_2,
                         rule_index,
                         style.stroke_resolution(),
                         FamilyThemeRuleFacet::stroke,
                     );
                 }
-                ResolvedStyleProperty::Typography(property) => record_incomplete_facet(
-                    theme,
+                ResolvedStyleProperty::Typography(property_2) => record_incomplete_facet(
+                    theme_2,
                     &mut resolved.incomplete_rules,
                     &mut resolved.residual_rules,
                     rule_index,
-                    FamilyThemeRuleFacet::Typography(property),
+                    FamilyThemeRuleFacet::Typography(property_2),
                 ),
                 ResolvedStyleProperty::Effect => record_incomplete_facet(
-                    theme,
+                    theme_2,
                     &mut resolved.incomplete_rules,
                     &mut resolved.residual_rules,
                     rule_index,
@@ -640,7 +684,7 @@ impl FlowchartClusterThemeStyle {
                 ),
                 ResolvedStyleProperty::StrokeWidth => {
                     resolved.stroke_width =
-                        resolve_stroke_width(theme, rule_index, style.stroke_width_resolution());
+                        resolve_stroke_width(theme_2, rule_index, style.stroke_width_resolution());
                 }
                 ResolvedStyleProperty::StrokeDasharray
                 | ResolvedStyleProperty::StrokeLinecap
@@ -650,7 +694,7 @@ impl FlowchartClusterThemeStyle {
                 | ResolvedStyleProperty::StrokeOpacity
                 | ResolvedStyleProperty::Radius
                 | ResolvedStyleProperty::Padding => record_incomplete_facet(
-                    theme,
+                    theme_2,
                     &mut resolved.incomplete_rules,
                     &mut resolved.residual_rules,
                     rule_index,
@@ -662,6 +706,7 @@ impl FlowchartClusterThemeStyle {
         Ok(resolved)
     }
 
+    #[must_use]
     pub(crate) fn fill_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -672,6 +717,7 @@ impl FlowchartClusterThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn stroke_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -682,6 +728,7 @@ impl FlowchartClusterThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn stroke_width_value(&self, precedence: FlowchartFacetPrecedence) -> Option<f32> {
         (!precedence.overrides_theme())
             .then(|| {
@@ -711,14 +758,27 @@ impl FlowchartClusterThemeStyle {
         stroke_precedence: FlowchartFacetPrecedence,
         stroke_width_precedence: FlowchartFacetPrecedence,
     ) {
-        if let Some(fill) = self.fill_value(fill_precedence, true) {
-            push_inline_declaration(out, "fill", fill);
+        match self.fill_value(fill_precedence, true) {
+            Some(fill) => {
+                push_inline_declaration(out, "fill", fill);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(stroke) = self.stroke_value(stroke_precedence, true) {
-            push_inline_declaration(out, "stroke", stroke);
+
+        match self.stroke_value(stroke_precedence, true) {
+            Some(stroke) => {
+                push_inline_declaration(out, "stroke", stroke);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(width) = self.stroke_width_value(stroke_width_precedence) {
-            push_inline_declaration(out, "stroke-width", &format!("{width}px"));
+
+        {
+            match self.stroke_width_value(stroke_width_precedence) {
+                Some(width) => {
+                    push_inline_declaration(out, "stroke-width", &format!("{width}px"));
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 }
@@ -738,6 +798,7 @@ pub(crate) struct FlowchartNodeThemeStyle {
 }
 
 impl FlowchartNodeThemeStyle {
+    #[must_use]
     pub(crate) fn label_effect(&self) -> Option<&SvgShadowEffect> {
         self.label
             .effect
@@ -745,6 +806,7 @@ impl FlowchartNodeThemeStyle {
             .and_then(FlowchartEffectOutcome::effect)
     }
 
+    #[must_use]
     pub(crate) fn label_effect_is_cleared(&self) -> bool {
         matches!(
             self.label.effect,
@@ -757,10 +819,12 @@ impl FlowchartNodeThemeStyle {
         ordinal: Option<usize>,
         work_meter: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let Some(theme) = theme else {
-            return Ok(Self::default());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::default()),
         };
-        let style = theme.style_with_work_meter(
+
+        let style = theme_2.style_with_work_meter(
             ThemeTarget::Node,
             ThemeVariant::Default,
             ordinal,
@@ -771,11 +835,12 @@ impl FlowchartNodeThemeStyle {
 
         for (property, origin) in style.winner_rule_properties() {
             let rule_index = origin.rule_index();
+
             match property {
                 ResolvedStyleProperty::Fill => {
                     fill_rule_present = true;
                     resolved.fill = resolve_paint(
-                        theme,
+                        theme_2,
                         rule_index,
                         style.fill_resolution(),
                         FamilyThemeRuleFacet::fill,
@@ -783,7 +848,7 @@ impl FlowchartNodeThemeStyle {
                 }
                 ResolvedStyleProperty::Stroke => {
                     resolved.stroke = resolve_paint(
-                        theme,
+                        theme_2,
                         rule_index,
                         style.stroke_resolution(),
                         FamilyThemeRuleFacet::stroke,
@@ -791,24 +856,24 @@ impl FlowchartNodeThemeStyle {
                 }
                 ResolvedStyleProperty::StrokeWidth => {
                     resolved.stroke_width =
-                        resolve_stroke_width(theme, rule_index, style.stroke_width_resolution());
+                        resolve_stroke_width(theme_2, rule_index, style.stroke_width_resolution());
                 }
                 ResolvedStyleProperty::StrokeDasharray => {
                     resolved.stroke_dasharray = resolve_stroke_dasharray(
-                        theme,
+                        theme_2,
                         rule_index,
                         style.stroke_dasharray_resolution(),
                     );
                 }
                 ResolvedStyleProperty::Radius => {
-                    resolved.radius = resolve_radius(theme, rule_index, style.radius_resolution());
+                    resolved.radius = resolve_radius(theme_2, rule_index, style.radius_resolution());
                 }
-                ResolvedStyleProperty::Typography(property) => record_incomplete_facet(
-                    theme,
+                ResolvedStyleProperty::Typography(property_2) => record_incomplete_facet(
+                    theme_2,
                     &mut resolved.incomplete_rules,
                     &mut resolved.residual_rules,
                     rule_index,
-                    FamilyThemeRuleFacet::Typography(property),
+                    FamilyThemeRuleFacet::Typography(property_2),
                 ),
                 ResolvedStyleProperty::Effect => {}
                 ResolvedStyleProperty::StrokeLinecap
@@ -817,7 +882,7 @@ impl FlowchartNodeThemeStyle {
                 | ResolvedStyleProperty::FillOpacity
                 | ResolvedStyleProperty::StrokeOpacity
                 | ResolvedStyleProperty::Padding => record_incomplete_facet(
-                    theme,
+                    theme_2,
                     &mut resolved.incomplete_rules,
                     &mut resolved.residual_rules,
                     rule_index,
@@ -827,19 +892,24 @@ impl FlowchartNodeThemeStyle {
         }
 
         resolved.effect =
-            resolve_effect_for_target(theme, ThemeTarget::Node, style.effect_resolution());
-        if let Some(effect) = resolved.effect() {
-            work_meter.charge(effect.stages().len())?;
+            resolve_effect_for_target(theme_2, ThemeTarget::Node, style.effect_resolution());
+
+        match resolved.effect() {
+            Some(effect) => {
+                work_meter.charge(effect.stages().len())?;
+            },
+            ::core::option::Option::None => {},
         }
+
         resolved.label =
-            resolve_label_theme_style(theme, ThemeTarget::NodeLabel, ordinal, work_meter)?;
+            { let checked_value = resolve_label_theme_style(theme_2, ThemeTarget::NodeLabel, ordinal, work_meter)?; checked_value };
 
         if !fill_rule_present
-            && theme.ordinal_palette_disposition(ThemeTarget::Node)
+            && theme_2.ordinal_palette_disposition(ThemeTarget::Node)
                 == Some(FamilyThemeDisposition::TypedAdapter)
         {
             resolved.ordinal_palette_fill = Some(match ordinal {
-                Some(ordinal) => match theme.series_color(ThemeTarget::Node, ordinal) {
+                Some(ordinal_2) => match theme_2.series_color(ThemeTarget::Node, ordinal_2) {
                     Some(color) => FlowchartOrdinalPaletteOutcome::Candidate {
                         value: color.as_css(),
                     },
@@ -856,16 +926,19 @@ impl FlowchartNodeThemeStyle {
         Ok(resolved)
     }
 
+    #[must_use]
     pub(crate) fn effect_is_cleared(&self) -> bool {
         matches!(self.effect, Some(FlowchartEffectOutcome::Cleared { .. }))
     }
 
+    #[must_use]
     pub(crate) fn effect(&self) -> Option<&SvgShadowEffect> {
         self.effect
             .as_ref()
             .and_then(FlowchartEffectOutcome::effect)
     }
 
+    #[must_use]
     pub(crate) fn fill_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -885,6 +958,7 @@ impl FlowchartNodeThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn stroke_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -895,6 +969,7 @@ impl FlowchartNodeThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn stroke_width_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -909,6 +984,7 @@ impl FlowchartNodeThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn radius_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -919,6 +995,7 @@ impl FlowchartNodeThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn stroke_dasharray_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -933,6 +1010,7 @@ impl FlowchartNodeThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn font_stack_selected(&self, precedence: FlowchartFacetPrecedence) -> bool {
         !precedence.overrides_theme()
             && matches!(
@@ -941,6 +1019,7 @@ impl FlowchartNodeThemeStyle {
             )
     }
 
+    #[must_use]
     pub(crate) fn font_size_selected(&self, precedence: FlowchartFacetPrecedence) -> bool {
         !precedence.overrides_theme()
             && matches!(
@@ -949,6 +1028,7 @@ impl FlowchartNodeThemeStyle {
             )
     }
 
+    #[must_use]
     pub(crate) fn font_weight_selected(&self, precedence: FlowchartFacetPrecedence) -> bool {
         !precedence.overrides_theme()
             && matches!(
@@ -957,6 +1037,7 @@ impl FlowchartNodeThemeStyle {
             )
     }
 
+    #[must_use]
     pub(crate) fn label_fill_value(
         &self,
         precedence: FlowchartFacetPrecedence,
@@ -972,6 +1053,7 @@ impl FlowchartNodeThemeStyle {
             .flatten()
     }
 
+    #[must_use]
     pub(crate) fn has_label_fill_route(&self) -> bool {
         self.label.fill.is_some()
     }
@@ -987,8 +1069,10 @@ fn resolve_label_theme_style(
     let mut resolved = FlowchartLabelThemeStyle {
         ..FlowchartLabelThemeStyle::default()
     };
+
     for (property, origin) in style.winner_rule_properties() {
         let rule_index = origin.rule_index();
+
         match property {
             ResolvedStyleProperty::Typography(ThemeTypographyProperty::FontStack) => {
                 resolved.font_stack = resolve_typography(
@@ -1017,12 +1101,12 @@ fn resolve_label_theme_style(
             ResolvedStyleProperty::Padding => {
                 resolved.padding = resolve_padding(theme, rule_index, style.padding_resolution());
             }
-            ResolvedStyleProperty::Typography(property) => record_incomplete_facet(
+            ResolvedStyleProperty::Typography(property_2) => record_incomplete_facet(
                 theme,
                 &mut resolved.incomplete_rules,
                 &mut resolved.residual_rules,
                 rule_index,
-                FamilyThemeRuleFacet::Typography(property),
+                FamilyThemeRuleFacet::Typography(property_2),
             ),
             ResolvedStyleProperty::Fill => {
                 if let Some(facet) = FamilyThemeRuleFacet::fill(style.fill_resolution().specified())
@@ -1033,6 +1117,7 @@ fn resolve_label_theme_style(
                         style.fill_resolution(),
                         FamilyThemeRuleFacet::fill,
                     );
+
                     if resolved.fill.is_none()
                         && theme.rule_facet_disposition(rule_index, facet)
                             == Some(FamilyThemeDisposition::TypedAdapter)
@@ -1068,17 +1153,23 @@ fn resolve_label_theme_style(
             ),
         }
     }
+
     resolved.effect = resolve_effect_for_target(theme, target, style.effect_resolution());
-    if let Some(effect) = resolved
+
+    match resolved
         .effect
         .as_ref()
-        .and_then(FlowchartEffectOutcome::effect)
-    {
-        work_meter.charge(effect.stages().len())?;
+        .and_then(FlowchartEffectOutcome::effect) {
+        Some(effect) => {
+            work_meter.charge(effect.stages().len())?;
+        },
+        ::core::option::Option::None => {},
     }
+
     Ok(resolved)
 }
 
+#[must_use]
 fn resolve_padding(
     theme: &ResolvedDiagramTheme,
     rule_index: usize,
@@ -1088,7 +1179,10 @@ fn resolve_padding(
         Specified::Unspecified => return None,
         Specified::Clear | Specified::Value(_) => FamilyThemeRuleFacet::Padding,
     };
-    match theme.rule_facet_disposition(rule_index, facet)? {
+
+    let checked_value = theme.rule_facet_disposition(rule_index, facet)?;
+
+    match checked_value {
         FamilyThemeDisposition::Unsupported => Some(FlowchartPaddingOutcome::Residual {
             rule_index,
             reason: FamilyThemeResidualReason::UnsupportedGeometry,
@@ -1106,14 +1200,18 @@ fn resolve_padding(
     }
 }
 
+#[must_use]
 fn resolve_paint(
     theme: &ResolvedDiagramTheme,
     rule_index: usize,
     property: &ResolvedProperty<CanvasPaint>,
     facet: fn(&Specified<CanvasPaint>) -> Option<FamilyThemeRuleFacet>,
 ) -> Option<FlowchartPaintOutcome> {
-    let facet = facet(property.specified())?;
-    match theme.rule_facet_disposition(rule_index, facet)? {
+    let facet_2 = facet(property.specified())?;
+
+    let checked_value = theme.rule_facet_disposition(rule_index, facet_2)?;
+
+    match checked_value {
         FamilyThemeDisposition::Unsupported => Some(FlowchartPaintOutcome::Residual {
             rule_index,
             reason: FamilyThemeResidualReason::UnsupportedPaint,
@@ -1141,6 +1239,7 @@ fn resolve_paint(
     }
 }
 
+#[must_use]
 fn resolve_stroke_width(
     theme: &ResolvedDiagramTheme,
     rule_index: usize,
@@ -1150,7 +1249,10 @@ fn resolve_stroke_width(
         Specified::Unspecified => return None,
         Specified::Clear | Specified::Value(_) => FamilyThemeRuleFacet::StrokeWidth,
     };
-    match theme.rule_facet_disposition(rule_index, facet)? {
+
+    let checked_value = theme.rule_facet_disposition(rule_index, facet)?;
+
+    match checked_value {
         FamilyThemeDisposition::Unsupported => Some(FlowchartScalarOutcome::Residual {
             rule_index,
             reason: FamilyThemeResidualReason::UnsupportedGeometry,
@@ -1168,6 +1270,7 @@ fn resolve_stroke_width(
     }
 }
 
+#[must_use]
 fn resolve_stroke_dasharray(
     theme: &ResolvedDiagramTheme,
     rule_index: usize,
@@ -1177,7 +1280,10 @@ fn resolve_stroke_dasharray(
         Specified::Unspecified => return None,
         Specified::Clear | Specified::Value(_) => FamilyThemeRuleFacet::StrokeDasharray,
     };
-    match theme.rule_facet_disposition(rule_index, facet)? {
+
+    let checked_value = theme.rule_facet_disposition(rule_index, facet)?;
+
+    match checked_value {
         FamilyThemeDisposition::Unsupported => Some(FlowchartDasharrayOutcome::Residual {
             rule_index,
             reason: FamilyThemeResidualReason::UnsupportedGeometry,
@@ -1201,6 +1307,7 @@ fn resolve_stroke_dasharray(
     }
 }
 
+#[must_use]
 fn resolve_radius(
     theme: &ResolvedDiagramTheme,
     rule_index: usize,
@@ -1210,7 +1317,10 @@ fn resolve_radius(
         Specified::Unspecified => return None,
         Specified::Clear | Specified::Value(_) => FamilyThemeRuleFacet::Radius,
     };
-    match theme.rule_facet_disposition(rule_index, facet)? {
+
+    let checked_value = theme.rule_facet_disposition(rule_index, facet)?;
+
+    match checked_value {
         FamilyThemeDisposition::Unsupported => Some(FlowchartScalarOutcome::Residual {
             rule_index,
             reason: FamilyThemeResidualReason::UnsupportedGeometry,
@@ -1228,6 +1338,7 @@ fn resolve_radius(
     }
 }
 
+#[must_use]
 fn resolve_typography<T>(
     theme: &ResolvedDiagramTheme,
     rule_index: usize,
@@ -1240,7 +1351,10 @@ fn resolve_typography<T>(
             FamilyThemeRuleFacet::Typography(typography_property)
         }
     };
-    match theme.rule_facet_disposition(rule_index, facet)? {
+
+    let checked_value = theme.rule_facet_disposition(rule_index, facet)?;
+
+    match checked_value {
         FamilyThemeDisposition::Unsupported => Some(FlowchartTypographyOutcome::Residual {
             rule_index,
             reason: FamilyThemeResidualReason::UnsupportedTypography,
@@ -1248,7 +1362,7 @@ fn resolve_typography<T>(
         FamilyThemeDisposition::TypedAdapter => match property {
             Specified::Value(_) => Some(FlowchartTypographyOutcome::Candidate { rule_index }),
             Specified::Clear if typography_property == ThemeTypographyProperty::FontWeight => {
-                // The writer verifies the effective base weight restored by resolution.
+
                 Some(FlowchartTypographyOutcome::Candidate { rule_index })
             }
             Specified::Clear | Specified::Unspecified => {
@@ -1261,6 +1375,7 @@ fn resolve_typography<T>(
     }
 }
 
+#[must_use]
 fn resolve_effect_for_target(
     theme: &ResolvedDiagramTheme,
     target: ThemeTarget,
@@ -1268,8 +1383,10 @@ fn resolve_effect_for_target(
 ) -> Option<FlowchartEffectOutcome> {
     let (key, graph, disposition) = match theme.resolve_effect(target, property)? {
         ResolvedThemeEffect::ClearedByRule => {
-            let rule_index = property.winner()?.rule_index();
-            return match theme.rule_facet_disposition(rule_index, FamilyThemeRuleFacet::Effect)? {
+            let checked_value = property.winner()?;
+            let rule_index = checked_value.rule_index();
+            let checked_value_2 = theme.rule_facet_disposition(rule_index, FamilyThemeRuleFacet::Effect)?;
+            return match checked_value_2 {
                 FamilyThemeDisposition::TypedAdapter => {
                     Some(FlowchartEffectOutcome::Cleared { rule_index })
                 }
@@ -1282,14 +1399,15 @@ fn resolve_effect_for_target(
             };
         }
         ResolvedThemeEffect::Rule { graph } => {
-            let rule_index = property.winner()?.rule_index();
+            let checked_value_3 = property.winner()?;
+            let rule_index = checked_value_3.rule_index();
             (
                 FamilyThemeMechanismKey::Rule {
                     index: rule_index,
                     target,
                 },
                 graph,
-                theme.rule_facet_disposition(rule_index, FamilyThemeRuleFacet::Effect)?,
+                { let checked_value_4 = theme.rule_facet_disposition(rule_index, FamilyThemeRuleFacet::Effect)?; checked_value_4 },
             )
         }
         ResolvedThemeEffect::Binding { graph, .. } => {
@@ -1309,6 +1427,7 @@ fn resolve_effect_for_target(
             )
         }
     };
+
     match disposition {
         FamilyThemeDisposition::TypedAdapter => {
             Some(match graph.and_then(SvgShadowEffect::from_graph) {
@@ -1320,6 +1439,7 @@ fn resolve_effect_for_target(
     }
 }
 
+#[must_use]
 fn non_paint_facet(property: ResolvedStyleProperty) -> FamilyThemeRuleFacet {
     match property {
         ResolvedStyleProperty::StrokeWidth => FamilyThemeRuleFacet::StrokeWidth,
@@ -1331,7 +1451,7 @@ fn non_paint_facet(property: ResolvedStyleProperty) -> FamilyThemeRuleFacet {
         ResolvedStyleProperty::StrokeOpacity => FamilyThemeRuleFacet::StrokeOpacity,
         ResolvedStyleProperty::Radius => FamilyThemeRuleFacet::Radius,
         ResolvedStyleProperty::Padding => FamilyThemeRuleFacet::Padding,
-        _ => unreachable!("non-paint facet mapping received a paint property"),
+        ResolvedStyleProperty::Fill | ResolvedStyleProperty::Stroke | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => unreachable!("non-paint facet mapping received a paint property"),
     }
 }
 
@@ -1359,6 +1479,7 @@ fn push_inline_declaration(out: &mut String, property: &str, value: &str) {
     if !out.is_empty() {
         out.push(';');
     }
+
     let _ = write!(out, "{property}:{value} !important");
 }
 
@@ -1460,6 +1581,7 @@ impl FlowchartThemeEvidenceRecorder {
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         work_meter.checkpoint(merman_model::OperationPhase::Emit)?;
         state.cluster.emitted = true;
+
         for (rule_index, reason) in &style.residual_rules {
             state
                 .cluster
@@ -1467,6 +1589,7 @@ impl FlowchartThemeEvidenceRecorder {
                 .entry(*rule_index)
                 .or_insert(*reason);
         }
+
         record_paint_outcome(
             &mut state.cluster,
             style.fill.as_ref(),
@@ -1512,6 +1635,7 @@ impl FlowchartThemeEvidenceRecorder {
             || emission.font_weight.is_some();
         work_meter.checkpoint(merman_model::OperationPhase::Emit)?;
         state.node.emitted = true;
+
         for (rule_index, reason) in &style.residual_rules {
             state
                 .node
@@ -1519,6 +1643,7 @@ impl FlowchartThemeEvidenceRecorder {
                 .entry(*rule_index)
                 .or_insert(*reason);
         }
+
         record_paint_outcome(
             &mut state.node,
             style.fill.as_ref(),
@@ -1551,10 +1676,10 @@ impl FlowchartThemeEvidenceRecorder {
             emission.stroke_dasharray.verified,
         );
         let (radius, radius_emission) = match emission.radius {
-            FlowchartRadiusEmission::Applicable(emission) => (style.radius.as_ref(), emission),
+            FlowchartRadiusEmission::Applicable(emission_2) => (style.radius.as_ref(), emission_2),
             FlowchartRadiusEmission::NotApplicable(precedence) => (
-                // Only an admitted numeric request can be inapplicable. Preserve unsupported
-                // operations (including Clear) and their original source/config precedence.
+
+
                 style
                     .radius
                     .as_ref()
@@ -1569,21 +1694,25 @@ impl FlowchartThemeEvidenceRecorder {
             radius_emission.verified,
             ThemeCapability::RoundedGeometry,
         );
+
         {
-            let state = &mut *state;
+            let state_2 = &mut *state;
             record_effect_outcome(
-                &mut state.node,
-                &mut state.node_effect_bindings,
+                &mut state_2.node,
+                &mut state_2.node_effect_bindings,
                 style.effect.as_ref(),
                 emission.effect,
             );
         }
+
         state
             .node
             .incomplete_rules
             .extend(style.incomplete_rules.iter().copied());
+
         if label_emitted {
             state.node_label.emitted = true;
+
             for (rule_index, reason) in &style.label.residual_rules {
                 state
                     .node_label
@@ -1591,62 +1720,85 @@ impl FlowchartThemeEvidenceRecorder {
                     .entry(*rule_index)
                     .or_insert(*reason);
             }
-            if let Some(label_fill_emission) = emission.label_fill {
-                record_paint_outcome(
-                    &mut state.node_label,
-                    style.label.fill.as_ref(),
-                    label_fill_emission.precedence,
-                    label_fill_emission.verified,
-                );
+
+            match emission.label_fill {
+                Some(label_fill_emission) => {
+                    record_paint_outcome(
+                        &mut state.node_label,
+                        style.label.fill.as_ref(),
+                        label_fill_emission.precedence,
+                        label_fill_emission.verified,
+                    );
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(font_stack_emission) = emission.font_stack {
-                record_typography_outcome(
-                    &mut state.node_label,
-                    style.label.font_stack.as_ref(),
-                    font_stack_emission.precedence,
-                    font_stack_emission.verified,
-                );
+
+            match emission.font_stack {
+                Some(font_stack_emission) => {
+                    record_typography_outcome(
+                        &mut state.node_label,
+                        style.label.font_stack.as_ref(),
+                        font_stack_emission.precedence,
+                        font_stack_emission.verified,
+                    );
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(font_size_emission) = emission.font_size {
-                record_typography_outcome(
-                    &mut state.node_label,
-                    style.label.font_size.as_ref(),
-                    font_size_emission.precedence,
-                    font_size_emission.verified,
-                );
+
+            match emission.font_size {
+                Some(font_size_emission) => {
+                    record_typography_outcome(
+                        &mut state.node_label,
+                        style.label.font_size.as_ref(),
+                        font_size_emission.precedence,
+                        font_size_emission.verified,
+                    );
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(font_weight_emission) = emission.font_weight {
-                record_typography_outcome(
-                    &mut state.node_label,
-                    style.label.font_weight.as_ref(),
-                    font_weight_emission.precedence,
-                    font_weight_emission.verified,
-                );
+
+            match emission.font_weight {
+                Some(font_weight_emission) => {
+                    record_typography_outcome(
+                        &mut state.node_label,
+                        style.label.font_weight.as_ref(),
+                        font_weight_emission.precedence,
+                        font_weight_emission.verified,
+                    );
+                },
+                ::core::option::Option::None => {},
             }
+
             {
-                let state = &mut *state;
+                let state_3 = &mut *state;
                 record_effect_outcome(
-                    &mut state.node_label,
-                    &mut state.node_label_effect_bindings,
+                    &mut state_3.node_label,
+                    &mut state_3.node_label_effect_bindings,
                     style.label.effect.as_ref(),
                     emission
                         .label_effect
                         .unwrap_or_else(FlowchartThemeFacetEmission::absent),
                 );
             }
+
             state
                 .node_label
                 .incomplete_rules
                 .extend(style.label.incomplete_rules.iter().copied());
         }
+
         insert_source_residuals(&mut state, source_residuals);
         Ok(())
     }
 
     pub(crate) fn record_source_residuals(&self, source_residuals: &[SourceStyleResidual]) {
-        if source_residuals.is_empty() {
-            return;
+        match source_residuals {
+            [] => {
+                return;
+            },
+            [_, ..] => {},
         }
+
         let mut state = self
             .state
             .lock()
@@ -1668,68 +1820,75 @@ impl FlowchartThemeEvidenceRecorder {
         let ordinal = state.edge_ordinal + 1;
         let emitted_style = style;
         let ordinal_style;
-        let style = if let Some(theme) = &style.ordinal_theme {
-            ordinal_style =
-                FlowchartEdgeThemeStyle::resolve_shape(theme, Some(ordinal), work_meter)?;
-            &ordinal_style
-        } else {
-            style
+        let style_2 = match &style.ordinal_theme {
+            Some(theme) => {
+                ordinal_style =
+                    { let checked_value_5 = FlowchartEdgeThemeStyle::resolve_shape(theme, Some(ordinal), work_meter)?; checked_value_5 };
+                &ordinal_style
+            },
+            ::core::option::Option::None => {
+                style
+            },
         };
         work_meter.checkpoint(merman_model::OperationPhase::Emit)?;
         state.edge_ordinal = ordinal;
         state.edge.emitted = true;
-        for (rule_index, reason) in &style.residual_rules {
+
+        for (rule_index, reason) in &style_2.residual_rules {
             state
                 .edge
                 .residual_rules
                 .entry(*rule_index)
                 .or_insert(*reason);
         }
-        // The writer receipt belongs to the static style it actually emitted. Ordinal
-        // reconciliation must not reuse that receipt for a different winning rule or value.
+
+
+
         let static_only = emitted_style.ordinal_theme.is_none();
         record_edge_paint_outcome(
             &mut state.edge,
-            style.stroke.as_ref(),
+            style_2.stroke.as_ref(),
             emission.stroke.precedence,
-            emission.stroke.verified && (static_only || style.stroke == emitted_style.stroke),
+            emission.stroke.verified && (static_only || style_2.stroke == emitted_style.stroke),
         );
         record_scalar_outcome(
             &mut state.edge,
-            style.stroke_width.as_ref(),
+            style_2.stroke_width.as_ref(),
             emission.stroke_width.precedence,
             emission.stroke_width.verified
-                && (static_only || style.stroke_width == emitted_style.stroke_width),
+                && (static_only || style_2.stroke_width == emitted_style.stroke_width),
             ThemeCapability::BorderStyling,
         );
         record_dasharray_outcome(
             &mut state.edge,
-            style.stroke_dasharray.as_ref(),
+            style_2.stroke_dasharray.as_ref(),
             emission.stroke_dasharray.precedence,
             emission.stroke_dasharray.verified
-                && (static_only || style.stroke_dasharray == emitted_style.stroke_dasharray),
+                && (static_only || style_2.stroke_dasharray == emitted_style.stroke_dasharray),
         );
+
         {
-            let state = &mut *state;
+            let state_2 = &mut *state;
             record_effect_outcome(
-                &mut state.edge,
-                &mut state.edge_effect_bindings,
-                style.effect.as_ref(),
+                &mut state_2.edge,
+                &mut state_2.edge_effect_bindings,
+                style_2.effect.as_ref(),
                 FlowchartThemeFacetEmission::new(
                     emission.effect.precedence,
                     emission.effect.verified
                         && (static_only
                             || same_effect_outcome(
-                                style.effect.as_ref(),
+                                style_2.effect.as_ref(),
                                 emitted_style.effect.as_ref(),
                             )),
                 ),
             );
         }
+
         state
             .edge
             .incomplete_rules
-            .extend(style.incomplete_rules.iter().copied());
+            .extend(style_2.incomplete_rules.iter().copied());
         insert_source_residuals(&mut state, source_residuals);
         Ok(())
     }
@@ -1751,8 +1910,10 @@ impl FlowchartThemeEvidenceRecorder {
             || emission.font_weight.is_some()
             || emission.padding.is_some();
         work_meter.checkpoint(merman_model::OperationPhase::Emit)?;
+
         if label_emitted {
             state.edge_label.emitted = true;
+
             for (rule_index, reason) in &style.label.residual_rules {
                 state
                     .edge_label
@@ -1760,54 +1921,73 @@ impl FlowchartThemeEvidenceRecorder {
                     .entry(*rule_index)
                     .or_insert(*reason);
             }
-            if let Some(font_stack_emission) = emission.font_stack {
-                record_typography_outcome(
-                    &mut state.edge_label,
-                    style.label.font_stack.as_ref(),
-                    font_stack_emission.precedence,
-                    font_stack_emission.verified,
-                );
+
+            match emission.font_stack {
+                Some(font_stack_emission) => {
+                    record_typography_outcome(
+                        &mut state.edge_label,
+                        style.label.font_stack.as_ref(),
+                        font_stack_emission.precedence,
+                        font_stack_emission.verified,
+                    );
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(font_size_emission) = emission.font_size {
-                record_typography_outcome(
-                    &mut state.edge_label,
-                    style.label.font_size.as_ref(),
-                    font_size_emission.precedence,
-                    font_size_emission.verified,
-                );
+
+            match emission.font_size {
+                Some(font_size_emission) => {
+                    record_typography_outcome(
+                        &mut state.edge_label,
+                        style.label.font_size.as_ref(),
+                        font_size_emission.precedence,
+                        font_size_emission.verified,
+                    );
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(font_weight_emission) = emission.font_weight {
-                record_typography_outcome(
-                    &mut state.edge_label,
-                    style.label.font_weight.as_ref(),
-                    font_weight_emission.precedence,
-                    font_weight_emission.verified,
-                );
+
+            match emission.font_weight {
+                Some(font_weight_emission) => {
+                    record_typography_outcome(
+                        &mut state.edge_label,
+                        style.label.font_weight.as_ref(),
+                        font_weight_emission.precedence,
+                        font_weight_emission.verified,
+                    );
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(padding_emission) = emission.padding {
-                record_padding_outcome(
-                    &mut state.edge_label,
-                    style.label.padding.as_ref(),
-                    padding_emission.precedence,
-                    padding_emission.verified,
-                );
+
+            match emission.padding {
+                Some(padding_emission) => {
+                    record_padding_outcome(
+                        &mut state.edge_label,
+                        style.label.padding.as_ref(),
+                        padding_emission.precedence,
+                        padding_emission.verified,
+                    );
+                },
+                ::core::option::Option::None => {},
             }
+
             {
-                let state = &mut *state;
+                let state_2 = &mut *state;
                 record_effect_outcome(
-                    &mut state.edge_label,
-                    &mut state.edge_label_effect_bindings,
+                    &mut state_2.edge_label,
+                    &mut state_2.edge_label_effect_bindings,
                     style.label.effect.as_ref(),
                     emission
                         .effect
                         .unwrap_or_else(FlowchartThemeFacetEmission::absent),
                 );
             }
+
             state
                 .edge_label
                 .incomplete_rules
                 .extend(style.label.incomplete_rules.iter().copied());
         }
+
         insert_source_residuals(&mut state, source_residuals);
         Ok(())
     }
@@ -1830,15 +2010,22 @@ impl FlowchartThemeEvidenceRecorder {
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         let source_residuals = state.source_residuals.values().cloned().collect();
-        if let Some(marker) = &state.marker {
-            evidence.merge_borrowed(marker);
+
+        match &state.marker {
+            Some(marker) => {
+                evidence.merge_borrowed(marker);
+            },
+            ::core::option::Option::None => {},
         }
-        let Some(theme) = theme else {
-            return source_residuals;
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return source_residuals,
         };
 
         let mut rule_routes = BTreeSet::<(usize, ThemeTarget)>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
                     rule_index, target, ..
@@ -1848,7 +2035,8 @@ impl FlowchartThemeEvidenceRecorder {
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::Node,
                 } => {
-                    let key = theme.family_mechanism_key(route);
+                    let key = theme_2.family_mechanism_key(route);
+
                     if !state.node.emitted {
                         evidence.mark_not_applicable(key);
                     } else {
@@ -1890,7 +2078,8 @@ impl FlowchartThemeEvidenceRecorder {
                         ThemeTarget::EdgeLabel => &state.edge_label_effect_bindings,
                         _ => unreachable!("effect target was matched above"),
                     };
-                    let key = theme.family_mechanism_key(route);
+                    let key = theme_2.family_mechanism_key(route);
+
                     match bindings.get(&key).copied().unwrap_or_default() {
                         FlowchartMechanismObservation::NotObserved => {
                             evidence.mark_not_applicable(key);
@@ -1924,16 +2113,17 @@ impl FlowchartThemeEvidenceRecorder {
                 index: rule_index,
                 target,
             };
+
             if !target_state.emitted {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = target_state.residual_rules.get(&rule_index).copied() {
                 evidence.mark_residual(key, reason);
             } else if target_state.incomplete_rules.contains(&rule_index) {
-                // A matching winner reached the family consumer, but this slice does not yet share
-                // enough source-shadow information to classify the facet without guessing.
+
+
             } else if target_state.unverified_rules.contains(&rule_index) {
-                // Every applicable target must reach a terminal writer. An applied path cannot
-                // mask a second path whose consumption was not observed.
+
+
                 evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedPaint);
             } else if target_state.applied_rules.contains(&rule_index) {
                 evidence.mark_applied_with_capabilities(
@@ -1975,6 +2165,7 @@ fn record_paint_outcome(
     if precedence.overrides_theme() {
         return;
     }
+
     if !channel_emitted {
         match outcome {
             Some(FlowchartPaintOutcome::Candidate { rule_index, .. }) => {
@@ -1988,8 +2179,10 @@ fn record_paint_outcome(
             }
             None => {}
         }
+
         return;
     }
+
     match outcome {
         Some(FlowchartPaintOutcome::Candidate { rule_index, value }) => {
             state.applied_rules.insert(*rule_index);
@@ -2019,6 +2212,7 @@ fn record_edge_paint_outcome(
     if precedence.overrides_theme() {
         return;
     }
+
     match outcome {
         Some(FlowchartPaintOutcome::Candidate { rule_index, value }) if channel_emitted => {
             state.applied_rules.insert(*rule_index);
@@ -2058,6 +2252,7 @@ fn record_facet_outcome(
     if precedence.overrides_theme() {
         return;
     }
+
     match outcome {
         Some(FlowchartFacetOutcome::Candidate(rule_index)) if emitted => {
             state.applied_rules.insert(rule_index);
@@ -2087,7 +2282,7 @@ fn record_scalar_outcome(
     emitted: bool,
     capability: ThemeCapability,
 ) {
-    let outcome = outcome.map(|outcome| match outcome {
+    let outcome_3 = outcome.map(|outcome_2| match outcome_2 {
         FlowchartScalarOutcome::Candidate { rule_index, .. } => {
             FlowchartFacetOutcome::Candidate(*rule_index)
         }
@@ -2097,7 +2292,7 @@ fn record_scalar_outcome(
     });
     record_facet_outcome(
         state,
-        outcome,
+        outcome_3,
         precedence,
         emitted,
         capability,
@@ -2111,7 +2306,7 @@ fn record_padding_outcome(
     precedence: FlowchartFacetPrecedence,
     emitted: bool,
 ) {
-    let outcome = outcome.map(|outcome| match outcome {
+    let outcome_3 = outcome.map(|outcome_2| match outcome_2 {
         FlowchartPaddingOutcome::Candidate { rule_index, .. } => {
             FlowchartFacetOutcome::Candidate(*rule_index)
         }
@@ -2121,7 +2316,7 @@ fn record_padding_outcome(
     });
     record_facet_outcome(
         state,
-        outcome,
+        outcome_3,
         precedence,
         emitted,
         ThemeCapability::ContentPadding,
@@ -2135,7 +2330,7 @@ fn record_dasharray_outcome(
     precedence: FlowchartFacetPrecedence,
     emitted: bool,
 ) {
-    let outcome = outcome.map(|outcome| match outcome {
+    let outcome_3 = outcome.map(|outcome_2| match outcome_2 {
         FlowchartDasharrayOutcome::Candidate { rule_index, .. } => {
             FlowchartFacetOutcome::Candidate(*rule_index)
         }
@@ -2145,7 +2340,7 @@ fn record_dasharray_outcome(
     });
     record_facet_outcome(
         state,
-        outcome,
+        outcome_3,
         precedence,
         emitted,
         ThemeCapability::DashStyling,
@@ -2159,7 +2354,7 @@ fn record_typography_outcome(
     precedence: FlowchartFacetPrecedence,
     emitted: bool,
 ) {
-    let outcome = outcome.map(|outcome| match outcome {
+    let outcome_3 = outcome.map(|outcome_2| match outcome_2 {
         FlowchartTypographyOutcome::Candidate { rule_index } => {
             FlowchartFacetOutcome::Candidate(*rule_index)
         }
@@ -2169,7 +2364,7 @@ fn record_typography_outcome(
     });
     record_facet_outcome(
         state,
-        outcome,
+        outcome_3,
         precedence,
         emitted,
         ThemeCapability::Typography,
@@ -2177,6 +2372,7 @@ fn record_typography_outcome(
     );
 }
 
+#[must_use]
 fn same_effect_outcome(
     left: Option<&FlowchartEffectOutcome>,
     right: Option<&FlowchartEffectOutcome>,
@@ -2218,10 +2414,13 @@ fn record_effect_outcome(
     if emission.precedence.overrides_theme() {
         return;
     }
-    let Some(outcome) = outcome else {
-        return;
+
+    let outcome_2 = match outcome {
+        Some(matched_outcome) => matched_outcome,
+        ::core::option::Option::None => return,
     };
-    let (key, applied) = match outcome {
+
+    let (key, applied) = match outcome_2 {
         FlowchartEffectOutcome::Candidate { key, .. } => (key, emission.verified),
         FlowchartEffectOutcome::Residual { key } => (key, false),
         FlowchartEffectOutcome::Cleared { rule_index } => {
@@ -2233,9 +2432,11 @@ fn record_effect_outcome(
                     .entry(*rule_index)
                     .or_insert(FamilyThemeResidualReason::UnsupportedEffect);
             }
+
             return;
         }
     };
+
     match key {
         FamilyThemeMechanismKey::Rule { index, .. } if applied => {
             state.applied_rules.insert(*index);
@@ -2253,13 +2454,14 @@ fn record_effect_outcome(
         }
         FamilyThemeMechanismKey::EffectBinding { .. } => {
             let observation = bindings.entry(key.clone()).or_default();
+
             if applied {
                 observation.observe_applied();
             } else {
                 observation.observe_residual(FamilyThemeResidualReason::UnsupportedEffect);
             }
         }
-        _ => unreachable!("effects belong to a rule or effect binding"),
+        FamilyThemeMechanismKey::Typography(_) | FamilyThemeMechanismKey::OrdinalPalette { .. } => unreachable!("effects belong to a rule or effect binding"),
     }
 }
 
@@ -2272,6 +2474,7 @@ fn record_ordinal_palette_outcome(
     if precedence.overrides_theme() {
         return;
     }
+
     match outcome {
         Some(FlowchartOrdinalPaletteOutcome::Candidate { .. }) if channel_emitted => {
             observation.observe_applied();
@@ -2758,7 +2961,7 @@ mod tests {
                         crate::resources::RenderResourcePolicy::unbounded_for_trusted_input(),
                     );
                     let recorder = FlowchartThemeEvidenceRecorder::default();
-                    // One successful occurrence must not hide another missing terminal.
+
                     if supported {
                         record_label_effect(
                             &recorder,

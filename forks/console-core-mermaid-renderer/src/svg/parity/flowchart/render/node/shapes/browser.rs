@@ -15,6 +15,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_browser(
 ) {
     let (bar_height, radius, w, h, top, body_path) = prepare_browser_geometry(ctx, common, label);
     let accent = ctx.node_border_color.as_str();
+
     if common.look_is_hand_drawn() {
         let _ = write!(
             out,
@@ -24,6 +25,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_browser(
     } else {
         out.push_str(r#"<g class="basic label-container">"#);
     }
+
     if common.look_is_hand_drawn() {
         if let Some((fill_d, stroke_d)) =
             super::super::helpers::timed_node_roughjs(common.timing, details, || {
@@ -43,7 +45,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_browser(
                 escape_attr(common.fill_color),
                 escape_attr(&stroke_d),
                 escape_attr(common.stroke_color),
-                fmt_display(common.stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
                 escape_attr(common.stroke_dasharray),
             );
         } else {
@@ -77,15 +79,17 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_browser(
         fmt(top + bar_height),
         escape_attr(accent),
     );
+
     for i in 0..3 {
         let _ = write!(
             out,
             r#"<circle cx="{}" cy="{}" r="2.5" style="fill:{};stroke:none"/>"#,
-            fmt(-w / 2.0 + 12.0 + i as f64 * 9.0),
+            fmt(-w / 2.0 + 12.0 + <f64 as ::core::convert::From<::core::primitive::i32>>::from(i) * 9.0),
             fmt(top + bar_height / 2.0),
             escape_attr(accent),
         );
     }
+
     let _ = write!(
         out,
         r#"<rect class="browser-address-bar" x="{}" y="{}" width="{}" height="{}" rx="3" ry="3" style="fill:none;stroke:{};stroke-width:1px;opacity:0.6"/>"#,
@@ -100,6 +104,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_browser(
     label.dy = top + bar_height + (h - bar_height) / 2.0;
 }
 
+#[must_use]
 fn prepare_browser_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
@@ -135,6 +140,7 @@ pub(super) fn advance_browser_rough_geometry(
     if !common.look_is_hand_drawn() {
         return;
     }
+
     let (_, _, _, _, _, body_path) = prepare_browser_geometry(ctx, common, label);
     let target = super::super::roughjs::RoughGeometryTarget::Query;
     let _ = super::super::helpers::prepare_node_path(common, &body_path, target);

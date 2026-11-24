@@ -40,10 +40,10 @@ pub(crate) fn extract_frames(
     .get(payload_at..)
     .ok_or(DecodeError::Invalid(Invalid::BlockHeader))?;
   let Ok(lacing) = Lacing::from_flags(header.flags);
-  let laced =
-    parse_lacing(lacing, payload).map_err(|_malformed_lace| DecodeError::Invalid(Invalid::Lacing))?;
-  let count =
-    u64::try_from(laced.len()).map_err(|_wider_than_a_count| DecodeError::Invalid(Invalid::Lacing))?;
+  let laced = parse_lacing(lacing, payload)
+    .map_err(|_malformed_lace| DecodeError::Invalid(Invalid::Lacing))?;
+  let count = u64::try_from(laced.len())
+    .map_err(|_wider_than_a_count| DecodeError::Invalid(Invalid::Lacing))?;
   let duration = match block_duration.and_then(|whole| whole.checked_div(count)) {
     Some(each) => each,
     None => match default_durations.get(&track) {

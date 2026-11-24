@@ -24,23 +24,27 @@ pub(super) struct MeasuredGraph {
     pub nodesep: f64,
     pub ranksep: f64,
     pub nodes: IndexMap<String, MeasuredNode>,
-    // Parent references may insert nodes before their declarations. Preserve hierarchy mutation
-    // order separately so those placeholders do not reorder a namespace's declared children.
+
+
     pub parents: IndexMap<String, String>,
-    // Source, target, and name together identify a Graphlib multiedge.
+
     pub edges: IndexMap<(String, String, String), MeasuredEdge>,
 }
 
 impl MeasuredGraph {
     pub fn set_node(&mut self, id: String, mut node: MeasuredNode) {
-        if let Some(existing) = self.nodes.get(&id) {
-            node.is_namespace |= existing.is_namespace;
+        match self.nodes.get(&id) {
+            Some(existing) => {
+                node.is_namespace |= existing.is_namespace;
+            },
+            ::core::option::Option::None => {},
         }
+
         self.nodes.insert(id, node);
     }
 
     pub fn set_parent(&mut self, child: String, parent: String) {
-        // Graphlib inserts a referenced parent immediately, even before its declaration.
+
         self.nodes.entry(child.clone()).or_default();
         self.nodes.entry(parent.clone()).or_default();
         self.parents.insert(child, parent);
@@ -52,6 +56,7 @@ impl MeasuredGraph {
         self.edges.insert((source, target, id), edge);
     }
 
+    #[must_use]
     pub fn to_dagre(&self) -> ClassLayoutGraph {
         use dugong::graphlib::{Graph, GraphOptions};
         use dugong::{EdgeLabel, GraphLabel, LabelPos, NodeLabel};
@@ -65,11 +70,12 @@ impl MeasuredGraph {
             rankdir: super::rank_dir_from(&self.direction),
             nodesep: self.nodesep,
             ranksep: self.ranksep,
-            // The SVG viewport adds Mermaid's graph margins after layout.
+
             marginx: 0.0,
             marginy: 0.0,
             ..Default::default()
         });
+
         for (id, node) in &self.nodes {
             graph.set_node(
                 id.clone(),
@@ -80,9 +86,11 @@ impl MeasuredGraph {
                 },
             );
         }
+
         for (child, parent) in &self.parents {
             graph.set_parent(child.clone(), parent.clone());
         }
+
         for ((source, target, id), edge) in &self.edges {
             let mut label = EdgeLabel {
                 width: edge.width,
@@ -93,24 +101,33 @@ impl MeasuredGraph {
                 weight: 1.0,
                 ..Default::default()
             };
-            if let Some(meta) = &edge.terminals {
-                for (key, metrics) in [
-                    ("startLeft", meta.start_left),
-                    ("startRight", meta.start_right),
-                    ("endLeft", meta.end_left),
-                    ("endRight", meta.end_right),
-                ] {
-                    if let Some((width, height)) = metrics {
-                        super::set_extras_label_metrics(&mut label.extras, key, width, height);
+
+            match &edge.terminals {
+                Some(meta) => {
+                    for (key, metrics) in [
+                        ("startLeft", meta.start_left),
+                        ("startRight", meta.start_right),
+                        ("endLeft", meta.end_left),
+                        ("endRight", meta.end_right),
+                    ] {
+                        match metrics {
+                            Some((width, height)) => {
+                                super::set_extras_label_metrics(&mut label.extras, key, width, height);
+                            },
+                            ::core::option::Option::None => {},
+                        }
                     }
-                }
-                label
-                    .extras
-                    .insert("startMarker".to_string(), meta.start_marker.into());
-                label
-                    .extras
-                    .insert("endMarker".to_string(), meta.end_marker.into());
+
+                    label
+                        .extras
+                        .insert("startMarker".to_string(), <::serde_json::Value as ::core::convert::From<::core::primitive::f64>>::from(meta.start_marker));
+                    label
+                        .extras
+                        .insert("endMarker".to_string(), <::serde_json::Value as ::core::convert::From<::core::primitive::f64>>::from(meta.end_marker));
+                },
+                ::core::option::Option::None => {},
             }
+
             graph.set_edge_named(
                 source.clone(),
                 target.clone(),
@@ -118,6 +135,7 @@ impl MeasuredGraph {
                 Some(label),
             );
         }
+
         graph
     }
 }

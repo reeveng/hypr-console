@@ -39,6 +39,7 @@ enum GitGraphLabelEvent {
 }
 
 impl GitGraphLabelEvent {
+    #[must_use]
     fn text(self, layout: &GitGraphDiagramLayout) -> Option<&str> {
         match self {
             Self::Commit(index) => Some(layout.commits.get(index)?.id.as_str()),
@@ -61,6 +62,7 @@ struct GitGraphLabelEvents<'a> {
 }
 
 impl<'a> GitGraphLabelEvents<'a> {
+    #[must_use]
     fn new(layout: &'a GitGraphDiagramLayout) -> Self {
         Self {
             layout,
@@ -78,19 +80,23 @@ impl Iterator for GitGraphLabelEvents<'_> {
         while let Some(commit) = self.layout.commits.get(self.commit_index) {
             if !self.label_checked {
                 self.label_checked = true;
+
                 if gitgraph_commit_label_is_visible(self.layout, commit) {
                     return Some(GitGraphLabelEvent::Commit(self.commit_index));
                 }
             }
+
             if self.next_tag < commit.tags.len() {
                 let tag = self.next_tag;
                 self.next_tag += 1;
                 return Some(GitGraphLabelEvent::Tag(self.commit_index, tag));
             }
+
             self.commit_index += 1;
             self.label_checked = false;
             self.next_tag = 0;
         }
+
         None
     }
 }
@@ -160,6 +166,7 @@ pub(crate) enum GitGraphCommitKind {
 }
 
 impl GitGraphCommitKind {
+    #[must_use]
     pub(crate) fn from_layout(commit: &GitGraphCommitLayout) -> Self {
         match commit.custom_type.unwrap_or(commit.commit_type) {
             1 => Self::Reverse,
@@ -170,6 +177,7 @@ impl GitGraphCommitKind {
         }
     }
 
+    #[must_use]
     pub(crate) const fn class_name(self) -> &'static str {
         match self {
             Self::Normal => "commit-normal",
@@ -180,6 +188,7 @@ impl GitGraphCommitKind {
         }
     }
 
+    #[must_use]
     pub(crate) const fn palette_element_roles(self) -> &'static [GitGraphCommitPaletteRole] {
         match self {
             Self::Normal => &NORMAL_COMMIT_PALETTE_ROLES,
@@ -207,6 +216,7 @@ impl GitGraphPaletteSurfaceSet {
         }
     }
 
+    #[must_use]
     fn contains(self, surface: GitGraphPaletteSurface) -> bool {
         match surface {
             GitGraphPaletteSurface::Commit => self.commit,
@@ -215,6 +225,7 @@ impl GitGraphPaletteSurfaceSet {
         }
     }
 
+    #[must_use]
     fn any(self) -> bool {
         self.commit || self.arrow || self.branch_label_background
     }
@@ -238,23 +249,35 @@ impl Default for GitGraphPaletteSurfaceOwnership {
 
 impl GitGraphPaletteSurfaceOwnership {
     pub(crate) fn mark_fill_owned(&mut self, surface: GitGraphPaletteSurface, slot: usize) {
-        if let Some(owned) = self.fill_owned_by_slot.get_mut(slot) {
-            owned.insert(surface);
+        {
+            match self.fill_owned_by_slot.get_mut(slot) {
+                Some(owned) => {
+                    owned.insert(surface);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
     pub(crate) fn mark_stroke_owned(&mut self, surface: GitGraphPaletteSurface, slot: usize) {
-        if let Some(owned) = self.stroke_owned_by_slot.get_mut(slot) {
-            owned.insert(surface);
+        {
+            match self.stroke_owned_by_slot.get_mut(slot) {
+                Some(owned) => {
+                    owned.insert(surface);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
+    #[must_use]
     fn owns_fill(self, surface: GitGraphPaletteSurface, slot: usize) -> bool {
         self.fill_owned_by_slot
             .get(slot)
             .is_some_and(|owned| owned.contains(surface))
     }
 
+    #[must_use]
     fn owns_stroke(self, surface: GitGraphPaletteSurface, slot: usize) -> bool {
         self.stroke_owned_by_slot
             .get(slot)
@@ -284,6 +307,7 @@ impl Default for GitGraphPaletteSourceOwnership {
 }
 
 impl GitGraphPaletteSourceOwnership {
+    #[must_use]
     fn from_config(config: &PresentationConfig) -> Self {
         Self {
             git: std::array::from_fn(|slot| {
@@ -297,9 +321,13 @@ impl GitGraphPaletteSourceOwnership {
         }
     }
 
+    #[must_use]
     fn owns(self, source: GitGraphPaletteSource) -> bool {
         match source {
-            GitGraphPaletteSource::Git(slot) => self.git.get(slot).copied().unwrap_or(false),
+            GitGraphPaletteSource::Git(slot) => match self.git.get(slot).copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            },
             GitGraphPaletteSource::NodeBorder => self.node_border,
             GitGraphPaletteSource::MainBackground => self.main_background,
             GitGraphPaletteSource::PrimaryColor => self.primary_color,
@@ -365,14 +393,16 @@ impl GitGraphNodePalettePlan {
         work_meter: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
         let mut plan = Self::baseline(layout);
-        let Some(theme) = theme else {
-            return Ok(plan);
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
         };
 
         plan.evidence = FamilyThemeOutcomes::default();
         let absent = TerminalVariantDomain::uniform(0, ThemeVariant::Default);
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut plan.evidence,
             &[
                 UnsupportedTerminalDomain::direct(ThemeTarget::Marker, absent),
@@ -392,17 +422,19 @@ impl GitGraphNodePalettePlan {
             ],
             work_meter,
         )?;
-        if theme
+
+        if theme_2
             .ordinal_palette_disposition(ThemeTarget::Node)
             .is_some()
         {
             plan.initialize_palette_occurrences(layout, work_meter)?;
             plan.mermaid_source_ownership =
                 GitGraphPaletteSourceOwnership::from_config(effective_config);
-            plan.resolve_node_palette(theme, work_meter)?;
+            plan.resolve_node_palette(theme_2, work_meter)?;
         }
+
         plan.branch_stroke = GitGraphBranchStrokePlan::resolve(
-            theme,
+            theme_2,
             effective_config,
             if layout.show_branches {
                 layout.branches.len()
@@ -420,12 +452,19 @@ impl GitGraphNodePalettePlan {
         theme: &ResolvedDiagramTheme,
         work_meter: &OperationWorkMeter,
     ) -> Result<(), OperationWorkError> {
-        let Some(disposition) = theme.ordinal_palette_disposition(ThemeTarget::Node) else {
-            return Ok(());
+        let disposition = {
+            let optional_disposition = theme.ordinal_palette_disposition(ThemeTarget::Node);
+
+            match optional_disposition {
+                Some(matched_disposition) => matched_disposition,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         let key = FamilyThemeMechanismKey::OrdinalPalette {
             target: ThemeTarget::Node,
         };
+
         if !self.has_visible_surface() {
             self.evidence.mark_not_applicable(key);
             return Ok(());
@@ -445,6 +484,7 @@ impl GitGraphNodePalettePlan {
                         work_meter,
                     )?;
                     self.fill_winner_by_slot[slot] = style.fill_resolution().winner().is_some();
+
                     if !self.slot_has_palette_terminal(slot) {
                         continue;
                     }
@@ -456,6 +496,7 @@ impl GitGraphNodePalettePlan {
                         );
                         return Ok(());
                     };
+
                     self.fills_by_slot[slot] = Some(GitGraphNodePaletteFill {
                         css: color.as_css(),
                         capability: if color.is_transparent() {
@@ -485,29 +526,36 @@ impl GitGraphNodePalettePlan {
         layout: &GitGraphDiagramLayout,
         work_meter: &OperationWorkMeter,
     ) -> Result<(), OperationWorkError> {
-        // These identities belong only to palette evidence, not ordinary rendering.
+
         let mut branch_slots = HashMap::new();
+
         for branch in &layout.branches {
             work_meter.charge(1)?;
             branch_slots.insert(branch.name.as_str(), palette_slot(branch.index));
+
             if layout.show_branches {
                 let slot = palette_slot(branch.index);
                 self.visible_surfaces[slot].insert(GitGraphPaletteSurface::BranchLabelBackground);
                 self.expected_branch_label_slots.push(slot);
             }
         }
+
         for arrow in &layout.arrows {
             work_meter.charge(1)?;
             let slot = palette_slot(arrow.class_index);
             self.visible_surfaces[slot].insert(GitGraphPaletteSurface::Arrow);
             self.expected_arrow_slots.push(slot);
         }
+
         for (commit_index, commit) in layout.commits.iter().enumerate() {
             work_meter.charge(1)?;
-            let slot = branch_slots
+            let slot = match branch_slots
                 .get(commit.branch.as_str())
-                .copied()
-                .unwrap_or(0);
+                .copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0,
+            };
+
             for (element_index, role) in GitGraphCommitKind::from_layout(commit)
                 .palette_element_roles()
                 .iter()
@@ -524,9 +572,11 @@ impl GitGraphNodePalettePlan {
                 });
             }
         }
+
         Ok(())
     }
 
+    #[must_use]
     pub(crate) fn baseline(layout: &GitGraphDiagramLayout) -> Self {
         Self {
             fills_by_slot: std::array::from_fn(|_| None),
@@ -550,20 +600,24 @@ impl GitGraphNodePalettePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn has_palette_assignment(&self) -> bool {
         self.fills_by_slot.iter().any(Option::is_some)
     }
 
     pub(crate) fn bind_terminal_palette(&mut self, binding: &super::GitGraphCssBinding) {
         let mut ownership = GitGraphPaletteSurfaceOwnership::default();
+
         if self.has_palette_assignment() {
             let sources = binding.sources;
+
             for slot in 0..GITGRAPH_PALETTE_SLOT_COUNT {
                 if self.surface_is_visible(GitGraphPaletteSurface::Arrow, slot)
                     && self.mermaid_source_is_owned(sources.branch_slot(slot))
                 {
                     ownership.mark_stroke_owned(GitGraphPaletteSurface::Arrow, slot);
                 }
+
                 if self.surface_is_visible(GitGraphPaletteSurface::BranchLabelBackground, slot)
                     && sources
                         .branch_label_background(slot)
@@ -572,17 +626,20 @@ impl GitGraphNodePalettePlan {
                     ownership.mark_fill_owned(GitGraphPaletteSurface::BranchLabelBackground, slot);
                 }
             }
+
             for (slot, role) in self.commit_palette_elements() {
                 let source = match role {
                     GitGraphCommitPaletteRole::BranchSlot => sources.branch_slot(slot),
                     GitGraphCommitPaletteRole::State => sources.state(),
                 };
+
                 if self.mermaid_source_is_owned(source) {
                     ownership.mark_fill_owned(GitGraphPaletteSurface::Commit, slot);
                     ownership.mark_stroke_owned(GitGraphPaletteSurface::Commit, slot);
                 }
             }
         }
+
         self.terminal_declarations = std::array::from_fn(|slot| {
             GitGraphPaletteSurface::ALL.map(|surface| {
                 (
@@ -594,10 +651,12 @@ impl GitGraphNodePalettePlan {
         self.terminal_ownership = ownership;
     }
 
+    #[must_use]
     pub(crate) const fn terminal_ownership(&self) -> GitGraphPaletteSurfaceOwnership {
         self.terminal_ownership
     }
 
+    #[must_use]
     pub(crate) fn prepared_fill_css(
         &self,
         surface: GitGraphPaletteSurface,
@@ -606,6 +665,7 @@ impl GitGraphNodePalettePlan {
         self.prepared_paint_css(surface, slot, false)
     }
 
+    #[must_use]
     pub(crate) fn prepared_stroke_css(
         &self,
         surface: GitGraphPaletteSurface,
@@ -614,6 +674,7 @@ impl GitGraphNodePalettePlan {
         self.prepared_paint_css(surface, slot, true)
     }
 
+    #[must_use]
     fn prepared_paint_css(
         &self,
         surface: GitGraphPaletteSurface,
@@ -635,6 +696,7 @@ impl GitGraphNodePalettePlan {
             .flatten()
     }
 
+    #[must_use]
     fn has_visible_surface(&self) -> bool {
         self.visible_surfaces
             .iter()
@@ -642,12 +704,14 @@ impl GitGraphNodePalettePlan {
             .any(GitGraphPaletteSurfaceSet::any)
     }
 
+    #[must_use]
     pub(crate) fn surface_is_visible(&self, surface: GitGraphPaletteSurface, slot: usize) -> bool {
         self.visible_surfaces
             .get(slot)
             .is_some_and(|visible| visible.contains(surface))
     }
 
+    #[must_use]
     pub(crate) fn terminal_fill_css(
         &self,
         surface: GitGraphPaletteSurface,
@@ -657,16 +721,21 @@ impl GitGraphNodePalettePlan {
         if !self.surface_is_visible(surface, slot)
             || ownership.owns_fill(surface, slot)
             || surface == GitGraphPaletteSurface::Arrow
-            || self.fill_winner_by_slot.get(slot).copied().unwrap_or(false)
+            || match self.fill_winner_by_slot.get(slot).copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            }
         {
             return None;
         }
+
         self.fills_by_slot
             .get(slot)
             .and_then(Option::as_ref)
             .map(|fill| fill.css.as_str())
     }
 
+    #[must_use]
     pub(crate) fn terminal_stroke_css(
         &self,
         surface: GitGraphPaletteSurface,
@@ -679,6 +748,7 @@ impl GitGraphNodePalettePlan {
         {
             return None;
         }
+
         self.fills_by_slot
             .get(slot)
             .and_then(Option::as_ref)
@@ -692,26 +762,31 @@ impl GitGraphNodePalettePlan {
         title: Option<&str>,
         work: &OperationWorkMeter,
     ) -> crate::Result<()> {
-        self.text_paint = GitGraphTextPaintPlan::resolve(theme, config, title, work)?;
+        self.text_paint = { let checked_value = GitGraphTextPaintPlan::resolve(theme, config, title, work)?; checked_value };
         Ok(())
     }
 
+    #[must_use]
     pub(crate) fn text_paint(&self) -> &GitGraphTextPaintPlan {
         &self.text_paint
     }
 
+    #[must_use]
     pub(crate) fn terminal_branch_stroke_css(&self) -> Option<&str> {
         self.branch_stroke.terminal_css()
     }
 
+    #[must_use]
     pub(crate) fn branch_stylesheet_stroke(&self) -> Option<&str> {
         self.branch_stroke.stylesheet_css()
     }
 
+    #[must_use]
     pub(crate) fn mermaid_source_is_owned(&self, source: GitGraphPaletteSource) -> bool {
         self.mermaid_source_ownership.owns(source)
     }
 
+    #[must_use]
     pub(crate) fn commit_palette_elements(
         &self,
     ) -> impl Iterator<Item = (usize, GitGraphCommitPaletteRole)> + '_ {
@@ -720,6 +795,7 @@ impl GitGraphNodePalettePlan {
             .map(|element| (element.slot, element.role))
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(
         &self,
         ownership: GitGraphPaletteSurfaceOwnership,
@@ -729,12 +805,14 @@ impl GitGraphNodePalettePlan {
             .map(|_| GitGraphNodePaletteReceipt::new(self, ownership))
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: GitGraphNodePaletteReceipt) -> bool {
         self.palette_key.is_some()
             && receipt.proves(self)
             && self.terminal_receipt.set(receipt).is_ok()
     }
 
+    #[must_use]
     pub(crate) fn begin_branch_stroke_receipt(&self) -> Option<GitGraphBranchStrokeReceipt> {
         self.branch_stroke.begin_terminal_receipt()
     }
@@ -745,11 +823,15 @@ impl GitGraphNodePalettePlan {
         emitted_class: &str,
         emitted_style: Option<&str>,
     ) {
-        if let Some(receipt) = receipt.as_mut() {
-            receipt.record_branch_line(emitted_class, emitted_style);
+        match receipt.as_mut() {
+            Some(receipt_2) => {
+                receipt_2.record_branch_line(emitted_class, emitted_style);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
+    #[must_use]
     pub(crate) fn record_branch_stroke_terminal(
         &self,
         receipt: GitGraphBranchStrokeReceipt,
@@ -759,22 +841,28 @@ impl GitGraphNodePalettePlan {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
-        if let Some(key) = self.palette_key.clone() {
-            match self.terminal_receipt.get() {
-                Some(receipt) if !receipt.applied_capabilities.is_empty() => {
-                    evidence.mark_applied_with_capabilities(
-                        key,
-                        receipt.applied_capabilities.iter().copied(),
-                    );
+
+        match self.palette_key.clone() {
+            Some(key) => {
+                match self.terminal_receipt.get() {
+                    Some(receipt) if !receipt.applied_capabilities.is_empty() => {
+                        evidence.mark_applied_with_capabilities(
+                            key,
+                            receipt.applied_capabilities.iter().copied(),
+                        );
+                    }
+                    Some(_) => evidence.mark_not_applicable(key),
+                    None => evidence
+                        .mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette),
                 }
-                Some(_) => evidence.mark_not_applicable(key),
-                None => evidence
-                    .mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette),
-            }
+            },
+            ::core::option::Option::None => {},
         }
+
         self.branch_stroke.record_evidence(evidence);
     }
 
+    #[must_use]
     fn capability_for_surface(
         &self,
         surface: GitGraphPaletteSurface,
@@ -786,17 +874,28 @@ impl GitGraphNodePalettePlan {
         {
             return None;
         }
+
         self.fills_by_slot
             .get(slot)
             .and_then(Option::as_ref)
             .map(|fill| fill.capability)
     }
 
+    #[must_use]
     fn slot_has_palette_terminal(&self, slot: usize) -> bool {
-        let Some(visible) = self.visible_surfaces.get(slot).copied() else {
-            return false;
+        let visible = {
+            let optional_visible = self.visible_surfaces.get(slot).copied();
+
+            match optional_visible {
+                Some(matched_visible) => matched_visible,
+                ::core::option::Option::None => return false,
+            }
         };
-        let fill_available = !self.fill_winner_by_slot.get(slot).copied().unwrap_or(false)
+
+        let fill_available = !(match self.fill_winner_by_slot.get(slot).copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        })
             && (visible.contains(GitGraphPaletteSurface::Commit)
                 || visible.contains(GitGraphPaletteSurface::BranchLabelBackground));
         let stroke_available = visible.contains(GitGraphPaletteSurface::Commit)
@@ -821,6 +920,7 @@ pub(crate) struct GitGraphNodePaletteReceipt {
 }
 
 impl GitGraphNodePaletteReceipt {
+    #[must_use]
     fn new(plan: &GitGraphNodePalettePlan, ownership: GitGraphPaletteSurfaceOwnership) -> Self {
         let expected_rules = (0..GITGRAPH_PALETTE_SLOT_COUNT)
             .flat_map(|slot| {
@@ -916,11 +1016,17 @@ impl GitGraphNodePaletteReceipt {
         surface: GitGraphPaletteSurface,
         slot: usize,
     ) {
-        if let Some(capability) = plan.capability_for_surface(surface, slot, self.ownership) {
-            self.applied_capabilities.insert(capability);
+        {
+            match plan.capability_for_surface(surface, slot, self.ownership) {
+                Some(capability) => {
+                    self.applied_capabilities.insert(capability);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
+    #[must_use]
     fn proves(&self, plan: &GitGraphNodePalettePlan) -> bool {
         self.initialized
             && self.values_match
@@ -931,6 +1037,7 @@ impl GitGraphNodePaletteReceipt {
     }
 }
 
+#[must_use]
 pub(crate) fn palette_slot(index: i64) -> usize {
     index.rem_euclid(GITGRAPH_PALETTE_SLOT_COUNT as i64) as usize
 }

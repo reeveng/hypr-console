@@ -10,7 +10,7 @@ use console_program_runtime::commands::{self, Streams};
 use console_program_runtime::{Invocation, ReplyStatus};
 
 use super::Arrived;
-use super::commands::{Linux, Timing, finished};
+use super::commands::{Linux, finished};
 use crate::program_lifetime::ForkCancellation;
 
 #[derive(Default)]
@@ -27,6 +27,7 @@ impl Tasks {
   pub(super) fn start<E: Send + 'static>(
     &mut self,
     called: &str,
+    platform: &mut Linux,
     fork: &Fork,
     invocation: Invocation,
     replies: &SyncSender<Arrived<E>>,
@@ -40,7 +41,7 @@ impl Tasks {
         return Err(answer);
       }
     };
-    let running = match start(fork, invocation, replies) {
+    let running = match start(platform, fork, invocation, replies) {
       Ok(running) => running,
       Err(fault) => {
         let Ok(answer) = refused(called, fork, &fault);
@@ -142,14 +143,12 @@ fn joined(worker: JoinHandle<()>) -> Result<(), Never> {
 }
 
 fn start<E: Send + 'static>(
+  platform: &mut Linux,
   fork: &Fork,
   identity: Invocation,
   replies: &SyncSender<Arrived<E>>,
 ) -> io::Result<Running> {
-  let platform = Linux {
-    timing: Timing::Inherited,
-  };
-  let invocation = commands::resolve(&platform, &fork.command)?;
+  let invocation = commands::resolve(platform, &fork.command)?;
   let child = platform.fork(&invocation, Streams::COLLECT)?;
   let cancellation = child.cancellation()?;
   let fork_2 = fork.clone();
@@ -200,7 +199,7 @@ mod tests {
   };
   use console_program_runtime::{ExecutionError, Limit, Subscribed, execute};
 
-  use super::super::{Arrived, Clock, Linux, Pure, subscription};
+  use super::super::{Arrived, Clock, CommandPlatform, Linux, Pure, Timing, subscription};
   use super::*;
 
   #[derive(Clone, Copy)]
@@ -273,6 +272,7 @@ mod tests {
       let Ok(subscriber) = subscription::connect(&[]);
       let Ok((subscriptions, _pool)) = subscriber.split();
       let mut interpreter = Pure;
+      let Ok(commands) = CommandPlatform::new(Timing::Inherited);
       let mut platform = Linux {
         called: "shutdown test",
         interpreter: &mut interpreter,
@@ -280,6 +280,7 @@ mod tests {
         arrived: Some(arrived),
         forking,
         jobs: Tasks::default(),
+        commands,
         listening: Subscribed::No,
         clock: Clock {
           began: Instant::now(),

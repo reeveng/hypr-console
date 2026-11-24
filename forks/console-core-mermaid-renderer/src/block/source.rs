@@ -20,6 +20,7 @@ pub(crate) struct BlockNodeSource<'a> {
 }
 
 impl<'a> BlockNodeSource<'a> {
+    #[must_use]
     fn new(node: &'a BlockNode, color_index: Option<usize>) -> Self {
         Self {
             color_index,
@@ -28,39 +29,56 @@ impl<'a> BlockNodeSource<'a> {
             classes: &node.classes,
             styles: &node.styles,
             directions: &node.directions,
-            width_in_columns: node.width_in_columns.unwrap_or(1).max(1),
+            width_in_columns: match node.width_in_columns {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 1,
+            }.max(1),
         }
     }
 
     fn merge(&mut self, node: &'a BlockNode, color_index: Option<usize>) {
-        if color_index.is_some() {
-            self.color_index = color_index;
+        match color_index {
+            ::core::option::Option::Some(_) => {
+                self.color_index = color_index;
+            },
+            ::core::option::Option::None => {},
         }
+
         if !node.label.is_empty() {
             self.label = &node.label;
         }
+
         if !node.block_type.is_empty() && node.block_type != "na" {
             self.block_type = &node.block_type;
         }
+
         if !node.classes.is_empty() {
             self.classes = &node.classes;
         }
+
         if !node.styles.is_empty() {
             self.styles = &node.styles;
         }
+
         if !node.directions.is_empty() {
             self.directions = &node.directions;
         }
-        if let Some(width) = node.width_in_columns {
-            self.width_in_columns = width.max(1);
+
+        match node.width_in_columns {
+            Some(width) => {
+                self.width_in_columns = width.max(1);
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
 
+#[must_use]
 pub(crate) fn resolve_block_node_sources(
     model: &BlockDiagramRenderModel,
 ) -> HashMap<&str, BlockNodeSource<'_>> {
     let mut sources = HashMap::new();
+
     for (index, node) in model.blocks_flat.iter().enumerate() {
         let color_index = model.visuals.color_indices.get(index).copied().flatten();
         sources
@@ -68,6 +86,7 @@ pub(crate) fn resolve_block_node_sources(
             .and_modify(|source: &mut BlockNodeSource<'_>| source.merge(node, color_index))
             .or_insert_with(|| BlockNodeSource::new(node, color_index));
     }
+
     sources
 }
 

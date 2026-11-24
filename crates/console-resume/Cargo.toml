@@ -15,16 +15,19 @@ name = "console-resume"
 path = "src/main.rs"
 
 [dependencies]
+console-core-logging = { workspace = true, features = ["std"] }
 console-core-words.workspace = true
 console-core-arguments.workspace = true
 console-core-external-programs.workspace = true
 console-core-iteration.workspace = true
+console-core-state-machine.workspace = true
 console-compositor.workspace = true
 console-core-never.workspace = true
 console-applications.workspace = true
 console-core-number-conversion.workspace = true
 console-response-times.workspace = true
 console-events.workspace = true
+console-operating-system-linux.workspace = true
 console-program-contract.workspace = true
 console-program-lifetime.workspace = true
 console-core-places.workspace = true

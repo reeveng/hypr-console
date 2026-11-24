@@ -602,10 +602,10 @@ impl<'a> ReferencePictures<'a> {
     let Ok(limit) = index(active);
 
     for command in commands {
-      ensure!(
+      ensure(
         cursor < active,
-        "too many ref_pic_list_modification entries"
-      );
+        || "too many ref_pic_list_modification entries",
+      )?;
       list.push(None);
       let reference = match command.idc {
         0 | 1 => {

@@ -51,54 +51,102 @@ pub(crate) struct UsecaseThemeStyle {
 }
 
 impl UsecaseThemeStyle {
+    #[must_use]
     pub(crate) fn text_style(&self, inherited: &TextStyle) -> TextStyle {
         let mut style = inherited.clone();
-        if let Some(family) = &self.font_family {
-            style.font_family = Some(family.clone());
+
+        match &self.font_family {
+            Some(family) => {
+                style.font_family = Some(family.clone());
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(size) = self.font_size {
-            style.font_size = size;
+
+        match self.font_size {
+            Some(size) => {
+                style.font_size = size;
+            },
+            ::core::option::Option::None => {},
         }
+
         style
     }
 
+    #[must_use]
     pub(crate) fn css(&self, textual: bool) -> String {
         let mut css = String::new();
-        if let Some(fill) = &self.fill {
-            let _ = write!(css, "fill:{fill} !important;");
-            if textual {
-                let _ = write!(css, "color:{fill} !important;");
-            }
+
+        match &self.fill {
+            Some(fill) => {
+                let _ = write!(css, "fill:{fill} !important;");
+
+                if textual {
+                    let _ = write!(css, "color:{fill} !important;");
+                }
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(stroke) = &self.stroke {
-            let _ = write!(css, "stroke:{stroke} !important;");
+
+        match &self.stroke {
+            Some(stroke) => {
+                let _ = write!(css, "stroke:{stroke} !important;");
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(width) = self.stroke_width {
-            let _ = write!(css, "stroke-width:{width}px !important;");
+
+        match self.stroke_width {
+            Some(width) => {
+                let _ = write!(css, "stroke-width:{width}px !important;");
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(dasharray) = &self.dasharray {
-            let _ = write!(css, "stroke-dasharray:{dasharray} !important;");
+
+        match &self.dasharray {
+            Some(dasharray) => {
+                let _ = write!(css, "stroke-dasharray:{dasharray} !important;");
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(linecap) = self.linecap {
-            let _ = write!(css, "stroke-linecap:{linecap} !important;");
+
+        match self.linecap {
+            Some(linecap) => {
+                let _ = write!(css, "stroke-linecap:{linecap} !important;");
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(linejoin) = self.linejoin {
-            let _ = write!(css, "stroke-linejoin:{linejoin} !important;");
+
+        match self.linejoin {
+            Some(linejoin) => {
+                let _ = write!(css, "stroke-linejoin:{linejoin} !important;");
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(family) = &self.font_family {
-            let _ = write!(css, "font-family:{family} !important;");
+
+        match &self.font_family {
+            Some(family) => {
+                let _ = write!(css, "font-family:{family} !important;");
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(size) = self.font_size {
-            let _ = write!(css, "font-size:{size}px !important;");
+
+        match self.font_size {
+            Some(size) => {
+                let _ = write!(css, "font-size:{size}px !important;");
+            },
+            ::core::option::Option::None => {},
         }
+
         if self.clear_effect {
             css.push_str("filter:none !important;");
         }
+
         css
     }
 
+    #[must_use]
     pub(crate) fn note_path_css(&self, outline: bool) -> String {
         let mut style = self.clone();
+
         if outline {
             style.fill = None;
         } else {
@@ -108,18 +156,25 @@ impl UsecaseThemeStyle {
             style.linecap = None;
             style.linejoin = None;
         }
+
         style.css(false)
     }
 
     pub(crate) fn record_emitted(&self, receipt: &UsecaseThemeReceipt) {
-        if let Some(index) = self.terminal {
-            receipt.emitted.borrow_mut()[index] = true;
+        match self.terminal {
+            Some(index) => {
+                receipt.emitted.borrow_mut()[index] = true;
+            },
+            ::core::option::Option::None => {},
         }
     }
 
     pub(crate) fn record_shadow_emitted(&self, receipt: &UsecaseThemeReceipt) {
-        if let Some(index) = self.terminal {
-            receipt.effects.borrow_mut().insert(index);
+        match self.terminal {
+            Some(index) => {
+                receipt.effects.borrow_mut().insert(index);
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
@@ -180,21 +235,27 @@ impl UsecaseThemePlan {
         diagram_title: Option<&str>,
         work: &OperationWorkMeter,
     ) -> crate::Result<Self> {
-        let Some(theme) = theme else {
-            return Ok(Self::default());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::default()),
         };
+
         let mut plan = Self {
-            theme: Some(theme.clone()),
+            theme: Some(theme_2.clone()),
             ..Self::default()
         };
         let binding = UsecaseCssBinding::new(config.as_value());
-        let html = crate::config::config_bool(config.as_value(), &["htmlLabels"]).unwrap_or(true);
+        let html = match crate::config::config_bool(config.as_value(), &["htmlLabels"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        };
         let mut counts = BTreeMap::<ThemeTarget, usize>::new();
         let mut ordinal = |target| {
             let count = counts.entry(target).or_default();
             *count += 1;
             *count
         };
+
         for node in &model.nodes {
             work.charge(1)?;
             let actor = node.kind == UsecaseNodeKind::Actor;
@@ -239,6 +300,7 @@ impl UsecaseThemePlan {
                 .stereotype
                 .as_ref()
                 .is_some_and(|text| !text.trim().is_empty());
+
             if !node.label.trim().is_empty() || (has_stereotype && !separate_stereotype) {
                 let label = plan.resolve_surface(
                     config,
@@ -263,6 +325,7 @@ impl UsecaseThemePlan {
                 )?;
                 plan.labels.insert(node.id.clone(), label);
             }
+
             if has_stereotype && separate_stereotype {
                 let label = plan.resolve_surface(
                     config,
@@ -288,6 +351,7 @@ impl UsecaseThemePlan {
                 plan.stereotypes.insert(node.id.clone(), label);
             }
         }
+
         for node in &model.json_nodes {
             work.charge(1)?;
             let source = source_styles(model, &node.classes, &node.styles);
@@ -329,6 +393,7 @@ impl UsecaseThemePlan {
             plan.shells.insert(node.id.clone(), shell);
             plan.labels.insert(node.id.clone(), label);
         }
+
         for note in &model.notes {
             work.charge(1)?;
             let source = source_styles(model, &[], &[]);
@@ -351,6 +416,7 @@ impl UsecaseThemePlan {
                 work,
             )?;
             plan.shells.insert(note.id.clone(), shell);
+
             if !note.label.trim().is_empty() {
                 let label = plan.resolve_surface(
                     config,
@@ -375,6 +441,7 @@ impl UsecaseThemePlan {
                 plan.labels.insert(note.id.clone(), label);
             }
         }
+
         for boundary in &model.boundaries {
             work.charge(1)?;
             let source = source_styles(model, &boundary.classes, &boundary.styles);
@@ -403,6 +470,7 @@ impl UsecaseThemePlan {
                 work,
             )?;
             plan.shells.insert(boundary.id.clone(), shell);
+
             if !boundary.label.trim().is_empty() {
                 let label = plan.resolve_surface(
                     config,
@@ -427,6 +495,7 @@ impl UsecaseThemePlan {
                 plan.labels.insert(boundary.id.clone(), label);
             }
         }
+
         for edge in &model.relationships {
             work.charge(1)?;
             let source = source_styles(model, &edge.classes, &edge.styles);
@@ -468,6 +537,7 @@ impl UsecaseThemePlan {
                     .label
                     .as_ref()
                     .is_some_and(|text| !text.trim().is_empty()));
+
             if labelled {
                 let label = plan.resolve_surface(
                     config,
@@ -506,6 +576,7 @@ impl UsecaseThemePlan {
                 plan.edge_labels.insert(edge.id.clone(), label);
                 plan.edge_backgrounds.insert(edge.id.clone(), background);
             }
+
             let sides: &[bool] = match edge.relationship_type {
                 UsecaseRelationshipType::Generalization
                 | UsecaseRelationshipType::Include
@@ -518,13 +589,15 @@ impl UsecaseThemePlan {
                     _ => &[false],
                 },
             };
-            for start in sides {
+
+            'over_start_2: for start in sides {
                 if source.contains_key("marker")
                     || source.contains_key(if *start { "marker-start" } else { "marker-end" })
                     || source.contains_key("all")
                 {
-                    continue;
+                    continue 'over_start_2;
                 }
+
                 let marker = plan.resolve_surface(
                     config,
                     Surface {
@@ -554,7 +627,8 @@ impl UsecaseThemePlan {
                 plan.markers.insert((edge.id.clone(), *start), marker);
             }
         }
-        // Note connectors are real edge terminals; they share Edge styling without markers.
+
+
         for note in &model.notes {
             let edge = plan.resolve_surface(
                 config,
@@ -575,6 +649,7 @@ impl UsecaseThemePlan {
             )?;
             plan.edges.insert(format!("{}-edge", note.id), edge);
         }
+
         if model
             .title
             .as_deref()
@@ -599,6 +674,7 @@ impl UsecaseThemePlan {
                 work,
             )?;
         }
+
         Ok(plan)
     }
 
@@ -632,6 +708,7 @@ impl UsecaseThemePlan {
         };
         let mut observations = Vec::new();
         let mut style = UsecaseThemeStyle::default();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             let (property, key, facet, selector_supported) = match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
@@ -641,11 +718,13 @@ impl UsecaseThemePlan {
                     ..
                 } => {
                     let property = resolved_style_property_for_facet(facet);
+
                     if !resolved.winner_rule_properties().any(|(winner, origin)| {
                         winner == property && origin.rule_index() == rule_index
                     }) {
                         continue;
                     }
+
                     (
                         property,
                         theme.family_mechanism_key(route),
@@ -662,6 +741,7 @@ impl UsecaseThemePlan {
                     if resolved.typography_resolution().winner(property).is_some() {
                         continue;
                     }
+
                     (
                         ResolvedStyleProperty::Typography(property),
                         theme.family_mechanism_key(route),
@@ -669,11 +749,13 @@ impl UsecaseThemePlan {
                         true,
                     )
                 }
-                _ => continue,
+                FamilyThemeMechanism::BaseTypography(_) | FamilyThemeMechanism::OrdinalPalette { .. } | FamilyThemeMechanism::EffectBinding { .. } => continue,
             };
+
             if source_owns(config, &surface, property) {
                 continue;
             }
+
             let supported = route.disposition() == FamilyThemeDisposition::TypedAdapter
                 && selector_supported
                 && if property == ResolvedStyleProperty::Effect {
@@ -686,7 +768,7 @@ impl UsecaseThemePlan {
                             style.shadow = graph.and_then(SvgShadowEffect::from_graph);
                             style.shadow.is_some()
                         }
-                        _ => false,
+                        ::core::option::Option::None | ::core::option::Option::Some(_) => false,
                     }
                 } else {
                     apply_property(theme, &mut style, &resolved, property, &surface)
@@ -705,6 +787,7 @@ impl UsecaseThemePlan {
                 }),
             });
         }
+
         if resolved.fill_resolution().winner().is_none()
             && !source_owns(config, &surface, ResolvedStyleProperty::Fill)
         {
@@ -720,6 +803,7 @@ impl UsecaseThemePlan {
                 }
             }
         }
+
         let effect = theme
             .resolve_effect(surface.target, resolved.effect_resolution())
             .or_else(|| {
@@ -728,62 +812,84 @@ impl UsecaseThemePlan {
                     .then(|| theme.resolve_effect(ThemeTarget::Text, resolved.effect_resolution()))
                     .flatten()
             });
-        if let Some(effect) = effect {
-            match effect {
-                ResolvedThemeEffect::Binding { binding, graph } => {
-                    let key = FamilyThemeMechanismKey::EffectBinding {
-                        target: binding.target(),
-                        effect_id: binding.effect_id().to_owned(),
-                    };
-                    if !source_owns(config, &surface, ResolvedStyleProperty::Effect) {
-                        let supported_route = theme.family_mechanism_routes().iter().any(|route| {
-                            matches!(route.mechanism(), FamilyThemeMechanism::EffectBinding { target, .. } if target == surface.target)
-                                && route.disposition() == FamilyThemeDisposition::TypedAdapter
-                        });
-                        let shadow = (surface.shadow && supported_route)
-                            .then(|| graph.and_then(SvgShadowEffect::from_graph))
-                            .flatten();
-                        let supported = shadow.is_some();
-                        style.shadow = shadow;
-                        observations.push(Observation {
-                            key,
-                            capability: supported.then_some(ThemeCapability::Shadow),
-                            residual: (!supported)
-                                .then_some(FamilyThemeResidualReason::UnsupportedEffect),
-                        });
+
+        match effect {
+            Some(effect_2) => {
+                match effect_2 {
+                    ResolvedThemeEffect::Binding { binding, graph } => {
+                        let key = FamilyThemeMechanismKey::EffectBinding {
+                            target: binding.target(),
+                            effect_id: binding.effect_id().to_owned(),
+                        };
+
+                        if !source_owns(config, &surface, ResolvedStyleProperty::Effect) {
+                            let supported_route = theme.family_mechanism_routes().iter().any(|route| {
+                                matches!(route.mechanism(), FamilyThemeMechanism::EffectBinding { target, .. } if target == surface.target)
+                                    && route.disposition() == FamilyThemeDisposition::TypedAdapter
+                            });
+                            let shadow = (surface.shadow && supported_route)
+                                .then(|| graph.and_then(SvgShadowEffect::from_graph))
+                                .flatten();
+                            let supported = shadow.is_some();
+                            style.shadow = shadow;
+                            observations.push(Observation {
+                                key,
+                                capability: supported.then_some(ThemeCapability::Shadow),
+                                residual: (!supported)
+                                    .then_some(FamilyThemeResidualReason::UnsupportedEffect),
+                            });
+                        }
                     }
+                    ResolvedThemeEffect::Rule { .. } | ResolvedThemeEffect::ClearedByRule => {}
                 }
-                ResolvedThemeEffect::Rule { .. } | ResolvedThemeEffect::ClearedByRule => {}
-            }
+            },
+            ::core::option::Option::None => {},
         }
+
         if !observations.is_empty() {
             style.terminal = Some(self.terminals.len());
             self.terminals.push(observations);
         }
+
         Ok(style)
     }
 
+    #[must_use]
     pub(crate) fn shell(&self, id: &str) -> Option<&UsecaseThemeStyle> {
         self.shells.get(id)
     }
+
+    #[must_use]
     pub(crate) fn label(&self, id: &str) -> UsecaseThemeStyle {
         self.labels.get(id).cloned().unwrap_or_default()
     }
+
+    #[must_use]
     pub(crate) fn stereotype(&self, id: &str) -> UsecaseThemeStyle {
         self.stereotypes.get(id).cloned().unwrap_or_default()
     }
+
+    #[must_use]
     pub(crate) fn edge(&self, id: &str) -> Option<&UsecaseThemeStyle> {
         self.edges.get(id)
     }
+
+    #[must_use]
     pub(crate) fn edge_label(&self, id: &str) -> UsecaseThemeStyle {
         self.edge_labels.get(id).cloned().unwrap_or_default()
     }
+
+    #[must_use]
     pub(crate) fn edge_background(&self, id: &str) -> Option<&UsecaseThemeStyle> {
         self.edge_backgrounds.get(id)
     }
+
+    #[must_use]
     pub(crate) fn marker(&self, id: &str, start: bool) -> Option<&UsecaseThemeStyle> {
         self.markers.get(&(id.to_owned(), start))
     }
+
+    #[must_use]
     pub(crate) fn title(&self) -> &UsecaseThemeStyle {
         &self.title
     }
@@ -796,6 +902,7 @@ impl UsecaseThemePlan {
         if self.theme.is_none() {
             return Ok(());
         }
+
         work.charge_adapter(
             edges
                 .len()
@@ -813,11 +920,16 @@ impl UsecaseThemePlan {
             if retained.contains(id) {
                 return true;
             }
-            // Dagre can replace a parallel self-loop's entire projection. Only those
-            // absent terminals leave the ledger; surviving terminals still require emission.
-            if let Some(index) = style.terminal {
-                terminals[index].clear();
+
+
+
+            match style.terminal {
+                Some(index) => {
+                    terminals[index].clear();
+                },
+                ::core::option::Option::None => {},
             }
+
             false
         };
         self.edges.retain(|id, style| retain(id, style));
@@ -827,23 +939,29 @@ impl UsecaseThemePlan {
         Ok(())
     }
 
+    #[must_use]
     pub(crate) fn has_background_fill(&self) -> bool {
         self.edge_backgrounds
             .values()
             .any(|style| style.fill.is_some())
     }
+
+    #[must_use]
     pub(crate) fn begin_receipt(&self) -> UsecaseThemeReceipt {
         UsecaseThemeReceipt {
             emitted: RefCell::new(vec![false; self.terminals.len()]),
             ..Default::default()
         }
     }
+
     pub(crate) fn record_terminal(&self, receipt: UsecaseThemeReceipt) {
         let _ = self.receipt.set(UsecaseThemeSeal {
             emitted: receipt.emitted.into_inner(),
             effects: receipt.effects.into_inner(),
         });
     }
+
+    #[must_use]
     pub(crate) fn expected_effect_applications(&self) -> usize {
         self.shells
             .values()
@@ -852,20 +970,28 @@ impl UsecaseThemePlan {
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
-        let Some(theme) = &self.theme else { return };
+        let theme = match &self.theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return,
+        };
+
         let mut outcomes = BTreeMap::<FamilyThemeMechanismKey, Outcome>::new();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             outcomes
                 .entry(theme.family_mechanism_key(route))
                 .or_default();
         }
+
         for (index, observations) in self.terminals.iter().enumerate() {
             let emitted = self
                 .receipt
                 .get()
                 .is_some_and(|receipt| receipt.emitted[index]);
+
             for observation in observations {
                 let outcome = outcomes.entry(observation.key.clone()).or_default();
+
                 if let Some(reason) = observation.residual {
                     outcome.residual.get_or_insert(reason);
                 } else if emitted
@@ -892,7 +1018,9 @@ impl UsecaseThemePlan {
                 }
             }
         }
+
         let mut result = FamilyThemeOutcomes::default();
+
         for (key, outcome) in outcomes {
             if let Some(reason) = outcome.residual {
                 result.mark_residual(key, reason);
@@ -902,16 +1030,18 @@ impl UsecaseThemePlan {
                 result.mark_not_applicable(key);
             }
         }
+
         evidence.merge_borrowed(&result);
     }
 }
 
+#[must_use]
 fn source_styles(
     model: &UsecaseDiagramModel,
     classes: &[String],
     inline: &[String],
 ) -> IndexMap<String, String> {
-    // Normalize ownership queries only. Measurement and SVG keep the source spelling.
+
     super::super::measure::styles(model, classes, inline)
         .into_iter()
         .filter_map(|(key, value)| {
@@ -924,6 +1054,7 @@ fn source_styles(
         .collect()
 }
 
+#[must_use]
 fn bounded_body_source(source: &IndexMap<String, String>) -> bool {
     source.keys().all(|key| {
         crate::mermaid_style::is_label_style_key(key)
@@ -942,6 +1073,7 @@ fn bounded_body_source(source: &IndexMap<String, String>) -> bool {
     })
 }
 
+#[must_use]
 fn source_owns(
     config: &PresentationConfig,
     surface: &Surface<'_>,
@@ -957,6 +1089,7 @@ fn source_owns(
             .iter()
             .any(|path| config.config_paint_overrides_typed_default(path))
     };
+
     match property {
         ResolvedStyleProperty::Fill => {
             !surface.has_fill
@@ -972,28 +1105,28 @@ fn source_owns(
         ResolvedStyleProperty::FillOpacity => owns("fill-opacity"),
         ResolvedStyleProperty::StrokeOpacity => owns("stroke-opacity"),
         ResolvedStyleProperty::Effect => owns("filter"),
-        ResolvedStyleProperty::Typography(property) => {
-            let (key, root, local) = match property {
+        ResolvedStyleProperty::Typography(property_2) => {
+            let (key, root, local) = match property_2 {
                 ThemeTypographyProperty::FontStack => ("font-family", "fontFamily", "FontFamily"),
                 ThemeTypographyProperty::FontSize => ("font-size", "fontSize", "FontSize"),
                 ThemeTypographyProperty::FontWeight => ("font-weight", "fontWeight", "FontWeight"),
                 ThemeTypographyProperty::FontStyle => ("font-style", "fontStyle", "FontStyle"),
-                _ => return false,
+                ThemeTypographyProperty::LineHeight | ThemeTypographyProperty::LetterSpacing | ThemeTypographyProperty::WordSpacing | ThemeTypographyProperty::Transform | ThemeTypographyProperty::Decoration | ThemeTypographyProperty::TextAlign | ThemeTypographyProperty::WhiteSpace | ThemeTypographyProperty::Wrap => return false,
             };
             owns(key)
                 || owns("font")
-                // Role selectors and HTML labels consume their own size, even when the
-                // generic theme variable is explicit. Ordinary SVG labels inherit it.
-                || ((property != ThemeTypographyProperty::FontSize || surface.font_prefix.is_none())
+
+
+                || ((property_2 != ThemeTypographyProperty::FontSize || surface.font_prefix.is_none())
                     && config.config_path_overrides_typed_default(&format!("themeVariables.{root}")))
-                // Mermaid's generic size comes from themeVariables.fontSize, never fontSize.
-                || (property != ThemeTypographyProperty::FontSize
+
+                || (property_2 != ThemeTypographyProperty::FontSize
                     && config.config_path_overrides_typed_default(root))
                 || surface.font_prefix.is_some_and(|prefix| {
                     config.config_path_overrides_typed_default(&format!("usecase.{prefix}{local}"))
                 })
         }
-        _ => false,
+        ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding => false,
     }
 }
 
@@ -1009,6 +1142,7 @@ fn apply_property(
             if surface.textual && property == ResolvedStyleProperty::Stroke {
                 return false;
             }
+
             let (paint, fallback, destination) = if property == ResolvedStyleProperty::Fill {
                 (
                     resolved.fill_resolution().specified(),
@@ -1041,10 +1175,11 @@ fn apply_property(
             *destination = match paint {
                 Specified::Clear => Some(fallback.to_owned()),
                 Specified::Value(CanvasPaint::Solid(_) | CanvasPaint::Transparent) => {
-                    direct.map(|paint| paint.css().to_owned())
+                    direct.map(|paint_2| paint_2.css().to_owned())
                 }
                 _ => return false,
             };
+
             if destination.is_none() {
                 return false;
             }
@@ -1054,14 +1189,17 @@ fn apply_property(
         }
         ResolvedStyleProperty::StrokeDasharray if !surface.textual => {
             style.dasharray = resolved.stroke_dasharray().map(|values| {
-                if values.is_empty() {
-                    "none".to_owned()
-                } else {
-                    values
-                        .iter()
-                        .map(ToString::to_string)
-                        .collect::<Vec<_>>()
-                        .join(" ")
+                match values {
+                    [] => {
+                        "none".to_owned()
+                    },
+                    [_, ..] => {
+                        values
+                            .iter()
+                            .map(ToString::to_string)
+                            .collect::<Vec<_>>()
+                            .join(" ")
+                    },
                 }
             });
         }
@@ -1087,11 +1225,13 @@ fn apply_property(
         ResolvedStyleProperty::Typography(ThemeTypographyProperty::FontSize) if surface.textual => {
             style.font_size = Some(f64::from(resolved.typography().font_size_px()));
         }
-        _ => return false,
+        ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => return false,
     }
+
     true
 }
 
+#[must_use]
 fn capability(
     property: ResolvedStyleProperty,
     resolved: &ResolvedThemeStyle,
@@ -1103,6 +1243,7 @@ fn capability(
             } else {
                 resolved.stroke()
             };
+
             match paint {
                 Some(CanvasPaint::Solid(_)) => Some(ThemeCapability::SolidPaint),
                 Some(CanvasPaint::Transparent) => Some(ThemeCapability::TransparentPaint),
@@ -1115,7 +1256,7 @@ fn capability(
         | ResolvedStyleProperty::StrokeLinejoin => Some(ThemeCapability::BorderStyling),
         ResolvedStyleProperty::Typography(_) => Some(ThemeCapability::Typography),
         ResolvedStyleProperty::Effect => Some(ThemeCapability::Shadow),
-        _ => None,
+        ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding => None,
     }
 }
 

@@ -5,8 +5,8 @@ fn prepare_pair<S, L>(
     semantic: &S,
     layout: impl FnOnce(&S) -> Result<L>,
 ) -> Result<Box<FamilyPair<&S, L>>> {
-    let layout = layout(semantic)?;
-    Ok(Box::new(FamilyPair::new(semantic, layout)))
+    let layout_2 = layout(semantic)?;
+    Ok(Box::new(FamilyPair::new(semantic, layout_2)))
 }
 
 #[cfg(any(
@@ -44,7 +44,7 @@ fn prepare_flowchart_artifact<'parsed, L>(
     )?;
     let edge_theme =
         crate::flowchart::FlowchartEdgeThemeStyle::resolve(resolved_theme, work_meter.as_ref())?;
-    let edge_style_plan = edge_style_plan
+    let edge_style_plan_2 = edge_style_plan
         .with_typography_work_meter(Arc::clone(&work_meter))
         .with_resolved_stroke_widths(
             &semantic,
@@ -65,23 +65,32 @@ fn prepare_flowchart_artifact<'parsed, L>(
         .with_typography_config_ownership(typography_config_ownership)
         .with_edge_label_padding(edge_theme.edge_label_padding())
     });
-    let layout = layout(
+    let layout_2 = layout(
         &semantic,
         &render_context,
         svg_label_sidecar.as_ref(),
-        &edge_style_plan,
+        &edge_style_plan_2,
     )?;
-    let svg_label_sidecar = svg_label_sidecar
+    let svg_label_sidecar_2 = svg_label_sidecar
         .map(crate::flowchart::FlowchartSvgLabelSidecarBuilder::finish)
         .unwrap_or_default();
-    if let Some(error) = svg_label_sidecar.prepared_work_error().cloned() {
-        return Err(error.into());
+
+    match svg_label_sidecar_2.prepared_work_error().cloned() {
+        Some(error) => {
+            return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error));
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(error) = svg_label_sidecar.prepared_resource_error().cloned() {
-        return Err(error.into());
+
+    match svg_label_sidecar_2.prepared_resource_error().cloned() {
+        Some(error) => {
+            return Err(<crate::Error as ::core::convert::From<crate::resources::ResourceLimitExceeded>>::from(error));
+        },
+        ::core::option::Option::None => {},
     }
-    let uses_elk = match layout_view(&layout) {
-        crate::svg::FlowchartNodeLayoutView::Flowchart(layout) => layout.uses_elk_adapter_dom,
+
+    let uses_elk = match layout_view(&layout_2) {
+        crate::svg::FlowchartNodeLayoutView::Flowchart(layout_3) => layout_3.uses_elk_adapter_dom,
         crate::svg::FlowchartNodeLayoutView::Swimlane(_) => false,
     };
     let render_config = crate::svg::prepare_flowchart_render_config(
@@ -89,22 +98,22 @@ fn prepare_flowchart_artifact<'parsed, L>(
         effective_config,
         &prepared_theme.compatibility,
         uses_elk,
-        svg_label_sidecar.base_typography(),
-        svg_label_sidecar.edge_label_padding(),
+        svg_label_sidecar_2.base_typography(),
+        svg_label_sidecar_2.edge_label_padding(),
     );
-    edge_style_plan.bind_terminal_typography_with_theme(
+    edge_style_plan_2.bind_terminal_typography_with_theme(
         &render_config.text_style,
         matches!(
-            layout_view(&layout),
+            layout_view(&layout_2),
             crate::svg::FlowchartNodeLayoutView::Swimlane(_)
         ),
-        &svg_label_sidecar.label_typography(),
+        &svg_label_sidecar_2.label_typography(),
     )?;
     let prepared_nodes = crate::svg::FlowchartPreparedNodes::prepare(
         &semantic,
         &render_context,
-        layout_view(&layout),
-        &svg_label_sidecar,
+        layout_view(&layout_2),
+        &svg_label_sidecar_2,
         resolved_theme,
         effective_config,
         &prepared_theme,
@@ -112,14 +121,14 @@ fn prepare_flowchart_artifact<'parsed, L>(
         &work_meter,
     )?;
     Ok(Box::new(FlowchartFamilyArtifact {
-        pair: FamilyPair::new(semantic, layout),
+        pair: FamilyPair::new(semantic, layout_2),
         render_context,
-        edge_style_plan,
+        edge_style_plan: edge_style_plan_2,
         edge_theme,
         prepared_theme,
         prepared_nodes,
         render_config,
-        svg_label_sidecar,
+        svg_label_sidecar: svg_label_sidecar_2,
         theme_evidence: crate::flowchart::FlowchartThemeEvidenceRecorder::default(),
         effect_evidence: crate::diagram_theme::SvgShadowEvidenceRecorder::default(),
         expected_effect_applications: std::cell::Cell::new(0),
@@ -414,11 +423,11 @@ fn prepare_state_family<'parsed>(
         Some(&label_sidecar),
         execution,
     )?;
-    let label_sidecar = label_sidecar.finish();
+    let label_sidecar_2 = label_sidecar.finish();
     Ok(BuiltinFamilyArtifact::State(Box::new(
         StateFamilyArtifact {
             pair: FamilyPair::new(model, layout),
-            label_sidecar,
+            label_sidecar: label_sidecar_2,
             effect_evidence: crate::diagram_theme::SvgShadowEvidenceRecorder::default(),
         },
     )))
@@ -452,15 +461,15 @@ fn prepare_flowchart_family<'parsed>(
                 edge_style_plan,
                 svg_label_preparation,
                 |layout| crate::svg::FlowchartNodeLayoutView::Swimlane(layout),
-                |model, render_context, svg_label_sidecar, edge_style_plan| {
+                |model_2, render_context_2, svg_label_sidecar, edge_style_plan_2| {
                     crate::swimlane::layout_swimlane_typed_with_work_meter_and_svg_label_sidecar(
-                        model,
-                        render_context,
+                        model_2,
+                        render_context_2,
                         &meta.effective_config,
                         execution.text_measurer(),
                         execution.math_renderer(),
                         svg_label_sidecar,
-                        edge_style_plan,
+                        edge_style_plan_2,
                         execution.work_meter(),
                     )
                 },
@@ -485,14 +494,14 @@ fn prepare_flowchart_family<'parsed>(
                     edge_style_plan,
                     svg_label_preparation,
                     |layout| crate::svg::FlowchartNodeLayoutView::Flowchart(layout),
-                    |model, render_context, svg_label_sidecar, edge_style_plan| {
+                    |model_3, render_context_3, svg_label_sidecar, edge_style_plan_3| {
                         crate::layout_flowchart_typed_with_render_labels_by_engine(
-                            model,
-                            render_context,
+                            model_3,
+                            render_context_3,
                             &meta.effective_config,
                             execution,
                             svg_label_sidecar,
-                            edge_style_plan,
+                            edge_style_plan_3,
                         )
                     },
                 )?,
@@ -921,6 +930,7 @@ fn prepare_xy_chart_family<'parsed>(
         &typography_theme,
         execution.text_measurer(),
     )?;
+
     if execution.family.root_theme_plan().is_some_and(|plan| {
         plan.replaces_default_family_background(
             &meta.effective_config,
@@ -929,6 +939,7 @@ fn prepare_xy_chart_family<'parsed>(
     }) {
         layout.background_color = "none".to_owned();
     }
+
     let paint_theme = crate::xychart::XyChartPaintPlan::resolve(
         execution.resolved_theme(),
         &meta.effective_config,
@@ -1025,8 +1036,8 @@ fn prepare_tree_view_family<'parsed>(
     )))
 }
 
-// Keep these families' large theme/layout temporaries out of the heterogeneous router frame.
-// Constrained-stack Architecture preparation otherwise inherits the largest unused match arm.
+
+
 #[inline(never)]
 #[cfg(feature = "diagram-packet")]
 fn prepare_packet_family<'parsed>(
@@ -1150,7 +1161,7 @@ fn prepare_class_family<'parsed>(
         &render_config,
     )?;
     let cluster_label_count = layout.clusters.len();
-    let relation_theme = relation_theme.with_cluster_domain(
+    let relation_theme_2 = relation_theme.with_cluster_domain(
         execution.resolved_theme(),
         &meta.effective_config,
         cluster_label_count,
@@ -1158,7 +1169,7 @@ fn prepare_class_family<'parsed>(
     )?;
     let node_visual_plan = crate::class::ClassNodeVisualPlan::resolve(
         model,
-        &relation_theme,
+        &relation_theme_2,
         &typography_theme,
         render_config.diagram_use_html_labels,
         execution.work_meter_ref(),
@@ -1167,7 +1178,7 @@ fn prepare_class_family<'parsed>(
         ClassFamilyArtifact {
             pair: FamilyPair::new(model, layout),
             prepared_labels,
-            relation_theme,
+            relation_theme: relation_theme_2,
             typography_theme,
             render_config,
             node_visual_plan,
@@ -1342,9 +1353,11 @@ pub(super) fn prepare_class_render<'parsed>(
 ) -> Result<FamilyRenderArtifact<'parsed>> {
     let meta = parsed.metadata();
     let model = parsed.model();
+
     let RenderSemanticModel::Class(model) = model else {
         unreachable!("Class render dispatch requires a Class semantic model")
     };
+
     context.observe_compatibility(meta);
     context.ensure_portable_before_svg()?;
     let execution = LayoutExecution::new(options, context.execution());
@@ -1361,9 +1374,11 @@ pub(super) fn prepare_architecture_render<'parsed>(
 ) -> Result<FamilyRenderArtifact<'parsed>> {
     let meta = parsed.metadata();
     let model = parsed.model();
+
     let RenderSemanticModel::Architecture(model) = model else {
         unreachable!("Architecture render dispatch requires an Architecture semantic model")
     };
+
     context.observe_compatibility(meta);
     context.ensure_portable_before_svg()?;
     let execution = LayoutExecution::new(options, context.execution());
@@ -1396,10 +1411,12 @@ pub(super) fn prepare_non_class_render<'parsed>(
     let diagram_type = meta.diagram_type.as_str();
     let title = meta.title.as_deref();
     context.observe_compatibility(meta);
+
     #[cfg(feature = "diagram-state")]
     if let RenderSemanticModel::State(model) = model {
         context.adapt_state(model, &meta.effective_config, title)?;
     }
+
     context.ensure_portable_before_svg()?;
     let execution = LayoutExecution::new(options, context.execution());
     let family = match model {
@@ -1576,7 +1593,7 @@ pub(super) fn prepare_non_class_render<'parsed>(
         RenderSemanticModel::CustomJson(_) => {
             unreachable!("custom JSON models return before built-in family dispatch")
         }
-        // Shared model features can be widened independently of this renderer's handlers.
+
         #[allow(unreachable_patterns)]
         _ => {
             return Err(Error::UnsupportedDiagram {

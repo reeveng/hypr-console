@@ -18,21 +18,24 @@ pub(super) fn parse_node_label_payload(raw: &str) -> Result<(&str, TitleKind), L
 
     let text = super::text::trim_flowdb_label_text(raw);
 
-    // Mermaid Jison-based flowchart lexer treats these as structural tokens (PS/PE/SQE/etc)
-    // and will throw parse errors if they appear inside TEXT.
+
+
     if text.contains(['"', '(', ')', '[', ']', '{', '}', '|']) {
         return Err(LexError::new(
             "Invalid text label: contains structural characters; quote it to use them",
         ));
     }
+
     if contains_bound_at(raw) {
         return Err(LexError::new(
             "Invalid text label: unquoted `@` must be preceded by whitespace",
         ));
     }
+
     Ok((raw, TitleKind::Text))
 }
 
+#[must_use]
 fn parsed_label_text(raw: &str, payload: &str, kind: TitleKind) -> LabeledText {
     let text = super::text::trim_flowdb_label_text(payload);
     LabeledText {
@@ -43,6 +46,7 @@ fn parsed_label_text(raw: &str, payload: &str, kind: TitleKind) -> LabeledText {
     }
 }
 
+#[must_use]
 fn contains_bound_at(raw: &str) -> bool {
     raw.char_indices().any(|(index, ch)| {
         ch == '@'
@@ -63,6 +67,7 @@ pub(super) fn parse_edge_text(raw: &str) -> std::result::Result<LabeledText, Lex
     if raw.starts_with('"') {
         return parse_node_label_text(raw);
     }
+
     if raw.contains('"') {
         return Err(LexError::new(
             "Invalid edge label: quoted strings cannot be mixed with unquoted text",
@@ -79,41 +84,61 @@ pub(super) fn parse_edge_text(raw: &str) -> std::result::Result<LabeledText, Lex
     })
 }
 
+#[must_use]
 pub(super) fn parse_rect_border_label(raw: &str) -> (&'static str, &str, usize) {
-    // Mermaid supports a special "rect" variant via `[|borders:...|Label]`.
-    // The `[|` token is recognized lexically before FlowDB trim. Leading whitespace therefore
-    // keeps this on the ordinary square-label path and is not allowed to synthesize a rect.
-    let Some(rest) = raw.strip_prefix('|') else {
-        return ("square", raw, 0);
+
+
+
+    let rest = {
+        let optional_rest = raw.strip_prefix('|');
+
+        match optional_rest {
+            Some(matched_rest) => matched_rest,
+            ::core::option::Option::None => return ("square", raw, 0),
+        }
     };
-    let Some((prefix, label)) = rest.split_once('|') else {
-        return ("square", raw, 0);
+
+    let (prefix, label) = {
+        let optional_prefix = rest.split_once('|');
+
+        match optional_prefix {
+            Some((matched_prefix, matched_label)) => (matched_prefix, matched_label),
+            ::core::option::Option::None => return ("square", raw, 0),
+        }
     };
+
     if prefix.starts_with("borders:") {
         let offset = 1 + prefix.len() + 1;
         return ("rect", label, offset);
     }
+
     ("square", raw, 0)
 }
 
+#[must_use]
 fn split_first_word(s: &str) -> Option<(&str, &str)> {
     let trimmed = s.trim();
+
     if trimmed.is_empty() {
         return None;
     }
+
     let bytes = trimmed.as_bytes();
     let mut i = 0;
+
     while match <[_]>::get(&*bytes, i) { ::core::option::Option::Some(&checked_element) => !checked_element.is_ascii_whitespace(), ::core::option::Option::None => false } {
         i += 1;
     }
+
     let first = &trimmed[..i];
     let rest = &trimmed[i..];
     Some((first, rest))
 }
 
+#[must_use]
 fn parse_styles_list(s: &str) -> Vec<String> {
-    // Used by `classDef` / `style` statements. Mermaid normalizes these style tokens by trimming
-    // whitespace around each comma-separated entry.
+
+
     let placeholder = "\u{0000}";
     let replaced = s.replace("\\,", placeholder);
     replaced
@@ -124,12 +149,13 @@ fn parse_styles_list(s: &str) -> Vec<String> {
         .collect()
 }
 
+#[must_use]
 fn parse_linkstyle_styles_list(s: &str) -> Vec<String> {
-    // Mermaid's Jison grammar preserves whitespace inside each style token (e.g. `, stroke: ...`
-    // becomes `" stroke: ..."`) and downstream FlowDB joins the style list verbatim via
-    // `styles.join(';')` (see `flow.jison` + `flowDb.updateLink(...)`).
-    //
-    // Keep the raw spacing (except for filtering out all-whitespace entries).
+
+
+
+
+
     let placeholder = "\u{0000}";
     let replaced = s.replace("\\,", placeholder);
     replaced
@@ -140,9 +166,15 @@ fn parse_linkstyle_styles_list(s: &str) -> Vec<String> {
 }
 
 pub(super) fn parse_style_stmt(rest: &str) -> std::result::Result<StyleStmt, LexError> {
-    let Some((target, styles_raw)) = split_first_word(rest) else {
-        return Err(LexError::new("Invalid style statement".to_string()));
+    let (target, styles_raw) = {
+        let optional_target = split_first_word(rest);
+
+        match optional_target {
+            Some((matched_target, matched_styles_raw)) => (matched_target, matched_styles_raw),
+            ::core::option::Option::None => return Err(LexError::new("Invalid style statement".to_string())),
+        }
     };
+
     let styles = parse_styles_list(styles_raw);
     Ok(StyleStmt {
         target: target.trim().to_string(),
@@ -158,9 +190,15 @@ pub(super) fn parse_style_stmt(rest: &str) -> std::result::Result<StyleStmt, Lex
 }
 
 pub(super) fn parse_classdef_stmt(rest: &str) -> std::result::Result<ClassDefStmt, LexError> {
-    let Some((ids_raw, styles_raw)) = split_first_word(rest) else {
-        return Err(LexError::new("Invalid classDef statement".to_string()));
+    let (ids_raw, styles_raw) = {
+        let optional_ids_raw = split_first_word(rest);
+
+        match optional_ids_raw {
+            Some((matched_ids_raw, matched_styles_raw)) => (matched_ids_raw, matched_styles_raw),
+            ::core::option::Option::None => return Err(LexError::new("Invalid classDef statement".to_string())),
+        }
     };
+
     let ids = ids_raw
         .split(',')
         .map(|s| s.trim().to_string())
@@ -184,18 +222,26 @@ pub(super) fn parse_classdef_stmt(rest: &str) -> std::result::Result<ClassDefStm
 pub(super) fn parse_class_assign_stmt(
     rest: &str,
 ) -> std::result::Result<ClassAssignStmt, LexError> {
-    let Some((targets_raw, class_raw)) = split_first_word(rest) else {
-        return Err(LexError::new("Invalid class statement".to_string()));
+    let (targets_raw, class_raw) = {
+        let optional_targets_raw = split_first_word(rest);
+
+        match optional_targets_raw {
+            Some((matched_targets_raw, matched_class_raw)) => (matched_targets_raw, matched_class_raw),
+            ::core::option::Option::None => return Err(LexError::new("Invalid class statement".to_string())),
+        }
     };
+
     let targets = targets_raw
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect::<Vec<_>>();
     let class_name = class_raw.trim().to_string();
+
     if class_name.is_empty() {
         return Err(LexError::new("Invalid class statement".to_string()));
     }
+
     Ok(ClassAssignStmt {
         targets,
         #[cfg(feature = "editor-facts")]
@@ -209,9 +255,15 @@ pub(super) fn parse_class_assign_stmt(
 }
 
 pub(super) fn attach_style_stmt_spans(stmt: &mut StyleStmt, rest: &str, rest_start: usize) {
-    let Some((target, _styles)) = split_first_word_with_span(rest, rest_start) else {
-        return;
+    let (target, _styles) = {
+        let optional_target = split_first_word_with_span(rest, rest_start);
+
+        match optional_target {
+            Some((matched_target, matched_styles)) => (matched_target, matched_styles),
+            ::core::option::Option::None => return,
+        }
     };
+
     stmt.target_span = Some(target.span);
     #[cfg(feature = "editor-facts")]
     if let Some(styles) = trim_spanned_slice(_styles) {
@@ -258,17 +310,20 @@ struct SpannedSlice<'a> {
     span: SourceSpan,
 }
 
+#[must_use]
 fn split_first_word_with_span(
     rest: &str,
     rest_start: usize,
 ) -> Option<(SpannedSlice<'_>, SpannedSlice<'_>)> {
     let leading = rest.len().saturating_sub(rest.trim_start().len());
     let trimmed = &rest[leading..];
+
     if trimmed.is_empty() {
         return None;
     }
 
     let mut first_len = 0usize;
+
     while first_len < trimmed.len() && !trimmed.as_bytes()[first_len].is_ascii_whitespace() {
         first_len += 1;
     }
@@ -337,6 +392,7 @@ struct ClickParse<'a> {
 }
 
 impl<'a> ClickParse<'a> {
+    #[must_use]
     fn new(s: &'a str, _base: usize) -> Self {
         Self {
             s,
@@ -348,16 +404,24 @@ impl<'a> ClickParse<'a> {
 
     fn skip_ws(&mut self) {
         while self.i < self.s.len() {
-            let Some(ch) = self.s[self.i..].chars().next() else {
-                break;
+            let ch = {
+                let optional_ch = self.s[self.i..].chars().next();
+
+                match optional_ch {
+                    Some(matched_ch) => matched_ch,
+                    ::core::option::Option::None => break,
+                }
             };
+
             if !is_ecmascript_whitespace(ch) {
                 break;
             }
+
             self.i += ch.len_utf8();
         }
     }
 
+    #[must_use]
     fn peek(&self) -> Option<u8> {
         self.s.as_bytes().get(self.i).copied()
     }
@@ -365,39 +429,59 @@ impl<'a> ClickParse<'a> {
     fn take_word(&mut self) -> Option<String> {
         self.skip_ws();
         let start = self.i;
+
         while self.i < self.s.len() {
-            let Some(ch) = self.s[self.i..].chars().next() else {
-                break;
+            let ch = {
+                let optional_ch = self.s[self.i..].chars().next();
+
+                match optional_ch {
+                    Some(matched_ch) => matched_ch,
+                    ::core::option::Option::None => break,
+                }
             };
+
             if is_ecmascript_whitespace(ch) {
                 break;
             }
+
             self.i += ch.len_utf8();
         }
+
         if self.i == start {
             return None;
         }
+
         Some(self.s[start..self.i].to_string())
     }
 
     fn take_quoted(&mut self) -> Option<String> {
         self.skip_ws();
         let checked_value = self.peek()?;
-        if checked_value != b'"' {
-            return None;
+
+        match checked_value {
+            b'"' => {},
+            _ => {
+                return None;
+            },
         }
+
         self.i += 1;
         let start = self.i;
+
         while self.i < self.s.len() && self.s.as_bytes()[self.i] != b'"' {
             self.i += 1;
         }
+
         let out = self.s[start..self.i].to_string();
+
         if self.i < self.s.len() && self.s.as_bytes()[self.i] == b'"' {
             self.i += 1;
         }
+
         Some(out)
     }
 
+    #[must_use]
     fn rest(&self) -> &str {
         &self.s[self.i..]
     }
@@ -411,8 +495,8 @@ impl<'a> ClickParse<'a> {
 #[cfg(feature = "editor-facts")]
 fn click_following_span(parser: &ClickParse<'_>, boundary_end: usize) -> Option<SourceSpan> {
     (parser.i > boundary_end).then(|| {
-        // Keep the completion slot after the first separator, including any
-        // remaining spaces, without placing a byte span inside a UTF-8 character.
+
+
         let separator_len = parser.s[boundary_end..]
             .chars()
             .next()
@@ -446,9 +530,16 @@ pub(super) fn parse_click_stmt(
     p.skip_ws();
     #[cfg(feature = "editor-facts")]
     let id_start = p.i;
-    let Some(id) = p.take_word() else {
-        return Err(LexError::new("Invalid click statement".to_string()));
+
+    let id = {
+        let optional_id = p.take_word();
+
+        match optional_id {
+            Some(matched_id) => matched_id,
+            ::core::option::Option::None => return Err(LexError::new("Invalid click statement".to_string())),
+        }
     };
+
     let ids = vec![id];
     #[cfg(feature = "editor-facts")]
     let id_spans = vec![p.source_span(id_start, p.i)];
@@ -480,6 +571,7 @@ pub(super) fn parse_click_stmt(
             Some(action_span),
             click_following_span(&p, action_end),
         );
+
         let Some(link) = p.take_quoted() else {
             return Err({
                 #[cfg(feature = "editor-facts")]
@@ -490,14 +582,17 @@ pub(super) fn parse_click_stmt(
                         interaction_evidence,
                     )
                 }
+
                 #[cfg(not(feature = "editor-facts"))]
                 {
                     LexError::new("Invalid click statement")
                 }
             });
         };
+
         let maybe_tt = p.take_quoted();
         let maybe_target = p.take_word();
+
         if maybe_target
             .as_deref()
             .is_some_and(|target| !matches!(target, "_self" | "_blank" | "_parent" | "_top"))
@@ -511,18 +606,21 @@ pub(super) fn parse_click_stmt(
                         interaction_evidence,
                     )
                 }
+
                 #[cfg(not(feature = "editor-facts"))]
                 {
                     LexError::new("Invalid click target")
                 }
             });
         }
+
         tooltip = maybe_tt;
         action = ClickAction::Link {
             href: link,
             target: maybe_target,
         };
         p.skip_ws();
+
         if p.i != p.s.len() {
             return Err({
                 #[cfg(feature = "editor-facts")]
@@ -533,12 +631,14 @@ pub(super) fn parse_click_stmt(
                         interaction_evidence,
                     )
                 }
+
                 #[cfg(not(feature = "editor-facts"))]
                 {
                     LexError::new("Unexpected content after click statement")
                 }
             });
         }
+
         return Ok(ClickStmt {
             ids,
             #[cfg(feature = "editor-facts")]
@@ -572,15 +672,24 @@ pub(super) fn parse_click_stmt(
             click_following_span(&p, action_end),
         );
         let start = p.i;
+
         while p.i < p.s.len() {
-            let Some(ch) = p.s[p.i..].chars().next() else {
-                break;
+            let ch = {
+                let optional_ch = p.s[p.i..].chars().next();
+
+                match optional_ch {
+                    Some(matched_ch) => matched_ch,
+                    ::core::option::Option::None => break,
+                }
             };
+
             if is_ecmascript_whitespace(ch) || ch == '(' {
                 break;
             }
+
             p.i += ch.len_utf8();
         }
+
         if p.i == start {
             return Err({
                 #[cfg(feature = "editor-facts")]
@@ -591,18 +700,23 @@ pub(super) fn parse_click_stmt(
                         interaction_evidence,
                     )
                 }
+
                 #[cfg(not(feature = "editor-facts"))]
                 {
                     LexError::new("Invalid click statement")
                 }
             });
         }
+
         p.skip_ws();
+
         if p.peek() == Some(b'(') {
             p.i += 1;
+
             while p.i < p.s.len() && p.s.as_bytes()[p.i] != b')' {
                 p.i += 1;
             }
+
             if p.peek() != Some(b')') {
                 return Err({
                     #[cfg(feature = "editor-facts")]
@@ -613,18 +727,21 @@ pub(super) fn parse_click_stmt(
                             interaction_evidence,
                         )
                     }
+
                     #[cfg(not(feature = "editor-facts"))]
                     {
                         LexError::new("Unterminated click callback arguments")
                     }
                 });
             }
+
             p.i += 1;
         }
 
         tooltip = p.take_quoted();
         action = ClickAction::Callback;
         p.skip_ws();
+
         if p.i != p.s.len() {
             return Err({
                 #[cfg(feature = "editor-facts")]
@@ -635,12 +752,14 @@ pub(super) fn parse_click_stmt(
                         interaction_evidence,
                     )
                 }
+
                 #[cfg(not(feature = "editor-facts"))]
                 {
                     LexError::new("Unexpected content after click statement")
                 }
             });
         }
+
         return Ok(ClickStmt {
             ids,
             #[cfg(feature = "editor-facts")]
@@ -656,69 +775,79 @@ pub(super) fn parse_click_stmt(
         });
     }
 
-    if let Some(link) = p.take_quoted() {
-        #[cfg(feature = "editor-facts")]
-        let interaction_evidence = FlowchartClickEditorEvidence::new(None, after_target);
-        let maybe_tt = p.take_quoted();
-        let maybe_target = p.take_word();
-        if maybe_target
-            .as_deref()
-            .is_some_and(|target| !matches!(target, "_self" | "_blank" | "_parent" | "_top"))
-        {
-            return Err({
+    match p.take_quoted() {
+        Some(link) => {
+            #[cfg(feature = "editor-facts")]
+            let interaction_evidence = FlowchartClickEditorEvidence::new(None, after_target);
+            let maybe_tt = p.take_quoted();
+            let maybe_target = p.take_word();
+
+            if maybe_target
+                .as_deref()
+                .is_some_and(|target| !matches!(target, "_self" | "_blank" | "_parent" | "_top"))
+            {
+                return Err({
+                    #[cfg(feature = "editor-facts")]
+                    {
+                        click_statement_error(
+                            "Invalid click target",
+                            #[cfg(feature = "editor-facts")]
+                            interaction_evidence,
+                        )
+                    }
+
+                    #[cfg(not(feature = "editor-facts"))]
+                    {
+                        LexError::new("Invalid click target")
+                    }
+                });
+            }
+
+            tooltip = maybe_tt;
+            action = ClickAction::Link {
+                href: link,
+                target: maybe_target,
+            };
+            p.skip_ws();
+
+            if p.i != p.s.len() {
+                return Err({
+                    #[cfg(feature = "editor-facts")]
+                    {
+                        click_statement_error(
+                            "Unexpected content after click statement",
+                            #[cfg(feature = "editor-facts")]
+                            interaction_evidence,
+                        )
+                    }
+
+                    #[cfg(not(feature = "editor-facts"))]
+                    {
+                        LexError::new("Unexpected content after click statement")
+                    }
+                });
+            }
+
+            return Ok(ClickStmt {
+                ids,
                 #[cfg(feature = "editor-facts")]
-                {
-                    click_statement_error(
-                        "Invalid click target",
-                        #[cfg(feature = "editor-facts")]
-                        interaction_evidence,
-                    )
-                }
-                #[cfg(not(feature = "editor-facts"))]
-                {
-                    LexError::new("Invalid click target")
-                }
-            });
-        }
-        tooltip = maybe_tt;
-        action = ClickAction::Link {
-            href: link,
-            target: maybe_target,
-        };
-        p.skip_ws();
-        if p.i != p.s.len() {
-            return Err({
+                id_spans,
+                tooltip,
+                action,
                 #[cfg(feature = "editor-facts")]
-                {
-                    click_statement_error(
-                        "Unexpected content after click statement",
-                        #[cfg(feature = "editor-facts")]
-                        interaction_evidence,
-                    )
-                }
-                #[cfg(not(feature = "editor-facts"))]
-                {
-                    LexError::new("Unexpected content after click statement")
-                }
+                editor_evidence: Default::default(),
+                #[cfg(feature = "editor-facts")]
+                interaction_evidence,
+                #[cfg(any(test, feature = "editor-facts"))]
+                recovery_error: None,
             });
-        }
-        return Ok(ClickStmt {
-            ids,
-            #[cfg(feature = "editor-facts")]
-            id_spans,
-            tooltip,
-            action,
-            #[cfg(feature = "editor-facts")]
-            editor_evidence: Default::default(),
-            #[cfg(feature = "editor-facts")]
-            interaction_evidence,
-            #[cfg(any(test, feature = "editor-facts"))]
-            recovery_error: None,
-        });
+        },
+        ::core::option::Option::None => {},
     }
 
     #[cfg(feature = "editor-facts")]
     let function_start = p.i;
+
     let Some(_function_name) = p.take_word() else {
         return Err({
             #[cfg(feature = "editor-facts")]
@@ -728,12 +857,14 @@ pub(super) fn parse_click_stmt(
                     FlowchartClickEditorEvidence::new(after_target, None),
                 )
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 LexError::new("Invalid click statement")
             }
         });
     };
+
     #[cfg(feature = "editor-facts")]
     let function_span = p.source_span(function_start, p.i);
     #[cfg(feature = "editor-facts")]
@@ -745,6 +876,7 @@ pub(super) fn parse_click_stmt(
     tooltip = p.take_quoted();
     action = ClickAction::Callback;
     p.skip_ws();
+
     if p.i != p.s.len() {
         return Err({
             #[cfg(feature = "editor-facts")]
@@ -755,12 +887,14 @@ pub(super) fn parse_click_stmt(
                     interaction_evidence,
                 )
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 LexError::new("Unexpected content after click statement")
             }
         });
     }
+
     Ok(ClickStmt {
         ids,
         #[cfg(feature = "editor-facts")]
@@ -782,8 +916,14 @@ pub(super) fn parse_link_style_stmt(
 ) -> std::result::Result<LinkStyleStmt, LexError> {
     let mut p = ClickParse::new(rest, rest_start);
     p.skip_ws();
-    let Some(pos_raw) = p.take_word() else {
-        return Err(LexError::new("Invalid linkStyle statement".to_string()));
+
+    let pos_raw = {
+        let optional_pos_raw = p.take_word();
+
+        match optional_pos_raw {
+            Some(matched_pos_raw) => matched_pos_raw,
+            ::core::option::Option::None => return Err(LexError::new("Invalid linkStyle statement".to_string())),
+        }
     };
 
     let positions = if pos_raw == "default" {
@@ -803,20 +943,21 @@ pub(super) fn parse_link_style_stmt(
 
     p.skip_ws();
     let mut interpolate: Option<String> = None;
+
     if p.rest().starts_with("interpolate")
         && p.rest()
             .get("interpolate".len()..)
-            .and_then(|rest| rest.chars().next())
+            .and_then(|rest_2| rest_2.chars().next())
             .is_none_or(is_ecmascript_whitespace)
     {
         let _ = p.take_word();
         interpolate = p.take_word();
     }
 
-    // Mermaid's `linkStyle ... interpolate <curve> ...` still tokenizes the styles list without the
-    // leading whitespace between the curve name and the first style token. Keep the whitespace
-    // inside comma-separated tokens (handled by `parse_linkstyle_styles_list`), but drop the
-    // leading separator spaces at the list boundary.
+
+
+
+
     p.skip_ws();
     let styles = parse_linkstyle_styles_list(p.rest());
     Ok(LinkStyleStmt {

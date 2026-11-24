@@ -15,7 +15,7 @@
 //! player does. So the codecs are in the tree now, carried in `crates/`:
 //! symphonia's readers and decoders for every container and codec but Opus,
 //! and filmcraft's clean-room decoder for Opus. [`decoding`] reads a song into
-//! samples, [`sounding`] carries them, and pw-cat plays what it is handed.
+//! samples, and [`sounding`] sends them to the desktop audio stream.
 //! Standing between the two is the whole point: pausing is not writing,
 //! position is what has been written, and stopping is a pipe that closes.
 //!
@@ -27,7 +27,7 @@
 //! plugin tree in order to reach decoders that a few crates reach on their own.
 //!
 //! What the panel talks to does not change. kew answered on MPRIS and so does
-//! this: the surface is already what `console_music::player` asks for and what
+//! this: the surface is already what `console_application_music::player` asks for and what
 //! the checks press, and it is what media keys and the rest of the machine
 //! speak. The one member the panel used to ask for and will not find here is
 //! `xesam:url`, which said which file was playing so the now-playing card could
@@ -39,6 +39,7 @@ pub mod bookmark;
 pub mod bus;
 pub mod decoding;
 pub mod library;
+mod loudness;
 pub mod playlist;
 pub mod sounding;
 pub mod stretching;

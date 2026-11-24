@@ -32,6 +32,13 @@ impl Point<f64> {
     })
   }
 
+  #[cfg_attr(
+    dylint_lib = "explicit067_no_unit_less_quantity",
+    expect(
+      explicit067_no_unit_less_quantity,
+      reason = "the interpolation fraction is a dimensionless multiple of the displacement"
+    )
+  )]
   pub const fn interpolate(self, other: Self, fraction: f64) -> Result<Self, Never> {
     Ok(Self {
       x: self.x + fraction * (other.x - self.x),

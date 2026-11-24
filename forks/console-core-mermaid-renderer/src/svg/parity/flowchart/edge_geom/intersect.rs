@@ -1,12 +1,14 @@
 use super::super::*;
 use super::BoundaryNode;
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn is_rounded_intersect_shift_shape(
     layout_shape: Option<&str>,
 ) -> bool {
     matches!(layout_shape, Some("roundedRect" | "rounded" | "event"))
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn is_polygon_layout_shape(
     layout_shape: Option<&str>,
 ) -> bool {
@@ -65,6 +67,7 @@ pub(in crate::svg::parity::flowchart) fn is_polygon_layout_shape(
     )
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn force_intersect_for_layout_shape(
     layout_shape: Option<&str>,
 ) -> bool {
@@ -74,6 +77,7 @@ pub(in crate::svg::parity::flowchart) fn force_intersect_for_layout_shape(
     {
         return true;
     }
+
     matches!(
         layout_shape,
         Some(
@@ -161,6 +165,7 @@ pub(in crate::svg::parity::flowchart) fn force_intersect_for_layout_shape(
     ) || is_polygon_layout_shape(layout_shape)
 }
 
+#[must_use]
 fn intersect_rect(
     node: &BoundaryNode,
     point: &crate::model::LayoutPoint,
@@ -176,13 +181,15 @@ fn intersect_rect(
         if dy < 0.0 {
             h = -h;
         }
-        let sx = if dy == 0.0 { 0.0 } else { (h * dx) / dy };
+
+        let sx = if ::core::matches!(::core::primitive::f64::classify(dy), ::core::num::FpCategory::Zero) { 0.0 } else { (h * dx) / dy };
         (sx, h)
     } else {
         if dx < 0.0 {
             w = -w;
         }
-        let sy = if dx == 0.0 { 0.0 } else { (w * dy) / dx };
+
+        let sy = if ::core::matches!(::core::primitive::f64::classify(dx), ::core::num::FpCategory::Zero) { 0.0 } else { (w * dy) / dx };
         (w, sy)
     };
 
@@ -192,61 +199,72 @@ fn intersect_rect(
     }
 }
 
+#[must_use]
 fn intersect_circle(
     node: &BoundaryNode,
     radius: f64,
     point: &crate::model::LayoutPoint,
 ) -> crate::model::LayoutPoint {
-    // Mermaid's intersect.circle retains the radius captured while painting the shape.
-    // The browser's measured bounds can differ, especially for rounded or rough paths.
+
+
     let rx = radius;
     let ry = radius;
     let px = node.x - point.x;
     let py = node.y - point.y;
     let det = (rx * rx * py * py + ry * ry * px * px).sqrt();
-    // Preserve the source's NaN at the centre: outlineAttachPoint uses that result
-    // to decline the departure-axis search and fall back to the centre ray.
+
+
     let mut dx = ((rx * ry * px) / det).abs();
+
     if point.x < node.x {
         dx = -dx;
     }
+
     let mut dy = ((rx * ry * py) / det).abs();
+
     if point.y < node.y {
         dy = -dy;
     }
+
     crate::model::LayoutPoint {
         x: node.x + dx,
         y: node.y + dy,
     }
 }
 
+#[must_use]
 fn intersect_diamond(
     node: &BoundaryNode,
     point: &crate::model::LayoutPoint,
 ) -> crate::model::LayoutPoint {
     let vx = point.x - node.x;
     let vy = point.y - node.y;
+
     if !(vx.is_finite() && vy.is_finite()) {
         return crate::model::LayoutPoint {
             x: node.x,
             y: node.y,
         };
     }
+
     if vx.abs() <= 1e-12 && vy.abs() <= 1e-12 {
         return crate::model::LayoutPoint {
             x: node.x,
             y: node.y,
         };
     }
+
     let hw = (node.width / 2.0).max(1e-9);
     let hh = (node.height / 2.0).max(1e-9);
     let denom = vx.abs() / hw + vy.abs() / hh;
+
     if !(denom.is_finite() && denom > 0.0) {
         return crate::model::LayoutPoint {
             x: node.x,
             y: node.y,
         };
     }
+
     let t = 1.0 / denom;
     crate::model::LayoutPoint {
         x: node.x + vx * t,
@@ -254,13 +272,14 @@ fn intersect_diamond(
     }
 }
 
+#[must_use]
 fn intersect_cylinder(
     node: &BoundaryNode,
     point: &crate::model::LayoutPoint,
 ) -> crate::model::LayoutPoint {
-    // Port of Mermaid `cylinder.ts` intersection logic (11.12.2):
-    // - start from `intersect.rect(node, point)`,
-    // - then adjust y when the intersection hits the curved top/bottom ellipses.
+
+
+
     let mut pos = intersect_rect(node, point);
     let x = pos.x - node.x;
 
@@ -268,34 +287,39 @@ fn intersect_cylinder(
     let rx = w / 2.0;
     let ry = rx / (2.5 + w / 50.0);
 
-    if rx != 0.0
+    if !::core::matches!(::core::primitive::f64::classify(rx), ::core::num::FpCategory::Zero)
         && (x.abs() < w / 2.0
             || ((x.abs() - w / 2.0).abs() < 1e-12
                 && (pos.y - node.y).abs() > node.height / 2.0 - ry))
     {
         let mut y = ry * ry * (1.0 - (x * x) / (rx * rx));
+
         if y > 0.0 {
             y = y.sqrt();
         } else {
             y = 0.0;
         }
+
         y = ry - y;
+
         if point.y - node.y > 0.0 {
             y = -y;
         }
+
         pos.y += y;
     }
 
     pos
 }
 
+#[must_use]
 fn intersect_tilted_cylinder(
     node: &BoundaryNode,
     point: &crate::model::LayoutPoint,
 ) -> crate::model::LayoutPoint {
-    // Port of Mermaid `tiltedCylinder.ts` intersection logic (11.12.2):
-    // - start from `intersect.rect(node, point)`,
-    // - then adjust x when the intersection hits the curved ends.
+
+
+
     let mut pos = intersect_rect(node, point);
     let y = pos.y - node.y;
     let top_or_bottom_center =
@@ -303,44 +327,50 @@ fn intersect_tilted_cylinder(
             let half_h = node.height / 2.0;
             (y.abs() - half_h).abs() < 1e-6
         };
+
     if top_or_bottom_center {
         return pos;
     }
 
     let ry = node.height / 2.0;
-    let rx = if ry == 0.0 {
+    let rx = if ::core::matches!(::core::primitive::f64::classify(ry), ::core::num::FpCategory::Zero) {
         0.0
     } else {
         ry / (2.5 + node.height / 50.0)
     };
 
-    if ry != 0.0
+    if !::core::matches!(::core::primitive::f64::classify(ry), ::core::num::FpCategory::Zero)
         && (y.abs() < node.height / 2.0
             || (y.abs() == node.height / 2.0 && (pos.x - node.x).abs() > node.width / 2.0 - rx))
     {
         let mut x = rx * rx * (1.0 - (y * y) / (ry * ry));
-        if x != 0.0 {
+
+        if !::core::matches!(::core::primitive::f64::classify(x), ::core::num::FpCategory::Zero) {
             x = x.abs().sqrt();
         }
+
         x = rx - x;
+
         if point.x - node.x > 0.0 {
             x = -x;
         }
+
         pos.x += x;
     }
 
     pos
 }
 
+#[must_use]
 fn intersect_line(
     p1: crate::model::LayoutPoint,
     p2: crate::model::LayoutPoint,
     q1: crate::model::LayoutPoint,
     q2: crate::model::LayoutPoint,
 ) -> Option<crate::model::LayoutPoint> {
-    // Mermaid 12 `rendering-elements/intersect/intersect-line.js` uses floating-point
-    // division without the Graphics Gems integer-rounding bias. That old bias moves
-    // an attachment off its ray and creates a spurious terminal bend.
+
+
+
     let a1 = p2.y - p1.y;
     let b1 = p1.x - p2.x;
     let c1 = p2.x * p1.y - p1.x * p2.y;
@@ -348,11 +378,12 @@ fn intersect_line(
     let r3 = a1 * q1.x + b1 * q1.y + c1;
     let r4 = a1 * q2.x + b1 * q2.y + c1;
 
+    #[must_use]
     fn same_sign(r1: f64, r2: f64) -> bool {
         r1 * r2 > 0.0
     }
 
-    if r3 != 0.0 && r4 != 0.0 && same_sign(r3, r4) {
+    if !::core::matches!(::core::primitive::f64::classify(r3), ::core::num::FpCategory::Zero) && !::core::matches!(::core::primitive::f64::classify(r4), ::core::num::FpCategory::Zero) && same_sign(r3, r4) {
         return None;
     }
 
@@ -363,15 +394,17 @@ fn intersect_line(
     let r1 = a2 * p1.x + b2 * p1.y + c2;
     let r2 = a2 * p2.x + b2 * p2.y + c2;
 
-    // Preserve the pinned source's asymmetric second-side test, including its
-    // acceptance of an intersection beyond the query segment.
+
+
     let epsilon = 1e-6;
+
     if r1.abs() < epsilon && r2.abs() < epsilon && same_sign(r1, r2) {
         return None;
     }
 
     let denom = a1 * b2 - a2 * b1;
-    if denom == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(denom), ::core::num::FpCategory::Zero) {
         return None;
     }
 
@@ -381,17 +414,19 @@ fn intersect_line(
     })
 }
 
+#[must_use]
 fn intersect_polygon(
     node: &BoundaryNode,
     poly_points: &[crate::model::LayoutPoint],
     point: &crate::model::LayoutPoint,
 ) -> crate::model::LayoutPoint {
-    // Port of Mermaid 12 `rendering-elements/intersect/intersect-polygon.js`.
+
     let x1 = node.x;
     let y1 = node.y;
 
     let mut min_x = f64::INFINITY;
     let mut min_y = f64::INFINITY;
+
     for p in poly_points {
         min_x = min_x.min(p.x);
         min_y = min_y.min(p.y);
@@ -401,6 +436,7 @@ fn intersect_polygon(
     let top = y1 - node.height / 2.0 - min_y;
 
     let mut intersections: Vec<crate::model::LayoutPoint> = Vec::new();
+
     for (i, poly_points_element) in <[_]>::iter(poly_points).enumerate() {
         let p1 = &*poly_points_element;
         let p2 = &poly_points[if i + 1 < poly_points.len() { i + 1 } else { 0 }];
@@ -412,6 +448,7 @@ fn intersect_polygon(
             x: left + p2.x,
             y: top + p2.y,
         };
+
         if let Some(inter) = intersect_line(
             crate::model::LayoutPoint { x: x1, y: y1 },
             point.clone(),
@@ -434,15 +471,19 @@ fn intersect_polygon(
             let qdy = q.y - point.y;
             let dist_p = (pdx * pdx + pdy * pdy).sqrt();
             let dist_q = (qdx * qdx + qdy * qdy).sqrt();
-            dist_p
-                .partial_cmp(&dist_q)
-                .unwrap_or(std::cmp::Ordering::Equal)
+
+            match dist_p
+                .partial_cmp(&dist_q) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => std::cmp::Ordering::Equal,
+            }
         });
     }
 
     intersections[0].clone()
 }
 
+#[must_use]
 fn intersect_polygon_hourglass(
     node: &BoundaryNode,
     point: &crate::model::LayoutPoint,
@@ -463,13 +504,14 @@ fn intersect_polygon_hourglass(
         },
     ];
 
-    // `hourglass.ts` uses the same polygon intersection as other shapes.
+
     intersect_polygon(node, &poly_points, point)
 }
 
+#[must_use]
 fn folder_tab_height_from_total_height(total_height: f64) -> f64 {
-    // Invert Mermaid's tab rule for the layout dimensions available to edge routing. The
-    // measured content height is clamped to an 8px minimum and a 14px maximum.
+
+
     if total_height <= 58.0 {
         8.0
     } else if total_height < 101.5 {
@@ -479,6 +521,7 @@ fn folder_tab_height_from_total_height(total_height: f64) -> f64 {
     }
 }
 
+#[must_use]
 fn folder_polygon_points(node: &BoundaryNode) -> Vec<crate::model::LayoutPoint> {
     let width = node.width.max(1.0);
     let total_height = node.height.max(1.0);
@@ -513,25 +556,28 @@ fn folder_polygon_points(node: &BoundaryNode) -> Vec<crate::model::LayoutPoint> 
     ]
 }
 
+#[must_use]
 fn bucket_polygon_points_for_dimensions(
     width: f64,
     total_height: f64,
 ) -> Vec<crate::model::LayoutPoint> {
-    let width = width.max(1.0);
-    let total_height = total_height.max(1.0);
-    let rim_ry = (width * 0.08).clamp(5.0, 12.0);
-    let top_y = -total_height / 2.0 + rim_ry;
-    let bottom_y = total_height / 2.0;
-    let bottom_width = width * 0.72;
+    let width_2 = width.max(1.0);
+    let total_height_2 = total_height.max(1.0);
+    let rim_ry = (width_2 * 0.08).clamp(5.0, 12.0);
+    let top_y = -total_height_2 / 2.0 + rim_ry;
+    let bottom_y = total_height_2 / 2.0;
+    let bottom_width = width_2 * 0.72;
     let segments = 12usize;
-    let mut points = Vec::with_capacity((segments + 1) * 2);
+    let mut points = Vec::with_capacity(segments.wrapping_add(1).wrapping_mul(2));
+
     for i in 0..=segments {
         let theta = std::f64::consts::PI - (i as f64 * std::f64::consts::PI / segments as f64);
         points.push(crate::model::LayoutPoint {
-            x: width / 2.0 * theta.cos(),
+            x: width_2 / 2.0 * theta.cos(),
             y: top_y - rim_ry * theta.sin(),
         });
     }
+
     for i in (0..=segments).rev() {
         let theta = std::f64::consts::PI - (i as f64 * std::f64::consts::PI / segments as f64);
         points.push(crate::model::LayoutPoint {
@@ -539,31 +585,35 @@ fn bucket_polygon_points_for_dimensions(
             y: bottom_y + rim_ry * theta.sin(),
         });
     }
+
     points
 }
 
+#[must_use]
 fn bucket_polygon_points(node: &BoundaryNode) -> Vec<crate::model::LayoutPoint> {
     bucket_polygon_points_for_dimensions(node.width, node.height)
 }
 
+#[must_use]
 fn person_polygon_points_for_dimensions(
     width: f64,
     total_height: f64,
 ) -> Vec<crate::model::LayoutPoint> {
-    let width = width.max(1.0);
-    let total_height = total_height.max(1.0);
-    let head_radius = (width * 0.23).clamp(16.0, 56.0);
+    let width_2 = width.max(1.0);
+    let total_height_2 = total_height.max(1.0);
+    let head_radius = (width_2 * 0.23).clamp(16.0, 56.0);
     let overlap = head_radius * 0.27;
-    let body_height = (total_height - 2.0 * head_radius + overlap).max(0.0);
-    let body_radius = (width * 0.177).min(body_height * 0.45);
-    let top = -total_height / 2.0;
+    let body_height = (total_height_2 - 2.0 * head_radius + overlap).max(0.0);
+    let body_radius = (width_2 * 0.177).min(body_height * 0.45);
+    let top = -total_height_2 / 2.0;
     let body_top = top + 2.0 * head_radius - overlap;
     let head_center_y = top + head_radius;
     let phi = ((body_top - head_center_y) / head_radius.max(1.0))
         .clamp(-1.0, 1.0)
         .asin();
     let segments = 24usize;
-    let mut points = Vec::with_capacity(segments + 4 * 12 + 8);
+    let mut points = Vec::with_capacity(segments.wrapping_add(48).wrapping_add(8));
+
     for i in 0..=segments {
         let start = (180.0 + phi.to_degrees()).to_radians();
         let end = (-phi.to_degrees()).to_radians();
@@ -577,7 +627,7 @@ fn person_polygon_points_for_dimensions(
     let circle = |cx: f64, cy: f64, start_deg: f64, end_deg: f64| {
         (0..12)
             .map(|i| {
-                let angle = (start_deg + (end_deg - start_deg) * i as f64 / 11.0).to_radians();
+                let angle = (start_deg + (end_deg - start_deg) * <f64 as ::core::convert::From<::core::primitive::i32>>::from(i) / 11.0).to_radians();
                 crate::model::LayoutPoint {
                     x: -(cx + body_radius * angle.cos()),
                     y: -(cy + body_radius * angle.sin()),
@@ -586,25 +636,25 @@ fn person_polygon_points_for_dimensions(
             .collect::<Vec<_>>()
     };
     points.extend(circle(
-        -(-width / 2.0 + body_radius),
+        -(-width_2 / 2.0 + body_radius),
         -(body_top + body_radius),
         90.0,
         0.0,
     ));
     points.extend(circle(
-        -(-width / 2.0 + body_radius),
-        -(total_height / 2.0 - body_radius),
+        -(-width_2 / 2.0 + body_radius),
+        -(total_height_2 / 2.0 - body_radius),
         360.0,
         270.0,
     ));
     points.extend(circle(
-        -(width / 2.0 - body_radius),
-        -(total_height / 2.0 - body_radius),
+        -(width_2 / 2.0 - body_radius),
+        -(total_height_2 / 2.0 - body_radius),
         270.0,
         180.0,
     ));
     points.extend(circle(
-        -(width / 2.0 - body_radius),
+        -(width_2 / 2.0 - body_radius),
         -(body_top + body_radius),
         180.0,
         90.0,
@@ -612,10 +662,12 @@ fn person_polygon_points_for_dimensions(
     points
 }
 
+#[must_use]
 fn person_polygon_points(node: &BoundaryNode) -> Vec<crate::model::LayoutPoint> {
     person_polygon_points_for_dimensions(node.width, node.height)
 }
 
+#[must_use]
 fn polygon_points_for_layout_shape(
     layout_shape: &str,
     node: &BoundaryNode,
@@ -632,10 +684,10 @@ fn polygon_points_for_layout_shape(
                 .collect(),
         ),
         "subroutine" | "fr-rect" | "subproc" | "subprocess" | "framed-rectangle" => {
-            // Port of Mermaid@11.12.2 `subroutine.ts` points used for polygon intersection.
-            //
-            // Mermaid's insertPolygonShape(...) uses `w = bbox.width + padding` but the
-            // resulting bbox expands by `offset*2` (=16px) due to the outer frame.
+
+
+
+
             let inner_w = (w - 16.0).max(1.0);
             Some(vec![
                 crate::model::LayoutPoint { x: 0.0, y: 0.0 },
@@ -740,16 +792,18 @@ fn polygon_points_for_layout_shape(
     }
 }
 
+#[must_use]
 fn intersect_wave_rectangle(
     node: &BoundaryNode,
     width: f64,
     height: f64,
     point: &crate::model::LayoutPoint,
 ) -> crate::model::LayoutPoint {
-    // `waveRectangle.ts` intersects the two sampled sine waves, rather than their bbox.
+
     let amplitude = height / 8.0;
     let final_height = height + amplitude * 2.0;
     let mut points = Vec::with_capacity(104);
+
     for (left, right, y, cycles) in [
         (-width / 2.0, width / 2.0, final_height / 2.0, 1.0),
         (width / 2.0, -width / 2.0, -final_height / 2.0, -1.0),
@@ -760,21 +814,25 @@ fn intersect_wave_rectangle(
                 left, y, right, y, amplitude, cycles,
             )
             .into_iter()
-            .map(|(x, y)| crate::model::LayoutPoint { x, y }),
+            .map(|(x, y_2)| crate::model::LayoutPoint { x, y: y_2 }),
         );
     }
+
     intersect_polygon(node, &points, point)
 }
 
+#[must_use]
 fn compute_node_label_metrics_for_intersection(
     ctx: &FlowchartRenderCtx<'_>,
     node_id: &str,
 ) -> Option<crate::text::TextMetrics> {
     let flow_node = ctx.nodes_by_id.get(node_id)?;
-    let label_text = ctx
+    let label_text = match ctx
         .model
-        .node_label_for_render(flow_node)
-        .unwrap_or_default();
+        .node_label_for_render(flow_node) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => "",
+    };
     let label_type = flow_node.label_type.as_deref().unwrap_or("text");
 
     let node_text_style = super::super::render::node::helpers::node_source_text_style(
@@ -792,6 +850,7 @@ fn compute_node_label_metrics_for_intersection(
             ctx.config,
         )
     };
+
     if let Some(metrics) = ctx.svg_label_sidecar.and_then(|sidecar| {
         let owner = sidecar.node_owner(node_id, ctx.swimlane_direction.is_some())?;
         sidecar.prepared_metrics(
@@ -806,6 +865,7 @@ fn compute_node_label_metrics_for_intersection(
     }) {
         return Some(metrics.with_label_min_width(label_text, min_width, None));
     }
+
     let metrics = crate::flowchart::flowchart_label_metrics_for_layout(
         crate::flowchart::FlowchartLabelMetricsRequest {
             measurer: ctx.measurer,
@@ -822,6 +882,7 @@ fn compute_node_label_metrics_for_intersection(
     Some(metrics.with_label_min_width(label_text, min_width, None))
 }
 
+#[must_use]
 fn intersect_curly_brace(
     node: &BoundaryNode,
     shape: &str,
@@ -838,9 +899,9 @@ fn intersect_curly_brace(
         padding,
         look_is_neo,
     );
-    // Mermaid 12 assigns intersect.polygon(node, rectPoints, point) before the
-    // visible brace group's translation. Reuse those unshifted polygon points,
-    // including the left-only brace's width-dependent central indentation.
+
+
+
     let points: Vec<_> = polygon
         .into_iter()
         .map(|(x, y)| crate::model::LayoutPoint { x, y })
@@ -848,6 +909,7 @@ fn intersect_curly_brace(
     intersect_polygon(node, &points, point)
 }
 
+#[must_use]
 fn intersect_notched_rectangle(
     node: &BoundaryNode,
     point: &crate::model::LayoutPoint,
@@ -882,6 +944,7 @@ fn intersect_notched_rectangle(
     intersect_polygon(node, &points, point)
 }
 
+#[must_use]
 fn stacked_rectangle_intersection_points(
     label_width: f64,
     label_height: f64,
@@ -911,19 +974,26 @@ fn stacked_rectangle_intersection_points(
         (x, y + rect_offset),
     ]
     .into_iter()
-    .map(|(x, y)| crate::model::LayoutPoint { x, y })
+    .map(|(x_2, y_2)| crate::model::LayoutPoint { x: x_2, y: y_2 })
     .collect()
 }
 
+#[must_use]
 fn intersect_stacked_rectangle(
     ctx: &FlowchartRenderCtx<'_>,
     node_id: &str,
     node: &BoundaryNode,
     point: &crate::model::LayoutPoint,
 ) -> crate::model::LayoutPoint {
-    let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-        return intersect_rect(node, point);
+    let metrics = {
+        let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+        match optional_metrics {
+            Some(matched_metrics) => matched_metrics,
+            ::core::option::Option::None => return intersect_rect(node, point),
+        }
     };
+
     let points = stacked_rectangle_intersection_points(
         metrics.width,
         metrics.height,
@@ -933,6 +1003,7 @@ fn intersect_stacked_rectangle(
     intersect_polygon(node, &points, point)
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
     ctx: &FlowchartRenderCtx<'_>,
     node_id: &str,
@@ -952,6 +1023,8 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
             false,
         );
     }
+
+    #[must_use]
     fn generate_full_sine_wave_points(
         x1: f64,
         y1: f64,
@@ -967,16 +1040,19 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         let frequency = (2.0 * std::f64::consts::PI) / cycle_length;
         let mid_y = y1 + delta_y / 2.0;
 
-        let mut points: Vec<crate::model::LayoutPoint> = Vec::with_capacity(steps + 1);
+        let mut points: Vec<crate::model::LayoutPoint> = Vec::with_capacity(steps.wrapping_add(1));
+
         for i in 0..=steps {
             let t = (i as f64) / (steps as f64);
             let x = x1 + t * delta_x;
             let y = mid_y + amplitude * (frequency * (x - x1)).sin();
             points.push(crate::model::LayoutPoint { x, y });
         }
+
         points
     }
 
+    #[must_use]
     fn arc_points(
         x1: f64,
         y1: f64,
@@ -997,6 +1073,7 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         let transformed_x = dx / rx;
         let transformed_y = dy / ry;
         let distance = (transformed_x * transformed_x + transformed_y * transformed_y).sqrt();
+
         if distance > 1.0 {
             return vec![
                 crate::model::LayoutPoint { x: x1, y: y1 },
@@ -1013,36 +1090,47 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         let end_angle = ((y2 - center_y) / ry).atan2((x2 - center_x) / rx);
 
         let mut angle_range = end_angle - start_angle;
+
         if clockwise && angle_range < 0.0 {
             angle_range += 2.0 * std::f64::consts::PI;
         }
+
         if !clockwise && angle_range > 0.0 {
             angle_range -= 2.0 * std::f64::consts::PI;
         }
 
         let mut points: Vec<crate::model::LayoutPoint> = Vec::with_capacity(num_points);
+
         for i in 0..num_points {
-            let t = i as f64 / (num_points - 1) as f64;
+            let t = i as f64 / num_points.wrapping_sub(1) as f64;
             let a = start_angle + t * angle_range;
             let x = center_x + rx * a.cos();
             let y = center_y + ry * a.sin();
             points.push(crate::model::LayoutPoint { x, y });
         }
+
         points
     }
 
+    #[must_use]
     fn intersect_stadium(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        // Port of Mermaid@11.12.2 `stadium.ts` intersection behavior:
-        // - `points` are generated from the theoretical render dimensions,
-        // - `node.width/height` used by `intersect.polygon(...)` come from `updateNodeBounds(...)`.
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+
+
+
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
+
         let geometry = crate::flowchart::StadiumGeometry::from_label(
             metrics.width,
             metrics.height,
@@ -1057,15 +1145,22 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_folder(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_polygon(node, &folder_polygon_points(node), point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_polygon(node, &folder_polygon_points(node), point),
+            }
         };
+
         let (render_w, render_h) = crate::flowchart::flowchart_node_render_dimensions(
             Some("folder"),
             metrics,
@@ -1107,15 +1202,22 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_bucket(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_polygon(node, &bucket_polygon_points(node), point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_polygon(node, &bucket_polygon_points(node), point),
+            }
         };
+
         let (render_w, render_h) = crate::flowchart::flowchart_node_render_dimensions(
             Some("bucket"),
             metrics,
@@ -1128,15 +1230,22 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_person(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_polygon(node, &person_polygon_points(node), point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_polygon(node, &person_polygon_points(node), point),
+            }
         };
+
         let (render_w, render_h) = crate::flowchart::flowchart_node_render_dimensions(
             Some("person"),
             metrics,
@@ -1149,6 +1258,7 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_hexagon(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
@@ -1156,7 +1266,7 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
         let neo = crate::config::mermaid_config_diagram_look(ctx.config).is_neo();
-        // Source points precede updateNodeBounds; prefer the measured label when available.
+
         let geometry = match compute_node_label_metrics_for_intersection(ctx, node_id) {
             Some(metrics) => crate::flowchart::HexagonGeometry::from_label(
                 metrics.width,
@@ -1174,15 +1284,22 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_curved_trapezoid(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
+
         let geometry = crate::flowchart::DisplayGeometry::from_label(
             metrics.width,
             metrics.height,
@@ -1197,14 +1314,20 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_bow_tie_rect(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
 
         let p = ctx.node_padding;
@@ -1252,6 +1375,7 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         let mut max_x = f64::NEG_INFINITY;
         let mut min_y = f64::INFINITY;
         let mut max_y = f64::NEG_INFINITY;
+
         for p in &points {
             min_x = min_x.min(p.x);
             max_x = max_x.max(p.x);
@@ -1269,14 +1393,20 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(&render_node, &points, point)
     }
 
+    #[must_use]
     fn intersect_tagged_document(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
 
         let p = ctx.node_padding;
@@ -1311,14 +1441,20 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_tagged_rect(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
 
         let p = ctx.node_padding;
@@ -1353,14 +1489,20 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_wave_document(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
 
         let p = ctx.node_padding;
@@ -1398,14 +1540,20 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_lined_wave_document(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
 
         let look_is_neo = crate::config::mermaid_config_diagram_look(ctx.config).is_neo();
@@ -1458,15 +1606,22 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_delay(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
+
         let geometry = crate::flowchart::DelayGeometry::from_label(
             metrics.width,
             metrics.height,
@@ -1481,14 +1636,20 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_notched_pentagon(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
 
         let p = ctx.node_padding;
@@ -1527,14 +1688,20 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_multi_wave_edged_rect(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
 
         let geometry = crate::flowchart::flowchart_stacked_document_geometry(
@@ -1552,6 +1719,7 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_lightning_bolt(
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
@@ -1586,14 +1754,20 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
         intersect_polygon(node, &points, point)
     }
 
+    #[must_use]
     fn intersect_window_pane(
         ctx: &FlowchartRenderCtx<'_>,
         node_id: &str,
         node: &BoundaryNode,
         point: &crate::model::LayoutPoint,
     ) -> crate::model::LayoutPoint {
-        let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-            return intersect_rect(node, point);
+        let metrics = {
+            let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+            match optional_metrics {
+                Some(matched_metrics) => matched_metrics,
+                ::core::option::Option::None => return intersect_rect(node, point),
+            }
         };
 
         let p = ctx.node_padding;
@@ -1626,9 +1800,15 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
 
     match layout_shape {
         Some(shape @ ("brace" | "brace-l" | "comment" | "brace-r" | "braces")) => {
-            let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-                return intersect_rect(node, point);
+            let metrics = {
+                let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+                match optional_metrics {
+                    Some(matched_metrics) => matched_metrics,
+                    ::core::option::Option::None => return intersect_rect(node, point),
+                }
             };
+
             intersect_curly_brace(
                 node,
                 shape,
@@ -1640,9 +1820,15 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
             )
         }
         Some(shape @ ("circle" | "circ" | "doublecircle" | "dbl-circ" | "double-circle")) => {
-            let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-                return intersect_circle(node, node.width / 2.0, point);
+            let metrics = {
+                let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+                match optional_metrics {
+                    Some(matched_metrics) => matched_metrics,
+                    ::core::option::Option::None => return intersect_circle(node, node.width / 2.0, point),
+                }
             };
+
             let (diameter, _) = crate::flowchart::flowchart_node_render_dimensions(
                 Some(shape),
                 metrics,
@@ -1651,7 +1837,7 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
             );
             intersect_circle(node, diameter / 2.0, point)
         }
-        // These RoughJS shapes capture a fixed radius before measuring their painted bounds.
+
         Some("anchor") => intersect_circle(node, 1.0, point),
         Some("f-circ" | "junction" | "filled-circle") => intersect_circle(node, 7.0, point),
         Some("cross-circ" | "summary" | "crossed-circle") => {
@@ -1683,9 +1869,15 @@ pub(in crate::svg::parity::flowchart) fn intersect_for_layout_shape(
             intersect_tagged_rect(ctx, node_id, node, point)
         }
         Some("paper-tape" | "flag") => {
-            let Some(metrics) = compute_node_label_metrics_for_intersection(ctx, node_id) else {
-                return intersect_rect(node, point);
+            let metrics = {
+                let optional_metrics = compute_node_label_metrics_for_intersection(ctx, node_id);
+
+                match optional_metrics {
+                    Some(matched_metrics) => matched_metrics,
+                    ::core::option::Option::None => return intersect_rect(node, point),
+                }
             };
+
             let look_is_neo = crate::config::mermaid_config_diagram_look(ctx.config).is_neo();
             let padding_x = if look_is_neo { 16.0 } else { ctx.node_padding };
             let padding_y = if look_is_neo { 20.0 } else { ctx.node_padding };
@@ -1759,8 +1951,8 @@ mod tests {
 
     #[test]
     fn paper_tape_intersects_the_sampled_wave_instead_of_the_bounding_box() {
-        // Pinned source: label 100x20, Neo padding 16/20 produces base 132x40;
-        // the two sine waves have amplitude 5 and baselines at +/-25.
+
+
         let node = BoundaryNode {
             x: 0.0,
             y: 0.0,
@@ -1805,7 +1997,7 @@ mod tests {
             };
             let points = stacked_rectangle_intersection_points(100.0, 20.0, 15.0, neo);
             let actual = intersect_polygon(&node, &points, &point(-width * 5.0, -height * 5.0));
-            // The upper-left ray hits a layer step before the bounding-box corner.
+
             assert!((actual.x - expected_x).abs() < 1e-9, "{actual:?}");
             assert!((actual.y - expected_y).abs() < 1e-9, "{actual:?}");
         }
@@ -1822,7 +2014,7 @@ mod tests {
                 height: 68.0,
             };
             let actual = intersect_notched_rectangle(&node, &point(-780.0, -340.0));
-            // The diagonal clips the twelve-pixel notch, before the bounding-box corner.
+
             assert!((actual.x - (-69.64285714285714)).abs() < 1e-9, "{actual:?}");
             assert!(
                 (actual.y - (-30.357142857142858)).abs() < 1e-9,
@@ -1833,9 +2025,9 @@ mod tests {
 
     #[test]
     fn mermaid12_braces_intersect_the_source_polygon_in_each_direction() {
-        // label + padding gives w=160, h=40 and r=5. The left brace's
-        // rectPoints use w*0.1, unlike the visible path's 2*r indentation.
-        // Its polygon therefore extends beyond the measured visible bounds.
+
+
+
         for (shape, width, left, right) in [
             ("brace", 170.0, -85.0, 91.0),
             ("brace-l", 170.0, -85.0, 91.0),
@@ -1901,9 +2093,9 @@ mod tests {
                     false,
                     &point(0.0, 500.0),
                 );
-                // The empty left brace's visible path widens the measured
-                // box beyond rectPoints; pinned polygon normalization keeps
-                // its lower vertical intersection at 2.5, not the box's 5.
+
+
+
                 let expected_y = if matches!(shape, "brace" | "brace-l" | "comment") {
                     2.5
                 } else {

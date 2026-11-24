@@ -19,22 +19,23 @@ pub(super) fn extract_style_property_with_checkpoints<E>(
         {
             found = Some(declaration.value().to_string());
         }
+
         Ok(true)
     })?;
     Ok(found)
 }
 
+#[must_use]
 pub(super) fn parse_css_px_value(value: &str) -> Option<f64> {
-    let value = strip_css_important(value);
-    let number = value
+    let value_2 = strip_css_important(value);
+    let number = value_2
         .strip_suffix("px")
-        .or_else(|| value.strip_suffix("PX"))
-        .unwrap_or(value)
+        .or_else(|| value_2.strip_suffix("PX"))
+        .unwrap_or(value_2)
         .trim();
-    number
-        .parse::<f64>()
-        .ok()
-        .filter(|value| value.is_finite() && *value > 0.0)
+    match number
+        .parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
+        .filter(|value_3| value_3.is_finite() && *value_3 > 0.0)
 }
 
 #[cfg(test)]

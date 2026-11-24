@@ -19,7 +19,7 @@ use std::io;
 use std::os::fd::OwnedFd;
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::program_lifetime::{
   BoundToParent, Forked, PipeReady, TimedReadPipe, alongside, forked, hooks,
@@ -30,6 +30,8 @@ use console_core_never::Never;
 use console_program_contract::{Executable, ExitStatus};
 use console_program_lifetime::{Detached, let_go, threads};
 use console_program_runtime::commands::{Completion, Launch, Platform, Report, Stream, Streams};
+
+use super::executables;
 
 pub type Invocation = console_program_runtime::commands::Invocation<PathBuf>;
 
@@ -49,25 +51,37 @@ pub enum Timing {
 
 pub struct Linux {
   pub timing: Timing,
+  executables: executables::Cache,
 }
 
 impl Linux {
+  pub fn new(timing: Timing) -> Result<Self, Never> {
+    Ok(Self {
+      timing,
+      executables: executables::Cache::default(),
+    })
+  }
+
   pub fn alongside(
-    &self,
+    &mut self,
     invocation: &Invocation,
     streams: Streams,
   ) -> io::Result<BoundToParent> {
     let Ok(mut command) = self.prepare(invocation, streams);
 
-    alongside(&mut command)
+    let launched = alongside(&mut command);
+
+    self.executables.launched(&invocation.program, launched)
   }
 
-  pub fn fork(&self, invocation: &Invocation, streams: Streams) -> io::Result<Forked> {
+  pub fn fork(&mut self, invocation: &Invocation, streams: Streams) -> io::Result<Forked> {
     let Ok(mut command) = self.prepare(invocation, streams);
 
     command.stdin(Stdio::null());
 
-    forked(&mut command)
+    let launched = forked(&mut command);
+
+    self.executables.launched(&invocation.program, launched)
   }
 
   fn prepare(&self, invocation: &Invocation, streams: Streams) -> Result<Command, Never> {
@@ -94,19 +108,26 @@ impl Platform for Linux {
   type Executable = PathBuf;
   type Error = io::Error;
 
-  fn resolve(&self, executable: Executable) -> io::Result<PathBuf> {
-    Ok(match executable {
+  fn resolve(&mut self, executable: Executable) -> io::Result<PathBuf> {
+    match executable {
       Executable::External(program) => {
-        let Ok(name) = program.name();
+        #[cfg_attr(
+          all(not(test), dylint_lib = "explicit039_no_reading_the_clock"),
+          expect(
+            explicit039_no_reading_the_clock,
+            reason = "the Linux resolution boundary samples the monotonic clock and hands that instant to the cache"
+          )
+        )]
+        let now = Instant::now();
 
-        PathBuf::from(name)
+        self.executables.executable(program, now)
       }
       Executable::Internal(program) => {
         let Ok(at) = program.at();
 
-        at
+        Ok(at)
       }
-    })
+    }
   }
 
   fn run(
@@ -124,7 +145,8 @@ impl Platform for Linux {
       Stream::Inherit | Stream::Discard => {}
     }
 
-    let mut started = command.spawn()?;
+    let launched = command.spawn();
+    let mut started = self.executables.launched(&invocation.program, launched)?;
     let printing = started.stdout.take();
     let complaints = started.stderr.take();
     let captured = collect(&mut started, printing, complaints, report, Child::try_wait);
@@ -180,7 +202,8 @@ impl Platform for Linux {
       }
     };
 
-    let started = let_go(&mut command)?;
+    let launched = let_go(&mut command);
+    let started = self.executables.launched(&invocation.program, launched)?;
 
     let Ok(()) = reap_in_background(started);
 

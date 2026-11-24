@@ -38,10 +38,12 @@ impl BlockLabelBackgroundPlan {
         Ok(Self(inner, color))
     }
 
+    #[must_use]
     pub(crate) fn requested(&self) -> bool {
         self.0.requested()
     }
 
+    #[must_use]
     pub(crate) fn color(&self) -> &str {
         &self.1
     }
@@ -97,28 +99,34 @@ impl BlockHtmlLabelPaintFacts {
             visible: true,
             ..Self::default()
         };
+
         if !facts.parse_valid() {
             return Ok(unknown());
         }
+
         work.charge(xhtml.len())?;
         let wrapped = format!("<block-label>{xhtml}</block-label>");
+
         let Ok(document) = crate::xml_dom::Document::parse(&wrapped) else {
             return Ok(unknown());
         };
+
         let first = document.root_element().first_element_child();
         let mut visible_paragraph = false;
         let mut first_paragraph_inherited = 0;
-        // Read the retained XHTML rather than authored HTML: HTML5 recovery may place the
-        // visible block outside the first p. Charge every inspected subtree before parsing it.
+
+
         for paragraph in document.descendants().filter(|node| node.has_tag_name("p")) {
             let fragment = &wrapped[paragraph.range()];
             work.charge(fragment.len())?;
             let paragraph_facts = VisibleTextStyleFacts::from_xhtml_fragment(fragment);
             visible_paragraph |= paragraph_facts.has_visible_runs();
+
             if Some(paragraph) == first && xhtml.starts_with("<p>") {
                 first_paragraph_inherited = paragraph_facts.inherited_color_run_count();
             }
         }
+
         let known_colors = facts.unverified_portable_color_run_count() == 0;
         Ok(Self {
             visible: facts.has_visible_runs(),
@@ -126,8 +134,8 @@ impl BlockHtmlLabelPaintFacts {
                 && facts.inherited_color_run_count() == 0
                 && known_colors,
             inherits_ancestor_color: !visible_paragraph && facts.inherited_color_run_count() != 0,
-            // The current writer styles exactly this paragraph. Other known source colors
-            // remain independent; every inherited visible run must reach the styled p.
+
+
             first_paragraph_consumes_color: first_paragraph_inherited != 0
                 && first_paragraph_inherited == facts.inherited_color_run_count()
                 && known_colors,
@@ -151,8 +159,13 @@ impl BlockNodeLabelPaintPlan {
             outcomes: OnceLock::new(),
             evidence: FamilyThemeOutcomes::default(),
         };
-        let Some(theme) = theme else { return Ok(plan) };
-        if !theme.family_mechanism_routes().iter().any(|route| {
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
+        if !theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet { target, .. }
@@ -163,6 +176,7 @@ impl BlockNodeLabelPaintPlan {
         }) {
             return Ok(plan);
         }
+
         let config_owned = [
             "themeVariables.nodeTextColor",
             "themeVariables.primaryTextColor",
@@ -170,23 +184,23 @@ impl BlockNodeLabelPaintPlan {
         ]
         .into_iter()
         .any(|path| config.config_paint_overrides_typed_default(path));
-        let has_ordinal = theme.family_rules().any(|(_, rule)| {
+        let has_ordinal = theme_2.family_rules().any(|(_, rule)| {
             matches!(rule.target(), ThemeTarget::NodeLabel | ThemeTarget::Text)
                 && rule.ordinal().is_some()
         });
-        let static_style = theme.text_style_with_work_meter(
+        let static_style = theme_2.text_style_with_work_meter(
             ThemeTarget::NodeLabel,
             ThemeVariant::Default,
             None,
             work,
         )?;
-        let cluster_style = theme.style_with_work_meter(
+        let cluster_style = theme_2.style_with_work_meter(
             ThemeTarget::ClusterLabel,
             ThemeVariant::Default,
             None,
             work,
         )?;
-        let cluster_ordinals = theme.family_rules().any(|(_, rule)| {
+        let cluster_ordinals = theme_2.family_rules().any(|(_, rule)| {
             rule.target() == ThemeTarget::ClusterLabel && rule.ordinal().is_some()
         });
         let composites = layout
@@ -228,8 +242,8 @@ impl BlockNodeLabelPaintPlan {
             "row",
             "text-outer-tspan",
         ];
-        // Only these native wrappers put `.class > * { fill: ... }` directly on
-        // text or its inner tspans. Shell fill remains an independent body property.
+
+
         let structural_fill_owned = !html_labels
             && model.class_defs.values().any(|class| {
                 matches!(class.id.as_str(), "label" | "row" | "text-outer-tspan")
@@ -243,52 +257,61 @@ impl BlockNodeLabelPaintPlan {
         let mut cluster_index = 0;
         let mut cluster_occurrences = Vec::new();
         let mut cluster_owned_fill = Vec::new();
+
         for (index, node) in layout.nodes.iter().enumerate() {
             work.charge(1)?;
             let source = sources.get(node.id.as_str());
             let html_paint = if html_labels {
                 Some(BlockHtmlLabelPaintFacts::prepare(
-                    prepared_labels.node_xhtml(&node.id).unwrap_or_default(),
+                    match prepared_labels.node_xhtml(&node.id) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => "",
+                    },
                     work,
                 )?)
             } else {
                 None
             };
             let owned = config_owned
-                || if let Some(html) = &html_paint {
-                    // Baseline CSS sets color directly on p. Inline source color and
-                    // node-class selectors still own visible HTML outside those paragraphs.
-                    color_classes.contains("nodeLabel")
-                        || html.source_owned
-                        || (html.inherits_ancestor_color
-                            && source.is_some_and(|source| {
+                || match &html_paint {
+                    Some(html) => {
+
+
+                        color_classes.contains("nodeLabel")
+                            || html.source_owned
+                            || (html.inherits_ancestor_color
+                                && source.is_some_and(|source_2| {
+                                    source_owns_property(
+                                        source_2
+                                            .styles
+                                            .iter()
+                                            .any(|raw| owns_label_color(raw, "color")),
+                                        source_2.classes,
+                                        &color_classes,
+                                        &["block", "node", "flowchart-label", "label"],
+                                    )
+                                }))
+                    },
+                    ::core::option::Option::None => {
+                        structural_fill_owned
+                            || source.is_some_and(|source_3| {
                                 source_owns_property(
-                                    source
+                                    source_3
                                         .styles
                                         .iter()
                                         .any(|raw| owns_label_color(raw, "color")),
-                                    source.classes,
+                                    source_3.classes,
                                     &color_classes,
-                                    &["block", "node", "flowchart-label", "label"],
+                                    &native_label_structural_classes,
                                 )
-                            }))
-                } else {
-                    structural_fill_owned
-                        || source.is_some_and(|source| {
-                            source_owns_property(
-                                source
-                                    .styles
-                                    .iter()
-                                    .any(|raw| owns_label_color(raw, "color")),
-                                source.classes,
-                                &color_classes,
-                                &native_label_structural_classes,
-                            )
-                        })
+                            })
+                    },
                 };
-            let label = source
-                .map(|source| super::decode_block_label_html(source.label))
-                .unwrap_or_default();
+            let label = match source
+                .map(|source_4| super::decode_block_label_html(source_4.label)) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::string::String::new(),
+            };
             let text = if html_labels {
                 label
             } else {
@@ -296,22 +319,30 @@ impl BlockNodeLabelPaintPlan {
             };
             let visible = !text.trim().is_empty()
                 && html_paint.as_ref().is_none_or(|html| html.visible)
-                && node.label_width.unwrap_or(0.0) > 0.0
-                && node.label_height.unwrap_or(0.0) > 0.0;
+                && (match node.label_width {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                }) > 0.0
+                && (match node.label_height {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                }) > 0.0;
             let ordinal_cluster_style;
             let cluster = if composites.contains(node.id.as_str()) {
                 cluster_index += 1;
                 cluster_owned_fill.push(owned || !visible);
+
                 if visible {
                     cluster_occurrences.push((cluster_index, ThemeVariant::Default));
                 }
+
                 Some(if cluster_ordinals {
-                    ordinal_cluster_style = theme.style_with_work_meter(
+                    ordinal_cluster_style = { let checked_value = theme_2.style_with_work_meter(
                         ThemeTarget::ClusterLabel,
                         ThemeVariant::Default,
                         Some(cluster_index),
                         work,
-                    )?;
+                    )?; checked_value };
                     &ordinal_cluster_style
                 } else {
                     &cluster_style
@@ -325,16 +356,17 @@ impl BlockNodeLabelPaintPlan {
             source_owned.push(owned || !visible || cluster_owns_fill);
             let dynamic_style;
             let style = if has_ordinal {
-                dynamic_style = theme.text_style_with_work_meter(
+                dynamic_style = { let checked_value_2 = theme_2.text_style_with_work_meter(
                     ThemeTarget::NodeLabel,
                     ThemeVariant::Default,
                     Some(index + 1),
                     work,
-                )?;
+                )?; checked_value_2 };
                 &dynamic_style
             } else {
                 &static_style
             };
+
             if visible {
                 winners.extend(
                     style
@@ -345,31 +377,38 @@ impl BlockNodeLabelPaintPlan {
                                 .then_some((origin.rule_index(), property))
                         }),
                 );
-                if let Some(cluster) = cluster {
-                    winners.extend(cluster.winner_rule_properties().filter_map(
-                        |(property, origin)| {
-                            (!(owned && property == ResolvedStyleProperty::Fill))
-                                .then_some((origin.rule_index(), property))
-                        },
-                    ));
+
+                match cluster {
+                    Some(cluster_2) => {
+                        winners.extend(cluster_2.winner_rule_properties().filter_map(
+                            |(property, origin)| {
+                                (!(owned && property == ResolvedStyleProperty::Fill))
+                                    .then_some((origin.rule_index(), property))
+                            },
+                        ));
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
-            // A composite's explicit label role overrides its generic node/text fill.
-            let style = cluster.filter(|_| cluster_owns_fill).unwrap_or(style);
+
+
+            let style_2 = cluster.filter(|_| cluster_owns_fill).unwrap_or(style);
             let paint_reachable = html_paint
                 .as_ref()
                 .is_none_or(|html| html.first_paragraph_consumes_color);
+
             if visible
                 && !owned
                 && !paint_reachable
-                && let Some(origin) = style.fill_resolution().winner()
+                && let Some(origin) = style_2.fill_resolution().winner()
             {
                 unconsumed_fills.insert((origin.rule_index(), origin.target()));
             }
+
             let paint = if visible && !owned && paint_reachable {
                 resolve_direct_static_fill(
-                    theme,
-                    style,
+                    theme_2,
+                    style_2,
                     &[
                         ThemeTarget::Text,
                         ThemeTarget::NodeLabel,
@@ -381,19 +420,23 @@ impl BlockNodeLabelPaintPlan {
             } else {
                 None
             };
-            if let Some(paint) = paint.as_ref()
+
+            if let Some(paint_2) = paint.as_ref()
                 && let Some((_, origin)) =
-                    style.winner_rule_properties().find(|(property, origin)| {
+                    style_2.winner_rule_properties().find(|(property, origin)| {
                         *property == ResolvedStyleProperty::Fill
-                            && origin.rule_index() == paint.rule_index()
+                            && origin.rule_index() == paint_2.rule_index()
                     })
             {
-                capabilities.insert((paint.rule_index(), origin.target()), paint.capability());
+                capabilities.insert((paint_2.rule_index(), origin.target()), paint_2.capability());
             }
+
             paints.push(paint);
         }
+
         let mut observations = BTreeMap::<(usize, ThemeTarget), NodeRuleObservation>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target,
@@ -403,17 +446,22 @@ impl BlockNodeLabelPaintPlan {
             else {
                 continue;
             };
+
             if !matches!(
                 target,
                 ThemeTarget::NodeLabel | ThemeTarget::Text | ThemeTarget::ClusterLabel
             ) {
                 continue;
             }
+
             let observation = observations.entry((rule_index, target)).or_default();
+
             if !winners.contains(&(rule_index, resolved_style_property_for_facet(facet))) {
                 continue;
             }
+
             observation.applicable = true;
+
             match route.disposition() {
                 FamilyThemeDisposition::TypedAdapter => {
                     if matches!(facet, FamilyThemeRuleFacet::Fill(_)) {
@@ -437,8 +485,10 @@ impl BlockNodeLabelPaintPlan {
                 }
             }
         }
+
         for ((index, target), observation) in observations {
             let key = FamilyThemeMechanismKey::Rule { index, target };
+
             if !observation.applicable {
                 plan.evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
@@ -452,8 +502,9 @@ impl BlockNodeLabelPaintPlan {
                     .mark_residual(key, FamilyThemeResidualReason::UnsupportedPaint);
             }
         }
+
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut plan.evidence,
             &[
                 UnsupportedTerminalDomain::fallbacks_only(
@@ -478,31 +529,39 @@ impl BlockNodeLabelPaintPlan {
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn color(&self, node_index: usize) -> Option<&str> {
-        self.paints
-            .get(node_index)?
+        let checked_value = self.paints
+            .get(node_index)?;
+        checked_value
             .as_ref()
             .map(DirectPaintExpectation::css)
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
-        if let Some(receipt) = self.outcomes.get() {
-            let complete = receipt.recorded == self.paints.iter().flatten().count();
-            for (&(index, target), &capability) in &self.rules {
-                if receipt
-                    .ledger
-                    .proves_property(complete, index, ResolvedStyleProperty::Fill)
-                {
-                    evidence.mark_applied_with_capabilities(
-                        FamilyThemeMechanismKey::Rule { index, target },
-                        [capability],
-                    );
+
+        match self.outcomes.get() {
+            Some(receipt) => {
+                let complete = receipt.recorded == self.paints.iter().flatten().count();
+
+                for (&(index, target), &capability) in &self.rules {
+                    if receipt
+                        .ledger
+                        .proves_property(complete, index, ResolvedStyleProperty::Fill)
+                    {
+                        evidence.mark_applied_with_capabilities(
+                            FamilyThemeMechanismKey::Rule { index, target },
+                            [capability],
+                        );
+                    }
                 }
-            }
+            },
+            ::core::option::Option::None => {},
         }
     }
 
+    #[must_use]
     pub(crate) fn begin_outcomes(&self) -> Option<BlockLabelPaintOutcomes> {
         (!self.rules.is_empty()).then(BlockLabelPaintOutcomes::default)
     }
@@ -513,9 +572,15 @@ impl BlockNodeLabelPaintPlan {
         node_index: usize,
         emitted: Option<&str>,
     ) {
-        let Some(expected) = self.paints.get(node_index).and_then(Option::as_ref) else {
-            return;
+        let expected = {
+            let optional_expected = self.paints.get(node_index).and_then(Option::as_ref);
+
+            match optional_expected {
+                Some(matched_expected) => matched_expected,
+                ::core::option::Option::None => return,
+            }
         };
+
         receipt.recorded += 1;
         receipt.ledger.record(
             Some(expected),
@@ -526,12 +591,16 @@ impl BlockNodeLabelPaintPlan {
     }
 
     pub(crate) fn record_outcomes(&self, receipt: Option<BlockLabelPaintOutcomes>) {
-        if let Some(receipt) = receipt {
-            let _ = self.outcomes.set(receipt);
+        match receipt {
+            Some(receipt_2) => {
+                let _ = self.outcomes.set(receipt_2);
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
 
+#[must_use]
 fn owns_label_color(raw: &str, property: &str) -> bool {
     crate::mermaid_style::parse_style_declaration(raw)
         .is_some_and(|declaration| declaration.property() == property)
@@ -568,9 +637,11 @@ impl BlockTypographyThemePlan {
         self.css_binding.prepare_class_definitions(definitions);
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &BlockCssThemeBinding {
         &self.css_binding
     }
+
     pub(crate) fn resolve(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &merman_model::presentation::PresentationConfig,
@@ -580,7 +651,8 @@ impl BlockTypographyThemePlan {
         let padding = settings.padding;
         let mut text_style = settings.text_style;
         let css_binding = BlockCssThemeBinding::resolve(effective_config.as_value())?;
-        let Some(theme) = theme else {
+
+        let Some(theme_2) = theme else {
             return Ok(Self {
                 padding,
                 text_style,
@@ -599,7 +671,8 @@ impl BlockTypographyThemePlan {
         let mut typed_font_stack = false;
         let mut typed_font_size = false;
         let mut unsupported_properties = BTreeSet::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontStack)
                     if route.disposition() == FamilyThemeDisposition::TypedAdapter =>
@@ -631,11 +704,13 @@ impl BlockTypographyThemePlan {
             .any(|path| effective_config.config_path_overrides_typed_default(path));
         let typed_font_stack_applied = typed_font_stack && !config_owns_font_stack;
         let typed_font_size_applied = typed_font_size && !config_owns_font_size;
+
         if typed_font_stack_applied {
-            text_style.font_family = Some(theme.typography().font_stack().as_css());
+            text_style.font_family = Some(theme_2.typography().font_stack().as_css());
         }
+
         if typed_font_size_applied {
-            text_style.font_size = f64::from(theme.typography().font_size_px()).max(1.0);
+            text_style.font_size = f64::from(theme_2.typography().font_size_px()).max(1.0);
         }
 
         let requested_typed = typed_font_stack || typed_font_size;
@@ -662,22 +737,30 @@ impl BlockTypographyThemePlan {
         })
     }
 
+    #[must_use]
     pub(crate) const fn text_style(&self) -> &crate::text::TextStyle {
         &self.text_style
     }
 
+    #[must_use]
     pub(crate) const fn padding(&self) -> f64 {
         self.padding
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
-        self.text_style.font_family.as_deref().unwrap_or_default()
+        match self.text_style.font_family.as_deref() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "",
+        }
     }
 
+    #[must_use]
     pub(crate) const fn font_size_px(&self) -> f64 {
         self.text_style.font_size
     }
 
+    #[must_use]
     pub(crate) fn observes_visible_labels(&self) -> bool {
         self.typed_font_stack_requested
             || self.typed_font_size_requested
@@ -691,14 +774,17 @@ impl BlockTypographyThemePlan {
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
         let visible = self.visible_labels.get().copied();
+
         for property in &self.unsupported_properties {
             let key = FamilyThemeMechanismKey::Typography(*property);
+
             if visible == Some(false) {
                 evidence.mark_not_applicable(key);
             } else {
                 evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
             }
         }
+
         for (property, requested, config_owned) in [
             (
                 ThemeTypographyProperty::FontStack,
@@ -714,7 +800,9 @@ impl BlockTypographyThemePlan {
             if !requested {
                 continue;
             }
+
             let key = FamilyThemeMechanismKey::Typography(property);
+
             match self.outcome {
                 BlockTypographyOutcome::ConfigOwned if config_owned => {
                     evidence.mark_not_applicable(key);
@@ -763,11 +851,12 @@ impl BlockNodePaintThemePlan {
         labels: &BlockNodeLabelPaintPlan,
         work_meter: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let Some(theme) = theme else {
+        let Some(theme_2) = theme else {
             let mut plan = Self::unthemed();
-            plan.bindings = plan.bind_terminals(model, layout, labels, work_meter)?;
+            plan.bindings = { let checked_value = plan.bind_terminals(model, layout, labels, work_meter)?; checked_value };
             return Ok(plan);
         };
+
         let mut paints = vec![BlockNodePaint::default(); layout.nodes.len()];
         let composites = layout
             .shape_geometries
@@ -792,19 +881,19 @@ impl BlockNodePaintThemePlan {
         let cluster_config_stroke =
             effective_config.config_paint_overrides_typed_default("themeVariables.clusterBorder");
         let has_ordinals = |target| {
-            theme
+            theme_2
                 .family_rules()
                 .any(|(_, rule)| rule.target() == target && rule.ordinal().is_some())
         };
         let node_ordinals = has_ordinals(ThemeTarget::Node);
         let cluster_ordinals = has_ordinals(ThemeTarget::Cluster);
-        let node_style = theme.style_with_work_meter(
+        let node_style = theme_2.style_with_work_meter(
             ThemeTarget::Node,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
-        let cluster_style = theme.style_with_work_meter(
+        let cluster_style = theme_2.style_with_work_meter(
             ThemeTarget::Cluster,
             ThemeVariant::Default,
             None,
@@ -817,25 +906,26 @@ impl BlockNodePaintThemePlan {
         let mut cluster_owned_fill = Vec::new();
         let mut cluster_owned_stroke = Vec::new();
         let mut cluster_index = 0;
+
         for (node_index, paint) in paints.iter_mut().enumerate() {
             work_meter.charge(1)?;
             let source = sources.get(layout.nodes[node_index].id.as_str());
-            let source_fill = source.is_some_and(|source| {
+            let source_fill = source.is_some_and(|source_2| {
                 ownership.owns_fill(
-                    source
+                    source_2
                         .styles
                         .iter()
                         .any(|raw| owns_label_color(raw, "fill")),
-                    source.classes,
+                    source_2.classes,
                 )
             });
-            let source_stroke = source.is_some_and(|source| {
+            let source_stroke = source.is_some_and(|source_3| {
                 ownership.owns_stroke(
-                    source
+                    source_3
                         .styles
                         .iter()
                         .any(|raw| owns_label_color(raw, "stroke")),
-                    source.classes,
+                    source_3.classes,
                 )
             });
             let owned_fill = source_fill || node_config_fill;
@@ -844,18 +934,18 @@ impl BlockNodePaintThemePlan {
             node_owned_stroke.push(owned_stroke);
             let ordinal_node_style;
             let style = if node_ordinals {
-                ordinal_node_style = theme.style_with_work_meter(
+                ordinal_node_style = { let checked_value_3 = theme_2.style_with_work_meter(
                     ThemeTarget::Node,
                     ThemeVariant::Default,
                     Some(node_index + 1),
                     work_meter,
-                )?;
+                )?; checked_value_3 };
                 &ordinal_node_style
             } else {
                 &node_style
             };
             observe_shell_style(
-                theme,
+                theme_2,
                 style,
                 ThemeTarget::Node,
                 owned_fill,
@@ -864,41 +954,44 @@ impl BlockNodePaintThemePlan {
                 &mut winners,
                 &mut capabilities,
             );
+
             if composites.contains(layout.nodes[node_index].id.as_str()) {
                 cluster_index += 1;
-                // Node paint that actually reached this shell owns its property. Node
-                // capability gaps do not erase its residual or block Cluster's fallback.
-                let owned_fill = source_fill || cluster_config_fill || paint.fill.is_some();
-                let owned_stroke = source_stroke || cluster_config_stroke || paint.stroke.is_some();
-                cluster_owned_fill.push(owned_fill);
-                cluster_owned_stroke.push(owned_stroke);
+
+
+                let owned_fill_2 = source_fill || cluster_config_fill || paint.fill.is_some();
+                let owned_stroke_2 = source_stroke || cluster_config_stroke || paint.stroke.is_some();
+                cluster_owned_fill.push(owned_fill_2);
+                cluster_owned_stroke.push(owned_stroke_2);
                 let ordinal_cluster_style;
-                let style = if cluster_ordinals {
-                    ordinal_cluster_style = theme.style_with_work_meter(
+                let style_2 = if cluster_ordinals {
+                    ordinal_cluster_style = { let checked_value_5 = theme_2.style_with_work_meter(
                         ThemeTarget::Cluster,
                         ThemeVariant::Default,
                         Some(cluster_index),
                         work_meter,
-                    )?;
+                    )?; checked_value_5 };
                     &ordinal_cluster_style
                 } else {
                     &cluster_style
                 };
                 observe_shell_style(
-                    theme,
-                    style,
+                    theme_2,
+                    style_2,
                     ThemeTarget::Cluster,
-                    owned_fill,
-                    owned_stroke,
+                    owned_fill_2,
+                    owned_stroke_2,
                     paint,
                     &mut winners,
                     &mut capabilities,
                 );
             }
         }
+
         let mut evidence = FamilyThemeOutcomes::default();
         let mut observations = BTreeMap::<FamilyThemeMechanismKey, NodeRuleObservation>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target,
@@ -908,19 +1001,24 @@ impl BlockNodePaintThemePlan {
             else {
                 continue;
             };
+
             if !matches!(target, ThemeTarget::Node | ThemeTarget::Cluster) {
                 continue;
             }
+
             let key = FamilyThemeMechanismKey::Rule {
                 index: rule_index,
                 target,
             };
             let observation = observations.entry(key).or_default();
             let property = resolved_style_property_for_facet(facet);
+
             if !winners.contains(&(rule_index, property)) {
                 continue;
             }
+
             observation.applicable = true;
+
             match route.disposition() {
                 FamilyThemeDisposition::TypedAdapter => {
                     if let Some(capability) = capabilities.get(&(rule_index, property)) {
@@ -936,8 +1034,9 @@ impl BlockNodePaintThemePlan {
                 }
             }
         }
+
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut evidence,
             &[
                 UnsupportedTerminalDomain::fallbacks_only(
@@ -952,7 +1051,7 @@ impl BlockNodePaintThemePlan {
                 )
                 .with_source_owned_fill(&cluster_owned_fill)
                 .with_source_owned_stroke(&cluster_owned_stroke),
-                // Frontmatter has no independent Block title terminal.
+
                 UnsupportedTerminalDomain::direct(
                     ThemeTarget::Title,
                     TerminalVariantDomain::uniform(0, ThemeVariant::Default),
@@ -960,6 +1059,7 @@ impl BlockNodePaintThemePlan {
             ],
             work_meter,
         )?;
+
         for (key, observation) in observations {
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
@@ -970,15 +1070,17 @@ impl BlockNodePaintThemePlan {
                     .mark_applied_with_capabilities(key, observation.capabilities.into_values());
             }
         }
+
         let mut plan = Self {
             bindings: Box::new([]),
-            paints: paints.into(),
+            paints: <::std::boxed::Box<[crate::block::theme::BlockNodePaint]> as ::core::convert::From<::std::vec::Vec<crate::block::theme::BlockNodePaint>>>::from(paints),
             evidence,
         };
-        plan.bindings = plan.bind_terminals(model, layout, labels, work_meter)?;
+        plan.bindings = { let checked_value_4 = plan.bind_terminals(model, layout, labels, work_meter)?; checked_value_4 };
         Ok(plan)
     }
 
+    #[must_use]
     fn unthemed() -> Self {
         Self {
             bindings: Box::new([]),
@@ -1020,11 +1122,13 @@ impl BlockNodePaintThemePlan {
             .collect()
     }
 
+    #[must_use]
     pub(crate) fn terminal_binding(
         &self,
         index: usize,
     ) -> Option<&super::node_binding::BlockNodeTerminalBinding> {
-        self.bindings.get(index)?.as_ref()
+        let checked_value = self.bindings.get(index)?;
+        checked_value.as_ref()
     }
 
     #[cfg(test)]
@@ -1032,16 +1136,20 @@ impl BlockNodePaintThemePlan {
         !self.bindings.is_empty()
     }
 
+    #[must_use]
     fn typed_stroke(&self, node_index: usize) -> Option<&str> {
         self.typed_paint(node_index, ResolvedStyleProperty::Stroke)
     }
 
+    #[must_use]
     fn typed_fill(&self, node_index: usize) -> Option<&str> {
         self.typed_paint(node_index, ResolvedStyleProperty::Fill)
     }
 
+    #[must_use]
     fn typed_paint(&self, node_index: usize, property: ResolvedStyleProperty) -> Option<&str> {
-        self.paints.get(node_index)?.paint(property)
+        let checked_value = self.paints.get(node_index)?;
+        checked_value.paint(property)
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
@@ -1050,11 +1158,12 @@ impl BlockNodePaintThemePlan {
 }
 
 impl BlockNodePaint {
+    #[must_use]
     fn paint(&self, property: ResolvedStyleProperty) -> Option<&str> {
         match property {
             ResolvedStyleProperty::Fill => self.fill.as_deref(),
             ResolvedStyleProperty::Stroke => self.stroke.as_deref(),
-            _ => None,
+            ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => None,
         }
     }
 }
@@ -1082,6 +1191,7 @@ fn observe_shell_style(
                     .then_some((origin.rule_index(), property))
             }),
     );
+
     for (property, owned) in [
         (ResolvedStyleProperty::Fill, owns_fill),
         (ResolvedStyleProperty::Stroke, owns_stroke),
@@ -1089,6 +1199,7 @@ fn observe_shell_style(
         if owned {
             continue;
         }
+
         let paint = if property == ResolvedStyleProperty::Fill {
             resolve_direct_static_fill(theme, style, &[target], DirectStaticSelectorDomain::Default)
         } else {
@@ -1099,21 +1210,30 @@ fn observe_shell_style(
                 DirectStaticSelectorDomain::Default,
             )
         };
-        if let Some(paint) = paint.map(DirectPaintExpectation::from_paint) {
-            capabilities.insert((paint.rule_index(), property), paint.capability());
-            if property == ResolvedStyleProperty::Fill {
-                expectation.fill = Some(paint.css().into());
-            } else {
-                expectation.stroke = Some(paint.css().into());
-            }
+
+        {
+            match paint.map(DirectPaintExpectation::from_paint) {
+                Some(paint_2) => {
+                    capabilities.insert((paint_2.rule_index(), property), paint_2.capability());
+
+                    if property == ResolvedStyleProperty::Fill {
+                        expectation.fill = Some(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(paint_2.css()));
+                    } else {
+                        expectation.stroke = Some(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(paint_2.css()));
+                    }
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 }
 
+#[must_use]
 fn mermaid_owns_node_stroke(config: &merman_model::presentation::PresentationConfig) -> bool {
     config.config_paint_overrides_typed_default("themeVariables.nodeBorder")
 }
 
+#[must_use]
 fn mermaid_owns_node_fill(config: &merman_model::presentation::PresentationConfig) -> bool {
     config.config_paint_overrides_typed_default("themeVariables.mainBkg")
 }
@@ -1133,6 +1253,7 @@ struct BlockNodePaintSourceOwnership {
 }
 
 impl BlockNodePaintSourceOwnership {
+    #[must_use]
     pub(crate) fn new(class_defs: &IndexMap<String, BlockClassDef>) -> Self {
         let (fill_classes, stroke_classes) = classes_owning_node_paint(class_defs);
         Self {
@@ -1141,6 +1262,7 @@ impl BlockNodePaintSourceOwnership {
         }
     }
 
+    #[must_use]
     pub(crate) fn owns_fill(&self, inline_owns_fill: bool, assigned_classes: &[String]) -> bool {
         source_owns_property(
             inline_owns_fill,
@@ -1150,6 +1272,7 @@ impl BlockNodePaintSourceOwnership {
         )
     }
 
+    #[must_use]
     pub(crate) fn owns_stroke(
         &self,
         inline_owns_stroke: bool,
@@ -1164,16 +1287,24 @@ impl BlockNodePaintSourceOwnership {
     }
 }
 
+#[must_use]
 fn classes_owning_node_paint(
     class_defs: &IndexMap<String, BlockClassDef>,
 ) -> (BTreeSet<String>, BTreeSet<String>) {
     let mut fill_classes = BTreeSet::new();
     let mut stroke_classes = BTreeSet::new();
+
     for class_def in class_defs.values() {
-        for declaration in &class_def.styles {
-            let Some(parsed) = crate::mermaid_style::parse_style_declaration(declaration) else {
-                continue;
+        'over_declaration_2: for declaration in &class_def.styles {
+            let parsed = {
+                let optional_parsed = crate::mermaid_style::parse_style_declaration(declaration);
+
+                match optional_parsed {
+                    Some(matched_parsed) => matched_parsed,
+                    ::core::option::Option::None => continue 'over_declaration_2,
+                }
             };
+
             match parsed.property() {
                 "fill" => {
                     fill_classes.insert(class_def.id.clone());
@@ -1189,9 +1320,11 @@ fn classes_owning_node_paint(
             }
         }
     }
+
     (fill_classes, stroke_classes)
 }
 
+#[must_use]
 fn source_owns_property(
     inline_owns_property: bool,
     assigned_classes: &[String],
@@ -1358,7 +1491,7 @@ mod tests {
             assert!(evidence.not_applicable_mechanisms().contains(&palette_key));
             assert!(evidence.residuals().is_empty());
 
-            // Empty fragments preserve the earlier source, just as the terminal writer does.
+
             let fragment = merman_model::families::block::BlockNode {
                 id: "A".to_string(),
                 block_type: "na".to_string(),
@@ -1371,7 +1504,7 @@ mod tests {
             assert!(evidence.not_applicable_mechanisms().contains(&palette_key));
             assert!(evidence.residuals().is_empty());
 
-            // A later non-empty list replaces the corresponding source list.
+
             let fragment = merman_model::families::block::BlockNode {
                 id: "A".to_string(),
                 block_type: "na".to_string(),

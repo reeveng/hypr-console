@@ -61,24 +61,26 @@ impl WardleyPaintContext<'_> {
                 &["themeVariables.wardley.evolutionStroke"],
                 self.base.evolution_stroke.as_str(),
             ),
-            _ => return Ok(None),
+            Role::AnnotationPoint | Role::AnnotationBoxLine | Role::Note | Role::Accelerator | Role::Deaccelerator => return Ok(None),
         };
         let ordinal = self.text_ordinals.entry(target).or_default();
         *ordinal += 1;
-        let ordinal = *ordinal;
-        let style = self.plan.style(target, ordinal, true)?;
+        let ordinal_2 = *ordinal;
+        let style = self.plan.style(target, ordinal_2, true)?;
         let fill = self.plan.paint(
             target,
-            ordinal,
+            ordinal_2,
             style.as_ref(),
             ResolvedStyleProperty::Fill,
             paths,
             base,
         );
+
         if target != ThemeTarget::Axis {
             self.plan
                 .unsupported_property(target, style.as_ref(), ResolvedStyleProperty::Stroke);
         }
+
         Ok(fill)
     }
 
@@ -98,10 +100,12 @@ impl WardleyPaintContext<'_> {
             paths,
             base,
         );
+
         if target == ThemeTarget::Edge {
             self.plan
                 .unsupported_property(target, style.as_ref(), ResolvedStyleProperty::Fill);
         }
+
         Ok(stroke)
     }
 }
@@ -136,6 +140,7 @@ fn write_themed_line(
     Ok(())
 }
 
+#[must_use]
 fn text_anchor(anchor: WardleyTextAnchor) -> &'static str {
     match anchor {
         WardleyTextAnchor::Start => "start",
@@ -143,6 +148,7 @@ fn text_anchor(anchor: WardleyTextAnchor) -> &'static str {
     }
 }
 
+#[must_use]
 fn font_weight(weight: WardleyFontWeight) -> &'static str {
     match weight {
         WardleyFontWeight::Normal => "normal",
@@ -150,6 +156,7 @@ fn font_weight(weight: WardleyFontWeight) -> &'static str {
     }
 }
 
+#[must_use]
 fn dominant_baseline(baseline: WardleyDominantBaseline) -> &'static str {
     match baseline {
         WardleyDominantBaseline::Auto => "auto",
@@ -177,14 +184,21 @@ fn write_text(
     } else {
         paint_context.text_fill(role)?
     };
-    if typed_fill.is_some() {
-        surface_receipt.paint_overridden_text_roles.insert(role);
+
+    match typed_fill {
+        ::core::option::Option::Some(_) => {
+            surface_receipt.paint_overridden_text_roles.insert(role);
+        },
+        ::core::option::Option::None => {},
     }
+
     let fill = typed_fill.as_ref().map_or(style.fill, TerminalPaint::css);
     out.push_str("<text");
+
     if let Some(class) = style.class {
         let _ = write!(out, r#" class="{}""#, escape_attr_display(class));
     }
+
     let _ = write!(
         out,
         r#" x="{}" y="{}" fill="{}" font-size="{}""#,
@@ -193,10 +207,13 @@ fn write_text(
         escape_attr_display(fill),
         fmt(text.font_size)
     );
+
     if style.include_font_weight {
         let _ = write!(out, r#" font-weight="{}""#, font_weight(text.font_weight));
     }
+
     let _ = write!(out, r#" text-anchor="{}""#, text_anchor(text.text_anchor));
+
     if let Some(baseline) = text.dominant_baseline {
         let _ = write!(
             out,
@@ -204,6 +221,7 @@ fn write_text(
             dominant_baseline(baseline)
         );
     }
+
     if let Some(rotation) = text.rotation {
         let _ = write!(
             out,
@@ -213,6 +231,7 @@ fn write_text(
             fmt(rotation.cy)
         );
     }
+
     let _ = write!(out, ">{}</text>", escape_xml_display(&text.text));
     out.checkpoint()?;
     surface_receipt.record_text(role, style.class, &text.text, fill);
@@ -229,9 +248,11 @@ fn write_line(
     dash: Option<&str>,
 ) -> Result<()> {
     out.push_str("<line");
-    if let Some(class) = class {
-        let _ = write!(out, r#" class="{}""#, escape_attr_display(class));
+
+    if let Some(class_2) = class {
+        let _ = write!(out, r#" class="{}""#, escape_attr_display(class_2));
     }
+
     let _ = write!(
         out,
         r#" x1="{}" x2="{}" y1="{}" y2="{}" stroke="{}""#,
@@ -241,12 +262,15 @@ fn write_line(
         fmt(line.y2),
         escape_attr_display(stroke)
     );
-    if let Some(stroke_width) = stroke_width {
-        let _ = write!(out, r#" stroke-width="{}""#, fmt(stroke_width));
+
+    if let Some(stroke_width_2) = stroke_width {
+        let _ = write!(out, r#" stroke-width="{}""#, fmt(stroke_width_2));
     }
-    if let Some(dash) = dash {
-        let _ = write!(out, r#" stroke-dasharray="{}""#, escape_attr_display(dash));
+
+    if let Some(dash_2) = dash {
+        let _ = write!(out, r#" stroke-dasharray="{}""#, escape_attr_display(dash_2));
     }
+
     out.push_str("/>");
     out.checkpoint()
 }
@@ -260,9 +284,11 @@ fn write_circle(
     stroke_width: f64,
 ) -> Result<()> {
     out.push_str("<circle");
-    if let Some(class) = class {
-        let _ = write!(out, r#" class="{}""#, escape_attr_display(class));
+
+    if let Some(class_2) = class {
+        let _ = write!(out, r#" class="{}""#, escape_attr_display(class_2));
     }
+
     let _ = write!(
         out,
         r#" cx="{}" cy="{}" r="{}" fill="{}" stroke="{}" stroke-width="{}"/>"#,
@@ -291,6 +317,7 @@ fn write_accessibility(
         );
         out.checkpoint()?;
     }
+
     if let Some(description) = acc_descr {
         let _ = write!(
             out,
@@ -300,6 +327,7 @@ fn write_accessibility(
         );
         out.checkpoint()?;
     }
+
     Ok(())
 }
 
@@ -378,8 +406,10 @@ fn write_stages(
     if layout.stages.is_empty() {
         return Ok(());
     }
+
     out.push_str(r#"<g class="wardley-stages">"#);
     out.checkpoint()?;
+
     for (index, stage) in layout.stages.iter().enumerate() {
         if let Some(divider) = stage.divider {
             write_themed_line(
@@ -399,6 +429,7 @@ fn write_stages(
             let insert_at = out.len() - 2;
             out.replace_range(insert_at..insert_at, r#" opacity="0.8""#)?;
         }
+
         write_text(
             out,
             &stage.label,
@@ -412,6 +443,7 @@ fn write_stages(
             paint_context,
         )?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -425,8 +457,10 @@ fn write_grid(
     if layout.grid.is_empty() {
         return Ok(());
     }
+
     out.push_str(r#"<g class="wardley-grid">"#);
     out.checkpoint()?;
+
     for (index, grid) in layout.grid.iter().enumerate() {
         write_themed_line(
             out,
@@ -457,6 +491,7 @@ fn write_grid(
             &["themeVariables.wardley.gridColor"],
         )?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -474,6 +509,7 @@ fn write_pipelines(
 
     out.push_str(r#"<g class="wardley-pipelines">"#);
     out.checkpoint()?;
+
     for (index, pipeline) in layout.pipeline_boxes.iter().enumerate() {
         let rect = pipeline.rect;
         let paint = paint_context.line_stroke(
@@ -499,11 +535,13 @@ fn write_pipelines(
         out.checkpoint()?;
         paint_context.plan.record(paint.as_ref(), stroke);
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
     out.push_str(r#"<g class="wardley-pipeline-links">"#);
     out.checkpoint()?;
+
     for (index, link) in layout.pipeline_links.iter().enumerate() {
         write_themed_line(
             out,
@@ -520,6 +558,7 @@ fn write_pipelines(
             &["themeVariables.wardley.linkStroke"],
         )?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -535,6 +574,7 @@ fn write_links(
 ) -> Result<()> {
     out.push_str(r#"<g class="wardley-links">"#);
     out.checkpoint()?;
+
     for (index, link) in layout.links.iter().enumerate() {
         options.checkpoint_emit()?;
         let class = if link.dashed {
@@ -558,21 +598,25 @@ fn write_links(
         )?;
         let insert_at = out.len() - 2;
         let mut marker_attrs = String::new();
+
         if link.markers.end {
             let _ = write!(
                 marker_attrs,
                 r#" marker-end="url(#link-arrow-end-{diagram_id})""#,
             );
         }
+
         if link.markers.start {
             let _ = write!(
                 marker_attrs,
                 r#" marker-start="url(#link-arrow-start-{diagram_id})""#,
             );
         }
+
         out.replace_range(insert_at..insert_at, &marker_attrs)?;
         options.checkpoint_emit()?;
     }
+
     for link in &layout.links {
         if let Some(label) = &link.label {
             write_text(
@@ -589,6 +633,7 @@ fn write_links(
             )?;
         }
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -603,6 +648,7 @@ fn write_trends(
 ) -> Result<()> {
     out.push_str(r#"<g class="wardley-trends">"#);
     out.checkpoint()?;
+
     for (index, trend) in layout.trends.iter().enumerate() {
         options.checkpoint_emit()?;
         write_themed_line(
@@ -624,6 +670,7 @@ fn write_trends(
         out.replace_range(insert_at..insert_at, &marker_attr)?;
         options.checkpoint_emit()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -727,6 +774,7 @@ fn write_source_overlay_binding(
                 stroke,
                 1.0,
             )?;
+
             for connector in connectors {
                 write_line(
                     out,
@@ -737,9 +785,11 @@ fn write_source_overlay_binding(
                     None,
                 )?;
             }
+
             for dot in dots {
                 write_circle(out, Some("wardley-market-dot"), *dot, fill, stroke, 2.0)?;
             }
+
             Ok(())
         }
     }
@@ -754,17 +804,21 @@ fn write_nodes(
 ) -> Result<()> {
     out.push_str(r#"<g class="wardley-nodes">"#);
     out.checkpoint()?;
+
     for (index, node) in layout.nodes.iter().enumerate() {
         out.push_str(r#"<g class="wardley-node"#);
+
         if let Some(class_name) = node.class_name.as_deref().filter(|class| !class.is_empty()) {
             let _ = write!(out, " wardley-node--{}", escape_attr_display(class_name));
         }
+
         out.push_str(r#"">"#);
         out.checkpoint()?;
 
         if let Some(overlay) = &node.source_overlay {
             write_source_overlay(out, overlay, theme, index + 1, paint_context)?;
         }
+
         let (typed_fill, typed_stroke) = if matches!(
             &node.shape,
             WardleyNodeShapeLayout::Circle { .. } | WardleyNodeShapeLayout::PipelineSquare { .. }
@@ -799,6 +853,7 @@ fn write_nodes(
         let stroke = typed_stroke
             .as_ref()
             .map_or(theme.component_stroke.as_str(), TerminalPaint::css);
+
         match &node.shape {
             WardleyNodeShapeLayout::Circle { circle } => {
                 write_circle(out, None, *circle, fill, stroke, 1.0)?
@@ -818,8 +873,10 @@ fn write_nodes(
             }
             WardleyNodeShapeLayout::Anchor | WardleyNodeShapeLayout::None => {}
         }
+
         paint_context.plan.record(typed_fill.as_ref(), fill);
         paint_context.plan.record(typed_stroke.as_ref(), stroke);
+
         if let Some(inertia) = node.inertia {
             write_themed_line(
                 out,
@@ -836,6 +893,7 @@ fn write_nodes(
                 &["themeVariables.wardley.componentStroke"],
             )?;
         }
+
         let (label_fill, label_role) = match node.class_name.as_deref() {
             Some("evolved") => (
                 &theme.evolution_stroke,
@@ -865,6 +923,7 @@ fn write_nodes(
         out.push_str("</g>");
         out.checkpoint()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -878,6 +937,7 @@ fn write_annotations_box(
 ) -> Result<()> {
     out.push_str(r#"<g class="wardley-annotations-box">"#);
     out.checkpoint()?;
+
     if let Some(rect) = annotations_box.rect {
         let _ = write!(
             out,
@@ -893,6 +953,7 @@ fn write_annotations_box(
         );
         out.checkpoint()?;
     }
+
     for line in &annotations_box.lines {
         write_text(
             out,
@@ -907,6 +968,7 @@ fn write_annotations_box(
             paint_context,
         )?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -921,8 +983,10 @@ fn write_annotations(
     if layout.annotations.is_empty() {
         return Ok(());
     }
+
     out.push_str(r#"<g class="wardley-annotations">"#);
     out.checkpoint()?;
+
     for annotation in &layout.annotations {
         for segment in &annotation.segments {
             write_line(
@@ -934,6 +998,7 @@ fn write_annotations(
                 Some("4 4"),
             )?;
         }
+
         for point in &annotation.points {
             out.push_str(r#"<g class="wardley-annotation">"#);
             out.checkpoint()?;
@@ -964,9 +1029,11 @@ fn write_annotations(
             out.checkpoint()?;
         }
     }
+
     if let Some(annotations_box) = &layout.annotations_box {
         write_annotations_box(out, annotations_box, theme, surface_receipt, paint_context)?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -981,8 +1048,10 @@ fn write_notes(
     if layout.notes.is_empty() {
         return Ok(());
     }
+
     out.push_str(r#"<g class="wardley-notes">"#);
     out.checkpoint()?;
+
     for note in &layout.notes {
         write_text(
             out,
@@ -997,6 +1066,7 @@ fn write_notes(
             paint_context,
         )?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -1011,13 +1081,16 @@ fn write_arrow(
 ) -> Result<()> {
     out.push_str(r#"<path d="M "#);
     out.checkpoint()?;
+
     for (index, point) in arrow.path.iter().enumerate() {
         if index > 0 {
             out.push_str(" L ");
         }
+
         let _ = write!(out, "{} {}", fmt(point.x), fmt(point.y));
         out.checkpoint()?;
     }
+
     let _ = write!(
         out,
         r#" Z" fill="{}" stroke="{}" stroke-width="1"/>"#,
@@ -1048,14 +1121,20 @@ fn write_arrows(
     surface_receipt: &mut crate::wardley::WardleySurfaceReceipt,
     paint_context: &mut WardleyPaintContext<'_>,
 ) -> Result<()> {
-    if arrows.is_empty() {
-        return Ok(());
+    match arrows {
+        [] => {
+            return Ok(());
+        },
+        [_, ..] => {},
     }
+
     let _ = write!(out, r#"<g class="{}">"#, escape_attr_display(class));
     out.checkpoint()?;
+
     for arrow in arrows {
         write_arrow(out, arrow, theme, role, surface_receipt, paint_context)?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -1084,24 +1163,26 @@ fn write_marker_path(
         &[source_path],
         fill,
     );
-    if let Some(edge_ordinal) = edge_ordinal
+
+    if let Some(edge_ordinal_2) = edge_ordinal
         && style
             .as_ref()
-            .is_some_and(|style| style.fill_resolution().specified().is_unspecified())
+            .is_some_and(|style_2| style_2.fill_resolution().specified().is_unspecified())
     {
-        // Marker slots have their own ordinals; fallback belongs to a real referencing edge.
+
         let edge_style = paint_context
             .plan
-            .style(ThemeTarget::Edge, edge_ordinal, false)?;
+            .style(ThemeTarget::Edge, edge_ordinal_2, false)?;
         typed_fill = paint_context.plan.paint(
             ThemeTarget::Edge,
-            edge_ordinal,
+            edge_ordinal_2,
             edge_style.as_ref(),
             ResolvedStyleProperty::Stroke,
             &[source_path],
             fill,
         );
     }
+
     let typed_stroke = paint_context.plan.paint(
         ThemeTarget::Marker,
         ordinal,
@@ -1137,11 +1218,11 @@ fn write_defs(
     paint_context
         .plan
         .charge(layout.links.len().saturating_mul(2))?;
-    let diagram_id = escape_attr_display(diagram_id);
+    let diagram_id_2 = escape_attr_display(diagram_id);
     let _ = write!(
         out,
         r#"<defs><marker id="arrow-{diagram_id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">"#
-    );
+    , diagram_id = diagram_id_2);
     write_marker_path(
         out,
         "M 0 0 L 10 5 L 0 10 z",
@@ -1154,7 +1235,7 @@ fn write_defs(
     let _ = write!(
         out,
         r#"</marker><marker id="link-arrow-end-{diagram_id}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">"#
-    );
+    , diagram_id = diagram_id_2);
     write_marker_path(
         out,
         "M 0 0 L 10 5 L 0 10 z",
@@ -1171,7 +1252,7 @@ fn write_defs(
     let _ = write!(
         out,
         r#"</marker><marker id="link-arrow-start-{diagram_id}" viewBox="0 0 10 10" refX="1" refY="5" markerWidth="5" markerHeight="5" orient="auto">"#
-    );
+    , diagram_id = diagram_id_2);
     write_marker_path(
         out,
         "M 10 0 L 0 5 L 10 10 z",
@@ -1239,6 +1320,7 @@ pub(crate) fn render_wardley_diagram_svg_model(
         out.push_str(r#"<g class="wardley-map">"#);
         out.checkpoint()?;
     }
+
     let _ = write!(
         out,
         r#"<rect class="wardley-background" width="{}" height="{}" fill="{}"/>"#,
@@ -1247,6 +1329,7 @@ pub(crate) fn render_wardley_diagram_svg_model(
         escape_attr_display(background_color)
     );
     out.checkpoint()?;
+
     if let Some(title) = &layout.title {
         write_text(
             &mut out,
@@ -1261,6 +1344,7 @@ pub(crate) fn render_wardley_diagram_svg_model(
             &mut paint_context,
         )?;
     }
+
     write_axes(
         &mut out,
         layout,
@@ -1339,12 +1423,14 @@ pub(crate) fn render_wardley_diagram_svg_model(
     surface_receipt.paint_evidence = paint_context.plan.finish();
     out.push_str("</svg>");
     options.checkpoint_emit()?;
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if !typography_theme.record_terminal(surface_receipt) {
         return Err(crate::Error::InvalidModel {
             message: "Wardley typography receipt was recorded more than once".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 

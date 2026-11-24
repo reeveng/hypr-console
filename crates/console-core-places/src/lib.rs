@@ -97,6 +97,9 @@
 //! five disagreements are still five, they are just all on the screen now,
 //! each one written at the site that holds the opinion.
 
+pub mod session;
+
+use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use console_core_atomic_writes::Stored;
@@ -113,7 +116,7 @@ pub const APPLICATION: &str = "console";
   dylint_lib = "explicit026_env_read_once",
   allow(
     explicit026_env_read_once,
-    reason = "this crate is the one place HOME, the four XDG bases and the runtime directory are read, which is the whole of what the file above argues for"
+    reason = "this crate owns the four XDG bases and the runtime directory"
   )
 )]
 fn env_var(name: &str) -> Result<Option<String>, Never> {
@@ -128,10 +131,51 @@ fn env_var(name: &str) -> Result<Option<String>, Never> {
   })
 }
 
-pub fn home() -> Result<Option<PathBuf>, Never> {
-  let said = env_var("HOME")?;
+#[cfg_attr(
+  dylint_lib = "explicit026_env_read_once",
+  expect(
+    explicit026_env_read_once,
+    reason = "this crate owns filesystem locations and the account hints LOGNAME and SUDO_UID carried as OS strings"
+  )
+)]
+fn env_os(name: &str) -> Result<Option<OsString>, Never> {
+  Ok(std::env::var_os(name))
+}
 
-  Ok(said.map(PathBuf::from))
+pub fn home() -> Result<Option<PathBuf>, Never> {
+  let Ok(configured) = env_os("HOME");
+
+  Ok(configured.map(PathBuf::from))
+}
+
+pub fn login_name() -> Result<Option<OsString>, Never> {
+  env_os("LOGNAME")
+}
+
+pub fn sudo_invoker() -> Result<Option<OsString>, Never> {
+  env_os("SUDO_UID")
+}
+
+pub fn wayland_display() -> Result<Option<OsString>, Never> {
+  env_os("WAYLAND_DISPLAY")
+}
+
+pub struct VideoComputePaths {
+  pub worker: PathBuf,
+  pub shader: PathBuf,
+}
+
+pub fn video_compute() -> Result<Option<VideoComputePaths>, Never> {
+  let Ok(worker) = env_os("CONSOLE_VIDEO_VULKAN_WORKER");
+  let Ok(shader) = env_os("CONSOLE_VIDEO_COLOUR_SPIRV");
+
+  Ok(match (worker, shader) {
+    (Some(worker_path), Some(shader_path)) => Some(VideoComputePaths {
+      worker: PathBuf::from(worker_path),
+      shader: PathBuf::from(shader_path),
+    }),
+    (None, _) | (_, None) => None,
+  })
 }
 
 pub fn runtime() -> Result<Option<PathBuf>, Never> {
@@ -169,6 +213,14 @@ pub enum Base {
 
 impl Base {
   pub const EVERY: [Base; 4] = [Base::Configuration, Base::State, Base::Share, Base::Cache];
+
+  #[doc = "Reads the configured XDG value as a filesystem path."]
+  pub fn configured(self) -> Result<Option<PathBuf>, Never> {
+    let Ok(name) = self.called();
+    let Ok(value) = env_os(name);
+
+    Ok(value.map(PathBuf::from))
+  }
 
   pub fn resolve(
     self,

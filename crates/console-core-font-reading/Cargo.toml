@@ -12,6 +12,7 @@ codegen_test = []
 default = ["std"]
 experimental_font_api = []
 experimental_traverse = ["std"]
+hosted-compute = ["std", "dep:console-operating-system-linux"]
 ift = []
 libm = ["dep:libm"]
 scaler_test = []
@@ -20,6 +21,7 @@ spec_next = []
 std = ["console-core-integer-sets/std"]
 
 [dependencies]
+console-operating-system-linux = { workspace = true, optional = true }
 console-core-api-compatibility.workspace = true
 console-core-checksums = { path = "../console-core-checksums" }
 console-core-integer-sets = { workspace = true, features = ["font-types"] }

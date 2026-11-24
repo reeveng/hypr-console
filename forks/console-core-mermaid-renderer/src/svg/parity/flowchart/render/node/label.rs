@@ -28,6 +28,7 @@ pub(super) struct FlowchartNodeLabelEmissionPlan<'a> {
 }
 
 impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
+    #[must_use]
     pub(super) const fn new(
         node_classes: &'a [String],
         source_text_style: &'a crate::text::TextStyle,
@@ -44,6 +45,7 @@ impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
         }
     }
 
+    #[must_use]
     fn typed_label_fill_style(&self) -> Option<String> {
         self.typed_label_fill.map(|fill| {
             let mut style = String::new();
@@ -52,6 +54,7 @@ impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
         })
     }
 
+    #[must_use]
     fn text_style<'b>(
         &'b self,
         ctx: &'b FlowchartRenderCtx<'_>,
@@ -64,6 +67,7 @@ impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
             .apply(ThemeTarget::NodeLabel, self.source_text_style)
     }
 
+    #[must_use]
     pub(super) fn metrics(
         &self,
         ctx: &FlowchartRenderCtx<'_>,
@@ -80,6 +84,7 @@ impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
         )
     }
 
+    #[must_use]
     fn final_style(
         &self,
         ctx: &FlowchartRenderCtx<'_>,
@@ -91,13 +96,19 @@ impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
                 plan.merge_emission_font_style(Some(self.compiled_styles.label_style.as_str()))
             })
             .unwrap_or_else(|| self.compiled_styles.label_style.clone());
-        if let Some(fill) = self.typed_label_fill {
-            append_typed_label_fill(&mut style, fill);
+
+        match self.typed_label_fill {
+            Some(fill) => {
+                append_typed_label_fill(&mut style, fill);
+            },
+            ::core::option::Option::None => {},
         }
+
         let weights = ctx.svg_label_sidecar.map_or(
             crate::flowchart::FlowchartLabelTypography::default(),
             |sidecar| sidecar.label_typography(),
         );
+
         if weights.requested(ThemeTarget::NodeLabel) {
             weights.append_style(
                 ThemeTarget::NodeLabel,
@@ -111,6 +122,7 @@ impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
                 &mut style,
             );
         }
+
         style
     }
 
@@ -156,8 +168,8 @@ impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
         let prepared_label = ctx
             .svg_label_sidecar
             .zip(owner)
-            .map_or(Default::default(), |(sidecar, owner)| {
-                sidecar.prepared_label_for_terminal(owner, label.text)
+            .map_or(Default::default(), |(sidecar, owner_2)| {
+                sidecar.prepared_label_for_terminal(owner_2, label.text)
             });
         let label_html = super::helpers::timed_node_label_html(common.timing, details, || {
             flowchart_label_html_with_prepared_label(
@@ -169,9 +181,11 @@ impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
             )
         });
         let mut div_style = final_style.clone();
+
         if !div_style.is_empty() {
             div_style.push(';');
         }
+
         div_style.push_str(&super::helpers::asset_label_div_style(ctx, width));
         let _ = write!(
             out,
@@ -222,6 +236,7 @@ impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
         self.html_typography_receipt(ctx, common.node_id, label_html.as_ref(), receipt)
     }
 
+    #[must_use]
     fn html_typography_receipt(
         &self,
         ctx: &FlowchartRenderCtx<'_>,
@@ -235,6 +250,7 @@ impl<'a> FlowchartNodeLabelEmissionPlan<'a> {
         {
             return receipt;
         }
+
         ctx.theme_evidence.record_source_residuals(
             &crate::svg::parity::flowchart::style::sanitized_xhtml_source_residuals(node_id, html),
         );
@@ -310,6 +326,7 @@ fn render_flowchart_node_label_with_wrapper(
                 }),
         );
     let mut label_dy = label.dy;
+
     if !ctx.node_html_labels && crate::flowchart::bpmn::BpmnShape::resolve(common.shape).is_some() {
         label_dy -= ctx
             .measurer
@@ -354,14 +371,15 @@ fn render_flowchart_node_label_with_wrapper(
                 | "braces"
         )
     {
-        // Mermaid shape renderers override `labelHelper(...)`'s default centering using
-        // `-bbox.y`. Chromium reports these wrapped SVG markdown labels with a small positive
-        // `getBBox().y`, so model that render-time offset here instead of baking literal `-1`s
-        // into individual shapes.
+
+
+
+
         label_dy -= ctx
             .measurer
             .measure_svg_create_text_bbox_y_offset_px(label.text, &node_text_style);
     }
+
     let metrics = super::helpers::compute_node_label_metrics(
         ctx,
         common.node_id,
@@ -371,7 +389,7 @@ fn render_flowchart_node_label_with_wrapper(
         common.node_classes,
         common.node_styles,
     );
-    // Only authored FlowDB nodes carry minWidth; subgraph titles retain their own sizing.
+
     let min_width = ctx
         .nodes_by_id
         .get(common.node_id)
@@ -407,6 +425,7 @@ fn render_flowchart_node_label_with_wrapper(
         crate::flowchart::FlowchartSourceFacetStatus::Absent,
         crate::flowchart::FlowchartSourceFacetStatus::Absent,
     );
+
     if !ctx.node_html_labels {
         if ctx.text_surface_paint.generic_text.requested() {
             let facts = if label.label_type == "markdown" {
@@ -418,6 +437,7 @@ fn render_flowchart_node_label_with_wrapper(
                 &facts,
             ));
         }
+
         let label_group_style = prepared_svg_label.as_ref().map_or_else(
             || {
                 common
@@ -438,10 +458,15 @@ fn render_flowchart_node_label_with_wrapper(
             fmt_display(label.dx),
             fmt_display(-metrics.height / 2.0 + label_dy)
         );
-        if let (Some(effect), Some(id)) = (effect, effect_id.as_deref()) {
-            label_effect_emitted =
-                effect.open(out, id, (label.dx, -metrics.height / 2.0 + label_dy));
+
+        match (effect, effect_id.as_deref()) {
+            (Some(effect_2), Some(id)) => {
+                label_effect_emitted =
+                    effect_2.open(out, id, (label.dx, -metrics.height / 2.0 + label_dy));
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
+
         if label.label_type == "markdown" {
             write_flowchart_svg_text_markdown_wrapped_with_style(
                 out,
@@ -462,18 +487,20 @@ fn render_flowchart_node_label_with_wrapper(
                 typed_label_fill_style.as_deref(),
             );
         }
+
         if label_effect_emitted {
             effect
                 .expect("opened effect")
                 .close(out, ctx, effect_id.as_deref().unwrap());
         }
+
         out.push_str("</g></g>");
     } else {
         let prepared_label = ctx
             .svg_label_sidecar
             .zip(owner)
-            .map_or(Default::default(), |(sidecar, owner)| {
-                sidecar.prepared_label_for_terminal(owner, label.text)
+            .map_or(Default::default(), |(sidecar, owner_2)| {
+                sidecar.prepared_label_for_terminal(owner_2, label.text)
             });
         let label_html = super::helpers::timed_node_label_html(common.timing, details, || {
             flowchart_label_html_with_prepared_label(
@@ -484,11 +511,13 @@ fn render_flowchart_node_label_with_wrapper(
                 prepared_label,
             )
         });
+
         if ctx.text_surface_paint.generic_text.requested() {
             text_paint_facts = Some(crate::flowchart::FlowchartTextPaintFacts::from_visible(
                 &crate::text::VisibleTextStyleFacts::from_xhtml_fragment(label_html.as_ref()),
             ));
         }
+
         html_weight_verified = label_weight_is_verified(
             ctx,
             label,
@@ -566,6 +595,7 @@ fn render_flowchart_node_label_with_wrapper(
 
         let mut div_style =
             flowchart_label_div_style_prefix(common.label_emission.compiled_styles, true);
+
         if needs_wrap {
             let _ = write!(
                 &mut div_style,
@@ -586,6 +616,7 @@ fn render_flowchart_node_label_with_wrapper(
                 mw = fmt_display(wrapping_width)
             );
         }
+
         let _ = write!(
             out,
             r#"<g class="{}" style="{}" transform="translate({},{})"><rect/>"#,
@@ -594,16 +625,21 @@ fn render_flowchart_node_label_with_wrapper(
             fmt_display(-metrics.width / 2.0 + label.dx),
             fmt_display(-metrics.height / 2.0 + label_dy),
         );
-        if let (Some(effect), Some(id)) = (effect, effect_id.as_deref()) {
-            label_effect_emitted = effect.open(
-                out,
-                id,
-                (
-                    -metrics.width / 2.0 + label.dx,
-                    -metrics.height / 2.0 + label_dy,
-                ),
-            );
+
+        match (effect, effect_id.as_deref()) {
+            (Some(effect_3), Some(id)) => {
+                label_effect_emitted = effect_3.open(
+                    out,
+                    id,
+                    (
+                        -metrics.width / 2.0 + label.dx,
+                        -metrics.height / 2.0 + label_dy,
+                    ),
+                );
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
+
         let _ = write!(
             out,
             r#"<foreignObject width="{}" height="{}"{}><div xmlns="http://www.w3.org/1999/xhtml" style="{}"><span class="{}"{}>{}</span></div></foreignObject>"#,
@@ -615,19 +651,24 @@ fn render_flowchart_node_label_with_wrapper(
             span_style_attr,
             label_html
         );
+
         if label_effect_emitted {
             effect
                 .expect("opened effect")
                 .close(out, ctx, effect_id.as_deref().unwrap());
         }
+
         out.push_str("</g>");
     }
+
     if close_node_wrapper {
         out.push_str("</g>");
+
         if common.wrapped_in_a {
             out.push_str("</a>");
         }
     }
+
     let typography_applicable =
         flowchart_node_label_typography_is_applicable(&label_text_plain, ctx.node_html_labels);
     receipt
@@ -652,6 +693,7 @@ fn append_typed_label_fill(style: &mut String, fill: &str) {
     if !style.is_empty() {
         style.push(';');
     }
+
     let _ = write!(
         style,
         "fill:{fill} !important;color:{} !important",
@@ -659,15 +701,18 @@ fn append_typed_label_fill(style: &mut String, fill: &str) {
     );
 }
 
+#[must_use]
 fn flowchart_node_label_typography_is_applicable(text: &str, html_labels: bool) -> bool {
     !crate::flowchart::flowchart_label_text_is_empty_for_mode(text, html_labels)
 }
 
+#[must_use]
 fn flowchart_node_label_uses_markdown_bbox(label_type: &str, text: &str) -> bool {
-    // Mermaid 11.16's labelHelper passes `markdown: true` only for the parser-owned label type.
+
     label_type == "markdown" && crate::text::mermaid_markdown_to_lines(text, true).len() > 1
 }
 
+#[must_use]
 fn label_weight_is_verified(
     ctx: &FlowchartRenderCtx<'_>,
     label: &super::FlowchartNodeLabelState<'_>,
@@ -680,7 +725,7 @@ fn label_weight_is_verified(
         weights.config_is_verified() && weights.get(ThemeTarget::NodeLabel).is_some()
     }) && label.label_type != "markdown"
         && !label.text.contains("$$")
-        && html.is_none_or(|html| {
+        && html.is_none_or(|html_2| {
             let ancestor_classes = ["root", "nodes", "node", "default"]
                 .into_iter()
                 .chain(node_classes.iter().map(String::as_str));
@@ -688,7 +733,7 @@ fn label_weight_is_verified(
                 ctx.class_defs,
                 shell_classes,
                 ancestor_classes,
-                html,
+                html_2,
             ) == crate::flowchart::FlowchartSourceFacetStatus::Absent
         })
 }

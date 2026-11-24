@@ -37,6 +37,7 @@ pub(crate) use text_paint::{
 };
 pub(crate) use theme::{RequirementDividerEmission, RequirementPaintThemePlan};
 
+#[must_use]
 fn requirement_layout_work_units(model: &RequirementDiagramModel) -> usize {
     let source_node_count = model
         .requirements
@@ -48,17 +49,18 @@ fn requirement_layout_work_units(model: &RequirementDiagramModel) -> usize {
         .iter()
         .filter(|relationship| relationship.src == relationship.dst)
         .count();
-    // Mermaid expands every self-loop into two labelRect nodes and three layout edges.
+
     let node_count = source_node_count.saturating_add(self_loop_count.saturating_mul(2));
     let edge_count = source_edge_count.saturating_add(self_loop_count.saturating_mul(2));
-    // Dugong's ranking, crossing, and routing phases repeatedly inspect graph incidence. Charge a
-    // deterministic V*E upper bound before constructing the graph rather than exposing a
-    // Requirement-specific public threshold.
+
+
+
     node_count
         .saturating_add(edge_count)
         .saturating_add(node_count.saturating_mul(edge_count))
 }
 
+#[must_use]
 fn normalize_dir(direction: &str) -> String {
     match direction.trim().to_uppercase().as_str() {
         "TB" | "TD" => "TB".to_string(),
@@ -69,6 +71,7 @@ fn normalize_dir(direction: &str) -> String {
     }
 }
 
+#[must_use]
 fn rank_dir_from(direction: &str) -> RankDir {
     match normalize_dir(direction).as_str() {
         "TB" => RankDir::TB,
@@ -99,12 +102,13 @@ struct RequirementLabelMeasurementBinding {
 }
 
 impl RequirementLabelMeasurementBinding {
+    #[must_use]
     fn for_measurer(
         settings: &config::RequirementLayoutSettings,
         measurer: &dyn TextMeasurer,
     ) -> Option<Self> {
-        // Only the operation-owned built-in route can prove that suppressing the SVG-stage
-        // request is unobservable. Host and custom measurers deliberately return no carrier.
+
+
         Some(Self {
             html_labels: settings.html_labels,
             edge_html_labels: settings.edge_html_labels,
@@ -112,14 +116,15 @@ impl RequirementLabelMeasurementBinding {
             font_size_bits: settings.font_size.to_bits(),
             calculation_font_family: settings.calculation_font_family.clone(),
             calculation_font_size_bits: settings.calculation_font_size.to_bits(),
-            dimensions_carrier: measurer.builtin_operation_carrier(
+            dimensions_carrier: { let checked_value = measurer.builtin_operation_carrier(
                 TextMeasurementOperation::MermaidCalculateTextDimensions,
-            )?,
-            wrapped_carrier: measurer
-                .builtin_operation_carrier(TextMeasurementOperation::Wrapped)?,
+            )?; checked_value },
+            wrapped_carrier: { let checked_value_2 = measurer
+                .builtin_operation_carrier(TextMeasurementOperation::Wrapped)?; checked_value_2 },
         })
     }
 
+    #[must_use]
     fn matches(
         &self,
         settings: &config::RequirementLayoutSettings,
@@ -149,14 +154,17 @@ pub(crate) struct RequirementPreparedArtifact {
 }
 
 impl RequirementPreparedArtifact {
+    #[must_use]
     pub(crate) fn layout(&self) -> &RequirementDiagramLayout {
         &self.layout
     }
 
+    #[must_use]
     pub(crate) fn uses_elk(&self) -> bool {
         self.render_layout.is_some()
     }
 
+    #[must_use]
     pub(crate) fn render_parts(
         &self,
     ) -> (
@@ -171,6 +179,7 @@ impl RequirementPreparedArtifact {
         )
     }
 
+    #[must_use]
     pub(crate) fn label_measurements_for_render_with_typography<'a>(
         &self,
         measurer: &'a dyn TextMeasurer,
@@ -180,7 +189,7 @@ impl RequirementPreparedArtifact {
         let reuse_prepared = self
             .measurement_binding
             .as_ref()
-            .is_some_and(|binding| binding.matches(settings, measurer));
+            .is_some_and(|binding_2| binding_2.matches(settings, measurer));
 
         RequirementRenderLabelMeasurements {
             measurer,
@@ -231,6 +240,7 @@ pub(crate) struct RequirementRenderLabelMeasurements<'a> {
 }
 
 impl RequirementRenderLabelMeasurements<'_> {
+    #[must_use]
     fn resolve(
         &self,
         measurer: &dyn TextMeasurer,
@@ -243,9 +253,10 @@ impl RequirementRenderLabelMeasurements<'_> {
         if self.reuse_prepared {
             return Some(prepared);
         }
-        // Mermaid 11.16's `requirementBox.addText` performs `calculateTextWidth`/`createText`
-        // during SVG emission. Replaying that request keeps host callback order and provenance
-        // observable whenever the private built-in binding cannot prove safe reuse.
+
+
+
+
         measure_requirement_label_metrics(
             measurer,
             typography,
@@ -257,6 +268,7 @@ impl RequirementRenderLabelMeasurements<'_> {
         .map(|metrics| requirement_node_label_metrics(metrics, styles.node_wrap_mode))
     }
 
+    #[must_use]
     pub(crate) fn node_plan_for_render<'a>(
         &self,
         prepared: &'a RequirementNodeLabelPlan,
@@ -264,6 +276,7 @@ impl RequirementRenderLabelMeasurements<'_> {
         if self.reuse_prepared {
             return Some(Cow::Borrowed(prepared));
         }
+
         let styles = prepared.typography.apply_to(
             self.styles
                 .as_ref()
@@ -299,6 +312,7 @@ impl RequirementRenderLabelMeasurements<'_> {
         Some(Cow::Owned(plan))
     }
 
+    #[must_use]
     pub(crate) fn measure_edge_label_for_render(
         &self,
         edge: &RequirementEdgeLabelPlan,
@@ -306,6 +320,7 @@ impl RequirementRenderLabelMeasurements<'_> {
         if self.reuse_prepared {
             return Some(());
         }
+
         let styles = self
             .styles
             .as_ref()
@@ -323,6 +338,7 @@ struct RequirementLabelSpec {
     keep_centered: bool,
 }
 
+#[must_use]
 pub(crate) fn calculate_text_width_like_mermaid_px(
     measurer: &dyn TextMeasurer,
     style: &TextStyle,
@@ -331,75 +347,99 @@ pub(crate) fn calculate_text_width_like_mermaid_px(
     crate::text::measure_mermaid_text_dimensions(measurer, text, style).width
 }
 
+#[must_use]
 fn measure_requirement_svg_word_lines(
     measurer: &dyn TextMeasurer,
     first_row_measurer: &dyn TextMeasurer,
     lines: &[Vec<(String, MermaidMarkdownWordType)>],
     style: &TextStyle,
 ) -> TextMetrics {
-    let (first, remaining) = lines.split_at(lines.len().min(1));
+    let (first, remaining) = match <[_]>::split_at_checked(lines, 1) {
+      ::core::option::Option::Some(split_halves) => split_halves,
+      ::core::option::Option::None => {
+        let (split_whole, split_empty) = <[_]>::as_chunks::<1>(lines);
+        (split_whole.as_flattened(), split_empty)
+      }
+    };
     let mut metrics = crate::text::measure_svg_markdown_word_lines(
         first_row_measurer,
         first,
         style,
         crate::text::SvgTextEntityMode::CreateTextSource,
     );
+
     let Some(first_tail_row) = remaining.iter().position(|row| !row.is_empty()) else {
         if metrics.line_count > 0 {
             metrics.line_count = lines.len();
         }
+
         return metrics;
     };
-    let remaining = &remaining[first_tail_row..];
+
+    let remaining_2 = &remaining[first_tail_row..];
     let tail = crate::text::measure_svg_markdown_word_lines(
         measurer,
-        remaining,
+        remaining_2,
         style,
         crate::text::SvgTextEntityMode::CreateTextSource,
     );
-    let rows_y = |measurer: &dyn TextMeasurer, rows: &[Vec<(String, MermaidMarkdownWordType)>]| {
-        rows.iter()
+    let rows_y = |measurer_2: &dyn TextMeasurer, rows: &[Vec<(String, MermaidMarkdownWordType)>]| {
+        match rows.iter()
             .enumerate()
             .flat_map(|(row_index, row)| {
                 row.iter()
                     .enumerate()
                     .filter_map(move |(word_index, (word, kind))| {
                         let visible = crate::entities::decode_svg_text_content_entities(word);
+
                         if crate::text::trim_html_collapsible_ascii_whitespace(&visible).is_empty()
                         {
                             return None;
                         }
-                        let text = if word_index == 0 {
-                            visible
-                        } else {
-                            std::borrow::Cow::Owned(format!(" {visible}"))
+
+                        let text = match word_index {
+                            0 => {
+                                visible
+                            },
+                            _ => {
+                                std::borrow::Cow::Owned(format!(" {visible}"))
+                            },
                         };
                         let face = crate::text::svg_markdown_word_style(style, *kind);
                         Some(
-                            measurer.measure_svg_create_text_bbox_y_offset_px(&text, &face)
+                            measurer_2.measure_svg_create_text_bbox_y_offset_px(&text, &face)
                                 + row_index as f64 * style.font_size * 1.1,
                         )
                     })
             })
-            .reduce(f64::min)
-            .unwrap_or(0.0)
+            .reduce(f64::min) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0.0,
+        }
     };
-    // Match the final styled-word bbox origins, including retained empty rows.
-    // Requirement changes only the first row's face after its wrapping probe.
+
+
     let first_y = rows_y(first_row_measurer, first);
-    let tail_y = (first_tail_row + 1) as f64 * style.font_size * 1.1 + rows_y(measurer, remaining);
-    metrics.height = if metrics.line_count == 0 {
-        tail.height
-    } else if tail.line_count == 0 {
-        metrics.height
-    } else {
-        (first_y + metrics.height).max(tail_y + tail.height) - first_y.min(tail_y)
+    let tail_y = (first_tail_row + 1) as f64 * style.font_size * 1.1 + rows_y(measurer, remaining_2);
+    metrics.height = match metrics.line_count {
+        0 => {
+            tail.height
+        },
+        _ => match tail.line_count {
+            0 => {
+                metrics.height
+            },
+            _ => {
+                (first_y + metrics.height).max(tail_y + tail.height) - first_y.min(tail_y)
+            },
+        },
     };
     metrics.width = metrics.width.max(tail.width);
     metrics.line_count = lines.len();
     metrics
 }
 
+#[must_use]
 fn measure_requirement_label_metrics(
     measurer: &dyn TextMeasurer,
     typography: &RequirementNodeTypography,
@@ -432,7 +472,7 @@ fn measure_requirement_label_metrics(
             wrap_mode,
         )
     } else {
-        // requirementBox applies inline row styles after createText has wrapped the words.
+
         let lines = crate::text::mermaid_markdown_to_wrapped_word_lines(
             measurer,
             calculation_text,
@@ -458,17 +498,20 @@ fn measure_requirement_label_metrics(
     })
 }
 
+#[must_use]
 fn requirement_node_label_metrics(
     mut metrics: RequirementLabelMetrics,
     wrap_mode: WrapMode,
 ) -> RequirementLabelMetrics {
     if wrap_mode == WrapMode::SvgLike {
-        // requirementBox.addText expands the SVG bbox before stacking node lines.
+
         metrics.height += 6.0;
     }
+
     metrics
 }
 
+#[must_use]
 fn measure_requirement_edge_label_metrics(
     measurer: &dyn TextMeasurer,
     styles: &RequirementMeasurementStyles,
@@ -477,6 +520,7 @@ fn measure_requirement_edge_label_metrics(
     if text.trim().is_empty() {
         return None;
     }
+
     let measured = if styles.edge_wrap_mode == WrapMode::HtmlLike {
         crate::text::measure_markdown_with_inline_styles(
             measurer,
@@ -494,7 +538,7 @@ fn measure_requirement_edge_label_metrics(
             WrapMode::SvgLike,
         )
     };
-    // Shared edge createText adds a background with 2px padding on each side only in SVG mode.
+
     let padding = if styles.edge_wrap_mode == WrapMode::HtmlLike {
         0.0
     } else {
@@ -516,6 +560,7 @@ struct RequirementBoxLayout {
 }
 
 impl RequirementBoxLayout {
+    #[must_use]
     fn into_node_plan(self) -> (f64, f64, RequirementNodeLabelPlan) {
         (
             self.width,
@@ -529,6 +574,7 @@ impl RequirementBoxLayout {
     }
 }
 
+#[must_use]
 fn requirement_box_layout(
     measurer: &dyn TextMeasurer,
     typography: &RequirementNodeTypography,
@@ -537,7 +583,7 @@ fn requirement_box_layout(
     gap: f64,
     padding: f64,
 ) -> RequirementBoxLayout {
-    // Mirrors Mermaid `requirementBox.ts` label stacking and bbox-based sizing.
+
     let measured_lines = lines
         .into_iter()
         .enumerate()
@@ -550,13 +596,14 @@ fn requirement_box_layout(
                 &line.display_text,
                 line.measurement_bold,
             )?;
-            let metrics = requirement_node_label_metrics(metrics, styles.node_wrap_mode);
-            Some((idx, line, metrics))
+            let metrics_2 = requirement_node_label_metrics(metrics, styles.node_wrap_mode);
+            Some((idx, line, metrics_2))
         })
         .collect();
     requirement_box_layout_from_measured_lines(measured_lines, gap, padding)
 }
 
+#[must_use]
 fn requirement_box_layout_from_measured_lines(
     lines: Vec<(usize, RequirementLabelSpec, RequirementLabelMetrics)>,
     gap: f64,
@@ -574,25 +621,31 @@ fn requirement_box_layout_from_measured_lines(
     for (idx, line, metrics) in lines {
         max_w = max_w.max(metrics.width);
 
-        if idx == 0 {
-            min_y = -metrics.height / 2.0;
-            max_y = metrics.height / 2.0;
-            type_height = metrics.height;
-            y_offset = metrics.height;
-        } else if idx == 1 {
-            let top = -metrics.height / 2.0 + y_offset;
-            let bottom = metrics.height / 2.0 + y_offset;
-            min_y = min_y.min(top);
-            max_y = max_y.max(bottom);
-            name_height = metrics.height;
-            y_offset += metrics.height + gap;
-        } else {
-            let top = -metrics.height / 2.0 + y_offset;
-            let bottom = metrics.height / 2.0 + y_offset;
-            min_y = min_y.min(top);
-            max_y = max_y.max(bottom);
-            y_offset += metrics.height;
-            has_body = true;
+        match idx {
+            0 => {
+                min_y = -metrics.height / 2.0;
+                max_y = metrics.height / 2.0;
+                type_height = metrics.height;
+                y_offset = metrics.height;
+            },
+            _ => match idx {
+                1 => {
+                    let top = -metrics.height / 2.0 + y_offset;
+                    let bottom = metrics.height / 2.0 + y_offset;
+                    min_y = min_y.min(top);
+                    max_y = max_y.max(bottom);
+                    name_height = metrics.height;
+                    y_offset += metrics.height + gap;
+                },
+                _ => {
+                    let top = -metrics.height / 2.0 + y_offset;
+                    let bottom = metrics.height / 2.0 + y_offset;
+                    min_y = min_y.min(top);
+                    max_y = max_y.max(bottom);
+                    y_offset += metrics.height;
+                    has_body = true;
+                },
+            },
         }
 
         let line_y_offset = match idx {
@@ -621,20 +674,23 @@ fn requirement_box_layout_from_measured_lines(
     }
 }
 
+#[must_use]
 fn requirement_edge_id(src: &str, dst: &str, idx: usize) -> String {
     format!("{src}-{dst}-{idx}")
 }
 
+#[must_use]
 fn requirement_edge_key(src: &str, dst: &str, index: usize) -> EdgeKey {
     EdgeKey::new(src, dst, Some(requirement_edge_id(src, dst, index)))
 }
 
+#[must_use]
 fn requirement_layout_edge_label(width: f64, height: f64) -> EdgeLabel {
     EdgeLabel {
         width,
         height,
         labelpos: LabelPos::C,
-        // Dagre defaults to 10 when unspecified.
+
         labeloffset: 10.0,
         minlen: 1,
         weight: 1.0,
@@ -655,15 +711,18 @@ fn insert_requirement_layout_edge(
     plans.insert(EdgeKey::new(from, to, Some(graph_name)), plan);
 }
 
+#[must_use]
 fn prefixed_nonempty_line(prefix: &str, value: &str) -> String {
-    let value = value.trim();
-    if value.is_empty() {
+    let value_2 = value.trim();
+
+    if value_2.is_empty() {
         String::new()
     } else {
-        format!("{prefix}{value}")
+        format!("{prefix}{value}", value = value_2)
     }
 }
 
+#[must_use]
 fn node_label_spec(
     display_text: String,
     measurement_bold: bool,
@@ -678,6 +737,7 @@ fn node_label_spec(
     }
 }
 
+#[must_use]
 fn requirement_node_label_specs(node: &RequirementNode) -> Vec<RequirementLabelSpec> {
     vec![
         node_label_spec(
@@ -714,6 +774,7 @@ fn requirement_node_label_specs(node: &RequirementNode) -> Vec<RequirementLabelS
     ]
 }
 
+#[must_use]
 fn element_node_label_specs(node: &RequirementElement) -> Vec<RequirementLabelSpec> {
     vec![
         node_label_spec("&lt;&lt;Element&gt;&gt;".to_string(), false, false, true),
@@ -742,6 +803,7 @@ struct RequirementMeasurementStyles {
     calculation: TextStyle,
 }
 
+#[must_use]
 fn requirement_measurement_styles(
     settings: &config::RequirementLayoutSettings,
 ) -> RequirementMeasurementStyles {
@@ -907,14 +969,15 @@ pub(crate) fn layout_requirement_diagram_typed_with_work_meter_and_typography(
         element_node_labels.insert(e.name.clone(), label_plan);
     }
 
-    // Mermaid assigns one monotonically increasing edge counter across the complete
-    // relationship list, including parallel relationships and mixed relationship kinds.
+
+
     for (relationship_index, rel) in model.relationships.iter().enumerate() {
         if !g.has_node(&rel.src) {
             return Err(Error::InvalidModel {
                 message: format!("relationship src node not found: {}", rel.src),
             });
         }
+
         if !g.has_node(&rel.dst) {
             return Err(Error::InvalidModel {
                 message: format!("relationship dst node not found: {}", rel.dst),
@@ -932,11 +995,13 @@ pub(crate) fn layout_requirement_diagram_typed_with_work_meter_and_typography(
                 })?;
 
         let is_contains = rel.rel_type == "contains";
+
         if rel.src == rel.dst && backend == crate::layout_backend::GraphLayoutBackend::Dagre {
-            // The pinned Dagre renderer replaces a self-loop with two measured labelRect nodes and
-            // three named edges. Requirement intentionally keeps those segments separate in SVG.
+
+
             let first_anchor = format!("{}---{}---1", rel.src, rel.src);
             let second_anchor = format!("{}---{}---2", rel.src, rel.src);
+
             for anchor in [&first_anchor, &second_anchor] {
                 g.set_node(
                     anchor.clone(),
@@ -1035,13 +1100,27 @@ pub(crate) fn layout_requirement_diagram_typed_with_work_meter_and_typography(
     }
 
     let mut out_nodes: Vec<LayoutNode> = Vec::new();
+
     for v in g.nodes() {
-        let Some(n) = g.node(v) else {
-            continue;
+        let n = {
+            let optional_n = g.node(v);
+
+            match optional_n {
+                Some(matched_n) => matched_n,
+                ::core::option::Option::None => continue,
+            }
         };
-        let (Some(cx), Some(cy)) = (n.x, n.y) else {
-            continue;
+
+        let (cx, cy) = {
+            let outcome_cx = (n.x, n.y);
+
+            match outcome_cx {
+                (Some(matched_cx), Some(matched_cy)) => (matched_cx, matched_cy),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => continue,
+            }
         };
+
         out_nodes.push(LayoutNode {
             id: v.to_string(),
             x: cx - n.width / 2.0,
@@ -1056,10 +1135,17 @@ pub(crate) fn layout_requirement_diagram_typed_with_work_meter_and_typography(
 
     let mut out_edges: Vec<LayoutEdge> = Vec::new();
     let mut prepared_edge_labels = HashMap::new();
+
     for ek in g.edge_keys() {
-        let Some(e) = g.edge_by_key(&ek) else {
-            continue;
+        let e = {
+            let optional_e = g.edge_by_key(&ek);
+
+            match optional_e {
+                Some(matched_e) => matched_e,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let prepared_label = edge_labels.remove(&ek).ok_or_else(|| Error::InvalidModel {
             message: format!(
                 "missing prepared Requirement edge label for {} -> {} ({:?})",
@@ -1103,6 +1189,7 @@ pub(crate) fn layout_requirement_diagram_typed_with_work_meter_and_typography(
             end_marker: None,
             stroke_dasharray: None,
         });
+
         if prepared_edge_labels.insert(ek, prepared_label).is_some() {
             return Err(Error::InvalidModel {
                 message: "duplicate prepared Requirement edge identity after layout".to_string(),
@@ -1110,10 +1197,12 @@ pub(crate) fn layout_requirement_diagram_typed_with_work_meter_and_typography(
         }
     }
 
+    #[must_use]
     fn bounds_for_nodes_edges(nodes: &[LayoutNode], edges: &[LayoutEdge]) -> Option<Bounds> {
         if nodes.is_empty() && edges.is_empty() {
             return None;
         }
+
         let mut min_x = f64::INFINITY;
         let mut min_y = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
@@ -1125,6 +1214,7 @@ pub(crate) fn layout_requirement_diagram_typed_with_work_meter_and_typography(
             max_x = max_x.max(n.x + n.width);
             max_y = max_y.max(n.y + n.height);
         }
+
         for e in edges {
             for p in &e.points {
                 min_x = min_x.min(p.x);
@@ -1132,17 +1222,22 @@ pub(crate) fn layout_requirement_diagram_typed_with_work_meter_and_typography(
                 max_x = max_x.max(p.x);
                 max_y = max_y.max(p.y);
             }
-            if let Some(l) = &e.label {
-                min_x = min_x.min(l.x - l.width / 2.0);
-                max_x = max_x.max(l.x + l.width / 2.0);
-                min_y = min_y.min(l.y - l.height / 2.0);
-                max_y = max_y.max(l.y + l.height / 2.0);
+
+            match &e.label {
+                Some(l) => {
+                    min_x = min_x.min(l.x - l.width / 2.0);
+                    max_x = max_x.max(l.x + l.width / 2.0);
+                    min_y = min_y.min(l.y - l.height / 2.0);
+                    max_y = max_y.max(l.y + l.height / 2.0);
+                },
+                ::core::option::Option::None => {},
             }
         }
 
         if !min_x.is_finite() || !min_y.is_finite() || !max_x.is_finite() || !max_y.is_finite() {
             return None;
         }
+
         Some(Bounds {
             min_x,
             min_y,
@@ -1153,12 +1248,13 @@ pub(crate) fn layout_requirement_diagram_typed_with_work_meter_and_typography(
 
     let bounds = bounds_for_nodes_edges(&out_nodes, &out_edges);
     let mut prepared_node_labels = HashMap::with_capacity(out_nodes.len());
+
     for node in &out_nodes {
         let plan = if edge_label_anchor_nodes.contains(&node.id) {
             RequirementNodeRenderPlan::EdgeLabelAnchor
         } else {
-            // Preserve the renderer's historical requirement-before-element precedence when both
-            // semantic collections contain the same node name.
+
+
             let prepared_label = requirement_node_labels
                 .remove(&node.id)
                 .or_else(|| element_node_labels.remove(&node.id))
@@ -1167,12 +1263,14 @@ pub(crate) fn layout_requirement_diagram_typed_with_work_meter_and_typography(
                 })?;
             RequirementNodeRenderPlan::Semantic(prepared_label)
         };
+
         if prepared_node_labels.insert(node.id.clone(), plan).is_some() {
             return Err(Error::InvalidModel {
                 message: format!("duplicate prepared Requirement node identity: {}", node.id),
             });
         }
     }
+
     let layout = RequirementDiagramLayout {
         nodes: out_nodes,
         edges: out_edges,
@@ -1511,7 +1609,7 @@ mod tests {
                 true,
                 "W<br/>**WWW**",
                 60.0,
-                // Source normal applies only to row zero: [-2, 8]. The bold tail is [-5, 15].
+
                 row_step + 15.0 - (-2.0),
             ),
         ] {

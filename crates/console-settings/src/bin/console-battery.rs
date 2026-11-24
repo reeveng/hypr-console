@@ -6,6 +6,7 @@
 //! console-battery lower    say it is getting really low
 //! console-battery protect  say the machine is stopping, wait, and stop it
 //! console-battery emergency  put the machine to sleep at 1% or less while unplugged
+//! console-battery charge-limit BATTERY PERCENT  set the driver's charge ceiling
 //! ```
 //! `console-bar` dispatches the command when a reading reaches a threshold.
 //! `console_battery` decides when a threshold is reached and
@@ -14,6 +15,7 @@
 use std::process::{Command, ExitCode};
 
 use console_battery::Action::{Configured, Emergency};
+use console_battery::charge_limit;
 use console_battery::{Action, Cable, Charge, Step, charge};
 use console_core_arguments::{Operands, read_with};
 use console_core_never::Never;
@@ -37,6 +39,18 @@ const COMMAND: console_core_arguments::Command = console_core_arguments::Command
 
 fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
+
+  match words
+    .split_first()
+    .filter(|(mode, _)| mode.as_str() == charge_limit::COMMAND)
+  {
+    Some((_, values)) => {
+      let Ok(status) = set_charge_limit(values);
+      return status;
+    }
+    None => {}
+  }
+
   let asked =
     read_with::<Action, String>(&COMMAND, &words).and_then(|line| line.require_subcommand());
 
@@ -86,6 +100,33 @@ fn main() -> ExitCode {
   }
 }
 
+#[must_use]
+fn set_charge_limit(values: &[String]) -> core::result::Result<ExitCode, Never> {
+  let (battery, value) = match values {
+    [battery, value] => (battery, value),
+    _invalid => {
+      eprintln!("Usage: console-battery charge-limit BATTERY PERCENT");
+      return Ok(ExitCode::FAILURE);
+    }
+  };
+  let Ok(parsed) = charge_limit::percent(value);
+  let percent = match parsed {
+    Some(percent) => percent,
+    None => {
+      eprintln!("Enter a charge limit from 1 to 100 percent");
+      return Ok(ExitCode::FAILURE);
+    }
+  };
+
+  Ok(match charge_limit::set(battery, percent) {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(fault) => {
+      eprintln!("Could not set {battery} to {percent}%: {fault}");
+      ExitCode::FAILURE
+    }
+  })
+}
+
 fn announce(action: Action, percent: i32, stop: Stop) -> Result<(), Never> {
   let Ok(card) = card(action, percent, stop);
   let Ok(kept) = StatePath::new("battery");
@@ -103,7 +144,9 @@ fn play_warning() -> Result<(), Never> {
 
   let Ok(inbox) = load_inbox();
 
-  match inbox.do_not_disturb {
+  let Ok(quiet) = inbox.effective_do_not_disturb();
+
+  match quiet {
     DoNotDisturb::On => return Ok(()),
     DoNotDisturb::Off => {}
   }

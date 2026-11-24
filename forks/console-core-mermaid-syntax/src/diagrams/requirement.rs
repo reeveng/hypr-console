@@ -54,6 +54,7 @@ struct RequirementBuilder {
 }
 
 impl RequirementBuilder {
+    #[must_use]
     fn new() -> Self {
         Self {
             requirement_id: String::new(),
@@ -71,6 +72,7 @@ struct ElementBuilder {
 }
 
 impl ElementBuilder {
+    #[must_use]
     fn new() -> Self {
         Self {
             element_type: String::new(),
@@ -94,6 +96,7 @@ struct RequirementDb {
 }
 
 impl RequirementDb {
+    #[must_use]
     fn new() -> Self {
         Self {
             direction: "TB".to_string(),
@@ -114,6 +117,7 @@ impl RequirementDb {
         if self.requirements.contains_key(name) {
             return;
         }
+
         self.requirement_order.push(name.to_string());
         self.requirements.insert(
             name.to_string(),
@@ -134,6 +138,7 @@ impl RequirementDb {
         if self.elements.contains_key(name) {
             return;
         }
+
         self.element_order.push(name.to_string());
         self.elements.insert(
             name.to_string(),
@@ -169,36 +174,67 @@ impl RequirementDb {
     fn set_css_style(&mut self, ids: &[String], styles: &[String]) {
         for id in ids {
             let node_req = self.requirements.get_mut(id);
-            if let Some(node) = node_req {
-                push_styles(&mut node.css_styles, styles);
-                continue;
+
+            match node_req {
+                Some(node) => {
+                    push_styles(&mut node.css_styles, styles);
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
+
             let node_el = self.elements.get_mut(id);
-            if let Some(node) = node_el {
-                push_styles(&mut node.css_styles, styles);
-                continue;
+
+            match node_el {
+                Some(node) => {
+                    push_styles(&mut node.css_styles, styles);
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
         }
     }
 
     fn set_class(&mut self, ids: &[String], class_names: &[String]) {
         for id in ids {
-            if let Some(node) = self.requirements.get_mut(id) {
-                for cls in class_names {
-                    node.classes.push(cls.clone());
-                    if let Some(def) = self.classes.get(cls) {
-                        node.css_styles.extend(def.styles.iter().cloned());
+            match self.requirements.get_mut(id) {
+                Some(node) => {
+                    for cls in class_names {
+                        node.classes.push(cls.clone());
+
+                        {
+                            match self.classes.get(cls) {
+                                Some(def) => {
+                                    node.css_styles.extend(def.styles.iter().cloned());
+                                },
+                                ::core::option::Option::None => {},
+                            };
+                        }
                     }
-                }
-                continue;
+
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(node) = self.elements.get_mut(id) {
-                for cls in class_names {
-                    node.classes.push(cls.clone());
-                    if let Some(def) = self.classes.get(cls) {
-                        node.css_styles.extend(def.styles.iter().cloned());
-                    }
-                }
+
+            {
+                match self.elements.get_mut(id) {
+                    Some(node) => {
+                        for cls in class_names {
+                            node.classes.push(cls.clone());
+
+                            {
+                                match self.classes.get(cls) {
+                                    Some(def) => {
+                                        node.css_styles.extend(def.styles.iter().cloned());
+                                    },
+                                    ::core::option::Option::None => {},
+                                };
+                            }
+                        }
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }
@@ -219,6 +255,7 @@ impl RequirementDb {
                     let new_style = s.replacen("fill", "bgFill", 1);
                     style_class.text_styles.push(new_style);
                 }
+
                 style_class.styles.push(s.clone());
             }
 
@@ -234,6 +271,7 @@ impl RequirementDb {
                     );
                 }
             }
+
             for el_name in &self.element_order {
                 if let Some(el) = self.elements.get_mut(el_name)
                     && el.classes.iter().any(|c| c == id)
@@ -249,6 +287,7 @@ impl RequirementDb {
         }
     }
 
+    #[must_use]
     fn to_render_model(
         &self,
         acc_title: Option<String>,
@@ -269,6 +308,7 @@ impl RequirementDb {
             .collect::<Vec<_>>();
 
         let mut classes = BTreeMap::new();
+
         for (k, c) in &self.classes {
             classes.insert(k.clone(), c.clone());
         }
@@ -322,6 +362,7 @@ pub(crate) fn parse_requirement_model_for_render_controlled(
         EditorFactsDemand::Omit,
         control,
     )?;
+
     match construction {
         Ok(source) => Ok(Ok(source.model)),
         Err(failure) => Ok(Err(failure.into_error())),
@@ -395,6 +436,7 @@ pub(crate) fn parse_requirement_semantic_model_controlled(
                     },
                 }
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 crate::family::SemanticConstruction {
@@ -417,40 +459,48 @@ struct SpannedValue<'a> {
     start: usize,
 }
 
+#[must_use]
 fn requirement_statement_start(line: &str, line_start: usize) -> usize {
     line_start + leading_whitespace_len(line)
 }
 
+#[must_use]
 fn trim_spanned_value(raw: &str, raw_start: usize) -> Option<SpannedValue<'_>> {
     let leading = raw.len() - raw.trim_start().len();
     let without_leading = &raw[leading..];
     let trailing = without_leading.len() - without_leading.trim_end().len();
     let end = raw.len().saturating_sub(trailing);
+
     if leading >= end {
         return None;
     }
+
     Some(SpannedValue {
         text: &raw[leading..end],
         start: raw_start + leading,
     })
 }
 
+#[must_use]
 fn parse_keyword_rest_ci<'a>(line: &'a str, key: &str) -> Option<(&'a str, usize)> {
     let leading = line.len() - line.trim_start().len();
     let t = &line[leading..];
+
     if !t
         .get(..key.len())
         .is_some_and(|head| head.eq_ignore_ascii_case(key))
     {
         return None;
     }
+
     let rest_start = leading + key.len();
     let rest = &line[rest_start..];
     let rest_leading = rest.len() - rest.trim_start().len();
-    let rest_start = rest_start + rest_leading;
-    let rest = &line[rest_start..];
-    if rest.starts_with(':') || rest.starts_with('{') {
-        Some((rest, rest_start))
+    let rest_start_2 = rest_start + rest_leading;
+    let rest_2 = &line[rest_start_2..];
+
+    if rest_2.starts_with(':') || rest_2.starts_with('{') {
+        Some((rest_2, rest_start_2))
     } else {
         None
     }
@@ -598,9 +648,11 @@ fn parse_requirement_semantic_source_once(
         control.checkpoint()?;
         let stripped = split_requirement_line(raw);
         let t = stripped.trim();
+
         if t.is_empty() {
             continue;
         }
+
         let statement_start = requirement_statement_start(stripped, line_start);
 
         if let Some((rest, rest_start)) = parse_keyword_rest_ci(stripped, "accTitle")
@@ -624,39 +676,45 @@ fn parse_requirement_semantic_source_once(
                 );
             }
             acc_title = Some(
-                value
-                    .map(|value| value.text)
-                    .unwrap_or_default()
+                match value
+                    .map(|value| value.text) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "",
+                }
                     .to_string(),
             );
             continue;
         }
-        if let Some(parsed) =
-            parse_requirement_acc_descr(stripped, raw, line_start, &mut lines, control)?
-        {
-            #[cfg(feature = "editor-facts")]
-            if editor_demand == EditorFactsDemand::Capture {
-                editor_facts.push_directive_prefix("accDescr");
-                parsed.emit_editor_fact(&mut editor_facts);
-            }
-            if !parsed.complete {
+
+        match parse_requirement_acc_descr(stripped, raw, line_start, &mut lines, control)? {
+            Some(parsed) => {
                 #[cfg(feature = "editor-facts")]
-                if editor_demand.needs_recovery() {
-                    editor_facts.mark_recovered_from_parse_error(
-                        "requirement parser recovered from unterminated accDescr block",
-                        Some(parsed.statement_span),
-                    );
+                if editor_demand == EditorFactsDemand::Capture {
+                    editor_facts.push_directive_prefix("accDescr");
+                    parsed.emit_editor_fact(&mut editor_facts);
                 }
-                first_error.get_or_insert_with(|| {
-                    Error::diagram_parse_insertion_point(
-                        diagram_type.to_string(),
-                        "unterminated accDescr block",
-                        parsed.statement_span.end,
-                    )
-                });
-            }
-            acc_descr = Some(parsed.value);
-            continue;
+
+                if !parsed.complete {
+                    #[cfg(feature = "editor-facts")]
+                    if editor_demand.needs_recovery() {
+                        editor_facts.mark_recovered_from_parse_error(
+                            "requirement parser recovered from unterminated accDescr block",
+                            Some(parsed.statement_span),
+                        );
+                    }
+                    first_error.get_or_insert_with(|| {
+                        Error::diagram_parse_insertion_point(
+                            diagram_type.to_string(),
+                            "unterminated accDescr block",
+                            parsed.statement_span.end,
+                        )
+                    });
+                }
+
+                acc_descr = Some(parsed.value);
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         if !saw_header {
@@ -664,6 +722,7 @@ fn parse_requirement_semantic_source_once(
                 saw_header = true;
                 continue;
             }
+
             first_error.get_or_insert(Error::diagram_parse_exact(
                 diagram_type.to_string(),
                 "expected requirementDiagram",
@@ -672,24 +731,32 @@ fn parse_requirement_semantic_source_once(
             continue;
         }
 
-        if let Some(direction) = parse_direction(t, statement_start) {
-            #[cfg(feature = "editor-facts")]
-            if editor_demand == EditorFactsDemand::Capture {
-                direction.emit_editor_fact(
-                    &mut editor_facts,
-                    requirement_statement_span(raw, line_start),
-                );
-            }
-            if let Some(value) = direction.value {
-                db.set_direction(value);
-            } else {
-                first_error.get_or_insert(Error::diagram_parse_exact(
-                    diagram_type.to_string(),
-                    "invalid requirement direction",
-                    direction.selection,
-                ));
-            }
-            continue;
+        match parse_direction(t, statement_start) {
+            Some(direction) => {
+                #[cfg(feature = "editor-facts")]
+                if editor_demand == EditorFactsDemand::Capture {
+                    direction.emit_editor_fact(
+                        &mut editor_facts,
+                        requirement_statement_span(raw, line_start),
+                    );
+                }
+
+                match direction.value {
+                    Some(value) => {
+                        db.set_direction(value);
+                    },
+                    ::core::option::Option::None => {
+                        first_error.get_or_insert(Error::diagram_parse_exact(
+                            diagram_type.to_string(),
+                            "invalid requirement direction",
+                            direction.selection,
+                        ));
+                    },
+                }
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let requirement_open = match parse_requirement_def_open(t, statement_start) {
@@ -703,6 +770,7 @@ fn parse_requirement_semantic_source_once(
                 continue;
             }
         };
+
         if let Some(RequirementDefOpen {
             name,
             requirement_type: ty,
@@ -731,13 +799,23 @@ fn parse_requirement_semantic_source_once(
                 editor_demand,
                 control,
             )?;
-            if let Some(error) = body.error {
-                first_error.get_or_insert(error);
+
+            match body.error {
+                Some(error) => {
+                    first_error.get_or_insert(error);
+                },
+                ::core::option::Option::None => {},
             }
+
             db.add_requirement(&name.value, &ty, body.value);
-            if let Some(classes) = classes.as_ref().map(ParsedRequirementIdList::values) {
-                db.set_class(std::slice::from_ref(&name.value), &classes);
+
+            match classes.as_ref().map(ParsedRequirementIdList::values) {
+                Some(classes) => {
+                    db.set_class(std::slice::from_ref(&name.value), &classes);
+                },
+                ::core::option::Option::None => {},
             }
+
             continue;
         }
 
@@ -752,37 +830,51 @@ fn parse_requirement_semantic_source_once(
                 continue;
             }
         };
-        if let Some(ElementDefOpen { name, classes }) = element_open {
-            #[cfg(feature = "editor-facts")]
-            let statement_span = requirement_statement_span(raw, line_start);
-            #[cfg(feature = "editor-facts")]
-            if editor_demand == EditorFactsDemand::Capture {
-                emit_requirement_definition(
+
+        match element_open {
+            Some(ElementDefOpen { name, classes }) => {
+                #[cfg(feature = "editor-facts")]
+                let statement_span = requirement_statement_span(raw, line_start);
+                #[cfg(feature = "editor-facts")]
+                if editor_demand == EditorFactsDemand::Capture {
+                    emit_requirement_definition(
+                        &mut editor_facts,
+                        &name,
+                        classes.as_ref(),
+                        statement_span,
+                        "requirement element",
+                        EditorSemanticKind::Object,
+                    );
+                }
+                let body = parse_element_body(
+                    &mut lines,
+                    diagram_type,
+                    #[cfg(feature = "editor-facts")]
                     &mut editor_facts,
-                    &name,
-                    classes.as_ref(),
-                    statement_span,
-                    "requirement element",
-                    EditorSemanticKind::Object,
-                );
-            }
-            let body = parse_element_body(
-                &mut lines,
-                diagram_type,
-                #[cfg(feature = "editor-facts")]
-                &mut editor_facts,
-                #[cfg(feature = "editor-facts")]
-                editor_demand,
-                control,
-            )?;
-            if let Some(error) = body.error {
-                first_error.get_or_insert(error);
-            }
-            db.add_element(&name.value, body.value);
-            if let Some(classes) = classes.as_ref().map(ParsedRequirementIdList::values) {
-                db.set_class(std::slice::from_ref(&name.value), &classes);
-            }
-            continue;
+                    #[cfg(feature = "editor-facts")]
+                    editor_demand,
+                    control,
+                )?;
+
+                match body.error {
+                    Some(error) => {
+                        first_error.get_or_insert(error);
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                db.add_element(&name.value, body.value);
+
+                match classes.as_ref().map(ParsedRequirementIdList::values) {
+                    Some(classes) => {
+                        db.set_class(std::slice::from_ref(&name.value), &classes);
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let shorthand = match parse_shorthand_class_stmt(t, statement_start) {
@@ -796,20 +888,24 @@ fn parse_requirement_semantic_source_once(
                 continue;
             }
         };
-        if let Some(statement) = shorthand {
-            #[cfg(feature = "editor-facts")]
-            if editor_demand == EditorFactsDemand::Capture {
-                emit_requirement_shorthand_class(
-                    &mut editor_facts,
-                    &statement,
-                    requirement_statement_span(raw, line_start),
+
+        match shorthand {
+            Some(statement) => {
+                #[cfg(feature = "editor-facts")]
+                if editor_demand == EditorFactsDemand::Capture {
+                    emit_requirement_shorthand_class(
+                        &mut editor_facts,
+                        &statement,
+                        requirement_statement_span(raw, line_start),
+                    );
+                }
+                db.set_class(
+                    std::slice::from_ref(&statement.target.value),
+                    &statement.classes.values(),
                 );
-            }
-            db.set_class(
-                std::slice::from_ref(&statement.target.value),
-                &statement.classes.values(),
-            );
-            continue;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let style = match parse_style_stmt(t, statement_start) {
@@ -823,17 +919,21 @@ fn parse_requirement_semantic_source_once(
                 continue;
             }
         };
-        if let Some(statement) = style {
-            #[cfg(feature = "editor-facts")]
-            if editor_demand == EditorFactsDemand::Capture {
-                emit_requirement_style(
-                    &mut editor_facts,
-                    &statement,
-                    requirement_statement_span(raw, line_start),
-                );
-            }
-            db.set_css_style(&statement.ids.values(), &statement.styles.values());
-            continue;
+
+        match style {
+            Some(statement) => {
+                #[cfg(feature = "editor-facts")]
+                if editor_demand == EditorFactsDemand::Capture {
+                    emit_requirement_style(
+                        &mut editor_facts,
+                        &statement,
+                        requirement_statement_span(raw, line_start),
+                    );
+                }
+                db.set_css_style(&statement.ids.values(), &statement.styles.values());
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let class_def = match parse_classdef_stmt(t, statement_start) {
@@ -847,17 +947,21 @@ fn parse_requirement_semantic_source_once(
                 continue;
             }
         };
-        if let Some(statement) = class_def {
-            #[cfg(feature = "editor-facts")]
-            if editor_demand == EditorFactsDemand::Capture {
-                emit_requirement_class_def(
-                    &mut editor_facts,
-                    &statement,
-                    requirement_statement_span(raw, line_start),
-                );
-            }
-            db.define_class(&statement.ids.values(), &statement.styles.values());
-            continue;
+
+        match class_def {
+            Some(statement) => {
+                #[cfg(feature = "editor-facts")]
+                if editor_demand == EditorFactsDemand::Capture {
+                    emit_requirement_class_def(
+                        &mut editor_facts,
+                        &statement,
+                        requirement_statement_span(raw, line_start),
+                    );
+                }
+                db.define_class(&statement.ids.values(), &statement.styles.values());
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let class = match parse_class_stmt(t, statement_start) {
@@ -871,17 +975,21 @@ fn parse_requirement_semantic_source_once(
                 continue;
             }
         };
-        if let Some(statement) = class {
-            #[cfg(feature = "editor-facts")]
-            if editor_demand == EditorFactsDemand::Capture {
-                emit_requirement_class(
-                    &mut editor_facts,
-                    &statement,
-                    requirement_statement_span(raw, line_start),
-                );
-            }
-            db.set_class(&statement.targets.values(), &statement.classes.values());
-            continue;
+
+        match class {
+            Some(statement) => {
+                #[cfg(feature = "editor-facts")]
+                if editor_demand == EditorFactsDemand::Capture {
+                    emit_requirement_class(
+                        &mut editor_facts,
+                        &statement,
+                        requirement_statement_span(raw, line_start),
+                    );
+                }
+                db.set_class(&statement.targets.values(), &statement.classes.values());
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let relationship = match parse_relationship_stmt(t, statement_start) {
@@ -895,21 +1003,25 @@ fn parse_requirement_semantic_source_once(
                 continue;
             }
         };
-        if let Some(relationship) = relationship {
-            #[cfg(feature = "editor-facts")]
-            if editor_demand == EditorFactsDemand::Capture {
-                emit_requirement_relationship(
-                    &mut editor_facts,
-                    &relationship,
-                    requirement_statement_span(raw, line_start),
+
+        match relationship {
+            Some(relationship) => {
+                #[cfg(feature = "editor-facts")]
+                if editor_demand == EditorFactsDemand::Capture {
+                    emit_requirement_relationship(
+                        &mut editor_facts,
+                        &relationship,
+                        requirement_statement_span(raw, line_start),
+                    );
+                }
+                db.add_relationship(
+                    &relationship.kind,
+                    &relationship.source.value,
+                    &relationship.target.value,
                 );
-            }
-            db.add_relationship(
-                &relationship.kind,
-                &relationship.source.value,
-                &relationship.target.value,
-            );
-            continue;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         first_error.get_or_insert(Error::diagram_parse_exact(
@@ -932,14 +1044,17 @@ fn parse_requirement_semantic_source_once(
         resolve_requirement_reference_kinds(&mut editor_facts, &db);
     }
 
-    if let Some(error) = first_error {
-        return Ok(Err(CombinedSemanticFailure::parser_recovery(
-            #[cfg(feature = "editor-facts")]
-            "requirement",
-            error,
-            #[cfg(feature = "editor-facts")]
-            editor_demand.needs_recovery().then_some(editor_facts),
-        )));
+    match first_error {
+        Some(error) => {
+            return Ok(Err(CombinedSemanticFailure::parser_recovery(
+                #[cfg(feature = "editor-facts")]
+                "requirement",
+                error,
+                #[cfg(feature = "editor-facts")]
+                editor_demand.needs_recovery().then_some(editor_facts),
+            )));
+        },
+        ::core::option::Option::None => {},
     }
 
     control.checkpoint()?;
@@ -950,14 +1065,16 @@ fn parse_requirement_semantic_source_once(
     }))
 }
 
+#[must_use]
 fn requirement_exact_error(error: Error, diagram_type: &str, span: SourceSpan) -> Error {
     let message = match error {
         Error::DiagramParse { diagnostic, .. } => diagnostic.message().to_string(),
-        error => error.to_string(),
+        error_2 => error_2.to_string(),
     };
     Error::diagram_parse_exact(diagram_type.to_string(), message, span)
 }
 
+#[must_use]
 fn requirement_statement_span(line: &str, line_start: usize) -> SourceSpan {
     let leading = leading_whitespace_len(line);
     let end = line.trim_end().len();
@@ -1000,33 +1117,51 @@ fn parse_requirement_acc_descr(
     control: &OperationControl,
 ) -> OperationControlResult<Option<RequirementAccDescr>> {
     control.checkpoint()?;
-    let Some((rest, rest_start)) = parse_keyword_rest_ci(line, "accDescr") else {
-        return Ok(None);
+
+    let (rest, rest_start) = {
+        let optional_rest = parse_keyword_rest_ci(line, "accDescr");
+
+        match optional_rest {
+            Some((matched_rest, matched_rest_start)) => (matched_rest, matched_rest_start),
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let statement_start = requirement_statement_span(raw_line, line_start).start;
 
-    if let Some(raw_value) = rest.strip_prefix(':') {
-        let value = trim_spanned_value(raw_value, rest_start + 1);
-        return Ok(Some(RequirementAccDescr {
-            value: value
-                .map(|value| value.text)
-                .unwrap_or_default()
-                .to_string(),
-            statement_span: requirement_statement_span(raw_line, line_start),
-            #[cfg(feature = "editor-facts")]
-            selection: value.map(|value| {
-                SourceSpan::new(
-                    line_start + value.start,
-                    line_start + value.start + value.text.len(),
-                )
-            }),
-            complete: true,
-        }));
+    match rest.strip_prefix(':') {
+        Some(raw_value) => {
+            let value = trim_spanned_value(raw_value, rest_start + 1);
+            return Ok(Some(RequirementAccDescr {
+                value: match value
+                    .map(|value| value.text) {
+                    ::core::option::Option::Some(explicit_present) => explicit_present,
+                    ::core::option::Option::None => "",
+                }
+                    .to_string(),
+                statement_span: requirement_statement_span(raw_line, line_start),
+                #[cfg(feature = "editor-facts")]
+                selection: value.map(|value| {
+                    SourceSpan::new(
+                        line_start + value.start,
+                        line_start + value.start + value.text.len(),
+                    )
+                }),
+                complete: true,
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
-    let Some(after_brace) = rest.strip_prefix('{') else {
-        return Ok(None);
+    let after_brace = {
+        let optional_after_brace = rest.strip_prefix('{');
+
+        match optional_after_brace {
+            Some(matched_after_brace) => matched_after_brace,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let mut value_lines = Vec::new();
     let mut first_content_start = None;
     let mut last_content_end = None;
@@ -1034,6 +1169,7 @@ fn parse_requirement_acc_descr(
     let mut complete = false;
 
     let first_start = line_start + rest_start + 1;
+
     if let Some(close) = after_brace.find('}') {
         append_requirement_acc_descr_line(
             &after_brace[..close],
@@ -1053,22 +1189,28 @@ fn parse_requirement_acc_descr(
             &mut first_content_start,
             &mut last_content_end,
         );
+
         while let Some((next, next_start)) = cursor.next_line() {
             control.checkpoint()?;
             statement_end = next_start + next.len();
-            if let Some(close) = next.find('}') {
-                append_requirement_acc_descr_line(
-                    &next[..close],
-                    next_start,
-                    &mut value_lines,
-                    &mut first_content_start,
-                    &mut last_content_end,
-                );
-                statement_end = next_start + close + 1;
-                complete = true;
-                cursor.resume_same_line_at(statement_end);
-                break;
+
+            match next.find('}') {
+                Some(close) => {
+                    append_requirement_acc_descr_line(
+                        &next[..close],
+                        next_start,
+                        &mut value_lines,
+                        &mut first_content_start,
+                        &mut last_content_end,
+                    );
+                    statement_end = next_start + close + 1;
+                    complete = true;
+                    cursor.resume_same_line_at(statement_end);
+                    break;
+                },
+                ::core::option::Option::None => {},
             }
+
             append_requirement_acc_descr_line(
                 next,
                 next_start,
@@ -1100,12 +1242,15 @@ fn append_requirement_acc_descr_line(
 ) {
     let leading = leading_whitespace_len(raw);
     let trimmed = raw.trim();
+
     if trimmed.is_empty() {
         if !lines.is_empty() {
             lines.push(String::new());
         }
+
         return;
     }
+
     *first_content_start = Some(first_content_start.unwrap_or(start + leading));
     *last_content_end = Some(start + raw.trim_end().len());
     lines.push(trimmed.to_string());
@@ -1264,8 +1409,10 @@ fn resolve_requirement_reference_kinds(facts: &mut EditorSemanticFacts, db: &Req
     }
 }
 
+#[must_use]
 fn split_requirement_line(line: &str) -> &str {
     let lowered = line.trim_start().to_ascii_lowercase();
+
     if lowered.starts_with("style")
         || lowered.starts_with("classdef")
         || lowered.starts_with("class ")
@@ -1277,23 +1424,35 @@ fn split_requirement_line(line: &str) -> &str {
     let mut in_quotes = false;
     let mut idx = 0usize;
     let bytes = line.as_bytes();
+
     while idx < bytes.len() {
         let b = bytes[idx];
-        if b == b'"' {
-            in_quotes = !in_quotes;
-            idx += 1;
-            continue;
+
+        match b {
+            b'"' => {
+                in_quotes = !in_quotes;
+                idx += 1;
+                continue;
+            },
+            _ => {},
         }
+
         if !in_quotes {
-            if b == b'#' {
-                return &line[..idx];
+            match b {
+                b'#' => {
+                    return &line[..idx];
+                },
+                _ => {},
             }
+
             if b == b'%' && match <[_]>::get(&*bytes, idx + 1) { ::core::option::Option::Some(&checked_element) => checked_element == b'%', ::core::option::Option::None => false } {
                 return &line[..idx];
             }
         }
+
         idx += 1;
     }
+
     line
 }
 
@@ -1321,11 +1480,14 @@ impl ParsedRequirementDirection {
     }
 }
 
+#[must_use]
 fn parse_direction(t: &str, statement_start: usize) -> Option<ParsedRequirementDirection> {
     let (keyword, rest) = split_first_word(t)?;
+
     if !keyword.eq_ignore_ascii_case("direction") {
         return None;
     }
+
     let rest_start = t.len() - rest.len();
     let value_start = statement_start + rest_start + leading_whitespace_len(rest);
     let dir = split_first_word(rest).map_or("", |(dir, _)| dir);
@@ -1346,12 +1508,13 @@ fn parse_requirement_def_open(
     t: &str,
     statement_start: usize,
 ) -> Result<Option<RequirementDefOpen>> {
-    let t = t.trim();
-    if !t.ends_with('{') {
+    let t_2 = t.trim();
+
+    if !t_2.ends_with('{') {
         return Ok(None);
     }
 
-    let without_brace = t[..t.len() - 1].trim_end();
+    let without_brace = t_2[..t_2.len() - 1].trim_end();
     let (ty_raw, rest) = split_first_word(without_brace).ok_or_else(|| {
         Error::diagram_parse_fallback(
             "requirement".to_string(),
@@ -1372,12 +1535,14 @@ fn parse_requirement_def_open(
 
     let rest_start = without_brace.len() - rest.len();
     let name_and_classes = split_name_and_classes(rest, statement_start + rest_start)?;
+
     if name_and_classes.name.value.is_empty() {
         return Err(Error::diagram_parse_fallback(
             "requirement".to_string(),
             "requirement name is empty".to_string(),
         ));
     }
+
     Ok(Some(RequirementDefOpen {
         name: name_and_classes.name,
         requirement_type,
@@ -1392,30 +1557,34 @@ struct RequirementDefOpen {
 }
 
 fn parse_element_def_open(t: &str, statement_start: usize) -> Result<Option<ElementDefOpen>> {
-    let t = t.trim();
-    if !t.ends_with('{') {
+    let t_2 = t.trim();
+
+    if !t_2.ends_with('{') {
         return Ok(None);
     }
 
-    let without_brace = t[..t.len() - 1].trim_end();
+    let without_brace = t_2[..t_2.len() - 1].trim_end();
     let (kw, rest) = split_first_word(without_brace).ok_or_else(|| {
         Error::diagram_parse_fallback(
             "requirement".to_string(),
             "invalid element definition".to_string(),
         )
     })?;
+
     if !kw.eq_ignore_ascii_case("element") {
         return Ok(None);
     }
 
     let rest_start = without_brace.len() - rest.len();
     let name_and_classes = split_name_and_classes(rest, statement_start + rest_start)?;
+
     if name_and_classes.name.value.is_empty() {
         return Err(Error::diagram_parse_fallback(
             "requirement".to_string(),
             "element name is empty".to_string(),
         ));
     }
+
     Ok(Some(ElementDefOpen {
         name: name_and_classes.name,
         classes: name_and_classes.class_tokens,
@@ -1427,12 +1596,15 @@ struct ElementDefOpen {
     classes: Option<ParsedRequirementIdList>,
 }
 
+#[must_use]
 fn split_first_word(input: &str) -> Option<(&str, &str)> {
-    let input = input.trim_start();
-    if input.is_empty() {
+    let input_2 = input.trim_start();
+
+    if input_2.is_empty() {
         return None;
     }
-    let mut iter = input.splitn(2, char::is_whitespace);
+
+    let mut iter = input_2.splitn(2, char::is_whitespace);
     let first = iter.next()?;
     let rest = iter.next().unwrap_or("");
     Some((first, rest))
@@ -1441,6 +1613,7 @@ fn split_first_word(input: &str) -> Option<(&str, &str)> {
 fn split_name_and_classes(input: &str, input_start: usize) -> Result<DefinitionName> {
     let leading = leading_whitespace_len(input);
     let input = input.trim();
+
     if input.is_empty() {
         return Ok(DefinitionName {
             name: ParsedRequirementId {
@@ -1452,16 +1625,19 @@ fn split_name_and_classes(input: &str, input_start: usize) -> Result<DefinitionN
         });
     }
 
-    if let Some(pos) = input.find(":::") {
-        let name_raw = input[..pos].trim_end();
-        let classes_raw = &input[pos + 3..];
-        let name = parse_requirement_id_spanned(name_raw, input_start + leading)?;
-        let classes_start = input_start + leading + pos + 3;
-        let class_tokens = parse_id_list_all_spanned(classes_raw, classes_start)?;
-        return Ok(DefinitionName {
-            name,
-            class_tokens: Some(class_tokens),
-        });
+    match input.find(":::") {
+        Some(pos) => {
+            let name_raw = input[..pos].trim_end();
+            let classes_raw = &input[pos + 3..];
+            let name = parse_requirement_id_spanned(name_raw, input_start + leading)?;
+            let classes_start = input_start + leading + pos + 3;
+            let class_tokens = parse_id_list_all_spanned(classes_raw, classes_start)?;
+            return Ok(DefinitionName {
+                name,
+                class_tokens: Some(class_tokens),
+            });
+        },
+        ::core::option::Option::None => {},
     }
 
     let name = parse_requirement_id_spanned(input, input_start + leading)?;
@@ -1477,34 +1653,53 @@ struct DefinitionName {
 }
 
 fn parse_id_or_name(input: &str) -> Result<(String, &str)> {
-    let input = input.trim_start();
-    if input.starts_with('"') {
-        if let Some((val, rest)) = parse_quoted_prefix(input) {
-            return Ok((val, rest));
+    let input_2 = input.trim_start();
+
+    if input_2.starts_with('"') {
+        match parse_quoted_prefix(input_2) {
+            Some((val, rest)) => {
+                return Ok((val, rest));
+            },
+            ::core::option::Option::None => {},
         }
+
         return Err(Error::diagram_parse_fallback(
             "requirement".to_string(),
             "unterminated string".to_string(),
         ));
     }
-    Ok((input.trim().to_string(), ""))
+
+    Ok((input_2.trim().to_string(), ""))
 }
 
+#[must_use]
 fn parse_quoted_prefix(input: &str) -> Option<(String, &str)> {
     let mut chars = input.chars();
     let checked_value = chars.next()?;
-    if checked_value != '"' {
-        return None;
+
+    match checked_value {
+        '"' => {},
+        _ => {
+            return None;
+        },
     }
+
     let mut out = String::new();
     let mut idx = 1usize;
+
     for c in chars {
         idx += c.len_utf8();
-        if c == '"' {
-            return Some((out, &input[idx..]));
+
+        match c {
+            '"' => {
+                return Some((out, &input[idx..]));
+            },
+            _ => {},
         }
+
         out.push(c);
     }
+
     None
 }
 
@@ -1523,13 +1718,16 @@ fn parse_requirement_body(
     control.checkpoint()?;
     let mut b = RequirementBuilder::new();
     let mut error = None;
+
     while let Some((raw, line_start)) = lines.next_line() {
         control.checkpoint()?;
         let line = split_requirement_line(raw);
         let t = line.trim();
+
         if t.is_empty() {
             continue;
         }
+
         if t == "}" {
             return Ok(RequirementBodyParse { value: b, error });
         }
@@ -1542,8 +1740,10 @@ fn parse_requirement_body(
             ));
             continue;
         };
+
         let k = key_value.key.text;
         let key = k.to_ascii_lowercase();
+
         let Some(value) = key_value.value else {
             error.get_or_insert(Error::diagram_parse_exact(
                 diagram_type.to_string(),
@@ -1552,10 +1752,12 @@ fn parse_requirement_body(
             ));
             continue;
         };
+
         let value_span = SourceSpan::new(
             line_start + value.start,
             line_start + value.start + value.text.len(),
         );
+
         if !matches!(key.as_str(), "id" | "text" | "risk" | "verifymethod") {
             error.get_or_insert(Error::diagram_parse_exact(
                 diagram_type.to_string(),
@@ -1564,6 +1766,7 @@ fn parse_requirement_body(
             ));
             continue;
         }
+
         #[cfg(feature = "editor-facts")]
         let detail = match key.as_str() {
             "id" => "requirement id",
@@ -1593,6 +1796,7 @@ fn parse_requirement_body(
                 continue;
             }
         };
+
         match key.as_str() {
             "id" => b.requirement_id = parsed,
             "text" => b.text = parsed,
@@ -1638,13 +1842,16 @@ fn parse_element_body(
     control.checkpoint()?;
     let mut b = ElementBuilder::new();
     let mut error = None;
+
     while let Some((raw, line_start)) = lines.next_line() {
         control.checkpoint()?;
         let line = split_requirement_line(raw);
         let t = line.trim();
+
         if t.is_empty() {
             continue;
         }
+
         if t == "}" {
             return Ok(RequirementBodyParse { value: b, error });
         }
@@ -1657,8 +1864,10 @@ fn parse_element_body(
             ));
             continue;
         };
+
         let k = key_value.key.text;
         let key = k.to_ascii_lowercase();
+
         let Some(value) = key_value.value else {
             error.get_or_insert(Error::diagram_parse_exact(
                 diagram_type.to_string(),
@@ -1667,10 +1876,12 @@ fn parse_element_body(
             ));
             continue;
         };
+
         let value_span = SourceSpan::new(
             line_start + value.start,
             line_start + value.start + value.text.len(),
         );
+
         if !matches!(key.as_str(), "type" | "docref") {
             error.get_or_insert(Error::diagram_parse_exact(
                 diagram_type.to_string(),
@@ -1679,6 +1890,7 @@ fn parse_element_body(
             ));
             continue;
         }
+
         #[cfg(feature = "editor-facts")]
         let detail = match key.as_str() {
             "type" => "requirement element type",
@@ -1706,6 +1918,7 @@ fn parse_element_body(
                 continue;
             }
         };
+
         match key.as_str() {
             "type" => b.element_type = parsed,
             "docref" => b.doc_ref = parsed,
@@ -1726,6 +1939,7 @@ struct SpannedKeyValue<'a> {
     value: Option<SpannedValue<'a>>,
 }
 
+#[must_use]
 fn split_key_value_spanned(input: &str) -> Option<SpannedKeyValue<'_>> {
     let idx = input.find(':')?;
     let key = trim_spanned_value(&input[..idx], 0)?;
@@ -1734,23 +1948,30 @@ fn split_key_value_spanned(input: &str) -> Option<SpannedKeyValue<'_>> {
 }
 
 fn parse_simple_value(input: &str) -> Result<String> {
-    let input = input.trim();
-    if input.starts_with('"') {
-        if let Some((val, rest)) = parse_quoted_prefix(input) {
-            if !rest.trim().is_empty() {
-                return Err(Error::diagram_parse_fallback(
-                    "requirement".to_string(),
-                    format!("unexpected trailing tokens after string: {}", rest.trim()),
-                ));
-            }
-            return Ok(val.trim().to_string());
+    let input_2 = input.trim();
+
+    if input_2.starts_with('"') {
+        match parse_quoted_prefix(input_2) {
+            Some((val, rest)) => {
+                if !rest.trim().is_empty() {
+                    return Err(Error::diagram_parse_fallback(
+                        "requirement".to_string(),
+                        format!("unexpected trailing tokens after string: {}", rest.trim()),
+                    ));
+                }
+
+                return Ok(val.trim().to_string());
+            },
+            ::core::option::Option::None => {},
         }
+
         return Err(Error::diagram_parse_fallback(
             "requirement".to_string(),
             "unterminated string".to_string(),
         ));
     }
-    Ok(input.trim().to_string())
+
+    Ok(input_2.trim().to_string())
 }
 
 fn normalize_risk(input: &str) -> Result<String> {
@@ -1785,6 +2006,7 @@ fn parse_requirement_id_spanned(input: &str, _input_start: usize) -> Result<Pars
     #[cfg(feature = "editor-facts")]
     let token_start = _input_start + leading;
     let (value, rest) = parse_id_or_name(input)?;
+
     if !rest.trim().is_empty() {
         return Err(Error::diagram_parse_fallback(
             "requirement".to_string(),
@@ -1794,6 +2016,7 @@ fn parse_requirement_id_spanned(input: &str, _input_start: usize) -> Result<Pars
             ),
         ));
     }
+
     if input.starts_with('"') {
         #[cfg(feature = "editor-facts")]
         let selection = SourceSpan::new(token_start + 1, token_start + 1 + value.len());
@@ -1803,6 +2026,7 @@ fn parse_requirement_id_spanned(input: &str, _input_start: usize) -> Result<Pars
             selection,
         });
     }
+
     Ok(ParsedRequirementId {
         #[cfg(feature = "editor-facts")]
         selection: SourceSpan::new(token_start, token_start + input.len()),
@@ -1823,19 +2047,23 @@ struct ParsedRequirementStyles {
 }
 
 impl ParsedRequirementStyles {
+    #[must_use]
     fn values(&self) -> Vec<String> {
         self.items.iter().map(|item| item.value.clone()).collect()
     }
 }
 
+#[must_use]
 fn parse_requirement_styles(input: &str, _input_start: usize) -> ParsedRequirementStyles {
     let mut items = Vec::new();
     let mut _cursor = 0usize;
+
     for part in input.split_inclusive(',') {
         let raw = part.strip_suffix(',').unwrap_or(part);
         #[cfg(feature = "editor-facts")]
         let leading = leading_whitespace_len(raw);
         let value = raw.trim();
+
         if !value.is_empty() {
             items.push(ParsedRequirementStyle {
                 value: value.to_string(),
@@ -1846,8 +2074,10 @@ fn parse_requirement_styles(input: &str, _input_start: usize) -> ParsedRequireme
                 ),
             });
         }
+
         _cursor += part.len();
     }
+
     ParsedRequirementStyles { items }
 }
 
@@ -1878,23 +2108,33 @@ fn parse_shorthand_class_stmt(
     t: &str,
     statement_start: usize,
 ) -> Result<Option<ParsedRequirementClassShorthand>> {
-    let t = t.trim();
-    if t.is_empty() || t.ends_with('{') {
+    let t_2 = t.trim();
+
+    if t_2.is_empty() || t_2.ends_with('{') {
         return Ok(None);
     }
-    let Some(pos) = t.find(":::") else {
-        return Ok(None);
+
+    let pos = {
+        let optional_pos = t_2.find(":::");
+
+        match optional_pos {
+            Some(matched_pos) => matched_pos,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
-    let left = t[..pos].trim_end();
-    let right_raw = &t[pos + 3..];
+
+    let left = t_2[..pos].trim_end();
+    let right_raw = &t_2[pos + 3..];
     let right_leading = leading_whitespace_len(right_raw);
     let right = right_raw.trim_start();
+
     if left.is_empty() || right.is_empty() {
         return Err(Error::diagram_parse_fallback(
             "requirement".to_string(),
-            format!("invalid class shorthand statement: {t}"),
+            format!("invalid class shorthand statement: {t}", t = t_2),
         ));
     }
+
     let target = parse_requirement_id_spanned(left, statement_start)?;
     let classes = parse_id_list_all_spanned(right, statement_start + pos + 3 + right_leading)?;
     Ok(Some(ParsedRequirementClassShorthand { target, classes }))
@@ -1904,25 +2144,35 @@ fn parse_style_stmt(
     t: &str,
     statement_start: usize,
 ) -> Result<Option<ParsedRequirementStyleStatement>> {
-    let t = t.trim_start();
-    let Some((keyword, rest)) = split_first_word(t) else {
-        return Ok(None);
+    let t_2 = t.trim_start();
+
+    let (keyword, rest) = {
+        let optional_keyword = split_first_word(t_2);
+
+        match optional_keyword {
+            Some((matched_keyword, matched_rest_2)) => (matched_keyword, matched_rest_2),
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     if !keyword.eq_ignore_ascii_case("style") {
         return Ok(None);
     }
+
     let rest_leading = leading_whitespace_len(rest);
-    let rest_start = t.len() - rest.len() + rest_leading;
-    let rest = rest.trim_start();
+    let rest_start = t_2.len() - rest.len() + rest_leading;
+    let rest_2 = rest.trim_start();
     let (id_tokens, styles_str, styles_start) =
-        split_list_and_rest_spanned(rest, statement_start + rest_start)?;
+        split_list_and_rest_spanned(rest_2, statement_start + rest_start)?;
     let styles = parse_requirement_styles(styles_str, styles_start);
+
     if id_tokens.items.is_empty() || styles.items.is_empty() {
         return Err(Error::diagram_parse_fallback(
             "requirement".to_string(),
-            format!("invalid style statement: {t}"),
+            format!("invalid style statement: {t}", t = t_2),
         ));
     }
+
     Ok(Some(ParsedRequirementStyleStatement {
         ids: id_tokens,
         styles,
@@ -1933,25 +2183,35 @@ fn parse_classdef_stmt(
     t: &str,
     statement_start: usize,
 ) -> Result<Option<ParsedRequirementStyleStatement>> {
-    let t = t.trim_start();
-    let Some((keyword, rest)) = split_first_word(t) else {
-        return Ok(None);
+    let t_2 = t.trim_start();
+
+    let (keyword, rest) = {
+        let optional_keyword = split_first_word(t_2);
+
+        match optional_keyword {
+            Some((matched_keyword, matched_rest_2)) => (matched_keyword, matched_rest_2),
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     if !keyword.eq_ignore_ascii_case("classdef") {
         return Ok(None);
     }
+
     let rest_leading = leading_whitespace_len(rest);
-    let rest_start = t.len() - rest.len() + rest_leading;
-    let rest = rest.trim_start();
+    let rest_start = t_2.len() - rest.len() + rest_leading;
+    let rest_2 = rest.trim_start();
     let (id_tokens, styles_str, styles_start) =
-        split_list_and_rest_spanned(rest, statement_start + rest_start)?;
+        split_list_and_rest_spanned(rest_2, statement_start + rest_start)?;
     let styles = parse_requirement_styles(styles_str, styles_start);
+
     if id_tokens.items.is_empty() || styles.items.is_empty() {
         return Err(Error::diagram_parse_fallback(
             "requirement".to_string(),
-            format!("invalid classDef statement: {t}"),
+            format!("invalid classDef statement: {t}", t = t_2),
         ));
     }
+
     Ok(Some(ParsedRequirementStyleStatement {
         ids: id_tokens,
         styles,
@@ -1962,25 +2222,35 @@ fn parse_class_stmt(
     t: &str,
     statement_start: usize,
 ) -> Result<Option<ParsedRequirementClassStatement>> {
-    let t = t.trim_start();
-    let Some((keyword, rest)) = split_first_word(t) else {
-        return Ok(None);
+    let t_2 = t.trim_start();
+
+    let (keyword, rest) = {
+        let optional_keyword = split_first_word(t_2);
+
+        match optional_keyword {
+            Some((matched_keyword, matched_rest_2)) => (matched_keyword, matched_rest_2),
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     if !keyword.eq_ignore_ascii_case("class") {
         return Ok(None);
     }
+
     let rest_leading = leading_whitespace_len(rest);
-    let rest_start = t.len() - rest.len() + rest_leading;
-    let rest = rest.trim_start();
+    let rest_start = t_2.len() - rest.len() + rest_leading;
+    let rest_2 = rest.trim_start();
     let (id_tokens, classes_str, classes_start) =
-        split_list_and_rest_spanned(rest, statement_start + rest_start)?;
+        split_list_and_rest_spanned(rest_2, statement_start + rest_start)?;
     let class_tokens = parse_id_list_all_spanned(classes_str, classes_start)?;
+
     if id_tokens.items.is_empty() || class_tokens.items.is_empty() {
         return Err(Error::diagram_parse_fallback(
             "requirement".to_string(),
-            format!("invalid class statement: {t}"),
+            format!("invalid class statement: {t}", t = t_2),
         ));
     }
+
     Ok(Some(ParsedRequirementClassStatement {
         targets: id_tokens,
         classes: class_tokens,
@@ -1992,88 +2262,103 @@ fn parse_relationship_stmt(
     statement_start: usize,
 ) -> Result<Option<ParsedRequirementRelationship>> {
     let t = t.trim();
+
     if t.is_empty() {
         return Ok(None);
     }
 
-    if let Some(pos) = t.find("<-") {
-        let left = t[..pos].trim_end();
-        let after_arrow = &t[pos + 2..];
-        let rest_leading = leading_whitespace_len(after_arrow);
-        let rest_start = pos + 2 + rest_leading;
-        let rest = after_arrow.trim_start();
-        let Some(dash) = rest.find('-') else {
-            return Err(Error::diagram_parse_fallback(
-                "requirement".to_string(),
-                format!("invalid relationship statement: {rest}"),
-            ));
-        };
-        let rel = rest[..dash].trim();
-        let right_raw = &rest[dash + 1..];
-        let right_leading = leading_whitespace_len(right_raw);
-        let right = right_raw.trim();
-        #[cfg(feature = "editor-facts")]
-        let rel_leading = leading_whitespace_len(&rest[..dash]);
-        #[cfg(feature = "editor-facts")]
-        let rel_start = rest_start + rel_leading;
-        let right_start = rest_start + dash + 1 + right_leading;
-        let relationship = normalize_relationship(rel)?;
-        let mut left_token = parse_requirement_id_spanned(left, statement_start)?;
-        let mut right_token = parse_requirement_id_spanned(right, statement_start + right_start)?;
-        left_token.value = left_token.value.trim().to_string();
-        right_token.value = right_token.value.trim().to_string();
-        if relationship.is_empty() {
-            return Ok(None);
-        }
-        return Ok(Some(ParsedRequirementRelationship {
-            kind: relationship,
+    match t.find("<-") {
+        Some(pos) => {
+            let left = t[..pos].trim_end();
+            let after_arrow = &t[pos + 2..];
+            let rest_leading = leading_whitespace_len(after_arrow);
+            let rest_start = pos + 2 + rest_leading;
+            let rest = after_arrow.trim_start();
+
+            let Some(dash) = rest.find('-') else {
+                return Err(Error::diagram_parse_fallback(
+                    "requirement".to_string(),
+                    format!("invalid relationship statement: {rest}"),
+                ));
+            };
+
+            let rel = rest[..dash].trim();
+            let right_raw = &rest[dash + 1..];
+            let right_leading = leading_whitespace_len(right_raw);
+            let right = right_raw.trim();
             #[cfg(feature = "editor-facts")]
-            kind_span: SourceSpan::new(
-                statement_start + rel_start,
-                statement_start + rel_start + rel.len(),
-            ),
-            source: right_token,
-            target: left_token,
-        }));
+            let rel_leading = leading_whitespace_len(&rest[..dash]);
+            #[cfg(feature = "editor-facts")]
+            let rel_start = rest_start + rel_leading;
+            let right_start = rest_start + dash + 1 + right_leading;
+            let relationship = normalize_relationship(rel)?;
+            let mut left_token = parse_requirement_id_spanned(left, statement_start)?;
+            let mut right_token = parse_requirement_id_spanned(right, statement_start + right_start)?;
+            left_token.value = left_token.value.trim().to_string();
+            right_token.value = right_token.value.trim().to_string();
+
+            if relationship.is_empty() {
+                return Ok(None);
+            }
+
+            return Ok(Some(ParsedRequirementRelationship {
+                kind: relationship,
+                #[cfg(feature = "editor-facts")]
+                kind_span: SourceSpan::new(
+                    statement_start + rel_start,
+                    statement_start + rel_start + rel.len(),
+                ),
+                source: right_token,
+                target: left_token,
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
-    if let Some(pos) = t.find("->") {
-        let right_raw = &t[pos + 2..];
-        let right_leading = leading_whitespace_len(right_raw);
-        let right_start = pos + 2 + right_leading;
-        let right = right_raw.trim();
-        let left_part = t[..pos].trim_end();
-        let Some(dash) = left_part.find('-') else {
-            return Err(Error::diagram_parse_fallback(
-                "requirement".to_string(),
-                format!("invalid relationship statement: {left_part}"),
-            ));
-        };
-        let src_raw = left_part[..dash].trim_end();
-        let rel_raw = &left_part[dash + 1..];
-        #[cfg(feature = "editor-facts")]
-        let rel_leading = leading_whitespace_len(rel_raw);
-        let rel = rel_raw.trim();
-        #[cfg(feature = "editor-facts")]
-        let rel_start = dash + 1 + rel_leading;
-        let relationship = normalize_relationship(rel)?;
-        let mut src_token = parse_requirement_id_spanned(src_raw, statement_start)?;
-        let mut dst_token = parse_requirement_id_spanned(right, statement_start + right_start)?;
-        src_token.value = src_token.value.trim().to_string();
-        dst_token.value = dst_token.value.trim().to_string();
-        if relationship.is_empty() {
-            return Ok(None);
-        }
-        return Ok(Some(ParsedRequirementRelationship {
-            kind: relationship,
+    match t.find("->") {
+        Some(pos) => {
+            let right_raw = &t[pos + 2..];
+            let right_leading = leading_whitespace_len(right_raw);
+            let right_start = pos + 2 + right_leading;
+            let right = right_raw.trim();
+            let left_part = t[..pos].trim_end();
+
+            let Some(dash) = left_part.find('-') else {
+                return Err(Error::diagram_parse_fallback(
+                    "requirement".to_string(),
+                    format!("invalid relationship statement: {left_part}"),
+                ));
+            };
+
+            let src_raw = left_part[..dash].trim_end();
+            let rel_raw = &left_part[dash + 1..];
             #[cfg(feature = "editor-facts")]
-            kind_span: SourceSpan::new(
-                statement_start + rel_start,
-                statement_start + rel_start + rel.len(),
-            ),
-            source: src_token,
-            target: dst_token,
-        }));
+            let rel_leading = leading_whitespace_len(rel_raw);
+            let rel = rel_raw.trim();
+            #[cfg(feature = "editor-facts")]
+            let rel_start = dash + 1 + rel_leading;
+            let relationship = normalize_relationship(rel)?;
+            let mut src_token = parse_requirement_id_spanned(src_raw, statement_start)?;
+            let mut dst_token = parse_requirement_id_spanned(right, statement_start + right_start)?;
+            src_token.value = src_token.value.trim().to_string();
+            dst_token.value = dst_token.value.trim().to_string();
+
+            if relationship.is_empty() {
+                return Ok(None);
+            }
+
+            return Ok(Some(ParsedRequirementRelationship {
+                kind: relationship,
+                #[cfg(feature = "editor-facts")]
+                kind_span: SourceSpan::new(
+                    statement_start + rel_start,
+                    statement_start + rel_start + rel.len(),
+                ),
+                source: src_token,
+                target: dst_token,
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
     Ok(None)
@@ -2081,6 +2366,7 @@ fn parse_relationship_stmt(
 
 fn normalize_relationship(input: &str) -> Result<String> {
     let rel = input.trim().to_ascii_lowercase();
+
     match rel.as_str() {
         "contains" | "copies" | "derives" | "satisfies" | "verifies" | "refines" | "traces" => {
             Ok(rel)
@@ -2101,6 +2387,7 @@ fn split_list_and_rest_spanned(
         let leading = leading_whitespace_len(cur);
         cursor += leading;
         cur = cur.trim_start();
+
         if cur.is_empty() {
             break;
         }
@@ -2127,18 +2414,25 @@ fn split_list_and_rest_spanned(
             )
         } else {
             let mut end = 0usize;
-            for (i, c) in cur.char_indices() {
+
+            'inner_for_2: for (i, c) in cur.char_indices() {
                 if c == ',' || c.is_whitespace() {
-                    break;
+                    break 'inner_for_2;
                 }
+
                 end = i + c.len_utf8();
             }
-            if end == 0 {
-                return Err(Error::diagram_parse_fallback(
-                    "requirement".to_string(),
-                    "expected identifier".to_string(),
-                ));
+
+            match end {
+                0 => {
+                    return Err(Error::diagram_parse_fallback(
+                        "requirement".to_string(),
+                        "expected identifier".to_string(),
+                    ));
+                },
+                _ => {},
             }
+
             (
                 ParsedRequirementId {
                     value: cur[..end].to_string(),
@@ -2155,11 +2449,13 @@ fn split_list_and_rest_spanned(
         let separator_leading = leading_whitespace_len(cur);
         cursor += separator_leading;
         cur = cur.trim_start();
+
         if cur.starts_with(',') {
             cursor += 1;
             cur = &cur[1..];
             continue;
         }
+
         break;
     }
 
@@ -2186,6 +2482,7 @@ struct ParsedRequirementIdList {
 }
 
 impl ParsedRequirementIdList {
+    #[must_use]
     fn values(&self) -> Vec<String> {
         self.items.iter().map(|item| item.value.clone()).collect()
     }
@@ -2195,6 +2492,7 @@ fn parse_id_list_all_spanned(input: &str, input_start: usize) -> Result<ParsedRe
     let mut out = Vec::new();
     let mut cur = input.trim_start();
     let mut cursor = input.len() - cur.len();
+
     while !cur.is_empty() {
         let leading = cur.len() - cur.trim_start().len();
         cursor += leading;
@@ -2217,12 +2515,17 @@ fn parse_id_list_all_spanned(input: &str, input_start: usize) -> Result<ParsedRe
             )
         } else {
             let mut end = cur.len();
-            for (i, c) in cur.char_indices() {
-                if c == ',' {
-                    end = i;
-                    break;
+
+            'inner_for_2_: for (i, c) in cur.char_indices() {
+                match c {
+                    ',' => {
+                        end = i;
+                        break 'inner_for_2_;
+                    },
+                    _ => {},
                 }
             }
+
             let raw = &cur[..end];
             let item_leading = leading_whitespace_len(raw);
             let item = raw.trim().to_string();
@@ -2232,6 +2535,7 @@ fn parse_id_list_all_spanned(input: &str, input_start: usize) -> Result<ParsedRe
             );
             (item, &cur[end..], selection)
         };
+
         if !item.is_empty() {
             out.push(ParsedRequirementId {
                 value: item,
@@ -2239,18 +2543,22 @@ fn parse_id_list_all_spanned(input: &str, input_start: usize) -> Result<ParsedRe
                 selection: _selection,
             });
         }
+
         cursor += cur.len() - rest.len();
         cur = rest;
         let separator_leading = cur.len() - cur.trim_start().len();
         cursor += separator_leading;
         cur = cur.trim_start();
+
         if cur.starts_with(',') {
             cursor += 1;
             cur = &cur[1..];
             continue;
         }
+
         break;
     }
+
     Ok(ParsedRequirementIdList { items: out })
 }
 

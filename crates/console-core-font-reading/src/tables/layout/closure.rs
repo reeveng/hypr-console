@@ -395,6 +395,7 @@ impl LangSys<'_> {
         let Ok(_presence_changed) = c.feature_indices_filter.remove(value_23);
       }
     };
+
     Ok(())
   }
 }
@@ -617,6 +618,7 @@ impl<'a> LookupClosureCtx<'a> {
     {
       let Ok(_presence_changed) = self.inactive_lookups.insert(lookup_index);
     };
+
     Ok(())
   }
 

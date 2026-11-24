@@ -21,36 +21,46 @@ pub(super) struct ClassViewBoxTitle<'a> {
     pub y: f64,
 }
 
+#[must_use]
 pub(super) fn class_viewbox(ctx: ClassViewBoxContext<'_>) -> ClassViewBox<'_> {
-    let mut bounds = ctx.content_bounds.unwrap_or(Bounds {
-        min_x: 0.0,
-        min_y: 0.0,
-        max_x: 0.0,
-        max_y: 0.0,
-    });
+    let mut bounds = match (ctx.content_bounds, Bounds {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 0.0,
+            max_y: 0.0,
+        }) {
+        (::core::option::Option::Some(present), alternate) => { ::core::mem::drop(alternate); present },
+        (::core::option::Option::None, alternate) => alternate,
+    };
     let content_center_x = bounds.min_x + (bounds.max_x - bounds.min_x) / 2.0;
     let has_title = ctx
         .diagram_title
         .is_some_and(|title| !title.trim().is_empty());
+
     if has_title && let Some((left, right)) = ctx.diagram_title_bbox_x {
         bounds.min_x = bounds.min_x.min(content_center_x - left.max(0.0));
         bounds.max_x = bounds.max_x.max(content_center_x + right.max(0.0));
     }
+
     let min_x = bounds.min_x - ctx.viewport_padding;
     let mut min_y = bounds.min_y - ctx.viewport_padding;
     let width = ((bounds.max_x - bounds.min_x) + 2.0 * ctx.viewport_padding).max(1.0);
     let mut height = ((bounds.max_y - bounds.min_y) + 2.0 * ctx.viewport_padding).max(1.0);
 
-    // Mermaid renders the title outside the content wrapper and reserves a fixed block above it.
+
     const TITLE_BLOCK_HEIGHT_PX: f64 = 48.0;
     const TITLE_Y_OFFSET_FROM_VIEWBOX_TOP_PX: f64 = 23.0;
+
     if has_title {
         min_y -= TITLE_BLOCK_HEIGHT_PX;
         height += TITLE_BLOCK_HEIGHT_PX;
     }
 
     let title = has_title.then(|| {
-        let text = ctx.diagram_title.unwrap_or_default().trim();
+        let text = match ctx.diagram_title {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => "",
+        }.trim();
         ClassViewBoxTitle {
             text,
             x: content_center_x,

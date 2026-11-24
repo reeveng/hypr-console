@@ -60,13 +60,17 @@ use console_core_geometry::Size;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
-use console_draw_surface::memory::Shared;
+use console_wayland::buffer::ShmBuffer;
 use std::os::fd::{AsFd, BorrowedFd};
 
 use rustix::event::{Nsecs, PollFd, PollFlags, Secs, Timespec, poll};
 
+use console_wayland::{
+  client as wayland_client, protocols_misc as wayland_protocols_misc,
+  protocols_wlr as wayland_protocols_wlr, registry,
+};
 use wayland_client::backend::WaylandError;
-use wayland_client::globals::{GlobalListContents, registry_queue_init};
+use wayland_client::globals::GlobalListContents;
 use wayland_client::protocol::{
   wl_buffer, wl_compositor, wl_pointer, wl_registry, wl_seat, wl_shm, wl_shm_pool, wl_surface,
   wl_touch,
@@ -82,8 +86,6 @@ use wayland_protocols_wlr::layer_shell::v1::client::{
 };
 
 pub const NAMESPACE: &str = "console-keyboard";
-
-const DEEP: u32 = 4;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum PointerEvent {
@@ -139,9 +141,7 @@ struct Up {
 }
 
 struct Frame {
-  pool: wl_shm_pool::WlShmPool,
-  buffer: wl_buffer::WlBuffer,
-  pixels: Shared,
+  storage: ShmBuffer,
   width: u32,
   height: u32,
 }
@@ -178,39 +178,29 @@ impl std::error::Error for SurfaceError {}
 
 impl Screen {
   pub fn connect() -> Result<Screen, SurfaceError> {
-    let connection = Connection::connect_to_env().map_err(SurfaceError::Compositor)?;
-    let (globals, queue) = registry_queue_init::<Board>(&connection)
+    let connection = console_wayland::connect().map_err(SurfaceError::Compositor)?;
+    let (globals, queue) = registry::queue::<Board>(&connection)
       .map_err(|_| SurfaceError::Global("the compositor's list of globals"))?;
     let hand = queue.handle();
 
-    let compositor = globals
-      .bind::<wl_compositor::WlCompositor, _, _>(&hand, 1..=6, ())
-      .map_err(|_| SurfaceError::Global("wl_compositor"))?;
-    let shm = globals
-      .bind::<wl_shm::WlShm, _, _>(&hand, 1..=1, ())
-      .map_err(|_| SurfaceError::Global("wl_shm"))?;
+    let compositor =
+      registry::compositor(&globals, &hand).map_err(|_| SurfaceError::Global("wl_compositor"))?;
+    let shm =
+      registry::shared_memory(&globals, &hand).map_err(|_| SurfaceError::Global("wl_shm"))?;
     let shell = globals
       .bind::<zwlr_layer_shell_v1::ZwlrLayerShellV1, _, _>(&hand, 1..=4, ())
       .map_err(|_| SurfaceError::Global("zwlr_layer_shell_v1, which is what makes a keyboard"))?;
-    let seat = globals
-      .bind::<wl_seat::WlSeat, _, _>(&hand, 1..=7, ())
-      .map_err(|_| SurfaceError::Global("wl_seat"))?;
-    let typing = globals
-      .bind::<zwp_virtual_keyboard_manager_v1::ZwpVirtualKeyboardManagerV1, _, _>(
-        &hand,
-        1..=1,
-        (),
-      )
-      .map_or_else(
-        |_| {
-          eprintln!(
-            "this compositor has no virtual keyboard protocol; \
-                         the keyboard will draw and type nothing"
-          );
-          None
-        },
-        Some,
-      );
+    let seat =
+      registry::seat(&globals, &hand, 1..=7).map_err(|_| SurfaceError::Global("wl_seat"))?;
+    let typing = console_wayland::keyboard::manager(&globals, &hand).map_or_else(
+      |_| {
+        console_core_logging::warn!(
+          "this compositor has no virtual keyboard protocol; the keyboard will draw and type nothing"
+        );
+        None
+      },
+      Some,
+    );
 
     let board = Board {
       compositor,
@@ -391,11 +381,14 @@ impl Screen {
       None => return Ok(()),
     };
 
-    let Ok(pixels) = frame.pixels.pixels();
+    let pixels = frame.storage.pixels().map_err(SurfaceError::Memory)?;
 
     paint(pixels, across, down, scale);
-
-    up.surface.attach(Some(&frame.buffer), 0, 0);
+    let buffer = frame
+      .storage
+      .painted_buffer()
+      .map_err(SurfaceError::Memory)?;
+    up.surface.attach(Some(buffer), 0, 0);
     up.surface.set_buffer_scale(scale);
     let Ok(damaged_across) = fitted(across);
     let Ok(damaged_down) = fitted(down);
@@ -553,32 +546,14 @@ impl Frame {
       width: wide,
       height: tall,
     } = room;
-    let stride = wide.saturating_mul(DEEP);
-    let long = u64::from(stride.saturating_mul(tall));
-    let pixels = Shared::of(long).map_err(SurfaceError::Memory)?;
-    let Ok(file) = pixels.descriptor();
+    let storage =
+      ShmBuffer::new(shm, hand, room, wl_shm::Format::Argb8888).map_err(SurfaceError::Memory)?;
 
-    let Ok(room_2) = fitted(long);
-    let Ok(across) = fitted(wide);
-    let Ok(down) = fitted(tall);
-    let Ok(along) = fitted(stride);
-
-    let pool = shm.create_pool(file.as_fd(), room_2, hand, ());
-    let buffer = pool.create_buffer(0, across, down, along, wl_shm::Format::Argb8888, hand, ());
     Ok(Frame {
-      pool,
-      buffer,
-      pixels,
+      storage,
       width: wide,
       height: tall,
     })
-  }
-}
-
-impl Drop for Frame {
-  fn drop(&mut self) {
-    self.buffer.destroy();
-    self.pool.destroy();
   }
 }
 

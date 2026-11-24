@@ -17,12 +17,14 @@ pub(crate) struct RadarConfigView<'a> {
 }
 
 impl<'a> RadarConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             radar_config: effective_config.get("radar").unwrap_or(&Value::Null),
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> RadarLayoutSettings {
         RadarLayoutSettings {
             width: self.radar_f64("width", DEFAULT_WIDTH),
@@ -37,13 +39,17 @@ impl<'a> RadarConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn render_settings(&self) -> RadarRenderSettings {
         RadarRenderSettings {
-            use_max_width: config_bool(self.radar_config, &["useMaxWidth"])
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
+            use_max_width: match config_bool(self.radar_config, &["useMaxWidth"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
         }
     }
 
+    #[must_use]
     fn radar_f64(&self, key: &str, default: f64) -> f64 {
         config_f64_or(self.radar_config, &[key], default)
     }

@@ -25,7 +25,11 @@
 //! one session at a time, systemd restarting this unit is the isolation the
 //! worker was for.
 
+mod authentication;
+pub use authentication::{Availability, Verification};
+pub mod fingerprint;
 mod foreign;
+pub mod password;
 pub mod protocol;
 pub mod sessions;
 pub mod stored_pattern;

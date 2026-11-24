@@ -193,10 +193,8 @@ fn cancellation_and_reuse_reject_old_completions_and_generation_never_wraps() {
     reserved,
   } = request;
   let generation: u64 = kani::any();
-  let mut slot = OperationSlot {
-    generation: Generation(generation),
-    pending: None,
-  };
+  let Ok(pending) = Slot::vacant((), generation);
+  let mut slot = OperationSlot { pending };
   let recreate = || Begin {
     operation,
     target,
@@ -209,7 +207,7 @@ fn cancellation_and_reuse_reject_old_completions_and_generation_never_wraps() {
     Err(error) => {
       assert_eq!(error, BeginError::Exhausted);
       assert_eq!(generation, u64::MAX);
-      assert!(slot.pending.is_none());
+      assert!(matches!(slot.pending.entry(), Ok(SlotEntry::Vacant(()))));
       return;
     }
   };
@@ -256,7 +254,7 @@ fn cancellation_and_reuse_reject_old_completions_and_generation_never_wraps() {
     Err(error) => {
       assert_eq!(error, BeginError::Exhausted);
       assert_eq!(old.generation.0, u64::MAX);
-      assert!(slot.pending.is_none());
+      assert!(matches!(slot.pending.entry(), Ok(SlotEntry::Vacant(()))));
     }
   }
 }

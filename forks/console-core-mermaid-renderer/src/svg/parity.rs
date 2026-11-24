@@ -307,7 +307,9 @@ use css::{
 };
 use output::{BoundedSvgOutput, SvgOutput};
 use path_bounds::{svg_path_bounds_from_d, svg_path_length_from_d};
+
 #[cfg(feature = "diagram-mindmap")]
+#[must_use]
 pub(crate) fn mindmap_cloud_rendered_bbox_size_px(w: f64, h: f64) -> Option<(f64, f64)> {
     mindmap::mindmap_cloud_rendered_bbox_size_px(w, h)
 }
@@ -361,15 +363,23 @@ pub(crate) use util::{escape_attr, escape_xml};
 ///
 /// The result is safe to interpolate directly after `#` in generated stylesheets without CSS
 /// escaping changing its selector meaning.
+#[must_use]
 pub fn sanitize_svg_id(raw: &str) -> String {
-    let raw = raw.trim();
-    if raw.is_empty() {
+    let raw_2 = raw.trim();
+
+    if raw_2.is_empty() {
         return "m-untitled".to_string();
     }
 
-    let mut iter = raw.chars();
-    let Some(first_raw) = iter.next() else {
-        return "m-untitled".to_string();
+    let mut iter = raw_2.chars();
+
+    let first_raw = {
+        let optional_first_raw = iter.next();
+
+        match optional_first_raw {
+            Some(matched_first_raw) => matched_first_raw,
+            ::core::option::Option::None => return "m-untitled".to_string(),
+        }
     };
 
     let sanitize_char = |ch: char| {
@@ -380,33 +390,44 @@ pub fn sanitize_svg_id(raw: &str) -> String {
         }
     };
     let first = sanitize_char(first_raw);
-    let mut out = String::with_capacity(raw.len() + 2);
+    let mut out = String::with_capacity(raw_2.len() + 2);
     let mut previous_was_dash = false;
 
     if !first.is_ascii_alphabetic() {
         out.push('m');
-        if first != '-' {
-            out.push('-');
-            previous_was_dash = true;
+
+        match first {
+            '-' => {},
+            _ => {
+                out.push('-');
+                previous_was_dash = true;
+            },
         }
     }
 
-    let push = |ch: char, out: &mut String, previous_was_dash: &mut bool| {
-        if ch == '-' {
-            if *previous_was_dash {
-                return;
-            }
-            *previous_was_dash = true;
-        } else {
-            *previous_was_dash = false;
+    let push = |ch: char, out_2: &mut String, previous_was_dash_2: &mut bool| {
+        match ch {
+            '-' => {
+                if *previous_was_dash_2 {
+                    return;
+                }
+
+                *previous_was_dash_2 = true;
+            },
+            _ => {
+                *previous_was_dash_2 = false;
+            },
         }
-        out.push(ch);
+
+        out_2.push(ch);
     };
 
     push(first, &mut out, &mut previous_was_dash);
+
     for ch in iter {
         push(sanitize_char(ch), &mut out, &mut previous_was_dash);
     }
+
     while out.ends_with('-') {
         out.pop();
     }
@@ -455,6 +476,7 @@ fn checkpoint_svg_diagram_id_scan(
     if scanned_bytes < *next_checkpoint {
         return Ok(());
     }
+
     session.checkpoint(OperationPhase::Emit)?;
     *next_checkpoint = scanned_bytes
         .checked_add(SVG_DIAGRAM_ID_SCAN_CHECKPOINT_BYTES)
@@ -471,15 +493,18 @@ fn controlled_trim_svg_diagram_id<'a>(raw: &'a str, session: &RenderSession) -> 
     let mut first = None;
     let mut end = 0usize;
     let mut next_checkpoint = 0usize;
+
     for (offset, ch) in raw.char_indices() {
         checkpoint_svg_diagram_id_scan(session, &mut next_checkpoint, offset)?;
+
         if !ch.is_whitespace() {
             first.get_or_insert(offset);
             end = offset + ch.len_utf8();
         }
     }
+
     session.checkpoint(OperationPhase::Emit)?;
-    Ok(first.map_or("", |first| &raw[first..end]))
+    Ok(first.map_or("", |first_2| &raw[first_2..end]))
 }
 
 fn plan_svg_diagram_id_sanitization<'a>(
@@ -487,6 +512,7 @@ fn plan_svg_diagram_id_sanitization<'a>(
     session: &RenderSession,
 ) -> Result<SvgDiagramIdSanitizationPlan<'a>> {
     let trimmed = controlled_trim_svg_diagram_id(raw, session)?;
+
     if trimmed.is_empty() {
         return Ok(SvgDiagramIdSanitizationPlan {
             trimmed,
@@ -512,6 +538,7 @@ fn plan_svg_diagram_id_sanitization<'a>(
         if ch == '-' && previous_was_dash {
             return Ok(());
         }
+
         previous_was_dash = ch == '-';
         first_output.get_or_insert(ch);
         output_bytes = output_bytes.checked_add(1).ok_or_else(|| {
@@ -525,24 +552,34 @@ fn plan_svg_diagram_id_sanitization<'a>(
 
     if !first.is_ascii_alphabetic() {
         append('m')?;
-        if first != '-' {
-            append('-')?;
+
+        match first {
+            '-' => {},
+            _ => {
+                append('-')?;
+            },
         }
     }
+
     append(first)?;
 
     let mut next_checkpoint = SVG_DIAGRAM_ID_SCAN_CHECKPOINT_BYTES;
+
     for (offset, ch) in chars {
         checkpoint_svg_diagram_id_scan(session, &mut next_checkpoint, offset)?;
         append(sanitize_char(ch))?;
     }
+
     if previous_was_dash {
         output_bytes -= 1;
     }
+
     let uses_fallback = output_bytes == 0 || (output_bytes == 1 && first_output == Some('m'));
+
     if uses_fallback {
         output_bytes = "m-untitled".len();
     }
+
     session.checkpoint(OperationPhase::Emit)?;
     Ok(SvgDiagramIdSanitizationPlan {
         trimmed,
@@ -566,12 +603,14 @@ fn materialize_svg_diagram_id(
             OperationPhase::Emit,
         )?;
     }
+
     let mut output = String::new();
     output
         .try_reserve_exact(plan.output_bytes)
         .map_err(|error| Error::InvalidModel {
             message: format!("failed to allocate normalized SVG diagram id: {error}"),
         })?;
+
     if plan.uses_fallback {
         output.push_str("m-untitled");
         return Ok(output);
@@ -588,31 +627,41 @@ fn materialize_svg_diagram_id(
     let (_, first_raw) = chars.next().expect("non-fallback diagram id is non-empty");
     let first = sanitize_char(first_raw);
     let mut previous_was_dash = false;
-    let push = |ch: char, output: &mut String, previous_was_dash: &mut bool| {
-        if ch == '-' && *previous_was_dash {
+    let push = |ch: char, output_2: &mut String, previous_was_dash_2: &mut bool| {
+        if ch == '-' && *previous_was_dash_2 {
             return;
         }
-        *previous_was_dash = ch == '-';
-        output.push(ch);
+
+        *previous_was_dash_2 = ch == '-';
+        output_2.push(ch);
     };
 
     if !first.is_ascii_alphabetic() {
         output.push('m');
-        if first != '-' {
-            output.push('-');
-            previous_was_dash = true;
+
+        match first {
+            '-' => {},
+            _ => {
+                output.push('-');
+                previous_was_dash = true;
+            },
         }
     }
+
     push(first, &mut output, &mut previous_was_dash);
     let mut next_checkpoint = SVG_DIAGRAM_ID_SCAN_CHECKPOINT_BYTES;
+
     for (offset, ch) in chars {
         checkpoint_svg_diagram_id_scan(session, &mut next_checkpoint, offset)?;
         push(sanitize_char(ch), &mut output, &mut previous_was_dash);
     }
+
     while output.ends_with('-') {
         output.pop();
     }
+
     session.checkpoint(OperationPhase::Emit)?;
+
     if output.len() != plan.output_bytes {
         return Err(Error::InvalidModel {
             message: format!(
@@ -622,6 +671,7 @@ fn materialize_svg_diagram_id(
             ),
         });
     }
+
     Ok(output)
 }
 
@@ -653,17 +703,18 @@ impl SvgDiagramIdProjection<'_> {
         if self.error.borrow().is_some() {
             return Ok(());
         }
+
         let Some(projected_bytes) = self.projected_bytes.get().checked_add(value.len()) else {
             self.error.replace(Some(
-                self.work_meter
+                <crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(self.work_meter
                     .terminate_svg_byte_count_overflow(
                         crate::resources::ResourceLimitPhase::SvgOutput,
                         OperationPhase::Emit,
-                    )
-                    .into(),
+                    )),
             ));
             return Ok(());
         };
+
         match self.work_meter.preflight_svg_byte_count(
             projected_bytes,
             crate::resources::ResourceLimitPhase::SvgOutput,
@@ -674,7 +725,7 @@ impl SvgDiagramIdProjection<'_> {
                 formatter.write_str(value)
             }
             Err(error) => {
-                self.error.replace(Some(error.into()));
+                self.error.replace(Some(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error)));
                 Ok(())
             }
         }
@@ -700,6 +751,7 @@ pub(super) struct SvgDiagramId<'a> {
 }
 
 impl<'a> SvgDiagramId<'a> {
+    #[must_use]
     pub(super) fn semantic_str(self) -> &'a str {
         self.value
     }
@@ -784,6 +836,7 @@ impl FlowchartEdgeTraceCollector {
     }
 
     /// Returns a snapshot without consuming the collected records.
+    #[must_use]
     pub fn snapshot(&self) -> Vec<FlowchartEdgeTrace> {
         self.0
             .lock()
@@ -792,6 +845,7 @@ impl FlowchartEdgeTraceCollector {
     }
 
     /// Drains all records collected so far.
+    #[must_use]
     pub fn drain(&self) -> Vec<FlowchartEdgeTrace> {
         std::mem::take(
             &mut *self
@@ -845,18 +899,20 @@ impl SvgDebugOptions {
     ///
     /// This replaces the former implicit current-working-directory trace file. Hosts that want a
     /// file must drain `collector` after rendering and perform their own checked I/O.
+    #[must_use]
     pub fn with_flowchart_edge_trace(
         mut self,
         edge_id: impl Into<String>,
         collector: FlowchartEdgeTraceCollector,
     ) -> Self {
         self.flowchart_edge_trace = Some(FlowchartEdgeTraceRequest {
-            edge_id: edge_id.into(),
+            edge_id: <_ as ::core::convert::Into<::std::string::String>>::into(edge_id),
             collector,
         });
         self
     }
 
+    #[must_use]
     pub(crate) fn flowchart_edge_trace(&self) -> Option<(&str, &FlowchartEdgeTraceCollector)> {
         self.flowchart_edge_trace
             .as_ref()
@@ -897,6 +953,7 @@ pub(crate) struct RootThemeAppliedSvg {
 }
 
 impl RootThemeAppliedSvg {
+    #[must_use]
     pub(crate) fn as_str(&self) -> &str {
         &self.svg
     }
@@ -925,6 +982,7 @@ impl RootThemeAppliedSvg {
         self.architecture_text_receipt.take()
     }
 
+    #[must_use]
     pub(crate) fn into_parts(self) -> (String, crate::diagram_theme::RootThemeReport, bool) {
         (
             self.svg,
@@ -1002,6 +1060,7 @@ impl<'a> SvgExecution<'a> {
         )
     }
 
+    #[must_use]
     pub(super) fn diagram_id_or<'execution>(
         &'execution self,
         fallback: &'static str,
@@ -1012,6 +1071,7 @@ impl<'a> SvgExecution<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn has_explicit_diagram_id(&self) -> bool {
         self.request.diagram_id.is_some()
     }
@@ -1020,55 +1080,66 @@ impl<'a> SvgExecution<'a> {
         self.diagram_id_projection.finish()
     }
 
+    #[must_use]
     pub(crate) fn text_measurer(&self) -> &dyn TextMeasurer {
         &self.text_measurer
     }
 
+    #[must_use]
     pub(crate) const fn family_id(&self) -> crate::DiagramFamilyId {
         self.family.family_id()
     }
 
+    #[must_use]
     pub(crate) fn resolved_theme(&self) -> Option<&crate::diagram_theme::ResolvedDiagramTheme> {
         self.family.resolved_theme()
     }
 
     #[cfg(feature = "diagram-state")]
+    #[must_use]
     pub(crate) fn state_style_plan(&self) -> Option<&crate::state::StateStylePlan> {
         self.family.style_plan().and_then(|plan| plan.state())
     }
 
+    #[must_use]
     pub(crate) fn text_measurer_for(&self, phase: TextMeasurementPhase) -> RoutedTextMeasurer<'_> {
         self.family
             .session()
             .controlled_text_measurer(phase, OperationPhase::Emit)
     }
 
+    #[must_use]
     pub(crate) fn math_renderer(&self) -> Option<&(dyn crate::math::MathRenderer + Send + Sync)> {
         self.family.session().math_renderer()
     }
 
+    #[must_use]
     pub(crate) fn icon_registry(&self) -> Option<&super::icon_registry::IconRegistry> {
         self.family.session().icon_registry()
     }
 
+    #[must_use]
     pub(crate) fn unix_ms(&self) -> i64 {
         self.family.session().unix_millis()
     }
 
+    #[must_use]
     pub(crate) fn local_time_zone(&self) -> &merman_model::time::LocalTimeZone {
         self.family.session().local_time_zone()
     }
 
+    #[must_use]
     pub(crate) fn seed(&self) -> u64 {
         self.family.session().render_seed().get()
     }
 
+    #[must_use]
     pub(crate) fn rough_randomness(
         &self,
         configured_seed: f64,
         owner_domain: &str,
     ) -> roughr::core::RoughRandomness {
-        let resolved_seed = if configured_seed == 0.0 {
+        let resolved_seed = if ::core::matches!(::core::primitive::f64::classify(configured_seed), ::core::num::FpCategory::Zero) {
             self.seed() as f64
         } else {
             configured_seed
@@ -1080,14 +1151,17 @@ impl<'a> SvgExecution<'a> {
         )
     }
 
+    #[must_use]
     pub(crate) fn timing(&self) -> timing::RenderTiming {
         self.timing
     }
 
+    #[must_use]
     pub(crate) fn work_meter(&self) -> &crate::resources::OperationWorkMeter {
         self.family.session().work_meter().as_ref()
     }
 
+    #[must_use]
     pub(crate) fn theme_resource_policy(
         &self,
     ) -> std::sync::Arc<crate::diagram_theme::ThemeResourcePolicy> {
@@ -1136,6 +1210,7 @@ pub(crate) fn edge_geometry_family_artifact(
     let request = SvgRenderOptions::default();
     let debug = SvgDebugOptions::default();
     let execution = SvgExecution::new(&request, &debug, family_execution)?;
+
     match family {
         #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
         crate::family::BuiltinFamilyArtifact::Flowchart(artifact) => {
@@ -1212,8 +1287,8 @@ pub(crate) fn render_architecture_family_artifact(
     options: &SvgRenderOptions,
     debug: &SvgDebugOptions,
 ) -> Result<RootThemeAppliedSvg> {
-    // Keep the deep-group Architecture path out of the heterogeneous dispatcher so it fits in
-    // the renderer's supported low-stack worker budget.
+
+
     let execution = SvgExecution::new(options, debug, family_execution)?;
     let rooted_svg = architecture::render_architecture_diagram_svg_typed_with_config(
         artifact.pair().layout(),
@@ -1620,7 +1695,7 @@ fn apply_theme_css(
         .with_postprocessor(ScopedCssPostprocessor::new(theme_css).with_existing_style_merge());
     pipeline
         .process_to_string_with_metadata(&svg, &metadata, session)
-        .map(|svg| (svg, true))
+        .map(|svg_2| (svg_2, true))
 }
 
 #[cfg_attr(
@@ -1630,6 +1705,7 @@ fn apply_theme_css(
         reason = "Shared SVG execution support is used by the selected family emitters."
     )
 )]
+#[must_use]
 fn curve_basis_path_d(points: &[crate::model::LayoutPoint]) -> String {
     curve::curve_basis_path_d(points)
 }
@@ -1641,6 +1717,7 @@ fn curve_basis_path_d(points: &[crate::model::LayoutPoint]) -> String {
         reason = "Shared SVG execution support is used by the selected family emitters."
     )
 )]
+#[must_use]
 fn compute_layout_bounds(
     clusters: &[LayoutCluster],
     nodes: &[LayoutNode],

@@ -2,17 +2,27 @@ use crate::text::{TextMetrics, TextStyle};
 use indexmap::IndexMap;
 use std::borrow::Cow;
 
+#[must_use]
 fn parse_style_decl(s: &str) -> Option<(&str, &str, bool)> {
     let parsed = crate::mermaid_style::parse_style_declaration(s)?;
     Some((parsed.property_source(), parsed.value(), parsed.important()))
 }
 
+#[must_use]
 pub(crate) fn flowchart_split_mermaid_style_decls(s: &str) -> impl Iterator<Item = &str> {
+    #[must_use]
     fn looks_like_key_start(s: &str) -> bool {
         let s = s.trim_start();
-        let Some((k, _)) = s.split_once(':') else {
-            return false;
+
+        let k = {
+            let optional_k = s.split_once(':');
+
+            match optional_k {
+                Some((matched_k, _)) => matched_k,
+                ::core::option::Option::None => return false,
+            }
         };
+
         let k = k.trim();
         !k.is_empty()
             && k.chars()
@@ -21,25 +31,36 @@ pub(crate) fn flowchart_split_mermaid_style_decls(s: &str) -> impl Iterator<Item
 
     let mut parts: Vec<&str> = Vec::new();
     let mut start = 0usize;
+
     for (i, ch) in s.char_indices() {
-        if ch != ',' {
-            continue;
+        match ch {
+            ',' => {},
+            _ => {
+                continue;
+            },
         }
+
         if looks_like_key_start(&s[i + 1..]) {
             let p = s[start..i].trim();
+
             if !p.is_empty() {
                 parts.push(p);
             }
+
             start = i + 1;
         }
     }
+
     let tail = s[start..].trim();
+
     if !tail.is_empty() {
         parts.push(tail);
     }
+
     parts.into_iter()
 }
 
+#[must_use]
 pub(crate) fn flowchart_is_source_spelled_label_style_key(key: &str) -> bool {
     matches!(
         key.trim(),
@@ -88,6 +109,7 @@ pub(crate) struct FlowchartTerminalForeground {
 }
 
 impl FlowchartTerminalForeground {
+    #[must_use]
     pub(crate) fn new(value: &str, provenance: FlowchartTerminalForegroundProvenance) -> Self {
         Self {
             value: value.trim().to_string(),
@@ -108,6 +130,7 @@ impl FlowchartTerminalForeground {
         {
             return;
         }
+
         *target = Some(Self {
             value: value.trim().to_string(),
             provenance,
@@ -115,6 +138,7 @@ impl FlowchartTerminalForeground {
         });
     }
 
+    #[must_use]
     pub(crate) fn value(&self) -> &str {
         &self.value
     }
@@ -132,6 +156,7 @@ impl AsRef<TextStyle> for FlowchartTextStyleResolution<'_> {
 }
 
 impl<'a> FlowchartTextStyleResolution<'a> {
+    #[must_use]
     pub(crate) fn borrowed(style: &'a TextStyle) -> Self {
         Self {
             style: Cow::Borrowed(style),
@@ -139,6 +164,7 @@ impl<'a> FlowchartTextStyleResolution<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn terminal_foreground(&self) -> Option<&FlowchartTerminalForeground> {
         self.terminal_foreground.as_ref()
     }
@@ -159,6 +185,7 @@ struct FlowchartTextStyleResolver<'a, 's> {
 }
 
 impl<'a, 's> FlowchartTextStyleResolver<'a, 's> {
+    #[must_use]
     fn new(base: &'a TextStyle) -> Self {
         Self {
             resolution: FlowchartTextStyleResolution::borrowed(base),
@@ -177,6 +204,7 @@ impl<'a, 's> FlowchartTextStyleResolver<'a, 's> {
         if !flowchart_is_source_spelled_label_style_key(key) {
             return;
         }
+
         let index = match key {
             "font-family" => Some(0),
             "font-size" => Some(1),
@@ -184,14 +212,16 @@ impl<'a, 's> FlowchartTextStyleResolver<'a, 's> {
             "font-style" => Some(3),
             _ => None,
         };
-        if let Some(index) = index
-            && self.typography[index]
+
+        if let Some(index_2) = index
+            && self.typography[index_2]
                 .as_ref()
                 .is_none_or(|(_, previous)| important || !previous)
         {
-            // compileStyles replaces a declaration before the browser validates its value.
-            self.typography[index] = Some((value, important));
+
+            self.typography[index_2] = Some((value, important));
         }
+
         if key.trim() == "color" {
             FlowchartTerminalForeground::observe(
                 &mut self.resolution.terminal_foreground,
@@ -202,24 +232,31 @@ impl<'a, 's> FlowchartTextStyleResolver<'a, 's> {
         }
     }
 
+    #[must_use]
     fn finish(mut self) -> FlowchartTextStyleResolution<'a> {
         let mut cascade = crate::mermaid_style::TextStyleCascade::new(
             self.base,
             crate::mermaid_style::CssFontSizeContext::uniform(self.base.font_size),
         );
+
         for (property, winner) in ["font-family", "font-size", "font-weight", "font-style"]
             .into_iter()
             .zip(self.typography.iter())
         {
-            if let Some((value, important)) = winner {
-                cascade.observe(property, value, *important);
+            match winner {
+                Some((value, important)) => {
+                    cascade.observe(property, value, *important);
+                },
+                ::core::option::Option::None => {},
             }
         }
+
         self.resolution.style = cascade.finish();
         self.resolution
     }
 }
 
+#[must_use]
 fn flowchart_text_style_resolver_for_class_names<'a, 'b, 's>(
     base: &'a TextStyle,
     class_defs: &'s IndexMap<String, Vec<String>>,
@@ -229,14 +266,26 @@ fn flowchart_text_style_resolver_for_class_names<'a, 'b, 's>(
     let mut resolver = FlowchartTextStyleResolver::new(base);
 
     for class in class_names {
-        let Some(decls) = class_defs.get(class) else {
-            continue;
+        let decls = {
+            let optional_decls = class_defs.get(class);
+
+            match optional_decls {
+                Some(matched_decls) => matched_decls,
+                ::core::option::Option::None => continue,
+            }
         };
+
         for d in decls {
-            for d in flowchart_split_mermaid_style_decls(d) {
-                let Some((k, v, important)) = parse_style_decl(d) else {
-                    continue;
+            'over_d_3: for d_2 in flowchart_split_mermaid_style_decls(d) {
+                let (k, v, important) = {
+                    let optional_k_2 = parse_style_decl(d_2);
+
+                    match optional_k_2 {
+                        Some((matched_k_2, matched_v_2, matched_important)) => (matched_k_2, matched_v_2, matched_important),
+                        ::core::option::Option::None => continue 'over_d_3,
+                    }
                 };
+
                 resolver.observe(
                     k,
                     v,
@@ -248,10 +297,16 @@ fn flowchart_text_style_resolver_for_class_names<'a, 'b, 's>(
     }
 
     for d in inline_styles {
-        for d in flowchart_split_mermaid_style_decls(d) {
-            let Some((k, v, important)) = parse_style_decl(d) else {
-                continue;
+        'over_d_2: for d_3 in flowchart_split_mermaid_style_decls(d) {
+            let (k, v, important) = {
+                let optional_k_2 = parse_style_decl(d_3);
+
+                match optional_k_2 {
+                    Some((matched_k_2, matched_v_2, matched_important)) => (matched_k_2, matched_v_2, matched_important),
+                    ::core::option::Option::None => continue 'over_d_2,
+                }
             };
+
             resolver.observe(
                 k,
                 v,
@@ -264,6 +319,7 @@ fn flowchart_text_style_resolver_for_class_names<'a, 'b, 's>(
     resolver
 }
 
+#[must_use]
 pub(super) fn flowchart_declared_font_facets(
     class_defs: &IndexMap<String, Vec<String>>,
     classes: &[String],
@@ -288,21 +344,26 @@ pub(super) fn flowchart_declared_font_facets(
     ]
 }
 
+#[must_use]
 pub(crate) fn flowchart_effective_node_class_names<'a>(
     class_defs: &'a IndexMap<String, Vec<String>>,
     classes: &'a [String],
 ) -> Vec<&'a str> {
     let mut effective: Vec<&'a str> = Vec::with_capacity(classes.len() + 2);
+
     if class_defs.contains_key("default") {
         effective.push("default");
     }
+
     if class_defs.contains_key("node") {
         effective.push("node");
     }
+
     effective.extend(classes.iter().map(|class| class.as_str()));
     effective
 }
 
+#[must_use]
 pub(crate) fn flowchart_effective_text_style_for_node_classes<'a>(
     base: &'a TextStyle,
     class_defs: &'a IndexMap<String, Vec<String>>,
@@ -318,6 +379,7 @@ pub(crate) fn flowchart_effective_text_style_for_node_classes<'a>(
     .style
 }
 
+#[must_use]
 pub(crate) fn flowchart_effective_text_style_for_node_classes_with_provenance<'a>(
     base: &'a TextStyle,
     class_defs: &IndexMap<String, Vec<String>>,
@@ -325,9 +387,11 @@ pub(crate) fn flowchart_effective_text_style_for_node_classes_with_provenance<'a
     inline_styles: &[String],
 ) -> FlowchartTextStyleResolution<'a> {
     let effective_classes = flowchart_effective_node_class_names(class_defs, classes);
+
     if effective_classes.is_empty() && inline_styles.is_empty() {
         return FlowchartTextStyleResolution::borrowed(base);
     }
+
     flowchart_text_style_resolver_for_class_names(
         base,
         class_defs,
@@ -337,6 +401,7 @@ pub(crate) fn flowchart_effective_text_style_for_node_classes_with_provenance<'a
     .finish()
 }
 
+#[must_use]
 pub(crate) fn flowchart_effective_text_style_for_classes<'a>(
     base: &'a TextStyle,
     class_defs: &IndexMap<String, Vec<String>>,
@@ -352,6 +417,7 @@ pub(crate) fn flowchart_effective_text_style_for_classes<'a>(
     .style
 }
 
+#[must_use]
 pub(crate) fn flowchart_effective_text_style_for_classes_with_provenance<'a>(
     base: &'a TextStyle,
     class_defs: &IndexMap<String, Vec<String>>,
@@ -503,10 +569,12 @@ impl CssBoxEdges {
         }
     }
 
+    #[must_use]
     fn horizontal(self) -> f64 {
         self.left + self.right
     }
 
+    #[must_use]
     fn vertical(self) -> f64 {
         self.top + self.bottom
     }
@@ -531,13 +599,14 @@ struct HtmlSpanBoxStyle {
 }
 
 impl HtmlSpanBoxStyle {
+    #[must_use]
     fn new(font_size: f64) -> Self {
         Self {
             display: HtmlSpanDisplay::Inline,
             margin: CssBoxEdges::default(),
             padding: CssBoxEdges::default(),
-            // CSS initializes border width to `medium`, but a `none` border style makes its
-            // used width zero until a declaration enables it.
+
+
             border_width: CssBoxEdges {
                 top: 3.0,
                 right: 3.0,
@@ -549,6 +618,7 @@ impl HtmlSpanBoxStyle {
         }
     }
 
+    #[must_use]
     fn visible_border_width(self) -> CssBoxEdges {
         CssBoxEdges {
             top: if self.border_visible[0] {
@@ -575,29 +645,35 @@ impl HtmlSpanBoxStyle {
     }
 }
 
+#[must_use]
 fn css_box_length_px(raw: &str, font_size: f64, allow_negative: bool) -> Option<f64> {
-    let raw = raw.trim().trim_end_matches("!important").trim();
-    if raw.eq_ignore_ascii_case("auto") {
+    let raw_2 = raw.trim().trim_end_matches("!important").trim();
+
+    if raw_2.eq_ignore_ascii_case("auto") {
         return Some(0.0);
     }
-    let lower = raw.to_ascii_lowercase();
+
+    let lower = raw_2.to_ascii_lowercase();
     let value = if let Some(value) = lower.strip_suffix("px") {
-        value.trim().parse::<f64>().ok()?
+        match value.trim().parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }?
     } else if let Some(value) = lower.strip_suffix("rem") {
-        value.trim().parse::<f64>().ok()? * font_size
+        match value.trim().parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }? * font_size
     } else if let Some(value) = lower.strip_suffix("em") {
-        value.trim().parse::<f64>().ok()? * font_size
+        match value.trim().parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }? * font_size
     } else if lower == "0" || lower == "+0" || lower == "-0" {
         0.0
     } else {
         return None;
     };
+
     if !value.is_finite() || (!allow_negative && value < 0.0) {
         return None;
     }
+
     Some(value)
 }
 
+#[must_use]
 fn css_box_shorthand_px(raw: &str, font_size: f64, allow_negative: bool) -> Option<Vec<f64>> {
     let values = raw
         .split_ascii_whitespace()
@@ -606,6 +682,7 @@ fn css_box_shorthand_px(raw: &str, font_size: f64, allow_negative: bool) -> Opti
     (1..=4).contains(&values.len()).then_some(values)
 }
 
+#[must_use]
 fn css_border_width_px(raw: &str, font_size: f64) -> Option<f64> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "thin" => Some(1.0),
@@ -615,6 +692,7 @@ fn css_border_width_px(raw: &str, font_size: f64) -> Option<f64> {
     }
 }
 
+#[must_use]
 fn css_border_style_visible(raw: &str) -> Option<bool> {
     match raw.trim().to_ascii_lowercase().as_str() {
         "none" | "hidden" => Some(false),
@@ -625,17 +703,29 @@ fn css_border_style_visible(raw: &str) -> Option<bool> {
     }
 }
 
+#[must_use]
 fn css_border_shorthand(raw: &str, font_size: f64) -> (f64, bool) {
     let mut width = 3.0;
     let mut visible = false;
+
     for token in raw.split_ascii_whitespace() {
-        if let Some(value) = css_border_width_px(token, font_size) {
-            width = value;
+        match css_border_width_px(token, font_size) {
+            Some(value) => {
+                width = value;
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(value) = css_border_style_visible(token) {
-            visible = value;
+
+        {
+            match css_border_style_visible(token) {
+                Some(value) => {
+                    visible = value;
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     (width, visible)
 }
 
@@ -655,8 +745,9 @@ fn apply_html_span_box_decl(
     value: &str,
     font_size: f64,
 ) {
-    let property = property.trim().to_ascii_lowercase();
-    match property.as_str() {
+    let property_2 = property.trim().to_ascii_lowercase();
+
+    match property_2.as_str() {
         "display" => {
             style.display = match value.trim().to_ascii_lowercase().as_str() {
                 "inline" => HtmlSpanDisplay::Inline,
@@ -665,28 +756,46 @@ fn apply_html_span_box_decl(
             };
         }
         "margin" => {
-            if let Some(values) = css_box_shorthand_px(value, font_size, true) {
-                style.margin.set_shorthand(&values);
+            {
+                match css_box_shorthand_px(value, font_size, true) {
+                    Some(values) => {
+                        style.margin.set_shorthand(&values);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
         "padding" => {
-            if let Some(values) = css_box_shorthand_px(value, font_size, false) {
-                style.padding.set_shorthand(&values);
+            {
+                match css_box_shorthand_px(value, font_size, false) {
+                    Some(values) => {
+                        style.padding.set_shorthand(&values);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
         "margin-top" | "margin-right" | "margin-bottom" | "margin-left" | "padding-top"
         | "padding-right" | "padding-bottom" | "padding-left" => {
-            let is_margin = property.starts_with("margin-");
+            let is_margin = property_2.starts_with("margin-");
             let allow_negative = is_margin;
-            let Some(length) = css_box_length_px(value, font_size, allow_negative) else {
-                return;
+
+            let length = {
+                let optional_length = css_box_length_px(value, font_size, allow_negative);
+
+                match optional_length {
+                    Some(matched_length) => matched_length,
+                    ::core::option::Option::None => return,
+                }
             };
+
             let edges = if is_margin {
                 &mut style.margin
             } else {
                 &mut style.padding
             };
-            match property.rsplit('-').next() {
+
+            match property_2.rsplit('-').next() {
                 Some("top") => edges.top = length,
                 Some("right") => edges.right = length,
                 Some("bottom") => edges.bottom = length,
@@ -704,8 +813,14 @@ fn apply_html_span_box_decl(
                 .split_ascii_whitespace()
                 .map(|token| css_border_width_px(token, font_size))
                 .collect::<Option<Vec<_>>>();
-            if let Some(values) = values.filter(|values| (1..=4).contains(&values.len())) {
-                style.border_width.set_shorthand(&values);
+
+            {
+                match values.filter(|values_2| (1..=4).contains(&values_2.len())) {
+                    Some(values_3) => {
+                        style.border_width.set_shorthand(&values_3);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
         "border-style" => {
@@ -713,24 +828,30 @@ fn apply_html_span_box_decl(
                 .split_ascii_whitespace()
                 .map(css_border_style_visible)
                 .collect::<Option<Vec<_>>>();
-            if let Some(values) = values.filter(|values| (1..=4).contains(&values.len())) {
-                let mut expanded = CssBoxEdges::default();
-                expanded.set_shorthand(
-                    &values
-                        .iter()
-                        .map(|visible| f64::from(*visible))
-                        .collect::<Vec<_>>(),
-                );
-                style.border_visible = [
-                    expanded.top != 0.0,
-                    expanded.right != 0.0,
-                    expanded.bottom != 0.0,
-                    expanded.left != 0.0,
-                ];
+
+            {
+                match values.filter(|values_4| (1..=4).contains(&values_4.len())) {
+                    Some(values_5) => {
+                        let mut expanded = CssBoxEdges::default();
+                        expanded.set_shorthand(
+                            &values_5
+                                .iter()
+                                .map(|visible| f64::from(*visible))
+                                .collect::<Vec<_>>(),
+                        );
+                        style.border_visible = [
+                            !::core::matches!(::core::primitive::f64::classify(expanded.top), ::core::num::FpCategory::Zero),
+                            !::core::matches!(::core::primitive::f64::classify(expanded.right), ::core::num::FpCategory::Zero),
+                            !::core::matches!(::core::primitive::f64::classify(expanded.bottom), ::core::num::FpCategory::Zero),
+                            !::core::matches!(::core::primitive::f64::classify(expanded.left), ::core::num::FpCategory::Zero),
+                        ];
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
         "border-top" | "border-right" | "border-bottom" | "border-left" => {
-            let side = match property.as_str() {
+            let side = match property_2.as_str() {
                 "border-top" => 0,
                 "border-right" => 1,
                 "border-bottom" => 2,
@@ -742,10 +863,16 @@ fn apply_html_span_box_decl(
             style.border_visible[side] = visible;
         }
         "border-top-width" | "border-right-width" | "border-bottom-width" | "border-left-width" => {
-            let Some(width) = css_border_width_px(value, font_size) else {
-                return;
+            let width = {
+                let optional_width = css_border_width_px(value, font_size);
+
+                match optional_width {
+                    Some(matched_width) => matched_width,
+                    ::core::option::Option::None => return,
+                }
             };
-            let side = match property.as_str() {
+
+            let side = match property_2.as_str() {
                 "border-top-width" => 0,
                 "border-right-width" => 1,
                 "border-bottom-width" => 2,
@@ -755,10 +882,16 @@ fn apply_html_span_box_decl(
             set_border_width_side(&mut style.border_width, side, width);
         }
         "border-top-style" | "border-right-style" | "border-bottom-style" | "border-left-style" => {
-            let Some(visible) = css_border_style_visible(value) else {
-                return;
+            let visible = {
+                let optional_visible = css_border_style_visible(value);
+
+                match optional_visible {
+                    Some(matched_visible) => matched_visible,
+                    ::core::option::Option::None => return,
+                }
             };
-            let side = match property.as_str() {
+
+            let side = match property_2.as_str() {
                 "border-top-style" => 0,
                 "border-right-style" => 1,
                 "border-bottom-style" => 2,
@@ -768,26 +901,32 @@ fn apply_html_span_box_decl(
             style.border_visible[side] = visible;
         }
         "line-height" => {
-            let value = value.trim().trim_end_matches("!important").trim();
-            let parsed = if let Some(percent) = value.strip_suffix('%') {
-                percent
+            let value_2 = value.trim().trim_end_matches("!important").trim();
+            let parsed = if let Some(percent) = value_2.strip_suffix('%') {
+                match percent
                     .trim()
-                    .parse::<f64>()
-                    .ok()
-                    .map(|percent| font_size * percent / 100.0)
-            } else if let Ok(factor) = value.parse::<f64>() {
+                    .parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
+                    .map(|percent_2| font_size * percent_2 / 100.0)
+            } else if let Ok(factor) = value_2.parse::<f64>() {
                 Some(font_size * factor)
             } else {
-                css_box_length_px(value, font_size, false)
+                css_box_length_px(value_2, font_size, false)
             };
-            if let Some(line_height) = parsed.filter(|line_height| *line_height > 0.0) {
-                style.line_height = line_height;
+
+            {
+                match parsed.filter(|line_height| *line_height > 0.0) {
+                    Some(line_height) => {
+                        style.line_height = line_height;
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
         _ => {}
     }
 }
 
+#[must_use]
 fn flowchart_html_span_box_style(
     class_defs: &IndexMap<String, Vec<String>>,
     classes: &[String],
@@ -796,22 +935,30 @@ fn flowchart_html_span_box_style(
     let effective = flowchart_effective_node_class_names(class_defs, classes);
     let mut style = HtmlSpanBoxStyle::new(font_size);
 
-    // `createCssStyles()` emits one selector per class definition in definition order. All
-    // selectors have equal specificity, so stylesheet order, rather than the order in a node's
-    // `class` attribute, owns the cascade for the generated `<span>`.
+
+
+
     for (class, declarations) in class_defs {
         if !effective.contains(&class.as_str()) {
             continue;
         }
+
         for declaration in declarations {
-            for declaration in flowchart_split_mermaid_style_decls(declaration) {
-                let Some((property, value, _important)) = parse_style_decl(declaration) else {
-                    continue;
+            'over_declaration_3: for declaration_2 in flowchart_split_mermaid_style_decls(declaration) {
+                let (property, value, _important) = {
+                    let optional_property = parse_style_decl(declaration_2);
+
+                    match optional_property {
+                        Some((matched_property, matched_value, matched_important)) => (matched_property, matched_value, matched_important),
+                        ::core::option::Option::None => continue 'over_declaration_3,
+                    }
                 };
+
                 apply_html_span_box_decl(&mut style, property, value, font_size);
             }
         }
     }
+
     style
 }
 
@@ -830,7 +977,7 @@ pub(crate) fn flowchart_apply_html_node_class_box_metrics(
     let has_block_child = if label_type == "markdown" {
         crate::text::mermaid_markdown_wants_paragraph_wrap(raw_label)
     } else {
-        // Mermaid's `nonMarkdownToHTML()` wraps every non-empty label in `<p>...</p>`.
+
         true
     };
     let box_style = flowchart_html_span_box_style(class_defs, classes, text_style.font_size);
@@ -841,9 +988,9 @@ pub(crate) fn flowchart_apply_html_node_class_box_metrics(
 
     match box_style.display {
         HtmlSpanDisplay::Inline if has_block_child && horizontal.abs() > f64::EPSILON => {
-            // An inline span containing a block `<p>` is split into an inline fragment before the
-            // block, the block itself, and a fragment after it. Horizontal box edges give both
-            // otherwise-empty fragments inline advance, so each occupies one inherited line box.
+
+
+
             metrics.width = metrics.width.max(horizontal.abs());
             metrics.height += 2.0 * box_style.line_height;
             metrics.line_count += 2;

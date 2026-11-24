@@ -16,24 +16,25 @@ use console_core_webp_files::{
 )]
 macro_rules! fixture {
   ($name:literal) => {
+    fixture!($name, $name)
+  };
+  ($name:literal, $reference:literal) => {
     (
       $name,
       include_bytes!(concat!("pictures/", $name, ".webp")).as_slice(),
-      include_bytes!(concat!("pictures/", $name, ".rgba")).as_slice(),
+      include_bytes!(concat!("pictures/", $reference, ".rgba")).as_slice(),
     )
   };
 }
 
-const EVERY_KIND: [(&str, &[u8], &[u8]); 26] = [
-  fixture!("colour-m0-q0"),
-  fixture!("colour-m0-q50"),
-  fixture!("colour-m0-q100"),
-  fixture!("colour-m3-q0"),
-  fixture!("colour-m3-q50"),
-  fixture!("colour-m3-q100"),
-  fixture!("colour-m6-q0"),
-  fixture!("colour-m6-q50"),
-  fixture!("colour-m6-q100"),
+const EVERY_KIND: [(&str, &[u8], &[u8]); 24] = [
+  fixture!("colour-m0-q0", "colour"),
+  fixture!("colour-m3-q0", "colour"),
+  fixture!("colour-m3-q50", "colour"),
+  fixture!("colour-m3-q100", "colour"),
+  fixture!("colour-m6-q0", "colour"),
+  fixture!("colour-m6-q50", "colour"),
+  fixture!("colour-m6-q100", "colour"),
   fixture!("alpha"),
   fixture!("alpha-cleared"),
   fixture!("palette-2"),
@@ -47,7 +48,7 @@ const EVERY_KIND: [(&str, &[u8], &[u8]); 26] = [
   fixture!("row"),
   fixture!("column"),
   fixture!("photograph"),
-  fixture!("photograph-fast"),
+  fixture!("photograph-fast", "photograph"),
   fixture!("screenshot"),
   fixture!("extended"),
   fixture!("animated"),

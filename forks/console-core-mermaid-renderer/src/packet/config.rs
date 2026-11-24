@@ -27,6 +27,7 @@ pub(crate) struct PacketConfigView<'a> {
 }
 
 impl<'a> PacketConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             packet_config: effective_config.get("packet").unwrap_or(&Value::Null),
@@ -40,10 +41,15 @@ impl<'a> PacketConfigView<'a> {
     pub(crate) fn layout_settings(
         &self,
     ) -> std::result::Result<PacketLayoutSettings, PacketBitsPerRowError> {
-        let show_bits = self.packet_bool("showBits").unwrap_or(DEFAULT_SHOW_BITS);
-        let padding_y = self
-            .packet_f64("paddingY")
-            .unwrap_or(DEFAULT_PADDING_Y)
+        let show_bits = match self.packet_bool("showBits") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_SHOW_BITS,
+        };
+        let padding_y = match self
+            .packet_f64("paddingY") {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_PADDING_Y,
+        }
             .max(0.0)
             + if show_bits {
                 SHOW_BITS_PADDING_Y_EXTRA
@@ -54,23 +60,30 @@ impl<'a> PacketConfigView<'a> {
         Ok(PacketLayoutSettings {
             show_bits,
             bit_order: self.bit_order(),
-            row_height: self
-                .packet_f64("rowHeight")
-                .unwrap_or(DEFAULT_ROW_HEIGHT)
+            row_height: match self
+                .packet_f64("rowHeight") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_ROW_HEIGHT,
+            }
                 .max(1.0),
-            padding_x: self
-                .packet_f64("paddingX")
-                .unwrap_or(DEFAULT_PADDING_X)
+            padding_x: match self
+                .packet_f64("paddingX") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_PADDING_X,
+            }
                 .max(0.0),
             padding_y,
-            bit_width: self
-                .packet_f64("bitWidth")
-                .unwrap_or(DEFAULT_BIT_WIDTH)
+            bit_width: match self
+                .packet_f64("bitWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_BIT_WIDTH,
+            }
                 .max(1.0),
             bits_per_row: validate_packet_bits_per_row(self.packet_i64("bitsPerRow"))?,
         })
     }
 
+    #[must_use]
     pub(crate) fn bit_order(&self) -> PacketBitOrder {
         match self.packet_config.get("bitOrder").and_then(Value::as_str) {
             Some("descending") => PacketBitOrder::Descending,
@@ -78,6 +91,7 @@ impl<'a> PacketConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn style_settings(&self) -> PacketStyleSettings {
         PacketStyleSettings {
             byte_font_size: self.packet_style("byteFontSize", DEFAULT_BYTE_FONT_SIZE),
@@ -93,27 +107,33 @@ impl<'a> PacketConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn packet_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.packet_config, &[key])
     }
 
+    #[must_use]
     fn packet_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.packet_config, &[key])
     }
 
+    #[must_use]
     fn packet_i64(&self, key: &str) -> Option<i64> {
-        self.packet_config.get(key)?.as_i64()
+        let checked_value = self.packet_config.get(key)?;
+        checked_value.as_i64()
     }
 
+    #[must_use]
     fn packet_style(&self, key: &str, default_value: &'static str) -> Cow<'static, str> {
         self.style_value(key)
             .map(Cow::Owned)
             .unwrap_or(Cow::Borrowed(default_value))
     }
 
+    #[must_use]
     pub(super) fn style_value(&self, key: &str) -> Option<String> {
         let mut value = config_css_number_or_string(self.packet_theme, &[key])?;
-        // Preserve the declaration parser's second delimiter normalization after JSON projection.
+
         value.truncate(value.trim_end_matches(';').trim_end().len());
         merman_markup::style::is_safe_css_declaration_value(&value).then_some(value)
     }

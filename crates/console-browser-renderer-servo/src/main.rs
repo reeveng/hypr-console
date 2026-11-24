@@ -216,6 +216,13 @@ fn wheel_delta(Point { x, y }: Point<f64>) -> Result<WheelDelta, Never> {
   })
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "Servo keeps a static reader callback that must post its reply to the WebView delegate's event queue"
+  )
+)]
 fn control(
   view: &WebView,
   cursor: &mut WebViewPoint,
@@ -245,7 +252,7 @@ fn control(
       let Ok(delta) = wheel_delta(point);
       view.notify_input_event(InputEvent::Wheel(WheelEvent::new(delta, *cursor)));
     }
-    Request::Text(text) => {
+    Request::Text(text) | Request::Paste(text) => {
       let Ok(()) = input_key(view, Key::Character(text));
     }
     Request::Key(name) => {
@@ -266,14 +273,37 @@ fn control(
     }
     Request::Reload => view.reload(),
     Request::Stop => view.evaluate_javascript("window.stop()", |_| {}),
+    Request::Zoom(percent) => view.set_page_zoom(f32::from(percent.clamp(25, 300)) / 100.0),
+    Request::Find { text, backward } => {
+      let escaped = text.replace('\\', "\\\\").replace('"', "\\\"");
+      let search = format!("window.find(\"{escaped}\", false, {backward}, true)");
+      view.evaluate_javascript(&search, |_| {});
+    }
+    Request::Upload { .. } | Request::CopySelection | Request::ClosePopup | Request::Visible(_) => {}
     Request::Read(id) => {
-      let updates = Rc::clone(updates);
+      let reader_updates = Rc::clone(updates);
       view.evaluate_javascript(READER_SCRIPT, move |result| {
         let text = match result {
           Ok(JSValue::String(text)) => text,
-          _ => String::new(),
+          Ok(
+            JSValue::Undefined
+            | JSValue::Null
+            | JSValue::Boolean(_)
+            | JSValue::Number(_)
+            | JSValue::Element(_)
+            | JSValue::ShadowRoot(_)
+            | JSValue::Frame(_)
+            | JSValue::Window(_)
+            | JSValue::Array(_)
+            | JSValue::Object(_),
+          ) => String::new(),
+          Err(fault) => {
+            console_core_logging::debug!("Servo reader evaluation failed: {fault:?}");
+
+            String::new()
+          }
         };
-        let Ok(()) = updates.record(Event::Reader(id, text));
+        let Ok(()) = reader_updates.record(Event::Reader(id, text));
       });
     }
   }
@@ -286,6 +316,13 @@ enum PollProgress {
   Disconnected,
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit081_no_shared_ownership",
+  expect(
+    explicit081_no_shared_ownership,
+    reason = "the renderer borrows the same delegate handle that Servo requires for its callbacks"
+  )
+)]
 struct Renderer<'a> {
   socket: BorrowedFd<'a>,
   wake_reader: BorrowedFd<'a>,
@@ -436,11 +473,18 @@ fn run(socket: BorrowedFd<'_>) -> io::Result<()> {
   let servo = ServoBuilder::default()
     .event_loop_waker(Box::new(Wake(Arc::new(wake_writer))))
     .preferences(Preferences {
+      dom_bluetooth_enabled: false,
+      dom_canvas_capture_enabled: false,
+      dom_canvas_text_enabled: false,
       dom_gamepad_enabled: false,
       dom_geolocation_enabled: false,
-      dom_bluetooth_enabled: false,
-      dom_webrtc_enabled: false,
+      dom_offscreen_canvas_enabled: false,
       dom_touch_events_legacy_apis_enabled: false,
+      dom_webgl2_enabled: false,
+      dom_webgpu_enabled: false,
+      dom_webrtc_enabled: false,
+      intl_locale_override: "en-US".to_owned(),
+      webgl_testing_context_creation_error: true,
       ..Preferences::default()
     })
     .build();

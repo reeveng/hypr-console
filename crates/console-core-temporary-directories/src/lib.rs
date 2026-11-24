@@ -65,6 +65,22 @@ impl AsRef<Path> for DirectoryName {
   }
 }
 
+#[doc = "The remote migration uses this persistent template with `mktemp -d` to make a private attic."]
+pub const fn migration_attic_template() -> Result<&'static str, Never> {
+  Ok("/var/tmp/console-migration-XXXXXXXXXX")
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit026_env_read_once",
+  expect(
+    explicit026_env_read_once,
+    reason = "this crate provides the configured temporary directory for callers with their own fallback"
+  )
+)]
+pub fn configured_root() -> Result<Option<PathBuf>, Never> {
+  Ok(std::env::var_os("TMPDIR").map(PathBuf::from))
+}
+
 #[cfg_attr(
   dylint_lib = "explicit044_no_ambient_value",
   allow(

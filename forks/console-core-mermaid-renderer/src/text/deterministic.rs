@@ -48,6 +48,7 @@ struct LineWidthModel<'a> {
 }
 
 impl LineWidthModel<'_> {
+    #[must_use]
     fn width_px(self, text: &str) -> f64 {
         if let LineWidthSource::Callback(width_px) = self.source {
             return width_px(text, self.style);
@@ -58,6 +59,7 @@ impl LineWidthModel<'_> {
         self.finish_builtin(width)
     }
 
+    #[must_use]
     fn candidate_width_px(
         self,
         width: LineWidthAccumulator,
@@ -68,9 +70,9 @@ impl LineWidthModel<'_> {
             return (width, width_px(candidate, self.style));
         }
 
-        let mut width = width;
-        self.append_builtin(&mut width, appended);
-        (width, self.finish_builtin(width))
+        let mut width_2 = width;
+        self.append_builtin(&mut width_2, appended);
+        (width_2, self.finish_builtin(width_2))
     }
 
     fn append_builtin(self, width: &mut LineWidthAccumulator, text: &str) {
@@ -87,6 +89,7 @@ impl LineWidthModel<'_> {
         }
     }
 
+    #[must_use]
     fn finish_builtin(self, width: LineWidthAccumulator) -> f64 {
         match self.source {
             LineWidthSource::Heuristic => width.heuristic_em * self.font_size,
@@ -98,6 +101,7 @@ impl LineWidthModel<'_> {
     }
 }
 
+#[must_use]
 fn literal_svg_text_width_px(
     text: &str,
     style: &TextStyle,
@@ -126,6 +130,7 @@ trait LineWidthProvider {
 
     fn width_px(&mut self, text: &str) -> Result<f64, Self::Error>;
 
+    #[must_use]
     fn begin_html_line_width(&self) -> Option<crate::environment::BuiltinHtmlLineWidth> {
         None
     }
@@ -295,6 +300,7 @@ impl DeterministicTextMeasurer {
     ///
     /// The callback must return a finite, non-negative width in CSS pixels. Use
     /// [`crate::environment::HostTextMeasurer`] when measurement can fail or vary by operation.
+    #[must_use]
     pub fn with_width_callback(
         self,
         width_px: impl Fn(&str, &TextStyle) -> f64 + Send + Sync + 'static,
@@ -305,6 +311,7 @@ impl DeterministicTextMeasurer {
         })
     }
 
+    #[must_use]
     fn collapse_svg_text_whitespace(text: &str) -> String {
         let mut collapsed = String::with_capacity(text.len());
         let mut pending_space = false;
@@ -317,6 +324,7 @@ impl DeterministicTextMeasurer {
                     collapsed.push(' ');
                     pending_space = false;
                 }
+
                 collapsed.push(ch);
             }
         }
@@ -324,31 +332,42 @@ impl DeterministicTextMeasurer {
         collapsed
     }
 
+    #[must_use]
     fn replace_br_variants(text: &str) -> String {
         let mut out = String::with_capacity(text.len());
         let mut i = 0usize;
+
         while i < text.len() {
-            let Some(rest) = text.get(i..) else {
-                break;
+            let rest = {
+                let optional_rest = text.get(i..);
+
+                match optional_rest {
+                    Some(matched_rest) => matched_rest,
+                    ::core::option::Option::None => break,
+                }
             };
 
-            // Mirror Mermaid's `lineBreakRegex = /<br\\s*\\/?>/gi` behavior:
-            // - allow ASCII whitespace between `br` and the optional `/` or `>`
-            // - do NOT accept extra characters (e.g. `<br \\t/>` should *not* count as a break)
+
+
+
             if rest.starts_with('<') {
                 let bytes = text.as_bytes();
+
                 if i + 3 < bytes.len()
                     && matches!(bytes[i + 1], b'b' | b'B')
                     && matches!(bytes[i + 2], b'r' | b'R')
                 {
                     let mut j = i + 3;
+
                     while j < bytes.len() && matches!(bytes[j], b' ' | b'\t' | b'\r' | b'\n') {
                         j += 1;
                     }
-                    if j < bytes.len() && bytes[j] == b'/' {
+
+                    if match <[_]>::get(&*bytes, j) { ::core::option::Option::Some(&checked_element) => checked_element == b'/', ::core::option::Option::None => false } {
                         j += 1;
                     }
-                    if j < bytes.len() && bytes[j] == b'>' {
+
+                    if match <[_]>::get(&*bytes, j) { ::core::option::Option::Some(&checked_element) => checked_element == b'>', ::core::option::Option::None => false } {
                         out.push('\n');
                         i = j + 1;
                         continue;
@@ -356,15 +375,23 @@ impl DeterministicTextMeasurer {
                 }
             }
 
-            let Some(ch) = rest.chars().next() else {
-                break;
+            let ch = {
+                let optional_ch = rest.chars().next();
+
+                match optional_ch {
+                    Some(matched_ch) => matched_ch,
+                    ::core::option::Option::None => break,
+                }
             };
+
             out.push(ch);
             i += ch.len_utf8();
         }
+
         out
     }
 
+    #[must_use]
     fn normalized_text_lines_with(
         text: &str,
         trailing_line_is_empty: impl Fn(&str) -> bool,
@@ -372,9 +399,9 @@ impl DeterministicTextMeasurer {
         let t = Self::replace_br_variants(text);
         let mut out = t.split('\n').map(|s| s.to_string()).collect::<Vec<_>>();
 
-        // Mermaid often produces labels with a trailing newline (e.g. YAML `|` block scalars from
-        // FlowDB). The rendered label does not keep an extra blank line at the end, so we trim
-        // trailing empty lines to keep height parity.
+
+
+
         while out.len() > 1 && out.last().is_some_and(|s| trailing_line_is_empty(s)) {
             out.pop();
         }
@@ -386,29 +413,36 @@ impl DeterministicTextMeasurer {
         }
     }
 
+    #[must_use]
     pub fn normalized_text_lines(text: &str) -> Vec<String> {
         Self::normalized_text_lines_with(text, |line| {
             trim_html_collapsible_ascii_whitespace(line).is_empty()
         })
     }
 
+    #[must_use]
     pub(crate) fn split_line_to_words(text: &str) -> Vec<String> {
-        // Mirrors Mermaid's `splitLineToWords` fallback behavior when `Intl.Segmenter` is absent:
-        // split by spaces, then re-add the spaces as separate tokens (preserving multiple spaces).
+
+
         let parts = text.split(' ').collect::<Vec<_>>();
         let mut out: Vec<String> = Vec::new();
+
         for part in parts {
             if !part.is_empty() {
                 out.push(part.to_string());
             }
+
             out.push(" ".to_string());
         }
+
         while out.last().is_some_and(|s| s == " ") {
             out.pop();
         }
+
         out
     }
 
+    #[must_use]
     fn wrapped_line_has_visible_content(text: &str) -> bool {
         !trim_html_collapsible_ascii_whitespace(text).is_empty()
     }
@@ -427,6 +461,7 @@ impl DeterministicTextMeasurer {
                 if new_line {
                     width = LineWidthAccumulator::default();
                 }
+
                 let (candidate_width, candidate_width_px) =
                     width_model.candidate_width_px(width, candidate, grapheme)?;
                 width = candidate_width;
@@ -439,8 +474,8 @@ impl DeterministicTextMeasurer {
         )?;
         let tail = if visit.tail.is_empty() {
             None
-        } else if width_model.width_px(visit.tail)? > max_width_px {
-            // An over-wide grapheme advances the queue together with its zero-width scalars.
+        } else if ({ let checked_value = width_model.width_px(visit.tail)?; checked_value }) > max_width_px {
+
             out.push(visit.tail.to_string());
             None
         } else {
@@ -464,12 +499,12 @@ impl DeterministicTextMeasurer {
         }
 
         let tokens = Self::split_line_to_words(line);
-        let mut tokens = std::collections::VecDeque::from(tokens);
+        let mut tokens_2 = std::collections::VecDeque::from(tokens);
         let mut out: Vec<String> = Vec::new();
         let mut cur = String::new();
         let mut cur_width = LineWidthAccumulator::default();
 
-        while let Some(tok) = tokens.pop_front() {
+        while let Some(tok) = tokens_2.pop_front() {
             if cur.is_empty() && tok == " " {
                 continue;
             }
@@ -478,25 +513,28 @@ impl DeterministicTextMeasurer {
             cur.push_str(&tok);
             let (candidate_width, candidate_width_px) =
                 width_model.candidate_width_px(cur_width, &cur, &tok)?;
+
             if candidate_width_px <= max_width_px {
                 cur_width = candidate_width;
                 continue;
             }
+
             cur.truncate(previous_len);
 
             if Self::wrapped_line_has_visible_content(&cur) {
-                let line = trim_end_html_collapsible_ascii_whitespace(&cur).to_string();
+                let line_2 = trim_end_html_collapsible_ascii_whitespace(&cur).to_string();
                 cur.clear();
-                out.push(line);
+                out.push(line_2);
                 cur_width = LineWidthAccumulator::default();
-                tokens.push_front(tok);
+                tokens_2.push_front(tok);
                 continue;
             }
 
-            // `tok` itself does not fit on an empty line.
+
             if tok == " " {
                 continue;
             }
+
             if !break_long_words {
                 out.push(tok);
             } else if let Some((tail, tail_width)) =
@@ -531,7 +569,7 @@ impl TextMeasurer for DeterministicTextMeasurer {
     }
 
     fn measure_svg_text_computed_length_px(&self, text: &str, style: &TextStyle) -> f64 {
-        // Inline tspan fragments own their leading spaces; callers normalize whole SVG rows.
+
         self.measure_svg_preserved_tspan_text_bbox_width_px(text, style)
     }
 
@@ -541,7 +579,7 @@ impl TextMeasurer for DeterministicTextMeasurer {
     }
 
     fn measure_svg_simple_text_bbox_width_px(&self, text: &str, style: &TextStyle) -> f64 {
-        // Retain the legacy drawSimpleText approximation, separate from direct SVG content.
+
         self.measure(text, style).width.max(0.0)
     }
 
@@ -549,7 +587,7 @@ impl TextMeasurer for DeterministicTextMeasurer {
         literal_svg_text_width_px(
             text,
             style,
-            if self.char_width_factor == 0.0 {
+            if ::core::matches!(::core::primitive::f64::classify(self.char_width_factor), ::core::num::FpCategory::Zero) {
                 LineWidthSource::Heuristic
             } else {
                 LineWidthSource::UniformAdvanceEm(self.char_width_factor)
@@ -562,7 +600,7 @@ impl TextMeasurer for DeterministicTextMeasurer {
         literal_svg_text_width_px(
             text,
             style,
-            if self.char_width_factor == 0.0 {
+            if ::core::matches!(::core::primitive::f64::classify(self.char_width_factor), ::core::num::FpCategory::Zero) {
                 LineWidthSource::Heuristic
             } else {
                 LineWidthSource::UniformAdvanceEm(self.char_width_factor)
@@ -572,12 +610,12 @@ impl TextMeasurer for DeterministicTextMeasurer {
     }
 
     fn measure_svg_raw_text_bbox_height_px(&self, text: &str, style: &TextStyle) -> f64 {
-        // A direct SVG text node has one row, even when its content spells an HTML break.
+
         self.measure_svg_simple_text_bbox_height_px(text, style)
     }
 
     fn measure_html_line_height_px(&self, _text: &str, style: &TextStyle) -> f64 {
-        let factor = if self.line_height_factor == 0.0 {
+        let factor = if ::core::matches!(::core::primitive::f64::classify(self.line_height_factor), ::core::num::FpCategory::Zero) {
             1.5
         } else {
             self.line_height_factor
@@ -586,7 +624,7 @@ impl TextMeasurer for DeterministicTextMeasurer {
     }
 
     fn measure_html_line_width_px(&self, text: &str, style: &TextStyle) -> f64 {
-        let source = if self.char_width_factor == 0.0 {
+        let source = if ::core::matches!(::core::primitive::f64::classify(self.char_width_factor), ::core::num::FpCategory::Zero) {
             LineWidthSource::Heuristic
         } else {
             LineWidthSource::UniformAdvanceEm(self.char_width_factor)
@@ -616,7 +654,7 @@ impl TextMeasurer for DeterministicTextMeasurer {
         &self,
         style: &TextStyle,
     ) -> Option<crate::environment::BuiltinSvgComputedLength> {
-        (self.char_width_factor == 0.0)
+        ::core::matches!(::core::primitive::f64::classify(self.char_width_factor), ::core::num::FpCategory::Zero)
             .then(|| crate::environment::BuiltinSvgComputedLength::deterministic(style))
     }
 
@@ -660,9 +698,11 @@ impl TextMeasurer for DeterministicTextMeasurer {
 
     fn measure_svg_simple_text_bbox_height_px(&self, text: &str, style: &TextStyle) -> f64 {
         let t = trim_end_html_collapsible_ascii_whitespace(text);
+
         if t.is_empty() {
             return 0.0;
         }
+
         (style.font_size.max(1.0) * 1.1).max(0.0)
     }
 
@@ -686,7 +726,7 @@ impl TextMeasurer for WidthCallbackTextMeasurer {
     }
 
     fn measure_svg_text_computed_length_px(&self, text: &str, style: &TextStyle) -> f64 {
-        // Inline tspan fragments own their leading spaces; callers normalize whole SVG rows.
+
         self.measure_svg_preserved_tspan_text_bbox_width_px(text, style)
     }
 
@@ -696,7 +736,7 @@ impl TextMeasurer for WidthCallbackTextMeasurer {
     }
 
     fn measure_svg_simple_text_bbox_width_px(&self, text: &str, style: &TextStyle) -> f64 {
-        // Retain the legacy drawSimpleText approximation, separate from direct SVG content.
+
         self.measure(text, style).width.max(0.0)
     }
 
@@ -714,12 +754,12 @@ impl TextMeasurer for WidthCallbackTextMeasurer {
     }
 
     fn measure_svg_raw_text_bbox_height_px(&self, text: &str, style: &TextStyle) -> f64 {
-        // A direct SVG text node has one row, even when its content spells an HTML break.
+
         self.measure_svg_simple_text_bbox_height_px(text, style)
     }
 
     fn measure_html_line_height_px(&self, _text: &str, style: &TextStyle) -> f64 {
-        let factor = if self.line_height_factor == 0.0 {
+        let factor = if ::core::matches!(::core::primitive::f64::classify(self.line_height_factor), ::core::num::FpCategory::Zero) {
             1.5
         } else {
             self.line_height_factor
@@ -784,10 +824,12 @@ impl TextMeasurer for WidthCallbackTextMeasurer {
     }
 
     fn measure_svg_simple_text_bbox_height_px(&self, text: &str, style: &TextStyle) -> f64 {
-        let text = trim_end_html_collapsible_ascii_whitespace(text);
-        if text.is_empty() {
+        let text_2 = trim_end_html_collapsible_ascii_whitespace(text);
+
+        if text_2.is_empty() {
             return 0.0;
         }
+
         (style.font_size.max(1.0) * 1.1).max(0.0)
     }
 
@@ -801,6 +843,7 @@ impl TextMeasurer for WidthCallbackTextMeasurer {
 }
 
 impl DeterministicTextMeasurer {
+    #[must_use]
     fn measure_wrapped_impl(
         &self,
         text: &str,
@@ -808,7 +851,7 @@ impl DeterministicTextMeasurer {
         max_width: Option<f64>,
         wrap_mode: WrapMode,
     ) -> (TextMetrics, Option<f64>) {
-        let width_source = if self.char_width_factor == 0.0 {
+        let width_source = if ::core::matches!(::core::primitive::f64::classify(self.char_width_factor), ::core::num::FpCategory::Zero) {
             LineWidthSource::Heuristic
         } else {
             LineWidthSource::UniformAdvanceEm(self.char_width_factor)
@@ -823,6 +866,7 @@ impl DeterministicTextMeasurer {
         )
     }
 
+    #[must_use]
     fn measure_wrapped_impl_with_width(
         text: &str,
         style: &TextStyle,
@@ -835,7 +879,7 @@ impl DeterministicTextMeasurer {
             WrapMode::SvgLike | WrapMode::SvgLikeSingleRun => 1.1,
             WrapMode::HtmlLike => 1.5,
         };
-        let line_height_factor = if configured_line_height_factor == 0.0 {
+        let line_height_factor = if ::core::matches!(::core::primitive::f64::classify(configured_line_height_factor), ::core::num::FpCategory::Zero) {
             default_line_height_factor
         } else {
             configured_line_height_factor
@@ -863,45 +907,51 @@ fn wrapped_text_layout<W: LineWidthProvider>(
     wrap_mode: WrapMode,
     width_model: &mut W,
 ) -> Result<WrappedTextLayout, W::Error> {
-    let max_width = max_width.filter(|width| width.is_finite() && *width > 0.0);
+    let max_width_2 = max_width.filter(|width| width.is_finite() && *width > 0.0);
     let break_long_words = matches!(wrap_mode, WrapMode::SvgLike | WrapMode::SvgLikeSingleRun);
     let raw_lines = DeterministicTextMeasurer::normalized_text_lines(text);
-    let raw_width = if wrap_mode == WrapMode::HtmlLike || max_width.is_none() {
+    let raw_width = if wrap_mode == WrapMode::HtmlLike || max_width_2.is_none() {
         let mut width = 0.0_f64;
+
         for line in &raw_lines {
-            width = width.max(if max_width.is_none() {
-                width_model.final_width_px(line)?
-            } else {
-                width_model.width_px(line)?
+            width = width.max(match max_width_2 {
+                ::core::option::Option::None => {
+                    width_model.final_width_px(line)?
+                },
+                ::core::option::Option::Some(_) => {
+                    width_model.width_px(line)?
+                },
             });
         }
+
         Some(width)
     } else {
         None
     };
     let html_break_spaces_active = wrap_mode == WrapMode::HtmlLike
-        && max_width.is_some_and(|width| raw_width.is_some_and(|raw| raw > width));
+        && max_width_2.is_some_and(|width| raw_width.is_some_and(|raw| raw > width));
     let mut lines = Vec::new();
+
     for line in raw_lines {
         if wrap_mode == WrapMode::HtmlLike
-            && let Some(width) = max_width
+            && let Some(width) = max_width_2
         {
-            let line = if html_break_spaces_active {
+            let line_2 = if html_break_spaces_active {
                 line.as_str()
             } else {
                 trim_html_collapsible_ascii_whitespace(&line)
             };
-            let normalized = NormalizedHtmlText::single_mode(line, HtmlWhiteSpace::BreakSpaces);
+            let normalized = NormalizedHtmlText::single_mode(line_2, HtmlWhiteSpace::BreakSpaces);
             let builtin = width_model.begin_html_line_width();
             let planned = plan_html_lines(
                 &normalized,
                 Some(width),
                 builtin,
-                &mut |text| width_model.width_px(text),
+                &mut |text_2| width_model.width_px(text_2),
                 &mut || Ok(()),
             )?;
-            lines.extend(planned.into_iter().map(|line| line.text));
-        } else if let Some(width) = max_width {
+            lines.extend(planned.into_iter().map(|line_3| line_3.text));
+        } else if let Some(width) = max_width_2 {
             lines.extend(DeterministicTextMeasurer::wrap_line(
                 &line,
                 width,
@@ -912,19 +962,30 @@ fn wrapped_text_layout<W: LineWidthProvider>(
             lines.push(line);
         }
     }
-    let mut width = if max_width.is_none() {
-        raw_width.unwrap_or_default()
-    } else {
-        let mut width = 0.0_f64;
-        for line in &lines {
-            width = width.max(width_model.final_width_px(line)?);
-        }
-        width
+
+    let mut width = match max_width_2 {
+        ::core::option::Option::None => {
+            match raw_width {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            }
+        },
+        ::core::option::Option::Some(_) => {
+            let mut width = 0.0_f64;
+
+            for line in &lines {
+                width = width.max({ let checked_value = width_model.final_width_px(line)?; checked_value });
+            }
+
+            width
+        },
     };
-    if html_break_spaces_active && let Some(max_width) = max_width {
-        // Overflowing HTML labels occupy the table width unless min-content is wider.
-        width = width.max(max_width);
+
+    if html_break_spaces_active && let Some(max_width_3) = max_width_2 {
+
+        width = width.max(max_width_3);
     }
+
     Ok(WrappedTextLayout {
         metrics: TextMetrics {
             width,

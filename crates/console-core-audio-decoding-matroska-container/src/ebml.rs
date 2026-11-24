@@ -84,7 +84,10 @@ impl Walker {
     Ok(())
   }
 
-  pub(crate) fn read_payload(&mut self, header: &ElementHeader) -> Result<Box<[u8]>, DecodeError> {
+  pub(crate) fn read_payload(
+    &mut self,
+    header: &ElementHeader,
+  ) -> Result<Box<[u8]>, DecodeError> {
     let limit = self
       .end
       .map(|end| header.data_pos.saturating_add(header.data_len).cmp(&end));

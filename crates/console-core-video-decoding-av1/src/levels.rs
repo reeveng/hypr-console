@@ -215,6 +215,7 @@ pub const ADST_DCT: TxfmType = 1;
 pub const DCT_DCT: TxfmType = 0;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, FromRepr)]
+#[repr(u8)]
 pub enum TxClass {
   TwoD,
   H,
@@ -527,12 +528,11 @@ impl Mv {
     x: i16::MIN,
   };
 
-  #[must_use]
-  pub(crate) fn validity(self) -> MotionVectorValidity {
-    match self {
+  pub(crate) fn validity(self) -> Result<MotionVectorValidity, console_core_never::Never> {
+    Ok(match self {
       Self::INVALID => MotionVectorValidity::Invalid,
       _ => MotionVectorValidity::Valid,
-    }
+    })
   }
 }
 
@@ -674,7 +674,30 @@ impl Av1BlockInter1d {
 pub struct Av1BlockInter2d {
   pub mv2d: Mv,
 
-  pub matrix: [i16; 4],
+  matrix: [i16; 4],
+}
+
+pub(crate) enum BlockWarp {
+  Identity,
+  Affine([i16; 4]),
+}
+
+impl Av1BlockInter2d {
+  #[doc = "Preserve the packed layout shared by the one- and two-dimensional inter blocks."]
+  pub(crate) fn from_warp(mv2d: Mv, warp: BlockWarp) -> Result<Self, console_core_never::Never> {
+    let matrix = match warp {
+      BlockWarp::Identity => [i16::MIN, 0, 0, 0],
+      BlockWarp::Affine(coefficients) => coefficients,
+    };
+    Ok(Self { mv2d, matrix })
+  }
+
+  pub(crate) fn warp(&self) -> Result<BlockWarp, console_core_never::Never> {
+    Ok(match self.matrix {
+      [i16::MIN, ..] => BlockWarp::Identity,
+      coefficients => BlockWarp::Affine(coefficients),
+    })
+  }
 }
 
 #[derive(Clone, Copy)]

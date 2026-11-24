@@ -14,9 +14,13 @@
 //! has to be timed rather than only answered, and a recording that one press
 //! begins and the next one ends.
 
-use std::process::{Command, ExitCode, Stdio};
+use std::fmt;
+use std::io;
+use std::path::{Path, PathBuf};
+use std::process::{Command, ExitCode, ExitStatus, Stdio};
 use std::time::Instant;
 
+use console_audio_streams::Recording;
 use console_core_atomic_writes::{Stored, read};
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
@@ -24,7 +28,7 @@ use console_input_dictation::comparing::{
   COMMAND, Candidate, CommandPath, Compare, CompareEffect, CompareEvent, Comparison, Found, Task,
   Timing, Where,
 };
-use console_operating_system_linux::program_lifetime::{BoundToParent, alongside};
+use console_input_dictation::{RECORDING_FORMAT, RECORDING_STOP_TIMEOUT};
 
 use console_operating_system_linux::program_runtime::{Clock, Interpreter};
 use console_program_contract::Event;
@@ -36,15 +40,96 @@ const TRIES: [u8; 3] = [1, 2, 3];
 const NAMED: &str = "/proc/sys/kernel/hostname";
 
 struct Machine {
-  recording: Option<BoundToParent>,
+  recording: Option<Clip>,
+}
+
+struct Clip {
+  child: Recording,
+  path: PathBuf,
+}
+
+#[derive(Debug)]
+enum RecordingError {
+  Active(PathBuf),
+  Inactive,
+  Start(PathBuf, io::Error),
+  Stop(PathBuf, io::Error),
+  ExitedEarly(PathBuf, ExitStatus),
+  Exited(PathBuf, ExitStatus),
+}
+
+impl fmt::Display for RecordingError {
+  fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
+    match self {
+      Self::Active(at) => write!(to, "already recording {}", at.display()),
+      Self::Inactive => to.write_str("there is no recording to stop"),
+      Self::Start(at, error) => write!(to, "could not start recording {}: {error}", at.display()),
+      Self::Stop(at, error) => write!(to, "could not finish recording {}: {error}", at.display()),
+      Self::ExitedEarly(at, status) => write!(
+        to,
+        "the recorder for {} exited before it was asked to stop ({status})",
+        at.display()
+      ),
+      Self::Exited(at, status) => {
+        write!(to, "the recorder for {} exited with {status}", at.display())
+      }
+    }
+  }
+}
+
+impl std::error::Error for RecordingError {
+  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    match self {
+      Self::Start(_, error) | Self::Stop(_, error) => Some(error),
+      Self::Active(_) | Self::Inactive | Self::ExitedEarly(_, _) | Self::Exited(_, _) => None,
+    }
+  }
+}
+
+impl Clip {
+  fn start(path: &Path) -> Result<Self, RecordingError> {
+    let child = Recording::start(RECORDING_FORMAT, path)
+      .map_err(|error| RecordingError::Start(path.to_path_buf(), error))?;
+
+    Ok(Self {
+      child,
+      path: path.to_path_buf(),
+    })
+  }
+
+  fn stop(self) -> Result<(), RecordingError> {
+    let Self { mut child, path } = self;
+    let already_exited = child
+      .try_wait()
+      .map_err(|error| RecordingError::Stop(path.clone(), error))?;
+
+    match already_exited {
+      Some(status) => return Err(RecordingError::ExitedEarly(path, status)),
+      None => {}
+    }
+
+    let status = child
+      .finish(RECORDING_STOP_TIMEOUT)
+      .map_err(|error| RecordingError::Stop(path.clone(), error))?;
+
+    match ::core::primitive::bool::then_some(status.success(), ()) {
+      ::core::option::Option::Some(()) => Ok(()),
+      ::core::option::Option::None => Err(RecordingError::Exited(path, status)),
+    }
+  }
 }
 
 impl Interpreter for Machine {
   type Event = CompareEvent;
   type Effect = CompareEffect;
+  type Error = RecordingError;
 
-  fn interpret(&mut self, acts: &CompareEffect, _clock: &Clock) -> Vec<Event<CompareEvent>> {
-    match acts {
+  fn interpret(
+    &mut self,
+    acts: &CompareEffect,
+    _clock: &Clock,
+  ) -> Result<Vec<Event<CompareEvent>>, RecordingError> {
+    let event = match acts {
       CompareEffect::Look(every) => {
         let seen = every
           .iter()
@@ -58,46 +143,48 @@ impl Interpreter for Machine {
           })
           .collect();
 
-        vec![Event::Custom(CompareEvent::Looked(seen))]
+        CompareEvent::Looked(seen)
       }
 
       CompareEffect::Ran(arguments) => {
         let Ok(said) = run_stderr(arguments);
 
-        vec![Event::Custom(CompareEvent::Output(said))]
+        CompareEvent::Output(said)
       }
 
       CompareEffect::Timed(arguments) => {
         let Ok(took) = timed(arguments);
 
-        vec![Event::Custom(CompareEvent::Timed(took))]
+        CompareEvent::Timed(took)
       }
 
-      CompareEffect::Record(into) => {
-        let Ok(mut recording) = ExternalProgram::PwRecord.command();
+      CompareEffect::StartRecording(into) => {
+        match &self.recording {
+          Some(recording) => return Err(RecordingError::Active(recording.path.clone())),
+          None => {}
+        }
 
-        recording
-          .args(["--rate", "16000", "--channels", "1", "--format", "s16"])
-          .arg(into)
-          .stdout(Stdio::null());
+        let started = Clip::start(into)?;
+        self.recording = Some(started);
 
-        self.recording = match alongside(&mut recording) {
-          Ok(started) => Some(started),
-          Err(fault) => {
-            eprintln!("voice-compare: nothing is listening: {fault}");
-
-            None
-          }
-        };
-
-        vec![Event::Custom(CompareEvent::Finished)]
+        CompareEvent::RecordingStarted
       }
 
-      CompareEffect::Enough => {
-        self.recording = None;
+      CompareEffect::StopRecording => {
+        let recording = self.recording.take().ok_or(RecordingError::Inactive)?;
+        recording.stop()?;
 
-        vec![Event::Custom(CompareEvent::Finished)]
+        CompareEvent::RecordingStopped
       }
+    };
+
+    Ok(vec![Event::Custom(event)])
+  }
+
+  fn finish(&mut self) -> Result<(), RecordingError> {
+    match self.recording.take() {
+      Some(recording) => recording.stop(),
+      None => Ok(()),
     }
   }
 }

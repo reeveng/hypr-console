@@ -1,61 +1,81 @@
-//! Logging macros that forward diagnostics when logging is enabled.
+//! Logging macros that evaluate arguments only when a sink accepts the message.
+//! Builds with logging disabled still check the format strings and argument types.
 
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
   expect(
     explicit080_macro_budget,
-    reason = "Selects whether debug diagnostics are emitted while keeping argument types and caller source information"
+    reason = "Selects whether debug diagnostics are emitted while preserving format checks and caller source information"
   )
 )]
 macro_rules! debug {
-    ($fmt:literal $(, $($arg:expr),* $(,)?)?) => {{
-        #[cfg(feature = "logging")]
-        {
-            ::console_core_logging::debug!($fmt $(, $($arg),*)?);
-        }
-        #[cfg(not(feature = "logging"))]
-        {
-            $($(let _ = &$arg;)*)?
-        }
-    }};
+  ($($message:tt)+) => {{
+    #[cfg(feature = "logging")]
+    {
+      ::console_core_logging::debug!($($message)+);
+    }
+    #[cfg(not(feature = "logging"))]
+    if false {
+      let _ = ::core::format_args!($($message)+);
+    }
+  }};
 }
 
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
   expect(
     explicit080_macro_budget,
-    reason = "Selects whether error diagnostics are emitted while keeping argument types and caller source information"
+    reason = "Selects whether error diagnostics are emitted while preserving format checks and caller source information"
   )
 )]
 macro_rules! error {
-    ($fmt:literal $(, $($arg:expr),* $(,)?)?) => {{
-        #[cfg(feature = "logging")]
-        {
-            ::console_core_logging::error!($fmt $(, $($arg),*)?);
-        }
-        #[cfg(not(feature = "logging"))]
-        {
-            $($(let _ = &$arg;)*)?
-        }
-    }};
+  ($($message:tt)+) => {{
+    #[cfg(feature = "logging")]
+    {
+      ::console_core_logging::error!($($message)+);
+    }
+    #[cfg(not(feature = "logging"))]
+    if false {
+      let _ = ::core::format_args!($($message)+);
+    }
+  }};
 }
 
 #[cfg_attr(
   dylint_lib = "explicit080_macro_budget",
   expect(
     explicit080_macro_budget,
-    reason = "Selects whether warn diagnostics are emitted while keeping argument types and caller source information"
+    reason = "Selects whether warn diagnostics are emitted while preserving format checks and caller source information"
   )
 )]
 macro_rules! warn {
-    ($fmt:literal $(, $($arg:expr),* $(,)?)?) => {{
-        #[cfg(feature = "logging")]
-        {
-            ::console_core_logging::warn!($fmt $(, $($arg),*)?);
-        }
-        #[cfg(not(feature = "logging"))]
-        {
-            $($(let _ = &$arg;)*)?
-        }
-    }};
+  ($($message:tt)+) => {{
+    #[cfg(feature = "logging")]
+    {
+      ::console_core_logging::warn!($($message)+);
+    }
+    #[cfg(not(feature = "logging"))]
+    if false {
+      let _ = ::core::format_args!($($message)+);
+    }
+  }};
+}
+
+#[cfg(all(test, not(feature = "logging")))]
+mod tests {
+  use core::cell::Cell;
+
+  #[test]
+  fn disabled_logging_skips_arguments() {
+    let evaluated = Cell::new(false);
+    let argument = || {
+      evaluated.set(true);
+      "message"
+    };
+
+    debug!("{}", argument());
+    error!("{}", argument());
+    warn!("{}", argument());
+    assert!(!evaluated.get());
+  }
 }

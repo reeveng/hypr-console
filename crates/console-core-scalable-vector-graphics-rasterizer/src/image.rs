@@ -14,7 +14,7 @@ use console_core_scalable_vector_graphics::{Image, ImageKind, IsVisibleAnswer, T
 )]
 pub(super) fn render(
   image: &Image,
-  context: &crate::render::Context,
+  context: &crate::render::Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {
@@ -55,7 +55,7 @@ pub(super) fn render(
 )]
 fn render_vector(
   tree: &Tree,
-  context: &crate::render::Context,
+  context: &crate::render::Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {

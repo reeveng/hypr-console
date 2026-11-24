@@ -19,11 +19,13 @@ pub struct SvgResourceClosure {
 
 impl SvgResourceClosure {
     /// Returns the union of raw-use and parsed SVG fragment IDs.
+    #[must_use]
     pub fn available_fragment_ids(&self) -> &[String] {
         &self.available_fragment_ids
     }
 
     /// Returns the union of concrete references checked in each ID domain.
+    #[must_use]
     pub fn referenced_fragment_ids(&self) -> &[String] {
         &self.referenced_fragment_ids
     }
@@ -33,14 +35,17 @@ impl SvgResourceClosure {
     /// These are not closure obligations because determining whether their selectors apply would
     /// require duplicating the downstream CSS engine. Missing values fail closed to the SVG
     /// property's initial or inherited value.
+    #[must_use]
     pub fn stylesheet_fragment_ids(&self) -> &[String] {
         &self.stylesheet_fragment_ids
     }
 
+    #[must_use]
     pub const fn inline_data_resource_count(&self) -> usize {
         self.inline_data_resources
     }
 
+    #[must_use]
     pub const fn is_closed(&self) -> bool {
         true
     }
@@ -97,18 +102,20 @@ impl SvgResourceClosureBuilder {
     }
 
     pub(crate) fn finish(self) -> Result<SvgResourceClosure, String> {
-        if let Some(unresolved) = self
+        match self
             .parsed_fragment_references
             .difference(&self.parsed_fragment_ids)
             .chain(
                 self.raw_use_fragment_references
                     .difference(&self.raw_use_fragment_ids),
             )
-            .min()
-        {
-            return Err(format!(
-                "terminal SVG references missing same-document fragment #{unresolved}"
-            ));
+            .min() {
+            Some(unresolved) => {
+                return Err(format!(
+                    "terminal SVG references missing same-document fragment #{unresolved}"
+                ));
+            },
+            ::core::option::Option::None => {},
         }
 
         let mut available_fragment_ids = self.parsed_fragment_ids;
@@ -141,8 +148,8 @@ fn collect_css_urls<'i>(
     depth: u8,
     error_location: &mut SourceLocation,
 ) -> Result<(), cssparser::ParseError<String>> {
-    // cssparser consumes the rest of a nested block even on failure. Capture the location
-    // before unwinding so diagnostics still identify the failing token, not the block end.
+
+
     *error_location = parser.current_source_location();
     if depth > CSS_RESOURCE_NESTING_HARD_LIMIT {
         return Err(cssparser::ParseError::custom(format!(
@@ -155,7 +162,7 @@ fn collect_css_urls<'i>(
         let token = match parser.next_including_whitespace() {
             Ok(token) => token.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => return Ok(()),
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<::std::string::String> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
 
         match token {
@@ -202,8 +209,9 @@ enum CssReferenceScope {
 }
 
 fn observe_url(resources: &mut SvgResourceClosureBuilder, url: &str, scope: CssReferenceScope) {
-    let url = url.trim();
-    if let Some(fragment) = url
+    let url_2 = url.trim();
+
+    if let Some(fragment) = url_2
         .strip_prefix('#')
         .filter(|fragment| !fragment.is_empty())
     {
@@ -215,7 +223,7 @@ fn observe_url(resources: &mut SvgResourceClosureBuilder, url: &str, scope: CssR
                     .insert(fragment.to_owned());
             }
         }
-    } else if url
+    } else if url_2
         .get(..5)
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:"))
     {

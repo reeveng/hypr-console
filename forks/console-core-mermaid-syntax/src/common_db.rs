@@ -39,10 +39,11 @@ pub(crate) struct LangiumCommonDbFields {
     feature = "diagram-wardley"
 ))]
 impl LangiumCommonDbFields {
+    #[must_use]
     pub(crate) fn from_facts(facts: &LangiumCommonFacts) -> Self {
-        // `populateCommonDb` observes the final AST assignments in this order and ignores empty
-        // values. Looking up each field independently also preserves Langium's last-assignment
-        // semantics when a common fragment appears more than once.
+
+
+
         let acc_descr = nonempty_last(facts, LangiumCommonField::AccDescr);
         let acc_title = nonempty_last(facts, LangiumCommonField::AccTitle);
         let title = nonempty_last(facts, LangiumCommonField::Title);
@@ -63,6 +64,7 @@ impl LangiumCommonDbFields {
     feature = "diagram-radar",
     feature = "diagram-wardley"
 ))]
+#[must_use]
 fn nonempty_last(facts: &LangiumCommonFacts, field: LangiumCommonField) -> Option<String> {
     facts
         .last(field)
@@ -70,22 +72,30 @@ fn nonempty_last(facts: &LangiumCommonFacts, field: LangiumCommonField) -> Optio
         .filter(|value| !value.is_empty())
 }
 
+#[must_use]
 fn strip_leading_whitespace(s: &str) -> String {
     s.trim_start_matches(is_ecmascript_whitespace).to_string()
 }
 
+#[must_use]
 fn collapse_newline_whitespace(s: &str) -> String {
-    // Mermaid's commonDb.ts: `sanitizeText(txt).replace(/\n\s+/g, '\n')`
+
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars().peekable();
+
     while let Some(ch) = chars.next() {
         out.push(ch);
-        if ch == '\n' {
-            while chars.peek().is_some_and(|c| is_ecmascript_whitespace(*c)) {
-                chars.next();
-            }
+
+        match ch {
+            '\n' => {
+                while chars.peek().is_some_and(|c| is_ecmascript_whitespace(*c)) {
+                    chars.next();
+                }
+            },
+            _ => {},
         }
     }
+
     out
 }
 
@@ -93,12 +103,19 @@ fn sanitize_string_field<F>(obj: &mut Map<String, Value>, key: &'static str, tra
 where
     F: FnOnce(&str) -> String,
 {
-    let Some(v) = obj.get_mut(key) else {
-        return;
+    let v = {
+        let optional_v = obj.get_mut(key);
+
+        match optional_v {
+            Some(matched_v) => matched_v,
+            ::core::option::Option::None => return,
+        }
     };
+
     let Value::String(s) = v else {
         return;
     };
+
     *s = transform(s);
 }
 
@@ -112,10 +129,12 @@ pub fn apply_common_db_sanitization(model: &mut Value, config: &MermaidConfig) {
     sanitize_string_field(obj, "accDescr", |s| sanitize_acc_descr(s, config));
 }
 
+#[must_use]
 pub(crate) fn sanitize_acc_title(s: &str, config: &MermaidConfig) -> String {
     strip_leading_whitespace(&sanitize_text(s, config))
 }
 
+#[must_use]
 pub(crate) fn sanitize_acc_descr(s: &str, config: &MermaidConfig) -> String {
     collapse_newline_whitespace(&sanitize_text(s, config))
 }
@@ -125,8 +144,11 @@ pub(crate) fn sanitize_acc_descr(s: &str, config: &MermaidConfig) -> String {
     reason = "Shared parser facilities have different consumers in each family selection."
 )]
 pub(crate) fn sanitize_optional_title(value: &mut Option<String>, config: &MermaidConfig) {
-    if let Some(s) = value.as_deref() {
-        *value = Some(sanitize_text(s, config));
+    match value.as_deref() {
+        Some(s) => {
+            *value = Some(sanitize_text(s, config));
+        },
+        ::core::option::Option::None => {},
     }
 }
 
@@ -135,8 +157,11 @@ pub(crate) fn sanitize_optional_title(value: &mut Option<String>, config: &Merma
     reason = "Shared parser facilities have different consumers in each family selection."
 )]
 pub(crate) fn sanitize_optional_acc_title(value: &mut Option<String>, config: &MermaidConfig) {
-    if let Some(s) = value.as_deref() {
-        *value = Some(sanitize_acc_title(s, config));
+    match value.as_deref() {
+        Some(s) => {
+            *value = Some(sanitize_acc_title(s, config));
+        },
+        ::core::option::Option::None => {},
     }
 }
 
@@ -145,8 +170,11 @@ pub(crate) fn sanitize_optional_acc_title(value: &mut Option<String>, config: &M
     reason = "Shared parser facilities have different consumers in each family selection."
 )]
 pub(crate) fn sanitize_optional_acc_descr(value: &mut Option<String>, config: &MermaidConfig) {
-    if let Some(s) = value.as_deref() {
-        *value = Some(sanitize_acc_descr(s, config));
+    match value.as_deref() {
+        Some(s) => {
+            *value = Some(sanitize_acc_descr(s, config));
+        },
+        ::core::option::Option::None => {},
     }
 }
 

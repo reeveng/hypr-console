@@ -6,10 +6,28 @@
 //! is chosen. A copy kept alongside it would be a second answer, and the two
 //! would part company the day either of them moved.
 
-use std::path::{Path, PathBuf};
+use std::io;
+use std::path::PathBuf;
 
-use console_core_external_programs::Program;
+use console_applications::launch;
+use console_core_external_programs::{Program, Unprinted, capture_output};
 use console_core_never::Never;
+
+pub use console_applications::launch::find_desktop_file;
+
+const DEFAULT_BROWSER: &str = "default-web-browser";
+const PRIVATE_WINDOW_ACTIONS: &[&str] = &[
+  "new-private-window",
+  "new-incognito-window",
+  "new-inprivate-window",
+  "private-window",
+  "incognito-window",
+  "NewPrivateWindow",
+  "NewIncognitoWindow",
+  "NewInPrivateWindow",
+  "PrivateBrowsing",
+  "Incognito",
+];
 
 pub struct Browser {
   pub key: &'static str,
@@ -48,44 +66,52 @@ pub fn here(among: &[PathBuf]) -> Result<Vec<&'static Browser>, Never> {
   )
 }
 
-struct DesktopFile<'a>(&'a Path);
-
-impl AsRef<Path> for DesktopFile<'_> {
-  fn as_ref(&self) -> &Path {
-    self.0
-  }
-}
-
-pub fn find_desktop_file(desktop: &str, among: &[PathBuf]) -> Result<Option<PathBuf>, Never> {
-  let path = Path::new(desktop);
-  let named =
-    match ::core::primitive::bool::then_some(path.file_name() == Some(path.as_os_str()), ()) {
-      ::core::option::Option::Some(()) => DesktopFile(path),
-      ::core::option::Option::None => return Ok(None),
-    };
-
-  Ok(among.iter().map(|at| at.join(&named)).find(|candidate| {
-    match std::fs::metadata(candidate) {
-      Ok(metadata) => metadata.is_file(),
-      Err(_desktop_file_metadata_unavailable) => false,
-    }
-  }))
-}
-
-pub fn get_default_command() -> Result<[&'static str; 3], Never> {
+pub fn current() -> Result<String, Unprinted> {
   let Ok(settings) = Program::XdgSettings.name();
 
-  Ok([settings, "get", "default-web-browser"])
+  capture_output(&[settings, "get", DEFAULT_BROWSER]).map(|said| said.trim().to_owned())
 }
 
-pub fn set_default_command(desktop: &str) -> Result<Vec<String>, Never> {
-  Program::XdgSettings.arguments(&["set", "default-web-browser", desktop])
+pub fn private_window() -> io::Result<Vec<String>> {
+  let desktop = current().map_err(io::Error::other)?;
+  let Ok(roots) = console_core_places::applications();
+
+  private_window_for(&desktop, &roots)
+}
+
+fn private_window_for(desktop: &str, roots: &[PathBuf]) -> io::Result<Vec<String>> {
+  let Ok(found) = find_desktop_file(desktop, roots);
+  let entry = found.ok_or_else(|| {
+    io::Error::new(
+      io::ErrorKind::NotFound,
+      format!("configured browser desktop entry {desktop:?} was not found"),
+    )
+  })?;
+  let action = launch::action(&entry, PRIVATE_WINDOW_ACTIONS)?;
+
+  action.ok_or_else(|| {
+    io::Error::new(
+      io::ErrorKind::Unsupported,
+      format!("{desktop} does not provide a private-window action"),
+    )
+  })
+}
+
+fn set_default_command(desktop: &str) -> Result<Vec<String>, Never> {
+  Program::XdgSettings.arguments(&["set", DEFAULT_BROWSER, desktop])
+}
+
+pub fn set_default(desktop: &str) -> Result<(), Unprinted> {
+  let Ok(arguments) = set_default_command(desktop);
+
+  capture_output(&arguments).map(|_| ())
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
   use std::error::Error;
+  use std::path::PathBuf;
 
   #[test]
   fn only_what_is_installed_is_offered() -> Result<(), Box<dyn Error>> {
@@ -109,6 +135,39 @@ mod tests {
     let Ok(found) = here(&[PathBuf::from("/nowhere")]);
 
     assert!(found.is_empty());
+  }
+
+  #[test]
+  fn the_configured_browser_supplies_its_own_private_window_command() -> Result<(), Box<dyn Error>>
+  {
+    const DESKTOP: &str = "example-browser.desktop";
+    let at = console_core_temporary_directories::fresh("defaults-private-window")?;
+    let entry = at.join(DESKTOP);
+    let roots = std::slice::from_ref(&at);
+
+    console_core_atomic_writes::whole(
+      &entry,
+      b"\
+[Desktop Entry]
+Exec=example-browser %u
+Actions=new-window;NewIncognitoWindow;
+[Desktop Action new-window]
+Exec=example-browser --new-window %u
+[Desktop Action NewIncognitoWindow]
+Exec=\"/opt/Example Browser/browser\" --incognito %U
+",
+    )?;
+
+    let arguments = private_window_for(DESKTOP, roots)?;
+    assert_eq!(arguments, ["/opt/Example Browser/browser", "--incognito"]);
+
+    console_core_atomic_writes::whole(&entry, b"[Desktop Entry]\nExec=example-browser %u\n")?;
+    let missing = private_window_for(DESKTOP, roots).expect_err("ordinary browser launch");
+    assert_eq!(missing.kind(), io::ErrorKind::Unsupported);
+
+    std::fs::remove_dir_all(&at)?;
+
+    Ok(())
   }
 
   #[test]

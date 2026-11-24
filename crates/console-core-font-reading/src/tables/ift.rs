@@ -186,7 +186,10 @@ impl ComputeSize for U8Or16 {
 }
 
 impl FontReadWithArgs<'_> for U8Or16 {
-  fn read_with_args(data: FontData<'_>, max_entry_index: &Self::Arguments) -> Result<Self, ReadError> {
+  fn read_with_args(
+    data: FontData<'_>,
+    max_entry_index: &Self::Arguments,
+  ) -> Result<Self, ReadError> {
     match ::core::primitive::bool::then_some(*max_entry_index < 256, ()) {
       ::core::option::Option::Some(()) => data.read_at::<u8>(0).map(|v| {
         Self({

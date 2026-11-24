@@ -45,23 +45,26 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_datastore(
             Some((fill_d, top_d, bottom_d))
         });
 
-        if let Some((fill_d, top_d, bottom_d)) = rough_paths {
-            let _ = write!(
-                out,
-                r#"<g class="basic label-container" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"#,
-                escape_attr(common.rough_group_style),
-                escape_attr(&fill_d),
-                escape_attr(common.fill_color),
-                escape_attr(&top_d),
-                escape_attr(common.stroke_color),
-                common.stroke_width,
-                escape_attr(common.stroke_dasharray),
-                escape_attr(&bottom_d),
-                escape_attr(common.stroke_color),
-                common.stroke_width,
-                escape_attr(common.stroke_dasharray),
-            );
-            return;
+        match rough_paths {
+            Some((fill_d, top_d, bottom_d)) => {
+                let _ = write!(
+                    out,
+                    r#"<g class="basic label-container" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"#,
+                    escape_attr(common.rough_group_style),
+                    escape_attr(&fill_d),
+                    escape_attr(common.fill_color),
+                    escape_attr(&top_d),
+                    escape_attr(common.stroke_color),
+                    common.stroke_width,
+                    escape_attr(common.stroke_dasharray),
+                    escape_attr(&bottom_d),
+                    escape_attr(common.stroke_color),
+                    common.stroke_width,
+                    escape_attr(common.stroke_dasharray),
+                );
+                return;
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -82,8 +85,10 @@ pub(super) fn advance_rough_geometry(common: &super::super::FlowchartNodeGeometr
     if !common.look_is_hand_drawn() {
         return;
     }
+
     let w = common.layout_node.width.max(1.0);
     let h = common.layout_node.height.max(1.0);
+
     let Some(_) = super::super::roughjs::roughjs_prepare_paths_for_hand_drawn_rect(
         super::super::roughjs::RoughGeometryTarget::Query,
         -w / 2.0,
@@ -97,6 +102,7 @@ pub(super) fn advance_rough_geometry(common: &super::super::FlowchartNodeGeometr
     ) else {
         return;
     };
+
     let Some(_) = super::super::roughjs::roughjs_prepare_hand_drawn_line_path(
         super::super::roughjs::RoughGeometryTarget::Query,
         (-w / 2.0, -h / 2.0),
@@ -108,6 +114,7 @@ pub(super) fn advance_rough_geometry(common: &super::super::FlowchartNodeGeometr
     ) else {
         return;
     };
+
     let _ = super::super::roughjs::roughjs_prepare_hand_drawn_line_path(
         super::super::roughjs::RoughGeometryTarget::Query,
         (-w / 2.0, h / 2.0),

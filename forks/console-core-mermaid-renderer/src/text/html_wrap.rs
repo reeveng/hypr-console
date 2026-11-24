@@ -4,6 +4,7 @@ use super::line_break::{HtmlBreakKind, html_break_spaces_segments_with_metadata_
 use crate::environment::BuiltinHtmlLineWidth;
 use std::ops::Range;
 
+#[must_use]
 pub(super) fn html_line_text_with_break(
     text: &str,
     selected_break: bool,
@@ -11,6 +12,7 @@ pub(super) fn html_line_text_with_break(
     if !selected_break {
         return std::borrow::Cow::Borrowed(text);
     }
+
     let mut selected = text.strip_suffix('\u{00ad}').unwrap_or(text).to_owned();
     selected.push('-');
     std::borrow::Cow::Owned(selected)
@@ -28,6 +30,7 @@ pub(crate) enum HtmlWhiteSpace {
 }
 
 impl HtmlWhiteSpace {
+    #[must_use]
     pub(crate) fn from_css_value(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
             "normal" => Some(Self::Normal),
@@ -40,10 +43,12 @@ impl HtmlWhiteSpace {
         }
     }
 
+    #[must_use]
     pub(crate) fn preserves_spaces(self) -> bool {
         matches!(self, Self::Pre | Self::PreWrap | Self::BreakSpaces)
     }
 
+    #[must_use]
     fn allows_wrap(self) -> bool {
         !matches!(self, Self::Pre | Self::Nowrap)
     }
@@ -66,6 +71,7 @@ pub(crate) struct NormalizedHtmlText {
 }
 
 impl NormalizedHtmlText {
+    #[must_use]
     pub(crate) fn single_mode(text: &str, mode: HtmlWhiteSpace) -> Self {
         Self {
             text: text.to_owned(),
@@ -77,10 +83,12 @@ impl NormalizedHtmlText {
         }
     }
 
+    #[must_use]
     pub(crate) fn is_empty(&self) -> bool {
         self.text.is_empty()
     }
 
+    #[must_use]
     pub(crate) fn len(&self) -> usize {
         self.text.len()
     }
@@ -89,8 +97,8 @@ impl NormalizedHtmlText {
         if let Some((offset, previous_depth, previous_mode)) = self.boundaries.last_mut()
             && *offset == self.text.len()
         {
-            // Fully collapsed leaves contribute no character, but their boundaries still expose
-            // the common ancestor of the retained text on either side in document order.
+
+
             if depth < *previous_depth {
                 *previous_depth = depth;
                 *previous_mode = mode;
@@ -100,6 +108,7 @@ impl NormalizedHtmlText {
         }
     }
 
+    #[must_use]
     fn break_mode_at(&self, offset: usize) -> HtmlWhiteSpace {
         let index = self
             .boundaries
@@ -116,6 +125,7 @@ impl NormalizedHtmlText {
     fn push(&mut self, ch: char, mode: HtmlWhiteSpace) {
         let start = self.text.len();
         self.text.push(ch);
+
         if let Some(last) = self.runs.last_mut()
             && last.mode == mode
         {
@@ -143,6 +153,7 @@ impl NormalizedHtmlText {
             if index.is_multiple_of(64) {
                 checkpoint()?;
             }
+
             if ch == '\n' && (mode.preserves_spaces() || mode == HtmlWhiteSpace::PreLine) {
                 self.push('\n', mode);
                 self.collapsed_space = true;
@@ -154,7 +165,7 @@ impl NormalizedHtmlText {
                     && self.text.ends_with(' ')
                     && self.collapsed_wraps.last().copied() != Some(self.text.len())
                 {
-                    // CSS retains a discarded collapsible space's own soft-wrap opportunity.
+
                     self.collapsed_wraps.push(self.text.len());
                 }
             } else {
@@ -162,9 +173,11 @@ impl NormalizedHtmlText {
                 self.collapsed_space = false;
             }
         }
+
         checkpoint()
     }
 
+    #[must_use]
     fn mode_at(&self, offset: usize) -> HtmlWhiteSpace {
         let index = self.runs.partition_point(|run| run.range.end <= offset);
         self.runs
@@ -182,6 +195,7 @@ pub(crate) struct PlannedHtmlLine {
     pub(crate) selected_hyphen: bool,
 }
 
+#[must_use]
 fn separator(ch: char) -> bool {
     matches!(
         ch,
@@ -214,6 +228,7 @@ struct CandidateSnapshot {
 }
 
 impl Candidate {
+    #[must_use]
     fn snapshot(&self) -> CandidateSnapshot {
         CandidateSnapshot {
             len: self.text.len(),
@@ -237,10 +252,16 @@ impl Candidate {
         self.non_hanging_width = snapshot.non_hanging_width;
         self.retained_mode = snapshot.retained_mode;
     }
+
+    #[must_use]
     fn new(mut width: Option<BuiltinHtmlLineWidth>) -> Self {
-        if let Some(width) = &mut width {
-            width.reset();
+        match &mut width {
+            Some(width_2) => {
+                width_2.reset();
+            },
+            ::core::option::Option::None => {},
         }
+
         Self {
             text: String::new(),
             source_start: None,
@@ -261,13 +282,16 @@ impl Candidate {
         checkpoint: &mut impl FnMut() -> Result<(), E>,
     ) -> Result<(), E> {
         let mut regular_start = 0;
+
         for (index, (relative, ch)) in text.char_indices().enumerate() {
             if index.is_multiple_of(64) {
                 checkpoint()?;
             }
+
             if ch != ' ' && ch != '\t' && !separator(ch) {
                 continue;
             }
+
             self.append_regular(
                 &text[regular_start..relative],
                 source.mode_at(offset + relative.saturating_sub(1)),
@@ -275,19 +299,27 @@ impl Candidate {
             );
             regular_start = relative + ch.len_utf8();
             let mode = source.mode_at(offset + relative);
+
             if self.text.is_empty() && ch == ' ' && !mode.preserves_spaces() {
                 continue;
             }
+
             self.source_start.get_or_insert(offset + relative);
             self.text.push(ch);
-            if let Some(width) = &mut self.width {
-                width.push_text(ch.encode_utf8(&mut [0; 4]));
+
+            match &mut self.width {
+                Some(width) => {
+                    width.push_text(ch.encode_utf8(&mut [0; 4]));
+                },
+                ::core::option::Option::None => {},
             }
+
             if ch != ' ' || mode.preserves_spaces() {
                 self.trimmed = self.text.len();
                 self.trimmed_width = self.width.clone();
                 self.retained_mode = mode;
             }
+
             let hangs = match mode {
                 HtmlWhiteSpace::Normal | HtmlWhiteSpace::Nowrap | HtmlWhiteSpace::PreLine => {
                     ch == ' ' || separator(ch)
@@ -295,11 +327,13 @@ impl Candidate {
                 HtmlWhiteSpace::PreWrap => ch == ' ' || ch == '\t' || separator(ch),
                 HtmlWhiteSpace::Pre | HtmlWhiteSpace::BreakSpaces => false,
             };
+
             if !hangs {
                 self.non_hanging = self.text.len();
                 self.non_hanging_width = self.width.clone();
             }
         }
+
         self.append_regular(
             &text[regular_start..],
             source.mode_at(offset + text.len().saturating_sub(1)),
@@ -312,13 +346,19 @@ impl Candidate {
         if text.is_empty() {
             return;
         }
+
         self.source_start.get_or_insert(offset);
-        // SHY has no unselected glyph, but its control boundary still participates in shaping.
-        // Removing it here would join otherwise independent combining or ZWJ sequences.
+
+
         self.text.push_str(text);
-        if let Some(width) = &mut self.width {
-            width.push_text(text);
+
+        match &mut self.width {
+            Some(width) => {
+                width.push_text(text);
+            },
+            ::core::option::Option::None => {},
         }
+
         self.trimmed = self.text.len();
         self.non_hanging = self.text.len();
         self.trimmed_width = self.width.clone();
@@ -336,20 +376,28 @@ impl Candidate {
     ) -> Result<f64, E> {
         checkpoint()?;
         let result = if let Some(width) = state {
-            let mut width = width.clone();
+            let mut width_2 = width.clone();
+
             if hyphen {
-                width.push_text("-");
+                width_2.push_text("-");
             }
-            width.width_px()
+
+            width_2.width_px()
         } else if hyphen {
-            let start = self.source_start.unwrap_or(0);
+            let start = match self.source_start {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0,
+            };
             measure(
                 &html_line_text_with_break(&self.text[..end], true),
                 start..start + end,
                 true,
             )?
         } else {
-            let start = self.source_start.unwrap_or(0);
+            let start = match self.source_start {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0,
+            };
             measure(&self.text[..end], start..start + end, false)?
         };
         checkpoint()?;
@@ -380,22 +428,28 @@ impl Candidate {
         checkpoint: &mut impl FnMut() -> Result<(), E>,
     ) -> Result<PlannedHtmlLine, E> {
         self.text.truncate(self.trimmed);
-        let start = self.source_start.unwrap_or(0);
+        let start = match self.source_start {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        };
         let source_range = start..start + self.text.len();
+
         if hyphen {
             if self.text.ends_with('\u{00ad}') {
                 self.text.truncate(self.text.len() - '\u{00ad}'.len_utf8());
             }
+
             self.text.push('-');
         }
-        // Final measurement uses the same backend contract as natural-width measurement.
+
+
         checkpoint()?;
         let width = measure(&self.text, source_range.clone(), hyphen)?;
         checkpoint()?;
         let conditional = self.retained_mode == HtmlWhiteSpace::PreWrap && !soft;
         let hangs = !hyphen
             && self.non_hanging < self.trimmed
-            && (!conditional || limit.is_some_and(|limit| width > limit));
+            && (!conditional || limit.is_some_and(|limit_2| width > limit_2));
         let alignment_width = if hangs {
             self.measured(
                 self.non_hanging,
@@ -445,7 +499,7 @@ pub(crate) fn plan_html_lines_with_ranges<E>(
     let limit = max_width.filter(|width| width.is_finite() && *width > 0.0);
     let mut lines = Vec::new();
     let mut base = 0;
-    // A terminating preserved newline does not create another empty line box.
+
     for raw in source.text.split_terminator('\n') {
         checkpoint()?;
         let mut whole = Candidate::new(builtin.clone());
@@ -457,15 +511,18 @@ pub(crate) fn plan_html_lines_with_ranges<E>(
             measure,
             checkpoint,
         )?;
-        if limit.is_none_or(|limit| natural <= limit) {
-            lines.push(whole.finish(false, false, limit, measure, checkpoint)?);
+
+        if limit.is_none_or(|limit_2| natural <= limit_2) {
+            lines.push({ let checked_value = whole.finish(false, false, limit, measure, checkpoint)?; checked_value });
             base += raw.len() + 1;
             continue;
         }
+
         let segments = html_break_spaces_segments_with_metadata_and_checkpoints(raw, checkpoint)?;
         let mut atoms = Vec::new();
         let mut start = 0;
         let mut end = 0;
+
         for segment in segments {
             end += segment.text.len();
             let owner = source.mode_at(base + end.saturating_sub(1));
@@ -479,29 +536,34 @@ pub(crate) fn plan_html_lines_with_ranges<E>(
             } else if segment.text.ends_with(' ') || segment.text.ends_with('\t') {
                 (
                     owner.allows_wrap()
-                        || source.collapsed_wraps.binary_search(&(base + end)).is_ok(),
+                        || match &(source.collapsed_wraps.binary_search(&(base + end))) { ::core::result::Result::Ok(_) => true, ::core::result::Result::Err(_insertion_position) => false },
                     segment.end,
                 )
             } else {
                 (boundary.allows_wrap(), segment.end)
             };
+
             if end == raw.len() || allowed {
                 atoms.push((start..end, kind));
                 start = end;
             }
         }
+
         if atoms.len() <= 1 {
-            lines.push(whole.finish(false, false, limit, measure, checkpoint)?);
+            lines.push({ let checked_value_2 = whole.finish(false, false, limit, measure, checkpoint)?; checked_value_2 });
             base += raw.len() + 1;
             continue;
         }
+
         let mut active_limit = limit.unwrap();
+
         if atoms
             .iter()
             .any(|(_, kind)| *kind == HtmlBreakKind::SoftHyphen)
         {
-            // CSS table sizing cannot place a selected discretionary glyph below min-content.
+
             let mut minimum = 0.0_f64;
+
             for (range, kind) in &atoms {
                 let mut atom = Candidate::new(builtin.clone());
                 atom.append(&raw[range.clone()], source, base + range.start, checkpoint)?;
@@ -511,17 +573,21 @@ pub(crate) fn plan_html_lines_with_ranges<E>(
                     checkpoint,
                 )?);
             }
+
             active_limit = active_limit.max(minimum);
         }
+
         if natural <= active_limit {
-            lines.push(whole.finish(false, false, limit, measure, checkpoint)?);
+            lines.push({ let checked_value_3 = whole.finish(false, false, limit, measure, checkpoint)?; checked_value_3 });
             base += raw.len() + 1;
             continue;
         }
+
         let mut candidate = Candidate::new(builtin.clone());
         let mut last_break: Option<(usize, CandidateSnapshot, HtmlBreakKind)> = None;
         let mut index = 0;
-        while index < atoms.len() {
+
+        'inner_while_2: while index < atoms.len() {
             checkpoint()?;
             let (range, kind) = &atoms[index];
             let token = &raw[range.clone()];
@@ -530,6 +596,7 @@ pub(crate) fn plan_html_lines_with_ranges<E>(
             let pre_wrap_spaces = source.mode_at(token_base) == HtmlWhiteSpace::PreWrap
                 && token.chars().all(|ch| ch == ' ' || ch == '\t');
             let natural_candidate = candidate.fit_width(false, measure, checkpoint)?;
+
             if !pre_wrap_spaces
                 && natural_candidate > active_limit
                 && let Some((next_index, snapshot, end_kind)) = last_break.take()
@@ -544,32 +611,39 @@ pub(crate) fn plan_html_lines_with_ranges<E>(
                 )?);
                 candidate = Candidate::new(builtin.clone());
                 index = next_index;
-                continue;
+                continue 'inner_while_2;
             }
+
             let selected_width = if *kind == HtmlBreakKind::SoftHyphen {
                 candidate.fit_width(true, measure, checkpoint)?
             } else {
                 natural_candidate
             };
+
             if index + 1 < atoms.len()
                 && (selected_width <= active_limit || pre_wrap_spaces || last_break.is_none())
             {
                 last_break = Some((index + 1, candidate.snapshot(), *kind));
             }
+
             index += 1;
         }
-        lines.push(candidate.finish(false, false, limit, measure, checkpoint)?);
+
+        lines.push({ let checked_value_4 = candidate.finish(false, false, limit, measure, checkpoint)?; checked_value_4 });
         base += raw.len() + 1;
     }
+
     if lines.len() > 1
         && lines.last().is_some_and(|line| line.text.is_empty())
         && !source.text.ends_with('\n')
     {
         lines.pop();
     }
+
     if lines.is_empty() {
         lines.push(Candidate::new(builtin).finish(false, false, limit, measure, checkpoint)?);
     }
+
     checkpoint()?;
     Ok(lines)
 }

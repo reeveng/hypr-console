@@ -74,11 +74,19 @@ pub struct Timed {
   pub refresh: Duration,
 }
 
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct PresentationCounts {
+  pub committed: u64,
+  pub presented: u64,
+  pub discarded: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Frames {
   who: String,
   since: Option<Duration>,
   frames: u64,
+  presented: u64,
   late: u64,
   discarded: u64,
   held: u64,
@@ -100,6 +108,7 @@ impl Frames {
       who: who.to_string(),
       since,
       frames: 0,
+      presented: 0,
       late: 0,
       discarded: 0,
       held: 0,
@@ -124,18 +133,34 @@ impl Frames {
     Ok(self.late)
   }
 
+  pub fn presentations(&self) -> Result<PresentationCounts, Never> {
+    Ok(PresentationCounts {
+      committed: self.frames,
+      presented: self.presented,
+      discarded: self.discarded,
+    })
+  }
+
   pub fn handled_input(&mut self) -> Result<(), Never> {
-    if self.input.is_none() {
-      let Ok(now) = monotonic_now();
-      self.input = now;
+    match { ::core::primitive::bool::then_some(self.input.is_none(), ()) } {
+      ::core::option::Option::Some(()) => {
+        let Ok(now) = monotonic_now();
+        self.input = now;
+      }
+      ::core::option::Option::None => {}
     }
+
     Ok(())
   }
 
   pub fn end_input_turn(&mut self) -> Result<(), Never> {
-    if self.input.take().is_some() {
-      self.without_frame = self.without_frame.saturating_add(1);
+    match { ::core::primitive::bool::then_some(self.input.take().is_some(), ()) } {
+      ::core::option::Option::Some(()) => {
+        self.without_frame = self.without_frame.saturating_add(1);
+      }
+      ::core::option::Option::None => {}
     }
+
     Ok(())
   }
 
@@ -171,14 +196,20 @@ impl Frames {
 
   pub fn discarded(&mut self, committed: Committed) -> Result<(), Never> {
     self.discarded = self.discarded.saturating_add(1);
-    if committed.input.is_some() {
-      self.discarded_responses = self.discarded_responses.saturating_add(1);
+
+    match { ::core::primitive::bool::then_some(committed.input.is_some(), ()) } {
+      ::core::option::Option::Some(()) => {
+        self.discarded_responses = self.discarded_responses.saturating_add(1);
+      }
+      ::core::option::Option::None => {}
     }
 
     Ok(())
   }
 
   pub fn presented(&mut self, committed: Committed, presented: Presented) -> Result<(), Never> {
+    self.presented = self.presented.saturating_add(1);
+
     match ::core::primitive::bool::then_some(presented.clock == MONOTONIC, ()) {
       ::core::option::Option::Some(()) => {}
       ::core::option::Option::None => return Ok(()),
@@ -193,28 +224,35 @@ impl Frames {
 
     self.slowest = self.slowest.max(took);
 
-    if let Some(input) = committed.input {
-      let response = presented.at.saturating_sub(input);
-      self.responses = self.responses.saturating_add(1);
-      self.slowest_response = self.slowest_response.max(response);
-      if response > RESPONSE_BUDGET {
-        self.over_budget = self.over_budget.saturating_add(1);
-        let handling = committed
-          .at
-          .saturating_sub(input)
-          .saturating_sub(timed.painted);
-        let Ok(()) = written_down(Record {
-          who: self.who.clone(),
-          what: "interaction".to_owned(),
-          waited: response,
-          marks: vec![
-            ("handling".to_owned(), handling),
-            ("painting".to_owned(), timed.painted),
-            ("compositing".to_owned(), timed.composited),
-          ],
-          notes: Vec::new(),
-        });
+    match committed.input {
+      Some(input) => {
+        let response = presented.at.saturating_sub(input);
+        self.responses = self.responses.saturating_add(1);
+        self.slowest_response = self.slowest_response.max(response);
+
+        match { ::core::primitive::bool::then_some(response > RESPONSE_BUDGET, ()) } {
+          ::core::option::Option::Some(()) => {
+            self.over_budget = self.over_budget.saturating_add(1);
+            let handling = committed
+              .at
+              .saturating_sub(input)
+              .saturating_sub(timed.painted);
+            let Ok(()) = written_down(Record {
+              who: self.who.clone(),
+              what: "interaction".to_owned(),
+              waited: response,
+              marks: vec![
+                ("handling".to_owned(), handling),
+                ("painting".to_owned(), timed.painted),
+                ("compositing".to_owned(), timed.composited),
+              ],
+              notes: Vec::new(),
+            });
+          }
+          ::core::option::Option::None => {}
+        }
       }
+      ::core::option::Option::None => {}
     }
 
     let Ok(missed) = missed(timed);

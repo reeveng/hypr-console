@@ -1,5 +1,7 @@
 //! Shapes, put into a buffer someone else owns.
 //!
+//! A painting pass verifies opacity before touching a preserved background.
+//!
 //! **Everything here is in points, and the buffer is in pixels.** A surface is
 //! handed out at device resolution and every number in this tree is logical, so
 //! the one place the two meet is the transform set on the context before the
@@ -72,12 +74,13 @@ use console_core_shapes::{
 };
 
 use console_core_path_rasterizer::{
-  Color, ColorU8, FillRule, FilterQuality, LineCap, Paint, PathBuilder, Pattern, Pixmap, FloatRectangle,
-  SpreadMode, Stroke, Transform,
+  Color, ColorU8, FillRule, FilterQuality, FloatRectangle, LineCap, Paint, PathBuilder, Pattern,
+  Pixmap, SpreadMode, Stroke, Transform,
 };
 
 use raster::Canvas;
 
+mod opaque_frame;
 pub mod painted;
 pub mod raster;
 pub mod text;
@@ -229,7 +232,14 @@ fn paint(
       let Ok(()) = canvas.pixels.fill(Color::TRANSPARENT);
     }
     Ground::Preserved => {}
-    Ground::Picture(picture) => draw_picture(&mut canvas, picture)?,
+    Ground::Picture(picture) => {
+      let Ok(painted) = opaque_frame::paint(&mut canvas, frame, &picture);
+
+      match painted {
+        opaque_frame::OpaquePaint::Painted => {}
+        opaque_frame::OpaquePaint::Fallback => draw_picture(&mut canvas, picture)?,
+      }
+    }
   }
 
   for shape in shapes {

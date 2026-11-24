@@ -145,10 +145,25 @@ pub struct Session {
   )
 )]
 pub fn authenticate(request: Request<'_>, secret: &str) -> Result<Transaction, LoginError> {
+  match secret.as_bytes().contains(&0).then_some(()) {
+    Some(()) => return Err(LoginError::ContainsNul(Stage::Starting)),
+    None => {}
+  }
+
   let Ok(checked) = c_string(secret, Stage::Starting);
   let checked_2 = checked?;
-  let mut transaction = begun(request, PamSecret(checked_2.into_bytes_with_nul()))?;
+  let transaction = begun(request, PamSecret(checked_2.into_bytes_with_nul()))?;
 
+  authenticated(transaction)
+}
+
+pub fn authenticate_without_secret(request: Request<'_>) -> Result<Transaction, LoginError> {
+  let transaction = begun(request, PamSecret(Vec::new()))?;
+
+  authenticated(transaction)
+}
+
+fn authenticated(mut transaction: Transaction) -> Result<Transaction, LoginError> {
   transaction.step(Stage::Authenticating, pam::pam_authenticate, 0)?;
   transaction.step(Stage::CheckingAccount, pam::pam_acct_mgmt, 0)?;
 
@@ -498,10 +513,17 @@ unsafe extern "C" fn conversation(
       }
     };
     let answer = match message.style {
-      pam::PROMPT_ECHO_OFF => {
-        // SAFETY: the secret is NUL-ended; strdup gives a copy libpam frees.
-        unsafe { pam::strdup(conversation.secret.0.as_ptr().cast::<c_char>()) }
-      }
+      pam::PROMPT_ECHO_OFF => match conversation.secret.0.as_slice() {
+        [] => {
+          let Ok(()) = free_responses(block, count_2);
+
+          return pam::CONV_ERR;
+        }
+        secret => {
+          // SAFETY: the secret is NUL-ended; strdup gives a copy libpam frees.
+          unsafe { pam::strdup(secret.as_ptr().cast::<c_char>()) }
+        }
+      },
       pam::PROMPT_ECHO_ON => {
         // SAFETY: as above, with the person's name.
         unsafe { pam::strdup(conversation.person.as_ptr()) }

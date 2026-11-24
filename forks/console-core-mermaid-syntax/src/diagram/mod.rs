@@ -32,10 +32,12 @@ impl CapturedPanic {
         Self { message, payload }
     }
 
+    #[must_use]
     pub fn message(&self) -> &str {
         &self.message
     }
 
+    #[must_use]
     pub(crate) fn into_payload(self) -> Box<dyn Any + Send + 'static> {
         self.payload
     }

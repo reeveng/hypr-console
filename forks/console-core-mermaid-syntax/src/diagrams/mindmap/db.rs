@@ -26,6 +26,7 @@ impl MindmapDb {
         self.ancestry.clear();
     }
 
+    #[must_use]
     pub(super) fn into_semantic_model(self) -> MindmapDiagramModel {
         MindmapDiagramModel { nodes: self.nodes }
     }
@@ -50,6 +51,7 @@ impl MindmapDb {
         control.checkpoint()?;
         let mut level = input.indent_level;
         let is_root;
+
         if self.nodes.is_empty() {
             self.base_level = Some(level);
             level = 0;
@@ -81,6 +83,7 @@ impl MindmapDb {
         };
 
         let mut popped = 0usize;
+
         while self
             .ancestry
             .last()
@@ -89,16 +92,20 @@ impl MindmapDb {
             if popped.is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             self.ancestry.pop();
             popped = popped.saturating_add(1);
         }
 
-        if let Some((_, parent_idx)) = self.ancestry.last().copied() {
-            self.nodes[parent_idx].children.push(id);
-            self.nodes.push(node);
-            self.ancestry.push((level, id as usize));
-            control.checkpoint()?;
-            return Ok(Ok(()));
+        match self.ancestry.last().copied() {
+            Some((_, parent_idx)) => {
+                self.nodes[parent_idx].children.push(id);
+                self.nodes.push(node);
+                self.ancestry.push((level, id as usize));
+                control.checkpoint()?;
+                return Ok(Ok(()));
+            },
+            ::core::option::Option::None => {},
         }
 
         if is_root {
@@ -123,14 +130,27 @@ impl MindmapDb {
         icon: Option<String>,
         config: &MermaidConfig,
     ) {
-        let Some(last) = self.nodes.last_mut() else {
-            return;
+        let last = {
+            let optional_last = self.nodes.last_mut();
+
+            match optional_last {
+                Some(matched_last) => matched_last,
+                ::core::option::Option::None => return,
+            }
         };
-        if let Some(icon) = icon {
-            last.icon = Some(sanitize_text(&icon, config));
+
+        match icon {
+            Some(icon_2) => {
+                last.icon = Some(sanitize_text(&icon_2, config));
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(class) = class {
-            last.class = Some(sanitize_text(&class, config));
+
+        match class {
+            Some(class_2) => {
+                last.class = Some(sanitize_text(&class_2, config));
+            },
+            ::core::option::Option::None => {},
         }
     }
 }

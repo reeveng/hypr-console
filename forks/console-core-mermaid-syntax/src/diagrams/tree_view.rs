@@ -103,13 +103,15 @@ impl TreeViewParseOutcome {
 }
 
 impl TreeViewParseIssue {
+    #[must_use]
     fn new(message: impl Into<String>, span: Option<SourceSpan>) -> Self {
         Self {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span,
         }
     }
 
+    #[must_use]
     fn into_error(self, diagram_type: &str) -> Error {
         match self.span {
             Some(span) => Error::diagram_parse_exact(diagram_type.to_string(), &self.message, span),
@@ -279,13 +281,18 @@ fn construct_tree_view_model_controlled(
         #[cfg(feature = "editor-facts")]
         mut editor_facts,
     } = snapshot;
-    if let Some(issue) = first_issue {
-        return Ok(crate::family::SemanticConstruction {
-            model: Err(issue.into_error(diagram_type)),
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-        });
+
+    match first_issue {
+        Some(issue) => {
+            return Ok(crate::family::SemanticConstruction {
+                model: Err(issue.into_error(diagram_type)),
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            });
+        },
+        ::core::option::Option::None => {},
     }
+
     let model =
         tree_view_input_to_model(title, acc_title, acc_descr, nodes, config).map_err(|message| {
             #[cfg(feature = "editor-facts")]
@@ -323,7 +330,7 @@ fn parse_tree_view_input_controlled(
     #[cfg(feature = "editor-facts")]
     let mut editor_facts = demand.needs_recovery().then(EditorSemanticFacts::new);
     let mut first_issue = None;
-    let body = match tree_view_body_start_controlled(code, control)? {
+    let body = match { let checked_value_2 = tree_view_body_start_controlled(code, control)?; checked_value_2 } {
         Ok(body) => body,
         Err(issue) => {
             mark_tree_view_recovery(
@@ -354,50 +361,63 @@ fn parse_tree_view_input_controlled(
 
     while offset < code.len() {
         control.checkpoint()?;
-        if let Some(parsed) = parse_langium_common(code, offset) {
-            if saw_node {
-                let span = parsed.fact.raw_span;
-                mark_tree_view_recovery(
-                    #[cfg(feature = "editor-facts")]
-                    &mut editor_facts,
-                    &mut first_issue,
-                    TreeViewParseIssue::new(
-                        "tree view title and accessibility fields must precede every node",
-                        Some(span),
-                    ),
-                );
+
+        match parse_langium_common(code, offset) {
+            Some(parsed) => {
+                if saw_node {
+                    let span = parsed.fact.raw_span;
+                    mark_tree_view_recovery(
+                        #[cfg(feature = "editor-facts")]
+                        &mut editor_facts,
+                        &mut first_issue,
+                        TreeViewParseIssue::new(
+                            "tree view title and accessibility fields must precede every node",
+                            Some(span),
+                        ),
+                    );
+                    offset += parsed.consumed;
+                    continue;
+                }
+
+                let field = parsed.fact.field;
+                let value = parsed.fact.value.clone();
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts.as_mut().filter(|_| demand.captures_rich()) {
+                    push_langium_common_editor_fact(facts, &parsed.fact, "tree view");
+                }
+
+                match field {
+                    LangiumCommonField::Title => title = Some(value),
+                    LangiumCommonField::AccTitle => acc_title = Some(value),
+                    LangiumCommonField::AccDescr => acc_descr = Some(value),
+                }
+
+                match parsed.diagnostic {
+                    Some(diagnostic) => {
+                        mark_tree_view_recovery(
+                            #[cfg(feature = "editor-facts")]
+                            &mut editor_facts,
+                            &mut first_issue,
+                            TreeViewParseIssue::new(diagnostic.message, Some(diagnostic.span)),
+                        );
+                    },
+                    ::core::option::Option::None => {},
+                }
+
                 offset += parsed.consumed;
                 continue;
-            }
-            let field = parsed.fact.field;
-            let value = parsed.fact.value.clone();
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts.as_mut().filter(|_| demand.captures_rich()) {
-                push_langium_common_editor_fact(facts, &parsed.fact, "tree view");
-            }
-            match field {
-                LangiumCommonField::Title => title = Some(value),
-                LangiumCommonField::AccTitle => acc_title = Some(value),
-                LangiumCommonField::AccDescr => acc_descr = Some(value),
-            }
-            if let Some(diagnostic) = parsed.diagnostic {
-                mark_tree_view_recovery(
-                    #[cfg(feature = "editor-facts")]
-                    &mut editor_facts,
-                    &mut first_issue,
-                    TreeViewParseIssue::new(diagnostic.message, Some(diagnostic.span)),
-                );
-            }
-            offset += parsed.consumed;
-            continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let (line, next_offset) = physical_line_at(code, offset);
         let visible = strip_inline_comment_aware(line);
+
         if visible.trim().is_empty() {
             offset = next_offset;
             continue;
         }
+
         saw_node = true;
         node_statements.push(TreeViewNodeStatement {
             line: visible.to_string(),
@@ -412,10 +432,12 @@ fn parse_tree_view_input_controlled(
         .collect::<Vec<_>>();
     let line_format = TreeViewLineFormat::from_lines(&node_lines);
     let mut nodes = Vec::new();
+
     for (index, statement) in node_statements.into_iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         match parse_node_line_details(
             &statement.line,
             statement.line_start,
@@ -474,11 +496,13 @@ fn tree_view_body_start_controlled(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<std::result::Result<TreeViewBodyStart, TreeViewParseIssue>> {
     let mut offset = 0usize;
+
     while offset < code.len() {
         control.checkpoint()?;
         let (line, next_offset) = physical_line_at(code, offset);
         let visible = strip_inline_comment_aware(line);
         let trimmed = visible.trim();
+
         if trimmed.is_empty() {
             offset = next_offset;
             continue;
@@ -486,18 +510,21 @@ fn tree_view_body_start_controlled(
 
         let leading = visible.len().saturating_sub(visible.trim_start().len());
         let span = SourceSpan::new(offset + leading, offset + leading + trimmed.len());
+
         let Some(trailing) = trimmed.strip_prefix("treeView-beta") else {
             return Ok(Err(TreeViewParseIssue::new(
                 "expected treeView-beta",
                 Some(span),
             )));
         };
+
         if !trailing.trim().is_empty() {
             return Ok(Err(TreeViewParseIssue::new(
                 "unexpected tokens after treeView-beta",
                 Some(span),
             )));
         }
+
         return Ok(Ok(TreeViewBodyStart {
             offset: next_offset,
         }));
@@ -514,6 +541,7 @@ fn mark_tree_view_recovery(
     if first_issue.is_none() {
         *first_issue = Some(issue.clone());
     }
+
     #[cfg(feature = "editor-facts")]
     if let Some(editor_facts) = editor_facts {
         editor_facts.mark_recovered_from_parse_error(
@@ -526,6 +554,7 @@ fn mark_tree_view_recovery(
     }
 }
 
+#[must_use]
 fn tree_view_error_message(error: &Error) -> String {
     match error {
         Error::DiagramParse { diagnostic, .. } => diagnostic.message().to_string(),
@@ -551,8 +580,10 @@ fn tree_view_input_to_model(
         children: Vec::new(),
     }];
     let mut stack = vec![0usize];
+
     for (next_id, flat) in (1i64..).zip(nodes) {
         let level = flat.indent as i64;
+
         while stack
             .last()
             .and_then(|&idx| arena.get(idx))
@@ -561,7 +592,10 @@ fn tree_view_input_to_model(
             stack.pop();
         }
 
-        let parent = stack.last().copied().unwrap_or(0);
+        let parent = match stack.last().copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        };
         let idx = arena.len();
         arena.push(ArenaNode {
             id: next_id,
@@ -577,6 +611,7 @@ fn tree_view_input_to_model(
         });
         arena[parent].children.push(idx);
         stack.push(idx);
+
         if stack.len().saturating_sub(1) > MAX_DIAGRAM_NESTING_DEPTH {
             return Err(format!(
                 "treeView nesting depth exceeds {MAX_DIAGRAM_NESTING_DEPTH}"
@@ -592,13 +627,19 @@ fn tree_view_input_to_model(
     })
 }
 
+#[must_use]
 fn arena_node_to_model(arena: &[ArenaNode], idx: usize) -> TreeViewNode {
     let mut models: Vec<Option<TreeViewNode>> = vec![None; arena.len()];
     let mut stack = vec![(idx, false)];
 
     while let Some((node_idx, visited)) = stack.pop() {
-        let Some(node) = arena.get(node_idx) else {
-            continue;
+        let node = {
+            let optional_node = arena.get(node_idx);
+
+            match optional_node {
+                Some(matched_node) => matched_node,
+                ::core::option::Option::None => continue,
+            }
         };
 
         if visited {
@@ -619,6 +660,7 @@ fn arena_node_to_model(arena: &[ArenaNode], idx: usize) -> TreeViewNode {
             });
         } else {
             stack.push((node_idx, true));
+
             for &child_idx in node.children.iter().rev() {
                 stack.push((child_idx, false));
             }
@@ -642,21 +684,28 @@ fn parse_node_line_details(
             error: Box::new(error),
         }
     })?;
-    let Some(line_view) = line_view else {
-        return Ok(None);
+
+    let line_view_2 = match line_view {
+        Some(matched_line_view) => matched_line_view,
+        ::core::option::Option::None => return Ok(None),
     };
-    parse_node_content(line_view, line_start, diagram_type).map(Some)
+
+    parse_node_content(line_view_2, line_start, diagram_type).map(Some)
 }
 
 impl TreeViewLineFormat {
+    #[must_use]
     fn from_lines(lines: &[&str]) -> Self {
         let mut content_lines = Vec::new();
+
         for line in lines {
             if should_skip_tree_view_box_detection_line(line) {
                 continue;
             }
+
             content_lines.push(line.replace('\t', "    "));
         }
+
         let box_drawing = content_lines
             .iter()
             .any(|line| line.chars().any(is_tree_view_box_char));
@@ -680,9 +729,11 @@ fn tree_view_line_view<'a>(
     if !line_format.box_drawing {
         let (indent, rest) = split_ascii_indent(line);
         let content = rest.trim_end();
+
         if content.is_empty() {
             return Ok(None);
         }
+
         let content_offset = line.len().saturating_sub(rest.len());
         return Ok(Some(TreeViewLineView {
             indent,
@@ -696,36 +747,44 @@ fn tree_view_line_view<'a>(
         return Ok(None);
     }
 
-    if let Some((branch_byte, branch_col, branch_char)) = find_tree_view_branch_char(line) {
-        let depth = ((branch_col as f64 / line_format.segment_width as f64).round() as usize) + 1;
-        let mut content_offset = branch_byte + branch_char.len_utf8();
-        while let Some(ch) = line[content_offset..].chars().next() {
-            if is_tree_view_dash_char(ch) {
-                content_offset += ch.len_utf8();
-            } else {
-                break;
+    match find_tree_view_branch_char(line) {
+        Some((branch_byte, branch_col, branch_char)) => {
+            let depth = ((branch_col as f64 / line_format.segment_width as f64).round() as usize) + 1;
+            let mut content_offset = branch_byte + branch_char.len_utf8();
+
+            while let Some(ch) = line[content_offset..].chars().next() {
+                if is_tree_view_dash_char(ch) {
+                    content_offset += ch.len_utf8();
+                } else {
+                    break;
+                }
             }
-        }
-        while let Some(ch) = line[content_offset..].chars().next() {
-            if ch == ' ' || ch == '\t' {
-                content_offset += ch.len_utf8();
-            } else {
-                break;
+
+            while let Some(ch) = line[content_offset..].chars().next() {
+                if ch == ' ' || ch == '\t' {
+                    content_offset += ch.len_utf8();
+                } else {
+                    break;
+                }
             }
-        }
-        let content = line[content_offset..].trim_end();
-        if content.is_empty() {
-            return Err(parse_error(
-                diagram_type,
-                "empty tree node after box-drawing prefix",
-            ));
-        }
-        return Ok(Some(TreeViewLineView {
-            indent: depth * 4,
-            content,
-            content_offset,
-            expand_content_tabs: true,
-        }));
+
+            let content = line[content_offset..].trim_end();
+
+            if content.is_empty() {
+                return Err(parse_error(
+                    diagram_type,
+                    "empty tree node after box-drawing prefix",
+                ));
+            }
+
+            return Ok(Some(TreeViewLineView {
+                indent: depth * 4,
+                content,
+                content_offset,
+                expand_content_tabs: true,
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
     if is_tree_view_box_drawing_only(line) {
@@ -771,12 +830,14 @@ fn parse_node_content(
     let (mut raw_name, _name_start, name_end, suffix_start) =
         if let Some((_, quote @ ('"' | '\''))) = content.char_indices().next() {
             let mut end = None;
+
             for (idx, ch) in content[quote.len_utf8()..].char_indices() {
                 if ch == quote {
                     end = Some(quote.len_utf8() + idx);
                     break;
                 }
             }
+
             let Some(end_idx) = end else {
                 return Err(TreeViewNodeParseFailure {
                     error: Box::new(parse_error(
@@ -785,6 +846,7 @@ fn parse_node_content(
                     )),
                 });
             };
+
             (
                 content[quote.len_utf8()..end_idx].to_string(),
                 quote.len_utf8(),
@@ -795,13 +857,16 @@ fn parse_node_content(
             let annotation_start =
                 find_next_tree_view_annotation_start(content, 0).unwrap_or(content.len());
             let name_end = trim_end_byte_index(&content[..annotation_start]);
+
             if name_end == 0 {
                 return Err(TreeViewNodeParseFailure {
                     error: Box::new(parse_error(diagram_type, "expected tree node name")),
                 });
             }
+
             (content[..name_end].to_string(), 0, name_end, name_end)
         };
+
     if line_view.expand_content_tabs {
         raw_name = raw_name.replace('\t', "    ");
     }
@@ -820,6 +885,7 @@ fn parse_node_content(
             });
         }
     };
+
     if line_view.expand_content_tabs
         && let Some(description) = &mut annotations.description
     {
@@ -840,6 +906,7 @@ fn parse_node_content(
     })
 }
 
+#[must_use]
 fn normalize_tree_view_node_name(
     raw_name: String,
     raw_selection_end: usize,
@@ -870,20 +937,24 @@ fn parse_tree_view_annotations(
     let abs_base = _abs_base;
     let mut annotations = TreeViewAnnotations::default();
     let mut pos = 0usize;
+
     while pos < suffix.len() {
         pos = skip_ascii_whitespace(suffix, pos);
+
         if pos >= suffix.len() {
             break;
         }
 
         if suffix[pos..].starts_with(":::") && is_annotation_token_boundary(suffix, pos) {
             let value_start = skip_ascii_whitespace(suffix, pos + 3);
+
             let Some(value_end) = tree_view_class_name_end(suffix, value_start) else {
                 return Err(parse_error(
                     diagram_type,
                     "expected tree node class after :::",
                 ));
             };
+
             annotations.css_class = Some(TreeViewSpannedValue {
                 value: suffix[value_start..value_end].to_string(),
                 #[cfg(feature = "editor-facts")]
@@ -895,20 +966,24 @@ fn parse_tree_view_annotations(
 
         if suffix[pos..].starts_with("icon(") && is_annotation_token_boundary(suffix, pos) {
             let value_start = pos + "icon(".len();
+
             let Some(close_rel) = suffix[value_start..].find(')') else {
                 return Err(parse_error(
                     diagram_type,
                     "unterminated tree node icon annotation",
                 ));
             };
+
             let value_end = value_start + close_rel;
             let payload = &suffix[value_start..value_end];
+
             if !is_tree_view_icon_name(payload) {
                 return Err(parse_error(
                     diagram_type,
                     "invalid tree node icon annotation",
                 ));
             }
+
             let value = if payload.is_empty() {
                 "none".to_string()
             } else {
@@ -926,6 +1001,7 @@ fn parse_tree_view_annotations(
         if suffix[pos..].starts_with("##") && is_annotation_token_boundary(suffix, pos) {
             let value_start = skip_ascii_whitespace(suffix, pos + 2);
             let (trimmed_start, trimmed_end) = trim_ascii_span(suffix, value_start, suffix.len());
+
             if trimmed_start != trimmed_end {
                 annotations.description = Some(TreeViewSpannedValue {
                     value: suffix[trimmed_start..trimmed_end].to_string(),
@@ -933,6 +1009,7 @@ fn parse_tree_view_annotations(
                     span: SourceSpan::new(abs_base + trimmed_start, abs_base + trimmed_end),
                 });
             }
+
             break;
         }
 
@@ -941,6 +1018,7 @@ fn parse_tree_view_annotations(
             "unexpected tokens after tree node name",
         ));
     }
+
     Ok(annotations)
 }
 
@@ -993,15 +1071,18 @@ fn push_tree_view_node_editor_facts(
     }
 }
 
+#[must_use]
 fn should_skip_tree_view_box_detection_line(line: &str) -> bool {
     let trimmed = line.trim();
     trimmed.is_empty() || is_tree_view_comment_line(line) || is_tree_view_decoration_only(line)
 }
 
+#[must_use]
 fn is_tree_view_comment_line(line: &str) -> bool {
     line.trim_start().starts_with("%%")
 }
 
+#[must_use]
 fn infer_tree_view_box_segment_width(content_lines: &[String]) -> usize {
     for line in content_lines {
         if let Some((col, _)) = line
@@ -1013,32 +1094,44 @@ fn infer_tree_view_box_segment_width(content_lines: &[String]) -> usize {
             return col;
         }
     }
+
     4
 }
 
+#[must_use]
 fn find_tree_view_branch_char(line: &str) -> Option<(usize, usize, char)> {
     let mut col = 0usize;
+
     for (idx, ch) in line.char_indices() {
         if is_tree_view_branch_char(ch) {
             return Some((idx, col, ch));
         }
-        col += if ch == '\t' { 4 } else { 1 };
+
+        col += match ch {
+            '\t' => { 4 },
+            _ => { 1 },
+        };
     }
+
     None
 }
 
+#[must_use]
 fn is_tree_view_box_char(ch: char) -> bool {
     matches!(ch, '─' | '━' | '│' | '┃' | '└' | '┗' | '├' | '┣')
 }
 
+#[must_use]
 fn is_tree_view_branch_char(ch: char) -> bool {
     matches!(ch, '└' | '┗' | '├' | '┣')
 }
 
+#[must_use]
 fn is_tree_view_dash_char(ch: char) -> bool {
     matches!(ch, '─' | '━')
 }
 
+#[must_use]
 fn is_tree_view_decoration_only(line: &str) -> bool {
     !line.is_empty()
         && line
@@ -1046,6 +1139,7 @@ fn is_tree_view_decoration_only(line: &str) -> bool {
             .all(|ch| ch.is_whitespace() || matches!(ch, '│' | '┃'))
 }
 
+#[must_use]
 fn is_tree_view_box_drawing_only(line: &str) -> bool {
     !line.is_empty()
         && line
@@ -1053,37 +1147,48 @@ fn is_tree_view_box_drawing_only(line: &str) -> bool {
             .all(|ch| ch.is_whitespace() || is_tree_view_box_char(ch))
 }
 
+#[must_use]
 fn find_next_tree_view_annotation_start(s: &str, from: usize) -> Option<usize> {
     for (idx, _) in s.char_indices().filter(|(idx, _)| *idx >= from) {
         let valid_class = s[idx..].starts_with(":::")
             && tree_view_class_name_end(s, skip_ascii_whitespace(s, idx + 3)).is_some();
+
         if (valid_class || s[idx..].starts_with("##") || s[idx..].starts_with("icon("))
             && ((from == 0 && idx == 0) || is_annotation_token_boundary(s, idx))
         {
             return Some(idx);
         }
     }
+
     None
 }
 
+#[must_use]
 fn tree_view_class_name_end(s: &str, start: usize) -> Option<usize> {
     let checked_value = s.get(start..)?;
     let mut chars = checked_value.char_indices();
     let (_, first) = chars.next()?;
+
     if !first.is_ascii_alphabetic() && first != '_' {
         return None;
     }
+
     let mut end = start + first.len_utf8();
+
     for (relative, ch) in chars {
         if !ch.is_ascii_alphanumeric() && ch != '_' && ch != '-' {
             break;
         }
+
         end = start + relative + ch.len_utf8();
     }
+
     Some(end)
 }
 
+#[must_use]
 fn is_tree_view_icon_name(value: &str) -> bool {
+    #[must_use]
     fn is_component(value: &str, allow_empty: bool) -> bool {
         (allow_empty || !value.is_empty())
             && value
@@ -1099,6 +1204,7 @@ fn is_tree_view_icon_name(value: &str) -> bool {
     }
 }
 
+#[must_use]
 fn is_annotation_token_boundary(s: &str, idx: usize) -> bool {
     idx > 0
         && s[..idx]
@@ -1107,6 +1213,7 @@ fn is_annotation_token_boundary(s: &str, idx: usize) -> bool {
             .is_some_and(|ch| ch == ' ' || ch == '\t')
 }
 
+#[must_use]
 fn skip_ascii_whitespace(s: &str, mut idx: usize) -> usize {
     while let Some(ch) = s[idx..].chars().next() {
         if ch == ' ' || ch == '\t' {
@@ -1114,58 +1221,87 @@ fn skip_ascii_whitespace(s: &str, mut idx: usize) -> usize {
         } else {
             break;
         }
+
         if idx >= s.len() {
             break;
         }
     }
+
     idx
 }
 
+#[must_use]
 fn trim_ascii_span(s: &str, start: usize, end: usize) -> (usize, usize) {
-    let mut start = start;
-    let mut end = end;
-    while start < end {
-        let Some(ch) = s[start..end].chars().next() else {
-            break;
+    let mut start_2 = start;
+    let mut end_2 = end;
+
+    while start_2 < end_2 {
+        let ch = {
+            let optional_ch_2 = s[start_2..end_2].chars().next();
+
+            match optional_ch_2 {
+                Some(matched_ch_2) => matched_ch_2,
+                ::core::option::Option::None => break,
+            }
         };
+
         if ch == ' ' || ch == '\t' {
-            start += ch.len_utf8();
+            start_2 += ch.len_utf8();
         } else {
             break;
         }
     }
-    while start < end {
-        let Some(ch) = s[start..end].chars().next_back() else {
-            break;
+
+    while start_2 < end_2 {
+        let ch = {
+            let optional_ch_2 = s[start_2..end_2].chars().next_back();
+
+            match optional_ch_2 {
+                Some(matched_ch_2) => matched_ch_2,
+                ::core::option::Option::None => break,
+            }
         };
+
         if ch == ' ' || ch == '\t' {
-            end -= ch.len_utf8();
+            end_2 -= ch.len_utf8();
         } else {
             break;
         }
     }
-    (start, end)
+
+    (start_2, end_2)
 }
 
+#[must_use]
 fn trim_end_byte_index(s: &str) -> usize {
     let mut end = s.len();
+
     while end > 0 {
-        let Some(ch) = s[..end].chars().next_back() else {
-            break;
+        let ch = {
+            let optional_ch = s[..end].chars().next_back();
+
+            match optional_ch {
+                Some(matched_ch) => matched_ch,
+                ::core::option::Option::None => break,
+            }
         };
+
         if ch == ' ' || ch == '\t' {
             end -= ch.len_utf8();
         } else {
             break;
         }
     }
+
     end
 }
 
+#[must_use]
 fn strip_inline_comment_aware(line: &str) -> &str {
     let mut in_single = false;
     let mut in_double = false;
     let mut iter = line.char_indices().peekable();
+
     while let Some((idx, ch)) = iter.next() {
         match ch {
             '\'' if !in_double => in_single = !in_single,
@@ -1179,11 +1315,13 @@ fn strip_inline_comment_aware(line: &str) -> &str {
             _ => {}
         }
     }
+
     line
 }
 
+#[must_use]
 fn parse_error(diagram_type: &str, message: impl Into<String>) -> Error {
-    Error::diagram_parse_fallback(diagram_type.to_string(), message.into())
+    Error::diagram_parse_fallback(diagram_type.to_string(), <_ as ::core::convert::Into<::std::string::String>>::into(message))
 }
 
 #[cfg(test)]

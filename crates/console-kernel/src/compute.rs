@@ -6,15 +6,31 @@
 //! fingerprint forward. The empty job yields zero. Device transfers pack
 //! four bytes per little-endian word. FNV-1a is a fingerprint, with no
 //! security guarantees against collisions.
+//!
+//! [`ReductionPlan`] lists dispatches in dependency order and ends with a
+//! publication step. [`checksums`] computes one fingerprint per block and
+//! leaves the output intact on a size error. [`checksum_sum`] uses one
+//! temporary workspace word per block to compute the wrapping sum.
 
 use console_core_checksums::fnv1a;
+use console_core_number_conversion::index;
+
+#[cfg(all(target_os = "linux", feature = "hosted-compute"))]
+pub mod hosted;
 
 #[cfg(kani)]
 #[path = "../proofs/compute.rs"]
 mod proofs;
 
+#[cfg_attr(
+  dylint_lib = "explicit051_no_machine_width",
+  expect(
+    explicit051_no_machine_width,
+    reason = "Rust array lengths require a usize constant"
+  )
+)]
 pub const BLOCK_BYTES: usize = 256;
-pub const MAX_BLOCKS: usize = 65_536;
+pub const MAX_BLOCKS: u32 = 65_536;
 
 pub type Block = [u8; BLOCK_BYTES];
 
@@ -26,24 +42,22 @@ pub enum BatchError {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReductionStep {
-  Join { inputs: usize },
+  Join { inputs: u32 },
   Publish,
 }
 
-/// Lists the dispatches in dependency order, followed by one result boundary.
 pub struct ReductionPlan {
-  remaining: Option<usize>,
+  remaining: Option<u32>,
 }
 
 impl ReductionPlan {
-  pub fn new(blocks: usize) -> Result<Self, BatchError> {
-    if blocks > MAX_BLOCKS {
-      return Err(BatchError::TooManyBlocks);
+  pub fn new(blocks: u32) -> Result<Self, BatchError> {
+    match blocks {
+      0..=MAX_BLOCKS => Ok(Self {
+        remaining: Some(blocks),
+      }),
+      _ => Err(BatchError::TooManyBlocks),
     }
-
-    Ok(Self {
-      remaining: Some(blocks),
-    })
   }
 }
 
@@ -52,22 +66,31 @@ impl Iterator for ReductionPlan {
 
   fn next(&mut self) -> Option<Self::Item> {
     let inputs = self.remaining.take()?;
-    if inputs <= 1 {
-      return Some(ReductionStep::Publish);
-    }
 
-    self.remaining = Some(inputs.div_ceil(2));
-    Some(ReductionStep::Join { inputs })
+    match inputs {
+      0 | 1 => Some(ReductionStep::Publish),
+      2.. => {
+        self.remaining = Some(inputs.div_ceil(2));
+
+        Some(ReductionStep::Join { inputs })
+      }
+    }
   }
 }
 
-/// Computes one fingerprint per block. A size error leaves the output intact.
 pub fn checksums(blocks: &[Block], output: &mut [u32]) -> Result<(), BatchError> {
-  if blocks.len() > MAX_BLOCKS {
-    return Err(BatchError::TooManyBlocks);
+  let count = u32::try_from(blocks.len()).map_err(|_| BatchError::TooManyBlocks)?;
+
+  match count {
+    0..=MAX_BLOCKS => {}
+    _ => return Err(BatchError::TooManyBlocks),
   }
-  if blocks.len() != output.len() {
-    return Err(BatchError::OutputLength);
+
+  match { ::core::primitive::bool::then_some(blocks.len() != output.len(), ()) } {
+    ::core::option::Option::Some(()) => {
+      return Err(BatchError::OutputLength);
+    }
+    ::core::option::Option::None => {}
   }
 
   for (block, checksum) in blocks.iter().zip(output) {
@@ -78,31 +101,47 @@ pub fn checksums(blocks: &[Block], output: &mut [u32]) -> Result<(), BatchError>
   Ok(())
 }
 
-/// Returns the wrapping sum of the block fingerprints. The workspace must
-/// have one word per block and its contents are temporary.
 pub fn checksum_sum(blocks: &[Block], workspace: &mut [u32]) -> Result<u32, BatchError> {
   checksums(blocks, workspace)?;
-  let plan = ReductionPlan::new(blocks.len())?;
+  let count = u32::try_from(blocks.len()).map_err(|_| BatchError::TooManyBlocks)?;
+  let plan = ReductionPlan::new(count)?;
 
-  Ok(reduce(workspace, plan))
+  reduce(workspace, plan)
 }
 
-fn joined(level: &[u32], parent: usize) -> u32 {
-  let left = parent * 2;
-  level[left].wrapping_add(level.get(left + 1).copied().unwrap_or(0))
+fn joined(level: &[u32], parent: u32) -> Result<u32, BatchError> {
+  let Ok(first) = index(parent.saturating_mul(2));
+  let children = level.get(first..).ok_or(BatchError::OutputLength)?;
+
+  match children {
+    [left, right, ..] => Ok(left.wrapping_add(*right)),
+    [left] => Ok(*left),
+    [] => Err(BatchError::OutputLength),
+  }
 }
 
-fn reduce(workspace: &mut [u32], plan: ReductionPlan) -> u32 {
+fn reduce(workspace: &mut [u32], plan: ReductionPlan) -> Result<u32, BatchError> {
   for step in plan {
     match step {
       ReductionStep::Join { inputs } => {
+        let Ok(length) = index(inputs);
+        let active = workspace
+          .get_mut(..length)
+          .ok_or(BatchError::OutputLength)?;
+
         for parent in 0..inputs.div_ceil(2) {
-          workspace[parent] = joined(&workspace[..inputs], parent);
+          let sum = joined(active, parent)?;
+          let Ok(position) = index(parent);
+          let destination = active.get_mut(position).ok_or(BatchError::OutputLength)?;
+          *destination = sum;
         }
       }
-      ReductionStep::Publish => return workspace.first().copied().unwrap_or(0),
+      ReductionStep::Publish => break,
     }
   }
 
-  unreachable!("a new reduction plan always yields one publication step")
+  Ok(match workspace.first() {
+    Some(sum) => *sum,
+    None => 0,
+  })
 }

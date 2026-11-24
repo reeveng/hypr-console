@@ -5,10 +5,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+default = ["std"]
+std = ["alloc"]
+alloc = ["dep:console-core-checksums", "dep:console-core-number-conversion"]
+
 [dependencies]
-console-core-checksums.workspace = true
+console-core-checksums = { workspace = true, optional = true }
 console-core-never.workspace = true
-console-core-number-conversion.workspace = true
+console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false, optional = true }
 
 [lints]
 workspace = true

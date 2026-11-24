@@ -1,6 +1,6 @@
 //! The words MPRIS uses for what this player holds.
 //!
-//! None of this is the crate's own opinion. `console_music::player` already
+//! None of this is the crate's own opinion. `console_application_music::player` already
 //! parses every one of these strings out of kew's answers, and the checks press
 //! them through busctl, so what is spelled here is what a panel written against
 //! another player expects to read. The names stay; only who answers changes.

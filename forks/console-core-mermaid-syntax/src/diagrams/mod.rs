@@ -122,7 +122,7 @@ pub(crate) mod railroad;
 pub(crate) mod requirement;
 #[cfg(feature = "diagram-sankey")]
 pub(crate) mod sankey;
-// Common metadata normalization also uses ECMAScript scanning without diagram features.
+
 #[allow(
     dead_code,
     reason = "Shared parser facilities have different consumers in each family selection."

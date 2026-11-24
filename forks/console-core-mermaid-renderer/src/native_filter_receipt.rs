@@ -15,6 +15,7 @@ pub struct NativeSvgShadowStage {
 }
 
 impl NativeSvgShadowStage {
+    #[must_use]
     pub fn new(
         input: EffectInput,
         offset: [f32; 2],
@@ -29,6 +30,7 @@ impl NativeSvgShadowStage {
         {
             return None;
         }
+
         let color = svgtypes::Color::from_str(color_css.trim()).ok()?;
         Some(Self {
             input,
@@ -37,15 +39,23 @@ impl NativeSvgShadowStage {
             color_rgba: [color.red, color.green, color.blue, color.alpha],
         })
     }
+
+    #[must_use]
     pub const fn input(&self) -> EffectInput {
         self.input
     }
+
+    #[must_use]
     pub fn offset(&self) -> [f32; 2] {
         self.offset_bits.map(f32::from_bits)
     }
+
+    #[must_use]
     pub fn std_deviation(&self) -> [f32; 2] {
         self.std_deviation_bits.map(f32::from_bits)
     }
+
+    #[must_use]
     pub const fn color_rgba(&self) -> [u8; 4] {
         self.color_rgba
     }
@@ -71,6 +81,7 @@ pub struct NativeSvgFilterApplication {
 }
 
 impl NativeSvgFilterApplication {
+    #[must_use]
     pub fn new(
         filter_id: impl Into<String>,
         region: [f32; 4],
@@ -88,6 +99,7 @@ impl NativeSvgFilterApplication {
         )
     }
 
+    #[must_use]
     pub fn new_with_units(
         filter_id: impl Into<String>,
         units: NativeSvgFilterUnits,
@@ -96,10 +108,11 @@ impl NativeSvgFilterApplication {
         stages: Vec<NativeSvgShadowStage>,
         reference_count: usize,
     ) -> Option<Self> {
-        let filter_id = filter_id.into();
-        if filter_id.is_empty()
-            || filter_id.len() > 1024
-            || filter_id
+        let filter_id_2 = <_ as ::core::convert::Into<::std::string::String>>::into(filter_id);
+
+        if filter_id_2.is_empty()
+            || filter_id_2.len() > 1024
+            || filter_id_2
                 .chars()
                 .any(|c| c.is_control() || c.is_whitespace())
             || region.into_iter().any(|value| !value.is_finite())
@@ -111,32 +124,48 @@ impl NativeSvgFilterApplication {
         {
             return None;
         }
-        let reference_count = u32::try_from(reference_count).ok()?;
-        if reference_count == 0 {
-            return None;
+
+        let reference_count_2 = match u32::try_from(reference_count) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }?;
+
+        match reference_count_2 {
+            0 => {
+                return None;
+            },
+            _ => {},
         }
+
         Some(Self {
-            filter_id,
+            filter_id: filter_id_2,
             units,
             region_bits: region.map(normalized_f32_bits),
             color_space,
             composition: EffectComposition::Cascade,
             stages,
-            reference_count,
+            reference_count: reference_count_2,
         })
     }
+
+    #[must_use]
     pub fn filter_id(&self) -> &str {
         &self.filter_id
     }
+
+    #[must_use]
     pub fn region(&self) -> [f32; 4] {
         self.region_bits.map(f32::from_bits)
     }
+
+    #[must_use]
     pub const fn units(&self) -> NativeSvgFilterUnits {
         self.units
     }
+
+    #[must_use]
     pub const fn color_space(&self) -> EffectColorSpace {
         self.color_space
     }
+
+    #[must_use]
     pub fn with_composition(mut self, composition: EffectComposition) -> Option<Self> {
         if composition == EffectComposition::Independent
             && self
@@ -146,16 +175,23 @@ impl NativeSvgFilterApplication {
         {
             return None;
         }
+
         self.composition = composition;
         Some(self)
     }
+
+    #[must_use]
     pub const fn composition(&self) -> EffectComposition {
         self.composition
     }
+
+    #[must_use]
     pub fn stages(&self) -> &[NativeSvgShadowStage] {
         &self.stages
     }
+
     /// Finite paint envelope in top/right/bottom/left order, shared with SVG lowering.
+    #[must_use]
     pub fn paint_outsets(&self) -> Option<[f64; 4]> {
         if self.composition == EffectComposition::Independent {
             let outsets = crate::diagram_theme::EffectOutsets::default().with_independent_shadows(
@@ -165,6 +201,7 @@ impl NativeSvgFilterApplication {
             )?;
             return Some([outsets.top, outsets.right, outsets.bottom, outsets.left]);
         }
+
         let outsets = crate::diagram_theme::EffectOutsets::default().with_shadow_stages(
             self.stages
                 .iter()
@@ -173,6 +210,7 @@ impl NativeSvgFilterApplication {
         Some([outsets.top, outsets.right, outsets.bottom, outsets.left])
     }
 
+    #[must_use]
     pub const fn reference_count(&self) -> u32 {
         self.reference_count
     }
@@ -192,34 +230,42 @@ pub struct NativeSvgFilterReceipt {
 }
 
 impl NativeSvgFilterReceipt {
+    #[must_use]
     pub fn from_applications(
         applications: impl IntoIterator<Item = NativeSvgFilterApplication>,
     ) -> Option<Self> {
-        let mut applications = applications.into_iter().collect::<Vec<_>>();
-        if applications.is_empty() {
+        let mut applications_2 = applications.into_iter().collect::<Vec<_>>();
+
+        if applications_2.is_empty() {
             return None;
         }
-        applications.sort_unstable_by(|a, b| a.filter_id.cmp(&b.filter_id));
-        if applications
+
+        applications_2.sort_unstable_by(|a, b| a.filter_id.cmp(&b.filter_id));
+
+        if applications_2
             .windows(2)
             .any(|pair| pair[0].filter_id == pair[1].filter_id)
         {
             return None;
         }
-        let filter_count = u32::try_from(applications.len()).ok()?;
-        let reference_count = applications.iter().try_fold(0u32, |total, application| {
+
+        let filter_count = match u32::try_from(applications_2.len()) { ::core::result::Result::Ok(value___) => ::core::option::Option::Some(value___), ::core::result::Result::Err(_outside_integer_range_) => ::core::option::Option::None }?;
+        let reference_count = applications_2.iter().try_fold(0u32, |total, application| {
             total.checked_add(application.reference_count)
         })?;
-        let drop_shadow_count = applications.iter().try_fold(0u32, |total, application| {
-            total.checked_add(u32::try_from(application.stages.len()).ok()?)
+        let drop_shadow_count = applications_2.iter().try_fold(0u32, |total, application| {
+            let checked_value = match u32::try_from(application.stages.len()) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }?;
+            total.checked_add(checked_value)
         })?;
         let mut hasher = Sha256::default();
         update_len_prefixed(&mut hasher, RECEIPT_DOMAIN);
         let Ok(()) = hasher.update(&filter_count.to_le_bytes());
         let Ok(()) = hasher.update(&drop_shadow_count.to_le_bytes());
         let Ok(()) = hasher.update(&reference_count.to_le_bytes());
-        for application in applications {
+
+        for application in applications_2 {
             update_len_prefixed(&mut hasher, application.filter_id.as_bytes());
+
             let Ok(()) = hasher.update(&[match application.units {
                 NativeSvgFilterUnits::ObjectBoundingBox => 0,
                 NativeSvgFilterUnits::UserSpaceOnUse => 1,
@@ -227,6 +273,7 @@ impl NativeSvgFilterReceipt {
             for bits in application.region_bits {
                 let Ok(()) = hasher.update(&bits.to_le_bytes());
             }
+
             let Ok(()) = hasher.update(&[match application.color_space {
                 EffectColorSpace::LinearRgb => 0,
                 EffectColorSpace::Srgb => 1,
@@ -234,7 +281,9 @@ impl NativeSvgFilterReceipt {
             if application.composition == EffectComposition::Independent {
                 update_len_prefixed(&mut hasher, b"independent");
             }
+
             let Ok(()) = hasher.update(&(application.stages.len() as u32).to_le_bytes());
+
             for stage in application.stages {
                 let Ok(()) = hasher.update(&[match stage.input {
                     EffectInput::SourceGraphic => 0,
@@ -247,10 +296,13 @@ impl NativeSvgFilterReceipt {
                 {
                     let Ok(()) = hasher.update(&bits.to_le_bytes());
                 }
+
                 let Ok(()) = hasher.update(&stage.color_rgba);
             }
+
             let Ok(()) = hasher.update(&application.reference_count.to_le_bytes());
         }
+
         let Ok(digest) = hasher.finalize();
         Some(Self {
             digest,
@@ -259,27 +311,37 @@ impl NativeSvgFilterReceipt {
             reference_count,
         })
     }
+
+    #[must_use]
     pub const fn filter_count(self) -> u32 {
         self.filter_count
     }
+
+    #[must_use]
     pub const fn drop_shadow_count(self) -> u32 {
         self.drop_shadow_count
     }
+
+    #[must_use]
     pub const fn reference_count(self) -> u32 {
         self.reference_count
     }
+
+    #[must_use]
     pub const fn identity_digest(&self) -> &[u8; 32] {
         &self.digest
     }
 }
 
+#[must_use]
 fn normalized_f32_bits(value: f32) -> u32 {
-    if value == 0.0 {
+    if ::core::matches!(::core::primitive::f32::classify(value), ::core::num::FpCategory::Zero) {
         0.0f32.to_bits()
     } else {
         value.to_bits()
     }
 }
+
 fn update_len_prefixed(hasher: &mut Sha256, bytes: &[u8]) {
     let Ok(()) = hasher.update(&(bytes.len() as u64).to_le_bytes());
     let Ok(()) = hasher.update(bytes);

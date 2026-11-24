@@ -1,8 +1,9 @@
 [Desktop Entry]
 Type=Application
-Name=Music
+Name=Console Music
 Comment=What there is to play, and what is playing
-Exec=/usr/local/bin/music
+Exec=/usr/local/bin/console-application-music
+StartupWMClass=music
 Icon=multimedia-player
 Terminal=false
 Categories=AudioVideo;Audio;Player;

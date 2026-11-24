@@ -1,7 +1,7 @@
 //! `cargo kani -p console-kernel --lib --harness compute::proofs`.
 //!
-//! These checks model the integer instructions and dispatch layout in
-//! compute/checksums.comp. The hardware test runs the compiled shader.
+//! These checks model the integer instructions and dispatch layout of the
+//! hosted checksum kernel. The hardware test runs its generated shader.
 
 use super::*;
 
@@ -25,7 +25,7 @@ fn dispatched_items_read_only_their_block_and_have_distinct_output_slots() {
   const WORKGROUP: u32 = 64;
 
   let count: u32 = kani::any();
-  kani::assume(count > 0 && count <= MAX_BLOCKS as u32);
+  kani::assume(count > 0 && count <= MAX_BLOCKS);
   let groups = count.div_ceil(WORKGROUP);
   assert!(groups * WORKGROUP >= count);
   assert!((groups - 1) * WORKGROUP < count);
@@ -47,7 +47,7 @@ fn dispatched_items_read_only_their_block_and_have_distinct_output_slots() {
 #[kani::proof]
 #[kani::unwind(19)]
 fn the_backend_plan_reaches_one_publication_after_all_required_joins() {
-  let blocks = usize::from(kani::any::<u16>()) + usize::from(kani::any::<bool>());
+  let blocks = u32::from(kani::any::<u16>()) + u32::from(kani::any::<bool>());
   let mut plan = ReductionPlan::new(blocks).unwrap();
   let mut remaining = blocks;
   let mut published = false;
@@ -63,7 +63,7 @@ fn the_backend_plan_reaches_one_publication_after_all_required_joins() {
         joins += 1;
       }
       ReductionStep::Publish => {
-        assert_eq!(remaining, usize::from(blocks != 0));
+        assert_eq!(remaining, u32::from(blocks != 0));
         published = true;
       }
     }
@@ -80,7 +80,7 @@ fn join_lanes_stay_in_disjoint_gpu_ranges_for_either_scratch_rotation() {
   const WORDS: u32 = (BLOCK_BYTES / 4) as u32;
   const WORKGROUP: u32 = 64;
   let count: u32 = kani::any();
-  kani::assume((2..=MAX_BLOCKS as u32).contains(&count));
+  kani::assume((2..=MAX_BLOCKS).contains(&count));
   let first = count * WORDS;
   let second = first + count;
   let scratch = (count + 1) / 2;
@@ -122,7 +122,7 @@ fn one_join_preserves_the_wrapping_sum_including_an_unpaired_child() {
   let [prefix, left, right]: [u32; 3] = kani::any();
   let has_right: bool = kani::any();
   let inputs = [left, right];
-  let parent = joined(&inputs[..1 + usize::from(has_right)], 0);
+  let parent = joined(&inputs[..1 + usize::from(has_right)], 0).unwrap();
   let serial = u64::from(prefix) + u64::from(left) + u64::from(if has_right { right } else { 0 });
 
   assert_eq!(prefix.wrapping_add(parent), serial as u32);
@@ -134,9 +134,9 @@ fn the_cpu_tree_matches_serial_for_empty_and_small_batches() {
   let mut words: [u32; 5] = kani::any();
   let count = usize::from(kani::any::<u8>() % 6);
   let expected = words[..count].iter().copied().fold(0, u32::wrapping_add);
-  let plan = ReductionPlan::new(count).unwrap();
+  let plan = ReductionPlan::new(u32::try_from(count).unwrap()).unwrap();
 
-  assert_eq!(reduce(&mut words[..count], plan), expected);
+  assert_eq!(reduce(&mut words[..count], plan), Ok(expected));
 }
 
 #[kani::proof]
@@ -148,11 +148,21 @@ fn a_level_with_an_odd_tail_can_finish_in_any_lane_order() {
   kani::assume(a < 3 && b < 3 && c < 3 && a != b && a != c && b != c);
 
   let mut level = [0; 3];
-  for lane in order.map(usize::from) {
-    level[lane] = joined(&children, lane);
+  for lane in order {
+    level[usize::from(lane)] = joined(&children, u32::from(lane)).unwrap();
   }
 
   let expected = children.into_iter().fold(0, u32::wrapping_add);
-  let plan = ReductionPlan::new(level.len()).unwrap();
-  assert_eq!(reduce(&mut level, plan), expected);
+  let plan = ReductionPlan::new(u32::try_from(level.len()).unwrap()).unwrap();
+  assert_eq!(reduce(&mut level, plan), Ok(expected));
+}
+
+#[kani::proof]
+fn checksum_reduction_agrees_across_partition_boundaries() {
+  let [left, middle, right]: [u32; 3] = kani::any();
+  let left_join = joined(&[left, middle], 0).unwrap();
+  let right_join = joined(&[middle, right], 0).unwrap();
+  let first_split = joined(&[left, right_join], 0).unwrap();
+  let second_split = joined(&[left_join, right], 0).unwrap();
+  assert_eq!(first_split, second_split);
 }

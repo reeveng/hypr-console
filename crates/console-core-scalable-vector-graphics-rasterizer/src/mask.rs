@@ -17,7 +17,7 @@ use console_core_scalable_vector_graphics::{Mask as SvgMask, MaskType as SvgMask
 )]
 pub(super) fn apply(
   mask: &SvgMask,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut Pixmap,
 ) -> Result<(), Never> {

@@ -64,6 +64,7 @@ pub(crate) struct GitGraphGradient {
 }
 
 impl GitGraphTerminalStyles {
+    #[must_use]
     pub(crate) fn border_color<'a>(
         &'a self,
         binding: &'a crate::gitgraph::GitGraphCssBinding,
@@ -77,6 +78,7 @@ impl GitGraphTerminalStyles {
 }
 
 impl GitGraphStaticPaintPlan {
+    #[must_use]
     pub(crate) fn baseline() -> Self {
         Self {
             node_paint: None,
@@ -98,13 +100,16 @@ impl GitGraphStaticPaintPlan {
             evidence: FamilyThemeOutcomes::default(),
             ..Self::baseline()
         };
-        let Some(theme) = theme else {
-            return Ok(plan);
-        };
-        plan.node_paint =
-            super::node_paint::GitGraphNodePaintPlan::resolve(theme, effective_config, work_meter)?;
 
-        let style = theme.style_with_work_meter(
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
+        plan.node_paint =
+            { let checked_value = super::node_paint::GitGraphNodePaintPlan::resolve(theme_2, effective_config, work_meter)?; checked_value };
+
+        let style = theme_2.style_with_work_meter(
             ThemeTarget::EdgeLabelBackground,
             ThemeVariant::Default,
             None,
@@ -125,7 +130,7 @@ impl GitGraphStaticPaintPlan {
         let assignment = (has_visible_commit_label && !source_owns_fill)
             .then(|| {
                 resolve_direct_static_fill(
-                    theme,
+                    theme_2,
                     &style,
                     &[ThemeTarget::EdgeLabelBackground],
                     DirectStaticSelectorDomain::Default,
@@ -140,11 +145,13 @@ impl GitGraphStaticPaintPlan {
                 paint,
             });
 
-        // Facets share a rule key. Settle every winning property before recording a
-        // rule outcome so an owned fill cannot hide an unsupported sibling property.
+
+
         let mut observations = BTreeMap::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             work_meter.charge(1)?;
+
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::EdgeLabelBackground,
@@ -154,14 +161,17 @@ impl GitGraphStaticPaintPlan {
             else {
                 continue;
             };
-            let key = theme.family_mechanism_key(route);
+
+            let key = theme_2.family_mechanism_key(route);
             let entry = observations.entry(key).or_insert((false, None));
+
             if !has_visible_commit_label {
                 continue;
             }
+
             let property = resolved_style_property_for_facet(facet);
-            // Commit backgrounds have no modeled ordinal identity. An unmatched ordinal
-            // is unverified unless a later static winner supersedes the same property.
+
+
             let unproved_ordinal = matches!(
                 selector,
                 FamilyThemeSelectorShape::Ordinal {
@@ -171,22 +181,25 @@ impl GitGraphStaticPaintPlan {
             ) && !winners.iter().any(|(winner, winner_property)| {
                 *winner_property == property && *winner > rule_index
             });
+
             if (!winners.contains(&(rule_index, property)) && !unproved_ordinal)
                 || (property == ResolvedStyleProperty::Fill && source_owns_fill)
             {
                 continue;
             }
+
             if route.disposition() == FamilyThemeDisposition::TypedAdapter
                 && property == ResolvedStyleProperty::Fill
                 && assignment
                     .as_ref()
-                    .is_some_and(|assignment| assignment.paint.rule_index() == rule_index)
+                    .is_some_and(|assignment_2| assignment_2.paint.rule_index() == rule_index)
             {
                 entry.0 = true;
             } else {
                 entry.1.get_or_insert(unsupported_residual_for_facet(facet));
             }
         }
+
         for (key, (fill, residual)) in observations {
             if let Some(reason) = residual {
                 plan.evidence.mark_residual(key, reason);
@@ -196,11 +209,13 @@ impl GitGraphStaticPaintPlan {
                 plan.evidence.mark_not_applicable(key);
             }
         }
+
         plan.assignment = assignment;
 
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn commit_label_background_css(&self) -> Option<&str> {
         self.assignment
             .as_ref()
@@ -222,6 +237,7 @@ impl GitGraphStaticPaintPlan {
         );
     }
 
+    #[must_use]
     pub(crate) fn terminal_styles(&self) -> &GitGraphTerminalStyles {
         self.terminal_styles
             .get()
@@ -331,22 +347,25 @@ impl GitGraphStaticPaintPlan {
             .expect("GitGraph terminal styles bound once per prepared artifact");
     }
 
+    #[must_use]
     pub(crate) fn node_paint(&self) -> Option<&super::node_paint::GitGraphNodePaintPlan> {
         self.node_paint.as_ref()
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> Option<GitGraphStaticPaintReceipt> {
         self.assignment
             .as_ref()
             .map(|assignment| GitGraphStaticPaintReceipt {
                 expected_route: assignment.route_key.clone(),
-                expected_value: assignment.paint.css().into(),
+                expected_value: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(assignment.paint.css()),
                 css_emitted: false,
                 values_match: true,
                 terminal_count: 0,
             })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal_receipt(&self, receipt: GitGraphStaticPaintReceipt) -> bool {
         self.assignment.is_some()
             && receipt.proves(self)
@@ -358,8 +377,11 @@ impl GitGraphStaticPaintPlan {
         receipt: &mut Option<GitGraphStaticPaintReceipt>,
         emitted_value: Option<&str>,
     ) {
-        if let Some(receipt) = receipt.as_mut() {
-            receipt.record_css_emission(self, emitted_value);
+        match receipt.as_mut() {
+            Some(receipt_2) => {
+                receipt_2.record_css_emission(self, emitted_value);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -367,31 +389,44 @@ impl GitGraphStaticPaintPlan {
         &self,
         receipt: &mut Option<GitGraphStaticPaintReceipt>,
     ) {
-        if let Some(receipt) = receipt.as_mut() {
-            receipt.record_commit_label_background();
+        match receipt.as_mut() {
+            Some(receipt_2) => {
+                receipt_2.record_commit_label_background();
+            },
+            ::core::option::Option::None => {},
         }
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
-        if let Some(node_paint) = self.node_paint.as_ref() {
-            node_paint.record_evidence(evidence);
+
+        match self.node_paint.as_ref() {
+            Some(node_paint) => {
+                node_paint.record_evidence(evidence);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(key) = self.pending_key.clone() {
-            match self.terminal_receipt.get() {
-                Some(receipt) if receipt.proves(self) => {
-                    evidence.mark_applied_with_capabilities(
-                        key,
-                        self.assignment
-                            .as_ref()
-                            .map(|assignment| [assignment.paint.capability()])
-                            .into_iter()
-                            .flatten(),
-                    );
-                }
-                Some(_) => evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedPaint),
-                None => evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedPaint),
-            }
+
+        {
+            match self.pending_key.clone() {
+                Some(key) => {
+                    match self.terminal_receipt.get() {
+                        Some(receipt) if receipt.proves(self) => {
+                            evidence.mark_applied_with_capabilities(
+                                key,
+                                self.assignment
+                                    .as_ref()
+                                    .map(|assignment| [assignment.paint.capability()])
+                                    .into_iter()
+                                    .flatten(),
+                            );
+                        }
+                        Some(_) => evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedPaint),
+                        None => evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedPaint),
+                    }
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 }
@@ -416,6 +451,7 @@ impl GitGraphStaticPaintReceipt {
         self.terminal_count = self.terminal_count.saturating_add(1);
     }
 
+    #[must_use]
     fn proves(&self, plan: &GitGraphStaticPaintPlan) -> bool {
         self.css_emitted
             && self.values_match
@@ -557,7 +593,7 @@ mod tests {
         let plan = plan();
         let mut receipt = plan.begin_terminal_receipt().expect("typed receipt");
         receipt.record_css_emission(&plan, Some("#123456"));
-        // The production writer records this occurrence after emitting the rect.
+
         receipt.record_commit_label_background();
         assert!(receipt.proves(&plan));
     }

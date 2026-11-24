@@ -1,0 +1,10 @@
+[package]
+name = "console-core-operation-slots"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Reusable storage slots with checked generations."
+
+[lints]
+workspace = true

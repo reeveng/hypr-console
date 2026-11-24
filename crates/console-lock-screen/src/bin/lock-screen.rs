@@ -1,6 +1,9 @@
 //! The screen a locked session is drawn behind.
 //!
 //!     lock-screen
+//!     lock-screen idle-config BASE OUTPUT
+//!     lock-screen watch-power BASE OUTPUT
+//!     lock-screen idle-lock SECONDS
 //!
 //! What is decided is `console_lock_screen` and the greeter it drives; this is
 //! the lock the compositor holds and the surface the ring is drawn on. It is
@@ -10,15 +13,11 @@
 //! lock away with it. Held this way the compositor shows nothing else until
 //! the lock is let go, and a lock screen that falls leaves the session locked.
 //!
-//! It is started by `console-lock.service`, which is what the idle daemon asks
-//! for before the machine sleeps, and systemd is told the start is done once
-//! the compositor says the session is locked -- so the sleep waiting on it is
-//! not taken with the desktop still on the glass. With no pattern chosen, or
+//! It is started by `console-lock.service`, and systemd is told the start is
+//! done once the compositor says the session is locked. With no pattern chosen, or
 //! the lock turned off in the settings, that is said at once and nothing is
-//! locked. A pattern that cannot be read is said and not locked with either:
-//! the unit would otherwise fail before it was ready and be started again
-//! every second, and the settings already show the same fault on the row
-//! where it can be mended.
+//! locked. If the saved pattern cannot be read, the compositor still locks
+//! and the screen offers any other configured method.
 //!
 //! The bar over the ring is drawn on the same surface, because nothing else
 //! comes up over a held lock: the clock, the sound and the battery, read when
@@ -29,31 +28,40 @@
 use std::process::ExitCode;
 
 use console_core_color::palette::{self, Wearing, WearingError};
+use console_core_geometry::Point;
 use console_core_iteration::{Endless, Step, iterate};
 use console_core_never::Never;
+use console_core_shapes::{Edge, Panel, Round, Shape};
 use console_core_size::Size;
 use console_core_state_machine::{Machine, Transition};
 use console_draw_painting::{Rendered, painter};
 use console_draw_surface::{Closed, KeyboardEvent, Lock, Surface, SurfaceError, Unlocked};
-use console_lock_screen::{Wanted, desired, respond};
+use console_lock_screen::{LockScreen, Method, PATTERN_UNAVAILABLE, Wanted, desired, respond};
 use console_login_greeter::bar;
 use console_login_greeter::greeting::{
   Greeter, GreeterEffect, GreeterEvent, GreeterState, Status,
 };
 use console_login_greeter::picture::{Worn, over_a_session};
 use console_login_greeter::session::{heard, press};
-use console_login_window::stored_pattern::{self, Hash, PatternStoreError};
+use console_login_window::stored_pattern::{self, Hash, PatternAttempts};
 use console_program_contract::{Effect, Event, Exit};
 use console_status_bar::clock::{self, Standing};
 use console_status_bar::showing;
 
 const WHO: &str = "lock-screen";
 
+#[path = "lock-screen/idle_config.rs"]
+mod idle_config;
+#[path = "lock-screen/unlock.rs"]
+mod unlock;
+
+use unlock::{Confirmation, InputDisposition, Unlock};
+
 const UNLOCK: &str = "Unlock";
 
 enum LockScreenError {
   Homeless,
-  Store(PatternStoreError),
+  Denied,
   Palette(WearingError),
   Surface(SurfaceError),
   Ready(std::io::Error),
@@ -63,7 +71,7 @@ impl std::fmt::Display for LockScreenError {
   fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
     match self {
       LockScreenError::Homeless => write!(to, "there is no home to find a pattern in"),
-      LockScreenError::Store(why) => write!(to, "{why}"),
+      LockScreenError::Denied => write!(to, "the compositor did not hold the session lock"),
       LockScreenError::Palette(why) => write!(to, "{why}"),
       LockScreenError::Surface(why) => write!(to, "no lock to hold: {why}"),
       LockScreenError::Ready(why) => {
@@ -86,19 +94,75 @@ enum Welcomed {
 }
 
 fn main() -> ExitCode {
+  let arguments: Vec<_> = std::env::args_os().skip(1).collect();
+  let options = arguments.split_first();
+  let command = options.map(|(mode, rest)| (mode.to_str(), rest));
+  let result = match command {
+    None => {
+      let Ok(status) = show_lock();
+      return status;
+    }
+    Some((Some("idle-config"), [base, output])) => {
+      idle_config::write(base.as_ref(), output.as_ref())
+    }
+    Some((Some("watch-power"), [base, output])) => {
+      let Ok(()) = idle_config::watch_power(base.as_ref(), output.as_ref());
+      Ok(())
+    }
+    Some((Some("idle-lock"), [seconds])) => {
+      match seconds
+        .to_str()
+        .and_then(|seconds_2| match seconds_2.parse() {
+          ::core::result::Result::Ok(value) => ::core::option::Option::Some(value),
+          ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None,
+        }) {
+        Some(seconds_3) => idle_config::request_lock(seconds_3),
+        None => Err(Box::<dyn std::error::Error>::from(
+          "invalid idle lock delay",
+        )),
+      }
+    }
+    Some(_) => {
+      eprintln!(
+        "Usage: {WHO} [idle-config BASE OUTPUT | watch-power BASE OUTPUT | idle-lock SECONDS]"
+      );
+      return ExitCode::FAILURE;
+    }
+  };
+
+  match result {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(fault) => {
+      eprintln!("{WHO}: {fault}");
+      ExitCode::FAILURE
+    }
+  }
+}
+
+#[must_use]
+fn show_lock() -> core::result::Result<ExitCode, Never> {
   let Ok(ran) = ran();
 
-  match ran {
+  Ok(match ran {
     Ok(()) => ExitCode::SUCCESS,
     Err(why) => {
       eprintln!("{WHO}: {why}");
 
       ExitCode::FAILURE
     }
-  }
+  })
 }
 
 fn ran() -> Result<Result<(), LockScreenError>, Never> {
+  let Ok(chosen) = console_lock_screen::current();
+
+  match { ::core::primitive::bool::then_some(chosen == LockScreen::Off, ()) } {
+    ::core::option::Option::Some(()) => {
+      return Ok(console_readiness::ready().map_err(LockScreenError::Ready));
+    }
+    ::core::option::Option::None => {}
+  }
+
   let Ok(home) = console_core_places::home();
   let home_3 = match home {
     Some(home_2) => home_2,
@@ -107,16 +171,15 @@ fn ran() -> Result<Result<(), LockScreenError>, Never> {
   let stored = match stored_pattern::stored(&home_3) {
     Ok(stored) => stored,
     Err(why) => {
-      eprintln!("{WHO}: {}", LockScreenError::Store(why));
+      eprintln!("{WHO}: {why}");
 
-      return Ok(console_readiness::ready().map_err(LockScreenError::Ready));
+      return Ok(lock(None));
     }
   };
-  let Ok(chosen) = console_lock_screen::current();
   let Ok(wanted) = desired(stored, chosen);
 
   Ok(match wanted {
-    Wanted::Lock(hash) => lock(&hash),
+    Wanted::Lock(hash) => lock(Some(&hash)),
     Wanted::Absent => console_readiness::ready().map_err(LockScreenError::Ready),
   })
 }
@@ -129,30 +192,35 @@ fn worn() -> Result<(Wearing, showing::Wearing), WearingError> {
   Ok((ring, bar))
 }
 
-fn lock(hash: &Hash) -> Result<(), LockScreenError> {
-  let worn = worn().map_err(LockScreenError::Palette);
-  let (ring, bar) = worn?;
-  let worn_2 = Worn {
-    ring: &ring,
-    bar: &bar,
-  };
+fn lock(hash: Option<&Hash>) -> Result<(), LockScreenError> {
   let connected = Surface::connect();
   let mut surface = connected.map_err(LockScreenError::Surface)?;
   let locking = surface.lock(WHO);
   let lock = locking.map_err(LockScreenError::Surface)?;
 
   match lock {
-    Lock::Denied => return console_readiness::ready().map_err(LockScreenError::Ready),
+    Lock::Denied => return Err(LockScreenError::Denied),
     Lock::Waiting | Lock::Acquired => {}
   }
 
-  let Ok(Transition { state, effects: _ }) = Greeter::initial_transition(&Status::Waiting, None);
+  let (ring, bar) = worn().map_err(LockScreenError::Palette)?;
+  let worn_2 = Worn {
+    ring: &ring,
+    bar: &bar,
+  };
+  let opening = match hash {
+    Some(_) => Status::Waiting,
+    None => Status::Message(PATTERN_UNAVAILABLE.to_owned()),
+  };
+  let Ok(Transition { state, effects: _ }) = Greeter::initial_transition(&opening, None);
   let Ok(standing) = clock::current();
+  let Ok(preferred) = console_lock_screen::preferred();
   let Ok(read_out) = bar::read_all();
-  let Ok((state_2, _welcomed)) = answered(
+  let Ok(greeting) = answered(
     Answering {
       state,
       welcomed: Welcomed::No,
+      attempts: PatternAttempts::default(),
     },
     read_out,
     hash,
@@ -167,12 +235,15 @@ fn lock(hash: &Hash) -> Result<(), LockScreenError> {
   };
   let locked = LockBehavior {
     surface,
-    state: state_2,
+    greeting,
     standing,
     rendered: Rendered::default(),
     bar: nothing_drawn,
     notified: Notified::No,
-    welcomed: Welcomed::No,
+    unlock: ({
+      let Ok(explicit_value) = Unlock::new(preferred);
+      explicit_value
+    }),
   };
 
   let ended = iterate(locked, |locked_2| {
@@ -191,35 +262,36 @@ fn lock(hash: &Hash) -> Result<(), LockScreenError> {
 
 struct LockBehavior {
   surface: Surface,
-  state: GreeterState,
+  greeting: Answering,
   standing: Standing,
   rendered: Rendered,
   bar: showing::Rendered,
   notified: Notified,
-  welcomed: Welcomed,
+  unlock: Unlock,
 }
 
 fn round(
   locked: LockBehavior,
   worn: Worn<'_>,
-  hash: &Hash,
+  hash: Option<&Hash>,
 ) -> Result<Step<LockBehavior, ()>, LockScreenError> {
   let LockBehavior {
     mut surface,
-    state,
+    mut greeting,
     standing,
     mut rendered,
     bar,
     mut notified,
-    welcomed,
+    mut unlock,
   } = locked;
   let Ok(bar_2) = draw(
     &mut surface,
     Drawing {
-      state: &state,
+      state: &greeting.state,
       worn,
       rendered: &mut rendered,
       bar,
+      unlock: &unlock,
     },
   );
   let Ok(lock) = surface.locked();
@@ -231,12 +303,13 @@ fn round(
       readied.map_err(LockScreenError::Ready)?;
 
       notified = Notified::Yes;
+      let Ok(()) = unlock.acquired();
     }
     (Lock::Acquired, Notified::Yes) | (Lock::Waiting, Notified::Yes | Notified::No) => {}
-    (Lock::Denied, Notified::Yes | Notified::No) => return Ok(Step::Halt(())),
+    (Lock::Denied, Notified::Yes | Notified::No) => return Err(LockScreenError::Denied),
   }
 
-  match (lock, welcomed) {
+  match (lock, greeting.welcomed) {
     (Lock::Acquired, Welcomed::Yes) => {
       let unlocking = surface.unlock();
       let unlocked = unlocking.map_err(LockScreenError::Surface)?;
@@ -251,82 +324,154 @@ fn round(
   }
 
   let Ok(patience) = clock::until_the_minute_turns();
-  let waited = surface.wait(&[], Some(patience));
+  let waited = surface.wait(
+    &({
+      let Ok(explicit_value) = unlock.descriptors();
+      explicit_value
+    }),
+    Some(patience),
+  );
 
   waited.map_err(LockScreenError::Surface)?;
 
   let Ok(closed) = surface.closed();
 
   match closed {
-    Closed::Yes => return Ok(Step::Halt(())),
+    Closed::Yes => return Err(LockScreenError::Denied),
     Closed::No => {}
   }
 
   let Ok(keys) = surface.keyboard_events();
   let Ok(pointer) = surface.pointer_events();
   let Ok(logical) = surface.logical();
-  let pressed = keys.into_iter().filter_map(|KeyboardEvent::Down { key }| {
-    let Ok(press) = press(key);
+  let mut events = Vec::new();
+  let Ok(held) = surface.locked();
 
-    press.map(GreeterEvent::Pressed)
-  });
-  let touched = pointer.into_iter().filter_map(|event| {
-    let Ok(heard) = heard(event, logical, &bar_2);
+  match {
+    ::core::primitive::bool::then_some(notified == Notified::Yes && held == Lock::Acquired, ())
+  } {
+    ::core::option::Option::Some(()) => {
+      let Ok(method) = unlock.method();
+      let state = &mut greeting.state;
 
-    heard
-  });
+      for KeyboardEvent::Down { key } in keys {
+        let Ok(disposition) = match state.bar.focus {
+          Some(_) => Ok(InputDisposition::ForwardToGreeter),
+          None => {
+            let Ok(focus) = state.pattern_focus();
+            unlock.key(key, focus)
+          }
+        };
+
+        match disposition {
+          InputDisposition::ForwardToGreeter => {
+            let Ok(pressed) = press(key);
+            events.extend(pressed.map(GreeterEvent::Pressed));
+          }
+          InputDisposition::Handled => {}
+        }
+      }
+
+      for event in pointer {
+        let Ok(heard) = heard(event, logical, &bar_2);
+        let Ok(disposition) = match heard {
+          Some(GreeterEvent::Bar(_)) => Ok(InputDisposition::ForwardToGreeter),
+          Some(
+            GreeterEvent::Touched(_) | GreeterEvent::Pressed(_) | GreeterEvent::Received(_),
+          )
+          | None => unlock.pointer(event, logical),
+        };
+
+        match disposition {
+          InputDisposition::ForwardToGreeter => {
+            events.extend(heard);
+          }
+          InputDisposition::Handled => {}
+        }
+      }
+
+      match {
+        ::core::primitive::bool::then_some(
+          method
+            != ({
+              let Ok(explicit_value) = unlock.method();
+              explicit_value
+            }),
+          (),
+        )
+      } {
+        ::core::option::Option::Some(()) => {
+          let Ok(pattern) = state.greeting.pattern.cleared();
+          state.greeting.pattern = pattern;
+          events.retain(|event| matches!(event, GreeterEvent::Bar(_)));
+        }
+        ::core::option::Option::None => {}
+      }
+
+      let Ok(confirmation) = unlock.verified();
+
+      match confirmation {
+        Confirmation::Accepted => {
+          greeting.welcomed = Welcomed::Yes;
+        }
+        Confirmation::AwaitingInput => {}
+      }
+    }
+    ::core::option::Option::None => {}
+  }
+
   let Ok((standing_2, read_out)) = bar::again(standing);
-  let Ok((state_2, welcomed_2)) = answered(
-    Answering { state, welcomed },
-    pressed.chain(touched).chain(read_out).collect(),
-    hash,
-  );
+  events.extend(read_out);
+  let Ok(greeting_2) = answered(greeting, events, hash);
 
   Ok(Step::Again(LockBehavior {
     surface,
-    state: state_2,
+    greeting: greeting_2,
     standing: standing_2,
     rendered,
     bar: bar_2,
     notified,
-    welcomed: welcomed_2,
+    unlock,
   }))
 }
 
+#[derive(Clone)]
 struct Answering {
   state: GreeterState,
   welcomed: Welcomed,
+  attempts: PatternAttempts,
 }
 
 fn answered(
   answering: Answering,
   events: Vec<GreeterEvent>,
-  hash: &Hash,
-) -> Result<(GreeterState, Welcomed), Never> {
-  let unanswered = (answering.state.clone(), answering.welcomed);
+  hash: Option<&Hash>,
+) -> Result<Answering, Never> {
+  let unanswered = answering.clone();
   let ended = iterate((answering, events), |(answering_2, events_2)| {
     answering_round(answering_2, events_2, hash)
   });
 
   Ok(match ended {
-    Ok(ended_2) => ended_2,
+    Ok(answered) => answered,
     Err(Endless) => unanswered,
   })
 }
 
-type AnsweringRound = Step<(Answering, Vec<GreeterEvent>), (GreeterState, Welcomed)>;
+type AnsweringRound = Step<(Answering, Vec<GreeterEvent>), Answering>;
 
 fn answering_round(
   answering: Answering,
   events: Vec<GreeterEvent>,
-  hash: &Hash,
+  hash: Option<&Hash>,
 ) -> Result<AnsweringRound, Never> {
-  let (Answering { state, welcomed }, replies) = events.into_iter().fold(
+  let (answering_2, replies) = events.into_iter().fold(
     (answering, Vec::new()),
     |(
       Answering {
         state,
         mut welcomed,
+        mut attempts,
       },
       mut replies,
     ),
@@ -339,7 +484,7 @@ fn answering_round(
       for effect in effects {
         match effect {
           Effect::Custom(GreeterEffect::Send(said)) => {
-            let Ok(reply) = respond(&said, hash);
+            let Ok(reply) = respond(&said, hash, &mut attempts, std::time::Instant::now());
 
             replies.extend(reply.map(GreeterEvent::Received));
           }
@@ -348,7 +493,8 @@ fn answering_round(
 
             replies.extend(heard);
           }
-          Effect::Stop(Exit::Success | Exit::Failure(_)) => welcomed = Welcomed::Yes,
+          Effect::Stop(Exit::Success) => welcomed = Welcomed::Yes,
+          Effect::Stop(Exit::Failure(_)) => {}
           Effect::Run(_)
           | Effect::Stream(_)
           | Effect::Fork(_)
@@ -367,6 +513,7 @@ fn answering_round(
         Answering {
           state: state_2,
           welcomed,
+          attempts,
         },
         replies,
       )
@@ -374,8 +521,8 @@ fn answering_round(
   );
 
   Ok(match replies.as_slice() {
-    [] => Step::Halt((state, welcomed)),
-    [_first, ..] => Step::Again((Answering { state, welcomed }, replies)),
+    [] => Step::Halt(answering_2),
+    [_first, ..] => Step::Again((answering_2, replies)),
   })
 }
 
@@ -384,6 +531,7 @@ struct Drawing<'a> {
   worn: Worn<'a>,
   rendered: &'a mut Rendered,
   bar: showing::Rendered,
+  unlock: &'a Unlock,
 }
 
 fn draw(surface: &mut Surface, drawing: Drawing<'_>) -> Result<showing::Rendered, Never> {
@@ -392,13 +540,46 @@ fn draw(surface: &mut Surface, drawing: Drawing<'_>) -> Result<showing::Rendered
     worn,
     rendered,
     bar,
+    unlock,
   } = drawing;
   let Ok(logical) = surface.logical();
   let logical_3 = match logical {
     Some(logical_2) => logical_2,
     None => return Ok(bar),
   };
-  let Ok((shapes, bar_2)) = over_a_session(state, worn, logical_3, UNLOCK);
+  let (mut shapes, bar_2) = match unlock.method() {
+    Ok(Method::Pattern) => {
+      let Ok((shapes, bar_3)) = over_a_session(state, worn, logical_3, UNLOCK);
+      (shapes, bar_3)
+    }
+    Ok(Method::Fingerprint | Method::Password) => {
+      let Ok(bar_4) = state.bar.pictured(worn.bar, logical_3);
+      let shapes = vec![Shape::Panel(Panel {
+        at: Point { x: 0, y: 0 },
+        size: logical_3,
+        round: Round(0),
+        fill: worn.ring.ground,
+        edge: Edge::None,
+      })];
+      (shapes, bar_4)
+    }
+  };
+  let Ok(()) = unlock.paint(logical_3, worn.ring, &mut shapes);
+
+  match {
+    ::core::primitive::bool::then_some(
+      ({
+        let Ok(explicit_value) = unlock.method();
+        explicit_value
+      }) != Method::Pattern,
+      (),
+    )
+  } {
+    ::core::option::Option::Some(()) => {
+      shapes.extend(bar_2.shapes.iter().cloned());
+    }
+    ::core::option::Option::None => {}
+  }
 
   let Ok(wanted) = rendered.wanted(shapes);
 

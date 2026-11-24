@@ -14,9 +14,16 @@ pub(in crate::svg::parity::flowchart) fn collapse_short_terminal_marker_stub(
     target_boundary: Option<BoundaryNode>,
 ) -> bool {
     let (_, arrow_type_end) = arrow_types_for_edge(edge_type);
-    let Some(offset) = marker_offset_for(arrow_type_end) else {
-        return false;
+
+    let offset = {
+        let optional_offset = marker_offset_for(arrow_type_end);
+
+        match optional_offset {
+            Some(matched_offset) => matched_offset,
+            ::core::option::Option::None => return false,
+        }
     };
+
     if points.len() < 3 {
         return false;
     }
@@ -28,16 +35,20 @@ pub(in crate::svg::parity::flowchart) fn collapse_short_terminal_marker_stub(
     let terminal_y = points[n - 1].y - points[n - 2].y;
     let terminal_len = terminal_x.hypot(terminal_y);
 
-    if let Some(boundary) = target_boundary {
-        let min_segment_length = 8.0_f64.max(offset * 2.0);
-        if terminal_len >= min_segment_length
-            || !point_is_on_rect_border(&boundary, &points[n - 2], 1.0)
-        {
-            return false;
-        }
+    match target_boundary {
+        Some(boundary) => {
+            let min_segment_length = 8.0_f64.max(offset * 2.0);
 
-        points.remove(n - 2);
-        return true;
+            if terminal_len >= min_segment_length
+                || !point_is_on_rect_border(&boundary, &points[n - 2], 1.0)
+            {
+                return false;
+            }
+
+            points.remove(n - 2);
+            return true;
+        },
+        ::core::option::Option::None => {},
     }
 
     let continues_forward = incoming_x * terminal_x + incoming_y * terminal_y >= 0.0;
@@ -50,6 +61,7 @@ pub(in crate::svg::parity::flowchart) fn collapse_short_terminal_marker_stub(
     }
 }
 
+#[must_use]
 fn point_is_on_rect_border(
     boundary: &BoundaryNode,
     point: &crate::model::LayoutPoint,
@@ -78,6 +90,7 @@ fn point_is_on_rect_border(
     on_left || on_right || on_top || on_bottom
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn arrow_types_for_edge(
     edge_type: Option<&str>,
 ) -> (Option<&'static str>, Option<&'static str>) {
@@ -102,6 +115,7 @@ pub(in crate::svg::parity::flowchart) fn arrow_types_for_edge(
     (arrow_type_start, arrow_type_end)
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn line_with_offset_for_edge_type(
     input: &[crate::model::LayoutPoint],
     edge_type: Option<&str>,
@@ -110,6 +124,7 @@ pub(in crate::svg::parity::flowchart) fn line_with_offset_for_edge_type(
     line_with_offset_points(input, arrow_type_start, arrow_type_end)
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn rounded_line_with_marker_offsets_for_edge_type(
     input: &[crate::model::LayoutPoint],
     edge_type: Option<&str>,

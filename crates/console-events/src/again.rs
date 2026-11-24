@@ -10,11 +10,9 @@
 //! relays a line as a line and never parses one, and the bar keeps different
 //! lines from the wallpaper -- so the deciding happens here, on the near side
 //! of the socket, and anything that wants to disagree asks
-//! [`crate::subscriber`] itself the way `console-wallpaper` does. Bluetooth is
-//! the one exception and the reason is the wire: what bluez says is a bus
-//! message rather than a line, so the source reads it while it is still one
-//! (`crate::bluetooth`) and passes on only what changed, and a listener says
-//! [`always`] to it.
+//! [`crate::subscriber`] itself the way `console-wallpaper` does. Bluetooth and
+//! Wi-Fi scan sources inspect the bus messages they receive and pass on
+//! markers identifying a change.
 //!
 //! **[`about`] cannot be called without saying what the lines mean, and it
 //! could.** It used to turn every line on an event group into *ask again* and
@@ -39,8 +37,9 @@ use console_program_contract::EventGroup;
 use console_program_lifetime::threads;
 
 use crate::bus;
-use crate::sources::{APPLICATION, NOTIFICATIONS, SCANNED};
+use crate::sources::{APPLICATION, NOTIFICATIONS};
 use crate::subscription::{self, Received, Subscriber};
+use crate::wifi::SCAN_COMPLETE;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Worth {
@@ -71,11 +70,21 @@ pub fn about(
 }
 
 pub fn sound(line: &str) -> Result<Worth, Never> {
+  sound_about(line, &["sink", "server"])
+}
+
+pub fn playback(line: &str) -> Result<Worth, Never> {
+  sound_about(line, &["sink", "server", "sink-input"])
+}
+
+fn sound_about(line: &str, objects: &[&str]) -> Result<Worth, Never> {
   let mut said = line.split_whitespace().skip_while(|word| *word != "on");
 
   Ok(match said.nth(1) {
-    Some("sink" | "server") => Worth::Querying,
-    Some(_not_what_the_reading_comes_from) => Worth::Ignoring,
+    Some(object) => match bool::then_some(objects.contains(&object), ()) {
+      Some(()) => Worth::Querying,
+      None => Worth::Ignoring,
+    },
     None => Worth::Querying,
   })
 }
@@ -95,12 +104,11 @@ pub fn notifications(line: &str) -> Result<Worth, Never> {
 }
 
 pub fn scanned(line: &str) -> Result<Worth, Never> {
-  naming(line, &[SCANNED])
-}
-
-fn naming(line: &str, shown: &[&str]) -> Result<Worth, Never> {
   Ok(
-    match ::core::primitive::bool::then_some(shown.iter().any(|word| line.contains(word)), ()) {
+    match ::core::primitive::bool::then_some(
+      line == SCAN_COMPLETE || line.contains("'LastScan'"),
+      (),
+    ) {
       ::core::option::Option::Some(()) => Worth::Querying,
       ::core::option::Option::None => Worth::Ignoring,
     },
@@ -176,14 +184,20 @@ mod tests {
       let Ok(worth) = sound(line);
 
       assert_eq!(worth, Worth::Ignoring, "{line}");
+      assert_eq!(playback(line), Ok(Worth::Ignoring), "{line}");
     }
   }
 
   #[test]
-  fn a_stream_starting_is_not_the_volume_changing() {
-    let Ok(worth) = sound("Event 'new' on sink-input #74");
-
-    assert_eq!(worth, Worth::Ignoring);
+  fn stream_events_refresh_the_mixer() {
+    for line in [
+      "Event 'new' on sink-input #74",
+      "Event 'change' on sink-input #74",
+      "Event 'remove' on sink-input #74",
+    ] {
+      assert_eq!(playback(line), Ok(Worth::Querying), "{line}");
+      assert_eq!(sound(line), Ok(Worth::Ignoring), "{line}");
+    }
   }
 
   #[test]
@@ -204,6 +218,7 @@ mod tests {
 
     assert_eq!(scan, Worth::Querying);
     assert_eq!(seen, Worth::Ignoring);
+    assert_eq!(scanned(SCAN_COMPLETE), Ok(Worth::Querying));
   }
 
   #[test]

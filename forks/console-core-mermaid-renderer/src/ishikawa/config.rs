@@ -11,6 +11,7 @@ pub(crate) struct IshikawaConfigView<'a> {
 }
 
 impl<'a> IshikawaConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -18,32 +19,42 @@ impl<'a> IshikawaConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> IshikawaLayoutSettings {
         IshikawaLayoutSettings {
-            padding: self
-                .ishikawa_f64("diagramPadding")
-                .unwrap_or(DEFAULT_PADDING)
+            padding: match self
+                .ishikawa_f64("diagramPadding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_PADDING,
+            }
                 .max(0.0),
-            use_max_width: self
-                .ishikawa_bool("useMaxWidth")
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
-            font_size: config_f64_css_px(self.effective_config, &["fontSize"])
-                .unwrap_or(DEFAULT_FONT_SIZE)
+            use_max_width: match self
+                .ishikawa_bool("useMaxWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
+            font_size: match config_f64_css_px(self.effective_config, &["fontSize"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_FONT_SIZE,
+            }
                 .max(1.0),
         }
     }
 
+    #[must_use]
     pub(crate) fn stylesheet_font_size_css(&self) -> Option<String> {
-        // Mermaid's diagram stylesheet receives `themeVariables` as its style options, while the
-        // deterministic layout continues to read the root `fontSize`.
+
+
         config_css_number_or_string(self.effective_config, &["themeVariables", "fontSize"])
             .or_else(|| config_css_number_or_string(self.effective_config, &["fontSize"]))
     }
 
+    #[must_use]
     fn ishikawa_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.ishikawa_config, &[key])
     }
 
+    #[must_use]
     fn ishikawa_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.ishikawa_config, &[key])
     }

@@ -17,11 +17,11 @@ pub enum Purpose {
 }
 
 impl Purpose {
-  pub fn instruction(self) -> &'static str {
-    match self {
+  pub fn instruction(self) -> Result<&'static str, Never> {
+    Ok(match self {
       Self::Text => "Drag over the text",
       Self::Screenshot => "Drag over an area",
-    }
+    })
   }
 }
 
@@ -41,8 +41,15 @@ pub fn prompt(room: Size<u32>, wearing: &Wearing) -> Result<Prompt, Never> {
   let Ok(top) = fitted::<u32, i32>(MARGIN);
   let Ok(step) = fitted::<u32, i32>(instruction.saturating_add(GAP));
   let controls_wide = room.width.saturating_sub(MARGIN.saturating_mul(2)).min(420);
-  let Ok(controls_left) = fitted::<u32, i32>(room.width.saturating_sub(controls_wide) / 2);
-  let Ok(controls_top) = fitted::<u32, i32>(room.height.saturating_sub(MARGIN + BUTTON_TALL));
+  let Ok(controls_left) = fitted::<u32, i32>(::core::primitive::u32::wrapping_div(
+    room.width.saturating_sub(controls_wide),
+    2,
+  ));
+  let Ok(controls_top) = fitted::<u32, i32>(
+    room
+      .height
+      .saturating_sub(MARGIN.saturating_add(BUTTON_TALL)),
+  );
 
   let panel = |x, width| Panel {
     at: Point { x, y: top },
@@ -106,41 +113,57 @@ impl Prompt {
 }
 
 #[derive(Clone, Copy)]
+enum Movement {
+  Coarse,
+  Fine,
+}
+
+#[derive(Clone, Copy)]
 pub struct Corners {
   at: Point<i32>,
   first: Option<Point<i32>>,
-  fine: bool,
+  movement: Movement,
 }
 
 impl Corners {
-  pub fn centered(room: Size<u32>) -> Self {
-    let Ok(x) = fitted::<u32, i32>(room.width / 2);
-    let Ok(y) = fitted::<u32, i32>(room.height / 2);
-    Self {
+  pub fn centered(room: Size<u32>) -> Result<Self, Never> {
+    let Ok(x) = fitted::<u32, i32>(::core::primitive::u32::wrapping_div(room.width, 2));
+    let Ok(y) = fitted::<u32, i32>(::core::primitive::u32::wrapping_div(room.height, 2));
+    Ok(Self {
       at: Point { x, y },
       first: None,
-      fine: false,
-    }
+      movement: Movement::Coarse,
+    })
   }
 
-  pub fn move_by(&mut self, dx: i32, dy: i32, room: Size<u32>) {
-    let step = if self.fine { 1 } else { 32 };
+  pub fn move_by(&mut self, direction: Point<i32>, room: Size<u32>) -> Result<(), Never> {
+    let step = match self.movement {
+      Movement::Coarse => 32,
+      Movement::Fine => 1,
+    };
     let Ok(right) = fitted::<u32, i32>(room.width);
     let Ok(bottom) = fitted::<u32, i32>(room.height);
     self.at.x = self
       .at
       .x
-      .saturating_add(dx.saturating_mul(step))
+      .saturating_add(direction.x.saturating_mul(step))
       .clamp(0, right);
     self.at.y = self
       .at
       .y
-      .saturating_add(dy.saturating_mul(step))
+      .saturating_add(direction.y.saturating_mul(step))
       .clamp(0, bottom);
+
+    Ok(())
   }
 
-  pub fn toggle_fine(&mut self) {
-    self.fine = !self.fine;
+  pub fn toggle_fine(&mut self) -> Result<(), Never> {
+    self.movement = match self.movement {
+      Movement::Coarse => Movement::Fine,
+      Movement::Fine => Movement::Coarse,
+    };
+
+    Ok(())
   }
 
   pub fn pick(&mut self, room: Size<u32>) -> Result<Option<Rectangle<i32>>, Never> {
@@ -164,33 +187,44 @@ impl Corners {
     }
   }
 
-  pub fn instruction(self) -> &'static str {
-    match (self.first, self.fine) {
-      (None, false) => "Pick first corner",
-      (None, true) => "Pick first corner · fine",
-      (Some(_), false) => "Pick opposite corner",
-      (Some(_), true) => "Pick opposite corner · fine",
-    }
+  pub fn instruction(self) -> Result<&'static str, Never> {
+    Ok(match (self.first, self.movement) {
+      (None, Movement::Coarse) => "Pick first corner",
+      (None, Movement::Fine) => "Pick first corner · fine",
+      (Some(_), Movement::Coarse) => "Pick opposite corner",
+      (Some(_), Movement::Fine) => "Pick opposite corner · fine",
+    })
   }
 
   pub fn shapes(self, room: Size<u32>, wearing: &Wearing) -> Result<Vec<Shape>, Never> {
     let Ok(region) = self.region(room);
     let mut shapes = Vec::new();
-    if let Some(region) = region {
-      let Ok(lines) = outline(region, wearing);
-      shapes.extend(lines);
+
+    match region {
+      Some(region_2) => {
+        let Ok(lines) = outline(region_2, wearing);
+        shapes.extend(lines);
+      }
+      ::core::option::Option::None => {}
     }
-    if let Some(first) = self.first.filter(|first| *first != self.at) {
-      shapes.extend(crosshair(first, 5, wearing));
+
+    match self.first.filter(|first| *first != self.at) {
+      Some(first) => {
+        let Ok(guide) = crosshair(first, 5, wearing);
+        shapes.extend(guide);
+      }
+      ::core::option::Option::None => {}
     }
-    shapes.extend(crosshair(self.at, 10, wearing));
+
+    let Ok(cursor) = crosshair(self.at, 10, wearing);
+    shapes.extend(cursor);
     Ok(shapes)
   }
 }
 
-fn crosshair(at: Point<i32>, reach: i32, wearing: &Wearing) -> [Shape; 2] {
+fn crosshair(at: Point<i32>, reach: i32, wearing: &Wearing) -> Result<[Shape; 2], Never> {
   let Point { x, y } = at;
-  [
+  let endpoints = [
     (
       Point {
         x: x.saturating_sub(reach),
@@ -211,15 +245,16 @@ fn crosshair(at: Point<i32>, reach: i32, wearing: &Wearing) -> [Shape; 2] {
         y: y.saturating_add(reach),
       },
     ),
-  ]
-  .map(|(from, to)| {
+  ];
+
+  Ok(endpoints.map(|(from, to)| {
     Shape::Line(Line {
       from,
       to,
       width: 2,
       color: wearing.pink,
     })
-  })
+  }))
 }
 
 #[derive(Clone, Copy)]

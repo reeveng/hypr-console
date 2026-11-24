@@ -17,41 +17,59 @@ struct SwimlaneShellEmissionReceipt {
 }
 
 impl SwimlaneShellEmissionReceipt {
+    #[must_use]
     const fn source_facets(self) -> FlowchartShapeFacetEmissionReceipt {
         self.body.merge(self.title)
     }
 
+    #[must_use]
     const fn fill_verified(self) -> bool {
         self.body.fill && self.title.fill
     }
 
+    #[must_use]
     const fn stroke_verified(self) -> bool {
         self.body.stroke && self.title.stroke
     }
 }
 
+#[must_use]
 fn rough_style_from_node_style(node_style: &str, mut keep: impl FnMut(&str) -> bool) -> String {
     let mut out = String::new();
+
     for declaration in node_style.split(';') {
-        let declaration = declaration.trim();
-        let Some((key, _)) = declaration.split_once(':') else {
-            continue;
+        let declaration_2 = declaration.trim();
+
+        let key = {
+            let optional_key = declaration_2.split_once(':');
+
+            match optional_key {
+                Some((matched_key, _)) => matched_key,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !keep(key.trim()) {
             continue;
         }
+
         if !out.is_empty() {
             out.push(';');
         }
-        out.push_str(declaration);
+
+        out.push_str(declaration_2);
     }
+
     out
 }
 
+#[must_use]
 fn parse_css_px_f32(value: Option<&String>, fallback: f32) -> f32 {
-    value
-        .and_then(|raw| raw.trim_end_matches("px").trim().parse::<f32>().ok())
-        .unwrap_or(fallback)
+    match value
+        .and_then(|raw| match raw.trim_end_matches("px").trim().parse::<f32>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => fallback,
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -62,22 +80,22 @@ fn write_swimlane_rect(
     class_name: &str,
     node_style: &str,
     typed_stroke_width: Option<f32>,
-    x: f64,
-    y: f64,
-    width: f64,
-    height: f64,
+    WriteSwimlaneRectArguments { x, y, width, height }: WriteSwimlaneRectArguments,
     fill: Option<&str>,
     stroke: &str,
 ) -> FlowchartShapeFacetEmissionReceipt {
     if ctx.compatibility.look.as_str() == "handDrawn" {
         let stroke_width = parse_css_px_f32(
             compiled.stroke_width.as_ref(),
-            typed_stroke_width.unwrap_or(1.3),
+            match typed_stroke_width {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 1.3,
+            },
         );
         let stroke_dasharray = compiled.stroke_dasharray.as_deref().unwrap_or("0 0").trim();
-        // RoughJS creates the outline before the fill. Generating both paths
-        // and omitting the fill path for the body therefore preserves the
-        // exact seeded outline used by `fill: none` upstream.
+
+
+
         if let Some((fill_d, stroke_d)) =
             super::super::render::node::roughjs::roughjs_hachure_paths_for_rect(
                 x,
@@ -94,18 +112,20 @@ fn write_swimlane_rect(
             )
         {
             let _ = write!(out, r#"<g class="{}">"#, escape_xml_display(class_name));
-            if let Some(fill) = fill {
+
+            if let Some(fill_2) = fill {
                 let background_style = rough_style_from_node_style(node_style, |key| key == "fill")
                     .replace("fill", "stroke");
                 let _ = write!(
                     out,
                     r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="0 0"{} />"#,
                     escape_xml_display(&fill_d),
-                    escape_xml_display(fill),
-                    fmt_display(SWIMLANE_HAND_DRAWN_FILL_WEIGHT as f64),
+                    escape_xml_display(fill_2),
+                    fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(SWIMLANE_HAND_DRAWN_FILL_WEIGHT)),
                     OptionalStyleXmlAttr(&background_style),
                 );
             }
+
             let border_style =
                 rough_style_from_node_style(node_style, |key| key.contains("stroke"));
             let _ = write!(
@@ -113,7 +133,7 @@ fn write_swimlane_rect(
                 r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"{} /></g>"#,
                 escape_xml_display(&stroke_d),
                 escape_xml_display(stroke),
-                fmt_display(stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(stroke_width)),
                 escape_xml_display(stroke_dasharray),
                 OptionalStyleXmlAttr(&border_style),
             );
@@ -142,6 +162,13 @@ fn write_swimlane_rect(
     FlowchartShapeFacetEmissionReceipt::all()
 }
 
+struct WriteSwimlaneRectArguments {
+    x: f64,
+    y: f64,
+    width: f64,
+    height: f64,
+}
+
 pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
     out: &mut impl crate::svg::parity::SvgOutput,
     ctx: &FlowchartRenderCtx<'_>,
@@ -151,17 +178,21 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
     origin_y: f64,
 ) -> crate::Result<()> {
     ctx.checkpoint_emit()?;
+
     if !super::is_lane_or_pool_cluster(ctx, lane.id.as_str()) {
         return Err(crate::Error::InvalidModel {
             message: format!("Swimlane shell `{}` is neither a lane nor a pool", lane.id),
         });
     }
+
     let subgraph = ctx.subgraphs_by_id.get(cluster.id.as_str()).copied();
     let subgraph_index = ctx.subgraph_indices_by_id.get(cluster.id.as_str()).copied();
-    let class_names = subgraph
+    let class_names = match subgraph
         .zip(subgraph_index)
-        .map(|(subgraph, index)| ctx.model.effective_subgraph_css(index, subgraph).0)
-        .unwrap_or_default();
+        .map(|(subgraph_2, index)| ctx.model.effective_subgraph_css(index, subgraph_2).0) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => &[],
+    };
     let terminal = ctx.prepared_nodes.cluster(cluster.id.as_str())?;
     let cluster_theme = &terminal.theme;
     let compiled = &terminal.compiled;
@@ -174,9 +205,9 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
     let render_title =
         subgraph
             .zip(subgraph_index)
-            .map_or(lane.title.as_str(), |(subgraph, subgraph_index)| {
+            .map_or(lane.title.as_str(), |(subgraph_3, subgraph_index_2)| {
                 ctx.model
-                    .subgraph_title_for_render(subgraph_index, subgraph)
+                    .subgraph_title_for_render(subgraph_index_2, subgraph_3)
             });
     let direction = ctx
         .swimlane_direction
@@ -209,8 +240,8 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
     let typed_lane_fill = terminal.typed_fill.as_deref();
     let lane_fill = terminal.fill.as_str();
     let lane_stroke = terminal.stroke.as_str();
-    // The body has no compatibility fill path in hand-drawn output. Only a direct typed fill may
-    // add one; a typed stroke owns the outline independently and must not recolor the body.
+
+
     let body_fill = typed_lane_fill;
     let is_pool = super::uses_pool_shell(ctx, lane.id.as_str());
     let body_class = if is_pool {
@@ -233,13 +264,16 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
     } else {
         "cluster swimlane"
     });
+
     for class in class_names {
-        let class = class.trim();
-        if !class.is_empty() {
+        let class_2 = class.trim();
+
+        if !class_2.is_empty() {
             classes.push(' ');
-            classes.push_str(class);
+            classes.push_str(class_2);
         }
     }
+
     let lane_dom_id =
         ctx.document_ids()
             .lane(&lane.id)
@@ -257,21 +291,23 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
     let color_slot = super::super::agentflow::container_color_slot(ctx, &lane.id).or_else(|| {
         let palette_len = ctx.compatibility.palette.len();
         (subgraph.is_none() && palette_len > 0).then(|| {
-            // The synthetic lane follows the highest visible source container color ordinal.
+
             ctx.model
                 .subgraphs
                 .iter()
-                .filter(|subgraph| ctx.model.collapsed_replacement(&subgraph.id).is_none())
-                .filter_map(|subgraph| ctx.model.subgraph_color_ordinal(&subgraph.id))
+                .filter(|subgraph_4| ctx.model.collapsed_replacement(&subgraph_4.id).is_none())
+                .filter_map(|subgraph_5| ctx.model.subgraph_color_ordinal(&subgraph_5.id))
                 .max()
                 .map_or(0, |ordinal| ordinal.saturating_add(1))
                 % palette_len
         })
     });
     let _ = write!(out, r#" data-look="{}""#, escape_xml_display(data_look));
-    if let Some(color_slot) = color_slot {
-        let _ = write!(out, r#" data-color-id="color-{color_slot}""#);
+
+    if let Some(color_slot_2) = color_slot {
+        let _ = write!(out, r#" data-color-id="color-{color_slot}""#, color_slot = color_slot_2);
     }
+
     out.push('>');
 
     let (shell_receipt, label_x, label_y, label_transform) = if is_lr {
@@ -285,24 +321,24 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
             body_class,
             node_style,
             typed_stroke_width,
-            body_x,
-            lane_top,
-            body_width,
-            height,
+            self::WriteSwimlaneRectArguments { x: body_x,
+            y: lane_top,
+            width: body_width,
+            height },
             body_fill,
             lane_stroke,
         );
-        let title_receipt = write_swimlane_rect(
+        let title_receipt_2 = write_swimlane_rect(
             out,
             ctx,
             compiled,
             title_class,
             node_style,
             typed_stroke_width,
-            lane_left,
-            lane_top,
-            title_width,
-            height,
+            self::WriteSwimlaneRectArguments { x: lane_left,
+            y: lane_top,
+            width: title_width,
+            height },
             Some(lane_fill),
             lane_stroke,
         );
@@ -311,7 +347,7 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
         (
             SwimlaneShellEmissionReceipt {
                 body: body_receipt,
-                title: title_receipt,
+                title: title_receipt_2,
             },
             0.0,
             0.0,
@@ -334,31 +370,31 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
             body_class,
             node_style,
             typed_stroke_width,
-            lane_left,
-            body_y,
+            self::WriteSwimlaneRectArguments { x: lane_left,
+            y: body_y,
             width,
-            body_height,
+            height: body_height },
             body_fill,
             lane_stroke,
         );
-        let title_receipt = write_swimlane_rect(
+        let title_receipt_3 = write_swimlane_rect(
             out,
             ctx,
             compiled,
             title_class,
             node_style,
             typed_stroke_width,
-            lane_left,
-            lane_top,
+            self::WriteSwimlaneRectArguments { x: lane_left,
+            y: lane_top,
             width,
-            title_height,
+            height: title_height },
             Some(lane_fill),
             lane_stroke,
         );
         (
             SwimlaneShellEmissionReceipt {
                 body: body_receipt,
-                title: title_receipt,
+                title: title_receipt_3,
             },
             geometry.title_label.x - label_width / 2.0 + ctx.tx - origin_x,
             geometry.title_label.y - label_height / 2.0 + ctx.ty - origin_y,
@@ -390,6 +426,7 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
         crate::flowchart::FlowchartSourceFacetStatus::Absent,
         crate::flowchart::FlowchartSourceFacetStatus::Absent,
     );
+
     if ctx.swimlane_title_html_labels {
         let prepared_label = ctx
             .svg_label_sidecar
@@ -434,6 +471,7 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
             OptionalStyleXmlAttr(label_style),
             title_html,
         );
+
         if ctx.text_surface_paint.requested() {
             ctx.text_surface_paint.record_label(
                 lane.id.as_str(),
@@ -442,6 +480,7 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
                 ctx.work_meter,
             )?;
         }
+
         ctx.theme_evidence
             .record_source_residuals(&compiled.emitted_html_label_source_residuals(
                 lane.id.as_str(),
@@ -475,8 +514,9 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
             true,
             crate::flowchart::FlowchartSvgWidthMode::Bbox,
         );
-        let zero_width_title = lane.width == 0.0;
+        let zero_width_title = ::core::matches!(::core::primitive::f64::classify(lane.width), ::core::num::FpCategory::Zero);
         let prepared_title = !zero_width_title && prepared.is_prepared();
+
         if zero_width_title {
             let rows = crate::flowchart::zero_width_lane_title_rows(render_title);
             crate::svg::parity::label::write_svg_markdown_word_lines_with_style(
@@ -490,20 +530,22 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
         } else {
             write_flowchart_svg_text_markdown(out, render_title, true);
         }
+
         title_receipt = title_receipt.with_prepared_typography_reach(
             !flowchart_label_is_empty_for_render(render_title),
             false,
         );
         out.push_str("</g></g>");
+
         if ctx.text_surface_paint.requested() {
             ctx.text_surface_paint.record_label(
                 lane.id.as_str(),
                 &crate::text::VisibleTextStyleFacts::from_svg_markdown_projection(render_title),
-                super::super::css::cluster_title_class_foreground(
+                { let checked_value = super::super::css::cluster_title_class_foreground(
                     ctx.class_defs,
                     class_names,
                     ctx.work_meter,
-                )?,
+                )?; checked_value },
                 ctx.work_meter,
             )?;
         }
@@ -512,6 +554,7 @@ pub(in crate::svg::parity::flowchart) fn render_swimlane_cluster(
             &compiled.emitted_label_source_residuals(lane.id.as_str(), prepared_title),
         );
     }
+
     ctx.record_base_typography_label_emission(
         crate::flowchart::FlowchartBaseTypographyLabelEmission::new(
             title_owner,

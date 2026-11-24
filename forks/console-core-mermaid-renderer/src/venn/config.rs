@@ -13,33 +13,49 @@ pub(crate) struct VennConfigView<'a> {
 }
 
 impl<'a> VennConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             venn_config: effective_config.get("venn").unwrap_or(&Value::Null),
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> VennLayoutSettings {
         VennLayoutSettings {
-            width: self.venn_f64("width").unwrap_or(DEFAULT_SVG_WIDTH).max(1.0),
-            height: self
-                .venn_f64("height")
-                .unwrap_or(DEFAULT_SVG_HEIGHT)
+            width: match self.venn_f64("width") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_SVG_WIDTH,
+            }.max(1.0),
+            height: match self
+                .venn_f64("height") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_SVG_HEIGHT,
+            }
                 .max(1.0),
-            padding: self.venn_f64("padding").unwrap_or(DEFAULT_PADDING).max(0.0),
-            use_max_width: self
-                .venn_bool("useMaxWidth")
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
-            use_debug_layout: self
-                .venn_bool("useDebugLayout")
-                .unwrap_or(DEFAULT_USE_DEBUG_LAYOUT),
+            padding: match self.venn_f64("padding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_PADDING,
+            }.max(0.0),
+            use_max_width: match self
+                .venn_bool("useMaxWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
+            use_debug_layout: match self
+                .venn_bool("useDebugLayout") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_DEBUG_LAYOUT,
+            },
         }
     }
 
+    #[must_use]
     fn venn_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.venn_config, &[key])
     }
 
+    #[must_use]
     fn venn_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.venn_config, &[key])
     }

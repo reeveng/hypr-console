@@ -24,6 +24,7 @@ console-input-key-symbols = { path = "crates/console-input-key-symbols" }
 console-core-byte-streams = { path = "crates/console-core-byte-streams" }
 console-core-frequency-transforms = { path = "crates/console-core-frequency-transforms" }
 console-core-audio-samples = { path = "crates/console-core-audio-samples" }
+console-audio-streams = { path = "crates/console-audio-streams" }
 console-core-audio-windows = { path = "crates/console-core-audio-windows" }
 console-core-integer-sets = { path = "crates/console-core-integer-sets", default-features = false }
 console-core-portable-document-functions = { path = "crates/console-core-portable-document-functions" }
@@ -44,7 +45,7 @@ console-core-mpeg-audio-frames = { path = "crates/console-core-mpeg-audio-frames
 console-core-audio-decoding = { path = "crates/console-core-audio-decoding" }
 console-core-audio-decoding-opus = { path = "crates/console-core-audio-decoding-opus" }
 console-core-video-decoding-advanced-video-coding = { path = "crates/console-core-video-decoding-advanced-video-coding" }
-console-core-video-decoding-av1 = { path = "crates/console-core-video-decoding-av1", features = ["unchecked"] }
+console-core-video-decoding-av1 = { path = "crates/console-core-video-decoding-av1" }
 console-core-video-decoding-high-efficiency-video-coding = { path = "crates/console-core-video-decoding-high-efficiency-video-coding" }
 console-core-video-decoding-matroska-container = { path = "crates/console-core-video-decoding-matroska-container" }
 console-core-video-decoding-mpeg-4-container = { path = "crates/console-core-video-decoding-mpeg-4-container" }
@@ -60,6 +61,7 @@ console-core-path-rasterizer = { path = "crates/console-core-path-rasterizer" }
 rustix = { version = "1.1", features = ["process", "fs", "mm", "event", "pipe", "time", "param", "stdio", "thread", "rand", "linux_4_11"] }
 libm = "0.2.16"
 console-applications = { path = "crates/console-applications" }
+console-gio = { path = "crates/console-gio" }
 console-input-mapping = { path = "crates/console-input-mapping" }
 console-program-lifetime = { path = "crates/console-program-lifetime" }
 console-awake = { path = "crates/console-awake" }
@@ -68,15 +70,16 @@ console-bluetooth = { path = "crates/console-bluetooth" }
 console-bluetooth-agent = { path = "crates/console-bluetooth-agent" }
 console-bus = { path = "crates/console-bus" }
 console-calendar = { path = "crates/console-calendar" }
-console-capture = { path = "crates/console-capture", default-features = false }
-console-calculator = { path = "crates/console-calculator" }
+console-application-camera = { path = "crates/console-application-camera", default-features = false }
+console-application-calculator = { path = "crates/console-application-calculator" }
 console-forecast = { path = "crates/console-forecast" }
-console-notes = { path = "crates/console-notes" }
+console-application-notes = { path = "crates/console-application-notes" }
 console-core-gif-files = { path = "crates/console-core-gif-files" }
 console-core-jpeg-files = { path = "crates/console-core-jpeg-files" }
 console-core-png-files = { path = "crates/console-core-png-files" }
 console-core-subtitle-files = { path = "crates/console-core-subtitle-files" }
 console-core-picture-scaling = { path = "crates/console-core-picture-scaling" }
+console-core-simd = { path = "crates/console-core-simd", default-features = false }
 console-core-pixel-buffers = { path = "crates/console-core-pixel-buffers" }
 console-core-prefix-codes = { path = "crates/console-core-prefix-codes" }
 console-core-webp-files = { path = "crates/console-core-webp-files" }
@@ -86,8 +89,8 @@ console-concurrency = { path = "crates/console-concurrency" }
 console-core-parallel-execution = { path = "crates/console-core-parallel-execution" }
 console-control-center = { path = "crates/console-control-center" }
 console-overview = { path = "crates/console-overview" }
-console-task-manager = { path = "crates/console-task-manager" }
-console-clipboard = { path = "crates/console-clipboard" }
+console-application-task-manager = { path = "crates/console-application-task-manager" }
+console-application-clipboard = { path = "crates/console-application-clipboard" }
 console-input-controller = { path = "crates/console-input-controller" }
 console-cpu-boost = { path = "crates/console-cpu-boost" }
 console-battery = { path = "crates/console-battery" }
@@ -99,12 +102,12 @@ console-input-alphabets = { path = "crates/console-input-alphabets" }
 console-input-bindings = { path = "crates/console-input-bindings" }
 console-input-dictation = { path = "crates/console-input-dictation" }
 console-input-event-devices = { path = "crates/console-input-event-devices" }
-console-downloads = { path = "crates/console-downloads" }
+console-application-downloads = { path = "crates/console-application-downloads" }
 console-events = { path = "crates/console-events" }
 console-core-external-programs = { path = "crates/console-core-external-programs" }
 console-test-checks = { path = "crates/console-test-checks" }
 console-core-atomic-writes = { path = "crates/console-core-atomic-writes" }
-console-files = { path = "crates/console-files" }
+console-application-files = { path = "crates/console-application-files" }
 console-input-gamepad = { path = "crates/console-input-gamepad" }
 console-button-guide = { path = "crates/console-button-guide" }
 console-home-screen = { path = "crates/console-home-screen" }
@@ -122,7 +125,7 @@ console-login-session = { path = "crates/console-login-session" }
 console-login-window = { path = "crates/console-login-window" }
 console-manifest-engine = { path = "crates/console-manifest-engine" }
 console-manifest-migrations = { path = "crates/console-manifest-migrations" }
-console-music = { path = "crates/console-music" }
+console-application-music = { path = "crates/console-application-music" }
 console-music-player = { path = "crates/console-music-player" }
 console-test-desktop = { path = "crates/console-test-desktop" }
 console-core-geometry = { path = "crates/console-core-geometry" }
@@ -185,16 +188,18 @@ console-repository = { path = "crates/console-repository" }
 console-screen = { path = "crates/console-screen" }
 console-draw-surface = { path = "crates/console-draw-surface" }
 console-session = { path = "crates/console-session" }
+console-session-plasma = { path = "crates/console-session-plasma" }
 console-settings = { path = "crates/console-settings" }
 console-status-bar = { path = "crates/console-status-bar" }
 console-resource-usage = { path = "crates/console-resource-usage" }
 console-test-stages = { path = "crates/console-test-stages" }
 console-core-localization = { path = "crates/console-core-localization" }
-console-media-viewer = { path = "crates/console-media-viewer" }
+console-application-media-viewer = { path = "crates/console-application-media-viewer" }
 console-input-pointer = { path = "crates/console-input-pointer" }
 console-input-touchscreen = { path = "crates/console-input-touchscreen" }
 console-response-times = { path = "crates/console-response-times" }
 console-resume = { path = "crates/console-resume" }
+console-paper = { path = "crates/console-paper" }
 console-wallpaper = { path = "crates/console-wallpaper" }
 console-weather = { path = "crates/console-weather" }
 console-core-bitmap-font = { path = "forks/console-core-bitmap-font", default-features = false }
@@ -212,7 +217,7 @@ console-core-epub-files = { path = "crates/console-core-epub-files" }
 console-core-markup-tokens = { path = "crates/console-core-markup-tokens" }
 console-core-lzw = { path = "crates/console-core-lzw" }
 console-core-deflate = { path = "crates/console-core-deflate" }
-console-books = { path = "crates/console-books" }
+console-application-books = { path = "crates/console-application-books" }
 console-architecture = { path = "crates/console-architecture" }
 
 [patch.crates-io]
@@ -224,6 +229,9 @@ debug = "line-tables-only"
 incremental = false
 
 [profile.dev.package.console-core-path-rasterizer]
+opt-level = 2
+
+[profile.dev.package.console-core-webp-files]
 opt-level = 2
 
 [profile.dev.package.console-repository]

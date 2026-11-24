@@ -49,8 +49,8 @@ impl StagedProgram {
         };
         resolved
             .get_or_init(|| {
-                // The generated snapshot sorts object keys. Execute once to preserve the
-                // insertion order observed by config consumers, including nested objects.
+
+
                 Resolution::execute_impl(
                     self,
                     ThemeProgram::resolve(theme).prepared_constructor(),
@@ -118,6 +118,7 @@ impl Owners {
         self.0.dedup();
     }
 
+    #[must_use]
     fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
@@ -131,6 +132,7 @@ enum OwnerSource<'a> {
 }
 
 impl OwnerSource<'_> {
+    #[must_use]
     fn owns(self, path: &str) -> bool {
         match self {
             Self::Config(config) => config.theme_variable_has_calculation_owner(path),
@@ -150,7 +152,7 @@ enum ValueAuthority<'a> {
 
 #[derive(Debug, Clone, Default)]
 struct SourceTable {
-    // Cache negative reads too: a constructor-owned value need not query host ownership again.
+
     seeds: BTreeMap<String, Option<usize>>,
     paths: Vec<String>,
 }
@@ -169,10 +171,10 @@ struct AuthorityState<'a> {
     explicit: &'a Map<String, Value>,
     owner_source: OwnerSource<'a>,
     explicit_applied: bool,
-    // Only overlapping literal roots need an overlay-order index and explicit full replay.
-    // Borrow the keys; ordinary unrelated scalar overrides allocate no index or self seed.
+
+
     overlay_order: BTreeMap<&'a str, usize>,
-    // Only actual interpreter writes are represented. Unread explicit variables have no entry.
+
     replacements: BTreeMap<String, ValueAuthority<'a>>,
     sources: std::cell::RefCell<SourceTable>,
     #[cfg(test)]
@@ -185,30 +187,42 @@ struct ResolvedAuthority {
 }
 
 impl<'a> AuthorityState<'a> {
+    #[must_use]
     fn new(explicit: &'a Map<String, Value>, owner_source: OwnerSource<'a>) -> Self {
         let mut overlay_order = BTreeMap::new();
+
         for key in explicit.keys() {
             let mut overlaps_ancestor = false;
+
             for (index, _) in key.match_indices('.') {
                 let ancestor = &key[..index];
+
                 if explicit.contains_key(ancestor) {
                     overlay_order.entry(ancestor).or_default();
                     overlaps_ancestor = true;
                 }
             }
+
             if overlaps_ancestor {
                 overlay_order.entry(key.as_str()).or_default();
             }
         }
-        // Map iteration is the interpreter's write order, including preserve_order builds.
-        // Index both sides of each overlap without indexing unrelated authored variables.
+
+
+
         if !overlay_order.is_empty() {
             for (order, key) in explicit.keys().enumerate() {
-                if let Some(indexed_order) = overlay_order.get_mut(key.as_str()) {
-                    *indexed_order = order;
+                {
+                    match overlay_order.get_mut(key.as_str()) {
+                        Some(indexed_order) => {
+                            *indexed_order = order;
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         }
+
         Self {
             explicit,
             owner_source,
@@ -223,10 +237,15 @@ impl<'a> AuthorityState<'a> {
 
     /// Find the nearest replacement, including the path itself. A computed ancestor blocks
     /// authored fallback; replay can restore an authored child without disturbing siblings.
+    #[must_use]
     fn origin(&self, path: &str) -> Option<(&str, &ValueAuthority<'a>)> {
-        if let Some((root, origin)) = self.replacements.get_key_value(path) {
-            return Some((root, origin));
+        match self.replacements.get_key_value(path) {
+            Some((root, origin)) => {
+                return Some((root, origin));
+            },
+            ::core::option::Option::None => {},
         }
+
         path.rmatch_indices('.').find_map(|(index, _)| {
             self.replacements
                 .get_key_value(&path[..index])
@@ -234,15 +253,18 @@ impl<'a> AuthorityState<'a> {
         })
     }
 
+    #[must_use]
     fn read(&self, path: &str) -> Owners {
         #[cfg(test)]
         self.record_work(|work| work.reads += 1);
+
         if !self.explicit_applied {
             return Owners::default();
         }
+
         let authored_leaf = match self.origin(path) {
             Some((root, ValueAuthority::Computed(owners))) => {
-                // A parent object's authority is not authority for an unlisted child.
+
                 return if root == path {
                     owners.clone()
                 } else {
@@ -254,13 +276,20 @@ impl<'a> AuthorityState<'a> {
             }
             None => self.explicit_has_leaf_path(path),
         };
+
         if !authored_leaf {
             return Owners::default();
         }
+
         let mut sources = self.sources.borrow_mut();
-        if let Some(owner) = sources.seeds.get(path) {
-            return Owners(owner.iter().copied().collect());
+
+        match sources.seeds.get(path) {
+            Some(owner) => {
+                return Owners(owner.iter().copied().collect());
+            },
+            ::core::option::Option::None => {},
         }
+
         #[cfg(test)]
         self.record_work(|work| work.source_queries += 1);
         let owner = self.owner_source.owns(path).then(|| {
@@ -274,33 +303,50 @@ impl<'a> AuthorityState<'a> {
 
     /// Every matching literal root overwrites this path, even when it supplies no leaf there.
     /// Select the last such write in Map order, not the longest dotted prefix.
+    #[must_use]
     fn explicit_has_leaf_path(&self, path: &str) -> bool {
         let mut latest: Option<(usize, usize, &Value)> = None;
+
         for root in
             std::iter::once(path).chain(path.rmatch_indices('.').map(|(index, _)| &path[..index]))
         {
-            let Some(value) = self.explicit.get(root) else {
-                continue;
+            let value = {
+                let optional_value = self.explicit.get(root);
+
+                match optional_value {
+                    Some(matched_value) => matched_value,
+                    ::core::option::Option::None => continue,
+                }
             };
-            let Some(&order) = self.overlay_order.get(root) else {
-                // If another literal root could match this same path, both would be indexed.
-                return authored_value_has_leaf(value, &path[root.len()..]);
+
+            let order = {
+                let optional_order = self.overlay_order.get(root);
+
+                match optional_order {
+                    Some(&matched_order) => matched_order,
+                    ::core::option::Option::None => return authored_value_has_leaf(value, &path[root.len()..]),
+                }
             };
+
             if latest.is_none_or(|(previous, _, _)| order > previous) {
                 latest = Some((order, root.len(), value));
             }
         }
+
         latest.is_some_and(|(_, root_len, value)| authored_value_has_leaf(value, &path[root_len..]))
     }
 
     fn remove_subtree(&mut self, root: &str) {
         #[cfg(test)]
         self.record_work(|work| work.replacement_probes += 1);
+
         if self.replacements.remove(root).is_some() {
             #[cfg(test)]
             self.record_work(|work| work.removed_replacements += 1);
         }
+
         let prefix = format!("{root}.");
+
         loop {
             let descendant = self
                 .replacements
@@ -311,9 +357,12 @@ impl<'a> AuthorityState<'a> {
                 .next()
                 .filter(|(path, _)| path.starts_with(&prefix))
                 .map(|(path, _)| path.clone());
-            let Some(descendant) = descendant else {
-                break;
+
+            let descendant = match descendant {
+                Some(matched_descendant) => matched_descendant,
+                ::core::option::Option::None => break,
             };
+
             self.replacements.remove(&descendant);
             #[cfg(test)]
             self.record_work(|work| work.removed_replacements += 1);
@@ -322,14 +371,15 @@ impl<'a> AuthorityState<'a> {
 
     fn replay(&mut self, root: &str, value: &'a Value) {
         self.remove_subtree(root);
-        // Full replay can clear dotted descendants or restore a root shadowed during overlay.
-        // Preserve both sides of an overlap: a later shallow replay may not write this path.
-        // Unrelated unchanged roots already have the right authored fallback and need no entry.
-        // Nested replay binds the actual shallow write, including literal dotted-key aliases.
+
+
+
+
         let unchanged_root = self
             .explicit
             .get(root)
             .is_some_and(|original| std::ptr::eq(original, value));
+
         if !unchanged_root || self.origin(root).is_some() || self.overlay_order.contains_key(root) {
             self.replacements
                 .insert(root.to_string(), ValueAuthority::Authored(value));
@@ -340,12 +390,14 @@ impl<'a> AuthorityState<'a> {
         self.remove_subtree(target);
         self.replacements
             .insert(target.to_string(), ValueAuthority::Computed(owners));
-        for (path, owners) in nested {
+
+        for (path, owners_2) in nested {
             self.replacements
-                .insert(format!("{target}.{path}"), ValueAuthority::Computed(owners));
+                .insert(format!("{target}.{path}"), ValueAuthority::Computed(owners_2));
         }
     }
 
+    #[must_use]
     fn finish(self) -> ResolvedAuthority {
         ResolvedAuthority {
             paths: self.sources.into_inner().paths,
@@ -372,24 +424,34 @@ impl<'a> AuthorityState<'a> {
 
 /// Inside one authored value, flattening does not perform intervening subtree replacements.
 /// Try each object-key boundary so literal dots retain the original compatibility behavior.
+#[must_use]
 fn authored_value_has_leaf(value: &Value, suffix: &str) -> bool {
     if suffix.is_empty() {
         return value.as_object().is_none_or(Map::is_empty);
     }
-    let Some(object) = value.as_object() else {
-        return false;
+
+    let object = {
+        let optional_object = value.as_object();
+
+        match optional_object {
+            Some(matched_object) => matched_object,
+            ::core::option::Option::None => return false,
+        }
     };
+
     let path = &suffix[1..];
+
     if object
         .get(path)
-        .is_some_and(|value| authored_value_has_leaf(value, ""))
+        .is_some_and(|value_2| authored_value_has_leaf(value_2, ""))
     {
         return true;
     }
+
     path.match_indices('.').any(|(index, _)| {
         object
             .get(&path[..index])
-            .is_some_and(|value| authored_value_has_leaf(value, &path[index..]))
+            .is_some_and(|value_3| authored_value_has_leaf(value_3, &path[index..]))
     })
 }
 
@@ -401,22 +463,26 @@ struct ComputedValue {
 }
 
 impl ComputedValue {
+    #[must_use]
     fn constant(value: impl Into<Value>) -> Self {
         Self {
-            value: value.into(),
+            value: <_ as ::core::convert::Into<::serde_json::Value>>::into(value),
             owners: Owners::default(),
             nested_owners: BTreeMap::new(),
         }
     }
 
+    #[must_use]
     fn string(value: impl Into<String>) -> Self {
-        Self::constant(Value::String(value.into()))
+        Self::constant(Value::String(<_ as ::core::convert::Into<::std::string::String>>::into(value)))
     }
 
+    #[must_use]
     fn number(value: i64) -> Self {
-        Self::constant(Value::Number(value.into()))
+        Self::constant(Value::Number(<::serde_json::Number as ::core::convert::From<::core::primitive::i64>>::from(value)))
     }
 
+    #[must_use]
     fn with_owners(value: Value, owners: Owners) -> Self {
         Self {
             value,
@@ -429,6 +495,7 @@ impl ComputedValue {
         self.owners.extend(stage.owners(path));
     }
 
+    #[must_use]
     fn object(value: Map<String, Value>, nested_owners: BTreeMap<String, Owners>) -> Self {
         Self {
             value: Value::Object(value),
@@ -439,6 +506,7 @@ impl ComputedValue {
 }
 
 impl<'a> ThemeState<'a> {
+    #[must_use]
     fn constructor(
         variables: Map<String, Value>,
         explicit: &'a Map<String, Value>,
@@ -457,8 +525,12 @@ impl<'a> ThemeState<'a> {
                 .iter()
                 .map(|(key, value)| (key.clone(), value.clone())),
         );
-        if let Some(authority) = &mut self.authority {
-            authority.explicit_applied = true;
+
+        match &mut self.authority {
+            Some(authority) => {
+                authority.explicit_applied = true;
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -467,36 +539,48 @@ impl<'a> ThemeState<'a> {
             if self.variables.get(key).is_some_and(Value::is_object)
                 && let Value::Object(children) = value
             {
-                for (child, value) in children {
+                for (child, value_2) in children {
                     self.variables
                         .get_mut(key)
                         .and_then(Value::as_object_mut)
                         .expect("replay target remains an object")
-                        .insert(child.clone(), value.clone());
-                    if let Some(authority) = &mut self.authority {
-                        authority.replay(&format!("{key}.{child}"), value);
+                        .insert(child.clone(), value_2.clone());
+
+                    match &mut self.authority {
+                        Some(authority) => {
+                            authority.replay(&format!("{key}.{child}"), value_2);
+                        },
+                        ::core::option::Option::None => {},
                     }
                 }
             } else {
                 self.variables.insert(key.clone(), value.clone());
-                if let Some(authority) = &mut self.authority {
-                    authority.replay(key, value);
+
+                match &mut self.authority {
+                    Some(authority) => {
+                        authority.replay(key, value);
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
         }
     }
 
+    #[must_use]
     fn owners(&self, key: &str) -> Owners {
         self.authority
             .as_ref()
             .map_or_else(Owners::default, |authority| authority.read(key))
     }
 
+    #[must_use]
     fn computed(&self, value: Value, keys: &[&str]) -> ComputedValue {
         let mut owners = Owners::default();
+
         for key in keys {
             owners.extend(self.owners(key));
         }
+
         ComputedValue::with_owners(value, owners)
     }
 
@@ -509,6 +593,7 @@ impl<'a> ThemeState<'a> {
         Ok(self.computed(value, &[key]))
     }
 
+    #[must_use]
     fn truthy_from(&self, key: &str) -> Option<ComputedValue> {
         self.variables
             .get(key)
@@ -539,8 +624,12 @@ impl<'a> ThemeState<'a> {
 
     fn commit_computed(&mut self, target: &str, computed: ComputedValue) {
         self.variables.insert(target.to_string(), computed.value);
-        if let Some(authority) = &mut self.authority {
-            authority.commit(target, computed.owners, computed.nested_owners);
+
+        match &mut self.authority {
+            Some(authority) => {
+                authority.commit(target, computed.owners, computed.nested_owners);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -553,6 +642,7 @@ impl<'a> ThemeState<'a> {
         if value_is_missing(&self.variables, target) {
             self.assign(target, fallback)?;
         }
+
         Ok(())
     }
 
@@ -565,13 +655,14 @@ impl<'a> ThemeState<'a> {
         if self.variables.get(target).is_none_or(Value::is_null) {
             self.assign(target, fallback)?;
         }
+
         Ok(())
     }
 
     #[cfg(test)]
     fn snapshot(&self) -> StateSnapshot {
-        // Snapshots are a test projection. Read a clone so observing the trace cannot seed or
-        // increase work in the interpreter being measured by structural regression tests.
+
+
         let dependencies = self
             .authority
             .clone()
@@ -688,6 +779,7 @@ impl Resolution {
             StagedProgram::Forest => update_forest(&mut state)?,
             StagedProgram::Neutral => update_neutral(&mut state)?,
         }
+
         #[cfg(test)]
         let after_update = state.snapshot();
 
@@ -702,6 +794,7 @@ impl Resolution {
             let computed = state.computed(Value::Bool(false), &["nodeBorder"]);
             state.commit_computed("useGradient", computed);
         }
+
         #[cfg(test)]
         let final_resolved = state.snapshot();
         #[cfg(test)]
@@ -731,15 +824,20 @@ impl Resolution {
             "themeVariables",
             Value::Object(self.variables),
         );
-        if let Some(authority) = self.authority {
-            for (target, owners) in authority.dependencies {
-                for owner in owners.0 {
-                    let source = &authority.paths[owner];
-                    if source != &target {
-                        config.propagate_theme_variable_ownership(source, &target);
+
+        match self.authority {
+            Some(authority) => {
+                for (target, owners) in authority.dependencies {
+                    for owner in owners.0 {
+                        let source = &authority.paths[owner];
+
+                        if source != &target {
+                            config.propagate_theme_variable_ownership(source, &target);
+                        }
                     }
                 }
-            }
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -749,6 +847,7 @@ impl Resolution {
     }
 }
 
+#[must_use]
 fn missing_value_error(key: &str) -> ColorError {
     ColorError::UnsupportedFormat {
         input: format!("missing or non-color theme value `{key}`"),
@@ -767,7 +866,7 @@ fn transform_color(
             input: computed.value.to_string(),
         })?;
     Ok(ComputedValue::with_owners(
-        Value::String(transform(input)?),
+        Value::String({ let checked_value = transform(input)?; checked_value }),
         computed.owners,
     ))
 }
@@ -777,9 +876,15 @@ fn copy(stage: &ThemeState, key: &str) -> Result<ComputedValue, ColorError> {
 }
 
 fn first_truthy(stage: &ThemeState, keys: &[&str]) -> Result<ComputedValue, ColorError> {
-    let Some((last, candidates)) = keys.split_last() else {
-        return Err(missing_value_error("empty JavaScript OR chain"));
+    let (last, candidates) = {
+        let optional_last = keys.split_last();
+
+        match optional_last {
+            Some((matched_last, matched_candidates)) => (matched_last, matched_candidates),
+            ::core::option::Option::None => return Err(missing_value_error("empty JavaScript OR chain")),
+        }
     };
+
     if let Some(value) = candidates.iter().find_map(|key| stage.truthy_from(key)) {
         Ok(value)
     } else {
@@ -794,6 +899,7 @@ fn for_theme_color_indices(
     for index in 0..stage.theme_color_iterations {
         execute(stage, index)?;
     }
+
     Ok(())
 }
 
@@ -806,25 +912,25 @@ fn adjusted(
     key: &str,
     adjustment: ColorAdjustment,
 ) -> Result<ComputedValue, ColorError> {
-    transform_color(copy(stage, key)?, |color| {
+    transform_color({ let checked_value = copy(stage, key)?; checked_value }, |color| {
         theme_color::adjust(color, adjustment)
     })
 }
 
 fn lightened(stage: &ThemeState, key: &str, amount: f64) -> Result<ComputedValue, ColorError> {
-    transform_color(copy(stage, key)?, |color| {
+    transform_color({ let checked_value = copy(stage, key)?; checked_value }, |color| {
         theme_color::lighten(color, amount)
     })
 }
 
 fn darkened(stage: &ThemeState, key: &str, amount: f64) -> Result<ComputedValue, ColorError> {
-    transform_color(copy(stage, key)?, |color| {
+    transform_color({ let checked_value = copy(stage, key)?; checked_value }, |color| {
         theme_color::darken(color, amount)
     })
 }
 
 fn inverted(stage: &ThemeState, key: &str) -> Result<ComputedValue, ColorError> {
-    transform_color(copy(stage, key)?, theme_color::invert)
+    transform_color({ let checked_value = copy(stage, key)?; checked_value }, theme_color::invert)
 }
 
 struct ObjectBuilder<'a> {
@@ -835,6 +941,7 @@ struct ObjectBuilder<'a> {
 }
 
 impl<'a> ObjectBuilder<'a> {
+    #[must_use]
     fn new(stage: &'a ThemeState<'a>, source_key: &'a str) -> Self {
         Self {
             stage,
@@ -857,32 +964,39 @@ impl<'a> ObjectBuilder<'a> {
             .and_then(|object| object.get(field))
             .filter(|value| is_js_truthy(value))
             .cloned();
-        let computed = if let Some(value) = current {
-            let owners = self
-                .stage
-                .authority
-                .as_ref()
-                .map_or_else(Owners::default, |authority| {
-                    authority.read(&format!("{}.{}", self.source_key, field))
-                });
-            ComputedValue::with_owners(value, owners)
-        } else {
-            fallback(self.stage)?
+        let computed = match current {
+            Some(value) => {
+                let owners = self
+                    .stage
+                    .authority
+                    .as_ref()
+                    .map_or_else(Owners::default, |authority| {
+                        authority.read(&format!("{}.{}", self.source_key, field))
+                    });
+                ComputedValue::with_owners(value, owners)
+            },
+            ::core::option::Option::None => {
+                fallback(self.stage)?
+            },
         };
         self.object.insert(field.to_string(), computed.value);
+
         if !computed.owners.is_empty() {
             self.owners.insert(field.to_string(), computed.owners);
         }
+
         Ok(())
     }
 
     fn field(&mut self, field: &str, computed: ComputedValue) {
         self.object.insert(field.to_string(), computed.value);
+
         if !computed.owners.is_empty() {
             self.owners.insert(field.to_string(), computed.owners);
         }
     }
 
+    #[must_use]
     fn finish(self) -> ComputedValue {
         ComputedValue::object(self.object, self.owners)
     }
@@ -899,55 +1013,59 @@ fn update_journey(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("fillType6", "primaryColor", 128.0),
         ("fillType7", "secondaryColor", 128.0),
     ] {
-        stage.assign(target, |stage| {
-            if hue == 0.0 {
-                copy(stage, source)
+        stage.assign(target, |stage_2| {
+            if ::core::matches!(::core::primitive::f64::classify(hue), ::core::num::FpCategory::Zero) {
+                copy(stage_2, source)
             } else {
-                adjusted(stage, source, ColorAdjustment::hsl(hue, 0.0, 0.0))
+                adjusted(stage_2, source, ColorAdjustment::hsl(hue, 0.0, 0.0))
             }
         })?;
     }
+
     Ok(())
 }
 
 fn update_quadrant(stage: &mut ThemeState) -> Result<(), ColorError> {
-    stage.assign_if_falsy("quadrant1Fill", |stage| copy(stage, "primaryColor"))?;
+    stage.assign_if_falsy("quadrant1Fill", |stage_2| copy(stage_2, "primaryColor"))?;
+
     for (target, amount) in [
         ("quadrant2Fill", 5.0),
         ("quadrant3Fill", 10.0),
         ("quadrant4Fill", 15.0),
     ] {
-        stage.assign_if_falsy(target, |stage| {
+        stage.assign_if_falsy(target, |stage_3| {
             adjusted(
-                stage,
+                stage_3,
                 "primaryColor",
                 ColorAdjustment::rgb(amount, amount, amount),
             )
         })?;
     }
-    stage.assign_if_falsy("quadrant1TextFill", |stage| copy(stage, "primaryTextColor"))?;
+
+    stage.assign_if_falsy("quadrant1TextFill", |stage_4| copy(stage_4, "primaryTextColor"))?;
+
     for (target, amount) in [
         ("quadrant2TextFill", -5.0),
         ("quadrant3TextFill", -10.0),
         ("quadrant4TextFill", -15.0),
     ] {
-        stage.assign_if_falsy(target, |stage| {
+        stage.assign_if_falsy(target, |stage_5| {
             adjusted(
-                stage,
+                stage_5,
                 "primaryTextColor",
                 ColorAdjustment::rgb(amount, amount, amount),
             )
         })?;
     }
 
-    // JavaScript parses this upstream expression as
-    // `(quadrantPointFill || isDark(quadrant1Fill)) ? lighten(...) : darken(...)`.
-    stage.assign("quadrantPointFill", |stage| {
-        let existing_is_truthy = stage
+
+
+    stage.assign("quadrantPointFill", |stage_6| {
+        let existing_is_truthy = stage_6
             .variables
             .get("quadrantPointFill")
             .is_some_and(is_js_truthy);
-        let quadrant = stage.color("quadrant1Fill")?;
+        let quadrant = stage_6.color("quadrant1Fill")?;
         let lighten = existing_is_truthy || theme_color::is_dark(&quadrant)?;
         let value = if lighten {
             theme_color::lighten(&quadrant, f64::NAN)?
@@ -959,7 +1077,7 @@ fn update_quadrant(stage: &mut ThemeState) -> Result<(), ColorError> {
         } else {
             &["quadrant1Fill"][..]
         };
-        Ok(stage.computed(Value::String(value), keys))
+        Ok(stage_6.computed(Value::String(value), keys))
     })?;
 
     for target in [
@@ -968,14 +1086,16 @@ fn update_quadrant(stage: &mut ThemeState) -> Result<(), ColorError> {
         "quadrantYAxisTextFill",
         "quadrantTitleFill",
     ] {
-        stage.assign_if_falsy(target, |stage| copy(stage, "primaryTextColor"))?;
+        stage.assign_if_falsy(target, |stage_7| copy(stage_7, "primaryTextColor"))?;
     }
+
     for target in [
         "quadrantInternalBorderStrokeFill",
         "quadrantExternalBorderStrokeFill",
     ] {
-        stage.assign_if_falsy(target, |stage| copy(stage, "primaryBorderColor"))?;
+        stage.assign_if_falsy(target, |stage_8| copy(stage_8, "primaryBorderColor"))?;
     }
+
     Ok(())
 }
 
@@ -988,15 +1108,15 @@ fn update_cynefin(
     clear_background: &str,
     confusion_background: &str,
 ) -> Result<(), ColorError> {
-    stage.assign("cynefin", |stage| {
-        let mut object = ObjectBuilder::new(stage, "cynefin");
+    stage.assign("cynefin", |stage_2| {
+        let mut object = ObjectBuilder::new(stage_2, "cynefin");
         object.truthy_or("domainFontSize", |_| Ok(ComputedValue::number(16)))?;
         object.truthy_or("itemFontSize", |_| Ok(ComputedValue::number(12)))?;
-        object.truthy_or("boundaryColor", |stage| copy(stage, "lineColor"))?;
+        object.truthy_or("boundaryColor", |stage_3| copy(stage_3, "lineColor"))?;
         object.truthy_or("boundaryWidth", |_| Ok(ComputedValue::number(2)))?;
         object.truthy_or("cliffColor", |_| Ok(ComputedValue::string(cliff_color)))?;
         object.truthy_or("cliffWidth", |_| Ok(ComputedValue::number(4)))?;
-        object.truthy_or("arrowColor", |stage| copy(stage, "lineColor"))?;
+        object.truthy_or("arrowColor", |stage_4| copy(stage_4, "lineColor"))?;
         object.truthy_or("arrowWidth", |_| Ok(ComputedValue::number(2)))?;
         object.truthy_or("complexBg", |_| {
             Ok(ComputedValue::string(complex_background))
@@ -1011,16 +1131,17 @@ fn update_cynefin(
         object.truthy_or("confusionBg", |_| {
             Ok(ComputedValue::string(confusion_background))
         })?;
-        object.truthy_or("textColor", |stage| copy(stage, "textColor"))?;
-        object.truthy_or("labelColor", |stage| copy(stage, "primaryTextColor"))?;
+        object.truthy_or("textColor", |stage_5| copy(stage_5, "textColor"))?;
+        object.truthy_or("labelColor", |stage_6| copy(stage_6, "primaryTextColor"))?;
         Ok(object.finish())
     })
 }
 
 fn update_xy_chart(stage: &mut ThemeState, palette: &str) -> Result<(), ColorError> {
-    stage.assign("xyChart", |stage| {
-        let mut object = ObjectBuilder::new(stage, "xyChart");
-        object.truthy_or("backgroundColor", |stage| copy(stage, "background"))?;
+    stage.assign("xyChart", |stage_2| {
+        let mut object = ObjectBuilder::new(stage_2, "xyChart");
+        object.truthy_or("backgroundColor", |stage_3| copy(stage_3, "background"))?;
+
         for field in [
             "titleColor",
             "dataLabelColor",
@@ -1034,17 +1155,18 @@ fn update_xy_chart(stage: &mut ThemeState, palette: &str) -> Result<(), ColorErr
             "yAxisTickColor",
             "yAxisLineColor",
         ] {
-            object.truthy_or(field, |stage| copy(stage, "primaryTextColor"))?;
+            object.truthy_or(field, |stage_4| copy(stage_4, "primaryTextColor"))?;
         }
+
         object.truthy_or("plotColorPalette", |_| Ok(ComputedValue::string(palette)))?;
         Ok(object.finish())
     })
 }
 
 fn update_radar(stage: &mut ThemeState) -> Result<(), ColorError> {
-    stage.assign("radar", |stage| {
-        let mut object = ObjectBuilder::new(stage, "radar");
-        object.truthy_or("axisColor", |stage| copy(stage, "lineColor"))?;
+    stage.assign("radar", |stage_2| {
+        let mut object = ObjectBuilder::new(stage_2, "radar");
+        object.truthy_or("axisColor", |stage_3| copy(stage_3, "lineColor"))?;
         object.truthy_or("axisStrokeWidth", |_| Ok(ComputedValue::number(2)))?;
         object.truthy_or("axisLabelFontSize", |_| Ok(ComputedValue::number(12)))?;
         object.truthy_or("curveOpacity", |_| {
@@ -1063,8 +1185,9 @@ fn update_radar(stage: &mut ThemeState) -> Result<(), ColorError> {
 }
 
 fn update_packet(stage: &mut ThemeState, fill_source: &str) -> Result<(), ColorError> {
-    stage.assign("packet", |stage| {
-        let mut object = ObjectBuilder::new(stage, "packet");
+    stage.assign("packet", |stage_2| {
+        let mut object = ObjectBuilder::new(stage_2, "packet");
+
         for field in [
             "startByteColor",
             "endByteColor",
@@ -1072,9 +1195,10 @@ fn update_packet(stage: &mut ThemeState, fill_source: &str) -> Result<(), ColorE
             "titleColor",
             "blockStrokeColor",
         ] {
-            object.field(field, copy(stage, "primaryTextColor")?);
+            object.field(field, copy(stage_2, "primaryTextColor")?);
         }
-        object.field("blockFillColor", copy(stage, fill_source)?);
+
+        object.field("blockFillColor", { let checked_value_2 = copy(stage_2, fill_source)?; checked_value_2 });
         Ok(object.finish())
     })
 }
@@ -1087,26 +1211,26 @@ fn update_wardley(
     stage.assign_if_falsy("wardleyEvolutionColor", |_| {
         Ok(ComputedValue::string(evolution_color))
     })?;
-    stage.assign("wardley", |stage| {
-        let mut object = ObjectBuilder::new(stage, "wardley");
-        object.truthy_or("backgroundColor", |stage| copy(stage, "background"))?;
-        object.truthy_or("axisColor", |stage| copy(stage, "lineColor"))?;
-        object.truthy_or("axisTextColor", |stage| copy(stage, "primaryTextColor"))?;
-        object.truthy_or("gridColor", |stage| copy(stage, "gridColor"))?;
-        object.truthy_or("componentFill", |stage| copy(stage, fill_source))?;
-        object.truthy_or("componentStroke", |stage| copy(stage, "lineColor"))?;
-        object.truthy_or("componentLabelColor", |stage| {
-            copy(stage, "primaryTextColor")
+    stage.assign("wardley", |stage_2| {
+        let mut object = ObjectBuilder::new(stage_2, "wardley");
+        object.truthy_or("backgroundColor", |stage_3| copy(stage_3, "background"))?;
+        object.truthy_or("axisColor", |stage_4| copy(stage_4, "lineColor"))?;
+        object.truthy_or("axisTextColor", |stage_5| copy(stage_5, "primaryTextColor"))?;
+        object.truthy_or("gridColor", |stage_6| copy(stage_6, "gridColor"))?;
+        object.truthy_or("componentFill", |stage_7| copy(stage_7, fill_source))?;
+        object.truthy_or("componentStroke", |stage_8| copy(stage_8, "lineColor"))?;
+        object.truthy_or("componentLabelColor", |stage_9| {
+            copy(stage_9, "primaryTextColor")
         })?;
-        object.truthy_or("linkStroke", |stage| copy(stage, "lineColor"))?;
-        object.truthy_or("evolutionStroke", |stage| {
-            copy(stage, "wardleyEvolutionColor")
+        object.truthy_or("linkStroke", |stage_10| copy(stage_10, "lineColor"))?;
+        object.truthy_or("evolutionStroke", |stage_11| {
+            copy(stage_11, "wardleyEvolutionColor")
         })?;
-        object.truthy_or("annotationStroke", |stage| copy(stage, "lineColor"))?;
-        object.truthy_or("annotationTextColor", |stage| {
-            copy(stage, "primaryTextColor")
+        object.truthy_or("annotationStroke", |stage_12| copy(stage_12, "lineColor"))?;
+        object.truthy_or("annotationTextColor", |stage_13| {
+            copy(stage_13, "primaryTextColor")
         })?;
-        object.truthy_or("annotationFill", |stage| copy(stage, fill_source))?;
+        object.truthy_or("annotationFill", |stage_14| copy(stage_14, fill_source))?;
         Ok(object.finish())
     })
 }
@@ -1115,35 +1239,35 @@ fn update_requirement(
     stage: &mut ThemeState,
     relation_background: impl FnOnce(&ThemeState) -> Result<ComputedValue, ColorError>,
 ) -> Result<(), ColorError> {
-    stage.assign_if_falsy("requirementBackground", |stage| copy(stage, "primaryColor"))?;
-    stage.assign_if_falsy("requirementBorderColor", |stage| {
-        copy(stage, "primaryBorderColor")
+    stage.assign_if_falsy("requirementBackground", |stage_2| copy(stage_2, "primaryColor"))?;
+    stage.assign_if_falsy("requirementBorderColor", |stage_3| {
+        copy(stage_3, "primaryBorderColor")
     })?;
     stage.assign_if_falsy("requirementBorderSize", |_| Ok(ComputedValue::string("1")))?;
-    stage.assign_if_falsy("requirementTextColor", |stage| {
-        copy(stage, "primaryTextColor")
+    stage.assign_if_falsy("requirementTextColor", |stage_4| {
+        copy(stage_4, "primaryTextColor")
     })?;
-    stage.assign_if_falsy("relationColor", |stage| copy(stage, "lineColor"))?;
+    stage.assign_if_falsy("relationColor", |stage_5| copy(stage_5, "lineColor"))?;
     stage.assign_if_falsy("relationLabelBackground", relation_background)?;
-    stage.assign_if_falsy("relationLabelColor", |stage| copy(stage, "actorTextColor"))
+    stage.assign_if_falsy("relationLabelColor", |stage_6| copy(stage_6, "actorTextColor"))
 }
 
 fn update_tags(stage: &mut ThemeState) -> Result<(), ColorError> {
-    stage.assign_if_falsy("tagLabelColor", |stage| copy(stage, "primaryTextColor"))?;
-    stage.assign_if_falsy("tagLabelBackground", |stage| copy(stage, "primaryColor"))?;
-    stage.assign("tagLabelBorder", |stage| {
-        if let Some(value) = stage.truthy_from("tagBorder") {
+    stage.assign_if_falsy("tagLabelColor", |stage_2| copy(stage_2, "primaryTextColor"))?;
+    stage.assign_if_falsy("tagLabelBackground", |stage_3| copy(stage_3, "primaryColor"))?;
+    stage.assign("tagLabelBorder", |stage_4| {
+        if let Some(value) = stage_4.truthy_from("tagBorder") {
             Ok(value)
         } else {
-            copy(stage, "primaryBorderColor")
+            copy(stage_4, "primaryBorderColor")
         }
     })?;
     stage.assign_if_falsy("tagLabelFontSize", |_| Ok(ComputedValue::string("10px")))?;
-    stage.assign_if_falsy("commitLabelColor", |stage| {
-        copy(stage, "secondaryTextColor")
+    stage.assign_if_falsy("commitLabelColor", |stage_5| {
+        copy(stage_5, "secondaryTextColor")
     })?;
-    stage.assign_if_falsy("commitLabelBackground", |stage| {
-        copy(stage, "secondaryColor")
+    stage.assign_if_falsy("commitLabelBackground", |stage_6| {
+        copy(stage_6, "secondaryColor")
     })?;
     stage.assign_if_falsy("commitLabelFontSize", |_| Ok(ComputedValue::string("10px")))
 }
@@ -1165,8 +1289,9 @@ fn update_event_modeling_light(stage: &mut ThemeState) -> Result<(), ColorError>
     ] {
         stage.assign_if_falsy(target, |_| Ok(ComputedValue::string(value)))?;
     }
-    stage.assign_if_falsy("emArrowhead", |stage| copy(stage, "lineColor"))?;
-    stage.assign_if_falsy("emRelationStroke", |stage| copy(stage, "lineColor"))?;
+
+    stage.assign_if_falsy("emArrowhead", |stage_2| copy(stage_2, "lineColor"))?;
+    stage.assign_if_falsy("emRelationStroke", |stage_3| copy(stage_3, "lineColor"))?;
     stage.assign_if_falsy("attributeBackgroundColorOdd", |_| {
         Ok(ComputedValue::string("#ffffff"))
     })?;
@@ -1181,11 +1306,11 @@ fn update_pie_text(
     legend_source: &str,
 ) -> Result<(), ColorError> {
     stage.assign_if_falsy("pieTitleTextSize", |_| Ok(ComputedValue::string("25px")))?;
-    stage.assign_if_falsy("pieTitleTextColor", |stage| copy(stage, title_source))?;
+    stage.assign_if_falsy("pieTitleTextColor", |stage_2| copy(stage_2, title_source))?;
     stage.assign_if_falsy("pieSectionTextSize", |_| Ok(ComputedValue::string("17px")))?;
-    stage.assign_if_falsy("pieSectionTextColor", |stage| copy(stage, "textColor"))?;
+    stage.assign_if_falsy("pieSectionTextColor", |stage_3| copy(stage_3, "textColor"))?;
     stage.assign_if_falsy("pieLegendTextSize", |_| Ok(ComputedValue::string("17px")))?;
-    stage.assign_if_falsy("pieLegendTextColor", |stage| copy(stage, legend_source))?;
+    stage.assign_if_falsy("pieLegendTextColor", |stage_4| copy(stage_4, legend_source))?;
     stage.assign_if_falsy("pieStrokeColor", |_| Ok(ComputedValue::string("black")))?;
     stage.assign_if_falsy("pieStrokeWidth", |_| Ok(ComputedValue::string("2px")))?;
     stage.assign_if_falsy("pieOuterStrokeWidth", |_| Ok(ComputedValue::string("2px")))?;
@@ -1200,18 +1325,22 @@ fn update_venn_from_scales(
     lighten_amount: Option<f64>,
 ) -> Result<(), ColorError> {
     for index in 0..8 {
-        let target = format!("venn{}", index + 1);
+        let target = format!("venn{}", ::core::primitive::i32::wrapping_add(index, 1));
         let source = format!("cScale{index}");
-        stage.assign_if_nullish(&target, |stage| {
-            if let Some(amount) = lighten_amount {
-                lightened(stage, &source, amount)
-            } else {
-                copy(stage, &source)
+        stage.assign_if_nullish(&target, |stage_2| {
+            match lighten_amount {
+                Some(amount) => {
+                    lightened(stage_2, &source, amount)
+                },
+                ::core::option::Option::None => {
+                    copy(stage_2, &source)
+                },
             }
         })?;
     }
-    stage.assign_if_nullish("vennTitleTextColor", |stage| copy(stage, "titleColor"))?;
-    stage.assign_if_nullish("vennSetTextColor", |stage| copy(stage, "textColor"))
+
+    stage.assign_if_nullish("vennTitleTextColor", |stage_3| copy(stage_3, "titleColor"))?;
+    stage.assign_if_nullish("vennSetTextColor", |stage_4| copy(stage_4, "textColor"))
 }
 
 fn update_surfaces(
@@ -1223,29 +1352,30 @@ fn update_surfaces(
 ) -> Result<(), ColorError> {
     for index in 0..5 {
         let surface = format!("surface{index}");
-        stage.assign_if_falsy(&surface, |stage| {
+        stage.assign_if_falsy(&surface, |stage_2| {
             adjusted(
-                stage,
+                stage_2,
                 "mainBkg",
                 ColorAdjustment::hsl(hue, saturation, surface_lightness(index)),
             )
         })?;
         let peer = format!("surfacePeer{index}");
-        stage.assign_if_falsy(&peer, |stage| {
+        stage.assign_if_falsy(&peer, |stage_3| {
             adjusted(
-                stage,
+                stage_3,
                 "mainBkg",
                 ColorAdjustment::hsl(hue, saturation, peer_lightness(index)),
             )
         })?;
     }
+
     Ok(())
 }
 
 fn update_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
-    stage.assign("secondBkg", |stage| lightened(stage, "mainBkg", 16.0))?;
-    stage.assign("lineColor", |stage| copy(stage, "mainContrastColor"))?;
-    stage.assign("arrowheadColor", |stage| copy(stage, "mainContrastColor"))?;
+    stage.assign("secondBkg", |stage_2| lightened(stage_2, "mainBkg", 16.0))?;
+    stage.assign("lineColor", |stage_3| copy(stage_3, "mainContrastColor"))?;
+    stage.assign("arrowheadColor", |stage_4| copy(stage_4, "mainContrastColor"))?;
 
     for (target, source) in [
         ("nodeBkg", "mainBkg"),
@@ -1254,13 +1384,14 @@ fn update_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("clusterBorder", "border2"),
         ("defaultLinkColor", "lineColor"),
     ] {
-        stage.assign(target, |stage| copy(stage, source))?;
+        stage.assign(target, |stage_5| copy(stage_5, source))?;
     }
-    stage.assign("edgeLabelBackground", |stage| {
-        lightened(stage, "labelBackground", 25.0)
+
+    stage.assign("edgeLabelBackground", |stage_6| {
+        lightened(stage_6, "labelBackground", 25.0)
     })?;
-    stage.assign_if_falsy("flowContainerStroke", |stage| {
-        copy(stage, "secondaryBorderColor")
+    stage.assign_if_falsy("flowContainerStroke", |stage_7| {
+        copy(stage_7, "secondaryBorderColor")
     })?;
 
     for (target, source) in [
@@ -1280,12 +1411,14 @@ fn update_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("activationBorderColor", "border1"),
         ("activationBkgColor", "secondBkg"),
     ] {
-        stage.assign(target, |stage| copy(stage, source))?;
+        stage.assign(target, |stage_8| copy(stage_8, source))?;
     }
-    stage.assign_if_falsy("rectBkgColor", |stage| copy(stage, "tertiaryColor"))?;
 
-    stage.assign("altSectionBkgColor", |stage| copy(stage, "background"))?;
-    stage.assign("taskBkgColor", |stage| lightened(stage, "mainBkg", 23.0))?;
+    stage.assign_if_falsy("rectBkgColor", |stage_9| copy(stage_9, "tertiaryColor"))?;
+
+    stage.assign("altSectionBkgColor", |stage_10| copy(stage_10, "background"))?;
+    stage.assign("taskBkgColor", |stage_11| lightened(stage_11, "mainBkg", 23.0))?;
+
     for (target, source) in [
         ("taskTextColor", "darkTextColor"),
         ("taskTextLightColor", "mainContrastColor"),
@@ -1293,13 +1426,14 @@ fn update_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("gridColor", "mainContrastColor"),
         ("doneTaskBkgColor", "mainContrastColor"),
     ] {
-        stage.assign(target, |stage| copy(stage, source))?;
+        stage.assign(target, |stage_12| copy(stage_12, source))?;
     }
-    stage.assign("taskTextDarkColor", |stage| {
-        inverted(stage, "doneTaskBkgColor")
+
+    stage.assign("taskTextDarkColor", |stage_13| {
+        inverted(stage_13, "doneTaskBkgColor")
     })?;
-    stage.assign("archEdgeColor", |stage| copy(stage, "lineColor"))?;
-    stage.assign("archEdgeArrowColor", |stage| copy(stage, "lineColor"))?;
+    stage.assign("archEdgeColor", |stage_14| copy(stage_14, "lineColor"))?;
+    stage.assign("archEdgeArrowColor", |stage_15| copy(stage_15, "lineColor"))?;
 
     update_state_dark(stage)?;
     update_journey(stage)?;
@@ -1314,16 +1448,17 @@ fn update_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
         let target = format!("cScale{}", index + 1);
         stage.assign_if_falsy(&target, |_| Ok(ComputedValue::string(value)))?;
     }
-    stage.assign_if_falsy("cScale0", |stage| copy(stage, "primaryColor"))?;
-    for_theme_color_indices(stage, |stage, index| {
+
+    stage.assign_if_falsy("cScale0", |stage_16| copy(stage_16, "primaryColor"))?;
+    for_theme_color_indices(stage, |stage_17, index| {
         let scale = format!("cScale{index}");
         let inverse = format!("cScaleInv{index}");
-        stage.assign_if_falsy(&inverse, |stage| inverted(stage, &scale))
+        stage_17.assign_if_falsy(&inverse, |stage_18| inverted(stage_18, &scale))
     })?;
-    for_theme_color_indices(stage, |stage, index| {
+    for_theme_color_indices(stage, |stage_19, index| {
         let scale = format!("cScale{index}");
         let peer = format!("cScalePeer{index}");
-        stage.assign_if_falsy(&peer, |stage| lightened(stage, &scale, 10.0))
+        stage_19.assign_if_falsy(&peer, |stage_20| lightened(stage_20, &scale, 10.0))
     })?;
     update_surfaces(
         stage,
@@ -1333,24 +1468,24 @@ fn update_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
         |i| 7.0 - i as f64 * 4.0,
     )?;
 
-    stage.assign_if_falsy("scaleLabelColor", |stage| {
-        if stage.variables.get("darkMode").is_some_and(is_js_truthy) {
-            Ok(stage.computed(Value::String("black".to_string()), &["darkMode"]))
+    stage.assign_if_falsy("scaleLabelColor", |stage_21| {
+        if stage_21.variables.get("darkMode").is_some_and(is_js_truthy) {
+            Ok(stage_21.computed(Value::String("black".to_string()), &["darkMode"]))
         } else {
-            copy(stage, "labelTextColor").map(|mut computed| {
-                computed.inherit(stage, "darkMode");
+            copy(stage_21, "labelTextColor").map(|mut computed| {
+                computed.inherit(stage_21, "darkMode");
                 computed
             })
         }
     })?;
-    for_theme_color_indices(stage, |stage, index| {
+    for_theme_color_indices(stage, |stage_22, index| {
         let target = format!("cScaleLabel{index}");
-        stage.assign_if_falsy(&target, |stage| copy(stage, "scaleLabelColor"))
+        stage_22.assign_if_falsy(&target, |stage_23| copy(stage_23, "scaleLabelColor"))
     })?;
-    for_theme_color_indices(stage, |stage, index| {
+    for_theme_color_indices(stage, |stage_24, index| {
         let pie = format!("pie{index}");
         let scale = format!("cScale{index}");
-        stage.assign(&pie, |stage| copy(stage, &scale))
+        stage_24.assign(&pie, |stage_25| copy(stage_25, &scale))
     })?;
     update_pie_text(stage, "mainContrastColor", "mainContrastColor")?;
     update_venn_from_scales(stage, Some(30.0))?;
@@ -1365,15 +1500,15 @@ fn update_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
     update_packet(stage, "background")?;
     update_radar(stage)?;
     update_wardley(stage, "#ff6b6b", "mainBkg")?;
-    stage.assign("classText", |stage| copy(stage, "primaryTextColor"))?;
-    update_requirement(stage, |stage| {
-        let dark_mode = stage.variables.get("darkMode").is_some_and(is_js_truthy);
+    stage.assign("classText", |stage_26| copy(stage_26, "primaryTextColor"))?;
+    update_requirement(stage, |stage_27| {
+        let dark_mode = stage_27.variables.get("darkMode").is_some_and(is_js_truthy);
         let mut computed = if dark_mode {
-            darkened(stage, "secondaryColor", 30.0)?
+            darkened(stage_27, "secondaryColor", 30.0)?
         } else {
-            copy(stage, "secondaryColor")?
+            copy(stage_27, "secondaryColor")?
         };
-        computed.inherit(stage, "darkMode");
+        computed.inherit(stage_27, "darkMode");
         Ok(computed)
     })?;
     update_git_dark(stage)?;
@@ -1384,31 +1519,32 @@ fn update_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
 }
 
 fn update_state_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
-    stage.assign_if_falsy("transitionColor", |stage| copy(stage, "lineColor"))?;
-    stage.assign_if_falsy("transitionLabelColor", |stage| copy(stage, "textColor"))?;
-    stage.assign_if_falsy("stateLabelColor", |stage| {
-        first_truthy(stage, &["stateBkg", "primaryTextColor"])
+    stage.assign_if_falsy("transitionColor", |stage_2| copy(stage_2, "lineColor"))?;
+    stage.assign_if_falsy("transitionLabelColor", |stage_3| copy(stage_3, "textColor"))?;
+    stage.assign_if_falsy("stateLabelColor", |stage_4| {
+        first_truthy(stage_4, &["stateBkg", "primaryTextColor"])
     })?;
-    stage.assign_if_falsy("stateBkg", |stage| copy(stage, "mainBkg"))?;
-    stage.assign_if_falsy("labelBackgroundColor", |stage| copy(stage, "stateBkg"))?;
-    stage.assign_if_falsy("compositeBackground", |stage| {
-        first_truthy(stage, &["background", "tertiaryColor"])
+    stage.assign_if_falsy("stateBkg", |stage_5| copy(stage_5, "mainBkg"))?;
+    stage.assign_if_falsy("labelBackgroundColor", |stage_6| copy(stage_6, "stateBkg"))?;
+    stage.assign_if_falsy("compositeBackground", |stage_7| {
+        first_truthy(stage_7, &["background", "tertiaryColor"])
     })?;
     stage.assign_if_falsy("altBackground", |_| Ok(ComputedValue::string("#555")))?;
-    stage.assign_if_falsy("compositeTitleBackground", |stage| copy(stage, "mainBkg"))?;
-    stage.assign_if_falsy("compositeBorder", |stage| copy(stage, "nodeBorder"))?;
-    stage.assign("innerEndBackground", |stage| {
-        copy(stage, "primaryBorderColor")
+    stage.assign_if_falsy("compositeTitleBackground", |stage_8| copy(stage_8, "mainBkg"))?;
+    stage.assign_if_falsy("compositeBorder", |stage_9| copy(stage_9, "nodeBorder"))?;
+    stage.assign("innerEndBackground", |stage_10| {
+        copy(stage_10, "primaryBorderColor")
     })?;
     stage.assign("specialStateColor", |_| {
         Ok(ComputedValue::string("#f4f4f4"))
     })?;
-    stage.assign_if_falsy("errorBkgColor", |stage| copy(stage, "tertiaryColor"))?;
-    stage.assign_if_falsy("errorTextColor", |stage| copy(stage, "tertiaryTextColor"))
+    stage.assign_if_falsy("errorBkgColor", |stage_11| copy(stage_11, "tertiaryColor"))?;
+    stage.assign_if_falsy("errorTextColor", |stage_12| copy(stage_12, "tertiaryTextColor"))
 }
 
 fn update_git_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
-    stage.assign("git0", |stage| lightened(stage, "secondaryColor", 20.0))?;
+    stage.assign("git0", |stage_2| lightened(stage_2, "secondaryColor", 20.0))?;
+
     for (target, pie, fallback, hue, amount) in [
         ("git1", "pie2", "secondaryColor", 0.0, 20.0),
         ("git2", "pie3", "tertiaryColor", 0.0, 20.0),
@@ -1418,32 +1554,35 @@ fn update_git_dark(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("git6", "pie7", "primaryColor", 60.0, 10.0),
         ("git7", "pie8", "primaryColor", 120.0, 20.0),
     ] {
-        stage.assign(target, |stage| {
-            let source = if let Some(value) = stage.truthy_from(pie) {
+        stage.assign(target, |stage_3| {
+            let source = if let Some(value) = stage_3.truthy_from(pie) {
                 value
-            } else if hue == 0.0 {
-                copy(stage, fallback)?
+            } else if ::core::matches!(::core::primitive::f64::classify(hue), ::core::num::FpCategory::Zero) {
+                copy(stage_3, fallback)?
             } else {
-                adjusted(stage, fallback, ColorAdjustment::hsl(hue, 0.0, 0.0))?
+                adjusted(stage_3, fallback, ColorAdjustment::hsl(hue, 0.0, 0.0))?
             };
             transform_color(source, |color| theme_color::lighten(color, amount))
         })?;
     }
+
     for index in 0..8 {
         let git = format!("git{index}");
         let inverse = format!("gitInv{index}");
-        stage.assign_if_falsy(&inverse, |stage| inverted(stage, &git))?;
+        stage.assign_if_falsy(&inverse, |stage_4| inverted(stage_4, &git))?;
     }
+
     for index in 0..8 {
         let target = format!("gitBranchLabel{index}");
-        stage.assign_if_falsy(&target, |stage| {
+        stage.assign_if_falsy(&target, |stage_5| {
             if matches!(index, 0 | 3) {
-                inverted(stage, "labelTextColor")
+                inverted(stage_5, "labelTextColor")
             } else {
-                copy(stage, "labelTextColor")
+                copy(stage_5, "labelTextColor")
             }
         })?;
     }
+
     Ok(())
 }
 
@@ -1458,6 +1597,7 @@ fn update_event_modeling_dark(stage: &mut ThemeState) -> Result<(), ColorError> 
     ] {
         stage.assign_if_falsy(target, |_| Ok(ComputedValue::string(value)))?;
     }
+
     for (target, color) in [
         ("emProcessorFill", "#5a3d5c"),
         ("emReadModelFill", "#3d5a2d"),
@@ -1465,81 +1605,84 @@ fn update_event_modeling_dark(stage: &mut ThemeState) -> Result<(), ColorError> 
         ("emEventFill", "#5a452d"),
     ] {
         stage.assign_if_falsy(target, |_| {
-            Ok(ComputedValue::string(theme_color::lighten(color, 10.0)?))
+            Ok(ComputedValue::string({ let checked_value = theme_color::lighten(color, 10.0)?; checked_value }))
         })?;
     }
-    stage.assign_if_falsy("emSwimlaneBackgroundOdd", |stage| {
-        lightened(stage, "background", 5.0)
+
+    stage.assign_if_falsy("emSwimlaneBackgroundOdd", |stage_2| {
+        lightened(stage_2, "background", 5.0)
     })?;
-    stage.assign_if_falsy("emSwimlaneBackgroundStroke", |stage| {
-        lightened(stage, "background", 12.0)
+    stage.assign_if_falsy("emSwimlaneBackgroundStroke", |stage_3| {
+        lightened(stage_3, "background", 12.0)
     })?;
-    stage.assign_if_falsy("emArrowhead", |stage| copy(stage, "lineColor"))?;
-    stage.assign_if_falsy("emRelationStroke", |stage| copy(stage, "lineColor"))?;
-    stage.assign_if_falsy("attributeBackgroundColorOdd", |stage| {
-        lightened(stage, "background", 12.0)
+    stage.assign_if_falsy("emArrowhead", |stage_4| copy(stage_4, "lineColor"))?;
+    stage.assign_if_falsy("emRelationStroke", |stage_5| copy(stage_5, "lineColor"))?;
+    stage.assign_if_falsy("attributeBackgroundColorOdd", |stage_6| {
+        lightened(stage_6, "background", 12.0)
     })?;
-    stage.assign_if_falsy("attributeBackgroundColorEven", |stage| {
-        lightened(stage, "background", 2.0)
+    stage.assign_if_falsy("attributeBackgroundColorEven", |stage_7| {
+        lightened(stage_7, "background", 2.0)
     })
 }
 
 fn update_forest(stage: &mut ThemeState) -> Result<(), ColorError> {
-    stage.assign("actorBorder", |stage| darkened(stage, "mainBkg", 20.0))?;
-    stage.assign("actorBkg", |stage| copy(stage, "mainBkg"))?;
-    stage.assign("labelBoxBkgColor", |stage| copy(stage, "actorBkg"))?;
-    stage.assign("labelTextColor", |stage| copy(stage, "actorTextColor"))?;
-    stage.assign("loopTextColor", |stage| copy(stage, "actorTextColor"))?;
-    stage.assign("noteBorderColor", |stage| copy(stage, "border2"))?;
-    stage.assign("noteTextColor", |stage| copy(stage, "actorTextColor"))?;
-    stage.assign("actorLineColor", |stage| copy(stage, "actorBorder"))?;
-    stage.assign_if_falsy("rectBkgColor", |stage| copy(stage, "tertiaryColor"))?;
+    stage.assign("actorBorder", |stage_2| darkened(stage_2, "mainBkg", 20.0))?;
+    stage.assign("actorBkg", |stage_3| copy(stage_3, "mainBkg"))?;
+    stage.assign("labelBoxBkgColor", |stage_4| copy(stage_4, "actorBkg"))?;
+    stage.assign("labelTextColor", |stage_5| copy(stage_5, "actorTextColor"))?;
+    stage.assign("loopTextColor", |stage_6| copy(stage_6, "actorTextColor"))?;
+    stage.assign("noteBorderColor", |stage_7| copy(stage_7, "border2"))?;
+    stage.assign("noteTextColor", |stage_8| copy(stage_8, "actorTextColor"))?;
+    stage.assign("actorLineColor", |stage_9| copy(stage_9, "actorBorder"))?;
+    stage.assign_if_falsy("rectBkgColor", |stage_10| copy(stage_10, "tertiaryColor"))?;
 
-    stage.assign_if_falsy("cScale0", |stage| copy(stage, "primaryColor"))?;
-    stage.assign_if_falsy("cScale1", |stage| copy(stage, "secondaryColor"))?;
-    stage.assign_if_falsy("cScale2", |stage| copy(stage, "tertiaryColor"))?;
+    stage.assign_if_falsy("cScale0", |stage_11| copy(stage_11, "primaryColor"))?;
+    stage.assign_if_falsy("cScale1", |stage_12| copy(stage_12, "secondaryColor"))?;
+    stage.assign_if_falsy("cScale2", |stage_13| copy(stage_13, "tertiaryColor"))?;
+
     for (index, hue) in [30.0, 60.0, 90.0, 120.0, 150.0, 210.0, 270.0, 300.0, 330.0]
         .into_iter()
         .enumerate()
     {
         let target = format!("cScale{}", index + 3);
-        stage.assign_if_falsy(&target, |stage| {
-            adjusted(stage, "primaryColor", ColorAdjustment::hsl(hue, 0.0, 0.0))
+        stage.assign_if_falsy(&target, |stage_14| {
+            adjusted(stage_14, "primaryColor", ColorAdjustment::hsl(hue, 0.0, 0.0))
         })?;
     }
-    stage.assign_if_falsy("cScalePeer1", |stage| {
-        darkened(stage, "secondaryColor", 45.0)
+
+    stage.assign_if_falsy("cScalePeer1", |stage_15| {
+        darkened(stage_15, "secondaryColor", 45.0)
     })?;
-    stage.assign_if_falsy("cScalePeer2", |stage| {
-        darkened(stage, "tertiaryColor", 40.0)
+    stage.assign_if_falsy("cScalePeer2", |stage_16| {
+        darkened(stage_16, "tertiaryColor", 40.0)
     })?;
-    for_theme_color_indices(stage, |stage, index| {
+    for_theme_color_indices(stage, |stage_17, index| {
         let scale = format!("cScale{index}");
-        stage.assign(&scale, |stage| darkened(stage, &scale, 10.0))?;
+        stage_17.assign(&scale, |stage_18| darkened(stage_18, &scale, 10.0))?;
         let peer = format!("cScalePeer{index}");
-        stage.assign_if_falsy(&peer, |stage| darkened(stage, &scale, 25.0))
+        stage_17.assign_if_falsy(&peer, |stage_19| darkened(stage_19, &scale, 25.0))
     })?;
-    for_theme_color_indices(stage, |stage, index| {
+    for_theme_color_indices(stage, |stage_20, index| {
         let scale = format!("cScale{index}");
         let inverse = format!("cScaleInv{index}");
-        stage.assign_if_falsy(&inverse, |stage| {
-            adjusted(stage, &scale, ColorAdjustment::hsl(180.0, 0.0, 0.0))
+        stage_20.assign_if_falsy(&inverse, |stage_21| {
+            adjusted(stage_21, &scale, ColorAdjustment::hsl(180.0, 0.0, 0.0))
         })
     })?;
-    stage.assign("scaleLabelColor", |stage| {
-        if stage
+    stage.assign("scaleLabelColor", |stage_22| {
+        if stage_22
             .variables
             .get("scaleLabelColor")
             .is_some_and(|value| value.as_str() != Some("calculated") && is_js_truthy(value))
         {
-            copy(stage, "scaleLabelColor")
+            copy(stage_22, "scaleLabelColor")
         } else {
-            copy(stage, "labelTextColor")
+            copy(stage_22, "labelTextColor")
         }
     })?;
-    for_theme_color_indices(stage, |stage, index| {
+    for_theme_color_indices(stage, |stage_23, index| {
         let target = format!("cScaleLabel{index}");
-        stage.assign_if_falsy(&target, |stage| copy(stage, "scaleLabelColor"))
+        stage_23.assign_if_falsy(&target, |stage_24| copy(stage_24, "scaleLabelColor"))
     })?;
     update_surfaces(
         stage,
@@ -1556,11 +1699,13 @@ fn update_forest(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("clusterBorder", "border2"),
         ("defaultLinkColor", "lineColor"),
     ] {
-        stage.assign(target, |stage| copy(stage, source))?;
+        stage.assign(target, |stage_25| copy(stage_25, source))?;
     }
-    stage.assign_if_falsy("flowContainerStroke", |stage| {
-        copy(stage, "secondaryBorderColor")
+
+    stage.assign_if_falsy("flowContainerStroke", |stage_26| {
+        copy(stage_26, "secondaryBorderColor")
     })?;
+
     for (target, source) in [
         ("taskBorderColor", "border1"),
         ("taskTextColor", "taskTextLightColor"),
@@ -1570,12 +1715,13 @@ fn update_forest(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("archEdgeColor", "lineColor"),
         ("archEdgeArrowColor", "lineColor"),
     ] {
-        stage.assign(target, |stage| copy(stage, source))?;
+        stage.assign(target, |stage_27| copy(stage_27, source))?;
     }
-    stage.assign_if_falsy("rowOdd", |stage| lightened(stage, "mainBkg", 75.0))?;
-    stage.assign_if_falsy("rowEven", |stage| lightened(stage, "mainBkg", 20.0))?;
+
+    stage.assign_if_falsy("rowOdd", |stage_28| lightened(stage_28, "mainBkg", 75.0))?;
+    stage.assign_if_falsy("rowEven", |stage_29| lightened(stage_29, "mainBkg", 20.0))?;
     update_state_forest(stage)?;
-    stage.assign("classText", |stage| copy(stage, "primaryTextColor"))?;
+    stage.assign("classText", |stage_30| copy(stage_30, "primaryTextColor"))?;
     update_journey(stage)?;
     update_pie_forest(stage)?;
     update_venn_forest(stage)?;
@@ -1590,32 +1736,32 @@ fn update_forest(stage: &mut ThemeState) -> Result<(), ColorError> {
         stage,
         "#CDE498,#FF6B6B,#A0D2DB,#D7BDE2,#F0F0F0,#FFC3A0,#7FD8BE,#FF9A8B,#FAF3E0,#FFF176",
     )?;
-    update_requirement(stage, |stage| copy(stage, "edgeLabelBackground"))?;
+    update_requirement(stage, |stage_31| copy(stage_31, "edgeLabelBackground"))?;
     update_git_forest(stage)?;
     update_tags(stage)?;
     update_event_modeling_light(stage)
 }
 
 fn update_state_forest(stage: &mut ThemeState) -> Result<(), ColorError> {
-    stage.assign_if_falsy("transitionColor", |stage| copy(stage, "lineColor"))?;
-    stage.assign_if_falsy("transitionLabelColor", |stage| copy(stage, "textColor"))?;
-    stage.assign_if_falsy("stateLabelColor", |stage| {
-        first_truthy(stage, &["stateBkg", "primaryTextColor"])
+    stage.assign_if_falsy("transitionColor", |stage_2| copy(stage_2, "lineColor"))?;
+    stage.assign_if_falsy("transitionLabelColor", |stage_3| copy(stage_3, "textColor"))?;
+    stage.assign_if_falsy("stateLabelColor", |stage_4| {
+        first_truthy(stage_4, &["stateBkg", "primaryTextColor"])
     })?;
-    stage.assign_if_falsy("stateBkg", |stage| copy(stage, "mainBkg"))?;
-    stage.assign_if_falsy("labelBackgroundColor", |stage| copy(stage, "stateBkg"))?;
-    stage.assign_if_falsy("compositeBackground", |stage| {
-        first_truthy(stage, &["background", "tertiaryColor"])
+    stage.assign_if_falsy("stateBkg", |stage_5| copy(stage_5, "mainBkg"))?;
+    stage.assign_if_falsy("labelBackgroundColor", |stage_6| copy(stage_6, "stateBkg"))?;
+    stage.assign_if_falsy("compositeBackground", |stage_7| {
+        first_truthy(stage_7, &["background", "tertiaryColor"])
     })?;
     stage.assign_if_falsy("altBackground", |_| Ok(ComputedValue::string("#f0f0f0")))?;
-    stage.assign_if_falsy("compositeTitleBackground", |stage| copy(stage, "mainBkg"))?;
-    stage.assign_if_falsy("compositeBorder", |stage| copy(stage, "nodeBorder"))?;
-    stage.assign("innerEndBackground", |stage| {
-        copy(stage, "primaryBorderColor")
+    stage.assign_if_falsy("compositeTitleBackground", |stage_8| copy(stage_8, "mainBkg"))?;
+    stage.assign_if_falsy("compositeBorder", |stage_9| copy(stage_9, "nodeBorder"))?;
+    stage.assign("innerEndBackground", |stage_10| {
+        copy(stage_10, "primaryBorderColor")
     })?;
-    stage.assign("specialStateColor", |stage| copy(stage, "lineColor"))?;
-    stage.assign_if_falsy("errorBkgColor", |stage| copy(stage, "tertiaryColor"))?;
-    stage.assign_if_falsy("errorTextColor", |stage| copy(stage, "tertiaryTextColor"))?;
+    stage.assign("specialStateColor", |stage_11| copy(stage_11, "lineColor"))?;
+    stage.assign_if_falsy("errorBkgColor", |stage_12| copy(stage_12, "tertiaryColor"))?;
+    stage.assign_if_falsy("errorTextColor", |stage_13| copy(stage_13, "tertiaryTextColor"))?;
     Ok(())
 }
 
@@ -1634,14 +1780,15 @@ fn update_pie_forest(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("pie11", "primaryColor", -60.0, -50.0),
         ("pie12", "primaryColor", 120.0, -50.0),
     ] {
-        stage.assign_if_falsy(target, |stage| {
-            if hue == 0.0 && lightness == 0.0 {
-                copy(stage, source)
+        stage.assign_if_falsy(target, |stage_2| {
+            if ::core::matches!(::core::primitive::f64::classify(hue), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f64::classify(lightness), ::core::num::FpCategory::Zero) {
+                copy(stage_2, source)
             } else {
-                adjusted(stage, source, ColorAdjustment::hsl(hue, 0.0, lightness))
+                adjusted(stage_2, source, ColorAdjustment::hsl(hue, 0.0, lightness))
             }
         })?;
     }
+
     update_pie_text(stage, "taskTextDarkColor", "taskTextDarkColor")
 }
 
@@ -1656,12 +1803,13 @@ fn update_venn_forest(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("venn7", "primaryColor", 120.0),
         ("venn8", "secondaryColor", 120.0),
     ] {
-        stage.assign_if_nullish(target, |stage| {
-            adjusted(stage, source, ColorAdjustment::hsl(hue, 0.0, -30.0))
+        stage.assign_if_nullish(target, |stage_2| {
+            adjusted(stage_2, source, ColorAdjustment::hsl(hue, 0.0, -30.0))
         })?;
     }
-    stage.assign_if_nullish("vennTitleTextColor", |stage| copy(stage, "titleColor"))?;
-    stage.assign_if_nullish("vennSetTextColor", |stage| copy(stage, "textColor"))
+
+    stage.assign_if_nullish("vennTitleTextColor", |stage_3| copy(stage_3, "titleColor"))?;
+    stage.assign_if_nullish("vennSetTextColor", |stage_4| copy(stage_4, "textColor"))
 }
 
 fn update_git_forest(stage: &mut ThemeState) -> Result<(), ColorError> {
@@ -1676,49 +1824,55 @@ fn update_git_forest(stage: &mut ThemeState) -> Result<(), ColorError> {
         (7, "primaryColor", 120.0),
     ] {
         let target = format!("git{index}");
-        stage.assign_if_falsy(&target, |stage| {
-            if hue == 0.0 {
-                copy(stage, source)
+        stage.assign_if_falsy(&target, |stage_2| {
+            if ::core::matches!(::core::primitive::f64::classify(hue), ::core::num::FpCategory::Zero) {
+                copy(stage_2, source)
             } else {
-                adjusted(stage, source, ColorAdjustment::hsl(hue, 0.0, 0.0))
+                adjusted(stage_2, source, ColorAdjustment::hsl(hue, 0.0, 0.0))
             }
         })?;
     }
+
     let dark_mode = stage.variables.get("darkMode").is_some_and(is_js_truthy);
+
     for index in 0..8 {
         let target = format!("git{index}");
-        stage.assign(&target, |stage| {
+        stage.assign(&target, |stage_3| {
             let mut computed = if dark_mode {
-                lightened(stage, &target, 25.0)?
+                lightened(stage_3, &target, 25.0)?
             } else {
-                darkened(stage, &target, 25.0)?
+                darkened(stage_3, &target, 25.0)?
             };
-            computed.inherit(stage, "darkMode");
+            computed.inherit(stage_3, "darkMode");
             Ok(computed)
         })?;
     }
+
     for index in 0..8 {
         let target = format!("git{index}");
         let inverse = format!("gitInv{index}");
-        stage.assign_if_falsy(&inverse, |stage| inverted(stage, &target))?;
+        stage.assign_if_falsy(&inverse, |stage_4| inverted(stage_4, &target))?;
     }
+
     for index in 0..8 {
         let target = format!("gitBranchLabel{index}");
-        stage.assign_if_falsy(&target, |stage| {
+        stage.assign_if_falsy(&target, |stage_5| {
             if matches!(index, 0 | 3) {
-                inverted(stage, "labelTextColor")
+                inverted(stage_5, "labelTextColor")
             } else {
-                copy(stage, "labelTextColor")
+                copy(stage_5, "labelTextColor")
             }
         })?;
     }
+
     Ok(())
 }
 
 fn update_neutral(stage: &mut ThemeState) -> Result<(), ColorError> {
-    stage.assign("secondBkg", |stage| lightened(stage, "contrast", 55.0))?;
-    stage.assign("border2", |stage| copy(stage, "contrast"))?;
-    stage.assign("actorBorder", |stage| lightened(stage, "border1", 23.0))?;
+    stage.assign("secondBkg", |stage_2| lightened(stage_2, "contrast", 55.0))?;
+    stage.assign("border2", |stage_3| copy(stage_3, "contrast"))?;
+    stage.assign("actorBorder", |stage_4| lightened(stage_4, "border1", 23.0))?;
+
     for (target, source) in [
         ("actorBkg", "mainBkg"),
         ("actorTextColor", "text"),
@@ -1730,9 +1884,11 @@ fn update_neutral(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("labelTextColor", "text"),
         ("loopTextColor", "text"),
     ] {
-        stage.assign(target, |stage| copy(stage, source))?;
+        stage.assign(target, |stage_5| copy(stage_5, source))?;
     }
-    stage.assign_if_falsy("rectBkgColor", |stage| copy(stage, "tertiaryColor"))?;
+
+    stage.assign_if_falsy("rectBkgColor", |stage_6| copy(stage_6, "tertiaryColor"))?;
+
     for (target, value) in [
         ("noteBorderColor", "#999"),
         ("noteBkgColor", "#666"),
@@ -1751,40 +1907,41 @@ fn update_neutral(stage: &mut ThemeState) -> Result<(), ColorError> {
         let target = format!("cScale{index}");
         stage.assign_if_falsy(&target, |_| Ok(ComputedValue::string(value)))?;
     }
+
     let dark_mode = stage.variables.get("darkMode").is_some_and(is_js_truthy);
-    for_theme_color_indices(stage, |stage, index| {
+    for_theme_color_indices(stage, |stage_7, index| {
         let scale = format!("cScale{index}");
         let inverse = format!("cScaleInv{index}");
-        stage.assign_if_falsy(&inverse, |stage| inverted(stage, &scale))
+        stage_7.assign_if_falsy(&inverse, |stage_8| inverted(stage_8, &scale))
     })?;
-    for_theme_color_indices(stage, |stage, index| {
+    for_theme_color_indices(stage, |stage_9, index| {
         let scale = format!("cScale{index}");
         let peer = format!("cScalePeer{index}");
-        stage.assign_if_falsy(&peer, |stage| {
+        stage_9.assign_if_falsy(&peer, |stage_10| {
             let mut computed = if dark_mode {
-                lightened(stage, &scale, 10.0)?
+                lightened(stage_10, &scale, 10.0)?
             } else {
-                darkened(stage, &scale, 10.0)?
+                darkened(stage_10, &scale, 10.0)?
             };
-            computed.inherit(stage, "darkMode");
+            computed.inherit(stage_10, "darkMode");
             Ok(computed)
         })
     })?;
-    stage.assign_if_falsy("scaleLabelColor", |stage| {
+    stage.assign_if_falsy("scaleLabelColor", |stage_11| {
         if dark_mode {
-            Ok(stage.computed(Value::String("black".to_string()), &["darkMode"]))
+            Ok(stage_11.computed(Value::String("black".to_string()), &["darkMode"]))
         } else {
-            copy(stage, "labelTextColor").map(|mut computed| {
-                computed.inherit(stage, "darkMode");
+            copy(stage_11, "labelTextColor").map(|mut computed| {
+                computed.inherit(stage_11, "darkMode");
                 computed
             })
         }
     })?;
-    stage.assign_if_falsy("cScaleLabel0", |stage| copy(stage, "cScale1"))?;
-    stage.assign_if_falsy("cScaleLabel2", |stage| copy(stage, "cScale1"))?;
-    for_theme_color_indices(stage, |stage, index| {
+    stage.assign_if_falsy("cScaleLabel0", |stage_12| copy(stage_12, "cScale1"))?;
+    stage.assign_if_falsy("cScaleLabel2", |stage_13| copy(stage_13, "cScale1"))?;
+    for_theme_color_indices(stage, |stage_14, index| {
         let target = format!("cScaleLabel{index}");
-        stage.assign_if_falsy(&target, |stage| copy(stage, "scaleLabelColor"))
+        stage_14.assign_if_falsy(&target, |stage_15| copy(stage_15, "scaleLabelColor"))
     })?;
     update_surfaces(
         stage,
@@ -1802,18 +1959,20 @@ fn update_neutral(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("defaultLinkColor", "lineColor"),
         ("titleColor", "text"),
     ] {
-        stage.assign(target, |stage| copy(stage, source))?;
+        stage.assign(target, |stage_16| copy(stage_16, source))?;
     }
-    stage.assign_if_falsy("flowContainerStroke", |stage| {
-        copy(stage, "secondaryBorderColor")
+
+    stage.assign_if_falsy("flowContainerStroke", |stage_17| {
+        copy(stage_17, "secondaryBorderColor")
     })?;
-    stage.assign("sectionBkgColor", |stage| {
-        lightened(stage, "contrast", 30.0)
+    stage.assign("sectionBkgColor", |stage_18| {
+        lightened(stage_18, "contrast", 30.0)
     })?;
-    stage.assign("sectionBkgColor2", |stage| {
-        lightened(stage, "contrast", 30.0)
+    stage.assign("sectionBkgColor2", |stage_19| {
+        lightened(stage_19, "contrast", 30.0)
     })?;
-    stage.assign("taskBorderColor", |stage| darkened(stage, "contrast", 10.0))?;
+    stage.assign("taskBorderColor", |stage_20| darkened(stage_20, "contrast", 10.0))?;
+
     for (target, source) in [
         ("taskBkgColor", "contrast"),
         ("taskTextColor", "taskTextLightColor"),
@@ -1822,33 +1981,36 @@ fn update_neutral(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("activeTaskBorderColor", "taskBorderColor"),
         ("activeTaskBkgColor", "mainBkg"),
     ] {
-        stage.assign(target, |stage| copy(stage, source))?;
+        stage.assign(target, |stage_21| copy(stage_21, source))?;
     }
-    stage.assign("gridColor", |stage| lightened(stage, "border1", 30.0))?;
+
+    stage.assign("gridColor", |stage_22| lightened(stage_22, "border1", 30.0))?;
+
     for (target, source) in [
         ("doneTaskBkgColor", "done"),
         ("doneTaskBorderColor", "lineColor"),
         ("critBkgColor", "critical"),
     ] {
-        stage.assign(target, |stage| copy(stage, source))?;
+        stage.assign(target, |stage_23| copy(stage_23, source))?;
     }
-    stage.assign("critBorderColor", |stage| {
-        darkened(stage, "critBkgColor", 10.0)
+
+    stage.assign("critBorderColor", |stage_24| {
+        darkened(stage_24, "critBkgColor", 10.0)
     })?;
-    stage.assign("todayLineColor", |stage| copy(stage, "critBkgColor"))?;
-    stage.assign("vertLineColor", |stage| copy(stage, "critBkgColor"))?;
-    stage.assign("archEdgeColor", |stage| copy(stage, "lineColor"))?;
-    stage.assign("archEdgeArrowColor", |stage| copy(stage, "lineColor"))?;
+    stage.assign("todayLineColor", |stage_25| copy(stage_25, "critBkgColor"))?;
+    stage.assign("vertLineColor", |stage_26| copy(stage_26, "critBkgColor"))?;
+    stage.assign("archEdgeColor", |stage_27| copy(stage_27, "lineColor"))?;
+    stage.assign("archEdgeArrowColor", |stage_28| copy(stage_28, "lineColor"))?;
 
     update_state_neutral(stage)?;
-    stage.assign("classText", |stage| copy(stage, "primaryTextColor"))?;
+    stage.assign("classText", |stage_29| copy(stage_29, "primaryTextColor"))?;
     update_journey(stage)?;
-    for_theme_color_indices(stage, |stage, index| {
+    for_theme_color_indices(stage, |stage_30, index| {
         let pie = format!("pie{index}");
         let scale = format!("cScale{index}");
-        stage.assign(&pie, |stage| copy(stage, &scale))
+        stage_30.assign(&pie, |stage_31| copy(stage_31, &scale))
     })?;
-    stage.assign("pie12", |stage| copy(stage, "pie0"))?;
+    stage.assign("pie12", |stage_32| copy(stage_32, "pie0"))?;
     update_pie_text(stage, "taskTextDarkColor", "taskTextDarkColor")?;
     update_venn_from_scales(stage, None)?;
     update_cynefin(
@@ -1861,7 +2023,7 @@ fn update_neutral(stage: &mut ThemeState) -> Result<(), ColorError> {
     )?;
     update_radar(stage)?;
     update_wardley(stage, "#dc3545", "background")?;
-    update_requirement(stage, |stage| copy(stage, "edgeLabelBackground"))?;
+    update_requirement(stage, |stage_33| copy(stage_33, "edgeLabelBackground"))?;
     update_git_neutral(stage)?;
     update_tags(stage)?;
     update_event_modeling_light(stage)
@@ -1869,28 +2031,29 @@ fn update_neutral(stage: &mut ThemeState) -> Result<(), ColorError> {
 
 fn update_state_neutral(stage: &mut ThemeState) -> Result<(), ColorError> {
     stage.assign_if_falsy("transitionColor", |_| Ok(ComputedValue::string("#000")))?;
-    stage.assign_if_falsy("transitionLabelColor", |stage| copy(stage, "textColor"))?;
-    stage.assign_if_falsy("stateLabelColor", |stage| {
-        first_truthy(stage, &["stateBkg", "primaryTextColor"])
+    stage.assign_if_falsy("transitionLabelColor", |stage_2| copy(stage_2, "textColor"))?;
+    stage.assign_if_falsy("stateLabelColor", |stage_3| {
+        first_truthy(stage_3, &["stateBkg", "primaryTextColor"])
     })?;
-    stage.assign_if_falsy("stateBkg", |stage| copy(stage, "mainBkg"))?;
-    stage.assign_if_falsy("labelBackgroundColor", |stage| copy(stage, "stateBkg"))?;
-    stage.assign_if_falsy("compositeBackground", |stage| {
-        first_truthy(stage, &["background", "tertiaryColor"])
+    stage.assign_if_falsy("stateBkg", |stage_4| copy(stage_4, "mainBkg"))?;
+    stage.assign_if_falsy("labelBackgroundColor", |stage_5| copy(stage_5, "stateBkg"))?;
+    stage.assign_if_falsy("compositeBackground", |stage_6| {
+        first_truthy(stage_6, &["background", "tertiaryColor"])
     })?;
     stage.assign_if_falsy("altBackground", |_| Ok(ComputedValue::string("#f4f4f4")))?;
-    stage.assign_if_falsy("compositeTitleBackground", |stage| copy(stage, "mainBkg"))?;
+    stage.assign_if_falsy("compositeTitleBackground", |stage_7| copy(stage_7, "mainBkg"))?;
     stage.assign_if_falsy("stateBorder", |_| Ok(ComputedValue::string("#000")))?;
-    stage.assign("innerEndBackground", |stage| {
-        copy(stage, "primaryBorderColor")
+    stage.assign("innerEndBackground", |stage_8| {
+        copy(stage_8, "primaryBorderColor")
     })?;
     stage.assign("specialStateColor", |_| Ok(ComputedValue::string("#222")))?;
-    stage.assign_if_falsy("errorBkgColor", |stage| copy(stage, "tertiaryColor"))?;
-    stage.assign_if_falsy("errorTextColor", |stage| copy(stage, "tertiaryTextColor"))
+    stage.assign_if_falsy("errorBkgColor", |stage_9| copy(stage_9, "tertiaryColor"))?;
+    stage.assign_if_falsy("errorTextColor", |stage_10| copy(stage_10, "tertiaryTextColor"))
 }
 
 fn update_git_neutral(stage: &mut ThemeState) -> Result<(), ColorError> {
-    stage.assign("git0", |stage| darkened(stage, "pie1", 25.0))?;
+    stage.assign("git0", |stage_2| darkened(stage_2, "pie1", 25.0))?;
+
     for (target, pie, source, hue) in [
         ("git1", "pie2", "secondaryColor", 0.0),
         ("git2", "pie3", "tertiaryColor", 0.0),
@@ -1900,30 +2063,35 @@ fn update_git_neutral(stage: &mut ThemeState) -> Result<(), ColorError> {
         ("git6", "pie7", "primaryColor", 60.0),
         ("git7", "pie8", "primaryColor", 120.0),
     ] {
-        stage.assign(target, |stage| {
-            if let Some(value) = stage.truthy_from(pie) {
+        stage.assign(target, |stage_3| {
+            if let Some(value) = stage_3.truthy_from(pie) {
                 Ok(value)
-            } else if hue == 0.0 {
-                copy(stage, source)
+            } else if ::core::matches!(::core::primitive::f64::classify(hue), ::core::num::FpCategory::Zero) {
+                copy(stage_3, source)
             } else {
-                adjusted(stage, source, ColorAdjustment::hsl(hue, 0.0, 0.0))
+                adjusted(stage_3, source, ColorAdjustment::hsl(hue, 0.0, 0.0))
             }
         })?;
     }
+
     for index in 0..8 {
         let git = format!("git{index}");
         let inverse = format!("gitInv{index}");
-        stage.assign_if_falsy(&inverse, |stage| inverted(stage, &git))?;
+        stage.assign_if_falsy(&inverse, |stage_4| inverted(stage_4, &git))?;
     }
-    stage.assign_if_falsy("branchLabelColor", |stage| copy(stage, "labelTextColor"))?;
+
+    stage.assign_if_falsy("branchLabelColor", |stage_5| copy(stage_5, "labelTextColor"))?;
+
     for index in 0..8 {
         let target = format!("gitBranchLabel{index}");
+
         if matches!(index, 1 | 3) {
             stage.assign(&target, |_| Ok(ComputedValue::string("white")))?;
         } else {
-            stage.assign(&target, |stage| copy(stage, "branchLabelColor"))?;
+            stage.assign(&target, |stage_6| copy(stage_6, "branchLabelColor"))?;
         }
     }
+
     Ok(())
 }
 
@@ -2127,7 +2295,7 @@ mod tests {
             oracle.commit("chart", &nested);
             assert_eq!(state.snapshot().dependencies, oracle.dependencies);
 
-            // A same-value constant write must retire the authored owner before its next read.
+
             state.commit_computed("source", ComputedValue::string("#123456"));
             oracle.commit("source", &[]);
             let computed = state.computed(json!("#123456"), &["source", "other"]);
@@ -2217,8 +2385,8 @@ mod tests {
         ] {
             let keys = ["a", "a.b", "a.b.c"];
             for order in orders {
-                // Construct the Map directly: its insertion order is the interpreter's overlay
-                // and replay order, including descendants written before their ancestors.
+
+
                 let explicit = order
                     .map(|index| (keys[index].to_string(), values[index].clone()))
                     .into_iter()
@@ -2237,7 +2405,7 @@ mod tests {
                     "overlay: {explicit:?}"
                 );
 
-                // A shadowed authored leaf must not become a source at its first actual read.
+
                 let reads = ["a", "a.b", "a.b.c", "a.b.c.d", "a.other"];
                 let computed = state.computed(Value::Null, &reads);
                 state.commit_computed("derived", computed);

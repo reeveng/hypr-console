@@ -59,11 +59,13 @@ impl KanbanTextPaintFacts {
         task_label_owned: bool,
     ) {
         self.visible_runs += visible_runs;
+
         if !task_label_owned {
             self.inherited_runs += inherited_runs;
             self.partial_color_ownership |= inherited_runs > 0 && inherited_runs < visible_runs;
             self.unverified_color_runs += unverified_color_runs;
         }
+
         self.parse_valid &= parse_valid;
     }
 }
@@ -75,6 +77,7 @@ pub(crate) struct KanbanTextPaintOutcome {
 }
 
 impl KanbanTextPaintPlan {
+    #[must_use]
     pub(crate) fn baseline() -> Self {
         Self {
             fill: None,
@@ -93,15 +96,19 @@ impl KanbanTextPaintPlan {
         tasks: &KanbanTaskTheme,
         work: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let Some(theme) = theme else {
-            return Ok(Self::baseline());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::baseline()),
         };
+
         let mut plan = Self {
             evidence: FamilyThemeOutcomes::default(),
             ..Self::baseline()
         };
-        for route in theme.family_mechanism_routes() {
+
+        for route in theme_2.family_mechanism_routes() {
             work.charge(1)?;
+
             if matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -114,14 +121,17 @@ impl KanbanTextPaintPlan {
                     ..
                 }
             ) {
-                let key = theme.family_mechanism_key(*route);
+                let key = theme_2.family_mechanism_key(*route);
                 plan.text_keys.insert(key);
             }
         }
+
         if plan.text_keys.is_empty() {
             return Ok(plan);
         }
+
         let mut ownership = KanbanTextPaintFacts::default();
+
         for section in sections {
             let facts = &section.visible_style_facts;
             work.charge(1usize.saturating_add(facts.visible_run_count()))?;
@@ -133,8 +143,10 @@ impl KanbanTextPaintPlan {
                 false,
             );
         }
+
         for (index, item) in items.iter().enumerate() {
             let task_label_owned = tasks.owns_label_foreground(index);
+
             for facts in [
                 &item.title.visible_style_facts,
                 &item.ticket.visible_style_facts,
@@ -150,32 +162,37 @@ impl KanbanTextPaintPlan {
                 );
             }
         }
+
         let config_owned = config.config_paint_overrides_typed_default("themeVariables.textColor");
         let style =
-            theme.style_with_work_meter(ThemeTarget::Text, ThemeVariant::Default, None, work)?;
+            theme_2.style_with_work_meter(ThemeTarget::Text, ThemeVariant::Default, None, work)?;
         let winners = style
             .winner_rule_properties()
             .map(|(property, origin)| (origin.rule_index(), property))
             .collect::<BTreeSet<_>>();
+
         if !config_owned {
             plan.fill = resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Text],
                 DirectStaticSelectorDomain::Default,
             );
         }
-        // An empty visible domain has no effect or palette terminal. The writer records
-        // its N/A result after successfully emitting the document.
+
+
+
         if ownership.parse_valid && ownership.visible_runs == 0 {
             return Ok(plan);
         }
+
         let source_owned_fill = config_owned
             || (ownership.parse_valid
                 && ownership.unverified_color_runs == 0
                 && ownership.inherited_runs == 0);
         let mut observations = BTreeMap::new();
-        for route in theme.family_mechanism_routes() {
+
+        for route in theme_2.family_mechanism_routes() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Text,
@@ -185,12 +202,13 @@ impl KanbanTextPaintPlan {
             else {
                 continue;
             };
+
             work.charge(1)?;
             let entry = observations
-                .entry(theme.family_mechanism_key(*route))
+                .entry(theme_2.family_mechanism_key(*route))
                 .or_insert((false, None));
             let property = resolved_style_property_for_facet(facet);
-            // Text has no semantic ordinal numbering. A later static winner can supersede it.
+
             let unproved_ordinal = matches!(
                 selector,
                 FamilyThemeSelectorShape::Ordinal {
@@ -200,11 +218,13 @@ impl KanbanTextPaintPlan {
             ) && !winners.iter().any(|(winner, winner_property)| {
                 *winner_property == property && *winner > rule_index
             });
+
             if (!winners.contains(&(rule_index, property)) && !unproved_ordinal)
                 || (property == ResolvedStyleProperty::Fill && source_owned_fill)
             {
                 continue;
             }
+
             if route.disposition() == FamilyThemeDisposition::TypedAdapter
                 && matches!(facet, FamilyThemeRuleFacet::Fill(_))
                 && plan
@@ -217,6 +237,7 @@ impl KanbanTextPaintPlan {
                 entry.1.get_or_insert(unsupported_residual_for_facet(facet));
             }
         }
+
         for (key, (fill, residual)) in observations {
             if fill || residual.is_some() {
                 plan.pending.push((key, residual));
@@ -224,8 +245,9 @@ impl KanbanTextPaintPlan {
                 plan.evidence.mark_not_applicable(key);
             }
         }
+
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut plan.evidence,
             &[UnsupportedTerminalDomain::static_fallbacks_only(
                 ThemeTarget::Text,
@@ -237,10 +259,12 @@ impl KanbanTextPaintPlan {
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn fill_css(&self) -> Option<&str> {
         self.fill.as_ref().map(DirectStaticPaint::css)
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_outcome(&self) -> Option<KanbanTextPaintOutcome> {
         (!self.text_keys.is_empty()).then(KanbanTextPaintOutcome::default)
     }
@@ -251,6 +275,7 @@ impl KanbanTextPaintPlan {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if self
             .terminal
             .get()
@@ -259,26 +284,34 @@ impl KanbanTextPaintPlan {
             for key in &self.text_keys {
                 evidence.mark_not_applicable(key.clone());
             }
+
             return;
         }
+
         for (key, residual) in &self.pending {
-            if let Some(reason) = residual {
-                evidence.mark_residual(key.clone(), *reason);
-            } else {
-                if self.terminal.get().is_some_and(|outcome| {
-                    outcome.css_written
-                        && outcome.emitted.parse_valid
-                        && outcome.emitted.inherited_runs > 0
-                        && !outcome.emitted.partial_color_ownership
-                        && outcome.emitted.unverified_color_runs == 0
-                }) {
-                    if let Some(fill) = &self.fill {
-                        evidence.mark_applied_with_capabilities(key.clone(), [fill.capability()]);
+            match residual {
+                Some(reason) => {
+                    evidence.mark_residual(key.clone(), *reason);
+                },
+                ::core::option::Option::None => {
+                    if self.terminal.get().is_some_and(|outcome| {
+                        outcome.css_written
+                            && outcome.emitted.parse_valid
+                            && outcome.emitted.inherited_runs > 0
+                            && !outcome.emitted.partial_color_ownership
+                            && outcome.emitted.unverified_color_runs == 0
+                    }) {
+                        match &self.fill {
+                            Some(fill) => {
+                                evidence.mark_applied_with_capabilities(key.clone(), [fill.capability()]);
+                            },
+                            ::core::option::Option::None => {},
+                        }
+                    } else {
+                        evidence
+                            .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
                     }
-                } else {
-                    evidence
-                        .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
-                }
+                },
             }
         }
     }

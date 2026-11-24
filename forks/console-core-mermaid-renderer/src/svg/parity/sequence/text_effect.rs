@@ -60,9 +60,12 @@ impl<'a> SequenceTextShadow<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn needs_bounds(&self) -> bool {
         self.effect.is_some()
     }
+
+    #[must_use]
     pub(super) fn is_paintless(&self, text: &str) -> bool {
         self.needs_bounds()
             && text
@@ -70,6 +73,7 @@ impl<'a> SequenceTextShadow<'a> {
                 .all(|c| matches!(c, ' ' | '\t' | '\r' | '\n' | '\u{200B}'))
     }
 
+    #[must_use]
     pub(super) fn len(&self) -> usize {
         self.applications.get()
     }
@@ -88,9 +92,11 @@ impl<'a> SequenceTextShadow<'a> {
         style: &TextStyle,
         measurer: &dyn TextMeasurer,
     ) -> Result<Option<SequenceTextShadowApplication>> {
-        let Some(effect) = &self.effect else {
-            return Ok(None);
+        let effect = match &self.effect {
+            Some(matched_effect) => matched_effect,
+            ::core::option::Option::None => return Ok(None),
         };
+
         self.work_meter.charge(
             text.len()
                 .max(1)
@@ -99,30 +105,33 @@ impl<'a> SequenceTextShadow<'a> {
         let width = measurer.measure_svg_tspan_text_bbox_width_px(text, style);
         let height = measurer.measure_svg_tspan_text_bbox_height_px(text, style);
         let em = style.font_size;
+
         if !width.is_finite() || width < 0.0 || !height.is_finite() || height < 0.0 {
             return Ok(None);
         }
-        // Serialize coordinates before materializing so bounds use the terminal's
-        // rounded placement rather than an unobservable higher-precision position.
-        let x = crate::number_format::canonicalize_number(x);
-        let y = crate::number_format::canonicalize_number(y);
+
+
+
+        let x_2 = crate::number_format::canonicalize_number(x);
+        let y_2 = crate::number_format::canonicalize_number(y);
         let center_y = match baseline {
             TextShadowBaseline::NoteMiddle
             | TextShadowBaseline::NoteStart
-            | TextShadowBaseline::NoteEnd => y + em,
-            TextShadowBaseline::Middle | TextShadowBaseline::MiddleStart => y,
-            TextShadowBaseline::Alphabetic => y - height / 2.0,
+            | TextShadowBaseline::NoteEnd => y_2 + em,
+            TextShadowBaseline::Middle | TextShadowBaseline::MiddleStart => y_2,
+            TextShadowBaseline::Alphabetic => y_2 - height / 2.0,
         };
         let left = match baseline {
-            TextShadowBaseline::MiddleStart | TextShadowBaseline::NoteStart => x,
-            TextShadowBaseline::NoteEnd => x - width,
-            _ => x - width / 2.0,
+            TextShadowBaseline::MiddleStart | TextShadowBaseline::NoteStart => x_2,
+            TextShadowBaseline::NoteEnd => x_2 - width,
+            TextShadowBaseline::NoteMiddle | TextShadowBaseline::Middle | TextShadowBaseline::Alphabetic => x_2 - width / 2.0,
         };
-        // A native fallback face can change advances across the whole line. Allocate one
-        // additional measured line width on each side, rather than a fixed em allowance that
-        // shrinks relative to longer labels. This is bounded allocation, not certified ink;
-        // native export still verifies actual outlines and rejects underestimated metrics.
+
+
+
+
         let horizontal_reserve = width.max(em);
+
         let Some(materialized) = effect.materialize_user_space(
             &self.resources,
             left,
@@ -139,6 +148,7 @@ impl<'a> SequenceTextShadow<'a> {
         else {
             return Ok(None);
         };
+
         let region = materialized.region();
         let id = format!(
             "{}-{}-text-{}-theme-effect-{}",
@@ -178,29 +188,31 @@ impl<'a> SequenceTextShadow<'a> {
         surface: SequenceTextSurface,
         translate_y: f64,
     ) {
-        if let Some(application) = application {
+        if let Some(application_2) = application {
             let effect = self
                 .effect
                 .as_ref()
                 .expect("a materialized text shadow has an effect");
-            evidence.record_application(effect, &application.id, application.region);
+            evidence.record_application(effect, &application_2.id, application_2.region);
             self.applications.set(self.len().saturating_add(1));
-            let [x, y, w, h] = application.region.as_array().map(f64::from);
-            let y = y + translate_y;
+            let [x, y, w, h] = application_2.region.as_array().map(f64::from);
+            let y_2 = y + translate_y;
             let mut total = self.bounds.borrow_mut();
-            if let Some(total) = total.as_mut() {
-                total.min_x = total.min_x.min(x);
-                total.min_y = total.min_y.min(y);
-                total.max_x = total.max_x.max(x + w);
-                total.max_y = total.max_y.max(y + h);
+
+            if let Some(total_2) = total.as_mut() {
+                total_2.min_x = total_2.min_x.min(x);
+                total_2.min_y = total_2.min_y.min(y_2);
+                total_2.max_x = total_2.max_x.max(x + w);
+                total_2.max_y = total_2.max_y.max(y_2 + h);
             } else {
                 *total = Some(Bounds {
                     min_x: x,
-                    min_y: y,
+                    min_y: y_2,
                     max_x: x + w,
-                    max_y: y + h,
+                    max_y: y_2 + h,
                 });
             }
+
             receipt.record_text_effect(surface, true);
         } else if self.cleared || (paintless && self.effect.is_some()) {
             receipt.record_text_effect(surface, false);

@@ -2040,15 +2040,11 @@ fn write_num(num: f32, buf: &mut Vec<u8>, precision: u8) -> Result<(), Never> {
   append_number(buf, SvgNumber::Fraction(rounded))
 }
 
-fn write_span(
-  destination: ElementDestination,
-  opt: &WriteOptions,
+fn write_font_families(
   xml: &mut XmlWriter,
-  chunk: &TextChunk,
-  span: &TextSpan,
+  families: &[FontFamily],
+  attribute_quote: AttributeQuote,
 ) -> Result<(), XmlFault> {
-  xml.start_svg_element(EId::Tspan)?;
-
   let font_family_to_str = |font_family: &FontFamily| match font_family {
     FontFamily::Monospace => "monospace".to_string(),
     FontFamily::Serif => "serif".to_string(),
@@ -2060,7 +2056,7 @@ fn write_span(
       Err(problem) => {
         console_core_logging::debug!("Quoting SVG font family {s:?}: {problem}");
 
-        match opt.attribute_quote {
+        match attribute_quote {
           AttributeQuote::Single => format!("\"{}\"", s),
           AttributeQuote::Double => format!("'{}'", s),
         }
@@ -2068,19 +2064,31 @@ fn write_span(
     },
   };
 
-  match ::core::primitive::bool::then_some(!span.font.families.is_empty(), ()) {
+  match ::core::primitive::bool::then_some(!families.is_empty(), ()) {
     ::core::option::Option::Some(()) => {
-      let families = span
-        .font
-        .families
+      let written = families
         .iter()
         .map(font_family_to_str)
         .collect::<Vec<_>>()
         .join(", ");
-      xml.write_svg_attribute(AId::FontFamily, &families)?;
+      xml.write_svg_attribute(AId::FontFamily, &written)?;
     }
     ::core::option::Option::None => {}
   }
+
+  Ok(())
+}
+
+fn write_span(
+  destination: ElementDestination,
+  opt: &WriteOptions,
+  xml: &mut XmlWriter,
+  chunk: &TextChunk,
+  span: &TextSpan,
+) -> Result<(), XmlFault> {
+  xml.start_svg_element(EId::Tspan)?;
+
+  write_font_families(xml, &span.font.families, opt.attribute_quote)?;
 
   match span.font.style {
     FontStyle::Normal => {}

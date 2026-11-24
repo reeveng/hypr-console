@@ -29,7 +29,7 @@ use console_core_never::Never;
 use console_core_number_conversion::fitted;
 
 pub use selector::{AttributeOperator, Element, Matching, PseudoClass, Selector};
-use stream::{Stream, Consumption};
+use stream::{Consumption, Stream};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Error {

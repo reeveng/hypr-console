@@ -37,13 +37,19 @@ pub(super) fn render_class_namespace_cluster_group(
     let clusters_start = ctx.timing.start();
     out.push_str(r#"<g class="clusters">"#);
     out.checkpoint()?;
+
     for c in clusters {
         let typography =
             render_class_namespace_cluster(out, content_bounds, c, ctx, theme_receipt)?;
-        if let Some(receipt) = typography_receipt.as_mut() {
-            receipt.record_namespace(&c.id, typography);
+
+        match typography_receipt.as_mut() {
+            Some(receipt) => {
+                receipt.record_namespace(&c.id, typography);
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
     Ok(clusters_start
@@ -151,35 +157,46 @@ fn render_class_namespace_cluster_at(
     out.checkpoint()?;
     let (fill_rule, stroke_rule) = ctx.relation_theme.cluster_paint_rule_indices();
     theme_receipt.record_cluster(fill_rule, stroke_rule);
-    if let Some((rule, _)) = title_paint {
-        theme_receipt.record_namespace_title(
-            rule,
-            label_w > 0.0 && !cluster.title.trim().is_empty(),
-            typography.has_verified_inherited_paint(),
-        );
+
+    match title_paint {
+        Some((rule, _)) => {
+            theme_receipt.record_namespace_title(
+                rule,
+                label_w > 0.0 && !cluster.title.trim().is_empty(),
+                typography.has_verified_inherited_paint(),
+            );
+        },
+        ::core::option::Option::None => {},
     }
+
     Ok(typography.with_paint(
         ctx.relation_theme.namespace_title_fill(),
         emitted_title_style,
     ))
 }
 
+#[must_use]
 fn class_namespace_title_html(
     title: &str,
     ctx: ClassNamespaceClusterGroupContext<'_>,
 ) -> (String, crate::class::ClassTextTerminalFacts) {
-    if let Some(math_html) = class_math_html_label(title, ctx.mermaid_config, ctx.math_renderer) {
-        return (
-            math_html,
-            crate::class::ClassTextTerminalFacts::unverified_text(title),
-        );
+    match class_math_html_label(title, ctx.mermaid_config, ctx.math_renderer) {
+        Some(math_html) => {
+            return (
+                math_html,
+                crate::class::ClassTextTerminalFacts::unverified_text(title),
+            );
+        },
+        ::core::option::Option::None => {},
     }
+
     (
         format!("<p>{}</p>", escape_xml_display(title)),
         crate::class::ClassTextTerminalFacts::inherited_text(title),
     )
 }
 
+#[must_use]
 pub(super) fn class_namespace_root_offset(c: &LayoutCluster) -> (f64, f64) {
     let w = c.width.max(1.0);
     let h = c.height.max(1.0);
@@ -201,6 +218,7 @@ pub(super) fn render_class_namespace_clusters_in_root(
 ) -> crate::Result<()> {
     out.push_str(r#"<g class="clusters">"#);
     out.checkpoint()?;
+
     for ns_id in cluster_ids {
         let c = clusters_by_id
             .get(ns_id)
@@ -229,10 +247,15 @@ pub(super) fn render_class_namespace_clusters_in_root(
             },
             theme_receipt,
         )?;
-        if let Some(receipt) = typography_receipt.as_mut() {
-            receipt.record_namespace(&c.id, typography);
+
+        match typography_receipt.as_mut() {
+            Some(receipt) => {
+                receipt.record_namespace(&c.id, typography);
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }

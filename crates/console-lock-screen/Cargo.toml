@@ -14,7 +14,12 @@ name = "lock-screen"
 path = "src/bin/lock-screen.rs"
 
 [dependencies]
+console-battery.workspace = true
+console-core-atomic-writes.workspace = true
 console-core-color.workspace = true
+console-core-external-programs.workspace = true
+console-core-geometry.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
 console-core-never.workspace = true
 console-core-iteration.workspace = true
 console-core-places.workspace = true
@@ -23,6 +28,7 @@ console-core-words.workspace = true
 console-defaults.workspace = true
 console-draw-painting.workspace = true
 console-draw-surface.workspace = true
+console-events.workspace = true
 console-login-greeter.workspace = true
 console-login-window.workspace = true
 console-program-contract.workspace = true

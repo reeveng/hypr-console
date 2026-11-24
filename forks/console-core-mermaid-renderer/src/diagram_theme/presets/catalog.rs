@@ -10,8 +10,8 @@ use crate::diagram_theme::{
 const ALPHA: &str = "alpha";
 const PROJECT_LICENSE: &str = "MIT OR Apache-2.0";
 const NO_QUALIFIED_CELLS: &[ThemePresetQualifiedCell] = &[];
-// Families without a dedicated recipe use the shared palette recipe. Keep unreviewed families
-// absent instead of deriving aesthetic scope from renderer support.
+
+
 const SHARED_PALETTE_DESIGNS: &[(&str, &str)] = &[
     ("class", "base_only"),
     ("flowchart", "base_only"),
@@ -85,32 +85,40 @@ pub(super) struct PresetCatalogEntry {
 }
 
 impl PresetCatalogEntry {
+    #[must_use]
     pub(super) const fn preset(&self) -> ThemePreset {
         self.preset
     }
 
+    #[must_use]
     pub(super) const fn id(&self) -> &'static str {
         self.id
     }
 
+    #[must_use]
     pub(super) const fn display_name(&self) -> &'static str {
         self.display_name
     }
 
+    #[must_use]
     pub(super) const fn is_dark(&self) -> bool {
         self.dark_mode
     }
 
+    #[must_use]
     pub(super) const fn maturity(&self) -> &'static str {
         self.maturity
     }
 
+    #[must_use]
     pub(super) const fn family_designs(&self) -> &'static [(&'static str, &'static str)] {
         self.family_designs
     }
 
+    #[must_use]
     pub(super) fn preview_colors(&self) -> Vec<String> {
         let mut colors = Vec::new();
+
         for color in [self.palette.canvas, self.palette.surface, self.palette.text]
             .into_iter()
             .chain(self.palette.series.iter().take(5).copied())
@@ -119,9 +127,11 @@ impl PresetCatalogEntry {
                 colors.push(color.to_owned());
             }
         }
+
         colors
     }
 
+    #[must_use]
     pub(super) fn application_notes(&self) -> Vec<ThemePresetApplicationNoteV1> {
         let (id, message) = match self.preset {
             ThemePreset::Brutalist => (
@@ -142,18 +152,22 @@ impl PresetCatalogEntry {
         }]
     }
 
+    #[must_use]
     pub(super) const fn qualified_cells(&self) -> &'static [ThemePresetQualifiedCell] {
         self.qualified_cells
     }
 
+    #[must_use]
     pub(super) const fn export_kind(&self) -> &'static str {
         self.export_kind
     }
 
+    #[must_use]
     pub(super) const fn license_expression(&self) -> &'static str {
         self.license_expression
     }
 
+    #[must_use]
     pub(super) const fn required_attribution(&self) -> Option<&'static str> {
         self.required_attribution
     }
@@ -183,11 +197,13 @@ impl PresetCatalogEntry {
         self.retained
     }
 
+    #[must_use]
     fn recipe(&self) -> ThemeDesignV1 {
         (self.recipe_builder)(self.palette)
     }
 }
 
+#[must_use]
 const fn entry(
     preset: ThemePreset,
     id: &'static str,
@@ -654,27 +670,33 @@ const PRESET_CATALOG: [PresetCatalogEntry; 11] = [
     ),
 ];
 
+#[must_use]
 const fn descriptor_projection() -> [ThemePresetDescriptor; PRESET_CATALOG.len()] {
     let mut descriptors = [ThemePresetDescriptor::from_catalog_index(0); PRESET_CATALOG.len()];
     let mut index = 0;
+
     while index < PRESET_CATALOG.len() {
         descriptors[index] = ThemePresetDescriptor::from_catalog_index(index as u8);
         index += 1;
     }
+
     descriptors
 }
 
 const DISCOVERABLE_DESCRIPTORS: [ThemePresetDescriptor; PRESET_CATALOG.len()] =
     descriptor_projection();
 
+#[must_use]
 pub(super) const fn descriptors() -> &'static [ThemePresetDescriptor] {
     &DISCOVERABLE_DESCRIPTORS
 }
 
+#[must_use]
 pub(super) const fn entry_at(index: usize) -> &'static PresetCatalogEntry {
     &PRESET_CATALOG[index]
 }
 
+#[must_use]
 pub(super) fn entry_for_preset(preset: ThemePreset) -> &'static PresetCatalogEntry {
     PRESET_CATALOG
         .iter()
@@ -682,6 +704,7 @@ pub(super) fn entry_for_preset(preset: ThemePreset) -> &'static PresetCatalogEnt
         .expect("every ThemePreset projection must resolve through the catalog")
 }
 
+#[must_use]
 pub(super) fn entry_for_id(id: &str) -> Option<&'static PresetCatalogEntry> {
     PRESET_CATALOG
         .iter()
@@ -696,6 +719,7 @@ pub(crate) fn materialize_spec_wire(
 }
 
 /// Builds the editable source; its caller admits the design before export or compilation.
+#[must_use]
 pub(crate) fn build_design(preset: ThemePreset) -> ThemeDesignV1 {
     let entry = entry_for_preset(preset);
     debug_assert!(
@@ -703,24 +727,28 @@ pub(crate) fn build_design(preset: ThemePreset) -> ThemeDesignV1 {
         "unqualified alpha presets must not inherit qualification residual allowances"
     );
     let mut design = entry.recipe();
+
     if entry.profile == PresetRecipeProfile::RetainedMermaidCompatibility {
-        // Choose a fallback without claiming derived variables that would shadow typed paint.
+
         design.mermaid = Some(MermaidThemeCompatibilityWireV1 {
             theme: Some(if entry.dark_mode { "dark" } else { "base" }.to_owned()),
             dark_mode: None,
             variables: None,
         });
     }
+
     design
 }
 
+#[must_use]
 fn is_discoverable(entry: &PresetCatalogEntry) -> bool {
     entry.retained && entry.required_feature_ids.is_empty() && entry.bundled_resource_ids.is_empty()
 }
 
+#[must_use]
 pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1 {
     let mut design = ThemeDesignV1::default();
-    // These are distinct authored roles even when a preset gives them equal initial colors.
+
     for (id, label, description, value) in [
         (
             "canvas",
@@ -773,6 +801,7 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
     ] {
         color_token(&mut design, id, label, "Core colors", description, value);
     }
+
     for (id, label, description, value) in [
         (
             "edge-label-background",
@@ -862,6 +891,7 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             value,
         );
     }
+
     for (index, color) in palette.series.iter().enumerate() {
         color_token(
             &mut design,
@@ -872,6 +902,7 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             color,
         );
     }
+
     token(
         &mut design,
         "series",
@@ -908,8 +939,8 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
         ..Default::default()
     });
 
-    // Author the effective defaults directly. Superseded expansion rules and their unused
-    // tokens are deliberately absent: every displayed reusable value must have an actual use.
+
+
     for (target, fill, stroke) in [
         (ThemeTarget::Text, Some("text"), None),
         (ThemeTarget::Node, None, Some("border")),
@@ -970,8 +1001,9 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             .styles
             .insert(target.id().to_owned(), style(fill, stroke));
     }
-    // Text is a fallback for every label. Role paints must follow it in authored order,
-    // independent of the target-name ordering used by the defaults map.
+
+
+
     for (target, fill, stroke) in [
         (ThemeTarget::Title, Some("text"), None),
         (ThemeTarget::ActorLabel, Some("actor-text"), None),
@@ -999,6 +1031,7 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             .rules
             .push(rule(None, target, None, style(fill, stroke)));
     }
+
     design.rules.extend([
         rule(
             None,
@@ -1025,7 +1058,8 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             style(fill, stroke),
         ));
     }
-    // Mindmap consumes the ordinal palette; a cross-family Node fill would suppress it.
+
+
     for family in [
         DiagramFamilyId::FLOWCHART,
         DiagramFamilyId::C4,
@@ -1051,6 +1085,7 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             style(Some("surface"), None),
         ));
     }
+
     for family in [
         DiagramFamilyId::ISHIKAWA,
         DiagramFamilyId::RAILROAD,
@@ -1065,12 +1100,14 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             style(Some("line"), None),
         ));
     }
+
     design.rules.push(rule(
         Some(DiagramFamilyId::USECASE),
         ThemeTarget::Marker,
         None,
         style(Some("line"), Some("line")),
     ));
+
     for family in [
         DiagramFamilyId::VENN,
         DiagramFamilyId::ISHIKAWA,
@@ -1087,12 +1124,14 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             style(Some("text"), None),
         ));
     }
+
     design.rules.push(rule(
         Some(DiagramFamilyId::EVENT_MODELING),
         ThemeTarget::ClusterLabel,
         None,
         style(Some("text"), None),
     ));
+
     for family in [DiagramFamilyId::CYNEFIN, DiagramFamilyId::WARDLEY] {
         design.rules.push(rule(
             Some(family),
@@ -1101,6 +1140,7 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             style(Some("text"), None),
         ));
     }
+
     for (family, target, fill, stroke) in [
         (
             DiagramFamilyId::C4,
@@ -1149,6 +1189,7 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             .rules
             .push(rule(Some(family), target, None, style(fill, stroke)));
     }
+
     for (id, value) in [
         ("gantt-active-text", palette.gantt_active_text),
         ("gantt-critical", palette.gantt_critical),
@@ -1163,6 +1204,7 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             value,
         );
     }
+
     for (variant, fill, stroke, label) in [
         (ThemeVariant::Default, "surface", "border", "text"),
         (
@@ -1192,6 +1234,7 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             style(Some(label), None),
         ));
     }
+
     for target in [
         ThemeTarget::Node,
         ThemeTarget::PieSlice,
@@ -1204,11 +1247,13 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             .palettes
             .insert(target.id().to_owned(), reference("series"));
     }
+
     assert_eq!(
         palette.kanban_task_labels.len(),
         palette.series.len(),
         "each preset series slot must own one Kanban task-label foreground"
     );
+
     for (index, color) in palette.kanban_task_labels.iter().enumerate() {
         color_token(
             &mut design,
@@ -1219,6 +1264,7 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
             color,
         );
     }
+
     for terminal_slot in 0usize..12 {
         let mut entry = rule(
             Some(DiagramFamilyId::KANBAN),
@@ -1240,5 +1286,6 @@ pub(super) fn build_cross_family_recipe(palette: PresetPalette) -> ThemeDesignV1
         });
         design.rules.push(entry);
     }
+
     design
 }

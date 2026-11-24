@@ -108,7 +108,7 @@ struct TreemapParseOutcome {
 impl TreemapParseOutcome {
     fn record_issue(&mut self, message: impl Into<String>, span: Option<SourceSpan>) {
         let issue = TreemapParseIssue {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span,
         };
         #[cfg(feature = "editor-facts")]
@@ -117,6 +117,7 @@ impl TreemapParseOutcome {
                 .editor_facts
                 .mark_recovered_from_parse_error(issue.message.clone(), issue.span);
         }
+
         if self.first_issue.is_none() {
             self.first_issue = Some(issue);
         }
@@ -353,7 +354,7 @@ pub(crate) fn parse_treemap_model_for_render_controlled(
     };
     let source = treemap_semantic_source_from_parsed_controlled(parsed, control)?;
     control.checkpoint()?;
-    Ok(Ok(source.into_render_model_controlled(control)?))
+    Ok(Ok({ let checked_value = source.into_render_model_controlled(control)?; checked_value }))
 }
 
 #[cfg(feature = "compat-json")]
@@ -385,10 +386,12 @@ impl TreemapSemanticSource {
         control: &crate::OperationControl,
     ) -> crate::OperationControlResult<TreemapDiagramModel> {
         let mut classes = std::collections::BTreeMap::new();
+
         for (id, class) in self.class_defs {
             control.checkpoint()?;
             classes.insert(id, class);
         }
+
         control.checkpoint()?;
         Ok(TreemapDiagramModel {
             title: self.title,
@@ -534,7 +537,7 @@ fn parse_treemap_outcome_controlled(
         },
         first_issue: None,
     };
-    let body = match treemap_body_start_controlled(code, control)? {
+    let body = match { let checked_value = treemap_body_start_controlled(code, control)?; checked_value } {
         Ok(Some(body)) => body,
         Ok(None) => return Ok(outcome),
         Err(issue) => {
@@ -550,44 +553,59 @@ fn parse_treemap_outcome_controlled(
 
     while offset < code.len() {
         control.checkpoint()?;
-        if let Some(parsed) = parse_langium_common(code, offset) {
-            saw_statement = true;
-            trailing_whitespace_span = parsed.trailing_whitespace_span;
-            let field = parsed.fact.field;
-            let value = parsed.fact.value.clone();
-            #[cfg(feature = "editor-facts")]
-            if editor_demand == EditorFactsDemand::Capture {
-                push_langium_common_editor_fact(
-                    &mut outcome.parsed.editor_facts,
-                    &parsed.fact,
-                    "treemap",
-                );
-            }
-            match field {
-                LangiumCommonField::Title => outcome.parsed.title = Some(value),
-                LangiumCommonField::AccTitle => outcome.parsed.acc_title = Some(value),
-                LangiumCommonField::AccDescr => outcome.parsed.acc_descr = Some(value),
-            }
-            if let Some(diagnostic) = parsed.diagnostic {
-                outcome.record_issue(diagnostic.message, Some(diagnostic.span));
-            }
-            offset += parsed.consumed;
-            continue;
+
+        match parse_langium_common(code, offset) {
+            Some(parsed) => {
+                saw_statement = true;
+                trailing_whitespace_span = parsed.trailing_whitespace_span;
+                let field = parsed.fact.field;
+                let value = parsed.fact.value.clone();
+                #[cfg(feature = "editor-facts")]
+                if editor_demand == EditorFactsDemand::Capture {
+                    push_langium_common_editor_fact(
+                        &mut outcome.parsed.editor_facts,
+                        &parsed.fact,
+                        "treemap",
+                    );
+                }
+
+                match field {
+                    LangiumCommonField::Title => outcome.parsed.title = Some(value),
+                    LangiumCommonField::AccTitle => outcome.parsed.acc_title = Some(value),
+                    LangiumCommonField::AccDescr => outcome.parsed.acc_descr = Some(value),
+                }
+
+                match parsed.diagnostic {
+                    Some(diagnostic) => {
+                        outcome.record_issue(diagnostic.message, Some(diagnostic.span));
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                offset += parsed.consumed;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let (line, next_offset) = physical_line_at(code, offset);
+
         if line.trim_start().starts_with("%%") {
             offset = next_offset;
             continue;
         }
+
         let visible = strip_inline_comment_aware(line);
+
         if visible.trim().is_empty() {
             if saw_statement && !visible.is_empty() {
                 trailing_whitespace_span = Some(SourceSpan::new(offset, offset + line.len()));
             }
+
             offset = next_offset;
             continue;
         }
+
         saw_statement = true;
         trailing_whitespace_span = None;
 
@@ -609,8 +627,12 @@ fn parse_treemap_outcome_controlled(
                     push_treemap_row_editor_facts(&mut outcome.parsed.editor_facts, &row);
                 }
                 outcome.parsed.rows.push(row);
-                if let Some((message, span)) = style_issue {
-                    outcome.record_issue(message, Some(span));
+
+                match style_issue {
+                    Some((message, span)) => {
+                        outcome.record_issue(message, Some(span));
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
             Ok(None) => match parse_item_row(indent, rest, statement_start) {
@@ -630,11 +652,15 @@ fn parse_treemap_outcome_controlled(
                 outcome.record_issue(message, Some(statement_span));
             }
         }
+
         offset = next_offset;
     }
 
-    if let Some(span) = trailing_whitespace_span {
-        outcome.record_issue("unexpected trailing whitespace-only line", Some(span));
+    match trailing_whitespace_span {
+        Some(span) => {
+            outcome.record_issue("unexpected trailing whitespace-only line", Some(span));
+        },
+        ::core::option::Option::None => {},
     }
 
     control.checkpoint()?;
@@ -652,39 +678,47 @@ fn treemap_body_start_controlled(
 ) -> crate::OperationControlResult<std::result::Result<Option<TreemapBodyStart>, TreemapParseIssue>>
 {
     let mut offset = 0usize;
+
     while offset < code.len() {
         control.checkpoint()?;
         let (line, next_offset) = physical_line_at(code, offset);
         let visible = strip_inline_comment_aware(line);
         let trimmed = visible.trim();
+
         if trimmed.is_empty() {
             offset = next_offset;
             continue;
         }
+
         let leading = visible.len().saturating_sub(visible.trim_start().len());
         let span = SourceSpan::new(offset + leading, offset + leading + trimmed.len());
+
         if !is_treemap_header(trimmed) {
             return Ok(Err(TreemapParseIssue {
                 message: "expected treemap".to_string(),
                 span: Some(span),
             }));
         }
+
         return Ok(Ok(Some(TreemapBodyStart {
             offset: next_offset,
         })));
     }
+
     Ok(Ok(None))
 }
 
+#[must_use]
 fn treemap_error(
     diagram_type: &str,
     message: impl Into<String>,
     span: Option<SourceSpan>,
 ) -> Error {
-    let message = message.into();
+    let message_2 = <_ as ::core::convert::Into<::std::string::String>>::into(message);
+
     match span {
-        Some(span) => Error::diagram_parse_exact(diagram_type, &message, span),
-        None => Error::diagram_parse_fallback(diagram_type, &message),
+        Some(span_2) => Error::diagram_parse_exact(diagram_type, &message_2, span_2),
+        None => Error::diagram_parse_fallback(diagram_type, &message_2),
     }
 }
 
@@ -694,13 +728,17 @@ fn class_defs_from_rows_controlled(
 ) -> crate::OperationControlResult<std::collections::HashMap<String, StyleClassDef>> {
     let mut class_defs: std::collections::HashMap<String, StyleClassDef> =
         std::collections::HashMap::new();
+
     for (index, row) in rows.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
-        let TreemapRow::ClassDef(c) = row else {
-            continue;
+
+        let c = match row {
+            TreemapRow::ClassDef(matched_c) => matched_c,
+            crate::diagrams::treemap::TreemapRow::Item(..) => continue,
         };
+
         add_class(
             &mut class_defs,
             &c.class_name.text,
@@ -720,12 +758,15 @@ fn flat_items_from_rows_controlled(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<Vec<FlatItem>> {
     let mut flat_items: Vec<FlatItem> = Vec::new();
+
     for (index, row) in rows.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
-        let TreemapRow::Item(item) = row else {
-            continue;
+
+        let item = match row {
+            TreemapRow::Item(matched_item) => matched_item,
+            crate::diagrams::treemap::TreemapRow::ClassDef(..) => continue,
         };
 
         flat_items.push(FlatItem {
@@ -763,18 +804,22 @@ fn build_hierarchy_controlled(
     items: &[FlatItem],
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<(Arena, Vec<usize>)> {
-    if items.is_empty() {
-        return Ok((Arena { nodes: Vec::new() }, Vec::new()));
+    match items {
+        [] => {
+            return Ok((Arena { nodes: Vec::new() }, Vec::new()));
+        },
+        [_, ..] => {},
     }
 
     let mut arena = Arena { nodes: Vec::new() };
     let mut roots: Vec<usize> = Vec::new();
-    let mut stack: Vec<(usize, usize)> = Vec::new(); // (node_idx, item.level)
+    let mut stack: Vec<(usize, usize)> = Vec::new();
 
     for (index, item) in items.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         let mut node = TreemapNode {
             name: item.name.clone(),
             value: None,
@@ -784,6 +829,7 @@ fn build_hierarchy_controlled(
                 ItemType::Section => Some(Vec::new()),
             },
         };
+
         if item.item_type == ItemType::Leaf {
             node.value = item
                 .value
@@ -803,10 +849,14 @@ fn build_hierarchy_controlled(
         } else {
             let parent_idx = stack[stack.len() - 1].0;
             let parent = &mut arena.nodes[parent_idx];
-            if let Some(children) = parent.children.as_mut() {
-                children.push(idx);
-            } else {
-                parent.children = Some(vec![idx]);
+
+            match parent.children.as_mut() {
+                Some(children) => {
+                    children.push(idx);
+                },
+                ::core::option::Option::None => {
+                    parent.children = Some(vec![idx]);
+                },
             }
         }
 
@@ -834,36 +884,46 @@ fn add_class(
 
     const PLACEHOLDER: &str = "ก์ก์ก์";
     let replaced = style.replace("\\,", PLACEHOLDER);
-    let replaced = replaced.replace(',', ";");
-    let replaced = replaced.replace(PLACEHOLDER, ",");
+    let replaced_2 = replaced.replace(',', ";");
+    let replaced_3 = replaced_2.replace(PLACEHOLDER, ",");
 
-    for s in replaced.split(';') {
+    for s in replaced_3.split(';') {
         if is_label_style_bug_compatible(s) {
             style_class.text_styles.push(s.to_string());
         }
+
         style_class.styles.push(s.to_string());
     }
 }
 
 fn validate_class_def_style(style: &str) -> std::result::Result<(), String> {
-    let style = style.trim().trim_end_matches(';').trim();
-    if style.is_empty() {
+    let style_2 = style.trim().trim_end_matches(';').trim();
+
+    if style_2.is_empty() {
         return Ok(());
     }
 
     const PLACEHOLDER: &str = "ก์ก์ก์";
-    let replaced = style.replace("\\,", PLACEHOLDER);
-    let replaced = replaced.replace(',', ";");
-    let replaced = replaced.replace(PLACEHOLDER, ",");
+    let replaced = style_2.replace("\\,", PLACEHOLDER);
+    let replaced_2 = replaced.replace(',', ";");
+    let replaced_3 = replaced_2.replace(PLACEHOLDER, ",");
 
-    for raw in replaced.split(';') {
+    for raw in replaced_3.split(';') {
         let s = raw.trim();
+
         if s.is_empty() {
             continue;
         }
-        let Some((k, v)) = s.split_once(':') else {
-            return Err(format!("invalid classDef style token `{s}`"));
+
+        let (k, v) = {
+            let optional_k = s.split_once(':');
+
+            match optional_k {
+                Some((matched_k, matched_v)) => (matched_k, matched_v),
+                ::core::option::Option::None => return Err(format!("invalid classDef style token `{s}`")),
+            }
         };
+
         if k.trim().is_empty() || v.trim().is_empty() {
             return Err(format!("invalid classDef style token `{s}`"));
         }
@@ -872,6 +932,7 @@ fn validate_class_def_style(style: &str) -> std::result::Result<(), String> {
     Ok(())
 }
 
+#[must_use]
 fn is_label_style_bug_compatible(s: &str) -> bool {
     matches!(
         s.trim(),
@@ -896,16 +957,22 @@ fn is_label_style_bug_compatible(s: &str) -> bool {
     )
 }
 
+#[must_use]
 fn strip_inline_comment_aware(line: &str) -> &str {
     let mut in_quote: Option<char> = None;
 
     let mut it = line.char_indices().peekable();
+
     while let Some((idx, ch)) = it.next() {
-        if let Some(q) = in_quote {
-            if ch == q {
-                in_quote = None;
-            }
-            continue;
+        match in_quote {
+            Some(q) => {
+                if ch == q {
+                    in_quote = None;
+                }
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         if ch == '"' || ch == '\'' {
@@ -921,6 +988,7 @@ fn strip_inline_comment_aware(line: &str) -> &str {
     line
 }
 
+#[must_use]
 fn is_treemap_header(line: &str) -> bool {
     let t = line.trim_start();
     t == "treemap" || t == "treemap-beta"
@@ -930,9 +998,15 @@ fn parse_class_def(
     line: &str,
     line_start: usize,
 ) -> std::result::Result<Option<ClassDefStatement>, String> {
-    let Some(after_keyword) = line.strip_prefix("classDef") else {
-        return Ok(None);
+    let after_keyword = {
+        let optional_after_keyword = line.strip_prefix("classDef");
+
+        match optional_after_keyword {
+            Some(matched_after_keyword) => matched_after_keyword,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     if after_keyword
         .chars()
         .next()
@@ -940,6 +1014,7 @@ fn parse_class_def(
     {
         return Ok(None);
     }
+
     if after_keyword.is_empty() {
         return Err("expected class name".to_string());
     }
@@ -971,6 +1046,7 @@ fn parse_class_def(
             span: SourceSpan::new(start, start + style.len()),
         })
     };
+
     if !trailing.trim().is_empty() {
         return Err("unexpected tokens after classDef".to_string());
     }
@@ -998,11 +1074,13 @@ fn parse_item_row(
         .parse_string2()
         .ok_or_else(|| "expected quoted string".to_string())?;
     let name_token_end = p.pos;
-    let quote_len = line[name_token_start..]
+    let quote_len = match line[name_token_start..]
         .chars()
         .next()
-        .map(char::len_utf8)
-        .unwrap_or_default();
+        .map(char::len_utf8) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0,
+    };
     let name = SpannedText {
         text: name_text,
         span: SourceSpan::new(
@@ -1012,7 +1090,7 @@ fn parse_item_row(
     };
     p.skip_ws();
 
-    // Section: "Name" (:::class)?
+
     if p.try_consume_str(":::") {
         p.skip_ws();
         let selector_start = p.pos;
@@ -1023,9 +1101,11 @@ fn parse_item_row(
             line_start + selector_start + cls.len(),
         );
         p.skip_ws();
+
         if !p.eof() {
             return Err("unexpected tokens after section".to_string());
         }
+
         return Ok(ItemRow {
             indent,
             name,
@@ -1040,7 +1120,7 @@ fn parse_item_row(
         });
     }
 
-    // Leaf: "Name" : 10 (:::class)?
+
     if p.try_consume(':') || p.try_consume(',') {
         p.skip_ws();
         #[cfg(feature = "editor-facts")]
@@ -1053,11 +1133,19 @@ fn parse_item_row(
             line_start + value_start,
             line_start + value_start + token.len(),
         );
-        let Some(value) = parse_number2_value(&token) else {
-            return Err("expected number".to_string());
+
+        let value = {
+            let optional_value = parse_number2_value(&token);
+
+            match optional_value {
+                Some(matched_value) => matched_value,
+                ::core::option::Option::None => return Err("expected number".to_string()),
+            }
         };
+
         p.skip_ws();
         let mut class_selector = None;
+
         if p.try_consume_str(":::") {
             p.skip_ws();
             let selector_start = p.pos;
@@ -1074,9 +1162,11 @@ fn parse_item_row(
             });
             p.skip_ws();
         }
+
         if !p.eof() {
             return Err("unexpected tokens after leaf".to_string());
         }
+
         return Ok(ItemRow {
             indent,
             name,
@@ -1110,13 +1200,17 @@ fn parse_item_row(
     Err("expected ':' or ':::' or end of line".to_string())
 }
 
+#[must_use]
 fn parse_id2(input: &str) -> Option<(String, &str)> {
     let mut chars = input.chars();
     let first = chars.next()?;
+
     if !(first.is_ascii_alphabetic() || first == '_') {
         return None;
     }
+
     let mut idx = first.len_utf8();
+
     for ch in chars {
         if ch.is_ascii_alphanumeric() || ch == '_' {
             idx += ch.len_utf8();
@@ -1124,44 +1218,56 @@ fn parse_id2(input: &str) -> Option<(String, &str)> {
             break;
         }
     }
+
     Some((input[..idx].to_string(), &input[idx..]))
 }
 
+#[must_use]
 fn parse_number2_value(token: &str) -> Option<Value> {
     let no_commas: String = token.chars().filter(|c| *c != ',').collect();
     let mut saw_dot = false;
     let mut cut = 0usize;
+
     for ch in no_commas.chars() {
         if ch.is_ascii_digit() {
             cut += ch.len_utf8();
             continue;
         }
+
         if ch == '.' && !saw_dot {
             saw_dot = true;
             cut += 1;
             continue;
         }
+
         break;
     }
-    if cut == 0 {
-        return None;
+
+    match cut {
+        0 => {
+            return None;
+        },
+        _ => {},
     }
+
     let prefix = &no_commas[..cut];
 
     if saw_dot {
         let frac = prefix.split_once('.').map(|(_, b)| b).unwrap_or("");
+
         if frac.is_empty() || frac.chars().all(|c| c == '0') {
             let int_part = prefix.split_once('.').map(|(a, _)| a).unwrap_or(prefix);
-            let i: i64 = int_part.parse().ok()?;
-            return Some(Value::Number(i.into()));
+            let i: i64 = match int_part.parse() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
+            return Some(Value::Number(<::serde_json::Number as ::core::convert::From<::core::primitive::i64>>::from(i)));
         }
-        let f: f64 = prefix.parse().ok()?;
+
+        let f: f64 = match prefix.parse() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }?;
         let n = serde_json::Number::from_f64(f)?;
         return Some(Value::Number(n));
     }
 
-    let i: i64 = prefix.parse().ok()?;
-    Some(Value::Number(i.into()))
+    let i: i64 = match prefix.parse() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
+    Some(Value::Number(<::serde_json::Number as ::core::convert::From<::core::primitive::i64>>::from(i)))
 }
 
 struct Parser<'a> {
@@ -1170,14 +1276,17 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    #[must_use]
     fn new(input: &'a str) -> Self {
         Self { input, pos: 0 }
     }
 
+    #[must_use]
     fn eof(&self) -> bool {
         self.pos >= self.input.len()
     }
 
+    #[must_use]
     fn rest(&self) -> &'a str {
         &self.input[self.pos..]
     }
@@ -1188,6 +1297,7 @@ impl<'a> Parser<'a> {
                 self.pos += ch.len_utf8();
                 continue;
             }
+
             break;
         }
     }
@@ -1213,33 +1323,45 @@ impl<'a> Parser<'a> {
     fn parse_string2(&mut self) -> Option<String> {
         let rest = self.rest();
         let quote = rest.chars().next()?;
+
         if quote != '"' && quote != '\'' {
             return None;
         }
+
         let mut idx = 1usize;
+
         for ch in rest[1..].chars() {
             idx += ch.len_utf8();
+
             if ch == quote {
                 let inner = &rest[1..idx - 1];
                 self.pos += idx;
                 return Some(inner.to_string());
             }
         }
+
         None
     }
 
     fn parse_number2_token(&mut self) -> Option<String> {
         let mut idx = 0usize;
+
         for ch in self.rest().chars() {
             if ch.is_ascii_digit() || ch == '_' || ch == '.' || ch == ',' {
                 idx += ch.len_utf8();
                 continue;
             }
+
             break;
         }
-        if idx == 0 {
-            return None;
+
+        match idx {
+            0 => {
+                return None;
+            },
+            _ => {},
         }
+
         let token = &self.rest()[..idx];
         self.pos += idx;
         Some(token.to_string())
@@ -2000,7 +2122,7 @@ classDef c fill:#ff0000, stroke:rgb(1\,2\,3), color;
                     )
                     .unwrap()
                     .unwrap();
-                // The checked projection begins one checkpoint before root construction.
+
                 control.cancel_after_checkpoints(4 * DEPTH + 6);
                 assert!(matches!(
                     projection.project_controlled(&control),

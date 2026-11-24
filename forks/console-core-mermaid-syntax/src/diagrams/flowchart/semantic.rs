@@ -47,33 +47,40 @@ impl<'a> FlowchartSemanticContext<'a> {
         let mut seen_vertex_ids = HashSet::new();
         let mut vertex_css: HashMap<String, Option<FlowSubgraphVertexStyle>> =
             HashMap::with_capacity(self.subgraphs.len());
+
         for (index, subgraph) in self.subgraphs.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 self.control.checkpoint()?;
             }
+
             vertex_css.insert(subgraph.id.clone(), None);
         }
+
         let mut seen_edge_indices: HashMap<String, Vec<usize>> = HashMap::new();
         let mut next_built_edge_index = 0usize;
         let mut next_built_subgraph_index = 0usize;
+
         for (visited, event) in ast.walk().enumerate() {
             if visited.is_multiple_of(128) {
                 self.control.checkpoint()?;
             }
+
             let StatementEvent::Enter(stmt) = event else {
                 let owner = self
                     .subgraph_declaration_owners
                     .get(next_built_subgraph_index)
                     .copied();
-                let Some((owner, subgraph)) = owner
-                    .and_then(|owner| self.subgraphs.get(owner).map(|subgraph| (owner, subgraph)))
+
+                let Some((owner_3, subgraph)) = owner
+                    .and_then(|owner_2| self.subgraphs.get(owner_2).map(|subgraph| (owner_2, subgraph)))
                 else {
                     return Ok(Err(Error::diagram_parse_fallback(
                         self.diagram_type.to_string(),
                         "flowchart subgraph replay diverged from the built model",
                     )));
                 };
-                active_subgraphs.insert(subgraph.id.clone(), owner);
+
+                active_subgraphs.insert(subgraph.id.clone(), owner_3);
                 next_built_subgraph_index = next_built_subgraph_index.saturating_add(1);
                 continue;
             };
@@ -84,14 +91,20 @@ impl<'a> FlowchartSemanticContext<'a> {
                     if seen_edge_indices.contains_key(&s.target) {
                         continue;
                     }
+
                     self.vertex_calls.push(s.target.clone());
                     let is_new_vertex = seen_vertex_ids.insert(s.target.clone());
-                    if let Some(style) = vertex_css.get_mut(&s.target) {
-                        style
-                            .get_or_insert_default()
-                            .styles
-                            .extend(s.styles.iter().cloned());
+
+                    match vertex_css.get_mut(&s.target) {
+                        Some(style) => {
+                            style
+                                .get_or_insert_default()
+                                .styles
+                                .extend(s.styles.iter().cloned());
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     if !active_subgraphs.contains_key(&s.target) {
                         if is_new_vertex {
                             let mut warning = DiagramWarningFact::new(
@@ -101,20 +114,27 @@ impl<'a> FlowchartSemanticContext<'a> {
                                     s.target
                                 ),
                             );
-                            if let Some(span) = s.target_span {
-                                warning = warning.with_span(span);
+
+                            match s.target_span {
+                                Some(span) => {
+                                    warning = warning.with_span(span);
+                                },
+                                ::core::option::Option::None => {},
                             }
+
                             self.warning_facts.push(warning);
                         }
+
                         let idx = self.ensure_authored_node(&s.target);
                         self.nodes[idx].styles.extend(s.styles.iter().cloned());
                     }
                 }
                 Stmt::ClassDef(c) => {
                     for (index, id) in c.ids.iter().enumerate() {
-                        if index % 128 == 0 {
+                        if index.wrapping_rem(128) == 0 {
                             self.control.checkpoint()?;
                         }
+
                         self.class_defs
                             .entry(id.clone())
                             .or_default()
@@ -123,12 +143,17 @@ impl<'a> FlowchartSemanticContext<'a> {
                 }
                 Stmt::ClassAssign(c) => {
                     for (index, target) in c.targets.iter().enumerate() {
-                        if index % 128 == 0 {
+                        if index.wrapping_rem(128) == 0 {
                             self.control.checkpoint()?;
                         }
-                        if let Some(style) = vertex_css.get_mut(target).and_then(Option::as_mut) {
-                            style.classes.push(c.class_name.clone());
+
+                        match vertex_css.get_mut(target).and_then(Option::as_mut) {
+                            Some(style) => {
+                                style.classes.push(c.class_name.clone());
+                            },
+                            ::core::option::Option::None => {},
                         }
+
                         self.add_class_to_target(
                             target,
                             &c.class_name,
@@ -140,16 +165,25 @@ impl<'a> FlowchartSemanticContext<'a> {
                 }
                 Stmt::Click(c) => {
                     for (index, id) in c.ids.iter().enumerate() {
-                        if index % 128 == 0 {
+                        if index.wrapping_rem(128) == 0 {
                             self.control.checkpoint()?;
                         }
-                        if let Some(tt) = &c.tooltip {
-                            self.tooltips
-                                .insert(id.clone(), sanitize_text(tt, self.config));
+
+                        match &c.tooltip {
+                            Some(tt) => {
+                                self.tooltips
+                                    .insert(id.clone(), sanitize_text(tt, self.config));
+                            },
+                            ::core::option::Option::None => {},
                         }
-                        if let Some(style) = vertex_css.get_mut(id).and_then(Option::as_mut) {
-                            style.classes.push("clickable".to_string());
+
+                        match vertex_css.get_mut(id).and_then(Option::as_mut) {
+                            Some(style) => {
+                                style.classes.push("clickable".to_string());
+                            },
+                            ::core::option::Option::None => {},
                         }
+
                         self.add_class_to_target(
                             id,
                             "clickable",
@@ -179,36 +213,42 @@ impl<'a> FlowchartSemanticContext<'a> {
                     }
                 }
                 Stmt::LinkStyle(ls) => {
-                    if let Some(algo) = &ls.interpolate {
-                        for (index, pos) in ls.positions.iter().enumerate() {
-                            if index % 128 == 0 {
-                                self.control.checkpoint()?;
-                            }
-                            match pos {
-                                LinkStylePos::Default => {
-                                    self.edge_defaults.interpolate = Some(algo.clone())
+                    match &ls.interpolate {
+                        Some(algo) => {
+                            for (index, pos) in ls.positions.iter().enumerate() {
+                                if index.wrapping_rem(128) == 0 {
+                                    self.control.checkpoint()?;
                                 }
-                                LinkStylePos::Index(i) => {
-                                    if *i >= next_built_edge_index {
-                                        return Ok(Err(Error::diagram_parse_fallback(
-                                            self.diagram_type.to_string(),
-                                            format!(
-                                                "The index {i} for linkStyle is out of bounds. Valid indices for linkStyle are between 0 and {}. (Help: Ensure that the index is within the range of existing edges.)",
-                                                next_built_edge_index.saturating_sub(1)
-                                            ),
-                                        )));
+
+                                match pos {
+                                    LinkStylePos::Default => {
+                                        self.edge_defaults.interpolate = Some(algo.clone())
                                     }
-                                    self.edges[*i].interpolate = Some(algo.clone());
+                                    LinkStylePos::Index(i) => {
+                                        if *i >= next_built_edge_index {
+                                            return Ok(Err(Error::diagram_parse_fallback(
+                                                self.diagram_type.to_string(),
+                                                format!(
+                                                    "The index {i} for linkStyle is out of bounds. Valid indices for linkStyle are between 0 and {}. (Help: Ensure that the index is within the range of existing edges.)",
+                                                    next_built_edge_index.saturating_sub(1)
+                                                ),
+                                            )));
+                                        }
+
+                                        self.edges[*i].interpolate = Some(algo.clone());
+                                    }
                                 }
                             }
-                        }
+                        },
+                        ::core::option::Option::None => {},
                     }
 
                     if !ls.styles.is_empty() {
                         for (index, pos) in ls.positions.iter().enumerate() {
-                            if index % 128 == 0 {
+                            if index.wrapping_rem(128) == 0 {
                                 self.control.checkpoint()?;
                             }
+
                             match pos {
                                 LinkStylePos::Default => {
                                     self.edge_defaults.style = ls.styles.clone()
@@ -223,7 +263,9 @@ impl<'a> FlowchartSemanticContext<'a> {
                                             ),
                                         )));
                                     }
+
                                     self.edges[*i].style = ls.styles.clone();
+
                                     if !self.edges[*i].style.is_empty()
                                         && !self.edges[*i]
                                             .style
@@ -246,48 +288,69 @@ impl<'a> FlowchartSemanticContext<'a> {
                         Ok(value) => value,
                         Err(error) => return Ok(Err(error)),
                     };
-                    // Mermaid checks subgraph metadata before edge metadata. This matters when
-                    // an id is shared by a subgraph and a user-defined edge.
+
+
                     let routed_to_subgraph =
                         active_subgraphs.get(target).is_some_and(|&subgraph_index| {
                             self.apply_shape_data_to_subgraph(subgraph_index, target, value)
                         });
+
                     if routed_to_subgraph {
-                        // The parser first calls addVertex for the bare reference and then
-                        // calls it again with shapeData. A subgraph metadata call returns from
-                        // the second call, so retain only the preceding vertex call unless the
-                        // id already names an edge (where addVertex returns immediately).
+
+
+
+
                         if !seen_edge_indices.contains_key(target) {
                             self.vertex_calls.push(target.clone());
                             seen_vertex_ids.insert(target.clone());
-                            if let Some(style) = vertex_css.get_mut(target) {
-                                style.get_or_insert_default();
+
+                            {
+                                match vertex_css.get_mut(target) {
+                                    Some(style) => {
+                                        style.get_or_insert_default();
+                                    },
+                                    ::core::option::Option::None => {},
+                                };
                             }
                         }
+
                         continue;
                     }
 
-                    if let Some(indices) = seen_edge_indices.get(target) {
-                        Self::apply_shape_data_to_edges(self.edges, self.control, indices, value)?;
-                        continue;
+                    match seen_edge_indices.get(target) {
+                        Some(indices) => {
+                            Self::apply_shape_data_to_edges(self.edges, self.control, indices, value)?;
+                            continue;
+                        },
+                        ::core::option::Option::None => {},
                     }
 
-                    // The Jison grammar calls addVertex once for the node and once for its
-                    // shapeData. Preserve both calls because Mermaid derives DOM ids from this
-                    // sequence even though they update the same typed node.
+
+
+
                     self.vertex_calls.push(target.clone());
                     self.vertex_calls.push(target.clone());
                     seen_vertex_ids.insert(target.clone());
-                    if let Some(style) = vertex_css.get_mut(target) {
-                        style.get_or_insert_default();
+
+                    match vertex_css.get_mut(target) {
+                        Some(style) => {
+                            style.get_or_insert_default();
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     let idx = self.ensure_authored_node(target);
-                    if let Err(error) = apply_shape_data_value_to_node(&mut self.nodes[idx], value)
+
                     {
-                        return Ok(Err(Error::diagram_parse_fallback(
-                            self.diagram_type.to_string(),
-                            error,
-                        )));
+                        match apply_shape_data_value_to_node(&mut self.nodes[idx], value) {
+                            Err(error) => {
+                                return Ok(Err(Error::diagram_parse_fallback(
+                                    self.diagram_type.to_string(),
+                                    error,
+                                )));
+                            },
+                            ::core::result::Result::Ok(_) => {},
+                        };
                     }
                 }
                 Stmt::Chain {
@@ -305,6 +368,7 @@ impl<'a> FlowchartSemanticContext<'a> {
                     {
                         return Ok(Err(error));
                     }
+
                     for (segment_index, edge_group) in edge_groups.iter().enumerate() {
                         if let Some(next_group) = node_groups.get(segment_index + 1)
                             && let Err(error) = self.observe_node_group(
@@ -317,24 +381,35 @@ impl<'a> FlowchartSemanticContext<'a> {
                         {
                             return Ok(Err(error));
                         }
-                        if let Err(error) = self.activate_edges(
-                            edge_group.len(),
-                            &mut next_built_edge_index,
-                            &mut seen_edge_indices,
-                        )? {
-                            return Ok(Err(error));
+
+                        {
+                            match self.activate_edges(
+                                    edge_group.len(),
+                                    &mut next_built_edge_index,
+                                    &mut seen_edge_indices,
+                                )? {
+                                Err(error) => {
+                                    return Ok(Err(error));
+                                },
+                                ::core::result::Result::Ok(_) => {},
+                            };
                         }
                     }
                 }
                 Stmt::Node(node) => {
-                    if let Err(error) = self.observe_node_group(
-                        std::slice::from_ref(node.as_ref()),
-                        &active_subgraphs,
-                        &mut seen_vertex_ids,
-                        &mut vertex_css,
-                        &seen_edge_indices,
-                    )? {
-                        return Ok(Err(error));
+                    {
+                        match self.observe_node_group(
+                                std::slice::from_ref(node.as_ref()),
+                                &active_subgraphs,
+                                &mut seen_vertex_ids,
+                                &mut vertex_css,
+                                &seen_edge_indices,
+                            )? {
+                            Err(error) => {
+                                return Ok(Err(error));
+                            },
+                            ::core::result::Result::Ok(_) => {},
+                        };
                     }
                 }
                 Stmt::Direction(_) => {}
@@ -349,19 +424,22 @@ impl<'a> FlowchartSemanticContext<'a> {
                 "flowchart semantic replay did not consume the built model",
             )));
         }
+
         for (index, (id, style)) in vertex_css.into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 self.control.checkpoint()?;
             }
-            if let Some(style) = style
+
+            if let Some(style_2) = style
                 && let Some(&declaration_ordinal) = active_subgraphs.get(&id)
             {
-                // Every completed declaration with this id resolves to the same canonical
-                // FlowDB group, including CSS authored between repeated declarations.
+
+
                 self.subgraph_vertex_styles
-                    .insert(id, declaration_ordinal, style);
+                    .insert(id, declaration_ordinal, style_2);
             }
         }
+
         self.control.checkpoint()?;
         Ok(Ok(()))
     }
@@ -375,10 +453,12 @@ impl<'a> FlowchartSemanticContext<'a> {
         seen_edge_indices: &HashMap<String, Vec<usize>>,
     ) -> OperationControlResult<Result<()>> {
         let mut deferred_shape_data_calls = Vec::new();
+
         for (index, node) in nodes.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 self.control.checkpoint()?;
             }
+
             if let Some(yaml) = node.shape_data.as_deref()
                 && let Some(&subgraph_index) = active_subgraphs.get(&node.id)
             {
@@ -390,25 +470,68 @@ impl<'a> FlowchartSemanticContext<'a> {
                     Ok(value) => value,
                     Err(error) => return Ok(Err(error)),
                 };
+
                 if self.apply_shape_data_to_subgraph(subgraph_index, &node.id, value) {
-                    // The node production has already emitted one bare addVertex call before
-                    // its shapeData action. Preserve that call for DOM-id sequencing, while
-                    // avoiding it when an existing edge makes addVertex return early.
+
+
+
                     if !seen_edge_indices.contains_key(&node.id) {
                         self.vertex_calls.push(node.id.clone());
                         seen_vertex_ids.insert(node.id.clone());
-                        if let Some(style) = vertex_css.get_mut(&node.id) {
-                            let style = style.get_or_insert_default();
-                            style.classes.extend(node.classes.iter().cloned());
-                            style.styles.extend(node.styles.iter().cloned());
+
+                        {
+                            match vertex_css.get_mut(&node.id) {
+                                Some(style) => {
+                                    let style_2 = style.get_or_insert_default();
+                                    style_2.classes.extend(node.classes.iter().cloned());
+                                    style_2.styles.extend(node.styles.iter().cloned());
+                                },
+                                ::core::option::Option::None => {},
+                            };
                         }
                     }
+
                     continue;
                 }
             }
 
-            if let Some(indices) = seen_edge_indices.get(&node.id) {
-                if let Some(yaml) = node.shape_data.as_deref() {
+            match seen_edge_indices.get(&node.id) {
+                Some(indices) => {
+                    match node.shape_data.as_deref() {
+                        Some(yaml) => {
+                            let value = match Self::shape_data_value(
+                                self.shape_data_documents,
+                                self.diagram_type,
+                                yaml,
+                            ) {
+                                Ok(value) => value,
+                                Err(error) => return Ok(Err(error)),
+                            };
+                            Self::apply_shape_data_to_edges(self.edges, self.control, indices, value)?;
+                        },
+                        ::core::option::Option::None => {},
+                    }
+
+                    continue;
+                },
+                ::core::option::Option::None => {},
+            }
+
+            self.vertex_calls.push(node.id.clone());
+            seen_vertex_ids.insert(node.id.clone());
+
+            match vertex_css.get_mut(&node.id) {
+                Some(style) => {
+                    let style_3 = style.get_or_insert_default();
+                    style_3.classes.extend(node.classes.iter().cloned());
+                    style_3.styles.extend(node.styles.iter().cloned());
+                },
+                ::core::option::Option::None => {},
+            }
+
+            match node.shape_data.as_deref() {
+                Some(yaml) => {
+                    deferred_shape_data_calls.push(node.id.clone());
                     let value = match Self::shape_data_value(
                         self.shape_data_documents,
                         self.diagram_type,
@@ -417,43 +540,32 @@ impl<'a> FlowchartSemanticContext<'a> {
                         Ok(value) => value,
                         Err(error) => return Ok(Err(error)),
                     };
-                    Self::apply_shape_data_to_edges(self.edges, self.control, indices, value)?;
-                }
-                continue;
-            }
+                    let idx = self.ensure_authored_node(&node.id);
 
-            self.vertex_calls.push(node.id.clone());
-            seen_vertex_ids.insert(node.id.clone());
-            if let Some(style) = vertex_css.get_mut(&node.id) {
-                let style = style.get_or_insert_default();
-                style.classes.extend(node.classes.iter().cloned());
-                style.styles.extend(node.styles.iter().cloned());
-            }
-            if let Some(yaml) = node.shape_data.as_deref() {
-                deferred_shape_data_calls.push(node.id.clone());
-                let value = match Self::shape_data_value(
-                    self.shape_data_documents,
-                    self.diagram_type,
-                    yaml,
-                ) {
-                    Ok(value) => value,
-                    Err(error) => return Ok(Err(error)),
-                };
-                let idx = self.ensure_authored_node(&node.id);
-                if let Err(error) = apply_shape_data_value_to_node(&mut self.nodes[idx], value) {
-                    return Ok(Err(Error::diagram_parse_fallback(
-                        self.diagram_type.to_string(),
-                        error,
-                    )));
-                }
+                    {
+                        match apply_shape_data_value_to_node(&mut self.nodes[idx], value) {
+                            Err(error) => {
+                                return Ok(Err(Error::diagram_parse_fallback(
+                                    self.diagram_type.to_string(),
+                                    error,
+                                )));
+                            },
+                            ::core::result::Result::Ok(_) => {},
+                        };
+                    }
+                },
+                ::core::option::Option::None => {},
             }
         }
+
         for (index, id) in deferred_shape_data_calls.into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 self.control.checkpoint()?;
             }
+
             self.vertex_calls.push(id);
         }
+
         Ok(Ok(()))
     }
 
@@ -465,32 +577,44 @@ impl<'a> FlowchartSemanticContext<'a> {
         seen_vertex_ids: &HashSet<String>,
         seen_edge_indices: &HashMap<String, Vec<usize>>,
     ) -> OperationControlResult<()> {
-        if let Some(&idx) = active_subgraphs.get(target) {
-            self.subgraphs[idx].classes.push(class_name.to_string());
+        match active_subgraphs.get(target) {
+            Some(&idx) => {
+                self.subgraphs[idx].classes.push(class_name.to_string());
+            },
+            ::core::option::Option::None => {},
         }
+
         if seen_vertex_ids.contains(target)
             && let Some(&idx) = self.node_index.get(target)
         {
             self.nodes[idx].classes.push(class_name.to_string());
         }
+
         if let Some(edge_indices) = seen_edge_indices.get(target) {
             for (index, edge_index) in edge_indices.iter().copied().enumerate() {
-                if index % 128 == 0 {
+                if index.wrapping_rem(128) == 0 {
                     self.control.checkpoint()?;
                 }
-                if let Some(edge) = self.edges.get_mut(edge_index) {
-                    edge.classes.push(class_name.to_string());
+
+                {
+                    match self.edges.get_mut(edge_index) {
+                        Some(edge) => {
+                            edge.classes.push(class_name.to_string());
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         } else {
-            // Preserve the canonical cancellation cadence even when the requested edge id is
-            // absent. The previous implementation scanned every built edge in this case.
+
+
             for index in 0..self.edges.len() {
-                if index % 128 == 0 {
+                if index.wrapping_rem(128) == 0 {
                     self.control.checkpoint()?;
                 }
             }
         }
+
         Ok(())
     }
 
@@ -506,23 +630,32 @@ impl<'a> FlowchartSemanticContext<'a> {
                 "flowchart edge replay index overflow",
             )));
         };
+
         if edge_end > self.edges.len() {
             return Ok(Err(Error::diagram_parse_fallback(
                 self.diagram_type.to_string(),
                 "flowchart edge replay diverged from the built model",
             )));
         }
+
         for (index, edge_index) in (*next_edge_index..edge_end).enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 self.control.checkpoint()?;
             }
-            if let Some(id) = self.edges[edge_index].id.as_deref() {
-                seen_edge_indices
-                    .entry(id.to_string())
-                    .or_default()
-                    .push(edge_index);
+
+            {
+                match self.edges[edge_index].id.as_deref() {
+                    Some(id) => {
+                        seen_edge_indices
+                            .entry(id.to_string())
+                            .or_default()
+                            .push(edge_index);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
+
         *next_edge_index = edge_end;
         Ok(Ok(()))
     }
@@ -550,12 +683,24 @@ impl<'a> FlowchartSemanticContext<'a> {
         target: &str,
         value: &serde_json::Value,
     ) -> bool {
-        let Some(map) = value.as_object() else {
-            return false;
+        let map = {
+            let optional_map = value.as_object();
+
+            match optional_map {
+                Some(matched_map) => matched_map,
+                ::core::option::Option::None => return false,
+            }
         };
-        let Some(subgraph) = self.subgraphs.get_mut(subgraph_index) else {
-            return false;
+
+        let subgraph = {
+            let optional_subgraph = self.subgraphs.get_mut(subgraph_index);
+
+            match optional_subgraph {
+                Some(matched_subgraph) => matched_subgraph,
+                ::core::option::Option::None => return false,
+            }
         };
+
         if subgraph.id != target {
             return false;
         }
@@ -563,13 +708,16 @@ impl<'a> FlowchartSemanticContext<'a> {
         if map.is_empty() {
             return true;
         }
+
         let metadata = subgraph
             .metadata
             .get_or_insert_with(|| serde_json::Value::Object(serde_json::Map::new()));
+
         let Some(metadata_map) = metadata.as_object_mut() else {
             *metadata = serde_json::Value::Object(serde_json::Map::new());
             unreachable!("subgraph metadata was replaced with an object");
         };
+
         for (key, item) in map {
             metadata_map.insert(key.clone(), item.clone());
         }
@@ -577,15 +725,22 @@ impl<'a> FlowchartSemanticContext<'a> {
         #[cfg(feature = "presentation")]
         if map.contains_key("view") {
             if metadata_map.get("view").and_then(serde_json::Value::as_str) == Some("collapsed") {
-                if let Some(collapsed_subgraphs) = self.collapsed_subgraphs.as_deref_mut() {
-                    collapsed_subgraphs.insert(target.to_string());
+                match self.collapsed_subgraphs.as_deref_mut() {
+                    Some(collapsed_subgraphs) => {
+                        collapsed_subgraphs.insert(target.to_string());
+                    },
+                    ::core::option::Option::None => {},
                 }
             } else {
-                if let Some(collapsed_subgraphs) = self.collapsed_subgraphs.as_deref_mut() {
-                    collapsed_subgraphs.remove(target);
+                match self.collapsed_subgraphs.as_deref_mut() {
+                    Some(collapsed_subgraphs) => {
+                        collapsed_subgraphs.remove(target);
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
         }
+
         true
     }
 
@@ -595,54 +750,91 @@ impl<'a> FlowchartSemanticContext<'a> {
         indices: &[usize],
         value: &serde_json::Value,
     ) -> OperationControlResult<()> {
-        let Some(map) = value.as_object() else {
-            return Ok(());
+        let map = {
+            let optional_map = value.as_object();
+
+            match optional_map {
+                Some(matched_map) => matched_map,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         for (index, edge_index) in indices.iter().copied().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
-            let Some(edge) = edges.get_mut(edge_index) else {
-                continue;
+
+            let edge = {
+                let optional_edge = edges.get_mut(edge_index);
+
+                match optional_edge {
+                    Some(matched_edge) => matched_edge,
+                    ::core::option::Option::None => continue,
+                }
             };
-            for (key, value) in map {
+
+            for (key, value_2) in map {
                 match key.as_str() {
                     "animate" => {
-                        if let Some(value) = value_to_bool(value) {
-                            edge.animate = Some(value);
+                        {
+                            match value_to_bool(value_2) {
+                                Some(value_3) => {
+                                    edge.animate = Some(value_3);
+                                },
+                                ::core::option::Option::None => {},
+                            };
                         }
                     }
                     "animation" => {
-                        if let Some(value) = value_to_string(value) {
-                            edge.animation = Some(value);
+                        {
+                            match value_to_string(value_2) {
+                                Some(value_4) => {
+                                    edge.animation = Some(value_4);
+                                },
+                                ::core::option::Option::None => {},
+                            };
                         }
                     }
                     "curve" => {
-                        if let Some(value) = value_to_string(value) {
-                            edge.interpolate = Some(value);
+                        {
+                            match value_to_string(value_2) {
+                                Some(value_5) => {
+                                    edge.interpolate = Some(value_5);
+                                },
+                                ::core::option::Option::None => {},
+                            };
                         }
                     }
                     "step" => {
-                        if let Some(step) = value
-                            .as_f64()
-                            .filter(|step| super::FlowEdge::is_valid_step(*step))
                         {
-                            edge.step = Some(step);
+                            match value_2
+                                .as_f64()
+                                .filter(|step| super::FlowEdge::is_valid_step(*step)) {
+                                Some(step) => {
+                                    edge.step = Some(step);
+                                },
+                                ::core::option::Option::None => {},
+                            };
                         }
                     }
                     _ => {}
                 }
             }
         }
+
         Ok(())
     }
 
     fn ensure_authored_node(&mut self, id: &str) -> usize {
-        if let Some(&idx) = self.node_index.get(id) {
-            self.nodes[idx].provenance = FlowNodeProvenance::Authored;
-            self.nodes[idx].syntax = FlowNodeSyntax::ExplicitDefinition;
-            return idx;
+        match self.node_index.get(id) {
+            Some(&idx) => {
+                self.nodes[idx].provenance = FlowNodeProvenance::Authored;
+                self.nodes[idx].syntax = FlowNodeSyntax::ExplicitDefinition;
+                return idx;
+            },
+            ::core::option::Option::None => {},
         }
+
         let idx = self.nodes.len();
         self.nodes.push(Node {
             id: id.to_string(),

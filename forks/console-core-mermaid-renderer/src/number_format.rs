@@ -4,23 +4,29 @@ const MAX_SAFE_INTEGER_F64: f64 = 9_007_199_254_740_991.0;
 ///
 /// Theme sizes originate as `f32`, while layout and rendering use `f64`. Values close to an
 /// integer must therefore converge before measurement, serialization, and receipts consume them.
+#[must_use]
 pub(crate) fn canonicalize_number(mut value: f64) -> f64 {
     if !value.is_finite() {
         return 0.0;
     }
+
     if value.abs() < 1e-9 {
         value = 0.0;
     }
+
     let nearest = value.round();
+
     if (value - nearest).abs() < 1e-6 {
         value = nearest;
     }
-    if value == -0.0 { 0.0 } else { value }
+
+    if ::core::matches!(::core::primitive::f64::classify(value), ::core::num::FpCategory::Zero) { 0.0 } else { value }
 }
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct CanonicalNumber(f64);
 
+#[must_use]
 pub(crate) fn canonical_number(value: f64) -> CanonicalNumber {
     CanonicalNumber(canonicalize_number(value))
 }
@@ -28,9 +34,11 @@ pub(crate) fn canonical_number(value: f64) -> CanonicalNumber {
 impl std::fmt::Display for CanonicalNumber {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let value = self.0;
-        if value.fract() == 0.0 && value.abs() <= MAX_SAFE_INTEGER_F64 {
+
+        if ::core::matches!(::core::primitive::f64::classify(value.fract()), ::core::num::FpCategory::Zero) && value.abs() <= MAX_SAFE_INTEGER_F64 {
             return write!(formatter, "{}", value as i64);
         }
+
         write!(formatter, "{value}")
     }
 }

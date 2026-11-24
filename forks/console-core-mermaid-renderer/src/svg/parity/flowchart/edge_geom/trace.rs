@@ -5,6 +5,7 @@
 use super::super::*;
 use crate::svg::{FlowchartEdgeTrace, FlowchartEdgeTracePoint};
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn tp(
     p: &crate::model::LayoutPoint,
 ) -> FlowchartEdgeTracePoint {

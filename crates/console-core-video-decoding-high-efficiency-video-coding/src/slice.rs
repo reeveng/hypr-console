@@ -63,18 +63,19 @@ pub struct NalHeader {
 
 impl NalHeader {
   pub fn parse(b: &[u8]) -> Result<NalHeader> {
-    ensure!(b.len() >= 2, "NAL unit too short");
-    ensure!(
+    ensure(b.len() >= 2, || "NAL unit too short")?;
+    ensure(
       *match <[_]>::get(&*b, 0) {
         ::core::option::Option::Some(indexed_value) => indexed_value,
-        ::core::option::Option::None =>
+        ::core::option::Option::None => {
           return ::core::result::Result::Err(crate::error::Error::Invalid(
-            ::core::convert::From::from("index or range outside the buffer")
-          )),
+            ::core::convert::From::from("index or range outside the buffer"),
+          ));
+        }
       } & 0x80
         == 0,
-      "forbidden_zero_bit set"
-    );
+      || "forbidden_zero_bit set",
+    )?;
     let tid = *match <[_]>::get(&*b, 1) {
       ::core::option::Option::Some(indexed_value) => indexed_value,
       ::core::option::Option::None => {
@@ -83,7 +84,7 @@ impl NalHeader {
         ));
       }
     } & 7;
-    ensure!(tid != 0, "nuh_temporal_id_plus1 is 0");
+    ensure(tid != 0, || "nuh_temporal_id_plus1 is 0")?;
     Ok(NalHeader {
       nal_type: u8::wrapping_shr(
         *match <[_]>::get(&*b, 0) {
@@ -302,7 +303,7 @@ impl SliceHeader {
       NalKind::Rasl | NalKind::Radl | NalKind::OtherVcl | NalKind::NonVcl => false,
     };
     let pps_id = r.read_ue()?;
-    ensure!(pps_id < 64, "slice_pic_parameter_set_id out of range");
+    ensure(pps_id < 64, || "slice_pic_parameter_set_id out of range")?;
     let (pps, sps) = lookup(pps_id)?;
     let mut dependent = false;
     let mut segment_address = 0;
@@ -331,10 +332,10 @@ impl SliceHeader {
           explicit_value
         })?;
         segment_address = r_bits;
-        ensure!(
+        ensure(
           segment_address < pic_size,
-          "slice_segment_address out of range"
-        );
+          || "slice_segment_address out of range",
+        )?;
       }
       ::core::option::Option::None => {}
     }
@@ -400,7 +401,7 @@ impl SliceHeader {
     match (pps.tiles_enabled, pps.entropy_coding_sync) {
       (PictureTool::Enabled, _) | (_, PictureTool::Enabled) => {
         let n = r.read_ue()?;
-        ensure!(
+        ensure(
           n <= u32::wrapping_mul(
             {
               let Ok(explicit_value) = sps.pic_width_in_ctbs();
@@ -409,16 +410,16 @@ impl SliceHeader {
             {
               let Ok(explicit_value) = sps.pic_height_in_ctbs();
               explicit_value
-            }
+            },
           ),
-          "num_entry_point_offsets out of range"
-        );
+          || "num_entry_point_offsets out of range",
+        )?;
 
         match ::core::primitive::bool::then_some(n > 0, ()) {
           ::core::option::Option::Some(()) => {
             let ue = r.read_ue()?;
             let len = u32::wrapping_add(ue, 1);
-            ensure!(len <= 32, "offset_len_minus1 out of range");
+            ensure(len <= 32, || "offset_len_minus1 out of range")?;
 
             for _ in 0..n {
               let r_bits = r.read_bits(len)?;
@@ -434,30 +435,30 @@ impl SliceHeader {
     match pps.slice_header_extension_present {
       SyntaxField::Present => {
         let len = r.read_ue()?;
-        ensure!(
+        ensure(
           len <= 256,
-          "slice_segment_header_extension_length out of range"
-        );
+          || "slice_segment_header_extension_length out of range",
+        )?;
         r.skip(u64::wrapping_mul(8, u64::from(len)))?;
       }
       SyntaxField::Absent => {}
     }
 
     let alignment = r.read_flag()?;
-    ensure!(
+    ensure(
       alignment == FlagBit::One,
-      "missing alignment_bit_equal_to_one"
-    );
+      || "missing alignment_bit_equal_to_one",
+    )?;
     let Ok(()) = r.byte_align();
     let Ok(data_offset) = r.byte_pos();
     sh.data_offset = {
       let Ok(numeric_value) = console_core_number_conversion::wrapped_index(data_offset);
       numeric_value
     };
-    ensure!(
+    ensure(
       sh.data_offset <= rbsp.len(),
-      "slice header runs past the NAL unit"
-    );
+      || "slice header runs past the NAL unit",
+    )?;
     Ok((sh, pps, sps))
   }
 }
@@ -488,10 +489,10 @@ fn read_independent_fields(
   };
 
   match header.nal.kind() {
-    NalKind::RandomAccess(_) => ensure!(
+    NalKind::RandomAccess(_) => ensure(
       header.slice_type == SliceType::I,
-      "IRAP picture with inter slice"
-    ),
+      || "IRAP picture with inter slice",
+    )?,
     NalKind::Rasl | NalKind::Radl | NalKind::OtherVcl | NalKind::NonVcl => {}
   }
 
@@ -558,16 +559,18 @@ fn read_slice_quantization(
   let qp = pps.init_qp.wrapping_add(delta);
   let Ok(depth) = wrapped::<_, i32>(sps.bit_depth_luma);
   let lower = depth.wrapping_sub(8).wrapping_mul(6).wrapping_neg();
-  ensure!((lower..=51).contains(&qp), "SliceQpY {qp} out of range");
+  ensure((lower..=51).contains(&qp), || {
+    format!("SliceQpY {qp} out of range")
+  })?;
 
   match pps.slice_chroma_qp_offsets_present {
     SyntaxField::Present => {
       let cb = r.read_se()?;
       let cr = r.read_se()?;
-      ensure!(
+      ensure(
         (-12..=12).contains(&cb) && (-12..=12).contains(&cr),
-        "slice chroma QP offset out of range"
-      );
+        || "slice chroma QP offset out of range",
+      )?;
       header.cb_qp_offset = cb;
       header.cr_qp_offset = cr;
     }
@@ -611,10 +614,10 @@ fn overrides_for_deblocking(r: &mut BitReader, header: &mut SliceHeader) -> Resu
     FlagBit::Zero => {
       let beta = r.read_se()?;
       let tc = r.read_se()?;
-      ensure!(
+      ensure(
         (-6..=6).contains(&beta) && (-6..=6).contains(&tc),
-        "deblocking offsets out of range"
-      );
+        || "deblocking offsets out of range",
+      )?;
       header.beta_offset_div2 = beta;
       header.tc_offset_div2 = tc;
     }
@@ -638,7 +641,7 @@ fn read_picture_references(r: &mut BitReader, header: &mut SliceHeader, sps: &Sp
       header.st_rps_bits = bits;
     }
     FlagBit::One => {
-      ensure!(!sps.st_rps.is_empty(), "no short-term RPS in the SPS");
+      ensure(!sps.st_rps.is_empty(), || "no short-term RPS in the SPS")?;
       let Ok(count) = wrapped::<_, u32>(sps.st_rps.len());
       let ordinal = reference_set_index(r, count)?;
       let Ok(at) = index(ordinal);
@@ -677,10 +680,10 @@ fn read_inter_prediction(
   let active = read_reference_counts(r, pps, header.slice_type)?;
   header.num_ref_idx = active;
   let Ok(total) = header.num_pic_total_curr();
-  ensure!(
+  ensure(
     total > 0,
-    "inter slice without reference pictures in the RPS"
-  );
+    || "inter slice without reference pictures in the RPS",
+  )?;
 
   match (pps.lists_modification_present, total > 1) {
     (SyntaxField::Present, true) => {
@@ -721,10 +724,10 @@ fn read_inter_prediction(
   }
 
   let five_minus = r.read_ue()?;
-  ensure!(
+  ensure(
     five_minus <= 4,
-    "five_minus_max_num_merge_cand out of range"
-  );
+    || "five_minus_max_num_merge_cand out of range",
+  )?;
   header.max_num_merge_cand = 5u32.wrapping_sub(five_minus);
   Ok(())
 }
@@ -747,7 +750,7 @@ fn read_collocated(r: &mut BitReader, header: &mut SliceHeader) -> Result<()> {
   match (count > 1).then_some(()) {
     Some(()) => {
       let ordinal = r.read_ue()?;
-      ensure!(ordinal < count, "collocated_ref_idx out of range");
+      ensure(ordinal < count, || "collocated_ref_idx out of range")?;
       header.collocated_ref_idx = ordinal;
     }
     None => {}
@@ -773,7 +776,10 @@ fn read_reference_counts(r: &mut BitReader, pps: &Pps, slice: SliceType) -> Resu
     (SliceType::B, FlagBit::Zero) => pps.num_ref_idx_l1_default,
     (SliceType::I | SliceType::P, _) => 0,
   };
-  ensure!(front <= 15 && back <= 15, "num_ref_idx_active out of range");
+  ensure(
+    front <= 15 && back <= 15,
+    || "num_ref_idx_active out of range",
+  )?;
   Ok([front, back])
 }
 
@@ -815,7 +821,7 @@ fn read_reference_order(
 
   for _ in 0..count {
     let value = r.read_bits(input.bits)?;
-    ensure!(value < input.total, "list_entry out of range");
+    ensure(value < input.total, || "list_entry out of range")?;
     positions.push(value);
   }
 
@@ -830,10 +836,10 @@ fn read_long_term(r: &mut BitReader, sps: &Sps) -> Result<Vec<LongTermEntry>> {
     0 => 0,
     _ => r.read_ue()?,
   };
-  ensure!(num_lt_sps <= sps_count, "num_long_term_sps out of range");
+  ensure(num_lt_sps <= sps_count, || "num_long_term_sps out of range")?;
   let num_lt_pics = r.read_ue()?;
   let count = num_lt_sps.wrapping_add(num_lt_pics);
-  ensure!(count <= 32, "too many long-term pictures");
+  ensure(count <= 32, || "too many long-term pictures")?;
 
   let mut entries = Vec::new();
   let mut msb_acc = 0u32;
@@ -883,7 +889,7 @@ struct WeightDenominators {
 
 fn parse_pwt(r: &mut BitReader, sh: &SliceHeader, sps: &Sps) -> Result<PredWeightTable> {
   let luma = r.read_ue()?;
-  ensure!(luma <= 7, "luma_log2_weight_denom out of range");
+  ensure(luma <= 7, || "luma_log2_weight_denom out of range")?;
   let Ok(chroma_array_type) = sps.chroma_array_type();
   let chroma = match chroma_array_type {
     0 => ChromaWeights::Absent,
@@ -891,10 +897,10 @@ fn parse_pwt(r: &mut BitReader, sh: &SliceHeader, sps: &Sps) -> Result<PredWeigh
       let change = r.read_se()?;
       let Ok(luma_i32) = wrapped::<_, i32>(luma);
       let chroma = luma_i32.wrapping_add(change);
-      ensure!(
+      ensure(
         (0..=7).contains(&chroma),
-        "ChromaLog2WeightDenom out of range"
-      );
+        || "ChromaLog2WeightDenom out of range",
+      )?;
       let Ok(chroma_2) = wrapped::<_, u32>(chroma);
       ChromaWeights::Present(chroma_2)
     }
@@ -948,10 +954,10 @@ fn read_weights(
       Some(()) => {
         let delta = r.read_se()?;
         let offset = r.read_se()?;
-        ensure!(
+        ensure(
           (-128..=127).contains(&delta) && (-128..=127).contains(&offset),
-          "luma weight out of range"
-        );
+          || "luma weight out of range",
+        )?;
         (1i32.wrapping_shl(denoms.luma).wrapping_add(delta), offset)
       }
       None => (1i32.wrapping_shl(denoms.luma), 0),
@@ -972,10 +978,10 @@ fn read_weights(
 fn read_chroma_weight(r: &mut BitReader, denom: u32) -> Result<(i32, i32)> {
   let delta = r.read_se()?;
   let delta_offset = r.read_se()?;
-  ensure!(
+  ensure(
     (-128..=127).contains(&delta) && (-512..512).contains(&delta_offset),
-    "chroma weight out of range"
-  );
+    || "chroma weight out of range",
+  )?;
   let weight = 1i32.wrapping_shl(denom).wrapping_add(delta);
   let offset = 128i32
     .wrapping_sub(128i32.wrapping_mul(weight).wrapping_shr(denom))

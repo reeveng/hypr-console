@@ -31,7 +31,8 @@ sudo systemctl daemon-reload
 sudo systemctl start console-update.timer
 ```
 
-Open **Console Updates** from the launcher and choose **Install** when ready.
+Open **Console Updates** from the launcher, choose **Check for updates**,
+then choose **Install** when ready.
 An administrator can also install a specific tag with
 `sudo console-update legion-go-v0.1.1`.
 
@@ -43,13 +44,21 @@ The updater keeps a root-owned copy of the hash. Re-enroll after changing the
 login pattern. Use `sudo console-update --forget-pattern` to return to password
 approval.
 
+Console Updates shows separate notices while downloading, verifying, and
+installing. The command line reports the same steps.
+
 The updater checks the archive against GitHub's asset digest and compares its
 source commit with the fetched tag. `console apply` takes the existing Snapper
 snapshots before exchanging the new checkout with `/etc/console`, then applies
 the bundled binaries and manifest. The updater runs the desktop health check
 before recording success.
 
-To return to the previous release, run `sudo console-update --rollback`. The
-updater preserves that checkout and its binaries, and applies them as a new
-generation. Background checks hold the rolled-back tag until a newer stable tag
-appears. The previous snapshots are available through the normal boot menu.
+To return to the previous release, open **Console Updates** and select
+**Undo last update**. The updater shows which release it will restore and
+asks for the enrolled update pattern or administrator password. Undo works
+offline. You can also run `sudo console-update --rollback`.
+
+The updater preserves the previous checkout and its binaries, and applies
+them as a new generation. Background checks hold the rolled-back tag until a
+newer stable tag appears. The previous snapshots are available through the
+normal boot menu.

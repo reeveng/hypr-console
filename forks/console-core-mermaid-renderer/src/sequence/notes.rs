@@ -62,38 +62,69 @@ pub(super) fn sequence_note_horizontal_model(
     msg: &SequenceMessage,
     ctx: SequenceNoteHorizontalContext<'_>,
 ) -> Result<Option<SequenceNoteHorizontalModel>> {
-    let (Some(from), Some(to)) = (msg.from.as_deref(), msg.to.as_deref()) else {
-        return Ok(None);
+    let (from, to) = {
+        let outcome_from = (msg.from.as_deref(), msg.to.as_deref());
+
+        match outcome_from {
+            (Some(matched_from), Some(matched_to)) => (matched_from, matched_to),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return Ok(None),
+        }
     };
-    let (Some(from_index), Some(to_index)) = (
-        ctx.actor_index.get(from).copied(),
-        ctx.actor_index.get(to).copied(),
-    ) else {
-        return Ok(None);
+
+    let (from_index, to_index) = {
+        let outcome_from_index = (
+            ctx.actor_index.get(from).copied(),
+            ctx.actor_index.get(to).copied(),
+        );
+
+        match outcome_from_index {
+            (Some(matched_from_index), Some(matched_to_index)) => (matched_from_index, matched_to_index),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return Ok(None),
+        }
     };
-    let (Some(from_center_x), Some(to_center_x)) = (
-        ctx.actor_centers_x.get(from_index).copied(),
-        ctx.actor_centers_x.get(to_index).copied(),
-    ) else {
-        return Ok(None);
+
+    let (from_center_x, to_center_x) = {
+        let outcome_from_center_x = (
+            ctx.actor_centers_x.get(from_index).copied(),
+            ctx.actor_centers_x.get(to_index).copied(),
+        );
+
+        match outcome_from_center_x {
+            (Some(matched_from_center_x), Some(matched_to_center_x)) => (matched_from_center_x, matched_to_center_x),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return Ok(None),
+        }
     };
-    let (Some(from_width), Some(to_width)) = (
-        ctx.actor_widths.get(from_index).copied(),
-        ctx.actor_widths.get(to_index).copied(),
-    ) else {
-        return Ok(None);
+
+    let (from_width, to_width) = {
+        let outcome_from_width = (
+            ctx.actor_widths.get(from_index).copied(),
+            ctx.actor_widths.get(to_index).copied(),
+        );
+
+        match outcome_from_width {
+            (Some(matched_from_width), Some(matched_to_width)) => (matched_from_width, matched_to_width),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return Ok(None),
+        }
     };
+
     let text = msg.message_text();
     let should_wrap = msg.wrap && !text.is_empty();
     let is_math_note = text.contains("$$");
-    let placement = msg.placement.unwrap_or(2);
+    let placement = match msg.placement {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 2,
+    };
     let mut text_width = if is_math_note && !should_wrap {
         let prepared_math = ctx.math_sidecar.prepare_or_get(
             super::SequenceMathOccurrence::Note(ctx.message_index),
             text,
             ctx.math_terminal_style,
         );
-        measure_sequence_label_for_layout_with_prepared(
+        let checked_value = measure_sequence_label_for_layout_with_prepared(
             prepared_math.as_deref(),
             ctx.measurer,
             text,
@@ -102,7 +133,8 @@ pub(super) fn sequence_note_horizontal_model(
             None,
             SequenceMathHeightMode::Bound,
             ctx.checkpoints.text(),
-        )?
+        )?;
+        checked_value
         .0
     } else if should_wrap {
         let wrapped = wrap_sequence_label_like_mermaid_lines(
@@ -121,15 +153,17 @@ pub(super) fn sequence_note_horizontal_model(
         )?
         .0
     } else {
-        measure_svg_like_with_html_br(
+        let checked_value_2 = measure_svg_like_with_html_br(
             ctx.measurer,
             text,
             ctx.note_text_style,
             ctx.checkpoints.text(),
-        )?
+        )?;
+        checked_value_2
         .0
     }
     .max(0.0);
+
     if !matches!(placement, 0 | 1) && from == to && (!is_math_note || should_wrap) {
         let measured_text = if should_wrap {
             wrap_sequence_label_like_mermaid_lines(
@@ -151,6 +185,7 @@ pub(super) fn sequence_note_horizontal_model(
         )?
         .0;
     }
+
     let geometry = note_horizontal_model_from_request(NoteHorizontalRequest {
         placement,
         is_self: from == to,
@@ -177,6 +212,7 @@ pub(super) fn sequence_note_horizontal_model(
     } else {
         text.to_string()
     };
+
     if is_math_note && should_wrap {
         ctx.math_sidecar.prepare_or_get(
             super::SequenceMathOccurrence::Note(ctx.message_index),
@@ -192,6 +228,7 @@ pub(super) fn sequence_note_horizontal_model(
     }))
 }
 
+#[must_use]
 fn note_horizontal_model_from_request(req: NoteHorizontalRequest) -> NoteHorizontalGeometry {
     match req.placement {
         1 => NoteHorizontalGeometry {
@@ -290,6 +327,7 @@ pub(super) fn layout_sequence_note(
     else {
         return Ok(None);
     };
+
     let is_math_note = horizontal.effective_text.contains("$$");
     let (_, height) = if is_math_note {
         let prepared_math = ctx.math_sidecar.prepare_or_get(

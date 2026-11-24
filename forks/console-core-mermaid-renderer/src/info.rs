@@ -38,9 +38,10 @@ pub(crate) struct InfoSurfaceReceipt {
 }
 
 impl InfoSurfaceReceipt {
+    #[must_use]
     fn new(expected_font_family_css: &str, expected_version: &InheritedTextRunFacts) -> Self {
         Self {
-            expected_font_family_css: expected_font_family_css.into(),
+            expected_font_family_css: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(expected_font_family_css),
             expected_version: expected_version.clone(),
             css_emitted: false,
             css_emission_unique: true,
@@ -60,6 +61,7 @@ impl InfoSurfaceReceipt {
             self.css_emission_unique = false;
             return;
         }
+
         let expected = self.expected_font_family_css.as_ref();
         self.terminal_matches &= !expected.trim().is_empty();
         self.terminal_matches &= root_font_family_css == expected;
@@ -81,12 +83,15 @@ impl InfoSurfaceReceipt {
         self.terminal_matches &= self
             .expected_version
             .matches_terminal(text, font_size_px, x, y);
+
         if !text.trim().is_empty() {
             self.version_text_count = self.version_text_count.saturating_add(1);
         }
+
         self.version_fill_css = fill_css.map(Into::into);
     }
 
+    #[must_use]
     fn proves_font_stack(&self) -> bool {
         self.css_emitted
             && self.css_emission_unique
@@ -94,6 +99,7 @@ impl InfoSurfaceReceipt {
             && self.terminal_matches
     }
 
+    #[must_use]
     fn proves_text_fill(&self, expected_fill_css: &str) -> bool {
         self.version_text_count == 1
             && self.terminal_matches
@@ -160,35 +166,39 @@ impl InfoTypographyThemePlan {
             inherited_font_stack.font_family_css(),
             measurer,
         );
-        let text_fill = if let Some(theme) = theme {
-            let style = theme.style_with_work_meter(
-                ThemeTarget::Text,
-                ThemeVariant::Default,
-                None,
-                work_meter,
-            )?;
-            resolve_direct_static_fill(
-                theme,
-                &style,
-                &[ThemeTarget::Text],
-                DirectStaticSelectorDomain::Default,
-            )
-        } else {
-            None
+        let text_fill = match theme {
+            Some(theme_2) => {
+                let style = theme_2.style_with_work_meter(
+                    ThemeTarget::Text,
+                    ThemeVariant::Default,
+                    None,
+                    work_meter,
+                )?;
+                resolve_direct_static_fill(
+                    theme_2,
+                    &style,
+                    &[ThemeTarget::Text],
+                    DirectStaticSelectorDomain::Default,
+                )
+            },
+            ::core::option::Option::None => {
+                None
+            },
         };
         let config_owns_text_fill = theme.is_some()
             && effective_config.config_paint_overrides_typed_default("themeVariables.textColor");
         let routes = info_theme_routes(theme, config_owns_text_fill, work_meter)?;
         let mut evidence = FamilyThemeOutcomes::default();
-        if let Some(theme) = theme
-            && theme.ordinal_palette_disposition(ThemeTarget::Text)
+
+        if let Some(theme_3) = theme
+            && theme_3.ordinal_palette_disposition(ThemeTarget::Text)
                 == Some(FamilyThemeDisposition::Unsupported)
         {
-            // The version is one shared text-fill terminal. Keep unsupported rule and
-            // effect accounting local while reconciling the palette's fallback winner.
+
+
             let mut fallbacks = FamilyThemeOutcomes::default();
             reconcile_unsupported_terminal_domains(
-                theme,
+                theme_3,
                 &mut fallbacks,
                 &[UnsupportedTerminalDomain::static_fallbacks_only(
                     ThemeTarget::Text,
@@ -200,12 +210,14 @@ impl InfoTypographyThemePlan {
             let key = FamilyThemeMechanismKey::OrdinalPalette {
                 target: ThemeTarget::Text,
             };
+
             if fallbacks.not_applicable_mechanisms().contains(&key) {
                 evidence.mark_not_applicable(key);
             } else {
                 evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette);
             }
         }
+
         Ok(Self {
             css_binding,
             inherited_font_stack,
@@ -219,34 +231,42 @@ impl InfoTypographyThemePlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.inherited_font_stack.font_family_css()
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &crate::svg::PreparedCommonCss {
         &self.css_binding
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> InfoSurfaceReceipt {
         InfoSurfaceReceipt::new(self.font_family_css(), self.version_geometry())
     }
 
+    #[must_use]
     pub(crate) const fn viewport_width_px(&self) -> f64 {
         self.terminal_geometry.width_px()
     }
 
+    #[must_use]
     pub(crate) const fn viewport_height_px(&self) -> f64 {
         self.terminal_geometry.height_px()
     }
 
+    #[must_use]
     pub(crate) fn requires_explicit_viewport_height(&self) -> bool {
         self.viewport_height_px() > INFO_BASELINE_HEIGHT_PX
     }
 
+    #[must_use]
     pub(crate) fn version_geometry(&self) -> &InheritedTextRunFacts {
         self.terminal_geometry.run(0)
     }
 
+    #[must_use]
     pub(crate) fn version_fill_css(&self) -> Option<&str> {
         (!self.config_owns_text_fill)
             .then_some(self.text_fill.as_ref())
@@ -254,6 +274,7 @@ impl InfoTypographyThemePlan {
             .map(DirectStaticPaint::css)
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: InfoSurfaceReceipt) -> bool {
         self.terminal_receipt.set(receipt).is_ok()
     }
@@ -261,30 +282,42 @@ impl InfoTypographyThemePlan {
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
         let mut unsupported = BTreeMap::new();
+
         for route in &self.unsupported_routes {
             let reason = unsupported.entry(route.key.clone()).or_insert(None);
+
             if route.applicable {
                 reason.get_or_insert(route.reason);
             }
         }
+
         let direct_keys = self
             .direct_text_fill_routes
             .iter()
             .map(|route| &route.key)
             .collect::<BTreeSet<_>>();
+
         for (key, reason) in &unsupported {
-            if let Some(reason) = reason {
-                evidence.mark_residual(key.clone(), *reason);
+            if let Some(reason_2) = reason {
+                evidence.mark_residual(key.clone(), *reason_2);
             } else if !direct_keys.contains(key) {
                 evidence.mark_not_applicable(key.clone());
             }
         }
-        let Some(receipt) = self.terminal_receipt.get() else {
-            return;
+
+        let receipt = {
+            let optional_receipt = self.terminal_receipt.get();
+
+            match optional_receipt {
+                Some(matched_receipt) => matched_receipt,
+                ::core::option::Option::None => return,
+            }
         };
+
         self.inherited_font_stack
             .record_unsupported_typography_evidence(evidence, receipt.version_text_count != 0);
         let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
         if self.inherited_font_stack.typed_font_stack_active() {
             if receipt.proves_font_stack() {
                 evidence.mark_applied_with_capabilities(key, [ThemeCapability::Typography]);
@@ -304,14 +337,17 @@ impl InfoTypographyThemePlan {
                 InheritedFontStackOutcome::Inactive => {}
             }
         }
+
         for route in &self.direct_text_fill_routes {
             if unsupported.get(&route.key).is_some_and(Option::is_some) {
                 continue;
             }
+
             if self.config_owns_text_fill {
                 evidence.mark_not_applicable(route.key.clone());
                 continue;
             }
+
             let Some(fill) = self
                 .text_fill
                 .as_ref()
@@ -320,6 +356,7 @@ impl InfoTypographyThemePlan {
                 evidence.mark_not_applicable(route.key.clone());
                 continue;
             };
+
             if receipt.proves_text_fill(fill.css()) {
                 evidence.mark_applied_with_capabilities(route.key.clone(), [fill.capability()]);
             } else {
@@ -337,10 +374,12 @@ fn info_theme_routes(
     config_owns_text_fill: bool,
     work_meter: &OperationWorkMeter,
 ) -> std::result::Result<InfoThemeRoutes, OperationWorkError> {
-    let Some(theme) = theme else {
-        return Ok(InfoThemeRoutes::default());
+    let theme_2 = match theme {
+        Some(matched_theme) => matched_theme,
+        ::core::option::Option::None => return Ok(InfoThemeRoutes::default()),
     };
-    let final_text_style = theme.style_with_work_meter(
+
+    let final_text_style = theme_2.style_with_work_meter(
         ThemeTarget::Text,
         ThemeVariant::Default,
         Some(1),
@@ -352,7 +391,8 @@ fn info_theme_routes(
         .collect::<BTreeSet<_>>();
     let mut unsupported = Vec::new();
     let mut direct_text_fill = Vec::new();
-    for route in theme.family_mechanism_routes().iter().copied() {
+
+    for route in theme_2.family_mechanism_routes().iter().copied() {
         match route.mechanism() {
             FamilyThemeMechanism::RuleFacet {
                 rule_index,
@@ -369,7 +409,7 @@ fn info_theme_routes(
                 ) =>
             {
                 direct_text_fill.push(InfoDirectTextFillRoute {
-                    key: theme.family_mechanism_key(route),
+                    key: theme_2.family_mechanism_key(route),
                     rule_index,
                 });
             }
@@ -390,7 +430,7 @@ fn info_theme_routes(
                     FamilyThemeMechanism::BaseTypography(_) => continue,
                 };
                 let applicable = match mechanism {
-                    // Info writes its version label, never a separate visual diagram title.
+
                     FamilyThemeMechanism::RuleFacet {
                         target: ThemeTarget::Title,
                         ..
@@ -416,7 +456,7 @@ fn info_theme_routes(
                     _ => true,
                 };
                 unsupported.push(InfoUnsupportedRoute {
-                    key: theme.family_mechanism_key(route),
+                    key: theme_2.family_mechanism_key(route),
                     reason,
                     applicable,
                 });
@@ -427,6 +467,7 @@ fn info_theme_routes(
             | FamilyThemeMechanism::EffectBinding { .. } => {}
         }
     }
+
     Ok(InfoThemeRoutes {
         unsupported: unsupported.into_boxed_slice(),
         direct_text_fill: direct_text_fill.into_boxed_slice(),
@@ -439,9 +480,9 @@ pub(crate) fn layout_info_diagram_typed(
 ) -> Result<InfoDiagramLayout> {
     let _ = model.show_info;
     Ok(InfoDiagramLayout {
-        // Mermaid configures the info renderer with `height = 100`, `width = 400`. Responsive
-        // max-width mode omits the height attribute from the emitted SVG, but the layout model
-        // still records the configured canvas dimensions.
+
+
+
         bounds: Some(Bounds {
             min_x: 0.0,
             min_y: 0.0,

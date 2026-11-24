@@ -20,16 +20,11 @@
 //! only after [`LOSS_SETTLES_AFTER`], because the first thing a log-out looks
 //! like is one window closing.
 //!
-//! ## Windows are matched by what they were called when they opened
+//! ## Every relaunched window has a distinct identity
 //!
-//! A title is what a program is showing right now. A terminal rewrites its own
-//! the moment a prompt appears, and by the time it is on the screen it resembles
-//! nothing on disk. What a window was called when it first mapped does not move,
-//! so that is what is compared -- and because two terminals from the same
-//! program are then identical in every field that survives a restart, a saved
-//! window is claimed by the first real one that matches it and cannot be claimed
-//! twice. Without that, the second terminal to open is adjusted onto the first
-//! one's workspace and both land in the same place.
+//! The compositor attaches a tag to windows launched by this restore. Older
+//! snapshots and windows opened by a shared process fall back to their class,
+//! title and workspace.
 //!
 //! ## Closing a window is asked of the compositor
 //!
@@ -57,8 +52,8 @@
 //! A tiled window has no place of its own. The layout puts it where the windows
 //! around it leave room, and pixels asked for over that are refused or held
 //! until the next window disagrees with them. What decides where a tiled window
-//! lands is the order the programs are started in, and that order is what
-//! `exec.conf` is. So a corner and a size are asked only of a window that
+//! lands is the layout. For a two-pane Dwindle split its axis and ratio can
+//! be inferred from the bounds. A corner and a size are asked of a window that
 //! floats -- and of a floating window both are asked, because a window that
 //! comes back the wrong size is the same fault as one that comes back in the
 //! wrong place, and the rule prefix meant to have settled it is applied as the
@@ -90,26 +85,36 @@
 //! `true` and `false`. So the names are turned into the file's words on the way
 //! out and read back into names on the way in, and no caller sees a bare boolean.
 
-use std::collections::BTreeSet;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{create_dir_all, remove_dir_all};
 use std::path::{Path, PathBuf};
 
 use std::time::{Duration, Instant};
 
 use console_compositor::events::CompositorEvent;
-use console_compositor::{DispatchResult, Filling, Floating, Pinned, Window};
+use console_compositor::{
+  Coordinates, DispatchResult, Filling, Floating, FullscreenMode, Operation, Pinned, Window,
+  WindowAction, WindowChange,
+};
 use console_core_atomic_writes::Stored;
 use console_core_iteration::Step;
 use console_core_never::Never;
 use console_core_number_conversion::fitted;
+use console_core_state_machine::Machine;
 use console_events::subscription::Received;
 use console_program_contract::EventGroup;
 use console_response_times::{Wait, Waiting};
 use console_waiting::{Outcome, Ready, Schedule};
 
+use crate::ending::{Coordination, ShutdownStatus};
 use crate::starting::what_starts_it;
 use crate::{LocalName, Unresumed};
+
+mod restoration;
+mod setup;
+mod tiling;
+
+use restoration::{Effect as RestoreEffect, Observed, Restoration, Targets};
 
 const NO_SCREEN_NAMED: i64 = 0;
 
@@ -117,16 +122,13 @@ const EXEC_NAME: &str = "exec.conf";
 const CLIENTS_NAME: &str = "clients.json";
 
 const TICK: Duration = Duration::from_secs(1);
+const WINDOW_POLL: Duration = Duration::from_millis(250);
 
 const LOSS_SETTLES_AFTER: Duration = Duration::from_secs(15);
 
 const CLOSING_SETTLES: Duration = Duration::from_secs(10);
 
 const EVENTS_PER_CHECK: u32 = 256;
-
-const SPECIAL: &str = "special";
-
-const SPECIAL_NAMED: &str = "special:";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Really {
@@ -165,12 +167,6 @@ enum Differs {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Workspace {
-  Special,
-  Numbered,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Placing {
   ByPixels,
   ByTheLayout,
@@ -184,9 +180,17 @@ pub struct Sessions {
   pub duplicates: Duplicates,
 }
 
-#[derive(Debug, Clone, serde::Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, serde::Serialize)]
 #[serde(transparent)]
 struct SavedText(String);
+
+impl std::ops::Deref for SavedText {
+  type Target = str;
+
+  fn deref(&self) -> &str {
+    &self.0
+  }
+}
 
 impl<'de> serde::Deserialize<'de> for SavedText {
   fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
@@ -199,7 +203,7 @@ impl<'de> serde::Deserialize<'de> for SavedText {
     ) {
       ::core::option::Option::Some(()) => Ok(Self(text)),
       ::core::option::Option::None => Err(serde::de::Error::custom(
-        "window text exceeds the session file limit",
+        "text exceeds the session file limit",
       )),
     }
   }
@@ -228,6 +232,10 @@ struct Saved {
   at: (i64, i64),
   size: (i64, i64),
   pid: i64,
+  #[serde(default)]
+  command: Option<String>,
+  #[serde(default)]
+  focused: bool,
 }
 
 fn open_windows() -> Result<Vec<Window>, Unresumed> {
@@ -255,6 +263,8 @@ fn to_saved(window: &Window) -> Result<Saved, Never> {
     at: window.at,
     size: window.size,
     pid: window.pid,
+    command: None,
+    focused: false,
   })
 }
 
@@ -357,7 +367,7 @@ fn note(changes: &mut Changes, stirred: &CompositorEvent) -> Result<(), Never> {
   change(changes)
 }
 
-fn under(at: &Path, name: &str) -> Result<PathBuf, Unresumed> {
+pub(super) fn under(at: &Path, name: &str) -> Result<PathBuf, Unresumed> {
   match ::core::primitive::bool::then_some(name.is_empty(), ()) {
     ::core::option::Option::Some(()) => Ok(at.to_path_buf()),
     ::core::option::Option::None => {
@@ -368,27 +378,8 @@ fn under(at: &Path, name: &str) -> Result<PathBuf, Unresumed> {
   }
 }
 
-fn which_workspace(window: &Window) -> Result<Workspace, Never> {
-  let named = &window.workspace_named;
-
-  Ok(
-    match ::core::primitive::bool::then_some(
-      named == SPECIAL || named.starts_with(SPECIAL_NAMED),
-      (),
-    ) {
-      ::core::option::Option::Some(()) => Workspace::Special,
-      ::core::option::Option::None => Workspace::Numbered,
-    },
-  )
-}
-
 fn workspace_selector(saved: &Window) -> Result<String, Never> {
-  let Ok(which) = which_workspace(saved);
-
-  match which {
-    Workspace::Special => crate::lua::quote(&saved.workspace_named),
-    Workspace::Numbered => crate::lua::quote(&saved.workspace.to_string()),
-  }
+  console_compositor::setup::workspace_selector(saved.workspace, &saved.workspace_named)
 }
 
 fn placement(saved: &Window) -> Result<Placing, Never> {
@@ -425,16 +416,18 @@ fn differs<T: PartialEq>(
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct Dispatch<'a> {
-  lua: &'a str,
+  operation: Operation<'a>,
   about: &'a str,
 }
 
 fn asked_of_the_compositor(asking: Dispatch<'_>, window: &str) -> Result<(), Never> {
-  let Ok(done) = crate::lua::dispatch(asking.lua);
+  let Ok(done) = asking.operation.apply();
 
   match done {
     DispatchResult::Success => {}
-    DispatchResult::Failure(why) => eprintln!("{window}: {about}: {why}", about = asking.about),
+    DispatchResult::Failure(why) => {
+      console_core_logging::warn!("{window}: {about}: {why}", about = asking.about);
+    }
   }
 
   Ok(())
@@ -471,7 +464,7 @@ fn put_back_as(saved: Filling) -> Result<Filling, Never> {
   })
 }
 
-fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<(), Never> {
+fn fill(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
   let Ok(wanted) = put_back_as(saved.filling);
 
   match ::core::primitive::bool::then_some(real.filling == wanted, ()) {
@@ -480,8 +473,8 @@ fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<()
   }
 
   let mode = match real.filling {
-    Filling::Maximized => "maximized",
-    Filling::Screen | Filling::None => "fullscreen",
+    Filling::Maximized => FullscreenMode::Maximized,
+    Filling::Screen | Filling::None => FullscreenMode::Fullscreen,
   };
 
   println!("{}: filling the screen", real.title);
@@ -493,7 +486,10 @@ fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<()
 
   let Ok(()) = asked_of_the_compositor(
     Dispatch {
-      lua: &format!("hl.dsp.focus({{ window = {named} }})"),
+      operation: Operation::Window {
+        address: &real.address,
+        action: WindowAction::Focus,
+      },
       about: "taking the focus first",
     },
     &real.title,
@@ -501,10 +497,10 @@ fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<()
 
   asked_of_the_compositor(
     Dispatch {
-      lua: &format!(
-        "hl.dsp.window.fullscreen({{ window = {named}, mode = \"{mode}\", \
-                 action = \"toggle\" }})"
-      ),
+      operation: Operation::ChangeWindow {
+        address: &real.address,
+        change: WindowChange::ToggleFullscreen(mode),
+      },
       about: "filling the screen",
     },
     &real.title,
@@ -512,42 +508,43 @@ fn fill(real: &Window, saved: &Window, really: Really, named: &str) -> Result<()
 }
 
 fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
-  let Ok(named) = crate::lua::window(&real.address);
   let Ok(workspace) = workspace_selector(saved);
-
   let Ok(()) = restore_field(
     real,
     saved,
-    |window| window.workspace,
+    |window| {
+      let Ok(selector) = workspace_selector(window);
+
+      selector
+    },
     really,
     Dispatch {
-      lua: &format!(
-        "hl.dsp.window.move({{ window = {named}, workspace = {workspace}, follow = false }})"
-      ),
+      operation: Operation::ChangeWindow {
+        address: &real.address,
+        change: WindowChange::MoveToWorkspace(&workspace),
+      },
       about: "onto the workspace it was on",
     },
   );
 
-  let on = match saved.monitor {
-    Some(on) => on,
-    None => NO_SCREEN_NAMED,
-  };
-
-  let Ok(screen) = crate::lua::quote(&on.to_string());
-
-  let Ok(()) = restore_field(
-    real,
-    saved,
-    |window| match window.monitor {
-      Some(on_2) => on_2,
-      None => NO_SCREEN_NAMED,
-    },
-    really,
-    Dispatch {
-      lua: &format!("hl.dsp.workspace.move({{ workspace = {workspace}, monitor = {screen} }})"),
-      about: "onto the screen it was on",
-    },
-  );
+  match saved.monitor {
+    Some(on) => {
+      let Ok(()) = restore_field(
+        real,
+        saved,
+        |window| window.monitor,
+        really,
+        Dispatch {
+          operation: Operation::MoveWorkspaceToMonitor {
+            workspace: &workspace,
+            monitor: on,
+          },
+          about: "onto the screen it was on",
+        },
+      );
+    }
+    ::core::option::Option::None => {}
+  }
 
   let Ok(()) = restore_field(
     real,
@@ -555,7 +552,10 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
     |window| window.floating,
     really,
     Dispatch {
-      lua: &format!("hl.dsp.window.float({{ window = {named}, action = \"toggle\" }})"),
+      operation: Operation::ChangeWindow {
+        address: &real.address,
+        change: WindowChange::ToggleFloating,
+      },
       about: "floating the way it was",
     },
   );
@@ -566,22 +566,20 @@ fn adjust(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
     |window| window.pinned,
     really,
     Dispatch {
-      lua: &format!("hl.dsp.window.pin({{ window = {named}, action = \"toggle\" }})"),
+      operation: Operation::ChangeWindow {
+        address: &real.address,
+        change: WindowChange::TogglePinned,
+      },
       about: "pinned the way it was",
     },
   );
 
-  let Ok(()) = fill(real, saved, really, &named);
+  let Ok(()) = fill(real, saved, really);
 
-  adjust_pixels(real, saved, really, &named)
+  adjust_pixels(real, saved, really)
 }
 
-fn adjust_pixels(
-  real: &Window,
-  saved: &Window,
-  really: Really,
-  named: &str,
-) -> Result<(), Never> {
+fn adjust_pixels(real: &Window, saved: &Window, really: Really) -> Result<(), Never> {
   let Ok(placing) = placement(saved);
 
   match placing {
@@ -595,10 +593,14 @@ fn adjust_pixels(
     |window| window.size,
     really,
     Dispatch {
-      lua: &format!(
-        "hl.dsp.window.resize({{ window = {named}, x = {}, y = {}, relative = false }})",
-        saved.size.0, saved.size.1
-      ),
+      operation: Operation::ChangeWindow {
+        address: &real.address,
+        change: WindowChange::Resize {
+          x: saved.size.0,
+          y: saved.size.1,
+          coordinates: Coordinates::Absolute,
+        },
+      },
       about: "the size it was",
     },
   );
@@ -609,101 +611,97 @@ fn adjust_pixels(
     |window| window.at,
     really,
     Dispatch {
-      lua: &format!(
-        "hl.dsp.window.move({{ window = {named}, x = {}, y = {}, relative = false }})",
-        saved.at.0, saved.at.1
-      ),
+      operation: Operation::ChangeWindow {
+        address: &real.address,
+        change: WindowChange::MoveTo(saved.at.0, saved.at.1),
+      },
       about: "back where it was",
     },
   )
 }
 
-fn window_opened(
-  address: &str,
-  saved: &[Window],
-  claimed: &mut HashSet<u32>,
-  really: Really,
-) -> Result<(), Never> {
-  let open = match open_windows() {
-    Ok(open) => open,
-    Err(_the_compositor_said_nothing) => return Ok(()),
-  };
-
-  let real = match open.into_iter().find(|window| window.address == address) {
-    Some(real) => real,
-    None => return Ok(()),
-  };
-
-  let found = (0_u32..).zip(saved.iter()).find(|(at, one)| {
-    let Ok(differs) = is_same_client(one, &real);
-
-    !claimed.contains(at) && differs == Differs::No
-  });
-
-  let (at, one) = match found {
-    Some(found_2) => found_2,
-    None => return Ok(()),
-  };
-
-  claimed.insert(at);
-
-  adjust(&real, one, really)
-}
-
-#[cfg_attr(
-  all(not(test), dylint_lib = "explicit039_no_reading_the_clock"),
-  expect(
-    explicit039_no_reading_the_clock,
-    reason = "the restoration watcher owns the deadline for this compositor subscription"
-  )
-)]
 fn restore_windows(
   saved: &[Window],
+  tags: &BTreeMap<String, String>,
   adjusting_for: Duration,
   really: Really,
-) -> Result<(), Never> {
-  let began = Instant::now();
-  let Ok(subscriber) = console_events::subscription::connect(&[EventGroup::Compositor]);
-  let Ok(received) = subscriber.received();
-
-  let _finished = console_core_iteration::iterate(HashSet::new(), |mut claimed| {
-    let left = match adjusting_for.checked_sub(began.elapsed()) {
-      Some(left) => left,
-      None => return Ok(Step::Halt(())),
-    };
-
-    let line = match received.recv_timeout(left) {
-      Ok(Received::Event(change)) => change.text,
-      Ok(Received::Connected) => return Ok(Step::Again(claimed)),
-      Err(_deadline_or_disconnection) => return Ok(Step::Halt(())),
-    };
-    let Ok(stirred) = console_compositor::events::read(&line);
-
-    match stirred {
-      CompositorEvent::WindowOpened(address) | CompositorEvent::WindowRenamed(address) => {
-        let Ok(()) = window_opened(&address, saved, &mut claimed, really);
-      }
-      CompositorEvent::WindowClosed(_)
-      | CompositorEvent::WindowMoved
-      | CompositorEvent::WindowFloated
-      | CompositorEvent::WindowPinned
-      | CompositorEvent::WindowFilled
-      | CompositorEvent::LayerOpened
-      | CompositorEvent::LayerClosed
-      | CompositorEvent::WorkspaceChanged
-      | CompositorEvent::ScreenFocused
-      | CompositorEvent::WindowFocused
-      | CompositorEvent::ConfigurationReloaded
-      | CompositorEvent::Ignored => {}
+) -> Result<BTreeMap<String, String>, Never> {
+  match {
+    ::core::primitive::bool::then_some(
+      really == Really::Simulated || saved.is_empty() || adjusting_for.is_zero(),
+      (),
+    )
+  } {
+    ::core::option::Option::Some(()) => {
+      return Ok(BTreeMap::new());
     }
+    ::core::option::Option::None => {}
+  }
 
-    Ok(Step::Again(claimed))
-  });
+  let targets = Targets {
+    windows: saved,
+    tags,
+  };
+  let Ok(initial) = Restoration::initial_transition(&targets, None);
+  let observing = initial.effects.contains(&RestoreEffect::Observe);
+  let mut observation = (Some(initial.state), observing);
+  let Ok(patience) = Schedule::asking_every(adjusting_for, WINDOW_POLL);
 
-  Ok(())
+  let Ok(_settled) =
+    console_waiting::until_handed(patience, &mut observation, |(state, observe)| {
+      match { ::core::primitive::bool::then_some(!*observe, ()) } {
+        ::core::option::Option::Some(()) => {
+          return Ok(Ready::Yes);
+        }
+        ::core::option::Option::None => {}
+      }
+
+      let clients = match console_compositor::ask(console_compositor::setup::SessionClients) {
+        Ok(clients) => clients,
+        Err(fault) => {
+          console_core_logging::debug!(
+            "console-resume: waiting to observe restored windows: {fault}"
+          );
+          return Ok(Ready::NotYet);
+        }
+      };
+
+      let current = {
+        let optional_current = state.take();
+
+        match optional_current {
+          Some(matched_current) => matched_current,
+          ::core::option::Option::None => return Ok(Ready::Yes),
+        }
+      };
+
+      let Ok(next) = Restoration::transition(current, Observed(clients));
+      *state = Some(next.state);
+      *observe = false;
+
+      for effect in next.effects {
+        match effect {
+          RestoreEffect::Observe => *observe = true,
+          RestoreEffect::Place {
+            real,
+            saved: saved_2,
+          } => {
+            let Ok(()) = adjust(&real, saved_2, really);
+          }
+        }
+      }
+
+      Ok(match ::core::primitive::bool::then_some(*observe, ()) {
+        ::core::option::Option::Some(()) => Ready::NotYet,
+        ::core::option::Option::None => Ready::Yes,
+      })
+    });
+
+  let (state, _) = observation;
+  Ok(state.map_or_else(BTreeMap::new, |state_2| state_2.placed))
 }
 
-fn saved_windows(at: &Path) -> Result<Vec<Window>, Unresumed> {
+fn saved_windows(at: &Path) -> Result<Vec<Saved>, Unresumed> {
   let at_2 = at.join(CLIENTS_NAME);
 
   let Ok(held) = console_core_atomic_writes::read(&at_2);
@@ -714,19 +712,7 @@ fn saved_windows(at: &Path) -> Result<Vec<Window>, Unresumed> {
     Stored::Failed(fault) => return Err(Unresumed::Read(at_2, fault)),
   };
 
-  let saved: Vec<Saved> =
-    serde_json::from_str(&said).map_err(|fault| Unresumed::Unparsed(at_2, fault))?;
-
-  Ok(
-    saved
-      .iter()
-      .map(|one| {
-        let Ok(window) = as_window(one);
-
-        window
-      })
-      .collect(),
-  )
+  serde_json::from_str(&said).map_err(|fault| Unresumed::Unparsed(at_2, fault))
 }
 
 fn what_to_start(at: &Path) -> Result<Vec<String>, Unresumed> {
@@ -749,19 +735,37 @@ fn what_to_start(at: &Path) -> Result<Vec<String>, Unresumed> {
   )
 }
 
-fn start_programs(lines: &[String], really: Really) -> Result<(), Never> {
+fn start_programs(
+  lines: &[String],
+  really: Really,
+  workspace_outputs: Option<&BTreeMap<&str, &str>>,
+) -> Result<(), Never> {
   for line in lines {
-    let Ok(start) = crate::lua::split_exec_line(line);
-    let command = start.command;
+    let Ok(start) = crate::lua::split_exec_line_on(line, workspace_outputs);
+    let Ok(command) = crate::starting::launch_command(start.command);
 
     println!("starting {command}");
 
     match really {
       Really::Simulated => {}
       Really::Truly => {
-        let Ok(_started) = crate::lua::exec(&start);
+        let Ok(_started) = crate::lua::exec(&crate::lua::Start {
+          rules: start.rules,
+          command: &command,
+        });
       }
     }
+  }
+
+  Ok(())
+}
+
+fn report_setup(result: Result<(), Unresumed>) -> Result<(), Never> {
+  match result {
+    Err(fault) => {
+      console_core_logging::warn!("console-resume: {fault}");
+    }
+    ::core::result::Result::Ok(_) => {}
   }
 
   Ok(())
@@ -770,19 +774,30 @@ fn start_programs(lines: &[String], really: Really) -> Result<(), Never> {
 impl Sessions {
   pub fn save(&self, name: &str) -> Result<(), Unresumed> {
     let at = under(&self.at, name)?;
+    let _coordination = crate::ending::Coordination::lock()?;
+    Self::save_setup(&at)?;
+    Self::save_windows(&at, self.duplicates)
+  }
 
+  pub(super) fn save_setup(at: &Path) -> Result<(), Unresumed> {
+    let _editing = setup::edit()?;
+    let live = setup::Live::read()?;
+    setup::save(at, &live)
+  }
+
+  pub(super) fn save_windows(at: &Path, duplicates: Duplicates) -> Result<(), Unresumed> {
     let open = open_windows()?;
 
     match open.first() {
       Some(_something_is_open) => {}
       None => {
-        println!("nothing is open, so the session already saved stands");
+        println!("nothing is open, so the previously saved windows stand");
 
         return Ok(());
       }
     }
 
-    create_dir_all(&at).map_err(|fault| Unresumed::Making(at.clone(), fault))?;
+    create_dir_all(at).map_err(|fault| Unresumed::Making(at.to_owned(), fault))?;
 
     let mut lines = String::new();
 
@@ -790,50 +805,66 @@ impl Sessions {
     let mut written: Vec<Saved> = Vec::new();
 
     let Ok(known) = crate::starting::from_desktop_files();
+    let focused = match console_compositor::ask(console_compositor::ActiveWindow) {
+      Ok(window) => window.map(|window_2| window_2.address),
+      Err(fault) => {
+        console_core_logging::debug!("console-resume: active window unavailable: {fault}");
+        None
+      }
+    };
 
     for window in open.iter().rev() {
-      let Ok(keeping) = to_saved(window);
+      let Ok(mut keeping) = to_saved(window);
+      keeping.focused = focused.as_deref() == Some(&window.address);
 
-      written.push(keeping);
-
-      let again = match self.duplicates {
+      let again = match duplicates {
         Duplicates::OnePerWindow => false,
         Duplicates::OnePerProgram => pids.contains(&window.pid),
       };
 
       match ::core::primitive::bool::then_some(again, ()) {
-        ::core::option::Option::Some(()) => continue,
+        ::core::option::Option::Some(()) => {
+          written.push(keeping);
+          continue;
+        }
         ::core::option::Option::None => {}
       }
 
       let command = match what_starts_it(window, &known) {
         Ok(command) => command,
-        Err(_nothing_says_what_started_it) => continue,
+        Err(_nothing_says_what_started_it) => {
+          written.push(keeping);
+          continue;
+        }
       };
 
       let _ = pids.insert(window.pid);
 
-      let Ok(rules) = self.rules_for(window);
+      let Ok(rules) = Self::rules_for(window);
 
-      lines.push_str(&format!("[{rules}] {command}\n"));
+      match { ::core::primitive::bool::then_some(!command.contains('\n'), ()) } {
+        ::core::option::Option::Some(()) => {
+          lines.push_str(&format!("[{rules}] {command}\n"));
+        }
+        ::core::option::Option::None => {}
+      }
+
+      keeping.command = Some(command);
+      written.push(keeping);
     }
 
     console_core_atomic_writes::whole(&at.join(EXEC_NAME), lines.as_bytes())
       .map_err(Unresumed::Unwritten)?;
 
     let json =
-      serde_json::to_vec(&written).map_err(|fault| Unresumed::Unparsed(at.clone(), fault))?;
+      serde_json::to_vec(&written).map_err(|fault| Unresumed::Unparsed(at.to_owned(), fault))?;
 
     console_core_atomic_writes::whole(&at.join(CLIENTS_NAME), &json).map_err(Unresumed::Unwritten)
   }
 
-  fn rules_for(&self, window: &Window) -> Result<String, Never> {
-    let Ok(which) = which_workspace(window);
-
-    let workspace = match which {
-      Workspace::Special => format!("workspace {} silent", window.workspace_named),
-      Workspace::Numbered => format!("workspace {} silent", window.workspace),
-    };
+  fn rules_for(window: &Window) -> Result<String, Never> {
+    let Ok(selector) = workspace_selector(window);
+    let workspace = format!("workspace {selector} silent");
 
     let floating = match window.floating {
       Floating::Yes => Some("float".to_string()),
@@ -883,11 +914,12 @@ impl Sessions {
     let open = open_windows()?;
 
     for window in open {
-      let Ok(named) = crate::lua::window(&window.address);
-
       let Ok(()) = asked_of_the_compositor(
         Dispatch {
-          lua: &format!("hl.dsp.window.close({{ window = {named} }})"),
+          operation: Operation::Window {
+            address: &window.address,
+            action: WindowAction::Close,
+          },
           about: "closing it",
         },
         &window.title,
@@ -912,6 +944,54 @@ impl Sessions {
     }
   }
 
+  fn launch_tagged(
+    &self,
+    records: &[Saved],
+    saved: &[Window],
+    workspace_outputs: Option<&BTreeMap<&str, &str>>,
+  ) -> Result<BTreeMap<String, String>, Never> {
+    let run = std::process::id();
+    let mut tags = BTreeMap::new();
+
+    for (index, (record, target)) in records.iter().zip(saved).enumerate() {
+      let recorded_command = match record.command.as_deref() {
+        Some(command) => command,
+        None => continue,
+      };
+      let Ok(command) = crate::starting::launch_command(recorded_command);
+      let tag = format!("console-resume-{run}-{index}");
+      let Ok(restored_rules) = Self::rules_for(target);
+      let prefix = format!("[{restored_rules}]");
+      let Ok(start) = crate::lua::split_exec_line_on(&prefix, workspace_outputs);
+      let Ok(rules) = start.rules.with_tag(&tag);
+      println!("starting {command}");
+
+      match self.really {
+        Really::Truly => {
+          let Ok(result) = crate::lua::exec(&crate::lua::Start {
+            rules,
+            command: &command,
+          });
+
+          match result {
+            DispatchResult::Failure(fault) => {
+              console_core_logging::warn!(
+                "console-resume: launching {}: {fault}",
+                target.first_class
+              );
+            }
+            DispatchResult::Success => {}
+          }
+        }
+        Really::Simulated => {}
+      }
+
+      let _old_tag = tags.insert(target.address.clone(), tag);
+    }
+
+    Ok(tags)
+  }
+
   pub fn load(&self, name: &str) -> Result<Restore, Unresumed> {
     let Ok(mut waiting) = Waiting::here(Wait {
       who: "resume",
@@ -919,31 +999,161 @@ impl Sessions {
     });
     let at = under(&self.at, name)?;
 
-    let saved = saved_windows(&at)?;
-    let starting = what_to_start(&at)?;
+    let records = saved_windows(&at)?;
+    let mut saved: Vec<_> = records
+      .iter()
+      .map(|record| {
+        let Ok(window) = as_window(record);
+        window
+      })
+      .collect();
+    let modern = records.iter().any(|record| record.command.is_some());
+    let starting = match ::core::primitive::bool::then_some(modern, ()) {
+      ::core::option::Option::Some(()) => Vec::new(),
+      ::core::option::Option::None => what_to_start(&at)?,
+    };
+    let (profiles, legacy) = match setup::read(&at) {
+      Ok(profiles) => {
+        let legacy = profiles.is_empty();
+
+        (profiles, legacy)
+      }
+      Err(fault) => {
+        let Ok(()) = report_setup(Err(fault));
+
+        (Vec::new(), false)
+      }
+    };
+    let editing = match { ::core::primitive::bool::then_some(profiles.is_empty(), ()) } {
+      ::core::option::Option::Some(()) => None,
+      ::core::option::Option::None => Some({
+        let checked_value = setup::edit()?;
+        checked_value
+      }),
+    };
+    let live = match editing {
+      ::core::option::Option::None => None,
+      ::core::option::Option::Some(_) => match setup::Live::read() {
+        Ok(live) => Some(live),
+        Err(fault) => {
+          let Ok(()) = report_setup(Err(fault));
+
+          None
+        }
+      },
+    };
+    let profile = live.as_ref().and_then(|current| {
+      let Ok(matching) = setup::matching(&profiles, current);
+      matching.map(|chosen| (chosen, current))
+    });
+    let workspace_outputs = bool::then_some(!legacy, ()).map(|()| {
+      profile.map_or_else(BTreeMap::new, |(chosen, current)| {
+        let Ok(outputs) = chosen.workspace_outputs(current);
+        outputs
+      })
+    });
+
+    match { ::core::primitive::bool::then_some(!legacy, ()) } {
+      ::core::option::Option::Some(()) => {
+        for window in &mut saved {
+          window.monitor = None;
+        }
+      }
+      ::core::option::Option::None => {}
+    }
+
+    match profile {
+      Some((profile_3, live_4)) => {
+        let Ok(()) = report_setup(profile_3.apply_displays(live_4, self.really));
+      }
+      ::core::option::Option::None => {}
+    }
+
+    drop(editing);
+    let restore_workspaces = || match profile {
+      Some((profile_4, _)) => {
+        let workspaces =
+          setup::Live::read().and_then(|live_5| profile_4.apply_workspaces(&live_5, self.really));
+        let Ok(()) = report_setup(workspaces);
+      }
+      None => {}
+    };
 
     let Ok(()) = waiting.mark("read");
 
-    match self.restoring {
-      Restoring::MovingWhatIsOpen => {}
-      Restoring::StartingItAgain => match starting.first() {
-        None => return Ok(Restore::NothingSaved(at)),
-        Some(_there_is_something_to_put_back) => {
-          self.clear()?;
-
-          let Ok(()) = waiting.mark("cleared");
-          let Ok(()) = start_programs(&starting, self.really);
-          let Ok(many) = fitted::<_, u64>(starting.len());
-          let Ok(()) = waiting.mark("started");
-          let Ok(()) = waiting.counted("windows", many);
-          let Ok(()) = waiting.finish();
+    let tags = match self.restoring {
+      Restoring::StartingItAgain => {
+        match (!modern && starting.is_empty()).then_some(()) {
+          Some(()) => {
+            restore_workspaces();
+            return Ok(Restore::NothingSaved(at));
+          }
+          None => {}
         }
-      },
+
+        self.clear()?;
+        let Ok(()) = waiting.mark("cleared");
+        let launched = match modern.then_some(()) {
+          Some(()) => {
+            let Ok(tags) = self.launch_tagged(&records, &saved, workspace_outputs.as_ref());
+            tags
+          }
+          None => {
+            let Ok(()) = start_programs(&starting, self.really, workspace_outputs.as_ref());
+            BTreeMap::new()
+          }
+        };
+        let Ok(()) = waiting.mark("started");
+        let Ok(()) = waiting.finish();
+        launched
+      }
+      Restoring::MovingWhatIsOpen => BTreeMap::new(),
+    };
+
+    let Ok(bound) = restore_windows(&saved, &tags, self.adjusting_for, self.really);
+
+    match { ::core::primitive::bool::then_some(self.really == Really::Truly, ()) } {
+      ::core::option::Option::Some(()) => {
+        let Ok(()) = tiling::restore(&saved, &bound);
+      }
+      ::core::option::Option::None => {}
     }
 
-    let Ok(()) = restore_windows(&saved, self.adjusting_for, self.really);
+    restore_workspaces();
+
+    let focused = records
+      .iter()
+      .find(|record| record.focused)
+      .and_then(|record| bound.get(&record.address.0));
+
+    match (self.really, focused) {
+      (Really::Truly, Some(address)) => {
+        let Ok(()) = asked_of_the_compositor(
+          Dispatch {
+            operation: Operation::Window {
+              address,
+              action: WindowAction::Focus,
+            },
+            about: "restoring focus",
+          },
+          "console-resume",
+        );
+      }
+      (Really::Simulated, _) | (Really::Truly, None) => {}
+    }
 
     Ok(Restore::Windows)
+  }
+
+  pub fn recall(&self, name: &str) -> Result<(), Unresumed> {
+    let at = under(&self.at, name)?;
+    let _editing = setup::edit()?;
+    let profiles = setup::read(&at)?;
+    let live = setup::Live::read()?;
+    let Ok(matched) = setup::matching(&profiles, &live);
+    let profile = matched.ok_or(Unresumed::NoSetup(at))?;
+
+    profile.recall(&live, self.really)
   }
 
   #[cfg_attr(
@@ -953,27 +1163,45 @@ impl Sessions {
       reason = "the cadence this loop keeps for itself, which is what a watcher is: `worth_saving` is handed the instant and decides from it, and the marks around it are this loop measuring its own waiting"
     )
   )]
-  pub fn watch(&self, name: &str, interval: Duration) -> Result<(), Unresumed> {
+  fn watch_setups(
+    &self,
+    name: &str,
+    interval: Duration,
+    recall: setup::RecallMode,
+  ) -> Result<(), Unresumed> {
+    let at = under(&self.at, name)?;
     let Ok(subscriber) = console_events::subscription::connect(&[EventGroup::Compositor]);
     let Ok(received) = subscriber.received();
     let Ok(patience) = Schedule::asking_every(interval, TICK);
     let Ok(batch) = console_core_number_conversion::index(EVENTS_PER_CHECK);
-
-    let watched = console_core_iteration::iterate(Instant::now(), |saved| {
-      let mut changes = Changes::default();
+    let initial = (Instant::now(), setup::Watcher::default());
+    let watched = console_core_iteration::iterate(initial, |(saved_when, watcher)| {
+      let mut observation = (Changes::default(), watcher);
       let Ok(_either_way_it_is_time) =
-        console_waiting::until_handed(patience, &mut changes, |held| {
+        console_waiting::until_handed(patience, &mut observation, |(changes, setup)| {
           for event in received.try_iter().take(batch) {
             match event {
               Received::Connected => {}
               Received::Event(change) => {
+                use console_compositor::events::OutputChange;
+                let Ok(outputs) = console_compositor::events::outputs_changed(&change.text);
+
+                match outputs {
+                  OutputChange::Changed => {
+                    let Ok(()) = setup.changed();
+                  }
+                  OutputChange::Unchanged => {}
+                }
+
                 let Ok(stirred) = console_compositor::events::read(&change.text);
-                let Ok(()) = note(held, &stirred);
+                let Ok(()) = note(changes, &stirred);
               }
             }
           }
 
-          let Ok(worth) = held.worth_saving(saved, interval);
+          let Ok(()) = report_setup(setup.step(Instant::now(), &at, self.really, recall));
+
+          let Ok(worth) = changes.worth_saving(saved_when, interval);
 
           Ok(match worth {
             Worth::Saving => Ready::Yes,
@@ -981,8 +1209,21 @@ impl Sessions {
           })
         });
 
-      Ok(match self.save(name) {
-        Ok(()) => Step::Again(Instant::now()),
+      let (_, observed_setup) = observation;
+      let coordination = match crate::ending::Coordination::lock() {
+        Ok(coordination) => coordination,
+        Err(fault) => return Ok(Step::Halt(fault)),
+      };
+
+      match coordination.as_ref().map(Coordination::status) {
+        Some(Ok(ShutdownStatus::Ending)) => {
+          return Ok(Step::Again((Instant::now(), observed_setup)));
+        }
+        Some(Ok(ShutdownStatus::Available)) | None => {}
+      }
+
+      Ok(match Self::save_windows(&at, self.duplicates) {
+        Ok(()) => Step::Again((Instant::now(), observed_setup)),
         Err(fault) => Step::Halt(fault),
       })
     });
@@ -991,6 +1232,14 @@ impl Sessions {
       Ok(fault) => Err(fault),
       Err(_endless) => Ok(()),
     }
+  }
+
+  pub fn watch(&self, name: &str, interval: Duration) -> Result<(), Unresumed> {
+    self.watch_setups(name, interval, setup::RecallMode::Remember)
+  }
+
+  pub fn watch_and_recall(&self, name: &str, interval: Duration) -> Result<(), Unresumed> {
+    self.watch_setups(name, interval, setup::RecallMode::Recall)
   }
 
   pub fn list(&self) -> Result<Vec<String>, Never> {
@@ -1042,6 +1291,65 @@ mod tests {
     })
   }
 
+  #[test]
+  fn identical_terminals_go_to_their_own_workspace_even_when_they_open_in_reverse_order() {
+    use console_compositor::setup::SessionClient;
+
+    let Ok(first) = window(Class("terminal"), "terminal");
+    let second = Window {
+      address: "0x2".to_owned(),
+      workspace: 3,
+      workspace_named: "3".to_owned(),
+      ..first.clone()
+    };
+    let saved = [first.clone(), second.clone()];
+    let tags = BTreeMap::from([
+      (first.address.clone(), "console-resume-first".to_owned()),
+      (second.address.clone(), "console-resume-second".to_owned()),
+    ]);
+    let Ok(initial) = Restoration::initial_transition(
+      &Targets {
+        windows: &saved,
+        tags: &tags,
+      },
+      None,
+    );
+    let newer = Window {
+      address: "0x3".to_owned(),
+      ..first.clone()
+    };
+    let earlier = Window {
+      address: "0x4".to_owned(),
+      ..first.clone()
+    };
+    let Ok(restored) = Restoration::transition(
+      initial.state,
+      Observed(vec![
+        SessionClient {
+          window: newer.clone(),
+          tags: vec!["console-resume-second*".to_owned()],
+        },
+        SessionClient {
+          window: earlier.clone(),
+          tags: vec!["console-resume-first*".to_owned()],
+        },
+      ]),
+    );
+    assert_eq!(
+      restored.effects,
+      [
+        RestoreEffect::Place {
+          real: newer,
+          saved: &second
+        },
+        RestoreEffect::Place {
+          real: earlier,
+          saved: &first
+        },
+      ]
+    );
+  }
+
   fn worth(changes: &Changes) -> Result<Worth, Never> {
     changes.worth_saving(Instant::now(), Duration::from_secs(600))
   }
@@ -1082,26 +1390,19 @@ mod tests {
   fn a_special_workspace_goes_by_the_name_no_number_would_carry() {
     let Ok(special) = on_special("special:sky", -99);
 
-    assert_eq!(
-      workspace_selector(&special),
-      Ok(r#""special:sky""#.to_string())
-    );
+    assert_eq!(workspace_selector(&special), Ok("special:sky".to_string()));
 
     let Ok(window) = window(Class("foot"), "a shell");
 
-    assert_eq!(workspace_selector(&window), Ok(r#""2""#.to_string()));
+    assert_eq!(workspace_selector(&window), Ok("2".to_string()));
   }
 
   #[test]
   fn the_second_special_workspace_is_not_the_first_one() {
     let Ok(second) = on_special("special:magic", -98);
-    let Ok(sessions) = sessions("/nowhere");
-    let Ok(rules) = sessions.rules_for(&second);
+    let Ok(rules) = Sessions::rules_for(&second);
 
-    assert_eq!(
-      workspace_selector(&second),
-      Ok(r#""special:magic""#.to_string())
-    );
+    assert_eq!(workspace_selector(&second), Ok("special:magic".to_string()));
     assert!(rules.contains("workspace special:magic silent"), "{rules}");
     assert!(
       !rules.contains("-98"),
@@ -1115,8 +1416,7 @@ mod tests {
     named.workspace = 4;
     named.workspace_named = "specials".to_string();
 
-    assert_eq!(which_workspace(&named), Ok(Workspace::Numbered));
-    assert_eq!(workspace_selector(&named), Ok(r#""4""#.to_string()));
+    assert_eq!(workspace_selector(&named), Ok("4".to_string()));
   }
 
   #[test]
@@ -1135,8 +1435,7 @@ mod tests {
   #[test]
   fn a_special_workspace_is_asked_for_by_the_word_the_rules_take() {
     let Ok(special) = on_special("special:sky", -99);
-    let Ok(sessions) = sessions("/nowhere");
-    let Ok(rules) = sessions.rules_for(&special);
+    let Ok(rules) = Sessions::rules_for(&special);
 
     assert!(rules.contains("workspace special:sky silent"), "{rules}");
   }
@@ -1144,10 +1443,8 @@ mod tests {
   #[test]
   fn the_special_workspace_no_one_named_is_still_a_special_one() {
     let Ok(special) = on_special("special", -99);
-    let Ok(sessions) = sessions("/nowhere");
-    let Ok(rules) = sessions.rules_for(&special);
+    let Ok(rules) = Sessions::rules_for(&special);
 
-    assert_eq!(which_workspace(&special), Ok(Workspace::Special));
     assert!(rules.contains("workspace special silent"), "{rules}");
   }
 
@@ -1186,8 +1483,7 @@ mod tests {
   #[test]
   fn a_rule_a_window_does_not_want_is_left_out_rather_than_left_empty() {
     let Ok(window) = window(Class("foot"), "a shell");
-    let Ok(sessions) = sessions("/nowhere");
-    let Ok(plain) = sessions.rules_for(&window);
+    let Ok(plain) = Sessions::rules_for(&window);
 
     assert!(!plain.contains("float"), "{plain}");
     assert!(
@@ -1202,8 +1498,7 @@ mod tests {
     both.floating = Floating::Yes;
     both.pinned = Pinned::Yes;
 
-    let Ok(sessions) = sessions("/nowhere");
-    let Ok(rules) = sessions.rules_for(&both);
+    let Ok(rules) = Sessions::rules_for(&both);
 
     assert!(rules.contains(";float;"), "{rules}");
     assert!(rules.contains(";pin;"), "{rules}");

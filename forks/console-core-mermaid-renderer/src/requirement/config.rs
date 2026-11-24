@@ -20,6 +20,7 @@ pub(crate) struct RequirementConfigView<'a> {
 }
 
 impl<'a> RequirementConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -28,9 +29,13 @@ impl<'a> RequirementConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> RequirementLayoutSettings {
         RequirementLayoutSettings {
-            html_labels: config_bool(self.effective_config, &["htmlLabels"]).unwrap_or(true),
+            html_labels: match config_bool(self.effective_config, &["htmlLabels"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => true,
+            },
             edge_html_labels: config_effective_html_labels(self.effective_config),
             nodesep: self.layout_spacing("nodeSpacing", DEFAULT_NODE_SPACING),
             ranksep: self.layout_spacing("rankSpacing", DEFAULT_RANK_SPACING),
@@ -41,19 +46,29 @@ impl<'a> RequirementConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings_with_resolved_typography(
         &self,
         resolved_font_family: Option<&str>,
         resolved_font_size_px: Option<f64>,
     ) -> RequirementLayoutSettings {
         let mut settings = self.layout_settings();
-        if let Some(font_family) = resolved_font_family {
-            settings.font_family = font_family.to_owned();
-            settings.calculation_font_family = font_family.to_owned();
+
+        match resolved_font_family {
+            Some(font_family) => {
+                settings.font_family = font_family.to_owned();
+                settings.calculation_font_family = font_family.to_owned();
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(font_size_px) = resolved_font_size_px {
-            settings.font_size = font_size_px.max(1.0);
+
+        match resolved_font_size_px {
+            Some(font_size_px) => {
+                settings.font_size = font_size_px.max(1.0);
+            },
+            ::core::option::Option::None => {},
         }
+
         settings
     }
 
@@ -82,74 +97,101 @@ impl<'a> RequirementConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn render_settings_with_binding(
         &self,
         binding: &super::RequirementCssBinding,
     ) -> RequirementRenderSettings<'a> {
         RequirementRenderSettings {
-            html_labels: config_bool(self.effective_config, &["htmlLabels"]).unwrap_or(true),
+            html_labels: match config_bool(self.effective_config, &["htmlLabels"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => true,
+            },
             edge_html_labels: config_effective_html_labels(self.effective_config),
             body_text_start: self.effective_config.get("layout").and_then(Value::as_str)
                 == Some("elk"),
             look: config_diagram_look(self.effective_config),
             viewport_padding: DEFAULT_VIEWPORT_PADDING,
-            use_max_width: self
-                .requirement_bool("useMaxWidth")
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
-            hand_drawn_seed: self
+            use_max_width: match self
+                .requirement_bool("useMaxWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
+            hand_drawn_seed: match self
                 .effective_config
                 .get("handDrawnSeed")
-                .and_then(Value::as_f64)
-                .unwrap_or(0.0),
-            title_top_margin: self
-                .config_f64(&["state", "titleTopMargin"])
-                .unwrap_or(DEFAULT_TITLE_TOP_MARGIN),
+                .and_then(Value::as_f64) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            },
+            title_top_margin: match self
+                .config_f64(&["state", "titleTopMargin"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_TITLE_TOP_MARGIN,
+            },
             font_family: binding.layout.font_family.clone(),
             font_size: binding.layout.font_size,
         }
     }
 
+    #[must_use]
     fn config_f64(&self, path: &[&str]) -> Option<f64> {
         config_f64(self.effective_config, path)
     }
 
+    #[must_use]
     fn root_f64(&self, key: &str) -> Option<f64> {
         self.config_f64(&[key])
     }
 
+    #[must_use]
     fn state_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.state_config, &[key])
     }
 
+    #[must_use]
     fn layout_spacing(&self, key: &str, default: f64) -> f64 {
-        let renderer_spacing = self.state_f64(key).unwrap_or(default);
-        [
+        let renderer_spacing = match self.state_f64(key) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => default,
+        };
+
+        match [
             self.root_f64(key),
             Some(renderer_spacing),
             self.config_f64(&["flowchart", key]),
         ]
         .into_iter()
         .flatten()
-        .find(|value| *value != 0.0)
-        .unwrap_or(default)
+        .find(|value| !::core::matches!(::core::primitive::f64::classify(*value), ::core::num::FpCategory::Zero)) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => default,
+        }
     }
 
+    #[must_use]
     fn requirement_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.requirement_config, &[key])
     }
 
+    #[must_use]
     fn font_family(&self) -> String {
         config_font_family_or_first_array_css(self.effective_config)
     }
 
+    #[must_use]
     fn font_size(&self) -> f64 {
         config_theme_or_root_font_size_px(self.effective_config, DEFAULT_FONT_SIZE)
     }
 
+    #[must_use]
     fn calculation_font_family(&self) -> String {
-        let raw = config_string_or_first_array(self.effective_config, &["fontFamily"])
-            .unwrap_or_else(|| MERMAID_DEFAULT_FONT_FAMILY_CSS.to_string());
+        let raw = match config_string_or_first_array(self.effective_config, &["fontFamily"]) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => MERMAID_DEFAULT_FONT_FAMILY_CSS.to_string(),
+        };
         let normalized = normalize_css_font_family(&raw);
+
         if normalized.is_empty() {
             MERMAID_DEFAULT_FONT_FAMILY_CSS.to_string()
         } else {
@@ -157,8 +199,12 @@ impl<'a> RequirementConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn calculation_font_size(&self) -> f64 {
-        config_f64_css_px(self.effective_config, &["fontSize"]).unwrap_or(DEFAULT_FONT_SIZE)
+        match config_f64_css_px(self.effective_config, &["fontSize"]) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => DEFAULT_FONT_SIZE,
+        }
     }
 }
 

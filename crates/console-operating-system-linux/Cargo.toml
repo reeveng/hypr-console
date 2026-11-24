@@ -6,6 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 
 [dependencies]
+console-concurrency.workspace = true
 console-core-atomic-writes.workspace = true
 console-core-external-programs.workspace = true
 console-core-iteration.workspace = true
@@ -19,12 +20,12 @@ console-program-contract.workspace = true
 console-program-lifetime.workspace = true
 console-program-runtime.workspace = true
 console-response-times.workspace = true
+console-waiting.workspace = true
 rustix = { workspace = true, features = ["net"] }
 
 [dev-dependencies]
 console-core-temporary-directories.workspace = true
 console-events.workspace = true
-console-waiting.workspace = true
 
 [lints]
 workspace = true

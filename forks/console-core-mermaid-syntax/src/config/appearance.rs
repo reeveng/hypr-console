@@ -26,6 +26,7 @@ pub(crate) enum MaterializationPlan {
 }
 
 impl<'a> AppearanceDecision<'a> {
+    #[must_use]
     pub(crate) fn resolve(
         diagram_type: &'a str,
         source: &'a MermaidConfig,
@@ -51,6 +52,7 @@ impl<'a> AppearanceDecision<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn materialization_plan(
         &self,
         current_theme: Option<&str>,
@@ -60,8 +62,8 @@ impl<'a> AppearanceDecision<'a> {
             .as_ref()
             .and_then(|winner| winner.value.as_str())
             .or(current_theme);
-        // Mermaid evaluates root directive truthiness independently of appearance precedence.
-        // A scoped same-value source winner still owns appearance without forcing recalculation.
+
+
         if resolved_theme == Some("null")
             || (!self.source_root_theme_is_truthy && resolved_theme == site_theme)
         {
@@ -84,29 +86,35 @@ impl<'a> AppearanceDecision<'a> {
             matches!(winner.origin, AppearanceOrigin::Source)
                 && winner.value.as_str().is_some_and(|name| name != "null")
         }));
+
         for (key, winner) in APPEARANCE_KEYS.into_iter().zip(&self.winners) {
-            let Some(winner) = winner else {
-                continue;
+            let winner_2 = match winner {
+                Some(matched_winner) => matched_winner,
+                ::core::option::Option::None => continue,
             };
-            let value = winner.value.as_ref();
+
+            let value = winner_2.value.as_ref();
             let explicit = matches!(
-                winner.origin,
+                winner_2.origin,
                 AppearanceOrigin::Source | AppearanceOrigin::Initialize
             );
-            // The detector may add or delete scoped keys between applications of the same decision.
+
             let section_has_key = effective
                 .as_value()
                 .get(self.section)
                 .and_then(|section| section.get(key))
                 .is_some();
+
             if explicit {
-                // Equal values can still acquire a different owner.
+
                 effective.set_value_explicit(key, value.clone());
             } else if effective.as_value().get(key) != Some(value) {
                 effective.set_value_preserving_theme_compatibility(key, value.clone());
             }
+
             if section_has_key {
                 let scoped_key = format!("{}.{key}", self.section);
+
                 if explicit {
                     effective.set_value_explicit(&scoped_key, value.clone());
                 } else if effective.as_value()[self.section].get(key) != Some(value) {

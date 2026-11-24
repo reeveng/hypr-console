@@ -626,30 +626,15 @@ impl Engine<'_> {
     };
     let mut distance = rounding?;
 
-    match ::core::primitive::bool::then_some((opcode & 8) != 0, ()) {
-      ::core::option::Option::Some(()) => {
+    match opcode & 8 {
+      0 => {}
+      _ => {
         let min_distance = gs.min_distance;
-
-        match ::core::primitive::bool::then_some(original_distance >= F26Dot6::ZERO, ()) {
-          ::core::option::Option::Some(()) => {
-            match ::core::primitive::bool::then_some(distance < min_distance, ()) {
-              ::core::option::Option::Some(()) => {
-                distance = min_distance;
-              }
-              ::core::option::Option::None => {}
-            }
-          }
-          ::core::option::Option::None => {
-            match ::core::primitive::bool::then_some(distance > -min_distance, ()) {
-              ::core::option::Option::Some(()) => {
-                distance = -min_distance;
-              }
-              ::core::option::Option::None => {}
-            }
-          }
-        }
+        distance = match (original_distance >= F26Dot6::ZERO).then_some(()) {
+          Some(()) => distance.max(min_distance),
+          None => distance.min(-min_distance),
+        };
       }
-      ::core::option::Option::None => {}
     }
 
     original_distance = {

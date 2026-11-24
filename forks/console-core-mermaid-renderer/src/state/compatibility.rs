@@ -73,6 +73,7 @@ enum StateCompatibilityLook {
 }
 
 impl StateCompatibilityLook {
+    #[must_use]
     fn from_value(value: &str) -> Self {
         match value {
             "classic" => Self::Classic,
@@ -82,6 +83,7 @@ impl StateCompatibilityLook {
         }
     }
 
+    #[must_use]
     fn as_str(&self) -> &str {
         match self {
             Self::Classic => "classic",
@@ -130,6 +132,7 @@ enum StateTerminalPaintRef<'a> {
 }
 
 impl StateTerminalPaintRef<'_> {
+    #[must_use]
     fn source_owned(&self) -> bool {
         match self {
             Self::Css(_, source_owned) | Self::ScopedGradient(source_owned) => *source_owned,
@@ -138,6 +141,7 @@ impl StateTerminalPaintRef<'_> {
 }
 
 impl<T> StateResolvedValue<T> {
+    #[must_use]
     fn constant(value: T) -> Self {
         Self {
             value,
@@ -145,6 +149,7 @@ impl<T> StateResolvedValue<T> {
         }
     }
 
+    #[must_use]
     fn map<U>(self, map: impl FnOnce(T) -> U) -> StateResolvedValue<U> {
         StateResolvedValue {
             value: map(self.value),
@@ -159,175 +164,261 @@ struct StateCompatibilityResolver<'a> {
 }
 
 impl<'a> StateCompatibilityResolver<'a> {
+    #[must_use]
     fn new(value: &'a Value, config: Option<&'a PresentationConfig>) -> Self {
         Self { value, config }
     }
 
+    #[must_use]
     fn direct_string(
         &self,
         candidates: &[&'static str],
         fallback: impl FnOnce() -> StateResolvedValue<String>,
     ) -> StateResolvedValue<String> {
         for path in candidates {
-            let Some(value) = value_at_dotted_path(self.value, path).and_then(Value::as_str) else {
-                continue;
+            let value = {
+                let optional_value = value_at_dotted_path(self.value, path).and_then(Value::as_str);
+
+                match optional_value {
+                    Some(matched_value) => matched_value,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             return StateResolvedValue {
                 value: value.to_string(),
                 source_owned: self.paint_path_is_owned(path),
             };
         }
+
         fallback()
     }
 
+    #[must_use]
     fn truthy_string(
         &self,
         candidates: &[&'static str],
         fallback: impl FnOnce() -> StateResolvedValue<String>,
     ) -> StateResolvedValue<String> {
         for path in candidates {
-            let Some(value) = value_at_dotted_path(self.value, path).and_then(Value::as_str) else {
-                continue;
+            let value = {
+                let optional_value = value_at_dotted_path(self.value, path).and_then(Value::as_str);
+
+                match optional_value {
+                    Some(matched_value) => matched_value,
+                    ::core::option::Option::None => continue,
+                }
             };
-            // JavaScript's `||` rejects the exact empty string, but whitespace remains truthy.
+
+
             if value.is_empty() {
                 continue;
             }
+
             return StateResolvedValue {
                 value: value.to_string(),
                 source_owned: self.paint_path_is_owned(path),
             };
         }
+
         fallback()
     }
 
+    #[must_use]
     fn nullish_string(
         &self,
         candidates: &[&'static str],
         fallback: impl FnOnce() -> StateResolvedValue<String>,
     ) -> StateResolvedValue<String> {
         for path in candidates {
-            let Some(value) = value_at_dotted_path(self.value, path) else {
-                continue;
+            let value = {
+                let optional_value = value_at_dotted_path(self.value, path);
+
+                match optional_value {
+                    Some(matched_value) => matched_value,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if value.is_null() {
                 continue;
             }
-            let Some(value) = value.as_str() else {
-                continue;
+
+            let value_2 = {
+                let optional_value = value.as_str();
+
+                match optional_value {
+                    Some(matched_value) => matched_value,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             return StateResolvedValue {
-                value: value.to_string(),
+                value: value_2.to_string(),
                 source_owned: self.paint_path_is_owned(path),
             };
         }
+
         fallback()
     }
 
+    #[must_use]
     fn direct_css_value(
         &self,
         candidates: &[&'static str],
         fallback: impl FnOnce() -> StateResolvedValue<String>,
     ) -> StateResolvedValue<String> {
         for path in candidates {
-            let Some(value) =
-                value_at_dotted_path(self.value, path).and_then(state_js_css_interpolation_value)
-            else {
-                continue;
+            let value = {
+                let optional_value = value_at_dotted_path(self.value, path).and_then(state_js_css_interpolation_value);
+
+                match optional_value {
+                    Some(matched_value) => matched_value,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             return StateResolvedValue {
                 value,
                 source_owned: self.path_is_owned(path),
             };
         }
+
         fallback()
     }
 
+    #[must_use]
     fn truthy_css_value(
         &self,
         candidates: &[&'static str],
         fallback: impl FnOnce() -> StateResolvedValue<String>,
     ) -> StateResolvedValue<String> {
         for path in candidates {
-            let Some(raw) = value_at_dotted_path(self.value, path) else {
-                continue;
+            let raw = {
+                let optional_raw = value_at_dotted_path(self.value, path);
+
+                match optional_raw {
+                    Some(matched_raw) => matched_raw,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if !state_js_truthy(raw) {
                 continue;
             }
-            let Some(value) = state_js_css_interpolation_value(raw) else {
-                continue;
+
+            let value = {
+                let optional_value = state_js_css_interpolation_value(raw);
+
+                match optional_value {
+                    Some(matched_value) => matched_value,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             return StateResolvedValue {
                 value,
                 source_owned: self.path_is_owned(path),
             };
         }
+
         fallback()
     }
 
+    #[must_use]
     fn nullish_css_value(
         &self,
         candidates: &[&'static str],
         fallback: impl FnOnce() -> StateResolvedValue<String>,
     ) -> StateResolvedValue<String> {
         for path in candidates {
-            let Some(raw) = value_at_dotted_path(self.value, path) else {
-                continue;
+            let raw = {
+                let optional_raw = value_at_dotted_path(self.value, path);
+
+                match optional_raw {
+                    Some(matched_raw) => matched_raw,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if raw.is_null() {
                 continue;
             }
-            let Some(value) = state_js_css_interpolation_value(raw) else {
-                continue;
+
+            let value = {
+                let optional_value = state_js_css_interpolation_value(raw);
+
+                match optional_value {
+                    Some(matched_value) => matched_value,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             return StateResolvedValue {
                 value,
                 source_owned: self.path_is_owned(path),
             };
         }
+
         fallback()
     }
 
+    #[must_use]
     fn truthy(&self, candidates: &[&'static str], fallback: bool) -> StateResolvedValue<bool> {
         for path in candidates {
-            let Some(value) = value_at_dotted_path(self.value, path) else {
-                continue;
+            let value = {
+                let optional_value = value_at_dotted_path(self.value, path);
+
+                match optional_value {
+                    Some(matched_value) => matched_value,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             return StateResolvedValue {
                 value: state_js_truthy(value),
                 source_owned: self.path_is_owned(path),
             };
         }
+
         StateResolvedValue::constant(fallback)
     }
 
+    #[must_use]
     fn direct_css_px(&self, candidates: &[&'static str], fallback: f64) -> StateResolvedValue<f64> {
         for path in candidates {
-            let Some(value) =
-                value_at_dotted_path(self.value, path).and_then(crate::config::json_f64_css_px)
-            else {
-                continue;
+            let value = {
+                let optional_value = value_at_dotted_path(self.value, path).and_then(crate::config::json_f64_css_px);
+
+                match optional_value {
+                    Some(matched_value) => matched_value,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             return StateResolvedValue {
                 value,
                 source_owned: self.path_is_owned(path),
             };
         }
+
         StateResolvedValue::constant(fallback)
     }
 
+    #[must_use]
     fn paint_path_is_owned(&self, path: &str) -> bool {
         self.config
             .is_some_and(|config| config.config_paint_overrides_typed_default(path))
     }
 
+    #[must_use]
     fn path_is_owned(&self, path: &str) -> bool {
         self.config
             .is_some_and(|config| config.config_path_overrides_typed_default(path))
     }
 }
 
+#[must_use]
 fn state_js_css_interpolation_value(value: &Value) -> Option<String> {
     value
         .as_str()
@@ -335,12 +426,13 @@ fn state_js_css_interpolation_value(value: &Value) -> Option<String> {
         .or_else(|| crate::config::json_css_number_or_string(value))
 }
 
+#[must_use]
 fn state_js_truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(value) => value.as_f64().is_some_and(|value| value != 0.0),
-        Value::String(value) => !value.is_empty(),
+        Value::Bool(value_2) => *value_2,
+        Value::Number(value_3) => value_3.as_f64().is_some_and(|value_4| !::core::matches!(::core::primitive::f64::classify(value_4), ::core::num::FpCategory::Zero)),
+        Value::String(value_5) => !value_5.is_empty(),
         Value::Array(_) | Value::Object(_) => true,
     }
 }
@@ -402,6 +494,7 @@ pub(crate) struct StateCompatibilityPlan {
 }
 
 impl StateCompatibilityPlan {
+    #[must_use]
     pub(crate) fn from_config(config: &PresentationConfig) -> Self {
         Self::resolve(StateCompatibilityResolver::new(
             config.as_value(),
@@ -409,10 +502,12 @@ impl StateCompatibilityPlan {
         ))
     }
 
+    #[must_use]
     pub(crate) fn from_value(value: &Value) -> Self {
         Self::resolve(StateCompatibilityResolver::new(value, None))
     }
 
+    #[must_use]
     fn resolve(resolver: StateCompatibilityResolver<'_>) -> Self {
         let theme_name = resolver.direct_string(&["theme"], || {
             StateResolvedValue::constant("default".to_string())
@@ -422,13 +517,14 @@ impl StateCompatibilityPlan {
             crate::config::config_diagram_look(resolver.value).as_str(),
         );
         let html_labels = crate::config::config_effective_html_labels(resolver.value);
-        // Generated theme defaults must not hide an explicitly configured root font value.
-        // Among explicit values, retain Mermaid's themeVariables-before-root precedence.
+
+
         let owned_font_family = ["themeVariables.fontFamily", "fontFamily"]
             .into_iter()
             .filter(|path| resolver.path_is_owned(path))
             .find_map(|path| {
-                let value = value_at_dotted_path(resolver.value, path)?.as_str()?;
+                let checked_value = value_at_dotted_path(resolver.value, path)?;
+                let value = checked_value.as_str()?;
                 let css = crate::config::normalize_css_font_family(value);
                 (!css.is_empty()).then_some(css)
             });
@@ -439,12 +535,21 @@ impl StateCompatibilityPlan {
                 value_at_dotted_path(resolver.value, path).and_then(crate::config::json_f64_css_px)
             });
         let mut typography_config_owned = BTreeSet::new();
-        if owned_font_family.is_some() {
-            typography_config_owned.insert(ThemeTypographyProperty::FontStack);
+
+        match owned_font_family {
+            ::core::option::Option::Some(_) => {
+                typography_config_owned.insert(ThemeTypographyProperty::FontStack);
+            },
+            ::core::option::Option::None => {},
         }
-        if owned_font_size.is_some() {
-            typography_config_owned.insert(ThemeTypographyProperty::FontSize);
+
+        match owned_font_size {
+            ::core::option::Option::Some(_) => {
+                typography_config_owned.insert(ThemeTypographyProperty::FontSize);
+            },
+            ::core::option::Option::None => {},
         }
+
         let font_family_css = owned_font_family
             .unwrap_or_else(|| crate::config::config_font_family_css(resolver.value));
         let configured_font_stack = typography_config_owned
@@ -505,6 +610,7 @@ impl StateCompatibilityPlan {
         });
         let neo_rough_stroke_width = neo_stroke_width.clone().map(|value| {
             let width = state_terminal_stroke_width_value(&value, 1.0);
+
             if (width - 1.0).abs() <= 1e-9 {
                 "1.3".to_string()
             } else {
@@ -582,7 +688,10 @@ impl StateCompatibilityPlan {
         {
             10.0
         } else {
-            crate::config::config_f64(resolver.value, &["themeVariables", "radius"]).unwrap_or(5.0)
+            match crate::config::config_f64(resolver.value, &["themeVariables", "radius"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 5.0,
+            }
         };
         let node_shadow = resolver
             .value
@@ -592,6 +701,7 @@ impl StateCompatibilityPlan {
         let neo_gradient_stroke_owned =
             use_gradient.source_owned || gradient_start.source_owned || gradient_stop.source_owned;
         let mut terminal_source_owned = 0;
+
         for (source, owned) in [
             (StateTerminalPaintSource::StateBkg, state_bkg.source_owned),
             (
@@ -679,7 +789,7 @@ impl StateCompatibilityPlan {
             let css_color = |value: &serde_json::Value| {
                 value
                     .as_str()
-                    .map(|value| value.trim().to_owned())
+                    .map(|value_2| value_2.trim().to_owned())
                     .unwrap_or_else(|| value.to_string())
             };
             let backgrounds = resolver
@@ -687,7 +797,8 @@ impl StateCompatibilityPlan {
                 .pointer("/themeVariables/bkgColorArray")
                 .and_then(serde_json::Value::as_array)
                 .filter(|values| !values.is_empty());
-            resolver
+
+            match resolver
                 .value
                 .pointer("/themeVariables/borderColorArray")
                 .and_then(serde_json::Value::as_array)
@@ -702,26 +813,30 @@ impl StateCompatibilityPlan {
                             )
                         })
                         .collect()
-                })
-                .unwrap_or_default()
+                }) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            }
         } else {
             Vec::new()
         };
-        let palette_look = resolver
+        let palette_look = match resolver
             .value
             .get("look")
             .and_then(|value| match value {
-                serde_json::Value::String(value) => Some(value.clone()),
-                serde_json::Value::Number(value) => Some(value.to_string()),
+                serde_json::Value::String(value_3) => Some(value_3.clone()),
+                serde_json::Value::Number(value_4) => Some(value_4.to_string()),
                 _ => None,
             })
-            .filter(|look| {
-                !look.is_empty()
-                    && look
+            .filter(|look_2| {
+                !look_2.is_empty()
+                    && look_2
                         .bytes()
                         .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-            })
-            .unwrap_or_else(|| "classic".to_owned());
+            }) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "classic".to_owned(),
+        };
         Self {
             redux_palette,
             palette_look,
@@ -780,26 +895,32 @@ impl StateCompatibilityPlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn diagram_look(&self) -> &str {
         self.look.as_str()
     }
 
+    #[must_use]
     pub(crate) const fn html_labels(&self) -> bool {
         self.html_labels
     }
 
+    #[must_use]
     pub(crate) const fn is_classic(&self) -> bool {
         matches!(&self.look, StateCompatibilityLook::Classic)
     }
 
+    #[must_use]
     pub(crate) const fn is_hand_drawn(&self) -> bool {
         matches!(&self.look, StateCompatibilityLook::HandDrawn)
     }
 
+    #[must_use]
     pub(crate) const fn is_neo(&self) -> bool {
         matches!(&self.look, StateCompatibilityLook::Neo)
     }
 
+    #[must_use]
     fn terminal_paint(
         &self,
         surface: StateTerminalSurface,
@@ -899,7 +1020,7 @@ impl StateCompatibilityPlan {
                 StrokeWidth,
             ) => css(&self.neo_rough_stroke_width, Source::NeoStrokeWidth),
             (NoteLabel, Fill) => css(&self.note_text, Source::NoteText),
-            // The `.inner` rules outrank the generic Neo fill on both ordinary and alt bodies.
+
             (CompositeBodyClassic | CompositeBodyHandDrawn | CompositeBodyNeo, Fill) => {
                 css(&self.composite_background, Source::CompositeBackground)
             }
@@ -978,6 +1099,7 @@ impl StateCompatibilityPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn terminal_paint_css<I: std::fmt::Display>(
         &self,
         surface: StateTerminalSurface,
@@ -995,6 +1117,7 @@ impl StateCompatibilityPlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn owns(
         &self,
         surface: StateTerminalSurface,
@@ -1004,6 +1127,7 @@ impl StateCompatibilityPlan {
             .is_some_and(|selection| selection.source_owned())
     }
 
+    #[must_use]
     pub(crate) fn source_shape_property_reaches(
         &self,
         surface: StateTerminalSurface,
@@ -1025,6 +1149,7 @@ impl StateCompatibilityPlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn terminal_stroke_width_value(&self, surface: StateTerminalSurface) -> f64 {
         state_terminal_stroke_width_value(
             &self.terminal_paint_css(surface, StateTerminalPaintProperty::StrokeWidth, ""),
@@ -1032,6 +1157,7 @@ impl StateCompatibilityPlan {
         )
     }
 
+    #[must_use]
     pub(crate) fn node_shape_surface(
         &self,
         node: &StateDiagramRenderNode,
@@ -1113,6 +1239,7 @@ impl StateCompatibilityPlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn node_label_surface(target: ThemeTarget) -> Option<StateTerminalSurface> {
         match target {
             ThemeTarget::StateLabel => Some(StateTerminalSurface::StateLabel),
@@ -1122,6 +1249,7 @@ impl StateCompatibilityPlan {
         }
     }
 
+    #[must_use]
     pub(crate) const fn composite_header_surface(&self) -> StateTerminalSurface {
         if self.is_neo() {
             StateTerminalSurface::CompositeHeaderNeo
@@ -1132,6 +1260,7 @@ impl StateCompatibilityPlan {
         }
     }
 
+    #[must_use]
     pub(crate) const fn special_state_inner_surface(&self) -> StateTerminalSurface {
         if self.is_neo() {
             StateTerminalSurface::SpecialEndInnerNeo
@@ -1142,34 +1271,39 @@ impl StateCompatibilityPlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn classic_stroke_width_value(&self) -> f64 {
-        self.stroke_width_px
+        match match self.stroke_width_px
             .trim()
             .strip_suffix("px")
             .unwrap_or(self.stroke_width_px.trim())
             .trim()
-            .parse::<f64>()
-            .ok()
-            .filter(|value| value.is_finite() && *value >= 0.0)
-            .unwrap_or(1.0)
+            .parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
+            .filter(|value| value.is_finite() && *value >= 0.0) {
+            ::core::option::Option::Some(explicit_present) => explicit_present,
+            ::core::option::Option::None => 1.0,
+        }
     }
 }
 
+#[must_use]
 fn state_terminal_stroke_width_value(value: &str, fallback: f64) -> f64 {
-    value
+    match match value
         .trim()
         .strip_suffix("px")
         .unwrap_or(value.trim())
         .trim()
-        .parse::<f64>()
-        .ok()
-        .filter(|value| value.is_finite())
-        .unwrap_or(fallback)
+        .parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
+        .filter(|value_2| value_2.is_finite()) {
+        ::core::option::Option::Some(explicit_present) => explicit_present,
+        ::core::option::Option::None => fallback,
+    }
         .max(0.0)
 }
 
+#[must_use]
 fn value_at_dotted_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
-    path.split('.').try_fold(value, |value, key| value.get(key))
+    path.split('.').try_fold(value, |value_2, key| value_2.get(key))
 }
 
 #[cfg(test)]

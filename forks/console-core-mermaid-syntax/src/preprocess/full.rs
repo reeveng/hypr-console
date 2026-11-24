@@ -8,6 +8,7 @@ use crate::MermaidConfig;
 use crate::presentation::SourcePresentationConfig;
 use crate::{DetectorRegistry, OperationControl, OperationControlResult, Result};
 
+#[must_use]
 fn registry_detector(
     registry: &DetectorRegistry,
 ) -> impl Fn(&str, &OperationControl) -> OperationControlResult<Result<&'static str>> + '_ {

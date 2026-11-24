@@ -15,10 +15,12 @@ pub(super) struct EndLinkSemantics {
     pub length: usize,
 }
 
+#[must_use]
 fn count_char(ch: char, s: &str) -> usize {
     s.chars().filter(|&c| c == ch).count()
 }
 
+#[must_use]
 pub(super) fn destruct_start_link(s: &str) -> StartLinkSemantics {
     let mut line = s.trim();
     let marker = match line.as_bytes().first().copied() {
@@ -50,23 +52,27 @@ pub(super) fn destruct_start_link(s: &str) -> StartLinkSemantics {
     }
 }
 
+#[must_use]
 pub(super) fn destruct_end_link(s: &str) -> EndLinkSemantics {
     destruct_end_link_with_source_marker(s, true)
 }
 
+#[must_use]
 pub(super) fn destruct_labeled_end_link(s: &str) -> EndLinkSemantics {
-    // Mermaid's split `START_LINK + edgeText + LINK` lexer lets the last label character take
-    // part in LINK matching. The source marker is owned by START_LINK in this form, so consuming a
-    // leading `o`, `x`, or `<` here would both invent a marker and shorten the compatibility
-    // length (for example `--No-->` is tokenized with an `o-->` end operator).
+
+
+
+
     destruct_end_link_with_source_marker(s, false)
 }
 
+#[must_use]
 fn destruct_end_link_with_source_marker(
     s: &str,
     recognize_source_marker: bool,
 ) -> EndLinkSemantics {
     let line = s.trim();
+
     if line.len() < 2 {
         return EndLinkSemantics {
             start_marker: FlowEdgeMarker::None,
@@ -94,9 +100,10 @@ fn destruct_end_link_with_source_marker(
         _ => FlowEdgeMarker::None,
     };
 
-    // Mermaid always removes the final operator character before measuring link length. That
-    // character is either the target marker or the final stroke character for an open edge.
+
+
     let mut stroke = &line[..line.len() - 1];
+
     if start_marker != FlowEdgeMarker::None {
         stroke = &stroke[1..];
     }
@@ -113,6 +120,7 @@ fn destruct_end_link_with_source_marker(
     };
     let mut length = stroke.len().saturating_sub(1);
     let dots = count_char('.', stroke);
+
     if dots > 0 {
         stroke_kind = FlowEdgeStroke::Dotted;
         length = dots;

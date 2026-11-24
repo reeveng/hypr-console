@@ -195,10 +195,25 @@ pub fn current_size(monitors: &[console_compositor::Monitor]) -> Result<Option<S
     None => return Ok(None),
   };
 
-  Ok(EVERY.into_iter().find(|size| {
-    let Ok(scale) = size.scale_on(&screen);
+  for_screen(&screen)
+}
 
-    (scale - screen.scale).abs() < f64::EPSILON
+pub(crate) fn for_screen(screen: &Screen) -> Result<Option<Size>, Never> {
+  let mode = (i64::from(screen.mode.width), i64::from(screen.mode.height));
+  let actual_scale = |size: Size| {
+    let Ok(scale) = size.scale_on(screen);
+    scale
+  };
+  let exact = EVERY
+    .into_iter()
+    .find(|size| (actual_scale(*size) - screen.scale).abs() < 0.0001);
+
+  Ok(exact.or_else(|| {
+    EVERY.into_iter().find(|size| {
+      let requested = console_compositor::setup::OutputScale(actual_scale(*size));
+      let Ok(adjusted) = crate::display::pixel_aligned_scale(mode, requested);
+      (adjusted.0 - screen.scale).abs() < 0.0001
+    })
   }))
 }
 
@@ -218,20 +233,20 @@ impl From<f64> for DisplayScale {
   }
 }
 
-pub fn lua(
+pub fn configuration(
   panel: Output<'_>,
   screen: &Screen,
   scale: impl Into<DisplayScale>,
-) -> Result<String, Never> {
+) -> Result<console_compositor::Script, Never> {
   let DisplayScale(ratio) = Into::<DisplayScale>::into(scale);
-  let (wide, tall) = (screen.mode.width, screen.mode.height);
-  let named = panel.0;
-  let Ok(transform) = screen.transform.number();
-
-  Ok(format!(
-    r#"hl.monitor({{ output = "{named}", mode = "{wide}x{tall}@{}", position = "auto", scale = {ratio}, transform = {transform} }}) hl.config({{ input = {{ touchdevice = {{ output = "{named}", transform = {transform} }} }} }})"#,
-    screen.refresh
-  ))
+  console_compositor::MonitorRule {
+    output: panel.0,
+    size: screen.mode,
+    refresh: Some(screen.refresh),
+    scale: console_compositor::setup::OutputScale(ratio),
+    transform: screen.transform,
+  }
+  .configuration()
 }
 
 #[cfg(test)]
@@ -274,7 +289,7 @@ mod tests {
   }
 
   fn lua_for(screen: &Screen, at: DisplayScale) -> Result<String, Never> {
-    lua(Output("eDP-1"), screen, at)
+    configuration(Output("eDP-1"), screen, at).map(|script| script.to_string())
   }
 
   fn divides_into_whole_pixels(screen: &Screen) -> Result<(), Never> {

@@ -1,13 +1,16 @@
 //! What comes out of the machine, as pactl reports it.
 //!
-//! A row for the speakers and a row for each thing playing through them, so a
-//! video can be turned down without turning down the game.
+//! The current output and the applications playing audio. The processor's
+//! internal nodes are hidden from the device and application controls.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write;
 
 use console_core_never::Never;
 use serde::de::{Deserialize, DeserializeOwned, Deserializer, Error};
 use serde_json::{Map, Value};
+
+use crate::level::Muted;
 
 #[derive(Debug, Clone, Default)]
 pub struct Channel {
@@ -18,28 +21,241 @@ pub struct Channel {
 pub struct Thing {
   pub index: i64,
   pub name: String,
-  pub mute: bool,
+  pub mute: Muted,
   pub volume: BTreeMap<String, Channel>,
   pub properties: BTreeMap<String, serde_json::Value>,
+  description: String,
+  port: Option<String>,
+}
+
+#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd)]
+pub(crate) enum App {
+  Identified(&'static str, String),
+  Stream(i64),
+}
+
+impl App {
+  #[must_use]
+  pub(crate) fn leveling_key(&self) -> core::result::Result<Option<String>, Never> {
+    let (field, name) = match self {
+      Self::Identified(field @ ("application.id" | "application.name"), name) => (field, name),
+      Self::Identified(_, _) | Self::Stream(_) => return Ok(None),
+    };
+
+    match { ::core::primitive::bool::then_some(name.len() > 512, ()) } {
+      ::core::option::Option::Some(()) => {
+        return Ok(None);
+      }
+      ::core::option::Option::None => {}
+    }
+
+    let mut key = format!("app.{field}.");
+
+    for byte in name.bytes() {
+      match write!(key, "{byte:02x}") {
+        Ok(()) => {}
+        Err(_failed_to_format_key) => return Ok(None),
+      }
+    }
+
+    Ok(Some(key))
+  }
+}
+
+#[derive(Clone)]
+pub(crate) enum VolumeTarget {
+  Output(i64),
+  App(App),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TargetMatch {
+  Selected,
+  Other,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioNode {
+  Application,
+  Internal,
+}
+
+impl VolumeTarget {
+  #[must_use]
+  pub(crate) fn kind(&self) -> core::result::Result<&'static str, Never> {
+    Ok(match self {
+      Self::Output(_) => "sink",
+      Self::App(_) => "sink-input",
+    })
+  }
+
+  #[must_use]
+  pub(crate) fn matches(&self, item: &Thing) -> Result<TargetMatch, Never> {
+    let selected = match self {
+      Self::Output(index) => item.index == *index,
+      Self::App(app) => {
+        let Ok(node) = item.node();
+
+        match node {
+          AudioNode::Application => {
+            let Ok(identity) = item.app();
+            identity == *app
+          }
+          AudioNode::Internal => false,
+        }
+      }
+    };
+
+    Ok(match selected.then_some(()) {
+      Some(()) => TargetMatch::Selected,
+      None => TargetMatch::Other,
+    })
+  }
+}
+
+pub(crate) const AUTOMATIC_LEVELING: &str = "console.balanced-playback.automatic-leveling";
+pub(crate) const APP_LEVELING: &str = "console-balanced-playback";
+
+#[must_use]
+pub(crate) fn bypassed_apps(
+  report: &str,
+) -> core::result::Result<Option<BTreeSet<String>>, Never> {
+  let mut lines = report.lines();
+
+  let header = match lines.next() {
+    Some(header) => header,
+    None => return Ok(None),
+  };
+
+  match {
+    ::core::primitive::bool::then_some(
+      !header.starts_with("Found \"console-balanced-playback\" metadata "),
+      (),
+    )
+  } {
+    ::core::option::Option::Some(()) => {
+      return Ok(None);
+    }
+    ::core::option::Option::None => {}
+  }
+
+  Ok(Some(
+    lines
+      .filter_map(|line| {
+        let split_once = line.split_once("key:'")?;
+        let fields = split_once.1;
+        let (key, fields_2) = fields.split_once("' value:'")?;
+        fields_2.starts_with("false'").then(|| key.to_owned())
+      })
+      .collect(),
+  ))
+}
+
+#[must_use]
+pub(crate) fn automatic_leveling(
+  report: &str,
+) -> core::result::Result<Option<console_core_controls::Switch>, Never> {
+  use console_core_controls::Switch;
+
+  let value = match report.strip_prefix("Value: ") {
+    Some(value) => value,
+    None => return Ok(None),
+  };
+  let next = match value.split_whitespace().next() {
+    Some(next) => next,
+    None => return Ok(None),
+  };
+
+  Ok(match next {
+    "true" => Some(Switch::On),
+    "false" => Some(Switch::Off),
+    _ => None,
+  })
 }
 
 impl Thing {
   pub fn level(&self) -> Result<i32, Never> {
-    let channel = match self.volume.values().next() {
-      Some(channel) => channel,
-      None => return Ok(0),
+    Ok(
+      match self
+        .volume
+        .values()
+        .filter_map(|channel| {
+          match {
+            let checked_value_2 = channel.value_percent.strip_suffix('%')?;
+            checked_value_2
+          }
+          .parse::<i32>()
+          {
+            ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__),
+            ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None,
+          }
+        })
+        .max()
+      {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0,
+      },
+    )
+  }
+
+  #[must_use]
+  pub fn output_name(&self) -> Result<String, Never> {
+    let label = [&self.description, &self.name]
+      .into_iter()
+      .map(String::as_str)
+      .find(|label| !label.trim().is_empty());
+    let description = match label {
+      Some(named) => named,
+      None => "Audio Output",
     };
 
-    let level = match channel.value_percent.trim_end_matches('%').parse::<i32>() {
-      Ok(level) => level,
-      Err(_not_a_number) => return Ok(0),
-    };
+    Ok(
+      match self
+        .port
+        .as_deref()
+        .filter(|port| !description.ends_with(port))
+      {
+        Some(port) => format!("{description} ({port})"),
+        None => description.to_owned(),
+      },
+    )
+  }
 
-    Ok(level)
+  #[must_use]
+  pub fn node(&self) -> Result<AudioNode, Never> {
+    let internal = self.properties.contains_key("console.balance.output")
+      || self.properties.contains_key("console.balance.preview");
+
+    Ok(match internal.then_some(()) {
+      Some(()) => AudioNode::Internal,
+      None => AudioNode::Application,
+    })
+  }
+
+  #[must_use]
+  pub(crate) fn app(&self) -> core::result::Result<App, Never> {
+    for property in [
+      "application.id",
+      "application.name",
+      "media.name",
+      "node.name",
+    ] {
+      match self.properties.get(property).and_then(Value::as_str) {
+        Some("") | None => {}
+        Some(value) => return Ok(App::Identified(property, value.to_owned())),
+      }
+    }
+
+    Ok(App::Stream(self.index))
   }
 
   pub fn display_name(&self) -> Result<String, Never> {
-    for key in ["application.name", "media.name", "node.name"] {
+    for key in [
+      "application.name",
+      "application.id",
+      "media.name",
+      "node.name",
+    ] {
       match self.properties.get(key).and_then(|value| value.as_str()) {
         Some(said) => match ::core::primitive::bool::then_some(said.is_empty(), ()) {
           ::core::option::Option::Some(()) => {}
@@ -79,16 +295,32 @@ impl<'de> Deserialize<'de> for Thing {
     let mut fields = Map::deserialize(source)?;
     let index = field(&mut fields, "index").map_err(D::Error::custom)?;
     let name = field(&mut fields, "name").map_err(D::Error::custom)?;
-    let mute = field(&mut fields, "mute").map_err(D::Error::custom)?;
+    let reported_mute: bool = field(&mut fields, "mute").map_err(D::Error::custom)?;
     let volume = field(&mut fields, "volume").map_err(D::Error::custom)?;
     let properties = field(&mut fields, "properties").map_err(D::Error::custom)?;
+    let description = field(&mut fields, "description").map_err(D::Error::custom)?;
+    let ports = fields.get("ports").and_then(Value::as_array);
+    let port = fields
+      .get("active_port")
+      .and_then(Value::as_str)
+      .and_then(|active| {
+        let ports_2 = ports?;
+        ports_2
+          .iter()
+          .find(|port| port.get("name").and_then(Value::as_str) == Some(active))
+      })
+      .and_then(|port| port.get("description").and_then(Value::as_str))
+      .filter(|description_2| !description_2.trim().is_empty())
+      .map(str::to_owned);
 
     Ok(Thing {
       index,
       name,
-      mute,
+      mute: Muted::from(reported_mute),
       volume,
       properties,
+      description,
+      port,
     })
   }
 }
@@ -113,18 +345,100 @@ pub fn read(json: &str) -> Result<Vec<Thing>, Never> {
   })
 }
 
-pub fn speakers(sinks: &[Thing], default: &str) -> Result<Option<Thing>, Never> {
+#[must_use]
+pub fn outputs(sinks: &[Thing]) -> Result<impl Iterator<Item = &Thing>, Never> {
+  Ok(sinks.iter().filter(|sink| {
+    !sink.name.is_empty()
+      && sink.name != "auto_null"
+      && !sink.properties.contains_key("wireplumber.is-fallback")
+      && !sink.properties.contains_key("console.balance.sink")
+  }))
+}
+
+#[must_use]
+pub fn selected(outputs: &[&Thing], default: &str) -> Result<u32, Never> {
+  match outputs.iter().position(|sink| sink.name == default.trim()) {
+    Some(position) => console_core_number_conversion::fitted(position),
+    None => Ok(0),
+  }
+}
+
+#[must_use]
+pub(crate) fn applications(
+  playing: &[Thing],
+) -> core::result::Result<BTreeMap<App, Vec<&Thing>>, Never> {
+  let mut apps = BTreeMap::<App, Vec<&Thing>>::new();
+
+  for stream in playing
+    .iter()
+    .filter(|stream| stream.node() == Ok(AudioNode::Application))
+  {
+    apps
+      .entry({
+        let Ok(explicit_value) = stream.app();
+        explicit_value
+      })
+      .or_default()
+      .push(stream);
+  }
+
+  Ok(apps)
+}
+
+#[must_use]
+pub(crate) fn loudest(streams: &[&Thing]) -> core::result::Result<i32, Never> {
   Ok(
-    sinks
+    match streams
       .iter()
-      .find(|sink| sink.name == default)
-      .or_else(|| sinks.first())
-      .cloned(),
+      .map(|stream| {
+        let Ok(level) = stream.level();
+        level
+      })
+      .max()
+    {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => 0,
+    },
   )
 }
 
-pub fn one(things: &[Thing], index: i64) -> Result<Option<&Thing>, Never> {
-  Ok(things.iter().find(|thing| thing.index == index))
+pub(crate) const DEFAULT_APP_VOLUME: i32 = 100;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum StreamVolume {
+  Adjusted,
+  Default,
+}
+
+#[must_use]
+pub(crate) fn adjusted(stream: &Thing) -> Result<StreamVolume, Never> {
+  let different = stream
+    .volume
+    .values()
+    .any(|channel| channel.value_percent != "100%");
+
+  Ok(match different.then_some(()) {
+    Some(()) => StreamVolume::Adjusted,
+    None => StreamVolume::Default,
+  })
+}
+
+pub(crate) struct VolumeStep {
+  pub from: i32,
+  pub to: i32,
+}
+
+#[must_use]
+pub(crate) fn volume_argument(step: VolumeStep) -> Result<String, Never> {
+  let VolumeStep { from, to } = step;
+
+  Ok(match (from, to) {
+    (1.., 1..) => {
+      let decibels = 60.0 * (f64::from(to) / f64::from(from)).log10();
+      format!("{decibels:+.6}dB")
+    }
+    _ => format!("{to}%"),
+  })
 }
 
 #[cfg(test)]
@@ -133,7 +447,7 @@ mod tests {
 
   const SAID: &str = r#"[
       {"index": 43, "name": "alsa_output.pci", "mute": false, "driver": "PipeWire",
-       "volume": {"front-left": {"value_percent": "40%", "db": "-23.88 dB"},
+       "volume": {"front-left": {"value_percent": "25%", "db": "-36.12 dB"},
                   "front-right": {"value_percent": "40%"}},
        "properties": {"node.name": "alsa_output.pci"}},
       {"index": 44, "name": "bluez", "mute": true, "volume": {},
@@ -188,15 +502,124 @@ mod tests {
   }
 
   #[test]
-  fn the_speakers_are_the_default_sink_where_there_is_one() {
-    let Ok(sinks) = read(SAID);
-    let Ok(chosen) = speakers(&sinks, "bluez");
-    let Ok(first) = speakers(&sinks, "gone");
-    let Ok(none) = speakers(&[], "gone");
+  fn connected_outputs_have_their_own_names_and_hide_internal_nodes() {
+    let Ok(sinks) = read(
+      r#"[
+      {"name":"auto_null"},
+      {"name":"console.balance.3","properties":{"console.balance.sink":"3"}},
+      {"name":"alsa_output.pci","description":"Built-in Audio","active_port":"analog-output-headphones",
+        "ports":[{"name":"analog-output-headphones","description":"Headphones"}]},
+      {"name":"bluez_output","description":"Wireless Headphones"}
+    ]"#,
+    );
+    let Ok(available) = outputs(&sinks);
+    let outputs: Vec<_> = available.collect();
+    let labels: Vec<_> = outputs
+      .iter()
+      .map(|sink| {
+        let Ok(label) = sink.output_name();
+        label
+      })
+      .collect();
 
-    assert_eq!(chosen.map(|sink| sink.index), Some(44));
-    assert_eq!(first.map(|sink| sink.index), Some(43), "the first there is");
-    assert!(none.is_none());
+    assert_eq!(
+      labels,
+      ["Built-in Audio (Headphones)", "Wireless Headphones"]
+    );
+    assert_eq!(selected(&outputs, "bluez_output\n"), Ok(1));
+    assert_eq!(selected(&outputs, "unplugged"), Ok(0));
+  }
+
+  #[test]
+  fn a_volume_change_scales_channels_together_until_silence() {
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = volume_argument(VolumeStep { from: 40, to: 80 });
+        explicit_value
+      }),
+      "+18.061800dB"
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = volume_argument(VolumeStep { from: 80, to: 40 });
+        explicit_value
+      }),
+      "-18.061800dB"
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = volume_argument(VolumeStep { from: 5, to: 0 });
+        explicit_value
+      }),
+      "0%"
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = volume_argument(VolumeStep { from: 0, to: 5 });
+        explicit_value
+      }),
+      "5%"
+    );
+  }
+
+  #[test]
+  fn the_automatic_setting_reads_the_effective_value() {
+    use console_core_controls::Switch;
+
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = automatic_leveling("Value: true");
+        explicit_value
+      }),
+      Some(Switch::On)
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = automatic_leveling("Value: false (Saved: true)");
+        explicit_value
+      }),
+      Some(Switch::Off)
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = automatic_leveling("Setting not found");
+        explicit_value
+      }),
+      None
+    );
+  }
+
+  #[test]
+  fn app_overrides_use_the_stable_identity_and_only_list_bypasses() {
+    let Ok(key) = App::Identified("application.id", "Player 🎵".to_string()).leveling_key();
+    assert_eq!(
+      key.as_deref(),
+      Some("app.application.id.506c6179657220f09f8eb5")
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = App::Stream(4).leveling_key();
+        explicit_value
+      }),
+      None
+    );
+    let report = "Found \"console-balanced-playback\" metadata 43\n\
+      update: id:0 key:'app.application.name.61' value:'false' type:'Spa:String:JSON'\n\
+      update: id:0 key:'app.application.name.62' value:'true' type:'Spa:String:JSON'\n";
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bypassed_apps(report);
+        explicit_value
+      }),
+      Some(BTreeSet::from(["app.application.name.61".to_owned()]))
+    );
+    assert_eq!(
+      ({
+        let Ok(explicit_value) = bypassed_apps("");
+        explicit_value
+      }),
+      None
+    );
   }
 
   #[test]

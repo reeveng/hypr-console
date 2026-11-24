@@ -47,9 +47,9 @@ impl XyChartTypographyThemePlan {
         work_meter: &crate::resources::OperationWorkMeter,
     ) -> crate::Result<Self> {
         let mut role_fonts = BTreeMap::new();
-        // Source ownership is independent of which role-local font rules are present.
-        let source_sizes = if theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+
+        let source_sizes = if theme.is_some_and(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 matches!(
                     route.mechanism(),
                     FamilyThemeMechanism::RuleFacet {
@@ -65,8 +65,9 @@ impl XyChartTypographyThemePlan {
         } else {
             [false; 6]
         };
-        if let Some(theme) = theme
-            && theme.family_mechanism_routes().iter().any(|route| {
+
+        if let Some(theme_3) = theme
+            && theme_3.family_mechanism_routes().iter().any(|route| {
                 matches!(
                     route.mechanism(),
                     FamilyThemeMechanism::RuleFacet {
@@ -83,7 +84,7 @@ impl XyChartTypographyThemePlan {
             })
         {
             for role in XyChartTextRole::ALL {
-                let style = resolve_text_style(theme, role.target(), work_meter)?;
+                let style = resolve_text_style(theme_3, role.target(), work_meter)?;
                 let typography = style.typography_resolution();
                 let source_size = source_sizes[role as usize];
                 let admitted = |property| {
@@ -120,6 +121,7 @@ impl XyChartTypographyThemePlan {
                 role_fonts.insert(role, font);
             }
         }
+
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
         let common_css = crate::svg::PreparedCommonCss::new(
@@ -142,24 +144,36 @@ impl XyChartTypographyThemePlan {
         size: &mut f64,
         weight: &mut Option<String>,
     ) {
-        if let Some(font) = self.role_fonts.get(&role) {
-            if let Some(value) = font.size {
-                *size = value;
-            }
-            weight.clone_from(&font.weight);
+        {
+            match self.role_fonts.get(&role) {
+                Some(font) => {
+                    match font.size {
+                        Some(value) => {
+                            *size = value;
+                        },
+                        ::core::option::Option::None => {},
+                    }
+
+                    weight.clone_from(&font.weight);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
+    #[must_use]
     pub(crate) fn font_weight(&self, role: XyChartTextRole) -> Option<&str> {
         self.role_fonts
             .get(&role)
             .and_then(|font| font.weight.as_deref())
     }
 
+    #[must_use]
     pub(crate) fn source_owns_size(&self, role: XyChartTextRole) -> bool {
         self.source_sizes[role as usize]
     }
 
+    #[must_use]
     pub(crate) fn consumes(
         &self,
         role: XyChartTextRole,
@@ -171,29 +185,33 @@ impl XyChartTypographyThemePlan {
             .is_some_and(|font| match property {
                 ThemeTypographyProperty::FontSize => font.size_rule == Some(rule),
                 ThemeTypographyProperty::FontWeight => font.weight_rule == Some(rule),
-                _ => false,
+                ThemeTypographyProperty::FontStack | ThemeTypographyProperty::FontStyle | ThemeTypographyProperty::LineHeight | ThemeTypographyProperty::LetterSpacing | ThemeTypographyProperty::WordSpacing | ThemeTypographyProperty::Transform | ThemeTypographyProperty::Decoration | ThemeTypographyProperty::TextAlign | ThemeTypographyProperty::WhiteSpace | ThemeTypographyProperty::Wrap => false,
             })
     }
 
+    #[must_use]
     pub(crate) fn common_css(&self) -> &crate::svg::PreparedCommonCss {
         &self.common_css
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.inherited_font_stack.font_family_css()
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> Option<XyChartTypographyTerminalReceipt> {
         self.inherited_font_stack
             .typography_requested()
             .then(|| XyChartTypographyTerminalReceipt {
-                expected_font_family: self.font_family_css().into(),
+                expected_font_family: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(self.font_family_css()),
                 emitted_visible_text_count: 0,
                 css_seen: false,
                 font_family_matches: true,
             })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: XyChartTypographyTerminalReceipt) -> bool {
         self.terminal_receipt
             .set(XyChartTypographyTerminalSeal {
@@ -206,6 +224,7 @@ impl XyChartTypographyThemePlan {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if !self.inherited_font_stack.typography_requested() {
             return;
         }
@@ -213,29 +232,34 @@ impl XyChartTypographyThemePlan {
         let Some(receipt) = self.terminal_receipt.get() else {
             self.inherited_font_stack
                 .record_unsupported_typography_evidence(evidence, true);
+
             if self.inherited_font_stack.typed_font_stack_requested() {
                 evidence.mark_residual(
                     FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack),
                     FamilyThemeResidualReason::UnsupportedTypography,
                 );
             }
+
             return;
         };
 
         let has_visible_text = receipt.emitted_visible_text_count != 0;
         self.inherited_font_stack
             .record_unsupported_typography_evidence(evidence, has_visible_text);
+
         if !has_visible_text {
             if self.inherited_font_stack.typed_font_stack_requested() {
                 evidence.mark_not_applicable(FamilyThemeMechanismKey::Typography(
                     ThemeTypographyProperty::FontStack,
                 ));
             }
+
             return;
         }
 
         if self.inherited_font_stack.typed_font_stack_requested() {
             let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
             match self.inherited_font_stack.outcome() {
                 InheritedFontStackOutcome::Typed
                     if self.inherited_font_stack.typed_font_stack_active()
@@ -260,6 +284,7 @@ impl XyChartTypographyTerminalReceipt {
             self.font_family_matches = false;
             return;
         }
+
         self.css_seen = true;
         self.font_family_matches = font_family == self.expected_font_family.as_ref();
     }
@@ -290,6 +315,7 @@ impl XyChartTextRole {
         Self::Legend,
     ];
 
+    #[must_use]
     pub(crate) const fn target(self) -> ThemeTarget {
         match self {
             Self::Title => ThemeTarget::Title,
@@ -299,6 +325,7 @@ impl XyChartTextRole {
         }
     }
 
+    #[must_use]
     const fn size_config_path(self) -> &'static str {
         match self {
             Self::Title => "xyChart.titleFontSize",
@@ -310,17 +337,22 @@ impl XyChartTextRole {
         }
     }
 
+    #[must_use]
     pub(crate) fn from_groups(groups: &[String], orientation: &str) -> Option<Self> {
         if groups.len() == 1 && groups[0] == "chart-title" {
             return Some(Self::Title);
         }
+
         if groups.len() != 2 {
             return None;
         }
+
         if groups[0] == "legend" && groups[1] == "label" {
             return Some(Self::Legend);
         }
+
         let x = logical_axis(&groups[0], orientation)?;
+
         match (x, groups[1].as_str()) {
             (true, "title") => Some(Self::XAxisTitle),
             (false, "title") => Some(Self::YAxisTitle),
@@ -339,6 +371,7 @@ struct RoleFont {
     weight_rule: Option<usize>,
 }
 
+#[must_use]
 pub(super) fn logical_axis(group: &str, orientation: &str) -> Option<bool> {
     match (orientation == "horizontal", group) {
         (true, "left-axis") | (false, "bottom-axis") => Some(true),
@@ -353,6 +386,7 @@ pub(super) fn resolve_text_style(
     meter: &crate::resources::OperationWorkMeter,
 ) -> Result<ResolvedThemeStyle, crate::resources::OperationWorkError> {
     let mut style = theme.text_style_with_work_meter(target, ThemeVariant::Default, None, meter)?;
+
     if matches!(target, ThemeTarget::AxisTitle | ThemeTarget::AxisLabel) {
         style.merge_from(&theme.style_with_work_meter(
             ThemeTarget::Axis,
@@ -361,5 +395,6 @@ pub(super) fn resolve_text_style(
             meter,
         )?);
     }
+
     Ok(style)
 }

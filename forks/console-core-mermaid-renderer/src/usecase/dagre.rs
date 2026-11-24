@@ -22,21 +22,26 @@ pub(super) fn expand_self_loops(
     work: &mut OperationLayoutWorkControl,
 ) -> Result<()> {
     work.charge_adapter(work.checked_add(nodes.len(), edges.len())?)?;
+
     if !edges.iter().any(|edge| edge.source == edge.target) {
         return Ok(());
     }
+
     let parents: HashMap<_, _> = nodes
         .iter()
         .map(|node| (node.id.clone(), node.parent.clone()))
         .collect();
     let mut helpers = HashSet::new();
     let mut projected = indexmap::IndexMap::new();
+
     for edge in edges.drain(..) {
         work.charge_adapter(1)?;
+
         if edge.source != edge.target {
             projected.insert(edge.id.clone(), edge);
             continue;
         }
+
         let helper_ids = [
             format!("{}---{}---1", edge.source, edge.source),
             format!("{}---{}---2", edge.source, edge.source),
@@ -70,7 +75,7 @@ pub(super) fn expand_self_loops(
                     },
                     stereotype: None,
                     folded_stereotype: false,
-                    // labelRect replaces the initial 10x10 layout hint with its tiny drawn rect.
+
                     width: 0.1,
                     height: 0.1,
                     is_boundary: false,
@@ -81,6 +86,7 @@ pub(super) fn expand_self_loops(
                 });
             }
         }
+
         let mut first = edge.clone();
         first.id = format!("{}-cyclic-special-1", edge.source);
         first.original_id = Some(edge.id.clone());
@@ -103,11 +109,12 @@ pub(super) fn expand_self_loops(
         last.source = helper_ids[1].clone();
         last.label = None;
         last.start_marker = None;
-        // Source Graphlib keys are node-scoped: a later parallel self-loop replaces this triple.
+
         for segment in [first, middle, last] {
             projected.insert(segment.id.clone(), segment);
         }
     }
+
     *edges = projected.into_values().collect();
     Ok(())
 }
@@ -125,13 +132,16 @@ struct TitleMargins {
     total: f64,
 }
 
+#[must_use]
 fn margins(config: &Value) -> TitleMargins {
     let value = |key| {
-        config
+        match config
             .pointer(&format!("/flowchart/subGraphTitleMargin/{key}"))
             .and_then(Value::as_f64)
-            .filter(|value| value.is_finite())
-            .unwrap_or(0.0)
+            .filter(|value| value.is_finite()) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0.0,
+        }
     };
     let top = value("top");
     TitleMargins {
@@ -140,6 +150,7 @@ fn margins(config: &Value) -> TitleMargins {
     }
 }
 
+#[must_use]
 fn graph(label: GraphLabel) -> DagreGraph {
     let mut graph = Graph::new(GraphOptions {
         directed: true,
@@ -150,10 +161,12 @@ fn graph(label: GraphLabel) -> DagreGraph {
     graph
 }
 
+#[must_use]
 fn spacing(config: &Value, top: &str, local: &str, flowchart: &str) -> f64 {
-    // The pinned wrapper uses JS `||`; zero falls through to the following source.
+
     let local_default = Value::from(50.0);
-    [
+
+    match [
         config.get(top),
         Some(
             config
@@ -168,8 +181,10 @@ fn spacing(config: &Value, top: &str, local: &str, flowchart: &str) -> f64 {
     .into_iter()
     .flatten()
     .filter_map(Value::as_f64)
-    .find(|value| value.is_finite() && *value != 0.0)
-    .unwrap_or(50.0)
+    .find(|value| value.is_finite() && !::core::matches!(::core::primitive::f64::classify(*value), ::core::num::FpCategory::Zero)) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 50.0,
+    }
 }
 
 pub(super) fn layout(
@@ -198,6 +213,7 @@ pub(super) fn layout(
         .map(|plan| (plan.id.as_str(), plan))
         .collect();
     let mut external = HashSet::new();
+
     for plan in plans {
         work.charge_adapter(1)?;
         root.set_node(
@@ -208,31 +224,37 @@ pub(super) fn layout(
                 ..Default::default()
             },
         );
-        // setParent creates the cluster node immediately, as in prepareLayoutForDagre.
-        // Its explicit label replaces that placeholder when its own declaration is visited.
+
+
         if let Some(parent) = &plan.parent {
             root.set_parent_ref(&plan.id, parent);
         }
     }
+
     for plan in edge_plans.iter() {
         work.charge_adapter(1)?;
         let source = plan_by_id[plan.source.as_str()];
         let target = plan_by_id[plan.target.as_str()];
+
         if source.is_boundary || target.is_boundary {
             return Err(Error::InvalidModel {
-                message: "Usecase boundaries cannot be relationship endpoints".into(),
+                message: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("Usecase boundaries cannot be relationship endpoints"),
             });
         }
+
         if source.parent != target.parent {
             external.extend(source.parent.as_deref());
             external.extend(target.parent.as_deref());
         }
+
         let (width, height) = plan.label.as_ref().map_or(
             (
-                if config
+                if match config
                     .get("htmlLabels")
-                    .and_then(Value::as_bool)
-                    .unwrap_or(true)
+                    .and_then(Value::as_bool) {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => true,
+                }
                 {
                     4.0
                 } else {
@@ -255,13 +277,16 @@ pub(super) fn layout(
             }),
         );
     }
+
     let title_margins = margins(config);
     let mut extracted = HashMap::new();
     work.charge_adapter(work.checked_add(root.node_order_slot_count(), root.node_count())?)?;
+
     for id in root.node_ids() {
         if root.child_count(&id) == 0 || external.contains(id.as_str()) {
             continue;
         }
+
         let original = root.node(&id).cloned().ok_or_else(|| missing_node(&id))?;
         let mut child = extract(&mut root, &id, work)?;
         child.set_graph(GraphLabel {
@@ -276,13 +301,15 @@ pub(super) fn layout(
             marginy: 8.0,
             ..Default::default()
         });
-        // measureDagreGraph injects the original parent only after extraction has established
-        // the child graph's node ordering, then parents each otherwise-unparented member.
+
+
         let members = child.node_ids();
         child.set_node(id.clone(), original);
+
         for member in members {
             child.set_parent_ref(&member, &id);
         }
+
         dugong::layout_controlled(&mut child, work)
             .map_err(|error| work.map_dugong_error(error))?;
         let fragment = project(
@@ -299,6 +326,7 @@ pub(super) fn layout(
         placeholder.height = bounds.max_y - bounds.min_y;
         extracted.insert(id, fragment);
     }
+
     let extracted_ids = extracted.keys().cloned().collect();
     dugong::layout_controlled(&mut root, work).map_err(|error| work.map_dugong_error(error))?;
     let outer = project(
@@ -312,39 +340,48 @@ pub(super) fn layout(
     let mut nodes = Vec::with_capacity(plans.len());
     let mut edges = outer.edges;
     let mut recursive_edges = HashSet::new();
+
     for placed in outer.nodes {
         if let Some(mut child) = extracted.remove(&placed.id) {
-            // positionNode(clusterNode): the child DOM retains its own graph coordinates.
-            // `diff` comes from its boundary painter; centering the child bbox is not equivalent.
+
+
             let dx = placed.x + child.diff - placed.width / 2.0;
             let dy = placed.y - placed.height / 2.0 - 8.0;
+
             for mut node in child.nodes {
                 node.x += dx;
                 node.y += dy;
                 nodes.push(node);
             }
+
             for mut edge in child.edges.drain(..) {
                 recursive_edges.insert(edge.id.clone());
                 work.charge_adapter(edge.points.len().saturating_add(1))?;
+
                 for point in &mut edge.points {
                     point.x += dx;
                     point.y += dy;
                 }
+
                 if let Some(label) = &mut edge.label {
                     label.x += dx;
                     label.y += dy;
                 }
+
                 edges.push(edge);
             }
         } else {
             nodes.push(placed);
         }
     }
+
     let bounds = painted_bounds(&nodes, &edges, &plan_by_id, title_margins);
     drop(edge_by_id);
+
     for plan in edge_plans.iter_mut() {
         plan.dagre_recursive = recursive_edges.contains(&plan.id);
     }
+
     Ok(UsecaseDiagramLayout {
         nodes,
         edges,
@@ -352,6 +389,7 @@ pub(super) fn layout(
     })
 }
 
+#[must_use]
 fn missing_node(id: &str) -> Error {
     Error::InvalidModel {
         message: format!("Dagre omitted Usecase node {id}"),
@@ -367,9 +405,9 @@ fn extract(
     work.charge_adapter(root.child_count(id))?;
     let members: Vec<_> = root.children(id).into_iter().map(str::to_owned).collect();
     let member_ids: HashSet<_> = members.iter().map(String::as_str).collect();
-    // Source copy() visits graph.children() in order and copies all surviving intra-cluster
-    // edges after each member. setEdge may introduce the next member before its setNode call;
-    // preserving that ordering matters to Dagre's tie-breaking.
+
+
+
     for (index, member) in members.iter().enumerate() {
         work.charge_adapter(1)?;
         let label = root
@@ -377,21 +415,28 @@ fn extract(
             .cloned()
             .ok_or_else(|| missing_node(member))?;
         child.set_node(member.clone(), label);
-        // Graphlib edges(node) ignores its argument and visits every edge on the first member.
-        // Later copies only overwrite unchanged labels. Skip those redundant full-graph scans.
-        if index == 0 {
-            work.charge_adapter(work.checked_add(root.edge_slot_count(), root.edge_count())?)?;
-            for key in root.edge_keys() {
-                if !member_ids.contains(key.v.as_str()) || !member_ids.contains(key.w.as_str()) {
-                    continue;
+
+
+        match index {
+            0 => {
+                work.charge_adapter(work.checked_add(root.edge_slot_count(), root.edge_count())?)?;
+
+                'over_key_2: for key in root.edge_keys() {
+                    if !member_ids.contains(key.v.as_str()) || !member_ids.contains(key.w.as_str()) {
+                        continue 'over_key_2;
+                    }
+
+                    if let Some(label_2) = root.edge_by_key(&key).cloned() {
+                        child.set_edge_named(key.v, key.w, key.name, Some(label_2));
+                    }
                 }
-                if let Some(label) = root.edge_by_key(&key).cloned() {
-                    child.set_edge_named(key.v, key.w, key.name, Some(label));
-                }
-            }
+            },
+            _ => {},
         }
+
         root.remove_node(member);
     }
+
     Ok(child)
 }
 
@@ -406,24 +451,42 @@ fn project(
     let mut nodes = Vec::new();
     let mut diff = 0.0;
     work.charge_adapter(work.checked_add(graph.node_order_slot_count(), graph.node_count())?)?;
+
     for id in graph.node_ids() {
-        let Some(plan) = plans.get(id.as_str()) else {
-            continue;
+        let plan = {
+            let optional_plan = plans.get(id.as_str());
+
+            match optional_plan {
+                Some(matched_plan) => matched_plan,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let placed = graph.node(&id).ok_or_else(|| missing_node(&id))?;
-        let (Some(x), Some(mut y)) = (placed.x, placed.y) else {
-            return Err(missing_node(&id));
+
+        let (x, mut y) = {
+            let outcome_x = (placed.x, placed.y);
+
+            match outcome_x {
+                (Some(matched_x), Some(matched_y)) => (matched_x, matched_y),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => return Err(missing_node(&id)),
+            }
         };
+
         let (mut width, mut height) = (placed.width, placed.height);
+
         if extracted.contains(&id) {
             y += margins.total;
         } else if plan.is_boundary && graph.child_count(&id) > 0 {
             height += margins.total;
             let original_width = width;
             width = width.max(plan.label.metrics.width + 20.0);
+
             if plan.package {
                 height = height.max(plan.label.metrics.height + 50.0);
             }
+
             diff = if original_width <= plan.label.metrics.width + 20.0 {
                 (width - original_width) / 2.0 - 20.0
             } else {
@@ -432,22 +495,37 @@ fn project(
         } else {
             y += margins.total / 2.0;
         }
+
         nodes.push(layout::node(plan, x, y, width, height));
     }
+
     let mut edges = Vec::new();
     work.charge_adapter(work.checked_add(graph.edge_slot_count(), graph.edge_count())?)?;
+
     for key in graph.edge_keys() {
-        let Some(plan) = key.name.as_deref().and_then(|id| edge_plans.get(id)) else {
-            continue;
+        let plan = {
+            let optional_plan = key.name.as_deref().and_then(|id| edge_plans.get(id));
+
+            match optional_plan {
+                Some(matched_plan) => matched_plan,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(placed) = graph.edge_by_key(&key) else {
-            continue;
+
+        let placed = {
+            let optional_placed = graph.edge_by_key(&key);
+
+            match optional_placed {
+                Some(matched_placed) => matched_placed,
+                ::core::option::Option::None => continue,
+            }
         };
+
         work.charge_adapter(placed.points.len())?;
         let label = plan.label.as_ref().and_then(|_| {
             Some(LayoutLabel {
-                x: placed.x?,
-                y: placed.y? + margins.total / 2.0,
+                x: { let checked_value = placed.x?; checked_value },
+                y: ({ let checked_value_2 = placed.y?; checked_value_2 }) + margins.total / 2.0,
                 width: placed.width,
                 height: placed.height,
             })
@@ -465,6 +543,7 @@ fn project(
             label,
         ));
     }
+
     let bounds = painted_bounds(&nodes, &edges, plans, margins);
     Ok(Fragment {
         nodes,
@@ -474,6 +553,7 @@ fn project(
     })
 }
 
+#[must_use]
 fn painted_bounds(
     nodes: &[LayoutNode],
     edges: &[LayoutEdge],
@@ -494,9 +574,11 @@ fn painted_bounds(
                     .iter()
                     .filter_map(|node| {
                         let plan = plans.get(node.id.as_str())?;
+
                         if !plan.is_boundary {
                             return None;
                         }
+
                         let top = node.y - node.height / 2.0;
                         let (x, y) = if plan.package {
                             let tab_width = node

@@ -24,6 +24,7 @@ impl SourcePresentationConfig {
         ) {
             return Ok(());
         }
+
         let paths: &[&str] = match family {
             "gitGraph" => &[
                 "themeVariables.primaryColor",
@@ -43,8 +44,10 @@ impl SourcePresentationConfig {
             _ => return Ok(()),
         };
         let mut owned = 0;
+
         for (index, path) in paths.iter().enumerate() {
             control.checkpoint()?;
+
             if (self.source_theme_palette
                 && super::config_value_at(self.as_value(), path).is_some())
                 || detector_changes.is_some_and(|changes| {
@@ -59,6 +62,7 @@ impl SourcePresentationConfig {
                 owned |= 1 << index;
             }
         }
+
         let inputs = match family {
             "gitGraph" => FamilyPaintInputs::GitGraph(
                 [
@@ -99,15 +103,18 @@ impl SourcePresentationConfig {
             ),
             _ => unreachable!("selected paint family checked above"),
         };
+
         if let Some(ThemeCompatibilityState::Tracking(ownership)) =
             self.theme_compatibility.as_mut()
         {
             Arc::make_mut(ownership).family_paint_inputs = Some(inputs);
         }
+
         Ok(())
     }
 }
 
+#[must_use]
 fn owns_path(
     explicit_config: &MermaidConfig,
     effective_config: &MermaidConfig,
@@ -115,24 +122,37 @@ fn owns_path(
 ) -> bool {
     let mut explicit_current = explicit_config.as_value();
     let mut effective_current = effective_config.as_value();
+
     for segment in dotted_path.split('.') {
-        let Some(explicit_object) = explicit_current.as_object() else {
-            // A scalar/array parent only owns a descendant when assignWithDepth actually left that
-            // parent in the effective config. Type-conflicting assignments are ignored upstream.
-            return explicit_current == effective_current;
+        let explicit_object = {
+            let optional_explicit_object = explicit_current.as_object();
+
+            match optional_explicit_object {
+                Some(matched_explicit_object) => matched_explicit_object,
+                ::core::option::Option::None => return explicit_current == effective_current,
+            }
         };
-        let Some(explicit_next) = explicit_object.get(segment) else {
-            return false;
+
+        let explicit_next = {
+            let optional_explicit_next = explicit_object.get(segment);
+
+            match optional_explicit_next {
+                Some(matched_explicit_next) => matched_explicit_next,
+                ::core::option::Option::None => return false,
+            }
         };
+
         let Some(effective_next) = effective_current
             .as_object()
             .and_then(|object| object.get(segment))
         else {
             return false;
         };
+
         explicit_current = explicit_next;
         effective_current = effective_next;
     }
+
     explicit_current == effective_current
 }
 

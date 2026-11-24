@@ -19,6 +19,7 @@ pub struct SvgPostprocessMetadata {
 }
 
 impl SvgPostprocessMetadata {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
@@ -27,8 +28,10 @@ impl SvgPostprocessMetadata {
     ///
     /// Family-specific passes consume an explicitly supplied [`DiagramFamilyId`], never metadata
     /// inferred from SVG text.
+    #[must_use]
     pub fn from_svg(svg: &str) -> Self {
         let mut checkpoint = || Ok::<(), std::convert::Infallible>(());
+
         match Self::from_svg_with_checkpoints(svg, &mut checkpoint) {
             Ok(metadata) => metadata,
             Err(error) => match error {},
@@ -52,17 +55,31 @@ impl SvgPostprocessMetadata {
         let mut scanner = SvgTagScanner::new(svg);
         let mut tag_iteration = 0usize;
         let root_tag = loop {
-            let Some(tag) = scanner.next_with_checkpoints(checkpoint)? else {
-                return Ok(Self::default());
+            let tag = {
+                let optional_tag = scanner.next_with_checkpoints(checkpoint)?;
+
+                match optional_tag {
+                    Some(matched_tag) => matched_tag,
+                    ::core::option::Option::None => return Ok(Self::default()),
+                }
             };
+
             checkpoint_loop(tag_iteration, checkpoint)?;
             tag_iteration = tag_iteration.saturating_add(1);
-            let Some(root_name) = start_tag_name(tag.raw()) else {
-                continue;
+
+            let root_name = {
+                let optional_root_name = start_tag_name(tag.raw());
+
+                match optional_root_name {
+                    Some(matched_root_name) => matched_root_name,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if root_name != "svg" {
                 return Ok(Self::default());
             }
+
             break tag.raw();
         };
 
@@ -70,12 +87,14 @@ impl SvgPostprocessMetadata {
         let mut svg_id = None;
         let mut cursor = 0usize;
         let mut attribute_iteration = 0usize;
+
         while let Some(attribute) =
-            next_svg_quoted_attr_with_checkpoints(root_tag, cursor, checkpoint)?
+            { let checked_value = next_svg_quoted_attr_with_checkpoints(root_tag, cursor, checkpoint)?; checked_value }
         {
             checkpoint_loop(attribute_iteration, checkpoint)?;
             attribute_iteration = attribute_iteration.saturating_add(1);
             let name = &root_tag[attribute.name_start..attribute.name_end];
+
             if name.eq_ignore_ascii_case("aria-roledescription") && diagram_type.is_none() {
                 diagram_type = Some(copy_trimmed_with_checkpoints(
                     &root_tag[attribute.value_start..attribute.value_end],
@@ -87,8 +106,10 @@ impl SvgPostprocessMetadata {
                     checkpoint,
                 )?);
             }
+
             cursor = attribute.full_end;
         }
+
         checkpoint()?;
 
         Ok(Self {
@@ -99,56 +120,71 @@ impl SvgPostprocessMetadata {
     }
 
     /// Supplies the renderer-owned family identity required by family-specific built-in passes.
+    #[must_use]
     pub(crate) fn with_family_id(mut self, family_id: DiagramFamilyId) -> Self {
         self.family_id = Some(family_id);
         self
     }
 
     /// Records descriptive diagram metadata without granting family-specific processing.
+    #[must_use]
     pub fn with_diagram_type(mut self, diagram_type: impl Into<String>) -> Self {
-        self.diagram_type = Some(diagram_type.into());
+        self.diagram_type = Some(<_ as ::core::convert::Into<::std::string::String>>::into(diagram_type));
         self
     }
 
+    #[must_use]
     pub fn with_optional_diagram_type(mut self, diagram_type: Option<impl Into<String>>) -> Self {
         self.diagram_type = diagram_type.map(Into::into);
         self
     }
 
+    #[must_use]
     pub fn with_diagram_title(mut self, diagram_title: impl Into<String>) -> Self {
-        self.diagram_title = Some(diagram_title.into());
+        self.diagram_title = Some(<_ as ::core::convert::Into<::std::string::String>>::into(diagram_title));
         self
     }
 
+    #[must_use]
     pub fn with_optional_diagram_title(mut self, diagram_title: Option<impl Into<String>>) -> Self {
         self.diagram_title = diagram_title.map(Into::into);
         self
     }
 
+    #[must_use]
     pub fn with_svg_id(mut self, svg_id: impl Into<String>) -> Self {
-        self.svg_id = Some(svg_id.into());
+        self.svg_id = Some(<_ as ::core::convert::Into<::std::string::String>>::into(svg_id));
         self
     }
 
+    #[must_use]
     pub fn with_optional_svg_id(mut self, svg_id: Option<impl Into<String>>) -> Self {
-        if let Some(svg_id) = svg_id {
-            self.svg_id = Some(svg_id.into());
+        match svg_id {
+            Some(svg_id_2) => {
+                self.svg_id = Some(<_ as ::core::convert::Into<::std::string::String>>::into(svg_id_2));
+            },
+            ::core::option::Option::None => {},
         }
+
         self
     }
 
+    #[must_use]
     pub fn diagram_type(&self) -> Option<&str> {
         self.diagram_type.as_deref()
     }
 
+    #[must_use]
     pub fn family_id(&self) -> Option<DiagramFamilyId> {
         self.family_id
     }
 
+    #[must_use]
     pub fn diagram_title(&self) -> Option<&str> {
         self.diagram_title.as_deref()
     }
 
+    #[must_use]
     pub fn svg_id(&self) -> Option<&str> {
         self.svg_id.as_deref()
     }
@@ -158,13 +194,15 @@ fn copy_trimmed_with_checkpoints<E>(
     value: &str,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<String, E> {
-    let value = value.trim();
+    let value_2 = value.trim();
     checkpoint()?;
-    let mut copied = String::with_capacity(value.len());
-    for (index, character) in value.chars().enumerate() {
+    let mut copied = String::with_capacity(value_2.len());
+
+    for (index, character) in value_2.chars().enumerate() {
         checkpoint_loop(index, checkpoint)?;
         copied.push(character);
     }
+
     checkpoint()?;
     Ok(copied)
 }
@@ -180,6 +218,7 @@ pub(crate) struct SvgPostprocessExecution<'a> {
 }
 
 impl<'a> SvgPostprocessExecution<'a> {
+    #[must_use]
     pub(crate) const fn new(session: &'a RenderSession) -> Self {
         Self { session }
     }
@@ -188,6 +227,7 @@ impl<'a> SvgPostprocessExecution<'a> {
         self.session.checkpoint(OperationPhase::Postprocess)
     }
 
+    #[must_use]
     pub(crate) const fn resource_policy(self) -> &'a RenderResourcePolicy {
         self.session.resource_policy_ref()
     }
@@ -221,9 +261,10 @@ impl<'a> SvgPostprocessExecution<'a> {
             .map_err(Into::into)
     }
 
+    #[must_use]
     pub(crate) fn selector_index_limit(self, actual: usize, maximum: usize) -> crate::Error {
         let policy = self.resource_policy();
-        ResourceLimitExceeded {
+        <crate::Error as ::core::convert::From<crate::resources::ResourceLimitExceeded>>::from(ResourceLimitExceeded {
             cause: ResourceLimitCause::Ceiling,
             phase: ResourceLimitPhase::SvgPostprocess,
             limit: "svg_fallback_selector_index",
@@ -234,27 +275,27 @@ impl<'a> SvgPostprocessExecution<'a> {
                 .explicit_overrides()
                 .map(|(id, value)| ResourceLimitOverride { id, value })
                 .collect(),
-        }
-        .into()
+        })
     }
 
+    #[must_use]
     pub(crate) fn svg_byte_count_overflow(self) -> crate::Error {
-        self.session
+        <crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(self.session
             .work_meter()
             .terminate_svg_byte_count_overflow(
                 ResourceLimitPhase::SvgPostprocess,
                 OperationPhase::Postprocess,
-            )
-            .into()
+            ))
     }
 
+    #[must_use]
     pub(crate) fn terminate_resource_error(self, error: ResourceLimitExceeded) -> crate::Error {
-        self.session
+        <crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(self.session
             .work_meter()
-            .terminate_absolute_resource_error(error, OperationPhase::Postprocess)
-            .into()
+            .terminate_absolute_resource_error(error, OperationPhase::Postprocess))
     }
 
+    #[must_use]
     pub(crate) fn controlled_text_measurer(
         self,
         phase: TextMeasurementPhase,
@@ -285,6 +326,7 @@ impl std::fmt::Debug for SvgPostprocessContext<'_> {
 }
 
 impl<'a> SvgPostprocessContext<'a> {
+    #[must_use]
     pub(crate) fn new(
         preset: SvgPipelinePreset,
         pass_index: usize,
@@ -301,38 +343,47 @@ impl<'a> SvgPostprocessContext<'a> {
         }
     }
 
+    #[must_use]
     pub fn preset(&self) -> SvgPipelinePreset {
         self.preset
     }
 
+    #[must_use]
     pub fn pass_index(&self) -> usize {
         self.pass_index
     }
 
+    #[must_use]
     pub fn pass_name(&self) -> &'a str {
         self.pass_name
     }
 
+    #[must_use]
     pub fn diagram_type(&self) -> Option<&'a str> {
         self.metadata.diagram_type()
     }
 
+    #[must_use]
     pub fn family_id(&self) -> Option<DiagramFamilyId> {
         self.metadata.family_id()
     }
 
+    #[must_use]
     pub fn diagram_title(&self) -> Option<&'a str> {
         self.metadata.diagram_title()
     }
 
+    #[must_use]
     pub fn svg_id(&self) -> Option<&'a str> {
         self.metadata.svg_id()
     }
 
+    #[must_use]
     pub fn text_measurer(&self, phase: TextMeasurementPhase) -> RoutedTextMeasurer<'a> {
         self.session.text_measurer(phase)
     }
 
+    #[must_use]
     pub(crate) fn controlled_text_measurer(
         &self,
         phase: TextMeasurementPhase,
@@ -346,6 +397,7 @@ impl<'a> SvgPostprocessContext<'a> {
         self.execution().checkpoint()
     }
 
+    #[must_use]
     pub(crate) const fn execution(&self) -> SvgPostprocessExecution<'a> {
         SvgPostprocessExecution::new(self.session)
     }

@@ -90,6 +90,7 @@ mod ctx {
       {
         self.active_glyphs_stack.push(glyphs)
       };
+
       Ok(())
     }
 
@@ -99,6 +100,7 @@ mod ctx {
       {
         self.active_glyphs_stack.pop();
       };
+
       Ok(())
     }
 
@@ -181,6 +183,7 @@ mod ctx {
       {
         self.lookup_count = 0;
       };
+
       Ok(())
     }
 
@@ -257,6 +260,7 @@ mod ctx {
       {
         let Ok(_presence_changed) = self.output.insert(gid);
       };
+
       Ok(())
     }
 
@@ -267,6 +271,7 @@ mod ctx {
       {
         self.output.extend(iter)
       };
+
       Ok(())
     }
 
@@ -276,6 +281,7 @@ mod ctx {
         let ::core::result::Result::Ok(()) = self.output.clear();
         self.active_glyphs_stack.clear();
       };
+
       Ok(())
     }
   }
@@ -1177,53 +1183,39 @@ impl GlyphClosure for ContextFormat1<'_> {
     lookup_list: &SubstitutionLookupList,
     _lookup_index: u16,
   ) -> Result<(), ReadError> {
-    let own_coverage = self.coverage()?;
-    let coverage = match own_coverage {
-      Some(coverage) => coverage,
-      None => {
-        return Ok(());
-      }
+    let present = self.coverage()?;
+    let coverage = match present {
+      Some(covered) => covered,
+      None => return Ok(()),
     };
     let Ok(parent_glyphs) = ctx.parent_active_glyphs();
-    let cov_active_glyphs = coverage.intersect_set(parent_glyphs);
-    let Ok(value_37) = cov_active_glyphs.is_empty();
+    let active = coverage.intersect_set(parent_glyphs);
 
-    match ::core::primitive::bool::then_some(
-      value_37 == console_core_integer_sets::Emptiness::Empty,
-      (),
-    ) {
-      ::core::option::Option::Some(()) => {
-        return Ok(());
-      }
-      ::core::option::Option::None => {}
+    match active.is_empty() {
+      Ok(console_core_integer_sets::Emptiness::Empty) => return Ok(()),
+      Ok(console_core_integer_sets::Emptiness::NonEmpty) => {}
     }
 
     let Ok(lookups) = lookup_list.lookups();
+    let Ok(rule_sets) = self.rule_sets();
 
-    for (gid, rule_set) in coverage
-      .iter()
-      .zip({
-        let Ok(explicit_value) = self.rule_sets();
-        explicit_value
-      })
-      .filter_map(|(g, rule_set)| {
-        rule_set
-          .transpose()
-          .filter(|_| {
-            let Ok(value_64) = cov_active_glyphs.contains(GlyphId::from(g));
-
-            value_64 == console_core_integer_sets::Presence::Present
-          })
-          .map(|rs| (g, rs))
-      })
-    {
+    for (gid, rule_set) in coverage.iter().zip(rule_sets).filter_map(|(glyph, rules)| {
+      let available = matches!(
+        active.contains(GlyphId::from(glyph)),
+        Ok(crate::Presence::Present)
+      );
+      rules
+        .transpose()
+        .filter(|_| available)
+        .map(|set| (glyph, set))
+    }) {
       match ctx.lookup_budget() {
         Ok(TraversalBudget::Exhausted) => return Ok(()),
         Ok(TraversalBudget::Available) => {}
       }
 
-      let rule_set_2 = rule_set?;
-      let Ok(rules) = rule_set_2.rules();
+      let set = rule_set?;
+      let Ok(rules) = set.rules();
 
       'over_rule_2: for rule in rules {
         match ctx.lookup_budget() {
@@ -1233,10 +1225,8 @@ impl GlyphClosure for ContextFormat1<'_> {
 
         let substitution_rule = rule?;
         let rule_3 = match substitution_rule {
-          Some(rule_2) => rule_2,
-          None => {
-            continue 'over_rule_2;
-          }
+          Some(known) => known,
+          None => continue 'over_rule_2,
         };
 
         let Ok(glyphs) = ctx.glyphs();
@@ -1529,91 +1519,55 @@ impl GlyphClosure for ContextFormat3<'_> {
       ::core::option::Option::None => {}
     }
 
-    let Ok(value_89) = IntSet::new();
-
-    let mut seen_sequence_indices = value_89;
+    let Ok(mut seen_sequence_indices) = IntSet::new();
     let Ok(input_coverages) = self.coverages();
     let Ok(input_count) = input_coverages.len();
     let Ok(lookups) = lookup_list.lookups();
-
     let Ok(lookup_records) = self.lookup_records();
+    let Ok(last_input_index) = console_core_number_conversion::wrapped::<_, u16>(input_count);
+    let bound = last_input_index.wrapping_add(1);
 
     for record in lookup_records {
       let Ok(lookup_index) = record.lookup_list_index();
-      let lookup = match lookups.get({
-        let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(lookup_index);
-        migrated_value
-      }) {
-        Err(ReadError::NullOffset) | Err(ReadError::InvalidCollectionIndex(_)) => continue,
-        Ok(value) => Ok(value),
-        Err(unreadable_layout_lookup) => Err(unreadable_layout_lookup),
-      }?;
-
-      let Ok(seq_idx) = record.sequence_index();
-
-      match ::core::primitive::bool::then_some(
-        ({
-          let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u64>(seq_idx);
-          migrated_value
-        }) >= input_count,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          continue;
-        }
-        ::core::option::Option::None => {}
-      }
-
-      let Ok(value_102) = seen_sequence_indices.insert(seq_idx);
-
-      let active_glyphs = match ::core::primitive::bool::then_some(
-        value_102 == console_core_integer_sets::Presence::Present,
-        (),
-      ) {
-        ::core::option::Option::Some(()) => {
-          let Ok(ctx_glyphs) = ctx.glyphs();
-
-          ctx_glyphs.clone()
-        }
-        ::core::option::Option::None => {
-          match ::core::primitive::bool::then_some(seq_idx == 0, ()) {
-            ::core::option::Option::Some(()) => {
-              let cov = input_coverages.get(0)?;
-              let Ok(parent_glyphs) = ctx.parent_active_glyphs();
-
-              cov.intersect_set(parent_glyphs)
-            }
-            ::core::option::Option::None => {
-              let cov = input_coverages.get({
-                let Ok(migrated_value) =
-                  console_core_number_conversion::wrapped::<_, u64>(seq_idx);
-                migrated_value
-              })?;
-              let Ok(ctx_glyphs) = ctx.glyphs();
-
-              cov.intersect_set(ctx_glyphs)
-            }
-          }
-        }
+      let lookup = match lookups.get(u64::from(lookup_index)) {
+        Ok(found) => found,
+        Err(ReadError::NullOffset | ReadError::InvalidCollectionIndex(_)) => continue,
+        Err(fault) => return Err(fault),
       };
 
-      let value_46 = &mut seen_sequence_indices;
+      let Ok(sequence_index) = record.sequence_index();
+      let input_index = u64::from(sequence_index);
+
+      match (input_index >= input_count).then_some(()) {
+        Some(()) => continue,
+        None => {}
+      }
+
+      let Ok(previous) = seen_sequence_indices.insert(sequence_index);
+      let active_glyphs = match (previous, sequence_index) {
+        (crate::Presence::Present, _) => {
+          let Ok(current) = ctx.glyphs();
+          current.clone()
+        }
+        (crate::Presence::Absent, 0) => {
+          let coverage = input_coverages.get(0)?;
+          let Ok(parent_glyphs) = ctx.parent_active_glyphs();
+          coverage.intersect_set(parent_glyphs)
+        }
+        (crate::Presence::Absent, _) => {
+          let coverage = input_coverages.get(input_index)?;
+          let Ok(current) = ctx.glyphs();
+          coverage.intersect_set(current)
+        }
+      };
 
       ctx.recurse(
         lookup_list,
         &lookup,
         lookup_index,
         active_glyphs,
-        value_46,
-        seq_idx
-          ..=::core::primitive::u16::wrapping_add(
-            {
-              let Ok(migrated_value) =
-                console_core_number_conversion::wrapped::<_, u16>(input_count);
-              migrated_value
-            },
-            1,
-          ),
+        &mut seen_sequence_indices,
+        sequence_index..=bound,
       )?;
     }
 

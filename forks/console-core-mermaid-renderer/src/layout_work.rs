@@ -18,6 +18,7 @@ pub(crate) struct OperationLayoutWorkControl {
 }
 
 impl OperationLayoutWorkControl {
+    #[must_use]
     pub(crate) fn new(meter: Arc<OperationWorkMeter>) -> Self {
         Self {
             meter,
@@ -28,9 +29,13 @@ impl OperationLayoutWorkControl {
     }
 
     pub(crate) fn charge_adapter(&mut self, units: usize) -> Result<()> {
-        if let Some(error) = self.rejection.borrow().clone() {
-            return Err(error.into());
+        match self.rejection.borrow().clone() {
+            Some(error) => {
+                return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error));
+            },
+            ::core::option::Option::None => {},
         }
+
         #[cfg(test)]
         let next_adapter_work = self.checked_add(self.adapter_work.get(), units)?;
         self.meter.charge(units).map_err(|error| {
@@ -47,9 +52,13 @@ impl OperationLayoutWorkControl {
         &self,
         bytes: usize,
     ) -> Result<PreparedTextRetainedReservation> {
-        if let Some(error) = self.rejection.borrow().clone() {
-            return Err(error.into());
+        match self.rejection.borrow().clone() {
+            Some(error) => {
+                return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error));
+            },
+            ::core::option::Option::None => {},
         }
+
         self.meter
             .checkpoint(merman_model::OperationPhase::Layout)?;
         self.meter
@@ -62,7 +71,7 @@ impl OperationLayoutWorkControl {
             .checkpoint(merman_model::OperationPhase::Layout)
             .map_err(Error::from)?;
         left.checked_add(right)
-            .ok_or_else(|| self.record_arithmetic_overflow().into())
+            .ok_or_else(|| <crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(self.record_arithmetic_overflow()))
     }
 
     pub(crate) fn checked_mul(&self, left: usize, right: usize) -> Result<usize> {
@@ -70,13 +79,18 @@ impl OperationLayoutWorkControl {
             .checkpoint(merman_model::OperationPhase::Layout)
             .map_err(Error::from)?;
         left.checked_mul(right)
-            .ok_or_else(|| self.record_arithmetic_overflow().into())
+            .ok_or_else(|| <crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(self.record_arithmetic_overflow()))
     }
 
+    #[must_use]
     pub(crate) fn record_arithmetic_overflow(&self) -> OperationWorkError {
-        if let Some(error) = self.rejection.borrow().clone() {
-            return error;
+        match self.rejection.borrow().clone() {
+            Some(error) => {
+                return error;
+            },
+            ::core::option::Option::None => {},
         }
+
         let error = self.meter.arithmetic_overflow();
         *self.rejection.borrow_mut() = Some(error.clone());
         error
@@ -88,7 +102,7 @@ impl OperationLayoutWorkControl {
     }
 
     pub(crate) fn map_dugong_error(&mut self, error: impl Into<dugong::LayoutError>) -> Error {
-        match error.into() {
+        match <_ as ::core::convert::Into<::dugong::LayoutError>>::into(error) {
             dugong::LayoutError::Work(dugong::WorkError::Interrupted) => {
                 let rejection = self.rejection.borrow().clone();
                 rejection
@@ -98,7 +112,7 @@ impl OperationLayoutWorkControl {
             dugong::LayoutError::Work(dugong::WorkError::ArithmeticOverflow) => {
                 Error::from(self.record_arithmetic_overflow())
             }
-            error => error.into(),
+            error_2 => <crate::Error as ::core::convert::From<::dugong::LayoutError>>::from(error_2),
         }
     }
 
@@ -132,20 +146,22 @@ impl OperationLayoutWorkControl {
     #[cfg(feature = "layout-cytoscape")]
     pub(crate) fn map_manatee_error(&mut self, error: manatee::Error) -> Error {
         match error {
-            manatee::Error::WorkFailure(manatee::WorkFailure::Interrupted) => self
+            manatee::Error::WorkFailure(manatee::WorkFailure::Interrupted) => match self
                 .rejection
                 .borrow_mut()
                 .take()
-                .map(Error::from)
-                .unwrap_or_else(|| Error::InvalidModel {
+                .map(Error::from) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => Error::InvalidModel {
                     message: "manatee work control interrupted without a resource error"
                         .to_string(),
-                }),
+                },
+            },
             manatee::Error::WorkFailure(manatee::WorkFailure::ArithmeticOverflow) => {
                 Error::from(self.record_arithmetic_overflow())
             }
-            error => Error::InvalidModel {
-                message: format!("manatee layout failed: {error}"),
+            error_2 => Error::InvalidModel {
+                message: format!("manatee layout failed: {error}", error = error_2),
             },
         }
     }
@@ -166,6 +182,7 @@ impl dugong::WorkControl for OperationLayoutWorkControl {
         if self.rejection.borrow().is_some() {
             return Err(dugong::WorkError::Interrupted);
         }
+
         self.meter.charge(units).map_err(|error| {
             *self.rejection.borrow_mut() = Some(error);
             dugong::WorkError::Interrupted
@@ -179,6 +196,7 @@ impl manatee::WorkControl for OperationLayoutWorkControl {
         if self.rejection.borrow().is_some() {
             return Err(manatee::WorkFailure::Interrupted);
         }
+
         self.meter.preflight(units).map_err(|error| {
             *self.rejection.borrow_mut() = Some(error);
             manatee::WorkFailure::Interrupted
@@ -189,6 +207,7 @@ impl manatee::WorkControl for OperationLayoutWorkControl {
         if self.rejection.borrow().is_some() {
             return Err(manatee::WorkFailure::Interrupted);
         }
+
         self.meter.charge(units).map_err(|error| {
             *self.rejection.borrow_mut() = Some(error);
             manatee::WorkFailure::Interrupted

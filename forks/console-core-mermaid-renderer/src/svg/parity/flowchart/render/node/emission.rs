@@ -10,6 +10,7 @@ pub(in crate::svg::parity::flowchart) enum FlowchartNodeFacetReach {
 }
 
 impl FlowchartNodeFacetReach {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn is_verified(self) -> bool {
         matches!(self, Self::Verified)
     }
@@ -22,10 +23,12 @@ pub(in crate::svg::parity::flowchart) struct FlowchartNodeSourceFacetEmission {
 }
 
 impl FlowchartNodeSourceFacetEmission {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn reach(self) -> FlowchartNodeFacetReach {
         self.reach
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn generated_class_css(self) -> bool {
         self.generated_class_css
     }
@@ -41,6 +44,7 @@ struct FlowchartNodeFacetEmission {
 }
 
 impl FlowchartNodeFacetEmission {
+    #[must_use]
     const fn new(
         admitted_source_transport: FlowchartNodeFacetReach,
         raw_source_transport: FlowchartNodeFacetReach,
@@ -57,6 +61,7 @@ impl FlowchartNodeFacetEmission {
         }
     }
 
+    #[must_use]
     fn source_emission(
         self,
         admitted: bool,
@@ -68,6 +73,7 @@ impl FlowchartNodeFacetEmission {
         } else {
             self.raw_source_transport
         };
+
         if inline || !wrapper_has_class || self.generated_selector == FlowchartNodeFacetReach::None
         {
             FlowchartNodeSourceFacetEmission {
@@ -117,6 +123,7 @@ pub(in crate::svg::parity::flowchart) struct FlowchartNodeLabelEmissionReceipt {
 }
 
 impl FlowchartNodeLabelEmissionReceipt {
+    #[must_use]
     const fn facet_reach(applicable: bool, verified: bool) -> Option<FlowchartNodeFacetReach> {
         if applicable {
             Some(if verified {
@@ -129,6 +136,7 @@ impl FlowchartNodeLabelEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn verified() -> Self {
         Self {
             source_typography: FlowchartNodeFacetReach::Verified,
@@ -146,6 +154,7 @@ impl FlowchartNodeLabelEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn unverified() -> Self {
         Self {
             source_typography: FlowchartNodeFacetReach::Unverified,
@@ -163,6 +172,7 @@ impl FlowchartNodeLabelEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn with_prepared_typography_reach(
         mut self,
         applicable: bool,
@@ -173,6 +183,7 @@ impl FlowchartNodeLabelEmissionReceipt {
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn with_prepared_font_reaches(
         mut self,
         applicable: bool,
@@ -184,6 +195,7 @@ impl FlowchartNodeLabelEmissionReceipt {
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn with_local_font_source_ownership(
         mut self,
         font_stack: crate::flowchart::FlowchartSourceFacetStatus,
@@ -194,18 +206,21 @@ impl FlowchartNodeLabelEmissionReceipt {
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn local_font_stack_source(
         self,
     ) -> crate::flowchart::FlowchartSourceFacetStatus {
         self.local_font_stack_source
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn local_font_size_source(
         self,
     ) -> crate::flowchart::FlowchartSourceFacetStatus {
         self.local_font_size_source
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn with_label_fill_reach(
         mut self,
         applicable: bool,
@@ -215,6 +230,7 @@ impl FlowchartNodeLabelEmissionReceipt {
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn with_effect_reach(
         mut self,
         applicable: bool,
@@ -224,12 +240,14 @@ impl FlowchartNodeLabelEmissionReceipt {
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn effect_reach(
         self,
     ) -> Option<FlowchartNodeFacetReach> {
         self.effect
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn with_font_weight_reach(
         mut self,
         applicable: bool,
@@ -239,15 +257,18 @@ impl FlowchartNodeLabelEmissionReceipt {
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn with_background_area(mut self, area: bool) -> Self {
         self.background_has_area = area;
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn background_has_area(self) -> bool {
         self.background_has_area
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn with_text_paint_facts(
         mut self,
         facts: Option<crate::flowchart::FlowchartTextPaintFacts>,
@@ -256,12 +277,14 @@ impl FlowchartNodeLabelEmissionReceipt {
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn text_paint_facts(
         self,
     ) -> Option<crate::flowchart::FlowchartTextPaintFacts> {
         self.text_paint_facts
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn with_html_typography_statuses(
         mut self,
         font_stack: crate::flowchart::FlowchartSourceFacetStatus,
@@ -272,44 +295,52 @@ impl FlowchartNodeLabelEmissionReceipt {
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn typography_verified(self) -> bool {
         self.source_typography.is_verified()
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn typography_applicable(self) -> bool {
         self.prepared_font_stack.is_some() || self.prepared_font_size.is_some()
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn prepared_font_stack_reach(
         self,
     ) -> Option<FlowchartNodeFacetReach> {
         self.prepared_font_stack
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn prepared_font_size_reach(
         self,
     ) -> Option<FlowchartNodeFacetReach> {
         self.prepared_font_size
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn label_fill_reach(
         self,
     ) -> Option<FlowchartNodeFacetReach> {
         self.label_fill
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn font_weight_reach(
         self,
     ) -> Option<FlowchartNodeFacetReach> {
         self.font_weight
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn html_font_stack_status(
         self,
     ) -> crate::flowchart::FlowchartSourceFacetStatus {
         self.html_font_stack_status
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn html_font_size_status(
         self,
     ) -> crate::flowchart::FlowchartSourceFacetStatus {
@@ -319,6 +350,7 @@ impl FlowchartNodeLabelEmissionReceipt {
 
 impl FlowchartNodeShapeEmissionReceipt {
     /// A terminal-local typed declaration does not prove the independent source transports.
+    #[must_use]
     pub(in crate::svg::parity::flowchart::render::node) fn with_typed_paint_reach(
         mut self,
         property: crate::diagram_theme::ResolvedStyleProperty,
@@ -330,12 +362,13 @@ impl FlowchartNodeShapeEmissionReceipt {
             ResolvedStyleProperty::Stroke => &mut self.stroke,
             ResolvedStyleProperty::StrokeWidth => &mut self.stroke_width,
             ResolvedStyleProperty::StrokeDasharray => &mut self.stroke_dasharray,
-            _ => return self,
+            ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => return self,
         };
         facet.typed_theme = FlowchartNodeFacetReach::Verified;
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn with_effect_reach(
         mut self,
         verified: bool,
@@ -344,10 +377,12 @@ impl FlowchartNodeShapeEmissionReceipt {
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn typed_effect_verified(self) -> bool {
         self.effect
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn classic_process(radius_emitted: bool) -> Self {
         let facet = FlowchartNodeFacetEmission::new(
             FlowchartNodeFacetReach::Verified,
@@ -376,16 +411,18 @@ impl FlowchartNodeShapeEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn classic_polygon() -> Self {
-        // A polygon consumes the same inline paint/stroke channels as a rectangle, but CSS
-        // rx/ry cannot round its vertices. Source CSS remains unverified; a numeric typed
-        // corner request is explicitly inapplicable and must not certify rounded geometry.
+
+
+
         let mut receipt = Self::classic_process(false);
         receipt.radius = Self::unverified().radius;
         receipt.radius.typed_theme = FlowchartNodeFacetReach::NotApplicable;
         receipt
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn hand_drawn_process() -> Self {
         let facet = FlowchartNodeFacetEmission::new(
             FlowchartNodeFacetReach::Verified,
@@ -422,6 +459,7 @@ impl FlowchartNodeShapeEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn start() -> Self {
         let facet = FlowchartNodeFacetEmission::new(
             FlowchartNodeFacetReach::None,
@@ -458,6 +496,7 @@ impl FlowchartNodeShapeEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn common_style_unverified() -> Self {
         let facet = FlowchartNodeFacetEmission::new(
             FlowchartNodeFacetReach::Verified,
@@ -494,6 +533,7 @@ impl FlowchartNodeShapeEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn unverified() -> Self {
         let facet = FlowchartNodeFacetEmission::new(
             FlowchartNodeFacetReach::Unverified,
@@ -512,6 +552,7 @@ impl FlowchartNodeShapeEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn source_fill_emission(
         self,
         admitted: bool,
@@ -522,6 +563,7 @@ impl FlowchartNodeShapeEmissionReceipt {
             .source_emission(admitted, inline, wrapper_has_class)
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn source_stroke_emission(
         self,
         admitted: bool,
@@ -532,6 +574,7 @@ impl FlowchartNodeShapeEmissionReceipt {
             .source_emission(admitted, inline, wrapper_has_class)
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn source_shape_emission(
         self,
         inline: bool,
@@ -540,6 +583,7 @@ impl FlowchartNodeShapeEmissionReceipt {
         self.fill.source_emission(false, inline, wrapper_has_class)
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn source_stroke_width_emission(
         self,
         admitted: bool,
@@ -550,6 +594,7 @@ impl FlowchartNodeShapeEmissionReceipt {
             .source_emission(admitted, inline, wrapper_has_class)
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn source_radius_emission(
         self,
         admitted: bool,
@@ -560,6 +605,7 @@ impl FlowchartNodeShapeEmissionReceipt {
             .source_emission(admitted, inline, wrapper_has_class)
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn source_stroke_dasharray_emission(
         self,
         admitted: bool,
@@ -570,40 +616,48 @@ impl FlowchartNodeShapeEmissionReceipt {
             .source_emission(admitted, inline, wrapper_has_class)
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn generated_selector_overrides_direct(
         self,
     ) -> bool {
         self.fill.generated_selector_overrides_transport
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn stroke_width_selector_overrides_direct(
         self,
     ) -> bool {
         self.stroke_width.generated_selector_overrides_transport
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn radius_selector_overrides_direct(self) -> bool {
         self.radius.generated_selector_overrides_transport
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn stroke_dasharray_selector_overrides_direct(
         self,
     ) -> bool {
         self.stroke_dasharray.generated_selector_overrides_transport
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn typed_fill_verified(self) -> bool {
         self.fill.typed_theme.is_verified()
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn typed_stroke_verified(self) -> bool {
         self.stroke.typed_theme.is_verified()
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn typed_stroke_width_verified(self) -> bool {
         self.stroke_width.typed_theme.is_verified()
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn typed_radius_emission(
         self,
         precedence: crate::flowchart::FlowchartFacetPrecedence,
@@ -621,6 +675,7 @@ impl FlowchartNodeShapeEmissionReceipt {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn typed_stroke_dasharray_verified(self) -> bool {
         self.stroke_dasharray.typed_theme.is_verified()
     }
@@ -634,6 +689,7 @@ pub(in crate::svg::parity::flowchart) struct FlowchartNodeShapeRenderOutcome {
 }
 
 impl FlowchartNodeShapeRenderOutcome {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn new(
         closes_wrapper: bool,
         emission: FlowchartNodeShapeEmissionReceipt,
@@ -645,6 +701,7 @@ impl FlowchartNodeShapeRenderOutcome {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn with_label(
         mut self,
         label: FlowchartNodeLabelEmissionReceipt,
@@ -653,16 +710,19 @@ impl FlowchartNodeShapeRenderOutcome {
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn closes_wrapper(self) -> bool {
         self.closes_wrapper
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn emission(
         self,
     ) -> FlowchartNodeShapeEmissionReceipt {
         self.emission
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn label(
         self,
     ) -> FlowchartNodeLabelEmissionReceipt {

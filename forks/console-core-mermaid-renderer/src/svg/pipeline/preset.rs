@@ -66,6 +66,7 @@ impl BuiltinSvgStage {
         prepared_math_evidence: Option<&PreparedMathEvidenceLease>,
     ) -> Result<(Cow<'a, str>, bool)> {
         let mut checkpoint = || execution.checkpoint();
+
         match self {
             Self::StaticStepProjection => {
                 let output = super::step_animation::project_static(svg, execution)?;
@@ -79,6 +80,7 @@ impl BuiltinSvgStage {
                 {
                     return Ok((svg, false));
                 }
+
                 Ok((
                     Cow::Owned(project_prepared_math_with_checkpoints(
                         &svg,
@@ -94,29 +96,30 @@ impl BuiltinSvgStage {
                 apply_foreign_object_fallback_with_outcome(svg, &measurer, execution, structure)
             }
             Self::StripForeignObject => {
-                apply_strip_foreign_objects(svg, checkpoint).map(|svg| (svg, true))
+                apply_strip_foreign_objects(svg, checkpoint).map(|svg_2| (svg_2, true))
             }
             Self::DropSwitchNativeFallbacks => {
-                apply_drop_switch_native_fallbacks(svg, checkpoint).map(|svg| (svg, true))
+                apply_drop_switch_native_fallbacks(svg, checkpoint).map(|svg_3| (svg_3, true))
             }
             Self::SanitizeCss => {
-                apply_sanitize_style_elements(svg, execution).map(|svg| (svg, true))
+                apply_sanitize_style_elements(svg, execution).map(|svg_4| (svg_4, true))
             }
             Self::LowerIdSuffixSelectors => {
-                apply_lower_id_suffix_selectors(svg, execution).map(|svg| (svg, true))
+                apply_lower_id_suffix_selectors(svg, execution).map(|svg_5| (svg_5, true))
             }
             Self::ResolveQuadrantResvgFallbacks => {
                 resolve_quadrant_resvg_fallbacks_with_checkpoints(svg, metadata, &mut checkpoint)
-                    .map(|svg| (svg, true))
+                    .map(|svg_6| (svg_6, true))
             }
             Self::SanitizeAttributes => {
                 sanitize_element_attributes_cow_with_checkpoints(svg, &mut checkpoint)
-                    .map(|svg| (svg, true))
+                    .map(|svg_7| (svg_7, true))
             }
         }
     }
 }
 
+#[must_use]
 pub(crate) fn builtin_stages_for_preset(preset: SvgPipelinePreset) -> &'static [BuiltinSvgStage] {
     match preset {
         SvgPipelinePreset::Parity => &[],
@@ -145,6 +148,7 @@ pub(crate) fn apply_preset_cow<'a>(
     prepared_math_evidence: Option<&PreparedMathEvidenceLease>,
 ) -> Result<(Cow<'a, str>, bool)> {
     let mut changed = false;
+
     for stage in builtin_stages_for_preset(preset) {
         execution.checkpoint()?;
         let (output, stage_changed) = stage.apply(
@@ -158,6 +162,7 @@ pub(crate) fn apply_preset_cow<'a>(
         changed |= stage_changed;
         execution.checkpoint()?;
         execution.preflight_svg_byte_count(current.len())?;
+
         if *stage == BuiltinSvgStage::ForeignObjectFallback && drop_native_duplicates {
             changed = true;
             current = Cow::Owned(drop_native_duplicate_fallbacks_with_checkpoints(
@@ -168,6 +173,7 @@ pub(crate) fn apply_preset_cow<'a>(
             execution.preflight_svg_byte_count(current.len())?;
         }
     }
+
     Ok((current, changed))
 }
 

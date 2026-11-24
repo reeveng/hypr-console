@@ -69,19 +69,19 @@ impl JourneyDb {
         let pieces: Vec<&str> = rest.split(':').collect();
 
         let score_str = pieces.first().copied().unwrap_or("");
-        // Mermaid upstream uses JS `Number(...)` for parsing task scores. This means:
-        // - whitespace-only => 0
-        // - invalid strings => NaN (and Mermaid happily renders an SVG containing `NaN`)
-        //
-        // JSON snapshots cannot represent NaN, so we model it as `score=0` + `scoreIsNaN=true`,
-        // and let the SVG renderer re-emit `NaN` for the relevant face/mouth coordinates.
+
+
+
+
+
+
         let score_trim = score_str.trim();
         let (score, score_is_nan) = if score_trim.is_empty() {
             (0_i64, false)
         } else {
             match score_trim.parse::<f64>() {
                 Ok(v) if v.is_finite() => (v as i64, false),
-                _ => (0_i64, true),
+                ::core::result::Result::Ok(_) | ::core::result::Result::Err(_) => (0_i64, true),
             }
         };
 
@@ -109,13 +109,16 @@ impl JourneyDb {
         Ok(())
     }
 
+    #[must_use]
     fn actors_sorted(&self) -> Vec<String> {
         let mut set = BTreeSet::<String>::new();
+
         for t in &self.tasks {
             for p in &t.people {
                 set.insert(p.clone());
             }
         }
+
         set.into_iter().collect()
     }
 }
@@ -130,6 +133,7 @@ struct JourneySemanticSource {
 
 #[cfg(feature = "presentation")]
 impl JourneySemanticSource {
+    #[must_use]
     fn into_render_parts(self) -> (JourneyDiagramModel, JourneyOutputData) {
         (self.model, self.output_data)
     }
@@ -141,28 +145,36 @@ impl JourneySemanticSource {
     }
 }
 
+#[must_use]
 fn parse_keyword_arg_one_ws(line: &str, keyword: &str) -> Option<String> {
     let t = line.trim_start();
+
     if !starts_with_case_insensitive(t, keyword) {
         return None;
     }
+
     let after = &t[keyword.len()..];
     let ws = after.chars().next()?;
+
     if !ws.is_whitespace() {
         return None;
     }
+
     let rest = &after[ws.len_utf8()..];
     Some(split_statement_suffix_hash_or_semi(rest).to_string())
 }
 
+#[must_use]
 fn parse_key_colon_value(line: &str, key: &str) -> Option<String> {
     let t = line.trim_start();
+
     if !starts_with_case_insensitive(t, key) {
         return None;
     }
+
     let rest = t[key.len()..].trim_start();
-    let rest = rest.strip_prefix(':')?;
-    Some(split_statement_suffix_hash_or_semi(rest).trim().to_string())
+    let rest_2 = rest.strip_prefix(':')?;
+    Some(split_statement_suffix_hash_or_semi(rest_2).trim().to_string())
 }
 
 struct JourneyBlockText {
@@ -181,49 +193,76 @@ fn parse_acc_descr_block_spanned(
 ) -> OperationControlResult<Option<JourneyBlockText>> {
     control.checkpoint()?;
     let t = first_line.trim_start();
+
     if !starts_with_case_insensitive(t, "accDescr") {
         return Ok(None);
     }
+
     let rest = t["accDescr".len()..].trim_start();
-    let Some(rest) = rest.strip_prefix('{') else {
-        return Ok(None);
+
+    let rest = {
+        let optional_rest = rest.strip_prefix('{');
+
+        match optional_rest {
+            Some(matched_rest) => matched_rest,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
-    let Some(open) = first_line.find('{') else {
-        return Ok(None);
+
+    let open = {
+        let optional_open = first_line.find('{');
+
+        match optional_open {
+            Some(matched_open) => matched_open,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let content_start = first_line_start + open + 1;
 
     let mut buf = String::new();
-    if let Some(end) = rest.find('}') {
-        buf.push_str(&rest[..end]);
-        let closing = SourceSpan::new(content_start + end, content_start + end + 1);
-        lines.resume_same_line_at(closing.end);
-        return Ok(Some(JourneyBlockText {
-            text: buf.trim().to_string(),
-            span: SourceSpan::new(content_start, content_start + end),
-            #[cfg(feature = "editor-facts")]
-            opening: SourceSpan::new(content_start - 1, content_start),
-            closing: Some(closing),
-        }));
+
+    match rest.find('}') {
+        Some(end) => {
+            buf.push_str(&rest[..end]);
+            let closing = SourceSpan::new(content_start + end, content_start + end + 1);
+            lines.resume_same_line_at(closing.end);
+            return Ok(Some(JourneyBlockText {
+                text: buf.trim().to_string(),
+                span: SourceSpan::new(content_start, content_start + end),
+                #[cfg(feature = "editor-facts")]
+                opening: SourceSpan::new(content_start - 1, content_start),
+                closing: Some(closing),
+            }));
+        },
+        ::core::option::Option::None => {},
     }
+
     buf.push_str(rest);
     buf.push('\n');
 
     let mut content_end = lines.offset();
     let mut closing = None;
+
     while let Some((line, line_start)) = lines.next_line() {
         control.checkpoint()?;
-        if let Some(end) = line.find('}') {
-            buf.push_str(&line[..end]);
-            content_end = line_start + end;
-            closing = Some(SourceSpan::new(content_end, content_end + 1));
-            lines.resume_same_line_at(content_end + 1);
-            break;
+
+        match line.find('}') {
+            Some(end) => {
+                buf.push_str(&line[..end]);
+                content_end = line_start + end;
+                closing = Some(SourceSpan::new(content_end, content_end + 1));
+                lines.resume_same_line_at(content_end + 1);
+                break;
+            },
+            ::core::option::Option::None => {},
         }
+
         buf.push_str(line);
         buf.push('\n');
         content_end = line_start + line.len();
     }
+
     Ok(Some(JourneyBlockText {
         text: buf.trim().to_string(),
         span: SourceSpan::new(content_start, content_end.max(content_start)),
@@ -233,14 +272,18 @@ fn parse_acc_descr_block_spanned(
     }))
 }
 
+#[must_use]
 fn strip_comment_prefix(line: &str) -> &str {
     let t = line.trim_start();
+
     if t.starts_with('#') {
         return "";
     }
+
     if t.starts_with("%%") && !t.starts_with("%%{") {
         return "";
     }
+
     split_statement_suffix_hash_or_semi(line)
 }
 
@@ -323,6 +366,7 @@ pub(crate) fn parse_journey_semantic_model_controlled(
                     },
                 }
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 crate::family::SemanticConstruction {
@@ -437,6 +481,7 @@ fn parse_journey_semantic_source(
         control.checkpoint()?;
         let stripped = strip_comment_prefix(line);
         let t = stripped.trim();
+
         if t.is_empty() {
             continue;
         }
@@ -444,9 +489,13 @@ fn parse_journey_semantic_source(
         if !header_seen {
             if starts_with_case_insensitive(t, "journey") {
                 header_seen = true;
-                let header_start = line_start + line.find(t).unwrap_or(0);
+                let header_start = line_start + match line.find(t) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0,
+                };
                 let after_header = &t["journey".len()..];
                 let rest = after_header.trim_start();
+
                 if !rest.is_empty() {
                     let start = header_start
                         + "journey".len()
@@ -460,8 +509,10 @@ fn parse_journey_semantic_source(
                     });
                     continue;
                 }
+
                 continue;
             }
+
             let start = line_start + leading_whitespace_len(line);
             first_error.get_or_insert_with(|| {
                 Error::diagram_parse_exact(
@@ -473,126 +524,151 @@ fn parse_journey_semantic_source(
             continue;
         }
 
-        if let Some(v) = parse_keyword_arg_one_ws(stripped, "title") {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("title");
-                if let Some(value) = spanned_keyword_value(line, line_start, "title") {
-                    push_journey_payload_fact(
-                        facts,
-                        value,
-                        "journey title",
-                        EditorSemanticKind::String,
-                    );
+        match parse_keyword_arg_one_ws(stripped, "title") {
+            Some(v) => {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("title");
+                    if let Some(value) = spanned_keyword_value(line, line_start, "title") {
+                        push_journey_payload_fact(
+                            facts,
+                            value,
+                            "journey title",
+                            EditorSemanticKind::String,
+                        );
+                    }
                 }
-            }
-            db.title = v;
-            continue;
+                db.title = v;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(v) = parse_key_colon_value(stripped, "accTitle") {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("accTitle");
-                if let Some(value) = spanned_colon_value(line, line_start, "accTitle") {
-                    push_journey_payload_fact(
-                        facts,
-                        value,
-                        "journey accessibility title",
-                        EditorSemanticKind::String,
-                    );
+
+        match parse_key_colon_value(stripped, "accTitle") {
+            Some(v) => {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("accTitle");
+                    if let Some(value) = spanned_colon_value(line, line_start, "accTitle") {
+                        push_journey_payload_fact(
+                            facts,
+                            value,
+                            "journey accessibility title",
+                            EditorSemanticKind::String,
+                        );
+                    }
                 }
-            }
-            db.acc_title = v;
-            continue;
+                db.acc_title = v;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(v) = parse_key_colon_value(stripped, "accDescr") {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("accDescr");
-                if let Some(value) = spanned_colon_value(line, line_start, "accDescr") {
-                    push_journey_payload_fact(
+
+        match parse_key_colon_value(stripped, "accDescr") {
+            Some(v) => {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("accDescr");
+                    if let Some(value) = spanned_colon_value(line, line_start, "accDescr") {
+                        push_journey_payload_fact(
+                            facts,
+                            value,
+                            "journey accessibility description",
+                            EditorSemanticKind::String,
+                        );
+                    }
+                }
+                db.acc_descr = v;
+                continue;
+            },
+            ::core::option::Option::None => {},
+        }
+
+        match parse_acc_descr_block_spanned(&mut lines, stripped, line_start, control)? {
+            Some(v) => {
+                #[cfg(feature = "editor-facts")]
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                {
+                    facts.push_directive_prefix("accDescr");
+                    push_journey_payload_fact_spanned(
                         facts,
-                        value,
+                        &v.text,
+                        v.span,
                         "journey accessibility description",
                         EditorSemanticKind::String,
                     );
                 }
-            }
-            db.acc_descr = v;
-            continue;
+
+                if v.closing.is_none() {
+                    #[cfg(feature = "editor-facts")]
+                    if let Some(facts) = &mut editor_facts {
+                        facts.mark_recovered_from_parse_error(
+                            "journey parser recovered from unterminated accDescr block",
+                            Some(SourceSpan::new(v.opening.start, v.span.end)),
+                        );
+                    }
+                    first_error.get_or_insert_with(|| {
+                        Error::diagram_parse_insertion_point(
+                            diagram_type.to_string(),
+                            "unterminated accDescr block",
+                            v.span.end,
+                        )
+                    });
+                }
+
+                db.acc_descr = v.text;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(v) = parse_acc_descr_block_spanned(&mut lines, stripped, line_start, control)? {
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-            {
-                facts.push_directive_prefix("accDescr");
-                push_journey_payload_fact_spanned(
-                    facts,
-                    &v.text,
-                    v.span,
-                    "journey accessibility description",
-                    EditorSemanticKind::String,
-                );
-            }
-            if v.closing.is_none() {
+
+        match parse_keyword_arg_one_ws(stripped, "section") {
+            Some(v) => {
+                let v = v.split(':').next().unwrap_or("").to_string();
                 #[cfg(feature = "editor-facts")]
-                if let Some(facts) = &mut editor_facts {
-                    facts.mark_recovered_from_parse_error(
-                        "journey parser recovered from unterminated accDescr block",
-                        Some(SourceSpan::new(v.opening.start, v.span.end)),
-                    );
+                if let Some(facts) = editor_facts
+                    .as_mut()
+                    .filter(|_| editor_demand.captures_rich())
+                    && let Some(value) = spanned_keyword_value(line, line_start, "section")
+                {
+                    let section_text = value.text.split(':').next().unwrap_or("").trim();
+                    if !section_text.is_empty() {
+                        let section_start = value.start + value.text.find(section_text).unwrap_or(0);
+                        facts.push_symbol(EditorSemanticSymbol::outline(
+                            section_text.to_string(),
+                            Some("journey section".to_string()),
+                            EditorSemanticKind::Namespace,
+                            SourceSpan::new(line_start, line_start + line.len()),
+                            SourceSpan::new(section_start, section_start + section_text.len()),
+                        ));
+                    }
                 }
-                first_error.get_or_insert_with(|| {
-                    Error::diagram_parse_insertion_point(
-                        diagram_type.to_string(),
-                        "unterminated accDescr block",
-                        v.span.end,
-                    )
-                });
-            }
-            db.acc_descr = v.text;
-            continue;
-        }
-        if let Some(v) = parse_keyword_arg_one_ws(stripped, "section") {
-            let v = v.split(':').next().unwrap_or("").to_string();
-            #[cfg(feature = "editor-facts")]
-            if let Some(facts) = editor_facts
-                .as_mut()
-                .filter(|_| editor_demand.captures_rich())
-                && let Some(value) = spanned_keyword_value(line, line_start, "section")
-            {
-                let section_text = value.text.split(':').next().unwrap_or("").trim();
-                if !section_text.is_empty() {
-                    let section_start = value.start + value.text.find(section_text).unwrap_or(0);
-                    facts.push_symbol(EditorSemanticSymbol::outline(
-                        section_text.to_string(),
-                        Some("journey section".to_string()),
-                        EditorSemanticKind::Namespace,
-                        SourceSpan::new(line_start, line_start + line.len()),
-                        SourceSpan::new(section_start, section_start + section_text.len()),
-                    ));
-                }
-            }
-            db.add_section(&v);
-            continue;
+                db.add_section(&v);
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         let colon = stripped.find(':');
         let task_name_source = colon.map_or(stripped, |colon| &stripped[..colon]);
         let task_name = task_name_source.trim();
+
         if task_name.is_empty() {
-            let start = line_start + line.find(t).unwrap_or(0);
+            let start = line_start + match line.find(t) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0,
+            };
             first_error.get_or_insert_with(|| {
                 Error::diagram_parse_exact(
                     diagram_type.to_string(),
@@ -602,6 +678,7 @@ fn parse_journey_semantic_source(
             });
             continue;
         }
+
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = editor_facts
             .as_mut()
@@ -633,7 +710,9 @@ fn parse_journey_semantic_source(
             });
             continue;
         };
+
         let task_data = &stripped[colon..];
+
         if task_data.len() == ':'.len_utf8() {
             first_error.get_or_insert_with(|| {
                 Error::diagram_parse_insertion_point(
@@ -694,19 +773,27 @@ fn parse_journey_semantic_source(
             }
         }
 
-        if let Err(error) = db.add_task(task_name_source, task_data) {
-            first_error.get_or_insert(error);
+        {
+            match db.add_task(task_name_source, task_data) {
+                Err(error) => {
+                    first_error.get_or_insert(error);
+                },
+                ::core::result::Result::Ok(_) => {},
+            };
         }
     }
 
-    if let Some(error) = first_error {
-        return Ok(Err(CombinedSemanticFailure::parser_recovery(
-            #[cfg(feature = "editor-facts")]
-            "journey",
-            error,
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-        )));
+    match first_error {
+        Some(error) => {
+            return Ok(Err(CombinedSemanticFailure::parser_recovery(
+                #[cfg(feature = "editor-facts")]
+                "journey",
+                error,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            )));
+        },
+        ::core::option::Option::None => {},
     }
 
     control.checkpoint()?;
@@ -1507,7 +1594,7 @@ mod output_data_tests {
         assert_eq!(empty_output, JourneyOutputData::Empty);
         assert_eq!(header_output, JourneyOutputData::Model);
         assert_eq!(JourneyOutputData::default(), JourneyOutputData::Model);
-        // Identical canonical values must not erase the source producer's distinct output shape.
+
         assert_eq!(
             serde_json::to_value(&empty).unwrap(),
             serde_json::to_value(&header).unwrap()

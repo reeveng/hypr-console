@@ -14,14 +14,16 @@ use console_core_scalable_vector_graphics::{Group, Node, ShouldIsolateAnswer};
 const MAX_NESTED_NODES: u16 = 256;
 
 #[derive(Clone, Copy)]
-pub(super) struct Context {
+pub(super) struct Context<'a> {
+  pub(super) convolve: &'a crate::filter::Convolve<'a>,
   max_bbox: IntRect,
   depth_left: u16,
 }
 
-impl Context {
+impl<'a> Context<'a> {
   pub(super) fn root(max_bbox: IntRect) -> Result<Self, Never> {
     Ok(Self {
+      convolve: &crate::filter::convolve_matrix::apply,
       max_bbox,
       depth_left: MAX_NESTED_NODES,
     })
@@ -50,7 +52,7 @@ impl Context {
 )]
 pub(super) fn render_nodes(
   group: &Group,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {
@@ -72,7 +74,7 @@ pub(super) fn render_nodes(
 )]
 pub(super) fn render_node(
   node: &Node,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {
@@ -111,7 +113,7 @@ pub(super) fn render_node(
 )]
 fn render_group(
   group: &Group,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<Option<()>, Never> {
@@ -145,7 +147,7 @@ enum LayerKind {
 )]
 fn isolated_group(
   group: &Group,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {

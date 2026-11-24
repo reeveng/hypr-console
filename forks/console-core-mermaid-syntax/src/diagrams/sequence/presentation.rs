@@ -17,6 +17,7 @@ pub(crate) fn parse_sequence_model_for_render_controlled(
         EditorFactsDemand::Omit,
         control,
     )?;
+
     match construction {
         Ok(source) => Ok(Ok(source.db.into_model())),
         Err(failure) => Ok(Err(

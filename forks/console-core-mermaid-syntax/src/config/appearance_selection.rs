@@ -12,6 +12,7 @@ pub(super) enum AppearanceOrigin {
     Default,
 }
 
+#[must_use]
 pub(super) fn select_appearance_value<'a>(
     section: &str,
     key: &str,
@@ -33,7 +34,7 @@ pub(super) fn select_appearance_value<'a>(
             .and_then(|layer| read_appearance(layer, section, key))
             .map(|value| (Cow::Borrowed(value), AppearanceOrigin::Compatibility))
     })
-    // Mindmap chooses Cose only in the absence of an authored layout, including null.
+
     .or_else(|| {
         (section == "mindmap" && key == "layout").then(|| {
             (
@@ -58,39 +59,49 @@ pub(crate) fn resolve_semantic_appearance(
     control: &OperationControl,
 ) -> OperationControlResult<()> {
     let section = family::config_namespace_for_diagram_type(diagram_type).unwrap_or(diagram_type);
+
     for key in APPEARANCE_KEYS {
         control.checkpoint()?;
-        let Some((value, _)) =
-            select_appearance_value(section, key, source, initialize, None, defaults)
-        else {
-            continue;
+
+        let value = {
+            let optional_value = select_appearance_value(section, key, source, initialize, None, defaults);
+
+            match optional_value {
+                Some((matched_value, _)) => matched_value,
+                ::core::option::Option::None => continue,
+            }
         };
-        let value = value.as_ref();
+
+        let value_2 = value.as_ref();
         let section_has_key = effective
             .as_value()
             .get(section)
-            .and_then(|section| section.get(key))
+            .and_then(|section_2| section_2.get(key))
             .is_some();
-        if effective.as_value().get(key) != Some(value) {
+
+        if effective.as_value().get(key) != Some(value_2) {
             effective.set_value(
                 key,
-                crate::json_value::clone_value_nonrecursive_with_control(value, control)?,
+                { let checked_value = crate::json_value::clone_value_nonrecursive_with_control(value_2, control)?; checked_value },
             );
         }
-        if section_has_key && effective.as_value()[section].get(key) != Some(value) {
+
+        if section_has_key && effective.as_value()[section].get(key) != Some(value_2) {
             effective.set_value(
                 &format!("{section}.{key}"),
-                crate::json_value::clone_value_nonrecursive_with_control(value, control)?,
+                { let checked_value_2 = crate::json_value::clone_value_nonrecursive_with_control(value_2, control)?; checked_value_2 },
             );
         }
     }
+
     control.checkpoint()
 }
 
+#[must_use]
 fn read_appearance<'a>(layer: &'a MermaidConfig, section: &str, key: &str) -> Option<&'a Value> {
     let root = layer.as_value();
     [
-        root.get(section).and_then(|section| section.get(key)),
+        root.get(section).and_then(|section_2| section_2.get(key)),
         root.get(key),
     ]
     .into_iter()
@@ -102,7 +113,7 @@ fn read_appearance<'a>(layer: &'a MermaidConfig, section: &str, key: &str) -> Op
         "look" => value
             .as_str()
             .is_some_and(|look| matches!(look, "classic" | "handDrawn" | "neo")),
-        // Unknown names and non-string values remain the layout registry's responsibility.
+
         "layout" => true,
         _ => false,
     })

@@ -12,6 +12,8 @@
 //! and neither is a crate's use of its own definitions, so "names" below means
 //! a crate reaching across into another one.
 
+mod dependencies;
+
 use std::collections::BTreeSet;
 
 use console_architecture::Architecture;
@@ -100,30 +102,6 @@ fn nothing_but_the_pool_opens_the_compositors_events() -> Result<(), Failure> {
   Ok(())
 }
 
-const COMPOSITOR: &str = "console-compositor";
-
-const TEST_FAMILY: &str = "console-test-";
-
-#[test]
-#[ignore = "uses the generated architecture snapshot; run just map-check"]
-fn nothing_but_the_compositor_crate_runs_hyprctl() -> Result<(), Failure> {
-  let architecture = architecture()?;
-  let Ok(found) = facts::whose(&architecture.facts, Kind::Runs, "Hyprctl");
-  let found_2 = found
-    .into_iter()
-    .filter(|package| package != COMPOSITOR && !package.starts_with(TEST_FAMILY))
-    .collect();
-
-  let Ok(()) = ratchet(
-    "these run hyprctl themselves; ask through console_compositor, which keeps hyprctl's words and \
-         answers in the desktop's",
-    found_2,
-    &[],
-  );
-
-  Ok(())
-}
-
 const SOURCELESS: [(&str, &str); 1] = [(
   "Units",
   "systemd says a unit changed only to a connection holding `Subscribe` open, and a monitor never asks; \
@@ -155,7 +133,7 @@ fn every_event_group_the_pool_serves_has_a_source() -> Result<(), Failure> {
 
 const TICKING: [(&str, &str); 6] = [
   (
-    "console-music",
+    "console-application-music",
     "`music-bar` draws its line again every ten seconds underneath its Player and Compositor \
          subscriptions; a tick, the same shape as the bar's",
   ),

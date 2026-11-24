@@ -12,16 +12,23 @@ const KINDS: [&str; 7] = [
     "action",
 ];
 
-fn container_slot(ordinal: usize, palette_len: usize) -> usize {
-    (KINDS.len() + ordinal % palette_len.saturating_sub(KINDS.len()).max(1)) % palette_len
+#[must_use]
+fn container_slot(ContainerSlotArguments { ordinal, palette_len }: ContainerSlotArguments) -> usize {
+    (KINDS.len() + ordinal.wrapping_rem(palette_len.saturating_sub(KINDS.len()).max(1))) % palette_len
 }
 
+struct ContainerSlotArguments {
+    ordinal: usize,
+    palette_len: usize,
+}
+
+#[must_use]
 pub(super) fn container_color_slot(ctx: &FlowchartRenderCtx<'_>, id: &str) -> Option<usize> {
     let colors = &ctx.compatibility.palette;
     let ordinal = ctx.model.subgraph_color_ordinal(id)?;
     (!colors.is_empty()).then(|| {
         if ctx.diagram_type == "agentflow" {
-            container_slot(ordinal, colors.len())
+            container_slot(self::ContainerSlotArguments { ordinal, palette_len: colors.len() })
         } else {
             ordinal % colors.len()
         }
@@ -39,9 +46,11 @@ pub(super) fn write_css(
     );
     out.checkpoint()?;
     let borders = &binding.palette;
+
     if borders.is_empty() {
         return Ok(());
     }
+
     let look = &binding.palette_look;
     let backgrounds =
         (!binding.palette_backgrounds.is_empty()).then_some(&binding.palette_backgrounds);
@@ -51,20 +60,23 @@ pub(super) fn write_css(
             .as_str()
             .map(str::to_owned)
             .unwrap_or_else(|| color.to_string());
-        let fill = backgrounds
+        let fill = match backgrounds
             .map(|values| {
-                let color = &values[slot % values.len()];
+                let color_2 = &values[slot % values.len()];
                 format!(
                     "fill:{};",
-                    color
+                    color_2
                         .as_str()
                         .map(str::to_owned)
-                        .unwrap_or_else(|| color.to_string())
+                        .unwrap_or_else(|| color_2.to_string())
                 )
-            })
-            .unwrap_or_default();
+            }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
         format!("stroke:{border};{fill}")
     };
+
     for (slot, kind) in KINDS.iter().enumerate() {
         out.checkpoint()?;
         let selector = format!(r##"#{diagram_id} [data-look="{look}"].node.af-kind-{kind}"##);
@@ -74,9 +86,10 @@ pub(super) fn write_css(
             declarations(slot)
         );
     }
+
     for ordinal in 0..borders.len().saturating_sub(KINDS.len()).max(1) {
         out.checkpoint()?;
-        let slot = container_slot(ordinal, borders.len());
+        let slot = container_slot(self::ContainerSlotArguments { ordinal, palette_len: borders.len() });
         let expanded = format!(
             r##"#{diagram_id} [data-look="{look}"][data-color-id="color-{slot}"].cluster"##
         );
@@ -88,6 +101,7 @@ pub(super) fn write_css(
             declarations(slot)
         );
     }
+
     out.checkpoint()
 }
 
@@ -99,15 +113,18 @@ pub(super) fn write_flowchart_container_css(
     binding: &crate::flowchart::FlowchartCompatibilityBinding,
 ) -> Result<()> {
     let borders = &binding.palette;
+
     if borders.is_empty() {
         return Ok(());
     }
+
     let look = &binding.palette_look;
     let backgrounds =
         (!binding.palette_backgrounds.is_empty()).then_some(&binding.palette_backgrounds);
+
     for (slot, border) in borders.iter().enumerate() {
         out.checkpoint()?;
-        let border = border
+        let border_2 = border
             .as_str()
             .map(|value| value.trim().to_owned())
             .unwrap_or_else(|| border.to_string());
@@ -115,13 +132,15 @@ pub(super) fn write_flowchart_container_css(
             let value = &values[slot % values.len()];
             value
                 .as_str()
-                .map(|value| value.trim().to_owned())
+                .map(|value_2| value_2.trim().to_owned())
                 .unwrap_or_else(|| value.to_string())
         });
-        let fill = background
+        let fill = match background
             .as_ref()
-            .map(|value| format!("fill:{value};"))
-            .unwrap_or_default();
+            .map(|value| format!("fill:{value};")) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
         let prefix =
             format!(r##"#{diagram_id} [data-look="{look}"][data-color-id="color-{slot}"]"##);
         let collapsed =
@@ -135,14 +154,16 @@ pub(super) fn write_flowchart_container_css(
             out,
             "{prefix}.cluster:not(.swimlane) rect{{stroke:{border};{fill}}}{prefix}.cluster:not(.swimlane) path{{stroke:{border};{fill}}}{prefix}.swimlane.cluster rect.swimlane-title,{prefix}.swimlane.cluster rect.swimlane-body{{stroke:{border};{fill}}}{}{{stroke:{border};}}",
             lane(" path:nth-of-type(2)")
-        );
-        if let Some(background) = background {
+        , border = border_2);
+
+        if let Some(background_2) = background {
             let _ = write!(
                 out,
                 "{}{{stroke:{background};}}",
                 lane(" path:first-of-type")
-            );
+            , background = background_2);
         }
+
         let _ = write!(
             out,
             "{},{}{{stroke:{border};{fill}}}{}{{fill:{border};}}{}{{stroke:{border};}}",
@@ -150,7 +171,8 @@ pub(super) fn write_flowchart_container_css(
             collapsed(".collapsed-group path"),
             collapsed(".collapsed-indicator"),
             collapsed(".collapsed-separator")
-        );
+        , border = border_2);
     }
+
     out.checkpoint()
 }

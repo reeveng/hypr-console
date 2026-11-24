@@ -11,8 +11,9 @@
           nixpkgs + "/pkgs/by-name/we/webkitgtk_6_0/fix-bubblewrap-paths.patch";
       };
       webkitWorker = pkgs.callPackage ./nix/browser-webkit-worker.nix { inherit wpewebkit; src = self; };
-      browser = pkgs.callPackage ./nix/browser.nix { inherit webkitWorker; src = self; };
-      chromiumBrowser = pkgs.callPackage ./nix/browser.nix { src = self; };
+      chromiumWorker = pkgs.callPackage ./nix/browser-chromium-worker.nix { src = self; };
+      browser = pkgs.callPackage ./nix/browser.nix { inherit chromiumWorker webkitWorker; src = self; };
+      chromiumBrowser = pkgs.callPackage ./nix/browser.nix { inherit chromiumWorker; src = self; };
       manifest = import ./nix/manifest.nix ./desktop.conf;
       nativeGeneration = import ./nix/native-generation.nix {
         inherit pkgs;
@@ -26,6 +27,7 @@
         legion-console = console;
         native-generation = nativeGeneration;
         inherit browser wpewebkit;
+        console-browser-renderer-chromium = chromiumWorker;
       };
       checks.${system} = {
         browser = import ./nix/browser-test.nix { inherit pkgs browser; };

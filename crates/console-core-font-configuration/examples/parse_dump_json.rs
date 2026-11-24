@@ -14,17 +14,28 @@ mod dump {
 
   fn parse(path: &Path) -> Result<Vec<ConfigPart>, Failure> {
     let text = fs::read_to_string(path)?;
-    Ok(parse_config_parts(&text)?)
+    parse_config_parts(&text).map_err(Failure::from)
   }
 
   fn regenerate(directory: &Path) -> Result<(), Failure> {
     let mut paths = Vec::new();
-    for entry in fs::read_dir(directory)? {
-      let path = entry?.path();
-      if path.extension() == Some(OsStr::new("conf")) {
-        paths.push(path);
+
+    let entries = fs::read_dir(directory)?;
+
+    for entry in entries {
+      let entry_2 = entry?;
+      let path = entry_2.path();
+
+      match {
+        ::core::primitive::bool::then_some(path.extension() == Some(OsStr::new("conf")), ())
+      } {
+        ::core::option::Option::Some(()) => {
+          paths.push(path);
+        }
+        ::core::option::Option::None => {}
       }
     }
+
     paths.sort();
 
     for path in paths {
@@ -47,23 +58,27 @@ mod dump {
   pub fn run() -> Result<(), Failure> {
     let mut args = std::env::args_os().skip(1);
     let usage = "usage: parse_dump_json <conf file path> | --fixtures [directory]";
+
     match args.next() {
-      Some(mode) if mode == "--fixtures" => {
-        let path = args.next().map_or_else(
-          || Path::new(env!("CARGO_MANIFEST_DIR")).join("test-conf/conf.d"),
-          PathBuf::from,
-        );
-        if args.next().is_some() {
-          return Err(usage.into());
+      Some(first) => match (first.to_str(), args.next()) {
+        (Some("--fixtures"), directory) => {
+          let path = directory.map_or_else(
+            || Path::new(env!("CARGO_MANIFEST_DIR")).join("test-conf/conf.d"),
+            PathBuf::from,
+          );
+
+          match args.next() {
+            Some(_extra) => return Err(Box::<dyn std::error::Error>::from(usage)),
+            None => regenerate(&path)?,
+          }
         }
-        regenerate(&path)?;
-      }
-      Some(path) if args.next().is_none() => {
-        let parts = parse(Path::new(&path))
-          .map_err(|fault| format!("{}: {fault}", Path::new(&path).display()))?;
-        serde_json::to_writer(io::stdout().lock(), &parts)?;
-      }
-      Some(_) => return Err(usage.into()),
+        (_file, None) => {
+          let path = Path::new(&first);
+          let parts = parse(path).map_err(|fault| format!("{}: {fault}", path.display()))?;
+          serde_json::to_writer(io::stdout().lock(), &parts)?;
+        }
+        (_file, Some(_extra)) => return Err(Box::<dyn std::error::Error>::from(usage)),
+      },
       None => eprintln!("{usage}"),
     }
 

@@ -97,6 +97,10 @@
 //! hundred copies rather than merely stopping the next one arriving.
 
 use console_compositor::events::CompositorEvent;
+use console_compositor::{
+  Binding as CompositorBinding, BindingAction as CompositorBindingAction, BindingFlag, Script,
+};
+use console_core_external_programs::shell;
 use console_core_never::Never;
 use console_input_bindings::bound::{Binding, Input, Played};
 use console_input_bindings::keys;
@@ -104,23 +108,9 @@ use console_input_bindings::keys;
 use crate::actions::{ButtonPress, LockBehavior, RepeatMode, Table, Task};
 use crate::effect::{CompositorAction, Effect};
 
-const BIND: &str = "hl.bind";
-
-const UNBIND: &str = "hl.unbind";
-
-const RUNS: &str = "hl.dsp.exec_cmd";
-
-const WHILE_LOCKED: &str = "locked = true";
-
-const WHILE_HELD: &str = "repeating = true";
-
-const ABOUT: &str = "description";
-
 const NATIVE: &str = " [dispatcher]";
 
 const ON: &str = "on";
-
-const PLAIN: &[char] = &['.', '_', '-', '/', '+'];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum BindingAction {
@@ -146,45 +136,35 @@ impl KeyBinding {
     })
   }
 
-  pub fn bind_command(&self) -> Result<String, Never> {
-    let Ok(keys) = console_compositor::quote(&self.keys);
+  pub fn bind_command(&self) -> Result<Script, Never> {
     let Ok(description) = self.description();
-    let Ok(about) = console_compositor::quote(&description);
-    let dispatch = match &self.action {
-      BindingAction::Run(runs) => {
-        let Ok(runs_2) = console_compositor::quote(runs);
-
-        format!("{RUNS}({runs})", runs = runs_2)
-      }
-      BindingAction::Dispatch(action) => {
-        let Ok(dispatch) = action.dispatcher();
-
-        dispatch
-      }
+    let action = match &self.action {
+      BindingAction::Run(command) => CompositorBindingAction::Run(command),
+      BindingAction::Dispatch(action) => CompositorBindingAction::Dispatch(*action),
     };
-
-    let mut options: Vec<String> = vec![format!("{ABOUT} = {about}")];
+    let mut flags = Vec::new();
 
     match self.locked {
-      LockBehavior::EvenThen => options.push(WHILE_LOCKED.to_string()),
+      LockBehavior::EvenThen => flags.push(BindingFlag::Locked),
       LockBehavior::Unlocked => {}
     }
 
     match self.repeats {
-      RepeatMode::WhileHeld => options.push(WHILE_HELD.to_string()),
+      RepeatMode::WhileHeld => flags.push(BindingFlag::Repeating),
       RepeatMode::Once => {}
     }
 
-    Ok(format!(
-      "{BIND}({keys}, {dispatch}, {{ {} }})",
-      options.join(", ")
-    ))
+    CompositorBinding {
+      keys: &self.keys,
+      description: &description,
+      action,
+      flags: &flags,
+    }
+    .script()
   }
 
-  pub fn unbind_command(&self) -> Result<String, Never> {
-    let Ok(keys) = console_compositor::quote(&self.keys);
-
-    Ok(format!("{UNBIND}({keys})"))
+  pub fn unbind_command(&self) -> Result<Script, Never> {
+    console_compositor::unbind(&self.keys)
   }
 }
 
@@ -219,7 +199,7 @@ pub fn desired_binds(table: &Table) -> Result<Vec<KeyBinding>, Never> {
 
       let action = match does {
         Some(Effect::Run(arguments)) => {
-          let Ok(words) = shell_quote(&arguments);
+          let Ok(words) = shell::join(&arguments);
 
           BindingAction::Run(words)
         }
@@ -253,24 +233,6 @@ fn bind_name(job: &Task, keys: &str) -> Result<String, Never> {
 
 fn key_combo(binding: &Binding) -> Result<Option<String>, Never> {
   keys::bind(&binding.held, &binding.pressed)
-}
-
-fn shell_quote(arguments: &[String]) -> Result<String, Never> {
-  let mut said: Vec<String> = Vec::new();
-
-  for word in arguments {
-    let plain = !word.is_empty()
-      && word
-        .chars()
-        .all(|letter| letter.is_ascii_alphanumeric() || PLAIN.contains(&letter));
-
-    said.push(match ::core::primitive::bool::then_some(plain, ()) {
-      ::core::option::Option::Some(()) => word.clone(),
-      ::core::option::Option::None => format!("'{}'", word.replace('\'', "'\\''")),
-    });
-  }
-
-  Ok(said.join(" "))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -363,7 +325,7 @@ pub enum BindCommand {
 }
 
 impl BindCommand {
-  pub fn command(&self) -> Result<String, Never> {
+  pub fn command(&self) -> Result<Script, Never> {
     match self {
       BindCommand::Bound(one) => one.bind_command(),
       BindCommand::Unbind(one) => one.unbind_command(),
@@ -473,7 +435,7 @@ pub fn send(sent: &[BindCommand]) -> Result<Went, Never> {
 
   for one in sent {
     let Ok(said) = one.command();
-    let Ok(done) = console_compositor::request(console_compositor::Request::Script, &said);
+    let Ok(done) = said.run();
 
     let Ok(through) = complained(done, &said);
 
@@ -486,11 +448,13 @@ pub fn send(sent: &[BindCommand]) -> Result<Went, Never> {
   Ok(went)
 }
 
-fn complained(said: console_compositor::DispatchResult, about: &str) -> Result<Went, Never> {
+fn complained(said: console_compositor::DispatchResult, about: &Script) -> Result<Went, Never> {
   Ok(match said {
     console_compositor::DispatchResult::Success => Went::Through,
     console_compositor::DispatchResult::Failure(why) => {
-      eprintln!("controller-desktop: the compositor would not take {about:?}: {why}");
+      console_core_logging::warn!(
+        "controller-desktop: the compositor would not take {about}: {why}"
+      );
 
       Went::Nowhere
     }
@@ -654,13 +618,14 @@ mod tests {
         BindCommand::Bound(left.clone())
       ]
     );
-    let Ok(lua) = left.bind_command();
+    let Ok(command) = left.bind_command();
+    let lua = command.to_string();
 
     assert!(
       lua.contains(r#"hl.dsp.focus({direction = "left"})"#),
       "{lua}"
     );
-    assert!(!lua.contains(RUNS), "{lua}");
+    assert!(!lua.contains("hl.dsp.exec_cmd"), "{lua}");
 
     let Ok(description) = left.description();
     let holding = Holding::These(vec![console_compositor::BoundKey {
@@ -683,20 +648,25 @@ mod tests {
     let volume = one(&every, &louder)?;
     let mute = one(&every, &mute_key)?;
     let browser = one(&every, &browse)?;
-    let Ok(volume_lua) = volume.bind_command();
-    let Ok(mute_lua) = mute.bind_command();
-    let Ok(browser_lua) = browser.bind_command();
+    let Ok(volume_command) = volume.bind_command();
+    let Ok(mute_command) = mute.bind_command();
+    let Ok(browser_command) = browser.bind_command();
+    let volume_lua = volume_command.to_string();
+    let mute_lua = mute_command.to_string();
+    let browser_lua = browser_command.to_string();
+    let locked = "locked = true";
+    let repeating = "repeating = true";
 
     assert!(
-      volume_lua.contains(WHILE_LOCKED) && volume_lua.contains(WHILE_HELD),
+      volume_lua.contains(locked) && volume_lua.contains(repeating),
       "{volume_lua}"
     );
     assert!(
-      mute_lua.contains(WHILE_LOCKED) && !mute_lua.contains(WHILE_HELD),
+      mute_lua.contains(locked) && !mute_lua.contains(repeating),
       "{mute_lua}"
     );
     assert!(
-      !browser_lua.contains(WHILE_LOCKED) && !browser_lua.contains(WHILE_HELD),
+      !browser_lua.contains(locked) && !browser_lua.contains(repeating),
       "{browser_lua}"
     );
 
@@ -711,14 +681,14 @@ mod tests {
     let Ok(said) = settings.bind_command();
 
     assert_eq!(
-      said,
+      said.to_string(),
       "hl.bind(\"SUPER+code:31\", hl.dsp.exec_cmd(\"settings-panel\"), \
              { description = \"settings on SUPER+code:31\" })"
     );
 
     let Ok(unsaid) = settings.unbind_command();
 
-    assert_eq!(unsaid, "hl.unbind(\"SUPER+code:31\")");
+    assert_eq!(unsaid.to_string(), "hl.unbind(\"SUPER+code:31\")");
 
     Ok(())
   }

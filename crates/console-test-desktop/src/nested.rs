@@ -1,4 +1,6 @@
 //! The compositor's configuration, with the device's screen swapped for this one.
+//! The bar starts after the set of outputs has held steady for 1.5 seconds,
+//! since the stage replaces the initial output while it settles.
 //! Whatever the session starts here, it starts the way the device starts it and
 //! from the same place the device reads. The stage is the device's tree copied
 //! somewhere else with every absolute path inside it pointed back into the
@@ -15,6 +17,7 @@
 
 use console_core_geometry::Size;
 use console_core_ini_files::{Key, Under, field};
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_number_conversion::whole_u32;
 use console_screen::Screen;
@@ -31,7 +34,8 @@ pub fn started_by(unit: &str) -> Result<Option<String>, Never> {
   )
 }
 
-pub const MARK: &str = "@keyboard@";
+pub const START: &str = "session-start";
+pub const KEYBOARD: &str = "session-start.keyboard";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Wallpaper {
@@ -39,72 +43,67 @@ pub enum Wallpaper {
   LeftOut,
 }
 
-pub fn session_start(keyboard: &str) -> Result<String, Never> {
-  Ok(SESSION_START.replace(MARK, keyboard))
+pub fn start_session(at: &std::path::Path) -> std::io::Result<()> {
+  use std::collections::BTreeSet;
+  use std::io::ErrorKind;
+  use std::process::{Command, Stdio};
+  use std::time::Duration;
+
+  let keyboard = match std::fs::read_to_string(at.with_file_name(KEYBOARD)) {
+    Ok(unit) => unit,
+    Err(fault) => match (fault.kind() == ErrorKind::NotFound).then_some(()) {
+      Some(()) => return Ok(()),
+      None => return Err(fault),
+    },
+  };
+
+  let Ok(schedule) =
+    console_waiting::Schedule::asking_every(Duration::from_secs(8), Duration::from_millis(250));
+  let previous = BTreeSet::new();
+  let steady = 0_u32;
+  let Ok(_) = console_waiting::until_some_handed(
+    schedule,
+    &mut (previous, steady),
+    |(previous_2, steady_2)| {
+      let screens: BTreeSet<_> = match console_compositor::ask(console_compositor::EveryMonitor) {
+        Ok(monitors) => monitors.into_iter().map(|monitor| monitor.named).collect(),
+        Err(_compositor_starting) => BTreeSet::new(),
+      };
+      *steady_2 = match ::core::primitive::bool::then_some(
+        !screens.is_empty() && &screens == previous_2,
+        (),
+      ) {
+        ::core::option::Option::Some(()) => steady_2.saturating_add(1),
+        ::core::option::Option::None => 0,
+      };
+      *previous_2 = screens;
+
+      Ok::<_, Never>((*steady_2 >= 6).then_some(()))
+    },
+  );
+
+  let launch = |program: &str, arguments: &[&str]| {
+    let mut child = Command::new(program);
+    child.args(arguments).stdin(Stdio::null());
+
+    match console_program_lifetime::let_go(&mut child) {
+      Ok(_) => {}
+      Err(fault) => console_core_logging::warn!("console-desktop: starting {program}: {fault}"),
+    }
+  };
+  let Ok(events) = InternalProgram::Events.name();
+  let Ok(bar) = InternalProgram::Bar.name();
+  launch(events, &[]);
+  launch(bar, &[]);
+  let words: Vec<_> = keyboard.split_whitespace().collect();
+
+  match words.split_first() {
+    Some((program, arguments)) => launch(program, arguments),
+    None => {}
+  }
+
+  Ok(())
 }
-
-const SESSION_START: &str = r#"#!/bin/sh
-# The staged stand-in for session-start. On the device this hands the
-# environment to systemd and starts console.target; here the pieces are started
-# directly, because this machine's systemd is not the device's.
-
-# The bar goes up once the screens have stopped changing, and not before.
-#
-# This session gets a second screen a moment after it starts and loses its
-# first one a moment after that: the device's screen is made at the device's
-# size and the window's is turned off, which is `Inside::make_the_screen` and
-# takes about two seconds altogether. A bar started before that is built on the
-# screen that is about to go, and then built again on the one that arrives.
-#
-# The second building is what killed it, back when the bar was waybar: closing
-# the modules of the screen it was finished with forked a copy of the bar per
-# module, and a copy that never became the program it was forked to run exits
-# with a joinable thread still running, which aborts. A core out of a bar that
-# had drawn nothing, in five staged sessions in six, and none at all in twenty
-# once the bar went up last. `console-bar` is one process that redraws when the
-# compositor hands it a new size, so it has nothing to fork and nothing to
-# rebuild; the waiting stays because a bar built on a screen that is about to
-# go still draws itself the wrong width for a moment.
-#
-# Settled rather than slept: a list of screens that has not changed for a second
-# and a half is a session that has finished being arranged, and the last change
-# lands well inside that. Eight seconds is the cap, which is longer than this
-# has ever taken and shorter than doing without a bar.
-settled=""
-steady=0
-asked=0
-while [ $asked -lt 32 ]; do
-    screens=$(hyprctl monitors all -j 2>/dev/null | grep '"name"')
-    if [ -n "$screens" ] && [ "$screens" = "$settled" ]; then
-        steady=$((steady + 1))
-        [ $steady -ge 6 ] && break
-    else
-        steady=0
-    fi
-    settled=$screens
-    asked=$((asked + 1))
-    sleep 0.25
-done
-# The pool, before the bar, because half of what the bar draws is read through
-# it. `console-events` holds the one subscription to the compositor on this
-# machine and hands out `ask again`; without it `bar-door` and the four readings
-# are up, correct about what they said when they started, and never told
-# anything after that -- which is a bar that looks right in a picture and is
-# not. It comes after nothing and nothing waits for it: whoever wants it
-# reaches for it again for as long as they want an answer.
-[ -x "$(command -v console-events)" ] && console-events &
-[ -x "$(command -v console-bar)" ] && console-bar &
-# The keyboard, started the way the device's unit starts it, because this is
-# that unit's own ExecStart with its paths pointed into the stage. The path
-# matters as much as the flags do: `console_input_keyboard::remote` finds the keyboard beside
-# itself and signals that command line, so a keyboard started as a bare name is
-# a keyboard nothing can raise. It reads palette.sh out of this same tree on the
-# way in and dresses its own command line, so a keyboard on this screen is the
-# keyboard the device has, in the colors this repository currently spends.
-keyboard="@keyboard@"
-[ -x "${keyboard%% *}" ] && $keyboard &
-exit 0
-"#;
 
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
@@ -122,22 +121,14 @@ fn monitor(
   screen: &Screen,
   Scale(scale): Scale,
 ) -> Result<String, Never> {
-  let Size {
-    width: wide,
-    height: tall,
-  } = mode;
-  let Ok(transform) = screen.transform.number();
-
-  Ok(format!(
-    "hl.monitor({{\n    \
-         output    = \"{output}\",\n    \
-         mode      = \"{wide}x{tall}@{}\",\n    \
-         position  = \"auto\",\n    \
-         scale     = {scale},\n    \
-         transform = {transform},\n\
-         }})",
-    screen.refresh
-  ))
+  console_compositor::lua::MonitorRule {
+    output,
+    size: mode,
+    refresh: Some(screen.refresh),
+    scale: console_compositor::setup::OutputScale(scale),
+    transform: screen.transform,
+  }
+  .lua()
 }
 
 pub fn in_a_window(screen: &Screen, scale: Scale) -> Result<String, Never> {
@@ -181,13 +172,7 @@ pub fn headless(screen: &Screen) -> Result<String, Never> {
 }
 
 pub fn made_headless(screen: &Screen) -> Result<String, Never> {
-  let (wide, tall) = (screen.mode.width, screen.mode.height);
-  let Ok(transform) = screen.transform.number();
-
-  Ok(format!(
-    r#"hl.monitor({{ output = "HEADLESS-1", mode = "{wide}x{tall}@{}", position = "auto", scale = {}, transform = {transform} }})"#,
-    screen.refresh, screen.scale
-  ))
+  monitor("HEADLESS-1", screen.mode, screen, Scale(screen.scale))
 }
 
 const THE_COLOR_NOTHING_IS: &str = "\
@@ -196,8 +181,7 @@ const THE_COLOR_NOTHING_IS: &str = "\
 -- itself with a flash of something else. Here that is the one color it must
 -- not be: the wallpaper rests at that same color, so a screen nothing painted
 -- and a screen the wallpaper painted would read alike, and a check comparing them
--- would pass with no wallpaper at all. Nothing is ever this.
-hl.config({ misc = { background_color = \"rgb(ff00ff)\" } })";
+-- would pass with no wallpaper at all. Nothing is ever this.";
 
 const THE_DEVICES_OWN: &str = "\
 -- The ground is left the device's own, because this session starts no
@@ -217,9 +201,16 @@ pub fn configuration(said: Names<'_>, wallpaper: Wallpaper) -> Result<String, Ne
   } = said;
 
   let ground = match wallpaper {
-    Wallpaper::Started => THE_COLOR_NOTHING_IS,
-    Wallpaper::LeftOut => THE_DEVICES_OWN,
+    Wallpaper::Started => {
+      let Ok(color) = console_compositor::lua::background_color("rgb(ff00ff)");
+
+      format!("{THE_COLOR_NOTHING_IS}\n{color}")
+    }
+    Wallpaper::LeftOut => THE_DEVICES_OWN.to_owned(),
   };
+  let Ok(disable_device_panel) = console_compositor::lua::disable_monitor("eDP-1");
+  let Ok(device_configuration_2) = console_compositor::quote(device_configuration);
+  let hide_watchdog = console_compositor::lua::DISABLE_WATCHDOG_WARNING;
 
   Ok(format!(
     "\
@@ -231,18 +222,19 @@ pub fn configuration(said: Names<'_>, wallpaper: Wallpaper) -> Result<String, Ne
 
 {screen_said}
 
-dofile(\"{device_configuration}\")
+dofile({device_configuration})
 
 -- Said again after the device's configuration, because that one names the screen the
 -- device is mounted on and this is not that screen.
-hl.monitor({{ output = \"eDP-1\", disabled = true }})
+{disable_device_panel}
 
 {ground}
 
 -- The bar Hyprland draws over the screen when it was not started by
 -- start-hyprland, which is otherwise in every picture taken here.
-hl.config({{ misc = {{ disable_watchdog_warning = true }} }})
-"
+{hide_watchdog}
+",
+    device_configuration = device_configuration_2
   ))
 }
 
@@ -273,7 +265,7 @@ mod tests {
     let Ok(said) = in_a_window(&GO, Scale(1.25));
 
     assert!(said.contains("1280x800@144"), "{said}");
-    assert!(said.contains("scale     = 1.25"), "{said}");
+    assert!(said.contains("scale = 1.25"), "{said}");
   }
 
   #[test]
@@ -294,14 +286,7 @@ mod tests {
   }
 
   #[test]
-  fn the_delayed_session_script_cannot_start_a_wallpaper_during_teardown() {
-    let Ok(alone) = session_start("/k");
-
-    assert!(
-      !alone.contains("awww"),
-      "a daemon whose only way out is a core file is started here: {alone}"
-    );
-
+  fn a_panel_without_wallpaper_uses_the_device_background() {
     let Ok(said) = configuration(
       Names {
         screen: "-- a screen",

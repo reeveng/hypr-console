@@ -23,6 +23,7 @@ pub(crate) struct HtmlSanitizeSink<'a> {
 }
 
 impl<'a> HtmlSanitizeSink<'a> {
+    #[must_use]
     pub(crate) const fn new(
         max: usize,
         work_meter: &'a OperationWorkMeter,
@@ -47,9 +48,11 @@ impl<'a> HtmlSanitizeSink<'a> {
             .ok_or(HtmlOutputError::Limit {
                 attempted: usize::MAX,
             })?;
+
         if attempted > self.max {
             return Err(HtmlOutputError::Limit { attempted });
         }
+
         Ok(attempted)
     }
 }
@@ -78,11 +81,16 @@ impl SanitizeOutputSink for HtmlSanitizeSink<'_> {
         retained_bytes: usize,
     ) -> Result<(), Self::Error> {
         const BYTES_PER_WORK_UNIT: usize = 256;
-        if nodes == 0 {
-            self.parse_work.set(0);
+
+        match nodes {
+            0 => {
+                self.parse_work.set(0);
+            },
+            _ => {},
         }
-        // Charge the parser's input, nodes, and transient storage before tree growth. Temporary
-        // tree storage does not belong to the final prepared-artifact retained-byte ledger.
+
+
+
         let work = input_bytes
             .div_ceil(BYTES_PER_WORK_UNIT)
             .checked_add(nodes)
@@ -136,7 +144,7 @@ pub(crate) fn resolve_svg_fragment(
 ) -> crate::Result<String> {
     match result {
         Ok(fragment) => Ok(fragment),
-        Err(SanitizeFailure::Output(HtmlOutputError::Operation(error))) => Err(error.into()),
+        Err(SanitizeFailure::Output(HtmlOutputError::Operation(error))) => Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error)),
         Err(SanitizeFailure::Output(HtmlOutputError::Limit { attempted })) => {
             work_meter.preflight_svg_byte_count(
                 attempted,
@@ -145,7 +153,7 @@ pub(crate) fn resolve_svg_fragment(
             )?;
             Ok(String::new())
         }
-        // Preserve the compatibility string wrappers' fail-closed allocation/input behavior.
+
         Err(_) => Ok(String::new()),
     }
 }

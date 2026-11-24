@@ -43,7 +43,7 @@ pub(crate) fn apply_foreign_object_fallback<'a>(
     structure: SvgStructureMetrics,
 ) -> Result<Cow<'a, str>> {
     apply_foreign_object_fallback_with_outcome(svg, text_measurer, execution, structure)
-        .map(|(svg, _changed)| svg)
+        .map(|(svg_2, _changed)| svg_2)
 }
 
 pub(crate) fn apply_foreign_object_fallback_with_outcome<'a>(
@@ -53,11 +53,13 @@ pub(crate) fn apply_foreign_object_fallback_with_outcome<'a>(
     structure: SvgStructureMetrics,
 ) -> Result<(Cow<'a, str>, bool)> {
     execution.checkpoint()?;
+
     if find_with_checkpoints(&svg, "<foreignObject", &mut || execution.checkpoint())?.is_none() {
         return Ok((svg, false));
     }
+
     foreign_object_label_fallback_svg_text_controlled(&svg, text_measurer, execution, structure)
-        .map(|svg| (Cow::Owned(svg), true))
+        .map(|svg_2| (Cow::Owned(svg_2), true))
 }
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -82,9 +84,11 @@ pub(crate) fn apply_strip_foreign_objects<'a>(
     mut checkpoint: impl FnMut() -> Result<()>,
 ) -> Result<Cow<'a, str>> {
     checkpoint()?;
+
     if find_with_checkpoints(&svg, "<foreignObject", &mut checkpoint)?.is_none() {
         return Ok(svg);
     }
+
     strip_foreign_objects_with_checkpoints(&svg, &mut checkpoint).map(Cow::Owned)
 }
 
@@ -94,9 +98,11 @@ pub(crate) fn apply_drop_switch_native_fallbacks<'a>(
 ) -> Result<Cow<'a, str>> {
     let marker = r#"data-merman-foreignobject-source="switch-native-fallback""#;
     checkpoint()?;
+
     if find_with_checkpoints(&svg, marker, &mut checkpoint)?.is_none() {
         return Ok(svg);
     }
+
     drop_switch_native_fallbacks_with_checkpoints(&svg, &mut checkpoint).map(Cow::Owned)
 }
 
@@ -105,30 +111,36 @@ pub(crate) fn drop_switch_native_fallbacks_with_checkpoints<E>(
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> std::result::Result<String, E> {
     let marker = r#"data-merman-foreignobject-source="switch-native-fallback""#;
+
     if find_with_checkpoints(svg, marker, checkpoint)?.is_none() {
         return Ok(svg.to_string());
     }
+
     let mut out = String::with_capacity(svg.len());
     let mut cursor = 0;
 
     while let Some(rel_start) = find_with_checkpoints(&svg[cursor..], marker, checkpoint)? {
         let attr_start = cursor + rel_start;
+
         let Some(group_start) = rfind_with_checkpoints(&svg[..attr_start], "<g", checkpoint)?
         else {
             out.push_str(&svg[cursor..attr_start]);
             cursor = attr_start + marker.len();
             continue;
         };
+
         if group_start < cursor {
             out.push_str(&svg[cursor..attr_start]);
             cursor = attr_start + marker.len();
             continue;
         }
+
         let Some((_, group_end)) = find_matching_g_end(svg, group_start, checkpoint)? else {
             out.push_str(&svg[cursor..attr_start]);
             cursor = attr_start + marker.len();
             continue;
         };
+
         out.push_str(&svg[cursor..group_start]);
         cursor = group_end;
     }
@@ -177,53 +189,69 @@ pub(crate) fn strip_foreign_objects_with_checkpoints<E>(
             out.push_str(&svg[cursor..]);
             return Ok(out);
         };
+
         let fo_tag = &svg[start..=open_end];
         let switch_wrapper = find_wrapping_switch(svg, cursor, start, open_end, checkpoint)?;
 
-        if let Some((switch_start, switch_close_start, switch_close_end)) = switch_wrapper {
-            // Keep the native fallback's inherited presentation and coordinate system.
-            // A neutral group replaces switch selection after the HTML branch is removed.
-            out.push_str(&svg[cursor..switch_start]);
-            let Some(switch_open_end) =
-                find_tag_end_with_checkpoints(svg, switch_start, checkpoint)?
-            else {
-                out.push_str(&svg[switch_start..switch_close_end]);
+        match switch_wrapper {
+            Some((switch_start, switch_close_start, switch_close_end)) => {
+
+
+                out.push_str(&svg[cursor..switch_start]);
+
+                let Some(switch_open_end) =
+                    find_tag_end_with_checkpoints(svg, switch_start, checkpoint)?
+                else {
+                    out.push_str(&svg[switch_start..switch_close_end]);
+                    cursor = switch_close_end;
+                    continue;
+                };
+
+                let switch_tag = &svg[switch_start..=switch_open_end];
+                out.push_str("<g");
+                let mut attr_cursor = 0;
+
+                while let Some(attr) =
+                    { let checked_value_3 = next_svg_quoted_attr_with_checkpoints(switch_tag, attr_cursor, checkpoint)?; checked_value_3 }
+                {
+                    let name = &switch_tag[attr.name_start..attr.name_end];
+
+                    if ![
+                        "requiredFeatures",
+                        "requiredExtensions",
+                        "systemLanguage",
+                        "externalResourcesRequired",
+                    ]
+                    .iter()
+                    .any(|conditional| name.eq_ignore_ascii_case(conditional))
+                    {
+                        out.push_str(&switch_tag[attr.full_start..attr.full_end]);
+                    }
+
+                    attr_cursor = attr.full_end;
+                }
+
+                out.push('>');
+
+                if !fo_tag.trim_end().ends_with("/>") {
+                    let fo_close_start = open_end + 1;
+
+                    {
+                        match find_with_checkpoints(&svg[fo_close_start..], "</foreignObject>", checkpoint)? {
+                            Some(fo_close_rel) => {
+                                let after_fo = fo_close_start + fo_close_rel + "</foreignObject>".len();
+                                out.push_str(&svg[after_fo..switch_close_start]);
+                            },
+                            ::core::option::Option::None => {},
+                        };
+                    }
+                }
+
+                out.push_str("</g>");
                 cursor = switch_close_end;
                 continue;
-            };
-            let switch_tag = &svg[switch_start..=switch_open_end];
-            out.push_str("<g");
-            let mut attr_cursor = 0;
-            while let Some(attr) =
-                next_svg_quoted_attr_with_checkpoints(switch_tag, attr_cursor, checkpoint)?
-            {
-                let name = &switch_tag[attr.name_start..attr.name_end];
-                if ![
-                    "requiredFeatures",
-                    "requiredExtensions",
-                    "systemLanguage",
-                    "externalResourcesRequired",
-                ]
-                .iter()
-                .any(|conditional| name.eq_ignore_ascii_case(conditional))
-                {
-                    out.push_str(&switch_tag[attr.full_start..attr.full_end]);
-                }
-                attr_cursor = attr.full_end;
-            }
-            out.push('>');
-            if !fo_tag.trim_end().ends_with("/>") {
-                let fo_close_start = open_end + 1;
-                if let Some(fo_close_rel) =
-                    find_with_checkpoints(&svg[fo_close_start..], "</foreignObject>", checkpoint)?
-                {
-                    let after_fo = fo_close_start + fo_close_rel + "</foreignObject>".len();
-                    out.push_str(&svg[after_fo..switch_close_start]);
-                }
-            }
-            out.push_str("</g>");
-            cursor = switch_close_end;
-            continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         out.push_str(&svg[cursor..start]);
@@ -234,12 +262,14 @@ pub(crate) fn strip_foreign_objects_with_checkpoints<E>(
         }
 
         let close_start = open_end + 1;
+
         let Some(rel_close) =
             find_with_checkpoints(&svg[close_start..], "</foreignObject>", checkpoint)?
         else {
             cursor = open_end + 1;
             continue;
         };
+
         cursor = close_start + rel_close + "</foreignObject>".len();
     }
 
@@ -262,21 +292,31 @@ fn find_wrapping_switch<E>(
     foreign_object_open_end: usize,
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> std::result::Result<Option<(usize, usize, usize)>, E> {
-    let Some(switch_start) =
-        find_wrapping_switch_start(svg, cursor, foreign_object_start, checkpoint)?
-    else {
-        return Ok(None);
+    let switch_start = {
+        let optional_switch_start = find_wrapping_switch_start(svg, cursor, foreign_object_start, checkpoint)?;
+
+        match optional_switch_start {
+            Some(matched_switch_start) => matched_switch_start,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
-    let Some(switch_open_end) = find_tag_end_with_checkpoints(svg, switch_start, checkpoint)?
-    else {
-        return Ok(None);
+
+    let switch_open_end = {
+        let optional_switch_open_end = find_tag_end_with_checkpoints(svg, switch_start, checkpoint)?;
+
+        match optional_switch_open_end {
+            Some(matched_switch_open_end) => matched_switch_open_end,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     if !svg[switch_open_end + 1..foreign_object_start]
         .trim()
         .is_empty()
     {
         return Ok(None);
     }
+
     if find_with_checkpoints(
         &svg[switch_start..foreign_object_start],
         "</switch>",
@@ -294,37 +334,50 @@ fn find_wrapping_switch<E>(
         foreign_object_open_end + 1
     } else {
         let close_search_start = foreign_object_open_end + 1;
-        let Some(relative) =
-            find_with_checkpoints(&svg[close_search_start..], "</foreignObject>", checkpoint)?
-        else {
-            return Ok(None);
+
+        let relative = {
+            let optional_relative = find_with_checkpoints(&svg[close_search_start..], "</foreignObject>", checkpoint)?;
+
+            match optional_relative {
+                Some(matched_relative) => matched_relative,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         close_search_start + relative + "</foreignObject>".len()
     };
 
-    let Some(switch_close_relative) =
-        find_with_checkpoints(&svg[foreign_object_end..], "</switch>", checkpoint)?
-    else {
-        return Ok(None);
+    let switch_close_relative = {
+        let optional_switch_close_relative = find_with_checkpoints(&svg[foreign_object_end..], "</switch>", checkpoint)?;
+
+        match optional_switch_close_relative {
+            Some(matched_switch_close_relative) => matched_switch_close_relative,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let switch_close_start = foreign_object_end + switch_close_relative;
-    // Generated in-place text is not a native switch fallback.
+
     let mut tail_start = foreign_object_end;
+
     loop {
         let tail = svg[tail_start..switch_close_start].trim_start();
         tail_start = switch_close_start - tail.len();
+
         if tail.starts_with("<g")
-            && let Some(end) = find_tag_end_with_checkpoints(svg, tail_start, checkpoint)?
+            && let Some(end) = { let checked_value = find_tag_end_with_checkpoints(svg, tail_start, checkpoint)?; checked_value }
             && extract_quoted_attr(&svg[tail_start..=end], "data-merman-foreignobject")
                 == Some("fallback")
-            && let Some((_, end)) = find_matching_g_end(svg, tail_start, checkpoint)?
+            && let Some((_, end_2)) = { let checked_value_2 = find_matching_g_end(svg, tail_start, checkpoint)?; checked_value_2 }
         {
-            tail_start = end;
+            tail_start = end_2;
             continue;
         }
+
         if !tail.starts_with("<text") {
             return Ok(None);
         }
+
         break;
     }
 
@@ -342,28 +395,42 @@ fn find_wrapping_switch_start<E>(
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> std::result::Result<Option<usize>, E> {
     let mut search_end = before;
+
     while search_end > cursor {
-        let Some(rel_start) =
-            rfind_with_checkpoints(&svg[cursor..search_end], "<switch", checkpoint)?
-        else {
-            return Ok(None);
+        let rel_start = {
+            let optional_rel_start = rfind_with_checkpoints(&svg[cursor..search_end], "<switch", checkpoint)?;
+
+            match optional_rel_start {
+                Some(matched_rel_start) => matched_rel_start,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         let start = cursor + rel_start;
-        let Some(open_end) = find_tag_end_with_checkpoints(svg, start, checkpoint)? else {
-            return Ok(None);
+
+        let open_end = {
+            let optional_open_end = find_tag_end_with_checkpoints(svg, start, checkpoint)?;
+
+            match optional_open_end {
+                Some(matched_open_end) => matched_open_end,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         if open_end >= before {
             search_end = start;
             continue;
         }
 
         let tag = &svg[start..=open_end];
+
         if is_start_switch_tag(tag) {
             return Ok(Some(start));
         }
 
         search_end = start;
     }
+
     Ok(None)
 }
 
@@ -371,8 +438,8 @@ pub(crate) fn drop_native_duplicate_fallbacks_with_checkpoints<E>(
     svg: &str,
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> std::result::Result<String, E> {
-    // Only switch provenance proves that native text replaces this HTML branch.
-    // Equal text/positions cannot establish equivalent CSS, background or visibility.
+
+
     drop_switch_native_fallbacks_with_checkpoints(svg, checkpoint)
 }
 
@@ -398,39 +465,67 @@ fn find_matching_g_end<E>(
     group_start: usize,
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> std::result::Result<Option<(usize, usize)>, E> {
-    let Some(open_end) = find_tag_end_with_checkpoints(svg, group_start, checkpoint)? else {
-        return Ok(None);
+    let open_end = {
+        let optional_open_end = find_tag_end_with_checkpoints(svg, group_start, checkpoint)?;
+
+        match optional_open_end {
+            Some(matched_open_end) => matched_open_end,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     if svg[group_start..=open_end].trim_end().ends_with("/>") {
         return Ok(Some((group_start, open_end + 1)));
     }
 
     let mut depth = 1usize;
     let mut cursor = open_end + 1;
+
     while let Some(rel_tag) = find_with_checkpoints(&svg[cursor..], "<", checkpoint)? {
         let tag_start = cursor + rel_tag;
-        let Some(tag_end) = find_tag_end_with_checkpoints(svg, tag_start, checkpoint)? else {
-            break;
+
+        let tag_end = {
+            let optional_tag_end = find_tag_end_with_checkpoints(svg, tag_start, checkpoint)?;
+
+            match optional_tag_end {
+                Some(matched_tag_end) => matched_tag_end,
+                ::core::option::Option::None => break,
+            }
         };
+
         let tag = &svg[tag_start..=tag_end];
+
         if is_start_g_tag(tag) {
             if !tag.trim_end().ends_with("/>") {
                 depth += 1;
             }
         } else if is_end_g_tag(tag) {
-            let Some(next_depth) = depth.checked_sub(1) else {
-                return Ok(None);
+            let next_depth = {
+                let optional_next_depth = depth.checked_sub(1);
+
+                match optional_next_depth {
+                    Some(matched_next_depth) => matched_next_depth,
+                    ::core::option::Option::None => return Ok(None),
+                }
             };
+
             depth = next_depth;
-            if depth == 0 {
-                return Ok(Some((tag_start, tag_end + 1)));
+
+            match depth {
+                0 => {
+                    return Ok(Some((tag_start, tag_end + 1)));
+                },
+                _ => {},
             }
         }
+
         cursor = tag_end + 1;
     }
+
     Ok(None)
 }
 
+#[must_use]
 fn is_start_g_tag(tag: &str) -> bool {
     let bytes = tag.as_bytes();
     tag.starts_with("<g")
@@ -439,6 +534,7 @@ fn is_start_g_tag(tag: &str) -> bool {
             .is_some_and(|b| b.is_ascii_whitespace() || *b == b'>' || *b == b'/')
 }
 
+#[must_use]
 fn is_end_g_tag(tag: &str) -> bool {
     let bytes = tag.as_bytes();
     tag.starts_with("</g")
@@ -447,6 +543,7 @@ fn is_end_g_tag(tag: &str) -> bool {
             .is_some_and(|b| b.is_ascii_whitespace() || *b == b'>')
 }
 
+#[must_use]
 fn is_start_switch_tag(tag: &str) -> bool {
     let bytes = tag.as_bytes();
     tag.starts_with("<switch")

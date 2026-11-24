@@ -20,6 +20,7 @@ pub enum IconRegistryBuildErrorKind {
 }
 
 impl IconRegistryBuildErrorKind {
+    #[must_use]
     pub const fn stable_id(self) -> &'static str {
         match self {
             Self::ResourceLimitExceeded => "resource_limit_exceeded",
@@ -51,6 +52,7 @@ pub struct IconRegistryBuildError {
 }
 
 impl IconRegistryBuildError {
+    #[must_use]
     pub(super) fn new(
         kind: IconRegistryBuildErrorKind,
         pack_index: impl Into<Option<usize>>,
@@ -63,15 +65,17 @@ impl IconRegistryBuildError {
             limit: None,
             actual: None,
             maximum: None,
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
         }
     }
 
+    #[must_use]
     pub(super) fn with_registration_name(mut self, registration_name: Option<&str>) -> Self {
         self.registration_name = registration_name.map(str::to_owned);
         self
     }
 
+    #[must_use]
     pub(super) fn with_limit(
         mut self,
         limit: IconRegistryResourceLimitId,
@@ -84,18 +88,22 @@ impl IconRegistryBuildError {
         self
     }
 
+    #[must_use]
     pub const fn kind(&self) -> IconRegistryBuildErrorKind {
         self.kind
     }
 
+    #[must_use]
     pub const fn pack_index(&self) -> Option<usize> {
         self.pack_index
     }
 
+    #[must_use]
     pub fn registration_name(&self) -> Option<&str> {
         self.registration_name.as_deref()
     }
 
+    #[must_use]
     pub const fn limit_id(&self) -> Option<&'static str> {
         match self.limit {
             Some(limit) => Some(limit.stable_id()),
@@ -103,14 +111,17 @@ impl IconRegistryBuildError {
         }
     }
 
+    #[must_use]
     pub const fn limit(&self) -> Option<IconRegistryResourceLimitId> {
         self.limit
     }
 
+    #[must_use]
     pub const fn actual(&self) -> Option<u64> {
         self.actual
     }
 
+    #[must_use]
     pub const fn maximum(&self) -> Option<u64> {
         self.maximum
     }
@@ -123,23 +134,46 @@ impl fmt::Display for IconRegistryBuildError {
             "icon registry build failed ({})",
             self.kind.stable_id()
         )?;
-        if let Some(pack_index) = self.pack_index {
-            write!(formatter, " in pack {pack_index}")?;
+
+        match self.pack_index {
+            Some(pack_index) => {
+                write!(formatter, " in pack {pack_index}")?;
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(registration_name) = &self.registration_name {
-            write!(formatter, " registered as `{registration_name}`")?;
+
+        match &self.registration_name {
+            Some(registration_name) => {
+                write!(formatter, " registered as `{registration_name}`")?;
+            },
+            ::core::option::Option::None => {},
         }
+
         write!(formatter, ": {}", self.message)?;
-        if let Some(limit) = self.limit {
-            write!(formatter, " [{}", limit.stable_id())?;
-            if let Some(actual) = self.actual {
-                write!(formatter, " actual={actual}")?;
-            }
-            if let Some(maximum) = self.maximum {
-                write!(formatter, " max={maximum}")?;
-            }
-            formatter.write_str("]")?;
+
+        match self.limit {
+            Some(limit) => {
+                write!(formatter, " [{}", limit.stable_id())?;
+
+                match self.actual {
+                    Some(actual) => {
+                        write!(formatter, " actual={actual}")?;
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                match self.maximum {
+                    Some(maximum) => {
+                        write!(formatter, " max={maximum}")?;
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                formatter.write_str("]")?;
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(())
     }
 }

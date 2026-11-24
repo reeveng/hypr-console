@@ -4,7 +4,7 @@ use console_core_scalable_vector_graphics_values::Length;
 
 use super::svgtree::{AId, EId, SvgNode};
 use super::{converter, units};
-use crate::{ApproxEqUlps, IsValidLength, FloatRectangle};
+use crate::{ApproxEqUlps, FloatRectangle, IsValidLength};
 
 pub(crate) fn convert(node: SvgNode, state: &converter::State) -> Result<Option<Path>, Never> {
   let Ok(tag) = node.tag_name();

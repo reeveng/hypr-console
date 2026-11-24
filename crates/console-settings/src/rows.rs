@@ -14,30 +14,31 @@ use console_core_localization::text;
 use console_core_never::Never;
 use console_default_applications::engines;
 use console_home_screen::shape::Shape;
-use console_lock_screen::LockScreen;
+use console_lock_screen::idle::{self, Delay, Profile as LockProfile};
+use console_lock_screen::{LockScreen, Method};
 use console_login_window::stored_pattern::StoredPattern;
 
 use crate::words::Word;
+use console_application_books::appearance::{
+  self, Appearance, ColorRole, Paint, TYPEFACES, Typeface,
+};
 use console_bluetooth::adapter::{Discovery, Power};
 use console_bluetooth::agent::{LONGEST_PIN, PinCode};
 use console_bluetooth::device::{Connection, Device, Pairing};
 use console_bluetooth_agent::agent::{self, PinEntry};
 use console_bluetooth_agent::cards;
 use console_bluetooth_agent::command::{self, Action, Once};
-use console_books::appearance::{self, Appearance, ColorRole, Paint, TYPEFACES, Typeface};
 use console_core_controls::Switch;
 use console_core_words::Words;
 use console_input_dictation::languages;
 use console_notifications::reading::DoNotDisturb;
 use console_panel::page::{
-  ActionOutcome, Active, Answer, Aside, ButtonPress, Choices, Handler, Level, NOW, Row, Showing,
-  Subject, YET,
+  ActionOutcome, Active, Answer, Aside, ButtonPress, Choices, Handler, Initial, Level, NOW, Row,
+  Showing, Subject, YET,
 };
 use console_panel::tasks::Task;
 use console_program_contract::Command;
 use console_response_times::measuring::{self, Measuring};
-
-use console_input_alphabets::{self as alphabets, Alphabet};
 
 use console_default_applications::clock::{self, Clock};
 
@@ -61,6 +62,11 @@ pub const OFF: &str = "Off";
 
 pub fn switch(says: &str, state: Aside<'_>, command: Command) -> Result<Row, Never> {
   let Ok(task) = Task::of(command);
+
+  task_row(says, state, task)
+}
+
+fn task_row(says: &str, state: Aside<'_>, task: Task) -> Result<Row, Never> {
   let Ok(runs) = Handler::and_stay(move |showing| showing.run(task.clone()));
 
   Row::new(says, state, runs)
@@ -132,13 +138,18 @@ pub struct Offered {
   pub runs: Command,
 }
 
-fn picking_among(says: &str, offered: Vec<Offered>, chosen: u32) -> Result<Row, Never> {
+fn picking_among(
+  says: &str,
+  offered: Vec<Offered>,
+  chosen: u32,
+  task: impl Fn(Command) -> Result<Task, Never>,
+) -> Result<Row, Never> {
   let (said, tasks): (Vec<String>, Vec<Task>) = offered
     .into_iter()
     .map(|offer| {
-      let Ok(task) = Task::of(offer.runs);
+      let Ok(task_2) = task(offer.runs);
 
-      (offer.said, task)
+      (offer.said, task_2)
     })
     .unzip();
 
@@ -146,7 +157,7 @@ fn picking_among(says: &str, offered: Vec<Offered>, chosen: u32) -> Result<Row, 
     let Ok(at) = console_core_number_conversion::index(which);
 
     match tasks.get(at) {
-      Some(task) => showing.run(task.clone()),
+      Some(task_3) => showing.run(task_3.clone()),
       None => {}
     }
   });
@@ -156,8 +167,17 @@ fn picking_among(says: &str, offered: Vec<Offered>, chosen: u32) -> Result<Row, 
 
 pub fn one_of<T: Copy + PartialEq>(
   named: &str,
+  choices: (&[T], Option<T>),
+  offer: impl Fn(T) -> Result<Offered, Never>,
+) -> Result<Vec<Row>, Never> {
+  one_of_with(named, choices, offer, Task::of)
+}
+
+fn one_of_with<T: Copy + PartialEq>(
+  named: &str,
   (every, now): (&[T], Option<T>),
   offer: impl Fn(T) -> Result<Offered, Never>,
+  task: impl Fn(Command) -> Result<Task, Never>,
 ) -> Result<Vec<Row>, Never> {
   let offered: Vec<Offered> = every
     .iter()
@@ -171,7 +191,7 @@ pub fn one_of<T: Copy + PartialEq>(
   match now.and_then(|now_2| every.iter().position(|it| *it == now_2)) {
     Some(at) => {
       let Ok(at_2) = console_core_number_conversion::fitted::<_, u32>(at);
-      let Ok(row) = picking_among(named, offered, at_2);
+      let Ok(row) = picking_among(named, offered, at_2, task);
 
       Ok(vec![row])
     }
@@ -180,7 +200,8 @@ pub fn one_of<T: Copy + PartialEq>(
       let mut rows = vec![naming];
 
       rows.extend(offered.into_iter().map(|offer_2| {
-        let Ok(row) = switch(&offer_2.said, Aside(""), offer_2.runs);
+        let Ok(task_2) = task(offer_2.runs);
+        let Ok(row) = task_row(&offer_2.said, Aside(""), task_2);
 
         row
       }));
@@ -190,67 +211,235 @@ pub fn one_of<T: Copy + PartialEq>(
   }
 }
 
-pub fn sound_rows(
+pub(crate) struct SoundControls {
+  pub select: fn(&str),
+  pub mute: fn(sound::VolumeTarget) -> Result<Handler, Never>,
+  pub volume: fn(sound::VolumeTarget) -> Result<Level, Never>,
+  pub reset: fn(Option<&sound::App>),
+  pub bypassed: Option<BTreeSet<String>>,
+  pub leveling: fn(&str, Switch) -> Result<(), Never>,
+}
+
+pub(crate) fn sound_rows(
   sinks: &[sound::Thing],
   playing: &[sound::Thing],
   default: &str,
-  hush: impl Fn(i64, &'static str) -> Result<Handler, Never>,
-  turn: impl Fn(i64, &'static str) -> Result<Level, Never>,
+  controls: SoundControls,
 ) -> Result<Vec<Row>, Never> {
   let mut rows = Vec::new();
+  let Ok(available) = sound::outputs(sinks);
+  let outputs: Vec<_> = available.collect();
+  let Ok(selected) = sound::selected(&outputs, default);
+  let Ok(position) = console_core_number_conversion::index(selected);
 
-  let Ok(found) = sound::speakers(sinks, default);
-
-  match found {
-    Some(speakers) => {
-      let muted = match ::core::primitive::bool::then_some(speakers.mute, ()) {
-        ::core::option::Option::Some(()) => Muted::Yes,
-        ::core::option::Option::None => Muted::No,
+  match outputs.get(position) {
+    Some(output) => {
+      let label = match outputs.as_slice() {
+        [_only] => {
+          let Ok(name) = output.output_name();
+          name
+        }
+        _several => {
+          let Ok(picker) = output_picker(&outputs, selected, controls.select);
+          rows.push(picker);
+          "Volume".to_string()
+        }
       };
-      let Ok(at) = speakers.level();
-      let Ok(level) = level_said(at, muted);
-      let Ok(standing) = slider(at);
 
-      let Ok(silence) = hush(speakers.index, "sink");
-      let Ok(row) = Row::new("Speakers", Aside(&level), silence);
-      let Ok(turning) = turn(speakers.index, "sink");
-      let Ok(leveled) = row.with_level(turning);
-      let Ok(slid) = leveled.sliding(standing);
-
-      rows.push(slid);
-    }
-    None => {}
-  }
-
-  for stream in playing {
-    let muted = match ::core::primitive::bool::then_some(stream.mute, ()) {
-      ::core::option::Option::Some(()) => Muted::Yes,
-      ::core::option::Option::None => Muted::No,
-    };
-    let Ok(at) = stream.level();
-    let Ok(level) = level_said(at, muted);
-    let Ok(standing) = slider(at);
-    let Ok(said) = stream.display_name();
-
-    let Ok(silence) = hush(stream.index, "sink-input");
-    let Ok(row) = Row::new(&said, Aside(&level), silence);
-    let Ok(turning) = turn(stream.index, "sink-input");
-    let Ok(leveled) = row.with_level(turning);
-    let Ok(slid) = leveled.sliding(standing);
-
-    rows.push(slid);
-  }
-
-  match ::core::primitive::bool::then_some(playing.is_empty(), ()) {
-    ::core::option::Option::Some(()) => {
-      let Ok(row) = Row::placeholder("Nothing else is playing");
-
+      let Ok(row) = volume_row(
+        &label,
+        &[*output],
+        sound::VolumeTarget::Output(output.index),
+        &controls,
+      );
       rows.push(row);
     }
-    ::core::option::Option::None => {}
+    None => {
+      let Ok(row) = Row::placeholder("No audio output connected");
+      rows.push(row);
+    }
+  }
+
+  let Ok(apps) = sound::applications(playing);
+  let mut mix_changed = false;
+
+  for (app, streams) in &apps {
+    let first = {
+      let optional_first = streams.first();
+
+      match optional_first {
+        Some(matched_first) => matched_first,
+        ::core::option::Option::None => continue,
+      }
+    };
+
+    let Ok(said) = first.display_name();
+    let target = sound::VolumeTarget::App(app.clone());
+    let Ok(mut row) = volume_row(&said, streams, target, &controls);
+    let adjusted = streams
+      .iter()
+      .any(|stream| sound::adjusted(stream) == Ok(sound::StreamVolume::Adjusted));
+    mix_changed |= adjusted;
+    let leveling = controls.bypassed.as_ref().and_then(|bypassed| {
+      let key = ({
+        let Ok(explicit_value) = app.leveling_key();
+        explicit_value
+      })?;
+      let enabled = match bypassed.contains(&key).then_some(()) {
+        Some(()) => Switch::Off,
+        None => Switch::On,
+      };
+      Some((key, enabled))
+    });
+
+    match { ::core::primitive::bool::then_some(adjusted || leveling.is_some(), ()) } {
+      ::core::option::Option::Some(()) => {
+        let app_2 = app.clone();
+        let reset = controls.reset;
+        let change = controls.leveling;
+        let Ok(menu) = row.offering(move |showing| {
+          let app_3 = app_2.clone();
+          let leveling_2 = leveling.clone();
+          let mut actions = Vec::new();
+
+          match bool::then_some(adjusted, ()) {
+            Some(()) => actions.push("Reset to 100%"),
+            None => {}
+          }
+
+          match &leveling_2 {
+            Some((_, enabled)) => {
+              actions.push(match enabled {
+                Switch::On => "Bypass Leveling",
+                Switch::Off => "Use Global Leveling",
+              });
+            }
+            ::core::option::Option::None => {}
+          }
+
+          showing.sure(
+            &said,
+            Subject(""),
+            &actions,
+            Box::new(move |showing_2, selected_2| {
+              match bool::then_some(adjusted && selected_2 == 0, ()) {
+                Some(()) => reset(Some(&app_3)),
+                None => match &leveling_2 {
+                  Some((key, enabled)) => {
+                    let next = match enabled {
+                      Switch::On => Switch::Off,
+                      Switch::Off => Switch::On,
+                    };
+                    let Ok(()) = change(key, next);
+                  }
+                  None => {}
+                },
+              }
+
+              showing_2.refresh();
+            }),
+          );
+          ActionOutcome::Stay
+        });
+        row = menu;
+      }
+      ::core::option::Option::None => {}
+    }
+
+    rows.push(row);
+  }
+
+  match ::core::primitive::bool::then_some(mix_changed, ()) {
+    ::core::option::Option::Some(()) => {
+      let reset = controls.reset;
+      let Ok(choose) = Handler::and_stay(move |showing| {
+        reset(None);
+        showing.refresh();
+      });
+      let Ok(row) = Row::new("Reset App Volumes", Aside("100%"), choose);
+      rows.push(row);
+    }
+    ::core::option::Option::None => {
+      match { ::core::primitive::bool::then_some(apps.is_empty() && !outputs.is_empty(), ()) } {
+        ::core::option::Option::Some(()) => {
+          let Ok(row) = Row::placeholder("Nothing else is playing");
+          rows.push(row);
+        }
+        ::core::option::Option::None => {}
+      }
+    }
   }
 
   Ok(rows)
+}
+
+fn output_picker(
+  outputs: &[&sound::Thing],
+  selected: u32,
+  select: fn(&str),
+) -> Result<Row, Never> {
+  let labels = outputs
+    .iter()
+    .map(|output| {
+      let Ok(label) = output.output_name();
+      label
+    })
+    .collect();
+  let names: Vec<_> = outputs.iter().map(|output| output.name.clone()).collect();
+  let Ok(control) = choices(labels, selected, move |showing, which| {
+    let Ok(at) = console_core_number_conversion::index(which);
+
+    {
+      match names.get(at) {
+        Some(name) => {
+          select(name);
+          showing.refresh();
+        }
+        ::core::option::Option::None => {}
+      };
+    }
+  });
+
+  Row::picking("Output", control)
+}
+
+fn volume_row(
+  label: &str,
+  streams: &[&sound::Thing],
+  target: sound::VolumeTarget,
+  controls: &SoundControls,
+) -> Result<Row, Never> {
+  let muted = match ::core::primitive::bool::then_some(
+    streams.iter().all(|stream| stream.mute == Muted::Yes),
+    (),
+  ) {
+    ::core::option::Option::Some(()) => Muted::Yes,
+    ::core::option::Option::None => Muted::No,
+  };
+  let Ok(at) = sound::loudest(streams);
+  let Ok(level) = level_said(at, muted);
+  let Ok(standing) = slider(at);
+  let Ok(silence) = (controls.mute)(target.clone());
+  let Ok(turning) = (controls.volume)(target);
+  let Ok(row) = Row::new(label, Aside(&level), silence);
+  let Ok(leveled) = row.with_level(turning);
+
+  leveled.sliding(standing)
+}
+
+pub(crate) fn automatic_leveling(
+  now: Switch,
+  change: fn(Switch) -> Result<(), Never>,
+) -> Result<Row, Never> {
+  let next = match now {
+    Switch::On => Switch::Off,
+    Switch::Off => Switch::On,
+  };
+  let Ok(choose) = Handler::and_stay(move |showing| {
+    let Ok(()) = change(next);
+    showing.refresh();
+  });
+  turned("Automatic Leveling", now, choose)
 }
 
 fn chosen_among<T>(
@@ -380,14 +569,29 @@ pub fn following(following: Following) -> Result<Row, Never> {
 pub fn warmth(warm: NightShift) -> Result<Row, Never> {
   let Ok(night_colors) = text(&Word::NightShift);
 
-  let state = match warm {
-    NightShift::Scheduled => Switch::On,
-    NightShift::Off => Switch::Off,
+  let chosen = match warm {
+    NightShift::Off => 0,
+    NightShift::Scheduled => 1,
+    NightShift::On => 2,
   };
+  let Ok(scheduled) = text(&Word::Scheduled);
+  let offered = [(OFF, "off"), (&scheduled, "scheduled"), (ON, "on")]
+    .into_iter()
+    .map(|(said, word)| {
+      let Ok(runs) = Command::internal(InternalProgram::NightShift, &[word]);
+      Offered {
+        said: said.to_owned(),
+        runs,
+      }
+    })
+    .collect();
 
-  let Ok(shifting) = Command::internal(InternalProgram::NightShift, &[]);
-
-  turned_by(&night_colors, state, shifting)
+  picking_among(
+    &night_colors,
+    offered,
+    chosen,
+    crate::display::rows::display_task,
+  )
 }
 
 pub fn threshold(level: i32) -> Result<String, Never> {
@@ -511,8 +715,7 @@ pub fn screen_rows(
   dim: Level,
   room: Option<Following>,
   warm: NightShift,
-  standing: Option<Size>,
-  turned: Option<Turn>,
+  scale: Option<ScreenScale<'_>>,
   home: Vec<Row>,
 ) -> Result<Vec<Row>, Never> {
   let level = match brightness {
@@ -532,7 +735,6 @@ pub fn screen_rows(
     None => Ok(bright_2),
   };
   let Ok(warmth) = warmth(warm);
-  let Ok(how_big_everything_is) = text(&Word::DisplayZoom);
   let mut rows = vec![bright_3];
 
   match room {
@@ -546,29 +748,62 @@ pub fn screen_rows(
 
   rows.push(warmth);
 
-  let Ok(sizes) = one_of(&how_big_everything_is, (&EVERY, standing), |size| {
-    let Ok(word) = word_of_size(size);
-    let Ok(said) = text(&word);
-    let Ok(written) = size.written();
-    let Ok(runs) = Command::internal(InternalProgram::Scale, &[written]);
+  match scale {
+    Some(scale_2) => {
+      let Ok(controls) = screen_scale_rows(scale_2);
+      rows.extend(controls);
+    }
+    ::core::option::Option::None => {}
+  }
 
-    Ok(Offered { said, runs })
-  });
+  rows.extend(home);
 
-  rows.extend(sizes);
+  Ok(rows)
+}
+
+pub struct ScreenScale<'a> {
+  pub connector: Option<&'a str>,
+  pub zoom: Option<Size>,
+  pub turn: Option<Turn>,
+}
+
+fn screen_scale_rows(scale: ScreenScale<'_>) -> Result<Vec<Row>, Never> {
+  let command = |written| match scale.connector {
+    Some(output) => Command::internal(InternalProgram::Scale, &["--output", output, written]),
+    None => Command::internal(InternalProgram::Scale, &[written]),
+  };
+  let Ok(zoom) = text(&Word::DisplayZoom);
+  let task = crate::display::rows::display_task;
+  let Ok(mut rows) = one_of_with(
+    &zoom,
+    (&EVERY, scale.zoom),
+    |size| {
+      let Ok(word) = word_of_size(size);
+      let Ok(said) = text(&word);
+      let Ok(written) = size.written();
+      let Ok(runs) = command(written);
+
+      Ok(Offered { said, runs })
+    },
+    task,
+  );
 
   let Ok(which_way_up) = text(&Word::Rotation);
-  let Ok(ways) = one_of(&which_way_up, (&turning::EVERY, turned), |turn| {
-    let Ok(word) = word_of_turn(turn);
-    let Ok(said) = text(&word);
-    let Ok(written) = turn.written();
-    let Ok(runs) = Command::internal(InternalProgram::Scale, &[written]);
+  let Ok(ways) = one_of_with(
+    &which_way_up,
+    (&turning::EVERY, scale.turn),
+    |turn| {
+      let Ok(word) = word_of_turn(turn);
+      let Ok(said) = text(&word);
+      let Ok(written) = turn.written();
+      let Ok(runs) = command(written);
 
-    Ok(Offered { said, runs })
-  });
+      Ok(Offered { said, runs })
+    },
+    task,
+  );
 
   rows.extend(ways);
-  rows.extend(home);
 
   Ok(rows)
 }
@@ -625,6 +860,72 @@ pub fn battery_rows(
   rows.extend(dwindling);
 
   Ok(rows)
+}
+
+pub(crate) fn charge_limit_rows() -> Result<Vec<Row>, Never> {
+  let Ok(limits) = battery::charge_limit::available();
+  let multiple = limits.len() > 1;
+  Ok(
+    limits
+      .into_iter()
+      .map(|limit| {
+        let label = match ::core::primitive::bool::then_some(multiple, ()) {
+          ::core::option::Option::Some(()) => {
+            format!("Maximum Charge ({})", limit.battery)
+          }
+          ::core::option::Option::None => "Maximum Charge".to_owned(),
+        };
+        let Ok(row) = charge_limit_row(&label, limit);
+        row
+      })
+      .collect(),
+  )
+}
+
+fn charge_limit_row(label: &str, limit: battery::charge_limit::Limit) -> Result<Row, Never> {
+  let Ok(edit) = Handler::and_stay(move |showing| {
+    let battery = limit.battery.clone();
+    let Ok(respond) = answer(move |showing_2, written| {
+      let Ok(parsed) = battery::charge_limit::percent(written);
+      let percent = match parsed {
+        Some(percent) => percent,
+        None => {
+          showing_2.note("Enter a charge limit from 1 to 100 percent");
+          return;
+        }
+      };
+
+      let Ok(command) = Command::internal(
+        InternalProgram::Battery,
+        &[
+          battery::charge_limit::COMMAND,
+          &battery,
+          &percent.to_string(),
+        ],
+      );
+      let Ok(task) = Task::of(command);
+      let Ok(task_2) = task.then(|answer| {
+        let details = answer.error_output.trim();
+        Ok(
+          matches!(
+            answer.status,
+            console_program_contract::ExitStatus::Failure(_)
+          )
+          .then(|| console_program_contract::Notification {
+            summary: "Could not change maximum charge".to_owned(),
+            body: (!details.is_empty()).then(|| details.to_owned()),
+          }),
+        )
+      });
+      showing_2.run(task_2);
+    });
+    showing.ask_aloud(
+      "Maximum charge (%)",
+      Initial(&limit.percent.to_string()),
+      respond,
+    );
+  });
+  Row::new(label, Aside(&format!("{}%", limit.percent)), edit)
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
@@ -1085,17 +1386,20 @@ pub fn power_rows() -> Result<Vec<Row>, Never> {
   let Ok(systemctl) = Program::Systemctl.name();
   let suspending = vec![systemctl.to_string(), "suspend".to_string()];
   let Ok(suspends) = Handler::call(move |_| {
-    let Ok(()) = console_music::player::pause();
+    let Ok(()) = console_application_music::player::pause();
     let Ok(()) = console_panel::running::left_running(&suspending);
 
     ActionOutcome::Close
   });
   let Ok(sleep) = Row::new("Sleep", Aside(""), suspends);
-  let Ok(reboots) = Handler::run(&[systemctl, "reboot"]);
+  let Ok(resume) = InternalProgram::Resume.name();
+  let Ok(reboots) = Handler::run(&[resume, "finish", "reboot"]);
   let Ok(restart) = Row::new("Restart", Aside(""), reboots);
-  let Ok(powers_off) = Handler::run(&[systemctl, "poweroff"]);
+  let Ok(powers_off) = Handler::run(&[resume, "finish", "poweroff"]);
   let Ok(shut_down) = Row::new("Shut Down", Aside(""), powers_off);
-  let mut rows = vec![sleep, restart, shut_down];
+  let Ok(signing_out) = Handler::run(&[resume, "finish", "logout"]);
+  let Ok(sign_out) = Row::new("Log Out", Aside(""), signing_out);
+  let mut rows = vec![sleep, restart, shut_down, sign_out];
   let Ok(locks) = locking();
 
   match locks {
@@ -1144,18 +1448,212 @@ fn locking() -> Result<Locks, Never> {
 }
 
 pub fn lock_screen(chosen: LockScreen) -> Result<Row, Never> {
+  lock_switch(LOCK_SCREEN, chosen, console_lock_screen::choose)
+}
+
+fn lock_switch(
+  label: &str,
+  chosen: LockScreen,
+  save: fn(LockScreen) -> Result<(), Never>,
+) -> Result<Row, Never> {
   let state = match chosen {
     LockScreen::On => Switch::On,
     LockScreen::Off => Switch::Off,
   };
   let Ok(turning) = Handler::and_stay(move |showing| {
     let Ok(turned) = chosen.flipped();
-    let Ok(()) = console_lock_screen::choose(turned);
+    let Ok(()) = save(turned);
 
-    showing.refresh();
+    let Ok(()) = apply_lock_timing(showing);
   });
 
-  turned(LOCK_SCREEN, state, turning)
+  turned(label, state, turning)
+}
+
+fn apply_lock_timing(
+  showing: &dyn Showing,
+) -> core::result::Result<(), console_core_never::Never> {
+  {
+    let Ok(command) = Program::Systemctl.arguments(&["--user", "try-restart", idle::SERVICE]);
+    let Ok(()) = console_panel::running::on_exit(command, |result| match result {
+      console_panel::running::Exit::Success => {}
+      console_panel::running::Exit::Failure { said } => {
+        console_core_logging::warn!("applying lock timing: {said}");
+        let Ok(()) = console_panel::running::say(
+          "lock-settings",
+          console_panel::running::Notification {
+            summary: "Could not apply lock settings",
+            body: &said,
+          },
+        );
+      }
+    });
+    showing.refresh();
+  };
+
+  Ok(())
+}
+
+fn idle_lock_rows(label: &str, profile: LockProfile, delay: Delay) -> Result<Vec<Row>, Never> {
+  let preset = Delay::PRESETS
+    .iter()
+    .zip(0_u32..)
+    .find_map(|((option, _), position)| (*option == delay).then_some(position));
+  let Ok(number_of_presets) =
+    console_core_number_conversion::fitted::<_, u32>(Delay::PRESETS.len());
+  let chosen = match preset {
+    Some(position) => position,
+    None => number_of_presets,
+  };
+  let mut labels: Vec<_> = Delay::PRESETS
+    .iter()
+    .map(|(_, label_2)| (*label_2).to_owned())
+    .collect();
+  let Ok(timeout) = delay.seconds();
+  let custom = timeout.filter(|_| preset.is_none());
+
+  match custom {
+    Some(seconds) => {
+      labels.push(format!("{seconds} s"));
+    }
+    ::core::option::Option::None => {}
+  }
+
+  let Ok(control) = choices(labels, chosen, move |showing, which| {
+    let Ok(index) = console_core_number_conversion::index(which);
+
+    {
+      match Delay::PRESETS.get(index) {
+        Some((delay_2, _)) => {
+          let Ok(()) = save_idle_delay(showing, profile, *delay_2);
+        }
+        ::core::option::Option::None => {}
+      };
+    }
+  });
+  let Ok(picker) = Row::picking(label, control);
+  let Ok(edit) = Handler::and_stay(move |showing| {
+    ({
+      let Ok(explicit_value) = ask_idle_delay(showing, profile, delay);
+      explicit_value
+    })
+  });
+  let custom_label = match profile {
+    LockProfile::General => "Custom Delay…",
+    LockProfile::OnBattery => "Custom Battery Delay…",
+    LockProfile::PluggedIn => "Custom Plugged-In Delay…",
+  };
+  let Ok(custom_2) = Row::new(custom_label, Aside(""), edit);
+  Ok(vec![picker, custom_2])
+}
+
+fn ask_idle_delay(
+  showing: &dyn Showing,
+  profile: LockProfile,
+  delay: Delay,
+) -> core::result::Result<(), console_core_never::Never> {
+  {
+    let Ok(timeout) = delay.seconds();
+    let initial = timeout.map_or_else(String::new, |seconds| seconds.to_string());
+    let Ok(respond) = answer(move |showing_2, written| match Delay::custom(written) {
+      Ok(parsed) => {
+        ({
+          let Ok(explicit_value) = save_idle_delay(showing_2, profile, parsed);
+          explicit_value
+        })
+      }
+      Err(idle::InvalidDelay) => showing_2.note(&format!(
+        "Enter a delay from 1 to {} seconds",
+        Delay::MAX_SECONDS
+      )),
+    });
+    let prompt = match profile {
+      LockProfile::General => "Inactivity delay (e.g. 90s, 15m, 2h)",
+      LockProfile::OnBattery => "Battery inactivity delay (e.g. 90s, 15m, 2h)",
+      LockProfile::PluggedIn => "Plugged-in inactivity delay (e.g. 90s, 15m, 2h)",
+    };
+    showing.ask_aloud(prompt, Initial(&initial), respond);
+  };
+
+  Ok(())
+}
+
+fn save_idle_delay(
+  showing: &dyn Showing,
+  profile: LockProfile,
+  delay: Delay,
+) -> core::result::Result<(), console_core_never::Never> {
+  {
+    let Ok(before) = idle::effective_delay();
+    let Ok(()) = idle::choose_delay(profile, delay);
+    let Ok(after) = idle::effective_delay();
+
+    match (after != before).then_some(()) {
+      ::core::option::Option::Some(()) => {
+        let Ok(()) = apply_lock_timing(showing);
+      }
+      ::core::option::Option::None => {
+        showing.refresh();
+      }
+    }
+  };
+
+  Ok(())
+}
+
+fn automatic_lock_rows(power: battery::PowerSource) -> Result<Vec<Row>, Never> {
+  const LABEL: &str = "Lock After Inactivity";
+
+  match power {
+    battery::PowerSource::WithoutBattery => {
+      let Ok(general_delay) = idle::delay(LockProfile::General);
+      idle_lock_rows(LABEL, LockProfile::General, general_delay)
+    }
+    battery::PowerSource::OnBattery | battery::PowerSource::PluggedIn => {
+      let Ok(heading) = Row::naming(LABEL, Aside(""));
+      let Ok(battery_delay) = idle::delay(LockProfile::OnBattery);
+      let Ok(battery) = idle_lock_rows("On Battery", LockProfile::OnBattery, battery_delay);
+      let Ok(plugged_delay) = idle::delay(LockProfile::PluggedIn);
+      let Ok(plugged) = idle_lock_rows("Plugged In", LockProfile::PluggedIn, plugged_delay);
+      Ok(
+        std::iter::once(heading)
+          .chain(battery)
+          .chain(plugged)
+          .collect(),
+      )
+    }
+  }
+}
+
+fn unlock_method() -> Result<Row, Never> {
+  let Ok(preferred) = console_lock_screen::preferred();
+  let Ok(chosen) = console_core_number_conversion::fitted::<_, u32>(
+    match Method::ALL.iter().position(|method| *method == preferred) {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => 0,
+    },
+  );
+  let labels = Method::ALL
+    .iter()
+    .map(|method| {
+      let Ok(label) = method.label();
+      label.to_owned()
+    })
+    .collect();
+  let Ok(control) = choices(labels, chosen, |showing, which| {
+    let Ok(index) = console_core_number_conversion::index(which);
+
+    {
+      match Method::ALL.get(index) {
+        Some(method) => {
+          let Ok(()) = console_lock_screen::prefer(*method);
+          showing.refresh();
+        }
+        ::core::option::Option::None => {}
+      };
+    }
+  });
+  Row::picking("Default Unlock Method", control)
 }
 
 pub fn game_row() -> Result<Row, Never> {
@@ -1183,17 +1681,27 @@ pub fn login_rows() -> Result<Vec<Row>, Never> {
       let Ok(change) = Row::new(LOGIN_PATTERN, Aside(ON), chooses);
       let Ok(chosen) = console_lock_screen::current();
       let Ok(lock) = lock_screen(chosen);
+      let Ok(power) = battery::power_source();
+      let Ok(after_idle) = automatic_lock_rows(power);
+      let Ok(on_suspend) = idle::on_suspend();
+      let Ok(suspend_lock) =
+        lock_switch("Lock Before Suspend", on_suspend, idle::choose_on_suspend);
+      let Ok(method) = unlock_method();
       let Ok(off) = Row::new(TURN_OFF_LOGIN_PATTERN, Aside(""), forgets);
 
-      Ok(vec![change, lock, off])
+      let mut rows = vec![change, lock];
+      rows.extend(after_idle);
+      rows.extend([suspend_lock, method, off]);
+      Ok(rows)
     }
     Some(Ok(StoredPattern::Absent)) => {
       let Ok(set) = Row::new(LOGIN_PATTERN, Aside(OFF), chooses);
+      let Ok(lock) = Row::text(LOCK_SCREEN, Aside("Set a login pattern to enable"));
 
-      Ok(vec![set])
+      Ok(vec![set, lock])
     }
     Some(Err(why)) => {
-      let Ok(unread) = Row::text(LOGIN_PATTERN, Aside(&why.to_string()));
+      let Ok(unread) = Row::new(LOGIN_PATTERN, Aside(&why.to_string()), chooses);
 
       Ok(vec![unread])
     }
@@ -1228,8 +1736,6 @@ pub fn security_rows() -> Result<Vec<Row>, Never> {
   Ok(rows)
 }
 
-pub const QUIETEN: &str = "Quieten";
-
 const NOTIFICATIONS: &str = "Notifications";
 
 const BELL: &str = "Notification Center";
@@ -1240,9 +1746,7 @@ pub fn notifications_rows(do_not_disturb: DoNotDisturb) -> Result<Vec<Row>, Neve
     DoNotDisturb::On => Switch::Off,
     DoNotDisturb::Off => Switch::On,
   };
-  let Ok(arguments) = console_notifications::serving::call_arguments(QUIETEN);
-  let said: Vec<&str> = arguments.iter().map(String::as_str).collect();
-  let Ok(quietening) = Command::external(Program::Busctl, &said);
+  let Ok(quietening) = console_notifications::serving::quieten();
 
   let Ok(row) = turned_by(says, showing, quietening);
 
@@ -1251,7 +1755,7 @@ pub fn notifications_rows(do_not_disturb: DoNotDisturb) -> Result<Vec<Row>, Neve
   Ok(vec![row, bell])
 }
 
-pub fn tabs() -> Result<[String; 12], Never> {
+pub fn tabs() -> Result<[String; 13], Never> {
   Ok(console_status_bar::settings::SettingsTab::EVERY.map(|tab| {
     let Ok(title) = tab.title();
 
@@ -1377,11 +1881,10 @@ pub fn place_rows(
       ::core::option::Option::Some(()) => NOW.to_string(),
       ::core::option::Option::None => String::new(),
     };
-    let Ok(where__2) = names.where_(locale);
-
-    let says = match ::core::primitive::bool::then_some(where__2.is_empty(), ()) {
-      ::core::option::Option::Some(()) => language.says.clone(),
-      ::core::option::Option::None => where__2,
+    let Ok(region) = names.where_(locale);
+    let says = match bool::then_some(region.is_empty(), ()) {
+      Some(()) => language.says.clone(),
+      None => region,
     };
 
     let Ok(made) = generation_state(generated, locale);
@@ -1410,51 +1913,6 @@ pub fn place_rows(
     let Ok(row) = Row::new(&says, Aside(&mark), chooses);
 
     rows.push(row);
-  }
-
-  Ok(rows)
-}
-
-pub fn alphabet_rows(chosen: &[&'static Alphabet], back: impl Chosen) -> Result<Vec<Row>, Never> {
-  let Ok(what_types) = text(&Word::Keyboards);
-  let Ok(mut rows) = leading(&what_types, back);
-
-  for alphabet in &alphabets::EVERY {
-    let held = chosen.iter().any(|already| already.key == alphabet.key);
-
-    let mark = match ::core::primitive::bool::then_some(held, ()) {
-      ::core::option::Option::Some(()) => NOW,
-      ::core::option::Option::None => "",
-    };
-
-    match ::core::primitive::bool::then_some(alphabet.key == alphabets::LATIN, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(row) = Row::text(alphabet.says, Aside(mark));
-
-        rows.push(row);
-      }
-      ::core::option::Option::None => {
-        let Ok(turned) = alphabets::toggle(chosen, alphabet.key);
-        let Ok(restarting) =
-          Command::external(Program::Systemctl, &["--user", "restart", KEYBOARD]);
-        let Ok(settling) = Command::internal(
-          InternalProgram::LanguageSwitch,
-          &[console_input_language::SETTLE.spelling],
-        );
-        let Ok(restarts) = Task::of(restarting);
-        let Ok(settles) = Task::of(settling);
-        let Ok(turns) = Handler::and_stay(move |showing| {
-          let Ok(()) = alphabets::choose(&turned);
-
-          showing.run(restarts.clone());
-          showing.run(settles.clone());
-          showing.refresh();
-        });
-        let Ok(row) = Row::new(alphabet.says, Aside(mark), turns);
-
-        rows.push(row);
-      }
-    }
   }
 
   Ok(rows)
@@ -1576,8 +2034,6 @@ pub fn called_row(name: &str) -> Result<Row, Never> {
 
 const NOT_A_NAME: &str = "Use only letters, numbers and hyphens";
 
-const KEYBOARD: &str = "console-input-keyboard.service";
-
 pub trait Chosen: Fn(&dyn Showing) + Clone + Send + Sync + 'static {}
 
 impl<F> Chosen for F where F: Fn(&dyn Showing) + Clone + Send + Sync + 'static {}
@@ -1620,10 +2076,6 @@ mod tests {
 
   fn silence(_: i64, _: &'static str) -> Result<Handler, Never> {
     Handler::and_stay(|_| ())
-  }
-
-  fn turning(_: i64, _: &'static str) -> Result<Level, Never> {
-    nothing()
   }
 
   fn opening(_: u32, _: &str) -> Result<Handler, Never> {
@@ -1708,7 +2160,22 @@ mod tests {
   }
 
   fn sound(sinks: &[sound::Thing], default: &str) -> Result<Vec<Row>, Never> {
-    sound_rows(sinks, &[], default, silence, turning)
+    sound_rows(sinks, &[], default, {
+      let Ok(explicit_value) = test_sound_controls();
+      explicit_value
+    })
+  }
+
+  #[must_use]
+  fn test_sound_controls() -> core::result::Result<SoundControls, Never> {
+    Ok(SoundControls {
+      select: |_| {},
+      mute: |_| silence(0, ""),
+      volume: |_| nothing(),
+      reset: |_| {},
+      bypassed: None,
+      leveling: |_, _| Ok(()),
+    })
   }
 
   fn wifi_of(on: wifi::Radio, networks: Vec<wifi::Network>) -> Result<Vec<Row>, Never> {
@@ -1885,7 +2352,18 @@ mod tests {
     let Ok(level) = nothing();
     let Ok(grid) = grid();
 
-    screen_rows(Some(50), level, None, NightShift::Off, standing, None, grid)
+    screen_rows(
+      Some(50),
+      level,
+      None,
+      NightShift::Off,
+      Some(ScreenScale {
+        connector: None,
+        zoom: standing,
+        turn: None,
+      }),
+      grid,
+    )
   }
 
   fn battery() -> Result<Vec<Row>, Never> {
@@ -1988,6 +2466,60 @@ mod tests {
   }
 
   #[test]
+  fn choosing_an_output_shows_its_own_volume() -> Result<(), Failure> {
+    let Ok(sinks) = sound::read(
+      r#"[
+      {"name":"speakers","description":"Speakers","volume":{"mono":{"value_percent":"60%"}}},
+      {"name":"headphones","description":"Headphones","volume":{"mono":{"value_percent":"25%"}}}
+    ]"#,
+    );
+    let Ok(speakers) = sound(&sinks, "speakers");
+    let Ok(headphones) = sound(&sinks, "headphones");
+
+    let (_, speaker_output) = offered(&speakers, "Output")?;
+    let (_, headphone_output) = offered(&headphones, "Output")?;
+    let speaker_volume = row(&speakers, "Volume")?;
+    let headphone_volume = row(&headphones, "Volume")?;
+    assert_eq!(speaker_output, Some("Speakers"));
+    assert_eq!(headphone_output, Some("Headphones"));
+    assert_eq!(speaker_volume.aside, "60%");
+    assert_eq!(headphone_volume.aside, "25%");
+    Ok(())
+  }
+
+  #[test]
+  fn an_app_has_one_slider_and_its_changed_volumes_can_be_reset() -> Result<(), Failure> {
+    let Ok(playing) = sound::read(
+      r#"[
+        {"index":1,"properties":{"application.id":"browser","application.name":"Browser","media.name":"Video"},"volume":{"mono":{"value_percent":"40%"}}},
+        {"index":2,"properties":{"application.id":"browser","application.name":"Browser","media.name":"Music"},"volume":{"mono":{"value_percent":"55%"}}},
+        {"index":3,"properties":{"application.id":"game","application.name":"Game"},"volume":{"mono":{"value_percent":"100%"}}},
+        {"index":4,"properties":{"console.balance.output":"9","application.name":"Filter"}}
+      ]"#,
+    );
+    let Ok(rows) = sound_rows(&[], &playing, "", {
+      let Ok(explicit_value) = test_sound_controls();
+      explicit_value
+    });
+    let browser = row(&rows, "Browser")?;
+    assert_eq!(browser.aside, "55%");
+    assert!(browser.more.is_some());
+    let game = row(&rows, "Game")?;
+    assert!(game.more.is_none());
+    let labels = says(&rows)?;
+    assert_eq!(
+      labels,
+      [
+        "No audio output connected",
+        "Browser",
+        "Game",
+        "Reset App Volumes"
+      ]
+    );
+    Ok(())
+  }
+
+  #[test]
   fn the_profile_in_use_is_the_one_chosen() -> Result<(), Failure> {
     let Ok(rows) = battery_rows(Some("performance"), battery::Levels::default(), |_| {
       nothing()
@@ -2008,10 +2540,10 @@ mod tests {
   #[test]
   fn the_battery_tab_opens_on_stopping_the_machine() -> Result<(), Failure> {
     let Ok(rows) = battery();
-    let rows_part = part(&rows, (0, 3))?;
+    let rows_part = part(&rows, (0, 4))?;
     let Ok(said) = says(rows_part);
 
-    assert_eq!(said, ["Sleep", "Restart", "Shut Down"]);
+    assert_eq!(said, ["Sleep", "Restart", "Shut Down", "Log Out"]);
 
     Ok(())
   }
@@ -2019,7 +2551,7 @@ mod tests {
   #[test]
   fn the_three_speeds_are_one_row_with_the_least_of_them_first() -> Result<(), Failure> {
     let Ok(rows) = battery();
-    let named = at(&rows, 3)?;
+    let named = at(&rows, 4)?;
     let (speeds, chosen) = offered(&rows, &Word::PowerMode.english())?;
     let automatic = Word::Automatic.english();
 
@@ -2218,8 +2750,11 @@ mod tests {
       level,
       None,
       NightShift::Off,
-      None,
-      Some(Turn::Left),
+      Some(ScreenScale {
+        connector: None,
+        zoom: None,
+        turn: Some(Turn::Left),
+      }),
       grid,
     );
     let (ways, chosen) = offered(&rows, &Word::Rotation.english())?;
@@ -2257,10 +2792,7 @@ mod tests {
     assert_eq!(marked(&rows), Ok(Vec::new()), "something is marked");
     assert_eq!(
       rows.iter().filter(|row| row.does.is_some()).count(),
-      EVERY
-        .len()
-        .saturating_add(turning::EVERY.len())
-        .saturating_add(1),
+      EVERY.len().saturating_add(turning::EVERY.len()),
       "a rung or a way up went missing"
     );
   }
@@ -2899,10 +3431,10 @@ mod tests {
   }
 
   #[test]
-  fn nothing_playing_is_said_rather_than_left_blank() {
+  fn an_unavailable_output_is_shown_without_a_volume_control() {
     let Ok(rows) = sound(&[], "");
 
-    assert_eq!(says(&rows), Ok(vec!["Nothing else is playing"]));
+    assert_eq!(says(&rows), Ok(vec!["No audio output connected"]));
   }
 
   #[test]
@@ -3092,29 +3624,6 @@ mod tests {
 
     assert_eq!(places, ["GB", "US"]);
     assert_eq!(marked(&rows), Ok(vec!["GB"]));
-
-    Ok(())
-  }
-
-  #[test]
-  fn latin_is_drawn_and_cannot_be_pressed_and_the_rest_can() -> Result<(), Failure> {
-    let Ok(chosen) = alphabets::read(alphabets::UNLESS_TOLD);
-    let Ok(nowhere) = nowhere();
-    let Ok(rows) = alphabet_rows(&chosen, nowhere);
-    let rows_after = after(&rows, 2)?;
-    let Ok(alphabets) = says(rows_after);
-
-    assert_eq!(
-      alphabets,
-      [
-        "Latin", "Arabic", "Georgian", "Greek", "Hebrew", "Persian", "Russian", "Thai"
-      ]
-    );
-    assert_eq!(marked(&rows), Ok(vec!["Latin", "Thai"]));
-    let third = at(&rows, 2)?;
-    assert_eq!(third.acts(), Ok(Action::None));
-    let fourth = at(&rows, 3)?;
-    assert_eq!(fourth.acts(), Ok(Action::Yes));
 
     Ok(())
   }

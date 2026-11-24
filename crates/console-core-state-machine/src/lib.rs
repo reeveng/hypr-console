@@ -13,6 +13,22 @@
 //! split `console-program-contract` was already written on.
 //! Work that can block belongs in an effect. The driver delivers its outcome
 //! as another request.
+//! Every effect names the services its driver needs through
+//! [`EffectDependencies`]. A transition can report the union of those services
+//! before the driver carries it out.
+//! Disable default features to use [`SingleEffectMachine`] without a heap.
+//! Use [`SingleEffectMachine::run_effects`] when each effect has an immediate
+//! reply. Pass a transition from initialization or from handling a request,
+//! a maximum effect count, and an interpreter with its context. The
+//! interpreter returns a request, which can report a failed operation. The
+//! runner returns the settled state or a pending transition when the count is
+//! exhausted. Pass that transition back to resume without repeating effects.
+//! A driver that waits for external events can handle each turn itself.
+//! Enable `alloc` for growable queues, snapshots, and transcripts on targets
+//! with an allocator. The default `std` feature also enables Unix path snapshots.
+//! A driver can drain a queue in order while retaining its storage. An initial
+//! reservation is limited to 4096 entries. The queue can grow past that as
+//! effects are offered.
 //!
 //! **A handler cannot fail.** A request that means nothing in the state it
 //! arrives in is a transition back to the same state, written as an arm; a
@@ -26,8 +42,8 @@
 //! the child returns. An earlier draft asked every state, request and effect to
 //! be `Copy`, which nothing that holds a path, a name or a list can be.
 //!
-//! **Saving is a machine's to choose.** Every machine can implement
-//! [`SerializableMachine`] and none has to. `initialize` is handed the state a
+//! **Saving is a machine's to choose.** With `alloc`, a machine can implement
+//! `SerializableMachine`. `initialize` is handed the state a
 //! saved machine had and decides what of it to keep: what a person owns -- the
 //! page they were on, the workspace an app was on, a half-typed line -- comes
 //! back, and a reading of the world -- which panel was up, how full the battery
@@ -36,23 +52,46 @@
 //!
 //! The `state-machines.md` note in Orbit is the rest of the argument.
 
+#![no_std]
+
+#[cfg(feature = "alloc")]
+extern crate alloc;
+#[cfg(feature = "std")]
+extern crate std;
+
+#[cfg(feature = "alloc")]
+use alloc::{collections::BTreeSet, vec, vec::Vec};
+
+mod dependency;
+#[cfg(feature = "alloc")]
 mod interleavings;
+#[cfg(feature = "alloc")]
 mod schema;
+mod single;
+#[cfg(feature = "alloc")]
 mod snapshot;
+#[cfg(feature = "alloc")]
 mod transcript;
 
+pub use dependency::{EffectDependencies, Service};
+#[cfg(feature = "alloc")]
 pub use interleavings::{ExplorationError, interleavings};
+#[cfg(feature = "alloc")]
 pub use schema::{Decoder, Encoder, ParseError, Serializable};
+pub use single::{SingleEffectMachine, SingleTransition};
+#[cfg(feature = "alloc")]
 pub use snapshot::{SerializableMachine, Version, restore, snapshot};
+#[cfg(feature = "alloc")]
 pub use transcript::{Step, Trace, Transcript, run, run_from};
 
 pub use console_core_never::Never;
 
+#[cfg(feature = "alloc")]
 pub trait Machine {
   type Input;
   type State;
   type Request;
-  type Effect;
+  type Effect: EffectDependencies;
 
   fn initialize(
     input: &Self::Input,
@@ -92,12 +131,14 @@ pub trait Machine {
   }
 }
 
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Transition<S, E> {
   pub state: S,
   pub effects: Vec<E>,
 }
 
+#[cfg(feature = "alloc")]
 impl<S, E> Transition<S, E> {
   pub fn new(state: S, effects: Vec<E>) -> Result<Self, Never> {
     Ok(Transition { state, effects })
@@ -118,14 +159,40 @@ impl<S, E> Transition<S, E> {
   }
 }
 
+#[cfg(feature = "alloc")]
+impl<S, E: EffectDependencies> Transition<S, E> {
+  pub fn services(&self) -> Result<BTreeSet<Service>, Never> {
+    Ok(
+      self
+        .effects
+        .iter()
+        .flat_map(|effect| {
+          let Ok(services) = effect.services();
+          services.iter().copied()
+        })
+        .collect(),
+    )
+  }
+}
+
+#[cfg(feature = "alloc")]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Queue<T> {
   items: Vec<T>,
 }
 
+#[cfg(feature = "alloc")]
 impl<T> Queue<T> {
   pub fn unbounded() -> Result<Self, Never> {
     Ok(Queue { items: Vec::new() })
+  }
+
+  pub fn with_capacity(capacity: u32) -> Result<Self, Never> {
+    let Ok(requested) = console_core_number_conversion::index(capacity);
+
+    Ok(Queue {
+      items: Vec::with_capacity(requested.min(4096)),
+    })
   }
 
   pub fn offer(&mut self, item: T) -> Result<(), Never> {
@@ -141,6 +208,30 @@ impl<T> Queue<T> {
   }
 
   pub fn take_all(&mut self) -> Result<Vec<T>, Never> {
-    Ok(std::mem::take(&mut self.items))
+    Ok(core::mem::take(&mut self.items))
+  }
+
+  pub fn drain(&mut self) -> Result<vec::Drain<'_, T>, Never> {
+    Ok(self.items.drain(..))
+  }
+}
+
+#[cfg(all(test, feature = "alloc"))]
+mod tests {
+  use super::*;
+
+  #[test]
+  fn draining_preserves_effect_order_and_reserved_storage() {
+    let Ok(mut queue) = Queue::with_capacity(2);
+    let storage = queue.items.as_ptr();
+
+    for effects in [[1, 2], [3, 4]] {
+      let Ok(()) = queue.offer_all(effects);
+      let Ok(drained) = queue.drain();
+
+      assert!(drained.eq(effects));
+      assert_eq!(queue.items.as_ptr(), storage);
+      assert!(queue.items.is_empty());
+    }
   }
 }

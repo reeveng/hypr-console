@@ -19,8 +19,8 @@ use std::collections::{BinaryHeap, HashMap, HashSet};
 #[path = "routing/tracks.rs"]
 mod tracks;
 
-// Mermaid's orthogonal router leaves this much room between an endpoint handle
-// and the obstacle boundary before turning onto the detour pipe.
+
+
 const HANDLE_CLEARANCE: f64 = 2.0;
 
 #[derive(Debug, Clone)]
@@ -54,34 +54,37 @@ struct EdgeSideInfo {
     dy_sign: f64,
 }
 
+#[must_use]
 fn preference_strength(info: &EdgeSideInfo) -> f64 {
     if matches!(info.source_side, Side::Top | Side::Bottom) {
-        if info.abs_dx == 0.0 {
+        if ::core::matches!(::core::primitive::f64::classify(info.abs_dx), ::core::num::FpCategory::Zero) {
             f64::INFINITY
         } else {
             info.abs_dy / info.abs_dx
         }
-    } else if info.abs_dy == 0.0 {
+    } else if ::core::matches!(::core::primitive::f64::classify(info.abs_dy), ::core::num::FpCategory::Zero) {
         f64::INFINITY
     } else {
         info.abs_dx / info.abs_dy
     }
 }
 
+#[must_use]
 fn secondary_side(info: &EdgeSideInfo) -> Side {
     secondary_sides(info).0
 }
 
+#[must_use]
 fn secondary_sides(info: &EdgeSideInfo) -> (Side, Option<Side>) {
     if matches!(info.source_side, Side::Top | Side::Bottom) {
-        if info.dx_sign == 0.0 {
+        if ::core::matches!(::core::primitive::f64::classify(info.dx_sign), ::core::num::FpCategory::Zero) {
             (Side::Right, Some(Side::Left))
         } else if info.dx_sign > 0.0 {
             (Side::Right, None)
         } else {
             (Side::Left, None)
         }
-    } else if info.dy_sign == 0.0 {
+    } else if ::core::matches!(::core::primitive::f64::classify(info.dy_sign), ::core::num::FpCategory::Zero) {
         (Side::Bottom, Some(Side::Top))
     } else if info.dy_sign > 0.0 {
         (Side::Bottom, None)
@@ -135,14 +138,17 @@ impl Ord for QueueState {
     }
 }
 
+#[must_use]
 fn choose_side(node: &NodeGeometry, target: &LayoutPoint, fallback: Side) -> Side {
     let dx = target.x - node.x;
     let dy = target.y - node.y;
     let abs_dx = dx.abs();
     let abs_dy = dy.abs();
+
     if abs_dx < EPSILON && abs_dy < EPSILON {
         return fallback;
     }
+
     if abs_dy > EPSILON && abs_dy * VERTICAL_SIDE_BIAS >= abs_dx {
         if dy > 0.0 { Side::Bottom } else { Side::Top }
     } else if abs_dx > EPSILON {
@@ -152,6 +158,7 @@ fn choose_side(node: &NodeGeometry, target: &LayoutPoint, fallback: Side) -> Sid
     }
 }
 
+#[must_use]
 fn port_for_side(node: &NodeGeometry, side: Side) -> LayoutPoint {
     match side {
         Side::Top => LayoutPoint {
@@ -173,14 +180,17 @@ fn port_for_side(node: &NodeGeometry, side: Side) -> LayoutPoint {
     }
 }
 
+#[must_use]
 fn offset_port(mut point: LayoutPoint, side: Side, offset: f64) -> LayoutPoint {
     match side {
         Side::Top | Side::Bottom => point.x += offset,
         Side::Left | Side::Right => point.y += offset,
     }
+
     point
 }
 
+#[must_use]
 fn anchor_for_port(port: &LayoutPoint, node: &NodeGeometry, side: Side) -> LayoutPoint {
     match side {
         Side::Top => LayoutPoint {
@@ -208,6 +218,7 @@ struct AnchorHandle {
     waypoints_from_port: Vec<LayoutPoint>,
 }
 
+#[must_use]
 fn buried_anchor_handle(
     port: &LayoutPoint,
     anchor: &LayoutPoint,
@@ -238,12 +249,12 @@ fn buried_anchor_handle(
         } else {
             (obstacle.bottom + HANDLE_CLEARANCE).max(port.y - ANCHOR_OFFSET)
         };
-        let anchor = LayoutPoint {
+        let anchor_2 = LayoutPoint {
             x: detour_x,
             y: detour_y,
         };
         return Some(AnchorHandle {
-            anchor: anchor.clone(),
+            anchor: anchor_2.clone(),
             waypoints_from_port: vec![
                 LayoutPoint {
                     x: port.x,
@@ -253,7 +264,7 @@ fn buried_anchor_handle(
                     x: detour_x,
                     y: gap_y,
                 },
-                anchor,
+                anchor_2,
             ],
         });
     }
@@ -274,12 +285,12 @@ fn buried_anchor_handle(
     } else {
         (obstacle.right + HANDLE_CLEARANCE).max(port.x - ANCHOR_OFFSET)
     };
-    let anchor = LayoutPoint {
+    let anchor_3 = LayoutPoint {
         x: detour_x,
         y: detour_y,
     };
     Some(AnchorHandle {
-        anchor: anchor.clone(),
+        anchor: anchor_3.clone(),
         waypoints_from_port: vec![
             LayoutPoint {
                 x: gap_x,
@@ -289,11 +300,12 @@ fn buried_anchor_handle(
                 x: gap_x,
                 y: detour_y,
             },
-            anchor,
+            anchor_3,
         ],
     })
 }
 
+#[must_use]
 fn crossing_cost(from: &LayoutPoint, to: &LayoutPoint, routed: &[Vec<LayoutPoint>]) -> f64 {
     routed
         .iter()
@@ -305,6 +317,7 @@ fn crossing_cost(from: &LayoutPoint, to: &LayoutPoint, routed: &[Vec<LayoutPoint
         * CROSSING_PENALTY
 }
 
+#[must_use]
 fn direct_path(
     start: &LayoutPoint,
     end: &LayoutPoint,
@@ -315,6 +328,7 @@ fn direct_path(
         x: end.x,
         y: start.y,
     };
+
     if !segment_blocked(start, &horizontal_first, obstacles, excluded)
         && !segment_blocked(&horizontal_first, end, obstacles, excluded)
     {
@@ -324,10 +338,12 @@ fn direct_path(
             end.clone(),
         ]));
     }
+
     let vertical_first = LayoutPoint {
         x: start.x,
         y: end.y,
     };
+
     if !segment_blocked(start, &vertical_first, obstacles, excluded)
         && !segment_blocked(&vertical_first, end, obstacles, excluded)
     {
@@ -337,13 +353,16 @@ fn direct_path(
             end.clone(),
         ]));
     }
+
     None
 }
 
+#[must_use]
 fn prepare_routed_points(mut points: Vec<LayoutPoint>) -> Vec<LayoutPoint> {
     if points.len() < 3 {
         return points;
     }
+
     let before = &points[points.len() - 3];
     let anchor = &points[points.len() - 2];
     let port = &points[points.len() - 1];
@@ -356,50 +375,64 @@ fn prepare_routed_points(mut points: Vec<LayoutPoint>) -> Vec<LayoutPoint> {
     } else {
         (0.0, 0.0)
     };
-    if anchor_delta != 0.0
-        && port_delta != 0.0
+
+    if !::core::matches!(::core::primitive::f64::classify(anchor_delta), ::core::num::FpCategory::Zero)
+        && !::core::matches!(::core::primitive::f64::classify(port_delta), ::core::num::FpCategory::Zero)
         && anchor_delta.signum() == port_delta.signum()
         && anchor_delta.abs() > port_delta.abs()
     {
         points.remove(points.len() - 2);
     }
+
     let mut simplified = vec![points[0].clone()];
+
     for index in 1..points.len() - 1 {
         let previous = simplified.last().expect("source port");
         let current = &points[index];
         let next = &points[index + 1];
-        if index != 1 {
-            let horizontal =
-                (previous.y - current.y).abs() < EPSILON && (current.y - next.y).abs() < EPSILON;
-            let vertical =
-                (previous.x - current.x).abs() < EPSILON && (current.x - next.x).abs() < EPSILON;
-            if (horizontal && (current.x > previous.x) == (next.x > current.x))
-                || (vertical && (current.y > previous.y) == (next.y > current.y))
-            {
-                continue;
-            }
+
+        match index {
+            1 => {},
+            _ => {
+                let horizontal_2 =
+                    (previous.y - current.y).abs() < EPSILON && (current.y - next.y).abs() < EPSILON;
+                let vertical_2 =
+                    (previous.x - current.x).abs() < EPSILON && (current.x - next.x).abs() < EPSILON;
+
+                if (horizontal_2 && (current.x > previous.x) == (next.x > current.x))
+                    || (vertical_2 && (current.y > previous.y) == (next.y > current.y))
+                {
+                    continue;
+                }
+            },
         }
+
         simplified.push(current.clone());
     }
+
     simplified.push(points.last().expect("destination port").clone());
     simplified
 }
 
+#[must_use]
 fn coordinate_index(values: &[f64], target: f64) -> Option<usize> {
     values
         .iter()
         .position(|value| (*value - target).abs() <= EPSILON)
 }
 
+#[must_use]
 fn state_key(x_index: usize, y_index: usize, axis: Axis) -> (usize, usize, Axis) {
     (x_index, y_index, axis)
 }
 
+#[must_use]
 fn a_star_grid_upper_bound(obstacle_count: usize) -> usize {
     let axis_coordinates = obstacle_count.saturating_mul(2).saturating_add(4);
     axis_coordinates.saturating_mul(axis_coordinates)
 }
 
+#[must_use]
 fn a_star_grid_setup_work_units(obstacle_count: usize) -> usize {
     let axis_coordinates = obstacle_count.saturating_mul(2).saturating_add(4);
     axis_coordinates
@@ -407,6 +440,7 @@ fn a_star_grid_setup_work_units(obstacle_count: usize) -> usize {
         .saturating_add(sorting_work_units(axis_coordinates).saturating_mul(2))
 }
 
+#[must_use]
 fn a_star_preflight_work_units(obstacle_count: usize) -> usize {
     a_star_grid_upper_bound(obstacle_count)
         .saturating_add(a_star_grid_setup_work_units(obstacle_count))
@@ -430,14 +464,16 @@ fn a_star_path(
         .map(|points| points.len().saturating_sub(1))
         .fold(0usize, usize::saturating_add);
 
-    // Charge coordinate storage and both stable sorts before allocating either axis vector.
+
     work_budget.charge(a_star_grid_setup_work_units(obstacle_count))?;
     let mut x_values = vec![start.x, end.x];
     let mut y_values = vec![start.y, end.y];
+
     for (id, obstacle) in obstacles {
         if excluded.contains(&id.as_str()) {
             continue;
         }
+
         x_values.extend([
             obstacle.left - VERTICAL_PIPE_MARGIN,
             obstacle.right + VERTICAL_PIPE_MARGIN,
@@ -447,6 +483,7 @@ fn a_star_path(
             obstacle.bottom + HORIZONTAL_PIPE_MARGIN,
         ]);
     }
+
     let min_x = x_values.iter().copied().fold(f64::INFINITY, f64::min);
     let max_x = x_values.iter().copied().fold(f64::NEG_INFINITY, f64::max);
     let min_y = y_values.iter().copied().fold(f64::INFINITY, f64::min);
@@ -458,18 +495,42 @@ fn a_star_path(
     x_values.dedup_by(|left, right| (*left - *right).abs() <= EPSILON);
     y_values.dedup_by(|left, right| (*left - *right).abs() <= EPSILON);
 
-    let Some(start_x) = coordinate_index(&x_values, start.x) else {
-        return Ok(None);
+    let start_x = {
+        let optional_start_x = coordinate_index(&x_values, start.x);
+
+        match optional_start_x {
+            Some(matched_start_x) => matched_start_x,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
-    let Some(start_y) = coordinate_index(&y_values, start.y) else {
-        return Ok(None);
+
+    let start_y = {
+        let optional_start_y = coordinate_index(&y_values, start.y);
+
+        match optional_start_y {
+            Some(matched_start_y) => matched_start_y,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
-    let Some(end_x) = coordinate_index(&x_values, end.x) else {
-        return Ok(None);
+
+    let end_x = {
+        let optional_end_x = coordinate_index(&x_values, end.x);
+
+        match optional_end_x {
+            Some(matched_end_x) => matched_end_x,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
-    let Some(end_y) = coordinate_index(&y_values, end.y) else {
-        return Ok(None);
+
+    let end_y = {
+        let optional_end_y = coordinate_index(&y_values, end.y);
+
+        match optional_end_y {
+            Some(matched_end_y) => matched_end_y,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let start_key = state_key(start_x, start_y, Axis::None);
     let mut open = BinaryHeap::new();
     open.push(QueueState {
@@ -487,58 +548,73 @@ fn a_star_path(
     while let Some(current) = open.pop() {
         work_budget.charge(1)?;
         let key = state_key(current.x_index, current.y_index, current.axis);
-        if current.cost > score.get(&key).copied().unwrap_or(f64::INFINITY) + EPSILON {
+
+        if current.cost > (match score.get(&key).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => f64::INFINITY,
+        }) + EPSILON {
             continue;
         }
+
         if current.x_index == end_x && current.y_index == end_y {
             goal = Some(key);
             break;
         }
+
         let current_point = LayoutPoint {
             x: x_values[current.x_index],
             y: y_values[current.y_index],
         };
         let mut neighbors = Vec::with_capacity(4);
+
         if current.x_index > 0 {
             neighbors.push((current.x_index - 1, current.y_index, Axis::Horizontal));
         }
+
         if current.x_index + 1 < x_values.len() {
             neighbors.push((current.x_index + 1, current.y_index, Axis::Horizontal));
         }
+
         if current.y_index > 0 {
             neighbors.push((current.x_index, current.y_index - 1, Axis::Vertical));
         }
+
         if current.y_index + 1 < y_values.len() {
             neighbors.push((current.x_index, current.y_index + 1, Axis::Vertical));
         }
 
-        for (next_x, next_y, next_axis) in neighbors {
+        'inner_for_2: for (next_x, next_y, next_axis) in neighbors {
             let next_point = LayoutPoint {
                 x: x_values[next_x],
                 y: y_values[next_y],
             };
             work_budget.charge(obstacle_count.saturating_mul(2))?;
+
             if obstacles.iter().any(|(id, rect)| {
                 !excluded.contains(&id.as_str()) && rect.contains_point(&next_point, 0.0)
             }) || segment_blocked(&current_point, &next_point, obstacles, excluded)
             {
-                continue;
+                continue 'inner_for_2;
             }
+
             let move_x = next_point.x - current_point.x;
             let move_y = next_point.y - current_point.y;
             let destination_x = end.x - start.x;
             let destination_y = end.y - start.y;
             let mut direction_penalty = 0.0;
+
             if (destination_y > DIRECTION_SIGNIFICANCE && move_y < -OPPOSITE_MOVE_THRESHOLD)
                 || (destination_y < -DIRECTION_SIGNIFICANCE && move_y > OPPOSITE_MOVE_THRESHOLD)
             {
                 direction_penalty += move_y.abs() * WRONG_VERTICAL_DIRECTION_FACTOR;
             }
+
             if (destination_x > DIRECTION_SIGNIFICANCE && move_x < -OPPOSITE_MOVE_THRESHOLD)
                 || (destination_x < -DIRECTION_SIGNIFICANCE && move_x > OPPOSITE_MOVE_THRESHOLD)
             {
                 direction_penalty += move_x.abs() * WRONG_HORIZONTAL_DIRECTION_FACTOR;
             }
+
             let bend_penalty = if current.axis != Axis::None && current.axis != next_axis {
                 BEND_PENALTY
             } else {
@@ -552,9 +628,14 @@ fn a_star_path(
                 + direction_penalty
                 + crossing_cost(&current_point, &next_point, routed);
             let next_key = state_key(next_x, next_y, next_axis);
-            if next_cost + EPSILON >= score.get(&next_key).copied().unwrap_or(f64::INFINITY) {
-                continue;
+
+            if next_cost + EPSILON >= match score.get(&next_key).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => f64::INFINITY,
+            } {
+                continue 'inner_for_2;
             }
+
             score.insert(next_key, next_cost);
             previous.insert(next_key, key);
             let heuristic = (next_point.x - end.x).abs() + (next_point.y - end.y).abs();
@@ -568,27 +649,40 @@ fn a_star_path(
         }
     }
 
-    let Some(mut current) = goal else {
-        return Ok(None);
+    let mut current = match goal {
+        Some(matched_current) => matched_current,
+        ::core::option::Option::None => return Ok(None),
     };
+
     let mut reversed = Vec::new();
+
     loop {
         reversed.push(LayoutPoint {
             x: x_values[current.0],
             y: y_values[current.1],
         });
+
         if current == start_key {
             break;
         }
-        let Some(previous) = previous.get(&current) else {
-            return Ok(None);
+
+        let previous_2 = {
+            let optional_previous = previous.get(&current);
+
+            match optional_previous {
+                Some(matched_previous) => matched_previous,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        current = *previous;
+
+        current = *previous_2;
     }
+
     reversed.reverse();
     Ok(Some(simplify_polyline(&reversed)))
 }
 
+#[must_use]
 fn self_loop_route(node: &NodeGeometry) -> Vec<LayoutPoint> {
     let right = node.x + node.width / 2.0;
     let top = node.y - node.height / 2.0;
@@ -655,14 +749,22 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
         .collect();
 
     let mut side_info = vec![None; layout.original_edges.len()];
+
     for (index, edge) in layout.original_edges.iter().enumerate() {
-        let (Some(source), Some(target)) = (geometries.get(&edge.from), geometries.get(&edge.to))
-        else {
-            continue;
+        let (source, target) = {
+            let outcome_source = (geometries.get(&edge.from), geometries.get(&edge.to));
+
+            match outcome_source {
+                (Some(matched_source), Some(matched_target)) => (matched_source, matched_target),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => continue,
+            }
         };
+
         if edge.from == edge.to {
             continue;
         }
+
         let dx = target.x - source.x;
         let dy = target.y - source.y;
         side_info[index] = Some(EdgeSideInfo {
@@ -687,15 +789,16 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
             ),
             abs_dx: dx.abs(),
             abs_dy: dy.abs(),
-            dx_sign: if dx == 0.0 { 0.0 } else { dx.signum() },
-            dy_sign: if dy == 0.0 { 0.0 } else { dy.signum() },
+            dx_sign: if ::core::matches!(::core::primitive::f64::classify(dx), ::core::num::FpCategory::Zero) { 0.0 } else { dx.signum() },
+            dy_sign: if ::core::matches!(::core::primitive::f64::classify(dy), ::core::num::FpCategory::Zero) { 0.0 } else { dy.signum() },
         });
     }
 
-    // Raykov Step 6.2 (diss.pdf section 6.1.2.2): preserve the strongest
-    // preferred source side and move weaker siblings to a less-loaded secondary side.
+
+
     let mut source_side_groups: IndexMap<(String, Side), Vec<usize>> = IndexMap::new();
     let mut side_load: HashMap<(String, Side), usize> = HashMap::new();
+
     for info in side_info.iter().flatten() {
         source_side_groups
             .entry((info.source_id.clone(), info.source_side))
@@ -708,10 +811,12 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
             .entry((info.target_id.clone(), info.target_side))
             .or_default() += 1;
     }
+
     for group in source_side_groups.values_mut() {
         if group.len() < 2 {
             continue;
         }
+
         group.sort_by(|left, right| {
             let left_strength = preference_strength(side_info[*left].as_ref().expect("side info"));
             let right_strength =
@@ -720,28 +825,43 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
                 .total_cmp(&left_strength)
                 .then_with(|| left.cmp(right))
         });
-        for edge_index in group.iter().skip(1).copied() {
+
+        'over_edge_index_2: for edge_index in group.iter().skip(1).copied() {
             let info = side_info[edge_index].as_ref().expect("side info");
             let (preferred, alternative) = secondary_sides(info);
-            let secondary = alternative
+            let secondary = match alternative
                 .filter(|side| {
-                    side_load
+                    (match side_load
                         .get(&(info.source_id.clone(), *side))
-                        .copied()
-                        .unwrap_or(0)
-                        < side_load
+                        .copied() {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0,
+                    })
+                        < match side_load
                             .get(&(info.source_id.clone(), preferred))
-                            .copied()
-                            .unwrap_or(0)
-                })
-                .unwrap_or(preferred);
+                            .copied() {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => 0,
+                        }
+                }) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => preferred,
+            };
             let primary_key = (info.source_id.clone(), info.source_side);
             let secondary_key = (info.source_id.clone(), secondary);
-            let primary_load = side_load.get(&primary_key).copied().unwrap_or(0);
-            let secondary_load = side_load.get(&secondary_key).copied().unwrap_or(0);
+            let primary_load = match side_load.get(&primary_key).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            };
+            let secondary_load = match side_load.get(&secondary_key).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            };
+
             if secondary_load >= primary_load {
-                continue;
+                continue 'over_edge_index_2;
             }
+
             side_load.insert(primary_key, primary_load.saturating_sub(1));
             side_load.insert(secondary_key, secondary_load + 1);
             side_info[edge_index]
@@ -751,53 +871,78 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
         }
     }
 
-    // Step 6.2b: diamond nodes need bimodal in/out side intervals. Their pointy
-    // faces cannot safely host an incoming and outgoing connector on one pin.
+
+
     let mut incoming_sides: HashMap<String, std::collections::HashSet<Side>> = HashMap::new();
+
     for info in side_info.iter().flatten() {
         incoming_sides
             .entry(info.target_id.clone())
             .or_default()
             .insert(info.target_side);
     }
+
     for info in side_info.iter_mut().flatten() {
-        let Some(source) = geometries.get(&info.source_id) else {
-            continue;
+        let source = {
+            let optional_source = geometries.get(&info.source_id);
+
+            match optional_source {
+                Some(matched_source) => matched_source,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !matches!(source.shape.as_str(), "question" | "diamond") {
             continue;
         }
-        let Some(used_by_incoming) = incoming_sides.get(&info.source_id) else {
-            continue;
+
+        let used_by_incoming = {
+            let optional_used_by_incoming = incoming_sides.get(&info.source_id);
+
+            match optional_used_by_incoming {
+                Some(matched_used_by_incoming) => matched_used_by_incoming,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !used_by_incoming.contains(&info.source_side) {
             continue;
         }
+
         let secondary = secondary_side(info);
+
         if used_by_incoming.contains(&secondary)
-            || side_load
+            || (match side_load
                 .get(&(info.source_id.clone(), secondary))
-                .copied()
-                .unwrap_or(0)
+                .copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            })
                 > 0
         {
             continue;
         }
+
         let primary_key = (info.source_id.clone(), info.source_side);
         let secondary_key = (info.source_id.clone(), secondary);
-        let primary_load = side_load.get(&primary_key).copied().unwrap_or(0);
+        let primary_load = match side_load.get(&primary_key).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        };
         side_load.insert(primary_key, primary_load.saturating_sub(1));
         side_load.insert(secondary_key, 1);
         info.source_side = secondary;
     }
 
     let mut outgoing_sides: HashMap<String, HashSet<Side>> = HashMap::new();
+
     for info in side_info.iter().flatten() {
         outgoing_sides
             .entry(info.source_id.clone())
             .or_default()
             .insert(info.source_side);
     }
+
     for info in side_info.iter_mut().flatten() {
         if !geometries
             .get(&info.target_id)
@@ -805,12 +950,14 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
         {
             continue;
         }
+
         let Some(outgoing) = outgoing_sides
             .get(&info.target_id)
             .filter(|sides| sides.contains(&info.target_side))
         else {
             continue;
         };
+
         let secondary = if matches!(info.target_side, Side::Top | Side::Bottom) {
             if info.dx_sign >= 0.0 {
                 Side::Left
@@ -823,12 +970,20 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
             Side::Bottom
         };
         let secondary_key = (info.target_id.clone(), secondary);
-        if outgoing.contains(&secondary) || side_load.get(&secondary_key).copied().unwrap_or(0) > 0
+
+        if outgoing.contains(&secondary) || (match side_load.get(&secondary_key).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        }) > 0
         {
             continue;
         }
+
         let primary_key = (info.target_id.clone(), info.target_side);
-        let primary = side_load.get(&primary_key).copied().unwrap_or(0);
+        let primary = match side_load.get(&primary_key).copied() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        };
         side_load.insert(primary_key, primary.saturating_sub(1));
         side_load.insert(secondary_key, 1);
         info.target_side = secondary;
@@ -837,18 +992,24 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
         } else {
             Side::Top
         };
+
         if matches!(secondary, Side::Top | Side::Bottom)
             && incoming_sides
                 .get(&info.source_id)
                 .is_some_and(|sides| sides.contains(&info.source_side) && !sides.contains(&facing))
-            && side_load
+            && (match side_load
                 .get(&(info.source_id.clone(), facing))
-                .copied()
-                .unwrap_or(0)
+                .copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            })
                 == 0
         {
             let key = (info.source_id.clone(), info.source_side);
-            let load = side_load.get(&key).copied().unwrap_or(0);
+            let load = match side_load.get(&key).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0,
+            };
             side_load.insert(key, load.saturating_sub(1));
             side_load.insert((info.source_id.clone(), facing), 1);
             info.source_side = facing;
@@ -856,6 +1017,7 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
     }
 
     let mut port_groups: IndexMap<(String, Side, bool), Vec<(usize, f64)>> = IndexMap::new();
+
     for info in side_info.iter().flatten() {
         let source = &geometries[&info.source_id];
         let target = &geometries[&info.target_id];
@@ -878,14 +1040,23 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
     }
 
     let mut offsets: HashMap<(usize, bool), f64> = HashMap::new();
+
     for ((node_id, side, source_role), group) in &mut port_groups {
         if group.len() < 2 {
             continue;
         }
+
         group.sort_by(|left, right| left.1.total_cmp(&right.1));
-        let Some(node) = geometries.get(node_id) else {
-            continue;
+
+        let node = {
+            let optional_node = geometries.get(node_id);
+
+            match optional_node {
+                Some(matched_node) => matched_node,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let side_length = match side {
             Side::Left | Side::Right => node.height,
             Side::Top | Side::Bottom => node.width,
@@ -896,18 +1067,19 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
             side_length
         };
         let spacing = effective_length / (group.len() + 1) as f64;
-        let spacing = if spacing.is_nan() {
+        let spacing_2 = if spacing.is_nan() {
             MIN_PORT_SPACING
         } else {
             spacing
                 .clamp(MIN_PORT_SPACING, MAX_PORT_SPACING)
                 .min(effective_length / group.len().saturating_sub(1) as f64)
         };
-        let start = -spacing * group.len().saturating_sub(1) as f64 / 2.0;
+        let start = -spacing_2 * group.len().saturating_sub(1) as f64 / 2.0;
+
         for (position, (edge_index, _)) in group.iter().enumerate() {
             offsets.insert(
                 (*edge_index, *source_role),
-                start + position as f64 * spacing,
+                start + position as f64 * spacing_2,
             );
         }
     }
@@ -920,9 +1092,9 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
             let target = geometries.get(&edge.to);
             let cross_lane = source
                 .zip(target)
-                .is_some_and(|(source, target)| source.top_lane_id != target.top_lane_id);
-            let distance = source.zip(target).map_or(0.0, |(source, target)| {
-                (source.x - target.x).abs() + (source.y - target.y).abs()
+                .is_some_and(|(source_2, target_2)| source_2.top_lane_id != target_2.top_lane_id);
+            let distance = source.zip(target).map_or(0.0, |(source_3, target_3)| {
+                (source_3.x - target_3.x).abs() + (source_3.y - target_3.y).abs()
             });
             (cross_lane, distance)
         };
@@ -937,32 +1109,48 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
     let mut routed = Vec::new();
     let mut results: HashMap<usize, Vec<LayoutPoint>> = HashMap::new();
     let mut centered_straight_edges = HashSet::new();
+
     for &index in &routing_order {
         let edge = &layout.original_edges[index];
-        let (Some(source), Some(target)) = (geometries.get(&edge.from), geometries.get(&edge.to))
-        else {
-            continue;
+
+        let (source, target) = {
+            let outcome_source = (geometries.get(&edge.from), geometries.get(&edge.to));
+
+            match outcome_source {
+                (Some(matched_source), Some(matched_target)) => (matched_source, matched_target),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => continue,
+            }
         };
+
         if edge.from == edge.to {
             let points = self_loop_route(source);
             routed.push(points.clone());
             results.insert(index, points);
             continue;
         }
+
         let Some(info) = &side_info[index] else {
             continue;
         };
+
         let source_side = info.source_side;
         let target_side = info.target_side;
         let source_port = offset_port(
             port_for_side(source, source_side),
             source_side,
-            offsets.get(&(index, true)).copied().unwrap_or(0.0),
+            match offsets.get(&(index, true)).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            },
         );
         let target_port = offset_port(
             port_for_side(target, target_side),
             target_side,
-            offsets.get(&(index, false)).copied().unwrap_or(0.0),
+            match offsets.get(&(index, false)).copied() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            },
         );
         let mut source_anchor = anchor_for_port(&source_port, source, source_side);
         let mut target_anchor = anchor_for_port(&target_port, target, target_side);
@@ -976,9 +1164,14 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
             &obstacles,
             &excluded,
         );
-        if let Some(handle) = &source_handle {
-            source_anchor = handle.anchor.clone();
+
+        match &source_handle {
+            Some(handle) => {
+                source_anchor = handle.anchor.clone();
+            },
+            ::core::option::Option::None => {},
         }
+
         let target_handle = buried_anchor_handle(
             &target_port,
             &target_anchor,
@@ -987,9 +1180,14 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
             &obstacles,
             &excluded,
         );
-        if let Some(handle) = &target_handle {
-            target_anchor = handle.anchor.clone();
+
+        match &target_handle {
+            Some(handle) => {
+                target_anchor = handle.anchor.clone();
+            },
+            ::core::option::Option::None => {},
         }
+
         let middle = if let Some(path) =
             direct_path(&source_anchor, &target_anchor, &obstacles, &excluded)
         {
@@ -1021,17 +1219,27 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
                 .map_or(0, |handle| handle.waypoints_from_port.len());
         let mut points = Vec::with_capacity(middle.len() + handle_capacity + 2);
         points.push(source_port);
-        if let Some(handle) = &source_handle {
-            points.extend(handle.waypoints_from_port.iter().cloned());
-            points.extend(middle.iter().skip(1).cloned());
-        } else {
-            points.extend(middle);
+
+        match &source_handle {
+            Some(handle) => {
+                points.extend(handle.waypoints_from_port.iter().cloned());
+                points.extend(middle.iter().skip(1).cloned());
+            },
+            ::core::option::Option::None => {
+                points.extend(middle);
+            },
         }
-        if let Some(handle) = &target_handle {
-            points.extend(handle.waypoints_from_port.iter().rev().skip(1).cloned());
+
+        match &target_handle {
+            Some(handle) => {
+                points.extend(handle.waypoints_from_port.iter().rev().skip(1).cloned());
+            },
+            ::core::option::Option::None => {},
         }
+
         points.push(target_port);
         let centered = simplify_polyline(&points);
+
         if centered.len() == 2
             && !offsets.contains_key(&(index, true))
             && !offsets.contains_key(&(index, false))
@@ -1040,13 +1248,14 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
         {
             centered_straight_edges.insert(index);
         }
-        let points = if centered_straight_edges.contains(&index) {
+
+        let points_2 = if centered_straight_edges.contains(&index) {
             centered
         } else {
             prepare_routed_points(points)
         };
-        routed.push(points.clone());
-        results.insert(index, points);
+        routed.push(points_2.clone());
+        results.insert(index, points_2);
     }
 
     let staging_work = layout
@@ -1057,9 +1266,11 @@ pub(super) fn route(layout: &mut WorkingLayout, work_budget: &mut LayoutWorkBudg
         });
     work_budget.charge(staging_work)?;
     let mut staged_edges = layout.original_edges.clone();
+
     for (index, points) in results {
         staged_edges[index].points = points;
     }
+
     tracks::assign_tracks(
         &mut staged_edges,
         &routing_order,
@@ -1298,8 +1509,8 @@ mod tests {
     #[test]
     fn detours_an_anchor_that_starts_inside_a_foreign_obstacle() {
         let source = node("source", 0.0, 0.0, 40.0, 40.0);
-        // The source bottom anchor is (0, 40). The padded blocker spans
-        // x=[-28, 28], y=[32, 78], so that anchor is buried inside it.
+
+
         let blocker = node("blocker", 0.0, 55.0, 40.0, 30.0);
         let target = node("target", 0.0, 200.0, 40.0, 40.0);
         let mut layout = layout(
@@ -1337,8 +1548,8 @@ mod tests {
     fn detours_an_anchor_that_ends_inside_a_foreign_obstacle() {
         let source = node("source", 0.0, 0.0, 40.0, 40.0);
         let blocker = node("blocker", 0.0, 145.0, 40.0, 30.0);
-        // The target top anchor is (0, 160). The padded blocker spans
-        // x=[-28, 28], y=[122, 168], so that anchor is buried inside it.
+
+
         let target = node("target", 0.0, 200.0, 40.0, 40.0);
         let mut layout = layout(
             vec![source, blocker.clone(), target],
@@ -1374,8 +1585,8 @@ mod tests {
     #[test]
     fn detours_a_horizontal_anchor_inside_a_foreign_obstacle() {
         let source = node("source", 0.0, 0.0, 40.0, 40.0);
-        // The source right anchor is (40, 0). The padded blocker spans
-        // x=[32, 78], y=[-28, 28], so that anchor is buried inside it.
+
+
         let blocker = node("blocker", 55.0, 0.0, 30.0, 40.0);
         let target = node("target", 200.0, 0.0, 40.0, 40.0);
         let mut layout = layout(

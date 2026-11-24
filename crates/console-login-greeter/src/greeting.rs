@@ -13,10 +13,11 @@
 //! nothing above it is the pad going onto the bar, and a finger put down on the
 //! ring takes away a row the bar had down.
 
+use console_core_geometry::{Point, Size};
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue, Transition};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_input_event_devices::presses::ButtonPress;
-use console_login_pattern::{Clicked, Direction, Pattern, Touch};
+use console_login_pattern::{Clicked, Direction, Pattern, Target, Touch};
 use console_login_window::protocol::{FromGreeter, ToGreeter};
 use console_program_contract::{Effect, Event, Exit};
 use console_status_bar::lock_screen::{LockScreenBar, LockScreenBarEffect, LockScreenBarEvent};
@@ -40,6 +41,58 @@ pub struct Greeting {
 pub struct GreeterState {
   pub greeting: Greeting,
   pub bar: LockScreenBar,
+  pub fingerprint: Fingerprint,
+  pub fingerprint_focused: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum Fingerprint {
+  #[default]
+  Hidden,
+  Available,
+  Scanning,
+  Retry,
+}
+
+pub const FINGERPRINT_BUTTON: Point<i32> = Point { x: 220, y: 451 };
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PatternFocus {
+  Dot,
+  Submit,
+}
+
+impl GreeterState {
+  #[must_use]
+  pub fn pattern_focus(&self) -> Result<PatternFocus, Never> {
+    Ok(match self.greeting.pattern.at {
+      Target::Dot(_) => PatternFocus::Dot,
+      Target::Login => PatternFocus::Submit,
+    })
+  }
+}
+
+pub const FINGERPRINT_SIZE: Size<u32> = Size {
+  width: 278,
+  height: 54,
+};
+
+#[derive(PartialEq, Eq)]
+enum FingerprintHit {
+  Inside,
+  Outside,
+}
+
+fn fingerprint_hit(at: Point<i32>) -> Result<FingerprintHit, Never> {
+  let inside = at.x.abs_diff(FINGERPRINT_BUTTON.x)
+    <= ::core::primitive::u32::wrapping_div(FINGERPRINT_SIZE.width, 2)
+    && at.y.abs_diff(FINGERPRINT_BUTTON.y)
+      <= ::core::primitive::u32::wrapping_div(FINGERPRINT_SIZE.height, 2);
+
+  Ok(match inside.then_some(()) {
+    Some(()) => FingerprintHit::Inside,
+    None => FingerprintHit::Outside,
+  })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -54,6 +107,15 @@ pub enum GreeterEvent {
 pub enum GreeterEffect {
   Send(FromGreeter),
   Bar(LockScreenBarEffect),
+}
+
+impl EffectDependencies for GreeterEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Send(_) => &[Service::Session],
+      Self::Bar(effect) => return effect.services(),
+    })
+  }
 }
 
 pub struct Greeter;
@@ -77,6 +139,8 @@ impl Machine for Greeter {
         status: status.clone(),
       },
       bar: LockScreenBar::default(),
+      fingerprint: Fingerprint::Hidden,
+      fingerprint_focused: false,
     })
   }
 
@@ -85,47 +149,20 @@ impl Machine for Greeter {
     event: Event<GreeterEvent>,
     effects: &mut Effects,
   ) -> Result<GreeterState, Never> {
-    let GreeterState { greeting, bar } = state;
-
-    match (&greeting.status, event) {
-      (_, Event::Custom(GreeterEvent::Received(received))) => {
-        let Ok(greeting_2) = on_reply(greeting, received, effects);
-
-        Ok(GreeterState {
-          greeting: greeting_2,
-          bar,
-        })
-      }
-      (_, Event::Custom(GreeterEvent::Bar(asked))) => {
-        barred(GreeterState { greeting, bar }, asked, effects)
-      }
+    match (&state.greeting.status, event) {
+      (_, Event::Custom(GreeterEvent::Received(received))) => on_reply(state, received, effects),
+      (_, Event::Custom(GreeterEvent::Bar(asked))) => barred(state, asked, effects),
       (Status::Checking, Event::Custom(GreeterEvent::Pressed(_) | GreeterEvent::Touched(_))) => {
-        Ok(GreeterState { greeting, bar })
+        Ok(state)
       }
       (
         Status::Waiting | Status::Fell | Status::Failed(_) | Status::Message(_),
         Event::Custom(GreeterEvent::Pressed(press)),
-      ) => on_pad(GreeterState { greeting, bar }, press, effects),
+      ) => on_pad(state, press, effects),
       (
         Status::Waiting | Status::Fell | Status::Failed(_) | Status::Message(_),
         Event::Custom(GreeterEvent::Touched(touch)),
-      ) => {
-        let Ok(state_2) = match touch {
-          Touch::Down(_) => barred(
-            GreeterState { greeting, bar },
-            LockScreenBarEvent::Dismissed,
-            effects,
-          ),
-          Touch::Moved(_) | Touch::Up => Ok(GreeterState { greeting, bar }),
-        };
-        let Ok(clicked) = state_2.greeting.pattern.touch(touch);
-        let Ok(greeting_3) = on_click(state_2.greeting, clicked, effects);
-
-        Ok(GreeterState {
-          greeting: greeting_3,
-          ..state_2
-        })
-      }
+      ) => on_touch(state, touch, effects),
       (
         _,
         Event::Opened
@@ -135,12 +172,42 @@ impl Machine for Greeter {
         | Event::Written(_)
         | Event::Chosen(_)
         | Event::Stopping,
-      ) => Ok(GreeterState { greeting, bar }),
+      ) => Ok(state),
     }
   }
 }
 
 type Effects = Queue<Effect<GreeterEffect>>;
+
+fn on_touch(
+  state: GreeterState,
+  touch: Touch,
+  effects: &mut Effects,
+) -> Result<GreeterState, Never> {
+  let mut touching = match touch {
+    Touch::Down(at) => {
+      let Ok(mut dismissed) = barred(state, LockScreenBarEvent::Dismissed, effects);
+      dismissed.fingerprint_focused = false;
+      let Ok(hit) = fingerprint_hit(at);
+
+      match (dismissed.fingerprint, hit) {
+        (
+          Fingerprint::Available | Fingerprint::Scanning | Fingerprint::Retry,
+          FingerprintHit::Inside,
+        ) => {
+          return scan(dismissed, effects);
+        }
+        (Fingerprint::Hidden, _) | (_, FingerprintHit::Outside) => dismissed,
+      }
+    }
+    Touch::Moved(_) | Touch::Up => state,
+  };
+  let Ok(clicked) = touching.greeting.pattern.touch(touch);
+  let Ok(greeting) = on_click(touching.greeting, clicked, effects);
+  touching.greeting = greeting;
+
+  Ok(touching)
+}
 
 fn barred(
   state: GreeterState,
@@ -164,9 +231,33 @@ fn on_pad(
   press: ButtonPress,
   effects: &mut Effects,
 ) -> Result<GreeterState, Never> {
-  match (state.bar.focus, press) {
-    (Some(_), _) => barred(state, LockScreenBarEvent::Pressed(press), effects),
-    (None, ButtonPress::Up) => {
+  let Ok(pattern_focus) = state.pattern_focus();
+
+  match (
+    state.bar.focus,
+    state.fingerprint_focused,
+    press,
+    pattern_focus,
+    state.fingerprint,
+  ) {
+    (Some(_), _, _, _, _) => barred(state, LockScreenBarEvent::Pressed(press), effects),
+    (None, true, ButtonPress::Choose, _, _) => scan(state, effects),
+    (None, true, ButtonPress::Up | ButtonPress::Back, _, _) => Ok(GreeterState {
+      fingerprint_focused: false,
+      ..state
+    }),
+    (None, true, ButtonPress::Left | ButtonPress::Right | ButtonPress::Down, _, _) => Ok(state),
+    (
+      None,
+      false,
+      ButtonPress::Down,
+      PatternFocus::Submit,
+      Fingerprint::Available | Fingerprint::Scanning | Fingerprint::Retry,
+    ) => Ok(GreeterState {
+      fingerprint_focused: true,
+      ..state
+    }),
+    (None, false, ButtonPress::Up, _, _) => {
       let Ok(pattern) = state.greeting.pattern.moved(Direction::Up);
 
       match ::core::primitive::bool::then_some(pattern.at == state.greeting.pattern.at, ()) {
@@ -182,17 +273,37 @@ fn on_pad(
     }
     (
       None,
+      false,
       ButtonPress::Down
       | ButtonPress::Left
       | ButtonPress::Right
       | ButtonPress::Back
       | ButtonPress::Choose,
+      _,
+      _,
     ) => {
       let Ok(greeting) = on_press(state.greeting, press, effects);
 
       Ok(GreeterState { greeting, ..state })
     }
   }
+}
+
+fn scan(mut state: GreeterState, effects: &mut Effects) -> Result<GreeterState, Never> {
+  match state.fingerprint {
+    Fingerprint::Available | Fingerprint::Retry => {
+      let Ok(pattern) = state.greeting.pattern.lifted();
+      let Ok(()) = effects.offer(Effect::Custom(GreeterEffect::Send(
+        FromGreeter::Fingerprint,
+      )));
+
+      state.greeting.pattern = pattern;
+      state.fingerprint = Fingerprint::Scanning;
+    }
+    Fingerprint::Hidden | Fingerprint::Scanning => {}
+  }
+
+  Ok(state)
 }
 
 fn moved(greeting: Greeting, direction: Direction) -> Result<Greeting, Never> {
@@ -255,27 +366,41 @@ fn on_click(
 }
 
 fn on_reply(
-  greeting: Greeting,
+  state: GreeterState,
   received: ToGreeter,
   effects: &mut Effects,
-) -> Result<Greeting, Never> {
+) -> Result<GreeterState, Never> {
   match received {
     ToGreeter::Welcome => {
       let Ok(()) = effects.offer(Effect::Stop(Exit::Success));
 
-      Ok(greeting)
+      Ok(state)
     }
     ToGreeter::Failed(why) => {
-      let Ok(cleared) = greeting.pattern.cleared();
+      let Ok(cleared) = state.greeting.pattern.cleared();
 
-      Ok(Greeting {
-        pattern: cleared,
-        status: Status::Failed(why),
+      Ok(GreeterState {
+        greeting: Greeting {
+          pattern: cleared,
+          status: Status::Failed(why),
+        },
+        ..state
       })
     }
-    ToGreeter::Message(text) => Ok(Greeting {
-      status: Status::Message(text),
-      ..greeting
+    ToGreeter::Message(text) => Ok(GreeterState {
+      greeting: Greeting {
+        status: Status::Message(text),
+        ..state.greeting
+      },
+      ..state
+    }),
+    ToGreeter::FingerprintAvailable => Ok(GreeterState {
+      fingerprint: Fingerprint::Available,
+      ..state
+    }),
+    ToGreeter::FingerprintFailed => Ok(GreeterState {
+      fingerprint: Fingerprint::Retry,
+      ..state
     }),
   }
 }
@@ -357,11 +482,42 @@ mod tests {
         status: Status::Checking,
       },
       bar: LockScreenBar::default(),
+      fingerprint: Fingerprint::Hidden,
+      fingerprint_focused: false,
     };
     let Ok(events) = press_events(&[ButtonPress::Up, ButtonPress::Choose]);
     let Ok(trace) = run_from::<Greeter>(checking.clone(), &events);
 
     assert_eq!(trace.state, checking);
+  }
+
+  #[test]
+  fn the_fingerprint_button_requires_enrollment_and_leaves_pattern_input_live() {
+    let tapped = Event::Custom(GreeterEvent::Touched(Touch::Down(FINGERPRINT_BUTTON)));
+    let Ok(hidden) = run::<Greeter>(&Status::Waiting, &[tapped.clone()]);
+    let Ok(effects) = hidden.effects();
+
+    assert!(effects.is_empty());
+
+    let events = [
+      Event::Custom(GreeterEvent::Received(ToGreeter::FingerprintAvailable)),
+      tapped,
+      Event::Custom(GreeterEvent::Touched(Touch::Down(Point { x: 220, y: 18 }))),
+      Event::Custom(GreeterEvent::Received(ToGreeter::FingerprintFailed)),
+      Event::Custom(GreeterEvent::Touched(Touch::Up)),
+    ];
+    let Ok(retried) = run::<Greeter>(&Status::Waiting, &events);
+    let Ok(effects_2) = retried.effects();
+
+    assert_eq!(retried.state.fingerprint, Fingerprint::Retry);
+    assert_eq!(retried.state.greeting.status, Status::Checking);
+    assert_eq!(
+      effects_2,
+      vec![
+        Effect::Custom(GreeterEffect::Send(FromGreeter::Fingerprint)),
+        Effect::Custom(GreeterEffect::Send(FromGreeter::Login("a".to_owned()))),
+      ]
+    );
   }
 
   #[test]
@@ -376,6 +532,8 @@ mod tests {
         status: Status::Checking,
       },
       bar: LockScreenBar::default(),
+      fingerprint: Fingerprint::Hidden,
+      fingerprint_focused: false,
     };
     let events = [Event::Custom(GreeterEvent::Received(ToGreeter::Failed(
       String::from("no"),
@@ -405,6 +563,8 @@ mod tests {
         status: Status::Checking,
       },
       bar: LockScreenBar::default(),
+      fingerprint: Fingerprint::Hidden,
+      fingerprint_focused: false,
     };
     let Ok(trace) = run_from::<Greeter>(
       checking,

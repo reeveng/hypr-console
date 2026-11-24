@@ -9,7 +9,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_lined_cylinder(
     common: &super::super::FlowchartNodeRenderCommon<'_>,
     label: &mut super::super::FlowchartNodeLabelState<'_>,
 ) {
-    // Mirror Mermaid `linedCylinder.ts` (non-handDrawn) + translate.
+
     let w = common.layout_node.width.max(1.0);
     let rx = w / 2.0;
     let ry = rx / (2.5 + w / 50.0);
@@ -17,7 +17,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_lined_cylinder(
     let h = (out_h - 2.0 * ry).max(0.0);
     let outer_offset = h * 0.1;
 
-    // Mermaid moves the label down by `ry`.
+
     label.dy = ry;
 
     let path_data = format!(
@@ -34,9 +34,11 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_lined_cylinder(
         escape_attr(&path_data),
         escape_attr(common.style),
     );
+
     if ctx.security_level_loose {
         let _ = write!(out, r#" label-offset-y="{}""#, util::fmt(ry));
     }
+
     let _ = write!(
         out,
         r#" transform="translate({},{})"/>"#,

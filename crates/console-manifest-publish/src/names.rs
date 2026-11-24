@@ -151,36 +151,59 @@ pub fn forbidden_names() -> Result<(Vec<Watched>, Vec<String>), Never> {
     },
   );
 
-  let Ok(asked) = run_output(
-    Program::Ssh,
-    &[
-      "-o",
-      "BatchMode=yes",
-      "-o",
-      "ConnectTimeout=5",
-      &at,
-      "hostname; set -- $(ls -1 /home 2>/dev/null); \
-         if [ $# -eq 1 ]; then echo \"$1\"; else id -nu 1000; fi",
-    ],
-  );
+  let remote = |command: &str| {
+    let Ok(answer) = run_output(
+      Program::Ssh,
+      &[
+        "-o",
+        "BatchMode=yes",
+        "-o",
+        "ConnectTimeout=5",
+        "--",
+        &at,
+        command,
+      ],
+    );
 
-  let answered: Vec<String> = match asked {
-    Some(asked_2) => asked_2
-      .lines()
-      .map(str::trim)
-      .filter(|line| !line.is_empty())
-      .map(str::to_string)
-      .collect(),
-    None => Vec::new(),
+    answer
+  };
+  let Ok(hostname) = Program::Hostname.name();
+  let hostname_2 = remote(hostname);
+  let Ok(homes) = console_device_name::homes_command();
+  let listed = remote(&homes);
+  let Ok(home) = match listed.as_deref() {
+    Some(directories) => console_device_name::sole_home(directories),
+    None => Ok(None),
+  };
+  let owner = match home {
+    Some(name) => Some(name.to_owned()),
+    None => {
+      let Ok(fallback) = console_device_name::fallback_command();
+
+      match remote(&fallback) {
+        Some(output) => {
+          let Ok(name) = console_device_name::account(&output);
+
+          name.map(str::to_owned)
+        }
+        None => None,
+      }
+    }
   };
 
+  let hostname_3 = hostname_2
+    .as_deref()
+    .map(str::trim)
+    .filter(|name| !name.is_empty());
+  let answered = [hostname_3, owner.as_deref()];
+
   for (which, what) in ON_THE_DEVICE.iter().enumerate() {
-    match answered.get(which) {
+    match answered.get(which).copied().flatten() {
       Some(said) => {
         let Ok(()) = push(
           &mut names,
           Watched {
-            name: said.clone(),
+            name: said.to_owned(),
             what,
           },
         );

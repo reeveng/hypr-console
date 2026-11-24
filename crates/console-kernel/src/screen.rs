@@ -38,6 +38,7 @@
 
 use core::fmt;
 use core::num::NonZeroUsize;
+use core::ops::Range;
 use core::ptr;
 
 use console_core_bitmap_font::legacy::BASIC_LEGACY;
@@ -72,6 +73,11 @@ pub struct Panel {
 pub enum Orientation {
   Upright,
   LeftSideUp,
+}
+
+enum Placement {
+  Corner,
+  Center,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -232,6 +238,11 @@ impl<'a> Screen<'a> {
     self.new_line()
   }
 
+  pub fn reset(&mut self) -> Result<(), Never> {
+    self.next = Cell { column: 0, row: 0 };
+    self.clear()
+  }
+
   #[cfg_attr(
     dylint_lib = "explicit001_fallible_result",
     expect(
@@ -248,7 +259,12 @@ impl<'a> Screen<'a> {
       (Err(_), _) | (_, Err(_)) => return Ok(Presentation::Skipped),
     };
 
-    self.draw_rows(size, rows.iter().map(|row| row.iter().copied()))
+    self.draw_rows(
+      size,
+      Placement::Corner,
+      0,
+      rows.iter().map(|row| row.iter().copied()),
+    )
   }
 
   #[cfg_attr(
@@ -289,13 +305,67 @@ impl<'a> Screen<'a> {
         width: u64::from(size.width),
         height: u64::from(size.height),
       },
+      Placement::Corner,
+      0,
       rows,
+    )
+  }
+
+  pub fn draw_bitmap_rows<const WORDS: usize>(
+    &mut self,
+    bitmap: &[[u32; WORDS]],
+    rows: Range<u64>,
+  ) -> Result<Presentation, Never> {
+    match rows.start.cmp(&rows.end) {
+      core::cmp::Ordering::Less => {}
+      core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => {
+        return Ok(Presentation::Skipped);
+      }
+    }
+
+    let Ok(height) = console_core_number_conversion::fixed_index(bitmap.len());
+
+    match rows.end.cmp(&height) {
+      core::cmp::Ordering::Less | core::cmp::Ordering::Equal => {}
+      core::cmp::Ordering::Greater => return Ok(Presentation::Skipped),
+    }
+
+    let first = rows.start;
+    let Ok(native_rows) = console_core_number_conversion::indices(rows);
+
+    let rows_to_draw = match bitmap.get(native_rows) {
+      Some(visible_rows) => visible_rows,
+      None => return Ok(Presentation::Skipped),
+    };
+    let Ok(words) = console_core_number_conversion::fixed_index(WORDS);
+
+    let size = Size {
+      width: words.saturating_mul(32),
+      height,
+    };
+    self.draw_rows(
+      size,
+      Placement::Center,
+      first,
+      rows_to_draw.iter().map(|row| {
+        row
+          .iter()
+          .flat_map(|word| word.to_le_bytes())
+          .flat_map(|byte| {
+            DOTS.map(|bit| match byte & bit {
+              0 => LIT,
+              _ => DARK,
+            })
+          })
+      }),
     )
   }
 
   fn draw_rows(
     &mut self,
     size: Size<u64>,
+    placement: Placement,
+    first_row: u64,
     rows: impl IntoIterator<Item = impl IntoIterator<Item = u32>>,
   ) -> Result<Presentation, Never> {
     let (wide, tall) = match self.orientation {
@@ -314,15 +384,20 @@ impl<'a> Screen<'a> {
       ::core::option::Option::None => {}
     }
 
-    let scale = wide
-      .div_euclid(width)
-      .min(tall.div_euclid(height))
-      .div_euclid(4)
-      .max(1);
-    let left = wide.saturating_sub(width.saturating_mul(scale));
-    let top = tall.saturating_sub(height.saturating_mul(scale));
+    let fit = wide.div_euclid(width).min(tall.div_euclid(height));
+    let (size_divisor, margin_divisor) = match placement {
+      Placement::Corner => (4, 1),
+      Placement::Center => (2, 2),
+    };
+    let scale = fit.div_euclid(size_divisor).max(1);
+    let left = wide
+      .saturating_sub(width.saturating_mul(scale))
+      .div_euclid(margin_divisor);
+    let top = tall
+      .saturating_sub(height.saturating_mul(scale))
+      .div_euclid(margin_divisor);
 
-    for (row, y) in rows.into_iter().zip(0_u64..) {
+    for (row, y) in rows.into_iter().zip(first_row..) {
       for (colour, x) in row.into_iter().zip(0_u64..) {
         let Ok(()) = self.fill(
           Point {
@@ -636,6 +711,43 @@ mod tests {
       height: Pixels(size.height),
       scan_line: Pixels(size.width),
     })
+  }
+
+  #[test]
+  fn bitmap_strips_keep_their_position_on_either_panel_orientation() -> Result<(), ScreenError> {
+    let bitmap = [[0xaaaa_aaaa], [0x5555_5555], [0]];
+
+    for size in [
+      Size {
+        width: 96,
+        height: 48,
+      },
+      Size {
+        width: 48,
+        height: 96,
+      },
+    ] {
+      let Ok(panel) = panel(size);
+      let mut whole = [DARK; 4608];
+      let mut strips = [DARK; 4608];
+      let mut one = Screen::new(&mut whole, panel)?;
+      let mut split = Screen::new(&mut strips, panel)?;
+      assert_eq!(
+        one.draw_bitmap_rows(&bitmap, 0..3),
+        Ok(Presentation::Presented)
+      );
+      assert_eq!(
+        split.draw_bitmap_rows(&bitmap, 1..3),
+        Ok(Presentation::Presented)
+      );
+      assert_eq!(
+        split.draw_bitmap_rows(&bitmap, 0..1),
+        Ok(Presentation::Presented)
+      );
+      assert_eq!(whole, strips);
+    }
+
+    Ok(())
   }
 
   #[test]

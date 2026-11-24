@@ -18,6 +18,7 @@ name = "voice-compare"
 path = "src/bin/voice-compare.rs"
 
 [dependencies]
+console-audio-streams.workspace = true
 console-core-arguments.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true

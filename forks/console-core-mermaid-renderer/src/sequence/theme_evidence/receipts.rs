@@ -88,11 +88,13 @@ impl SequenceActorThemeReceipt {
         }
     }
 
+    #[must_use]
     pub(super) fn effect_complete(&self) -> bool {
         self.geometry_candidates.get() != 0
             && self.geometry_candidates.get() == self.effect_rects.get()
     }
 
+    #[must_use]
     pub(super) fn geometry_complete(&self) -> bool {
         self.geometry_candidates.get() != 0
             && self.geometry_candidates.get() == self.geometry_rects.get()
@@ -102,6 +104,7 @@ impl SequenceActorThemeReceipt {
         record_style_winners(&mut self.ordinal_winners, style);
     }
 
+    #[must_use]
     pub(super) fn route_won(
         &self,
         rule_index: usize,
@@ -109,6 +112,7 @@ impl SequenceActorThemeReceipt {
         facet: FamilyThemeRuleFacet,
     ) -> bool {
         let property = style_property_for_facet(facet);
+
         match selector {
             FamilyThemeSelectorShape::Static {
                 variant: None | Some(ThemeVariant::Default),
@@ -149,15 +153,18 @@ impl SequenceLineThemeReceipt {
         self.emitted_lines = self.emitted_lines.saturating_add(1);
     }
 
+    #[must_use]
     fn route_won(&self, rule_index: usize, facet: FamilyThemeRuleFacet) -> bool {
         self.static_winners
             .contains(&(rule_index, style_property_for_facet(facet)))
     }
 
+    #[must_use]
     fn candidate_count(&self) -> usize {
         self.line_candidates
     }
 
+    #[must_use]
     fn has_complete_emission(&self) -> bool {
         self.line_candidates != 0 && self.emitted_lines == self.line_candidates
     }
@@ -178,6 +185,7 @@ impl SequenceLifelineThemeReceipt {
         self.emitted_effects = self.emitted_effects.saturating_add(1);
     }
 
+    #[must_use]
     pub(super) fn effect_complete(&self) -> bool {
         self.line.has_complete_emission() && self.candidate_count() == self.emitted_effects
     }
@@ -194,6 +202,7 @@ impl SequenceLifelineThemeReceipt {
         self.line.record_line_emission();
     }
 
+    #[must_use]
     pub(super) fn route_won(
         &self,
         rule_index: usize,
@@ -203,10 +212,12 @@ impl SequenceLifelineThemeReceipt {
         self.line.route_won(rule_index, facet)
     }
 
+    #[must_use]
     pub(super) fn candidate_count(&self) -> usize {
         self.line.candidate_count()
     }
 
+    #[must_use]
     fn has_complete_emission(&self) -> bool {
         self.line.has_complete_emission()
     }
@@ -223,6 +234,7 @@ pub(crate) struct SequenceLifelineThemeEmission {
 }
 
 impl SequenceLifelineThemeEmission {
+    #[must_use]
     pub(crate) fn from_terminal_writer(
         typed_stroke: Option<&str>,
         typed_stroke_width: Option<f32>,
@@ -235,9 +247,9 @@ impl SequenceLifelineThemeEmission {
         let complete_line_emission = receipt.has_complete_emission();
         Self {
             paint_emitted: complete_line_emission && typed_stroke.is_some(),
-            // A Value winner reaches the terminal CSS block; a Clear winner deliberately keeps
-            // the `0.5px` width emitted inline by every actor-line writer. The shared candidate /
-            // emission receipt proves both paths without treating Clear as an absent winner.
+
+
+
             stroke_width_emitted: complete_line_emission
                 && (typed_stroke_width.is_some() || typed_stroke_width_won),
             paint_overridden: has_lines && paint_overridden,
@@ -281,10 +293,12 @@ impl SequenceMessageThemeReceipt {
         self.emitted_effects = self.emitted_effects.saturating_add(1);
     }
 
+    #[must_use]
     pub(super) fn effect_complete(&self) -> bool {
         self.candidate_count() != 0 && self.candidate_count() == self.emitted_effects
     }
 
+    #[must_use]
     pub(super) fn route_won(
         &self,
         rule_index: usize,
@@ -294,10 +308,12 @@ impl SequenceMessageThemeReceipt {
         self.line.route_won(rule_index, facet)
     }
 
+    #[must_use]
     pub(super) fn candidate_count(&self) -> usize {
         self.line.candidate_count()
     }
 
+    #[must_use]
     fn has_complete_emission(&self) -> bool {
         self.line.has_complete_emission()
     }
@@ -314,6 +330,7 @@ pub(crate) struct SequenceMessageThemeEmission {
 }
 
 impl SequenceMessageThemeEmission {
+    #[must_use]
     pub(crate) fn from_terminal_writer(
         typed_stroke: Option<&str>,
         stroke_width_won: bool,
@@ -325,7 +342,7 @@ impl SequenceMessageThemeEmission {
         let complete_line_emission = receipt.has_complete_emission();
         Self {
             stroke_emitted: complete_line_emission && typed_stroke.is_some(),
-            // Clear consumes the winning width by preserving the default message CSS width.
+
             stroke_width_emitted: complete_line_emission && stroke_width_won,
             stroke_overridden: has_lines && stroke_overridden,
             selected_property,
@@ -363,6 +380,7 @@ impl SequenceNumberLabelThemeReceipt {
         self.emitted_texts = self.emitted_texts.saturating_add(1);
     }
 
+    #[must_use]
     pub(super) fn route_applies(
         &self,
         rule_index: usize,
@@ -381,6 +399,7 @@ impl SequenceNumberLabelThemeReceipt {
         }
     }
 
+    #[must_use]
     pub(super) fn typed_fill_applied(&self) -> bool {
         self.text_candidates != 0
             && self.emitted_texts == self.text_candidates
@@ -397,6 +416,7 @@ pub(crate) struct SequenceNumberLabelThemeEmission {
 }
 
 impl SequenceNumberLabelThemeEmission {
+    #[must_use]
     pub(crate) fn from_terminal_writer(
         fill_overridden: bool,
         receipt: SequenceNumberLabelThemeReceipt,
@@ -434,6 +454,7 @@ impl SequenceControlThemeReceipt {
             .set(self.effect_emissions.get().saturating_add(1));
     }
 
+    #[must_use]
     pub(super) fn effect_complete(&self) -> bool {
         self.effect_requested
             && !self.effect_unhandled.get()
@@ -460,6 +481,7 @@ impl SequenceControlThemeReceipt {
             .set(self.emitted_surfaces.get().saturating_add(1));
     }
 
+    #[must_use]
     pub(super) fn route_won(
         &self,
         rule_index: usize,
@@ -476,15 +498,18 @@ impl SequenceControlThemeReceipt {
             .contains(&(rule_index, style_property_for_facet(facet)))
     }
 
+    #[must_use]
     pub(super) fn complete_surfaces(&self) -> bool {
         self.surface_candidates.get() != 0
             && self.surface_candidates.get() == self.emitted_surfaces.get()
     }
 
+    #[must_use]
     pub(super) fn typed_fill_applied(&self) -> bool {
         self.complete_surfaces() && self.typed_fill_emitted
     }
 
+    #[must_use]
     pub(super) fn typed_stroke_applied(&self) -> bool {
         self.complete_surfaces() && self.typed_stroke_emitted
     }
@@ -501,6 +526,7 @@ pub(crate) struct SequenceControlThemeEmission {
 }
 
 impl SequenceControlThemeEmission {
+    #[must_use]
     pub(crate) fn from_terminal_writer(
         fill_overridden: bool,
         stroke_overridden: bool,
@@ -547,10 +573,12 @@ impl SequenceStaticRectThemeReceipt {
         self.emitted_effects = self.emitted_effects.saturating_add(1);
     }
 
+    #[must_use]
     pub(super) fn effect_complete(&self, surface_count: usize) -> bool {
         surface_count != 0 && self.emitted_effects == surface_count
     }
 
+    #[must_use]
     pub(super) fn route_won(
         &self,
         rule_index: usize,
@@ -581,6 +609,7 @@ pub(crate) struct SequenceStaticRectThemeEmission {
 }
 
 impl SequenceStaticRectThemeEmission {
+    #[must_use]
     pub(crate) fn from_terminal_writer(
         surface_count: usize,
         typed_fill: Option<&str>,
@@ -627,6 +656,7 @@ pub(super) struct SequenceBaseTypographyReceipt {
 }
 
 impl SequenceBaseTypographyReceipt {
+    #[must_use]
     fn from_plan(plan: &crate::sequence::SequenceTypographyPlan) -> Self {
         Self {
             typed_properties: plan.base_typed_properties().clone(),
@@ -634,6 +664,7 @@ impl SequenceBaseTypographyReceipt {
         }
     }
 
+    #[must_use]
     pub(super) fn inherited_occurrences(&self, property: ThemeTypographyProperty) -> usize {
         if matches!(
             property,
@@ -645,6 +676,7 @@ impl SequenceBaseTypographyReceipt {
         }
     }
 
+    #[must_use]
     pub(super) fn has_typed_property(&self, property: ThemeTypographyProperty) -> bool {
         self.typed_properties.contains(&property)
     }
@@ -652,9 +684,13 @@ impl SequenceBaseTypographyReceipt {
 
 impl SequenceTextSurfaceReceipt {
     fn record_stylesheet_emission(&mut self, final_fill: &str, typed_fill: Option<&str>) {
-        if typed_fill.is_some() {
-            self.typed_stylesheet_emissions = self.typed_stylesheet_emissions.saturating_add(1);
+        match typed_fill {
+            ::core::option::Option::Some(_) => {
+                self.typed_stylesheet_emissions = self.typed_stylesheet_emissions.saturating_add(1);
+            },
+            ::core::option::Option::None => {},
         }
+
         if self
             .stylesheet_fill
             .as_deref()
@@ -663,6 +699,7 @@ impl SequenceTextSurfaceReceipt {
         {
             self.stylesheet_fill_mismatch = true;
         }
+
         self.stylesheet_fill
             .get_or_insert_with(|| final_fill.to_owned());
     }
@@ -678,17 +715,22 @@ impl SequenceTextSurfaceReceipt {
         if !self.requires_prepared_math_terminal_evidence {
             return;
         }
+
         self.record_candidate();
         self.emitted_labels
             .set(self.emitted_labels.get().saturating_add(1));
 
-        let paint_verified = if self.typed_stylesheet_emissions == 0 {
-            true
-        } else {
-            self.stylesheet_fill
-                .as_deref()
-                .is_some_and(|fill| assurance.proves_default_foreground(fill))
+        let paint_verified = match self.typed_stylesheet_emissions {
+            0 => {
+                true
+            },
+            _ => {
+                self.stylesheet_fill
+                    .as_deref()
+                    .is_some_and(|fill| assurance.proves_default_foreground(fill))
+            },
         };
+
         if paint_verified {
             self.emitted_paint_labels
                 .set(self.emitted_paint_labels.get().saturating_add(1));
@@ -697,6 +739,7 @@ impl SequenceTextSurfaceReceipt {
         }
 
         let mut unverified = self.unverified_math_typography.borrow_mut();
+
         for property in &self.required_typography_properties {
             let verified = match property {
                 ThemeTypographyProperty::FontSize => {
@@ -714,6 +757,7 @@ impl SequenceTextSurfaceReceipt {
                 | ThemeTypographyProperty::WhiteSpace
                 | ThemeTypographyProperty::Wrap => false,
             };
+
             if !verified {
                 unverified.insert(*property);
             }
@@ -727,12 +771,14 @@ impl SequenceTextSurfaceReceipt {
             .set(self.emitted_paint_labels.get().saturating_add(1));
     }
 
+    #[must_use]
     fn complete(&self) -> bool {
         self.label_candidates.get() != 0
             && self.label_candidates.get() == self.emitted_labels.get()
             && self.unverified_math_typography.borrow().is_empty()
     }
 
+    #[must_use]
     fn typography_property_complete(&self, property: ThemeTypographyProperty) -> bool {
         self.required_typography_properties.contains(&property)
             && self.label_candidates.get() != 0
@@ -740,6 +786,7 @@ impl SequenceTextSurfaceReceipt {
             && !self.unverified_math_typography.borrow().contains(&property)
     }
 
+    #[must_use]
     fn proves_typed_fill(&self) -> bool {
         !self.fill_overridden
             && self.paint_candidates.get() != 0
@@ -770,20 +817,27 @@ pub(super) struct SequenceRoleTypographyReceipt {
 }
 
 impl SequenceRoleTypographyReceipt {
+    #[must_use]
     pub(super) fn from_resolved(
         role: crate::sequence::SequenceTypographyRole,
         typography: &crate::sequence::SequenceResolvedTypography,
     ) -> Self {
         let mut static_winners = BTreeSet::new();
-        if let Some(style) = typography.resolved_style() {
-            record_style_winners(&mut static_winners, style);
+
+        match typography.resolved_style() {
+            Some(style) => {
+                record_style_winners(&mut static_winners, style);
+            },
+            ::core::option::Option::None => {},
         }
+
         let mut receipt = Self {
             static_winners,
             config_overrides: typography.config_overrides().clone(),
             base_typed_properties: typography.base_typed_properties().clone(),
             ..Self::default()
         };
+
         for surface in crate::sequence::SequenceTextSurface::ALL {
             if surface.role() == role {
                 let surface_receipt = &mut receipt.text_surfaces[surface.index()];
@@ -799,6 +853,7 @@ impl SequenceRoleTypographyReceipt {
                     typography.terminal_text_style().font_size.to_bits();
             }
         }
+
         receipt
     }
 
@@ -827,6 +882,7 @@ impl SequenceRoleTypographyReceipt {
         self.text_surfaces[surface.index()].record_emission();
     }
 
+    #[must_use]
     pub(super) fn route_won(
         &self,
         rule_index: usize,
@@ -847,6 +903,7 @@ impl SequenceRoleTypographyReceipt {
                 .all(SequenceTextSurfaceReceipt::complete)
     }
 
+    #[must_use]
     pub(super) fn effect_complete(&self) -> bool {
         self.label_candidate_count() != 0
             && self
@@ -855,18 +912,27 @@ impl SequenceRoleTypographyReceipt {
                 .all(|surface| surface.label_candidates.get() == surface.emitted_effects.get())
     }
 
+    #[must_use]
     pub(super) fn typography_property_complete(&self, property: ThemeTypographyProperty) -> bool {
         let mut relevant = self.text_surfaces.iter().filter(|surface| {
             surface.required_typography_properties.contains(&property)
                 && surface.label_candidates.get() != 0
         });
-        let Some(first) = relevant.next() else {
-            return false;
+
+        let first = {
+            let optional_first = relevant.next();
+
+            match optional_first {
+                Some(matched_first) => matched_first,
+                ::core::option::Option::None => return false,
+            }
         };
+
         first.typography_property_complete(property)
             && relevant.all(|surface| surface.typography_property_complete(property))
     }
 
+    #[must_use]
     pub(super) fn base_property_reached_complete_terminal(
         &self,
         property: ThemeTypographyProperty,
@@ -875,6 +941,7 @@ impl SequenceRoleTypographyReceipt {
             && self.typography_property_complete(property)
     }
 
+    #[must_use]
     pub(super) fn base_property_terminal_incomplete(
         &self,
         property: ThemeTypographyProperty,
@@ -884,6 +951,7 @@ impl SequenceRoleTypographyReceipt {
             && !self.typography_property_complete(property)
     }
 
+    #[must_use]
     pub(super) fn label_candidate_count(&self) -> usize {
         self.text_surfaces
             .iter()
@@ -891,18 +959,22 @@ impl SequenceRoleTypographyReceipt {
             .sum()
     }
 
+    #[must_use]
     pub(super) fn fill_summary(&self) -> SequenceRoleFillSummary {
         let mut summary = SequenceRoleFillSummary::default();
+
         for surface in &self.text_surfaces {
             if surface.label_candidates.get() == 0 || surface.fill_overridden {
                 continue;
             }
+
             if surface.proves_typed_fill() {
                 summary.typed_applied = true;
             } else {
                 summary.incomplete = true;
             }
         }
+
         summary
     }
 }
@@ -919,10 +991,12 @@ pub(crate) struct SequenceTypographyThemeReceipt {
 }
 
 impl SequenceTypographyThemeReceipt {
+    #[must_use]
     pub(crate) fn from_plan(plan: &crate::sequence::SequenceTypographyPlan) -> Self {
         if !plan.has_explicit_theme() {
             return Self::default();
         }
+
         Self {
             enabled: true,
             base: SequenceBaseTypographyReceipt::from_plan(plan),
@@ -955,20 +1029,25 @@ impl SequenceTypographyThemeReceipt {
         }
     }
 
+    #[must_use]
     pub(super) fn base_property_applied(&self, property: ThemeTypographyProperty) -> bool {
         if !self.base.has_typed_property(property) {
             return false;
         }
+
         let roles = [&self.actor, &self.message, &self.note, &self.loop_label];
+
         if roles
             .iter()
             .any(|role| role.base_property_reached_complete_terminal(property))
         {
             return true;
         }
+
         self.base.inherited_occurrences(property) != 0
     }
 
+    #[must_use]
     pub(super) fn base_property_incomplete(&self, property: ThemeTypographyProperty) -> bool {
         [&self.actor, &self.message, &self.note, &self.loop_label]
             .iter()
@@ -977,6 +1056,7 @@ impl SequenceTypographyThemeReceipt {
 
     /// General Text fill is a fallback beneath the role-specific targets. Suppress it only
     /// after every actual role surface proves its own winning fill reached the terminal output.
+    #[must_use]
     pub(super) fn role_fills_cover_all_labels(&self) -> bool {
         self.role_label_candidate_count() != 0
             && [&self.actor, &self.message, &self.note, &self.loop_label]
@@ -989,6 +1069,7 @@ impl SequenceTypographyThemeReceipt {
                 })
     }
 
+    #[must_use]
     pub(super) fn role_label_candidate_count(&self) -> usize {
         [&self.actor, &self.message, &self.note, &self.loop_label]
             .iter()
@@ -996,11 +1077,13 @@ impl SequenceTypographyThemeReceipt {
             .sum()
     }
 
+    #[must_use]
     pub(super) fn base_relevant_occurrences(&self) -> usize {
         self.role_label_candidate_count()
             .saturating_add(self.base.inherited_occurrences.get())
     }
 
+    #[must_use]
     pub(super) fn base_property_relevant_occurrences(
         &self,
         property: ThemeTypographyProperty,
@@ -1013,6 +1096,7 @@ impl SequenceTypographyThemeReceipt {
         role_candidates.saturating_add(self.base.inherited_occurrences(property))
     }
 
+    #[must_use]
     pub(super) fn role(
         &self,
         role: crate::sequence::SequenceTypographyRole,
@@ -1040,8 +1124,8 @@ impl SequenceTypographyThemeReceipt {
         receipt.effect_requested = true;
         receipt.effect_binding_used = binding;
         receipt.effect_unhandled = unhandled;
-        // Math terminals still count when only an effect was requested. A prepared
-        // foreground/font assurance does not establish that a filter was consumed.
+
+
         for surface in crate::sequence::SequenceTextSurface::ALL {
             if surface.role() == role {
                 receipt.text_surfaces[surface.index()].requires_prepared_math_terminal_evidence =
@@ -1063,6 +1147,7 @@ impl SequenceTypographyThemeReceipt {
     ) {
         let count = &self.role(surface.role()).text_surfaces[surface.index()].emitted_effects;
         count.set(count.get().saturating_add(1));
+
         if filtered {
             let applications = &self.role(surface.role()).effect_applications;
             applications.set(applications.get().saturating_add(1));
@@ -1073,6 +1158,7 @@ impl SequenceTypographyThemeReceipt {
         if !self.enabled {
             return;
         }
+
         self.role(surface.role()).record_candidate(surface);
     }
 
@@ -1089,6 +1175,7 @@ impl SequenceTypographyThemeReceipt {
         if !self.enabled {
             return;
         }
+
         self.role(surface.role()).record_emission(surface);
     }
 
@@ -1096,6 +1183,7 @@ impl SequenceTypographyThemeReceipt {
         if !self.enabled {
             return;
         }
+
         self.record_candidate(surface);
         self.record_emission(surface);
     }
@@ -1109,6 +1197,7 @@ impl SequenceTypographyThemeReceipt {
         if !self.enabled {
             return;
         }
+
         match surface.role() {
             crate::sequence::SequenceTypographyRole::Actor => &mut self.actor,
             crate::sequence::SequenceTypographyRole::Message => &mut self.message,

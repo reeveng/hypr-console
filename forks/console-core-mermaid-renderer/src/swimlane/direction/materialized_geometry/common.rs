@@ -16,6 +16,7 @@ use indexmap::{IndexMap, IndexSet};
 pub(super) const MINIMUM_SHARED_LENGTH: f64 = 8.0;
 pub(super) type ReplacementMap = IndexMap<usize, Vec<LayoutPoint>>;
 
+#[must_use]
 pub(super) fn points_for(
     edges: &[WorkingEdge],
     edge_index: usize,
@@ -29,10 +30,12 @@ pub(super) fn points_for(
     )
 }
 
+#[must_use]
 pub(super) fn segments_for(points: &[LayoutPoint]) -> Vec<OrthogonalSegment> {
     orthogonal_segments_for_points(points, EPSILON)
 }
 
+#[must_use]
 pub(super) fn crossing_count_between_segments(
     first: &[OrthogonalSegment],
     second: &[OrthogonalSegment],
@@ -56,19 +59,24 @@ pub(super) fn crossing_count_between_segments(
         .sum()
 }
 
+#[must_use]
 pub(super) fn crossing_count_between_paths(first: &[LayoutPoint], second: &[LayoutPoint]) -> usize {
     crossing_count_between_segments(&segments_for(first), &segments_for(second))
 }
 
+#[must_use]
 pub(super) fn strict_crossing_count(edges: &[WorkingEdge], replacements: &ReplacementMap) -> usize {
     let mut count = 0;
+
     for first_index in 0..edges.len() {
         let first = segments_for(&points_for(edges, first_index, replacements));
+
         for second_index in first_index + 1..edges.len() {
             let second = segments_for(&points_for(edges, second_index, replacements));
             count += crossing_count_between_segments(&first, &second);
         }
     }
+
     count
 }
 
@@ -81,6 +89,7 @@ pub(super) fn checked_strict_crossing_count(
     Ok(strict_crossing_count(edges, replacements))
 }
 
+#[must_use]
 pub(super) fn total_bends(edges: &[WorkingEdge], replacements: &ReplacementMap) -> usize {
     (0..edges.len())
         .map(|edge_index| {
@@ -98,6 +107,7 @@ pub(super) fn checked_total_bends(
     Ok(total_bends(edges, replacements))
 }
 
+#[must_use]
 pub(super) fn euclidean_path_length(points: &[LayoutPoint]) -> f64 {
     segments_for(points)
         .iter()
@@ -105,6 +115,7 @@ pub(super) fn euclidean_path_length(points: &[LayoutPoint]) -> f64 {
         .sum()
 }
 
+#[must_use]
 pub(super) fn manhattan_path_length(points: &[LayoutPoint]) -> f64 {
     points
         .windows(2)
@@ -112,10 +123,12 @@ pub(super) fn manhattan_path_length(points: &[LayoutPoint]) -> f64 {
         .sum()
 }
 
+#[must_use]
 pub(super) fn endpoint_id_slices(edge: &WorkingEdge) -> [&str; 2] {
     [edge.from.as_str(), edge.to.as_str()]
 }
 
+#[must_use]
 pub(super) fn path_hits_rects(
     edge: &WorkingEdge,
     path: &[LayoutPoint],
@@ -130,6 +143,7 @@ pub(super) fn path_hits_rects(
     })
 }
 
+#[must_use]
 pub(super) fn shared_track_conflicts(
     candidate_segments: &[OrthogonalSegment],
     other_segments: &[OrthogonalSegment],
@@ -152,11 +166,13 @@ pub(super) fn push_orthogonal_candidate(
     points: Vec<LayoutPoint>,
 ) {
     let candidate = simplify_polyline(&dedupe_consecutive_points(&points, EPSILON));
+
     if segments_for(&candidate).len() == candidate.len().saturating_sub(1) {
         candidates.push(candidate);
     }
 }
 
+#[must_use]
 pub(super) fn candidate_key(points: &[LayoutPoint]) -> String {
     points
         .iter()
@@ -165,6 +181,7 @@ pub(super) fn candidate_key(points: &[LayoutPoint]) -> String {
         .join("|")
 }
 
+#[must_use]
 pub(super) fn dedupe_candidate_paths(
     candidates: impl IntoIterator<Item = Vec<LayoutPoint>>,
 ) -> Vec<Vec<LayoutPoint>> {

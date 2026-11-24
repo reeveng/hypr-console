@@ -33,9 +33,10 @@ pub(super) struct IconTransform {
 }
 
 impl IconTransform {
+    #[must_use]
     fn then(self, child: Self) -> Self {
         Self {
-            rotate: (self.rotate + child.rotate) % 4,
+            rotate: ::core::primitive::u8::wrapping_rem(self.rotate + child.rotate, 4),
             h_flip: self.h_flip ^ child.h_flip,
             v_flip: self.v_flip ^ child.v_flip,
         }
@@ -95,7 +96,7 @@ impl ParsedPack {
 
             path.clear();
             let mut current = root;
-            let (mut resolved_parent, mut resolved_depth) = loop {
+            let (mut resolved_parent, mut resolved_depth) = 'inner_loop_2: loop {
                 charge_build_work(
                     global,
                     &self.limits,
@@ -106,7 +107,7 @@ impl ParsedPack {
 
                 match colors[current] {
                     Color::Black => {
-                        break (
+                        break 'inner_loop_2 (
                             memo[current]
                                 .as_ref()
                                 .expect("black aliases are memoized")
@@ -126,6 +127,7 @@ impl ParsedPack {
 
                 colors[current] = Color::Gray;
                 path.push(current);
+
                 if path.len() > self.limits.max_alias_depth {
                     return Err(limit_error(
                         self.pack_index,
@@ -137,12 +139,20 @@ impl ParsedPack {
                 }
 
                 let parent = self.aliases[current].parent.as_str();
-                if let Some(parent_index) = self.icon_index.get(parent) {
-                    break (self.icons[*parent_index].icon.clone(), 0);
+
+                match self.icon_index.get(parent) {
+                    Some(parent_index) => {
+                        break 'inner_loop_2 (self.icons[*parent_index].icon.clone(), 0);
+                    },
+                    ::core::option::Option::None => {},
                 }
-                if let Some(parent_index) = self.alias_index.get(parent) {
-                    current = *parent_index;
-                    continue;
+
+                match self.alias_index.get(parent) {
+                    Some(parent_index) => {
+                        current = *parent_index;
+                        continue 'inner_loop_2;
+                    },
+                    ::core::option::Option::None => {},
                 }
 
                 return Err(build_error(
@@ -152,7 +162,7 @@ impl ParsedPack {
                 ));
             };
 
-            while let Some(alias_index) = path.pop() {
+            for alias_index in ::core::iter::from_fn(|| path.pop()) {
                 charge_build_work(
                     global,
                     &self.limits,
@@ -167,6 +177,7 @@ impl ParsedPack {
                         "alias depth accounting overflowed",
                     )
                 })?;
+
                 if resolved_depth > self.limits.max_alias_depth {
                     return Err(limit_error(
                         self.pack_index,
@@ -176,6 +187,7 @@ impl ParsedPack {
                         "alias chain exceeds the configured depth",
                     ));
                 }
+
                 resolved_parent = self.aliases[alias_index].apply(resolved_parent);
                 memo[alias_index] = Some(resolved_parent.clone());
                 memo_depths[alias_index] = resolved_depth;
@@ -219,6 +231,7 @@ pub(super) fn resolve_packs(
 ) -> Result<Vec<ResolvedPack>, IconRegistryBuildError> {
     let mut working = *global;
     let mut resolved = Vec::with_capacity(packs.len());
+
     for pack in packs {
         let registration_name = pack.registration_name.clone();
         resolved.push(
@@ -226,6 +239,7 @@ pub(super) fn resolve_packs(
                 .map_err(|error| error.with_registration_name(registration_name.as_deref()))?,
         );
     }
+
     *global = working;
     Ok(resolved)
 }
@@ -237,7 +251,7 @@ pub(super) fn parse_pack(
     limits: IconRegistryBuildLimits,
     global: &mut BuildUsage,
 ) -> Result<ParsedPack, IconRegistryBuildError> {
-    if std::str::from_utf8(json).is_err() {
+    if match &(std::str::from_utf8(json)) { ::core::result::Result::Ok(_) => false, ::core::result::Result::Err(_invalid_utf8__) => true } {
         return Err(build_error(
             IconRegistryBuildErrorKind::InvalidUtf8,
             pack_index,
@@ -245,7 +259,7 @@ pub(super) fn parse_pack(
         ));
     }
 
-    let registration_name = registration_name.map(str::to_owned);
+    let registration_name_2 = registration_name.map(str::to_owned);
 
     let mut working = *global;
     let mut state = ParseState {
@@ -257,26 +271,34 @@ pub(super) fn parse_pack(
     let mut deserializer = serde_json::Deserializer::from_slice(json);
     let parsed = PackSeed {
         state: &mut state,
-        registration_name,
+        registration_name: registration_name_2,
     }
     .deserialize(&mut deserializer);
 
-    let parsed = match parsed {
+    let parsed_2 = match parsed {
         Ok(pack) => pack,
         Err(error) => {
-            if let Some(error) = state.failure.take() {
-                return Err(error);
+            match state.failure.take() {
+                Some(error_2) => {
+                    return Err(error_2);
+                },
+                ::core::option::Option::None => {},
             }
+
             return Err(serde_error(pack_index, &error));
         }
     };
-    if let Err(error) = deserializer.end() {
-        return Err(serde_error(pack_index, &error));
+
+    match deserializer.end() {
+        Err(error) => {
+            return Err(serde_error(pack_index, &error));
+        },
+        ::core::result::Result::Ok(_) => {},
     }
 
     drop(state);
     *global = working;
-    Ok(parsed)
+    Ok(parsed_2)
 }
 
 pub(super) fn validate_registration_name<'a>(
@@ -284,19 +306,22 @@ pub(super) fn validate_registration_name<'a>(
     pack_index: usize,
     limits: &IconRegistryBuildLimits,
 ) -> Result<Option<&'a str>, IconRegistryBuildError> {
-    let Some(registration_name) = registration_name else {
-        return Ok(None);
+    let registration_name_2 = match registration_name {
+        Some(matched_registration_name) => matched_registration_name,
+        ::core::option::Option::None => return Ok(None),
     };
+
     validate_identifier(
-        registration_name,
+        registration_name_2,
         limits.max_prefix_bytes,
         IconRegistryResourceLimitId::MaxPrefixBytes,
         pack_index,
         "registration name is not a valid Iconify prefix",
     )?;
-    Ok(Some(registration_name))
+    Ok(Some(registration_name_2))
 }
 
+#[must_use]
 fn serde_error(pack_index: usize, error: &serde_json::Error) -> IconRegistryBuildError {
     let kind = match error.classify() {
         serde_json::error::Category::Data => IconRegistryBuildErrorKind::InvalidSchema,
@@ -307,6 +332,7 @@ fn serde_error(pack_index: usize, error: &serde_json::Error) -> IconRegistryBuil
     build_error(kind, pack_index, "Iconify JSON could not be decoded")
 }
 
+#[must_use]
 fn build_error(
     kind: IconRegistryBuildErrorKind,
     pack_index: usize,
@@ -348,12 +374,15 @@ fn checked_limited_add(
             "icon registry resource accounting overflowed",
         )
     })?;
+
     if actual > maximum {
         return Err(limit_error(pack_index, limit, actual, maximum, message));
     }
+
     Ok(actual)
 }
 
+#[must_use]
 fn limit_error(
     pack_index: usize,
     limit: IconRegistryResourceLimitId,
@@ -385,6 +414,7 @@ fn validate_identifier(
             message,
         ));
     }
+
     if !super::lookup::valid_identifier(value) {
         return Err(build_error(
             IconRegistryBuildErrorKind::InvalidIdentifier,
@@ -392,6 +422,7 @@ fn validate_identifier(
             message,
         ));
     }
+
     Ok(())
 }
 
@@ -404,12 +435,25 @@ struct GeometryOverrides {
 }
 
 impl GeometryOverrides {
+    #[must_use]
     fn apply_to(self, left: f64, top: f64, width: f64, height: f64) -> (f64, f64, f64, f64) {
         (
-            self.left.unwrap_or(left),
-            self.top.unwrap_or(top),
-            self.width.unwrap_or(width),
-            self.height.unwrap_or(height),
+            match self.left {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => left,
+            },
+            match self.top {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => top,
+            },
+            match self.width {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => width,
+            },
+            match self.height {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => height,
+            },
         )
     }
 }
@@ -434,6 +478,7 @@ struct AliasDefinition {
 }
 
 impl AliasDefinition {
+    #[must_use]
     fn apply(&self, parent: ResolvedIcon) -> ResolvedIcon {
         let (left, top, width, height) =
             self.geometry
@@ -479,6 +524,7 @@ impl ParseState<'_> {
         if self.failure.is_none() {
             self.failure = Some(error);
         }
+
         E::custom(VALIDATION_SENTINEL)
     }
 
@@ -519,6 +565,7 @@ impl ParseState<'_> {
                 "JSON nesting exceeds the configured depth",
             )));
         }
+
         Ok(())
     }
 
@@ -610,6 +657,7 @@ impl ParseState<'_> {
                 "icon body exceeds the configured byte limit",
             )));
         }
+
         self.ledger.retained_body_bytes = match checked_limited_add(
             self.ledger.retained_body_bytes,
             bytes,
@@ -676,10 +724,12 @@ impl ParseState<'_> {
                 message,
             )));
         }
+
         if value.abs() > self.limits.max_coordinate_magnitude {
             let error = self.coordinate_limit_error(value, message);
             return Err(self.fail(error));
         }
+
         Ok(value)
     }
 
@@ -695,13 +745,16 @@ impl ParseState<'_> {
                 message,
             )));
         }
+
         if value > self.limits.max_coordinate_magnitude {
             let error = self.coordinate_limit_error(value, message);
             return Err(self.fail(error));
         }
+
         Ok(value)
     }
 
+    #[must_use]
     fn coordinate_limit_error(&self, value: f64, message: &'static str) -> IconRegistryBuildError {
         let actual = value.abs().ceil().min(u64::MAX as f64) as u64;
         let maximum = self.limits.max_coordinate_magnitude as u64;
@@ -771,52 +824,56 @@ impl<'de> Visitor<'de> for PackVisitor<'_, '_> {
                 })?,
                 "prefix" => {
                     let maximum_bytes = self.state.limits.max_prefix_bytes;
-                    prefix = Some(map.next_value_seed(BoundedStringSeed::identifier(
+                    prefix = Some({ let checked_value = map.next_value_seed(BoundedStringSeed::identifier(
                         self.state,
                         maximum_bytes,
                         IconRegistryResourceLimitId::MaxPrefixBytes,
                         "pack prefix is not a valid Iconify identifier",
-                    ))?);
+                    ))?; checked_value });
                 }
                 "left" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_2 = self.state
+                            .validate_coordinate(value, "default left coordinate is invalid")?;
                     defaults.left = Some(
-                        self.state
-                            .validate_coordinate(value, "default left coordinate is invalid")?,
+                        checked_value_2,
                     );
                 }
                 "top" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_3 = self.state
+                            .validate_coordinate(value, "default top coordinate is invalid")?;
                     defaults.top = Some(
-                        self.state
-                            .validate_coordinate(value, "default top coordinate is invalid")?,
+                        checked_value_3,
                     );
                 }
                 "width" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_4 = self.state
+                            .validate_dimension(value, "default width is invalid")?;
                     defaults.width = Some(
-                        self.state
-                            .validate_dimension(value, "default width is invalid")?,
+                        checked_value_4,
                     );
                 }
                 "height" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_5 = self.state
+                            .validate_dimension(value, "default height is invalid")?;
                     defaults.height = Some(
-                        self.state
-                            .validate_dimension(value, "default height is invalid")?,
+                        checked_value_5,
                     );
                 }
                 "icons" => {
-                    icons = Some(map.next_value_seed(IconMapSeed {
+                    icons = Some({ let checked_value_6 = map.next_value_seed(IconMapSeed {
                         state: self.state,
                         depth: 2,
-                    })?);
+                    })?; checked_value_6 });
                 }
                 "aliases" => {
-                    aliases = Some(map.next_value_seed(AliasMapSeed {
+                    aliases = Some({ let checked_value_7 = map.next_value_seed(AliasMapSeed {
                         state: self.state,
                         depth: 2,
-                    })?);
+                    })?; checked_value_7 });
                 }
                 _ => map.next_value_seed(SkipValueSeed {
                     state: self.state,
@@ -825,25 +882,28 @@ impl<'de> Visitor<'de> for PackVisitor<'_, '_> {
             }
         }
 
-        let prefix = match registration_name.as_ref() {
-            Some(prefix) => prefix.clone(),
+        let prefix_3 = match registration_name.as_ref() {
+            Some(prefix_2) => prefix_2.clone(),
             None => prefix.ok_or_else(|| {
                 self.state.schema_error::<A::Error>(
                     "Iconify pack is missing a prefix and no registration name was supplied",
                 )
             })?,
         };
-        let icons = icons.ok_or_else(|| {
+        let icons_2 = icons.ok_or_else(|| {
             self.state
                 .schema_error::<A::Error>("Iconify pack is missing the icons object")
         })?;
-        let aliases = aliases.unwrap_or_else(|| ParsedAliases {
-            aliases: Vec::new(),
-            index: HashMap::new(),
-        });
+        let aliases_2 = match aliases {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ParsedAliases {
+                aliases: Vec::new(),
+                index: HashMap::new(),
+            },
+        };
 
-        for alias in &aliases.aliases {
-            if icons.index.contains_key(alias.name.as_str()) {
+        for alias in &aliases_2.aliases {
+            if icons_2.index.contains_key(alias.name.as_str()) {
                 return Err(self.state.fail(build_error(
                     IconRegistryBuildErrorKind::DuplicateIcon,
                     self.state.pack_index,
@@ -855,12 +915,24 @@ impl<'de> Visitor<'de> for PackVisitor<'_, '_> {
         let ParsedIcons {
             icons: raw_icons,
             index: icon_index,
-        } = icons;
-        let default_left = defaults.left.unwrap_or(0.0);
-        let default_top = defaults.top.unwrap_or(0.0);
-        let default_width = defaults.width.unwrap_or(16.0);
-        let default_height = defaults.height.unwrap_or(16.0);
-        let icons: Vec<NamedIcon> = raw_icons
+        } = icons_2;
+        let default_left = match defaults.left {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0.0,
+        };
+        let default_top = match defaults.top {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0.0,
+        };
+        let default_width = match defaults.width {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 16.0,
+        };
+        let default_height = match defaults.height {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 16.0,
+        };
+        let icons_3: Vec<NamedIcon> = raw_icons
             .into_iter()
             .map(|raw| {
                 let (left, top, width, height) =
@@ -885,12 +957,12 @@ impl<'de> Visitor<'de> for PackVisitor<'_, '_> {
         Ok(ParsedPack {
             pack_index: self.state.pack_index,
             limits: self.state.limits,
-            prefix,
+            prefix: prefix_3,
             registration_name,
-            icons,
+            icons: icons_3,
             icon_index,
-            aliases: aliases.aliases,
-            alias_index: aliases.index,
+            aliases: aliases_2.aliases,
+            alias_index: aliases_2.index,
         })
     }
 }
@@ -1008,39 +1080,43 @@ impl<'de> Visitor<'de> for IconVisitor<'_, '_> {
             match key.as_ref() {
                 "body" => {
                     let maximum_bytes = self.state.limits.max_body_bytes;
-                    body = Some(map.next_value_seed(BoundedStringSeed::icon_body(
+                    body = Some({ let checked_value = map.next_value_seed(BoundedStringSeed::icon_body(
                         self.state,
                         maximum_bytes,
                         IconRegistryResourceLimitId::MaxBodyBytes,
                         "icon body exceeds the configured byte limit",
-                    ))?);
+                    ))?; checked_value });
                 }
                 "left" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_2 = self.state
+                            .validate_coordinate(value, "icon left coordinate is invalid")?;
                     geometry.left = Some(
-                        self.state
-                            .validate_coordinate(value, "icon left coordinate is invalid")?,
+                        checked_value_2,
                     );
                 }
                 "top" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_3 = self.state
+                            .validate_coordinate(value, "icon top coordinate is invalid")?;
                     geometry.top = Some(
-                        self.state
-                            .validate_coordinate(value, "icon top coordinate is invalid")?,
+                        checked_value_3,
                     );
                 }
                 "width" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_4 = self.state
+                            .validate_dimension(value, "icon width is invalid")?;
                     geometry.width = Some(
-                        self.state
-                            .validate_dimension(value, "icon width is invalid")?,
+                        checked_value_4,
                     );
                 }
                 "height" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_5 = self.state
+                            .validate_dimension(value, "icon height is invalid")?;
                     geometry.height = Some(
-                        self.state
-                            .validate_dimension(value, "icon height is invalid")?,
+                        checked_value_5,
                     );
                 }
                 "rotate" => {
@@ -1060,12 +1136,12 @@ impl<'de> Visitor<'de> for IconVisitor<'_, '_> {
             }
         }
 
-        let body: String = body.ok_or_else(|| {
+        let body_2: String = body.ok_or_else(|| {
             self.state
                 .schema_error::<A::Error>("icon definition is missing its body")
         })?;
         let (validated, xml_usage) = validate_icon_body(
-            body,
+            body_2,
             self.state.pack_index,
             &self.state.limits,
             self.state.ledger.retained_xml_plan_bytes,
@@ -1148,6 +1224,7 @@ impl<'de> Visitor<'de> for AliasMapVisitor<'_, '_> {
                     "alias fanout accounting overflowed",
                 ))
             })?;
+
             if *parent_fanout > self.state.limits.max_alias_fanout {
                 return Err(self.state.fail(limit_error(
                     self.state.pack_index,
@@ -1216,39 +1293,43 @@ impl<'de> Visitor<'de> for AliasVisitor<'_, '_> {
             match key.as_ref() {
                 "parent" => {
                     let maximum_bytes = self.state.limits.max_name_bytes;
-                    parent = Some(map.next_value_seed(BoundedStringSeed::identifier(
+                    parent = Some({ let checked_value = map.next_value_seed(BoundedStringSeed::identifier(
                         self.state,
                         maximum_bytes,
                         IconRegistryResourceLimitId::MaxNameBytes,
                         "alias parent is not a valid Iconify identifier",
-                    ))?);
+                    ))?; checked_value });
                 }
                 "left" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_2 = self.state
+                            .validate_coordinate(value, "alias left coordinate is invalid")?;
                     geometry.left = Some(
-                        self.state
-                            .validate_coordinate(value, "alias left coordinate is invalid")?,
+                        checked_value_2,
                     );
                 }
                 "top" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_3 = self.state
+                            .validate_coordinate(value, "alias top coordinate is invalid")?;
                     geometry.top = Some(
-                        self.state
-                            .validate_coordinate(value, "alias top coordinate is invalid")?,
+                        checked_value_3,
                     );
                 }
                 "width" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_4 = self.state
+                            .validate_dimension(value, "alias width is invalid")?;
                     geometry.width = Some(
-                        self.state
-                            .validate_dimension(value, "alias width is invalid")?,
+                        checked_value_4,
                     );
                 }
                 "height" => {
                     let value = read_value(&mut map)?;
+                    let checked_value_5 = self.state
+                            .validate_dimension(value, "alias height is invalid")?;
                     geometry.height = Some(
-                        self.state
-                            .validate_dimension(value, "alias height is invalid")?,
+                        checked_value_5,
                     );
                 }
                 "rotate" => {
@@ -1268,13 +1349,13 @@ impl<'de> Visitor<'de> for AliasVisitor<'_, '_> {
             }
         }
 
-        let parent: String = parent.ok_or_else(|| {
+        let parent_2: String = parent.ok_or_else(|| {
             self.state
                 .schema_error::<A::Error>("alias definition is missing its parent")
         })?;
         Ok(AliasDefinition {
             name: self.name,
-            parent,
+            parent: parent_2,
             geometry,
             transform,
         })
@@ -1313,7 +1394,7 @@ impl Visitor<'_> for QuarterTurnsVisitor {
     where
         E: de::Error,
     {
-        Ok(QuarterTurns((value % 4) as u8))
+        Ok(QuarterTurns(::core::primitive::u64::wrapping_rem(value, 4) as u8))
     }
 }
 
@@ -1412,6 +1493,7 @@ impl BoundedStringVisitor<'_, '_> {
                 self.limit_message,
             )));
         }
+
         if let Some(message) = self.identifier_message
             && !super::lookup::valid_identifier(value)
         {
@@ -1421,6 +1503,7 @@ impl BoundedStringVisitor<'_, '_> {
                 message,
             )));
         }
+
         if matches!(self.accounting, BoundedStringAccounting::IconBody) {
             self.state.charge_retained_body(value.len())?;
             self.state.charge_work(
@@ -1428,6 +1511,7 @@ impl BoundedStringVisitor<'_, '_> {
                 "icon XML bytes exceed the build work budget",
             )?;
         }
+
         Ok(())
     }
 
@@ -1514,9 +1598,11 @@ impl JsonKeyVisitor<'_, '_> {
                 "JSON object key exceeds the fixed byte limit",
             )));
         }
+
         if let JsonKeyPolicy::Identifier { message } = self.policy {
             self.state.validate_name(value, message)?;
         }
+
         Ok(())
     }
 
@@ -1579,6 +1665,7 @@ where
     else {
         return Ok(None);
     };
+
     state.charge_json_member()?;
     let mut seen_key = String::new();
     seen_key
@@ -1587,9 +1674,11 @@ where
     seen_key.push_str(key.as_ref());
     seen.try_reserve(1)
         .map_err(|_| state.allocation_error("duplicate-key set allocation failed"))?;
+
     if !seen.insert(seen_key) {
         return Err(state.duplicate_key_error());
     }
+
     Ok(Some(key))
 }
 
@@ -1703,6 +1792,7 @@ impl<'de> Visitor<'de> for SkipValueVisitor<'_, '_> {
         A: SeqAccess<'de>,
     {
         self.state.check_container_depth(self.depth)?;
+
         while sequence
             .next_element_seed(SkipSequenceElementSeed {
                 state: self.state,
@@ -1710,6 +1800,7 @@ impl<'de> Visitor<'de> for SkipValueVisitor<'_, '_> {
             })?
             .is_some()
         {}
+
         Ok(())
     }
 
@@ -1719,12 +1810,14 @@ impl<'de> Visitor<'de> for SkipValueVisitor<'_, '_> {
     {
         self.state.check_container_depth(self.depth)?;
         let mut seen = HashSet::new();
+
         while next_unique_key(&mut map, &mut seen, self.state, JsonKeyPolicy::Generic)?.is_some() {
             map.next_value_seed(SkipValueSeed {
                 state: self.state,
                 depth: self.depth + 1,
             })?;
         }
+
         Ok(())
     }
 }

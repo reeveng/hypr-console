@@ -223,15 +223,18 @@ fn visit_well_formed_svg_with_controls<const REFERENCES: bool>(
         let event = reader.read_event();
         checkpoint()?;
         let event = event.map_err(|error| xml_validation_error(format!("invalid XML: {error}")))?;
+
         match event {
             Event::Start(element) => {
                 document_started = true;
                 let is_root = depth == 0;
+
                 if is_root && (root_seen || root_closed) {
                     return Err(xml_validation_error(
                         "the document contains more than one root element",
                     ));
                 }
+
                 let (namespace, _) = reader.resolver().resolve_element(element.name());
                 let references = validate_well_formed_element::<REFERENCES>(
                     &element,
@@ -240,26 +243,34 @@ fn visit_well_formed_svg_with_controls<const REFERENCES: bool>(
                     is_root,
                     checkpoint,
                 )?;
+
                 if is_root {
                     root_seen = true;
                 }
+
                 elements = elements.saturating_add(1);
                 depth += 1;
                 max_tree_depth = max_tree_depth.max(depth.saturating_sub(1));
                 checkpoint()?;
                 check_structure(elements, max_tree_depth)?;
-                if let Some(references) = references {
-                    observe_element(references, depth - 1)?;
+
+                match references {
+                    Some(references) => {
+                        observe_element(references, depth - 1)?;
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
             Event::Empty(element) => {
                 document_started = true;
                 let is_root = depth == 0;
+
                 if is_root && (root_seen || root_closed) {
                     return Err(xml_validation_error(
                         "the document contains more than one root element",
                     ));
                 }
+
                 let (namespace, _) = reader.resolver().resolve_element(element.name());
                 let references = validate_well_formed_element::<REFERENCES>(
                     &element,
@@ -272,9 +283,14 @@ fn visit_well_formed_svg_with_controls<const REFERENCES: bool>(
                 max_tree_depth = max_tree_depth.max(depth);
                 checkpoint()?;
                 check_structure(elements, max_tree_depth)?;
-                if let Some(references) = references {
-                    observe_element(references, depth)?;
+
+                match references {
+                    Some(references) => {
+                        observe_element(references, depth)?;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 if is_root {
                     root_seen = true;
                     root_closed = true;
@@ -285,6 +301,7 @@ fn visit_well_formed_svg_with_controls<const REFERENCES: bool>(
                 depth = depth
                     .checked_sub(1)
                     .ok_or_else(|| xml_validation_error("an end tag has no matching start tag"))?;
+
                 if depth == 0 {
                     root_closed = true;
                 }
@@ -293,16 +310,19 @@ fn visit_well_formed_svg_with_controls<const REFERENCES: bool>(
                 document_started = true;
                 let contains_cdata_close = text.contains("]]>");
                 checkpoint()?;
+
                 if contains_cdata_close {
                     return Err(xml_validation_error(
                         "the sequence ]]> is not allowed in XML text",
                     ));
                 }
+
                 let text = text.xml10_content();
                 checkpoint()?;
                 validate_xml_characters(&text, checkpoint)?;
                 let text_outside_root = depth == 0 && !text.trim().is_empty();
                 checkpoint()?;
+
                 if text_outside_root {
                     return Err(xml_validation_error(
                         "text is not allowed outside the SVG root",
@@ -312,11 +332,13 @@ fn visit_well_formed_svg_with_controls<const REFERENCES: bool>(
             Event::CData(text) => {
                 document_started = true;
                 checkpoint()?;
+
                 if depth == 0 {
                     return Err(xml_validation_error(
                         "CDATA is not allowed outside the SVG root",
                     ));
                 }
+
                 validate_xml_characters(text.as_ref(), checkpoint)?;
             }
             Event::GeneralRef(reference) => {
@@ -324,11 +346,13 @@ fn visit_well_formed_svg_with_controls<const REFERENCES: bool>(
                 let value = resolve_xml_reference_value(&reference);
                 checkpoint()?;
                 let value = value.map_err(xml_validation_error)?;
+
                 if depth == 0 {
                     return Err(xml_validation_error(
                         "character references are not allowed outside the SVG root",
                     ));
                 }
+
                 let _ = value;
             }
             Event::PI(_) => {
@@ -347,6 +371,7 @@ fn visit_well_formed_svg_with_controls<const REFERENCES: bool>(
                         "the XML declaration must be the first document token",
                     ));
                 }
+
                 validate_xml_declaration(&declaration)?;
                 document_started = true;
             }
@@ -364,6 +389,7 @@ fn visit_well_formed_svg_with_controls<const REFERENCES: bool>(
             "the document does not contain an SVG root",
         ));
     }
+
     if !root_closed || depth != 0 {
         return Err(xml_validation_error("the SVG root is not closed"));
     }
@@ -384,13 +410,14 @@ fn validate_well_formed_element<const REFERENCES: bool>(
     checkpoint: &mut dyn FnMut() -> Result<()>,
 ) -> Result<Option<ValidatedElement>> {
     let is_svg_element = is_svg_element_namespace(&namespace);
+
     match namespace {
         ResolveResult::Unknown(prefix) => {
             return Err(xml_validation_error(format!(
                 "element uses an unknown namespace prefix {prefix:?}"
             )));
         }
-        ResolveResult::Bound(namespace) if is_root && namespace.as_ref() != SVG_NAMESPACE => {
+        ResolveResult::Bound(namespace_2) if is_root && namespace_2.as_ref() != SVG_NAMESPACE => {
             return Err(xml_validation_error(
                 "the root element uses a non-SVG namespace",
             ));
@@ -401,51 +428,58 @@ fn validate_well_formed_element<const REFERENCES: bool>(
     validate_xml_qname(element.name().as_ref())?;
     let local_name = element.local_name();
     let element_name = local_name.as_ref();
+
     if is_root && element_name != "svg" {
         return Err(xml_validation_error(
             "the document root is not an SVG element",
         ));
     }
+
     let mut references = REFERENCES.then(|| ReferenceAttributes::new(element_name, is_svg_element));
     let mut first_namespaced_attribute = None;
     let mut additional_namespaced_attributes = HashSet::new();
+
     for attribute in element.attributes() {
         checkpoint()?;
-        let attribute = attribute
+        let attribute_2 = attribute
             .map_err(|error| xml_validation_error(format!("invalid XML attribute: {error}")))?;
-        let qualified_name = validate_xml_qname(attribute.key.as_ref());
+        let qualified_name = validate_xml_qname(attribute_2.key.as_ref());
         checkpoint()?;
         qualified_name?;
-        let contains_open_angle = attribute.value.contains('<');
+        let contains_open_angle = attribute_2.value.contains('<');
         checkpoint()?;
+
         if contains_open_angle {
             return Err(xml_validation_error(
                 "the character < is not allowed in an XML attribute value",
             ));
         }
-        let normalized = attribute.normalized_value(XmlVersion::Implicit1_0);
+
+        let normalized = attribute_2.normalized_value(XmlVersion::Implicit1_0);
         checkpoint()?;
         let value = normalized.map_err(|error| {
             xml_validation_error(format!("invalid XML attribute value: {error}"))
         })?;
         validate_xml_characters(&value, checkpoint)?;
 
-        if attribute.key.as_namespace_binding().is_some() {
+        if attribute_2.key.as_namespace_binding().is_some() {
             continue;
         }
-        if attribute.key.prefix().is_some() {
-            let (namespace, local_name) = resolver.resolve_attribute(attribute.key);
-            let namespace = match namespace {
+
+        if attribute_2.key.prefix().is_some() {
+            let (namespace_3, local_name_2) = resolver.resolve_attribute(attribute_2.key);
+            let namespace_5 = match namespace_3 {
                 ResolveResult::Unknown(prefix) => {
                     checkpoint()?;
                     return Err(xml_validation_error(format!(
                         "attribute uses an unknown namespace prefix {prefix:?}"
                     )));
                 }
-                ResolveResult::Bound(namespace) => Some(namespace.into_inner()),
+                ResolveResult::Bound(namespace_4) => Some(namespace_4.into_inner()),
                 ResolveResult::Unbound => None,
             };
-            let expanded_name = (namespace, local_name.into_inner());
+            let expanded_name = (namespace_5, local_name_2.into_inner());
+
             if first_namespaced_attribute == Some(expanded_name)
                 || (first_namespaced_attribute.is_some()
                     && !additional_namespaced_attributes.insert(expanded_name))
@@ -455,42 +489,55 @@ fn validate_well_formed_element<const REFERENCES: bool>(
                     "attributes must have unique expanded names",
                 ));
             }
-            if first_namespaced_attribute.is_none() {
-                first_namespaced_attribute = Some(expanded_name);
+
+            match first_namespaced_attribute {
+                ::core::option::Option::None => {
+                    first_namespaced_attribute = Some(expanded_name);
+                },
+                ::core::option::Option::Some(_) => {},
             }
         }
-        if let Some(references) = references.as_mut() {
-            let (namespace, local_name) = resolver.resolve_attribute(attribute.key);
-            let is_unbound = matches!(&namespace, ResolveResult::Unbound);
-            let is_xlink = matches!(
-                &namespace,
-                ResolveResult::Bound(namespace) if namespace.as_ref() == XLINK_NAMESPACE
-            );
-            references.observe_raw_attribute(local_name.as_ref(), is_xlink, &value);
-            if usvg_consumes_attribute_namespace(namespace)? {
-                // This is the same normalized value whose XML validity was just checked.
-                references.observe(
-                    local_name.as_ref(),
-                    is_unbound,
-                    is_xlink,
-                    &value,
-                    checkpoint,
-                )?;
-            }
+
+        match references.as_mut() {
+            Some(references_2) => {
+                let (namespace_6, local_name_3) = resolver.resolve_attribute(attribute_2.key);
+                let is_unbound = matches!(&namespace_6, ResolveResult::Unbound);
+                let is_xlink = matches!(
+                    &namespace_6,
+                    ResolveResult::Bound(namespace_7) if namespace_7.as_ref() == XLINK_NAMESPACE
+                );
+                references_2.observe_raw_attribute(local_name_3.as_ref(), is_xlink, &value);
+
+                let checked_value = usvg_consumes_attribute_namespace(namespace_6)?;
+
+                if checked_value {
+
+                    references_2.observe(
+                        local_name_3.as_ref(),
+                        is_unbound,
+                        is_xlink,
+                        &value,
+                        checkpoint,
+                    )?;
+                }
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     Ok(references.map(ReferenceAttributes::finish))
 }
 
 fn validate_xml_declaration(declaration: &BytesDecl<'_>) -> Result<()> {
-    let declaration = BytesStart::from_content(declaration.as_ref(), 3);
-    let mut attributes = declaration.attributes();
+    let declaration_2 = BytesStart::from_content(declaration.as_ref(), 3);
+    let mut attributes = declaration_2.attributes();
 
     let version = attributes
         .next()
         .transpose()
         .map_err(|error| xml_validation_error(format!("invalid XML declaration: {error}")))?
         .ok_or_else(|| xml_validation_error("the XML declaration is missing version"))?;
+
     if version.key.as_ref() != "version" || version.value.as_ref() != "1.0" {
         return Err(xml_validation_error(
             "the XML declaration must begin with version=\"1.0\"",
@@ -498,13 +545,15 @@ fn validate_xml_declaration(declaration: &BytesDecl<'_>) -> Result<()> {
     }
 
     let mut expected_attribute = 1usize;
+
     for attribute in attributes {
-        let attribute = attribute
+        let attribute_2 = attribute
             .map_err(|error| xml_validation_error(format!("invalid XML declaration: {error}")))?;
+
         match (
             expected_attribute,
-            attribute.key.as_ref(),
-            attribute.value.as_ref(),
+            attribute_2.key.as_ref(),
+            attribute_2.value.as_ref(),
         ) {
             (1, "encoding", value) if value.eq_ignore_ascii_case("utf-8") => {
                 expected_attribute = 2;
@@ -519,6 +568,7 @@ fn validate_xml_declaration(declaration: &BytesDecl<'_>) -> Result<()> {
             }
         }
     }
+
     Ok(())
 }
 
@@ -526,15 +576,18 @@ fn validate_xml_characters(value: &str, checkpoint: &mut dyn FnMut() -> Result<(
     const MAX_BLOCK_BYTES: usize = 256;
 
     let mut start = 0;
+
     while start < value.len() {
         checkpoint()?;
         let mut end = start.saturating_add(MAX_BLOCK_BYTES).min(value.len());
+
         while !value.is_char_boundary(end) {
             end -= 1;
         }
+
         let block = &value[start..end];
-        // In valid UTF-8, XML 1.0 forbids only ASCII controls other than TAB/LF/CR and
-        // U+FFFE/U+FFFF. Surrogates cannot occur, and other Unicode noncharacters are legal.
+
+
         let (invalid_control, has_ef) =
             block
                 .as_bytes()
@@ -545,10 +598,11 @@ fn validate_xml_characters(value: &str, checkpoint: &mut dyn FnMut() -> Result<(
                         has_ef | (byte == 0xef),
                     )
                 });
-        // Scalar-aligned ends cannot split EF BF BE/BF. Without EF, neither forbidden
-        // scalar is present, including in Unicode text. There is no whole-input fallback.
+
+
         let invalid_noncharacter =
             has_ef && (block.contains('\u{fffe}') || block.contains('\u{ffff}'));
+
         if (invalid_control || invalid_noncharacter)
             && let Some(character) = block
                 .chars()
@@ -560,17 +614,23 @@ fn validate_xml_characters(value: &str, checkpoint: &mut dyn FnMut() -> Result<(
                 u32::from(character)
             )));
         }
-        // Each block bounds the fold, two possible searches and invalid-scalar localization:
-        // at most four passes over <=256 bytes (<=1024 logical input bytes), not 256 total work.
+
+
+
         start = end;
     }
+
     checkpoint()
 }
 
 fn validate_xml_qname(name: &str) -> Result<()> {
     let mut components = name.split(':');
-    let first = components.next().unwrap_or_default();
+    let first = match components.next() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
     let second = components.next();
+
     if components.next().is_some()
         || !is_valid_xml_ncname(first)
         || second.is_some_and(|component| !is_valid_xml_ncname(component))
@@ -579,15 +639,18 @@ fn validate_xml_qname(name: &str) -> Result<()> {
             "invalid XML qualified name {name:?}"
         )));
     }
+
     Ok(())
 }
 
+#[must_use]
 fn is_valid_xml_ncname(name: &str) -> bool {
     let mut chars = name.chars();
     chars.next().is_some_and(is_xml_name_start_char)
         && chars.all(|ch| ch != ':' && is_xml_name_char(ch))
 }
 
+#[must_use]
 fn is_xml_name_start_char(ch: char) -> bool {
     matches!(
         ch,
@@ -609,6 +672,7 @@ fn is_xml_name_start_char(ch: char) -> bool {
     )
 }
 
+#[must_use]
 fn is_xml_name_char(ch: char) -> bool {
     is_xml_name_start_char(ch)
         || matches!(
@@ -711,7 +775,7 @@ fn validate_resvg_svg_for_consumer(
                     if native_required {
                         execution.terminate_resource_error(error)
                     } else {
-                        error.into()
+                        <crate::Error as ::core::convert::From<crate::resources::ResourceLimitExceeded>>::from(error)
                     }
                 })
         },
@@ -754,8 +818,8 @@ fn check_svg_resource_budget_with_controls(
         checkpoint,
     ) {
         Ok(summary) => summary,
-        // Cyclic references do not prevent ordinary browser SVG publication. Native admission
-        // separately requires a complete expansion plan before backend work.
+
+
         Err(ReferencePlanningError::Invalid(_)) => return checkpoint(),
         Err(ReferencePlanningError::Checkpoint(error)) => return Err(error),
     };
@@ -781,6 +845,7 @@ impl SvgReferencePlan {
                 Ok(())
             },
         )?;
+
         match analyze_svg_reference_facts_with_checkpoints::<true, _>(
             facts,
             structure,
@@ -825,6 +890,7 @@ fn validate_resvg_compatible_svg_after_xml_with_structure(
         let event = reader.read_event();
         checkpoint()?;
         let event = event.map_err(|error| validation_error(format!("invalid XML: {error}")))?;
+
         match event {
             Event::Start(element) => {
                 if style_text.is_some() {
@@ -832,6 +898,7 @@ fn validate_resvg_compatible_svg_after_xml_with_structure(
                         "a <style> element contains nested XML elements",
                     ));
                 }
+
                 let is_root = depth == 0;
                 reject_additional_root(is_root, root_seen, root_closed)?;
                 let validated = validate_element_after_xml(
@@ -850,13 +917,17 @@ fn validate_resvg_compatible_svg_after_xml_with_structure(
                 let opens_style = validated.is_style;
                 fallback_css_residual |= validated.fallback_css_residual;
                 references.append(reference_stack.last().copied(), validated);
+
                 if is_root {
                     root_seen = true;
                 }
+
                 depth += 1;
+
                 if opens_style {
                     style_text = Some(OpenStyle { css: String::new() });
                 }
+
                 reference_stack.push(references.parents.len() - 1);
             }
             Event::Empty(element) => {
@@ -865,6 +936,7 @@ fn validate_resvg_compatible_svg_after_xml_with_structure(
                         "a <style> element contains nested XML elements",
                     ));
                 }
+
                 let is_root = depth == 0;
                 reject_additional_root(is_root, root_seen, root_closed)?;
                 let validated = validate_element_after_xml(
@@ -878,9 +950,11 @@ fn validate_resvg_compatible_svg_after_xml_with_structure(
                 let empty_style = validated.is_style;
                 fallback_css_residual |= validated.fallback_css_residual;
                 references.append(reference_stack.last().copied(), validated);
+
                 if empty_style {
                     validate_style_text("", &mut checkpoint)?;
                 }
+
                 if is_root {
                     root_seen = true;
                     root_closed = true;
@@ -891,17 +965,23 @@ fn validate_resvg_compatible_svg_after_xml_with_structure(
                 reject_unknown_namespace(namespace)?;
                 let local_name = element.local_name();
                 let element_name = local_name.as_ref();
-                if let Some(style) = style_text.take() {
-                    if !element_name.eq_ignore_ascii_case("style") {
-                        return Err(validation_error(
-                            "a <style> element contains nested XML elements",
-                        ));
-                    }
-                    validate_style_text(&style.css, &mut checkpoint)?;
-                    resource_closure
-                        .observe_stylesheet_urls(&style.css)
-                        .map_err(validation_error)?;
+
+                match style_text.take() {
+                    Some(style) => {
+                        if !element_name.eq_ignore_ascii_case("style") {
+                            return Err(validation_error(
+                                "a <style> element contains nested XML elements",
+                            ));
+                        }
+
+                        validate_style_text(&style.css, &mut checkpoint)?;
+                        resource_closure
+                            .observe_stylesheet_urls(&style.css)
+                            .map_err(validation_error)?;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 reference_stack
                     .pop()
                     .ok_or_else(|| validation_error("an end tag has no matching reference node"))?;
@@ -911,6 +991,7 @@ fn validate_resvg_compatible_svg_after_xml_with_structure(
                 depth = depth
                     .checked_sub(1)
                     .ok_or_else(|| validation_error("an end tag has no matching start tag"))?;
+
                 if depth == 0 {
                     root_closed = true;
                 }
@@ -918,37 +999,50 @@ fn validate_resvg_compatible_svg_after_xml_with_structure(
             Event::Text(text) => {
                 let text = text.xml10_content();
                 checkpoint()?;
-                if let Some(style) = style_text.as_mut() {
-                    style.css.push_str(&text);
-                } else {
-                    let text_outside_root = depth == 0 && !text.trim().is_empty();
-                    checkpoint()?;
-                    if text_outside_root {
-                        return Err(validation_error("text is not allowed outside the SVG root"));
-                    }
-                    text_content.observe_content(&text);
+
+                match style_text.as_mut() {
+                    Some(style) => {
+                        style.css.push_str(&text);
+                    },
+                    ::core::option::Option::None => {
+                        let text_outside_root = depth == 0 && !text.trim().is_empty();
+                        checkpoint()?;
+
+                        if text_outside_root {
+                            return Err(validation_error("text is not allowed outside the SVG root"));
+                        }
+
+                        text_content.observe_content(&text);
+                    },
                 }
             }
             Event::CData(text) => {
                 let text = text.xml10_content();
                 checkpoint()?;
-                if let Some(style) = style_text.as_mut() {
-                    style.css.push_str(&text);
-                } else {
-                    let cdata_outside_root = depth == 0 && !text.trim().is_empty();
-                    checkpoint()?;
-                    if cdata_outside_root {
-                        return Err(validation_error(
-                            "CDATA is not allowed outside the SVG root",
-                        ));
-                    }
-                    text_content.observe_content(&text);
+
+                match style_text.as_mut() {
+                    Some(style) => {
+                        style.css.push_str(&text);
+                    },
+                    ::core::option::Option::None => {
+                        let cdata_outside_root = depth == 0 && !text.trim().is_empty();
+                        checkpoint()?;
+
+                        if cdata_outside_root {
+                            return Err(validation_error(
+                                "CDATA is not allowed outside the SVG root",
+                            ));
+                        }
+
+                        text_content.observe_content(&text);
+                    },
                 }
             }
             Event::GeneralRef(reference) => {
                 let value = resolve_xml_reference_value(&reference);
                 checkpoint()?;
                 let value = value.map_err(validation_error)?;
+
                 if let Some(style) = style_text.as_mut() {
                     style.css.push(value);
                 } else if depth == 0 && !value.is_ascii_whitespace() {
@@ -979,9 +1073,11 @@ fn validate_resvg_compatible_svg_after_xml_with_structure(
             "the document does not contain an SVG root",
         ));
     }
+
     if !root_closed || depth != 0 || style_text.is_some() {
         return Err(validation_error("the SVG root is not closed"));
     }
+
     checkpoint()?;
     let reference_plan = match analyze_svg_reference_facts_with_checkpoints::<true, _>(
         references,
@@ -1042,6 +1138,7 @@ fn reject_additional_root(is_root: bool, root_seen: bool, root_closed: bool) -> 
             "the document contains more than one root element",
         ));
     }
+
     Ok(())
 }
 
@@ -1077,11 +1174,13 @@ impl ElementIds {
 
     fn observe(&mut self, value: &str) {
         let parsed = self.parsed.get_or_insert_with(|| value.to_owned());
+
         if matches!(&self.raw, RawElementId::Other(raw) if raw == parsed) {
             self.raw = RawElementId::Parsed;
         }
     }
 
+    #[must_use]
     fn raw_value(&self) -> Option<&str> {
         match &self.raw {
             RawElementId::Absent => None,
@@ -1115,7 +1214,11 @@ struct SvgReferenceFacts {
 impl SvgReferenceFacts {
     fn append(&mut self, parent: Option<usize>, element: ValidatedElement) -> usize {
         let index = self.parents.len();
-        self.parents.push(parent.unwrap_or(usize::MAX));
+        self.parents.push(match parent {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => usize::MAX,
+        });
+
         if element.ids.parsed.is_some() || element.ids.raw_value().is_some() {
             self.identities.push(ReferenceIdentity {
                 element: index,
@@ -1123,6 +1226,7 @@ impl SvgReferenceFacts {
                 ids: element.ids,
             });
         }
+
         self.references
             .extend(
                 element
@@ -1134,9 +1238,11 @@ impl SvgReferenceFacts {
                         reference,
                     }),
             );
+
         if element.may_repeat_per_element {
             self.effects.push(index);
         }
+
         index
     }
 }
@@ -1166,23 +1272,29 @@ impl ReferenceDependencyGraph {
     ) -> std::result::Result<Self, E> {
         checkpoint()?;
         let mut edge_count = 0;
+
         for (iteration, node_edges) in dependencies.iter().enumerate() {
             checkpoint_loop(iteration, checkpoint)?;
             edge_count += node_edges.len();
         }
+
         let mut ranges = Vec::with_capacity(dependencies.len());
         let mut edges = Vec::with_capacity(edge_count);
         let mut edge_iteration = 0usize;
+
         for (iteration, node_edges) in dependencies.into_iter().enumerate() {
             checkpoint_loop(iteration, checkpoint)?;
             let start = edges.len();
+
             for edge in node_edges {
                 checkpoint_loop(edge_iteration, checkpoint)?;
                 edge_iteration = edge_iteration.saturating_add(1);
                 edges.push(edge);
             }
+
             ranges.push(start..edges.len());
         }
+
         checkpoint()?;
         Ok(Self {
             ranges,
@@ -1191,6 +1303,7 @@ impl ReferenceDependencyGraph {
         })
     }
 
+    #[must_use]
     fn dependencies(&self, index: usize) -> &[(usize, usize)] {
         &self.edges[self.ranges[index].clone()]
     }
@@ -1229,14 +1342,17 @@ fn validate_element_after_xml(
     let is_svg_element = is_svg_element_namespace(&namespace);
     validate_namespace(namespace, is_root)?;
     let element_name = local_name.as_ref();
+
     if is_root && element_name != "svg" {
         return Err(validation_error("the document root is not an SVG element"));
     }
+
     if matches_active_svg_element(element_name) {
         return Err(validation_error(format!(
             "active element <{element_name}> survived terminal sanitization"
         )));
     }
+
     if is_svg_element && element_name.eq_ignore_ascii_case("foreignObject") {
         return Err(validation_error(
             "a <foreignObject> element is not supported by the standalone portable SVG contract",
@@ -1247,82 +1363,95 @@ fn validate_element_after_xml(
     let mut root_width_seen = false;
     let mut root_height_seen = false;
     let mut fallback_css_residual = false;
-    // The caller already validated this immutable element, including lexical and expanded
-    // attribute-name uniqueness. Keep parsing and all target checks without rebuilding that set.
+
+
     for attribute in element.attributes().with_checks(false) {
         checkpoint()?;
-        let attribute = attribute
+        let attribute_2 = attribute
             .map_err(|error| validation_error(format!("invalid XML attribute: {error}")))?;
-        let qualified_name = attribute.key.as_ref();
+        let qualified_name = attribute_2.key.as_ref();
         checkpoint()?;
-        let value = attribute.normalized_value(XmlVersion::Implicit1_0);
+        let value = attribute_2.normalized_value(XmlVersion::Implicit1_0);
         checkpoint()?;
-        let value = value
+        let value_2 = value
             .map_err(|error| validation_error(format!("invalid XML attribute value: {error}")))?;
-        if attribute.key.as_namespace_binding().is_some() {
+
+        if attribute_2.key.as_namespace_binding().is_some() {
             continue;
         }
 
-        let (attribute_namespace, local_name) = resolver.resolve_attribute(attribute.key);
+        let (attribute_namespace, local_name_2) = resolver.resolve_attribute(attribute_2.key);
         let is_unbound_attribute = matches!(&attribute_namespace, ResolveResult::Unbound);
         let is_xlink_attribute = matches!(
             &attribute_namespace,
-            ResolveResult::Bound(namespace) if namespace.as_ref() == XLINK_NAMESPACE
+            ResolveResult::Bound(namespace_2) if namespace_2.as_ref() == XLINK_NAMESPACE
         );
         let consumes_namespace = usvg_consumes_attribute_namespace(attribute_namespace);
         checkpoint()?;
-        reference_attributes.observe_raw_attribute(local_name.as_ref(), is_xlink_attribute, &value);
-        if !consumes_namespace? {
+        reference_attributes.observe_raw_attribute(local_name_2.as_ref(), is_xlink_attribute, &value_2);
+
+        let checked_value = consumes_namespace?;
+
+        if !checked_value {
             continue;
         }
-        let semantic_name = local_name.as_ref();
+
+        let semantic_name = local_name_2.as_ref();
         checkpoint()?;
+
         if is_svg_element
             && is_unbound_attribute
             && qualified_name == "data-merman-fallback-css-residual"
-            && value == "true"
+            && value_2 == "true"
         {
-            // An authored marker can only request a warning or stricter fidelity rejection.
-            // It cannot grant compatibility, font, or resource evidence.
+
+
             fallback_css_residual = true;
         }
+
         if is_unbound_attribute && qualified_name == "data-merman-typed-fonts" {
             return Err(validation_error(
                 "embedded theme font resources are not supported",
             ));
         }
+
         let violates_contract =
-            parsed_attribute_violates_resvg_contract(element_name, qualified_name, &value);
+            parsed_attribute_violates_resvg_contract(element_name, qualified_name, &value_2);
         checkpoint()?;
+
         if violates_contract {
             return Err(validation_error(format!(
                 "attribute {qualified_name:?} on <{element_name}> violates the resvg-safe contract"
             )));
         }
+
         if is_svg_element {
             check_native_coordinate_attribute(
                 element_name,
                 semantic_name,
-                &value,
+                &value_2,
                 is_root,
                 &mut checkpoint,
                 check_coordinate,
             )?;
         }
+
         if is_root && semantic_name == "width" && !root_width_seen {
             root_width_seen = true;
-            let dimension = validate_positive_root_dimension("width", &value);
+            let dimension = validate_positive_root_dimension("width", &value_2);
             checkpoint()?;
             dimension?;
         }
+
         if is_root && semantic_name == "height" && !root_height_seen {
             root_height_seen = true;
-            let dimension = validate_positive_root_dimension("height", &value);
+            let dimension = validate_positive_root_dimension("height", &value_2);
             checkpoint()?;
             dimension?;
         }
+
         if semantic_name == "style" {
-            match validate_resvg_css_declaration_list_with_checkpoints(&value, &mut checkpoint) {
+            match validate_resvg_css_declaration_list_with_checkpoints(&value_2, &mut checkpoint) {
                 Ok(()) => {}
                 Err(CssValidationError::Invalid(error)) => {
                     checkpoint()?;
@@ -1332,47 +1461,65 @@ fn validate_element_after_xml(
                 }
                 Err(CssValidationError::Checkpoint(error)) => return Err(error),
             }
+
             resource_closure
-                .observe_inline_css_urls(&value)
+                .observe_inline_css_urls(&value_2)
                 .map_err(validation_error)?;
         } else if is_url_function_attribute(semantic_name) {
             resource_closure
-                .observe_inline_css_urls(&value)
+                .observe_inline_css_urls(&value_2)
                 .map_err(validation_error)?;
         }
+
         reference_attributes.observe(
             semantic_name,
             is_unbound_attribute,
             is_xlink_attribute,
-            &value,
+            &value_2,
             checkpoint,
         )?;
+
         if (semantic_name == "href"
             && !element_name.eq_ignore_ascii_case("a")
             && !(is_svg_element && element_name.eq_ignore_ascii_case("use")))
             || semantic_name == "src"
         {
-            observe_terminal_resource_url(resource_closure, &value);
+            observe_terminal_resource_url(resource_closure, &value_2);
         }
     }
-    if let Some(error) = reference_attributes.marker_error.take() {
-        return Err(error);
+
+    match reference_attributes.marker_error.take() {
+        Some(error) => {
+            return Err(error);
+        },
+        ::core::option::Option::None => {},
     }
+
     let mut validated = reference_attributes.finish();
     validated.fallback_css_residual = fallback_css_residual;
-    if let Some(id) = &validated.ids.parsed {
-        resource_closure.observe_parsed_fragment_id(id);
+
+    match &validated.ids.parsed {
+        Some(id) => {
+            resource_closure.observe_parsed_fragment_id(id);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(id) = validated.ids.raw_value() {
-        resource_closure.observe_raw_use_fragment_id(id);
+
+    match validated.ids.raw_value() {
+        Some(id) => {
+            resource_closure.observe_raw_use_fragment_id(id);
+        },
+        ::core::option::Option::None => {},
     }
-    // Only the effective raw <use> target is a closure obligation. Presentation resources
-    // resolve against parsed IDs, which may differ from the first local-name XML ID.
+
+
+
     for reference in validated.references.iter().flatten() {
         if matches!(reference.target_kind, ReferenceTargetKind::UseElement) {
             resource_closure.observe_raw_use_fragment_reference(&reference.target);
         }
     }
+
     Ok(validated)
 }
 
@@ -1397,6 +1544,7 @@ struct ReferenceAttributes<'a> {
 }
 
 impl<'a> ReferenceAttributes<'a> {
+    #[must_use]
     fn new(element_name: &'a str, is_svg_element: bool) -> Self {
         Self {
             element_name,
@@ -1418,12 +1566,13 @@ impl<'a> ReferenceAttributes<'a> {
 
     #[inline]
     fn observe_raw_attribute(&mut self, name: &str, is_xlink: bool, value: &str) {
-        // usvg resolves raw XML use links before presentation attributes are projected. The
-        // fallback selects the first local name in any namespace, just like roxmltree::attribute.
+
+
         match name {
             "id" => self.ids.observe_raw(value),
             "href" if self.is_svg_element && self.element_name.eq_ignore_ascii_case("use") => {
                 self.use_href.get_or_insert_with(|| value.to_owned());
+
                 if is_xlink {
                     self.use_xlink_href.get_or_insert_with(|| value.to_owned());
                 }
@@ -1442,6 +1591,7 @@ impl<'a> ReferenceAttributes<'a> {
         checkpoint: &mut dyn FnMut() -> Result<()>,
     ) -> Result<()> {
         self.observe_raw_attribute(semantic_name, is_xlink_attribute, value);
+
         match semantic_name {
             "id" if self.is_svg_element => self.ids.observe(value),
             "d" if self.is_svg_element && self.element_name == "path" => {
@@ -1460,6 +1610,7 @@ impl<'a> ReferenceAttributes<'a> {
             }
             _ => {}
         }
+
         Ok(())
     }
 
@@ -1489,30 +1640,37 @@ impl<'a> ReferenceAttributes<'a> {
         } else {
             None
         };
-        if let Some(slot) = marker_slot {
-            let target = same_document_marker_target(value);
-            checkpoint()?;
-            match target {
-                Ok(Some(target)) if is_marker_capable_svg_element(self.element_name) => {
-                    *slot = Some(target.to_owned());
+
+        match marker_slot {
+            Some(slot) => {
+                let target = same_document_marker_target(value);
+                checkpoint()?;
+
+                match target {
+                    Ok(Some(target_2)) if is_marker_capable_svg_element(self.element_name) => {
+                        *slot = Some(target_2.to_owned());
+                    }
+                    Ok(None) => {}
+                    Ok(Some(_)) => {
+                        self.marker_error.get_or_insert_with(|| {
+                            validation_error(format!(
+                                "marker references on <{}> cannot be bounded before usvg parsing",
+                                self.element_name
+                            ))
+                        });
+                    }
+                    Err(error) => {
+                        self.marker_error.get_or_insert(error);
+                    }
                 }
-                Ok(None) => {}
-                Ok(Some(_)) => {
-                    self.marker_error.get_or_insert_with(|| {
-                        validation_error(format!(
-                            "marker references on <{}> cannot be bounded before usvg parsing",
-                            self.element_name
-                        ))
-                    });
-                }
-                Err(error) => {
-                    self.marker_error.get_or_insert(error);
-                }
-            }
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(())
     }
 
+    #[must_use]
     fn finish(self) -> ValidatedElement {
         let href = if self.element_name.eq_ignore_ascii_case("use") {
             self.use_xlink_href
@@ -1554,7 +1712,10 @@ impl<'a> ReferenceAttributes<'a> {
                         target,
                         marker_mid_instance_upper_bound(
                             self.element_name,
-                            self.geometry_source_len.unwrap_or(0),
+                            match self.geometry_source_len {
+                                ::core::option::Option::Some(option_value) => option_value,
+                                ::core::option::Option::None => 0,
+                            },
                         ),
                     )
                 }),
@@ -1564,6 +1725,7 @@ impl<'a> ReferenceAttributes<'a> {
     }
 }
 
+#[must_use]
 fn is_url_function_attribute(name: &str) -> bool {
     matches!(
         name,
@@ -1582,13 +1744,14 @@ fn is_url_function_attribute(name: &str) -> bool {
 }
 
 fn observe_terminal_resource_url(resources: &mut SvgResourceClosureBuilder, value: &str) {
-    let value = value.trim();
-    if let Some(fragment) = value
+    let value_2 = value.trim();
+
+    if let Some(fragment) = value_2
         .strip_prefix('#')
         .filter(|fragment| !fragment.is_empty())
     {
         resources.observe_parsed_fragment_reference(fragment);
-    } else if value
+    } else if value_2
         .get(..5)
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case("data:"))
     {
@@ -1610,7 +1773,7 @@ fn check_native_coordinate_attribute(
         && name == "viewBox"
         && let Ok(view_box) = value.parse::<svgtypes::ViewBox>()
     {
-        for value in [
+        for value_2 in [
             view_box.x,
             view_box.y,
             view_box.w,
@@ -1619,17 +1782,19 @@ fn check_native_coordinate_attribute(
             view_box.y + view_box.h,
         ] {
             checkpoint()?;
-            check_coordinate(value)?;
+            check_coordinate(value_2)?;
         }
     }
+
     let gradient_coordinate = match element_name {
         "linearGradient" => matches!(name, "x1" | "y1" | "x2" | "y2"),
         "radialGradient" => matches!(name, "cx" | "cy" | "r" | "fx" | "fy" | "fr"),
         _ => false,
     };
+
     if (is_root && matches!(name, "width" | "height")) || gradient_coordinate {
-        // Relative lengths are resolved by the backend. Root and canvas producers emit
-        // concrete SVG coordinates here; percentages must not be treated as pixel counts.
+
+
         if let Ok(length) = value.parse::<Length>()
             && matches!(
                 length.unit,
@@ -1639,6 +1804,7 @@ fn check_native_coordinate_attribute(
             check_coordinate(length.number)?;
         }
     }
+
     if matches!(name, "transform" | "gradientTransform" | "patternTransform") {
         for transform in svgtypes::TransformListParser::from(value) {
             checkpoint()?;
@@ -1647,31 +1813,45 @@ fn check_native_coordinate_attribute(
                 Ok(svgtypes::TransformListToken::Matrix { e, f, .. }) => Some((e, f)),
                 _ => None,
             };
-            if let Some((x, y)) = translation {
-                check_coordinate(x)?;
-                check_coordinate(y)?;
+
+            match translation {
+                Some((x, y)) => {
+                    check_coordinate(x)?;
+                    check_coordinate(y)?;
+                },
+                ::core::option::Option::None => {},
             }
         }
     }
+
     if is_root && name == "style" {
         let mut declarations = cssparser::Parser::new(value);
+
         while !declarations.is_exhausted() {
             checkpoint()?;
             let result: std::result::Result<(), cssparser::ParseError<Error>> = declarations
                 .parse_until_after(cssparser::Delimiter::Semicolon, |declaration| {
                     let property = declaration.expect_ident_cloned()?;
+
                     if !property.eq_ignore_ascii_case("max-width") {
                         return Ok(());
                     }
+
                     declaration.expect_colon()?;
                     let start = declaration.position();
                     let _ = declaration.next()?;
                     let literal = declaration.slice_from(start);
-                    if let Some(value) = crate::mermaid_style::parse_svg_number_or_px(literal) {
-                        check_coordinate(value).map_err(cssparser::ParseError::custom)?;
+
+                    match crate::mermaid_style::parse_svg_number_or_px(literal) {
+                        Some(value_3) => {
+                            check_coordinate(value_3).map_err(cssparser::ParseError::custom)?;
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     Ok(())
                 });
+
             if let Err(cssparser::ParseError {
                 kind: cssparser::ParseErrorKind::Custom(error),
                 ..
@@ -1681,6 +1861,7 @@ fn check_native_coordinate_attribute(
             }
         }
     }
+
     Ok(())
 }
 
@@ -1688,22 +1869,26 @@ fn validate_positive_root_dimension(name: &str, value: &str) -> Result<()> {
     let Ok(length) = value.parse::<Length>() else {
         return Ok(());
     };
+
     if length.number.is_finite() && length.number > 0.0 {
         return Ok(());
     }
+
     Err(validation_error(format!(
         "root SVG {name} must be a positive length"
     )))
 }
 
+#[must_use]
 fn is_svg_element_namespace(namespace: &ResolveResult<'_>) -> bool {
     matches!(namespace, ResolveResult::Unbound)
         || matches!(
             namespace,
-            ResolveResult::Bound(namespace) if namespace.as_ref() == SVG_NAMESPACE
+            ResolveResult::Bound(namespace_2) if namespace_2.as_ref() == SVG_NAMESPACE
         )
 }
 
+#[must_use]
 fn same_document_use_target(value: &str) -> Option<&str> {
     IRI::from_str(value).ok().map(|iri| iri.0)
 }
@@ -1712,11 +1897,13 @@ fn same_document_marker_target(value: &str) -> Result<Option<&str>> {
     if value == "none" {
         return Ok(None);
     }
+
     FuncIRI::from_str(value)
         .map(|iri| Some(iri.0))
         .map_err(|_| validation_error("marker reference is not a bounded same-document url()"))
 }
 
+#[must_use]
 fn is_marker_capable_svg_element(element_name: &str) -> bool {
     matches!(
         element_name,
@@ -1724,10 +1911,11 @@ fn is_marker_capable_svg_element(element_name: &str) -> bool {
     )
 }
 
+#[must_use]
 fn marker_mid_instance_upper_bound(element_name: &str, geometry_source_len: usize) -> usize {
     match element_name {
-        // One arc command may be lowered to multiple cubic segments. Four per source byte remains
-        // a conservative bound even for compressed implicit command repetition.
+
+
         "path" => geometry_source_len.saturating_mul(4).saturating_add(16),
         "polyline" | "polygon" => geometry_source_len.saturating_add(4),
         "line" => 2,
@@ -1742,6 +1930,7 @@ struct SvgReferenceAnalysis {
 }
 
 impl SvgReferenceAnalysis {
+    #[must_use]
     fn into_detailed_plan(self) -> SvgReferencePlan {
         SvgReferencePlan {
             expanded_elements: self.structure.elements,
@@ -1758,9 +1947,10 @@ fn analyze_svg_reference_facts_with_checkpoints<const DETAILED: bool, E>(
 ) -> ReferencePlanningResult<SvgReferenceAnalysis, E> {
     checkpoint().map_err(ReferencePlanningError::Checkpoint)?;
     debug_assert_eq!(facts.parents.len(), structure.elements);
+
     if facts.references.is_empty() && facts.effects.is_empty() {
-        // This decision uses every actual XML reference and effect, including missing targets.
-        // IDs alone cannot expand an element. No topology or identity index is materialized.
+
+
         let raw_element_occurrences = if DETAILED {
             #[cfg(test)]
             record_reference_analysis_work(|work| work.occurrence_slots += structure.elements);
@@ -1774,6 +1964,7 @@ fn analyze_svg_reference_facts_with_checkpoints<const DETAILED: bool, E>(
             raw_element_occurrences,
         });
     }
+
     let (graph, effects) = build_reference_fact_dependencies(facts, checkpoint)
         .map_err(ReferencePlanningError::Checkpoint)?;
     analyze_compact_reference_dependencies::<DETAILED, _>(&graph, &effects, checkpoint)
@@ -1785,6 +1976,7 @@ struct ParsedIdCandidates {
 }
 
 impl ParsedIdCandidates {
+    #[must_use]
     fn iter(&self) -> impl Iterator<Item = &(usize, bool)> {
         std::iter::once(&self.first).chain(&self.additional)
     }
@@ -1803,25 +1995,35 @@ fn build_reference_fact_dependencies<E>(
     let real_nodes = parents.len();
     let mut use_ids = HashMap::new();
     let mut parsed_ids = HashMap::<&str, ParsedIdCandidates>::new();
+
     for (iteration, identity) in identities.iter().enumerate() {
         checkpoint_loop(iteration, checkpoint)?;
-        if let Some(id) = identity.ids.raw_value() {
-            // Raw XML lookup selects the first local-name ID in document order.
-            use_ids.entry(id).or_insert(identity.element);
+
+        match identity.ids.raw_value() {
+            Some(id) => {
+
+                use_ids.entry(id).or_insert(identity.element);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(id) = identity.ids.parsed.as_deref() {
-            let candidate = (identity.element, identity.is_marker);
-            match parsed_ids.entry(id) {
-                std::collections::hash_map::Entry::Occupied(mut entry) => {
-                    entry.get_mut().additional.push(candidate);
+
+        match identity.ids.parsed.as_deref() {
+            Some(id) => {
+                let candidate = (identity.element, identity.is_marker);
+
+                match parsed_ids.entry(id) {
+                    std::collections::hash_map::Entry::Occupied(mut entry) => {
+                        entry.get_mut().additional.push(candidate);
+                    }
+                    std::collections::hash_map::Entry::Vacant(entry) => {
+                        entry.insert(ParsedIdCandidates {
+                            first: candidate,
+                            additional: Vec::new(),
+                        });
+                    }
                 }
-                std::collections::hash_map::Entry::Vacant(entry) => {
-                    entry.insert(ParsedIdCandidates {
-                        first: candidate,
-                        additional: Vec::new(),
-                    });
-                }
-            }
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -1833,6 +2035,7 @@ fn build_reference_fact_dependencies<E>(
     let mut parsed_dependencies = HashMap::new();
     let mut marker_dependencies = HashMap::new();
     let mut resolved_references = Vec::with_capacity(references.len());
+
     for (iteration, SourceReference { source, reference }) in references.into_iter().enumerate() {
         checkpoint_loop(iteration, checkpoint)?;
         let target = match reference.target_kind {
@@ -1854,12 +2057,17 @@ fn build_reference_fact_dependencies<E>(
                 checkpoint,
             )?,
         };
-        if let Some(target) = target {
-            graph.ranges[source].end += 1;
-            resolved_references.push((source, target, reference.multiplicity));
+
+        match target {
+            Some(target) => {
+                graph.ranges[source].end += 1;
+                resolved_references.push((source, target, reference.multiplicity));
+            },
+            ::core::option::Option::None => {},
         }
     }
-    // No graph node retains strings or an ID index. Sparse XML facts are consumed here.
+
+
     drop(use_ids);
     drop(parsed_ids);
     drop(parsed_dependencies);
@@ -1870,17 +2078,20 @@ fn build_reference_fact_dependencies<E>(
         checkpoint_loop(iteration, checkpoint)?;
         graph.ranges[parent].end += 1;
     }
+
     let tree_start = graph.edges.len();
     let mut end = tree_start;
+
     for (iteration, range) in graph.ranges[..real_nodes].iter_mut().enumerate() {
         checkpoint_loop(iteration, checkpoint)?;
         let count = range.end;
         *range = end..end + count;
         end += count;
     }
+
     graph.edges.resize(end, (0, 0));
-    // Each actual tree edge is written directly to its final arena once. The parent arena is
-    // consumed, rather than allocating child lists and then copying them into a second graph.
+
+
     for (index, parent) in parents.into_iter().enumerate().skip(1) {
         checkpoint_loop(index, checkpoint)?;
         graph.edges[graph.ranges[parent].start] = (index, 1);
@@ -1888,17 +2099,21 @@ fn build_reference_fact_dependencies<E>(
         #[cfg(test)]
         record_reference_analysis_work(|work| work.tree_edges += 1);
     }
+
     for (iteration, (source, target, multiplicity)) in resolved_references.into_iter().enumerate() {
         checkpoint_loop(iteration, checkpoint)?;
         graph.edges[graph.ranges[source].start] = (target, multiplicity);
         graph.ranges[source].start += 1;
     }
+
     let mut start = tree_start;
+
     for (iteration, range) in graph.ranges[..real_nodes].iter_mut().enumerate() {
         checkpoint_loop(iteration, checkpoint)?;
         range.start = start;
         start = range.end;
     }
+
     #[cfg(test)]
     record_reference_analysis_work(|work| work.dependency_nodes += graph.ranges.len());
     Ok((graph, effects))
@@ -1913,30 +2128,44 @@ fn resolve_fact_id_dependency<'a, E>(
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> std::result::Result<Option<usize>, E> {
     checkpoint()?;
-    let Some((id, candidates)) = parsed_ids.get_key_value(target) else {
-        return Ok(None);
+
+    let (id, candidates) = {
+        let optional_id = parsed_ids.get_key_value(target);
+
+        match optional_id {
+            Some((matched_id, matched_candidates)) => (matched_id, matched_candidates),
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     if candidates.additional.is_empty() {
         let (index, is_marker) = candidates.first;
         return Ok((!marker_only || is_marker).then_some(index));
     }
-    if let Some(&dependency) = resolved.get(target) {
-        return Ok(dependency);
+
+    match resolved.get(target) {
+        Some(&dependency) => {
+            return Ok(dependency);
+        },
+        ::core::option::Option::None => {},
     }
-    let mut candidates = candidates
+
+    let mut candidates_2 = candidates
         .iter()
         .filter_map(|&(index, is_marker)| (!marker_only || is_marker).then_some(index));
-    let dependency = match (candidates.next(), candidates.next()) {
+    let dependency = match (candidates_2.next(), candidates_2.next()) {
         (None, _) => None,
         (Some(first), None) => Some(first),
         (Some(first), Some(second)) => {
             let index = graph.ranges.len();
             let start = graph.edges.len();
             graph.edges.extend([(first, 1), (second, 1)]);
-            for (iteration, candidate) in candidates.enumerate() {
+
+            for (iteration, candidate) in candidates_2.enumerate() {
                 checkpoint_loop(iteration, checkpoint)?;
                 graph.edges.push((candidate, 1));
             }
+
             graph.ranges.push(start..graph.edges.len());
             Some(index)
         }
@@ -1958,8 +2187,8 @@ fn analyze_compact_reference_dependencies<const DETAILED: bool, E>(
     effects: &[usize],
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> ReferencePlanningResult<SvgReferenceAnalysis, E> {
-    // User element budgets can exceed a native backend's ceiling. Count independently of that
-    // ceiling so an observational compatibility failure cannot hide a resource-limit failure.
+
+
     let nodes_len = graph.ranges.len();
     let mut states = vec![0_u8; nodes_len];
     let mut expanded_elements = vec![0_usize; nodes_len];
@@ -1981,10 +2210,12 @@ fn analyze_compact_reference_dependencies<const DETAILED: bool, E>(
         checkpoint_loop(traversal_iteration, checkpoint)
             .map_err(ReferencePlanningError::Checkpoint)?;
         traversal_iteration = traversal_iteration.saturating_add(1);
+
         if complete {
             let is_group = index >= graph.real_nodes;
             let mut elements = if is_group { 0_usize } else { 1 };
             let mut depth = 0_usize;
+
             for &(dependency, multiplicity) in graph.dependencies(index) {
                 checkpoint_loop(dependency_iteration, checkpoint)
                     .map_err(ReferencePlanningError::Checkpoint)?;
@@ -1999,12 +2230,15 @@ fn analyze_compact_reference_dependencies<const DETAILED: bool, E>(
                     dependency_depth.saturating_add(1)
                 });
             }
+
             expanded_elements[index] = elements;
             expanded_depths[index] = depth;
             states[index] = 2;
+
             if DETAILED {
                 postorder.push(index);
             }
+
             continue;
         }
 
@@ -2012,10 +2246,12 @@ fn analyze_compact_reference_dependencies<const DETAILED: bool, E>(
             0 => {
                 states[index] = 1;
                 stack.push((index, true));
+
                 for &(dependency, _) in graph.dependencies(index).iter().rev() {
                     checkpoint_loop(dependency_iteration, checkpoint)
                         .map_err(ReferencePlanningError::Checkpoint)?;
                     dependency_iteration = dependency_iteration.saturating_add(1);
+
                     match states[dependency] {
                         0 => stack.push((dependency, false)),
                         1 => {
@@ -2050,29 +2286,36 @@ fn analyze_compact_reference_dependencies<const DETAILED: bool, E>(
     record_reference_analysis_work(|work| {
         work.occurrence_slots += if DETAILED { nodes_len } else { 0 };
     });
+
     if DETAILED {
         raw_element_occurrences[0] = 1;
     }
+
     let application_upper_bound = expanded_elements[0];
+
     for (iteration, &index) in effects.iter().enumerate() {
         checkpoint_loop(iteration, checkpoint).map_err(ReferencePlanningError::Checkpoint)?;
-        // The XML owner includes every real node under the SVG root. After cycle checking,
-        // an extra root edge to an effect cannot change non-root costs or topological order.
+
+
         debug_assert!(index != 0 && states[index] == 2);
-        // Charge each filter/mask/clip-path once per baseline expanded element, preserving
-        // the conservative CSS-independent bound without evaluating the graph a second time.
+
+
         expanded_elements[0] = expanded_elements[0]
             .saturating_add(expanded_elements[index].saturating_mul(application_upper_bound));
         expanded_depths[0] = expanded_depths[0].max(expanded_depths[index].saturating_add(1));
+
         if DETAILED {
             raw_element_occurrences[index] =
                 raw_element_occurrences[index].saturating_add(application_upper_bound);
         }
     }
+
     let mut occurrence_dependency_iteration = 0usize;
+
     for (iteration, index) in postorder.into_iter().rev().enumerate() {
         checkpoint_loop(iteration, checkpoint).map_err(ReferencePlanningError::Checkpoint)?;
         let occurrences = raw_element_occurrences[index];
+
         for &(dependency, multiplicity) in graph.dependencies(index) {
             checkpoint_loop(occurrence_dependency_iteration, checkpoint)
                 .map_err(ReferencePlanningError::Checkpoint)?;
@@ -2086,6 +2329,7 @@ fn analyze_compact_reference_dependencies<const DETAILED: bool, E>(
                 raw_element_occurrences[dependency].saturating_add(added);
         }
     }
+
     raw_element_occurrences.truncate(graph.real_nodes);
 
     Ok(SvgReferenceAnalysis {
@@ -2097,18 +2341,18 @@ fn analyze_compact_reference_dependencies<const DETAILED: bool, E>(
     })
 }
 
-// usvg maps attributes from these namespaces to SVG attribute ids by local name.
+
 fn usvg_consumes_attribute_namespace(namespace: ResolveResult<'_>) -> Result<bool> {
     match namespace {
         ResolveResult::Unknown(prefix) => Err(validation_error(format!(
             "attribute uses an unknown namespace prefix {prefix:?}"
         ))),
         ResolveResult::Unbound => Ok(true),
-        ResolveResult::Bound(namespace) => {
-            let namespace = namespace.as_ref();
-            Ok(namespace == SVG_NAMESPACE
-                || namespace == XLINK_NAMESPACE
-                || namespace == XML_NAMESPACE)
+        ResolveResult::Bound(namespace_2) => {
+            let namespace_3 = namespace_2.as_ref();
+            Ok(namespace_3 == SVG_NAMESPACE
+                || namespace_3 == XLINK_NAMESPACE
+                || namespace_3 == XML_NAMESPACE)
         }
     }
 }
@@ -2118,7 +2362,7 @@ fn validate_namespace(namespace: ResolveResult<'_>, is_root: bool) -> Result<()>
         ResolveResult::Unknown(prefix) => Err(validation_error(format!(
             "element uses an unknown namespace prefix {prefix:?}"
         ))),
-        ResolveResult::Bound(namespace) if is_root && namespace.as_ref() != SVG_NAMESPACE => Err(
+        ResolveResult::Bound(namespace_2) if is_root && namespace_2.as_ref() != SVG_NAMESPACE => Err(
             validation_error("the root element uses a non-SVG namespace"),
         ),
         ResolveResult::Unbound | ResolveResult::Bound(_) => Ok(()),
@@ -2148,17 +2392,21 @@ fn validate_style_text(css: &str, checkpoint: &mut impl FnMut() -> Result<()>) -
 }
 
 fn resolve_xml_reference_value(reference: &BytesRef<'_>) -> std::result::Result<char, String> {
-    if let Some(value) = reference
+    match reference
         .resolve_char_ref()
-        .map_err(|error| format!("invalid XML character reference: {error}"))?
-    {
-        if crate::xml::is_xml_1_0_char(value) {
-            return Ok(value);
-        }
-        return Err("invalid XML character reference: the scalar is forbidden in XML 1.0".into());
+        .map_err(|error| format!("invalid XML character reference: {error}"))? {
+        Some(value) => {
+            if crate::xml::is_xml_1_0_char(value) {
+                return Ok(value);
+            }
+
+            return Err(<::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("invalid XML character reference: the scalar is forbidden in XML 1.0"));
+        },
+        ::core::option::Option::None => {},
     }
 
     let name = reference.as_ref();
+
     match name {
         "amp" => Ok('&'),
         "apos" => Ok('\''),
@@ -2171,10 +2419,12 @@ fn resolve_xml_reference_value(reference: &BytesRef<'_>) -> std::result::Result<
     }
 }
 
+#[must_use]
 fn validation_error(message: impl Into<String>) -> Error {
     Error::svg_postprocess(VALIDATION_PASS, message)
 }
 
+#[must_use]
 fn xml_validation_error(message: impl Into<String>) -> Error {
     Error::svg_postprocess(XML_VALIDATION_PASS, message)
 }
@@ -2183,8 +2433,8 @@ fn xml_validation_error(message: impl Into<String>) -> Error {
 mod tests {
     use super::*;
 
-    // Frozen pre-refactor collection and graph planning are intentionally test-only.
-    // They provide an independent oracle for identity ownership, adjacency, and exact counts.
+
+
     struct ReferenceNode {
         children: Vec<usize>,
         is_marker: bool,
@@ -2195,8 +2445,8 @@ mod tests {
     }
 
     struct LegacyReferenceDependencyGraph {
-        // Real document nodes keep their encounter-order indexes. Trailing nodes are transparent
-        // candidate groups: they share duplicate-ID edges without contributing an element or depth.
+
+
         dependencies: Vec<Vec<(usize, usize)>>,
         real_nodes: usize,
     }
@@ -2559,8 +2809,8 @@ mod tests {
         let element_name = local_name.as_ref();
         let mut references =
             LegacyReferenceAttributes::new(element_name, is_svg_element_namespace(&namespace));
-        // The caller already validated this exact immutable SVG, including lexical and expanded
-        // attribute-name uniqueness. Keep parsing and all target checks without rebuilding that set.
+
+
         for attribute in element.attributes().with_checks(false) {
             checkpoint()?;
             let attribute = attribute
@@ -2615,9 +2865,9 @@ mod tests {
         };
 
         if let Some(structure) = raw_structure {
-            // Only this XML owner supplies complete, validated element facts for these exact bytes.
-            // Unused IDs/markers/gradients do not expand. References and all conservative effect
-            // applications must use the graph, including missing targets and duplicate parsed IDs.
+
+
+
             let mut no_expansion = true;
             for (index, node) in nodes.iter().enumerate() {
                 checkpoint_loop(index, checkpoint).map_err(ReferencePlanningError::Checkpoint)?;
@@ -2672,14 +2922,14 @@ mod tests {
         for (index, node) in nodes.iter().enumerate() {
             checkpoint_loop(index, checkpoint)?;
             if let Some(id) = node.use_id.as_deref() {
-                // Raw XML lookup selects the first local-name ID in document order.
+
                 use_ids.entry(id).or_insert(index);
             }
             if let Some(id) = node.parsed_id.as_deref() {
-                // Keep every candidate conservatively. usvg ignores unknown elements and otherwise
-                // resolves duplicate parsed IDs to one element; charging the union avoids mirroring
-                // its private element whitelist while ensuring an ignored duplicate cannot shadow a
-                // resource-bearing target in this preflight graph.
+
+
+
+
                 parsed_ids
                     .entry(id)
                     .or_default()
@@ -2795,8 +3045,8 @@ mod tests {
             return Ok(Some(first));
         };
 
-        // A duplicate-ID candidate union is materialized once. Every parsed-tree reference then owns
-        // one edge to this transparent group instead of copying every candidate edge.
+
+
         let group_index = dependencies.len();
         let mut group = Vec::with_capacity(candidates.size_hint().0.saturating_add(2));
         group.push((first, 1));
@@ -2829,8 +3079,8 @@ mod tests {
         svg_nodes: &[ReferenceNode],
         checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
     ) -> ReferencePlanningResult<SvgReferenceAnalysis, E> {
-        // User element budgets can exceed a native backend's ceiling. Count independently of that
-        // ceiling so an observational compatibility failure cannot hide a resource-limit failure.
+
+
         let dependencies = &graph.dependencies;
         let nodes_len = dependencies.len();
         let mut states = vec![0_u8; nodes_len];
@@ -2927,11 +3177,11 @@ mod tests {
         for (index, node) in svg_nodes.iter().enumerate() {
             checkpoint_loop(index, checkpoint).map_err(ReferencePlanningError::Checkpoint)?;
             if node.may_repeat_per_element {
-                // The XML owner includes every real node under the SVG root. After cycle checking,
-                // an extra root edge to an effect cannot change non-root costs or topological order.
+
+
                 debug_assert!(index != 0 && states[index] == 2);
-                // Charge each filter/mask/clip-path once per baseline expanded element, preserving
-                // the conservative CSS-independent bound without evaluating the graph a second time.
+
+
                 expanded_elements[0] = expanded_elements[0].saturating_add(
                     expanded_elements[index].saturating_mul(application_upper_bound),
                 );
@@ -3080,9 +3330,9 @@ mod tests {
         let plan = match plan_svg_reference_expansion_with_checkpoints(&reference_nodes, checkpoint)
         {
             Ok(plan) => plan,
-            // XML and raw element budgets have already been checked. A cycle prevents a complete
-            // expansion plan, including for mixed cyclic/acyclic graphs, but does not make ordinary
-            // host SVG invalid. This path returns no compatibility or expansion certificate.
+
+
+
             Err(ReferencePlanningError::Invalid(_)) => return checkpoint(),
             Err(ReferencePlanningError::Checkpoint(error)) => return Err(error),
         };
@@ -3312,8 +3562,8 @@ mod tests {
                     if cancellation.phase == OperationPhase::Postprocess
                         && cancellation.reason == CancelReason::Requested
             ));
-            // No historical callback-count equality is required. Once observed, cancellation
-            // remains the first terminal even at another stage and before a later XML error.
+
+
             assert_eq!(
                 format!(
                     "{:?}",
@@ -4188,7 +4438,7 @@ mod tests {
                 assert_eq!(format!("{error:?}"), format!("{xml_error:?}"), "{svg}");
             }
         }
-        // Equal local names in distinct namespaces are not duplicate expanded names.
+
         let distinct = r#"<svg width="10" height="10" xmlns:a="urn:first" xmlns:b="urn:second" a:key="1" b:key="2"/>"#;
         check_budget(distinct, 10_000).unwrap();
         validate(distinct).unwrap();
@@ -4244,7 +4494,7 @@ mod tests {
         .unwrap();
         assert!(total_checkpoints > 0);
 
-        // Exercise every observed cancellation boundary without fixing the traversal's schedule.
+
         for cancel_at in 1..=total_checkpoints {
             let mut checkpoints = 0;
             let error = check_svg_resource_budget_with_controls(
@@ -4601,8 +4851,8 @@ mod tests {
                         nodes[index].may_repeat_per_element = true;
                     }
 
-                    // Keep the original two evaluations as the differential oracle, including
-                    // its frozen baseline multiplier and virtual duplicate-ID candidate groups.
+
+
                     let mut graph = build_svg_reference_dependencies(&nodes);
                     let expected = plan_svg_reference_dependencies(&graph).and_then(|baseline| {
                         for &index in effects {

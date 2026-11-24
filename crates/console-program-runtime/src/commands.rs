@@ -72,7 +72,8 @@ pub trait Platform {
   type Executable;
   type Error;
 
-  fn resolve(&self, executable: Executable) -> Result<Self::Executable, Self::Error>;
+  #[doc = "Supply the platform executable for this command before attempting to start it."]
+  fn resolve(&mut self, executable: Executable) -> Result<Self::Executable, Self::Error>;
 
   fn run(
     &mut self,
@@ -90,7 +91,7 @@ pub trait Platform {
 }
 
 pub fn resolve<P: Platform>(
-  platform: &P,
+  platform: &mut P,
   command: &Command,
 ) -> Result<Invocation<P::Executable>, P::Error> {
   let program = platform.resolve(command.program)?;

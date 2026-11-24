@@ -682,7 +682,10 @@ mod tests {
     let back_part = find_part(&parts, "back")?;
     let Ok(back_row) = super::row(back_part);
 
-    assert_eq!(files, Some(vec!["/usr/local/bin/files".to_string()]));
+    assert_eq!(
+      files,
+      Some(vec!["/usr/local/bin/console-application-files".to_string()])
+    );
     assert_eq!(
       put_away,
       Some(Effect::Dispatch(console_compositor::Action::CloseWindow))

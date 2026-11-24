@@ -19,11 +19,10 @@ use console_core_never::Never;
 use console_core_words::Words;
 use console_sound_effects::SoundEffects;
 
-use crate::level::Muted;
+use crate::level::{Muted, Step, apply_step};
+use crate::sound::{VolumeStep, volume_argument};
 
 const NOTHING_HEARD: &str = "?";
-
-pub const STEP: &str = "5%";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Words)]
 pub enum ButtonPress {
@@ -49,37 +48,62 @@ impl Subcommand for ButtonPress {
   }
 }
 
-pub fn asks(press: ButtonPress, sink: &str) -> Result<Vec<Vec<String>>, Never> {
+pub fn asks(press: ButtonPress, sink: &str, current: i32) -> Result<Vec<Vec<String>>, Never> {
   let words = |arguments: &[&str]| arguments.iter().map(|word| (*word).to_string()).collect();
+  let step = match press {
+    ButtonPress::Up => Step(1),
+    ButtonPress::Down => Step(-1),
+    ButtonPress::Mute => return Ok(vec![words(&["set-sink-mute", sink, "toggle"])]),
+  };
 
-  match press {
-    ButtonPress::Up => Ok(vec![
-      words(&["set-sink-volume", sink, &format!("+{STEP}")]),
-      words(&["set-sink-mute", sink, "0"]),
-    ]),
-    ButtonPress::Down => Ok(vec![words(&["set-sink-volume", sink, &format!("-{STEP}")])]),
-    ButtonPress::Mute => Ok(vec![words(&["set-sink-mute", sink, "toggle"])]),
+  let Ok(next) = apply_step(current, step);
+  let mut requests = Vec::new();
+
+  match { ::core::primitive::bool::then_some(next != current, ()) } {
+    ::core::option::Option::Some(()) => {
+      requests.push(words(&[
+        "set-sink-volume",
+        sink,
+        &({
+          let Ok(explicit_value) = volume_argument(VolumeStep { from: current, to: next });
+          explicit_value
+        }),
+      ]));
+    }
+    ::core::option::Option::None => {}
   }
+
+  match { ::core::primitive::bool::then_some(press == ButtonPress::Up, ()) } {
+    ::core::option::Option::Some(()) => {
+      requests.push(words(&["set-sink-mute", sink, "0"]));
+    }
+    ::core::option::Option::None => {}
+  }
+
+  Ok(requests)
 }
 
 pub fn sound_server(arguments: &[impl AsRef<OsStr>]) -> io::Result<String> {
   let Ok(mut asking) = Program::Pactl.command();
   let said = asking.env("LC_ALL", "C").args(arguments).output()?;
 
-  match said.status.success() {
-    true => String::from_utf8(said.stdout).map_err(io::Error::other),
-    false => Err(io::Error::other(
-      String::from_utf8_lossy(&said.stderr).into_owned(),
-    )),
+  match ::core::primitive::bool::then_some(said.status.success(), ()) {
+    ::core::option::Option::Some(()) => String::from_utf8(said.stdout).map_err(io::Error::other),
+    ::core::option::Option::None => {
+      let diagnostic = String::from_utf8(said.stderr).map_err(io::Error::other)?;
+
+      Err(io::Error::other(diagnostic))
+    }
   }
 }
 
 pub fn preview(sink: &str, muted: Muted, level: Option<i64>) -> Result<(), Never> {
   let Ok(effects) = SoundEffects::current();
 
-  match (effects, muted, level) {
-    (SoundEffects::On, Muted::No, Some(1..)) if !sink.is_empty() => {
-      match console_sound_effects::play_volume(sink) {
+  match (effects, muted, level, sink) {
+    (SoundEffects::On, Muted::No, Some(1..), "") => {}
+    (SoundEffects::On, Muted::No, Some(1..), output) => {
+      match console_sound_effects::play_volume(output) {
         Ok(()) => {}
         Err(fault) => console_core_logging::warn!("could not play the volume preview: {fault}"),
       }
@@ -109,7 +133,11 @@ pub fn level(said: &str) -> Result<Option<&str>, Never> {
       .split_whitespace()
       .filter_map(|word| {
         let percent = word.trim_end_matches(',');
-        let number = percent.strip_suffix('%')?.parse::<u32>().ok()?;
+        let checked_value = percent.strip_suffix('%')?;
+        let number = match checked_value.parse::<u32>() {
+          ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_),
+          ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None,
+        }?;
 
         Some((number, percent))
       })
@@ -148,7 +176,7 @@ mod tests {
 
   #[test]
   fn turning_it_up_sets_the_level_before_unmuting() -> Result<(), Failure> {
-    let Ok(asked) = asks(ButtonPress::Up, SINK);
+    let Ok(asked) = asks(ButtonPress::Up, SINK, 50);
     let raising = asked.first().ok_or("nothing asked")?;
     let unmuting = asked.get(1).ok_or("one thing asked")?;
 
@@ -163,7 +191,7 @@ mod tests {
 
   #[test]
   fn turning_it_down_leaves_it_silenced() {
-    let Ok(asked) = asks(ButtonPress::Down, SINK);
+    let Ok(asked) = asks(ButtonPress::Down, SINK, 50);
 
     assert_eq!(asked.len(), 1);
     assert!(!asked.iter().any(|arguments| {
@@ -176,13 +204,28 @@ mod tests {
   #[test]
   fn mute_is_a_toggle_and_moves_no_number() {
     assert_eq!(
-      asks(ButtonPress::Mute, SINK),
+      asks(ButtonPress::Mute, SINK, 50),
       Ok(vec![vec![
         "set-sink-mute".to_string(),
         SINK.to_string(),
         "toggle".to_string()
       ]])
     );
+  }
+
+  #[test]
+  fn the_rocker_uses_the_same_volume_range_as_the_slider() {
+    let Ok(above) = asks(ButtonPress::Up, SINK, 100);
+    let Ok(below) = asks(ButtonPress::Down, SINK, 0);
+    assert_eq!(above.len(), 1);
+    assert_eq!(
+      above
+        .first()
+        .and_then(|request| request.first())
+        .map(String::as_str),
+      Some("set-sink-mute")
+    );
+    assert!(below.is_empty());
   }
 
   #[test]

@@ -10,14 +10,17 @@ pub(crate) struct SvgFontSeal {
 }
 
 impl SvgFontSeal {
+    #[must_use]
     pub(super) const fn unsealed(text_element_count: usize) -> Self {
         Self { text_element_count }
     }
 
+    #[must_use]
     pub(super) const fn not_required() -> Self {
         Self::unsealed(0)
     }
 
+    #[must_use]
     pub(crate) const fn is_complete(&self) -> bool {
         self.text_element_count == 0
     }
@@ -42,26 +45,38 @@ impl SvgTextContentTracker {
         let is_svg_element = match namespace {
             ResolveResult::Unknown(_) => return None,
             ResolveResult::Unbound => true,
-            ResolveResult::Bound(namespace) => namespace.as_ref() == SVG_NAMESPACE,
+            ResolveResult::Bound(namespace_2) => namespace_2.as_ref() == SVG_NAMESPACE,
         };
         let is_text = is_svg_element && local_name.as_ref().eq_ignore_ascii_case("text");
         self.element_stack.push(is_text);
+
         if is_text {
             self.open_text_stack.push(false);
         }
+
         Some(())
     }
 
     pub(super) fn observe_end(&mut self) -> Option<()> {
-        if !self.element_stack.pop()? {
+        let checked_value = self.element_stack.pop()?;
+
+        if !checked_value {
             return Some(());
         }
-        if self.open_text_stack.pop()? {
+
+        let checked_value_2 = self.open_text_stack.pop()?;
+
+        if checked_value_2 {
             self.text_element_count = self.text_element_count.checked_add(1)?;
-            if let Some(parent) = self.open_text_stack.last_mut() {
-                *parent = true;
+
+            match self.open_text_stack.last_mut() {
+                Some(parent) => {
+                    *parent = true;
+                },
+                ::core::option::Option::None => {},
             }
         }
+
         Some(())
     }
 
@@ -74,11 +89,15 @@ impl SvgTextContentTracker {
     }
 
     pub(super) fn observe_character(&mut self, _character: char) {
-        if let Some(text) = self.open_text_stack.last_mut() {
-            *text = true;
+        match self.open_text_stack.last_mut() {
+            Some(text) => {
+                *text = true;
+            },
+            ::core::option::Option::None => {},
         }
     }
 
+    #[must_use]
     pub(super) fn text_element_count(&self) -> usize {
         self.text_element_count
     }

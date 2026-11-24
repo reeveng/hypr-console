@@ -1,5 +1,6 @@
 use super::*;
 use crate::diagram_theme::SvgShadowEffect;
+
 #[derive(Debug, Default)]
 pub(crate) struct SequencePreparedControlTheme {
     pub(crate) stroke_width: Option<f32>,
@@ -27,14 +28,15 @@ impl SequencePreparedControlTheme {
             FamilyThemeMechanism, FamilyThemeSelectorShape, ThemeTarget, ThemeVariant,
         };
 
-        let Some(theme) = theme else {
+        let Some(theme_2) = theme else {
             return Ok(Self {
                 fill_overridden,
                 stroke_overridden,
                 ..Self::default()
             });
         };
-        let has_rule_routes = theme.family_mechanism_routes().iter().any(|route| {
+
+        let has_rule_routes = theme_2.family_mechanism_routes().iter().any(|route| {
         matches!(route.mechanism(),
             FamilyThemeMechanism::RuleFacet {
                 target: route_target,
@@ -43,6 +45,7 @@ impl SequencePreparedControlTheme {
             } | FamilyThemeMechanism::EffectBinding { target: route_target, .. }
             if route_target == target)
     });
+
         if !has_rule_routes {
             return Ok(Self {
                 fill_overridden,
@@ -51,12 +54,12 @@ impl SequencePreparedControlTheme {
             });
         }
 
-        let style = theme.style_with_work_meter(target, ThemeVariant::Default, None, work_meter)?;
+        let style = theme_2.style_with_work_meter(target, ThemeVariant::Default, None, work_meter)?;
         let typed_fill = (target == ThemeTarget::LoopLabelBackground && !fill_overridden)
-            .then(|| typed_static_sequence_fill(theme, &style))
+            .then(|| typed_static_sequence_fill(theme_2, &style))
             .flatten();
         let typed_stroke = (!stroke_overridden)
-            .then(|| typed_static_sequence_stroke(theme, &style))
+            .then(|| typed_static_sequence_stroke(theme_2, &style))
             .flatten();
         let SequencePreparedEffect {
             effect,
@@ -64,7 +67,7 @@ impl SequencePreparedControlTheme {
             effect_binding_used,
             effect_cleared,
             effect_unhandled,
-        } = prepare_sequence_effect(theme, target, style.effect_resolution());
+        } = prepare_sequence_effect(theme_2, target, style.effect_resolution());
         Ok(SequencePreparedControlTheme {
             effect,
             stroke_width: style.stroke_width(),
@@ -80,11 +83,14 @@ impl SequencePreparedControlTheme {
         })
     }
 
+    #[must_use]
     pub(crate) fn fresh_receipt(&self) -> crate::sequence::SequenceControlThemeReceipt {
         let mut receipt = crate::sequence::SequenceControlThemeReceipt::default();
+
         if let Some(style) = &self.selected_style {
             receipt.record_static_style(style);
         }
+
         receipt.effect_requested = self.effect_requested;
         receipt.effect_binding_used = self.effect_binding_used;
         receipt.effect_cleared = self.effect_cleared;

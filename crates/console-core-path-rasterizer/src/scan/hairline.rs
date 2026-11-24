@@ -11,7 +11,7 @@ use crate::geom::{PixelPosition, ScreenIntRect};
 use crate::line_clipper;
 use crate::math::LENGTH_U32_ONE;
 use crate::path_geometry;
-use crate::{IntersectAnswer, LineCap, Path, PathSegment, Point, FloatRectangle};
+use crate::{FloatRectangle, IntersectAnswer, LineCap, Path, PathSegment, Point};
 
 #[cfg(all(not(feature = "std"), feature = "no-std-float"))]
 use console_core_paths::NoStdFloat;

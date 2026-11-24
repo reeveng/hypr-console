@@ -5,11 +5,13 @@
 //! these same turns, timer subscriptions, queued replies and stopping rules.
 //! A bounded run refuses to pass when its turns run out, and a clock moving
 //! backwards is a fault rather than a timer silently moved into the future.
+//! The clock supplies monotonic time relative to the start of the run.
 //!
 //! The loop keeps each fork's invocation live until its matching reply arrives. This also
 //! keeps a program alive while it awaits its last job. The platform runs and
-//! interrupts the job. `Platform::finish` releases outstanding work after
-//! every outcome, including failed initialization.
+//! interrupts the job. `Platform::start` opens the platform for one run.
+//! `Platform::finish` runs after every outcome, including failed startup or
+//! initialization. When cleanup fails, the error retains the run's outcome.
 //! `Platform::perform` receives the invocation for each fork. Asynchronous
 //! replies return it in `Wake::ForkReply`. The loop stamps immediate replies.
 //! Providing a platform binds the program and its execution limit. Effects
@@ -22,12 +24,12 @@ use std::fmt;
 
 use console_core_iteration::Step;
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Transition};
+use console_core_state_machine::{EffectDependencies, Machine, Transition};
 use console_program_contract::{
-  Answer, Effect, Elapsed, Event, EventGroup, Exit, Task, Subscription, Timer,
+  Answer, Effect, EffectKind, Elapsed, Event, EventGroup, Exit, Subscription, Task, Timer,
 };
 
-use crate::jobs::{Tasks, StartError};
+use crate::jobs::{StartError, Tasks};
 use crate::{Invocation, ReplyStatus, Subscribed};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,12 +64,18 @@ pub enum Limit {
   Turns(u64),
 }
 
-pub trait Platform {
+pub trait Clock {
+  fn elapsed(&self) -> Result<Elapsed, Never>;
+}
+
+pub trait Platform: Clock {
   type Event;
-  type Effect;
+  type Effect: EffectDependencies;
   type Error;
 
-  fn elapsed(&self) -> Result<Elapsed, Never>;
+  fn start(&mut self) -> Result<(), Self::Error> {
+    Ok(())
+  }
 
   fn listening(&self) -> Result<Subscribed, Never>;
 
@@ -142,10 +150,26 @@ pub struct Completed<S> {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExecutionError<E, T = Never> {
-  Platform(E),
+  Start(E),
+  Receive(E),
+  Perform {
+    effect: EffectKind,
+    error: E,
+  },
+  Tick {
+    timer: Timer,
+    error: E,
+  },
+  Cleanup {
+    error: E,
+    outcome: Result<Exit, Box<Self>>,
+  },
   Transition(T),
   TurnLimit(u64),
-  ClockBackwards { previous: Elapsed, current: Elapsed },
+  ClockBackwards {
+    previous: Elapsed,
+    current: Elapsed,
+  },
   InvalidTimer(Timer),
   DuplicateJob(Task),
   JobInvocationsExhausted,
@@ -235,14 +259,17 @@ where
   X: TransitionExecutor<M>,
 {
   let mut jobs = Tasks::default();
-  let result = run_loop::<M, P, X>(input, platform, &mut jobs, limit, transitions);
-  let finished = platform
-    .finish(&jobs.live)
-    .map_err(ExecutionError::Platform);
+  let result = match platform.start() {
+    Ok(()) => run_loop::<M, P, X>(input, platform, &mut jobs, limit, transitions),
+    Err(error) => Err(ExecutionError::Start(error)),
+  };
 
-  match result {
-    Ok(completed) => finished.map(|()| completed),
-    Err(error) => Err(error),
+  match platform.finish(&jobs.live) {
+    Ok(()) => result,
+    Err(error) => Err(ExecutionError::Cleanup {
+      error,
+      outcome: result.map(|completed| completed.exit).map_err(Box::new),
+    }),
   }
 }
 
@@ -375,7 +402,7 @@ where
           let events = execution
             .platform
             .tick(&timer, now)
-            .map_err(ExecutionError::Platform)?;
+            .map_err(|error| ExecutionError::Tick { timer, error })?;
 
           execution.queue.extend(events.into_iter().map(Wake::Event));
           execution
@@ -407,7 +434,7 @@ where
           execution
             .platform
             .receive(deadline)
-            .map_err(ExecutionError::Platform)?
+            .map_err(ExecutionError::Receive)?
         }
       }
     }
@@ -530,10 +557,14 @@ impl<S, P: Platform> Execution<'_, S, P> {
         | Effect::Custom(_) => None,
       };
 
-      let events = self
-        .platform
-        .perform(effect, invocation)
-        .map_err(ExecutionError::Platform)?;
+      let events = self.platform.perform(effect, invocation).map_err(|error| {
+        let Ok(kind) = effect.kind();
+
+        ExecutionError::Perform {
+          effect: kind,
+          error,
+        }
+      })?;
 
       for event in events {
         let Ok(wake) = Wake::from_effect(event, invocation);
@@ -591,7 +622,19 @@ impl<S, P: Platform> Execution<'_, S, P> {
 impl<E: fmt::Display, T: fmt::Display> fmt::Display for ExecutionError<E, T> {
   fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
-      ExecutionError::Platform(error) => write!(to, "{error}"),
+      ExecutionError::Start(error) => write!(to, "platform startup failed: {error}"),
+      ExecutionError::Receive(error) => write!(to, "receiving an event failed: {error}"),
+      ExecutionError::Perform { effect, error } => {
+        write!(to, "performing {effect:?} failed: {error}")
+      }
+      ExecutionError::Tick { timer, error } => write!(to, "timer {} failed: {error}", timer.name),
+      ExecutionError::Cleanup { error, outcome } => match outcome {
+        Ok(Exit::Success) => write!(to, "program cleanup failed: {error}"),
+        Ok(Exit::Failure(failure)) => {
+          write!(to, "{failure}. Program cleanup also failed: {error}")
+        }
+        Err(failure) => write!(to, "{failure}. Program cleanup also failed: {error}"),
+      },
       ExecutionError::Transition(error) => write!(to, "a machine transition failed: {error}"),
       ExecutionError::TurnLimit(limit) => {
         write!(to, "the execution exhausted its limit of {limit} turns")
@@ -620,4 +663,26 @@ impl<E: fmt::Display, T: fmt::Display> fmt::Display for ExecutionError<E, T> {
 impl<E: std::error::Error + 'static, T: std::error::Error + 'static> std::error::Error
   for ExecutionError<E, T>
 {
+  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+    match self {
+      Self::Start(error)
+      | Self::Receive(error)
+      | Self::Perform { error, .. }
+      | Self::Tick { error, .. }
+      | Self::Cleanup {
+        error,
+        outcome: Ok(_),
+      } => Some(error),
+      Self::Cleanup {
+        outcome: Err(failure),
+        ..
+      } => Some(failure.as_ref()),
+      Self::Transition(error) => Some(error),
+      Self::TurnLimit(_)
+      | Self::ClockBackwards { .. }
+      | Self::InvalidTimer(_)
+      | Self::DuplicateJob(_)
+      | Self::JobInvocationsExhausted => None,
+    }
+  }
 }

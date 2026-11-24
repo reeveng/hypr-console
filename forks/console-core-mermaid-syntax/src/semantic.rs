@@ -36,14 +36,18 @@ fn remap_semantic_source_positions(
         SemanticDiagramModel::GitGraph(model) => &mut model.warning_facts,
         _ => &mut [],
     };
+
     for (index, fact) in facts.iter_mut().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         source.remap_warning_fact_spans(fact);
     }
+
     control.checkpoint()
 }
+
 /// Parses diagram meaning without requiring theme resolution, layout, or SVG rendering.
 ///
 /// Enabled families publish their canonical parser through the family catalog.
@@ -61,6 +65,7 @@ struct SemanticTiming {
 }
 
 impl SemanticTiming {
+    #[must_use]
     fn new(context: &merman_model::runtime::OperationContext, input: &str) -> Self {
         Self {
             total: context
@@ -71,12 +76,15 @@ impl SemanticTiming {
     }
 
     fn log(self) {
-        if let Some(total) = self.total {
-            eprintln!(
-                "[parse-timing] contract=semantic total={:?} input_bytes={}",
-                total.elapsed(),
-                self.input_bytes,
-            );
+        match self.total {
+            Some(total) => {
+                eprintln!(
+                    "[parse-timing] contract=semantic total={:?} input_bytes={}",
+                    total.elapsed(),
+                    self.input_bytes,
+                );
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
@@ -93,28 +101,33 @@ impl Default for SemanticParser {
 
 impl SemanticParser {
     /// Creates a parser with Mermaid defaults and Merman's hardened source-config policy.
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Replaces the runtime policy used to begin future parse operations.
+    #[must_use]
     pub fn with_runtime_policy(mut self, policy: merman_model::runtime::RuntimePolicy) -> Self {
         self.runtime_policy = policy;
         self
     }
 
     /// Replays a frozen runtime context without consulting system state.
+    #[must_use]
     pub fn with_operation_context(self, context: merman_model::runtime::OperationContext) -> Self {
         self.with_runtime_policy(
             merman_model::runtime::RuntimePolicy::from_operation_context(context),
         )
     }
 
+    #[must_use]
     pub fn runtime_policy(&self) -> &merman_model::runtime::RuntimePolicy {
         &self.runtime_policy
     }
 
     /// Returns the cumulative host overrides applied before source-config admission.
+    #[must_use]
     pub fn site_config_overrides(&self) -> &MermaidConfig {
         &self.site_config_overrides
     }
@@ -283,8 +296,8 @@ impl SemanticParser {
             let family_demand = if editor_demand == crate::family::EditorFactsDemand::Recovery
                 && source.may_drop_editor_spans_controlled(control)?
             {
-                // Preserve the existing dropped-span diagnostics without reparsing. The final
-                // recovery projection discards navigation facts after their spans are remapped.
+
+
                 crate::family::EditorFactsDemand::Capture
             } else {
                 editor_demand
@@ -354,10 +367,12 @@ impl SemanticParser {
     /// Effective config is rebuilt from hardened defaults and this cumulative host layer after
     /// each update. An explicit `secure` array replaces earlier host policies and the hardened
     /// defaults, matching the full parser's site-policy behavior.
+    #[must_use]
     pub fn with_site_config(mut self, mut overrides: MermaidConfig) -> Self {
         if overrides.is_empty_object() {
             return self;
         }
+
         crate::config::mirror_legacy_font_family_into_theme_variables(&mut overrides);
         normalize_global_theme(&mut overrides);
         let explicit_secure = overrides
@@ -367,23 +382,32 @@ impl SemanticParser {
             .map(crate::json_value::clone_value_nonrecursive);
 
         self.site_config_overrides.deep_merge(overrides.as_value());
-        if let Some(secure) = explicit_secure {
-            self.site_config_overrides.set_value("secure", secure);
+
+        match explicit_secure {
+            Some(secure) => {
+                self.site_config_overrides.set_value("secure", secure);
+            },
+            ::core::option::Option::None => {},
         }
+
         self.site_config = crate::generated::default_site_config();
         self.site_config
             .deep_merge(self.site_config_overrides.as_value());
-        if let Some(secure) = self
+
+        match self
             .site_config_overrides
             .as_value()
             .get("secure")
-            .filter(|value| value.is_array())
-        {
-            self.site_config.set_value(
-                "secure",
-                crate::json_value::clone_value_nonrecursive(secure),
-            );
+            .filter(|value| value.is_array()) {
+            Some(secure) => {
+                self.site_config.set_value(
+                    "secure",
+                    crate::json_value::clone_value_nonrecursive(secure),
+                );
+            },
+            ::core::option::Option::None => {},
         }
+
         self
     }
 
@@ -421,8 +445,8 @@ impl SemanticParser {
         };
 
         control.checkpoint_at(crate::OperationPhase::Admission)?;
-        let control = control.for_phase(crate::OperationPhase::Parse);
-        control.checkpoint()?;
+        let control_2 = control.for_phase(crate::OperationPhase::Parse);
+        control_2.checkpoint()?;
         let timing = SemanticTiming::new(context, input);
         let result = crate::runtime::with_operation_context(context, || {
             let recovery = if options.suppress_errors {
@@ -431,23 +455,25 @@ impl SemanticParser {
                 DirectiveRecoveryMode::Strict
             };
             let pre = match preprocess_builtin_semantic_with_directive_recovery_controlled(
-                input, None, recovery, &control,
+                input, None, recovery, &control_2,
             )? {
                 Ok(pre) => pre,
                 Err(Error::DetectType(_)) if options.suppress_errors => return Ok(Ok(None)),
                 Err(error) => return Ok(Err(error)),
             };
+
             if pre.code().trim_start().starts_with("---") {
                 return Ok(Err(Error::MalformedFrontMatter));
             }
+
             let diagram_type =
-                match crate::detect::detect_builtin_precleaned_controlled(pre.code(), &control)? {
+                match crate::detect::detect_builtin_precleaned_controlled(pre.code(), &control_2)? {
                     Ok(fact) => fact.id,
                     Err(Error::DetectType(_)) if options.suppress_errors => return Ok(Ok(None)),
                     Err(error) => return Ok(Err(error)),
                 };
             Ok(self
-                .parse_preprocessed_controlled(diagram_type, pre, options, &control)?
+                .parse_preprocessed_controlled(diagram_type, pre, options, &control_2)?
                 .map(Some))
         });
         timing.log();
@@ -484,16 +510,16 @@ impl SemanticParser {
         control.checkpoint()?;
         let context = match self.begin_operation() {
             Ok(context) => context,
-            Err(error) => return Ok(Err(error.into())),
+            Err(error) => return Ok(Err(<crate::error::Error as ::core::convert::From<::merman_model::runtime::RuntimePolicyError>>::from(error))),
         };
         let timing = SemanticTiming::new(&context, input);
         let result = crate::runtime::with_operation_context(&context, || {
-            let pre = match preprocess_builtin_semantic_controlled(input, diagram_type, control)? {
+            let pre = match { let checked_value = preprocess_builtin_semantic_controlled(input, diagram_type, control)?; checked_value } {
                 Ok(pre) => pre,
                 Err(error) => return Ok(Err(error)),
             };
-            let diagram_type = match diagram_type {
-                Some(diagram_type) => diagram_type,
+            let diagram_type_3 = match diagram_type {
+                Some(diagram_type_2) => diagram_type_2,
                 None => {
                     match crate::detect::detect_builtin_precleaned_controlled(pre.code(), control)?
                     {
@@ -503,7 +529,7 @@ impl SemanticParser {
                 }
             };
             self.parse_preprocessed_controlled(
-                diagram_type,
+                diagram_type_3,
                 pre,
                 crate::ParseOptions::strict(),
                 control,
@@ -520,13 +546,13 @@ impl SemanticParser {
         options: crate::ParseOptions,
         control: &OperationControl,
     ) -> OperationControlResult<Result<ParsedSemanticDiagram>> {
-        let (mut metadata, source) = match self.prepare_semantic_source_controlled(
+        let (mut metadata, source) = match { let checked_value = self.prepare_semantic_source_controlled(
             diagram_type,
             pre,
             #[cfg(feature = "editor-facts")]
             None,
             control,
-        )? {
+        )?; checked_value } {
             Ok(prepared) => prepared,
             Err(error) => return Ok(Err(error)),
         };
@@ -551,9 +577,11 @@ impl SemanticParser {
             Ok(model) => model,
             Err(error) => {
                 let error = source.remap_parse_error(error);
+
                 if !options.suppress_errors {
                     return Ok(Err(error));
                 }
+
                 metadata.diagram_type = "error".to_string();
                 return Ok(Ok(ParsedSemanticDiagram {
                     metadata,
@@ -578,6 +606,7 @@ impl SemanticParser {
         control: &OperationControl,
     ) -> OperationControlResult<Result<(SemanticMetadata, crate::PreprocessedSource)>> {
         control.checkpoint()?;
+
         if pre.code().trim_start().starts_with("---") {
             return Ok(Err(Error::MalformedFrontMatter));
         }
@@ -593,9 +622,11 @@ impl SemanticParser {
             evidence.freeze_appearance(diagram_type, &admitted_source);
         }
         let mut semantic_config = self.site_config.clone();
+
         if !admitted_source.is_empty_object() {
             semantic_config.deep_merge(admitted_source.as_value());
         }
+
         crate::config::resolve_semantic_appearance(
             diagram_type,
             &admitted_source,
@@ -645,6 +676,7 @@ fn normalize_global_theme(config: &mut MermaidConfig) {
                 .as_str()
                 .is_some_and(|name| name == "null" || crate::MermaidThemeId::NAMES.contains(&name))
     });
+
     if invalid_theme
         && let Some(theme) = crate::generated::upstream_default_config()
             .as_value()
@@ -713,8 +745,8 @@ mod tests {
                     states,
                     style_classes,
                 } = model;
-                // HashMap iteration is not part of State meaning. Preserve every field and
-                // every ordered sequence while comparing these two maps by key.
+
+
                 let links = links.iter().collect::<std::collections::BTreeMap<_, _>>();
                 let states = states.iter().collect::<std::collections::BTreeMap<_, _>>();
                 format!(
@@ -1820,7 +1852,7 @@ mod tests {
             ),
             (
                 json!({"layout": "elk"}),
-                // Frontmatter merging ignores null before appearance selection.
+
                 "---\nconfig:\n  layout: null\n---\nswimlane-beta LR\nA-->B",
                 json!("elk"),
             ),

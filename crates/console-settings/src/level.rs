@@ -26,10 +26,20 @@ const STEPS: NonZeroU32 = match NonZeroU32::new(WHOLE.unsigned_abs() / STEP.unsi
   None => NonZeroU32::MIN,
 };
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum Muted {
   Yes,
+  #[default]
   No,
+}
+
+impl From<bool> for Muted {
+  fn from(muted: bool) -> Self {
+    match muted {
+      true => Self::Yes,
+      false => Self::No,
+    }
+  }
 }
 
 pub fn bar(level: i32, muted: Muted, cells: u32) -> Result<String, Never> {

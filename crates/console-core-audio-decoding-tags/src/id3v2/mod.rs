@@ -8,6 +8,9 @@
 //! guess how much of the tag a decoded frame had used.
 
 use console_core_audio_decoding_interfaces::errors::Error;
+use console_core_audio_decoding_interfaces::id3v2::{
+  Unsynchronisation, Version, undo_unsynchronisation,
+};
 use console_core_audio_decoding_interfaces::meta::{
   MetadataBuilder, MetadataOptions, MetadataReader, MetadataRevision,
 };
@@ -22,11 +25,9 @@ mod header;
 mod kinds;
 mod parsers;
 mod text;
-mod unsync;
 
 use frames::{Frame, read_frame};
-use header::{Extension, Header, Synchronisation, Version, read_header, skip_extended_header};
-use unsync::decode_unsynchronisation;
+use header::{Extension, Header, read_header, skip_extended_header};
 
 pub mod util {
   use console_core_audio_decoding_interfaces::meta::StandardVisualKey;
@@ -94,10 +95,7 @@ fn read_body(
     Extension::Absent => {}
   }
 
-  let minimum_frame: u64 = match header.version {
-    Version::V2 => 6,
-    Version::V3 | Version::V4 => 10,
-  };
+  let Ok(minimum_frame) = header.version.frame_header_bytes();
   let frame_limit = reader.byte_len().wrapping_div(minimum_frame.max(1));
 
   for _ in 0..frame_limit.saturating_add(1) {
@@ -123,15 +121,15 @@ fn read_id3v2<B: ReadBytes>(reader: &mut B, metadata: &mut MetadataBuilder) -> R
   let header = read_header(reader)?;
   let raw = reader.read_boxed_slice_exact(u64::from(header.size))?;
 
-  match (header.version, header.synchronisation) {
-    (Version::V2 | Version::V3, Synchronisation::Unsynchronised) => {
-      let Ok(decoded) = decode_unsynchronisation(&raw);
+  match (header.version, header.unsynchronisation) {
+    (Version::Two | Version::Three, Unsynchronisation::Applied) => {
+      let Ok(decoded) = undo_unsynchronisation(&raw);
       let Ok(mut body) = BufReader::new(&decoded);
 
       read_body(&mut body, &header, metadata)
     }
-    (Version::V4, Synchronisation::Plain | Synchronisation::Unsynchronised)
-    | (Version::V2 | Version::V3, Synchronisation::Plain) => {
+    (Version::Four, Unsynchronisation::Absent | Unsynchronisation::Applied)
+    | (Version::Two | Version::Three, Unsynchronisation::Absent) => {
       let Ok(mut body) = BufReader::new(&raw);
 
       read_body(&mut body, &header, metadata)

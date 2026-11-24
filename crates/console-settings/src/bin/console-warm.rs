@@ -1,28 +1,21 @@
 //! Whether the screen follows the clock, and the curve it follows.
 //!
-//!     console-warm            follow the clock, or stop following it
+//!     console-warm on|scheduled|off
+//!                             choose when the display is warm
 //!     console-warm get        which way the switch is standing
 //!     console-warm switched-on   nothing said; the exit code is the answer
 //!     console-warm curve      print the config the daemon reads
 //!
-//! The color itself is `hyprsunset`'s, out of a config written from
-//! `console_settings::warm`. Nothing here sends it a temperature: the whole
-//! curve is in the file it reads at startup, and a temperature sent afterwards
-//! is undone by the next profile. So the switch is the daemon running or not
-//! running, which `console-warm.service` asks about in `ExecCondition=` and
-//! this restarts when the answer changes.
+//! The service asks whether Night Light is enabled and uses this command to
+//! launch hyprsunset in the saved mode. The scheduled mode reads the shipped
+//! curve. The always-on mode sets a constant color temperature.
 //!
-//! `switched-on` is that question and nothing else, so it is the exit code rather
-//! than a word: systemd reads the code, and a program run before every start of
-//! a unit should print nothing into the journal for the ordinary case.
-//!
-//! `curve` is how `files/home/@user@/.config/console/hypr/hyprsunset.conf` is made. It
-//! is not something the device runs; it is run here, into the tree, and a test
-//! holds the file to it.
+//! `curve` prints the config from which the repo's scheduled profile is made.
 
+use std::os::unix::process::CommandExt;
 use std::process::ExitCode;
 
-use console_core_arguments::{Operands, Subcommand, read_with};
+use console_core_arguments::{Flag, Operands, Subcommand, Takes, read_with};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
@@ -30,10 +23,16 @@ use console_settings::warm::{self, NightShift, Standing, Switched, at, configura
 
 const UNIT: &str = "console-warm.service";
 
+const ENGINE: Flag = Flag {
+  spelling: "--engine",
+  takes: Takes::Value("PATH"),
+  about: "the night light daemon to run from the service",
+};
+
 const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
   name: "console-warm",
   about: "whether the screen follows the clock, and the curve it follows; with nothing, follow it or stop following it",
-  flags: &[],
+  flags: &[ENGINE],
   operands: Operands::None,
 };
 
@@ -48,6 +47,14 @@ enum Report {
   SwitchedOn,
   #[words(word = "curve", about = "print the config the daemon reads")]
   Curve,
+  #[words(word = "on", about = "keep the display warm")]
+  On,
+  #[words(word = "scheduled", about = "follow the night light schedule")]
+  Scheduled,
+  #[words(word = "off", about = "turn night light off")]
+  Off,
+  #[words(word = "daemon", about = "run the service's night light daemon")]
+  Daemon,
 }
 
 impl Subcommand for Report {
@@ -75,11 +82,12 @@ fn curve() -> Result<ExitCode, Never> {
 fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
 
-  let asked = match read_with::<Report, String>(&COMMAND, &words) {
+  let (asked, engine) = match read_with::<Report, String>(&COMMAND, &words) {
     Ok(line) => {
       let Ok(asked) = line.subcommand();
+      let Ok(engine) = line.value(ENGINE);
 
-      asked
+      (asked, engine.map(str::to_owned))
     }
     Err(refusal) => {
       let Ok(code) = refusal.print();
@@ -94,7 +102,15 @@ fn main() -> ExitCode {
 
       return printed;
     }
-    Some(Report::Get | Report::SwitchedOn) | None => {}
+    Some(
+      Report::Get
+      | Report::SwitchedOn
+      | Report::On
+      | Report::Scheduled
+      | Report::Off
+      | Report::Daemon,
+    )
+    | None => {}
   }
 
   let Ok(said) = console_core_places::home();
@@ -141,6 +157,37 @@ fn main() -> ExitCode {
 
       return printed;
     }
+    Some(Report::Daemon) => {
+      let engine_path = match engine {
+        Some(path) => path,
+        None => {
+          eprintln!("console-warm: --engine is required for the service");
+          return ExitCode::FAILURE;
+        }
+      };
+
+      let mut command = std::process::Command::new(engine_path);
+
+      match standing {
+        NightShift::On => {
+          command.args([
+            "--config",
+            "/dev/null",
+            "--temperature",
+            &warm::WARM.to_string(),
+          ]);
+        }
+        NightShift::Scheduled => {}
+        NightShift::Off => return ExitCode::SUCCESS,
+      }
+
+      let fault = command.exec();
+      eprintln!("console-warm: starting the night light daemon: {fault}");
+      return ExitCode::FAILURE;
+    }
+    Some(Report::On) => NightShift::On,
+    Some(Report::Scheduled) => NightShift::Scheduled,
+    Some(Report::Off) => NightShift::Off,
     None => {
       let Ok(other) = standing.other();
 

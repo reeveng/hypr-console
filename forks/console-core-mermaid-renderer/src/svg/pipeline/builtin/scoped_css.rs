@@ -21,27 +21,32 @@ pub struct ScopedCssPostprocessor {
 }
 
 impl ScopedCssPostprocessor {
+    #[must_use]
     pub fn new(css: impl Into<String>) -> Self {
         Self {
-            css: css.into(),
+            css: <_ as ::core::convert::Into<::std::string::String>>::into(css),
             override_policy: CssOverridePolicy::Preserve,
             merge_into_existing_style: false,
         }
     }
 
+    #[must_use]
     pub fn with_override_policy(mut self, policy: CssOverridePolicy) -> Self {
         self.override_policy = policy;
         self
     }
 
+    #[must_use]
     pub fn css(&self) -> &str {
         &self.css
     }
 
+    #[must_use]
     pub fn override_policy(&self) -> CssOverridePolicy {
         self.override_policy
     }
 
+    #[must_use]
     pub fn with_existing_style_merge(mut self) -> Self {
         self.merge_into_existing_style = true;
         self
@@ -65,6 +70,7 @@ impl SvgPostprocessor for ScopedCssPostprocessor {
         let execution = ctx.execution();
         execution.checkpoint()?;
         let mut checkpoint = || execution.checkpoint();
+
         if trim_with_checkpoints(&self.css, &mut checkpoint)?.is_empty() {
             return Ok(svg);
         }
@@ -99,21 +105,27 @@ impl SvgPostprocessor for ScopedCssPostprocessor {
                 )
             })?;
         output.push_str(&base[..plan.insertion]);
+
         if plan.wrapped {
             output.push_str(STYLE_OPEN);
         }
+
         rewrite::materialize_css(css.as_ref(), scope.as_deref(), &mut output, execution)?;
+
         if plan.wrapped {
             output.push_str(STYLE_CLOSE);
         }
+
         output.push_str(&base[plan.insertion..]);
         execution.checkpoint()?;
+
         if output.len() != projected_svg_bytes {
             return Err(Error::svg_postprocess(
                 "scoped-css",
                 "scoped SVG byte projection changed during materialization",
             ));
         }
+
         Ok(Cow::Owned(output))
     }
 }
@@ -124,14 +136,18 @@ fn decode_mermaid_css_hash_placeholders<'a>(
 ) -> Result<Cow<'a, str>> {
     let mut checkpoint = || execution.checkpoint();
     let mut has_placeholder = false;
+
     for (iteration, character) in css.chars().enumerate() {
         checkpoint_loop(iteration, &mut checkpoint)?;
+
         if matches!(character, 'ﬂ' | '¶') {
             has_placeholder = true;
             break;
         }
     }
+
     checkpoint()?;
+
     if !has_placeholder {
         return Ok(Cow::Borrowed(css));
     }
@@ -145,10 +161,12 @@ fn decode_mermaid_css_hash_placeholders<'a>(
     })?;
     let mut cursor = 0usize;
     let mut iteration = 0usize;
+
     while cursor < css.len() {
         checkpoint_loop(iteration, &mut checkpoint)?;
         iteration = iteration.wrapping_add(1);
         let tail = &css[cursor..];
+
         if tail.starts_with("ﬂ°°") {
             decoded.push('#');
             cursor += "ﬂ°°".len();
@@ -167,6 +185,7 @@ fn decode_mermaid_css_hash_placeholders<'a>(
             cursor += character.len_utf8();
         }
     }
+
     checkpoint()?;
     Ok(Cow::Owned(decoded))
 }
@@ -175,19 +194,23 @@ fn css_scope(
     svg_id: Option<&str>,
     execution: SvgPostprocessExecution<'_>,
 ) -> Result<Option<String>> {
-    let Some(svg_id) = svg_id else {
-        return Ok(None);
+    let svg_id_2 = match svg_id {
+        Some(matched_svg_id) => matched_svg_id,
+        ::core::option::Option::None => return Ok(None),
     };
+
     let mut checkpoint = || execution.checkpoint();
-    let svg_id = trim_with_checkpoints(svg_id, &mut checkpoint)?;
-    if svg_id.is_empty() {
+    let svg_id_3 = trim_with_checkpoints(svg_id_2, &mut checkpoint)?;
+
+    if svg_id_3.is_empty() {
         return Ok(None);
     }
 
-    let mut checkpoint = || execution.checkpoint();
+    let mut checkpoint_2 = || execution.checkpoint();
     let mut escaped_bytes = 1usize;
-    for (iteration, character) in svg_id.chars().enumerate() {
-        checkpoint_loop(iteration, &mut checkpoint)?;
+
+    for (iteration, character) in svg_id_3.chars().enumerate() {
+        checkpoint_loop(iteration, &mut checkpoint_2)?;
         escaped_bytes = escaped_bytes
             .checked_add(if is_css_identifier_character(character) {
                 character.len_utf8()
@@ -196,7 +219,8 @@ fn css_scope(
             })
             .ok_or_else(|| execution.svg_byte_count_overflow())?;
     }
-    checkpoint()?;
+
+    checkpoint_2()?;
     let mut scope = String::new();
     scope.try_reserve_exact(escaped_bytes).map_err(|error| {
         Error::svg_postprocess(
@@ -205,17 +229,22 @@ fn css_scope(
         )
     })?;
     scope.push('#');
-    for (iteration, character) in svg_id.chars().enumerate() {
-        checkpoint_loop(iteration, &mut checkpoint)?;
+
+    for (iteration, character) in svg_id_3.chars().enumerate() {
+        checkpoint_loop(iteration, &mut checkpoint_2)?;
+
         if !is_css_identifier_character(character) {
             scope.push('\\');
         }
+
         scope.push(character);
     }
-    checkpoint()?;
+
+    checkpoint_2()?;
     Ok(Some(scope))
 }
 
+#[must_use]
 fn is_css_identifier_character(character: char) -> bool {
     character.is_ascii_alphanumeric() || character == '-' || character == '_'
 }
@@ -233,6 +262,7 @@ impl InjectionPlan {
         execution: SvgPostprocessExecution<'_>,
     ) -> Result<Self> {
         let mut checkpoint = || execution.checkpoint();
+
         if merge_into_existing_style
             && let Some(insertion) = find_with_checkpoints(svg, "</style", &mut checkpoint)?
         {
@@ -254,6 +284,7 @@ impl InjectionPlan {
                     wrapped: true,
                 });
             }
+
             return Ok(Self {
                 insertion: root_end + 1,
                 wrapped: true,
@@ -266,6 +297,7 @@ impl InjectionPlan {
         })
     }
 
+    #[must_use]
     fn projected_svg_bytes(self, svg_bytes: usize, css_bytes: usize) -> Option<usize> {
         let wrapper_bytes = if self.wrapped {
             STYLE_OPEN.len() + STYLE_CLOSE.len()

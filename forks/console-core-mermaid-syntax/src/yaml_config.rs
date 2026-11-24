@@ -119,6 +119,7 @@ fn parse_yaml_value_with_limits_capture_mode_controlled(
     control: &OperationControl,
 ) -> OperationControlResult<YamlValueCapture> {
     control.checkpoint()?;
+
     if input.len() > max_input_bytes {
         return Ok(YamlValueCapture {
             value: Err(format!(
@@ -130,6 +131,7 @@ fn parse_yaml_value_with_limits_capture_mode_controlled(
             rewrite_safe: false,
         });
     }
+
     let mut builder = YamlValueBuilder::new(
         max_nesting_depth,
         materialization_budget,
@@ -137,26 +139,28 @@ fn parse_yaml_value_with_limits_capture_mode_controlled(
         capture_keys,
     );
 
-    // Feature unification may enable comment support for semantic-only callers.
-    // Emit comments only when collecting editor evidence.
+
+
     let options = granit_parser::options! {
         #[cfg(feature = "editor-facts")]
         emit_comments: capture_keys,
         #[cfg(not(feature = "editor-facts"))]
         emit_comments: false,
     };
+
     for (index, event) in Parser::new_from_str_with_options(input, options).enumerate() {
-        if index % 64 == 0 {
+        if index.wrapping_rem(64) == 0 {
             control.checkpoint()?;
         }
+
         let (event, _span) = match event {
             Ok(event) => event,
             Err(error) => {
                 #[cfg(feature = "editor-facts")]
                 if capture_keys && error.kind() == &granit_parser::ErrorKind::TooManyComments {
-                    // Optional editor evidence must not narrow semantic source acceptance.
-                    // Discard partial evidence and retry once without comment buffering,
-                    // preserving the caller's control and all semantic resource limits.
+
+
+
                     drop(builder);
                     return Ok(YamlValueCapture {
                         value: parse_yaml_value_with_limits_controlled(
@@ -181,22 +185,28 @@ fn parse_yaml_value_with_limits_capture_mode_controlled(
                 });
             }
         };
-        if let Err(error) = builder.on_event(
-            #[cfg(feature = "editor-facts")]
-            input,
-            event,
-            #[cfg(feature = "editor-facts")]
-            _span,
-        ) {
-            #[cfg(feature = "editor-facts")]
-            let (keys, _) = builder.take_capture();
-            return Ok(YamlValueCapture {
-                value: Err(error),
-                #[cfg(feature = "editor-facts")]
-                keys,
-                #[cfg(feature = "editor-facts")]
-                rewrite_safe: false,
-            });
+
+        {
+            match builder.on_event(
+                    #[cfg(feature = "editor-facts")]
+                    input,
+                    event,
+                    #[cfg(feature = "editor-facts")]
+                    _span,
+                ) {
+                Err(error) => {
+                    #[cfg(feature = "editor-facts")]
+                    let (keys, _) = builder.take_capture();
+                    return Ok(YamlValueCapture {
+                        value: Err(error),
+                        #[cfg(feature = "editor-facts")]
+                        keys,
+                        #[cfg(feature = "editor-facts")]
+                        rewrite_safe: false,
+                    });
+                },
+                ::core::result::Result::Ok(_) => {},
+            };
         }
     }
 
@@ -260,6 +270,7 @@ struct YamlValueBuilder {
 }
 
 impl YamlValueBuilder {
+    #[must_use]
     fn new(
         max_nesting_depth: usize,
         materialization_budget: usize,
@@ -427,8 +438,8 @@ impl YamlValueBuilder {
         match role {
             Role::MappingValue(MappingKey::String { path, .. }) => path.clone(),
             Role::Root => Some(SourceConfigPath::root()),
-            // Collection-valued mapping keys are discarded by materialization. Their descendants
-            // must not publish paths as if they belonged to the surrounding object.
+
+
             Role::MappingKey => None,
             Role::SequenceItem | Role::MappingValue(MappingKey::Ignored) => None,
         }
@@ -447,6 +458,7 @@ impl YamlValueBuilder {
                 self.max_nesting_depth
             ));
         }
+
         self.stack.push(frame);
         Ok(())
     }
@@ -456,6 +468,7 @@ impl YamlValueBuilder {
             if self.root.is_some() {
                 return Err("multiple YAML documents are not supported".to_string());
             }
+
             return Ok(Role::Root);
         };
 
@@ -475,8 +488,11 @@ impl YamlValueBuilder {
         anchor_id: usize,
         #[cfg(feature = "editor-facts")] source_addressable: bool,
     ) -> Result<(), String> {
-        if anchor_id != 0 {
-            self.anchors.insert(anchor_id, node);
+        match anchor_id {
+            0 => {},
+            _ => {
+                self.anchors.insert(anchor_id, node);
+            },
         }
 
         match role {
@@ -492,6 +508,7 @@ impl YamlValueBuilder {
                 else {
                     return Err("YAML sequence item had no parent sequence".to_string());
                 };
+
                 items.push(node);
                 Ok(())
             }
@@ -530,6 +547,7 @@ impl YamlValueBuilder {
                         (MappingKey::String { .. }, true, None) => {}
                     }
                 }
+
                 let Some(Frame {
                     container: Container::Mapping { pending_key, .. },
                     ..
@@ -537,6 +555,7 @@ impl YamlValueBuilder {
                 else {
                     return Err("YAML mapping key had no parent mapping".to_string());
                 };
+
                 *pending_key = Some(key);
                 Ok(())
             }
@@ -548,15 +567,18 @@ impl YamlValueBuilder {
                 else {
                     return Err("YAML mapping value had no parent mapping".to_string());
                 };
+
                 match key {
                     MappingKey::String { name, .. } => {
                         if !keys.insert(name.clone()) {
                             return Err("duplicated mapping key".to_string());
                         }
+
                         entries.push((name, node));
                     }
                     MappingKey::Ignored => {}
                 }
+
                 Ok(())
             }
         }
@@ -570,9 +592,11 @@ impl YamlValueBuilder {
             return Ok(Err("incomplete YAML document".to_string()));
         }
 
-        let Some(root) = self.root else {
-            return Ok(Ok(Value::Null));
+        let root = match self.root {
+            Some(matched_root) => matched_root,
+            ::core::option::Option::None => return Ok(Ok(Value::Null)),
         };
+
         materialize_yaml_controlled(
             &self.arena,
             root,
@@ -639,6 +663,7 @@ enum MappingKey {
     Ignored,
 }
 
+#[must_use]
 fn node_to_mapping_key(arena: &[YamlNode], node: NodeId) -> MappingKey {
     match &arena[node.0] {
         YamlNode::Scalar {
@@ -744,7 +769,9 @@ fn materialize_yaml_controlled(
             drop_materialized_values(values);
             return Err(cancelled);
         }
+
         visited = visited.saturating_add(1);
+
         match task {
             MaterializeTask::Visit { node, depth } => {
                 if depth > max_nesting_depth {
@@ -757,11 +784,15 @@ fn materialize_yaml_controlled(
                 let yaml_node = &arena[node.0];
                 materialized_bytes =
                     materialized_bytes.saturating_add(yaml_node_materialized_cost(yaml_node));
-                if materialized_bytes > materialization_budget {
-                    drop_materialized_values(values);
-                    return Ok(Err(
-                        "YAML aliases expand beyond the safe materialization budget".to_string(),
-                    ));
+
+                match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(materialized_bytes), &::core::convert::identity(materialization_budget)); _explicit_ordering } {
+                    ::core::cmp::Ordering::Greater => {
+                        drop_materialized_values(values);
+                        return Ok(Err(
+                            "YAML aliases expand beyond the safe materialization budget".to_string(),
+                        ));
+                    },
+                    ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
                 }
 
                 match yaml_node {
@@ -770,13 +801,15 @@ fn materialize_yaml_controlled(
                     }
                     YamlNode::Sequence(items) => {
                         tasks.push(MaterializeTask::CompleteSequence { len: items.len() });
+
                         for (index, child) in items.iter().rev().enumerate() {
-                            if index % 64 == 0
+                            if index.wrapping_rem(64) == 0
                                 && let Err(cancelled) = control.checkpoint()
                             {
                                 drop_materialized_values(values);
                                 return Err(cancelled);
                             }
+
                             tasks.push(MaterializeTask::Visit {
                                 node: *child,
                                 depth: depth.saturating_add(1),
@@ -788,13 +821,15 @@ fn materialize_yaml_controlled(
                             node,
                             len: entries.len(),
                         });
+
                         for (index, (_, child)) in entries.iter().rev().enumerate() {
-                            if index % 64 == 0
+                            if index.wrapping_rem(64) == 0
                                 && let Err(cancelled) = control.checkpoint()
                             {
                                 drop_materialized_values(values);
                                 return Err(cancelled);
                             }
+
                             tasks.push(MaterializeTask::Visit {
                                 node: *child,
                                 depth: depth.saturating_add(1),
@@ -811,30 +846,36 @@ fn materialize_yaml_controlled(
             MaterializeTask::CompleteMapping { node, len } => {
                 let start = values.len().saturating_sub(len);
                 let children = values.split_off(start);
+
                 let YamlNode::Mapping(entries) = &arena[node.0] else {
                     drop_materialized_values(values);
                     drop_materialized_values(children);
                     return Ok(Err("invalid YAML materialization state".to_string()));
                 };
+
                 let mut map = Map::with_capacity(len);
-                let mut children = children.into_iter();
+                let mut children_2 = children.into_iter();
+
                 for (index, (key, _)) in entries.iter().enumerate() {
-                    if index % 64 == 0
+                    if index.wrapping_rem(64) == 0
                         && let Err(cancelled) = control.checkpoint()
                     {
                         drop_materialized_values(values);
-                        drop_materialized_values(children.collect());
+                        drop_materialized_values(children_2.collect());
                         crate::json_value::drop_value_nonrecursive(Value::Object(map));
                         return Err(cancelled);
                     }
-                    let Some(value) = children.next() else {
+
+                    let Some(value) = children_2.next() else {
                         drop_materialized_values(values);
-                        drop_materialized_values(children.collect());
+                        drop_materialized_values(children_2.collect());
                         crate::json_value::drop_value_nonrecursive(Value::Object(map));
                         return Ok(Err("invalid YAML materialization state".to_string()));
                     };
+
                     map.insert(key.clone(), value);
                 }
+
                 values.push(Value::Object(map));
             }
         }
@@ -844,13 +885,22 @@ fn materialize_yaml_controlled(
         drop_materialized_values(values);
         return Ok(Err("invalid YAML materialization state".to_string()));
     }
-    if let Err(cancelled) = control.checkpoint() {
-        drop_materialized_values(values);
-        return Err(cancelled);
+
+    match control.checkpoint() {
+        Err(cancelled) => {
+            drop_materialized_values(values);
+            return Err(cancelled);
+        },
+        ::core::result::Result::Ok(_) => {},
     }
-    Ok(Ok(values.pop().unwrap_or(Value::Null)))
+
+    Ok(Ok(match (values.pop(), Value::Null) {
+        (::core::option::Option::Some(present), alternate) => { ::core::mem::drop(alternate); present },
+        (::core::option::Option::None, alternate) => alternate,
+    }))
 }
 
+#[must_use]
 fn yaml_node_materialized_cost(node: &YamlNode) -> usize {
     match node {
         YamlNode::Scalar {
@@ -887,8 +937,11 @@ fn drop_materialized_values(values: Vec<Value>) {
 }
 
 fn scalar_to_value(raw: &str, style: ScalarStyle, tag: Option<&Tag>) -> Result<Value, String> {
-    if let Some(core_suffix) = tag.and_then(Tag::core_suffix) {
-        return scalar_to_tagged_value(raw, core_suffix);
+    match tag.and_then(Tag::core_suffix) {
+        Some(core_suffix) => {
+            return scalar_to_tagged_value(raw, core_suffix);
+        },
+        ::core::option::Option::None => {},
     }
 
     if style != ScalarStyle::Plain {
@@ -898,14 +951,26 @@ fn scalar_to_value(raw: &str, style: ScalarStyle, tag: Option<&Tag>) -> Result<V
     if is_yaml_null(raw) {
         return Ok(Value::Null);
     }
-    if let Some(value) = parse_yaml_bool(raw) {
-        return Ok(Value::Bool(value));
+
+    match parse_yaml_bool(raw) {
+        Some(value) => {
+            return Ok(Value::Bool(value));
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(number) = parse_yaml_int(raw) {
-        return Ok(Value::Number(number));
+
+    match parse_yaml_int(raw) {
+        Some(number) => {
+            return Ok(Value::Number(number));
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(number) = parse_yaml_float(raw) {
-        return Ok(Value::Number(number));
+
+    match parse_yaml_float(raw) {
+        Some(number) => {
+            return Ok(Value::Number(number));
+        },
+        ::core::option::Option::None => {},
     }
 
     Ok(Value::String(raw.to_string()))
@@ -928,10 +993,12 @@ fn scalar_to_tagged_value(raw: &str, core_suffix: &str) -> Result<Value, String>
     }
 }
 
+#[must_use]
 fn is_yaml_null(raw: &str) -> bool {
     matches!(raw, "" | "~" | "null" | "Null" | "NULL")
 }
 
+#[must_use]
 fn parse_yaml_bool(raw: &str) -> Option<bool> {
     match raw {
         "true" | "True" | "TRUE" => Some(true),
@@ -940,6 +1007,7 @@ fn parse_yaml_bool(raw: &str) -> Option<bool> {
     }
 }
 
+#[must_use]
 fn parse_yaml_int(raw: &str) -> Option<Number> {
     let cleaned = raw.replace('_', "");
     let (negative, body) = match cleaned.as_bytes().first()? {
@@ -947,6 +1015,7 @@ fn parse_yaml_int(raw: &str) -> Option<Number> {
         b'+' => (false, &cleaned[1..]),
         _ => (false, cleaned.as_str()),
     };
+
     if body.is_empty() {
         return None;
     }
@@ -955,22 +1024,35 @@ fn parse_yaml_int(raw: &str) -> Option<Number> {
         return Some(Number::from(0));
     }
 
-    if let Some(digits) = body.strip_prefix("0b").or_else(|| body.strip_prefix("0B")) {
-        return parse_nondecimal_int(digits, 2, negative);
+    match body.strip_prefix("0b").or_else(|| body.strip_prefix("0B")) {
+        Some(digits) => {
+            return parse_nondecimal_int(digits, 2, negative);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(digits) = body.strip_prefix("0o").or_else(|| body.strip_prefix("0O")) {
-        return parse_nondecimal_int(digits, 8, negative);
+
+    match body.strip_prefix("0o").or_else(|| body.strip_prefix("0O")) {
+        Some(digits) => {
+            return parse_nondecimal_int(digits, 8, negative);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(digits) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
-        return parse_nondecimal_int(digits, 16, negative);
+
+    match body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) {
+        Some(digits) => {
+            return parse_nondecimal_int(digits, 16, negative);
+        },
+        ::core::option::Option::None => {},
     }
 
     if !body.chars().all(|ch| ch.is_ascii_digit()) {
         return None;
     }
+
     parse_decimal_int(body, negative)
 }
 
+#[must_use]
 fn parse_yaml_float(raw: &str) -> Option<Number> {
     let cleaned = raw.replace('_', "");
     let (negative, body) = match cleaned.as_bytes().first()? {
@@ -978,6 +1060,7 @@ fn parse_yaml_float(raw: &str) -> Option<Number> {
         b'+' => (false, &cleaned[1..]),
         _ => (false, cleaned.as_str()),
     };
+
     if body.is_empty() {
         return None;
     }
@@ -989,19 +1072,23 @@ fn parse_yaml_float(raw: &str) -> Option<Number> {
             if !is_yaml_float_body(body) {
                 return None;
             }
-            body.parse::<f64>().ok()
+
+            match body.parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
         }
     }?;
 
-    let value = if negative { -value } else { value };
-    Number::from_f64(value)
+    let value_2 = if negative { -value } else { value };
+    Number::from_f64(value_2)
 }
 
+#[must_use]
 fn parse_decimal_int(body: &str, negative: bool) -> Option<Number> {
-    let unsigned = body.parse::<u128>().ok()?;
+    let unsigned = match body.parse::<u128>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
+
     if negative {
-        let checked_value = i128::try_from(unsigned).ok()?;
+        let checked_value = match i128::try_from(unsigned) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }?;
         let signed = checked_value.checked_neg()?;
+
         if let Ok(value) = i64::try_from(signed) {
             Some(Number::from(value))
         } else {
@@ -1014,14 +1101,18 @@ fn parse_decimal_int(body: &str, negative: bool) -> Option<Number> {
     }
 }
 
+#[must_use]
 fn parse_nondecimal_int(digits: &str, radix: u32, negative: bool) -> Option<Number> {
     if digits.is_empty() || !digits.chars().all(|ch| ch.is_digit(radix)) {
         return None;
     }
-    let unsigned = u128::from_str_radix(digits, radix).ok()?;
+
+    let unsigned = match u128::from_str_radix(digits, radix) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
+
     if negative {
-        let checked_value = i128::try_from(unsigned).ok()?;
+        let checked_value = match i128::try_from(unsigned) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }?;
         let signed = checked_value.checked_neg()?;
+
         if let Ok(value) = i64::try_from(signed) {
             Some(Number::from(value))
         } else {
@@ -1034,11 +1125,13 @@ fn parse_nondecimal_int(digits: &str, radix: u32, negative: bool) -> Option<Numb
     }
 }
 
+#[must_use]
 fn is_yaml_float_body(body: &str) -> bool {
     let mut chars = body.chars().peekable();
     let mut saw_digit = false;
 
     let mut int_digits = 0usize;
+
     while chars.peek().is_some_and(|ch| ch.is_ascii_digit()) {
         chars.next();
         saw_digit = true;
@@ -1046,13 +1139,16 @@ fn is_yaml_float_body(body: &str) -> bool {
     }
 
     let mut frac_digits = 0usize;
+
     if chars.peek() == Some(&'.') {
         chars.next();
+
         while chars.peek().is_some_and(|ch| ch.is_ascii_digit()) {
             chars.next();
             saw_digit = true;
             frac_digits += 1;
         }
+
         if int_digits == 0 && frac_digits == 0 {
             return false;
         }
@@ -1064,17 +1160,25 @@ fn is_yaml_float_body(body: &str) -> bool {
         && (ch == 'e' || ch == 'E')
     {
         chars.next();
+
         if matches!(chars.peek(), Some('+') | Some('-')) {
             chars.next();
         }
+
         let mut exp_digits = 0usize;
-        while chars.peek().is_some_and(|ch| ch.is_ascii_digit()) {
+
+        while chars.peek().is_some_and(|ch_2| ch_2.is_ascii_digit()) {
             chars.next();
             exp_digits += 1;
         }
-        if exp_digits == 0 {
-            return false;
+
+        match exp_digits {
+            0 => {
+                return false;
+            },
+            _ => {},
         }
+
         saw_digit = true;
     }
 

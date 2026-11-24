@@ -96,10 +96,12 @@ pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
     let work_meter = ctx.work_meter;
     let icon_scope_root = &mut ctx.icon_scope_root;
     let service_icon_scope_prefix = &mut ctx.service_icon_scope_prefix;
+
     if model.nodes.is_empty() {
         out.push_str(r#"<g class="architecture-services"/>"#);
     } else {
         out.push_str(r#"<g class="architecture-services">"#);
+
         for (service_index, svc) in model
             .nodes
             .iter()
@@ -107,7 +109,10 @@ pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
             .enumerate()
         {
             checkpoints.checkpoint()?;
-            let (x, y) = node_xy.get(svc.id.as_str()).copied().unwrap_or((0.0, 0.0));
+            let (x, y) = match node_xy.get(svc.id.as_str()).copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => (0.0, 0.0),
+            };
 
             out.push_str(r#"<g id=""#);
             write_diagram_service_id(out, diagram_id, &svc.id);
@@ -136,7 +141,7 @@ pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
                 .map(str::trim)
                 .filter(|t| !t.is_empty())
                 .map(|title| {
-                    // Mermaid uses `width = iconSize * 1.5` for service titles.
+
                     write_architecture_service_title(
                         out,
                         title,
@@ -160,9 +165,11 @@ pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
                 .and_then(|emission| emission.bounds.as_ref());
 
             out.push_str("<g>");
+
             match (svc.icon.as_deref(), svc.icon_text.as_deref()) {
                 (Some(icon), _) => {
                     out.push_str("<g>");
+
                     if arch_icon_needs_id_scope(icon, icon_registry.is_some()) {
                         let id_scope = architecture_icon_scope(
                             icon_scope_root,
@@ -184,6 +191,7 @@ pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
                     } else {
                         write_arch_icon_svg(out, icon, settings.icon_size_px, None)?;
                     }
+
                     out.push_str("</g>");
                 }
                 (None, Some(icon_text)) => {
@@ -191,18 +199,20 @@ pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
                     write_arch_icon_svg(out, "blank", settings.icon_size_px, None)?;
                     out.push_str("</g>");
 
-                    // Mermaid computes `iconText` clamp from the DOM `font-size` applied to the
-                    // foreignObject content. That content inherits the diagram root CSS size;
-                    // `architecture.fontSize` remains a separate Cytoscape-layout setting.
+
+
+
                     let line_clamp = ((settings.icon_size_px - 2.0) / settings.text_style.font_size)
                         .floor()
                         .max(1.0) as i64;
                     let parse_work = std::cell::Cell::new(0);
                     let sink = crate::html::HtmlSanitizeSink::new(
-                        work_meter
+                        match work_meter
                             .policy()
-                            .value(crate::resources::ResourceLimitId::MaxSvgBytes)
-                            .unwrap_or(usize::MAX),
+                            .value(crate::resources::ResourceLimitId::MaxSvgBytes) {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => usize::MAX,
+                        },
                         work_meter,
                         &parse_work,
                         merman_model::OperationPhase::Emit,
@@ -230,11 +240,16 @@ pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
                     write_diagram_node_id(out, diagram_id, &svc.id);
                     checkpoints.checkpoint()?;
                     out.push('"');
-                    if let Some(style) = service_background_style {
-                        out.push_str(r#" style=""#);
-                        escape_attr_into(out, style);
-                        out.push('"');
+
+                    match service_background_style {
+                        Some(style) => {
+                            out.push_str(r#" style=""#);
+                            escape_attr_into(out, style);
+                            out.push('"');
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     let _ = write!(
                         out,
                         r#" d="M0,{s} V5 Q0,0 5,0 H{inner_s} Q{s},0 {s},5 V{s} Z"/>"#,
@@ -243,40 +258,46 @@ pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
                     );
                 }
             }
+
             out.push_str("</g>");
 
             out.push_str("</g>");
             out.checkpoint()?;
+
             if (has_title || has_icon_text)
                 && let Some(emission) = typography_emission.as_deref_mut()
             {
                 emission.record_visible_text();
             }
-            if let Some(styles) = surface_styles.as_deref_mut() {
-                let background_emitted = svc.icon.is_none() && svc.icon_text.is_none();
-                styles.record_checkpointed_service(
-                    crate::architecture::ArchitectureServiceTerminalEmission {
-                        index: service_index,
-                        #[cfg(merman_internal_theme_acceptance)]
-                        id: svc.id.as_str().into(),
-                        background: crate::architecture::ArchitecturePaintTerminalEmission {
-                            emitted: background_emitted,
+
+            match surface_styles.as_deref_mut() {
+                Some(styles) => {
+                    let background_emitted = svc.icon.is_none() && svc.icon_text.is_none();
+                    styles.record_checkpointed_service(
+                        crate::architecture::ArchitectureServiceTerminalEmission {
+                            index: service_index,
+                            #[cfg(merman_internal_theme_acceptance)]
+                            id: svc.id.as_str().into(),
+                            background: crate::architecture::ArchitecturePaintTerminalEmission {
+                                emitted: background_emitted,
+                            },
+                            title: crate::architecture::ArchitectureTextTerminalEmission {
+                                emitted: has_title,
+                                #[cfg(merman_internal_theme_acceptance)]
+                                bounds: service_title_bounds.cloned(),
+                                #[cfg(merman_internal_theme_acceptance)]
+                                fragment_digest: service_title_emission
+                                    .as_ref()
+                                    .map(|emission| emission.facts.fragment_digest),
+                                #[cfg(merman_internal_theme_acceptance)]
+                                run_count: service_title_emission
+                                    .as_ref()
+                                    .map_or(0, |emission| emission.facts.run_count),
+                            },
                         },
-                        title: crate::architecture::ArchitectureTextTerminalEmission {
-                            emitted: has_title,
-                            #[cfg(merman_internal_theme_acceptance)]
-                            bounds: service_title_bounds.cloned(),
-                            #[cfg(merman_internal_theme_acceptance)]
-                            fragment_digest: service_title_emission
-                                .as_ref()
-                                .map(|emission| emission.facts.fragment_digest),
-                            #[cfg(merman_internal_theme_acceptance)]
-                            run_count: service_title_emission
-                                .as_ref()
-                                .map_or(0, |emission| emission.facts.run_count),
-                        },
-                    },
-                );
+                    );
+                },
+                ::core::option::Option::None => {},
             }
         }
 
@@ -286,10 +307,12 @@ pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
             .filter(|node| node.node_type == ArchitectureNodeKind::Junction)
         {
             checkpoints.checkpoint()?;
-            let (x, y) = node_xy
+            let (x, y) = match node_xy
                 .get(junction.id.as_str())
-                .copied()
-                .unwrap_or((0.0, 0.0));
+                .copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => (0.0, 0.0),
+            };
 
             let _ = write!(
                 out,
@@ -306,8 +329,10 @@ pub(super) fn push_architecture_services_and_junctions<O: SvgOutput>(
             );
             out.checkpoint()?;
         }
+
         out.push_str("</g>");
     }
+
     out.checkpoint()?;
     ctx.surface_styles = surface_styles;
     ctx.typography_emission = typography_emission;
@@ -361,50 +386,61 @@ pub(super) fn push_architecture_groups<'a, O: SvgOutput>(
                 w = fmt(w.max(1.0)),
                 h = fmt(h.max(1.0))
             );
-            if let Some(style) = group_inline_style {
-                out.push_str(r#" style=""#);
-                escape_attr_into(out, style);
-                out.push('"');
+
+            match group_inline_style {
+                Some(style) => {
+                    out.push_str(r#" style=""#);
+                    escape_attr_into(out, style);
+                    out.push('"');
+                },
+                ::core::option::Option::None => {},
             }
+
             out.push_str("/>");
 
             out.push_str("<g>");
 
             let mut shifted_x1 = x1;
             let mut shifted_y1 = y1;
-            if let Some(icon) = grp.icon.map(str::trim).filter(|t| !t.is_empty()) {
-                let _ = write!(
-                    out,
-                    r#"<g transform="translate({x}, {y})"><g>"#,
-                    x = fmt(shifted_x1 + settings.half_icon + 1.0),
-                    y = fmt(shifted_y1 + settings.half_icon + 1.0)
-                );
-                if arch_icon_needs_id_scope(icon, icon_registry.is_some()) {
-                    let id_scope = architecture_icon_scope(
-                        icon_scope_root,
-                        group_icon_scope_prefix,
-                        ctx.diagram_id,
-                        "-group-",
-                        grp.id,
-                        work_meter,
-                    )?;
-                    write_arch_icon_svg_with_registry(
+
+            match grp.icon.map(str::trim).filter(|t| !t.is_empty()) {
+                Some(icon) => {
+                    let _ = write!(
                         out,
-                        icon,
-                        group_icon_size_px,
-                        icon_registry,
-                        id_scope,
-                        ctx.sanitize_config,
-                        work_meter,
-                    )?;
-                } else {
-                    write_arch_icon_svg(out, icon, group_icon_size_px, None)?;
-                }
-                out.push_str("</g></g>");
-                shifted_x1 += group_icon_size_px;
-                // Mermaid uses `architecture.fontSize` for this alignment tweak (not the global SVG
-                // font size used for label rendering).
-                shifted_y1 += settings.arch_font_size_px / 2.0 - 3.0;
+                        r#"<g transform="translate({x}, {y})"><g>"#,
+                        x = fmt(shifted_x1 + settings.half_icon + 1.0),
+                        y = fmt(shifted_y1 + settings.half_icon + 1.0)
+                    );
+
+                    if arch_icon_needs_id_scope(icon, icon_registry.is_some()) {
+                        let id_scope = architecture_icon_scope(
+                            icon_scope_root,
+                            group_icon_scope_prefix,
+                            ctx.diagram_id,
+                            "-group-",
+                            grp.id,
+                            work_meter,
+                        )?;
+                        write_arch_icon_svg_with_registry(
+                            out,
+                            icon,
+                            group_icon_size_px,
+                            icon_registry,
+                            id_scope,
+                            ctx.sanitize_config,
+                            work_meter,
+                        )?;
+                    } else {
+                        write_arch_icon_svg(out, icon, group_icon_size_px, None)?;
+                    }
+
+                    out.push_str("</g></g>");
+                    shifted_x1 += group_icon_size_px;
+
+
+                    shifted_y1 += settings.arch_font_size_px / 2.0 - 3.0;
+                },
+                ::core::option::Option::None => {},
             }
 
             let has_title = grp.title.is_some_and(|title| !title.trim().is_empty());
@@ -427,11 +463,11 @@ pub(super) fn push_architecture_groups<'a, O: SvgOutput>(
                     &settings.text_style,
                 );
 
-                // Group titles are SVG `<text>` (no explicit bbox geometry), so our SVG bbox pass
-                // cannot "see" their extents. Measure the emitted outer tspan DOM primitive so
-                // `setupGraphViewbox(svg.getBBox() + padding)` matches upstream in parity-root.
+
+
+
                 if terminal_bounds.max_x > terminal_bounds.min_x {
-                    // Keep Y extents within the group rect; we only need this to expand X.
+
                     let title_bounds = Bounds {
                         min_x: terminal_bounds.min_x,
                         min_y: y,
@@ -440,6 +476,7 @@ pub(super) fn push_architecture_groups<'a, O: SvgOutput>(
                     };
                     extend_bounds(content_bounds, title_bounds);
                 }
+
                 let _ = write!(
                     out,
                     r#"<g dy="1em" alignment-baseline="middle" dominant-baseline="start" text-anchor="start" transform="translate({x}, {y})"><g><rect class="background" style="stroke: none"/>"#,
@@ -457,33 +494,38 @@ pub(super) fn push_architecture_groups<'a, O: SvgOutput>(
 
             out.push_str("</g>");
             out.checkpoint()?;
-            // Clear consumes the successfully emitted baseline without an inline style.
+
             *group_emitted = true;
             if has_title && let Some(emission) = typography_emission.as_deref_mut() {
                 emission.record_visible_text();
             }
-            if let Some(styles) = surface_styles.as_deref_mut() {
-                styles.record_checkpointed_group(
-                    crate::architecture::ArchitectureGroupTerminalEmission {
-                        index: group_index,
-                        #[cfg(merman_internal_theme_acceptance)]
-                        id: grp.id.into(),
-                        title: crate::architecture::ArchitectureTextTerminalEmission {
-                            emitted: has_title,
+
+            match surface_styles.as_deref_mut() {
+                Some(styles) => {
+                    styles.record_checkpointed_group(
+                        crate::architecture::ArchitectureGroupTerminalEmission {
+                            index: group_index,
                             #[cfg(merman_internal_theme_acceptance)]
-                            bounds: group_title_bounds,
-                            #[cfg(merman_internal_theme_acceptance)]
-                            fragment_digest: group_writer_facts.map(|facts| facts.fragment_digest),
-                            #[cfg(merman_internal_theme_acceptance)]
-                            run_count: group_writer_facts.map_or(0, |facts| facts.run_count),
+                            id: grp.id.into(),
+                            title: crate::architecture::ArchitectureTextTerminalEmission {
+                                emitted: has_title,
+                                #[cfg(merman_internal_theme_acceptance)]
+                                bounds: group_title_bounds,
+                                #[cfg(merman_internal_theme_acceptance)]
+                                fragment_digest: group_writer_facts.map(|facts| facts.fragment_digest),
+                                #[cfg(merman_internal_theme_acceptance)]
+                                run_count: group_writer_facts.map_or(0, |facts| facts.run_count),
+                            },
                         },
-                    },
-                );
+                    );
+                },
+                ::core::option::Option::None => {},
             }
         }
 
         out.push_str("</g>");
     }
+
     out.checkpoint()?;
     ctx.surface_styles = surface_styles;
     ctx.typography_emission = typography_emission;

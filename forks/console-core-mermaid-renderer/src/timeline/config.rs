@@ -13,14 +13,15 @@ pub(crate) const MAX_THEME_COLOR_LIMIT: usize = 64;
 
 /// Resolve Mermaid's bounded Timeline color-scale count through the shared value-coercion helper so CSS,
 /// layout, and the typed terminal plan share JavaScript-compatible coercion and ceilings.
+#[must_use]
 pub(crate) fn timeline_theme_color_limit(effective_config: &Value) -> usize {
     let raw = effective_config
         .get("themeVariables")
         .and_then(|variables| variables.get("THEME_COLOR_LIMIT"));
     raw.map_or(DEFAULT_THEME_COLOR_LIMIT, |value| {
-        // Render paths receive core-materialized configuration, where an over-limit value has
-        // already failed admission. Keep direct adapter tests deterministic if they bypass that
-        // boundary instead of inventing a second unbounded policy.
+
+
+
         merman_model::presentation::theme_color_iterations(Some(value))
             .unwrap_or(DEFAULT_THEME_COLOR_LIMIT)
     })
@@ -32,6 +33,7 @@ pub(crate) struct TimelineConfigView<'a> {
 }
 
 impl<'a> TimelineConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             effective_config,
@@ -40,13 +42,17 @@ impl<'a> TimelineConfigView<'a> {
     }
 
     /// Neo's gradient stylesheet replaces both Classic and Redux section paint owners.
+    #[must_use]
     pub(crate) fn uses_neo_gradient(&self) -> bool {
         crate::config::config_diagram_look(self.effective_config).is_neo()
-            && config_bool(self.effective_config, &["themeVariables", "useGradient"])
-                .unwrap_or(false)
+            && match config_bool(self.effective_config, &["themeVariables", "useGradient"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            }
             && self.effective_config.get("theme").and_then(Value::as_str) != Some("neutral")
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> TimelineLayoutSettings {
         let text_style = self.text_style();
         let node_text_style =
@@ -54,41 +60,62 @@ impl<'a> TimelineConfigView<'a> {
         TimelineLayoutSettings {
             text_style: text_style.clone(),
             node_text_style,
-            layout_font_size: config_f64_css_px(self.effective_config, &["fontSize"])
-                .unwrap_or(text_style.font_size)
+            layout_font_size: match config_f64_css_px(self.effective_config, &["fontSize"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => text_style.font_size,
+            }
                 .max(1.0),
             theme_color_limit: timeline_theme_color_limit(self.effective_config),
             is_neo: crate::config::config_diagram_look(self.effective_config).is_neo(),
-            left_margin: config_f64(self.timeline_config, &["leftMargin"])
-                .unwrap_or(DEFAULT_LEFT_MARGIN)
+            left_margin: match config_f64(self.timeline_config, &["leftMargin"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_LEFT_MARGIN,
+            }
                 .max(0.0),
-            disable_multicolor: config_bool(self.timeline_config, &["disableMulticolor"])
-                .unwrap_or(false),
-            viewbox_padding: config_f64(self.timeline_config, &["padding"])
-                .unwrap_or(DEFAULT_VIEWBOX_PADDING)
+            disable_multicolor: match config_bool(self.timeline_config, &["disableMulticolor"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            },
+            viewbox_padding: match config_f64(self.timeline_config, &["padding"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_VIEWBOX_PADDING,
+            }
                 .max(0.0),
-            use_max_width: config_bool(self.timeline_config, &["useMaxWidth"])
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
+            use_max_width: match config_bool(self.timeline_config, &["useMaxWidth"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings_with_resolved_typography(
         &self,
         resolved_font_family_css: Option<&str>,
         resolved_font_size_px: Option<f64>,
     ) -> TimelineLayoutSettings {
         let mut settings = self.layout_settings();
-        if let Some(font_family_css) = resolved_font_family_css {
-            settings.text_style.font_family = Some(font_family_css.to_owned());
-            settings.node_text_style.font_family = Some(font_family_css.to_owned());
+
+        match resolved_font_family_css {
+            Some(font_family_css) => {
+                settings.text_style.font_family = Some(font_family_css.to_owned());
+                settings.node_text_style.font_family = Some(font_family_css.to_owned());
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(font_size_px) = resolved_font_size_px {
-            settings.text_style.font_size = font_size_px.max(1.0);
-            settings.node_text_style.font_size = font_size_px.max(1.0);
+
+        match resolved_font_size_px {
+            Some(font_size_px) => {
+                settings.text_style.font_size = font_size_px.max(1.0);
+                settings.node_text_style.font_size = font_size_px.max(1.0);
+            },
+            ::core::option::Option::None => {},
         }
+
         settings
     }
 
+    #[must_use]
     fn text_style(&self) -> TextStyle {
         TextStyle {
             font_family: self.font_family(),
@@ -99,6 +126,7 @@ impl<'a> TimelineConfigView<'a> {
         }
     }
 
+    #[must_use]
     fn font_family(&self) -> Option<String> {
         config_string(self.effective_config, &["themeVariables", "fontFamily"])
             .or_else(|| config_string(self.effective_config, &["fontFamily"]))
@@ -109,7 +137,7 @@ impl<'a> TimelineConfigView<'a> {
 
 #[derive(Debug, Clone)]
 pub(crate) struct TimelineLayoutSettings {
-    // getVirtualNodeHeight() has no section class; drawNode() attaches it before wrap()/getBBox().
+
     pub(crate) text_style: TextStyle,
     pub(crate) node_text_style: TextStyle,
     pub(crate) layout_font_size: f64,

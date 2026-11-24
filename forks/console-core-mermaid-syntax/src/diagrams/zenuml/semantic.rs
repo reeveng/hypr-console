@@ -69,6 +69,7 @@ struct ResolveContext {
 }
 
 impl SemanticBuilder {
+    #[must_use]
     fn new(
         parsed: ParsedSyntax,
         #[cfg(feature = "editor-facts")] editor_demand: EditorFactsDemand,
@@ -112,9 +113,10 @@ impl SemanticBuilder {
         }
 
         for (index, item) in self.syntax.head.clone().into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 self.control.checkpoint()?;
             }
+
             match item {
                 HeadItemSyntax::Participant(participant) => {
                     self.declare_participant(&participant, None);
@@ -131,13 +133,16 @@ impl SemanticBuilder {
                         );
                     }
                     let mut participant_names = Vec::new();
+
                     for (index, participant) in group.participants.iter().enumerate() {
-                        if index % 128 == 0 {
+                        if index.wrapping_rem(128) == 0 {
                             self.control.checkpoint()?;
                         }
+
                         participant_names.push(participant.name.value.clone());
                         self.declare_participant(participant, group_id.clone());
                     }
+
                     self.groups.push(ZenumlGroup {
                         id: group_id,
                         participant_names,
@@ -152,10 +157,13 @@ impl SemanticBuilder {
             .starter
             .as_ref()
             .and_then(|starter| starter.name.clone());
-        let starter = starter_name
-            .clone()
-            .unwrap_or_else(|| SpannedText::new("_STARTER_", SourceSpan::new(0, 0)));
+        let starter = match starter_name
+            .clone() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => SpannedText::new("_STARTER_", SourceSpan::new(0, 0)),
+        };
         let has_explicit_starter = starter_name.is_some();
+
         if has_explicit_starter {
             self.reference_participant(&starter, true, "zenuml starter");
         }
@@ -171,6 +179,7 @@ impl SemanticBuilder {
         let needs_default_starter = (self.ownable_statement_count == 0
             && self.participants.is_empty())
             || self.some_statement_misses_from;
+
         if needs_default_starter {
             self.reference_named_participant(
                 "_STARTER_",
@@ -194,10 +203,12 @@ impl SemanticBuilder {
         {
             self.facts = self.editor_demand.finish_facts(self.facts);
         }
+
         for (index, _diagnostic) in self.diagnostics.iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 self.control.checkpoint()?;
             }
+
             #[cfg(feature = "editor-facts")]
             if let Some(facts) = &mut self.facts {
                 facts.mark_recovered_from_parse_error(
@@ -356,16 +367,18 @@ impl SemanticBuilder {
             FinishStatement(ZenumlStatement, usize),
             FinishSection(&'a FragmentSectionSyntax),
         }
+
         enum Completed {
             Statements(Vec<ZenumlStatement>),
             Statement(ZenumlStatement),
             Section(ZenumlFragmentSection),
         }
 
-        // Enter statements and sections in source order; finish their owning records after
-        // their children. Participant collection and generated IDs therefore retain preorder.
+
+
         let mut tasks = vec![Task::Statements(statements, context.clone())];
         let mut completed = Vec::new();
+
         while let Some(task) = tasks.pop() {
             match task {
                 Task::Statements(statements, context) => {
@@ -381,11 +394,13 @@ impl SemanticBuilder {
                     );
                 }
                 Task::Statement(statement, context, index) => {
-                    if index % 128 == 0 {
+                    if ::core::primitive::usize::wrapping_rem(index, 128) == 0 {
                         self.control.checkpoint()?;
                     }
+
                     let (resolved, nested_context) =
                         self.resolve_statement_head(statement, &context);
+
                     match &statement.kind {
                         StatementKindSyntax::Message(message) => {
                             tasks.push(Task::FinishStatement(resolved, 1));
@@ -411,7 +426,7 @@ impl SemanticBuilder {
                                     .map(|section| Task::Section(section, context.clone())),
                             );
                         }
-                        _ => tasks.push(Task::FinishStatement(resolved, 0)),
+                        StatementKindSyntax::Return(_) | StatementKindSyntax::Reference(_) | StatementKindSyntax::Divider(_) => tasks.push(Task::FinishStatement(resolved, 0)),
                     }
                 }
                 Task::Section(section, context) => {
@@ -430,12 +445,15 @@ impl SemanticBuilder {
                 }
                 Task::FinishStatements(count) => {
                     let mut resolved = Vec::with_capacity(count);
+
                     for _ in 0..count {
                         let Some(Completed::Statement(statement)) = completed.pop() else {
                             unreachable!("statement list finishes after all of its statements")
                         };
+
                         resolved.push(statement);
                     }
+
                     resolved.reverse();
                     completed.push(Completed::Statements(resolved));
                 }
@@ -446,6 +464,7 @@ impl SemanticBuilder {
                             let Some(Completed::Statements(statements)) = completed.pop() else {
                                 unreachable!("message and creation finish after their body")
                             };
+
                             *body = statements;
                         }
                         ZenumlStatementKind::Fragment { sections, .. } => {
@@ -453,12 +472,15 @@ impl SemanticBuilder {
                                 let Some(Completed::Section(section)) = completed.pop() else {
                                     unreachable!("fragment finishes after all of its sections")
                                 };
+
                                 sections.push(section);
                             }
+
                             sections.reverse();
                         }
                         _ => {}
                     }
+
                     self.control.checkpoint()?;
                     completed.push(Completed::Statement(statement));
                 }
@@ -466,6 +488,7 @@ impl SemanticBuilder {
                     let Some(Completed::Statements(statements)) = completed.pop() else {
                         unreachable!("fragment section finishes after its statements")
                     };
+
                     completed.push(Completed::Section(ZenumlFragmentSection {
                         label: section.label.as_ref().map(|label| label.value.clone()),
                         statements,
@@ -478,9 +501,11 @@ impl SemanticBuilder {
                 }
             }
         }
+
         let Some(Completed::Statements(statements)) = completed.pop() else {
             unreachable!("root statement list is completed last")
         };
+
         Ok(statements)
     }
 
@@ -502,6 +527,7 @@ impl SemanticBuilder {
                     .map(|value| value.value.clone())
                     .or_else(|| context.owner.clone());
                 self.record_ownable_from(resolved_from.as_deref());
+
                 if let Some(from) = &resolved_from {
                     self.reference_named_participant(
                         from,
@@ -511,6 +537,7 @@ impl SemanticBuilder {
                         "zenuml participant reference",
                     );
                 }
+
                 if let Some(to) = &resolved_to {
                     self.reference_named_participant(
                         to,
@@ -520,6 +547,7 @@ impl SemanticBuilder {
                         "zenuml participant reference",
                     );
                 }
+
                 #[cfg(feature = "editor-facts")]
                 self.push_message_signature(&message.signature);
                 #[cfg(feature = "editor-facts")]
@@ -561,6 +589,7 @@ impl SemanticBuilder {
                     |assignment| format!("{}:{}", assignment.value, creation.constructor.value),
                 );
                 self.record_ownable_from(resolved_from.as_deref());
+
                 if let Some(from) = &resolved_from {
                     self.reference_named_participant(
                         from,
@@ -570,6 +599,7 @@ impl SemanticBuilder {
                         "zenuml participant reference",
                     );
                 }
+
                 self.reference_named_participant(
                     &resolved_to,
                     Some(creation.constructor.span),
@@ -629,6 +659,7 @@ impl SemanticBuilder {
                 let explicit_to = ret.to.as_ref().map(|value| value.value.clone());
                 let resolved_to = explicit_to.clone().or_else(|| context.return_to.clone());
                 self.record_ownable_from(resolved_from.as_deref());
+
                 if let Some(from) = &resolved_from {
                     self.reference_named_participant(
                         from,
@@ -638,6 +669,7 @@ impl SemanticBuilder {
                         "zenuml participant reference",
                     );
                 }
+
                 if let Some(to) = &resolved_to {
                     self.reference_named_participant(
                         to,
@@ -647,6 +679,7 @@ impl SemanticBuilder {
                         "zenuml participant reference",
                     );
                 }
+
                 #[cfg(feature = "editor-facts")]
                 if let Some(value) = &ret.value {
                     #[cfg(feature = "editor-facts")]
@@ -689,15 +722,19 @@ impl SemanticBuilder {
                 }
             }
             StatementKindSyntax::Reference(reference) => {
-                let label = reference
+                let label = match reference
                     .participants
                     .first()
-                    .map(|name| name.value.clone())
-                    .unwrap_or_default();
+                    .map(|name| name.value.clone()) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => ::std::string::String::new(),
+                };
                 let participants = reference.participants.iter().skip(1);
+
                 for participant in participants {
                     self.reference_participant(participant, false, "zenuml participant reference");
                 }
+
                 ZenumlStatementKind::Reference {
                     participants: reference
                         .participants
@@ -766,9 +803,11 @@ impl SemanticBuilder {
             indexmap::map::Entry::Occupied(entry) => (entry.into_mut(), false),
         };
         entry.participant.is_starter |= starter;
+
         if entry.participant.emoji.is_none() {
             entry.participant.emoji = emoji.map(|emoji| emoji.value.clone());
         }
+
         if let Some(span) = span {
             entry.participant.occurrences.push(span);
             #[cfg(feature = "editor-facts")]
@@ -793,6 +832,7 @@ impl SemanticBuilder {
                 facts.push_symbol(symbol);
             }
         }
+
         #[cfg(feature = "editor-facts")]
         if let Some(emoji) = emoji {
             #[cfg(feature = "editor-facts")]

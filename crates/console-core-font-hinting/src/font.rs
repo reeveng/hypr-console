@@ -20,77 +20,11 @@ pub struct FontProgram<'a> {
 
 impl<'a> FontProgram<'a> {
   pub fn new(font: &FontRef<'a>) -> Result<Self, ReadError> {
-    let maxp = font.maxp()?;
-    let max_function_defs = match {
-      let answer = maxp.max_function_defs()?;
-      answer
-    } {
-      Some(count) => count,
-      None => 0,
-    };
-    let max_instruction_defs = match {
-      let answer = maxp.max_instruction_defs()?;
-      answer
-    } {
-      Some(count) => count,
-      None => 0,
-    };
-    let max_twilight_points = match {
-      let answer = maxp.max_twilight_points()?;
-      answer
-    } {
-      Some(count) => count,
-      None => 0,
-    }
-    .saturating_add(4);
-    let max_stack_elements = match {
-      let answer = maxp.max_stack_elements()?;
-      answer
-    } {
-      Some(count) => count,
-      None => 0,
-    }
-    .saturating_add(32);
-    let max_storage = match {
-      let answer = maxp.max_storage()?;
-      answer
-    } {
-      Some(count) => count,
-      None => 0,
-    };
-    let max_instructions = match {
-      let answer = maxp.max_size_of_instructions()?;
-      answer
-    } {
-      Some(count) => count,
-      None => 0,
-    };
-    let fpgm = match {
-      let answer = font.data_for_tag({
-        let Ok(value) = Tag::new(b"fpgm");
-        value
-      })?;
-      answer
-    } {
-      Some(data) => {
-        let Ok(bytes) = data.as_bytes();
-        bytes
-      }
-      None => &[],
-    };
-    let prep = match {
-      let answer = font.data_for_tag({
-        let Ok(value) = Tag::new(b"prep");
-        value
-      })?;
-      answer
-    } {
-      Some(data) => {
-        let Ok(bytes) = data.as_bytes();
-        bytes
-      }
-      None => &[],
-    };
+    let limits = ProgramLimits::read(font)?;
+    let Ok(fpgm_tag) = Tag::new(b"fpgm");
+    let Ok(prep_tag) = Tag::new(b"prep");
+    let fpgm = program_for(font, fpgm_tag)?;
+    let prep = program_for(font, prep_tag)?;
     let cvt_len = match font.cvt() {
       Ok(cvt) => {
         let Ok(count) = fitted::<_, u32>(cvt.len());
@@ -109,7 +43,7 @@ impl<'a> FontProgram<'a> {
       Err(fault) => return Err(fault),
     };
     let instructions = match ::core::primitive::bool::then_some(
-      max_instructions == 0 && fpgm.is_empty() && prep.is_empty(),
+      limits.max_instructions == 0 && fpgm.is_empty() && prep.is_empty(),
       (),
     ) {
       ::core::option::Option::Some(()) => crate::InstructionPresence::Absent,
@@ -120,11 +54,11 @@ impl<'a> FontProgram<'a> {
       fpgm,
       prep,
       cvt_len,
-      max_function_defs,
-      max_instruction_defs,
-      max_twilight_points,
-      max_stack_elements,
-      max_storage,
+      max_function_defs: limits.max_function_defs,
+      max_instruction_defs: limits.max_instruction_defs,
+      max_twilight_points: limits.max_twilight_points,
+      max_stack_elements: limits.max_stack_elements,
+      max_storage: limits.max_storage,
       instructions,
       axis_count,
     })
@@ -149,6 +83,61 @@ impl<'a> FontProgram<'a> {
   pub fn twilight_count(&self) -> Result<u32, Never> {
     Ok(u32::from(self.max_twilight_points))
   }
+}
+
+struct ProgramLimits {
+  max_function_defs: u16,
+  max_instruction_defs: u16,
+  max_twilight_points: u16,
+  max_stack_elements: u16,
+  max_storage: u16,
+  max_instructions: u16,
+}
+
+impl ProgramLimits {
+  fn read(font: &FontRef<'_>) -> Result<Self, ReadError> {
+    let maxp = font.maxp()?;
+    let functions = maxp.max_function_defs()?;
+    let definitions = maxp.max_instruction_defs()?;
+    let twilight = maxp.max_twilight_points()?;
+    let stack = maxp.max_stack_elements()?;
+    let storage = maxp.max_storage()?;
+    let instructions = maxp.max_size_of_instructions()?;
+    let Ok(max_function_defs) = limit_or_zero(functions);
+    let Ok(max_instruction_defs) = limit_or_zero(definitions);
+    let Ok(twilight_points) = limit_or_zero(twilight);
+    let Ok(stack_elements) = limit_or_zero(stack);
+    let Ok(max_storage) = limit_or_zero(storage);
+    let Ok(max_instructions) = limit_or_zero(instructions);
+
+    Ok(Self {
+      max_function_defs,
+      max_instruction_defs,
+      max_twilight_points: twilight_points.saturating_add(4),
+      max_stack_elements: stack_elements.saturating_add(32),
+      max_storage,
+      max_instructions,
+    })
+  }
+}
+
+fn limit_or_zero(limit: Option<u16>) -> Result<u16, Never> {
+  Ok(match limit {
+    Some(count) => count,
+    None => 0,
+  })
+}
+
+fn program_for<'a>(font: &FontRef<'a>, tag: Tag) -> Result<&'a [u8], ReadError> {
+  let table = font.data_for_tag(tag)?;
+
+  Ok(match table {
+    Some(data) => {
+      let Ok(bytes) = data.as_bytes();
+      bytes
+    }
+    None => &[],
+  })
 }
 
 #[cfg(test)]

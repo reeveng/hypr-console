@@ -1,10 +1,6 @@
 [Unit]
 Description=Dynamic wallpaper
-PartOf=console.target
-# The wallpaper daemon has to be listening before there is any point telling it
-# anything. console-paper fills the screen with a color as it starts, which is
-# the ground this then paints over: a picture chosen for the weather if there is
-# one, and the color left where it is if there is not.
+PartOf=console.target console-paper.service
 Requires=console-paper.service
 After=console-paper.service
 

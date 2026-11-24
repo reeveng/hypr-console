@@ -61,7 +61,7 @@ const HOLDS: [&str; 2] = [PACKAGE, SCRIPT];
 const UNZIPS_WITH: &str = "files-unzip";
 
 fn draws(stage: &mut Desktop) -> CheckResult {
-  stage.open("files")?;
+  stage.open("console-application-files")?;
   drew(stage)
 }
 

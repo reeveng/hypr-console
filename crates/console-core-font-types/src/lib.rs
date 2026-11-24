@@ -17,6 +17,7 @@
 //! <https://learn.microsoft.com/en-us/typography/opentype/spec/otff#data-types>.
 
 #![no_std]
+#![cfg_attr(not(feature = "bytemuck"), forbid(unsafe_code))]
 
 mod bbox;
 mod fixed;

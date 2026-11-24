@@ -9,6 +9,7 @@ use super::label_artifact::{StateLabelMetricsRequest, StateLabelOwner, StateLabe
 
 pub(super) const STATE_SVG_EDGE_LABEL_BACKGROUND_PADDING_PX: f64 = 2.0;
 
+#[must_use]
 fn native_padding_px(owner: StateLabelOwner<'_>) -> f64 {
     match owner {
         StateLabelOwner::Edge(_) => STATE_SVG_EDGE_LABEL_BACKGROUND_PADDING_PX,
@@ -19,10 +20,9 @@ fn native_padding_px(owner: StateLabelOwner<'_>) -> f64 {
     }
 }
 
+#[must_use]
 fn symmetric_edge_width_px(
-    ink_left_from_anchor_px: f64,
-    ink_right_from_anchor_px: f64,
-    minimum_half_width_px: f64,
+    SymmetricEdgeWidthPxArguments { ink_left_from_anchor_px, ink_right_from_anchor_px, minimum_half_width_px }: SymmetricEdgeWidthPxArguments,
 ) -> Option<f64> {
     if !ink_left_from_anchor_px.is_finite()
         || !ink_right_from_anchor_px.is_finite()
@@ -33,12 +33,19 @@ fn symmetric_edge_width_px(
     {
         return None;
     }
+
     let half_width_px = ink_left_from_anchor_px
         .max(ink_right_from_anchor_px)
         .max(minimum_half_width_px)
         + STATE_SVG_EDGE_LABEL_BACKGROUND_PADDING_PX;
     let width_px = half_width_px * 2.0;
     (width_px.is_finite() && width_px >= 0.0).then_some(width_px)
+}
+
+struct SymmetricEdgeWidthPxArguments {
+    ink_left_from_anchor_px: f64,
+    ink_right_from_anchor_px: f64,
+    minimum_half_width_px: f64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -48,6 +55,7 @@ enum StateNativeLabelLines {
 }
 
 impl StateNativeLabelLines {
+    #[must_use]
     fn len(&self) -> usize {
         match self {
             Self::Plain(lines) => lines.len(),
@@ -55,6 +63,7 @@ impl StateNativeLabelLines {
         }
     }
 
+    #[must_use]
     fn plain_text(&self, index: usize) -> Cow<'_, str> {
         match self {
             Self::Plain(lines) => Cow::Borrowed(&lines[index]),
@@ -69,6 +78,7 @@ impl StateNativeLabelLines {
     }
 }
 
+#[must_use]
 fn measured_wrapped_lines(request: StateLabelMetricsRequest<'_>) -> StateNativeLabelLines {
     if request.source_kind == StateLabelSourceKind::Plain {
         return StateNativeLabelLines::Plain(
@@ -79,11 +89,13 @@ fn measured_wrapped_lines(request: StateLabelMetricsRequest<'_>) -> StateNativeL
                 .into(),
         );
     }
+
     if request.max_width_px.is_none()
         && let Some(text) = super::state_markdown_label_plain_text(request.text)
     {
         return StateNativeLabelLines::Plain(vec![text.into_owned().into_boxed_str()].into());
     }
+
     let lines = super::label::state_svg_markdown_word_lines(
         request.text,
         request.measurer,
@@ -91,6 +103,7 @@ fn measured_wrapped_lines(request: StateLabelMetricsRequest<'_>) -> StateNativeL
         request.max_width_px,
         request.wrap_mode,
     );
+
     if lines
         .iter()
         .flatten()
@@ -111,6 +124,7 @@ fn measured_wrapped_lines(request: StateLabelMetricsRequest<'_>) -> StateNativeL
                 .into(),
         );
     }
+
     StateNativeLabelLines::Markdown(lines.into())
 }
 
@@ -122,6 +136,7 @@ struct MarkdownLineBbox {
     y_px: f64,
 }
 
+#[must_use]
 fn markdown_line_bbox(
     request: StateLabelMetricsRequest<'_>,
     words: &[(String, MermaidMarkdownWordType)],
@@ -131,12 +146,16 @@ fn markdown_line_bbox(
     let mut right = f64::NEG_INFINITY;
     let mut top = f64::INFINITY;
     let mut bottom = f64::NEG_INFINITY;
+
     for (index, (word, kind)) in words.iter().enumerate() {
         let visible = crate::entities::decode_svg_text_content_entities(word);
-        let text = if index == 0 {
-            visible
-        } else {
-            Cow::Owned(format!(" {visible}"))
+        let text = match index {
+            0 => {
+                visible
+            },
+            _ => {
+                Cow::Owned(format!(" {visible}"))
+            },
         };
         let style = svg_markdown_word_style(request.typography.text_style(), *kind);
         let width = request
@@ -156,15 +175,20 @@ fn markdown_line_bbox(
         bottom = bottom.max(y + height);
         advance += width;
     }
-    if words.is_empty() {
-        return MarkdownLineBbox {
-            advance_px: 0.0,
-            left_px: 0.0,
-            right_px: 0.0,
-            height_px: 0.0,
-            y_px: 0.0,
-        };
+
+    match words {
+        [] => {
+            return MarkdownLineBbox {
+                advance_px: 0.0,
+                left_px: 0.0,
+                right_px: 0.0,
+                height_px: 0.0,
+                y_px: 0.0,
+            };
+        },
+        [_, ..] => {},
     }
+
     MarkdownLineBbox {
         advance_px: advance,
         left_px: left,
@@ -195,6 +219,7 @@ pub(crate) struct StateNativeLabelGeometry {
 }
 
 impl StateNativeLabelGeometry {
+    #[must_use]
     pub(super) fn from_measurement(
         request: StateLabelMetricsRequest<'_>,
         measurement: &StateLabelMeasurement,
@@ -207,9 +232,10 @@ impl StateNativeLabelGeometry {
         }
 
         let lines = measured_wrapped_lines(request);
+
         if matches!(&lines, StateNativeLabelLines::Markdown(rows) if rows.iter().all(Vec::is_empty))
         {
-            // Preserve an empty SVG projection instead of falling back to the literal source.
+
             return Some(Self {
                 width_px: 0.0,
                 height_px: native_padding_px(request.owner) * 2.0,
@@ -222,6 +248,7 @@ impl StateNativeLabelGeometry {
                 measured_lines: lines,
             });
         }
+
         let metrics = match &lines {
             StateNativeLabelLines::Plain(_) => measurement.metrics,
             StateNativeLabelLines::Markdown(words) => super::label::measure_state_svg_word_lines(
@@ -230,6 +257,7 @@ impl StateNativeLabelGeometry {
                 request.typography.text_style(),
             ),
         };
+
         if metrics.line_count == 0 || lines.len() != metrics.line_count {
             return None;
         }
@@ -243,7 +271,7 @@ impl StateNativeLabelGeometry {
             .measurer
             .measure_svg_tspan_text_bbox_height_px(&first_line, &row_style);
         let line_height_px = if matches!(&lines, StateNativeLabelLines::Markdown(_)) {
-            // Styled ink extents already include face differences; row baselines stay 1.1em apart.
+
             request.typography.text_style().font_size * 1.1
         } else if metrics.line_count == 1 {
             metrics.height.max(first_line_bbox_height_px)
@@ -251,6 +279,7 @@ impl StateNativeLabelGeometry {
             let additional_height_px = metrics.height - first_line_bbox_height_px;
             let measured_line_height_px =
                 additional_height_px / metrics.line_count.saturating_sub(1) as f64;
+
             if measured_line_height_px.is_finite() && measured_line_height_px > 0.0 {
                 measured_line_height_px
             } else {
@@ -268,13 +297,15 @@ impl StateNativeLabelGeometry {
         let mut styled_right = f64::NEG_INFINITY;
         let mut styled_top = f64::INFINITY;
         let mut styled_bottom = f64::NEG_INFINITY;
+
         for index in 0..lines.len() {
             let (left, right) = match &lines {
-                StateNativeLabelLines::Plain(lines) => request
+                StateNativeLabelLines::Plain(lines_2) => request
                     .measurer
-                    .measure_svg_text_bbox_x(&lines[index], &row_style),
-                StateNativeLabelLines::Markdown(lines) => {
-                    let bbox = markdown_line_bbox(request, &lines[index]);
+                    .measure_svg_text_bbox_x(&lines_2[index], &row_style),
+                StateNativeLabelLines::Markdown(lines_3) => {
+                    let bbox = markdown_line_bbox(request, &lines_3[index]);
+
                     if !bbox.advance_px.is_finite()
                         || !bbox.left_px.is_finite()
                         || !bbox.right_px.is_finite()
@@ -283,6 +314,7 @@ impl StateNativeLabelGeometry {
                     {
                         return None;
                     }
+
                     styled_left = styled_left.min(bbox.left_px);
                     styled_right = styled_right.max(bbox.right_px);
                     let row_y = index as f64 * line_height_px;
@@ -294,6 +326,7 @@ impl StateNativeLabelGeometry {
                     )
                 }
             };
+
             if !left.is_finite()
                 || !right.is_finite()
                 || ((left < 0.0 || right < 0.0)
@@ -302,9 +335,11 @@ impl StateNativeLabelGeometry {
             {
                 return None;
             }
+
             ink_left_from_anchor_px = ink_left_from_anchor_px.max(left);
             ink_right_from_anchor_px = ink_right_from_anchor_px.max(right);
         }
+
         if matches!(&lines, StateNativeLabelLines::Markdown(_)) {
             bbox_y_px = styled_top;
             content_height_px = styled_bottom - styled_top;
@@ -313,15 +348,15 @@ impl StateNativeLabelGeometry {
         let padding_px = native_padding_px(request.owner);
         let (width_px, baseline_x_px) = match request.owner {
             StateLabelOwner::Edge(_) => (
-                symmetric_edge_width_px(
-                    ink_left_from_anchor_px,
+                { let checked_value = symmetric_edge_width_px(
+                    self::SymmetricEdgeWidthPxArguments { ink_left_from_anchor_px,
                     ink_right_from_anchor_px,
-                    metrics.width / 2.0,
-                )?,
+                    minimum_half_width_px: metrics.width / 2.0 },
+                )?; checked_value },
                 0.0,
             ),
             _ if matches!(&lines, StateNativeLabelLines::Markdown(_)) => {
-                // Node rows share a start anchor, unlike independently centered edge rows.
+
                 (styled_right - styled_left, -styled_left)
             }
             StateLabelOwner::Node(_)
@@ -330,11 +365,12 @@ impl StateNativeLabelGeometry {
             | StateLabelOwner::ClusterTitle(_) => (metrics.width, 0.0),
         };
         let height_px = content_height_px + padding_px * 2.0;
-        // Mermaid's native createText recipe places its first alphabetic baseline one font-size
-        // below the text origin. Retain the selected DOM bbox offset, then express that same
-        // baseline directly from the layout box top instead of replaying y/dy declarations.
+
+
+
         let first_baseline_y_px =
             padding_px + request.typography.text_style().font_size.max(1.0) - bbox_y_px;
+
         if !width_px.is_finite()
             || !height_px.is_finite()
             || !baseline_x_px.is_finite()
@@ -360,22 +396,27 @@ impl StateNativeLabelGeometry {
         })
     }
 
+    #[must_use]
     pub(crate) const fn width_px(&self) -> f64 {
         self.width_px
     }
 
+    #[must_use]
     pub(crate) const fn height_px(&self) -> f64 {
         self.height_px
     }
 
+    #[must_use]
     pub(crate) const fn line_count(&self) -> usize {
         self.line_count
     }
 
+    #[must_use]
     pub(crate) const fn baseline_x_px(&self) -> f64 {
         self.baseline_x_px
     }
 
+    #[must_use]
     pub(crate) fn baseline_y_px(&self, line_index: usize) -> Option<f64> {
         if line_index < self.line_count {
             Some(self.first_baseline_y_px + self.line_height_px * line_index as f64)
@@ -384,6 +425,7 @@ impl StateNativeLabelGeometry {
         }
     }
 
+    #[must_use]
     pub(crate) fn measured_line(&self, index: usize) -> Option<&str> {
         match &self.measured_lines {
             StateNativeLabelLines::Plain(lines) => lines.get(index).map(AsRef::as_ref),
@@ -391,6 +433,7 @@ impl StateNativeLabelGeometry {
         }
     }
 
+    #[must_use]
     pub(crate) fn measured_word_line(
         &self,
         index: usize,
@@ -401,6 +444,7 @@ impl StateNativeLabelGeometry {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_metrics(&self) -> TextMetrics {
         TextMetrics {
             width: self.width_px,

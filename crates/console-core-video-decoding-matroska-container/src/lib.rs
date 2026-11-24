@@ -22,7 +22,7 @@ mod codec;
 mod demux;
 pub mod ebml;
 mod error;
-mod ids;
+use console_core_matroska_blocks::identifiers as ids;
 mod meta;
 mod segment;
 #[cfg(test)]

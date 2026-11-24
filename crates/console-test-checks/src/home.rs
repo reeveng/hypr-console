@@ -104,7 +104,7 @@ use console_test_stages::Error;
 use crate::Unchecked;
 
 const THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
-    "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1562}],
+    "0":[{"namespace":"console-paper","h":1600},{"namespace":"console-home","h":1562}],
     "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
 pub const WHOSE_BUTTONS: Check = Check {
@@ -282,9 +282,12 @@ fn pressable_there(stage: &mut Device) -> CheckResult {
   let Ok(closed) = stage.wait_for_close(PATIENCE);
 
   happened_handed(closed, stage, |seen| {
-    let Ok(up) = seen.menus();
+    let Ok(up_2) = seen.menus();
 
-    format!("a second tap on the launcher icon at {at:?} left {up:?} open")
+    format!(
+      "a second tap on the launcher icon at {at:?} left {up:?} open",
+      up = up_2
+    )
   })?;
 
   stage.touch(at)?;
@@ -449,7 +452,7 @@ fn crossing(shape: console_home_screen::Shape, panes: u32) -> Result<u32, Never>
 
 fn walking(stage: &mut Device, ways: &[(&str, u32)]) -> CheckResult {
   for (way, steps) in ways {
-    let Ok(()) = stage.presses(way, *steps);
+    stage.presses(way, *steps)?;
   }
 
   Ok(())

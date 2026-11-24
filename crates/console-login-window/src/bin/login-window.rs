@@ -39,11 +39,11 @@
 
 use std::ffi::OsStr;
 use std::fs::{self, File};
-use std::io::{self, BufRead, BufReader, Write};
+use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::fd::AsFd;
 use std::os::unix::ffi::OsStrExt;
 use std::path::Path;
-use std::process::{Command, ExitCode, Stdio};
+use std::process::{ChildStdin, ChildStdout, Command, ExitCode, Stdio};
 
 use console_core_arguments::{Flag, Operands, Presence, Reason, Takes, ValidationError, read};
 use console_core_external_programs::Program as ExternalProgram;
@@ -53,14 +53,18 @@ use console_core_never::Never;
 use console_login_session::{
   Credentials, LoginError, Request, Rules, Session, Transaction, trusted,
 };
+use console_login_window::fingerprint::{self, Verifier};
+use console_login_window::password;
 use console_login_window::protocol::{FromGreeter, ToGreeter, from_greeter, line_to_greeter};
-use console_login_window::sessions::{self, CHOSEN, SESSIONS};
-use console_login_window::stored_pattern::{
-  self, Hash, Matched, NOT_THE_PATTERN, PatternStoreError,
-};
+use console_login_window::sessions::{self, SESSIONS};
+use console_login_window::stored_pattern::{self, Hash, PatternAttempts, PatternStoreError};
 use console_login_window::system::{self, Person, Terminal};
 use console_login_window::way_in::{Autologin, Before, Ended, FELL, WayIn, way_in};
 use console_operating_system_linux::program_lifetime::alongside;
+use console_session::LoginBackend;
+use console_session_plasma::PlasmaLogin;
+use rustix::event::{PollFd, PollFlags, Timespec, poll};
+use rustix::io::Errno;
 
 const CONSOLE: &str = "/dev/tty1";
 
@@ -98,6 +102,7 @@ const GREETER_SESSION: &str = "greeter";
 const DESKTOP_SESSION: &str = "desktop";
 
 const TERMINAL: &str = "getty@tty1.service";
+const MAX_GREETER_REQUEST: u64 = 32;
 
 enum LoginWindowError {
   Nobody(String),
@@ -153,6 +158,39 @@ enum Arguments {
 
 fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
+
+  let worker = words
+    .split_first()
+    .map(|(flag, arguments)| (flag.as_str(), arguments));
+  let Ok(account) = console_core_places::login_name();
+  let login_name = account.as_deref().and_then(OsStr::to_str);
+
+  match worker {
+    Some((password::WORKER, [service])) => {
+      let input = match io::stdin().as_fd().try_clone_to_owned() {
+        Ok(input) => input,
+        Err(fault) => {
+          console_core_logging::debug!("could not open password input: {fault}");
+          return ExitCode::FAILURE;
+        }
+      };
+      let Ok(status) = password::work(service, login_name, input, std::time::Instant::now);
+      return status;
+    }
+    Some((fingerprint::WORKER, [operation, person])) => {
+      let Ok(status) = fingerprint::work(
+        fingerprint::WorkerRequest {
+          operation,
+          person,
+          login_name,
+        },
+        std::time::Instant::now(),
+      );
+      return status;
+    }
+    Some(_) | None => {}
+  }
+
   let Ok(code) = console_core_arguments::run_main(&COMMAND, &words, asked, |asked| {
     let Ok(ran) = run(asked);
 
@@ -278,7 +316,7 @@ fn turn(around: Turn<'_>, before: Before) -> Result<Step<Before, ()>, LoginWindo
   let choice = match way {
     WayIn::LetIn => Choice::LoggedIn,
     WayIn::Greet(hash) => {
-      let greeted = greeted(greeter, before, &hash);
+      let greeted = greeted(greeter, person, before, &hash);
 
       greeted?
     }
@@ -332,7 +370,7 @@ fn worked(kind: Worker, name: &str) -> Result<(), LoginWindowError> {
   let person = looked?;
   let ran = match kind {
     Worker::Greeter(before) => greeter_session(&person, before),
-    Worker::Desktop => desktop_session(&person),
+    Worker::Desktop => desktop_session(&person, &PlasmaLogin),
   };
   let ended = ran?;
 
@@ -439,8 +477,11 @@ impl AsRef<Path> for SessionEntry<'_> {
   }
 }
 
-fn desktop_session(person: &Person) -> Result<Ended, LoginWindowError> {
-  let Ok(named) = configured_session();
+fn desktop_session(
+  person: &Person,
+  backend: &impl LoginBackend,
+) -> Result<Ended, LoginWindowError> {
+  let Ok(named) = backend.next_entry();
   let file = SessionEntry::from_name(&named)?;
   let path = Path::new(SESSIONS).join(file);
   let entry = match fs::read_to_string(&path) {
@@ -490,22 +531,6 @@ fn desktop_session(person: &Person) -> Result<Ended, LoginWindowError> {
       ::core::option::Option::None => Ended::Fell,
     },
   )
-}
-
-fn configured_session() -> Result<String, Never> {
-  match fs::read_to_string(CHOSEN) {
-    Ok(text) => sessions::parse_session(Some(&text)),
-    Err(why) => {
-      match ::core::primitive::bool::then_some(why.kind() == io::ErrorKind::NotFound, ()) {
-        ::core::option::Option::Some(()) => {}
-        ::core::option::Option::None => {
-          eprintln!("login-window: cannot read {CHOSEN}, so this desktop starts: {why}")
-        }
-      }
-
-      sessions::parse_session(None)
-    }
-  }
 }
 
 fn wired(command: &mut Command, console: &File) -> Result<(), LoginWindowError> {
@@ -561,7 +586,12 @@ fn greeter_session(greeter: &Person, before: Before) -> Result<Ended, LoginWindo
   )
 }
 
-fn greeted(greeter: &Person, before: Before, hash: &Hash) -> Result<Choice, LoginWindowError> {
+fn greeted(
+  greeter: &Person,
+  person: &Person,
+  before: Before,
+  hash: &Hash,
+) -> Result<Choice, LoginWindowError> {
   let Ok(mut starting) = worker(Worker::Greeter(before), greeter);
 
   starting.stdin(Stdio::piped()).stdout(Stdio::piped());
@@ -570,43 +600,152 @@ fn greeted(greeter: &Person, before: Before, hash: &Hash) -> Result<Choice, Logi
   let mut running = began.map_err(LoginWindowError::Starting)?;
   let Ok(reading) = running.take_stdout();
   let Ok(writing) = running.take_stdin();
-  let (reading_3, mut writing_3) = match (reading, writing) {
-    (Some(reading_2), Some(writing_2)) => (reading_2, writing_2),
-    (_, _) => return Err(LoginWindowError::GreeterLeft),
+  let (input, output) = match (reading, writing) {
+    (Some(input), Some(output)) => (input, output),
+    (None, _) | (Some(_), None) => return Err(LoginWindowError::GreeterLeft),
+  };
+  let Ok(fingerprint) = Verifier::new(&person.name);
+  let mut conversation = Conversation {
+    input: BufReader::new(input),
+    output,
+    fingerprint,
+    patterns: PatternAttempts::default(),
+  };
+  let ended = iterate(&mut conversation, |current| {
+    Ok(match current.heard(hash, std::time::Instant::now) {
+      Ok(Step::Again(())) => Step::Again(current),
+      Ok(Step::Halt(choice)) => Step::Halt(Ok(choice)),
+      Err(fault) => Step::Halt(Err(fault)),
+    })
+  });
+  let choice = match ended {
+    Ok(outcome) => outcome?,
+    Err(Endless) => return Err(LoginWindowError::GreeterLeft),
   };
 
-  for line in BufReader::new(reading_3).lines() {
-    let line_2 = line.map_err(|_| LoginWindowError::GreeterLeft)?;
-    let Ok(received) = from_greeter(&line_2);
+  drop(conversation.fingerprint);
 
-    match received {
-      Some(FromGreeter::Login(secret)) => {
-        let Ok(matched) = stored_pattern::matches(&secret, hash);
+  match choice {
+    Choice::LoggedIn => {
+      let _greeter_exit = running
+        .wait()
+        .inspect_err(|why| eprintln!("login-window: cannot wait for the greeter: {why}"));
+    }
+    Choice::Terminal => {}
+  }
 
-        match matched {
-          Matched::Yes => {
-            let Ok(()) = send(&mut writing_3, &ToGreeter::Welcome);
+  Ok(choice)
+}
 
-            let _greeter_exit = running
-              .wait()
-              .inspect_err(|why| eprintln!("login-window: cannot wait for the greeter: {why}"));
+struct Conversation {
+  input: BufReader<ChildStdout>,
+  output: ChildStdin,
+  fingerprint: Verifier,
+  patterns: PatternAttempts,
+}
 
-            return Ok(Choice::LoggedIn);
+impl Conversation {
+  fn heard(
+    &mut self,
+    hash: &Hash,
+    clock: impl Fn() -> std::time::Instant,
+  ) -> Result<Step<(), Choice>, LoginWindowError> {
+    let ready = listening(&self.input, &self.fingerprint).map_err(LoginWindowError::Starting)?;
+    let reply = match ready {
+      Ready::Greeter => {
+        let mut line = String::new();
+        let received = (&mut self.input)
+          .take(MAX_GREETER_REQUEST)
+          .read_line(&mut line)
+          .map(|_bytes| ());
+
+        match (received, line.ends_with('\n').then_some(())) {
+          (Ok(()), Some(())) => {}
+          (Ok(()), None) => return Err(LoginWindowError::GreeterLeft),
+          (Err(fault), _) => {
+            console_core_logging::debug!("could not read the greeter's request: {fault}");
+            return Err(LoginWindowError::GreeterLeft);
           }
-          Matched::No => {
-            let Ok(()) = send(
-              &mut writing_3,
-              &ToGreeter::Failed(NOT_THE_PATTERN.to_string()),
-            );
+        }
+
+        let Ok(request) = from_greeter(&line);
+
+        match request {
+          Some(FromGreeter::Login(secret)) => {
+            let Ok(reply) = self.patterns.check(&secret, hash, clock());
+            Some(reply)
+          }
+          Some(FromGreeter::Fingerprint) => {
+            let Ok(event) = self.fingerprint.scan();
+            event.map(ToGreeter::from)
+          }
+          Some(FromGreeter::Terminal) => return Ok(Step::Halt(Choice::Terminal)),
+          None => {
+            console_core_logging::warn!("the greeter sent an unknown request");
+            None
           }
         }
       }
-      Some(FromGreeter::Terminal) => return Ok(Choice::Terminal),
-      None => eprintln!("login-window: the greeter said something that is not a line of ours"),
-    }
-  }
+      Ready::Fingerprint => {
+        let Ok(event) = self.fingerprint.response();
+        event.map(ToGreeter::from)
+      }
+    };
 
-  Err(LoginWindowError::GreeterLeft)
+    let message = match reply {
+      Some(message) => message,
+      None => return Ok(Step::Again(())),
+    };
+    let Ok(()) = send(&mut self.output, &message);
+
+    Ok(match message {
+      ToGreeter::Welcome => Step::Halt(Choice::LoggedIn),
+      ToGreeter::Failed(_)
+      | ToGreeter::FingerprintAvailable
+      | ToGreeter::FingerprintFailed
+      | ToGreeter::Message(_) => Step::Again(()),
+    })
+  }
+}
+
+enum Ready {
+  Greeter,
+  Fingerprint,
+}
+
+fn listening(reading: &BufReader<impl AsFd>, fingerprint: &Verifier) -> io::Result<Ready> {
+  const INTERVAL: Timespec = Timespec {
+    tv_sec: 30,
+    tv_nsec: 0,
+  };
+  let Ok(descriptor) = fingerprint.fd();
+  let scanner = match descriptor.filter(|_| reading.buffer().is_empty()) {
+    Some(pending) => pending,
+    None => return Ok(Ready::Greeter),
+  };
+
+  let watched = [
+    PollFd::new(reading.get_ref(), PollFlags::IN),
+    PollFd::from_borrowed_fd(scanner, PollFlags::IN),
+  ];
+  let received = iterate(watched, |mut descriptors| {
+    Ok(match poll(&mut descriptors, Some(&INTERVAL)) {
+      Ok(0) | Err(Errno::INTR) => Step::Again(descriptors),
+      Ok(_ready) => {
+        let [greeter, _scanner] = descriptors;
+        Step::Halt(Ok(match greeter.revents().is_empty().then_some(()) {
+          Some(()) => Ready::Fingerprint,
+          None => Ready::Greeter,
+        }))
+      }
+      Err(fault) => Step::Halt(Err(io::Error::from(fault))),
+    })
+  });
+
+  match received {
+    Ok(outcome) => outcome,
+    Err(Endless) => Err(io::Error::other("the greeter poll ended without a result")),
+  }
 }
 
 fn send(writing: &mut impl Write, message: &ToGreeter) -> Result<(), Never> {

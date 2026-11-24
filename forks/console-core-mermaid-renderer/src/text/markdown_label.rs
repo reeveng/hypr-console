@@ -19,6 +19,7 @@ struct MermaidMarkdownBlock {
     range: std::ops::Range<usize>,
 }
 
+#[must_use]
 fn is_unformatted_ascii_text(text: &str) -> bool {
     let bytes = text.as_bytes();
     bytes.first().is_some_and(u8::is_ascii_alphanumeric)
@@ -28,75 +29,83 @@ fn is_unformatted_ascii_text(text: &str) -> bool {
             .all(|byte| byte.is_ascii_alphanumeric() || *byte == b' ')
 }
 
+#[must_use]
 fn mermaid_markdown_block_options() -> console_core_markdown::Options {
     console_core_markdown::Options::ENABLE_TABLES
         | console_core_markdown::Options::ENABLE_STRIKETHROUGH
         | console_core_markdown::Options::ENABLE_TASKLISTS
 }
 
+#[must_use]
 fn marked_16_3_accepts_html_block(raw: &str) -> bool {
     let first_line = raw.lines().next().unwrap_or(raw);
-    let first_line = first_line.strip_prefix("   ").unwrap_or(first_line);
-    let first_line = first_line.trim_start_matches(' ');
+    let first_line_2 = first_line.strip_prefix("   ").unwrap_or(first_line);
+    let first_line_3 = first_line_2.trim_start_matches(' ');
 
-    // Marked's block HTML grammar accepts complete tags on the opening line plus the CommonMark
-    // special forms below. Pulldown-cmark also classifies an incomplete opener such as `<div` as
-    // HtmlBlock; pinned marked 16.3.0 keeps that input in a paragraph.
-    first_line.contains('>')
-        || first_line.starts_with("<!--")
-        || first_line.starts_with("<?")
-        || first_line.starts_with("<![CDATA[")
-        || first_line
+
+
+
+    first_line_3.contains('>')
+        || first_line_3.starts_with("<!--")
+        || first_line_3.starts_with("<?")
+        || first_line_3.starts_with("<![CDATA[")
+        || first_line_3
             .strip_prefix("<!")
             .and_then(|rest| rest.chars().next())
             .is_some_and(|ch| ch.is_ascii_uppercase())
 }
 
+#[must_use]
 fn mermaid_markdown_top_level_blocks(markdown: &str) -> Vec<MermaidMarkdownBlock> {
     use console_core_markdown::{CodeBlockKind, Event, Tag};
 
     let mut blocks = Vec::new();
     let mut depth = 0usize;
     let parser = console_core_markdown::Parser::new_ext(markdown, mermaid_markdown_block_options());
+
     for (event, range) in parser.into_offset_iter() {
         match event {
             Event::Start(tag) => {
-                if depth == 0 {
-                    let kind = match tag {
-                        Tag::Paragraph => MermaidMarkdownBlockKind::Paragraph,
-                        Tag::HtmlBlock
-                            if marked_16_3_accepts_html_block(&markdown[range.clone()]) =>
-                        {
-                            MermaidMarkdownBlockKind::Html
-                        }
-                        Tag::HtmlBlock => MermaidMarkdownBlockKind::Paragraph,
-                        Tag::CodeBlock(CodeBlockKind::Indented) => {
-                            MermaidMarkdownBlockKind::IndentedCode
-                        }
-                        _ => MermaidMarkdownBlockKind::Unsupported,
-                    };
-                    let range = if kind == MermaidMarkdownBlockKind::IndentedCode {
-                        let line_start = markdown[..range.start]
-                            .rfind('\n')
-                            .map_or(0, |newline| newline + 1);
-                        // Marked keeps an EOF whitespace-only continuation in the raw indented
-                        // code token. That spelling is observable after Mermaid switches the HTML
-                        // label to `white-space: break-spaces` (for example, Mindmap delimiter
-                        // indentation can own a final line box).
-                        let range_end = if markdown[range.end..]
-                            .chars()
-                            .all(is_html_collapsible_ascii_whitespace)
-                        {
-                            markdown.len()
-                        } else {
-                            range.end
+                match depth {
+                    0 => {
+                        let kind = match tag {
+                            Tag::Paragraph => MermaidMarkdownBlockKind::Paragraph,
+                            Tag::HtmlBlock
+                                if marked_16_3_accepts_html_block(&markdown[range.clone()]) =>
+                            {
+                                MermaidMarkdownBlockKind::Html
+                            }
+                            Tag::HtmlBlock => MermaidMarkdownBlockKind::Paragraph,
+                            Tag::CodeBlock(CodeBlockKind::Indented) => {
+                                MermaidMarkdownBlockKind::IndentedCode
+                            }
+                            _ => MermaidMarkdownBlockKind::Unsupported,
                         };
-                        line_start..range_end
-                    } else {
-                        range
-                    };
-                    blocks.push(MermaidMarkdownBlock { kind, range });
+                        let range_2 = if kind == MermaidMarkdownBlockKind::IndentedCode {
+                            let line_start = markdown[..range.start]
+                                .rfind('\n')
+                                .map_or(0, |newline| newline + 1);
+
+
+
+
+                            let range_end = if markdown[range.end..]
+                                .chars()
+                                .all(is_html_collapsible_ascii_whitespace)
+                            {
+                                markdown.len()
+                            } else {
+                                range.end
+                            };
+                            line_start..range_end
+                        } else {
+                            range
+                        };
+                        blocks.push(MermaidMarkdownBlock { kind, range: range_2 });
+                    },
+                    _ => {},
                 }
+
                 depth += 1;
             }
             Event::End(_) => depth = depth.saturating_sub(1),
@@ -111,16 +120,19 @@ fn mermaid_markdown_top_level_blocks(markdown: &str) -> Vec<MermaidMarkdownBlock
             _ => {}
         }
     }
+
     blocks
 }
 
+#[must_use]
 pub(crate) fn mermaid_markdown_contains_raw_blocks(markdown: &str) -> bool {
-    let markdown = markdown.replace("\r\n", "\n");
-    mermaid_markdown_top_level_blocks(&markdown)
+    let markdown_2 = markdown.replace("\r\n", "\n");
+    mermaid_markdown_top_level_blocks(&markdown_2)
         .iter()
         .any(|block| block.kind != MermaidMarkdownBlockKind::Paragraph)
 }
 
+#[must_use]
 fn mermaid_markdown_paragraph_to_fragment(
     label: &str,
     markdown_auto_wrap: bool,
@@ -132,10 +144,12 @@ fn mermaid_markdown_paragraph_to_fragment(
         Em,
     }
 
+    #[must_use]
     fn is_punctuation(ch: char) -> bool {
         !is_ecmascript_whitespace(ch) && !ch.is_alphanumeric()
     }
 
+    #[must_use]
     fn mermaid_delim_can_open_close(
         ch: char,
         prev: Option<char>,
@@ -149,15 +163,19 @@ fn mermaid_markdown_paragraph_to_fragment(
         let left_flanking = !next_is_ws && (!next_is_punct || prev_is_ws || prev_is_punct);
         let right_flanking = !prev_is_ws && (!prev_is_punct || next_is_ws || next_is_punct);
 
-        if ch == '_' {
-            let can_open = left_flanking && (!right_flanking || prev_is_ws || prev_is_punct);
-            let can_close = right_flanking && (!left_flanking || next_is_ws || next_is_punct);
-            (can_open, can_close)
-        } else {
-            (left_flanking, right_flanking)
+        match ch {
+            '_' => {
+                let can_open = left_flanking && (!right_flanking || prev_is_ws || prev_is_punct);
+                let can_close = right_flanking && (!left_flanking || next_is_ws || next_is_punct);
+                (can_open, can_close)
+            },
+            _ => {
+                (left_flanking, right_flanking)
+            },
         }
     }
 
+    #[must_use]
     fn open_tag(ty: Ty) -> &'static str {
         match ty {
             Ty::Strong => "<strong>",
@@ -165,6 +183,7 @@ fn mermaid_markdown_paragraph_to_fragment(
         }
     }
 
+    #[must_use]
     fn close_tag(ty: Ty) -> &'static str {
         match ty {
             Ty::Strong => "</strong>",
@@ -188,10 +207,11 @@ fn mermaid_markdown_paragraph_to_fragment(
     }
 
     let s = label.replace("\r\n", "\n");
-    // Reuse the Markdown parser for opaque inline ranges. Mermaid emits unsupported code as
-    // node.raw (including backticks) and escapes as node.text. HTML preserves both verbatim;
-    // the XHTML projection escapes their literal text for direct XML insertion.
+
+
+
     let mut inline_fragments: Vec<(std::ops::Range<usize>, InlineFragmentKind)> = Vec::new();
+
     for (event, mut range) in
         console_core_markdown::Parser::new_ext(&s, mermaid_markdown_block_options()).into_offset_iter()
     {
@@ -199,37 +219,42 @@ fn mermaid_markdown_paragraph_to_fragment(
             console_core_markdown::Event::Code(_) => InlineFragmentKind::Code,
             console_core_markdown::Event::InlineHtml(_) => InlineFragmentKind::Html,
             console_core_markdown::Event::Text(_) => {
-                // Pulldown's escaped text ranges omit the preceding backslash. Include it in
-                // the consumed range, without consuming a backslash owned by an earlier event.
+
+
                 let escaped = range.start > 0
                     && s.as_bytes()[range.start - 1] == b'\\'
                     && inline_fragments
                         .last()
                         .is_none_or(|(previous, _)| previous.end < range.start);
+
                 if !escaped && !s[range.clone()].contains(['<', '>']) {
                     continue;
                 }
+
                 if escaped {
                     range.start -= 1;
                 }
+
                 InlineFragmentKind::LiteralText { escaped }
             }
             _ => continue,
         };
         inline_fragments.push((range, kind));
     }
-    let mut inline_fragments = inline_fragments.into_iter().peekable();
+
+    let mut inline_fragments_2 = inline_fragments.into_iter().peekable();
     let (byte_offsets, chars): (Vec<_>, Vec<_>) = s.char_indices().unzip();
     let mut tokens: Vec<String> = Vec::with_capacity(16);
     tokens.push("<p>".to_string());
 
     let mut text_buf = String::new();
-    let flush_text = |tokens: &mut Vec<String>, text_buf: &mut String| {
-        if text_buf.is_empty() {
+    let flush_text = |tokens_2: &mut Vec<String>, text_buf_2: &mut String| {
+        if text_buf_2.is_empty() {
             return;
         }
-        let raw = std::mem::take(text_buf);
-        tokens.push(if xhtml {
+
+        let raw = std::mem::take(text_buf_2);
+        tokens_2.push(if xhtml {
             escape_xml_text_preserving_entities(&raw)
         } else {
             raw
@@ -238,14 +263,16 @@ fn mermaid_markdown_paragraph_to_fragment(
 
     let mut stack: Vec<Delim> = Vec::new();
     let mut i = 0usize;
+
     while i < chars.len() {
         let ch = chars[i];
 
-        if let Some((range, kind)) = inline_fragments.peek()
+        if let Some((range, kind)) = inline_fragments_2.peek()
             && range.start <= byte_offsets[i]
             && byte_offsets[i] < range.end
         {
             let mut raw = &s[byte_offsets[i]..range.end];
+
             match kind {
                 InlineFragmentKind::Code => {
                     flush_text(&mut tokens, &mut text_buf);
@@ -257,6 +284,7 @@ fn mermaid_markdown_paragraph_to_fragment(
                 }
                 InlineFragmentKind::Html => {
                     flush_text(&mut tokens, &mut text_buf);
+
                     if raw.eq_ignore_ascii_case("<br>")
                         || raw.eq_ignore_ascii_case("<br/>")
                         || raw.eq_ignore_ascii_case("<br />")
@@ -274,11 +302,13 @@ fn mermaid_markdown_paragraph_to_fragment(
                     if *escaped && byte_offsets[i] == range.start {
                         raw = raw.strip_prefix('\\').unwrap_or(raw);
                     }
+
                     let literal = if xhtml {
                         escape_xml_text_preserving_entities(raw)
                     } else {
                         raw.to_string()
                     };
+
                     if markdown_auto_wrap {
                         text_buf.push_str(&literal);
                     } else {
@@ -286,22 +316,34 @@ fn mermaid_markdown_paragraph_to_fragment(
                     }
                 }
             }
+
             i = byte_offsets.partition_point(|offset| *offset < range.end);
-            inline_fragments.next();
+            inline_fragments_2.next();
             continue;
         }
 
-        if ch == '\n' {
-            while text_buf.ends_with(' ') {
-                text_buf.pop();
-            }
-            flush_text(&mut tokens, &mut text_buf);
-            tokens.push("<br/>".to_string());
-            i += 1;
-            while i < chars.len() && chars[i] == ' ' {
+        match ch {
+            '\n' => {
+                while text_buf.ends_with(' ') {
+                    text_buf.pop();
+                }
+
+                flush_text(&mut tokens, &mut text_buf);
+                tokens.push("<br/>".to_string());
                 i += 1;
-            }
-            continue;
+
+                'inner_for_2: for _ in (::core::ops::Range { start: i, end: chars.len() }) {
+                    match chars[i] {
+                        ' ' => {},
+                        _ => break 'inner_for_2,
+                    };
+
+                    i = (::core::num::Wrapping(i) + ::core::num::Wrapping(1)).0;
+                }
+
+                continue;
+            },
+            _ => {},
         }
 
         if (ch == '*' || ch == '_')
@@ -309,7 +351,10 @@ fn mermaid_markdown_paragraph_to_fragment(
             && chars[i + 1] == ch
             && chars[i + 2] == ch
         {
-            let prev = if i > 0 { Some(chars[i - 1]) } else { None };
+            let prev = match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(i), &::core::convert::identity(0)); _explicit_ordering } {
+                ::core::cmp::Ordering::Greater => { Some(chars[i - 1]) },
+                ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => { None },
+            };
             let next = chars.get(i + 3).copied();
             let (can_open, can_close) = mermaid_delim_can_open_close(ch, prev, next);
             flush_text(&mut tokens, &mut text_buf);
@@ -321,6 +366,7 @@ fn mermaid_markdown_paragraph_to_fragment(
                 && stack.get(stack.len() - 2).is_some_and(|delimiter| {
                     delimiter.ty == Ty::Em && delimiter.ch == ch && delimiter.run_len == 3
                 });
+
             if can_close && closes_triple {
                 let strong = stack.pop().expect("triple strong delimiter");
                 let em = stack.pop().expect("triple emphasis delimiter");
@@ -331,6 +377,7 @@ fn mermaid_markdown_paragraph_to_fragment(
                 i += 3;
                 continue;
             }
+
             if can_open {
                 let em_token_index = tokens.len();
                 tokens.push(ch.to_string());
@@ -358,13 +405,19 @@ fn mermaid_markdown_paragraph_to_fragment(
         }
 
         if ch == '*' || ch == '_' {
-            let run_len = if i + 1 < chars.len() && chars[i + 1] == ch {
+            let run_len = if match <[_]>::get(&chars, i + 1) { ::core::option::Option::Some(&checked_element) => checked_element == ch, ::core::option::Option::None => false } {
                 2
             } else {
                 1
             };
-            let want = if run_len == 2 { Ty::Strong } else { Ty::Em };
-            let prev = if i > 0 { Some(chars[i - 1]) } else { None };
+            let want = match run_len {
+                2 => { Ty::Strong },
+                _ => { Ty::Em },
+            };
+            let prev = match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(i), &::core::convert::identity(0)); _explicit_ordering } {
+                ::core::cmp::Ordering::Greater => { Some(chars[i - 1]) },
+                ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => { None },
+            };
             let next = if i + run_len < chars.len() {
                 Some(chars[i + run_len])
             } else {
@@ -386,6 +439,7 @@ fn mermaid_markdown_paragraph_to_fragment(
                 i += run_len;
                 continue;
             }
+
             if ch == '*' && can_close {
                 if run_len == 1
                     && stack
@@ -398,6 +452,7 @@ fn mermaid_markdown_paragraph_to_fragment(
                     i += 1;
                     continue;
                 }
+
                 if run_len == 2
                     && stack
                         .last()
@@ -411,6 +466,7 @@ fn mermaid_markdown_paragraph_to_fragment(
                     continue;
                 }
             }
+
             if can_open {
                 let token_index = tokens.len();
                 tokens.push(delim_text);
@@ -434,56 +490,68 @@ fn mermaid_markdown_paragraph_to_fragment(
         } else {
             text_buf.push(ch);
         }
+
         i += 1;
     }
 
     while text_buf.ends_with(' ') {
         text_buf.pop();
     }
+
     flush_text(&mut tokens, &mut text_buf);
     tokens.push("</p>".to_string());
     tokens.concat()
 }
 
+#[must_use]
 fn mermaid_collapse_raw_html_label_text(markdown: &str) -> String {
     let mut out = String::with_capacity(markdown.len());
     let mut pending_space = false;
+
     for ch in markdown.chars() {
         if is_html_collapsible_ascii_whitespace(ch) {
             pending_space = true;
             continue;
         }
+
         if pending_space && !out.is_empty() {
             out.push(' ');
         }
+
         pending_space = false;
         out.push(ch);
     }
+
     trim_html_collapsible_ascii_whitespace(&out).to_string()
 }
 
+#[must_use]
 fn mermaid_markdown_to_label_fragment(
     markdown: &str,
     markdown_auto_wrap: bool,
     xhtml: bool,
 ) -> String {
-    let markdown = markdown.replace("\r\n", "\n");
-    if markdown.is_empty() {
+    let markdown_2 = markdown.replace("\r\n", "\n");
+
+    if markdown_2.is_empty() {
         return String::new();
     }
-    // This grammar cannot open any enabled Markdown construct and needs no HTML/XML escaping.
-    if markdown_auto_wrap && is_unformatted_ascii_text(&markdown) {
-        let mut out = String::with_capacity(markdown.len() + "<p></p>".len());
+
+
+    if markdown_auto_wrap && is_unformatted_ascii_text(&markdown_2) {
+        let mut out = String::with_capacity(markdown_2.len() + "<p></p>".len());
         out.push_str("<p>");
-        out.push_str(&markdown);
+        out.push_str(&markdown_2);
         out.push_str("</p>");
         return out;
     }
 
     let mut out = String::new();
     let mut has_raw_html_block = false;
-    for block in mermaid_markdown_top_level_blocks(&markdown) {
-        let raw = &markdown[block.range];
+
+    for block in mermaid_markdown_top_level_blocks(&markdown_2) {
+        let raw = &markdown_2[block.range];
+
         match block.kind {
             MermaidMarkdownBlockKind::Paragraph => {
                 out.push_str(&mermaid_markdown_paragraph_to_fragment(
@@ -497,38 +565,42 @@ fn mermaid_markdown_to_label_fragment(
                 out.push_str(raw.trim_end_matches(['\r', '\n']));
             }
             MermaidMarkdownBlockKind::IndentedCode => {
-                let raw = raw.trim_end_matches(['\r', '\n']);
+                let raw_2 = raw.trim_end_matches(['\r', '\n']);
+
                 if xhtml {
-                    out.push_str(&escape_xml_text_preserving_entities(raw));
+                    out.push_str(&escape_xml_text_preserving_entities(raw_2));
                 } else {
-                    out.push_str(raw);
+                    out.push_str(raw_2);
                 }
             }
             MermaidMarkdownBlockKind::Unsupported => {
-                let raw = mermaid_collapse_raw_html_label_text(raw);
+                let raw_3 = mermaid_collapse_raw_html_label_text(raw);
+
                 if xhtml {
-                    out.push_str(&escape_xml_text_preserving_entities(&raw));
+                    out.push_str(&escape_xml_text_preserving_entities(&raw_3));
                 } else {
-                    out.push_str(&raw);
+                    out.push_str(&raw_3);
                 }
             }
         }
     }
 
     if xhtml && has_raw_html_block {
-        // Raw blocks bypass inline Markdown's void-element normalization. Preserve valid
-        // XHTML byte-for-byte, and recover HTML only after the complete projection so tags
-        // spanning blocks remain connected. Code and escaped HTML are already literal text.
+
+
+
         let wrapped = format!(r#"<div xmlns="http://www.w3.org/1999/xhtml">{out}</div>"#);
+
         if crate::xml_dom::Document::parse(&wrapped).is_err() {
             return merman_markup::sanitize::html_fragment_to_xhtml(&out).unwrap_or_else(|| {
-                // A rejected conversion remains visible as literal projection text.
+
                 let mut literal = String::with_capacity(out.len());
                 escape_xml_segment(&mut literal, &out);
                 literal
             });
         }
     }
+
     out
 }
 
@@ -537,17 +609,20 @@ fn mermaid_markdown_to_label_fragment(
 /// Unsupported code tokens retain node.raw, including backticks, and escaped text retains
 /// node.text without the backslash. Their angle brackets may therefore become HTML elements
 /// when the fragment is inserted with innerHTML, matching the pinned markdownToHTML source.
+#[must_use]
 pub(crate) fn mermaid_markdown_to_html_label_fragment(
     markdown: &str,
     markdown_auto_wrap: bool,
 ) -> String {
     mermaid_markdown_to_label_fragment(markdown, markdown_auto_wrap, false)
 }
+
 fn escape_xml_segment(out: &mut String, raw: &str) {
     for ch in raw.chars() {
         if !crate::xml::is_xml_1_0_char(ch) {
             continue;
         }
+
         match ch {
             '&' => out.push_str("&amp;"),
             '<' => out.push_str("&lt;"),
@@ -557,30 +632,39 @@ fn escape_xml_segment(out: &mut String, raw: &str) {
     }
 }
 
+#[must_use]
 fn escape_xml_text_preserving_entities(raw: &str) -> String {
-    let raw = crate::xml::normalize_html_entities_for_xml(raw);
-    let raw = raw.as_ref();
-    let mut out = String::with_capacity(raw.len());
+    let raw_2 = crate::xml::normalize_html_entities_for_xml(raw);
+    let raw_3 = raw_2.as_ref();
+    let mut out = String::with_capacity(raw_3.len());
     let mut i = 0usize;
-    while let Some(rel) = raw[i..].find('&') {
+
+    while let Some(rel) = raw_3[i..].find('&') {
         let amp = i + rel;
-        escape_xml_segment(&mut out, &raw[i..amp]);
-        let tail = &raw[amp + 1..];
-        if let Some(semi_rel) = tail.find(';') {
-            let semi = amp + 1 + semi_rel;
-            let entity = &raw[amp + 1..semi];
-            if crate::xml::is_valid_xml_entity_reference(entity) {
-                out.push('&');
-                out.push_str(entity);
-                out.push(';');
-                i = semi + 1;
-                continue;
-            }
+        escape_xml_segment(&mut out, &raw_3[i..amp]);
+        let tail = &raw_3[amp + 1..];
+
+        match tail.find(';') {
+            Some(semi_rel) => {
+                let semi = amp + 1 + semi_rel;
+                let entity = &raw_3[amp + 1..semi];
+
+                if crate::xml::is_valid_xml_entity_reference(entity) {
+                    out.push('&');
+                    out.push_str(entity);
+                    out.push(';');
+                    i = semi + 1;
+                    continue;
+                }
+            },
+            ::core::option::Option::None => {},
         }
+
         out.push_str("&amp;");
         i = amp + 1;
     }
-    escape_xml_segment(&mut out, &raw[i..]);
+
+    escape_xml_segment(&mut out, &raw_3[i..]);
     out
 }
 
@@ -589,6 +673,7 @@ fn escape_xml_text_preserving_entities(raw: &str) -> String {
 /// Code retains its raw Markdown spelling, including backticks, as literal text. Escaped angle
 /// brackets stay text; only parsed raw HTML events can introduce elements. This differs from
 /// Mermaid's HTML projection, which may reinterpret code and escaped text through innerHTML.
+#[must_use]
 pub(crate) fn mermaid_markdown_to_xhtml_label_fragment(
     markdown: &str,
     markdown_auto_wrap: bool,
@@ -602,18 +687,21 @@ pub(crate) fn mermaid_markdown_to_xhtml_label_fragment(
 /// generated fragment lets callers preserve the host measurer's native precision for that common
 /// case without guessing from Markdown punctuation. Any nested element, additional root node, or
 /// malformed fragment remains on the structured HTML path.
+#[must_use]
 pub(crate) fn mermaid_xhtml_label_plain_text(fragment: &str) -> Option<String> {
-    if let Some(text) = fragment
+    match fragment
         .strip_prefix("<p>")
-        .and_then(|text| text.strip_suffix("</p>"))
-    {
-        // Printable XML text needs no entity decoding or newline normalization.
-        if text
-            .bytes()
-            .all(|byte| (b' '..=b'~').contains(&byte) && !matches!(byte, b'<' | b'&' | b']'))
-        {
-            return Some(text.to_owned());
-        }
+        .and_then(|text| text.strip_suffix("</p>")) {
+        Some(text) => {
+
+            if text
+                .bytes()
+                .all(|byte| (b' '..=b'~').contains(&byte) && !matches!(byte, b'<' | b'&' | b']'))
+            {
+                return Some(text.to_owned());
+            }
+        },
+        ::core::option::Option::None => {},
     }
 
     let wrapped = format!("<merman-fragment>{fragment}</merman-fragment>");
@@ -622,6 +710,7 @@ pub(crate) fn mermaid_xhtml_label_plain_text(fragment: &str) -> Option<String> {
 
     let mut children = root.children();
     let paragraph = children.next()?;
+
     if children.next().is_some()
         || !paragraph.is_element()
         || paragraph.tag_name().name() != "p"
@@ -638,6 +727,7 @@ pub(crate) fn mermaid_xhtml_label_plain_text(fragment: &str) -> Option<String> {
     )
 }
 
+#[must_use]
 pub(crate) fn mermaid_xhtml_label_text_content(fragment: &str) -> Option<String> {
     let wrapped = format!("<merman-fragment>{fragment}</merman-fragment>");
     let document = crate::xml_dom::Document::parse(&wrapped).ok()?;
@@ -661,9 +751,10 @@ pub(crate) fn mermaid_xhtml_label_text_content(fragment: &str) -> Option<String>
 /// This function projects pulldown-cmark's CommonMark/GFM block parser down to only the top-level
 /// paragraph decision. Inline rendering remains owned by the pinned Marked-compatible interpreter;
 /// its ambiguous delimiter-run path may use pulldown-cmark events while preserving source slices.
+#[must_use]
 pub(crate) fn mermaid_markdown_wants_paragraph_wrap(markdown: &str) -> bool {
-    let markdown = markdown.replace("\r\n", "\n");
-    mermaid_markdown_top_level_blocks(&markdown)
+    let markdown_2 = markdown.replace("\r\n", "\n");
+    mermaid_markdown_top_level_blocks(&markdown_2)
         .first()
         .is_some_and(|block| block.kind == MermaidMarkdownBlockKind::Paragraph)
 }
@@ -713,8 +804,8 @@ mod tests {
 
     #[test]
     fn block_projection_matches_pinned_marked_16_3_0_top_level_tokens() {
-        // Mermaid 11.16 pins marked 16.3.0. These cases were captured from marked.lexer():
-        // heading, table, html, blockquote, list, code, code, hr, and paragraph respectively.
+
+
         for markdown in [
             "Heading\n=======",
             "a | b\n--|--\n1 | 2",
@@ -738,7 +829,7 @@ mod tests {
         assert!(!mermaid_markdown_contains_raw_blocks("alpha\nbeta"));
         assert!(mermaid_markdown_wants_paragraph_wrap("alpha\nbeta"));
 
-        // Marked keeps these malformed block starters as ordinary paragraphs.
+
         for markdown in [
             "<div",
             "Heading\n==x==",
@@ -932,8 +1023,8 @@ mod tests {
 
     #[test]
     fn label_fragments_preserve_raw_code_with_projection_specific_angles() {
-        // Mermaid's markdownToHTML returns node.raw for unsupported codespan tokens. HTML
-        // insertion may interpret their tags; XHTML keeps them as literal XML-safe text.
+
+
         for (input, expected_html, expected_xhtml) in [
             (
                 "Literal: `<span style='font-size:64px'>AVAVAV</span>`",
@@ -1090,8 +1181,8 @@ mod tests {
             html,
             "<p>`<span style='font-size:64px'>code</span>` <span>escaped</span> <span style='font-size:64px'>raw</span></p>"
         );
-        // These balanced HTML tags are also XML-compatible: parsing them demonstrates the
-        // elements produced by insertion without adding another Markdown interpreter.
+
+
         let html_document = crate::xml_dom::Document::parse(&html).unwrap();
         let html_spans: Vec<_> = html_document
             .descendants()

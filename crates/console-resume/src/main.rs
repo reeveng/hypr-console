@@ -59,6 +59,7 @@ use console_core_arguments::{
 use console_core_never::Never;
 use console_core_words::Words;
 use console_resume::already::Already;
+use console_resume::ending::{self, Action};
 use console_resume::session::{Duplicates, Really, Restore, Restoring, Sessions};
 use console_resume::{SAVE_EVERY, Unresumed};
 
@@ -76,7 +77,10 @@ enum Mode {
     about = "put back what was open, once for this compositor, then keep saving"
   )]
   Default,
-  #[words(word = "save", about = "save what is on the screen now, once")]
+  #[words(
+    word = "save",
+    about = "save open windows and the connected display setup"
+  )]
   Save,
   #[words(word = "watch", about = "keep saving what is on the screen")]
   Watch,
@@ -87,10 +91,25 @@ enum Mode {
     about = "close every window and put back the session, now"
   )]
   Load,
+  #[words(
+    word = "recall",
+    about = "restore the display setup and move open workspaces"
+  )]
+  Recall,
   #[words(word = "clear", about = "throw away every session")]
   Clear,
   #[words(word = "delete", about = "throw away the session")]
   Delete,
+  #[words(
+    word = "checkpoint",
+    about = "save what is open while finishing the session"
+  )]
+  Checkpoint,
+  #[words(
+    word = "finish",
+    about = "take a final snapshot and log out, reboot or power off"
+  )]
+  Finish,
 }
 
 impl Subcommand for Mode {
@@ -110,6 +129,7 @@ impl Subcommand for Mode {
 struct Arguments {
   mode: Mode,
   name: String,
+  ending: Option<Action>,
   save_interval: Duration,
   adjusting_for: Duration,
   really: Really,
@@ -138,7 +158,7 @@ const COMMAND: Command = Command {
   name: "console-resume",
   about: "put back what was open, and keep saving what is on the screen",
   flags: &[SAVE_EVERY, LOAD_TIME, SIMULATE, ADJUST_CLIENTS_ONLY],
-  operands: Operands::Optional("NAME"),
+  operands: Operands::Optional("NAME|logout|reboot|poweroff"),
 };
 
 fn seconds(
@@ -208,12 +228,46 @@ fn parse_arguments(words: &[String]) -> Result<Arguments, ValidationError> {
     ::core::option::Option::None => {}
   }
 
+  let ending = match said {
+    Some(Mode::Checkpoint) => Some(Action::Checkpoint),
+    Some(Mode::Finish) => {
+      let operand = match named.first() {
+        Some(word) => word.as_str(),
+        None => "",
+      };
+      Some(match operand {
+        "logout" => Action::Logout,
+        "reboot" => Action::Reboot,
+        "poweroff" => Action::Poweroff,
+        other => {
+          let Ok(refusal) = line.refusal(Reason::InvalidValue {
+            of: "finish",
+            value: other.to_owned(),
+          });
+          return Err(refusal);
+        }
+      })
+    }
+    Some(
+      Mode::Default
+      | Mode::Save
+      | Mode::Watch
+      | Mode::List
+      | Mode::Load
+      | Mode::Recall
+      | Mode::Clear
+      | Mode::Delete,
+    )
+    | None => None,
+  };
+
   Ok(Arguments {
+    ending,
     mode: match said {
       Some(mode) => mode,
       None => Mode::Default,
     },
-    name: match named.first() {
+    name: match named.first().filter(|_| said != Some(Mode::Finish)) {
       Some(name) => name.clone(),
       None => UNLESS_NAMED.to_string(),
     },
@@ -291,7 +345,12 @@ fn putting_back(sessions: &Sessions, name: &str) -> Result<(), Unstarted> {
 fn run(asked: Arguments) -> Result<(), Unstarted> {
   let at = where_sessions_live()?;
 
-  create_dir_all(&at).map_err(|fault| Unstarted::Making(at.clone(), fault))?;
+  match { ::core::primitive::bool::then_some(asked.ending.is_none(), ()) } {
+    ::core::option::Option::Some(()) => {
+      create_dir_all(&at).map_err(|fault| Unstarted::Making(at.clone(), fault))?;
+    }
+    ::core::option::Option::None => {}
+  }
 
   let sessions = Sessions {
     at,
@@ -301,7 +360,15 @@ fn run(asked: Arguments) -> Result<(), Unstarted> {
     duplicates: Duplicates::OnePerProgram,
   };
 
+  match asked.ending {
+    Some(action) => {
+      return ending::run(&sessions, &asked.name, action).map_err(Unstarted::Resuming);
+    }
+    ::core::option::Option::None => {}
+  }
+
   match asked.mode {
+    Mode::Checkpoint | Mode::Finish => {}
     Mode::Clear => sessions.clear()?,
     Mode::Default => putting_back(&sessions, &asked.name)?,
     Mode::Load => {
@@ -314,6 +381,7 @@ fn run(asked: Arguments) -> Result<(), Unstarted> {
     }
     Mode::Watch => {}
     Mode::Save => sessions.save(&asked.name)?,
+    Mode::Recall => sessions.recall(&asked.name)?,
     Mode::Delete => sessions.delete(&asked.name)?,
     Mode::List => {
       let Ok(saved) = sessions.list();
@@ -330,15 +398,54 @@ fn run(asked: Arguments) -> Result<(), Unstarted> {
   }
 
   match asked.mode {
-    Mode::Default | Mode::Watch => sessions
+    Mode::Default => sessions
+      .watch_and_recall(&asked.name, asked.save_interval)
+      .map_err(Unstarted::Resuming),
+    Mode::Watch => sessions
       .watch(&asked.name, asked.save_interval)
       .map_err(Unstarted::Resuming),
-    Mode::Save | Mode::List | Mode::Load | Mode::Clear | Mode::Delete => Ok(()),
+    Mode::Save
+    | Mode::List
+    | Mode::Load
+    | Mode::Recall
+    | Mode::Clear
+    | Mode::Delete
+    | Mode::Checkpoint
+    | Mode::Finish => Ok(()),
   }
 }
 
 fn main() -> ExitCode {
-  let words: Vec<String> = env::args().skip(1).collect();
+  let mut arguments = env::args_os().skip(1);
+  let first = arguments.next();
+
+  match first
+    .as_deref()
+    .filter(|word| *word == ending::CAPTURE_WORKER)
+  {
+    Some(_) => {
+      return match ending::capture_worker(&arguments.collect::<Vec<_>>()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(fault) => {
+          console_core_logging::warn!("console-resume: {fault}");
+          ExitCode::FAILURE
+        }
+      };
+    }
+    None => {}
+  }
+
+  let decoded = first
+    .into_iter()
+    .chain(arguments)
+    .map(std::ffi::OsString::into_string);
+  let words = match decoded.collect::<Result<Vec<_>, _>>() {
+    Ok(decoded_words) => decoded_words,
+    Err(word) => {
+      eprintln!("console-resume: argument {word:?} is not UTF-8");
+      return ExitCode::FAILURE;
+    }
+  };
   let asked = match parse_arguments(&words) {
     Ok(asked) => asked,
     Err(refusal) => {

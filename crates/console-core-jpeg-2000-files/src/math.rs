@@ -1,4 +1,6 @@
 use alloc::vec::Vec;
+use console_core_never::Never;
+use console_core_number_conversion::index;
 
 #[cfg_attr(
   dylint_lib = "explicit051_no_machine_width",
@@ -8,512 +10,6 @@ use alloc::vec::Vec;
   )
 )]
 pub(crate) const SIMD_WIDTH: usize = 8;
-
-#[cfg(feature = "simd")]
-mod inner {
-  use super::SIMD_WIDTH;
-  use core::ops::{Add, AddAssign, DivAssign, Mul, MulAssign, Sub, SubAssign};
-  use fearless_simd::{SimdBase, SimdFloat};
-
-  pub(crate) use fearless_simd::{Level, Simd, dispatch};
-
-  #[derive(Copy, Clone)]
-  #[repr(C, align(32))]
-  pub(crate) struct Float32x8<S: Simd> {
-    inner: fearless_simd::f32x8<S>,
-  }
-
-  impl<S: Simd> Float32x8<S> {
-    #[inline(always)]
-    pub(crate) fn from_slice(
-      simd: S,
-      slice: &[f32; SIMD_WIDTH],
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        inner: fearless_simd::f32x8::from_slice(simd, slice),
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn splat(
-      simd: S,
-      super::Sample(value): super::Sample,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        inner: fearless_simd::f32x8::splat(simd, value),
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn mul_add(
-      self,
-      mul: Self,
-      addend: Self,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        inner: self.inner.mul_add(mul.inner, addend.inner),
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn floor(self) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        inner: self.inner.floor(),
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn store(
-      self,
-      slice: &mut [f32; SIMD_WIDTH],
-    ) -> core::result::Result<(), console_core_never::Never> {
-      {
-        self.inner.store_slice(slice);
-      };
-
-      Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn zip_low(
-      self,
-      other: Self,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        inner: self.inner.zip_low(other.inner),
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn zip_high(
-      self,
-      other: Self,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        inner: self.inner.zip_high(other.inner),
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn min(
-      self,
-      other: Self,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        inner: self.inner.min(other.inner),
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn max(
-      self,
-      other: Self,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        inner: self.inner.max(other.inner),
-      })
-    }
-  }
-
-  impl<S: Simd> Add for Float32x8<S> {
-    type Output = Self;
-
-    #[inline(always)]
-    fn add(self, rhs: Self) -> Self {
-      Self {
-        inner: self.inner + rhs.inner,
-      }
-    }
-  }
-
-  impl<S: Simd> Sub for Float32x8<S> {
-    type Output = Self;
-
-    #[inline(always)]
-    fn sub(self, rhs: Self) -> Self {
-      Self {
-        inner: self.inner - rhs.inner,
-      }
-    }
-  }
-
-  impl<S: Simd> Mul for Float32x8<S> {
-    type Output = Self;
-
-    #[inline(always)]
-    fn mul(self, rhs: Self) -> Self {
-      Self {
-        inner: self.inner * rhs.inner,
-      }
-    }
-  }
-
-  impl<S: Simd> Add<f32> for Float32x8<S> {
-    type Output = Self;
-
-    #[inline(always)]
-    fn add(self, rhs: f32) -> Self {
-      Self {
-        inner: self.inner + rhs,
-      }
-    }
-  }
-
-  impl<S: Simd> Mul<f32> for Float32x8<S> {
-    type Output = Self;
-
-    #[inline(always)]
-    fn mul(self, rhs: f32) -> Self {
-      Self {
-        inner: self.inner * rhs,
-      }
-    }
-  }
-
-  impl<S: Simd> AddAssign for Float32x8<S> {
-    #[inline(always)]
-    fn add_assign(&mut self, rhs: Self) {
-      self.inner = self.inner + rhs.inner;
-    }
-  }
-
-  impl<S: Simd> SubAssign for Float32x8<S> {
-    #[inline(always)]
-    fn sub_assign(&mut self, rhs: Self) {
-      self.inner = self.inner - rhs.inner;
-    }
-  }
-
-  impl<S: Simd> MulAssign<f32> for Float32x8<S> {
-    #[inline(always)]
-    fn mul_assign(&mut self, rhs: f32) {
-      self.inner = self.inner * rhs;
-    }
-  }
-
-  impl<S: Simd> DivAssign<f32> for Float32x8<S> {
-    #[inline(always)]
-    fn div_assign(&mut self, rhs: f32) {
-      self.inner = self.inner / rhs;
-    }
-  }
-}
-
-#[cfg(not(feature = "simd"))]
-mod inner {
-  use super::SIMD_WIDTH;
-  use core::marker::PhantomData;
-  use core::ops::{Add, AddAssign, DivAssign, Mul, MulAssign, Sub, SubAssign};
-
-  pub(crate) trait Simd: Copy + Clone {}
-
-  #[derive(Copy, Clone)]
-  pub(crate) struct ScalarSimd;
-
-  impl Simd for ScalarSimd {}
-
-  pub(crate) struct Level;
-
-  impl Level {
-    #[inline(always)]
-    pub(crate) fn new() -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Level)
-    }
-  }
-
-  #[derive(Copy, Clone)]
-  #[repr(C, align(32))]
-  pub(crate) struct Float32x8<S: Simd> {
-    val: [f32; SIMD_WIDTH],
-    _marker: PhantomData<S>,
-  }
-
-  impl<S: Simd> Float32x8<S> {
-    #[inline(always)]
-    pub(crate) fn from_slice(
-      _simd: S,
-      slice: &[f32; SIMD_WIDTH],
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      let val = *slice;
-
-      Ok(Self {
-        val,
-        _marker: PhantomData,
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn splat(
-      _simd: S,
-      super::Sample(value): super::Sample,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      Ok(Self {
-        val: [value; SIMD_WIDTH],
-        _marker: PhantomData,
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn mul_add(
-      self,
-      mul: Self,
-      addend: Self,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      let mut result = [0.0f32; SIMD_WIDTH];
-
-      for (((out, value), factor), offset) in
-        result.iter_mut().zip(self.val).zip(mul.val).zip(addend.val)
-      {
-        let Ok(fused) = super::mul_add(super::MultiplyAdd {
-          value: super::Sample(value),
-          factor: super::Gain(factor),
-          offset: super::Sample(offset),
-        });
-        *out = fused;
-      }
-
-      Ok(Self {
-        val: result,
-        _marker: PhantomData,
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn floor(self) -> core::result::Result<Self, console_core_never::Never> {
-      let mut result = [0.0f32; SIMD_WIDTH];
-
-      for (out, value) in result.iter_mut().zip(self.val) {
-        let Ok(rounded) = super::floor_f32(super::Sample(value));
-        *out = rounded;
-      }
-
-      Ok(Self {
-        val: result,
-        _marker: PhantomData,
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn store(
-      self,
-      slice: &mut [f32; SIMD_WIDTH],
-    ) -> core::result::Result<(), console_core_never::Never> {
-      {
-        *slice = self.val;
-      };
-
-      Ok(())
-    }
-
-    #[inline(always)]
-    pub(crate) fn zip_low(
-      self,
-      other: Self,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      let [a, b, c, d, _, _, _, _] = self.val;
-      let [other_a, other_b, other_c, other_d, _, _, _, _] = other.val;
-
-      Ok(Self {
-        val: [a, other_a, b, other_b, c, other_c, d, other_d],
-        _marker: PhantomData,
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn zip_high(
-      self,
-      other: Self,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      let [_, _, _, _, e, f, g, h] = self.val;
-      let [_, _, _, _, other_e, other_f, other_g, other_h] = other.val;
-
-      Ok(Self {
-        val: [e, other_e, f, other_f, g, other_g, h, other_h],
-        _marker: PhantomData,
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn min(
-      self,
-      other: Self,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      let mut result = [0.0f32; SIMD_WIDTH];
-
-      for ((out, a), b) in result.iter_mut().zip(self.val).zip(other.val) {
-        let Ok(bounded) = super::min_f32([a, b]);
-        *out = bounded;
-      }
-
-      Ok(Self {
-        val: result,
-        _marker: PhantomData,
-      })
-    }
-
-    #[inline(always)]
-    pub(crate) fn max(
-      self,
-      other: Self,
-    ) -> core::result::Result<Self, console_core_never::Never> {
-      let mut result = [0.0f32; SIMD_WIDTH];
-
-      for ((out, a), b) in result.iter_mut().zip(self.val).zip(other.val) {
-        let Ok(bounded) = super::max_f32([a, b]);
-        *out = bounded;
-      }
-
-      Ok(Self {
-        val: result,
-        _marker: PhantomData,
-      })
-    }
-  }
-
-  impl<S: Simd> Add for Float32x8<S> {
-    type Output = Self;
-
-    #[inline(always)]
-    fn add(self, rhs: Self) -> Self {
-      let mut result = [0.0f32; SIMD_WIDTH];
-
-      for ((out, lhs), rhs_2) in result.iter_mut().zip(self.val).zip(rhs.val) {
-        *out = lhs + rhs_2;
-      }
-
-      Self {
-        val: result,
-        _marker: PhantomData,
-      }
-    }
-  }
-
-  impl<S: Simd> Sub for Float32x8<S> {
-    type Output = Self;
-
-    #[inline(always)]
-    fn sub(self, rhs: Self) -> Self {
-      let mut result = [0.0f32; SIMD_WIDTH];
-
-      for ((out, lhs), rhs_2) in result.iter_mut().zip(self.val).zip(rhs.val) {
-        *out = lhs - rhs_2;
-      }
-
-      Self {
-        val: result,
-        _marker: PhantomData,
-      }
-    }
-  }
-
-  impl<S: Simd> Mul for Float32x8<S> {
-    type Output = Self;
-
-    #[inline(always)]
-    fn mul(self, rhs: Self) -> Self {
-      let mut result = [0.0f32; SIMD_WIDTH];
-
-      for ((out, lhs), rhs_2) in result.iter_mut().zip(self.val).zip(rhs.val) {
-        *out = lhs * rhs_2;
-      }
-
-      Self {
-        val: result,
-        _marker: PhantomData,
-      }
-    }
-  }
-
-  impl<S: Simd> Add<f32> for Float32x8<S> {
-    type Output = Self;
-
-    #[inline(always)]
-    fn add(self, rhs: f32) -> Self {
-      let mut result = [0.0f32; SIMD_WIDTH];
-
-      for (out, lhs) in result.iter_mut().zip(self.val) {
-        *out = lhs + rhs;
-      }
-
-      Self {
-        val: result,
-        _marker: PhantomData,
-      }
-    }
-  }
-
-  impl<S: Simd> Mul<f32> for Float32x8<S> {
-    type Output = Self;
-
-    #[inline(always)]
-    fn mul(self, rhs: f32) -> Self {
-      let mut result = [0.0f32; SIMD_WIDTH];
-
-      for (out, lhs) in result.iter_mut().zip(self.val) {
-        *out = lhs * rhs;
-      }
-
-      Self {
-        val: result,
-        _marker: PhantomData,
-      }
-    }
-  }
-
-  impl<S: Simd> AddAssign for Float32x8<S> {
-    #[inline(always)]
-    fn add_assign(&mut self, rhs: Self) {
-      for (lhs, rhs_2) in self.val.iter_mut().zip(rhs.val) {
-        *lhs += rhs_2;
-      }
-    }
-  }
-
-  impl<S: Simd> SubAssign for Float32x8<S> {
-    #[inline(always)]
-    fn sub_assign(&mut self, rhs: Self) {
-      for (lhs, rhs_2) in self.val.iter_mut().zip(rhs.val) {
-        *lhs -= rhs_2;
-      }
-    }
-  }
-
-  impl<S: Simd> MulAssign<f32> for Float32x8<S> {
-    #[inline(always)]
-    fn mul_assign(&mut self, rhs: f32) {
-      for lane in &mut self.val {
-        *lane *= rhs;
-      }
-    }
-  }
-
-  impl<S: Simd> DivAssign<f32> for Float32x8<S> {
-    #[inline(always)]
-    fn div_assign(&mut self, rhs: f32) {
-      for lane in &mut self.val {
-        *lane /= rhs;
-      }
-    }
-  }
-
-  #[macro_export]
-  #[cfg_attr(
-    dylint_lib = "explicit080_macro_budget",
-    expect(
-      explicit080_macro_budget,
-      reason = "provides fearless_simd dispatch syntax when the optional SIMD dependency is unavailable"
-    )
-  )]
-  macro_rules! simd_dispatch {
-    ($level:expr, $simd:ident => $body:expr) => {{
-      let Ok(_scalar_level) = $level;
-      let $simd = $crate::math::ScalarSimd;
-      $body
-    }};
-  }
-
-  pub(crate) use simd_dispatch as dispatch;
-}
 
 #[cfg_attr(
   dylint_lib = "explicit067_no_unit_less_quantity",
@@ -659,7 +155,6 @@ pub(crate) fn pow2i(exp: i32) -> core::result::Result<f32, console_core_never::N
 }
 
 #[inline(always)]
-#[cfg(not(feature = "simd"))]
 pub(crate) fn min_f32([a, b]: [f32; 2]) -> core::result::Result<f32, console_core_never::Never> {
   Ok({
     #[cfg(feature = "std")]
@@ -678,7 +173,6 @@ pub(crate) fn min_f32([a, b]: [f32; 2]) -> core::result::Result<f32, console_cor
 }
 
 #[inline(always)]
-#[cfg(not(feature = "simd"))]
 pub(crate) fn max_f32([a, b]: [f32; 2]) -> core::result::Result<f32, console_core_never::Never> {
   Ok({
     #[cfg(feature = "std")]
@@ -695,8 +189,6 @@ pub(crate) fn max_f32([a, b]: [f32; 2]) -> core::result::Result<f32, console_cor
     }
   })
 }
-
-pub(crate) use inner::*;
 
 #[derive(Debug, Clone)]
 pub(crate) struct SimdBuffer {
@@ -749,4 +241,145 @@ impl core::ops::Deref for SimdBuffer {
   fn deref(&self) -> &Self::Target {
     &self.data
   }
+}
+
+#[inline]
+pub(crate) fn simd() -> Result<Option<console_core_simd::FusedF32>, Never> {
+  Ok({
+    #[cfg(feature = "simd")]
+    {
+      let Ok(simd) = console_core_simd::Simd::detected();
+      let Ok(capability) = simd.fused_f32();
+      capability
+    }
+
+    #[cfg(not(feature = "simd"))]
+    {
+      None
+    }
+  })
+}
+
+#[doc = "Matches the separate multiply and add of the portable SIMD fallback."]
+#[inline(always)]
+pub(crate) fn vector_mul_add(calculation: MultiplyAdd) -> Result<f32, Never> {
+  #[cfg(feature = "simd")]
+  {
+    let MultiplyAdd {
+      value: Sample(value),
+      factor: Gain(gain),
+      offset: Sample(offset),
+    } = calculation;
+    Ok(value * gain + offset)
+  }
+
+  #[cfg(not(feature = "simd"))]
+  {
+    mul_add(calculation)
+  }
+}
+
+pub(crate) fn affine(
+  backend: Option<console_core_simd::FusedF32>,
+  samples: &mut [f32],
+  Gain(gain): Gain,
+  Sample(offset): Sample,
+) -> Result<(), Never> {
+  let written = match backend {
+    Some(cpu) => {
+      let Ok(prefix) = cpu.affine(
+        samples,
+        console_core_simd::AffineGain::from(gain),
+        console_core_simd::AffineOffset::from(offset),
+      );
+      prefix
+    }
+    None => 0,
+  };
+  let Ok(skip) = index(written);
+
+  for sample in samples.iter_mut().skip(skip) {
+    let Ok(value) = vector_mul_add(MultiplyAdd {
+      value: Sample(*sample),
+      factor: Gain(gain),
+      offset: Sample(offset),
+    });
+    *sample = value;
+  }
+
+  Ok(())
+}
+
+pub(crate) fn color(
+  transform: console_core_simd::ComponentTransform,
+  components: [&mut [f32]; 3],
+) -> Result<(), Never> {
+  use console_core_simd::ComponentTransform;
+
+  let [red, green, blue] = components.map(|channel| {
+    let (prefix, _) = channel.as_chunks_mut::<SIMD_WIDTH>();
+    prefix.as_flattened_mut()
+  });
+  let Ok(backend) = simd();
+  let written = match backend {
+    Some(cpu) => {
+      let Ok(prefix) = cpu.color(transform, [red, green, blue]);
+      prefix
+    }
+    None => 0,
+  };
+  let Ok(skip) = index(written);
+  let pixels = red.iter_mut().zip(green).zip(blue).skip(skip);
+
+  match transform {
+    ComponentTransform::Reversible => {
+      for ((r, g), b) in pixels {
+        let Ok(correction) = floor_f32(Sample((*b + *g) * 0.25));
+        let corrected = *r - correction;
+        (*r, *g, *b) = (*b + corrected, corrected, *g + corrected);
+      }
+    }
+    ComponentTransform::Ycbcr {
+      offset,
+      gains: [cr_r, cb_g, cr_g, cb_b],
+      maximum,
+    } => {
+      for ((r, g), b) in pixels {
+        let y = *r;
+        let cb = *g - offset;
+        let cr = *b - offset;
+
+        let add_gain = |value, gain, base| {
+          vector_mul_add(MultiplyAdd {
+            value: Sample(value),
+            factor: Gain(gain),
+            offset: Sample(base),
+          })
+        };
+        let Ok(r_value) = add_gain(cr, cr_r, y);
+        let Ok(g_from_cb) = add_gain(cb, cb_g, y);
+        let Ok(g_value) = add_gain(cr, cr_g, g_from_cb);
+        let Ok(b_value) = add_gain(cb, cb_b, y);
+        let Ok(values) = clip_color([r_value, g_value, b_value], maximum);
+        [*r, *g, *b] = values;
+      }
+    }
+  }
+
+  Ok(())
+}
+
+fn clip_color(mut channels: [f32; 3], maximum: Option<f32>) -> Result<[f32; 3], Never> {
+  match maximum {
+    Some(max) => {
+      for value in &mut channels {
+        let Ok(upper) = min_f32([*value, max]);
+        let Ok(clipped) = max_f32([upper, 0.0]);
+        *value = clipped;
+      }
+    }
+    None => {}
+  }
+
+  Ok(channels)
 }

@@ -28,11 +28,13 @@ pub(super) fn render_zenuml_diagram_svg_model(
         layout.width + content_left + CONTENT_PADDING + layout.frame_border_right + 1.0;
     let view_height =
         layout.height + (CONTENT_PADDING * 2.0 + FRAME_HEADER_HEIGHT - 1.0) * vertical_scale;
-    let use_max_width = effective_config
+    let use_max_width = match effective_config
         .get("sequence")
         .and_then(|sequence| sequence.get("useMaxWidth"))
-        .and_then(serde_json::Value::as_bool)
-        .unwrap_or(true);
+        .and_then(serde_json::Value::as_bool) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => true,
+    };
     let bounds = root_svg::DiagramBounds::from_view_box(0.0, 0.0, view_width, view_height);
     let root_spec = root_svg::RootViewportSpec::mermaid(bounds, use_max_width);
     let mut out = BoundedSvgOutput::new(options.work_meter());
@@ -74,18 +76,20 @@ pub(super) fn render_zenuml_diagram_svg_model(
         fmt(header_y - 0.5),
     );
     out.checkpoint()?;
-    if let Some(title) = title {
+
+    if let Some(title_2) = title {
         let _ = write!(
             &mut out,
             r#"<text x="5" y="{}" dominant-baseline="central" class="{}">{}</text>"#,
             fmt((header_y - 0.5) / 2.0),
             ZENUML_FRAME_TITLE_CLASS,
-            escape_xml(&resolve_emoji_in_text(title)),
+            escape_xml(&resolve_emoji_in_text(title_2)),
         );
         out.checkpoint()?;
         theme_receipt.record_colors(&["titleTextColor"]);
-        theme_receipt.record_text(title);
+        theme_receipt.record_text(title_2);
     }
+
     let _ = write!(
         &mut out,
         r#"<g class="zenuml-content" transform="translate({}, {})">"#,
@@ -102,7 +106,7 @@ pub(super) fn render_zenuml_diagram_svg_model(
     for group in &layout.groups {
         let rect_x = group.x - 0.5;
         let rect_y = group.y - 2.0 * vertical_scale;
-        let title = (!group.name.is_empty()).then(|| escape_xml(&group.name));
+        let title_3 = (!group.name.is_empty()).then(|| escape_xml(&group.name));
         let _ = write!(
             &mut out,
             r#"<g class="participant-group"><rect x="{}" y="{}" width="{}" height="{}" class="group-outline" stroke-width="1" stroke-dasharray="4 3"/>"#,
@@ -111,7 +115,8 @@ pub(super) fn render_zenuml_diagram_svg_model(
             fmt(group.width + 1.0),
             fmt(group.height + 1.5 * vertical_scale),
         );
-        if let Some(title) = title {
+
+        if let Some(title_4) = title_3 {
             let _ = write!(
                 &mut out,
                 r#"<rect x="{}" y="{}" width="{}" height="{}" class="group-title-bg"/><text x="{}" y="{}" text-anchor="middle" dominant-baseline="middle" class="group-title-text">{}</text>"#,
@@ -121,17 +126,20 @@ pub(super) fn render_zenuml_diagram_svg_model(
                 fmt(19.5 * vertical_scale),
                 fmt(group.x + group.width / 2.0),
                 fmt(group.y + 10.0 * vertical_scale),
-                title,
+                title_4,
             );
         }
+
         out.push_str("</g>");
         out.checkpoint()?;
         theme_receipt.record_colors(&["groupBorderColor"]);
+
         if !group.name.is_empty() {
             theme_receipt.record_colors(&["groupBackgroundColor", "groupTextColor"]);
             theme_receipt.record_text(&group.name);
         }
     }
+
     for lifeline in &layout.lifelines {
         let _ = write!(
             &mut out,
@@ -144,9 +152,11 @@ pub(super) fn render_zenuml_diagram_svg_model(
         );
         out.checkpoint()?;
     }
+
     if !layout.lifelines.is_empty() {
         theme_receipt.record_colors(&["lifelineColor"]);
     }
+
     for participant in layout
         .participants
         .iter()
@@ -154,14 +164,17 @@ pub(super) fn render_zenuml_diagram_svg_model(
     {
         render_participant(&mut out, participant, theme)?;
         theme_receipt.record_colors(&["actorBorderColor"]);
+
         if participant.color.is_none() {
             theme_receipt.record_colors(&["actorBackgroundColor"]);
         }
+
         if !participant.is_starter {
             theme_receipt.record_colors(&["actorTextColor"]);
             theme_receipt.record_text(&participant.label);
         }
     }
+
     for occurrence in &layout.occurrences {
         let _ = write!(
             &mut out,
@@ -175,51 +188,69 @@ pub(super) fn render_zenuml_diagram_svg_model(
         );
         out.checkpoint()?;
     }
+
     if !layout.occurrences.is_empty() {
         theme_receipt.record_colors(&["activationBackgroundColor", "activationBorderColor"]);
     }
+
     for creation in &layout.creations {
         render_participant(&mut out, &creation.participant, theme)?;
         theme_receipt.record_colors(&["actorBorderColor", "actorTextColor"]);
+
         if creation.participant.color.is_none() {
             theme_receipt.record_colors(&["actorBackgroundColor"]);
         }
+
         theme_receipt.record_text(&creation.participant.label);
     }
+
     for message in &layout.messages {
         render_message(&mut out, message, theme)?;
         theme_receipt.record_colors(&["messageLineColor", "sequenceNumberTextColor"]);
+
         if !message.style.contains_key("fill") {
             theme_receipt.record_colors(&["messageTextColor"]);
         }
+
         theme_receipt.record_text(&message.label);
     }
+
     for self_call in &layout.self_calls {
         render_self_call(&mut out, self_call, theme)?;
         theme_receipt.record_colors(&["messageLineColor", "sequenceNumberTextColor"]);
+
         if !self_call.style.contains_key("fill") {
             theme_receipt.record_colors(&["messageTextColor"]);
         }
+
         theme_receipt.record_text(&self_call.label);
     }
+
     for creation in &layout.creations {
         render_creation(&mut out, creation, theme)?;
         theme_receipt.record_colors(&["messageLineColor", "sequenceNumberTextColor"]);
+
         if !creation.message.style.contains_key("fill") {
             theme_receipt.record_colors(&["messageTextColor"]);
         }
+
         theme_receipt.record_text(&creation.message.label);
     }
+
     for returned in &layout.returns {
         render_return(&mut out, returned, theme)?;
         theme_receipt.record_colors(&["messageTextColor"]);
+
         if !returned.is_self {
             theme_receipt.record_colors(&["messageLineColor", "sequenceNumberTextColor"]);
         }
+
         theme_receipt.record_text(&returned.label);
     }
+
     for fragment in &layout.fragments {
         render_fragment(&mut out, fragment, theme)?;
+
         theme_receipt.record_colors(&[
             "fragmentBorderColor",
             "mutedSurfaceColor",
@@ -229,8 +260,10 @@ pub(super) fn render_zenuml_diagram_svg_model(
             theme_receipt.record_colors(&["sequenceNumberTextColor"]);
             theme_receipt.record_text(&fragment.number);
         }
+
         theme_receipt.record_text(&fragment.label);
     }
+
     for divider in &layout.dividers {
         let center_x = divider.width / 2.0;
         let label = divider
@@ -239,7 +272,7 @@ pub(super) fn render_zenuml_diagram_svg_model(
             .trim_start_matches('=')
             .trim_end_matches('=')
             .trim();
-        let label = resolve_emoji_in_text(label);
+        let label_2 = resolve_emoji_in_text(label);
         let rect_width = divider.label_width + 17.0;
         let rect_height = 27.0 * vertical_scale;
         let rect_x = center_x - rect_width / 2.0;
@@ -263,31 +296,39 @@ pub(super) fn render_zenuml_diagram_svg_model(
             fmt(rect_height),
             fmt(center_x),
             fmt(divider.y),
-            escape_xml(&label),
+            escape_xml(&label_2),
         );
         out.checkpoint()?;
     }
+
     if !layout.dividers.is_empty() {
         theme_receipt.record_colors(&["noteBackgroundColor", "noteBorderColor", "noteTextColor"]);
     }
+
     for divider in &layout.dividers {
         theme_receipt.record_text(&divider.label);
     }
+
     for comment in &layout.comments {
         render_comment(&mut out, comment, theme)?;
+
         if !comment.style.contains_key("fill") {
             theme_receipt.record_colors(&["subtleTextColor"]);
         }
+
         theme_receipt.record_text(&comment.text);
     }
+
     out.push_str("</g></svg>");
     out.checkpoint()?;
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if !theme_plan.record_terminal(theme_receipt) {
         return Err(crate::Error::InvalidModel {
             message: "ZenUML family theme receipt was already completed".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 
@@ -303,12 +344,12 @@ fn render_participant(
         .color
         .as_deref()
         .map(|color| {
-            let color = if color.starts_with('#') {
+            let color_2 = if color.starts_with('#') {
                 color.to_string()
             } else {
                 format!("#{color}")
             };
-            format!(r#" style="fill:{};""#, escape_attr(&color))
+            format!(r#" style="fill:{};""#, escape_attr(&color_2))
         })
         .unwrap_or_default();
     let _ = write!(
@@ -322,6 +363,7 @@ fn render_participant(
         fill,
     );
     out.checkpoint()?;
+
     if participant.is_starter {
         render_participant_icon(
             out,
@@ -333,6 +375,7 @@ fn render_participant(
         out.push_str("</g>");
         return out.checkpoint();
     }
+
     let text_y = y + participant.height / 2.0 - 0.25 * vertical_scale;
     let label_y = if participant.stereotype.is_some() {
         text_y + 8.0 * vertical_scale
@@ -349,47 +392,59 @@ fn render_participant(
         .map(|shortcode| zenuml_emoji_unicode(shortcode).unwrap_or(shortcode));
     let mut text_x = participant.x;
     let mut text_anchor = "middle";
-    if let Some(icon) = icon {
-        let emoji_extra = if emoji.is_some() {
-            20.0 * vertical_scale
-        } else {
-            0.0
+
+    if let Some(icon_2) = icon {
+        let emoji_extra = match emoji {
+            ::core::option::Option::Some(_) => {
+                20.0 * vertical_scale
+            },
+            ::core::option::Option::None => {
+                0.0
+            },
         };
         let group_width = 44.0 * vertical_scale + participant.label_width + emoji_extra;
         let group_x = participant.x - group_width / 2.0;
         let icon_x = group_x + 4.0 * vertical_scale;
         let icon_y = y
             + (participant.height - 24.0 * vertical_scale) / 2.0
-            + if icon == "boundary" {
+            + if icon_2 == "boundary" {
                 2.75 * vertical_scale
             } else {
                 0.0
             };
-        render_participant_icon(out, icon, icon_x, icon_y, vertical_scale)?;
-        if let Some(emoji) = emoji {
+        render_participant_icon(out, icon_2, icon_x, icon_y, vertical_scale)?;
+
+        if let Some(emoji_2) = emoji {
             let emoji_x = icon_x + 28.0 * vertical_scale;
-            render_participant_emoji(out, emoji, emoji_x, label_y)?;
+            render_participant_emoji(out, emoji_2, emoji_x, label_y)?;
             text_x = emoji_x + 24.0 * vertical_scale;
         } else {
             text_x = group_x + 36.0 * vertical_scale;
         }
+
         text_anchor = "start";
-    } else if let Some(emoji) = emoji {
+    } else if let Some(emoji_3) = emoji {
         let group_width = 28.0 * vertical_scale + participant.label_width;
-        let inner_width = participant
-            .stereotype_width
-            .unwrap_or_default()
+        let inner_width = match participant
+            .stereotype_width {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0.0,
+        }
             .max(group_width);
         let group_x = participant.x - inner_width / 2.0;
-        render_participant_emoji(out, emoji, group_x, label_y)?;
+        render_participant_emoji(out, emoji_3, group_x, label_y)?;
         text_x = group_x + 24.0 * vertical_scale;
         text_anchor = "start";
     }
+
     if let Some(stereotype) = &participant.stereotype {
-        let stereotype_x = if icon.is_some() {
-            text_x + participant.label_width / 2.0
-        } else {
-            participant.x
+        let stereotype_x = match icon {
+            ::core::option::Option::Some(_) => {
+                text_x + participant.label_width / 2.0
+            },
+            ::core::option::Option::None => {
+                participant.x
+            },
         };
         let _ = write!(
             out,
@@ -402,6 +457,7 @@ fn render_participant(
         );
         out.checkpoint()?;
     }
+
     let text_length = if participant.name.contains(':') {
         format!(
             r#" textLength="{}" lengthAdjust="spacing""#,
@@ -447,9 +503,15 @@ fn render_participant_icon(
     y: f64,
     typography_scale: f64,
 ) -> Result<()> {
-    let Some(icon) = participant_icon(key) else {
-        return Ok(());
+    let icon = {
+        let optional_icon = participant_icon(key);
+
+        match optional_icon {
+            Some(matched_icon) => matched_icon,
+            ::core::option::Option::None => return Ok(()),
+        }
     };
+
     let scale = 24.0 * typography_scale / icon.view_box_width.max(icon.view_box_height);
     let content = svg_asset_content(icon.svg);
     let attributes = if icon.attributes.is_empty() {
@@ -470,6 +532,7 @@ fn render_participant_icon(
     out.checkpoint()
 }
 
+#[must_use]
 fn participant_icon(key: &str) -> Option<ParticipantIcon> {
     Some(match key {
         "actor" => ParticipantIcon {
@@ -617,7 +680,7 @@ fn render_self_call(
     };
     let line_color = theme.color("messageLineColor", theme.color("lineColor", "#000"));
     let arrow_fill = if asynchronous { "none" } else { line_color };
-    let view_box = if vertical_scale == 1.0 {
+    let view_box = if ::core::primitive::f64::to_bits(vertical_scale) == ::core::primitive::f64::to_bits(1.0) {
         ""
     } else {
         r#" viewBox="0 0 30 24""#
@@ -713,6 +776,7 @@ fn render_return(
         );
         return out.checkpoint();
     }
+
     let line_y = returned.y.floor();
     let label_x = returned.from_x.min(returned.to_x)
         + (returned.to_x - returned.from_x).abs() / 2.0
@@ -805,24 +869,28 @@ fn render_open_polyline(
     out.checkpoint()
 }
 
+#[must_use]
 fn render_creation_label(
     label: &str,
     style: &std::collections::BTreeMap<String, String>,
 ) -> String {
-    let style = style_attr(style);
+    let style_2 = style_attr(style);
+
     if let Some(inner) = label
         .strip_prefix('«')
-        .and_then(|label| label.strip_suffix('»'))
+        .and_then(|label_2| label_2.strip_suffix('»'))
     {
         if inner == "create" {
-            return format!("<tspan{style}>{}</tspan>", escape_xml(label));
+            return format!("<tspan{style}>{}</tspan>", escape_xml(label), style = style_2);
         }
+
         return format!(
             "<tspan{style}>«</tspan><tspan dx=\"4\"{style}>{}</tspan><tspan dx=\"4\"{style}>»</tspan>",
             escape_xml(inner)
-        );
+        , style = style_2);
     }
-    format!("<tspan{style}>{}</tspan>", escape_xml(label))
+
+    format!("<tspan{style}>{}</tspan>", escape_xml(label), style = style_2)
 }
 
 fn render_fragment(
@@ -875,6 +943,7 @@ fn render_fragment(
         escape_xml(&fragment.number),
     );
     out.checkpoint()?;
+
     if !fragment.label.is_empty() {
         render_bracketed_label(
             out,
@@ -885,6 +954,7 @@ fn render_fragment(
             "fragment-condition",
         )?;
     }
+
     for section in fragment.sections.iter().skip(1) {
         let separator_y = section.y + 0.5;
         let _ = write!(
@@ -896,6 +966,7 @@ fn render_fragment(
             fmt(separator_y),
         );
         out.checkpoint()?;
+
         if let Some(inner) = &section.inner_label {
             render_bracketed_label(
                 out,
@@ -906,8 +977,14 @@ fn render_fragment(
                 "fragment-section-label",
             )?;
         } else if let (Some(keyword), Some(detail)) = (&section.keyword, &section.detail) {
-            let keyword_width = section.keyword_width.unwrap_or(0.0);
-            let background_width = keyword_width + section.detail_width.unwrap_or(0.0) + 16.0;
+            let keyword_width = match section.keyword_width {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            };
+            let background_width = keyword_width + match section.detail_width {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            } + 16.0;
             let _ = write!(
                 out,
                 r##"<g opacity="0.65"><rect x="{}" y="{}" width="{}" height="{}" fill="{}"/><text x="{}" y="{}" class="fragment-section-label" fill="{}">{}</text><text x="{}" y="{}" class="fragment-section-label" fill="{}">{}</text></g>"##,
@@ -942,6 +1019,7 @@ fn render_fragment(
             out.checkpoint()?;
         }
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -955,7 +1033,10 @@ fn render_bracketed_label(
     class: &str,
 ) -> Result<()> {
     let inner_x = x + 7.89;
-    let close_x = inner_x + inner_width.unwrap_or(0.0) + 4.0;
+    let close_x = inner_x + match inner_width {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    } + 4.0;
     let _ = write!(
         out,
         r#"<g><text x="{}" y="{}" class="{}">[</text><text x="{}" y="{}" class="{}" opacity="0.65">{}</text><text x="{}" y="{}" class="{}">]</text></g>"#,
@@ -1031,7 +1112,7 @@ fn render_fragment_icon(
         ),
     };
     let content = svg_asset_content(raw);
-    let attributes = if matches!(
+    let attributes_2 = if matches!(
         kind,
         ZenumlLayoutFragmentKind::Loop
             | ZenumlLayoutFragmentKind::TryCatchFinally
@@ -1053,23 +1134,43 @@ fn render_fragment_icon(
         fmt(20.0 * theme.typography.vertical_scale()),
         fmt(24.0 * theme.typography.vertical_scale()),
         view_box,
-        attributes,
+        attributes_2,
         content,
     );
     out.checkpoint()
 }
 
+#[must_use]
 fn svg_asset_content(svg: &'static str) -> &'static str {
-    let Some(svg_start) = svg.find("<svg") else {
-        return svg;
+    let svg_start = {
+        let optional_svg_start = svg.find("<svg");
+
+        match optional_svg_start {
+            Some(matched_svg_start) => matched_svg_start,
+            ::core::option::Option::None => return svg,
+        }
     };
-    let Some(open_end) = svg[svg_start..].find('>') else {
-        return svg;
+
+    let open_end = {
+        let optional_open_end = svg[svg_start..].find('>');
+
+        match optional_open_end {
+            Some(matched_open_end) => matched_open_end,
+            ::core::option::Option::None => return svg,
+        }
     };
+
     let content_start = svg_start + open_end + 1;
-    let Some(content_end) = svg.rfind("</svg>") else {
-        return svg;
+
+    let content_end = {
+        let optional_content_end = svg.rfind("</svg>");
+
+        match optional_content_end {
+            Some(matched_content_end) => matched_content_end,
+            ::core::option::Option::None => return svg,
+        }
     };
+
     svg[content_start..content_end].trim()
 }
 
@@ -1086,36 +1187,44 @@ fn render_comment(
         style_attr(&comment.style),
     );
     out.checkpoint()?;
+
     for (index, line) in lines.iter().enumerate() {
-        if index == 0 {
-            let _ = write!(
-                out,
-                r#"<tspan x="{}" y="{}">{}</tspan>"#,
-                fmt(comment.x),
-                fmt(comment.y),
-                if line.is_empty() { " " } else { line },
-            );
-        } else {
-            let _ = write!(
-                out,
-                r#"<tspan x="{}" dy="{}">{}</tspan>"#,
-                fmt(comment.x),
-                fmt(20.0 * theme.typography.vertical_scale()),
-                if line.is_empty() { " " } else { line },
-            );
+        match index {
+            0 => {
+                let _ = write!(
+                    out,
+                    r#"<tspan x="{}" y="{}">{}</tspan>"#,
+                    fmt(comment.x),
+                    fmt(comment.y),
+                    if line.is_empty() { " " } else { line },
+                );
+            },
+            _ => {
+                let _ = write!(
+                    out,
+                    r#"<tspan x="{}" dy="{}">{}</tspan>"#,
+                    fmt(comment.x),
+                    fmt(20.0 * theme.typography.vertical_scale()),
+                    if line.is_empty() { " " } else { line },
+                );
+            },
         }
+
         out.checkpoint()?;
     }
+
     out.push_str("</text>");
     out.checkpoint()
 }
 
+#[must_use]
 fn markdown_comment_lines(markdown: &str) -> Vec<String> {
     use console_core_markdown::{Event, Options, Parser, Tag, TagEnd};
 
     let mut lines = vec![String::new()];
     let mut style = MarkdownRunStyle::default();
     let parser = Parser::new_ext(markdown, Options::ENABLE_STRIKETHROUGH);
+
     for event in parser {
         match event {
             Event::Start(Tag::Strong) => style.strong = true,
@@ -1136,9 +1245,11 @@ fn markdown_comment_lines(markdown: &str) -> Vec<String> {
             _ => {}
         }
     }
+
     while lines.len() > 1 && lines.last().is_some_and(String::is_empty) {
         lines.pop();
     }
+
     lines
 }
 
@@ -1154,40 +1265,50 @@ fn append_markdown_text(lines: &mut Vec<String>, text: &str, style: MarkdownRunS
         if index > 0 {
             lines.push(String::new());
         }
+
         let escaped = escape_xml(line);
+
         if escaped.is_empty() {
             continue;
         }
+
         if !style.strong && !style.emphasis && !style.code_block {
             lines.last_mut().unwrap().push_str(&escaped);
             continue;
         }
+
         lines.last_mut().unwrap().push_str("<tspan");
+
         if style.strong {
             lines.last_mut().unwrap().push_str(r#" font-weight="bold""#);
         }
+
         if style.emphasis {
             lines
                 .last_mut()
                 .unwrap()
                 .push_str(r#" font-style="italic""#);
         }
+
         if style.code_block {
             lines
                 .last_mut()
                 .unwrap()
                 .push_str(r#" font-family="monospace""#);
         }
+
         lines.last_mut().unwrap().push('>');
         lines.last_mut().unwrap().push_str(&escaped);
         lines.last_mut().unwrap().push_str("</tspan>");
     }
 }
 
+#[must_use]
 fn style_attr(style: &std::collections::BTreeMap<String, String>) -> String {
     if style.is_empty() {
         return String::new();
     }
+
     let declarations = style
         .iter()
         .map(|(name, value)| format!("{name}:{}", escape_attr(value)))
@@ -1196,10 +1317,12 @@ fn style_attr(style: &std::collections::BTreeMap<String, String>) -> String {
     format!(r#" style="{declarations}""#)
 }
 
+#[must_use]
 fn resolve_emoji_in_text(text: &str) -> String {
     resolve_zenuml_emojis_in_text(text)
 }
 
+#[must_use]
 fn default_zenuml_css(diagram_id: impl std::fmt::Display) -> String {
     format!(
         r#"
@@ -1208,6 +1331,7 @@ fn default_zenuml_css(diagram_id: impl std::fmt::Display) -> String {
     )
 }
 
+#[must_use]
 fn themed_zenuml_css(
     diagram_id: impl std::fmt::Display,
     theme: &ZenumlSourceStyle,
@@ -1257,15 +1381,18 @@ fn themed_zenuml_css(
         group_border = theme.color("groupBorderColor", "#666"),
         group_background = theme.color("groupBackgroundColor", "#fff"),
     );
+
     if let Some(color) = theme
         .configured_color("fragmentTextColor")
         .or_else(|| theme.configured_color("textColor"))
     {
         let _ = write!(&mut css, "#{diagram_id} .fragment-icon{{color:{}}}", color);
     }
+
     css
 }
 
+#[must_use]
 fn zenuml_css(
     diagram_id: impl std::fmt::Display,
     theme: &ZenumlSourceStyle,

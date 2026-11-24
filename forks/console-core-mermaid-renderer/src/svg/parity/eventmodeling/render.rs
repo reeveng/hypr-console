@@ -48,6 +48,7 @@ pub(crate) fn render_eventmodeling_diagram_svg_with_text_theme(
             escape_xml(title)
         );
     }
+
     if let Some(description) = acc_descr {
         let _ = write!(
             &mut out,
@@ -55,6 +56,7 @@ pub(crate) fn render_eventmodeling_diagram_svg_with_text_theme(
             escape_xml(description)
         );
     }
+
     out.checkpoint()?;
 
     out.push_str("<style>");
@@ -131,7 +133,7 @@ pub(crate) fn render_eventmodeling_diagram_svg_with_text_theme(
     escape_xml_into(&mut out, marker_fill);
     out.push_str(r#""></polygon></marker></defs></svg>"#);
     out.push('\n');
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
     text_theme.record_terminal();
     Ok(rooted_svg)
 }
@@ -141,7 +143,7 @@ fn push_box_html_label(
     prepared_labels: &crate::eventmodeling::EventModelingPreparedLabels,
     index: usize,
 ) -> Result<()> {
-    out.push_str(prepared_labels.box_xhtml(index)?);
+    out.push_str({ let checked_value = prepared_labels.box_xhtml(index)?; checked_value });
     out.checkpoint()
 }
 

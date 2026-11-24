@@ -55,6 +55,7 @@ pub(crate) fn render_ishikawa_diagram_svg_with_theme(
     );
     out.push_str(r#"</style><g/><g class="ishikawa">"#);
     out.checkpoint()?;
+
     if theme.look == "handDrawn" {
         let rough = RoughContext {
             randomness: options.rough_randomness(
@@ -75,7 +76,7 @@ pub(crate) fn render_ishikawa_diagram_svg_with_theme(
 
     out.push_str("</g></svg>\n");
     out.checkpoint()?;
-    let rooted = root_document.complete(out.finish()?)?;
+    let rooted = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
     text_theme.record_terminal();
     Ok(rooted)
 }
@@ -97,6 +98,7 @@ fn push_classic_diagram(
     if let Some(spine) = &layout.spine {
         push_line(out, spine, marker_id)?;
     }
+
     if let Some(head) = &layout.head {
         let _ = write!(
             out,
@@ -110,16 +112,20 @@ fn push_classic_diagram(
         out.push_str("</g>");
         out.checkpoint()?;
     }
+
     for pair in &layout.pairs {
         options.checkpoint_emit()?;
         out.push_str(r#"<g class="ishikawa-pair">"#);
         push_branch(out, &pair.upper, marker_id, text_terminals)?;
+
         if let Some(lower) = &pair.lower {
             push_branch(out, lower, marker_id, text_terminals)?;
         }
+
         out.push_str("</g>");
         out.checkpoint()?;
     }
+
     Ok(())
 }
 
@@ -141,18 +147,23 @@ fn push_hand_drawn_diagram(
         out.push_str("</g>");
         out.checkpoint()?;
     }
+
     for pair in &layout.pairs {
         out.push_str(r#"<g class="ishikawa-pair">"#);
         push_hand_drawn_branch(out, &pair.upper, rough, text_terminals)?;
+
         if let Some(lower) = &pair.lower {
             push_hand_drawn_branch(out, lower, rough, text_terminals)?;
         }
+
         out.push_str("</g>");
         out.checkpoint()?;
     }
+
     if let Some(spine) = &layout.spine {
         push_rough_line(out, spine, rough)?;
     }
+
     Ok(())
 }
 
@@ -164,9 +175,11 @@ fn push_branch(
 ) -> Result<()> {
     push_line(out, &branch.line, marker_id)?;
     push_cause_label_group(out, &branch.label_group, text_terminals)?;
+
     for sub_group in &branch.sub_groups {
         push_sub_group(out, sub_group, marker_id, text_terminals)?;
     }
+
     Ok(())
 }
 
@@ -212,9 +225,11 @@ fn push_hand_drawn_branch(
     push_rough_line(out, &branch.line, rough)?;
     push_rough_arrow_marker(out, &branch.line, rough)?;
     push_hand_drawn_cause_label_group(out, &branch.label_group, rough, text_terminals)?;
+
     for sub_group in &branch.sub_groups {
         push_hand_drawn_sub_group(out, sub_group, rough, text_terminals)?;
     }
+
     Ok(())
 }
 
@@ -256,6 +271,7 @@ fn push_line(out: &mut impl SvgOutput, line: &IshikawaLineLayout, marker_id: &st
         fmt(line.x2),
         fmt(line.y2)
     );
+
     if line.marker_start {
         let _ = write!(
             out,
@@ -263,6 +279,7 @@ fn push_line(out: &mut impl SvgOutput, line: &IshikawaLineLayout, marker_id: &st
             escape_attr_display(marker_id)
         );
     }
+
     out.push_str("></line>");
     out.checkpoint()
 }
@@ -377,10 +394,12 @@ fn push_rough_arrow_marker(
     if !line.marker_start {
         return Ok(());
     }
+
     let dx = line.x1 - line.x2;
     let dy = line.y1 - line.y2;
     let len = dx.hypot(dy);
-    if len == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(len), ::core::num::FpCategory::Zero) {
         return Ok(());
     }
 
@@ -432,6 +451,7 @@ fn push_rough_arrow_marker(
     )
 }
 
+#[must_use]
 fn rough_hachure_options(rough: &RoughContext) -> roughr::core::Options {
     roughr::core::OptionsBuilder::default()
         .randomness(rough.randomness.clone())
@@ -446,8 +466,12 @@ fn rough_hachure_options(rough: &RoughContext) -> roughr::core::Options {
         .expect("static Ishikawa rough hachure options must be valid")
 }
 
+#[must_use]
 fn rough_color(css: &str) -> roughr::Srgba {
-    parse_hex_color_to_srgba(css).unwrap_or_else(|| roughr::Srgba::new(0.0, 0.0, 0.0, 1.0))
+    match parse_hex_color_to_srgba(css) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => roughr::Srgba::new(0.0, 0.0, 0.0, 1.0),
+    }
 }
 
 fn push_rough_group(
@@ -457,12 +481,15 @@ fn push_rough_group(
     paint: RoughPaint<'_>,
 ) -> Result<()> {
     out.push_str("<g");
-    if let Some(class_name) = class_name {
+
+    if let Some(class_name_2) = class_name {
         out.push_str(r#" class=""#);
-        escape_attr_into(out, class_name);
+        escape_attr_into(out, class_name_2);
         out.push('"');
     }
+
     out.push('>');
+
     for set in sets {
         let d = ops_to_svg_path_d(&set);
         let (stroke, stroke_width, fill) = match set.op_set_type {
@@ -479,6 +506,7 @@ fn push_rough_group(
         out.push_str(r#""></path>"#);
         out.checkpoint()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()
 }
@@ -488,6 +516,7 @@ struct IshikawaTextTerminalWriter<'a> {
 }
 
 impl<'a> IshikawaTextTerminalWriter<'a> {
+    #[must_use]
     fn new(plan: &'a IshikawaTextThemePlan) -> Self {
         Self { plan }
     }
@@ -514,6 +543,7 @@ impl<'a> IshikawaTextTerminalWriter<'a> {
         );
         self.push_fill_style(out, text);
         out.push('>');
+
         for (idx, line) in text.lines.iter().enumerate() {
             let _ = write!(
                 out,
@@ -529,6 +559,7 @@ impl<'a> IshikawaTextTerminalWriter<'a> {
             out.push_str("</tspan>");
             out.checkpoint()?;
         }
+
         out.push_str("</text>");
         out.checkpoint()?;
         Ok(())
@@ -553,6 +584,7 @@ impl<'a> IshikawaTextTerminalWriter<'a> {
         );
         self.push_fill_style(out, text);
         out.push('>');
+
         if text.lines.is_empty() {
             escape_xml_into(out, &text.text);
         } else {
@@ -572,18 +604,26 @@ impl<'a> IshikawaTextTerminalWriter<'a> {
                 out.checkpoint()?;
             }
         }
+
         out.push_str("</text>");
         out.checkpoint()?;
         Ok(())
     }
 
     fn push_fill_style(&self, out: &mut impl SvgOutput, text: &IshikawaTextLayout) {
-        let Some(fill) = self.plan.typed_fill() else {
-            return;
+        let fill = {
+            let optional_fill = self.plan.typed_fill();
+
+            match optional_fill {
+                Some(matched_fill) => matched_fill,
+                ::core::option::Option::None => return,
+            }
         };
+
         if text.text.trim().is_empty() {
             return;
         }
+
         out.push_str(r#" style="fill:"#);
         escape_attr_into(out, fill);
         out.push_str(r#" !important;""#);

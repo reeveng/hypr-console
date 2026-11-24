@@ -63,6 +63,12 @@ resolved. A single loop rewrite can clear several findings. Inventories count
 each distinct diagnostic at each primary span
 once across build targets. A discriminant rule can report multiple pairs on
 one enum, and each pair counts separately.
+
+The terminal shows a preview with source locations, lint help, and whether a
+compiler suggestion is available. Open `findings.txt` in the run directory for
+the complete listing. With `--baseline`, both the preview and `findings.txt`
+show new findings, and `remaining.json` contains the full inventory.
+
 The `review_patterns` array in `remaining.json` groups sites that share a
 rule and its diagnostic guidance, with occurrence counts by source directory
 and an example location. Start with recurring patterns across directories
@@ -112,7 +118,8 @@ EXPLICIT105 follows local calls from `Machine::initialize` and
 `Machine::handle`. A finding points to the call in the machine and the first
 blocking operation it reaches. The inventory groups these as review findings
 because the migration must decide which state owns an outstanding effect and
-how to handle its reply.
+how to handle its reply. The [state machines and effects guide](../README.md#state-machines-and-effects)
+shows how to make that decision and test it.
 
 `just explicit-av1-transform-bounds` applies EXPLICIT014 to the AV1 transform
 and reconstruction functions that propagate `Rav1dError`. The config lists

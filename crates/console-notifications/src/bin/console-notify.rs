@@ -97,7 +97,7 @@ use console_draw_surface::{Activation, KeyboardEvent, PointerEvent, Surface, Sur
 use console_notifications::reading::serialize;
 use console_notifications::saying::Expiry;
 use console_notifications::serving::{
-  self, Armed, Closed as NotificationClosed, Holding, Modified, Turn, Why, closed_signals,
+  self, Armed, Closed as NotificationClosed, Holding, Modified, Target, Turn, Why, closed_signals,
 };
 use console_notifications::showing::{self, CardContent, Measured, Stack, Wearing};
 use console_onscreen::focus;
@@ -181,6 +181,7 @@ fn main() -> ExitCode {
 
 fn answering() -> Result<(), Cannot> {
   let mut bus = Bus::session()?;
+  bus.subscribe(serving::QUIET_OWNER_LOST)?;
   let got = bus.request_name(serving::NOTIFICATIONS)?;
 
   match got {
@@ -363,7 +364,7 @@ struct Running<'a> {
   holding: Holding,
   waiting: Vec<Waiting>,
   drew: Option<Rendered>,
-  selection: Selection<u32>,
+  selection: Selection<Target>,
   focus_layer: FocusLayer,
 }
 
@@ -394,7 +395,7 @@ fn turned<'a>(
   let Ok(()) = ran_out(&mut running.holding, asked.saying, &mut running.waiting);
 
   let Ok(mut stack) = shown(&running.holding, asked.wearing);
-  let actions: Vec<_> = stack.touching.iter().map(|region| region.id).collect();
+  let actions: Vec<_> = stack.touching.iter().map(|region| region.target).collect();
   let Ok(()) = running.selection.keep(&actions);
   let Ok(target) = running.selection.target();
   let focus_layer = match target {
@@ -411,7 +412,7 @@ fn turned<'a>(
     (FocusLayer::Popups, FocusLayer::Popups) | (FocusLayer::Passive, FocusLayer::Passive) => {}
   }
 
-  match target.and_then(|id| stack.touching.iter().find(|region| region.id == id)) {
+  match target.and_then(|focused| stack.touching.iter().find(|region| region.target == focused)) {
     Some(region) => {
       let Ok(outline) = region.panel.focus_outline(asked.wearing.text);
 
@@ -480,11 +481,11 @@ fn turned<'a>(
   let Ok(keys) = running.surface.keyboard_events();
 
   for KeyboardEvent::Down { key } in keys {
-    let Ok(activated) = running.selection.pressed(key, &actions);
+    let Ok(pressed) = running.selection.pressed(key, &actions);
 
-    match activated {
-      Some(id) => {
-        let Ok(()) = dismissed(id, &mut running.holding, asked.saying);
+    match pressed {
+      Some(popup) => {
+        let Ok(()) = activated(popup, &mut running.holding, asked.saying);
       }
       ::core::option::Option::None => {}
     }
@@ -546,8 +547,8 @@ fn drain_queue(
 }
 
 fn apply_turn(turn: &Turn, saying: &Sender, waiting: &mut Vec<Waiting>) -> Result<(), Never> {
-  for closed in &turn.closed {
-    let Ok(()) = reply(saying, closed);
+  for signal in &turn.signals {
+    let Ok(()) = reply(saying, signal);
   }
 
   match &turn.say {
@@ -722,10 +723,12 @@ fn shown(holding: &Holding, wearing: &Wearing) -> Result<Stack, Never> {
     cards.push((
       CardContent {
         id: held.notification.id,
+        raised: held.raised,
         summary: &words.summary,
         body: &words.body,
         urgency: held.notification.urgency,
         value: held.value,
+        actions: &held.actions,
       },
       *measure,
     ));
@@ -824,7 +827,7 @@ fn draw(surface: &mut Surface, stack: &Stack, layer: FocusLayer) -> Result<(), C
 fn handle_pointer(
   surface: &mut Surface,
   stack: &Stack,
-  selection: &mut Selection<u32>,
+  selection: &mut Selection<Target>,
   holding: &mut Holding,
   saying: &Sender,
 ) -> Result<(), Never> {
@@ -851,8 +854,8 @@ fn handle_pointer(
     );
 
     match on {
-      Some(id) => {
-        let Ok(()) = dismissed(id, holding, saying);
+      Some(target) => {
+        let Ok(()) = activated(target, holding, saying);
       }
       None => *selection = Selection::Idle,
     }
@@ -861,20 +864,16 @@ fn handle_pointer(
   Ok(())
 }
 
-fn dismissed(id: u32, holding: &mut Holding, saying: &Sender) -> Result<(), Never> {
-  let Ok(closed) = holding.closed(id);
+fn activated(target: Target, holding: &mut Holding, saying: &Sender) -> Result<(), Never> {
+  let Ok(turn) = holding.activated(target);
 
-  match closed {
-    NotificationClosed::No => Ok(()),
-    NotificationClosed::Yes => {
-      let Ok(said) = closed_signals(&[id], Why::Dismissed);
+  for signal in &turn.signals {
+    let Ok(()) = reply(saying, signal);
+  }
 
-      for going in &said {
-        let Ok(()) = reply(saying, going);
-      }
-
-      save_inbox(holding)
-    }
+  match turn.changed {
+    Modified::No => Ok(()),
+    Modified::Yes => save_inbox(holding),
   }
 }
 

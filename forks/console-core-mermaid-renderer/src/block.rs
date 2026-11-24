@@ -35,7 +35,7 @@ pub use geometry::{
 
 pub(crate) type BlockNode = merman_model::families::block::BlockNode;
 
-// Mermaid createFormattedText pads the SVG edge label's background on all four sides.
+
 pub(crate) const SVG_EDGE_LABEL_BACKGROUND_PADDING: f64 = 2.0;
 
 #[derive(Debug, Clone)]
@@ -53,6 +53,7 @@ struct SizedBlock {
     y: f64,
 }
 
+#[must_use]
 fn decode_block_label_html(raw: &str) -> String {
     raw.replace("&nbsp;", "\u{00A0}")
 }
@@ -79,40 +80,49 @@ impl BlockPreparedLabels {
         work_meter: &Arc<OperationWorkMeter>,
     ) -> Result<Self> {
         work_meter.checkpoint(merman_model::OperationPhase::Layout)?;
+
         if !html_labels {
             return Ok(Self::default());
         }
-        // Resolve the absent security-level default once for the whole family operation.
-        let config = crate::graph_label::flowchart_label_sanitize_config(config);
+
+
+        let config_2 = crate::graph_label::flowchart_label_sanitize_config(config);
         let mut prepared = Self::default();
+
         for node in &model.blocks_flat {
             work_meter.checkpoint(merman_model::OperationPhase::Layout)?;
+
             if prepared.nodes.contains_key(&node.id) {
                 continue;
             }
+
             let label = BlockPreparedHtmlLabel::prepare(
                 sources[node.id.as_str()].label,
                 node.id.len(),
-                &config,
+                &config_2,
                 work_meter,
             )?;
             prepared.nodes.insert(node.id.clone(), label);
         }
+
         for edge in &model.edges {
             prepared.edges.push(BlockPreparedHtmlLabel::prepare(
                 &edge.label,
                 0,
-                &config,
+                &config_2,
                 work_meter,
             )?);
         }
+
         Ok(prepared)
     }
 
+    #[must_use]
     pub(crate) fn node_xhtml(&self, node_id: &str) -> Option<&str> {
         self.nodes.get(node_id).map(|label| label.xhtml.as_str())
     }
 
+    #[must_use]
     pub(crate) fn edge_xhtml(&self, edge_index: usize) -> Option<&str> {
         self.edges.get(edge_index).map(|label| label.xhtml.as_str())
     }
@@ -128,7 +138,7 @@ impl BlockPreparedHtmlLabel {
         use crate::html::{HtmlOutputError, HtmlSanitizeSink};
         use merman_markup::sanitize::SanitizeFailure;
 
-        // Include the map/vector owner slot, as in the existing prepared-label sidecars.
+
         const OWNER_SLOT_BYTES: usize = 192;
         let owner_bytes = std::mem::size_of::<Self>()
             .saturating_add(OWNER_SLOT_BYTES)
@@ -146,11 +156,12 @@ impl BlockPreparedHtmlLabel {
             &parse_work,
             merman_model::OperationPhase::Layout,
         );
-        // Keep entity-authored angle brackets as text until HTML parsing consumes them.
+
         let fragment = (|| {
             if raw.is_empty() {
                 return Ok(String::new());
             }
+
             let text = merman_markup::sanitize::sanitize_text_with_sink(raw, config, &sink)?;
             let html = format!(
                 "<p>{}</p>",
@@ -161,7 +172,7 @@ impl BlockPreparedHtmlLabel {
         let xhtml = match fragment {
             Ok(xhtml) => xhtml,
             Err(SanitizeFailure::Output(HtmlOutputError::Operation(error))) => {
-                return Err(error.into());
+                return Err(<crate::Error as ::core::convert::From<crate::resources::OperationWorkError>>::from(error));
             }
             Err(SanitizeFailure::Output(HtmlOutputError::Limit { attempted })) => {
                 work_meter.preflight_prepared_text_retained_bytes(
@@ -169,7 +180,7 @@ impl BlockPreparedHtmlLabel {
                 )?;
                 String::new()
             }
-            // Preserve the sanitizer's fail-closed behavior for malformed input/allocation.
+
             Err(_) => String::new(),
         };
         work_meter.checkpoint(merman_model::OperationPhase::Layout)?;
@@ -184,6 +195,7 @@ impl BlockPreparedHtmlLabel {
     }
 }
 
+#[must_use]
 pub(crate) fn block_label_is_effectively_empty(text: &str) -> bool {
     !text.is_empty()
         && text
@@ -191,6 +203,7 @@ pub(crate) fn block_label_is_effectively_empty(text: &str) -> bool {
             .all(|ch| ch != '\u{00A0}' && ch.is_whitespace())
 }
 
+#[must_use]
 fn block_html_label_metrics_px(
     text: &str,
     measurer: &dyn TextMeasurer,
@@ -218,14 +231,17 @@ pub(crate) struct BlockArrowPoint {
     pub(crate) y: f64,
 }
 
+#[must_use]
 pub(crate) fn block_arrow_points_for_width(
     directions: &[String],
     bbox_h: f64,
     node_padding: f64,
     width: f64,
 ) -> Vec<BlockArrowPoint> {
+    #[must_use]
     fn expand_and_dedup(directions: &[String]) -> std::collections::BTreeSet<String> {
         let mut out = std::collections::BTreeSet::new();
+
         for d in directions {
             match d.trim() {
                 "x" => {
@@ -242,6 +258,7 @@ pub(crate) fn block_arrow_points_for_width(
                 _ => {}
             }
         }
+
         out
     }
 
@@ -311,6 +328,7 @@ pub(crate) fn block_arrow_points_for_width(
             },
         ];
     }
+
     if has("right") && has("left") && has("up") {
         return vec![
             BlockArrowPoint {
@@ -339,6 +357,7 @@ pub(crate) fn block_arrow_points_for_width(
             },
         ];
     }
+
     if has("right") && has("left") && has("down") {
         return vec![
             BlockArrowPoint { x: 0.0, y: 0.0 },
@@ -353,6 +372,7 @@ pub(crate) fn block_arrow_points_for_width(
             BlockArrowPoint { x: width, y: 0.0 },
         ];
     }
+
     if has("right") && has("up") && has("down") {
         return vec![
             BlockArrowPoint { x: 0.0, y: 0.0 },
@@ -367,6 +387,7 @@ pub(crate) fn block_arrow_points_for_width(
             BlockArrowPoint { x: 0.0, y: -height },
         ];
     }
+
     if has("left") && has("up") && has("down") {
         return vec![
             BlockArrowPoint { x: width, y: 0.0 },
@@ -384,6 +405,7 @@ pub(crate) fn block_arrow_points_for_width(
             },
         ];
     }
+
     if has("right") && has("left") {
         return vec![
             BlockArrowPoint {
@@ -428,6 +450,7 @@ pub(crate) fn block_arrow_points_for_width(
             },
         ];
     }
+
     if has("up") && has("down") {
         return vec![
             BlockArrowPoint {
@@ -466,6 +489,7 @@ pub(crate) fn block_arrow_points_for_width(
             BlockArrowPoint { x: width, y: -pad },
         ];
     }
+
     if has("right") && has("up") {
         return vec![
             BlockArrowPoint { x: 0.0, y: 0.0 },
@@ -476,6 +500,7 @@ pub(crate) fn block_arrow_points_for_width(
             BlockArrowPoint { x: 0.0, y: -height },
         ];
     }
+
     if has("right") && has("down") {
         return vec![
             BlockArrowPoint { x: 0.0, y: 0.0 },
@@ -483,6 +508,7 @@ pub(crate) fn block_arrow_points_for_width(
             BlockArrowPoint { x: 0.0, y: -height },
         ];
     }
+
     if has("left") && has("up") {
         return vec![
             BlockArrowPoint { x: width, y: 0.0 },
@@ -496,6 +522,7 @@ pub(crate) fn block_arrow_points_for_width(
             },
         ];
     }
+
     if has("left") && has("down") {
         return vec![
             BlockArrowPoint { x: width, y: 0.0 },
@@ -506,6 +533,7 @@ pub(crate) fn block_arrow_points_for_width(
             },
         ];
     }
+
     if has("right") {
         return vec![
             BlockArrowPoint {
@@ -546,6 +574,7 @@ pub(crate) fn block_arrow_points_for_width(
             },
         ];
     }
+
     if has("left") {
         return vec![
             BlockArrowPoint {
@@ -578,6 +607,7 @@ pub(crate) fn block_arrow_points_for_width(
             },
         ];
     }
+
     if has("up") {
         return vec![
             BlockArrowPoint {
@@ -610,6 +640,7 @@ pub(crate) fn block_arrow_points_for_width(
             },
         ];
     }
+
     if has("down") {
         return vec![
             BlockArrowPoint {
@@ -640,6 +671,7 @@ pub(crate) fn block_arrow_points_for_width(
     vec![BlockArrowPoint { x: 0.0, y: 0.0 }]
 }
 
+#[must_use]
 fn block_shape_size(
     block_type: &str,
     directions: &[String],
@@ -660,6 +692,7 @@ fn block_shape_size(
     )
 }
 
+#[must_use]
 fn to_sized_block_shallow(
     node: &BlockNode,
     padding: f64,
@@ -669,14 +702,20 @@ fn to_sized_block_shallow(
     html_labels: bool,
     prepared_xhtml: Option<&str>,
 ) -> SizedBlock {
-    let columns = node.columns.unwrap_or(-1);
-    let width_in_columns = node.width_in_columns.unwrap_or(1).max(1);
+    let columns = match node.columns {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => -1,
+    };
+    let width_in_columns = match node.width_in_columns {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 1,
+    }.max(1);
 
     let mut width = 0.0;
     let mut height = 0.0;
 
-    // HTML measurement and emission share the sanitized XHTML projection, including breaks,
-    // inline formatting, and entities. Keep the existing SVG text path separate.
+
+
     let label_decoded = decode_block_label_html(&node.label);
     let label_text_style = node_binding::source_text_style(&node.styles, text_style, html_labels);
     let label_effectively_empty = block_label_is_effectively_empty(&label_decoded);
@@ -694,17 +733,20 @@ fn to_sized_block_shallow(
     };
     let shape_label_height = label_height;
 
-    if let Some((computed_width, computed_height)) = block_shape_size(
-        node.block_type.as_str(),
-        &node.directions,
-        label_width,
-        shape_label_height,
-        padding,
-        !label_effectively_empty && !label_decoded.trim().is_empty(),
-        shape_settings,
-    ) {
-        width = computed_width;
-        height = computed_height;
+    match block_shape_size(
+            node.block_type.as_str(),
+            &node.directions,
+            label_width,
+            shape_label_height,
+            padding,
+            !label_effectively_empty && !label_decoded.trim().is_empty(),
+            shape_settings,
+        ) {
+        Some((computed_width, computed_height)) => {
+            width = computed_width;
+            height = computed_height;
+        },
+        ::core::option::Option::None => {},
     }
 
     SizedBlock {
@@ -722,20 +764,26 @@ fn to_sized_block_shallow(
     }
 }
 
+#[must_use]
 fn get_max_child_size(block: &SizedBlock, records: &[SizedBlock]) -> (f64, f64) {
     let mut max_width: f64 = 0.0;
     let mut max_height: f64 = 0.0;
+
     for &index in &block.children {
         let child = &records[index];
+
         if child.block_type == "space" {
             continue;
         }
+
         max_width = max_width.max(child.width / child.width_in_columns as f64);
         max_height = max_height.max(child.height);
     }
+
     (max_width, max_height)
 }
 
+#[must_use]
 fn block_grid_size(block: &SizedBlock, records: &[SizedBlock]) -> (i64, i64) {
     let num_items = block
         .children
@@ -743,9 +791,11 @@ fn block_grid_size(block: &SizedBlock, records: &[SizedBlock]) -> (i64, i64) {
         .map(|&index| records[index].width_in_columns.max(1))
         .sum::<i64>();
     let mut x_size = block.children.len() as i64;
+
     if block.columns > 0 && block.columns < num_items {
         x_size = block.columns;
     }
+
     let y_size = ((num_items as f64) / (x_size.max(1) as f64)).ceil() as i64;
     (x_size, y_size)
 }
@@ -758,50 +808,61 @@ fn set_block_sizes_shallow(index: usize, records: &mut [SizedBlock], padding: f6
         block.x = 0.0;
         block.y = 0.0;
     }
+
     let block = &records[index];
+
     if block.children.is_empty() {
         return;
     }
+
     let (max_width, max_height) = get_max_child_size(block, records);
     let children = block.children.clone();
+
     for &child in &children {
-        let child = &mut records[child];
-        child.width = max_width * child.width_in_columns as f64
-            + padding * (child.width_in_columns as f64 - 1.0);
-        child.height = max_height;
-        child.x = 0.0;
-        child.y = 0.0;
+        let child_2 = &mut records[child];
+        child_2.width = max_width * child_2.width_in_columns as f64
+            + padding * (child_2.width_in_columns as f64 - 1.0);
+        child_2.height = max_height;
+        child_2.x = 0.0;
+        child_2.y = 0.0;
     }
-    let block = &records[index];
-    let (x_size, y_size) = block_grid_size(block, records);
+
+    let block_2 = &records[index];
+    let (x_size, y_size) = block_grid_size(block_2, records);
     let mut width = x_size as f64 * (max_width + padding) + padding;
     let height = y_size as f64 * (max_height + padding) + padding;
-    if width < block.width {
-        width = block.width;
-        let num = if block.columns > 0 {
-            (children.len() as i64).min(block.columns)
+
+    if width < block_2.width {
+        width = block_2.width;
+        let num = if block_2.columns > 0 {
+            (children.len() as i64).min(block_2.columns)
         } else {
             children.len() as i64
         };
+
         if num > 0 {
             let child_width = (width - num as f64 * padding - padding) / num as f64;
+
             for &child in &children {
                 records[child].width = child_width;
             }
         }
     }
-    let block = &mut records[index];
-    block.width = width;
-    block.height = height;
-    block.x = 0.0;
-    block.y = 0.0;
+
+    let block_3 = &mut records[index];
+    block_3.width = width;
+    block_3.height = height;
+    block_3.x = 0.0;
+    block_3.y = 0.0;
 }
 
 fn reconcile_block_with_parent_size(index: usize, records: &mut [SizedBlock], padding: f64) {
     let block = &records[index];
+
     if block.children.is_empty() {
         return;
     }
+
     let children = block.children.clone();
     let inherited_width = block.width;
     let inherited_height = block.height;
@@ -812,19 +873,22 @@ fn reconcile_block_with_parent_size(index: usize, records: &mut [SizedBlock], pa
     let columns = block.columns;
     let mut width = x_size as f64 * (max_width + padding) + padding;
     let mut height = y_size as f64 * (max_height + padding) + padding;
+
     if width < sibling_width {
         width = sibling_width;
         height = inherited_height;
         let child_width = (sibling_width - x_size as f64 * padding - padding) / x_size as f64;
         let child_height = (inherited_height - y_size as f64 * padding - padding) / y_size as f64;
+
         for &child in &children {
-            let child = &mut records[child];
-            child.width = child_width;
-            child.height = child_height;
-            child.x = 0.0;
-            child.y = 0.0;
+            let child_2 = &mut records[child];
+            child_2.width = child_width;
+            child_2.height = child_height;
+            child_2.x = 0.0;
+            child_2.y = 0.0;
         }
     }
+
     if width < inherited_width {
         width = inherited_width;
         let num = if columns > 0 {
@@ -832,22 +896,26 @@ fn reconcile_block_with_parent_size(index: usize, records: &mut [SizedBlock], pa
         } else {
             children.len() as i64
         };
+
         if num > 0 {
             let child_width = (width - num as f64 * padding - padding) / num as f64;
+
             for &child in &children {
                 records[child].width = child_width;
             }
         }
     }
-    let block = &mut records[index];
-    block.width = width;
-    block.height = height;
-    block.x = 0.0;
-    block.y = 0.0;
+
+    let block_2 = &mut records[index];
+    block_2.width = width;
+    block_2.height = height;
+    block_2.x = 0.0;
+    block_2.y = 0.0;
 }
 
 fn set_block_sizes(root: usize, records: &mut [SizedBlock], padding: f64) {
     let mut stack = vec![(root, false)];
+
     while let Some((index, complete)) = stack.pop() {
         if complete {
             set_block_sizes_shallow(index, records, padding);
@@ -862,22 +930,25 @@ fn set_block_sizes(root: usize, records: &mut [SizedBlock], padding: f64) {
             );
         }
     }
-    let mut stack = records[root]
+
+    let mut stack_2 = records[root]
         .children
         .iter()
         .rev()
         .copied()
         .collect::<Vec<_>>();
-    while let Some(index) = stack.pop() {
+
+    while let Some(index) = stack_2.pop() {
         reconcile_block_with_parent_size(index, records, padding);
-        stack.extend(records[index].children.iter().rev().copied());
+        stack_2.extend(records[index].children.iter().rev().copied());
     }
 }
 
+#[must_use]
 fn invalid_block_columns_error() -> Error {
     Error::InvalidModel {
-        // Match Mermaid's layout invariant while returning a typed render failure instead of
-        // letting a malformed semantic model reach integer division.
+
+
         message: "Columns must be an integer !== 0.".to_string(),
     }
 }
@@ -890,70 +961,99 @@ fn validate_block_columns(
     let mut stack = vec![(root, false)];
     let mut active = vec![false; records.len()];
     let mut seen = vec![false; records.len()];
+
     while let Some((index, complete)) = stack.pop() {
         work_meter.charge(1)?;
+
         let Some(block) = records.get(index) else {
             return Err(Error::InvalidModel {
                 message: format!("invalid Block child index {index}"),
             });
         };
+
         if complete {
             active[index] = false;
             continue;
         }
+
         if active[index] {
             return Err(Error::InvalidModel {
                 message: "cyclic Block child indices".to_string(),
             });
         }
+
         if std::mem::replace(&mut seen[index], true) {
             return Err(Error::InvalidModel {
                 message: format!("repeated Block child index {index}"),
             });
         }
+
         if block.columns == Some(0) {
             return Err(invalid_block_columns_error());
         }
+
         work_meter.charge(block.children.len())?;
         let mut column_span = 0i64;
+
         for &child in &block.children {
-            let child = records.get(child).ok_or_else(|| Error::InvalidModel {
+            let child_2 = records.get(child).ok_or_else(|| Error::InvalidModel {
                 message: format!("invalid Block child index {child}"),
             })?;
-            // Match to_sized_block_shallow before grid sizing and column-position arithmetic.
-            column_span = column_span
-                .checked_add(child.width_in_columns.unwrap_or(1).max(1))
+
+            let checked_value = column_span
+                .checked_add(match child_2.width_in_columns {
+                    ::core::option::Option::Some(explicit_present) => explicit_present,
+                    ::core::option::Option::None => 1,
+                }.max(1))
                 .ok_or_else(|| Error::InvalidModel {
                     message: "Block column span exceeds the supported integer range".to_string(),
                 })?;
+            column_span = checked_value;
         }
+
         active[index] = true;
         stack.push((index, true));
         stack.extend(block.children.iter().rev().map(|&child| (child, false)));
     }
+
     Ok(())
 }
 
 fn calculate_block_position(columns: i64, position: i64) -> Result<(i64, i64)> {
-    if columns == 0 {
-        return Err(invalid_block_columns_error());
+    match columns {
+        0 => {
+            return Err(invalid_block_columns_error());
+        },
+        _ => {},
     }
-    if columns < 0 {
-        return Ok((position, 0));
+
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(columns), &::core::convert::identity(0)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less => {
+            return Ok((position, 0));
+        },
+        ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
     }
-    if columns == 1 {
-        return Ok((0, position));
+
+    match columns {
+        1 => {
+            return Ok((0, position));
+        },
+        _ => {},
     }
+
     Ok((position % columns, position / columns))
 }
 
 fn layout_blocks(root: usize, records: &mut [SizedBlock], padding: f64) -> Result<()> {
     let mut stack = vec![root];
+
     while let Some(index) = stack.pop() {
         let block = &records[index];
+
         if block.children.is_empty() {
             continue;
         }
+
         let children = block.children.clone();
         let columns = block.columns;
         let parent_x = block.x;
@@ -962,75 +1062,96 @@ fn layout_blocks(root: usize, records: &mut [SizedBlock], padding: f64) -> Resul
         let parent_height = block.height;
         let mut row_heights = BTreeMap::<i64, f64>::new();
         let mut height_column_pos = 0i64;
-        for &index in &children {
-            let child = &records[index];
+
+        for &index_2 in &children {
+            let child = &records[index_2];
             let (_, row) = calculate_block_position(columns, height_column_pos)?;
             row_heights
                 .entry(row)
                 .and_modify(|height| *height = height.max(child.height))
                 .or_insert(child.height);
             let mut columns_filled = child.width_in_columns.max(1);
+
             if columns > 0 {
                 columns_filled = columns_filled.min((columns - height_column_pos % columns).max(1));
             }
+
             height_column_pos += columns_filled;
         }
+
         let mut row_offsets = BTreeMap::<i64, f64>::new();
         let mut offset = 0.0;
+
         for (&row, &height) in &row_heights {
             row_offsets.insert(row, offset);
             offset += height + padding;
         }
+
         let mut column_pos = 0i64;
-        let row_start = if parent_x != 0.0 {
+        let row_start = if !::core::matches!(::core::primitive::f64::classify(parent_x), ::core::num::FpCategory::Zero) {
             parent_x - parent_width / 2.0
         } else {
             -padding
         };
         let mut starting_pos_x = row_start;
         let mut row_pos = 0i64;
-        for &index in &children {
-            let child = &mut records[index];
+
+        for &index_3 in &children {
+            let child = &mut records[index_3];
             let (_, py) = calculate_block_position(columns, column_pos)?;
+
             if py != row_pos {
                 row_pos = py;
                 starting_pos_x = row_start;
             }
+
             let half_width = child.width / 2.0;
             child.x = starting_pos_x + padding + half_width;
             starting_pos_x = child.x + half_width;
-            let row_offset = row_offsets.get(&py).copied().unwrap_or_default();
+            let row_offset = match row_offsets.get(&py).copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0.0,
+            };
             let row_height = row_heights.get(&py).copied().unwrap_or(child.height);
             child.y = parent_y - parent_height / 2.0 + row_offset + row_height / 2.0 + padding;
             let mut columns_filled = child.width_in_columns.max(1);
+
             if columns > 0 {
                 columns_filled = columns_filled.min((columns - column_pos % columns).max(1));
             }
+
             column_pos += columns_filled;
         }
+
         stack.extend(children.into_iter().rev());
     }
+
     Ok(())
 }
 
 fn find_bounds(root: usize, records: &[SizedBlock], bounds: &mut Bounds) {
     let mut stack = vec![root];
+
     while let Some(index) = stack.pop() {
         let block = &records[index];
+
         if block.id != "root" {
             bounds.min_x = bounds.min_x.min(block.x - block.width / 2.0);
             bounds.min_y = bounds.min_y.min(block.y - block.height / 2.0);
             bounds.max_x = bounds.max_x.max(block.x + block.width / 2.0);
             bounds.max_y = bounds.max_y.max(block.y + block.height / 2.0);
         }
+
         stack.extend(block.children.iter().rev().copied());
     }
 }
 
 fn collect_nodes(root: usize, records: &[SizedBlock], out: &mut Vec<LayoutNode>) {
     let mut stack = vec![root];
+
     while let Some(index) = stack.pop() {
         let block = &records[index];
+
         if block.id != "root" && block.block_type != "space" {
             out.push(LayoutNode {
                 id: block.id.clone(),
@@ -1043,6 +1164,7 @@ fn collect_nodes(root: usize, records: &[SizedBlock], out: &mut Vec<LayoutNode>)
                 label_height: Some(block.label_height.max(0.0)),
             });
         }
+
         stack.extend(block.children.iter().rev().copied());
     }
 }
@@ -1128,6 +1250,7 @@ pub(crate) fn layout_block_diagram_typed_with_text_style(
     collect_nodes(root, &records, &mut nodes);
 
     let mut shape_geometries = Vec::with_capacity(nodes.len());
+
     for node in &nodes {
         let source = shape_sources
             .get(node.id.as_str())
@@ -1155,18 +1278,30 @@ pub(crate) fn layout_block_diagram_typed_with_text_style(
         max_y: 0.0,
     };
     find_bounds(root, &records, &mut bounds);
-    let bounds = if nodes.is_empty() { None } else { Some(bounds) };
+    let bounds_2 = if nodes.is_empty() { None } else { Some(bounds) };
 
     let nodes_by_id: HashMap<String, LayoutNode> =
         nodes.iter().cloned().map(|n| (n.id.clone(), n)).collect();
 
     let mut edges: Vec<LayoutEdge> = Vec::new();
+
     for (edge_index, e) in model.edges.iter().enumerate() {
-        let Some(from) = nodes_by_id.get(&e.start) else {
-            continue;
+        let from = {
+            let optional_from = nodes_by_id.get(&e.start);
+
+            match optional_from {
+                Some(matched_from) => matched_from,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(to) = nodes_by_id.get(&e.end) else {
-            continue;
+
+        let to = {
+            let optional_to = nodes_by_id.get(&e.end);
+
+            match optional_to {
+                Some(matched_to) => matched_to,
+                ::core::option::Option::None => continue,
+            }
         };
 
         let start = LayoutPoint {
@@ -1228,7 +1363,7 @@ pub(crate) fn layout_block_diagram_typed_with_text_style(
             nodes,
             edges,
             shape_geometries,
-            bounds,
+            bounds: bounds_2,
         },
         prepared_labels,
     ))

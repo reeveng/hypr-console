@@ -92,6 +92,7 @@ pub(super) struct SequenceDb {
 }
 
 impl SequenceDb {
+    #[must_use]
     pub(super) fn new(wrap_enabled: Option<bool>) -> Self {
         Self {
             wrap_enabled,
@@ -99,14 +100,19 @@ impl SequenceDb {
         }
     }
 
+    #[must_use]
     fn auto_wrap(&self) -> bool {
-        self.wrap_enabled.unwrap_or(false)
+        match self.wrap_enabled {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => false,
+        }
     }
 
     fn ensure_actor(&mut self, id: &str) {
         if self.actors.contains_key(id) {
             return;
         }
+
         let id_owned = id.to_string();
         self.actor_order.push(id_owned.clone());
         self.actors.insert(
@@ -131,21 +137,29 @@ impl SequenceDb {
         actor_type: &str,
         participant_meta: Option<Value>,
     ) -> std::result::Result<(), String> {
-        let mut actor_type = actor_type.to_string();
+        let mut actor_type_2 = actor_type.to_string();
         let mut config_alias = None;
-        if let Some(meta) = participant_meta.as_ref() {
-            if let Some(obj) = meta.as_object()
-                && let Some(t) = obj
-                    .get("type")
-                    .and_then(crate::inline_config::value_to_string)
-            {
-                actor_type = t;
-            }
-            if let Some(obj) = meta.as_object() {
-                config_alias = obj
-                    .get("alias")
-                    .and_then(crate::inline_config::value_to_string);
-            }
+
+        match participant_meta.as_ref() {
+            Some(meta) => {
+                if let Some(obj) = meta.as_object()
+                    && let Some(t) = obj
+                        .get("type")
+                        .and_then(crate::inline_config::value_to_string)
+                {
+                    actor_type_2 = t;
+                }
+
+                match meta.as_object() {
+                    Some(obj) => {
+                        config_alias = obj
+                            .get("alias")
+                            .and_then(crate::inline_config::value_to_string);
+                    },
+                    ::core::option::Option::None => {},
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
         if let Some(current_box) = self.current_box
@@ -153,21 +167,25 @@ impl SequenceDb {
             && let Some(old_box) = existing.box_index
             && old_box != current_box
         {
-            let old_name = self.boxes[old_box]
+            let old_name = match self.boxes[old_box]
                 .name
-                .clone()
-                .unwrap_or_else(|| "undefined".to_string());
-            let new_name = self.boxes[current_box]
+                .clone() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => "undefined".to_string(),
+            };
+            let new_name = match self.boxes[current_box]
                 .name
-                .clone()
-                .unwrap_or_else(|| "undefined".to_string());
+                .clone() {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => "undefined".to_string(),
+            };
             return Err(format!(
                 "A same participant should only be defined in one Box: {} can't be in '{}' and in '{}' at the same time.",
                 existing.name, old_name, new_name
             ));
         }
 
-        let description = description
+        let description_2 = description
             .or(config_alias)
             .map(|s| self.parse_message(&s))
             .unwrap_or_else(|| ParsedText {
@@ -175,19 +193,28 @@ impl SequenceDb {
                 wrap: None,
             });
 
-        let wrap = description.wrap.unwrap_or(self.auto_wrap());
+        let wrap = description_2.wrap.unwrap_or(self.auto_wrap());
 
-        if let Some(existing) = self.actors.get_mut(id) {
-            existing.description = description.text;
-            existing.wrap = wrap;
-            existing.actor_type = actor_type;
-            if let Some(current_box) = self.current_box {
-                if existing.box_index.is_none() {
-                    existing.box_index = Some(current_box);
+        match self.actors.get_mut(id) {
+            Some(existing) => {
+                existing.description = description_2.text;
+                existing.wrap = wrap;
+                existing.actor_type = actor_type_2;
+
+                match self.current_box {
+                    Some(current_box) => {
+                        if existing.box_index.is_none() {
+                            existing.box_index = Some(current_box);
+                        }
+
+                        self.boxes[current_box].actor_keys.push(id.to_string());
+                    },
+                    ::core::option::Option::None => {},
                 }
-                self.boxes[current_box].actor_keys.push(id.to_string());
-            }
-            return Ok(());
+
+                return Ok(());
+            },
+            ::core::option::Option::None => {},
         }
 
         self.actor_order.push(id.to_string());
@@ -195,9 +222,9 @@ impl SequenceDb {
             id.to_string(),
             Actor {
                 name: id.to_string(),
-                description: description.text,
+                description: description_2.text,
                 wrap,
-                actor_type,
+                actor_type: actor_type_2,
                 box_index: self.current_box,
                 links: serde_json::Map::new(),
                 properties: serde_json::Map::new(),
@@ -205,25 +232,34 @@ impl SequenceDb {
             },
         );
 
-        if let Some(current_box) = self.current_box {
-            self.boxes[current_box].actor_keys.push(id.to_string());
+        match self.current_box {
+            Some(current_box) => {
+                self.boxes[current_box].actor_keys.push(id.to_string());
+            },
+            ::core::option::Option::None => {},
         }
 
         Ok(())
     }
 
+    #[must_use]
     fn parse_message(&self, raw: &str) -> ParsedText {
         let trimmed = raw.trim();
+
+        #[must_use]
         fn strip_prefix_ci<'a>(s: &'a str, prefix: &[u8]) -> Option<&'a str> {
             let bytes = s.as_bytes();
+
             if bytes.len() < prefix.len() {
                 return None;
             }
+
             for (i, prefix_element) in <[_]>::iter(prefix).enumerate() {
                 if !bytes[i].eq_ignore_ascii_case(&*prefix_element) {
                     return None;
                 }
             }
+
             Some(&s[prefix.len()..])
         }
 
@@ -254,10 +290,13 @@ impl SequenceDb {
     }
 
     fn add_signal(&mut self, signal: SignalInput) {
-        let msg_text = signal.message.unwrap_or(ParsedText {
-            text: String::new(),
-            wrap: None,
-        });
+        let msg_text = match (signal.message, ParsedText {
+                text: String::new(),
+                wrap: None,
+            }) {
+            (::core::option::Option::Some(present), alternate) => { ::core::mem::drop(alternate); present },
+            (::core::option::Option::None, alternate) => alternate,
+        };
         let wrap = msg_text.wrap.unwrap_or(self.auto_wrap());
 
         self.messages.push(Message {
@@ -273,23 +312,28 @@ impl SequenceDb {
         });
     }
 
+    #[must_use]
     fn activation_count(&self, actor: &str) -> i32 {
         if actor.is_empty() {
             return 0;
         }
+
         let mut count = 0;
+
         for msg in &self.messages {
             if msg.message_type == LINETYPE_ACTIVE_START
                 && msg.from.as_deref().is_some_and(|a| a == actor)
             {
                 count += 1;
             }
+
             if msg.message_type == LINETYPE_ACTIVE_END
                 && msg.from.as_deref().is_some_and(|a| a == actor)
             {
                 count -= 1;
             }
         }
+
         count
     }
 
@@ -358,7 +402,7 @@ impl SequenceDb {
         control.checkpoint()?;
         let participant_meta = match &action {
             Action::AddParticipant { config, .. } => {
-                match parse_participant_meta_controlled(config.as_deref(), control)? {
+                match { let checked_value = parse_participant_meta_controlled(config.as_deref(), control)?; checked_value } {
                     Ok(meta) => meta,
                     Err(error) => return Ok(Err(error)),
                 }
@@ -367,7 +411,8 @@ impl SequenceDb {
                 if self.actors.contains_key(id) {
                     return Ok(Err("It is not possible to have actors with the same id, even if one is destroyed before the next is created. Use 'AS' aliases to simulate the behavior".to_string()));
                 }
-                match parse_participant_meta_controlled(config.as_deref(), control)? {
+
+                match { let checked_value_2 = parse_participant_meta_controlled(config.as_deref(), control)?; checked_value_2 } {
                     Ok(meta) => meta,
                     Err(error) => return Ok(Err(error)),
                 }
@@ -420,6 +465,7 @@ impl SequenceDb {
                 if self.actors.contains_key(&id) {
                     return Err("It is not possible to have actors with the same id, even if one is destroyed before the next is created. Use 'AS' aliases to simulate the behavior".to_string());
                 }
+
                 self.last_created = Some(id.clone());
                 let _ = config;
                 self.add_actor(&id, description, &draw, participant_meta)?;
@@ -482,9 +528,16 @@ impl SequenceDb {
                             "The created participant {last_created} does not have an associated creating message after its declaration. Please check the sequence diagram."
                         ));
                     }
+
                     self.last_created = None;
-                    if let Some(actor) = self.actors.get_mut(&last_created) {
-                        actor.lifecycle.created_at = Some(self.messages.len());
+
+                    {
+                        match self.actors.get_mut(&last_created) {
+                            Some(actor) => {
+                                actor.lifecycle.created_at = Some(self.messages.len());
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 } else if let Some(last_destroyed) = self.last_destroyed.clone() {
                     if from != last_destroyed && to != last_destroyed {
@@ -492,9 +545,16 @@ impl SequenceDb {
                             "The destroyed participant {last_destroyed} does not have an associated destroying message after its declaration. Please check the sequence diagram."
                         ));
                     }
+
                     self.last_destroyed = None;
-                    if let Some(actor) = self.actors.get_mut(&last_destroyed) {
-                        actor.lifecycle.destroyed_at = Some(self.messages.len());
+
+                    {
+                        match self.actors.get_mut(&last_destroyed) {
+                            Some(actor) => {
+                                actor.lifecycle.destroyed_at = Some(self.messages.len());
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
 
@@ -525,6 +585,7 @@ impl SequenceDb {
                         "Trying to inactivate an inactive participant ({actor})"
                     ));
                 }
+
                 self.add_signal(SignalInput {
                     from: Some(actor),
                     message_type: LINETYPE_ACTIVE_END,
@@ -581,8 +642,10 @@ impl SequenceDb {
         self.current_box = Some(self.boxes.len() - 1);
     }
 
+    #[must_use]
     fn parse_box_data(&self, raw: &str) -> BoxData {
         let trimmed = raw.trim();
+
         if trimmed.is_empty() {
             return BoxData {
                 text: None,
@@ -620,60 +683,108 @@ impl SequenceDb {
 
     fn add_links(&mut self, actor: &str, raw_text: &str) {
         let s = unescape_entities(raw_text);
+
         let Ok(v) = serde_json::from_str::<Value>(&s) else {
             return;
         };
-        let Some(obj) = v.as_object() else {
-            return;
+
+        let obj = {
+            let optional_obj = v.as_object();
+
+            match optional_obj {
+                Some(matched_obj) => matched_obj,
+                ::core::option::Option::None => return,
+            }
         };
-        let Some(a) = self.actors.get_mut(actor) else {
-            return;
+
+        let a = {
+            let optional_a = self.actors.get_mut(actor);
+
+            match optional_a {
+                Some(matched_a) => matched_a,
+                ::core::option::Option::None => return,
+            }
         };
-        for (k, v) in obj {
-            if let Some(url) = v.as_str() {
-                a.links.insert(k.clone(), Value::String(url.to_string()));
+
+        for (k, v_2) in obj {
+            match v_2.as_str() {
+                Some(url) => {
+                    a.links.insert(k.clone(), Value::String(url.to_string()));
+                },
+                ::core::option::Option::None => {},
             }
         }
     }
 
     fn add_link(&mut self, actor: &str, raw_text: &str) {
         let s = unescape_entities(raw_text);
-        let Some(idx) = s.find('@') else {
-            return;
+
+        let idx = {
+            let optional_idx = s.find('@');
+
+            match optional_idx {
+                Some(matched_idx) => matched_idx,
+                ::core::option::Option::None => return,
+            }
         };
+
         let (left, right) = s.split_at(idx);
         let label = left.strip_suffix(' ').unwrap_or(left).trim();
         let url = right.trim_start_matches('@').trim();
+
         if label.is_empty() || url.is_empty() {
             return;
         }
-        let Some(a) = self.actors.get_mut(actor) else {
-            return;
+
+        let a = {
+            let optional_a = self.actors.get_mut(actor);
+
+            match optional_a {
+                Some(matched_a) => matched_a,
+                ::core::option::Option::None => return,
+            }
         };
+
         a.links
             .insert(label.to_string(), Value::String(url.to_string()));
     }
 
     fn add_properties(&mut self, actor: &str, raw_text: &str) {
         let s = unescape_entities(raw_text);
+
         let Ok(v) = serde_json::from_str::<Value>(&s) else {
             return;
         };
-        let Some(obj) = v.as_object() else {
-            return;
+
+        let obj = {
+            let optional_obj = v.as_object();
+
+            match optional_obj {
+                Some(matched_obj) => matched_obj,
+                ::core::option::Option::None => return,
+            }
         };
-        let Some(a) = self.actors.get_mut(actor) else {
-            return;
+
+        let a = {
+            let optional_a = self.actors.get_mut(actor);
+
+            match optional_a {
+                Some(matched_a) => matched_a,
+                ::core::option::Option::None => return,
+            }
         };
-        for (k, v) in obj {
-            a.properties.insert(k.clone(), v.clone());
+
+        for (k, v_2) in obj {
+            a.properties.insert(k.clone(), v_2.clone());
         }
     }
 
+    #[must_use]
     pub(super) fn into_model(mut self) -> SequenceDiagramModel {
         let mut actors = std::mem::take(&mut self.actors);
         let mut actors_typed = BTreeMap::new();
         let mut actor_lifecycles = Vec::with_capacity(self.actor_order.len());
+
         for id in &self.actor_order {
             if let Some(a) = actors.remove(id) {
                 actor_lifecycles.push(a.lifecycle);
@@ -752,10 +863,12 @@ fn parse_participant_meta_controlled(
     input: Option<&str>,
     control: &OperationControl,
 ) -> OperationControlResult<std::result::Result<Option<Value>, String>> {
-    let Some(input) = input else {
-        return Ok(Ok(None));
+    let input_2 = match input {
+        Some(matched_input) => matched_input,
+        ::core::option::Option::None => return Ok(Ok(None)),
     };
-    Ok(crate::inline_config::parse_mermaid_inline_object_controlled(input, control)?.map(Some))
+
+    Ok({ let checked_value = crate::inline_config::parse_mermaid_inline_object_controlled(input_2, control)?; checked_value }.map(Some))
 }
 
 #[derive(Debug, Clone)]
@@ -765,12 +878,15 @@ struct BoxData {
     wrap: Option<bool>,
 }
 
+#[must_use]
 fn unescape_entities(input: &str) -> String {
     input.replace("&equals;", "=").replace("&amp;", "&")
 }
 
+#[must_use]
 pub(super) fn split_box_color_and_title(input: &str) -> (&str, &str) {
     let lower = input.to_ascii_lowercase();
+
     for prefix in ["rgba", "rgb", "hsla", "hsl"] {
         if lower.starts_with(prefix)
             && let Some(end) = input.find(')')
@@ -782,25 +898,33 @@ pub(super) fn split_box_color_and_title(input: &str) -> (&str, &str) {
     }
 
     let mut end = 0usize;
+
     for (idx, c) in input.char_indices() {
         if c.is_ascii_alphanumeric() || c == '_' {
             end = idx + c.len_utf8();
             continue;
         }
+
         break;
     }
+
     (&input[..end], &input[end..])
 }
 
+#[must_use]
 pub(super) fn is_css_color_value(input: &str) -> bool {
     let t = input.trim();
+
     if t.is_empty() {
         return false;
     }
+
     let lower = t.to_ascii_lowercase();
+
     if lower == "transparent" {
         return true;
     }
+
     if (lower.starts_with("rgb(")
         || lower.starts_with("rgba(")
         || lower.starts_with("hsl(")
@@ -809,10 +933,12 @@ pub(super) fn is_css_color_value(input: &str) -> bool {
     {
         return true;
     }
+
     if !lower.chars().all(|c| c.is_ascii_alphabetic()) {
         return false;
     }
-    CSS_COLOR_KEYWORDS.binary_search(&lower.as_str()).is_ok()
+
+    match &(CSS_COLOR_KEYWORDS.binary_search(&lower.as_str())) { ::core::result::Result::Ok(_) => true, ::core::result::Result::Err(_insertion_position) => false }
 }
 
 static CSS_COLOR_KEYWORDS: &[&str] = &[

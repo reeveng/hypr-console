@@ -1,6 +1,6 @@
-// Shared SVG utility helpers (split from parity.rs).
-//
-// Keep behavior identical; these helpers are used across multiple diagram renderers.
+
+
+
 
 use merman_markup::theme_color::{ColorChannel, ColorSourceFormat, ThemeColor, rgba};
 use std::fmt::Write as _;
@@ -25,6 +25,7 @@ where
             && semantic
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'));
+
         if normalized {
             std::fmt::Display::fmt(&self.0, formatter)
         } else {
@@ -33,6 +34,7 @@ where
     }
 }
 
+#[must_use]
 pub(super) const fn css_selector_diagram_id<I>(diagram_id: I) -> CssSelectorDiagramId<I> {
     CssSelectorDiagramId(diagram_id)
 }
@@ -43,36 +45,46 @@ pub(super) fn write_style_attribute<'a>(
     out: &mut impl SvgOutput,
     style: Option<&'a str>,
 ) -> Option<&'a str> {
-    let style = style?;
-    write!(out, r#" style="{}""#, escape_attr_display(style))
+    let style_2 = style?;
+    write!(out, r#" style="{}""#, escape_attr_display(style_2))
         .ok()
-        .map(|()| style)
+        .map(|()| style_2)
 }
 
 pub(super) use crate::config::config_f64;
 
+#[must_use]
 pub(super) fn config_string(cfg: &serde_json::Value, path: &[&str]) -> Option<String> {
     let mut cur = cfg;
+
     for key in path {
-        cur = cur.get(*key)?;
+        let checked_value = cur.get(*key)?;
+        cur = checked_value;
     }
+
     cur.as_str().map(|s| s.to_string())
 }
 
 pub(super) use crate::config::json_bool;
 
+#[must_use]
 pub(super) fn config_bool(cfg: &serde_json::Value, path: &[&str]) -> Option<bool> {
     let mut cur = cfg;
+
     for key in path {
-        cur = cur.get(*key)?;
+        let checked_value = cur.get(*key)?;
+        cur = checked_value;
     }
+
     json_bool(cur)
 }
 
+#[must_use]
 pub(super) fn normalize_css_font_family(font_family: &str) -> String {
     crate::config::normalize_css_font_family(font_family)
 }
 
+#[must_use]
 pub(super) fn theme_token(
     effective_config: &serde_json::Value,
     key: &str,
@@ -83,34 +95,37 @@ pub(super) fn theme_token(
 }
 
 pub(super) fn css_rgba_fade(color: &str, opacity: f64) -> crate::Result<String> {
-    let color = ThemeColor::parse(color.trim())?;
+    let color_2 = ThemeColor::parse(color.trim())?;
     let faded = rgba(
-        color.channel(ColorChannel::Red),
-        color.channel(ColorChannel::Green),
-        color.channel(ColorChannel::Blue),
+        color_2.channel(ColorChannel::Red),
+        color_2.channel(ColorChannel::Green),
+        color_2.channel(ColorChannel::Blue),
         opacity,
     )?;
     Ok(faded)
 }
 
+#[must_use]
 pub(crate) fn cssom_color_value(value: &str) -> String {
-    let value = value.trim();
-    let Ok(color) = ThemeColor::parse(value) else {
-        // Preserve CSS variables and browser-supported syntaxes outside Khroma's parser surface.
-        return value.to_string();
+    let value_2 = value.trim();
+
+    let Ok(color) = ThemeColor::parse(value_2) else {
+
+        return value_2.to_string();
     };
 
     if color.source_format() == ColorSourceFormat::Keyword {
-        return value.to_ascii_lowercase();
+        return value_2.to_ascii_lowercase();
     }
 
     let red = color.channel(ColorChannel::Red).round() as i64;
     let green = color.channel(ColorChannel::Green).round() as i64;
     let blue = color.channel(ColorChannel::Blue).round() as i64;
     let alpha = color.channel(ColorChannel::Alpha);
+
     if alpha < 1.0 {
-        let alpha = (alpha * 1000.0).round() / 1000.0;
-        format!("rgba({red}, {green}, {blue}, {})", fmt(alpha))
+        let alpha_2 = (alpha * 1000.0).round() / 1000.0;
+        format!("rgba({red}, {green}, {blue}, {})", fmt(alpha_2))
     } else {
         format!("rgb({red}, {green}, {blue})")
     }
@@ -128,6 +143,7 @@ impl<I: std::fmt::Display> std::fmt::Display for ScopedSvgId<'_, I> {
     }
 }
 
+#[must_use]
 pub(super) fn scoped_svg_id<I>(diagram_id: I, local_id: &str) -> ScopedSvgId<'_, I> {
     ScopedSvgId {
         diagram_id,
@@ -151,6 +167,7 @@ impl<I: std::fmt::Display> std::fmt::Display for ScopedSvgUrl<'_, I> {
     }
 }
 
+#[must_use]
 pub(super) fn scoped_svg_url<I>(diagram_id: I, local_id: &str) -> ScopedSvgUrl<'_, I> {
     ScopedSvgUrl {
         diagram_id,
@@ -170,7 +187,11 @@ where
 {
     fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut parts = self.source.split("url(#drop-shadow)");
-        formatter.write_str(parts.next().unwrap_or_default())?;
+        formatter.write_str(match parts.next() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => "",
+        })?;
+
         for suffix in parts {
             write!(
                 formatter,
@@ -179,24 +200,29 @@ where
             )?;
             formatter.write_str(suffix)?;
         }
+
         Ok(())
     }
 }
 
+#[must_use]
 pub(super) fn scoped_drop_shadow<I>(diagram_id: I, source: &str) -> ScopedDropShadow<'_, I> {
     ScopedDropShadow { diagram_id, source }
 }
 
+#[must_use]
 pub(super) fn fmt_string(v: f64) -> String {
     let mut out = String::new();
     fmt_into(&mut out, v);
     out
 }
 
+#[must_use]
 pub(super) fn fmt_display(v: f64) -> crate::number_format::CanonicalNumber {
     fmt(v)
 }
 
+#[must_use]
 pub(super) fn fmt_points(points: &[crate::model::LayoutPoint]) -> String {
     let mut out = String::new();
     push_points_attr(&mut out, points);
@@ -208,6 +234,7 @@ pub(super) fn push_points_attr(out: &mut impl SvgOutput, points: &[crate::model:
         if idx > 0 {
             out.push(' ');
         }
+
         push_point_pair(out, point.x, point.y);
     }
 }
@@ -216,17 +243,19 @@ pub(super) fn push_point_pair(out: &mut impl SvgOutput, x: f64, y: f64) {
     let _ = write!(out, "{},{}", fmt_display(x), fmt_display(y));
 }
 
+#[must_use]
 pub(super) fn fmt(v: f64) -> crate::number_format::CanonicalNumber {
     crate::number_format::canonical_number(v)
 }
 
 pub(super) fn fmt_into(out: &mut impl SvgOutput, v: f64) {
-    // Match how Mermaid/D3 generally stringify numbers for SVG attributes:
-    // use a round-trippable decimal form (similar to JS `Number#toString()`),
-    // but avoid `-0` and tiny float noise from our own calculations.
+
+
+
     let _ = write!(out, "{}", crate::number_format::canonical_number(v));
 }
 
+#[must_use]
 pub(super) fn fmt_path(v: f64) -> String {
     let mut out = String::new();
     fmt_path_into(&mut out, v);
@@ -234,9 +263,9 @@ pub(super) fn fmt_path(v: f64) -> String {
 }
 
 pub(super) fn fmt_path_into(out: &mut impl SvgOutput, v: f64) {
-    // D3's `d3-path` defaults to 3 fractional digits when stringifying path commands.
-    // Upstream Mermaid fixtures match a `toFixed(3)`-like rounding behavior: round to nearest with
-    // ties away from zero (not `Math.round`, which rounds negative halves toward +∞).
+
+
+
     if !v.is_finite() || v.abs() < 0.0005 {
         out.push('0');
         return;
@@ -248,23 +277,31 @@ pub(super) fn fmt_path_into(out: &mut impl SvgOutput, v: f64) {
     } else {
         (scaled + 0.5).floor() as i64
     };
-    if k == 0 {
-        out.push('0');
-        return;
+
+    match k {
+        0 => {
+            out.push('0');
+            return;
+        },
+        _ => {},
     }
+
     append_fixed_3dp_trimmed(out, k);
 }
 
 fn append_fixed_3dp_trimmed(out: &mut impl SvgOutput, k: i64) {
-    if k == 0 {
-        out.push('0');
-        return;
+    match k {
+        0 => {
+            out.push('0');
+            return;
+        },
+        _ => {},
     }
 
     let neg = k.is_negative();
     let abs = k.unsigned_abs();
-    let int_part = abs / 1000;
-    let frac = abs % 1000;
+    let int_part = ::core::primitive::u64::wrapping_div(abs, 1000);
+    let frac = ::core::primitive::u64::wrapping_rem(abs, 1000);
 
     if neg {
         out.push('-');
@@ -272,36 +309,51 @@ fn append_fixed_3dp_trimmed(out: &mut impl SvgOutput, k: i64) {
 
     let _ = write!(out, "{int_part}");
 
-    if frac == 0 {
-        return;
+    match frac {
+        0 => {
+            return;
+        },
+        _ => {},
     }
 
     let mut frac_str = [b'0'; 3];
-    *{ let [_explicit_part, ..] = &mut frac_str; _explicit_part } = b'0' + ((frac / 100) as u8);
-    *{ let [_, _explicit_part, ..] = &mut frac_str; _explicit_part } = b'0' + (((frac / 10) % 10) as u8);
-    *{ let [_, _, _explicit_part, ..] = &mut frac_str; _explicit_part } = b'0' + ((frac % 10) as u8);
+    *{ let [_explicit_part, ..] = &mut frac_str; _explicit_part } = ::core::primitive::u8::wrapping_add(b'0', (::core::primitive::u64::wrapping_div(frac, 100) as u8));
+    *{ let [_, _explicit_part, ..] = &mut frac_str; _explicit_part } = ::core::primitive::u8::wrapping_add(b'0', (::core::primitive::u64::wrapping_rem(::core::primitive::u64::wrapping_div(frac, 10), 10) as u8));
+    *{ let [_, _, _explicit_part, ..] = &mut frac_str; _explicit_part } = ::core::primitive::u8::wrapping_add(b'0', (::core::primitive::u64::wrapping_rem(frac, 10) as u8));
 
     let mut end = 3usize;
-    while end > 0 && frac_str[end - 1] == b'0' {
-        end -= 1;
+
+    for _ in (::core::ops::Range { start: 0, end }).rev() {
+        match frac_str[end - 1] {
+            b'0' => {},
+            _ => break,
+        };
+
+        end = (::core::num::Wrapping(end) - ::core::num::Wrapping(1)).0;
     }
-    if end == 0 {
-        return;
+
+    match end {
+        0 => {
+            return;
+        },
+        _ => {},
     }
 
     out.push('.');
+
     for &b in &frac_str[..end] {
-        out.push(b as char);
+        out.push(<char as ::core::convert::From<::core::primitive::u8>>::from(b));
     }
 }
 
+#[must_use]
 pub(super) fn json_stringify_points(points: &[crate::model::LayoutPoint]) -> String {
-    // Mermaid encodes `data-points` as Base64(JSON.stringify(points)).
-    // JS `JSON.stringify` prints whole numbers without a `.0` suffix.
-    //
-    // For strict SVG XML parity we must also match V8's number-to-string behavior, including
-    // tie-breaking cases where Rust's default float formatting can pick a different shortest
-    // round-trippable decimal (e.g. `...0312` vs `...0313`).
+
+
+
+
+
+
     let mut out = String::new();
     let mut buf = ryu_js::Buffer::new();
     json_stringify_points_into(&mut out, points, &mut buf);
@@ -314,16 +366,19 @@ pub(super) fn json_stringify_points_into(
     buf: &mut ryu_js::Buffer,
 ) {
     out.push('[');
+
     for (i, p) in points.iter().enumerate() {
         if i > 0 {
             out.push(',');
         }
+
         out.push_str(r#"{"x":"#);
         out.push_str(js_number_to_string(p.x, buf));
         out.push_str(r#","y":"#);
         out.push_str(js_number_to_string(p.y, buf));
         out.push('}');
     }
+
     out.push(']');
 }
 
@@ -331,12 +386,15 @@ fn js_number_to_string(mut v: f64, buf: &mut ryu_js::Buffer) -> &str {
     if !v.is_finite() {
         return "0";
     }
-    if v == -0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(v), ::core::num::FpCategory::Zero) {
         v = 0.0;
     }
+
     buf.format_finite(v)
 }
 
+#[must_use]
 pub(crate) fn escape_xml(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     escape_xml_into(&mut out, text);
@@ -345,6 +403,7 @@ pub(crate) fn escape_xml(text: &str) -> String {
 
 pub(super) use crate::entities::decode_mermaid_entities_for_render_text;
 
+#[must_use]
 fn xml_text_is_plain_ascii(text: &str) -> bool {
     !text.contains("]]>")
         && text.bytes().all(|b| {
@@ -353,6 +412,7 @@ fn xml_text_is_plain_ascii(text: &str) -> bool {
         })
 }
 
+#[must_use]
 fn xml_raw_text_is_plain_ascii(text: &str) -> bool {
     !text.contains("]]>")
         && text.bytes().all(|b| {
@@ -367,9 +427,10 @@ fn xml_text_replacement(
     escape_greater_than: bool,
 ) -> Option<&'static str> {
     if !crate::xml::is_xml_1_0_char(ch) {
-        // Removing a scalar preserves the bracket run in the text that will actually be emitted.
+
         return Some("");
     }
+
     let replacement = match ch {
         '&' => Some("&amp;"),
         '<' => Some("&lt;"),
@@ -378,18 +439,23 @@ fn xml_text_replacement(
         '>' if escape_greater_than || *trailing_brackets == 2 => Some("&gt;"),
         _ => None,
     };
-    *trailing_brackets = if ch == ']' {
-        (*trailing_brackets + 1).min(2)
-    } else {
-        0
+    *trailing_brackets = match ch {
+        ']' => {
+            (*trailing_brackets + 1).min(2)
+        },
+        _ => {
+            0
+        },
     };
     replacement
 }
 
+#[must_use]
 fn xml_attr_replacement(ch: char) -> Option<&'static str> {
     if !crate::xml::is_xml_1_0_char(ch) {
         return Some("");
     }
+
     match ch {
         '\n' => Some("&#10;"),
         '\r' => Some("&#13;"),
@@ -432,6 +498,7 @@ fn escape_xml_raw_into_mode(out: &mut impl SvgOutput, text: &str, escape_greater
     } else {
         xml_raw_text_is_plain_ascii(text)
     };
+
     if plain_ascii && !text.contains("]]>") {
         out.push_str(text);
         return;
@@ -439,35 +506,43 @@ fn escape_xml_raw_into_mode(out: &mut impl SvgOutput, text: &str, escape_greater
 
     let mut start = 0usize;
     let mut trailing_brackets = 0;
+
     for (i, ch) in text.char_indices() {
         let replacement = xml_text_replacement(ch, &mut trailing_brackets, escape_greater_than);
-        let Some(replacement) = replacement else {
-            continue;
+
+        let replacement_2 = match replacement {
+            Some(matched_replacement) => matched_replacement,
+            ::core::option::Option::None => continue,
         };
+
         if start < i {
             out.push_str(&text[start..i]);
         }
-        out.push_str(replacement);
+
+        out.push_str(replacement_2);
         start = i + ch.len_utf8();
     }
+
     if start < text.len() {
         out.push_str(&text[start..]);
     }
 }
 
+#[must_use]
 pub(super) fn escape_xml_display(text: &str) -> EscapeXmlDisplay<'_> {
     EscapeXmlDisplay(text)
 }
 
+#[must_use]
 pub(super) fn escaped_xml_len(text: &str) -> usize {
     if xml_text_is_plain_ascii(text) {
         return text.len();
     }
 
     let decoded = decode_mermaid_entities_for_render_text(text);
-    let text = decoded.as_ref();
+    let text_2 = decoded.as_ref();
     let mut trailing_brackets = 0;
-    text.chars().fold(0usize, |len, ch| {
+    text_2.chars().fold(0usize, |len, ch| {
         let replacement = xml_text_replacement(ch, &mut trailing_brackets, false);
         len.saturating_add(replacement.map_or(ch.len_utf8(), str::len))
     })
@@ -485,31 +560,39 @@ impl std::fmt::Display for EscapeXmlDisplay<'_> {
         let text = decoded.as_ref();
         let mut start = 0usize;
         let mut trailing_brackets = 0;
+
         for (i, ch) in text.char_indices() {
             let replacement = xml_text_replacement(ch, &mut trailing_brackets, false);
-            let Some(replacement) = replacement else {
-                continue;
+
+            let replacement_2 = match replacement {
+                Some(matched_replacement) => matched_replacement,
+                ::core::option::Option::None => continue,
             };
+
             if start < i {
                 f.write_str(&text[start..i])?;
             }
-            f.write_str(replacement)?;
+
+            f.write_str(replacement_2)?;
             start = i + ch.len_utf8();
         }
+
         if start < text.len() {
             f.write_str(&text[start..])?;
         }
+
         Ok(())
     }
 }
 
+#[must_use]
 pub(crate) fn escape_attr(text: &str) -> String {
-    // Note: XML parsers normalize literal newlines/carriage-returns/tabs inside attribute values
-    // into spaces. Mermaid's serialized SVGs typically encode those characters as numeric
-    // character references (e.g. `&#10;`) to keep the attribute value stable across parsers.
-    //
-    // We mirror that behavior here to preserve parity for diagrams that embed newlines in IDs
-    // (e.g. backtick-quoted multiline class names).
+
+
+
+
+
+
     let mut out = String::with_capacity(text.len());
     escape_attr_into(&mut out, text);
     out
@@ -517,21 +600,31 @@ pub(crate) fn escape_attr(text: &str) -> String {
 
 pub(super) fn escape_attr_into(out: &mut impl SvgOutput, text: &str) {
     let mut start = 0usize;
+
     for (i, ch) in text.char_indices() {
-        let Some(replacement) = xml_attr_replacement(ch) else {
-            continue;
+        let replacement = {
+            let optional_replacement = xml_attr_replacement(ch);
+
+            match optional_replacement {
+                Some(matched_replacement) => matched_replacement,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if start < i {
             out.push_str(&text[start..i]);
         }
+
         out.push_str(replacement);
         start = i + ch.len_utf8();
     }
+
     if start < text.len() {
         out.push_str(&text[start..]);
     }
 }
 
+#[must_use]
 pub(super) fn escape_attr_display<T: std::fmt::Display>(value: T) -> EscapeAttrDisplay<T> {
     EscapeAttrDisplay(value)
 }
@@ -547,19 +640,29 @@ impl<T: std::fmt::Display> std::fmt::Display for EscapeAttrDisplay<T> {
         impl std::fmt::Write for EscapedAttrWriter<'_, '_> {
             fn write_str(&mut self, text: &str) -> std::fmt::Result {
                 let mut start = 0usize;
+
                 for (i, ch) in text.char_indices() {
-                    let Some(replacement) = xml_attr_replacement(ch) else {
-                        continue;
+                    let replacement = {
+                        let optional_replacement = xml_attr_replacement(ch);
+
+                        match optional_replacement {
+                            Some(matched_replacement) => matched_replacement,
+                            ::core::option::Option::None => continue,
+                        }
                     };
+
                     if start < i {
                         self.formatter.write_str(&text[start..i])?;
                     }
+
                     self.formatter.write_str(replacement)?;
                     start = i + ch.len_utf8();
                 }
+
                 if start < text.len() {
                     self.formatter.write_str(&text[start..])?;
                 }
+
                 Ok(())
             }
         }

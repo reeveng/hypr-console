@@ -32,6 +32,7 @@
 
 mod reading;
 mod units;
+pub mod video_usability_information;
 mod writing;
 
 pub use crate::reading::{BitReader, FlagBit, Remaining};

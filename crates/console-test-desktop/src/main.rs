@@ -47,6 +47,8 @@
 //! short panel check could finish first and the daemon would arrive during
 //! teardown. Panel descriptions run alone without the desktop services.
 
+mod panel_cycles;
+
 use console_core_external_programs::Program;
 use console_core_finite_numbers::FiniteF64;
 use console_core_geometry::{Point, Size};
@@ -64,7 +66,7 @@ use console_core_arguments::{
 };
 use console_core_words::Words;
 use console_test_desktop::connection::{Inside, Instance, Outcome};
-use console_test_desktop::nested::Wallpaper;
+use console_test_desktop::nested::{self, Wallpaper};
 use console_test_desktop::staging::{Screen, Services, Verbosity, environment, stage_desktop};
 use console_test_desktop::{Unnested, scope_of, screen, session, stage};
 use console_test_stages::picture::{Picture, where_};
@@ -87,12 +89,20 @@ struct Arguments {
   clients: Option<PathBuf>,
   monitors: Option<PathBuf>,
   open: Vec<String>,
-  press: Option<String>,
+  press: Vec<Press>,
   then: Option<String>,
   press_count: NonZeroU64,
   sample: Vec<String>,
   window: bool,
   bare: bool,
+}
+
+enum Press {
+  Script(String),
+  Program {
+    name: String,
+    arguments: Vec<String>,
+  },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
@@ -180,6 +190,12 @@ const PRESS: Flag = Flag {
   about: "once the screen is still, run SCRIPT inside and wait for it to finish",
 };
 
+const PRESS_ARGV: Flag = Flag {
+  spelling: "--press-argv",
+  takes: Takes::Value("JSON_ARRAY"),
+  about: "run the program and its arguments inside once the screen is still",
+};
+
 const THEN: Flag = Flag {
   spelling: "--then",
   takes: Takes::Value("COMMAND"),
@@ -214,7 +230,19 @@ const COMMAND: console_core_arguments::Command = console_core_arguments::Command
   name: "console-desktop",
   about: "the device's desktop, nested on this machine",
   flags: &[
-    SECONDS, SETTLE, UNTIL, CLIENTS, MONITORS, OPEN, PRESS, THEN, PRESS_COUNT, SAMPLE, WINDOW, BARE,
+    SECONDS,
+    SETTLE,
+    UNTIL,
+    CLIENTS,
+    MONITORS,
+    OPEN,
+    PRESS,
+    PRESS_ARGV,
+    THEN,
+    PRESS_COUNT,
+    SAMPLE,
+    WINDOW,
+    BARE,
   ],
   operands: Operands::Optional("FILE"),
 };
@@ -244,6 +272,30 @@ fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
     None => Verb::Run,
   };
 
+  let mut press: Vec<Press> = word(PRESS).into_iter().map(Press::Script).collect();
+
+  match word(PRESS_ARGV) {
+    Some(value) => {
+      let invalid = || {
+        let Ok(reason) = line.refusal(console_core_arguments::Reason::InvalidValue {
+          of: PRESS_ARGV.spelling,
+          value: value.clone(),
+        });
+        reason
+      };
+      let words_2: Vec<String> = serde_json::from_str(&value).map_err(|_| invalid())?;
+      let (name, arguments) = words_2
+        .split_first()
+        .filter(|(name, _)| !name.is_empty())
+        .ok_or_else(invalid)?;
+      press.push(Press::Program {
+        name: name.clone(),
+        arguments: arguments.to_vec(),
+      });
+    }
+    None => {}
+  }
+
   Ok(Arguments {
     command,
     file: operands.first().map(PathBuf::from),
@@ -253,9 +305,15 @@ fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
     clients: path(CLIENTS),
     monitors: path(MONITORS),
     open: open.to_vec(),
-    press: word(PRESS),
+    press,
     then: word(THEN),
-    press_count: line.parsed::<NonZeroU64>(PRESS_COUNT)?.unwrap_or(NonZeroU64::MIN),
+    press_count: match {
+      let checked_value = line.parsed::<NonZeroU64>(PRESS_COUNT)?;
+      checked_value
+    } {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => NonZeroU64::MIN,
+    },
     sample: sample.to_vec(),
     window: window == Presence::Present,
     bare: bare == Presence::Present,
@@ -263,7 +321,37 @@ fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
 }
 
 fn main() -> ExitCode {
+  let invoked_as = std::env::args_os().next().map(PathBuf::from);
+
+  match invoked_as
+    .as_deref()
+    .filter(|at| at.file_name().is_some_and(|name| name == nested::START))
+  {
+    Some(at) => {
+      let Ok(code) = report_helper(nested::start_session(at));
+      return code;
+    }
+    None => {}
+  }
+
   let words: Vec<String> = std::env::args().skip(1).collect();
+
+  match words.as_slice() {
+    [verb, count, saved, program, arguments @ ..] => match verb.as_str() {
+      "panel-cycles" => {
+        let Ok(code) = report_helper(panel_cycles::run(panel_cycles::Request {
+          count,
+          save_to: saved.as_ref(),
+          program,
+          arguments,
+        }));
+        return code;
+      }
+      _ => {}
+    },
+    _ => {}
+  }
+
   let asked = match asked(&words) {
     Ok(asked) => asked,
     Err(refusal) => {
@@ -317,6 +405,16 @@ fn main() -> ExitCode {
       ExitCode::from(1)
     }
   }
+}
+
+fn report_helper(done: std::io::Result<()>) -> Result<ExitCode, Never> {
+  Ok(match done {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(fault) => {
+      eprintln!("console-desktop: {fault}");
+      ExitCode::FAILURE
+    }
+  })
 }
 
 fn press_file(asked: &Arguments) -> Result<u8, Unnested> {
@@ -398,10 +496,13 @@ fn out_of_the_way() -> Result<(), Never> {
     Some(_a_compositor_to_stand_out_of_the_way_of) => {}
   }
 
-  let Ok(_said) = console_compositor::request(
-    console_compositor::Request::Script,
-    r#"hl.window_rule({ name = "the nested desktop stays out of the way", match = { class = "aquamarine" }, workspace = "special:console-desktop silent" })"#,
-  );
+  let Ok(rule) =
+    console_compositor::lua::window_workspace_rule(console_compositor::lua::WindowWorkspace {
+      name: "the nested desktop stays out of the way",
+      class: "aquamarine",
+      workspace: "special:console-desktop silent",
+    });
+  let Ok(_said) = console_compositor::request(console_compositor::Request::Script, &rule);
 
   Ok(())
 }
@@ -427,9 +528,7 @@ fn verify() -> Result<u8, Unnested> {
     Wallpaper::Started,
     Services::Desktop,
   )?;
-  let Ok(mut asking) = Program::Hyprland.command();
-
-  asking.args(["--verify-config", "-c"]).arg(&nested);
+  let Ok(mut asking) = console_compositor::session::verify_configuration(&nested);
 
   let environment = environment()?;
 
@@ -475,15 +574,8 @@ fn start_nested(
   environment: &[(String, String)],
   scope: Option<&str>,
 ) -> Result<(Child, session::Came), Unnested> {
-  #[cfg_attr(
-    dylint_lib = "explicit082_no_built_shell_line",
-    expect(
-      explicit082_no_built_shell_line,
-      reason = "Hyprland uses -c for a configuration file name"
-    )
-  )]
   let Ok(arguments) =
-    Program::Hyprland.words(vec!["-c".to_string(), config.display().to_string()]);
+    console_compositor::session::launch_arguments(&config.display().to_string());
   let Ok((wrapped, scoped_arguments)) = in_a_scope_of_its_own(scope, &arguments);
 
   match wrapped {
@@ -504,7 +596,9 @@ fn start_nested(
     let Ok(running) = session::instances();
     let mut asking = Command::new(program);
 
-    asking.args(rest).env_remove("HYPRLAND_INSTANCE_SIGNATURE");
+    asking
+      .args(rest)
+      .env_remove(console_compositor::session::SIGNATURE);
 
     for (name, value) in environment {
       asking.env(name, value);
@@ -739,12 +833,66 @@ fn open_requested(
   Ok(opened)
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit082_no_built_shell_line",
+  expect(
+    explicit082_no_built_shell_line,
+    reason = "the explicit --press script argument is code supplied by the caller and is passed verbatim without interpolation"
+  )
+)]
+#[cfg_attr(
+  dylint_lib = "explicit029_no_asking_per_item",
+  expect(
+    explicit029_no_asking_per_item,
+    reason = "each requested action starts a separate program and must finish before the next action"
+  )
+)]
+fn run_presses(inside: &Inside, presses: &[Press]) -> Result<u8, Never> {
+  let mut status = 0;
+
+  for press in presses {
+    let (program, arguments): (&str, Vec<&str>) = match press {
+      Press::Script(script) => {
+        let Ok(sh) = Program::Sh.name();
+        (sh, vec!["-c", script])
+      }
+      Press::Program { name, arguments } => {
+        (name, arguments.iter().map(String::as_str).collect())
+      }
+    };
+    let Ok(mut asking) = inside.command(program);
+
+    match asking.args(arguments).status() {
+      Ok(done) => match done.success().then_some(()) {
+        Some(()) => {}
+        None => {
+          eprintln!("console-desktop: {program}: {done}");
+          status = 1;
+        }
+      },
+      Err(fault) => {
+        eprintln!("console-desktop: {program}: {fault}");
+        status = 1;
+      }
+    }
+  }
+
+  Ok(status)
+}
+
 fn run_probe(asked: &Arguments, inside: &Inside, probe: Action) -> Result<u8, Never> {
   match probe {
     Action::Probing => {
-      for question in ["monitors", "workspaces", "clients"] {
-        println!("== {question}");
-        let Ok(said) = inside.hyprctl(&[question, "-j"]);
+      use console_compositor::Query;
+
+      for question in [Query::Monitors, Query::Workspaces, Query::Clients] {
+        let Ok(words) = question.words();
+        let heading = match words.first() {
+          Some(heading) => heading,
+          None => &"query",
+        };
+        println!("== {heading}");
+        let Ok(said) = inside.query_text(question);
 
         println!("{}", said.chars().take(1200).collect::<String>());
       }
@@ -770,43 +918,17 @@ fn run_probe(asked: &Arguments, inside: &Inside, probe: Action) -> Result<u8, Ne
     None => {}
   }
 
-  let mut status = 0;
-  match &asked.press {
-    Some(script) => {
-      match probe {
-        Action::Running | Action::Probing => {
-          let Ok(_settled) = inside.wait_for_a_still_screen();
-        }
-        Action::Describing => {
-          let Ok(()) = inside.focus_a_window();
-        }
-      }
-
-      let Ok(mut asking) = inside.command("sh");
-
-      #[cfg_attr(
-        dylint_lib = "explicit082_no_built_shell_line",
-        expect(
-          explicit082_no_built_shell_line,
-          reason = "the --press argument explicitly contains a shell program for the test driver"
-        )
-      )]
-      match asking.args(["-c", script]).status() {
-        Ok(done) => match ::core::primitive::bool::then_some(done.success(), ()) {
-          ::core::option::Option::Some(()) => {}
-          ::core::option::Option::None => {
-            eprintln!("console-desktop: the presses ended {done}");
-            status = 1;
-          }
-        },
-        Err(fault) => {
-          eprintln!("console-desktop: {script}: {fault}");
-          status = 1;
-        }
-      }
+  match (asked.press.is_empty(), probe) {
+    (true, _) => {}
+    (false, Action::Running | Action::Probing) => {
+      let Ok(_settled) = inside.wait_for_a_still_screen();
     }
-    None => {}
+    (false, Action::Describing) => {
+      let Ok(()) = inside.focus_a_window();
+    }
   }
+
+  let Ok(status) = run_presses(inside, &asked.press);
 
   match (asked.settle, probe) {
     (Some(seconds), Action::Probing | Action::Running | Action::Describing) => {
@@ -827,14 +949,23 @@ fn run_probe(asked: &Arguments, inside: &Inside, probe: Action) -> Result<u8, Ne
 
   Ok(match probe {
     Action::Describing => status,
-    Action::Probing | Action::Running => 0,
+    Action::Probing | Action::Running => match ::core::primitive::bool::then_some(
+      asked
+        .press
+        .iter()
+        .any(|press| matches!(press, Press::Program { .. })),
+      (),
+    ) {
+      ::core::option::Option::Some(()) => status,
+      ::core::option::Option::None => 0,
+    },
   })
 }
 
 fn record_clients(asked: &Arguments, inside: &Inside) -> Result<String, Never> {
   match &asked.clients {
     Some(at) => {
-      let Ok(said) = inside.hyprctl(&["clients", "-j"]);
+      let Ok(said) = inside.query_text(console_compositor::Query::Clients);
 
       match console_core_atomic_writes::whole(at, said.as_bytes()) {
         Ok(()) => {}
@@ -844,7 +975,7 @@ fn record_clients(asked: &Arguments, inside: &Inside) -> Result<String, Never> {
     None => {}
   }
 
-  let Ok(monitors) = inside.hyprctl(&["monitors", "-j"]);
+  let Ok(monitors) = inside.query_text(console_compositor::Query::Monitors);
 
   match &asked.monitors {
     Some(at) => match console_core_atomic_writes::whole(at, monitors.as_bytes()) {

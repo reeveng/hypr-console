@@ -21,6 +21,7 @@ mod validation;
 
 use geometry::{orthogonalize_polyline, simplify_polyline};
 
+#[must_use]
 fn layout_content_ids(layout: &WorkingLayout) -> Vec<String> {
     layout
         .nodes
@@ -37,13 +38,27 @@ fn mirror_axis(layout: &mut WorkingLayout, horizontal: bool) {
         .filter_map(|id| layout.nodes.get(id))
         .map(|node| if horizontal { node.x } else { node.y })
         .collect();
-    let Some(minimum) = values.iter().copied().reduce(f64::min) else {
-        return;
+
+    let minimum = {
+        let optional_minimum = values.iter().copied().reduce(f64::min);
+
+        match optional_minimum {
+            Some(matched_minimum) => matched_minimum,
+            ::core::option::Option::None => return,
+        }
     };
-    let Some(maximum) = values.iter().copied().reduce(f64::max) else {
-        return;
+
+    let maximum = {
+        let optional_maximum = values.iter().copied().reduce(f64::max);
+
+        match optional_maximum {
+            Some(matched_maximum) => matched_maximum,
+            ::core::option::Option::None => return,
+        }
     };
+
     let mirror = |value: f64| minimum + maximum - value;
+
     for node in layout
         .nodes
         .values_mut()
@@ -51,22 +66,31 @@ fn mirror_axis(layout: &mut WorkingLayout, horizontal: bool) {
     {
         if horizontal {
             node.x = mirror(node.x);
-            if let Some(rect) = &mut node.title_rect {
-                let left = mirror(rect.right);
-                let right = mirror(rect.left);
-                rect.left = left;
-                rect.right = right;
+
+            match &mut node.title_rect {
+                Some(rect) => {
+                    let left = mirror(rect.right);
+                    let right = mirror(rect.left);
+                    rect.left = left;
+                    rect.right = right;
+                },
+                ::core::option::Option::None => {},
             }
         } else {
             node.y = mirror(node.y);
-            if let Some(rect) = &mut node.title_rect {
-                let top = mirror(rect.bottom);
-                let bottom = mirror(rect.top);
-                rect.top = top;
-                rect.bottom = bottom;
+
+            match &mut node.title_rect {
+                Some(rect) => {
+                    let top = mirror(rect.bottom);
+                    let bottom = mirror(rect.top);
+                    rect.top = top;
+                    rect.bottom = bottom;
+                },
+                ::core::option::Option::None => {},
             }
         }
     }
+
     for edge in &mut layout.original_edges {
         for point in &mut edge.points {
             if horizontal {
@@ -78,6 +102,7 @@ fn mirror_axis(layout: &mut WorkingLayout, horizontal: bool) {
     }
 }
 
+#[must_use]
 pub(super) fn flow_axis_stretch(layout: &WorkingLayout) -> f64 {
     let (width, height) = layout
         .nodes
@@ -86,6 +111,7 @@ pub(super) fn flow_axis_stretch(layout: &WorkingLayout) -> f64 {
         .fold((0.0, 0.0), |(width, height), node| {
             (width + node.width, height + node.height)
         });
+
     if height > 0.0 {
         (width / height).max(1.0)
     } else {
@@ -95,9 +121,11 @@ pub(super) fn flow_axis_stretch(layout: &WorkingLayout) -> f64 {
 
 fn transform_lr(layout: &mut WorkingLayout) {
     let content_ids = layout_content_ids(layout);
+
     if content_ids.is_empty() {
         return;
     }
+
     let min_x = content_ids
         .iter()
         .map(|id| layout.nodes[id].x)
@@ -113,15 +141,21 @@ fn transform_lr(layout: &mut WorkingLayout) {
     };
 
     for id in &content_ids {
-        if let Some(node) = layout.nodes.get_mut(id) {
-            let transformed = transform(&LayoutPoint {
-                x: node.x,
-                y: node.y,
-            });
-            node.x = transformed.x;
-            node.y = transformed.y;
+        {
+            match layout.nodes.get_mut(id) {
+                Some(node) => {
+                    let transformed = transform(&LayoutPoint {
+                        x: node.x,
+                        y: node.y,
+                    });
+                    node.x = transformed.x;
+                    node.y = transformed.y;
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     for edge in &mut layout.original_edges {
         for point in &mut edge.points {
             *point = transform(point);
@@ -137,6 +171,7 @@ fn transform_lr(layout: &mut WorkingLayout) {
         .map(|node| node.id.clone())
         .collect();
     let mut children_by_lane: HashMap<String, Vec<String>> = HashMap::new();
+
     for node in layout.nodes.values() {
         if node.kind == WorkingNodeKind::Dummy
             || lane_model.is_lane(&node.id)
@@ -144,9 +179,16 @@ fn transform_lr(layout: &mut WorkingLayout) {
         {
             continue;
         }
-        let Some(lane_id) = lane_model.lane_of(&node.id) else {
-            continue;
+
+        let lane_id = {
+            let optional_lane_id = lane_model.lane_of(&node.id);
+
+            match optional_lane_id {
+                Some(matched_lane_id) => matched_lane_id,
+                ::core::option::Option::None => continue,
+            }
         };
+
         children_by_lane
             .entry(lane_id.to_string())
             .or_default()
@@ -160,30 +202,43 @@ fn transform_lr(layout: &mut WorkingLayout) {
     let mut lane_bounds = Vec::new();
     let mut global_min_x = f64::INFINITY;
     let mut global_max_x = f64::NEG_INFINITY;
+
     for id in &top_lane_ids {
-        let children = children_by_lane.get(id).cloned().unwrap_or_default();
+        let children = match children_by_lane.get(id).cloned() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        };
         let mut bounds: Option<Rect> = None;
+
         for child_id in children {
             let child = &layout.nodes[&child_id];
             let rect = Rect::from_center(child.x, child.y, child.width, child.height);
-            if let Some(current) = &mut bounds {
-                current.union(rect);
-            } else {
-                bounds = Some(rect);
+
+            match &mut bounds {
+                Some(current) => {
+                    current.union(rect);
+                },
+                ::core::option::Option::None => {
+                    bounds = Some(rect);
+                },
             }
         }
-        let Some(bounds) = bounds else {
-            continue;
+
+        let bounds_2 = match bounds {
+            Some(matched_bounds) => matched_bounds,
+            ::core::option::Option::None => continue,
         };
-        global_min_x = global_min_x.min(bounds.left);
-        global_max_x = global_max_x.max(bounds.right);
+
+        global_min_x = global_min_x.min(bounds_2.left);
+        global_max_x = global_max_x.max(bounds_2.right);
         lane_bounds.push((
             id.clone(),
-            bounds.top,
-            bounds.bottom,
-            (bounds.top + bounds.bottom) / 2.0,
+            bounds_2.top,
+            bounds_2.bottom,
+            (bounds_2.top + bounds_2.bottom) / 2.0,
         ));
     }
+
     if !global_min_x.is_finite() || !global_max_x.is_finite() {
         return;
     }
@@ -200,28 +255,37 @@ fn transform_lr(layout: &mut WorkingLayout) {
 
     for index in 0..lane_bounds.len() {
         let (id, content_top, content_bottom, _) = &lane_bounds[index];
-        let top = if index == 0 {
-            content_top - vertical_margin
-        } else {
-            (lane_bounds[index - 1].2 + content_top) / 2.0
+        let top = match index {
+            0 => {
+                content_top - vertical_margin
+            },
+            _ => {
+                (lane_bounds[index - 1].2 + content_top) / 2.0
+            },
         };
         let bottom = if index + 1 == lane_bounds.len() {
             content_bottom + vertical_margin
         } else {
             (content_bottom + lane_bounds[index + 1].1) / 2.0
         };
-        if let Some(lane) = layout.nodes.get_mut(id) {
-            lane.x = center_x;
-            lane.y = (top + bottom) / 2.0;
-            lane.width = lane_width;
-            lane.height = (bottom - top).max(0.0);
-            lane.content_top = Some(*content_top);
-            lane.title_rect = Some(SwimlaneTitleRect {
-                left: lane_left,
-                right: lane_left + LR_TITLE_BAND_SIZE,
-                top,
-                bottom,
-            });
+
+        {
+            match layout.nodes.get_mut(id) {
+                Some(lane) => {
+                    lane.x = center_x;
+                    lane.y = (top + bottom) / 2.0;
+                    lane.width = lane_width;
+                    lane.height = (bottom - top).max(0.0);
+                    lane.content_top = Some(*content_top);
+                    lane.title_rect = Some(SwimlaneTitleRect {
+                        left: lane_left,
+                        right: lane_left + LR_TITLE_BAND_SIZE,
+                        top,
+                        bottom,
+                    });
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 }
@@ -231,7 +295,7 @@ fn finalize_rendered_edges(
     work_budget: &mut LayoutWorkBudget,
 ) -> Result<()> {
     materialized_geometry::resolve_rendered_orthogonal_crossings(layout, work_budget)?;
-    // Crossing cleanup can move a route onto another edge's terminal face.
+
     materialized_geometry::separate_shared_rendered_terminal_lanes(layout, work_budget)?;
     materialized_geometry::reassign_crossing_external_rail_channels(layout, work_budget)?;
     materialized_geometry::shortcut_redundant_orthogonal_jogs(layout, work_budget)?;
@@ -256,9 +320,11 @@ fn post_process_staged(
             mirror_axis(layout, true);
         }
     }
+
     for edge in &mut layout.original_edges {
         edge.points = simplify_polyline(&orthogonalize_polyline(&edge.points));
     }
+
     detour_simplification::simplify_detoured_edges(layout, work_budget)?;
     sibling_shared_face_routing::straighten_collinear_sibling_detours(layout, work_budget)?;
     port_swap::port_swap_to_l_shape(layout, work_budget)?;
@@ -282,9 +348,11 @@ fn post_process_staged(
         materialized_geometry::lift_top_lane_title_bands_above_rails(layout, work_budget)?;
         materialized_geometry::shift_left_lane_title_bands_left_of_rails(layout, work_budget)?;
     }
+
     Ok(())
 }
 
+#[must_use]
 fn post_process_snapshot_ticks(layout: &WorkingLayout) -> usize {
     let edge_points = layout
         .graph_edges
@@ -305,12 +373,12 @@ pub(super) fn post_process(
     layout: &mut WorkingLayout,
     work_budget: &mut LayoutWorkBudget,
 ) -> Result<()> {
-    // Reserve the snapshot and initial transform cost before cloning any geometry.
+
     work_budget.charge(post_process_snapshot_ticks(layout))?;
     work_budget.finish()?;
 
-    // One transaction-wide snapshot keeps resource failures atomic without
-    // cloning the complete layout again inside each finalization pass.
+
+
     let mut staged = layout.clone();
     post_process_staged(&mut staged, work_budget)?;
     work_budget.finish()?;
@@ -489,8 +557,8 @@ mod resource_tests {
                     .collect::<Vec<_>>()
             })
             .collect::<Vec<_>>();
-        // Model and routing work may consume the operation budget before post-processing starts.
-        // Start at the legal positive boundary so snapshot cost is rejected before cloning.
+
+
         let mut budget = LayoutWorkBudget::new(policy(1), 1).unwrap();
 
         let error = post_process(&mut layout, &mut budget).unwrap_err();

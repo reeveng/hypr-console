@@ -8,8 +8,10 @@ use super::super::roughjs_common::{
     mermaid_arc_points as roughjs_arc_points, ops_to_svg_path_d as roughjs_ops_to_svg_path_d,
 };
 
+#[must_use]
 pub(super) fn normalized_rounded_rect_radius(w: f64, h: f64, radius: f64) -> f64 {
     let max_radius = (w.abs() / 2.0).min(h.abs() / 2.0);
+
     if !radius.is_finite() || !max_radius.is_finite() || max_radius <= 0.0 {
         0.0
     } else {
@@ -17,9 +19,11 @@ pub(super) fn normalized_rounded_rect_radius(w: f64, h: f64, radius: f64) -> f64
     }
 }
 
+#[must_use]
 pub(super) fn mermaid_rounded_rect_path_data(w: f64, h: f64, radius: f64) -> String {
-    let radius = normalized_rounded_rect_radius(w, h, radius);
-    if radius == 0.0 {
+    let radius_2 = normalized_rounded_rect_radius(w, h, radius);
+
+    if ::core::matches!(::core::primitive::f64::classify(radius_2), ::core::num::FpCategory::Zero) {
         return roughjs_closed_path_d_from_points(&[
             (-w / 2.0, -h / 2.0),
             (w / 2.0, -h / 2.0),
@@ -27,7 +31,8 @@ pub(super) fn mermaid_rounded_rect_path_data(w: f64, h: f64, radius: f64) -> Str
             (-w / 2.0, h / 2.0),
         ]);
     }
-    let taper = radius;
+
+    let taper = radius_2;
 
     let mut points: Vec<(f64, f64)> = Vec::new();
 
@@ -38,8 +43,8 @@ pub(super) fn mermaid_rounded_rect_path_data(w: f64, h: f64, radius: f64) -> Str
         -h / 2.0,
         w / 2.0,
         -h / 2.0 + taper,
-        radius,
-        radius,
+        radius_2,
+        radius_2,
         true,
     ));
 
@@ -50,8 +55,8 @@ pub(super) fn mermaid_rounded_rect_path_data(w: f64, h: f64, radius: f64) -> Str
         h / 2.0 - taper,
         w / 2.0 - taper,
         h / 2.0,
-        radius,
-        radius,
+        radius_2,
+        radius_2,
         true,
     ));
 
@@ -62,8 +67,8 @@ pub(super) fn mermaid_rounded_rect_path_data(w: f64, h: f64, radius: f64) -> Str
         h / 2.0,
         -w / 2.0,
         h / 2.0 - taper,
-        radius,
-        radius,
+        radius_2,
+        radius_2,
         true,
     ));
 
@@ -74,14 +79,15 @@ pub(super) fn mermaid_rounded_rect_path_data(w: f64, h: f64, radius: f64) -> Str
         -h / 2.0 + taper,
         -w / 2.0 + taper,
         -h / 2.0,
-        radius,
-        radius,
+        radius_2,
+        radius_2,
         true,
     ));
 
     roughjs_closed_path_d_from_points(&points)
 }
 
+#[must_use]
 pub(super) fn mermaid_choice_diamond_path_data(w: f64, h: f64) -> String {
     let points: Vec<(f64, f64)> = vec![
         (0.0, h / 2.0),
@@ -92,6 +98,7 @@ pub(super) fn mermaid_choice_diamond_path_data(w: f64, h: f64) -> String {
     roughjs_closed_path_d_from_points(&points)
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn roughjs_paths_for_svg_path(
     svg_path_data: &str,
     stroke_width: f32,
@@ -100,6 +107,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_svg_path(
 ) -> Option<(String, String)> {
     let mut dash0: Option<f32> = None;
     let mut dash1: Option<f32> = None;
+
     for t in stroke_dasharray
         .trim()
         .split(|ch: char| ch == ',' || ch.is_whitespace())
@@ -107,17 +115,28 @@ pub(in crate::svg::parity) fn roughjs_paths_for_svg_path(
         if t.is_empty() {
             continue;
         }
-        let Ok(v) = t.parse::<f32>() else {
-            continue;
+
+        let v = {
+            let outcome_v = t.parse::<f32>();
+
+            match outcome_v {
+                Ok(matched_v) => matched_v,
+                ::core::result::Result::Err(_) => continue,
+            }
         };
-        if dash0.is_none() {
-            dash0 = Some(v);
-        } else {
-            dash1 = Some(v);
-            break;
+
+        match dash0 {
+            ::core::option::Option::None => {
+                dash0 = Some(v);
+            },
+            ::core::option::Option::Some(_) => {
+                dash1 = Some(v);
+                break;
+            },
         }
     }
-    let (dash0, dash1) = match (dash0, dash1) {
+
+    let (dash0_2, dash1_2) = match (dash0, dash1) {
         (Some(a), Some(b)) => (a, b),
         (Some(a), None) => (a, a),
         _ => (0.0, 0.0),
@@ -126,14 +145,14 @@ pub(in crate::svg::parity) fn roughjs_paths_for_svg_path(
     let path_segments: Vec<PathSegment> = PathParser::from(svg_path_data).flatten().collect();
     let normalized_segments = roughr::points_on_path::normalized_segments(&path_segments);
 
-    // Use a single mutable `Options` to match Rough.js behavior: the PRNG state (`randomizer`)
-    // lives on the options object and advances across drawing phases.
+
+
     let mut options = roughr::core::OptionsBuilder::default()
         .randomness(randomness.clone())
         .roughness(0.0)
         .fill_style(roughr::core::FillStyle::Solid)
         .stroke_width(stroke_width)
-        .stroke_line_dash(vec![dash0 as f64, dash1 as f64])
+        .stroke_line_dash(vec![<f64 as ::core::convert::From<::core::primitive::f32>>::from(dash0_2), <f64 as ::core::convert::From<::core::primitive::f32>>::from(dash1_2)])
         .stroke_line_dash_offset(0.0)
         .fill_line_dash(vec![0.0, 0.0])
         .fill_line_dash_offset(0.0)
@@ -142,7 +161,10 @@ pub(in crate::svg::parity) fn roughjs_paths_for_svg_path(
         .build()
         .ok()?;
 
-    let base_roughness = options.roughness.unwrap_or(1.0);
+    let base_roughness = match options.roughness {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 1.0,
+    };
     let move_to_count = normalized_segments
         .iter()
         .filter(|seg| matches!(seg, PathSegment::MoveTo { abs: svgtypes::CoordinateMode::Absolute, .. }))
@@ -150,10 +172,10 @@ pub(in crate::svg::parity) fn roughjs_paths_for_svg_path(
     let single_set = move_to_count <= 1;
 
     let fill_opset = if single_set {
-        // Rough.js uses a different setting profile for solid fill on paths.
+
         options.disable_multi_stroke = Some(true);
         options.disable_multi_stroke_fill = Some(true);
-        options.roughness = Some(if base_roughness != 0.0 {
+        options.roughness = Some(if !::core::matches!(::core::primitive::f32::classify(base_roughness), ::core::num::FpCategory::Zero) {
             base_roughness + 0.8
         } else {
             0.0
@@ -169,7 +191,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_svg_path(
         });
         opset
     } else {
-        let distance = (1.0 + base_roughness as f64) / 2.0;
+        let distance = (1.0 + <f64 as ::core::convert::From<::core::primitive::f32>>::from(base_roughness)) / 2.0;
         let sets = roughr::points_on_path::points_on_normalized_segments::<f64>(
             &normalized_segments,
             Some(1.0),
@@ -180,7 +202,7 @@ pub(in crate::svg::parity) fn roughjs_paths_for_svg_path(
         roughr::renderer::solid_fill_polygon(&sets, &mut options)
     };
 
-    // Restore stroke settings and render the outline *after* fill so the PRNG stream matches.
+
     options.disable_multi_stroke = Some(false);
     options.disable_multi_stroke_fill = Some(false);
     options.roughness = Some(base_roughness);

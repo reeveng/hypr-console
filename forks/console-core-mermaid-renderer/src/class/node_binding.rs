@@ -25,6 +25,7 @@ impl ClassNodeVisualPlan {
     ) -> crate::Result<Self> {
         let mut indices: FixedMap<String, ClassNodeVisualIndices> = FixedMap::default();
         let mut nodes = Vec::with_capacity(model.classes().len());
+
         for (id, node) in model.classes() {
             work.checkpoint(merman_model::OperationPhase::Layout)?;
             let binding = ClassNodeVisualBinding::lower(
@@ -42,7 +43,9 @@ impl ClassNodeVisualPlan {
             );
             nodes.push(binding);
         }
+
         let mut interfaces = Vec::new();
+
         for (ordinal, interface) in model.interfaces().enumerate() {
             work.checkpoint(merman_model::OperationPhase::Layout)?;
             let binding = ClassInterfaceVisualBinding::lower(
@@ -55,13 +58,18 @@ impl ClassNodeVisualPlan {
                     node: None,
                     interface: None,
                 });
-            if let Some(slot) = index.interface {
-                interfaces[slot] = binding;
-            } else {
-                index.interface = Some(interfaces.len());
-                interfaces.push(binding);
+
+            match index.interface {
+                Some(slot) => {
+                    interfaces[slot] = binding;
+                },
+                ::core::option::Option::None => {
+                    index.interface = Some(interfaces.len());
+                    interfaces.push(binding);
+                },
             }
         }
+
         Ok(Self {
             indices,
             nodes: nodes.into_boxed_slice(),
@@ -69,6 +77,7 @@ impl ClassNodeVisualPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn label_paints(&self) -> impl Iterator<Item = (&str, Option<usize>)> {
         self.indices.iter().map(|(id, index)| {
             let rule = index
@@ -84,6 +93,7 @@ impl ClassNodeVisualPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn node(&self, id: &str) -> &ClassNodeVisualBinding {
         let index = self
             .indices
@@ -93,6 +103,7 @@ impl ClassNodeVisualPlan {
         &self.nodes[index]
     }
 
+    #[must_use]
     pub(crate) fn interface(&self, id: &str) -> &ClassInterfaceVisualBinding {
         let index = self
             .indices
@@ -114,6 +125,7 @@ pub(crate) struct ClassInterfaceVisualBinding {
 }
 
 impl ClassInterfaceVisualBinding {
+    #[must_use]
     fn lower(interface: &ClassInterface, paint: &crate::class::ClassNodePaintBinding) -> Self {
         let label = crate::entities::decode_entities_minimal_cow(interface.label.trim());
         let source_owned = crate::class::class_text_is_math_only(label.as_ref());
@@ -134,6 +146,7 @@ impl ClassInterfaceVisualBinding {
         }
     }
 
+    #[must_use]
     pub(crate) fn emitted_label_fill(&self) -> Option<(usize, &str)> {
         self.label_fill
             .as_ref()
@@ -144,7 +157,7 @@ impl ClassInterfaceVisualBinding {
 /// Paint selections and declarations resolved once before any Class node is emitted.
 #[derive(Debug)]
 pub(crate) struct ClassNodeVisualBinding {
-    // None selects the artifact-owned default, regardless of CSS value equality.
+
     fill_override: Option<String>,
     stroke_override: Option<String>,
     stroke_width_override: Option<String>,
@@ -160,22 +173,26 @@ pub(crate) struct ClassNodeVisualBinding {
 }
 
 impl ClassNodeVisualBinding {
+    #[must_use]
     pub(crate) fn fill<'a>(&'a self, defaults: &'a super::ClassCssThemeBinding) -> &'a str {
         self.fill_override
             .as_deref()
             .unwrap_or(&defaults.node_default_fill)
     }
 
+    #[must_use]
     pub(crate) fn stroke<'a>(&'a self, defaults: &'a super::ClassCssThemeBinding) -> &'a str {
         self.stroke_override
             .as_deref()
             .unwrap_or(&defaults.node_default_stroke)
     }
 
+    #[must_use]
     pub(crate) fn stroke_width(&self) -> &str {
         self.stroke_width_override.as_deref().unwrap_or("1.3")
     }
 
+    #[must_use]
     pub(crate) fn stroke_dasharray(&self) -> &str {
         self.stroke_dasharray_override.as_deref().unwrap_or("0 0")
     }
@@ -265,15 +282,18 @@ struct ClassNodeLabelTerminalTruth {
 }
 
 impl ClassNodeLabelTerminalTruth {
+    #[must_use]
     const fn source_owns_paint(self) -> bool {
         self.source_owns_paint
     }
 
+    #[must_use]
     const fn typed_fill_verified(self) -> bool {
         self.typed_fill_verified
     }
 }
 
+#[must_use]
 pub(super) fn class_apply_inline_styles<'a>(node: &'a ClassNode) -> ClassInlineStyles<'a> {
     let mut style_attr = String::new();
     let mut color: Option<&str> = None;
@@ -283,12 +303,19 @@ pub(super) fn class_apply_inline_styles<'a>(node: &'a ClassNode) -> ClassInlineS
     let mut stroke_dasharray: Option<&str> = None;
 
     for raw in &node.styles {
-        let Some(parsed) = crate::mermaid_style::parse_style_declaration(raw) else {
-            continue;
+        let parsed = {
+            let optional_parsed = crate::mermaid_style::parse_style_declaration(raw);
+
+            match optional_parsed {
+                Some(matched_parsed) => matched_parsed,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !style_attr.is_empty() {
             style_attr.push(';');
         }
+
         style_attr.push_str(parsed.property_css());
         style_attr.push(':');
         style_attr.push_str(parsed.source_value());
@@ -313,6 +340,7 @@ pub(super) fn class_apply_inline_styles<'a>(node: &'a ClassNode) -> ClassInlineS
     }
 }
 
+#[must_use]
 fn class_node_label_terminal_truth(
     terminal_facts: crate::class::ClassTextTerminalFacts,
 ) -> ClassNodeLabelTerminalTruth {
@@ -322,18 +350,24 @@ fn class_node_label_terminal_truth(
     }
 }
 
+#[must_use]
 fn class_source_label_style(color: Option<&str>) -> String {
-    color.map_or_else(String::new, |color| format!("color:{color};fill:{color}"))
+    color.map_or_else(String::new, |color_2| format!("color:{color};fill:{color}", color = color_2))
 }
 
+#[must_use]
 pub(crate) fn class_node_label_style(source_style: &str, typed_fill: Option<&str>) -> String {
     let mut style = source_style.trim().trim_end_matches(';').to_string();
-    let Some(fill) = typed_fill else {
-        return style;
+
+    let fill = match typed_fill {
+        Some(matched_fill) => matched_fill,
+        ::core::option::Option::None => return style,
     };
+
     if !style.is_empty() {
         style.push(';');
     }
+
     style.push_str("color:");
     style.push_str(fill);
     style.push_str(" !important;fill:");
@@ -342,18 +376,23 @@ pub(crate) fn class_node_label_style(source_style: &str, typed_fill: Option<&str
     style
 }
 
+#[must_use]
 pub(crate) fn class_node_paint_style(
     source_style: &str,
     property: &str,
     typed_paint: Option<&str>,
 ) -> String {
     let mut style = source_style.trim().trim_end_matches(';').to_string();
-    let Some(paint) = typed_paint else {
-        return style;
+
+    let paint = match typed_paint {
+        Some(matched_paint) => matched_paint,
+        ::core::option::Option::None => return style,
     };
+
     if !style.is_empty() {
         style.push(';');
     }
+
     style.push_str(property);
     style.push(':');
     style.push_str(paint);

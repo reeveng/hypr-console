@@ -43,11 +43,12 @@ pub(crate) struct UsecaseCssBinding {
 }
 
 impl UsecaseCssBinding {
+    #[must_use]
     pub(crate) fn new(config: &Value) -> Self {
         let token = |keys: &[&str], fallback: &str| {
             keys.iter()
                 .find_map(|key| config_string(config, &["themeVariables", key]))
-                .unwrap_or_else(|| fallback.into())
+                .unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(fallback))
         };
         let main = token(&["mainBkg", "primaryColor"], "#ECECFF");
         let node_border = token(&["nodeBorder", "primaryColor"], "#9370DB");
@@ -79,14 +80,14 @@ impl UsecaseCssBinding {
             Some(Value::Number(value)) => value.to_string(),
             _ => String::new(),
         };
-        let look = if !look.is_empty()
+        let look_2 = if !look.is_empty()
             && look
                 .bytes()
                 .all(|ch| ch.is_ascii_alphanumeric() || ch == b'_' || ch == b'-')
         {
             look
         } else {
-            "classic".into()
+            <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("classic")
         };
         Self {
             generic_font,
@@ -120,21 +121,28 @@ impl UsecaseCssBinding {
             line,
             palette,
             backgrounds,
-            look,
-            edge_look: config_string(config, &["look"]).unwrap_or_else(|| "neo".into()),
+            look: look_2,
+            edge_look: match config_string(config, &["look"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("neo"),
+            },
             rotate: config
                 .pointer("/usecase/colorScheme")
                 .and_then(Value::as_str)
                 == Some("rotate"),
-            hand_drawn_seed: config_f64(config, &["handDrawnSeed"]).unwrap_or(0.0),
+            hand_drawn_seed: match config_f64(config, &["handDrawnSeed"]) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            },
             neo: crate::svg::PreparedCommonNeoCss::new(config),
             look_defs: crate::svg::PreparedLookDefs::new(config),
         }
     }
 }
 
+#[must_use]
 fn raw_palette(config: &Value, key: &str) -> Vec<String> {
-    config
+    match config
         .get("themeVariables")
         .and_then(|values| values.get(key))
         .and_then(Value::as_array)
@@ -148,8 +156,10 @@ fn raw_palette(config: &Value, key: &str) -> Vec<String> {
                         .unwrap_or_else(|| value.to_string())
                 })
                 .collect()
-        })
-        .unwrap_or_default()
+        }) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => ::std::vec::Vec::new(),
+    }
 }
 
 #[cfg(test)]

@@ -15,6 +15,7 @@ impl StateDocumentScratch {
         self.builder.append(statements)
     }
 
+    #[must_use]
     pub(super) fn get(&self, id: StateDocumentId) -> Option<&[StateStatement]> {
         self.builder.get(id)
     }
@@ -25,8 +26,12 @@ impl StateDocumentScratch {
             .expect("scratch document id was allocated by this builder")
     }
 
+    #[must_use]
     pub(super) fn root_statements(&self) -> &[StateStatement] {
-        self.root.and_then(|id| self.get(id)).unwrap_or_default()
+        match self.root.and_then(|id| self.get(id)) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => &[],
+        }
     }
 
     pub(super) fn finish_controlled(

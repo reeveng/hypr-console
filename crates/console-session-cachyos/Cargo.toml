@@ -1,0 +1,30 @@
+[package]
+name = "console-session-cachyos"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "session-game"
+path = "src/bin/session-game.rs"
+
+[[bin]]
+name = "session-desktop"
+path = "src/bin/session-desktop.rs"
+
+[[bin]]
+name = "steamos-session-select"
+path = "src/bin/steamos-session-select.rs"
+
+[dependencies]
+console-compositor.workspace = true
+console-core-external-programs.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-never.workspace = true
+console-core-places.workspace = true
+console-session.workspace = true
+console-waiting.workspace = true
+
+[lints]
+workspace = true

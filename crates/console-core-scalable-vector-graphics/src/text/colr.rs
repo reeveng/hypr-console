@@ -46,9 +46,9 @@ impl<'a> Builder<'a> {
       self.min.x <= self.max.x && self.min.y <= self.max.y,
       (),
     ) {
-      ::core::option::Option::Some(()) => {
-        console_core_paths::FloatRectangle::from_ltrb(self.min.x, self.min.y, self.max.x, self.max.y)
-      }
+      ::core::option::Option::Some(()) => console_core_paths::FloatRectangle::from_ltrb(
+        self.min.x, self.min.y, self.max.x, self.max.y,
+      ),
       ::core::option::Option::None => Ok(None),
     }
   }
@@ -371,7 +371,8 @@ fn map_rect(
 fn intersect_rects(
   a: console_core_paths::FloatRectangle,
   b: console_core_paths::FloatRectangle,
-) -> ::core::result::Result<Option<console_core_paths::FloatRectangle>, ::console_core_never::Never> {
+) -> ::core::result::Result<Option<console_core_paths::FloatRectangle>, ::console_core_never::Never>
+{
   let Ok(left) = a.left();
   let Ok(b_left) = b.left();
   let Ok(rect) = console_core_paths::FloatRectangle::from_ltrb(

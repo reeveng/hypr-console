@@ -1,0 +1,528 @@
+//! What a calculator's keys come to, with no screen in it.
+//!
+//! The keys are the iPhone's, and so is what they mean: an operator waits for
+//! the number after it, a second operator finishes the first sum and waits
+//! again, equals finishes whatever is waiting, and an operator pressed twice in
+//! a row is a change of mind rather than a sum with nothing on one side. That
+//! is immediate execution, left to right -- 2 + 3 × 4 is 20 -- because that is
+//! what every pocket calculator anyone has held does, and a person checking a
+//! bill is not writing an expression.
+//!
+//! **A number is an `f64`, said to twelve places.** 0.1 + 0.2 is
+//! 0.30000000000000004 underneath, and nobody wants to read that, so what is
+//! shown is rounded to the digits a double can be trusted with. A decimal type
+//! would answer that exactly and was not written, because the display has
+//! room for fewer digits than the error ever reaches.
+//!
+//! An answer that is not a finite number says Error rather than infinity --
+//! dividing by nothing, or a product past the largest double -- and the next
+//! key starts again from it. Each number is a `FiniteF64`, so that is asked
+//! once, where the answer is made, and never again by what shows it.
+
+use console_core_finite_numbers::FiniteF64;
+use console_core_never::Never;
+use console_core_words::Words;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+pub enum Operator {
+  #[words(says = "+")]
+  Add,
+  #[words(says = "\u{2212}")]
+  Subtract,
+  #[words(says = "\u{d7}")]
+  Multiply,
+  #[words(says = "\u{f7}")]
+  Divide,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Key {
+  Digit(u8),
+  Point,
+  Operator(Operator),
+  Equals,
+  Clear,
+  Sign,
+  Percent,
+  Backspace,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Typing {
+  Fresh,
+  Along,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sum {
+  entry: String,
+  waiting: Option<(FiniteF64, Operator)>,
+  typing: Typing,
+  failed: Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Failed {
+  Yes,
+  No,
+}
+
+const LONGEST: u32 = 15;
+
+const ERROR: &str = "Error";
+
+impl Default for Sum {
+  fn default() -> Self {
+    Sum {
+      entry: "0".to_string(),
+      waiting: None,
+      typing: Typing::Fresh,
+      failed: Failed::No,
+    }
+  }
+}
+
+impl Sum {
+  pub fn shown(&self) -> Result<String, Never> {
+    Ok(match self.failed {
+      Failed::Yes => ERROR.to_string(),
+      Failed::No => self.entry.clone(),
+    })
+  }
+
+  pub fn above(&self) -> Result<String, Never> {
+    Ok(match self.waiting {
+      Some((held, operator)) => {
+        let Ok(first_number) = format_number(held);
+        let Ok(symbol) = operator.says();
+
+        format!("{first_number} {symbol}")
+      }
+      None => String::new(),
+    })
+  }
+
+  pub fn lit(&self) -> Result<Option<Operator>, Never> {
+    Ok(match (self.waiting, self.typing) {
+      (Some((_, operator)), Typing::Fresh) => Some(operator),
+      (Some(_), Typing::Along) | (None, _) => None,
+    })
+  }
+
+  pub fn press(&self, key: Key) -> Result<Sum, Never> {
+    let from = match self.failed {
+      Failed::Yes => Sum::default(),
+      Failed::No => self.clone(),
+    };
+
+    match key {
+      Key::Digit(digit) => from.type_digit(&digit.min(9).to_string()),
+      Key::Point => from.type_point(),
+      Key::Operator(operator) => from.waiting_on(operator),
+      Key::Equals => from.equals(),
+      Key::Clear => Ok(Sum::default()),
+      Key::Sign => from.signed(),
+      Key::Percent => from.percent(),
+      Key::Backspace => from.rubbed_out(),
+    }
+  }
+
+  fn type_digit(self, digit: &str) -> Result<Sum, Never> {
+    let Ok(long) = console_core_number_conversion::fitted::<_, u32>(self.entry.chars().count());
+    let entry = match (self.typing, self.entry.as_str()) {
+      (Typing::Fresh, _) | (Typing::Along, "0") => digit.to_string(),
+      (Typing::Along, "-0") => format!("-{digit}"),
+      (Typing::Along, was) => match long.cmp(&LONGEST) {
+        core::cmp::Ordering::Equal | core::cmp::Ordering::Greater => was.to_string(),
+        core::cmp::Ordering::Less => format!("{was}{digit}"),
+      },
+    };
+
+    Ok(Sum {
+      entry,
+      typing: Typing::Along,
+      ..self
+    })
+  }
+
+  fn type_point(self) -> Result<Sum, Never> {
+    let entry = match (self.typing, self.entry.split_once('.')) {
+      (Typing::Fresh, Some(_) | None) => "0.".to_string(),
+      (Typing::Along, Some(_)) => self.entry.clone(),
+      (Typing::Along, None) => format!("{}.", self.entry),
+    };
+
+    Ok(Sum {
+      entry,
+      typing: Typing::Along,
+      ..self
+    })
+  }
+
+  fn value(&self) -> Result<FiniteF64, Never> {
+    Ok(match self.entry.parse::<FiniteF64>() {
+      Ok(value) => value,
+      Err(_not_a_finite_number) => FiniteF64::ZERO,
+    })
+  }
+
+  fn waiting_on(self, operator: Operator) -> Result<Sum, Never> {
+    match (self.waiting, self.typing) {
+      (Some((held, _)), Typing::Fresh) => Ok(Sum {
+        waiting: Some((held, operator)),
+        ..self
+      }),
+      (Some(_), Typing::Along) => {
+        let Ok(done) = self.equals();
+
+        match done.failed {
+          Failed::Yes => Ok(done),
+          Failed::No => {
+            let Ok(value) = done.value();
+
+            Ok(Sum {
+              waiting: Some((value, operator)),
+              typing: Typing::Fresh,
+              ..done
+            })
+          }
+        }
+      }
+      (None, _) => {
+        let Ok(value) = self.value();
+
+        Ok(Sum {
+          waiting: Some((value, operator)),
+          typing: Typing::Fresh,
+          ..self
+        })
+      }
+    }
+  }
+
+  fn equals(self) -> Result<Sum, Never> {
+    let (held, operator) = match self.waiting {
+      Some(waiting) => waiting,
+      None => {
+        return Ok(Sum {
+          typing: Typing::Fresh,
+          ..self
+        });
+      }
+    };
+    let Ok(value) = self.value();
+    let Ok(answer) = apply((held, operator), value);
+
+    Ok(match answer {
+      Some(answer_2) => {
+        let Ok(entry) = format_number(answer_2);
+
+        Sum {
+          entry,
+          waiting: None,
+          typing: Typing::Fresh,
+          failed: Failed::No,
+        }
+      }
+      None => Sum {
+        waiting: None,
+        typing: Typing::Fresh,
+        failed: Failed::Yes,
+        ..Sum::default()
+      },
+    })
+  }
+
+  fn signed(self) -> Result<Sum, Never> {
+    let entry = match self.entry.strip_prefix('-') {
+      Some(positive) => positive.to_string(),
+      None => format!("-{}", self.entry),
+    };
+
+    Ok(Sum { entry, ..self })
+  }
+
+  fn rubbed_out(self) -> Result<Sum, Never> {
+    let mut shorter = self.entry.clone();
+
+    let _ = shorter.pop();
+
+    let entry = match (self.typing, shorter.as_str()) {
+      (Typing::Fresh, _) => self.entry.clone(),
+      (Typing::Along, "" | "-") => "0".to_string(),
+      (Typing::Along, _) => shorter,
+    };
+
+    Ok(Sum { entry, ..self })
+  }
+
+  fn percent(self) -> Result<Sum, Never> {
+    let Ok(value) = self.value();
+    let Ok(divided) = FiniteF64::of(f64::from(value) / 100.0);
+
+    Ok(match divided {
+      Some(hundredth) => {
+        let Ok(entry) = format_number(hundredth);
+
+        Sum {
+          entry,
+          typing: Typing::Fresh,
+          ..self
+        }
+      }
+      None => Sum {
+        waiting: None,
+        typing: Typing::Fresh,
+        failed: Failed::Yes,
+        ..Sum::default()
+      },
+    })
+  }
+}
+
+fn apply(
+  (held, operator): (FiniteF64, Operator),
+  entered: FiniteF64,
+) -> Result<Option<FiniteF64>, Never> {
+  use crate::arithmetic::{Number, Operands, UnsupportedOperator, calculate};
+
+  let operands = Operands {
+    left: Number(f64::from(held)),
+    right: Number(f64::from(entered)),
+  };
+  let key = match operator {
+    Operator::Add => b'+',
+    Operator::Subtract => b'-',
+    Operator::Multiply => b'*',
+    Operator::Divide => b'/',
+  };
+
+  match calculate(operands, key) {
+    Ok(Number(answer)) => FiniteF64::of(answer),
+    Err(UnsupportedOperator) => Ok(None),
+  }
+}
+
+const TRUSTED: i32 = 12;
+
+pub fn format_number(number: FiniteF64) -> Result<String, Never> {
+  match number.cmp(&FiniteF64::ZERO) {
+    core::cmp::Ordering::Equal => return Ok("0".to_string()),
+    core::cmp::Ordering::Less | core::cmp::Ordering::Greater => {}
+  }
+
+  let value = f64::from(number);
+  let Ok(whole_digits) =
+    console_core_number_conversion::toward_zero_i32(value.abs().log10().floor());
+  let places = TRUSTED.saturating_sub(whole_digits.saturating_add(1));
+
+  match places {
+    0.. => {
+      let Ok(precision) = console_core_number_conversion::index(places.unsigned_abs());
+      let written = format!("{value:.precision$}");
+
+      Ok(match written.split_once('.') {
+        Some(_) => written
+          .trim_end_matches('0')
+          .trim_end_matches('.')
+          .to_string(),
+        None => written,
+      })
+    }
+    _ => Ok(format!("{value:e}")),
+  }
+}
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+  fn press_all(keys: &[Key]) -> Result<Sum, Never> {
+    Ok(keys.iter().fold(Sum::default(), |sum, key| {
+      let Ok(next) = sum.press(*key);
+
+      next
+    }))
+  }
+
+  fn shows(keys: &[Key]) -> Result<String, Never> {
+    let Ok(sum) = press_all(keys);
+
+    sum.shown()
+  }
+
+  use Key::{Backspace, Clear, Digit, Equals, Percent, Point, Sign};
+
+  const ADD: Key = Key::Operator(Operator::Add);
+  const SUBTRACT: Key = Key::Operator(Operator::Subtract);
+  const MULTIPLY: Key = Key::Operator(Operator::Multiply);
+  const DIVIDE: Key = Key::Operator(Operator::Divide);
+
+  #[test]
+  fn digits_are_typed_left_to_right_and_a_leading_zero_goes() {
+    assert_eq!(shows(&[]), Ok(String::from("0")));
+    assert_eq!(
+      shows(&[Digit(0), Digit(4), Digit(2)]),
+      Ok(String::from("42"))
+    );
+  }
+
+  #[test]
+  fn a_sum_is_finished_by_equals() {
+    assert_eq!(
+      shows(&[Digit(1), Digit(2), ADD, Digit(3), Equals]),
+      Ok(String::from("15"))
+    );
+    assert_eq!(
+      shows(&[Digit(7), SUBTRACT, Digit(9), Equals]),
+      Ok(String::from("-2"))
+    );
+    assert_eq!(
+      shows(&[Digit(6), MULTIPLY, Digit(7), Equals]),
+      Ok(String::from("42"))
+    );
+    assert_eq!(
+      shows(&[Digit(1), DIVIDE, Digit(4), Equals]),
+      Ok(String::from("0.25"))
+    );
+  }
+
+  #[test]
+  fn a_second_operator_finishes_the_first_sum_left_to_right() {
+    assert_eq!(
+      shows(&[Digit(2), ADD, Digit(3), MULTIPLY]),
+      Ok(String::from("5"))
+    );
+    assert_eq!(
+      shows(&[Digit(2), ADD, Digit(3), MULTIPLY, Digit(4), Equals]),
+      Ok(String::from("20"))
+    );
+  }
+
+  #[test]
+  fn two_operators_in_a_row_are_a_change_of_mind() {
+    assert_eq!(
+      shows(&[Digit(8), ADD, SUBTRACT, Digit(3), Equals]),
+      Ok(String::from("5"))
+    );
+    assert_eq!(
+      press_all(&[Digit(8), ADD, SUBTRACT]).and_then(|sum| sum.above()),
+      Ok(String::from("8 \u{2212}"))
+    );
+  }
+
+  #[test]
+  fn what_is_waiting_is_said_above_the_number() {
+    assert_eq!(
+      press_all(&[Digit(1), Digit(2), ADD]).and_then(|sum| sum.above()),
+      Ok(String::from("12 +"))
+    );
+    assert_eq!(
+      press_all(&[Digit(1), ADD, Digit(2), Equals]).and_then(|sum| sum.above()),
+      Ok(String::new())
+    );
+  }
+
+  #[test]
+  fn a_tenth_and_a_fifth_are_three_tenths_on_the_screen() {
+    assert_eq!(
+      shows(&[Point, Digit(1), ADD, Point, Digit(2), Equals]),
+      Ok(String::from("0.3"))
+    );
+  }
+
+  #[test]
+  fn a_point_is_typed_once_and_starts_a_fresh_number_at_nought() {
+    assert_eq!(
+      shows(&[Digit(1), Point, Point, Digit(5)]),
+      Ok(String::from("1.5"))
+    );
+    assert_eq!(
+      shows(&[Digit(1), ADD, Point, Digit(5), Equals]),
+      Ok(String::from("1.5"))
+    );
+  }
+
+  #[test]
+  fn dividing_by_nothing_is_an_error_and_the_next_key_starts_again() {
+    assert_eq!(
+      shows(&[Digit(5), DIVIDE, Digit(0), Equals]),
+      Ok(String::from("Error"))
+    );
+    assert_eq!(
+      shows(&[Digit(5), DIVIDE, Digit(0), Equals, Digit(3)]),
+      Ok(String::from("3"))
+    );
+  }
+
+  #[test]
+  fn sign_and_percent_change_the_number_in_front() {
+    assert_eq!(shows(&[Digit(5), Sign]), Ok(String::from("-5")));
+    assert_eq!(shows(&[Digit(5), Sign, Sign]), Ok(String::from("5")));
+    assert_eq!(
+      shows(&[Digit(5), Digit(0), Percent]),
+      Ok(String::from("0.5"))
+    );
+    assert_eq!(
+      shows(&[Digit(9), ADD, Digit(1), Sign, Equals]),
+      Ok(String::from("8"))
+    );
+  }
+
+  #[test]
+  fn the_operator_waiting_for_a_number_is_the_one_lit() {
+    assert_eq!(
+      press_all(&[Digit(2), MULTIPLY]).and_then(|sum| sum.lit()),
+      Ok(Some(Operator::Multiply))
+    );
+    assert_eq!(
+      press_all(&[Digit(2), MULTIPLY, Digit(3)]).and_then(|sum| sum.lit()),
+      Ok(None)
+    );
+  }
+
+  #[test]
+  fn clear_forgets_everything() {
+    assert_eq!(
+      press_all(&[Digit(9), ADD, Digit(1), Clear]),
+      Ok(Sum::default())
+    );
+  }
+
+  #[test]
+  fn a_number_is_not_typed_past_what_the_screen_holds() {
+    let long = vec![Digit(9); 40];
+    let Ok(shown) = shows(&long);
+    let Ok(kept) = console_core_number_conversion::fitted::<_, u32>(shown.chars().count());
+
+    assert_eq!(kept, LONGEST);
+  }
+
+  #[test]
+  fn a_huge_answer_is_said_in_powers_of_ten()
+  -> Result<(), console_core_finite_numbers::ParseError> {
+    let huge = "1.5e20".parse::<FiniteF64>()?;
+    let Ok(said) = format_number(huge);
+
+    assert_eq!(said, "1.5e20");
+
+    Ok(())
+  }
+
+  #[test]
+  fn backspace_takes_back_the_last_digit_typed_and_never_an_answer() {
+    assert_eq!(
+      shows(&[Digit(4), Digit(2), Backspace]),
+      Ok(String::from("4"))
+    );
+    assert_eq!(shows(&[Digit(4), Backspace]), Ok(String::from("0")));
+    assert_eq!(
+      shows(&[Digit(7), Sign, Backspace, Backspace]),
+      Ok(String::from("0"))
+    );
+    assert_eq!(
+      shows(&[Digit(6), MULTIPLY, Digit(7), Equals, Backspace]),
+      Ok(String::from("42"))
+    );
+  }
+}

@@ -17,25 +17,25 @@
 
 pub mod screens {
   pub const NOTHING_UP: &str = r#"{"eDP-1":{"levels":{
-        "0":[{"namespace":"awww-daemon","h":1600}],
+        "0":[{"namespace":"console-paper","h":1600}],
         "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
   pub const THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
-        "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1600}],
+        "0":[{"namespace":"console-paper","h":1600},{"namespace":"console-home","h":1600}],
         "2":[{"namespace":"console-bar","h":40}]}}}"#;
 
   pub const A_PICKER: &str = r#"{"eDP-1":{"levels":{
-        "0":[{"namespace":"awww-daemon","h":1600}],
+        "0":[{"namespace":"console-paper","h":1600}],
         "2":[{"namespace":"console-bar","h":40}],
         "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
 
   pub const A_PICKER_OVER_THE_HOME_SCREEN: &str = r#"{"eDP-1":{"levels":{
-        "0":[{"namespace":"awww-daemon","h":1600},{"namespace":"console-home","h":1600}],
+        "0":[{"namespace":"console-paper","h":1600},{"namespace":"console-home","h":1600}],
         "2":[{"namespace":"console-bar","h":40}],
         "3":[{"namespace":"settings-panel","h":1562}]}}}"#;
 
   pub const THE_KEYBOARD: &str = r#"{"eDP-1":{"levels":{
-        "0":[{"namespace":"awww-daemon","h":1600}],
+        "0":[{"namespace":"console-paper","h":1600}],
         "2":[{"namespace":"console-bar","h":40}],
         "3":[{"namespace":"console-keyboard","h":520}]}}}"#;
 }

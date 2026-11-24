@@ -9,14 +9,17 @@ pub(super) struct SequenceMessageBoundMetrics {
 }
 
 impl SequenceMessageBoundMetrics {
+    #[must_use]
     pub(super) fn new(width: f64, height: f64) -> Self {
         Self { width, height }
     }
 
+    #[must_use]
     pub(super) const fn width(self) -> f64 {
         self.width
     }
 
+    #[must_use]
     pub(super) const fn height(self) -> f64 {
         self.height
     }
@@ -32,18 +35,20 @@ struct SequenceMessageMeasurementBinding {
 }
 
 impl SequenceMessageMeasurementBinding {
+    #[must_use]
     fn for_measurer(style: &TextStyle, measurer: &dyn TextMeasurer) -> Option<Self> {
         Some(Self {
             font_family: style.font_family.clone(),
             font_size_bits: style.font_size.to_bits(),
             font_weight: style.font_weight.clone(),
             font_style: style.font_style.clone(),
-            carrier: measurer.builtin_operation_carrier(
+            carrier: { let checked_value = measurer.builtin_operation_carrier(
                 TextMeasurementOperation::MermaidCalculateTextDimensions,
-            )?,
+            )?; checked_value },
         })
     }
 
+    #[must_use]
     fn matches(&self, style: &TextStyle, measurer: &dyn TextMeasurer) -> bool {
         self.font_family == style.font_family
             && self.font_size_bits == style.font_size.to_bits()
@@ -59,6 +64,7 @@ impl SequenceMessageMeasurementBinding {
 pub(super) struct SequenceMessageOwner(usize);
 
 impl SequenceMessageOwner {
+    #[must_use]
     pub(super) const fn from_model_index(model_index: usize) -> Self {
         Self(model_index)
     }
@@ -79,6 +85,7 @@ pub(super) struct SequenceMessageMetricSidecar {
 }
 
 impl SequenceMessageMetricSidecar {
+    #[must_use]
     pub(super) fn new(
         model: &SequenceDiagramModel,
         style: &TextStyle,
@@ -103,6 +110,7 @@ impl SequenceMessageMetricSidecar {
         if self.binding.is_none() {
             return;
         }
+
         let slot = self
             .entries
             .get_mut(owner.0)
@@ -111,6 +119,7 @@ impl SequenceMessageMetricSidecar {
         *slot = Some(metrics);
     }
 
+    #[must_use]
     pub(super) fn view<'a>(
         &'a self,
         model: &'a SequenceDiagramModel,
@@ -141,6 +150,7 @@ pub(super) struct SequenceMessageMetricView<'a> {
 }
 
 impl SequenceMessageMetricView<'_> {
+    #[must_use]
     pub(super) const fn empty() -> Self {
         Self {
             model_messages: &[],
@@ -148,15 +158,18 @@ impl SequenceMessageMetricView<'_> {
         }
     }
 
+    #[must_use]
     pub(super) fn get(
         self,
         owner: SequenceMessageOwner,
         message: &SequenceMessage,
     ) -> Option<SequenceMessageBoundMetrics> {
         let expected_message = self.model_messages.get(owner.0)?;
+
         if !std::ptr::eq(expected_message, message) {
             return None;
         }
+
         self.entries.get(owner.0).copied().flatten()
     }
 }

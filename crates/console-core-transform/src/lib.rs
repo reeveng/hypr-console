@@ -1,4 +1,10 @@
 //! Two-dimensional affine transformations in double precision.
+//!
+//! [`AffineTransform`] coefficients `[a, b, c, d, e, f]` map `(x, y)` to
+//! `(a*x + c*y + e, b*x + d*y + f)`. In the composition `a * b`, `b` acts first.
+//! [`AffineTransform::apply_linear`] applies the linear part to a displacement.
+//! [`AffineTransform::apply`] applies the linear part and then the translation
+//! to a position.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -8,8 +14,6 @@ use console_core_point::Point;
 use console_core_size::Size;
 use core::ops::Mul;
 
-/// Coefficients `[a, b, c, d, e, f]` map `(x, y)` to `(a*x + c*y + e, b*x + d*y + f)`.
-/// In `a * b`, `b` acts first.
 #[derive(Debug, Clone, Copy, PartialEq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 #[cfg_attr(feature = "serde", serde(rename = "Affine"))]
@@ -40,7 +44,6 @@ impl AffineTransform {
     Ok(a * d - b * c)
   }
 
-  /// Applies the linear part to a displacement.
   pub const fn apply_linear(self, displacement: Point<f64>) -> Result<Point<f64>, Never> {
     let [a, b, c, d, _, _] = self.0;
 
@@ -50,7 +53,6 @@ impl AffineTransform {
     })
   }
 
-  /// Applies the linear part and then the translation to a position.
   pub const fn apply(self, point: Point<f64>) -> Result<Point<f64>, Never> {
     let Ok(linear) = self.apply_linear(point);
     let [_, _, _, _, e, f] = self.0;

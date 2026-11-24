@@ -24,10 +24,10 @@ use std::collections::HashSet;
 #[cfg(test)]
 use std::cell::Cell;
 
-// Block spacing is materialized as one semantic placeholder per occupied column to match Mermaid.
-// Bound that expansion before allocation; larger bounded product profiles allow at most this many
-// model items, and an unbounded profile must still not turn a tiny source into an effectively
-// infinite allocation.
+
+
+
+
 const MAX_BLOCK_SPACE_EXPANSION_ITEMS: i64 = 200_000;
 
 #[cfg(test)]
@@ -82,6 +82,7 @@ struct Block {
 }
 
 impl Block {
+    #[must_use]
     fn new(id: String) -> Self {
         Self {
             id,
@@ -146,6 +147,7 @@ impl BlockDb {
 
         for raw in style_attributes.split(',') {
             let fixed = raw.split(';').next().unwrap_or("").trim().to_string();
+
             if fixed.is_empty() {
                 continue;
             }
@@ -155,6 +157,7 @@ impl BlockDb {
                 let new_style2 = new_style1.replace("color", "fill");
                 entry.text_styles.push(new_style2);
             }
+
             entry.styles.push(fixed);
         }
     }
@@ -166,10 +169,13 @@ impl BlockDb {
             .filter(|s| !s.is_empty())
             .collect();
 
-        if let Some(&index) = self.block_ids.get(id) {
-            let block = &mut self.blocks[index];
-            block.styles = Some(parts);
-            return;
+        match self.block_ids.get(id) {
+            Some(&index) => {
+                let block = &mut self.blocks[index];
+                block.styles = Some(parts);
+                return;
+            },
+            ::core::option::Option::None => {},
         }
 
         let mut placeholder = Block::new(id.to_string());
@@ -180,6 +186,7 @@ impl BlockDb {
     fn set_css_class(&mut self, item_ids: &str, css_class_name: &str) {
         for raw_id in item_ids.split(',') {
             let id = raw_id.trim();
+
             if id.is_empty() {
                 continue;
             }
@@ -199,10 +206,12 @@ impl BlockDb {
         let mut records = document.records.into_iter().map(Some).collect::<Vec<_>>();
         let mut stack = vec![PopulateFrame::new(Some(0), document.blocks, &records)];
         let mut visited_count = 0usize;
+
         while !stack.is_empty() {
             if visited_count.is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             visited_count += 1;
             let next = stack.last_mut().and_then(|frame| {
                 frame
@@ -210,17 +219,26 @@ impl BlockDb {
                     .next()
                     .map(|index| (index, frame.parent, frame.col))
             });
+
             let Some((index, parent, col)) = next else {
                 if let Some(frame) = stack.pop()
                     && let Some(parent) = frame.parent
                 {
                     self.blocks[parent].children = frame.child_ids;
                 }
+
                 continue;
             };
-            let Some(mut block) = records[index].take() else {
-                continue;
+
+            let mut block = {
+                let optional_block = records[index].take();
+
+                match optional_block {
+                    Some(matched_block) => matched_block,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if col > 0
                 && block.block_type != "column-setting"
                 && block.width_in_columns.is_some_and(|width| width > col)
@@ -235,28 +253,47 @@ impl BlockDb {
                     ),
                 ));
             }
-            if let Some(label) = &block.label {
-                block.label = Some(sanitize_text(label, config));
+
+            match &block.label {
+                Some(label) => {
+                    block.label = Some(sanitize_text(label, config));
+                },
+                ::core::option::Option::None => {},
             }
+
             match block.block_type.as_str() {
                 "classDef" => {
-                    self.add_style_class(&block.id, block.css.as_deref().unwrap_or_default());
+                    self.add_style_class(&block.id, match block.css.as_deref() {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => "",
+                    });
                     continue;
                 }
                 "applyClass" => {
-                    self.set_css_class(&block.id, block.style_class.as_deref().unwrap_or_default());
+                    self.set_css_class(&block.id, match block.style_class.as_deref() {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => "",
+                    });
                     continue;
                 }
                 "applyStyles" => {
-                    if let Some(styles) = &block.styles_str {
-                        self.add_style_to_node(&block.id, styles);
+                    match &block.styles_str {
+                        Some(styles) => {
+                            self.add_style_to_node(&block.id, styles);
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     continue;
                 }
                 "column-setting" => {
-                    if let Some(parent) = parent {
-                        self.blocks[parent].columns = block.columns;
+                    match parent {
+                        Some(parent) => {
+                            self.blocks[parent].columns = block.columns;
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     continue;
                 }
                 "edge" => {
@@ -268,6 +305,7 @@ impl BlockDb {
                 }
                 _ => {}
             }
+
             if block.label.is_none() {
                 block.label = Some(if block.block_type == "composite" {
                     String::new()
@@ -275,38 +313,51 @@ impl BlockDb {
                     block.id.clone()
                 });
             }
+
             let children = std::mem::take(&mut block.children);
             let existed = self.block_ids.get(&block.id).copied();
             let is_space = block.block_type == "space";
-            let space_width = block.width.unwrap_or(1).max(0);
-            let block_index = if let Some(index) = existed {
-                let existing = &mut self.blocks[index];
-                // Mermaid only updates type and an explicit label on repeated declarations.
-                if block.block_type != "na" {
-                    existing.block_type = block.block_type.clone();
-                }
-                if let Some(label) = &block.label
-                    && label != &block.id
-                {
-                    existing.label = Some(label.clone());
-                }
-                index
-            } else {
-                #[cfg(feature = "presentation")]
-                if _presentation_requested && block.block_type == "composite" {
-                    block.color_index = Some(self.next_color_index);
-                    self.next_color_index += 1;
-                }
-                self.insert_block(block.clone())
+            let space_width = match block.width {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 1,
+            }.max(0);
+            let block_index = match existed {
+                Some(index) => {
+                    let existing = &mut self.blocks[index];
+
+                    if block.block_type != "na" {
+                        existing.block_type = block.block_type.clone();
+                    }
+
+                    if let Some(label) = &block.label
+                        && label != &block.id
+                    {
+                        existing.label = Some(label.clone());
+                    }
+
+                    index
+                },
+                ::core::option::Option::None => {
+                    #[cfg(feature = "presentation")]
+                    if _presentation_requested && block.block_type == "composite" {
+                        block.color_index = Some(self.next_color_index);
+                        self.next_color_index += 1;
+                    }
+
+                    self.insert_block(block.clone())
+                },
             };
+
             if is_space {
                 for offset in 0..space_width {
-                    if offset % 128 == 0 {
+                    if ::core::primitive::i64::wrapping_rem(offset, 128) == 0 {
                         control.checkpoint()?;
                     }
+
                     let mut space = block.clone();
                     space.id = format!("{}-{offset}", block.id);
                     let index = self.insert_block(space);
+
                     if let Some(frame) = stack.last_mut()
                         && frame.parent.is_some()
                     {
@@ -319,13 +370,15 @@ impl BlockDb {
             {
                 frame.child_ids.push(block_index);
             }
+
             if !children.is_empty() {
-                // Upstream replays a repeated composite into its new declaration object,
-                // while the first registered object keeps its own children and columns.
+
+
                 let parent = existed.is_none().then_some(block_index);
                 stack.push(PopulateFrame::new(parent, children, &records));
             }
         }
+
         Ok(())
     }
 }
@@ -338,13 +391,16 @@ struct PopulateFrame {
 }
 
 impl PopulateFrame {
+    #[must_use]
     fn new(parent: Option<usize>, blocks: Vec<usize>, records: &[Option<Block>]) -> Self {
-        let col = blocks
+        let col = match blocks
             .iter()
             .filter_map(|&index| records[index].as_ref())
             .find(|block| block.block_type == "column-setting")
-            .and_then(|block| block.columns)
-            .unwrap_or(-1);
+            .and_then(|block| block.columns) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => -1,
+        };
         Self {
             parent,
             blocks: blocks.into_iter(),
@@ -354,29 +410,49 @@ impl PopulateFrame {
     }
 }
 
+#[must_use]
 fn block_to_semantic_node(b: Block) -> BlockNode {
     BlockNode {
         id: b.id,
-        label: b.label.unwrap_or_default(),
+        label: match b.label {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        },
         block_type: b.block_type,
         children: b.children,
         columns: b.columns,
         width_in_columns: b.width_in_columns,
         width: b.width,
         classes: b.classes,
-        styles: b.styles.unwrap_or_default(),
-        directions: b.directions.unwrap_or_default(),
+        styles: match b.styles {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        },
+        directions: match b.directions {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        },
     }
 }
 
+#[must_use]
 fn block_to_semantic_edge(b: Block) -> BlockEdge {
     BlockEdge {
         id: b.id,
-        start: b.start.unwrap_or_default(),
-        end: b.end.unwrap_or_default(),
+        start: match b.start {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        },
+        end: match b.end {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        },
         arrow_type_end: b.arrow_type_end,
         arrow_type_start: b.arrow_type_start,
-        label: b.label.unwrap_or_default(),
+        label: match b.label {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        },
     }
 }
 
@@ -401,14 +477,17 @@ fn block_db_to_model(
     let mut node_presence = Vec::new();
     #[cfg(feature = "presentation")]
     let mut edge_directions = Vec::new();
+
     for (index, block) in db.blocks.into_iter().enumerate() {
         if index.is_multiple_of(128) {
             control.checkpoint()?;
         }
+
         #[cfg(feature = "presentation")]
         if _presentation_requested {
             visuals.color_indices.push(block.color_index);
         }
+
         #[cfg(feature = "presentation")]
         if _presentation_requested {
             node_presence.push(BlockNodeFieldPresence {
@@ -416,21 +495,28 @@ fn block_db_to_model(
                 directions: BlockFieldPresence::from_option(&block.directions),
             });
         }
+
         blocks_flat.push(block_to_semantic_node(block));
     }
+
     let mut edges = Vec::with_capacity(db.edges.len());
+
     for (index, edge) in db.edges.into_iter().enumerate() {
         if index.is_multiple_of(128) {
             control.checkpoint()?;
         }
+
         #[cfg(feature = "presentation")]
         let mut edge = edge;
+
         #[cfg(feature = "presentation")]
         if _presentation_requested {
             edge_directions.push(edge.directions.take());
         }
+
         edges.push(block_to_semantic_edge(edge));
     }
+
     control.checkpoint()?;
     Ok(BlockModelOutput {
         semantic: BlockDiagramModel {
@@ -511,18 +597,22 @@ fn construct_block_semantic_source(
         presentation_requested,
         control,
     );
-    if let Err(error) = parser.parse_header() {
-        let (error, _span) = block_error_with_fallback_span(error, parser.current_token_span());
-        return Ok(Err(BlockParseFailure {
-            error: Box::new(error),
-            #[cfg(feature = "editor-facts")]
-            editor_facts: parser.into_editor_facts().map(Box::new),
-            #[cfg(feature = "editor-facts")]
-            span: _span,
-        }));
+
+    match parser.parse_header() {
+        Err(error) => {
+            let (error, _span) = block_error_with_fallback_span(error, parser.current_token_span());
+            return Ok(Err(BlockParseFailure {
+                error: Box::new(error),
+                #[cfg(feature = "editor-facts")]
+                editor_facts: parser.into_editor_facts().map(Box::new),
+                #[cfg(feature = "editor-facts")]
+                span: _span,
+            }));
+        },
+        ::core::result::Result::Ok(_) => {},
     }
 
-    let document = match parser.parse_document(false)? {
+    let document = match { let checked_value_2 = parser.parse_document(false)?; checked_value_2 } {
         Ok(document) => document,
         Err(error) => {
             let (error, _span) = block_error_with_fallback_span(error, parser.current_token_span());
@@ -538,14 +628,17 @@ fn construct_block_semantic_source(
     #[cfg(feature = "editor-facts")]
     let editor_facts = parser.into_editor_facts();
 
-    if let Some(failure) = document.failure {
-        return Ok(Err(BlockParseFailure {
-            error: Box::new(failure.error),
-            #[cfg(feature = "editor-facts")]
-            editor_facts: editor_facts.map(Box::new),
-            #[cfg(feature = "editor-facts")]
-            span: failure.span,
-        }));
+    match document.failure {
+        Some(failure) => {
+            return Ok(Err(BlockParseFailure {
+                error: Box::new(failure.error),
+                #[cfg(feature = "editor-facts")]
+                editor_facts: editor_facts.map(Box::new),
+                #[cfg(feature = "editor-facts")]
+                span: failure.span,
+            }));
+        },
+        ::core::option::Option::None => {},
     }
 
     control.checkpoint()?;
@@ -601,7 +694,7 @@ pub(crate) fn parse_block_model_for_render_controlled(
         Err(failure) => return Ok(Err(*failure.error)),
     };
     control.checkpoint()?;
-    Ok(Ok(block_db_to_render_model(source.db, control)?))
+    Ok(Ok({ let checked_value_2 = block_db_to_render_model(source.db, control)?; checked_value_2 }))
 }
 
 pub(crate) fn parse_block_semantic_model_controlled(
@@ -648,6 +741,7 @@ pub(crate) fn parse_block_semantic_model_controlled(
     Ok(construction)
 }
 
+#[must_use]
 fn type_str_to_type(type_str: &str) -> String {
     match type_str {
         "[]" => "square",
@@ -670,6 +764,7 @@ fn type_str_to_type(type_str: &str) -> String {
     .to_string()
 }
 
+#[must_use]
 fn edge_str_to_edge_data(type_str: &str) -> String {
     let trimmed = type_str.trim_matches(|c: char| c.is_whitespace() || c == '-');
     match trimmed {
@@ -681,8 +776,10 @@ fn edge_str_to_edge_data(type_str: &str) -> String {
     .to_string()
 }
 
+#[must_use]
 fn is_valid_link_token(raw: &str) -> bool {
     let s = raw.trim();
+
     if s.is_empty() {
         return false;
     }
@@ -700,6 +797,7 @@ fn is_valid_link_token(raw: &str) -> bool {
     is_valid_solid_link(rest) || is_valid_thick_link(rest) || is_valid_dotted_link(rest)
 }
 
+#[must_use]
 fn is_valid_solid_link(rest: &str) -> bool {
     if rest.is_empty() || !rest.starts_with('-') {
         return false;
@@ -710,7 +808,11 @@ fn is_valid_solid_link(rest: &str) -> bool {
     }
 
     let (body, tail) = rest.split_at(rest.len() - 1);
-    let last = tail.chars().next().unwrap_or('\0');
+    let last = match tail.chars().next() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => '\0',
+    };
+
     if !matches!(last, '-' | 'x' | 'o' | '>') {
         return false;
     }
@@ -719,6 +821,7 @@ fn is_valid_solid_link(rest: &str) -> bool {
     dash_count >= 2 && body.chars().all(|c| c == '-')
 }
 
+#[must_use]
 fn is_valid_thick_link(rest: &str) -> bool {
     if rest.is_empty() || !rest.starts_with('=') {
         return false;
@@ -729,7 +832,11 @@ fn is_valid_thick_link(rest: &str) -> bool {
     }
 
     let (body, tail) = rest.split_at(rest.len() - 1);
-    let last = tail.chars().next().unwrap_or('\0');
+    let last = match tail.chars().next() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => '\0',
+    };
+
     if !matches!(last, '=' | 'x' | 'o' | '>') {
         return false;
     }
@@ -738,23 +845,30 @@ fn is_valid_thick_link(rest: &str) -> bool {
     eq_count >= 2 && body.chars().all(|c| c == '=')
 }
 
+#[must_use]
 fn is_valid_dotted_link(rest: &str) -> bool {
     if rest.is_empty() {
         return false;
     }
 
     let mut chars = rest.chars().peekable();
+
     if matches!(chars.peek(), Some('-')) {
         chars.next();
     }
 
     let mut dot_count = 0usize;
+
     while matches!(chars.peek(), Some('.')) {
         dot_count += 1;
         chars.next();
     }
-    if dot_count == 0 {
-        return false;
+
+    match dot_count {
+        0 => {
+            return false;
+        },
+        _ => {},
     }
 
     if chars.next() != Some('-') {
@@ -762,12 +876,15 @@ fn is_valid_dotted_link(rest: &str) -> bool {
     }
 
     let tail: String = chars.collect();
+
     if tail.is_empty() {
         return true;
     }
+
     if tail.len() == 1 {
         return matches!(tail.chars().next(), Some('x' | 'o' | '>'));
     }
+
     false
 }
 
@@ -804,6 +921,7 @@ fn validate_block_space_width(width: i64, span: SourceSpan) -> Result<()> {
             span,
         ));
     }
+
     Ok(())
 }
 
@@ -990,6 +1108,7 @@ struct NodeDelims {
     ends: &'static [&'static str],
 }
 
+#[must_use]
 fn node_delims_at_start(input: &str) -> Option<NodeDelims> {
     let delims: &[NodeDelims] = &[
         NodeDelims {
@@ -1018,20 +1137,20 @@ fn node_delims_at_start(input: &str) -> Option<NodeDelims> {
         },
         NodeDelims {
             start: "[/",
-            // Upstream Mermaid's block lexer ends NODE state on `]` as a fallback, even when the
-            // node started with a more specific delimiter like `[/` (see cypress BL21).
-            // Accepting `]` here matches that behavior (and yields an unknown typeStr like `[/]`,
-            // which upstream maps to the default `na` type).
+
+
+
+
             ends: &["/]", "\\]", "]"],
         },
         NodeDelims {
             start: "[\\",
-            // Same as `[/`: accept `]` as a fallback end delimiter for parity with upstream.
+
             ends: &["\\]", "/]", "]"],
         },
         NodeDelims {
             start: "[",
-            // Upstream ends NODE state on `\]` and `/]` before falling back to `]`.
+
             ends: &["\\]", "/]", "]"],
         },
         NodeDelims {
@@ -1072,6 +1191,7 @@ struct DocumentFrame {
 }
 
 impl DocumentFrame {
+    #[must_use]
     fn root() -> Self {
         Self {
             kind: DocumentFrameKind::Root,
@@ -1079,6 +1199,7 @@ impl DocumentFrame {
         }
     }
 
+    #[must_use]
     fn id_block(header: Block) -> Self {
         Self {
             kind: DocumentFrameKind::IdBlock(Box::new(header)),
@@ -1086,6 +1207,7 @@ impl DocumentFrame {
         }
     }
 
+    #[must_use]
     fn anonymous_block() -> Self {
         Self {
             kind: DocumentFrameKind::AnonymousBlock,
@@ -1103,10 +1225,10 @@ impl DocumentFrame {
                 b
             }
             DocumentFrameKind::IdBlock(header) => {
-                let mut header = *header;
-                header.block_type = "composite".to_string();
-                header.children = self.children;
-                header
+                let mut header_2 = *header;
+                header_2.block_type = "composite".to_string();
+                header_2.children = self.children;
+                header_2
             }
             DocumentFrameKind::AnonymousBlock => {
                 let mut b = Block::new(parser.generate_id());
@@ -1119,6 +1241,7 @@ impl DocumentFrame {
     }
 }
 
+#[must_use]
 fn block_document_frame_error() -> Error {
     Error::diagram_parse_fallback(
         "block".to_string(),
@@ -1147,23 +1270,27 @@ struct BlockDocument {
     failure: Option<BlockStatementFailure>,
 }
 
+#[must_use]
 fn block_error_with_fallback_span(error: Error, fallback: SourceSpan) -> (Error, SourceSpan) {
     match error {
         Error::DiagramParse {
             diagram_type,
             diagnostic,
         } => {
-            if let Some(span) = diagnostic.span() {
-                (
-                    Error::diagram_parse_diagnostic(diagram_type, diagnostic),
-                    span,
-                )
-            } else {
-                let message = diagnostic.message().to_string();
-                (
-                    Error::diagram_parse_exact(diagram_type, message, fallback),
-                    fallback,
-                )
+            match diagnostic.span() {
+                Some(span) => {
+                    (
+                        Error::diagram_parse_diagnostic(diagram_type, diagnostic),
+                        span,
+                    )
+                },
+                ::core::option::Option::None => {
+                    let message = diagnostic.message().to_string();
+                    (
+                        Error::diagram_parse_exact(diagram_type, message, fallback),
+                        fallback,
+                    )
+                },
             }
         }
         other => (other, fallback),
@@ -1187,6 +1314,7 @@ struct Parser<'input, 'control> {
 }
 
 impl<'input, 'control> Parser<'input, 'control> {
+    #[must_use]
     fn new(
         input: &'input str,
         #[cfg(feature = "editor-facts")] editor_demand: EditorFactsDemand,
@@ -1217,14 +1345,17 @@ impl<'input, 'control> Parser<'input, 'control> {
             .then_some(self.editor_facts)
     }
 
+    #[must_use]
     fn is_eof(&self) -> bool {
         self.pos >= self.input.len()
     }
 
+    #[must_use]
     fn peek_char(&self) -> Option<char> {
         self.input[self.pos..].chars().next()
     }
 
+    #[must_use]
     fn starts_with(&self, s: &str) -> bool {
         self.input[self.pos..].starts_with(s)
     }
@@ -1235,25 +1366,30 @@ impl<'input, 'control> Parser<'input, 'control> {
         Some(ch)
     }
 
+    #[must_use]
     fn current_token_span(&self) -> SourceSpan {
         if self.pos >= self.input.len() {
             return SourceSpan::new(self.input.len(), self.input.len());
         }
 
-        let len = self.input[self.pos..]
+        let len = match self.input[self.pos..]
             .chars()
             .next()
-            .map(char::len_utf8)
-            .unwrap_or_default();
+            .map(char::len_utf8) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        };
         SourceSpan::new(self.pos, self.pos + len)
     }
 
+    #[must_use]
     fn statement_span(&self, start: usize) -> SourceSpan {
         let line_end = self.statement_line_end(start);
         let raw = &self.input[start..line_end];
         SourceSpan::new(start, start + raw.trim_end().len())
     }
 
+    #[must_use]
     fn statement_line_end(&self, start: usize) -> usize {
         let rest = &self.input[start..];
         start + rest.find(['\n', '\r']).unwrap_or(rest.len())
@@ -1264,7 +1400,8 @@ impl<'input, 'control> Parser<'input, 'control> {
             self.pos = statement_start;
             self.bump();
         }
-        while let Some(ch) = self.bump() {
+
+        for ch in ::core::iter::from_fn(|| self.bump()) {
             if ch == '\n' || ch == '\r' {
                 break;
             }
@@ -1274,36 +1411,46 @@ impl<'input, 'control> Parser<'input, 'control> {
     fn generate_id(&mut self) -> String {
         self.gen_counter += 1;
         let rand =
-            crate::runtime::generated_id_hex("block.generated-id", self.gen_counter as u64, 12);
+            crate::runtime::generated_id_hex("block.generated-id", ::core::primitive::i64::cast_unsigned(self.gen_counter), 12);
         format!("id-{rand}-{}", self.gen_counter)
     }
 
     fn skip_ws_and_comments(&mut self) {
         loop {
             let mut last_checkpoint = self.pos;
+
             while self.peek_char().is_some_and(|c| c.is_whitespace()) {
                 self.bump();
+
                 if self.pos.saturating_sub(last_checkpoint) >= 4096 {
                     if self.control.is_cancelled() {
                         return;
                     }
+
                     last_checkpoint = self.pos;
                 }
             }
 
             if self.starts_with("%%") {
-                let mut last_checkpoint = self.pos;
-                while let Some(c) = self.bump() {
-                    if self.pos.saturating_sub(last_checkpoint) >= 4096 {
+                let mut last_checkpoint_2 = self.pos;
+
+                'inner_while_2: while let Some(c) = self.bump() {
+                    if self.pos.saturating_sub(last_checkpoint_2) >= 4096 {
                         if self.control.is_cancelled() {
                             return;
                         }
-                        last_checkpoint = self.pos;
+
+                        last_checkpoint_2 = self.pos;
                     }
-                    if c == '\n' {
-                        break;
+
+                    match c {
+                        '\n' => {
+                            break 'inner_while_2;
+                        },
+                        _ => {},
                     }
                 }
+
                 continue;
             }
 
@@ -1319,12 +1466,15 @@ impl<'input, 'control> Parser<'input, 'control> {
 
     fn peek_keyword(&mut self, kw: &str) -> bool {
         self.skip_ws_and_comments();
+
         if !self.starts_with(kw) {
             return false;
         }
+
         if kw.ends_with(':') {
             return true;
         }
+
         let after = &self.input[self.pos + kw.len()..];
         after
             .chars()
@@ -1336,26 +1486,32 @@ impl<'input, 'control> Parser<'input, 'control> {
         if !self.peek_keyword(kw) {
             return false;
         }
+
         self.pos += kw.len();
         true
     }
 
     fn consume_keyword_same_line(&mut self, kw: &str) -> bool {
-        // Like `consume_keyword`, but does not skip newlines/comments. This is used for
-        // statement-local infix tokens (e.g. `id1 space id2`), where treating the next line's
-        // `space` statement as an infix separator would be incorrect.
+
+
+
         self.skip_inline_whitespace();
+
         if self.starts_with("%%") {
             return false;
         }
+
         if !self.starts_with(kw) {
             return false;
         }
+
         if kw.ends_with(':') {
             self.pos += kw.len();
             return true;
         }
+
         let after = &self.input[self.pos + kw.len()..];
+
         if after
             .chars()
             .next()
@@ -1364,26 +1520,32 @@ impl<'input, 'control> Parser<'input, 'control> {
             self.pos += kw.len();
             return true;
         }
+
         false
     }
 
     fn consume_exact(&mut self, s: &str) -> bool {
         self.skip_ws_and_comments();
+
         if !self.starts_with(s) {
             return false;
         }
+
         self.pos += s.len();
         true
     }
 
     fn parse_header(&mut self) -> Result<()> {
         self.skip_ws_and_comments();
+
         if self.consume_keyword("block-beta") {
             return Ok(());
         }
+
         if self.consume_keyword("block") {
             return Ok(());
         }
+
         if self.is_eof() {
             Err(Error::diagram_parse_insertion_point(
                 "block",
@@ -1410,6 +1572,7 @@ impl<'input, 'control> Parser<'input, 'control> {
             self.control.checkpoint()?;
             self.skip_ws_and_comments();
             self.control.checkpoint()?;
+
             if self.is_eof() {
                 break;
             }
@@ -1417,19 +1580,25 @@ impl<'input, 'control> Parser<'input, 'control> {
             let statement_start = self.pos;
 
             let result = self.parse_document_statement(&mut frames, stop_on_end);
+
             match result {
                 Ok(true) => break,
                 Ok(false) => continue,
                 Err(error) => {
                     let fallback = self.statement_span(statement_start);
                     let (error, _span) = block_error_with_fallback_span(error, fallback);
-                    if first_failure.is_none() {
-                        first_failure = Some(BlockStatementFailure {
-                            error,
-                            #[cfg(feature = "editor-facts")]
-                            span: _span,
-                        });
+
+                    match first_failure {
+                        ::core::option::Option::None => {
+                            first_failure = Some(BlockStatementFailure {
+                                error,
+                                #[cfg(feature = "editor-facts")]
+                                span: _span,
+                            });
+                        },
+                        ::core::option::Option::Some(_) => {},
                     }
+
                     self.recover_to_next_statement(statement_start);
                 }
             }
@@ -1451,14 +1620,26 @@ impl<'input, 'control> Parser<'input, 'control> {
 
         while frames.len() > 1 {
             self.control.checkpoint()?;
-            if let Err(error) = self.finish_document_frame(&mut frames) {
-                return Ok(Err(error));
+
+            {
+                match self.finish_document_frame(&mut frames) {
+                    Err(error) => {
+                        return Ok(Err(error));
+                    },
+                    ::core::result::Result::Ok(_) => {},
+                };
             }
         }
 
-        let Some(frame) = frames.pop() else {
-            return Ok(Err(block_document_frame_error()));
+        let frame = {
+            let optional_frame = frames.pop();
+
+            match optional_frame {
+                Some(matched_frame) => matched_frame,
+                ::core::option::Option::None => return Ok(Err(block_document_frame_error())),
+            }
         };
+
         self.control.checkpoint()?;
         Ok(Ok(BlockDocument {
             records: std::mem::take(&mut self.records),
@@ -1473,11 +1654,14 @@ impl<'input, 'control> Parser<'input, 'control> {
         stop_on_end: bool,
     ) -> Result<bool> {
         let current_is_root = frames.len() == 1;
+
         if ((!current_is_root) || stop_on_end) && self.peek_keyword("end") {
             self.consume_keyword("end");
+
             if current_is_root {
                 return Ok(true);
             }
+
             self.finish_document_frame(frames)?;
             return Ok(false);
         }
@@ -1505,6 +1689,7 @@ impl<'input, 'control> Parser<'input, 'control> {
                     "expected block".to_string(),
                 ));
             }
+
             frames.push(DocumentFrame::anonymous_block());
             return Ok(false);
         }
@@ -1515,24 +1700,28 @@ impl<'input, 'control> Parser<'input, 'control> {
             push_document_child(frames, index)?;
             return Ok(false);
         }
+
         if self.peek_keyword("space") {
             let block = self.parse_space_statement()?;
             let index = self.insert_record(block);
             push_document_child(frames, index)?;
             return Ok(false);
         }
+
         if self.peek_keyword("classDef") {
             let block = self.parse_classdef_statement()?;
             let index = self.insert_record(block);
             push_document_child(frames, index)?;
             return Ok(false);
         }
+
         if self.peek_keyword("class") {
             let block = self.parse_apply_class_statement()?;
             let index = self.insert_record(block);
             push_document_child(frames, index)?;
             return Ok(false);
         }
+
         if self.peek_keyword("style") {
             let block = self.parse_style_statement()?;
             let index = self.insert_record(block);
@@ -1546,17 +1735,25 @@ impl<'input, 'control> Parser<'input, 'control> {
             #[cfg(feature = "editor-facts")]
             EditorSemanticKind::Object,
         )?;
+
         for block in blocks {
             let index = self.insert_record(block);
             push_document_child(frames, index)?;
         }
+
         Ok(false)
     }
 
     fn finish_document_frame(&mut self, frames: &mut Vec<DocumentFrame>) -> Result<()> {
-        let Some(frame) = frames.pop() else {
-            return Err(block_document_frame_error());
+        let frame = {
+            let optional_frame = frames.pop();
+
+            match optional_frame {
+                Some(matched_frame) => matched_frame,
+                ::core::option::Option::None => return Err(block_document_frame_error()),
+            }
         };
+
         let block = frame.into_block(self);
         let index = self.insert_record(block);
         push_document_child(frames, index)
@@ -1570,12 +1767,14 @@ impl<'input, 'control> Parser<'input, 'control> {
 
     fn parse_columns_statement(&mut self) -> Result<Block> {
         self.skip_ws_and_comments();
+
         if !self.consume_keyword("columns") {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected columns".to_string(),
             ));
         }
+
         self.skip_ws_and_comments();
         let value = if self.consume_keyword("auto") {
             -1
@@ -1593,9 +1792,9 @@ impl<'input, 'control> Parser<'input, 'control> {
             value
         };
 
-        // Mermaid does not require a unique id for column-setting statements (they are not part of
-        // the rendered block list); avoid consuming a generated id so generated composite ids
-        // match upstream counters.
+
+
+
         let mut b = Block::new("columns".to_string());
         b.block_type = "column-setting".to_string();
         b.columns = Some(value);
@@ -1604,14 +1803,17 @@ impl<'input, 'control> Parser<'input, 'control> {
 
     fn parse_space_statement(&mut self) -> Result<Block> {
         self.skip_ws_and_comments();
+
         if !self.consume_keyword("space") {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected space".to_string(),
             ));
         }
+
         let mut width = 1;
         self.skip_ws_and_comments();
+
         if self.consume_exact(":") {
             let (value, value_fact) = self.parse_int()?;
             validate_block_space_width(value, value_fact.span)?;
@@ -1626,6 +1828,7 @@ impl<'input, 'control> Parser<'input, 'control> {
             }
             width = value;
         }
+
         let mut b = Block::new(self.generate_id());
         b.block_type = "space".to_string();
         b.label = Some("".to_string());
@@ -1637,12 +1840,14 @@ impl<'input, 'control> Parser<'input, 'control> {
         self.skip_ws_and_comments();
         #[cfg(feature = "editor-facts")]
         let directive_start = self.pos;
+
         if !self.consume_keyword("classDef") {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected classDef".to_string(),
             ));
         }
+
         #[cfg(feature = "editor-facts")]
         if self.editor_demand == EditorFactsDemand::Capture {
             self.editor_facts.push_directive_prefix("classDef");
@@ -1695,12 +1900,14 @@ impl<'input, 'control> Parser<'input, 'control> {
         self.skip_ws_and_comments();
         #[cfg(feature = "editor-facts")]
         let directive_start = self.pos;
+
         if !self.consume_keyword("class") {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected class".to_string(),
             ));
         }
+
         #[cfg(feature = "editor-facts")]
         if self.editor_demand == EditorFactsDemand::Capture {
             self.editor_facts.push_directive_prefix("class");
@@ -1767,12 +1974,14 @@ impl<'input, 'control> Parser<'input, 'control> {
         self.skip_ws_and_comments();
         #[cfg(feature = "editor-facts")]
         let directive_start = self.pos;
+
         if !self.consume_keyword("style") {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected style".to_string(),
             ));
         }
+
         #[cfg(feature = "editor-facts")]
         if self.editor_demand == EditorFactsDemand::Capture {
             self.editor_facts.push_directive_prefix("style");
@@ -1835,12 +2044,15 @@ impl<'input, 'control> Parser<'input, 'control> {
 
     fn take_rest_of_line_trimmed(&mut self) -> BlockSpannedText {
         let start = self.pos;
+
         while let Some(c) = self.peek_char() {
             if c == '\n' || c == '\r' {
                 break;
             }
+
             self.bump();
         }
+
         let raw = &self.input[start..self.pos];
         let leading = raw.len().saturating_sub(raw.trim_start().len());
         let trailing = raw.trim_end().len();
@@ -1861,22 +2073,27 @@ impl<'input, 'control> Parser<'input, 'control> {
             #[cfg(feature = "editor-facts")]
             kind,
         )?;
+
         if self.consume_keyword_same_line("space") {
             let mut width = 1;
             self.skip_inline_whitespace();
+
             if self.peek_char() == Some(':') {
                 self.bump();
                 self.skip_inline_whitespace();
                 let start = self.pos;
+
                 while self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
                     self.bump();
                 }
+
                 if self.pos == start {
                     return Err(Error::diagram_parse_fallback(
                         "block".to_string(),
                         "expected integer width after space:".to_string(),
                     ));
                 }
+
                 let text = self.input[start..self.pos].to_string();
                 let checked_value = text.parse::<i64>().map_err(|_| {
                     Error::diagram_parse_exact(
@@ -1900,6 +2117,7 @@ impl<'input, 'control> Parser<'input, 'control> {
                     );
                 }
             }
+
             let mut space = Block::new(self.generate_id());
             space.block_type = "space".to_string();
             space.label = Some("".to_string());
@@ -1907,6 +2125,7 @@ impl<'input, 'control> Parser<'input, 'control> {
 
             left.block.width_in_columns.get_or_insert(1);
             self.skip_inline_whitespace();
+
             if self.starts_with("%%") || matches!(self.peek_char(), None | Some('\n' | '\r')) {
                 #[cfg(feature = "editor-facts")]
                 if !left.definition_emitted {
@@ -1968,69 +2187,77 @@ impl<'input, 'control> Parser<'input, 'control> {
                 return Err(error);
             }
         };
-        if let Some((label, edge_marker)) = link {
-            #[cfg(feature = "editor-facts")]
-            if !left.definition_emitted {
-                #[cfg(feature = "editor-facts")]
-                self.push_block_node_occurrence(
-                    &left.id,
-                    detail,
-                    kind,
-                    BlockNodeOccurrence::RelationEndpoint,
-                );
-            }
-            #[cfg(feature = "editor-facts")]
-            if let Some(label) = label.as_ref()
-                && self.editor_demand == EditorFactsDemand::Capture
-            {
-                push_block_payload(
-                    &mut self.editor_facts,
-                    label.clone(),
-                    "block edge label",
-                    EditorSemanticKind::String,
-                );
-            }
-            let mut right = self.parse_node(
-                #[cfg(feature = "editor-facts")]
-                "block edge endpoint",
-                #[cfg(feature = "editor-facts")]
-                EditorSemanticKind::Object,
-            )?;
-            let arrow_type_end = edge_str_to_edge_data(&edge_marker);
-            let edge_id = format!("{}-{}", left.block.id, right.block.id);
-            let edge = Block {
-                id: edge_id,
-                block_type: "edge".to_string(),
-                label: Some(label.map(|label| label.text).unwrap_or_default()),
-                children: Vec::new(),
-                start: Some(left.block.id.clone()),
-                end: Some(right.block.id.clone()),
-                arrow_type_end: Some(arrow_type_end),
-                arrow_type_start: Some("arrow_open".to_string()),
-                #[cfg(feature = "presentation")]
-                directions: self
-                    .presentation_requested
-                    .then(|| right.block.directions.clone())
-                    .flatten(),
-                ..Default::default()
-            };
 
-            #[cfg(feature = "editor-facts")]
-            if !right.definition_emitted {
+        match link {
+            Some((label, edge_marker)) => {
                 #[cfg(feature = "editor-facts")]
-                self.push_block_node_occurrence(
-                    &right.id,
+                if !left.definition_emitted {
+                    #[cfg(feature = "editor-facts")]
+                    self.push_block_node_occurrence(
+                        &left.id,
+                        detail,
+                        kind,
+                        BlockNodeOccurrence::RelationEndpoint,
+                    );
+                }
+                #[cfg(feature = "editor-facts")]
+                if let Some(label) = label.as_ref()
+                    && self.editor_demand == EditorFactsDemand::Capture
+                {
+                    push_block_payload(
+                        &mut self.editor_facts,
+                        label.clone(),
+                        "block edge label",
+                        EditorSemanticKind::String,
+                    );
+                }
+                let mut right = self.parse_node(
+                    #[cfg(feature = "editor-facts")]
                     "block edge endpoint",
+                    #[cfg(feature = "editor-facts")]
                     EditorSemanticKind::Object,
-                    BlockNodeOccurrence::RelationEndpoint,
-                );
-            }
-            left.block.width_in_columns.get_or_insert(1);
-            right.block.width_in_columns.get_or_insert(1);
-            return Ok(vec![left.block, edge, right.block]);
+                )?;
+                let arrow_type_end = edge_str_to_edge_data(&edge_marker);
+                let edge_id = format!("{}-{}", left.block.id, right.block.id);
+                let edge = Block {
+                    id: edge_id,
+                    block_type: "edge".to_string(),
+                    label: Some(match label.map(|label| label.text) {
+                        ::core::option::Option::Some(explicit_present) => explicit_present,
+                        ::core::option::Option::None => ::std::string::String::new(),
+                    }),
+                    children: Vec::new(),
+                    start: Some(left.block.id.clone()),
+                    end: Some(right.block.id.clone()),
+                    arrow_type_end: Some(arrow_type_end),
+                    arrow_type_start: Some("arrow_open".to_string()),
+                    #[cfg(feature = "presentation")]
+                    directions: self
+                        .presentation_requested
+                        .then(|| right.block.directions.clone())
+                        .flatten(),
+                    ..Default::default()
+                };
+
+                #[cfg(feature = "editor-facts")]
+                if !right.definition_emitted {
+                    #[cfg(feature = "editor-facts")]
+                    self.push_block_node_occurrence(
+                        &right.id,
+                        "block edge endpoint",
+                        EditorSemanticKind::Object,
+                        BlockNodeOccurrence::RelationEndpoint,
+                    );
+                }
+                left.block.width_in_columns.get_or_insert(1);
+                right.block.width_in_columns.get_or_insert(1);
+                return Ok(vec![left.block, edge, right.block]);
+            },
+            ::core::option::Option::None => {},
         }
 
         self.skip_ws_and_comments();
+
         if self.consume_exact(":") {
             let (w, _width_fact) = self.parse_int()?;
             #[cfg(feature = "editor-facts")]
@@ -2062,33 +2289,46 @@ impl<'input, 'control> Parser<'input, 'control> {
 
     fn parse_link(&mut self) -> Result<Option<(Option<BlockSpannedText>, String)>> {
         self.skip_ws_and_comments();
+
         if self.is_eof() {
             return Ok(None);
         }
 
         let snapshot = self.pos;
         let mut saw_partial_start_marker = false;
+
         if self.try_read_link_start_marker().is_some() {
             self.skip_ws_and_comments();
+
             if self.peek_char() == Some('"') {
                 let label = self.parse_string_literal()?;
                 self.skip_ws_and_comments();
-                if let Some(edge_marker) = self.try_read_link_full_marker() {
-                    return Ok(Some((Some(label), edge_marker.text)));
+
+                match self.try_read_link_full_marker() {
+                    Some(edge_marker) => {
+                        return Ok(Some((Some(label), edge_marker.text)));
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 self.pos = snapshot;
                 return Err(Error::diagram_parse_fallback(
                     "block".to_string(),
                     "expected edge marker after block edge label".to_string(),
                 ));
             }
+
             saw_partial_start_marker = true;
             self.pos = snapshot;
         }
 
-        if let Some(edge_marker) = self.try_read_link_full_marker() {
-            return Ok(Some((None, edge_marker.text)));
+        match self.try_read_link_full_marker() {
+            Some(edge_marker) => {
+                return Ok(Some((None, edge_marker.text)));
+            },
+            ::core::option::Option::None => {},
         }
+
         if saw_partial_start_marker {
             self.pos = snapshot;
             return Err(Error::diagram_parse_fallback(
@@ -2103,12 +2343,14 @@ impl<'input, 'control> Parser<'input, 'control> {
     fn try_read_link_start_marker(&mut self) -> Option<BlockSpannedText> {
         self.skip_ws_and_comments();
         let start = self.pos;
+
         if self
             .peek_char()
             .is_some_and(|c| c == 'x' || c == 'o' || c == '<')
         {
             self.bump()?;
         }
+
         if self.starts_with("--") || self.starts_with("==") || self.starts_with("-.") {
             self.bump()?;
             self.bump()?;
@@ -2117,6 +2359,7 @@ impl<'input, 'control> Parser<'input, 'control> {
                 span: SourceSpan::new(start, self.pos),
             });
         }
+
         self.pos = start;
         None
     }
@@ -2129,12 +2372,14 @@ impl<'input, 'control> Parser<'input, 'control> {
             if c.is_whitespace() {
                 break;
             }
-            // Mermaid block edge markers can be directly adjacent to node ids
-            // (e.g. `a-->b`). Stop once we hit a non-marker character so we don't consume the
-            // right-hand node into the marker token.
+
+
+
+
             if !matches!(c, '-' | '=' | '.' | 'x' | 'o' | '<' | '>' | '~') {
                 break;
             }
+
             self.bump();
         }
 
@@ -2143,10 +2388,12 @@ impl<'input, 'control> Parser<'input, 'control> {
         }
 
         let token = &self.input[start..self.pos];
+
         if !is_valid_link_token(token) {
             self.pos = start;
             return None;
         }
+
         Some(BlockSpannedText {
             text: token.to_string(),
             span: SourceSpan::new(start, self.pos),
@@ -2182,20 +2429,25 @@ impl<'input, 'control> Parser<'input, 'control> {
                 );
             }
             self.skip_ws_and_comments();
+
             if !self.consume_exact("]>") {
                 return Err(Error::diagram_parse_fallback(
                     "block".to_string(),
                     "expected ]> in block arrow".to_string(),
                 ));
             }
+
             self.skip_ws_and_comments();
+
             if !self.consume_exact("(") {
                 return Err(Error::diagram_parse_fallback(
                     "block".to_string(),
                     "expected '(' in block arrow".to_string(),
                 ));
             }
+
             let dirs = self.parse_direction_list()?;
+
             if !self.consume_exact(")") {
                 return Err(Error::diagram_parse_fallback(
                     "block".to_string(),
@@ -2216,57 +2468,63 @@ impl<'input, 'control> Parser<'input, 'control> {
             });
         }
 
-        if let Some(delims) = node_delims_at_start(&self.input[self.pos..]) {
-            #[cfg(feature = "editor-facts")]
-            self.push_block_node_occurrence(&id, detail, kind, BlockNodeOccurrence::Definition);
-            let start_delim = delims.start;
-            self.pos += start_delim.len();
-            self.skip_ws_and_comments();
-            let label = self.parse_string_literal_or_md()?;
-            #[cfg(feature = "editor-facts")]
-            if self.editor_demand == EditorFactsDemand::Capture {
-                push_block_payload(
-                    &mut self.editor_facts,
-                    label.clone(),
-                    "block label",
-                    EditorSemanticKind::String,
-                );
-            }
-            self.skip_ws_and_comments();
-            let mut matched_end: Option<&'static str> = None;
-            for end in delims.ends {
-                if self.consume_exact(end) {
-                    matched_end = Some(end);
-                    break;
+        match node_delims_at_start(&self.input[self.pos..]) {
+            Some(delims) => {
+                #[cfg(feature = "editor-facts")]
+                self.push_block_node_occurrence(&id, detail, kind, BlockNodeOccurrence::Definition);
+                let start_delim = delims.start;
+                self.pos += start_delim.len();
+                self.skip_ws_and_comments();
+                let label = self.parse_string_literal_or_md()?;
+                #[cfg(feature = "editor-facts")]
+                if self.editor_demand == EditorFactsDemand::Capture {
+                    push_block_payload(
+                        &mut self.editor_facts,
+                        label.clone(),
+                        "block label",
+                        EditorSemanticKind::String,
+                    );
                 }
-            }
-            let end_delim = match matched_end {
-                Some(e) => e,
-                None => {
+                self.skip_ws_and_comments();
+                let mut matched_end: Option<&'static str> = None;
+
+                for end in delims.ends {
+                    if self.consume_exact(end) {
+                        matched_end = Some(end);
+                        break;
+                    }
+                }
+
+                let end_delim = match matched_end {
+                    Some(e) => e,
+                    None => {
+                        return Err(Error::diagram_parse_fallback(
+                            "block".to_string(),
+                            "unterminated node delimiter".to_string(),
+                        ));
+                    }
+                };
+
+                if end_delim.is_empty() {
                     return Err(Error::diagram_parse_fallback(
                         "block".to_string(),
                         "unterminated node delimiter".to_string(),
                     ));
                 }
-            };
-            if end_delim.is_empty() {
-                return Err(Error::diagram_parse_fallback(
-                    "block".to_string(),
-                    "unterminated node delimiter".to_string(),
-                ));
-            }
 
-            let type_str = format!("{start_delim}{end_delim}");
-            b.label = Some(label.text);
-            b.block_type = type_str_to_type(&type_str);
-            b.width_in_columns = Some(1);
-            return Ok(ParsedBlockNode {
-                block: b,
-                #[cfg(feature = "editor-facts")]
-                id,
-                #[cfg(feature = "editor-facts")]
-                definition_emitted: true,
-            });
+                let type_str = format!("{start_delim}{end_delim}");
+                b.label = Some(label.text);
+                b.block_type = type_str_to_type(&type_str);
+                b.width_in_columns = Some(1);
+                return Ok(ParsedBlockNode {
+                    block: b,
+                    #[cfg(feature = "editor-facts")]
+                    id,
+                    #[cfg(feature = "editor-facts")]
+                    definition_emitted: true,
+                });
+            },
+            ::core::option::Option::None => {},
         }
 
         Ok(ParsedBlockNode {
@@ -2305,6 +2563,7 @@ impl<'input, 'control> Parser<'input, 'control> {
 
     fn parse_direction_list(&mut self) -> Result<Vec<String>> {
         let mut out = Vec::new();
+
         loop {
             self.skip_ws_and_comments();
             let direction = self.parse_direction()?;
@@ -2319,23 +2578,29 @@ impl<'input, 'control> Parser<'input, 'control> {
             }
             out.push(direction.text);
             self.skip_ws_and_comments();
+
             if self.consume_exact(",") {
                 continue;
             }
+
             break;
         }
+
         Ok(out)
     }
 
     fn parse_direction(&mut self) -> Result<BlockSpannedText> {
         self.skip_ws_and_comments();
         let start = self.pos;
+
         while let Some(c) = self.peek_char() {
             if c.is_whitespace() || c == ',' || c == ')' {
                 break;
             }
+
             self.bump();
         }
+
         #[cfg(feature = "editor-facts")]
         if self.editor_demand == EditorFactsDemand::Capture {
             self.editor_facts
@@ -2344,13 +2609,16 @@ impl<'input, 'control> Parser<'input, 'control> {
                     SourceSpan::new(start, self.pos),
                 ));
         }
+
         if self.pos == start {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected direction".to_string(),
             ));
         }
+
         let dir = self.input[start..self.pos].trim().to_string();
+
         match dir.as_str() {
             "right" | "left" | "x" | "y" | "up" | "down" => Ok(BlockSpannedText {
                 text: dir,
@@ -2367,6 +2635,7 @@ impl<'input, 'control> Parser<'input, 'control> {
     fn parse_node_id(&mut self) -> Result<BlockSpannedText> {
         self.skip_ws_and_comments();
         let start = self.pos;
+
         while let Some(c) = self.peek_char() {
             if c.is_whitespace()
                 || matches!(
@@ -2376,14 +2645,17 @@ impl<'input, 'control> Parser<'input, 'control> {
             {
                 break;
             }
+
             self.bump();
         }
+
         if self.pos == start {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected node id".to_string(),
             ));
         }
+
         let id = BlockSpannedText {
             text: self.input[start..self.pos].to_string(),
             span: SourceSpan::new(start, self.pos),
@@ -2394,20 +2666,25 @@ impl<'input, 'control> Parser<'input, 'control> {
     fn parse_classdef_id(&mut self) -> Result<BlockSpannedText> {
         self.skip_inline_whitespace();
         let start = self.pos;
+
         while let Some(c) = self.peek_char() {
             if c.is_whitespace() || c == '\n' || c == '\r' {
                 break;
             }
+
             self.bump();
         }
+
         if self.pos == start {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected identifier".to_string(),
             ));
         }
+
         let span = SourceSpan::new(start, self.pos);
         let text = self.input[start..self.pos].trim().to_string();
+
         if !text
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
@@ -2418,24 +2695,29 @@ impl<'input, 'control> Parser<'input, 'control> {
                 span,
             ));
         }
+
         Ok(BlockSpannedText { text, span })
     }
 
     fn parse_identifier_list(&mut self) -> Result<BlockSpannedText> {
         self.skip_inline_whitespace();
         let start = self.pos;
+
         while let Some(c) = self.peek_char() {
             if c.is_whitespace() || c == '\n' || c == '\r' {
                 break;
             }
+
             self.bump();
         }
+
         if self.pos == start {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected identifier".to_string(),
             ));
         }
+
         Ok(BlockSpannedText {
             text: self.input[start..self.pos].to_string(),
             span: SourceSpan::new(start, self.pos),
@@ -2445,15 +2727,18 @@ impl<'input, 'control> Parser<'input, 'control> {
     fn parse_int(&mut self) -> Result<(i64, BlockSpannedText)> {
         self.skip_ws_and_comments();
         let start = self.pos;
+
         while self.peek_char().is_some_and(|c| c.is_ascii_digit()) {
             self.bump();
         }
+
         if self.pos == start {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected integer".to_string(),
             ));
         }
+
         let text = self.input[start..self.pos].to_string();
         let value = text
             .parse::<i64>()
@@ -2469,18 +2754,22 @@ impl<'input, 'control> Parser<'input, 'control> {
 
     fn parse_string_literal_or_md(&mut self) -> Result<BlockSpannedText> {
         self.skip_ws_and_comments();
+
         if self.starts_with("\"`") {
             self.pos += 2;
             let start = self.pos;
+
             while self.pos < self.input.len() && !self.input[self.pos..].starts_with("`\"") {
                 self.bump();
             }
+
             if self.pos >= self.input.len() {
                 return Err(Error::diagram_parse_fallback(
                     "block".to_string(),
                     "unterminated markdown string".to_string(),
                 ));
             }
+
             let end = self.pos;
             let inner = self.input[start..end].to_string();
             self.pos += 2;
@@ -2489,31 +2778,41 @@ impl<'input, 'control> Parser<'input, 'control> {
                 span: SourceSpan::new(start, end),
             });
         }
+
         self.parse_string_literal()
     }
 
     fn parse_string_literal(&mut self) -> Result<BlockSpannedText> {
         self.skip_ws_and_comments();
+
         if self.peek_char() != Some('"') {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "expected string literal".to_string(),
             ));
         }
+
         self.bump();
         let start = self.pos;
+
         while let Some(c) = self.peek_char() {
-            if c == '"' {
-                break;
+            match c {
+                '"' => {
+                    break;
+                },
+                _ => {},
             }
+
             self.bump();
         }
+
         if self.peek_char() != Some('"') {
             return Err(Error::diagram_parse_fallback(
                 "block".to_string(),
                 "unterminated string literal".to_string(),
             ));
         }
+
         let end = self.pos;
         let inner = self.input[start..end].to_string();
         self.bump();
@@ -2799,7 +3098,7 @@ mod tests {
     fn block_cancellation_releases_managed_partial_projection() {
         let model = parse_block_model_for_render(&deep_block_chain(500), &meta()).unwrap();
         let control = OperationControl::new().for_phase(crate::OperationPhase::Export);
-        // The first subtree has finished its leaf and assembled deep ancestors at checkpoint seven.
+
         control.cancel_after_checkpoints(6);
         let cancelled =
             render_model_to_compat_json_controlled(&model, &meta(), &control).unwrap_err();
@@ -3015,8 +3314,8 @@ C<["Route"]>(left,down)
 
     #[test]
     fn block_completed_parent_observes_source_backed_live_metadata_updates() {
-        // Mermaid 12.1.0 blockDB registers and attaches the same first-declaration object.
-        // Later declarations merge only type/label; style/class actions update that object.
+
+
         let source = "block\nblock:G\nA<[\"old\"]>(down):1\nend\nstyle A fill:red,stroke:blue\nclass A hot\nA<[\"middle\"]>(up):3\nA((\"new\")):4\n";
         let typed = parse_block_model_for_render(source, &meta()).unwrap();
         let value =
@@ -3049,8 +3348,8 @@ C<["Route"]>(left,down)
 
     #[test]
     fn block_repeated_composite_preserves_first_children_and_columns() {
-        // blockDB replays a repeated group's document into the later declaration object,
-        // rather than replacing the first object's hierarchy in the canonical database.
+
+
         let source = "block\nblock:G\ncolumns 2\nA\nend\nblock:G\ncolumns 3\nB\nend\n";
         let typed = parse_block_model_for_render(source, &meta()).unwrap();
         let value =
@@ -3396,7 +3695,7 @@ C<["Route"]>(left,down)
         const DEPTH: usize = 1200;
         let input = deep_block_chain(DEPTH);
 
-        // Legacy blocksFlat repeats descendants; its output size is a separate bounded probe.
+
         const COMPAT_DEPTH: usize = 64;
         let model = parse(&deep_block_chain(COMPAT_DEPTH));
         let blocks_flat = model["blocksFlat"].as_array().expect("blocksFlat array");

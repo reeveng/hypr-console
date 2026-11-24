@@ -118,6 +118,7 @@ pub enum Action {
   Terminal,
   Files,
   Music,
+  QuickWorkspace,
   Downloads,
   Notifications,
   Clipboard,
@@ -240,7 +241,7 @@ const SUPER: &[&str] = &["super"];
 const SUPER_CONTROL: &[&str] = &["super", "ctrl"];
 const SUPER_SHIFT: &[&str] = &["super", "shift"];
 
-pub const JOBS: [Task; 82] = [
+pub const JOBS: [Task; 83] = [
   Task {
     slug: "menu",
     action: Action::Menu,
@@ -375,6 +376,12 @@ pub const JOBS: [Task; 82] = [
     action: Action::Music,
     context: Context::Anywhere,
     bound: &[(KEYS, SUPER, "m")],
+  },
+  Task {
+    slug: "quick-workspace",
+    action: Action::QuickWorkspace,
+    context: Context::Anywhere,
+    bound: &[(PAD, L2, "y"), (KEYS, SUPER_SHIFT, "m")],
   },
   Task {
     slug: "downloads",
@@ -796,6 +803,7 @@ impl Action {
       Action::Terminal => "open Terminal",
       Action::Files => "open Files",
       Action::Music => "open Music",
+      Action::QuickWorkspace => "show or hide Quick Workspace",
       Action::Downloads => "open Downloads",
       Action::Notifications => "show notifications",
       Action::Clipboard => "open clipboard history",
@@ -927,6 +935,7 @@ impl Action {
       | Action::Terminal
       | Action::Files
       | Action::Music
+      | Action::QuickWorkspace
       | Action::Downloads
       | Action::Notifications
       | Action::Clipboard
@@ -982,14 +991,22 @@ impl Action {
       Action::Overview => run_by_name(InternalProgram::Overview, &[OVERVIEW_SHOW.spelling]),
       Action::ButtonGuide => run_by_path(InternalProgram::MappingPanel, &[]),
       Action::Keyboard => run_by_name(InternalProgram::KeyboardToggle, &[]),
-      Action::Language(-1) => started(&[
-        console_input_language::NAMED,
-        console_input_language::BACK.spelling,
-      ]),
-      Action::Language(_) => started(&[console_input_language::NAMED]),
+      Action::Language(-1) => run_by_name(
+        InternalProgram::LanguageSwitch,
+        &[console_input_language::BACK.spelling],
+      ),
+      Action::Language(_) => run_by_name(InternalProgram::LanguageSwitch, &[]),
       Action::Terminal => terminal(),
       Action::Files => run_by_path(InternalProgram::Files, &[]),
-      Action::Music => run_by_path(InternalProgram::MusicPanel, &[]),
+      Action::Music => {
+        let Ok(library) = InternalProgram::Music.path();
+        let Ok(panel) = InternalProgram::MusicPanel.path();
+        run_by_path(
+          InternalProgram::Compositor,
+          &["quick-music", library, panel],
+        )
+      }
+      Action::QuickWorkspace => run_by_path(InternalProgram::Compositor, &["quick-workspace"]),
       Action::Downloads => run_by_path(InternalProgram::Downloads, &[]),
       Action::Notifications => run_by_path(InternalProgram::NotificationsPanel, &[]),
       Action::Clipboard => run_by_path(InternalProgram::Clipboard, &[]),

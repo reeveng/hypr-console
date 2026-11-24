@@ -6,13 +6,6 @@
 //! shows. `console-wallpaper` then paints a picture over it, which is what the
 //! device shows and what the nested desktop has nothing to show.
 //!
-//! A wrong color here has two causes and they want opposite answers, so a
-//! wrong color says which. Nothing may have painted at all, or awww may be
-//! playing an old picture's frames over this one's still, which it will do
-//! whenever a new picture arrives at an old picture's path. The second is the
-//! second rung of the ladder in the `theme.md` note in Orbit, and an afternoon
-//! once went at the encoder for want of someone saying so.
-
 use console_core_geometry::Point;
 use console_core_never::Never;
 use console_test_stages::Error;
@@ -23,8 +16,6 @@ use console_test_stages::device::{A_MOMENT, Device, Ready};
 use crate::Unchecked;
 
 const NO_DIGITS_THERE: &str = "";
-
-const NONE_OF_THEM: i64 = 0;
 
 const NOTHING_SAID: &str = "";
 
@@ -64,11 +55,11 @@ pub fn ground() -> Result<String, Unchecked> {
   let Ok(after) = console_core_ini_files::field(
     &said,
     console_core_ini_files::Under("Service"),
-    console_core_ini_files::Key("ExecStartPost"),
+    console_core_ini_files::Key("ExecStart"),
   );
 
   after
-    .and_then(|after_2| after_2.rsplit_once("awww clear "))
+    .and_then(|after_2| after_2.rsplit_once("console-paper serve "))
     .map(|(_, color)| color.trim().to_string())
     .ok_or_else(|| Unchecked::NoGround(at.clone()))
 }
@@ -77,10 +68,6 @@ pub trait Viewport {
   fn background(&mut self) -> Result<String, Error>;
 
   fn patch(&mut self, at: Point<f64>) -> Result<String, Error>;
-
-  fn frames(&mut self, _picture: &str) -> Result<(Option<i64>, Option<i64>), Never> {
-    Ok((None, None))
-  }
 }
 
 impl Viewport for Desktop {
@@ -100,10 +87,6 @@ impl Viewport for Device<'_> {
 
   fn patch(&mut self, at: Point<f64>) -> Result<String, Error> {
     Device::patch(self, at)
-  }
-
-  fn frames(&mut self, picture: &str) -> Result<(Option<i64>, Option<i64>), Never> {
-    self.frame_cache(picture)
   }
 }
 
@@ -141,60 +124,6 @@ pub fn near(shades: Shades<'_>) -> Result<Shade, Never> {
     ::core::option::Option::Some(()) => Shade::Same,
     ::core::option::Option::None => Shade::Other,
   })
-}
-
-pub fn how_long(seconds: i64) -> Result<String, Never> {
-  let sizes = [(86400, "day"), (3600, "hour"), (60, "minute")];
-
-  let big = sizes.into_iter().find(|(size, _)| seconds >= *size);
-
-  let (size, unit) = match big {
-    Some(both) => both,
-    None => return Ok(format!("{seconds} seconds")),
-  };
-
-  let many = match seconds.checked_div(size) {
-    Some(many) => many,
-    None => NONE_OF_THEM,
-  };
-
-  let ending = match ::core::primitive::bool::then_some(many == 1, ()) {
-    ::core::option::Option::Some(()) => "",
-    ::core::option::Option::None => "s",
-  };
-
-  Ok(format!("{many} {unit}{ending}"))
-}
-
-pub fn or_the_cache(screen: &mut impl Viewport, picture: &str) -> Result<String, Never> {
-  let (frames, drawn) = match screen.frames(picture) {
-    Ok((Some(frames), Some(drawn))) => (frames, drawn),
-    Ok((None, _)) | Ok((_, None)) | Err(_) => return Ok(String::new()),
-  };
-
-  Ok(
-    match ::core::primitive::bool::then_some(frames < drawn, ()) {
-      ::core::option::Option::Some(()) => {
-        let Ok(older) = how_long(drawn.saturating_sub(frames));
-
-        format!(
-          " The decoded frames under ~/.cache/awww are {older} older than the picture, so \
-                 this is the cache and not the drawing: restart console-wallpaper.service and look \
-                 again."
-        )
-      }
-      ::core::option::Option::None => {
-        let Ok(after) = how_long(frames.saturating_sub(drawn));
-
-        format!(
-          " The decoded frames under ~/.cache/awww were written {after} after the picture, \
-                 which does not clear them: a picture restored or copied with its own dates is \
-                 new bytes under an old one. Restart console-wallpaper.service and look again before \
-                 reading anything into the drawing."
-        )
-      }
-    },
-  )
 }
 
 pub fn grounded(screen: &mut impl Viewport) -> CheckResult {
@@ -247,17 +176,18 @@ pub fn showing_a_picture(said: &str, names: &[String]) -> Result<String, Uncheck
 }
 
 fn desktop(stage: &mut Desktop) -> CheckResult {
-  let Ok(installed) = stage.installed("awww-daemon");
+  let Ok(paper) = console_core_internal_programs::InternalProgram::Paper.name();
+  let Ok(installed) = stage.installed(paper);
 
   match installed {
-    Installed::No => cannot("awww is not installed on this machine"),
+    Installed::No => cannot("console-paper is not installed on this machine"),
     Installed::Yes => grounded(stage),
   }
 }
 
 fn device(stage: &mut Device) -> CheckResult {
   let names = picture_names()?;
-  let Ok(said) = stage.wallpaper();
+  let said = stage.wallpaper()?;
 
   let picture = showing_a_picture(&said, &names)?;
   let mut clear = Ready::NotYet;
@@ -288,12 +218,11 @@ fn device(stage: &mut Device) -> CheckResult {
     one: &behind,
     other: &ground,
   });
-  let Ok(cached) = or_the_cache(stage, &picture);
 
   same(&near, &Shade::Other, || {
     format!(
       "the daemon says it is showing {picture}, but the screen is still #{behind}, which \
-             is the color the unit fills it with before anything is chosen.{cached}"
+             is the color the unit fills it with before anything is chosen."
     )
   })
 }
@@ -318,14 +247,6 @@ mod tests {
       }),
       Ok(Shade::Other)
     );
-  }
-
-  #[test]
-  fn a_gap_is_said_in_the_largest_unit_it_fills() {
-    assert_eq!(how_long(45), Ok("45 seconds".to_string()));
-    assert_eq!(how_long(3600), Ok("1 hour".to_string()));
-    assert_eq!(how_long(90000), Ok("1 day".to_string()));
-    assert_eq!(how_long(200000), Ok("2 days".to_string()));
   }
 
   #[test]

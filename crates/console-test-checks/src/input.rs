@@ -50,17 +50,9 @@ const ALLOWED: [&str; 5] = [
 
 const APPLICATION: &str = "controller-desktop";
 
-const ASKING: &str = "for fd in /proc/[0-9]*/fd/*; do \
-     seen=$(readlink \"$fd\" 2>/dev/null) || continue; \
-     case \"$seen\" in /dev/input/*) \
-       pid=${fd#/proc/}; pid=${pid%%/*}; \
-       echo \"$(cat /proc/$pid/comm 2>/dev/null) $seen\";; \
-     esac; \
-   done | sort -u";
-
 fn owned(stage: &mut Device) -> CheckResult {
   let Ok(()) = stage.fresh();
-  let Ok(said) = stage.ssh(ASKING);
+  let said = stage.inspect(&["input-holders"])?;
 
   let holding: Vec<&str> = said
     .lines()

@@ -691,29 +691,23 @@ fn read(services: *mut BootServices, buffer: &mut [u8]) -> Result<MapReply, Firm
 )]
 pub fn pool_allocate(layout: Layout) -> Result<*mut u8, Never> {
   let services = BOOT_SERVICES.load(Ordering::Acquire);
+  let Ok(alignment) = console_core_number_conversion::fixed_index(layout.align());
+  let Ok(bytes) = console_core_number_conversion::fixed_index(layout.size());
+  let unsupported = services.is_null() || alignment > POOL_ALIGNMENT;
 
-  let alignment = u64::try_from(layout.align());
-  let size = u64::try_from(layout.size());
+  match bool::then_some(unsupported, ()) {
+    Some(()) => return Ok(ptr::null_mut()),
+    None => {}
+  }
 
-  Ok(match (services.is_null(), alignment, size) {
-    (false, Ok(alignment_2), Ok(size_2)) => {
-      match ::core::primitive::bool::then_some(alignment_2 <= POOL_ALIGNMENT, ()) {
-        ::core::option::Option::Some(()) => {
-          let mut at = ptr::null_mut();
-          // SAFETY: `services` is the boot services table the firmware handed over, stored before the first allocation and emptied when they are exited.
-          let status: Status =
-            unsafe { ((*services).allocate_pool)(LOADER_DATA, size_2, &mut at) };
+  let mut at = ptr::null_mut();
+  // SAFETY: The firmware's boot services table stays live until handoff,
+  // and `at` is writable storage for the allocation pointer.
+  let status = unsafe { ((*services).allocate_pool)(LOADER_DATA, bytes, &mut at) };
 
-          match status {
-            SUCCESS => at,
-            _ => ptr::null_mut(),
-          }
-        }
-        ::core::option::Option::None => ptr::null_mut(),
-      }
-    }
-    (true, _, _) => ptr::null_mut(),
-    (false, Err(_too_large), _) | (false, _, Err(_too_large)) => ptr::null_mut(),
+  Ok(match status {
+    SUCCESS => at,
+    _ => ptr::null_mut(),
   })
 }
 

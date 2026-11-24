@@ -25,14 +25,15 @@ pub(crate) enum RequirementTextColorOwner {
 }
 
 impl RequirementTextColorOwner {
+    #[must_use]
     pub(crate) fn from_source_color(color: Option<&str>) -> Self {
         match color {
             None => Self::Inherited,
-            Some(color) if crate::mermaid_style::is_supported_css_color_value(color) => {
+            Some(color_2) if crate::mermaid_style::is_supported_css_color_value(color_2) => {
                 Self::Static
             }
-            // These declarations are emitted on the label group and inner label terminal.
-            // They bypass nodeTextColor, but their inherited source color is not a fixed paint.
+
+
             Some(_) => Self::Unverified,
         }
     }
@@ -45,12 +46,15 @@ pub(crate) enum RequirementTextTerminalId {
 }
 
 impl RequirementTextTerminalId {
+    #[must_use]
     pub(crate) fn node(id: &str, line: usize) -> Self {
         Self::Node {
             id: id.to_owned(),
             line,
         }
     }
+
+    #[must_use]
     pub(crate) fn edge(id: &str) -> Self {
         Self::Edge(id.to_owned())
     }
@@ -74,8 +78,8 @@ impl RequirementTextPaintPlan {
         config: &PresentationConfig,
         work: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let theme = theme.filter(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let theme_3 = theme.filter(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 matches!(
                     route.mechanism(),
                     FamilyThemeMechanism::RuleFacet {
@@ -90,28 +94,28 @@ impl RequirementTextPaintPlan {
                 )
             })
         });
-        let style = theme
-            .map(|theme| {
-                theme.style_with_work_meter(ThemeTarget::Text, ThemeVariant::Default, None, work)
+        let style = theme_3
+            .map(|theme_4| {
+                theme_4.style_with_work_meter(ThemeTarget::Text, ThemeVariant::Default, None, work)
             })
             .transpose()?;
-        let fill = theme.zip(style.as_ref()).and_then(|(theme, style)| {
+        let fill = theme_3.zip(style.as_ref()).and_then(|(theme_5, style_2)| {
             resolve_direct_static_fill(
-                theme,
-                style,
+                theme_5,
+                style_2,
                 &[ThemeTarget::Text],
                 DirectStaticSelectorDomain::Default,
             )
         });
         Ok(Self {
-            theme: theme.cloned(),
+            theme: theme_3.cloned(),
             style,
             fill,
             node_owned: config.config_paint_overrides_typed_default("themeVariables.nodeTextColor"),
             relation_owned: config
                 .config_paint_overrides_typed_default("themeVariables.relationLabelColor"),
-            ordinal_rules: theme.is_some_and(|theme| {
-                theme
+            ordinal_rules: theme_3.is_some_and(|theme_6| {
+                theme_6
                     .family_rules()
                     .any(|(_, rule)| rule.target() == ThemeTarget::Text && rule.ordinal().is_some())
             }),
@@ -119,10 +123,12 @@ impl RequirementTextPaintPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn requested(&self) -> bool {
         self.theme.is_some()
     }
 
+    #[must_use]
     pub(crate) fn fill_css(&self) -> Option<&str> {
         self.fill.as_ref().map(DirectStaticPaint::css)
     }
@@ -135,6 +141,7 @@ impl RequirementTextPaintPlan {
         if !self.requested() {
             return Ok(None);
         }
+
         work.charge(
             self.theme
                 .as_ref()
@@ -144,10 +151,12 @@ impl RequirementTextPaintPlan {
         )?;
         let mut terminals = BTreeMap::new();
         let mut valid = true;
+
         for id in expected {
             work.charge(1)?;
             valid &= terminals.insert(id, false).is_none();
         }
+
         Ok(Some(RequirementTextPaintReceipt {
             plan: self,
             terminals,
@@ -163,20 +172,24 @@ impl RequirementTextPaintPlan {
         }))
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: Option<RequirementTextPaintReceipt<'_>>) -> bool {
         match receipt {
-            Some(receipt) => {
-                std::ptr::eq(receipt.plan, self)
-                    && receipt.complete()
-                    && self.terminal.set(receipt.finish_outcomes()).is_ok()
+            Some(receipt_2) => {
+                std::ptr::eq(receipt_2.plan, self)
+                    && receipt_2.complete()
+                    && self.terminal.set(receipt_2.finish_outcomes()).is_ok()
             }
             None => !self.requested(),
         }
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
-        if let Some(terminal) = self.terminal.get() {
-            evidence.merge_borrowed(terminal);
+        match self.terminal.get() {
+            Some(terminal) => {
+                evidence.merge_borrowed(terminal);
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
@@ -209,33 +222,38 @@ impl RequirementTextPaintReceipt<'_> {
         let theme = self.plan.theme.as_ref().expect("requested text theme");
         let ordinal_style;
         let style = if self.plan.ordinal_rules {
-            ordinal_style = theme.style_with_work_meter(
+            ordinal_style = { let checked_value = theme.style_with_work_meter(
                 ThemeTarget::Text,
                 ThemeVariant::Default,
                 Some(self.ordinal),
                 work,
-            )?;
+            )?; checked_value };
             &ordinal_style
         } else {
             self.plan.style.as_ref().expect("requested text style")
         };
+
         for (property, origin) in style.winner_rule_properties() {
             work.charge(1)?;
+
             if property != ResolvedStyleProperty::Fill || inherits_fill {
                 self.winners.insert((origin.rule_index(), property));
             }
         }
+
         self.typed_fill_consumed |= inherits_fill && self.plan.fill.is_some();
         self.palette_applies |= inherits_fill
             && matches!(style.fill_resolution().specified(), Specified::Unspecified)
             && theme
                 .series_color(ThemeTarget::Text, self.ordinal)
                 .is_some();
+
         if let Some(ResolvedThemeEffect::Binding { binding, .. }) =
             theme.resolve_effect(ThemeTarget::Text, style.effect_resolution())
         {
             self.bindings.insert(binding.effect_id().to_owned());
         }
+
         Ok(())
     }
 
@@ -293,15 +311,19 @@ impl RequirementTextPaintReceipt<'_> {
         work: &OperationWorkMeter,
     ) -> Result<(), OperationWorkError> {
         work.charge(1 + facts.visible_run_count())?;
+
         let Some(seen) = self.terminals.get_mut(&id) else {
             self.valid = false;
             return Ok(());
         };
+
         self.valid &= !*seen;
+
         *seen = true;
         if facts.parse_valid() && !facts.has_visible_runs() {
             return Ok(());
         }
+
         self.ordinal += 1;
         let config_owned = if svg_edge {
             self.plan.relation_owned
@@ -317,12 +339,12 @@ impl RequirementTextPaintReceipt<'_> {
         let theme = self.plan.theme.as_ref().expect("requested text plan");
         let ordinal_style;
         let style = if self.plan.ordinal_rules {
-            ordinal_style = theme.style_with_work_meter(
+            ordinal_style = { let checked_value = theme.style_with_work_meter(
                 ThemeTarget::Text,
                 ThemeVariant::Default,
                 Some(self.ordinal),
                 work,
-            )?;
+            )?; checked_value };
             &ordinal_style
         } else {
             self.plan
@@ -330,40 +352,50 @@ impl RequirementTextPaintReceipt<'_> {
                 .as_ref()
                 .expect("requested static text style")
         };
+
         for (property, origin) in style.winner_rule_properties() {
             work.charge(1)?;
+
             if property == ResolvedStyleProperty::Fill && !fill_applies {
                 continue;
             }
+
             self.winners.insert((origin.rule_index(), property));
+
             if property == ResolvedStyleProperty::Fill && unverified {
                 self.unknown_fill_winners.insert(origin.rule_index());
             }
         }
-        // Static CSS remains the emitted paint even where a later unsupported ordinal wins.
-        // That ordinal is still residual; it does not erase consumption by other occurrences.
+
+
+
         self.typed_fill_consumed |= inherited && !unverified && self.plan.fill.is_some();
         self.palette_applies |= fill_applies
             && matches!(style.fill_resolution().specified(), Specified::Unspecified)
             && theme
                 .series_color(ThemeTarget::Text, self.ordinal)
                 .is_some();
+
         if let Some(ResolvedThemeEffect::Binding { binding, .. }) =
             theme.resolve_effect(ThemeTarget::Text, style.effect_resolution())
         {
             self.bindings.insert(binding.effect_id().to_owned());
         }
+
         Ok(())
     }
 
+    #[must_use]
     fn complete(&self) -> bool {
         self.valid && self.css_counts == [1, 1, 1] && self.terminals.values().all(|seen| *seen)
     }
 
+    #[must_use]
     fn finish_outcomes(self) -> FamilyThemeOutcomes {
         let theme = self.plan.theme.as_ref().expect("requested text plan");
         let mut evidence = FamilyThemeOutcomes::default();
         let mut observations = BTreeMap::<usize, (bool, Option<FamilyThemeResidualReason>)>::new();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
@@ -374,9 +406,11 @@ impl RequirementTextPaintReceipt<'_> {
                 } => {
                     let observation = observations.entry(rule_index).or_default();
                     let property = resolved_style_property_for_facet(facet);
+
                     if !self.winners.contains(&(rule_index, property)) {
                         continue;
                     }
+
                     if route.disposition() == FamilyThemeDisposition::TypedAdapter
                         && matches!(facet, FamilyThemeRuleFacet::Fill(_))
                         && self
@@ -398,6 +432,7 @@ impl RequirementTextPaintReceipt<'_> {
                     target: ThemeTarget::Text,
                 } => {
                     let key = theme.family_mechanism_key(route);
+
                     if self.palette_applies {
                         evidence.mark_residual(
                             key,
@@ -412,6 +447,7 @@ impl RequirementTextPaintReceipt<'_> {
                     ..
                 } => {
                     let key = theme.family_mechanism_key(route);
+
                     if matches!(&key, FamilyThemeMechanismKey::EffectBinding { effect_id, .. } if self.bindings.contains(effect_id))
                     {
                         evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedEffect);
@@ -422,11 +458,13 @@ impl RequirementTextPaintReceipt<'_> {
                 _ => {}
             }
         }
+
         for (index, (applied, residual)) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: ThemeTarget::Text,
             };
+
             if let Some(reason) = residual {
                 evidence.mark_residual(key, reason);
             } else if applied {
@@ -438,6 +476,7 @@ impl RequirementTextPaintReceipt<'_> {
                 evidence.mark_not_applicable(key);
             }
         }
+
         evidence
     }
 }

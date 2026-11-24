@@ -1,5 +1,8 @@
 //! The machine, asked to stay up for as long as something is going on.
 //!
+//! Remote deployment acquires its lock before replacing the installed Console.
+//! Releases that predate the heartbeat entry point return usage status 2.
+//!
 //! Two things on this desktop are ruined by the machine stopping underneath
 //! them, and they are ruined by different amounts of it. An apply is undone by
 //! a shutdown, by a sleep, and by the idle daemon reaching the end of its
@@ -67,14 +70,13 @@
 //! it sounds: a lock no one is holding and no one can find is a machine that
 //! has quietly stopped being able to suspend.
 
-use std::process::Stdio;
-use std::time::Duration;
-
 use console_core_external_programs::Program;
+use console_core_external_programs::shell;
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_words::Words;
 use console_operating_system_linux::program_lifetime::{BoundToParent, alongside};
-use console_session::reaching::shell_quote;
+use std::process::Stdio;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Words)]
 pub enum InhibitReason {
@@ -151,32 +153,47 @@ pub fn inhibit(kept: InhibitReason) -> Result<InhibitResult, Never> {
   })
 }
 
-const HEARTBEAT: Duration = Duration::from_secs(10);
-const HEARTBEAT_SCRIPT: &str = "while read -t \"$1\" _ || [ $? -gt 128 ]; do echo || exit; done";
+pub mod heartbeat;
 
-fn heartbeat(every: Duration) -> Result<String, Never> {
-  let Ok(shell) = Program::Sh.name();
-  let seconds = every.as_secs();
-  let Ok(beating) = shell_quote(HEARTBEAT_SCRIPT);
+const LEGACY_HEARTBEAT: &str = include_str!("scripts/legacy-heartbeat.sh");
 
-  Ok(format!("{shell} -c {beating} heartbeat {seconds}"))
+fn remote_inhibitor(kept: InhibitReason) -> Result<String, Never> {
+  let Ok(inhibit) = Program::SystemdInhibit.name();
+  let Ok(console) = InternalProgram::Console.path();
+  let Ok(what) = kept.what();
+  let Ok(who) = kept.who();
+  let Ok(why) = kept.why();
+  let options = [
+    format!("--what={what}"),
+    format!("--who={who}"),
+    format!("--why={why}"),
+  ];
+  let prefix = [inhibit, "--mode=block"]
+    .into_iter()
+    .chain(options.iter().map(String::as_str));
+  let Ok(native) = shell::join(prefix.clone().chain([console, heartbeat::COMMAND]));
+
+  Ok(match kept {
+    InhibitReason::FromDeploying => {
+      let Ok(sh) = Program::Sh.name();
+      let interval = heartbeat::EVERY.as_secs().to_string();
+      let Ok(legacy) =
+        shell::join(prefix.chain([sh, "-c", LEGACY_HEARTBEAT, "heartbeat", &interval]));
+      format!("{native}; code=$?; case $code in 2|127) {legacy} ;; *) exit \"$code\" ;; esac")
+    }
+    InhibitReason::FromStopping | InhibitReason::FromSleeping | InhibitReason::FromChecking => {
+      native
+    }
+  })
 }
 
 pub fn taking_on(host: &str, kept: InhibitReason) -> Result<InhibitResult, Never> {
   let Ok(mut asking) = Program::Ssh.command();
-  let Ok(inhibit) = Program::SystemdInhibit.name();
-  let Ok(beating) = heartbeat(HEARTBEAT);
-  let Ok(what) = kept.what();
-  let Ok(who) = kept.who();
+  let Ok(there) = remote_inhibitor(kept);
   let Ok(why) = kept.why();
-  let Ok(who_quoted) = shell_quote(who);
-  let Ok(why_quoted) = shell_quote(why);
-  let there = format!(
-    "{inhibit} --what={what} --who={who_quoted} --why={why_quoted} --mode=block {beating}"
-  );
 
   asking
-    .args([host, &there])
+    .args(["--", host, &there])
     .stdin(Stdio::piped())
     .stdout(Stdio::null())
     .stderr(Stdio::null());
@@ -210,8 +227,6 @@ impl Drop for Staying {
 mod tests {
   use std::error::Error;
   use std::process::Command;
-
-  use console_waiting::{Outcome, Ready, Schedule, until_handed};
 
   use super::*;
 
@@ -269,73 +284,6 @@ mod tests {
                  be interrupted by a machine that stops underneath it"
       )),
     })
-  }
-
-  fn held_far_away() -> Result<BoundToParent, Box<dyn Error>> {
-    let Ok(mut asking) = Program::Sh.command();
-
-    asking
-      .args(["-c", HEARTBEAT_SCRIPT, "heartbeat", "1"])
-      .stdin(Stdio::piped())
-      .stdout(Stdio::piped())
-      .stderr(Stdio::null());
-
-    let held = alongside(&mut asking)?;
-
-    Ok(held)
-  }
-
-  fn ended(holding: &mut BoundToParent) -> Result<Outcome, Never> {
-    let Ok(patience) = Schedule::of(Duration::from_secs(10));
-
-    until_handed(patience, holding, |holding_2| {
-      let Ok(still) = holding_2.still();
-
-      Ok(match still {
-        console_program_lifetime::Still::Ended => Ready::Yes,
-        console_program_lifetime::Still::Running => Ready::NotYet,
-      })
-    })
-  }
-
-  #[test]
-  fn a_lock_whose_holder_has_gone_without_a_word_lets_go() -> Result<(), Box<dyn Error>> {
-    let mut holding = held_far_away()?;
-    let Ok(still_open) = holding.take_stdin();
-    let Ok(hearing) = holding.take_stdout();
-
-    drop(hearing);
-
-    let Ok(gone) = ended(&mut holding);
-
-    assert_eq!(
-      gone,
-      Outcome::Happened,
-      "the device held a lock for a connection nobody was on"
-    );
-    drop(still_open);
-
-    Ok(())
-  }
-
-  #[test]
-  fn a_lock_lets_go_when_its_holder_does() -> Result<(), Box<dyn Error>> {
-    let mut holding = held_far_away()?;
-    let Ok(hearing) = holding.take_stdout();
-    let Ok(writing) = holding.take_stdin();
-
-    drop(writing);
-
-    let Ok(gone) = ended(&mut holding);
-
-    assert_eq!(
-      gone,
-      Outcome::Happened,
-      "the device held a lock after the laptop let go of it"
-    );
-    drop(hearing);
-
-    Ok(())
   }
 
   #[test]

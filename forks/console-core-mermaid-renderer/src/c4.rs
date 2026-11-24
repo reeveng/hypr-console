@@ -16,8 +16,8 @@ pub(crate) use theme::C4ClusterThemePlan;
 type C4Model = C4DiagramModel;
 type C4Conf = C4LayoutSettings;
 
-// Mermaid's unified `fr-rect` handler reserves an eight-pixel frame on each side. Neo changes
-// only the label padding; it does not use the separate `shadedProcess` geometry.
+
+
 pub(crate) const C4_FRAMED_FRAME_WIDTH: f64 = 8.0;
 pub(crate) const C4_NEO_FRAMED_LABEL_PADDING_X: f64 = 28.0;
 pub(crate) const C4_NEO_FRAMED_LABEL_PADDING_Y: f64 = 12.0;
@@ -32,6 +32,7 @@ pub(crate) enum C4NodeShape {
     HorizontalCylinder,
 }
 
+#[must_use]
 fn value_string(value: Option<&Value>) -> Option<&str> {
     value
         .and_then(Value::as_str)
@@ -39,8 +40,11 @@ fn value_string(value: Option<&Value>) -> Option<&str> {
         .filter(|s| !s.is_empty())
 }
 
+#[must_use]
 fn keyword_shape(value: Option<&str>) -> Option<C4NodeShape> {
-    match value?.to_ascii_lowercase().as_str() {
+    let checked_value = value?;
+
+    match checked_value.to_ascii_lowercase().as_str() {
         "person" => Some(C4NodeShape::Person),
         "box" | "rounded" => Some(C4NodeShape::Rounded),
         "component" => Some(C4NodeShape::Framed),
@@ -52,6 +56,7 @@ fn keyword_shape(value: Option<&str>) -> Option<C4NodeShape> {
 
 /// Resolves `$shape`, `$sprite`, `$tags`, and the legacy C4 element type in the
 /// same order as Mermaid's `c4ShapeAdapter`.
+#[must_use]
 pub(crate) fn c4_node_shape(shape: &C4Shape) -> C4NodeShape {
     keyword_shape(value_string(shape.shape.as_ref()))
         .or_else(|| keyword_shape(value_string(shape.sprite.as_ref())))
@@ -69,15 +74,17 @@ pub(crate) fn c4_node_shape(shape: &C4Shape) -> C4NodeShape {
         })
 }
 
+#[must_use]
 fn c4_stereotype_name(type_c4_shape: &str) -> String {
     let base = type_c4_shape
         .strip_prefix("external_")
         .unwrap_or(type_c4_shape);
-    let base = base
+    let base_2 = base
         .strip_suffix("_db")
         .or_else(|| base.strip_suffix("_queue"))
         .unwrap_or(base);
-    match base {
+
+    match base_2 {
         "person" => "Person".to_string(),
         "system" => "Software System".to_string(),
         "container" => "Container".to_string(),
@@ -87,8 +94,10 @@ fn c4_stereotype_name(type_c4_shape: &str) -> String {
 }
 
 /// Returns the structured stereotype line used by the unified C4 label helper.
+#[must_use]
 pub(crate) fn c4_stereotype_text(shape: &C4Shape) -> String {
     let stereotype = c4_stereotype_name(shape.type_c4_shape.as_str());
+
     match shape
         .techn
         .as_ref()
@@ -113,6 +122,7 @@ pub(crate) struct UnifiedTextMeasure {
     pub(crate) render_plan: C4TextRenderPlan,
 }
 
+#[must_use]
 fn measure_c4_text(
     measurer: &dyn TextMeasurer,
     text: &str,
@@ -121,6 +131,7 @@ fn measure_c4_text(
     text_limit_width: f64,
 ) -> TextMeasure {
     let dimensions = measure_mermaid_text_dimensions(measurer, text, style);
+
     if wrap {
         let m = measurer.measure_wrapped(text, style, Some(text_limit_width), WrapMode::SvgLike);
         let line_count = m.line_count.max(1);
@@ -144,6 +155,7 @@ fn measure_c4_text(
 /// section's actual wrapped bounding box; the configured wrap width is only a
 /// line-breaking constraint. Keep the legacy helper above unchanged for
 /// boundaries and relationships, which still use Mermaid's fixed-width path.
+#[must_use]
 fn measure_c4_unified_text(
     measurer: &dyn TextMeasurer,
     text: &str,
@@ -152,12 +164,12 @@ fn measure_c4_unified_text(
     text_limit_width: f64,
 ) -> UnifiedTextMeasure {
     let source_lines = c4_source_word_lines(text);
-    // Mermaid's `createText` installs `font-weight="normal"` and
-    // `font-style="normal"` on the temporary tspans used by its line-fitting
-    // probe. `c4LabelHelper` removes those attributes only after wrapping, so
-    // the final section can inherit C4 typography such as the bold name style.
-    // Keep those two measurement phases distinct: wrapping follows the
-    // temporary normal text, while the final bounds use the rendered style.
+
+
+
+
+
+
     let mut wrapping_style = style.clone();
     wrapping_style.font_weight = Some("normal".to_string());
     wrapping_style.font_style = Some("normal".to_string());
@@ -171,11 +183,14 @@ fn measure_c4_unified_text(
     let mut right: f64 = 0.0;
     let mut top = f64::INFINITY;
     let mut bottom = f64::NEG_INFINITY;
+
     for (index, row) in rows.iter().enumerate() {
         let row_text = c4_visible_row(&row.words);
+
         if row_text.is_empty() {
             continue;
         }
+
         let (row_left, row_right) = measurer.measure_svg_text_bbox_x(&row_text, style);
         left = left.max(row_left.max(0.0));
         right = right.max(row_right.max(0.0));
@@ -184,12 +199,14 @@ fn measure_c4_unified_text(
         let height = measurer
             .measure_svg_raw_text_bbox_height_px(&row_text, style)
             .max(0.0);
+
         if height > 0.0 {
             top = top.min(y);
             bottom = bottom.max(y + height);
         }
     }
-    // Rows are already final DOM text. Their decoded contents must not enter label parsing again.
+
+
     let has_visible_text = top.is_finite();
     let bbox_y = if has_visible_text { top } else { 0.0 };
     let metrics = TextMeasure {
@@ -215,9 +232,10 @@ fn measure_c4_unified_text(
     }
 }
 
+#[must_use]
 fn c4_source_word_lines(text: &str) -> Vec<Vec<String>> {
-    // Mermaid's nonMarkdownToLines treats literal `\\n`, actual newlines and `<br>` variants as
-    // explicit line boundaries before tokenizing each trimmed line.
+
+
     let normalized = text.replace("\\n", "\n");
     crate::text::split_html_br_lines(&normalized)
         .into_iter()
@@ -229,22 +247,28 @@ fn c4_source_word_lines(text: &str) -> Vec<Vec<String>> {
         .collect()
 }
 
+#[must_use]
 fn c4_visible_row(row: &[String]) -> String {
     let mut visible = String::new();
+
     for (index, word) in row.iter().enumerate() {
         if index > 0 {
             visible.push(' ');
         }
+
         let decoded = crate::entities::decode_svg_text_content_entities(word);
         visible.push_str(decoded.as_ref());
     }
+
     visible
 }
 
+#[must_use]
 fn c4_row_width(measurer: &dyn TextMeasurer, row: &[String], style: &TextStyle) -> f64 {
     measurer.measure_svg_text_computed_length_px(&c4_visible_row(row), style)
 }
 
+#[must_use]
 fn c4_split_long_word(
     measurer: &dyn TextMeasurer,
     word: &str,
@@ -256,37 +280,44 @@ fn c4_split_long_word(
         .map(|(offset, _)| offset as usize)
         .chain(std::iter::once(word.len()))
         .collect::<Vec<_>>();
+
     if boundaries.len() <= 1 {
         return vec![word.to_string()];
     }
 
     let mut chunks = Vec::new();
     let mut start = 0;
+
     while start + 1 < boundaries.len() {
         let mut end = start + 1;
         let mut best = end;
-        while end < boundaries.len() {
+
+        'inner_while_2: while end < boundaries.len() {
             let candidate = &word[boundaries[start]..boundaries[end]];
+
             if measurer.measure_svg_text_computed_length_px(candidate, style) <= max_width {
                 best = end;
                 end += 1;
             } else {
-                break;
+                break 'inner_while_2;
             }
         }
+
         chunks.push(word[boundaries[start]..boundaries[best]].to_string());
         start = best;
     }
+
     chunks
 }
 
+#[must_use]
 fn c4_wrap_source_word_lines(
     measurer: &dyn TextMeasurer,
     source_lines: &[Vec<String>],
     style: &TextStyle,
     max_width: Option<f64>,
 ) -> Vec<C4TextRowLayout> {
-    let Some(max_width) = max_width.filter(|width| width.is_finite() && *width > 0.0) else {
+    let Some(max_width_2) = max_width.filter(|width| width.is_finite() && *width > 0.0) else {
         return source_lines
             .iter()
             .cloned()
@@ -295,12 +326,14 @@ fn c4_wrap_source_word_lines(
     };
 
     let mut wrapped = Vec::new();
+
     for source_line in source_lines {
         if source_line.is_empty() {
             wrapped.push(C4TextRowLayout { words: Vec::new() });
             continue;
         }
-        if c4_row_width(measurer, source_line, style) <= max_width {
+
+        if c4_row_width(measurer, source_line, style) <= max_width_2 {
             wrapped.push(C4TextRowLayout {
                 words: source_line.clone(),
             });
@@ -308,26 +341,31 @@ fn c4_wrap_source_word_lines(
         }
 
         let mut current = Vec::new();
-        for word in source_line {
+
+        'over_word_2: for word in source_line {
             let mut candidate = current.clone();
             candidate.push(word.clone());
-            if c4_row_width(measurer, &candidate, style) <= max_width {
+
+            if c4_row_width(measurer, &candidate, style) <= max_width_2 {
                 current.push(word.clone());
-                continue;
+                continue 'over_word_2;
             }
+
             if !current.is_empty() {
                 wrapped.push(C4TextRowLayout {
                     words: std::mem::take(&mut current),
                 });
             }
-            if c4_row_width(measurer, std::slice::from_ref(word), style) <= max_width {
+
+            if c4_row_width(measurer, std::slice::from_ref(word), style) <= max_width_2 {
                 current.push(word.clone());
             } else {
-                for chunk in c4_split_long_word(measurer, word, style, max_width) {
+                for chunk in c4_split_long_word(measurer, word, style, max_width_2) {
                     wrapped.push(C4TextRowLayout { words: vec![chunk] });
                 }
             }
         }
+
         if !current.is_empty() {
             wrapped.push(C4TextRowLayout { words: current });
         }

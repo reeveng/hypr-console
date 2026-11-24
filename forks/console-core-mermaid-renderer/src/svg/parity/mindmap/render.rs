@@ -1,6 +1,6 @@
 use super::super::*;
 
-// Mindmap diagram SVG renderer implementation (split from parity.rs).
+
 
 #[derive(Debug, Clone, Copy)]
 enum MindmapPathNumberFormat {
@@ -8,6 +8,7 @@ enum MindmapPathNumberFormat {
     JsNumber,
 }
 
+#[must_use]
 fn mindmap_path_number(v: f64, number_format: MindmapPathNumberFormat) -> String {
     match number_format {
         MindmapPathNumberFormat::D3Path => fmt_path(v),
@@ -15,6 +16,7 @@ fn mindmap_path_number(v: f64, number_format: MindmapPathNumberFormat) -> String
     }
 }
 
+#[must_use]
 fn mindmap_cloud_path_d(w: f64, h: f64, number_format: MindmapPathNumberFormat) -> String {
     let r1 = 0.15 * w;
     let r2 = 0.25 * w;
@@ -45,12 +47,14 @@ fn mindmap_cloud_path_d(w: f64, h: f64, number_format: MindmapPathNumberFormat) 
     )
 }
 
+#[must_use]
 pub(crate) fn mindmap_cloud_rendered_bbox_size_px(w: f64, h: f64) -> Option<(f64, f64)> {
     let d = mindmap_cloud_path_d(w, h, MindmapPathNumberFormat::JsNumber);
     let pb = svg_path_bounds_from_d(&d)?;
     Some((pb.max_x - pb.min_x, pb.max_y - pb.min_y))
 }
 
+#[must_use]
 fn mindmap_bang_path_d(
     w_base: f64,
     effective_w: f64,
@@ -119,9 +123,15 @@ fn include_mindmap_path_bounds(
     translate_x: f64,
     translate_y: f64,
 ) -> bool {
-    let Some(pb) = svg_path_bounds_from_d(d) else {
-        return false;
+    let pb = {
+        let optional_pb = svg_path_bounds_from_d(d);
+
+        match optional_pb {
+            Some(matched_pb) => matched_pb,
+            ::core::option::Option::None => return false,
+        }
     };
+
     include_mindmap_rect_bounds(
         bounds,
         pb.min_x + translate_x,
@@ -132,24 +142,33 @@ fn include_mindmap_path_bounds(
     true
 }
 
+#[must_use]
 fn mindmap_viewport_bounds_from_layout(
     layout: &MindmapDiagramLayout,
     model: &merman_model::families::mindmap::MindmapDiagramRenderModel,
 ) -> Option<Bounds> {
     let mut layout_nodes: std::collections::BTreeMap<&str, &LayoutNode> =
         std::collections::BTreeMap::new();
+
     for n in &layout.nodes {
         layout_nodes.insert(n.id.as_str(), n);
     }
 
     let mut bounds: Option<Bounds> = None;
+
     for n in &model.nodes {
-        let Some(ln) = layout_nodes.get(n.id.as_str()) else {
-            continue;
+        let ln = {
+            let optional_ln = layout_nodes.get(n.id.as_str());
+
+            match optional_ln {
+                Some(matched_ln) => matched_ln,
+                ::core::option::Option::None => continue,
+            }
         };
 
         let padding = n.padding.max(0.0);
         let half_padding = padding / 2.0;
+
         match n.shape.as_str() {
             "cloud" => {
                 let bbox_w = ln
@@ -161,9 +180,11 @@ fn mindmap_viewport_bounds_from_layout(
                 let w = (bbox_w + 2.0 * half_padding).max(1.0);
                 let h = (bbox_h + 2.0 * half_padding).max(1.0);
                 let d = mindmap_cloud_path_d(w, h, MindmapPathNumberFormat::JsNumber);
+
                 if !include_mindmap_path_bounds(&mut bounds, &d, ln.x - w / 2.0, ln.y - h / 2.0) {
                     include_mindmap_node_rect_bounds(&mut bounds, ln);
                 }
+
                 include_mindmap_rect_bounds(
                     &mut bounds,
                     ln.x - bbox_w / 2.0,
@@ -183,9 +204,11 @@ fn mindmap_viewport_bounds_from_layout(
                     .unwrap_or_else(|| (h - 8.0 * half_padding).max(1.0));
                 let w_base = bbox_w + 10.0 * half_padding;
                 let d = mindmap_bang_path_d(w_base, w, h, MindmapPathNumberFormat::JsNumber);
+
                 if !include_mindmap_path_bounds(&mut bounds, &d, ln.x - w / 2.0, ln.y - h / 2.0) {
                     include_mindmap_node_rect_bounds(&mut bounds, ln);
                 }
+
                 include_mindmap_rect_bounds(
                     &mut bounds,
                     ln.x - bbox_w / 2.0,
@@ -207,6 +230,7 @@ fn mindmap_viewport_bounds_from_layout(
             lane.y + lane.height / 2.0,
         );
     }
+
     for e in &layout.edges {
         for p in &e.points {
             include_mindmap_rect_bounds(&mut bounds, p.x, p.y, p.x, p.y);
@@ -216,6 +240,7 @@ fn mindmap_viewport_bounds_from_layout(
     bounds
 }
 
+#[must_use]
 fn mindmap_data_look_attr(look: &str) -> String {
     if look.is_empty() {
         String::new()
@@ -224,12 +249,15 @@ fn mindmap_data_look_attr(look: &str) -> String {
     }
 }
 
+#[must_use]
 fn mindmap_dom_id(diagram_id: SvgDiagramId<'_>, raw_id: &str) -> String {
     format!("{diagram_id}-{raw_id}")
 }
 
+#[must_use]
 fn mindmap_wrap_section_index(index: i64) -> i64 {
     let section_count = crate::mindmap::MINDMAP_SECTION_COUNT as i64;
+
     if index >= section_count {
         index % section_count
     } else {
@@ -237,19 +265,34 @@ fn mindmap_wrap_section_index(index: i64) -> i64 {
     }
 }
 
+#[must_use]
 fn mindmap_normalize_section_class_token(token: &str) -> String {
     for prefix in ["section-edge-", "section-"] {
-        let Some(rest) = token.strip_prefix(prefix) else {
-            continue;
+        let rest = {
+            let optional_rest = token.strip_prefix(prefix);
+
+            match optional_rest {
+                Some(matched_rest) => matched_rest,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Ok(index) = rest.parse::<i64>() else {
-            return token.to_string();
+
+        let index = {
+            let outcome_index = rest.parse::<i64>();
+
+            match outcome_index {
+                Ok(matched_index) => matched_index,
+                ::core::result::Result::Err(_) => return token.to_string(),
+            }
         };
+
         return format!("{prefix}{}", mindmap_wrap_section_index(index));
     }
+
     token.to_string()
 }
 
+#[must_use]
 fn mindmap_normalize_section_classes(classes: &str) -> String {
     classes
         .split_whitespace()
@@ -258,9 +301,11 @@ fn mindmap_normalize_section_classes(classes: &str) -> String {
         .join(" ")
 }
 
+#[must_use]
 fn mindmap_gradient_defs(diagram_id: &str, binding: &crate::mindmap::MindmapCssBinding) -> String {
-    let Some((gradient_start, gradient_stop)) = &binding.gradient else {
-        return String::new();
+    let (gradient_start, gradient_stop) = match &binding.gradient {
+        Some((matched_gradient_start, matched_gradient_stop)) => (matched_gradient_start, matched_gradient_stop),
+        ::core::option::Option::None => return String::new(),
     };
 
     format!(
@@ -289,10 +334,10 @@ fn mindmap_css(
     diagram_id: impl SvgDiagramIdValue,
     node_palette: &crate::mindmap::MindmapNodePalettePlan,
 ) -> Result<()> {
-    // Mirrors pinned Mermaid `diagrams/mindmap/styles.ts` + shared base stylesheet ordering.
-    //
-    // Keep `:root` last within the Mermaid baseline. The typed terminal overlay is appended after
-    // that baseline so its private owner attribute can win without interpreting user classes.
+
+
+
+
     let binding = node_palette.css_binding();
     let theme_color_limit = binding.sections.len();
     let use_gradient = binding.use_gradient;
@@ -304,8 +349,8 @@ fn mindmap_css(
 
     let _ = write!(out, r#"#{} .edge{{stroke-width:3;}}"#, diagram_id);
 
-    // Mermaid default theme resolves `cScale0..11` into this palette for mindmap/kanban/timeline.
-    // The first generated section is `section--1` (i=0).
+
+
     let theme = binding.theme.as_ref();
     let root_fill = &binding.root_fill;
     let root_label = &binding.root_label;
@@ -314,6 +359,7 @@ fn mindmap_css(
     let main_bkg = writer_tokens.main_background_css();
     let stroke_width = &binding.stroke_width;
     let scoped_drop_shadow = scoped_drop_shadow(fragment_id, &binding.drop_shadow);
+
     for i in 0..theme_color_limit {
         let section = i as i64 - 1;
         let slot = &binding.sections[i];
@@ -425,7 +471,7 @@ fn mindmap_css(
         out.checkpoint()?;
     }
 
-    // Root section overrides.
+
     let root_span = if theme.contains("redux") {
         node_border
     } else {
@@ -484,6 +530,7 @@ fn mindmap_css(
         r#"#{} [data-look="neo"].mindmap-node.section-root .text-inner-tspan,#{} [data-look="neo"].mindmap-node.section-root span{{fill:{};color:{};}}"#,
         diagram_id, diagram_id, neo_root_text, neo_root_text
     );
+
     if use_gradient {
         for i in 0..theme_color_limit {
             let section = i as i64 - 1;
@@ -507,18 +554,20 @@ fn mindmap_css(
             "#{diagram_id} .labelBkg{{background-color:{background};}}"
         );
     }
+
     if let Some(text) = binding.label_text.as_deref() {
         let _ = write!(out, "#{diagram_id} .labelBkg span{{color:{text};}}");
     }
+
     out.checkpoint()?;
 
     binding
         .common
         .write_root_with_font_emission(out, diagram_id, fragment_id)?;
 
-    // Shared CSS retains the original prepared values. When a direct
-    // Mindmap Node.stroke historically replaced `nodeBorder`, retain only the shared Neo root
-    // selector that actually consumed that token instead of cloning and globally rewriting config.
+
+
+
     if writer_tokens.has_direct_node_stroke() && !use_gradient {
         let _ = write!(
             out,
@@ -540,8 +589,10 @@ fn mindmap_css(
                 id, section, id, section, id, section, id, section, fill
             );
         }
+
         out.checkpoint()?;
     }
+
     out.checkpoint()?;
     Ok(())
 }
@@ -560,10 +611,11 @@ fn write_mindmap_edge_label(
         out.checkpoint()?;
         crate::svg::parity::label::write_svg_text_centered_from_create_text_source(out, "", false);
         out.checkpoint()?;
-        // createText's empty background group remains a sibling of the moved text label.
+
         out.push_str(r#"</g></g><g><rect class="background" style="stroke: none"/></g>"#);
         return out.checkpoint();
     }
+
     let _ = write!(
         out,
         r#"<g class="edgeLabel"><g class="label" data-id="{id}" transform="translate(0, 0)"><foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" class="labelBkg" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 200px; text-align: center;"><span class="edgeLabel"></span></div></foreignObject></g></g>"#,
@@ -635,6 +687,7 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
                 fmt(ty)
             );
             out.checkpoint()?;
+
             if label_bkg {
                 let plain = crate::graph_label::flowchart_label_plain_text_for_layout(
                     source.as_ref(),
@@ -654,9 +707,10 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
             } else {
                 out.push_str(r#"<rect class="background" style="stroke: none"/>"#);
             }
+
             out.checkpoint()?;
-            // Mindmap has no inherited text-anchor rule. Mermaid 12.2's centerLabel offsets
-            // the left-aligned createText result by half its width for every node shape.
+
+
             crate::svg::parity::label::write_svg_text_markdown_wrapped_from_create_text_source(
                 out,
                 source.as_ref(),
@@ -682,9 +736,9 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
             200.0
         };
 
-        // Mermaid flips the `<div>` to a fixed-width wrapping container when the measured label
-        // reaches/exceeds the configured max width (default 200px), even if the emitted
-        // `<foreignObject width="...">` reflects the overflow width.
+
+
+
         let wrap_container = width >= max_node_width_px - 1e-3;
         out.push_str(r#"<g class="label" style="" transform="translate("#);
         fmt_into(out, tx);
@@ -697,6 +751,7 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
         out.push_str(r#""><div xmlns="http://www.w3.org/1999/xhtml""#);
         out.push_str(div_class);
         out.push_str(r#" style=""#);
+
         if wrap_container {
             out.push_str(
                 "display: table; white-space: break-spaces; line-height: 1.5; max-width: ",
@@ -710,27 +765,33 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
             fmt_into(out, max_node_width_px);
             out.push_str("px; text-align: center;");
         }
+
         let has_math = crate::math::contains_delimited_math(text);
         out.push_str(r#""><span class="nodeLabel markdown-node-label""#);
+
         if has_math {
             out.push(' ');
             out.push_str(crate::math::BROWSER_ONLY_MATH_NATIVE_UNAVAILABLE_ATTRIBUTE);
         }
+
         out.push('>');
         out.checkpoint()?;
 
         let parse_work = std::cell::Cell::new(0);
         let work_meter = options.work_meter();
         let sink = crate::html::HtmlSanitizeSink::new(
-            work_meter
+            match work_meter
                 .policy()
-                .value(crate::resources::ResourceLimitId::MaxSvgBytes)
-                .unwrap_or(usize::MAX),
+                .value(crate::resources::ResourceLimitId::MaxSvgBytes) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => usize::MAX,
+            },
             work_meter,
             &parse_work,
             merman_model::OperationPhase::Emit,
         );
 
+        #[must_use]
         fn escape_amp_preserving_entities(raw: &str) -> String {
             crate::xml::normalize_html_entities_for_xml(raw).into_owned()
         }
@@ -765,6 +826,7 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
 
     let mut node_by_id: std::collections::BTreeMap<String, &crate::model::LayoutNode> =
         std::collections::BTreeMap::new();
+
     for n in &layout.nodes {
         node_by_id.insert(n.id.clone(), n);
     }
@@ -786,12 +848,18 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
     let _g_viewbox = timing.section(&mut timings.viewbox);
 
     let padding =
-        crate::config::config_f64(config.as_value(), &["mindmap", "padding"]).unwrap_or(10.0);
+        match crate::config::config_f64(config.as_value(), &["mindmap", "padding"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 10.0,
+        };
     let use_max_width =
-        crate::config::config_bool(config.as_value(), &["mindmap", "useMaxWidth"]).unwrap_or(true);
+        match crate::config::config_bool(config.as_value(), &["mindmap", "useMaxWidth"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        };
     let viewport_bounds =
         mindmap_viewport_bounds_from_layout(layout, model).or_else(|| layout.bounds.clone());
-    let (vx, vy, vw, vh) = viewport_bounds
+    let (vx, vy, vw, vh) = match viewport_bounds
         .as_ref()
         .map(|b| {
             let w = (b.max_x - b.min_x).max(0.0);
@@ -802,8 +870,10 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
                 w + 2.0 * padding,
                 h + 2.0 * padding,
             )
-        })
-        .unwrap_or((0.0, 0.0, 100.0, 100.0));
+        }) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => (0.0, 0.0, 100.0, 100.0),
+    };
 
     let root_spec = root_svg::RootViewportSpec::mermaid(
         root_svg::DiagramBounds::from_view_box(vx, vy, vw, vh),
@@ -843,10 +913,17 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
         diagram_id,
         node_palette,
     )?;
+
     for (index, node) in model.nodes.iter().enumerate() {
-        let Some(fill) = node_palette.label_fill_for_node(index) else {
-            continue;
+        let fill = {
+            let optional_fill = node_palette.label_fill_for_node(index);
+
+            match optional_fill {
+                Some(matched_fill) => matched_fill,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let root_id = crate::svg::escape_css_identifier(diagram_id.semantic_str());
         let dom_id = mindmap_dom_id(diagram_id, &node.dom_id);
         let node_id = crate::svg::escape_css_identifier(&dom_id);
@@ -857,6 +934,7 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
         out.checkpoint()?;
         node_palette.record_label_css(&mut node_palette_receipt, index, fill);
     }
+
     out.push_str("</style>");
     out.checkpoint()?;
     let mindmap_theme = binding.theme.as_ref();
@@ -894,6 +972,7 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
         out.push_str(r#"<g class="subgraphs"/>"#);
     } else {
         out.push_str(r#"<g class="subgraphs">"#);
+
         for lane in &layout.swimlane_lanes {
             let x = lane.x - lane.width / 2.0;
             let y = lane.y - lane.height / 2.0;
@@ -911,12 +990,14 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
                 stroke = escape_attr(node_palette.cluster_border_css())
             );
         }
+
         out.push_str("</g>");
     }
 
     out.push_str(r#"<g class="edgePaths">"#);
     out.checkpoint()?;
     let mut edge_stroke_receipt = node_palette.begin_edge_terminal_receipt();
+
     for (edge_index, e) in model.edges.iter().enumerate() {
         let (sx, sy, tx, ty) = match (node_by_id.get(&e.start), node_by_id.get(&e.end)) {
             (Some(a), Some(b)) => (a.x, a.y, b.x, b.y),
@@ -924,11 +1005,11 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
         };
 
         let points_for_data_points = if backend == crate::mindmap::MindmapLayoutBackend::Cose {
-            // Mermaid mindmap edges use `curveBasis` and offset endpoints from node centers
-            // along the direction of the edge.
+
+
             let (vx, vy) = (tx - sx, ty - sy);
             let v_len = (vx * vx + vy * vy).sqrt();
-            let (ux, uy) = if v_len == 0.0 {
+            let (ux, uy) = if ::core::matches!(::core::primitive::f64::classify(v_len), ::core::num::FpCategory::Zero) {
                 (0.0, 0.0)
             } else {
                 (vx / v_len, vy / v_len)
@@ -954,15 +1035,19 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
                 .map(|p| crate::model::LayoutPoint { x: p.x, y: p.y })
                 .collect::<Vec<_>>()
         } else if backend == crate::mindmap::MindmapLayoutBackend::TidyTree {
-            edge_by_id
+            match edge_by_id
                 .get(e.id.as_str())
-                .map(|edge| edge.points.clone())
-                .unwrap_or_default()
+                .map(|edge| edge.points.clone()) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            }
         } else {
-            let points = edge_by_id
+            let points = match edge_by_id
                 .get(e.id.as_str())
-                .map(|edge| edge.points.clone())
-                .unwrap_or_default();
+                .map(|edge| edge.points.clone()) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::vec::Vec::new(),
+            };
             let start = node_by_id.get(&e.start).copied();
             let end = node_by_id.get(&e.end).copied();
             let is_circle = |id: &str| {
@@ -970,6 +1055,7 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
                     .get(id)
                     .is_some_and(|node| node.shape == "mindmapCircle")
             };
+
             match (start, end) {
                 (Some(start), Some(end)) => {
                     #[cfg(feature = "layout-elk")]
@@ -1054,9 +1140,11 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
             class = escape_xml(&class),
             look_attr = data_look_attr,
         );
+
         if let Some(style) = terminal_style {
             let _ = write!(&mut out, r#" style="{}""#, escape_attr(style));
         }
+
         let _ = write!(
             &mut out,
             r#" data-edge="true" data-et="edge" data-id="{id}" data-points="{pts}"/>"#,
@@ -1064,32 +1152,38 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
             pts = escape_xml(&data_points),
         );
         out.checkpoint()?;
+
         if terminal_style.is_some()
             && let Some(receipt) = edge_stroke_receipt.as_mut()
         {
             receipt.record_edge();
         }
+
         if terminal_style.is_none() && node_palette.edge_inherits_node_stroke(config, e) {
             node_palette_receipt
                 .record_node_paint_terminal(crate::mindmap::MindmapWriterThemeToken::NodeBorder);
         }
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
     out.push_str(r#"<g class="edgeLabels">"#);
     out.checkpoint()?;
+
     for e in &model.edges {
         write_mindmap_edge_label(&mut out, &e.id, config)?;
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
     out.push_str(r#"<g class="nodes">"#);
     out.checkpoint()?;
     let node_fill_ownership = &binding.node_fill_ownership;
+
     for (node_index, n) in model.nodes.iter().enumerate() {
-        let (x, y, w, h, label_w, label_h) = node_by_id
+        let (x, y, w, h, label_w, label_h) = match node_by_id
             .get(&n.id)
             .map(|ln| {
                 (
@@ -1100,8 +1194,10 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
                     ln.label_width,
                     ln.label_height,
                 )
-            })
-            .unwrap_or((0.0, 0.0, 80.0, 44.0, None, None));
+            }) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => (0.0, 0.0, 80.0, 44.0, None, None),
+        };
         let padding = n.padding.max(0.0);
         let half_padding = padding / 2.0;
         let node_classes = mindmap_normalize_section_classes(&n.css_classes);
@@ -1138,11 +1234,13 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
             class = escape_xml(&class),
             dom_id = escape_xml(&node_dom_id),
         );
+
         if let crate::mindmap::MindmapNodePaletteTerminalDecision::Applied { section, .. } =
             terminal_decision
         {
             let _ = write!(&mut out, r#" data-mindmap-section="{section}""#);
         }
+
         let _ = write!(
             &mut out,
             r#"{look_attr} transform="translate({x}, {y})">"#,
@@ -1177,7 +1275,7 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
                     fmt_path(rd),
                 );
 
-                // Recover label bbox dimensions from the rendered node size + padding rules.
+
                 let bbox_w = label_w.unwrap_or_else(|| (w - 8.0 * half_padding).max(0.0));
                 let bbox_h = label_h.unwrap_or_else(|| (h - 2.0 * half_padding).max(0.0));
                 let _ = write!(
@@ -1283,7 +1381,7 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
                     r#"<circle class="basic label-container" style="" r="{r}" cx="0" cy="0"/>"#,
                     r = fmt(r),
                 );
-                // Shape bounds enclose the label diagonal, while placement uses its true bbox.
+
                 let bbox_w = label_w.unwrap_or_else(|| (w - 2.0 * padding).max(1.0));
                 let bbox_h = label_h.unwrap_or_else(|| (h - 2.0 * padding).max(1.0));
                 mk_label(
@@ -1457,13 +1555,15 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
                 || (look == "neo" && !use_gradient && writer_tokens.has_direct_node_stroke()))
             && (node_palette.label_fill_for_node(node_index).is_none()
                 || (look == "neo" && !use_gradient));
+
         if root_uses_node_border {
-            // Redux carries `nodeBorder` into the root XHTML label in every look. This is the
-            // only Classic consumer of the historical Node.stroke bridge token. The explicit
-            // Neo root overlay below is the corresponding non-Redux shape consumer.
+
+
+
             node_palette_receipt
                 .record_node_paint_terminal(crate::mindmap::MindmapWriterThemeToken::NodeBorder);
         }
+
         if look == "neo" {
             if (!is_root && neo_branch_uses_main_background)
                 || (is_root && (mindmap_theme.contains("redux") || use_gradient))
@@ -1472,14 +1572,17 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
                     crate::mindmap::MindmapWriterThemeToken::MainBackground,
                 );
             }
+
             if !use_gradient && !is_root && neo_branch_uses_node_border {
                 node_palette_receipt.record_node_paint_terminal(
                     crate::mindmap::MindmapWriterThemeToken::NodeBorder,
                 );
             }
         }
+
         node_palette_receipt.record_node_palette(terminal_decision);
     }
+
     out.push_str("</g>");
 
     out.push_str("</g>");
@@ -1492,6 +1595,7 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
     timings.total = total_timer
         .map(merman_model::runtime::OperationTimer::elapsed)
         .unwrap_or_default();
+
     if timing.is_enabled() {
         eprintln!(
             "[render-timing] diagram=mindmap total={:?} deserialize={:?} build_ctx={:?} viewbox={:?} render_svg={:?} finalize={:?} nodes={} edges={}",
@@ -1506,7 +1610,8 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
         );
     }
 
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if let Some(receipt) = edge_stroke_receipt
         && !node_palette.record_edge_terminal(receipt)
     {
@@ -1514,11 +1619,13 @@ pub(crate) fn render_mindmap_diagram_svg_model_with_config(
             message: "Mindmap Edge stroke terminal receipt could not be sealed".to_string(),
         });
     }
+
     if !node_palette.record_terminal(node_palette_receipt) {
         return Err(crate::Error::InvalidModel {
             message: "Mindmap Node palette terminal receipt could not be sealed".to_string(),
         });
     }
+
     Ok(rooted_svg)
 }
 

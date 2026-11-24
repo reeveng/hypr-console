@@ -18,7 +18,7 @@ use roughjs::{
     mermaid_choice_diamond_path_data, mermaid_rounded_rect_path_data, roughjs_paths_for_svg_path,
 };
 
-// State diagram SVG renderer implementation (split from parity.rs).
+
 
 use context::*;
 use edge::*;
@@ -34,6 +34,7 @@ type StateSvgLinks = merman_model::families::state::StateLinks;
 type StateSvgNode = merman_model::families::state::StateDiagramRenderNode;
 type StateSvgEdge = merman_model::families::state::StateDiagramRenderEdge;
 
+#[must_use]
 fn state_transition_marker_id(diagram_id: impl SvgDiagramIdValue, ordinal: usize) -> String {
     format!("{diagram_id}_stateDiagram-barbEnd-{ordinal}")
 }

@@ -75,11 +75,17 @@ impl JourneyTextPaintPlan {
             pending: Vec::new(),
             terminal: OnceLock::new(),
         };
-        let Some(theme) = theme else { return Ok(plan) };
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
         let title_owned = !plan.source_title_color.is_empty();
         let mut title_fill_winner = None;
+
         if plan.title.is_some() && !title_owned {
-            let style = theme.style_with_work_meter(
+            let style = theme_2.style_with_work_meter(
                 ThemeTarget::Title,
                 ThemeVariant::Default,
                 Some(1),
@@ -90,30 +96,34 @@ impl JourneyTextPaintPlan {
                 .winner()
                 .map(|origin| origin.rule_index());
             plan.title_fill = resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Title],
                 DirectStaticSelectorDomain::Default,
             );
         }
+
         let config_owned = config.config_paint_overrides_typed_default("themeVariables.textColor");
         let style =
-            theme.style_with_work_meter(ThemeTarget::Text, ThemeVariant::Default, None, work)?;
+            theme_2.style_with_work_meter(ThemeTarget::Text, ThemeVariant::Default, None, work)?;
         let winners = style
             .winner_rule_properties()
             .map(|(property, origin)| (origin.rule_index(), property))
             .collect::<BTreeSet<_>>();
+
         if !config_owned {
             plan.fill = resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Text],
                 DirectStaticSelectorDomain::Default,
             );
         }
-        // Aggregate all facets before certifying a Rule key. A fill does not prove typography.
+
+
         let mut observations = BTreeMap::new();
-        for route in theme.family_mechanism_routes() {
+
+        for route in theme_2.family_mechanism_routes() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
                 target: ThemeTarget::Text,
@@ -123,12 +133,13 @@ impl JourneyTextPaintPlan {
             else {
                 continue;
             };
+
             work.charge(1)?;
             let entry = observations
-                .entry(theme.family_mechanism_key(*route))
+                .entry(theme_2.family_mechanism_key(*route))
                 .or_insert((false, None));
             let property = resolved_style_property_for_facet(facet);
-            // There is no logical ordinal ordering for Journey's inherited Text surface.
+
             let unproved_ordinal = matches!(
                 selector,
                 FamilyThemeSelectorShape::Ordinal {
@@ -138,11 +149,13 @@ impl JourneyTextPaintPlan {
             ) && !winners.iter().any(|(winner, winner_property)| {
                 *winner_property == property && *winner > rule_index
             });
+
             if (!winners.contains(&(rule_index, property)) && !unproved_ordinal)
                 || (property == ResolvedStyleProperty::Fill && config_owned)
             {
                 continue;
             }
+
             if route.disposition() == FamilyThemeDisposition::TypedAdapter
                 && matches!(facet, FamilyThemeRuleFacet::Fill(_))
                 && plan
@@ -155,6 +168,7 @@ impl JourneyTextPaintPlan {
                 entry.1.get_or_insert(unsupported_residual_for_facet(facet));
             }
         }
+
         for (key, (pending, residual)) in observations {
             if pending || residual.is_some() {
                 plan.pending.push((key, residual));
@@ -162,8 +176,9 @@ impl JourneyTextPaintPlan {
                 plan.evidence.mark_not_applicable(key);
             }
         }
+
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut plan.evidence,
             &[
                 UnsupportedTerminalDomain::static_fallbacks_only(
@@ -182,7 +197,8 @@ impl JourneyTextPaintPlan {
             ],
             work,
         )?;
-        for route in theme.family_mechanism_routes() {
+
+        for route in theme_2.family_mechanism_routes() {
             if let FamilyThemeMechanism::RuleFacet {
                 target: ThemeTarget::Title,
                 rule_index,
@@ -193,26 +209,29 @@ impl JourneyTextPaintPlan {
             {
                 if title_fill_winner != Some(rule_index) {
                     plan.evidence
-                        .mark_not_applicable(theme.family_mechanism_key(*route));
+                        .mark_not_applicable(theme_2.family_mechanism_key(*route));
                 } else if plan
                     .title_fill
                     .as_ref()
                     .is_none_or(|fill| fill.rule_index() != rule_index)
                 {
                     plan.evidence.mark_residual(
-                        theme.family_mechanism_key(*route),
+                        theme_2.family_mechanism_key(*route),
                         FamilyThemeResidualReason::UnsupportedPaint,
                     );
                 }
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn fill_css(&self) -> Option<&str> {
         self.fill.as_ref().map(DirectStaticPaint::css)
     }
 
+    #[must_use]
     pub(crate) fn title_fill_css(&self) -> Option<&str> {
         self.title_fill.as_ref().map(DirectStaticPaint::css)
     }
@@ -226,12 +245,16 @@ impl JourneyTextPaintPlan {
         if self.pending.is_empty() && self.title_fill.is_none() {
             return Ok(None);
         }
+
         let mut legend_count = 0;
+
         for item in &layout.actor_legend {
             work.charge(1)?;
             legend_count += item.label_lines.len();
         }
+
         let mut mouth_count = 0;
+
         for task in &layout.tasks {
             work.charge(1)?;
             mouth_count += usize::from(!matches!(
@@ -239,6 +262,7 @@ impl JourneyTextPaintPlan {
                 crate::model::JourneyMouthKind::Ambivalent
             ));
         }
+
         Ok(Some(JourneyTextPaintReceipt {
             expected_fill: self.fill_css(),
             expected_title: self.title.as_deref(),
@@ -252,7 +276,7 @@ impl JourneyTextPaintPlan {
                 mouth_count,
             ],
             labels: [0; 6],
-            // The activity line exists even in a diagram with no text or tasks.
+
             expected_lines: layout.tasks.len() + 1,
             lines: 0,
             css_declarations: 0,
@@ -260,12 +284,14 @@ impl JourneyTextPaintPlan {
         }))
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: JourneyTextPaintReceipt<'_>) -> bool {
         receipt.is_complete() && self.terminal.set(()).is_ok()
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if self.terminal.get().is_some()
             && let Some(fill) = &self.title_fill
         {
@@ -277,6 +303,7 @@ impl JourneyTextPaintPlan {
                 [fill.capability()],
             );
         }
+
         for (key, residual) in &self.pending {
             if let Some(reason) = residual {
                 evidence.mark_residual(key.clone(), *reason);
@@ -291,6 +318,7 @@ impl JourneyTextPaintPlan {
 }
 
 impl JourneyTextPaintReceipt<'_> {
+    #[must_use]
     fn is_complete(&self) -> bool {
         self.valid
             && self.css_declarations == 6

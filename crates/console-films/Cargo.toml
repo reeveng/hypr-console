@@ -5,7 +5,11 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 
+[features]
+hosted-compute = ["dep:console-operating-system-linux"]
+
 [dependencies]
+console-operating-system-linux = { workspace = true, optional = true }
 console-core-pixel-buffers.workspace = true
 console-core-video-planes.workspace = true
 console-core-byte-sources.workspace = true

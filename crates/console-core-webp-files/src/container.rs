@@ -57,10 +57,10 @@ pub(crate) struct Found<'a> {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Chunk<'a> {
-  kind: [u8; 4],
-  data: &'a [u8],
-  next: u32,
+pub(crate) struct Chunk<'a> {
+  pub(crate) kind: [u8; 4],
+  pub(crate) data: &'a [u8],
+  pub(crate) next: u32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -146,7 +146,7 @@ fn signed(bytes: &[u8]) -> Result<&[u8], WebpError> {
   }
 }
 
-fn riff(bytes: &[u8]) -> Result<&[u8], WebpError> {
+pub(crate) fn riff(bytes: &[u8]) -> Result<&[u8], WebpError> {
   let rest = signed(bytes)?;
 
   let said = match bytes.get(4..).and_then(<[u8]>::first_chunk::<4>) {
@@ -162,7 +162,7 @@ fn riff(bytes: &[u8]) -> Result<&[u8], WebpError> {
   }
 }
 
-fn chunk(body: &[u8], at: u32) -> Result<Chunk<'_>, WebpError> {
+pub(crate) fn chunk(body: &[u8], at: u32) -> Result<Chunk<'_>, WebpError> {
   let Ok(start) = index(at);
 
   let (kind, rest) = match body.get(start..).and_then(<[u8]>::split_first_chunk::<4>) {
@@ -265,7 +265,7 @@ fn pictured<'a>(
   })
 }
 
-fn frame(data: &[u8]) -> Result<Image<'_>, WebpError> {
+pub(crate) fn frame(data: &[u8]) -> Result<Image<'_>, WebpError> {
   let (header, inner) = match data.split_first_chunk::<16>() {
     Some(split) => split,
     None => return Err(WebpError::Truncated),

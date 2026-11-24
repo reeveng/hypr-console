@@ -32,6 +32,7 @@ license = "AGPL-3.0-or-later"
 repository = "https://github.com/linebender/resvg"
 
 [features]
+hosted-compute = ["dep:console-operating-system-linux"]
 default = [
     "svgz",
     "text",
@@ -101,6 +102,10 @@ workspace = true
 
 [dependencies.console-core-point]
 workspace = true
+
+[dependencies.console-operating-system-linux]
+workspace = true
+optional = true
 
 [lints]
 workspace = true

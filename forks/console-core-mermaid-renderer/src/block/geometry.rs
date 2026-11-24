@@ -87,6 +87,7 @@ struct BlockShapeAllocation {
 }
 
 impl BlockShapeGeometry {
+    #[must_use]
     pub(crate) fn from_layout_node(
         node: &LayoutNode,
         block_type: &str,
@@ -95,15 +96,21 @@ impl BlockShapeGeometry {
         width_in_columns: i64,
         shape_settings: BlockShapeSettings,
     ) -> Option<Self> {
-        // Mermaid renders a block twice: the first pass measures the label and shape, while the
-        // second pass supplies the grid-allocated slot.  Keep the final outline calculation
-        // separate from the slot itself so routing never intersects the slot by accident.
+
+
+
         let boundary = rendered_boundary_for(
             BlockShapeInputs {
                 block_type,
                 directions,
-                label_width: node.label_width.unwrap_or_default().max(0.0),
-                label_height: node.label_height.unwrap_or_default().max(0.0),
+                label_width: match node.label_width {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                }.max(0.0),
+                label_height: match node.label_height {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0.0,
+                }.max(0.0),
                 padding,
                 shape_settings,
             },
@@ -126,11 +133,13 @@ impl BlockShapeGeometry {
         })
     }
 
+    #[must_use]
     pub(crate) fn intersect(&self, target: &LayoutPoint) -> LayoutPoint {
         let center = LayoutPoint {
             x: self.allocated.x,
             y: self.allocated.y,
         };
+
         match &self.boundary {
             BlockShapeBoundary::Rectangle { width, height, .. } => {
                 intersect_rect(&center, *width, *height, target)
@@ -166,6 +175,7 @@ impl BlockShapeGeometry {
     /// Block layout stores the grid slot separately from the shape that Mermaid actually draws.
     /// The latter is the source of truth for the SVG root viewport, because several shapes may
     /// intentionally extend beyond their allocated slot.
+    #[must_use]
     pub(crate) fn rendered_extents(&self) -> (f64, f64, f64, f64) {
         let (min_x, min_y, max_x, max_y) = boundary_extents(&self.boundary);
         (
@@ -181,6 +191,7 @@ impl BlockShapeGeometry {
 ///
 /// This is the equivalent of Mermaid's first `insertNode(..., positioned = false)` pass.  The
 /// returned dimensions are shape dimensions, not the eventual grid slot dimensions.
+#[must_use]
 pub(crate) fn natural_shape_size(
     block_type: &str,
     directions: &[String],
@@ -198,21 +209,25 @@ pub(crate) fn natural_shape_size(
         padding,
         shape_settings,
     })?;
+
     if matches!(block_type, "composite" | "group") && !has_label {
         return None;
     }
+
     Some(boundary_size(&boundary))
 }
 
 impl BlockShapeAllocation {
+    #[must_use]
     fn is_slot(self) -> bool {
         self.width > 0.0 || self.height > 0.0
     }
 }
 
+#[must_use]
 fn intrinsic_boundary_for(inputs: BlockShapeInputs<'_>) -> Option<BlockShapeBoundary> {
-    // Keep these formulas aligned with Mermaid 12.1.0's rendering-util shape modules. This is
-    // deliberately the unpositioned/intrinsic pass; slot-aware adjustments live below.
+
+
     let BlockShapeInputs {
         block_type,
         directions,
@@ -221,11 +236,11 @@ fn intrinsic_boundary_for(inputs: BlockShapeInputs<'_>) -> Option<BlockShapeBoun
         padding,
         shape_settings,
     } = inputs;
-    // `squareRect` uses fixed 16/12 padding for Neo and 2*padding/padding for Classic.
-    // `drawRect` applies each padding on both sides. Rounded blocks use the separate
-    // `roundedRect` helper and pass one
-    // padding unit on each axis.  Keep the two intrinsic contracts distinct so
-    // the layout measurement and positioned writer agree with Mermaid.
+
+
+
+
+
     let square_padding_x = if shape_settings.neo_square {
         16.0
     } else {
@@ -259,8 +274,8 @@ fn intrinsic_boundary_for(inputs: BlockShapeInputs<'_>) -> Option<BlockShapeBoun
         },
         "space" => return None,
         "circle" => BlockShapeBoundary::Circle {
-            // `circle.ts` uses half the label padding on each side.  Circle's positioned pass
-            // still derives its radius from the measured label, so the grid slot is not used.
+
+
             radius: (label_width + padding).max(1.0) / 2.0,
             width_attribute: (label_width + padding).max(1.0),
             height_attribute: (label_width + padding).max(1.0),
@@ -321,15 +336,15 @@ fn intrinsic_boundary_for(inputs: BlockShapeInputs<'_>) -> Option<BlockShapeBoun
             let height = shape_height;
             let shoulder = height / 4.0;
             let width = (label_width + 2.0 * shoulder + padding).max(1.0);
-            let shoulder = height / 4.0;
+            let shoulder_2 = height / 4.0;
             polygon_boundary(
                 vec![
                     LayoutPoint {
-                        x: shoulder,
+                        x: shoulder_2,
                         y: 0.0,
                     },
                     LayoutPoint {
-                        x: width - shoulder,
+                        x: width - shoulder_2,
                         y: 0.0,
                     },
                     LayoutPoint {
@@ -337,11 +352,11 @@ fn intrinsic_boundary_for(inputs: BlockShapeInputs<'_>) -> Option<BlockShapeBoun
                         y: -height / 2.0,
                     },
                     LayoutPoint {
-                        x: width - shoulder,
+                        x: width - shoulder_2,
                         y: -height,
                     },
                     LayoutPoint {
-                        x: shoulder,
+                        x: shoulder_2,
                         y: -height,
                     },
                     LayoutPoint {
@@ -386,11 +401,13 @@ fn intrinsic_boundary_for(inputs: BlockShapeInputs<'_>) -> Option<BlockShapeBoun
     })
 }
 
+#[must_use]
 fn rendered_boundary_for(
     inputs: BlockShapeInputs<'_>,
     allocation: BlockShapeAllocation,
 ) -> Option<BlockShapeBoundary> {
     let intrinsic = intrinsic_boundary_for(inputs)?;
+
     if !allocation.is_slot() {
         return Some(intrinsic);
     }
@@ -409,8 +426,8 @@ fn rendered_boundary_for(
     let intrinsic_height = boundary_size(&intrinsic).1;
 
     Some(match block_type {
-        // drawRect() uses max(label-derived dimensions, node.width/node.height) in the positioned
-        // pass.  This is the only ordinary shape where both dimensions are directly slot-aware.
+
+
         "composite" => BlockShapeBoundary::Rectangle {
             width: slot_width.max(1.0),
             height: slot_height.max(1.0),
@@ -433,8 +450,8 @@ fn rendered_boundary_for(
             },
             kind: BlockRectangleKind::Basic,
         },
-        // circle.ts intentionally ignores node.width/node.height when computing the circle.  A
-        // wider common grid slot only changes the label wrapping width, not the outline radius.
+
+
         "circle" | "stadium" | "diamond" => intrinsic,
         "doublecircle" => {
             let outer_radius = (slot_width / 2.0 + padding).max(1.0);
@@ -489,7 +506,7 @@ fn rendered_boundary_for(
                     .collect();
             polygon_boundary(points, width, height)
         }
-        // Unknown block shapes have the default rectangular renderer in Mermaid.
+
         _ => BlockShapeBoundary::Rectangle {
             width: slot_width.max(intrinsic_width).max(1.0),
             height: slot_height.max(intrinsic_height).max(1.0),
@@ -499,9 +516,9 @@ fn rendered_boundary_for(
     })
 }
 
-// Kept as a small compatibility seam for geometry unit tests and callers that still want to
-// provide an explicit allocation.  New code should use `intrinsic_boundary_for` for measurement
-// and `rendered_boundary_for` for the final slot-aware outline.
+
+
+
 #[cfg(test)]
 fn boundary_for(
     inputs: BlockShapeInputs<'_>,
@@ -510,6 +527,7 @@ fn boundary_for(
     rendered_boundary_for(inputs, allocation)
 }
 
+#[must_use]
 fn cylinder_boundary(
     label_width: f64,
     label_height: f64,
@@ -517,9 +535,9 @@ fn cylinder_boundary(
     slot_width: f64,
     slot_height: f64,
 ) -> BlockShapeBoundary {
-    // cylinder.ts mutates node.width/node.height before labelHelper(), then adds the cap geometry
-    // back after measuring.  Reproduce those mutations analytically without conflating the slot
-    // with the final path body height.
+
+
+
     let original_width = slot_width.max(0.0);
     let adjusted_width = if original_width > 0.0 {
         (original_width - padding).max(8.0)
@@ -549,6 +567,7 @@ fn cylinder_boundary(
     }
 }
 
+#[must_use]
 fn hexagon_boundary(
     label_width: f64,
     label_height: f64,
@@ -603,10 +622,12 @@ fn hexagon_boundary(
     )
 }
 
+#[must_use]
 fn odd_boundary(label_width: f64, label_height: f64, padding: f64) -> BlockShapeBoundary {
     odd_boundary_with_slot(label_width, label_height, padding, 0.0, 0.0)
 }
 
+#[must_use]
 fn odd_boundary_slot(
     label_width: f64,
     label_height: f64,
@@ -617,6 +638,7 @@ fn odd_boundary_slot(
     odd_boundary_with_slot(label_width, label_height, padding, slot_width, slot_height)
 }
 
+#[must_use]
 fn odd_boundary_with_slot(
     label_width: f64,
     label_height: f64,
@@ -650,10 +672,12 @@ fn odd_boundary_with_slot(
     )
 }
 
+#[must_use]
 fn subroutine_boundary(label_width: f64, label_height: f64, padding: f64) -> BlockShapeBoundary {
     subroutine_boundary_with_slot(label_width, label_height, padding, 0.0, 0.0)
 }
 
+#[must_use]
 fn subroutine_boundary_slot(
     label_width: f64,
     label_height: f64,
@@ -664,6 +688,7 @@ fn subroutine_boundary_slot(
     subroutine_boundary_with_slot(label_width, label_height, padding, slot_width, slot_height)
 }
 
+#[must_use]
 fn subroutine_boundary_with_slot(
     label_width: f64,
     label_height: f64,
@@ -713,6 +738,7 @@ fn subroutine_boundary_with_slot(
     polygon_boundary(points, width, total_height)
 }
 
+#[must_use]
 fn lean_boundary(
     kind: &str,
     label_width: f64,
@@ -722,6 +748,7 @@ fn lean_boundary(
     lean_boundary_with_slot(kind, label_width, label_height, padding, 0.0, 0.0)
 }
 
+#[must_use]
 fn lean_boundary_slot(
     kind: &str,
     label_width: f64,
@@ -740,6 +767,7 @@ fn lean_boundary_slot(
     )
 }
 
+#[must_use]
 fn lean_boundary_with_slot(
     kind: &str,
     label_width: f64,
@@ -800,6 +828,7 @@ fn lean_boundary_with_slot(
     polygon_boundary(points, width, height)
 }
 
+#[must_use]
 fn inverted_trapezoid_boundary(
     label_width: f64,
     label_height: f64,
@@ -808,6 +837,7 @@ fn inverted_trapezoid_boundary(
     inverted_trapezoid_boundary_with_slot(label_width, label_height, padding, 0.0, 0.0)
 }
 
+#[must_use]
 fn inverted_trapezoid_boundary_slot(
     label_width: f64,
     label_height: f64,
@@ -824,6 +854,7 @@ fn inverted_trapezoid_boundary_slot(
     )
 }
 
+#[must_use]
 fn inverted_trapezoid_boundary_with_slot(
     label_width: f64,
     label_height: f64,
@@ -853,6 +884,7 @@ fn inverted_trapezoid_boundary_with_slot(
     )
 }
 
+#[must_use]
 fn polygon_with_translation(
     points: Vec<LayoutPoint>,
     translation: LayoutPoint,
@@ -863,6 +895,7 @@ fn polygon_with_translation(
     }
 }
 
+#[must_use]
 fn polygon_boundary(
     points: Vec<LayoutPoint>,
     base_width: f64,
@@ -877,11 +910,13 @@ fn polygon_boundary(
     }
 }
 
+#[must_use]
 fn boundary_size(boundary: &BlockShapeBoundary) -> (f64, f64) {
     let (min_x, min_y, max_x, max_y) = boundary_extents(boundary);
     ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
 }
 
+#[must_use]
 fn boundary_extents(boundary: &BlockShapeBoundary) -> (f64, f64, f64, f64) {
     match boundary {
         BlockShapeBoundary::Rectangle { width, height, .. } => {
@@ -914,12 +949,14 @@ fn boundary_extents(boundary: &BlockShapeBoundary) -> (f64, f64, f64, f64) {
             let mut max_x = f64::NEG_INFINITY;
             let mut min_y = f64::INFINITY;
             let mut max_y = f64::NEG_INFINITY;
+
             for point in points {
                 min_x = min_x.min(point.x + translation.x);
                 max_x = max_x.max(point.x + translation.x);
                 min_y = min_y.min(point.y + translation.y);
                 max_y = max_y.max(point.y + translation.y);
             }
+
             if points.is_empty() {
                 (0.0, 0.0, 0.0, 0.0)
             } else {
@@ -929,6 +966,7 @@ fn boundary_extents(boundary: &BlockShapeBoundary) -> (f64, f64, f64, f64) {
     }
 }
 
+#[must_use]
 fn intersect_rect(
     center: &LayoutPoint,
     width: f64,
@@ -937,9 +975,11 @@ fn intersect_rect(
 ) -> LayoutPoint {
     let dx = target.x - center.x;
     let dy = target.y - center.y;
+
     if dx.abs() <= f64::EPSILON && dy.abs() <= f64::EPSILON {
         return center.clone();
     }
+
     let half_width = width.max(0.0) / 2.0;
     let half_height = height.max(0.0) / 2.0;
     let scale = if dx.abs() * half_height > dy.abs() * half_width {
@@ -953,19 +993,23 @@ fn intersect_rect(
     }
 }
 
+#[must_use]
 fn intersect_circle(center: &LayoutPoint, radius: f64, target: &LayoutPoint) -> LayoutPoint {
     let dx = target.x - center.x;
     let dy = target.y - center.y;
     let distance = dx.hypot(dy);
+
     if distance <= f64::EPSILON {
         return center.clone();
     }
+
     LayoutPoint {
         x: center.x + dx / distance * radius.max(0.0),
         y: center.y + dy / distance * radius.max(0.0),
     }
 }
 
+#[must_use]
 fn intersect_rounded_rect(
     center: &LayoutPoint,
     width: f64,
@@ -976,26 +1020,30 @@ fn intersect_rounded_rect(
 ) -> LayoutPoint {
     let dx = target.x - center.x;
     let dy = target.y - center.y;
+
     if dx.abs() <= f64::EPSILON && dy.abs() <= f64::EPSILON {
         return center.clone();
     }
+
     let half_width = width.max(0.0) / 2.0;
     let half_height = height.max(0.0) / 2.0;
-    // SVG clamps rx/ry independently to half of the rendered width/height. In particular, a
-    // short-label stadium can be narrower than it is tall and therefore renders as an ellipse.
-    let radius_x = radius_x.max(0.0).min(half_width);
-    let radius_y = radius_y.max(0.0).min(half_height);
-    if radius_x <= f64::EPSILON || radius_y <= f64::EPSILON {
+
+
+    let radius_x_2 = radius_x.max(0.0).min(half_width);
+    let radius_y_2 = radius_y.max(0.0).min(half_height);
+
+    if radius_x_2 <= f64::EPSILON || radius_y_2 <= f64::EPSILON {
         return intersect_rect(center, width, height, target);
     }
 
-    let straight_half_width = half_width - radius_x;
-    let straight_half_height = half_height - radius_y;
+    let straight_half_width = half_width - radius_x_2;
+    let straight_half_height = half_height - radius_y_2;
     let mut candidate = f64::INFINITY;
 
     if dy.abs() > f64::EPSILON {
         let t = half_height / dy.abs();
         let x = t * dx;
+
         if x.abs() <= straight_half_width + 1e-12 {
             candidate = candidate.min(t);
         }
@@ -1004,6 +1052,7 @@ fn intersect_rounded_rect(
     if dx.abs() > f64::EPSILON {
         let t = half_width / dx.abs();
         let y = t * dy;
+
         if y.abs() <= straight_half_height + 1e-12 {
             candidate = candidate.min(t);
         }
@@ -1013,22 +1062,25 @@ fn intersect_rounded_rect(
     let side_y = if dy < 0.0 { -1.0 } else { 1.0 };
     let center_x = side_x * straight_half_width;
     let center_y = side_y * straight_half_height;
-    let normalized_dx = dx / radius_x;
-    let normalized_dy = dy / radius_y;
-    let normalized_center_x = center_x / radius_x;
-    let normalized_center_y = center_y / radius_y;
+    let normalized_dx = dx / radius_x_2;
+    let normalized_dy = dy / radius_y_2;
+    let normalized_center_x = center_x / radius_x_2;
+    let normalized_center_y = center_y / radius_y_2;
     let a = normalized_dx * normalized_dx + normalized_dy * normalized_dy;
     let b = -2.0 * (normalized_dx * normalized_center_x + normalized_dy * normalized_center_y);
     let c =
         normalized_center_x * normalized_center_x + normalized_center_y * normalized_center_y - 1.0;
     let discriminant = (b * b - 4.0 * a * c).max(0.0);
     let root = discriminant.sqrt();
+
     for t in [(-b - root) / (2.0 * a), (-b + root) / (2.0 * a)] {
         if t < 0.0 {
             continue;
         }
+
         let x = t * dx;
         let y = t * dy;
+
         if x * side_x + 1e-12 >= straight_half_width && y * side_y + 1e-12 >= straight_half_height {
             candidate = candidate.min(t);
         }
@@ -1037,12 +1089,14 @@ fn intersect_rounded_rect(
     if !candidate.is_finite() {
         return intersect_rect(center, width, height, target);
     }
+
     LayoutPoint {
         x: center.x + dx * candidate,
         y: center.y + dy * candidate,
     }
 }
 
+#[must_use]
 fn intersect_cylinder(
     center: &LayoutPoint,
     width: f64,
@@ -1054,6 +1108,7 @@ fn intersect_cylinder(
     let total_height = body_height + 2.0 * radius_y;
     let mut position = intersect_rect(center, width, total_height, target);
     let x = position.x - center.x;
+
     if radius_x > f64::EPSILON
         && (x.abs() < width / 2.0
             || ((x.abs() - width / 2.0).abs() < 1e-12
@@ -1062,14 +1117,18 @@ fn intersect_cylinder(
         let mut y = radius_y * radius_y * (1.0 - (x * x) / (radius_x * radius_x));
         y = y.max(0.0).sqrt();
         y = radius_y - y;
+
         if target.y - center.y > 0.0 {
             y = -y;
         }
+
         position.y += y;
     }
+
     position
 }
 
+#[must_use]
 fn intersect_polygon(
     center: &LayoutPoint,
     points: &[LayoutPoint],
@@ -1078,11 +1137,13 @@ fn intersect_polygon(
 ) -> LayoutPoint {
     let dx = target.x - center.x;
     let dy = target.y - center.y;
+
     if dx.abs() <= f64::EPSILON && dy.abs() <= f64::EPSILON {
         return center.clone();
     }
 
     let mut best_t: Option<f64> = None;
+
     for (index, points_element) in <[_]>::iter(points).enumerate() {
         let a = LayoutPoint {
             x: points_element.x + translation.x + center.x,
@@ -1095,20 +1156,26 @@ fn intersect_polygon(
         let ex = b.x - a.x;
         let ey = b.y - a.y;
         let denominator = dx * ey - dy * ex;
+
         if denominator.abs() <= 1e-12 {
             continue;
         }
+
         let acx = a.x - center.x;
         let acy = a.y - center.y;
         let t = (acx * ey - acy * ex) / denominator;
         let u = (acx * dy - acy * dx) / denominator;
         let segment = -1e-12..=1.0 + 1e-12;
+
         if segment.contains(&t) && segment.contains(&u) {
             best_t = Some(best_t.map_or(t, |best| best.max(t)));
         }
     }
 
-    let t = best_t.unwrap_or(0.0);
+    let t = match best_t {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
     LayoutPoint {
         x: center.x + dx * t,
         y: center.y + dy * t,

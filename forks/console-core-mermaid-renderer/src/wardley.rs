@@ -25,6 +25,7 @@ pub(crate) const PAINT_TARGETS: &[ThemeTarget] = &[
     ThemeTarget::Axis,
 ];
 
+#[must_use]
 fn owns_target(target: ThemeTarget) -> bool {
     PAINT_TARGETS.contains(&target)
 }
@@ -54,6 +55,7 @@ struct WardleySettings {
 }
 
 impl WardleySettings {
+    #[must_use]
     fn from_config(effective_config: &Value) -> Self {
         let wardley = effective_config.get("wardley-beta").unwrap_or(&Value::Null);
         Self {
@@ -68,8 +70,14 @@ impl WardleySettings {
             ),
             axis_font_size: config_f64_or(wardley, &["axisFontSize"], DEFAULT_AXIS_FONT_SIZE),
             label_font_size: config_f64_or(wardley, &["labelFontSize"], DEFAULT_LABEL_FONT_SIZE),
-            show_grid: config_bool(wardley, &["showGrid"]).unwrap_or(DEFAULT_SHOW_GRID),
-            use_max_width: config_bool(wardley, &["useMaxWidth"]).unwrap_or(DEFAULT_USE_MAX_WIDTH),
+            show_grid: match config_bool(wardley, &["showGrid"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_SHOW_GRID,
+            },
+            use_max_width: match config_bool(wardley, &["useMaxWidth"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
         }
     }
 }
@@ -89,6 +97,7 @@ pub struct WardleyLineLayout {
 }
 
 impl WardleyLineLayout {
+    #[must_use]
     fn between(start: WardleyPointLayout, end: WardleyPointLayout) -> Self {
         Self {
             x1: start.x,
@@ -338,6 +347,7 @@ pub struct WardleyDiagramLayout {
     pub deaccelerators: Vec<WardleyArrowLayout>,
 }
 
+#[must_use]
 fn text_layout(
     text: impl Into<String>,
     x: f64,
@@ -348,7 +358,7 @@ fn text_layout(
     dominant_baseline: Option<WardleyDominantBaseline>,
 ) -> WardleyTextLayout {
     WardleyTextLayout {
-        text: text.into(),
+        text: <_ as ::core::convert::Into<::std::string::String>>::into(text),
         x,
         y,
         font_size,
@@ -359,6 +369,7 @@ fn text_layout(
     }
 }
 
+#[must_use]
 fn project(
     x: f64,
     y: f64,
@@ -373,6 +384,7 @@ fn project(
     }
 }
 
+#[must_use]
 fn build_axes(
     model: &WardleyDiagramModel,
     settings: WardleySettings,
@@ -426,6 +438,7 @@ fn build_axes(
     }
 }
 
+#[must_use]
 fn build_stages(
     model: &WardleyDiagramModel,
     settings: WardleySettings,
@@ -483,6 +496,7 @@ fn build_stages(
         .collect()
 }
 
+#[must_use]
 fn build_grid(
     settings: WardleySettings,
     width: f64,
@@ -493,9 +507,10 @@ fn build_grid(
     if !settings.show_grid {
         return Vec::new();
     }
+
     (1..4)
         .map(|index| {
-            let ratio = index as f64 / 4.0;
+            let ratio = <f64 as ::core::convert::From<::core::primitive::i32>>::from(index) / 4.0;
             let x = settings.padding + chart_width * ratio;
             let y = height - settings.padding - chart_height * ratio;
             WardleyGridLayout {
@@ -517,6 +532,7 @@ fn build_grid(
         .collect()
 }
 
+#[must_use]
 fn source_overlay(
     strategy: Option<WardleySourceStrategy>,
     position: WardleyPointLayout,
@@ -526,7 +542,10 @@ fn source_overlay(
         center: position,
         radius: node_radius * 2.0,
     };
-    match strategy? {
+
+    let checked_value = strategy?;
+
+    match checked_value {
         WardleySourceStrategy::Build => Some(WardleySourceOverlayLayout::Build { circle }),
         WardleySourceStrategy::Buy => Some(WardleySourceOverlayLayout::Buy { circle }),
         WardleySourceStrategy::Outsource => Some(WardleySourceOverlayLayout::Outsource { circle }),
@@ -573,6 +592,7 @@ fn source_overlay(
     }
 }
 
+#[must_use]
 fn build_arrow(
     name: &str,
     origin: WardleyPointLayout,
@@ -750,10 +770,11 @@ fn layout_wardley_diagram_with_font_family(
     let stages = build_stages(model, settings, height, chart_width);
     let grid = build_grid(settings, width, height, chart_width, chart_height);
 
-    // JavaScript uses a Map here: duplicate ids keep their first insertion order but their last
-    // projected value. The output still follows `data.nodes` order below.
+
+
     let mut positions: HashMap<&str, WardleyPointLayout> = HashMap::new();
     let mut nodes_by_id = HashMap::new();
+
     for node in &model.nodes {
         positions.insert(node.id.as_str(), project_point(node.x, node.y));
         nodes_by_id.entry(node.id.as_str()).or_insert(node);
@@ -761,6 +782,7 @@ fn layout_wardley_diagram_with_font_family(
 
     let mut pipeline_boxes = Vec::new();
     let mut pipeline_links = Vec::new();
+
     for pipeline in &model.pipelines {
         if pipeline.component_ids.is_empty() {
             continue;
@@ -770,12 +792,13 @@ fn layout_wardley_diagram_with_font_family(
             .component_ids
             .iter()
             .filter_map(|id| {
-                let position = *positions.get(id.as_str())?;
-                let node = *nodes_by_id.get(id.as_str())?;
+                let position = ::core::option::Option::<&_>::copied(positions.get(id.as_str()))?;
+                let node = ::core::option::Option::<&_>::copied(nodes_by_id.get(id.as_str()))?;
                 Some((id.as_str(), position, node.x))
             })
             .collect();
         sorted_components.sort_by(|left, right| left.2.total_cmp(&right.2));
+
         for [pair_0, pair_1] in <[_]>::array_windows::<2>(&sorted_components) {
             pipeline_links.push(WardleyPipelineLinkLayout {
                 source: (*pair_0).0.to_string(),
@@ -787,23 +810,36 @@ fn layout_wardley_diagram_with_font_family(
         let mut min_x = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         let mut last_y = None;
+
         for component_id in &pipeline.component_ids {
-            if let Some(position) = positions.get(component_id.as_str()).copied() {
-                min_x = min_x.min(position.x);
-                max_x = max_x.max(position.x);
-                last_y = Some(position.y);
+            {
+                match positions.get(component_id.as_str()).copied() {
+                    Some(position) => {
+                        min_x = min_x.min(position.x);
+                        max_x = max_x.max(position.x);
+                        last_y = Some(position.y);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
-        let Some(y) = last_y else {
-            continue;
+
+        let y = match last_y {
+            Some(matched_y) => matched_y,
+            ::core::option::Option::None => continue,
         };
 
         let box_height = settings.node_radius * 4.0;
         let box_top = y - box_height / 2.0;
-        if let Some(parent) = positions.get_mut(pipeline.node_id.as_str()) {
-            parent.x = (min_x + max_x) / 2.0;
-            parent.y = box_top - square_size / 6.0;
+
+        match positions.get_mut(pipeline.node_id.as_str()) {
+            Some(parent) => {
+                parent.x = (min_x + max_x) / 2.0;
+                parent.y = box_top - square_size / 6.0;
+            },
+            ::core::option::Option::None => {},
         }
+
         pipeline_boxes.push(WardleyPipelineBoxLayout {
             node_id: pipeline.node_id.clone(),
             component_ids: pipeline.component_ids.clone(),
@@ -818,6 +854,7 @@ fn layout_wardley_diagram_with_font_family(
     }
 
     let mut pipeline_map: HashMap<&str, HashSet<&str>> = HashMap::new();
+
     for pipeline in &model.pipelines {
         pipeline_map.insert(
             pipeline.node_id.as_str(),
@@ -826,29 +863,51 @@ fn layout_wardley_diagram_with_font_family(
     }
 
     let mut links = Vec::new();
+
     for link in &model.links {
-        let (Some(source), Some(target)) = (
-            positions.get(link.source.as_str()).copied(),
-            positions.get(link.target.as_str()).copied(),
-        ) else {
-            continue;
+        let (source, target) = {
+            let outcome_source = (
+                positions.get(link.source.as_str()).copied(),
+                positions.get(link.target.as_str()).copied(),
+            );
+
+            match outcome_source {
+                (Some(matched_source), Some(matched_target)) => (matched_source, matched_target),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => continue,
+            }
         };
+
         if pipeline_map
             .get(link.target.as_str())
             .is_some_and(|components| components.contains(link.source.as_str()))
         {
             continue;
         }
-        let Some(source_node) = nodes_by_id.get(link.source.as_str()).copied() else {
-            continue;
+
+        let source_node = {
+            let optional_source_node = nodes_by_id.get(link.source.as_str()).copied();
+
+            match optional_source_node {
+                Some(matched_source_node) => matched_source_node,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(target_node) = nodes_by_id.get(link.target.as_str()).copied() else {
-            continue;
+
+        let target_node = {
+            let optional_target_node = nodes_by_id.get(link.target.as_str()).copied();
+
+            match optional_target_node {
+                Some(matched_target_node) => matched_target_node,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let dx = target.x - source.x;
         let dy = target.y - source.y;
         let distance = dx.hypot(dy);
-        if distance == 0.0 || !distance.is_finite() {
+
+        if ::core::matches!(::core::primitive::f64::classify(distance), ::core::num::FpCategory::Zero) || !distance.is_finite() {
             return Err(Error::InvalidModel {
                 message: format!(
                     "wardley link `{}` -> `{}` has coincident or non-finite projected endpoints",
@@ -856,6 +915,7 @@ fn layout_wardley_diagram_with_font_family(
                 ),
             });
         }
+
         let source_radius = if source_node.is_pipeline_parent {
             square_size / 2.0_f64.sqrt()
         } else {
@@ -898,9 +958,11 @@ fn layout_wardley_diagram_with_font_family(
                 let x = (source.x + target.x) / 2.0 + dy / distance * 8.0;
                 let y = (source.y + target.y) / 2.0 - dx / distance * 8.0;
                 let mut angle = dy.atan2(dx).to_degrees();
+
                 if !(-90.0..=90.0).contains(&angle) {
                     angle += 180.0;
                 }
+
                 let mut layout = text_layout(
                     label,
                     x,
@@ -985,7 +1047,10 @@ fn layout_wardley_diagram_with_font_family(
 
             let (label_x, label_y, weight, anchor, baseline) = if is_anchor {
                 (
-                    position.x + node.label_offset_x.unwrap_or(0) as f64,
+                    position.x + (match node.label_offset_x {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0,
+                    }) as f64,
                     position.y + node.label_offset_y.map_or(-3.0, |offset| offset as f64),
                     WardleyFontWeight::Bold,
                     WardleyTextAnchor::Middle,
@@ -994,14 +1059,17 @@ fn layout_wardley_diagram_with_font_family(
             } else {
                 let mut default_x = settings.node_label_offset;
                 let mut default_y = -settings.node_label_offset;
+
                 if node.source_strategy.is_some() {
                     if node.label_offset_x.is_none() {
                         default_x += 10.0;
                     }
+
                     if node.label_offset_y.is_none() {
                         default_y -= 10.0;
                     }
                 }
+
                 (
                     position.x
                         + node
@@ -1022,9 +1090,11 @@ fn layout_wardley_diagram_with_font_family(
                 } else {
                     settings.node_radius + 15.0
                 };
+
                 if node.source_strategy.is_some() {
                     offset += settings.node_radius + 10.0;
                 }
+
                 let line_height = if node.is_pipeline_parent {
                     square_size
                 } else {
@@ -1112,7 +1182,7 @@ fn layout_wardley_diagram_with_font_family(
             let mut sorted_annotations: Vec<_> = model
                 .annotations
                 .iter()
-                // JavaScript's `filter((a) => a.text)` also excludes the empty string.
+
                 .filter(|annotation| {
                     annotation
                         .text
@@ -1152,6 +1222,7 @@ fn layout_wardley_diagram_with_font_family(
                 .collect();
             let mut max_text_width: f64 = 0.0;
             let mut max_text_height: f64 = 0.0;
+
             for text in &line_texts {
                 max_text_width =
                     max_text_width.max(measurer.measure_svg_text_computed_length_px(text, &style));
@@ -1159,7 +1230,7 @@ fn layout_wardley_diagram_with_font_family(
                     max_text_height.max(measurer.measure_svg_raw_text_bbox_height_px(text, &style));
             }
 
-            // `+ 105` is pinned Mermaid 11.16 renderer behavior, not a local sizing heuristic.
+
             let box_width = max_text_width + padding * 2.0 + 105.0;
             let box_height =
                 line_texts.len() as f64 * line_height + padding * 2.0 + max_text_height / 2.0;

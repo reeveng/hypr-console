@@ -245,6 +245,7 @@ fn construct_source(
     {
         parser.facts = editor_demand.finish_facts(parser.facts);
     }
+
     match result {
         Ok(model) => Ok(Ok(Construction {
             model,
@@ -319,6 +320,7 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    #[must_use]
     fn new(
         source: &'a str,
         config: &'a crate::MermaidConfig,
@@ -377,19 +379,23 @@ impl<'a> Parser<'a> {
                 SourceSpan::new(0, self.source.len()),
             )));
         };
+
         let header_tokens: Vec<&str> = header.split_whitespace().collect();
+
         if header_tokens.first().copied() != Some("agentflow-beta") {
             return Ok(Err(self.failure(
                 "expected agentflow-beta header",
                 SourceSpan::new(header_start, header_start + header.len()),
             )));
         }
+
         if header_tokens.len() > 2 {
             return Ok(Err(self.failure(
                 "unexpected content after agentflow header direction",
                 SourceSpan::new(header_start, header_start + header.len()),
             )));
         }
+
         if let Some(value) = header_tokens.get(1) {
             self.direction = match normalize_direction(value) {
                 Some(direction) => direction,
@@ -400,6 +406,7 @@ impl<'a> Parser<'a> {
                     )));
                 }
             };
+
             if self.direction == "TD" {
                 self.direction = "TB".to_string();
             }
@@ -412,6 +419,7 @@ impl<'a> Parser<'a> {
                 SourceSpan::new(header_start, header_start + header.len()),
             )));
         }
+
         #[cfg(feature = "editor-facts")]
         if let Some(facts) = &mut self.facts {
             facts.push_expected_syntax(crate::EditorExpectedSyntax::new(
@@ -423,47 +431,68 @@ impl<'a> Parser<'a> {
         for (line_start, line) in split_top_level(self.source, b";\n") {
             self.control.checkpoint()?;
             let trimmed = line.trim().trim_start_matches('\u{feff}');
+
             if trimmed.is_empty() || trimmed.starts_with("%%") || trimmed == header {
                 continue;
             }
+
             if trimmed == "---" {
                 self.in_frontmatter = !self.in_frontmatter;
                 continue;
             }
+
             if self.in_frontmatter || trimmed.starts_with("---") {
                 continue;
             }
-            // Direction precedes whitespace in Jison. Preserve the statement's raw
-            // cursor so indentation cannot promote a later keyword ahead of it.
-            if let Some(direction) = statement_direction(line) {
-                if !direction_has_prior_token(line) {
-                    if let Some(context) = self.contexts.last_mut() {
-                        context.direction = Some(direction.to_string());
+
+
+
+            match statement_direction(line) {
+                Some(direction) => {
+                    if !direction_has_prior_token(line) {
+                        match self.contexts.last_mut() {
+                            Some(context) => {
+                                context.direction = Some(direction.to_string());
+                            },
+                            ::core::option::Option::None => {},
+                        }
+
+                        continue;
                     }
+
+                    if !starts_accessibility_statement(line) && !keyword_with_whitespace(line, "click")
+                    {
+                        return Ok(Err(self.failure(
+                            "unexpected direction after agentflow statement token",
+                            span_of(line_start, line, trimmed),
+                        )));
+                    }
+                },
+                ::core::option::Option::None => {},
+            }
+
+            match trimmed.strip_prefix("accTitle").and_then(|rest| {
+                    rest.trim_start_matches(super::scan::is_ecmascript_whitespace)
+                        .strip_prefix(':')
+                }) {
+                Some(rest) => {
+                    self.acc_title = Some(rest.trim().to_string());
                     continue;
-                }
-                if !starts_accessibility_statement(line) && !keyword_with_whitespace(line, "click")
-                {
-                    return Ok(Err(self.failure(
-                        "unexpected direction after agentflow statement token",
-                        span_of(line_start, line, trimmed),
-                    )));
-                }
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(rest) = trimmed.strip_prefix("accTitle").and_then(|rest| {
-                rest.trim_start_matches(super::scan::is_ecmascript_whitespace)
-                    .strip_prefix(':')
-            }) {
-                self.acc_title = Some(rest.trim().to_string());
-                continue;
+
+            match trimmed.strip_prefix("accDescr").and_then(|rest| {
+                    rest.trim_start_matches(super::scan::is_ecmascript_whitespace)
+                        .strip_prefix(':')
+                }) {
+                Some(rest) => {
+                    self.acc_descr = Some(rest.trim().to_string());
+                    continue;
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(rest) = trimmed.strip_prefix("accDescr").and_then(|rest| {
-                rest.trim_start_matches(super::scan::is_ecmascript_whitespace)
-                    .strip_prefix(':')
-            }) {
-                self.acc_descr = Some(rest.trim().to_string());
-                continue;
-            }
+
             if let Some(rest) = trimmed.strip_prefix("accDescr")
                 && let Some(description) = rest.trim_start().strip_prefix('{')
             {
@@ -473,9 +502,11 @@ impl<'a> Parser<'a> {
                         span_of(line_start, line, trimmed),
                     )));
                 };
+
                 self.acc_descr = Some(description.trim().to_string());
                 continue;
             }
+
             if keyword_with_whitespace(trimmed, "click")
                 && click_contains_unshielded_direction(trimmed)
             {
@@ -484,6 +515,7 @@ impl<'a> Parser<'a> {
                     span_of(line_start, line, trimmed),
                 )));
             }
+
             if trimmed == "end" {
                 let Some(context) = self.contexts.pop() else {
                     return Ok(Err(self.failure(
@@ -491,9 +523,11 @@ impl<'a> Parser<'a> {
                         span_of(line_start, line, trimmed),
                     )));
                 };
+
                 self.close_context(context, span_of(line_start, line, trimmed).end);
                 continue;
             }
+
             if trimmed == "global" {
                 self.contexts.push(Context {
                     global: true,
@@ -501,6 +535,7 @@ impl<'a> Parser<'a> {
                 });
                 continue;
             }
+
             if let Some(rest) = trimmed.strip_prefix("flow")
                 && rest.chars().next().is_none_or(char::is_whitespace)
             {
@@ -509,7 +544,10 @@ impl<'a> Parser<'a> {
                 } else {
                     match parse_declaration(
                         rest,
-                        line_start + line.find(trimmed).unwrap_or(0) + "flow".len(),
+                        line_start + match line.find(trimmed) {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => 0,
+                        } + "flow".len(),
                         rest,
                         self.control,
                     ) {
@@ -540,12 +578,16 @@ impl<'a> Parser<'a> {
                 });
                 continue;
             }
+
             if let Some(rest) = trimmed.strip_prefix("connector")
                 && rest.chars().next().is_none_or(char::is_whitespace)
             {
                 let declaration = match parse_declaration(
                     rest,
-                    line_start + line.find(trimmed).unwrap_or(0) + "connector".len(),
+                    line_start + match line.find(trimmed) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0,
+                    } + "connector".len(),
                     rest,
                     self.control,
                 ) {
@@ -555,25 +597,36 @@ impl<'a> Parser<'a> {
                 let id = declaration.id.clone();
                 let id_span = declaration.id_span;
                 let first = !self.connector_index.contains_key(&id);
+
                 if first {
-                    // addConnector replaces a pre-existing ordinary vertex, preserving map order.
-                    if let Some(&index) = self.node_index.get(&id) {
-                        self.nodes[index] = AgentflowNode {
-                            id: id.clone(),
-                            label: Some(id.clone()),
-                            shape: None,
-                            vertex_kind: AgentflowVertexKind::Connector,
-                            metadata: Map::new(),
-                            parent_id: None,
-                        };
+
+                    match self.node_index.get(&id) {
+                        Some(&index) => {
+                            self.nodes[index] = AgentflowNode {
+                                id: id.clone(),
+                                label: Some(id.clone()),
+                                shape: None,
+                                vertex_kind: AgentflowVertexKind::Connector,
+                                metadata: Map::new(),
+                                parent_id: None,
+                            };
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     self.authored.nodes.insert(id.clone(), Default::default());
+
                     #[cfg(feature = "presentation")]
-                    if let Some(visuals) = &mut self.visuals {
-                        visuals.remove(&id);
+                    match &mut self.visuals {
+                        Some(visuals) => {
+                            visuals.remove(&id);
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     self.record_vertex_call(&id);
                 }
+
                 let title = declaration.label.filter(|title| !title.is_empty());
                 let metadata = declaration.metadata;
                 self.upsert_connector(id.clone(), title.clone(), Map::new());
@@ -589,12 +642,14 @@ impl<'a> Parser<'a> {
                     class: None,
                 });
                 self.nodes[node_index].vertex_kind = AgentflowVertexKind::Connector;
+
                 if let Some(&index) = self.sub_graph_index.get(&id) {
                     self.sub_graphs[index].metadata.extend(metadata);
                 } else {
                     let index = self.connector_index[&id];
                     self.connectors[index].metadata.extend(metadata);
                 }
+
                 self.record_members(std::iter::once(id.clone()));
                 self.diagnostic_spans
                     .entry(id.clone())
@@ -603,35 +658,54 @@ impl<'a> Parser<'a> {
                 self.push_symbol(&id, EditorSemanticKind::Object, id_span, false);
                 continue;
             }
+
             match self
-                .parse_presentation_statement(trimmed, line_start + line.find(trimmed).unwrap_or(0))
+                .parse_presentation_statement(trimmed, line_start + match line.find(trimmed) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0,
+                })
             {
                 Ok(true) => continue,
                 Ok(false) => {}
                 Err(error) => return Ok(Err(error)),
             }
+
             match self.parse_edge_statement(trimmed, line_start, line) {
                 Ok(true) => continue,
                 Ok(false) => {}
                 Err(error) => return Ok(Err(error)),
             }
-            if let Err(error) = self.parse_node_statement(trimmed, line_start, line) {
-                return Ok(Err(error));
+
+            {
+                match self.parse_node_statement(trimmed, line_start, line) {
+                    Err(error) => {
+                        return Ok(Err(error));
+                    },
+                    ::core::result::Result::Ok(_) => {},
+                };
             }
         }
+
         if !self.contexts.is_empty() {
             return Ok(Err(self.failure(
                 "unterminated agentflow container",
                 SourceSpan::new(0, self.source.len()),
             )));
         }
+
         for graph in &self.sub_graphs {
             for child in &graph.nodes {
-                if let Some(&index) = self.node_index.get(child) {
-                    self.nodes[index].parent_id = Some(graph.id.clone());
+                {
+                    match self.node_index.get(child) {
+                        Some(&index) => {
+                            self.nodes[index].parent_id = Some(graph.id.clone());
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         }
+
         let diagnostics = self
             .nodes
             .iter()
@@ -658,12 +732,14 @@ impl<'a> Parser<'a> {
             acc_descr: self.acc_descr.take(),
         };
         model.diagnostics.extend(model.containment_diagnostics());
+
         for diagnostic in &mut model.diagnostics {
             diagnostic.position = self
                 .diagnostic_spans
                 .get(&diagnostic.node_id)
                 .map(|span| diagnostic_position(self.source, *span));
         }
+
         model.warning_facts = model
             .diagnostics
             .iter()
@@ -683,7 +759,10 @@ impl<'a> Parser<'a> {
         line_start: usize,
         line: &str,
     ) -> std::result::Result<(), ParseFailure> {
-        let start = line_start + line.find(statement).unwrap_or(0);
+        let start = line_start + match line.find(statement) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        };
         let ids = self.parse_node_group(statement, start, false)?;
         self.record_members(ids);
         Ok(())
@@ -708,8 +787,8 @@ impl<'a> Parser<'a> {
         self.diagnostic_spans
             .entry(id.clone())
             .or_insert_with(|| span_of(line_start, line, mapped_element.trim()));
-        // The enclosing node group reduces metadata after parsing the next styled vertex.
-        // AgentflowDB skips metadata counter increments for existing containers/connectors.
+
+
         let vertex_call = id != "connectors"
             && !self
                 .edges
@@ -719,9 +798,11 @@ impl<'a> Parser<'a> {
             && declaration.metadata_span.is_some()
             && !self.sub_graph_index.contains_key(&id)
             && !self.connector_index.contains_key(&id);
+
         if vertex_call {
             self.record_vertex_call(&id);
         }
+
         if declaration.metadata_span.is_some()
             && (self.sub_graph_index.contains_key(&id) || self.connector_index.contains_key(&id))
             && !self
@@ -741,6 +822,7 @@ impl<'a> Parser<'a> {
                 class: None,
             });
         }
+
         if declaration.metadata_span.is_some()
             && let Some(&index) = self.sub_graph_index.get(&id)
         {
@@ -770,9 +852,14 @@ impl<'a> Parser<'a> {
             #[cfg(feature = "editor-facts")]
             self.push_symbol(&id, EditorSemanticKind::Object, id_span, reference);
         }
-        if let Some(class) = class {
-            self.assign_class(&id, &class);
+
+        match class {
+            Some(class) => {
+                self.assign_class(&id, &class);
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok((id, metadata_call))
     }
 
@@ -782,40 +869,55 @@ impl<'a> Parser<'a> {
         line_start: usize,
         line: &str,
     ) -> std::result::Result<bool, ParseFailure> {
-        let Some(mut operator) = find_operator(statement, 0) else {
-            return Ok(false);
+        let mut operator = {
+            let optional_operator = find_operator(statement, 0);
+
+            match optional_operator {
+                Some(matched_operator) => matched_operator,
+                ::core::option::Option::None => return Ok(false),
+            }
         };
-        let statement_start = line_start + line.find(statement).unwrap_or(0);
+
+        let statement_start = line_start + match line.find(statement) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        };
         let (source, mut edge_id) = split_edge_id(&statement[..operator.start]);
         let mut sources = self.parse_node_group(source, statement_start, true)?;
         let mut members = vec![sources.clone()];
+
         loop {
             let next = find_operator(statement, operator.end);
             let target_end = next
                 .as_ref()
-                .map_or(statement.len(), |operator| operator.start);
+                .map_or(statement.len(), |operator_2| operator_2.start);
             let raw_targets = &statement[operator.end..target_end];
-            let (target, next_edge_id) = if next.is_some() {
-                split_edge_id(raw_targets)
-            } else {
-                (raw_targets, None)
+            let (target, next_edge_id) = match next {
+                ::core::option::Option::Some(_) => {
+                    split_edge_id(raw_targets)
+                },
+                ::core::option::Option::None => {
+                    (raw_targets, None)
+                },
             };
             let targets = self.parse_node_group(target, statement_start + operator.end, true)?;
             members.push(targets.clone());
-            // Mermaid emits one link for every source/target pair, then uses the target group
-            // as the source of the next link in a chain.
-            for source in &sources {
-                for target in &targets {
+
+
+            for source_2 in &sources {
+                for target_2 in &targets {
                     let mut edge = edge_for(
-                        source,
-                        target,
+                        source_2,
+                        target_2,
                         operator.semantic,
                         operator.label.clone(),
                         operator.length,
                     );
-                    if Some(source) == sources.last() && Some(target) == targets.first() {
+
+                    if Some(source_2) == sources.last() && Some(target_2) == targets.first() {
                         edge.id = edge_id.clone();
                     }
+
                     self.push_edge(
                         edge,
                         operator.label_type,
@@ -823,13 +925,15 @@ impl<'a> Parser<'a> {
                     )?;
                 }
             }
-            let Some(next) = next else {
-                // Grammar reductions prepend each target group to the statement's members.
+
+            let Some(next_2) = next else {
+
                 self.record_members(members.into_iter().rev().flatten());
                 return Ok(true);
             };
+
             sources = targets;
-            operator = next;
+            operator = next_2;
             edge_id = next_edge_id;
         }
     }
@@ -842,10 +946,12 @@ impl<'a> Parser<'a> {
     ) -> std::result::Result<Vec<String>, ParseFailure> {
         let mut ids = Vec::new();
         let mut pending_metadata: Option<String> = None;
+
         for (offset, endpoint) in split_top_level(group, b"&") {
-            if ids.len() % 128 == 0 {
+            if ids.len().wrapping_rem(128) == 0 {
                 self.control.checkpoint().map_err(ParseFailure::Cancelled)?;
             }
+
             let start = source_start + offset;
             let (id, metadata_call) = self.parse_node(
                 endpoint,
@@ -854,15 +960,25 @@ impl<'a> Parser<'a> {
                 #[cfg(feature = "editor-facts")]
                 reference,
             )?;
-            if let Some(previous) = pending_metadata.take() {
-                self.record_vertex_call(&previous);
+
+            match pending_metadata.take() {
+                Some(previous) => {
+                    self.record_vertex_call(&previous);
+                },
+                ::core::option::Option::None => {},
             }
+
             pending_metadata = metadata_call.then(|| id.clone());
             ids.push(id);
         }
-        if let Some(last) = pending_metadata {
-            self.record_vertex_call(&last);
+
+        match pending_metadata {
+            Some(last) => {
+                self.record_vertex_call(&last);
+            },
+            ::core::option::Option::None => {},
         }
+
         if (reference && ids.is_empty()) || group.trim_end().ends_with('&') {
             return Err(self.failure(
                 if reference {
@@ -873,6 +989,7 @@ impl<'a> Parser<'a> {
                 SourceSpan::new(source_start, source_start + group.len()),
             ));
         }
+
         Ok(ids)
     }
 
@@ -885,12 +1002,16 @@ impl<'a> Parser<'a> {
         if self.edges.len().is_multiple_of(128) {
             self.control.checkpoint().map_err(ParseFailure::Cancelled)?;
         }
-        let limit = self
+
+        let limit = match self
             .config
             .as_value()
             .get("maxEdges")
-            .and_then(Value::as_f64)
-            .unwrap_or(500.0);
+            .and_then(Value::as_f64) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 500.0,
+        };
+
         if self.edges.len() as f64 >= limit {
             return Err(self.failure(
                 format!(
@@ -900,7 +1021,9 @@ impl<'a> Parser<'a> {
                 span,
             ));
         }
+
         edge.is_user_defined_id = edge.id.is_some();
+
         if edge.id.as_ref().is_none_or(|id| {
             self.edges
                 .iter()
@@ -912,9 +1035,13 @@ impl<'a> Parser<'a> {
                 .iter()
                 .filter(|existing| existing.start == edge.start && existing.end == edge.end)
                 .count();
-            let counter = if count == 0 { 0 } else { count + 1 };
+            let counter = match count {
+                0 => { 0 },
+                _ => { count + 1 },
+            };
             edge.id = Some(format!("L_{}_{}_{counter}", edge.start, edge.end));
         }
+
         presentation::add_edge(
             &mut self.authored,
             edge.id.as_deref().expect("edge id is assigned above"),
@@ -926,11 +1053,14 @@ impl<'a> Parser<'a> {
 
     fn record_vertex_call(&mut self, _id: &str) {
         #[cfg(feature = "presentation")]
-        if let Some(visuals) = &mut self.visuals {
-            visuals
-                .entry(_id.to_string())
-                .or_insert(self.vertex_counter);
-            self.vertex_counter += 1;
+        match &mut self.visuals {
+            Some(visuals) => {
+                visuals
+                    .entry(_id.to_string())
+                    .or_insert(self.vertex_counter);
+                self.vertex_counter += 1;
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -944,22 +1074,32 @@ impl<'a> Parser<'a> {
             ..
         } = declaration;
         let presentation = self.authored.nodes.entry(id.clone()).or_default();
-        if label.is_some() {
-            presentation.label_type = label_type.map(str::to_owned);
+
+        match label {
+            ::core::option::Option::Some(_) => {
+                presentation.label_type = label_type.map(str::to_owned);
+            },
+            ::core::option::Option::None => {},
         }
+
         let metadata_label = metadata
             .get("label")
             .and_then(Value::as_str)
-            .filter(|label| !label.is_empty());
-        if metadata_label.is_some() {
-            let label_type = metadata
-                .get("labelType")
-                .and_then(Value::as_str)
-                .filter(|kind| matches!(*kind, "text" | "string" | "markdown"))
-                .unwrap_or("markdown");
-            presentation.label_type = Some(label_type.to_string());
+            .filter(|label_2| !label_2.is_empty());
+
+        match metadata_label {
+            ::core::option::Option::Some(_) => {
+                let label_type_2 = metadata
+                    .get("labelType")
+                    .and_then(Value::as_str)
+                    .filter(|kind| matches!(*kind, "text" | "string" | "markdown"))
+                    .unwrap_or("markdown");
+                presentation.label_type = Some(label_type_2.to_string());
+            },
+            ::core::option::Option::None => {},
         }
-        let label = metadata_label.map(str::to_string).or(label);
+
+        let label_3 = metadata_label.map(str::to_string).or(label);
         let shape = metadata
             .get("shape")
             .and_then(Value::as_str)
@@ -969,20 +1109,29 @@ impl<'a> Parser<'a> {
         let kind = vertex_kind(shape.as_deref());
         let index = if let Some(index) = self.node_index.get(&id).copied() {
             let node = &mut self.nodes[index];
-            if label.is_some() {
-                node.label = label;
+
+            match label_3 {
+                ::core::option::Option::Some(_) => {
+                    node.label = label_3;
+                },
+                ::core::option::Option::None => {},
             }
-            if shape.is_some() {
-                node.shape = shape;
-                node.vertex_kind = kind;
+
+            match shape {
+                ::core::option::Option::Some(_) => {
+                    node.shape = shape;
+                    node.vertex_kind = kind;
+                },
+                ::core::option::Option::None => {},
             }
+
             node.metadata.extend(metadata);
             index
         } else {
             let index = self.nodes.len();
             self.nodes.push(AgentflowNode {
                 id: id.clone(),
-                label: Some(label.unwrap_or_else(|| id.clone())),
+                label: Some(label_3.unwrap_or_else(|| id.clone())),
                 shape,
                 vertex_kind: kind,
                 metadata,
@@ -991,41 +1140,57 @@ impl<'a> Parser<'a> {
             self.node_index.insert(id.clone(), index);
             index
         };
-        if let Some(&connector) = self.connector_index.get(&id) {
-            self.nodes[index].vertex_kind = AgentflowVertexKind::Connector;
-            self.connectors[connector].title =
-                self.nodes[index].label.clone().filter(|label| label != &id);
+
+        match self.connector_index.get(&id) {
+            Some(&connector) => {
+                self.nodes[index].vertex_kind = AgentflowVertexKind::Connector;
+                self.connectors[connector].title =
+                    self.nodes[index].label.clone().filter(|label_4| label_4 != &id);
+            },
+            ::core::option::Option::None => {},
         }
+
         index
     }
 
     fn record_members(&mut self, ids: impl IntoIterator<Item = String>) {
-        if let Some(context) = self.contexts.last_mut() {
-            context.nodes.extend(ids);
+        match self.contexts.last_mut() {
+            Some(context) => {
+                context.nodes.extend(ids);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
     fn close_context(&mut self, context: Context, end: usize) {
         if context.global {
             self.global_nodes.extend(context.nodes);
+
             for graph in &mut self.sub_graphs {
                 graph
                     .nodes
                     .retain(|child| !self.global_nodes.contains(child));
             }
+
             self.owned_nodes
                 .retain(|id| !self.global_nodes.contains(id));
             return;
         }
+
         let id = context
             .id
             .unwrap_or_else(|| format!("subGraph{}", self.subgraph_count));
         self.subgraph_count += 1;
-        if let Some(span) = context.declaration_span {
-            self.diagnostic_spans
-                .entry(id.clone())
-                .or_insert(SourceSpan::new(span.start, end));
+
+        match context.declaration_span {
+            Some(span) => {
+                self.diagnostic_spans
+                    .entry(id.clone())
+                    .or_insert(SourceSpan::new(span.start, end));
+            },
+            ::core::option::Option::None => {},
         }
+
         let mut seen = HashSet::new();
         let nodes: Vec<_> = context
             .nodes
@@ -1039,28 +1204,40 @@ impl<'a> Parser<'a> {
             .collect();
         self.owned_nodes.extend(nodes.iter().cloned());
         let direction = context.direction.or_else(|| {
-            self.config
+            match self.config
                 .as_value()
                 .pointer("/flowchart/inheritDir")
-                .and_then(Value::as_bool)
-                .unwrap_or(false)
+                .and_then(Value::as_bool) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => false,
+            }
                 .then(|| self.direction.clone())
         });
-        let title = context.title.unwrap_or_default();
-        // Duplicate containers retain the label type from their first declaration.
+        let title = match context.title {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
+
         self.authored
             .subgraph_label_types
             .entry(id.clone())
             .or_insert_with(|| context.label_type.unwrap_or("text").to_string());
+
         if let Some(&index) = self.sub_graph_index.get(&id) {
             let graph = &mut self.sub_graphs[index];
             graph.nodes.extend(nodes);
+
             if !title.is_empty() {
                 graph.title = Some(title);
             }
-            if direction.is_some() {
-                graph.direction = direction;
+
+            match direction {
+                ::core::option::Option::Some(_) => {
+                    graph.direction = direction;
+                },
+                ::core::option::Option::None => {},
             }
+
             graph.metadata.extend(context.metadata);
         } else {
             self.sub_graph_index
@@ -1069,11 +1246,12 @@ impl<'a> Parser<'a> {
                 id: id.clone(),
                 title: Some(title),
                 nodes,
-                sub_graph_type: "flow".into(),
+                sub_graph_type: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("flow"),
                 direction,
                 metadata: context.metadata,
             });
         }
+
         self.record_members(std::iter::once(id));
     }
 
@@ -1083,14 +1261,23 @@ impl<'a> Parser<'a> {
         title: Option<String>,
         metadata: Map<String, Value>,
     ) -> usize {
-        if let Some(index) = self.connector_index.get(&id).copied() {
-            let connector = &mut self.connectors[index];
-            if title.is_some() {
-                connector.title = title;
-            }
-            connector.metadata.extend(metadata);
-            return index;
+        match self.connector_index.get(&id).copied() {
+            Some(index) => {
+                let connector = &mut self.connectors[index];
+
+                match title {
+                    ::core::option::Option::Some(_) => {
+                        connector.title = title;
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                connector.metadata.extend(metadata);
+                return index;
+            },
+            ::core::option::Option::None => {},
         }
+
         let index = self.connectors.len();
         self.connectors.push(AgentflowConnector {
             id: id.clone(),
@@ -1123,9 +1310,10 @@ impl<'a> Parser<'a> {
         facts.push_symbol(symbol.with_rename_policy(EditorRenamePolicy::AgentflowNodeId));
     }
 
+    #[must_use]
     fn failure(&self, message: impl Into<String>, span: SourceSpan) -> ParseFailure {
         ParseFailure::Syntax {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span,
         }
     }
@@ -1141,6 +1329,7 @@ struct Operator {
     label_type: Option<&'static str>,
 }
 
+#[must_use]
 fn edge_for(
     start: &str,
     end: &str,
@@ -1167,11 +1356,13 @@ fn edge_for(
     }
 }
 
+#[must_use]
 fn normalize_direction(value: &str) -> Option<String> {
-    let value = value.trim().trim_end_matches(';').to_ascii_uppercase();
-    matches!(value.as_str(), "TB" | "TD" | "BT" | "LR" | "RL").then_some(value)
+    let value_2 = value.trim().trim_end_matches(';').to_ascii_uppercase();
+    matches!(value_2.as_str(), "TB" | "TD" | "BT" | "LR" | "RL").then_some(value_2)
 }
 
+#[must_use]
 fn resolve_shape(value: &str) -> String {
     match value {
         "task" => "roundedRect".to_string(),
@@ -1181,7 +1372,7 @@ fn resolve_shape(value: &str) -> String {
         "action" => "hexagon".to_string(),
         "round" => "rect".to_string(),
         "decision" => "diamond".to_string(),
-        value => value.to_string(),
+        value_2 => value_2.to_string(),
     }
 }
 
@@ -1214,33 +1405,39 @@ const REMOVED_SHAPES: &[&str] = &[
     "curv-trap",
     "curved-trapezoid",
 ];
+#[must_use]
 fn shape_diagnostic(node: &AgentflowNode) -> Option<AgentflowDiagnostic> {
     let shape = node.shape.as_deref()?;
+
     if matches!(shape, "square" | "squareRect" | "rect") || ALLOWED_SHAPES.contains(&shape) {
         return None;
     }
+
     let (id, severity, reason) = if REMOVED_SHAPES.contains(&shape) {
         ("SHAPE_REMOVED", "error", "was removed in v0.8.1")
     } else {
         ("SHAPE_UNSUPPORTED", "warning", "is not supported")
     };
     Some(AgentflowDiagnostic {
-        id: id.into(),
-        severity: severity.into(),
+        id: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(id),
+        severity: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(severity),
         node_id: node.id.clone(),
         position: None,
         message: format!("shape \"{shape}\" {reason}, using \"roundedRect\""),
     })
 }
 
+#[must_use]
 fn diagnostic_position(source: &str, span: SourceSpan) -> AgentflowDiagnosticPosition {
     let start = span.start.min(source.len());
     let mut end = span.end.min(source.len());
     let element = &source[start..end];
+
     if element.ends_with('}') && find_metadata_start(element).is_some() {
-        // Jison consumes the closing metadata brace without returning a token.
+
         end -= 1;
     }
+
     let line_column = |offset: usize| {
         let prefix = &source[..offset];
         (
@@ -1259,7 +1456,7 @@ fn diagnostic_position(source: &str, span: SourceSpan) -> AgentflowDiagnosticPos
         start_column,
         end_line,
         end_column,
-        // Mermaid 12 does not enable Jison ranges; its fallback indices are both zero.
+
         start_index: 0,
         end_index: 0,
     }
@@ -1271,8 +1468,11 @@ pub(crate) fn offset_diagnostic_positions(
     column_offset: usize,
 ) {
     for diagnostic in &mut model.diagnostics {
-        if let Some(position) = &mut diagnostic.position {
-            offset_diagnostic_position(position, line_offset, column_offset);
+        match &mut diagnostic.position {
+            Some(position) => {
+                offset_diagnostic_position(position, line_offset, column_offset);
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
@@ -1285,13 +1485,16 @@ fn offset_diagnostic_position(
     if position.start_line == 1 {
         position.start_column += column_offset;
     }
+
     if position.end_line == 1 {
         position.end_column += column_offset;
     }
+
     position.start_line += line_offset;
     position.end_line += line_offset;
 }
 
+#[must_use]
 fn vertex_kind(shape: Option<&str>) -> AgentflowVertexKind {
     match shape.unwrap_or("roundedRect") {
         "subroutine" | "subprocess" | "subproc" | "framed-rectangle" => AgentflowVertexKind::Tool,
@@ -1303,6 +1506,7 @@ fn vertex_kind(shape: Option<&str>) -> AgentflowVertexKind {
     }
 }
 
+#[must_use]
 fn opens_quote(source: &str, index: usize) -> bool {
     matches!(source.as_bytes()[index], b'"' | b'\'')
         && source[..index]
@@ -1312,6 +1516,7 @@ fn opens_quote(source: &str, index: usize) -> bool {
 }
 
 /// Yield borrowed statements without splitting quoted labels, shapes or metadata blocks.
+#[must_use]
 fn split_top_level<'a>(
     source: &'a str,
     separators: &'static [u8],
@@ -1323,25 +1528,36 @@ fn split_top_level<'a>(
         if cursor >= source.len() {
             return None;
         }
+
         let start = cursor;
+
         if separators == b";\n"
             && let Some(rest) = source[start..].trim_start().strip_prefix("accDescr")
             && let Some(body) = rest.trim_start().strip_prefix('{')
             && (starts_accessibility_statement(&source[start..])
-                || statement_direction(source[start..].split('\n').next().unwrap_or_default())
+                || statement_direction(match source[start..].split('\n').next() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "",
+                })
                     .is_none())
         {
-            // The accessibility lexer treats everything up to the first } as plain text.
+
             cursor = body
                 .find('}')
                 .map_or(source.len(), |end| source.len() - body.len() + end + 1);
             return Some((start, &source[start..cursor]));
         }
+
         if separators == b";\n" {
             let tail = &source[start..];
-            if start >= physical_line_end {
-                physical_line_end = start + tail.find('\n').unwrap_or(tail.len());
+
+            match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(start), &::core::convert::identity(physical_line_end)); _explicit_ordering } {
+                ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {
+                    physical_line_end = start + tail.find('\n').unwrap_or(tail.len());
+                },
+                ::core::cmp::Ordering::Less => {},
             }
+
             let line_end = physical_line_end - start;
             let line = &tail[..line_end];
             let trimmed = line.trim_start();
@@ -1351,34 +1567,46 @@ fn split_top_level<'a>(
                         .starts_with(':')
                 })
             });
-            // Whole-line Jison rules run before the semicolon token. Keep the
-            // header and earlier keyword rules in their existing token stream.
+
+
             let direction_line =
                 !direction_has_prior_token(line) && start >= direction_scan_end && {
                     let matched = statement_direction(line).is_some();
+
                     if !matched {
                         direction_scan_end = physical_line_end;
                     }
+
                     matched
                 };
+
             if accessibility_line || direction_line {
                 cursor = start + line_end + usize::from(line_end < tail.len());
                 return Some((start, line));
             }
-            if let Some(suffix) = keyword_suffix(trimmed, "end") {
-                // END consumes horizontal whitespace itself. A following END must
-                // start at its keyword, rather than at the preceding separator.
-                let token_end = start + line.len() - trimmed.len() + "end".len();
-                cursor = token_end + suffix.len() - suffix.trim_start_matches([' ', '\t']).len();
-                return Some((start, &source[start..token_end]));
+
+            {
+                match keyword_suffix(trimmed, "end") {
+                    Some(suffix) => {
+
+
+                        let token_end = start + line.len() - trimmed.len() + "end".len();
+                        cursor = token_end + suffix.len() - suffix.trim_start_matches([' ', '\t']).len();
+                        return Some((start, &source[start..token_end]));
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
+
         let mut depth = 0usize;
         let mut in_label = false;
         let mut quote = None;
         let mut escaped = false;
+
         while cursor < source.len() {
             let byte = source.as_bytes()[cursor];
+
             if let Some(delimiter) = quote {
                 if escaped {
                     escaped = false;
@@ -1404,10 +1632,14 @@ fn split_top_level<'a>(
                     .map_or(source.len(), |n| cursor + n + 1);
                 return Some((start, &source[start..end]));
             } else if matches!(byte, b'[' | b'(' | b'{') {
-                if depth == 0 {
-                    in_label = byte != b'{'
-                        || source.as_bytes().get(cursor.wrapping_sub(1)) != Some(&b'@');
+                match depth {
+                    0 => {
+                        in_label = byte != b'{'
+                            || source.as_bytes().get(cursor.wrapping_sub(1)) != Some(&b'@');
+                    },
+                    _ => {},
                 }
+
                 depth += 1;
             } else if matches!(byte, b']' | b')' | b'}') {
                 depth = depth.saturating_sub(1);
@@ -1417,32 +1649,47 @@ fn split_top_level<'a>(
                 cursor += 1;
                 return Some((start, &source[start..end]));
             }
+
             cursor += 1;
         }
+
         Some((start, &source[start..]))
     })
 }
 
+#[must_use]
 fn first_content_line(source: &str) -> Option<(usize, &str)> {
     let mut frontmatter = false;
+
     for (offset, line) in split_top_level(source, b";\n") {
         let trimmed = line.trim().trim_start_matches('\u{feff}');
+
         if trimmed == "---" {
             frontmatter = !frontmatter;
             continue;
         }
+
         if !frontmatter && !trimmed.is_empty() {
-            return Some((offset + line.find(trimmed).unwrap_or(0), trimmed));
+            return Some((offset + match line.find(trimmed) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0,
+            }, trimmed));
         }
     }
+
     None
 }
 
+#[must_use]
 fn span_of(line_start: usize, line: &str, value: &str) -> SourceSpan {
-    let start = line.find(value).unwrap_or(0);
+    let start = match line.find(value) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0,
+    };
     SourceSpan::new(line_start + start, line_start + start + value.len())
 }
 
+#[must_use]
 fn find_operator(source: &str, from: usize) -> Option<Operator> {
     let bytes = source.as_bytes();
     let mut depth = 0usize;
@@ -1450,79 +1697,109 @@ fn find_operator(source: &str, from: usize) -> Option<Operator> {
     let mut quote = None;
     let mut escaped = false;
     let mut index = from;
+
     while index < bytes.len() {
-        let ch = bytes[index] as char;
-        if let Some(q) = quote {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == q {
-                quote = None;
-            }
-            index += 1;
-            continue;
+        let ch = <char as ::core::convert::From<::core::primitive::u8>>::from(bytes[index]);
+
+        match quote {
+            Some(q) => {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' {
+                    escaped = true;
+                } else if ch == q {
+                    quote = None;
+                }
+
+                index += 1;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         if opens_quote(source, index) {
             quote = Some(ch);
             index += 1;
             continue;
         }
+
         if in_label && bytes[index..].starts_with(b"%%") && bytes.get(index + 2) != Some(&b'{') {
             index = source[index..]
                 .find('\n')
                 .map_or(source.len(), |end| index + end);
             continue;
         }
+
         if matches!(ch, '[' | '(' | '{') {
-            if depth == 0 {
-                in_label = ch != '{' || bytes.get(index.wrapping_sub(1)) != Some(&b'@');
+            match depth {
+                0 => {
+                    in_label = ch != '{' || bytes.get(index.wrapping_sub(1)) != Some(&b'@');
+                },
+                _ => {},
             }
+
             depth += 1;
             index += 1;
             continue;
         }
+
         if matches!(ch, ']' | ')' | '}') {
             depth = depth.saturating_sub(1);
             in_label &= depth > 0;
             index += 1;
             continue;
         }
+
         if depth == 0 && bytes[index] == b'-' {
-            if let Some(mut operator) = link_at(source, index) {
-                let end = operator.end;
-                let label_start = end + source[end..].len() - source[end..].trim_start().len();
-                if source[label_start..].starts_with('|')
-                    && let Some(close) = source[label_start + 1..].find('|')
-                {
-                    let close = label_start + 1 + close;
-                    let (label, label_type) = parse_label_text(&source[label_start + 1..close]);
-                    operator.label = Some(label);
-                    operator.label_type = Some(label_type);
-                    operator.end = close + 1;
-                }
-                return Some(operator);
+            match link_at(source, index) {
+                Some(mut operator) => {
+                    let end = operator.end;
+                    let label_start = end + source[end..].len() - source[end..].trim_start().len();
+
+                    if source[label_start..].starts_with('|')
+                        && let Some(close) = source[label_start + 1..].find('|')
+                    {
+                        let close_2 = label_start + 1 + close;
+                        let (label, label_type) = parse_label_text(&source[label_start + 1..close_2]);
+                        operator.label = Some(label);
+                        operator.label_type = Some(label_type);
+                        operator.end = close_2 + 1;
+                    }
+
+                    return Some(operator);
+                },
+                ::core::option::Option::None => {},
             }
+
             if source[index..].starts_with("--") {
                 let label_start = index + 2;
-                if let Some(arrow) = find_labeled_arrow(source, label_start) {
-                    let label = source[label_start..arrow.start].trim();
-                    return Some(Operator {
-                        start: index,
-                        end: arrow.end,
-                        semantic: arrow.semantic,
-                        length: arrow.length,
-                        label: (!label.is_empty()).then(|| parse_label_text(label).0),
-                        label_type: (!label.is_empty()).then(|| parse_label_text(label).1),
-                    });
+
+                {
+                    match find_labeled_arrow(source, label_start) {
+                        Some(arrow) => {
+                            let label = source[label_start..arrow.start].trim();
+                            return Some(Operator {
+                                start: index,
+                                end: arrow.end,
+                                semantic: arrow.semantic,
+                                length: arrow.length,
+                                label: (!label.is_empty()).then(|| parse_label_text(label).0),
+                                label_type: (!label.is_empty()).then(|| parse_label_text(label).1),
+                            });
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         }
+
         index += 1;
     }
+
     None
 }
 
+#[must_use]
 fn link_at(source: &str, start: usize) -> Option<Operator> {
     let bytes = &source.as_bytes()[start..];
     let (width, semantic, length) = if bytes.starts_with(b"--") {
@@ -1535,9 +1812,11 @@ fn link_at(source: &str, start: usize) -> Option<Operator> {
         (dashes + 1, semantic, dashes - 1)
     } else if bytes.starts_with(b"-.") {
         let dots = bytes[1..].iter().take_while(|&&byte| byte == b'.').count();
+
         if bytes.get(dots + 1) != Some(&b'-') {
             return None;
         }
+
         (dots + 2, AgentflowEdgeSemantic::Reference, dots)
     } else {
         return None;
@@ -1552,6 +1831,7 @@ fn link_at(source: &str, start: usize) -> Option<Operator> {
     })
 }
 
+#[must_use]
 fn find_labeled_arrow(source: &str, from: usize) -> Option<Operator> {
     source[from..]
         .char_indices()
@@ -1584,6 +1864,7 @@ impl Declaration {
         }) else {
             return Ok(());
         };
+
         let error = match value.as_str() {
             None => Some(format!("No such shape: {value}.")),
             Some(shape) if shape != shape.to_lowercase() || shape.contains('_') => Some(format!(
@@ -1592,8 +1873,9 @@ impl Declaration {
             Some(shape) if !super::shapes::is_valid_pinned_shape(&resolve_shape(shape)) => {
                 Some(format!("No such shape: {}.", resolve_shape(shape)))
             }
-            _ => None,
+            ::core::option::Option::Some(_) => None,
         };
+
         match error {
             Some(message) => Err(ParseFailure::Syntax {
                 message,
@@ -1612,80 +1894,99 @@ fn parse_declaration(
     line: &str,
     control: &OperationControl,
 ) -> std::result::Result<Declaration, ParseFailure> {
-    let statement = statement.trim().trim_end_matches(';').trim();
-    if statement.is_empty() {
+    let statement_2 = statement.trim().trim_end_matches(';').trim();
+
+    if statement_2.is_empty() {
         return Err(ParseFailure::Syntax {
             message: "expected declaration".to_string(),
-            span: span_of(line_start, line, statement),
+            span: span_of(line_start, line, statement_2),
         });
     }
-    let metadata_start = find_metadata_start(statement);
+
+    let metadata_start = find_metadata_start(statement_2);
     let mut metadata_span = None;
-    let (head, mut metadata) = if let Some(start) = metadata_start {
-        let end = matching_brace(statement, start).ok_or_else(|| ParseFailure::Syntax {
-            message: "unterminated agentflow metadata".to_string(),
-            span: span_of(line_start, line, statement),
-        })?;
-        if !statement[end..].trim().is_empty() {
-            return Err(ParseFailure::Syntax {
-                message: "unexpected content after agentflow metadata".into(),
-                span: span_of(line_start, line, &statement[end..]),
-            });
-        }
-        metadata_span = Some(span_of(line_start, line, &statement[start..end]));
-        (
-            &statement[..start],
-            parse_metadata(&statement[start + 2..end - 1], control)
-                .map_err(ParseFailure::Cancelled)?
-                .map_err(|message| ParseFailure::Syntax {
-                    message,
-                    span: span_of(line_start, line, &statement[start..end]),
-                })?,
-        )
-    } else {
-        (statement, Map::new())
+    let (head, mut metadata) = match metadata_start {
+        Some(start) => {
+            let end = matching_brace(statement_2, start).ok_or_else(|| ParseFailure::Syntax {
+                message: "unterminated agentflow metadata".to_string(),
+                span: span_of(line_start, line, statement_2),
+            })?;
+
+            if !statement_2[end..].trim().is_empty() {
+                return Err(ParseFailure::Syntax {
+                    message: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("unexpected content after agentflow metadata"),
+                    span: span_of(line_start, line, &statement_2[end..]),
+                });
+            }
+
+            metadata_span = Some(span_of(line_start, line, &statement_2[start..end]));
+            (
+                &statement_2[..start],
+                parse_metadata(&statement_2[start + 2..end - 1], control)
+                    .map_err(ParseFailure::Cancelled)?
+                    .map_err(|message| ParseFailure::Syntax {
+                        message,
+                        span: span_of(line_start, line, &statement_2[start..end]),
+                    })?,
+            )
+        },
+        ::core::option::Option::None => {
+            (statement_2, Map::new())
+        },
     };
-    let head = head.trim();
-    let (head, class) = if let Some(start) = find_top_level_marker(head, ":::") {
-        let class = head[start + 3..].trim();
+    let head_2 = head.trim();
+    let (head_3, class) = if let Some(start) = find_top_level_marker(head_2, ":::") {
+        let class = head_2[start + 3..].trim();
+
         if !is_style_identifier(class) {
             return Err(ParseFailure::Syntax {
-                message: "expected class identifier after :::".into(),
-                span: span_of(line_start, line, &head[start..]),
+                message: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("expected class identifier after :::"),
+                span: span_of(line_start, line, &head_2[start..]),
             });
         }
-        (&head[..start], Some(class.to_string()))
+
+        (&head_2[..start], Some(class.to_string()))
     } else {
-        (head, None)
+        (head_2, None)
     };
-    let id_end = head
+    let id_end = head_3
+
         .find(['[', '(', '{', '<', '>', '|'])
-        .unwrap_or(head.len());
-    let id = head[..id_end]
+        .unwrap_or(head_3.len());
+    let id = head_3[..id_end]
         .split_whitespace()
         .next()
         .unwrap_or("")
         .trim()
         .to_string();
+
     if id.is_empty() || starts_reserved_identifier(&id) {
         return Err(ParseFailure::Syntax {
             message: "expected agentflow node identifier".to_string(),
-            span: span_of(line_start, line, head),
+            span: span_of(line_start, line, head_3),
         });
     }
-    let remainder = head[id_end..].trim();
+
+    let remainder = head_3[id_end..].trim();
     let (label, shape, label_type) = parse_label(remainder);
-    if head[..id_end].trim() != id || (!remainder.is_empty() && shape.is_none()) {
+
+    if head_3[..id_end].trim() != id || (!remainder.is_empty() && shape.is_none()) {
         return Err(ParseFailure::Syntax {
-            message: "invalid agentflow declaration or unsupported edge operator".into(),
-            span: span_of(line_start, line, statement),
+            message: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("invalid agentflow declaration or unsupported edge operator"),
+            span: span_of(line_start, line, statement_2),
         });
     }
+
     let authored_shape = metadata.get("shape").cloned();
-    if let Some(Value::String(shape)) = metadata.get_mut("shape") {
-        *shape = resolve_shape(shape);
+
+    if let Some(Value::String(shape_2)) = metadata.get_mut("shape") {
+        *shape_2 = resolve_shape(shape_2);
     }
-    let id_start = line_start + line.find(statement).unwrap_or(0);
+
+    let id_start = line_start + match line.find(statement_2) {
+        ::core::option::Option::Some(explicit_present) => explicit_present,
+        ::core::option::Option::None => 0,
+    };
     let id_span = SourceSpan::new(id_start, id_start + id.len());
     Ok(Declaration {
         id,
@@ -1700,10 +2001,11 @@ fn parse_declaration(
     })
 }
 
+#[must_use]
 fn parse_label(remainder: &str) -> (Option<String>, Option<&'static str>, Option<&'static str>) {
     let cleaned = strip_label_comments(remainder);
-    let remainder = cleaned.as_str();
-    // Match longer delimiters first; their meaning is defined by agentflow.jison.
+    let remainder_2 = cleaned.as_str();
+
     for (open, close, shape) in [
         ("(((", ")))", "doublecircle"),
         ("[[", "]]", "subroutine"),
@@ -1720,43 +2022,57 @@ fn parse_label(remainder: &str) -> (Option<String>, Option<&'static str>, Option
         ("{", "}", "diamond"),
         (">", "]", "odd"),
     ] {
-        if let Some(body) = remainder
-            .strip_prefix(open)
-            .and_then(|body| body.strip_suffix(close))
         {
-            let (text, kind) = parse_label_text(body);
-            return (Some(text), Some(shape), Some(kind));
+            match remainder_2
+                .strip_prefix(open)
+                .and_then(|body| body.strip_suffix(close)) {
+                Some(body) => {
+                    let (text, kind) = parse_label_text(body);
+                    return (Some(text), Some(shape), Some(kind));
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
+
     (None, None, None)
 }
 
+#[must_use]
 fn parse_label_text(value: &str) -> (String, &'static str) {
-    let value = value.trim();
-    if let Some(body) = value
+    let value_2 = value.trim();
+
+    if let Some(body) = value_2
         .strip_prefix("\"`")
         .and_then(|body| body.strip_suffix("`\""))
     {
         (body.trim().to_string(), "markdown")
-    } else if value.starts_with('"') && value.ends_with('"') && value.len() >= 2 {
-        (unquote(value).trim().to_string(), "string")
+    } else if value_2.starts_with('"') && value_2.ends_with('"') && value_2.len() >= 2 {
+        (unquote(value_2).trim().to_string(), "string")
     } else {
-        (unquote(value), "text")
+        (unquote(value_2), "text")
     }
 }
 
+#[must_use]
 fn strip_label_comments(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut quote = None;
     let mut escaped = false;
     let mut comment = false;
+
     for (index, ch) in value.char_indices() {
         if comment {
-            if ch != '\n' {
-                continue;
+            match ch {
+                '\n' => {},
+                _ => {
+                    continue;
+                },
             }
+
             comment = false;
         }
+
         if let Some(delimiter) = quote {
             if escaped {
                 escaped = false;
@@ -1771,27 +2087,46 @@ fn strip_label_comments(value: &str) -> String {
             comment = true;
             continue;
         }
+
         out.push(ch);
     }
+
     out
 }
 
+#[must_use]
 fn split_edge_id(source: &str) -> (&str, Option<String>) {
-    let source = source.trim_end();
-    let Some(separator) = source.rfind(char::is_whitespace) else {
-        return (source, None);
+    let source_2 = source.trim_end();
+
+    let separator = {
+        let optional_separator = source_2.rfind(char::is_whitespace);
+
+        match optional_separator {
+            Some(matched_separator) => matched_separator,
+            ::core::option::Option::None => return (source_2, None),
+        }
     };
-    let (prefix, candidate) = source.split_at(separator);
-    let candidate = candidate.trim_start();
-    let Some(edge_id) = candidate.strip_suffix('@') else {
-        return (source, None);
+
+    let (prefix, candidate) = source_2.split_at(separator);
+    let candidate_2 = candidate.trim_start();
+
+    let edge_id = {
+        let optional_edge_id = candidate_2.strip_suffix('@');
+
+        match optional_edge_id {
+            Some(matched_edge_id) => matched_edge_id,
+            ::core::option::Option::None => return (source_2, None),
+        }
     };
+
     if edge_id.is_empty() || !is_identifier(edge_id) {
-        return (source, None);
+        return (source_2, None);
     }
+
     (prefix.trim_end(), Some(edge_id.to_string()))
 }
 
+#[must_use]
 fn is_style_identifier(value: &str) -> bool {
     !value.is_empty()
         && !value.contains(":::")
@@ -1801,8 +2136,9 @@ fn is_style_identifier(value: &str) -> bool {
             .all(|ch| ch.is_alphanumeric() || "!#$%&'*+.-/\\_`?:,=".contains(ch))
 }
 
-// These Jison tokens are excluded from idStringToken. Its word boundary is ASCII,
-// so punctuation and non-ASCII letters terminate the reserved word as well.
+
+
+#[must_use]
 fn starts_reserved_identifier(value: &str) -> bool {
     [
         "agentflow-beta",
@@ -1824,6 +2160,7 @@ fn starts_reserved_identifier(value: &str) -> bool {
     .any(|keyword| keyword_suffix(value, keyword).is_some())
 }
 
+#[must_use]
 fn keyword_suffix<'a>(value: &'a str, keyword: &str) -> Option<&'a str> {
     value.strip_prefix(keyword).filter(|suffix| {
         suffix
@@ -1833,6 +2170,7 @@ fn keyword_suffix<'a>(value: &'a str, keyword: &str) -> Option<&'a str> {
     })
 }
 
+#[must_use]
 fn keyword_with_whitespace(value: &str, keyword: &str) -> bool {
     value.strip_prefix(keyword).is_some_and(|suffix| {
         suffix
@@ -1842,46 +2180,75 @@ fn keyword_with_whitespace(value: &str, keyword: &str) -> bool {
     })
 }
 
-// Preserve the INITIAL cursor after each protected CLICK/HREF/string/callback rule.
+
+#[must_use]
 fn click_contains_unshielded_direction(statement: &str) -> bool {
     let rest = statement["click".len()..].trim_start_matches(super::scan::is_ecmascript_whitespace);
-    let Some(id_end) = rest.find(super::scan::is_ecmascript_whitespace) else {
-        return false;
+
+    let id_end = {
+        let optional_id_end = rest.find(super::scan::is_ecmascript_whitespace);
+
+        match optional_id_end {
+            Some(matched_id_end) => matched_id_end,
+            ::core::option::Option::None => return false,
+        }
     };
-    let mut rest = &rest[id_end..];
-    rest = &rest[rest.chars().next().map_or(0, char::len_utf8)..];
+
+    let mut rest_2 = &rest[id_end..];
+    rest_2 = &rest_2[rest_2.chars().next().map_or(0, char::len_utf8)..];
+
     loop {
-        if let Some(body) = rest.strip_prefix('"') {
-            let Some(end) = body.find('"') else {
-                return false;
+        if let Some(body) = rest_2.strip_prefix('"') {
+            let end = {
+                let optional_end = body.find('"');
+
+                match optional_end {
+                    Some(matched_end) => matched_end,
+                    ::core::option::Option::None => return false,
+                }
             };
-            rest = &body[end + 1..];
-        } else if keyword_with_whitespace(rest, "href") {
-            rest = &rest["href".len()..];
-            rest = &rest[rest.chars().next().map_or(0, char::len_utf8)..];
-        } else if keyword_with_whitespace(rest, "call") {
-            let Some(open) = rest.find('(') else {
-                return false;
+
+            rest_2 = &body[end + 1..];
+        } else if keyword_with_whitespace(rest_2, "href") {
+            rest_2 = &rest_2["href".len()..];
+            rest_2 = &rest_2[rest_2.chars().next().map_or(0, char::len_utf8)..];
+        } else if keyword_with_whitespace(rest_2, "call") {
+            let open = {
+                let optional_open = rest_2.find('(');
+
+                match optional_open {
+                    Some(matched_open) => matched_open,
+                    ::core::option::Option::None => return false,
+                }
             };
-            let Some(close) = rest[open + 1..].find(')') else {
-                return false;
+
+            let close = {
+                let optional_close = rest_2[open + 1..].find(')');
+
+                match optional_close {
+                    Some(matched_close) => matched_close,
+                    ::core::option::Option::None => return false,
+                }
             };
-            rest = &rest[open + 1 + close + 1..];
+
+            rest_2 = &rest_2[open + 1 + close + 1..];
         } else {
-            return statement_direction(rest).is_some();
+            return statement_direction(rest_2).is_some();
         }
     }
 }
 
+#[must_use]
 fn starts_accessibility_statement(value: &str) -> bool {
     ["accTitle", "accDescr"].into_iter().any(|keyword| {
         value.strip_prefix(keyword).is_some_and(|suffix| {
-            let suffix = suffix.trim_start_matches(super::scan::is_ecmascript_whitespace);
-            suffix.starts_with(':') || (keyword == "accDescr" && suffix.starts_with('{'))
+            let suffix_2 = suffix.trim_start_matches(super::scan::is_ecmascript_whitespace);
+            suffix_2.starts_with(':') || (keyword == "accDescr" && suffix_2.starts_with('{'))
         })
     })
 }
 
+#[must_use]
 fn direction_has_prior_token(value: &str) -> bool {
     starts_reserved_identifier(value)
         || starts_accessibility_statement(value)
@@ -1898,6 +2265,7 @@ pub(crate) fn is_valid_editor_node_id(candidate: &str) -> bool {
         && !starts_reserved_identifier(candidate)
 }
 
+#[must_use]
 fn statement_direction(statement: &str) -> Option<&'static str> {
     let prefix_end = statement
         .find(['\n', '\r', '\u{2028}', '\u{2029}'])
@@ -1909,94 +2277,136 @@ fn statement_direction(statement: &str) -> Option<&'static str> {
                 .char_indices()
                 .rev()
                 .any(|(offset, _)| {
-                    let Some(suffix) = statement[offset..].strip_prefix("direction") else {
-                        return false;
+                    let suffix = {
+                        let optional_suffix = statement[offset..].strip_prefix("direction");
+
+                        match optional_suffix {
+                            Some(matched_suffix) => matched_suffix,
+                            ::core::option::Option::None => return false,
+                        }
                     };
+
                     let value = suffix.trim_start_matches(super::scan::is_ecmascript_whitespace);
                     value.len() < suffix.len() && value.starts_with(direction)
                 })
         })
 }
 
+#[must_use]
 fn is_identifier(value: &str) -> bool {
     !value.is_empty() && value.chars().all(|ch| !ch.is_whitespace() && ch != '"')
 }
 
+#[must_use]
 fn find_metadata_start(value: &str) -> Option<usize> {
     find_top_level_marker(value, "@{")
 }
 
+#[must_use]
 fn find_top_level_marker(value: &str, marker: &str) -> Option<usize> {
     let mut depth = 0usize;
     let mut quote = None;
     let mut escaped = false;
     let mut comment = false;
+
     for (index, ch) in value.char_indices() {
         if comment {
             comment = ch != '\n';
             continue;
         }
-        if let Some(q) = quote {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' && q == '"' {
-                escaped = true;
-            } else if ch == q {
-                quote = None;
-            }
-            continue;
+
+        match quote {
+            Some(q) => {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' && q == '"' {
+                    escaped = true;
+                } else if ch == q {
+                    quote = None;
+                }
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         if opens_quote(value, index) {
             quote = Some(ch);
             continue;
         }
+
         if depth > 0 && value[index..].starts_with("%%") && !value[index..].starts_with("%%{") {
             comment = true;
             continue;
         }
+
         if depth == 0 && value[index..].starts_with(marker) {
             return Some(index);
         }
+
         if matches!(ch, '[' | '(' | '{') {
             depth += 1;
         }
+
         if matches!(ch, ']' | ')' | '}') {
             depth = depth.saturating_sub(1);
         }
     }
+
     None
 }
 
+#[must_use]
 fn matching_brace(value: &str, start: usize) -> Option<usize> {
     let mut depth = 0usize;
     let mut quote = None;
     let mut escaped = false;
+
     for (index, ch) in value[start..].char_indices() {
-        let index = start + index;
-        if let Some(q) = quote {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' && q == '"' {
-                escaped = true;
-            } else if ch == q {
-                quote = None;
-            }
-            continue;
+        let index_2 = start + index;
+
+        match quote {
+            Some(q) => {
+                if escaped {
+                    escaped = false;
+                } else if ch == '\\' && q == '"' {
+                    escaped = true;
+                } else if ch == q {
+                    quote = None;
+                }
+
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
-        if opens_quote(value, index) {
+
+        if opens_quote(value, index_2) {
             quote = Some(ch);
             continue;
         }
-        if ch == '{' {
-            depth += 1;
+
+        match ch {
+            '{' => {
+                depth += 1;
+            },
+            _ => {},
         }
-        if ch == '}' {
-            depth = depth.checked_sub(1)?;
-            if depth == 0 {
-                return Some(index + 1);
-            }
+
+        match ch {
+            '}' => {
+                depth = depth.checked_sub(1)?;
+
+                match depth {
+                    0 => {
+                        return Some(index_2 + 1);
+                    },
+                    _ => {},
+                }
+            },
+            _ => {},
         }
     }
+
     None
 }
 
@@ -2005,17 +2415,20 @@ fn parse_metadata(
     control: &OperationControl,
 ) -> OperationControlResult<std::result::Result<Map<String, Value>, String>> {
     let normalized = normalize_metadata_quoted_newlines(body);
-    let body = normalized.as_str();
-    let mut result = crate::inline_config::parse_mermaid_inline_object_controlled(body, control)?;
-    if result.is_err() && body.contains('\n') {
-        let stripped = strip_line_trailing_commas(body);
-        if stripped != body
+    let body_2 = normalized.as_str();
+    let mut result = crate::inline_config::parse_mermaid_inline_object_controlled(body_2, control)?;
+
+    if result.is_err() && body_2.contains('\n') {
+        let stripped = strip_line_trailing_commas(body_2);
+
+        if stripped != body_2
             && let Ok(value) =
                 crate::inline_config::parse_mermaid_inline_object_controlled(&stripped, control)?
         {
             result = Ok(value);
         }
     }
+
     Ok(result.and_then(|value| match strip_prototype_keys(value) {
         Value::Null => Ok(Map::new()),
         Value::Object(object) => Ok(object),
@@ -2023,21 +2436,28 @@ fn parse_metadata(
     }))
 }
 
-// The shapeDataStr lexer rewrites LF plus following ECMAScript whitespace
-// before YAML decoding, including strings used for non-presentation metadata.
+
+
+#[must_use]
 fn normalize_metadata_quoted_newlines(body: &str) -> String {
     let mut normalized = String::with_capacity(body.len());
     let mut double_quoted = false;
     let mut chars = body.chars().peekable();
+
     while let Some(ch) = chars.next() {
-        if ch == '"' {
-            double_quoted = !double_quoted;
+        match ch {
+            '"' => {
+                double_quoted = !double_quoted;
+            },
+            _ => {},
         }
+
         if double_quoted && ch == '\n' {
             normalized.push_str("<br/>");
+
             while chars
                 .peek()
-                .is_some_and(|ch| super::scan::is_ecmascript_whitespace(*ch))
+                .is_some_and(|ch_2| super::scan::is_ecmascript_whitespace(*ch_2))
             {
                 chars.next();
             }
@@ -2045,28 +2465,38 @@ fn normalize_metadata_quoted_newlines(body: &str) -> String {
             normalized.push(ch);
         }
     }
+
     normalized
 }
 
 /// Mermaid retries invalid block YAML once after removing syntactically trailing commas.
+#[must_use]
 fn strip_line_trailing_commas(body: &str) -> String {
     let mut out = String::with_capacity(body.len());
     let mut quote = None;
     let mut flow_depth = 0usize;
     let mut scalar_indent = None;
+
     for (line_index, line) in body.split('\n').enumerate() {
-        if line_index != 0 {
-            out.push('\n');
+        match line_index {
+            0 => {},
+            _ => {
+                out.push('\n');
+            },
         }
+
         let indent = line.len() - line.trim_start().len();
+
         if scalar_indent.is_some_and(|base| line.trim().is_empty() || indent > base) {
             out.push_str(line);
             continue;
         }
+
         scalar_indent = None;
         let mut escaped = false;
         let mut comment = line.len();
-        for (index, ch) in line.char_indices() {
+
+        'inner_for_2: for (index, ch) in line.char_indices() {
             if let Some(q) = quote {
                 if escaped {
                     escaped = false;
@@ -2081,38 +2511,43 @@ fn strip_line_trailing_commas(body: &str) -> String {
                 && (index == 0 || matches!(line.as_bytes()[index - 1], b' ' | b'\t'))
             {
                 comment = index;
-                break;
+                break 'inner_for_2;
             } else if matches!(ch, '[' | '{') {
                 flow_depth += 1;
             } else if matches!(ch, ']' | '}') {
                 flow_depth = flow_depth.saturating_sub(1);
             }
         }
+
         if quote.is_some() || flow_depth > 0 {
             out.push_str(line);
             continue;
         }
+
         let code = &line[..comment];
         let trimmed = code.trim_end_matches([' ', '\t']);
+
         if code.rsplit_once(':').is_some_and(|(_, value)| {
-            let value = value.trim();
-            value.starts_with(['|', '>'])
-                && value[1..]
+            let value_2 = value.trim();
+            value_2.starts_with(['|', '>'])
+                && value_2[1..]
                     .chars()
                     .all(|ch| ch.is_ascii_digit() || ch == '+' || ch == '-')
         }) {
             scalar_indent = Some(indent);
             out.push_str(line);
-        } else if let Some(code) = trimmed.strip_suffix(',') {
-            out.push_str(code);
+        } else if let Some(code_2) = trimmed.strip_suffix(',') {
+            out.push_str(code_2);
             out.push_str(&line[trimmed.len()..]);
         } else {
             out.push_str(line);
         }
     }
+
     out
 }
 
+#[must_use]
 fn strip_prototype_keys(value: Value) -> Value {
     match value {
         Value::Array(values) => {
@@ -2124,20 +2559,21 @@ fn strip_prototype_keys(value: Value) -> Value {
                 .filter(|(key, _)| {
                     !matches!(key.as_str(), "__proto__" | "constructor" | "prototype")
                 })
-                .map(|(key, value)| (key, strip_prototype_keys(value)))
+                .map(|(key, value_2)| (key, strip_prototype_keys(value_2)))
                 .collect(),
         ),
         other => other,
     }
 }
 
+#[must_use]
 fn unquote(value: &str) -> String {
-    let value = value.trim();
-    // Jison STR strips the delimiters without interpreting backslash escapes.
-    value
+    let value_2 = value.trim();
+
+    value_2
         .strip_prefix('"')
         .and_then(|body| body.strip_suffix('"'))
-        .unwrap_or(value)
+        .unwrap_or(value_2)
         .to_string()
 }
 
@@ -3158,8 +3594,8 @@ a --> b
 
     #[test]
     fn parser_retains_upstream_vertex_registration_ordinals() {
-        // Replayed with the pinned Mermaid 12 AgentflowDB, including Jison's delayed metadata
-        // reductions and connector replacement. Final edges cannot reconstruct these ordinals.
+
+
         let cases: &[(&str, &[(&str, usize)])] = &[
             (
                 "agentflow-beta\nA\nA\nB --> C --> D\n",

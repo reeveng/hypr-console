@@ -7,10 +7,9 @@
 //! machine is set to type -- and both remember per board, which is
 //! `console_input_alphabets::wearing`.
 //!
-//! What is here is the arithmetic: the layout list a compositor is told, which
-//! alphabet lies either way round from the one being worn, and where in the
-//! list it sits. Nothing in this file has seen a machine. `language-switch` is
-//! the program that asks.
+//! Settings applies a layout directly to the compositor and wakes the
+//! on-screen keyboard once the choice is saved. `language-switch` also uses
+//! the layout list and the order in which it cycles.
 //!
 //! Both ways round, because a walk of three is a walk someone overshoots. The
 //! keyboard on the screen has had two shoulders for it since it had a walk at
@@ -34,7 +33,65 @@ use console_core_arguments::{
 use console_core_never::Never;
 use console_core_number_conversion::index;
 use console_core_walking::{Ring, Step};
-use console_input_alphabets::Alphabet;
+use console_input_alphabets::{Alphabet, keyboard_socket, wearing};
+
+pub fn active() -> Result<&'static Alphabet, Never> {
+  let Ok(home) = console_core_places::home();
+
+  match home {
+    Some(home_2) => wearing::read(&home_2, wearing::SCREEN),
+    None => console_input_alphabets::latin(),
+  }
+}
+
+#[derive(Debug)]
+pub enum SelectError {
+  MissingHome,
+  Layout(wearing::Unselected),
+}
+
+impl std::fmt::Display for SelectError {
+  fn fmt(&self, out: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      Self::MissingHome => out.write_str("No home directory for keyboard settings"),
+      Self::Layout(fault) => write!(out, "{fault}"),
+    }
+  }
+}
+
+impl std::error::Error for SelectError {}
+
+pub fn select(alphabet: &Alphabet) -> Result<(), SelectError> {
+  let Ok(home) = console_core_places::home();
+  let home_2 = home.ok_or(SelectError::MissingHome)?;
+  wearing::select(&home_2, alphabet, |devices| {
+    let Ok(applied) = console_compositor::set_default_layout(alphabet.xkb, devices);
+
+    match applied {
+      console_compositor::DispatchResult::Success => Ok(()),
+      console_compositor::DispatchResult::Failure(why) => Err(why),
+    }
+  })
+  .map_err(SelectError::Layout)?;
+
+  let Ok(()) = reload_screen();
+
+  Ok(())
+}
+
+pub fn reload_screen() -> Result<(), Never> {
+  match keyboard_socket::reload() {
+    Ok(()) => Ok(()),
+    Err(fault) => match (fault.kind() == std::io::ErrorKind::NotFound).then_some(()) {
+      Some(()) => Ok(()),
+      None => {
+        console_core_logging::warn!("could not refresh the on-screen keyboard: {fault}");
+
+        Ok(())
+      }
+    },
+  }
+}
 
 pub const NAMED: &str = "language-switch";
 

@@ -11,14 +11,17 @@ pub(super) struct RequirementCssEmission {
 }
 
 impl RequirementCssEmission {
+    #[must_use]
     pub(super) fn font_family(&self) -> &str {
         &self.font_family
     }
 
+    #[must_use]
     pub(super) fn font_size(&self) -> &str {
         &self.font_size
     }
 
+    #[must_use]
     pub(super) fn typed_relation_color(&self) -> Option<(usize, &str)> {
         self.typed_relation_color
             .as_ref()
@@ -26,6 +29,7 @@ impl RequirementCssEmission {
     }
 }
 
+#[must_use]
 pub(super) fn write_requirement_css<I>(
     diagram_id: I,
     binding: &RequirementCssBinding,
@@ -69,26 +73,32 @@ where
         &mut out,
         r#"}}#{id} .edgeLabel{{background-color:{edge_label_background};}}#{id} .edgeLabel .label rect{{fill:{edge_label_background};}}#{id} .edgeLabel .label text{{"#,
     );
+
     if let Some(receipt) = text_receipt.as_deref_mut() {
         let _ = receipt.write_relation_css(&mut out, relation_label_color);
     } else {
         let _ = write!(&mut out, "fill:{relation_label_color};");
     }
+
     let _ = write!(
         &mut out,
         r#"}}#{id} .divider{{stroke:{node_border};stroke-width:1;}}#{id} .label{{font-family:{font};"#,
     );
+
     if let Some(receipt) = text_receipt.as_deref_mut() {
         let _ = receipt.write_node_css(&mut out, node_text_color, false);
     } else {
         let _ = write!(&mut out, "color:{node_text_color};");
     }
+
     let _ = write!(&mut out, "}}#{id} .label text,#{id} span{{");
+
     if let Some(receipt) = text_receipt {
         let _ = receipt.write_node_css(&mut out, node_text_color, true);
     } else {
         let _ = write!(&mut out, "fill:{node_text_color};color:{node_text_color};");
     }
+
     let _ = write!(
         &mut out,
         "}}#{id} .labelBkg{{background-color:{requirement_edge_label_background};}}"
@@ -99,8 +109,8 @@ where
         .expect("String-backed Requirement root CSS emission cannot fail");
     RequirementCssEmission {
         css: out,
-        font_family: font.into(),
-        font_size: font_size.into(),
+        font_family: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(font),
+        font_size: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(font_size),
         typed_relation_color: binding
             .typed_relation_rule
             .map(|index| (index, binding.relation_color.clone().into_boxed_str())),

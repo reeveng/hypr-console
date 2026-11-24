@@ -30,6 +30,7 @@ pub(super) struct ClassPaintBinding {
 }
 
 impl ClassPaintBinding {
+    #[must_use]
     pub(super) fn compatibility(
         config: &merman_model::presentation::PresentationConfig,
         owner_paths: &[&'static str],
@@ -55,6 +56,7 @@ impl ClassPaintBinding {
         if self.config_origin.is_some() {
             return;
         }
+
         let resolution = if stroke {
             style.stroke_resolution()
         } else {
@@ -69,6 +71,7 @@ impl ClassPaintBinding {
             .winner()
             .map_or(ClassPaintAction::Inherit, |origin| {
                 let rule_index = origin.rule_index();
+
                 match resolution.specified() {
                     Specified::Clear => ClassPaintAction::Clear { rule_index },
                     Specified::Value(CanvasPaint::Solid(_) | CanvasPaint::Transparent) => {
@@ -78,9 +81,14 @@ impl ClassPaintBinding {
                     Specified::Unspecified => ClassPaintAction::Inherit,
                 }
             });
-        if let Some(candidate) = &candidate {
-            self.css.clone_from(&candidate.css);
+
+        match &candidate {
+            Some(candidate_2) => {
+                self.css.clone_from(&candidate_2.css);
+            },
+            ::core::option::Option::None => {},
         }
+
         self.typed = candidate;
         debug_assert!(
             self.typed
@@ -89,26 +97,32 @@ impl ClassPaintBinding {
         );
     }
 
+    #[must_use]
     pub(super) fn config_owned(&self) -> bool {
         self.config_origin.is_some()
     }
 
+    #[must_use]
     pub(super) fn typed(&self) -> Option<&ClassSelectedPaint> {
         self.typed.as_ref()
     }
 
+    #[must_use]
     pub(super) fn stroke_property(&self) -> Option<ResolvedStyleProperty> {
         self.typed.as_ref().and(self.selected_property)
     }
 
+    #[must_use]
     pub(super) fn css(&self) -> &str {
         &self.css
     }
 
+    #[must_use]
     pub(super) fn compatibility_css(&self) -> &str {
         &self.compatibility_css
     }
 
+    #[must_use]
     pub(super) fn action_rule(&self) -> Option<usize> {
         match self.action {
             ClassPaintAction::Inherit => None,

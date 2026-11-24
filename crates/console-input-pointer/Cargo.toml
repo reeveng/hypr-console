@@ -10,6 +10,7 @@ name = "console-point"
 path = "src/bin/point.rs"
 
 [dependencies]
+console-wayland = { path = "../console-wayland" }
 console-core-geometry.workspace = true
 console-core-never.workspace = true
 console-core-arguments.workspace = true
@@ -17,9 +18,6 @@ console-core-number-conversion.workspace = true
 console-onscreen.workspace = true
 console-screen.workspace = true
 console-waiting.workspace = true
-wayland-client = "0.31"
-wayland-protocols = { version = "0.32", features = ["client", "unstable"] }
-wayland-protocols-wlr = { version = "0.3", features = ["client"] }
 
 [lints]
 workspace = true

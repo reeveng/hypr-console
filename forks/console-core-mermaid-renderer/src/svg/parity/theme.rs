@@ -3,11 +3,13 @@ mod helpers;
 use helpers::*;
 
 #[cfg(feature = "diagram-radar")]
+#[must_use]
 pub(crate) fn radar_default_series_color(index: usize) -> &'static str {
     default_c_scale(index)
 }
 
 #[cfg(feature = "diagram-timeline")]
+#[must_use]
 pub(crate) fn timeline_default_section_colors(index: usize) -> [&'static str; 3] {
     [
         default_c_scale(index),
@@ -17,6 +19,7 @@ pub(crate) fn timeline_default_section_colors(index: usize) -> [&'static str; 3]
 }
 
 #[cfg(feature = "diagram-kanban")]
+#[must_use]
 pub(crate) fn kanban_section_defaults(index: usize) -> [&'static str; 3] {
     [
         default_c_scale(index),

@@ -39,6 +39,7 @@ impl ThemeCompatibilityPlan {
     }
 
     /// Installs an already normalized shared recipe without a second recipe definition.
+    #[must_use]
     pub fn from_recipe(recipe: ThemeCompatibilityRecipe) -> Self {
         let compatibility_config =
             SourcePresentationConfig::from_theme_compatibility_recipe(recipe.clone());
@@ -49,6 +50,7 @@ impl ThemeCompatibilityPlan {
         }
     }
 
+    #[must_use]
     pub fn recipe(&self) -> &ThemeCompatibilityRecipe {
         &self.recipe
     }
@@ -56,8 +58,10 @@ impl ThemeCompatibilityPlan {
 
 impl ThemeCompatibilityPlan {
     /// Installs one compiled theme's complete compatibility plan on a source engine.
+    #[must_use]
     pub(super) fn install(&self, mut engine: MermaidEngine) -> MermaidEngine {
         engine.theme_compatibility_config = Some(self.compatibility_config.clone());
+
         if engine.site_config_overrides.is_pristine_empty_object() {
             let initialized = self
                 .initialization
@@ -74,6 +78,7 @@ impl ThemeCompatibilityPlan {
         } else {
             engine.rebuild_site_config();
         }
+
         engine
     }
 }

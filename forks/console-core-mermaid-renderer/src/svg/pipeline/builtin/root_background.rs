@@ -13,18 +13,22 @@ pub(crate) struct RootBackgroundEdit {
 }
 
 impl RootBackgroundEdit {
+    #[must_use]
     fn new(range: Range<usize>, replacement: String) -> Self {
         Self { range, replacement }
     }
 
+    #[must_use]
     pub(crate) fn additional_len(&self) -> usize {
         self.replacement.len().saturating_sub(self.range.len())
     }
 
+    #[must_use]
     pub(crate) fn adjusted_end(&self, end: usize) -> Option<usize> {
         if self.range.end > end {
             return None;
         }
+
         end.checked_sub(self.range.len())?
             .checked_add(self.replacement.len())
     }
@@ -40,12 +44,14 @@ pub struct RootBackgroundPostprocessor {
 }
 
 impl RootBackgroundPostprocessor {
+    #[must_use]
     pub fn new(background_color: impl Into<String>) -> Self {
         Self {
-            background_color: background_color.into(),
+            background_color: <_ as ::core::convert::Into<::std::string::String>>::into(background_color),
         }
     }
 
+    #[must_use]
     pub fn background_color(&self) -> &str {
         &self.background_color
     }
@@ -62,19 +68,27 @@ impl SvgPostprocessor for RootBackgroundPostprocessor {
         _ctx: &SvgPostprocessContext<'_>,
     ) -> Result<Cow<'a, str>> {
         let background_color = self.background_color.trim();
+
         if background_color.is_empty() || !svg.contains("<svg") {
             return Ok(svg);
         }
 
-        let Some(edit) = set_root_background_color(svg.as_ref(), background_color) else {
-            return Ok(svg);
+        let edit = {
+            let optional_edit = set_root_background_color(svg.as_ref(), background_color);
+
+            match optional_edit {
+                Some(matched_edit) => matched_edit,
+                ::core::option::Option::None => return Ok(svg),
+            }
         };
+
         let mut out = svg.into_owned();
         edit.apply(&mut out);
         Ok(Cow::Owned(out))
     }
 }
 
+#[must_use]
 pub(crate) fn set_root_background_color(
     svg: &str,
     background_color: &str,
@@ -85,16 +99,19 @@ pub(crate) fn set_root_background_color(
     let tag = &svg[svg_start..=svg_end];
     let escaped_color = escape_xml_attr(background_color.trim());
 
-    if let Some((style_value_start, style_value_end)) = find_quoted_attr_value_span(tag, "style") {
-        let style = &tag[style_value_start..style_value_end];
-        let rewritten = set_background_in_style_attr(style, &escaped_color);
-        let absolute_value_start = svg_start + style_value_start;
-        let absolute_value_end = svg_start + style_value_end;
+    match find_quoted_attr_value_span(tag, "style") {
+        Some((style_value_start, style_value_end)) => {
+            let style = &tag[style_value_start..style_value_end];
+            let rewritten = set_background_in_style_attr(style, &escaped_color);
+            let absolute_value_start = svg_start + style_value_start;
+            let absolute_value_end = svg_start + style_value_end;
 
-        return Some(RootBackgroundEdit::new(
-            absolute_value_start..absolute_value_end,
-            rewritten,
-        ));
+            return Some(RootBackgroundEdit::new(
+                absolute_value_start..absolute_value_end,
+                rewritten,
+            ));
+        },
+        ::core::option::Option::None => {},
     }
 
     let insert_at = if svg.as_bytes().get(svg_end.saturating_sub(1)) == Some(&b'/') {
@@ -109,6 +126,7 @@ pub(crate) fn set_root_background_color(
     ))
 }
 
+#[must_use]
 fn set_background_in_style_attr(style: &str, background_color: &str) -> String {
     if !style.split(';').any(|declaration| {
         declaration
@@ -122,8 +140,9 @@ fn set_background_in_style_attr(style: &str, background_color: &str) -> String {
         };
         return format!("{style}{separator} background-color: {background_color};");
     }
+
     let decoded = merman_model::text::decode_html_entities_to_unicode(style);
-    let background_color = merman_model::text::decode_html_entities_to_unicode(background_color);
+    let background_color_2 = merman_model::text::decode_html_entities_to_unicode(background_color);
     let mut parser = Parser::new(&decoded);
     let mut declarations = Vec::new();
     let mut replaced = false;
@@ -131,12 +150,17 @@ fn set_background_in_style_attr(style: &str, background_color: &str) -> String {
     while !parser.is_exhausted() {
         let declaration = parser.parse_until_after(Delimiter::Semicolon, |declaration| {
             let start = declaration.position();
+
             while declaration.next_including_whitespace().is_ok() {}
+
             Ok::<_, cssparser::ParseError<()>>(declaration.slice_from(start).trim().to_string())
         });
-        let Ok(trimmed) = declaration else {
-            continue;
+
+        let trimmed = match declaration {
+            Ok(matched_trimmed) => matched_trimmed,
+            ::core::result::Result::Err(_) => continue,
         };
+
         if trimmed.is_empty() {
             continue;
         }
@@ -148,7 +172,7 @@ fn set_background_in_style_attr(style: &str, background_color: &str) -> String {
 
         if property.trim().eq_ignore_ascii_case("background-color") {
             if !replaced {
-                declarations.push(format!("background-color: {background_color}"));
+                declarations.push(format!("background-color: {background_color}", background_color = background_color_2));
                 replaced = true;
             }
         } else {
@@ -157,7 +181,7 @@ fn set_background_in_style_attr(style: &str, background_color: &str) -> String {
     }
 
     if !replaced {
-        declarations.push(format!("background-color: {background_color}"));
+        declarations.push(format!("background-color: {background_color}", background_color = background_color_2));
     }
 
     escape_xml_attr(&format!("{};", declarations.join("; ")))

@@ -23,7 +23,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn icon_svg_or_placeholder(
             })?;
     let icon = match ctx.icon_registry {
         Some(registry) => {
-            let id_scope = crate::svg::icon_registry::IconIdScopePrefix::from_parts(
+            let id_scope_2 = crate::svg::icon_registry::IconIdScopePrefix::from_parts(
                 &[id_scope.as_str()],
                 ctx.work_meter,
             )?
@@ -34,7 +34,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn icon_svg_or_placeholder(
                 height_px: icon_size,
                 fallback_prefix: None,
                 extra_class: None,
-                id_scope,
+                id_scope: id_scope_2,
                 effective_config: ctx.config,
                 work_meter: ctx.work_meter,
             })?
@@ -46,17 +46,37 @@ pub(in crate::svg::parity::flowchart::render::node) fn icon_svg_or_placeholder(
     }))
 }
 
+#[must_use]
 fn is_self_loop_label_node_id(id: &str) -> bool {
     let mut parts = id.split("---");
-    let Some(a) = parts.next() else {
-        return false;
+
+    let a = {
+        let optional_a = parts.next();
+
+        match optional_a {
+            Some(matched_a) => matched_a,
+            ::core::option::Option::None => return false,
+        }
     };
-    let Some(b) = parts.next() else {
-        return false;
+
+    let b = {
+        let optional_b = parts.next();
+
+        match optional_b {
+            Some(matched_b) => matched_b,
+            ::core::option::Option::None => return false,
+        }
     };
-    let Some(n) = parts.next() else {
-        return false;
+
+    let n = {
+        let optional_n = parts.next();
+
+        match optional_n {
+            Some(matched_n) => matched_n,
+            ::core::option::Option::None => return false,
+        }
     };
+
     parts.next().is_none() && a == b && (n == "1" || n == "2")
 }
 
@@ -80,6 +100,7 @@ pub(super) fn try_render_self_loop_label_placeholder(
         fmt_display(x),
         fmt_display(y)
     );
+
     if html_labels {
         out.push_str(
             r#"<foreignObject width="0" height="0"><div xmlns="http://www.w3.org/1999/xhtml" style="display: table-cell; white-space: nowrap; line-height: 1.5; max-width: 10px; text-align: center;"><span class="nodeLabel"></span></div></foreignObject>"#,
@@ -89,6 +110,7 @@ pub(super) fn try_render_self_loop_label_placeholder(
             r#"<g><rect class="background" style="stroke: none"/><text y="-10.1" style=""><tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em"/></text></g>"#,
         );
     }
+
     out.push_str("</g></g>");
     true
 }
@@ -101,6 +123,7 @@ pub(in crate::svg::parity::flowchart) struct NodeWrapperClasses<'a> {
 }
 
 impl<'a> NodeWrapperClasses<'a> {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn new(
         base: &'a str,
         assigned: &'a [String],
@@ -112,11 +135,13 @@ impl<'a> NodeWrapperClasses<'a> {
         }
     }
 
+    #[must_use]
     pub(super) const fn with_extra(mut self, extra: Option<&'a str>) -> Self {
         self.extra = extra;
         self
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn contains(self, expected: &str) -> bool {
         self.base
             .split_ascii_whitespace()
@@ -127,17 +152,24 @@ impl<'a> NodeWrapperClasses<'a> {
 
     fn write(self, out: &mut impl crate::svg::parity::SvgOutput) {
         escape_xml_into(out, self.base);
+
         for c in self.assigned {
             let t = c.trim();
+
             if t.is_empty() {
                 continue;
             }
+
             out.push(' ');
             escape_xml_into(out, t);
         }
-        if let Some(extra) = self.extra {
-            out.push(' ');
-            escape_xml_into(out, extra);
+
+        match self.extra {
+            Some(extra) => {
+                out.push(' ');
+                escape_xml_into(out, extra);
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
@@ -179,32 +211,42 @@ pub(super) fn open_node_wrapper(
         look,
         color_slot,
     } = attrs;
+
     if wrapped_in_a {
-        if let Some(href) = href {
-            out.push_str(r#"<a xlink:href=""#);
-            out.push_str(href.as_serialized_str());
-            out.push('"');
-            if let Some(target) = target {
-                out.push_str(r#" target=""#);
-                escape_xml_into(out, target);
+        match href {
+            Some(href_2) => {
+                out.push_str(r#"<a xlink:href=""#);
+                out.push_str(href_2.as_serialized_str());
                 out.push('"');
-            }
-            out.push_str(r#" transform="translate("#);
-            crate::svg::parity::util::fmt_into(out, x);
-            out.push(',');
-            crate::svg::parity::util::fmt_into(out, y);
-            out.push_str(r#")" data-look=""#);
-            escape_xml_into(out, look);
-            out.push_str(r#"">"#);
-        } else {
-            out.push_str(r#"<a transform="translate("#);
-            crate::svg::parity::util::fmt_into(out, x);
-            out.push(',');
-            crate::svg::parity::util::fmt_into(out, y);
-            out.push_str(r#")" data-look=""#);
-            escape_xml_into(out, look);
-            out.push_str(r#"">"#);
+
+                match target {
+                    Some(target_2) => {
+                        out.push_str(r#" target=""#);
+                        escape_xml_into(out, target_2);
+                        out.push('"');
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                out.push_str(r#" transform="translate("#);
+                crate::svg::parity::util::fmt_into(out, x);
+                out.push(',');
+                crate::svg::parity::util::fmt_into(out, y);
+                out.push_str(r#")" data-look=""#);
+                escape_xml_into(out, look);
+                out.push_str(r#"">"#);
+            },
+            ::core::option::Option::None => {
+                out.push_str(r#"<a transform="translate("#);
+                crate::svg::parity::util::fmt_into(out, x);
+                out.push(',');
+                crate::svg::parity::util::fmt_into(out, y);
+                out.push_str(r#")" data-look=""#);
+                escape_xml_into(out, look);
+                out.push_str(r#"">"#);
+            },
         }
+
         out.push_str(r#"<g class=""#);
         write_class_attr(out, classes);
         out.push_str(r#"" id=""#);
@@ -227,15 +269,22 @@ pub(super) fn open_node_wrapper(
         escape_xml_into(out, data_id);
         out.push_str(r#"" data-et="node""#);
     }
+
     if tooltip_enabled {
         let _ = write!(out, r#" title="{}""#, escape_attr_display(tooltip));
     }
-    if let Some(slot) = color_slot {
-        let _ = write!(out, r#" data-color-id="color-{slot}""#);
+
+    match color_slot {
+        Some(slot) => {
+            let _ = write!(out, r#" data-color-id="color-{slot}""#);
+        },
+        ::core::option::Option::None => {},
     }
+
     out.push('>');
 }
 
+#[must_use]
 pub(super) fn flowchart_node_label_span_class(label_type: &str) -> &'static str {
     if label_type == "markdown" {
         "nodeLabel markdown-node-label"
@@ -249,16 +298,20 @@ pub(super) fn timed_node_roughjs<T>(
     details: &mut FlowchartRenderDetails,
     f: impl FnOnce() -> T,
 ) -> T {
-    if let Some(start) = timing.start() {
-        details.node_roughjs_calls += 1;
-        let out = f();
-        details.node_roughjs += start.elapsed();
-        out
-    } else {
-        f()
+    match timing.start() {
+        Some(start) => {
+            details.node_roughjs_calls += 1;
+            let out = f();
+            details.node_roughjs += start.elapsed();
+            out
+        },
+        ::core::option::Option::None => {
+            f()
+        },
     }
 }
 
+#[must_use]
 pub(super) fn prepare_node_path(
     common: &super::FlowchartNodeGeometry<'_>,
     path: &str,
@@ -285,6 +338,7 @@ pub(super) fn prepare_node_path(
     }
 }
 
+#[must_use]
 pub(super) fn prepare_node_polygon(
     common: &super::FlowchartNodeGeometry<'_>,
     points: &[(f64, f64)],
@@ -317,6 +371,7 @@ pub(super) fn hand_drawn_path_pair(
     if !common.look_is_hand_drawn() {
         return None;
     }
+
     timed_node_roughjs(common.timing, details, || {
         prepare_node_path(common, path_data, super::roughjs::RoughGeometryTarget::Svg)
             .and_then(|paths| paths.into_svg_paths(common.work_meter))
@@ -387,7 +442,7 @@ pub(super) fn write_hand_drawn_path_pair_with_colors(
         crate::svg::parity::flowchart::escape_attr(fill_color),
         crate::svg::parity::flowchart::escape_attr(stroke_d),
         crate::svg::parity::flowchart::escape_attr(stroke_color),
-        crate::svg::parity::util::fmt_display(stroke_width as f64),
+        crate::svg::parity::util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(stroke_width)),
         crate::svg::parity::flowchart::escape_attr(stroke_dasharray),
     );
 }
@@ -406,7 +461,7 @@ pub(super) fn write_raw_filled_stroked_path(
         crate::svg::parity::flowchart::escape_attr(path_data),
         crate::svg::parity::flowchart::escape_attr(fill_color),
         crate::svg::parity::flowchart::escape_attr(stroke_color),
-        crate::svg::parity::util::fmt_display(stroke_width as f64),
+        crate::svg::parity::util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(stroke_width)),
         crate::svg::parity::flowchart::escape_attr(style),
     );
 }
@@ -416,13 +471,16 @@ pub(super) fn timed_node_label_html<T>(
     details: &mut FlowchartRenderDetails,
     f: impl FnOnce() -> T,
 ) -> T {
-    if let Some(start) = timing.start() {
-        details.node_label_html_calls += 1;
-        let out = f();
-        details.node_label_html += start.elapsed();
-        out
-    } else {
-        f()
+    match timing.start() {
+        Some(start) => {
+            details.node_label_html_calls += 1;
+            let out = f();
+            details.node_label_html += start.elapsed();
+            out
+        },
+        ::core::option::Option::None => {
+            f()
+        },
     }
 }
 
@@ -445,6 +503,7 @@ pub(in crate::svg::parity::flowchart) struct ResolvedNodeRenderInfo<'a> {
     pub(in crate::svg::parity::flowchart) node_classes: &'a [String],
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn resolve_node_render_info<'a>(
     ctx: &'a FlowchartRenderCtx<'a>,
     node_id: &str,
@@ -502,7 +561,7 @@ pub(in crate::svg::parity::flowchart) fn resolve_node_render_info<'a>(
     if let Some(node) = ctx.nodes_by_id.get(node_id) {
         let shape = node.layout_shape.as_deref().unwrap_or("squareRect");
 
-        // Mermaid flowchart-v2 uses a distinct wrapper class for icon/image nodes.
+
         let class_attr_base = if shape == "imageSquare" {
             "image-shape default"
         } else if shape == "icon" || shape.starts_with("icon") {
@@ -513,8 +572,8 @@ pub(in crate::svg::parity::flowchart) fn resolve_node_render_info<'a>(
 
         let link = node.link.as_deref().filter(|u| !u.is_empty());
         let link_present = link.is_some();
-        // Mermaid stores the original click link in the model, but the final SVG sanitizer removes
-        // unsafe or unknown schemes from the emitted anchor while keeping the `<a>` wrapper.
+
+
         let security_level_loose = ctx.config.get_str("securityLevel") == Some("loose");
         let href = link.and_then(|url| {
             prepare_mermaid_navigation_href(
@@ -522,9 +581,9 @@ pub(in crate::svg::parity::flowchart) fn resolve_node_render_info<'a>(
                 MermaidNavigationSecurity::from_security_level_loose(security_level_loose),
             )
         });
-        // Mermaid wraps nodes in `<a>` only when a link is present. Callback-based
-        // interactions (`click A someFn`) still mark the node as clickable, but do not
-        // emit an anchor element in the SVG.
+
+
+
         let wrapped_in_a = link_present;
         let target = security_level_loose
             .then_some(node.link_target.as_deref())
@@ -562,6 +621,7 @@ pub(in crate::svg::parity::flowchart) fn resolve_node_render_info<'a>(
     }
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn compute_node_label_metrics(
     ctx: &FlowchartRenderCtx<'_>,
     node_id: &str,
@@ -571,8 +631,8 @@ pub(in crate::svg::parity::flowchart) fn compute_node_label_metrics(
     node_classes: &[String],
     node_styles: &[String],
 ) -> crate::text::TextMetrics {
-    // Layout metrics are authoritative. Callers without them can reuse a prepared label or
-    // measure with the same effective styles as layout.
+
+
     let node_text_style = node_source_text_style(ctx, Some(node_id), node_classes, node_styles);
     compute_node_label_metrics_with_style(
         ctx,
@@ -583,23 +643,28 @@ pub(in crate::svg::parity::flowchart) fn compute_node_label_metrics(
     )
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn node_source_text_style<'a>(
     ctx: &'a FlowchartRenderCtx<'_>,
     node_id: Option<&str>,
     node_classes: &[String],
     node_styles: &[String],
 ) -> std::borrow::Cow<'a, crate::text::TextStyle> {
-    if let Some(prepared) = node_id.and_then(|id| ctx.prepared_nodes.node(id)) {
-        return std::borrow::Cow::Borrowed(prepared.source_text_style.as_ref());
+    match node_id.and_then(|id| ctx.prepared_nodes.node(id)) {
+        Some(prepared) => {
+            return std::borrow::Cow::Borrowed(prepared.source_text_style.as_ref());
+        },
+        ::core::option::Option::None => {},
     }
-    // Standalone geometry probes may not have a scheduled terminal node. Complete renders
-    // always prepare their source typography, including when SVG label preparation is disabled.
+
+
+
     let label_base_style = if ctx.node_wrap_mode == crate::text::WrapMode::HtmlLike {
         &ctx.html_label_text_style
     } else {
         &ctx.text_style
     };
-    let label_base_style = ctx
+    let label_base_style_2 = ctx
         .svg_label_sidecar
         .map_or_else(
             crate::flowchart::FlowchartLabelTypography::default,
@@ -615,7 +680,7 @@ pub(in crate::svg::parity::flowchart) fn node_source_text_style<'a>(
         );
     std::borrow::Cow::Owned(
         crate::flowchart::flowchart_effective_text_style_for_node_classes(
-            label_base_style.as_ref(),
+            label_base_style_2.as_ref(),
             ctx.class_defs,
             node_classes,
             node_styles,
@@ -624,6 +689,7 @@ pub(in crate::svg::parity::flowchart) fn node_source_text_style<'a>(
     )
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart::render::node) fn compute_node_label_metrics_with_style(
     ctx: &FlowchartRenderCtx<'_>,
     layout_node: Option<&crate::model::LayoutNode>,
@@ -631,12 +697,12 @@ pub(in crate::svg::parity::flowchart::render::node) fn compute_node_label_metric
     label_type: &str,
     node_text_style: &crate::text::TextStyle,
 ) -> crate::text::TextMetrics {
-    let layout_node = layout_node.filter(|_| !label_text.is_empty());
-    let wrapping_width = node_wrapping_width(ctx, layout_node.map(|node| node.id.as_str()));
+    let layout_node_2 = layout_node.filter(|_| !label_text.is_empty());
+    let wrapping_width = node_wrapping_width(ctx, layout_node_2.map(|node| node.id.as_str()));
     let prepared_metrics =
-        || prepared_node_label_metrics(ctx, layout_node?.id.as_str(), label_text, node_text_style);
-    let metrics = if let Some(layout_node) = layout_node {
-        if let (Some(width), Some(height)) = (layout_node.label_width, layout_node.label_height) {
+        || prepared_node_label_metrics(ctx, layout_node_2?.id.as_str(), label_text, node_text_style);
+    let metrics = if let Some(layout_node_3) = layout_node_2 {
+        if let (Some(width), Some(height)) = (layout_node_3.label_width, layout_node_3.label_height) {
             crate::text::TextMetrics {
                 width,
                 height,
@@ -675,10 +741,10 @@ pub(in crate::svg::parity::flowchart::render::node) fn compute_node_label_metric
         )
     };
 
-    // The measurement layer owns empty-label semantics. HTML line boxes and icons can have
-    // nonzero dimensions without plain text; preserve their measured bounds during painting.
 
-    let min_width = layout_node
+
+
+    let min_width = layout_node_2
         .filter(|node| !ctx.subgraphs_by_id.contains_key(node.id.as_str()))
         .and_then(|node| ctx.nodes_by_id.get(node.id.as_str()))
         .map_or(0.0, |node| {
@@ -691,6 +757,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn compute_node_label_metric
     metrics.with_label_min_width(label_text, min_width, None)
 }
 
+#[must_use]
 fn prepared_node_label_metrics(
     ctx: &FlowchartRenderCtx<'_>,
     node_id: &str,
@@ -722,6 +789,7 @@ fn prepared_node_label_metrics(
     Some(metrics.with_label_min_width(label_text, min_width, None))
 }
 
+#[must_use]
 fn node_wrapping_width(ctx: &FlowchartRenderCtx<'_>, node_id: Option<&str>) -> f64 {
     crate::flowchart::bpmn::wrapping_width(
         node_id
@@ -732,11 +800,13 @@ fn node_wrapping_width(ctx: &FlowchartRenderCtx<'_>, node_id: Option<&str>) -> f
 }
 
 /// Match createText's wrapping decision for labels with an icon/image background.
+#[must_use]
 pub(in crate::svg::parity::flowchart::render::node) fn asset_label_div_style(
     ctx: &FlowchartRenderCtx<'_>,
     label_bbox_width: f64,
 ) -> String {
     let width = fmt_display(ctx.wrapping_width);
+
     if ctx.node_wrap_mode == crate::text::WrapMode::HtmlLike
         && label_bbox_width >= ctx.wrapping_width
     {

@@ -12,12 +12,12 @@
 use std::time::Duration;
 
 use console_core_external_programs::Program;
-use console_core_state_machine::{Machine, Never, Queue};
+use console_core_state_machine::{EffectDependencies, Machine, Never, Queue, Service};
 use console_operating_system_linux::program_runtime::{
   Clock, Interpreter, Subscribed, Tell, run,
 };
 use console_program_contract::{
-  Command, Effect, Event, Exit, ExitStatus, Fork, Task, JobId, JobOwner, Subscription, Timer,
+  Command, Effect, Event, Exit, ExitStatus, Fork, JobId, JobOwner, Subscription, Task, Timer,
 };
 use console_program_lifetime::threads;
 
@@ -53,6 +53,14 @@ enum Logged {
   Ticked,
   Reply(ExitStatus, String, String),
   JobReply(Task, ExitStatus),
+}
+
+impl EffectDependencies for Logged {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Received | Self::Ticked | Self::Reply(..) | Self::JobReply(..) => &[],
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,11 +170,12 @@ struct Keeping {
 impl Interpreter for Keeping {
   type Event = ();
   type Effect = Logged;
+  type Error = Never;
 
-  fn interpret(&mut self, logged: &Logged, _clock: &Clock) -> Vec<Event<()>> {
+  fn interpret(&mut self, logged: &Logged, _clock: &Clock) -> Result<Vec<Event<()>>, Never> {
     self.kept.push(logged.clone());
 
-    Vec::new()
+    Ok(Vec::new())
   }
 
   fn listen(&mut self, tell: Tell<()>) -> Result<Subscribed, Never> {

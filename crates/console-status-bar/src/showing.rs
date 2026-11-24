@@ -507,7 +507,7 @@ pub fn shed(bar: &Bar, fitting: Fitting, wide: u32) -> Result<Bar, Never> {
 }
 
 pub fn along(bar: &Bar, wearing: &Wearing, room: Size<u32>) -> Result<Rendered, Never> {
-  along_with_applets(bar, &[], wearing, room)
+  along_with_applets(bar, &[], wearing, room, Placement::Top)
 }
 
 pub fn along_with_applets(
@@ -515,9 +515,15 @@ pub fn along_with_applets(
   applets: &[Measured],
   wearing: &Wearing,
   room: Size<u32>,
+  placement: Placement,
 ) -> Result<Rendered, Never> {
   let Ok(fitting) = Fitting::of_em();
   let Ok(tall) = fitting.height();
+  let (body_y, strip_y) = match placement {
+    Placement::Bottom => (fitting.thin, 0),
+    Placement::Top | Placement::Left | Placement::Right => (0, fitting.deep),
+  };
+  let Ok(body_y_2) = fitted::<u32, i32>(body_y);
   let wide = room.width;
   let Ok(mut bar_2) = shed(bar, fitting, wide);
   let Ok(built_in_width) = needs(&bar_2, fitting);
@@ -571,7 +577,10 @@ pub fn along_with_applets(
   ] {
     let Ok(()) = layout(
       slots,
-      Point { x: across, y: 0 },
+      Point {
+        x: across,
+        y: body_y_2,
+      },
       fitting,
       wearing,
       &mut shapes,
@@ -583,7 +592,7 @@ pub fn along_with_applets(
     Filling::None => {}
     Filling::At(thousandths) => {
       let Ok(filled) = filled(wide, thousandths);
-      let Ok(down) = fitted::<u32, i32>(fitting.deep);
+      let Ok(down) = fitted::<u32, i32>(strip_y);
 
       shapes.push(Shape::Panel(Panel {
         at: Point { x: 0, y: down },
@@ -619,7 +628,7 @@ pub fn sidebar(
   let body = room.width.saturating_sub(fitting.thin);
   let inner_x = match placement {
     Placement::Right => fitting.thin,
-    Placement::Top | Placement::Left => 0,
+    Placement::Top | Placement::Bottom | Placement::Left => 0,
   };
   let capacity = room.height.saturating_div(fitting.deep.max(1));
   let Ok([left, middle, right]) = sidebar_slots(bar, applets, capacity);
@@ -680,7 +689,7 @@ pub fn sidebar(
       let Ok(height_2) = filled(room.height, thousandths);
       let strip_x = match placement {
         Placement::Right => 0,
-        Placement::Top | Placement::Left => body,
+        Placement::Top | Placement::Bottom | Placement::Left => body,
       };
       let Ok(x) = fitted::<u32, i32>(strip_x);
 

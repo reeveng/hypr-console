@@ -1488,7 +1488,7 @@ mod row_tests {
     data: &Rav1dFilmGrainData,
     case: FixtureLayout,
   ) -> Rav1dResult {
-    let Size { width, height } = case.size;
+    let width = case.size.width;
     let stride = width.wrapping_add(63) & !31;
     let luma_stride = width.wrapping_shl(case.shifts.x).wrapping_add(95) & !31;
     let first = case.row.wrapping_mul(u64::from(FG_BLOCK_SIZE));
@@ -1535,6 +1535,18 @@ mod row_tests {
       luma_padding,
     )?;
 
+    compare_fixture_chroma(application, &luma, &mut output, case, stride)
+  }
+
+  fn compare_fixture_chroma<BD: BitDepth>(
+    application: GrainRowApplication<'_, BD>,
+    luma: &Rav1dPictureDataComponent,
+    output: &mut FixtureOutput<'_, BD::Pixel>,
+    case: FixtureLayout,
+    stride: u64,
+  ) -> Rav1dResult {
+    let Size { width, height } = case.size;
+    let first = case.row.wrapping_mul(u64::from(FG_BLOCK_SIZE));
     let chroma_height = height
       .wrapping_add(u64::from(case.shifts.y))
       .wrapping_shr(case.shifts.y);
@@ -1553,11 +1565,11 @@ mod row_tests {
       };
       let chroma = GrainChromaApplication {
         layout: case.layout,
-        luma: &luma,
+        luma,
         plane,
-        matrix: ClipMatrix::from(data.clip_to_restricted_range),
+        matrix: ClipMatrix::from(application.parameters.clip_to_restricted_range),
       };
-      compare_fixture_output(grain_row, Some(chroma), &mut output, chroma_padding)?;
+      compare_fixture_output(grain_row, Some(chroma), output, chroma_padding)?;
     }
 
     Ok(())

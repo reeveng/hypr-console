@@ -22,7 +22,6 @@ use crate::src::{
   error::{Rav1dError, Rav1dResult},
   itx::{CoefficientBounds, Itx1dFn},
 };
-use core::num::Wrapping;
 
 #[cfg(target_arch = "x86_64")]
 use crate::src::itx_1d::{

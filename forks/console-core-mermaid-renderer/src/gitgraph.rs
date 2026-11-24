@@ -20,6 +20,7 @@ pub(crate) use theme::{
     gitgraph_tags_in_output_order, palette_slot,
 };
 
+#[must_use]
 pub(crate) fn resolve_gitgraph_title<'a>(
     model: &'a GitGraphDiagramModel,
     metadata_title: Option<&'a str>,
@@ -44,6 +45,7 @@ pub(crate) const REDUX_BRANCH_LABEL_PADDING_Y: f64 = 12.0;
 
 const COMMIT_TYPE_MERGE: i64 = 3;
 
+#[must_use]
 pub(crate) fn gitgraph_theme_is_redux_geometry(theme: &str) -> bool {
     matches!(
         theme.trim(),
@@ -55,6 +57,7 @@ pub(crate) fn gitgraph_theme_is_redux_geometry(theme: &str) -> bool {
 ///
 /// These themes deliberately emit a transparent label rectangle even when
 /// `commitLabelBackground` has a configured value.
+#[must_use]
 pub(crate) fn gitgraph_theme_uses_color_gen(theme: &str) -> bool {
     matches!(
         theme.trim(),
@@ -62,6 +65,7 @@ pub(crate) fn gitgraph_theme_uses_color_gen(theme: &str) -> bool {
     )
 }
 
+#[must_use]
 pub(crate) fn gitgraph_lr_branch_spine_y(branch_pos: f64, use_redux_geometry: bool) -> f64 {
     if use_redux_geometry {
         branch_pos + REDUX_BRANCH_LABEL_PADDING_Y / 2.0 + 1.0
@@ -76,6 +80,7 @@ struct CommitPosition {
     y: f64,
 }
 
+#[must_use]
 fn find_closest_parent<'a>(
     parents: &'a [String],
     dir: &str,
@@ -83,15 +88,23 @@ fn find_closest_parent<'a>(
 ) -> Option<&'a str> {
     let mut target: f64 = if dir == "BT" { f64::INFINITY } else { 0.0 };
     let mut closest: Option<&str> = None;
+
     for parent in parents {
-        let Some(pos) = commit_pos.get(parent.as_str()) else {
-            continue;
+        let pos = {
+            let optional_pos = commit_pos.get(parent.as_str());
+
+            match optional_pos {
+                Some(matched_pos) => matched_pos,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let parent_position = if dir == "TB" || dir == "BT" {
             pos.y
         } else {
             pos.x
         };
+
         if dir == "BT" {
             if parent_position <= target {
                 closest = Some(parent.as_str());
@@ -102,9 +115,11 @@ fn find_closest_parent<'a>(
             target = parent_position;
         }
     }
+
     closest
 }
 
+#[must_use]
 fn commit_axis_start_pos(dir: &str) -> f64 {
     if dir == "TB" || dir == "BT" {
         DEFAULT_POS
@@ -113,15 +128,17 @@ fn commit_axis_start_pos(dir: &str) -> f64 {
     }
 }
 
+#[must_use]
 fn branch_label_bbox_width_px(text: &str, style: &TextStyle, measurer: &dyn TextMeasurer) -> f64 {
-    // Mermaid creates `<text><tspan xml:space="preserve">` and reads its `getBBox()`.
-    // Keep that DOM measurement semantic intact so a host SvgBBox route can provide the exact
-    // system-font result. The built-in deterministic profile remains the fallback.
+
+
+
     measurer
         .measure_svg_preserved_tspan_text_bbox_width_px(text, style)
         .max(0.0)
 }
 
+#[must_use]
 fn should_reroute_arrow(
     commit_a: &GitGraphCommit,
     commit_b: &GitGraphCommit,
@@ -150,11 +167,16 @@ fn should_reroute_arrow(
 
 fn find_lane(y1: f64, y2: f64, lanes: &mut Vec<f64>, depth: usize) -> f64 {
     let candidate = y1 + (y1 - y2).abs() / 2.0;
-    if depth > 5 {
-        return candidate;
+
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(depth), &::core::convert::identity(5)); _explicit_ordering } {
+        ::core::cmp::Ordering::Greater => {
+            return candidate;
+        },
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {},
     }
 
     let ok = lanes.iter().all(|lane| (lane - candidate).abs() >= 10.0);
+
     if ok {
         lanes.push(candidate);
         return candidate;
@@ -173,27 +195,33 @@ fn draw_arrow(
     lanes: &mut Vec<f64>,
     dir: &str,
 ) -> Option<GitGraphArrowLayout> {
-    let p1 = *commit_pos.get(commit_a.id.as_str())?;
-    let p2 = *commit_pos.get(commit_b.id.as_str())?;
+    let p1 = ::core::option::Option::<&_>::copied(commit_pos.get(commit_a.id.as_str()))?;
+    let p2 = ::core::option::Option::<&_>::copied(commit_pos.get(commit_b.id.as_str()))?;
     let arrow_needs_rerouting = should_reroute_arrow(commit_a, commit_b, p1, p2, all_commits, dir);
 
-    let mut color_class_num = branch_index
+    let mut color_class_num = match branch_index
         .get(commit_b.branch.as_str())
-        .copied()
-        .unwrap_or(0);
+        .copied() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0,
+    };
+
     if commit_b.commit_type == COMMIT_TYPE_MERGE
         && commit_a
             .id
             .as_str()
             .ne(commit_b.parents.first().map(|s| s.as_str()).unwrap_or(""))
     {
-        color_class_num = branch_index
+        color_class_num = match branch_index
             .get(commit_a.branch.as_str())
-            .copied()
-            .unwrap_or(color_class_num);
+            .copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => color_class_num,
+        };
     }
 
     let mut line_def: Option<String> = None;
+
     if arrow_needs_rerouting {
         let arc = "A 10 10, 0, 0, 0,";
         let arc2 = "A 10 10, 0, 0, 1,";
@@ -231,10 +259,12 @@ fn draw_arrow(
                     p2.y
                 ));
             } else {
-                color_class_num = branch_index
+                color_class_num = match branch_index
                     .get(commit_a.branch.as_str())
-                    .copied()
-                    .unwrap_or(0);
+                    .copied() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0,
+                };
                 line_def = Some(format!(
                     "M {} {} L {} {} {} {} {} L {} {} {} {} {} L {} {}",
                     p1.x,
@@ -273,10 +303,12 @@ fn draw_arrow(
                     p2.y
                 ));
             } else {
-                color_class_num = branch_index
+                color_class_num = match branch_index
                     .get(commit_a.branch.as_str())
-                    .copied()
-                    .unwrap_or(0);
+                    .copied() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 0,
+                };
                 line_def = Some(format!(
                     "M {} {} L {} {} {} {} {} L {} {} {} {} {} L {} {}",
                     p1.x,
@@ -314,10 +346,12 @@ fn draw_arrow(
                 p2.y
             ));
         } else {
-            color_class_num = branch_index
+            color_class_num = match branch_index
                 .get(commit_a.branch.as_str())
-                .copied()
-                .unwrap_or(0);
+                .copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0,
+            };
             line_def = Some(format!(
                 "M {} {} L {} {} {} {} {} L {} {} {} {} {} L {} {}",
                 p1.x,
@@ -415,7 +449,7 @@ fn draw_arrow(
                 }
             }
 
-            if p1.x == p2.x {
+            if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&p1.x, &p2.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
                 line_def = Some(format!("M {} {} L {} {}", p1.x, p1.y, p2.x, p2.y));
             }
         } else if dir == "BT" {
@@ -491,7 +525,7 @@ fn draw_arrow(
                 }
             }
 
-            if p1.x == p2.x {
+            if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&p1.x, &p2.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
                 line_def = Some(format!("M {} {} L {} {}", p1.x, p1.y, p2.x, p2.y));
             }
         } else {
@@ -567,7 +601,7 @@ fn draw_arrow(
                 }
             }
 
-            if p1.y == p2.y {
+            if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&p1.y, &p2.y) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
                 line_def = Some(format!("M {} {} L {} {}", p1.x, p1.y, p2.x, p2.y));
             }
         }
@@ -597,28 +631,43 @@ pub(crate) fn layout_gitgraph_diagram_typed(
     };
 
     let rotate_commit_label =
-        cfg_bool(effective_config, &["gitGraph", "rotateCommitLabel"]).unwrap_or(true);
+        match cfg_bool(effective_config, &["gitGraph", "rotateCommitLabel"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        };
     let show_commit_label =
-        cfg_bool(effective_config, &["gitGraph", "showCommitLabel"]).unwrap_or(true);
-    let show_branches = cfg_bool(effective_config, &["gitGraph", "showBranches"]).unwrap_or(true);
-    let diagram_padding = cfg_f64(effective_config, &["gitGraph", "diagramPadding"])
-        .unwrap_or(8.0)
+        match cfg_bool(effective_config, &["gitGraph", "showCommitLabel"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        };
+    let show_branches = match cfg_bool(effective_config, &["gitGraph", "showBranches"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => true,
+    };
+    let diagram_padding = match cfg_f64(effective_config, &["gitGraph", "diagramPadding"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 8.0,
+    }
         .max(0.0);
     let parallel_commits =
-        cfg_bool(effective_config, &["gitGraph", "parallelCommits"]).unwrap_or(false);
+        match cfg_bool(effective_config, &["gitGraph", "parallelCommits"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        };
     let use_redux_geometry = cfg_string(effective_config, &["theme"])
         .as_deref()
         .is_some_and(gitgraph_theme_is_redux_geometry);
 
-    // Upstream gitGraph uses SVG `getBBox()` probes for branch label widths while the
-    // `drawText(...)` nodes inherit Mermaid's global font config. Preparation resolves that
-    // inheritance once so layout and the terminal stylesheet cannot diverge.
+
+
+
     let label_style = typography_theme.branch_label_style();
 
     let mut branches: Vec<GitGraphBranchLayout> = Vec::new();
     let mut branch_pos: HashMap<&str, f64> = HashMap::new();
     let mut branch_index: HashMap<&str, usize> = HashMap::new();
     let mut pos = 0.0;
+
     for (i, b) in model.branches.iter().enumerate() {
         let metrics = measurer.measure(&b.name, &label_style);
         let bbox_w = branch_label_bbox_width_px(&b.name, &label_style, measurer);
@@ -650,6 +699,7 @@ pub(crate) fn layout_gitgraph_diagram_typed(
 
     let mut sorted_keys: Vec<&str> = commit_order.iter().map(|c| c.id.as_str()).collect();
     let mirror_parallel_bt_axis = direction == "BT" && parallel_commits;
+
     if direction == "BT" && !mirror_parallel_bt_axis {
         sorted_keys.reverse();
     }
@@ -660,8 +710,13 @@ pub(crate) fn layout_gitgraph_diagram_typed(
     let mut cur_pos = commit_axis_start_pos(&direction);
 
     for &id in &sorted_keys {
-        let Some(commit) = commits_by_id.get(id).copied() else {
-            continue;
+        let commit = {
+            let optional_commit = commits_by_id.get(id).copied();
+
+            match optional_commit {
+                Some(matched_commit) => matched_commit,
+                ::core::option::Option::None => continue,
+            }
         };
 
         if parallel_commits {
@@ -675,10 +730,12 @@ pub(crate) fn layout_gitgraph_diagram_typed(
                     } else if direction == "TB" {
                         cur_pos = parent_position.y + COMMIT_STEP;
                     } else if direction == "BT" {
-                        let current_position = commit_pos
+                        let current_position = match (commit_pos
                             .get(commit.id.as_str())
-                            .copied()
-                            .unwrap_or(CommitPosition { x: 0.0, y: 0.0 });
+                            .copied(), CommitPosition { x: 0.0, y: 0.0 }) {
+                            (::core::option::Option::Some(option_value), _) => option_value,
+                            (::core::option::Option::None, alternate) => alternate,
+                        };
                         cur_pos = current_position.y - COMMIT_STEP;
                     } else {
                         cur_pos = parent_position.x + COMMIT_STEP;
@@ -694,6 +751,7 @@ pub(crate) fn layout_gitgraph_diagram_typed(
         } else {
             cur_pos + LAYOUT_OFFSET
         };
+
         let Some(branch_lane) = branch_pos.get(commit.branch.as_str()).copied() else {
             return Err(crate::Error::InvalidModel {
                 message: format!("unknown branch for commit {}: {}", commit.id, commit.branch),
@@ -731,9 +789,9 @@ pub(crate) fn layout_gitgraph_diagram_typed(
     }
 
     if mirror_parallel_bt_axis && !commits.is_empty() {
-        // Mermaid lays out `parallelCommits` in sequence order, then mirrors the commit axis for
-        // bottom-to-top rendering. Doing the mirror after parent placement keeps branch timelines
-        // compact instead of treating the reversed parse order as a new linear timeline.
+
+
+
         let mirror_axis = max_pos - DEFAULT_POS;
         max_pos -= 2.0 * LAYOUT_OFFSET;
 
@@ -765,23 +823,34 @@ pub(crate) fn layout_gitgraph_diagram_typed(
     };
 
     let mut arrows: Vec<GitGraphArrowLayout> = Vec::new();
-    // Mermaid draws arrows by iterating insertion order of the commits map. The DB inserts commits
-    // in sequence order, so iterate by `seq` regardless of direction.
+
+
     for commit_b in commit_order {
-        for parent in &commit_b.parents {
-            let Some(commit_a) = commits_by_id.get(parent.as_str()).copied() else {
-                continue;
+        'over_parent_2: for parent in &commit_b.parents {
+            let commit_a = {
+                let optional_commit_a = commits_by_id.get(parent.as_str()).copied();
+
+                match optional_commit_a {
+                    Some(matched_commit_a) => matched_commit_a,
+                    ::core::option::Option::None => continue 'over_parent_2,
+                }
             };
-            if let Some(a) = draw_arrow(
-                commit_a,
-                commit_b,
-                &commits_by_id,
-                &commit_pos,
-                &branch_index,
-                &mut lanes,
-                &direction,
-            ) {
-                arrows.push(a);
+
+            {
+                match draw_arrow(
+                        commit_a,
+                        commit_b,
+                        &commits_by_id,
+                        &commit_pos,
+                        &branch_index,
+                        &mut lanes,
+                        &direction,
+                    ) {
+                    Some(a) => {
+                        arrows.push(a);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }

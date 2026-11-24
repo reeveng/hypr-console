@@ -20,6 +20,7 @@ pub(in crate::svg::parity::flowchart) fn advance_rough_geometry(
     ctx.work_meter
         .checkpoint(merman_model::OperationPhase::Layout)
         .map_err(crate::Error::from)?;
+
     if ctx.compatibility.look.as_str() != "handDrawn"
         || ctx
             .swimlane_lanes_by_id
@@ -30,14 +31,16 @@ pub(in crate::svg::parity::flowchart) fn advance_rough_geometry(
     {
         return Ok(());
     }
+
     let terminal = ctx.prepared_nodes.cluster(cluster.id.as_str())?;
     let left = cluster.x - cluster.width / 2.0 + ctx.tx - origin_x;
     let top = cluster.y - cluster.height / 2.0 + ctx.ty - origin_y;
     let width = cluster.width.max(1.0);
     let height = cluster.height.max(1.0);
     let agentflow = ctx.diagram_type == "agentflow";
+
     if agentflow && (!terminal.theme.requests_shape_style() || terminal.fill == "none") {
-        let path = rounded_rect_path_d(left, top, width, height, 10.0);
+        let path = rounded_rect_path_d(self::RoundedRectPathDArguments { x: left, y: top, w: width, h: height, r: 10.0 });
         let _ = super::node::roughjs::roughjs_prepare_hand_drawn_stroke_path_for_svg_path(
             super::node::roughjs::RoughGeometryTarget::Query,
             &path,
@@ -47,7 +50,7 @@ pub(in crate::svg::parity::flowchart) fn advance_rough_geometry(
         );
     } else {
         let path =
-            rounded_rect_path_d(left, top, width, height, if agentflow { 10.0 } else { 0.0 });
+            rounded_rect_path_d(self::RoundedRectPathDArguments { x: left, y: top, w: width, h: height, r: if agentflow { 10.0 } else { 0.0 } });
         let stroke_width = parse_css_px_f32(
             terminal.compiled.stroke_width.as_ref(),
             terminal
@@ -72,12 +75,14 @@ pub(in crate::svg::parity::flowchart) fn advance_rough_geometry(
             &ctx.hand_drawn_seed,
         );
     }
+
     ctx.work_meter
         .checkpoint(merman_model::OperationPhase::Layout)
         .map_err(crate::Error::from)
 }
 
-fn rounded_rect_path_d(x: f64, y: f64, w: f64, h: f64, r: f64) -> String {
+#[must_use]
+fn rounded_rect_path_d(RoundedRectPathDArguments { x, y, w, h, r }: RoundedRectPathDArguments) -> String {
     let mut out = String::new();
     let _ = write!(
         &mut out,
@@ -108,45 +113,67 @@ fn rounded_rect_path_d(x: f64, y: f64, w: f64, h: f64, r: f64) -> String {
     out
 }
 
+struct RoundedRectPathDArguments {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+    r: f64,
+}
+
+#[must_use]
 fn rough_style_from_node_style(node_style: &str, mut keep: impl FnMut(&str) -> bool) -> String {
     let mut out = String::new();
+
     for decl in node_style.split(';') {
-        let decl = decl.trim();
-        let Some((key, _)) = decl.split_once(':') else {
-            continue;
+        let decl_2 = decl.trim();
+
+        let key = {
+            let optional_key = decl_2.split_once(':');
+
+            match optional_key {
+                Some((matched_key, _)) => matched_key,
+                ::core::option::Option::None => continue,
+            }
         };
+
         if !keep(key.trim()) {
             continue;
         }
+
         if !out.is_empty() {
             out.push(';');
         }
-        out.push_str(decl);
+
+        out.push_str(decl_2);
     }
+
     out
 }
 
+#[must_use]
 fn cluster_rough_background_style(node_style: &str) -> String {
     rough_style_from_node_style(node_style, |key| key == "fill").replace("fill", "stroke")
 }
 
+#[must_use]
 fn cluster_rough_border_style(node_style: &str) -> String {
     rough_style_from_node_style(node_style, |key| key.contains("stroke"))
 }
 
+#[must_use]
 fn parse_css_px_f32(v: Option<&String>, fallback: f32) -> f32 {
-    v.and_then(|raw| raw.trim_end_matches("px").trim().parse::<f32>().ok())
-        .unwrap_or(fallback)
+    match v.and_then(|raw| match raw.trim_end_matches("px").trim().parse::<f32>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => fallback,
+    }
 }
 
 fn write_flowchart_cluster_shape(
     out: &mut impl crate::svg::parity::SvgOutput,
     ctx: &FlowchartRenderCtx<'_>,
     terminal: &super::super::node_inventory::FlowchartPreparedCluster,
-    left: f64,
-    top: f64,
-    rect_w: f64,
-    rect_h: f64,
+    WriteFlowchartClusterShapeArguments { left, top, rect_w, rect_h }: WriteFlowchartClusterShapeArguments,
 ) -> FlowchartShapeFacetEmissionReceipt {
     let compiled_styles = &terminal.compiled;
     let rect_style = terminal.rect_style.as_str();
@@ -154,12 +181,14 @@ fn write_flowchart_cluster_shape(
     let fill = terminal.fill.as_str();
     let stroke = terminal.stroke.as_str();
     let agentflow = ctx.diagram_type == "agentflow";
-    // Keep Mermaid's source-only serialization intact. A requested typed shape uses the
-    // prepared source/theme winners and the same terminal receipts as Flowchart.
+
+
     if agentflow && !terminal.theme.requests_shape_style() {
-        let stroke = &ctx.compatibility.agentflow_container_stroke;
+        let stroke_2 = &ctx.compatibility.agentflow_container_stroke;
+
         if ctx.compatibility.look.as_str() == "handDrawn" {
-            let path = rounded_rect_path_d(left, top, rect_w, rect_h, 10.0);
+            let path = rounded_rect_path_d(self::RoundedRectPathDArguments { x: left, y: top, w: rect_w, h: rect_h, r: 10.0 });
+
             if let Some(stroke_d) =
                 super::node::roughjs::roughjs_hand_drawn_stroke_path_for_svg_path(
                     &path,
@@ -173,7 +202,7 @@ fn write_flowchart_cluster_shape(
                     out,
                     r#"<g><path d="{}" stroke="{}" stroke-width="0.75" fill="none" stroke-dasharray="{}"/></g>"#,
                     escape_xml_display(&stroke_d),
-                    escape_xml_display(stroke),
+                    escape_xml_display(stroke_2),
                     escape_xml_display(stroke_dasharray),
                 );
                 return FlowchartShapeFacetEmissionReceipt {
@@ -182,6 +211,7 @@ fn write_flowchart_cluster_shape(
                 };
             }
         }
+
         let _ = write!(
             out,
             r#"<rect rx="10" ry="10" x="{}" y="{}" width="{}" height="{}" fill="none" stroke="{}" stroke-width="0.75px"/>"#,
@@ -189,7 +219,7 @@ fn write_flowchart_cluster_shape(
             fmt_display(top),
             fmt_display(rect_w),
             fmt_display(rect_h),
-            escape_xml_display(stroke),
+            escape_xml_display(stroke_2),
         );
         return FlowchartShapeFacetEmissionReceipt::none();
     }
@@ -205,11 +235,11 @@ fn write_flowchart_cluster_shape(
             .unwrap_or("0 0")
             .trim();
         let path = rounded_rect_path_d(
-            left,
-            top,
-            rect_w,
-            rect_h,
-            if agentflow { 10.0 } else { 0.0 },
+            self::RoundedRectPathDArguments { x: left,
+            y: top,
+            w: rect_w,
+            h: rect_h,
+            r: if agentflow { 10.0 } else { 0.0 } },
         );
 
         if agentflow && fill == "none" {
@@ -227,7 +257,7 @@ fn write_flowchart_cluster_shape(
                     r#"<g><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"{} /></g>"#,
                     escape_xml_display(&stroke_d),
                     escape_xml_display(stroke),
-                    fmt_display(stroke_width as f64),
+                    fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(stroke_width)),
                     escape_xml_display(stroke_dasharray),
                     OptionalStyleXmlAttr(&border_style),
                 );
@@ -258,11 +288,11 @@ fn write_flowchart_cluster_shape(
                 r#"<g><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="0 0"{} /><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"{} /></g>"#,
                 escape_xml_display(&fill_d),
                 escape_xml_display(fill),
-                fmt_display(FLOWCHART_CLUSTER_HAND_DRAWN_FILL_WEIGHT as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(FLOWCHART_CLUSTER_HAND_DRAWN_FILL_WEIGHT)),
                 OptionalStyleXmlAttr(&background_style),
                 escape_xml_display(&stroke_d),
                 escape_xml_display(stroke),
-                fmt_display(stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(stroke_width)),
                 escape_xml_display(stroke_dasharray),
                 OptionalStyleXmlAttr(&border_style),
             );
@@ -294,6 +324,13 @@ fn write_flowchart_cluster_shape(
         fmt_display(rect_h)
     );
     FlowchartShapeFacetEmissionReceipt::all()
+}
+
+struct WriteFlowchartClusterShapeArguments {
+    left: f64,
+    top: f64,
+    rect_w: f64,
+    rect_h: f64,
 }
 
 #[allow(
@@ -352,6 +389,7 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
             ),
         });
     };
+
     let Some(subgraph_index) = ctx.subgraph_indices_by_id.get(cluster.id.as_str()).copied() else {
         return Err(crate::Error::InvalidModel {
             message: format!(
@@ -360,6 +398,7 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
             ),
         });
     };
+
     if !ctx.subgraph_has_children(cluster.id.as_str())
         && !super::flowchart_elk_renders_empty_subgraph_as_cluster(ctx)
     {
@@ -380,6 +419,7 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
     let rect_w = cluster.width.max(1.0);
     let rect_h = cluster.height.max(1.0);
     let label_top = top + cluster.title_margin_top.max(0.0);
+
     let Some(cluster_dom_id) = ctx.document_ids().cluster(cluster.id.as_str()) else {
         return Err(crate::Error::InvalidModel {
             message: format!(
@@ -388,6 +428,7 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
             ),
         });
     };
+
     ctx.checkpoint_emit()?;
 
     let label_type = sg.label_type.as_deref().unwrap_or("text");
@@ -401,8 +442,8 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
             false,
         );
     let title_text_style = terminal.title_text_style.as_ref();
-    // ELK paints Markdown after the final frame is known. clusters.js passes node.width to
-    // createText, so these paint metrics differ from the wrapped pre-layout placeholder.
+
+
     let markdown_wrap_width = if ctx.uses_elk_adapter_dom {
         rect_w
     } else {
@@ -431,29 +472,37 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
     let label_left = left + rect_w / 2.0 - label_w / 2.0;
 
     let mut class_attr = String::new();
+
     for c in classes {
-        let c = c.trim();
-        if c.is_empty() {
+        let c_2 = c.trim();
+
+        if c_2.is_empty() {
             continue;
         }
+
         if !class_attr.is_empty() {
             class_attr.push(' ');
         }
-        class_attr.push_str(c);
+
+        class_attr.push_str(c_2);
     }
+
     if !class_attr.is_empty() {
         class_attr.push(' ');
     }
+
     class_attr.push_str("cluster");
+
     if ctx.diagram_type == "agentflow" {
         class_attr.push_str(" flow-cluster");
     }
+
     let color_attr = super::super::agentflow::container_color_slot(ctx, &cluster.id)
         .map(|slot| format!(r#" data-color-id="color-{slot}""#))
         .unwrap_or_default();
     let data_look = ctx.compatibility.look.as_str();
 
-    // Mermaid renders subgraph titles using the same `flowchart.htmlLabels` toggle as edge labels.
+
     if !ctx.edge_html_labels {
         let _ = write!(
             out,
@@ -464,7 +513,7 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
             escape_xml_display(data_look),
         );
         let shape_source_receipt =
-            write_flowchart_cluster_shape(out, ctx, terminal, left, top, rect_w, rect_h);
+            write_flowchart_cluster_shape(out, ctx, terminal, self::WriteFlowchartClusterShapeArguments { left, top, rect_w, rect_h });
         record_cluster_shape_emission(
             ctx,
             cluster_theme,
@@ -481,6 +530,7 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
             fmt_display(label_left),
             fmt_display(label_top)
         );
+
         if label_type == "markdown" {
             if ctx.uses_elk_adapter_dom {
                 write_flowchart_svg_text_markdown_wrapped(
@@ -507,7 +557,9 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
             );
             write_flowchart_svg_label_plan(out, &prepared, true);
         }
+
         out.push_str("</g></g></g>");
+
         if ctx.text_surface_paint.requested() {
             let facts = if label_type == "markdown" {
                 crate::text::VisibleTextStyleFacts::from_svg_markdown_projection(render_title)
@@ -520,15 +572,15 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
                     },
                 )
             };
-            // Assigned-class CSS still reaches tspans even though inline label_style is omitted.
+
             ctx.text_surface_paint.record_label(
                 cluster.id.as_str(),
                 &facts,
-                super::super::css::cluster_title_class_foreground(
+                { let checked_value = super::super::css::cluster_title_class_foreground(
                     ctx.class_defs,
                     classes,
                     ctx.work_meter,
-                )?
+                )?; checked_value }
                 .merge(terminal.structural_sources.label_foreground),
                 ctx.work_meter,
             )?;
@@ -594,7 +646,7 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
         escape_xml_display(data_look),
     );
     let shape_source_receipt =
-        write_flowchart_cluster_shape(out, ctx, terminal, left, top, rect_w, rect_h);
+        write_flowchart_cluster_shape(out, ctx, terminal, self::WriteFlowchartClusterShapeArguments { left, top, rect_w, rect_h });
     record_cluster_shape_emission(
         ctx,
         cluster_theme,
@@ -617,6 +669,7 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
         span_style_attr,
         title_html
     );
+
     if ctx.text_surface_paint.requested() {
         ctx.text_surface_paint.record_label(
             cluster.id.as_str(),
@@ -627,6 +680,7 @@ pub(in crate::svg::parity) fn render_flowchart_cluster(
             ctx.work_meter,
         )?;
     }
+
     ctx.theme_evidence.record_source_residuals(
         &compiled_styles.emitted_html_label_source_residuals(
             cluster.id.as_str(),

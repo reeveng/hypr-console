@@ -379,12 +379,12 @@ fn add_spatial_candidate(
   let [first, second] = neighbor.mv.mv;
 
   match first.validity() {
-    crate::src::levels::MotionVectorValidity::Invalid => return Ok(()),
-    crate::src::levels::MotionVectorValidity::Valid => {}
+    Ok(crate::src::levels::MotionVectorValidity::Invalid) => return Ok(()),
+    Ok(crate::src::levels::MotionVectorValidity::Valid) => {}
   }
 
   let choose_vector = |local, predicted: Mv| match (neighbor.mf & 1, predicted.validity()) {
-    (1, crate::src::levels::MotionVectorValidity::Valid) => predicted,
+    (1, Ok(crate::src::levels::MotionVectorValidity::Valid)) => predicted,
     _ => local,
   };
   let [global_first, global_second] = *global;
@@ -660,8 +660,8 @@ fn add_temporal_candidate(
   let Ok(vector) = block.vector();
 
   match vector.validity() {
-    crate::src::levels::MotionVectorValidity::Invalid => return Ok(()),
-    crate::src::levels::MotionVectorValidity::Valid => {}
+    Ok(crate::src::levels::MotionVectorValidity::Invalid) => return Ok(()),
+    Ok(crate::src::levels::MotionVectorValidity::Valid) => {}
   }
 
   let distance = u8::try_from(block.r#ref).map_err(|_| EINVAL)?;
@@ -1133,6 +1133,102 @@ fn global_motion_candidates(
   })
 }
 
+struct MotionSearchArea {
+  block: Rectangle<i32>,
+  visible: Size<i32>,
+}
+
+impl MotionSearchArea {
+  fn new(tile: &RefmvsTile, search: &RefMvsSearch) -> Result<Self, console_core_never::Never> {
+    let Ok(&[block_width, block_height, ..]) = search.block.dimensions();
+    let width = i32::from(block_width);
+    let height = i32::from(block_height);
+    Ok(Self {
+      block: Rectangle {
+        origin: search.origin,
+        size: Size { width, height },
+      },
+      visible: Size {
+        width: width
+          .min(16)
+          .min(tile.tile_col.end.wrapping_sub(search.origin.x)),
+        height: height
+          .min(16)
+          .min(tile.tile_row.end.wrapping_sub(search.origin.y)),
+      },
+    })
+  }
+
+  fn top_right(
+    &self,
+    tile: &RefmvsTile,
+    flags: EdgeFlags,
+  ) -> Result<EdgeAvailability, console_core_never::Never> {
+    let Size { width, height } = self.block.size;
+    let defined = matches!(
+      flags.availability(EdgeFlags::I444_TOP_HAS_RIGHT),
+      Ok(EdgeAvailability::Present)
+    );
+    Ok(EdgeAvailability::from(
+      defined
+        && cmp::max(width, height) <= 16
+        && width.wrapping_add(self.block.origin.x) < tile.tile_col.end,
+    ))
+  }
+}
+
+struct MotionMatches {
+  nearest: i32,
+  reference: i32,
+  new_motion: i32,
+  global: i32,
+}
+
+impl MotionMatches {
+  fn contexts(self) -> Result<MotionContexts, console_core_never::Never> {
+    let (nearest, new_motion) = match self.nearest {
+      0 => (cmp::min(2, self.reference), i32::from(self.reference > 0)),
+      1 => (
+        cmp::min(self.reference.wrapping_mul(3), 4),
+        3_i32.wrapping_sub(self.new_motion),
+      ),
+      2 => (5, 5_i32.wrapping_sub(self.new_motion)),
+      _ => (0, 0),
+    };
+    Ok(MotionContexts {
+      nearest,
+      new_motion,
+      global: self.global,
+    })
+  }
+}
+
+fn boost_spatial_candidates(mvstack: &mut [RefMvsCandidate; 8], count: u8) -> Rav1dResult<u64> {
+  let nearest_count = u64::from(count);
+  let Ok(nearest_end) = console_core_number_conversion::index(nearest_count);
+  let nearest = mvstack.get_mut(..nearest_end).ok_or(EINVAL)?;
+
+  for candidate in nearest {
+    candidate.weight = candidate.weight.wrapping_add(640);
+  }
+
+  Ok(nearest_count)
+}
+
+fn prioritize_motion_candidates(
+  mvstack: &mut [RefMvsCandidate; 8],
+  active_count: u8,
+  nearest_count: u64,
+) -> Rav1dResult {
+  let Ok(total) = console_core_number_conversion::index(active_count);
+  let Ok(first_group) = console_core_number_conversion::index(nearest_count);
+  let active = mvstack.get_mut(..total).ok_or(EINVAL)?;
+  let (nearest, later) = active.split_at_mut_checked(first_group).ok_or(EINVAL)?;
+  nearest.sort_by_key(|candidate| candidate.weight.wrapping_neg());
+  later.sort_by_key(|candidate| candidate.weight.wrapping_neg());
+  Ok(())
+}
+
 pub(crate) fn rav1d_refmvs_find(
   rt: &RefmvsTile,
   rf: &RefMvsFrame,
@@ -1141,24 +1237,12 @@ pub(crate) fn rav1d_refmvs_find(
   search: RefMvsSearch,
   frame_hdr: &Rav1dFrameHeader,
 ) -> Rav1dResult<u8> {
-  let RefMvsSearch {
-    references: r#ref,
-    block: bs,
-    edges: edge_flags,
-    origin: Point { x: bx4, y: by4 },
-  } = search;
-  let Ok(&[block_width, block_height, ..]) = bs.dimensions();
-  let bw4 = i32::from(block_width);
-  let bh4 = i32::from(block_height);
-  let w4 = bw4.min(16).min(rt.tile_col.end.wrapping_sub(bx4));
-  let h4 = bh4.min(16).min(rt.tile_row.end.wrapping_sub(by4));
-  let block = Rectangle {
-    origin: Point { x: bx4, y: by4 },
-    size: Size {
-      width: bw4,
-      height: bh4,
-    },
-  };
+  let Ok(area) = MotionSearchArea::new(rt, &search);
+  let block = area.block;
+  let (w4, h4) = (area.visible.width, area.visible.height);
+  let Point { x: bx4, y: by4 } = block.origin;
+  let (bw4, bh4) = (block.size.width, block.size.height);
+  let r#ref = search.references;
   let cnt = &mut 0_u8;
   let GlobalCandidatePair {
     warped: gmv,
@@ -1255,14 +1339,10 @@ pub(crate) fn rav1d_refmvs_find(
       ::core::option::Option::None => (0, None, None),
     };
 
-  let right_available = matches!(
-    edge_flags.availability(EdgeFlags::I444_TOP_HAS_RIGHT),
-    Ok(EdgeAvailability::Present)
-  ) && cmp::max(bw4, bh4) <= 16
-    && bw4.wrapping_add(bx4) < rt.tile_col.end;
+  let Ok(right_available) = area.top_right(rt, search.edges);
 
   match (top_start, right_available) {
-    (Some(start), true) => {
+    (Some(start), EdgeAvailability::Present) => {
       let width = u32::try_from(bw4).map_err(|_| EINVAL)?;
       let neighbor = NeighborEdge::Row { start }.read(&rf.r, width)?;
       add_spatial_candidate(
@@ -1278,22 +1358,11 @@ pub(crate) fn rav1d_refmvs_find(
         },
       )?;
     }
-    (Some(_), false) | (None, _) => {}
+    (Some(_), EdgeAvailability::Absent) | (None, _) => {}
   }
 
   let nearest_match = i32::wrapping_add(have_col_mvs, have_row_mvs);
-  let nearest_count = u64::from(*cnt);
-  let nearest_candidates = mvstack
-    .get_mut(
-      ..match ::console_core_number_conversion::index(nearest_count) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      },
-    )
-    .ok_or(EINVAL)?;
-
-  for candidate in nearest_candidates {
-    candidate.weight = candidate.weight.wrapping_add(640);
-  }
+  let nearest_count = boost_spatial_candidates(mvstack, *cnt)?;
 
   let mut globalmv_ctx = i32::from(frame_hdr.use_ref_frame_mvs);
 
@@ -1434,60 +1503,62 @@ pub(crate) fn rav1d_refmvs_find(
     }
   }
 
-  let ref_match_count = i32::wrapping_add(have_col_mvs, have_row_mvs);
+  prioritize_motion_candidates(mvstack, *cnt, nearest_count)?;
 
-  let (refmv_ctx, newmv_ctx) = match nearest_match {
-    0 => (cmp::min(2, ref_match_count), i32::from(ref_match_count > 0)),
-    1 => (
-      cmp::min(i32::wrapping_mul(ref_match_count, 3), 4),
-      i32::wrapping_sub(3, have_newmv),
-    ),
-    2 => (5, i32::wrapping_sub(5, have_newmv)),
-    _ => (0, 0),
-  };
-
-  let Ok(active_count) = console_core_number_conversion::index(*cnt);
-  let active = mvstack.get_mut(..active_count).ok_or(EINVAL)?;
-  let (nearest, later) = active
-    .split_at_mut_checked(
-      match ::console_core_number_conversion::index(nearest_count) {
-        ::core::result::Result::Ok(native_position) => native_position,
-      },
-    )
-    .ok_or(EINVAL)?;
-  nearest.sort_by_key(|candidate| candidate.weight.wrapping_neg());
-  later.sort_by_key(|candidate| candidate.weight.wrapping_neg());
-
-  let Ok(motion_bounds) = ReferenceMotionBounds::new(
-    block,
-    Size {
-      width: rf.iw4,
-      height: rf.ih4,
+  let Ok((fallback, motion_bounds)) = motion_fallback(
+    rf,
+    &area,
+    FallbackNeighbors {
+      top: top_start,
+      left: left_rows,
     },
+    r#ref,
+    tgmv,
   );
-
-  let extended_span = cmp::min(w4, h4);
-  let extended_edges = [
-    top_start.map(|start| NeighborEdge::Row { start }),
-    left_rows.map(|row_starts| NeighborEdge::Column {
-      row_starts,
-      x: bx4.wrapping_sub(1),
-    }),
-  ];
-
-  let fallback = MotionFallbackEdges {
-    frame: rf,
-    extent: extended_span,
-    edges: extended_edges,
-    references: r#ref,
-    global: tgmv,
-  };
-  let contexts = MotionContexts {
-    nearest: refmv_ctx,
-    new_motion: newmv_ctx,
+  let matches = MotionMatches {
+    nearest: nearest_match,
+    reference: have_col_mvs.wrapping_add(have_row_mvs),
+    new_motion: have_newmv,
     global: globalmv_ctx,
   };
+  let Ok(contexts) = matches.contexts();
   complete_motion_candidates(mvstack, cnt, ctx, contexts, fallback, motion_bounds)
+}
+
+struct FallbackNeighbors<'a> {
+  top: Option<u64>,
+  left: Option<&'a [u64]>,
+}
+
+fn motion_fallback<'a>(
+  frame: &'a RefMvsFrame,
+  area: &MotionSearchArea,
+  neighbors: FallbackNeighbors<'a>,
+  references: RefMvsRefPair,
+  global: [Mv; 2],
+) -> Result<(MotionFallbackEdges<'a>, ReferenceMotionBounds), console_core_never::Never> {
+  let Ok(bounds) = ReferenceMotionBounds::new(
+    area.block,
+    Size {
+      width: frame.iw4,
+      height: frame.ih4,
+    },
+  );
+  let edges = [
+    neighbors.top.map(|start| NeighborEdge::Row { start }),
+    neighbors.left.map(|row_starts| NeighborEdge::Column {
+      row_starts,
+      x: area.block.origin.x.wrapping_sub(1),
+    }),
+  ];
+  let fallback = MotionFallbackEdges {
+    frame,
+    extent: cmp::min(area.visible.width, area.visible.height),
+    edges,
+    references,
+    global,
+  };
+  Ok((fallback, bounds))
 }
 
 struct MotionFallbackEdges<'a> {

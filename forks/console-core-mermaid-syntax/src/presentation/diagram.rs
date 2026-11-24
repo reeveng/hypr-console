@@ -315,7 +315,7 @@ impl DiagramParseSnapshot {
 }
 
 /// Non-cancellation result of one editor snapshot capture operation.
-// Keep successful snapshots inline rather than allocating for every successful capture.
+
 
 #[derive(Debug)]
 #[allow(clippy::large_enum_variant)]
@@ -343,8 +343,8 @@ impl DiagramSnapshotCapture {
         match self {
             Self::Snapshot(snapshot) => Ok(snapshot),
             Self::Failed { error, .. } => Err(error),
-            // The legacy Result facade has no panic outcome. Resume the exact original payload;
-            // evidence-aware callers consume this capture before reaching this adapter.
+
+
             Self::Panicked { panic, .. } => std::panic::resume_unwind(panic.into_payload()),
         }
     }
@@ -364,6 +364,7 @@ pub(crate) struct RenderSemanticParseOutput {
 }
 
 impl RenderSemanticParseOutput {
+    #[must_use]
     pub(crate) fn new(model: RenderSemanticModel) -> Self {
         Self {
             model,
@@ -372,6 +373,7 @@ impl RenderSemanticParseOutput {
     }
 
     #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+    #[must_use]
     pub(crate) fn flowchart(
         model: crate::diagrams::flowchart::FlowchartModel,
         context: crate::diagrams::flowchart::FlowchartRenderContext,
@@ -383,6 +385,7 @@ impl RenderSemanticParseOutput {
     }
 
     #[cfg(feature = "diagram-mindmap")]
+    #[must_use]
     pub(crate) fn mindmap(
         model: merman_model::families::mindmap::MindmapDiagramRenderModel,
     ) -> Self {
@@ -390,6 +393,7 @@ impl RenderSemanticParseOutput {
     }
 
     #[cfg(feature = "diagram-class")]
+    #[must_use]
     pub(crate) fn class(
         model: merman_model::families::class::ClassDiagram,
         style_precedence_facts: merman_model::families::class::ClassStylePrecedenceFacts,
@@ -401,6 +405,7 @@ impl RenderSemanticParseOutput {
     }
 
     #[cfg(feature = "diagram-info")]
+    #[must_use]
     pub(crate) fn info(
         model: merman_model::families::info::InfoDiagramModel,
         output_data: merman_model::families::info::InfoOutputData,
@@ -412,6 +417,7 @@ impl RenderSemanticParseOutput {
     }
 
     #[cfg(feature = "diagram-pie")]
+    #[must_use]
     pub(crate) fn pie(
         model: merman_model::families::pie::PieDiagramModel,
         output_data: merman_model::families::pie::PieOutputData,
@@ -423,6 +429,7 @@ impl RenderSemanticParseOutput {
     }
 
     #[cfg(feature = "diagram-journey")]
+    #[must_use]
     pub(crate) fn journey(
         model: merman_model::families::journey::JourneyDiagramModel,
         output_data: merman_model::families::journey::JourneyOutputData,
@@ -434,6 +441,7 @@ impl RenderSemanticParseOutput {
     }
 
     #[cfg(feature = "diagram-timeline")]
+    #[must_use]
     pub(crate) fn timeline(
         model: merman_model::families::timeline::TimelineDiagramModel,
         output_data: merman_model::families::timeline::TimelineOutputData,
@@ -445,6 +453,7 @@ impl RenderSemanticParseOutput {
     }
 
     #[cfg(feature = "diagram-packet")]
+    #[must_use]
     pub(crate) fn packet(
         model: merman_model::families::packet::PacketDiagramModel,
         output_data: merman_model::families::packet::PacketOutputData,
@@ -456,6 +465,7 @@ impl RenderSemanticParseOutput {
     }
 
     #[cfg(feature = "diagram-radar")]
+    #[must_use]
     pub(crate) fn radar(
         model: merman_model::families::radar::RadarDiagramModel,
         output_data: merman_model::families::radar::RadarOutputData,
@@ -466,6 +476,7 @@ impl RenderSemanticParseOutput {
         }
     }
 
+    #[must_use]
     pub(crate) fn model(&self) -> &RenderSemanticModel {
         &self.model
     }
@@ -474,6 +485,7 @@ impl RenderSemanticParseOutput {
         &mut self.model
     }
 
+    #[must_use]
     fn into_parts(self) -> (RenderSemanticModel, PresentationContext) {
         (self.model, self.context)
     }
@@ -601,6 +613,7 @@ pub(crate) fn offset_parser_diagnostic_positions(
 ) {
     #[cfg(not(feature = "diagram-agentflow"))]
     let _ = (model, line_offset, column_offset);
+
     #[cfg(feature = "diagram-agentflow")]
     if let RenderSemanticModel::Agentflow(model) = model {
         crate::diagrams::agentflow::offset_diagnostic_positions(
@@ -654,9 +667,15 @@ fn remap_json_warning_fact_spans(
     model: &mut Value,
     remap: &mut impl FnMut(&mut DiagramWarningFact),
 ) {
-    let Some(warning_facts_value) = model.get_mut("warningFacts") else {
-        return;
+    let warning_facts_value = {
+        let optional_warning_facts_value = model.get_mut("warningFacts");
+
+        match optional_warning_facts_value {
+            Some(matched_warning_facts_value) => matched_warning_facts_value,
+            ::core::option::Option::None => return,
+        }
     };
+
     let Ok(mut warning_facts) = Vec::<DiagramWarningFact>::deserialize(&*warning_facts_value)
     else {
         return;
@@ -690,6 +709,7 @@ impl Default for RenderDiagramRegistry {
 
 impl RenderDiagramRegistry {
     /// Creates an empty registry.
+    #[must_use]
     pub fn new() -> Self {
         Self {
             builtins: Arc::new(HashMap::new()),
@@ -703,14 +723,20 @@ impl RenderDiagramRegistry {
     }
 
     /// Returns whether a built-in or custom render-model parser is registered for the id.
+    #[must_use]
     pub fn contains(&self, diagram_type: &str) -> bool {
         self.resolve(diagram_type).is_some()
     }
 
+    #[must_use]
     pub(crate) fn resolve(&self, diagram_type: &str) -> Option<ResolvedRenderParser> {
-        if let Some(parser) = self.overlays.get(diagram_type).copied() {
-            return Some(ResolvedRenderParser::Custom(parser));
+        match self.overlays.get(diagram_type).copied() {
+            Some(parser) => {
+                return Some(ResolvedRenderParser::Custom(parser));
+            },
+            ::core::option::Option::None => {},
         }
+
         self.builtins
             .get(diagram_type)
             .copied()
@@ -728,8 +754,10 @@ impl RenderDiagramRegistry {
     }
 
     /// Builds the typed render parser registry for the repository's pinned Mermaid baseline.
+    #[must_use]
     pub fn pinned_mermaid_baseline() -> Self {
         let mut reg = Self::new();
+
         for fact in crate::family::render_parser_facts() {
             Arc::make_mut(&mut reg.builtins).insert(fact.id, fact.parser);
         }
@@ -756,7 +784,7 @@ impl RenderDiagramRegistry {
 /// describes data relationships; only this wrapper records successful source construction.
 #[derive(Debug, Clone)]
 pub struct ParsedDiagramRender {
-    // Keep nested fallible parse results small while the family parser uses the caller's stack.
+
     presentation: Box<PresentationDiagram>,
 }
 
@@ -767,8 +795,8 @@ impl ParsedDiagramRender {
         control: &OperationControl,
     ) -> OperationControlResult<Result<Self>> {
         let (model, context) = output.into_parts();
-        // A custom overlay or a suppressed source failure does not consume family paint facts
-        // captured for the originally detected language. Preserve all other frozen ownership.
+
+
         if matches!(
             model,
             RenderSemanticModel::CustomJson(_) | RenderSemanticModel::Error(_)
@@ -787,6 +815,7 @@ impl ParsedDiagramRender {
                 Err(error) => return Ok(Err(crate::Error::diagram_parse_fallback(&meta.diagram_type, error.to_string()))),
             };
         }
+
         let diagram_type = meta.diagram_type.clone();
         Ok(PresentationDiagram::try_from_frozen(
             meta,
@@ -802,33 +831,40 @@ impl ParsedDiagramRender {
     }
 
     /// Borrows the complete immutable input accepted by output consumers.
+    #[must_use]
     pub fn presentation(&self) -> &PresentationDiagram {
         &self.presentation
     }
 
     /// Consumes the source guarantee and retains all presentation data and context.
+    #[must_use]
     pub fn into_presentation(self) -> PresentationDiagram {
         *self.presentation
     }
 
+    #[must_use]
     pub fn metadata(&self) -> &PresentationMetadata {
         self.presentation.metadata()
     }
 
+    #[must_use]
     pub fn model(&self) -> &RenderSemanticModel {
         self.presentation.model()
     }
 
+    #[must_use]
     pub const fn family_id(&self) -> Option<merman_model::family::DiagramFamilyId> {
         self.presentation.family_id()
     }
 
     /// Extracts metadata and model, deliberately omitting output context.
+    #[must_use]
     pub fn into_parts(self) -> (PresentationMetadata, RenderSemanticModel) {
         let (metadata, model, _) = (*self.presentation).into_parts();
         (metadata, model)
     }
 
+    #[must_use]
     pub fn render_context(&self) -> &PresentationContext {
         self.presentation.render_context()
     }
@@ -850,11 +886,13 @@ impl ParsedDiagramRender {
             .map(|result| result.map_err(crate::Error::from))
     }
 
+    #[must_use]
     pub fn retained_render_context_bytes(&self) -> usize {
         self.presentation.retained_render_context_bytes()
     }
 
     #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+    #[must_use]
     pub fn flowchart_render_context(
         &self,
     ) -> Option<&merman_model::families::flowchart::FlowchartRenderContext> {
@@ -862,6 +900,7 @@ impl ParsedDiagramRender {
     }
 
     #[cfg(feature = "diagram-class")]
+    #[must_use]
     pub fn class_style_precedence_facts(
         &self,
     ) -> Option<&merman_model::families::class::ClassStylePrecedenceFacts> {
@@ -1165,7 +1204,7 @@ mod family_output_tests {
                             .unwrap_err();
                         assert_eq!(error.phase, OperationPhase::Semantic);
                     }
-                    // All projections and clones consume frozen data without constructing source again.
+
                     assert_eq!(count(), 1);
                 }
             }

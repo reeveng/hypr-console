@@ -8,7 +8,7 @@
 //! seven new ones that want the same devices.
 //!
 //! Nothing here is deleted. Everything the old names left behind is moved into
-//! an attic under `/var/tmp`, named for the day, and the last line says where
+//! a private attic under `/var/tmp`, and the last line says where
 //! it is. The `migrations.md` note in Orbit is where the rule this taught was
 //! written down: the manifest installs a name and never sweeps one.
 //!
@@ -33,8 +33,8 @@
 //! this from its own screen has no way of finishing the job.
 
 use console_core_arguments::{CommandLine, NoSubcommand, Operands};
-use console_core_external_programs::Program as ExternalProgram;
-use console_core_internal_programs::CONFIRM_DOES;
+use console_core_external_programs::{Program as ExternalProgram, shell};
+use console_core_internal_programs::InternalProgram;
 use console_core_never::Never;
 use console_core_places::{APPLICATION, Base};
 use console_core_state_machine::{Machine, Queue, Transition};
@@ -42,7 +42,7 @@ use console_program_contract::{Choice, Command, Effect, Event, Exit, ExitStatus,
 use console_session::reaching;
 
 use crate::deploying::How;
-use crate::deploying::{CHECK, NO_CARD, SAID_NO, TREE, YES, card, how};
+use crate::deploying::{CHECK, SAID_NO, TREE, YES, how};
 use console_device_name::HOST;
 
 pub const WAS: &str = "/etc/legion";
@@ -132,7 +132,8 @@ pub struct Going {
   pub host: String,
   pub how: How,
   pub whom: String,
-  pub uid: String,
+  pub uid: u32,
+  pub home: std::path::PathBuf,
   pub tree: Tree,
   pub old: Vec<String>,
   pub attic: String,
@@ -148,6 +149,7 @@ pub enum Tree {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Step {
   Owning,
+  OwningUid,
   Numbering,
   Standing,
   Naming,
@@ -237,7 +239,8 @@ fn initial(
         host: migration.host.clone(),
         how: migration.how,
         whom: String::new(),
-        uid: String::new(),
+        uid: 0,
+        home: std::path::PathBuf::new(),
         tree: Tree::Nowhere,
         old: Vec::new(),
         attic: String::new(),
@@ -278,38 +281,65 @@ fn at(
 
   match (step, event) {
     (Step::Owning, Event::Opened) => {
-      let Ok(runs) = on(going, reaching::OWNER);
+      let Ok(homes) = console_device_name::homes_command();
+      let Ok(runs) = on(going, &homes);
 
       Transition::new(at.clone(), vec![Effect::Run(runs)])
     }
 
     (Step::Owning, Event::Replied(answer)) => {
-      let whom = answer.output.trim().to_string();
+      let Ok(owner) = console_device_name::sole_home(&answer.output);
 
-      match ::core::primitive::bool::then_some(whom.is_empty(), ()) {
-        ::core::option::Option::Some(()) => stopped(
-          step,
-          going,
-          &format!("no account on {} to own the desktop", going.host),
-        ),
-        ::core::option::Option::None => {
-          let going_2 = Going {
-            whom: whom.clone(),
-            ..going.clone()
-          };
+      match (answer.status, owner) {
+        (ExitStatus::Success, Some(whom)) => numbering(going, whom),
+        _ => {
+          let Ok(fallback) = console_device_name::fallback_command();
+          let Ok(runs) = on(going, &fallback);
 
-          let Ok(runs) = on(&going_2, &format!("id -u {whom}"));
           Transition::new(
-            Migrating::At(Step::Numbering, going_2.clone()),
+            Migrating::At(Step::OwningUid, going.clone()),
             vec![Effect::Run(runs)],
           )
         }
       }
     }
 
+    (Step::OwningUid, Event::Replied(answer)) => {
+      let Ok(owner) = console_device_name::account(&answer.output);
+
+      match (answer.status, owner) {
+        (ExitStatus::Success, Some(whom)) => numbering(going, whom),
+        _ => stopped(
+          step,
+          going,
+          &format!("no account on {} to own the desktop", going.host),
+        ),
+      }
+    }
+
     (Step::Numbering, Event::Replied(answer)) => {
+      let Ok(account) = match answer.status {
+        ExitStatus::Success => login(AccountRecord {
+          line: &answer.output,
+          expected: &going.whom,
+        }),
+        ExitStatus::Failure(_) | ExitStatus::Interrupt => Ok(None),
+      };
+
+      let (uid, home) = match account {
+        Some(resolved) => resolved,
+        None => {
+          return stopped(
+            step,
+            going,
+            "the account could not be resolved to a UID and home",
+          );
+        }
+      };
+
       let going_6 = Going {
-        uid: answer.output.trim().to_string(),
+        uid,
+        home,
         ..going.clone()
       };
 
@@ -352,9 +382,8 @@ fn at(
         ..going.clone()
       };
 
-      let Ok(said) = looking_in_a_home();
-      let Ok(as_them) = reaching::as_them(reaching::Whom(&going_4.whom), &said);
-      let Ok(runs) = on(&going_4, &as_them);
+      let Ok(said) = looking_in_a_home(&going_4);
+      let Ok(runs) = on(&going_4, &said);
       let Ok(was) = listed(&old);
       let Ok(now) = listed(&new);
 
@@ -562,6 +591,21 @@ fn at(
   }
 }
 
+fn numbering(going: &Going, whom: &str) -> Result<Transition<Migrating, Effect<Never>>, Never> {
+  let going_2 = Going {
+    whom: whom.to_owned(),
+    ..going.clone()
+  };
+  let Ok(getent) = ExternalProgram::Getent.name();
+  let Ok(asked) = shell::join([getent, "--", "passwd", whom]);
+  let Ok(runs) = on(&going_2, &asked);
+
+  Transition::new(
+    Migrating::At(Step::Numbering, going_2),
+    vec![Effect::Run(runs)],
+  )
+}
+
 pub fn plan(going: &Going) -> Result<Vec<Piece>, Never> {
   let mut every = Vec::new();
 
@@ -642,11 +686,11 @@ fn the_directories(going: &Going) -> Result<Vec<Piece>, Never> {
   let Ok(homes) = homes();
 
   for (was, now) in homes {
-    let Ok(said) = moving_a_home(HomeChange {
-      was: &was,
-      now: &now,
-    });
-    let Ok(as_them) = reaching::as_them(reaching::Whom(&going.whom), &said);
+    let Ok(console) = InternalProgram::Console.path();
+    let Ok(as_them) = reaching::as_user(
+      reaching::Whom(&going.whom),
+      &[console, "migration-move-home", &was, &now],
+    );
     let Ok(runs) = on(going, &as_them);
     let Ok(next_3) = letting(runs);
 
@@ -672,11 +716,16 @@ fn the_old_names(going: &Going) -> Result<Vec<Piece>, Never> {
   every.push(next);
 
   for (into, patterns) in SWEPT {
-    let Ok(said) = sweeping(Sweep {
-      attic: &going.attic,
-      into,
-      patterns,
-    });
+    let destination = match into {
+      "" => going.attic.clone(),
+      category => format!("{}/{category}", going.attic),
+    };
+    let Ok(console) = InternalProgram::Console.path();
+    let Ok(said) = shell::join(
+      [console, "migration-sweep", destination.as_str()]
+        .into_iter()
+        .chain(patterns.split_whitespace()),
+    );
     let Ok(runs) = on(going, &said);
     let Ok(next_2) = letting(runs);
 
@@ -868,73 +917,81 @@ fn listed(what: &[String]) -> Result<String, Never> {
   )
 }
 
-fn looking_in_a_home() -> Result<String, Never> {
+struct AccountRecord<'a> {
+  line: &'a str,
+  expected: &'a str,
+}
+
+fn login(
+  AccountRecord { line, expected }: AccountRecord<'_>,
+) -> Result<Option<(u32, std::path::PathBuf)>, Never> {
+  let mut fields = line.trim_end().split(':');
+
+  match bool::then_some(fields.next() == Some(expected), ()) {
+    Some(()) => {}
+    None => return Ok(None),
+  }
+
+  let user_id = fields.nth(1).map(str::parse::<u32>);
+  let directory = fields.nth(2).map(std::path::Path::new);
+
+  Ok(match (user_id, directory) {
+    (Some(Ok(uid)), Some(home)) => home.is_absolute().then(|| (uid, home.to_owned())),
+    (Some(Err(_non_numeric_uid)), _) => None,
+    (None, _) | (_, None) => None,
+  })
+}
+
+struct HomeEntry<'a>(&'a std::path::Path);
+
+impl<'a> HomeEntry<'a> {
+  fn relative(text: &'a str) -> Result<Option<Self>, Never> {
+    use std::path::{Component, Path};
+    let entry = Path::new(text);
+    let normal = !text.is_empty()
+      && entry
+        .components()
+        .all(|part| matches!(part, Component::Normal(_)));
+    Ok(bool::then_some(normal, Self(entry)))
+  }
+}
+
+impl AsRef<std::path::Path> for HomeEntry<'_> {
+  fn as_ref(&self) -> &std::path::Path {
+    self.0
+  }
+}
+
+fn looking_in_a_home(going: &Going) -> Result<String, Never> {
   let Ok(homes) = homes();
+  let Ok(ls) = ExternalProgram::Ls.name();
+  let paths: Vec<_> = homes
+    .iter()
+    .filter_map(|(was, _)| {
+      let Ok(entry) = HomeEntry::relative(was);
+      entry.map(|relative| going.home.join(relative))
+    })
+    .collect();
+  let words: Vec<_> = [ls, "-d", "--"]
+    .into_iter()
+    .chain(paths.iter().filter_map(|path| path.to_str()))
+    .collect();
 
-  let every: Vec<String> = homes.iter().map(|(was, _)| format!("~/{was}")).collect();
-
-  Ok(format!("ls -d {} 2>/dev/null", every.join(" ")))
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct HomeChange<'a> {
-  was: &'a str,
-  now: &'a str,
-}
-
-fn moving_a_home(home: HomeChange<'_>) -> Result<String, Never> {
-  let HomeChange { was, now } = home;
-
-  Ok(format!(
-    "[ -e \"$HOME/{was}\" ] || exit 0; [ -e \"$HOME/{now}\" ] && exit 0; \
-         mkdir -p \"$(dirname \"$HOME/{now}\")\" && mv \"$HOME/{was}\" \"$HOME/{now}\" && \
-         echo '  {was} -> {now}'"
-  ))
+  reaching::as_user(reaching::Whom(&going.whom), &words)
 }
 
 fn moving_the_pictures() -> Result<String, Never> {
   let (was, now) = PICTURES;
+  let Ok(console) = InternalProgram::Console.path();
 
-  Ok(format!(
-    "[ -d {was} ] || exit 0; mkdir -p {now}; mv {was}/* {now}/ 2>/dev/null; rmdir {was}"
-  ))
+  shell::join([console, "migration-move-pictures", was, now])
 }
 
 fn making_an_attic() -> Result<String, Never> {
-  Ok(format!(
-    "attic=/var/tmp/console-migration-$(date +%Y%m%d-%H%M%S); \
-         mkdir -p{}; echo $attic",
-    SWEPT
-      .iter()
-      .map(|(into, _)| *into)
-      .filter(|into| !into.is_empty())
-      .map(|into| format!(" $attic/{into}"))
-      .collect::<String>()
-  ))
-}
+  let Ok(mktemp) = ExternalProgram::Mktemp.name();
+  let Ok(template) = console_core_temporary_directories::migration_attic_template();
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-struct Sweep<'a> {
-  attic: &'a str,
-  into: &'a str,
-  patterns: &'a str,
-}
-
-fn sweeping(sweep: Sweep<'_>) -> Result<String, Never> {
-  let Sweep {
-    attic,
-    into,
-    patterns,
-  } = sweep;
-
-  let where_ = match ::core::primitive::bool::then_some(into.is_empty(), ()) {
-    ::core::option::Option::Some(()) => attic.to_string(),
-    ::core::option::Option::None => format!("{attic}/{into}"),
-  };
-
-  Ok(format!(
-    "for at in {patterns}; do [ -e \"$at\" ] && mv \"$at\" {where_}/; done; true"
-  ))
+  shell::join([mktemp, "-d", "--", template])
 }
 
 const ASKS: &str = "Rename what is installed on this device? The desktop closes and comes back.";
@@ -942,15 +999,13 @@ const ASKS: &str = "Rename what is installed on this device? The desktop closes 
 const DOES: &str = "Rename";
 
 fn carding(going: &Going) -> Result<Command, Never> {
-  let Ok(named) = card();
-  let Ok(quoted) = reaching::shell_quote(ASKS);
-  let Ok(does) = reaching::shell_quote(DOES);
-
-  let card = format!(
-    "command -v {named} >/dev/null || exit {NO_CARD}; {CONFIRM_DOES}={does} exec {named} {quoted}"
+  let Ok(in_session) = reaching::confirmation(
+    reaching::Whom(&going.whom),
+    reaching::Confirmation {
+      label: DOES,
+      question: ASKS,
+    },
   );
-
-  let Ok(in_session) = reaching::in_session(reaching::Whom(&going.whom), &card);
 
   on(going, &in_session)
 }
@@ -969,7 +1024,7 @@ fn once(going: &Going, command: &str) -> Result<Command, Never> {
 }
 
 fn on(going: &Going, command: &str) -> Result<Command, Never> {
-  Command::external(ExternalProgram::Ssh, &[going.host.as_str(), command])
+  Command::external(ExternalProgram::Ssh, &["--", going.host.as_str(), command])
 }
 
 fn piece(runs: Command, shown: Shown, matters: Matters) -> Result<Piece, Never> {
@@ -1082,7 +1137,10 @@ mod tests {
       host: "root@handheld".to_string(),
       how: How::Yes,
       whom: "someone".to_string(),
-      uid: "1000".to_string(),
+      uid: 1000,
+      home: <::std::path::PathBuf as ::core::convert::From<&::core::primitive::str>>::from(
+        "/home/someone",
+      ),
       tree: Tree::Was,
       old: vec!["legion-bar.service".to_string()],
       attic: "/home/console-test/console-migration-20260829-234115".to_string(),
@@ -1118,8 +1176,8 @@ mod tests {
   }
 
   const LOOKING: [Reply; 6] = [
-    Reply::Success("someone"),
-    Reply::Success("1000"),
+    Reply::Success("someone/"),
+    Reply::Success("someone:x:1000:1000::/home/someone:/bin/bash"),
     Reply::Success("was"),
     Reply::Success("legion-bar.service enabled\nconsole-bar.service enabled\n"),
     Reply::Success(""),
@@ -1206,8 +1264,8 @@ mod tests {
   fn a_machine_already_on_the_new_names_is_told_so_and_left_alone() {
     let Ok(arguments) = handheld(How::Yes);
     let Ok(events) = replies(&[
-      Reply::Success("someone"),
-      Reply::Success("1000"),
+      Reply::Success("someone/"),
+      Reply::Success("someone:x:1000:1000::/home/someone:/bin/bash"),
       Reply::Success("now"),
       Reply::Success("console-bar.service enabled\n"),
       Reply::Success(""),
@@ -1276,7 +1334,7 @@ mod tests {
     let Ok(said) = looking(&[
       Reply::Success(""),
       Reply::Failure(1),
-      Reply::Failure(NO_CARD),
+      Reply::Failure(crate::deploying::NO_CARD),
     ]);
 
     let Ok(arguments) = handheld(How::Confirm);

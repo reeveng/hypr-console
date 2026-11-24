@@ -5,18 +5,22 @@ use merman_model::families::venn::VennDiagramModel;
 use std::collections::HashMap;
 use std::str::FromStr as _;
 
+#[must_use]
 fn stable_sets_key(sets: &[String]) -> String {
     sets.join("|")
 }
 
+#[must_use]
 fn escape_css_attr(value: &str) -> String {
     escape_attr(value)
 }
 
+#[must_use]
 fn data_sets_attr(sets: &[String]) -> String {
     sets.join("_")
 }
 
+#[must_use]
 fn invalid_rough_options(context: &str, error: impl std::fmt::Display) -> Error {
     Error::InvalidModel {
         message: format!("invalid Venn {context} RoughJS options: {error}"),
@@ -28,23 +32,24 @@ fn rough_color(value: &str) -> Result<roughr::Srgba> {
         message: format!("invalid Venn RoughJS color `{value}`: {error}"),
     })?;
     Ok(roughr::Srgba::new(
-        color.red as f32 / 255.0,
-        color.green as f32 / 255.0,
-        color.blue as f32 / 255.0,
-        color.alpha as f32 / 255.0,
+        <f32 as ::core::convert::From<::core::primitive::u8>>::from(color.red) / 255.0,
+        <f32 as ::core::convert::From<::core::primitive::u8>>::from(color.green) / 255.0,
+        <f32 as ::core::convert::From<::core::primitive::u8>>::from(color.blue) / 255.0,
+        <f32 as ::core::convert::From<::core::primitive::u8>>::from(color.alpha) / 255.0,
     ))
 }
 
+#[must_use]
 fn parse_stroke_width(value: &str) -> Option<f32> {
-    let value = value.trim_start();
-    value
+    let value_2 = value.trim_start();
+    value_2
         .char_indices()
         .map(|(index, _)| index)
-        .chain(std::iter::once(value.len()))
+        .chain(std::iter::once(value_2.len()))
         .filter(|end| *end > 0)
         .rev()
-        .find_map(|end| value[..end].parse::<f32>().ok())
-        .filter(|value| value.is_finite())
+        .find_map(|end| match value_2[..end].parse::<f32>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None })
+        .filter(|value_3| value_3.is_finite())
 }
 
 fn rough_circle_paths(
@@ -60,12 +65,12 @@ fn rough_circle_paths(
         .randomness(randomness.clone())
         .roughness(0.7)
         .bowing(1.0)
-        .fill(rough_color(base_color)?)
+        .fill({ let checked_value = rough_color(base_color)?; checked_value })
         .fill_style(roughr::core::FillStyle::Hachure)
         .fill_weight(2.0)
         .hachure_gap(8.0)
         .hachure_angle(hachure_angle)
-        .stroke(rough_color(stroke_color)?)
+        .stroke({ let checked_value_2 = rough_color(stroke_color)?; checked_value_2 })
         .stroke_width(stroke_width)
         .disable_multi_stroke(false)
         .disable_multi_stroke_fill(false)
@@ -83,6 +88,7 @@ fn rough_circle_paths(
         })?;
     let mut fill_path = None;
     let mut stroke_path = None;
+
     for set in drawable.sets {
         match set.op_set_type {
             roughr::core::OpSetType::FillPath | roughr::core::OpSetType::FillSketch => {
@@ -93,8 +99,9 @@ fn rough_circle_paths(
             }
         }
     }
+
     match (fill_path, stroke_path) {
-        (Some(fill_path), Some(stroke_path)) => Ok((fill_path, stroke_path)),
+        (Some(fill_path_2), Some(stroke_path_2)) => Ok((fill_path_2, stroke_path_2)),
         _ => Err(Error::InvalidModel {
             message: "Venn RoughJS circle did not produce fill and stroke paths".to_string(),
         }),
@@ -111,7 +118,7 @@ fn rough_intersection_fill_path(
         .randomness(randomness.clone())
         .roughness(0.7)
         .bowing(1.0)
-        .fill(rough_color(fill)?)
+        .fill({ let checked_value = rough_color(fill)?; checked_value })
         .fill_style(roughr::core::FillStyle::CrossHatch)
         .fill_weight(2.0)
         .hachure_gap(6.0)
@@ -122,9 +129,12 @@ fn rough_intersection_fill_path(
         .map_err(|error| invalid_rough_options("intersection", error))?;
     options.stroke = None;
 
-    let distance = (1.0 + options.roughness.unwrap_or(1.0) as f64) / 2.0;
-    // RoughJS computes the outline even when `stroke: none`, so its PRNG state advances before
-    // the cross-hatch fill is generated. The discarded operation is part of seeded parity.
+    let distance = (1.0 + <f64 as ::core::convert::From<::core::primitive::f32>>::from((match options.roughness {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 1.0,
+    }))) / 2.0;
+
+
     let fill_path =
         controlled::generate(work_meter, merman_model::OperationPhase::Emit, |control| {
             let segments = roughr::points_on_path::normalized_path_with_control(path, control)?;
@@ -142,11 +152,13 @@ fn rough_intersection_fill_path(
                 control,
             )
         })?;
+
     if fill_path.op_set_type != roughr::core::OpSetType::FillSketch {
         return Err(Error::InvalidModel {
             message: "Venn RoughJS intersection did not produce a sketch fill path".to_string(),
         });
     }
+
     Ok(ops_to_svg_path_d(&fill_path))
 }
 
@@ -216,7 +228,7 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
     let has_acc_title = model
         .acc_title
         .as_deref()
-        .is_some_and(|title| !title.trim().is_empty());
+        .is_some_and(|title_2| !title_2.trim().is_empty());
     let has_acc_descr = model
         .acc_descr
         .as_deref()
@@ -243,6 +255,7 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
         );
         out.checkpoint()?;
     }
+
     if has_acc_descr {
         let _ = write!(
             &mut out,
@@ -266,7 +279,7 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
     out.push_str("<g/>");
     out.checkpoint()?;
 
-    if let Some(title) = title {
+    if let Some(title_3) = title {
         let _ = write!(
             &mut out,
             r#"<text class="{class}" font-size="{font_size}px" text-anchor="middle" dominant-baseline="middle" x="50%" y="{y}" style="fill: {fill};">{text}</text>"#,
@@ -274,11 +287,11 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
             font_size = fmt(32.0 * layout.scale),
             y = fmt(32.0 * layout.scale),
             fill = escape_xml(title_fill),
-            text = escape_xml(title)
+            text = escape_xml(title_3)
         );
         out.checkpoint()?;
         title_theme.record_title();
-        typography_theme_receipt.record_title_text(crate::venn::VENN_TITLE_CLASS, title);
+        typography_theme_receipt.record_title_text(crate::venn::VENN_TITLE_CLASS, title_3);
     }
 
     let _ = write!(
@@ -297,19 +310,21 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
 
     for (area, paint) in layout.areas.iter().zip(&theme.areas) {
         let sets_key = stable_sets_key(&area.sets);
-        if let crate::venn::VennAreaPaintBinding::Circle(paint) = paint {
-            let base_color = &paint.fill;
-            let fill_opacity = paint.fill_opacity.as_str();
-            let stroke_color = paint.stroke.as_str();
-            let stroke_width = paint.stroke_width.as_str();
-            let text_color = &paint.text;
+
+        if let crate::venn::VennAreaPaintBinding::Circle(paint_2) = paint {
+            let base_color = &paint_2.fill;
+            let fill_opacity = paint_2.fill_opacity.as_str();
+            let stroke_color = paint_2.stroke.as_str();
+            let stroke_width = paint_2.stroke_width.as_str();
+            let text_color = &paint_2.text;
             let _ = write!(
                 &mut out,
                 r#"<g class="venn-area venn-circle venn-set-{set_class}" data-venn-sets="{sets}">"#,
-                set_class = circle_index % 8,
+                set_class = circle_index.wrapping_rem(8),
                 sets = escape_attr(&data_sets_attr(&area.sets)),
             );
             out.checkpoint()?;
+
             if is_hand_drawn {
                 let circle = area.circles.first().ok_or_else(|| Error::InvalidModel {
                     message: format!(
@@ -339,7 +354,7 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
                     fill_stroke = escape_attr(&fill_stroke),
                     stroke_path = escape_attr(&stroke_path),
                     stroke = escape_attr(stroke_color),
-                    stroke_width = fmt(stroke_width_value as f64),
+                    stroke_width = fmt(<f64 as ::core::convert::From<::core::primitive::f32>>::from(stroke_width_value)),
                 );
                 out.checkpoint()?;
             } else {
@@ -354,6 +369,7 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
                 );
                 out.checkpoint()?;
             }
+
             write_area_label(&mut out, area, 48.0 * layout.scale, text_color.as_str())?;
             typography_theme_receipt.record_circle_label(
                 crate::venn::VENN_CIRCLE_CLASS,
@@ -377,15 +393,16 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
                 sets = escape_attr(&data_sets_attr(&area.sets)),
             );
             out.checkpoint()?;
+
             if is_hand_drawn {
-                if let Some(fill) = custom_fill {
+                if let Some(fill_2) = custom_fill {
                     let fill_path = rough_intersection_fill_path(
                         &area.path,
-                        fill,
+                        fill_2,
                         &hand_drawn_seed,
                         options.work_meter(),
                     )?;
-                    let fill_stroke = transparentize(fill, 0.3)?;
+                    let fill_stroke = transparentize(fill_2, 0.3)?;
                     let _ = write!(
                         &mut out,
                         r#"<g><path d="{fill_path}" stroke="{fill_stroke}" stroke-width="2" fill="none"/></g>"#,
@@ -403,7 +420,10 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
                 }
             } else {
                 let fill = custom_fill.unwrap_or("transparent");
-                let fill_opacity = if custom_fill.is_some() { "1" } else { "0" };
+                let fill_opacity = match custom_fill {
+                    ::core::option::Option::Some(_) => { "1" },
+                    ::core::option::Option::None => { "0" },
+                };
                 let _ = write!(
                     &mut out,
                     r#"<path d="{path}" style="fill-opacity: {fill_opacity}; fill: {fill};"/>"#,
@@ -413,6 +433,7 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
                 );
                 out.checkpoint()?;
             }
+
             write_area_label(&mut out, area, 48.0 * layout.scale, text_color)?;
             typography_theme_receipt.record_intersection_label(
                 crate::venn::VENN_INTERSECTION_CLASS,
@@ -429,6 +450,7 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
     if !layout.text_areas.is_empty() {
         let mut nodes_by_key: HashMap<String, Vec<&crate::model::VennTextNodeLayout>> =
             HashMap::new();
+
         for node in &layout.text_nodes {
             nodes_by_key
                 .entry(stable_sets_key(&node.sets))
@@ -438,6 +460,7 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
 
         out.push_str(r#"<g class="venn-text-nodes">"#);
         out.checkpoint()?;
+
         for text_area in &layout.text_areas {
             let key = stable_sets_key(&text_area.sets);
             let nodes = nodes_by_key.get(&key).map(Vec::as_slice).unwrap_or(&[]);
@@ -447,6 +470,7 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
                 font_size = fmt(text_area.font_size)
             );
             out.checkpoint()?;
+
             if layout.use_debug_layout {
                 let _ = write!(
                     &mut out,
@@ -459,6 +483,7 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
                     gap = fmt(4.0 * layout.scale)
                 );
                 out.checkpoint()?;
+
                 for cell in &text_area.debug_cells {
                     let _ = write!(
                         &mut out,
@@ -478,11 +503,13 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
             for node in nodes {
                 let text_color = theme.text_node_colors.get(&node.id).map(String::as_str);
                 let mut span_style = "display: flex; width: 100%; height: 100%; white-space: normal; align-items: center; justify-content: center; text-align: center; overflow-wrap: normal; word-break: normal;".to_string();
-                if let Some(text_color) = text_color {
+
+                if let Some(text_color_2) = text_color {
                     span_style.push_str(" color: ");
-                    span_style.push_str(text_color);
+                    span_style.push_str(text_color_2);
                     span_style.push(';');
                 }
+
                 let label = crate::venn::rendered_text_node_label(node);
                 let _ = write!(
                     &mut out,
@@ -502,20 +529,24 @@ pub(crate) fn render_venn_diagram_svg_model_with_title_theme(
                     text_color.unwrap_or(text_fill),
                 );
             }
+
             out.push_str("</g>");
             out.checkpoint()?;
         }
+
         out.push_str("</g>");
         out.checkpoint()?;
     }
 
     out.push_str("</g></svg>\n");
-    let rooted = root_document.complete(out.finish()?)?;
+    let rooted = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if !typography_theme.record_terminal(typography_theme_receipt) {
         return Err(crate::Error::InvalidModel {
             message: "Venn typography theme receipt did not match the terminal SVG".to_string(),
         });
     }
+
     Ok(rooted)
 }
 

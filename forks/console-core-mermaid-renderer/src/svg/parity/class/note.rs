@@ -61,7 +61,7 @@ pub(super) fn render_class_note_node<O: SvgOutput>(
         "text-align:left !important;white-space:nowrap !important",
         None,
     );
-    let note_label_style = ctx.text_paint.map_or(note_label_style.clone(), |paint| {
+    let note_label_style_2 = ctx.text_paint.map_or(note_label_style.clone(), |paint| {
         format!("{note_label_style};{}", paint.style())
     });
     let note_src = note.text.trim();
@@ -156,9 +156,13 @@ pub(super) fn render_class_note_node<O: SvgOutput>(
         position.node_bounds_tx,
         position.node_bounds_ty,
     );
-    if let Some(s) = path_bounds_start {
-        stats.path_bounds += s.elapsed();
-        stats.path_bounds_calls += 1;
+
+    match path_bounds_start {
+        Some(s) => {
+            stats.path_bounds += s.elapsed();
+            stats.path_bounds_calls += 1;
+        },
+        ::core::option::Option::None => {},
     }
 
     let note_node_class = if hand_drawn {
@@ -169,6 +173,7 @@ pub(super) fn render_class_note_node<O: SvgOutput>(
     let note_data_look_attr = format!(r#" data-look="{}""#, escape_attr_display(ctx.look));
     let note_label_class = "label noteLabel";
     let mut note_shape = String::new();
+
     if hand_drawn {
         let _ = write!(
             &mut note_shape,
@@ -199,6 +204,7 @@ pub(super) fn render_class_note_node<O: SvgOutput>(
     }
 
     let emitted_style;
+
     if ctx.use_html_labels {
         let note_div_style =
             class_note_html_div_style(label_w, MERMAID_CREATE_TEXT_DEFAULT_WIDTH_PX as i64);
@@ -220,7 +226,7 @@ pub(super) fn render_class_note_node<O: SvgOutput>(
             fmt(label_h),
             escape_attr_display(&note_div_style),
         );
-        emitted_style = super::label::open_class_note_label(out, Some(&note_label_style));
+        emitted_style = super::label::open_class_note_label(out, Some(&note_label_style_2));
         let sanitize_start = ctx.timing.start();
         let note_html = if let Some(math_html) =
             class_math_html_label(note_src, Some(ctx.mermaid_config), ctx.math_renderer)
@@ -228,20 +234,28 @@ pub(super) fn render_class_note_node<O: SvgOutput>(
             if ctx.capture_text_facts {
                 stats.typography = crate::class::ClassTextTerminalFacts::unverified_text(note_src);
             }
+
             math_html
         } else {
             let html = crate::class::class_note_html_fragment(note_src, ctx.mermaid_config);
             let note_html = format!("<p>{html}</p>");
+
             if ctx.capture_text_facts {
                 let facts = crate::text::VisibleTextStyleFacts::from_xhtml_fragment(&note_html);
                 stats.typography =
                     crate::class::ClassTextTerminalFacts::from_visible_style_facts(&facts);
             }
+
             note_html
         };
-        if let Some(s) = sanitize_start {
-            stats.notes_sanitize += s.elapsed();
+
+        match sanitize_start {
+            Some(s) => {
+                stats.notes_sanitize += s.elapsed();
+            },
+            ::core::option::Option::None => {},
         }
+
         out.push_str(&note_html);
         out.push_str("</span></div></foreignObject></g></g>");
     } else {
@@ -257,18 +271,19 @@ pub(super) fn render_class_note_node<O: SvgOutput>(
             fmt(position.node_ty),
             note_shape,
             note_label_class,
-            escape_attr_display(&note_label_style),
+            escape_attr_display(&note_label_style_2),
             fmt(label_x),
             fmt(label_y),
         );
         emitted_style = super::super::label::write_svg_markdown_word_lines_with_style(
             out,
             svg_label.as_ref().expect("SVG note plan").lines(),
-            Some(&note_label_style),
+            Some(&note_label_style_2),
             crate::text::SvgTextEntityMode::DecodedModel,
         )
         .filter(|style| !style.is_empty());
         out.push_str("</g></g></g>");
+
         if ctx.capture_text_facts {
             let facts = crate::class::class_svg_label_visible_style_facts(note_text.as_ref());
             stats.typography =
@@ -276,8 +291,12 @@ pub(super) fn render_class_note_node<O: SvgOutput>(
         }
     }
 
-    if let Some(paint) = ctx.text_paint {
-        stats.typography = paint.observe(stats.typography, emitted_style);
+    match ctx.text_paint {
+        Some(paint) => {
+            stats.typography = paint.observe(stats.typography, emitted_style);
+        },
+        ::core::option::Option::None => {},
     }
+
     Ok(stats)
 }

@@ -5,6 +5,7 @@ use crate::graph_label::{
     is_single_img_label, normalize_flowchart_img_tags, starts_with_ascii_case_insensitive,
 };
 
+#[must_use]
 pub(in crate::svg::parity) fn flowchart_label_html_with_prepared_label<'a>(
     label: &'a str,
     label_type: &str,
@@ -28,19 +29,25 @@ pub(in crate::svg::parity) fn flowchart_label_html_with_prepared_label<'a>(
     }
 }
 
+#[must_use]
 fn flowchart_label_html_impl(
     label: &str,
     label_type: &str,
     config: &merman_model::presentation::PresentationConfig,
     math_renderer: Option<&(dyn crate::math::MathRenderer + Send + Sync)>,
 ) -> String {
-    if let Some(html) = crate::math::render_math_html_label(label, config, math_renderer) {
-        return html;
+    match crate::math::render_math_html_label(label, config, math_renderer) {
+        Some(html) => {
+            return html;
+        },
+        ::core::option::Option::None => {},
     }
+
     let html = crate::graph_label::flowchart_label_html_source(label, label_type, config);
     merman_markup::sanitize::sanitize_xhtml(&html, config.as_config())
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn flowchart_label_plain_text(
     label: &str,
     label_type: &str,
@@ -87,19 +94,20 @@ pub(crate) fn write_flowchart_svg_label_plan_with_style(
     let style = plan
         .merge_emission_font_style(include_style.then_some(""))
         .map(|style| append_svg_label_style(style, extra_style));
-    if let Some(style) = style.as_deref() {
+
+    if let Some(style_2) = style.as_deref() {
         crate::svg::parity::label::write_svg_text_source_word_lines_with_style(
             out,
             &lines,
-            style,
+            style_2,
             false,
             plan.font_weight(),
         );
-    } else if let Some(extra_style) = extra_style.filter(|style| !style.is_empty()) {
+    } else if let Some(extra_style_2) = extra_style.filter(|style_3| !style_3.is_empty()) {
         crate::svg::parity::label::write_svg_text_source_word_lines_with_style(
             out,
             &lines,
-            extra_style,
+            extra_style_2,
             false,
             plan.font_weight(),
         );
@@ -108,14 +116,22 @@ pub(crate) fn write_flowchart_svg_label_plan_with_style(
     }
 }
 
+#[must_use]
 fn append_svg_label_style(mut style: String, extra_style: Option<&str>) -> String {
-    let Some(extra_style) = extra_style.filter(|style| !style.is_empty()) else {
-        return style;
+    let extra_style_2 = {
+        let optional_extra_style = extra_style.filter(|style_2| !style_2.is_empty());
+
+        match optional_extra_style {
+            Some(matched_extra_style) => matched_extra_style,
+            ::core::option::Option::None => return style,
+        }
     };
+
     if !style.trim_end().ends_with(';') {
         style.push(';');
     }
-    style.push_str(extra_style);
+
+    style.push_str(extra_style_2);
     style
 }
 
@@ -125,13 +141,13 @@ pub(crate) fn write_flowchart_svg_label_plan_centered_with_style(
     style: &str,
 ) {
     let lines = plan.wrapped_lines();
-    let style = plan
+    let style_2 = plan
         .merge_emission_font_style(Some(style))
         .unwrap_or_else(|| style.to_string());
     crate::svg::parity::label::write_svg_text_source_word_lines_with_style(
         out,
         &lines,
-        &style,
+        &style_2,
         true,
         plan.font_weight(),
     );

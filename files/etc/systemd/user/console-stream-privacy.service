@@ -1,0 +1,18 @@
+[Unit]
+Description=OBS stream privacy
+PartOf=console.target
+After=console-notify.service console-idle.service
+ConditionEnvironment=WAYLAND_DISPLAY
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/stream-privacy
+ExecStopPost=-/usr/bin/rm -f %t/console/bar-applets/obs.txt
+Restart=on-failure
+RestartSec=2
+PrivateDevices=yes
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=console.target

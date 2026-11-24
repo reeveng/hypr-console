@@ -26,6 +26,7 @@ pub(crate) use theme::{
     RadarSeriesPaintPlan, RadarTitleThemePlan, RadarTypographyCssEmission, RadarTypographyThemePlan,
 };
 
+#[must_use]
 pub(crate) fn effective_title<'a>(
     model: &'a RadarDiagramModel,
     diagram_title: Option<&'a str>,
@@ -54,6 +55,7 @@ struct RadarLayoutWork {
 }
 
 impl RadarLayoutWork {
+    #[must_use]
     fn from_model(model: &RadarDiagramModel, ticks: usize) -> Self {
         let axes = model.axes.len();
         let curves = model.curves.len();
@@ -74,6 +76,7 @@ impl RadarLayoutWork {
         }
     }
 
+    #[must_use]
     fn total(self) -> usize {
         [
             self.axes,
@@ -89,35 +92,50 @@ impl RadarLayoutWork {
     }
 }
 
+#[must_use]
 fn nonnegative_usize(v: &Value) -> usize {
-    if let Some(value) = v.as_u64() {
-        return usize::try_from(value).unwrap_or(usize::MAX);
+    match v.as_u64() {
+        Some(value) => {
+            return usize::try_from(value).unwrap_or(usize::MAX);
+        },
+        ::core::option::Option::None => {},
     }
-    v.as_i64()
-        .and_then(|value| usize::try_from(value).ok())
-        .unwrap_or(0)
+
+    match v.as_i64()
+        .and_then(|value| match usize::try_from(value) { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0,
+    }
 }
 
+#[must_use]
 fn fmt_number(v: f64) -> String {
     if !v.is_finite() {
         return "0".to_string();
     }
+
     let mut r = (v * 1000.0).round() / 1000.0;
+
     if r.abs() < 0.0005 {
         r = 0.0;
     }
+
     let mut s = format!("{r:.3}");
+
     if s.contains('.') {
         while s.ends_with('0') {
             s.pop();
         }
+
         if s.ends_with('.') {
             s.pop();
         }
     }
+
     if s == "-0" { "0".to_string() } else { s }
 }
 
+#[must_use]
 fn polar_xy(radius: f64, angle: f64) -> LayoutPoint {
     LayoutPoint {
         x: radius * angle.cos(),
@@ -125,10 +143,15 @@ fn polar_xy(radius: f64, angle: f64) -> LayoutPoint {
     }
 }
 
+#[must_use]
 fn closed_round_curve_path(points: &[LayoutPoint], tension: f64) -> String {
-    if points.is_empty() {
-        return String::new();
+    match points {
+        [] => {
+            return String::new();
+        },
+        [_, ..] => {},
     }
+
     if points.len() == 1 {
         let p = points[0].clone();
         return format!("M{},{}Z", fmt_number(p.x), fmt_number(p.y));
@@ -139,14 +162,15 @@ fn closed_round_curve_path(points: &[LayoutPoint], tension: f64) -> String {
     out.push_str(&format!("M{},{}", fmt_number(p0.x), fmt_number(p0.y)));
 
     let n = points.len();
+
     for i in 0..n {
-        let p0 = points[(i + n - 1) % n].clone();
+        let p0_2 = points[(i + n - 1) % n].clone();
         let p1 = points[i].clone();
         let p2 = points[(i + 1) % n].clone();
         let p3 = points[(i + 2) % n].clone();
 
-        let [first_x, second_x] = kurbo::bezier::catmull_rom_controls([p0.x, p1.x, p2.x, p3.x], tension);
-        let [first_y, second_y] = kurbo::bezier::catmull_rom_controls([p0.y, p1.y, p2.y, p3.y], tension);
+        let [first_x, second_x] = kurbo::bezier::catmull_rom_controls([p0_2.x, p1.x, p2.x, p3.x], tension);
+        let [first_y, second_y] = kurbo::bezier::catmull_rom_controls([p0_2.y, p1.y, p2.y, p3.y], tension);
 
         out.push_str(&format!(
             " C{},{} {},{} {},{}",
@@ -158,6 +182,7 @@ fn closed_round_curve_path(points: &[LayoutPoint], tension: f64) -> String {
             fmt_number(p2.y)
         ));
     }
+
     out.push_str(" Z");
     out
 }
@@ -226,6 +251,7 @@ pub(crate) fn layout_radar_diagram_typed_with_work_meter(
     let layout_work = RadarLayoutWork::from_model(model, ticks);
     work_meter.charge(layout_work.total())?;
     let mut axes: Vec<RadarAxisLayout> = Vec::new();
+
     if axis_count > 0 {
         for (i, axis) in model.axes.iter().enumerate() {
             let angle = -std::f64::consts::FRAC_PI_2
@@ -244,20 +270,25 @@ pub(crate) fn layout_radar_diagram_typed_with_work_meter(
     }
 
     let mut graticules: Vec<RadarGraticuleShapeLayout> = Vec::new();
+
     if ticks > 0 {
         for t in 1..=ticks {
             let r = base_radius * (t as f64) / (ticks as f64);
+
             if model.options.graticule.trim() == "polygon" {
-                let points = if axis_count == 0 {
-                    Vec::new()
-                } else {
-                    (0..axis_count)
-                        .map(|i| {
-                            let angle = -std::f64::consts::FRAC_PI_2
-                                + (i as f64) * (std::f64::consts::TAU / (axis_count as f64));
-                            polar_xy(r, angle)
-                        })
-                        .collect()
+                let points = match axis_count {
+                    0 => {
+                        Vec::new()
+                    },
+                    _ => {
+                        (0..axis_count)
+                            .map(|i| {
+                                let angle = -std::f64::consts::FRAC_PI_2
+                                    + (i as f64) * (std::f64::consts::TAU / (axis_count as f64));
+                                polar_xy(r, angle)
+                            })
+                            .collect()
+                    },
                 };
                 graticules.push(RadarGraticuleShapeLayout {
                     kind: "polygon".to_string(),
@@ -275,34 +306,52 @@ pub(crate) fn layout_radar_diagram_typed_with_work_meter(
     }
 
     let mut inferred_max: f64 = 0.0;
+
     for c in &model.curves {
         for v in &c.entries {
-            if let Some(v) = json_f64(v).filter(|v| v.is_finite()) {
-                inferred_max = inferred_max.max(v);
+            {
+                match json_f64(v).filter(|v_2| v_2.is_finite()) {
+                    Some(v_3) => {
+                        inferred_max = inferred_max.max(v_3);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }
-    let max_value = model
+
+    let max_value = match model
         .options
         .max
         .as_ref()
-        .and_then(json_f64)
-        .unwrap_or(inferred_max);
-    let min_value = json_f64(&model.options.min).unwrap_or(0.0);
+        .and_then(json_f64) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => inferred_max,
+    };
+    let min_value = match json_f64(&model.options.min) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0.0,
+    };
     let denom = (max_value - min_value).abs().max(1e-9);
 
     let mut curves: Vec<RadarCurveLayout> = Vec::new();
+
     for (curve_idx, curve) in model.curves.iter().enumerate() {
         let mut points: Vec<LayoutPoint> = Vec::new();
+
         if axis_count > 0 {
             for i in 0..axis_count {
                 let angle = -std::f64::consts::FRAC_PI_2
                     + (i as f64) * (std::f64::consts::TAU / (axis_count as f64));
-                let v = curve.entries.get(i).and_then(json_f64).unwrap_or(min_value);
+                let v = match curve.entries.get(i).and_then(json_f64) {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => min_value,
+                };
                 let frac = ((v - min_value) / denom).clamp(0.0, 1.0);
                 points.push(polar_xy(base_radius * frac, angle));
             }
         }
+
         let path_d = if model.options.graticule.trim() == "polygon" {
             String::new()
         } else {
@@ -317,10 +366,12 @@ pub(crate) fn layout_radar_diagram_typed_with_work_meter(
     }
 
     let mut legend_items: Vec<RadarLegendItemLayout> = Vec::new();
+
     if model.options.show_legend && !curves.is_empty() {
         let base_x = ((width / 2.0 + margin_right) * 3.0) / 4.0;
         let base_y = (-(height / 2.0 + margin_top) * 3.0) / 4.0;
         let step_y = 20.0;
+
         for (i, c) in model.curves.iter().enumerate() {
             legend_items.push(RadarLegendItemLayout {
                 label: c.label.clone(),

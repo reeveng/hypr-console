@@ -109,15 +109,12 @@ impl Default for CdfCoefContext {
 #[repr(C)]
 pub struct CdfModeContext {
   pub uv_mode: Align32<
-    [[[u16; {
+    [[[u16;
       match console_core_number_conversion::const_u8_index(N_UV_INTRA_PRED_MODES.wrapping_add(2))
       {
         Ok(extent) => extent,
-      }
-    }]; {
-      match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES) {
-        Ok(extent) => extent,
-      }
+      }]; match console_core_number_conversion::const_u8_index(N_INTRA_PRED_MODES) {
+      Ok(extent) => extent,
     }]; 2],
   >,
 

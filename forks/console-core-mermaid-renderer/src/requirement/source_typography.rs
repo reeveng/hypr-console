@@ -43,8 +43,8 @@ struct SourceDeclarations<'a> {
 
 impl<'a> SourceDeclarations<'a> {
     fn observe(&mut self, declaration: ParsedStyleDeclaration<'a>) {
-        // styles2String drops source importance and emits every value as !important.
-        // Font shorthand is not a label style in this writer.
+
+
         match declaration.property() {
             "font-family" => {
                 self.font_family = Some(declaration.value());
@@ -61,24 +61,29 @@ impl<'a> SourceDeclarations<'a> {
     }
 }
 
+#[must_use]
 fn static_font_weight(value: &str) -> bool {
     is_supported_css_font_weight_value(value)
         && !value.eq_ignore_ascii_case("bolder")
         && !value.eq_ignore_ascii_case("lighter")
 }
 
+#[must_use]
 fn static_font_size_px(value: &str) -> Option<f64> {
     let mut parser = cssparser::Parser::new(value);
+
     match parser.next().ok()? {
-        cssparser::Token::Number { value, .. } if *value == 0.0 => {}
+        cssparser::Token::Number { value: value_2, .. } if ::core::matches!(::core::primitive::f32::classify(*value_2), ::core::num::FpCategory::Zero) => {}
         cssparser::Token::Dimension { unit, .. } if unit.eq_ignore_ascii_case("px") => {}
         _ => return None,
     }
+
     parser.expect_exhausted().ok()?;
     crate::mermaid_style::parse_svg_number_or_px(value)
 }
 
 impl RequirementNodeTypography {
+    #[must_use]
     pub(super) fn svg_terminal_measurer<'a>(
         &'a self,
         measurer: &'a dyn TextMeasurer,
@@ -105,12 +110,20 @@ impl RequirementNodeTypography {
         work_meter: &Arc<OperationWorkMeter>,
     ) -> Result<Self> {
         let mut source = SourceDeclarations::default();
+
         for raw in declarations {
             work_meter.charge(raw.len().div_ceil(64).saturating_add(1))?;
-            if let Some(declaration) = parse_style_declaration(raw) {
-                source.observe(declaration);
+
+            {
+                match parse_style_declaration(raw) {
+                    Some(declaration) => {
+                        source.observe(declaration);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
+
         if source.font_family.is_none()
             && source.font_size.is_none()
             && source.font_weight.is_none()
@@ -118,6 +131,7 @@ impl RequirementNodeTypography {
         {
             return Ok(Self::default());
         }
+
         let retained_bytes = std::mem::size_of::<SourceTypography>()
             .checked_add(2 * std::mem::size_of::<usize>())
             .and_then(|bytes| bytes.checked_add(source.font_family.map_or(0, str::len)))
@@ -159,6 +173,7 @@ impl RequirementNodeTypography {
         })
     }
 
+    #[must_use]
     pub(crate) fn font_family_ownership(&self) -> CssFontFamilyOwnership {
         self.source
             .as_ref()
@@ -167,6 +182,7 @@ impl RequirementNodeTypography {
             })
     }
 
+    #[must_use]
     pub(crate) fn font_size_ownership(&self) -> CssFontSizeOwnership {
         self.source
             .as_ref()
@@ -175,12 +191,14 @@ impl RequirementNodeTypography {
             })
     }
 
+    #[must_use]
     pub(crate) fn has_zero_font_size(&self) -> bool {
         self.source
             .as_ref()
             .is_some_and(|source| source.font_size_px == Some(0.0))
     }
 
+    #[must_use]
     pub(super) fn apply_to<'a>(
         &self,
         base: &'a RequirementMeasurementStyles,
@@ -199,44 +217,47 @@ impl RequirementNodeTypography {
         }) {
             return Cow::Borrowed(base);
         }
+
         Cow::Owned(RequirementMeasurementStyles {
             node_wrap_mode: base.node_wrap_mode,
             edge_wrap_mode: base.edge_wrap_mode,
             html_regular: self.resolve_text_style(&base.html_regular),
             html_bold: self.resolve_text_style(&base.html_bold),
-            // calculateTextWidth's root/config probe intentionally remains independent.
+
             calculation: base.calculation.clone(),
         })
     }
 
+    #[must_use]
     pub(crate) fn resolve_text_style(&self, base: &TextStyle) -> TextStyle {
         let source = self.source.as_ref();
         let font_family = source
-            .filter(|source| source.font_family_ownership == CssFontFamilyOwnership::SourceOwned)
-            .map_or(&base.font_family, |source| &source.font_family);
+            .filter(|source_2| source_2.font_family_ownership == CssFontFamilyOwnership::SourceOwned)
+            .map_or(&base.font_family, |source_3| &source_3.font_family);
         TextStyle {
             font_family: font_family.clone(),
             font_size: source
-                .and_then(|source| source.font_size_px)
+                .and_then(|source_4| source_4.font_size_px)
                 .unwrap_or(base.font_size),
             font_weight: source
-                .and_then(|source| source.font_weight.as_deref())
+                .and_then(|source_5| source_5.font_weight.as_deref())
                 .filter(|value| static_font_weight(value))
                 .map(|value| value.to_ascii_lowercase())
                 .or_else(|| base.font_weight.clone()),
             font_style: source
-                .and_then(|source| source.font_style.as_deref())
+                .and_then(|source_6| source_6.font_style.as_deref())
                 .filter(|value| is_supported_css_font_style_value(value))
                 .map(|value| value.to_ascii_lowercase())
                 .or_else(|| base.font_style.clone()),
         }
     }
 
+    #[must_use]
     pub(crate) fn matches_emitted_style(&self, label_styles: &str) -> bool {
         let mut emitted = SourceDeclarations::default();
         visit_parsed_style_declarations(label_styles, |declaration| emitted.observe(declaration));
         let expected = self.source.as_ref();
-        // Unmodeled faces affect both family selection and measured font-size geometry.
+
         expected.is_none_or(|source| source.font_faces_verified)
             && emitted.font_weight == expected.and_then(|source| source.font_weight.as_deref())
             && emitted.font_style == expected.and_then(|source| source.font_style.as_deref())
@@ -254,6 +275,7 @@ pub(crate) struct RequirementNodeMeasurer<'a> {
 }
 
 impl RequirementNodeMeasurer<'_> {
+    #[must_use]
     pub(crate) fn as_measurer(&self) -> &dyn TextMeasurer {
         if self.source.is_some() || self.bold {
             self
@@ -262,28 +284,42 @@ impl RequirementNodeMeasurer<'_> {
         }
     }
 
+    #[must_use]
     fn final_style(&self, style: &TextStyle) -> TextStyle {
-        let mut style = style.clone();
+        let mut style_2 = style.clone();
+
         if self.bold {
-            style.font_weight = Some("bold".to_owned());
+            style_2.font_weight = Some("bold".to_owned());
         }
-        if let Some(source) = self.source {
-            if let Some(weight) = source
-                .font_weight
-                .as_deref()
-                .filter(|value| static_font_weight(value))
-            {
-                style.font_weight = Some(weight.to_ascii_lowercase());
-            }
-            if let Some(face) = source
-                .font_style
-                .as_deref()
-                .filter(|value| is_supported_css_font_style_value(value))
-            {
-                style.font_style = Some(face.to_ascii_lowercase());
-            }
+
+        match self.source {
+            Some(source) => {
+                match source
+                    .font_weight
+                    .as_deref()
+                    .filter(|value| static_font_weight(value)) {
+                    Some(weight) => {
+                        style_2.font_weight = Some(weight.to_ascii_lowercase());
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                {
+                    match source
+                        .font_style
+                        .as_deref()
+                        .filter(|value| is_supported_css_font_style_value(value)) {
+                        Some(face) => {
+                            style_2.font_style = Some(face.to_ascii_lowercase());
+                        },
+                        ::core::option::Option::None => {},
+                    };
+                }
+            },
+            ::core::option::Option::None => {},
         }
-        style
+
+        style_2
     }
 }
 

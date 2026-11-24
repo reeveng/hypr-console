@@ -4,8 +4,9 @@
 //! thread, a device, or a deadline keeps it from handling the next request.
 //! Offer an effect instead and have the driver deliver the outcome as a request.
 //! The pass follows statically resolved calls within the crate from
-//! `Machine::initialize` and `Machine::handle`. It reports the call in the
-//! machine and points to the blocking call when it is reached through a helper.
+//! the handlers and initializers of `Machine` and `SingleEffectMachine`.
+//! It reports the call in the machine and points to the blocking operation
+//! when a helper reaches it.
 //! Closures can be handed to an effect runner, so the pass leaves their bodies
 //! to the code that invokes them. The migration needs a decision about the
 //! reply and what state to keep while waiting.
@@ -39,10 +40,12 @@ fn migration(path: &str) -> Option<&'static str> {
     let module = module.split_once("::<").map_or(module, |(name, _)| name);
     let guidance = match (module, method) {
         ("std::thread", "sleep" | "sleep_until") => {
-            "schedule `Subscription::Once` and continue on its `Event::Tick`"
+            "offer a timer effect and resume on its reply. Programs can schedule \
+             `Subscription::Once` and resume on `Event::Tick`"
         }
         ("std::process::Command", "status" | "output") => {
-            "offer `Effect::Run` or `Effect::Fork` and handle the result in `Event::Replied`"
+            "offer a process effect and handle its reply. Programs can use `Effect::Run` or \
+             `Effect::Fork` with `Event::Replied`"
         }
         ("std::fs", "read" | "read_to_string" | "read_dir" | "metadata")
         | ("std::fs::File", "open") => {
@@ -131,7 +134,9 @@ fn calls<'tcx>(tcx: TyCtxt<'tcx>, body: &'tcx Body<'tcx>) -> Vec<Call> {
 fn machine_method(cx: &LateContext<'_>, item: LocalDefId) -> Option<&'static str> {
     let implementation = cx.tcx.trait_impl_of_assoc(item.to_def_id())?;
     let machine = cx.tcx.impl_trait_ref(implementation).skip_binder().def_id;
-    if cx.tcx.def_path_str(machine) != "console_core_state_machine::Machine" {
+    if cx.tcx.crate_name(machine.krate).as_str() != "console_core_state_machine"
+        || !matches!(cx.tcx.item_name(machine).as_str(), "Machine" | "SingleEffectMachine")
+    {
         return None;
     }
 
@@ -190,7 +195,10 @@ impl<'tcx> LateLintPass<'tcx> for Explicit105NoBlockingInHandler {
                     if blocking.node != origin.node {
                         diagnostic.span_note(blocking.span, "this helper reaches a blocking operation");
                     }
-                    diagnostic.help(help);
+                    diagnostic.help(format!(
+                        "{help}. When the machine needs a reply, record the pending work in its \
+                         state and decide how to handle failure, cancellation, and stale replies"
+                    ));
                 },
             );
         }

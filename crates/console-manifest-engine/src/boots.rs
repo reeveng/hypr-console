@@ -34,8 +34,10 @@
 use std::cmp::Ordering;
 
 use console_core_never::Never;
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
 
 use crate::generations::{self, Boot, Generation, SnapshotNumber};
+use crate::unapplied::Unapplied;
 
 pub const TRIES: u32 = 3;
 
@@ -57,6 +59,92 @@ pub enum Event {
   Started,
   Complete,
   Failed,
+}
+
+pub(crate) struct Recording {
+  pub(crate) event: Event,
+  pub(crate) kept: Vec<Generation>,
+}
+
+pub(crate) enum State {
+  Remembering(OneShot),
+  Selecting,
+  Finished(Result<(), Unapplied>),
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Effect {
+  Remember(Generation),
+  Select(Selection),
+}
+
+impl EffectDependencies for Effect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Remember(_) => &[Service::FileSystem, Service::Console],
+      Self::Select(Selection::Clear) => &[Service::Process],
+      Self::Select(Selection::Snapshot(_)) => {
+        &[Service::FileSystem, Service::Console, Service::Process]
+      }
+    })
+  }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum Selection {
+  Clear,
+  Snapshot(SnapshotNumber),
+}
+
+pub(crate) enum Report {
+  Remembered(Result<(), Unapplied>),
+  Selected(Result<(), Unapplied>),
+}
+
+pub(crate) struct BootRecord;
+
+impl Machine for BootRecord {
+  type Input = Recording;
+  type State = State;
+  type Request = Report;
+  type Effect = Effect;
+
+  fn initialize(
+    input: &Recording,
+    _previous: Option<State>,
+    effects: &mut Queue<Effect>,
+  ) -> Result<State, Never> {
+    let Ok(decision) = decide(input.event, &input.kept);
+
+    match decision.generation {
+      Some(generation) => {
+        let Ok(()) = effects.offer(Effect::Remember(generation));
+
+        Ok(State::Remembering(decision.one_shot))
+      }
+      None => select(decision.one_shot, effects),
+    }
+  }
+
+  fn handle(state: State, report: Report, effects: &mut Queue<Effect>) -> Result<State, Never> {
+    match (state, report) {
+      (State::Remembering(next), Report::Remembered(Ok(()))) => select(next, effects),
+      (State::Remembering(_), Report::Remembered(Err(fault))) => Ok(State::Finished(Err(fault))),
+      (State::Selecting, Report::Selected(result)) => Ok(State::Finished(result)),
+      (unchanged, _) => Ok(unchanged),
+    }
+  }
+}
+
+fn select(one_shot: OneShot, effects: &mut Queue<Effect>) -> Result<State, Never> {
+  let selection = match one_shot {
+    OneShot::Leave => return Ok(State::Finished(Ok(()))),
+    OneShot::Clear => Selection::Clear,
+    OneShot::Snapshot(number) => Selection::Snapshot(number),
+  };
+  let Ok(()) = effects.offer(Effect::Select(selection));
+
+  Ok(State::Selecting)
 }
 
 pub fn decide(event: Event, kept: &[Generation]) -> Result<Decided, Never> {
@@ -194,6 +282,37 @@ mod tests {
       tries,
       boot,
     })
+  }
+
+  #[test]
+  fn the_rollback_entry_waits_for_the_generation_write() {
+    let Ok(generation) = applied(1, Some(12), Tries(2), Boot::Pending);
+    let input = Recording {
+      event: Event::Started,
+      kept: vec![generation],
+    };
+
+    let Ok(remembering) = BootRecord::initial_transition(&input, None);
+    assert!(
+      matches!(remembering.effects.as_slice(), [Effect::Remember(record)] if record.tries == TRIES)
+    );
+    let Ok(selecting) = BootRecord::transition(remembering.state, Report::Remembered(Ok(())));
+    assert_eq!(
+      selecting.effects,
+      [Effect::Select(Selection::Snapshot(SnapshotNumber(12)))]
+    );
+    let Ok(done) = BootRecord::transition(selecting.state, Report::Selected(Ok(())));
+    assert!(matches!(done.state, super::State::Finished(Ok(()))));
+
+    let Ok(remembering_2) = BootRecord::initial_transition(&input, None);
+    let failure = Unapplied::OneShotRefused("temporary disk failure".to_string());
+    let Ok(failed) =
+      BootRecord::transition(remembering_2.state, Report::Remembered(Err(failure)));
+    assert!(failed.effects.is_empty());
+    assert!(matches!(
+      failed.state,
+      super::State::Finished(Err(Unapplied::OneShotRefused(message))) if message == "temporary disk failure"
+    ));
   }
 
   fn tried(kept: &[Generation], times: u32) -> Result<(Vec<Generation>, Vec<OneShot>), Never> {

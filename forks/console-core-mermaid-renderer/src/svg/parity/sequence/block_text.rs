@@ -32,6 +32,7 @@ pub(super) struct LoopTextPlacement {
 }
 
 impl<'a> LoopTextRenderContext<'a> {
+    #[must_use]
     fn katex_label(
         &self,
         occurrence_id: &str,
@@ -43,12 +44,14 @@ impl<'a> LoopTextRenderContext<'a> {
     }
 }
 
+#[must_use]
 pub(super) fn display_block_label(raw_label: &str, always_show: bool) -> Option<String> {
-    // Keep entity spelling intact through wrapping and break splitting.
+
     let t = raw_label.trim();
+
     if t.is_empty() {
         if always_show {
-            // Mermaid renders empty block labels as a zero-width space inside `<tspan>`.
+
             Some("\u{200B}".to_string())
         } else {
             None
@@ -76,12 +79,15 @@ pub(super) fn wrap_svg_text_lines(
     } else {
         let split_lines = crate::text::split_html_br_lines(text);
         let mut lines = Vec::with_capacity(split_lines.len());
+
         for line in split_lines {
             checkpoints.checkpoint()?;
             lines.push(line.to_string());
         }
+
         lines
     };
+
     if lines.is_empty() {
         Ok(vec!["".to_string()])
     } else {
@@ -97,6 +103,7 @@ pub(super) fn write_loop_text_lines(
     text: &str,
 ) -> Result<()> {
     ctx.checkpoints.checkpoint()?;
+
     if let Some(katex) = ctx.katex_label(occurrence_id) {
         let x = (placement.x - katex.width / 2.0).round();
         write_sequence_katex_foreign_object(out, &katex, x, placement.block_start_y.round());
@@ -125,27 +132,28 @@ pub(super) fn write_loop_text_lines(
         placement.max_width,
         ctx.checkpoints,
     )?;
+
     for (i, line) in lines.into_iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(i)?;
         let first_y = sequence_drawn_text_first_y(placement.y0, ctx.margin);
         let y = sequence_drawn_text_y(first_y, ctx.margin, preceding_height);
         let dy = block_text_dy(i, ctx.margin, ctx.style.font_size);
         let prepared = crate::sequence::prepare_sequence_text_line(&line);
-        let line = if prepared.is_empty() {
+        let line_2 = if prepared.is_empty() {
             "\u{200b}"
         } else {
             prepared.as_ref()
         };
         let style = ctx.typography.terminal_style("", css.clone());
-        let paintless = ctx.text_shadow.is_paintless(line);
+        let paintless = ctx.text_shadow.is_paintless(line_2);
         let shadow = if paintless {
             None
         } else {
             ctx.text_shadow.write_definition(
                 out,
-                line,
+                line_2,
                 placement.x,
-                y + if ctx.margin == 0.0 {
+                y + if ::core::matches!(::core::primitive::f64::classify(ctx.margin), ::core::num::FpCategory::Zero) {
                     i as f64 * ctx.style.font_size
                 } else {
                     0.0
@@ -155,10 +163,13 @@ pub(super) fn write_loop_text_lines(
                 ctx.measurer,
             )?
         };
-        let filter = shadow
+        let filter = match shadow
             .as_ref()
-            .map(|s| format!(" filter=\"{}\"", escape_attr(&s.filter)))
-            .unwrap_or_default();
+            .map(|s| format!(" filter=\"{}\"", escape_attr(&s.filter))) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
+
         if placement.use_tspan {
             let _ = write!(
                 out,
@@ -166,7 +177,7 @@ pub(super) fn write_loop_text_lines(
                 x = fmt(placement.x),
                 y = fmt(y),
                 style = escape_attr_display(&style),
-                text = super::escape_prepared_text(line)
+                text = super::escape_prepared_text(line_2)
             );
         } else {
             let _ = write!(
@@ -175,9 +186,10 @@ pub(super) fn write_loop_text_lines(
                 x = fmt(placement.x),
                 y = fmt(y),
                 style = escape_attr_display(&style),
-                text = super::escape_prepared_text(line)
+                text = super::escape_prepared_text(line_2)
             );
         }
+
         ctx.typography_receipt
             .record_terminal_text(crate::sequence::SequenceTextSurface::ControlPrimaryTitle);
         out.checkpoint()?;
@@ -188,6 +200,7 @@ pub(super) fn write_loop_text_lines(
             ctx.typography_receipt,
             crate::sequence::SequenceTextSurface::ControlPrimaryTitle,
         );
+
         if ctx.margin > 0.0 {
             let node = if placement.use_tspan {
                 SequenceDrawnTextNode::Tspan
@@ -196,13 +209,14 @@ pub(super) fn write_loop_text_lines(
             };
             preceding_height += measure_sequence_drawn_line_height(
                 ctx.measurer,
-                line,
+                line_2,
                 &drawn_style,
                 node,
                 ctx.checkpoints.text(),
             )?;
         }
     }
+
     ctx.checkpoints.checkpoint()
 }
 
@@ -221,10 +235,11 @@ pub(super) fn write_section_title_lines(
     text: &str,
 ) -> Result<()> {
     ctx.checkpoints.checkpoint()?;
+
     if let Some(katex) = ctx.katex_label(occurrence_id) {
-        let x = (x - katex.width / 2.0).round();
+        let x_2 = (x - katex.width / 2.0).round();
         let y = (section_start_y - katex.height).round();
-        write_sequence_katex_foreign_object(out, &katex, x, y);
+        write_sequence_katex_foreign_object(out, &katex, x_2, y);
         record_sequence_katex_terminal_emission(
             ctx.typography_receipt,
             crate::sequence::SequenceTextSurface::ControlSectionTitle,
@@ -244,27 +259,28 @@ pub(super) fn write_section_title_lines(
     let css = super::settings::sequence_text_style_attribute(ctx.style);
     let mut preceding_height = 0.0;
     let lines = wrap_svg_text_lines(text, ctx.measurer, ctx.style, max_width, ctx.checkpoints)?;
+
     for (i, line) in lines.into_iter().enumerate() {
         ctx.checkpoints.checkpoint_loop(i)?;
         let first_y = sequence_drawn_text_first_y(y0, ctx.margin);
         let y = sequence_drawn_text_y(first_y, ctx.margin, preceding_height);
         let dy = block_text_dy(i, ctx.margin, ctx.style.font_size);
         let prepared = crate::sequence::prepare_sequence_text_line(&line);
-        let line = if prepared.is_empty() {
+        let line_2 = if prepared.is_empty() {
             "\u{200b}"
         } else {
             prepared.as_ref()
         };
         let style = ctx.typography.terminal_style("", css.clone());
-        let paintless = ctx.text_shadow.is_paintless(line);
+        let paintless = ctx.text_shadow.is_paintless(line_2);
         let shadow = if paintless {
             None
         } else {
             ctx.text_shadow.write_definition(
                 out,
-                line,
+                line_2,
                 x,
-                y + if ctx.margin == 0.0 {
+                y + if ::core::matches!(::core::primitive::f64::classify(ctx.margin), ::core::num::FpCategory::Zero) {
                     i as f64 * ctx.style.font_size
                 } else {
                     0.0
@@ -274,17 +290,19 @@ pub(super) fn write_section_title_lines(
                 ctx.measurer,
             )?
         };
-        let filter = shadow
+        let filter = match shadow
             .as_ref()
-            .map(|s| format!(" filter=\"{}\"", escape_attr(&s.filter)))
-            .unwrap_or_default();
+            .map(|s| format!(" filter=\"{}\"", escape_attr(&s.filter))) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
         let _ = write!(
             out,
             r#"<text x="{x}" y="{y}" text-anchor="middle" class="sectionTitle"{dy} style="{style}"{filter}>{text}</text>"#,
             x = fmt(x),
             y = fmt(y),
             style = escape_attr_display(&style),
-            text = super::escape_prepared_text(line)
+            text = super::escape_prepared_text(line_2)
         );
         ctx.typography_receipt
             .record_terminal_text(crate::sequence::SequenceTextSurface::ControlSectionTitle);
@@ -296,21 +314,24 @@ pub(super) fn write_section_title_lines(
             ctx.typography_receipt,
             crate::sequence::SequenceTextSurface::ControlSectionTitle,
         );
+
         if ctx.margin > 0.0 {
             preceding_height += measure_sequence_drawn_line_height(
                 ctx.measurer,
-                line,
+                line_2,
                 &drawn_style,
                 SequenceDrawnTextNode::Direct,
                 ctx.checkpoints.text(),
             )?;
         }
     }
+
     ctx.checkpoints.checkpoint()
 }
 
+#[must_use]
 fn block_text_dy(index: usize, margin: f64, font_size: f64) -> String {
-    if margin == 0.0 && index != 0 {
+    if ::core::matches!(::core::primitive::f64::classify(margin), ::core::num::FpCategory::Zero) && index != 0 {
         format!(r#" dy="{}""#, fmt(index as f64 * font_size))
     } else {
         String::new()

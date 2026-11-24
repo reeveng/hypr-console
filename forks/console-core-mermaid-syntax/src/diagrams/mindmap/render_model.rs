@@ -20,17 +20,32 @@ pub(super) fn model_into_render_model_controlled(
     control: &OperationControl,
 ) -> OperationControlResult<Result<MindmapDiagramRenderModel>> {
     control.checkpoint()?;
-    let Some(root_id) = model.nodes.first().map(|node| node.id) else {
-        return Ok(Ok(MindmapDiagramRenderModel::default()));
+
+    let root_id = {
+        let optional_root_id = model.nodes.first().map(|node| node.id);
+
+        match optional_root_id {
+            Some(matched_root_id) => matched_root_id,
+            ::core::option::Option::None => return Ok(Ok(MindmapDiagramRenderModel::default())),
+        }
     };
+
     let config = meta.effective_config.as_config();
-    let width = super::utils::get_i64(config, "mindmap.maxNodeWidth").unwrap_or(200);
-    let base_padding = super::utils::get_i64(config, "mindmap.padding").unwrap_or(10);
+    let width = match super::utils::get_i64(config, "mindmap.maxNodeWidth") {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 200,
+    };
+    let base_padding = match super::utils::get_i64(config, "mindmap.padding") {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 10,
+    };
     let mut nodes = Vec::with_capacity(model.nodes.len());
+
     for (index, node) in model.nodes.into_iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         let padding = match node.node_type {
             NODE_TYPE_ROUNDED_RECT | NODE_TYPE_RECT | NODE_TYPE_HEXAGON => base_padding * 2,
             _ => base_padding,
@@ -53,20 +68,22 @@ pub(super) fn model_into_render_model_controlled(
             is_root: node.is_root,
         });
     }
+
     let mut projection = MindmapProjection { nodes };
     let display = MindmapDisplayPolicy::from_config(config);
     projection.assign_sections_controlled(root_id, None, display, control)?;
-    let nodes =
+    let nodes_2 =
         projection.to_layout_nodes_for_render_controlled(root_id, config, display, control)?;
     let edges = projection.to_edges_for_render_controlled(root_id, config, control)?;
     control.checkpoint()?;
-    Ok(Ok(MindmapDiagramRenderModel { nodes, edges }))
+    Ok(Ok(MindmapDiagramRenderModel { nodes: nodes_2, edges }))
 }
 
 struct MindmapProjection {
     nodes: Vec<MindmapProjectionNode>,
 }
 
+#[must_use]
 fn mindmap_look(config: &MermaidConfig) -> String {
     config.get_str("look").unwrap_or("classic").to_string()
 }
@@ -90,20 +107,28 @@ struct MindmapProjectionNode {
     is_root: bool,
 }
 
+#[must_use]
 fn mindmap_node_css_classes(node: &MindmapProjectionNode) -> String {
     let mut css = vec!["mindmap-node".to_string()];
+
     if node.is_root {
         css.push("section-root".to_string());
         css.push("section--1".to_string());
     } else if let Some(section) = node.section {
         css.push(format!("section-{section}"));
     }
-    if let Some(cls) = &node.class {
-        css.push(cls.clone());
+
+    match &node.class {
+        Some(cls) => {
+            css.push(cls.clone());
+        },
+        ::core::option::Option::None => {},
     }
+
     css.join(" ")
 }
 
+#[must_use]
 fn mindmap_render_node(
     node: &MindmapProjectionNode,
     look: &str,
@@ -113,13 +138,16 @@ fn mindmap_render_node(
         id: node.id.to_string(),
         dom_id: format!("node_{}", node.id),
         label: node.descr.clone(),
-        // Mermaid's `flattenNodes()` marks every layout node as Markdown. The parser's quoted
-        // description flag only controls sanitization while the node enters this DB.
+
+
         label_type: "markdown".to_string(),
         is_group: false,
         shape: display.shape(node.ty).to_string(),
         width: node.width as f64,
-        height: node.height.unwrap_or(0) as f64,
+        height: (match node.height {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        }) as f64,
         padding: node.padding as f64,
         css_classes: mindmap_node_css_classes(node),
         css_styles: Vec::new(),
@@ -127,23 +155,30 @@ fn mindmap_render_node(
         icon: node.icon.clone(),
         x: node.x,
         y: node.y,
-        level: node.level as i64,
+        level: <i64 as ::core::convert::From<::core::primitive::i32>>::from(node.level),
         node_id: node.node_id.clone(),
         node_type: node.ty,
         section: node.section,
     }
 }
 
+#[must_use]
 fn mindmap_edge_classes(parent: &MindmapProjectionNode, child: &MindmapProjectionNode) -> String {
     let mut classes = "edge".to_string();
-    if let Some(section) = child.section {
-        classes.push_str(&format!(" section-edge-{section}"));
+
+    match child.section {
+        Some(section) => {
+            classes.push_str(&format!(" section-edge-{section}"));
+        },
+        ::core::option::Option::None => {},
     }
+
     let edge_depth = parent.level + 1;
     classes.push_str(&format!(" edge-depth-{edge_depth}"));
     classes
 }
 
+#[must_use]
 fn mindmap_render_edge(
     parent: &MindmapProjectionNode,
     child: &MindmapProjectionNode,
@@ -158,7 +193,7 @@ fn mindmap_render_edge(
         thickness: "normal".to_string(),
         look: look.to_string(),
         classes: mindmap_edge_classes(parent, child),
-        depth: parent.level as i64,
+        depth: <i64 as ::core::convert::From<::core::primitive::i32>>::from(parent.level),
         section: child.section,
     }
 }
@@ -173,30 +208,48 @@ impl MindmapProjection {
     ) -> OperationControlResult<()> {
         let mut stack = vec![(node_id, section, 0usize)];
         let mut visited = 0usize;
-        while let Some((node_id, section, depth)) = stack.pop() {
+
+        while let Some((node_id_2, section_2, depth)) = stack.pop() {
             if visited.is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             visited = visited.saturating_add(1);
-            let Ok(node_idx) = usize::try_from(node_id) else {
-                continue;
+
+            let node_idx = {
+                let outcome_node_idx_2 = usize::try_from(node_id_2);
+
+                match outcome_node_idx_2 {
+                    Ok(matched_node_idx_2) => matched_node_idx_2,
+                    ::core::result::Result::Err(_) => continue,
+                }
             };
-            let Some(node) = self.nodes.get_mut(node_idx) else {
-                continue;
+
+            let node = {
+                let optional_node = self.nodes.get_mut(node_idx);
+
+                match optional_node {
+                    Some(matched_node) => matched_node,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let node_level = node.level;
-            node.section = display.section(node_level, section, depth);
+            node.section = display.section(node_level, section_2, depth);
 
             let child_count = node.children.len();
+
             for index in (0..child_count).rev() {
-                if index % 128 == 0 {
+                if ::core::primitive::usize::wrapping_rem(index, 128) == 0 {
                     control.checkpoint()?;
                 }
+
                 let child_id = self.nodes[node_idx].children[index];
-                let child_section = display.child_section(node_level, index, section);
+                let child_section = display.child_section(node_level, index, section_2);
                 stack.push((child_id, child_section, depth + 1));
             }
         }
+
         control.checkpoint()
     }
 
@@ -211,16 +264,30 @@ impl MindmapProjection {
         let look = mindmap_look(config);
         let mut stack = vec![root_id];
         let mut visited = 0usize;
+
         while let Some(node_id) = stack.pop() {
             if visited.is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             visited = visited.saturating_add(1);
-            let Ok(node_idx) = usize::try_from(node_id) else {
-                continue;
+
+            let node_idx = {
+                let outcome_node_idx = usize::try_from(node_id);
+
+                match outcome_node_idx {
+                    Ok(matched_node_idx) => matched_node_idx,
+                    ::core::result::Result::Err(_) => continue,
+                }
             };
-            let Some(node) = self.nodes.get(node_idx) else {
-                continue;
+
+            let node = {
+                let optional_node = self.nodes.get(node_idx);
+
+                match optional_node {
+                    Some(matched_node) => matched_node,
+                    ::core::option::Option::None => continue,
+                }
             };
 
             out.push(mindmap_render_node(node, &look, display));
@@ -229,6 +296,7 @@ impl MindmapProjection {
                 stack.push(*child);
             }
         }
+
         control.checkpoint()?;
         Ok(out)
     }
@@ -251,30 +319,47 @@ impl MindmapProjection {
             next_child_index: 0,
         }];
         let mut visited = 0usize;
+
         while let Some(frame) = stack.last_mut() {
             if visited.is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             visited = visited.saturating_add(1);
+
             let Ok(node_idx) = usize::try_from(frame.node_id) else {
                 stack.pop();
                 continue;
             };
+
             let Some(node) = self.nodes.get(node_idx) else {
                 stack.pop();
                 continue;
             };
+
             let Some(child_id) = node.children.get(frame.next_child_index).copied() else {
                 stack.pop();
                 continue;
             };
+
             frame.next_child_index += 1;
 
-            let Ok(child_idx) = usize::try_from(child_id) else {
-                continue;
+            let child_idx = {
+                let outcome_child_idx = usize::try_from(child_id);
+
+                match outcome_child_idx {
+                    Ok(matched_child_idx) => matched_child_idx,
+                    ::core::result::Result::Err(_) => continue,
+                }
             };
-            let Some(child) = self.nodes.get(child_idx) else {
-                continue;
+
+            let child = {
+                let optional_child = self.nodes.get(child_idx);
+
+                match optional_child {
+                    Some(matched_child) => matched_child,
+                    ::core::option::Option::None => continue,
+                }
             };
 
             edges.push(mindmap_render_edge(node, child, &look));
@@ -283,10 +368,12 @@ impl MindmapProjection {
                 next_child_index: 0,
             });
         }
+
         control.checkpoint()?;
         Ok(edges)
     }
 }
+
 #[cfg(feature = "compat-json")]
 pub(crate) fn render_model_to_compat_json(
     model: &MindmapDiagramRenderModel,

@@ -37,6 +37,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_icon_circle(
         };
 
     let _ = write!(out, r#"<g transform="translate(0,{})">"#, fmt(icon_dy));
+
     if common.look_is_hand_drawn() {
         let _ = write!(
             out,
@@ -53,12 +54,13 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_icon_circle(
             escape_attr(common.fill_color),
         );
     }
+
     let _ = write!(
         out,
         r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/>"#,
         escape_attr(&stroke_d),
         escape_attr(common.fill_color),
-        fmt_display(common.stroke_width as f64),
+        fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         escape_attr(common.stroke_dasharray),
     );
     out.push_str("</g>");
@@ -80,21 +82,24 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_icon_circle(
         label_bbox_h,
     );
 
-    if let Some(icon_name) = icon_name {
-        let icon_svg = super::super::helpers::icon_svg_or_placeholder(
-            ctx,
-            common.node_id,
-            icon_name,
-            icon_size,
-        )?;
-        let _ = write!(
-            out,
-            r#"<g transform="translate({},{})" style="color: {};"><g>{}</g></g>"#,
-            fmt(-icon_size / 2.0),
-            fmt(icon_dy - icon_size / 2.0),
-            escape_attr(common.stroke_color),
-            icon_svg,
-        );
+    match icon_name {
+        Some(icon_name_2) => {
+            let icon_svg = super::super::helpers::icon_svg_or_placeholder(
+                ctx,
+                common.node_id,
+                icon_name_2,
+                icon_size,
+            )?;
+            let _ = write!(
+                out,
+                r#"<g transform="translate({},{})" style="color: {};"><g>{}</g></g>"#,
+                fmt(-icon_size / 2.0),
+                fmt(icon_dy - icon_size / 2.0),
+                escape_attr(common.stroke_color),
+                icon_svg,
+            );
+        },
+        ::core::option::Option::None => {},
     }
 
     let outer_x = -outer_w / 2.0;
@@ -117,28 +122,38 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_icon_circle(
     );
 
     out.push_str("</g>");
+
     if common.wrapped_in_a {
         out.push_str("</a>");
     }
+
     Ok(label_receipt)
 }
 
+#[must_use]
 fn prepare_icon_circle_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
     label: &super::super::FlowchartNodeLabelState<'_>,
 ) -> (bool, f64, f64, f64, f64, f64, f64, f64) {
-    // Port of Mermaid `iconCircle.ts` (`icon-shape default`). A populated nested icon SVG has an
-    // explicit square viewport, while an empty icon group has a zero-sized browser `getBBox()`.
+
+
     let has_label = !label.text.is_empty();
     let label_padding = if has_label { 8.0 } else { 0.0 };
     let top_label = common.node_pos == Some("t");
 
-    let asset_h = common.node_asset_height.unwrap_or(48.0);
-    let asset_w = common.node_asset_width.unwrap_or(48.0);
+    let asset_h = match common.node_asset_height {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 48.0,
+    };
+    let asset_w = match common.node_asset_width {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 48.0,
+    };
     let icon_size = asset_h.max(asset_w);
 
     let mut metrics = common.label_metrics(ctx, label);
+
     if !has_label {
         metrics.width = 0.0;
         metrics.height = 0.0;
@@ -184,12 +199,18 @@ pub(super) fn advance_rough_geometry(
     );
 }
 
+#[must_use]
 fn icon_frame_diameter(common: &super::super::FlowchartNodeGeometry<'_>) -> f64 {
     let icon_size = if common.node_icon.is_some_and(|s| !s.trim().is_empty()) {
-        common
-            .node_asset_height
-            .unwrap_or(48.0)
-            .max(common.node_asset_width.unwrap_or(48.0))
+        match common
+            .node_asset_height {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 48.0,
+        }
+            .max(match common.node_asset_width {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 48.0,
+            })
     } else {
         0.0
     };

@@ -18,6 +18,7 @@ pub(crate) struct ThemeStyleSource {
 }
 
 impl ThemeStyleSource {
+    #[must_use]
     pub(super) fn authored(path: String) -> Self {
         Self {
             paths: vec![path],
@@ -33,6 +34,7 @@ pub(crate) enum ThemeSourceDocument {
 }
 
 impl ThemeSourceDocument {
+    #[must_use]
     pub(crate) const fn id(self) -> &'static str {
         match self {
             Self::Design => "design",
@@ -42,6 +44,7 @@ impl ThemeSourceDocument {
 }
 
 impl ThemeSourceMap {
+    #[must_use]
     pub(super) fn new(document: Option<ThemeSourceDocument>) -> Self {
         Self {
             document,
@@ -49,31 +52,41 @@ impl ThemeSourceMap {
         }
     }
 
+    #[must_use]
     pub(crate) fn document(&self) -> Option<ThemeSourceDocument> {
         self.document
     }
 
+    #[must_use]
     pub(crate) fn rule(&self, index: usize) -> Option<&ThemeStyleSource> {
         self.rules.get(index)
     }
 
+    #[must_use]
     pub(crate) fn palette(&self, target: ThemeTarget) -> Option<&ThemeStyleSource> {
         self.palettes.get(&target)
     }
 
+    #[must_use]
     pub(crate) fn canvas_base(&self) -> Option<&ThemeStyleSource> {
         self.canvas_base.as_ref()
     }
 
     pub(super) fn push_rule(&mut self, source: Option<ThemeStyleSource>) {
-        if let Some(source) = source {
-            self.rules.push(source);
+        match source {
+            Some(source_2) => {
+                self.rules.push(source_2);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
     pub(super) fn insert_palette(&mut self, target: ThemeTarget, source: Option<ThemeStyleSource>) {
-        if let Some(source) = source {
-            self.palettes.insert(target, source);
+        match source {
+            Some(source_2) => {
+                self.palettes.insert(target, source_2);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -94,6 +107,7 @@ pub(super) enum ThemeWireSources {
 }
 
 impl ThemeWireSources {
+    #[must_use]
     pub(super) fn for_design(design: &merman_theme_contract::ThemeDesignV1) -> Self {
         let escape = |target: &str| target.replace('~', "~0").replace('/', "~1");
         let styles = design
@@ -126,6 +140,7 @@ impl ThemeWireSources {
         }
     }
 
+    #[must_use]
     pub(super) fn document(&self) -> Option<ThemeSourceDocument> {
         match self {
             Self::None => None,

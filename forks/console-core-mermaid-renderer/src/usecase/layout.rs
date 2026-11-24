@@ -22,6 +22,7 @@ pub(super) fn layout(
     super::dagre::layout(model, config, plans, edge_plans, work)
 }
 
+#[must_use]
 pub(super) fn node(plan: &UsecaseNodePlan, x: f64, y: f64, width: f64, height: f64) -> LayoutNode {
     LayoutNode {
         id: plan.id.clone(),
@@ -35,6 +36,7 @@ pub(super) fn node(plan: &UsecaseNodePlan, x: f64, y: f64, width: f64, height: f
     }
 }
 
+#[must_use]
 pub(super) fn edge(
     plan: &UsecaseEdgePlan,
     points: Vec<LayoutPoint>,
@@ -169,7 +171,7 @@ fn elk_layout(
             .ok_or_else(|| Error::InvalidModel {
                 message: format!("ELK returned unknown Usecase node {}", placed.id),
             })?;
-        // Project only the drawn group frame; provider routes keep their original origins.
+
         let frame = frames
             .get(placed.id.as_str())
             .copied()
@@ -205,28 +207,33 @@ fn elk_layout(
     finish(nodes, edges, plans, edge_plans, work)
 }
 
+#[must_use]
 fn intersect(node: &LayoutNode, ellipse: bool, target: &LayoutPoint) -> LayoutPoint {
     let dx = target.x - node.x;
     let dy = target.y - node.y;
     let rx = node.width / 2.0;
     let ry = node.height / 2.0;
-    if dx == 0.0 && dy == 0.0 {
+
+    if ::core::matches!(::core::primitive::f64::classify(dx), ::core::num::FpCategory::Zero) && ::core::matches!(::core::primitive::f64::classify(dy), ::core::num::FpCategory::Zero) {
         return LayoutPoint {
             x: node.x + rx,
             y: node.y,
         };
     }
+
     let denominator = if ellipse {
         (dx * dx / (rx * rx) + dy * dy / (ry * ry)).sqrt()
     } else {
         (dx.abs() / rx).max(dy.abs() / ry)
     };
-    if !denominator.is_finite() || denominator == 0.0 {
+
+    if !denominator.is_finite() || ::core::matches!(::core::primitive::f64::classify(denominator), ::core::num::FpCategory::Zero) {
         return LayoutPoint {
             x: node.x,
             y: node.y,
         };
     }
+
     LayoutPoint {
         x: node.x + dx / denominator,
         y: node.y + dy / denominator,
@@ -322,22 +329,36 @@ fn route_midpoint(points: &[LayoutPoint]) -> Option<(f64, f64)> {
     Some((first.x, first.y))
 }
 
+#[must_use]
 pub(super) fn edge_points(
     edge: &LayoutEdge,
     nodes: &[LayoutNode],
     plans: &[UsecaseNodePlan],
 ) -> Vec<LayoutPoint> {
-    let Some(start) = nodes.iter().find(|node| node.id == edge.from) else {
-        return edge.points.clone();
+    let start = {
+        let optional_start = nodes.iter().find(|node| node.id == edge.from);
+
+        match optional_start {
+            Some(matched_start) => matched_start,
+            ::core::option::Option::None => return edge.points.clone(),
+        }
     };
-    let Some(end) = nodes.iter().find(|node| node.id == edge.to) else {
-        return edge.points.clone();
+
+    let end = {
+        let optional_end = nodes.iter().find(|node| node.id == edge.to);
+
+        match optional_end {
+            Some(matched_end) => matched_end,
+            ::core::option::Option::None => return edge.points.clone(),
+        }
     };
+
     let start_ellipse = plans
         .iter()
         .any(|plan| plan.id == edge.from && plan.ellipse);
     let end_ellipse = plans.iter().any(|plan| plan.id == edge.to && plan.ellipse);
     let mut points = edge.points.clone();
+
     if points.is_empty() {
         points = vec![
             LayoutPoint {
@@ -347,15 +368,19 @@ pub(super) fn edge_points(
             LayoutPoint { x: end.x, y: end.y },
         ];
         let centers = points.clone();
+
         if (end.x - start.x).abs() >= start.width / 2.0
             || (end.y - start.y).abs() >= start.height / 2.0
         {
             points[0] = intersect(start, start_ellipse, &points[1]);
         }
+
         points[1] = intersect(end, end_ellipse, &points[0]);
+
         if (points[1].x - points[0].x).hypot(points[1].y - points[0].y) < 2.0 {
             points = centers;
         }
+
         points.dedup_by(|right, left| {
             (right.x - left.x).abs() <= 1e-6 && (right.y - left.y).abs() <= 1e-6
         });
@@ -364,6 +389,7 @@ pub(super) fn edge_points(
         points[0] = intersect(start, start_ellipse, &points[1]);
         points[last] = intersect(end, end_ellipse, &points[last - 1]);
     }
+
     points
 }
 
@@ -377,8 +403,8 @@ pub(super) fn prepare_edge_paths(
     use super::elk_edge_geometry::{self as geometry, Outline, Shape};
     let elk = crate::layout_backend::resolve_graph_layout(config).backend
         == crate::layout_backend::GraphLayoutBackend::Elk;
-    // Dagre's recursive paint measurement includes title labels which may extend beyond
-    // a rect boundary's frame. Retain that measured contribution when clipping edge paths.
+
+
     let dagre_paint_bounds = (!elk).then(|| layout.bounds.clone()).flatten();
     let node_indexes: HashMap<_, _> = layout
         .nodes
@@ -393,34 +419,48 @@ pub(super) fn prepare_edge_paths(
         .map(|(index, edge)| (edge.id.as_str(), index))
         .collect();
     let plan_by_id: HashMap<_, _> = plans.iter().map(|plan| (plan.id.as_str(), plan)).collect();
+
     if elk {
-        // The source resolves every node's first tiny-side anchor before building any route.
+
         let mut aligned = std::collections::HashSet::new();
+
         for edge in &layout.edges {
-            for (id, anchor) in [
+            'inner_for_2: for (id, anchor) in [
                 (&edge.from, edge.points.first()),
                 (&edge.to, edge.points.last()),
             ] {
                 work.charge_adapter(1)?;
-                let (Some(&index), Some(anchor)) = (node_indexes.get(id), anchor) else {
-                    continue;
+
+                let (index, anchor_2) = {
+                    let outcome_index = (node_indexes.get(id), anchor);
+
+                    match outcome_index {
+                        (Some(&matched_index), Some(matched_anchor)) => (matched_index, matched_anchor),
+                        (::core::option::Option::None, _)
+                        | (_, ::core::option::Option::None) => continue 'inner_for_2,
+                    }
                 };
+
                 let node = &mut layout.nodes[index];
-                let along_width = (anchor.y - (node.y - node.height / 2.0)).abs() <= 0.5
-                    || (anchor.y - (node.y + node.height / 2.0)).abs() <= 0.5;
+                let along_width = (anchor_2.y - (node.y - node.height / 2.0)).abs() <= 0.5
+                    || (anchor_2.y - (node.y + node.height / 2.0)).abs() <= 0.5;
+
                 if (if along_width { node.width } else { node.height }) >= 24.0
                     || !aligned.insert(index)
                 {
-                    continue;
+                    continue 'inner_for_2;
                 }
+
                 let delta = if along_width {
-                    anchor.x - node.x
+                    anchor_2.x - node.x
                 } else {
-                    anchor.y - node.y
+                    anchor_2.y - node.y
                 };
+
                 if delta.abs() < 0.01 {
-                    continue;
+                    continue 'inner_for_2;
                 }
+
                 if along_width {
                     node.x += delta;
                 } else {
@@ -429,15 +469,18 @@ pub(super) fn prepare_edge_paths(
             }
         }
     }
+
     work.charge_adapter(edge_plans.len())?;
     let mut route_layout_indexes = Vec::with_capacity(edge_plans.len());
     let mut routes = Vec::with_capacity(edge_plans.len());
+
     for plan in edge_plans {
         let Some(&index) = edge_indexes.get(plan.id.as_str()) else {
             return Err(Error::InvalidModel {
                 message: format!("Usecase layout omitted edge {}", plan.id),
             });
         };
+
         let edge = &layout.edges[index];
         work.charge_adapter(work.checked_add(edge.points.len(), 50)?)?;
         let points = if elk {
@@ -470,10 +513,12 @@ pub(super) fn prepare_edge_paths(
                 y: end.node.y,
             });
             let mut points = geometry::sanitize(&input, start, end);
+
             if !edge.points.is_empty() {
                 geometry::marker_segment(&mut points, end, plan.end_marker.as_deref(), false);
                 geometry::marker_segment(&mut points, start, plan.start_marker.as_deref(), true);
             }
+
             points
         } else {
             if let Some(id) = plan
@@ -481,8 +526,8 @@ pub(super) fn prepare_edge_paths(
                 .as_deref()
                 .filter(|_| !plan.dagre_recursive)
             {
-                // Top-level normalization retains the original self-edge endpoints. Recursive
-                // Dagre paint instead receives the actual helper-node endpoints.
+
+
                 let mut paint_edge = edge.clone();
                 paint_edge.from = id.to_owned();
                 paint_edge.to = id.to_owned();
@@ -491,12 +536,14 @@ pub(super) fn prepare_edge_paths(
                 edge_points(edge, &layout.nodes, plans)
             }
         };
-        // Empty diagrams can have one coincident endpoint after source deduplication.
-        // Do not synthesize a second terminal, which would change the source fallback.
+
+
         route_layout_indexes.push(index);
         routes.push(points);
     }
+
     drop(edge_indexes);
+
     if elk
         && config
             .pointer("/elk/straightenEdges")
@@ -523,13 +570,14 @@ pub(super) fn prepare_edge_paths(
             work.charge_adapter(units)
         })?;
     }
+
     let paths: HashMap<_, _> = edge_plans
         .iter()
         .zip(routes)
         .map(|(plan, route)| (plan.id.clone(), route))
         .collect();
-    // Missing sections use the two terminal midpoint before painting; routed labels
-    // retain the provider's own label placement.
+
+
     if elk {
         for edge in &mut layout.edges {
             if edge.points.is_empty()
@@ -542,6 +590,7 @@ pub(super) fn prepare_edge_paths(
             }
         }
     }
+
     if elk {
         crate::elk_terminal_jogs::separate_opposite_edge_labels(
             layout
@@ -551,6 +600,7 @@ pub(super) fn prepare_edge_paths(
             |units| work.charge_adapter(units),
         )?;
     }
+
     layout.bounds = Bounds::from_points(
         layout
             .nodes
@@ -579,6 +629,7 @@ pub(super) fn prepare_edge_paths(
                     }),
             ),
     );
+
     if let Some(previous) = dagre_paint_bounds {
         if let Some(bounds) = &mut layout.bounds {
             bounds.min_x = bounds.min_x.min(previous.min_x);
@@ -589,5 +640,6 @@ pub(super) fn prepare_edge_paths(
             layout.bounds = Some(previous);
         }
     }
+
     Ok(paths)
 }

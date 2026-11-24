@@ -1,6 +1,6 @@
 use console_core_never::Never;
 use console_core_paths::Point;
-pub use console_core_paths::{NonZeroRect, FloatRectangle, Size, Transform};
+pub use console_core_paths::{FloatRectangle, NonZeroRect, Size, Transform};
 use console_core_scalable_vector_graphics_values::{Align, AspectRatio};
 use float_cmp::ApproxEqUlps;
 

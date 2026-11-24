@@ -45,6 +45,8 @@ use console_core_subtitle_files::Cue;
 pub use console_core_subtitle_files::Seconds;
 
 pub use colour::{Bitmap, Picture};
+#[cfg(feature = "hosted-compute")]
+pub use colour::{DmaBufFrame, colour_glsl};
 pub use decoders::DecodeFault;
 pub use tracks::{ContainerFault, Language, Subtitles, Turn};
 

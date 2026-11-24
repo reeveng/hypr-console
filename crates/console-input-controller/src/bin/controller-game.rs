@@ -41,8 +41,13 @@ struct Pad {
 impl Interpreter for Pad {
   type Event = ReturningEvent;
   type Effect = Never;
+  type Error = Never;
 
-  fn interpret(&mut self, acts: &Never, _clock: &Clock) -> Vec<Event<ReturningEvent>> {
+  fn interpret(
+    &mut self,
+    acts: &Never,
+    _clock: &Clock,
+  ) -> Result<Vec<Event<ReturningEvent>>, Never> {
     match *acts {}
   }
 

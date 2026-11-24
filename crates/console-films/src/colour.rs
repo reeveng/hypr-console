@@ -29,6 +29,11 @@
 
 use std::borrow::Cow;
 
+#[cfg(feature = "hosted-compute")]
+mod compute;
+#[cfg(feature = "hosted-compute")]
+pub use compute::{DmaBufFrame, colour_glsl};
+
 use console_concurrency::Cores;
 use console_core_geometry::Size;
 use console_core_never::Never;
@@ -418,24 +423,31 @@ impl Picture {
     })
   }
 
-  pub fn color_pixels(&self) -> Result<Bitmap, Never> {
+  fn colour_layout(&self) -> Result<Layout, Never> {
     let depth = match &self.planes {
       Planes::Eight(_) => 8,
       Planes::Deep(_, depth) => *depth,
     };
 
-    let layout = Layout {
+    Ok(Layout {
       stored: self.stored,
       chroma: self.chroma,
       strides: self.strides,
       depth,
-    };
+    })
+  }
 
+  pub fn color_pixels(&self) -> Result<Bitmap, Never> {
+    let Ok(layout) = self.colour_layout();
     let Ok(rgba) = match &self.planes {
       Planes::Eight(planes) => drawn(planes, &layout, self.colour),
       Planes::Deep(planes, _) => drawn(planes, &layout, self.colour),
     };
 
+    self.coloured_bitmap(rgba)
+  }
+
+  fn coloured_bitmap(&self, rgba: Vec<u8>) -> Result<Bitmap, Never> {
     let rgba_2 = match self.turn {
       Turn::Upright => rgba,
       Turn::Half | Turn::Quarter | Turn::ThreeQuarters => {
@@ -494,15 +506,17 @@ fn coloured_at(
 }
 
 impl Picture {
-  pub fn color_pixels_at(&self, shown: Size<u32>, cores: Cores) -> Result<Bitmap, Never> {
-    let made = match self.turn {
+  fn unturned_size(&self, shown: Size<u32>) -> Result<Size<u32>, Never> {
+    Ok(match self.turn {
       Turn::Upright | Turn::Half => shown,
       Turn::Quarter | Turn::ThreeQuarters => Size {
         width: shown.height,
         height: shown.width,
       },
-    };
+    })
+  }
 
+  fn scaled_planes(&self, made: Size<u32>, cores: Cores) -> Result<[Vec<u8>; 3], Never> {
     let [luma, blue, red]: [Cow<'_, [u8]>; 3] = match &self.planes {
       Planes::Eight([luma, blue, red]) => [
         Cow::Borrowed(luma.as_slice()),
@@ -540,11 +554,16 @@ impl Picture {
       scaled
     });
 
-    let [luma_2, blue_2, red_2] = match scaled.map(<[Vec<u8>; 3]>::try_from) {
+    Ok(match scaled.map(<[Vec<u8>; 3]>::try_from) {
       Ok(Ok(three)) => three,
       Ok(Err(_not_three)) => [Vec::new(), Vec::new(), Vec::new()],
       Err(_a_plane_panicked) => [Vec::new(), Vec::new(), Vec::new()],
-    };
+    })
+  }
+
+  pub fn color_pixels_at(&self, shown: Size<u32>, cores: Cores) -> Result<Bitmap, Never> {
+    let Ok(made) = self.unturned_size(shown);
+    let Ok([luma_2, blue_2, red_2]) = self.scaled_planes(made, cores);
 
     let Ok(rgba) = coloured_at(
       [&luma_2, &blue_2, &red_2],

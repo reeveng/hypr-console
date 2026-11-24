@@ -12,11 +12,12 @@ use crate::src::enum_map::DefaultValue;
 use crate::src::enum_map::EnumMap;
 use crate::src::enum_map::enum_map_ty;
 use crate::src::error::{Rav1dError::EINVAL, Rav1dResult};
-use crate::src::internal::COMPINTER_LEN;
-use crate::src::internal::EMU_EDGE_LEN;
-use crate::src::internal::SCRATCH_INTER_INTRA_BUF_LEN;
-use crate::src::internal::SCRATCH_LAP_LEN;
-use crate::src::internal::SEG_MASK_LEN;
+use crate::src::internal::CompoundPrediction;
+use crate::src::internal::EmulatedEdge;
+use crate::src::internal::InterIntraPrediction;
+use crate::src::internal::MAX_COMPOUND_SAMPLES;
+use crate::src::internal::OverlapPrediction;
+use crate::src::internal::SegmentMask;
 use crate::src::levels::{Filter2d, MaskPolarity};
 use crate::src::pic_or_buf::PicOrBuf;
 use crate::src::safe_simd::mc::BlendAxis;
@@ -558,7 +559,7 @@ fn prep_unscaled<BD: BitDepth>(
   })
 }
 
-type PredictorPair<'a> = [&'a [i16; COMPINTER_LEN]; 2];
+type PredictorPair<'a> = [&'a CompoundPrediction; 2];
 
 #[derive(Clone, Copy)]
 pub(crate) enum PredictorBlend<'a> {
@@ -567,40 +568,34 @@ pub(crate) enum PredictorBlend<'a> {
   Mask(&'a [u8]),
 }
 
-fn blend_predictors<BD: BitDepth>(
+fn predictor_blend_size<BD: BitDepth>(
   dst: PicOffset,
-  predictions: PredictorPair<'_>,
   extent: Size<i32>,
   blend: PredictorBlend<'_>,
-  depth: BD,
-) -> Rav1dResult {
+) -> Rav1dResult<Option<Size<u64>>> {
   let width = u64::try_from(extent.width).map_err(|_| EINVAL)?;
   let height = u64::try_from(extent.height).map_err(|_| EINVAL)?;
 
   match (width, height) {
-    (0, _) | (_, 0) => return Ok(()),
+    (0, _) | (_, 0) => return Ok(None),
     _ => {}
   }
 
   let size = Size { width, height };
   let area = width.checked_mul(height).ok_or(EINVAL)?;
-  let Ok(capacity) = console_core_number_conversion::fixed_index(COMPINTER_LEN);
+  let capacity = u64::from(MAX_COMPOUND_SAMPLES);
 
-  match area.cmp(&capacity) {
-    cmp::Ordering::Greater => return Err(EINVAL),
-    cmp::Ordering::Less | cmp::Ordering::Equal => {}
-  }
-
-  match blend {
+  let usable = match blend {
     PredictorBlend::Mask(weights) => {
       let Ok(available) = console_core_number_conversion::fixed_index(weights.len());
-
-      match area.cmp(&available) {
-        cmp::Ordering::Greater => return Err(EINVAL),
-        cmp::Ordering::Less | cmp::Ordering::Equal => {}
-      }
+      capacity.min(available)
     }
-    PredictorBlend::Average | PredictorBlend::Weighted(_) => {}
+    PredictorBlend::Average | PredictorBlend::Weighted(_) => capacity,
+  };
+
+  match area.cmp(&usable) {
+    cmp::Ordering::Greater => return Err(EINVAL),
+    cmp::Ordering::Less | cmp::Ordering::Equal => {}
   }
 
   let Ok(origin) = console_core_number_conversion::fixed_index(dst.offset);
@@ -611,6 +606,21 @@ fn blend_predictors<BD: BitDepth>(
   layout
     .validate_len(dst.data.pixel_len::<BD>())
     .map_err(|_| EINVAL)?;
+  Ok(Some(size))
+}
+
+fn blend_predictors<BD: BitDepth>(
+  dst: PicOffset,
+  predictions: PredictorPair<'_>,
+  extent: Size<i32>,
+  blend: PredictorBlend<'_>,
+  depth: BD,
+) -> Rav1dResult {
+  let validated = predictor_blend_size::<BD>(dst, extent, blend)?;
+  let size = match validated {
+    Some(size) => size,
+    None => return Ok(()),
+  };
 
   #[cfg(any(
     target_arch = "x86_64",
@@ -1205,11 +1215,11 @@ fn prep_scaled<BD: BitDepth>(
 
 enum BlockBlendInput<'a, Pixel> {
   Pixels {
-    source: &'a [Pixel; SCRATCH_INTER_INTRA_BUF_LEN],
+    source: &'a InterIntraPrediction<Pixel>,
     mask: &'a [u8],
   },
   Overlap {
-    source: &'a [Pixel; SCRATCH_LAP_LEN],
+    source: &'a OverlapPrediction<Pixel>,
     axis: BlendAxis,
   },
 }
@@ -1253,9 +1263,9 @@ fn blend_block_direct<BD: BitDepth>(
 fn w_mask_direct<BD: BitDepth>(
   layout: Rav1dPixelLayoutSubSampled,
   dst: PicOffset,
-  predictions: (&[i16; COMPINTER_LEN], &[i16; COMPINTER_LEN]),
+  predictions: (&CompoundPrediction, &CompoundPrediction),
   extent: Size<i32>,
-  mask: &mut [u8; SEG_MASK_LEN],
+  mask: &mut SegmentMask,
   polarity: MaskPolarity,
   bd: BD,
 ) -> Rav1dResult {
@@ -1743,8 +1753,9 @@ fn compound_mask_plan<BD: BitDepth>(
   let extent = Size { width, height };
   let input =
     RowLayout::new(extent, 0, i64::from(dimensions.width)).map_err(|_input_layout| EINVAL)?;
+  let Ok(capacity) = console_core_number_conversion::index(MAX_COMPOUND_SAMPLES);
   input
-    .validate_len(COMPINTER_LEN)
+    .validate_len(capacity)
     .map_err(|_short_predictions| EINVAL)?;
   let Ok(start) = console_core_number_conversion::fixed_index(destination.offset);
   let Ok(native_stride) =
@@ -1761,9 +1772,9 @@ fn compound_mask_plan<BD: BitDepth>(
     .validate_len(destination.data.pixel_len::<BD>())
     .map_err(|_short_output| EINVAL)?;
   let mask_samples = mask_width.checked_mul(mask_height).ok_or(EINVAL)?;
-  let Ok(capacity) = console_core_number_conversion::fixed_index(SEG_MASK_LEN);
+  let maximum_mask_samples = u64::from(MAX_COMPOUND_SAMPLES);
 
-  match mask_samples.cmp(&capacity) {
+  match mask_samples.cmp(&maximum_mask_samples) {
     cmp::Ordering::Less | cmp::Ordering::Equal => {}
     cmp::Ordering::Greater => return Err(EINVAL),
   }
@@ -1783,8 +1794,8 @@ fn compound_mask_plan<BD: BitDepth>(
 
 fn w_mask_rust<BD: BitDepth>(
   mut destination: PicOffset,
-  predictions: (&[i16; COMPINTER_LEN], &[i16; COMPINTER_LEN]),
-  mask: &mut [u8; SEG_MASK_LEN],
+  predictions: (&CompoundPrediction, &CompoundPrediction),
+  mask: &mut SegmentMask,
   CompoundMaskPlan {
     extent,
     rows,
@@ -2001,7 +2012,7 @@ pub(crate) struct EdgeWindow {
 
 fn emu_edge_rust<BD: BitDepth>(
   window: EdgeWindow,
-  dst: &mut [BD::Pixel; EMU_EDGE_LEN],
+  dst: &mut EmulatedEdge<BD::Pixel>,
   dst_stride: u32,
   reference: &Rav1dPictureDataComponent,
 ) -> Result<(), console_core_pixel_buffers::RowLayoutError> {
@@ -2353,9 +2364,9 @@ impl w_mask::Fn {
     &self,
     layout: Rav1dPixelLayoutSubSampled,
     dst: PicOffset,
-    predictions: (&[i16; COMPINTER_LEN], &[i16; COMPINTER_LEN]),
+    predictions: (&CompoundPrediction, &CompoundPrediction),
     extent: Size<i32>,
-    mask: &mut [u8; SEG_MASK_LEN],
+    mask: &mut SegmentMask,
     polarity: MaskPolarity,
     bd: BD,
   ) -> Rav1dResult {
@@ -2369,7 +2380,7 @@ impl blend::Fn {
   pub fn call<BD: BitDepth>(
     &self,
     dst: PicOffset,
-    tmp: &[BD::Pixel; SCRATCH_INTER_INTRA_BUF_LEN],
+    tmp: &InterIntraPrediction<BD::Pixel>,
     extent: Size<i32>,
     mask: &[u8],
   ) -> Rav1dResult {
@@ -2384,7 +2395,7 @@ impl blend_dir::Fn {
     &self,
     axis: BlendAxis,
     dst: PicOffset,
-    tmp: &[BD::Pixel; SCRATCH_LAP_LEN],
+    tmp: &OverlapPrediction<BD::Pixel>,
     extent: Size<i32>,
   ) -> Rav1dResult {
     blend_block_direct::<BD>(dst, extent, BlockBlendInput::Overlap { source: tmp, axis })
@@ -2397,7 +2408,7 @@ impl emu_edge::Fn {
   pub fn call<BD: BitDepth>(
     &self,
     window: EdgeWindow,
-    dst: &mut [BD::Pixel; EMU_EDGE_LEN],
+    dst: &mut EmulatedEdge<BD::Pixel>,
     dst_stride: u32,
     src: &Rav1dPictureDataComponent,
   ) -> Rav1dResult {
@@ -2544,8 +2555,8 @@ mod compound_mask_tests {
   ) -> Rav1dResult {
     use Rav1dPixelLayoutSubSampled::{I420, I422, I444};
 
-    let mut first = [0; COMPINTER_LEN];
-    let mut second = [0; COMPINTER_LEN];
+    let mut first = [0; 128 * 128];
+    let mut second = [0; 128 * 128];
     let first_pixels = first.get_mut(..FIRST.len()).ok_or(EINVAL)?;
     let second_pixels = second.get_mut(..SECOND.len()).ok_or(EINVAL)?;
     first_pixels
@@ -2573,7 +2584,7 @@ mod compound_mask_tests {
           offset: 0,
         };
         let untouched = 255_u8;
-        let mut mask = [untouched; SEG_MASK_LEN];
+        let mut mask = [untouched; 128 * 128];
         let plan = compound_mask_plan::<BD>(&offset, dimensions, layout, polarity)?;
         w_mask_rust(offset, (&first, &second), &mut mask, plan, bit_depth)?;
         let pixels = offset.slice::<BD>(expected_pixels.len());
@@ -2632,7 +2643,7 @@ mod compound_mask_tests {
     }
 
     let source = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *image, 8);
-    let mut output = [77; EMU_EDGE_LEN];
+    let mut output = [77; 320 * (256 + 7)];
     let extent = Size {
       width: 8,
       height: 5,
@@ -2795,8 +2806,8 @@ mod compound_mask_tests {
       data: &picture,
       offset: 0,
     };
-    let first = [320i16; COMPINTER_LEN];
-    let second = [640i16; COMPINTER_LEN];
+    let first = [320i16; 128 * 128];
+    let second = [640i16; 128 * 128];
     let first_row_mask = [32u8; 12];
     let applied = mask::Fn::DEFAULT.call::<BitDepth8>(
       dst,
@@ -2822,7 +2833,7 @@ mod compound_mask_tests {
   fn checked_block_blend_refuses_short_masks_and_destinations() {
     let mut storage: Align64<[u8; 64]> = Aligned([77; 64]);
     let picture = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut *storage, 8);
-    let prediction = [192_u8; SCRATCH_INTER_INTRA_BUF_LEN];
+    let prediction = [192_u8; 64 * 64];
     let extent = Size {
       width: 4,
       height: 4,

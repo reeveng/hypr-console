@@ -1,0 +1,16 @@
+[Unit]
+Description=Watch power changes for inactivity locking
+PartOf=console.target
+After=console-idle.service
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/lock-screen watch-power /etc/console/hypridle.conf %t/console/hypridle.conf
+Restart=always
+RestartSec=5
+PrivateDevices=yes
+ProtectHome=read-only
+RestrictAddressFamilies=AF_UNIX
+
+[Install]
+WantedBy=console.target

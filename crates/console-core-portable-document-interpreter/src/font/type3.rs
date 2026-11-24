@@ -52,7 +52,9 @@ impl<'a> Type3<'a> {
       dict.get::<console_core_portable_document_syntax::object::Rectangle>(FONT_BBOX);
     let font_bbox = match bbox_entry {
       ::core::option::Option::Some(present) => present,
-      ::core::option::Option::None => console_core_portable_document_syntax::object::Rectangle::ZERO,
+      ::core::option::Option::None => {
+        console_core_portable_document_syntax::object::Rectangle::ZERO
+      }
     }
     .to_kurbo();
 

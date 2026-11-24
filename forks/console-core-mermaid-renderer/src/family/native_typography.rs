@@ -51,30 +51,38 @@ mod declaration_scan {
         let mut property_end = 0;
         let mut in_value = false;
         let mut next_checkpoint = 1024;
+
         for (index, ch) in raw.char_indices() {
             if index >= next_checkpoint {
                 control.checkpoint()?;
                 next_checkpoint = index.saturating_add(1024);
             }
+
             if ch == ';' {
                 property_start = None;
                 in_value = false;
             } else if !in_value && ch == ':' {
-                if let Some(start) = property_start {
-                    let property = &raw[start..property_end];
-                    if UNSUPPORTED_NATIVE_TEXT_STYLES
-                        .iter()
-                        .any(|name| property.eq_ignore_ascii_case(name))
-                    {
-                        return Ok(Some(property));
-                    }
+                match property_start {
+                    Some(start) => {
+                        let property = &raw[start..property_end];
+
+                        if UNSUPPORTED_NATIVE_TEXT_STYLES
+                            .iter()
+                            .any(|name| property.eq_ignore_ascii_case(name))
+                        {
+                            return Ok(Some(property));
+                        }
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 in_value = true;
             } else if !in_value && !ch.is_whitespace() {
                 property_start.get_or_insert(index);
                 property_end = index + ch.len_utf8();
             }
         }
+
         control.checkpoint()?;
         Ok(None)
     }
@@ -84,12 +92,18 @@ mod declaration_scan {
         control: &OperationControl,
     ) -> OperationControlResult<Option<String>> {
         let mut checked_styles = Vec::new();
+
         for raw in styles {
-            if let Some(property) = declaration(raw, control)? {
-                return Ok(Some(property.to_owned()));
+            match declaration(raw, control)? {
+                Some(property) => {
+                    return Ok(Some(property.to_owned()));
+                },
+                ::core::option::Option::None => {},
             }
+
             checked_styles.push(raw);
         }
+
         Ok(
             crate::mermaid_style::root_dependent_font_size(checked_styles, control)?
                 .map(|_| "font-size (rem requires a document-root font size)".to_owned()),
@@ -102,10 +116,17 @@ mod declaration_scan {
     ) -> OperationControlResult<Option<String>> {
         for styles in lists {
             control.checkpoint()?;
-            if let Some(property) = declarations(styles.iter().map(String::as_str), control)? {
-                return Ok(Some(property));
+
+            {
+                match { let checked_value_3 = declarations(styles.iter().map(String::as_str), control)?; checked_value_3 } {
+                    Some(property) => {
+                        return Ok(Some(property));
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
+
         Ok(None)
     }
 
@@ -213,6 +234,7 @@ pub fn unsupported_native_text_style(
 ) -> OperationControlResult<Option<String>> {
     let control = control.for_phase(OperationPhase::Semantic);
     control.checkpoint()?;
+
     #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
     if let RenderSemanticModel::Flowchart(model) = parsed.model() {
         let default_context = Default::default();
@@ -220,13 +242,21 @@ pub fn unsupported_native_text_style(
             .render_context()
             .flowchart_render_context()
             .unwrap_or(&default_context);
+
         for (ordinal, subgraph) in model.subgraphs.iter().enumerate() {
             let (_, styles) = context.effective_subgraph_css(ordinal, subgraph);
-            if let Some(property) = declaration_scan::style_lists([styles], &control)? {
-                return Ok(Some(property));
+
+            {
+                match declaration_scan::style_lists([styles], &control)? {
+                    Some(property) => {
+                        return Ok(Some(property));
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }
+
     unsupported_native_model_text_style(parsed.model(), &control)
 }
 
@@ -236,6 +266,7 @@ fn unsupported_native_model_text_style(
 ) -> OperationControlResult<Option<String>> {
     let control = control.for_phase(OperationPhase::Semantic);
     control.checkpoint()?;
+
     match model {
         #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
         RenderSemanticModel::Flowchart(model) => declaration_scan::style_lists(
@@ -256,12 +287,16 @@ fn unsupported_native_model_text_style(
         #[cfg(feature = "diagram-state")]
         RenderSemanticModel::State(model) => {
             for node in &model.nodes {
-                if let Some(property) =
-                    declaration_scan::declarations([node.label_style.as_str()], &control)?
                 {
-                    return Ok(Some(property));
+                    match declaration_scan::declarations([node.label_style.as_str()], &control)? {
+                        Some(property) => {
+                            return Ok(Some(property));
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
+
             declaration_scan::style_lists(
                 model
                     .style_classes
@@ -299,14 +334,19 @@ fn unsupported_native_model_text_style(
         RenderSemanticModel::Class(model) => {
             for (_, class) in model.classes() {
                 control.checkpoint()?;
+
                 for member in class.members.iter().chain(&class.methods) {
-                    if let Some(property) =
-                        declaration_scan::declarations([member.css_style.as_str()], &control)?
                     {
-                        return Ok(Some(property));
+                        match declaration_scan::declarations([member.css_style.as_str()], &control)? {
+                            Some(property) => {
+                                return Ok(Some(property));
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
             }
+
             declaration_scan::style_lists(
                 model
                     .model()
@@ -380,14 +420,17 @@ fn unsupported_native_model_text_style(
             {
                 return Ok(Some(property));
             }
+
             for index in 0..model.nodes.len() {
                 control.checkpoint()?;
+
                 if let Some(styles) = model.compiled_styles(Some(index))
                     && let Some(property) = declaration_scan::style_lists([styles], &control)?
                 {
                     return Ok(Some(property));
                 }
             }
+
             declaration_scan::style_lists(
                 model
                     .classes
@@ -447,8 +490,8 @@ fn unsupported_native_model_text_style(
         RenderSemanticModel::Agentflow(model) => {
             declaration_scan::style_lists(model.authored.declaration_styles(), &control)
         }
-        // Another consumer can widen model features without enabling this renderer's handler.
-        // Family planning retains responsibility for rejecting an unavailable renderer.
+
+
         #[allow(unreachable_patterns)]
         _ => Ok(None),
     }
@@ -461,6 +504,7 @@ pub fn unsupported_native_html_style(
 ) -> OperationControlResult<Option<String>> {
     let control = control.for_phase(OperationPhase::Semantic);
     control.checkpoint()?;
+
     match parsed.model() {
         #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
         RenderSemanticModel::Flowchart(model) => {
@@ -490,27 +534,37 @@ pub fn unsupported_native_html_style(
                     &control,
                 )
             };
+
             if view.node_html_labels() {
                 for (label, kind) in labels.node_labels() {
                     control.checkpoint()?;
-                    if let Some(property) = inspect(label, kind)? {
-                        return Ok(Some(property));
+
+                    {
+                        match { let checked_value_3 = inspect(label, kind)?; checked_value_3 } {
+                            Some(property) => {
+                                return Ok(Some(property));
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
             }
+
             if view.effective_html_labels() {
                 for label in labels
                     .edge_labels()
                     .chain(labels.subgraph_labels().map(Some))
                 {
                     control.checkpoint()?;
+
                     if let Some((label, kind)) = label
-                        && let Some(property) = inspect(label, kind)?
+                        && let Some(property) = { let checked_value_2 = inspect(label, kind)?; checked_value_2 }
                     {
                         return Ok(Some(property));
                     }
                 }
             }
+
             Ok(None)
         }
         _ => Ok(None),
@@ -536,38 +590,51 @@ fn unsupported_native_flowchart_html_style(
             control,
         )
     };
+
     if view.node_html_labels() {
         for node in &model.nodes {
             control.checkpoint()?;
-            if let Some(property) = inspect(
-                context.node_label_for_render(node).unwrap_or(&node.id),
-                node.label_type.as_deref(),
-            )? {
-                return Ok(Some(property));
+
+            {
+                match inspect(
+                        context.node_label_for_render(node).unwrap_or(&node.id),
+                        node.label_type.as_deref(),
+                    )? {
+                    Some(property) => {
+                        return Ok(Some(property));
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }
+
     if edge_html {
         for (semantic_index, edge) in model.edges.iter().enumerate() {
             control.checkpoint()?;
+
             if let Some(label) = context.edge_label_for_render(semantic_index, edge)
-                && let Some(property) = inspect(label, edge.label_type.as_deref())?
+                && let Some(property) = { let checked_value = inspect(label, edge.label_type.as_deref())?; checked_value }
             {
                 return Ok(Some(property));
             }
         }
     }
+
     let swimlane_title_html = view.swimlane_title_html_labels();
     let mut subgraph_children = std::collections::HashSet::new();
+
     if swimlane {
         for subgraph in &model.subgraphs {
             control.checkpoint()?;
+
             for child in &subgraph.nodes {
                 control.checkpoint()?;
                 subgraph_children.insert(child.as_str());
             }
         }
     }
+
     for (ordinal, subgraph) in model.subgraphs.iter().enumerate() {
         control.checkpoint()?;
         let (title_html, label_type) =
@@ -576,6 +643,7 @@ fn unsupported_native_flowchart_html_style(
             } else {
                 (edge_html, subgraph.label_type.as_deref())
             };
+
         if title_html
             && let Some(property) = inspect(
                 context.subgraph_title_for_render(ordinal, subgraph),
@@ -585,6 +653,7 @@ fn unsupported_native_flowchart_html_style(
             return Ok(Some(property));
         }
     }
+
     Ok(None)
 }
 

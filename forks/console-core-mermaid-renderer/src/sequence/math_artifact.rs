@@ -25,6 +25,7 @@ pub(crate) enum SequenceMathOccurrence {
 }
 
 impl SequenceMathOccurrence {
+    #[must_use]
     fn retained_bytes(&self) -> usize {
         std::mem::size_of::<Self>().saturating_add(match self {
             Self::BlockLabel(label) => label.len(),
@@ -32,6 +33,7 @@ impl SequenceMathOccurrence {
         })
     }
 
+    #[must_use]
     fn prepared_math_occurrence_id(&self) -> PreparedMathOccurrenceId {
         match self {
             Self::Actor(index) => PreparedMathOccurrenceId::indexed(
@@ -74,13 +76,17 @@ struct SequencePreparedMathEntry {
 }
 
 impl SequencePreparedMathEntry {
+    #[must_use]
     fn owner_retained_bytes(occurrence: &SequenceMathOccurrence, source: &str) -> usize {
-        std::mem::size_of::<Self>()
+        match std::mem::size_of::<Self>()
             .checked_add(source.len())
-            .and_then(|bytes| bytes.checked_add(occurrence.retained_bytes()))
-            .unwrap_or(usize::MAX)
+            .and_then(|bytes| bytes.checked_add(occurrence.retained_bytes())) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => usize::MAX,
+        }
     }
 
+    #[must_use]
     fn retained_bytes_without_reservation(
         occurrence: &SequenceMathOccurrence,
         occurrence_id: &PreparedMathOccurrenceId,
@@ -94,11 +100,17 @@ impl SequencePreparedMathEntry {
         )
     }
 
+    #[must_use]
     fn terminal_expectation(&self) -> Option<crate::math::PreparedMathExpectation> {
         let expected_emissions = self.expected_terminal_emissions;
-        if expected_emissions == 0 {
-            return None;
+
+        match expected_emissions {
+            0 => {
+                return None;
+            },
+            _ => {},
         }
+
         match &self.outcome {
             MathPreparationOutcome::Prepared(prepared) => prepared.expectation(expected_emissions),
             MathPreparationOutcome::Unavailable(MathPreparationUnavailable::NotMath) => None,
@@ -111,6 +123,7 @@ impl SequencePreparedMathEntry {
         }
     }
 
+    #[must_use]
     fn take_terminal_reservation(&self) -> Option<PreparedTextRetainedReservation> {
         let expectation = self.terminal_expectation()?;
         let mut reservation = self.retained_reservation.borrow_mut().take()?;
@@ -143,6 +156,7 @@ impl SequenceMathSidecar {
             .and_then(|entry| entry.outcome.prepared())
     }
 
+    #[must_use]
     pub(crate) fn terminal_for_occurrence(
         &self,
         occurrence: &SequenceMathOccurrence,
@@ -152,6 +166,7 @@ impl SequenceMathSidecar {
         Some(artifact)
     }
 
+    #[must_use]
     pub(crate) fn terminal(
         &self,
         occurrence: &SequenceMathOccurrence,
@@ -165,13 +180,14 @@ impl SequenceMathSidecar {
         Some(artifact)
     }
 
+    #[must_use]
     pub(crate) fn prepared_math_evidence(&self) -> PreparedMathEvidenceLease {
         let entries = self
             .entries
             .values()
             .filter_map(|entry| {
                 Some((
-                    entry.terminal_expectation()?,
+                    { let checked_value = entry.terminal_expectation()?; checked_value },
                     entry
                         .outcome
                         .prepared()
@@ -245,6 +261,7 @@ impl SequenceMathArtifactStore for SequenceMathSidecar {
             .entries
             .get(&occurrence)
             .filter(|entry| entry.source.as_ref() == source)?;
+
         match &entry.outcome {
             MathPreparationOutcome::Prepared(artifact) => Some(Arc::clone(artifact)),
             MathPreparationOutcome::Unavailable(_) => None,
@@ -263,6 +280,7 @@ pub(crate) struct SequenceMathSidecarBuilder<'a> {
 }
 
 impl<'a> SequenceMathSidecarBuilder<'a> {
+    #[must_use]
     pub(crate) fn new(
         backend: Option<&ConfiguredMathBackend>,
         config: &merman_model::presentation::PresentationConfig,
@@ -280,12 +298,14 @@ impl<'a> SequenceMathSidecarBuilder<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn with_actor_terminal_emissions(mut self, expected_emissions: usize) -> Self {
         debug_assert!(expected_emissions > 0);
         self.actor_terminal_emissions = expected_emissions;
         self
     }
 
+    #[must_use]
     pub(crate) fn prepare(
         &self,
         occurrence: SequenceMathOccurrence,
@@ -295,17 +315,21 @@ impl<'a> SequenceMathSidecarBuilder<'a> {
         if self.error.borrow().is_some() || !source.contains("$$") {
             return None;
         }
-        if let Some(entry) = self.entries.borrow().get(&occurrence) {
-            debug_assert_eq!(
-                entry.source.as_ref(),
-                source,
-                "one Sequence math occurrence must bind one effective source"
-            );
-            debug_assert_eq!(entry.foreground_provenance, terminal.foreground_provenance);
-            return match &entry.outcome {
-                MathPreparationOutcome::Prepared(artifact) => Some(Arc::clone(artifact)),
-                MathPreparationOutcome::Unavailable(_) => None,
-            };
+
+        match self.entries.borrow().get(&occurrence) {
+            Some(entry) => {
+                debug_assert_eq!(
+                    entry.source.as_ref(),
+                    source,
+                    "one Sequence math occurrence must bind one effective source"
+                );
+                debug_assert_eq!(entry.foreground_provenance, terminal.foreground_provenance);
+                return match &entry.outcome {
+                    MathPreparationOutcome::Prepared(artifact) => Some(Arc::clone(artifact)),
+                    MathPreparationOutcome::Unavailable(_) => None,
+                };
+            },
+            ::core::option::Option::None => {},
         }
 
         let owner_retained_bytes =
@@ -354,8 +378,8 @@ impl<'a> SequenceMathSidecarBuilder<'a> {
             MathPreparationOutcome::Prepared(artifact) => Some(Arc::clone(artifact)),
             MathPreparationOutcome::Unavailable(_) => None,
         };
-        // Freeze semantic terminal cardinality during preparation. Terminal writers may only emit
-        // the occurrence marker; they must not be able to manufacture their own expectation.
+
+
         let expected_terminal_emissions = match &occurrence {
             SequenceMathOccurrence::Actor(_) => self.actor_terminal_emissions,
             SequenceMathOccurrence::HiddenActor(_) => 0,
@@ -377,6 +401,7 @@ impl<'a> SequenceMathSidecarBuilder<'a> {
         prepared
     }
 
+    #[must_use]
     pub(crate) fn get(
         &self,
         occurrence: &SequenceMathOccurrence,
@@ -386,6 +411,7 @@ impl<'a> SequenceMathSidecarBuilder<'a> {
         let entry = entries
             .get(occurrence)
             .filter(|entry| entry.source.as_ref() == source)?;
+
         match &entry.outcome {
             MathPreparationOutcome::Prepared(artifact) => Some(Arc::clone(artifact)),
             MathPreparationOutcome::Unavailable(_) => None,
@@ -393,9 +419,13 @@ impl<'a> SequenceMathSidecarBuilder<'a> {
     }
 
     pub(crate) fn finish(self) -> Result<SequenceMathSidecar, OperationWorkError> {
-        if let Some(error) = self.error.into_inner() {
-            return Err(error);
+        match self.error.into_inner() {
+            Some(error) => {
+                return Err(error);
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(SequenceMathSidecar {
             entries: self.entries.into_inner(),
         })
@@ -403,6 +433,7 @@ impl<'a> SequenceMathSidecarBuilder<'a> {
 
     fn record_error(&self, error: OperationWorkError) {
         let mut recorded = self.error.borrow_mut();
+
         if recorded.is_none() {
             *recorded = Some(error);
         }

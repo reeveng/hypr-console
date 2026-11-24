@@ -7,6 +7,7 @@ use super::design::*;
 use crate::DiagramFamilyId;
 use crate::diagram_theme::ThemeTarget;
 
+#[must_use]
 pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
     let mut design = build_cross_family_recipe(palette);
     color_token(
@@ -74,9 +75,11 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
             },
         ));
     }
+
     design
 }
 
+#[must_use]
 fn texture_layer(angle: f32, trailing: bool) -> ThemeDesignCanvasLayerV1 {
     let stops = if trailing {
         vec![

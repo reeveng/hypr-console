@@ -13,6 +13,7 @@ pub(crate) struct FlowchartEdgeKey {
 }
 
 impl FlowchartEdgeKey {
+    #[must_use]
     pub(crate) const fn new(semantic_index: usize) -> Self {
         Self {
             semantic_index,
@@ -20,6 +21,7 @@ impl FlowchartEdgeKey {
         }
     }
 
+    #[must_use]
     pub(crate) const fn self_loop_segment(semantic_index: usize, order: u8) -> Self {
         Self {
             semantic_index,
@@ -27,14 +29,17 @@ impl FlowchartEdgeKey {
         }
     }
 
+    #[must_use]
     pub(crate) const fn semantic_index(self) -> usize {
         self.semantic_index
     }
 
+    #[must_use]
     pub(crate) const fn self_loop_segment_order(self) -> Option<u8> {
         self.self_loop_segment
     }
 
+    #[must_use]
     fn adapter_id(self) -> String {
         match self.self_loop_segment {
             None => format!("__merman_flowchart_edge_{:020}", self.semantic_index),
@@ -59,6 +64,7 @@ pub(crate) struct FlowchartEdgeTransportPlan {
 }
 
 impl FlowchartEdgeTransportPlan {
+    #[must_use]
     pub(crate) fn for_semantic_edges(edges: &[FlowEdge]) -> Self {
         Self::for_keyed_edges(
             edges
@@ -68,12 +74,14 @@ impl FlowchartEdgeTransportPlan {
         )
     }
 
+    #[must_use]
     pub(crate) fn for_keyed_edges<'a>(
         edges: impl IntoIterator<Item = (FlowchartEdgeKey, &'a FlowEdge)>,
     ) -> Self {
         let entries = edges.into_iter().collect::<Vec<_>>();
         let mut counts = HashMap::<&str, usize>::with_capacity(entries.len());
         let mut reserved = HashSet::<&str>::with_capacity(entries.len());
+
         for (_, edge) in &entries {
             *counts.entry(edge.id.as_str()).or_default() += 1;
             reserved.insert(edge.id.as_str());
@@ -81,6 +89,7 @@ impl FlowchartEdgeTransportPlan {
 
         let mut ids = HashMap::with_capacity(entries.len());
         let mut used = HashSet::<String>::with_capacity(entries.len());
+
         for (key, edge) in entries {
             let id = if counts.get(edge.id.as_str()) == Some(&1) {
                 edge.id.clone()
@@ -88,10 +97,12 @@ impl FlowchartEdgeTransportPlan {
                 let base = key.adapter_id();
                 let mut candidate = base.clone();
                 let mut suffix = 0usize;
+
                 while reserved.contains(candidate.as_str()) || used.contains(&candidate) {
                     candidate = format!("{base}_{suffix:020}");
                     suffix = suffix.saturating_add(1);
                 }
+
                 candidate
             };
             let inserted = used.insert(id.clone());
@@ -102,6 +113,7 @@ impl FlowchartEdgeTransportPlan {
         Self { ids }
     }
 
+    #[must_use]
     pub(crate) fn id(&self, key: FlowchartEdgeKey) -> Option<&str> {
         self.ids.get(&key).map(String::as_str)
     }
@@ -115,6 +127,7 @@ impl FlowchartEdgeTransportPlan {
 pub(crate) struct FlowchartEdgeOwners(Vec<FlowchartEdgeKey>);
 
 impl FlowchartEdgeOwners {
+    #[must_use]
     pub(crate) fn new(keys: Vec<FlowchartEdgeKey>) -> Self {
         Self(keys)
     }
@@ -124,10 +137,12 @@ impl FlowchartEdgeOwners {
         Self(indices.into_iter().map(FlowchartEdgeKey::new).collect())
     }
 
+    #[must_use]
     pub(crate) fn len(&self) -> usize {
         self.0.len()
     }
 
+    #[must_use]
     pub(crate) fn iter(&self) -> impl ExactSizeIterator<Item = FlowchartEdgeKey> + '_ {
         self.0.iter().copied()
     }
@@ -148,6 +163,7 @@ impl FlowchartEdgeOwners {
         }
 
         let mut owner_occurrences = HashMap::<usize, u8>::with_capacity(self.len());
+
         for (layout_edge, key) in layout_edges.iter().zip(self.iter()) {
             let Some(semantic_edge) = semantic_edges.get(key.semantic_index()) else {
                 return Err(crate::Error::InvalidModel {
@@ -158,10 +174,11 @@ impl FlowchartEdgeOwners {
                     ),
                 });
             };
+
             let (expected_id, occurrence_bit) = match key.self_loop_segment_order() {
                 None => (
                     std::borrow::Cow::Borrowed(semantic_edge.id.as_str()),
-                    1_u8 << 3,
+                    ::core::primitive::u8::wrapping_shl(1_u8, 3_u32),
                 ),
                 Some(order @ 0..=2) if semantic_edge.from == semantic_edge.to => {
                     let suffix = match order {
@@ -185,6 +202,7 @@ impl FlowchartEdgeOwners {
                     });
                 }
             };
+
             if layout_edge.id != expected_id.as_ref() {
                 return Err(crate::Error::InvalidModel {
                     message: format!(
@@ -195,14 +213,18 @@ impl FlowchartEdgeOwners {
                     ),
                 });
             }
+
             let occurrences = owner_occurrences.entry(key.semantic_index()).or_default();
+
             if *occurrences & occurrence_bit != 0 {
                 return Err(crate::Error::InvalidModel {
                     message: format!("Flowchart layout contains duplicate edge occurrence {key:?}"),
                 });
             }
+
             *occurrences |= occurrence_bit;
         }
+
         for (semantic_index, occurrences) in owner_occurrences {
             if !matches!(occurrences, 0b0111 | 0b1000) {
                 return Err(crate::Error::InvalidModel {
@@ -212,6 +234,7 @@ impl FlowchartEdgeOwners {
                 });
             }
         }
+
         Ok(())
     }
 }

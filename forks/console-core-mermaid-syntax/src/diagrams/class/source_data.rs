@@ -251,7 +251,7 @@ mod topology_serialization_tests {
                 .topology(&flat_config(), &crate::OperationControl::new())
                 .unwrap();
             let complexity = class_topology_complexity(&view);
-            // Class root -> classes map -> Class node -> callback map -> authored arrays.
+
             let depth = array_depth + 3;
             assert_eq!(complexity.nesting_depth, depth);
             assert_eq!(complexity.items, 7);

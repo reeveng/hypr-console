@@ -12,6 +12,7 @@ use crate::family::{
 use crate::resources::{OperationWorkError, OperationWorkMeter};
 
 /// The bounded scalar paint domain shared by Radar's series and legend label writers.
+#[must_use]
 pub(super) fn static_paint(
     theme: &ResolvedDiagramTheme,
     resolution: &ResolvedProperty<CanvasPaint>,
@@ -23,8 +24,9 @@ pub(super) fn static_paint(
     let facet = match property {
         ResolvedStyleProperty::Fill => FamilyThemeRuleFacet::fill(resolution.specified())?,
         ResolvedStyleProperty::Stroke => FamilyThemeRuleFacet::stroke(resolution.specified())?,
-        _ => return None,
+        ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => return None,
     };
+
     if origin.target() != target
         || origin.ordinal().is_some()
         || !matches!(origin.variant(), None | Some(ThemeVariant::Default))
@@ -33,6 +35,7 @@ pub(super) fn static_paint(
     {
         return None;
     }
+
     let (css, capability) = match resolution.specified() {
         Specified::Clear => (baseline.to_owned(), ThemeCapability::SemanticRules),
         Specified::Value(CanvasPaint::Transparent) => {
@@ -70,9 +73,11 @@ pub(super) struct PaintRules {
 }
 
 impl PaintRules {
+    #[must_use]
     pub(super) fn new(theme: &ResolvedDiagramTheme, target: ThemeTarget) -> Self {
         let mut facets = BTreeMap::new();
         let mut observations = BTreeMap::new();
+
         for route in theme.family_mechanism_routes() {
             if let FamilyThemeMechanism::RuleFacet {
                 target: candidate,
@@ -89,6 +94,7 @@ impl PaintRules {
                 observations.entry(rule_index).or_default();
             }
         }
+
         Self {
             target,
             facets,
@@ -104,22 +110,32 @@ impl PaintRules {
         work_meter: &OperationWorkMeter,
     ) -> Result<(), OperationWorkError> {
         work_meter.charge(self.facets.len())?;
+
         for (property, origin) in style.winner_rule_properties() {
-            let Some(facet) = self.facets.get(&(origin.rule_index(), property)) else {
-                continue;
+            let facet = {
+                let optional_facet = self.facets.get(&(origin.rule_index(), property));
+
+                match optional_facet {
+                    Some(matched_facet) => matched_facet,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let paint_index = match property {
                 ResolvedStyleProperty::Fill => Some(0),
                 ResolvedStyleProperty::Stroke => Some(1),
-                _ => None,
+                ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => None,
             };
+
             if paint_index.is_some_and(|index| source_owned[index]) {
                 continue;
             }
+
             let observation = self
                 .observations
                 .get_mut(&origin.rule_index())
                 .expect("registered Radar rule");
+
             if let Some(paint) = paint_index.and_then(|index| paints[index])
                 && paint.rule_index() == origin.rule_index()
             {
@@ -130,16 +146,19 @@ impl PaintRules {
                     .get_or_insert(unsupported_residual_for_facet(*facet));
             }
         }
+
         Ok(())
     }
 
     pub(super) fn finish(self, evidence: &mut FamilyThemeOutcomes) -> PendingPaintRules {
         let mut pending = BTreeMap::new();
+
         for (index, observation) in self.observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: self.target,
             };
+
             if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.capabilities.is_empty() {
@@ -148,6 +167,7 @@ impl PaintRules {
                 pending.insert(key, observation.capabilities);
             }
         }
+
         pending
     }
 }

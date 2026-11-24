@@ -34,6 +34,7 @@ struct GitGraphRoleFontSize {
 }
 
 impl GitGraphRoleFontSize {
+    #[must_use]
     fn resolve(raw: String, base_font_size_px: f64) -> Self {
         let normalized = normalize_role_font_size(&raw);
         let (measured_px, dependency) = if normalized.eq_ignore_ascii_case("inherit")
@@ -55,10 +56,9 @@ impl GitGraphRoleFontSize {
                 value * base_font_size_px / 100.0,
                 GitGraphRoleFontSizeDependency::BaseDependent,
             )
-        } else if normalized
-            .parse::<f64>()
-            .ok()
-            .is_some_and(|value| value.is_finite() && value == 0.0)
+        } else if match normalized
+            .parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
+            .is_some_and(|value| value.is_finite() && ::core::matches!(::core::primitive::f64::classify(value), ::core::num::FpCategory::Zero))
         {
             (0.0, GitGraphRoleFontSizeDependency::Fixed)
         } else {
@@ -75,6 +75,7 @@ impl GitGraphRoleFontSize {
         }
     }
 
+    #[must_use]
     fn css(&self) -> &str {
         &self.css
     }
@@ -88,19 +89,21 @@ struct GitGraphRoleFontWeight {
 }
 
 impl GitGraphRoleFontWeight {
+    #[must_use]
     fn resolve(raw: Option<&str>) -> Self {
-        let Some(raw) = raw else {
+        let Some(raw_2) = raw else {
             return Self {
                 css: None,
                 measured: None,
                 measurable: true,
             };
         };
-        let declaration = format!("font-weight:{raw}");
+
+        let declaration = format!("font-weight:{raw}", raw = raw_2);
         let parsed = crate::mermaid_style::parse_style_declaration(&declaration);
-        let measurable = parsed.as_ref().is_some_and(|declaration| {
-            declaration.inherits_property_value()
-                || crate::mermaid_style::is_supported_css_font_weight_value(declaration.value())
+        let measurable = parsed.as_ref().is_some_and(|declaration_2| {
+            declaration_2.inherits_property_value()
+                || crate::mermaid_style::is_supported_css_font_weight_value(declaration_2.value())
         });
         let measured = if measurable {
             let base = TextStyle::default();
@@ -111,11 +114,11 @@ impl GitGraphRoleFontWeight {
             cascade.observe_declaration(parsed.as_ref().expect("validated font weight"));
             cascade.finish().font_weight.clone()
         } else {
-            // Preserve unresolved CSS for capable hosts without certifying its geometry.
-            Some(raw.to_owned())
+
+            Some(raw_2.to_owned())
         };
         Self {
-            css: Some(raw.into()),
+            css: Some(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(raw_2)),
             measured,
             measurable,
         }
@@ -139,14 +142,15 @@ pub(crate) struct GitGraphTypographyThemePlan {
 }
 
 impl GitGraphTypographyThemePlan {
+    #[must_use]
     pub(crate) fn resolve(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &PresentationConfig,
     ) -> Self {
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
-        let typed_font_size_requested = theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let typed_font_size_requested = theme.is_some_and(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 route.mechanism()
                     == FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontSize)
                     && route.disposition() == FamilyThemeDisposition::TypedAdapter
@@ -156,26 +160,32 @@ impl GitGraphTypographyThemePlan {
             && effective_config.config_path_overrides_typed_default("themeVariables.fontSize");
         let typed_font_size_active = typed_font_size_requested && !config_owns_font_size;
         let font_size_px = match theme {
-            Some(theme) if typed_font_size_active => f64::from(theme.typography().font_size_px()),
-            _ => config_f64_css_px(effective_config.as_value(), &["themeVariables", "fontSize"])
-                .unwrap_or(DEFAULT_FONT_SIZE_PX),
+            Some(theme_3) if typed_font_size_active => f64::from(theme_3.typography().font_size_px()),
+            ::core::option::Option::None | ::core::option::Option::Some(_) => match config_f64_css_px(effective_config.as_value(), &["themeVariables", "fontSize"]) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => DEFAULT_FONT_SIZE_PX,
+            },
         }
         .max(1.0);
         let font_size_css: Box<str> = format!("{font_size_px}px").into_boxed_str();
         let commit_label_font_size = GitGraphRoleFontSize::resolve(
-            config_string(
+            match config_string(
                 effective_config.as_value(),
                 &["themeVariables", "commitLabelFontSize"],
-            )
-            .unwrap_or_else(|| "10px".to_string()),
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => "10px".to_string(),
+            },
             font_size_px,
         );
         let tag_label_font_size = GitGraphRoleFontSize::resolve(
-            config_string(
+            match config_string(
                 effective_config.as_value(),
                 &["themeVariables", "tagLabelFontSize"],
-            )
-            .unwrap_or_else(|| "10px".to_string()),
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => "10px".to_string(),
+            },
             font_size_px,
         );
 
@@ -184,8 +194,8 @@ impl GitGraphTypographyThemePlan {
             inherited_font_stack.font_family_css(),
             &font_size_css,
         );
-        // Mermaid attaches .commit-label before getBBox(); branch prelayout and tags
-        // use different classes and must keep their inherited measurement weight.
+
+
         let commit_label_font_weight = GitGraphRoleFontWeight::resolve(
             css_binding
                 .sources
@@ -207,34 +217,43 @@ impl GitGraphTypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.inherited_font_stack.font_family_css()
     }
 
+    #[must_use]
     pub(crate) const fn css_binding(&self) -> &crate::gitgraph::GitGraphCssBinding {
         &self.css_binding
     }
 
+    #[must_use]
     pub(crate) fn font_size_css(&self) -> &str {
         &self.font_size_css
     }
 
+    #[must_use]
     pub(crate) fn branch_label_style(&self) -> TextStyle {
         self.text_style(self.font_size_px)
     }
 
+    #[must_use]
     pub(crate) fn rendered_branch_label_style(&self, slot: usize) -> TextStyle {
         let mut style = self.branch_label_style();
+
         if self.css_binding.use_redux_geometry && slot < self.css_binding.theme_color_limit {
             style.font_weight = self.commit_label_font_weight.measured.clone();
         }
+
         style
     }
 
+    #[must_use]
     pub(crate) fn commit_label_font_size_css(&self) -> &str {
         self.commit_label_font_size.css()
     }
 
+    #[must_use]
     pub(crate) fn commit_label_style(&self) -> TextStyle {
         TextStyle {
             font_weight: self.commit_label_font_weight.measured.clone(),
@@ -242,26 +261,32 @@ impl GitGraphTypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn commit_label_font_weight_css(&self) -> Option<&str> {
         self.commit_label_font_weight.css.as_deref()
     }
 
+    #[must_use]
     pub(crate) fn tag_label_font_size_css(&self) -> &str {
         self.tag_label_font_size.css()
     }
 
+    #[must_use]
     pub(crate) fn tag_label_style(&self) -> TextStyle {
         self.text_style(self.tag_label_font_size.measured_px)
     }
 
+    #[must_use]
     pub(crate) fn title_style(&self) -> TextStyle {
         self.text_style(TITLE_FONT_SIZE_PX)
     }
 
+    #[must_use]
     pub(crate) const fn title_font_size_px(&self) -> f64 {
         TITLE_FONT_SIZE_PX
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt<'a>(
         &'a self,
         layout: &'a GitGraphDiagramLayout,
@@ -271,6 +296,7 @@ impl GitGraphTypographyThemePlan {
             .then(|| GitGraphTypographyThemeReceipt::new(self, layout, title))
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: GitGraphTypographyThemeReceipt<'_>) -> bool {
         receipt
             .seal()
@@ -279,6 +305,7 @@ impl GitGraphTypographyThemePlan {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if !self.typography_requested() {
             return;
         }
@@ -286,6 +313,7 @@ impl GitGraphTypographyThemePlan {
         let Some(receipt) = self.terminal_receipt.get() else {
             self.inherited_font_stack
                 .record_unsupported_typography_evidence(evidence, true);
+
             for (property, requested) in [
                 (
                     ThemeTypographyProperty::FontStack,
@@ -303,6 +331,7 @@ impl GitGraphTypographyThemePlan {
                     );
                 }
             }
+
             return;
         };
 
@@ -336,7 +365,9 @@ impl GitGraphTypographyThemePlan {
             if !requested {
                 continue;
             }
+
             let key = FamilyThemeMechanismKey::Typography(property);
+
             if unmeasurable {
                 evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography);
             } else if applied {
@@ -347,10 +378,12 @@ impl GitGraphTypographyThemePlan {
         }
     }
 
+    #[must_use]
     fn typography_requested(&self) -> bool {
         self.inherited_font_stack.typography_requested() || self.typed_font_size_requested
     }
 
+    #[must_use]
     fn text_style(&self, font_size_px: f64) -> TextStyle {
         TextStyle {
             font_family: Some(self.font_family_css().to_string()),
@@ -361,29 +394,37 @@ impl GitGraphTypographyThemePlan {
     }
 }
 
+#[must_use]
 pub(crate) fn gitgraph_commit_label_is_visible(
     layout: &GitGraphDiagramLayout,
     commit: &GitGraphCommitLayout,
 ) -> bool {
     !commit.id.trim().is_empty()
-        && (commit.commit_type != 3 || commit.custom_id.unwrap_or(false))
+        && (commit.commit_type != 3 || match commit.custom_id {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        })
         && commit.commit_type != 4
         && layout.show_commit_label
 }
 
+#[must_use]
 pub(crate) fn gitgraph_tags_in_output_order(
     commit: &GitGraphCommitLayout,
 ) -> impl ExactSizeIterator<Item = &str> + Clone {
     commit.tags.iter().rev().map(String::as_str)
 }
 
+#[must_use]
 fn normalize_role_font_size(raw: &str) -> &str {
-    let raw = raw.trim().trim_end_matches(';').trim();
-    raw.strip_suffix("!important").unwrap_or(raw).trim()
+    let raw_2 = raw.trim().trim_end_matches(';').trim();
+    raw_2.strip_suffix("!important").unwrap_or(raw_2).trim()
 }
 
+#[must_use]
 fn parse_nonnegative_css_unit(raw: &str, unit: &str) -> Option<f64> {
-    let value = raw.strip_suffix(unit)?.trim().parse::<f64>().ok()?;
+    let checked_value = raw.strip_suffix(unit)?;
+    let value = match checked_value.trim().parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float_) => ::core::option::Option::None }?;
     (value.is_finite() && value >= 0.0).then_some(value)
 }
 
@@ -436,6 +477,7 @@ struct GitGraphTypographyTerminalSeal {
 }
 
 impl<'a> GitGraphTypographyThemeReceipt<'a> {
+    #[must_use]
     fn new(
         plan: &'a GitGraphTypographyThemePlan,
         layout: &'a GitGraphDiagramLayout,
@@ -497,6 +539,7 @@ impl<'a> GitGraphTypographyThemeReceipt<'a> {
         let has_weight_rule = self.layout.branches.get(index).is_some_and(|branch| {
             super::super::palette_slot(branch.index) < self.branch_role_weight_rule_count
         });
+
         if matched && visible && has_weight_rule {
             self.has_visible_unmeasurable_role_font_weight |= !self.role_font_weight_measurable;
         }
@@ -511,6 +554,7 @@ impl<'a> GitGraphTypographyThemeReceipt<'a> {
         );
         let visible = !text.trim().is_empty();
         self.record_text_event(matched, visible, false);
+
         if matched && visible {
             self.record_role_font_size(self.commit_label_font_size_dependency);
             self.has_visible_unmeasurable_role_font_weight |= !self.role_font_weight_measurable;
@@ -532,26 +576,29 @@ impl<'a> GitGraphTypographyThemeReceipt<'a> {
         );
         let visible = !text.trim().is_empty();
         self.record_text_event(matched, visible, false);
+
         if matched && visible {
             self.record_role_font_size(self.tag_label_font_size_dependency);
         }
     }
 
     pub(crate) fn record_title(&mut self, title: Option<&str>) {
-        let title = title.map(str::trim).filter(|title| !title.is_empty());
+        let title_3 = title.map(str::trim).filter(|title_2| !title_2.is_empty());
         let matched = matches!(
             self.next_event,
-            ExpectedTextEvent::Title if self.expected_title() == title
+            ExpectedTextEvent::Title if self.expected_title() == title_3
         );
-        self.record_text_event(matched, title.is_some(), false);
+        self.record_text_event(matched, title_3.is_some(), false);
     }
 
     fn record_text_event(&mut self, matched: bool, visible: bool, branch: bool) {
         self.valid &= self.css_emitted && matched;
+
         if matched {
             self.has_visible_font_stack_terminal |= visible;
             self.has_visible_branch_label |= branch && visible;
         }
+
         self.advance_event();
     }
 
@@ -582,10 +629,12 @@ impl<'a> GitGraphTypographyThemeReceipt<'a> {
         };
     }
 
+    #[must_use]
     fn expected_title(&self) -> Option<&str> {
         self.title.map(str::trim).filter(|title| !title.is_empty())
     }
 
+    #[must_use]
     fn seal(self) -> Option<GitGraphTypographyTerminalSeal> {
         (self.valid && self.css_emitted && self.next_event == ExpectedTextEvent::Complete)
             .then_some(GitGraphTypographyTerminalSeal {

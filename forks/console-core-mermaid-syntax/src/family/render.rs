@@ -43,6 +43,7 @@ render_parser!(
     crate::diagrams::error_diagram::parse_error_model_for_render,
     RenderSemanticModel::Error
 );
+
 #[cfg(feature = "diagram-mindmap")]
 pub(super) fn render_mindmap(
     code: &str,
@@ -52,6 +53,7 @@ pub(super) fn render_mindmap(
     crate::diagrams::mindmap::parse_mindmap_model_for_render_controlled(code, meta, control)
         .map(|result| result.map(RenderSemanticParseOutput::mindmap))
 }
+
 #[cfg(feature = "diagram-state")]
 render_parser_controlled!(
     render_state,
@@ -70,6 +72,7 @@ render_parser_controlled!(
     crate::diagrams::sequence::parse_sequence_model_for_render_controlled,
     RenderSemanticModel::Sequence
 );
+
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
 pub(super) fn render_flowchart(
     code: &str,
@@ -82,6 +85,7 @@ pub(super) fn render_flowchart(
     Ok(result
         .map(|(model, label_sources)| RenderSemanticParseOutput::flowchart(model, label_sources)))
 }
+
 #[cfg(feature = "diagram-class")]
 pub(super) fn render_class(
     code: &str,
@@ -89,15 +93,16 @@ pub(super) fn render_class(
     control: &OperationControl,
 ) -> OperationControlResult<Result<RenderSemanticParseOutput>> {
     control.checkpoint()?;
-    let result = crate::diagrams::class::parse_class_typed_with_render_context_controlled(
+    let result = { let checked_value = crate::diagrams::class::parse_class_typed_with_render_context_controlled(
         code, meta, control,
-    )?
+    )?; checked_value }
     .map(|(model, style_precedence_facts)| {
         RenderSemanticParseOutput::class(model, style_precedence_facts)
     });
     control.checkpoint()?;
     Ok(result)
 }
+
 #[cfg(feature = "diagram-c4")]
 render_parser_controlled!(
     render_c4,
@@ -152,6 +157,7 @@ render_parser_controlled!(
     crate::diagrams::gantt::parse_gantt_model_for_render_controlled,
     RenderSemanticModel::Gantt
 );
+
 #[cfg(feature = "diagram-pie")]
 pub(super) fn render_pie(
     code: &str,
@@ -159,11 +165,12 @@ pub(super) fn render_pie(
     control: &OperationControl,
 ) -> OperationControlResult<Result<RenderSemanticParseOutput>> {
     control.checkpoint()?;
-    let result = crate::diagrams::pie::parse_pie_model_for_render_controlled(code, meta, control)?
+    let result = { let checked_value = crate::diagrams::pie::parse_pie_model_for_render_controlled(code, meta, control)?; checked_value }
         .map(|(model, output_data)| RenderSemanticParseOutput::pie(model, output_data));
     control.checkpoint()?;
     Ok(result)
 }
+
 #[cfg(feature = "diagram-packet")]
 pub(super) fn render_packet(
     code: &str,
@@ -172,11 +179,12 @@ pub(super) fn render_packet(
 ) -> OperationControlResult<Result<RenderSemanticParseOutput>> {
     control.checkpoint()?;
     let result =
-        crate::diagrams::packet::parse_packet_model_for_render_controlled(code, meta, control)?
+        { let checked_value = crate::diagrams::packet::parse_packet_model_for_render_controlled(code, meta, control)?; checked_value }
             .map(|(model, output_data)| RenderSemanticParseOutput::packet(model, output_data));
     control.checkpoint()?;
     Ok(result)
 }
+
 #[cfg(feature = "diagram-timeline")]
 pub(super) fn render_timeline(
     code: &str,
@@ -185,11 +193,12 @@ pub(super) fn render_timeline(
 ) -> OperationControlResult<Result<RenderSemanticParseOutput>> {
     control.checkpoint()?;
     let result =
-        crate::diagrams::timeline::parse_timeline_model_for_render_controlled(code, meta, control)?
+        { let checked_value = crate::diagrams::timeline::parse_timeline_model_for_render_controlled(code, meta, control)?; checked_value }
             .map(|(model, output_data)| RenderSemanticParseOutput::timeline(model, output_data));
     control.checkpoint()?;
     Ok(result)
 }
+
 #[cfg(feature = "diagram-journey")]
 pub(super) fn render_journey(
     code: &str,
@@ -198,11 +207,12 @@ pub(super) fn render_journey(
 ) -> OperationControlResult<Result<RenderSemanticParseOutput>> {
     control.checkpoint()?;
     let result =
-        crate::diagrams::journey::parse_journey_model_for_render_controlled(code, meta, control)?
+        { let checked_value = crate::diagrams::journey::parse_journey_model_for_render_controlled(code, meta, control)?; checked_value }
             .map(|(model, output_data)| RenderSemanticParseOutput::journey(model, output_data));
     control.checkpoint()?;
     Ok(result)
 }
+
 #[cfg(feature = "diagram-requirement")]
 render_parser_controlled!(
     render_requirement,
@@ -215,6 +225,7 @@ render_parser_controlled!(
     crate::diagrams::sankey::parse_sankey_model_for_render_controlled,
     RenderSemanticModel::Sankey
 );
+
 #[cfg(feature = "diagram-radar")]
 pub(super) fn render_radar(
     code: &str,
@@ -223,11 +234,12 @@ pub(super) fn render_radar(
 ) -> OperationControlResult<Result<RenderSemanticParseOutput>> {
     control.checkpoint()?;
     let result =
-        crate::diagrams::radar::parse_radar_model_for_render_controlled(code, meta, control)?
+        { let checked_value = crate::diagrams::radar::parse_radar_model_for_render_controlled(code, meta, control)?; checked_value }
             .map(|(model, output_data)| RenderSemanticParseOutput::radar(model, output_data));
     control.checkpoint()?;
     Ok(result)
 }
+
 #[cfg(feature = "diagram-info")]
 pub(super) fn render_info(
     code: &str,
@@ -236,11 +248,12 @@ pub(super) fn render_info(
 ) -> OperationControlResult<Result<RenderSemanticParseOutput>> {
     control.checkpoint()?;
     let result =
-        crate::diagrams::info::parse_info_model_for_render_controlled(code, meta, control)?
+        { let checked_value = crate::diagrams::info::parse_info_model_for_render_controlled(code, meta, control)?; checked_value }
             .map(|(model, output_data)| RenderSemanticParseOutput::info(model, output_data));
     control.checkpoint()?;
     Ok(result)
 }
+
 #[cfg(feature = "diagram-treemap")]
 render_parser_controlled!(
     render_treemap,

@@ -30,6 +30,7 @@ use crate::src::internal::Rav1dState;
 use crate::src::internal::Rav1dTaskContext;
 use crate::src::internal::Rav1dTaskContextTaskThread;
 use crate::src::internal::TaskThreadData;
+use crate::src::internal::{FrameVisibilityPolicy, GrainOutputPolicy, LayerOutputPolicy};
 use crate::src::iter::wrapping_iter;
 use crate::src::log::Rav1dLog as _;
 use crate::src::log::Rav1dLogger;
@@ -155,12 +156,15 @@ pub(crate) fn rav1d_open(
   validate_input!((s.n_threads >= 0 && s.n_threads <= 256, EINVAL))?;
   validate_input!((s.max_frame_delay >= 0 && s.max_frame_delay <= 256, EINVAL))?;
   validate_input!((s.operating_point <= 31, EINVAL))?;
+
   #[cfg(feature = "c-ffi")]
-  validate_input!((
-    s.allocator.allocation_kind() == crate::src::picture::AllocationKind::Custom
-      || s.allocator.cookie.is_none(),
-    EINVAL
-  ))?;
+  {
+    let Ok(kind) = s.allocator.allocation_kind();
+    validate_input!((
+      kind == crate::src::picture::AllocationKind::Custom || s.allocator.cookie.is_none(),
+      EINVAL
+    ))?;
+  }
 
   let Ok(frame_size_limit) = frame_size_limit_for_platform(s);
 
@@ -173,12 +177,10 @@ pub(crate) fn rav1d_open(
     numeric_value
   });
 
-  let ttd = TaskThreadData {
+  let task_thread = TaskThreadData {
     cur: crate::src::relaxed_atomic::RelaxedAtomic::from(n_fc),
     ..Default::default()
   };
-  let task_thread = try_arc(ttd)?;
-
   let Ok(fc) = frame_contexts(n_fc);
 
   let state = Mutex::new(Rav1dState {
@@ -193,22 +195,20 @@ pub(crate) fn rav1d_open(
   });
 
   let tc = task_contexts(n_tc)?;
-  let picture_pool = Default::default();
   #[cfg(feature = "c-ffi")]
-  let Ok(allocator) = allocator_with_pool(s, &picture_pool);
+  let Ok(allocator) = allocator_with_pool(s);
   #[cfg(not(feature = "c-ffi"))]
   let allocator = s.allocator.clone();
 
   let context = try_arc(Rav1dContext {
     allocator,
     logger: s.logger.clone(),
-    apply_grain: s.apply_grain,
+    grain_output: GrainOutputPolicy::from(s.apply_grain),
     operating_point: s.operating_point,
-    all_layers: s.all_layers,
+    layer_output: LayerOutputPolicy::from(s.all_layers),
     frame_size_limit,
-    strict_std_compliance: s.strictness >= Strictness::Strict,
     strictness: s.strictness,
-    output_invisible_frames: s.output_invisible_frames,
+    frame_visibility: FrameVisibilityPolicy::from(s.output_invisible_frames),
     inloop_filters: s.inloop_filters,
     decode_frame_type: s.decode_frame_type,
     fc,
@@ -219,7 +219,6 @@ pub(crate) fn rav1d_open(
     c_workers: Default::default(),
     flush: Default::default(),
     dsp: Default::default(),
-    picture_pool,
     stop: Default::default(),
   })?;
   let handles = start_decoder_workers(&context, workers)?;
@@ -228,22 +227,16 @@ pub(crate) fn rav1d_open(
 }
 
 #[cfg(feature = "c-ffi")]
-#[cfg_attr(
-  dylint_lib = "explicit081_no_shared_ownership",
-  expect(
-    explicit081_no_shared_ownership,
-    reason = "C picture allocation and release retain their configured pool even if a caller closes the decoder first"
-  )
-)]
 fn allocator_with_pool(
   settings: &Rav1dSettings,
-  picture_pool: &Arc<crate::src::mem::MemPool<u8>>,
 ) -> Result<crate::include::dav1d::picture::Rav1dPicAllocator, console_core_never::Never> {
   let mut allocator = settings.allocator.clone();
 
-  match allocator.allocation_kind() {
+  let Ok(kind) = allocator.allocation_kind();
+
+  match kind {
     crate::src::picture::AllocationKind::Default => {
-      allocator.default_pool = Some(Arc::clone(picture_pool))
+      allocator.default_pool = Some(Default::default())
     }
     crate::src::picture::AllocationKind::Custom => {}
   }
@@ -410,7 +403,7 @@ fn output_layer(
   state: &Rav1dState,
 ) -> Result<OutputLayer, console_core_never::Never> {
   Ok(OutputLayer::from(
-    !c.all_layers && state.max_spatial_id != 0,
+    c.layer_output == LayerOutputPolicy::HighestSpatial && state.max_spatial_id != 0,
   ))
 }
 
@@ -421,9 +414,9 @@ fn output_image(c: &Rav1dContext, state: &mut Rav1dState, out: &mut Rav1dPicture
     OutputLayer::CachedSpatial => &mut state.cache,
   };
 
-  let grain = match c.apply_grain.then(|| picture.p.grain()) {
-    Some(grain) => grain,
-    None => Ok(GrainPresence::Absent),
+  let grain = match c.grain_output {
+    GrainOutputPolicy::Synthesized => picture.p.grain(),
+    GrainOutputPolicy::Original => Ok(GrainPresence::Absent),
   };
   let result = match grain {
     Ok(GrainPresence::Present) => rav1d_apply_grain(c, out, &picture.p),
@@ -573,11 +566,19 @@ fn drain_picture(
 
     match delayed.p.data {
       Some(_) => {
-        let [_, final_progress] = delayed.progress.as_deref().ok_or(EINVAL)?;
+        let Ok(counters) = delayed.progress();
+        let [_, final_progress] = counters.ok_or(EINVAL)?;
         let progress = final_progress.load(Ordering::Relaxed);
         let completed = mem::take(delayed);
 
-        match ((completed.visible || decoder.output_invisible_frames) && progress != FRAME_ERROR)
+        use crate::src::picture::FramePresentation;
+        let visible = matches!(
+          completed.presentation,
+          FramePresentation::Visible | FramePresentation::VisibleShowable
+        );
+
+        match ((visible || decoder.frame_visibility == FrameVisibilityPolicy::IncludeInvisible)
+          && progress != FRAME_ERROR)
           .then_some(())
         {
           Some(()) => {
@@ -842,7 +843,7 @@ pub(crate) fn rav1d_flush(
           task_thread_lock = wait_while(&task.thread_data.cond, task_thread_lock, |_scheduler| {
             matches!(
               task.flush_state(),
-              crate::src::internal::FlushState::Waiting
+              Ok(crate::src::internal::FlushState::Waiting)
             )
           });
         }
@@ -895,6 +896,7 @@ fn discard_flushed_frames(
     drop(frame_result);
 
     let Ok(delayed_slot) = console_core_number_conversion::index(fc.index);
+
     match state.frame_thread.out_delayed.get_mut(delayed_slot) {
       Some(delayed) => match delayed.p.frame_hdr {
         Some(_) => drop(mem::take(delayed)),
@@ -965,7 +967,7 @@ impl Rav1dContext {
         ::core::option::Option::None => {}
       }
 
-      let ttd = &*self.task_thread;
+      let ttd = &self.task_thread;
       let _task_thread_lock = ttd.lock.lock();
 
       for tc in self.tc.iter() {

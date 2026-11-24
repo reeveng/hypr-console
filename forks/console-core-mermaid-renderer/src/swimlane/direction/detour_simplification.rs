@@ -30,6 +30,7 @@ struct OutsideTracks {
 }
 
 impl OutsideTracks {
+    #[must_use]
     fn for_side(self, side: RectSide) -> f64 {
         match side {
             RectSide::Top => self.top,
@@ -46,17 +47,20 @@ struct FaceClaim {
     edge_id: String,
 }
 
+#[must_use]
 fn outside_tracks(rects: &[RectEntry]) -> OutsideTracks {
     let mut top = f64::INFINITY;
     let mut bottom = f64::NEG_INFINITY;
     let mut left = f64::INFINITY;
     let mut right = f64::NEG_INFINITY;
+
     for entry in rects {
         top = top.min(entry.rect.top);
         bottom = bottom.max(entry.rect.bottom);
         left = left.min(entry.rect.left);
         right = right.max(entry.rect.right);
     }
+
     OutsideTracks {
         top: top - ANCHOR_OFFSET,
         bottom: bottom + ANCHOR_OFFSET,
@@ -65,6 +69,7 @@ fn outside_tracks(rects: &[RectEntry]) -> OutsideTracks {
     }
 }
 
+#[must_use]
 fn build_path_candidates(
     source: &LayoutPoint,
     source_side: RectSide,
@@ -73,16 +78,21 @@ fn build_path_candidates(
     tracks: OutsideTracks,
 ) -> Vec<Vec<LayoutPoint>> {
     let mut paths = Vec::new();
-    if let Some(path) = build_orthogonal_port_path(
-        source,
-        source_side,
-        destination,
-        destination_side,
-        ANCHOR_OFFSET,
-        EPSILON,
-    ) {
-        paths.push(path);
+
+    match build_orthogonal_port_path(
+            source,
+            source_side,
+            destination,
+            destination_side,
+            ANCHOR_OFFSET,
+            EPSILON,
+        ) {
+        Some(path) => {
+            paths.push(path);
+        },
+        ::core::option::Option::None => {},
     }
+
     if source_side == destination_side {
         paths.push(build_same_side_track_path(
             source,
@@ -91,6 +101,7 @@ fn build_path_candidates(
             tracks.for_side(source_side),
         ));
     }
+
     paths
 }
 
@@ -111,6 +122,7 @@ fn path_hits_node(
     }))
 }
 
+#[must_use]
 fn segments_conflict(first: &OrthogonalSegment, second: &OrthogonalSegment) -> bool {
     orthogonal_segments_cross(&first.a, &first.b, &second.a, &second.b, EPSILON, EPSILON)
         || same_axis_segment_overlap_length(first, second, EPSILON) >= MINIMUM_SHARED_LENGTH
@@ -128,10 +140,12 @@ fn path_conflict_count(
     let mut conflicts = 0;
 
     work_budget.charge(layout.original_edges.len().saturating_sub(1))?;
+
     for (other_index, other) in layout.original_edges.iter().enumerate() {
         if other_index == edge_index {
             continue;
         }
+
         if !include_incident_edges
             && (other.from == current.from
                 || other.from == current.to
@@ -140,10 +154,13 @@ fn path_conflict_count(
         {
             continue;
         }
+
         if other.points.len() < 2 {
             continue;
         }
+
         let other_segments = orthogonal_segments_for_points(&other.points, EPSILON);
+
         for path_segment in &path_segments {
             for other_segment in &other_segments {
                 if segments_conflict(path_segment, other_segment) {
@@ -152,9 +169,11 @@ fn path_conflict_count(
             }
         }
     }
+
     Ok(conflicts)
 }
 
+#[must_use]
 fn nearest_side_of_rect(point: &LayoutPoint, info: &NodeBoundsInfo) -> RectSide {
     let distances = [
         (RectSide::Top, (point.y - info.rect.top).abs()),
@@ -163,11 +182,13 @@ fn nearest_side_of_rect(point: &LayoutPoint, info: &NodeBoundsInfo) -> RectSide 
         (RectSide::Right, (point.x - info.rect.right).abs()),
     ];
     let mut best = distances[0];
+
     for candidate in distances.into_iter().skip(1) {
         if candidate.1 < best.1 {
             best = candidate;
         }
     }
+
     best.0
 }
 
@@ -195,8 +216,8 @@ fn face_is_claimed(
 ) -> Result<bool> {
     let node_claims = claims.get(node_id);
     work_budget.charge(node_claims.map_or(0, Vec::len))?;
-    Ok(node_claims.is_some_and(|node_claims| {
-        node_claims
+    Ok(node_claims.is_some_and(|node_claims_2| {
+        node_claims_2
             .iter()
             .any(|claim| claim.edge_id != ignored_edge_id && claim.side == side)
     }))
@@ -213,38 +234,59 @@ pub(super) fn simplify_detoured_edges(
     let mut face_claims: HashMap<String, Vec<FaceClaim>> = HashMap::new();
 
     work_budget.charge(layout.original_edges.len())?;
+
     for edge in &layout.original_edges {
-        let Some(first) = edge.points.first() else {
-            continue;
+        let first = {
+            let optional_first = edge.points.first();
+
+            match optional_first {
+                Some(matched_first) => matched_first,
+                ::core::option::Option::None => continue,
+            }
         };
-        if let Some(info) = node_info_by_id.get(&edge.from) {
-            add_face_claim(
-                &mut face_claims,
-                &edge.from,
-                nearest_side_of_rect(first, info),
-                &edge.id,
-            );
+
+        match node_info_by_id.get(&edge.from) {
+            Some(info) => {
+                add_face_claim(
+                    &mut face_claims,
+                    &edge.from,
+                    nearest_side_of_rect(first, info),
+                    &edge.id,
+                );
+            },
+            ::core::option::Option::None => {},
         }
-        if let (Some(last), Some(info)) = (edge.points.last(), node_info_by_id.get(&edge.to)) {
-            add_face_claim(
-                &mut face_claims,
-                &edge.to,
-                nearest_side_of_rect(last, info),
-                &edge.id,
-            );
+
+        {
+            match (edge.points.last(), node_info_by_id.get(&edge.to)) {
+                (Some(last), Some(info)) => {
+                    add_face_claim(
+                        &mut face_claims,
+                        &edge.to,
+                        nearest_side_of_rect(last, info),
+                        &edge.id,
+                    );
+                },
+                (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
+            };
         }
     }
 
     work_budget.charge(layout.original_edges.len())?;
+
     for edge_index in 0..layout.original_edges.len() {
         let edge = layout.original_edges[edge_index].clone();
+
         if edge.points.len() < 2 {
             continue;
         }
+
         let current_bends = count_orthogonal_bends(&edge.points, EPSILON);
+
         if current_bends < BEND_THRESHOLD {
             continue;
         }
+
         let (Some(source_info), Some(destination_info)) = (
             node_info_by_id.get(&edge.from).cloned(),
             node_info_by_id.get(&edge.to).cloned(),
@@ -260,12 +302,14 @@ pub(super) fn simplify_detoured_edges(
         let mut best_crossing_conflicts = current_crossing_conflicts;
         let mut best_bends = current_bends;
 
-        for source_side in SIDES {
+        'over_source_side_2: for source_side in SIDES {
             if face_is_claimed(&face_claims, &edge.from, source_side, &edge.id, work_budget)? {
-                continue;
+                continue 'over_source_side_2;
             }
+
             let source_port = port_for_rect_side(&source_info, source_side);
-            for destination_side in SIDES {
+
+            'over_destination_side_3: for destination_side in SIDES {
                 if face_is_claimed(
                     &face_claims,
                     &edge.to,
@@ -273,10 +317,12 @@ pub(super) fn simplify_detoured_edges(
                     &edge.id,
                     work_budget,
                 )? {
-                    continue;
+                    continue 'over_destination_side_3;
                 }
+
                 let destination_port = port_for_rect_side(&destination_info, destination_side);
-                for path in build_path_candidates(
+
+                'over_path_4: for path in build_path_candidates(
                     &source_port,
                     source_side,
                     &destination_port,
@@ -285,31 +331,36 @@ pub(super) fn simplify_detoured_edges(
                 ) {
                     work_budget.charge(1)?;
                     let excluded_ids = [edge.from.as_str(), edge.to.as_str()];
+
                     if path_hits_node(&path, &real_node_rects, &excluded_ids, work_budget)? {
-                        continue;
+                        continue 'over_path_4;
                     }
 
                     let path_bends = count_orthogonal_bends(&path, EPSILON);
+
                     if current_crossing_conflicts > 0 {
                         let path_crossing_conflicts =
                             path_conflict_count(layout, edge_index, &path, true, work_budget)?;
+
                         if path_crossing_conflicts > best_crossing_conflicts
                             || (path_crossing_conflicts == best_crossing_conflicts
                                 && path_bends >= best_bends)
                         {
-                            continue;
+                            continue 'over_path_4;
                         }
+
                         best_crossing_conflicts = path_crossing_conflicts;
                         best_bends = path_bends;
                         best_path = Some(path);
-                        continue;
+                        continue 'over_path_4;
                     }
 
                     if path_conflict_count(layout, edge_index, &path, false, work_budget)?
                         > current_non_incident_conflicts
                     {
-                        continue;
+                        continue 'over_path_4;
                     }
+
                     if path_bends < best_bends {
                         best_bends = path_bends;
                         best_path = Some(path);
@@ -318,34 +369,46 @@ pub(super) fn simplify_detoured_edges(
             }
         }
 
-        let Some(best_path) = best_path else {
-            continue;
+        let best_path_2 = match best_path {
+            Some(matched_best_path) => matched_best_path,
+            ::core::option::Option::None => continue,
         };
+
         work_budget.charge(face_claims.get(&edge.from).map_or(0, Vec::len))?;
         work_budget.charge(face_claims.get(&edge.to).map_or(0, Vec::len))?;
-        layout.original_edges[edge_index].points = best_path.clone();
-        if let Some(claims) = face_claims.get_mut(&edge.from) {
-            claims.retain(|claim| claim.edge_id != edge.id);
+        layout.original_edges[edge_index].points = best_path_2.clone();
+
+        match face_claims.get_mut(&edge.from) {
+            Some(claims) => {
+                claims.retain(|claim| claim.edge_id != edge.id);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(claims) = face_claims.get_mut(&edge.to) {
-            claims.retain(|claim| claim.edge_id != edge.id);
+
+        match face_claims.get_mut(&edge.to) {
+            Some(claims) => {
+                claims.retain(|claim| claim.edge_id != edge.id);
+            },
+            ::core::option::Option::None => {},
         }
+
         add_face_claim(
             &mut face_claims,
             &edge.from,
-            nearest_side_of_rect(&best_path[0], &source_info),
+            nearest_side_of_rect(&best_path_2[0], &source_info),
             &edge.id,
         );
         add_face_claim(
             &mut face_claims,
             &edge.to,
             nearest_side_of_rect(
-                best_path.last().expect("a routed path is non-empty"),
+                best_path_2.last().expect("a routed path is non-empty"),
                 &destination_info,
             ),
             &edge.id,
         );
     }
+
     Ok(())
 }
 

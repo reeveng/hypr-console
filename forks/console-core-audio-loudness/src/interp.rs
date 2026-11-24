@@ -20,6 +20,7 @@
 // THE SOFTWARE.
 
 use crate::utils::FrameAccumulator;
+use std::convert::TryInto;
 use std::f64::consts::PI;
 
 const ALMOST_ZERO: f64 = 0.000001;
@@ -51,21 +52,17 @@ impl<T: Default + Copy, const N: usize> RollingBuffer<T, N> {
         } else {
             self.position -= 1;
         }
-        // this is safe, since self.position is always kept below N, which is checked at creation
-        // to be `<= buf.size() / 2`
-        unsafe {
-            *self.buf.get_unchecked_mut(self.position) = v;
-            *self.buf.get_unchecked_mut(self.position + N) = v;
-        }
+        self.buf[self.position] = v;
+        self.buf[self.position + N] = v;
     }
 }
 
 impl<T, const N: usize> AsRef<[T; N]> for RollingBuffer<T, N> {
     #[inline(always)]
     fn as_ref(&self) -> &[T; N] {
-        // this is safe, since self.position is always kept below N, which is checked at creation
-        // to be `<= buf.size() / 2`
-        unsafe { &*(self.buf.get_unchecked(self.position) as *const T as *const [T; N]) }
+        self.buf[self.position..self.position + N]
+            .try_into()
+            .expect("rolling buffer window fits")
     }
 }
 

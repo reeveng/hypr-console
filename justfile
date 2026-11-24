@@ -12,6 +12,11 @@ HOST := env_var_or_default("CONSOLE_HOST", "")
 default:
     @just --list --unsorted
 
+# Check external dependencies on this machine.
+[positional-arguments]
+dependencies *arguments:
+    @cargo run --locked --quiet --bin console-dependencies -- --report-only "$@"
+
 # format the Rust workspace
 format:
     cargo fmt
@@ -285,6 +290,14 @@ explicit:
 explicit-gate *scope:
     @just explicit-batch audit "$@"
 
+# Verify that unsafe Rust is confined to the recorded sites outside the kernel.
+[positional-arguments]
+unsafe-rust *arguments:
+    @mkdir -p target/unsafe-rust
+    @sysroot=$(rustc +nightly-2026-05-28 --print sysroot) && \
+      rustc +nightly-2026-05-28 --edition=2024 -O -L "$sysroot/lib" -C "link-args=-Wl,-rpath,$sysroot/lib" tools/unsafe-rust.rs -o target/unsafe-rust/check
+    @target/unsafe-rust/check "$@"
+
 # Apply compiler-checked EXPLICIT suggestions to one package.
 [positional-arguments]
 explicit-fix package *flags:
@@ -415,6 +428,10 @@ kernel-input: kernel-image
 kernel-input-iommu: kernel-image
     TMPDIR="${TMPDIR:-/var/tmp}" cargo run --quiet -p console-tasks --example kernel-usb -- target/kernel/esp amd-vi
 
+# Scroll local HTML and recover the native renderer after a user page fault.
+kernel-browser: kernel-image
+    TMPDIR="${TMPDIR:-/var/tmp/$(id -un)}" cargo run --locked --quiet -p console-tasks --example kernel-usb -- target/kernel/esp browser
+
 # Build the working tree's configuration into the Nix store and keep a link to it.
 [positional-arguments]
 native-build generation="target/kernel/current":
@@ -448,17 +465,62 @@ native-boot generation previous="":
 native-check generation expected:
     TMPDIR="${TMPDIR:-/var/tmp}" cargo run --locked --quiet -p console-tasks --example kernel-usb -- "$1/esp" "$2"
 
-# compare batched checksums and their tree reduction on CPU and Vulkan
-kernel-gpu-checksums:
+# Build the optional Linux compute worker.
+compute-worker:
     #!/usr/bin/env bash
     set -euo pipefail
     build="${CARGO_TARGET_DIR:-target}/kernel-compute"
-    source_dir=crates/console-kernel/compute
     mkdir -p "$build"
-    glslangValidator --target-env vulkan1.0 -V "$source_dir/checksums.comp" -o "$build/checksums.spv"
-    spirv-val --target-env vulkan1.0 "$build/checksums.spv"
-    cc -std=c17 -O2 -Wall -Wextra -Werror "$source_dir/vulkan.c" -o "$build/vulkan" -lvulkan
-    cargo run --locked --release -p console-kernel --example gpu-checksums -- "$build/vulkan" "$build/checksums.spv"
+    cc -std=c17 -O2 -Wall -Wextra -Werror crates/console-operating-system-linux/compute/vulkan.c -o "$build/vulkan" -lvulkan
+
+# compare batched checksums and their tree reduction on CPU and Vulkan
+kernel-gpu-checksums: compute-worker
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build="${CARGO_TARGET_DIR:-target}/kernel-compute"
+    for shader in checksums wrapping-sum; do
+        cargo run --locked --quiet --release -p console-kernel --features hosted-compute --example gpu-checksums -- --emit-shader "$shader" > "$build/$shader.comp"
+        glslangValidator --target-env vulkan1.0 -V "$build/$shader.comp" -o "$build/$shader.spv"
+        spirv-val --target-env vulkan1.0 "$build/$shader.spv"
+    done
+    cargo run --locked --release -p console-kernel --features hosted-compute --example gpu-checksums -- "$build/vulkan" "$build/checksums.spv"
+
+# compare the CPU image-mask reply with separable and fused Vulkan replies
+system-gpu-compute: compute-worker
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build="${CARGO_TARGET_DIR:-target}/kernel-compute"
+    for shader in mask blur threshold; do
+        cargo run --locked --quiet --release -p console-operating-system-linux --example gpu-image-mask -- --emit-shader "$shader" > "$build/$shader.comp"
+        glslangValidator --target-env vulkan1.0 -V "$build/$shader.comp" -o "$build/$shader.spv"
+        spirv-val --target-env vulkan1.0 "$build/$shader.spv"
+    done
+    cargo run --locked --release -p console-operating-system-linux --example gpu-image-mask -- --require "$build/vulkan" "$build/blur.spv" "$build/threshold.spv"
+    cargo run --locked --release -p console-operating-system-linux --example gpu-image-mask -- --require "$build/vulkan" "$build/mask.spv"
+
+# Measure CPU and Vulkan wall times and show the route selected from recent history.
+[positional-arguments]
+compute-benchmark profile="standard": compute-worker
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build="${CARGO_TARGET_DIR:-target}/kernel-compute"
+    for shader in checksum-bench wrapping-sum mandelbrot; do
+        cargo run --locked --quiet --release -p console-kernel --features hosted-compute --example compute-benchmark -- --emit-shader "$shader" > "$build/$shader.comp"
+        glslangValidator --target-env vulkan1.0 -V "$build/$shader.comp" -o "$build/$shader.spv"
+        spirv-val --target-env vulkan1.0 "$build/$shader.spv"
+    done
+    cargo run --locked --release -p console-kernel --features hosted-compute --example compute-benchmark -- "$build/vulkan" "$build/checksum-bench.spv" "$build/mandelbrot.spv" "$1"
+
+# Compare decoded-frame readiness and compositor presentation on a live Wayland display.
+[positional-arguments]
+video-presentation-benchmark clip: compute-worker
+    #!/usr/bin/env bash
+    set -euo pipefail
+    build="${CARGO_TARGET_DIR:-target}/kernel-compute"
+    cargo run --locked --quiet --release -p console-application-media-viewer --example video-presentation -- --emit-shader > "$build/video-colour.comp"
+    glslangValidator --target-env vulkan1.0 -V "$build/video-colour.comp" -o "$build/video-colour.spv"
+    spirv-val --target-env vulkan1.0 "$build/video-colour.spv"
+    cargo run --locked --release -p console-application-media-viewer --example video-presentation -- "$1" "$build/vulkan" "$build/video-colour.spv"
 
 # Regenerate the browser extension's packaged WebAssembly with rustup's wasm32-unknown-unknown target.
 browser-pad-wasm:
@@ -503,7 +565,13 @@ desktop-checks:
 panel-checks name="":
     @just alone cargo build --quiet --workspace
     @just alone cargo test --quiet -p console-panel --test every_panel_answers_a_finger -- {{name}}
-    @just alone cargo test --quiet -p console-media-viewer --test a_finger -- {{name}}
+    @just alone cargo test --quiet -p console-application-media-viewer --test a_finger -- {{name}}
+
+# Measure the browser toolbar, drawing, launcher search, Files and Calculator.
+[positional-arguments]
+bench-ui *arguments:
+    cargo bench --locked -p console-application-browser -p console-draw-painting -p console-applications -p console-application-files -p console-application-calculator \
+        --bench browser_ui --bench picture_painting --bench launcher_search --bench folder_listing --bench calculator_keypad -- "$@"
 
 # what those would do to the device
 device-checks:
@@ -516,12 +584,13 @@ device-checks-all:
 # open the experimental browser window on this desktop
 [positional-arguments]
 browser *arguments:
-    CONSOLE_BROWSER_SERVO_WORKER="${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" cargo run --quiet --locked -p console-browser-window -- "$@"
+    cargo build --quiet --locked -p console-application-browser -p console-browser-renderer-chromium
+    CONSOLE_BROWSER_SERVO_WORKER="${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" "${CARGO_TARGET_DIR:-target}/debug/console-application-browser" "$@"
 
-# load a local website and reopen it in a fresh Chromium renderer
+# load a local website and reopen it in a fresh Chromium context
 browser-check:
-    cargo build --quiet --locked -p console-browser-window --features checks
-    "${CARGO_TARGET_DIR:-target}/debug/console-browser-check" "${CARGO_TARGET_DIR:-target}/debug/console-browser-window"
+    cargo build --quiet --locked -p console-application-browser -p console-browser-renderer-chromium --features console-application-browser/checks
+    "${CARGO_TARGET_DIR:-target}/debug/console-browser-check" "${CARGO_TARGET_DIR:-target}/debug/console-application-browser"
 
 [private]
 browser-servo-build:
@@ -529,11 +598,11 @@ browser-servo-build:
 
 [positional-arguments]
 browser-servo *arguments: browser-servo-build
-    cargo run --quiet --locked -p console-browser-window -- --servo-worker "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" "$@"
+    cargo run --quiet --locked -p console-application-browser -- --servo-worker "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo" "$@"
 
 browser-servo-check: browser-servo-build
-    cargo build --quiet --locked -p console-browser-window --features checks
-    "${CARGO_TARGET_DIR:-target}/debug/console-browser-check" "${CARGO_TARGET_DIR:-target}/debug/console-browser-window" "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo"
+    cargo build --quiet --locked -p console-application-browser -p console-browser-renderer-chromium --features console-application-browser/checks
+    "${CARGO_TARGET_DIR:-target}/debug/console-browser-check" "${CARGO_TARGET_DIR:-target}/debug/console-application-browser" "${CONSOLE_SERVO_TARGET_DIR:-crates/console-browser-renderer-servo/target}/debug/console-browser-renderer-servo"
 
 # Run the packaged Chromium and WPE renderers in the Console window.
 browser-webkit *arguments:

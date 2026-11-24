@@ -37,6 +37,7 @@ pub trait TextMeasurer {
     /// uses this hook so long-running built-in wrapping probes can stop promptly and let the next
     /// fallible layout boundary replay the structured cancellation error.
     #[doc(hidden)]
+    #[must_use]
     fn cancellation_requested(&self) -> bool {
         false
     }
@@ -48,6 +49,7 @@ pub trait TextMeasurer {
     /// profile, phase, and operation without exposing a replayable public token.
     #[doc(hidden)]
     #[allow(private_interfaces)]
+    #[must_use]
     fn builtin_operation_carrier(
         &self,
         _operation: crate::environment::TextMeasurementOperation,
@@ -61,6 +63,7 @@ pub trait TextMeasurer {
     /// callback order. They use the default `None` and continue receiving every complete request.
     #[doc(hidden)]
     #[allow(private_interfaces)]
+    #[must_use]
     fn begin_svg_text_computed_length(
         &self,
         _style: &TextStyle,
@@ -75,6 +78,7 @@ pub trait TextMeasurer {
     /// remains an observable measurement request and may use non-additive text shaping.
     #[doc(hidden)]
     #[allow(private_interfaces)]
+    #[must_use]
     fn begin_html_line_width(
         &self,
         _style: &TextStyle,
@@ -87,6 +91,7 @@ pub trait TextMeasurer {
     /// Callers have already normalized whitespace and selected discretionary glyphs. The default
     /// preserves the existing complete wrapped-measurement contract for custom implementations.
     #[doc(hidden)]
+    #[must_use]
     fn measure_html_line_width_px(&self, text: &str, style: &TextStyle) -> f64 {
         self.measure_wrapped(text, style, None, WrapMode::HtmlLike)
             .width
@@ -97,6 +102,7 @@ pub trait TextMeasurer {
     /// The compatibility default preserves custom profile behavior. Built-in profiles and the
     /// routed fallback specialize this operation so literal angle brackets remain text.
     #[doc(hidden)]
+    #[must_use]
     fn measure_html_line_height_px(&self, text: &str, style: &TextStyle) -> f64 {
         self.measure_wrapped(text, style, None, WrapMode::HtmlLike)
             .height
@@ -112,6 +118,7 @@ pub trait TextMeasurer {
     /// (which includes glyph overhang), especially near wrapping boundaries.
     ///
     /// Default implementation falls back to bbox-derived widths.
+    #[must_use]
     fn measure_svg_text_computed_length_px(&self, text: &str, style: &TextStyle) -> f64 {
         self.measure_svg_simple_text_bbox_width_px(text, style)
     }
@@ -122,6 +129,7 @@ pub trait TextMeasurer {
     /// elements this bbox can be slightly asymmetric around the anchor due to glyph overhangs.
     ///
     /// Default implementation assumes a symmetric bbox: `left = right = width/2`.
+    #[must_use]
     fn measure_svg_text_bbox_x(&self, text: &str, style: &TextStyle) -> (f64, f64) {
         let m = self.measure(text, style);
         let half = (m.width.max(0.0)) / 2.0;
@@ -136,6 +144,7 @@ pub trait TextMeasurer {
     /// actual `getBBox()` extents when labels can overflow node shapes.
     ///
     /// Default implementation falls back to the symmetric bbox measurement.
+    #[must_use]
     fn measure_svg_text_bbox_x_with_ascii_overhang(
         &self,
         text: &str,
@@ -149,6 +158,7 @@ pub trait TextMeasurer {
     ///
     /// Mermaid flowchart-v2 uses this style for `flowchartTitleText`, and the bbox impacts the
     /// final `viewBox` / `max-width` computed via `getBBox()`.
+    #[must_use]
     fn measure_svg_title_bbox_x(&self, text: &str, style: &TextStyle) -> (f64, f64) {
         self.measure_svg_text_bbox_x(text, style)
     }
@@ -158,6 +168,7 @@ pub trait TextMeasurer {
     ///
     /// This should reflect actual glyph outline extents (including ASCII overhang where present),
     /// rather than the symmetric/center-anchored title bbox approximation.
+    #[must_use]
     fn measure_svg_simple_text_bbox_width_px(&self, text: &str, style: &TextStyle) -> f64 {
         let (l, r) = self.measure_svg_title_bbox_x(text, style);
         (l + r).max(0.0)
@@ -167,6 +178,7 @@ pub trait TextMeasurer {
     ///
     /// Unlike [`TextMeasurer::measure_svg_simple_text_bbox_width_px`], this models the DOM shape
     /// directly and does not inherit `drawSimpleText(...)`-specific behavior.
+    #[must_use]
     fn measure_svg_raw_text_bbox_width_px(&self, text: &str, style: &TextStyle) -> f64 {
         self.measure_svg_simple_text_bbox_width_px(text, style)
     }
@@ -174,6 +186,7 @@ pub trait TextMeasurer {
     /// Measures direct SVG text whose emitted CSS preserves consecutive spaces.
     ///
     /// Exact hosts receive RawBBoxWidth with HtmlLike whitespace preservation, without wrapping.
+    #[must_use]
     fn measure_svg_preserved_raw_text_bbox_width_px(&self, text: &str, style: &TextStyle) -> f64 {
         self.measure_svg_raw_text_bbox_width_px(text, style)
     }
@@ -182,14 +195,16 @@ pub trait TextMeasurer {
     ///
     /// This stays distinct from tspan and Mermaid helper probes so browser hosts can preserve the
     /// exact DOM shape used by renderers such as TreeView.
+    #[must_use]
     fn measure_svg_raw_text_bbox_height_px(&self, text: &str, style: &TextStyle) -> f64 {
-        // This is an explicitly approximate compatibility default. Exact profiles override the
-        // raw-text operation instead of borrowing another DOM shape's result.
+
+
         self.measure(text, style).height.max(0.0)
     }
 
     /// Signed bbox Y of direct SVG text at baseline zero. `None` means this profile does not
     /// supply baseline facts; callers retain their established compatibility bounds.
+    #[must_use]
     fn measure_svg_raw_text_bbox_y_offset_px(
         &self,
         _text: &str,
@@ -200,6 +215,7 @@ pub trait TextMeasurer {
 
     /// Signed bbox Y of direct SVG text with inherited `dominant-baseline: middle`.
     /// This is not the specially positioned Mermaid createFormattedText DOM.
+    #[must_use]
     fn measure_svg_raw_text_middle_bbox_y_offset_px(
         &self,
         _text: &str,
@@ -209,6 +225,7 @@ pub trait TextMeasurer {
     }
 
     /// Signed bbox Y of direct SVG text with inherited `dominant-baseline: hanging`.
+    #[must_use]
     fn measure_svg_raw_text_hanging_bbox_y_offset_px(
         &self,
         _text: &str,
@@ -224,6 +241,7 @@ pub trait TextMeasurer {
     /// client rect directly for Journey actor labels and Pie legend/title sizing. Headless
     /// profiles fall back to the closest raw SVG text width; browser hosts should implement the
     /// exact DOM operation.
+    #[must_use]
     fn measure_svg_text_bounding_client_rect_width_px(&self, text: &str, style: &TextStyle) -> f64 {
         self.measure_svg_raw_text_bbox_width_px(text, style)
     }
@@ -233,6 +251,7 @@ pub trait TextMeasurer {
     /// Browsers can apply different hinting and endpoint extents to this DOM shape than to a
     /// direct text node. The default keeps custom measurers source-compatible by falling back to
     /// raw SVG text measurement.
+    #[must_use]
     fn measure_svg_tspan_text_bbox_width_px(&self, text: &str, style: &TextStyle) -> f64 {
         self.measure_svg_raw_text_bbox_width_px(text, style)
     }
@@ -243,14 +262,16 @@ pub trait TextMeasurer {
     /// Gitgraph SVG emitter. Routed hosts receive the existing `TspanBBoxWidth` operation with
     /// `WrapMode::HtmlLike` to distinguish preserved spaces from ordinary SVG collapsing; this
     /// probe remains unwrapped. Existing custom profiles keep their tspan-width implementation.
+    #[must_use]
     fn measure_svg_preserved_tspan_text_bbox_width_px(&self, text: &str, style: &TextStyle) -> f64 {
         self.measure_svg_tspan_text_bbox_width_px(text, style)
     }
 
     /// Measures the bbox height of a `<text>` node whose visible rows are child `<tspan>` nodes.
+    #[must_use]
     fn measure_svg_tspan_text_bbox_height_px(&self, text: &str, style: &TextStyle) -> f64 {
-        // This is an explicitly approximate compatibility default. Exact profiles override the
-        // single-tspan operation independently from raw `<text>` measurement.
+
+
         self.measure(text, style).height.max(0.0)
     }
 
@@ -259,9 +280,10 @@ pub trait TextMeasurer {
     /// That DOM shape positions an outer `<tspan>` with `y="-0.1em"` and `dy="1.1em"` under a
     /// `<text y="-10.1">` element. The resulting offset depends on the selected font and may be
     /// negative, so browser-backed hosts should implement this operation directly.
+    #[must_use]
     fn measure_svg_create_text_bbox_y_offset_px(&self, _text: &str, _style: &TextStyle) -> f64 {
-        // No font-independent y offset exists. Profiles without this operation return the neutral
-        // baseline; operation-owned deterministic and host profiles provide the real DOM fact.
+
+
         0.0
     }
 
@@ -272,6 +294,7 @@ pub trait TextMeasurer {
     /// from the raw createText bbox operation. Browser-backed hosts should measure this DOM shape
     /// directly. Profiles without this operation return a neutral value rather than reusing the
     /// ordinary formatted-text result or guessing an x-height from an unrelated font.
+    #[must_use]
     fn measure_svg_create_text_middle_bbox_y_offset_px(
         &self,
         _text: &str,
@@ -285,6 +308,7 @@ pub trait TextMeasurer {
     /// Incremental `wrapLabel(...)` probes and final rendered text can use different DOM shapes.
     /// Implementations may specialize this method when the wrap probe's browser API differs from
     /// the final node's bbox API.
+    #[must_use]
     fn measure_svg_simple_text_bbox_width_for_wrap_px(&self, text: &str, style: &TextStyle) -> f64 {
         self.measure_svg_simple_text_bbox_width_px(text, style)
     }
@@ -294,6 +318,7 @@ pub trait TextMeasurer {
     /// The probe's CSSOM assignment and DOM attachment can affect both dimensions, so this stays a
     /// single metrics operation rather than combining an operation-specific width with a generic
     /// height. Profiles may specialize it when invalid CSS falls back to the host's default font.
+    #[must_use]
     fn measure_mermaid_calculate_text_dimensions(
         &self,
         text: &str,
@@ -311,6 +336,7 @@ pub trait TextMeasurer {
     /// Canvas text advance is a distinct host primitive from SVG bbox and computed-length APIs.
     /// The default uses the closest baseline-advance operation so existing custom profiles remain
     /// source-compatible; browser-backed hosts should implement the exact Canvas2D operation.
+    #[must_use]
     fn measure_canvas_text_width_px(&self, text: &str, style: &TextStyle) -> f64 {
         self.measure_svg_text_computed_length_px(text, style)
     }
@@ -322,11 +348,13 @@ pub trait TextMeasurer {
     /// through their single-tspan DOM-shape profile, not raw direct text content.
     ///
     /// Default implementation falls back to `measure(...).height`.
+    #[must_use]
     fn measure_svg_simple_text_bbox_height_px(&self, text: &str, style: &TextStyle) -> f64 {
         let m = self.measure(text, style);
         m.height.max(0.0)
     }
 
+    #[must_use]
     fn measure_wrapped(
         &self,
         text: &str,
@@ -347,6 +375,7 @@ pub trait TextMeasurer {
     ///
     /// Default implementation returns `None` for `raw_width_px` and callers may fall back to an
     /// explicit second measurement if needed.
+    #[must_use]
     fn measure_wrapped_with_raw_width(
         &self,
         text: &str,
@@ -379,6 +408,7 @@ fn try_measure_mermaid_text_dimensions_for_family<E>(
     }
 
     let mut dimensions = MermaidTextDimensions::default();
+
     for line in super::split_html_br_lines(text) {
         checkpoint()?;
         let measured_line = if line.is_empty() { "\u{200b}" } else { line };
@@ -391,6 +421,7 @@ fn try_measure_mermaid_text_dimensions_for_family<E>(
         dimensions.height += height;
         dimensions.line_height = dimensions.line_height.max(height);
     }
+
     Ok(dimensions)
 }
 
@@ -423,12 +454,14 @@ fn try_measure_mermaid_text_dimensions<E>(
 }
 
 /// Mirrors Mermaid's shared `calculateTextDimensions` utility.
+#[must_use]
 pub(crate) fn measure_mermaid_text_dimensions(
     measurer: &dyn TextMeasurer,
     text: &str,
     configured_style: &TextStyle,
 ) -> MermaidTextDimensions {
     let mut checkpoint = || Ok::<(), std::convert::Infallible>(());
+
     match try_measure_mermaid_text_dimensions(measurer, text, configured_style, &mut checkpoint) {
         Ok(dimensions) => dimensions,
         Err(error) => match error {},

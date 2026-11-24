@@ -73,7 +73,7 @@ use crate::include::dav1d::picture::{
 use crate::src::c_arc::CArc;
 use crate::src::disjoint_mut::DisjointImmutGuard;
 use crate::src::error::Rav1dError;
-use crate::src::internal::Rav1dContext;
+use crate::src::internal::{DecoderStopState, DecoderStopToken, Rav1dContext};
 use std::ops::Deref;
 use std::sync::Arc;
 
@@ -511,7 +511,9 @@ impl Decoder {
     &mut self,
     stop: Option<Arc<dyn Stop>>,
   ) -> core::result::Result<(), console_core_never::Never> {
-    self.ctx.set_stop(stop)
+    self
+      .ctx
+      .set_stop(stop.map(|retained| DecoderStopToken { retained }))
   }
 
   fn classify_decode_error(
@@ -520,9 +522,9 @@ impl Decoder {
   ) -> core::result::Result<whereat::At<Error>, console_core_never::Never> {
     let stop = self.ctx.stop.lock().clone();
 
-    Ok(match stop.map(|token| token.should_stop()) {
-      Some(true) => whereat::at(Error::Cancelled),
-      Some(false) | None => whereat::at(Error::from(e)),
+    Ok(match stop.map(|token| token.state()) {
+      Some(Ok(DecoderStopState::Requested)) => whereat::at(Error::Cancelled),
+      Some(Ok(DecoderStopState::Running)) | None => whereat::at(Error::from(e)),
     })
   }
 

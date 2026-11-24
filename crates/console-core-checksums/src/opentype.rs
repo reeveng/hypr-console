@@ -6,18 +6,22 @@
 
 use console_core_never::Never;
 
-pub fn of(table: &[u8]) -> Result<u32, Never> {
+pub fn words(table: &[u8]) -> Result<impl Iterator<Item = u32> + '_, Never> {
   let (quads, rest) = table.as_chunks::<4>();
-  let sum = quads.iter().fold(0u32, |sum, quad| {
-    sum.wrapping_add(u32::from_be_bytes(*quad))
-  });
-  let mut last = [0u8; 4];
+  let last = match rest {
+    [] => None,
+    &[a] => Some(u32::from_be_bytes([a, 0, 0, 0])),
+    &[a, b] => Some(u32::from_be_bytes([a, b, 0, 0])),
+    &[a, b, c, ..] => Some(u32::from_be_bytes([a, b, c, 0])),
+  };
 
-  for (slot, byte) in last.iter_mut().zip(rest) {
-    *slot = *byte;
-  }
+  Ok(quads.iter().copied().map(u32::from_be_bytes).chain(last))
+}
 
-  Ok(sum.wrapping_add(u32::from_be_bytes(last)))
+pub fn of(table: &[u8]) -> Result<u32, Never> {
+  let Ok(words) = words(table);
+
+  Ok(words.fold(0, u32::wrapping_add))
 }
 
 #[cfg(test)]

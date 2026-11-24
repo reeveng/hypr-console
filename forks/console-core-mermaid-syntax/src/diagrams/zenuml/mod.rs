@@ -24,6 +24,7 @@ use serde_json::Value;
 pub(crate) use model::ZenumlDiagramModel;
 #[cfg(test)]
 use model::ZenumlStatementKind;
+
 struct ZenumlSemanticSource {
     model: ZenumlDiagramModel,
     #[cfg(feature = "editor-facts")]
@@ -57,13 +58,18 @@ pub(crate) fn parse_zenuml_model_for_render_controlled(
         EditorFactsDemand::Omit,
         control,
     )?;
-    if let Some(diagnostic) = source.first_diagnostic {
-        return Ok(Err(Error::diagram_parse_exact(
-            meta.diagram_type.clone(),
-            diagnostic.message,
-            diagnostic.span,
-        )));
+
+    match source.first_diagnostic {
+        Some(diagnostic) => {
+            return Ok(Err(Error::diagram_parse_exact(
+                meta.diagram_type.clone(),
+                diagnostic.message,
+                diagnostic.span,
+            )));
+        },
+        ::core::option::Option::None => {},
     }
+
     Ok(Ok(source.model))
 }
 

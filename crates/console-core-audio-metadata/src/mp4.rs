@@ -6,7 +6,7 @@ use std::time::Duration;
 
 use console_core_iso_media_boxes::{BoxHeader, Children};
 use console_core_never::Never;
-use console_core_number_conversion::{fitted, index};
+use console_core_number_conversion::fitted;
 
 use crate::Contents;
 use crate::bytes::{Cursor, Source};
@@ -232,9 +232,9 @@ fn cover_type(kind: u32, content: &[u8]) -> Result<MimeType, Never> {
 }
 
 fn add_genre(tag: &mut Tag, number: u8) -> Result<(), Never> {
-  let Ok(at) = index(number.saturating_sub(1));
+  let Ok(name) = crate::id3v1::genre_name(number.saturating_sub(1));
 
-  match (number, crate::id3v1::GENRES.get(at)) {
+  match (number, name) {
     (1.., Some(genre)) => tag.push_text(crate::ItemKey::Genre, genre.to_string()),
     (0, _) | (_, None) => Ok(()),
   }

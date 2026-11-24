@@ -38,14 +38,15 @@ pub(super) fn resolve_cluster_text_style(
 ) -> Result<ResolvedThemeStyle, OperationWorkError> {
     if theme.family_id() == crate::DiagramFamilyId::AGENTFLOW {
         let mut style = resolve_document_title_style(theme, ordinal, work)?;
-        style.overlay_role(theme.style_with_work_meter(
+        style.overlay_role({ let checked_value = theme.style_with_work_meter(
             ThemeTarget::ClusterLabel,
             ThemeVariant::Default,
             ordinal,
             work,
-        )?);
+        )?; checked_value });
         return Ok(style);
     }
+
     theme.text_style_with_role_override(
         ThemeTarget::Title,
         ThemeTarget::ClusterLabel,
@@ -55,6 +56,7 @@ pub(super) fn resolve_cluster_text_style(
     )
 }
 
+#[must_use]
 pub(super) fn cluster_palette_target(
     theme: &ResolvedDiagramTheme,
     ordinal: usize,
@@ -68,6 +70,7 @@ pub(super) fn cluster_palette_target(
     .find(|target| theme.series_color(*target, ordinal).is_some())
 }
 
+#[must_use]
 pub(super) fn cluster_effect<'a>(
     theme: &'a ResolvedDiagramTheme,
     style: &ResolvedThemeStyle,
@@ -108,8 +111,8 @@ impl FlowchartTextSurfacePaintPlan {
         let background = crate::family::EdgeLabelBackgroundPlan::resolve(theme, config, work)?;
         let generic_text =
             super::FlowchartTextPaintPlan::resolve(theme, config, node_config_owned, work)?;
-        let theme = theme.filter(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let theme_3 = theme.filter(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 matches!(
                     route.mechanism(),
                     FamilyThemeMechanism::RuleFacet {
@@ -124,30 +127,30 @@ impl FlowchartTextSurfacePaintPlan {
                 )
             })
         });
-        let style = theme
-            .map(|theme| resolve_cluster_text_style(theme, None, work))
+        let style = theme_3
+            .map(|theme_4| resolve_cluster_text_style(theme_4, None, work))
             .transpose()?;
-        let fill = theme.zip(style.as_ref()).and_then(|(theme, style)| {
+        let fill = theme_3.zip(style.as_ref()).and_then(|(theme_5, style_2)| {
             resolve_direct_static_fill(
-                theme,
-                style,
+                theme_5,
+                style_2,
                 CLUSTER_TEXT_ROLES,
                 DirectStaticSelectorDomain::Default,
             )
         });
-        let document_title = theme
-            .filter(|theme| theme.family_id() == crate::DiagramFamilyId::AGENTFLOW)
-            .map(|theme| {
-                let style = resolve_document_title_style(theme, Some(1), work)?;
-                let fill = resolve_direct_static_fill(
-                    theme,
-                    &style,
+        let document_title = theme_3
+            .filter(|theme_6| theme_6.family_id() == crate::DiagramFamilyId::AGENTFLOW)
+            .map(|theme_7| {
+                let style_3 = resolve_document_title_style(theme_7, Some(1), work)?;
+                let fill_2 = resolve_direct_static_fill(
+                    theme_7,
+                    &style_3,
                     &[ThemeTarget::Title],
                     DirectStaticSelectorDomain::Default,
                 );
                 Ok::<_, OperationWorkError>(DocumentTitlePaint {
-                    style,
-                    fill,
+                    style: style_3,
+                    fill: fill_2,
                     config_owned: config
                         .config_paint_overrides_typed_default("themeVariables.textColor"),
                 })
@@ -156,13 +159,13 @@ impl FlowchartTextSurfacePaintPlan {
         Ok(Self {
             background,
             generic_text,
-            theme: theme.cloned(),
+            theme: theme_3.cloned(),
             style,
             fill,
             document_title,
             config_owned: config.config_paint_overrides_typed_default("themeVariables.titleColor"),
-            ordinal_rules: theme.is_some_and(|theme| {
-                theme.family_rules().any(|(_, rule)| {
+            ordinal_rules: theme_3.is_some_and(|theme_8| {
+                theme_8.family_rules().any(|(_, rule)| {
                     matches!(
                         rule.target(),
                         ThemeTarget::Text | ThemeTarget::Title | ThemeTarget::ClusterLabel
@@ -173,6 +176,7 @@ impl FlowchartTextSurfacePaintPlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn requested(&self) -> bool {
         self.theme.is_some() || self.generic_text.requested() || self.background.requested()
     }
@@ -184,6 +188,7 @@ impl FlowchartTextSurfacePaintPlan {
         if !self.requested() {
             return Ok(());
         }
+
         work.checkpoint(merman_model::OperationPhase::Emit)?;
         let mut terminal = self
             .terminal
@@ -202,40 +207,54 @@ impl FlowchartTextSurfacePaintPlan {
         Ok(())
     }
 
+    #[must_use]
     pub(crate) fn document_title_color<'a>(&'a self, configured: &'a str) -> &'a str {
-        if let Some(title) = &self.document_title {
-            if title.config_owned {
-                return configured;
-            }
-            if let Some(fill) = &title.fill {
-                return fill.css();
-            }
-            if title
-                .style
-                .winner_rule_properties()
-                .any(|(property, origin)| {
-                    property == ResolvedStyleProperty::Fill && origin.target() == ThemeTarget::Title
-                })
-            {
-                return configured;
-            }
+        match &self.document_title {
+            Some(title) => {
+                if title.config_owned {
+                    return configured;
+                }
+
+                match &title.fill {
+                    Some(fill) => {
+                        return fill.css();
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                if title
+                    .style
+                    .winner_rule_properties()
+                    .any(|(property, origin)| {
+                        property == ResolvedStyleProperty::Fill && origin.target() == ThemeTarget::Title
+                    })
+                {
+                    return configured;
+                }
+            },
+            ::core::option::Option::None => {},
         }
+
         self.generic_text
             .color(super::FlowchartTextPaintChannel::DiagramTitle, configured)
     }
 
     pub(crate) fn record_document_title_css(&self, color: &str) {
-        if let Some(receipt) = self
-            .terminal
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_mut()
         {
-            receipt.document_title_css_emitted |= self
-                .document_title
-                .as_ref()
-                .and_then(|title| title.fill.as_ref())
-                .is_some_and(|fill| fill.css() == color);
+            match self
+                .terminal
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .as_mut() {
+                Some(receipt) => {
+                    receipt.document_title_css_emitted |= self
+                        .document_title
+                        .as_ref()
+                        .and_then(|title| title.fill.as_ref())
+                        .is_some_and(|fill| fill.css() == color);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
@@ -251,27 +270,45 @@ impl FlowchartTextSurfacePaintPlan {
             super::FlowchartSourceFacetStatus::Absent,
             work,
         )?;
-        let Some((theme, title)) = self.theme.as_ref().zip(self.document_title.as_ref()) else {
-            return Ok(());
+
+        let (theme, title) = {
+            let optional_theme = self.theme.as_ref().zip(self.document_title.as_ref());
+
+            match optional_theme {
+                Some((matched_theme, matched_title)) => (matched_theme, matched_title),
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         if !facts.has_visible_runs() {
             return Ok(());
         }
+
         let mut guard = self
             .terminal
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(receipt) = guard.as_mut() else {
-            return Ok(());
+
+        let receipt = {
+            let optional_receipt = guard.as_mut();
+
+            match optional_receipt {
+                Some(matched_receipt) => matched_receipt,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         for (property, origin) in title.style.winner_rule_properties() {
             work.charge(1)?;
+
             if origin.target() != ThemeTarget::Title
                 || property == ResolvedStyleProperty::Fill && title.config_owned
             {
                 continue;
             }
+
             receipt.winners.insert((origin.rule_index(), property));
+
             if property == ResolvedStyleProperty::Fill
                 && receipt.document_title_css_emitted
                 && title
@@ -282,6 +319,7 @@ impl FlowchartTextSurfacePaintPlan {
                 receipt.consumed.insert(origin.rule_index());
             }
         }
+
         if !title.config_owned
             && matches!(
                 title.style.fill_resolution().specified(),
@@ -291,6 +329,7 @@ impl FlowchartTextSurfacePaintPlan {
         {
             receipt.palettes.insert(ThemeTarget::Title);
         }
+
         if let Some(ResolvedThemeEffect::Binding { binding, .. }) =
             theme.resolve_effect(ThemeTarget::Title, title.style.effect_resolution())
         {
@@ -298,6 +337,7 @@ impl FlowchartTextSurfacePaintPlan {
                 .bindings
                 .insert((binding.target(), binding.effect_id().to_owned()));
         }
+
         Ok(())
     }
 
@@ -321,14 +361,18 @@ impl FlowchartTextSurfacePaintPlan {
         };
         let property = if html { "color" } else { "fill" };
         let result = write!(out, "{property}:{color};");
-        if let Some(terminal) = self
+
+        match self
             .terminal
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_mut()
-        {
-            terminal.css_emitted[usize::from(html)] |= result.is_ok();
+            .as_mut() {
+            Some(terminal) => {
+                terminal.css_emitted[usize::from(html)] |= result.is_ok();
+            },
+            ::core::option::Option::None => {},
         }
+
         result
     }
 
@@ -342,27 +386,44 @@ impl FlowchartTextSurfacePaintPlan {
         if !self.requested() {
             return Ok(());
         }
+
         let _ = id;
         work.charge(1 + facts.visible_run_count())?;
+
         if facts.parse_valid() && !facts.has_visible_runs() {
             return Ok(());
         }
+
         self.generic_text.record_label(
             super::FlowchartTextPaintChannel::Cluster,
             super::FlowchartTextPaintFacts::from_visible(facts),
             source,
             work,
         )?;
-        let Some(theme) = self.theme.as_ref() else {
-            return Ok(());
+
+        let theme = {
+            let optional_theme = self.theme.as_ref();
+
+            match optional_theme {
+                Some(matched_theme) => matched_theme,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         let mut receipt = self
             .terminal
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(terminal) = receipt.as_mut() else {
-            return Ok(());
+
+        let terminal = {
+            let optional_terminal = receipt.as_mut();
+
+            match optional_terminal {
+                Some(matched_terminal) => matched_terminal,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         terminal.ordinal += 1;
         let source_owned =
             self.config_owned || source == super::FlowchartSourceFacetStatus::Admitted;
@@ -373,23 +434,28 @@ impl FlowchartTextSurfacePaintPlan {
         let fill_applies = !source_owned && (inherited || unverified);
         let ordinal_style;
         let style = if self.ordinal_rules {
-            ordinal_style = resolve_cluster_text_style(theme, Some(terminal.ordinal), work)?;
+            ordinal_style = { let checked_value = resolve_cluster_text_style(theme, Some(terminal.ordinal), work)?; checked_value };
             &ordinal_style
         } else {
             self.style.as_ref().expect("requested static text style")
         };
+
         for (property, origin) in style.winner_rule_properties() {
             work.charge(1)?;
+
             if !CLUSTER_TEXT_ROLES.contains(&origin.target())
                 || (property == ResolvedStyleProperty::Fill && !fill_applies)
             {
                 continue;
             }
+
             terminal.winners.insert((origin.rule_index(), property));
+
             if property == ResolvedStyleProperty::Fill {
                 if unverified {
                     terminal.unknown_fill_winners.insert(origin.rule_index());
                 }
+
                 if inherited
                     && !unverified
                     && self
@@ -401,8 +467,9 @@ impl FlowchartTextSurfacePaintPlan {
                 }
             }
         }
-        // Unsupported ordinal paint may leave static CSS visible, but only the actual winner
-        // can be certified. Another unshadowed occurrence can still consume the static rule.
+
+
+
         if fill_applies
             && matches!(style.fill_resolution().specified(), Specified::Unspecified)
             && let Some(target) = cluster_palette_target(theme, terminal.ordinal)
@@ -410,6 +477,7 @@ impl FlowchartTextSurfacePaintPlan {
         {
             terminal.palettes.insert(target);
         }
+
         if let Some(ResolvedThemeEffect::Binding { binding, .. }) = cluster_effect(theme, style)
             && CLUSTER_TEXT_ROLES.contains(&binding.target())
         {
@@ -417,6 +485,7 @@ impl FlowchartTextSurfacePaintPlan {
                 .bindings
                 .insert((binding.target(), binding.effect_id().to_owned()));
         }
+
         Ok(())
     }
 
@@ -424,24 +493,41 @@ impl FlowchartTextSurfacePaintPlan {
         if self.background.requested() {
             self.background.record_evidence(evidence);
         }
+
         if self.generic_text.requested() {
             self.generic_text.record_evidence(evidence);
         }
+
         let receipt = self
             .terminal
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        let Some(terminal) = receipt.as_ref() else {
-            return;
+
+        let terminal = {
+            let optional_terminal = receipt.as_ref();
+
+            match optional_terminal {
+                Some(matched_terminal) => matched_terminal,
+                ::core::option::Option::None => return,
+            }
         };
+
         if terminal.css_emitted != [true, true] {
             return;
         }
-        let Some(theme) = self.theme.as_ref() else {
-            return;
+
+        let theme = {
+            let optional_theme = self.theme.as_ref();
+
+            match optional_theme {
+                Some(matched_theme) => matched_theme,
+                ::core::option::Option::None => return,
+            }
         };
+
         let mut observations =
             BTreeMap::<(usize, ThemeTarget), (bool, Option<FamilyThemeResidualReason>)>::new();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
@@ -452,9 +538,11 @@ impl FlowchartTextSurfacePaintPlan {
                 } => {
                     let observation = observations.entry((rule_index, target)).or_default();
                     let property = resolved_style_property_for_facet(facet);
+
                     if !terminal.winners.contains(&(rule_index, property)) {
                         continue;
                     }
+
                     if route.disposition() == FamilyThemeDisposition::TypedAdapter
                         && matches!(facet, FamilyThemeRuleFacet::Fill(_))
                         && self.fill_for_rule(rule_index).is_some()
@@ -472,6 +560,7 @@ impl FlowchartTextSurfacePaintPlan {
                     target: target @ (ThemeTarget::Title | ThemeTarget::ClusterLabel),
                 } => {
                     let key = theme.family_mechanism_key(route);
+
                     if terminal.palettes.contains(&target) {
                         evidence.mark_residual(
                             key,
@@ -486,6 +575,7 @@ impl FlowchartTextSurfacePaintPlan {
                     ..
                 } => {
                     let key = theme.family_mechanism_key(route);
+
                     if matches!(&key, FamilyThemeMechanismKey::EffectBinding { effect_id, .. } if terminal.bindings.contains(&(target, effect_id.clone())))
                     {
                         evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedEffect);
@@ -496,8 +586,10 @@ impl FlowchartTextSurfacePaintPlan {
                 _ => {}
             }
         }
+
         for ((index, target), (applied, residual)) in observations {
             let key = FamilyThemeMechanismKey::Rule { index, target };
+
             if let Some(reason) = residual {
                 evidence.mark_residual(key, reason);
             } else if applied {
@@ -514,6 +606,7 @@ impl FlowchartTextSurfacePaintPlan {
         }
     }
 
+    #[must_use]
     fn fill_for_rule(&self, index: usize) -> Option<&DirectStaticPaint> {
         self.fill
             .iter()

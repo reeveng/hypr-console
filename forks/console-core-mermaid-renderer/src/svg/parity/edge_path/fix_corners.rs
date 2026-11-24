@@ -11,17 +11,18 @@ pub(in crate::svg::parity) fn maybe_fix_corners(points: &mut Vec<crate::model::L
 
     const CORNER_DIST: f64 = 5.0;
     let mut corner_positions: Vec<usize> = Vec::new();
+
     for i in 1..points.len().saturating_sub(1) {
         let prev = &points[i - 1];
         let curr = &points[i];
         let next = &points[i + 1];
 
-        let is_corner_xy = prev.x == curr.x
-            && curr.y == next.y
+        let is_corner_xy = <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&prev.x, &curr.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
+            && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&curr.y, &next.y) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
             && (curr.x - next.x).abs() > CORNER_DIST
             && (curr.y - prev.y).abs() > CORNER_DIST;
-        let is_corner_yx = prev.y == curr.y
-            && curr.x == next.x
+        let is_corner_yx = <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&prev.y, &curr.y) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
+            && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&curr.x, &next.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal)
             && (curr.x - prev.x).abs() > CORNER_DIST
             && (curr.y - next.y).abs() > CORNER_DIST;
 
@@ -34,6 +35,7 @@ pub(in crate::svg::parity) fn maybe_fix_corners(points: &mut Vec<crate::model::L
         return;
     }
 
+    #[must_use]
     fn find_adjacent_point(
         point_a: &crate::model::LayoutPoint,
         point_b: &crate::model::LayoutPoint,
@@ -42,9 +44,11 @@ pub(in crate::svg::parity) fn maybe_fix_corners(points: &mut Vec<crate::model::L
         let x_diff = point_b.x - point_a.x;
         let y_diff = point_b.y - point_a.y;
         let len = (x_diff * x_diff + y_diff * y_diff).sqrt();
-        if len == 0.0 {
+
+        if ::core::matches!(::core::primitive::f64::classify(len), ::core::num::FpCategory::Zero) {
             return point_b.clone();
         }
+
         let ratio = distance / len;
         crate::model::LayoutPoint {
             x: point_b.x - ratio * x_diff,
@@ -54,6 +58,7 @@ pub(in crate::svg::parity) fn maybe_fix_corners(points: &mut Vec<crate::model::L
 
     let a = (2.0_f64).sqrt() * 2.0;
     let mut out: Vec<crate::model::LayoutPoint> = Vec::new();
+
     for i in 0..points.len() {
         if !corner_positions.contains(&i) {
             out.push(points[i].clone());
@@ -71,9 +76,11 @@ pub(in crate::svg::parity) fn maybe_fix_corners(points: &mut Vec<crate::model::L
         out.push(new_prev.clone());
 
         let mut new_corner = corner.clone();
+
         if (next.x - prev.x).abs() > 10.0 && (next.y - prev.y).abs() >= 10.0 {
             let r = CORNER_DIST;
-            if corner.x == new_prev.x {
+
+            if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&corner.x, &new_prev.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
                 new_corner = crate::model::LayoutPoint {
                     x: if x_diff < 0.0 {
                         new_prev.x - r + a

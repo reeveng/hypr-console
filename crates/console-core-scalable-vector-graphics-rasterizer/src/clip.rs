@@ -17,7 +17,7 @@ use console_core_scalable_vector_graphics::{ClipPath, Group, IsVisibleAnswer, No
 )]
 pub(super) fn apply(
   clip: &ClipPath,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut Pixmap,
 ) -> Result<(), Never> {
@@ -64,7 +64,7 @@ pub(super) fn apply(
 fn draw_children(
   parent: &Group,
   blend: BlendMode,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {
@@ -119,7 +119,7 @@ fn draw_children(
 fn draw_group(
   group: &Group,
   blend: BlendMode,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {
@@ -143,7 +143,7 @@ fn draw_group(
 fn clip_group(
   group: &Group,
   clip: &ClipPath,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {

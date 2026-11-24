@@ -39,10 +39,11 @@ use console_core_never::Never;
 use console_core_words::Words;
 use console_manifest_migrations::history::EVERY;
 use console_manifest_migrations::{holds, sweeping, whoevers};
+use console_package_manager_pacman::{Ownership, owner};
 
 use crate::generations;
 use crate::install::{self, User};
-use crate::machine::{self, Ran};
+use crate::machine;
 use crate::machines;
 use crate::manifest::{Configuration, Manifest, Reading, Section, Written};
 use crate::unapplied::Unapplied;
@@ -81,13 +82,6 @@ pub enum Standing {
   Invalid,
   #[words(name = "owner unknown, kept")]
   OwnerUnknown,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Ownership {
-  Owned,
-  Unowned,
-  Unknown,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -350,7 +344,7 @@ fn status_of(
 ) -> Result<Standing, Never> {
   Ok(match placed {
     Left::Program(live) => {
-      let Ok(owned) = owned(Path::new(live));
+      let Ok(owned) = owner(Path::new(live));
       let Ok(stands) = status(
         Path::new(live),
         Known::Compiled,
@@ -363,7 +357,7 @@ fn status_of(
     }
     Left::File { declared, written } => {
       let Ok(on) = install::on_machine(declared, user);
-      let Ok(owned) = owned(Path::new(&on));
+      let Ok(owned) = owner(Path::new(&on));
       let Ok(versions) = versions(root, recorded, declared);
       let Ok(stands) = status(
         Path::new(&on),
@@ -391,32 +385,6 @@ fn status_of(
         ::core::option::Option::None => Standing::Gone,
       }
     }
-  })
-}
-
-fn owned(on: &Path) -> Result<Ownership, Never> {
-  let Ok(env) = Program::Env.name();
-  let Ok(pacman) = Program::Pacman.name();
-  let at = on.display().to_string();
-  let Ok(asked) = machine::run_captured(&[env, "LC_ALL=C", pacman, "-Qoq", &at]);
-
-  read_owner(&asked)
-}
-
-const NOBODY_OWNS: &str = "No package owns";
-
-pub fn read_owner(asked: &machine::CommandOutput) -> Result<Ownership, Never> {
-  let machine::CommandOutput { out, said, ran } = asked;
-  let named = !out.trim().is_empty();
-  let disowned = said.contains(NOBODY_OWNS);
-
-  Ok(match (*ran, named, disowned) {
-    (Ran::Fine, true, false) => Ownership::Owned,
-    (Ran::Badly, false, true) => Ownership::Unowned,
-    (Ran::Fine, false, _)
-    | (Ran::Fine, true, true)
-    | (Ran::Badly, _, false)
-    | (Ran::Badly, true, true) => Ownership::Unknown,
   })
 }
 
@@ -855,38 +823,6 @@ pub(crate) mod tests {
     std::fs::remove_dir_all(&machine)?;
 
     Ok(())
-  }
-
-  #[test]
-  fn only_pacman_saying_so_plainly_is_an_answer_about_an_owner() {
-    let read = |ran, out, said| {
-      let Ok(owned) = read_owner(&machine::CommandOutput {
-        out: String::from(out),
-        said: String::from(said),
-        ran,
-      });
-
-      owned
-    };
-
-    assert_eq!(read(Ran::Fine, "inputplumber", ""), Ownership::Owned);
-    assert_eq!(
-      read(Ran::Badly, "", "error: No package owns /etc/old.conf"),
-      Ownership::Unowned
-    );
-    assert_eq!(
-      read(Ran::Badly, "", "pacman: No such file or directory"),
-      Ownership::Unknown
-    );
-    assert_eq!(
-      read(
-        Ran::Badly,
-        "",
-        "error: failed to read file '/etc': Permission denied"
-      ),
-      Ownership::Unknown
-    );
-    assert_eq!(read(Ran::Fine, "", ""), Ownership::Unknown);
   }
 
   #[test]

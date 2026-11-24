@@ -124,6 +124,7 @@ pub struct Application {
   opens: Vec<String>,
   categories: String,
   launchable: bool,
+  window_classes: Vec<String>,
 }
 
 impl Application {
@@ -152,6 +153,39 @@ impl Application {
 
         installed == Installed::Yes
       });
+    let mut window_classes = Vec::new();
+
+    match {
+      ::core::primitive::bool::then_some(
+        launchable
+          && !entry
+            .terminal
+            .is_some_and(|value| value.eq_ignore_ascii_case("true")),
+        (),
+      )
+    } {
+      ::core::option::Option::Some(()) => {
+        match id.strip_suffix(".desktop") {
+          Some(class) => {
+            window_classes.push(class.to_owned());
+          }
+          ::core::option::Option::None => {}
+        }
+
+        let startup_class = entry.startup_wm_class.filter(|class| {
+          !class.is_empty()
+            && !window_classes
+              .iter()
+              .any(|known_class| known_class == class)
+        });
+
+        match startup_class {
+          Some(class) => window_classes.push(class.to_owned()),
+          None => {}
+        }
+      }
+      ::core::option::Option::None => {}
+    }
 
     Ok(Some(Self {
       id: id.to_string(),
@@ -163,7 +197,13 @@ impl Application {
         None => String::new(),
       },
       launchable,
+      window_classes,
     }))
+  }
+
+  #[must_use]
+  pub fn window_classes(&self) -> Result<&[String], Never> {
+    Ok(&self.window_classes)
   }
 
   pub fn opens(&self, mime: &str) -> Result<Support, Never> {

@@ -339,6 +339,7 @@ pub mod __private {
     }
 
     impl FamilyEvidenceStatus {
+        #[must_use]
         pub(crate) const fn from_verification(verification: FamilyStyleVerification) -> Self {
             match verification {
                 FamilyStyleVerification::NotApplicable => Self::NotApplicable,
@@ -366,6 +367,7 @@ pub mod __private {
 
     impl FamilyEvidenceSummary {
         #[allow(clippy::too_many_arguments)]
+        #[must_use]
         pub(crate) const fn new(
             status: FamilyEvidenceStatus,
             required_count: usize,
@@ -390,44 +392,54 @@ pub mod __private {
             }
         }
 
+        #[must_use]
         pub const fn status(self) -> FamilyEvidenceStatus {
             self.status
         }
 
+        #[must_use]
         pub const fn required_count(self) -> usize {
             self.required_count
         }
 
+        #[must_use]
         pub const fn accounted_count(self) -> usize {
             self.accounted_count
         }
 
+        #[must_use]
         pub const fn applied_count(self) -> usize {
             self.applied_count
         }
 
+        #[must_use]
         pub const fn not_applicable_count(self) -> usize {
             self.not_applicable_count
         }
 
+        #[must_use]
         pub const fn theme_residual_count(self) -> usize {
             self.theme_residual_count
         }
 
+        #[must_use]
         pub const fn source_residual_count(self) -> usize {
             self.source_residual_count
         }
 
+        #[must_use]
         pub const fn mermaid_compatibility_residual_count(self) -> usize {
             self.mermaid_compatibility_residual_count
         }
 
+        #[must_use]
         pub const fn output_mutated(self) -> bool {
             self.output_mutated
         }
     }
 
     /// Projects renderer-private family evidence into the bounded workspace facade summary.
+    #[must_use]
     pub fn family_evidence(report: &FamilyRenderReport) -> FamilyEvidenceSummary {
         report.evidence_summary()
     }
@@ -446,6 +458,7 @@ pub mod __private {
     }
 
     impl RootEvidenceSummary {
+        #[must_use]
         pub(crate) fn from_root(root: &crate::diagram_theme::RootThemeReport) -> Self {
             let required_count = root.required_count();
             let applied_count = root.applied_count();
@@ -460,32 +473,39 @@ pub mod __private {
             }
         }
 
+        #[must_use]
         pub const fn status(self) -> crate::diagram_theme::RootThemeVerification {
             self.status
         }
 
+        #[must_use]
         pub const fn required_count(self) -> usize {
             self.required_count
         }
 
+        #[must_use]
         pub const fn accounted_count(self) -> usize {
             self.accounted_count
         }
 
+        #[must_use]
         pub const fn applied_count(self) -> usize {
             self.applied_count
         }
 
+        #[must_use]
         pub const fn residual_count(self) -> usize {
             self.residual_count
         }
 
+        #[must_use]
         pub const fn output_mutated(self) -> bool {
             self.output_mutated
         }
     }
 
     /// Moves the completed session and explanations to their consuming facade.
+    #[must_use]
     pub fn into_session_and_theme_diagnostics(
         report: FamilyRenderReport,
     ) -> (
@@ -496,11 +516,13 @@ pub mod __private {
     }
 
     /// Projects renderer-private root evidence without exporting the mechanism ledger.
+    #[must_use]
     pub fn root_evidence(report: &FamilyRenderReport) -> RootEvidenceSummary {
         RootEvidenceSummary::from_root(report.root_theme_report())
     }
 
     /// Borrows only the actual facts needed for standalone SVG admission, without freezing reports.
+    #[must_use]
     pub fn standalone_admission_summary(
         rendered: &crate::family::RenderedStandaloneSvg,
     ) -> (RootEvidenceSummary, FamilyEvidenceSummary, bool) {
@@ -508,6 +530,7 @@ pub mod __private {
     }
 
     /// Returns the bounded set of root capabilities proved by the terminal SVG consumer.
+    #[must_use]
     pub fn root_applied_capabilities(
         report: &FamilyRenderReport,
     ) -> Box<[crate::diagram_theme::ThemeCapability]> {
@@ -519,6 +542,7 @@ pub mod __private {
     }
 
     /// Returns the exact State hard-shadow receipt frozen after SVG emission.
+    #[must_use]
     pub fn family_native_filter_receipt(
         report: &FamilyRenderReport,
     ) -> Option<NativeSvgFilterReceipt> {
@@ -526,6 +550,7 @@ pub mod __private {
     }
 
     /// Returns the exact host/theme resource-policy intersection captured by the session.
+    #[must_use]
     pub fn effective_theme_resource_policy(
         report: &crate::environment::RenderSessionReport,
     ) -> &crate::diagram_theme::ThemeResourcePolicy {
@@ -542,6 +567,7 @@ pub mod __private {
     }
 
     impl PreparedMathEvidenceSummary {
+        #[must_use]
         pub const fn not_applicable() -> Self {
             Self {
                 evidence_valid: true,
@@ -551,22 +577,27 @@ pub mod __private {
             }
         }
 
+        #[must_use]
         pub const fn evidence_valid(self) -> bool {
             self.evidence_valid
         }
 
+        #[must_use]
         pub const fn expected_occurrence_count(self) -> usize {
             self.expected_occurrence_count
         }
 
+        #[must_use]
         pub const fn terminal_occurrence_count(self) -> usize {
             self.terminal_occurrence_count
         }
 
+        #[must_use]
         pub const fn terminal_artifact_digest(self) -> Option<[u8; 32]> {
             self.terminal_artifact_digest
         }
 
+        #[must_use]
         pub const fn terminal_proof_complete(self) -> bool {
             self.evidence_valid
                 && self.expected_occurrence_count == self.terminal_occurrence_count
@@ -575,6 +606,7 @@ pub mod __private {
     }
 
     /// Projects renderer-owned prepared-math evidence from the sealed native SVG.
+    #[must_use]
     pub fn prepared_math_evidence(
         svg: &crate::svg::ResvgCompatibleSvg,
     ) -> PreparedMathEvidenceSummary {
@@ -582,8 +614,8 @@ pub mod __private {
         PreparedMathEvidenceSummary {
             evidence_valid: svg.prepared_math_evidence_valid(),
             expected_occurrence_count: svg.prepared_math_evidence_count(),
-            terminal_occurrence_count: receipt.map_or(0, |receipt| receipt.occurrence_count()),
-            terminal_artifact_digest: receipt.map(|receipt| receipt.artifact_digest()),
+            terminal_occurrence_count: receipt.map_or(0, |receipt_2| receipt_2.occurrence_count()),
+            terminal_artifact_digest: receipt.map(|receipt_3| receipt_3.artifact_digest()),
         }
     }
 
@@ -606,6 +638,7 @@ pub mod __private {
     }
 
     /// Reports whether terminal SVG text is fully resolved by a renderer-owned font seal.
+    #[must_use]
     pub const fn svg_text_fonts_are_self_contained(
         report: &crate::svg::SvgFinalizationReport,
     ) -> bool {
@@ -614,16 +647,19 @@ pub mod __private {
 }
 
 /// Reports whether the Cytoscape-derived layout backend is present in this compiled renderer.
+#[must_use]
 pub const fn layout_cytoscape_available() -> bool {
     cfg!(feature = "layout-cytoscape")
 }
 
 /// Reports whether the ELK layout backend is present in this compiled renderer.
+#[must_use]
 pub const fn layout_elk_available() -> bool {
     cfg!(feature = "layout-elk")
 }
 
 /// Reports whether the built-in math renderer is present in this compiled renderer.
+#[must_use]
 pub const fn math_available() -> bool {
     cfg!(feature = "math")
 }
@@ -638,6 +674,7 @@ pub enum RenderCapability {
 }
 
 impl RenderCapability {
+    #[must_use]
     const fn bit(self) -> u8 {
         match self {
             Self::LayoutCytoscape => 1 << 0,
@@ -646,6 +683,7 @@ impl RenderCapability {
         }
     }
 
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::LayoutCytoscape => "layout-cytoscape",
@@ -672,6 +710,7 @@ pub struct RenderCapabilityPolicy {
 
 impl RenderCapabilityPolicy {
     /// Allows every optional renderer capability that is otherwise available.
+    #[must_use]
     pub const fn unrestricted() -> Self {
         Self {
             allowed_bits: ALL_RENDER_CAPABILITY_BITS,
@@ -679,6 +718,7 @@ impl RenderCapabilityPolicy {
     }
 
     /// Denies every optional renderer capability until explicitly allowed.
+    #[must_use]
     pub const fn deny_all() -> Self {
         Self { allowed_bits: 0 }
     }
@@ -691,6 +731,7 @@ impl RenderCapabilityPolicy {
     }
 
     /// Reports whether this policy permits the capability.
+    #[must_use]
     pub const fn allows(self, capability: RenderCapability) -> bool {
         self.allowed_bits & capability.bit() != 0
     }
@@ -734,6 +775,7 @@ pub use resources::{
 pub enum Error {
     #[error(transparent)]
     Cancelled(#[from] merman_model::OperationCancelled),
+
     #[error("unsupported diagram type for layout: {diagram_type}")]
     UnsupportedDiagram { diagram_type: String },
     #[error("layout adaptation `{adaptation}` is unsupported for diagram `{diagram_type}`")]
@@ -801,8 +843,10 @@ pub enum Error {
     },
     #[error(transparent)]
     SemanticProjection(merman_model::presentation::compat::CompatProjectionError),
+
     #[error(transparent)]
     PresentationConfig(#[from] merman_model::presentation::PresentationConfigError),
+
     #[error("invalid semantic model: {message}")]
     InvalidModel { message: String },
     #[error("parsed diagram is bound to a different theme session")]
@@ -811,8 +855,10 @@ pub enum Error {
         "render target `{target}` does not support RequirePortable because it has no target portability admission"
     )]
     PortabilityUnavailableForTarget { target: &'static str },
+
     #[error(transparent)]
     ThemeAdmission(#[from] crate::diagram_theme::ThemeAdmissionError),
+
     #[error(
         "custom JSON model `{model_name}` from {provenance:?} cannot render diagram type `{diagram_type}`"
     )]
@@ -827,16 +873,22 @@ pub enum Error {
     InvalidIconOutput { message: String },
     #[error("icon rendering failed internally: {message}")]
     IconProcessing { message: String },
+
     #[error(transparent)]
     ResourceLimitExceeded(#[from] ResourceLimitExceeded),
+
     #[error(transparent)]
     ThemeResourceLimitExceeded(#[from] crate::diagram_theme::ThemeResourceLimitExceeded),
+
     #[error(transparent)]
     OperationResourceTerminal(merman_model::OperationLedgerError),
+
     #[error(transparent)]
     Color(#[from] merman_markup::theme_color::ColorError),
+
     #[error("semantic model JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
     #[error(transparent)]
     OperationTimingUnavailable(#[from] merman_model::runtime::OperationTimingUnavailable),
 }
@@ -854,22 +906,23 @@ impl From<dugong::LayoutError> for Error {
 impl From<crate::resources::OperationWorkError> for Error {
     fn from(error: crate::resources::OperationWorkError) -> Self {
         match error {
-            crate::resources::OperationWorkError::Cancelled(error) => Self::Cancelled(error),
-            crate::resources::OperationWorkError::ResourceLimitExceeded(error) => {
-                Self::ResourceLimitExceeded(error)
+            crate::resources::OperationWorkError::Cancelled(error_2) => Self::Cancelled(error_2),
+            crate::resources::OperationWorkError::ResourceLimitExceeded(error_3) => {
+                Self::ResourceLimitExceeded(error_3)
             }
-            crate::resources::OperationWorkError::ForeignResourceTerminal(error) => {
-                Self::OperationResourceTerminal(error)
+            crate::resources::OperationWorkError::ForeignResourceTerminal(error_4) => {
+                Self::OperationResourceTerminal(error_4)
             }
         }
     }
 }
 
 impl Error {
+    #[must_use]
     pub fn svg_postprocess(pass: impl Into<String>, message: impl Into<String>) -> Self {
         Self::SvgPostprocess {
-            pass: pass.into(),
-            message: message.into(),
+            pass: <_ as ::core::convert::Into<::std::string::String>>::into(pass),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
         }
     }
 
@@ -880,9 +933,10 @@ impl Error {
             reason = "Shared operation support has different consumers in each diagram selection."
         )
     )]
+    #[must_use]
     pub(crate) fn invalid_icon_output(message: impl Into<String>) -> Self {
         Self::InvalidIconOutput {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
         }
     }
 
@@ -893,12 +947,14 @@ impl Error {
             reason = "Shared operation support has different consumers in each diagram selection."
         )
     )]
+    #[must_use]
     pub(crate) fn icon_processing(message: impl Into<String>) -> Self {
         Self::IconProcessing {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
         }
     }
 
+    #[must_use]
     pub const fn missing_capability(&self) -> Option<RenderCapability> {
         match self {
             Self::MissingCapability { capability, .. } => Some(*capability),
@@ -906,6 +962,7 @@ impl Error {
         }
     }
 
+    #[must_use]
     pub const fn unverified_family_style(&self) -> Option<(DiagramFamilyId, usize)> {
         match self {
             Self::UnverifiedFamilyStyle {
@@ -916,6 +973,7 @@ impl Error {
         }
     }
 
+    #[must_use]
     pub const fn unadapted_family_theme(&self) -> Option<DiagramFamilyId> {
         match self {
             Self::UnadaptedFamilyTheme { family_id } => Some(*family_id),
@@ -923,6 +981,7 @@ impl Error {
         }
     }
 
+    #[must_use]
     pub const fn incomplete_family_theme(&self) -> Option<(DiagramFamilyId, usize, usize)> {
         match self {
             Self::IncompleteFamilyTheme {
@@ -934,6 +993,7 @@ impl Error {
         }
     }
 
+    #[must_use]
     pub const fn unverified_family_theme(&self) -> Option<(DiagramFamilyId, usize)> {
         match self {
             Self::UnverifiedFamilyTheme {
@@ -944,6 +1004,7 @@ impl Error {
         }
     }
 
+    #[must_use]
     pub const fn rejected_root_theme(
         &self,
     ) -> Option<(crate::diagram_theme::RootThemeVerification, usize)> {
@@ -967,6 +1028,7 @@ pub enum LayoutAdaptation {
 }
 
 impl LayoutAdaptation {
+    #[must_use]
     pub const fn id(self) -> &'static str {
         match self {
             Self::None => "none",
@@ -984,11 +1046,12 @@ pub struct LayoutAdaptationObservation {
     overflowed: bool,
 }
 
-// Both widths are finite at construction; NaN cannot enter this immutable observation.
+
 impl Eq for LayoutAdaptationObservation {}
 
 impl LayoutAdaptationObservation {
     #[cfg(feature = "diagram-kanban")]
+    #[must_use]
     pub(crate) fn fit_width(requested_width: f64, actual_width: f64) -> Self {
         debug_assert!(requested_width.is_finite() && requested_width > 0.0);
         debug_assert!(actual_width.is_finite() && actual_width > 0.0);
@@ -1000,15 +1063,22 @@ impl LayoutAdaptationObservation {
         }
     }
 
+    #[must_use]
     pub const fn mode(self) -> LayoutAdaptation {
         self.mode
     }
+
+    #[must_use]
     pub const fn requested_width(self) -> f64 {
         self.requested_width
     }
+
+    #[must_use]
     pub const fn actual_width(self) -> f64 {
         self.actual_width
     }
+
+    #[must_use]
     pub const fn overflowed(self) -> bool {
         self.overflowed
     }
@@ -1049,17 +1119,20 @@ impl Default for LayoutOptions {
 
 impl LayoutOptions {
     /// Returns geometry defaults suitable for headless SVG rendering.
+    #[must_use]
     pub fn headless_svg_defaults() -> Self {
         Self::default()
     }
 
     /// Selects explicit family placement adaptation.
+    #[must_use]
     pub fn with_adaptation(mut self, adaptation: LayoutAdaptation) -> Self {
         self.adaptation = adaptation;
         self
     }
 
     /// Sets the host layout container dimensions in CSS pixels.
+    #[must_use]
     pub fn with_container_size(mut self, width: f64, height: f64) -> Self {
         self.container_width = width;
         self.container_height = height;
@@ -1067,6 +1140,7 @@ impl LayoutOptions {
     }
 
     /// Supplies the browser `screen.availWidth` observed by the host.
+    #[must_use]
     pub fn with_screen_available_width(mut self, width: f64) -> Self {
         self.screen_available_width = Some(width);
         self
@@ -1094,6 +1168,7 @@ pub(crate) struct LayoutExecution<'a> {
     )
 )]
 impl<'a> LayoutExecution<'a> {
+    #[must_use]
     pub(crate) fn new(
         request: &'a LayoutOptions,
         family: crate::family::FamilyExecutionView<'a>,
@@ -1119,53 +1194,63 @@ impl<'a> LayoutExecution<'a> {
         )
     }
 
+    #[must_use]
     pub(crate) const fn family_id(&self) -> DiagramFamilyId {
         self.family.family_id()
     }
 
     #[cfg(feature = "diagram-state")]
+    #[must_use]
     pub(crate) fn state_style_plan(&self) -> Option<&crate::state::StateStylePlan> {
         self.family.style_plan().and_then(|plan| plan.state())
     }
 
+    #[must_use]
     pub(crate) fn text_measurer(&self) -> &dyn crate::text::TextMeasurer {
         &self.text_measurer
     }
 
+    #[must_use]
     pub(crate) fn resolved_theme(&self) -> Option<&crate::diagram_theme::ResolvedDiagramTheme> {
         self.family.resolved_theme()
     }
 
+    #[must_use]
     pub(crate) fn math_renderer(&self) -> Option<&(dyn crate::math::MathRenderer + Send + Sync)> {
         self.family.session().math_renderer()
     }
 
+    #[must_use]
     pub(crate) fn math_backend(&self) -> Option<&crate::math::ConfiguredMathBackend> {
         self.family.session().math_backend()
     }
 
+    #[must_use]
     pub(crate) fn work_meter(&self) -> std::sync::Arc<crate::resources::OperationWorkMeter> {
         std::sync::Arc::clone(self.family.session().work_meter())
     }
 
+    #[must_use]
     pub(crate) fn work_meter_ref(&self) -> &crate::resources::OperationWorkMeter {
         self.family.session().work_meter().as_ref()
     }
 
+    #[must_use]
     pub(crate) fn local_time_zone(&self) -> &merman_model::time::LocalTimeZone {
         self.family.session().local_time_zone()
     }
 
     #[cfg(feature = "layout-cytoscape")]
+    #[must_use]
     pub(crate) fn operation_seed(&self) -> u64 {
         self.family.session().render_seed().get()
     }
 
     #[cfg(feature = "layout-elk")]
     pub(crate) fn elk_operation_seed(&self) -> merman_layout_elk::ElkOperationSeed {
-        // The ELK source port applies its own stable ELK-specific domain and graph-path
-        // derivation. This token merely keeps every ELK random boundary tied to one immutable
-        // render operation.
+
+
+
         merman_layout_elk::ElkOperationSeed::from_operation_seed(
             self.family.session().render_seed(),
         )

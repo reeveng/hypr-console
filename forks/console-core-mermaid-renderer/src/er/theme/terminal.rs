@@ -36,30 +36,36 @@ pub(super) enum ErTextTerminalId {
 }
 
 impl ErTextTerminalId {
+    #[must_use]
     pub(super) fn entity_name(entity_id: &str) -> Self {
-        Self::EntityName(entity_id.into())
+        Self::EntityName(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(entity_id))
     }
 
+    #[must_use]
     pub(super) fn attribute(entity_id: &str, row_index: usize, role: ErAttributeTextRole) -> Self {
         Self::Attribute {
-            entity_id: entity_id.into(),
+            entity_id: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(entity_id),
             row_index,
             role,
         }
     }
 
+    #[must_use]
     pub(super) const fn relation_label(relationship_index: usize) -> Self {
         Self::RelationLabel(relationship_index)
     }
 
+    #[must_use]
     pub(super) const fn is_relation_label(&self) -> bool {
         matches!(self, Self::RelationLabel(_))
     }
 
+    #[must_use]
     pub(super) const fn is_subgraph_label(&self) -> bool {
         matches!(self, Self::SubgraphLabel(_))
     }
 
+    #[must_use]
     pub(super) fn entity_id(&self) -> Option<&str> {
         match self {
             Self::EntityName(entity_id) | Self::Attribute { entity_id, .. } => Some(entity_id),
@@ -75,17 +81,20 @@ pub(super) struct ErTableRowTerminalId {
 }
 
 impl ErTableRowTerminalId {
+    #[must_use]
     pub(super) fn new(entity_id: &str, row_index: usize) -> Self {
         Self {
-            entity_id: entity_id.into(),
+            entity_id: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(entity_id),
             row_index,
         }
     }
 
+    #[must_use]
     pub(super) fn entity_id(&self) -> &str {
         &self.entity_id
     }
 
+    #[must_use]
     pub(super) fn variant(&self) -> crate::diagram_theme::ThemeVariant {
         if self.row_index.is_multiple_of(2) {
             crate::diagram_theme::ThemeVariant::Odd
@@ -115,18 +124,22 @@ pub(super) struct ErThemeOutcomes {
 }
 
 impl ErThemeOutcomes {
+    #[must_use]
     pub(super) fn has_effective_rule(&self, index: usize) -> bool {
         self.applied_rules.contains(&index)
     }
 
+    #[must_use]
     pub(super) fn has_matching_rule(&self, index: usize) -> bool {
         self.applied_rules.contains(&index) && !self.unverified_rules.contains(&index)
     }
 
+    #[must_use]
     pub(super) fn matches_typography(&self) -> bool {
         self.font_stack_visible && !self.font_stack_unverified
     }
 
+    #[must_use]
     pub(super) fn matches_font_size(&self) -> bool {
         self.font_size_visible && !self.font_size_unverified
     }
@@ -140,6 +153,7 @@ pub(crate) struct ErEntityThemeReceipt<'a> {
 }
 
 impl<'a> ErEntityThemeReceipt<'a> {
+    #[must_use]
     pub(super) fn new(plan: &'a super::ErEntityThemePlan) -> Self {
         Self {
             plan,
@@ -147,10 +161,12 @@ impl<'a> ErEntityThemeReceipt<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn into_outcomes(self) -> ErThemeOutcomes {
         self.outcomes
     }
 
+    #[must_use]
     pub(crate) fn records_text_terminals(&self) -> bool {
         self.plan.text_terminal_evidence_enabled
     }
@@ -160,8 +176,11 @@ impl<'a> ErEntityThemeReceipt<'a> {
     }
 
     fn record_paint(&mut self, paint: Option<(usize, &str)>) {
-        if let Some((index, _)) = paint {
-            self.outcomes.applied_rules.insert(index);
+        match paint {
+            Some((index, _)) => {
+                self.outcomes.applied_rules.insert(index);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -178,21 +197,27 @@ impl<'a> ErEntityThemeReceipt<'a> {
         if !self.records_text_terminals() || !facts.has_visible_runs() {
             return;
         }
-        if let Some(paint) = self
+
+        match self
             .plan
             .text_terminals
             .get(&id)
-            .and_then(|text| text.paint.as_ref())
-        {
-            self.outcomes.applied_rules.insert(paint.rule_index);
-            if facts.inherited_color_run_count() != facts.visible_run_count() {
-                self.outcomes.unverified_rules.insert(paint.rule_index);
-            }
+            .and_then(|text| text.paint.as_ref()) {
+            Some(paint) => {
+                self.outcomes.applied_rules.insert(paint.rule_index);
+
+                if facts.inherited_color_run_count() != facts.visible_run_count() {
+                    self.outcomes.unverified_rules.insert(paint.rule_index);
+                }
+            },
+            ::core::option::Option::None => {},
         }
+
         if !id.is_subgraph_label() {
             self.outcomes.font_stack_visible = true;
             self.outcomes.font_stack_unverified |=
                 facts.inherited_font_family_run_count() != facts.visible_run_count();
+
             if !id.is_relation_label() {
                 self.outcomes.font_size_visible = true;
                 self.outcomes.font_size_unverified |=
@@ -224,7 +249,7 @@ impl<'a> ErEntityThemeReceipt<'a> {
     }
 
     pub(crate) fn record_subgraph_label(&mut self, id: &str, facts: &VisibleTextStyleFacts) {
-        self.record_text(ErTextTerminalId::SubgraphLabel(id.into()), facts);
+        self.record_text(ErTextTerminalId::SubgraphLabel(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(id)), facts);
     }
 
     pub(crate) fn record_diagram_title_paint(&mut self, title: &str) {
@@ -238,8 +263,12 @@ impl<'a> ErEntityThemeReceipt<'a> {
 
     pub(crate) fn record_table_row(&mut self, id: &str, row: usize) {
         let index = self.plan.typed_table_row(id, row).map(|(index, _)| index);
-        if let Some(index) = index {
-            self.outcomes.applied_rules.insert(index);
+
+        match index {
+            Some(index_2) => {
+                self.outcomes.applied_rules.insert(index_2);
+            },
+            ::core::option::Option::None => {},
         }
     }
 

@@ -394,7 +394,9 @@ impl<'a> Page<'a> {
     Ok(self.crop_box)
   }
 
-  pub fn intersected_crop_box(&self) -> core::result::Result<Rectangle, console_core_never::Never> {
+  pub fn intersected_crop_box(
+    &self,
+  ) -> core::result::Result<Rectangle, console_core_never::Never> {
     Ok({
       let Ok(explicit_value) = ({
         let Ok(explicit_value) = self.crop_box();

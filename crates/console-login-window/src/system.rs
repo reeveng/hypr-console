@@ -273,6 +273,28 @@ pub fn started_as(command: &mut Command, person: &Person, terminal: Terminal) ->
 }
 
 pub fn console(at: &Path) -> io::Result<File> {
+  use rustix::fs::OFlags;
+
+  let (terminal, _metadata) = open_device(at, OFlags::RDWR | OFlags::NOCTTY)?;
+  Ok(File::from(terminal))
+}
+
+pub(crate) fn null_input() -> io::Result<std::os::fd::OwnedFd> {
+  use rustix::fs::{OFlags, major, minor};
+
+  let (device, metadata) =
+    open_device(Path::new("/dev/null"), OFlags::RDONLY | OFlags::NONBLOCK)?;
+
+  match (major(metadata.st_rdev), minor(metadata.st_rdev)) {
+    (1, 3) => Ok(device),
+    _ => Err(io::Error::from(io::ErrorKind::InvalidInput)),
+  }
+}
+
+fn open_device(
+  at: &Path,
+  access: rustix::fs::OFlags,
+) -> io::Result<(std::os::fd::OwnedFd, rustix::fs::Stat)> {
   use rustix::fs::{CWD, FileType, Mode, OFlags, ResolveFlags, fstat, openat2};
 
   let relative = at.strip_prefix("/dev").map_err(io::Error::other)?;
@@ -287,7 +309,7 @@ pub fn console(at: &Path) -> io::Result<File> {
   let terminal = openat2(
     &devices,
     relative,
-    OFlags::RDWR | OFlags::NOCTTY | OFlags::CLOEXEC,
+    access | OFlags::CLOEXEC,
     Mode::empty(),
     no_links | ResolveFlags::BENEATH,
   )?;
@@ -298,7 +320,7 @@ pub fn console(at: &Path) -> io::Result<File> {
     FileType::from_raw_mode(mode) == FileType::CharacterDevice,
     (),
   ) {
-    ::core::option::Option::Some(()) => Ok(File::from(terminal)),
+    ::core::option::Option::Some(()) => Ok((terminal, checked_value)),
     ::core::option::Option::None => Err(io::Error::from(io::ErrorKind::InvalidInput)),
   }
 }

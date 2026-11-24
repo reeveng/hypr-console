@@ -56,9 +56,15 @@ whether to disable the feature or retry.
 | Commands and process lifetime | `console-program-runtime::commands::Platform`, `console-program-lifetime` | `program_runtime::commands` runs and launches commands. `program_lifetime` uses parent-death signals, process groups and pidfds. `systemd` supplies session scopes when available. |
 | Event subscriptions and change delivery | `console-program-contract`, `console-events::pool` | The `events` module holds the Unix socket client and wire format. The server and Linux event sources still live in `console-events`. |
 | Filesystem and storage | File effects in `console-program-contract`, storage code in `console-core-atomic-writes`, `console-files` and `console-kernel-files` | The runtime replaces files atomically and replies with `Event::Written`, including the destination and the stage of any failure. A common contract for permissions and change notifications is still needed. |
-| Display, input and session | `console-compositor`, `console-panel`, `console-input-*`, `console-session` | Wayland, Hyprland, Linux input devices and session integration still need capability boundaries. |
+| Display and input | `console-wayland`, `console-compositor`, `console-input-gamepad` | `console-wayland` owns Wayland connection setup, drawing surfaces, shared buffers and virtual input. Clipboard keeps its selection protocol and history together. `console-compositor` handles Hyprland, including its window thumbnail mapping. The InputPlumber commands live in `console-input-gamepad::front`. |
+| Session switching | `console-session`, `console-session-cachyos`, `console-session-plasma` | The shared crate defines the switching and login contracts. The CachyOS backend drives Steam and Gamescope. The Plasma backend reads the next session for the login window. The NixOS profile still needs a session switching implementation. |
+| Desktop commands | `console-default-applications`, `console-applications`, `console-gio`, `console-operating-system-linux::notification` | These are the boundaries for default opening and MIME settings, explicit desktop entry launch, recoverable deletion, and desktop notification delivery. |
 | Bluetooth and other connectivity | `console-bluetooth`, `console-bluetooth-agent`, `console-bus`, `console-events` | Bluetooth uses BlueZ over D-Bus. Discovery, pairing and connection still need a contract that can accept another Bluetooth stack. |
-| Audio, power, boot and system management | `console-music-player`, `console-battery`, `console-awake`, `console-boot-entries`, `console-manifest-engine` | Host integrations still live with their callers. |
+| Packages and boot | `console-package-manager-pacman`, `console-boot-entries` | pacman operations and progress parsing live in the package manager adapter. Limine entry parsing and the one-shot selection command are shared by recovery and automatic rollback. |
+| Audio and power | `console-music-player`, `console-battery`, `console-awake` | Host integrations still live with their callers. |
+
+The [runtime dependency inventory](../../docs/architecture/runtime-dependencies.md)
+also lists the dependencies in shipped configuration, including shell commands.
 
 Start a port with the runtime and command traits, then implement the services
 required by the programs you want to run. A new kernel supplies the relevant

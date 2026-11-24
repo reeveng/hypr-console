@@ -20,6 +20,7 @@ pub(super) enum SupportClaimKind {
     Missing,
 }
 
+#[must_use]
 pub(super) fn rule_claim(
     family: DiagramFamilyId,
     target: ThemeTarget,
@@ -32,6 +33,7 @@ pub(super) fn rule_claim(
     ))
 }
 
+#[must_use]
 pub(super) fn ordinal_claim(family: DiagramFamilyId, target: ThemeTarget) -> SupportClaimKind {
     claim_kind(summarize_theme_support(
         family,
@@ -40,6 +42,7 @@ pub(super) fn ordinal_claim(family: DiagramFamilyId, target: ThemeTarget) -> Sup
     ))
 }
 
+#[must_use]
 pub(super) fn base_typography_claim(
     family: DiagramFamilyId,
     property: ThemeSupportBaseTypographyPropertyV1,
@@ -47,6 +50,7 @@ pub(super) fn base_typography_claim(
     claim_kind(summarize_base_typography_support(family, property))
 }
 
+#[must_use]
 fn claim_kind(summary: FamilyThemeSupportSummary) -> SupportClaimKind {
     match (summary.has_typed(), summary.has_unsupported()) {
         (true, false) => SupportClaimKind::TypedSurface,

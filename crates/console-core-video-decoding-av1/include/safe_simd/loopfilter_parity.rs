@@ -89,7 +89,7 @@ mod mask_parity_tests {
       let plateau = match self {
         Self::PlateauFirst => lane == 0,
         Self::PlateauOdd => lane & 1 == 1,
-        _other => false,
+        _other @ (Self::Alternating | Self::Plateau | Self::OuterStep | Self::InnerStep | Self::Gradient | Self::NearBlack | Self::NearWhite | Self::Noise | Self::PositiveRounding | Self::NegativeRounding) => false,
       };
       let pattern = match (self, plateau) {
         (Self::PlateauFirst | Self::PlateauOdd, true) => Self::Plateau,
@@ -150,10 +150,12 @@ mod mask_parity_tests {
     let window = FilterWindow { base, along, tap_stride: across };
     let mut rng = 0x0dec_afba_df00_d123;
     let count = pitch.wrapping_mul(lanes.wrapping_add(32)).wrapping_add(64);
-    let mut samples: Vec<u8> = (0..count).map(|_position| {
+    let mut samples = Vec::new();
+
+    for _ in 0..count {
       let Ok(value) = next(&mut rng);
-      value
-    }).collect();
+      samples.push(value);
+    }
 
     for y in 0..i64::from(case.lanes) {
       for x in -7_i64..=6 {
@@ -200,6 +202,7 @@ mod mask_parity_tests {
         | Pattern::PositiveRounding | Pattern::NegativeRounding, [16, 8, 1]) => assert_ne!(actual, samples),
       _unchanged_expectation => {}
     }
+
     Ok(())
   }
 
@@ -278,8 +281,13 @@ mod mask_parity_tests {
     }, fused))
   }
 
-  fn level_sample(block: u64, component: u64) -> Result<u64, Never> {
+  fn level_sample(LevelSampleArguments { block, component }: LevelSampleArguments) -> Result<u64, Never> {
     Ok(block.wrapping_mul(4).wrapping_add(component))
+  }
+
+  struct LevelSampleArguments {
+    block: u64,
+    component: u64,
   }
 
   fn set_level(levels: &mut [u8], address: u64, value: u8) -> Rav1dResult {
@@ -301,9 +309,9 @@ mod mask_parity_tests {
       HV::V => (1, LEVEL_PITCH),
     };
     let mut raw = [32_u8; _];
-    let Ok(first) = level_sample(LEVEL_BASE, case.component);
-    let Ok(second) = level_sample(LEVEL_BASE.wrapping_add(step), case.component);
-    let Ok(previous) = level_sample(LEVEL_BASE.wrapping_sub(lookback), case.component);
+    let Ok(first) = level_sample(self::LevelSampleArguments { block: LEVEL_BASE, component: case.component });
+    let Ok(second) = level_sample(self::LevelSampleArguments { block: LEVEL_BASE.wrapping_add(step), component: case.component });
+    let Ok(previous) = level_sample(self::LevelSampleArguments { block: LEVEL_BASE.wrapping_sub(lookback), component: case.component });
 
     match case.case {
       1 => set_level(&mut raw, second, 33)?,
@@ -320,15 +328,15 @@ mod mask_parity_tests {
 
   fn cached_level(cache: &CachedLevels, ordinal: u32, component: u64) -> Rav1dResult<u8> {
     let block = LEVEL_BASE.wrapping_add(u64::from(ordinal).wrapping_mul(cache.step));
-    let Ok(address) = level_sample(block, component);
+    let Ok(address) = level_sample(self::LevelSampleArguments { block, component });
     let Ok(position) = index(address);
     let &current = cache.raw.get(position).ok_or(Rav1dError::EINVAL)?;
 
     match current {
       0 => {
-        let Ok(previous) = level_sample(block.wrapping_sub(cache.lookback), component);
-        let Ok(position) = index(previous);
-        cache.raw.get(position).copied().ok_or(Rav1dError::EINVAL)
+        let Ok(previous) = level_sample(self::LevelSampleArguments { block: block.wrapping_sub(cache.lookback), component });
+        let Ok(position_2) = index(previous);
+        cache.raw.get(position_2).copied().ok_or(Rav1dError::EINVAL)
       }
       found => Ok(found),
     }

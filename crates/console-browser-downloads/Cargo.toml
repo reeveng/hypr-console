@@ -1,0 +1,19 @@
+[package]
+name = "console-browser-downloads"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+console-core-atomic-writes.workspace = true
+console-core-bounded-reads.workspace = true
+console-core-logging = { workspace = true, features = ["std"] }
+console-core-never.workspace = true
+console-core-places.workspace = true
+console-core-temporary-directories.workspace = true
+rustix.workspace = true
+serde_json = { version = "1", features = ["raw_value"] }
+
+[lints]
+workspace = true

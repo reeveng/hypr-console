@@ -7,6 +7,7 @@ use super::design::*;
 use crate::DiagramFamilyId;
 use crate::diagram_theme::ThemeTarget;
 
+#[must_use]
 pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
     let mut design = build_cross_family_recipe(palette);
     color_token(
@@ -44,6 +45,7 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
         .as_mut()
         .expect("shared design owns a canvas")
         .layers = vec![grid_layer(0.0), grid_layer(90.0)];
+
     for (family, target) in [
         (DiagramFamilyId::FLOWCHART, ThemeTarget::Node),
         (DiagramFamilyId::FLOWCHART, ThemeTarget::Edge),
@@ -67,6 +69,7 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
             },
         ));
     }
+
     for (family, target, weight) in [
         (
             DiagramFamilyId::FLOWCHART,
@@ -98,9 +101,11 @@ pub(super) fn build_recipe(palette: PresetPalette) -> ThemeDesignV1 {
             .rules
             .push(rule(Some(family), target, None, weighted(weight)));
     }
+
     design
 }
 
+#[must_use]
 fn grid_layer(angle_degrees: f32) -> ThemeDesignCanvasLayerV1 {
     ThemeDesignCanvasLayerV1 {
         paint: literal(ThemeDesignPaintV1::Structured(

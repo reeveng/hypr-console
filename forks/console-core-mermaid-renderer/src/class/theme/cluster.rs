@@ -35,7 +35,7 @@ impl ClassClusterThemePlan {
                 config,
                 &["themeVariables.clusterBkg"],
                 crate::config::config_string(config.as_value(), &["themeVariables", "clusterBkg"])
-                    .unwrap_or_else(|| "#ffffde".into()),
+                    .unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("#ffffde")),
             ),
             stroke: ClassPaintBinding::compatibility(
                 config,
@@ -44,12 +44,17 @@ impl ClassClusterThemePlan {
                     config.as_value(),
                     &["themeVariables", "clusterBorder"],
                 )
-                .unwrap_or_else(|| "#aaaa33".into()),
+                .unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("#aaaa33")),
             ),
             ..Self::default()
         };
-        let Some(theme) = theme else { return Ok(plan) };
-        let style = theme.style_with_work_meter(
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
+        let style = theme_2.style_with_work_meter(
             ThemeTarget::Cluster,
             ThemeVariant::Default,
             None,
@@ -60,9 +65,10 @@ impl ClassClusterThemePlan {
             .filter(|(property, _)| !plan.property_overridden(*property))
             .map(|(property, origin)| (property, origin.rule_index()))
             .collect();
+
         {
             let candidate = resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Cluster],
                 DirectStaticSelectorDomain::Default,
@@ -77,9 +83,10 @@ impl ClassClusterThemePlan {
             });
             plan.fill.lower(&style, false, candidate);
         }
+
         {
             let candidate = resolve_direct_static_stroke(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Cluster],
                 DirectStaticSelectorDomain::Default,
@@ -94,6 +101,7 @@ impl ClassClusterThemePlan {
             });
             plan.stroke.lower(&style, true, candidate);
         }
+
         for (property, paint_binding) in [("fill", &plan.fill), ("stroke", &plan.stroke)] {
             if paint_binding.typed().is_some() {
                 plan.terminal_style.push_str(property);
@@ -102,18 +110,19 @@ impl ClassClusterThemePlan {
                 plan.terminal_style.push_str(" !important;");
             }
         }
-        if theme
+
+        if theme_2
             .family_rules()
             .any(|(_, rule)| rule.target() == ThemeTarget::Cluster && rule.ordinal().is_some())
         {
             for ordinal in 1..=cluster_count {
-                let style = theme.style_with_work_meter(
+                let style_2 = theme_2.style_with_work_meter(
                     ThemeTarget::Cluster,
                     ThemeVariant::Default,
                     Some(ordinal),
                     work_meter,
                 )?;
-                let winners = style
+                let winners = style_2
                     .winner_rule_properties()
                     .filter(|(property, _)| !plan.property_overridden(*property))
                     .map(|(property, origin)| (origin.rule_index(), property))
@@ -121,13 +130,16 @@ impl ClassClusterThemePlan {
                 plan.ordinal_winners.extend(winners);
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(super) fn terminal_style(&self) -> &str {
         &self.terminal_style
     }
 
+    #[must_use]
     pub(super) fn route_won(
         &self,
         rule_index: usize,
@@ -135,6 +147,7 @@ impl ClassClusterThemePlan {
         facet: FamilyThemeRuleFacet,
     ) -> bool {
         let property = resolved_style_property_for_facet(facet);
+
         match selector {
             FamilyThemeSelectorShape::Static {
                 variant: None | Some(ThemeVariant::Default),
@@ -149,11 +162,12 @@ impl ClassClusterThemePlan {
         }
     }
 
+    #[must_use]
     fn property_overridden(&self, property: ResolvedStyleProperty) -> bool {
         match property {
             ResolvedStyleProperty::Fill => self.fill.config_owned(),
             ResolvedStyleProperty::Stroke => self.stroke.config_owned(),
-            _ => false,
+            ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => false,
         }
     }
 }

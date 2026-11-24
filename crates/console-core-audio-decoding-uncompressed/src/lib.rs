@@ -25,7 +25,7 @@ use console_core_audio_decoding_interfaces::errors::{Result, unsupported_error};
 use console_core_audio_decoding_interfaces::formats::Packet;
 use console_core_audio_decoding_interfaces::support_codec;
 
-use crate::pcm::{Pcm, Encoding};
+use crate::pcm::{Encoding, Pcm};
 
 pub struct PcmDecoder {
   params: CodecParameters,

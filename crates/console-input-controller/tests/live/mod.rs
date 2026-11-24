@@ -156,7 +156,7 @@ impl Drop for Recording {
 
 fn a_compositor_that_writes_down(here: &Path) -> Result<Recording, Failure> {
   let instance = here.join("hypr").join(INSTANCE);
-  let socket = instance.join(".socket.sock");
+  let socket = instance.join(console_compositor::socket::Socket::Requests);
   let at = here.join("dispatches");
 
   std::fs::create_dir_all(&instance)?;
@@ -284,7 +284,7 @@ impl Running {
         .env("PATH", format!("{}:{path}", instead.display()))
         .env("CONSOLE_RAN", &ran_at)
         .env("XDG_RUNTIME_DIR", &here)
-        .env("HYPRLAND_INSTANCE_SIGNATURE", INSTANCE)
+        .env(console_compositor::session::SIGNATURE, INSTANCE)
         .env("CONSOLE_PAD", pad)
         .env("CONSOLE_KEYS", keys)
         .env("CONSOLE_TOUCHPAD", touchpad)

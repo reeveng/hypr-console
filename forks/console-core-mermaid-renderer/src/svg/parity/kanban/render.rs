@@ -17,6 +17,7 @@ fn write_kanban_css(
     let label_text_color = common.text_color();
     let _ = write!(out, r#"#{} .edge{{stroke-width:3;}}"#, id);
     out.checkpoint()?;
+
     for (i, section_theme) in theme.sections.iter().enumerate() {
         let section = i as i64 - 1;
         let sw = 17_i64 - 3_i64 * (i as i64);
@@ -90,12 +91,15 @@ fn write_kanban_css(
     );
     common.write_root_with_font_emission(out, diagram_id, diagram_id)?;
     out.checkpoint()?;
+
     if let Some(outcome) = text_outcome {
         outcome.record_css();
     }
+
     if let Some(outcome) = task_outcome {
         outcome.record_typography_css();
     }
+
     Ok(())
 }
 
@@ -107,6 +111,7 @@ fn kanban_css(diagram_id: &str, effective_config: &serde_json::Value) -> Result<
     Ok(out)
 }
 
+#[must_use]
 fn kanban_dom_id(diagram_id: SvgDiagramId<'_>, raw_id: &str) -> String {
     format!("{diagram_id}-{raw_id}")
 }
@@ -143,12 +148,15 @@ fn write_kanban_task_rect(
     stroke: Option<&str>,
 ) {
     let mut style = String::new();
-    if let Some(fill) = fill {
-        let _ = write!(&mut style, "fill:{fill};");
+
+    if let Some(fill_2) = fill {
+        let _ = write!(&mut style, "fill:{fill};", fill = fill_2);
     }
-    if let Some(stroke) = stroke {
-        let _ = write!(&mut style, "stroke:{stroke};");
+
+    if let Some(stroke_2) = stroke {
+        let _ = write!(&mut style, "stroke:{stroke};", stroke = stroke_2);
     }
+
     let _ = write!(
         out,
         r##"<rect class="basic label-container __APA__" style="{style}" rx="{rx}" ry="{ry}" x="{x}" y="{y}" width="{w}" height="{h}"/>"##,
@@ -182,7 +190,7 @@ fn write_kanban_label_group(
     let class_attr = div_class
         .map(|class| format!(r#" class="{}""#, escape_attr(class)))
         .unwrap_or_default();
-    let mut div_style = if text.is_some_and(|text| !text.is_empty()) && geometry.wrapped {
+    let mut div_style = if text.is_some_and(|text_2| !text_2.is_empty()) && geometry.wrapped {
         format!(
             "text-align: center; display: table; white-space: break-spaces; line-height: 1.5; max-width: {width}px; width: {width}px;",
             width = fmt(max_width),
@@ -193,15 +201,17 @@ fn write_kanban_label_group(
             width = fmt(max_width),
         )
     };
-    if let Some(foreground) = foreground {
-        div_style.insert_str(0, &format!("color: {foreground}; "));
+
+    if let Some(foreground_2) = foreground {
+        div_style.insert_str(0, &format!("color: {foreground}; ", foreground = foreground_2));
     }
+
     let group_style = foreground.map_or_else(
         || std::borrow::Cow::Borrowed("text-align:left !important"),
-        |foreground| {
+        |foreground_3| {
             std::borrow::Cow::Owned(format!(
                 "color:{foreground};fill:{foreground};text-align:left !important"
-            ))
+            , foreground = foreground_3))
         },
     );
     let span_class = if markdown {
@@ -209,7 +219,7 @@ fn write_kanban_label_group(
     } else {
         "nodeLabel"
     };
-    let foreign_object_height = if text.is_some_and(|text| !text.is_empty()) {
+    let foreign_object_height = if text.is_some_and(|text_3| !text_3.is_empty()) {
         geometry.content_height.max(context.min_height)
     } else {
         0.0
@@ -226,12 +236,14 @@ fn write_kanban_label_group(
         class_attr = class_attr,
         span_class = span_class,
     );
-    if let Some(html) = html.filter(|_| text.is_some_and(|text| !text.is_empty())) {
-        out.push_str(html);
+
+    if let Some(html_2) = html.filter(|_| text.is_some_and(|text_4| !text_4.is_empty())) {
+        out.push_str(html_2);
     }
+
     out.push_str("</span></div></foreignObject></g>");
     out.checkpoint()?;
-    let visible = text.is_some_and(|text| !text.is_empty());
+    let visible = text.is_some_and(|text_5| !text_5.is_empty());
     Ok(KanbanLabelGroupEmission {
         visible,
         inherited_color_run_count,
@@ -247,9 +259,9 @@ fn record_kanban_label_emission(
     if emission.visible
         && emission.inherited_color_run_count > 0
         && decision.label_css().is_some()
-        && let Some(outcome) = outcome
+        && let Some(outcome_2) = outcome
     {
-        outcome.record_label(
+        outcome_2.record_label(
             emission.typography.visible_run_count,
             emission.inherited_color_run_count,
             decision,
@@ -261,8 +273,8 @@ fn record_kanban_typography_text(
     outcome: Option<&mut crate::kanban::KanbanTaskThemeOutcome>,
     facts: KanbanTypographyTerminalFacts,
 ) {
-    if let Some(outcome) = outcome {
-        outcome.record_typography_text(facts);
+    if let Some(outcome_2) = outcome {
+        outcome_2.record_typography_text(facts);
     }
 }
 
@@ -279,15 +291,18 @@ pub(crate) fn render_kanban_diagram_svg(
     debug_assert_eq!(layout.items.len(), prepared_items.len());
     debug_assert_eq!(layout.items.len(), task_theme.item_count());
     let security_level_loose = effective_config.get_str("securityLevel") == Some("loose");
-    let effective_config = effective_config.as_value();
+    let effective_config_2 = effective_config.as_value();
     let diagram_id = options.diagram_id_or("merman");
 
-    let bounds = layout.bounds.clone().unwrap_or(Bounds {
-        min_x: 0.0,
-        min_y: 0.0,
-        max_x: 100.0,
-        max_y: 100.0,
-    });
+    let bounds = match (layout.bounds.clone(), Bounds {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 100.0,
+            max_y: 100.0,
+        }) {
+        (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+        (::core::option::Option::None, alternate) => alternate,
+    };
     let vb_min_x = bounds.min_x;
     let vb_min_y = bounds.min_y;
     let vb_w = (bounds.max_x - bounds.min_x).max(1.0);
@@ -322,17 +337,18 @@ pub(crate) fn render_kanban_diagram_svg(
     )?;
     out.push_str("</style>");
     out.checkpoint()?;
-    let config_view = crate::kanban::KanbanConfigView::new(effective_config);
+    let config_view = crate::kanban::KanbanConfigView::new(effective_config_2);
     let label_min_height = KANBAN_LABEL_FOREIGN_OBJECT_HEIGHT_PX;
     let data_look = config_view.look();
     let data_look_attr = escape_attr(data_look.as_str());
 
-    // Mermaid emits a single empty <g/> before the diagram content for kanban.
+
     out.push_str(r#"<g/>"#);
     out.checkpoint()?;
 
     out.push_str(r#"<g class="sections">"#);
     out.checkpoint()?;
+
     for (s, prepared_label) in layout.sections.iter().zip(prepared_sections) {
         let section_dom_id = kanban_dom_id(diagram_id, &s.id);
         options.checkpoint_emit()?;
@@ -372,6 +388,7 @@ pub(crate) fn render_kanban_diagram_svg(
             label = prepared_label.html.as_str(),
         );
         out.checkpoint()?;
+
         if let Some(outcome) = text_outcome.as_mut() {
             outcome.record_label(
                 prepared_label.visible_style_facts.parse_valid(),
@@ -385,6 +402,7 @@ pub(crate) fn render_kanban_diagram_svg(
                 false,
             );
         }
+
         record_kanban_typography_text(
             task_outcome.as_mut(),
             KanbanTypographyTerminalFacts::from_visible_style_facts(
@@ -392,6 +410,7 @@ pub(crate) fn render_kanban_diagram_svg(
             ),
         );
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
@@ -399,6 +418,7 @@ pub(crate) fn render_kanban_diagram_svg(
     out.checkpoint()?;
     let item_label_inset_x = KANBAN_SECTION_PADDING_PX;
 
+    #[must_use]
     fn kanban_priority_stroke(priority: &str) -> Option<&'static str> {
         match priority.trim() {
             "Very High" => Some("red"),
@@ -456,7 +476,7 @@ pub(crate) fn render_kanban_diagram_svg(
             min_height: label_min_height,
         };
 
-        // Title label (may wrap).
+
         let title_emission = write_kanban_label_group(
             &mut out,
             &label_context,
@@ -478,6 +498,7 @@ pub(crate) fn render_kanban_diagram_svg(
             },
         )?;
         record_kanban_label_emission(task_outcome.as_mut(), &title_emission, &terminal_decision);
+
         if let Some(outcome) = text_outcome.as_mut() {
             outcome.record_label(
                 prepared_item.title.visible_style_facts.parse_valid(),
@@ -490,19 +511,24 @@ pub(crate) fn render_kanban_diagram_svg(
                 terminal_decision.label_css().is_some(),
             );
         }
+
         record_kanban_typography_text(task_outcome.as_mut(), title_emission.typography);
 
-        // Ticket label: wrap in <a> when ticketBaseUrl is configured (upstream behavior).
+
         let ticket_text = n.ticket.as_deref();
+
         if let Some(t) = ticket_text.filter(|t| !t.is_empty()) {
             if let Some(ticket_link) = prepared_item.ticket_link.as_ref() {
                 out.push_str(r#"<a class="kanban-ticket-link""#);
+
                 if let Some(href) = ticket_link.href.as_ref() {
                     let _ = write!(&mut out, r#" xlink:href="{}""#, href.as_serialized_str());
                 }
+
                 if security_level_loose {
                     out.push_str(r#" target="_blank""#);
                 }
+
                 out.push('>');
                 let ticket_emission = write_kanban_label_group(
                     &mut out,
@@ -529,6 +555,7 @@ pub(crate) fn render_kanban_diagram_svg(
                     &ticket_emission,
                     &terminal_decision,
                 );
+
                 if let Some(outcome) = text_outcome.as_mut() {
                     outcome.record_label(
                         prepared_item.ticket.visible_style_facts.parse_valid(),
@@ -541,6 +568,7 @@ pub(crate) fn render_kanban_diagram_svg(
                         terminal_decision.label_css().is_some(),
                     );
                 }
+
                 record_kanban_typography_text(task_outcome.as_mut(), ticket_emission.typography);
                 out.push_str("</a>");
                 out.checkpoint()?;
@@ -570,6 +598,7 @@ pub(crate) fn render_kanban_diagram_svg(
                     &ticket_emission,
                     &terminal_decision,
                 );
+
                 if let Some(outcome) = text_outcome.as_mut() {
                     outcome.record_label(
                         prepared_item.ticket.visible_style_facts.parse_valid(),
@@ -582,6 +611,7 @@ pub(crate) fn render_kanban_diagram_svg(
                         terminal_decision.label_css().is_some(),
                     );
                 }
+
                 record_kanban_typography_text(task_outcome.as_mut(), ticket_emission.typography);
             }
         } else {
@@ -602,6 +632,7 @@ pub(crate) fn render_kanban_diagram_svg(
                     inherited_color_run_count: 0,
                 },
             )?;
+
             if let Some(outcome) = text_outcome.as_mut() {
                 outcome.record_label(
                     prepared_item.ticket.visible_style_facts.parse_valid(),
@@ -611,10 +642,11 @@ pub(crate) fn render_kanban_diagram_svg(
                     terminal_decision.label_css().is_some(),
                 );
             }
+
             record_kanban_typography_text(task_outcome.as_mut(), ticket_emission.typography);
         }
 
-        // Assigned label.
+
         let assigned_emission = write_kanban_label_group(
             &mut out,
             &label_context,
@@ -640,6 +672,7 @@ pub(crate) fn render_kanban_diagram_svg(
             &assigned_emission,
             &terminal_decision,
         );
+
         if let Some(outcome) = text_outcome.as_mut() {
             outcome.record_label(
                 prepared_item.assigned.visible_style_facts.parse_valid(),
@@ -652,6 +685,7 @@ pub(crate) fn render_kanban_diagram_svg(
                 terminal_decision.label_css().is_some(),
             );
         }
+
         record_kanban_typography_text(task_outcome.as_mut(), assigned_emission.typography);
 
         if let Some(p) = n.priority.as_deref() {
@@ -673,6 +707,7 @@ pub(crate) fn render_kanban_diagram_svg(
 
         out.push_str("</g>");
         out.checkpoint()?;
+
         if let Some(outcome) = task_outcome.as_mut() {
             outcome.record_item(&terminal_decision);
         }
@@ -680,13 +715,16 @@ pub(crate) fn render_kanban_diagram_svg(
 
     out.push_str("</g>");
     out.push_str("</svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if let Some(outcome) = task_outcome {
         task_theme.record_terminal(outcome);
     }
+
     if let Some(outcome) = text_outcome {
         text_paint.record_terminal(outcome);
     }
+
     Ok(rooted_svg)
 }
 

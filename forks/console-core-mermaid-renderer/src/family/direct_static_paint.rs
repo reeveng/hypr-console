@@ -12,6 +12,7 @@ pub(crate) enum DirectStaticSelectorDomain {
 }
 
 impl DirectStaticSelectorDomain {
+    #[must_use]
     fn accepts(self, variant: Option<ThemeVariant>) -> bool {
         match self {
             Self::Unqualified => variant.is_none(),
@@ -29,23 +30,28 @@ pub(crate) struct DirectStaticPaint {
 }
 
 impl DirectStaticPaint {
+    #[must_use]
     pub(crate) const fn rule_index(&self) -> usize {
         self.rule_index
     }
 
+    #[must_use]
     pub(crate) fn css(&self) -> &str {
         &self.css
     }
 
+    #[must_use]
     pub(crate) const fn capability(&self) -> ThemeCapability {
         self.capability
     }
 
+    #[must_use]
     pub(crate) fn into_parts(self) -> (Box<str>, usize, ThemeCapability) {
         (self.css, self.rule_index, self.capability)
     }
 }
 
+#[must_use]
 pub(crate) fn resolve_direct_static_fill(
     theme: &ResolvedDiagramTheme,
     style: &ResolvedThemeStyle,
@@ -61,6 +67,7 @@ pub(crate) fn resolve_direct_static_fill(
     )
 }
 
+#[must_use]
 pub(crate) fn resolve_direct_static_stroke(
     theme: &ResolvedDiagramTheme,
     style: &ResolvedThemeStyle,
@@ -76,6 +83,7 @@ pub(crate) fn resolve_direct_static_stroke(
     )
 }
 
+#[must_use]
 fn resolve_direct_static_paint(
     theme: &ResolvedDiagramTheme,
     resolution: &ResolvedProperty<CanvasPaint>,
@@ -84,6 +92,7 @@ fn resolve_direct_static_paint(
     selector_domain: DirectStaticSelectorDomain,
 ) -> Option<DirectStaticPaint> {
     let origin = resolution.winner()?;
+
     if !accepted_targets.contains(&origin.target())
         || !selector_domain.accepts(origin.variant())
         || origin.ordinal().is_some()
@@ -95,7 +104,7 @@ fn resolve_direct_static_paint(
 
     let (css, capability) = match resolution.specified() {
         Specified::Value(CanvasPaint::Transparent) => {
-            ("transparent".into(), ThemeCapability::TransparentPaint)
+            (<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from("transparent"), ThemeCapability::TransparentPaint)
         }
         Specified::Value(CanvasPaint::Solid(color)) => {
             (color.as_css().into_boxed_str(), ThemeCapability::SolidPaint)

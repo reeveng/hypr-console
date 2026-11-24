@@ -1,0 +1,22 @@
+diff --git a/Source/WebKit/UIProcess/API/glib/WebKitWebsitePolicies.cpp b/Source/WebKit/UIProcess/API/glib/WebKitWebsitePolicies.cpp
+--- a/Source/WebKit/UIProcess/API/glib/WebKitWebsitePolicies.cpp
++++ b/Source/WebKit/UIProcess/API/glib/WebKitWebsitePolicies.cpp
+@@ -52,6 +52,7 @@ struct _WebKitWebsitePoliciesPrivate {
+     _WebKitWebsitePoliciesPrivate()
+         : websitePolicies(API::WebsitePolicies::create())
+     {
++        websitePolicies->setAdvancedPrivacyProtections({ WebCore::AdvancedPrivacyProtections::BaselineProtections, WebCore::AdvancedPrivacyProtections::FingerprintingProtections });
+     }
+     RefPtr<API::WebsitePolicies> websitePolicies;
+     CString customUserAgent;
+diff --git a/Source/WebCore/page/Performance.cpp b/Source/WebCore/page/Performance.cpp
+--- a/Source/WebCore/page/Performance.cpp
++++ b/Source/WebCore/page/Performance.cpp
+@@ -73 +73 @@ namespace WebCore {
+-static Seconds timePrecision { 1_ms };
++static constexpr Seconds timePrecision { 10_ms };
+@@ -180,3 +180,3 @@ void Performance::allowHighPrecisionTime()
+ {
+-    timePrecision = Seconds::highTimePrecision();
++    // Use the same coarse Performance clock for every document and worker.
+ }

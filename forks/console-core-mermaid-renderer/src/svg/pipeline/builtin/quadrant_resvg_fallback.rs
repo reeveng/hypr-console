@@ -29,6 +29,7 @@ pub(crate) fn resolve_quadrant_resvg_fallbacks_with_checkpoints<'a, E>(
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<Cow<'a, str>, E> {
     checkpoint()?;
+
     if metadata.family_id() != Some(DiagramFamilyId::QUADRANT_CHART) {
         return Ok(svg);
     }
@@ -40,25 +41,31 @@ fn resolve_quadrant_point_fallbacks<'a, E>(
     svg: Cow<'a, str>,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<Cow<'a, str>, E> {
-    // Mermaid 11.16's Quadrant renderer emits circles only for data points. Its invalid
-    // presentation attributes are ignored by browsers, leaving black fill and no stroke.
+
+
     let mut scanner = SvgTagScanner::new(svg.as_ref());
     let mut rewritten = None::<String>;
     let mut copied_until = 0usize;
 
     let mut iteration = 0usize;
+
     while let Some(tag) = scanner.next_with_checkpoints(checkpoint)? {
         checkpoint_loop(iteration, checkpoint)?;
         iteration = iteration.saturating_add(1);
+
         if !is_circle_start_tag(tag.raw()) {
             continue;
         }
 
-        let Some(resolved_tag) =
-            resolve_invalid_circle_presentation_with_checkpoints(tag.raw(), checkpoint)?
-        else {
-            continue;
+        let resolved_tag = {
+            let optional_resolved_tag = resolve_invalid_circle_presentation_with_checkpoints(tag.raw(), checkpoint)?;
+
+            match optional_resolved_tag {
+                Some(matched_resolved_tag) => matched_resolved_tag,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let out = rewritten.get_or_insert_with(|| String::with_capacity(svg.len()));
         out.push_str(&svg[copied_until..tag.start()]);
         out.push_str(&resolved_tag);
@@ -76,6 +83,7 @@ fn resolve_quadrant_point_fallbacks<'a, E>(
     Ok(output)
 }
 
+#[must_use]
 fn is_circle_start_tag(tag: &str) -> bool {
     start_tag_name(tag).is_some_and(|name| name.eq_ignore_ascii_case("circle"))
 }
@@ -90,7 +98,8 @@ fn resolve_invalid_circle_presentation_with_checkpoints<E>(
     let mut changed = false;
 
     let mut iteration = 0usize;
-    while let Some(attr) = next_svg_quoted_attr_with_checkpoints(tag, cursor, checkpoint)? {
+
+    while let Some(attr) = { let checked_value = next_svg_quoted_attr_with_checkpoints(tag, cursor, checkpoint)?; checked_value } {
         checkpoint_loop(iteration, checkpoint)?;
         iteration = iteration.saturating_add(1);
         let name = &tag[attr.name_start..attr.name_end];
@@ -104,16 +113,20 @@ fn resolve_invalid_circle_presentation_with_checkpoints<E>(
             None
         };
 
-        if let Some(fallback) = fallback {
-            changed = true;
-            out.push_str(&tag[copied_until..attr.full_start]);
-            out.push(' ');
-            out.push_str(name);
-            out.push_str(r#"=""#);
-            out.push_str(fallback);
-            out.push('"');
-            copied_until = attr.full_end;
+        match fallback {
+            Some(fallback_2) => {
+                changed = true;
+                out.push_str(&tag[copied_until..attr.full_start]);
+                out.push(' ');
+                out.push_str(name);
+                out.push_str(r#"=""#);
+                out.push_str(fallback_2);
+                out.push('"');
+                copied_until = attr.full_end;
+            },
+            ::core::option::Option::None => {},
         }
+
         cursor = attr.full_end;
     }
 
@@ -125,15 +138,18 @@ fn resolve_invalid_circle_presentation_with_checkpoints<E>(
     }
 }
 
+#[must_use]
 pub(crate) fn is_mermaid_missing_amount_hsl(value: &str) -> bool {
     let Some(body) = value
         .trim()
         .strip_prefix("hsl(")
-        .and_then(|value| value.strip_suffix(')'))
+        .and_then(|value_2| value_2.strip_suffix(')'))
     else {
         return false;
     };
+
     let mut channels = body.split(',');
+
     let (Some(hue), Some(saturation), Some(lightness), None) = (
         channels.next(),
         channels.next(),
@@ -146,10 +162,12 @@ pub(crate) fn is_mermaid_missing_amount_hsl(value: &str) -> bool {
     is_finite_css_number(hue) && is_finite_css_percentage(saturation) && lightness.trim() == "NaN%"
 }
 
+#[must_use]
 fn is_finite_css_number(value: &str) -> bool {
     value.trim().parse::<f64>().is_ok_and(f64::is_finite)
 }
 
+#[must_use]
 fn is_finite_css_percentage(value: &str) -> bool {
     value
         .trim()

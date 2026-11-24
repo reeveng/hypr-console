@@ -89,6 +89,10 @@ workspace = true
 [dependencies.console-core-number-conversion]
 workspace = true
 
+[target.'cfg(any(target_arch = "x86_64", target_arch = "aarch64"))'.dependencies.console-core-simd]
+workspace = true
+features = ["std"]
+
 [dependencies.console-core-video-interpolation]
 workspace = true
 

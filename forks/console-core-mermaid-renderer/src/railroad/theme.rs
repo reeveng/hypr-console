@@ -25,6 +25,7 @@ struct RailroadPaintOwnership {
 }
 
 impl RailroadPaintOwnership {
+    #[must_use]
     fn resolve(config: &PresentationConfig) -> Self {
         Self {
             fill: [
@@ -88,6 +89,7 @@ impl RailroadPaintOwnership {
     }
 }
 
+#[must_use]
 fn railroad_paint_role_owned(
     config: &PresentationConfig,
     local_key: &str,
@@ -100,21 +102,23 @@ fn railroad_paint_role_owned(
             .map(super::trim_ecmascript_whitespace)
             .is_some_and(super::is_valid_color_value)
     };
+
     if valid(super::railroad_config_value(config.as_value(), local_key)) {
         return config.config_paint_overrides_typed_default(&format!("railroad.{local_key}"));
     }
-    // Follow the same primary/alias selection as `railroad_style`, including Default snapshots.
+
+
     let key = match config
         .as_value()
         .get("themeVariables")
         .and_then(|variables| variables.get(theme_key))
     {
         Some(value) if !value.is_null() => Some(theme_key),
-        _ => theme_fallback,
+        ::core::option::Option::None | ::core::option::Option::Some(_) => theme_fallback,
     };
-    key.is_some_and(|key| {
-        valid(super::theme_config_value(config.as_value(), key, None))
-            && config.config_paint_overrides_typed_default(&format!("themeVariables.{key}"))
+    key.is_some_and(|key_2| {
+        valid(super::theme_config_value(config.as_value(), key_2, None))
+            && config.config_paint_overrides_typed_default(&format!("themeVariables.{key}", key = key_2))
     })
 }
 
@@ -133,6 +137,7 @@ struct RailroadTextFillRoles {
 }
 
 impl RailroadTextFillRoles {
+    #[must_use]
     fn has_visible_occurrence(self, receipt: &RailroadSurfaceReceipt) -> bool {
         (self.terminal && receipt.terminal_text_count != 0)
             || (self.nonterminal
@@ -152,6 +157,7 @@ enum RailroadTextRole {
 }
 
 impl RailroadTextFillRoles {
+    #[must_use]
     fn owns_role(self, role: RailroadTextRole) -> bool {
         match role {
             RailroadTextRole::Terminal => self.terminal,
@@ -204,6 +210,7 @@ impl RailroadSurfaceReceipt {
         }
     }
 
+    #[must_use]
     fn has_styled_text(&self) -> bool {
         self.terminal_text_count
             + self.nonterminal_text_count
@@ -246,7 +253,8 @@ impl RailroadTypographyThemePlan {
         work_meter: &crate::resources::OperationWorkMeter,
     ) -> Result<Self, crate::resources::OperationWorkError> {
         let mut style = super::railroad_style(effective_config.as_value());
-        let Some(theme) = theme else {
+
+        let Some(theme_2) = theme else {
             return Ok(Self {
                 style,
                 evidence: FamilyThemeOutcomes::default(),
@@ -282,7 +290,7 @@ impl RailroadTypographyThemePlan {
         let mut title_fill_routes = BTreeSet::new();
         let mut text_fill_routes = BTreeSet::new();
 
-        for route in theme.family_mechanism_routes().iter().copied() {
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontStack)
                     if route.disposition() == FamilyThemeDisposition::TypedAdapter =>
@@ -309,7 +317,8 @@ impl RailroadTypographyThemePlan {
                         ),
                     ..
                 } => {
-                    let key = theme.family_mechanism_key(route);
+                    let key = theme_2.family_mechanism_key(route);
+
                     match route.disposition() {
                         FamilyThemeDisposition::TypedAdapter => {
                             text_fill_routes.insert(key);
@@ -331,7 +340,8 @@ impl RailroadTypographyThemePlan {
                             FamilyThemePaintKind::Transparent | FamilyThemePaintKind::Solid,
                         ),
                 } => {
-                    let key = theme.family_mechanism_key(route);
+                    let key = theme_2.family_mechanism_key(route);
+
                     match route.disposition() {
                         FamilyThemeDisposition::TypedAdapter => {
                             title_fill_routes.insert(key);
@@ -348,7 +358,7 @@ impl RailroadTypographyThemePlan {
                     if route.disposition() == FamilyThemeDisposition::Unsupported =>
                 {
                     unsupported_routes.push(RailroadUnsupportedRoute {
-                        key: theme.family_mechanism_key(route),
+                        key: theme_2.family_mechanism_key(route),
                         target,
                     });
                 }
@@ -356,21 +366,21 @@ impl RailroadTypographyThemePlan {
                 FamilyThemeMechanism::OrdinalPalette { target } => {
                     debug_assert_eq!(route.disposition(), FamilyThemeDisposition::Unsupported);
                     unsupported_routes.push(RailroadUnsupportedRoute {
-                        key: theme.family_mechanism_key(route),
+                        key: theme_2.family_mechanism_key(route),
                         target,
                     });
                 }
                 FamilyThemeMechanism::EffectBinding { target, .. } => {
                     debug_assert_eq!(route.disposition(), FamilyThemeDisposition::Unsupported);
                     unsupported_routes.push(RailroadUnsupportedRoute {
-                        key: theme.family_mechanism_key(route),
+                        key: theme_2.family_mechanism_key(route),
                         target,
                     });
                 }
             }
         }
 
-        let title_style = theme.style_with_work_meter(
+        let title_style = theme_2.style_with_work_meter(
             ThemeTarget::Title,
             ThemeVariant::Default,
             Some(1),
@@ -381,14 +391,14 @@ impl RailroadTypographyThemePlan {
             None
         } else {
             resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &title_style,
                 &[ThemeTarget::Title],
                 DirectStaticSelectorDomain::Default,
             )
         };
 
-        let text_style = theme.style_with_work_meter(
+        let text_style = theme_2.style_with_work_meter(
             ThemeTarget::Text,
             ThemeVariant::Default,
             None,
@@ -402,7 +412,7 @@ impl RailroadTypographyThemePlan {
             None
         } else {
             resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &text_style,
                 &[ThemeTarget::Text],
                 DirectStaticSelectorDomain::Default,
@@ -415,31 +425,44 @@ impl RailroadTypographyThemePlan {
             rule_name: !title_style_has_winner
                 && !railroad_config_owns_rule_name_text_fill(effective_config),
         };
-        if let Some(title_fill) = title_fill.as_ref() {
-            style.rule_name_color = title_fill.css().to_owned();
+
+        match title_fill.as_ref() {
+            Some(title_fill_2) => {
+                style.rule_name_color = title_fill_2.css().to_owned();
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(text_fill) = text_fill.as_ref() {
-            if text_fill_roles.terminal {
-                style.terminal_text_color = text_fill.css().to_owned();
-            }
-            if text_fill_roles.nonterminal {
-                style.non_terminal_text_color = text_fill.css().to_owned();
-            }
-            if text_fill_roles.comment {
-                style.comment_text_color = text_fill.css().to_owned();
-            }
-            if text_fill_roles.rule_name {
-                style.rule_name_color = text_fill.css().to_owned();
-            }
+
+        match text_fill.as_ref() {
+            Some(text_fill_2) => {
+                if text_fill_roles.terminal {
+                    style.terminal_text_color = text_fill_2.css().to_owned();
+                }
+
+                if text_fill_roles.nonterminal {
+                    style.non_terminal_text_color = text_fill_2.css().to_owned();
+                }
+
+                if text_fill_roles.comment {
+                    style.comment_text_color = text_fill_2.css().to_owned();
+                }
+
+                if text_fill_roles.rule_name {
+                    style.rule_name_color = text_fill_2.css().to_owned();
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
         let typed_font_stack_applied = typed_font_stack && !config_owns_font_stack;
         let typed_font_size_applied = typed_font_size && !config_owns_font_size;
+
         if typed_font_stack_applied {
-            style.font_family = theme.typography().font_stack().as_css();
+            style.font_family = theme_2.typography().font_stack().as_css();
         }
+
         if typed_font_size_applied {
-            style.font_size = f64::from(theme.typography().font_size_px());
+            style.font_size = f64::from(theme_2.typography().font_size_px());
         }
 
         Ok(Self {
@@ -472,47 +495,53 @@ impl RailroadTypographyThemePlan {
         layout: &crate::model::RailroadDiagramLayout,
         work_meter: &crate::resources::OperationWorkMeter,
     ) -> Result<(), crate::resources::OperationWorkError> {
-        let Some(theme) = theme else {
-            return Ok(());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(()),
         };
+
         let mut source_fill = Vec::new();
         let mut source_stroke = Vec::new();
         let mut source_label = Vec::new();
         let mut edge_count = 0usize;
+
         for rule in &layout.rules {
             work_meter.charge(1)?;
             edge_count += rule.paths.len();
-            for element in &rule.elements {
+
+            'over_element_2: for element in &rule.elements {
                 work_meter.charge(1)?;
                 let role = match element.kind.as_str() {
                     "terminal" => 0,
                     "nonterminal" => 1,
                     "special" => 2,
-                    _ => continue,
+                    _ => continue 'over_element_2,
                 };
                 source_fill.push(self.core_ownership.fill[role]);
                 source_stroke.push(self.core_ownership.stroke[role]);
+
                 if !element.label.trim().is_empty() {
                     source_label.push(self.core_ownership.label[role]);
                 }
             }
         }
+
         let node = StaticSurfacePaint::resolve(
-            Some(theme),
+            Some(theme_2),
             ThemeTarget::Node,
             &source_fill,
             &source_stroke,
             work_meter,
         )?;
         let label = StaticSurfacePaint::resolve(
-            Some(theme),
+            Some(theme_2),
             ThemeTarget::NodeLabel,
             &source_label,
             &vec![false; source_label.len()],
             work_meter,
         )?;
         let edge = StaticSurfacePaint::resolve(
-            Some(theme),
+            Some(theme_2),
             ThemeTarget::Edge,
             &vec![true; edge_count],
             &vec![self.core_ownership.edge; edge_count],
@@ -520,12 +549,13 @@ impl RailroadTypographyThemePlan {
         )?;
         let marker_count = layout.rules.len().saturating_mul(2);
         let marker = StaticSurfacePaint::resolve(
-            Some(theme),
+            Some(theme_2),
             ThemeTarget::Marker,
             &vec![self.core_ownership.marker; marker_count],
             &vec![false; marker_count],
             work_meter,
         )?;
+
         for (role, (fill, stroke)) in [
             (
                 &mut self.style.terminal_fill,
@@ -545,29 +575,46 @@ impl RailroadTypographyThemePlan {
             {
                 *fill = paint.css().to_owned();
             }
+
             if !self.core_ownership.stroke[role]
                 && let Some(paint) = &node.stroke
             {
                 *stroke = paint.css().to_owned();
             }
         }
-        if let Some(paint) = &label.fill {
-            if !match self.core_ownership.label { [_explicit_element, ..] => _explicit_element } {
-                self.style.terminal_text_color = paint.css().to_owned();
-            }
-            if !match self.core_ownership.label { [_, _explicit_element, ..] => _explicit_element } {
-                self.style.non_terminal_text_color = paint.css().to_owned();
-            }
-            self.text_fill_roles.terminal &= match self.core_ownership.label { [_explicit_element, ..] => _explicit_element };
-            self.text_fill_roles.nonterminal &= match self.core_ownership.label { [_, _explicit_element, ..] => _explicit_element };
+
+        match &label.fill {
+            Some(paint) => {
+                if !match self.core_ownership.label { [_explicit_element, ..] => _explicit_element } {
+                    self.style.terminal_text_color = paint.css().to_owned();
+                }
+
+                if !match self.core_ownership.label { [_, _explicit_element, ..] => _explicit_element } {
+                    self.style.non_terminal_text_color = paint.css().to_owned();
+                }
+
+                self.text_fill_roles.terminal &= match self.core_ownership.label { [_explicit_element, ..] => _explicit_element };
+                self.text_fill_roles.nonterminal &= match self.core_ownership.label { [_, _explicit_element, ..] => _explicit_element };
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(paint) = &edge.stroke {
-            self.style.line_color = paint.css().to_owned();
+
+        match &edge.stroke {
+            Some(paint) => {
+                self.style.line_color = paint.css().to_owned();
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(paint) = &marker.fill {
-            self.style.marker_fill = paint.css().to_owned();
+
+        match &marker.fill {
+            Some(paint) => {
+                self.style.marker_fill = paint.css().to_owned();
+            },
+            ::core::option::Option::None => {},
         }
+
         self.core_paints = vec![node, label, edge, marker];
+
         if !self
             .unsupported_routes
             .iter()
@@ -575,25 +622,32 @@ impl RailroadTypographyThemePlan {
         {
             return Ok(());
         }
+
         let mut roles = Vec::new();
+
         for rule in &layout.rules {
             work_meter.charge(1)?;
-            for element in &rule.elements {
+
+            'over_element_2: for element in &rule.elements {
                 work_meter.charge(1)?;
+
                 if element.label.trim().is_empty() {
-                    continue;
+                    continue 'over_element_2;
                 }
+
                 let role = match element.kind.as_str() {
                     "terminal" => RailroadTextRole::Terminal,
                     "nonterminal" => RailroadTextRole::Nonterminal,
                     "comment" => RailroadTextRole::Comment,
                     "special" => RailroadTextRole::Special,
-                    _ => continue,
+                    _ => continue 'over_element_2,
                 };
                 roles.push(role);
             }
+
             roles.push(RailroadTextRole::RuleName);
         }
+
         let text_owned_fill = roles
             .iter()
             .map(|role| !self.text_fill_roles.owns_role(*role))
@@ -601,7 +655,7 @@ impl RailroadTypographyThemePlan {
         let title_owned_fill = vec![self.title_fill_config_owned; layout.rules.len()];
         let mut evidence = FamilyThemeOutcomes::default();
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut evidence,
             &[
                 UnsupportedTerminalDomain::direct(
@@ -621,10 +675,12 @@ impl RailroadTypographyThemePlan {
         Ok(())
     }
 
+    #[must_use]
     pub(crate) const fn style(&self) -> &RailroadStyle {
         &self.style
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> RailroadSurfaceReceipt {
         RailroadSurfaceReceipt {
             requested: self.typed_font_stack_requested
@@ -637,18 +693,27 @@ impl RailroadTypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: RailroadSurfaceReceipt) -> bool {
         self.terminal_receipt.set(receipt).is_ok()
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
-        let Some(receipt) = self.terminal_receipt.get() else {
-            return;
+
+        let receipt = {
+            let optional_receipt = self.terminal_receipt.get();
+
+            match optional_receipt {
+                Some(matched_receipt) => matched_receipt,
+                ::core::option::Option::None => return,
+            }
         };
+
         for paint in &self.core_paints {
             paint.record_evidence(evidence);
         }
+
         if !receipt.has_styled_text() {
             for (property, requested) in [
                 (
@@ -664,18 +729,23 @@ impl RailroadTypographyThemePlan {
                     evidence.mark_not_applicable(FamilyThemeMechanismKey::Typography(property));
                 }
             }
+
             for property in &self.unsupported_properties {
                 evidence.mark_not_applicable(FamilyThemeMechanismKey::Typography(*property));
             }
+
             for route in &self.unsupported_routes {
                 evidence.mark_not_applicable(route.key.clone());
             }
+
             for key in &self.title_fill_routes {
                 evidence.mark_not_applicable(key.clone());
             }
+
             for key in &self.text_fill_routes {
                 evidence.mark_not_applicable(key.clone());
             }
+
             return;
         }
 
@@ -694,27 +764,36 @@ impl RailroadTypographyThemePlan {
             if !requested {
                 continue;
             }
+
             let key = FamilyThemeMechanismKey::Typography(property);
+
             if !active {
                 evidence.mark_not_applicable(key);
             } else {
                 evidence.mark_applied_with_capabilities(key, [ThemeCapability::Typography]);
             }
         }
+
         for property in &self.unsupported_properties {
             evidence.mark_residual(
                 FamilyThemeMechanismKey::Typography(*property),
                 FamilyThemeResidualReason::UnsupportedTypography,
             );
         }
-        if let Some(terminal_evidence) = &self.unsupported_terminal_evidence {
-            evidence.merge_borrowed(terminal_evidence);
+
+        match &self.unsupported_terminal_evidence {
+            Some(terminal_evidence) => {
+                evidence.merge_borrowed(terminal_evidence);
+            },
+            ::core::option::Option::None => {},
         }
+
         for route in &self.unsupported_routes {
             if !matches!(route.target, ThemeTarget::Text | ThemeTarget::Title) {
                 evidence.mark_not_applicable(route.key.clone());
             }
         }
+
         for key in &self.title_fill_routes {
             if self.title_fill_config_owned
                 || self.title_fill.is_none()
@@ -732,6 +811,7 @@ impl RailroadTypographyThemePlan {
                 }
             }
         }
+
         for key in &self.text_fill_routes {
             if self.text_fill_config_owned
                 || !self.text_fill_roles.has_visible_occurrence(receipt)
@@ -749,6 +829,7 @@ impl RailroadTypographyThemePlan {
         }
     }
 
+    #[must_use]
     fn title_fill_capability_for(&self, key: &FamilyThemeMechanismKey) -> Option<ThemeCapability> {
         let FamilyThemeMechanismKey::Rule {
             index,
@@ -757,12 +838,14 @@ impl RailroadTypographyThemePlan {
         else {
             return None;
         };
+
         self.title_fill
             .as_ref()
             .filter(|winner| winner.rule_index() == *index)
             .map(DirectStaticPaint::capability)
     }
 
+    #[must_use]
     fn is_title_fill_shadowed(&self, key: &FamilyThemeMechanismKey) -> bool {
         matches!(
             key,
@@ -774,6 +857,7 @@ impl RailroadTypographyThemePlan {
         )
     }
 
+    #[must_use]
     fn text_fill_capability_for(&self, key: &FamilyThemeMechanismKey) -> Option<ThemeCapability> {
         let FamilyThemeMechanismKey::Rule {
             index,
@@ -782,12 +866,14 @@ impl RailroadTypographyThemePlan {
         else {
             return None;
         };
+
         self.text_fill
             .as_ref()
             .filter(|winner| winner.rule_index() == *index)
             .map(DirectStaticPaint::capability)
     }
 
+    #[must_use]
     fn is_text_fill_shadowed(&self, key: &FamilyThemeMechanismKey) -> bool {
         matches!(
             key,
@@ -801,6 +887,7 @@ impl RailroadTypographyThemePlan {
     }
 }
 
+#[must_use]
 fn railroad_config_owns_font_stack(config: &PresentationConfig) -> bool {
     railroad_config_owns_any(
         config,
@@ -812,10 +899,12 @@ fn railroad_config_owns_font_stack(config: &PresentationConfig) -> bool {
     )
 }
 
+#[must_use]
 fn railroad_config_owns_font_size(config: &PresentationConfig) -> bool {
     railroad_config_owns_any(config, ["railroad.fontSize", "themeVariables.fontSize"])
 }
 
+#[must_use]
 fn railroad_config_owns_title_fill(config: &PresentationConfig) -> bool {
     railroad_config_owns_any_paint(
         config,
@@ -827,10 +916,12 @@ fn railroad_config_owns_title_fill(config: &PresentationConfig) -> bool {
     )
 }
 
+#[must_use]
 fn railroad_config_owns_text_fill(config: &PresentationConfig) -> bool {
     railroad_config_owns_any_paint(config, ["themeVariables.textColor"])
 }
 
+#[must_use]
 fn railroad_config_owns_terminal_text_fill(config: &PresentationConfig) -> bool {
     railroad_config_owns_any_paint(
         config,
@@ -842,6 +933,7 @@ fn railroad_config_owns_terminal_text_fill(config: &PresentationConfig) -> bool 
     )
 }
 
+#[must_use]
 fn railroad_config_owns_nonterminal_text_fill(config: &PresentationConfig) -> bool {
     railroad_config_owns_any_paint(
         config,
@@ -853,6 +945,7 @@ fn railroad_config_owns_nonterminal_text_fill(config: &PresentationConfig) -> bo
     )
 }
 
+#[must_use]
 fn railroad_config_owns_comment_text_fill(config: &PresentationConfig) -> bool {
     railroad_config_owns_any_paint(
         config,
@@ -864,6 +957,7 @@ fn railroad_config_owns_comment_text_fill(config: &PresentationConfig) -> bool {
     )
 }
 
+#[must_use]
 fn railroad_config_owns_rule_name_text_fill(config: &PresentationConfig) -> bool {
     railroad_config_owns_any_paint(
         config,
@@ -875,12 +969,14 @@ fn railroad_config_owns_rule_name_text_fill(config: &PresentationConfig) -> bool
     )
 }
 
+#[must_use]
 fn railroad_config_owns_any<const N: usize>(config: &PresentationConfig, paths: [&str; N]) -> bool {
     paths
         .into_iter()
         .any(|path| config.config_path_overrides_typed_default(path))
 }
 
+#[must_use]
 fn railroad_config_owns_any_paint<const N: usize>(
     config: &PresentationConfig,
     paths: [&str; N],

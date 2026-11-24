@@ -38,11 +38,11 @@ use console_core_number_conversion::{fitted, index};
 use std::os::fd::AsFd;
 use std::time::Instant;
 
+use console_wayland::keyboard::{Stroke, VirtualKeyboard};
+use console_wayland::{client as wayland_client, protocols_misc as wayland_protocols_misc};
 use wayland_client::QueueHandle;
 use wayland_client::protocol::wl_seat;
-use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::{
-  zwp_virtual_keyboard_manager_v1, zwp_virtual_keyboard_v1,
-};
+use wayland_protocols_misc::zwp_virtual_keyboard_v1::client::zwp_virtual_keyboard_manager_v1;
 
 use crate::key_repeat::RepeatMode;
 use crate::keymap::{Keymap, Layer};
@@ -146,7 +146,7 @@ pub fn symbols(walk: &[LayoutKind]) -> Result<Option<LayoutKind>, Never> {
   )
 )]
 pub struct Typist {
-  keys: zwp_virtual_keyboard_v1::ZwpVirtualKeyboardV1,
+  keys: VirtualKeyboard,
   alphabets: Vec<Keymap>,
   worn: Option<Layer>,
   since: Instant,
@@ -168,7 +168,7 @@ impl Typist {
     opening: Option<LayoutKind>,
     since: Instant,
   ) -> Result<Typist, Never> {
-    let keys = manager.create_virtual_keyboard(seat, hand, ());
+    let Ok(keys) = VirtualKeyboard::new(manager, seat, hand);
     let showing = match opening
       .filter(|which| walk.contains(which))
       .or_else(|| walk.first().copied())
@@ -226,7 +226,7 @@ impl Typist {
 
     let Ok(long_2) = fitted(long);
 
-    self.keys.keymap(1, file.as_fd(), long_2);
+    let Ok(()) = self.keys.keymap(file.as_fd(), long_2);
     self.worn = Some(alphabet);
 
     Ok(())
@@ -235,17 +235,23 @@ impl Typist {
   pub fn tap(&mut self, code: u32) -> Result<(), Never> {
     let Ok(at) = self.elapsed_ms();
 
-    self.keys.key(at, code, 1);
+    let Ok(()) = self.keys.press(Stroke {
+      milliseconds: at,
+      code,
+    });
 
     let Ok(then) = self.elapsed_ms();
 
-    self.keys.key(then, code, 0);
+    let Ok(()) = self.keys.release(Stroke {
+      milliseconds: then,
+      code,
+    });
 
     Ok(())
   }
 
   pub fn set_modifiers(&mut self, held: u8) -> Result<(), Never> {
-    self.keys.modifiers(u32::from(held), 0, 0, 0);
+    let Ok(()) = self.keys.set_depressed_modifiers(u32::from(held));
 
     Ok(())
   }
@@ -269,8 +275,8 @@ impl Typist {
 
     let Ok(long_2) = fitted(long);
 
-    self.keys.keymap(1, file.as_fd(), long_2);
-    self.keys.modifiers(0, 0, 0, 0);
+    let Ok(()) = self.keys.keymap(file.as_fd(), long_2);
+    let Ok(()) = self.keys.set_depressed_modifiers(0);
     let Ok(()) = self.tap(SPARE);
     self.worn = None;
     let Ok(of) = of(self.showing);
@@ -305,6 +311,44 @@ impl Typist {
     }
 
     let Ok(()) = self.wear(of.alphabet);
+
+    Ok(())
+  }
+
+  pub fn reload_layouts(
+    &mut self,
+    walk: Vec<LayoutKind>,
+    preferred: Option<LayoutKind>,
+  ) -> Result<(), Never> {
+    let wanted = preferred
+      .filter(|layout| walk.contains(layout))
+      .or_else(|| {
+        walk
+          .iter()
+          .copied()
+          .find(|layout| *layout == self.last_alphabet)
+      })
+      .or_else(|| walk.first().copied());
+    let wanted_3 = match wanted {
+      Some(wanted_2) => wanted_2,
+      None => return Ok(()),
+    };
+    let Ok(index) = where_it_is(&walk, &wanted_3);
+    self.step = match index {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => THE_FIRST_ONE,
+    };
+    self.walk = walk;
+
+    match (wanted_3 == self.last_alphabet).then_some(()) {
+      Some(()) => {}
+      None => {
+        self.held = modifiers::NONE;
+        self.composing = false;
+        let Ok(()) = self.go(wanted_3);
+        let Ok(()) = self.set_modifiers(self.held);
+      }
+    }
 
     Ok(())
   }

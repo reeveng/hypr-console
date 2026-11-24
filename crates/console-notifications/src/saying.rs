@@ -27,6 +27,7 @@ use std::time::Instant;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_core_words::Words;
+use console_operating_system_linux::notification;
 use console_waiting::{Outcome, Ready, Schedule, until_handed};
 
 const NEVER_SAID_BEFORE: u32 = 0;
@@ -43,15 +44,6 @@ pub enum Urgency {
 pub enum Expiry {
   Stays,
   Milliseconds(u32),
-}
-
-impl Expiry {
-  fn as_argument(self) -> Result<String, Never> {
-    Ok(match self {
-      Expiry::Stays => "0".to_string(),
-      Expiry::Milliseconds(many) => many.to_string(),
-    })
-  }
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -113,35 +105,25 @@ impl Notification {
   }
 
   pub fn arguments(&self) -> Result<Vec<String>, Never> {
-    let Ok(urgency) = self.urgency.said();
-    let Ok(expiry) = self.expiry.as_argument();
+    let urgency = match self.urgency {
+      Urgency::Normal => notification::Urgency::Normal,
+      Urgency::Critical => notification::Urgency::Critical,
+    };
+    let expiry = match self.expiry {
+      Expiry::Stays => 0,
+      Expiry::Milliseconds(many) => many,
+    };
+    let options = notification::Options {
+      app_name: Some("Console"),
+      expire_ms: Some(expiry),
+      urgency,
+      id_output: notification::IdOutput::Requested,
+      replace_id: self.replacing,
+      value: self.value,
+      ..Default::default()
+    };
 
-    let mut arguments = vec![
-      "notify-send".to_string(),
-      "--app-name=Console".to_string(),
-      "--print-id".to_string(),
-      format!("--urgency={urgency}"),
-      format!("--expire-time={expiry}"),
-    ];
-
-    match self.value {
-      Some(value) => {
-        arguments.push("-h".to_string());
-        arguments.push(format!("int:value:{value}"));
-      }
-      None => {}
-    }
-
-    match self.replacing {
-      Some(was) => arguments.push(format!("--replace-id={was}")),
-      None => {}
-    }
-
-    arguments.push("--".to_string());
-    arguments.push(self.summary.clone());
-    arguments.push(self.body.clone());
-
-    Ok(arguments)
+    options.invocation(&self.summary, Some(&self.body))
   }
 }
 
@@ -431,22 +413,13 @@ pub fn raise_kept(notification: Notification, kept: &StatePath) -> Result<(), Ne
 }
 
 pub fn closing(number: u32) -> Result<Vec<String>, Never> {
-  let number_2 = number.to_string();
+  let Ok(command) = crate::serving::closing_one(number);
+  let Ok(program) = command.program.name();
 
   Ok(
-    [
-      "busctl",
-      "--user",
-      "call",
-      "org.freedesktop.Notifications",
-      "/org/freedesktop/Notifications",
-      "org.freedesktop.Notifications",
-      "CloseNotification",
-      "u",
-      number_2.as_str(),
-    ]
-    .map(str::to_string)
-    .to_vec(),
+    std::iter::once(program.to_string())
+      .chain(command.arguments)
+      .collect(),
   )
 }
 

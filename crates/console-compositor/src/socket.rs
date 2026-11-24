@@ -34,6 +34,8 @@ pub const PATIENCE: Duration = Duration::from_secs(1);
 
 const ANSWER_BYTES: u32 = 16 * 1024 * 1024;
 
+pub const DIRECTORY: &str = "hypr";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
 pub enum Socket {
   #[words(word = ".socket.sock")]
@@ -130,9 +132,15 @@ pub fn socket(which: Socket) -> Result<PathBuf, Unplaced> {
     Some(signature) => signature,
     None => return Err(Unplaced::Compositorless),
   };
-  let name = InstanceName::new(signature)?;
+  let directory = instance_directory(&runtime_3, &signature)?;
 
-  Ok(runtime_3.join("hypr").join(name).join(which))
+  Ok(directory.join(which))
+}
+
+pub fn instance_directory(runtime: &Path, signature: &str) -> Result<PathBuf, Unplaced> {
+  let name = InstanceName::new(signature.to_owned())?;
+
+  Ok(runtime.join(DIRECTORY).join(name))
 }
 
 pub fn send(line: &str) -> Result<Vec<u8>, SocketError> {

@@ -18,67 +18,82 @@ pub(crate) struct ParsedStyleDeclaration<'a> {
 }
 
 impl<'a> ParsedStyleDeclaration<'a> {
+    #[must_use]
     pub(crate) fn property(&self) -> &str {
         &self.property
     }
 
     /// Returns the source spelling of the property for compatibility callers that
     /// must borrow the original declaration instead of allocating a decoded name.
+    #[must_use]
     pub(crate) const fn property_source(&self) -> &'a str {
         self.property_source
     }
 
+    #[must_use]
     pub(crate) const fn property_css(&self) -> &'a str {
         self.property_source
     }
 
     /// Returns the declaration value including a trailing `!important`, if present.
+    #[must_use]
     pub(crate) const fn source_value(&self) -> &'a str {
         self.source_value
     }
 
+    #[must_use]
     pub(crate) const fn value(&self) -> &'a str {
         self.value
     }
 
+    #[must_use]
     pub(crate) const fn important(&self) -> bool {
         self.important
     }
 
+    #[must_use]
     pub(crate) const fn analysis(&self) -> &CssValueAnalysis {
         &self.analysis
     }
 
+    #[must_use]
     pub(crate) fn inherits_property_value(&self) -> bool {
         self.analysis.inherits_property_value()
     }
 
+    #[must_use]
     pub(crate) const fn is_single_component_value(&self) -> bool {
         self.analysis.is_single_component()
     }
 
+    #[must_use]
     pub(crate) fn svg_number_or_px(&self) -> Option<f64> {
         self.analysis.svg_number_or_px()
     }
 
+    #[must_use]
     pub(crate) fn resolve_font_size_px(&self, context: CssFontSizeContext) -> Option<f64> {
         self.analysis.resolve_font_size_px(context)
     }
 }
 
+#[must_use]
 pub(crate) fn parse_style_declaration(raw: &str) -> Option<ParsedStyleDeclaration<'_>> {
-    let raw = raw.trim();
-    let raw = raw.strip_suffix(';').unwrap_or(raw).trim();
-    if raw.is_empty() {
+    let raw_2 = raw.trim();
+    let raw_3 = raw_2.strip_suffix(';').unwrap_or(raw_2).trim();
+
+    if raw_3.is_empty() {
         return None;
     }
 
-    let mut parser = Parser::new(raw);
+    let mut parser = Parser::new(raw_3);
     let property_start = parser.position();
     let property = parser.expect_ident_cloned().ok()?;
+
     if property == "--" {
         return None;
     }
+
     let property_end = parser.position();
     parser.expect_colon().ok()?;
     let value_start = parser.position();
@@ -87,19 +102,20 @@ pub(crate) fn parse_style_declaration(raw: &str) -> Option<ParsedStyleDeclaratio
             .ok()?;
     let source_value = parser.slice(value_start..parser.position()).trim();
     let value = parser.slice(value_start..value_end).trim();
+
     if value.is_empty() {
         return None;
     }
 
     let property_source = parser.slice(property_start..property_end).trim();
-    let property = property.to_string();
-    let property = if property.starts_with("--") {
-        property
+    let property_2 = property.to_string();
+    let property_3 = if property_2.starts_with("--") {
+        property_2
     } else {
-        property.to_ascii_lowercase()
+        property_2.to_ascii_lowercase()
     };
     Some(ParsedStyleDeclaration {
-        property,
+        property: property_3,
         property_source,
         source_value,
         value,
@@ -108,18 +124,21 @@ pub(crate) fn parse_style_declaration(raw: &str) -> Option<ParsedStyleDeclaratio
     })
 }
 
+#[must_use]
 pub(crate) fn parse_safe_style_decl(s: &str) -> Option<(&str, &str)> {
     let parsed = parse_style_declaration(s)?;
     Some((parsed.property_source(), parsed.source_value()))
 }
 
+#[must_use]
 pub(crate) fn is_safe_css_font_family_value(value: &str) -> bool {
-    // Preserve existing dynamic host values. Literal font names have their own CSS grammar:
-    // markup punctuation inside a complete quoted name belongs to the terminal XML writer.
+
+
     (css_value_is_safe(value, CssValuePolicy::MermaidSourceStyle) && !value.contains(':'))
         || literal_css_font_family_list_is_valid(value)
 }
 
+#[must_use]
 fn literal_css_font_family_list_is_valid(value: &str) -> bool {
     if value.chars().any(char::is_control) {
         return false;
@@ -134,8 +153,10 @@ fn literal_css_font_family_list_is_valid(value: &str) -> bool {
 
     let mut parser = Parser::new(value);
     let mut family = FamilyName::Missing;
+
     loop {
         let start = parser.position();
+
         match parser.next_including_whitespace_and_comments() {
             Ok(Token::WhiteSpace(_)) => {}
             Ok(Token::Ident(name)) if family != FamilyName::Quoted => {
@@ -144,22 +165,27 @@ fn literal_css_font_family_list_is_valid(value: &str) -> bool {
                 {
                     return false;
                 }
+
                 family = FamilyName::Identifiers;
             }
             Ok(Token::QuotedString(_)) if family == FamilyName::Missing => {
-                // cssparser recovers a string at EOF, so also require its actual closing quote.
+
                 let raw = parser.slice(start..parser.position());
+
                 if raw.len() < 2 || raw.as_bytes().first() != raw.as_bytes().last() {
                     return false;
                 }
+
                 let trailing_backslashes = raw[..raw.len() - 1]
                     .bytes()
                     .rev()
                     .take_while(|byte| *byte == b'\\')
                     .count();
+
                 if !trailing_backslashes.is_multiple_of(2) {
                     return false;
                 }
+
                 family = FamilyName::Quoted;
             }
             Ok(Token::Comma) if family != FamilyName::Missing => family = FamilyName::Missing,
@@ -198,20 +224,24 @@ pub(crate) struct CssFontSizeOverride {
 }
 
 impl CssFontSizeOverride {
+    #[must_use]
     pub(crate) const fn important(self) -> bool {
         self.important
     }
 
+    #[must_use]
     pub(crate) const fn ownership(self) -> CssFontSizeOwnership {
         self.ownership
     }
 }
 
 impl CssFontFamilyOverride {
+    #[must_use]
     pub(crate) const fn important(self) -> bool {
         self.important
     }
 
+    #[must_use]
     pub(crate) const fn ownership(self) -> CssFontFamilyOwnership {
         self.ownership
     }
@@ -223,11 +253,13 @@ pub(crate) struct StyleDeclarationBoundary<'a> {
 }
 
 impl<'a> StyleDeclarationBoundary<'a> {
+    #[must_use]
     pub(crate) const fn raw(self) -> &'a str {
         self.raw
     }
 }
 
+#[must_use]
 pub(crate) fn css_font_family_ownership<'a>(
     declarations: impl IntoIterator<Item = &'a str>,
 ) -> CssFontFamilyOwnership {
@@ -236,20 +268,24 @@ pub(crate) fn css_font_family_ownership<'a>(
     })
 }
 
+#[must_use]
 pub(crate) fn css_font_family_override(declaration_list: &str) -> Option<CssFontFamilyOverride> {
     css_font_family_winner([declaration_list])
 }
 
+#[must_use]
 fn css_font_family_winner<'a>(
     declarations: impl IntoIterator<Item = &'a str>,
 ) -> Option<CssFontFamilyOverride> {
     let mut winner = None;
+
     for declaration_list in declarations {
         visit_style_declaration_boundaries(declaration_list, |boundary| {
             match parse_style_declaration(boundary.raw()) {
                 Some(declaration) => observe_css_font_family_ownership(&mut winner, &declaration),
                 None => {
                     let metadata = declaration_metadata_for_fallback(boundary.raw());
+
                     if metadata.affects_font_family
                         && winner.is_none_or(|current| metadata.important || !current.important)
                     {
@@ -262,9 +298,11 @@ fn css_font_family_winner<'a>(
             }
         });
     }
+
     winner
 }
 
+#[must_use]
 pub(crate) fn css_font_size_override(declaration_list: &str) -> Option<CssFontSizeOverride> {
     let mut winner = None;
     visit_style_declaration_boundaries(declaration_list, |boundary| match parse_style_declaration(
@@ -273,6 +311,7 @@ pub(crate) fn css_font_size_override(declaration_list: &str) -> Option<CssFontSi
         Some(declaration) => observe_css_font_size_ownership(&mut winner, &declaration),
         None => {
             let metadata = declaration_metadata_for_fallback(boundary.raw());
+
             if metadata.affects_font_size
                 && winner.is_none_or(|current| metadata.important || !current.important)
             {
@@ -291,8 +330,13 @@ pub(crate) fn visit_parsed_style_declarations<'a>(
     mut visit: impl FnMut(ParsedStyleDeclaration<'a>),
 ) {
     visit_style_declaration_boundaries(declaration_list, |boundary| {
-        if let Some(declaration) = parse_style_declaration(boundary.raw()) {
-            visit(declaration);
+        {
+            match parse_style_declaration(boundary.raw()) {
+                Some(declaration) => {
+                    visit(declaration);
+                },
+                ::core::option::Option::None => {},
+            };
         }
     });
 }
@@ -309,6 +353,7 @@ pub(crate) fn visit_style_declaration_boundaries_with_checkpoints<'a, E>(
     mut visit: impl FnMut(StyleDeclarationBoundary<'a>) -> Result<bool, E>,
 ) -> Result<(), E> {
     let mut parser = Parser::new(declaration_list);
+
     while !parser.is_exhausted() {
         checkpoint()?;
         let start = parser.position();
@@ -316,13 +361,18 @@ pub(crate) fn visit_style_declaration_boundaries_with_checkpoints<'a, E>(
             Ok::<_, ParseError<()>>(())
         });
         let raw = parser.slice(start..parser.position()).trim();
+
         if raw.is_empty() {
             continue;
         }
-        if !visit(StyleDeclarationBoundary { raw })? {
+
+        let checked_value = visit(StyleDeclarationBoundary { raw })?;
+
+        if !checked_value {
             break;
         }
     }
+
     checkpoint()?;
     Ok(())
 }
@@ -331,6 +381,7 @@ pub(crate) fn visit_style_declaration_boundaries_with_checkpoints<'a, E>(
 ///
 /// Unlike [`css_font_family_ownership`], this preserves the writer's fail-closed behavior for a
 /// malformed item that smuggles in an extra semicolon-delimited declaration.
+#[must_use]
 pub(crate) fn css_font_family_declaration_ownership<'a>(
     declarations: impl IntoIterator<Item = &'a str>,
 ) -> CssFontFamilyOwnership {
@@ -344,25 +395,31 @@ pub(crate) fn css_font_family_declaration_ownership<'a>(
 /// Class labels use this for parent style attributes before the declaration list is embedded in
 /// the terminal fragment. Malformed items are ignored, matching the existing font-family helper
 /// instead of allowing a partial declaration to claim the typed value.
+#[must_use]
 pub(crate) fn css_font_size_declaration_ownership<'a>(
     declarations: impl IntoIterator<Item = &'a str>,
 ) -> CssFontSizeOwnership {
     let mut winner = None;
+
     for declaration in declarations.into_iter().filter_map(parse_style_declaration) {
         observe_css_font_size_ownership(&mut winner, &declaration);
     }
-    winner.map_or(CssFontSizeOwnership::Inherited, |winner| winner.ownership())
+
+    winner.map_or(CssFontSizeOwnership::Inherited, |winner_2| winner_2.ownership())
 }
 
+#[must_use]
 fn css_font_family_ownership_from_parsed<'a>(
     declarations: impl IntoIterator<Item = ParsedStyleDeclaration<'a>>,
 ) -> CssFontFamilyOwnership {
     let mut winner = None;
+
     for declaration in declarations {
         observe_css_font_family_ownership(&mut winner, &declaration);
     }
-    winner.map_or(CssFontFamilyOwnership::Inherited, |winner| {
-        winner.ownership()
+
+    winner.map_or(CssFontFamilyOwnership::Inherited, |winner_2| {
+        winner_2.ownership()
     })
 }
 
@@ -425,15 +482,19 @@ fn observe_css_font_family_ownership(
         "all" => None,
         _ => return,
     };
-    let Some(ownership) = ownership else {
-        return;
+
+    let ownership_2 = match ownership {
+        Some(matched_ownership) => matched_ownership,
+        ::core::option::Option::None => return,
     };
+
     if !declaration.important() && winner.is_some_and(|current| current.important) {
         return;
     }
+
     *winner = Some(CssFontFamilyOverride {
         important: declaration.important(),
-        ownership,
+        ownership: ownership_2,
     });
 }
 
@@ -480,24 +541,30 @@ fn observe_css_font_size_ownership(
         "all" => None,
         _ => return,
     };
-    let Some(ownership) = ownership else {
-        return;
+
+    let ownership_2 = match ownership {
+        Some(matched_ownership) => matched_ownership,
+        ::core::option::Option::None => return,
     };
+
     if !declaration.important() && winner.is_some_and(|current| current.important) {
         return;
     }
+
     *winner = Some(CssFontSizeOverride {
         important: declaration.important(),
-        ownership,
+        ownership: ownership_2,
     });
 }
 
+#[must_use]
 fn font_size_value_ownership(
     declaration: &ParsedStyleDeclaration<'_>,
 ) -> Option<CssFontSizeOwnership> {
     if declaration.inherits_property_value() {
         return Some(CssFontSizeOwnership::Inherited);
     }
+
     if declaration.analysis().depends_on_root_font_size()
         || declaration.analysis().has_dynamic_reference_function()
         || matches!(
@@ -507,11 +574,13 @@ fn font_size_value_ownership(
     {
         return Some(CssFontSizeOwnership::Unverified);
     }
+
     if !declaration.is_single_component_value() {
         return None;
     }
+
     match declaration.analysis().scalar.as_ref() {
-        Some(CssScalar::Number(value)) if *value == 0.0 => Some(CssFontSizeOwnership::SourceOwned),
+        Some(CssScalar::Number(value)) if ::core::matches!(::core::primitive::f64::classify(*value), ::core::num::FpCategory::Zero) => Some(CssFontSizeOwnership::SourceOwned),
         Some(
             CssScalar::Percentage(value)
             | CssScalar::Px(value)
@@ -544,34 +613,46 @@ fn font_size_value_ownership(
     }
 }
 
+#[must_use]
 pub(crate) fn is_static_css_font_family_list(value: &str) -> bool {
     let mut parser = Parser::new(value);
     let mut family_count = 0usize;
+
     while !parser.is_exhausted() {
-        if let Ok(family) = parser.try_parse(|parser| parser.expect_string_cloned()) {
+        if let Ok(family) = parser.try_parse(|parser_2| parser_2.expect_string_cloned()) {
             if family.is_empty() {
                 return false;
             }
         } else {
             let mut component_count = 0usize;
-            while let Ok(component) = parser.try_parse(|parser| parser.expect_ident_cloned()) {
+
+            while let Ok(component) = parser.try_parse(|parser_3| parser_3.expect_ident_cloned()) {
                 if crate::diagram_theme::is_css_wide_keyword(component.as_ref()) {
                     return false;
                 }
+
                 component_count = component_count.saturating_add(1);
             }
-            if component_count == 0 {
-                return false;
+
+            match component_count {
+                0 => {
+                    return false;
+                },
+                _ => {},
             }
         }
+
         family_count = family_count.saturating_add(1);
+
         if parser.is_exhausted() {
             break;
         }
+
         if parser.expect_comma().is_err() || parser.is_exhausted() {
             return false;
         }
     }
+
     family_count != 0
 }
 
@@ -580,7 +661,7 @@ fn visit_style_declaration_boundaries<'a>(
     mut visit: impl FnMut(StyleDeclarationBoundary<'a>),
 ) {
     let mut checkpoint = || Ok::<(), std::convert::Infallible>(());
-    let _ = visit_style_declaration_boundaries_with_checkpoints(
+    let ::core::result::Result::Ok(()) = visit_style_declaration_boundaries_with_checkpoints(
         declaration_list,
         &mut checkpoint,
         |boundary| {
@@ -593,14 +674,22 @@ fn visit_style_declaration_boundaries<'a>(
 fn declaration_has_trailing_important(parser: &mut Parser<'_>) -> bool {
     while !parser.is_exhausted() {
         let state = parser.state();
-        let Ok(token) = parser.next() else {
-            return false;
+
+        let token = {
+            let outcome_token = parser.next();
+
+            match outcome_token {
+                Ok(matched_token) => matched_token,
+                ::core::result::Result::Err(_) => return false,
+            }
         };
+
         if matches!(token, Token::Delim('!')) {
             parser.reset(&state);
             return parser.try_parse(parse_important).is_ok() && parser.is_exhausted();
         }
     }
+
     false
 }
 
@@ -611,35 +700,42 @@ struct FontDeclarationFallbackMetadata {
     important: bool,
 }
 
+#[must_use]
 fn declaration_metadata_for_fallback(raw: &str) -> FontDeclarationFallbackMetadata {
-    let raw = raw.strip_suffix(';').unwrap_or(raw).trim();
-    let mut parser = Parser::new(raw);
+    let raw_2 = raw.strip_suffix(';').unwrap_or(raw).trim();
+    let mut parser = Parser::new(raw_2);
+
     let Ok(property) = parser.expect_ident_cloned() else {
         return FontDeclarationFallbackMetadata::default();
     };
+
     if parser.expect_colon().is_err() {
         return FontDeclarationFallbackMetadata::default();
     }
-    let property = property.as_ref();
+
+    let property_2 = property.as_ref();
     FontDeclarationFallbackMetadata {
-        affects_font_family: property.eq_ignore_ascii_case("font-family")
-            || property.eq_ignore_ascii_case("font")
-            || property.eq_ignore_ascii_case("all"),
-        affects_font_size: property.eq_ignore_ascii_case("font-size")
-            || property.eq_ignore_ascii_case("font")
-            || property.eq_ignore_ascii_case("all"),
+        affects_font_family: property_2.eq_ignore_ascii_case("font-family")
+            || property_2.eq_ignore_ascii_case("font")
+            || property_2.eq_ignore_ascii_case("all"),
+        affects_font_size: property_2.eq_ignore_ascii_case("font-size")
+            || property_2.eq_ignore_ascii_case("font")
+            || property_2.eq_ignore_ascii_case("all"),
         important: declaration_has_trailing_important(&mut parser),
     }
 }
 
+#[must_use]
 pub(crate) fn is_resource_free_css_value(value: &str) -> bool {
     css_value_is_safe(value, CssValuePolicy::PortableTheme)
 }
 
+#[must_use]
 pub(crate) fn is_label_style_key(key: &str) -> bool {
-    let key = key.trim().to_ascii_lowercase();
+    let key_2 = key.trim().to_ascii_lowercase();
+
     matches!(
-        key.as_str(),
+        key_2.as_str(),
         "color"
             | "font-size"
             | "font-family"
@@ -669,6 +765,7 @@ pub(crate) struct CssFontSizeContext {
 }
 
 impl CssFontSizeContext {
+    #[must_use]
     pub(crate) fn new(inherited_px: f64, root_px: f64) -> Self {
         Self {
             inherited_px: inherited_px.max(1.0),
@@ -677,6 +774,7 @@ impl CssFontSizeContext {
         }
     }
 
+    #[must_use]
     pub(crate) fn uniform(font_size_px: f64) -> Self {
         Self::new(font_size_px, font_size_px)
     }
@@ -688,12 +786,14 @@ impl CssFontSizeContext {
     }
 }
 
+#[must_use]
 pub(crate) fn resolve_mermaid_font_size_px(raw: &str, context: CssFontSizeContext) -> Option<f64> {
     parse_css_value(raw, CssValuePolicy::MermaidSourceStyle)?
         .analysis
         .resolve_font_size_px(context)
 }
 
+#[must_use]
 pub(crate) fn parse_svg_number_or_px(raw: &str) -> Option<f64> {
     parse_css_value(raw, CssValuePolicy::MermaidSourceStyle)?
         .analysis
@@ -702,11 +802,18 @@ pub(crate) fn parse_svg_number_or_px(raw: &str) -> Option<f64> {
 
 /// Recognizes literal zero font sizes without applying the positive measurement fallback.
 /// Functions and unknown units remain unresolved rather than being evaluated here.
+#[must_use]
 pub(crate) fn css_font_size_is_zero(raw: &str) -> bool {
-    let Some(parsed) = parse_css_value(raw, CssValuePolicy::MermaidSourceStyle) else {
-        return false;
+    let parsed = {
+        let optional_parsed = parse_css_value(raw, CssValuePolicy::MermaidSourceStyle);
+
+        match optional_parsed {
+            Some(matched_parsed) => matched_parsed,
+            ::core::option::Option::None => return false,
+        }
     };
-    // Inspect the admitted numeric mantissa so tiny nonzero values cannot underflow to zero.
+
+
     if !parsed.analysis.is_single_component()
         || parsed
             .value
@@ -716,7 +823,9 @@ pub(crate) fn css_font_size_is_zero(raw: &str) -> bool {
     {
         return false;
     }
+
     let mut parser = Parser::new(parsed.value);
+
     match parser.next() {
         Ok(Token::Number { .. } | Token::Percentage { .. }) => true,
         Ok(Token::Dimension { unit, .. }) => [
@@ -731,14 +840,16 @@ pub(crate) fn css_font_size_is_zero(raw: &str) -> bool {
     }
 }
 
+#[must_use]
 pub(crate) fn strip_css_important(raw: &str) -> &str {
-    let raw = raw.trim();
-    let raw = raw.strip_suffix(';').unwrap_or(raw).trim();
-    parse_css_value(raw, CssValuePolicy::MermaidSourceStyle)
+    let raw_2 = raw.trim();
+    let raw_3 = raw_2.strip_suffix(';').unwrap_or(raw_2).trim();
+    parse_css_value(raw_3, CssValuePolicy::MermaidSourceStyle)
         .map(|parsed| parsed.value)
-        .unwrap_or(raw)
+        .unwrap_or(raw_3)
 }
 
+#[must_use]
 pub(crate) fn is_supported_css_font_weight_value(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -749,6 +860,7 @@ pub(crate) fn is_supported_css_font_weight_value(value: &str) -> bool {
         .is_ok_and(|weight| (1..=1000).contains(&weight))
 }
 
+#[must_use]
 pub(crate) fn is_supported_css_font_style_value(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -756,16 +868,19 @@ pub(crate) fn is_supported_css_font_style_value(value: &str) -> bool {
     )
 }
 
+#[must_use]
 pub(crate) fn is_supported_css_color_value(value: &str) -> bool {
     merman_markup::theme_color::ThemeColor::parse(value.trim()).is_ok()
 }
 
+#[must_use]
 pub(crate) fn is_safe_browser_css_color_value(value: &str) -> bool {
     if is_supported_css_color_value(value) {
         return true;
     }
 
-    let value = value.trim();
+    let value_2 = value.trim();
+
     if [
         "currentcolor",
         "inherit",
@@ -775,28 +890,33 @@ pub(crate) fn is_safe_browser_css_color_value(value: &str) -> bool {
         "revert-layer",
     ]
     .into_iter()
-    .any(|keyword| value.eq_ignore_ascii_case(keyword))
+    .any(|keyword| value_2.eq_ignore_ascii_case(keyword))
     {
         return true;
     }
 
-    if !value
+    if !value_2
         .get(..4)
         .is_some_and(|prefix| prefix.eq_ignore_ascii_case("var("))
     {
         return false;
     }
-    parse_style_declaration(&format!("color:{value}"))
+
+    parse_style_declaration(&format!("color:{value}", value = value_2))
         .is_some_and(|declaration| declaration.property() == "color" && !declaration.important())
 }
 
+#[must_use]
 pub(crate) fn is_supported_css_text_decoration_value(value: &str) -> bool {
     if value.trim().eq_ignore_ascii_case("none") {
         return true;
     }
+
     let mut count = 0;
+
     for token in value.split_ascii_whitespace() {
         count += 1;
+
         if !matches!(
             token.to_ascii_lowercase().as_str(),
             "underline" | "overline" | "line-through" | "blink"
@@ -804,9 +924,11 @@ pub(crate) fn is_supported_css_text_decoration_value(value: &str) -> bool {
             return false;
         }
     }
+
     count != 0
 }
 
+#[must_use]
 pub(crate) fn is_supported_css_text_align_value(value: &str) -> bool {
     matches!(
         value.trim().to_ascii_lowercase().as_str(),
@@ -814,36 +936,52 @@ pub(crate) fn is_supported_css_text_align_value(value: &str) -> bool {
     )
 }
 
+#[must_use]
 pub(crate) fn is_supported_css_line_height_value(value: &str) -> bool {
-    let Some(parsed) = parse_css_value(value, CssValuePolicy::MermaidSourceStyle) else {
-        return false;
+    let parsed = {
+        let optional_parsed = parse_css_value(value, CssValuePolicy::MermaidSourceStyle);
+
+        match optional_parsed {
+            Some(matched_parsed) => matched_parsed,
+            ::core::option::Option::None => return false,
+        }
     };
+
     if !parsed.analysis.is_single_component() {
         return false;
     }
+
     match parsed.analysis.scalar.as_ref() {
-        Some(CssScalar::Ident(value)) => value == "normal",
+        Some(CssScalar::Ident(value_2)) => value_2 == "normal",
         Some(
-            CssScalar::Number(value)
-            | CssScalar::Percentage(value)
-            | CssScalar::Px(value)
-            | CssScalar::Em(value),
-        ) => value.is_finite() && *value > 0.0,
+            CssScalar::Number(value_3)
+            | CssScalar::Percentage(value_3)
+            | CssScalar::Px(value_3)
+            | CssScalar::Em(value_3),
+        ) => value_3.is_finite() && *value_3 > 0.0,
         Some(CssScalar::Rem(_)) | None => false,
     }
 }
 
+#[must_use]
 pub(crate) fn is_supported_css_spacing_value(value: &str) -> bool {
-    let Some(parsed) = parse_css_value(value, CssValuePolicy::MermaidSourceStyle) else {
-        return false;
+    let parsed = {
+        let optional_parsed = parse_css_value(value, CssValuePolicy::MermaidSourceStyle);
+
+        match optional_parsed {
+            Some(matched_parsed) => matched_parsed,
+            ::core::option::Option::None => return false,
+        }
     };
+
     if !parsed.analysis.is_single_component() {
         return false;
     }
+
     match parsed.analysis.scalar.as_ref() {
-        Some(CssScalar::Ident(value)) => value == "normal",
-        Some(CssScalar::Number(value)) => *value == 0.0,
-        Some(CssScalar::Px(value) | CssScalar::Em(value)) => value.is_finite(),
+        Some(CssScalar::Ident(value_2)) => value_2 == "normal",
+        Some(CssScalar::Number(value_3)) => ::core::matches!(::core::primitive::f64::classify(*value_3), ::core::num::FpCategory::Zero),
+        Some(CssScalar::Px(value_4) | CssScalar::Em(value_4)) => value_4.is_finite(),
         Some(CssScalar::Percentage(_) | CssScalar::Rem(_)) | None => false,
     }
 }
@@ -867,16 +1005,18 @@ pub(crate) struct CssValueAnalysis {
 
 impl CssValueAnalysis {
     /// A positive rem size needs a document-root size that diagram configuration cannot supply.
+    #[must_use]
     pub(crate) fn depends_on_root_font_size(&self) -> bool {
         self.is_single_component()
             && matches!(self.scalar, Some(CssScalar::Rem(value)) if value.is_finite() && value > 0.0)
     }
 
+    #[must_use]
     pub(crate) fn font_size_depends_on_root(raw: &str) -> bool {
-        // Admission observes browser tokens even when emission safety rejects source comments.
-        // This is dependency detection only, not permission to measure or emit the value.
-        let raw = raw.trim().strip_suffix(';').unwrap_or(raw.trim()).trim();
-        let mut parser = Parser::new(raw);
+
+
+        let raw_2 = raw.trim().strip_suffix(';').unwrap_or(raw.trim()).trim();
+        let mut parser = Parser::new(raw_2);
         let root_dependent = matches!(parser.next(), Ok(Token::Dimension { value, unit, .. })
             if unit.eq_ignore_ascii_case("rem") && value.is_finite() && *value > 0.0);
         root_dependent
@@ -884,18 +1024,22 @@ impl CssValueAnalysis {
                 || (parser.try_parse(parse_important).is_ok() && parser.is_exhausted()))
     }
 
+    #[must_use]
     pub(crate) fn inherits_property_value(&self) -> bool {
         matches!(self.single_ident(), Some("inherit" | "unset"))
     }
 
+    #[must_use]
     pub(crate) const fn is_single_component(&self) -> bool {
         self.component_count == 1
     }
 
+    #[must_use]
     fn single_ident(&self) -> Option<&str> {
         if !self.is_single_component() {
             return None;
         }
+
         match self.scalar.as_ref()? {
             CssScalar::Ident(value) => Some(value.as_str()),
             CssScalar::Number(_)
@@ -906,14 +1050,17 @@ impl CssValueAnalysis {
         }
     }
 
+    #[must_use]
     pub(crate) const fn has_dynamic_reference_function(&self) -> bool {
         self.has_dynamic_reference_function
     }
 
+    #[must_use]
     pub(crate) fn svg_number_or_px(&self) -> Option<f64> {
         if !self.is_single_component() {
             return None;
         }
+
         let value = match self.scalar.as_ref()? {
             CssScalar::Number(value) | CssScalar::Px(value) => *value,
             CssScalar::Percentage(_)
@@ -924,10 +1071,12 @@ impl CssValueAnalysis {
         (value.is_finite() && value >= 0.0).then_some(value)
     }
 
+    #[must_use]
     pub(crate) fn resolve_font_size_px(&self, context: CssFontSizeContext) -> Option<f64> {
         if !self.is_single_component() {
             return None;
         }
+
         let value = match self.scalar.as_ref()? {
             CssScalar::Number(value) | CssScalar::Px(value) => *value,
             CssScalar::Percentage(factor) => context.inherited_px * factor,
@@ -956,13 +1105,15 @@ struct ParsedCssValue<'a> {
     analysis: CssValueAnalysis,
 }
 
+#[must_use]
 fn parse_css_value(raw: &str, policy: CssValuePolicy) -> Option<ParsedCssValue<'_>> {
-    let raw = raw.trim().strip_suffix(';').unwrap_or(raw.trim()).trim();
-    if !css_value_source_is_safe(raw) {
+    let raw_2 = raw.trim().strip_suffix(';').unwrap_or(raw.trim()).trim();
+
+    if !css_value_source_is_safe(raw_2) {
         return None;
     }
 
-    let mut parser = Parser::new(raw);
+    let mut parser = Parser::new(raw_2);
     let value_start = parser.position();
     let (value_end, analysis, _) =
         parse_css_value_from_parser(&mut parser, value_start, policy).ok()?;
@@ -978,6 +1129,7 @@ fn parse_css_value_from_parser<'i>(
     let mut component_count = 0;
     let mut scalar = None;
     let mut has_dynamic_reference_function = false;
+
     loop {
         let token_start = parser.position();
         let state = parser.state();
@@ -996,7 +1148,7 @@ fn parse_css_value_from_parser<'i>(
                     false,
                 );
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<()> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
 
         if matches!(token, Token::WhiteSpace(_)) {
@@ -1005,9 +1157,11 @@ fn parse_css_value_from_parser<'i>(
 
         if matches!(token, Token::Delim('!')) {
             parser.reset(&state);
+
             if parser.try_parse(parse_important).is_ok() {
                 if parser.is_exhausted() && component_count > 0 {
                     while parser.next_including_whitespace().is_ok() {}
+
                     return finish_css_value(
                         parser,
                         value_start,
@@ -1020,8 +1174,10 @@ fn parse_css_value_from_parser<'i>(
                         true,
                     );
                 }
+
                 return Err(ParseError::custom(()));
             }
+
             return Err(ParseError::custom(()));
         }
 
@@ -1038,10 +1194,14 @@ fn parse_css_value_from_parser<'i>(
             &mut has_dynamic_reference_function,
         )?;
         component_count += 1;
-        if component_count == 1 {
-            scalar = scalar_candidate;
-        } else {
-            scalar = None;
+
+        match component_count {
+            1 => {
+                scalar = scalar_candidate;
+            },
+            _ => {
+                scalar = None;
+            },
         }
     }
 }
@@ -1054,35 +1214,43 @@ fn finish_css_value<'i>(
     important: bool,
 ) -> Result<(SourcePosition, CssValueAnalysis, bool), ParseError<()>> {
     let source = parser.slice(value_start..parser.position());
+
     if !css_value_source_is_safe(source) {
         return Err(ParseError::custom(()));
     }
+
     Ok((value_end, analysis, important))
 }
 
+#[must_use]
 fn parse_css_scalar(token: &Token<'_>, token_source: &str) -> Option<CssScalar> {
     match token {
-        Token::Number { .. } => Some(CssScalar::Number(parse_css_number_prefix(token_source)?)),
+        Token::Number { .. } => Some(CssScalar::Number({ let checked_value = parse_css_number_prefix(token_source)?; checked_value })),
         Token::Percentage { .. } => Some(CssScalar::Percentage(
-            parse_css_number_prefix(token_source)? / 100.0,
+            ({ let checked_value_2 = parse_css_number_prefix(token_source)?; checked_value_2 }) / 100.0,
         )),
         Token::Dimension { unit, .. } if unit.eq_ignore_ascii_case("px") => {
-            Some(CssScalar::Px(parse_css_number_prefix(token_source)?))
+            let checked_value_3 = parse_css_number_prefix(token_source)?;
+            Some(CssScalar::Px(checked_value_3))
         }
         Token::Dimension { unit, .. } if unit.eq_ignore_ascii_case("em") => {
-            Some(CssScalar::Em(parse_css_number_prefix(token_source)?))
+            let checked_value_4 = parse_css_number_prefix(token_source)?;
+            Some(CssScalar::Em(checked_value_4))
         }
         Token::Dimension { unit, .. } if unit.eq_ignore_ascii_case("rem") => {
-            Some(CssScalar::Rem(parse_css_number_prefix(token_source)?))
+            let checked_value_5 = parse_css_number_prefix(token_source)?;
+            Some(CssScalar::Rem(checked_value_5))
         }
         Token::Ident(value) => Some(CssScalar::Ident(value.to_ascii_lowercase())),
         _ => None,
     }
 }
 
+#[must_use]
 fn parse_css_number_prefix(raw: &str) -> Option<f64> {
     let bytes = raw.as_bytes();
     let mut end = 0;
+
     if bytes
         .get(end)
         .is_some_and(|byte| matches!(byte, b'+' | b'-'))
@@ -1091,18 +1259,24 @@ fn parse_css_number_prefix(raw: &str) -> Option<f64> {
     }
 
     let integer_start = end;
+
     while bytes.get(end).is_some_and(u8::is_ascii_digit) {
         end += 1;
     }
+
     let mut has_digit = end > integer_start;
+
     if bytes.get(end) == Some(&b'.') {
         end += 1;
         let fraction_start = end;
+
         while bytes.get(end).is_some_and(u8::is_ascii_digit) {
             end += 1;
         }
+
         has_digit |= end > fraction_start;
     }
+
     if !has_digit {
         return None;
     }
@@ -1113,22 +1287,29 @@ fn parse_css_number_prefix(raw: &str) -> Option<f64> {
     {
         let exponent_marker = end;
         end += 1;
+
         if bytes
             .get(end)
             .is_some_and(|byte| matches!(byte, b'+' | b'-'))
         {
             end += 1;
         }
+
         let exponent_start = end;
+
         while bytes.get(end).is_some_and(u8::is_ascii_digit) {
             end += 1;
         }
-        if end == exponent_start {
-            end = exponent_marker;
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(end), &::core::convert::identity(exponent_start)); _explicit_ordering } {
+            ::core::cmp::Ordering::Equal => {
+                end = exponent_marker;
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Greater => {},
         }
     }
 
-    let value = raw[..end].parse::<f64>().ok()?;
+    let value = match raw[..end].parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }?;
     value.is_finite().then_some(value)
 }
 
@@ -1138,16 +1319,18 @@ enum CssValuePolicy {
     PortableTheme,
 }
 
+#[must_use]
 fn css_value_is_safe(value: &str, policy: CssValuePolicy) -> bool {
     parse_css_value(value, policy).is_some()
 }
 
+#[must_use]
 fn css_value_source_is_safe(value: &str) -> bool {
-    let value = value.trim();
-    !value.is_empty()
-        && !value.contains("/*")
-        && !value.contains("*/")
-        && !value
+    let value_2 = value.trim();
+    !value_2.is_empty()
+        && !value_2.contains("/*")
+        && !value_2.contains("*/")
+        && !value_2
             .chars()
             .any(|character| character.is_control() || matches!(character, '<' | '>' | '{' | '}'))
 }
@@ -1179,9 +1362,11 @@ fn validate_css_component<'i>(
         Token::Function(name) => {
             *has_dynamic_reference_function |=
                 matches!(name.to_ascii_lowercase().as_str(), "var" | "env");
+
             if function_is_forbidden(&name, policy) || depth >= MAX_NESTING {
                 return Err(ParseError::custom(()));
             }
+
             parser.parse_nested_block(|nested| {
                 consume_safe_component_values(
                     nested,
@@ -1196,6 +1381,7 @@ fn validate_css_component<'i>(
             if depth >= MAX_NESTING {
                 return Err(ParseError::custom(()));
             }
+
             let close = if matches!(token, Token::ParenthesisBlock) {
                 ')'
             } else {
@@ -1226,7 +1412,7 @@ fn consume_safe_component_values<'i>(
         let token = match parser.next_including_whitespace() {
             Ok(token) => token.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => return Ok(()),
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<()> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
 
         validate_css_component(
@@ -1240,10 +1426,11 @@ fn consume_safe_component_values<'i>(
     }
 }
 
+#[must_use]
 fn function_is_forbidden(name: &str, policy: CssValuePolicy) -> bool {
-    let name = name.to_ascii_lowercase();
+    let name_2 = name.to_ascii_lowercase();
     matches!(
-        name.as_str(),
+        name_2.as_str(),
         "url"
             | "src"
             | "image"
@@ -1254,7 +1441,7 @@ fn function_is_forbidden(name: &str, policy: CssValuePolicy) -> bool {
             | "paint"
             | "expression"
     ) || (policy == CssValuePolicy::PortableTheme
-        && matches!(name.as_str(), "var" | "env" | "attr"))
+        && matches!(name_2.as_str(), "var" | "env" | "attr"))
 }
 
 fn ensure_source_closed_block<'i>(
@@ -1263,12 +1450,15 @@ fn ensure_source_closed_block<'i>(
     close: char,
 ) -> Result<(), ParseError<()>> {
     let raw_block = parser.slice(token_start..parser.position());
+
     if raw_block.trim_end().ends_with(close) && source_closes_initial_block(raw_block, close) {
         return Ok(());
     }
+
     Err(ParseError::custom(()))
 }
 
+#[must_use]
 fn source_closes_initial_block(raw_block: &str, close: char) -> bool {
     const SENTINEL: &str = "__merman_css_closed_block_sentinel__";
 
@@ -1278,24 +1468,29 @@ fn source_closes_initial_block(raw_block: &str, close: char) -> bool {
     probe.push_str(SENTINEL);
 
     let mut parser = Parser::new(&probe);
+
     let Ok(token) = parser.next_including_whitespace().cloned() else {
         return false;
     };
+
     if !matches!(
         (&token, close),
         (Token::Function(_) | Token::ParenthesisBlock, ')') | (Token::SquareBracketBlock, ']')
     ) {
         return false;
     }
+
     if parser
         .parse_nested_block(|nested| {
             while nested.next_including_whitespace().is_ok() {}
+
             Ok::<_, ParseError<()>>(())
         })
         .is_err()
     {
         return false;
     }
+
     matches!(
         parser.next(),
         Ok(Token::Ident(name)) if name.as_ref() == SENTINEL
@@ -1351,7 +1546,7 @@ mod tests {
         ] {
             assert!(!is_safe_css_font_family_value(value), "{value}");
         }
-        // Font-specific parsing must not relax the generic inline/source admission boundary.
+
         assert!(parse_style_declaration(r#"font-family:"A<B",serif"#).is_none());
         assert!(!is_resource_free_css_value(r#""A<B""#));
     }

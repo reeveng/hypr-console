@@ -13,54 +13,74 @@ pub(crate) struct TreeViewConfigView<'a> {
 }
 
 impl<'a> TreeViewConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         Self {
             tree_view_config: effective_config.get("treeView").unwrap_or(&Value::Null),
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(
         &self,
         theme: &super::theme::TreeViewCssBinding,
     ) -> TreeViewLayoutSettings {
         TreeViewLayoutSettings {
-            row_indent: self
-                .tree_view_f64("rowIndent")
-                .unwrap_or(DEFAULT_ROW_INDENT)
+            row_indent: match self
+                .tree_view_f64("rowIndent") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_ROW_INDENT,
+            }
                 .max(0.0),
-            padding_x: self
-                .tree_view_f64("paddingX")
-                .unwrap_or(DEFAULT_PADDING_X)
+            padding_x: match self
+                .tree_view_f64("paddingX") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_PADDING_X,
+            }
                 .max(0.0),
-            padding_y: self
-                .tree_view_f64("paddingY")
-                .unwrap_or(DEFAULT_PADDING_Y)
+            padding_y: match self
+                .tree_view_f64("paddingY") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_PADDING_Y,
+            }
                 .max(0.0),
             line_thickness: theme.line_thickness,
-            use_max_width: self
-                .tree_view_bool("useMaxWidth")
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
+            use_max_width: match self
+                .tree_view_bool("useMaxWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
             font_family: theme.font_family.clone(),
             label_font_size: theme.label_font_size,
-            show_icons: self.tree_view_bool("showIcons").unwrap_or(false),
-            default_icon_pack: self.tree_view_string("defaultIconPack").unwrap_or_default(),
+            show_icons: match self.tree_view_bool("showIcons") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => false,
+            },
+            default_icon_pack: match self.tree_view_string("defaultIconPack") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => ::std::string::String::new(),
+            },
             filename_icons: self.tree_view_string_map("filenameIcons"),
             extension_icons: self.tree_view_string_map("extensionIcons"),
         }
     }
 
+    #[must_use]
     fn tree_view_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.tree_view_config, &[key])
     }
 
+    #[must_use]
     fn tree_view_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.tree_view_config, &[key])
     }
 
+    #[must_use]
     fn tree_view_string(&self, key: &str) -> Option<String> {
         config_string(self.tree_view_config, &[key])
     }
 
+    #[must_use]
     fn tree_view_string_map(&self, key: &str) -> HashMap<String, String> {
         self.tree_view_config
             .get(key)
@@ -68,8 +88,8 @@ impl<'a> TreeViewConfigView<'a> {
             .map(|values| {
                 values
                     .iter()
-                    .filter_map(|(key, value)| {
-                        value.as_str().map(|value| (key.clone(), value.to_string()))
+                    .filter_map(|(key_2, value)| {
+                        value.as_str().map(|value_2| (key_2.clone(), value_2.to_string()))
                     })
                     .collect()
             })

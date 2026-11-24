@@ -44,6 +44,7 @@ struct RuleObservation {
 }
 
 impl RadarTextPaintPlan {
+    #[must_use]
     pub(crate) fn baseline_with_binding(
         binding: &super::RadarCssBinding,
         layout: &RadarDiagramLayout,
@@ -68,7 +69,7 @@ impl RadarTextPaintPlan {
                         .is_some_and(|curve| !curve.label.trim().is_empty())
                 })
                 .collect(),
-            title_visible: title.is_some_and(|title| !title.trim().is_empty()),
+            title_visible: title.is_some_and(|title_2| !title_2.trim().is_empty()),
             paint: None,
             pending_rule: None,
             title_fallback_rule: None,
@@ -95,10 +96,15 @@ impl RadarTextPaintPlan {
     ) -> crate::Result<Self> {
         work_meter.charge(layout.axes.len().saturating_add(layout.legend_items.len()))?;
         let mut plan = Self::baseline_with_binding(binding, layout, model, title);
-        let Some(theme) = theme else { return Ok(plan) };
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(plan),
+        };
+
         plan.evidence = FamilyThemeOutcomes::default();
         let owns_text = config.config_paint_overrides_typed_default("themeVariables.textColor");
-        let title_style = theme.style_with_work_meter(
+        let title_style = theme_2.style_with_work_meter(
             ThemeTarget::Title,
             ThemeVariant::Default,
             Some(1),
@@ -106,30 +112,40 @@ impl RadarTextPaintPlan {
         )?;
         let owns_title = config.config_paint_overrides_typed_default("themeVariables.titleColor")
             || title_style.fill_resolution().winner().is_some();
-        let static_style = theme.style_with_work_meter(
+        let static_style = theme_2.style_with_work_meter(
             ThemeTarget::Text,
             ThemeVariant::Default,
             None,
             work_meter,
         )?;
         plan.paint = resolve_direct_static_fill(
-            theme,
+            theme_2,
             &static_style,
             &[ThemeTarget::Text],
             DirectStaticSelectorDomain::Default,
         );
-        if let Some(paint) = &plan.paint {
-            if !owns_text {
-                plan.text_color = paint.css().into();
-            }
-            if !owns_title {
-                plan.title_color = paint.css().into();
-            }
+
+        match &plan.paint {
+            Some(paint) => {
+                if !owns_text {
+                    plan.text_color = <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(paint.css());
+                }
+
+                if !owns_title {
+                    plan.title_color = <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(paint.css());
+                }
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(fill) = title_plan.fill_css() {
-            plan.title_color = fill.into();
+
+        match title_plan.fill_css() {
+            Some(fill) => {
+                plan.title_color = <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(fill);
+            },
+            ::core::option::Option::None => {},
         }
-        let mut legend_rules = PaintRules::new(theme, ThemeTarget::Legend);
+
+        let mut legend_rules = PaintRules::new(theme_2, ThemeTarget::Legend);
         let mut legend_occurrences = Vec::new();
         let mut legend_fill_owned = vec![owns_text; layout.legend_items.len()];
         let mut text_owners = plan
@@ -138,26 +154,30 @@ impl RadarTextPaintPlan {
             .filter(|visible| **visible)
             .map(|_| owns_text)
             .collect::<Vec<_>>();
+
         for (index, visible) in plan.legend_visible.iter().copied().enumerate() {
             if !visible {
                 continue;
             }
+
             legend_occurrences.push((index + 1, ThemeVariant::Default));
-            let style = theme.style_with_work_meter(
+            let style = theme_2.style_with_work_meter(
                 ThemeTarget::Legend,
                 ThemeVariant::Default,
                 Some(index + 1),
                 work_meter,
             )?;
+
             if !owns_text {
                 plan.legend_paints[index] = static_paint(
-                    theme,
+                    theme_2,
                     style.fill_resolution(),
                     ThemeTarget::Legend,
                     ResolvedStyleProperty::Fill,
                     &binding.text_color,
                 );
             }
+
             legend_rules.observe(
                 &style,
                 [owns_text, false],
@@ -166,17 +186,20 @@ impl RadarTextPaintPlan {
             )?;
             let role_owns_fill = style.fill_resolution().winner().is_some();
             text_owners.push(owns_text || role_owns_fill);
-            // A winning Text fill already paints unclaimed legend labels. It does not
-            // consume a dedicated Legend palette or an independent effect request.
+
+
             legend_fill_owned[index] |= !role_owns_fill && plan.paint.is_some();
         }
+
         plan.legend_rules = legend_rules.finish(&mut plan.evidence);
         let base_count = text_owners.len();
         let visible_count = base_count.saturating_add(usize::from(plan.title_visible));
+
         if plan.title_visible {
             text_owners.push(owns_title);
         }
-        let routes = theme
+
+        let routes = theme_2
             .family_mechanism_routes()
             .iter()
             .copied()
@@ -191,11 +214,13 @@ impl RadarTextPaintPlan {
             })
             .collect::<Vec<_>>();
         let mut observations = BTreeMap::<usize, RuleObservation>::new();
+
         for route in &routes {
             if let FamilyThemeMechanism::RuleFacet { rule_index, .. } = route.mechanism() {
                 observations.entry(rule_index).or_default();
             }
         }
+
         let has_ordinal = routes.iter().any(|route| {
             matches!(
                 route.mechanism(),
@@ -205,40 +230,47 @@ impl RadarTextPaintPlan {
                 }
             )
         });
+
         for (index, source_owns_fill) in text_owners.iter().copied().enumerate() {
             let is_title = plan.title_visible && index == base_count;
             let ordinal_style;
             let style = if has_ordinal {
-                ordinal_style = theme.style_with_work_meter(
+                ordinal_style = { let checked_value = theme_2.style_with_work_meter(
                     ThemeTarget::Text,
                     ThemeVariant::Default,
                     Some(index + 1),
                     work_meter,
-                )?;
+                )?; checked_value };
                 &ordinal_style
             } else {
                 &static_style
             };
             work_meter.charge(routes.len())?;
-            for route in &routes {
+
+            'over_route_2: for route in &routes {
                 let FamilyThemeMechanism::RuleFacet {
                     rule_index, facet, ..
                 } = route.mechanism()
                 else {
                     unreachable!()
                 };
+
                 let property = resolved_style_property_for_facet(facet);
+
                 if property == ResolvedStyleProperty::Fill && source_owns_fill {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 if !style.winner_rule_properties().any(|(candidate, origin)| {
                     candidate == property && origin.rule_index() == rule_index
                 }) {
-                    continue;
+                    continue 'over_route_2;
                 }
+
                 let observation = observations
                     .get_mut(&rule_index)
                     .expect("registered Radar text rule");
+
                 match route.disposition() {
                     FamilyThemeDisposition::Unsupported => {
                         observation
@@ -253,25 +285,27 @@ impl RadarTextPaintPlan {
                                 .is_some_and(|paint| paint.rule_index() == rule_index) =>
                     {
                         observation.pending = true;
+
                         if is_title {
                             plan.title_fallback_rule = Some(rule_index);
                         }
                     }
-                    _ => observation.incomplete = true,
+                    FamilyThemeDisposition::TypedAdapter => observation.incomplete = true,
                 }
             }
         }
+
         let domain = UnsupportedTerminalDomain::fallbacks_only(
             ThemeTarget::Text,
             TerminalVariantDomain::uniform(visible_count, ThemeVariant::Default),
         )
         .with_source_owned_fill(&text_owners);
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut plan.evidence,
             &[
                 domain,
-                // Legend paint targets actual non-empty labels, independently of swatches.
+
                 UnsupportedTerminalDomain::fallbacks_only(
                     ThemeTarget::Legend,
                     TerminalVariantDomain::indexed(&legend_occurrences),
@@ -280,11 +314,13 @@ impl RadarTextPaintPlan {
             ],
             work_meter,
         )?;
+
         for (index, observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index,
                 target: ThemeTarget::Text,
             };
+
             if let Some(reason) = observation.residual {
                 plan.evidence.mark_residual(key, reason);
             } else if observation.incomplete { /* Unconsumed sibling facets stay incomplete. */
@@ -294,34 +330,48 @@ impl RadarTextPaintPlan {
                 plan.evidence.mark_not_applicable(key);
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(crate) fn text_color(&self) -> &str {
         &self.text_color
     }
+
+    #[must_use]
     pub(crate) fn title_color(&self) -> &str {
         &self.title_color
     }
+
+    #[must_use]
     pub(crate) fn legend_fill(&self, index: usize) -> Option<&str> {
         self.legend_paints
             .get(index)
             .and_then(Option::as_ref)
             .map(DirectPaintExpectation::css)
     }
+
+    #[must_use]
     fn needs_receipt(&self) -> bool {
         self.pending_rule.is_some()
             || self.title_fallback_rule.is_some()
             || !self.legend_rules.is_empty()
     }
+
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> Option<RadarTextPaintReceipt> {
         self.needs_receipt()
             .then(|| RadarTextPaintReceipt::new(self))
     }
+
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: RadarTextPaintReceipt) -> bool {
         self.needs_receipt() && receipt.proves(self) && self.terminal_receipt.set(()).is_ok()
     }
+
     /// True only after a visible title consumed the winning Text fill in finalized SVG.
+    #[must_use]
     pub(crate) fn has_verified_title_fallback(&self) -> bool {
         self.title_fallback_rule.is_some()
             && self.title_visible
@@ -335,6 +385,7 @@ impl RadarTextPaintPlan {
             self.terminal_receipt.get().is_some(),
             evidence,
         );
+
         if let Some(index) = self.pending_rule
             && self.terminal_receipt.get().is_some()
             && let Some(paint) = &self.paint
@@ -364,6 +415,7 @@ pub(crate) struct RadarTextPaintReceipt {
 }
 
 impl RadarTextPaintReceipt {
+    #[must_use]
     fn new(plan: &RadarTextPaintPlan) -> Self {
         Self {
             expected_text: plan.text_color.clone(),
@@ -377,6 +429,7 @@ impl RadarTextPaintReceipt {
             valid: true,
         }
     }
+
     pub(crate) fn record_base_css(&mut self, fill: &str) {
         self.valid &= !self.base_css
             && self.axes.is_empty()
@@ -385,6 +438,7 @@ impl RadarTextPaintReceipt {
             && fill == self.expected_text.as_ref();
         self.base_css = true;
     }
+
     pub(crate) fn record_title_css(&mut self, class: &str, color: &str, fill: &str) {
         self.valid &= self.base_css
             && !self.title_css
@@ -396,6 +450,7 @@ impl RadarTextPaintReceipt {
             && fill == self.expected_title.as_ref();
         self.title_css = true;
     }
+
     pub(crate) fn record_axis(&mut self, index: usize, class: &str, label: &str) {
         self.valid &= self.base_css
             && self.title_css
@@ -405,10 +460,12 @@ impl RadarTextPaintReceipt {
             && class == "radarAxisLabel";
         self.axes.push(!label.trim().is_empty());
     }
+
     #[cfg(test)]
     pub(crate) fn record_legend(&mut self, index: usize, class: &str, label: &str) {
         self.record_legend_paint(index, class, label, None);
     }
+
     pub(crate) fn record_legend_paint(
         &mut self,
         index: usize,
@@ -424,11 +481,14 @@ impl RadarTextPaintReceipt {
         self.legends.push(!label.trim().is_empty());
         self.legend_fills.push(fill.map(Into::into));
     }
+
     pub(crate) fn record_title(&mut self, class: &str, visible: bool) {
         self.valid &=
             self.base_css && self.title_css && self.title.is_none() && class == "radarTitle";
         self.title = Some(visible);
     }
+
+    #[must_use]
     fn proves(&self, plan: &RadarTextPaintPlan) -> bool {
         self.valid
             && self.base_css

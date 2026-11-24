@@ -363,23 +363,37 @@ pub fn stage_desktop(
   rewrite_staged(&here, Here(&said_here))?;
   copy_programs(&here)?;
 
-  let start = here.join("usr/local/bin/session-start");
-  let session = match services {
+  let start = here.join("usr/local/bin").join(nested::START);
+
+  match services {
     Services::Desktop => {
       let unit = root.join(nested::UNIT);
       let held = std::fs::read_to_string(&unit).map_err(fault("the keyboard's unit"))?;
       let Ok(started_by) = nested::started_by(&held);
       let keyboard = started_by.ok_or_else(|| Unnested::NoExecStart(unit.clone()))?;
-      let Ok(start_said) = nested::session_start(&keyboard);
-      let Ok(session) = rewrite_paths(&start_said, Here(&said_here));
-      session
+      let Ok(keyboard_2) = rewrite_paths(&keyboard, Here(&said_here));
+      console_core_atomic_writes::whole(
+        &start.with_file_name(nested::KEYBOARD),
+        keyboard_2.as_bytes(),
+      )
+      .map_err(unwritten("the staged keyboard command"))?;
     }
-    Services::Panel => String::from("#!/bin/sh\nexit 0\n"),
-  };
+    Services::Panel => {}
+  }
 
-  console_core_atomic_writes::whole(&start, session.as_bytes())
-    .map_err(unwritten("session-start"))?;
   set_staged_modes(&here)?;
+
+  match std::fs::remove_file(&start) {
+    Ok(()) => {}
+    Err(error) => match (error.kind() == std::io::ErrorKind::NotFound).then_some(()) {
+      Some(()) => {}
+      None => return Err(fault("removing the installed session-start copy")(error)),
+    },
+  }
+
+  let executable = std::env::current_exe().map_err(fault("finding console-desktop"))?;
+  std::os::unix::fs::symlink(executable, &start)
+    .map_err(fault("linking the staged session-start"))?;
 
   let go = screen()?;
   let Ok(ours) = console_core_places::Base::Configuration.application_under(&here.join("home"));
@@ -499,25 +513,12 @@ mod tests {
     let held = std::fs::read_to_string(root.join(nested::UNIT))?;
     let unit = nested::started_by(&held)?;
     let started = unit.ok_or("the keyboard's unit starts nothing")?;
-    let keyboard = started
-      .split(' ')
-      .next()
-      .ok_or("the keyboard's unit starts an empty line")?;
-    let start = nested::session_start(keyboard)?;
-    let said = rewrite_paths(&start, Here("/s"))?;
+    let Ok(said) = rewrite_paths(&started, Here("/s"));
+    let words: Vec<_> = said.split_whitespace().collect();
 
-    assert!(
-      said.contains(r#"keyboard="/s/usr/local/bin/console-keyboard"#),
-      "the staged session starts a keyboard the staged toggle cannot signal: {said}"
-    );
-
-    let Ok(wanted) = rewrite_paths(keyboard, Here("/s"));
-
-    assert!(
-      said.contains(&format!("keyboard=\"{wanted}\"")),
-      "the staged session starts a command line the unit does not, so what this stage \
-             types with is written down twice and only one of the two is the device's: {said}"
-    );
+    assert_eq!(words.first(), Some(&"/s/usr/local/bin/console-keyboard"));
+    assert_eq!(words.len(), started.split_whitespace().count());
+    assert!(words.iter().all(|word| !word.starts_with("/usr/local/")));
 
     Ok(())
   }

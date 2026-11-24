@@ -2,6 +2,6 @@
 Type=Application
 Name=Console
 Comment=A handheld desktop, driven by its controller
-Exec=/usr/bin/start-hyprland -- --config /home/@user@/.config/console/hypr/hyprland.lua
+Exec=/usr/local/bin/console-compositor start /home/@user@/.config/console/hypr/hyprland.lua
 DesktopNames=Hyprland
 Keywords=tiling;wayland;compositor;

@@ -920,30 +920,25 @@ impl CoordinateInterpolation {
   fn apply(&self, sample: CoordinateSample) -> Result<F26Dot6, Never> {
     let [original1, original2] = self.anchors.original;
     let [current1, current2] = self.anchors.current;
-    Ok(
-      match ::core::primitive::bool::then_some(sample.original <= original1, ()) {
-        ::core::option::Option::Some(()) => sample.original + (current1 - original1),
-        ::core::option::Option::None => {
-          match ::core::primitive::bool::then_some(sample.original >= original2, ()) {
-            ::core::option::Option::Some(()) => sample.original + (current2 - original2),
-            ::core::option::Option::None => match self.scale {
-              CoordinateScale::Constant => current1,
-              CoordinateScale::Scaled(scale) => {
-                let Ok(delta) = math::mul(math::Product {
-                  left: {
-                    let [unscaled1, _unscaled2] = self.anchors.unscaled;
-                    sample.unscaled.wrapping_sub(unscaled1)
-                  },
-                  right: scale,
-                });
-                let Ok(delta_2) = F26Dot6::from_bits(delta);
-                current1 + delta_2
-              }
-            },
-          }
+    let before = (sample.original <= original1).then_some(());
+    let after = (sample.original >= original2).then_some(());
+
+    Ok(match (before, after) {
+      (Some(()), _) => sample.original + (current1 - original1),
+      (None, Some(())) => sample.original + (current2 - original2),
+      (None, None) => match self.scale {
+        CoordinateScale::Constant => current1,
+        CoordinateScale::Scaled(scale) => {
+          let [unscaled1, _] = self.anchors.unscaled;
+          let Ok(delta) = math::mul(math::Product {
+            left: sample.unscaled.wrapping_sub(unscaled1),
+            right: scale,
+          });
+          let Ok(displacement) = F26Dot6::from_bits(delta);
+          current1 + displacement
         }
       },
-    )
+    })
   }
 }
 

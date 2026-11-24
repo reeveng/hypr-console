@@ -1543,18 +1543,11 @@ fn convert_path(
   cache: &mut Cache,
   parent: &mut Group,
 ) -> core::result::Result<(), console_core_never::Never> {
-  let Ok(length) = ::console_core_number_conversion::fixed_index(match path.len() {
-    ::core::result::Result::Ok(length) => length,
-  });
+  let Ok(verbs) = path.verbs();
 
-  match ::core::primitive::bool::then_some(
-    (match ::console_core_number_conversion::index(length) {
-      ::core::result::Result::Ok(native_position) => native_position,
-    }) < 2,
-    (),
-  ) {
-    ::core::option::Option::Some(()) => return Ok(()),
-    ::core::option::Option::None => {}
+  match verbs {
+    [] | [_] => return Ok(()),
+    [_, _, ..] => {}
   }
 
   let console_core_paths = Arc::new(path);
@@ -1562,20 +1555,12 @@ fn convert_path(
   let Ok(width) = bounds.width();
   let Ok(height) = bounds.height();
   let object_bounds = super::style::ObjectBounds::from(width > 0.0 && height > 0.0);
-  let mut fill = {
-    let Ok(explicit_value) = super::style::resolve_fill(node, object_bounds, state, cache);
-    explicit_value
-  };
-  let mut stroke = {
-    let Ok(explicit_value) = super::style::resolve_stroke(node, object_bounds, state, cache);
-    explicit_value
-  };
-  let visibility: Visibility = match {
-    let Ok(explicit_value) = node.find_attribute(AId::Visibility);
-    explicit_value
-  } {
-    ::core::option::Option::Some(option_value) => option_value,
-    ::core::option::Option::None => crate::tree::Visibility::Visible,
+  let Ok(mut fill) = super::style::resolve_fill(node, object_bounds, state, cache);
+  let Ok(mut stroke) = super::style::resolve_stroke(node, object_bounds, state, cache);
+  let Ok(authored_visibility) = node.find_attribute(AId::Visibility);
+  let visibility = match authored_visibility {
+    Some(value) => value,
+    None => Visibility::Visible,
   };
   let mut paint_visibility = visibility;
   let Ok(authored_rendering) = node.find_attribute(AId::ShapeRendering);

@@ -205,7 +205,7 @@ mod mixed_parity_tests {
             FixtureKernel::Scalar => {
                 let Ok(shape) = tx.ordinal();
                 crate::src::itx::itxfm_add_scalar_fallback::<BitDepth8>(
-                    shape, kind, &mut dst, &mut coefficients, eob, depth,
+                    crate::src::itx::ScalarTransformCase { size_ordinal: shape, kind }, &mut dst, &mut coefficients, eob, depth,
                 )?;
             }
         }
@@ -224,8 +224,10 @@ mod mixed_parity_tests {
         for (ordinal, (&decoded, &original)) in (0u32..).zip(output.iter().zip(input)) {
             let position = ordinal.checked_sub(cell.offset);
             let inside = position.is_some_and(|relative| {
-                relative.wrapping_div(cell.stride) < extent.height
-                    && relative.wrapping_rem(cell.stride) < extent.width
+                relative
+                    .checked_div(cell.stride)
+                    .zip(relative.checked_rem(cell.stride))
+                    .is_some_and(|(row, column)| row < extent.height && column < extent.width)
             });
 
             match ::core::primitive::bool::then_some(inside, ()) {
@@ -370,6 +372,24 @@ mod mixed_parity_tests {
     }
 
     #[test]
+    fn rectangular_dct_16x8_matches_scalar_on_padded_rows() -> Rav1dResult {
+        let Ok(_lock) = crate::src::safe_simd::token_test_lock();
+        let Ok(avx2) = crate::src::cpu::summon_avx2();
+
+        match avx2 {
+            Some(_) => {}
+            None => return Ok(()),
+        }
+
+        for pattern in PERMUTATION_PATTERNS {
+            let cell = CheckCellArguments { eob: 127, pattern, stride: 32, offset: 35 };
+            check_cell(TxfmSize::R16x8, DCT_DCT, cell, &TransformDispatch::Applied)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
     fn test_mixed4_dispatch_matches_scalar() -> Rav1dResult {
         sweep(TxfmSize::S4x4, &[0, 1, 3, 4, 7, 8, 15], 3136)
     }
@@ -474,7 +494,7 @@ mod mixed_parity_tests {
             let picture = Rav1dPictureDataComponent::wrap_buf::<BitDepth8>(&mut reference, 80);
             let mut scalar = ReconDst::Pic(picture.with_offset::<BitDepth8>());
             crate::src::itx::itxfm_add_scalar_fallback::<BitDepth8>(
-                shape, kind, &mut scalar, &mut scalar_coefficients, eob, BitDepth8::new(()),
+                crate::src::itx::ScalarTransformCase { size_ordinal: shape, kind }, &mut scalar, &mut scalar_coefficients, eob, BitDepth8::new(()),
             )?;
             kernel(token, &mut pixels, 80, &mut coefficients, 255)?;
 
@@ -558,7 +578,7 @@ mod mixed_parity_tests {
                 let depth = BitDepth16::from_c(maximum);
 
                 crate::src::itx::itxfm_add_scalar_fallback::<BitDepth16>(
-                    shape, kind, &mut scalar, &mut scalar_coefficients, eob, depth,
+                    crate::src::itx::ScalarTransformCase { size_ordinal: shape, kind }, &mut scalar, &mut scalar_coefficients, eob, depth,
                 )?;
                 kernel(token, &mut pixels, 160, &mut coefficients, maximum)?;
 
@@ -571,13 +591,85 @@ mod mixed_parity_tests {
     }
 
     #[test]
-    fn test_mixed8_api_rejects_invalid_views_before_writing() {
+    fn square_kernels_reject_short_views_before_writing() -> Rav1dResult {
+        let Ok(_lock) = crate::src::safe_simd::token_test_lock();
+        let Ok(avx2) = crate::src::cpu::summon_avx2();
+        let token = match avx2 {
+            Some(token) => token,
+            None => return Ok(()),
+        };
+        let narrow: [(CheckedKernel<u8, i16>, u64); 4] = [
+            (inv_identity_add_4x4_8bpc_avx2, 4),
+            (inv_identity_add_8x8_8bpc_avx2, 8),
+            (inv_txfm_add_dct_dct_8x8_8bpc_avx2_inner, 8),
+            (inv_identity_add_16x16_8bpc_avx2, 16),
+        ];
+
+        for (apply, stride) in narrow {
+            let Ok(short) = console_core_number_conversion::index(
+                stride.wrapping_mul(stride).wrapping_sub(1),
+            );
+            let mut pixels = [128u8; 256];
+            let mut coefficients = [64i16; 256];
+            let short_pixels = pixels.get_mut(..short).ok_or(Rav1dError::EINVAL)?;
+            let result = apply(token, short_pixels, stride, &mut coefficients, 255);
+            assert_eq!(result, Err(Rav1dError::EINVAL));
+            assert_eq!(pixels, [128; 256]);
+            assert_eq!(coefficients, [64; 256]);
+
+            let short_coefficients = coefficients.get_mut(..short).ok_or(Rav1dError::EINVAL)?;
+            let short_coefficient_result = apply(token, &mut pixels, stride, short_coefficients, 255);
+            assert_eq!(short_coefficient_result, Err(Rav1dError::EINVAL));
+            assert_eq!(pixels, [128; 256]);
+            assert_eq!(coefficients, [64; 256]);
+        }
+
+        let mut pixels = [512u16; 63];
+        let mut coefficients = [64i32; 64];
+        let result = inv_txfm_add_dct_dct_8x8_16bpc_avx2_inner(
+            token, &mut pixels, 16, &mut coefficients, 1023,
+        );
+        assert_eq!(result, Err(Rav1dError::EINVAL));
+        assert_eq!(pixels, [512; 63]);
+        assert_eq!(coefficients, [64; 64]);
+        Ok(())
+    }
+
+    #[test]
+    fn checked_identity_kernels_match_scalar_on_padded_rows() -> Rav1dResult {
+        let Ok(_lock) = crate::src::safe_simd::token_test_lock();
+        let Ok(avx2) = crate::src::cpu::summon_avx2();
+
+        match avx2 {
+            Some(_token) => {}
+            None => return Ok(()),
+        }
+
+        for (tx, eob, stride) in [
+            (TxfmSize::S4x4, 15, 7),
+            (TxfmSize::S8x8, 63, 11),
+            (TxfmSize::S16x16, 255, 19),
+        ] {
+            let cell = CheckCellArguments {
+                eob,
+                pattern: CoefficientPattern::SparseRandom,
+                stride,
+                offset: 1,
+            };
+            check_cell(tx, IDTX, cell, &TransformDispatch::Applied)?;
+        }
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_mixed8_api_rejects_invalid_views_before_writing() -> Rav1dResult {
         let Ok(_lock) = crate::src::safe_simd::token_test_lock();
         let Ok(avx2) = crate::src::cpu::summon_avx2();
 
         let token = match avx2 {
             Some(matched_token) => matched_token,
-            ::core::option::Option::None => return,
+            ::core::option::Option::None => return Ok(()),
         };
 
 
@@ -592,11 +684,13 @@ mod mixed_parity_tests {
         ] {
             let mut pixels = [128; 128];
             let mut coeff = [64; 64];
+            let destination = pixels.get_mut(..dst_len).ok_or(Rav1dError::EINVAL)?;
+            let coefficients = coeff.get_mut(..coeff_len).ok_or(Rav1dError::EINVAL)?;
             let result = inv_txfm_add_mixed_8x8_8bpc(
                 token,
-                &mut pixels[..dst_len],
+                destination,
                 stride,
-                &mut coeff[..coeff_len],
+                coefficients,
                 Mixed8Passes { rows: Mixed8Pass::Adst, columns: Mixed8Pass::Adst },
             );
             assert_eq!(
@@ -617,5 +711,6 @@ mod mixed_parity_tests {
         );
         assert!(pixels.iter().any(|&p| p != 128));
         assert_eq!(coeff, [0; 64]);
+        Ok(())
     }
 }

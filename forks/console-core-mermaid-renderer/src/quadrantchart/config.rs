@@ -27,6 +27,7 @@ pub(crate) struct QuadrantChartConfigView<'a> {
 }
 
 impl<'a> QuadrantChartConfigView<'a> {
+    #[must_use]
     pub(crate) fn new(effective_config: &'a Value) -> Self {
         let quadrant_config = effective_config
             .get("quadrantChart")
@@ -39,85 +40,129 @@ impl<'a> QuadrantChartConfigView<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn layout_settings(&self) -> QuadrantChartLayoutSettings {
         QuadrantChartLayoutSettings {
-            chart_width: self
-                .quadrant_f64("chartWidth")
-                .unwrap_or(DEFAULT_CHART_WIDTH),
-            chart_height: self
-                .quadrant_f64("chartHeight")
-                .unwrap_or(DEFAULT_CHART_HEIGHT),
-            title_padding: self
-                .quadrant_f64("titlePadding")
-                .unwrap_or(DEFAULT_TITLE_PADDING),
-            title_font_size: self
-                .quadrant_f64("titleFontSize")
-                .unwrap_or(DEFAULT_TITLE_FONT_SIZE),
-            quadrant_padding: self
-                .quadrant_f64("quadrantPadding")
-                .unwrap_or(DEFAULT_QUADRANT_PADDING),
-            x_axis_label_padding: self
-                .quadrant_f64("xAxisLabelPadding")
-                .unwrap_or(DEFAULT_X_AXIS_LABEL_PADDING),
-            y_axis_label_padding: self
-                .quadrant_f64("yAxisLabelPadding")
-                .unwrap_or(DEFAULT_Y_AXIS_LABEL_PADDING),
-            x_axis_label_font_size: self
-                .quadrant_f64("xAxisLabelFontSize")
-                .unwrap_or(DEFAULT_X_AXIS_LABEL_FONT_SIZE),
-            y_axis_label_font_size: self
-                .quadrant_f64("yAxisLabelFontSize")
-                .unwrap_or(DEFAULT_Y_AXIS_LABEL_FONT_SIZE),
-            quadrant_label_font_size: self
-                .quadrant_f64("quadrantLabelFontSize")
-                .unwrap_or(DEFAULT_QUADRANT_LABEL_FONT_SIZE),
-            quadrant_text_top_padding: self
-                .quadrant_f64("quadrantTextTopPadding")
-                .unwrap_or(DEFAULT_QUADRANT_TEXT_TOP_PADDING),
-            point_text_padding: self
-                .quadrant_f64("pointTextPadding")
-                .unwrap_or(DEFAULT_POINT_TEXT_PADDING),
-            point_label_font_size: self
-                .quadrant_f64("pointLabelFontSize")
-                .unwrap_or(DEFAULT_POINT_LABEL_FONT_SIZE),
-            point_radius: self
-                .quadrant_f64("pointRadius")
-                .unwrap_or(DEFAULT_POINT_RADIUS),
-            x_axis_position: self
-                .quadrant_string("xAxisPosition")
-                .unwrap_or_else(|| DEFAULT_X_AXIS_POSITION.to_string()),
-            y_axis_position: self
-                .quadrant_string("yAxisPosition")
-                .unwrap_or_else(|| DEFAULT_Y_AXIS_POSITION.to_string()),
-            quadrant_internal_border_stroke_width: self
-                .quadrant_f64("quadrantInternalBorderStrokeWidth")
-                .unwrap_or(DEFAULT_QUADRANT_INTERNAL_BORDER_STROKE_WIDTH),
-            quadrant_external_border_stroke_width: self
-                .quadrant_f64("quadrantExternalBorderStrokeWidth")
-                .unwrap_or(DEFAULT_QUADRANT_EXTERNAL_BORDER_STROKE_WIDTH),
+            chart_width: match self
+                .quadrant_f64("chartWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_CHART_WIDTH,
+            },
+            chart_height: match self
+                .quadrant_f64("chartHeight") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_CHART_HEIGHT,
+            },
+            title_padding: match self
+                .quadrant_f64("titlePadding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_TITLE_PADDING,
+            },
+            title_font_size: match self
+                .quadrant_f64("titleFontSize") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_TITLE_FONT_SIZE,
+            },
+            quadrant_padding: match self
+                .quadrant_f64("quadrantPadding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_QUADRANT_PADDING,
+            },
+            x_axis_label_padding: match self
+                .quadrant_f64("xAxisLabelPadding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_X_AXIS_LABEL_PADDING,
+            },
+            y_axis_label_padding: match self
+                .quadrant_f64("yAxisLabelPadding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_Y_AXIS_LABEL_PADDING,
+            },
+            x_axis_label_font_size: match self
+                .quadrant_f64("xAxisLabelFontSize") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_X_AXIS_LABEL_FONT_SIZE,
+            },
+            y_axis_label_font_size: match self
+                .quadrant_f64("yAxisLabelFontSize") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_Y_AXIS_LABEL_FONT_SIZE,
+            },
+            quadrant_label_font_size: match self
+                .quadrant_f64("quadrantLabelFontSize") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_QUADRANT_LABEL_FONT_SIZE,
+            },
+            quadrant_text_top_padding: match self
+                .quadrant_f64("quadrantTextTopPadding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_QUADRANT_TEXT_TOP_PADDING,
+            },
+            point_text_padding: match self
+                .quadrant_f64("pointTextPadding") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_POINT_TEXT_PADDING,
+            },
+            point_label_font_size: match self
+                .quadrant_f64("pointLabelFontSize") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_POINT_LABEL_FONT_SIZE,
+            },
+            point_radius: match self
+                .quadrant_f64("pointRadius") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_POINT_RADIUS,
+            },
+            x_axis_position: match self
+                .quadrant_string("xAxisPosition") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_X_AXIS_POSITION.to_string(),
+            },
+            y_axis_position: match self
+                .quadrant_string("yAxisPosition") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_Y_AXIS_POSITION.to_string(),
+            },
+            quadrant_internal_border_stroke_width: match self
+                .quadrant_f64("quadrantInternalBorderStrokeWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_QUADRANT_INTERNAL_BORDER_STROKE_WIDTH,
+            },
+            quadrant_external_border_stroke_width: match self
+                .quadrant_f64("quadrantExternalBorderStrokeWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_QUADRANT_EXTERNAL_BORDER_STROKE_WIDTH,
+            },
         }
     }
 
+    #[must_use]
     pub(crate) fn render_settings(&self) -> QuadrantChartRenderSettings {
         QuadrantChartRenderSettings {
-            use_max_width: self
-                .render_bool("useMaxWidth")
-                .unwrap_or(DEFAULT_USE_MAX_WIDTH),
+            use_max_width: match self
+                .render_bool("useMaxWidth") {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => DEFAULT_USE_MAX_WIDTH,
+            },
         }
     }
 
+    #[must_use]
     fn quadrant_bool(&self, key: &str) -> Option<bool> {
         config_bool(self.quadrant_config, &[key])
     }
 
+    #[must_use]
     fn quadrant_f64(&self, key: &str) -> Option<f64> {
         config_f64(self.quadrant_config, &[key])
     }
 
+    #[must_use]
     fn quadrant_string(&self, key: &str) -> Option<String> {
         config_string(self.quadrant_config, &[key])
     }
 
+    #[must_use]
     fn render_bool(&self, key: &str) -> Option<bool> {
         self.has_render_config
             .then(|| self.quadrant_bool(key))
@@ -152,6 +197,7 @@ pub(crate) struct QuadrantChartRenderSettings {
     pub(crate) use_max_width: bool,
 }
 
+#[must_use]
 fn has_ref_object(v: &Value) -> bool {
     v.as_object().is_some_and(|m| m.contains_key("$ref"))
 }

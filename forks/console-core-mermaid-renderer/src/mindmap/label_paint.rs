@@ -35,6 +35,7 @@ impl MindmapLabelPaintPlan {
         work: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
         let mut plan = Self::default();
+
         if !theme
             .family_mechanism_routes()
             .iter()
@@ -47,6 +48,7 @@ impl MindmapLabelPaintPlan {
         {
             return Ok(plan);
         }
+
         let source_owned = model
             .nodes
             .iter()
@@ -71,12 +73,15 @@ impl MindmapLabelPaintPlan {
             work,
         )?;
         let mut winners = BTreeSet::new();
+
         for (index, node) in model.nodes.iter().enumerate() {
             work.charge(1)?;
+
             if node.label.trim().is_empty() {
                 plan.fills.push(None);
                 continue;
             }
+
             let style = theme.text_style_with_work_meter(
                 ThemeTarget::NodeLabel,
                 ThemeVariant::Default,
@@ -104,8 +109,10 @@ impl MindmapLabelPaintPlan {
                 .map(DirectPaintExpectation::from_paint);
             plan.fills.push(fill);
         }
+
         let mut rules = BTreeSet::new();
         let mut incomplete = BTreeSet::new();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
@@ -116,15 +123,19 @@ impl MindmapLabelPaintPlan {
             else {
                 continue;
             };
+
             if !TARGETS.contains(&target) {
                 continue;
             }
+
             let key = theme.family_mechanism_key(route);
             rules.insert(key.clone());
             let property = resolved_style_property_for_facet(facet);
+
             if !winners.contains(&(rule_index, property)) {
                 continue;
             }
+
             let fill = (property == ResolvedStyleProperty::Fill)
                 .then(|| {
                     plan.fills
@@ -133,12 +144,17 @@ impl MindmapLabelPaintPlan {
                         .find(|fill| fill.rule_index() == rule_index)
                 })
                 .flatten();
-            if let Some(fill) = fill {
-                plan.pending.insert(key, fill.capability());
-            } else {
-                incomplete.insert(key);
+
+            match fill {
+                Some(fill_2) => {
+                    plan.pending.insert(key, fill_2.capability());
+                },
+                ::core::option::Option::None => {
+                    incomplete.insert(key);
+                },
             }
         }
+
         for key in rules {
             if incomplete.contains(&key) {
                 plan.pending.remove(&key);
@@ -146,13 +162,17 @@ impl MindmapLabelPaintPlan {
                 plan.evidence.mark_not_applicable(key);
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(super) fn fill(&self, index: usize) -> Option<&DirectPaintExpectation> {
-        self.fills.get(index)?.as_ref()
+        let checked_value = self.fills.get(index)?;
+        checked_value.as_ref()
     }
 
+    #[must_use]
     pub(super) fn begin_receipt(&self) -> MindmapLabelPaintReceipt {
         MindmapLabelPaintReceipt {
             css: vec![false; self.fills.len()],
@@ -174,8 +194,13 @@ impl MindmapLabelPaintPlan {
     }
 
     pub(super) fn record_node(&self, receipt: &mut MindmapLabelPaintReceipt, index: usize) {
-        if let Some(seen) = receipt.nodes.get_mut(index) {
-            *seen = true;
+        {
+            match receipt.nodes.get_mut(index) {
+                Some(seen) => {
+                    *seen = true;
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
@@ -184,10 +209,11 @@ impl MindmapLabelPaintPlan {
         evidence: &mut FamilyThemeEvidence,
         receipt: Option<&MindmapLabelPaintReceipt>,
     ) {
-        // Residual siblings win over partial application; fallback N/A never hides a typed fill.
+
         for residual in self.fallback.residuals() {
             evidence.mark_residual(residual.key().clone(), residual.reason());
         }
+
         for (key, capability) in &self.pending {
             let FamilyThemeMechanismKey::Rule {
                 index: rule_index, ..
@@ -195,26 +221,30 @@ impl MindmapLabelPaintPlan {
             else {
                 continue;
             };
-            let complete = receipt.is_some_and(|receipt| {
+
+            let complete = receipt.is_some_and(|receipt_2| {
                 self.fills
                     .iter()
                     .enumerate()
                     .filter(|(_, fill)| {
                         fill.as_ref()
-                            .is_some_and(|fill| fill.rule_index() == *rule_index)
+                            .is_some_and(|fill_2| fill_2.rule_index() == *rule_index)
                     })
                     .all(|(index, _)| {
-                        receipt.css.get(index) == Some(&true)
-                            && receipt.nodes.get(index) == Some(&true)
+                        receipt_2.css.get(index) == Some(&true)
+                            && receipt_2.nodes.get(index) == Some(&true)
                     })
             });
+
             if complete {
                 evidence.mark_applied_with_capabilities(key.clone(), [*capability]);
             } else {
                 evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
             }
         }
+
         evidence.merge_borrowed(&self.evidence);
+
         for key in self.fallback.not_applicable_mechanisms() {
             evidence.mark_not_applicable(key.clone());
         }

@@ -36,6 +36,7 @@ console-input-bindings.workspace = true
 console-input-controller.workspace = true
 console-input-gamepad = { workspace = true, features = ["read"] }
 console-screen.workspace = true
+console-session.workspace = true
 console-panel.workspace = true
 console-response-times.workspace = true
 console-repository.workspace = true

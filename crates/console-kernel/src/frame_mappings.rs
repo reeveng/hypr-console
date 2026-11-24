@@ -1,6 +1,11 @@
 //! Page-table entries for the prototype. The caller owns the reserved pages
 //! and edits the table while its address space is inactive. Switching to that
 //! address space reloads CR3.
+//!
+//! [`with_frame_mapping`] places the authorized address and permissions in
+//! both dedicated alias slots during its callback. Both slots are zero on
+//! return, including on a callback error. A callback that activates the
+//! address space must deactivate it before returning.
 
 use console_core_never::Never;
 use console_kernel_handles::{FrameMapping, MappingAccess};
@@ -104,9 +109,6 @@ pub fn user_leaf(frame: u64, page: UserPage) -> Result<u64, InvalidFrame> {
   Ok(address | PRESENT | USER | permissions)
 }
 
-/// The two dedicated alias slots carry the authorized address and permissions during `run`.
-/// They are both zero after `run` returns, including on a callback error.
-/// If `run` activates the address space, it must deactivate it before returning.
 pub fn with_frame_mapping<R>(
   authority: FrameMapping<'_>,
   entries: &mut [u64; 2],

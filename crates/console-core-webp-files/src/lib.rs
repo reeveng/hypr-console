@@ -1,4 +1,4 @@
-//! A WebP's first picture, read into the pixels it holds.
+//! Decode still or animated WebP into RGBA pixels.
 //!
 //! A WebP is a RIFF container around a picture coded one of two ways, lossy
 //! as in VP8 or lossless as in VP8L, or around an animation whose frames are
@@ -20,6 +20,9 @@
 //! closure would hold the permission to write it out of sight of the call. Anything else
 //! is decoded whole and handed over the same way, a row of the part at a time.
 //!
+//! [`Playback`] also decodes animated WebP one frame at a time, composited
+//! over an opaque background supplied by the caller.
+//!
 //! Nothing here opens a file. It is handed bytes, and a stranger's bytes are
 //! what it is for: the memory the canvas, the frame's pixels as they are
 //! decoded and the codes take is counted before it is taken, a code that is
@@ -28,6 +31,7 @@
 //! rather than drawn in part.
 
 mod alpha;
+mod animation;
 #[cfg(test)]
 mod boolean_encoder;
 mod booleans;
@@ -60,6 +64,7 @@ use console_core_prefix_codes::{CodeError, PastTheEnd, TooLong};
 use crate::container::{Coding, Found, Image};
 
 pub use crate::rounds::{Receiver, Spread, Task};
+pub use animation::{Animation, Playback};
 
 use crate::rounds::Destination;
 

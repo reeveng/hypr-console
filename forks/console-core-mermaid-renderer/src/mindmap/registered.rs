@@ -6,6 +6,7 @@ use crate::model::{LayoutEdge, LayoutNode, LayoutPoint, MindmapDiagramLayout};
 use crate::{Error, Result};
 use serde_json::Value;
 
+#[must_use]
 fn edge(model: &MindmapEdgeModel, points: Vec<LayoutPoint>) -> LayoutEdge {
     LayoutEdge {
         id: model.id.clone(),
@@ -34,18 +35,20 @@ pub(super) fn dagre(
     use dugong::graphlib::{Graph, GraphOptions};
     use dugong::{EdgeLabel, GraphLabel, NodeLabel, RankDir};
     let spacing = |key: &str| {
-        config
+        match config
             .get(key)
             .and_then(Value::as_f64)
-            .filter(|value| value.is_finite() && *value != 0.0)
-            .unwrap_or(50.0)
+            .filter(|value| value.is_finite() && !::core::matches!(::core::primitive::f64::classify(*value), ::core::num::FpCategory::Zero)) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 50.0,
+        }
     };
     let mut graph = Graph::<NodeLabel, EdgeLabel, GraphLabel>::new(GraphOptions {
         directed: true,
         multigraph: true,
         compound: true,
     });
-    // MindmapDB supplies TB and spacing 50 independently of Flowchart configuration.
+
     graph.set_graph(GraphLabel {
         rankdir: RankDir::TB,
         nodesep: spacing("nodeSpacing"),
@@ -54,6 +57,7 @@ pub(super) fn dagre(
         marginy: 8.0,
         ..Default::default()
     });
+
     for node in &nodes {
         graph.set_node(
             node.id.clone(),
@@ -64,6 +68,7 @@ pub(super) fn dagre(
             },
         );
     }
+
     for edge in &model.edges {
         graph.set_edge_named(
             edge.start.clone(),
@@ -76,32 +81,50 @@ pub(super) fn dagre(
             }),
         );
     }
+
     dugong::layout_controlled(&mut graph, work).map_err(|error| work.map_dugong_error(error))?;
+
     for node in &mut nodes {
         let placed = graph.node(&node.id).ok_or_else(|| Error::InvalidModel {
             message: format!("Dagre omitted Mindmap node {}", node.id),
         })?;
+
         let (Some(x), Some(y)) = (placed.x, placed.y) else {
             return Err(Error::InvalidModel {
                 message: format!("Dagre did not position Mindmap node {}", node.id),
             });
         };
+
         node.x = x;
         node.y = y;
     }
+
     let edge_by_id: console_core_perfect_hash::collections::FixedMap<_, _> = model
         .edges
         .iter()
         .map(|edge| (edge.id.as_str(), edge))
         .collect();
     let mut edges = Vec::with_capacity(model.edges.len());
+
     for key in graph.edge_keys() {
-        let Some(source) = key.name.as_deref().and_then(|id| edge_by_id.get(id)) else {
-            continue;
+        let source = {
+            let optional_source = key.name.as_deref().and_then(|id| edge_by_id.get(id));
+
+            match optional_source {
+                Some(matched_source) => matched_source,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(placed) = graph.edge_by_key(&key) else {
-            continue;
+
+        let placed = {
+            let optional_placed = graph.edge_by_key(&key);
+
+            match optional_placed {
+                Some(matched_placed) => matched_placed,
+                ::core::option::Option::None => continue,
+            }
         };
+
         work.charge_adapter(placed.points.len())?;
         edges.push(edge(
             source,
@@ -115,6 +138,7 @@ pub(super) fn dagre(
                 .collect(),
         ));
     }
+
     let bounds = compute_bounds(&nodes, &edges);
     Ok(MindmapDiagramLayout {
         swimlane_lanes: Vec::new(),
@@ -239,7 +263,7 @@ pub(super) fn swimlane(
     let measured: Vec<_> = nodes
         .iter()
         .zip(&model.nodes)
-        .map(|(node, model)| (node, model.shape.as_str()))
+        .map(|(node, model_2)| (node, model_2.shape.as_str()))
         .collect();
     let mut edges: Vec<_> = model
         .edges
@@ -247,7 +271,7 @@ pub(super) fn swimlane(
         .map(|source| edge(source, Vec::new()))
         .collect();
     let placed = crate::swimlane::layout_flat(&measured, &edges, config, work_meter)?;
-    let nodes = placed
+    let nodes_2 = placed
         .nodes
         .into_iter()
         .map(|node| LayoutNode {
@@ -266,9 +290,14 @@ pub(super) fn swimlane(
         .into_iter()
         .map(|edge| (edge.id, edge.points))
         .collect();
+
     for edge in &mut edges {
-        edge.points = routes.get(&edge.id).cloned().unwrap_or_default();
+        edge.points = match routes.get(&edge.id).cloned() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        };
     }
+
     let swimlane_lanes = placed
         .lanes
         .into_iter()
@@ -288,14 +317,14 @@ pub(super) fn swimlane(
                 height: 0.0,
             },
             requested_dir: lane.requested_dir,
-            effective_dir: "TB".into(),
+            effective_dir: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("TB"),
             padding: lane.padding,
             title_margin_top: 0.0,
             title_margin_bottom: 0.0,
         })
         .collect();
     Ok(MindmapDiagramLayout {
-        nodes,
+        nodes: nodes_2,
         edges,
         bounds: placed.bounds,
         swimlane_lanes,

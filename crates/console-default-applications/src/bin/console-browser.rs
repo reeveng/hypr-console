@@ -5,40 +5,38 @@
 //! chosen on the settings panel's Defaults tab. A name kept here would be a
 //! second answer, and the two would part company the day either of them moved.
 
+use std::ffi::OsStr;
 use std::process::ExitCode;
 
-use console_core_external_programs::Program;
-use console_core_never::Never;
-use console_default_applications::browsers::{find_desktop_file, get_default_command};
+use console_applications::launch::{self, find_desktop_file};
+use console_default_applications::{browsers, opening};
 
 const ANYWHERE: &str = "https://duckduckgo.com";
 
-fn current_browser() -> Result<String, Never> {
-  let asked = get_default_command()?;
-
-  Ok(
-    match console_core_external_programs::capture_output(&asked) {
-      Ok(said) => said.trim().to_string(),
-      Err(_unprinted) => String::new(),
-    },
-  )
-}
-
 fn main() -> ExitCode {
-  let Ok(chosen) = current_browser();
-  let Ok(among) = console_core_places::applications();
-  let Ok(found) = find_desktop_file(&chosen, &among);
+  let found = match browsers::current() {
+    Ok(chosen) => {
+      let Ok(among) = console_core_places::applications();
+      let Ok(desktop_file) = find_desktop_file(&chosen, &among);
+      desktop_file
+    }
+    Err(fault) => {
+      eprintln!("console-browser: could not query the default browser: {fault}");
+
+      None
+    }
+  };
 
   let launched = match found {
     Some(at) => {
-      let Ok(mut command) = Program::Gio.command();
+      let Ok(mut command) = launch::entry(&at);
 
-      command.arg("launch").arg(at).status()
+      command.status()
     }
     None => {
-      let Ok(mut command) = Program::XdgOpen.command();
+      let Ok(mut command) = opening::command(OsStr::new(ANYWHERE));
 
-      command.arg(ANYWHERE).status()
+      command.status()
     }
   };
 

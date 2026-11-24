@@ -15,33 +15,43 @@ pub(super) struct ArchitectureRootViewportContext<'out, 'root, 'id, O: SvgOutput
     pub(super) trust_content_bounds: bool,
 }
 
+#[must_use]
 fn architecture_root_bbox_from_svg(
     out: &str,
     content_bounds: Option<Bounds>,
     icon_size_px: f64,
     trust_content_bounds: bool,
 ) -> Bounds {
-    let content_bounds_fallback = content_bounds.as_ref().cloned().unwrap_or(Bounds {
-        min_x: 0.0,
-        min_y: 0.0,
-        max_x: icon_size_px,
-        max_y: icon_size_px,
-    });
+    let content_bounds_fallback = match (content_bounds.as_ref().cloned(), Bounds {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: icon_size_px,
+            max_y: icon_size_px,
+        }) {
+        (::core::option::Option::Some(present), alternate) => { ::core::mem::drop(alternate); present },
+        (::core::option::Option::None, alternate) => alternate,
+    };
 
     if trust_content_bounds && content_bounds.is_some() {
         return content_bounds_fallback;
     }
 
-    let mut bounds = svg_emitted_bounds_from_svg(out).unwrap_or(content_bounds_fallback);
+    let mut bounds = match (svg_emitted_bounds_from_svg(out), content_bounds_fallback) {
+        (::core::option::Option::Some(present), alternate) => { ::core::mem::drop(alternate); present },
+        (::core::option::Option::None, alternate) => alternate,
+    };
 
-    // Architecture labels are rendered as `<text>` without explicit bbox geometry. Our emitted SVG
-    // bbox pass cannot see those label extents, so union the headless label bounds before applying
-    // Mermaid's root `getBBox() + padding` behavior.
-    if let Some(content_bounds) = content_bounds {
-        bounds.min_x = bounds.min_x.min(content_bounds.min_x);
-        bounds.min_y = bounds.min_y.min(content_bounds.min_y);
-        bounds.max_x = bounds.max_x.max(content_bounds.max_x);
-        bounds.max_y = bounds.max_y.max(content_bounds.max_y);
+
+
+
+    match content_bounds {
+        Some(content_bounds_2) => {
+            bounds.min_x = bounds.min_x.min(content_bounds_2.min_x);
+            bounds.min_y = bounds.min_y.min(content_bounds_2.min_y);
+            bounds.max_x = bounds.max_x.max(content_bounds_2.max_x);
+            bounds.max_y = bounds.max_y.max(content_bounds_2.max_y);
+        },
+        ::core::option::Option::None => {},
     }
 
     bounds

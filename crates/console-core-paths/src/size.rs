@@ -5,7 +5,7 @@ use console_core_number_conversion::{nearest_f32_from_u64, toward_zero_u32};
 use console_core_size::Size as Dimensions;
 use core::cmp::Ordering;
 
-use crate::{IntRect, LengthU32, NonZeroRect, FloatRectangle};
+use crate::{FloatRectangle, IntRect, LengthU32, NonZeroRect};
 
 #[cfg(all(not(feature = "std"), feature = "no-std-float"))]
 use crate::NoStdFloat;

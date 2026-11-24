@@ -1,5 +1,6 @@
 use super::*;
 
+#[must_use]
 pub(super) fn compute_layout_bounds(
     clusters: &[LayoutCluster],
     nodes: &[LayoutNode],
@@ -47,6 +48,7 @@ pub(super) fn compute_layout_bounds(
         for p in &e.points {
             include_rect(p.x, p.y, p.x, p.y);
         }
+
         for lbl in [
             e.label.as_ref(),
             e.start_label_left.as_ref(),

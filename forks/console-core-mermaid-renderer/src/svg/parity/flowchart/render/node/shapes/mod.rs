@@ -101,7 +101,10 @@ pub(super) fn advance_rough_geometry(
     label: &mut super::FlowchartNodeLabelState<'_>,
 ) -> crate::Result<()> {
     use crate::flowchart::{FlowchartShape, LeanKind};
-    match FlowchartShape::resolve(common.shape)? {
+
+    let checked_value = FlowchartShape::resolve(common.shape)?;
+
+    match checked_value {
         FlowchartShape::Anchor
         | FlowchartShape::Choice
         | FlowchartShape::CrossedCircle
@@ -142,8 +145,7 @@ pub(super) fn advance_rough_geometry(
         FlowchartShape::Ellipse => {
             return Err(crate::Error::InvalidModel {
                 message:
-                    "Flowchart ellipse is present in FlowDB but broken in Mermaid 11.16's renderer"
-                        .into(),
+                    <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("Flowchart ellipse is present in FlowDB but broken in Mermaid 11.16's renderer"),
             });
         }
         FlowchartShape::Hexagon => hexagon::advance_hexagon_rough_geometry(ctx, common, label),
@@ -213,5 +215,6 @@ pub(super) fn advance_rough_geometry(
         | FlowchartShape::Subroutine
         | FlowchartShape::Text => {}
     }
+
     Ok(())
 }

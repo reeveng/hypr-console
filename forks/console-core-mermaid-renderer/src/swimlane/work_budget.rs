@@ -4,9 +4,9 @@ use crate::Result;
 use crate::resources::OperationWorkMeter;
 use std::sync::Arc;
 
-// Fine-grained routing and post-processing counters are internal ticks. Keep their scale separate
-// from the stable, family-level policy unit so adding an explicitly metered pass does not silently
-// multiply every public resource profile.
+
+
+
 const SWIMLANE_INTERNAL_TICKS_PER_WORK_UNIT: usize = 80;
 
 pub(super) struct LayoutWorkBudget {
@@ -16,6 +16,7 @@ pub(super) struct LayoutWorkBudget {
 }
 
 impl LayoutWorkBudget {
+    #[must_use]
     pub(super) fn for_operation(meter: Arc<OperationWorkMeter>) -> Self {
         Self {
             meter,
@@ -48,18 +49,27 @@ impl LayoutWorkBudget {
     pub(super) fn charge(&mut self, additional_ticks: usize) -> Result<()> {
         let ticks = self.pending_ticks.saturating_add(additional_ticks);
         let work_units = ticks / self.ticks_per_work_unit;
-        if work_units != 0 {
-            self.meter.charge(work_units)?;
+
+        match work_units {
+            0 => {},
+            _ => {
+                self.meter.charge(work_units)?;
+            },
         }
+
         self.pending_ticks = ticks % self.ticks_per_work_unit;
         Ok(())
     }
 
     pub(super) fn finish(&mut self) -> Result<()> {
-        if self.pending_ticks != 0 {
-            self.meter.charge(1)?;
-            self.pending_ticks = 0;
+        match self.pending_ticks {
+            0 => {},
+            _ => {
+                self.meter.charge(1)?;
+                self.pending_ticks = 0;
+            },
         }
+
         Ok(())
     }
 
@@ -80,19 +90,25 @@ impl LayoutWorkBudget {
     }
 }
 
+#[must_use]
 pub(super) fn unordered_pair_count(items: usize) -> usize {
     let (first, second) = if items.is_multiple_of(2) {
-        (items / 2, items.saturating_sub(1))
+        (items.wrapping_div(2), items.saturating_sub(1))
     } else {
-        (items, items.saturating_sub(1) / 2)
+        (items, items.saturating_sub(1).wrapping_div(2))
     };
     first.saturating_mul(second)
 }
 
+#[must_use]
 pub(super) fn sorting_work_units(items: usize) -> usize {
-    if items <= 1 {
-        return 0;
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(items), &::core::convert::identity(1)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+            return 0;
+        },
+        ::core::cmp::Ordering::Greater => {},
     }
+
     let passes = (usize::BITS - items.saturating_sub(1).leading_zeros()) as usize;
     items.saturating_mul(passes)
 }

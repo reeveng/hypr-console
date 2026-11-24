@@ -7,51 +7,64 @@ const MERMAID_DEFAULT_ROOT_FONT_FAMILY_CONFIG: &str =
     r#""trebuchet ms", verdana, arial, sans-serif;"#;
 pub(crate) const DEFAULT_DIAGRAM_LOOK: &str = "classic";
 
+#[must_use]
 pub(crate) fn value_at<'a>(cfg: &'a Value, path: &[&str]) -> Option<&'a Value> {
     let mut cur = cfg;
+
     for key in path {
-        cur = cur.get(*key)?;
+        let checked_value = cur.get(*key)?;
+        cur = checked_value;
     }
+
     Some(cur)
 }
 
+#[must_use]
 pub(crate) fn config_string(cfg: &Value, path: &[&str]) -> Option<String> {
     value_at(cfg, path).and_then(|v| v.as_str().map(str::to_string))
 }
 
+#[must_use]
 pub(crate) fn json_string_or_first_array(value: &Value) -> Option<String> {
     value.as_str().map(str::to_string).or_else(|| {
         value
             .as_array()
-            .and_then(|values| values.first()?.as_str())
+            .and_then(|values| { let checked_value = values.first()?; checked_value }.as_str())
             .map(str::to_string)
     })
 }
 
+#[must_use]
 pub(crate) fn config_string_or_first_array(cfg: &Value, path: &[&str]) -> Option<String> {
     value_at(cfg, path).and_then(json_string_or_first_array)
 }
 
+#[must_use]
 pub(crate) fn json_string_vec(value: &Value) -> Vec<String> {
-    value
+    match value
         .as_array()
         .map(|values| {
             values
                 .iter()
                 .filter_map(|v| v.as_str().map(str::to_string))
                 .collect::<Vec<_>>()
-        })
-        .unwrap_or_default()
+        }) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => ::std::vec::Vec::new(),
+    }
 }
 
+#[must_use]
 pub(crate) fn config_string_vec(cfg: &Value, path: &[&str]) -> Vec<String> {
     value_at(cfg, path).map_or_else(Vec::new, json_string_vec)
 }
 
+#[must_use]
 pub(crate) fn config_bool(cfg: &Value, path: &[&str]) -> Option<bool> {
     value_at(cfg, path).and_then(Value::as_bool)
 }
 
+#[must_use]
 pub(crate) fn json_bool(v: &Value) -> Option<bool> {
     v.as_bool()
         .or_else(|| v.as_i64().map(|n| n != 0))
@@ -66,21 +79,25 @@ pub(crate) fn json_bool(v: &Value) -> Option<bool> {
         })
 }
 
-// Theme overrides retain their JSON types; source drawing guards use JavaScript truthiness.
+
+#[must_use]
 pub(crate) fn json_value_is_truthy(value: &Value) -> bool {
     match value {
         Value::Null => false,
-        Value::Bool(value) => *value,
-        Value::Number(value) => value.as_f64() != Some(0.0),
-        Value::String(value) => !value.is_empty(),
+        Value::Bool(value_2) => *value_2,
+        Value::Number(value_3) => value_3.as_f64() != Some(0.0),
+        Value::String(value_4) => !value_4.is_empty(),
         Value::Array(_) | Value::Object(_) => true,
     }
 }
 
+#[must_use]
 pub(crate) fn config_effective_html_labels(cfg: &Value) -> bool {
-    config_bool(cfg, &["htmlLabels"])
-        .or_else(|| config_bool(cfg, &["flowchart", "htmlLabels"]))
-        .unwrap_or(true)
+    match config_bool(cfg, &["htmlLabels"])
+        .or_else(|| config_bool(cfg, &["flowchart", "htmlLabels"])) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => true,
+    }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -97,6 +114,7 @@ pub(crate) struct DiagramLook<'a> {
 }
 
 impl<'a> DiagramLook<'a> {
+    #[must_use]
     pub(crate) fn from_raw(raw: Option<&'a str>) -> Self {
         let serialized_value = raw
             .map(str::trim)
@@ -112,6 +130,7 @@ impl<'a> DiagramLook<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn into_static(self) -> DiagramLook<'static> {
         let serialized_value = match self.serialized_value {
             "handDrawn" => "handDrawn",
@@ -122,18 +141,22 @@ impl<'a> DiagramLook<'a> {
         DiagramLook::from_raw(Some(serialized_value))
     }
 
+    #[must_use]
     pub(crate) fn as_str(&self) -> &'a str {
         self.value
     }
 
+    #[must_use]
     pub(crate) fn serialized(&self) -> &'a str {
         self.serialized_value
     }
 
+    #[must_use]
     pub(crate) fn is_neo(&self) -> bool {
         self.value == "neo"
     }
 
+    #[must_use]
     pub(crate) fn is_hand_drawn(&self) -> bool {
         self.value == "handDrawn"
     }
@@ -145,49 +168,59 @@ impl std::fmt::Display for DiagramLook<'_> {
     }
 }
 
+#[must_use]
 pub(crate) fn config_diagram_look(cfg: &Value) -> DiagramLook<'_> {
     DiagramLook::from_raw(value_at(cfg, &["look"]).and_then(Value::as_str))
 }
 
+#[must_use]
 pub(crate) fn mermaid_config_diagram_look(
     cfg: &merman_model::presentation::PresentationConfig,
 ) -> DiagramLook<'_> {
     DiagramLook::from_raw(cfg.get_str("look"))
 }
 
+#[must_use]
 pub(crate) fn normalize_css_font_family(font_family: &str) -> String {
     let s = font_family.trim().trim_end_matches(';').trim();
+
     if s.is_empty() {
         return String::new();
     }
 
-    // Mermaid serializes generated CSS with comma-separated font-family lists and no extra
-    // whitespace around commas. Keep that spelling stable for SVG parity.
+
+
     let mut parts = Vec::new();
     let mut parser = cssparser::Parser::new(s);
     let mut start = 0;
+
     loop {
         match parser.next_including_whitespace_and_comments() {
             Ok(cssparser::Token::Comma) => {
-                // Advancing past a function skips its block before returning this comma token.
-                // Use the returned token's end, rather than the position before that advance.
+
+
                 let end = parser.position().byte_index();
                 let part = s[start..end - 1].trim();
+
                 if !part.is_empty() {
                     parts.push(part);
                 }
+
                 start = end;
             }
             Ok(_) => {}
             Err(_) => break,
         }
     }
+
     let part = s[start..parser.position().byte_index()].trim();
+
     if !part.is_empty() {
         parts.push(part);
     }
 
     let normalized = parts.join(",");
+
     if crate::mermaid_style::is_safe_css_font_family_value(&normalized) {
         normalized
     } else {
@@ -195,6 +228,7 @@ pub(crate) fn normalize_css_font_family(font_family: &str) -> String {
     }
 }
 
+#[must_use]
 pub(crate) fn config_font_family_css(cfg: &Value) -> String {
     let Some(font_family) = value_at(cfg, &["themeVariables", "fontFamily"])
         .and_then(Value::as_str)
@@ -202,22 +236,32 @@ pub(crate) fn config_font_family_css(cfg: &Value) -> String {
     else {
         return MERMAID_DEFAULT_FONT_FAMILY_CSS.to_string();
     };
+
     font_family_css(font_family)
 }
 
 /// Mermaid's generated :root custom property reads config.fontFamily, independently
 /// of the theme font used by diagram styles (mermaidAPI.createCssStyles).
+#[must_use]
 pub(crate) fn config_root_font_family_css(cfg: &Value) -> String {
-    let Some(font_family) = value_at(cfg, &["fontFamily"]).and_then(Value::as_str) else {
-        return MERMAID_DEFAULT_FONT_FAMILY_CSS.to_string();
+    let font_family = {
+        let optional_font_family = value_at(cfg, &["fontFamily"]).and_then(Value::as_str);
+
+        match optional_font_family {
+            Some(matched_font_family) => matched_font_family,
+            ::core::option::Option::None => return MERMAID_DEFAULT_FONT_FAMILY_CSS.to_string(),
+        }
     };
-    // An explicitly blank value produces no declaration in the browser CSSOM.
+
+
     if font_family.trim().is_empty() {
         return String::new();
     }
+
     font_family_css(font_family)
 }
 
+#[must_use]
 pub(crate) fn config_font_family_or_first_array_css(cfg: &Value) -> String {
     let Some(font_family) = value_at(cfg, &["themeVariables", "fontFamily"])
         .and_then(json_str_or_first_array_ref)
@@ -225,15 +269,18 @@ pub(crate) fn config_font_family_or_first_array_css(cfg: &Value) -> String {
     else {
         return MERMAID_DEFAULT_FONT_FAMILY_CSS.to_string();
     };
+
     font_family_css(font_family)
 }
 
+#[must_use]
 fn json_str_or_first_array_ref(value: &Value) -> Option<&str> {
     value
         .as_str()
-        .or_else(|| value.as_array().and_then(|values| values.first()?.as_str()))
+        .or_else(|| value.as_array().and_then(|values| { let checked_value = values.first()?; checked_value }.as_str()))
 }
 
+#[must_use]
 fn font_family_css(font_family: &str) -> String {
     if matches!(
         font_family,
@@ -242,103 +289,136 @@ fn font_family_css(font_family: &str) -> String {
         return MERMAID_DEFAULT_FONT_FAMILY_CSS.to_string();
     }
 
-    let font_family = normalize_css_font_family(font_family);
-    if font_family.is_empty() {
+    let font_family_2 = normalize_css_font_family(font_family);
+
+    if font_family_2.is_empty() {
         MERMAID_DEFAULT_FONT_FAMILY_CSS.to_string()
     } else {
-        font_family
+        font_family_2
     }
 }
 
+#[must_use]
 pub(crate) fn config_theme_or_root_font_size_px_opt(cfg: &Value) -> Option<f64> {
     config_f64_css_px(cfg, &["themeVariables", "fontSize"])
         .or_else(|| config_f64_css_px(cfg, &["fontSize"]))
 }
 
+#[must_use]
 pub(crate) fn config_theme_or_root_font_size_px(cfg: &Value, default: f64) -> f64 {
-    config_theme_or_root_font_size_px_opt(cfg).unwrap_or(default)
+    match config_theme_or_root_font_size_px_opt(cfg) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => default,
+    }
 }
 
+#[must_use]
 pub(crate) fn config_theme_font_size_css_or_root_number_px_opt(cfg: &Value) -> Option<f64> {
     config_f64_css_px(cfg, &["themeVariables", "fontSize"])
         .or_else(|| config_f64(cfg, &["fontSize"]))
 }
 
+#[must_use]
 pub(crate) fn config_theme_font_size_css_or_root_number_px(cfg: &Value, default: f64) -> f64 {
-    config_theme_font_size_css_or_root_number_px_opt(cfg).unwrap_or(default)
+    match config_theme_font_size_css_or_root_number_px_opt(cfg) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => default,
+    }
 }
 
+#[must_use]
 pub(crate) fn json_f64(value: &Value) -> Option<f64> {
     value
         .as_f64()
         .or_else(|| value.as_i64().map(|n| n as f64))
         .or_else(|| value.as_u64().map(|n| n as f64))
         .or_else(|| {
-            let n = value.as_str()?.trim().parse::<f64>().ok()?;
+            let checked_value = value.as_str()?;
+            let n = match checked_value.trim().parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }?;
             n.is_finite().then_some(n)
         })
 }
 
+#[must_use]
 pub(crate) fn config_f64(cfg: &Value, path: &[&str]) -> Option<f64> {
     value_at(cfg, path).and_then(json_f64)
 }
 
+#[must_use]
 pub(crate) fn config_f64_or(cfg: &Value, path: &[&str], default: f64) -> f64 {
-    config_f64(cfg, path).unwrap_or(default)
+    match config_f64(cfg, path) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => default,
+    }
 }
 
+#[must_use]
 pub(crate) fn json_f64_css_px(value: &Value) -> Option<f64> {
     json_f64(value).or_else(|| value.as_str().and_then(parse_css_px_to_f64))
 }
 
+#[must_use]
 pub(crate) fn config_f64_css_px(cfg: &Value, path: &[&str]) -> Option<f64> {
     value_at(cfg, path).and_then(json_f64_css_px)
 }
 
+#[must_use]
 pub(crate) fn json_f64_explicit_css_px(value: &Value) -> Option<f64> {
     value.as_str().and_then(parse_explicit_css_px_to_f64)
 }
 
+#[must_use]
 pub(crate) fn config_f64_explicit_css_px(cfg: &Value, path: &[&str]) -> Option<f64> {
     value_at(cfg, path).and_then(json_f64_explicit_css_px)
 }
 
+#[must_use]
 pub(crate) fn json_css_number_or_string(value: &Value) -> Option<String> {
-    if let Some(raw) = value.as_str() {
-        let text = normalize_css_raw_value_text(raw);
-        return (!text.is_empty()).then(|| text.to_string());
+    match value.as_str() {
+        Some(raw) => {
+            let text = normalize_css_raw_value_text(raw);
+            return (!text.is_empty()).then(|| text.to_string());
+        },
+        ::core::option::Option::None => {},
     }
 
-    let value = json_f64(value)?;
-    value.is_finite().then(|| {
-        let text = value.to_string();
+    let value_2 = json_f64(value)?;
+    value_2.is_finite().then(|| {
+        let text = value_2.to_string();
+
         if text == "-0" { "0".to_string() } else { text }
     })
 }
 
+#[must_use]
 pub(crate) fn config_css_number_or_string(cfg: &Value, path: &[&str]) -> Option<String> {
     value_at(cfg, path).and_then(json_css_number_or_string)
 }
 
+#[must_use]
 fn parse_css_px_to_f64(text: &str) -> Option<f64> {
-    let text = normalize_css_value_text(text);
-    let text = text.strip_suffix("px").unwrap_or(text).trim();
-    let value = text.parse::<f64>().ok()?;
+    let text_2 = normalize_css_value_text(text);
+    let text_3 = text_2.strip_suffix("px").unwrap_or(text_2).trim();
+    let value = match text_3.parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }?;
     value.is_finite().then_some(value)
 }
 
+#[must_use]
 fn parse_explicit_css_px_to_f64(text: &str) -> Option<f64> {
-    let text = normalize_css_value_text(text);
-    let text = text.strip_suffix("px")?.trim();
-    let value = text.parse::<f64>().ok()?;
+    let text_2 = normalize_css_value_text(text);
+    let checked_value = text_2.strip_suffix("px")?;
+    let text_3 = checked_value.trim();
+    let value = match text_3.parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }?;
     value.is_finite().then_some(value)
 }
 
+#[must_use]
 fn normalize_css_value_text(text: &str) -> &str {
-    let text = text.trim().trim_end_matches(';').trim();
-    text.trim_end_matches("!important").trim()
+    let text_2 = text.trim().trim_end_matches(';').trim();
+    text_2.trim_end_matches("!important").trim()
 }
 
+#[must_use]
 fn normalize_css_raw_value_text(text: &str) -> &str {
     text.trim().trim_end_matches(';').trim()
 }

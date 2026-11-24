@@ -18,6 +18,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tagged_wave_docume
 ) {
     let (wave_amplitude, wave_rect_path, tag_path) =
         prepare_tagged_wave_document_geometry(ctx, common, label);
+
     if common.look_is_hand_drawn() {
         let wave_paths = helpers::hand_drawn_path_pair(common, details, &wave_rect_path);
         let tag_paths = super::super::helpers::timed_node_roughjs(common.timing, details, || {
@@ -31,28 +32,29 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tagged_wave_docume
         })
         .filter(|(fill_d, stroke_d)| !fill_d.is_empty() && !stroke_d.is_empty());
 
-        if let (Some((wave_fill_d, wave_stroke_d)), Some((tag_fill_d, tag_stroke_d))) =
-            (wave_paths, tag_paths)
-        {
-            let _ = write!(
-                out,
-                r##"<g class="basic label-container outer-path" transform="translate(0,{})" style="{}"><g><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g><path d="{}" stroke="none" stroke-width="0" fill="{}"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
-                util::fmt(-wave_amplitude / 2.0),
-                escape_attr(common.rough_group_style),
-                escape_attr(&wave_fill_d),
-                escape_attr(common.fill_color),
-                escape_attr(&wave_stroke_d),
-                escape_attr(common.stroke_color),
-                util::fmt_display(common.stroke_width as f64),
-                escape_attr(common.stroke_dasharray),
-                escape_attr(&tag_fill_d),
-                escape_attr(common.fill_color),
-                escape_attr(&tag_stroke_d),
-                escape_attr(common.stroke_color),
-                util::fmt_display(common.stroke_width as f64),
-                escape_attr(common.stroke_dasharray),
-            );
-            return;
+        match (wave_paths, tag_paths) {
+            (Some((wave_fill_d, wave_stroke_d)), Some((tag_fill_d, tag_stroke_d))) => {
+                let _ = write!(
+                    out,
+                    r##"<g class="basic label-container outer-path" transform="translate(0,{})" style="{}"><g><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g><path d="{}" stroke="none" stroke-width="0" fill="{}"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
+                    util::fmt(-wave_amplitude / 2.0),
+                    escape_attr(common.rough_group_style),
+                    escape_attr(&wave_fill_d),
+                    escape_attr(common.fill_color),
+                    escape_attr(&wave_stroke_d),
+                    escape_attr(common.stroke_color),
+                    util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                    escape_attr(common.stroke_dasharray),
+                    escape_attr(&tag_fill_d),
+                    escape_attr(common.fill_color),
+                    escape_attr(&tag_stroke_d),
+                    escape_attr(common.stroke_color),
+                    util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                    escape_attr(common.stroke_dasharray),
+                );
+                return;
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
 
         let _ = write!(
@@ -62,19 +64,19 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tagged_wave_docume
             escape_attr(&wave_rect_path),
             escape_attr(common.fill_color),
             escape_attr(common.stroke_color),
-            util::fmt_display(common.stroke_width as f64),
+            util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.style),
             escape_attr(&tag_path),
             escape_attr(common.fill_color),
             escape_attr(common.stroke_color),
-            util::fmt_display(common.stroke_width as f64),
+            util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.style),
         );
         return;
     }
 
     let (wave_fill_d, wave_stroke_d) =
-        super::super::helpers::timed_node_roughjs(common.timing, details, || {
+        match super::super::helpers::timed_node_roughjs(common.timing, details, || {
             roughjs_paths_for_svg_path(
                 &wave_rect_path,
                 common.stroke_width,
@@ -82,10 +84,12 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tagged_wave_docume
                 common.work_meter,
                 common.hand_drawn_seed,
             )
-        })
-        .unwrap_or_else(|| ("M0,0".to_string(), "M0,0".to_string()));
+        }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ("M0,0".to_string(), "M0,0".to_string()),
+        };
     let (tag_fill_d, tag_stroke_d) =
-        super::super::helpers::timed_node_roughjs(common.timing, details, || {
+        match super::super::helpers::timed_node_roughjs(common.timing, details, || {
             roughjs_paths_for_svg_path(
                 &tag_path,
                 common.stroke_width,
@@ -93,8 +97,10 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tagged_wave_docume
                 common.work_meter,
                 common.hand_drawn_seed,
             )
-        })
-        .unwrap_or_else(|| ("M0,0".to_string(), "M0,0".to_string()));
+        }) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ("M0,0".to_string(), "M0,0".to_string()),
+        };
 
     let _ = write!(
         out,
@@ -105,7 +111,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tagged_wave_docume
         escape_attr(common.style),
         escape_attr(&wave_stroke_d),
         escape_attr(common.stroke_color),
-        util::fmt_display(common.stroke_width as f64),
+        util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         escape_attr(common.stroke_dasharray),
         escape_attr(common.style),
         escape_attr(&tag_fill_d),
@@ -113,7 +119,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_tagged_wave_docume
         escape_attr(common.style),
         escape_attr(&tag_stroke_d),
         escape_attr(common.stroke_color),
-        util::fmt_display(common.stroke_width as f64),
+        util::fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         escape_attr(common.stroke_dasharray),
         escape_attr(common.style),
     );
@@ -135,11 +141,11 @@ fn prepare_tagged_wave_document_geometry(
     );
 
     let p = ctx.node_padding;
-    // Mermaid renders this shape only once during createGraph layout: the base `w/h` come from
-    // the label bbox, and only then `updateNodeBounds(...)` inflates `node.width/height` to the
-    // final outer bbox used by Dagre. Our pipeline is split into headless layout + SVG render, so
-    // `layout_node.width/height` already contain that inflated outer bbox. Feeding them back here
-    // would recursively enlarge the wave/tag geometry a second time.
+
+
+
+
+
     let _ = common.layout_node;
     let w = (metrics.width + 2.0 * p).max(0.0);
     let h = (metrics.height + 2.0 * p).max(0.0);
@@ -148,7 +154,7 @@ fn prepare_tagged_wave_document_geometry(
     let tag_height = 0.2 * h;
     let final_h = h + wave_amplitude;
 
-    // Mermaid shifts label to the left padding origin and up by waveAmplitude/2.
+
     label.dx = -w / 2.0 + p + metrics.width / 2.0;
     label.dy = -h / 2.0 + p - wave_amplitude / 2.0 + metrics.height / 2.0;
 
@@ -195,6 +201,7 @@ pub(super) fn advance_tagged_wave_document_rough_geometry(
     let (_, wave_rect_path, tag_path) = prepare_tagged_wave_document_geometry(ctx, common, label);
     let target = super::super::roughjs::RoughGeometryTarget::Query;
     let _ = super::super::helpers::prepare_node_path(common, &wave_rect_path, target);
+
     if common.look_is_hand_drawn() {
         let _ = super::super::roughjs::roughjs_prepare_paths_for_hand_drawn_solid_svg_path(
             target,

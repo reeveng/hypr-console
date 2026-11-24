@@ -769,38 +769,30 @@ impl<'a, 'input: 'a> Iterator for Traverse<'a, 'input> {
   type Item = Edge<'a, 'input>;
 
   fn next(&mut self) -> Option<Self::Item> {
-    match self.edge {
+    self.edge = match self.edge {
       Some(Edge::Open(node)) => {
-        let Ok(node_first_child) = node.first_child();
-        self.edge = Some(match node_first_child {
+        let Ok(child) = node.first_child();
+        Some(match child {
           Some(first_child) => Edge::Open(first_child),
           None => Edge::Close(node),
-        });
+        })
       }
-      Some(Edge::Close(node)) => {
-        match ::core::primitive::bool::then_some(node == self.root, ()) {
-          ::core::option::Option::Some(()) => {
-            self.edge = None;
-          }
-          ::core::option::Option::None => {
-            let Ok(sibling) = node.next_sibling();
+      Some(Edge::Close(node)) => match (node == self.root).then_some(()) {
+        Some(()) => None,
+        None => {
+          let Ok(sibling) = node.next_sibling();
 
-            match sibling {
-              Some(next_sibling) => {
-                self.edge = Some(Edge::Open(next_sibling));
-              }
-              None => {
-                let Ok(parent) = node.parent();
-                self.edge = parent.map(Edge::Close);
-              }
+          match sibling {
+            Some(next_sibling) => Some(Edge::Open(next_sibling)),
+            None => {
+              let Ok(parent) = node.parent();
+              parent.map(Edge::Close)
             }
           }
         }
-      }
-      None => {
-        self.edge = Some(Edge::Open(self.root));
-      }
-    }
+      },
+      None => Some(Edge::Open(self.root)),
+    };
 
     self.edge
   }
@@ -919,6 +911,10 @@ impl EId {
 }
 
 impl AId {
+  #[cfg_attr(
+    dylint_lib = "explicit050_no_long_function",
+    expect(explicit050_no_long_function, reason = "the presentation property list is one membership test with no separate stages or decisions")
+  )]
   fn is_presentation(&self) -> Result<crate::IsPresentationAnswer, console_core_never::Never> {
     Ok(crate::IsPresentationAnswer::from(matches!(
       self,

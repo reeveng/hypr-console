@@ -149,6 +149,7 @@ use subgraph::SubgraphBuilder;
 #[cfg(feature = "diagram-agentflow")]
 /// Lex the presentation directives shared by Flowchart and Agentflow.
 /// Family-specific mutation order remains the caller's responsibility.
+#[must_use]
 pub(crate) fn lex_presentation_statement(
     source: &str,
 ) -> Option<std::result::Result<(usize, Tok, usize), LexError>> {
@@ -207,6 +208,7 @@ struct FlowchartSemanticSource {
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
 pub(crate) trait FlowchartMetadata {
     fn diagram_type(&self) -> &str;
+
     fn diagram_config(&self) -> &MermaidConfig;
 }
 
@@ -368,8 +370,9 @@ pub(crate) fn parse_flowchart_model_with_render_context_controlled(
     control: &OperationControl,
 ) -> OperationControlResult<Result<(FlowchartModel, FlowchartRenderContext)>> {
     let source = parse_flowchart_semantic_source_with_context_controlled(code, meta, control)?;
+
     match source {
-        Ok(source) => source.into_model_with_render_context_controlled(meta, control),
+        Ok(source_2) => source_2.into_model_with_render_context_controlled(meta, control),
         Err(error) => Ok(Err(error)),
     }
 }
@@ -397,8 +400,8 @@ pub(crate) fn parse_semantic_model_controlled(
     }
     let source = parse_flowchart_semantic_source_controlled(code, meta, control)?;
     let model = match source {
-        Ok(source) => source
-            .into_model_controlled(meta, control)?
+        Ok(source) => { let checked_value = source
+            .into_model_controlled(meta, control)?; checked_value }
             .map(|mut model| {
                 sanitize_common_db_fields(&mut model, &meta.semantic_config);
                 model
@@ -543,7 +546,7 @@ fn parse_flowchart_ast_controlled<M: FlowchartMetadata>(
         &edge_budget,
         tokens,
     );
-    // Parser EOF and user errors are subordinate to the sticky operation outcome.
+
     control.checkpoint()?;
     Ok(parsed.map_err(|error| {
         Error::diagram_parse_diagnostic(
@@ -564,13 +567,15 @@ fn parse_flowchart_semantic_source_from_ast_controlled<M: FlowchartMetadata>(
 ) -> OperationControlResult<Result<FlowchartSemanticSource>> {
     let shape_data_documents = prepare_flowchart_shape_data(&ast, control)?;
     control.checkpoint()?;
-    let inherit_dir = meta
+    let inherit_dir = match meta
         .diagram_config()
         .as_value()
         .get("flowchart")
         .and_then(|v| v.get("inheritDir"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
+        .and_then(|v| v.as_bool()) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => false,
+    };
     let mut builder = SubgraphBuilder::new(inherit_dir, ast.direction.clone());
     builder.visit_statements(&ast, control)?;
 
@@ -599,13 +604,17 @@ fn parse_flowchart_semantic_source_from_ast_controlled<M: FlowchartMetadata>(
     };
 
     let mut node_index: HashMap<String, usize> = HashMap::new();
+
     for (idx, n) in nodes.iter().enumerate() {
-        if idx % 128 == 0 {
+        if idx.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         node_index.insert(n.id.clone(), idx);
     }
+
     let security_level_loose = meta.diagram_config().get_str("securityLevel") == Some("loose");
+
     {
         let mut semantic_ctx = FlowchartSemanticContext {
             nodes: &mut nodes,
@@ -627,8 +636,14 @@ fn parse_flowchart_semantic_source_from_ast_controlled<M: FlowchartMetadata>(
             shape_data_documents: &shape_data_documents,
             control,
         };
-        if let Err(error) = apply_semantic_statements(&ast, &mut semantic_ctx)? {
-            return Ok(Err(error));
+
+        {
+            match apply_semantic_statements(&ast, &mut semantic_ctx)? {
+                Err(error) => {
+                    return Ok(Err(error));
+                },
+                ::core::result::Result::Ok(_) => {},
+            };
         }
     }
 
@@ -661,10 +676,12 @@ fn prepare_flowchart_shape_data(
     control: &OperationControl,
 ) -> OperationControlResult<HashMap<String, std::result::Result<Value, String>>> {
     let mut documents = HashMap::new();
+
     for (visited, event) in ast.walk().enumerate() {
         if visited.is_multiple_of(128) {
             control.checkpoint()?;
         }
+
         let StatementEvent::Enter(statement) = event else {
             continue;
         };
@@ -672,17 +689,24 @@ fn prepare_flowchart_shape_data(
         match statement {
             Stmt::Chain { node_groups, .. } => {
                 for (index, node) in node_groups.iter().flatten().enumerate() {
-                    if index % 128 == 0 {
+                    if index.wrapping_rem(128) == 0 {
                         control.checkpoint()?;
                     }
-                    if let Some(source) = node.shape_data.as_deref() {
-                        prepare_flowchart_shape_data_document(source, control, &mut documents)?;
+
+                    match node.shape_data.as_deref() {
+                        Some(source) => {
+                            prepare_flowchart_shape_data_document(source, control, &mut documents)?;
+                        },
+                        ::core::option::Option::None => {},
                     }
                 }
             }
             Stmt::Node(node) => {
-                if let Some(source) = node.shape_data.as_deref() {
-                    prepare_flowchart_shape_data_document(source, control, &mut documents)?;
+                match node.shape_data.as_deref() {
+                    Some(source) => {
+                        prepare_flowchart_shape_data_document(source, control, &mut documents)?;
+                    },
+                    ::core::option::Option::None => {},
                 }
             }
             Stmt::Subgraph(_) => {}
@@ -711,13 +735,16 @@ fn prepare_flowchart_shape_data_document(
     if documents.contains_key(source) {
         return control.checkpoint();
     }
+
     let mut document =
         crate::inline_config::parse_mermaid_inline_object_controlled(source, control)?;
+
     if let Ok(Value::Object(map)) = &mut document {
         for key in ["laneRole", "laneIndex", "drawnExtent"] {
             map.remove(key);
         }
     }
+
     documents.insert(source.to_string(), document);
     Ok(())
 }
@@ -726,6 +753,7 @@ fn prepare_flowchart_shape_data_document(
 const DEFAULT_FLOWCHART_MAX_EDGES: usize = 500;
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn flowchart_edge_budget<M: FlowchartMetadata>(meta: &M) -> Cell<usize> {
     let max_edges = meta
         .diagram_config()
@@ -739,11 +767,13 @@ fn flowchart_edge_budget<M: FlowchartMetadata>(meta: &M) -> Cell<usize> {
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn flowchart_edge_limit_error(message: impl Into<String>, span: Option<SourceSpan>) -> LexError {
-    let message = message.into();
+    let message_2 = <_ as ::core::convert::Into<::std::string::String>>::into(message);
+
     match span {
-        Some(span) => LexError::with_span(message, span),
-        None => LexError::new(message),
+        Some(span_2) => LexError::with_span(message_2, span_2),
+        None => LexError::new(message_2),
     }
 }
 
@@ -878,6 +908,7 @@ fn parse_flowchart_ast_from_trace<M: FlowchartMetadata>(
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn flowchart_warning_facts(
     direction: &Option<String>,
     header_span: crate::SourceSpan,
@@ -1847,8 +1878,8 @@ fn push_flowchart_header_symbol(facts: &mut EditorSemanticFacts, header: &Subgra
 #[cfg(feature = "editor-facts")]
 fn flowchart_subgraph_symbol_id(header: &SubgraphHeader) -> Option<(String, SourceSpan)> {
     if header.id_equals_title && header.raw_title.chars().any(is_ecmascript_trim_char) {
-        // FlowDB replaces this authored title/id with `subGraphN`; exposing the raw title as a
-        // renameable id would point editor operations at a symbol that does not exist in the model.
+
+
         return None;
     }
 
@@ -1928,8 +1959,8 @@ impl FlowchartSemanticSource {
         meta: &M,
         control: &OperationControl,
     ) -> OperationControlResult<Result<FlowchartModel>> {
-        Ok(self
-            .into_model_parts_controlled(meta, false, control)?
+        Ok({ let checked_value = self
+            .into_model_parts_controlled(meta, false, control)?; checked_value }
             .map(|projection| projection.model))
     }
 
@@ -1939,8 +1970,8 @@ impl FlowchartSemanticSource {
         meta: &M,
         control: &OperationControl,
     ) -> OperationControlResult<Result<(FlowchartModel, FlowchartRenderContext)>> {
-        Ok(self
-            .into_model_parts_controlled(meta, true, control)?
+        Ok({ let checked_value = self
+            .into_model_parts_controlled(meta, true, control)?; checked_value }
             .map(|projection| {
                 (
                     projection.model,
@@ -1985,10 +2016,12 @@ impl FlowchartSemanticSource {
         #[cfg(feature = "presentation")]
         let mut render_label_sources =
             _collect_render_context.then(FlowchartRenderLabelSources::default);
+
         for (index, node) in nodes.into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             let node = flow_node_to_model(
                 node,
                 meta.diagram_config(),
@@ -1997,11 +2030,14 @@ impl FlowchartSemanticSource {
             );
             render_nodes.push(node);
         }
+
         let mut render_edges = Vec::with_capacity(edges.len());
+
         for (index, edge) in edges.into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             match flow_edge_to_model(
                 edge,
                 meta,
@@ -2016,11 +2052,14 @@ impl FlowchartSemanticSource {
                 Err(error) => return Ok(Err(error)),
             }
         }
+
         let mut render_subgraphs = Vec::with_capacity(subgraphs.len());
+
         for (index, subgraph) in subgraphs.into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             let subgraph = flow_subgraph_to_model(
                 subgraph,
                 meta.diagram_config(),
@@ -2031,12 +2070,15 @@ impl FlowchartSemanticSource {
             );
             render_subgraphs.push(subgraph);
         }
+
         let mut render_tooltips = console_core_perfect_hash::collections::FixedMap::default();
         render_tooltips.reserve(tooltips.len());
+
         for (index, (id, tooltip)) in tooltips.into_iter().enumerate() {
-            if index % 128 == 0 {
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             render_tooltips.insert(id, tooltip);
         }
 
@@ -2087,16 +2129,20 @@ fn append_missing_subgraph_nodes(
     control: &OperationControl,
 ) -> OperationControlResult<()> {
     let mut existing_ids = HashSet::with_capacity(nodes.len());
+
     for (index, node) in nodes.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         existing_ids.insert(node.id.clone());
     }
+
     for (index, subgraph) in subgraphs.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         if existing_ids.insert(subgraph.id.clone()) {
             nodes.push(Node {
                 id: subgraph.id.clone(),
@@ -2124,10 +2170,12 @@ fn append_missing_subgraph_nodes(
             });
         }
     }
+
     control.checkpoint()
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn flow_node_to_model(
     n: Node,
     config: &MermaidConfig,
@@ -2135,15 +2183,24 @@ fn flow_node_to_model(
 ) -> FlowNode {
     let layout_shape = layout_shape_for_node(&n);
     let label = sanitized_node_label(&n, config);
+
     #[cfg(feature = "presentation")]
-    if let Some(sources) = render_label_sources {
-        let label_raw = n.label.as_deref().unwrap_or(&n.id);
-        if let Some(source) = render_label_source_needs_provenance(label_raw)
-            .then(|| sanitized_node_render_label_source(&n, config))
-            .filter(|source| *source != label)
-        {
-            sources.insert_node(n.id.clone(), source);
-        }
+    match render_label_sources {
+        Some(sources) => {
+            let label_raw = n.label.as_deref().unwrap_or(&n.id);
+
+            {
+                match render_label_source_needs_provenance(label_raw)
+                    .then(|| sanitized_node_render_label_source(&n, config))
+                    .filter(|source| *source != label) {
+                    Some(source) => {
+                        sources.insert_node(n.id.clone(), source);
+                    },
+                    ::core::option::Option::None => {},
+                };
+            }
+        },
+        ::core::option::Option::None => {},
     }
 
     FlowNode {
@@ -2178,19 +2235,25 @@ fn flow_edge_to_model<M: FlowchartMetadata>(
     )>,
 ) -> Result<FlowEdge> {
     let label = sanitized_optional_label(e.label.as_deref(), meta.diagram_config());
+
     #[cfg(feature = "presentation")]
-    if let Some((index, sources)) = render_label_sources {
-        let render_label_source = e
-            .label
-            .as_deref()
-            .filter(|raw| render_label_source_needs_provenance(raw))
-            .map(|raw| sanitized_render_label_source(raw, meta.diagram_config()));
-        if let (Some(label), Some(source)) = (&label, render_label_source)
-            && *label != source
-        {
-            sources.insert_edge(index, source);
-        }
+    match render_label_sources {
+        Some((index, sources)) => {
+            let render_label_source = e
+                .label
+                .as_deref()
+                .filter(|raw| render_label_source_needs_provenance(raw))
+                .map(|raw| sanitized_render_label_source(raw, meta.diagram_config()));
+
+            if let (Some(label), Some(source)) = (&label, render_label_source)
+                && *label != source
+            {
+                sources.insert_edge(index, source);
+            }
+        },
+        ::core::option::Option::None => {},
     }
+
     let id = e.id.ok_or_else(|| {
         Error::diagram_parse_fallback(
             meta.diagram_type().to_string(),
@@ -2225,11 +2288,13 @@ fn flow_edge_to_model<M: FlowchartMetadata>(
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn layout_shape_for_node(n: &Node) -> String {
-    // Mirrors Mermaid FlowDB `getTypeFromVertex` logic at the pinned Mermaid baseline.
+
     if n.img.is_some() {
         return "imageSquare".to_string();
     }
+
     if n.icon.is_some() {
         match n.form.as_deref() {
             Some("circle") => return "iconCircle".to_string(),
@@ -2238,6 +2303,7 @@ fn layout_shape_for_node(n: &Node) -> String {
             _ => return "icon".to_string(),
         }
     }
+
     match n.shape.as_deref() {
         Some("square") | None => "squareRect".to_string(),
         Some("round") => "roundedRect".to_string(),
@@ -2247,32 +2313,40 @@ fn layout_shape_for_node(n: &Node) -> String {
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn sanitized_node_label(n: &Node, config: &MermaidConfig) -> String {
     let label_raw = n.label.as_ref().unwrap_or(&n.id);
     let mut label = sanitized_label(label_raw, config);
+
     if label.len() >= 2 && label.starts_with('\"') && label.ends_with('\"') {
         label = label[1..label.len() - 1].to_string();
     }
+
     label
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
 #[cfg(feature = "presentation")]
+#[must_use]
 fn sanitized_node_render_label_source(n: &Node, config: &MermaidConfig) -> String {
     let label_raw = n.label.as_ref().unwrap_or(&n.id);
     let mut label = sanitized_render_label_source(label_raw, config);
+
     if label.len() >= 2 && label.starts_with('"') && label.ends_with('"') {
         label = label[1..label.len() - 1].to_string();
     }
+
     label
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn sanitized_optional_label(label: Option<&str>, config: &MermaidConfig) -> Option<String> {
     label.map(|s| sanitized_label(s, config))
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn sanitized_label(raw: &str, config: &MermaidConfig) -> String {
     let decoded = decode_mermaid_hash_entities(raw);
     sanitize_text(&decoded, config)
@@ -2280,6 +2354,7 @@ fn sanitized_label(raw: &str, config: &MermaidConfig) -> String {
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
 #[cfg(feature = "presentation")]
+#[must_use]
 fn sanitized_render_label_source(raw: &str, config: &MermaidConfig) -> String {
     let flow_db_label = sanitize_text(raw, config);
     let decoded = crate::entities::restore_mermaid_entity_spelling(&flow_db_label);
@@ -2288,19 +2363,22 @@ fn sanitized_render_label_source(raw: &str, config: &MermaidConfig) -> String {
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
 #[cfg(feature = "presentation")]
+#[must_use]
 fn render_label_source_needs_provenance(raw: &str) -> bool {
     raw.contains(['&', '#', 'ﬂ', '¶', '<', '>'])
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn decode_mermaid_hash_entities(input: &str) -> std::borrow::Cow<'_, str> {
-    // Mermaid runs `encodeEntities(...)` before parsing and later decodes with browser
-    // `entityDecode(...)`. In our headless pipeline we decode into Unicode during parsing so
-    // layout + SVG output match upstream.
+
+
+
     crate::entities::decode_mermaid_entities_to_unicode(input)
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 fn flow_subgraph_to_model(
     sg: FlowSubGraph,
     config: &MermaidConfig,
@@ -2311,13 +2389,18 @@ fn flow_subgraph_to_model(
 ) -> FlowSubgraph {
     let sanitized_title = sanitize_text(&sg.title, config);
     let title = decode_mermaid_hash_entities(&sanitized_title).into_owned();
+
     #[cfg(feature = "presentation")]
-    if let Some((index, sources)) = render_label_sources {
-        let render_title_source = render_label_source_needs_provenance(&sg.title)
-            .then(|| sanitized_render_label_source(&sg.title, config))
-            .filter(|source| *source != title);
-        sources.insert_subgraph(sg.id.clone(), index, render_title_source);
+    match render_label_sources {
+        Some((index, sources)) => {
+            let render_title_source = render_label_source_needs_provenance(&sg.title)
+                .then(|| sanitized_render_label_source(&sg.title, config))
+                .filter(|source| *source != title);
+            sources.insert_subgraph(sg.id.clone(), index, render_title_source);
+        },
+        ::core::option::Option::None => {},
     }
+
     FlowSubgraph {
         id: sg.id,
         nodes: sg.nodes,
@@ -2541,7 +2624,7 @@ mod tests {
     #[test]
     #[cfg(feature = "presentation")]
     fn flowchart_subgraph_metadata_survives_render_model_projection() {
-        // Mermaid 12 FlowDB forwards the shallow-merged metadata unchanged to group nodes.
+
         let meta = flowchart_test_meta("flowchart-v2");
         let (model, context) = parse_flowchart_model_with_render_context(
             concat!(

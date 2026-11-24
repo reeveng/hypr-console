@@ -1,9 +1,10 @@
 use super::FlowEdge;
 use merman_model::families::flowchart::FlowEdgeMarker;
 
+#[must_use]
 pub(crate) fn flowchart_dagre_merges_self_loop_segments(keyword: &str) -> bool {
-    // Mermaid 12.2 dagre/index.js excludes Agentflow from its fixed diagram-type allowlist.
-    // The other callers of this Flowchart projection retain their existing Flowchart policy.
+
+
     keyword != "agentflow-beta"
 }
 
@@ -26,6 +27,7 @@ struct FlowchartSelfLoopEdgeSpec {
     end_marker: FlowEdgeMarker,
 }
 
+#[must_use]
 pub(crate) fn flowchart_self_loop_helper_edges(base: &FlowEdge) -> FlowchartSelfLoopHelperEdges {
     let node_id = base.from.as_str();
     let special_id_1 = format!("{node_id}---{node_id}---1");
@@ -81,6 +83,7 @@ pub(crate) fn flowchart_self_loop_helper_edges(base: &FlowEdge) -> FlowchartSelf
     }
 }
 
+#[must_use]
 fn flowchart_self_loop_edge_from_base(
     base: &FlowEdge,
     spec: FlowchartSelfLoopEdgeSpec,

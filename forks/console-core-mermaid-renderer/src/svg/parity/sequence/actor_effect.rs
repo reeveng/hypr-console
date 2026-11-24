@@ -15,7 +15,7 @@ pub(super) struct SequenceActorShadowPlan {
 }
 
 impl SequenceActorShadowPlan {
-    // Keep operation policy and the family-owned source/style facts explicit at this seam.
+
     #[allow(clippy::too_many_arguments)]
     pub(super) fn prepare(
         effect: Option<SvgShadowEffect>,
@@ -31,51 +31,78 @@ impl SequenceActorShadowPlan {
             effect,
             ..Self::default()
         };
-        let Some(effect) = plan.effect.as_ref() else {
-            return Ok(plan);
+
+        let effect_2 = {
+            let optional_effect = plan.effect.as_ref();
+
+            match optional_effect {
+                Some(matched_effect) => matched_effect,
+                ::core::option::Option::None => return Ok(plan),
+            }
         };
-        // Read the same generated CSS value as the actor writer. Relative lengths cannot supply
-        // a reliable filter envelope; retain a residual instead of guessing a pixel width.
+
+
+
         let width = style
             .stroke_width
             .map(f64::from)
             .or(compat.native_stroke_width);
-        let Some(width) = width else {
+
+        let Some(width_2) = width else {
             receipt.effect_unhandled = true;
             return Ok(plan);
         };
+
         for (index, actor_id) in model.actor_order.iter().enumerate() {
             options.work_meter().charge(1)?;
-            let Some(actor) = model.actors.get(actor_id) else {
-                continue;
+
+            let actor = {
+                let optional_actor = model.actors.get(actor_id);
+
+                match optional_actor {
+                    Some(matched_actor) => matched_actor,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             if !actor_rect_geometry_supported(actor) {
                 continue;
             }
-            for placement in ["top", "bottom"] {
+
+            'over_placement_2: for placement in ["top", "bottom"] {
                 if placement == "bottom" && !mirror {
-                    continue;
+                    continue 'over_placement_2;
                 }
+
                 let node_id = format!("actor-{placement}-{actor_id}");
-                let Some(node) = nodes.get(node_id.as_str()) else {
-                    continue;
+
+                let node = {
+                    let optional_node = nodes.get(node_id.as_str());
+
+                    match optional_node {
+                        Some(matched_node) => matched_node,
+                        ::core::option::Option::None => continue 'over_placement_2,
+                    }
                 };
+
                 options
                     .work_meter()
-                    .charge(effect.stages().len().saturating_mul(3))?;
-                let Some(materialized) = effect.materialize_rect(
+                    .charge(effect_2.stages().len().saturating_mul(3))?;
+
+                let Some(materialized) = effect_2.materialize_rect(
                     &options.theme_resource_policy(),
                     node.width,
                     node.height,
-                    width,
+                    width_2,
                 )?
                 else {
                     receipt.effect_unhandled = true;
-                    continue;
+                    continue 'over_placement_2;
                 };
+
                 let region = materialized.region();
-                // Include the outward-rounded region actually written to SVG, not just the
-                // unrounded sigma envelope, so native receipt containment uses the same bounds.
+
+
                 let [x, y, w, h] = region.as_array().map(f64::from);
                 let (left, top) = super::geometry::node_left_top(node);
                 let bounds = Bounds {
@@ -84,6 +111,7 @@ impl SequenceActorShadowPlan {
                     max_x: left + (x + w) * node.width,
                     max_y: top + (y + h) * node.height,
                 };
+
                 if let Some(total) = &mut plan.bounds {
                     total.min_x = total.min_x.min(bounds.min_x);
                     total.min_y = total.min_y.min(bounds.min_y);
@@ -92,21 +120,25 @@ impl SequenceActorShadowPlan {
                 } else {
                     plan.bounds = Some(bounds);
                 }
+
                 let id = format!(
                     "{}-actor-{index}-{placement}-theme-effect-{}",
                     options.diagram_id_or("merman"),
-                    effect.id()
+                    effect_2.id()
                 );
                 plan.terminals.insert(node_id, (id, region));
             }
         }
+
         Ok(plan)
     }
 
+    #[must_use]
     pub(super) fn len(&self) -> usize {
         self.terminals.len()
     }
 
+    #[must_use]
     pub(super) fn terminal<'a>(
         &'a self,
         node: &LayoutNode,
@@ -114,7 +146,7 @@ impl SequenceActorShadowPlan {
     ) -> Option<SequenceActorShadow<'a>> {
         let (id, region) = self.terminals.get(&node.id)?;
         Some(SequenceActorShadow {
-            effect: self.effect.as_ref()?,
+            effect: { let checked_value = self.effect.as_ref()?; checked_value },
             id,
             region: *region,
             recorder,
@@ -150,6 +182,7 @@ pub(super) struct SequenceLifelinePaint {
 }
 
 impl SequenceLifelinePaint {
+    #[must_use]
     pub(super) fn new(effect: Option<SvgShadowEffect>, include_plain_bounds: bool) -> Self {
         Self {
             effect,
@@ -158,9 +191,12 @@ impl SequenceLifelinePaint {
         }
     }
 
+    #[must_use]
     pub(super) fn needs_bounds(&self) -> bool {
         self.include_plain_bounds || self.effect.is_some()
     }
+
+    #[must_use]
     pub(super) fn emitted_count(&self) -> usize {
         self.emitted
     }
@@ -177,22 +213,25 @@ impl SequenceLifelinePaint {
         options: &SvgExecution<'_>,
         receipt: &mut crate::sequence::SequenceLifelineThemeReceipt,
     ) -> Result<Option<(String, SvgFilterRegion)>> {
-        if !self.needs_bounds() && width == super::actor_shapes::LIFELINE_STROKE_WIDTH_PX {
+        if !self.needs_bounds() && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&width, &super::actor_shapes::LIFELINE_STROKE_WIDTH_PX) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
             return Ok(None);
         }
-        // Use the serialized coordinates, including descending or zero-length lines.
-        let [x, y1, y2] = [x, y1, y2].map(crate::number_format::canonicalize_number);
+
+
+        let [x_2, y1_2, y2_2] = [x, y1, y2].map(crate::number_format::canonicalize_number);
         let mut bounds = Bounds {
-            min_x: x - width / 2.0,
-            max_x: x + width / 2.0,
-            min_y: y1.min(y2) - width / 2.0,
-            max_y: y1.max(y2) + width / 2.0,
+            min_x: x_2 - width / 2.0,
+            max_x: x_2 + width / 2.0,
+            min_y: y1_2.min(y2_2) - width / 2.0,
+            max_y: y1_2.max(y2_2) + width / 2.0,
         };
         let mut application = None;
+
         if let Some(effect) = &self.effect {
             options
                 .work_meter()
                 .charge(effect.stages().len().saturating_mul(3))?;
+
             if let Some(shadow) = effect.materialize_user_space(
                 &options.theme_resource_policy(),
                 bounds.min_x,
@@ -202,11 +241,11 @@ impl SequenceLifelinePaint {
                 crate::diagram_theme::EffectOutsets::default(),
             )? {
                 let region = shadow.region();
-                let [x, y, w, h] = region.as_array().map(f64::from);
+                let [x_3, y, w, h] = region.as_array().map(f64::from);
                 bounds = Bounds {
-                    min_x: x,
+                    min_x: x_3,
                     min_y: y,
-                    max_x: x + w,
+                    max_x: x_3 + w,
                     max_y: y + h,
                 };
                 let id = format!(
@@ -220,6 +259,7 @@ impl SequenceLifelinePaint {
                 receipt.effect_unhandled = true;
             }
         }
+
         if let Some(total) = &mut self.bounds {
             total.min_x = total.min_x.min(bounds.min_x);
             total.min_y = total.min_y.min(bounds.min_y);
@@ -228,6 +268,7 @@ impl SequenceLifelinePaint {
         } else {
             self.bounds = Some(bounds);
         }
+
         out.checkpoint()?;
         Ok(application)
     }

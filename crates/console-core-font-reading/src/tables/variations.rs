@@ -3126,32 +3126,18 @@ impl<'a> VariationRegion<'a> {
         ::core::option::Option::None => ZERO,
       };
 
-      match ::core::primitive::bool::then_some(coord < start || coord > end, ()) {
-        ::core::option::Option::Some(()) => {
-          return ZERO;
-        }
-        ::core::option::Option::None => {
-          match ::core::primitive::bool::then_some(coord == peak_2, ()) {
-            ::core::option::Option::Some(()) => {
-              continue;
-            }
-            ::core::option::Option::None => {
-              match ::core::primitive::bool::then_some(coord < peak_2, ()) {
-                ::core::option::Option::Some(()) => {
-                  let Ok(value_32) = scalar.mul_div(coord - start, peak_2 - start);
-
-                  scalar = value_32;
-                }
-                ::core::option::Option::None => {
-                  let Ok(value_33) = scalar.mul_div(end - coord, end - peak_2);
-
-                  scalar = value_33;
-                }
-              }
-            }
-          }
-        }
+      match (coord < start || coord > end).then_some(()) {
+        Some(()) => return ZERO,
+        None => {}
       }
+
+      let (distance, width) = match coord.cmp(&peak_2) {
+        core::cmp::Ordering::Equal => continue,
+        core::cmp::Ordering::Less => (coord - start, peak_2 - start),
+        core::cmp::Ordering::Greater => (end - coord, end - peak_2),
+      };
+      let Ok(weighted) = scalar.mul_div(distance, width);
+      scalar = weighted;
     }
 
     scalar

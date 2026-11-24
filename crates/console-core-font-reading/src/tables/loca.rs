@@ -200,7 +200,10 @@ impl ReadArgs for Loca<'_> {
 }
 
 impl<'a> FontReadWithArgs<'a> for Loca<'a> {
-  fn read_with_args(data: FontData<'a>, args: &Self::Arguments) -> Result<Self, crate::ReadError> {
+  fn read_with_args(
+    data: FontData<'a>,
+    args: &Self::Arguments,
+  ) -> Result<Self, crate::ReadError> {
     let Ok(length) = data.len();
 
     match args {

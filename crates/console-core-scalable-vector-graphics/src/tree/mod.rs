@@ -883,7 +883,9 @@ impl Node {
     })
   }
 
-  pub fn abs_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn abs_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(match self {
       Node::Group(group) => {
         let Ok(abs_bounding_box) = group.abs_bounding_box();
@@ -908,7 +910,9 @@ impl Node {
     })
   }
 
-  pub fn stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn stroke_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(match self {
       Node::Group(group) => {
         let Ok(stroke_bounding_box) = group.stroke_bounding_box();
@@ -934,7 +938,9 @@ impl Node {
     })
   }
 
-  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn abs_stroke_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(match self {
       Node::Group(group) => {
         let Ok(abs_stroke_bounding_box) = group.abs_stroke_bounding_box();
@@ -1141,15 +1147,21 @@ impl Group {
     Ok(self.bounding_box)
   }
 
-  pub fn abs_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn abs_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_bounding_box)
   }
 
-  pub fn stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn stroke_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.stroke_bounding_box)
   }
 
-  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn abs_stroke_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_stroke_bounding_box)
   }
 
@@ -1462,15 +1474,21 @@ impl Path {
     Ok(self.bounding_box)
   }
 
-  pub fn abs_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn abs_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_bounding_box)
   }
 
-  pub fn stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn stroke_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.stroke_bounding_box)
   }
 
-  pub fn abs_stroke_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn abs_stroke_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     Ok(self.abs_stroke_bounding_box)
   }
 
@@ -1644,7 +1662,9 @@ impl Image {
     Ok(rect.expect("The validated image size is representable at the origin"))
   }
 
-  pub fn abs_bounding_box(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
+  pub fn abs_bounding_box(
+    &self,
+  ) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     let Ok(rect) = self.abs_bounding_box.to_rect();
 
     Ok(rect)
@@ -2108,7 +2128,10 @@ impl<'a> Iterator for TreeNodes<'a> {
   }
 }
 
-fn child_effect_bounds(child: &Node, bounds: FloatRectangle) -> Result<FloatRectangle, console_core_never::Never> {
+fn child_effect_bounds(
+  child: &Node,
+  bounds: FloatRectangle,
+) -> Result<FloatRectangle, console_core_never::Never> {
   match child {
     Node::Group(group) => match bounds.transform(group.transform) {
       Ok(Some(mapped)) => Ok(mapped),

@@ -31,70 +31,26 @@ use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use console_core_external_programs::Program;
+use console_compositor::session::{InstanceStatus, responds};
+use console_compositor::socket::{self, Socket};
 use console_core_never::Never;
 use console_panel::description::{Description, KeyboardFocus};
 use console_waiting::Schedule;
 
-use crate::{Process, child_name, process_presence, runtime, stages};
+use crate::{Process, process_presence, runtime, stages};
 
 pub const COMING_UP: Duration = Duration::from_secs(15);
 
 const BREATH: Duration = Duration::from_millis(100);
 
 pub fn instances() -> Result<BTreeSet<String>, Never> {
-  let mut found = BTreeSet::new();
   let Ok(runtime) = runtime();
 
-  let entries = match std::fs::read_dir(runtime.join("hypr")) {
-    Ok(entries) => entries,
-    Err(_unreadable) => return Ok(found),
-  };
-
-  for entry in entries.flatten() {
-    let directory = entry.file_type().is_ok_and(|kind| kind.is_dir());
-    let name = entry.file_name();
-
-    match (directory, name.into_string()) {
-      (true, Ok(signature)) => {
-        found.insert(signature);
-      }
-      (true, Err(invalid)) => {
-        console_core_logging::debug!(
-          "console-desktop: compositor signature is not UTF-8: {invalid:?}"
-        );
-      }
-      (false, _) => continue,
-    }
-  }
-
-  Ok(found)
+  Ok(match console_compositor::session::signatures(&runtime) {
+    Ok(found) => found,
+    Err(_instance_listing_unavailable) => BTreeSet::new(),
+  })
 }
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Names {
-  ADisplay,
-  SomethingElse,
-}
-
-pub fn classify_socket(name: &str) -> Result<Names, Never> {
-  let rest = match name.strip_prefix("wayland-") {
-    Some(rest) => rest,
-    None => return Ok(Names::SomethingElse),
-  };
-
-  Ok(
-    match ::core::primitive::bool::then_some(
-      !rest.is_empty() && rest.chars().all(|said| said.is_ascii_digit()),
-      (),
-    ) {
-      ::core::option::Option::Some(()) => Names::ADisplay,
-      ::core::option::Option::None => Names::SomethingElse,
-    },
-  )
-}
-
-const WROTE_DOWN: &str = "hyprland.lock";
 
 pub fn display(signature: &str) -> Result<Option<String>, Never> {
   let Ok(runtime) = runtime();
@@ -107,31 +63,16 @@ pub fn display(signature: &str) -> Result<Option<String>, Never> {
 }
 
 fn instance_directory(runtime: &Path, signature: &str) -> Result<Option<PathBuf>, Never> {
-  let Ok(name) = child_name(signature);
-
-  Ok(name.map(|child| runtime.join("hypr").join(child)))
+  Ok(match socket::instance_directory(runtime, signature) {
+    Ok(path) => Some(path),
+    Err(_invalid_name) => None,
+  })
 }
 
 fn display_in(directory: &Path) -> Result<Option<String>, Never> {
-  let said = match console_core_atomic_writes::read_text(&directory.join(WROTE_DOWN)) {
-    Ok(said) => said,
-    Err(_unreadable) => return Ok(None),
-  };
-
-  what_it_bound(&said)
-}
-
-pub fn what_it_bound(said: &str) -> Result<Option<String>, Never> {
-  let name = match said.lines().nth(1) {
-    Some(name) => name.trim().to_string(),
-    None => return Ok(None),
-  };
-
-  let Ok(names) = classify_socket(&name);
-
-  Ok(match names {
-    Names::ADisplay => Some(name),
-    Names::SomethingElse => None,
+  Ok(match console_compositor::session::display_in(directory) {
+    Ok(display) => display,
+    Err(_display_unavailable) => None,
   })
 }
 
@@ -156,7 +97,7 @@ pub fn wait_for_one(was: &BTreeSet<String>) -> Result<Option<Came>, Never> {
       let Ok(directory) = instance_directory(&runtime, name);
       let at = directory?;
 
-      match connect_to_instance(&at.join(".socket.sock")) {
+      match console_compositor::session::connects(&at.join(Socket::Requests)) {
         Ok(()) => {}
         Err(fault) => {
           console_core_logging::trace!(
@@ -175,22 +116,6 @@ pub fn wait_for_one(was: &BTreeSet<String>) -> Result<Option<Came>, Never> {
       })
     })
   })
-}
-
-fn connect_to_instance(at: &Path) -> rustix::io::Result<()> {
-  use rustix::net::{
-    AddressFamily, SocketAddrUnix, SocketFlags, SocketType, connect, socket_with,
-  };
-
-  let address = SocketAddrUnix::new(at)?;
-  let socket = socket_with(
-    AddressFamily::UNIX,
-    SocketType::STREAM,
-    SocketFlags::NONBLOCK | SocketFlags::CLOEXEC,
-    None,
-  )?;
-
-  connect(&socket, &address)
 }
 
 pub const A_LINE: Duration = Duration::from_secs(15);
@@ -409,12 +334,9 @@ pub fn dead_instances() -> Result<Vec<PathBuf>, Never> {
       .into_iter()
       .filter(|name| *name != ours)
       .filter(|name| {
-        let Ok(mut asking) = Program::Hyprctl.command();
+        let Ok(status) = responds(name);
 
-        !asking
-          .args(["-i", name, "version"])
-          .output()
-          .is_ok_and(|done| done.status.success())
+        status == InstanceStatus::Unreachable
       })
       .filter_map(|name| {
         let Ok(directory) = instance_directory(&runtime, &name);
@@ -476,76 +398,16 @@ mod tests {
   use super::*;
 
   #[test]
-  #[cfg_attr(
-    dylint_lib = "explicit026_env_read_once",
-    allow(
-      explicit026_env_read_once,
-      reason = "which compositor this test runs under is said by the environment and nowhere else"
-    )
-  )]
   fn the_compositor_running_this_screen_is_never_one_of_the_dead() {
-    let signature = match std::env::var("HYPRLAND_INSTANCE_SIGNATURE") {
-      Ok(signature) => signature,
-      Err(_not_under_one) => return,
+    let Ok(signature) = console_compositor::instance();
+    let running = match signature {
+      Some(signature_2) => signature_2,
+      None => return,
     };
-
-    match ::core::primitive::bool::then_some(signature.is_empty(), ()) {
-      ::core::option::Option::Some(()) => return,
-      ::core::option::Option::None => {}
-    }
 
     let Ok(dead) = dead_instances();
 
-    assert!(!dead.iter().any(|path| path.ends_with(&signature)));
-  }
-
-  #[test]
-  fn a_socket_named_after_a_display_is_not_the_display() {
-    let named = |name: &str| {
-      let Ok(named) = classify_socket(name);
-
-      named
-    };
-
-    assert_eq!(named("wayland-1"), Names::ADisplay);
-    assert_eq!(named("wayland-12"), Names::ADisplay);
-    assert_eq!(named("wayland-1.lock"), Names::SomethingElse);
-    assert_eq!(
-      named("wayland-2-awww-daemon.sock"),
-      Names::SomethingElse,
-      "the wallpaper daemon opens this beside the display it draws on, and it is \
-             not the display"
-    );
-    assert_eq!(named("wayland-"), Names::SomethingElse);
-    assert_eq!(named("waylandish"), Names::SomethingElse);
-    assert_eq!(named("pipewire-0"), Names::SomethingElse);
-  }
-
-  #[test]
-  fn a_compositor_says_which_display_it_bound_on_the_second_line() {
-    assert_eq!(
-      what_it_bound("2015407\nwayland-1\n"),
-      Ok(Some("wayland-1".to_string()))
-    );
-    assert_eq!(
-      what_it_bound("2015407\nwayland-12"),
-      Ok(Some("wayland-12".to_string()))
-    );
-  }
-
-  #[test]
-  fn a_lock_caught_half_written_names_no_display() {
-    assert_eq!(what_it_bound(""), Ok(None));
-    assert_eq!(
-      what_it_bound("2015407\n"),
-      Ok(None),
-      "the pid is written before the display is"
-    );
-    assert_eq!(
-      what_it_bound("2015407\nwayl"),
-      Ok(None),
-      "and the display is written a byte at a time"
-    );
+    assert!(!dead.iter().any(|path| path.ends_with(&running)));
   }
 
   #[test]

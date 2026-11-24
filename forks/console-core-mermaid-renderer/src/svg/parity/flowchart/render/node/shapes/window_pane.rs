@@ -11,23 +11,25 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_window_pane(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (rect_offset, path_data) = prepare_window_pane_geometry(common, label);
-    if let Some((fill_d, stroke_d)) =
-        super::super::helpers::hand_drawn_path_pair(common, details, &path_data)
-    {
-        let _ = write!(
-            out,
-            r#"<g transform="translate({}, {})" class="basic label-container outer-path" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"#,
-            fmt(rect_offset / 2.0),
-            fmt(rect_offset / 2.0),
-            escape_attr(common.rough_group_style),
-            escape_attr(&fill_d),
-            escape_attr(common.fill_color),
-            escape_attr(&stroke_d),
-            escape_attr(common.stroke_color),
-            fmt(common.stroke_width as f64),
-            escape_attr(common.stroke_dasharray),
-        );
-        return;
+
+    match super::super::helpers::hand_drawn_path_pair(common, details, &path_data) {
+        Some((fill_d, stroke_d)) => {
+            let _ = write!(
+                out,
+                r#"<g transform="translate({}, {})" class="basic label-container outer-path" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"#,
+                fmt(rect_offset / 2.0),
+                fmt(rect_offset / 2.0),
+                escape_attr(common.rough_group_style),
+                escape_attr(&fill_d),
+                escape_attr(common.fill_color),
+                escape_attr(&stroke_d),
+                escape_attr(common.stroke_color),
+                fmt(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                escape_attr(common.stroke_dasharray),
+            );
+            return;
+        },
+        ::core::option::Option::None => {},
     }
 
     if let Some((fill_d, stroke_d)) =
@@ -59,7 +61,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_window_pane(
             r#"<path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}" style="{}"/>"#,
             escape_attr(&stroke_d),
             escape_attr(common.stroke_color),
-            fmt(common.stroke_width as f64),
+            fmt(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
             escape_attr(common.stroke_dasharray),
             escape_attr(common.style)
         );
@@ -87,8 +89,8 @@ fn prepare_window_pane_geometry(
     common: &super::super::FlowchartNodeGeometry<'_>,
     label: &mut super::super::FlowchartNodeLabelState<'_>,
 ) -> (f64, String) {
-    // Mermaid `windowPane.ts` (non-handDrawn): RoughJS multi-subpath with `roughness=0` + a
-    // fixed `rectOffset=10` and a translation of `(+5, +5)`.
+
+
     let rect_offset = 10.0;
     let out_w = common.layout_node.width.max(1.0);
     let out_h = common.layout_node.height.max(1.0);
@@ -97,7 +99,7 @@ fn prepare_window_pane_geometry(
     let x = -w / 2.0;
     let y = -h / 2.0;
 
-    // Label transform includes the same `rectOffset/2` shift as the container.
+
     label.dx = rect_offset / 2.0;
     label.dy = rect_offset / 2.0;
 

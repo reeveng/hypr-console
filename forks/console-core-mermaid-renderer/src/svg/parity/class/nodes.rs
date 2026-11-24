@@ -130,18 +130,20 @@ pub(super) fn render_class_render_tree<O: SvgOutput>(
                     .get(root_id.0)
                     .expect("validated Class render root id");
                 let namespace_id = root.namespace_id.as_deref();
-                let origin = namespace_id
+                let origin = match namespace_id
                     .map(|id| {
                         clusters_by_id
                             .get(id)
                             .copied()
                             .expect("validated Class namespace root cluster")
                     })
-                    .map(class_namespace_root_offset)
-                    .unwrap_or((0.0, 0.0));
+                    .map(class_namespace_root_offset) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => (0.0, 0.0),
+                };
                 let in_namespace_root = namespace_id.is_some();
 
-                if let Some(namespace_id) = namespace_id {
+                if let Some(namespace_id_2) = namespace_id {
                     let _ = write!(
                         out,
                         r#"<g class="root" transform="translate({}, {})">"#,
@@ -172,7 +174,7 @@ pub(super) fn render_class_render_tree<O: SvgOutput>(
                             timing: ctx.timing,
                             emit: ctx.emit,
                         },
-                        namespace_id,
+                        namespace_id_2,
                         origin.0,
                         origin.1,
                         theme_receipt,
@@ -231,14 +233,15 @@ pub(super) fn render_class_render_tree<O: SvgOutput>(
                     edge_ctx,
                     theme_receipt,
                     &edges,
-                    origin.0,
-                    origin.1,
+                    self::RenderClassSplitEdgesForNamespaceArguments { root_dx: origin.0,
+                    root_dy: origin.1 },
                     in_namespace_root,
                     typography_receipt,
                 )?;
                 out.push_str(r#"<g class="nodes">"#);
 
                 stack.push(RenderFrame::Close { in_namespace_root });
+
                 for item in root.items.iter().rev() {
                     match item {
                         ClassRenderItem::Node(id) => stack.push(RenderFrame::Node {
@@ -252,6 +255,7 @@ pub(super) fn render_class_render_tree<O: SvgOutput>(
                         }),
                     }
                 }
+
                 (ClassNodeRenderOutcome::default(), None)
             }
             RenderFrame::Node {
@@ -278,20 +282,25 @@ pub(super) fn render_class_render_tree<O: SvgOutput>(
             ),
             RenderFrame::Close { in_namespace_root } => {
                 out.push_str("</g>");
+
                 if in_namespace_root {
                     out.push_str("</g>");
                 }
+
                 (ClassNodeRenderOutcome::default(), None)
             }
         };
         out.checkpoint()?;
+
         if let (Some(receipt), Some(id)) = (typography_receipt.as_mut(), typography_node_id) {
             receipt.record_node(id, outcome.typography);
         }
+
         if let Some(emission) = outcome.theme_emission {
             theme_receipt.record_node(emission);
         }
     }
+
     Ok(())
 }
 
@@ -319,7 +328,7 @@ pub(super) fn render_class_elk_adapter_dom<O: SvgOutput>(
         .iter()
         .map(|cluster| (cluster.id.as_str(), cluster))
         .collect::<HashMap<_, _>>();
-    // Consume the prepared paint routes, including terminal straightening and label updates.
+
     let edges_by_id = edge_ctx
         .edges
         .iter()
@@ -333,6 +342,7 @@ pub(super) fn render_class_elk_adapter_dom<O: SvgOutput>(
         .roots
         .get(ctx.layout.render_tree.top.0)
         .expect("validated Class ELK render root");
+
     if root.namespace_id.is_some()
         || root
             .items
@@ -344,7 +354,7 @@ pub(super) fn render_class_elk_adapter_dom<O: SvgOutput>(
         });
     }
 
-    // Mermaid 12 paints clusters before paths so namespace fills cannot cover relations.
+
     detail.clusters += render_class_namespace_cluster_group(
         out,
         content_bounds,
@@ -390,10 +400,12 @@ pub(super) fn render_class_elk_adapter_dom<O: SvgOutput>(
 
     out.push_str(r#"<g class="nodes">"#);
     out.checkpoint()?;
+
     for item in &root.items {
         let ClassRenderItem::Node(id) = item else {
             unreachable!("Class ELK render root was validated as flat")
         };
+
         let outcome = render_class_node_id(
             ClassNodesRenderState {
                 out,
@@ -410,13 +422,16 @@ pub(super) fn render_class_elk_adapter_dom<O: SvgOutput>(
             },
         )?;
         out.checkpoint()?;
+
         if let Some(receipt) = typography_receipt.as_mut() {
             receipt.record_node(id, outcome.typography);
         }
+
         if let Some(emission) = outcome.theme_emission {
             theme_receipt.record_node(emission);
         }
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
     Ok(())
@@ -429,6 +444,7 @@ fn validate_class_render_tree(
     edges_by_id: &HashMap<&str, &LayoutEdge>,
 ) -> Result<()> {
     let tree = &ctx.layout.render_tree;
+
     if tree.roots.is_empty() || tree.top.0 >= tree.roots.len() {
         return Err(Error::InvalidModel {
             message: format!(
@@ -438,6 +454,7 @@ fn validate_class_render_tree(
             ),
         });
     }
+
     if layout_nodes_by_id.len() != ctx.layout.nodes.len()
         || clusters_by_id.len() != ctx.layout.clusters.len()
         || edges_by_id.len() != ctx.layout.edges.len()
@@ -457,6 +474,7 @@ fn validate_class_render_tree(
     let mut owned_clusters = HashSet::new();
     let mut owned_edges = HashSet::new();
     let mut stack = vec![ValidationFrame::Enter(tree.top)];
+
     while let Some(frame) = stack.pop() {
         match frame {
             ValidationFrame::Enter(root_id) => {
@@ -465,6 +483,7 @@ fn validate_class_render_tree(
                         message: format!("missing Class render root {}", root_id.0),
                     });
                 };
+
                 match root_state[root_id.0] {
                     1 => {
                         return Err(Error::InvalidModel {
@@ -478,6 +497,7 @@ fn validate_class_render_tree(
                     }
                     _ => {}
                 }
+
                 root_state[root_id.0] = 1;
                 stack.push(ValidationFrame::Exit(root_id));
 
@@ -491,6 +511,7 @@ fn validate_class_render_tree(
                         ),
                     });
                 }
+
                 for cluster_id in &root.cluster_ids {
                     if !clusters_by_id.contains_key(cluster_id.as_str()) {
                         return Err(Error::InvalidModel {
@@ -500,6 +521,7 @@ fn validate_class_render_tree(
                             ),
                         });
                     }
+
                     if !owned_clusters.insert(cluster_id.as_str()) {
                         return Err(Error::InvalidModel {
                             message: format!(
@@ -508,6 +530,7 @@ fn validate_class_render_tree(
                         });
                     }
                 }
+
                 for edge_id in &root.edge_ids {
                     if !edges_by_id.contains_key(edge_id.as_str()) {
                         return Err(Error::InvalidModel {
@@ -517,12 +540,14 @@ fn validate_class_render_tree(
                             ),
                         });
                     }
+
                     if !owned_edges.insert(edge_id.as_str()) {
                         return Err(Error::InvalidModel {
                             message: format!("Class edge {edge_id} has multiple render owners"),
                         });
                     }
                 }
+
                 for item in root.items.iter().rev() {
                     match item {
                         ClassRenderItem::Node(node_id) => {
@@ -534,6 +559,7 @@ fn validate_class_render_tree(
                                     ),
                                 });
                             };
+
                             if node.is_cluster {
                                 return Err(Error::InvalidModel {
                                     message: format!(
@@ -541,6 +567,7 @@ fn validate_class_render_tree(
                                     ),
                                 });
                             }
+
                             if !ctx.class_nodes_by_id.contains_key(node_id.as_str())
                                 && !ctx.note_by_id.contains_key(node_id.as_str())
                                 && !ctx.iface_by_id.contains_key(node_id.as_str())
@@ -551,6 +578,7 @@ fn validate_class_render_tree(
                                     ),
                                 });
                             }
+
                             if !owned_nodes.insert(node_id.as_str()) {
                                 return Err(Error::InvalidModel {
                                     message: format!(
@@ -568,6 +596,7 @@ fn validate_class_render_tree(
                                     ),
                                 });
                             }
+
                             stack.push(ValidationFrame::Enter(*child_id));
                         }
                     }
@@ -582,6 +611,7 @@ fn validate_class_render_tree(
             message: format!("unattached Class render root {unattached}"),
         });
     }
+
     for node in &ctx.layout.nodes {
         if !node.is_cluster && !owned_nodes.contains(node.id.as_str()) {
             return Err(Error::InvalidModel {
@@ -589,6 +619,7 @@ fn validate_class_render_tree(
             });
         }
     }
+
     for cluster in &ctx.layout.clusters {
         if !owned_clusters.contains(cluster.id.as_str()) {
             return Err(Error::InvalidModel {
@@ -596,6 +627,7 @@ fn validate_class_render_tree(
             });
         }
     }
+
     for edge in &ctx.layout.edges {
         if !owned_edges.contains(edge.id.as_str()) {
             return Err(Error::InvalidModel {
@@ -603,6 +635,7 @@ fn validate_class_render_tree(
             });
         }
     }
+
     Ok(())
 }
 
@@ -614,8 +647,7 @@ fn render_class_split_edges_for_namespace<O: SvgOutput>(
     edge_ctx: &ClassSplitEdgeGroupsRenderContext<'_>,
     theme_receipt: &mut crate::class::ClassThemeOutcomes,
     edges: &[LayoutEdge],
-    root_dx: f64,
-    root_dy: f64,
+    RenderClassSplitEdgesForNamespaceArguments { root_dx, root_dy }: RenderClassSplitEdgesForNamespaceArguments,
     in_namespace_root: bool,
     typography_receipt: &mut Option<crate::class::ClassTextOutcomes>,
 ) -> Result<()> {
@@ -630,9 +662,9 @@ fn render_class_split_edges_for_namespace<O: SvgOutput>(
         diagram_marker_class: edge_ctx.diagram_marker_class,
         diagram_id: edge_ctx.diagram_id,
         content_tx: if in_namespace_root {
-            // The recursive Class root's x origin already folds in Dagre's fixed graph margin.
-            // Adding the top-level content translation again moves only the edge route 8px to the
-            // right of nodes rendered in the same local coordinate frame.
+
+
+
             -root_dx
         } else {
             edge_ctx.content_tx
@@ -669,6 +701,11 @@ fn render_class_split_edges_for_namespace<O: SvgOutput>(
         if in_namespace_root { root_dx } else { 0.0 },
         if in_namespace_root { root_dy } else { 0.0 },
     )
+}
+
+struct RenderClassSplitEdgesForNamespaceArguments {
+    root_dx: f64,
+    root_dy: f64,
 }
 
 fn render_class_node_id<O: SvgOutput>(
@@ -836,6 +873,7 @@ fn render_class_node_id<O: SvgOutput>(
 
     let use_html_labels =
         settings.diagram_use_html_labels || crate::class::class_node_requires_math(node.node);
+
     if use_html_labels {
         let html_stats = render_class_html_node_body(
             ClassNodeRenderState {
@@ -875,6 +913,7 @@ fn render_class_node_id<O: SvgOutput>(
                 message: format!("missing prepared Class SVG title for `{}`", n.id),
             });
         };
+
         let svg_stats = render_class_svg_node_body(
             ClassNodeRenderState {
                 out,
@@ -907,9 +946,11 @@ fn render_class_node_id<O: SvgOutput>(
     }
 
     out.push_str("</g>");
+
     if node_link_open {
         out.push_str("</a>");
     }
+
     Ok(ClassNodeRenderOutcome {
         theme_emission: Some(binding.emission),
         typography: binding.typography,

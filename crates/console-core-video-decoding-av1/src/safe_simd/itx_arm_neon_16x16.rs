@@ -14,8 +14,25 @@
 //! transposed results to a 512-byte intermediate buffer. The column
 //! transform then runs twice (cols 0-7, then cols 8-15), adding results
 //! to the destination.
+//!
+//! The 16-point DCT uses the 8-point transform for even-indexed inputs and
+//! rotates the remaining inputs before joining them. ADST keeps the order of
+//! the assembly lanes across four butterfly stages. FlipADST reverses the
+//! outputs. Identity scales by `2 * sqrt(2)`, using a rounded fractional
+//! product and two saturating additions, matching assembly.
+//!
+//! The second group of eight rows is all zero below end-of-block 36 for
+//! DCT/ADST/flipADST pairs and identity/identity. The horizontal and vertical
+//! DCT combinations with identity use threshold 8. Unsupported directional
+//! ADST/flipADST combinations also use the conservative 8. An overly high
+//! threshold would drop coefficients. The DC path rounds with shifts of two
+//! between the DCT scalings and four after them. Tests allow scalar and NEON
+//! rounding to differ across transform stages.
 
-#![allow(clippy::too_many_arguments)]
+#![allow(
+  clippy::too_many_arguments,
+  reason = "the NEON entry points take the destination, coefficients, transform parameters and SIMD capability explicitly"
+)]
 #![cfg_attr(not(feature = "unchecked"), forbid(unsafe_code))]
 #![cfg_attr(feature = "unchecked", deny(unsafe_code))]
 
@@ -33,26 +50,14 @@ use super::itx_arm_neon_8x8::{
 };
 use super::itx_arm_neon_common::IDCT_COEFFS;
 
-/// Type alias for 16 NEON vectors (one full 16-point transform state).
 #[cfg(target_arch = "aarch64")]
 type V16 = [int16x8_t; 16];
 
-/// IADST16 coefficients packed as two `int16x8_t` vectors.
-///
-/// v0: [4091, 201, 3973, 995, 3703, 1751, 3290, 2440]
-/// v1: [2751, 3035, 2106, 3513, 1380, 3857, 601, 4052]
 #[cfg(target_arch = "aarch64")]
 pub(crate) const IADST16_COEFFS_V0: [i16; 8] = [4091, 201, 3973, 995, 3703, 1751, 3290, 2440];
 #[cfg(target_arch = "aarch64")]
 pub(crate) const IADST16_COEFFS_V1: [i16; 8] = [2751, 3035, 2106, 3513, 1380, 3857, 601, 4052];
 
-/// 16-point inverse DCT on 16 int16x8_t vectors.
-///
-/// Calls `idct_8_q` on even-indexed inputs, then processes odd-indexed inputs
-/// through butterfly stages. Uses IDCT coefficients from v0 and v1:
-///
-/// v0: [2896, 23168, 1567, 3784, 799, 4017, 3406, 2276]  (idct4+idct8)
-/// v1: [401, 4076, 3166, 2598, 1931, 3612, 3920, 1189]    (idct16)
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn idct_16_q(v: V16) -> V16 {
@@ -299,16 +304,6 @@ pub(crate) fn idct_16_q(v: V16) -> V16 {
   ]
 }
 
-/// 16-point inverse ADST on 16 int16x8_t vectors.
-///
-/// Direct port of the `iadst_16` assembly macro. This is the most complex
-/// transform, with 4 stages of butterfly operations.
-///
-/// Input mapping from assembly: v[0]..v[15] map to v16..v31
-/// Output mapping: o[0]..o[15] map to the output indices.
-///
-/// For normal ADST, outputs are in natural order.
-/// For flipADST, the caller reverses the output order.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn iadst_16_q(v: V16) -> V16 {
@@ -743,19 +738,6 @@ pub(crate) fn iadst_16_q(v: V16) -> V16 {
   ]
 }
 
-/// 16-point identity transform on 16 int16x8_t vectors.
-///
-/// For 16x16 blocks, the identity transform multiplies by 2*sqrt(2).
-/// This is implemented as: x * 2 + (x * ((5793-4096)*2*8) + 0x4000) >> 15
-///
-/// Assembly:
-/// ```text
-/// mov w16, #2*(5793-4096)*8   // 27152
-/// dup v0.4h, w16
-/// sqrdmulh v2.8h, vi.8h, v0.h[0]
-/// sqadd    vi.8h, vi.8h, vi.8h    // vi *= 2
-/// sqadd    vi.8h, vi.8h, v2.8h    // vi += round(vi * scale)
-/// ```
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn identity_16_q(mut v: V16) -> V16 {
@@ -779,35 +761,6 @@ pub(crate) fn identity_16_q(mut v: V16) -> V16 {
   v
 }
 
-/// Transpose a 16x16 matrix stored as two halves.
-///
-/// The 16x16 block is split into:
-///   top:    rows 0-7    (8 vectors)
-///   bottom: rows 8-15   (8 vectors)
-///
-/// After transpose:
-///   left:   columns 0-7  → new rows 0-7
-///   right:  columns 8-15 → new rows 8-15
-///
-/// This uses 4 blocks of 8x8 transpose:
-///   TL = transpose(top[0..8].lo)     → rows 0-7, cols 0-7
-///   TR = transpose(top[0..8].hi)     → rows 0-7, cols 8-15
-///   BL = transpose(bottom[0..8].lo)  → rows 8-15, cols 0-7
-///   BR = transpose(bottom[0..8].hi)  → rows 8-15, cols 8-15
-///
-/// After transpose, swap TR and BL (off-diagonal blocks).
-///
-/// But actually, in the assembly the 16x16 is stored row-interleaved
-/// across the two halves. The horizontal transform processes 16 values
-/// per row, stored as two 8x8 groups: rows 0-7 of both halves are
-/// processed, then rows 8-15.
-///
-/// For the 16x16 case specifically, the transpose happens on the
-/// intermediate buffer, working with 16-element rows stored as
-/// two consecutive int16x8_t vectors.
-///
-/// This function takes two arrays of 8 vectors each (representing
-/// the top and bottom halves) and produces two new arrays.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn transpose_16x16_half(
@@ -872,14 +825,6 @@ fn transpose_16x16_half(
   )
 }
 
-/// Add 16 rows of 8 pixels to destination for 8bpc.
-///
-/// For each of 16 rows:
-///   1. Apply rounding shift right by 4
-///   2. Load 8 dst u8 pixels, zero-extend to u16
-///   3. Add i16 transform result to u16 pixels
-///   4. Saturate i16→u8
-///   5. Store 8 bytes
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn add_to_dst_8x16_8bpc(dst: &mut [u8], dst_base: usize, stride: isize, v: V16) {
@@ -901,7 +846,6 @@ fn add_to_dst_8x16_8bpc(dst: &mut [u8], dst_base: usize, stride: isize, v: V16) 
   }
 }
 
-/// Add 16 rows of 8 pixels to destination for 16bpc.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn add_to_dst_8x16_16bpc(
@@ -947,7 +891,6 @@ fn add_to_dst_8x16_16bpc(
   }
 }
 
-/// Row/column transform type for 16x16 blocks.
 #[cfg(target_arch = "aarch64")]
 #[derive(Clone, Copy)]
 pub(crate) enum TxType16 {
@@ -957,7 +900,6 @@ pub(crate) enum TxType16 {
   Identity,
 }
 
-/// Apply a 1D 16-point transform to 16 int16x8_t vectors.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn apply_tx16(tx: TxType16, v: V16) -> V16 {
@@ -974,19 +916,6 @@ fn apply_tx16(tx: TxType16, v: V16) -> V16 {
   }
 }
 
-/// DC-only fast path for DCT_DCT 16x16 with eob=0.
-///
-/// Algorithm (from assembly `idct_dc 16, 16, 2`):
-/// ```text
-/// dc = coeff[0]
-/// coeff[0] = 0
-/// scale = 2896*8 = 23168
-/// dc = sqrdmulh(dc, scale)     // first scaling
-/// dc = srshr(dc, 2)            // shift=2 for 16x16
-/// dc = sqrdmulh(dc, scale)     // second scaling
-/// dc = srshr(dc, 4)            // final shift
-/// ```
-/// Then broadcast to all 16x16 pixels and add.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dc_only_16x16_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff: &mut [i16]) {
@@ -1032,7 +961,6 @@ fn dc_only_16x16_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff:
   }
 }
 
-/// DC-only fast path for DCT_DCT 16x16 16bpc.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dc_only_16x16_16bpc(
@@ -1115,17 +1043,6 @@ fn dc_only_16x16_16bpc(
   }
 }
 
-/// `eob` below which a 16x16 transform's rows 8..15 are guaranteed zero.
-///
-/// From `src/arm/64/itx.S`, `def_fn_16x16 <txfm1>, <txfm2>, <eob_half>`:
-/// 36 for every pairing of {dct, adst, flipadst} plus identity/identity, and
-/// **8** for `dct, identity` (H_DCT) and `identity, dct` (V_DCT).
-///
-/// Being too LOW is always safe — it just transforms an all-zero row group,
-/// which contributes nothing. Being too HIGH silently discards coefficients.
-/// So the four pairings AV1 does not permit at 16x16 (H_ADST, V_ADST,
-/// H_FLIPADST, V_FLIPADST — dav1d has no 16x16 kernel for them at all) take
-/// the conservative 8 rather than an invented value.
 #[cfg(target_arch = "aarch64")]
 #[must_use]
 fn eob_half_16x16(row_tx: TxType16, col_tx: TxType16) -> i32 {
@@ -1139,24 +1056,6 @@ fn eob_half_16x16(row_tx: TxType16, col_tx: TxType16) -> i32 {
   }
 }
 
-/// NEON implementation of generic 16x16 inverse transform add for 8bpc.
-///
-/// Mirrors `inv_txfm_add_16x16_neon` from itx.S lines 1433-1464.
-///
-/// Algorithm:
-/// 1. Process two 8-column halves of the 16x16 coefficient block:
-///    a. Load 16 rows x 8 columns into V16
-///    b. Clear coefficient buffer
-///    c. Apply row transform (or identity)
-///    d. For non-identity: shift right by 2
-///    e. For identity: apply identity_8x16_shift2 (sqrdmulh + sshr + srhadd)
-///    f. Transpose two 8x8 blocks within each half
-///    g. Store interleaved to 512-byte temp buffer
-///
-/// 2. Process two 8-column halves of the transposed result:
-///    a. Load 16 rows from temp buffer
-///    b. Apply column transform
-///    c. Add to destination
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_16x16_8bpc_neon(
@@ -1361,7 +1260,6 @@ pub(crate) fn inv_txfm_add_16x16_8bpc_neon(
   }
 }
 
-/// NEON implementation of generic 16x16 inverse transform add for 16bpc.
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_16x16_16bpc_neon(
@@ -1578,6 +1476,13 @@ pub(crate) fn inv_txfm_add_16x16_16bpc_neon(
   }
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit080_macro_budget",
+  expect(
+    explicit080_macro_budget,
+    reason = "this emits 16 8bpc transform entry points whose capability, buffer and rounding arguments are identical and only the axis transforms differ"
+  )
+)]
 macro_rules! def_16x16_8bpc {
   ($name:ident, $row:expr, $col:expr) => {
     #[cfg(target_arch = "aarch64")]
@@ -1606,6 +1511,13 @@ macro_rules! def_16x16_8bpc {
   };
 }
 
+#[cfg_attr(
+  dylint_lib = "explicit080_macro_budget",
+  expect(
+    explicit080_macro_budget,
+    reason = "this emits 16 16bpc transform entry points whose capability, buffer and rounding arguments are identical and only the axis transforms differ"
+  )
+)]
 macro_rules! def_16x16_16bpc {
   ($name:ident, $row:expr, $col:expr) => {
     #[cfg(target_arch = "aarch64")]
@@ -1817,10 +1729,6 @@ mod tests {
   use crate::include::common::intops::iclip;
   use archmage::SimdToken;
 
-  /// Maximum per-pixel difference allowed between NEON and scalar.
-  /// NEON matches the dav1d assembly (the reference); scalar Rust has known
-  /// rounding differences that scale with coefficient magnitude and accumulate
-  /// across stages. Larger transforms have more stages.
   const MAX_DIFF: i32 = 40;
 
   #[must_use]
@@ -2330,7 +2238,6 @@ mod tests {
     ]
   }
 
-  /// Full scalar reference for DCT_DCT 16x16 8bpc
   fn scalar_dct_dct_16x16(dst: &mut [u8], stride: isize, coeff: &mut [i16]) {
     let mut tmp = [0i32; 256];
 
@@ -2385,7 +2292,6 @@ mod tests {
     coeff[0..256].fill(0);
   }
 
-  /// Full scalar reference for IDENTITY_IDENTITY 16x16 8bpc
   fn scalar_identity_identity_16x16(dst: &mut [u8], stride: isize, coeff: &mut [i16]) {
     let sqrt2x2 = 5793i32;
 

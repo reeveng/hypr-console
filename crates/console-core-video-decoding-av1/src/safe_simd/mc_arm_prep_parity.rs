@@ -34,7 +34,6 @@ use crate::include::common::bitdepth::{BitDepth, BitDepth8, BitDepth16};
 use crate::include::dav1d::picture::Rav1dPictureDataComponent;
 use crate::src::enum_map::EnumKey;
 use crate::src::error::{Rav1dError, Rav1dResult};
-use crate::src::internal::COMPINTER_LEN;
 use crate::src::levels::Filter2d;
 use crate::src::mc::{UnscaledSampling, prep_unscaled_reference};
 use console_core_geometry::{Point, Size};
@@ -202,8 +201,8 @@ where
   let Ok(stride) = index(plane.stride);
   let Ok(base) = index(plane.origin);
   let Ok(length) = index(plane.count);
-  let mut native_predictors = [0_i16; COMPINTER_LEN];
-  let mut reference_predictors = [0_i16; COMPINTER_LEN];
+  let mut native_predictors = [0_i16; 128 * 128];
+  let mut reference_predictors = [0_i16; 128 * 128];
   let neon = native_predictors
     .get_mut(..length)
     .ok_or(Rav1dError::EINVAL)?;

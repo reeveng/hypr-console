@@ -16,11 +16,16 @@ pub(super) struct ParsedJson {
 /// preserves key order and JavaScript numbers that JSON.stringify emits as null.
 pub(super) fn parse(source: &str, offset: usize) -> Result<ParsedJson, ParseIssue> {
     let decoded = serde_json::from_str::<Value>(source);
-    if decoded.is_err() {
-        // IgnoredAny validates number syntax without requiring a finite f64.
-        serde_json::from_str::<IgnoredAny>(source)
-            .map_err(|error| json_error(source, offset, error))?;
+
+    match decoded {
+        ::core::result::Result::Err(_) => {
+
+            serde_json::from_str::<IgnoredAny>(source)
+                .map_err(|error| json_error(source, offset, error))?;
+        },
+        ::core::result::Result::Ok(_) => {},
     }
+
     let encoded = decoded.is_err()
         && json_string::contains_unpaired(source)
             .map_err(|error| json_error(source, offset, error))?;
@@ -47,14 +52,17 @@ pub(super) fn parse(source: &str, offset: usize) -> Result<ParsedJson, ParseIssu
     } else {
         let mut normalized = String::new();
         let mut previous = 0;
+
         for (range, replacement) in &collector.replacements {
             normalized.push_str(&source[previous..range.start]);
             normalized.push_str(replacement);
             previous = range.end;
         }
+
         normalized.push_str(&source[previous..]);
         serde_json::from_str(&normalized).map_err(|error| json_error(source, offset, error))?
     };
+
     if !value.is_object() {
         return Err(ParseIssue::new(
             "JSON value must have an object root",
@@ -64,7 +72,8 @@ pub(super) fn parse(source: &str, offset: usize) -> Result<ParsedJson, ParseIssu
             },
         ));
     }
-    // JSON.parse uses binary64 for every number, including integer literals.
+
+
     normalize_json_numbers(&mut value);
     Ok(ParsedJson {
         value,
@@ -74,6 +83,7 @@ pub(super) fn parse(source: &str, offset: usize) -> Result<ParsedJson, ParseIssu
     })
 }
 
+#[must_use]
 fn json_error(source: &str, offset: usize, error: serde_json::Error) -> ParseIssue {
     let line_start = source
         .split_inclusive('\n')
@@ -87,9 +97,11 @@ fn json_error(source: &str, offset: usize, error: serde_json::Error) -> ParseIss
             .saturating_add(error.column().saturating_sub(1))
             .min(source.len())
     };
+
     while !source.is_char_boundary(local) {
         local -= 1;
     }
+
     ParseIssue::new(
         format!("Invalid JSON: {error}"),
         SourceSpan {
@@ -102,8 +114,11 @@ fn json_error(source: &str, offset: usize, error: serde_json::Error) -> ParseIss
 fn normalize_json_numbers(value: &mut Value) {
     match value {
         Value::Number(number) => {
-            if let Some(number) = number.as_f64() {
-                *value = crate::json_value::number_value(number);
+            match number.as_f64() {
+                Some(number_2) => {
+                    *value = crate::json_value::number_value(number_2);
+                },
+                ::core::option::Option::None => {},
             }
         }
         Value::Array(values) => values.iter_mut().for_each(normalize_json_numbers),
@@ -138,19 +153,22 @@ impl Collector<'_> {
         if self.source.as_bytes().get(self.offset) != Some(&byte) {
             return Err(self.offset);
         }
+
         self.offset += 1;
         Ok(())
     }
 
     fn collect_value(&mut self, pointer: &str) -> Result<(), usize> {
         self.skip_whitespace();
+
         match self.source.as_bytes().get(self.offset) {
             Some(byte @ (b'{' | b'[')) => {
-                // The fallback validator skips values iteratively. Bound this walk
-                // before serde_json's final Value decode enforces its own limit.
+
+
                 if self.depth >= 128 {
                     return Err(self.offset);
                 }
+
                 let object = *byte == b'{';
                 self.depth += 1;
                 let result = if object {
@@ -163,14 +181,17 @@ impl Collector<'_> {
             }
             Some(b'"') => self.read_string().map(|_| ()),
             Some(_) => {
-                // Scalars have already been validated by serde_json.
+
                 let start = self.offset;
+
                 while self.source.as_bytes().get(self.offset).is_some_and(|byte| {
                     !byte.is_ascii_whitespace() && !matches!(byte, b',' | b']' | b'}')
                 }) {
                     self.offset += 1;
                 }
+
                 let literal = &self.source[start..self.offset];
+
                 if let Ok(number) = literal.parse::<f64>()
                     && number.is_infinite()
                 {
@@ -180,8 +201,9 @@ impl Collector<'_> {
                         UsecaseJsonInfinity::Positive
                     };
                     self.non_finite_numbers.insert(pointer.to_owned(), infinity);
-                    self.replacements.push((start..self.offset, "null".into()));
+                    self.replacements.push((start..self.offset, <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("null")));
                 }
+
                 Ok(())
             }
             None => Err(self.offset),
@@ -193,6 +215,7 @@ impl Collector<'_> {
         let mut order = Vec::new();
         let mut seen = BTreeSet::new();
         self.skip_whitespace();
+
         if self.source.as_bytes().get(self.offset) != Some(&b'}') {
             loop {
                 let property_start = self.offset;
@@ -208,22 +231,27 @@ impl Collector<'_> {
                     "{pointer}/{}",
                     property.replace('~', "~0").replace('/', "~1")
                 );
+
                 if seen.insert(property.clone()) {
                     order.push(property);
                 } else {
                     self.delete_subtree(&property_pointer);
                 }
+
                 self.skip_whitespace();
                 self.consume(b':')?;
                 self.collect_value(&property_pointer)?;
                 self.skip_whitespace();
+
                 if self.source.as_bytes().get(self.offset) == Some(&b'}') {
                     break;
                 }
+
                 self.consume(b',')?;
                 self.skip_whitespace();
             }
         }
+
         self.consume(b'}')?;
         self.property_order.insert(pointer.to_owned(), order);
         Ok(())
@@ -233,17 +261,21 @@ impl Collector<'_> {
         self.consume(b'[')?;
         self.skip_whitespace();
         let mut index = 0;
+
         if self.source.as_bytes().get(self.offset) != Some(&b']') {
             loop {
                 self.collect_value(&format!("{pointer}/{index}"))?;
                 index += 1;
                 self.skip_whitespace();
+
                 if self.source.as_bytes().get(self.offset) == Some(&b']') {
                     break;
                 }
+
                 self.consume(b',')?;
             }
         }
+
         self.consume(b']')
     }
 
@@ -252,11 +284,13 @@ impl Collector<'_> {
         self.consume(b'"')?;
         self.offset = json_string::token_end(self.source, start);
         let literal = &self.source[start..self.offset];
+
         if self.encoded {
             let canonical = json_string::canonical(literal).map_err(|_| start)?;
             let replacement = serde_json::to_string(&canonical).map_err(|_| start)?;
             self.replacements.push((start..self.offset, replacement));
         }
+
         Ok(literal)
     }
 
@@ -264,24 +298,27 @@ impl Collector<'_> {
         self.property_order.remove(pointer);
         self.non_finite_numbers.remove(pointer);
         let prefix = format!("{pointer}/");
-        // Only descendants are visited, so repeated scalar keys do not rescan
-        // unrelated objects. The separator keeps similarly named siblings intact.
+
+
         let descendants: Vec<_> = self
             .property_order
             .range(prefix.clone()..)
             .take_while(|(key, _)| key.starts_with(&prefix))
             .map(|(key, _)| key.clone())
             .collect();
+
         for descendant in descendants {
             self.property_order.remove(&descendant);
         }
-        let descendants: Vec<_> = self
+
+        let descendants_2: Vec<_> = self
             .non_finite_numbers
             .range(prefix.clone()..)
             .take_while(|(key, _)| key.starts_with(&prefix))
             .map(|(key, _)| key.clone())
             .collect();
-        for descendant in descendants {
+
+        for descendant in descendants_2 {
             self.non_finite_numbers.remove(&descendant);
         }
     }

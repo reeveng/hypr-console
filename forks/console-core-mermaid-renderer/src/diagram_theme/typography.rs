@@ -17,6 +17,7 @@ pub enum Specified<T> {
 }
 
 impl<T> Specified<T> {
+    #[must_use]
     pub const fn is_unspecified(&self) -> bool {
         matches!(self, Self::Unspecified)
     }
@@ -101,17 +102,19 @@ pub struct FontStack {
 pub(crate) fn validate_font_stack_families(
     families: impl IntoIterator<Item = impl Into<String>>,
 ) -> Result<Vec<String>, ThemeCompileValidationError> {
-    let families = families
+    let families_2 = families
         .into_iter()
         .map(Into::into)
         .map(|family| validate_font_family(family, "typography.font_stack"))
         .collect::<Result<Vec<_>, _>>()?;
-    if families.is_empty() || families.len() > MAX_FONT_STACK_ENTRIES {
+
+    if families_2.is_empty() || families_2.len() > MAX_FONT_STACK_ENTRIES {
         return Err(ThemeCompileValidationError::InvalidCollection {
             field: "typography.font_stack",
         });
     }
-    Ok(families)
+
+    Ok(families_2)
 }
 
 impl FontStack {
@@ -119,7 +122,7 @@ impl FontStack {
         families: impl IntoIterator<Item = impl Into<String>>,
     ) -> Result<Self, ThemeCompileValidationError> {
         Ok(Self {
-            families: validate_font_stack_families(families)?.into(),
+            families: { let checked_value = validate_font_stack_families(families)?; checked_value }.into(),
         })
     }
 
@@ -127,10 +130,12 @@ impl FontStack {
         Self::new([family])
     }
 
+    #[must_use]
     pub fn families(&self) -> &[String] {
         &self.families
     }
 
+    #[must_use]
     pub fn as_css(&self) -> String {
         self.families
             .iter()
@@ -151,6 +156,7 @@ impl FontStack {
     }
 }
 
+#[must_use]
 fn is_unquoted_css_font_family(value: &str) -> bool {
     if !value
         .chars()
@@ -165,6 +171,7 @@ fn is_unquoted_css_font_family(value: &str) -> bool {
     serialized == value
 }
 
+#[must_use]
 fn is_css_generic_family(value: &str) -> bool {
     matches!(
         value.to_ascii_lowercase().as_str(),
@@ -172,6 +179,7 @@ fn is_css_generic_family(value: &str) -> bool {
     )
 }
 
+#[must_use]
 pub(crate) fn is_css_wide_keyword(value: &str) -> bool {
     matches!(
         value.to_ascii_lowercase().as_str(),
@@ -232,10 +240,12 @@ impl Default for TextStyle {
 }
 
 impl TextStyle {
+    #[must_use]
     pub(crate) const fn is_specified(&self, property: ThemeTypographyProperty) -> bool {
         self.specified & (1 << property as u16) != 0
     }
 
+    #[must_use]
     pub(crate) fn specified_properties(
         &self,
     ) -> impl Iterator<Item = ThemeTypographyProperty> + '_ {
@@ -245,6 +255,7 @@ impl TextStyle {
             .filter(|property| self.is_specified(*property))
     }
 
+    #[must_use]
     pub fn with_font_stack(mut self, font_stack: FontStack) -> Self {
         self.font_stack = font_stack;
         self.specified |= 1 << ThemeTypographyProperty::FontStack as u16;
@@ -264,11 +275,13 @@ impl TextStyle {
                 field: "typography.font_weight",
             });
         }
+
         self.font_weight = value;
         self.specified |= 1 << ThemeTypographyProperty::FontWeight as u16;
         Ok(self)
     }
 
+    #[must_use]
     pub fn with_font_style(mut self, value: crate::diagram_theme::FontStyle) -> Self {
         self.font_style = value;
         self.specified |= 1 << ThemeTypographyProperty::FontStyle as u16;
@@ -302,80 +315,97 @@ impl TextStyle {
         Ok(self)
     }
 
+    #[must_use]
     pub fn with_transform(mut self, value: TextTransform) -> Self {
         self.transform = value;
         self.specified |= 1 << ThemeTypographyProperty::Transform as u16;
         self
     }
 
+    #[must_use]
     pub fn with_decoration(mut self, value: TextDecoration) -> Self {
         self.decoration = value;
         self.specified |= 1 << ThemeTypographyProperty::Decoration as u16;
         self
     }
 
+    #[must_use]
     pub fn with_text_align(mut self, value: TextAlign) -> Self {
         self.text_align = value;
         self.specified |= 1 << ThemeTypographyProperty::TextAlign as u16;
         self
     }
 
+    #[must_use]
     pub fn with_white_space(mut self, value: WhiteSpace) -> Self {
         self.white_space = value;
         self.specified |= 1 << ThemeTypographyProperty::WhiteSpace as u16;
         self
     }
 
+    #[must_use]
     pub fn with_wrap(mut self, value: WrapMode) -> Self {
         self.wrap = value;
         self.specified |= 1 << ThemeTypographyProperty::Wrap as u16;
         self
     }
 
+    #[must_use]
     pub const fn font_stack(&self) -> &FontStack {
         &self.font_stack
     }
 
+    #[must_use]
     pub const fn font_size_px(&self) -> f32 {
         self.font_size_px
     }
 
+    #[must_use]
     pub const fn font_weight(&self) -> u16 {
         self.font_weight
     }
 
+    #[must_use]
     pub const fn font_style(&self) -> crate::diagram_theme::FontStyle {
         self.font_style
     }
 
+    #[must_use]
     pub const fn line_height(&self) -> LineHeight {
         self.line_height
     }
 
+    #[must_use]
     pub const fn letter_spacing_px(&self) -> f32 {
         self.letter_spacing_px
     }
 
+    #[must_use]
     pub const fn word_spacing_px(&self) -> f32 {
         self.word_spacing_px
     }
 
+    #[must_use]
     pub const fn transform(&self) -> TextTransform {
         self.transform
     }
 
+    #[must_use]
     pub const fn decoration(&self) -> TextDecoration {
         self.decoration
     }
 
+    #[must_use]
     pub const fn text_align(&self) -> TextAlign {
         self.text_align
     }
 
+    #[must_use]
     pub const fn white_space(&self) -> WhiteSpace {
         self.white_space
     }
 
+    #[must_use]
     pub const fn wrap(&self) -> WrapMode {
         self.wrap
     }
@@ -387,11 +417,13 @@ impl TextStyle {
             },
         )?;
         validate_positive(self.font_size_px, "typography.font_size_px")?;
+
         if !(1..=1000).contains(&self.font_weight) {
             return Err(ThemeCompileValidationError::InvalidNumber {
                 field: "typography.font_weight",
             });
         }
+
         self.line_height.validate()?;
         validate_finite(self.letter_spacing_px, "typography.letter_spacing_px")?;
         validate_finite(self.word_spacing_px, "typography.word_spacing_px")
@@ -442,9 +474,11 @@ impl TextStylePatch {
                 field: "style.typography.font_stack",
             });
         }
+
         if let Specified::Value(value) = self.font_size_px {
             validate_positive(value, "style.typography.font_size_px")?;
         }
+
         if let Specified::Value(value) = self.font_weight
             && !(1..=1000).contains(&value)
         {
@@ -452,15 +486,19 @@ impl TextStylePatch {
                 field: "style.typography.font_weight",
             });
         }
+
         if let Specified::Value(value) = self.line_height {
             value.validate()?;
         }
+
         if let Specified::Value(value) = self.letter_spacing_px {
             validate_finite(value, "style.typography.letter_spacing_px")?;
         }
+
         if let Specified::Value(value) = self.word_spacing_px {
             validate_finite(value, "style.typography.word_spacing_px")?;
         }
+
         Ok(())
     }
 
@@ -499,27 +537,32 @@ pub struct TypographySpec {
 }
 
 impl TypographySpec {
+    #[must_use]
     pub fn with_default(mut self, default: TextStyle) -> Self {
         self.default = default;
         self
     }
 
+    #[must_use]
     pub fn with_family_style(mut self, family: DiagramFamilyId, style: TextStyle) -> Self {
         self.family_overrides
             .insert(family.as_str().to_string(), style);
         self
     }
 
+    #[must_use]
     pub const fn default_style(&self) -> &TextStyle {
         &self.default
     }
 
+    #[must_use]
     pub fn family_style(&self, family: DiagramFamilyId) -> &TextStyle {
         self.family_overrides
             .get(family.as_str())
             .unwrap_or(&self.default)
     }
 
+    #[must_use]
     pub(crate) fn family_overrides(&self) -> impl ExactSizeIterator<Item = (&str, &TextStyle)> {
         self.family_overrides
             .iter()
@@ -528,9 +571,11 @@ impl TypographySpec {
 
     pub(crate) fn validate(&self) -> Result<(), ThemeCompileValidationError> {
         self.default.validate()?;
+
         for style in self.family_overrides.values() {
             style.validate()?;
         }
+
         Ok(())
     }
 }
@@ -539,22 +584,25 @@ fn validate_font_family(
     family: String,
     field: &'static str,
 ) -> Result<String, ThemeCompileValidationError> {
-    let family = family.trim().to_string();
-    if family.is_empty()
-        || family.len() > MAX_FONT_FAMILY_BYTES
-        || family.chars().any(|character| {
+    let family_2 = family.trim().to_string();
+
+    if family_2.is_empty()
+        || family_2.len() > MAX_FONT_FAMILY_BYTES
+        || family_2.chars().any(|character| {
             character.is_control() || matches!(character, ';' | '{' | '}' | '<' | '>')
         })
     {
         return Err(ThemeCompileValidationError::InvalidValue { field });
     }
-    Ok(family)
+
+    Ok(family_2)
 }
 
 fn validate_positive(value: f32, field: &'static str) -> Result<(), ThemeCompileValidationError> {
     if !value.is_finite() || value <= 0.0 {
         return Err(ThemeCompileValidationError::InvalidNumber { field });
     }
+
     Ok(())
 }
 
@@ -562,6 +610,7 @@ fn validate_finite(value: f32, field: &'static str) -> Result<(), ThemeCompileVa
     if !value.is_finite() {
         return Err(ThemeCompileValidationError::InvalidNumber { field });
     }
+
     Ok(())
 }
 
@@ -569,7 +618,7 @@ fn apply_specified<T: Clone>(value: &Specified<T>, target: &mut T, base: &T) {
     match value {
         Specified::Unspecified => {}
         Specified::Clear => *target = base.clone(),
-        Specified::Value(value) => *target = value.clone(),
+        Specified::Value(value_2) => *target = value_2.clone(),
     }
 }
 

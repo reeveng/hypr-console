@@ -17,14 +17,17 @@ pub struct CssOverridePostprocessor {
 }
 
 impl CssOverridePostprocessor {
+    #[must_use]
     pub fn new(policy: CssOverridePolicy) -> Self {
         Self { policy }
     }
 
+    #[must_use]
     pub fn strip_existing_important() -> Self {
         Self::new(CssOverridePolicy::StripExistingImportant)
     }
 
+    #[must_use]
     pub fn policy(&self) -> CssOverridePolicy {
         self.policy
     }
@@ -49,15 +52,17 @@ impl SvgPostprocessor for CssOverridePostprocessor {
     }
 }
 
+#[must_use]
 pub(crate) fn strip_css_important(svg: &str) -> String {
     if !svg.contains('!') {
         return svg.to_string();
     }
 
-    let svg = strip_css_important_in_style_elements(svg);
-    strip_css_important_in_style_attrs(&svg)
+    let svg_2 = strip_css_important_in_style_elements(svg);
+    strip_css_important_in_style_attrs(&svg_2)
 }
 
+#[must_use]
 fn strip_css_important_in_style_elements(svg: &str) -> String {
     let mut out = String::with_capacity(svg.len());
     let mut cursor = 0;
@@ -74,11 +79,14 @@ fn strip_css_important_in_style_elements(svg: &str) -> String {
         };
 
         let content_start = open_end + 1;
+
         let Some(rel_close_start) = svg[content_start..].find("</style") else {
             out.push_str(&svg[start..]);
             return out;
         };
+
         let close_start = content_start + rel_close_start;
+
         let Some(close_end) = find_tag_end(svg, close_start) else {
             out.push_str(&svg[start..]);
             return out;
@@ -100,6 +108,7 @@ fn strip_css_important_in_style_elements(svg: &str) -> String {
     out
 }
 
+#[must_use]
 fn strip_css_important_in_style_attrs(svg: &str) -> String {
     let mut out = String::with_capacity(svg.len());
     let mut cursor = 0;
@@ -127,6 +136,7 @@ fn strip_css_important_in_style_attrs(svg: &str) -> String {
     out
 }
 
+#[must_use]
 fn strip_css_important_in_tag_style_attrs(tag: &str) -> Cow<'_, str> {
     if tag.starts_with("</")
         || tag.starts_with("<!--")
@@ -143,6 +153,7 @@ fn strip_css_important_in_tag_style_attrs(tag: &str) -> Cow<'_, str> {
 
     while let Some(attr) = next_svg_quoted_attr(tag, cursor) {
         let name = &tag[attr.name_start..attr.name_end];
+
         if !name.eq_ignore_ascii_case("style") {
             cursor = attr.full_end;
             continue;
@@ -150,6 +161,7 @@ fn strip_css_important_in_tag_style_attrs(tag: &str) -> Cow<'_, str> {
 
         let value = &tag[attr.value_start..attr.value_end];
         let stripped = strip_css_important_from_css(value);
+
         if stripped == value {
             cursor = attr.full_end;
             continue;
@@ -159,6 +171,7 @@ fn strip_css_important_in_tag_style_attrs(tag: &str) -> Cow<'_, str> {
             out = String::with_capacity(tag.len());
             changed = true;
         }
+
         out.push_str(&tag[copied_until..attr.value_start]);
         out.push_str(&stripped);
         copied_until = attr.value_end;
@@ -173,6 +186,7 @@ fn strip_css_important_in_tag_style_attrs(tag: &str) -> Cow<'_, str> {
     }
 }
 
+#[must_use]
 fn strip_css_important_from_css(css: &str) -> String {
     let mut out = String::with_capacity(css.len());
     let mut copied_until = 0usize;
@@ -181,12 +195,16 @@ fn strip_css_important_from_css(css: &str) -> String {
 
     while let Some(rel) = css[search_from..].find('!') {
         let bang = search_from + rel;
-        if let Some((start, end)) = css_important_match_bounds_at_bang(css, bang) {
-            out.push_str(&css[copied_until..start]);
-            copied_until = end;
-            search_from = end;
-            stripped = true;
-            continue;
+
+        match css_important_match_bounds_at_bang(css, bang) {
+            Some((start, end)) => {
+                out.push_str(&css[copied_until..start]);
+                copied_until = end;
+                search_from = end;
+                stripped = true;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
 
         search_from = bang + 1;
@@ -200,10 +218,14 @@ fn strip_css_important_from_css(css: &str) -> String {
     out
 }
 
+#[must_use]
 fn css_important_match_bounds_at_bang(svg: &str, bang: usize) -> Option<(usize, usize)> {
     let marker_end = bang + "!important".len();
-    if !svg
-        .get(bang..marker_end)?
+
+    let checked_value = svg
+        .get(bang..marker_end)?;
+
+    if !checked_value
         .eq_ignore_ascii_case("!important")
     {
         return None;
@@ -215,16 +237,19 @@ fn css_important_match_bounds_at_bang(svg: &str, bang: usize) -> Option<(usize, 
         return None;
     }
 
-    let start = svg[..bang]
+    let start = match svg[..bang]
         .char_indices()
         .rev()
         .find(|(_, ch)| !ch.is_whitespace())
-        .map(|(idx, ch)| idx + ch.len_utf8())
-        .unwrap_or(0);
+        .map(|(idx, ch)| idx + ch.len_utf8()) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => 0,
+    };
 
     Some((start, marker_end))
 }
 
+#[must_use]
 fn is_css_regex_word_char(ch: char) -> bool {
     ch == '_' || ch.is_alphanumeric()
 }

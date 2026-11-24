@@ -20,19 +20,25 @@ fn write_svg_text_inner_word(
     font_weight: Option<u16>,
 ) {
     out.push_str("<tspan");
+
     if reset_font_style {
         out.push_str(r#" font-style="normal""#);
     }
+
     out.push_str(r#" class="text-inner-tspan""#);
+
     if let Some(weight) = font_weight {
         let _ = write!(out, r#" font-weight="{weight}""#);
     } else if reset_font_style {
         out.push_str(r#" font-weight="normal""#);
     }
+
     out.push('>');
+
     if word_index > 0 {
         out.push(' ');
     }
+
     write_svg_text_word(out, word, entity_mode);
     out.push_str("</tspan>");
 }
@@ -124,6 +130,7 @@ fn write_svg_text_source_word_lines_impl(
 
     for (line_index, words) in lines.iter().enumerate() {
         open_tspan(out, line_index, center_text, true, 1.1, false);
+
         for (word_index, word) in words.iter().enumerate() {
             write_svg_text_inner_word(
                 out,
@@ -134,6 +141,7 @@ fn write_svg_text_source_word_lines_impl(
                 font_weight,
             );
         }
+
         out.push_str("</tspan>");
     }
 
@@ -147,13 +155,16 @@ fn open_svg_text<'a>(
 ) -> Option<&'a str> {
     out.push_str(r#"<text y="-10.1""#);
     let emitted_style = super::util::write_style_attribute(out, style);
+
     if center_text {
         out.push_str(r#" text-anchor="middle""#);
     }
+
     out.push('>');
     emitted_style
 }
 
+#[must_use]
 fn outer_tspan_class(include_row_class: bool) -> &'static str {
     if include_row_class {
         "row text-outer-tspan"
@@ -162,6 +173,7 @@ fn outer_tspan_class(include_row_class: bool) -> &'static str {
     }
 }
 
+#[must_use]
 fn normalized_em(value: f64) -> f64 {
     (value * 1_000_000.0).round() / 1_000_000.0
 }
@@ -174,6 +186,7 @@ fn write_empty_tspan(
 ) {
     let outer_class = outer_tspan_class(include_row_class);
     let initial_y_em = 1.0 - line_height_em;
+
     if center_text {
         let _ = write!(
             out,
@@ -209,6 +222,7 @@ fn open_tspan(
         ""
     };
     let outer_class = outer_tspan_class(include_row_class);
+
     if index == 0 {
         let initial_y_em = 1.0 - line_height_em;
         let _ = write!(
@@ -243,6 +257,7 @@ fn write_svg_text_impl<'a>(
     let emitted_style = open_svg_text(out, style, center_text);
 
     let lines = crate::text::DeterministicTextMeasurer::normalized_text_lines(text);
+
     if lines.len() == 1 && lines[0].is_empty() {
         write_empty_tspan(out, center_text, include_row_class, 1.1);
         out.push_str("</text>");
@@ -251,9 +266,11 @@ fn write_svg_text_impl<'a>(
 
     for (index, line) in lines.iter().enumerate() {
         open_tspan(out, index, center_text, include_row_class, 1.1, false);
+
         for (word_index, word) in crate::text::non_markdown_svg_words(line).enumerate() {
             write_svg_text_inner_word(out, word_index, word, entity_mode, true, None);
         }
+
         out.push_str("</tspan>");
     }
 
@@ -275,6 +292,7 @@ fn write_svg_text_word(
     }
 }
 
+#[must_use]
 fn normalized_markdown_label(markdown: &str) -> &str {
     markdown
         .strip_prefix('`')
@@ -282,6 +300,7 @@ fn normalized_markdown_label(markdown: &str) -> &str {
         .unwrap_or(markdown)
 }
 
+#[must_use]
 fn markdown_to_wrapped_svg_word_lines(
     measurer: &dyn crate::text::TextMeasurer,
     markdown: &str,
@@ -334,8 +353,8 @@ fn write_svg_text_markdown_lines_with_style<'a>(
     }
 
     for (index, words) in lines.iter().enumerate() {
-        let start = index == 0 && row_style.is_some_and(|style| style.first_row_start);
-        let word_style = row_style.filter(|_| index == 0).map(|style| style.style);
+        let start = index == 0 && row_style.is_some_and(|style_2| style_2.first_row_start);
+        let word_style = row_style.filter(|_| index == 0).map(|style_3| style_3.style);
         open_tspan(out, index, center_text, include_row_class, 1.1, start);
 
         for (word_index, (word, kind)) in words.iter().enumerate() {
@@ -354,19 +373,27 @@ fn write_svg_text_markdown_lines_with_style<'a>(
                 r#"<tspan font-style="{}" class="text-inner-tspan" font-weight="{}""#,
                 font_style, font_weight
             );
-            if let Some(word_style) = word_style.filter(|style| !style.is_empty()) {
-                let _ = write!(out, r#" style="{}""#, escape_attr_display(word_style));
+
+            if let Some(word_style_2) = word_style.filter(|style_4| !style_4.is_empty()) {
+                let _ = write!(out, r#" style="{}""#, escape_attr_display(word_style_2));
             }
+
             if start {
                 out.push_str(r#" text-anchor="start""#);
             }
+
             out.push('>');
-            if word_index == 0 {
-                write_svg_text_word(out, word, entity_mode);
-            } else {
-                out.push(' ');
-                write_svg_text_word(out, word, entity_mode);
+
+            match word_index {
+                0 => {
+                    write_svg_text_word(out, word, entity_mode);
+                },
+                _ => {
+                    out.push(' ');
+                    write_svg_text_word(out, word, entity_mode);
+                },
             }
+
             out.push_str("</tspan>");
         }
 

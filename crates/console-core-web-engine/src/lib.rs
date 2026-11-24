@@ -21,6 +21,7 @@
 //! it. Encoding does the same and loses nothing an engine could have said.
 //! Text input sends printable text. Control keys travel as named keys.
 //! Reader responses carry bounded plain text and may contain paragraph breaks.
+//! Display the reader script's plain text in browser chrome.
 //! [`FrameLayout`] describes packed RGBA8 memory accompanying a frame event.
 
 #![no_std]
@@ -34,6 +35,7 @@ use core::str::FromStr;
 
 use console_core_geometry::{Point, Size};
 use console_core_never::Never;
+use console_core_number_conversion::index;
 
 #[cfg(kani)]
 #[path = "../proofs/frames.rs"]
@@ -46,12 +48,19 @@ pub enum Request {
   Click(Point<f64>),
   Scroll(Point<f64>),
   Text(String),
+  Paste(String),
+  CopySelection,
   Key(String),
   Back,
   Forward,
   Reload,
   Stop,
   Read(u64),
+  Find { text: String, backward: bool },
+  Zoom(u16),
+  Upload { chooser: u64, location: String },
+  ClosePopup,
+  Visible(bool),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -62,12 +71,37 @@ pub enum Event {
   Finished,
   Frame(Size<u32>),
   Reader(u64, String),
+  Download(DownloadState, String),
+  FileChooser(u64),
+  Selection(String),
+  Popup(bool),
+  FindResult(bool),
 }
 
-/// The script returns plain text from the current document. Its result must
-/// only be displayed as text in browser chrome.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DownloadState {
+  Started,
+  Saved,
+  Failed,
+}
+
 pub const READER_SCRIPT: &str = include_str!("reader.js");
-const MAX_READER_BYTES: usize = 48 * 1024;
+const MAX_READER_BYTES: u16 = 48 * 1024;
+
+fn bounded_text(text: &str) -> Result<String, Never> {
+  let Ok(limit) = index(MAX_READER_BYTES);
+  let bounded = match text.get(..text.floor_char_boundary(limit)) {
+    Some(prefix) => prefix,
+    None => "",
+  };
+
+  Ok(
+    bounded
+      .chars()
+      .filter(|character| matches!(character, '\n' | '\r' | '\t') || !character.is_control())
+      .collect(),
+  )
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FrameLayout {
@@ -139,6 +173,12 @@ pub fn encoded_request(request: &Request) -> Result<String, Never> {
       let Ok(printable) = address_line(text);
       format!("text {printable}")
     }
+    Request::Paste(text) => {
+      let Ok(bounded) = bounded_text(text);
+
+      format!("paste {bounded}")
+    }
+    Request::CopySelection => "copy-selection".to_string(),
     Request::Key(key) => {
       let Ok(name) = address_line(key);
       format!("key {name}")
@@ -148,6 +188,22 @@ pub fn encoded_request(request: &Request) -> Result<String, Never> {
     Request::Reload => "reload".to_string(),
     Request::Stop => "stop".to_string(),
     Request::Read(id) => format!("read {id}"),
+    Request::Find { text, backward } => {
+      let Ok(text_2) = address_line(text);
+      let verb = match backward.then_some(()) {
+        Some(()) => "find-back",
+        None => "find",
+      };
+
+      format!("{verb} {text}", text = text_2)
+    }
+    Request::Zoom(percent) => format!("zoom {percent}"),
+    Request::Upload { chooser, location } => {
+      let Ok(location_2) = address_line(location);
+      format!("upload {chooser} {location}", location = location_2)
+    }
+    Request::ClosePopup => "close-popup".to_string(),
+    Request::Visible(visible) => format!("visible {visible}"),
   })
 }
 
@@ -177,12 +233,49 @@ pub fn decoded_request(line: &str) -> Result<Option<Request>, Never> {
     }
     ("text" | "key", "") => None,
     ("text", text) => Some(Request::Text(text.to_string())),
+    ("paste", text) => {
+      let Ok(bounded) = bounded_text(text);
+
+      Some(Request::Paste(bounded))
+    }
+    ("copy-selection", "") => Some(Request::CopySelection),
     ("key", key) => Some(Request::Key(key.to_string())),
     ("back", "") => Some(Request::Back),
     ("forward", "") => Some(Request::Forward),
     ("reload", "") => Some(Request::Reload),
     ("stop", "") => Some(Request::Stop),
-    ("read", id) => id.parse().ok().map(Request::Read),
+    ("read", id) => match id.parse() {
+      Ok(sequence) => Some(Request::Read(sequence)),
+      Err(_invalid_id) => None,
+    },
+    ("find" | "find-back", "") => None,
+    ("find" | "find-back", text) => Some(Request::Find {
+      text: text.to_string(),
+      backward: verb == "find-back",
+    }),
+    ("zoom", percent) => match percent.parse() {
+      ::core::result::Result::Ok(value) => ::core::option::Option::Some(value),
+      ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None,
+    }
+    .map(Request::Zoom),
+    ("upload", payload) => payload.split_once(' ').and_then(|(chooser, location)| {
+      Some(Request::Upload {
+        chooser: {
+          let checked_value = match chooser.parse() {
+            ::core::result::Result::Ok(value) => ::core::option::Option::Some(value),
+            ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None,
+          }?;
+          checked_value
+        },
+        location: location.to_string(),
+      })
+    }),
+    ("close-popup", "") => Some(Request::ClosePopup),
+    ("visible", visible) => match visible.parse() {
+      ::core::result::Result::Ok(value) => ::core::option::Option::Some(value),
+      ::core::result::Result::Err(_invalid_boolean) => ::core::option::Option::None,
+    }
+    .map(Request::Visible),
     _ => None,
   })
 }
@@ -201,11 +294,32 @@ pub fn encoded_event(event: &Event) -> Result<String, Never> {
     }
     Event::Started => "started".to_string(),
     Event::Finished => "finished".to_string(),
+    Event::FileChooser(id) => format!("file-chooser {id}"),
+    Event::Selection(text) => {
+      let Ok(bounded) = bounded_text(text);
+
+      format!("selection {bounded}")
+    }
+    Event::Popup(open) => format!("popup {open}"),
+    Event::FindResult(found) => format!("find-result {found}"),
     Event::Frame(size) => format!("frame {} {}", size.width, size.height),
+    Event::Download(state, name) => {
+      let verb = match state {
+        DownloadState::Started => "downloading",
+        DownloadState::Saved => "downloaded",
+        DownloadState::Failed => "download-failed",
+      };
+      let Ok(name_2) = address_line(name);
+
+      format!("{verb} {name}", name = name_2)
+    }
     Event::Reader(id, text) => {
-      let bounded = text.floor_char_boundary(MAX_READER_BYTES);
-      let text = text.get(..bounded).unwrap_or(text);
-      let plain: String = text
+      let Ok(limit) = index(MAX_READER_BYTES);
+      let bounded = match text.get(..text.floor_char_boundary(limit)) {
+        Some(prefix) => prefix,
+        None => text,
+      };
+      let plain: String = bounded
         .chars()
         .filter(|character| *character == '\n' || !character.is_control())
         .collect();
@@ -226,15 +340,48 @@ pub fn decoded_event(line: &str) -> Result<Option<Event>, Never> {
     ("title", title) => Some(Event::Title(title.to_string())),
     ("started", "") => Some(Event::Started),
     ("finished", "") => Some(Event::Finished),
+    ("file-chooser", id) => match id.parse() {
+      ::core::result::Result::Ok(value) => ::core::option::Option::Some(value),
+      ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None,
+    }
+    .map(Event::FileChooser),
+    ("selection", text) => {
+      let Ok(bounded) = bounded_text(text);
+
+      Some(Event::Selection(bounded))
+    }
+    ("popup", open) => match open.parse() {
+      ::core::result::Result::Ok(value) => ::core::option::Option::Some(value),
+      ::core::result::Result::Err(_invalid_boolean) => ::core::option::Option::None,
+    }
+    .map(Event::Popup),
+    ("find-result", found) => match found.parse() {
+      ::core::result::Result::Ok(value) => ::core::option::Option::Some(value),
+      ::core::result::Result::Err(_invalid_boolean) => ::core::option::Option::None,
+    }
+    .map(Event::FindResult),
+    ("downloading", name) => Some(Event::Download(DownloadState::Started, name.to_string())),
+    ("downloaded", name) => Some(Event::Download(DownloadState::Saved, name.to_string())),
+    ("download-failed", name) => Some(Event::Download(DownloadState::Failed, name.to_string())),
     ("frame", size) => {
       let Ok(read) = size_of(size);
 
       read.map(Event::Frame)
     }
-    ("reader", payload) => payload
-      .split_once(' ')
-      .filter(|(_, text)| text.len() <= MAX_READER_BYTES)
-      .and_then(|(id, text)| Some(Event::Reader(id.parse().ok()?, text.to_string()))),
+    ("reader", payload) => {
+      let Ok(limit) = index(MAX_READER_BYTES);
+
+      match payload
+        .split_once(' ')
+        .filter(|(_, text)| text.len() <= limit)
+      {
+        Some((id, text)) => match id.parse() {
+          Ok(sequence) => Some(Event::Reader(sequence, text.to_string())),
+          Err(_invalid_id) => None,
+        },
+        None => None,
+      }
+    }
     _ => None,
   })
 }
@@ -334,12 +481,25 @@ mod tests {
       Request::Click(Point { x: 12.5, y: 300.0 }),
       Request::Scroll(Point { x: 0.0, y: -120.25 }),
       Request::Text("é ".to_string()),
+      Request::Paste("one\ntwo".to_string()),
+      Request::CopySelection,
       Request::Key("Backspace".to_string()),
       Request::Back,
       Request::Forward,
       Request::Reload,
       Request::Stop,
       Request::Read(3),
+      Request::Find {
+        text: "some words".to_string(),
+        backward: true,
+      },
+      Request::Zoom(90),
+      Request::Upload {
+        chooser: 4,
+        location: "file:///home/user/a%20file".to_string(),
+      },
+      Request::ClosePopup,
+      Request::Visible(false),
     ] {
       assert_eq!(request_round(&request), Ok(Some(request)));
     }
@@ -353,8 +513,15 @@ mod tests {
       Event::Title(String::new()),
       Event::Started,
       Event::Finished,
+      Event::FileChooser(4),
+      Event::Selection("one\ntwo".to_string()),
+      Event::Popup(true),
+      Event::FindResult(false),
       Event::Reader(3, "Heading\n\nCafé, résumé".to_string()),
       Event::Reader(4, String::new()),
+      Event::Download(DownloadState::Started, "my report.txt".to_string()),
+      Event::Download(DownloadState::Saved, "my report.txt".to_string()),
+      Event::Download(DownloadState::Failed, "my report.txt".to_string()),
       Event::Frame(Size {
         width: 1920,
         height: 1200,
@@ -366,11 +533,12 @@ mod tests {
 
   #[test]
   fn reader_text_is_bounded_at_a_unicode_boundary() {
-    let mut text = "a".repeat(MAX_READER_BYTES - 1);
+    let Ok(length) = index(MAX_READER_BYTES.saturating_sub(1));
+    let mut text = "a".repeat(length);
     text.push('€');
     assert_eq!(
       event_round(&Event::Reader(3, text)),
-      Ok(Some(Event::Reader(3, "a".repeat(MAX_READER_BYTES - 1))))
+      Ok(Some(Event::Reader(3, "a".repeat(length))))
     );
   }
 

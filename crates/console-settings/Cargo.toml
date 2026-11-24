@@ -50,11 +50,12 @@ name = "console-scale"
 path = "src/bin/console-scale.rs"
 
 [dependencies]
+console-operating-system-linux.workspace = true
 console-bluetooth.workspace = true
 console-bluetooth-agent.workspace = true
 console-bus.workspace = true
 console-core-media-access-control-addresses.workspace = true
-console-books.workspace = true
+console-application-books.workspace = true
 console-core-places.workspace = true
 console-core-qr-codes.workspace = true
 console-pictures.workspace = true
@@ -89,10 +90,11 @@ console-home-screen.workspace = true
 console-program-contract.workspace = true
 console-events.workspace = true
 console-notifications.workspace = true
-console-music.workspace = true
+console-application-music.workspace = true
 console-panel.workspace = true
 console-screen.workspace = true
 console-core-screen-orientation.workspace = true
+console-paper.workspace = true
 console-wallpaper.workspace = true
 console-input-alphabets.workspace = true
 console-input-language.workspace = true

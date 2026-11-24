@@ -4,11 +4,14 @@
 //! Transforms convert frequency-domain coefficients back to spatial-domain pixels.
 //!
 //! The scalar implementations provide references for the ARM NEON fixtures.
+//! Separable transforms apply the first named transform to rows and the second
+//! to columns. FlipADST reverses the corresponding input order.
+//!
+//! The ignored ARM benchmarks compare the autoversioned reference with the
+//! corresponding hand-written NEON transform.
 
-#![allow(clippy::too_many_arguments)]
 #![cfg_attr(not(feature = "unchecked"), forbid(unsafe_code))]
 #![cfg_attr(feature = "unchecked", deny(unsafe_code))]
-#![cfg_attr(not(all(target_arch = "aarch64", test)), allow(dead_code))]
 
 #[cfg(target_arch = "aarch64")]
 use core::arch::aarch64::*;
@@ -22,9 +25,10 @@ use crate::include::common::bitdepth::BitDepth16;
 use crate::include::common::intops::iclip;
 use crate::include::dav1d::picture::PicOffset;
 
-/// WHT 4x4 transform for 8bpc
+#[cfg(test)]
 #[autoversion]
 pub(crate) fn inv_txfm_add_wht_wht_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -32,68 +36,23 @@ pub(crate) fn inv_txfm_add_wht_wht_4x4_8bpc_inner(
   _eob: i32,
   bitdepth_max: i32,
 ) {
+  use console_core_video_inverse_transforms::inverse_walsh_hadamard4;
+
   let mut tmp = [0i32; 16];
 
-  for (y, [tmp_lane_0, tmp_lane_1, tmp_lane_2, tmp_lane_3]) in
-    <[_]>::iter_mut(<[_]>::as_chunks_mut::<4>(&mut tmp).0).enumerate()
-  {
-    let in0 = ::core::primitive::i32::wrapping_shr(
-      <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[y]),
-      2_u32,
-    );
-    let in1 = ::core::primitive::i32::wrapping_shr(
-      <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[y + 4]),
-      2_u32,
-    );
-    let in2 = ::core::primitive::i32::wrapping_shr(
-      <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[y + 8]),
-      2_u32,
-    );
-    let in3 = ::core::primitive::i32::wrapping_shr(
-      <i32 as ::core::convert::From<::core::primitive::i16>>::from(coeff[y + 12]),
-      2_u32,
-    );
-
-    let t0 = in0 + in1;
-    let t2 = in2 - in3;
-    let t4 = ::core::primitive::i32::wrapping_shr(t0 - t2, 1_u32);
-    let t3 = t4 - in3;
-    let t1 = t4 - in1;
-
-    *tmp_lane_0 = t0 - t3;
-    *tmp_lane_1 = t3;
-    *tmp_lane_2 = t1;
-    *tmp_lane_3 = t2 + t1;
+  for (column, row) in tmp.as_chunks_mut::<4>().0.iter_mut().enumerate() {
+    let samples = core::array::from_fn(|tap| i32::from(coeff[tap * 4 + column]) >> 2);
+    let Ok(transformed) = inverse_walsh_hadamard4(samples);
+    *row = transformed;
   }
 
-  for x in 0..4 {
-    let in0 = tmp
-      [::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(0, 4), x)];
-    let in1 = tmp
-      [::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(1, 4), x)];
-    let in2 = tmp
-      [::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(2, 4), x)];
-    let in3 = tmp
-      [::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(3, 4), x)];
+  for column in 0..4 {
+    let samples = core::array::from_fn(|row| tmp[row * 4 + column]);
+    let Ok(transformed) = inverse_walsh_hadamard4(samples);
 
-    let t0 = in0 + in1;
-    let t2 = in2 - in3;
-    let t4 = ::core::primitive::i32::wrapping_shr(t0 - t2, 1_u32);
-    let t3 = t4 - in3;
-    let t1 = t4 - in1;
-
-    tmp
-      [::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(0, 4), x)] =
-      t0 - t3;
-    tmp
-      [::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(1, 4), x)] =
-      t3;
-    tmp
-      [::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(2, 4), x)] =
-      t1;
-    tmp
-      [::core::primitive::usize::wrapping_add(::core::primitive::usize::wrapping_mul(3, 4), x)] =
-      t2 + t1;
+    for (row, sample) in tmp.as_chunks_mut::<4>().0.iter_mut().zip(transformed) {
+      row[column] = sample;
+    }
   }
 
   for y in 0..4 {
@@ -124,13 +83,11 @@ pub(crate) fn inv_txfm_add_wht_wht_4x4_8bpc_inner(
   }
 }
 
-/// DCT4 1D transform constants
 const DCT4_C1: i32 = 2896;
 const DCT4_C2: i32 = 2896;
 const DCT4_C3: i32 = 1567;
 const DCT4_C4: i32 = 3784;
 
-/// DCT4 1D transform
 #[inline(always)]
 #[must_use]
 fn dct4_1d(in0: i32, in1: i32, in2: i32, in3: i32) -> [i32; 4] {
@@ -148,9 +105,9 @@ fn dct4_1d(in0: i32, in1: i32, in2: i32, in3: i32) -> [i32; 4] {
   [s0, s2, s1, s3]
 }
 
-/// DCT 4x4 transform for 8bpc
 #[autoversion]
 pub(crate) fn inv_txfm_add_dct_dct_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -221,7 +178,6 @@ pub(crate) fn inv_txfm_add_dct_dct_4x4_8bpc_inner(
   }
 }
 
-/// DCT8 1D transform constants
 const COS_PI_1_16: i32 = 4017;
 const COS_PI_2_16: i32 = 3784;
 const COS_PI_3_16: i32 = 3406;
@@ -230,7 +186,6 @@ const COS_PI_5_16: i32 = 2276;
 const COS_PI_6_16: i32 = 1567;
 const COS_PI_7_16: i32 = 799;
 
-/// DCT8 1D transform
 #[inline(always)]
 #[must_use]
 fn dct8_1d(input: &[i32; 8]) -> [i32; 8] {
@@ -298,9 +253,9 @@ fn dct8_1d(input: &[i32; 8]) -> [i32; 8] {
   [out0, out1, out2, out3, out4, out5, out6, out7]
 }
 
-/// DCT 8x8 transform for 8bpc
 #[autoversion]
 fn inv_txfm_add_dct_dct_8x8_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -362,7 +317,6 @@ fn inv_txfm_add_dct_dct_8x8_8bpc_inner(
   }
 }
 
-/// DCT16 1D transform
 #[inline(always)]
 #[must_use]
 fn dct16_1d(input: &[i32; 16]) -> [i32; 16] {
@@ -670,9 +624,9 @@ fn dct16_1d(input: &[i32; 16]) -> [i32; 16] {
   out
 }
 
-/// DCT 16x16 transform for 8bpc
 #[autoversion]
 fn inv_txfm_add_dct_dct_16x16_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -734,9 +688,9 @@ fn inv_txfm_add_dct_dct_16x16_8bpc_inner(
   }
 }
 
-/// Identity 4x4 transform for 8bpc
 #[autoversion]
 pub(crate) fn inv_txfm_add_identity_identity_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -778,9 +732,9 @@ pub(crate) fn inv_txfm_add_identity_identity_4x4_8bpc_inner(
   }
 }
 
-/// Identity 8x8 transform for 8bpc
 #[autoversion]
 fn inv_txfm_add_identity_identity_8x8_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -819,7 +773,6 @@ fn inv_txfm_add_identity_identity_8x8_8bpc_inner(
   }
 }
 
-/// ADST4 1D transform
 #[inline(always)]
 #[must_use]
 fn adst4_1d(in0: i32, in1: i32, in2: i32, in3: i32) -> [i32; 4] {
@@ -854,9 +807,9 @@ fn adst4_1d(in0: i32, in1: i32, in2: i32, in3: i32) -> [i32; 4] {
   ]
 }
 
-/// ADST 4x4 transform for 8bpc
 #[autoversion]
 pub(crate) fn inv_txfm_add_adst_adst_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -926,16 +879,15 @@ pub(crate) fn inv_txfm_add_adst_adst_4x4_8bpc_inner(
   }
 }
 
-/// FlipADST4 1D transform (ADST with input flip)
 #[inline(always)]
 #[must_use]
 fn flipadst4_1d(in0: i32, in1: i32, in2: i32, in3: i32) -> [i32; 4] {
   adst4_1d(in3, in2, in1, in0)
 }
 
-/// FlipADST 4x4 transform for 8bpc
 #[autoversion]
 pub(crate) fn inv_txfm_add_flipadst_flipadst_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1005,9 +957,9 @@ pub(crate) fn inv_txfm_add_flipadst_flipadst_4x4_8bpc_inner(
   }
 }
 
-/// DCT-ADST 4x4 transform for 8bpc (DCT on rows, ADST on columns)
 #[autoversion]
 pub(crate) fn inv_txfm_add_dct_adst_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1077,9 +1029,9 @@ pub(crate) fn inv_txfm_add_dct_adst_4x4_8bpc_inner(
   }
 }
 
-/// ADST-DCT 4x4 transform for 8bpc (ADST on rows, DCT on columns)
 #[autoversion]
 pub(crate) fn inv_txfm_add_adst_dct_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1149,9 +1101,9 @@ pub(crate) fn inv_txfm_add_adst_dct_4x4_8bpc_inner(
   }
 }
 
-/// DCT-FLIPADST 4x4 transform for 8bpc
 #[autoversion]
 pub(crate) fn inv_txfm_add_dct_flipadst_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1221,9 +1173,9 @@ pub(crate) fn inv_txfm_add_dct_flipadst_4x4_8bpc_inner(
   }
 }
 
-/// FLIPADST-DCT 4x4 transform for 8bpc
 #[autoversion]
 pub(crate) fn inv_txfm_add_flipadst_dct_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1293,9 +1245,9 @@ pub(crate) fn inv_txfm_add_flipadst_dct_4x4_8bpc_inner(
   }
 }
 
-/// ADST-FLIPADST 4x4 transform for 8bpc
 #[autoversion]
 pub(crate) fn inv_txfm_add_adst_flipadst_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1365,9 +1317,9 @@ pub(crate) fn inv_txfm_add_adst_flipadst_4x4_8bpc_inner(
   }
 }
 
-/// FLIPADST-ADST 4x4 transform for 8bpc
 #[autoversion]
 pub(crate) fn inv_txfm_add_flipadst_adst_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1437,7 +1389,6 @@ pub(crate) fn inv_txfm_add_flipadst_adst_4x4_8bpc_inner(
   }
 }
 
-/// DCT32 1D transform
 #[inline(always)]
 #[must_use]
 fn dct32_1d(input: &[i32; 32]) -> [i32; 32] {
@@ -1586,9 +1537,9 @@ fn dct32_1d(input: &[i32; 32]) -> [i32; 32] {
   out
 }
 
-/// DCT 32x32 transform for 8bpc
 #[autoversion]
 fn inv_txfm_add_dct_dct_32x32_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1650,7 +1601,6 @@ fn inv_txfm_add_dct_dct_32x32_8bpc_inner(
   }
 }
 
-/// DCT64 1D transform (simplified - uses recursive approach)
 #[inline(always)]
 #[must_use]
 fn dct64_1d(input: &[i32; 64]) -> [i32; 64] {
@@ -1715,6 +1665,7 @@ fn identity4_1d_arm(c: &mut [i32], stride: usize) {
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_dct_identity_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1781,6 +1732,7 @@ pub(crate) fn inv_txfm_add_dct_identity_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_identity_dct_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1857,6 +1809,7 @@ pub(crate) fn inv_txfm_add_identity_dct_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_adst_identity_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -1924,6 +1877,7 @@ pub(crate) fn inv_txfm_add_adst_identity_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_identity_adst_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -2000,6 +1954,7 @@ pub(crate) fn inv_txfm_add_identity_adst_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_flipadst_identity_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -2067,6 +2022,7 @@ pub(crate) fn inv_txfm_add_flipadst_identity_4x4_8bpc_inner(
 
 #[autoversion]
 pub(crate) fn inv_txfm_add_identity_flipadst_4x4_8bpc_inner(
+
   dst: &mut [u8],
   dst_base: usize,
   dst_stride: isize,
@@ -2164,7 +2120,6 @@ use crate::src::levels::V_FLIPADST;
 use crate::src::levels::WHT_WHT;
 use crate::src::strided::Strided as _;
 
-/// Safe dispatch entry point for ITX SIMD on ARM.
 pub fn itxfm_add_dispatch<BD: BitDepth>(
   tx_size: usize,
   tx_type: usize,
@@ -2285,10 +2240,14 @@ pub fn itxfm_add_dispatch<BD: BitDepth>(
               }
             };
 
+          let Ok(width) = console_core_number_conversion::fixed_index(w);
+          let Ok(height) = console_core_number_conversion::fixed_index(h);
+          let size = console_core_geometry::Size { width, height };
+
           match { ::core::primitive::bool::then_some(eob < has_dc_only as i32, ()) } {
             ::core::option::Option::Some(()) => {
               let dc = super::itx_arm_hbd::hbd_dc_value(w, h, shift, coeff_i32);
-              let Ok(()) = dst.for_rows_mut::<BD, _>(w, h, |_y, row| {
+              let written = dst.for_rows_mut::<BD, _>(size, |_y, row| {
                 let px: &mut [u16] = match zerocopy::FromBytes::mut_from_bytes(row.as_mut_bytes())
                 {
                   Ok(samples) => samples,
@@ -2301,18 +2260,32 @@ pub fn itxfm_add_dispatch<BD: BitDepth>(
                 };
                 super::itx_arm_hbd::add_row_dc_hbd_neon(token, px, w, dc, bd_c);
               });
-              return true;
+              return match written {
+                Ok(()) => true,
+                Err(problem) => {
+                  console_core_logging::error!("Invalid AV1 NEON transform destination: {problem:?}");
+                  false
+                }
+              };
             }
             ::core::option::Option::None => {}
           }
 
+          #[cfg_attr(
+            dylint_lib = "explicit080_macro_budget",
+            expect(
+              explicit080_macro_budget,
+              reason = "each supported transform uses its exact compile-time stack array size without duplicating the row publication"
+            )
+          )]
           macro_rules! hbd_run {
             ($n:expr) => {{
               let mut tmp = [0i32; $n];
               super::itx_arm_hbd::inv_txfm_hbd_neon(
                 token, w, h, first, second, shift, coeff_i32, bd_c, &mut tmp,
               );
-              let Ok(()) = dst.for_rows_mut::<BD, _>(w, h, |y, row| {
+              let written = dst.for_rows_mut::<BD, _>(size, |ordinal, row| {
+                let Ok(y) = console_core_number_conversion::index(ordinal);
                 let px: &mut [u16] = match zerocopy::FromBytes::mut_from_bytes(row.as_mut_bytes())
                 {
                   Ok(samples) => samples,
@@ -2325,6 +2298,13 @@ pub fn itxfm_add_dispatch<BD: BitDepth>(
                 };
                 super::itx_arm_hbd::add_row_hbd_neon(token, px, &tmp[y * w..y * w + w], w, bd_c);
               });
+              match written {
+                Ok(()) => {}
+                Err(problem) => {
+                  console_core_logging::error!("Invalid AV1 NEON transform destination: {problem:?}");
+                  return false;
+                }
+              }
             }};
           }
 
@@ -2387,6 +2367,7 @@ pub fn itxfm_add_dispatch<BD: BitDepth>(
                 coefficients: coeff_i16,
                 eob,
               };
+
               match transform_4x4_neon(token, request, kind) {
                 Ok(()) => {}
                 Err(_invalid_block) => return false,
@@ -2860,10 +2841,6 @@ pub fn itxfm_add_dispatch<BD: BitDepth>(
   }
 }
 
-/// Benchmark comparing autoversioned (LLVM auto-vectorized) scalar fallbacks
-/// against hand-written NEON intrinsic implementations.
-///
-/// Run on aarch64: `cargo test --release -- --ignored bench_autoversion_vs_neon --nocapture`
 #[cfg(all(test, target_arch = "aarch64"))]
 mod bench_autoversion_vs_neon {
   use archmage::SimdToken as _;
@@ -2904,6 +2881,13 @@ mod bench_autoversion_vs_neon {
     median
   }
 
+  #[cfg_attr(
+    dylint_lib = "explicit080_macro_budget",
+    expect(
+      explicit080_macro_budget,
+      reason = "the test harness needs one named ignored benchmark per transform shape, all driven by the same fixture"
+    )
+  )]
   macro_rules! bench_transform {
     ($test_name:ident, $w:expr, $h:expr,
          autoversioned: $av_fn:path,

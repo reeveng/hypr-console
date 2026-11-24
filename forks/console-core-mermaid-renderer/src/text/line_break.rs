@@ -2,32 +2,44 @@
 
 /// Replaces tags matched by Mermaid's `common.lineBreakRegex` (`/<\/?br\s*\/?>/gi`).
 /// ELK applies this before Markdown parsing, including for State and Class edge labels.
+#[must_use]
 pub(crate) fn mermaid_html_breaks_to_newlines(text: &str) -> std::borrow::Cow<'_, str> {
     let mut output: Option<String> = None;
     let mut copied_until = 0;
+
     for (start, _) in text.match_indices('<') {
         let rest = &text[start + 1..];
-        let rest = rest.strip_prefix('/').unwrap_or(rest);
-        if !rest
+        let rest_2 = rest.strip_prefix('/').unwrap_or(rest);
+
+        if !rest_2
             .get(..2)
             .is_some_and(|name| name.eq_ignore_ascii_case("br"))
         {
             continue;
         }
-        let rest = rest[2..].trim_start_matches(super::is_ecmascript_whitespace);
-        let rest = rest.strip_prefix('/').unwrap_or(rest);
-        let Some(after_tag) = rest.strip_prefix('>') else {
-            continue;
+
+        let rest_3 = rest_2[2..].trim_start_matches(super::is_ecmascript_whitespace);
+        let rest_4 = rest_3.strip_prefix('/').unwrap_or(rest_3);
+
+        let after_tag = {
+            let optional_after_tag = rest_4.strip_prefix('>');
+
+            match optional_after_tag {
+                Some(matched_after_tag) => matched_after_tag,
+                ::core::option::Option::None => continue,
+            }
         };
-        let output = output.get_or_insert_with(|| String::with_capacity(text.len()));
-        output.push_str(&text[copied_until..start]);
-        output.push('\n');
+
+        let output_2 = output.get_or_insert_with(|| String::with_capacity(text.len()));
+        output_2.push_str(&text[copied_until..start]);
+        output_2.push('\n');
         copied_until = text.len() - after_tag.len();
     }
+
     match output {
-        Some(mut output) => {
-            output.push_str(&text[copied_until..]);
-            std::borrow::Cow::Owned(output)
+        Some(mut output_3) => {
+            output_3.push_str(&text[copied_until..]);
+            std::borrow::Cow::Owned(output_3)
         }
         None => std::borrow::Cow::Borrowed(text),
     }
@@ -40,6 +52,7 @@ pub(crate) fn mermaid_html_breaks_to_newlines(text: &str) -> std::borrow::Cow<'_
 /// and URI components together while retaining opportunities after characters such as `-` and
 /// `?`. CSS `white-space: break-spaces` additionally permits a break after every preserved U+0020,
 /// so runs of spaces are divided without discarding the spaces themselves.
+#[must_use]
 pub(crate) fn html_break_spaces_segments(text: &str) -> Vec<&str> {
     match html_break_spaces_segments_with_checkpoints(text, &mut || {
         Ok::<(), std::convert::Infallible>(())
@@ -82,6 +95,7 @@ pub(crate) fn html_break_spaces_segments_with_metadata_and_checkpoints<'a, E>(
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<Vec<HtmlBreakSegment<'a>>, E> {
     checkpoint()?;
+
     if text.is_empty() {
         return Ok(vec![HtmlBreakSegment {
             text,
@@ -98,19 +112,26 @@ pub(crate) fn html_break_spaces_segments_with_metadata_and_checkpoints<'a, E>(
         error: None,
     };
     let Ok(mut opportunities) = unicode_linebreak::linebreaks_iter(checked_chars, text.len());
+
     while let Some((segment_end, opportunity)) = opportunities.next() {
         let Ok(input) = opportunities.get_mut();
-        // Early input termination creates a synthetic EOT break. It must never turn a cancelled
-        // scan into a successful segment or expose offsets beyond the characters actually read.
-        if let Some(error) = input.error.take() {
-            return Err(error);
+
+
+        match input.error.take() {
+            Some(error) => {
+                return Err(error);
+            },
+            ::core::option::Option::None => {},
         }
+
         (input.checkpoint)()?;
+
         if opportunity == unicode_linebreak::BreakOpportunity::Allowed
             && text[..segment_end].ends_with('/')
         {
             continue;
         }
+
         let end = match opportunity {
             unicode_linebreak::BreakOpportunity::Mandatory => HtmlBreakKind::Mandatory,
             unicode_linebreak::BreakOpportunity::Allowed
@@ -132,12 +153,16 @@ pub(crate) fn html_break_spaces_segments_with_metadata_and_checkpoints<'a, E>(
     }
 
     let Ok(input) = opportunities.get_mut();
-    if let Some(error) = input.error.take() {
-        return Err(error);
+
+    match input.error.take() {
+        Some(error) => {
+            return Err(error);
+        },
+        ::core::option::Option::None => {},
     }
 
-    // UAX #14 emits a mandatory opportunity at the end of non-empty text. Keep the remainder as
-    // a defensive fallback in case the dependency changes that iterator contract.
+
+
     if segment_start < text.len() {
         push_break_spaces_segments(
             text,
@@ -150,6 +175,7 @@ pub(crate) fn html_break_spaces_segments_with_metadata_and_checkpoints<'a, E>(
     }
 
     (input.checkpoint)()?;
+
     if segments.is_empty() {
         Ok(vec![HtmlBreakSegment {
             text,
@@ -175,12 +201,14 @@ impl<C: FnMut() -> Result<(), E>, E> Iterator for CheckpointChars<'_, '_, C, E> 
         if self.error.is_some() {
             return None;
         }
+
         if self.processed.is_multiple_of(64)
             && let Err(error) = (self.checkpoint)()
         {
             self.error = Some(error);
             return None;
         }
+
         let item = self.chars.next()?;
         self.processed += 1;
         Some(item)
@@ -192,6 +220,7 @@ impl<C: FnMut() -> Result<(), E>, E> Iterator for CheckpointChars<'_, '_, C, E> 
 /// Deriving this from the same atomic segments used by wrapping and min-content sizing keeps
 /// callers from guessing breakability from ASCII whitespace alone. A single segment means that
 /// shrinking the containing block cannot reflow the text without an additional CSS breaking rule.
+#[must_use]
 pub(crate) fn html_has_soft_break_opportunity(text: &str) -> bool {
     html_break_spaces_segments(text).len() > 1
 }
@@ -204,18 +233,27 @@ fn push_break_spaces_segments<'a, E>(
     segments: &mut Vec<HtmlBreakSegment<'a>>,
     checkpoint: &mut impl FnMut() -> Result<(), E>,
 ) -> Result<(), E> {
-    if start >= end {
-        return Ok(());
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(start), &::core::convert::identity(end)); _explicit_ordering } {
+        ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {
+            return Ok(());
+        },
+        ::core::cmp::Ordering::Less => {},
     }
 
     let mut part_start = start;
+
     for (iteration, (offset, ch)) in text[start..end].char_indices().enumerate() {
         if iteration.is_multiple_of(64) {
             checkpoint()?;
         }
-        if ch != ' ' {
-            continue;
+
+        match ch {
+            ' ' => {},
+            _ => {
+                continue;
+            },
         }
+
         let part_end = start + offset + ch.len_utf8();
         segments.push(HtmlBreakSegment {
             text: &text[part_start..part_end],
@@ -227,12 +265,17 @@ fn push_break_spaces_segments<'a, E>(
         });
         part_start = part_end;
     }
-    if part_start < end {
-        segments.push(HtmlBreakSegment {
-            text: &text[part_start..end],
-            end: end_kind,
-        });
+
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(part_start), &::core::convert::identity(end)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less => {
+            segments.push(HtmlBreakSegment {
+                text: &text[part_start..end],
+                end: end_kind,
+            });
+        },
+        ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
     }
+
     Ok(())
 }
 
@@ -322,7 +365,7 @@ mod tests {
 
     #[test]
     fn first_unicode_scan_stops_before_consuming_the_65th_character() {
-        // These include contexts that cannot be restarted safely at a fixed chunk boundary.
+
         for text in [
             "unbreakable".repeat(1024),
             format!("a{}b", "\u{0301}".repeat(1024)),

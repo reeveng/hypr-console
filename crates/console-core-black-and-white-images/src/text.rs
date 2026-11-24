@@ -461,7 +461,9 @@ fn corners(settings: &Settings, size: Size<i32>) -> Result<(i32, i32), Never> {
   Ok(match (settings.orientation, settings.corner) {
     (Orientation::Upright, CornerPosition::TopRight | CornerPosition::BottomRight) => (wide, 0),
     (Orientation::Upright, CornerPosition::TopLeft | CornerPosition::BottomLeft) => (0, wide),
-    (Orientation::Transposed, CornerPosition::BottomLeft | CornerPosition::BottomRight) => (tall, 0),
+    (Orientation::Transposed, CornerPosition::BottomLeft | CornerPosition::BottomRight) => {
+      (tall, 0)
+    }
     (Orientation::Transposed, CornerPosition::TopLeft | CornerPosition::TopRight) => (0, tall),
   })
 }

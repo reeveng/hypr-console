@@ -45,7 +45,7 @@ pub(in super::super) fn render_flowchart_shape(
             super::render_bow_tie_rect(out, ctx, common, label, details);
         }
         FlowchartShape::BraceLeft | FlowchartShape::BraceRight | FlowchartShape::Braces => {
-            // The shared renderer uses the original spelling to select left/right/both braces.
+
             super::render_curly_brace_comment(out, ctx, common, label, details);
         }
         FlowchartShape::Bucket => {
@@ -115,60 +115,64 @@ pub(in super::super) fn render_flowchart_shape(
             super::render_horizontal_cylinder(out, ctx, common, label);
         }
         FlowchartShape::Hourglass => {
-            // Mermaid clears `node.label` but still emits an empty label group.
+
             label.text = "";
             super::render_hourglass_collate(out, common, details);
         }
         FlowchartShape::Icon => {
-            let label = super::render_icon(out, ctx, common, label, details)?;
+            let label_2 = super::render_icon(out, ctx, common, label, details)?;
             return Ok(
                 super::super::emission::FlowchartNodeShapeRenderOutcome::new(
                     true,
                     super::super::emission::FlowchartNodeShapeEmissionReceipt::unverified(),
                 )
-                .with_label(label),
+                .with_label(label_2),
             );
         }
         FlowchartShape::IconCircle => {
-            let label = super::render_icon_circle(out, ctx, common, label, details)?;
+            let label_3 = super::render_icon_circle(out, ctx, common, label, details)?;
             return Ok(
                 super::super::emission::FlowchartNodeShapeRenderOutcome::new(
                     true,
                     super::super::emission::FlowchartNodeShapeEmissionReceipt::unverified(),
                 )
-                .with_label(label),
+                .with_label(label_3),
             );
         }
         FlowchartShape::IconRounded => {
-            let label = super::render_icon_rounded(out, ctx, common, label, details)?;
+            let label_4 = super::render_icon_rounded(out, ctx, common, label, details)?;
             return Ok(
                 super::super::emission::FlowchartNodeShapeRenderOutcome::new(
                     true,
                     super::super::emission::FlowchartNodeShapeEmissionReceipt::unverified(),
                 )
-                .with_label(label),
+                .with_label(label_4),
             );
         }
         FlowchartShape::IconSquare => {
-            let label = super::render_icon_square(out, ctx, common, label, details)?;
+            let label_5 = super::render_icon_square(out, ctx, common, label, details)?;
             return Ok(
                 super::super::emission::FlowchartNodeShapeRenderOutcome::new(
                     true,
                     super::super::emission::FlowchartNodeShapeEmissionReceipt::unverified(),
                 )
-                .with_label(label),
+                .with_label(label_5),
             );
         }
         FlowchartShape::ImageSquare => {
-            if let Some(label) = super::try_render_image_square(out, ctx, common, label, details) {
-                return Ok(
-                    super::super::emission::FlowchartNodeShapeRenderOutcome::new(
-                        true,
-                        super::super::emission::FlowchartNodeShapeEmissionReceipt::unverified(),
-                    )
-                    .with_label(label),
-                );
+            match super::try_render_image_square(out, ctx, common, label, details) {
+                Some(label_6) => {
+                    return Ok(
+                        super::super::emission::FlowchartNodeShapeRenderOutcome::new(
+                            true,
+                            super::super::emission::FlowchartNodeShapeEmissionReceipt::unverified(),
+                        )
+                        .with_label(label_6),
+                    );
+                },
+                ::core::option::Option::None => {},
             }
+
             return missing_asset_error(common.shape, "image");
         }
         FlowchartShape::InvertedTrapezoid => {

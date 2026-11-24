@@ -25,8 +25,9 @@ pub(super) const MERMAID_TASK_RADIUS_PX: f64 = 5.0;
 const MERMAID_TASK_PALETTE_SLOT_COUNT: usize = 12;
 const MERMAID_BASE_FONT_SIZE_PX: f64 = 16.0;
 
+#[must_use]
 fn positive_font_size(value: Option<f64>) -> Option<f64> {
-    value.filter(|value| value.is_finite() && *value > 0.0)
+    value.filter(|value_2| value_2.is_finite() && *value_2 > 0.0)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,14 +49,15 @@ pub(crate) struct KanbanTypographyPlan {
 }
 
 impl KanbanTypographyPlan {
+    #[must_use]
     pub(crate) fn resolve(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &PresentationConfig,
     ) -> Self {
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
-        let typed_font_size_requested = theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let typed_font_size_requested = theme.is_some_and(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 route.mechanism()
                     == FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontSize)
                     && route.disposition() == FamilyThemeDisposition::TypedAdapter
@@ -72,19 +74,23 @@ impl KanbanTypographyPlan {
             })
             .flatten();
         let fallback_font_size_px = || {
-            positive_font_size(crate::config::config_theme_or_root_font_size_px_opt(
+            match positive_font_size(crate::config::config_theme_or_root_font_size_px_opt(
                 effective_config.as_value(),
-            ))
-            .unwrap_or(MERMAID_BASE_FONT_SIZE_PX)
+            )) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => MERMAID_BASE_FONT_SIZE_PX,
+            }
             .max(1.0)
         };
         let fallback_font_size_css = || {
-            positive_font_size(
+            match positive_font_size(
                 crate::config::config_theme_font_size_css_or_root_number_px_opt(
                     effective_config.as_value(),
                 ),
-            )
-            .unwrap_or(MERMAID_BASE_FONT_SIZE_PX)
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => MERMAID_BASE_FONT_SIZE_PX,
+            }
             .max(1.0)
         };
         let resolved_css_requested =
@@ -96,8 +102,8 @@ impl KanbanTypographyPlan {
             _ => KanbanFontSizeOutcome::UnverifiedConfig,
         };
         let (font_size_px, font_size_css) = match (theme, font_size_outcome) {
-            (Some(theme), KanbanFontSizeOutcome::Typed) => {
-                let font_size_px = theme.typography().font_size_px().max(1.0);
+            (Some(theme_3), KanbanFontSizeOutcome::Typed) => {
+                let font_size_px = theme_3.typography().font_size_px().max(1.0);
                 (
                     f64::from(font_size_px),
                     Some(format!("{font_size_px}px").into_boxed_str()),
@@ -128,14 +134,17 @@ impl KanbanTypographyPlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.inherited_font_stack.font_family_css()
     }
 
+    #[must_use]
     pub(crate) const fn font_size_px(&self) -> f64 {
         self.font_size_px
     }
 
+    #[must_use]
     pub(crate) fn typography_requested(&self) -> bool {
         self.inherited_font_stack.typography_requested() || self.typed_font_size_requested
     }
@@ -179,6 +188,7 @@ pub(crate) struct KanbanTypographyTerminalFacts {
 }
 
 impl KanbanTypographyTerminalFacts {
+    #[must_use]
     pub(crate) fn from_visible_style_facts(facts: &crate::text::VisibleTextStyleFacts) -> Self {
         Self {
             parse_valid: facts.parse_valid(),
@@ -268,6 +278,7 @@ pub(crate) struct KanbanTaskOccurrence {
 }
 
 impl KanbanTaskOccurrence {
+    #[must_use]
     pub(crate) fn new(visible_labels: bool, inheriting_labels: bool) -> Self {
         Self {
             visible_labels,
@@ -275,10 +286,12 @@ impl KanbanTaskOccurrence {
         }
     }
 
+    #[must_use]
     fn has_visible_labels(&self) -> bool {
         self.visible_labels
     }
 
+    #[must_use]
     fn has_inheriting_labels(&self) -> bool {
         self.inheriting_labels
     }
@@ -299,9 +312,9 @@ impl KanbanTaskTheme {
             effective_config.config_paint_overrides_typed_default("themeVariables.background");
         let source_owned_card_stroke =
             effective_config.config_paint_overrides_typed_default("themeVariables.nodeBorder");
-        // Query only the terminal path consumed by the Kanban writer. Core provenance may carry
-        // derived ownership into `textColor`; upstream inputs such as `primaryTextColor` are not
-        // enumerated here as a second ownership authority.
+
+
+
         let source_owned_label =
             effective_config.config_paint_overrides_typed_default("themeVariables.textColor");
         let mut items = Vec::with_capacity(item_count);
@@ -310,6 +323,7 @@ impl KanbanTaskTheme {
         let mut label_rule_visible = BTreeSet::new();
         let mut label_rule_shadowed = BTreeSet::new();
         let mut winner_properties = BTreeSet::new();
+
         for (item_index, occurrence) in occurrences.into_iter().enumerate() {
             let style = theme.style_with_work_meter(
                 ThemeTarget::Task,
@@ -328,21 +342,31 @@ impl KanbanTaskTheme {
             } else {
                 typed_task_fill(theme, &style)
             };
-            if let Some(fill) = typed_fill.as_ref() {
-                *typed_fill_rule_occurrences
-                    .entry(fill.rule_index)
-                    .or_default() += 1;
+
+            match typed_fill.as_ref() {
+                Some(fill) => {
+                    *typed_fill_rule_occurrences
+                        .entry(fill.rule_index)
+                        .or_default() += 1;
+                },
+                ::core::option::Option::None => {},
             }
+
             let typed_stroke = if source_owned_card_stroke {
                 None
             } else {
                 typed_task_stroke(theme, &style)
             };
-            if let Some(stroke) = typed_stroke.as_ref() {
-                *typed_stroke_rule_occurrences
-                    .entry(stroke.rule_index)
-                    .or_default() += 1;
+
+            match typed_stroke.as_ref() {
+                Some(stroke) => {
+                    *typed_stroke_rule_occurrences
+                        .entry(stroke.rule_index)
+                        .or_default() += 1;
+                },
+                ::core::option::Option::None => {},
             }
+
             let palette_fill = if !source_owned_card_fill
                 && palette_disposition == Some(FamilyThemeDisposition::TypedAdapter)
                 && matches!(style.fill_resolution().specified(), Specified::Unspecified)
@@ -369,6 +393,7 @@ impl KanbanTaskTheme {
                 work_meter,
             )?;
             let has_visible_labels = occurrence.has_visible_labels();
+
             if has_visible_labels {
                 winner_properties.extend(
                     label_style
@@ -376,6 +401,7 @@ impl KanbanTaskTheme {
                         .map(|(property, origin)| (origin.rule_index(), property)),
                 );
             }
+
             let label_candidate = if has_visible_labels && !source_owned_label {
                 typed_label_foreground(theme, &label_style)
             } else {
@@ -384,14 +410,23 @@ impl KanbanTaskTheme {
             let label_foreground = if occurrence.has_inheriting_labels() {
                 label_candidate
             } else {
-                if let Some(label) = label_candidate.as_ref() {
-                    label_rule_shadowed.insert(label.rule_index);
+                match label_candidate.as_ref() {
+                    Some(label) => {
+                        label_rule_shadowed.insert(label.rule_index);
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 None
             };
-            if let Some(label) = label_foreground.as_ref() {
-                label_rule_visible.insert(label.rule_index);
+
+            match label_foreground.as_ref() {
+                Some(label) => {
+                    label_rule_visible.insert(label.rule_index);
+                },
+                ::core::option::Option::None => {},
             }
+
             debug_assert!(has_visible_labels || label_foreground.is_none());
             items.push(KanbanTaskResolvedItem {
                 radius_px,
@@ -408,6 +443,7 @@ impl KanbanTaskTheme {
         let mut pending_fill_keys = BTreeSet::new();
         let mut pending_stroke_keys = BTreeSet::new();
         let mut pending_label_keys = BTreeSet::new();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
@@ -417,12 +453,15 @@ impl KanbanTaskTheme {
                     ..
                 } => {
                     let observation = observations.entry((rule_index, target)).or_default();
+
                     if !winner_properties
                         .contains(&(rule_index, resolved_style_property_for_facet(facet)))
                     {
                         continue;
                     }
+
                     observation.applicable = true;
+
                     if matches!((target, facet),
                         (ThemeTarget::Task, FamilyThemeRuleFacet::Fill(_)) if source_owned_card_fill)
                         || matches!((target, facet),
@@ -432,6 +471,7 @@ impl KanbanTaskTheme {
                     {
                         continue;
                     }
+
                     match (target, route.disposition(), facet) {
                         (
                             ThemeTarget::TaskLabel,
@@ -489,10 +529,10 @@ impl KanbanTaskTheme {
                         ) => {
                             observation.radius_pending = true;
                         }
-                        (_, FamilyThemeDisposition::Unsupported, facet) => {
+                        (_, FamilyThemeDisposition::Unsupported, facet_2) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_2));
                         }
                         (_, FamilyThemeDisposition::TypedAdapter, _) => {
                             observation.incomplete = true;
@@ -503,28 +543,32 @@ impl KanbanTaskTheme {
                     target: ThemeTarget::Task,
                 } => {
                     let key = theme.family_mechanism_key(route);
-                    if item_count == 0 {
-                        evidence.mark_not_applicable(key);
-                    } else {
-                        match route.disposition() {
-                            FamilyThemeDisposition::TypedAdapter if source_owned_card_fill => {
-                                evidence.mark_not_applicable(key);
+
+                    match item_count {
+                        0 => {
+                            evidence.mark_not_applicable(key);
+                        },
+                        _ => {
+                            match route.disposition() {
+                                FamilyThemeDisposition::TypedAdapter if source_owned_card_fill => {
+                                    evidence.mark_not_applicable(key);
+                                }
+                                FamilyThemeDisposition::TypedAdapter => palette_key = Some(key),
+                                FamilyThemeDisposition::Unsupported => evidence.mark_residual(
+                                    key,
+                                    FamilyThemeResidualReason::UnsupportedOrdinalPalette,
+                                ),
                             }
-                            FamilyThemeDisposition::TypedAdapter => palette_key = Some(key),
-                            FamilyThemeDisposition::Unsupported => evidence.mark_residual(
-                                key,
-                                FamilyThemeResidualReason::UnsupportedOrdinalPalette,
-                            ),
-                        }
+                        },
                     }
                 }
                 FamilyThemeMechanism::EffectBinding {
                     target: ThemeTarget::Task,
                     ..
                 } => {
-                    // Effect bindings are selected by the final terminal winner. Reconcile
-                    // them after all route metadata is collected so an explicit rule or Clear
-                    // can suppress the fallback binding without a false residual.
+
+
+
                 }
                 FamilyThemeMechanism::BaseTypography(_)
                 | FamilyThemeMechanism::RuleFacet { .. }
@@ -541,8 +585,8 @@ impl KanbanTaskTheme {
                     ThemeTarget::Task,
                     TerminalVariantDomain::uniform(item_count, ThemeVariant::Default),
                 ),
-                // Kanban emits column and card labels, but no independent diagram title.
-                // Frontmatter and literal node labels do not create a Title occurrence.
+
+
                 UnsupportedTerminalDomain::direct(
                     ThemeTarget::Title,
                     TerminalVariantDomain::uniform(0, ThemeVariant::Default),
@@ -552,36 +596,43 @@ impl KanbanTaskTheme {
         )?;
 
         let mut pending_radius_key = None;
+
         for ((rule_index, target), observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index: rule_index,
                 target,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // A mixed rule cannot be signed Applied until every winning facet is accounted.
+
             } else {
                 let mut pending = false;
+
                 if observation.radius_pending {
                     debug_assert!(pending_radius_key.is_none());
                     pending_radius_key = Some(key.clone());
                     pending = true;
                 }
+
                 if observation.fill_pending {
                     pending_fill_keys.insert(key.clone());
                     pending = true;
                 }
+
                 if observation.stroke_pending {
                     pending_stroke_keys.insert(key.clone());
                     pending = true;
                 }
+
                 if observation.label_pending {
                     pending_label_keys.insert(key.clone());
                     pending = true;
                 }
+
                 if !pending {
                     evidence.mark_not_applicable(key);
                 }
@@ -602,6 +653,7 @@ impl KanbanTaskTheme {
         })
     }
 
+    #[must_use]
     pub(super) fn baseline(item_count: usize, typography: KanbanTypographyPlan) -> Self {
         Self {
             item_count,
@@ -617,10 +669,12 @@ impl KanbanTaskTheme {
         }
     }
 
+    #[must_use]
     pub(crate) const fn item_count(&self) -> usize {
         self.item_count
     }
 
+    #[must_use]
     pub(crate) fn radius_px(&self, item_index: usize) -> Option<f64> {
         match self.items.as_deref() {
             Some(items) => items.get(item_index).map(|item| item.radius_px),
@@ -628,6 +682,7 @@ impl KanbanTaskTheme {
         }
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.typography.font_family_css()
     }
@@ -637,6 +692,7 @@ impl KanbanTaskTheme {
         self.typography.font_size_px()
     }
 
+    #[must_use]
     pub(crate) fn resolved_typography_for_css(&self) -> Option<(&str, &str)> {
         self.typography
             .font_size_css
@@ -644,6 +700,7 @@ impl KanbanTaskTheme {
             .map(|size| (self.font_family_css(), size))
     }
 
+    #[must_use]
     pub(crate) fn owns_label_foreground(&self, item_index: usize) -> bool {
         self.items
             .as_deref()
@@ -652,9 +709,15 @@ impl KanbanTaskTheme {
     }
 
     pub(super) fn bind_terminal_paints(&mut self, dark_mode: bool) -> crate::Result<()> {
-        let Some(items) = self.items.as_deref_mut() else {
-            return Ok(());
+        let items = {
+            let optional_items = self.items.as_deref_mut();
+
+            match optional_items {
+                Some(matched_items) => matched_items,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         for item in items {
             if item.typed_fill.is_none()
                 && let Some(fill) = item.palette_fill.as_mut()
@@ -666,28 +729,39 @@ impl KanbanTaskTheme {
                 };
             }
         }
+
         Ok(())
     }
 
+    #[must_use]
     pub(crate) fn terminal_decision(&self, item_index: usize) -> KanbanTaskTerminalDecision<'_> {
-        let Some(items) = self.items.as_deref() else {
-            return KanbanTaskTerminalDecision::default();
+        let items = {
+            let optional_items = self.items.as_deref();
+
+            match optional_items {
+                Some(matched_items) => matched_items,
+                ::core::option::Option::None => return KanbanTaskTerminalDecision::default(),
+            }
         };
+
         let item = &items[item_index];
         let (fill_css, fill_capability, fill_rule_index) =
-            if let Some(fill) = item.typed_fill.as_ref() {
-                (
-                    Some(fill.css.as_str()),
-                    Some(fill.capability),
-                    Some(fill.rule_index),
-                )
-            } else {
-                let fill = item.palette_fill.as_ref();
-                (
-                    fill.map(|fill| fill.css.as_str()),
-                    fill.map(|fill| fill.capability),
-                    None,
-                )
+            match item.typed_fill.as_ref() {
+                Some(fill) => {
+                    (
+                        Some(fill.css.as_str()),
+                        Some(fill.capability),
+                        Some(fill.rule_index),
+                    )
+                },
+                ::core::option::Option::None => {
+                    let fill = item.palette_fill.as_ref();
+                    (
+                        fill.map(|fill_2| fill_2.css.as_str()),
+                        fill.map(|fill_3| fill_3.capability),
+                        None,
+                    )
+                },
             };
         let stroke = item.typed_stroke.as_ref();
         let label = item.label_foreground.as_ref();
@@ -695,15 +769,16 @@ impl KanbanTaskTheme {
             fill_css,
             fill_capability,
             fill_rule_index,
-            stroke_css: stroke.map(|stroke| stroke.css.as_str()),
-            stroke_capability: stroke.map(|stroke| stroke.capability),
-            stroke_rule_index: stroke.map(|stroke| stroke.rule_index),
-            label_css: label.map(|label| label.css.as_str()),
-            label_capability: label.map(|label| label.capability),
-            label_rule_index: label.map(|label| label.rule_index),
+            stroke_css: stroke.map(|stroke_2| stroke_2.css.as_str()),
+            stroke_capability: stroke.map(|stroke_3| stroke_3.capability),
+            stroke_rule_index: stroke.map(|stroke_4| stroke_4.rule_index),
+            label_css: label.map(|label_2| label_2.css.as_str()),
+            label_capability: label.map(|label_3| label_3.capability),
+            label_rule_index: label.map(|label_4| label_4.rule_index),
         }
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_outcome(&self) -> Option<KanbanTaskThemeOutcome> {
         self.items.as_ref()?;
         (self.pending_radius_key.is_some()
@@ -732,83 +807,110 @@ impl KanbanTaskTheme {
                     KanbanTaskThemeOutcome::typography_has_visible_or_unverified_terminals,
                 ),
             );
-        if let Some(outcome) = self.terminal_outcome.get() {
-            if let Some(key) = self.pending_radius_key.clone() {
-                if outcome.radius_written {
-                    evidence
-                        .mark_applied_with_capabilities(key, [ThemeCapability::RoundedGeometry]);
-                } else {
-                    evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedGeometry);
+
+        match self.terminal_outcome.get() {
+            Some(outcome) => {
+                match self.pending_radius_key.clone() {
+                    Some(key) => {
+                        if outcome.radius_written {
+                            evidence
+                                .mark_applied_with_capabilities(key, [ThemeCapability::RoundedGeometry]);
+                        } else {
+                            evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedGeometry);
+                        }
+                    },
+                    ::core::option::Option::None => {},
                 }
-            }
-            if let Some(key) = self.palette_key.clone() {
-                if outcome.palette_capabilities.is_empty() {
-                    evidence.mark_not_applicable(key);
-                } else {
-                    evidence.mark_applied_with_capabilities(
-                        key,
-                        outcome.palette_capabilities.iter().copied(),
-                    );
+
+                match self.palette_key.clone() {
+                    Some(key) => {
+                        if outcome.palette_capabilities.is_empty() {
+                            evidence.mark_not_applicable(key);
+                        } else {
+                            evidence.mark_applied_with_capabilities(
+                                key,
+                                outcome.palette_capabilities.iter().copied(),
+                            );
+                        }
+                    },
+                    ::core::option::Option::None => {},
                 }
-            }
-            for key in &self.pending_fill_keys {
-                let FamilyThemeMechanismKey::Rule { index, .. } = key else {
-                    unreachable!("Kanban task fill evidence must be rule-backed")
-                };
-                if outcome.fill_applied(*index) {
-                    evidence.mark_applied_with_capabilities(
-                        key.clone(),
-                        outcome.typed_fill_capabilities[index].iter().copied(),
-                    );
-                } else {
-                    evidence
-                        .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+
+                for key in &self.pending_fill_keys {
+                    let FamilyThemeMechanismKey::Rule { index, .. } = key else {
+                        unreachable!("Kanban task fill evidence must be rule-backed")
+                    };
+
+                    if outcome.fill_applied(*index) {
+                        evidence.mark_applied_with_capabilities(
+                            key.clone(),
+                            outcome.typed_fill_capabilities[index].iter().copied(),
+                        );
+                    } else {
+                        evidence
+                            .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+                    }
                 }
-            }
-            for key in &self.pending_stroke_keys {
-                let FamilyThemeMechanismKey::Rule { index, .. } = key else {
-                    unreachable!("Kanban task stroke evidence must be rule-backed")
-                };
-                if outcome.stroke_applied(*index) {
-                    evidence.mark_applied_with_capabilities(
-                        key.clone(),
-                        outcome.typed_stroke_capabilities[index].iter().copied(),
-                    );
-                } else {
-                    evidence
-                        .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+
+                for key in &self.pending_stroke_keys {
+                    let FamilyThemeMechanismKey::Rule { index, .. } = key else {
+                        unreachable!("Kanban task stroke evidence must be rule-backed")
+                    };
+
+                    if outcome.stroke_applied(*index) {
+                        evidence.mark_applied_with_capabilities(
+                            key.clone(),
+                            outcome.typed_stroke_capabilities[index].iter().copied(),
+                        );
+                    } else {
+                        evidence
+                            .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+                    }
                 }
-            }
-            for key in &self.pending_label_keys {
-                let FamilyThemeMechanismKey::Rule { index, .. } = key else {
-                    unreachable!("Kanban task-label evidence must be rule-backed")
-                };
-                if outcome.label_applied(*index) {
-                    evidence.mark_applied_with_capabilities(
-                        key.clone(),
-                        outcome.label_capabilities[index].iter().copied(),
-                    );
-                } else {
-                    evidence
-                        .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+
+                for key in &self.pending_label_keys {
+                    let FamilyThemeMechanismKey::Rule { index, .. } = key else {
+                        unreachable!("Kanban task-label evidence must be rule-backed")
+                    };
+
+                    if outcome.label_applied(*index) {
+                        evidence.mark_applied_with_capabilities(
+                            key.clone(),
+                            outcome.label_capabilities[index].iter().copied(),
+                        );
+                    } else {
+                        evidence
+                            .mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+                    }
                 }
-            }
-        } else {
-            if let Some(key) = self.pending_radius_key.clone() {
-                evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedGeometry);
-            }
-            for key in &self.pending_fill_keys {
-                evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
-            }
-            for key in &self.pending_stroke_keys {
-                evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
-            }
-            if let Some(key) = self.palette_key.clone() {
-                evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette);
-            }
-            for key in &self.pending_label_keys {
-                evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
-            }
+            },
+            ::core::option::Option::None => {
+                match self.pending_radius_key.clone() {
+                    Some(key) => {
+                        evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedGeometry);
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                for key in &self.pending_fill_keys {
+                    evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+                }
+
+                for key in &self.pending_stroke_keys {
+                    evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+                }
+
+                match self.palette_key.clone() {
+                    Some(key) => {
+                        evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette);
+                    },
+                    ::core::option::Option::None => {},
+                }
+
+                for key in &self.pending_label_keys {
+                    evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
+                }
+            },
         }
 
         if self
@@ -817,6 +919,7 @@ impl KanbanTaskTheme {
             .typed_font_stack_requested()
         {
             let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
             match self.typography.inherited_font_stack.outcome() {
                 InheritedFontStackOutcome::Typed => match self.terminal_outcome.get() {
                     Some(outcome) if outcome.typography_is_not_applicable() => {
@@ -838,6 +941,7 @@ impl KanbanTaskTheme {
 
         if self.typography.typed_font_size_requested {
             let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontSize);
+
             match self.typography.font_size_outcome {
                 KanbanFontSizeOutcome::Typed => match self.terminal_outcome.get() {
                     Some(outcome) if outcome.typography_is_not_applicable() => {
@@ -877,30 +981,36 @@ pub(crate) struct KanbanTaskTerminalDecision<'a> {
 }
 
 impl KanbanTaskTerminalDecision<'_> {
+    #[must_use]
     pub(crate) fn fill_css(&self) -> Option<&str> {
         self.fill_css
     }
 
+    #[must_use]
     pub(crate) fn label_css(&self) -> Option<&str> {
         self.label_css
     }
 
+    #[must_use]
     pub(crate) fn stroke_css(&self) -> Option<&str> {
         self.stroke_css
     }
 }
 
+#[must_use]
 fn typed_label_foreground(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
 ) -> Option<KanbanTaskLabelForeground> {
     let origin = style.fill_resolution().winner()?;
     let facet = FamilyThemeRuleFacet::fill(style.fill_resolution().specified())?;
+
     if theme.rule_facet_disposition(origin.rule_index(), facet)
         != Some(FamilyThemeDisposition::TypedAdapter)
     {
         return None;
     }
+
     match style.fill_resolution().specified() {
         Specified::Value(crate::diagram_theme::CanvasPaint::Transparent) => {
             Some(KanbanTaskLabelForeground {
@@ -926,6 +1036,7 @@ fn typed_label_foreground(
     }
 }
 
+#[must_use]
 fn typed_task_fill(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
@@ -938,12 +1049,13 @@ fn typed_task_fill(
     )?;
     let (css, rule_index, capability) = fill.into_parts();
     Some(KanbanTaskTypedFill {
-        css: css.into(),
+        css: <::std::string::String as ::core::convert::From<::std::boxed::Box<::core::primitive::str>>>::from(css),
         capability,
         rule_index,
     })
 }
 
+#[must_use]
 fn typed_task_stroke(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
@@ -956,24 +1068,32 @@ fn typed_task_stroke(
     )?;
     let (css, rule_index, capability) = stroke.into_parts();
     Some(KanbanTaskTypedStroke {
-        css: css.into(),
+        css: <::std::string::String as ::core::convert::From<::std::boxed::Box<::core::primitive::str>>>::from(css),
         capability,
         rule_index,
     })
 }
 
+#[must_use]
 fn typed_radius_px(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
 ) -> f64 {
-    let Some(origin) = style.radius_resolution().winner() else {
-        return MERMAID_TASK_RADIUS_PX;
+    let origin = {
+        let optional_origin = style.radius_resolution().winner();
+
+        match optional_origin {
+            Some(matched_origin) => matched_origin,
+            ::core::option::Option::None => return MERMAID_TASK_RADIUS_PX,
+        }
     };
+
     if theme.rule_facet_disposition(origin.rule_index(), FamilyThemeRuleFacet::Radius)
         != Some(FamilyThemeDisposition::TypedAdapter)
     {
         return MERMAID_TASK_RADIUS_PX;
     }
+
     match style.radius_resolution().specified() {
         Specified::Value(value) => f64::from(*value),
         Specified::Unspecified | Specified::Clear => MERMAID_TASK_RADIUS_PX,
@@ -1007,23 +1127,32 @@ impl KanbanTaskThemeOutcome {
 
     pub(crate) fn record_item(&mut self, decision: &KanbanTaskTerminalDecision<'_>) {
         self.radius_written = true;
-        if let Some(capability) = decision.fill_capability {
-            if let Some(rule_index) = decision.fill_rule_index {
-                self.typed_fill_capabilities
+
+        match decision.fill_capability {
+            Some(capability) => {
+                match decision.fill_rule_index {
+                    Some(rule_index) => {
+                        self.typed_fill_capabilities
+                            .entry(rule_index)
+                            .or_default()
+                            .insert(capability);
+                    },
+                    ::core::option::Option::None => {
+                        self.palette_capabilities.insert(capability);
+                    },
+                }
+            },
+            ::core::option::Option::None => {},
+        }
+
+        match (decision.stroke_capability, decision.stroke_rule_index) {
+            (Some(capability), Some(rule_index)) => {
+                self.typed_stroke_capabilities
                     .entry(rule_index)
                     .or_default()
                     .insert(capability);
-            } else {
-                self.palette_capabilities.insert(capability);
-            }
-        }
-        if let (Some(capability), Some(rule_index)) =
-            (decision.stroke_capability, decision.stroke_rule_index)
-        {
-            self.typed_stroke_capabilities
-                .entry(rule_index)
-                .or_default()
-                .insert(capability);
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
     }
 
@@ -1033,40 +1162,51 @@ impl KanbanTaskThemeOutcome {
         inherited_color_run_count: usize,
         decision: &KanbanTaskTerminalDecision<'_>,
     ) {
-        if let (Some(capability), Some(rule_index)) =
-            (decision.label_capability, decision.label_rule_index)
-        {
-            if inherited_color_run_count != visible_run_count {
-                self.unverified_label_rules.insert(rule_index);
-            }
-            self.label_capabilities
-                .entry(rule_index)
-                .or_default()
-                .insert(capability);
+        match (decision.label_capability, decision.label_rule_index) {
+            (Some(capability), Some(rule_index)) => {
+                match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(inherited_color_run_count), &::core::convert::identity(visible_run_count)); _explicit_ordering } {
+                    ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Greater => {
+                        self.unverified_label_rules.insert(rule_index);
+                    },
+                    ::core::cmp::Ordering::Equal => {},
+                }
+
+                self.label_capabilities
+                    .entry(rule_index)
+                    .or_default()
+                    .insert(capability);
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
     }
 
+    #[must_use]
     fn label_applied(&self, rule_index: usize) -> bool {
         !self.unverified_label_rules.contains(&rule_index)
             && self.label_capabilities.contains_key(&rule_index)
     }
 
+    #[must_use]
     fn fill_applied(&self, rule_index: usize) -> bool {
         self.typed_fill_capabilities.contains_key(&rule_index)
     }
 
+    #[must_use]
     fn stroke_applied(&self, rule_index: usize) -> bool {
         self.typed_stroke_capabilities.contains_key(&rule_index)
     }
 
+    #[must_use]
     fn typography_is_not_applicable(&self) -> bool {
         self.typography.parse_valid && self.typography.visible_run_count == 0
     }
 
+    #[must_use]
     fn typography_has_visible_or_unverified_terminals(&self) -> bool {
         !self.typography_is_not_applicable()
     }
 
+    #[must_use]
     fn font_family_applied(&self) -> bool {
         self.typography_css_written
             && self.typography.parse_valid
@@ -1074,6 +1214,7 @@ impl KanbanTaskThemeOutcome {
             && self.typography.unverified_font_family_run_count == 0
     }
 
+    #[must_use]
     fn font_size_applied(&self) -> bool {
         self.typography_css_written
             && self.typography.parse_valid

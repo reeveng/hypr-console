@@ -52,7 +52,7 @@
 //! checks went on failing.
 //!
 //! **A panel binary is not a dependency of the check that drives it**, so
-//! `cargo test -p console-media-viewer` builds today's expectations and runs
+//! `cargo test -p console-application-media-viewer` builds today's expectations and runs
 //! them against whatever binary was left in `target/` -- and a panel a library
 //! change has not reached fails in ways that read as the check being wrong.
 //! That is what `built_since_the_panel_code` refuses, and what it compares
@@ -66,7 +66,7 @@
 //! draws itself now, and a surface that draws itself reads the palette out of
 //! the tree it is installed in -- `console_core_color::palette::beside`, which
 //! is the argument for why a stage differs from the device in where it is and
-//! in nothing else. Opening `target/debug/files` by its absolute path
+//! in nothing else. Opening `target/debug/console-application-files` by its absolute path
 //! walks up from `target/` into a directory that has no `usr/local`, finds no
 //! palette, and the panel says so on stderr and draws nothing at all. The
 //! toolkit never met this because its colors were compiled into a stylesheet.
@@ -75,7 +75,7 @@
 //!
 //! ```no_run
 //! # use console_test_stages::panels::Panel;
-//! let Ok(mut panel) = Panel::opening("viewer", &["/home/me/Pictures/beach.jpg"]);
+//! let Ok(mut panel) = Panel::opening("console-application-media-viewer", &["/home/me/Pictures/beach.jpg"]);
 //! let drawn = panel.descriptions().expect("the viewer drew nothing");
 //!
 //! for card in &drawn {

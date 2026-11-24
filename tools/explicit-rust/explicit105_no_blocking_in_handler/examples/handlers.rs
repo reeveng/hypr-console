@@ -4,7 +4,7 @@ use std::thread::sleep as wait;
 use std::time::Duration;
 
 use console_actor::{Actor, Completions};
-use console_core_state_machine::{Machine, Never, Queue};
+use console_core_state_machine::{Machine, Never, Queue, SingleEffectMachine, SingleTransition};
 
 const WAIT: Duration = Duration::from_millis(1);
 
@@ -20,14 +20,14 @@ impl Machine for Service {
     type Input = ();
     type State = ();
     type Request = Box<Request>;
-    type Effect = ();
+    type Effect = Never;
 
-    fn initialize(_: &(), _: Option<()>, _: &mut Queue<()>) -> Result<(), Never> {
+    fn initialize(_: &(), _: Option<()>, _: &mut Queue<Never>) -> Result<(), Never> {
         startup();
         Ok(())
     }
 
-    fn handle(_: (), mut request: Self::Request, _: &mut Queue<()>) -> Result<(), Never> {
+    fn handle(_: (), mut request: Self::Request, _: &mut Queue<Never>) -> Result<(), Never> {
         wait(WAIT);
         let _ = request.events.recv_timeout(WAIT);
         let _ = Receiver::recv_timeout(&request.events, WAIT);
@@ -67,3 +67,21 @@ impl Service {
 }
 
 fn main() {}
+
+pub struct Inline;
+
+impl SingleEffectMachine for Inline {
+    type Input = ();
+    type State = ();
+    type Request = ();
+    type Effect = Never;
+
+    fn initialize(_: &(), _: Option<()>) -> Result<SingleTransition<(), Never>, Never> {
+        Ok(SingleTransition { state: (), effect: None })
+    }
+
+    fn handle(_: (), _: ()) -> Result<SingleTransition<(), Never>, Never> {
+        wait(WAIT);
+        Ok(SingleTransition { state: (), effect: None })
+    }
+}

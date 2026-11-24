@@ -8,6 +8,7 @@ pub(super) struct LabelStringState {
 }
 
 impl LabelStringState {
+    #[must_use]
     pub(super) fn is_plain(&self) -> bool {
         self.stack.is_empty()
     }
@@ -17,18 +18,22 @@ impl LabelStringState {
             self.stack.pop();
             return Some(2);
         }
+
         if rest.starts_with("\"`") {
             self.stack.push(TitleKind::Markdown);
             return Some(2);
         }
+
         if rest.starts_with('"') {
             if self.stack.last() == Some(&TitleKind::String) {
                 self.stack.pop();
             } else {
                 self.stack.push(TitleKind::String);
             }
+
             return Some(1);
         }
+
         None
     }
 }
@@ -36,7 +41,7 @@ impl LabelStringState {
 #[derive(Default)]
 pub(super) struct LabelScanner {
     quote_ends: HashMap<usize, Option<usize>>,
-    // The owning Lexer keeps one immutable input for the lifetime of these plain-state answers.
+
     delim_ends: HashMap<&'static str, BTreeMap<usize, PlainDelimiterRange>>,
     control: Option<OperationControl>,
     steps_since_checkpoint: usize,
@@ -65,12 +70,21 @@ impl LabelScanner {
 
     fn checkpoint(&mut self) -> OperationControlResult<()> {
         self.steps_since_checkpoint += 1;
-        if self.steps_since_checkpoint == 4096 {
-            self.steps_since_checkpoint = 0;
-            if let Some(control) = &self.control {
-                control.checkpoint()?;
-            }
+
+        match self.steps_since_checkpoint {
+            4096 => {
+                self.steps_since_checkpoint = 0;
+
+                match &self.control {
+                    Some(control) => {
+                        control.checkpoint()?;
+                    },
+                    ::core::option::Option::None => {},
+                }
+            },
+            _ => {},
         }
+
         Ok(())
     }
 
@@ -81,7 +95,7 @@ impl LabelScanner {
         delim: &'static str,
     ) -> OperationControlResult<Option<usize>> {
         let mut ranges = self.delim_ends.remove(delim).unwrap_or_default();
-        // Lexer search starts move forward. Retire ranges that future tokens cannot reuse.
+
         while ranges
             .first_key_value()
             .is_some_and(|(_, range)| range.end <= start)
@@ -89,12 +103,14 @@ impl LabelScanner {
             self.checkpoint()?;
             ranges.pop_first();
         }
+
         let mut pos = start;
         let mut plain_ranges = Vec::new();
         let (found, final_range) = 'search: loop {
             if pos + delim.len() > input.len() {
                 break (None, None);
             }
+
             if let Some((_, range)) = ranges.range(..=pos).next_back()
                 && pos < range.end
             {
@@ -102,48 +118,67 @@ impl LabelScanner {
                 self.scanned()?;
                 break (found, None);
             }
+
             let boundary = ranges
                 .range(pos..)
                 .next()
-                .map_or(input.len(), |(start, _)| *start);
+                .map_or(input.len(), |(start_2, _)| *start_2);
             let range_start = pos;
+
             while pos < boundary && pos + delim.len() <= input.len() {
                 self.scanned()?;
                 let rest = &input[pos..];
+
                 if rest.starts_with(delim) {
                     break 'search (Some(pos), Some((range_start, pos + 1)));
                 }
+
                 if rest.starts_with('"') {
-                    // The opener is a plain-state cursor; every quoted interior is excluded.
-                    // Recovery starting inside that quote must perform an independent search.
+
+
                     plain_ranges.push((range_start, pos + 1));
-                    let Some(end) = self.quoted_end(input, pos)? else {
-                        break 'search (None, None);
+
+                    let end = {
+                        let optional_end = self.quoted_end(input, pos)?;
+
+                        match optional_end {
+                            Some(matched_end) => matched_end,
+                            ::core::option::Option::None => break 'search (None, None),
+                        }
                     };
+
                     pos = end;
                     continue 'search;
                 }
+
                 pos += rest
                     .chars()
                     .next()
                     .expect("label scan character")
                     .len_utf8();
             }
+
             let range = (range_start < pos).then_some((range_start, pos));
+
             if pos + delim.len() > input.len() {
                 break (None, range);
             }
-            if let Some(range) = range {
-                plain_ranges.push(range);
+
+            match range {
+                Some(range_2) => {
+                    plain_ranges.push(range_2);
+                },
+                ::core::option::Option::None => {},
             }
         };
-        // Disjoint plain ranges share the answer, including distant success. Tree insertion
-        // never shifts later ranges when recovery discovers a range inside a skipped quote.
-        // Keep the final range inline: ordinary short labels need no temporary allocation.
-        for (start, end) in plain_ranges.into_iter().chain(final_range) {
+
+
+
+        for (start_3, end) in plain_ranges.into_iter().chain(final_range) {
             self.checkpoint()?;
-            ranges.insert(start, PlainDelimiterRange { end, found });
+            ranges.insert(start_3, PlainDelimiterRange { end, found });
         }
+
         self.delim_ends.insert(delim, ranges);
         Ok(found)
     }
@@ -152,19 +187,23 @@ impl LabelScanner {
         let mut state = LabelStringState::default();
         let mut frames = Vec::new();
         let mut pos = start;
+
         while pos < input.len() {
             self.scanned()?;
             let rest = &input[pos..];
             let depth = state.stack.len();
+
             if let Some(consumed) = state.consume_delimiter(rest) {
                 if state.stack.len() > depth {
                     match self.quote_ends.get(&pos).copied() {
                         Some(Some(end)) => {
                             state.stack.pop();
                             pos = end;
+
                             if state.is_plain() {
                                 return Ok(Some(end));
                             }
+
                             continue;
                         }
                         Some(None) => break,
@@ -173,10 +212,12 @@ impl LabelScanner {
                 } else {
                     let opener = frames.pop().expect("closing label string frame");
                     self.quote_ends.insert(opener, Some(pos + consumed));
+
                     if state.is_plain() {
                         return Ok(Some(pos + consumed));
                     }
                 }
+
                 pos += consumed;
             } else {
                 pos += rest
@@ -186,14 +227,17 @@ impl LabelScanner {
                     .len_utf8();
             }
         }
+
         for opener in frames {
             self.scanned()?;
             self.quote_ends.insert(opener, None);
         }
+
         Ok(None)
     }
 }
 
+#[must_use]
 pub(super) fn borrowed_span(source: &str, slice: &str) -> SourceSpan {
     let start = slice.as_ptr() as usize - source.as_ptr() as usize;
     debug_assert!(start <= source.len() && slice.len() <= source.len() - start);
@@ -205,31 +249,42 @@ pub(super) fn parse_quoted_label(raw: &str) -> Result<(&str, TitleKind), LexErro
     let mut state = LabelStringState::default();
     let mut pos = 0;
     let mut token = None;
+
     while pos < raw.len() {
         let rest = &raw[pos..];
-        if let Some(consumed) = state.consume_delimiter(rest) {
-            pos += consumed;
-            continue;
+
+        match state.consume_delimiter(rest) {
+            Some(consumed) => {
+                pos += consumed;
+                continue;
+            },
+            ::core::option::Option::None => {},
         }
+
         let kind = state.stack.last().ok_or_else(invalid)?;
         let len = match kind {
             TitleKind::Markdown => rest.find(['`', '"']).unwrap_or(rest.len()),
             TitleKind::String => rest.find('"').unwrap_or(rest.len()),
             TitleKind::Text => unreachable!(),
         };
+
         if len == 0 || token.is_some() {
             return Err(invalid());
         }
+
         token = Some((&rest[..len], kind.clone()));
         pos += len;
     }
+
     if !state.is_plain() {
         return Err(invalid());
     }
+
     token.ok_or_else(invalid)
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
+#[must_use]
 pub(super) fn title_kind_str(kind: &TitleKind) -> &'static str {
     match kind {
         TitleKind::Text => "text",
@@ -238,74 +293,86 @@ pub(super) fn title_kind_str(kind: &TitleKind) -> &'static str {
     }
 }
 
+#[must_use]
 pub(super) fn unquote(s: &str) -> String {
     if s.starts_with('"')
         && let Ok((payload, kind)) = parse_quoted_label(s)
     {
         return match kind {
             TitleKind::Markdown => format!("`{payload}`"),
-            _ => payload.to_string(),
+            TitleKind::Text | TitleKind::String => payload.to_string(),
         };
     }
+
     let bytes = s.as_bytes();
+
     if (match <[_]>::first_chunk::<2>(&*bytes) { ::core::option::Option::Some(&[checked_element_0, _]) => checked_element_0 == b'"', ::core::option::Option::None => false }) && bytes[bytes.len() - 1] == b'"' {
         return s[1..s.len() - 1].to_string();
     }
+
     s.to_string()
 }
 
+#[must_use]
 pub(super) fn is_ecmascript_trim_char(ch: char) -> bool {
     crate::diagrams::scan::is_ecmascript_whitespace(ch)
 }
 
+#[must_use]
 pub(super) fn trim_flowdb_label_text(text: &str) -> &str {
-    // Mermaid FlowDB calls JavaScript String.trim() on parser-produced text before sanitizing or
-    // decoding HTML entities. Keep the exact ECMAScript trim set: Rust's str::trim() differs for
-    // U+0085 and U+FEFF, and decoding first would erase the distinction between direct NBSP and
-    // an `&nbsp;` entity.
+
+
+
+
     text.trim_matches(is_ecmascript_trim_char)
 }
 
+#[must_use]
 pub(super) fn parse_label_text(raw: &str) -> (String, TitleKind) {
     if raw.starts_with('"')
         && let Ok((payload, kind)) = parse_quoted_label(raw)
     {
         return (trim_flowdb_label_text(payload).to_string(), kind);
     }
-    // Jison classifies TEXT / STR / MD_STR before FlowDB trims the parser payload. Do not trim
-    // `raw` before deciding whether the whole token is a quoted string: surrounding whitespace
-    // produces a mixed token sequence upstream and must not be reinterpreted as STR here.
+
+
+
+
     let quoted = raw.starts_with('"') && raw.ends_with('"');
     let unquoted = if quoted {
-        // Mermaid flowchart quoted labels are treated as raw text with surrounding quotes stripped.
-        // Do not interpret backslash escapes here: fixtures rely on sequences like `\\n`, `\\t`,
-        // `\\nabla`, and Windows paths (e.g. `C:\\Temp\\...`) being preserved verbatim.
+
+
+
         unquote(raw)
     } else {
         raw.to_string()
     };
 
     if quoted {
-        // Mermaid's MD_STR token is only reachable from the double-quoted string state. A bare
-        // backtick is ordinary TEXT and must remain visible in the label.
+
+
         let (no_backticks, is_markdown) = strip_wrapping_backticks(&unquoted);
+
         if is_markdown {
             return (
                 trim_flowdb_label_text(&no_backticks).to_string(),
                 TitleKind::Markdown,
             );
         }
+
         return (
             trim_flowdb_label_text(&unquoted).to_string(),
             TitleKind::String,
         );
     }
+
     (
         trim_flowdb_label_text(&unquoted).to_string(),
         TitleKind::Text,
     )
 }
 
+#[must_use]
 pub(super) fn parse_edge_label_text(raw: &str) -> (String, TitleKind) {
     let quoted = raw.starts_with('"') && raw.ends_with('"');
 
@@ -313,18 +380,20 @@ pub(super) fn parse_edge_label_text(raw: &str) -> (String, TitleKind) {
         return parse_label_text(raw);
     }
 
-    // Mermaid flowchart edge labels only enter Markdown-string mode via the lexer's `MD_STR`
-    // token, i.e. a double-quoted string whose payload is wrapped in backticks:
-    //   -- "`edge **label**`" -->
-    //
-    // Bare pipe labels like `-->|`edge **label**`|` keep the backticks literally and stay `text`.
+
+
+
+
+
     (trim_flowdb_label_text(raw).to_string(), TitleKind::Text)
 }
 
+#[must_use]
 pub(super) fn strip_wrapping_backticks(s: &str) -> (String, bool) {
     if s.len() >= 2 && s.starts_with('`') && s.ends_with('`') {
         return (s[1..s.len() - 1].to_string(), true);
     }
+
     (s.to_string(), false)
 }
 

@@ -14,9 +14,11 @@ use std::collections::HashMap;
 mod shapes;
 mod theme;
 
+#[must_use]
 fn dom_part(value: &str) -> String {
     let mut result = String::new();
     let mut replacement = false;
+
     for ch in value.chars() {
         if ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-') {
             result.push(ch);
@@ -26,18 +28,22 @@ fn dom_part(value: &str) -> String {
             replacement = true;
         }
     }
-    let result = result.trim_matches('_');
-    if result.is_empty() {
-        "element".into()
+
+    let result_2 = result.trim_matches('_');
+
+    if result_2.is_empty() {
+        <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("element")
     } else {
-        result.into()
+        <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(result_2)
     }
 }
 
+#[must_use]
 fn accessible_label(label: &UsecaseLabelPlan) -> String {
     accessible_text(&label.text, label.label_type)
 }
 
+#[must_use]
 fn accessible_text(text: &str, kind: UsecaseLabelType) -> String {
     match kind {
         UsecaseLabelType::Text => text.to_owned(),
@@ -82,7 +88,10 @@ fn write_label(
         receipt,
         background,
     } = context;
-    let html = config_bool(config.as_value(), &["htmlLabels"]).unwrap_or(true);
+    let html = match config_bool(config.as_value(), &["htmlLabels"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => true,
+    };
     let font_family = plan.style.font_family.as_deref().unwrap_or("sans-serif");
     let font_weight = plan.style.font_weight.as_deref().unwrap_or("normal");
     let mut css = plan.theme_style.css(true);
@@ -90,7 +99,7 @@ fn write_label(
         .styles
         .iter()
         .map(|(key, value)| {
-            let key = if !html && key == "color" {
+            let key_2 = if !html && key == "color" {
                 "fill"
             } else {
                 key.as_str()
@@ -98,7 +107,7 @@ fn write_label(
             format!(
                 "{key}:{} !important;",
                 value.trim_end_matches("!important").trim()
-            )
+            , key = key_2)
         })
         .collect();
     css.push_str(&source_css);
@@ -115,6 +124,7 @@ fn write_label(
         UsecaseLabelKind::Boundary => "cluster-label system-boundary-title",
         UsecaseLabelKind::Edge(_) => "label",
     };
+
     if let UsecaseLabelKind::Edge(data_id) = kind {
         let _ = write!(
             out,
@@ -123,7 +133,7 @@ fn write_label(
             fmt(center_y),
             escape_attr(data_id),
             fmt(if html { -plan.metrics.width / 2.0 } else { 0.0 }),
-            // insertEdgeLabel centers the SVG text bbox, including its local Y offset.
+
             fmt(-svg_bbox_y - plan.text_metrics.height / 2.0),
         );
     } else if html {
@@ -138,7 +148,7 @@ fn write_label(
             escape_attr(font_weight)
         );
     } else {
-        // Plain labelHelper centers only Y; custom shapes reposition the whole local bbox.
+
         let x = if is_boundary || positioned_node {
             center_x - plan.metrics.width / 2.0
         } else {
@@ -153,9 +163,14 @@ fn write_label(
             escape_attr(&css),
         );
     }
+
     if html {
         let content = plan.html.as_ref().map_or("", |label| label.xhtml.as_str());
-        let background_css = background.map(|style| style.css(false)).unwrap_or_default();
+        let background_css = match background.map(|style| style.css(false)) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
+
         if is_edge_label && !background_css.is_empty() {
             let _ = write!(
                 out,
@@ -165,9 +180,11 @@ fn write_label(
                 escape_attr(&background_css)
             );
         }
+
         if !is_edge_label && !is_boundary {
             out.push_str("<rect/>");
         }
+
         let _ = write!(
             out,
             r#"<foreignObject width="{}" height="{}"><div xmlns="http://www.w3.org/1999/xhtml"{} style="{}display:inline-block;white-space:normal;line-height:1.5;text-align:center;width:{}px"><span class="{}" style="{}">{}</span></div></foreignObject>"#,
@@ -192,6 +209,7 @@ fn write_label(
             escape_attr(&css),
             content
         );
+
         if !background_css.is_empty() {
             background.unwrap().record_emitted(receipt);
         }
@@ -199,7 +217,9 @@ fn write_label(
         if !is_edge_label && !is_boundary {
             out.push_str("<rect/>");
         }
+
         out.push_str("<g>");
+
         if is_edge_label && !plan.text.is_empty() {
             let _ = write!(
                 out,
@@ -210,18 +230,20 @@ fn write_label(
                 fmt(plan.metrics.width),
                 fmt(plan.metrics.height),
             );
-            if let Some(background) = background {
-                background.record_emitted(receipt);
+
+            if let Some(background_2) = background {
+                background_2.record_emitted(receipt);
             }
         } else {
             out.push_str(r#"<rect class="background" style="stroke: none"/>"#);
         }
-        // Usecase plain labels are literal text, including strings that resemble HTML.
+
+
         match plan.label_type {
             UsecaseLabelType::Text => {
-                // prepareUsecaseLayoutData escapes plain labels before createText splits
-                // lines and words. Decode those entities only when writing text content,
-                // so a literal <br/> remains visible instead of becoming a line break.
+
+
+
                 let source = crate::usecase::normalize_plain_label_line_breaks(&plan.text)
                     .replace('&', "&amp;")
                     .replace('<', "&lt;")
@@ -256,12 +278,16 @@ fn write_label(
                 }
             }
         }
+
         out.push_str("</g>");
     }
+
     out.push_str("</g>");
+
     if is_edge_label {
         out.push_str("</g>");
     }
+
     if !plan.text.trim().is_empty() {
         plan.theme_style.record_emitted(receipt);
     }
@@ -330,13 +356,19 @@ pub(crate) fn render_usecase_diagram_svg_model(
             (id, accessible_text(&plan.source_label, kind))
         })
         .collect();
-    let padding = config_f64(cfg, &["usecase", "diagramPadding"]).unwrap_or(20.0);
-    let bounds = layout.bounds.clone().unwrap_or(Bounds {
-        min_x: 0.0,
-        min_y: 0.0,
-        max_x: 0.0,
-        max_y: 0.0,
-    });
+    let padding = match config_f64(cfg, &["usecase", "diagramPadding"]) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 20.0,
+    };
+    let bounds = match (layout.bounds.clone(), Bounds {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 0.0,
+            max_y: 0.0,
+        }) {
+        (::core::option::Option::Some(option_value), alternate) => { ::core::mem::drop(alternate); option_value },
+        (::core::option::Option::None, alternate) => alternate,
+    };
     let title = model
         .title
         .as_deref()
@@ -351,6 +383,7 @@ pub(crate) fn render_usecase_diagram_svg_model(
         diagram_id,
         options,
     )?;
+
     if let Some(title) = title {
         let style = theme_plan.title().text_style(&css_binding.root_font);
         let (left, right) = measurer.measure_svg_title_bbox_x(title, &style);
@@ -365,6 +398,7 @@ pub(crate) fn render_usecase_diagram_svg_model(
         viewport_bounds.min_y = viewport_bounds.min_y.min(-ascent);
         viewport_bounds.max_y = viewport_bounds.max_y.max(descent);
     }
+
     let spec = root_svg::RootViewportSpec::mermaid(
         root_svg::DiagramBounds::from_extents(
             viewport_bounds.min_x,
@@ -373,7 +407,10 @@ pub(crate) fn render_usecase_diagram_svg_model(
             viewport_bounds.max_y,
             padding,
         ),
-        config_bool(cfg, &["usecase", "useMaxWidth"]).unwrap_or(true),
+        match config_bool(cfg, &["usecase", "useMaxWidth"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => true,
+        },
     );
     let acc_title_id = model
         .acc_title
@@ -418,6 +455,7 @@ pub(crate) fn render_usecase_diagram_svg_model(
     let mut out = String::new();
     let document = root_svg::RootViewportContext::new(crate::DiagramFamilyId::USECASE, diagram_id)
         .write_open(&mut out, spec, chrome)?;
+
     if let Some(title) = &model.acc_title {
         let _ = write!(
             out,
@@ -425,6 +463,7 @@ pub(crate) fn render_usecase_diagram_svg_model(
             escape_xml(title)
         );
     }
+
     if let Some(description) = &model.acc_description {
         let _ = write!(
             out,
@@ -432,13 +471,14 @@ pub(crate) fn render_usecase_diagram_svg_model(
             escape_xml(description)
         );
     }
+
     theme::write_css(
         &mut out,
         diagram_id,
         css_binding,
         theme_plan.has_background_fill(),
     )?;
-    // Mermaid emits marker wrappers that are observable in strict SVG DOM parity.
+
     out.push_str("<g>");
     markers::push_base_edge_markers(&mut out, diagram_id, "usecase");
     out.push_str("<defs>");
@@ -462,6 +502,7 @@ pub(crate) fn render_usecase_diagram_svg_model(
         r#"<marker id="{diagram_id}_usecase-extensionEnd-margin" class="marker extension usecase" refX="9" refY="7" markerWidth="20" markerHeight="28" orient="auto" markerUnits="userSpaceOnUse" viewBox="0 0 20 14"><polygon points="10,1 10,13 18,7" style="stroke-width: 2; stroke-dasharray: 0;"/></marker>"#
     );
     out.push_str(r#"</defs><g class="root"><g class="clusters">"#);
+
     for (color_index, plan) in prepared
         .nodes
         .iter()
@@ -501,6 +542,7 @@ pub(crate) fn render_usecase_diagram_svg_model(
             .min(80.0_f64.max(plan.label.metrics.width + 20.0));
         let left = node.x - node.width / 2.0;
         let top = node.y - node.height / 2.0;
+
         if plan.package {
             shapes::rect(
                 &mut out,
@@ -512,6 +554,7 @@ pub(crate) fn render_usecase_diagram_svg_model(
                 &style,
             );
         }
+
         shapes::rect(
             &mut out,
             "boundary-body label-container",
@@ -534,7 +577,10 @@ pub(crate) fn render_usecase_diagram_svg_model(
                 tab_height / 2.0
             } else {
                 plan.label.metrics.height / 2.0
-                    + config_f64(cfg, &["flowchart", "subGraphTitleMargin", "top"]).unwrap_or(0.0)
+                    + match config_f64(cfg, &["flowchart", "subGraphTitleMargin", "top"]) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 0.0,
+                    }
             },
             UsecaseLabelRenderContext {
                 config,
@@ -544,10 +590,12 @@ pub(crate) fn render_usecase_diagram_svg_model(
             },
         );
         out.push_str("</g>");
-        if let Some(style) = typed_style {
-            style.record_emitted(&receipt);
+
+        if let Some(style_2) = typed_style {
+            style_2.record_emitted(&receipt);
         }
     }
+
     let elk = crate::layout_backend::resolve_graph_layout(cfg).backend
         == crate::layout_backend::GraphLayoutBackend::Elk;
     let hop_points = if elk && config_bool(cfg, &["elk", "lineHops"]) != Some(false) {
@@ -586,6 +634,7 @@ pub(crate) fn render_usecase_diagram_svg_model(
         .collect::<Vec<_>>();
     let hopped_paths = line_hops::elk_line_hop_paths(cfg, &hop_edges, options.work_meter())?;
     out.push_str("</g><g class=\"edgePaths edges\">");
+
     for (edge_index, plan) in prepared.edges.iter().enumerate() {
         options.checkpoint_emit()?;
         let edge = edge_geometry[plan.id.as_str()];
@@ -593,7 +642,7 @@ pub(crate) fn render_usecase_diagram_svg_model(
         let data_points = base64::engine::general_purpose::STANDARD
             .encode(crate::svg::parity::util::json_stringify_points(&points));
         let data_look = &css_binding.edge_look;
-        let mut points = points;
+        let mut points_2 = points;
         let curve = if elk {
             if edge.points.is_empty() {
                 "linear"
@@ -606,28 +655,30 @@ pub(crate) fn render_usecase_diagram_svg_model(
                 .unwrap_or("basis")
         };
         let path = edge_path::render_path(
-            &mut points,
+            &mut points_2,
             curve,
             plan.start_marker.as_deref(),
             plan.end_marker.as_deref(),
         );
-        let path = hopped_paths
+        let path_2 = hopped_paths
             .get(plan.id.as_str())
             .map_or(path.as_str(), String::as_str);
         let relation = relationships
             .get(plan.original_id.as_deref().unwrap_or(&plan.id))
             .copied();
-        let label = relation.map(|edge| match edge.relationship_type {
-            UsecaseRelationshipType::Association => plan
+        let label = relation.map(|edge_2| match edge_2.relationship_type {
+            UsecaseRelationshipType::Association => match plan
                 .label
                 .as_ref()
-                .map(|label| format!("association {}", accessible_label(label)))
-                .unwrap_or_else(|| "association".into()),
-            UsecaseRelationshipType::Include => "include".into(),
-            UsecaseRelationshipType::Extend => "extend".into(),
-            UsecaseRelationshipType::Generalization => "generalization".into(),
+                .map(|label| format!("association {}", accessible_label(label))) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("association"),
+            },
+            UsecaseRelationshipType::Include => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("include"),
+            UsecaseRelationshipType::Extend => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("extend"),
+            UsecaseRelationshipType::Generalization => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("generalization"),
         });
-        let relation_kind = relation.map_or("note", |edge| match edge.relationship_type {
+        let relation_kind = relation.map_or("note", |edge_3| match edge_3.relationship_type {
             UsecaseRelationshipType::Association => "association",
             UsecaseRelationshipType::Include => "include",
             UsecaseRelationshipType::Extend => "extend",
@@ -640,12 +691,13 @@ pub(crate) fn render_usecase_diagram_svg_model(
             ""
         };
         let mut marker_references = Vec::new();
+
         for (start, marker) in [(true, &plan.start_marker), (false, &plan.end_marker)] {
-            if let Some(marker) = marker {
+            if let Some(marker_2) = marker {
                 let reference = theme::write_marker(
                     &mut out,
                     diagram_id,
-                    marker,
+                    marker_2,
                     start,
                     margin,
                     edge_index,
@@ -655,22 +707,26 @@ pub(crate) fn render_usecase_diagram_svg_model(
                 marker_references.push((if start { "start" } else { "end" }, reference));
             }
         }
+
         let mut classes = format!(
             "edge-thickness-normal edge-pattern-{} default relationship relationship-{relation_kind}",
             if plan.dotted { "dotted" } else { "solid" }
         );
-        if let Some(edge) = relation {
-            for class in &edge.classes {
+
+        if let Some(edge_4) = relation {
+            for class in &edge_4.classes {
                 classes.push(' ');
                 classes.push_str(class);
             }
-            if edge.animate || edge.animation.is_some() {
-                classes.push_str(match edge.animation {
+
+            if edge_4.animate || edge_4.animation.is_some() {
+                classes.push_str(match edge_4.animation {
                     Some(UsecaseAnimation::Slow) => " edge-animation-slow",
                     _ => " edge-animation-fast",
                 });
             }
         }
+
         let _ = write!(
             out,
             r#"<path id="{}{}-{}" data-id="{}" data-et="edge" data-edge="true" data-look="{}" data-points="{}" class="{}" d="{}""#,
@@ -681,8 +737,9 @@ pub(crate) fn render_usecase_diagram_svg_model(
             escape_attr(data_look),
             escape_attr(&data_points),
             escape_attr(&classes),
-            path
+            path_2
         );
+
         if !plan.dagre_recursive {
             let _ = write!(
                 out,
@@ -695,8 +752,9 @@ pub(crate) fn render_usecase_diagram_svg_model(
                 }
             );
         }
+
         if plan.dagre_recursive {
-            // Extracted edges are absent from the top-level LayoutData annotation pass.
+
         } else if plan.internal {
             out.push_str(" aria-hidden=\"true\"");
         } else {
@@ -712,35 +770,46 @@ pub(crate) fn render_usecase_diagram_svg_model(
             };
             let _ = write!(out, r#" role="img" aria-label="{}""#, escape_attr(&name));
         }
+
         let typed_style = theme_plan.edge(semantic_id);
         let mut source_style = plan.source_style.clone();
+
         if plan.dotted {
             source_style.push_str("stroke-dasharray:3;");
         }
-        // The source mask encodes path offsets. A typed dasharray is the requested
-        // terminal paint and must not be interpreted as that source-only mask.
-        let source_style = if let Some(hopped_d) = hopped_paths.get(plan.id.as_str()) {
+
+
+
+        let source_style_2 = if let Some(hopped_d) = hopped_paths.get(plan.id.as_str()) {
             line_hops::rewrite_style_after_line_hop(&source_style, hopped_d, options.work_meter())?
         } else {
             std::borrow::Cow::Borrowed(source_style.as_str())
         };
-        let mut edge_style = typed_style
-            .map(|style| style.css(false))
-            .unwrap_or_default();
-        edge_style.push_str(&source_style);
+        let mut edge_style = match typed_style
+            .map(|style| style.css(false)) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        };
+        edge_style.push_str(&source_style_2);
         let _ = write!(out, r#" style="{}""#, escape_attr(&edge_style));
+
         for (end, reference) in marker_references {
             let _ = write!(out, r#" marker-{end}="{}""#, escape_attr(&reference));
         }
+
         out.push_str("/>");
+
         if let Some(style) = typed_style {
             style.record_emitted(&receipt);
         }
     }
+
     out.push_str("</g><g class=\"edgeLabels\">");
+
     for plan in &prepared.edges {
         if let Some(label) = &plan.label {
             let edge = edge_geometry[plan.id.as_str()];
+
             if let Some(position) = &edge.label {
                 write_label(
                     &mut out,
@@ -761,7 +830,9 @@ pub(crate) fn render_usecase_diagram_svg_model(
             shapes::write_empty_edge_label(&mut out, &plan.id, config);
         }
     }
+
     out.push_str("</g><g class=\"nodes\">");
+
     for (color_index, plan) in prepared
         .nodes
         .iter()
@@ -770,16 +841,18 @@ pub(crate) fn render_usecase_diagram_svg_model(
     {
         options.checkpoint_emit()?;
         let node = geometry[plan.id.as_str()];
+
         if plan.dagre_helper {
             shapes::write_dagre_helper(&mut out, node, config);
             continue;
         }
+
         let source = source_nodes.get(plan.id.as_str()).copied();
         let note = notes.get(plan.id.as_str()).copied();
         let json = json_nodes.get(plan.id.as_str()).copied();
-        let (kind, name, classes) = if let Some(source) = source {
+        let (kind, name, classes) = if let Some(source_2) = source {
             let label = &source_labels[plan.id.as_str()];
-            let stereotype = source
+            let stereotype = match source_2
                 .stereotype
                 .as_ref()
                 .map(|value| {
@@ -787,11 +860,13 @@ pub(crate) fn render_usecase_diagram_svg_model(
                         ", stereotype {}",
                         merman_markup::sanitize::sanitize_text(value, config.as_config())
                     )
-                })
-                .unwrap_or_default();
-            let business = if source.business { "business " } else { "" };
-            let actor = source.kind == UsecaseNodeKind::Actor;
-            let variant = match source.actor_type {
+                }) {
+                ::core::option::Option::Some(explicit_present) => explicit_present,
+                ::core::option::Option::None => ::std::string::String::new(),
+            };
+            let business = if source_2.business { "business " } else { "" };
+            let actor = source_2.kind == UsecaseNodeKind::Actor;
+            let variant = match source_2.actor_type {
                 UsecaseActorType::Normal => "",
                 UsecaseActorType::Hollow => "hollow ",
                 UsecaseActorType::Awesome => "awesome ",
@@ -804,20 +879,20 @@ pub(crate) fn render_usecase_diagram_svg_model(
                 } else {
                     format!("{business}use case {label}{stereotype}")
                 },
-                source.classes.as_slice(),
+                source_2.classes.as_slice(),
             )
-        } else if let Some(note) = note {
+        } else if let Some(note_2) = note {
             (
                 "note",
                 format!(
                     "Note for {}: {}",
-                    source_labels[note.target.as_str()],
+                    source_labels[note_2.target.as_str()],
                     accessible_label(&plan.label)
                 ),
                 [].as_slice(),
             )
-        } else if let Some(json) = json {
-            let rows = plan
+        } else if let Some(json_2) = json {
+            let rows = match plan
                 .table
                 .as_ref()
                 .map(|table| {
@@ -827,16 +902,18 @@ pub(crate) fn render_usecase_diagram_svg_model(
                         .map(|row| format!("{}: {}", row.accessible_key, row.value.text))
                         .collect::<Vec<_>>()
                         .join("; ")
-                })
-                .unwrap_or_default();
+                }) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => ::std::string::String::new(),
+            };
             (
                 "json",
                 if rows.is_empty() {
-                    json.id.clone()
+                    json_2.id.clone()
                 } else {
-                    format!("{}: {rows}", json.id)
+                    format!("{}: {rows}", json_2.id)
                 },
-                json.classes.as_slice(),
+                json_2.classes.as_slice(),
             )
         } else {
             return Err(Error::InvalidModel {
@@ -845,8 +922,8 @@ pub(crate) fn render_usecase_diagram_svg_model(
         };
         let appearance = theme::appearance_attributes(css_binding, source.map(|_| color_index));
         let role_classes = match source {
-            Some(node) if node.kind == UsecaseNodeKind::Actor => {
-                let variant = match node.actor_type {
+            Some(node_2) if node_2.kind == UsecaseNodeKind::Actor => {
+                let variant = match node_2.actor_type {
                     UsecaseActorType::Normal => "normal",
                     UsecaseActorType::Hollow => "hollow",
                     UsecaseActorType::Awesome => "awesome",
@@ -854,26 +931,26 @@ pub(crate) fn render_usecase_diagram_svg_model(
                 };
                 format!(
                     "usecase-actor usecase-actor-{variant}{} usecase-actor-variant usecase-actor-{variant}",
-                    if node.business {
+                    if node_2.business {
                         " usecase-business"
                     } else {
                         ""
                     }
                 )
             }
-            Some(node) => format!(
+            Some(node_3) => format!(
                 "usecase-element usecase-{}{}",
                 if plan.ellipse { "ellipse" } else { "rect" },
-                if node.business && plan.ellipse {
+                if node_3.business && plan.ellipse {
                     " usecase-business usecase-business-shape"
-                } else if node.business {
+                } else if node_3.business {
                     " usecase-business"
                 } else {
                     ""
                 }
             ),
-            None if note.is_some() => "usecase-note".into(),
-            None => "usecase-json-table usecase-json-table".into(),
+            None if note.is_some() => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("usecase-note"),
+            None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("usecase-json-table usecase-json-table"),
         };
         let _ = write!(
             out,
@@ -914,15 +991,18 @@ pub(crate) fn render_usecase_diagram_svg_model(
             },
         )?;
         out.push_str("</g>");
+
         if let Some(style) = typed_style {
             style.record_emitted(&receipt);
         }
     }
+
     out.push_str("</g></g></g>");
     css_binding
         .look_defs
         .write_shadow_defs(&mut out, diagram_id)?;
     css_binding.look_defs.write_gradient(&mut out, diagram_id)?;
+
     if let Some(title) = title {
         let _ = write!(
             out,
@@ -938,9 +1018,10 @@ pub(crate) fn render_usecase_diagram_svg_model(
         );
         theme_plan.title().record_emitted(&receipt);
     }
+
     out.push_str("</svg>");
     options.checkpoint_emit()?;
-    let document = document.complete(out)?;
+    let document_2 = document.complete(out)?;
     theme_plan.record_terminal(receipt);
-    Ok(document)
+    Ok(document_2)
 }

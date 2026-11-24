@@ -1,3 +1,4 @@
+#[must_use]
 pub(super) fn default_c_scale(index: usize) -> &'static str {
     match index {
         0 => "hsl(240, 100%, 76.2745098039%)",
@@ -15,6 +16,7 @@ pub(super) fn default_c_scale(index: usize) -> &'static str {
     }
 }
 
+#[must_use]
 pub(super) fn default_c_scale_inv(index: usize) -> &'static str {
     match index {
         0 => "hsl(60, 100%, 86.2745098039%)",
@@ -32,6 +34,7 @@ pub(super) fn default_c_scale_inv(index: usize) -> &'static str {
     }
 }
 
+#[must_use]
 pub(super) fn default_c_scale_label(index: usize) -> &'static str {
     match index {
         0 | 3 => "#ffffff",

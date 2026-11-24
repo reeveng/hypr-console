@@ -42,19 +42,11 @@ fn walked(from: &Path) -> Result<Vec<PathBuf>, Failure> {
   for entry in listing {
     match entry {
       Ok(path) => {
-        let directory = match std::fs::metadata(&path) {
-          Ok(metadata) => metadata.is_dir(),
-          Err(fault) => {
-            match ::core::primitive::bool::then_some(fault.kind() == ErrorKind::NotFound, ()) {
-              ::core::option::Option::Some(()) => continue,
-              ::core::option::Option::None => return Err(Failure::from(fault)),
-            }
-          }
-        };
+        let kind = entry_kind(&path)?;
 
-        match (path.ends_with("__pycache__"), directory) {
-          (false, false) => found.push(path),
-          (true, _) | (false, true) => {}
+        match (path.ends_with("__pycache__"), kind) {
+          (false, EntryKind::File) => found.push(path),
+          (true, _) | (false, EntryKind::Directory | EntryKind::Missing) => {}
         }
       }
       Err(unlisted) => {
@@ -70,6 +62,25 @@ fn walked(from: &Path) -> Result<Vec<PathBuf>, Failure> {
   found.sort();
 
   Ok(found)
+}
+
+enum EntryKind {
+  File,
+  Directory,
+  Missing,
+}
+
+fn entry_kind(path: &Path) -> Result<EntryKind, Failure> {
+  match std::fs::metadata(path) {
+    Ok(metadata) => Ok(match metadata.is_dir().then_some(()) {
+      Some(()) => EntryKind::Directory,
+      None => EntryKind::File,
+    }),
+    Err(fault) => match (fault.kind() == ErrorKind::NotFound).then_some(()) {
+      Some(()) => Ok(EntryKind::Missing),
+      None => Err(Failure::from(fault)),
+    },
+  }
 }
 
 fn every_file() -> Result<Vec<(PathBuf, String)>, Failure> {
@@ -233,11 +244,13 @@ fn the_paper_service_sets_a_ground_and_paints_no_picture_of_its_own() -> Result<
   let held = read("files/etc/systemd/user/console-paper.service")?;
   let sets = held
     .lines()
-    .filter(|line| line.starts_with("ExecStartPost="))
+    .filter(|line| line.starts_with("ExecStart="))
     .collect::<Vec<_>>();
 
   assert!(
-    sets.iter().any(|line| line.contains("awww clear ")),
+    sets
+      .iter()
+      .any(|line| line.contains("console-paper serve ")),
     "the paper service sets no ground color, so the screen is black until \
          console-wallpaper paints: {sets:?}"
   );
@@ -269,15 +282,17 @@ fn the_keyboard_follows_nothing_because_it_takes_the_devices_itself() -> Result<
 
 #[test]
 fn the_way_to_game_mode_shuts_steam_down_before_the_compositor() -> Result<(), Failure> {
-  let held = read("crates/console-session/src/bin/steamos-session-select.rs")?;
-  let (before_leaving, _) = held
-    .split_once("Program::Hyprctl")
+  let held = read("crates/console-session-cachyos/src/lib.rs")?;
+  let (_, game) = held
+    .split_once("fn game()")
+    .ok_or("nothing switches to Game Mode")?;
+  let (before_leaving, _) = game
+    .split_once("console_compositor::exit")
     .ok_or("nothing leaves the compositor")?;
 
-  assert!(held.contains("settle();"), "nothing asks Steam to go");
   assert!(
-    before_leaving.contains("settle();"),
-    "Steam is asked to go once the desktop it was on has gone"
+    before_leaving.contains("settle()"),
+    "the switch must ask Steam to go before leaving the compositor"
   );
 
   Ok(())
@@ -338,7 +353,8 @@ fn every_program_the_device_builds_is_one_this_repository_holds() -> Result<(), 
   let programs = programs()?;
   let made: BTreeSet<String> = programs.into_iter().collect();
   let mut built = section(&held, Section::Build)?;
-  built.extend(section(&overlays, Section::Build)?);
+  let extra_builds = section(&overlays, Section::Build)?;
+  built.extend(extra_builds);
 
   for name in built {
     assert!(
@@ -550,21 +566,29 @@ fn every_shell_script_parses() -> Result<(), Failure> {
       ::core::option::Option::None => continue,
     }
 
-    let Ok(mut asking) = Program::Sh.command();
-
-    #[cfg_attr(
-      dylint_lib = "explicit029_no_asking_per_item",
-      allow(
-        explicit029_no_asking_per_item,
-        reason = "sh -n parses the one script it is handed and reads the rest as that script's arguments"
-      )
-    )]
-    let done = asking.arg("-n").arg(&path).output()?;
-
-    let diagnostic = std::str::from_utf8(&done.stderr)?;
-
-    assert!(done.status.success(), "{live}: {}", diagnostic.trim());
+    shell_parses(&path, &live)?;
   }
+
+  let Ok(root) = root();
+  let scripts = written_in(&root.join("crates"), &["sh"])?;
+
+  for path in scripts.into_iter().filter(|path| {
+    path
+      .parent()
+      .is_some_and(|directory| directory.ends_with("src/scripts"))
+  }) {
+    shell_parses(&path, &path.display().to_string())?;
+  }
+
+  Ok(())
+}
+
+fn shell_parses(path: &Path, name: &str) -> Result<(), Failure> {
+  let Ok(mut asking) = Program::Sh.command();
+  let done = asking.arg("-n").arg(path).output()?;
+  let diagnostic = std::str::from_utf8(&done.stderr)?;
+
+  assert!(done.status.success(), "{name}: {}", diagnostic.trim());
 
   Ok(())
 }
@@ -724,17 +748,40 @@ fn putting_the_screen_back_puts_the_panel_on_before_it_reads_the_note() -> Resul
   );
 
   let unit = read("files/etc/systemd/user/console-idle.service")?;
-  let answered = unit
-    .lines()
-    .find_map(|line| line.strip_prefix("ExecStartPre=-/usr/bin/hyprctl dispatch "))
-    .map(|dispatch| dispatch.trim_matches('\''))
-    .ok_or("the idle unit no longer puts the screen on as it starts")?;
-
   assert!(
-    said.contains(answered),
-    "undim puts the panel on with something other than {answered}, the form the idle unit \
-         sends and this compositor answers; a key it does not know is an `ok` and a screen that \
-         stays dark under somebody's thumb"
+    said.contains("console_compositor::DisplayPower::On.set()"),
+    "undim does not use the shared command for putting the panel on"
+  );
+  assert!(
+    unit
+      .lines()
+      .any(|line| line == "ExecStartPre=-/usr/local/bin/console-compositor display-on"),
+    "the idle unit no longer puts the screen on through the compositor adapter"
+  );
+  assert!(
+    unit
+      .lines()
+      .any(|line| line == "ExecStopPost=-/usr/local/bin/console-compositor display-on"),
+    "the idle unit no longer restores the display when it stops"
+  );
+
+  assert!(unit.lines().any(|line| line
+    == concat!(
+      "ExecStartPre=/usr/local/bin/lock-screen idle-config ",
+      "/etc/console/hypridle.conf %t/console/hypridle.conf"
+    )));
+  assert!(
+    unit
+      .lines()
+      .any(|line| { line == "ExecStart=/usr/bin/hypridle --config %t/console/hypridle.conf" })
+  );
+
+  let idle = read("files/etc/console/hypridle.conf")?;
+  assert!(
+    idle.lines().any(|line| {
+      line.trim() == "on-timeout = /usr/local/bin/console-compositor display-off"
+    }),
+    "hypridle no longer blanks the display through the compositor adapter"
   );
 
   Ok(())
@@ -825,7 +872,10 @@ fn every_key_a_dispatch_hands_the_compositor_is_one_it_reads() -> Result<(), Fai
       let Ok(keys) = keys_in(asked);
 
       for key in keys {
-        match ::core::primitive::bool::then_some(READ.contains(&key.as_str()), ()) {
+        let known = READ.contains(&key.as_str())
+          || (named == "send_key_state" && matches!(key.as_str(), "mods" | "key" | "state"));
+
+        match ::core::primitive::bool::then_some(known, ()) {
           ::core::option::Option::Some(()) => {}
           ::core::option::Option::None => unread.push(format!(
             "{}: {key} in hl.dsp.{named}({asked})",
@@ -850,7 +900,7 @@ fn every_key_a_dispatch_hands_the_compositor_is_one_it_reads() -> Result<(), Fai
 
 #[test]
 fn one_thing_puts_the_panel_back_on_when_the_machine_wakes() -> Result<(), Failure> {
-  let held = read("files/home/@user@/.config/console/hypr/hypridle.conf")?;
+  let held = read("files/etc/console/hypridle.conf")?;
   let waking: Vec<&str> = held
     .lines()
     .map(str::trim)
@@ -1064,7 +1114,7 @@ fn crossing() -> Result<BTreeSet<String>, Failure> {
 
   let crossing: BTreeSet<String> = reached
     .iter()
-    .filter(|(_, near)| near.contains("console_session::"))
+    .filter(|(_, near)| near.contains("console_session_cachyos::"))
     .map(|(name, _)| name.clone())
     .collect();
 
@@ -1091,7 +1141,7 @@ fn crossing() -> Result<BTreeSet<String>, Failure> {
 
 #[test]
 fn every_unit_that_can_cross_to_game_mode_may_still_become_root() -> Result<(), Failure> {
-  let switcher = read("crates/console-session/src/bin/steamos-session-select.rs")?;
+  let switcher = read("crates/console-session-cachyos/src/lib.rs")?;
 
   assert!(
     switcher.contains("Program::Pkexec"),

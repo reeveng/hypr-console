@@ -23,6 +23,7 @@ pub(crate) struct JourneyCssBinding {
 }
 
 impl JourneyCssBinding {
+    #[must_use]
     pub(super) fn new(
         config: &serde_json::Value,
         font_family: &str,
@@ -32,7 +33,7 @@ impl JourneyCssBinding {
         let color = |key: &str, fallback: &str| {
             config_string(config, &["themeVariables", key]).unwrap_or_else(|| fallback.to_owned())
         };
-        // The cluster title fallback uses the Mermaid base text color, before typed Text.fill.
+
         let base_text_color = color("textColor", "#333");
         let title_color = color("titleColor", &base_text_color);
         let text_color = text_fill.unwrap_or(&base_text_color).to_owned();
@@ -65,6 +66,7 @@ impl JourneyCssBinding {
         }
     }
 
+    #[must_use]
     pub(crate) fn legend_text_style(&self, font_size: f64) -> TextStyle {
         TextStyle {
             font_family: Some(self.common.font_family().to_owned()),
@@ -75,6 +77,7 @@ impl JourneyCssBinding {
     }
 }
 
+#[must_use]
 fn default_fill_type(index: usize) -> &'static str {
     match index {
         0 => "#ECECFF",

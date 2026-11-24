@@ -28,7 +28,7 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
     options: &SvgExecution<'_>,
 ) -> Result<root_svg::RootedSvg> {
     let mermaid_config = effective_config;
-    let effective_config = effective_config.as_value();
+    let effective_config_2 = effective_config.as_value();
     let timing = options.timing();
     let total_timer = timing.start();
     let mut timings = RenderTimings::default();
@@ -48,6 +48,7 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
     );
     let settings = render_config;
     let mut typography_receipt = typography_theme.begin_text_outcomes();
+
     if let Some(receipt) = typography_receipt.as_mut() {
         typography_theme.bind_text_paints(
             receipt,
@@ -57,6 +58,7 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
             model.notes().map(|note| note.id),
         );
     }
+
     let marker_expectations = if relation_theme.typed_stroke().is_some() {
         class_marker_paint_bindings(model.relations(), settings.look == "neo")
     } else {
@@ -64,8 +66,8 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
     };
     let mut relation_theme_receipt = relation_theme.begin_outcomes(marker_expectations);
 
-    // Mermaid's Dagre renderer applies fixed 8px graph margins. Its registered ELK renderer emits
-    // the layout coordinates directly and keeps the viewport padding as the only outer margin.
+
+
     let content_tx = if layout.uses_elk_adapter_dom {
         0.0
     } else {
@@ -73,9 +75,9 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
     };
     let content_ty = content_tx;
 
-    // Mermaid derives the final viewport using `svg.getBBox()` (after rendering). We don't have a
-    // browser DOM, so approximate the effective bbox by accumulating bounds for the elements we
-    // emit (using the exact same `d` strings we output for paths).
+
+
+
     let mut content_bounds: Option<Bounds> = None;
 
     let render_guard = timing.section(&mut timings.render_svg);
@@ -91,7 +93,7 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
     )?;
     emit.checkpoint()?;
 
-    // Mermaid emits a single `<style>` element with diagram-scoped CSS.
+
     out.push_str("<style>");
     write_class_css(
         &mut super::super::output::XmlTextOutput::new(&mut out),
@@ -99,17 +101,19 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
         typography_theme,
         relation_theme,
     )?;
+
     if let Some(outcomes) = typography_receipt.as_mut() {
         outcomes.record_stylesheet();
     }
+
     out.push_str("</style>");
     out.checkpoint()?;
     emit.checkpoint()?;
 
-    // Mermaid wraps diagram content (defs + root) in a single `<g>` element.
+
     out.push_str("<g>");
     out.checkpoint()?;
-    // Mermaid 12 shares host markers across registered layouts.
+
     class_markers(
         &mut out,
         diagram_id,
@@ -133,6 +137,7 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
 
     let terminal_text_style = crate::class::class_cardinality_text_style(settings.text_style());
     let mut paint_edges = std::borrow::Cow::Borrowed(layout.edges.as_slice());
+
     if layout.uses_elk_adapter_dom {
         let edges = super::edge::class_edge_render_order(&layout.edges, &relation_index_by_id)
             .into_iter()
@@ -140,13 +145,16 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
             .collect::<Vec<_>>();
         paint_edges = std::borrow::Cow::Owned(edges);
     }
+
     let mut missing_section_points = console_core_perfect_hash::collections::FixedMap::default();
+
     if layout.uses_elk_adapter_dom {
         let nodes_by_id: console_core_perfect_hash::collections::FixedMap<_, _> = layout
             .nodes
             .iter()
             .map(|node| (node.id.as_str(), node))
             .collect();
+
         for edge in &layout.edges {
             if edge.points.is_empty()
                 && let (Some(start), Some(end)) = (
@@ -161,6 +169,7 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
             }
         }
     }
+
     let line_hop_edges = if layout.uses_elk_adapter_dom {
         options.work_meter().charge(paint_edges.len())?;
         paint_edges
@@ -171,10 +180,13 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
                 super::super::line_hops::LineHopEdge {
                     id: edge.id.as_str(),
                     points: missing.map(Vec::as_slice).unwrap_or(&edge.points),
-                    curve: Some(if missing.is_some() {
-                        "linear"
-                    } else {
-                        "rounded"
+                    curve: Some(match missing {
+                        ::core::option::Option::Some(_) => {
+                            "linear"
+                        },
+                        ::core::option::Option::None => {
+                            "rounded"
+                        },
                     }),
                     arrow_type_start: relation.and_then(|rel| {
                         super::edge::class_arrow_type_for_relation_end(rel.relation.type1)
@@ -189,7 +201,7 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
         Vec::new()
     };
     let line_hop_paths = super::super::line_hops::elk_line_hop_paths(
-        effective_config,
+        effective_config_2,
         &line_hop_edges,
         options.work_meter(),
     )?;
@@ -225,9 +237,9 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
         emit,
     };
 
-    // The layout-owned render tree preserves the exact recursive Dagre graph that produced these
-    // coordinates. Rendering consumes that tree directly instead of inferring namespace extraction
-    // and edge ownership a second time from flattened compatibility data.
+
+
+
     let nodes_start = timing.start();
 
     let nodes_ctx = ClassNodesRenderContext {
@@ -250,6 +262,7 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
         timing,
         emit,
     };
+
     if layout.uses_elk_adapter_dom {
         out.push_str(r#"<g class="root">"#);
         render_class_elk_adapter_dom(
@@ -263,8 +276,8 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
             &mut relation_theme_receipt,
             &mut typography_receipt,
         )?;
-        out.push_str("</g>"); // root
-        out.push_str("</g>"); // wrapper
+        out.push_str("</g>");
+        out.push_str("</g>");
     } else {
         out.push_str(r#"<g class="root">"#);
         out.checkpoint()?;
@@ -279,16 +292,17 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
             &mut relation_theme_receipt,
             &mut typography_receipt,
         )?;
-        out.push_str("</g>"); // root
-        out.push_str("</g>"); // wrapper
+        out.push_str("</g>");
+        out.push_str("</g>");
         out.checkpoint()?;
     }
+
     if let Some(s) = nodes_start {
         detail.nodes += s.elapsed();
     }
 
-    // Mermaid 12 renderers append shared resources after the graph wrapper. ELK changes
-    // only the layout geometry and edge z-order; it does not create a second top-level painter.
+
+
     typography_theme
         .css_binding()
         .look_defs
@@ -312,9 +326,9 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
             .map(|title| {
                 let title_style = TextStyle {
                     font_family: settings.text_style().font_family.clone(),
-                    // Mermaid emits `classDiagramTitleText`, while the Class stylesheet's 18px
-                    // rule targets `classTitleText`; the diagram title therefore inherits the
-                    // root SVG font size.
+
+
+
                     font_size: settings.text_style().font_size,
                     font_weight: None,
                     font_style: None,
@@ -323,9 +337,10 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
             }),
     });
 
-    // Mermaid renders the diagram title as a direct child of `<svg>` (outside the wrapper `<g>`),
-    // centered in the root viewport.
+
+
     let mut title_emission = None;
+
     if let Some(title) = view_box.title.as_ref() {
         title_emission = super::label::write_class_diagram_title(
             &mut out,
@@ -338,6 +353,7 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
         );
         out.checkpoint()?;
     }
+
     relation_theme_receipt.record_diagram_title(
         view_box.title.is_some(),
         relation_theme.diagram_title_terminal(),
@@ -351,13 +367,13 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
             .map_or_else(crate::class::ClassTextTerminalFacts::default, |title| {
                 crate::class::ClassTextTerminalFacts::inherited_text(title.text)
             });
-        let facts = facts.with_paint(
+        let facts_2 = facts.with_paint(
             relation_theme
                 .diagram_title_terminal()
                 .filter(|(_, style)| title_emission == Some(*style)),
             title_emission.unwrap_or(""),
         );
-        receipt.record_diagram_title(facts);
+        receipt.record_diagram_title(facts_2);
     }
 
     drop(viewbox_guard);
@@ -374,14 +390,15 @@ pub(in crate::svg::parity) fn render_class_diagram_svg_model_with_config(
     let root_document = root_context.finish_document(&mut out, document.root, final_root_spec)?;
 
     out.push_str("</svg>");
-    let out = out.finish()?;
+    let out_2 = out.finish()?;
     drop(finalize_guard);
 
     if let Some(s) = total_timer {
         timings.total = s.elapsed();
         emit_class_render_timing(&timings, &detail, layout);
     }
-    let rooted_svg = root_document.complete(out)?;
+
+    let rooted_svg = root_document.complete(out_2)?;
     theme_evidence.record_outcomes(relation_theme_receipt);
     typography_theme.record_outcomes(typography_receipt);
     Ok(rooted_svg)

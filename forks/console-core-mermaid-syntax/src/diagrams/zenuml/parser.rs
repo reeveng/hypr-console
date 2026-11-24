@@ -36,6 +36,7 @@ struct Parser<'a> {
 }
 
 impl<'a> Parser<'a> {
+    #[must_use]
     fn new(
         source: &'a str,
         tokens: Vec<Token>,
@@ -54,6 +55,7 @@ impl<'a> Parser<'a> {
 
     fn parse(mut self) -> OperationControlResult<ParsedSyntax> {
         self.control.checkpoint()?;
+
         match self.take_name() {
             Some(header)
                 if header
@@ -83,25 +85,31 @@ impl<'a> Parser<'a> {
             if !self.parse_active() {
                 break;
             }
+
             let comment = self.take_current_comment();
+
             if self.at_keyword(Keyword::Group) {
                 head.push(HeadItemSyntax::Group(self.parse_group(comment)));
                 continue;
             }
+
             if matches!(self.peek_kind(), TokenKind::StarterAnnotation) {
                 starter = Some(self.parse_starter());
                 break;
             }
+
             let participant = {
                 let grammar = Grammar::with_control(self.source, &self.tokens, &self.control);
                 head_prediction.select(&grammar, self.cursor)
             };
-            if let Some(participant) = participant {
+
+            if let Some(participant_2) = participant {
                 head.push(HeadItemSyntax::Participant(Box::new(
-                    self.consume_participant(participant, comment),
+                    self.consume_participant(participant_2, comment),
                 )));
                 continue;
             }
+
             pending_comment = comment;
             break;
         }
@@ -121,9 +129,15 @@ impl<'a> Parser<'a> {
     }
 
     fn restore_header_suffix(&mut self, header: SpannedText) -> OperationControlResult<()> {
-        let Some(suffix) = header.value.get("zenuml".len()..) else {
-            return Ok(());
+        let suffix = {
+            let optional_suffix = header.value.get("zenuml".len()..);
+
+            match optional_suffix {
+                Some(matched_suffix) => matched_suffix,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         if suffix.is_empty() {
             return Ok(());
         }
@@ -163,9 +177,11 @@ impl<'a> Parser<'a> {
             }
             _ => SpannedText::new(String::new(), self.insertion_span()),
         };
+
         if matches!(self.peek_kind(), TokenKind::TitleEnd) {
             self.bump();
         }
+
         value
     }
 
@@ -173,8 +189,10 @@ impl<'a> Parser<'a> {
         let start = self.bump().span.start;
         let name = self.take_name();
         let mut participants = Vec::new();
+
         if matches!(self.peek_kind(), TokenKind::OpenBrace) {
             self.bump();
+
             while self.parse_active()
                 && !self.at_eof()
                 && !matches!(self.peek_kind(), TokenKind::CloseBrace)
@@ -187,17 +205,20 @@ impl<'a> Parser<'a> {
                         .into_iter()
                         .next()
                 };
-                if let Some(candidate) = candidate {
-                    participants.push(self.consume_participant(candidate, comment));
+
+                if let Some(candidate_2) = candidate {
+                    participants.push(self.consume_participant(candidate_2, comment));
                 } else {
                     let span = self.bump().span;
                     self.error("expected participant declaration in ZenUML group", span);
                 }
             }
+
             if matches!(self.peek_kind(), TokenKind::CloseBrace) {
                 self.bump();
             }
         }
+
         GroupSyntax {
             name,
             participants,
@@ -207,19 +228,23 @@ impl<'a> Parser<'a> {
 
     fn parse_starter(&mut self) -> StarterSyntax {
         let annotation = self.bump().clone();
+
         if !matches!(self.peek_kind(), TokenKind::OpenParen) {
             return StarterSyntax {
                 name: None,
                 span: annotation.span,
             };
         }
+
         self.bump();
         let name = self.take_name();
+
         if matches!(self.peek_kind(), TokenKind::CloseParen) {
             self.bump();
         } else {
             self.error("expected `)` after ZenUML starter", self.insertion_span());
         }
+
         StarterSyntax {
             name,
             span: SourceSpan::new(annotation.span.start, self.previous_end()),
@@ -265,10 +290,12 @@ impl<'a> Parser<'a> {
         }
 
         let mut statements = Vec::new();
+
         while self.parse_active() && !self.at_eof() {
             if statement_limit.is_some_and(|limit| statements.len() >= limit) {
                 break;
             }
+
             if stop_at_close && matches!(self.peek_kind(), TokenKind::CloseBrace) {
                 let closing_comment = self.take_current_comment();
                 self.bump();
@@ -277,30 +304,37 @@ impl<'a> Parser<'a> {
                     closing_comment,
                 };
             }
+
             if matches!(self.peek_kind(), TokenKind::CloseBrace) {
                 let span = self.bump().span;
                 self.error("unexpected `}` in ZenUML document", span);
                 continue;
             }
+
             if pending_comment.is_none() {
                 pending_comment = self.take_current_comment();
             }
+
             let start = self.cursor;
+
             if let Some(statement) = self.parse_statement(depth, pending_comment.take()) {
                 statements.push(statement);
                 continue;
             }
+
             if self.cursor == start {
                 let span = self.bump().span;
                 self.error("unsupported ZenUML statement", span);
             }
         }
+
         if stop_at_close {
             self.error(
                 "unterminated ZenUML block; expected `}`",
                 self.insertion_span(),
             );
         }
+
         ParsedBlock {
             statements,
             closing_comment: None,
@@ -364,18 +398,22 @@ impl<'a> Parser<'a> {
     ) -> Option<StatementSyntax> {
         let start = self.peek().span.start;
         let anonymous = matches!(self.peek_kind(), TokenKind::OpenBrace);
+
         if !anonymous {
             self.bump();
         }
+
         let had_par_expr = !anonymous && matches!(self.peek_kind(), TokenKind::OpenParen);
         let label = if had_par_expr {
-            let (par, depth_error) = self.grammar_match(|grammar, start| grammar.par_expr(start));
+            let (par, depth_error) = self.grammar_match(|grammar, start_2| grammar.par_expr(start_2));
+
             if let Some(span) = depth_error {
                 self.report_expression_depth_error(span);
             }
-            par.and_then(|par| {
-                self.cursor = par.end;
-                par.label
+
+            par.and_then(|par_2| {
+                self.cursor = par_2.end;
+                par_2.label
             })
         } else {
             None
@@ -390,9 +428,11 @@ impl<'a> Parser<'a> {
                     form,
                     FragmentForm::RecoverRequiredBlock | FragmentForm::Section
                 );
+
             if anonymous || recover_missing_block {
                 self.error("expected `{` after ZenUML fragment", self.insertion_span());
             }
+
             if recover_missing_block && {
                 let grammar = Grammar::with_control(self.source, &self.tokens, &self.control);
                 grammar.can_start_statement(self.cursor)
@@ -458,13 +498,15 @@ impl<'a> Parser<'a> {
 
     fn parse_required_par_expr(&mut self, diagnostic: &str) -> Option<SpannedText> {
         let (par, depth_error) = self.grammar_match(|grammar, start| grammar.par_expr(start));
+
         if let Some(span) = depth_error {
             self.report_expression_depth_error(span);
             return None;
         }
-        if let Some(par) = par {
-            self.cursor = par.end;
-            par.label
+
+        if let Some(par_2) = par {
+            self.cursor = par_2.end;
+            par_2.label
         } else {
             self.error(diagnostic, self.insertion_span());
             None
@@ -503,28 +545,30 @@ impl<'a> Parser<'a> {
             let branch_start = self.bump().span.start;
             let details = if is_catch && matches!(self.peek_kind(), TokenKind::OpenParen) {
                 let (invocation, depth_error) =
-                    self.grammar_match(|grammar, start| grammar.invocation(start));
+                    self.grammar_match(|grammar, start_2| grammar.invocation(start_2));
+
                 if let Some(span) = depth_error {
                     self.report_expression_depth_error(span);
                 }
-                invocation.map(|invocation| {
-                    self.cursor = invocation.end;
+
+                invocation.map(|invocation_2| {
+                    self.cursor = invocation_2.end;
                     trimmed_text(
                         self.source,
-                        invocation.span.start + 1,
-                        invocation.span.end.saturating_sub(1),
+                        invocation_2.span.start + 1,
+                        invocation_2.span.end.saturating_sub(1),
                     )
-                    .unwrap_or_else(|| SpannedText::new(String::new(), invocation.span))
+                    .unwrap_or_else(|| SpannedText::new(String::new(), invocation_2.span))
                 })
             } else {
                 None
             };
             let label = details.map_or_else(
                 || SpannedText::new(name, SourceSpan::new(branch_start, self.previous_end())),
-                |details| {
+                |details_2| {
                     SpannedText::new(
-                        format!("{name} {}", details.value),
-                        SourceSpan::new(branch_start, details.span.end),
+                        format!("{name} {}", details_2.value),
+                        SourceSpan::new(branch_start, details_2.span.end),
                     )
                 },
             );
@@ -534,10 +578,12 @@ impl<'a> Parser<'a> {
                 name,
                 branch_start,
             ));
+
             if !is_catch {
                 break;
             }
         }
+
         let end = self.previous_end().max(start);
         Some(StatementSyntax {
             kind: StatementKindSyntax::Fragment(FragmentSyntax {
@@ -578,17 +624,22 @@ impl<'a> Parser<'a> {
     fn parse_reference(&mut self, comment: Option<SpannedText>) -> Option<StatementSyntax> {
         let start = self.bump().span.start;
         let mut participants = Vec::new();
+
         if matches!(self.peek_kind(), TokenKind::OpenParen) {
             self.bump();
+
             if let Some(name) = self.take_name() {
                 participants.push(name);
+
                 while matches!(self.peek_kind(), TokenKind::Comma) {
                     self.bump();
-                    while let Some(name) = self.take_name() {
-                        participants.push(name);
+
+                    for name_2 in ::core::iter::from_fn(|| self.take_name()) {
+                        participants.push(name_2);
                     }
                 }
             }
+
             if matches!(self.peek_kind(), TokenKind::CloseParen) {
                 self.bump();
             } else {
@@ -597,9 +648,11 @@ impl<'a> Parser<'a> {
         } else {
             self.error("expected `(` after ZenUML `ref`", self.insertion_span());
         }
+
         if matches!(self.peek_kind(), TokenKind::Semicolon) {
             self.bump();
         }
+
         let end = self.previous_end().max(start);
         Some(StatementSyntax {
             kind: StatementKindSyntax::Reference(ReferenceSyntax {
@@ -613,23 +666,28 @@ impl<'a> Parser<'a> {
 
     fn parse_return_statement(&mut self, comment: Option<SpannedText>) -> Option<StatementSyntax> {
         let start = self.bump().span.start;
+
         if matches!(
             self.tokens[self.cursor.saturating_sub(1)].kind,
             TokenKind::Keyword(Keyword::Return)
         ) {
             let (expr, depth_error) =
-                self.grammar_match(|grammar, start| grammar.expression(start));
+                self.grammar_match(|grammar, start_2| grammar.expression(start_2));
+
             if let Some(span) = depth_error {
                 self.report_expression_depth_error(span);
             }
-            let value = expr.map(|expr| {
-                self.cursor = expr.end;
-                trimmed_text(self.source, expr.span.start, expr.span.end)
-                    .unwrap_or_else(|| SpannedText::new(String::new(), expr.span))
+
+            let value = expr.map(|expr_2| {
+                self.cursor = expr_2.end;
+                trimmed_text(self.source, expr_2.span.start, expr_2.span.end)
+                    .unwrap_or_else(|| SpannedText::new(String::new(), expr_2.span))
             });
+
             if matches!(self.peek_kind(), TokenKind::Semicolon) {
                 self.bump();
             }
+
             let end = self.previous_end().max(start);
             return Some(StatementSyntax {
                 kind: StatementKindSyntax::Return(ReturnSyntax {
@@ -648,22 +706,24 @@ impl<'a> Parser<'a> {
             let grammar = Grammar::with_control(self.source, &self.tokens, &self.control);
             grammar.async_message(self.cursor)
         };
-        let Some(event) = event else {
+
+        let Some(event_2) = event else {
             self.error(
                 "expected async message after ZenUML return annotation",
                 self.insertion_span(),
             );
             return None;
         };
-        self.cursor = event.end;
+
+        self.cursor = event_2.end;
         let end = self.previous_end().max(start);
         Some(StatementSyntax {
             kind: StatementKindSyntax::Return(ReturnSyntax {
-                from: event.from.as_ref().map(|endpoint| endpoint.name.clone()),
-                from_emoji: event.from.and_then(|endpoint| endpoint.emoji),
-                to: event.to.as_ref().map(|endpoint| endpoint.name.clone()),
-                to_emoji: event.to.and_then(|endpoint| endpoint.emoji),
-                value: event.content,
+                from: event_2.from.as_ref().map(|endpoint| endpoint.name.clone()),
+                from_emoji: event_2.from.and_then(|endpoint| endpoint.emoji),
+                to: event_2.to.as_ref().map(|endpoint| endpoint.name.clone()),
+                to_emoji: event_2.to.and_then(|endpoint| endpoint.emoji),
+                value: event_2.content,
             }),
             comment,
             span: SourceSpan::new(start, end),
@@ -672,9 +732,11 @@ impl<'a> Parser<'a> {
 
     fn parse_divider(&mut self, comment: Option<SpannedText>) -> Option<StatementSyntax> {
         let token = self.bump().clone();
+
         let TokenKind::Divider(value) = token.kind else {
             return None;
         };
+
         let label = SpannedText::new(value, token.span);
         Some(StatementSyntax {
             kind: StatementKindSyntax::Divider(label),
@@ -690,40 +752,45 @@ impl<'a> Parser<'a> {
     ) -> Option<StatementSyntax> {
         let (creation, depth_error) =
             self.grammar_match(|grammar, start| grammar.creation_body(start));
+
         if let Some(span) = depth_error {
             self.report_expression_depth_error(span);
             return None;
-        }
-        if let Some(creation) = creation {
-            return self.consume_creation(depth, comment, creation);
         }
 
-        let (message, depth_error) =
+        if let Some(creation_2) = creation {
+            return self.consume_creation(depth, comment, creation_2);
+        }
+
+        let (message, depth_error_2) =
             self.grammar_match(|grammar, start| grammar.message_body(start));
-        if let Some(span) = depth_error {
+
+        if let Some(span) = depth_error_2 {
             self.report_expression_depth_error(span);
             return None;
         }
-        if let Some(message) = message.filter(|message| {
+
+        if let Some(message_3) = message.filter(|message_2| {
             let grammar = Grammar::with_control(self.source, &self.tokens, &self.control);
-            grammar.message_candidate_is_complete(message.end)
+            grammar.message_candidate_is_complete(message_2.end)
         }) {
-            return self.consume_message(depth, comment, message);
+            return self.consume_message(depth, comment, message_3);
         }
 
         let event = {
             let grammar = Grammar::with_control(self.source, &self.tokens, &self.control);
             grammar.async_message(self.cursor)
         };
-        if let Some(event) = event {
-            return self.consume_async_message(comment, event);
+
+        if let Some(event_2) = event {
+            return self.consume_async_message(comment, event_2);
         }
 
         let returned = {
             let grammar = Grammar::with_control(self.source, &self.tokens, &self.control);
             grammar.return_async_message(self.cursor)
         };
-        returned.map(|returned| self.consume_return_async(comment, returned))
+        returned.map(|returned_2| self.consume_return_async(comment, returned_2))
     }
 
     fn consume_creation(
@@ -851,6 +918,7 @@ impl<'a> Parser<'a> {
         }
     }
 
+    #[must_use]
     fn grammar_match<T>(
         &self,
         parse: impl FnOnce(&Grammar<'_>, usize) -> Option<T>,
@@ -875,6 +943,7 @@ impl<'a> Parser<'a> {
 
     fn skip_balanced_block(&mut self) {
         let mut depth = 0usize;
+
         while self.parse_active() && !self.at_eof() {
             match self.peek_kind() {
                 TokenKind::OpenBrace => depth += 1,
@@ -885,51 +954,61 @@ impl<'a> Parser<'a> {
                 TokenKind::CloseBrace => depth -= 1,
                 _ => {}
             }
+
             self.bump();
         }
     }
 
+    #[must_use]
     fn at_keyword(&self, keyword: Keyword) -> bool {
         matches!(self.peek_kind(), TokenKind::Keyword(found) if *found == keyword)
     }
 
+    #[must_use]
     fn at_eof(&self) -> bool {
         matches!(self.peek_kind(), TokenKind::Eof)
     }
 
+    #[must_use]
     fn parse_active(&self) -> bool {
         !self.control.is_cancelled()
     }
 
+    #[must_use]
     fn peek(&self) -> &Token {
         &self.tokens[self.cursor.min(self.tokens.len().saturating_sub(1))]
     }
 
+    #[must_use]
     fn peek_kind(&self) -> &TokenKind {
         &self.peek().kind
     }
 
     fn bump(&mut self) -> &Token {
         let index = self.cursor.min(self.tokens.len().saturating_sub(1));
+
         if self.cursor + 1 < self.tokens.len() {
             self.cursor += 1;
         }
+
         &self.tokens[index]
     }
 
+    #[must_use]
     fn previous_end(&self) -> usize {
         self.tokens
             .get(self.cursor.saturating_sub(1))
             .map_or(0, |token| token.span.end)
     }
 
+    #[must_use]
     fn insertion_span(&self) -> SourceSpan {
         SourceSpan::new(self.peek().span.start, self.peek().span.start)
     }
 
     fn error(&mut self, message: impl Into<String>, span: SourceSpan) {
         self.diagnostics.push(SyntaxDiagnostic {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span,
         });
     }
@@ -941,10 +1020,12 @@ fn comments_before_default_tokens(
 ) -> OperationControlResult<Vec<Option<SpannedText>>> {
     let mut slots = Vec::new();
     let mut pending = Vec::new();
+
     for (index, token) in raw_tokens.iter().enumerate() {
-        if index % 128 == 0 {
+        if index.wrapping_rem(128) == 0 {
             control.checkpoint()?;
         }
+
         match (&token.kind, token.channel) {
             (TokenKind::Comment(value), TokenChannel::Comment) => {
                 pending.push(SpannedText::new(value.clone(), token.span));
@@ -967,6 +1048,7 @@ fn comments_before_default_tokens(
             _ => {}
         }
     }
+
     control.checkpoint()?;
     Ok(slots)
 }
@@ -1253,42 +1335,42 @@ enum GrammarTask {
 fn take_expression(result: &mut Option<GrammarValue>) -> Option<ExprMatch> {
     match result.take().expect("expression task result") {
         GrammarValue::Expression(value) => value,
-        _ => unreachable!("expression continuation received a different grammar value"),
+        GrammarValue::Creation(_) | GrammarValue::Func(_) | GrammarValue::Signature(_) | GrammarValue::Invocation(_) | GrammarValue::Parameter(_) => unreachable!("expression continuation received a different grammar value"),
     }
 }
 
 fn take_creation(result: &mut Option<GrammarValue>) -> Option<CreationBodyMatch> {
     match result.take().expect("creation task result") {
         GrammarValue::Creation(value) => value,
-        _ => unreachable!("creation continuation received a different grammar value"),
+        GrammarValue::Expression(_) | GrammarValue::Func(_) | GrammarValue::Signature(_) | GrammarValue::Invocation(_) | GrammarValue::Parameter(_) => unreachable!("creation continuation received a different grammar value"),
     }
 }
 
 fn take_func(result: &mut Option<GrammarValue>) -> Option<FuncMatch> {
     match result.take().expect("func task result") {
         GrammarValue::Func(value) => value,
-        _ => unreachable!("func continuation received a different grammar value"),
+        GrammarValue::Expression(_) | GrammarValue::Creation(_) | GrammarValue::Signature(_) | GrammarValue::Invocation(_) | GrammarValue::Parameter(_) => unreachable!("func continuation received a different grammar value"),
     }
 }
 
 fn take_signature(result: &mut Option<GrammarValue>) -> Option<SignatureMatch> {
     match result.take().expect("signature task result") {
         GrammarValue::Signature(value) => value,
-        _ => unreachable!("signature continuation received a different grammar value"),
+        GrammarValue::Expression(_) | GrammarValue::Creation(_) | GrammarValue::Func(_) | GrammarValue::Invocation(_) | GrammarValue::Parameter(_) => unreachable!("signature continuation received a different grammar value"),
     }
 }
 
 fn take_invocation(result: &mut Option<GrammarValue>) -> Option<InvocationMatch> {
     match result.take().expect("invocation task result") {
         GrammarValue::Invocation(value) => value,
-        _ => unreachable!("invocation continuation received a different grammar value"),
+        GrammarValue::Expression(_) | GrammarValue::Creation(_) | GrammarValue::Func(_) | GrammarValue::Signature(_) | GrammarValue::Parameter(_) => unreachable!("invocation continuation received a different grammar value"),
     }
 }
 
 fn take_parameter(result: &mut Option<GrammarValue>) -> Option<ParameterMatch> {
     match result.take().expect("parameter task result") {
         GrammarValue::Parameter(value) => value,
-        _ => unreachable!("parameter continuation received a different grammar value"),
+        GrammarValue::Expression(_) | GrammarValue::Creation(_) | GrammarValue::Func(_) | GrammarValue::Signature(_) | GrammarValue::Invocation(_) => unreachable!("parameter continuation received a different grammar value"),
     }
 }
 
@@ -1298,6 +1380,7 @@ impl<'a> Grammar<'a> {
         Self::with_control(source, tokens, &OperationControl::new())
     }
 
+    #[must_use]
     fn with_control(source: &'a str, tokens: &'a [Token], control: &OperationControl) -> Self {
         Self {
             source,
@@ -1309,6 +1392,7 @@ impl<'a> Grammar<'a> {
         }
     }
 
+    #[must_use]
     fn expression_depth_error(&self) -> Option<SourceSpan> {
         self.expression_depth_error.get()
     }
@@ -1323,6 +1407,7 @@ impl<'a> Grammar<'a> {
         self.participant_candidate_evaluations.get()
     }
 
+    #[must_use]
     fn run_grammar_task(&self, initial: GrammarTask) -> GrammarValue {
         let cancellation_kind = match &initial {
             GrammarTask::Expression { .. } => 0,
@@ -1346,7 +1431,9 @@ impl<'a> Grammar<'a> {
                     _ => unreachable!("known cancellation projection"),
                 };
             }
+
             inspected = inspected.saturating_add(1);
+
             match task {
                 GrammarTask::Expression {
                     start,
@@ -1358,6 +1445,7 @@ impl<'a> Grammar<'a> {
                             self.expression_depth_error
                                 .set(Some(self.span(start, start.saturating_add(1))));
                         }
+
                         result = Some(GrammarValue::Expression(None));
                     } else {
                         tasks.push(GrammarTask::ExpressionAfterPrefix { min_bp, depth });
@@ -1384,10 +1472,12 @@ impl<'a> Grammar<'a> {
                         result = Some(GrammarValue::Expression(Some(left)));
                         continue;
                     };
+
                     if left_bp < min_bp {
                         result = Some(GrammarValue::Expression(Some(left)));
                         continue;
                     }
+
                     let right_start = left.end + 1;
                     tasks.push(GrammarTask::ExpressionAfterRight {
                         left,
@@ -1411,6 +1501,7 @@ impl<'a> Grammar<'a> {
                         ));
                         continue;
                     };
+
                     let combined = ExprMatch {
                         end: right.end,
                         span: SourceSpan::new(left.span.start, right.span.end),
@@ -1477,10 +1568,11 @@ impl<'a> Grammar<'a> {
                 }
                 GrammarTask::PrefixAfterParenthesized { start, depth } => {
                     let expr = take_expression(&mut result);
-                    if let Some(expr) = expr
-                        && matches!(self.kind(expr.end), Some(TokenKind::CloseParen))
+
+                    if let Some(expr_2) = expr
+                        && matches!(self.kind(expr_2.end), Some(TokenKind::CloseParen))
                     {
-                        let end = expr.end + 1;
+                        let end = expr_2.end + 1;
                         result = Some(GrammarValue::Expression(Some(ExprMatch {
                             end,
                             span: self.span(start, end),
@@ -1534,11 +1626,12 @@ impl<'a> Grammar<'a> {
                 }
                 GrammarTask::PrefixAfterFunc { start } => {
                     let func = take_func(&mut result);
+
                     match func {
-                        Some(func) if func.first_invoked || func.first_emoji => {
+                        Some(func_2) if func_2.first_invoked || func_2.first_emoji => {
                             result = Some(GrammarValue::Expression(Some(ExprMatch {
-                                end: func.end,
-                                span: func.span,
+                                end: func_2.end,
+                                span: func_2.span,
                             })));
                         }
                         _ if self.expression_depth_error.get().is_some() => {
@@ -1550,24 +1643,31 @@ impl<'a> Grammar<'a> {
                                 span: self.span(start, start + 1),
                             })));
                         }
-                        _ => result = Some(GrammarValue::Expression(None)),
+                        ::core::option::Option::None | ::core::option::Option::Some(_) => result = Some(GrammarValue::Expression(None)),
                     }
                 }
                 GrammarTask::Creation { start, depth } => {
                     let assignment = self.assignment(start);
                     let cursor = assignment
                         .as_ref()
-                        .map_or(start, |assignment| assignment.end);
+                        .map_or(start, |assignment_2| assignment_2.end);
+
                     if !matches!(self.kind(cursor), Some(TokenKind::Keyword(Keyword::New))) {
                         result = Some(GrammarValue::Creation(None));
                         continue;
                     }
+
                     let new_span = self.tokens[cursor].span;
                     let mut invocation_start = cursor + 1;
                     let constructor = self.name(invocation_start);
-                    if constructor.is_some() {
-                        invocation_start += 1;
+
+                    match constructor {
+                        ::core::option::Option::Some(_) => {
+                            invocation_start += 1;
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     if constructor.is_some()
                         && matches!(self.kind(invocation_start), Some(TokenKind::OpenParen))
                     {
@@ -1586,7 +1686,7 @@ impl<'a> Grammar<'a> {
                         let span = self.span(start, invocation_start);
                         result = Some(GrammarValue::Creation(Some(CreationBodyMatch {
                             end: invocation_start,
-                            assignment: assignment.and_then(|assignment| assignment.assignee),
+                            assignment: assignment.and_then(|assignment_3| assignment_3.assignee),
                             constructor,
                             parameters: None,
                             new_span,
@@ -1602,20 +1702,22 @@ impl<'a> Grammar<'a> {
                     invocation_start,
                 } => {
                     let invocation = take_invocation(&mut result);
+
                     if invocation.is_none() && self.expression_depth_error.get().is_some() {
                         result = Some(GrammarValue::Creation(None));
                         continue;
                     }
+
                     let end = invocation
                         .as_ref()
-                        .map_or(invocation_start, |invocation| invocation.end);
-                    let parameters = invocation.map(|invocation| {
-                        SpannedText::new(invocation.parameters, invocation.parameters_span)
+                        .map_or(invocation_start, |invocation_2| invocation_2.end);
+                    let parameters = invocation.map(|invocation_3| {
+                        SpannedText::new(invocation_3.parameters, invocation_3.parameters_span)
                     });
                     let span = self.span(start, end);
                     result = Some(GrammarValue::Creation(Some(CreationBodyMatch {
                         end,
-                        assignment: assignment.and_then(|assignment| assignment.assignee),
+                        assignment: assignment.and_then(|assignment_4| assignment_4.assignee),
                         constructor,
                         parameters,
                         new_span,
@@ -1631,6 +1733,7 @@ impl<'a> Grammar<'a> {
                         result = Some(GrammarValue::Func(None));
                         continue;
                     };
+
                     let first_emoji = matches!(self.kind(start), Some(TokenKind::OpenBracket));
                     tasks.push(GrammarTask::FuncContinue {
                         start,
@@ -1694,8 +1797,10 @@ impl<'a> Grammar<'a> {
                                 first_emoji,
                             })));
                         }
+
                         continue;
                     };
+
                     formatted.push('.');
                     formatted.push_str(&signature.formatted);
                     tasks.push(GrammarTask::FuncContinue {
@@ -1712,13 +1817,17 @@ impl<'a> Grammar<'a> {
                         result = Some(GrammarValue::Signature(None));
                         continue;
                     };
+
                     let mut formatted = String::new();
+
                     if let Some(emoji) = &endpoint.emoji {
                         formatted.push('[');
                         formatted.push_str(&emoji.value);
                         formatted.push(']');
                     }
+
                     formatted.push_str(&endpoint.name.value);
+
                     if matches!(self.kind(endpoint.end), Some(TokenKind::OpenParen)) {
                         let invocation_start = endpoint.end;
                         tasks.push(GrammarTask::SignatureAfterInvocation {
@@ -1763,7 +1872,9 @@ impl<'a> Grammar<'a> {
                         result = Some(GrammarValue::Invocation(None));
                         continue;
                     }
+
                     let end = start + 1;
+
                     if matches!(self.kind(end), Some(TokenKind::CloseParen)) {
                         result = Some(GrammarValue::Invocation(Some(self.finish_invocation(
                             start,
@@ -1803,14 +1914,18 @@ impl<'a> Grammar<'a> {
                         result = Some(GrammarValue::Invocation(None));
                         continue;
                     };
+
                     if parameter.end == parameter_start {
                         result = Some(GrammarValue::Invocation(None));
                         continue;
                     }
+
                     let mut end = parameter.end;
                     parameters.push(parameter);
+
                     if matches!(self.kind(end), Some(TokenKind::Comma)) {
                         end += 1;
+
                         if matches!(self.kind(end), Some(TokenKind::CloseParen)) {
                             result = Some(GrammarValue::Invocation(Some(self.finish_invocation(
                                 start,
@@ -1871,11 +1986,13 @@ impl<'a> Grammar<'a> {
                     assignment_end,
                 } => {
                     let expression = take_expression(&mut result);
+
                     if expression.is_none() && self.expression_depth_error.get().is_some() {
                         result = Some(GrammarValue::Parameter(None));
                         continue;
                     }
-                    let end = expression.map_or(assignment_end, |expression| expression.end);
+
+                    let end = expression.map_or(assignment_end, |expression_2| expression_2.end);
                     let formatted = self.compact(start, end);
                     result = Some(GrammarValue::Parameter(Some(ParameterMatch {
                         end,
@@ -1896,21 +2013,22 @@ impl<'a> Grammar<'a> {
         result.expect("grammar task must produce a value")
     }
 
+    #[must_use]
     fn finish_invocation(
         &self,
         start: usize,
         end: usize,
         parameters: Vec<ParameterMatch>,
     ) -> InvocationMatch {
-        let parameters = parameters
+        let parameters_2 = parameters
             .iter()
             .map(|parameter| parameter.formatted.as_str())
             .collect::<Vec<_>>()
             .join(",");
         InvocationMatch {
             end,
-            formatted: format!("({parameters})"),
-            parameters: parameters.clone(),
+            formatted: format!("({parameters})", parameters = parameters_2),
+            parameters: parameters_2.clone(),
             parameters_span: SourceSpan::new(
                 self.tokens[start].span.end,
                 self.tokens[end - 1].span.start,
@@ -1919,6 +2037,7 @@ impl<'a> Grammar<'a> {
         }
     }
 
+    #[must_use]
     fn head_suffix_terminal(&self, start: usize) -> bool {
         self.is_eof(start)
             || matches!(self.kind(start), Some(TokenKind::StarterAnnotation))
@@ -1926,6 +2045,7 @@ impl<'a> Grammar<'a> {
             || self.can_start_statement(start)
     }
 
+    #[must_use]
     fn participant_candidates(&self, start: usize) -> Vec<ParticipantMatch> {
         #[cfg(test)]
         self.participant_candidate_evaluations.set(
@@ -1934,10 +2054,12 @@ impl<'a> Grammar<'a> {
                 .saturating_add(1),
         );
         let mut out = Vec::new();
+
         match self.kind(start) {
             Some(TokenKind::Annotation(value)) => {
                 let participant_type =
                     Some(SpannedText::new(value.clone(), self.tokens[start].span));
+
                 for stereotype in self.stereotype_candidates(start + 1) {
                     self.push_decorated_participant_candidates(
                         start,
@@ -1947,6 +2069,7 @@ impl<'a> Grammar<'a> {
                         &mut out,
                     );
                 }
+
                 self.push_decorated_participant_candidates(
                     start,
                     start + 1,
@@ -1976,6 +2099,7 @@ impl<'a> Grammar<'a> {
                 }
             }
         }
+
         out.sort_by_key(|candidate| std::cmp::Reverse(candidate.end));
         out.dedup_by(|left, right| left.end == right.end && left.name == right.name);
         out
@@ -1996,6 +2120,7 @@ impl<'a> Grammar<'a> {
         }
     }
 
+    #[must_use]
     fn finish_participant(
         &self,
         start: usize,
@@ -2021,9 +2146,14 @@ impl<'a> Grammar<'a> {
         let label = if matches!(self.kind(cursor), Some(TokenKind::Keyword(Keyword::As))) {
             cursor += 1;
             let label = self.name(cursor);
-            if label.is_some() {
-                cursor += 1;
+
+            match label {
+                ::core::option::Option::Some(_) => {
+                    cursor += 1;
+                },
+                ::core::option::Option::None => {},
             }
+
             label
         } else {
             None
@@ -2050,6 +2180,7 @@ impl<'a> Grammar<'a> {
         })
     }
 
+    #[must_use]
     fn decorator_only(
         &self,
         start: usize,
@@ -2071,11 +2202,19 @@ impl<'a> Grammar<'a> {
         }
     }
 
+    #[must_use]
     fn stereotype_candidates(&self, start: usize) -> Vec<StereotypeMatch> {
         let mut out = Vec::new();
-        let Some(open) = self.kind(start) else {
-            return out;
+
+        let open = {
+            let optional_open = self.kind(start);
+
+            match optional_open {
+                Some(matched_open) => matched_open,
+                ::core::option::Option::None => return out,
+            }
         };
+
         if !matches!(open, TokenKind::StereotypeOpen)
             && !matches!(open, TokenKind::Operator(value) if value == "<")
         {
@@ -2086,11 +2225,13 @@ impl<'a> Grammar<'a> {
             && let Some(name) = self.name(start + 1)
         {
             let mut end = start + 2;
+
             if matches!(self.kind(end), Some(TokenKind::StereotypeClose))
                 || matches!(self.kind(end), Some(TokenKind::Operator(value)) if value == ">")
             {
                 end += 1;
             }
+
             out.push(StereotypeMatch {
                 end,
                 value: Some(name),
@@ -2098,11 +2239,13 @@ impl<'a> Grammar<'a> {
         }
 
         let mut bare_end = start + 1;
+
         if matches!(self.kind(bare_end), Some(TokenKind::StereotypeClose))
             || matches!(self.kind(bare_end), Some(TokenKind::Operator(value)) if value == ">")
         {
             bare_end += 1;
         }
+
         out.push(StereotypeMatch {
             end: bare_end,
             value: None,
@@ -2111,6 +2254,7 @@ impl<'a> Grammar<'a> {
         out
     }
 
+    #[must_use]
     fn message_body(&self, start: usize) -> Option<MessageBodyMatch> {
         if let Some(assignment) = self.assignment(start) {
             let mut from = None;
@@ -2121,10 +2265,12 @@ impl<'a> Grammar<'a> {
                 self.token_end(assignment.end.saturating_sub(1)),
             );
             let mut end = assignment.end;
+
             if let Some(from_to) = self.message_path(end) {
                 from = from_to.from;
                 to = Some(from_to.to);
                 end = from_to.end;
+
                 if let Some(func) = self.func(end) {
                     formatted = func.formatted;
                     signature_span = func.span;
@@ -2135,6 +2281,7 @@ impl<'a> Grammar<'a> {
                 signature_span = func.span;
                 end = func.end;
             }
+
             let span = self.span(start, end);
             return Some(MessageBodyMatch {
                 end,
@@ -2181,21 +2328,25 @@ impl<'a> Grammar<'a> {
         })
     }
 
+    #[must_use]
     fn creation_body(&self, start: usize) -> Option<CreationBodyMatch> {
         match self.run_grammar_task(GrammarTask::Creation { start, depth: 0 }) {
             GrammarValue::Creation(value) => value,
-            _ => unreachable!("creation task returned a different grammar value"),
+            GrammarValue::Expression(_) | GrammarValue::Func(_) | GrammarValue::Signature(_) | GrammarValue::Invocation(_) | GrammarValue::Parameter(_) => unreachable!("creation task returned a different grammar value"),
         }
     }
 
+    #[must_use]
     fn async_message(&self, start: usize) -> Option<AsyncMessageMatch> {
         let first = self.endpoint(start)?;
+
         if matches!(self.kind(first.end), Some(TokenKind::Arrow)) {
             if let Some(to) = self.endpoint(first.end + 1) {
                 if matches!(self.kind(to.end), Some(TokenKind::Colon)) {
                     let event_start = to.end + 1;
                     return Some(self.finish_event(start, Some(first), Some(to), event_start));
                 }
+
                 let end = to.end;
                 return Some(AsyncMessageMatch {
                     end,
@@ -2205,6 +2356,7 @@ impl<'a> Grammar<'a> {
                     span: self.span(start, end),
                 });
             }
+
             let end = first.end + 1;
             return Some(AsyncMessageMatch {
                 end,
@@ -2214,12 +2366,14 @@ impl<'a> Grammar<'a> {
                 span: self.span(start, end),
             });
         }
+
         if matches!(self.kind(first.end), Some(TokenKind::Colon)) {
             return Some(self.finish_event(start, None, Some(first.clone()), first.end + 1));
         }
+
         if matches!(self.kind(first.end), Some(TokenKind::Operator(value)) if value == "-") {
             let to = self.endpoint(first.end + 1);
-            let end = to.as_ref().map_or(first.end + 1, |to| to.end);
+            let end = to.as_ref().map_or(first.end + 1, |to_2| to_2.end);
             return Some(AsyncMessageMatch {
                 end,
                 from: Some(first),
@@ -2228,9 +2382,11 @@ impl<'a> Grammar<'a> {
                 span: self.span(start, end),
             });
         }
+
         None
     }
 
+    #[must_use]
     fn finish_event(
         &self,
         start: usize,
@@ -2247,9 +2403,11 @@ impl<'a> Grammar<'a> {
             }
             _ => None,
         };
+
         if matches!(self.kind(end), Some(TokenKind::EventEnd)) {
             end += 1;
         }
+
         AsyncMessageMatch {
             end,
             from,
@@ -2259,16 +2417,21 @@ impl<'a> Grammar<'a> {
         }
     }
 
+    #[must_use]
     fn return_async_message(&self, start: usize) -> Option<ReturnAsyncMatch> {
         let from = self.endpoint(start)?;
+
         if !matches!(self.kind(from.end), Some(TokenKind::ReturnArrow)) {
             return None;
         }
+
         let mut end = from.end + 1;
         let to = self.endpoint(end);
-        if let Some(to) = &to {
-            end = to.end;
+
+        if let Some(to_2) = &to {
+            end = to_2.end;
         }
+
         let content = if matches!(self.kind(end), Some(TokenKind::Colon)) {
             end += 1;
             let value = match self.kind(end) {
@@ -2280,9 +2443,11 @@ impl<'a> Grammar<'a> {
                 }
                 _ => None,
             };
+
             if matches!(self.kind(end), Some(TokenKind::EventEnd)) {
                 end += 1;
             }
+
             value
         } else {
             None
@@ -2296,19 +2461,24 @@ impl<'a> Grammar<'a> {
         })
     }
 
+    #[must_use]
     fn message_path(&self, start: usize) -> Option<FromToMatch> {
         let first = self.endpoint(start)?;
+
         if matches!(self.kind(first.end), Some(TokenKind::Arrow)) {
             let to = self.endpoint(first.end + 1)?;
+
             if !matches!(self.kind(to.end), Some(TokenKind::Dot)) {
                 return None;
             }
+
             return Some(FromToMatch {
                 end: to.end + 1,
                 from: Some(first),
                 to,
             });
         }
+
         if matches!(self.kind(first.end), Some(TokenKind::Dot)) {
             return Some(FromToMatch {
                 end: first.end + 1,
@@ -2316,9 +2486,11 @@ impl<'a> Grammar<'a> {
                 to: first,
             });
         }
+
         None
     }
 
+    #[must_use]
     fn endpoint(&self, start: usize) -> Option<EndpointMatch> {
         let (emoji, cursor) = self.emoji(start).map_or((None, start), |emoji| {
             let end = emoji.end;
@@ -2332,38 +2504,46 @@ impl<'a> Grammar<'a> {
         })
     }
 
+    #[must_use]
     fn emoji(&self, start: usize) -> Option<EmojiMatch> {
         if !matches!(self.kind(start), Some(TokenKind::OpenBracket)) {
             return None;
         }
+
         let name = self.name(start + 1)?;
+
         if !matches!(self.kind(start + 2), Some(TokenKind::CloseBracket)) {
             return None;
         }
+
         Some(EmojiMatch {
             end: start + 3,
             name,
         })
     }
 
+    #[must_use]
     fn func(&self, start: usize) -> Option<FuncMatch> {
         match self.run_grammar_task(GrammarTask::Func { start, depth: 0 }) {
             GrammarValue::Func(value) => value,
-            _ => unreachable!("func task returned a different grammar value"),
+            GrammarValue::Expression(_) | GrammarValue::Creation(_) | GrammarValue::Signature(_) | GrammarValue::Invocation(_) | GrammarValue::Parameter(_) => unreachable!("func task returned a different grammar value"),
         }
     }
 
+    #[must_use]
     fn bare_func(&self, start: usize) -> Option<FuncMatch> {
         self.func(start)
     }
 
+    #[must_use]
     fn invocation(&self, start: usize) -> Option<InvocationMatch> {
         match self.run_grammar_task(GrammarTask::Invocation { start, depth: 0 }) {
             GrammarValue::Invocation(value) => value,
-            _ => unreachable!("invocation task returned a different grammar value"),
+            GrammarValue::Expression(_) | GrammarValue::Creation(_) | GrammarValue::Func(_) | GrammarValue::Signature(_) | GrammarValue::Parameter(_) => unreachable!("invocation task returned a different grammar value"),
         }
     }
 
+    #[must_use]
     fn assignment(&self, start: usize) -> Option<AssignmentMatch> {
         if self.name(start).is_some()
             && let Some((assignee, assignee_end)) = self.assignee(start + 1)
@@ -2372,39 +2552,49 @@ impl<'a> Grammar<'a> {
             let end = assignee_end + 1;
             return Some(AssignmentMatch { end, assignee });
         }
+
         let (assignee, assignee_end) = self.assignee(start)?;
+
         if !matches!(self.kind(assignee_end), Some(TokenKind::Assign)) {
             return None;
         }
+
         let end = assignee_end + 1;
         Some(AssignmentMatch { end, assignee })
     }
 
+    #[must_use]
     fn assignee(&self, start: usize) -> Option<(Option<SpannedText>, usize)> {
         if self.is_identifier_name(start) && matches!(self.kind(start + 1), Some(TokenKind::Comma))
         {
             let mut end = start + 1;
             let mut last = self.name(start);
+
             while matches!(self.kind(end), Some(TokenKind::Comma))
                 && self.is_identifier_name(end + 1)
             {
                 last = self.name(end + 1);
                 end += 2;
             }
+
             return Some((last, end));
         }
+
         if matches!(self.kind(start), Some(TokenKind::Keyword(Keyword::New))) {
             return Some((
                 Some(SpannedText::new("new", self.tokens[start].span)),
                 start + 1,
             ));
         }
+
         if self.is_atom(start) {
             return Some((self.name(start), start + 1));
         }
+
         None
     }
 
+    #[must_use]
     fn expression(&self, start: usize) -> Option<ExprMatch> {
         match self.run_grammar_task(GrammarTask::Expression {
             start,
@@ -2412,10 +2602,11 @@ impl<'a> Grammar<'a> {
             depth: 0,
         }) {
             GrammarValue::Expression(value) => value,
-            _ => unreachable!("expression task returned a different grammar value"),
+            GrammarValue::Creation(_) | GrammarValue::Func(_) | GrammarValue::Signature(_) | GrammarValue::Invocation(_) | GrammarValue::Parameter(_) => unreachable!("expression task returned a different grammar value"),
         }
     }
 
+    #[must_use]
     fn binary_binding_power(&self, index: usize) -> Option<(u8, u8)> {
         let precedence = match self.kind(index) {
             Some(TokenKind::Operator(value)) if value == "||" => 1,
@@ -2428,15 +2619,17 @@ impl<'a> Grammar<'a> {
             }
             Some(TokenKind::Operator(value)) if value == "+" || value == "-" => 9,
             Some(TokenKind::Operator(value)) if matches!(value.as_str(), "*" | "/" | "%") => 11,
-            _ => return None,
+            ::core::option::Option::None | ::core::option::Option::Some(_) => return None,
         };
         Some((precedence, precedence + 1))
     }
 
+    #[must_use]
     fn par_expr(&self, start: usize) -> Option<ParExprMatch> {
         if !matches!(self.kind(start), Some(TokenKind::OpenParen)) {
             return None;
         }
+
         let mut end = start + 1;
         let label = if matches!(self.kind(end), Some(TokenKind::CloseParen)) {
             None
@@ -2447,12 +2640,15 @@ impl<'a> Grammar<'a> {
         } else {
             None
         };
+
         if matches!(self.kind(end), Some(TokenKind::CloseParen)) {
             end += 1;
         }
+
         Some(ParExprMatch { end, label })
     }
 
+    #[must_use]
     fn condition(&self, start: usize) -> Option<ExprMatch> {
         if self.is_identifier_name(start)
             && matches!(self.kind(start + 1), Some(TokenKind::Keyword(Keyword::In)))
@@ -2472,18 +2668,22 @@ impl<'a> Grammar<'a> {
         }
 
         let mut end = start;
+
         while self.is_text_word(end) {
             end += 1;
         }
+
         if end >= start + 2 {
             return Some(ExprMatch {
                 end,
                 span: self.span(start, end),
             });
         }
+
         self.expression(start)
     }
 
+    #[must_use]
     fn can_start_statement(&self, start: usize) -> bool {
         match self.kind(start) {
             Some(TokenKind::Keyword(
@@ -2509,6 +2709,7 @@ impl<'a> Grammar<'a> {
         }
     }
 
+    #[must_use]
     fn message_candidate_is_complete(&self, end: usize) -> bool {
         !matches!(
             self.kind(end),
@@ -2516,6 +2717,7 @@ impl<'a> Grammar<'a> {
         ) && !matches!(self.kind(end), Some(TokenKind::Operator(value)) if value == "-")
     }
 
+    #[must_use]
     fn is_atom(&self, index: usize) -> bool {
         matches!(
             self.kind(index),
@@ -2532,6 +2734,7 @@ impl<'a> Grammar<'a> {
         )
     }
 
+    #[must_use]
     fn is_identifier_name(&self, index: usize) -> bool {
         matches!(
             self.kind(index),
@@ -2539,6 +2742,7 @@ impl<'a> Grammar<'a> {
         )
     }
 
+    #[must_use]
     fn is_text_word(&self, index: usize) -> bool {
         matches!(
             self.kind(index),
@@ -2550,19 +2754,23 @@ impl<'a> Grammar<'a> {
         )
     }
 
+    #[must_use]
     fn name(&self, index: usize) -> Option<SpannedText> {
         let checked_value = self.tokens.get(index)?;
         token_name(checked_value)
     }
 
+    #[must_use]
     fn kind(&self, index: usize) -> Option<&TokenKind> {
         self.tokens.get(index).map(|token| &token.kind)
     }
 
+    #[must_use]
     fn is_eof(&self, index: usize) -> bool {
         matches!(self.kind(index), Some(TokenKind::Eof) | None)
     }
 
+    #[must_use]
     fn span(&self, start: usize, end: usize) -> SourceSpan {
         let start_offset = self
             .tokens
@@ -2578,12 +2786,14 @@ impl<'a> Grammar<'a> {
         SourceSpan::new(start_offset, end_offset)
     }
 
+    #[must_use]
     fn token_end(&self, index: usize) -> usize {
         self.tokens
             .get(index)
             .map_or(self.source.len(), |token| token.span.end)
     }
 
+    #[must_use]
     fn token_text(&self, index: usize) -> &str {
         self.tokens
             .get(index)
@@ -2591,6 +2801,7 @@ impl<'a> Grammar<'a> {
             .unwrap_or("")
     }
 
+    #[must_use]
     fn compact(&self, start: usize, end: usize) -> String {
         (start..end).map(|index| self.token_text(index)).collect()
     }
@@ -2624,11 +2835,13 @@ impl HeadParticipantPrediction {
         {
             return self.planned.pop_front().map(|planned| planned.candidate);
         }
+
         self.planned.clear();
         self.planned.extend(Self::plan(grammar, start));
         self.planned.pop_front().map(|planned| planned.candidate)
     }
 
+    #[must_use]
     fn plan(grammar: &Grammar<'_>, start: usize) -> Vec<PlannedHeadParticipant> {
         let mut frames = Vec::with_capacity(MAX_DIAGRAM_NESTING_DEPTH + 1);
         let mut exhausted = HashSet::new();
@@ -2638,11 +2851,13 @@ impl HeadParticipantPrediction {
             if grammar.control.is_cancelled() {
                 return Vec::new();
             }
+
             let depth = frames.len().saturating_sub(1);
-            // The first token can itself start a message, but head selection must first try its
-            // participant candidates. Every later frame is a suffix of an already-selected
-            // candidate and can use the normal statement boundary.
+
+
+
             let terminal = depth > 0 && grammar.head_suffix_terminal(frames[depth].start);
+
             if terminal || (depth == MAX_DIAGRAM_NESTING_DEPTH && frames[depth].has_continuation())
             {
                 return frames
@@ -2657,16 +2872,18 @@ impl HeadParticipantPrediction {
             }
 
             if depth < MAX_DIAGRAM_NESTING_DEPTH {
-                while let Some(candidate) = frames
+                'inner_while_2: while let Some(candidate) = frames
                     .last_mut()
                     .and_then(HeadParticipantFrame::next_candidate)
                 {
                     if grammar.control.is_cancelled() {
                         return Vec::new();
                     }
+
                     if exhausted.contains(&(candidate.end, depth + 1)) {
-                        continue;
+                        continue 'inner_while_2;
                     }
+
                     frames[depth].chosen = Some(candidate.clone());
                     frames.push(HeadParticipantFrame::new(grammar, candidate.end));
                     continue 'search;
@@ -2677,8 +2894,10 @@ impl HeadParticipantPrediction {
                 if exhausted.len() == MAX_HEAD_PARTICIPANT_PREDICTION_STATES {
                     return Vec::new();
                 }
+
                 exhausted.insert((frame.start, depth));
             }
+
             if frames.is_empty() {
                 return Vec::new();
             }
@@ -2694,6 +2913,7 @@ struct HeadParticipantFrame {
 }
 
 impl HeadParticipantFrame {
+    #[must_use]
     fn new(grammar: &Grammar<'_>, start: usize) -> Self {
         Self {
             start,
@@ -2706,13 +2926,16 @@ impl HeadParticipantFrame {
     fn next_candidate(&mut self) -> Option<ParticipantMatch> {
         while let Some(candidate) = self.candidates.get(self.next_candidate).cloned() {
             self.next_candidate += 1;
+
             if candidate.end > self.start {
                 return Some(candidate);
             }
         }
+
         None
     }
 
+    #[must_use]
     fn has_continuation(&self) -> bool {
         self.candidates
             .iter()
@@ -2733,6 +2956,7 @@ struct EmojiMatch {
     name: SpannedText,
 }
 
+#[must_use]
 fn token_name(token: &Token) -> Option<SpannedText> {
     match &token.kind {
         TokenKind::Identifier(value)
@@ -2744,6 +2968,7 @@ fn token_name(token: &Token) -> Option<SpannedText> {
     }
 }
 
+#[must_use]
 fn trimmed_text(source: &str, start: usize, end: usize) -> Option<SpannedText> {
     let raw = source.get(start..end)?;
     let trimmed_start = raw.len().saturating_sub(raw.trim_start().len());

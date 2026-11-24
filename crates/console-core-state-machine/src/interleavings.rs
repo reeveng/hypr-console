@@ -7,8 +7,10 @@
 //! exhaustive pass. Equal requests from different producers remain distinct
 //! schedules, because their position in a producer is part of the scenario.
 
+use alloc::{vec, vec::Vec};
+use core::fmt;
+
 use console_core_never::Never;
-use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExplorationError {
@@ -45,7 +47,7 @@ pub fn interleavings<R: Clone>(
   let mut order = Vec::new();
 
   for (producer, stream) in streams.iter().enumerate() {
-    order.extend(std::iter::repeat_n(producer, stream.len()));
+    order.extend(core::iter::repeat_n(producer, stream.len()));
   }
 
   let mut buffers = (vec![0_usize; streams.len()], Vec::new());
@@ -133,7 +135,7 @@ fn next_order(order: &mut [usize]) -> Result<Permutation, Never> {
     None => return Ok(Permutation::Exhausted),
   };
 
-  std::mem::swap(value, successor);
+  core::mem::swap(value, successor);
   tail.reverse();
 
   Ok(Permutation::Advanced)
@@ -151,7 +153,7 @@ impl fmt::Display for ExplorationError {
   }
 }
 
-impl std::error::Error for ExplorationError {}
+impl core::error::Error for ExplorationError {}
 
 #[cfg(kani)]
 #[path = "../proofs/interleavings.rs"]

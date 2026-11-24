@@ -10,32 +10,41 @@ use serde_json::Value;
 
 pub(super) fn filter(value: &mut Value, control: &OperationControl) -> OperationControlResult<()> {
     let mut stack = vec![(value, false)];
+
     while let Some((current, presentation)) = stack.pop() {
         control.checkpoint()?;
+
         match current {
             Value::Object(map) => {
                 let rejected = map
                     .iter()
                     .filter(|(key, child)| {
                         (presentation || is_presentation_field(key))
-                            && child.as_str().is_some_and(|value| !is_css_value(value))
+                            && child.as_str().is_some_and(|value_2| !is_css_value(value_2))
                     })
                     .map(|(key, _)| key.clone())
                     .collect::<Vec<_>>();
+
                 for key in rejected {
-                    if let Some(old) = map.remove(&key) {
-                        super::drop_value_nonrecursive(old);
+                    {
+                        match map.remove(&key) {
+                            Some(old) => {
+                                super::drop_value_nonrecursive(old);
+                            },
+                            ::core::option::Option::None => {},
+                        };
                     }
                 }
+
                 for (key, child) in map.iter_mut() {
                     stack.push((child, presentation || is_presentation_field(key)));
                 }
             }
             Value::Array(items) => {
-                // Keep array positions: a rejected font candidate must not authorize another
-                // candidate by shifting an index in a family-specific configuration array.
+
+
                 for child in items {
-                    if presentation && child.as_str().is_some_and(|value| !is_css_value(value)) {
+                    if presentation && child.as_str().is_some_and(|value_3| !is_css_value(value_3)) {
                         *child = Value::Null;
                     } else {
                         stack.push((child, presentation));
@@ -45,9 +54,11 @@ pub(super) fn filter(value: &mut Value, control: &OperationControl) -> Operation
             _ => {}
         }
     }
+
     control.checkpoint()
 }
 
+#[must_use]
 pub(crate) fn is_presentation_field(key: &str) -> bool {
     key == "themeVariables"
         || [
@@ -62,6 +73,7 @@ pub(crate) fn is_presentation_field(key: &str) -> bool {
         .any(|suffix| key.ends_with(suffix))
 }
 
+#[must_use]
 fn is_css_value(value: &str) -> bool {
     if value.chars().any(|ch| {
         matches!(ch, '<' | '>' | '&') || (ch.is_control() && !matches!(ch, '\n' | '\r' | '\t'))
@@ -70,8 +82,8 @@ fn is_css_value(value: &str) -> bool {
         return false;
     }
 
-    // CSS tokenizers recover EOF by closing strings and functions. A real delimiter following
-    // the value must remain at the top level, or the original value could consume renderer CSS.
+
+
     let terminated = format!("{value}\n;");
     let mut parser = Parser::new(&terminated);
     components(&mut parser, 0, value.len() + 1).is_ok()
@@ -89,8 +101,9 @@ fn components(
             Err(error) if depth > 0 && matches!(error.kind, BasicParseErrorKind::EndOfInput) => {
                 return Ok(());
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<()> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
+
         match token {
             Token::Semicolon if depth == 0 && start == boundary => {
                 return parser.expect_exhausted().map_err(Into::into);
@@ -116,9 +129,10 @@ fn components(
     }
 }
 
+#[must_use]
 fn is_value_function(name: &str) -> bool {
-    // Resource loading and host CSS substitution are not source presentation capabilities.
-    // cssparser decodes escaped names before this comparison, including escaped `url` spellings.
+
+
     [
         "rgb",
         "rgba",

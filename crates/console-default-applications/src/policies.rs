@@ -72,6 +72,7 @@ pub fn chromium(engine: &Engine) -> Result<String, Never> {
       "DefaultSearchProviderEnabled": true,
       "DefaultSearchProviderName": engine.says,
       "DefaultSearchProviderSearchURL": asking,
+      "BlockThirdPartyCookies": true,
   });
 
   pretty(&said)
@@ -166,6 +167,8 @@ fn preferred() -> Result<Vec<(&'static str, Value)>, Never> {
   Ok(vec![
     ("browser.fullscreen.animate", json!(false)),
     ("browser.tabs.animate", json!(false)),
+    ("privacy.resistFingerprinting", json!(true)),
+    ("privacy.resistFingerprinting.letterboxing", json!(true)),
     ("toolkit.cosmeticAnimations.enabled", json!(false)),
     (
       "toolkit.legacyUserProfileCustomizations.stylesheets",
@@ -229,6 +232,7 @@ mod tests {
         .and_then(Value::as_str),
       Some("https://www.startpage.com/sp/search?query={searchTerms}")
     );
+    assert_eq!(said.get("BlockThirdPartyCookies"), Some(&json!(true)));
 
     Ok(())
   }
@@ -430,6 +434,16 @@ mod tests {
     let held = said
       .pointer("/policies/Preferences")
       .ok_or("no preferences")?;
+
+    for name in [
+      "privacy.resistFingerprinting",
+      "privacy.resistFingerprinting.letterboxing",
+    ] {
+      assert_eq!(
+        held.get(name),
+        Some(&json!({ "Status": "locked", "Value": true }))
+      );
+    }
 
     assert_eq!(
       held

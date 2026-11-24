@@ -34,20 +34,27 @@ macro_rules! pdf_operators {
     #[derive(Debug, PartialEq, Clone)]
     pub struct $name;
 
-    op0!($name, const { operator_name($spelling) });
+    op0!($name, pdf_operators!(@spelling $spelling));
   };
   (@define all, $spelling:literal, $name:ident) => {
     pdf_operators!(@operands $name(Vec<Number>));
-    op_all!($name, const { operator_name($spelling) });
+    op_all!($name, pdf_operators!(@spelling $spelling));
   };
   (
     @define fixed, $spelling:literal, $name:ident
     $(<$($lifetime:lifetime),+>)? ($($index:literal : $field:ty),+)
   ) => {
     pdf_operators!(@operands $name $(<$($lifetime),+>)? ($($field),+));
-    op_fixed!($name $(<$($lifetime),+>)?, const { operator_name($spelling) }, $($index),+);
+    op_fixed!($name $(<$($lifetime),+>)?, pdf_operators!(@spelling $spelling), $($index),+);
   };
   (@define manual, $spelling:literal, $name:ident <$($lifetime:lifetime),+>) => {};
+  (@spelling $spelling:literal) => {
+    const {
+      let Ok(name) = operator_name($spelling);
+
+      name
+    }
+  };
   (@operands $name:ident $(<$($lifetime:lifetime),+>)? ($($field:ty),+)) => {
     #[derive(Debug, PartialEq, Clone)]
     #[cfg_attr(
@@ -61,19 +68,23 @@ macro_rules! pdf_operators {
   };
 }
 
-const fn operator_name(spelling: &'static [u8]) -> &'static str {
+#[cfg_attr(
+  dylint_lib = "explicit004_no_panic",
+  expect(explicit004_no_panic, reason = "each invocation uses a const block to reject an invalid operator literal at compile time")
+)]
+const fn operator_name(spelling: &'static [u8]) -> Result<&'static str, console_core_never::Never> {
   match core::str::from_utf8(spelling) {
-    Ok(name) => name,
-    Err(_) => panic!("a PDF operator must have an ASCII spelling"),
+    Ok(name) => Ok(name),
+    Err(_invalid_utf8) => panic!("a PDF operator must have a UTF-8 spelling"),
   }
 }
 
 pdf_operators! {
-  // Compatibility operators.
+
   b"BX" => BeginCompatibility, unit;
   b"EX" => EndCompatibility, unit;
 
-  // Graphic state operators.
+
   b"q" => SaveState, unit;
   b"Q" => RestoreState, unit;
   b"cm" => Transform, fixed(0: Number, 1: Number, 2: Number, 3: Number, 4: Number, 5: Number);
@@ -86,7 +97,7 @@ pdf_operators! {
   b"i" => FlatnessTolerance, fixed(0: Number);
   b"gs" => SetGraphicsState<'b, 'a>, fixed(0: &'b Name<'a>);
 
-  // Path-construction operators.
+
   b"m" => MoveTo, fixed(0: Number, 1: Number);
   b"l" => LineTo, fixed(0: Number, 1: Number);
   b"c" => CubicTo, fixed(0: Number, 1: Number, 2: Number, 3: Number, 4: Number, 5: Number);
@@ -95,7 +106,7 @@ pdf_operators! {
   b"h" => ClosePath, unit;
   b"re" => RectPath, fixed(0: Number, 1: Number, 2: Number, 3: Number);
 
-  // Path-painting operators.
+
   b"S" => StrokePath, unit;
   b"s" => CloseAndStrokePath, unit;
   b"f" => FillPathNonZero, unit;
@@ -107,11 +118,11 @@ pdf_operators! {
   b"b*" => CloseFillAndStrokeEvenOdd, unit;
   b"n" => EndPath, unit;
 
-  // Clipping path operators.
+
   b"W" => ClipNonZero, unit;
   b"W*" => ClipEvenOdd, unit;
 
-  // Colour operators.
+
   b"CS" => ColorSpaceStroke<'b, 'a>, fixed(0: &'b Name<'a>);
   b"cs" => ColorSpaceNonStroke<'b, 'a>, fixed(0: &'b Name<'a>);
   b"SC" => StrokeColor, all;
@@ -125,16 +136,16 @@ pdf_operators! {
   b"K" => StrokeColorCmyk, fixed(0: Number, 1: Number, 2: Number, 3: Number);
   b"k" => NonStrokeColorCmyk, fixed(0: Number, 1: Number, 2: Number, 3: Number);
 
-  // Shading operator.
+
   b"sh" => Shading<'b, 'a>, fixed(0: &'b Name<'a>);
 
-  // XObject operator.
+
   b"Do" => XObject<'b, 'a>, fixed(0: &'b Name<'a>);
 
-  // Inline-image operators.
+
   b"BI" => InlineImage<'b, 'a>, fixed(0: &'b Stream<'a>);
 
-  // Text-state operators.
+
   b"Tc" => CharacterSpacing, fixed(0: Number);
   b"Tw" => WordSpacing, fixed(0: Number);
   b"Tz" => HorizontalScaling, fixed(0: Number);
@@ -143,27 +154,27 @@ pdf_operators! {
   b"Tr" => TextRenderingMode, fixed(0: Number);
   b"Ts" => TextRise, fixed(0: Number);
 
-  // Text-object operators.
+
   b"BT" => BeginText, unit;
   b"ET" => EndText, unit;
 
-  // Text-positioning operators.
+
   b"Td" => NextLine, fixed(0: Number, 1: Number);
   b"TD" => NextLineAndSetLeading, fixed(0: Number, 1: Number);
   b"Tm" => SetTextMatrix, fixed(0: Number, 1: Number, 2: Number, 3: Number, 4: Number, 5: Number);
   b"T*" => NextLineUsingLeading, unit;
 
-  // Text-showing operators.
+
   b"Tj" => ShowText<'b, 'a>, fixed(0: &'b object::String<'a>);
   b"'" => NextLineAndShowText<'b, 'a>, fixed(0: &'b object::String<'a>);
   b"\"" => ShowTextWithParameters<'b, 'a>, fixed(0: Number, 1: Number, 2: &'b object::String<'a>);
   b"TJ" => ShowTexts<'b, 'a>, fixed(0: &'b Array<'a>);
 
-  // Type 3 font operators.
+
   b"d0" => ColorGlyph, fixed(0: Number, 1: Number);
   b"d1" => ShapeGlyph, fixed(0: Number, 1: Number, 2: Number, 3: Number, 4: Number, 5: Number);
 
-  // Marked content operators.
+
   b"MP" => MarkedContentPoint<'b, 'a>, fixed(0: &'b Name<'a>);
   b"DP" => MarkedContentPointWithProperties<'b, 'a>, fixed(0: &'b Name<'a>, 1: &'b Object<'a>);
   b"BMC" => BeginMarkedContent<'b, 'a>, fixed(0: &'b Name<'a>);

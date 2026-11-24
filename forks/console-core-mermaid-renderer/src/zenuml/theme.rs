@@ -24,14 +24,16 @@ pub(crate) struct ZenumlSourceStyle {
 }
 
 impl ZenumlSourceStyle {
+    #[must_use]
     pub(crate) fn new(config: &serde_json::Value) -> Self {
-        let Some(config) = crate::config::value_at(config, &["themeVariables", "zenuml"])
+        let Some(config_2) = crate::config::value_at(config, &["themeVariables", "zenuml"])
             .and_then(serde_json::Value::as_object)
         else {
             return Self::default();
         };
+
         let configured = |key: &str| {
-            config
+            config_2
                 .get(key)
                 .and_then(serde_json::Value::as_str)
                 .map(str::to_owned)
@@ -87,34 +89,39 @@ impl ZenumlSourceStyle {
                     "activationBackgroundColor" => &["mutedSurfaceColor", "surfaceColor"],
                     _ => &[],
                 };
-                inherited.iter().find_map(|key| configured(key))
+                inherited.iter().find_map(|key_2| configured(key_2))
             });
             color.map(|value| (key, value))
         })
         .collect();
         Self {
-            typography: super::ZenumlTypography::from_config(config),
+            typography: super::ZenumlTypography::from_config(config_2),
             colors,
             ..Self::default()
         }
     }
 
+    #[must_use]
     pub(crate) fn color<'a>(&'a self, key: &str, fallback: &'a str) -> &'a str {
         self.configured_color(key).unwrap_or(fallback)
     }
 
+    #[must_use]
     pub(crate) fn transparent_frame(&self) -> bool {
         self.transparent_frame
     }
 
+    #[must_use]
     pub(crate) fn configured_color(&self, key: &str) -> Option<&str> {
         self.colors.get(key).map(String::as_str)
     }
 
+    #[must_use]
     fn source_owns_color(&self, key: &str) -> bool {
         self.colors.contains_key(key) && !self.typed_colors.contains_key(key)
     }
 
+    #[must_use]
     pub(crate) fn uses_default_css(&self) -> bool {
         self.colors.is_empty() && self.typography.uses_default_css()
     }
@@ -128,28 +135,33 @@ impl ZenumlSourceStyle {
         replace_default_background: bool,
     ) -> crate::Result<Self> {
         let mut style = Self::new(config.as_value());
-        let Some(theme) = theme else {
-            return Ok(style);
+
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(style),
         };
+
         for slot in PAINT_SLOTS {
             if style.colors.contains_key(slot.key) {
                 continue;
             }
+
             if config.config_paint_overrides_typed_default(slot.global)
                 && let Some(value) = config.get_str(slot.global)
             {
                 style.colors.insert(slot.key, value.to_owned());
                 continue;
             }
+
             let resolved = if slot.textual {
-                theme.text_style_with_work_meter(
+                theme_2.text_style_with_work_meter(
                     slot.target,
                     ThemeVariant::Default,
                     None,
                     work_meter,
                 )?
             } else {
-                theme.style_with_work_meter(slot.target, ThemeVariant::Default, None, work_meter)?
+                theme_2.style_with_work_meter(slot.target, ThemeVariant::Default, None, work_meter)?
             };
             let accepted = if slot.textual {
                 vec![ThemeTarget::Text, slot.target]
@@ -158,14 +170,14 @@ impl ZenumlSourceStyle {
             };
             let paint = if slot.stroke {
                 resolve_direct_static_stroke(
-                    theme,
+                    theme_2,
                     &resolved,
                     &accepted,
                     DirectStaticSelectorDomain::Default,
                 )
                 .or_else(|| {
-                    // A line has one paint channel. Fill supplies its fallback only when no
-                    // stroke was authored; it must not bypass an unsupported stroke winner.
+
+
                     (slot.target == ThemeTarget::Lifeline
                         && matches!(
                             resolved.stroke_resolution().specified(),
@@ -173,7 +185,7 @@ impl ZenumlSourceStyle {
                         ))
                     .then(|| {
                         resolve_direct_static_fill(
-                            theme,
+                            theme_2,
                             &resolved,
                             &accepted,
                             DirectStaticSelectorDomain::Default,
@@ -183,17 +195,22 @@ impl ZenumlSourceStyle {
                 })
             } else {
                 resolve_direct_static_fill(
-                    theme,
+                    theme_2,
                     &resolved,
                     &accepted,
                     DirectStaticSelectorDomain::Default,
                 )
             };
-            if let Some(paint) = paint {
-                style.colors.insert(slot.key, paint.css().to_owned());
-                style.typed_colors.insert(slot.key, paint);
+
+            match paint {
+                Some(paint_2) => {
+                    style.colors.insert(slot.key, paint_2.css().to_owned());
+                    style.typed_colors.insert(slot.key, paint_2);
+                },
+                ::core::option::Option::None => {},
             }
         }
+
         if !style.colors.contains_key("backgroundColor")
             && config.config_paint_overrides_typed_default("themeVariables.background")
             && let Some(color) =
@@ -202,34 +219,41 @@ impl ZenumlSourceStyle {
         {
             style.colors.insert("backgroundColor", color.to_owned());
         }
-        // The host canvas already owns background decoration. A transparent inner frame
-        // reveals it instead of painting the companion's historical white rectangle over it.
+
+
+
         style.transparent_frame =
             replace_default_background && !style.colors.contains_key("backgroundColor");
+
         if style.transparent_frame {
             style
                 .colors
                 .insert("backgroundColor", "transparent".to_owned());
         }
-        // Source actor colors remain local; typed actor strokes also supply the frame fallback.
+
+
         if !style.colors.contains_key("borderColor")
             && let Some(paint) = style.typed_colors.get("actorBorderColor")
         {
             style.colors.insert("borderColor", paint.css().to_owned());
         }
-        let base = theme.typography();
+
+        let base = theme_2.typography();
+
         if style.typography.font_family.is_none()
             && base.is_specified(ThemeTypographyProperty::FontStack)
         {
             style.typography.font_family = Some(base.font_stack().as_css());
             style.typed_fonts.insert(ThemeTypographyProperty::FontStack);
         }
+
         if style.typography.font_size.is_none()
             && base.is_specified(ThemeTypographyProperty::FontSize)
         {
             style.typography.font_size = Some(f64::from(base.font_size_px()));
             style.typed_fonts.insert(ThemeTypographyProperty::FontSize);
         }
+
         Ok(style)
     }
 }
@@ -242,6 +266,7 @@ struct PaintSlot {
     global: &'static str,
 }
 
+#[must_use]
 const fn slot(
     key: &'static str,
     target: ThemeTarget,
@@ -424,82 +449,93 @@ impl ZenumlThemePlan {
         let mut rules = Vec::new();
         let mut font_routes = Vec::new();
         let mut fallback_not_applicable = std::collections::BTreeSet::new();
-        if let Some(theme) = theme {
-            for route in theme.family_mechanism_routes().iter().copied() {
-                let key = theme.family_mechanism_key(route);
-                match route.mechanism() {
-                    FamilyThemeMechanism::BaseTypography(property) => {
-                        if route.disposition() == FamilyThemeDisposition::Unsupported {
-                            if has_visible_text(layout)
-                                || resolve_zenuml_title(model, diagram_title).is_some()
-                            {
-                                evidence.mark_residual(
-                                    key,
-                                    FamilyThemeResidualReason::UnsupportedTypography,
-                                );
+
+        match theme {
+            Some(theme_2) => {
+                for route in theme_2.family_mechanism_routes().iter().copied() {
+                    let key = theme_2.family_mechanism_key(route);
+
+                    match route.mechanism() {
+                        FamilyThemeMechanism::BaseTypography(property) => {
+                            if route.disposition() == FamilyThemeDisposition::Unsupported {
+                                if has_visible_text(layout)
+                                    || resolve_zenuml_title(model, diagram_title).is_some()
+                                {
+                                    evidence.mark_residual(
+                                        key,
+                                        FamilyThemeResidualReason::UnsupportedTypography,
+                                    );
+                                } else {
+                                    evidence.mark_not_applicable(key);
+                                }
                             } else {
-                                evidence.mark_not_applicable(key);
+                                font_routes.push(property);
                             }
-                        } else {
-                            font_routes.push(property);
                         }
+                        FamilyThemeMechanism::RuleFacet { rule_index, .. }
+                            if route.disposition() == FamilyThemeDisposition::TypedAdapter =>
+                        {
+                            rules.push((key, rule_index));
+                        }
+                        FamilyThemeMechanism::RuleFacet { .. } | FamilyThemeMechanism::OrdinalPalette { .. } | FamilyThemeMechanism::EffectBinding { .. } => {}
                     }
-                    FamilyThemeMechanism::RuleFacet { rule_index, .. }
-                        if route.disposition() == FamilyThemeDisposition::TypedAdapter =>
+                }
+
+                let mut targets = std::collections::BTreeSet::new();
+
+                for slot in PAINT_SLOTS {
+                    targets.insert(slot.target);
+                }
+
+                for target in targets {
+                    let (fill, stroke) =
+                        terminal_source_owners(target, model, layout, diagram_title, &source_style);
+                    let line_fill_overridden = if target == ThemeTarget::Lifeline {
+                        source_style.source_owns_color("lifelineColor")
+                            || !theme_2
+                                .style_with_work_meter(target, ThemeVariant::Default, None, work_meter)?
+                                .stroke_resolution()
+                                .specified()
+                                .is_unspecified()
+                    } else {
+                        false
+                    };
+                    let variants = TerminalVariantDomain::uniform(fill.len(), ThemeVariant::Default);
+                    let owned_targets = [ThemeTarget::Text, target];
+                    let domain = if target != ThemeTarget::Text
+                        && PAINT_SLOTS
+                            .iter()
+                            .any(|slot| slot.target == target && slot.textual)
                     {
-                        rules.push((key, rule_index));
+                        UnsupportedTerminalDomain::textual(target, &owned_targets, variants)
+                    } else {
+                        UnsupportedTerminalDomain::direct(target, variants)
                     }
-                    _ => {}
+                    .with_source_owned_fill(&fill)
+                    .with_source_owned_stroke(&stroke)
+
+                    .with_fill_fully_overridden(line_fill_overridden);
+
+
+                    let mut fallbacks = FamilyThemeOutcomes::default();
+                    reconcile_unsupported_terminal_domains(
+                        theme_2,
+                        &mut fallbacks,
+                        &[domain],
+                        work_meter,
+                    )?;
+
+                    for residual in fallbacks.residuals() {
+                        evidence.mark_residual(residual.key().clone(), residual.reason());
+                    }
+
+                    fallback_not_applicable
+                        .extend(fallbacks.not_applicable_mechanisms().iter().cloned());
                 }
-            }
-            let mut targets = std::collections::BTreeSet::new();
-            for slot in PAINT_SLOTS {
-                targets.insert(slot.target);
-            }
-            for target in targets {
-                let (fill, stroke) =
-                    terminal_source_owners(target, model, layout, diagram_title, &source_style);
-                let line_fill_overridden = if target == ThemeTarget::Lifeline {
-                    source_style.source_owns_color("lifelineColor")
-                        || !theme
-                            .style_with_work_meter(target, ThemeVariant::Default, None, work_meter)?
-                            .stroke_resolution()
-                            .specified()
-                            .is_unspecified()
-                } else {
-                    false
-                };
-                let variants = TerminalVariantDomain::uniform(fill.len(), ThemeVariant::Default);
-                let owned_targets = [ThemeTarget::Text, target];
-                let domain = if target != ThemeTarget::Text
-                    && PAINT_SLOTS
-                        .iter()
-                        .any(|slot| slot.target == target && slot.textual)
-                {
-                    UnsupportedTerminalDomain::textual(target, &owned_targets, variants)
-                } else {
-                    UnsupportedTerminalDomain::direct(target, variants)
-                }
-                .with_source_owned_fill(&fill)
-                .with_source_owned_stroke(&stroke)
-                // Lifelines have one final line-color channel, with stroke before fill.
-                .with_fill_fully_overridden(line_fill_overridden);
-                // Text is a fallback for several independent roles. Reconcile each role
-                // separately, and retain any residual before applying absence receipts.
-                let mut fallbacks = FamilyThemeOutcomes::default();
-                reconcile_unsupported_terminal_domains(
-                    theme,
-                    &mut fallbacks,
-                    &[domain],
-                    work_meter,
-                )?;
-                for residual in fallbacks.residuals() {
-                    evidence.mark_residual(residual.key().clone(), residual.reason());
-                }
-                fallback_not_applicable
-                    .extend(fallbacks.not_applicable_mechanisms().iter().cloned());
-            }
+            },
+            ::core::option::Option::None => {},
         }
+
         Ok(Self {
             source_style,
             evidence,
@@ -510,21 +546,33 @@ impl ZenumlThemePlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn source_style(&self) -> &ZenumlSourceStyle {
         &self.source_style
     }
+
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> ZenumlThemeReceipt {
         ZenumlThemeReceipt::default()
     }
+
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: ZenumlThemeReceipt) -> bool {
         self.terminal.set(receipt).is_ok()
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
-        let Some(receipt) = self.terminal.get().filter(|receipt| receipt.stylesheet) else {
-            return;
+
+        let receipt = {
+            let optional_receipt = self.terminal.get().filter(|receipt| receipt.stylesheet);
+
+            match optional_receipt {
+                Some(matched_receipt) => matched_receipt,
+                ::core::option::Option::None => return,
+            }
         };
+
         for (key, index) in &self.rules {
             let paints = self
                 .source_style
@@ -535,20 +583,24 @@ impl ZenumlThemePlan {
                 })
                 .map(|(_, paint)| paint.capability())
                 .collect::<Vec<_>>();
+
             if !paints.is_empty() {
                 evidence.mark_applied_with_capabilities(key.clone(), paints);
             } else {
                 evidence.mark_not_applicable(key.clone());
             }
         }
+
         for property in &self.font_routes {
             let key = FamilyThemeMechanismKey::Typography(*property);
+
             if receipt.visible_text && self.source_style.typed_fonts.contains(property) {
                 evidence.mark_applied_with_capabilities(key, [ThemeCapability::Typography]);
             } else {
                 evidence.mark_not_applicable(key);
             }
         }
+
         for key in &self.fallback_not_applicable {
             evidence.mark_not_applicable(key.clone());
         }
@@ -566,14 +618,17 @@ impl ZenumlThemeReceipt {
     pub(crate) fn record_stylesheet(&mut self) {
         self.stylesheet = true;
     }
+
     pub(crate) fn record_colors(&mut self, colors: &[&'static str]) {
         self.colors.extend(colors.iter().copied());
     }
+
     pub(crate) fn record_text(&mut self, text: &str) {
         self.visible_text |= !text.trim().is_empty();
     }
 }
 
+#[must_use]
 fn terminal_source_owners(
     target: ThemeTarget,
     model: &ZenumlDiagramModel,
@@ -591,6 +646,7 @@ fn terminal_source_owners(
     let count = terminal_count(target, model, layout, title);
     let mut fill = vec![source_owns(false); count];
     let stroke = vec![source_owns(true); count];
+
     if !source_owns(false) {
         match target {
             ThemeTarget::Actor => {
@@ -628,9 +684,11 @@ fn terminal_source_owners(
             _ => {}
         }
     }
+
     (fill, stroke)
 }
 
+#[must_use]
 fn rendered_participants(
     layout: &ZenumlDiagramLayout,
 ) -> impl Iterator<Item = &super::ZenumlParticipantLayout> {
@@ -651,6 +709,7 @@ fn rendered_participants(
         )
 }
 
+#[must_use]
 fn terminal_count(
     target: ThemeTarget,
     model: &ZenumlDiagramModel,
@@ -722,6 +781,7 @@ fn terminal_count(
     }
 }
 
+#[must_use]
 fn has_visible_text(layout: &ZenumlDiagramLayout) -> bool {
     layout
         .participants

@@ -200,8 +200,7 @@ mod tests {
 
   #[cfg(all(feature = "bitdepth_8", feature = "bitdepth_16"))]
   #[test]
-  fn palette_frame_storage_checks_the_pixel_width()
-  -> Result<(), std::collections::TryReserveError> {
+  fn palette_frame_storage_checks_the_pixel_width() -> crate::src::error::Rav1dResult {
     use crate::include::common::bitdepth::{BitDepth8, BitDepth16};
     use crate::src::internal::Pal;
 
@@ -236,29 +235,36 @@ mod tests {
   }
 
   #[cfg(feature = "bitdepth_8")]
+  fn palette_fixture_tile()
+  -> crate::src::error::Rav1dResult<crate::src::internal::Rav1dTileStateContext> {
+    use crate::src::c_arc::CArc;
+    use crate::src::c_box::CBox;
+    use crate::src::cdf::{rav1d_cdf_thread_copy, rav1d_cdf_thread_init_static};
+    use crate::src::internal::Rav1dTileStateContext;
+    use crate::src::msac::{MsacContext, Rav1dMsacDSPContext};
+
+    let Ok(initial) = rav1d_cdf_thread_init_static(0);
+    let cdf = rav1d_cdf_thread_copy(&initial)?;
+    let Ok(dsp) = Rav1dMsacDSPContext::default();
+    let Ok(bytes) = CBox::from_box(vec![0; 64].into_boxed_slice());
+    let stored = CArc::wrap(bytes)?;
+    let Ok(msac) = MsacContext::new(stored, crate::src::msac::CdfUpdates::Allowed, &dsp);
+
+    Ok(Rav1dTileStateContext { cdf, msac })
+  }
+
+  #[cfg(feature = "bitdepth_8")]
   #[test]
   fn palette_bitstream_and_dispatch_reject_invalid_regions()
   -> ::core::result::Result<(), crate::src::error::Rav1dError> {
     use crate::include::common::bitdepth::BitDepth8;
-    use crate::src::c_arc::CArc;
-    use crate::src::c_box::CBox;
-    use crate::src::cdf::{rav1d_cdf_thread_copy, rav1d_cdf_thread_init_static};
-    use crate::src::internal::{
-      Rav1dFrameContextBdFn, Rav1dFrameData, Rav1dTaskContext, Rav1dTileStateContext,
-    };
-    use crate::src::msac::{MsacContext, Rav1dMsacDSPContext};
+    use crate::src::internal::{Rav1dFrameContextBdFn, Rav1dFrameData, Rav1dTaskContext};
     let scratch_memory = crate::src::internal::TaskContextScratch::allocate()?;
     let Ok(mut task) = Rav1dTaskContext::new(scratch_memory);
     let mut frame = Rav1dFrameData::default();
     frame.cur.p.bpc = 8;
     frame.b4_stride = 32;
-    let Ok(initial) = rav1d_cdf_thread_init_static(0);
-    let cdf = rav1d_cdf_thread_copy(&initial)?;
-    let Ok(dsp) = Rav1dMsacDSPContext::default();
-    let Ok(bytes) = CBox::from_box(vec![0; 64].into_boxed_slice());
-    let bytes_2 = CArc::wrap(bytes)?;
-    let Ok(msac) = MsacContext::new(bytes_2, crate::src::msac::CdfUpdates::Allowed, &dsp);
-    let mut tile = Rav1dTileStateContext { cdf, msac };
+    let mut tile = palette_fixture_tile()?;
     let Ok(dispatch) = Rav1dFrameContextBdFn::new::<BitDepth8>();
     assert_eq!(
       (dispatch.read_pal_y)(

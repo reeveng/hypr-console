@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Software Store
+Comment=Find and install Nix applications
+Exec=/usr/local/bin/console-application-software-store
+Icon=system-software-install
+Terminal=false
+StartupWMClass=console-application-software-store
+Categories=Settings;PackageManager;
+Keywords=Nix;Software;Store;Packages;OBS;

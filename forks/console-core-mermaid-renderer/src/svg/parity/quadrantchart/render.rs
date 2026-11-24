@@ -1,8 +1,9 @@
 use super::super::*;
 use merman_model::families::quadrant_chart::QuadrantChartDiagramModel;
 
-// QuadrantChart diagram SVG renderer implementation (split from parity.rs).
 
+
+#[must_use]
 fn quadrantchart_dominant_baseline(horizontal_pos: &str) -> &'static str {
     if horizontal_pos == "top" {
         "hanging"
@@ -11,6 +12,7 @@ fn quadrantchart_dominant_baseline(horizontal_pos: &str) -> &'static str {
     }
 }
 
+#[must_use]
 fn quadrantchart_text_anchor(vertical_pos: &str) -> &'static str {
     if vertical_pos == "left" {
         "start"
@@ -19,6 +21,7 @@ fn quadrantchart_text_anchor(vertical_pos: &str) -> &'static str {
     }
 }
 
+#[must_use]
 fn quadrantchart_transform(x: f64, y: f64, rotation: f64) -> String {
     format!(
         "translate({}, {}) rotate({})",
@@ -47,9 +50,11 @@ fn write_quadrantchart_axis_labels(
         out.checkpoint()?;
         record_text(label);
     }
+
     Ok(())
 }
 
+#[must_use]
 fn quadrantchart_root_bounds(
     layout: &QuadrantChartDiagramLayout,
     point_theme: &crate::quadrantchart::QuadrantChartPointThemePlan,
@@ -63,8 +68,12 @@ fn quadrantchart_root_bounds(
         if point_theme.radius_override_px(point_index).is_none() {
             continue;
         }
+
         let stroke_outset =
-            parse_quadrantchart_stroke_width_px(&point.stroke_width).unwrap_or(0.0) / 2.0;
+            (match parse_quadrantchart_stroke_width_px(&point.stroke_width) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            }) / 2.0;
         let paint_outset = point.radius.max(0.0) + stroke_outset;
         min_x = min_x.min(point.x - paint_outset);
         min_y = min_y.min(point.y - paint_outset);
@@ -75,12 +84,12 @@ fn quadrantchart_root_bounds(
     root_svg::DiagramBounds::from_extents(min_x, min_y, max_x, max_y, 0.0)
 }
 
+#[must_use]
 fn parse_quadrantchart_stroke_width_px(raw: &str) -> Option<f64> {
-    let raw = raw.trim().trim_end_matches(';').trim();
-    let raw = raw.trim_end_matches("!important").trim();
-    let raw = raw.strip_suffix("px").unwrap_or(raw).trim();
-    raw.parse::<f64>()
-        .ok()
+    let raw_2 = raw.trim().trim_end_matches(';').trim();
+    let raw_3 = raw_2.trim_end_matches("!important").trim();
+    let raw_4 = raw_3.strip_suffix("px").unwrap_or(raw_3).trim();
+    match raw_4.parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
         .filter(|value| value.is_finite() && *value >= 0.0)
 }
 
@@ -98,6 +107,7 @@ pub(crate) fn render_quadrantchart_diagram_svg(
                 .to_string(),
         });
     }
+
     let diagram_id = options.diagram_id_or("quadrantchart");
     let acc_title = model
         .acc_title
@@ -143,6 +153,7 @@ pub(crate) fn render_quadrantchart_diagram_svg(
         );
         out.checkpoint()?;
     }
+
     if let Some(description) = acc_descr {
         let _ = write!(
             &mut out,
@@ -162,6 +173,7 @@ pub(crate) fn render_quadrantchart_diagram_svg(
         diagram_id.semantic_str(),
         point_theme.common_css(),
     )?;
+
     if let Some(receipt) = point_theme_receipt.as_mut() {
         receipt.record_css_emission(
             css_write.root_font_family_css(),
@@ -169,17 +181,19 @@ pub(crate) fn render_quadrantchart_diagram_svg(
             css_write.root_variable_font_family_css(),
         );
     }
+
     out.checkpoint()?;
-    // Mermaid always includes an empty `<g/>` placeholder after `<style>`.
+
     out.push_str(r#"</style><g/>"#);
     out.checkpoint()?;
 
     out.push_str(r#"<g class="main">"#);
     out.checkpoint()?;
 
-    // Quadrants.
+
     out.push_str(r#"<g class="quadrants">"#);
     out.checkpoint()?;
+
     for quadrant in &layout.quadrants {
         out.push_str(r#"<g class="quadrant">"#);
         out.checkpoint()?;
@@ -208,18 +222,22 @@ pub(crate) fn render_quadrantchart_diagram_svg(
             text = escape_xml(&quadrant.text.text),
         );
         out.checkpoint()?;
+
         if let Some(receipt) = point_theme_receipt.as_mut() {
             receipt.record_quadrant_text(&quadrant.text.text);
         }
+
         out.push_str("</g>");
         out.checkpoint()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
-    // Borders.
+
     out.push_str(r#"<g class="border">"#);
     out.checkpoint()?;
+
     for line in &layout.border_lines {
         let _ = write!(
             &mut out,
@@ -232,16 +250,19 @@ pub(crate) fn render_quadrantchart_diagram_svg(
             w = fmt(line.stroke_width),
         );
         out.checkpoint()?;
+
         if let Some(receipt) = text_paint_receipt.as_mut() {
             receipt.record_border(line);
         }
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
-    // Points.
+
     out.push_str(r#"<g class="data-points">"#);
     out.checkpoint()?;
+
     for (point_index, point) in layout.points.iter().enumerate() {
         out.push_str(r#"<g class="data-point">"#);
         out.checkpoint()?;
@@ -264,6 +285,7 @@ pub(crate) fn render_quadrantchart_diagram_svg(
             stroke_width = escape_xml(&point.stroke_width),
         );
         out.checkpoint()?;
+
         if let Some(receipt) = point_theme_receipt.as_mut() {
             receipt.record_checkpointed_point(
                 point_index,
@@ -271,6 +293,7 @@ pub(crate) fn render_quadrantchart_diagram_svg(
                 &point.fill,
             );
         }
+
         let _ = write!(
             &mut out,
             r#"<text x="0" y="0" fill="{fill}" font-size="{font_size}" dominant-baseline="{dom}" text-anchor="{anchor}" transform="{transform}">{text}</text>"#,
@@ -286,25 +309,30 @@ pub(crate) fn render_quadrantchart_diagram_svg(
             text = escape_xml(&point.text.text),
         );
         out.checkpoint()?;
+
         if let Some(receipt) = point_theme_receipt.as_mut() {
             receipt.record_point_text(&point.text.text);
         }
+
         if let Some(receipt) = text_paint_receipt.as_mut() {
             receipt.record(&point.text);
         }
+
         out.push_str("</g>");
         out.checkpoint()?;
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
-    // Axis labels.
+
     out.push_str(r#"<g class="labels">"#);
     out.checkpoint()?;
     write_quadrantchart_axis_labels(&mut out, &layout.axis_labels, |label| {
         if let Some(receipt) = point_theme_receipt.as_mut() {
             receipt.record_axis_label(&label.text);
         }
+
         if let Some(receipt) = text_paint_receipt.as_mut() {
             receipt.record(label);
         }
@@ -312,9 +340,10 @@ pub(crate) fn render_quadrantchart_diagram_svg(
     out.push_str("</g>");
     out.checkpoint()?;
 
-    // Title.
+
     out.push_str(r#"<g class="title">"#);
     out.checkpoint()?;
+
     if let Some(t) = layout.title.as_ref() {
         let _ = write!(
             &mut out,
@@ -327,29 +356,35 @@ pub(crate) fn render_quadrantchart_diagram_svg(
             text = escape_xml(&t.text),
         );
         out.checkpoint()?;
+
         if let Some(receipt) = point_theme_receipt.as_mut() {
             receipt.record_title_text(&t.text);
         }
+
         if let Some(receipt) = text_paint_receipt.as_mut() {
             receipt.record(t);
         }
     }
+
     out.push_str("</g>");
     out.checkpoint()?;
 
     out.push_str("</g></svg>\n");
-    let rooted_svg = root_document.complete(out.finish()?)?;
+    let rooted_svg = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if point_theme_receipt.is_some_and(|receipt| !point_theme.record_terminal(receipt)) {
         return Err(crate::Error::InvalidModel {
             message: "Quadrant Chart point theme receipt did not match the terminal SVG"
                 .to_string(),
         });
     }
+
     if text_paint_receipt.is_some_and(|receipt| !text_paint.record_terminal(receipt)) {
         return Err(crate::Error::InvalidModel {
-            message: "Quadrant Chart text paint receipt does not match terminal SVG".into(),
+            message: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("Quadrant Chart text paint receipt does not match terminal SVG"),
         });
     }
+
     Ok(rooted_svg)
 }
 

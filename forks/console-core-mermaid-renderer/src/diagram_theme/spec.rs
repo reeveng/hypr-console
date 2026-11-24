@@ -58,16 +58,17 @@ impl From<bool> for MermaidThemeValue {
 impl MermaidThemeCompatibility {
     /// Parses and selects an upstream Mermaid theme name.
     pub fn with_theme(self, theme: impl AsRef<str>) -> Result<Self, ThemeCompileValidationError> {
-        let theme = MermaidThemeId::parse(theme.as_ref()).map_err(|error| {
+        let theme_2 = MermaidThemeId::parse(theme.as_ref()).map_err(|error| {
             ThemeCompileValidationError::UnsupportedMermaidTheme {
                 field: "mermaid.theme",
                 value: error.input().to_string(),
             }
         })?;
-        Ok(self.with_theme_id(theme))
+        Ok(self.with_theme_id(theme_2))
     }
 
     /// Selects an already validated theme from the pinned Mermaid catalog.
+    #[must_use]
     pub fn with_theme_id(mut self, theme: MermaidThemeId) -> Self {
         self.theme = Some(theme);
         self
@@ -88,60 +89,83 @@ impl MermaidThemeCompatibility {
         key: impl Into<String>,
         value: impl Into<MermaidThemeValue>,
     ) -> Result<Self, ThemeCompileValidationError> {
-        let key = validate_identifier(key.into(), "mermaid.theme_variables.key")?;
-        let value = validate_theme_value(value.into(), "mermaid.theme_variables.value")?;
-        if key == "darkMode" {
-            let MermaidThemeValue::Boolean(dark_mode) = value else {
+        let key_2 = validate_identifier(<_ as ::core::convert::Into<::std::string::String>>::into(key), "mermaid.theme_variables.key")?;
+        let value_2 = validate_theme_value(<_ as ::core::convert::Into<crate::diagram_theme::spec::MermaidThemeValue>>::into(value), "mermaid.theme_variables.value")?;
+
+        if key_2 == "darkMode" {
+            let MermaidThemeValue::Boolean(dark_mode) = value_2 else {
                 return Err(ThemeCompileValidationError::InvalidValue {
                     field: "mermaid.theme_variables.darkMode",
                 });
             };
+
             return self.with_canonical_dark_mode(dark_mode, "mermaid.theme_variables.darkMode");
         }
-        self.variables.insert(key, value);
+
+        self.variables.insert(key_2, value_2);
         Ok(self)
     }
 
+    #[must_use]
     pub const fn theme(&self) -> Option<MermaidThemeId> {
         self.theme
     }
 
+    #[must_use]
     pub fn theme_name(&self) -> Option<&str> {
         self.theme.map(MermaidThemeId::as_str)
     }
 
+    #[must_use]
     pub const fn dark_mode(&self) -> Option<bool> {
         self.dark_mode
     }
 
+    #[must_use]
     pub fn variables(&self) -> impl ExactSizeIterator<Item = (&str, &MermaidThemeValue)> {
         self.variables
             .iter()
             .map(|(key, value)| (key.as_str(), value))
     }
 
+    #[must_use]
     pub(crate) fn to_mermaid_config(&self) -> MermaidConfig {
         let mut root = Map::new();
-        if let Some(theme) = &self.theme {
-            root.insert(
-                "theme".to_string(),
-                Value::String(theme.as_str().to_string()),
-            );
+
+        match &self.theme {
+            Some(theme) => {
+                root.insert(
+                    "theme".to_string(),
+                    Value::String(theme.as_str().to_string()),
+                );
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(dark_mode) = self.dark_mode {
-            root.insert("darkMode".to_string(), Value::Bool(dark_mode));
+
+        match self.dark_mode {
+            Some(dark_mode) => {
+                root.insert("darkMode".to_string(), Value::Bool(dark_mode));
+            },
+            ::core::option::Option::None => {},
         }
+
         let mut variables = self
             .variables
             .iter()
             .map(|(key, value)| (key.clone(), value.to_json()))
             .collect::<Map<_, _>>();
-        if let Some(dark_mode) = self.dark_mode {
-            variables.insert("darkMode".to_string(), Value::Bool(dark_mode));
+
+        match self.dark_mode {
+            Some(dark_mode) => {
+                variables.insert("darkMode".to_string(), Value::Bool(dark_mode));
+            },
+            ::core::option::Option::None => {},
         }
+
         if !variables.is_empty() {
             root.insert("themeVariables".to_string(), Value::Object(variables));
         }
+
         MermaidConfig::from_value(Value::Object(root))
     }
 
@@ -151,15 +175,18 @@ impl MermaidThemeCompatibility {
                 field: "mermaid.theme_variables",
             });
         }
+
         for (key, value) in &self.variables {
             validate_identifier(key.clone(), "mermaid.theme_variables.key")?;
             validate_theme_value(value.clone(), "mermaid.theme_variables.value")?;
         }
+
         if self.variables.contains_key("darkMode") {
             return Err(ThemeCompileValidationError::InvalidValue {
                 field: "mermaid.theme_variables.darkMode",
             });
         }
+
         Ok(())
     }
 
@@ -171,12 +198,14 @@ impl MermaidThemeCompatibility {
         if self.dark_mode.is_some_and(|current| current != dark_mode) {
             return Err(ThemeCompileValidationError::InvalidValue { field });
         }
+
         self.dark_mode = Some(dark_mode);
         Ok(self)
     }
 }
 
 impl MermaidThemeValue {
+    #[must_use]
     fn to_json(&self) -> Value {
         match self {
             Self::String(value) => Value::String(value.clone()),
@@ -194,13 +223,13 @@ fn validate_theme_value(
     field: &'static str,
 ) -> Result<MermaidThemeValue, ThemeCompileValidationError> {
     match value {
-        MermaidThemeValue::String(value) => Ok(MermaidThemeValue::String(
-            validate_compatibility_value(value, field)?,
+        MermaidThemeValue::String(value_2) => Ok(MermaidThemeValue::String(
+            { let checked_value = validate_compatibility_value(value_2, field)?; checked_value },
         )),
-        MermaidThemeValue::Number(value) if value.is_finite() && value.abs() <= 1_000_000_000.0 => {
-            Ok(MermaidThemeValue::Number(value))
+        MermaidThemeValue::Number(value_3) if value_3.is_finite() && value_3.abs() <= 1_000_000_000.0 => {
+            Ok(MermaidThemeValue::Number(value_3))
         }
-        MermaidThemeValue::Boolean(value) => Ok(MermaidThemeValue::Boolean(value)),
+        MermaidThemeValue::Boolean(value_4) => Ok(MermaidThemeValue::Boolean(value_4)),
         MermaidThemeValue::Number(_) => Err(ThemeCompileValidationError::InvalidValue { field }),
     }
 }
@@ -211,11 +240,13 @@ pub struct ThemeAssets {
 }
 
 impl ThemeAssets {
+    #[must_use]
     pub fn with_font_catalog(mut self, catalog: FontCatalogSpec) -> Self {
         self.font_catalog = Some(catalog);
         self
     }
 
+    #[must_use]
     pub const fn font_catalog(&self) -> Option<&FontCatalogSpec> {
         self.font_catalog.as_ref()
     }
@@ -233,69 +264,84 @@ pub struct DiagramThemeSpec {
 }
 
 impl DiagramThemeSpec {
+    #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
+    #[must_use]
     pub fn with_mermaid_compatibility(mut self, mermaid: MermaidThemeCompatibility) -> Self {
         self.mermaid = mermaid;
         self
     }
 
+    #[must_use]
     pub fn with_typography(mut self, typography: TypographySpec) -> Self {
         self.typography = typography;
         self
     }
 
+    #[must_use]
     pub fn with_styles(mut self, styles: ThemeRuleSet) -> Self {
         self.styles = styles;
         self
     }
 
+    #[must_use]
     pub fn with_canvas(mut self, canvas: CanvasSpec) -> Self {
         self.canvas = canvas;
         self
     }
 
+    #[must_use]
     pub fn with_effects(mut self, effects: DiagramEffectSet) -> Self {
         self.effects = effects;
         self
     }
 
+    #[must_use]
     pub fn with_assets(mut self, assets: ThemeAssets) -> Self {
         self.assets = assets;
         self
     }
 
+    #[must_use]
     pub fn with_requirements(mut self, requirements: ThemeRequirements) -> Self {
         self.requirements = requirements;
         self
     }
 
+    #[must_use]
     pub const fn mermaid(&self) -> &MermaidThemeCompatibility {
         &self.mermaid
     }
 
+    #[must_use]
     pub const fn typography(&self) -> &TypographySpec {
         &self.typography
     }
 
+    #[must_use]
     pub const fn styles(&self) -> &ThemeRuleSet {
         &self.styles
     }
 
+    #[must_use]
     pub const fn canvas(&self) -> &CanvasSpec {
         &self.canvas
     }
 
+    #[must_use]
     pub const fn effects(&self) -> &DiagramEffectSet {
         &self.effects
     }
 
+    #[must_use]
     pub const fn assets(&self) -> &ThemeAssets {
         &self.assets
     }
 
+    #[must_use]
     pub const fn requirements(&self) -> &ThemeRequirements {
         &self.requirements
     }
@@ -305,16 +351,19 @@ impl DiagramThemeSpec {
         self.typography.validate()?;
         self.styles.validate()?;
         self.effects.validate_references()?;
+
         for rule in self.styles.rules() {
             let super::Specified::Value(effect_id) = &rule.style().effects.effect else {
                 continue;
             };
+
             if self.effects.graph(effect_id).is_none() {
                 return Err(ThemeCompileValidationError::UnknownId {
                     field: "styles.rule.effect",
                 });
             }
         }
+
         Ok(())
     }
 }
@@ -323,25 +372,27 @@ fn validate_identifier(
     value: String,
     field: &'static str,
 ) -> Result<String, ThemeCompileValidationError> {
-    let value = value.trim().to_string();
-    if value.is_empty()
-        || value.len() > 128
-        || value.chars().any(|character| {
+    let value_2 = value.trim().to_string();
+
+    if value_2.is_empty()
+        || value_2.len() > 128
+        || value_2.chars().any(|character| {
             character.is_control()
                 || !(character.is_ascii_alphanumeric() || "-_".contains(character))
         })
     {
         return Err(ThemeCompileValidationError::InvalidValue { field });
     }
-    Ok(value)
+
+    Ok(value_2)
 }
 
 fn validate_compatibility_value(
     value: String,
     field: &'static str,
 ) -> Result<String, ThemeCompileValidationError> {
-    let value = value.trim().to_string();
-    let lower = value.to_ascii_lowercase();
+    let value_2 = value.trim().to_string();
+    let lower = value_2.to_ascii_lowercase();
     let resource_like = lower.contains("://")
         || lower.starts_with("//")
         || lower.starts_with("data:")
@@ -350,14 +401,16 @@ fn validate_compatibility_value(
         || lower.starts_with("../")
         || lower.starts_with('/')
         || lower.contains("var(");
-    if value.is_empty()
-        || value.len() > 1024
+
+    if value_2.is_empty()
+        || value_2.len() > 1024
         || resource_like
-        || !crate::mermaid_style::is_resource_free_css_value(&value)
+        || !crate::mermaid_style::is_resource_free_css_value(&value_2)
     {
         return Err(ThemeCompileValidationError::InvalidValue { field });
     }
-    Ok(value)
+
+    Ok(value_2)
 }
 
 #[cfg(test)]

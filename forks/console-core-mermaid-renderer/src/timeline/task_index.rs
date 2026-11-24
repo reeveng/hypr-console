@@ -18,6 +18,7 @@ enum SectionLookup {
 impl<'model> TimelineTaskIndex<'model> {
     pub(super) fn new(model: &'model TimelineDiagramModel) -> Result<Self> {
         let mut section_lookup = HashMap::with_capacity(model.sections.len());
+
         for (section_index, section) in model.sections.iter().enumerate() {
             match section_lookup.entry(section.as_str()) {
                 Entry::Vacant(entry) => {
@@ -31,6 +32,7 @@ impl<'model> TimelineTaskIndex<'model> {
 
         let mut tasks_by_section = vec![Vec::new(); model.sections.len()];
         let mut orphan_tasks = Vec::new();
+
         for task in &model.tasks {
             let resolved_section_index = match task.section_index {
                 Some(section_index) => {
@@ -44,6 +46,7 @@ impl<'model> TimelineTaskIndex<'model> {
                             ),
                         });
                     };
+
                     if section != &task.section {
                         return Err(Error::InvalidModel {
                             message: format!(
@@ -52,6 +55,7 @@ impl<'model> TimelineTaskIndex<'model> {
                             ),
                         });
                     }
+
                     Some(section_index)
                 }
                 None => match section_lookup.get(task.section.as_str()) {
@@ -67,6 +71,7 @@ impl<'model> TimelineTaskIndex<'model> {
                     None => None,
                 },
             };
+
             match resolved_section_index {
                 Some(section_index) => tasks_by_section[section_index].push(task),
                 None => orphan_tasks.push(task),
@@ -79,10 +84,12 @@ impl<'model> TimelineTaskIndex<'model> {
         })
     }
 
+    #[must_use]
     pub(super) fn tasks_for_section(&self, section_index: usize) -> &[&'model TimelineTask] {
         &self.tasks_by_section[section_index]
     }
 
+    #[must_use]
     pub(super) fn orphan_tasks(&self) -> &[&'model TimelineTask] {
         &self.orphan_tasks
     }

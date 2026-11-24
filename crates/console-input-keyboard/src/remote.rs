@@ -28,77 +28,59 @@
 
 use std::io::ErrorKind;
 use std::os::unix::net::UnixDatagram;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue, Transition};
-use console_core_words::Words;
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_operating_system_linux::program_runtime::{Clock, Interpreter};
 use console_program_contract::{Effect, Event, Exit};
 
-use crate::palette::NAME;
+use console_input_alphabets::keyboard_socket::{self, RELOAD_LAYOUTS};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Words)]
+pub use keyboard_socket::socket;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Command {
-  #[words(word = "toggle")]
   Toggle,
-  #[words(word = "show")]
   Show,
-  #[words(word = "hide")]
   Hide,
+  ReloadLayouts,
 }
 
-pub const EVERY: [Command; 3] = [Command::Toggle, Command::Show, Command::Hide];
+impl EffectDependencies for Command {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Toggle | Self::Show | Self::Hide | Self::ReloadLayouts => &[Service::Input],
+    })
+  }
+}
+
+pub const EVERY: [Command; 4] = [
+  Command::Toggle,
+  Command::Show,
+  Command::Hide,
+  Command::ReloadLayouts,
+];
 
 impl Command {
+  pub fn word(self) -> Result<&'static str, Never> {
+    Ok(match self {
+      Command::Toggle => "toggle",
+      Command::Show => "show",
+      Command::Hide => "hide",
+      Command::ReloadLayouts => RELOAD_LAYOUTS,
+    })
+  }
+
   pub fn read(word: &str) -> Result<Option<Command>, Never> {
+    let word_2 = word.trim();
+
     Ok(EVERY.iter().copied().find(|said| {
       let Ok(spelled) = said.word();
 
-      spelled == word.trim()
+      spelled == word_2
     }))
   }
-}
-
-#[cfg_attr(
-  dylint_lib = "explicit026_env_read_once",
-  allow(
-    explicit026_env_read_once,
-    reason = "WAYLAND_DISPLAY is which screen the keyboard is drawn on, and the socket this names is one per screen. Nothing else here asks which screen it is"
-  )
-)]
-pub fn socket() -> Result<Option<PathBuf>, Never> {
-  let Ok(ours) = console_core_places::application_runtime();
-  let screen = match std::env::var("WAYLAND_DISPLAY") {
-    Ok(screen) => screen,
-    Err(_no_screen_is_named) => String::new(),
-  };
-
-  let Ok(named) = socket_name(&screen);
-
-  Ok(ours.map(|ours_2| ours_2.join(named)))
-}
-
-#[derive(Debug, PartialEq, Eq)]
-struct SocketName(String);
-
-impl AsRef<Path> for SocketName {
-  fn as_ref(&self) -> &Path {
-    Path::new(&self.0)
-  }
-}
-
-fn socket_name(screen: &str) -> Result<SocketName, Never> {
-  let filename = match bool::then_some(screen.is_empty(), ()) {
-    ::core::option::Option::Some(()) => format!("{NAME}.sock"),
-    ::core::option::Option::None => {
-      let component = screen.replace('%', "%25").replace('/', "%2F");
-
-      format!("{NAME}-{component}.sock")
-    }
-  };
-
-  Ok(SocketName(filename))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -142,11 +124,12 @@ pub struct Sending;
 impl Interpreter for Sending {
   type Event = Answer;
   type Effect = Command;
+  type Error = Never;
 
-  fn interpret(&mut self, asked: &Command, _clock: &Clock) -> Vec<Event<Answer>> {
+  fn interpret(&mut self, asked: &Command, _clock: &Clock) -> Result<Vec<Event<Answer>>, Never> {
     let Ok(answer) = send(*asked);
 
-    vec![Event::Custom(answer)]
+    Ok(vec![Event::Custom(answer)])
   }
 }
 
@@ -244,6 +227,7 @@ mod tests {
   use std::path::Path;
 
   use console_core_state_machine::run;
+  use console_input_alphabets::keyboard_socket::{NAME, filename as socket_name};
 
   use super::*;
 
@@ -307,10 +291,10 @@ mod tests {
   #[test]
   fn a_keyboard_on_another_screen_is_asked_at_another_socket() {
     assert_ne!(socket_name("wayland-1"), socket_name("wayland-2"));
-    assert_eq!(socket_name(""), Ok(SocketName(format!("{NAME}.sock"))));
+    assert_eq!(socket_name(""), Ok(format!("{NAME}.sock")));
     assert_eq!(
       socket_name("wayland-1"),
-      Ok(SocketName(format!("{NAME}-wayland-1.sock")))
+      Ok(format!("{NAME}-wayland-1.sock"))
     );
   }
 
@@ -318,7 +302,7 @@ mod tests {
   fn a_display_path_stays_in_one_socket_component() -> Result<(), Failure> {
     let Ok(named) = socket_name("/run/nested/wayland-1");
 
-    assert_eq!(named.as_ref().components().count(), 1);
+    assert_eq!(Path::new(&named).components().count(), 1);
     assert_ne!(
       Ok(named),
       socket_name("%2Frun%2Fnested%2Fwayland-1"),

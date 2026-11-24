@@ -10,19 +10,19 @@ description = "The font faces a machine has, and which of them serves a CSS fami
 default = ["std", "fs", "memmap", "fontconfig"]
 std = ["console-core-logging/std"]
 fs = ["std", "dep:console-core-places", "dep:console-core-iteration"]
-memmap = ["fs", "dep:memmap2"]
+memmap = ["fs"]
 fontconfig = ["fs", "dep:console-core-font-configuration"]
 
 [dependencies]
 console-core-font-configuration = { path = "../console-core-font-configuration", optional = true }
+console-core-font-reading = { path = "../console-core-font-reading", default-features = false }
 console-core-iteration = { workspace = true, optional = true }
 console-core-macintosh-roman.workspace = true
 console-core-never.workspace = true
 console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false }
+console-core-operation-slots = { path = "../console-core-operation-slots" }
 console-core-places = { workspace = true, optional = true }
 console-core-logging = { workspace = true }
-memmap2 = { version = "0.9", optional = true }
-slotmap = { version = "1.0.6", default-features = false }
 
 [lints]
 workspace = true

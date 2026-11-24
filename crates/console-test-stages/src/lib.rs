@@ -65,6 +65,12 @@ pub mod watching;
 #[derive(Debug)]
 pub enum Error {
   Machine(std::io::Error),
+  RemoteCommand {
+    host: String,
+    command: String,
+    status: std::process::ExitStatus,
+    stderr: String,
+  },
   Scratch(console_core_temporary_directories::Unmade),
   Unwritten(console_core_atomic_writes::Unwritten),
   NoPointer(PathBuf),
@@ -107,6 +113,14 @@ impl fmt::Display for Error {
   fn fmt(&self, to: &mut fmt::Formatter<'_>) -> fmt::Result {
     match self {
       Error::Machine(fault) => write!(to, "{fault}"),
+      Error::RemoteCommand {
+        host,
+        command,
+        status,
+        stderr,
+      } => {
+        write!(to, "{host}: {command}: {status}: {stderr}")
+      }
       Error::Scratch(fault) => write!(to, "{fault}"),
       Error::Unwritten(fault) => write!(to, "{fault}"),
       Error::NoPointer(at) => write!(

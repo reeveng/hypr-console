@@ -39,6 +39,7 @@ pub(crate) struct FlowchartRenderConfig {
     pub compact_edge_corners: bool,
 }
 
+#[must_use]
 pub(crate) fn prepare_flowchart_render_config(
     model: &crate::flowchart::FlowchartModel,
     effective_config: &merman_model::presentation::PresentationConfig,
@@ -92,11 +93,13 @@ pub(crate) fn prepare_flowchart_render_config(
         .or(cfg_curve.as_deref())
         .unwrap_or("basis")
         .to_string();
-    let default_edge_style = model
+    let default_edge_style = match model
         .edge_defaults
         .as_ref()
-        .map(|d| d.style.clone())
-        .unwrap_or_default();
+        .map(|d| d.style.clone()) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => ::std::vec::Vec::new(),
+    };
 
     let node_border_color = compatibility.node_border.clone();
     let node_stroke_width = compatibility.node_stroke_width;
@@ -172,6 +175,7 @@ pub(crate) fn prepare_flowchart_render_config(
     }
 }
 
+#[must_use]
 pub(crate) fn flowchart_node_label_fill_config_override(
     effective_config: &merman_model::presentation::PresentationConfig,
 ) -> bool {
@@ -179,9 +183,9 @@ pub(crate) fn flowchart_node_label_fill_config_override(
     const PRIMARY_TEXT_COLOR: &str = "themeVariables.primaryTextColor";
     const TEXT_COLOR: &str = "themeVariables.textColor";
 
-    // Mermaid's Flowchart stylesheet resolves this terminal as
-    // `nodeTextColor || textColor`. `primaryTextColor` only owns the terminal when the
-    // materialized `nodeTextColor` is its direct derived value.
+
+
+
     let theme_variables = effective_config
         .as_value()
         .get("themeVariables")
@@ -192,9 +196,12 @@ pub(crate) fn flowchart_node_label_fill_config_override(
         .filter(|color| !color.is_empty());
 
     let owns = |path| effective_config.config_paint_overrides_typed_default(path);
-    let Some(node_text_color) = node_text_color else {
-        return owns(TEXT_COLOR);
+
+    let node_text_color_2 = match node_text_color {
+        Some(matched_node_text_color) => matched_node_text_color,
+        ::core::option::Option::None => return owns(TEXT_COLOR),
     };
+
     if owns(NODE_TEXT_COLOR) {
         return true;
     }
@@ -203,6 +210,7 @@ pub(crate) fn flowchart_node_label_fill_config_override(
         .get_str("theme")
         .and_then(|name| merman_model::config::MermaidThemeId::parse(name).ok())
         .unwrap_or_default();
+
     if !matches!(
         theme,
         merman_model::config::MermaidThemeId::Default | merman_model::config::MermaidThemeId::Base
@@ -213,6 +221,6 @@ pub(crate) fn flowchart_node_label_fill_config_override(
     theme_variables
         .and_then(|variables| variables.get("primaryTextColor"))
         .and_then(serde_json::Value::as_str)
-        .filter(|primary_text_color| *primary_text_color == node_text_color)
+        .filter(|primary_text_color| *primary_text_color == node_text_color_2)
         .is_some_and(|_| owns(PRIMARY_TEXT_COLOR))
 }

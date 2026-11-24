@@ -16,6 +16,7 @@ pub enum SettingsTab {
   Notifications,
   Display,
   StatusBar,
+  Theme,
   Wallpaper,
   Language,
   General,
@@ -24,7 +25,7 @@ pub enum SettingsTab {
 }
 
 impl SettingsTab {
-  pub const EVERY: [Self; 12] = [
+  pub const EVERY: [Self; 13] = [
     Self::Sound,
     Self::Bluetooth,
     Self::Wifi,
@@ -32,6 +33,7 @@ impl SettingsTab {
     Self::Notifications,
     Self::Display,
     Self::StatusBar,
+    Self::Theme,
     Self::Wallpaper,
     Self::Language,
     Self::General,
@@ -48,6 +50,7 @@ impl SettingsTab {
       Self::Notifications => "Notifications",
       Self::Display => "Display",
       Self::StatusBar => "Status Bar",
+      Self::Theme => "Theme",
       Self::Wallpaper => "Wallpaper",
       Self::Language => "Language",
       Self::General => "General",
@@ -69,6 +72,7 @@ impl SettingsTab {
       Self::Notifications
       | Self::Display
       | Self::StatusBar
+      | Self::Theme
       | Self::Wallpaper
       | Self::Language
       | Self::General

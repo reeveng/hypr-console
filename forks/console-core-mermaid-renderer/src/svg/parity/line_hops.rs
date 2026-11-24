@@ -13,7 +13,7 @@ use console_core_point::Point;
 use std::cmp::Ordering;
 use std::collections::{BTreeSet, BinaryHeap, HashMap};
 
-// Kept in sync with Mermaid's `generateRoundedPath` radius.
+
 pub(in crate::svg::parity) const ROUNDED_CORNER_RADIUS: f64 = 5.0;
 const CORNER_EPSILON: f64 = 1e-5;
 const ENDPOINT_EPSILON: f64 = 1e-6;
@@ -149,14 +149,20 @@ struct RoundedCorner {
     cut_length: f64,
 }
 
+#[must_use]
 fn sorting_work_units(items: usize) -> usize {
-    if items <= 1 {
-        return 0;
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(items), &::core::convert::identity(1)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+            return 0;
+        },
+        ::core::cmp::Ordering::Greater => {},
     }
+
     let passes = (usize::BITS - items.saturating_sub(1).leading_zeros()) as usize;
     items.saturating_mul(passes)
 }
 
+#[must_use]
 fn segment_count(edges: &[LineHopEdge<'_>]) -> usize {
     edges
         .iter()
@@ -164,6 +170,7 @@ fn segment_count(edges: &[LineHopEdge<'_>]) -> usize {
         .fold(0usize, usize::saturating_add)
 }
 
+#[must_use]
 fn path_emission_work_units(edges: &[LineHopEdge<'_>]) -> usize {
     edges.iter().fold(0usize, |work, edge| {
         work.saturating_add(1).saturating_add(edge.points.len())
@@ -177,6 +184,7 @@ pub(in crate::svg::parity) fn find_edge_intersections<'a>(
     let segment_count = segment_count(edges);
     work_meter.charge(segment_count.saturating_add(sorting_work_units(segment_count)))?;
     let mut segments = Vec::new();
+
     for (edge_index, edge) in edges.iter().enumerate() {
         for (segment_index, [pair_0, pair_1]) in ::core::iter::Iterator::enumerate(<[_]>::array_windows::<2>(edge.points)) {
             let start = &*pair_0;
@@ -206,15 +214,17 @@ pub(in crate::svg::parity) fn find_edge_intersections<'a>(
             })
     });
 
-    // The active set is partitioned by edge so segments never compare against the same edge.
-    // Expiration by max-x gives a source-preserving broad phase: excluded pairs cannot have a
-    // proper segment intersection, while surviving pairs still use Mermaid's exact predicate.
+
+
+
     let mut active_by_edge: Vec<BTreeSet<usize>> = vec![BTreeSet::new(); edges.len()];
     let mut active_edges: BTreeSet<usize> = BTreeSet::new();
     let mut expirations: BinaryHeap<SegmentExpiry> = BinaryHeap::new();
     let mut candidate_pairs = Vec::new();
+
     for segment_index in by_min_x {
         let current = segments[segment_index];
+
         while expirations
             .peek()
             .is_some_and(|expiry| expiry.max_x <= current.min_x)
@@ -222,21 +232,26 @@ pub(in crate::svg::parity) fn find_edge_intersections<'a>(
             let expiry = expirations.pop().expect("peeked expiry must exist");
             let expired_edge = segments[expiry.segment_index].edge_index;
             active_by_edge[expired_edge].remove(&expiry.segment_index);
+
             if active_by_edge[expired_edge].is_empty() {
                 active_edges.remove(&expired_edge);
             }
         }
 
-        for &other_edge_index in &active_edges {
+        'inner_for_2: for &other_edge_index in &active_edges {
             if other_edge_index == current.edge_index {
-                continue;
+                continue 'inner_for_2;
             }
+
             work_meter.charge(active_by_edge[other_edge_index].len())?;
-            for &other_segment_index in &active_by_edge[other_edge_index] {
+
+            'inner_for_3: for &other_segment_index in &active_by_edge[other_edge_index] {
                 let other = segments[other_segment_index];
+
                 if other.max_y <= current.min_y || current.max_y <= other.min_y {
-                    continue;
+                    continue 'inner_for_3;
                 }
+
                 let (segment_a, segment_b) = if other.edge_index < current.edge_index {
                     (other_segment_index, segment_index)
                 } else {
@@ -265,20 +280,29 @@ pub(in crate::svg::parity) fn find_edge_intersections<'a>(
     });
 
     let mut crossings = Vec::new();
+
     for candidate in candidate_pairs {
         let segment_a = segments[candidate.segment_a];
         let segment_b = segments[candidate.segment_b];
-        let Some(intersection) = segment_intersection(segment_a.segment, segment_b.segment) else {
-            continue;
+
+        let intersection = {
+            let optional_intersection = segment_intersection(segment_a.segment, segment_b.segment);
+
+            match optional_intersection {
+                Some(matched_intersection) => matched_intersection,
+                ::core::option::Option::None => continue,
+            }
         };
 
         let edge_a = edges[segment_a.edge_index];
         let edge_b = edges[segment_b.edge_index];
+
         if crossing_sits_in_rounded_corner(edge_a, segment_a.segment_index, intersection.t_a)
             || crossing_sits_in_rounded_corner(edge_b, segment_b.segment_index, intersection.t_b)
         {
             continue;
         }
+
         let a_is_horizontal = is_horizontally_dominant(segment_a.segment);
         let b_is_horizontal = is_horizontally_dominant(segment_b.segment);
         let jump_on_a = a_is_horizontal != b_is_horizontal && a_is_horizontal;
@@ -311,6 +335,7 @@ pub(in crate::svg::parity) fn process_edges_with_line_hops<'a>(
     work_meter: &OperationWorkMeter,
 ) -> crate::Result<Vec<LineHopPath<'a>>> {
     work_meter.charge(path_emission_work_units(edges))?;
+
     if !config.enabled {
         return Ok(edges
             .iter()
@@ -324,6 +349,7 @@ pub(in crate::svg::parity) fn process_edges_with_line_hops<'a>(
     }
 
     let mut jumps_by_edge: HashMap<&'a str, Vec<LineHopCrossing<'a>>> = HashMap::new();
+
     for crossing in find_edge_intersections(edges, work_meter)? {
         debug_assert_ne!(crossing.jump_edge_id, crossing.other_edge_id);
         jumps_by_edge
@@ -343,6 +369,7 @@ pub(in crate::svg::parity) fn process_edges_with_line_hops<'a>(
                     was_rewritten: false,
                 };
             };
+
             let (path, has_hops) = rewrite_edge_path(*edge, jumps, config);
             LineHopPath {
                 edge_id: edge.id,
@@ -364,9 +391,11 @@ pub(in crate::svg::parity) fn elk_line_hop_paths<'a>(
     work_meter: &OperationWorkMeter,
 ) -> crate::Result<HashMap<&'a str, String>> {
     let line_hops = config.pointer("/elk/lineHops");
+
     if line_hops.and_then(serde_json::Value::as_bool) == Some(false) {
         return Ok(HashMap::new());
     }
+
     work_meter.charge(edges.len().saturating_mul(2))?;
     let rendered_edges: Vec<_> = edges
         .iter()
@@ -408,31 +437,43 @@ pub(in crate::svg::parity) fn rewrite_style_after_line_hop<'a>(
 
     use crate::text::is_ecmascript_whitespace as js_space;
 
+    #[must_use]
     fn value_start(style: &str, property_start: usize) -> Option<usize> {
         let suffix = style[property_start + PROPERTY.len()..].trim_start_matches(js_space);
         let value = suffix.strip_prefix(':')?;
         Some(style.len() - value.len())
     }
+
+    #[must_use]
     fn mask_offsets(value: &str) -> Option<(f64, f64)> {
         let mut rest = value.trim_start_matches(js_space).strip_prefix('0')?;
         let mut fields = [0.0; 3];
+
         for field in &mut fields {
             let trimmed = rest.trim_start_matches(js_space);
+
             if trimmed.len() == rest.len() {
                 return None;
             }
+
             let end = trimmed
                 .find(|ch: char| !ch.is_ascii_digit() && ch != '.')
                 .unwrap_or(trimmed.len());
-            if end == 0 {
-                return None;
+
+            match end {
+                0 => {
+                    return None;
+                },
+                _ => {},
             }
+
             let raw = &trimmed[..end];
-            // The source uses parseFloat on [\d.]+, which accepts a numeric prefix.
+
             let numeric_end = raw.match_indices('.').nth(1).map_or(raw.len(), |(i, _)| i);
             *field = raw[..numeric_end].parse().unwrap_or(f64::NAN);
             rest = &trimmed[end..];
         }
+
         Some((match fields { [_explicit_element, ..] => _explicit_element }, match fields { [_, _, _explicit_element, ..] => _explicit_element }))
     }
 
@@ -441,12 +482,21 @@ pub(in crate::svg::parity) fn rewrite_style_after_line_hop<'a>(
         .find_map(|(start, _)| {
             mask_offsets(&original_style[value_start(original_style, start)?..])
         });
-    let Some((start_offset, end_offset)) = offsets else {
-        return Ok(Cow::Borrowed(original_style));
+
+    let (start_offset, end_offset) = match offsets {
+        Some((matched_start_offset, matched_end_offset)) => (matched_start_offset, matched_end_offset),
+        ::core::option::Option::None => return Ok(Cow::Borrowed(original_style)),
     };
-    let Some(length) = super::svg_path_length_from_d(hopped_d) else {
-        return Ok(Cow::Borrowed(original_style));
+
+    let length = {
+        let optional_length = super::svg_path_length_from_d(hopped_d);
+
+        match optional_length {
+            Some(matched_length) => matched_length,
+            ::core::option::Option::None => return Ok(Cow::Borrowed(original_style)),
+        }
     };
+
     let remaining = length - start_offset - end_offset;
     let on_length = if remaining.is_nan() {
         f64::NAN
@@ -463,12 +513,15 @@ pub(in crate::svg::parity) fn rewrite_style_after_line_hop<'a>(
     let mut rewritten = String::with_capacity(original_style.len());
     let mut copied = 0;
     let mut search = 0;
+
     while let Some(relative) = original_style[search..].find(PROPERTY) {
         let start = search + relative;
+
         let Some(value) = value_start(original_style, start) else {
             search = start + PROPERTY.len();
             continue;
         };
+
         let end = original_style[value..]
             .find(';')
             .map_or(original_style.len(), |end| value + end + 1);
@@ -477,23 +530,28 @@ pub(in crate::svg::parity) fn rewrite_style_after_line_hop<'a>(
         copied = end;
         search = end;
     }
+
     rewritten.push_str(&original_style[copied..]);
 
-    // Single left-to-right replacement of /;\s*;+/g, not recursive CSS normalization.
+
     let mut cleaned = String::with_capacity(rewritten.len());
-    let mut remaining = rewritten.as_str();
-    while let Some(index) = remaining.find(';') {
-        cleaned.push_str(&remaining[..=index]);
-        remaining = &remaining[index + 1..];
-        let trimmed = remaining.trim_start_matches(js_space);
+    let mut remaining_2 = rewritten.as_str();
+
+    while let Some(index) = remaining_2.find(';') {
+        cleaned.push_str(&remaining_2[..=index]);
+        remaining_2 = &remaining_2[index + 1..];
+        let trimmed = remaining_2.trim_start_matches(js_space);
+
         if trimmed.starts_with(';') {
-            remaining = trimmed.trim_start_matches(';');
+            remaining_2 = trimmed.trim_start_matches(';');
         }
     }
-    cleaned.push_str(remaining);
+
+    cleaned.push_str(remaining_2);
     Ok(Cow::Owned(cleaned))
 }
 
+#[must_use]
 pub(in crate::svg::parity) fn curve_supports_line_hops(curve: Option<&str>) -> bool {
     matches!(
         curve,
@@ -514,6 +572,7 @@ fn is_straight_path(path: &str) -> bool {
     })
 }
 
+#[must_use]
 fn build_segments(points: &[LayoutPoint]) -> Vec<Segment<'_>> {
     points
         .windows(2)
@@ -524,15 +583,16 @@ fn build_segments(points: &[LayoutPoint]) -> Vec<Segment<'_>> {
         .collect()
 }
 
+#[must_use]
 fn segment_intersection(
     segment_a: Segment<'_>,
     segment_b: Segment<'_>,
 ) -> Option<SegmentIntersection> {
     let first = LineSegment::from(segment_a);
-    let Ok(crossing) = first.crossing(segment_b.into());
-    let crossing = crossing?;
-    let first_fraction = crossing.first_fraction;
-    let second_fraction = crossing.second_fraction;
+    let Ok(crossing) = first.crossing(<::console_core_line::LineSegment<::core::primitive::f64> as ::core::convert::From<crate::svg::parity::line_hops::Segment<'_>>>::from(segment_b));
+    let crossing_2 = crossing?;
+    let first_fraction = crossing_2.first_fraction;
+    let second_fraction = crossing_2.second_fraction;
 
     if first_fraction <= ENDPOINT_EPSILON
         || first_fraction >= 1.0 - ENDPOINT_EPSILON
@@ -550,34 +610,48 @@ fn segment_intersection(
     })
 }
 
+#[must_use]
 fn is_horizontally_dominant(segment: Segment<'_>) -> bool {
     (segment.end.x - segment.start.x).abs() >= (segment.end.y - segment.start.y).abs()
 }
 
-// Rounded strokes leave their provider polylines around a bend. A crossing on
-// either of those replaced stretches does not locate a crossing of the strokes.
+
+
+#[must_use]
 fn crossing_sits_in_rounded_corner(edge: LineHopEdge<'_>, index: usize, t: f64) -> bool {
     if edge.curve != Some("rounded") {
         return false;
     }
+
     let points = edge.points;
-    let (Some(start), Some(end)) = (points.get(index), points.get(index + 1)) else {
-        return false;
+
+    let (start, end) = {
+        let outcome_start = (points.get(index), points.get(index + 1));
+
+        match outcome_start {
+            (Some(matched_start), Some(matched_end)) => (matched_start, matched_end),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return false,
+        }
     };
+
     let length = (end.x - start.x).hypot(end.y - start.y);
     let distance = t * length;
     let entering = index
         .checked_sub(1)
         .and_then(|previous| compute_rounded_corner(&points[previous], start, end));
+
     if entering.is_some_and(|corner| distance < corner.cut_length) {
         return true;
     }
+
     points
         .get(index + 2)
         .and_then(|next| compute_rounded_corner(start, end, next))
         .is_some_and(|corner| length - distance < corner.cut_length)
 }
 
+#[must_use]
 fn fmt_number(value: f64) -> String {
     let scaled = value * 1000.0;
     let rounded = if scaled.is_finite() {
@@ -586,24 +660,27 @@ fn fmt_number(value: f64) -> String {
         value
     };
 
-    if rounded == 0.0 {
+    if ::core::matches!(::core::primitive::f64::classify(rounded), ::core::num::FpCategory::Zero) {
         "0".to_owned()
-    } else if rounded == f64::INFINITY {
+    } else if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&rounded, &f64::INFINITY) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
         "Infinity".to_owned()
-    } else if rounded == f64::NEG_INFINITY {
+    } else if <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&rounded, &f64::NEG_INFINITY) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) {
         "-Infinity".to_owned()
     } else {
         rounded.to_string()
     }
 }
 
+#[must_use]
 fn point_to_string(point: &LayoutPoint) -> String {
     format!("{},{}", fmt_number(point.x), fmt_number(point.y))
 }
 
+#[must_use]
 fn arc_sweep_flag(segment: Segment<'_>) -> u8 {
     let dx = segment.end.x - segment.start.x;
     let dy = segment.end.y - segment.start.y;
+
     if dx.abs() >= dy.abs() {
         u8::from(dx >= 0.0)
     } else {
@@ -611,9 +688,10 @@ fn arc_sweep_flag(segment: Segment<'_>) -> u8 {
     }
 }
 
-// `lineJump.ts` imports this exact table from `utils/lineWithOffset.ts`.
-// It is mirrored here because the existing flowchart offset helper is private
-// to a sibling module and this geometry port must remain independently usable.
+
+
+
+#[must_use]
 fn marker_offset_for(arrow_type: Option<&str>) -> Option<f64> {
     match arrow_type {
         Some("aggregation" | "extension" | "composition") => Some(17.25),
@@ -626,32 +704,41 @@ fn marker_offset_for(arrow_type: Option<&str>) -> Option<f64> {
     }
 }
 
+#[must_use]
 fn apply_marker_offsets(points: &[LayoutPoint], edge: LineHopEdge<'_>) -> Vec<LayoutPoint> {
     if points.len() < 2 {
         return points.to_vec();
     }
 
     let mut offset_points = points.to_vec();
-    if let Some(offset) = marker_offset_for(edge.arrow_type_start).filter(|offset| *offset != 0.0) {
-        let start = &points[0];
-        let next = &points[1];
-        let angle = (next.y - start.y).atan2(next.x - start.x);
-        offset_points[0].x = start.x + offset * angle.cos();
-        offset_points[0].y = start.y + offset * angle.sin();
+
+    match marker_offset_for(edge.arrow_type_start).filter(|offset| !::core::matches!(::core::primitive::f64::classify(*offset), ::core::num::FpCategory::Zero)) {
+        Some(offset) => {
+            let start = &points[0];
+            let next = &points[1];
+            let angle = (next.y - start.y).atan2(next.x - start.x);
+            offset_points[0].x = start.x + offset * angle.cos();
+            offset_points[0].y = start.y + offset * angle.sin();
+        },
+        ::core::option::Option::None => {},
     }
 
-    if let Some(offset) = marker_offset_for(edge.arrow_type_end).filter(|offset| *offset != 0.0) {
-        let last_index = points.len() - 1;
-        let previous = &points[last_index - 1];
-        let end = &points[last_index];
-        let angle = (end.y - previous.y).atan2(end.x - previous.x);
-        offset_points[last_index].x = end.x - offset * angle.cos();
-        offset_points[last_index].y = end.y - offset * angle.sin();
+    match marker_offset_for(edge.arrow_type_end).filter(|offset| !::core::matches!(::core::primitive::f64::classify(*offset), ::core::num::FpCategory::Zero)) {
+        Some(offset) => {
+            let last_index = points.len() - 1;
+            let previous = &points[last_index - 1];
+            let end = &points[last_index];
+            let angle = (end.y - previous.y).atan2(end.x - previous.x);
+            offset_points[last_index].x = end.x - offset * angle.cos();
+            offset_points[last_index].y = end.y - offset * angle.sin();
+        },
+        ::core::option::Option::None => {},
     }
 
     offset_points
 }
 
+#[must_use]
 fn compute_rounded_corner(
     previous: &LayoutPoint,
     current: &LayoutPoint,
@@ -663,6 +750,7 @@ fn compute_rounded_corner(
     let outgoing_dy = next.y - current.y;
     let incoming_length = incoming_dx.hypot(incoming_dy);
     let outgoing_length = outgoing_dx.hypot(outgoing_dy);
+
     if incoming_length < CORNER_EPSILON || outgoing_length < CORNER_EPSILON {
         return None;
     }
@@ -674,6 +762,7 @@ fn compute_rounded_corner(
     let dot_product = incoming_x * outgoing_x + incoming_y * outgoing_y;
     let clamped_dot = dot_product.clamp(-1.0, 1.0);
     let angle = clamped_dot.acos();
+
     if angle < CORNER_EPSILON || (std::f64::consts::PI - angle).abs() < CORNER_EPSILON {
         return None;
     }
@@ -709,6 +798,7 @@ fn emit_jump(
         y: jump.point.y + unit_y * jump.radius,
     };
     parts.push(format!("L{}", point_to_string(&before)));
+
     match style {
         LineHopStyle::Arc => parts.push(format!(
             "A{},{} 0 0 {} {}",
@@ -721,6 +811,7 @@ fn emit_jump(
     }
 }
 
+#[must_use]
 fn rewrite_edge_path(
     edge: LineHopEdge<'_>,
     jumps: &[LineHopCrossing<'_>],
@@ -733,10 +824,17 @@ fn rewrite_edge_path(
     let points = apply_marker_offsets(edge.points, edge);
     let segments = build_segments(&points);
     let mut jumps_by_segment: HashMap<usize, Vec<JumpOnSegment>> = HashMap::new();
+
     for jump in jumps {
-        let Some(segment) = segments.get(jump.segment_index) else {
-            continue;
+        let segment = {
+            let optional_segment = segments.get(jump.segment_index);
+
+            match optional_segment {
+                Some(matched_segment) => matched_segment,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let segment_length =
             (segment.end.x - segment.start.x).hypot(segment.end.y - segment.start.y);
         jumps_by_segment
@@ -757,7 +855,7 @@ fn rewrite_edge_path(
     for (segment_index, segment) in segments.iter().enumerate() {
         let segment_length =
             (segment.end.x - segment.start.x).hypot(segment.end.y - segment.start.y);
-        let (unit_x, unit_y) = if segment_length == 0.0 {
+        let (unit_x, unit_y) = if ::core::matches!(::core::primitive::f64::classify(segment_length), ::core::num::FpCategory::Zero) {
             (0.0, 0.0)
         } else {
             (
@@ -794,11 +892,17 @@ fn rewrite_edge_path(
         let segment_end_stop =
             upcoming_corner.map_or(segment_length, |corner| segment_length - corner.cut_length);
 
-        let mut segment_jumps = jumps_by_segment.remove(&segment_index).unwrap_or_default();
+        let mut segment_jumps = match jumps_by_segment.remove(&segment_index) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => ::std::vec::Vec::new(),
+        };
         segment_jumps
-            .sort_by(|left, right| left.t.partial_cmp(&right.t).unwrap_or(Ordering::Equal));
-        // Discard corner-squeezed hops before adjacency so they cannot shrink a
-        // usable neighbour. Mermaid reserves the same clearance on linear edges.
+            .sort_by(|left, right| match left.t.partial_cmp(&right.t) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => Ordering::Equal,
+            });
+
+
         let min_useful_radius = config.jump_radius * MIN_USEFUL_RADIUS_RATIO;
         segment_jumps.retain_mut(|jump| {
             let room = (jump.distance - segment_start_consumed)
@@ -807,11 +911,13 @@ fn rewrite_edge_path(
             jump.radius = jump.radius.min(room);
             jump.radius >= min_useful_radius
         });
+
         for index in 0..segment_jumps.len().saturating_sub(1) {
             let (before, after) = segment_jumps.split_at_mut(index + 1);
             let first = &mut before[index];
             let second = &mut after[0];
             let gap = second.distance - first.distance;
+
             if first.radius + second.radius > gap {
                 let half_gap = gap / 2.0;
                 first.radius = first.radius.min(half_gap);
@@ -819,39 +925,50 @@ fn rewrite_edge_path(
             }
         }
 
-        for jump in &segment_jumps {
+        'over_jump_2: for jump in &segment_jumps {
             if jump.radius < min_useful_radius {
-                continue;
+                continue 'over_jump_2;
             }
+
             emit_jump(jump, unit_x, unit_y, sweep, config.jump_style, &mut parts);
             emitted_hop = true;
         }
 
-        if let Some(corner) = upcoming_corner {
-            parts.push(format!(
-                "L{},{}",
-                fmt_number(corner.start_x),
-                fmt_number(corner.start_y)
-            ));
-            parts.push(format!(
-                "Q{},{} {},{}",
-                fmt_number(corner.control_x),
-                fmt_number(corner.control_y),
-                fmt_number(corner.end_x),
-                fmt_number(corner.end_y)
-            ));
-        } else {
-            parts.push(format!("L{}", point_to_string(segment.end)));
+        match upcoming_corner {
+            Some(corner) => {
+                parts.push(format!(
+                    "L{},{}",
+                    fmt_number(corner.start_x),
+                    fmt_number(corner.start_y)
+                ));
+                parts.push(format!(
+                    "Q{},{} {},{}",
+                    fmt_number(corner.control_x),
+                    fmt_number(corner.control_y),
+                    fmt_number(corner.end_x),
+                    fmt_number(corner.end_y)
+                ));
+            },
+            ::core::option::Option::None => {
+                parts.push(format!("L{}", point_to_string(segment.end)));
+            },
         }
     }
 
     (parts.join(" "), emitted_hop)
 }
 
+#[must_use]
 fn plain_path(points: &[LayoutPoint]) -> String {
-    let Some(first) = points.first() else {
-        return String::new();
+    let first = {
+        let optional_first = points.first();
+
+        match optional_first {
+            Some(matched_first) => matched_first,
+            ::core::option::Option::None => return String::new(),
+        }
     };
+
     let mut parts = Vec::with_capacity(points.len());
     parts.push(format!("M{}", point_to_string(first)));
     parts.extend(
@@ -1488,9 +1605,9 @@ mod tests {
 
     #[test]
     fn state_api_014_crossing_inside_either_direction_of_other_corner_is_ignored() {
-        // These are the exact data-points of edge1 and edge5 in the pinned State
-        // upstream_pkgtests_mermaidapi_spec_014 SVG. The crossing is only 2px
-        // from edge1's final bend, inside its 7.071px rounded stretch.
+
+
+
         let edge1_points = [
             point(202.0, 41.125),
             point(222.0, 41.125),
@@ -1569,7 +1686,7 @@ mod tests {
 
     #[test]
     fn rounded_hops_keep_two_pixels_clear_of_the_corner() {
-        // Port of lineJump.spec.ts's just-roomy-enough radius-6 example.
+
         let points = [point(100.0, 0.0), point(100.0, 100.0), point(300.0, 100.0)];
         let vertical = [point(113.0, 0.0), point(113.0, 200.0)];
         let rounded = LineHopEdge {

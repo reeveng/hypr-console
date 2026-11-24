@@ -17,13 +17,26 @@ pub(super) fn prepare_body_shadows<'a>(
     options: &SvgExecution<'_>,
 ) -> Result<HashMap<&'a str, UsecaseBodyShadow<'a>>> {
     let mut shadows = HashMap::new();
+
     for (index, plan) in prepared.nodes.iter().enumerate() {
-        let Some(style) = prepared.theme_plan.shell(&plan.id) else {
-            continue;
+        let style = {
+            let optional_style = prepared.theme_plan.shell(&plan.id);
+
+            match optional_style {
+                Some(matched_style) => matched_style,
+                ::core::option::Option::None => continue,
+            }
         };
-        let Some(effect) = style.shadow.as_ref() else {
-            continue;
+
+        let effect = {
+            let optional_effect = style.shadow.as_ref();
+
+            match optional_effect {
+                Some(matched_effect) => matched_effect,
+                ::core::option::Option::None => continue,
+            }
         };
+
         options.checkpoint_emit()?;
         let source_width = plan
             .source_style
@@ -31,25 +44,32 @@ pub(super) fn prepare_body_shadows<'a>(
             .filter_map(crate::mermaid_style::parse_style_declaration)
             .rfind(|declaration| declaration.property() == "stroke-width");
         let width = if let Some(declaration) = source_width {
-            // A source width must have a finite SVG length before bounding the filter.
+
             declaration.svg_number_or_px()
         } else {
             style.stroke_width.or(Some(2.0))
         };
-        let Some(width) = width else { continue };
+
+        let width_2 = match width {
+            Some(matched_width) => matched_width,
+            ::core::option::Option::None => continue,
+        };
+
         let node = geometry[plan.id.as_str()];
         options
             .work_meter()
             .charge(effect.stages().len().saturating_mul(3))?;
+
         let Some(materialized) = effect.materialize_rect(
             &options.theme_resource_policy(),
             node.width,
             node.height,
-            width,
+            width_2,
         )?
         else {
             continue;
         };
+
         let outsets = materialized.outsets();
         bounds.min_x = bounds.min_x.min(node.x - node.width / 2.0 - outsets.left);
         bounds.min_y = bounds.min_y.min(node.y - node.height / 2.0 - outsets.top);
@@ -70,6 +90,7 @@ pub(super) fn prepare_body_shadows<'a>(
             },
         );
     }
+
     Ok(shadows)
 }
 
@@ -115,20 +136,28 @@ pub(super) fn write_marker(
     let name = marker.strip_prefix("arrow_").unwrap_or(marker);
     let end = if start { "Start" } else { "End" };
     let base = format!("{name}{end}{margin}");
-    let css = style.map(|style| style.css(false)).unwrap_or_default();
+    let css = match style.map(|style_2| style_2.css(false)) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => ::std::string::String::new(),
+    };
+
     if css.is_empty() {
-        if let Some(style) = style {
-            style.record_emitted(receipt);
+        if let Some(style_3) = style {
+            style_3.record_emitted(receipt);
         }
+
         return format!("url(#{diagram_id}_usecase-{base})");
     }
+
     let suffix = format!("theme-{edge_index}-{base}");
     out.push_str("<defs>");
+
     if marker == "extension" {
         let _ = write!(
             out,
             r#"<marker id="{diagram_id}_usecase-{suffix}" class="marker extension usecase""#
         );
+
         if margin.is_empty() {
             let _ = write!(
                 out,
@@ -160,18 +189,23 @@ pub(super) fn write_marker(
     {
         markers::push_base_edge_marker(out, diagram_id, "usecase", kind, &suffix, &css);
     }
+
     out.push_str("</defs>");
-    if let Some(style) = style {
-        style.record_emitted(receipt);
+
+    if let Some(style_4) = style {
+        style_4.record_emitted(receipt);
     }
+
     format!("url(#{diagram_id}_usecase-{suffix})")
 }
 
+#[must_use]
 pub(super) fn appearance_attributes(
     binding: &UsecaseCssBinding,
     color_index: Option<usize>,
 ) -> String {
     let mut attributes = format!(r#" data-look="{}""#, binding.look);
+
     if let Some(index) = color_index.filter(|_| !binding.palette.is_empty()) {
         let _ = write!(
             attributes,
@@ -179,6 +213,7 @@ pub(super) fn appearance_attributes(
             index % binding.palette.len()
         );
     }
+
     attributes
 }
 
@@ -212,8 +247,8 @@ pub(super) fn write_css(
         ..
     } = binding;
     let mut css = String::new();
-    // HTML label metrics exclude the browser's default paragraph margins, as does
-    // Mermaid's shared styles.ts reset. Apply it before the family-specific styles.
+
+
     let _ = super::super::css::write_mermaid_paragraph_css_to(&mut css, id);
     let font = &binding.root_font;
     let _ = write!(
@@ -222,6 +257,7 @@ pub(super) fn write_css(
         font.font_family.as_deref().unwrap_or("sans-serif"),
         fmt(font.font_size)
     );
+
     for (index, color) in binding.palette.iter().enumerate() {
         let fill = if binding.backgrounds.is_empty() {
             String::new()
@@ -236,11 +272,13 @@ pub(super) fn write_css(
             css,
             "{slot}.system-boundary rect.boundary-body,{slot}.system-boundary rect.boundary-tab,{slot}.system-boundary .boundary-body path,{slot}.system-boundary .boundary-tab path{{stroke:{color};{fill}}}"
         );
+
         if binding.rotate {
             let _ = write!(
                 css,
                 "{slot}.usecase-element ellipse,{slot}.usecase-element rect{{stroke:{color};{fill}}}{slot}.usecase-element .usecase-business-marker{{stroke:{color}}}{slot}.usecase-actor .usecase-actor-glyph{{stroke:{color};{fill}}}"
             );
+
             if look != "handDrawn" {
                 let _ = write!(
                     css,
@@ -249,6 +287,7 @@ pub(super) fn write_css(
             }
         }
     }
+
     let _ = write!(
         css,
         r#"
@@ -277,8 +316,8 @@ pub(super) fn write_css(
 #{id} .edge-animation-slow{{stroke-dasharray:9,5!important;stroke-dashoffset:900;animation:dash 50s linear infinite;stroke-linecap:round}}
 "#
     );
-    // Mermaid appends shared neo paint after family CSS. The role selectors must
-    // name the actual glyph/body children to outrank direct neo path/rect rules.
+
+
     if look != "handDrawn" {
         let _ = write!(
             css,
@@ -287,14 +326,17 @@ pub(super) fn write_css(
 #{id} [data-look="{look}"].node.usecase-element .usecase-business-marker{{stroke:{border}}}"#
         );
     }
+
     binding.neo.write(&mut css, id)?;
+
     if themed_background {
         let _ = write!(
             css,
             "#{id} .usecase-themed-edge-background,#{id} .usecase-themed-edge-background .edgeLabel,#{id} .usecase-themed-edge-background p{{background-color:transparent !important;}}"
         );
     }
-    // CSS is XML character data. Preserve declarations while preventing a token from closing style.
+
+
     out.push_str("<style>");
     super::super::output::XmlTextOutput::new(out).push_str(&css);
     out.push_str("</style>");

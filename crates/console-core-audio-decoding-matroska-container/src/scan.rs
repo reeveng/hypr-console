@@ -17,14 +17,15 @@ use console_core_audio_decoding_interfaces::meta::MetadataLog;
 use console_core_audio_decoding_interfaces::units::TimeBase;
 use console_core_byte_streams::{MediaSource, MediaSourceStream, ReadBytes, Seeking};
 use console_core_iteration::{Step, iterate};
+use console_core_matroska_blocks::elements::SeekEntry;
 use console_core_never::Never;
 
 use crate::ebml::{ElementHeader, Walker};
 use crate::fault::{DecodeError, Invalid, MissingElement, Unsupported};
 use crate::ids;
 use crate::segment::{
-  InfoElement, SeekElement, TrackElement, read_cues, read_doc_type, read_info, read_seek_head,
-  read_tags, read_tracks,
+  InfoElement, TrackElement, read_cues, read_doc_type, read_info, read_seek_head, read_tags,
+  read_tracks,
 };
 use crate::tracks::{build_tracks, default_durations, time_base};
 
@@ -123,8 +124,8 @@ impl Scan {
   }
 }
 
-fn visit_of(seek: &SeekElement, segment_pos: u64) -> Result<Option<Visit>, Never> {
-  Ok(match u32::try_from(seek.id) {
+fn visit_of(seek: &SeekEntry, segment_pos: u64) -> Result<Option<Visit>, Never> {
+  Ok(match u32::try_from(seek.identifier) {
     Ok(id @ (ids::TRACKS | ids::INFO | ids::TAGS | ids::CUES)) => Some(Visit {
       id,
       position: segment_pos.saturating_add(seek.position),
@@ -148,12 +149,18 @@ pub(crate) fn open(mut reader: MediaSourceStream) -> Result<Opened, DecodeError>
     None => {}
   }
 
-  let tracks = scan.tracks.take().ok_or(DecodeError::Absent(MissingElement::Tracks))?;
+  let tracks = scan
+    .tracks
+    .take()
+    .ok_or(DecodeError::Absent(MissingElement::Tracks))?;
   let walker_2 = match total_len {
     Some(_) => walker.rewind(segment_pos)?,
     None => walker,
   };
-  let info = scan.info.take().ok_or(DecodeError::Absent(MissingElement::Info))?;
+  let info = scan
+    .info
+    .take()
+    .ok_or(DecodeError::Absent(MissingElement::Info))?;
 
   finish(walker_2, scan, tracks, &info)
 }
@@ -276,7 +283,11 @@ fn follow(
   }
 }
 
-fn follow_visits(walker: &mut Walker, scan: &mut Scan, segment_pos: u64) -> Result<(), DecodeError> {
+fn follow_visits(
+  walker: &mut Walker,
+  scan: &mut Scan,
+  segment_pos: u64,
+) -> Result<(), DecodeError> {
   let mut visits = std::mem::take(&mut scan.visits);
 
   visits.sort_by_key(|visit| visit.position);

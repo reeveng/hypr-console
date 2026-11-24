@@ -48,14 +48,14 @@
 
 use std::cell::RefCell;
 use std::collections::BTreeMap;
-use std::os::fd::OwnedFd;
+use std::os::fd::{AsFd, OwnedFd};
 use std::path::Path;
 use std::sync::mpsc;
 use std::thread;
 
 use console_actor::Actor;
 use console_core_color::Oklch;
-use console_core_color::palette::Wearing;
+use console_core_color::palette::{ThemeSettings, Wearing};
 use console_core_controls::{
   Answer as Answered, Choice, Inks as ControlInks, Lettering, Picker, Press, Slider, Switch,
 };
@@ -72,6 +72,7 @@ use console_core_shapes::{
 pub use console_draw_painting::text::FontCatalog;
 use console_draw_painting::{self as painting, Frame, Run};
 pub use console_draw_surface::Drawing;
+use console_draw_surface::standing::DmaBufSupport;
 pub use console_draw_surface::standing::{DrawingSender, drawing_notifications};
 use console_events::again::Worth;
 use console_events::subscription::{Received, Subscriber, Subscriptions};
@@ -1416,23 +1417,27 @@ fn place_picture<P: std::borrow::Borrow<Pixels>>(
   pixels: P,
 ) -> Result<ShapePicture<P>, Never> {
   let source = pixels.borrow();
-  let Ok(size) = console_pictures::fit_within(
+  let Ok(Part { at, size }) = picture_part(
+    moving,
     Size {
       width: source.width,
       height: source.height,
     },
-    moving.room,
   );
+  Ok(ShapePicture { at, size, pixels })
+}
+
+fn picture_part(moving: &Moving, source: Size<u32>) -> Result<Part, Never> {
+  let Ok(size) = console_pictures::fit_within(source, moving.room);
   let Ok(spare_wide) = fitted::<u32, i32>(moving.room.width.saturating_sub(size.width));
   let Ok(spare_tall) = fitted::<u32, i32>(moving.room.height.saturating_sub(size.height));
 
-  Ok(ShapePicture {
+  Ok(Part {
     at: Point {
       x: moving.at.x.saturating_add(spare_wide.saturating_div(2)),
       y: moving.at.y.saturating_add(spare_tall.saturating_div(2)),
     },
     size,
-    pixels,
   })
 }
 
@@ -1513,6 +1518,7 @@ enum Overlay {
 }
 
 fn wait_for_frame(
+  waking: &crate::frames::WakeReceiver,
   surface: &mut Surface,
   panelled: &Panelled,
   logical: Size<u32>,
@@ -1520,11 +1526,9 @@ fn wait_for_frame(
   overlay: Overlay,
 ) -> Result<(Dirty, Stale), console_draw_surface::SurfaceError> {
   let (mut dirty, mut stale) = was;
-  crate::frames::with_waking(|waking| {
-    let also: Vec<_> = waking.into_iter().collect();
-    surface.wait(&also, None)
-  })?;
-  let Ok(woken) = crate::frames::wake_state();
+  let Ok(descriptor) = waking.descriptor();
+  surface.wait(&[descriptor], None)?;
+  let Ok(woken) = waking.state();
 
   match woken.rows {
     crate::frames::FrameReceived::Yes => stale = Stale::Yes,
@@ -1559,6 +1563,40 @@ fn repainted(
   moving: &Moving,
   logical: Size<u32>,
 ) -> Result<Visible, Never> {
+  let device = match crate::frames::device_frame(&moving.of) {
+    Ok(device) => device,
+    Err(fault) => {
+      console_core_logging::warn!("console-panel: borrowing a video frame: {fault}");
+      let Ok(()) = retire_device(surface);
+      None
+    }
+  };
+
+  match device {
+    Some(frame) => {
+      let Ok(part) = picture_part(moving, frame.size);
+      let imported = surface.present_dma_buf(
+        part,
+        console_draw_surface::DmaBufView {
+          fd: frame.fd.as_fd(),
+          size: frame.size,
+          stride: frame.stride,
+        },
+      );
+
+      match imported {
+        Ok(Visible::Yes) => return Ok(Visible::Yes),
+        Ok(Visible::NotYet) => {}
+        Err(fault) => {
+          console_core_logging::warn!("console-panel: importing the video frame: {fault}")
+        }
+      }
+
+      let Ok(()) = retire_device(surface);
+    }
+    None => {}
+  }
+
   let Ok(painted) = crate::frames::with_current(
     &moving.of,
     moving.room,
@@ -1576,11 +1614,11 @@ fn repainted(
       };
       let Ok(caption_here) = said_over(moving, &local, caption);
 
-      match surface_2.draw_layer(part, |target, device, _scale| {
+      match surface_2.draw_layer(part, |target, buffer_size, _scale| {
         let _painted = painting::over_picture(
           target,
           Frame {
-            device,
+            device: buffer_size,
             points: part.size,
           },
           local,
@@ -1601,11 +1639,11 @@ fn repainted(
       let Ok(said) = said_over(moving, &picture, caption);
 
       Ok(
-        match surface_2.draw_over(part, |target, device, _scale| {
+        match surface_2.draw_over(part, |target, buffer_size, _scale| {
           let _painted = painting::over_picture(
             target,
             Frame {
-              device,
+              device: buffer_size,
               points: logical,
             },
             picture,
@@ -1630,6 +1668,12 @@ fn repainted(
     Some(visible) => visible,
     None => Visible::Yes,
   })
+}
+
+fn retire_device(surface: &mut Surface) -> Result<(), Never> {
+  let Ok(_retired) = crate::frames::set_device_target(None);
+
+  surface.clear_layer()
 }
 
 pub(crate) fn stage(rows: &[Row], room: i32) -> Result<i32, Never> {
@@ -4035,19 +4079,22 @@ pub(crate) fn shapes(
         },
       }));
 
-      if state.loading {
-        let Ok(face) = font(TextStyle::Body);
-        shapes.push(Shape::Text(Text {
-          at: Point {
-            x: left,
-            y: rows_start.saturating_add(INSIDE_A_ROW),
-          },
-          width: inside_wide,
-          said: "Loading…".to_owned(),
-          weight: Weight::Plain,
-          font: face,
-          ink: wearing.soft,
-        }));
+      match { ::core::primitive::bool::then_some(state.loading, ()) } {
+        ::core::option::Option::Some(()) => {
+          let Ok(face) = font(TextStyle::Body);
+          shapes.push(Shape::Text(Text {
+            at: Point {
+              x: left,
+              y: rows_start.saturating_add(INSIDE_A_ROW),
+            },
+            width: inside_wide,
+            said: "Loading…".to_owned(),
+            weight: Weight::Plain,
+            font: face,
+            ink: wearing.soft,
+          }));
+        }
+        ::core::option::Option::None => {}
       }
 
       let Ok(count) = fitted::<_, u64>(rows.len());
@@ -4479,7 +4526,7 @@ pub(crate) fn apply_meaning(
         (Selecting::No, Opened::No) => {
           let Ok(page) = nth(&state.pages, state.here);
 
-          match page.and_then(|page| page.back.as_ref()) {
+          match page.and_then(|page_2| page_2.back.as_ref()) {
             Some(_) => Outcome::Back,
             None => Outcome::Closing,
           }
@@ -4897,12 +4944,18 @@ fn press_picker(
   state.beside = Beside::No;
   let Ok(found) = nth(rows, row);
 
-  if let Some(found) = found {
-    let Ok(answer) = chosen_under(found, (press, frame));
+  match found {
+    Some(found_2) => {
+      let Ok(answer) = chosen_under(found_2, (press, frame));
 
-    if let Answered::Now(which) = answer {
-      let Ok(()) = picked(state, rows, PickedArguments { at: row, which });
+      match answer {
+        Answered::Now(which) => {
+          let Ok(()) = picked(state, rows, PickedArguments { at: row, which });
+        }
+        Answered::Same | Answered::Passes => {}
+      }
     }
+    ::core::option::Option::None => {}
   }
 
   Ok(())
@@ -4919,8 +4972,8 @@ fn picked(
     .map(|choices| &choices.choose);
 
   match choose {
-    Some(choose) => effects::dispatch(state, rows, effects::Source::Focused, |showing, _| {
-      choose(showing, which);
+    Some(choose_2) => effects::dispatch(state, rows, effects::Source::Focused, |showing, _| {
+      choose_2(showing, which);
     }),
     None => Ok(()),
   }
@@ -5103,13 +5156,13 @@ fn carried_out(
     Outcome::Closing => ActionOutcome::Close,
     Outcome::Back => {
       let Ok(page) = nth(&state.pages, state.here);
-      let back = page.and_then(|page| page.back.clone());
+      let back = page.and_then(|page_2| page_2.back.clone());
 
       match back {
-        Some(back) => {
+        Some(back_2) => {
           let Ok(outcome) =
             effects::dispatch(state, rows, effects::Source::Focused, |showing, _| {
-              back(showing)
+              back_2(showing)
             });
 
           outcome
@@ -5625,9 +5678,7 @@ fn sync_watch(watching: &mut Option<(u32, BoundToParent)>, state: &State) -> Res
     program: std::path::PathBuf::from(program),
     arguments: rest.to_vec(),
   };
-  let platform = CommandPlatform {
-    timing: Timing::Background,
-  };
+  let Ok(mut platform) = CommandPlatform::new(Timing::Background);
 
   match platform.alongside(&invocation, Streams::QUIET) {
     Ok(running) => *watching = Some((state.here, running)),
@@ -5776,9 +5827,13 @@ fn reading(page: &Page, here: u32) -> Result<Reading, Never> {
   let rows = page.rows.clone();
   let asking = thread::spawn(move || {
     let Ok(read) = rows.read();
-    if sending.send(read).is_ok() {
-      let Ok(()) = crate::frames::tell(crate::frames::Notice::Card);
+
+    match sending.send(read) {
+      Ok(()) => {}
+      Err(_panel_closed) => return,
     }
+
+    let Ok(()) = crate::frames::tell(crate::frames::Notice::Card);
   });
   let Ok(()) = console_program_lifetime::threads::let_go(asking);
 
@@ -6100,7 +6155,13 @@ fn serve(
   reported: Reported,
 ) -> Result<(), Never> {
   let mut reported_2 = reported;
-  crate::frames::with_waking(|_| ());
+  let waking = match crate::frames::WakeReceiver::open() {
+    Ok(waking) => waking,
+    Err(fault) => {
+      console_core_logging::warn!("console-panel: cannot create a wake queue: {fault}");
+      return Ok(());
+    }
+  };
   let Ok(()) = crate::arrivals::follow();
   let Ok(_nothing_to_say_before_a_card_is_up) = tasks::told(&tasks, TaskEvent::CardUp);
   let Ok(()) = serving(
@@ -6108,7 +6169,7 @@ fn serve(
     (build, tasks.clone()),
     start,
     framing,
-    shut,
+    (shut, &waking),
     &mut reported_2,
   );
   let Ok(_said_as_notifications_once_nothing_is_up) = tasks::told(&tasks, TaskEvent::CardGone);
@@ -6157,21 +6218,22 @@ enum FirstFrame {
 }
 
 impl FirstFrame {
-  fn draw<Fault>(
+  fn draw<Context, Fault>(
     &mut self,
-    draw: impl FnOnce(Option<DrawingSender>) -> Result<(), Fault>,
-    mark_picker: impl FnOnce() -> Result<(), Never>,
+    context: &mut Context,
+    draw: impl FnOnce(&mut Context, Option<DrawingSender>) -> Result<(), Fault>,
+    mark_picker: impl FnOnce(&mut Context) -> Result<(), Never>,
   ) -> Result<(), Fault> {
     match std::mem::replace(self, Self::Reported) {
-      Self::Hosted(finished) => draw(Some(finished)),
+      Self::Hosted(finished) => draw(context, Some(finished)),
       Self::LocalPicker => {
-        let drawn = draw(None);
+        let drawn = draw(context, None);
         drawn?;
-        let Ok(()) = mark_picker();
+        let Ok(()) = mark_picker(context);
 
         Ok(())
       }
-      Self::Reported => draw(None),
+      Self::Reported => draw(context, None),
     }
   }
 }
@@ -6225,11 +6287,11 @@ fn in_front(page: Option<&Page>, reported: &mut Reported) -> Result<(), Never> {
 
 fn entered(state: &mut CardModel) -> Result<ActionOutcome, Never> {
   let Ok(page) = nth(&state.pages, state.here);
-  let arrive = page.and_then(|page| page.entered.clone());
+  let arrive = page.and_then(|page_2| page_2.entered.clone());
 
   match arrive {
-    Some(arrive) => effects::dispatch(state, &[], effects::Source::Page, |showing, _| {
-      arrive(showing)
+    Some(arrive_2) => effects::dispatch(state, &[], effects::Source::Page, |showing, _| {
+      arrive_2(showing)
     }),
     None => Ok(ActionOutcome::Stay),
   }
@@ -6240,13 +6302,14 @@ fn serving(
   (build, tasks): (crate::card::Build, Actor<Tasks>),
   start: Option<&str>,
   framing: Framing,
-  shut: CloseWatch,
+  (shut, waking): (CloseWatch, &crate::frames::WakeReceiver),
   reported: &mut Reported,
 ) -> Result<(), Never> {
   let Ok(()) = crate::whose::set_owner(who);
 
   let Ok(pages) = built(build);
-  let wearing = match Wearing::worn() {
+  let Ok(theme) = ThemeSettings::current();
+  let wearing = match Wearing::for_theme(&theme) {
     Ok(wearing) => wearing,
     Err(why) => {
       console_core_logging::warn!("console-panel: no palette: {why}");
@@ -6295,6 +6358,8 @@ fn serving(
   let Ok(accessibility) = accessibility::Bridge::new(who);
   let turning = Turning {
     surface,
+    theme,
+    wearing,
     accessibility,
     state,
     painted: Visible::NotYet,
@@ -6317,8 +6382,8 @@ fn serving(
   };
   let still = Still {
     shut: &shut,
-    wearing: &wearing,
     marks_measured,
+    waking,
   };
 
   match console_core_iteration::iterate(turning, |turning_2| turned(turning_2, still)) {
@@ -6331,6 +6396,8 @@ fn serving(
 
 struct Turning<'a> {
   surface: Surface,
+  theme: ThemeSettings,
+  wearing: Wearing,
   accessibility: accessibility::Bridge,
   state: State,
   painted: Visible,
@@ -6351,8 +6418,8 @@ struct Turning<'a> {
 #[derive(Clone, Copy)]
 struct Still<'a> {
   shut: &'a CloseWatch,
-  wearing: &'a Wearing,
   marks_measured: MeasuredMarks,
+  waking: &'a crate::frames::WakeReceiver,
 }
 
 fn turned<'a>(
@@ -6370,11 +6437,13 @@ fn turned<'a>(
 fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcome, Never> {
   let Still {
     shut,
-    wearing,
     marks_measured,
+    waking,
   } = still;
   let Turning {
     surface,
+    theme,
+    wearing,
     state,
     painted,
     front,
@@ -6402,10 +6471,9 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
   let logical = match surface.logical() {
     Ok(Some(logical)) => logical,
     Ok(None) => {
-      let waited = crate::frames::with_waking(|waking| {
-        let also: Vec<_> = waking.into_iter().collect();
-        surface.wait(&also, None)
-      });
+      let Ok(descriptor) = waking.descriptor();
+      let waited = surface.wait(&[descriptor], None);
+
       match waited {
         Ok(()) => {}
         Err(fault) => {
@@ -6414,7 +6482,7 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
         }
       }
 
-      let Ok(woken) = crate::frames::wake_state();
+      let Ok(woken) = waking.state();
 
       match woken.rows {
         crate::frames::FrameReceived::Yes => *stale = Stale::Yes,
@@ -6457,12 +6525,18 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
 
   let entering = *rows_of != Some(state.here);
 
-  if entering {
-    let Ok(outcome) = entered(&mut state.model);
+  match ::core::primitive::bool::then_some(entering, ()) {
+    ::core::option::Option::Some(()) => {
+      let Ok(outcome) = entered(&mut state.model);
 
-    if outcome == ActionOutcome::Close {
-      return Ok(outcome);
+      match { ::core::primitive::bool::then_some(outcome == ActionOutcome::Close, ()) } {
+        ::core::option::Option::Some(()) => {
+          return Ok(outcome);
+        }
+        ::core::option::Option::None => {}
+      }
     }
+    ::core::option::Option::None => {}
   }
 
   let Ok(page) = nth(&state.model.pages, state.model.here);
@@ -6474,9 +6548,9 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     Worth::Ignoring => {}
   }
 
-  match entering {
-    false => {}
-    true => {
+  match ::core::primitive::bool::then_some(entering, ()) {
+    ::core::option::Option::None => {}
+    ::core::option::Option::Some(()) => {
       let Ok(()) = in_front(page, reported);
       let Ok(first) = meanwhile(page);
       let Ok(running) = tasks::running_now(&state.tasks);
@@ -6500,20 +6574,24 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     }
   }
 
-  if let (Stale::Yes, Some(page)) = (*stale, page) {
-    match &page.rows {
-      crate::page::Rows::Fixed(rows) => {
-        let rows = rows.clone();
-        let Ok(()) = apply_rows(state, rows);
-        *asked = None;
-        *dirty = Dirty::Yes;
+  match (*stale, page) {
+    (Stale::Yes, Some(page_2)) => {
+      match &page_2.rows {
+        crate::page::Rows::Fixed(rows) => {
+          let rows_2 = rows.clone();
+          let Ok(()) = apply_rows(state, rows_2);
+          *asked = None;
+          *dirty = Dirty::Yes;
+        }
+        crate::page::Rows::Computed(_) => {
+          let Ok(started) = reading(page_2, state.here);
+          *asked = Some(started);
+        }
       }
-      crate::page::Rows::Computed(_) => {
-        let Ok(started) = reading(page, state.here);
-        *asked = Some(started);
-      }
+
+      *stale = Stale::No;
     }
-    *stale = Stale::No;
+    (Stale::No, _) | (_, ::core::option::Option::None) => {}
   }
 
   match asked
@@ -6538,8 +6616,11 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     Some((_, Err(mpsc::TryRecvError::Empty))) | None => {}
   }
 
-  if shut.stop() == Ok(StopRequest::Requested) {
-    return Ok(ActionOutcome::Close);
+  match { ::core::primitive::bool::then_some(shut.stop() == Ok(StopRequest::Requested), ()) } {
+    ::core::option::Option::Some(()) => {
+      return Ok(ActionOutcome::Close);
+    }
+    ::core::option::Option::None => {}
   }
 
   match (state.at, state.rows.is_empty()) {
@@ -6555,14 +6636,31 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
   let Ok(room) = scroll_room(state, &card);
   let mut accessibility_changed = accessibility::ViewChange::Unchanged;
   let loading = asked.is_some() && state.rows.is_empty();
-  if state.loading != loading {
-    state.loading = loading;
-    *dirty = Dirty::Yes;
+
+  match { ::core::primitive::bool::then_some(state.loading != loading, ()) } {
+    ::core::option::Option::Some(()) => {
+      state.loading = loading;
+      *dirty = Dirty::Yes;
+    }
+    ::core::option::Option::None => {}
   }
 
   match dirty {
     Dirty::No => {}
     Dirty::Yes => {
+      let Ok(current) = ThemeSettings::current();
+
+      match { ::core::primitive::bool::then_some(current != *theme, ()) } {
+        ::core::option::Option::Some(()) => match Wearing::for_theme(&current) {
+          Ok(colors) => {
+            *theme = current;
+            *wearing = colors;
+          }
+          Err(fault) => console_core_logging::warn!("console-panel: loading theme: {fault}"),
+        },
+        ::core::option::Option::None => {}
+      }
+
       match finger.as_ref().map(|finger_2| finger_2.dragged) {
         Some(Dragged::Yes) => {}
         Some(Dragged::No) | None => {
@@ -6576,6 +6674,13 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
 
           state.scroll = down_to;
         }
+      }
+
+      match { ::core::primitive::bool::then_some(asked.is_none(), ()) } {
+        ::core::option::Option::Some(()) => {
+          let Ok(()) = record_position(state);
+        }
+        ::core::option::Option::None => {}
       }
 
       let measured = measured_now(state, measured_tabs, measured_rows, marks_measured)?;
@@ -6594,13 +6699,39 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
       }
 
       *panelled = drawn;
+      let Ok(retired) = crate::frames::set_device_target(
+        panelled
+          .moving
+          .as_ref()
+          .filter(|_| note.is_none() && surface.dma_buf_support() == Ok(DmaBufSupport::Available))
+          .filter(|moving| {
+            !state.zoom.as_ref().is_some_and(|(path, zoom)| {
+              path == &moving.of && zoom.zoomed() == Ok(crate::zoom::Zoomed::ZoomedIn)
+            })
+          })
+          .map(|moving| moving.of.as_path()),
+      );
+
+      match retired {
+        crate::frames::DeviceRetired::Yes => {
+          let Ok(()) = surface.clear_layer();
+        }
+        crate::frames::DeviceRetired::No => {}
+      }
+
       accessibility_changed = accessibility::ViewChange::Different;
       state.shown = panelled.moving.clone();
 
       let drawn_size = (surface_size.width, surface_size.height);
 
-      if !already_drawn {
-        if let Err(fault) = redraw_card(surface, state, panelled, logical, reported) {
+      let redraw = match bool::then_some(!already_drawn, ()) {
+        Some(()) => redraw_card(surface, state, panelled, logical, reported),
+        None => Ok(()),
+      };
+
+      match redraw {
+        Ok(()) => {}
+        Err(fault) => {
           console_core_logging::warn!("console-panel: the frame could not be drawn: {fault}");
           return Ok(ActionOutcome::Close);
         }
@@ -6609,16 +6740,18 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
       let Ok(keyboard) = surface.keyboard_focus();
       reported.keyboard = keyboard;
 
-      // A preview can paint while the input's rows are still being computed.
-      // Let the driver advance only once it can see the result of the input.
       let presses = match asked {
         Some(_) => reported.told_presses,
         None => reported.presses,
       };
       let told_already =
         (presses, reported.keyboard) == (reported.told_presses, reported.told_keyboard);
-      if !already_drawn || !told_already {
-        let Ok(()) = tell(state, panelled, drawn_size, presses, reported);
+
+      match { ::core::primitive::bool::then_some(!already_drawn || !told_already, ()) } {
+        ::core::option::Option::Some(()) => {
+          let Ok(()) = tell(state, panelled, drawn_size, presses, reported);
+        }
+        ::core::option::Option::None => {}
       }
 
       *painted = Visible::Yes;
@@ -6626,7 +6759,25 @@ fn turn_once(turning: &mut Turning<'_>, still: Still<'_>) -> Result<ActionOutcom
     }
   }
 
-  handle_input(turning, &card, logical, room, accessibility_changed)
+  handle_input(turning, &card, logical, room, accessibility_changed, waking)
+}
+
+fn record_position(state: &State) -> Result<(), Never> {
+  let Ok(page) = nth(&state.pages, state.here);
+  let positions = match page.and_then(|visible| visible.positions.as_ref()) {
+    Some(positions) => positions,
+    None => return Ok(()),
+  };
+  let key = state.at.and_then(|at| {
+    let Ok(row) = nth(&state.rows, at);
+    row.and_then(|selected| selected.key.clone())
+  });
+  (positions.changed)(crate::page::PagePosition {
+    key,
+    scroll: state.scroll,
+  });
+
+  Ok(())
 }
 
 fn redraw_card(
@@ -6649,11 +6800,12 @@ fn redraw_card(
   };
 
   let drawn = reported.first_frame.draw(
-    |finished| match finished {
-      Some(finished) => surface.draw_notifying(finished, paint),
-      None => surface.draw(paint),
+    surface,
+    |place, finished| match finished {
+      Some(finished_2) => place.draw_notifying(finished_2, paint),
+      None => place.draw(paint),
     },
-    crate::picker::mark_drawn,
+    |_| crate::picker::mark_drawn(),
   );
   drawn?;
 
@@ -6688,6 +6840,30 @@ fn apply_rows(state: &mut State, read: Vec<Row>) -> Result<(), Never> {
     ::core::option::Option::None => {}
   }
 
+  let Ok(page) = nth(&state.pages, state.here);
+
+  match page
+    .and_then(|page_2| page_2.positions.as_ref())
+    .and_then(|positions| (positions.read)())
+  {
+    Some(position) => match position.key.as_deref() {
+      Some(key) => match state
+        .rows
+        .iter()
+        .position(|row| row.key.as_deref() == Some(key))
+      {
+        Some(index) => {
+          let Ok(index_2) = fitted::<_, u32>(index);
+          state.at = Some(index_2);
+          state.scroll = position.scroll.max(0);
+        }
+        None => {}
+      },
+      None => state.scroll = position.scroll.max(0),
+    },
+    ::core::option::Option::None => {}
+  }
+
   Ok(())
 }
 
@@ -6697,6 +6873,7 @@ fn handle_input(
   logical: Size<u32>,
   room: i32,
   accessibility_changed: accessibility::ViewChange,
+  waking: &crate::frames::WakeReceiver,
 ) -> Result<ActionOutcome, Never> {
   let Turning {
     surface,
@@ -6727,7 +6904,14 @@ fn handle_input(
     Some(_) => Overlay::Note,
     None => Overlay::None,
   };
-  let updates = wait_for_frame(surface, panelled, logical, (*dirty, *stale), overlay);
+  let updates = wait_for_frame(
+    waking,
+    surface,
+    panelled,
+    logical,
+    (*dirty, *stale),
+    overlay,
+  );
 
   match updates {
     Ok((redraw, reread)) => (*dirty, *stale) = (redraw, reread),
@@ -6964,14 +7148,21 @@ impl PanelInput<'_> {
     let across = (at.0 - held.from.0).abs();
     let by = at.1 - held.from.1;
 
-    if matches!(held.lands, Some(Lands::Picker { .. }))
-      && (held.picker_drag.is_some()
-        || (held.dragged == Dragged::No && across >= DRAGGED && across > by.abs()))
-    {
-      let Ok(at) = pointer_position(at);
-      held.dragged = Dragged::Yes;
-      held.picker_drag = Some(at);
-      return Ok(());
+    match {
+      ::core::primitive::bool::then_some(
+        matches!(held.lands, Some(Lands::Picker { .. }))
+          && (held.picker_drag.is_some()
+            || (held.dragged == Dragged::No && across >= DRAGGED && across > by.abs())),
+        (),
+      )
+    } {
+      ::core::option::Option::Some(()) => {
+        let Ok(at_2) = pointer_position(at);
+        held.dragged = Dragged::Yes;
+        held.picker_drag = Some(at_2);
+        return Ok(());
+      }
+      ::core::option::Option::None => {}
     }
 
     match (held.dragged, by.abs() >= DRAGGED) {
@@ -7033,26 +7224,38 @@ impl PanelInput<'_> {
   }
 
   fn lifted(&mut self) -> Result<ActionOutcome, Never> {
-    let Some(touch) = self.finger.take() else {
-      return Ok(ActionOutcome::Stay);
+    let touch = {
+      let optional_touch = self.finger.take();
+
+      match optional_touch {
+        Some(matched_touch) => matched_touch,
+        ::core::option::Option::None => return Ok(ActionOutcome::Stay),
+      }
     };
 
-    if let (Some(Lands::Picker { row, frame }), Some(at)) = (touch.lands, touch.picker_drag) {
-      let Ok(()) = press_picker(
-        &mut self.state.model,
-        &self.state.rows,
-        row,
-        (Press::Drag(at), frame),
-      );
-      self.reported.presses = self.reported.presses.saturating_add(1);
-      *self.stale = Stale::Yes;
-      *self.dirty = Dirty::Yes;
-      return Ok(ActionOutcome::Stay);
+    match (touch.lands, touch.picker_drag) {
+      (Some(Lands::Picker { row, frame }), Some(at)) => {
+        let Ok(()) = press_picker(
+          &mut self.state.model,
+          &self.state.rows,
+          row,
+          (Press::Drag(at), frame),
+        );
+        self.reported.presses = self.reported.presses.saturating_add(1);
+        *self.stale = Stale::Yes;
+        *self.dirty = Dirty::Yes;
+        return Ok(ActionOutcome::Stay);
+      }
+      _ => {}
     }
 
-    if touch.dragged == Dragged::Yes {
-      return Ok(ActionOutcome::Stay);
+    match { ::core::primitive::bool::then_some(touch.dragged == Dragged::Yes, ()) } {
+      ::core::option::Option::Some(()) => {
+        return Ok(ActionOutcome::Stay);
+      }
+      ::core::option::Option::None => {}
     }
+
     self.reported.presses = self.reported.presses.saturating_add(1);
     let Ok(at) = pointer_position(touch.from);
     let Ok(outcome) = tapped(self.state, touch.lands, at, self.card);
@@ -7065,8 +7268,13 @@ impl PanelInput<'_> {
     match touch.lands {
       Some(Lands::Tab(_) | Lands::More(_) | Lands::Reveal) => {}
       None => {
-        if outside(self.card, at) == Ok(Covers::Yes) {
-          *self.stale = Stale::Yes;
+        match {
+          ::core::primitive::bool::then_some(outside(self.card, at) == Ok(Covers::Yes), ())
+        } {
+          ::core::option::Option::Some(()) => {
+            *self.stale = Stale::Yes;
+          }
+          ::core::option::Option::None => {}
         }
       }
       Some(
@@ -7150,40 +7358,41 @@ mod tests {
   #[test]
   fn a_local_picker_is_marked_open_after_its_first_frame() {
     let mut frame = super::FirstFrame::LocalPicker;
-    let calls = super::RefCell::new(Vec::new());
-    let draw = |finished: Option<super::DrawingSender>| {
+    let mut calls = Vec::new();
+    let draw = |record: &mut Vec<&str>, finished: Option<super::DrawingSender>| {
       assert!(finished.is_none());
-      calls.borrow_mut().push("draw");
+      record.push("draw");
 
       Ok::<(), Never>(())
     };
-    let mark_picker = || {
-      calls.borrow_mut().push("mark open");
+    let mark_picker = |record: &mut Vec<&str>| {
+      record.push("mark open");
 
       Ok(())
     };
 
-    let Ok(()) = frame.draw(draw, mark_picker);
-    let Ok(()) = frame.draw(draw, mark_picker);
+    let Ok(()) = frame.draw(&mut calls, draw, mark_picker);
+    let Ok(()) = frame.draw(&mut calls, draw, mark_picker);
 
-    assert_eq!(calls.into_inner(), ["draw", "mark open", "draw"]);
+    assert_eq!(calls, ["draw", "mark open", "draw"]);
   }
 
   #[test]
   fn a_failed_first_frame_leaves_the_local_picker_unmarked() {
     let mut frame = super::FirstFrame::LocalPicker;
-    let marked = std::cell::Cell::new(false);
+    let mut marked = false;
     let drawn = frame.draw(
-      |_| Err("draw failed"),
-      || {
-        marked.set(true);
+      &mut marked,
+      |_, _| Err("draw failed"),
+      |seen| {
+        *seen = true;
 
         Ok(())
       },
     );
 
     assert_eq!(drawn, Err("draw failed"));
-    assert!(!marked.get());
+    assert!(!marked);
   }
 
   #[test]
@@ -7486,21 +7695,8 @@ mod tests {
           state.at,
           Some(::core::primitive::u32::wrapping_add(middle, 1))
         );
-        let Ok(drawn_rows) = fitted::<_, u32>(
-          panel
-            .touching
-            .iter()
-            .filter(|hit| matches!(hit.lands, Lands::Row(_)))
-            .count(),
-        );
+        let Ok(drawn_rows) = check_focus_benchmark_accessibility(&state, &panel);
         visible = drawn_rows;
-        let ids = std::hash::RandomState::new();
-        let empty = super::accessibility::Snapshot::default();
-        let Ok(snapshot) =
-          super::accessibility::Snapshot::from_panel(&ids, "Files", &state, &panel);
-        let Ok(tree) = snapshot.changes(&empty, super::accessibility::TreeChange::InitialTree);
-        let Ok(nodes) = fitted::<_, u32>(tree.nodes.len());
-        assert!(nodes <= visible.saturating_add(4));
         black_box(panel);
         samples.push(elapsed);
       }
@@ -7515,6 +7711,23 @@ mod tests {
     }
 
     Ok(())
+  }
+
+  fn check_focus_benchmark_accessibility(state: &State, panel: &Panelled) -> Result<u32, Never> {
+    let Ok(visible) = fitted::<_, u32>(
+      panel
+        .touching
+        .iter()
+        .filter(|hit| matches!(hit.lands, Lands::Row(_)))
+        .count(),
+    );
+    let ids = std::hash::RandomState::new();
+    let empty = super::accessibility::Snapshot::default();
+    let Ok(snapshot) = super::accessibility::Snapshot::from_panel(&ids, "Files", state, panel);
+    let Ok(tree) = snapshot.changes(&empty, super::accessibility::TreeChange::InitialTree);
+    let Ok(nodes) = fitted::<_, u32>(tree.nodes.len());
+    assert!(nodes <= visible.saturating_add(4));
+    Ok(visible)
   }
 
   fn wide_of(card: &Card) -> Result<u32, Never> {
@@ -8078,9 +8291,8 @@ mod tests {
   fn ended_quietly(
     door: Door,
     tasks: &console_actor::Actor<crate::tasks::Tasks>,
+    waking: &crate::frames::WakeReceiver,
   ) -> Result<(), Never> {
-    let Ok(_started) = crate::frames::wake_state();
-
     drop(door);
 
     let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(10));
@@ -8096,7 +8308,7 @@ mod tests {
     });
     let Ok(patience_2) = console_waiting::Schedule::of(Duration::from_secs(10));
     let Ok(_told) = console_waiting::until(patience_2, || {
-      let Ok(woken) = crate::frames::wake_state();
+      let Ok(woken) = waking.state();
 
       Ok(match woken.rows {
         crate::frames::FrameReceived::Yes => console_waiting::Ready::Yes,
@@ -8155,7 +8367,7 @@ mod tests {
   fn a_row_pressed_again_while_what_it_started_runs_starts_nothing()
   -> Result<(), Box<dyn std::error::Error>> {
     let Ok(_turn) = crate::frames::serial_fixture();
-    let Ok(_before) = crate::frames::wake_state();
+    let waking = crate::frames::WakeReceiver::open()?;
     let door = a_door_held_shut("pressed-twice")?;
     let pairing = waiting_at(&door.0, "")?;
     let Ok(row) = pairing_row(&pairing, &pairing);
@@ -8185,7 +8397,7 @@ mod tests {
       ("Pairing", crate::page::YET, true)
     );
 
-    let Ok(()) = ended_quietly(door, &state.tasks);
+    let Ok(()) = ended_quietly(door, &state.tasks, &waking);
 
     Ok(())
   }
@@ -8194,7 +8406,7 @@ mod tests {
   fn a_row_in_progress_asks_whether_to_stop_and_stopping_ends_what_it_started()
   -> Result<(), Box<dyn std::error::Error>> {
     let Ok(_turn) = crate::frames::serial_fixture();
-    let Ok(_before) = crate::frames::wake_state();
+    let waking = crate::frames::WakeReceiver::open()?;
     let door = a_door_held_shut("stopped-from-its-row")?;
     let pairing = waiting_at(&door.0, "")?;
     let Ok(row) = pairing_row(&pairing, &pairing);
@@ -8242,7 +8454,7 @@ mod tests {
       "the pairing ran on behind a door nobody opened"
     );
 
-    let Ok(()) = ended_quietly(door, &state.tasks);
+    let Ok(()) = ended_quietly(door, &state.tasks, &waking);
 
     Ok(())
   }
@@ -8251,7 +8463,7 @@ mod tests {
   fn what_a_question_from_a_row_starts_is_that_row_in_progress()
   -> Result<(), Box<dyn std::error::Error>> {
     let Ok(_turn) = crate::frames::serial_fixture();
-    let Ok(_before) = crate::frames::wake_state();
+    let waking = crate::frames::WakeReceiver::open()?;
     let door = a_door_held_shut("asked-from-a-row")?;
     let plain = waiting_at(&door.0, "")?;
     let typed = waiting_at(&door.0, "1234")?;
@@ -8295,7 +8507,7 @@ mod tests {
       "the row the PIN was typed for is not in progress"
     );
 
-    let Ok(()) = ended_quietly(door, &state.tasks);
+    let Ok(()) = ended_quietly(door, &state.tasks, &waking);
 
     Ok(())
   }
@@ -8323,28 +8535,28 @@ mod tests {
   #[test]
   fn entering_a_page_and_backing_out_of_it_apply_their_callbacks() -> Result<(), Failure> {
     let Ok(page) = page("Settings", &["First", "Second"]);
-    let Ok(page) = page.on_arriving(|showing| showing.note("Arrived"));
-    let Ok(page) = page.on_back(|showing| {
+    let Ok(page_2) = page.on_arriving(|showing| showing.note("Arrived"));
+    let Ok(page_3) = page_2.on_back(|showing| {
       showing.note("Back");
       showing.replace(1);
       ActionOutcome::Stay
     });
-    let mut state = state_of(vec![page])?;
+    let mut state = state_of(vec![page_3])?;
     let Ok(outcome) = super::entered(&mut state.model);
     assert_eq!(outcome, ActionOutcome::Stay);
     assert_eq!(state.note.as_deref(), Some("Arrived"));
 
     let rows = state.rows.clone();
-    let Ok(outcome) = pressed(&mut state, &rows, Keysym::Escape);
-    assert_eq!(outcome, ActionOutcome::Stay);
+    let Ok(outcome_2) = pressed(&mut state, &rows, Keysym::Escape);
+    assert_eq!(outcome_2, ActionOutcome::Stay);
     assert_eq!(state.note.as_deref(), Some("Back"));
     assert_eq!(state.at, Some(1));
 
     state.note = None;
     let Ok(card) = card();
     let back = landing(&state, &card, Lands::Back)?;
-    let Ok(outcome) = super::tapped(&mut state, Some(back.lands), back.panel.at, &card);
-    assert_eq!(outcome, ActionOutcome::Stay);
+    let Ok(outcome_3) = super::tapped(&mut state, Some(back.lands), back.panel.at, &card);
+    assert_eq!(outcome_3, ActionOutcome::Stay);
     assert_eq!(state.note.as_deref(), Some("Back"));
     Ok(())
   }
@@ -8353,8 +8565,8 @@ mod tests {
   fn tapping_back_dismisses_the_prompt_without_running_the_pages_back_action()
   -> Result<(), Failure> {
     let Ok(page) = page("Settings", &["First"]);
-    let Ok(page) = page.on_back(|_| ActionOutcome::Close);
-    let mut state = state_of(vec![page])?;
+    let Ok(page_2) = page.on_back(|_| ActionOutcome::Close);
+    let mut state = state_of(vec![page_2])?;
     let Ok(answer) = empty_answer();
     let Ok(()) = super::effects::dispatch(
       &mut state.model,
@@ -9494,7 +9706,7 @@ mod tests {
     );
 
     state.zoom = Some((PathBuf::from("/nowhere/b.png"), closer));
-    let Ok(framed) = super::effects::dispatch(
+    let Ok(framed_3) = super::effects::dispatch(
       &mut state.model,
       &state.rows,
       super::effects::Source::Focused,
@@ -9502,7 +9714,7 @@ mod tests {
     );
 
     assert_eq!(
-      framed.map(|framed| framed.map(|framed_2| framed_2.zoom)),
+      framed_3.map(|framed_4| framed_4.map(|framed_2| framed_2.zoom)),
       Ok(Some(crate::zoom::Zoom::default())),
       "another picture's zoom was handed on as this one's"
     );
@@ -9929,15 +10141,19 @@ mod tests {
   #[test]
   fn choosing_a_picker_option_starts_its_task() -> Result<(), Failure> {
     let Ok(_turn) = crate::frames::serial_fixture();
-    let Ok(_before) = crate::frames::wake_state();
+    let waking = crate::frames::WakeReceiver::open()?;
     let door = a_door_held_shut("picked-task")?;
     let command = waiting_at(&door.0, "right")?;
     let Ok(task) = crate::tasks::Task::of(command.clone());
-    let Ok(choose) = crate::page::retained(move |showing: &dyn crate::page::Showing, which| {
-      if which == 1 {
-        showing.run(task.clone());
-      }
-    });
+    let Ok(choose) =
+      crate::page::retained(
+        move |showing: &dyn crate::page::Showing, which| match which {
+          1 => {
+            showing.run(task.clone());
+          }
+          _ => {}
+        },
+      );
     let Ok(row) = Row::picking(
       "Rotation",
       crate::page::Choices {
@@ -9956,10 +10172,10 @@ mod tests {
     assert_eq!(outcome, ActionOutcome::Stay);
     assert_eq!(running.started.len(), 1);
     assert_eq!(
-      running.started.first().map(|task| &task.command),
+      running.started.first().map(|task_2| &task_2.command),
       Some(&command)
     );
-    let Ok(()) = ended_quietly(door, &state.tasks);
+    let Ok(()) = ended_quietly(door, &state.tasks, &waking);
 
     Ok(())
   }
@@ -10001,18 +10217,7 @@ mod tests {
     let page = Page::new("Battery", Rows::Fixed(vec![row]))?;
     let mut state = state_of(vec![page])?;
     let Ok(panelled) = drawn(&state, &card, &wearing);
-    let words: Vec<&str> = panelled
-      .shapes
-      .iter()
-      .filter_map(|shape| match shape {
-        Shape::Text(words) => Some(words.said.as_str()),
-        Shape::Panel(_)
-        | Shape::Picture(_)
-        | Shape::Cropped(_)
-        | Shape::Line(_)
-        | Shape::Clip(_) => None,
-      })
-      .collect();
+    let Ok(words) = visible_words(&panelled.shapes);
     let picker = panelled
       .touching
       .iter()
@@ -10078,6 +10283,22 @@ mod tests {
     Ok(())
   }
 
+  fn visible_words(shapes: &[Shape]) -> Result<Vec<&str>, Never> {
+    Ok(
+      shapes
+        .iter()
+        .filter_map(|shape| match shape {
+          Shape::Text(words) => Some(words.said.as_str()),
+          Shape::Panel(_)
+          | Shape::Picture(_)
+          | Shape::Cropped(_)
+          | Shape::Line(_)
+          | Shape::Clip(_) => None,
+        })
+        .collect(),
+    )
+  }
+
   #[test]
   fn accessibility_can_choose_a_label_and_set_a_slider_value() -> Result<(), Failure> {
     use super::accessibility::{Snapshot, TreeChange, perform};
@@ -10106,7 +10327,7 @@ mod tests {
       .iter()
       .find(|(_, node)| node.role() == Role::RadioButton && node.label() == Some("High"))
       .ok_or("the High choice is missing from the accessibility tree")?;
-    let (slider, _) = tree
+    let (slider_2, _) = tree
       .nodes
       .iter()
       .find(|(_, node)| node.role() == Role::Slider)
@@ -10121,12 +10342,10 @@ mod tests {
       },
       &view,
     );
-    let Ok(outcome) = perform(
-      &mut state,
-      &card,
-      room,
-      choice.ok_or("High cannot be clicked")?,
-    );
+    let Ok(outcome) = perform(&mut state, &card, room, {
+      let checked_value = choice.ok_or("High cannot be clicked")?;
+      checked_value
+    });
     assert_eq!(outcome, ActionOutcome::Stay);
     assert_eq!(heard.try_recv(), Ok(2));
     assert_eq!(state.note.as_deref(), Some("Choice applied"));
@@ -10135,18 +10354,16 @@ mod tests {
       ActionRequest {
         action: Action::SetValue,
         target_tree: TreeId::ROOT,
-        target_node: *slider,
+        target_node: *slider_2,
         data: Some(ActionData::NumericValue(7.0)),
       },
       &view,
     );
-    let Ok(outcome) = perform(
-      &mut state,
-      &card,
-      room,
-      value.ok_or("the slider value cannot be set")?,
-    );
-    assert_eq!(outcome, ActionOutcome::Stay);
+    let Ok(outcome_2) = perform(&mut state, &card, room, {
+      let checked_value_2 = value.ok_or("the slider value cannot be set")?;
+      checked_value_2
+    });
+    assert_eq!(outcome_2, ActionOutcome::Stay);
     assert_eq!(adjusted.try_recv(), Ok(5));
     Ok(())
   }
@@ -10870,37 +11087,39 @@ mod tests {
     Ok((at, into))
   }
 
-  fn woke_within(within: rustix::event::Timespec) -> Result<crate::frames::WakeState, Failure> {
-    let _ready = crate::frames::with_waking(|waking| {
-      let waking = waking.ok_or("a socket the loop is woken on")?;
-      let mut watch = [rustix::event::PollFd::from_borrowed_fd(
-        waking,
-        rustix::event::PollFlags::IN,
-      )];
-      Ok::<_, Failure>(rustix::event::poll(&mut watch, Some(&within))?)
-    })?;
-    let Ok(woken) = crate::frames::wake_state();
+  fn poll_wakes(
+    waking: &crate::frames::WakeReceiver,
+    within: rustix::event::Timespec,
+  ) -> std::io::Result<u32> {
+    let Ok(descriptor) = waking.descriptor();
+    let mut watch = [rustix::event::PollFd::from_borrowed_fd(
+      descriptor,
+      rustix::event::PollFlags::IN,
+    )];
+    let count = rustix::event::poll(&mut watch, Some(&within)).map(u32::try_from)?;
+    count.map_err(std::io::Error::other)
+  }
+
+  fn woke_within(
+    waking: &crate::frames::WakeReceiver,
+    within: rustix::event::Timespec,
+  ) -> Result<crate::frames::WakeState, Failure> {
+    let _ready = poll_wakes(waking, within)?;
+    let Ok(woken) = waking.state();
 
     Ok(woken)
   }
 
   fn woke_at_all(
+    waking: &crate::frames::WakeReceiver,
     within: rustix::event::Timespec,
-  ) -> Result<crate::frames::FrameReceived, Failure> {
-    let ready = crate::frames::with_waking(|waking| {
-      let waking = waking.ok_or("a socket the loop is woken on")?;
-      let mut watch = [rustix::event::PollFd::from_borrowed_fd(
-        waking,
-        rustix::event::PollFlags::IN,
-      )];
-      Ok::<_, Failure>(rustix::event::poll(&mut watch, Some(&within)))
-    })?;
-    let woke = match ready {
+  ) -> Result<crate::frames::FrameReceived, Never> {
+    let woke = match poll_wakes(waking, within) {
       Ok(0) => crate::frames::FrameReceived::No,
       Err(_interrupted) => crate::frames::FrameReceived::No,
       Ok(_ready) => crate::frames::FrameReceived::Yes,
     };
-    let Ok(_drained) = crate::frames::wake_state();
+    let Ok(_drained) = waking.state();
 
     Ok(woke)
   }
@@ -10915,13 +11134,16 @@ mod tests {
     let event_group = console_program_contract::EventGroup::Path(into.to_path_buf());
     let Ok(looking) = page("Sound", &["Speakers"]);
     let Ok(looking_2) = looking.with_subscription(event_group, worth);
-    let Ok(_before) = crate::frames::wake_state();
+    let waking = crate::frames::WakeReceiver::open()?;
 
     let Ok(()) = front.listen(Some(&looking_2));
-    let joined = woke_at_all(rustix::event::Timespec {
-      tv_sec: 2,
-      tv_nsec: 0,
-    })?;
+    let Ok(joined) = woke_at_all(
+      &waking,
+      rustix::event::Timespec {
+        tv_sec: 2,
+        tv_nsec: 0,
+      },
+    );
 
     assert_eq!(joined, crate::frames::FrameReceived::Yes);
     assert_eq!(
@@ -10930,17 +11152,23 @@ mod tests {
       "getting into the pool did not wake the loop to read the tab again"
     );
 
-    let _replayed = woke_within(rustix::event::Timespec {
-      tv_sec: 0,
-      tv_nsec: 100_000_000,
-    })?;
+    let _replayed = woke_within(
+      &waking,
+      rustix::event::Timespec {
+        tv_sec: 0,
+        tv_nsec: 100_000_000,
+      },
+    )?;
     let Ok(patience) = console_waiting::Schedule::of(Duration::from_secs(2));
     let Ok(told) = console_waiting::until_some(patience, || {
       let written = console_core_atomic_writes::whole(&into.join("changed"), b"");
-      let woke = woke_within(rustix::event::Timespec {
-        tv_sec: 0,
-        tv_nsec: 50_000_000,
-      });
+      let woke = woke_within(
+        &waking,
+        rustix::event::Timespec {
+          tv_sec: 0,
+          tv_nsec: 50_000_000,
+        },
+      );
 
       Ok(match (written, woke) {
         (Ok(()), Ok(_woken)) => match front.changed() {
@@ -11000,13 +11228,16 @@ mod tests {
   #[test]
   fn a_panel_told_to_shut_wakes_a_loop_asleep_with_no_timeout() -> Result<(), Failure> {
     let Ok(_turn) = crate::frames::serial_fixture();
-    let Ok(_before) = crate::frames::wake_state();
+    let waking = crate::frames::WakeReceiver::open()?;
     let Ok((close, watch)) = super::CloseWatch::pair();
     let Ok(()) = close.shut();
-    let woke = woke_at_all(rustix::event::Timespec {
-      tv_sec: 0,
-      tv_nsec: 0,
-    })?;
+    let Ok(woke) = woke_at_all(
+      &waking,
+      rustix::event::Timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+      },
+    );
 
     assert!(
       matches!(watch.stop(), Ok(super::StopRequest::Requested)),
@@ -11024,13 +11255,16 @@ mod tests {
   #[test]
   fn a_reading_that_lands_wakes_the_loop_waiting_for_it() -> Result<(), Failure> {
     let Ok(_turn) = crate::frames::serial_fixture();
-    let Ok(_before) = crate::frames::wake_state();
+    let waking = crate::frames::WakeReceiver::open()?;
     let Ok(now) = page("Now", &["one"]);
     let Ok(reading) = super::reading(&now, 0);
-    let woke = woke_at_all(rustix::event::Timespec {
-      tv_sec: 5,
-      tv_nsec: 0,
-    })?;
+    let Ok(woke) = woke_at_all(
+      &waking,
+      rustix::event::Timespec {
+        tv_sec: 5,
+        tv_nsec: 0,
+      },
+    );
 
     assert_eq!(
       woke,

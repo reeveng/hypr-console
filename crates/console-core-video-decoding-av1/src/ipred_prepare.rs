@@ -1,4 +1,5 @@
 #![forbid(unsafe_code)]
+use crate::src::strided::Strided as _;
 use crate::include::common::bitdepth::AsPrimitive;
 use crate::include::common::bitdepth::BitDepth;
 use crate::src::align::AlignedVec64;
@@ -207,8 +208,7 @@ fn fixed_pixel_pitch<BD: BitDepth>(
 
 fn left_source<BD: BitDepth>(source: &ReconSrc<'_>) -> Rav1dResult<BD::Pixel> {
   let Ok(left) = source.at(-1);
-  let Ok(value) = left.get::<BD>();
-  Ok(value)
+  left.get::<BD>()
 }
 
 fn copy_padded_row<Pixel: Copy>(output: &mut [Pixel], input: &[Pixel]) -> Rav1dResult {
@@ -453,10 +453,7 @@ fn prepare_corner<BD: BitDepth>(
   let corner: &mut [BD::Pixel; 3] = neighborhood.try_into().map_err(|_| Rav1dError::EINVAL)?;
   let [left, center, right] = corner;
 
-  *center = match (
-    !matches!(&config.above, AboveEdge::Absent),
-    config.has_left,
-  ) {
+  *center = match (!matches!(&config.above, AboveEdge::Absent), config.has_left) {
     (true, _) => {
       let above = edge_sample(input.above)?;
       above
@@ -515,6 +512,7 @@ pub(crate) fn rav1d_prepare_intra_edges<BD: BitDepth>(
   let need_top = !matches!(&config.above, AboveEdge::Absent)
     && (required & (TOP_EDGE | CORNER_EDGE) != 0
       || required & LEFT_EDGE != 0 && !config.has_left);
+  let reconstructed_samples;
   let dst_top: &[BD::Pixel] = match need_top.then_some(()) {
     Some(()) => {
       let shift = u64::from(u8::from(config.has_left));
@@ -535,10 +533,9 @@ pub(crate) fn rav1d_prepare_intra_edges<BD: BitDepth>(
           let displacement = stride.wrapping_neg().wrapping_sub(corner_offset);
           let Ok(pixel_offset) = wrapped_offset(displacement);
           let Ok(near) = source.at(pixel_offset);
-          &*{
-            let Ok(samples) = near.slice::<BD>(count);
-            samples
-          }
+          let samples = near.slice::<BD>(count)?;
+          reconstructed_samples = samples;
+          &reconstructed_samples
         }
         AboveEdge::Absent => return Err(Rav1dError::EINVAL),
       }

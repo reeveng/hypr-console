@@ -24,6 +24,7 @@ impl SvgPostprocessor for GitGraphBranchLabelBaselinePostprocessor {
         }
 
         let adjusted = center_gitgraph_branch_label_text(svg.as_ref());
+
         if adjusted == svg.as_ref() {
             Ok(svg)
         } else {
@@ -32,8 +33,10 @@ impl SvgPostprocessor for GitGraphBranchLabelBaselinePostprocessor {
     }
 }
 
+#[must_use]
 fn center_gitgraph_branch_label_text(svg: &str) -> String {
     let mut centers = collect_branch_label_centers(svg);
+
     if centers.is_empty() {
         return svg.to_string();
     }
@@ -45,23 +48,35 @@ fn center_gitgraph_branch_label_text(svg: &str) -> String {
 
     while let Some(rel_start) = svg[scan_cursor..].find("<g") {
         let start = scan_cursor + rel_start;
-        let Some(open_end) = find_tag_end(svg, start) else {
-            break;
+
+        let open_end = {
+            let optional_open_end = find_tag_end(svg, start);
+
+            match optional_open_end {
+                Some(matched_open_end) => matched_open_end,
+                ::core::option::Option::None => break,
+            }
         };
+
         let tag = &svg[start..=open_end];
+
         let Some(label_index) = branch_label_index_from_group_tag(tag) else {
             scan_cursor = open_end + 1;
             continue;
         };
+
         let Some(center_y) = centers.get_mut(&label_index).and_then(VecDeque::pop_front) else {
             scan_cursor = open_end + 1;
             continue;
         };
 
-        let group_y = extract_attr(tag, "transform")
-            .and_then(parse_translate_y)
-            .unwrap_or(0.0);
+        let group_y = match extract_attr(tag, "transform")
+            .and_then(parse_translate_y) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0.0,
+        };
         let text_y = center_y - group_y;
+
         let Some(group_close) = svg[open_end + 1..]
             .find("</g>")
             .map(|rel| open_end + 1 + rel)
@@ -69,10 +84,12 @@ fn center_gitgraph_branch_label_text(svg: &str) -> String {
             scan_cursor = open_end + 1;
             continue;
         };
+
         let Some((text_start, text_end)) = find_first_text_span(svg, open_end + 1) else {
             scan_cursor = open_end + 1;
             continue;
         };
+
         if text_start > group_close {
             scan_cursor = open_end + 1;
             continue;
@@ -80,6 +97,7 @@ fn center_gitgraph_branch_label_text(svg: &str) -> String {
 
         let rewritten =
             rewrite_text_block_for_centered_baseline(&svg[text_start..text_end], text_y);
+
         if rewritten == svg[text_start..text_end] {
             scan_cursor = text_end;
             continue;
@@ -100,65 +118,85 @@ fn center_gitgraph_branch_label_text(svg: &str) -> String {
     out
 }
 
+#[must_use]
 fn collect_branch_label_centers(svg: &str) -> HashMap<usize, VecDeque<f64>> {
     let mut centers = HashMap::new();
     let mut cursor = 0usize;
 
     while let Some(rel_start) = svg[cursor..].find("<rect") {
         let start = cursor + rel_start;
-        let Some(end) = find_tag_end(svg, start) else {
-            break;
+
+        let end = {
+            let optional_end = find_tag_end(svg, start);
+
+            match optional_end {
+                Some(matched_end) => matched_end,
+                ::core::option::Option::None => break,
+            }
         };
+
         let tag = &svg[start..=end];
+
         if let Some(index) = branch_label_index_from_rect_tag(tag)
             && let (Some(y), Some(height)) = (
                 extract_attr(tag, "y").and_then(parse_f64),
                 extract_attr(tag, "height").and_then(parse_f64),
             )
         {
-            let translate_y = extract_attr(tag, "transform")
-                .and_then(parse_translate_y)
-                .unwrap_or(0.0);
+            let translate_y = match extract_attr(tag, "transform")
+                .and_then(parse_translate_y) {
+                ::core::option::Option::Some(present) => present,
+                ::core::option::Option::None => 0.0,
+            };
             centers
                 .entry(index)
                 .or_insert_with(VecDeque::new)
                 .push_back(translate_y + y + height / 2.0);
         }
+
         cursor = end + 1;
     }
 
     centers
 }
 
+#[must_use]
 fn branch_label_index_from_rect_tag(tag: &str) -> Option<usize> {
     let classes = extract_attr(tag, "class")?;
+
     if !classes
         .split_whitespace()
         .any(|class| class == "branchLabelBkg")
     {
         return None;
     }
+
     label_class_index(classes)
 }
 
+#[must_use]
 fn branch_label_index_from_group_tag(tag: &str) -> Option<usize> {
     let classes = extract_attr(tag, "class")?;
+
     if !classes.split_whitespace().any(|class| class == "label") {
         return None;
     }
+
     classes
         .split_whitespace()
         .find_map(|class| class.strip_prefix("branch-label"))
-        .and_then(|value| value.parse::<usize>().ok())
+        .and_then(|value| match value.parse::<usize>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None })
 }
 
+#[must_use]
 fn label_class_index(classes: &str) -> Option<usize> {
     classes
         .split_whitespace()
         .find_map(|class| class.strip_prefix("label"))
-        .and_then(|value| value.parse::<usize>().ok())
+        .and_then(|value| match value.parse::<usize>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None })
 }
 
+#[must_use]
 fn find_first_text_span(svg: &str, start: usize) -> Option<(usize, usize)> {
     let rel_text = svg[start..].find("<text")?;
     let text_start = start + rel_text;
@@ -169,32 +207,53 @@ fn find_first_text_span(svg: &str, start: usize) -> Option<(usize, usize)> {
     Some((text_start, close_end))
 }
 
+#[must_use]
 fn rewrite_text_block_for_centered_baseline(text_block: &str, text_y: f64) -> String {
-    let Some(open_end) = find_tag_end(text_block, 0) else {
-        return text_block.to_string();
+    let open_end = {
+        let optional_open_end = find_tag_end(text_block, 0);
+
+        match optional_open_end {
+            Some(matched_open_end) => matched_open_end,
+            ::core::option::Option::None => return text_block.to_string(),
+        }
     };
+
     let open_tag = &text_block[..=open_end];
     let close_start = text_block.rfind("</text>").unwrap_or(text_block.len());
     let content = &text_block[open_end + 1..close_start];
     let close = &text_block[close_start..];
 
-    let open_tag = set_or_insert_quoted_attr(open_tag, "y", &fmt_number(text_y));
-    let open_tag = set_or_insert_quoted_attr(&open_tag, "dominant-baseline", "central");
-    let open_tag = set_or_insert_quoted_attr(&open_tag, "alignment-baseline", "central");
-    let content = rewrite_first_tspan_dy_zero(content);
+    let open_tag_2 = set_or_insert_quoted_attr(open_tag, "y", &fmt_number(text_y));
+    let open_tag_3 = set_or_insert_quoted_attr(&open_tag_2, "dominant-baseline", "central");
+    let open_tag_4 = set_or_insert_quoted_attr(&open_tag_3, "alignment-baseline", "central");
+    let content_2 = rewrite_first_tspan_dy_zero(content);
 
-    format!("{open_tag}{content}{close}")
+    format!("{open_tag}{content}{close}", open_tag = open_tag_4, content = content_2)
 }
 
+#[must_use]
 fn rewrite_first_tspan_dy_zero(content: &str) -> String {
-    let Some(rel_tspan) = content.find("<tspan") else {
-        return content.to_string();
+    let rel_tspan = {
+        let optional_rel_tspan = content.find("<tspan");
+
+        match optional_rel_tspan {
+            Some(matched_rel_tspan) => matched_rel_tspan,
+            ::core::option::Option::None => return content.to_string(),
+        }
     };
-    let Some(tspan_end) = find_tag_end(content, rel_tspan) else {
-        return content.to_string();
+
+    let tspan_end = {
+        let optional_tspan_end = find_tag_end(content, rel_tspan);
+
+        match optional_tspan_end {
+            Some(matched_tspan_end) => matched_tspan_end,
+            ::core::option::Option::None => return content.to_string(),
+        }
     };
+
     let tag = &content[rel_tspan..=tspan_end];
     let rewritten_tag = set_or_insert_quoted_attr(tag, "dy", "0");
+
     if rewritten_tag == tag {
         return content.to_string();
     }
@@ -206,10 +265,12 @@ fn rewrite_first_tspan_dy_zero(content: &str) -> String {
     out
 }
 
+#[must_use]
 fn extract_attr<'a>(tag: &'a str, name: &str) -> Option<&'a str> {
     extract_quoted_attr(tag, name)
 }
 
+#[must_use]
 fn parse_translate_y(transform: &str) -> Option<f64> {
     let lower = transform.to_ascii_lowercase();
     let start = lower.find("translate(")? + "translate(".len();
@@ -222,26 +283,31 @@ fn parse_translate_y(transform: &str) -> Option<f64> {
     parts.next().and_then(parse_f64).or(Some(0.0))
 }
 
+#[must_use]
 fn parse_f64(raw: &str) -> Option<f64> {
-    raw.trim()
-        .parse::<f64>()
-        .ok()
+    match raw.trim()
+        .parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None }
         .filter(|value| value.is_finite())
 }
 
+#[must_use]
 fn fmt_number(value: f64) -> String {
-    let value = if value.abs() < 1e-9 { 0.0 } else { value };
-    if (value.fract()).abs() < 1e-9 {
-        return format!("{}", value as i64);
+    let value_2 = if value.abs() < 1e-9 { 0.0 } else { value };
+
+    if (value_2.fract()).abs() < 1e-9 {
+        return format!("{}", value_2 as i64);
     }
 
-    let mut out = format!("{value:.6}");
+    let mut out = format!("{value:.6}", value = value_2);
+
     while out.contains('.') && out.ends_with('0') {
         out.pop();
     }
+
     if out.ends_with('.') {
         out.pop();
     }
+
     out
 }
 

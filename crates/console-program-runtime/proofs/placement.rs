@@ -4,24 +4,37 @@
 //! the same word to the pure placement mixer at each step.
 
 use super::*;
-use console_core_state_machine::Queue;
+use console_core_state_machine::{EffectDependencies, Queue, Service};
 
 struct Accumulator;
+
+#[derive(Debug, PartialEq, Eq)]
+struct Sample(u8);
+
+impl EffectDependencies for Sample {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(&[])
+  }
+}
 
 impl Machine for Accumulator {
   type Input = u8;
   type State = u8;
   type Request = u8;
-  type Effect = u8;
+  type Effect = Sample;
 
-  fn initialize(input: &u8, _previous: Option<u8>, effects: &mut Queue<u8>) -> Result<u8, Never> {
-    let Ok(()) = effects.offer(*input);
+  fn initialize(
+    input: &u8,
+    _previous: Option<u8>,
+    effects: &mut Queue<Sample>,
+  ) -> Result<u8, Never> {
+    let Ok(()) = effects.offer(Sample(*input));
 
     Ok(*input)
   }
 
-  fn handle(state: u8, request: u8, effects: &mut Queue<u8>) -> Result<u8, Never> {
-    let Ok(()) = effects.offer_all([state, request]);
+  fn handle(state: u8, request: u8, effects: &mut Queue<Sample>) -> Result<u8, Never> {
+    let Ok(()) = effects.offer_all([Sample(state), Sample(request)]);
 
     Ok(state.wrapping_add(request))
   }
@@ -49,14 +62,14 @@ impl Recorder {
 impl TransitionExecutor<Accumulator> for Recorder {
   type Error = u8;
 
-  fn initialize(&mut self, input: &u8) -> Result<Transition<u8, u8>, u8> {
+  fn initialize(&mut self, input: &u8) -> Result<Transition<u8, Sample>, u8> {
     self.record()?;
     let Ok(decision) = Accumulator::initial_transition(input, None);
 
     Ok(decision)
   }
 
-  fn transition(&mut self, state: u8, request: u8) -> Result<Transition<u8, u8>, u8> {
+  fn transition(&mut self, state: u8, request: u8) -> Result<Transition<u8, Sample>, u8> {
     self.record()?;
     let Ok(decision) = Accumulator::transition(state, request);
 
@@ -92,12 +105,12 @@ fn seeded_placement_preserves_state_and_ordered_effects_for_each_step() {
     None => {
       let decision = placed.initialize(&request).unwrap();
       assert_eq!(decision.state, request);
-      assert_eq!(decision.effects, [request]);
+      assert_eq!(decision.effects, [Sample(request)]);
     }
     Some(state) => {
       let decision = placed.transition(state, request).unwrap();
       assert_eq!(decision.state, state.wrapping_add(request));
-      assert_eq!(decision.effects, [state, request]);
+      assert_eq!(decision.effects, [Sample(state), Sample(request)]);
     }
   }
 

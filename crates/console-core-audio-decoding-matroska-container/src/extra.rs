@@ -30,7 +30,8 @@ pub(crate) fn vorbis_extra_data(private: &[u8]) -> Result<Box<[u8]>, DecodeError
     }
   }
 
-  let identification_2 = identification.ok_or(DecodeError::Absent(MissingElement::VorbisIdentification))?;
+  let identification_2 =
+    identification.ok_or(DecodeError::Absent(MissingElement::VorbisIdentification))?;
   let setup_2 = setup.ok_or(DecodeError::Absent(MissingElement::VorbisSetup))?;
 
   Ok([identification_2, setup_2].concat().into_boxed_slice())

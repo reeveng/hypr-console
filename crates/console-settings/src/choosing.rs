@@ -40,7 +40,7 @@
 
 use console_core_media_access_control_addresses::Address;
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
 use console_home_screen::shape::{self, Shape, Size};
 use console_program_contract::{Effect, Event};
 
@@ -54,7 +54,9 @@ pub const CLOCK: u32 = 2;
 
 pub const CALLED: u32 = 3;
 
-pub const FIRST_KIND: u32 = 7;
+const QUICK_WORKSPACE: u32 = 7;
+
+pub const FIRST_KIND: u32 = 8;
 
 pub const SAYS: u32 = 0;
 
@@ -65,6 +67,8 @@ pub const DICTATION: u32 = 2;
 pub const DEEPER: u32 = 2;
 
 pub const MEETING: u32 = 1;
+
+const WALLPAPER_SETS: u32 = 1;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Meeting {
@@ -78,25 +82,42 @@ pub struct Deeper {
   pub at: u32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeyboardMenu {
+  Closed,
+  Open,
+  Install,
+  Remove,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum WallpaperView {
+  Pictures,
+  Picture(Deeper),
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Destination {
   Settings,
   Search,
   Dictation,
   Kind(u32),
+  QuickWorkspace,
   Meeting(Meeting),
   Languages,
   Language(Deeper),
-  Alphabets,
+  Alphabets(KeyboardMenu),
   Zones,
   Zone(Deeper),
   Clock,
+  Wallpaper(WallpaperView),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SettingsEvent {
   Opened(Destination),
   Back,
+  SelectDisplay(String),
   ShowNetwork(crate::wifi::Network),
   HideNetwork,
   Across { shape: Shape, step: i32 },
@@ -108,14 +129,26 @@ pub enum SettingsEvent {
 pub enum SettingsEffect {
   Replace(u32),
   HomeScreen(Shape),
+  DisplaySelected,
   NetworkShown,
   NetworkHidden,
+}
+
+impl EffectDependencies for SettingsEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Replace(_) => &[Service::Panels],
+      Self::HomeScreen(_) => &[Service::Panels],
+      Self::DisplaySelected | Self::NetworkShown | Self::NetworkHidden => &[],
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Under {
   Language,
   Configuration,
+  Wallpaper,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -129,6 +162,7 @@ pub struct Settings;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SettingsState {
   pub destination: Destination,
+  pub display: Option<String>,
   pub shared_network: Option<crate::wifi::Network>,
 }
 
@@ -145,6 +179,7 @@ impl Machine for Settings {
   ) -> Result<SettingsState, Never> {
     Ok(SettingsState {
       destination: Destination::Settings,
+      display: None,
       shared_network: None,
     })
   }
@@ -164,16 +199,49 @@ impl Machine for Settings {
       }
 
       Event::Custom(SettingsEvent::Back) => {
-        let Ok(row) = row_of(&state.destination);
+        let (destination, row) = match state.destination {
+          Destination::Alphabets(KeyboardMenu::Open) => {
+            (Destination::Alphabets(KeyboardMenu::Closed), DEEPER)
+          }
+          Destination::Alphabets(KeyboardMenu::Install | KeyboardMenu::Remove) => {
+            (Destination::Alphabets(KeyboardMenu::Open), DEEPER)
+          }
+          Destination::Wallpaper(WallpaperView::Picture(ref picture)) => {
+            (Destination::Wallpaper(WallpaperView::Pictures), picture.at)
+          }
+          Destination::Settings
+          | Destination::Search
+          | Destination::Dictation
+          | Destination::Kind(_)
+          | Destination::QuickWorkspace
+          | Destination::Meeting(_)
+          | Destination::Languages
+          | Destination::Language(_)
+          | Destination::Alphabets(KeyboardMenu::Closed)
+          | Destination::Zones
+          | Destination::Zone(_)
+          | Destination::Clock
+          | Destination::Wallpaper(WallpaperView::Pictures) => {
+            let Ok(row) = row_of(&state.destination);
+
+            (Destination::Settings, row)
+          }
+        };
         let Ok(()) = effects.offer(Effect::Custom(SettingsEffect::Replace(row)));
 
-        state.destination = Destination::Settings;
+        state.destination = destination;
         Ok(state)
       }
 
       Event::Custom(SettingsEvent::ShowNetwork(network)) => {
         state.shared_network = Some(network);
         let Ok(()) = effects.offer(Effect::Custom(SettingsEffect::NetworkShown));
+        Ok(state)
+      }
+
+      Event::Custom(SettingsEvent::SelectDisplay(connector)) => {
+        state.display = Some(connector);
+        let Ok(()) = effects.offer(Effect::Custom(SettingsEffect::DisplaySelected));
         Ok(state)
       }
 
@@ -237,11 +305,14 @@ pub fn row_of(onto: &Destination) -> Result<u32, Never> {
   match onto {
     Destination::Dictation => Ok(DICTATION),
     Destination::Kind(at) => Ok(FIRST_KIND.saturating_add(*at)),
+    Destination::QuickWorkspace => Ok(QUICK_WORKSPACE),
     Destination::Meeting(meeting) => Ok(meeting.at),
     Destination::Languages => Ok(SAYS),
-    Destination::Alphabets => Ok(TYPES),
+    Destination::Alphabets(_) => Ok(TYPES),
     Destination::Zones => Ok(WHERE),
     Destination::Clock => Ok(CLOCK),
+    Destination::Wallpaper(WallpaperView::Pictures) => Ok(WALLPAPER_SETS),
+    Destination::Wallpaper(WallpaperView::Picture(picture)) => Ok(picture.at),
     Destination::Language(deeper) | Destination::Zone(deeper) => Ok(deeper.at),
     Destination::Settings | Destination::Search => Ok(SEARCH),
   }
@@ -254,12 +325,14 @@ fn standing_on(onto: &Destination) -> Result<u32, Never> {
     | Destination::Search
     | Destination::Dictation
     | Destination::Kind(_)
+    | Destination::QuickWorkspace
     | Destination::Languages
     | Destination::Language(_)
-    | Destination::Alphabets
+    | Destination::Alphabets(_)
     | Destination::Zones
     | Destination::Zone(_)
-    | Destination::Clock => Ok(DEEPER),
+    | Destination::Clock
+    | Destination::Wallpaper(_) => Ok(DEEPER),
   }
 }
 
@@ -269,13 +342,15 @@ pub fn closes(onto: &Destination) -> Result<Closes, Never> {
     Destination::Search
     | Destination::Dictation
     | Destination::Kind(_)
+    | Destination::QuickWorkspace
     | Destination::Meeting(_)
     | Destination::Languages
     | Destination::Language(_)
-    | Destination::Alphabets
+    | Destination::Alphabets(_)
     | Destination::Zones
     | Destination::Zone(_)
     | Destination::Clock => Ok(Closes::No),
+    Destination::Wallpaper(_) => Ok(Closes::No),
   }
 }
 
@@ -283,11 +358,13 @@ pub fn under(onto: &Destination) -> Result<Under, Never> {
   match onto {
     Destination::Languages
     | Destination::Language(_)
-    | Destination::Alphabets
+    | Destination::Alphabets(_)
     | Destination::Dictation => Ok(Under::Language),
+    Destination::Wallpaper(_) => Ok(Under::Wallpaper),
     Destination::Settings
     | Destination::Search
     | Destination::Kind(_)
+    | Destination::QuickWorkspace
     | Destination::Meeting(_)
     | Destination::Zones
     | Destination::Zone(_)
@@ -391,6 +468,29 @@ mod tests {
     assert_eq!(
       dictation.last(),
       Some(&Effect::Custom(SettingsEffect::Replace(DICTATION)))
+    );
+  }
+
+  #[test]
+  fn wallpaper_rules_return_to_the_picture_that_was_edited() {
+    let Ok((state, effects)) = ran(&[
+      SettingsEvent::Opened(Destination::Wallpaper(WallpaperView::Picture(Deeper {
+        name: "star-ride".to_string(),
+        at: 4,
+      }))),
+      SettingsEvent::Back,
+    ]);
+
+    assert_eq!(state, Destination::Wallpaper(WallpaperView::Pictures));
+    assert_eq!(
+      effects.last(),
+      Some(&Effect::Custom(SettingsEffect::Replace(4)))
+    );
+    let Ok((state_2, effects_2)) = ran(&[SettingsEvent::Opened(state), SettingsEvent::Back]);
+    assert_eq!(state_2, Destination::Settings);
+    assert_eq!(
+      effects_2.last(),
+      Some(&Effect::Custom(SettingsEffect::Replace(WALLPAPER_SETS)))
     );
   }
 

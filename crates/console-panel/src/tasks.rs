@@ -66,7 +66,7 @@ use std::thread;
 
 use console_actor::{Actor, SendError};
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service};
 use console_operating_system_linux::program_lifetime::ProcessIdentity;
 use console_operating_system_linux::program_runtime::commands::{self, Linux, Timing};
 use console_program_contract::{Answer, Command, ExitStatus, Notification};
@@ -187,6 +187,16 @@ pub enum TaskEffect {
   Interrupt(ProcessIdentity, Insistence),
   Note(Notification),
   Notify(Notification),
+}
+
+impl EffectDependencies for TaskEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Run(_) | Self::Interrupt(..) => &[Service::Process],
+      Self::Note(_) => &[Service::Panels],
+      Self::Notify(_) => &[Service::Notifications],
+    })
+  }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -744,11 +754,11 @@ impl Reporter for TaskOutput<'_> {
 }
 
 fn ran(tasks: &Actor<Tasks>, command: &Command, speaks: Speaks) -> Result<Answer, Never> {
-  let platform = Linux {
-    timing: Timing::Background,
+  let Ok(mut platform) = Linux::new(Timing::Background);
+  let starting = match execution_commands::resolve(&mut platform, command) {
+    Ok(invocation) => platform.fork(&invocation, Streams::COLLECT),
+    Err(fault) => Err(fault),
   };
-  let starting = execution_commands::resolve(&platform, command)
-    .and_then(|invocation| platform.fork(&invocation, Streams::COLLECT));
   let started = match starting {
     Ok(started) => started,
     Err(fault) => {
@@ -1210,7 +1220,6 @@ mod tests {
   fn a_program_is_answered_with_what_it_printed_what_it_complained_of_and_how_it_ended()
   -> Result<(), Failure> {
     let Ok(_turn) = crate::frames::serial_fixture();
-    let Ok(_before) = crate::frames::wake_state();
     let kept = kept()?;
     let Ok(talking) = Command::external(
       Program::Sh,
@@ -1239,7 +1248,6 @@ mod tests {
     );
 
     let Ok(()) = kept.scope.close();
-    let Ok(_told) = crate::frames::wake_state();
 
     Ok(())
   }

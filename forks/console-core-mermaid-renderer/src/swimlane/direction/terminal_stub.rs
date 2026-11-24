@@ -18,6 +18,7 @@ struct StubRewrite {
     label_anchor: Option<(String, LayoutPoint)>,
 }
 
+#[must_use]
 fn own_segment_key(start: &LayoutPoint, end: &LayoutPoint) -> String {
     format!("{:.3},{:.3}|{:.3},{:.3}", start.x, start.y, end.x, end.y)
 }
@@ -49,14 +50,23 @@ fn label_anchor_for_rewrite(
     points: &[LayoutPoint],
     work_budget: &mut LayoutWorkBudget,
 ) -> Result<Option<(String, LayoutPoint)>> {
-    let Some(label_node_id) = label_node_id else {
-        return Ok(None);
+    let label_node_id_2 = match label_node_id {
+        Some(matched_label_node_id) => matched_label_node_id,
+        ::core::option::Option::None => return Ok(None),
     };
-    let Some(label) = layout.nodes.get(label_node_id) else {
-        return Ok(None);
+
+    let label = {
+        let optional_label = layout.nodes.get(label_node_id_2);
+
+        match optional_label {
+            Some(matched_label) => matched_label,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let label_width = label.width;
     let label_height = label.height;
+
     if label_width <= 0.0 || label_height <= 0.0 {
         return Ok(None);
     }
@@ -64,6 +74,7 @@ fn label_anchor_for_rewrite(
     let mut best = None;
     let mut best_length = -1.0;
     work_budget.charge(points.len().saturating_sub(1))?;
+
     for [segment_0, segment_1] in <[_]>::array_windows::<2>(points) {
         let start = &*segment_0;
         let end = &*segment_1;
@@ -72,6 +83,7 @@ fn label_anchor_for_rewrite(
         let vertical = same_x(start, end, EPSILON);
         let fits = (horizontal && length >= label_width + 2.0)
             || (vertical && length >= label_height + 2.0);
+
         if fits && length > best_length {
             best_length = length;
             best = Some(LayoutPoint {
@@ -80,7 +92,8 @@ fn label_anchor_for_rewrite(
             });
         }
     }
-    Ok(best.map(|anchor| (label_node_id.to_string(), anchor)))
+
+    Ok(best.map(|anchor| (label_node_id_2.to_string(), anchor)))
 }
 
 fn rewrite_for_edge(
@@ -91,10 +104,13 @@ fn rewrite_for_edge(
     work_budget: &mut LayoutWorkBudget,
 ) -> Result<Option<StubRewrite>> {
     let edge = &layout.original_edges[edge_index];
+
     if edge.points.len() < 4 {
         return Ok(None);
     }
+
     let points = dedupe_consecutive_points(&edge.points, EPSILON);
+
     if points.len() < 4 {
         return Ok(None);
     }
@@ -106,12 +122,14 @@ fn rewrite_for_edge(
     let last_delta_x = end.x - penultimate.x;
     let last_delta_y = end.y - penultimate.y;
     let last_length = last_delta_x.hypot(last_delta_y);
+
     if !(EPSILON..MINIMUM_STUB_LENGTH).contains(&last_length) {
         return Ok(None);
     }
 
     let penultimate_delta_x = penultimate.x - previous.x;
     let penultimate_delta_y = penultimate.y - previous.y;
+
     if penultimate_delta_x.hypot(penultimate_delta_y) < EPSILON {
         return Ok(None);
     }
@@ -120,16 +138,29 @@ fn rewrite_for_edge(
     let last_vertical = is_vertical_segment(penultimate, end, EPSILON);
     let penultimate_horizontal = is_horizontal_segment(previous, penultimate, EPSILON);
     let penultimate_vertical = is_vertical_segment(previous, penultimate, EPSILON);
+
     if !((last_horizontal && penultimate_vertical) || (last_vertical && penultimate_horizontal)) {
         return Ok(None);
     }
 
-    let Some(destination) = layout.nodes.get(&edge.to) else {
-        return Ok(None);
+    let destination = {
+        let optional_destination = layout.nodes.get(&edge.to);
+
+        match optional_destination {
+            Some(matched_destination) => matched_destination,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
-    let Some(destination_rect) = rect_of_node_bounds(destination) else {
-        return Ok(None);
+
+    let destination_rect = {
+        let optional_destination_rect = rect_of_node_bounds(destination);
+
+        match optional_destination_rect {
+            Some(matched_destination_rect) => matched_destination_rect,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let (new_previous, new_end) = if penultimate_vertical {
         let approach_from_below = penultimate_delta_y < 0.0;
         (
@@ -166,6 +197,7 @@ fn rewrite_for_edge(
 
     work_budget.charge(1)?;
     work_budget.charge(real_node_rects.len())?;
+
     if segment_hits_any_rect(
         &new_previous,
         &new_end,
@@ -175,7 +207,9 @@ fn rewrite_for_edge(
     ) {
         return Ok(None);
     }
+
     work_budget.charge(label_rects.len())?;
+
     if segment_hits_any_rect(&new_previous, &new_end, label_rects, &[], -OBSTACLE_BUFFER) {
         return Ok(None);
     }
@@ -192,6 +226,7 @@ fn rewrite_for_edge(
         .windows(2)
         .map(|segment| own_segment_key(&segment[0], &segment[1]))
         .collect::<HashSet<_>>();
+
     if segment_crosses_other_edge(
         layout,
         edge_index,
@@ -206,6 +241,7 @@ fn rewrite_for_edge(
     let before_previous = &points[last - 3];
     let endpoint_ids = [edge.from.as_str(), edge.to.as_str()];
     work_budget.charge(real_node_rects.len())?;
+
     if segment_hits_any_rect(
         before_previous,
         &new_previous,
@@ -215,6 +251,7 @@ fn rewrite_for_edge(
     ) {
         return Ok(None);
     }
+
     if segment_crosses_other_edge(
         layout,
         edge_index,
@@ -248,6 +285,7 @@ pub(super) fn collapse_short_terminal_stub(
     work_budget.charge(layout.nodes.len())?;
     let (real_node_rects, label_rects) = collect_node_rect_entries(layout);
     work_budget.charge(layout.original_edges.len())?;
+
     for edge_index in 0..layout.original_edges.len() {
         let Some(rewrite) = rewrite_for_edge(
             layout,
@@ -259,7 +297,9 @@ pub(super) fn collapse_short_terminal_stub(
         else {
             continue;
         };
+
         layout.original_edges[edge_index].points = rewrite.points;
+
         if let Some((label_node_id, anchor)) = rewrite.label_anchor
             && let Some(label) = layout.nodes.get_mut(&label_node_id)
         {
@@ -267,6 +307,7 @@ pub(super) fn collapse_short_terminal_stub(
             label.y = anchor.y;
         }
     }
+
     Ok(())
 }
 

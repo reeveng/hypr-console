@@ -1158,19 +1158,8 @@ mod tests {
 
   #[test]
   fn state_table() -> ::core::result::Result<(), crate::test_support::Failure> {
-    #[rustfmt::skip]
-        let header = [
-            7_u16,
-            10,
-            18,
-            40,
-            64,
-        ];
-    #[rustfmt::skip]
-        let class_table = [
-            3_u16,
-            4,
-        ];
+    let header = [7_u16, 10, 18, 40, 64];
+    let class_table = [3_u16, 4];
     let classes = [1u8, 2, 3, 4];
     #[rustfmt::skip]
         let state_array: [u8; 22] = [
@@ -1181,8 +1170,6 @@ mod tests {
         ];
     #[rustfmt::skip]
         let entry_table: [u16; 10] = [
-
-
             18, 0x8112,
             32, 0x8112,
             18, 0x0000,
@@ -1197,18 +1184,9 @@ mod tests {
       "fixture value",
     )?;
 
-    for i in 0..4u8 {
-      let fixture_value = crate::test_support::fixture_value(
-        table.class(GlyphId16::from(::core::primitive::u16::wrapping_add(
-          {
-            let Ok(migrated_value) = console_core_number_conversion::wrapped::<_, u16>(i);
-            migrated_value
-          },
-          3,
-        ))),
-        "fixture value",
-      )?;
-      assert_eq!(fixture_value, ::core::primitive::u8::wrapping_add(i, 1));
+    for (glyph, expected) in [(3, 1), (4, 2), (5, 3), (6, 4)] {
+      let class = table.class(GlyphId16::from(glyph))?;
+      assert_eq!(class, expected, "glyph {glyph}");
     }
 
     let cases = [

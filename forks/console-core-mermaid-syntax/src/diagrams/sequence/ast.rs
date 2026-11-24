@@ -119,6 +119,7 @@ impl ActionArena {
                     },
                 })?;
         }
+
         self.construction_steps = self.construction_steps.saturating_add(1);
         Ok(())
     }
@@ -129,6 +130,7 @@ impl ActionArena {
         control: &crate::OperationControl,
     ) -> GrammarResult<ActionList> {
         let mut list = ActionList::default();
+
         for action in actions {
             self.checkpoint(control)?;
             let index = self.records.len();
@@ -146,6 +148,7 @@ impl ActionArena {
             )?;
             list = checked_value;
         }
+
         Ok(list)
     }
 
@@ -156,13 +159,18 @@ impl ActionArena {
         control: &crate::OperationControl,
     ) -> GrammarResult<ActionList> {
         self.checkpoint(control)?;
-        if let (Some(tail), Some(head)) = (first.tail, rest.head) {
-            self.records[tail].next = Some(head);
-            #[cfg(test)]
-            {
-                self.action_links += 1;
-            }
+
+        match (first.tail, rest.head) {
+            (Some(tail), Some(head)) => {
+                self.records[tail].next = Some(head);
+                #[cfg(test)]
+                {
+                    self.action_links += 1;
+                }
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
+
         Ok(ActionList {
             head: first.head.or(rest.head),
             tail: rest.tail.or(first.tail),
@@ -176,10 +184,10 @@ impl ActionArena {
         end: Action,
         control: &crate::OperationControl,
     ) -> GrammarResult<ActionList> {
-        let start = self.push_actions([start], control)?;
-        let end = self.push_actions([end], control)?;
-        let list = self.concat(start, body, control)?;
-        self.concat(list, end, control)
+        let start_2 = self.push_actions([start], control)?;
+        let end_2 = self.push_actions([end], control)?;
+        let list = self.concat(start_2, body, control)?;
+        self.concat(list, end_2, control)
     }
 
     pub(super) fn branch_block(
@@ -191,9 +199,10 @@ impl ActionArena {
         end: Action,
         control: &crate::OperationControl,
     ) -> GrammarResult<ActionList> {
-        let start = self.push_actions([start], control)?;
-        let mut list = self.concat(start, body, control)?;
-        for (label, body) in branches {
+        let start_2 = self.push_actions([start], control)?;
+        let mut list = self.concat(start_2, body, control)?;
+
+        for (label, body_2) in branches {
             let branch = self.push_actions(
                 [Action::ControlSignal {
                     signal_type: branch_type,
@@ -203,13 +212,15 @@ impl ActionArena {
             )?;
             let checked_value = self.concat(list, branch, control)?;
             list = checked_value;
-            let checked_value_2 = self.concat(list, body, control)?;
+            let checked_value_2 = self.concat(list, body_2, control)?;
             list = checked_value_2;
         }
-        let end = self.push_actions([end], control)?;
-        self.concat(list, end, control)
+
+        let end_2 = self.push_actions([end], control)?;
+        self.concat(list, end_2, control)
     }
 
+    #[must_use]
     pub(super) fn into_actions(self, list: ActionList) -> Actions {
         Actions {
             arena: self,

@@ -991,11 +991,26 @@ mod rect_tests {
   fn tests() -> Result<(), TestFailure> {
     assert_eq!(FloatRectangle::from_ltrb(10.0, 10.0, 5.0, 10.0), Ok(None));
     assert_eq!(FloatRectangle::from_ltrb(10.0, 10.0, 10.0, 5.0), Ok(None));
-    assert_eq!(FloatRectangle::from_ltrb(f32::NAN, 10.0, 10.0, 10.0), Ok(None));
-    assert_eq!(FloatRectangle::from_ltrb(10.0, f32::NAN, 10.0, 10.0), Ok(None));
-    assert_eq!(FloatRectangle::from_ltrb(10.0, 10.0, f32::NAN, 10.0), Ok(None));
-    assert_eq!(FloatRectangle::from_ltrb(10.0, 10.0, 10.0, f32::NAN), Ok(None));
-    assert_eq!(FloatRectangle::from_ltrb(10.0, 10.0, 10.0, f32::INFINITY), Ok(None));
+    assert_eq!(
+      FloatRectangle::from_ltrb(f32::NAN, 10.0, 10.0, 10.0),
+      Ok(None)
+    );
+    assert_eq!(
+      FloatRectangle::from_ltrb(10.0, f32::NAN, 10.0, 10.0),
+      Ok(None)
+    );
+    assert_eq!(
+      FloatRectangle::from_ltrb(10.0, 10.0, f32::NAN, 10.0),
+      Ok(None)
+    );
+    assert_eq!(
+      FloatRectangle::from_ltrb(10.0, 10.0, 10.0, f32::NAN),
+      Ok(None)
+    );
+    assert_eq!(
+      FloatRectangle::from_ltrb(10.0, 10.0, 10.0, f32::INFINITY),
+      Ok(None)
+    );
 
     let Ok(made_positive) = FloatRectangle::from_ltrb(10.0, 20.0, 30.0, 40.0);
     let positive = made_positive.required()?;
@@ -1277,7 +1292,8 @@ impl NonZeroRect {
   pub fn to_rect(&self) -> core::result::Result<FloatRectangle, console_core_never::Never> {
     let Ok(width) = self.width();
     let Ok(height) = self.height();
-    let Ok(rect) = FloatRectangle::from_xywh(self.bounds.x0.get(), self.bounds.y0.get(), width, height);
+    let Ok(rect) =
+      FloatRectangle::from_xywh(self.bounds.x0.get(), self.bounds.y0.get(), width, height);
 
     Ok(
       match (

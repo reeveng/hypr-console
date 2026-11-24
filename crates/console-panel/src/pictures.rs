@@ -516,9 +516,7 @@ pub fn make_at(wanted: &[String], side: Side) -> Result<(), Never> {
       .chain(missing.iter().cloned())
       .collect(),
   };
-  let mut platform = Linux {
-    timing: Timing::Background,
-  };
+  let Ok(mut platform) = Linux::new(Timing::Background);
 
   match execution_commands::spawn(&mut platform, &command, Streams::QUIET, Launch::Background) {
     Ok(()) => {}

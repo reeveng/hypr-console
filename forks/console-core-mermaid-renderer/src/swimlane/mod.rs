@@ -40,12 +40,15 @@ use std::sync::Arc;
 /// This matches JavaScript's relational string ordering while remaining independent of host
 /// locale and bundled collation data. Every Swimlane algorithmic tie-break uses this comparator so
 /// hash-map iteration order cannot affect cycle removal, layering, or lane ordering.
+#[must_use]
 pub(crate) fn deterministic_identifier_cmp(left: &str, right: &str) -> Ordering {
     left.encode_utf16().cmp(right.encode_utf16())
 }
 
+#[must_use]
 fn output_bounds(layout: &working::WorkingLayout) -> Option<Bounds> {
     let mut points = Vec::new();
+
     for node in layout
         .nodes
         .values()
@@ -64,9 +67,11 @@ fn output_bounds(layout: &working::WorkingLayout) -> Option<Bounds> {
         points.push((node.x - width / 2.0, node.y - height / 2.0));
         points.push((node.x + width / 2.0, node.y + height / 2.0));
     }
+
     for edge in &layout.original_edges {
         points.extend(edge.points.iter().map(|point| (point.x, point.y)));
     }
+
     Bounds::from_points(points)
 }
 
@@ -113,10 +118,10 @@ pub(crate) fn layout_swimlane_typed_with_work_meter_and_svg_label_sidecar(
         svg_label_sidecar,
     );
 
-    // Mermaid's swimlane core only normalizes the implicit `basis` curve to
-    // `rounded`; an explicit edge/default/config curve remains authoritative.
-    // Resolve the same precedence here before the layout artifact is consumed
-    // by the SVG renderer.
+
+
+
+
     let config_curve = FlowchartConfigView::new(effective_config.as_value()).render_curve();
     let default_curve = model
         .edge_defaults
@@ -149,6 +154,7 @@ pub(crate) fn layout_swimlane_typed_with_work_meter_and_svg_label_sidecar(
     let transport_plan =
         crate::flowchart::FlowchartEdgeTransportPlan::for_semantic_edges(&model.edges);
     let mut curve_by_id = std::collections::HashMap::new();
+
     for (semantic_index, edge) in working.original_edges.iter().enumerate() {
         let key = crate::flowchart::FlowchartEdgeKey::new(semantic_index);
         let source = &model.edges[semantic_index];
@@ -159,6 +165,7 @@ pub(crate) fn layout_swimlane_typed_with_work_meter_and_svg_label_sidecar(
                     "missing Swimlane transport id for semantic edge owner {semantic_index}"
                 ),
             })?;
+
         if edge.id != expected
             || edge.reference_id != expected
             || edge.from != source.from
@@ -171,14 +178,18 @@ pub(crate) fn layout_swimlane_typed_with_work_meter_and_svg_label_sidecar(
                 ),
             });
         }
+
         curve_by_id.insert(edge.id.as_str(), curve_by_owner[semantic_index]);
     }
+
     let mut layout = project_layout(&working, &curve_by_id);
+
     for (edge, semantic) in layout.edges.iter_mut().zip(&model.edges) {
         edge.id.clone_from(&semantic.id);
         edge.from.clone_from(&semantic.from);
         edge.to.clone_from(&semantic.to);
     }
+
     layout.edge_owners = crate::flowchart::FlowchartEdgeOwners::new(
         (0..model.edges.len())
             .map(crate::flowchart::FlowchartEdgeKey::new)
@@ -193,9 +204,11 @@ fn run_layout_core(
     work_meter: Arc<OperationWorkMeter>,
 ) -> Result<()> {
     let reversed = sugiyama::run(working, config);
+
     for edge in &mut working.original_edges {
         edge.reversed_for_layout = reversed.contains(&edge.id);
     }
+
     bounds::assign_canonical_group_bounds(working);
     let mut work_budget = work_budget::LayoutWorkBudget::for_operation(work_meter);
     routing::route(working, &mut work_budget)?;
@@ -204,6 +217,7 @@ fn run_layout_core(
     Ok(())
 }
 
+#[must_use]
 fn project_layout(
     working: &working::WorkingLayout,
     curve_by_id: &std::collections::HashMap<&str, &str>,
@@ -293,24 +307,26 @@ fn project_layout(
     }
 }
 
+#[must_use]
 fn swimlane_core_layout_work_units(nodes: usize, edges: usize) -> usize {
     let baseline = nodes
         .saturating_mul(4)
         .saturating_add(edges.saturating_mul(5));
 
-    // This is the stable, family-accounted cost for prepare, Sugiyama, and routing. The linear
-    // baseline covers their source-item passes plus occurrence-identity preparation. Routing adds
-    // edges incrementally and can compare each new route with every earlier route, so charge one
-    // conservative unit per unordered source-edge pair. Direction post-processing and SVG line
-    // hops charge the shared meter independently and must not be included here.
+
+
+
+
+
     baseline.saturating_add(work_budget::unordered_pair_count(edges))
 }
 
+#[must_use]
 fn swimlane_layout_preflight_work_units(nodes: usize, edges: usize) -> usize {
-    // Keep preflight as a pure fail-fast estimate. In addition to the core-layout cost, reserve
-    // one unordered-pair allowance for the direction post-processing that follows. That phase
-    // charges its inspected candidates precisely, so this allowance is intentionally not charged
-    // by `swimlane_core_layout_work_units`.
+
+
+
+
     swimlane_core_layout_work_units(nodes, edges)
         .saturating_add(work_budget::unordered_pair_count(edges))
 }
@@ -340,8 +356,8 @@ mod work_tests {
 
     #[test]
     fn core_layout_cost_accounts_routing_pairs_once() {
-        // Four nodes plus three edges consume 31 linear units, including occurrence preparation;
-        // routing can inspect three unordered edge pairs.
+
+
         assert_eq!(swimlane_core_layout_work_units(4, 3), 34);
     }
 

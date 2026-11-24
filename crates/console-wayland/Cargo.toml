@@ -1,0 +1,33 @@
+[package]
+name = "console-wayland"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+console-core-geometry.workspace = true
+console-core-highlight = { workspace = true, optional = true }
+console-core-logging.workspace = true
+console-core-never.workspace = true
+console-core-number-conversion.workspace = true
+console-input-key-symbols = { workspace = true, optional = true }
+console-input-keymaps = { workspace = true, optional = true }
+console-response-times = { workspace = true, optional = true }
+rustix.workspace = true
+wayland-client = "0.31"
+wayland-protocols = { version = "0.32", features = ["client", "staging", "unstable"] }
+wayland-protocols-misc = { version = "0.3", features = ["client"], optional = true }
+wayland-protocols-wlr = { version = "0.3", features = ["client"] }
+
+[features]
+surface = [
+    "dep:console-core-highlight",
+    "dep:console-input-key-symbols",
+    "dep:console-input-keymaps",
+    "dep:console-response-times",
+]
+virtual-keyboard = ["dep:wayland-protocols-misc"]
+
+[lints]
+workspace = true

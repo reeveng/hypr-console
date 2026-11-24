@@ -39,11 +39,11 @@ use crate::{
     Options, Tag, TagEnd,
 };
 
-// Allowing arbitrary depth nested parentheses inside link destinations
-// can create denial of service vulnerabilities if we're not careful.
-// The simplest countermeasure is to limit their depth, which is
-// explicitly allowed by the spec as long as the limit is at least 3:
-// https://spec.commonmark.org/0.29/#link-destination
+
+
+
+
+
 pub(crate) const LINK_MAX_NESTED_PARENS: usize = 32;
 
 #[derive(Debug, Default, Clone)]
@@ -55,35 +55,35 @@ pub(crate) struct Item {
 
 #[derive(Debug, PartialEq, Clone, Default)]
 pub(crate) enum ItemBody {
-    // These are possible inline items, need to be resolved in second pass.
 
-    // repeats, can_open, can_close
+
+
     MaybeEmphasis(usize, bool, bool),
-    // can_open, can_close, brace context
+
     MaybeMath(bool, bool, u8),
-    // quote byte, can_open, can_close
+
     MaybeSmartQuote(u8, bool, bool),
-    MaybeCode(usize, bool), // number of backticks, preceded by backslash
+    MaybeCode(usize, bool),
     MaybeHtml,
     MaybeLinkOpen,
-    // bool indicates whether or not the preceding section could be a reference
+
     MaybeLinkClose(bool),
     MaybeImage,
 
-    // These are inline items after resolution.
+
     Emphasis,
     Strong,
     Strikethrough,
     Superscript,
     Subscript,
-    Math(CowIndex, bool), // true for display math
+    Math(CowIndex, bool),
     Code(CowIndex),
     Link(LinkIndex),
     Image(LinkIndex),
     FootnoteReference(CowIndex),
-    TaskListMarker(bool), // true for checked
+    TaskListMarker(bool),
 
-    // These are also inline items.
+
     InlineHtml,
     OwnedInlineHtml(CowIndex),
     SynthesizeText(CowIndex),
@@ -93,37 +93,37 @@ pub(crate) enum ItemBody {
         backslash_escaped: bool,
     },
     SoftBreak,
-    // true = is backlash
+
     HardBreak(bool),
 
-    // Dummy node at the top of the tree - should not be used otherwise!
+
     #[default]
     Root,
 
-    // These are block items.
+
     Paragraph,
     TightParagraph,
     Rule,
-    Heading(HeadingLevel, Option<HeadingIndex>), // heading level
+    Heading(HeadingLevel, Option<HeadingIndex>),
     FencedCodeBlock(CowIndex),
     IndentCodeBlock,
     HtmlBlock,
     BlockQuote(Option<BlockQuoteKind>),
-    // is_tight|last_line empty, list character, list start index
+
     List(Cell<ListFlags>, u8, u64),
-    ListItem(usize), // indent level
+    ListItem(usize),
     FootnoteDefinition(CowIndex),
     MetadataBlock(MetadataBlockKind),
 
-    // Definition lists
+
     DefinitionList(Cell<ListFlags>),
-    // gets turned into either a paragraph or a definition list title,
-    // depending on whether there's a definition after it
+
+
     MaybeDefinitionListTitle,
     DefinitionListTitle,
     DefinitionListDefinition(usize),
 
-    // Tables
+
     Table(AlignmentIndex),
     TableHead,
     TableRow,
@@ -131,8 +131,10 @@ pub(crate) enum ItemBody {
 }
 
 impl ItemBody {
+    #[must_use]
     fn is_maybe_inline(&self) -> bool {
         use ItemBody::*;
+
         matches!(
             *self,
             MaybeEmphasis(..)
@@ -145,8 +147,11 @@ impl ItemBody {
                 | MaybeImage
         )
     }
+
+    #[must_use]
     fn is_inline(&self) -> bool {
         use ItemBody::*;
+
         matches!(
             *self,
             MaybeEmphasis(..)
@@ -204,25 +209,25 @@ pub struct Parser<'input, F = DefaultBrokenLinkCallback> {
     broken_link_callback: Option<F>,
     html_scan_guard: HtmlScanGuard,
 
-    // https://github.com/pulldown-cmark/pulldown-cmark/issues/844
-    // Consider this example:
-    //
-    //     [x]: xxx...
-    //     [x]
-    //     [x]
-    //     [x]
-    //
-    // Which expands to this HTML:
-    //
-    //     <a href="xxx...">x</a>
-    //     <a href="xxx...">x</a>
-    //     <a href="xxx...">x</a>
-    //
-    // This is quadratic growth, because it's filling in the area of a square.
-    // To prevent this, track how much it's expanded and limit it.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
     link_ref_expansion_limit: usize,
 
-    // used by inline passes. store them here for reuse
+
     inline_stack: InlineStack,
     link_stack: LinkStack,
     wikilink_stack: LinkStack,
@@ -232,7 +237,7 @@ pub struct Parser<'input, F = DefaultBrokenLinkCallback> {
 
 impl<'input, F> std::fmt::Debug for Parser<'input, F> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        // Only print the fields that have public types.
+
         f.debug_struct("Parser")
             .field("text", &self.text)
             .field("options", &self.options)
@@ -248,22 +253,25 @@ impl<'a> BrokenLink<'a> {
     /// Moves the link into version with a static lifetime.
     ///
     /// The `reference` member is cloned to a Boxed or Inline version.
+    #[must_use]
     pub fn into_static(self) -> BrokenLink<'static> {
         BrokenLink {
             span: self.span.clone(),
             link_type: self.link_type,
-            reference: self.reference.into_string().into(),
+            reference: <crate::strings::CowStr<'_> as ::core::convert::From<::std::string::String>>::from(self.reference.into_string()),
         }
     }
 }
 
 impl<'input> Parser<'input, DefaultBrokenLinkCallback> {
     /// Creates a new event iterator for a markdown string without any options enabled.
+    #[must_use]
     pub fn new(text: &'input str) -> Self {
         Self::new_ext(text, Options::empty())
     }
 
     /// Creates a new event iterator for a markdown string with given options.
+    #[must_use]
     pub fn new_ext(text: &'input str, options: Options) -> Self {
         Self::new_with_broken_link_callback(text, options, None)
     }
@@ -275,6 +283,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
     /// the provided callback will be called with the reference name,
     /// and the returned pair will be used as the link URL and title if it is not
     /// `None`.
+    #[must_use]
     pub fn new_with_broken_link_callback(
         text: &'input str,
         options: Options,
@@ -296,7 +305,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
             link_stack,
             wikilink_stack,
             html_scan_guard,
-            // always allow 100KiB
+
             link_ref_expansion_limit: text.len().max(100_000),
             code_delims: CodeDelims::new(),
             math_delims: MathDelims::new(),
@@ -305,6 +314,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
 
     /// Returns a reference to the internal `RefDefs` object, which provides access
     /// to the internal map of reference definitions.
+    #[must_use]
     pub fn reference_definitions(&self) -> &RefDefs<'_> {
         &self.allocs.refdefs
     }
@@ -341,24 +351,26 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
             _ => {},
         }
 
-        let (link_type, url, title) = self
+        let (link_type_2, url, title) = self
             .allocs
             .refdefs
             .get(link_label.as_ref())
             .map(|matching_def| {
-                // found a matching definition!
-                let title = matching_def
+
+                let title = match matching_def
                     .title
                     .as_ref()
-                    .cloned()
-                    .unwrap_or_else(|| "".into());
+                    .cloned() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""),
+                };
                 let url = matching_def.dest.clone();
                 (link_type, url, title)
             })
             .or_else(|| {
                 match self.broken_link_callback.as_mut() {
                     Some(callback) => {
-                        // Construct a BrokenLink struct, which will be passed to the callback
+
                         let broken_link = BrokenLink {
                             span,
                             link_type,
@@ -373,14 +385,14 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                 }
             })?;
 
-        // Limit expansion from link references.
-        // This isn't a problem for footnotes, because multiple references to the same one
-        // reuse the same node, but links/images get their HREF/SRC copied.
+
+
+
         self.link_ref_expansion_limit = self
             .link_ref_expansion_limit
             .saturating_sub(url.len() + title.len());
 
-        Some((link_type, url, title))
+        Some((link_type_2, url, title))
     }
 
     /// Handle inline markup.
@@ -431,19 +443,21 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                             });
                             let link_ix =
                                 self.allocs
-                                    .allocate_link(link_type, uri, "".into(), "".into());
+                                    .allocate_link(link_type, uri, <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""), <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""));
                             self.tree[cur_ix].item.body = ItemBody::Link(link_ix);
                             self.tree[cur_ix].item.end = ix;
                             self.tree[cur_ix].next = node;
                             self.tree[cur_ix].child = Some(text_node);
                             prev = cur;
                             cur = node;
+
                             match cur {
                                 Some(node_ix) => {
                                     self.tree[node_ix].item.start = max(self.tree[node_ix].item.start, ix);
                                 },
                                 ::core::option::Option::None => {},
                             }
+
                             continue;
                         },
                         ::core::option::Option::None => {
@@ -453,6 +467,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                     self.tree[next_ix].item.start,
                                 )
                             });
+
                             match inline_html {
                                 Some((span, ix)) => {
                                     let node = scan_nodes_to_ix(&self.tree, next, ix);
@@ -464,7 +479,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                             let converted_string =
                                                 String::from_utf8(span).expect("invalid utf8");
                                             ItemBody::OwnedInlineHtml(
-                                                self.allocs.allocate_cow(converted_string.into()),
+                                                self.allocs.allocate_cow(<crate::strings::CowStr<'_> as ::core::convert::From<::std::string::String>>::from(converted_string)),
                                             )
                                         },
                                         ::core::option::Option::None => {
@@ -475,6 +490,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                     self.tree[cur_ix].next = node;
                                     prev = cur;
                                     cur = node;
+
                                     match cur {
                                         Some(node_ix) => {
                                             self.tree[node_ix].item.start =
@@ -482,12 +498,14 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                         },
                                         ::core::option::Option::None => {},
                                     }
+
                                     continue;
                                 },
                                 ::core::option::Option::None => {},
                             }
                         },
                     }
+
                     self.tree[cur_ix].item.body = ItemBody::Text {
                         backslash_escaped: false,
                     };
@@ -507,6 +525,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     let is_display = self.tree[cur_ix].next.map_or(false, |next_ix| {
                         matches!(
                             self.tree[next_ix].item.body,
@@ -518,25 +537,28 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
-                            // we have previously scanned all math environment delimiters,
-                            // so we can reuse that work
+
+
                             self.math_delims
                                 .find(&self.tree, cur_ix, is_display, brace_context)
                         },
                         ::core::option::Option::None => {
-                            // we haven't previously scanned all math delimiters,
-                            // so walk the AST
+
+
                             let mut scan = self.tree[cur_ix].next;
+
                             match ::core::primitive::bool::then_some(is_display, ()) {
                                 ::core::option::Option::Some(()) => {
-                                    // a display delimiter, `$$`, is actually two delimiters
-                                    // skip the second one
+
+
                                     scan = self.tree[scan.unwrap()].next;
                                 },
                                 ::core::option::Option::None => {},
                             }
+
                             let mut invalid = false;
-                            while let Some(scan_ix) = scan {
+
+                            'inner_while_2: while let Some(scan_ix) = scan {
                                 if let ItemBody::MaybeMath(_can_open, can_close, delim_brace_context) =
                                     self.tree[scan_ix].item.body
                                 {
@@ -551,6 +573,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                                 )
                                             )
                                         });
+
                                     match {
                                         let _explicit_decision = ::core::primitive::bool::then_some(!invalid && delim_brace_context == brace_context, ());
                                         _explicit_decision
@@ -562,21 +585,22 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                                 _explicit_decision
                                             } {
                                                 ::core::option::Option::Some(()) => {
-                                                    // This will skip ahead past everything we
-                                                    // just inserted. Needed for correctness to
-                                                    // ensure that a new scan is done after this item.
+
+
+
                                                     self.math_delims.clear();
-                                                    break;
+                                                    break 'inner_while_2;
                                                 },
                                                 ::core::option::Option::None => {
-                                                    // Math cannot contain $, so the current item
-                                                    // is invalid. Keep scanning to fill math_delims.
+
+
                                                     invalid = true;
                                                 },
                                             }
                                         },
                                         ::core::option::Option::None => {},
                                     }
+
                                     self.math_delims.insert(
                                         delim_is_display,
                                         delim_brace_context,
@@ -584,8 +608,10 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                         can_close,
                                     );
                                 }
+
                                 scan = self.tree[scan_ix].next;
                             }
+
                             scan
                         },
                     };
@@ -605,6 +631,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     match ::core::primitive::bool::then_some(preceded_by_backslash, ()) {
                         ::core::option::Option::Some(()) => {
                             search_count -= 1;
+
                             match search_count {
                                 0 => {
                                     self.tree[cur_ix].item.body = ItemBody::Text {
@@ -625,8 +652,8 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
-                            // we have previously scanned all codeblock delimiters,
-                            // so we can reuse that work
+
+
                             match self.code_delims.find(cur_ix, search_count) {
                                 Some(scan_ix) => {
                                     self.make_code_span(cur_ix, scan_ix, preceded_by_backslash);
@@ -639,8 +666,8 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                             }
                         },
                         ::core::option::Option::None => {
-                            // we haven't previously scanned all codeblock delimiters,
-                            // so walk the AST
+
+
                             let mut scan = match {
                                 let _explicit_decision = ::core::primitive::bool::then_some(search_count > 0, ());
                                 _explicit_decision
@@ -652,7 +679,8 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                     None
                                 },
                             };
-                            while let Some(scan_ix) = scan {
+
+                            'inner_while_2: while let Some(scan_ix) = scan {
                                 if let ItemBody::MaybeCode(delim_count, _) =
                                     self.tree[scan_ix].item.body
                                 {
@@ -663,15 +691,17 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                         ::core::option::Option::Some(()) => {
                                             self.make_code_span(cur_ix, scan_ix, preceded_by_backslash);
                                             self.code_delims.clear();
-                                            break;
+                                            break 'inner_while_2;
                                         },
                                         ::core::option::Option::None => {
                                             self.code_delims.insert(delim_count, scan_ix);
                                         },
                                     }
                                 }
+
                                 scan = self.tree[scan_ix].next;
                             }
+
                             match scan {
                                 ::core::option::Option::None => {
                                     self.tree[cur_ix].item.body = ItemBody::Text {
@@ -687,10 +717,13 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     self.tree[cur_ix].item.body = ItemBody::Text {
                         backslash_escaped: false,
                     };
-                    let link_open_doubled = self.tree[cur_ix]
+                    let link_open_doubled = match self.tree[cur_ix]
                         .next
-                        .map(|ix| self.tree[ix].item.body == ItemBody::MaybeLinkOpen)
-                        .unwrap_or(false);
+                        .map(|ix| self.tree[ix].item.body == ItemBody::MaybeLinkOpen) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => false,
+                    };
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(self.options.contains(Options::ENABLE_WIKILINKS) && link_open_doubled, ());
                         _explicit_decision
@@ -703,6 +736,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     self.link_stack.push(LinkStackEl {
                         node: cur_ix,
                         ty: LinkStackTy::Link,
@@ -712,10 +746,13 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     self.tree[cur_ix].item.body = ItemBody::Text {
                         backslash_escaped: false,
                     };
-                    let link_open_doubled = self.tree[cur_ix]
+                    let link_open_doubled = match self.tree[cur_ix]
                         .next
-                        .map(|ix| self.tree[ix].item.body == ItemBody::MaybeLinkOpen)
-                        .unwrap_or(false);
+                        .map(|ix| self.tree[ix].item.body == ItemBody::MaybeLinkOpen) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => false,
+                    };
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(self.options.contains(Options::ENABLE_WIKILINKS) && link_open_doubled, ());
                         _explicit_decision
@@ -728,6 +765,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     self.link_stack.push(LinkStackEl {
                         node: cur_ix,
                         ty: LinkStackTy::Image,
@@ -738,14 +776,17 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                         backslash_escaped: false,
                     };
                     let tos_link = self.link_stack.pop();
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(self.options.contains(Options::ENABLE_WIKILINKS)
-                        && self.tree[cur_ix]
+                        && match self.tree[cur_ix]
                             .next
                             .map(|ix| {
                                 matches!(self.tree[ix].item.body, ItemBody::MaybeLinkClose(..))
-                            })
-                            .unwrap_or(false), ());
+                            }) {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => false,
+                        }, ());
                         _explicit_decision
                     } {
                         ::core::option::Option::Some(()) => {
@@ -760,10 +801,11 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     match tos_link {
                         Some(tos) => {
-                            // skip rendering if already in a link, unless its an
-                            // image
+
+
                             match {
                                 let _explicit_decision = ::core::primitive::bool::then_some(tos.ty != LinkStackTy::Image
                                 && matches!(
@@ -777,6 +819,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                 },
                                 ::core::option::Option::None => {},
                             }
+
                             match {
                                 let _explicit_decision = ::core::primitive::bool::then_some(tos.ty == LinkStackTy::Disabled, ());
                                 _explicit_decision
@@ -786,21 +829,25 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                 },
                                 ::core::option::Option::None => {},
                             }
+
                             let next = self.tree[cur_ix].next;
+
                             match self.scan_inline_link(block_text, self.tree[cur_ix].item.end, next) {
                                 Some((next_ix, url, title)) => {
                                     let next_node = scan_nodes_to_ix(&self.tree, next, next_ix);
+
                                     match prev {
                                         Some(prev_ix) => {
                                             self.tree[prev_ix].next = None;
                                         },
                                         ::core::option::Option::None => {},
                                     }
+
                                     cur = Some(tos.node);
                                     cur_ix = tos.node;
                                     let link_ix =
                                         self.allocs
-                                            .allocate_link(LinkType::Inline, url, title, "".into());
+                                            .allocate_link(LinkType::Inline, url, title, <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""));
                                     self.tree[cur_ix].item.body = match {
                                         let _explicit_decision = ::core::primitive::bool::then_some(tos.ty == LinkStackTy::Image, ());
                                         _explicit_decision
@@ -815,6 +862,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                     self.tree[cur_ix].child = self.tree[cur_ix].next;
                                     self.tree[cur_ix].next = next_node;
                                     self.tree[cur_ix].item.end = next_ix;
+
                                     match next_node {
                                         Some(next_node_ix) => {
                                             self.tree[next_node_ix].item.start =
@@ -834,17 +882,17 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                     }
                                 },
                                 ::core::option::Option::None => {
-                                    // ok, so its not an inline link. maybe it is a reference
-                                    // to a defined link?
+
+
                                     let scan_result =
                                         scan_reference(&self.tree, block_text, next, self.options);
                                     let (node_after_link, link_type) = match scan_result {
-                                        // [label][reference]
+
                                         RefScan::LinkLabel(_, end_ix) => {
-                                            // Toggle reference viability of the last closing bracket,
-                                            // so that we can skip it on future iterations in case
-                                            // it fails in this one. In particular, we won't call
-                                            // the broken link callback twice on one reference.
+
+
+
+
                                             let reference_close_node = match scan_nodes_to_ix(&self.tree, next, end_ix - 1) {
                                                 Some(node) => {
                                                     node
@@ -859,10 +907,10 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
 
                                             (next_node, LinkType::Reference)
                                         }
-                                        // [reference][]
+
                                         RefScan::Collapsed(next_node) => {
-                                            // This reference has already been tried, and it's not
-                                            // valid. Skip it.
+
+
                                             match {
                                                 let _explicit_decision = ::core::primitive::bool::then_some(!could_be_ref, ());
                                                 _explicit_decision
@@ -872,11 +920,12 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                                 },
                                                 ::core::option::Option::None => {},
                                             }
+
                                             (next_node, LinkType::Collapsed)
                                         }
-                                        // [shortcut]
-                                        //
-                                        // [shortcut]: /blah
+
+
+
                                         RefScan::Failed | RefScan::UnexpectedFootnote => {
                                             match {
                                                 let _explicit_decision = ::core::primitive::bool::then_some(!could_be_ref, ());
@@ -887,14 +936,15 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                                 },
                                                 ::core::option::Option::None => {},
                                             }
+
                                             (next, LinkType::Shortcut)
                                         }
                                     };
 
-                                    // FIXME: references and labels are mixed in the naming of variables
-                                    // below. Disambiguate!
 
-                                    // (label, source_ix end)
+
+
+
                                     let label: Option<(ReferenceLabel<'input>, usize)> = match scan_result {
                                         RefScan::LinkLabel(l, end_ix) => {
                                             Some((ReferenceLabel::Link(l), end_ix))
@@ -902,7 +952,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                         RefScan::Collapsed(..)
                                         | RefScan::Failed
                                         | RefScan::UnexpectedFootnote => {
-                                            // No label? maybe it is a shortcut reference
+
                                             let label_start = self.tree[tos.node].item.end - 1;
                                             let label_end = self.tree[cur_ix].item.end;
                                             scan_link_label(
@@ -919,13 +969,14 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                         Some(
                                             (ReferenceLabel::Link(l), _) | (ReferenceLabel::Footnote(l), _),
                                         ) => l.clone(),
-                                        None => "".into(),
+                                        None => <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""),
                                     };
 
-                                    // see if it's a footnote reference
+
                                     match label {
                                         Some((ReferenceLabel::Footnote(l), end)) => {
                                             let footref = self.allocs.allocate_cow(l);
+
                                             match self
                                                 .allocs
                                                 .footdefs
@@ -935,14 +986,15 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                                 },
                                                 ::core::option::Option::None => {},
                                             }
+
                                             match {
                                                 let _explicit_decision = ::core::primitive::bool::then_some(!self.options.has_gfm_footnotes()
                                                 || self.allocs.footdefs.contains(&self.allocs.cows[footref.0]), ());
                                                 _explicit_decision
                                             } {
                                                 ::core::option::Option::Some(()) => {
-                                                    // If this came from a MaybeImage, then the `!` prefix
-                                                    // isn't part of the footnote reference.
+
+
                                                     let footnote_ix = match {
                                                         let _explicit_decision = ::core::primitive::bool::then_some(tos.ty == LinkStackTy::Image, ());
                                                         _explicit_decision
@@ -962,9 +1014,9 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                                             tos.node
                                                         },
                                                     };
-                                                    // use `next` instead of `node_after_link` because
-                                                    // node_after_link is calculated for a [collapsed][] link,
-                                                    // which footnotes don't support.
+
+
+
                                                     self.tree[footnote_ix].next = next;
                                                     self.tree[footnote_ix].child = None;
                                                     self.tree[footnote_ix].item.body =
@@ -1002,11 +1054,11 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                                         };
                                                         let label_node = self.tree[tos.node].next;
 
-                                                        // lets do some tree surgery to add the link to the tree
-                                                        // 1st: skip the label node and close node
+
+
                                                         self.tree[tos.node].next = node_after_link;
 
-                                                        // then, if it exists, add the label node as a child to the link node
+
                                                         match {
                                                             let _explicit_decision = ::core::primitive::bool::then_some(label_node != cur, ());
                                                             _explicit_decision
@@ -1014,7 +1066,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                                             ::core::option::Option::Some(()) => {
                                                                 self.tree[tos.node].child = label_node;
 
-                                                                // finally: disconnect list of children
+
                                                                 match prev {
                                                                     Some(prev_ix) => {
                                                                         self.tree[prev_ix].next = None;
@@ -1027,7 +1079,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
 
                                                         self.tree[tos.node].item.end = end;
 
-                                                        // set up cur so next node will be node_after_link
+
                                                         cur = Some(tos.node);
                                                         cur_ix = tos.node;
 
@@ -1055,9 +1107,11 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                 }
                 _ => {}
             }
+
             prev = cur;
             cur = self.tree[cur_ix].next;
         }
+
         self.link_stack.clear();
         self.wikilink_stack.clear();
         self.code_delims.clear();
@@ -1076,8 +1130,8 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
         prev: Option<TreeIndex>,
     ) -> Option<TreeIndex> {
         let next_ix = self.tree[cur_ix].next.unwrap();
-        // this is a wikilink closing delim, try popping from
-        // the wikilink stack
+
+
         match self.wikilink_stack.pop() {
             Some(tos) => {
                 match {
@@ -1089,16 +1143,18 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     },
                     ::core::option::Option::None => {},
                 }
-                // fetches the beginning of the wikilink body
+
+
                 let Some(body_node) = self.tree[tos.node].next.and_then(|ix| self.tree[ix].next) else {
-                    // skip if no next node exists, like at end of input
+
                     return None;
                 };
+
                 let start_ix = self.tree[body_node].item.start;
                 let end_ix = self.tree[cur_ix].item.start;
-                // bail early in case the link is malformed: on some inputs the
-                // body can begin at or after the closing delimiter, which would
-                // otherwise underflow the length below and invert the slice.
+
+
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(end_ix <= start_ix, ());
                     _explicit_decision
@@ -1108,13 +1164,14 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     },
                     ::core::option::Option::None => {},
                 }
+
                 let wikilink = match scan_wikilink_pipe(
                     block_text,
-                    start_ix, // bounded by closing tag
+                    start_ix,
                     end_ix - start_ix,
                 ) {
                     Some((rest, wikitext)) => {
-                        // bail early if the wikiname would be empty
+
                         match {
                             let _explicit_decision = ::core::primitive::bool::then_some(wikitext.is_empty(), ());
                             _explicit_decision
@@ -1124,34 +1181,36 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                             },
                             ::core::option::Option::None => {},
                         }
-                        // [[WikiName|rest]]
+
+
                         match {
                             let _explicit_decision = ::core::primitive::bool::then_some(rest >= end_ix, ());
                             _explicit_decision
                         } {
                             ::core::option::Option::Some(()) => {
-                                // Empty display text: the `|` is immediately followed
-                                // by `]]`. Create a zero-length synthetic node so the
-                                // anchor has no content, rather than accidentally
-                                // capturing the closing `]` delimiter.
-                                let body_node = self.tree.create_node(Item {
+
+
+
+
+                                let body_node_2 = self.tree.create_node(Item {
                                     start: rest,
                                     end: rest,
                                     body: ItemBody::Text {
                                         backslash_escaped: false,
                                     },
                                 });
-                                Some((true, body_node, wikitext))
+                                Some((true, body_node_2, wikitext))
                             },
                             ::core::option::Option::None => {
-                                let body_node = scan_nodes_to_ix(&self.tree, Some(body_node), rest);
-                                match body_node {
-                                    Some(body_node) => {
-                                        // break node so passes can actually format
-                                        // the display text
-                                        self.tree[body_node].item.start = rest;
+                                let body_node_3 = scan_nodes_to_ix(&self.tree, Some(body_node), rest);
 
-                                        Some((true, body_node, wikitext))
+                                match body_node_3 {
+                                    Some(body_node_4) => {
+
+
+                                        self.tree[body_node_4].item.start = rest;
+
+                                        Some((true, body_node_4, wikitext))
                                     },
                                     ::core::option::Option::None => {
                                         None
@@ -1162,7 +1221,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     }
                     None => {
                         let wikitext = &block_text[start_ix..end_ix];
-                        // bail early if the wikiname would be empty
+
                         match {
                             let _explicit_decision = ::core::primitive::bool::then_some(wikitext.is_empty(), ());
                             _explicit_decision
@@ -1172,31 +1231,34 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                             },
                             ::core::option::Option::None => {},
                         }
-                        let body_node = self.tree.create_node(Item {
+
+                        let body_node_5 = self.tree.create_node(Item {
                             start: start_ix,
                             end: end_ix,
                             body: ItemBody::Text {
                                 backslash_escaped: false,
                             },
                         });
-                        Some((false, body_node, wikitext))
+                        Some((false, body_node_5, wikitext))
                     }
                 };
 
                 match wikilink {
-                    Some((has_pothole, body_node, wikiname)) => {
+                    Some((has_pothole, body_node_6, wikiname)) => {
                         let link_ix = self.allocs.allocate_link(
                             LinkType::WikiLink { has_pothole },
-                            wikiname.into(),
-                            "".into(),
-                            "".into(),
+                            <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(wikiname),
+                            <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""),
+                            <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""),
                         );
+
                         match prev {
                             Some(prev_ix) => {
                                 self.tree[prev_ix].next = None;
                             },
                             ::core::option::Option::None => {},
                         }
+
                         match {
                             let _explicit_decision = ::core::primitive::bool::then_some(tos.ty == LinkStackTy::Image, ());
                             _explicit_decision
@@ -1208,13 +1270,14 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                 self.tree[tos.node].item.body = ItemBody::Link(link_ix);
                             },
                         }
-                        self.tree[tos.node].child = Some(body_node);
+
+                        self.tree[tos.node].child = Some(body_node_6);
                         self.tree[tos.node].next = self.tree[next_ix].next;
                         self.tree[tos.node].item.end = end_ix + 2;
                         self.disable_all_links();
-                        // The deepest wikilink takes precedence. `disable_all_links`
-                        // leaves image openers alone, so drop the enclosing `![[` too,
-                        // or each of them would rescan this body as its own target.
+
+
+
                         self.wikilink_stack.clear();
                         return Some(tos.node);
                     },
@@ -1241,25 +1304,27 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     let run_length = count;
                     let c = self.text.as_bytes()[self.tree[cur_ix].item.start];
                     let both = can_open && can_close;
+
                     match ::core::primitive::bool::then_some(can_close, ()) {
                         ::core::option::Option::Some(()) => {
-                            while let Some(el) =
+                            'inner_while_2: while let Some(el) =
                                 self.inline_stack
                                     .find_match(&mut self.tree, c, run_length, both)
                             {
-                                // have a match!
+
                                 match prev {
-                                    Some(prev_ix) => {
-                                        self.tree[prev_ix].next = None;
+                                    Some(prev_ix_2) => {
+                                        self.tree[prev_ix_2].next = None;
                                     },
                                     ::core::option::Option::None => {},
                                 }
+
                                 let match_count = min(count, el.count);
-                                // start, end are tree node indices
+
                                 let mut end = cur_ix - 1;
                                 let mut start = el.start + el.count;
 
-                                // work from the inside out
+
                                 while start > el.start + el.count - match_count {
                                     let inc = match {
                                         let _explicit_decision = ::core::primitive::bool::then_some(start > el.start + el.count - match_count + 1, ());
@@ -1353,7 +1418,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                     start = root;
                                 }
 
-                                // set next for top most emph level
+
                                 prev_ix = el.start + el.count - match_count;
                                 prev = Some(prev_ix);
                                 cur = self.tree[cur_ix + match_count - 1].next;
@@ -1374,7 +1439,9 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                     },
                                     ::core::option::Option::None => {},
                                 }
+
                                 count -= match_count;
+
                                 match {
                                     let _explicit_decision = ::core::primitive::bool::then_some(count > 0, ());
                                     _explicit_decision
@@ -1383,13 +1450,14 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                         cur_ix = cur.unwrap();
                                     },
                                     ::core::option::Option::None => {
-                                        break;
+                                        break 'inner_while_2;
                                     },
                                 }
                             }
                         },
                         ::core::option::Option::None => {},
                     }
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(count > 0, ());
                         _explicit_decision
@@ -1413,6 +1481,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                     }
                                 },
                             }
+
                             prev_ix = cur_ix + count - 1;
                             prev = Some(prev_ix);
                             cur = self.tree[prev_ix].next;
@@ -1429,6 +1498,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                             } else if can_open {
                                 single_quote_open = Some(cur_ix);
                             }
+
                             ItemBody::SynthesizeChar('’')
                         }
                         _ /* double quote */ => {
@@ -1450,6 +1520,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                                         },
                                         ::core::option::Option::None => {},
                                     }
+
                                     ItemBody::SynthesizeChar('“')
                                 },
                             }
@@ -1468,6 +1539,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                         },
                         ::core::option::Option::None => {},
                     }
+
                     prev = cur;
                     cur = self.tree[cur_ix].next;
                 }
@@ -1477,6 +1549,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                 }
             }
         }
+
         self.inline_stack.pop_all(&mut self.tree);
     }
 
@@ -1486,6 +1559,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
     }
 
     /// Returns next byte index, url and title.
+    #[must_use]
     fn scan_inline_link(
         &self,
         underlying: &'input str,
@@ -1501,28 +1575,30 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
             },
             ::core::option::Option::None => {},
         }
+
         ix += 1;
 
-        let scan_separator = |ix: &mut usize| {
-            *ix += scan_while(&underlying.as_bytes()[*ix..], is_ascii_whitespace_no_nl);
-            match scan_eol(&underlying.as_bytes()[*ix..]) {
+        let scan_separator = |ix_2: &mut usize| {
+            *ix_2 += scan_while(&underlying.as_bytes()[*ix_2..], is_ascii_whitespace_no_nl);
+            match scan_eol(&underlying.as_bytes()[*ix_2..]) {
                 Some(bl) => {
-                    *ix += bl;
-                    *ix += skip_container_prefixes(
+                    *ix_2 += bl;
+                    *ix_2 += skip_container_prefixes(
                         &self.tree,
-                        &underlying.as_bytes()[*ix..],
+                        &underlying.as_bytes()[*ix_2..],
                         self.options,
                     );
                 },
                 ::core::option::Option::None => {},
             }
-            *ix += scan_while(&underlying.as_bytes()[*ix..], is_ascii_whitespace_no_nl);
+
+            *ix_2 += scan_while(&underlying.as_bytes()[*ix_2..], is_ascii_whitespace_no_nl);
         };
 
         scan_separator(&mut ix);
 
         let (dest_length, dest) = scan_link_dest(underlying, ix, LINK_MAX_NESTED_PARENS)?;
-        let dest = unescape(dest, self.tree.is_in_table());
+        let dest_2 = unescape(dest, self.tree.is_in_table());
         ix += dest_length;
 
         scan_separator(&mut ix);
@@ -1534,9 +1610,10 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                 t
             },
             ::core::option::Option::None => {
-                "".into()
+                <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from("")
             },
         };
+
         match {
             let _explicit_decision = ::core::primitive::bool::then_some(underlying.as_bytes().get(ix) != Some(&b')'), ());
             _explicit_decision
@@ -1546,12 +1623,14 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
             },
             ::core::option::Option::None => {},
         }
+
         ix += 1;
 
-        Some((ix, dest, title))
+        Some((ix, dest_2, title))
     }
 
-    // returns (bytes scanned, title cow)
+
+    #[must_use]
     fn scan_link_title(
         &self,
         text: &'input str,
@@ -1586,7 +1665,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                         },
                         _ => {
                             title.push_str(&text[mark..i]);
-                            (i - start_ix + 1, title.into())
+                            (i - start_ix + 1, <crate::strings::CowStr<'_> as ::core::convert::From<::std::string::String>>::from(title))
                         },
                     };
 
@@ -1594,6 +1673,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                 },
                 ::core::option::Option::None => {},
             }
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(c == open, ());
                 _explicit_decision
@@ -1630,6 +1710,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                 },
                 ::core::option::Option::None => {},
             }
+
             match c {
                 b'&' => {
                     match scan_entity(&bytes[i..]) {
@@ -1645,6 +1726,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                 },
                 _ => {},
             }
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(self.tree.is_in_table()
                 && c == b'\\'
@@ -1654,14 +1736,15 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
-                    // this runs if there are an even number of pipes in a table
-                    // if it's odd, then it gets parsed as normal
+
+
                     title.push_str(&text[mark..i]);
                     i += 2;
                     mark = i;
                 },
                 ::core::option::Option::None => {},
             }
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(c == b'\\' && match <[_]>::get(&*bytes, i + 1) { ::core::option::Option::Some(&checked_element) => is_ascii_punctuation(checked_element), ::core::option::Option::None => false }, ());
                 _explicit_decision
@@ -1695,9 +1778,10 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
             )
         });
         let is_display = start_is_display.is_some() && end_is_display.is_some();
+
         match ::core::primitive::bool::then_some(is_display, ()) {
             ::core::option::Option::Some(()) => {
-                // This unwrap() can't panic, because if the next variable were None, end_is_display would be None
+
                 close = self.tree[close].next.unwrap();
                 self.tree[open].next = Some(close);
                 self.tree[open].item.end += 1;
@@ -1709,7 +1793,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
-                        // inline math spans cannot be empty
+
                         self.tree[open].item.body = ItemBody::Text {
                             backslash_escaped: false,
                         };
@@ -1717,9 +1801,11 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     },
                     ::core::option::Option::None => {},
                 }
+
                 self.tree[open].next = Some(close);
             },
         }
+
         let span_start = self.tree[open].item.end;
         let span_end = self.tree[close].item.start;
 
@@ -1729,16 +1815,18 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
 
         let mut start_ix = 0;
         let mut ix = 0;
+
         while ix < spanned_bytes.len() {
             let c = spanned_bytes[ix];
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(c == b'\r' || c == b'\n', ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
                     ix += 1;
-                    let buf = buf.get_or_insert_with(|| String::with_capacity(spanned_bytes.len()));
-                    buf.push_str(&spanned_text[start_ix..ix]);
+                    let buf_2 = buf.get_or_insert_with(|| String::with_capacity(spanned_bytes.len()));
+                    buf_2.push_str(&spanned_text[start_ix..ix]);
                     ix += skip_container_prefixes(&self.tree, &spanned_bytes[ix..], self.options);
                     start_ix = ix;
                 },
@@ -1749,9 +1837,9 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
-                        let buf = buf.get_or_insert_with(|| String::with_capacity(spanned_bytes.len()));
-                        buf.push_str(&spanned_text[start_ix..ix]);
-                        buf.push('|');
+                        let buf_3 = buf.get_or_insert_with(|| String::with_capacity(spanned_bytes.len()));
+                        buf_3.push_str(&spanned_text[start_ix..ix]);
+                        buf_3.push('|');
                         ix += 2;
                         start_ix = ix;
                     },
@@ -1763,12 +1851,12 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
         }
 
         let cow = match buf {
-            Some(mut buf) => {
-                buf.push_str(&spanned_text[start_ix..]);
-                buf.into()
+            Some(mut buf_4) => {
+                buf_4.push_str(&spanned_text[start_ix..]);
+                <crate::strings::CowStr<'_> as ::core::convert::From<::std::string::String>>::from(buf_4)
             },
             ::core::option::Option::None => {
-                spanned_text.into()
+                <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(spanned_text)
             },
         };
 
@@ -1789,16 +1877,18 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
         let spanned_bytes = spanned_text.as_bytes();
         let mut start_ix = 0;
         let mut ix = 0;
+
         while ix < spanned_bytes.len() {
             let c = spanned_bytes[ix];
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(c == b'\r' || c == b'\n', ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
-                    let buf = buf.get_or_insert_with(|| String::with_capacity(spanned_bytes.len()));
-                    buf.push_str(&spanned_text[start_ix..ix]);
-                    buf.push(' ');
+                    let buf_2 = buf.get_or_insert_with(|| String::with_capacity(spanned_bytes.len()));
+                    buf_2.push_str(&spanned_text[start_ix..ix]);
+                    buf_2.push(' ');
                     ix += 1;
                     ix += skip_container_prefixes(&self.tree, &spanned_bytes[ix..], self.options);
                     start_ix = ix;
@@ -1810,9 +1900,9 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
-                        let buf = buf.get_or_insert_with(|| String::with_capacity(spanned_bytes.len()));
-                        buf.push_str(&spanned_text[start_ix..ix]);
-                        buf.push('|');
+                        let buf_3 = buf.get_or_insert_with(|| String::with_capacity(spanned_bytes.len()));
+                        buf_3.push_str(&spanned_text[start_ix..ix]);
+                        buf_3.push('|');
                         ix += 2;
                         start_ix = ix;
                     },
@@ -1825,9 +1915,9 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
 
         let (opening, closing, all_spaces) = {
             let s = match &mut buf {
-                Some(buf) => {
-                    buf.push_str(&spanned_text[start_ix..]);
-                    ::core::convert::AsRef::<str>::as_ref(&*buf)
+                Some(buf_4) => {
+                    buf_4.push_str(&spanned_text[start_ix..]);
+                    ::core::convert::AsRef::<str>::as_ref(&*buf_4)
                 },
                 ::core::option::Option::None => {
                     spanned_text
@@ -1846,18 +1936,19 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
         } {
             ::core::option::Option::Some(()) => {
                 match buf {
-                    Some(mut buf) => {
+                    Some(mut buf_5) => {
                         match {
-                            let _explicit_decision = ::core::primitive::bool::then_some(!buf.is_empty(), ());
+                            let _explicit_decision = ::core::primitive::bool::then_some(!buf_5.is_empty(), ());
                             _explicit_decision
                         } {
                             ::core::option::Option::Some(()) => {
-                                buf.remove(0);
-                                buf.pop();
+                                buf_5.remove(0);
+                                buf_5.pop();
                             },
                             ::core::option::Option::None => {},
                         }
-                        buf.into()
+
+                        <crate::strings::CowStr<'_> as ::core::convert::From<::std::string::String>>::from(buf_5)
                     },
                     ::core::option::Option::None => {
                         spanned_text[1..(spanned_text.len() - 1).max(1)].into()
@@ -1865,11 +1956,11 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                 }
             },
             ::core::option::Option::None => match buf {
-                Some(buf) => {
-                    buf.into()
+                Some(buf_6) => {
+                    <crate::strings::CowStr<'_> as ::core::convert::From<::std::string::String>>::from(buf_6)
                 },
                 ::core::option::Option::None => {
-                    spanned_text.into()
+                    <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(spanned_text)
                 },
             },
         };
@@ -1896,7 +1987,8 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
     /// When no bytes were skipped, the buffer will be empty and the html can be
     /// represented as a subslice of the input string.
     fn scan_inline_html(&mut self, bytes: &[u8], ix: usize) -> Option<(Vec<u8>, usize)> {
-        let c = *bytes.get(ix)?;
+        let c = ::core::option::Option::<&_>::copied(bytes.get(ix))?;
+
         match c {
             b'!' => {
                 Some((
@@ -1913,9 +2005,9 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
                 },
                 _ => {
                     let (span, i) = scan_html_block_inner(
-                        // Subtract 1 to include the < character
+
                         &bytes[(ix - 1)..],
-                        Some(&|bytes| skip_container_prefixes(&self.tree, bytes, self.options)),
+                        Some(&|bytes_2| skip_container_prefixes(&self.tree, bytes_2, self.options)),
                     )?;
                     Some((span, i + ix - 1))
                 },
@@ -1926,6 +2018,7 @@ impl<'input, F: BrokenLinkCallback<'input>> Parser<'input, F> {
     /// Consumes the event iterator and produces an iterator that produces
     /// `(Event, Range)` pairs, where the `Range` value maps to the corresponding
     /// range in the markdown source.
+    #[must_use]
     pub fn into_offset_iter(self) -> OffsetIter<'input, F> {
         OffsetIter { inner: self }
     }
@@ -1940,15 +2033,16 @@ pub(crate) fn scan_containers(
 ) -> usize {
     let mut i = 0;
     let mut spine_iter = tree.walk_spine();
+
     for &node_ix in &mut spine_iter {
         match tree[node_ix].item.body {
-            // This fix is lifted, almost verbatim,
-            // from https://github.com/commonmark/cmark/pull/520/changes
+
+
             ItemBody::List(ref list_flags, _, _) | ItemBody::DefinitionList(ref list_flags)
                 if update_flags =>
             {
-                // Avoid quadratic behavior caused by deeply nested lists
-                // for each blank line.
+
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(line_start.is_at_eol(), ());
                     _explicit_decision
@@ -1960,12 +2054,12 @@ pub(crate) fn scan_containers(
                             _explicit_decision
                         } {
                             ::core::option::Option::Some(()) => {
-                                // Finish early if we encounter multiple blank lines.
-                                // If the previous line was blank, then we know that this
-                                // container has no children unless those children
-                                // use indented lines to nest (in other words, blockquote
-                                // and blockquote-like children aren't nested in here).
-                                // Therefore, every child of this list will pass.
+
+
+
+
+
+
                                 return tree.spine_len();
                             },
                             ::core::option::Option::None => {
@@ -1981,6 +2075,7 @@ pub(crate) fn scan_containers(
             ItemBody::BlockQuote(..) => {
                 let save = line_start.clone();
                 let _ = line_start.scan_space(3);
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(!line_start.scan_blockquote_marker(), ());
                     _explicit_decision
@@ -1994,6 +2089,7 @@ pub(crate) fn scan_containers(
             }
             ItemBody::ListItem(indent) => {
                 let save = line_start.clone();
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(!line_start.scan_space(indent) && !line_start.is_at_eol(), ());
                     _explicit_decision
@@ -2007,6 +2103,7 @@ pub(crate) fn scan_containers(
             }
             ItemBody::DefinitionListDefinition(indent) => {
                 let save = line_start.clone();
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(!line_start.scan_space(indent) && !line_start.is_at_eol(), ());
                     _explicit_decision
@@ -2020,6 +2117,7 @@ pub(crate) fn scan_containers(
             }
             ItemBody::FootnoteDefinition(..) if options.has_gfm_footnotes() => {
                 let save = line_start.clone();
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(!line_start.scan_space(4) && !line_start.is_at_eol(), ());
                     _explicit_decision
@@ -2033,8 +2131,10 @@ pub(crate) fn scan_containers(
             }
             _ => (),
         }
+
         i += 1;
     }
+
     for &node_ix in &mut spine_iter {
         if let ItemBody::List(ref list_flags, _, _) | ItemBody::DefinitionList(ref list_flags) =
             tree[node_ix].item.body
@@ -2042,8 +2142,11 @@ pub(crate) fn scan_containers(
             list_flags.set(list_flags.get() & !ListFlags::LAST_LINE_EMPTY);
         }
     }
+
     i
 }
+
+#[must_use]
 pub(crate) fn skip_container_prefixes(tree: &Tree<Item>, bytes: &[u8], options: Options) -> usize {
     let mut line_start = LineStart::new(bytes);
     let _ = scan_containers(tree, &mut line_start, options, false);
@@ -2072,6 +2175,7 @@ impl Tree<Item> {
                     },
                     ::core::option::Option::None => {},
                 }
+
                 self.append(Item {
                     start,
                     end,
@@ -2081,22 +2185,27 @@ impl Tree<Item> {
             ::core::option::Option::None => {},
         }
     }
+
     /// Returns true if the current node is inside a table.
     ///
     /// If `cur` is an ItemBody::Table, it would return false,
     /// but since the `TableRow` and `TableHead` and `TableCell`
     /// are children of the table, anything doing inline parsing
     /// doesn't need to care about that.
+    #[must_use]
     pub(crate) fn is_in_table(&self) -> bool {
+        #[must_use]
         fn might_be_in_table(item: &Item) -> bool {
             item.body.is_inline()
                 || matches!(item.body, |ItemBody::TableHead| ItemBody::TableRow
                     | ItemBody::TableCell)
         }
+
         for &ix in self.walk_spine().rev() {
             if matches!(self[ix].item.body, ItemBody::Table(_)) {
                 return true;
             }
+
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(!might_be_in_table(&self[ix].item), ());
                 _explicit_decision
@@ -2107,6 +2216,7 @@ impl Tree<Item> {
                 ::core::option::Option::None => {},
             }
         }
+
         false
     }
 }
@@ -2128,10 +2238,10 @@ struct InlineEl {
 #[derive(Debug, Clone, Default)]
 struct InlineStack {
     stack: Vec<InlineEl>,
-    // Lower bounds for matching indices in the stack. For example
-    // a strikethrough delimiter will never match with any element
-    // in the stack with index smaller than
-    // `lower_bounds[InlineStack::TILDES]`.
+
+
+
+
     lower_bounds: [usize; 9],
 }
 
@@ -2153,13 +2263,16 @@ impl InlineStack {
                 };
             }
         }
+
         self.lower_bounds = [0; 9];
     }
 
+    #[must_use]
     fn get_lowerbound(&self, c: u8, count: usize, both: bool) -> usize {
         match c {
             b'_' => {
-                let mod3_lower = self.lower_bounds[InlineStack::UNDERSCORE_BASE + count % 3];
+                let mod3_lower = self.lower_bounds[InlineStack::UNDERSCORE_BASE + count.wrapping_rem(3)];
+
                 match ::core::primitive::bool::then_some(both, ()) {
                     ::core::option::Option::Some(()) => {
                         mod3_lower
@@ -2174,7 +2287,8 @@ impl InlineStack {
             },
             _ => match c {
                 b'*' => {
-                    let mod3_lower = self.lower_bounds[InlineStack::ASTERISK_BASE + count % 3];
+                    let mod3_lower = self.lower_bounds[InlineStack::ASTERISK_BASE + count.wrapping_rem(3)];
+
                     match ::core::primitive::bool::then_some(both, ()) {
                         ::core::option::Option::Some(()) => {
                             mod3_lower
@@ -2197,7 +2311,8 @@ impl InlineStack {
     fn set_lowerbound(&mut self, c: u8, count: usize, both: bool, new_bound: usize) {
         match c {
             b'_' => {
-                self.lower_bounds[InlineStack::UNDERSCORE_BASE + count % 3] = new_bound;
+                self.lower_bounds[InlineStack::UNDERSCORE_BASE + count.wrapping_rem(3)] = new_bound;
+
                 match {
                     let _explicit_decision = ::core::primitive::bool::then_some(!both, ());
                     _explicit_decision
@@ -2210,7 +2325,8 @@ impl InlineStack {
             },
             _ => match c {
                 b'*' => {
-                    self.lower_bounds[InlineStack::ASTERISK_BASE + count % 3] = new_bound;
+                    self.lower_bounds[InlineStack::ASTERISK_BASE + count.wrapping_rem(3)] = new_bound;
+
                     match {
                         let _explicit_decision = ::core::primitive::bool::then_some(!both, ());
                         _explicit_decision
@@ -2230,6 +2346,7 @@ impl InlineStack {
 
     fn truncate(&mut self, new_bound: usize) {
         self.stack.truncate(new_bound);
+
         for lower_bound in &mut self.lower_bounds {
             match {
                 let _explicit_decision = ::core::primitive::bool::then_some(*lower_bound > new_bound, ());
@@ -2265,23 +2382,26 @@ impl InlineStack {
                     },
                     ::core::option::Option::None => {},
                 }
+
                 el.c == c
                     && (!both && !el.both
-                        || (run_length + el.run_length) % 3 != 0
-                        || run_length % 3 == 0)
+                        || (run_length + el.run_length).wrapping_rem(3) != 0
+                        || run_length.wrapping_rem(3) == 0)
             });
 
         match res {
             Some((matching_ix, matching_el)) => {
-                let matching_ix = matching_ix + lowerbound;
-                for el in &self.stack[(matching_ix + 1)..] {
+                let matching_ix_2 = matching_ix + lowerbound;
+
+                for el in &self.stack[(matching_ix_2 + 1)..] {
                     for i in 0..el.count {
                         tree[el.start + i].item.body = ItemBody::Text {
                             backslash_escaped: false,
                         };
                     }
                 }
-                self.truncate(matching_ix);
+
+                self.truncate(matching_ix_2);
                 Some(matching_el)
             },
             ::core::option::Option::None => {
@@ -2302,15 +2422,16 @@ impl InlineStack {
             },
             _ => {},
         }
+
         self.stack.push(el)
     }
 }
 
 #[derive(Debug, Clone)]
 enum RefScan<'a> {
-    // label, source ix of label end
+
     LinkLabel(CowStr<'a>, usize),
-    // contains next node index
+
     Collapsed(Option<TreeIndex>),
     UnexpectedFootnote,
     Failed,
@@ -2318,6 +2439,7 @@ enum RefScan<'a> {
 
 /// Skips forward within a block to a node which spans (ends inclusive) the given
 /// index into the source.
+#[must_use]
 fn scan_nodes_to_ix(
     tree: &Tree<Item>,
     mut node: Option<TreeIndex>,
@@ -2336,17 +2458,20 @@ fn scan_nodes_to_ix(
             },
         }
     }
+
     node
 }
 
 /// Scans an inline link label, which cannot be interrupted.
 /// Returns number of bytes (including brackets) and label on success.
+#[must_use]
 fn scan_link_label<'text>(
     tree: &Tree<Item>,
     text: &'text str,
     options: Options,
 ) -> Option<(usize, ReferenceLabel<'text>)> {
     let bytes = text.as_bytes();
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(match <[_]>::first_chunk::<2>(&*bytes) { ::core::option::Option::Some(&[checked_element_0, _]) => checked_element_0 != b'[', ::core::option::Option::None => true }, ());
         _explicit_decision
@@ -2356,7 +2481,9 @@ fn scan_link_label<'text>(
         },
         ::core::option::Option::None => {},
     }
-    let linebreak_handler = |bytes: &[u8]| Some(skip_container_prefixes(tree, bytes, options));
+
+    let linebreak_handler = |bytes_2: &[u8]| Some(skip_container_prefixes(tree, bytes_2, options));
+
     match {
         let _explicit_decision = ::core::primitive::bool::then_some(options.contains(Options::ENABLE_FOOTNOTES)
         && b'^' == bytes[1]
@@ -2364,7 +2491,7 @@ fn scan_link_label<'text>(
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
-            let linebreak_handler: &dyn Fn(&[u8]) -> Option<usize> = match {
+            let linebreak_handler_2: &dyn Fn(&[u8]) -> Option<usize> = match {
                 let _explicit_decision = ::core::primitive::bool::then_some(options.has_gfm_footnotes(), ());
                 _explicit_decision
             } {
@@ -2375,7 +2502,8 @@ fn scan_link_label<'text>(
                     &linebreak_handler
                 },
             };
-            match scan_link_label_rest(&text[2..], linebreak_handler, tree.is_in_table()) {
+
+            match scan_link_label_rest(&text[2..], linebreak_handler_2, tree.is_in_table()) {
                 Some((byte_index, cow)) => {
                     return Some((byte_index + 2, ReferenceLabel::Footnote(cow)));
                 },
@@ -2384,11 +2512,13 @@ fn scan_link_label<'text>(
         },
         ::core::option::Option::None => {},
     }
+
     let (byte_index, cow) =
         scan_link_label_rest(&text[1..], &linebreak_handler, tree.is_in_table())?;
     Some((byte_index + 1, ReferenceLabel::Link(cow)))
 }
 
+#[must_use]
 fn scan_reference<'b>(
     tree: &Tree<Item>,
     text: &'b str,
@@ -2407,14 +2537,15 @@ fn scan_reference<'b>(
         _explicit_decision
     } {
         ::core::option::Option::Some(()) => {
-            // TODO: this unwrap is sus and should be looked at closer
+
             let closing_node = tree[cur_ix].next.unwrap();
             RefScan::Collapsed(tree[closing_node].next)
         },
         ::core::option::Option::None => {
             let label = scan_link_label(tree, &text[start..], options);
+
             match label {
-                Some((ix, ReferenceLabel::Link(label))) => RefScan::LinkLabel(label, start + ix),
+                Some((ix, ReferenceLabel::Link(label_2))) => RefScan::LinkLabel(label_2, start + ix),
                 Some((_ix, ReferenceLabel::Footnote(_label))) => RefScan::UnexpectedFootnote,
                 None => RefScan::Failed,
             }
@@ -2456,6 +2587,7 @@ impl LinkStack {
                 ::core::option::Option::None => {},
             }
         }
+
         self.disabled_ix = self.inner.len();
     }
 }
@@ -2482,6 +2614,7 @@ pub struct LinkDef<'a> {
 }
 
 impl<'a> LinkDef<'a> {
+    #[must_use]
     pub fn into_static(self) -> LinkDef<'static> {
         LinkDef {
             dest: self.dest.into_static(),
@@ -2505,6 +2638,7 @@ struct CodeDelims {
 }
 
 impl CodeDelims {
+    #[must_use]
     fn new() -> Self {
         Self {
             inner: Default::default(),
@@ -2521,13 +2655,14 @@ impl CodeDelims {
                 self.inner.entry(count).or_default().push_back(ix);
             },
             ::core::option::Option::None => {
-                // Skip the first insert, since that delimiter will always
-                // be an opener and not a closer.
+
+
                 self.seen_first = true;
             },
         }
     }
 
+    #[must_use]
     fn is_populated(&self) -> bool {
         !self.inner.is_empty()
     }
@@ -2544,6 +2679,7 @@ impl CodeDelims {
                 ::core::option::Option::None => {},
             }
         }
+
         None
     }
 
@@ -2560,6 +2696,7 @@ struct MathDelims {
 }
 
 impl MathDelims {
+    #[must_use]
     fn new() -> Self {
         Self {
             inner: Default::default(),
@@ -2579,6 +2716,7 @@ impl MathDelims {
             .push_back((ix, can_close, delim_is_display));
     }
 
+    #[must_use]
     fn is_populated(&self) -> bool {
         !self.inner.is_empty()
     }
@@ -2602,9 +2740,11 @@ impl MathDelims {
                 },
                 ::core::option::Option::None => {},
             }
-            let can_close = can_close && tree[open_ix].item.end != tree[ix].item.start;
+
+            let can_close_2 = can_close && tree[open_ix].item.end != tree[ix].item.start;
+
             match {
-                let _explicit_decision = ::core::primitive::bool::then_some((!is_display && can_close) || (is_display && delim_is_display), ());
+                let _explicit_decision = ::core::primitive::bool::then_some((!is_display && can_close_2) || (is_display && delim_is_display), ());
                 _explicit_decision
             } {
                 ::core::option::Option::Some(()) => {
@@ -2612,13 +2752,15 @@ impl MathDelims {
                 },
                 ::core::option::Option::None => {},
             }
-            // if we can't use it, leave it in the queue as a tombstone for the next
-            // thing that tries to match it
+
+
+
             self.inner
                 .get_mut(&brace_context)?
-                .push_front((ix, can_close, delim_is_display));
+                .push_front((ix, can_close_2, delim_is_display));
             break;
         }
+
         None
     }
 
@@ -2670,11 +2812,13 @@ where
     's: 'b,
 {
     /// Performs a lookup on reference label using unicode case folding.
+    #[must_use]
     pub fn get(&'s self, key: &'b str) -> Option<&'b LinkDef<'input>> {
-        self.0.get(&UniCase::new(key.into()))
+        self.0.get(&UniCase::new(<crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(key)))
     }
 
     /// Provides an iterator over all the document's reference definitions.
+    #[must_use]
     pub fn iter(&'s self) -> impl Iterator<Item = (&'s str, &'s LinkDef<'input>)> {
         self.0.iter().map(|(k, v)| (k.as_ref(), v))
     }
@@ -2685,9 +2829,11 @@ where
     's: 'b,
 {
     /// Performs a lookup on reference label using unicode case folding.
+    #[must_use]
     pub fn contains(&'s self, key: &'b str) -> bool {
-        self.0.contains_key(&UniCase::new(key.into()))
+        self.0.contains_key(&UniCase::new(<crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(key)))
     }
+
     /// Performs a lookup on reference label using unicode case folding.
     pub fn get_mut(&'s mut self, key: CowStr<'input>) -> Option<&'s mut FootnoteDef> {
         self.0.get_mut(&UniCase::new(key))
@@ -2695,6 +2841,7 @@ where
 }
 
 impl<'a> Allocations<'a> {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             refdefs: RefDefs::default(),
@@ -2733,18 +2880,18 @@ impl<'a> Allocations<'a> {
     pub fn allocate_heading(&mut self, attrs: HeadingAttributes<'a>) -> HeadingIndex {
         let ix = self.headings.len();
         self.headings.push(attrs);
-        // This won't panic. `self.headings.len()` can't be `usize::MAX` since
-        // such a long Vec cannot fit in memory.
+
+
         let ix_nonzero = NonZeroUsize::new(ix.wrapping_add(1)).expect("too many headings");
         HeadingIndex(ix_nonzero)
     }
 
     pub fn take_cow(&mut self, ix: CowIndex) -> CowStr<'a> {
-        std::mem::replace(&mut self.cows[ix.0], "".into())
+        std::mem::replace(&mut self.cows[ix.0], <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""))
     }
 
     pub fn take_link(&mut self, ix: LinkIndex) -> (LinkType, CowStr<'a>, CowStr<'a>, CowStr<'a>) {
-        let default_link = (LinkType::ShortcutUnknown, "".into(), "".into(), "".into());
+        let default_link = (LinkType::ShortcutUnknown, <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""), <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""), <crate::strings::CowStr<'_> as ::core::convert::From<&::core::primitive::str>>::from(""));
         std::mem::replace(&mut self.links[ix.0], default_link)
     }
 
@@ -2857,6 +3004,7 @@ pub struct OffsetIter<'a, F = DefaultBrokenLinkCallback> {
 
 impl<'a, F: BrokenLinkCallback<'a>> OffsetIter<'a, F> {
     /// Returns a reference to the internal reference definition tracker.
+    #[must_use]
     pub fn reference_definitions(&self) -> &RefDefs<'_> {
         self.inner.reference_definitions()
     }
@@ -2869,30 +3017,31 @@ impl<'a, F: BrokenLinkCallback<'a>> Iterator for OffsetIter<'a, F> {
         match self.inner.tree.cur() {
             None => {
                 let ix = self.inner.tree.pop()?;
-                let ix = if matches!(self.inner.tree[ix].item.body, ItemBody::TightParagraph) {
-                    // tight paragraphs emit nothing
+                let ix_2 = if matches!(self.inner.tree[ix].item.body, ItemBody::TightParagraph) {
+
                     self.inner.tree.next_sibling(ix);
                     return self.next();
                 } else {
                     ix
                 };
-                let tag_end = body_to_tag_end(&self.inner.tree[ix].item.body);
-                self.inner.tree.next_sibling(ix);
-                let span = self.inner.tree[ix].item.start..self.inner.tree[ix].item.end;
+                let tag_end = body_to_tag_end(&self.inner.tree[ix_2].item.body);
+                self.inner.tree.next_sibling(ix_2);
+                let span = self.inner.tree[ix_2].item.start..self.inner.tree[ix_2].item.end;
                 debug_assert!(span.start <= span.end);
                 Some((Event::End(tag_end), span))
             }
             Some(cur_ix) => {
-                let cur_ix =
+                let cur_ix_2 =
                     if matches!(self.inner.tree[cur_ix].item.body, ItemBody::TightParagraph) {
-                        // tight paragraphs emit nothing
+
                         self.inner.tree.push();
                         self.inner.tree.cur().unwrap()
                     } else {
                         cur_ix
                     };
+
                 match {
-                    let _explicit_decision = ::core::primitive::bool::then_some(self.inner.tree[cur_ix].item.body.is_maybe_inline(), ());
+                    let _explicit_decision = ::core::primitive::bool::then_some(self.inner.tree[cur_ix_2].item.body.is_maybe_inline(), ());
                     _explicit_decision
                 } {
                     ::core::option::Option::Some(()) => {
@@ -2901,16 +3050,18 @@ impl<'a, F: BrokenLinkCallback<'a>> Iterator for OffsetIter<'a, F> {
                     ::core::option::Option::None => {},
                 }
 
-                let item = self.inner.tree[cur_ix].item.clone();
+                let item = self.inner.tree[cur_ix_2].item.clone();
                 let event = item_to_event(&item, self.inner.text, &mut self.inner.allocs);
+
                 match event {
                     Event::Start(..) => {
                         self.inner.tree.push();
                     },
                     Event::End(_) | Event::Text(_) | Event::Code(_) | Event::InlineMath(_) | Event::DisplayMath(_) | Event::Html(_) | Event::InlineHtml(_) | Event::FootnoteReference(_) | Event::SoftBreak | Event::HardBreak | Event::Rule | Event::TaskListMarker(_) => {
-                        self.inner.tree.next_sibling(cur_ix);
+                        self.inner.tree.next_sibling(cur_ix_2);
                     },
                 }
+
                 debug_assert!(item.start <= item.end);
                 Some((event, item.start..item.end))
             }
@@ -2918,6 +3069,7 @@ impl<'a, F: BrokenLinkCallback<'a>> Iterator for OffsetIter<'a, F> {
     }
 }
 
+#[must_use]
 fn body_to_tag_end(body: &ItemBody) -> TagEnd {
     match *body {
         ItemBody::Paragraph => TagEnd::Paragraph,
@@ -2955,7 +3107,7 @@ fn item_to_event<'a>(item: &Item, text: &'a str, allocs: &mut Allocations<'a>) -
         ItemBody::Text { .. } => return Event::Text(text[item.start..item.end].into()),
         ItemBody::Code(cow_ix) => return Event::Code(allocs.take_cow(cow_ix)),
         ItemBody::SynthesizeText(cow_ix) => return Event::Text(allocs.take_cow(cow_ix)),
-        ItemBody::SynthesizeChar(c) => return Event::Text(c.into()),
+        ItemBody::SynthesizeChar(c) => return Event::Text(<crate::strings::CowStr<'_> as ::core::convert::From<::core::primitive::char>>::from(c)),
         ItemBody::HtmlBlock => Tag::HtmlBlock,
         ItemBody::Html => return Event::Html(text[item.start..item.end].into()),
         ItemBody::InlineHtml => return Event::InlineHtml(text[item.start..item.end].into()),
@@ -3057,30 +3209,31 @@ impl<'a, F: BrokenLinkCallback<'a>> Iterator for Parser<'a, F> {
         match self.tree.cur() {
             None => {
                 let ix = self.tree.pop()?;
-                let ix = if matches!(self.tree[ix].item.body, ItemBody::TightParagraph) {
-                    // tight paragraphs emit nothing
+                let ix_2 = if matches!(self.tree[ix].item.body, ItemBody::TightParagraph) {
+
                     self.tree.next_sibling(ix);
                     return self.next();
                 } else {
                     ix
                 };
-                let tag_end = body_to_tag_end(&self.tree[ix].item.body);
-                self.tree.next_sibling(ix);
+                let tag_end = body_to_tag_end(&self.tree[ix_2].item.body);
+                self.tree.next_sibling(ix_2);
                 Some(Event::End(tag_end))
             }
             Some(cur_ix) => {
                 let maybe_cur_ix =
                     if matches!(self.tree[cur_ix].item.body, ItemBody::TightParagraph) {
-                        // tight paragraphs emit nothing
+
                         self.tree.push();
                         self.tree.cur()
                     } else {
                         Some(cur_ix)
                     };
+
                 match maybe_cur_ix {
-                    Some(cur_ix) => {
+                    Some(cur_ix_2) => {
                         match {
-                            let _explicit_decision = ::core::primitive::bool::then_some(self.tree[cur_ix].item.body.is_maybe_inline(), ());
+                            let _explicit_decision = ::core::primitive::bool::then_some(self.tree[cur_ix_2].item.body.is_maybe_inline(), ());
                             _explicit_decision
                         } {
                             ::core::option::Option::Some(()) => {
@@ -3089,16 +3242,18 @@ impl<'a, F: BrokenLinkCallback<'a>> Iterator for Parser<'a, F> {
                             ::core::option::Option::None => {},
                         }
 
-                        let item = self.tree[cur_ix].item.clone();
+                        let item = self.tree[cur_ix_2].item.clone();
                         let event = item_to_event(&item, self.text, &mut self.allocs);
+
                         match event {
                             Event::Start(ref _tag) => {
                                 self.tree.push();
                             },
                             Event::End(_) | Event::Text(_) | Event::Code(_) | Event::InlineMath(_) | Event::DisplayMath(_) | Event::Html(_) | Event::InlineHtml(_) | Event::FootnoteReference(_) | Event::SoftBreak | Event::HardBreak | Event::Rule | Event::TaskListMarker(_) => {
-                                self.tree.next_sibling(cur_ix);
+                                self.tree.next_sibling(cur_ix_2);
                             },
                         }
+
                         Some(event)
                     },
                     ::core::option::Option::None => {
@@ -3117,7 +3272,7 @@ mod test {
     use super::*;
     use crate::tree::Node;
 
-    // TODO: move these tests to tests/html.rs?
+
 
     fn parser_with_extensions(text: &str) -> Parser<'_> {
         let mut opts = Options::empty();
@@ -3147,19 +3302,19 @@ mod test {
 
     #[test]
     fn single_open_fish_bracket() {
-        // dont crash
+
         assert_eq!(3, Parser::new("<").count());
     }
 
     #[test]
     fn lone_hashtag() {
-        // dont crash
+
         assert_eq!(2, Parser::new("#").count());
     }
 
     #[test]
     fn lots_of_backslashes() {
-        // dont crash
+
         Parser::new("\\\\\r\r").count();
         Parser::new("\\\r\r\\.\\\\\r\r\\.\\").count();
     }
@@ -3195,73 +3350,73 @@ mod test {
             .map(|(_ev, range)| range)
             .collect::<Vec<_>>();
         let expected_offsets = vec![
-            (0..44),  // Paragraph START
-            (0..19),  // `For a new ferrari, `
-            (19..43), // Wikilink START
-            (31..41), // `click here`
-            (19..43), // Wikilink END
-            (43..44), // `!`
-            (0..44),  // Paragraph END
+            (0..44),
+            (0..19),
+            (19..43),
+            (31..41),
+            (19..43),
+            (43..44),
+            (0..44),
         ];
         assert_eq!(offsets, expected_offsets);
     }
 
     #[test]
     fn issue_320() {
-        // dont crash
+
         parser_with_extensions(":\r\t> |\r:\r\t> |\r").count();
     }
 
     #[test]
     fn issue_319() {
-        // dont crash
+
         parser_with_extensions("|\r-]([^|\r-]([^").count();
         parser_with_extensions("|\r\r=][^|\r\r=][^car").count();
     }
 
     #[test]
     fn issue_303() {
-        // dont crash
+
         parser_with_extensions("[^\r\ra]").count();
         parser_with_extensions("\r\r]Z[^\x00\r\r]Z[^\x00").count();
     }
 
     #[test]
     fn issue_313() {
-        // dont crash
+
         parser_with_extensions("*]0[^\r\r*]0[^").count();
         parser_with_extensions("[^\r> `][^\r> `][^\r> `][").count();
     }
 
     #[test]
     fn issue_311() {
-        // dont crash
+
         parser_with_extensions("\\\u{0d}-\u{09}\\\u{0d}-\u{09}").count();
     }
 
     #[test]
     fn issue_283() {
         let input = std::str::from_utf8(b"\xf0\x9b\xb2\x9f<td:^\xf0\x9b\xb2\x9f").unwrap();
-        // dont crash
+
         parser_with_extensions(input).count();
     }
 
     #[test]
     fn issue_289() {
-        // dont crash
+
         parser_with_extensions("> - \\\n> - ").count();
         parser_with_extensions("- \n\n").count();
     }
 
     #[test]
     fn issue_306() {
-        // dont crash
+
         parser_with_extensions("*\r_<__*\r_<__*\r_<__*\r_<__").count();
     }
 
     #[test]
     fn issue_305() {
-        // dont crash
+
         parser_with_extensions("_6**6*_*").count();
     }
 
@@ -3282,9 +3437,9 @@ mod test {
 
     #[test]
     fn issue_1142_deflist_offset_is_char_boundary() {
-        // Title `%`, definition whose text is combining acute U+0301, then a
-        // TAB-indented second definition. The second definition's start used
-        // to land inside the combining character.
+
+
+
         let doc = "%\n:\u{301}\n\t:";
         let mut opts = Options::empty();
         opts.insert(Options::ENABLE_DEFINITION_LIST);
@@ -3500,7 +3655,7 @@ text
         assert!(parser.reference_definitions().get("nope").is_none());
 
         if let Some(_event) = parser.next() {
-            // testing keys with shorter lifetimes than parser and its input
+
             let s = "final one".to_owned();
             let link_def = parser.reference_definitions().get(&s).unwrap();
             let span = &input[link_def.span.clone()];
@@ -3512,9 +3667,9 @@ text
     fn common_lifetime_patterns_allowed<'b>() {
         let temporary_str = String::from("xyz");
 
-        // NOTE: this is a limitation of Rust, it doesn't allow putting lifetime parameters on the closure itself.
-        // Hack it by attaching the lifetime to the test function instead.
-        // TODO: why is the `'b` lifetime required at all? Changing it to `'_` breaks things :(
+
+
+
         let mut closure = |link: BrokenLink<'b>| Some(("#".into(), link.reference));
 
         fn function(link: BrokenLink<'_>) -> Option<(CowStr<'_>, CowStr<'_>)> {
@@ -3548,7 +3703,7 @@ text
 
     #[test]
     fn inline_html_inside_blockquote() {
-        // Regression for #960
+
         let input = "> <foo\n> bar>";
         let events: Vec<_> = Parser::new(input).collect();
         let expected = [
@@ -3591,13 +3746,13 @@ text
 
     #[test]
     fn wikilink_no_event_blowup() {
-        // Regression: handle_wikilink reused an existing tree node as
-        // the wikilink's child without terminating that node's `next`
-        // chain.  The `next` chain threaded through the closing `]]`
-        // into the content after the wikilink, so the EventIter
-        // visited that tail content both as children (via child ptr)
-        // and as siblings (via next ptr). Adversarial repeated
-        // `[[|]]` patterns compounded exponentially.
+
+
+
+
+
+
+
         let one = "[[[[^(\n|]]]]=]]]]]]]]\n".repeat(1);
         let eight = "[[[[^(\n|]]]]=]]]]]]]]\n".repeat(8);
 
@@ -3614,8 +3769,8 @@ text
 
     #[test]
     fn issue_1154() {
-        // If a `_` that can only close finds no opener, a `_` of the same length
-        // that can also open won't find one either, so its bound can go up too.
+
+
         let mut tree = Tree::with_capacity(4);
         let mut stack = InlineStack::default();
         for _ in 0..3 {

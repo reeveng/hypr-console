@@ -61,8 +61,8 @@
 
 use std::process::ExitCode;
 
-use console_compositor::DispatchResult;
-use console_core_arguments::{Operands, Subcommand, read_with};
+use console_compositor::setup::{OutputRule, OutputScale, Outputs, TouchUpdate};
+use console_core_arguments::{Flag, Operands, Subcommand, Takes, read_with};
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_settings::screens::{Output, Unnamed};
@@ -75,12 +75,21 @@ const HOME: &str = "console-home.service";
 
 const APPLY: &str = "apply";
 
+const OUTPUT: Flag = Flag {
+  spelling: "--output",
+  takes: Takes::Value("CONNECTOR"),
+  about: "change this connected display's zoom or rotation",
+};
+
 const COMMAND: console_core_arguments::Command = console_core_arguments::Command {
   name: "console-scale",
   about: "how big everything on the screen is, and which way up it stands; with nothing, the size it is standing at",
-  flags: &[],
+  flags: &[OUTPUT],
   operands: Operands::None,
 };
+
+#[path = "console-scale/display.rs"]
+mod display;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Wanted {
@@ -165,11 +174,23 @@ fn standing() -> Result<ExitCode, Never> {
 fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
 
-  let asked = match read_with::<Scale, String>(&COMMAND, &words) {
+  match words.as_slice() {
+    [command, arguments @ ..] => match command.as_str() {
+      "display" => {
+        let Ok(status) = display::run(arguments);
+        return status;
+      }
+      _scale => {}
+    },
+    [] => {}
+  }
+
+  let (asked, connector) = match read_with::<Scale, String>(&COMMAND, &words) {
     Ok(line) => {
       let Ok(asked) = line.subcommand();
+      let Ok(connector) = line.value(OUTPUT);
 
-      asked
+      (asked, connector.map(str::to_owned))
     }
     Err(refusal) => {
       let Ok(code) = refusal.print();
@@ -203,19 +224,53 @@ fn main() -> ExitCode {
     }
   };
 
-  let Ok(found) = panel();
-
-  let (named, screen) = match found {
-    Some(panel) => panel,
-    None => return ExitCode::FAILURE,
+  let editing = match display::edit() {
+    Ok(editing) => editing,
+    Err(fault) => {
+      let Ok(status) = display::failed(&fault.to_string());
+      return status;
+    }
   };
+  let outputs = match console_compositor::ask(Outputs) {
+    Ok(outputs) => outputs,
+    Err(fault) => {
+      let Ok(status) = display::failed(&fault.to_string());
+      return status;
+    }
+  };
+
+  let output = {
+    let Ok(optional_output) = display::selected(&outputs, connector.as_deref());
+
+    match optional_output {
+      Some(matched_output) => matched_output,
+      ::core::option::Option::None => {
+        let Ok(status) = display::failed("the display is no longer connected");
+        return status;
+      }
+    }
+  };
+
+  let screen = {
+    let Ok(optional_screen) = display::screen(output);
+
+    match optional_screen {
+      Some(matched_screen) => matched_screen,
+      ::core::option::Option::None => {
+        let Ok(status) = display::failed("the display has no usable mode");
+        return status;
+      }
+    }
+  };
+
+  let named = &output.connector;
 
   let wanted_turn = match wanted {
     Wanted::Turned(turn) => Some(turn),
     Wanted::Sized(_a_rung) => None,
   };
 
-  let kept = match remembers(&home, Output(&named), &screen, wanted_turn) {
+  let kept = match remembers(&home, Output(named), &screen, wanted_turn) {
     Ok(kept) => kept,
     Err(why) => {
       eprintln!("console-scale: {why}, so there is nowhere to remember this");
@@ -243,47 +298,36 @@ fn main() -> ExitCode {
   };
 
   match remembering.parent() {
-    Some(holding) => {
-      match std::fs::create_dir_all(holding) {
-        Ok(()) => {}
-        Err(fault) => {
-          eprintln!(
-            "console-scale: {}: {fault}, so nothing was changed",
-            holding.display()
-          );
-
-          return ExitCode::FAILURE;
-        }
+    Some(holding) => match std::fs::create_dir_all(holding) {
+      Ok(()) => {}
+      Err(fault) => {
+        let Ok(status) = display::failed(&format!("{}: {fault}", holding.display()));
+        return status;
       }
-
-      match console_core_atomic_writes::whole(
-        &remembering,
-        format!("{said}\n", said = said_2).as_bytes(),
-      ) {
-        Ok(()) => {}
-        Err(fault) => {
-          eprintln!(
-            "console-scale: {}: {fault}, so nothing was changed",
-            remembering.display()
-          );
-
-          return ExitCode::FAILURE;
-        }
-      }
-    }
+    },
     None => {}
   }
 
-  let Ok(refused) = refused(&named, &screen, size, turn);
+  let Ok(previous) = output.rule(&outputs);
+  let Ok(rule) = configuration(previous, &screen, size, turn);
 
-  match refused {
-    Some(why) => {
-      eprintln!("console-scale: {why}");
-      return ExitCode::FAILURE;
+  match display::apply(rule, output.id) {
+    Err(fault) => {
+      let Ok(status) = display::restored(previous, rule, output.id, &fault.to_string());
+      return status;
     }
-    None => {}
+    ::core::result::Result::Ok(_) => {}
   }
 
+  match console_core_atomic_writes::whole(&remembering, format!("{said_2}\n").as_bytes()) {
+    Err(fault) => {
+      let Ok(status) = display::restored(previous, rule, output.id, &fault.to_string());
+      return status;
+    }
+    ::core::result::Result::Ok(_) => {}
+  }
+
+  drop(editing);
   let Ok(mut asking) = Program::Systemctl.command();
 
   match asking.args(["--user", "restart", BAR, HOME]).status() {
@@ -349,72 +393,72 @@ fn remembers(
 }
 
 fn applied(home: &std::path::Path) -> Result<ExitCode, Never> {
-  let Ok(said) = query_monitors();
-
-  let monitors = match said {
-    Some(monitors) => monitors,
-    None => return Ok(ExitCode::SUCCESS),
+  let _editing = match display::edit() {
+    Ok(_editing) => _editing,
+    Err(fault) => {
+      console_core_logging::debug!(
+        "console-scale: applying saved display settings deferred: {fault}"
+      );
+      return Ok(ExitCode::SUCCESS);
+    }
   };
 
-  for monitor in &monitors {
-    let Ok(driving) = console_screen::from_monitor(monitor);
+  let outputs = match console_compositor::ask(Outputs) {
+    Ok(outputs) => outputs,
+    Err(fault) => {
+      eprintln!("console-scale: {fault}");
+      return Ok(ExitCode::SUCCESS);
+    }
+  };
 
-    let screen = match driving {
-      Some(screen) => screen,
-      None => continue,
+  for output in &outputs {
+    let screen = {
+      let Ok(optional_screen) = display::screen(output);
+
+      match optional_screen {
+        Some(matched_screen) => matched_screen,
+        ::core::option::Option::None => continue,
+      }
     };
 
-    let kept = match remembers(home, Output(&monitor.named), &screen, None) {
+    let kept = match remembers(home, Output(&output.connector), &screen, None) {
       Ok(kept) => kept,
-      Err(why) => {
-        eprintln!("console-scale: {why}, so nothing was remembered for it");
-
+      Err(fault) => {
+        eprintln!("console-scale: {fault}");
         continue;
       }
     };
 
-    match (kept.size, kept.turn) {
-      (None, None) => continue,
-      (size, turn) => {
-        let Ok(why) = refused(&monitor.named, &screen, size, turn);
-
-        match why {
-          Some(why_2) => eprintln!("console-scale: {}: {why}", monitor.named, why = why_2),
-          None => {}
-        }
+    match { ::core::primitive::bool::then_some(kept.size.is_none() && kept.turn.is_none(), ()) } {
+      ::core::option::Option::Some(()) => {
+        continue;
       }
+      ::core::option::Option::None => {}
+    }
+
+    let Ok(previous) = output.rule(&outputs);
+    let Ok(rule) = configuration(previous, &screen, kept.size, kept.turn);
+
+    {
+      match display::apply(rule, output.id) {
+        Err(fault) => {
+          let Ok(_) = display::restored(previous, rule, output.id, &fault.to_string());
+        }
+        ::core::result::Result::Ok(_) => {}
+      };
     }
   }
 
   Ok(ExitCode::SUCCESS)
 }
 
-fn panel() -> Result<Option<(String, console_screen::Screen)>, Never> {
-  let found = match console_screen::driving_here() {
-    Ok(found) => found,
-    Err(why) => {
-      eprintln!("console-scale: {why}");
-
-      return Ok(None);
-    }
-  };
-
-  match found {
-    Some(panel) => Ok(Some(panel)),
-    None => {
-      eprintln!("console-scale: the compositor is driving no screen to put a size on");
-
-      Ok(None)
-    }
-  }
-}
-
-fn refused(
-  named: &str,
+#[must_use]
+fn configuration<'a>(
+  previous: OutputRule<'a>,
   screen: &console_screen::Screen,
   size: Option<Size>,
   turn: Option<Turn>,
-) -> Result<Option<String>, Never> {
+) -> core::result::Result<OutputRule<'a>, Never> {
   let standing = match turn {
     Some(turn_2) => {
       let Ok(turned) = turning::rotate(screen, turn_2);
@@ -427,16 +471,20 @@ fn refused(
     Some(size_2) => {
       let Ok(scale) = size_2.scale_on(&standing);
 
-      scale
+      let Ok(adjusted) =
+        console_settings::display::pixel_aligned_scale(previous.mode, OutputScale(scale));
+      adjusted
     }
-    None => standing.scale,
+    None => OutputScale(standing.scale),
   };
-  let Ok(lua) = size::lua(Output(named), &standing, scale);
-  let Ok(done) = console_compositor::request(console_compositor::Request::Script, &lua);
-
-  Ok(match done {
-    DispatchResult::Success => None,
-    DispatchResult::Failure(why) => Some(format!("the compositor would not take it: {why}")),
+  let Ok(transform) = standing.transform.number();
+  Ok(OutputRule {
+    scale,
+    transform,
+    touch: TouchUpdate::from(
+      previous.connector.starts_with("eDP-") && transform != previous.transform,
+    ),
+    ..previous
   })
 }
 

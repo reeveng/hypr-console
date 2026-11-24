@@ -1,7 +1,7 @@
 //! What the bar says about the machine, and which menu you are in.
 //!
-//! The desktop bar can move between the top and sides. Its preferences select
-//! the built-in readings and applets shown on that edge.
+//! The desktop bar can move to any screen edge. Its preferences select the
+//! built-in readings and applets shown on that edge.
 //!
 //! waybar has modules of its own for the sound, the network, the bluetooth and
 //! the battery, and they read the machine perfectly well. What they cannot do

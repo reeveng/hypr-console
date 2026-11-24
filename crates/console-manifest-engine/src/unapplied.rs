@@ -26,6 +26,7 @@ pub enum Unapplied {
   NoRoom(String),
   WentBack(Box<Unapplied>),
   Staging(String, &'static str, std::io::Error),
+  ProgramStagingStopped,
   NoUserFor(String, String),
   NothingBeside(String, &'static str),
   Unwritten(String, console_core_atomic_writes::Unwritten),
@@ -63,6 +64,7 @@ pub enum Unapplied {
   Pruning(PathBuf, String),
   NoBootEntry(u32),
   OneShotRefused(String),
+  BootRecordingStopped,
   OnASnapshot(u32),
 }
 
@@ -81,6 +83,12 @@ impl fmt::Display for Unapplied {
       }
       Unapplied::Staging(live, what, fault) => {
         write!(to, "{live}: {what}: {fault}")
+      }
+      Unapplied::ProgramStagingStopped => {
+        write!(
+          to,
+          "programs: advancing the build: program staging did not request its next effect"
+        )
       }
       Unapplied::NoUserFor(live, owner) => {
         write!(to, "{live}: no user called {owner}")
@@ -194,6 +202,12 @@ impl fmt::Display for Unapplied {
       ),
       Unapplied::OneShotRefused(said) => {
         write!(to, "bootctl would not set the next boot: {said}")
+      }
+      Unapplied::BootRecordingStopped => {
+        write!(
+          to,
+          "bootctl would not set the next boot: boot recording did not finish"
+        )
       }
       Unapplied::OnASnapshot(number) => write!(
         to,

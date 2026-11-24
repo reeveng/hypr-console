@@ -1,6 +1,6 @@
 use super::*;
 
-// Class diagram SVG renderer implementation (split from parity.rs).
+
 
 type Rect = crate::geom::Box2;
 

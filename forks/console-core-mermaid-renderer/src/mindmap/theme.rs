@@ -56,6 +56,7 @@ enum MindmapEdgeStrokeSource {
 }
 
 impl MindmapEdgeStrokeSource {
+    #[must_use]
     fn is_owned(self, config: &PresentationConfig) -> bool {
         let path = match self {
             Self::ColorScale { section } => MINDMAP_COLOR_SCALE_PATHS[section],
@@ -65,6 +66,7 @@ impl MindmapEdgeStrokeSource {
     }
 }
 
+#[must_use]
 pub(crate) fn mindmap_color_scale_css(config: &PresentationConfig, slot: usize) -> String {
     config
         .get_str(&format!("themeVariables.cScale{slot}"))
@@ -74,6 +76,7 @@ pub(crate) fn mindmap_color_scale_css(config: &PresentationConfig, slot: usize) 
         })
 }
 
+#[must_use]
 pub(crate) fn mindmap_node_border_css(config: &PresentationConfig) -> String {
     let root_label = config
         .get_str("themeVariables.gitBranchLabel0")
@@ -84,19 +87,22 @@ pub(crate) fn mindmap_node_border_css(config: &PresentationConfig) -> String {
         .to_string()
 }
 
+#[must_use]
 pub(crate) fn mindmap_neo_edges_use_node_border(theme: &str) -> bool {
     theme.contains("redux") || theme == "neo-dark"
 }
 
+#[must_use]
 pub(crate) fn mindmap_model_look<'a>(
     model_look: &'a str,
     config: &'a PresentationConfig,
 ) -> &'a str {
-    let model_look = model_look.trim();
-    if model_look.is_empty() || model_look == "default" {
+    let model_look_2 = model_look.trim();
+
+    if model_look_2.is_empty() || model_look_2 == "default" {
         crate::config::mermaid_config_diagram_look(config).as_str()
     } else {
-        model_look
+        model_look_2
     }
 }
 
@@ -121,6 +127,7 @@ pub(crate) struct MindmapNodeFillOwnership {
 }
 
 impl MindmapNodeFillOwnership {
+    #[must_use]
     pub(crate) fn from_config(config: &PresentationConfig) -> Self {
         Self {
             color_scale: std::array::from_fn(|section| {
@@ -130,6 +137,7 @@ impl MindmapNodeFillOwnership {
         }
     }
 
+    #[must_use]
     fn owns(&self, fill_source: MindmapNodeFillSource, section: usize) -> bool {
         match fill_source {
             MindmapNodeFillSource::ColorScale => self.color_scale[section],
@@ -142,6 +150,7 @@ impl MindmapNodeFillOwnership {
 ///
 /// The root has no section and is intentionally outside this mapping. Mermaid assigns branch
 /// sections in an eleven-slot ring, so defensive inputs above ten retain the renderer's wrap.
+#[must_use]
 const fn node_palette_ordinal_for_section(section: i32) -> Option<usize> {
     if section < 0 {
         None
@@ -150,10 +159,12 @@ const fn node_palette_ordinal_for_section(section: i32) -> Option<usize> {
     }
 }
 
+#[must_use]
 fn normalized_section(section: i32) -> Option<usize> {
     node_palette_ordinal_for_section(section).map(|ordinal| ordinal - 1)
 }
 
+#[must_use]
 pub(super) fn mindmap_theme_color_limit(config: &PresentationConfig) -> usize {
     crate::config::config_f64(config.as_value(), &["themeVariables", "THEME_COLOR_LIMIT"])
         .map(|value| value.round() as i64)
@@ -162,16 +173,23 @@ pub(super) fn mindmap_theme_color_limit(config: &PresentationConfig) -> usize {
         .clamp(1, 64) as usize
 }
 
+#[must_use]
 fn mindmap_edge_stroke_source(
     config: &PresentationConfig,
     edge: &MindmapDiagramRenderEdge,
 ) -> Option<MindmapEdgeStrokeSource> {
     let section = edge.section.and_then(normalized_section)?;
+
     if section + 1 >= mindmap_theme_color_limit(config) {
         return None;
     }
+
     let look = mindmap_model_look(&edge.look, config);
-    let theme = config.get_str("theme").unwrap_or_default();
+    let theme = match config.get_str("theme") {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
+
     if look == "neo" && mindmap_neo_edges_use_node_border(theme) {
         Some(MindmapEdgeStrokeSource::NodeBorder)
     } else {
@@ -245,14 +263,17 @@ pub(crate) struct MindmapWriterThemeTokens {
 }
 
 impl MindmapWriterThemeTokens {
+    #[must_use]
     pub(crate) fn main_background_css(&self) -> &str {
         &self.main_background_css
     }
 
+    #[must_use]
     pub(crate) fn node_border_css(&self) -> &str {
         &self.node_border_css
     }
 
+    #[must_use]
     pub(crate) const fn has_direct_node_stroke(&self) -> bool {
         self.has_direct_node_stroke
     }
@@ -272,29 +293,38 @@ impl MindmapNodePalettePlan {
         work_meter: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
         let mut plan = Self::baseline(config, model, work_meter)?;
-        let Some(theme) = theme else {
+
+        let Some(theme_2) = theme else {
             plan.prepare_css_binding(config, work_meter)?;
             return Ok(plan);
         };
 
         let mut visited = [false; MINDMAP_SECTION_COUNT];
+
         for node in &model.nodes {
             work_meter.checkpoint(merman_model::OperationPhase::Layout)?;
-            let Some(section) = node.section.and_then(normalized_section) else {
-                continue;
+
+            let section = {
+                let optional_section = node.section.and_then(normalized_section);
+
+                match optional_section {
+                    Some(matched_section) => matched_section,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             visited[section] = true;
         }
 
         plan.inherited_font_stack =
-            InheritedFontStackPlan::resolve_property_local(Some(theme), config);
+            InheritedFontStackPlan::resolve_property_local(Some(theme_2), config);
         plan.evidence = FamilyThemeOutcomes::default();
-        plan.resolve_node_paint(theme, config, work_meter)?;
-        plan.resolve_node_palette(theme, visited, work_meter)?;
-        plan.resolve_edge_stroke(theme, config, model, work_meter)?;
+        plan.resolve_node_paint(theme_2, config, work_meter)?;
+        plan.resolve_node_palette(theme_2, visited, work_meter)?;
+        plan.resolve_edge_stroke(theme_2, config, model, work_meter)?;
         plan.prepare_css_binding(config, work_meter)?;
         plan.label_paint = super::label_paint::MindmapLabelPaintPlan::resolve(
-            theme,
+            theme_2,
             config,
             model,
             plan.css_binding(),
@@ -302,7 +332,7 @@ impl MindmapNodePalettePlan {
         )?;
         let absent = TerminalVariantDomain::uniform(0, ThemeVariant::Default);
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut plan.evidence,
             &[
                 UnsupportedTerminalDomain::direct(ThemeTarget::Title, absent),
@@ -364,18 +394,27 @@ impl MindmapNodePalettePlan {
             .map(DirectPaintExpectation::from_paint);
         let mut expected_capabilities =
             BTreeMap::<(usize, ResolvedStyleProperty), ThemeCapability>::new();
-        if let Some(fill) = typed_fill.as_ref() {
-            expected_capabilities.insert(
-                (fill.rule_index(), ResolvedStyleProperty::Fill),
-                fill.capability(),
-            );
+
+        match typed_fill.as_ref() {
+            Some(fill) => {
+                expected_capabilities.insert(
+                    (fill.rule_index(), ResolvedStyleProperty::Fill),
+                    fill.capability(),
+                );
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(stroke) = typed_stroke.as_ref() {
-            expected_capabilities.insert(
-                (stroke.rule_index(), ResolvedStyleProperty::Stroke),
-                stroke.capability(),
-            );
+
+        match typed_stroke.as_ref() {
+            Some(stroke) => {
+                expected_capabilities.insert(
+                    (stroke.rule_index(), ResolvedStyleProperty::Stroke),
+                    stroke.capability(),
+                );
+            },
+            ::core::option::Option::None => {},
         }
+
         let static_winners = style
             .winner_rule_properties()
             .map(|(property, origin)| (origin.rule_index(), property))
@@ -384,6 +423,7 @@ impl MindmapNodePalettePlan {
             .family_rules()
             .any(|(_, rule)| rule.target() == ThemeTarget::Node && rule.ordinal().is_some());
         let mut occurrence_winners = BTreeSet::<(usize, ResolvedStyleProperty)>::new();
+
         if has_ordinal_node_rules {
             for ordinal in 1..=self.node_count {
                 let occurrence_style = theme.style_with_work_meter(
@@ -399,7 +439,9 @@ impl MindmapNodePalettePlan {
                 );
             }
         }
+
         let mut observations = BTreeMap::<usize, MindmapNodePaintRuleObservation>::new();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             let FamilyThemeMechanism::RuleFacet {
                 rule_index,
@@ -410,10 +452,13 @@ impl MindmapNodePalettePlan {
             else {
                 continue;
             };
+
             let observation = observations.entry(rule_index).or_default();
+
             if !selector.ordinal_domain_intersects_occurrence_count(self.node_count) {
                 continue;
             }
+
             let property = resolved_style_property_for_facet(facet);
             let route_won = match selector {
                 FamilyThemeSelectorShape::Static { .. } => {
@@ -423,16 +468,19 @@ impl MindmapNodePalettePlan {
                     occurrence_winners.contains(&(rule_index, property))
                 }
             };
+
             if !route_won {
                 continue;
             }
 
             observation.applicable = true;
+
             if (config_owns_fill && property == ResolvedStyleProperty::Fill)
                 || (config_owns_stroke && property == ResolvedStyleProperty::Stroke)
             {
                 continue;
             }
+
             match (route.disposition(), selector, facet) {
                 (
                     FamilyThemeDisposition::TypedAdapter,
@@ -452,10 +500,10 @@ impl MindmapNodePalettePlan {
                         observation.incomplete = true;
                     }
                 }
-                (FamilyThemeDisposition::Unsupported, _, facet) => {
+                (FamilyThemeDisposition::Unsupported, _, facet_2) => {
                     observation
                         .residual
-                        .get_or_insert(unsupported_residual_for_facet(facet));
+                        .get_or_insert(unsupported_residual_for_facet(facet_2));
                 }
                 (FamilyThemeDisposition::TypedAdapter, _, _) => {
                     observation.incomplete = true;
@@ -468,13 +516,14 @@ impl MindmapNodePalettePlan {
                 index: rule_index,
                 target: ThemeTarget::Node,
             };
+
             if !observation.applicable {
                 self.evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 self.evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // A route with a facet we do not own stays deliberately unaccounted so strict
-                // portability fails closed instead of claiming a partial token fanout is enough.
+
+
             } else if observation.capabilities.is_empty() {
                 self.evidence.mark_not_applicable(key);
             } else {
@@ -482,6 +531,7 @@ impl MindmapNodePalettePlan {
                     .insert(key, observation.capabilities);
             }
         }
+
         self.node_fill = typed_fill;
         self.node_stroke = typed_stroke;
         Ok(())
@@ -493,19 +543,28 @@ impl MindmapNodePalettePlan {
         visited: [bool; MINDMAP_SECTION_COUNT],
         work_meter: &OperationWorkMeter,
     ) -> Result<(), OperationWorkError> {
-        let Some(disposition) = theme.ordinal_palette_disposition(ThemeTarget::Node) else {
-            return Ok(());
+        let disposition = {
+            let optional_disposition = theme.ordinal_palette_disposition(ThemeTarget::Node);
+
+            match optional_disposition {
+                Some(matched_disposition) => matched_disposition,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         let key = FamilyThemeMechanismKey::OrdinalPalette {
             target: ThemeTarget::Node,
         };
+
         match disposition {
             FamilyThemeDisposition::TypedAdapter => {
                 self.palette_key = Some(key.clone());
+
                 for (section, present) in visited.into_iter().enumerate() {
                     if !present {
                         continue;
                     }
+
                     let ordinal = section + 1;
                     let style = theme.style_with_work_meter(
                         ThemeTarget::Node,
@@ -513,9 +572,11 @@ impl MindmapNodePalettePlan {
                         Some(ordinal),
                         work_meter,
                     )?;
+
                     if !matches!(style.fill_resolution().specified(), Specified::Unspecified) {
                         continue;
                     }
+
                     let Some(color) = theme.series_color(ThemeTarget::Node, ordinal) else {
                         self.evidence.mark_residual(
                             key,
@@ -525,6 +586,7 @@ impl MindmapNodePalettePlan {
                         self.fills_by_section = std::array::from_fn(|_| None);
                         return Ok(());
                     };
+
                     self.fills_by_section[section] = Some(MindmapNodePaletteFill {
                         css: color.as_css(),
                         capability: if color.is_transparent() {
@@ -540,6 +602,7 @@ impl MindmapNodePalettePlan {
                     .mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette);
             }
         }
+
         Ok(())
     }
 
@@ -561,6 +624,7 @@ impl MindmapNodePalettePlan {
         }) {
             return Ok(());
         }
+
         let edge_count = model.edges.len();
         let static_style = theme.style_with_work_meter(
             ThemeTarget::Edge,
@@ -572,42 +636,54 @@ impl MindmapNodePalettePlan {
         let static_stroke_rule = static_stroke.as_ref().map(|stroke| stroke.rule_index);
         let mut winner_properties = BTreeSet::<(usize, ResolvedStyleProperty)>::new();
 
-        if edge_count == 0 {
-            winner_properties.extend(
-                static_style
-                    .winner_rule_properties()
-                    .map(|(property, origin)| (origin.rule_index(), property)),
-            );
-        } else {
-            if static_stroke_rule.is_some() {
-                self.edge_stroke_winners = Vec::with_capacity(edge_count);
-            }
-            for (edge_index, edge) in model.edges.iter().enumerate() {
-                let style = theme.style_with_work_meter(
-                    ThemeTarget::Edge,
-                    ThemeVariant::Default,
-                    Some(edge_index + 1),
-                    work_meter,
-                )?;
+        match edge_count {
+            0 => {
                 winner_properties.extend(
-                    style
+                    static_style
                         .winner_rule_properties()
                         .map(|(property, origin)| (origin.rule_index(), property)),
                 );
-                if let Some(rule_index) = static_stroke_rule {
-                    self.edge_stroke_winners.push(
-                        style
-                            .stroke_resolution()
-                            .winner()
-                            .is_some_and(|origin| origin.rule_index() == rule_index)
-                            && !mindmap_edge_stroke_source(config, edge)
-                                .is_some_and(|source| source.is_owned(config)),
-                    );
+            },
+            _ => {
+                match static_stroke_rule {
+                    ::core::option::Option::Some(_) => {
+                        self.edge_stroke_winners = Vec::with_capacity(edge_count);
+                    },
+                    ::core::option::Option::None => {},
                 }
-            }
+
+                for (edge_index, edge) in model.edges.iter().enumerate() {
+                    let style = theme.style_with_work_meter(
+                        ThemeTarget::Edge,
+                        ThemeVariant::Default,
+                        Some(edge_index + 1),
+                        work_meter,
+                    )?;
+                    winner_properties.extend(
+                        style
+                            .winner_rule_properties()
+                            .map(|(property, origin)| (origin.rule_index(), property)),
+                    );
+
+                    match static_stroke_rule {
+                        Some(rule_index) => {
+                            self.edge_stroke_winners.push(
+                                style
+                                    .stroke_resolution()
+                                    .winner()
+                                    .is_some_and(|origin| origin.rule_index() == rule_index)
+                                    && !mindmap_edge_stroke_source(config, edge)
+                                        .is_some_and(|source| source.is_owned(config)),
+                            );
+                        },
+                        ::core::option::Option::None => {},
+                    }
+                }
+            },
         }
 
         let mut observations = BTreeMap::<usize, MindmapEdgeStrokeRuleObservation>::new();
+
         for route in theme.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
@@ -629,23 +705,27 @@ impl MindmapNodePalettePlan {
                                 ),
                             )
                         );
+
                     if !empty_direct_candidate
                         && !selector.ordinal_domain_intersects_occurrence_count(edge_count)
                     {
                         continue;
                     }
+
                     let route_won = winner_properties
                         .contains(&(rule_index, resolved_style_property_for_facet(facet)));
+
                     if !route_won && !empty_direct_candidate {
                         continue;
                     }
 
                     observation.applicable = true;
+
                     match (route.disposition(), selector, facet) {
-                        (FamilyThemeDisposition::Unsupported, _, facet) => {
+                        (FamilyThemeDisposition::Unsupported, _, facet_2) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_2));
                         }
                         (
                             FamilyThemeDisposition::TypedAdapter,
@@ -673,13 +753,14 @@ impl MindmapNodePalettePlan {
                 index: rule_index,
                 target: ThemeTarget::Edge,
             };
+
             if !observation.applicable {
                 self.evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 self.evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // A mixed or selector-qualified rule stays fail-closed until every winning facet
-                // has a family-owned terminal consumer.
+
+
             } else if observation.pending {
                 debug_assert_eq!(static_stroke_rule, Some(rule_index));
                 debug_assert!(self.pending_edge_stroke_key.is_none());
@@ -694,6 +775,7 @@ impl MindmapNodePalettePlan {
         } else {
             self.edge_stroke_winners = Vec::new();
         }
+
         Ok(())
     }
 
@@ -722,14 +804,17 @@ impl MindmapNodePalettePlan {
         })
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.inherited_font_stack.font_family_css()
     }
 
+    #[must_use]
     pub(crate) fn cluster_background_css(&self) -> &str {
         &self.css_binding().cluster_background
     }
 
+    #[must_use]
     pub(crate) fn cluster_border_css(&self) -> &str {
         &self.css_binding().cluster_border
     }
@@ -748,12 +833,14 @@ impl MindmapNodePalettePlan {
         Ok(())
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &super::css_binding::MindmapCssBinding {
         self.css_binding
             .get()
             .expect("Mindmap CSS prepared before layout")
     }
 
+    #[must_use]
     pub(crate) fn terminal_decision_for_node(
         &self,
         section: Option<i32>,
@@ -761,24 +848,39 @@ impl MindmapNodePalettePlan {
         ownership: &MindmapNodeFillOwnership,
         generated_color_rule_limit: usize,
     ) -> MindmapNodePaletteTerminalDecision {
-        let Some(section) = section.and_then(normalized_section) else {
-            return MindmapNodePaletteTerminalDecision::NotApplicable;
+        let section_2 = {
+            let optional_section = section.and_then(normalized_section);
+
+            match optional_section {
+                Some(matched_section) => matched_section,
+                ::core::option::Option::None => return MindmapNodePaletteTerminalDecision::NotApplicable,
+            }
         };
-        let Some(fill) = self.fills_by_section[section].as_ref() else {
-            return MindmapNodePaletteTerminalDecision::NotApplicable;
+
+        let fill = {
+            let optional_fill = self.fills_by_section[section_2].as_ref();
+
+            match optional_fill {
+                Some(matched_fill) => matched_fill,
+                ::core::option::Option::None => return MindmapNodePaletteTerminalDecision::NotApplicable,
+            }
         };
-        if section + 1 >= generated_color_rule_limit {
+
+        if section_2 + 1 >= generated_color_rule_limit {
             return MindmapNodePaletteTerminalDecision::Unsupported;
         }
-        if ownership.owns(fill_source, section) {
+
+        if ownership.owns(fill_source, section_2) {
             return MindmapNodePaletteTerminalDecision::NotApplicable;
         }
+
         MindmapNodePaletteTerminalDecision::Applied {
-            section,
+            section: section_2,
             capability: fill.capability,
         }
     }
 
+    #[must_use]
     pub(crate) fn css_fill_for_section(
         &self,
         section: usize,
@@ -787,11 +889,13 @@ impl MindmapNodePalettePlan {
         if section >= MINDMAP_SECTION_COUNT || section + 1 >= generated_color_rule_limit {
             return None;
         }
+
         self.fills_by_section[section]
             .as_ref()
             .map(|fill| fill.css.as_str())
     }
 
+    #[must_use]
     pub(crate) fn writer_theme_tokens(
         &self,
         main_background_css: &str,
@@ -801,17 +905,18 @@ impl MindmapNodePalettePlan {
             main_background_css: self
                 .node_fill
                 .as_ref()
-                .map(|fill| fill.css().into())
-                .unwrap_or_else(|| main_background_css.into()),
+                .map(|fill| <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(fill.css()))
+                .unwrap_or_else(|| <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(main_background_css)),
             node_border_css: self
                 .node_stroke
                 .as_ref()
-                .map(|stroke| stroke.css().into())
-                .unwrap_or_else(|| node_border_css.into()),
+                .map(|stroke| <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(stroke.css()))
+                .unwrap_or_else(|| <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(node_border_css)),
             has_direct_node_stroke: self.node_stroke.is_some(),
         }
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> MindmapNodePaletteReceipt {
         MindmapNodePaletteReceipt {
             label_paint: self.label_paint.begin_receipt(),
@@ -827,10 +932,12 @@ impl MindmapNodePalettePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: MindmapNodePaletteReceipt) -> bool {
         self.node_terminal_receipt.set(receipt).is_ok()
     }
 
+    #[must_use]
     pub(crate) fn label_fill_for_node(&self, index: usize) -> Option<&str> {
         self.label_paint
             .fill(index)
@@ -852,15 +959,19 @@ impl MindmapNodePalettePlan {
             .record_node(&mut receipt.label_paint, index);
     }
 
+    #[must_use]
     pub(crate) fn terminal_edge_style(&self, edge_index: usize) -> Option<&str> {
         let stroke = self.edge_stroke.as_ref()?;
-        self.edge_stroke_winners
+        match self.edge_stroke_winners
             .get(edge_index)
-            .copied()
-            .unwrap_or(false)
+            .copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        }
             .then_some(stroke.style.as_ref())
     }
 
+    #[must_use]
     pub(crate) fn edge_inherits_node_stroke(
         &self,
         config: &PresentationConfig,
@@ -870,12 +981,14 @@ impl MindmapNodePalettePlan {
             && mindmap_edge_stroke_source(config, edge) == Some(MindmapEdgeStrokeSource::NodeBorder)
     }
 
+    #[must_use]
     pub(crate) fn begin_edge_terminal_receipt(&self) -> Option<MindmapEdgeStrokeReceipt> {
         self.pending_edge_stroke_key
             .is_some()
             .then(MindmapEdgeStrokeReceipt::default)
     }
 
+    #[must_use]
     pub(crate) fn record_edge_terminal(&self, receipt: MindmapEdgeStrokeReceipt) -> bool {
         self.pending_edge_stroke_key.is_some() && self.edge_terminal_receipt.set(receipt).is_ok()
     }
@@ -889,6 +1002,7 @@ impl MindmapNodePalettePlan {
         );
         evidence.merge_borrowed(&self.evidence);
         let has_visible_typography = self.node_count != 0;
+
         for (key, properties) in &self.pending_node_paint {
             let rule_index = match key {
                 FamilyThemeMechanismKey::Rule { index, .. } => *index,
@@ -896,10 +1010,12 @@ impl MindmapNodePalettePlan {
                 | FamilyThemeMechanismKey::OrdinalPalette { .. }
                 | FamilyThemeMechanismKey::EffectBinding { .. } => continue,
             };
+
             let Some(receipt) = self.node_terminal_receipt.get() else {
                 evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
                 continue;
             };
+
             if properties
                 .keys()
                 .all(|property| receipt.has_node_paint_property(rule_index, *property))
@@ -914,42 +1030,53 @@ impl MindmapNodePalettePlan {
                 evidence.mark_residual(key.clone(), FamilyThemeResidualReason::UnsupportedPaint);
             }
         }
+
         self.inherited_font_stack
             .record_unsupported_typography_evidence(evidence, has_visible_typography);
-        if let Some(key) = self.palette_key.clone() {
-            match self.node_terminal_receipt.get() {
-                Some(receipt) if receipt.unsupported_surface => evidence
-                    .mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette),
-                Some(receipt) if !receipt.applied_capabilities.is_empty() => {
-                    evidence.mark_applied_with_capabilities(
-                        key,
-                        receipt.applied_capabilities.iter().copied(),
-                    );
+
+        match self.palette_key.clone() {
+            Some(key) => {
+                match self.node_terminal_receipt.get() {
+                    Some(receipt) if receipt.unsupported_surface => evidence
+                        .mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette),
+                    Some(receipt) if !receipt.applied_capabilities.is_empty() => {
+                        evidence.mark_applied_with_capabilities(
+                            key,
+                            receipt.applied_capabilities.iter().copied(),
+                        );
+                    }
+                    Some(_) => evidence.mark_not_applicable(key),
+                    None => evidence
+                        .mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette),
                 }
-                Some(_) => evidence.mark_not_applicable(key),
-                None => evidence
-                    .mark_residual(key, FamilyThemeResidualReason::UnsupportedOrdinalPalette),
-            }
+            },
+            ::core::option::Option::None => {},
         }
-        if let (Some(key), Some(stroke)) = (
-            self.pending_edge_stroke_key.clone(),
-            self.edge_stroke.as_ref(),
-        ) {
-            match self.edge_terminal_receipt.get() {
-                Some(receipt) if receipt.applied => {
-                    evidence.mark_applied_with_capabilities(key, [stroke.capability]);
+
+        match (
+                self.pending_edge_stroke_key.clone(),
+                self.edge_stroke.as_ref(),
+            ) {
+            (Some(key), Some(stroke)) => {
+                match self.edge_terminal_receipt.get() {
+                    Some(receipt) if receipt.applied => {
+                        evidence.mark_applied_with_capabilities(key, [stroke.capability]);
+                    }
+                    Some(_) => {
+                        evidence.mark_not_applicable(key);
+                    }
+                    None => {
+                        evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedPaint);
+                    }
                 }
-                Some(_) => {
-                    evidence.mark_not_applicable(key);
-                }
-                None => {
-                    evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedPaint);
-                }
-            }
+            },
+            (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {},
         }
+
         if self.inherited_font_stack.typed_font_stack_requested() {
             let typography_key =
                 FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
             match self.inherited_font_stack.outcome() {
                 InheritedFontStackOutcome::Typed if has_visible_typography => {
                     evidence.mark_applied_with_capabilities(
@@ -971,6 +1098,7 @@ impl MindmapNodePalettePlan {
     }
 }
 
+#[must_use]
 fn typed_static_edge_stroke(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
@@ -980,6 +1108,7 @@ fn typed_static_edge_stroke(
         .family_rules()
         .find_map(|(index, rule)| (index == origin.rule_index()).then_some(rule))?;
     let facet = FamilyThemeRuleFacet::stroke(style.stroke_resolution().specified())?;
+
     if rule.variant().is_some()
         || rule.ordinal().is_some()
         || theme.rule_facet_disposition(origin.rule_index(), facet)
@@ -991,7 +1120,7 @@ fn typed_static_edge_stroke(
     match style.stroke_resolution().specified() {
         Specified::Value(CanvasPaint::Transparent) => Some(MindmapEdgeStroke {
             rule_index: origin.rule_index(),
-            style: "stroke:transparent !important".into(),
+            style: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from("stroke:transparent !important"),
             capability: ThemeCapability::TransparentPaint,
         }),
         Specified::Value(CanvasPaint::Solid(color)) => Some(MindmapEdgeStroke {
@@ -1061,13 +1190,14 @@ impl MindmapNodePaletteReceipt {
         }
     }
 
+    #[must_use]
     fn has_node_paint_property(&self, rule_index: usize, property: ResolvedStyleProperty) -> bool {
         match property {
             ResolvedStyleProperty::Fill => self.fill_rule == Some(rule_index) && self.emitted_fill,
             ResolvedStyleProperty::Stroke => {
                 self.stroke_rule == Some(rule_index) && self.emitted_stroke
             }
-            _ => false,
+            ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Radius | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => false,
         }
     }
 }

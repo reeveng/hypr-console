@@ -43,6 +43,7 @@ impl ThemeResourceLimitPhase {
         Self::EffectMaterialize,
     ];
 
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::ThemeInput => "theme_input",
@@ -142,10 +143,12 @@ impl ThemeResourceLimitId {
         Self::EffectTurbulenceOctavesHardCap,
     ];
 
+    #[must_use]
     const fn index(self) -> usize {
         self as usize
     }
 
+    #[must_use]
     pub fn from_stable_id(id: &str) -> Option<Self> {
         THEME_RESOURCE_LIMIT_DESCRIPTORS
             .iter()
@@ -153,10 +156,12 @@ impl ThemeResourceLimitId {
             .map(|descriptor| descriptor.id)
     }
 
+    #[must_use]
     pub const fn descriptor(self) -> ThemeResourceLimitDescriptor {
         THEME_RESOURCE_LIMIT_DESCRIPTORS[self.index()]
     }
 
+    #[must_use]
     pub const fn as_str(self) -> &'static str {
         self.descriptor().stable_id
     }
@@ -658,6 +663,7 @@ const UNBOUNDED_VALUES: [Option<usize>; THEME_RESOURCE_LIMIT_COUNT] = [
     Some(MAX_EFFECT_TURBULENCE_OCTAVES_HARD_CAP),
 ];
 
+#[must_use]
 pub const fn theme_resource_limit_descriptors() -> &'static [ThemeResourceLimitDescriptor] {
     &THEME_RESOURCE_LIMIT_DESCRIPTORS
 }
@@ -720,6 +726,7 @@ impl Default for ThemeResourcePolicy {
 }
 
 impl ThemeResourcePolicy {
+    #[must_use]
     pub const fn for_profile(profile: ResourceProfile) -> Self {
         match profile {
             ResourceProfile::Interactive => Self::from_values(profile, INTERACTIVE_VALUES),
@@ -731,22 +738,27 @@ impl ThemeResourcePolicy {
         }
     }
 
+    #[must_use]
     pub const fn interactive() -> Self {
         Self::for_profile(ResourceProfile::Interactive)
     }
 
+    #[must_use]
     pub const fn constrained() -> Self {
         Self::for_profile(ResourceProfile::Constrained)
     }
 
+    #[must_use]
     pub const fn trusted_native() -> Self {
         Self::for_profile(ResourceProfile::TrustedNative)
     }
 
+    #[must_use]
     pub const fn unbounded_for_trusted_input() -> Self {
         Self::for_profile(ResourceProfile::UnboundedForTrustedInput)
     }
 
+    #[must_use]
     const fn from_values(
         profile: ResourceProfile,
         values: [Option<usize>; THEME_RESOURCE_LIMIT_COUNT],
@@ -760,22 +772,27 @@ impl ThemeResourcePolicy {
     }
 
     /// Returns the selected standard profile when the policy still has unambiguous provenance.
+    #[must_use]
     pub const fn profile(&self) -> Option<ResourceProfile> {
         self.profile
     }
 
+    #[must_use]
     pub const fn value(&self, id: ThemeResourceLimitId) -> Option<usize> {
         self.effective_values[id.index()]
     }
 
+    #[must_use]
     pub const fn base_value(&self, id: ThemeResourceLimitId) -> Option<usize> {
         self.base_values[id.index()]
     }
 
+    #[must_use]
     pub const fn explicit_override(&self, id: ThemeResourceLimitId) -> Option<usize> {
         self.explicit_overrides[id.index()]
     }
 
+    #[must_use]
     pub fn explicit_overrides(&self) -> impl Iterator<Item = (ThemeResourceLimitId, usize)> + '_ {
         ThemeResourceLimitId::ALL
             .iter()
@@ -799,17 +816,23 @@ impl ThemeResourcePolicy {
         value: usize,
     ) -> Result<(), ThemeResourceLimitOverrideError> {
         let descriptor = id.descriptor();
+
         if descriptor.hard_cap || !descriptor.overridable {
             return Err(ThemeResourceLimitOverrideError::HardCap(
                 descriptor.stable_id,
             ));
         }
-        if value < descriptor.minimum_value {
-            return Err(ThemeResourceLimitOverrideError::BelowMinimum {
-                id: descriptor.stable_id,
-                minimum: descriptor.minimum_value,
-            });
+
+        match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(value), &::core::convert::identity(descriptor.minimum_value)); _explicit_ordering } {
+            ::core::cmp::Ordering::Less => {
+                return Err(ThemeResourceLimitOverrideError::BelowMinimum {
+                    id: descriptor.stable_id,
+                    minimum: descriptor.minimum_value,
+                });
+            },
+            ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
         }
+
         self.effective_values[id.index()] = Some(value);
         self.explicit_overrides[id.index()] = Some(value);
         Ok(())
@@ -837,12 +860,14 @@ impl ThemeResourcePolicy {
     ///
     /// Profile provenance follows the strictly tighter operand. Crossing custom restrictions do
     /// not pretend to be one of the standard profiles.
+    #[must_use]
     pub fn meet(&self, restriction: &Self) -> Self {
         let mut effective_values = [None; THEME_RESOURCE_LIMIT_COUNT];
         let mut restriction_tightens = false;
         let mut host_tightens = false;
         let mut index = 0;
-        while index < THEME_RESOURCE_LIMIT_COUNT {
+
+        for _ in (::core::ops::Range { start: index, end: THEME_RESOURCE_LIMIT_COUNT }) {
             restriction_tightens |= loosens_ceiling(
                 restriction.effective_values[index],
                 self.effective_values[index],
@@ -855,8 +880,9 @@ impl ThemeResourcePolicy {
                 self.effective_values[index],
                 restriction.effective_values[index],
             );
-            index += 1;
+            index = (::core::num::Wrapping(index) + ::core::num::Wrapping(1)).0;
         }
+
         let profile = match (restriction_tightens, host_tightens) {
             (true, false) => restriction.profile,
             (false, true) | (false, false) => self.profile,
@@ -873,6 +899,7 @@ impl ThemeResourcePolicy {
         for id in ThemeResourceLimitId::ALL.iter().copied() {
             let ceiling = self.value(id);
             let requested = restriction.value(id);
+
             if loosens_ceiling(ceiling, requested) {
                 return Err(ThemeResourcePolicyRestrictionError {
                     id,
@@ -881,9 +908,11 @@ impl ThemeResourcePolicy {
                 });
             }
         }
+
         Ok(self.meet(restriction))
     }
 
+    #[must_use]
     fn with_effective_values(
         &self,
         profile: Option<ResourceProfile>,
@@ -891,12 +920,15 @@ impl ThemeResourcePolicy {
     ) -> Self {
         let mut explicit_overrides = [None; THEME_RESOURCE_LIMIT_COUNT];
         let mut index = 0;
-        while index < THEME_RESOURCE_LIMIT_COUNT {
+
+        for _ in (::core::ops::Range { start: index, end: THEME_RESOURCE_LIMIT_COUNT }) {
             if effective_values[index] != self.base_values[index] {
                 explicit_overrides[index] = effective_values[index];
             }
-            index += 1;
+
+            index = (::core::num::Wrapping(index) + ::core::num::Wrapping(1)).0;
         }
+
         Self {
             profile,
             base_values: self.base_values,
@@ -910,12 +942,19 @@ impl ThemeResourcePolicy {
         id: ThemeResourceLimitId,
         actual: usize,
     ) -> Result<(), ThemeResourceLimitExceeded> {
-        let Some(max) = self.value(id) else {
-            return Ok(());
+        let max = {
+            let optional_max = self.value(id);
+
+            match optional_max {
+                Some(matched_max) => matched_max,
+                ::core::option::Option::None => return Ok(()),
+            }
         };
+
         if actual <= max {
             return Ok(());
         }
+
         let descriptor = id.descriptor();
         Err(ThemeResourceLimitExceeded {
             phase: descriptor.phase,
@@ -925,7 +964,7 @@ impl ThemeResourcePolicy {
             profile: self.profile,
             explicit_overrides: self
                 .explicit_overrides()
-                .map(|(id, value)| ThemeResourceLimitOverride { id, value })
+                .map(|(id_2, value)| ThemeResourceLimitOverride { id: id_2, value })
                 .collect(),
         })
     }
@@ -1115,6 +1154,7 @@ impl ThemeResourcePolicy {
     }
 }
 
+#[must_use]
 fn effect_magnitude_units(actual: f32) -> usize {
     if !actual.is_finite() || actual < 0.0 {
         usize::MAX
@@ -1123,18 +1163,20 @@ fn effect_magnitude_units(actual: f32) -> usize {
     }
 }
 
+#[must_use]
 const fn minimum_ceiling(left: Option<usize>, right: Option<usize>) -> Option<usize> {
     match (left, right) {
-        (Some(left), Some(right)) => Some(if left < right { left } else { right }),
+        (Some(left_2), Some(right_2)) => Some(if left_2 < right_2 { left_2 } else { right_2 }),
         (Some(value), None) | (None, Some(value)) => Some(value),
         (None, None) => None,
     }
 }
 
+#[must_use]
 const fn loosens_ceiling(ceiling: Option<usize>, requested: Option<usize>) -> bool {
     match (ceiling, requested) {
         (Some(_), None) => true,
-        (Some(ceiling), Some(requested)) => requested > ceiling,
+        (Some(ceiling_2), Some(requested_2)) => requested_2 > ceiling_2,
         (None, _) => false,
     }
 }

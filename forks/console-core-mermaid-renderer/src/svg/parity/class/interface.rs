@@ -128,18 +128,26 @@ pub(super) fn render_class_interface_node<O: SvgOutput>(
         )
         .unwrap_or("");
         out.push('>');
-        if let Some(math_html) = math_html.as_deref() {
-            out.push_str(math_html);
-        } else {
-            out.push_str("<p>");
-            for (idx, line) in label_text.split('\n').enumerate() {
-                if idx > 0 {
-                    out.push_str("<br />");
+
+        match math_html.as_deref() {
+            Some(math_html_2) => {
+                out.push_str(math_html_2);
+            },
+            ::core::option::Option::None => {
+                out.push_str("<p>");
+
+                for (idx, line) in label_text.split('\n').enumerate() {
+                    if idx > 0 {
+                        out.push_str("<br />");
+                    }
+
+                    escape_xml_into(out, line);
                 }
-                escape_xml_into(out, line);
-            }
-            out.push_str("</p>");
+
+                out.push_str("</p>");
+            },
         }
+
         out.push_str("</span></div></foreignObject>");
         emitted_style
     } else {

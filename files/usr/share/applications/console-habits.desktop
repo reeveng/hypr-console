@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Console Habits
+Comment=See foreground app and website usage
+Exec=/usr/local/bin/console-application-habits open
+Icon=utilities-system-monitor
+Terminal=false
+StartupWMClass=console-habits
+Categories=System;Monitor;

@@ -38,9 +38,11 @@ pub(crate) fn apply_sanitize_style_elements<'a>(
 ) -> Result<Cow<'a, str>> {
     let mut checkpoint = || execution.checkpoint();
     checkpoint()?;
+
     if find_with_checkpoints(&svg, "<style", &mut checkpoint)?.is_none() {
         return Ok(svg);
     }
+
     sanitize_style_elements_with_admission(&svg, &mut checkpoint, &mut |projected| {
         execution.preflight_svg_byte_count(projected)
     })
@@ -63,62 +65,79 @@ fn sanitize_style_elements_with_admission<E>(
     let mut out = String::with_capacity(svg.len());
     let mut scanner = SvgTagScanner::new(svg);
     let mut cursor = 0;
+
     while let Some(open) = scanner.next_with_checkpoints(checkpoint)? {
         if start_tag_name(open.raw()) != Some("style") || open.is_self_closing() {
             continue;
         }
+
         let content_start = scanner.cursor();
         let mut close = None;
-        while let Some(candidate) = scanner.next_with_checkpoints(checkpoint)? {
+
+        'inner_while_2: while let Some(candidate) = scanner.next_with_checkpoints(checkpoint)? {
             if end_tag_name(candidate.raw()) == Some("style") {
                 close = Some(candidate);
-                break;
+                break 'inner_while_2;
             }
         }
-        let Some(close) = close else {
-            break;
+
+        let close_2 = match close {
+            Some(matched_close) => matched_close,
+            ::core::option::Option::None => break,
         };
+
         let close_end = scanner.cursor();
         admit(out.len().saturating_add(content_start - cursor))?;
         out.push_str(&svg[cursor..content_start]);
-        if let Some(logical_css) =
-            decode_xml_style_text_with_checkpoints(&svg[content_start..close.start()], checkpoint)?
-        {
-            let sanitized = sanitize_css_with_checkpoints(&logical_css, checkpoint)?;
-            let mut encoded_len = 0usize;
-            for (index, character) in sanitized.chars().enumerate() {
-                checkpoint_loop(index, checkpoint)?;
-                if !crate::xml::is_xml_1_0_char(character) {
-                    continue;
+
+        match decode_xml_style_text_with_checkpoints(&svg[content_start..close_2.start()], checkpoint)? {
+            Some(logical_css) => {
+                let sanitized = sanitize_css_with_checkpoints(&logical_css, checkpoint)?;
+                let mut encoded_len = 0usize;
+
+                'inner_for_2: for (index, character) in sanitized.chars().enumerate() {
+                    checkpoint_loop(index, checkpoint)?;
+
+                    if !crate::xml::is_xml_1_0_char(character) {
+                        continue 'inner_for_2;
+                    }
+
+                    encoded_len = encoded_len.saturating_add(match character {
+                        '&' => 5,
+                        '<' | '>' => 4,
+                        _ => character.len_utf8(),
+                    });
                 }
-                encoded_len = encoded_len.saturating_add(match character {
-                    '&' => 5,
-                    '<' | '>' => 4,
-                    _ => character.len_utf8(),
-                });
-            }
-            admit(
-                out.len()
-                    .saturating_add(encoded_len)
-                    .saturating_add(close_end - close.start()),
-            )?;
-            for (index, character) in sanitized.chars().enumerate() {
-                checkpoint_loop(index, checkpoint)?;
-                if !crate::xml::is_xml_1_0_char(character) {
-                    continue;
+
+                admit(
+                    out.len()
+                        .saturating_add(encoded_len)
+                        .saturating_add(close_end - close_2.start()),
+                )?;
+
+                'inner_for_2: for (index, character) in sanitized.chars().enumerate() {
+                    checkpoint_loop(index, checkpoint)?;
+
+                    if !crate::xml::is_xml_1_0_char(character) {
+                        continue 'inner_for_2;
+                    }
+
+                    match character {
+                        '&' => out.push_str("&amp;"),
+                        '<' => out.push_str("&lt;"),
+                        '>' => out.push_str("&gt;"),
+                        _ => out.push(character),
+                    }
                 }
-                match character {
-                    '&' => out.push_str("&amp;"),
-                    '<' => out.push_str("&lt;"),
-                    '>' => out.push_str("&gt;"),
-                    _ => out.push(character),
-                }
-            }
+            },
+            ::core::option::Option::None => {},
         }
-        admit(out.len().saturating_add(close_end - close.start()))?;
-        out.push_str(&svg[close.start()..close_end]);
+
+        admit(out.len().saturating_add(close_end - close_2.start()))?;
+        out.push_str(&svg[close_2.start()..close_end]);
         cursor = close_end;
     }
+
     admit(out.len().saturating_add(svg.len() - cursor))?;
     out.push_str(&svg[cursor..]);
     checkpoint()?;
@@ -134,9 +153,9 @@ pub(super) fn sanitize_css_with_checkpoints<E>(
     css: &str,
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> std::result::Result<String, E> {
-    Ok(run_with_css_control(checkpoint, |control| {
+    Ok({ let checked_value = run_with_css_control(checkpoint, |control| {
         process_stylesheet_with_control(css, CssProcessingMode::Sanitize, control)
-    })?
+    })?; checked_value }
     .unwrap_or_default())
 }
 
@@ -158,7 +177,7 @@ pub(super) fn sanitize_css_value_with_checkpoints<E>(
     value: &str,
     checkpoint: &mut impl FnMut() -> std::result::Result<(), E>,
 ) -> std::result::Result<Option<String>, E> {
-    Ok(run_with_css_control(checkpoint, |control| {
+    Ok({ let checked_value = run_with_css_control(checkpoint, |control| {
         let mut parser = Parser::new(value);
         rewrite_component_values(
             &mut parser,
@@ -166,7 +185,7 @@ pub(super) fn sanitize_css_value_with_checkpoints<E>(
             CssNestingDepth::default(),
             control,
         )
-    })?
+    })?; checked_value }
     .ok())
 }
 
@@ -246,9 +265,14 @@ fn run_with_css_control<T, I, E>(
         let mut control = CssParseControl::new(&mut probe);
         run(&mut control)
     };
-    if let Some(error) = checkpoint_error {
-        return Err(error);
+
+    match checkpoint_error {
+        Some(error) => {
+            return Err(error);
+        },
+        ::core::option::Option::None => {},
     }
+
     checkpoint()?;
     Ok(result)
 }
@@ -287,10 +311,15 @@ impl<'a> CssParseControl<'a> {
         let checkpoint_result = checkpoint_loop(self.iterations, &mut || {
             if (self.checkpoint)() { Ok(()) } else { Err(()) }
         });
-        if checkpoint_result.is_err() {
-            self.cancelled = true;
-            return Err(CssViolation::Cancelled);
+
+        match checkpoint_result {
+            ::core::result::Result::Err(_) => {
+                self.cancelled = true;
+                return Err(CssViolation::Cancelled);
+            },
+            ::core::result::Result::Ok(_) => {},
         }
+
         Ok(())
     }
 }
@@ -303,6 +332,7 @@ impl CssNestingDepth {
         if self.0 >= CSS_NESTING_HARD_LIMIT {
             return Err(ParseError::custom(CssViolation::NestingLimit));
         }
+
         Ok(Self(self.0 + 1))
     }
 }
@@ -403,12 +433,14 @@ impl<'i> AtRuleParser<'i> for ResvgCssRuleParser<'_, '_> {
             normalized_name.as_str(),
             "import" | "keyframes" | "-webkit-keyframes"
         );
+
         if explicitly_removed || body.is_none() {
             if self.mode == CssProcessingMode::Validate {
                 return Err(ParseError::custom(CssViolation::UnsupportedAtRule(
                     normalized_name,
                 )));
             }
+
             return Ok(AtRulePrelude::Drop);
         }
 
@@ -437,9 +469,10 @@ impl<'i> AtRuleParser<'i> for ResvgCssRuleParser<'_, '_> {
         input: &mut Parser<'i>,
     ) -> std::result::Result<Self::AtRule, ParseError<Self::Error>> {
         let depth = self.depth.descend()?;
+
         let AtRulePrelude::Keep {
             name,
-            prelude,
+            prelude: prelude_2,
             body,
         } = prelude
         else {
@@ -447,13 +480,13 @@ impl<'i> AtRuleParser<'i> for ResvgCssRuleParser<'_, '_> {
             return Ok(String::new());
         };
 
-        let body = match body {
+        let body_2 = match body {
             AtRuleBody::Declarations => {
                 rewrite_declaration_list(input, self.mode, depth, self.control)?
             }
             AtRuleBody::RuleList => rewrite_rule_list(input, self.mode, depth, self.control)?,
         };
-        Ok(format!("@{name}{prelude}{{{body}}}"))
+        Ok(format!("@{name}{prelude}{{{body}}}", prelude = prelude_2, body = body_2))
     }
 }
 
@@ -467,12 +500,15 @@ impl<'i> QualifiedRuleParser<'i> for ResvgCssRuleParser<'_, '_> {
         input: &mut Parser<'i>,
     ) -> std::result::Result<Self::Prelude, ParseError<Self::Error>> {
         let prelude = rewrite_component_values(input, self.mode, self.depth, self.control)?;
+
         if selector_contains_root(&prelude, self.depth, self.control).map_err(ParseError::custom)? {
             if self.mode == CssProcessingMode::Validate {
                 return Err(ParseError::custom(CssViolation::RootSelector));
             }
+
             return Ok(None);
         }
+
         Ok(Some(prelude))
     }
 
@@ -483,12 +519,14 @@ impl<'i> QualifiedRuleParser<'i> for ResvgCssRuleParser<'_, '_> {
         input: &mut Parser<'i>,
     ) -> std::result::Result<Self::QualifiedRule, ParseError<Self::Error>> {
         let depth = self.depth.descend()?;
-        let Some(prelude) = prelude else {
+
+        let Some(prelude_2) = prelude else {
             consume_component_values(input, depth, self.control)?;
             return Ok(String::new());
         };
+
         let declarations = rewrite_declaration_list(input, self.mode, depth, self.control)?;
-        Ok(format!("{prelude}{{{declarations}}}"))
+        Ok(format!("{prelude}{{{declarations}}}", prelude = prelude_2))
     }
 }
 
@@ -524,7 +562,7 @@ fn rewrite_rule_list(
 
     for rule in StyleSheetParser::new(input, &mut parser) {
         match rule {
-            Ok(rule) => output.push_str(&rule),
+            Ok(rule_2) => output.push_str(&rule_2),
             Err((error, _, _)) if is_cancelled_parse_error(&error) => return Err(error),
             Err((error, _, _)) if mode == CssProcessingMode::Validate => return Err(error),
             Err(_) => {}
@@ -545,6 +583,7 @@ fn rewrite_declaration_list(
     loop {
         control.step()?;
         let declaration_start = input.position();
+
         if input.is_exhausted() {
             output.push_str(input.slice_from(declaration_start));
             return Ok(output);
@@ -559,24 +598,30 @@ fn rewrite_declaration_list(
 
             if is_animation_property(&property) {
                 consume_component_values(declaration, depth, control)?;
+
                 if mode == CssProcessingMode::Validate {
                     return Err(ParseError::custom(CssViolation::Animation));
                 }
+
                 return Ok(None);
             }
 
             if is_marker_reference_property(&property) {
                 consume_component_values(declaration, depth, control)?;
+
                 if mode == CssProcessingMode::Validate {
                     return Err(ParseError::custom(CssViolation::MarkerReference));
                 }
+
                 return Ok(None);
             }
 
             let value = rewrite_component_values(declaration, mode, depth, control)?;
+
             if value.trim().is_empty() {
                 return Err(ParseError::custom(CssViolation::EmptyDeclaration));
             }
+
             Ok(Some((prefix, value)))
         });
         let declaration_end = input.position();
@@ -589,6 +634,7 @@ fn rewrite_declaration_list(
             Ok(Some((prefix, value))) => {
                 output.push_str(&prefix);
                 output.push_str(&value);
+
                 if had_semicolon {
                     output.push(';');
                 }
@@ -618,7 +664,7 @@ fn rewrite_component_values(
                 output.push_str(input.slice_from(token_start));
                 return Ok(output);
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<crate::svg::pipeline::builtin::css_sanitize::CssViolation> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
         let token_end = input.position();
 
@@ -637,6 +683,7 @@ fn rewrite_component_values(
                 if mode == CssProcessingMode::Validate {
                     return Err(ParseError::custom(CssViolation::Degrees));
                 }
+
                 output.push_str(
                     &Token::Number {
                         value,
@@ -648,15 +695,18 @@ fn rewrite_component_values(
             }
             Token::UnquotedUrl(url) => {
                 ensure_source_closed_token(input.slice(token_start..token_end), control)?;
+
                 if is_unsafe_render_resource_url_value(&url) {
                     return Err(ParseError::custom(CssViolation::UnsafeUrl));
                 }
+
                 output.push_str(input.slice(token_start..token_end));
             }
             Token::Function(name) => {
                 if matches_external_image_function(&name) {
                     return Err(ParseError::custom(CssViolation::ExternalImageFunction));
                 }
+
                 let nested_depth = depth.descend()?;
                 output.push_str(input.slice(token_start..token_end));
                 let nested = input.parse_nested_block(|nested| {
@@ -697,10 +747,10 @@ fn rewrite_component_values(
                 if name.ends_with('\u{FFFD}')
                     && input.slice(token_start..token_end).ends_with('\\') =>
             {
-                // cssparser decodes an identifier's EOF escape as U+FFFD. Replaying the
-                // backslash would instead escape a delimiter appended by the enclosing rule.
-                // The decoded suffix distinguishes this from a literal paired backslash;
-                // retaining the raw prefix also preserves dimension numeric precision.
+
+
+
+
                 let raw = input.slice(token_start..token_end);
                 output.push_str(&raw[..raw.len() - 1]);
                 output.push('\u{FFFD}');
@@ -710,6 +760,7 @@ fn rewrite_component_values(
     }
 }
 
+#[must_use]
 pub(in crate::svg::pipeline) fn matches_external_image_function(name: &str) -> bool {
     name.eq_ignore_ascii_case("image-set") || name.eq_ignore_ascii_case("-webkit-image-set")
 }
@@ -719,14 +770,15 @@ fn ensure_source_closed_token(
     control: &mut CssParseControl<'_>,
 ) -> std::result::Result<(), ParseError<CssViolation>> {
     control.step()?;
-    // cssparser accepts EOF-terminated strings, comments, and URLs. Only an explicitly
-    // closed token ends at the original boundary when another space follows it.
+
+
     let mut probe = String::with_capacity(raw_token.len() + 1);
     probe.push_str(raw_token);
     probe.push(' ');
 
     let mut parser = Parser::new(&probe);
     parser.next_including_whitespace_and_comments()?;
+
     if parser.position().byte_index() == raw_token.len() {
         Ok(())
     } else {
@@ -741,6 +793,7 @@ fn ensure_source_closed_block(
     control: &mut CssParseControl<'_>,
 ) -> std::result::Result<(), ParseError<CssViolation>> {
     let raw_block = input.slice(token_start..input.position());
+
     if source_ends_with_close(raw_block, close, control).map_err(ParseError::custom)?
         && source_closes_initial_block(raw_block, close, control).map_err(ParseError::custom)?
     {
@@ -757,11 +810,14 @@ fn source_ends_with_close(
 ) -> std::result::Result<bool, CssViolation> {
     for character in raw_block.chars().rev() {
         control.observe()?;
+
         if character.is_whitespace() {
             continue;
         }
+
         return Ok(character == close);
     }
+
     Ok(false)
 }
 
@@ -779,9 +835,11 @@ fn source_closes_initial_block(
     probe.push_str(SENTINEL);
 
     let mut parser = Parser::new(&probe);
+
     let Ok(token) = parser.next_including_whitespace().cloned() else {
         return Ok(false);
     };
+
     if !opening_token_matches_close(&token, close) {
         return Ok(false);
     }
@@ -789,18 +847,24 @@ fn source_closes_initial_block(
     let nested_result = parser.parse_nested_block(|nested| {
         loop {
             control.step()?;
+
             if nested.next_including_whitespace().is_err() {
                 break;
             }
         }
+
         Ok::<_, ParseError<CssViolation>>(())
     });
-    if let Err(error) = nested_result {
-        return if is_cancelled_parse_error(&error) {
-            Err(CssViolation::Cancelled)
-        } else {
-            Ok(false)
-        };
+
+    match nested_result {
+        Err(error) => {
+            return if is_cancelled_parse_error(&error) {
+                Err(CssViolation::Cancelled)
+            } else {
+                Ok(false)
+            };
+        },
+        ::core::result::Result::Ok(_) => {},
     }
 
     control.observe()?;
@@ -810,6 +874,7 @@ fn source_closes_initial_block(
     ))
 }
 
+#[must_use]
 fn opening_token_matches_close(token: &Token<'_>, close: char) -> bool {
     match token {
         Token::Function(_) | Token::ParenthesisBlock => close == ')',
@@ -829,6 +894,7 @@ fn rewrite_quoted_url(
     let url_start = input.position();
     let url = input.expect_string_cloned()?;
     input.expect_exhausted()?;
+
     if is_unsafe_render_resource_url_value(&url) {
         return Err(ParseError::custom(CssViolation::UnsafeUrl));
     }
@@ -848,8 +914,9 @@ fn consume_component_values(
         let token = match input.next_including_whitespace() {
             Ok(token) => token.clone(),
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => return Ok(()),
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<crate::svg::pipeline::builtin::css_sanitize::CssViolation> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
+
         if matches!(
             token,
             Token::Function(_)
@@ -865,11 +932,13 @@ fn consume_component_values(
     }
 }
 
+#[must_use]
 fn is_animation_property(property: &str) -> bool {
-    let property = property.to_ascii_lowercase();
-    property == "animation" || property.starts_with("animation-")
+    let property_2 = property.to_ascii_lowercase();
+    property_2 == "animation" || property_2.starts_with("animation-")
 }
 
+#[must_use]
 fn is_marker_reference_property(property: &str) -> bool {
     matches!(
         property.to_ascii_lowercase().as_str(),
@@ -895,6 +964,7 @@ fn parser_contains_root_selector(
     control: &mut CssParseControl<'_>,
 ) -> std::result::Result<bool, ParseError<CssViolation>> {
     let mut after_colon = false;
+
     loop {
         control.step()?;
         let token = match input.next_including_whitespace() {
@@ -902,8 +972,9 @@ fn parser_contains_root_selector(
             Err(error) if matches!(error.kind, BasicParseErrorKind::EndOfInput) => {
                 return Ok(false);
             }
-            Err(error) => return Err(error.into()),
+            Err(error) => return Err(<::cssparser::ParseError<crate::svg::pipeline::builtin::css_sanitize::CssViolation> as ::core::convert::From<::cssparser::BasicParseError>>::from(error)),
         };
+
         match token {
             Token::Colon => after_colon = true,
             Token::Ident(name) if after_colon && name.eq_ignore_ascii_case("root") => {
@@ -913,21 +984,30 @@ fn parser_contains_root_selector(
                 if after_colon && name.eq_ignore_ascii_case("root") {
                     return Ok(true);
                 }
+
                 let nested_depth = depth.descend()?;
-                if input.parse_nested_block(|nested| {
+
+                let checked_value = input.parse_nested_block(|nested| {
                     parser_contains_root_selector(nested, nested_depth, control)
-                })? {
+                })?;
+
+                if checked_value {
                     return Ok(true);
                 }
+
                 after_colon = false;
             }
             Token::ParenthesisBlock | Token::SquareBracketBlock | Token::CurlyBracketBlock => {
                 let nested_depth = depth.descend()?;
-                if input.parse_nested_block(|nested| {
+
+                let checked_value_2 = input.parse_nested_block(|nested| {
                     parser_contains_root_selector(nested, nested_depth, control)
-                })? {
+                })?;
+
+                if checked_value_2 {
                     return Ok(true);
                 }
+
                 after_colon = false;
             }
             Token::WhiteSpace(_) => {}
@@ -936,6 +1016,7 @@ fn parser_contains_root_selector(
     }
 }
 
+#[must_use]
 fn is_cancelled_parse_error(error: &ParseError<CssViolation>) -> bool {
     matches!(
         &error.kind,
@@ -943,6 +1024,7 @@ fn is_cancelled_parse_error(error: &ParseError<CssViolation>) -> bool {
     )
 }
 
+#[must_use]
 fn format_parse_error(error: ParseError<CssViolation>) -> String {
     error.to_string()
 }

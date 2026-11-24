@@ -26,22 +26,26 @@ struct TerminalLane {
     rect: RectBounds,
 }
 
+#[must_use]
 fn orthogonally_aligned(first: &LayoutPoint, second: &LayoutPoint) -> bool {
     same_x(first, second, EPSILON) || same_y(first, second, EPSILON)
 }
 
+#[must_use]
 fn rect_intersection(node: &WorkingNode, point: &LayoutPoint) -> LayoutPoint {
     let delta_x = point.x - node.x;
     let delta_y = point.y - node.y;
     let mut half_width = node.width / 2.0;
     let mut half_height = node.height / 2.0;
+
     if delta_y.abs() * half_width > delta_x.abs() * half_height {
         if delta_y < 0.0 {
             half_height = -half_height;
         }
+
         return LayoutPoint {
             x: node.x
-                + if delta_y == 0.0 {
+                + if ::core::matches!(::core::primitive::f64::classify(delta_y), ::core::num::FpCategory::Zero) {
                     0.0
                 } else {
                     half_height * delta_x / delta_y
@@ -49,13 +53,15 @@ fn rect_intersection(node: &WorkingNode, point: &LayoutPoint) -> LayoutPoint {
             y: node.y + half_height,
         };
     }
+
     if delta_x < 0.0 {
         half_width = -half_width;
     }
+
     LayoutPoint {
         x: node.x + half_width,
         y: node.y
-            + if delta_x == 0.0 {
+            + if ::core::matches!(::core::primitive::f64::classify(delta_x), ::core::num::FpCategory::Zero) {
                 0.0
             } else {
                 half_width * delta_y / delta_x
@@ -63,6 +69,7 @@ fn rect_intersection(node: &WorkingNode, point: &LayoutPoint) -> LayoutPoint {
     }
 }
 
+#[must_use]
 fn terminal_lane_for(
     edges: &[WorkingEdge],
     nodes: &indexmap::IndexMap<String, WorkingNode>,
@@ -72,9 +79,11 @@ fn terminal_lane_for(
 ) -> Option<TerminalLane> {
     let edge = &edges[edge_index];
     let points = dedupe_consecutive_points(replacement.unwrap_or(&edge.points), EPSILON);
+
     if points.len() < 2 {
         return None;
     }
+
     let node_id = if at_start { &edge.from } else { &edge.to };
     let node = nodes.get(node_id)?;
     let rect = rect_of_node_bounds(node)?;
@@ -105,6 +114,7 @@ fn terminal_lane_for(
             rect,
         });
     }
+
     if same_y(&boundary, &rail_end, EPSILON) {
         return Some(TerminalLane {
             edge_index,
@@ -119,17 +129,21 @@ fn terminal_lane_for(
             rect,
         });
     }
+
     None
 }
 
+#[must_use]
 fn projected_overlap_length(first: &TerminalLane, second: &TerminalLane) -> f64 {
     (first.maximum.min(second.maximum) - first.minimum.max(second.minimum)).max(0.0)
 }
 
+#[must_use]
 fn same_terminal_face(first: &TerminalLane, second: &TerminalLane) -> bool {
     if first.node_id != second.node_id || first.orientation != second.orientation {
         return false;
     }
+
     match first.orientation {
         Orientation::Horizontal => {
             let on_horizontal_face = (first.boundary.x - first.rect.left).abs() < 1.0
@@ -144,6 +158,7 @@ fn same_terminal_face(first: &TerminalLane, second: &TerminalLane) -> bool {
     }
 }
 
+#[must_use]
 fn exact_terminal_lane_conflict(first: &TerminalLane, second: &TerminalLane) -> bool {
     first.node_id == second.node_id
         && first.orientation == second.orientation
@@ -151,6 +166,7 @@ fn exact_terminal_lane_conflict(first: &TerminalLane, second: &TerminalLane) -> 
         && (first.coordinate - second.coordinate).abs() < 0.5
 }
 
+#[must_use]
 fn near_terminal_lane_conflict(first: &TerminalLane, second: &TerminalLane) -> bool {
     if first.node_id != second.node_id
         || first.orientation != second.orientation
@@ -159,10 +175,13 @@ fn near_terminal_lane_conflict(first: &TerminalLane, second: &TerminalLane) -> b
     {
         return false;
     }
+
     let shared = projected_overlap_length(first, second);
+
     if shared < MINIMUM_SHARED_LENGTH {
         return false;
     }
+
     let face_span = first.rect.bottom - first.rect.top;
     shared >= face_span
         && shared <= 2.0 * face_span
@@ -170,15 +189,18 @@ fn near_terminal_lane_conflict(first: &TerminalLane, second: &TerminalLane) -> b
         && (first.coordinate - second.coordinate).abs() < MINIMUM_FACE_CLEARANCE
 }
 
+#[must_use]
 fn shifted_candidate(
     lane: &TerminalLane,
     edges: &[WorkingEdge],
     shift: f64,
 ) -> Option<Vec<LayoutPoint>> {
     let points = dedupe_consecutive_points(&edges[lane.edge_index].points, EPSILON);
+
     if points.len() < 2 {
         return None;
     }
+
     let shifted_boundary = match lane.orientation {
         Orientation::Vertical => LayoutPoint {
             x: lane.boundary.x + shift,
@@ -215,6 +237,7 @@ fn shifted_candidate(
     } else {
         false
     };
+
     if !boundary_stays_on_same_face {
         return None;
     }
@@ -223,12 +246,14 @@ fn shifted_candidate(
         let rail_end_is_adjacent = same_point(&points[1], &lane.rail_end, EPSILON);
         let rest_start = if rail_end_is_adjacent { 2 } else { 1 };
         let rest = &points[rest_start..];
+
         if rest
             .first()
             .is_some_and(|next| !orthogonally_aligned(next, &shifted_rail_end))
         {
             return None;
         }
+
         let mut candidate = vec![shifted_boundary, shifted_rail_end];
         candidate.extend_from_slice(rest);
         return Some(candidate);
@@ -241,18 +266,21 @@ fn shifted_candidate(
         points.len() - 1
     };
     let before = &points[..before_end];
+
     if before
         .last()
         .is_some_and(|previous| !orthogonally_aligned(previous, &shifted_rail_end))
     {
         return None;
     }
+
     let mut candidate = before.to_vec();
     candidate.push(shifted_rail_end);
     candidate.push(shifted_boundary);
     Some(candidate)
 }
 
+#[must_use]
 fn lane_is_straight_collinear_connector(
     lane: &TerminalLane,
     edges: &[WorkingEdge],
@@ -260,12 +288,21 @@ fn lane_is_straight_collinear_connector(
 ) -> bool {
     let edge = &edges[lane.edge_index];
     let points = dedupe_consecutive_points(&edge.points, EPSILON);
+
     if points.len() != 2 {
         return false;
     }
-    let (Some(start), Some(end)) = (nodes.get(&edge.from), nodes.get(&edge.to)) else {
-        return false;
+
+    let (start, end) = {
+        let outcome_start = (nodes.get(&edge.from), nodes.get(&edge.to));
+
+        match outcome_start {
+            (Some(matched_start), Some(matched_end)) => (matched_start, matched_end),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return false,
+        }
     };
+
     let first = &points[0];
     let second = &points[1];
     (same_y(first, second, EPSILON)
@@ -314,17 +351,20 @@ pub(in crate::swimlane::direction) fn separate_shared_rendered_terminal_lanes(
             .collect();
 
         let mut replacement = None;
+
         'pairs: for first_index in 0..lanes.len() {
-            for second_index in first_index + 1..lanes.len() {
+            'over_second_index_3: for second_index in first_index + 1..lanes.len() {
                 work_budget.charge(1)?;
                 let first = &lanes[first_index];
                 let second = &lanes[second_index];
                 let exact_conflict = exact_terminal_lane_conflict(first, second);
+
                 if first.edge_index == second.edge_index
                     || (!exact_conflict && !near_terminal_lane_conflict(first, second))
                 {
-                    continue;
+                    continue 'over_second_index_3;
                 }
+
                 let fixing_near_conflict = !exact_conflict;
                 let mut candidates = vec![first, second];
                 candidates.sort_by_key(|lane| {
@@ -337,15 +377,22 @@ pub(in crate::swimlane::direction) fn separate_shared_rendered_terminal_lanes(
                         lane.at_start,
                     )
                 });
+
                 for lane in candidates {
-                    for shift in SHIFTS {
+                    'over_shift_5: for shift in SHIFTS {
                         work_budget.charge(layout.original_edges[lane.edge_index].points.len())?;
-                        let Some(candidate) =
-                            shifted_candidate(lane, &layout.original_edges, shift)
-                        else {
-                            continue;
+
+                        let candidate = {
+                            let optional_candidate = shifted_candidate(lane, &layout.original_edges, shift);
+
+                            match optional_candidate {
+                                Some(matched_candidate) => matched_candidate,
+                                ::core::option::Option::None => continue 'over_shift_5,
+                            }
                         };
+
                         work_budget.charge(1)?;
+
                         let Some(next_lane) = terminal_lane_for(
                             &layout.original_edges,
                             &layout.nodes,
@@ -353,8 +400,9 @@ pub(in crate::swimlane::direction) fn separate_shared_rendered_terminal_lanes(
                             lane.at_start,
                             Some(&candidate),
                         ) else {
-                            continue;
+                            continue 'over_shift_5;
                         };
+
                         work_budget.charge(lanes.len().saturating_sub(1))?;
                         let conflicts = lanes.iter().any(|other| {
                             other.edge_index != lane.edge_index
@@ -362,6 +410,7 @@ pub(in crate::swimlane::direction) fn separate_shared_rendered_terminal_lanes(
                                     || (fixing_near_conflict
                                         && near_terminal_lane_conflict(&next_lane, other)))
                         });
+
                         if !conflicts {
                             replacement = Some((lane.edge_index, candidate));
                             break 'pairs;
@@ -370,10 +419,14 @@ pub(in crate::swimlane::direction) fn separate_shared_rendered_terminal_lanes(
                 }
             }
         }
-        let Some((edge_index, points)) = replacement else {
-            return Ok(());
+
+        let (edge_index, points) = match replacement {
+            Some((matched_edge_index, matched_points)) => (matched_edge_index, matched_points),
+            ::core::option::Option::None => return Ok(()),
         };
+
         layout.original_edges[edge_index].points = points;
     }
+
     Ok(())
 }

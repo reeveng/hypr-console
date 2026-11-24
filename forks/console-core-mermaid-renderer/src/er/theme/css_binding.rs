@@ -34,6 +34,7 @@ pub(crate) struct ErCssBinding {
 }
 
 impl ErCssBinding {
+    #[must_use]
     pub(super) fn source_fill_owns_odd_rows(&self) -> bool {
         matches!(
             self.theme_name.as_str(),
@@ -41,6 +42,7 @@ impl ErCssBinding {
         )
     }
 
+    #[must_use]
     pub(crate) fn resolve(
         config: &serde_json::Value,
         fonts: &InheritedFontStackPlan,
@@ -48,7 +50,10 @@ impl ErCssBinding {
     ) -> Self {
         let option = |key: &str| config_string(config, &["themeVariables", key]);
         let color = |key: &str, fallback: &str| option(key).unwrap_or_else(|| fallback.to_owned());
-        let theme_name = config_string(config, &["theme"]).unwrap_or_else(|| "default".into());
+        let theme_name = match config_string(config, &["theme"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("default"),
+        };
         let redux_color_theme = matches!(theme_name.as_str(), "redux-color" | "redux-dark-color");
         let text_color = color("textColor", "#333");
         let main_bkg = color("mainBkg", "#ECECFF");
@@ -59,12 +64,14 @@ impl ErCssBinding {
             .then(|| option("erEdgeLabelBackground"))
             .flatten();
         let label_background = er_background.clone().map_or_else(|| faded.clone(), Ok);
-        let gradient = config_bool(config, &["themeVariables", "useGradient"])
-            .unwrap_or(false)
+        let gradient = match config_bool(config, &["themeVariables", "useGradient"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => false,
+        }
             .then(|| {
                 let start = option("gradientStart")
                     .or_else(|| option("primaryBorderColor"))
-                    .unwrap_or_else(|| "#9370DB".into());
+                    .unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("#9370DB"));
                 let stop = option("gradientStop")
                     .or_else(|| option("secondaryBorderColor"))
                     .unwrap_or_else(|| start.clone());
@@ -110,17 +117,21 @@ impl ErCssBinding {
             label_background,
             neo_label_background: faded,
             stroke_width: if config_diagram_look(config).is_neo() {
-                crate::config::config_css_number_or_string(
+                match crate::config::config_css_number_or_string(
                     config,
                     &["themeVariables", "strokeWidth"],
-                )
-                .unwrap_or_else(|| "1px".into())
+                ) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("1px"),
+                }
             } else {
-                "1px".into()
+                <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("1px")
             },
-            neo_marker_stroke_width: config_f64_css_px(config, &["themeVariables", "strokeWidth"])
-                .filter(|value| value.is_finite())
-                .unwrap_or(1.0)
+            neo_marker_stroke_width: match config_f64_css_px(config, &["themeVariables", "strokeWidth"])
+                .filter(|value| value.is_finite()) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 1.0,
+            }
                 .max(0.0),
             row_odd: option("rowOdd"),
             row_even: option("rowEven"),

@@ -5,6 +5,9 @@ Unlike lowp, this one implements all stages.
 
 Just like Skia, this pipeline is implemented using f32x8.
 
+Bilinear sampling computes the weight fraction and the two tap positions with
+separate half-pixel offsets to preserve their rounding.
+
 For some reason, we are almost 2x slower. Maybe because Skia uses clang's vector extensions
 and we're using a manual implementation.
 */
@@ -364,20 +367,20 @@ fn gather_ix(pixmap: PixmapRef, x: f32x8, y: f32x8) -> Result<u32x8, Never> {
     let Ok(height) = pixmap.height();
     let Ok(columns) = nearest_f32_from_u64(u64::from(width));
     let Ok(rows) = nearest_f32_from_u64(u64::from(height));
-    let below_width = f32::from_bits(columns.to_bits().wrapping_sub(1));
-    let below_height = f32::from_bits(rows.to_bits().wrapping_sub(1));
-    let Ok(max_x) = f32x8::splat(below_width);
-    let Ok(max_y) = f32x8::splat(below_height);
-    let Ok(nonnegative_x) = x.max(f32x8::default());
-    let Ok(nonnegative_y) = y.max(f32x8::default());
-    let Ok(clipped_x) = nonnegative_x.min(max_x);
-    let Ok(clipped_y) = nonnegative_y.min(max_y);
-    let Ok(column) = clipped_x.trunc_int();
-    let Ok(row) = clipped_y.trunc_int();
+    let Ok(column) = sample_coordinate(x, columns.to_bits());
+    let Ok(row) = sample_coordinate(y, rows.to_bits());
     let Ok(width_i32) = wrapped::<_, i32>(width);
     let Ok(stride) = i32x8::splat(width_i32);
 
     (row * stride + column).to_u32x8_bitcast()
+}
+
+#[inline(always)]
+fn sample_coordinate(value: f32x8, bound_bits: u32) -> Result<i32x8, Never> {
+    let Ok(last) = f32x8::splat(f32::from_bits(bound_bits.wrapping_sub(1)));
+    let Ok(nonnegative) = value.max(f32x8::default());
+    let Ok(clamped) = nonnegative.min(last);
+    clamped.trunc_int()
 }
 
 fn load_mask_u8(_: &mut Pipeline) -> core::result::Result<(), console_core_never::Never> {
@@ -536,7 +539,7 @@ blend_fn2!(color_burn, |s: f32x8, d: f32x8, sa: f32x8, da: f32x8|
         d + s * ({ let Ok(explicit_value) = inv(da); explicit_value }),
         { let Ok(explicit_value) = ({ let Ok(explicit_value) = s.cmp_eq(f32x8::default()); explicit_value }).blend(
             d * ({ let Ok(explicit_value) = inv(sa); explicit_value }),
-            sa * (da - ({ let Ok(explicit_value) = da.min((da - d) * sa * ({ let Ok(explicit_value) = s.recip_fast(); explicit_value })); explicit_value })) + s * ({ let Ok(explicit_value) = inv(da); explicit_value }) + d * ({ let Ok(explicit_value) = inv(sa); explicit_value })
+            sa * (da - ({ let Ok(explicit_value) = da.min((da - d) * sa * ({ let Ok(explicit_value) = s.reciprocal(); explicit_value })); explicit_value })) + s * ({ let Ok(explicit_value) = inv(da); explicit_value }) + d * ({ let Ok(explicit_value) = inv(sa); explicit_value })
         ); explicit_value }
     ); explicit_value }
 );
@@ -546,7 +549,7 @@ blend_fn2!(color_dodge, |s: f32x8, d: f32x8, sa: f32x8, da: f32x8|
         s * ({ let Ok(explicit_value) = inv(da); explicit_value }),
         { let Ok(explicit_value) = ({ let Ok(explicit_value) = s.cmp_eq(sa); explicit_value }).blend(
             s + d * ({ let Ok(explicit_value) = inv(sa); explicit_value }),
-            sa * ({ let Ok(explicit_value) = da.min((d * sa) * ({ let Ok(explicit_value) = (sa - s).recip_fast(); explicit_value })); explicit_value }) + s * ({ let Ok(explicit_value) = inv(da); explicit_value }) + d * ({ let Ok(explicit_value) = inv(sa); explicit_value })
+            sa * ({ let Ok(explicit_value) = da.min((d * sa) * ({ let Ok(explicit_value) = (sa - s).reciprocal(); explicit_value })); explicit_value }) + s * ({ let Ok(explicit_value) = inv(da); explicit_value }) + d * ({ let Ok(explicit_value) = inv(sa); explicit_value })
         ); explicit_value }
     ); explicit_value }
 );
@@ -837,20 +840,86 @@ fn exclusive_repeat(v: f32x8, TileCtx { scale: limit, inv_scale: inv_limit }: Ti
 }
 
 fn bilinear(p: &mut Pipeline) -> core::result::Result<(), console_core_never::Never> {
-    let x = p.r;
-    let fx = { let Ok(explicit_value) = (x + ({ let Ok(explicit_value) = f32x8::splat(0.5); explicit_value })).fract(); explicit_value };
-    let y = p.g;
-    let fy = { let Ok(explicit_value) = (y + ({ let Ok(explicit_value) = f32x8::splat(0.5); explicit_value })).fract(); explicit_value };
-    let one = { let Ok(explicit_value) = f32x8::splat(1.0); explicit_value };
-    let wx = [one - fx, fx];
-    let wy = [one - fy, fy];
-
-    let Ok(offset) = f32x8::splat(-0.5);
-    let Ok([r, g, b, a]) = sample_window(p.pixmap_src, &p.ctx.sampler, [x, y], [wx, wy], offset);
+    let Ok([r, g, b, a]) = sample_bilinear(p.pixmap_src, &p.ctx.sampler, [p.r, p.g]);
     (p.r, p.g, p.b, p.a) = (r, g, b, a);
 
+    p.next_stage()
+}
 
-    ({ let Ok(explicit_value) = p.next_stage(); explicit_value });
+#[inline(always)]
+fn bilinear_axis(
+    center: f32x8,
+    mode: SpreadMode,
+    limits: TileCtx,
+) -> Result<([i32x8; 2], [f32x8; 2]), Never> {
+    let Ok(half) = f32x8::splat(0.5);
+    let Ok(one) = f32x8::splat(1.0);
+    let Ok(fraction) = (center + half).fract();
+    let first = center - half;
+    let Ok(lower_sample) = tile(first, mode, limits);
+    let Ok(upper_sample) = tile(first + one, mode, limits);
+    let Ok(lower) = sample_coordinate(lower_sample, limits.scale.to_bits());
+    let Ok(upper) = sample_coordinate(upper_sample, limits.scale.to_bits());
+    Ok(([lower, upper], [one - fraction, fraction]))
+}
+
+#[inline(always)]
+fn sample_bilinear(
+    pixmap: PixmapRef,
+    ctx: &super::SamplerCtx,
+    [x, y]: [f32x8; 2],
+) -> Result<[f32x8; 4], Never> {
+    let Ok((columns, weights_x)) = bilinear_axis(x, ctx.spread_mode, ctx.horizontal);
+    let Ok((rows, weights_y)) = bilinear_axis(y, ctx.spread_mode, ctx.vertical);
+    let Ok(width) = pixmap.width();
+    let Ok(width_i32) = wrapped::<_, i32>(width);
+    let Ok(stride) = i32x8::splat(width_i32);
+    let mut color = [f32x8::default(); 4];
+
+    for (row, weight_y) in rows.into_iter().zip(weights_y) {
+        let row_start = row * stride;
+
+        for (column, weight_x) in columns.into_iter().zip(weights_x) {
+            let Ok(indices) = (row_start + column).to_u32x8_bitcast();
+            let Ok(texel) = load_sample(pixmap, indices);
+            let Ok(()) = accumulate_sample(&mut color, texel, weight_x * weight_y);
+        }
+    }
+
+    Ok(color)
+}
+
+#[cfg(test)]
+#[test]
+fn bilinear_reuses_coordinates_without_changing_the_sample()
+    -> Result<(), crate::test_support::TestFailure>
+{
+    use crate::test_support::Required;
+
+    let texels: [[u8; 4]; 12] = [
+        [0, 9, 24, 90], [96, 37, 48, 150], [123, 80, 17, 160], [13, 54, 72, 200],
+        [17, 77, 89, 120], [220, 6, 183, 244], [0, 14, 54, 87], [9, 13, 20, 232],
+        [35, 18, 57, 64], [83, 12, 4, 90], [142, 24, 0, 255], [0, 3, 56, 99],
+    ];
+    let (width, height) = (4, 3);
+    let Ok(image) = PixmapRef::from_bytes(bytemuck::cast_slice(&texels), width, height);
+    let pixmap = image.required()?;
+    let horizontal = TileCtx { scale: 4.0, inv_scale: 0.25 };
+    let vertical = TileCtx { scale: 3.0, inv_scale: 1.0 / 3.0 };
+    let x = f32x8::from([-8.75, -0.875, 0.0, 0.5, 1.499_999_9, 2.125, 3.75, 5.625]);
+    let y = f32x8::from([1.25, 0.0, -0.875, 2.75, 0.5, 1.125, 3.25, 8.625]);
+    let Ok(half) = f32x8::splat(0.5);
+    let Ok(one) = f32x8::splat(1.0);
+    let Ok(offset) = f32x8::splat(-0.5);
+    let Ok(fx) = (x + half).fract();
+    let Ok(fy) = (y + half).fract();
+
+    for spread_mode in [SpreadMode::Pad, SpreadMode::Repeat, SpreadMode::Reflect] {
+        let ctx = super::SamplerCtx { spread_mode, horizontal, vertical };
+        let Ok(expected) = sample_window(pixmap, &ctx, [x, y], [[one - fx, fx], [one - fy, fy]], offset);
+        let Ok(actual) = sample_bilinear(pixmap, &ctx, [x, y]);
+        assert_eq!(actual, expected, "{spread_mode:?}");
+    }
 
     Ok(())
 }
@@ -912,12 +981,7 @@ fn sample_window<const N: usize>(
 
         for weight_x in weights_x {
             let Ok(texel) = sample(pixmap, ctx, [x, y]);
-            let weight = weight_x * weight_y;
-
-            for (target, source) in color.iter_mut().zip(texel) {
-                let Ok(accumulated) = mad(weight, source, *target);
-                *target = accumulated;
-            }
+            let Ok(()) = accumulate_sample(&mut color, texel, weight_x * weight_y);
 
             x += one;
         }
@@ -929,10 +993,29 @@ fn sample_window<const N: usize>(
 }
 
 #[inline(always)]
+fn accumulate_sample(
+    color: &mut [f32x8; 4],
+    texel: [f32x8; 4],
+    weight: f32x8,
+) -> Result<(), Never> {
+    for (target, source) in color.iter_mut().zip(texel) {
+        let Ok(accumulated) = mad(weight, source, *target);
+        *target = accumulated;
+    }
+
+    Ok(())
+}
+
+#[inline(always)]
 fn sample(pixmap: PixmapRef, ctx: &super::SamplerCtx, [x,y]: [f32x8; 2]) -> Result<[f32x8; 4], Never> {
     let Ok(tx) = tile(x, ctx.spread_mode, ctx.horizontal);
     let Ok(ty) = tile(y, ctx.spread_mode, ctx.vertical);
     let Ok(indices) = gather_ix(pixmap, tx, ty);
+    load_sample(pixmap, indices)
+}
+
+#[inline(always)]
+fn load_sample(pixmap: PixmapRef, indices: u32x8) -> Result<[f32x8; 4], Never> {
     let Ok(texels) = pixmap.gather(indices);
     let mut rgba = [f32x8::default(); 4];
     let [red, green, blue, alpha] = &mut rgba;
@@ -1158,7 +1241,7 @@ fn mask_2pt_conical_nan(p: &mut Pipeline) -> core::result::Result<(), console_co
     let t = p.r;
     let is_degenerate = { let Ok(explicit_value) = t.cmp_ne(t); explicit_value };
     p.r = { let Ok(explicit_value) = is_degenerate.blend(f32x8::default(), t); explicit_value };
-    ctx.mask = { let Ok(explicit_value) = cond_to_mask(!({ let Ok(explicit_value) = is_degenerate.to_u32x8_bitcast(); explicit_value })); explicit_value };
+    ctx.mask = { let Ok(explicit_value) = cond_to_mask(!({ let Ok(explicit_value) = is_degenerate.to_u32x8_mask(); explicit_value })); explicit_value };
 
     ({ let Ok(explicit_value) = p.next_stage(); explicit_value });
 
@@ -1171,7 +1254,7 @@ fn mask_2pt_conical_degenerates(p: &mut Pipeline) -> core::result::Result<(), co
     let t = p.r;
     let is_degenerate = ({ let Ok(explicit_value) = t.cmp_le(f32x8::default()); explicit_value }) | ({ let Ok(explicit_value) = t.cmp_ne(t); explicit_value });
     p.r = { let Ok(explicit_value) = is_degenerate.blend(f32x8::default(), t); explicit_value };
-    ctx.mask = { let Ok(explicit_value) = cond_to_mask(!({ let Ok(explicit_value) = is_degenerate.to_u32x8_bitcast(); explicit_value })); explicit_value };
+    ctx.mask = { let Ok(explicit_value) = cond_to_mask(!({ let Ok(explicit_value) = is_degenerate.to_u32x8_mask(); explicit_value })); explicit_value };
 
     ({ let Ok(explicit_value) = p.next_stage(); explicit_value });
 
@@ -1437,7 +1520,7 @@ fn store_8888_tail(
 
 #[inline(always)]
 fn unnorm(v: &f32x8) -> core::result::Result<i32x8, console_core_never::Never> {
-    Ok({ let Ok(explicit_value) = (({ let Ok(explicit_value) = ({ let Ok(explicit_value) = v.max(f32x8::default()); explicit_value }).min({ let Ok(explicit_value) = f32x8::splat(1.0); explicit_value }); explicit_value }) * ({ let Ok(explicit_value) = f32x8::splat(255.0); explicit_value })).round_int(); explicit_value })
+    v.to_pixel_channels()
 }
 
 #[inline(always)]

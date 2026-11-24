@@ -7,11 +7,12 @@ use super::*;
 use crate::theme::mk_border;
 
 fn inherit(stage: &mut ThemeState, key: &str, source: &str) -> Result<(), ColorError> {
-    // The first stateLabelColor fallback may reference an absent stateBkg. JavaScript leaves
-    // it undefined until the following fallback; no value or provenance exists to copy yet.
+
+
     if stage.variables.contains_key(source) {
-        stage.assign_if_falsy(key, |stage| copy(stage, source))?;
+        stage.assign_if_falsy(key, |stage_2| copy(stage_2, source))?;
     }
+
     Ok(())
 }
 
@@ -19,6 +20,7 @@ fn inherit_many(stage: &mut ThemeState, pairs: &[(&str, &str)]) -> Result<(), Co
     for (key, source) in pairs {
         inherit(stage, key, source)?;
     }
+
     Ok(())
 }
 
@@ -28,8 +30,8 @@ fn transform(
     source: &str,
     operation: impl FnOnce(&str) -> Result<String, ColorError>,
 ) -> Result<(), ColorError> {
-    stage.assign_if_falsy(key, |stage| {
-        transform_color(copy(stage, source)?, operation)
+    stage.assign_if_falsy(key, |stage_2| {
+        transform_color({ let checked_value = copy(stage_2, source)?; checked_value }, operation)
     })
 }
 
@@ -41,9 +43,9 @@ fn adjust(
     saturation: f64,
     lightness: f64,
 ) -> Result<(), ColorError> {
-    stage.assign_if_falsy(key, |stage| {
+    stage.assign_if_falsy(key, |stage_2| {
         adjusted(
-            stage,
+            stage_2,
             source,
             ColorAdjustment::hsl(hue, saturation, lightness),
         )
@@ -57,29 +59,32 @@ fn set_string_if_missing(stage: &mut ThemeState, key: &str, value: &str) -> Resu
 pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
     let dark_mode = stage.variables.get("darkMode").is_some_and(is_js_truthy);
 
-    stage.assign_if_falsy("primaryTextColor", |stage| {
-        Ok(stage.computed(
+    stage.assign_if_falsy("primaryTextColor", |stage_2| {
+        Ok(stage_2.computed(
             Value::String(if dark_mode { "#eee" } else { "#333" }.to_owned()),
             &["darkMode"],
         ))
     })?;
     adjust(stage, "secondaryColor", "primaryColor", -120.0, 0.0, 0.0)?;
     adjust(stage, "tertiaryColor", "primaryColor", 180.0, 0.0, 5.0)?;
+
     for (key, source) in [
         ("primaryBorderColor", "primaryColor"),
         ("secondaryBorderColor", "secondaryColor"),
         ("tertiaryBorderColor", "tertiaryColor"),
         ("noteBorderColor", "noteBkgColor"),
     ] {
-        stage.assign_if_falsy(key, |stage| {
+        stage.assign_if_falsy(key, |stage_3| {
             let mut value =
-                transform_color(copy(stage, source)?, |color| mk_border(color, dark_mode))?;
-            value.inherit(stage, "darkMode");
+                transform_color({ let checked_value = copy(stage_3, source)?; checked_value }, |color| mk_border(color, dark_mode))?;
+            value.inherit(stage_3, "darkMode");
             Ok(value)
         })?;
     }
+
     set_string_if_missing(stage, "noteBkgColor", "#fff5ad")?;
     set_string_if_missing(stage, "noteTextColor", "#333")?;
+
     for (key, source) in [
         ("secondaryTextColor", "secondaryColor"),
         ("tertiaryTextColor", "tertiaryColor"),
@@ -88,6 +93,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
     ] {
         transform(stage, key, source, theme_color::invert)?;
     }
+
     inherit_many(
         stage,
         &[
@@ -102,13 +108,13 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
             ("titleColor", "tertiaryTextColor"),
         ],
     )?;
-    stage.assign_if_falsy("edgeLabelBackground", |stage| {
+    stage.assign_if_falsy("edgeLabelBackground", |stage_4| {
         let mut value = if dark_mode {
-            darkened(stage, "secondaryColor", 30.0)?
+            darkened(stage_4, "secondaryColor", 30.0)?
         } else {
-            copy(stage, "secondaryColor")?
+            copy(stage_4, "secondaryColor")?
         };
-        value.inherit(stage, "darkMode");
+        value.inherit(stage_4, "darkMode");
         Ok(value)
     })?;
     inherit_many(
@@ -153,6 +159,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
     transform(stage, "activeTaskBkgColor", "primaryColor", |color| {
         theme_color::lighten(color, 23.0)
     })?;
+
     for (key, value) in [
         ("altSectionBkgColor", "white"),
         ("excludeBkgColor", "#eeeeee"),
@@ -169,6 +176,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
     ] {
         set_string_if_missing(stage, key, value)?;
     }
+
     inherit_many(
         stage,
         &[
@@ -181,22 +189,24 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
             ("personBkg", "mainBkg"),
         ],
     )?;
+
     for (key, amount) in [
         ("rowOdd", if dark_mode { -5.0 } else { 75.0 }),
         ("rowEven", if dark_mode { -10.0 } else { 5.0 }),
     ] {
-        stage.assign_if_falsy(key, |stage| {
-            let mut value = adjusted(stage, "mainBkg", ColorAdjustment::hsl(0.0, 0.0, amount))?;
-            value.inherit(stage, "darkMode");
+        stage.assign_if_falsy(key, |stage_5| {
+            let mut value = adjusted(stage_5, "mainBkg", ColorAdjustment::hsl(0.0, 0.0, amount))?;
+            value.inherit(stage_5, "darkMode");
             Ok(value)
         })?;
     }
+
     inherit_many(
         stage,
         &[
             ("transitionColor", "lineColor"),
             ("transitionLabelColor", "textColor"),
-            // This precedes stateBkg's default assignment in upstream updateColors().
+
             ("stateLabelColor", "stateBkg"),
             ("stateLabelColor", "primaryTextColor"),
             ("stateBkg", "mainBkg"),
@@ -210,8 +220,8 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
             ("errorTextColor", "tertiaryTextColor"),
         ],
     )?;
-    stage.assign("innerEndBackground", |stage| copy(stage, "nodeBorder"))?;
-    stage.assign("specialStateColor", |stage| copy(stage, "lineColor"))?;
+    stage.assign("innerEndBackground", |stage_6| copy(stage_6, "nodeBorder"))?;
+    stage.assign("specialStateColor", |stage_7| copy(stage_7, "lineColor"))?;
 
     inherit_many(
         stage,
@@ -221,6 +231,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
             ("cScale2", "tertiaryColor"),
         ],
     )?;
+
     for (index, hue) in [
         (3, 30.0),
         (4, 60.0),
@@ -238,53 +249,59 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
             "primaryColor",
             hue,
             0.0,
-            if index == 8 { 150.0 } else { 0.0 },
+            match index {
+                8 => { 150.0 },
+                _ => { 0.0 },
+            },
         )?;
     }
-    for_theme_color_indices(stage, |stage, index| {
+
+    for_theme_color_indices(stage, |stage_8, index| {
         let key = format!("cScale{index}");
-        stage.assign(&key, |stage| {
-            let mut value = darkened(stage, &key, if dark_mode { 75.0 } else { 25.0 })?;
-            value.inherit(stage, "darkMode");
+        stage_8.assign(&key, |stage_9| {
+            let mut value = darkened(stage_9, &key, if dark_mode { 75.0 } else { 25.0 })?;
+            value.inherit(stage_9, "darkMode");
             Ok(value)
         })
     })?;
-    for_theme_color_indices(stage, |stage, index| {
+    for_theme_color_indices(stage, |stage_10, index| {
         let source = format!("cScale{index}");
-        stage.assign_if_falsy(&format!("cScaleInv{index}"), |stage| {
-            inverted(stage, &source)
+        stage_10.assign_if_falsy(&format!("cScaleInv{index}"), |stage_11| {
+            inverted(stage_11, &source)
         })?;
-        stage.assign_if_falsy(&format!("cScalePeer{index}"), |stage| {
+        stage_10.assign_if_falsy(&format!("cScalePeer{index}"), |stage_12| {
             let mut value = if dark_mode {
-                lightened(stage, &source, 10.0)?
+                lightened(stage_12, &source, 10.0)?
             } else {
-                darkened(stage, &source, 10.0)?
+                darkened(stage_12, &source, 10.0)?
             };
-            value.inherit(stage, "darkMode");
+            value.inherit(stage_12, "darkMode");
             Ok(value)
         })
     })?;
     inherit(stage, "scaleLabelColor", "labelTextColor")?;
-    for_theme_color_indices(stage, |stage, index| {
-        inherit(stage, &format!("cScaleLabel{index}"), "scaleLabelColor")
+    for_theme_color_indices(stage, |stage_13, index| {
+        inherit(stage_13, &format!("cScaleLabel{index}"), "scaleLabelColor")
     })?;
     let multiplier = if dark_mode { -4.0 } else { -1.0 };
+
     for index in 0..5 {
         for (key, amount) in [
-            (format!("surface{index}"), 5 + index * 3),
-            (format!("surfacePeer{index}"), 8 + index * 3),
+            (format!("surface{index}"), ::core::primitive::i32::wrapping_add(5, ::core::primitive::i32::wrapping_mul(index, 3))),
+            (format!("surfacePeer{index}"), ::core::primitive::i32::wrapping_add(8, ::core::primitive::i32::wrapping_mul(index, 3))),
         ] {
-            stage.assign_if_falsy(&key, |stage| {
+            stage.assign_if_falsy(&key, |stage_14| {
                 let mut value = adjusted(
-                    stage,
+                    stage_14,
                     "mainBkg",
-                    ColorAdjustment::hsl(180.0, -15.0, multiplier * amount as f64),
+                    ColorAdjustment::hsl(180.0, -15.0, multiplier * <f64 as ::core::convert::From<::core::primitive::i32>>::from(amount)),
                 )?;
-                value.inherit(stage, "darkMode");
+                value.inherit(stage_14, "darkMode");
                 Ok(value)
             })?;
         }
     }
+
     inherit_many(
         stage,
         &[
@@ -293,6 +310,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
             ("fillType1", "secondaryColor"),
         ],
     )?;
+
     for (index, source, hue) in [
         (2, "primaryColor", 64.0),
         (3, "secondaryColor", 64.0),
@@ -303,6 +321,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
     ] {
         adjust(stage, &format!("fillType{index}"), source, hue, 0.0, 0.0)?;
     }
+
     inherit_many(
         stage,
         &[
@@ -311,6 +330,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
             ("pie3", "tertiaryColor"),
         ],
     )?;
+
     for (index, source, hue, lightness) in [
         (4, "primaryColor", 0.0, -10.0),
         (5, "secondaryColor", 0.0, -10.0),
@@ -324,6 +344,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
     ] {
         adjust(stage, &format!("pie{index}"), source, hue, 0.0, lightness)?;
     }
+
     inherit_many(
         stage,
         &[
@@ -332,6 +353,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
             ("pieLegendTextColor", "taskTextDarkColor"),
         ],
     )?;
+
     for (key, value) in [
         ("pieTitleTextSize", "25px"),
         ("pieSectionTextSize", "17px"),
@@ -344,7 +366,8 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
     ] {
         set_string_if_missing(stage, key, value)?;
     }
-    // Venn uses nullish coalescing, unlike the truthiness fallbacks above.
+
+
     for (index, source, hue) in [
         (1, "primaryColor", 0.0),
         (2, "secondaryColor", 0.0),
@@ -356,10 +379,12 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
         (8, "secondaryColor", 120.0),
     ] {
         let key = format!("venn{index}");
+
         if stage.variables.get(&key).is_none_or(Value::is_null) {
             adjust(stage, &key, source, hue, 0.0, -30.0)?;
         }
     }
+
     for (key, source) in [
         ("vennTitleTextColor", "titleColor"),
         ("vennSetTextColor", "textColor"),
@@ -374,6 +399,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
     )?;
     update_radar(stage)?;
     update_wardley(stage, "#dc3545", "background")?;
+
     for (key, value) in [
         ("archEdgeColor", "#777"),
         ("archEdgeArrowColor", "#777"),
@@ -383,6 +409,7 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
     ] {
         set_string_if_missing(stage, key, value)?;
     }
+
     update_quadrant(stage)?;
     update_xy_chart(
         stage,
@@ -398,13 +425,13 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
         ],
     )?;
     set_string_if_missing(stage, "requirementBorderSize", "1")?;
-    stage.assign_if_falsy("relationLabelBackground", |stage| {
+    stage.assign_if_falsy("relationLabelBackground", |stage_15| {
         let mut value = if dark_mode {
-            darkened(stage, "secondaryColor", 30.0)?
+            darkened(stage_15, "secondaryColor", 30.0)?
         } else {
-            copy(stage, "secondaryColor")?
+            copy(stage_15, "secondaryColor")?
         };
-        value.inherit(stage, "darkMode");
+        value.inherit(stage_15, "darkMode");
         Ok(value)
     })?;
     inherit(stage, "relationLabelColor", "actorTextColor")?;
@@ -416,21 +443,24 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
             ("git2", "tertiaryColor"),
         ],
     )?;
+
     for (index, hue) in [(3, -30.0), (4, -60.0), (5, -90.0), (6, 60.0), (7, 120.0)] {
         adjust(stage, &format!("git{index}"), "primaryColor", hue, 0.0, 0.0)?;
     }
+
     for index in 0..8 {
         let key = format!("git{index}");
-        stage.assign(&key, |stage| {
+        stage.assign(&key, |stage_16| {
             let mut value = if dark_mode {
-                lightened(stage, &key, 25.0)?
+                lightened(stage_16, &key, 25.0)?
             } else {
-                darkened(stage, &key, 25.0)?
+                darkened(stage_16, &key, 25.0)?
             };
-            value.inherit(stage, "darkMode");
+            value.inherit(stage_16, "darkMode");
             Ok(value)
         })?;
     }
+
     for index in 0..8 {
         transform(
             stage,
@@ -439,22 +469,25 @@ pub(super) fn update(stage: &mut ThemeState) -> Result<(), ColorError> {
             theme_color::invert,
         )?;
     }
-    stage.assign_if_falsy("branchLabelColor", |stage| {
+
+    stage.assign_if_falsy("branchLabelColor", |stage_17| {
         let mut value = if dark_mode {
             ComputedValue::string("black")
         } else {
-            copy(stage, "labelTextColor")?
+            copy(stage_17, "labelTextColor")?
         };
-        value.inherit(stage, "darkMode");
+        value.inherit(stage_17, "darkMode");
         Ok(value)
     })?;
+
     for index in 0..8 {
         inherit(stage, &format!("gitBranchLabel{index}"), "branchLabelColor")?;
     }
+
     update_tags(stage)?;
     update_event_modeling_light(stage)?;
-    stage.assign("gradientStart", |stage| copy(stage, "primaryBorderColor"))?;
-    stage.assign("gradientStop", |stage| copy(stage, "secondaryBorderColor"))?;
+    stage.assign("gradientStart", |stage_18| copy(stage_18, "primaryBorderColor"))?;
+    stage.assign("gradientStop", |stage_19| copy(stage_19, "secondaryBorderColor"))?;
     Ok(())
 }
 

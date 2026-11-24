@@ -44,6 +44,7 @@ fn normalize_user_coords<T>(
       }
     }
   };
+
   Ok(())
 }
 
@@ -80,6 +81,7 @@ fn apply_avar_mappings<T>(
       }
     }
   };
+
   Ok(())
 }
 
@@ -94,6 +96,7 @@ fn to_normalized_coords(
       *target_coord = value_2;
     }
   };
+
   Ok(())
 }
 

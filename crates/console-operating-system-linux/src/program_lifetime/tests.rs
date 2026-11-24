@@ -60,6 +60,39 @@ fn dropping_it_ends_the_child() -> Result<(), Box<dyn Error>> {
 }
 
 #[test]
+fn a_scoped_child_can_be_interrupted_and_reaped_before_drop() -> Result<(), Box<dyn Error>> {
+  use std::os::unix::process::ExitStatusExt;
+
+  let Ok(mut command) = Program::Sleep.command();
+  command.arg("600");
+  let mut running = alongside(&mut command)?;
+  let Ok(id) = running.id();
+  let status = running.interrupt_and_wait(Signal::TERM, Duration::from_secs(2))?;
+
+  assert_eq!(status.signal(), Some(Signal::TERM.as_raw()));
+  let process = process_of(id)?;
+  assert_eq!(process_presence(process), Ok(Still::Ended));
+
+  Ok(())
+}
+
+#[test]
+fn an_unfinished_child_is_killed_and_reaped_within_a_deadline() -> Result<(), Box<dyn Error>> {
+  use std::os::unix::process::ExitStatusExt;
+
+  let Ok(mut command) = holding();
+  let mut running = alongside(&mut command)?;
+  let Ok(id) = running.id();
+  let process = process_of(id)?;
+
+  let status = running.terminate_within(Duration::from_secs(2))?;
+  assert_eq!(status.signal(), Some(Signal::KILL.as_raw()));
+  assert_eq!(process_presence(process), Ok(Still::Ended));
+
+  Ok(())
+}
+
+#[test]
 fn a_child_let_go_is_still_running_after_the_drop() -> Result<(), Box<dyn Error>> {
   let Ok(mut command) = holding();
   let running = let_go(&mut command)?;

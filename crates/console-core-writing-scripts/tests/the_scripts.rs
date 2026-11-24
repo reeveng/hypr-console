@@ -151,8 +151,7 @@ fn wanted() -> Result<Vec<Script>, Error> {
           line,
           reading: Reading::Fields,
         })?;
-        let codes =
-          code_points(span.trim()).map_err(|reading| Error::Read { line, reading })?;
+        let codes = code_points(span.trim()).map_err(|reading| Error::Read { line, reading })?;
         let Ok(script) = named(name.trim());
         let claimed = script.ok_or(Error::Read {
           line,

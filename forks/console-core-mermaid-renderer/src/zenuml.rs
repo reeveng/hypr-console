@@ -37,8 +37,8 @@ const SELF_ASYNC_MESSAGE_HEIGHT: f64 = 44.0;
 const CREATION_MESSAGE_HEIGHT: f64 = 40.0;
 const OCCURRENCE_EMPTY_HEIGHT: f64 = 24.0;
 const OCCURRENCE_BORDER_BOTTOM: f64 = 2.0;
-// ZenUML Core's positioning VM reserves 12px, then its SVG geometry compensates the
-// assignment-return occurrence by 4px. This renderer owns final geometry directly.
+
+
 const ASSIGNMENT_RETURN_HEIGHT: f64 = 16.0;
 const FRAGMENT_HEADER_HEIGHT: f64 = 25.0;
 const FRAGMENT_BORDER_WIDTH: f64 = 1.0;
@@ -54,6 +54,7 @@ const RETURN_BOTTOM_SPACE: f64 = 46.0;
 const MESSAGE_LABEL_PADDING: f64 = 10.0;
 const DEFAULT_STARTER: &str = "_STARTER_";
 
+#[must_use]
 pub(crate) fn resolve_zenuml_title<'a>(
     model: &'a ZenumlDiagramModel,
     diagram_title: Option<&'a str>,
@@ -72,6 +73,7 @@ pub(crate) struct ZenumlTypography {
 }
 
 impl ZenumlTypography {
+    #[must_use]
     fn from_config(config: &serde_json::Map<String, serde_json::Value>) -> Self {
         Self {
             font_family: config
@@ -85,14 +87,17 @@ impl ZenumlTypography {
         }
     }
 
+    #[must_use]
     pub(crate) fn vertical_scale(&self) -> f64 {
         self.font_size.map_or(1.0, |size| size / 16.0)
     }
 
+    #[must_use]
     pub(crate) fn size(&self, source_size: f64) -> f64 {
         source_size * self.vertical_scale()
     }
 
+    #[must_use]
     pub(crate) fn css_family(&self) -> Cow<'_, str> {
         self.font_family.as_deref().map_or_else(
             || Cow::Borrowed("Helvetica,Verdana,serif"),
@@ -100,16 +105,20 @@ impl ZenumlTypography {
         )
     }
 
+    #[must_use]
     pub(crate) fn uses_default_css(&self) -> bool {
         self.font_family.is_none() && self.font_size.is_none()
     }
 
+    #[must_use]
     fn style(&self, source_size: f64) -> TextStyle {
         TextStyle {
             font_family: Some(
-                self.font_family
-                    .clone()
-                    .unwrap_or_else(|| "Helvetica, Verdana, serif".to_string()),
+                match self.font_family
+                    .clone() {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "Helvetica, Verdana, serif".to_string(),
+                },
             ),
             font_size: self.size(source_size),
             font_weight: None,
@@ -117,9 +126,10 @@ impl ZenumlTypography {
         }
     }
 
+    #[must_use]
     fn message_style(&self) -> TextStyle {
-        // Preserve the companion's 16px geometry/14px paint default. An authored
-        // presentation font instead measures the exact size used by the writer.
+
+
         self.style(if self.font_family.is_some() || self.font_size.is_some() {
             14.0
         } else {
@@ -127,6 +137,7 @@ impl ZenumlTypography {
         })
     }
 
+    #[must_use]
     fn styled_message<'a>(
         &self,
         base: &'a TextStyle,
@@ -144,15 +155,16 @@ impl ZenumlTypography {
         }
     }
 
+    #[must_use]
     fn statement_message_style<'a>(
         &self,
         base: &'a TextStyle,
         comment: Option<&str>,
     ) -> Cow<'a, TextStyle> {
         if (self.font_family.is_some() || self.font_size.is_some())
-            && let Some(comment) = comment
+            && let Some(comment_2) = comment
         {
-            self.styled_message(base, &parse_comment(comment).message_style)
+            self.styled_message(base, &parse_comment(comment_2).message_style)
         } else {
             Cow::Borrowed(base)
         }
@@ -391,6 +403,7 @@ pub(crate) fn layout_zenuml_diagram_typed(
 
     let mut participants = Vec::with_capacity(model.participants.len());
     let mut internal_widths = Vec::with_capacity(model.participants.len());
+
     for participant in &model.participants {
         let label = if participant.name == "_STARTER_" {
             String::new()
@@ -447,13 +460,19 @@ pub(crate) fn layout_zenuml_diagram_typed(
         });
     }
 
-    let mut x = internal_widths.first().copied().unwrap_or(0.0) / 2.0;
+    let mut x = (match internal_widths.first().copied() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    }) / 2.0;
+
     for (index, participant) in participants.iter_mut().enumerate() {
         if index > 0 {
             x += internal_widths[index - 1] / 2.0 + internal_widths[index] / 2.0;
         }
+
         participant.x = x;
     }
+
     apply_message_width_constraints(
         model,
         &mut participants,
@@ -497,25 +516,34 @@ pub(crate) fn layout_zenuml_diagram_typed(
     builder
         .returns
         .sort_by(|left, right| left.y.total_cmp(&right.y));
+
     for index in 1..builder.returns.len() {
         let minimum_y = builder.returns[index - 1].y + MESSAGE_HEIGHT;
+
         if builder.returns[index].y < minimum_y {
             builder.returns[index].y = minimum_y;
         }
     }
 
     for participant in &mut participants {
-        if let Some(y) = builder.creation_y.get(&participant.name).copied() {
-            participant.y = y;
+        {
+            match builder.creation_y.get(&participant.name).copied() {
+                Some(y) => {
+                    participant.y = y;
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
     let participant_width = participants.last().map_or(0.0, |participant| {
         participant.x
-            + participant_half_widths
+            + match participant_half_widths
                 .get(&participant.name)
-                .copied()
-                .unwrap_or_default()
+                .copied() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0.0,
+            }
     });
     let mut content_width = (participant_width
         + self_message_extra_width(
@@ -527,6 +555,7 @@ pub(crate) fn layout_zenuml_diagram_typed(
             &message_geometry_style,
         ))
     .max(FRAGMENT_MIN_WIDTH);
+
     for message in &builder.messages {
         let label_width = measurer
             .measure(
@@ -537,11 +566,13 @@ pub(crate) fn layout_zenuml_diagram_typed(
         content_width = content_width
             .max((message.from_x + message.to_x) / 2.0 + label_width / 2.0 + MESSAGE_LABEL_PADDING);
     }
-    if typography.vertical_scale() != 1.0 {
+
+    if ::core::primitive::f64::to_bits(typography.vertical_scale()) != ::core::primitive::f64::to_bits(1.0) {
         for call in &builder.self_calls {
             content_width = content_width.max(call.x + 1.0 + 30.0 * typography.vertical_scale());
         }
     }
+
     for creation in &builder.creations {
         let message = &creation.message;
         let label_width = measurer
@@ -553,6 +584,7 @@ pub(crate) fn layout_zenuml_diagram_typed(
         content_width = content_width
             .max((message.from_x + message.to_x) / 2.0 + label_width / 2.0 + MESSAGE_LABEL_PADDING);
     }
+
     for returned in &builder.returns {
         let label_width = measurer
             .measure(&returned.label, &message_geometry_style)
@@ -561,44 +593,57 @@ pub(crate) fn layout_zenuml_diagram_typed(
             (returned.from_x + returned.to_x) / 2.0 + label_width / 2.0 + MESSAGE_LABEL_PADDING,
         );
     }
+
     for divider in &mut builder.dividers {
         divider.width = content_width;
     }
+
     for fragment in &mut builder.fragments {
         if fragment.width <= 0.0 {
             fragment.width = content_width;
         }
     }
-    let max_occurrence_bottom = builder
+
+    let max_occurrence_bottom = match builder
         .occurrences
         .iter()
         .map(|occurrence| occurrence.y + occurrence.height + SVG_CONTENT_BOTTOM_SPACE)
-        .max_by(f64::total_cmp)
-        .unwrap_or_default();
-    let max_fragment_bottom = builder
+        .max_by(f64::total_cmp) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+    let max_fragment_bottom = match builder
         .fragments
         .iter()
         .map(|fragment| fragment.y + fragment.height + SVG_CONTENT_BOTTOM_SPACE)
-        .max_by(f64::total_cmp)
-        .unwrap_or_default();
-    let max_message_bottom = builder
+        .max_by(f64::total_cmp) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+    let max_message_bottom = match builder
         .messages
         .iter()
         .map(|message| message.y + SVG_CONTENT_BOTTOM_SPACE)
-        .max_by(f64::total_cmp)
-        .unwrap_or_default();
-    let max_self_call_bottom = builder
+        .max_by(f64::total_cmp) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+    let max_self_call_bottom = match builder
         .self_calls
         .iter()
         .map(|message| message.y + message.height + SVG_CONTENT_BOTTOM_SPACE)
-        .max_by(f64::total_cmp)
-        .unwrap_or_default();
-    let max_creation_bottom = builder
+        .max_by(f64::total_cmp) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
+    let max_creation_bottom = match builder
         .creations
         .iter()
         .map(|creation| creation.message.y + PARTICIPANT_VISUAL_HEIGHT + SVG_CONTENT_BOTTOM_SPACE)
-        .max_by(f64::total_cmp)
-        .unwrap_or_default();
+        .max_by(f64::total_cmp) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
     let max_return_bottom = builder.max_return_bottom;
     let height = (builder.cursor_y + 28.0)
         .max(max_occurrence_bottom)
@@ -618,14 +663,17 @@ pub(crate) fn layout_zenuml_diagram_typed(
         .collect();
     let groups = layout_groups(&participants, height);
     let (frame_border_left, frame_border_right) = frame_border(&model.statements, &positions);
+
     for fragment in &mut builder.fragments {
         fragment.x = fragment.x - frame_border_left + fragment.depth as f64 * FRAGMENT_PADDING_X;
     }
+
     for comment in &mut builder.comments {
         if comment.fragment_comment {
             comment.x -= frame_border_left;
         }
     }
+
     let bounds = Bounds {
         min_x: 0.0,
         min_y: 0.0,
@@ -671,70 +719,86 @@ pub(crate) fn layout_zenuml_diagram_typed(
         groups,
         bounds,
     };
-    // ZenUML's source row and header geometry is proportional to its 16px base
-    // font. Keep horizontal distances measured in the selected font and scale
-    // the vertical reservations together with the writer's text offsets.
+
+
+
     let scale = typography.vertical_scale();
-    if scale != 1.0 {
+
+    if ::core::primitive::f64::to_bits(scale) != ::core::primitive::f64::to_bits(1.0) {
         layout.height *= scale;
         layout.bounds.min_y *= scale;
         layout.bounds.max_y *= scale;
+
         for participant in &mut layout.participants {
             participant.y *= scale;
             participant.height *= scale;
         }
+
         for lifeline in &mut layout.lifelines {
             lifeline.top_y *= scale;
             lifeline.bottom_y *= scale;
         }
+
         for message in &mut layout.messages {
             message.y *= scale;
         }
+
         for call in &mut layout.self_calls {
             call.y *= scale;
             call.width *= scale;
             call.height *= scale;
         }
+
         for creation in &mut layout.creations {
             creation.message.y *= scale;
             creation.participant.y *= scale;
             creation.participant.height *= scale;
         }
+
         for returned in &mut layout.returns {
             returned.y *= scale;
         }
+
         for occurrence in &mut layout.occurrences {
             occurrence.y *= scale;
             occurrence.height *= scale;
         }
+
         for fragment in &mut layout.fragments {
             fragment.y *= scale;
             fragment.height *= scale;
             fragment.header_y *= scale;
+
             for section in &mut fragment.sections {
                 section.y *= scale;
                 section.height *= scale;
             }
         }
+
         for divider in &mut layout.dividers {
             divider.y *= scale;
         }
+
         for comment in &mut layout.comments {
             comment.y *= scale;
         }
+
         for group in &mut layout.groups {
             group.y *= scale;
             group.height *= scale;
         }
     }
+
     if !finite_layout_geometry(&layout) {
         return Err(crate::Error::InvalidModel {
             message: "zenuml: the selected font produces non-finite layout geometry".to_string(),
         });
     }
+
     Ok(layout)
 }
 
+#[must_use]
 fn finite_layout_geometry(layout: &ZenumlDiagramLayout) -> bool {
     let finite = |values: &[f64]| values.iter().all(|value| value.is_finite());
     finite(&[
@@ -838,6 +902,7 @@ fn apply_message_width_constraints(
         .collect();
     let mut constraints = Vec::new();
     collect_message_constraints(&model.statements, &mut constraints);
+
     for MessageConstraint {
         from,
         to,
@@ -845,12 +910,20 @@ fn apply_message_width_constraints(
         comment,
     } in constraints
     {
-        let (Some(&from_index), Some(&to_index)) = (index.get(from), index.get(to)) else {
-            continue;
+        let (from_index, to_index) = {
+            let outcome_from_index = (index.get(from), index.get(to));
+
+            match outcome_from_index {
+                (Some(&matched_from_index), Some(&matched_to_index)) => (matched_from_index, matched_to_index),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => continue,
+            }
         };
+
         if from_index == to_index {
             continue;
         }
+
         let (left, right) = if from_index < to_index {
             (from_index, to_index)
         } else {
@@ -865,8 +938,10 @@ fn apply_message_width_constraints(
             + ARROW_HEAD_WIDTH
             + OCCURRENCE_WIDTH;
         let actual = participants[right].x - participants[left].x;
+
         if required > actual {
             let delta = required - actual;
+
             for participant in &mut participants[right..] {
                 participant.x += delta;
             }
@@ -945,17 +1020,18 @@ fn collect_message_constraints<'a>(
     }
 }
 
+#[must_use]
 fn message_render_endpoints<'a>(
     style: ZenumlMessageStyle,
     from: Option<&'a str>,
     to: Option<&'a str>,
 ) -> (&'a str, &'a str) {
-    let from = from.unwrap_or(DEFAULT_STARTER);
-    let to = match style {
+    let from_2 = from.unwrap_or(DEFAULT_STARTER);
+    let to_2 = match style {
         ZenumlMessageStyle::Synchronous => to.unwrap_or(DEFAULT_STARTER),
-        ZenumlMessageStyle::Asynchronous => to.unwrap_or(from),
+        ZenumlMessageStyle::Asynchronous => to.unwrap_or(from_2),
     };
-    (from, to)
+    (from_2, to_2)
 }
 
 #[derive(Debug)]
@@ -965,17 +1041,26 @@ struct FragmentFrame {
     children: Vec<FragmentFrame>,
 }
 
+#[must_use]
 fn frame_border(statements: &[ZenumlStatement], positions: &HashMap<String, f64>) -> (f64, f64) {
-    let Some(frame) = first_fragment_frame(statements, positions) else {
-        return (0.0, 0.0);
+    let frame = {
+        let optional_frame = first_fragment_frame(statements, positions);
+
+        match optional_frame {
+            Some(matched_frame) => matched_frame,
+            ::core::option::Option::None => return (0.0, 0.0),
+        }
     };
+
     frame_padding(&frame)
 }
 
+#[must_use]
 fn frame_padding(frame: &FragmentFrame) -> (f64, f64) {
+    #[must_use]
     fn longest_path(frame: &FragmentFrame, left: bool) -> usize {
         let edge = if left { &frame.left } else { &frame.right };
-        let child_depth = frame
+        let child_depth = match frame
             .children
             .iter()
             .filter(|child| {
@@ -983,8 +1068,10 @@ fn frame_padding(frame: &FragmentFrame) -> (f64, f64) {
                 child_edge == edge
             })
             .map(|child| longest_path(child, left))
-            .max()
-            .unwrap_or(0);
+            .max() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        };
         child_depth + 1
     }
 
@@ -994,6 +1081,7 @@ fn frame_padding(frame: &FragmentFrame) -> (f64, f64) {
     )
 }
 
+#[must_use]
 fn first_fragment_frame(
     statements: &[ZenumlStatement],
     positions: &HashMap<String, f64>,
@@ -1005,21 +1093,29 @@ fn first_fragment_frame(
         ) {
             return Some(fragment_frame(statement, positions));
         }
+
         let nested = match &statement.kind {
             ZenumlStatementKind::Message { body, .. }
             | ZenumlStatementKind::Creation { body, .. } => first_fragment_frame(body, positions),
             _ => None,
         };
-        if nested.is_some() {
-            return nested;
+
+        match nested {
+            ::core::option::Option::Some(_) => {
+                return nested;
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     None
 }
 
+#[must_use]
 fn fragment_frame(statement: &ZenumlStatement, positions: &HashMap<String, f64>) -> FragmentFrame {
     let mut names = HashSet::new();
     let mut children = Vec::new();
+
     match &statement.kind {
         ZenumlStatementKind::Fragment { sections, .. } => {
             for section in sections {
@@ -1032,20 +1128,25 @@ fn fragment_frame(statement: &ZenumlStatement, positions: &HashMap<String, f64>)
         }
         _ => unreachable!("fragment frames are only built for fragment statements"),
     }
+
     let mut ordered = names
         .into_iter()
         .filter_map(|name| positions.get(&name).copied().map(|x| (x, name)))
         .collect::<Vec<_>>();
     ordered.sort_by(|left, right| left.0.total_cmp(&right.0));
     FragmentFrame {
-        left: ordered
+        left: match ordered
             .first()
-            .map(|(_, name)| name.clone())
-            .unwrap_or_default(),
-        right: ordered
+            .map(|(_, name)| name.clone()) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        },
+        right: match ordered
             .last()
-            .map(|(_, name)| name.clone())
-            .unwrap_or_default(),
+            .map(|(_, name)| name.clone()) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => ::std::string::String::new(),
+        },
         children,
     }
 }
@@ -1069,6 +1170,7 @@ fn collect_fragment_frames(
     }
 }
 
+#[must_use]
 fn self_message_extra_width(
     model: &ZenumlDiagramModel,
     positions: &HashMap<String, f64>,
@@ -1083,7 +1185,11 @@ fn self_message_extra_width(
     else {
         return 0.0;
     };
-    let right_half = half_widths.get(right_name).copied().unwrap_or_default();
+
+    let right_half = match half_widths.get(right_name).copied() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0.0,
+    };
     let mut constraints = Vec::new();
     collect_message_constraints(&model.statements, &mut constraints);
     constraints
@@ -1147,6 +1253,7 @@ struct ParsedComment {
 }
 
 impl BlockLayoutContext<'static> {
+    #[must_use]
     const fn root() -> Self {
         Self {
             inside_occurrence: false,
@@ -1164,10 +1271,15 @@ impl VerticalLayoutBuilder<'_> {
         start_top: f64,
         context: BlockLayoutContext<'_>,
     ) -> f64 {
-        if statements.is_empty() {
-            return start_top;
+        match statements {
+            [] => {
+                return start_top;
+            },
+            [_, ..] => {},
         }
+
         let mut cursor = start_top + STATEMENT_MARGIN;
+
         for (index, statement) in statements.iter().enumerate() {
             let ordinal = context.index_offset + index + 1;
             let number = if context.parent_number.is_empty() {
@@ -1184,6 +1296,7 @@ impl VerticalLayoutBuilder<'_> {
                 context.fragment_depth,
             ) + STATEMENT_MARGIN;
         }
+
         cursor
     }
 
@@ -1193,18 +1306,27 @@ impl VerticalLayoutBuilder<'_> {
         start_top: f64,
         context: BlockLayoutContext<'_>,
     ) -> (f64, Vec<f64>) {
-        if statements.is_empty() {
-            return (start_top, Vec::new());
+        match statements {
+            [] => {
+                return (start_top, Vec::new());
+            },
+            [_, ..] => {},
         }
+
         let mut cursor = start_top + STATEMENT_MARGIN;
         let mut separators = Vec::with_capacity(statements.len().saturating_sub(1));
+
         for (index, statement) in statements.iter().enumerate() {
-            if index != 0 {
-                cursor += PAR_CHILD_SEPARATOR;
-                // The selected companion paints the separator one pixel above the
-                // following statement coordinate, then centers its 1px SVG stroke.
-                separators.push(cursor - 1.0);
+            match index {
+                0 => {},
+                _ => {
+                    cursor += PAR_CHILD_SEPARATOR;
+
+
+                    separators.push(cursor - 1.0);
+                },
             }
+
             let ordinal = context.index_offset + index + 1;
             let number = if context.parent_number.is_empty() {
                 ordinal.to_string()
@@ -1220,6 +1342,7 @@ impl VerticalLayoutBuilder<'_> {
                 context.fragment_depth,
             ) + STATEMENT_MARGIN;
         }
+
         (cursor, separators)
     }
 
@@ -1342,8 +1465,8 @@ impl VerticalLayoutBuilder<'_> {
                     is_reverse: to_x < from_x,
                     is_self,
                 });
-                // ZenUML Core's vertical VM collapses a final non-self return inside an
-                // occurrence, then its SVG pipeline restores the missing 16px as return debt.
+
+
                 content_top + if is_self { 20.0 } else { MESSAGE_HEIGHT }
             }
             ZenumlStatementKind::Fragment {
@@ -1355,6 +1478,7 @@ impl VerticalLayoutBuilder<'_> {
                 let mut section_layouts = Vec::with_capacity(sections.len());
                 let mut names = HashSet::new();
                 let mut section_offset = 0;
+
                 if *fragment_kind == ZenumlFragmentKind::Parallel {
                     section_layouts.push(self.fragment_section_layout("", content_top));
                 }
@@ -1362,20 +1486,25 @@ impl VerticalLayoutBuilder<'_> {
                 for (index, section) in sections.iter().enumerate() {
                     collect_participant_names(&section.statements, &mut names);
                     let section_y;
+
                     match fragment_kind {
                         ZenumlFragmentKind::Alternative => {
-                            if index == 0 {
-                                section_y = cursor;
-                                cursor += FRAGMENT_BRANCH_LABEL_HEIGHT;
-                            } else {
-                                section_y = cursor;
-                                cursor += FRAGMENT_BRANCH_LABEL_HEIGHT
-                                    + FRAGMENT_BRANCH_MARGIN
-                                    + FRAGMENT_BORDER_WIDTH;
+                            match index {
+                                0 => {
+                                    section_y = cursor;
+                                    cursor += FRAGMENT_BRANCH_LABEL_HEIGHT;
+                                },
+                                _ => {
+                                    section_y = cursor;
+                                    cursor += FRAGMENT_BRANCH_LABEL_HEIGHT
+                                        + FRAGMENT_BRANCH_MARGIN
+                                        + FRAGMENT_BORDER_WIDTH;
+                                },
                             }
                         }
                         ZenumlFragmentKind::TryCatchFinally => {
                             section_y = cursor;
+
                             if index > 0 {
                                 cursor += FRAGMENT_BRANCH_LABEL_HEIGHT
                                     + FRAGMENT_BRANCH_MARGIN
@@ -1384,17 +1513,20 @@ impl VerticalLayoutBuilder<'_> {
                         }
                         _ => {
                             section_y = cursor;
+
                             if section.label.is_some() {
                                 cursor += FRAGMENT_BRANCH_LABEL_HEIGHT;
                             }
                         }
                     }
+
                     let block_context = BlockLayoutContext {
                         inside_occurrence,
                         fragment_depth: fragment_depth + 1,
                         parent_number: number,
                         index_offset: section_offset,
                     };
+
                     if *fragment_kind == ZenumlFragmentKind::Parallel {
                         let (next_cursor, separators) =
                             self.layout_parallel_block(&section.statements, cursor, block_context);
@@ -1407,54 +1539,75 @@ impl VerticalLayoutBuilder<'_> {
                     } else {
                         cursor = self.layout_block(&section.statements, cursor, block_context);
                     }
+
                     let visible_label = match fragment_kind {
                         ZenumlFragmentKind::Alternative if index == 0 => "Alt".to_string(),
-                        ZenumlFragmentKind::Alternative => section
+                        ZenumlFragmentKind::Alternative => match section
                             .label
                             .as_deref()
-                            .map(|label| {
-                                if label == "else" {
+                            .map(|label_2| {
+                                if label_2 == "else" {
                                     "[else]".to_string()
                                 } else {
-                                    format!("[ {label} ]")
+                                    format!("[ {label} ]", label = label_2)
                                 }
-                            })
-                            .unwrap_or_default(),
+                            }) {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => ::std::string::String::new(),
+                        },
                         ZenumlFragmentKind::TryCatchFinally if index == 0 => "Try".to_string(),
-                        _ => section.label.clone().unwrap_or_default(),
+                        _ => match section.label.clone() {
+                            ::core::option::Option::Some(option_value) => option_value,
+                            ::core::option::Option::None => ::std::string::String::new(),
+                        },
                     };
+
                     if *fragment_kind != ZenumlFragmentKind::Parallel {
                         section_layouts
                             .push(self.fragment_section_layout(&visible_label, section_y));
                     }
+
                     section_offset += section.statements.len();
                 }
+
                 cursor += FRAGMENT_PADDING_BOTTOM + FRAGMENT_BORDER_WIDTH;
                 let padding = frame_padding(&fragment_frame(statement, self.positions));
                 let (x, width) = self.fragment_horizontal_bounds(&names, padding);
+
                 if *fragment_kind == ZenumlFragmentKind::Parallel {
                     let left_name = names
                         .iter()
                         .filter(|name| self.positions.contains_key(*name))
                         .min_by(|left, right| self.position(left).total_cmp(&self.position(right)));
-                    let inset = left_name
-                        .map(|name| padding.0 + self.half_width(name))
-                        .unwrap_or(padding.0);
+                    let inset = match left_name
+                        .map(|name| padding.0 + self.half_width(name)) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => padding.0,
+                    };
+
                     for section in section_layouts.iter_mut().skip(1) {
                         section.content_inset_left = Some(inset);
                     }
                 }
-                if let Some(index) = comment_index {
-                    self.comments[index].x = x + 1.0;
+
+                match comment_index {
+                    Some(index) => {
+                        self.comments[index].x = x + 1.0;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 self.fragments.push(ZenumlFragmentLayout {
                     statement_id: statement.id.clone(),
-                    kind: (*fragment_kind).into(),
-                    label: label.clone().unwrap_or_default(),
-                    label_width: label.as_ref().map(|label| {
-                        let label = resolve_zenuml_emojis_in_text(label);
+                    kind: <crate::zenuml::ZenumlLayoutFragmentKind as ::core::convert::From<::merman_model::families::zenuml::ZenumlFragmentKind>>::from((*fragment_kind)),
+                    label: match label.clone() {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => ::std::string::String::new(),
+                    },
+                    label_width: label.as_ref().map(|label_3| {
+                        let label_4 = resolve_zenuml_emojis_in_text(label_3);
                         self.measurer
-                            .measure(&label, self.fragment_label_style)
+                            .measure(&label_4, self.fragment_label_style)
                             .width
                     }),
                     x,
@@ -1475,18 +1628,23 @@ impl VerticalLayoutBuilder<'_> {
                 let names = participants.iter().cloned().collect::<HashSet<_>>();
                 let padding = frame_padding(&fragment_frame(statement, self.positions));
                 let (x, width) = self.fragment_horizontal_bounds(&names, padding);
-                if let Some(index) = comment_index {
-                    self.comments[index].x = x + 1.0;
+
+                match comment_index {
+                    Some(index) => {
+                        self.comments[index].x = x + 1.0;
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 let end = content_top + FRAGMENT_HEADER_HEIGHT + FRAGMENT_PADDING_BOTTOM;
                 self.fragments.push(ZenumlFragmentLayout {
                     statement_id: statement.id.clone(),
                     kind: ZenumlLayoutFragmentKind::Reference,
                     label: label.clone(),
                     label_width: Some({
-                        let label = resolve_zenuml_emojis_in_text(label);
+                        let label_5 = resolve_zenuml_emojis_in_text(label);
                         self.measurer
-                            .measure(&label, self.fragment_label_style)
+                            .measure(&label_5, self.fragment_label_style)
                             .width
                     }),
                     x,
@@ -1553,6 +1711,7 @@ impl VerticalLayoutBuilder<'_> {
             ZenumlMessageStyle::Synchronous => ZenumlArrowStyle::Solid,
             ZenumlMessageStyle::Asynchronous => ZenumlArrowStyle::Open,
         };
+
         if is_self {
             self.self_calls.push(ZenumlSelfCallLayout {
                 statement_id: statement.id.clone(),
@@ -1587,53 +1746,61 @@ impl VerticalLayoutBuilder<'_> {
         }
 
         let mut cursor = content_top + message_height;
+
         if style != ZenumlMessageStyle::Synchronous {
             return cursor;
         }
 
         let occurrence_start = content_top + message_height - 2.0;
         self.enter_occurrence(to);
-        cursor = if body.is_empty() {
-            cursor + 22.0
-        } else {
-            self.layout_block(
-                body,
-                cursor,
-                BlockLayoutContext {
-                    inside_occurrence: true,
-                    fragment_depth,
-                    parent_number: number,
-                    index_offset: 0,
-                },
-            ) + OCCURRENCE_BORDER_BOTTOM
+        cursor = match body {
+            [] => {
+                cursor + 22.0
+            },
+            [_, ..] => {
+                self.layout_block(
+                    body,
+                    cursor,
+                    BlockLayoutContext {
+                        inside_occurrence: true,
+                        fragment_depth,
+                        parent_number: number,
+                        index_offset: 0,
+                    },
+                ) + OCCURRENCE_BORDER_BOTTOM
+            },
         };
         self.leave_occurrence(to);
 
-        if let Some(assignment) = assignment.filter(|_| !is_self) {
-            cursor += ASSIGNMENT_RETURN_HEIGHT;
-            let (return_from_x, return_to_x) = self.sync_assignment_return_endpoints(
-                from,
-                to,
-                from_x,
-                self.active_depth(from),
-                target_depth,
-            );
-            self.max_return_bottom = self
-                .max_return_bottom
-                .max(cursor - OCCURRENCE_BORDER_BOTTOM + RETURN_BOTTOM_SPACE);
-            self.returns.push(ZenumlReturnLayout {
-                statement_id: format!("{}-assignment-return", statement.id),
-                number: format!("{number}.{}", body.len() + 1),
-                from: to.to_string(),
-                to: from.to_string(),
-                from_x: return_from_x,
-                to_x: return_to_x,
-                y: cursor - OCCURRENCE_BORDER_BOTTOM,
-                label: assignment.to_string(),
-                is_reverse: return_to_x < return_from_x,
-                is_self: false,
-            });
+        match assignment.filter(|_| !is_self) {
+            Some(assignment_2) => {
+                cursor += ASSIGNMENT_RETURN_HEIGHT;
+                let (return_from_x, return_to_x) = self.sync_assignment_return_endpoints(
+                    from,
+                    to,
+                    from_x,
+                    self.active_depth(from),
+                    target_depth,
+                );
+                self.max_return_bottom = self
+                    .max_return_bottom
+                    .max(cursor - OCCURRENCE_BORDER_BOTTOM + RETURN_BOTTOM_SPACE);
+                self.returns.push(ZenumlReturnLayout {
+                    statement_id: format!("{}-assignment-return", statement.id),
+                    number: format!("{number}.{}", body.len() + 1),
+                    from: to.to_string(),
+                    to: from.to_string(),
+                    from_x: return_from_x,
+                    to_x: return_to_x,
+                    y: cursor - OCCURRENCE_BORDER_BOTTOM,
+                    label: assignment_2.to_string(),
+                    is_reverse: return_to_x < return_from_x,
+                    is_self: false,
+                });
+            },
+            ::core::option::Option::None => {},
         }
+
         self.occurrences.push(ZenumlOccurrenceLayout {
             statement_id: statement.id.clone(),
             participant_name: to.to_string(),
@@ -1685,41 +1852,49 @@ impl VerticalLayoutBuilder<'_> {
         let occurrence_start = content_top + CREATION_MESSAGE_HEIGHT - 2.0;
         let mut cursor = content_top + CREATION_MESSAGE_HEIGHT;
         self.enter_occurrence(to);
-        cursor = if body.is_empty() {
-            cursor + 22.0
-        } else {
-            self.layout_block(
-                body,
-                cursor,
-                BlockLayoutContext {
-                    inside_occurrence: true,
-                    fragment_depth,
-                    parent_number: number,
-                    index_offset: 0,
-                },
-            ) + OCCURRENCE_BORDER_BOTTOM
+        cursor = match body {
+            [] => {
+                cursor + 22.0
+            },
+            [_, ..] => {
+                self.layout_block(
+                    body,
+                    cursor,
+                    BlockLayoutContext {
+                        inside_occurrence: true,
+                        fragment_depth,
+                        parent_number: number,
+                        index_offset: 0,
+                    },
+                ) + OCCURRENCE_BORDER_BOTTOM
+            },
         };
         self.leave_occurrence(to);
-        if let Some(assignment) = assignment {
-            cursor += ASSIGNMENT_RETURN_HEIGHT;
-            let (return_from_x, return_to_x) =
-                self.creation_assignment_return_endpoints(from, to, self.active_depth(from));
-            self.max_return_bottom = self
-                .max_return_bottom
-                .max(cursor - OCCURRENCE_BORDER_BOTTOM + RETURN_BOTTOM_SPACE);
-            self.returns.push(ZenumlReturnLayout {
-                statement_id: format!("{}-assignment-return", statement.id),
-                number: format!("{number}.{}", body.len() + 1),
-                from: to.to_string(),
-                to: from.to_string(),
-                from_x: return_from_x,
-                to_x: return_to_x,
-                y: cursor - OCCURRENCE_BORDER_BOTTOM,
-                label: assignment.to_string(),
-                is_reverse: return_to_x < return_from_x,
-                is_self: false,
-            });
+
+        match assignment {
+            Some(assignment_2) => {
+                cursor += ASSIGNMENT_RETURN_HEIGHT;
+                let (return_from_x, return_to_x) =
+                    self.creation_assignment_return_endpoints(from, to, self.active_depth(from));
+                self.max_return_bottom = self
+                    .max_return_bottom
+                    .max(cursor - OCCURRENCE_BORDER_BOTTOM + RETURN_BOTTOM_SPACE);
+                self.returns.push(ZenumlReturnLayout {
+                    statement_id: format!("{}-assignment-return", statement.id),
+                    number: format!("{number}.{}", body.len() + 1),
+                    from: to.to_string(),
+                    to: from.to_string(),
+                    from_x: return_from_x,
+                    to_x: return_to_x,
+                    y: cursor - OCCURRENCE_BORDER_BOTTOM,
+                    label: assignment_2.to_string(),
+                    is_reverse: return_to_x < return_from_x,
+                    is_self: false,
+                });
+            },
+            ::core::option::Option::None => {},
         }
+
         self.occurrences.push(ZenumlOccurrenceLayout {
             statement_id: statement.id.clone(),
             participant_name: to.to_string(),
@@ -1731,10 +1906,15 @@ impl VerticalLayoutBuilder<'_> {
         cursor
     }
 
+    #[must_use]
     fn position(&self, participant: &str) -> f64 {
-        self.positions.get(participant).copied().unwrap_or(0.0)
+        match self.positions.get(participant).copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0.0,
+        }
     }
 
+    #[must_use]
     fn statement_comment_x(&self, statement: &ZenumlStatement, comment: &str) -> f64 {
         let sender = match &statement.kind {
             ZenumlStatementKind::Message { resolved_from, .. }
@@ -1757,6 +1937,7 @@ impl VerticalLayoutBuilder<'_> {
         self.position(sender) + occurrence_offset + code_padding
     }
 
+    #[must_use]
     fn fragment_horizontal_bounds(
         &self,
         names: &HashSet<String>,
@@ -1767,9 +1948,11 @@ impl VerticalLayoutBuilder<'_> {
             .filter(|name| self.positions.contains_key(*name))
             .map(String::as_str)
             .collect::<Vec<_>>();
+
         if participant_names.is_empty() {
             return (0.0, 0.0);
         }
+
         participant_names
             .sort_by(|left, right| self.position(left).total_cmp(&self.position(right)));
         let left_name = participant_names[0];
@@ -1782,23 +1965,24 @@ impl VerticalLayoutBuilder<'_> {
         )
     }
 
+    #[must_use]
     fn fragment_section_layout(&self, label: &str, y: f64) -> ZenumlFragmentSectionLayout {
         let label_width = (!label.is_empty()).then(|| {
-            let label = resolve_zenuml_emojis_in_text(label);
+            let label_2 = resolve_zenuml_emojis_in_text(label);
             self.measurer
-                .measure(&label, self.fragment_label_style)
+                .measure(&label_2, self.fragment_label_style)
                 .width
         });
         let inner_label = label
             .strip_prefix('[')
-            .and_then(|label| label.strip_suffix(']'))
+            .and_then(|label_3| label_3.strip_suffix(']'))
             .map(str::trim)
-            .filter(|label| !label.is_empty() && *label != "else")
+            .filter(|label_4| !label_4.is_empty() && *label_4 != "else")
             .map(str::to_string);
-        let inner_label_width = inner_label.as_ref().map(|label| {
-            let label = resolve_zenuml_emojis_in_text(label);
+        let inner_label_width = inner_label.as_ref().map(|label_5| {
+            let label_6 = resolve_zenuml_emojis_in_text(label_5);
             self.measurer
-                .measure(&label, self.fragment_label_style)
+                .measure(&label_6, self.fragment_label_style)
                 .width
         });
         let (keyword, detail) = label
@@ -1832,6 +2016,7 @@ impl VerticalLayoutBuilder<'_> {
         }
     }
 
+    #[must_use]
     fn half_width(&self, participant: &str) -> f64 {
         self.participant_half_widths
             .get(participant)
@@ -1839,11 +2024,14 @@ impl VerticalLayoutBuilder<'_> {
             .unwrap_or(MIN_PARTICIPANT_WIDTH / 2.0)
     }
 
+    #[must_use]
     fn active_depth(&self, participant: &str) -> usize {
-        self.active_occurrences
+        match self.active_occurrences
             .get(participant)
-            .copied()
-            .unwrap_or(0)
+            .copied() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        }
     }
 
     fn enter_occurrence(&mut self, participant: &str) {
@@ -1854,14 +2042,20 @@ impl VerticalLayoutBuilder<'_> {
     }
 
     fn leave_occurrence(&mut self, participant: &str) {
-        if let Some(depth) = self.active_occurrences.get_mut(participant) {
-            *depth = depth.saturating_sub(1);
-            if *depth == 0 {
-                self.active_occurrences.remove(participant);
-            }
+        {
+            match self.active_occurrences.get_mut(participant) {
+                Some(depth) => {
+                    *depth = depth.saturating_sub(1);
+                    if *depth == 0 {
+                        self.active_occurrences.remove(participant);
+                    }
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 
+    #[must_use]
     fn message_endpoints(
         &self,
         from: &str,
@@ -1872,6 +2066,7 @@ impl VerticalLayoutBuilder<'_> {
         let raw_to = self.position(to);
         let sender_depth = self.active_depth(from);
         let target_depth = self.active_depth(to);
+
         if from == to {
             return (
                 raw_from + sender_depth as f64 * OCCURRENCE_BAR_SIDE_WIDTH,
@@ -1879,6 +2074,7 @@ impl VerticalLayoutBuilder<'_> {
                 target_depth,
             );
         }
+
         let left_to_right = raw_from < raw_to;
         let from_x = if sender_depth == 0 {
             raw_from
@@ -1911,10 +2107,12 @@ impl VerticalLayoutBuilder<'_> {
         (from_x, to_x, target_depth)
     }
 
+    #[must_use]
     fn creation_sender_x(&self, from: &str, to: &str) -> f64 {
         let raw_from = self.position(from);
         let raw_to = self.position(to);
         let depth = self.active_depth(from) as f64;
+
         if raw_from < raw_to {
             raw_from + depth * OCCURRENCE_BAR_SIDE_WIDTH
         } else {
@@ -1922,6 +2120,7 @@ impl VerticalLayoutBuilder<'_> {
         }
     }
 
+    #[must_use]
     fn return_endpoints(
         &self,
         from: &str,
@@ -1933,11 +2132,14 @@ impl VerticalLayoutBuilder<'_> {
         let raw_to = self.position(to);
         let reverse = raw_to < raw_from;
         let from_x = if reverse {
-            if from_layers == 0 {
-                raw_from
-            } else {
-                raw_from + from_layers.saturating_sub(1) as f64 * OCCURRENCE_BAR_SIDE_WIDTH
-                    - OCCURRENCE_BAR_SIDE_WIDTH
+            match from_layers {
+                0 => {
+                    raw_from
+                },
+                _ => {
+                    raw_from + from_layers.saturating_sub(1) as f64 * OCCURRENCE_BAR_SIDE_WIDTH
+                        - OCCURRENCE_BAR_SIDE_WIDTH
+                },
             }
         } else {
             raw_from + from_layers as f64 * OCCURRENCE_BAR_SIDE_WIDTH + 1.0
@@ -1953,6 +2155,7 @@ impl VerticalLayoutBuilder<'_> {
         (from_x, to_x)
     }
 
+    #[must_use]
     fn sync_assignment_return_endpoints(
         &self,
         sender: &str,
@@ -1984,6 +2187,7 @@ impl VerticalLayoutBuilder<'_> {
         (return_from_x, return_to_x)
     }
 
+    #[must_use]
     fn creation_assignment_return_endpoints(
         &self,
         sender: &str,
@@ -1998,17 +2202,20 @@ impl VerticalLayoutBuilder<'_> {
         } else {
             created_x + OCCURRENCE_BAR_SIDE_WIDTH + 1.0
         };
-        let return_to_x = if sender_depth == 0 {
-            sender_x
-        } else {
-            let nested_offset = sender_depth.saturating_sub(1) as f64 * OCCURRENCE_BAR_SIDE_WIDTH;
-            sender_x
-                + nested_offset
-                + if left_to_right {
-                    OCCURRENCE_BAR_SIDE_WIDTH + 2.0
-                } else {
-                    -OCCURRENCE_BAR_SIDE_WIDTH
-                }
+        let return_to_x = match sender_depth {
+            0 => {
+                sender_x
+            },
+            _ => {
+                let nested_offset = sender_depth.saturating_sub(1) as f64 * OCCURRENCE_BAR_SIDE_WIDTH;
+                sender_x
+                    + nested_offset
+                    + if left_to_right {
+                        OCCURRENCE_BAR_SIDE_WIDTH + 2.0
+                    } else {
+                        -OCCURRENCE_BAR_SIDE_WIDTH
+                    }
+            },
         };
         (return_from_x, return_to_x)
     }
@@ -2079,13 +2286,19 @@ fn collect_participant_names(statements: &[ZenumlStatement], names: &mut HashSet
     }
 }
 
+#[must_use]
 fn layout_groups(participants: &[ZenumlParticipantLayout], height: f64) -> Vec<ZenumlGroupLayout> {
     let mut grouped: HashMap<&str, Vec<&ZenumlParticipantLayout>> = HashMap::new();
+
     for participant in participants {
-        if let Some(group_id) = participant.group_id.as_deref() {
-            grouped.entry(group_id).or_default().push(participant);
+        match participant.group_id.as_deref() {
+            Some(group_id) => {
+                grouped.entry(group_id).or_default().push(participant);
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     grouped
         .into_iter()
         .filter_map(|(name, members)| {
@@ -2108,6 +2321,7 @@ fn layout_groups(participants: &[ZenumlParticipantLayout], height: f64) -> Vec<Z
         .collect()
 }
 
+#[must_use]
 fn parse_comment(raw: &str) -> ParsedComment {
     let trimmed = raw.trim();
     let (preceding, last_line) = trimmed
@@ -2136,15 +2350,17 @@ fn parse_comment(raw: &str) -> ParsedComment {
     } else {
         format!("{preceding}\n{last_text}")
     };
-    let base = base.trim();
+    let base_2 = base.trim();
     let mut emoji_prefix = String::new();
+
     for (_, unicode) in &common_emojis {
         emoji_prefix.push_str(unicode);
     }
-    let text = match (emoji_prefix.is_empty(), base.is_empty()) {
-        (false, false) => format!("{emoji_prefix} {base}"),
+
+    let text = match (emoji_prefix.is_empty(), base_2.is_empty()) {
+        (false, false) => format!("{emoji_prefix} {base}", base = base_2),
         (false, true) => emoji_prefix,
-        (true, _) => base.to_string(),
+        (true, _) => base_2.to_string(),
     };
     ParsedComment {
         visual_lines: if text.is_empty() {
@@ -2158,41 +2374,55 @@ fn parse_comment(raw: &str) -> ParsedComment {
     }
 }
 
+#[must_use]
 fn parse_comment_style_prefix(input: &str) -> (Vec<String>, Vec<String>, Vec<String>, &str) {
     let mut comment_only = Vec::new();
     let mut message_only = Vec::new();
     let mut common = Vec::new();
     let mut cursor = 0;
     let mut consumed = None;
+
     while cursor < input.len() {
         cursor += input[cursor..]
             .chars()
             .take_while(|character| character.is_whitespace())
             .map(char::len_utf8)
             .sum::<usize>();
+
         if cursor >= input.len() {
             break;
         }
+
         let (closing, destination) = match input.as_bytes()[cursor] {
             b'<' => (b'>', &mut comment_only),
             b'(' => (b')', &mut message_only),
             b'[' => (b']', &mut common),
             _ => {
-                if consumed.is_some() {
-                    consumed = Some(cursor);
+                match consumed {
+                    ::core::option::Option::Some(_) => {
+                        consumed = Some(cursor);
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 break;
             }
         };
+
         let Some(relative_end) = input.as_bytes()[cursor + 1..]
             .iter()
             .position(|byte| *byte == closing)
         else {
-            if consumed.is_some() {
-                consumed = Some(cursor);
+            match consumed {
+                ::core::option::Option::Some(_) => {
+                    consumed = Some(cursor);
+                },
+                ::core::option::Option::None => {},
             }
+
             break;
         };
+
         let end = cursor + 1 + relative_end;
         destination.extend(
             input[cursor + 1..end]
@@ -2204,11 +2434,15 @@ fn parse_comment_style_prefix(input: &str) -> (Vec<String>, Vec<String>, Vec<Str
         cursor = end + 1;
         consumed = Some(cursor);
     }
+
     (
         comment_only,
         message_only,
         common,
-        &input[consumed.unwrap_or(0)..],
+        &input[match consumed {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => 0,
+        }..],
     )
 }
 
@@ -2229,15 +2463,18 @@ fn apply_comment_styles<'a>(
     }
 }
 
+#[must_use]
 fn is_colon_emoji(value: &str) -> bool {
     value.len() > 2 && value.starts_with(':') && value.ends_with(':')
 }
 
+#[must_use]
 fn is_zenuml_css_color(value: &str) -> bool {
     value.bytes().all(|byte| !byte.is_ascii_uppercase())
         && cssparser::color::parse_named_color(value).is_ok()
 }
 
+#[must_use]
 fn resolve_bracket_emojis(values: &[String]) -> Vec<(String, &'static str)> {
     values
         .iter()
@@ -2248,24 +2485,30 @@ fn resolve_bracket_emojis(values: &[String]) -> Vec<(String, &'static str)> {
             } else {
                 value.as_str()
             };
+
             if !forced && (name.contains('-') || is_zenuml_css_color(name)) {
                 return None;
             }
+
             zenuml_emoji_unicode(name).map(|unicode| (name.to_string(), unicode))
         })
         .collect()
 }
 
+#[must_use]
 pub(crate) fn resolve_zenuml_emojis_in_text(text: &str) -> String {
     let mut output = String::with_capacity(text.len());
     let mut rest = text;
+
     while let Some(open) = rest.find('[') {
         output.push_str(&rest[..open]);
         let after_open = &rest[open + 1..];
+
         let Some(close) = after_open.find(']') else {
             output.push_str(&rest[open..]);
             return output;
         };
+
         let raw = &after_open[..close];
         let values = raw
             .split(',')
@@ -2274,6 +2517,7 @@ pub(crate) fn resolve_zenuml_emojis_in_text(text: &str) -> String {
             .map(str::to_string)
             .collect::<Vec<_>>();
         let emojis = resolve_bracket_emojis(&values);
+
         if emojis.is_empty() {
             output.push_str(&rest[open..open + close + 2]);
         } else {
@@ -2281,12 +2525,15 @@ pub(crate) fn resolve_zenuml_emojis_in_text(text: &str) -> String {
                 output.push_str(unicode);
             }
         }
+
         rest = &after_open[close + 1..];
     }
+
     output.push_str(rest);
     output
 }
 
+#[must_use]
 pub(crate) fn zenuml_participant_icon_key(participant_type: &str) -> Option<&'static str> {
     Some(match participant_type.to_ascii_lowercase().as_str() {
         "actor" => "actor",
@@ -2304,6 +2551,7 @@ pub(crate) fn zenuml_participant_icon_key(participant_type: &str) -> Option<&'st
     })
 }
 
+#[must_use]
 pub(crate) fn zenuml_emoji_unicode(shortcode: &str) -> Option<&'static str> {
     Some(match shortcode {
         "check" => "\u{2705}",
@@ -2626,8 +2874,8 @@ mod tests {
         let message = &layout.messages[0];
         let occurrence = &layout.occurrences[0];
 
-        // VerticalCoordinates starts the root block at 56px; BlockVM then applies a 16px
-        // statement margin before the 16px non-self message.
+
+
         assert_eq!(message.y, 87.5);
         assert_eq!(occurrence.y, 86.0);
         assert_eq!(occurrence.height, OCCURRENCE_EMPTY_HEIGHT);
@@ -2676,8 +2924,8 @@ mod tests {
 
     #[test]
     fn endpoint_fallbacks_are_statement_kind_specific() {
-        // Selected @zenuml/core 3.50.1 keeps missing-target `_STARTER_` coordinates without
-        // adding it to OrderedParticipants.
+
+
         let synchronous = layout("zenuml\n@Starter(A)\nmethod()\n");
         assert_eq!(
             synchronous

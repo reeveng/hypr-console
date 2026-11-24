@@ -56,10 +56,12 @@ pub(crate) use merman_model::families::er::{
 pub(crate) fn sanitize_common_db_fields(model: &mut ErDiagramModel, config: &crate::MermaidConfig) {
     crate::common_db::sanitize_optional_acc_title(&mut model.acc_title, config);
     crate::common_db::sanitize_optional_acc_descr(&mut model.acc_descr, config);
+
     for subgraph in &mut model.subgraphs {
         subgraph.title = crate::sanitize::sanitize_text(&subgraph.title, config);
     }
 }
+
 pub(crate) type Attribute = ErAttribute;
 pub(crate) type RelSpec = ErRelSpec;
 type Relationship = ErRelationship;
@@ -105,7 +107,7 @@ enum Action {
     SetAccDescr(String),
 }
 
-// Grammar symbols carry scalar links; the arena owns every action exactly once.
+
 #[derive(Debug, Clone, Copy, Default)]
 struct ErActionList {
     first: Option<usize>,
@@ -138,17 +140,26 @@ impl ErActionArena {
 
     fn actions(&mut self, actions: Vec<Action>) -> ErActionList {
         let mut list = ErActionList::default();
+
         for action in actions {
             let item = self.push(action);
             list = self.append(list, item);
         }
+
         list
     }
 
     fn append(&mut self, left: ErActionList, right: ErActionList) -> ErActionList {
-        let (Some(last), Some(first)) = (left.last, right.first) else {
-            return if left.first.is_some() { left } else { right };
+        let (last, first) = {
+            let outcome_last = (left.last, right.first);
+
+            match outcome_last {
+                (Some(matched_last), Some(matched_first)) => (matched_last, matched_first),
+                (::core::option::Option::None, _)
+                | (_, ::core::option::Option::None) => return if left.first.is_some() { left } else { right },
+            }
         };
+
         self.records[last].next = Some(first);
         ErActionList {
             first: left.first,
@@ -183,6 +194,7 @@ struct SpannedIdList {
 }
 
 impl SpannedIdList {
+    #[must_use]
     fn into_names(self) -> Vec<String> {
         self.ids.into_iter().map(|id| id.name).collect()
     }
@@ -213,6 +225,7 @@ struct ErDb {
 }
 
 impl ErDb {
+    #[must_use]
     fn new() -> Self {
         Self {
             direction: "TB".to_string(),
@@ -249,9 +262,16 @@ impl ErDb {
 
     fn add_attributes(&mut self, entity: &str, attributes: Vec<Attribute>) {
         self.add_entity(entity, None);
-        let Some(e) = self.entities.get_mut(entity) else {
-            return;
+
+        let e = {
+            let optional_e = self.entities.get_mut(entity);
+
+            match optional_e {
+                Some(matched_e) => matched_e,
+                ::core::option::Option::None => return,
+            }
         };
+
         for a in attributes {
             e.attributes.push(a);
         }
@@ -262,18 +282,32 @@ impl ErDb {
             a.to_string()
         } else {
             self.add_entity(a, None);
-            let Some(entity) = self.entities.get(a) else {
-                return;
+
+            let entity = {
+                let optional_entity = self.entities.get(a);
+
+                match optional_entity {
+                    Some(matched_entity) => matched_entity,
+                    ::core::option::Option::None => return,
+                }
             };
+
             entity.id.clone()
         };
         let entity_b = if self.subgraph_lookup.contains_key(b) {
             b.to_string()
         } else {
             self.add_entity(b, None);
-            let Some(entity) = self.entities.get(b) else {
-                return;
+
+            let entity = {
+                let optional_entity = self.entities.get(b);
+
+                match optional_entity {
+                    Some(matched_entity) => matched_entity,
+                    ::core::option::Option::None => return,
+                }
             };
+
             entity.id.clone()
         };
         self.relationships.push(Relationship {
@@ -286,12 +320,16 @@ impl ErDb {
 
     fn set_class(&mut self, entities: &[String], classes: &[String]) {
         for e in entities {
-            if let Some(node) = self.entities.get_mut(e) {
-                for cls in classes {
-                    node.css_classes.push(' ');
-                    node.css_classes.push_str(cls);
-                }
+            match self.entities.get_mut(e) {
+                Some(node) => {
+                    for cls in classes {
+                        node.css_classes.push(' ');
+                        node.css_classes.push_str(cls);
+                    }
+                },
+                ::core::option::Option::None => {},
             }
+
             if let Some(index) = self.subgraph_lookup.get(e).copied()
                 && let Some(subgraph) = self.subgraphs.get_mut(index)
             {
@@ -314,6 +352,7 @@ impl ErDb {
                 if s.contains("color") {
                     entry.text_styles.push(s.replace("fill", "bgFill"));
                 }
+
                 entry.styles.push(s.to_string());
             }
         }
@@ -321,11 +360,15 @@ impl ErDb {
 
     fn add_css_styles(&mut self, entities: &[String], styles: &[String]) {
         for id in entities {
-            if let Some(entity) = self.entities.get_mut(id) {
-                for style in styles {
-                    entity.css_styles.push(style.to_string());
-                }
+            match self.entities.get_mut(id) {
+                Some(entity) => {
+                    for style in styles {
+                        entity.css_styles.push(style.to_string());
+                    }
+                },
+                ::core::option::Option::None => {},
             }
+
             if let Some(index) = self.subgraph_lookup.get(id).copied()
                 && let Some(subgraph) = self.subgraphs.get_mut(index)
             {
@@ -348,19 +391,24 @@ impl ErDb {
         } = completion;
         let mut seen = HashSet::new();
         let mut retained = Vec::new();
+
         for (index, member) in members.into_iter().enumerate() {
             #[cfg(test)]
             {
                 self.membership_candidates += 1;
             }
-            if index % 128 == 0 {
+
+            if index.wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             let trimmed = member.trim();
+
             if trimmed.is_empty() || !seen.insert(trimmed.to_string()) {
                 continue;
             }
-            // ER appends repeated IDs and keeps the union of all completed memberships.
+
+
             if self.completed_members.insert(member.clone()) {
                 retained.push(member);
             }
@@ -401,44 +449,70 @@ impl ErDb {
             subgraph: None,
         }];
         let mut replayed = 0usize;
+
         while let Some(frame) = frames.last_mut() {
             if replayed.is_multiple_of(128) {
                 control.checkpoint()?;
             }
+
             replayed = replayed.saturating_add(1);
+
             let Some(index) = frame.next else {
-                let frame = frames.pop().expect("the current replay frame exists");
-                if let Some(completion) = frame.subgraph {
-                    let id = self.complete_subgraph(completion, control)?;
-                    if let Some(parent) =
-                        frames.last_mut().and_then(|frame| frame.subgraph.as_mut())
-                    {
-                        parent.members.push(id);
-                    }
+                let frame_2 = frames.pop().expect("the current replay frame exists");
+
+                match frame_2.subgraph {
+                    Some(completion) => {
+                        let id = self.complete_subgraph(completion, control)?;
+
+                        {
+                            match frames.last_mut().and_then(|frame_3| frame_3.subgraph.as_mut()) {
+                                Some(parent) => {
+                                    parent.members.push(id);
+                                },
+                                ::core::option::Option::None => {},
+                            };
+                        }
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 continue;
             };
+
             let record = &mut arena.records[index];
             frame.next = record.next;
             let action = record.action.take().expect("an action is replayed once");
+
             match action {
                 Action::AddEntity { name, alias } => {
-                    if let Some(subgraph) = &mut frame.subgraph {
-                        subgraph.members.push(name.clone());
+                    match &mut frame.subgraph {
+                        Some(subgraph) => {
+                            subgraph.members.push(name.clone());
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     self.add_entity(&name, alias.as_deref());
                 }
                 Action::AddAttributes { entity, attributes } => {
-                    if let Some(subgraph) = &mut frame.subgraph {
-                        subgraph.members.push(entity.clone());
+                    match &mut frame.subgraph {
+                        Some(subgraph) => {
+                            subgraph.members.push(entity.clone());
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     self.add_attributes(&entity, attributes);
                 }
                 Action::AddRelationship { a, role, b, spec } => {
-                    if let Some(subgraph) = &mut frame.subgraph {
-                        subgraph.members.push(a.clone());
-                        subgraph.members.push(b.clone());
+                    match &mut frame.subgraph {
+                        Some(subgraph) => {
+                            subgraph.members.push(a.clone());
+                            subgraph.members.push(b.clone());
+                        },
+                        ::core::option::Option::None => {},
                     }
+
                     self.add_relationship(&a, &role, &b, spec);
                 }
                 Action::SetClass { entities, classes } => self.set_class(&entities, &classes),
@@ -466,36 +540,47 @@ impl ErDb {
                     }),
                 }),
                 Action::SetDirection(dir) => {
-                    if let Some(subgraph) = &mut frame.subgraph {
-                        subgraph.direction = Some(dir);
-                    } else {
-                        self.direction = dir;
+                    match &mut frame.subgraph {
+                        Some(subgraph) => {
+                            subgraph.direction = Some(dir);
+                        },
+                        ::core::option::Option::None => {
+                            self.direction = dir;
+                        },
                     }
                 }
                 Action::SetAccTitle(t) => {
                     self.acc_title = Some(t.trim_matches(is_ecmascript_whitespace).to_string());
                 }
                 Action::SetAccDescr(t) => {
-                    // Mermaid's commonDb.ts: `sanitizeText(txt).replace(/\n\s+/g, '\n')`
+
                     let trimmed = t.trim_matches(is_ecmascript_whitespace);
                     let mut out = String::with_capacity(trimmed.len());
                     let mut chars = trimmed.chars().peekable();
+
                     while let Some(ch) = chars.next() {
                         out.push(ch);
-                        if ch == '\n' {
-                            while chars.peek().is_some_and(|c| is_ecmascript_whitespace(*c)) {
-                                chars.next();
-                            }
+
+                        match ch {
+                            '\n' => {
+                                while chars.peek().is_some_and(|c| is_ecmascript_whitespace(*c)) {
+                                    chars.next();
+                                }
+                            },
+                            _ => {},
                         }
                     }
+
                     self.acc_descr = Some(out);
                 }
             }
         }
+
         control.checkpoint()?;
         Ok(())
     }
 
+    #[must_use]
     fn into_semantic_model(self) -> ErDiagramModel {
         ErDiagramModel {
             acc_title: self.acc_title,
@@ -524,6 +609,7 @@ pub(crate) fn render_model_to_compat_json(
         .map_err(crate::Error::from)
 }
 
+#[must_use]
 fn split_styles(raw: &str) -> Vec<String> {
     let compact: String = raw.chars().filter(|c| !c.is_whitespace()).collect();
     compact
@@ -552,12 +638,15 @@ impl ErSyntax {
     fn lex(code: &str, control: &OperationControl) -> OperationControlResult<Self> {
         let lexer = Lexer::new(code);
         let mut events = Vec::new();
+
         for event in lexer {
-            if events.len() % 128 == 0 {
+            if events.len().wrapping_rem(128) == 0 {
                 control.checkpoint()?;
             }
+
             events.push(event);
         }
+
         control.checkpoint()?;
         Ok(Self { events })
     }
@@ -633,10 +722,12 @@ impl ErSemanticFailure {
         }
     }
 
+    #[must_use]
     fn into_parse_error(self, diagram_type: &str, fallback_offset: usize) -> Error {
         self.parse_error(diagram_type, fallback_offset)
     }
 
+    #[must_use]
     fn parse_error(&self, diagram_type: &str, fallback_offset: usize) -> Error {
         Error::diagram_parse_diagnostic(
             diagram_type.to_string(),
@@ -1504,9 +1595,10 @@ struct LexError {
 }
 
 impl LexError {
+    #[must_use]
     fn new(message: impl Into<String>, span: SourceSpan) -> Self {
         Self {
-            message: message.into(),
+            message: <_ as ::core::convert::Into<::std::string::String>>::into(message),
             span,
         }
     }
@@ -1546,6 +1638,7 @@ struct Lexer<'input> {
 }
 
 impl<'input> Lexer<'input> {
+    #[must_use]
     fn new(input: &'input str) -> Self {
         #[cfg(test)]
         ER_SYNTAX_CONSTRUCTION_COUNT.set(ER_SYNTAX_CONSTRUCTION_COUNT.get() + 1);
@@ -1573,6 +1666,7 @@ impl<'input> Lexer<'input> {
         result
     }
 
+    #[must_use]
     fn peek(&self) -> Option<u8> {
         self.input.as_bytes().get(self.pos).copied()
     }
@@ -1583,6 +1677,7 @@ impl<'input> Lexer<'input> {
                 self.pos += 1;
                 continue;
             }
+
             break;
         }
     }
@@ -1593,28 +1688,34 @@ impl<'input> Lexer<'input> {
                 self.pos += 1;
                 continue;
             }
+
             break;
         }
     }
 
+    #[must_use]
     fn starts_with_ci(&self, s: &str) -> bool {
         self.input[self.pos..]
             .get(..s.len())
             .is_some_and(|h| h.eq_ignore_ascii_case(s))
     }
 
+    #[must_use]
     fn starts_with_word_ci(&self, s: &str) -> bool {
         self.starts_with_ci(s) && self.ends_word_at(s.len())
     }
 
     fn read_to_newline(&mut self) -> String {
         let start = self.pos;
+
         while let Some(b) = self.peek() {
             if matches!(b, b'\r' | b'\n') {
                 break;
             }
+
             self.pos += 1;
         }
+
         self.input[start..self.pos].to_string()
     }
 
@@ -1623,6 +1724,7 @@ impl<'input> Lexer<'input> {
             let _ = self.read_to_newline();
             return true;
         }
+
         false
     }
 
@@ -1630,28 +1732,36 @@ impl<'input> Lexer<'input> {
         if self.mode == Mode::Block {
             return None;
         }
+
         let start = self.pos;
         self.pos = consume_line_ending(self.input, self.pos)?;
+
         while let Some(end) = consume_line_ending(self.input, self.pos) {
             self.pos = end;
         }
+
         if self.mode == Mode::LineRest {
             self.mode = Mode::Default;
         }
+
         Some((start, Tok::Newline, self.pos))
     }
 
     fn lex_acc_title(&mut self) -> Option<std::result::Result<(usize, Tok, usize), LexError>> {
         let start = self.pos;
+
         if !self.starts_with_ci("accTitle") {
             return None;
         }
+
         let after = self.pos + "accTitle".len();
         let rest = &self.input[after..];
         let rest_trim = rest.trim_start_matches(is_ecmascript_whitespace);
+
         if !rest_trim.starts_with(':') {
             return None;
         }
+
         let consumed_ws = rest.len() - rest_trim.len();
         let body =
             self.input[after + consumed_ws + 1..].trim_start_matches(is_ecmascript_whitespace);
@@ -1666,30 +1776,39 @@ impl<'input> Lexer<'input> {
 
     fn lex_acc_descr(&mut self) -> Option<std::result::Result<(usize, Tok, usize), LexError>> {
         let start = self.pos;
+
         if !self.starts_with_ci("accDescr") {
             return None;
         }
+
         let after = self.pos + "accDescr".len();
         let rest = &self.input[after..];
         let rest_trim = rest.trim_start_matches(is_ecmascript_whitespace);
-        if let Some(body) = rest_trim.strip_prefix('{') {
-            let body = body.trim_start_matches(is_ecmascript_whitespace);
-            self.pos = self.input.len() - body.len();
-            let Some(end_rel) = self.input[self.pos..].find('}') else {
-                self.pos = self.input.len();
-                return Some(Err(LexError::new(
-                    "Unterminated accDescr block; missing '}'",
-                    SourceSpan::new(start, self.input.len()),
+
+        match rest_trim.strip_prefix('{') {
+            Some(body) => {
+                let body_2 = body.trim_start_matches(is_ecmascript_whitespace);
+                self.pos = self.input.len() - body_2.len();
+
+                let Some(end_rel) = self.input[self.pos..].find('}') else {
+                    self.pos = self.input.len();
+                    return Some(Err(LexError::new(
+                        "Unterminated accDescr block; missing '}'",
+                        SourceSpan::new(start, self.input.len()),
+                    )));
+                };
+
+                let body_3 = self.input[self.pos..self.pos + end_rel].to_string();
+                self.pos = self.pos + end_rel + 1;
+                return Some(Ok((
+                    start,
+                    Tok::AccDescrMultiline(body_3.trim_matches(is_ecmascript_whitespace).to_string()),
+                    self.pos,
                 )));
-            };
-            let body = self.input[self.pos..self.pos + end_rel].to_string();
-            self.pos = self.pos + end_rel + 1;
-            return Some(Ok((
-                start,
-                Tok::AccDescrMultiline(body.trim_matches(is_ecmascript_whitespace).to_string()),
-                self.pos,
-            )));
+            },
+            ::core::option::Option::None => {},
         }
+
         let checked_value = rest_trim
             .strip_prefix(':')?;
         let body = checked_value
@@ -1705,87 +1824,106 @@ impl<'input> Lexer<'input> {
 
     fn lex_direction(&mut self) -> Option<(usize, Tok, usize)> {
         let start = self.pos;
+
         if start < self.direction_scan_end {
             return None;
         }
+
         let rest = &self.input[start..];
-        // Mermaid tries `.*direction\s+TB[^\n]*` (then BT, RL, LR) before names.
-        // Match the whole rule before consuming anything: `direction` alone is an entity.
+
+
         let prefix_end = rest
             .find(['\n', '\r', '\u{2028}', '\u{2029}'])
             .unwrap_or(rest.len());
+
         for direction in ["TB", "BT", "RL", "LR"] {
             let value_end = rest[..prefix_end]
                 .char_indices()
                 .rev()
                 .find_map(|(offset, _)| {
                     let candidate = &rest[offset..];
+
                     if !candidate
                         .get(.."direction".len())?
                         .eq_ignore_ascii_case("direction")
                     {
                         return None;
                     }
+
                     let suffix = &candidate["direction".len()..];
                     let value = suffix.trim_start_matches(is_ecmascript_whitespace);
+
                     if value.len() == suffix.len()
                         || !{ let checked_value = value.get(..2)?; checked_value }.eq_ignore_ascii_case(direction)
                     {
                         return None;
                     }
+
                     Some(rest.len() - value.len() + 2)
                 });
-            if let Some(value_end) = value_end {
-                self.pos = start + value_end;
-                // Unlike the leading `.`, the trailing `[^\n]*` includes carriage returns.
-                let tail = &self.input[self.pos..];
-                self.pos += tail.find('\n').unwrap_or(tail.len());
-                return Some((
-                    start,
-                    Tok::Direction(SpannedDirection {
-                        value: direction.to_string(),
-                        #[cfg(any(test, feature = "editor-facts"))]
-                        selection: SourceSpan::new(start + value_end - 2, start + value_end),
-                    }),
-                    self.pos,
-                ));
+
+            match value_end {
+                Some(value_end) => {
+                    self.pos = start + value_end;
+
+                    let tail = &self.input[self.pos..];
+                    self.pos += tail.find('\n').unwrap_or(tail.len());
+                    return Some((
+                        start,
+                        Tok::Direction(SpannedDirection {
+                            value: direction.to_string(),
+                            #[cfg(any(test, feature = "editor-facts"))]
+                            selection: SourceSpan::new(start + value_end - 2, start + value_end),
+                        }),
+                        self.pos,
+                    ));
+                },
+                ::core::option::Option::None => {},
             }
         }
-        // A failed whole-line lookup also proves every remaining token prefix cannot match.
-        // Remember it so a line of entity names does not require quadratic rescanning.
+
+
+
         self.direction_scan_end = start + prefix_end;
         None
     }
 
     fn lex_keyword(&mut self) -> Option<(usize, Tok, usize)> {
         let start = self.pos;
+
         if self.starts_with_word_ci("erDiagram") {
             self.pos += "erDiagram".len();
             return Some((start, Tok::ErDiagram, self.pos));
         }
+
         if self.starts_with_word_ci("style") {
             self.pos += "style".len();
             self.mode = Mode::NeedIdListThenLineRest;
             return Some((start, Tok::StyleKw, self.pos));
         }
+
         if self.starts_with_word_ci("classDef") {
             self.pos += "classDef".len();
             self.mode = Mode::NeedIdListThenLineRest;
             return Some((start, Tok::ClassDefKw, self.pos));
         }
+
         if self.starts_with_word_ci("class") {
             self.pos += "class".len();
             self.mode = Mode::NeedClassFirstIdList;
             return Some((start, Tok::ClassKw, self.pos));
         }
+
         if self.starts_with_word_ci("subgraph") {
             self.pos += "subgraph".len();
             return Some((start, Tok::SubgraphKw, self.pos));
         }
+
         if self.starts_with_word_ci("end") {
             self.pos += "end".len();
             return Some((start, Tok::EndKw, self.pos));
         }
+
         None
     }
 
@@ -1799,24 +1937,31 @@ impl<'input> Lexer<'input> {
         ) {
             return None;
         }
+
         let start = self.pos;
         self.skip_ws_default();
         let mut ids: Vec<SpannedId> = Vec::new();
+
         loop {
             let id_start = self.pos;
             let mut id_end = self.pos;
-            for (rel, ch) in self.input[self.pos..].char_indices() {
+
+            'inner_for_2: for (rel, ch) in self.input[self.pos..].char_indices() {
                 let ok = !ch.is_ascii()
                     || ch.is_ascii_alphanumeric()
                     || matches!(ch, '_' | '-' | '*' | '.');
+
                 if !ok {
-                    break;
+                    break 'inner_for_2;
                 }
+
                 id_end = self.pos + rel + ch.len_utf8();
             }
+
             if id_end == id_start {
                 break;
             }
+
             ids.push(SpannedId {
                 name: self.input[id_start..id_end].to_string(),
                 #[cfg(feature = "editor-facts")]
@@ -1825,21 +1970,25 @@ impl<'input> Lexer<'input> {
             self.pos = id_end;
 
             self.skip_ws_default();
+
             if self.peek() != Some(b',') {
                 break;
             }
+
             self.pos += 1;
             self.skip_ws_default();
         }
+
         if ids.is_empty() {
             return None;
         }
+
         self.mode = match self.mode {
             Mode::NeedIdListOnly => Mode::Default,
             Mode::NeedIdListThenLineRest => Mode::LineRest,
             Mode::NeedClassFirstIdList => Mode::NeedClassSecondIdList,
             Mode::NeedClassSecondIdList => Mode::Default,
-            _ => Mode::Default,
+            Mode::Default | Mode::Block | Mode::LineRest => Mode::Default,
         };
         Some((start, Tok::IdList(SpannedIdList { ids }), self.pos))
     }
@@ -1848,23 +1997,27 @@ impl<'input> Lexer<'input> {
         if self.mode != Mode::LineRest {
             return None;
         }
+
         let start = self.pos;
         self.skip_ws_default();
         let s = self.read_to_newline();
         self.mode = Mode::Default;
         let styles = s.trim().trim_end_matches(';').trim_end();
+
         if styles.is_empty() {
             return Some(Err(LexError::new(
                 "Expected ER style payload",
                 SourceSpan::new(start, self.pos),
             )));
         }
+
         Some(Ok((start, Tok::RestOfLine(styles.to_string()), self.pos)))
     }
 
     /// Whether the word of `len` bytes at the cursor ends at a word boundary, like Mermaid's `\b`
     /// after a word. Mermaid's regexes are not Unicode-aware, so only ASCII `[A-Za-z0-9_]`
     /// continues a word: `tokens` is a name, while `to-do` and `to注文` start with `to`.
+    #[must_use]
     fn ends_word_at(&self, len: usize) -> bool {
         self.input
             .as_bytes()
@@ -1876,10 +2029,11 @@ impl<'input> Lexer<'input> {
         let start = self.pos;
         let s = &self.input[self.pos..];
 
-        // Word cardinalities only match at a word boundary (`/^(?:one or zero\b)/i`,
-        // `/^(?:many\b)/i`, `/^(?:to\b)/i`, ...), so entity names such as `tokens`, `oneshot`
-        // or `manyToMany` fall through to `lex_name_or_str`.
+
+
+
         let lower = s.to_ascii_lowercase();
+
         for (pat, tok) in [
             ("optionally to", Tok::NonIdentifying),
             ("one or zero", Tok::ZeroOrOne),
@@ -1900,30 +2054,37 @@ impl<'input> Lexer<'input> {
             self.pos += "many(0)".len();
             return Some((start, Tok::ZeroOrMore, self.pos));
         }
+
         if lower.starts_with("many(1)") {
             self.pos += "many(1)".len();
             return Some((start, Tok::OneOrMore, self.pos));
         }
+
         if lower.starts_with("0+") {
             self.pos += "0+".len();
             return Some((start, Tok::ZeroOrMore, self.pos));
         }
+
         if lower.starts_with("1+") {
             self.pos += "1+".len();
             return Some((start, Tok::OneOrMore, self.pos));
         }
+
         if lower.starts_with("many") && self.ends_word_at("many".len()) {
             self.pos += "many".len();
             return Some((start, Tok::ZeroOrMore, self.pos));
         }
+
         if lower.starts_with("one") && self.ends_word_at("one".len()) {
             self.pos += "one".len();
             return Some((start, Tok::OnlyOne, self.pos));
         }
+
         if self.one_starts_numeric_cardinality() {
             self.pos += 1;
             return Some((start, Tok::OnlyOne, self.pos));
         }
+
         if lower.starts_with("to") && self.ends_word_at("to".len()) {
             self.pos += "to".len();
             return Some((start, Tok::Identifying, self.pos));
@@ -1938,8 +2099,9 @@ impl<'input> Lexer<'input> {
             ("}|", Tok::OneOrMore),
             ("}o", Tok::ZeroOrMore),
         ] {
-            // Only `|o` and `}o` end with a word character, so only they carry `\b` in Mermaid.
+
             let needs_boundary = pat.ends_with('o');
+
             if s.starts_with(pat) && (!needs_boundary || self.ends_word_at(pat.len())) {
                 self.pos += pat.len();
                 return Some((start, tok, self.pos));
@@ -1950,6 +2112,7 @@ impl<'input> Lexer<'input> {
             self.pos += 2;
             return Some((start, Tok::NonIdentifying, self.pos));
         }
+
         if s.starts_with("--") {
             self.pos += 2;
             return Some((start, Tok::Identifying, self.pos));
@@ -1968,9 +2131,15 @@ impl<'input> Lexer<'input> {
         None
     }
 
+    #[must_use]
     fn one_starts_numeric_cardinality(&self) -> bool {
-        let Some(after_one) = self.input[self.pos..].strip_prefix('1') else {
-            return false;
+        let after_one = {
+            let optional_after_one = self.input[self.pos..].strip_prefix('1');
+
+            match optional_after_one {
+                Some(matched_after_one) => matched_after_one,
+                ::core::option::Option::None => return false,
+            }
         };
 
         if ["--", "..", ".-", "-."]
@@ -1980,9 +2149,15 @@ impl<'input> Lexer<'input> {
             return true;
         }
 
-        let Some(first) = after_one.chars().next() else {
-            return false;
+        let first = {
+            let optional_first = after_one.chars().next();
+
+            match optional_first {
+                Some(matched_first) => matched_first,
+                ::core::option::Option::None => return false,
+            }
         };
+
         if !first.is_whitespace() {
             return false;
         }
@@ -2001,6 +2176,7 @@ impl<'input> Lexer<'input> {
     fn lex_punct(&mut self) -> Option<(usize, Tok, usize)> {
         let start = self.pos;
         let checked_value = self.peek()?;
+
         match checked_value {
             b'{' => {
                 self.pos += 1;
@@ -2011,6 +2187,7 @@ impl<'input> Lexer<'input> {
                 if self.mode != Mode::Block {
                     return None;
                 }
+
                 self.pos += 1;
                 self.mode = Mode::Default;
                 Some((start, Tok::BlockStop, self.pos))
@@ -2029,6 +2206,7 @@ impl<'input> Lexer<'input> {
                     self.mode = Mode::NeedIdListOnly;
                     return Some((start, Tok::StyleSeparator, self.pos));
                 }
+
                 self.pos += 1;
                 Some((start, Tok::Colon, self.pos))
             }
@@ -2044,8 +2222,10 @@ impl<'input> Lexer<'input> {
         if self.mode != Mode::Block {
             return None;
         }
+
         let start = self.pos;
         self.skip_ws_block();
+
         if self.pos >= self.input.len() {
             self.mode = Mode::Default;
             return Some(Err(LexError::new(
@@ -2053,40 +2233,50 @@ impl<'input> Lexer<'input> {
                 SourceSpan::new(self.pos, self.pos),
             )));
         }
+
         if self.peek() == Some(b'}') {
             return None;
         }
+
         if self.peek() == Some(b',') {
             self.pos += 1;
             return Some(Ok((start, Tok::Comma, self.pos)));
         }
+
         if self.peek() == Some(b'?') {
             self.pos += 1;
             return Some(Ok((start, Tok::Question, self.pos)));
         }
+
         if self.peek() == Some(b'"') {
             self.pos += 1;
+
             let Some(rel_end) = self.input[self.pos..].find('"') else {
                 return Some(Err(LexError::new(
                     "Unterminated comment string; missing '\"'",
                     SourceSpan::new(start, self.input.len()),
                 )));
             };
+
             let s = self.input[self.pos..self.pos + rel_end].to_string();
             self.pos = self.pos + rel_end + 1;
             return Some(Ok((start, Tok::Comment(s), self.pos)));
         }
+
         if self.peek() == Some(b'`') {
             let delimiter_start = self.pos;
             self.pos += 1;
             let body_start = self.pos;
+
             let Some(rel_end) = self.input[self.pos..].find('`') else {
                 return Some(Err(LexError::new(
                     "Unterminated attribute word; missing '`'",
                     SourceSpan::new(start, self.input.len()),
                 )));
             };
+
             let body_end = self.pos + rel_end;
+
             if body_end == body_start {
                 self.pos = body_end + 1;
                 return Some(Err(LexError::new(
@@ -2094,50 +2284,67 @@ impl<'input> Lexer<'input> {
                     SourceSpan::new(delimiter_start, self.pos),
                 )));
             }
+
             let s = self.input[body_start..body_end].to_string();
             self.pos = body_end + 1;
             return Some(Ok((body_start, Tok::AttrWord(s), body_end)));
         }
-        if let Some(two) = self.input[self.pos..].get(..2) {
-            let two_upper = two.to_ascii_uppercase();
-            if matches!(two_upper.as_str(), "PK" | "FK" | "UK") {
-                let prev_ok = self.pos == 0
-                    || matches!(
-                        self.input.as_bytes()[self.pos - 1],
-                        b' ' | b'\t' | b'\r' | b'\n' | b','
-                    );
-                let next_ok = self
-                    .input
-                    .as_bytes()
-                    .get(self.pos + 2)
-                    .copied()
-                    .map(|b| b.is_ascii_whitespace() || matches!(b, b',' | b'"' | b'}'))
-                    .unwrap_or(true);
-                if prev_ok && next_ok {
-                    self.pos += 2;
-                    return Some(Ok((start, Tok::AttrKey(two_upper), self.pos)));
+
+        match self.input[self.pos..].get(..2) {
+            Some(two) => {
+                let two_upper = two.to_ascii_uppercase();
+
+                if matches!(two_upper.as_str(), "PK" | "FK" | "UK") {
+                    let prev_ok = self.pos == 0
+                        || matches!(
+                            self.input.as_bytes()[self.pos - 1],
+                            b' ' | b'\t' | b'\r' | b'\n' | b','
+                        );
+                    let next_ok = match self
+                        .input
+                        .as_bytes()
+                        .get(self.pos + 2)
+                        .copied()
+                        .map(|b| b.is_ascii_whitespace() || matches!(b, b',' | b'"' | b'}')) {
+                        ::core::option::Option::Some(explicit_present) => explicit_present,
+                        ::core::option::Option::None => true,
+                    };
+
+                    if prev_ok && next_ok {
+                        self.pos += 2;
+                        return Some(Ok((start, Tok::AttrKey(two_upper), self.pos)));
+                    }
                 }
-            }
+            },
+            ::core::option::Option::None => {},
         }
 
         let start_word = self.pos;
         let mut end = self.pos;
+
         for (rel, ch) in self.input[self.pos..].char_indices() {
             if ch.is_whitespace() || matches!(ch, '"' | '}' | '?') {
                 break;
             }
+
             end = self.pos + rel + ch.len_utf8();
         }
+
         if end == start_word {
-            self.pos += self.peek().map(|_| 1).unwrap_or(0);
+            self.pos += match self.peek().map(|_| 1) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => 0,
+            };
             return Some(Err(LexError::new(
                 format!("Unexpected character inside attribute block at {start_word}"),
                 SourceSpan::new(start_word, self.pos),
             )));
         }
+
         self.pos = end;
         let raw = &self.input[start_word..end];
         let tilde_count = raw.chars().filter(|&c| c == '~').count();
+
         if tilde_count >= 2 {
             return Some(Ok((start, Tok::AttrWord(raw.to_string()), self.pos)));
         }
@@ -2156,12 +2363,14 @@ impl<'input> Lexer<'input> {
                 || matches!(c, '[' | ']' | '(' | ')')
                 || !c.is_ascii()
         });
+
         if !first_ok || !rest_ok {
             return Some(Err(LexError::new(
                 "Invalid attribute word",
                 SourceSpan::new(start_word, end),
             )));
         }
+
         Some(Ok((start, Tok::AttrWord(raw.to_string()), self.pos)))
     }
 
@@ -2169,43 +2378,57 @@ impl<'input> Lexer<'input> {
         if self.mode == Mode::Block {
             return None;
         }
+
         let start = self.pos;
         let checked_value = self.peek()?;
-        if checked_value == b'"' {
-            self.pos += 1;
-            let Some(rel_end) = self.input[self.pos..].find('"') else {
-                return Some(Err(LexError::new(
-                    "Unterminated string literal; missing '\"'",
-                    SourceSpan::new(start, self.input.len()),
-                )));
-            };
-            let s = self.input[self.pos..self.pos + rel_end].to_string();
-            self.pos = self.pos + rel_end + 1;
-            let is_entity_name = !s.is_empty()
-                && !s.contains('%')
-                && !s.contains('\\')
-                && !s.contains('\r')
-                && !s.contains('\n')
-                && !s.contains('\u{0008}')
-                && !s.contains('\u{000B}');
-            if is_entity_name {
-                return Some(Ok((start, Tok::Name(s), self.pos)));
-            }
-            return Some(Ok((start, Tok::Str(s), self.pos)));
+
+        match checked_value {
+            b'"' => {
+                self.pos += 1;
+
+                let Some(rel_end) = self.input[self.pos..].find('"') else {
+                    return Some(Err(LexError::new(
+                        "Unterminated string literal; missing '\"'",
+                        SourceSpan::new(start, self.input.len()),
+                    )));
+                };
+
+                let s = self.input[self.pos..self.pos + rel_end].to_string();
+                self.pos = self.pos + rel_end + 1;
+                let is_entity_name = !s.is_empty()
+                    && !s.contains('%')
+                    && !s.contains('\\')
+                    && !s.contains('\r')
+                    && !s.contains('\n')
+                    && !s.contains('\u{0008}')
+                    && !s.contains('\u{000B}');
+
+                if is_entity_name {
+                    return Some(Ok((start, Tok::Name(s), self.pos)));
+                }
+
+                return Some(Ok((start, Tok::Str(s), self.pos)));
+            },
+            _ => {},
         }
 
         let mut end = self.pos;
+
         for (rel, ch) in self.input[self.pos..].char_indices() {
             let ok =
                 !ch.is_ascii() || ch.is_ascii_alphanumeric() || matches!(ch, '_' | '-' | '*' | '.');
+
             if !ok {
                 break;
             }
+
             end = self.pos + rel + ch.len_utf8();
         }
+
         if end == self.pos {
             return None;
         }
+
         let s = self.input[self.pos..end].to_string();
         self.pos = end;
         Some(Ok((start, Tok::Name(s), self.pos)))
@@ -2216,13 +2439,16 @@ impl Iterator for Lexer<'_> {
     type Item = std::result::Result<(usize, Tok, usize), LexError>;
 
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(tok) = self.pending.pop_front() {
-            return Some(self.emit_token(tok));
+        match self.pending.pop_front() {
+            Some(tok) => {
+                return Some(self.emit_token(tok));
+            },
+            ::core::option::Option::None => {},
         }
 
         loop {
-            // INITIAL accessibility rules precede directions, which in turn
-            // precede whitespace. Exclusive attribute/style modes bypass them.
+
+
             if matches!(
                 self.mode,
                 Mode::Default
@@ -2230,21 +2456,37 @@ impl Iterator for Lexer<'_> {
                     | Mode::NeedClassFirstIdList
                     | Mode::NeedClassSecondIdList
             ) {
-                if let Some(tok) = self.lex_acc_title() {
-                    return Some(self.emit_result(tok));
+                match self.lex_acc_title() {
+                    Some(tok) => {
+                        return Some(self.emit_result(tok));
+                    },
+                    ::core::option::Option::None => {},
                 }
-                if let Some(tok) = self.lex_acc_descr() {
-                    return Some(self.emit_result(tok));
+
+                match self.lex_acc_descr() {
+                    Some(tok) => {
+                        return Some(self.emit_result(tok));
+                    },
+                    ::core::option::Option::None => {},
                 }
-                if let Some(tok) = self.lex_direction() {
-                    return Some(self.emit_token(tok));
+
+                {
+                    match self.lex_direction() {
+                        Some(tok) => {
+                            return Some(self.emit_token(tok));
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
+
             let before_whitespace = self.pos;
+
             match self.mode {
                 Mode::Block => self.skip_ws_block(),
-                _ => self.skip_ws_default(),
+                Mode::Default | Mode::NeedIdListOnly | Mode::NeedIdListThenLineRest | Mode::NeedClassFirstIdList | Mode::NeedClassSecondIdList | Mode::LineRest => self.skip_ws_default(),
             }
+
             if self.pos != before_whitespace {
                 continue;
             }
@@ -2257,6 +2499,7 @@ impl Iterator for Lexer<'_> {
                         SourceSpan::new(self.pos, self.pos),
                     )));
                 }
+
                 return None;
             }
 
@@ -2264,36 +2507,60 @@ impl Iterator for Lexer<'_> {
                 continue;
             }
 
-            if let Some(tok) = self.lex_block_token() {
-                return Some(self.emit_result(tok));
+            match self.lex_block_token() {
+                Some(tok) => {
+                    return Some(self.emit_result(tok));
+                },
+                ::core::option::Option::None => {},
             }
 
-            if let Some(tok) = self.lex_rest_of_line() {
-                return Some(self.emit_result(tok));
+            match self.lex_rest_of_line() {
+                Some(tok) => {
+                    return Some(self.emit_result(tok));
+                },
+                ::core::option::Option::None => {},
             }
 
-            if let Some(tok) = self.lex_newline() {
-                return Some(self.emit_token(tok));
+            match self.lex_newline() {
+                Some(tok) => {
+                    return Some(self.emit_token(tok));
+                },
+                ::core::option::Option::None => {},
             }
 
-            if let Some(tok) = self.lex_keyword() {
-                return Some(self.emit_token(tok));
+            match self.lex_keyword() {
+                Some(tok) => {
+                    return Some(self.emit_token(tok));
+                },
+                ::core::option::Option::None => {},
             }
 
-            if let Some(tok) = self.lex_id_list() {
-                return Some(self.emit_token(tok));
+            match self.lex_id_list() {
+                Some(tok) => {
+                    return Some(self.emit_token(tok));
+                },
+                ::core::option::Option::None => {},
             }
 
-            if let Some(tok) = self.lex_punct() {
-                return Some(self.emit_token(tok));
+            match self.lex_punct() {
+                Some(tok) => {
+                    return Some(self.emit_token(tok));
+                },
+                ::core::option::Option::None => {},
             }
 
-            if let Some(tok) = self.lex_rel_tokens() {
-                return Some(self.emit_token(tok));
+            match self.lex_rel_tokens() {
+                Some(tok) => {
+                    return Some(self.emit_token(tok));
+                },
+                ::core::option::Option::None => {},
             }
 
-            if let Some(tok) = self.lex_name_or_str() {
-                return Some(self.emit_result(tok));
+            match self.lex_name_or_str() {
+                Some(tok) => {
+                    return Some(self.emit_result(tok));
+                },
+                ::core::option::Option::None => {},
             }
 
             let start = self.pos;
@@ -2324,7 +2591,7 @@ mod tests {
 
     #[test]
     fn er_direction_lexer_preserves_ecmascript_line_terminators() {
-        // Test raw lexer rules before MermaidEngine preprocessing normalizes line endings.
+
         for separator in ['\r', '\u{2028}', '\u{2029}'] {
             let source = format!("direction RL{separator}direction TB");
             let (start, token, end) = Lexer::new(&source).next().unwrap().unwrap();
@@ -2670,7 +2937,7 @@ mod tests {
         let fact_checkpoints = syntax.events.len().div_ceil(128) + 1;
         #[cfg(not(feature = "editor-facts"))]
         let fact_checkpoints = 0;
-        // Cancel during the third token batch, after inner grammar fragments have completed.
+
         control.cancel_after_checkpoints(fact_checkpoints + 2);
         let Err(cancelled) = syntax.into_actions(
             #[cfg(feature = "editor-facts")]

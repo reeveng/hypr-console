@@ -45,8 +45,14 @@ fn finish(request: Request) -> Result<(), Never> {
         notify("Couldn’t capture text")
       }
     },
-    Request::Screenshot(region) => match console_capture::screenshot(region) {
-      Ok(_) => notify("Screenshot saved to Pictures"),
+    Request::Screenshot(region) => match console_application_camera::screenshot(region) {
+      Ok(shot) => match shot.announce() {
+        Ok(()) => Ok(()),
+        Err(fault) => {
+          console_core_logging::warn!("couldn’t announce screenshot: {fault}");
+          notify("Screenshot saved to Pictures")
+        }
+      },
       Err(fault) => {
         console_core_logging::warn!("screenshot: {fault}");
         notify("Couldn’t save screenshot")
@@ -176,11 +182,13 @@ impl From<bool> for CommandOutcome {
 }
 
 pub(super) fn notify(message: &str) -> Result<(), Never> {
-  let Ok(mut saying) = Program::NotifySend.command();
-  let result = saying
-    .args(["--app-name=Console", "--expire-time=2500", "--", message])
-    .stdin(Stdio::null())
-    .status();
+  let options = console_operating_system_linux::notification::Options {
+    app_name: Some("Console"),
+    expire_ms: Some(2500),
+    ..Default::default()
+  };
+  let Ok(mut saying) = options.command(message, None);
+  let result = saying.stdin(Stdio::null()).status();
 
   match result {
     Ok(status) => match CommandOutcome::from(status.success()) {

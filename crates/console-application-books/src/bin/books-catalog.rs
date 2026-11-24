@@ -1,0 +1,272 @@
+//! What the library knows about each book: its title and its cover.
+//!
+//!     books-catalog
+//!
+//! Outside the library, like `panel-pictures` and for the same reason: asking a book
+//! its title means opening it, and a cover means unpacking a picture out of it
+//! or drawing a first page. The library starts this for the books
+//! it has not seen, goes on drawing them under their file names, and reads the
+//! catalog again when it has been written.
+//!
+//! An EPUB's cover is the picture it names as one, written out as it was
+//! packed. A comic's is its first page. A PDF's is its first page drawn,
+//! because that is what a PDF's cover is. The pictures are written
+//! whole into the cache and the panel's picture store decodes them at the size
+//! a cover is drawn, the same way it does every thumbnail on this machine.
+//!
+//! A book that leaves the folder leaves the catalog, with its cover.
+
+use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
+use std::process::ExitCode;
+
+use console_application_books::library::{self, CatalogEntry, FileName, Format, InvalidFileName};
+use console_application_books::open;
+use console_application_books::portable_document::{self, Scale};
+use console_core_never::Never;
+
+const COVER_TALL: u32 = 900;
+
+fn main() -> ExitCode {
+  let Ok(home) = console_core_places::home();
+
+  let home_3 = match home {
+    Some(home_2) => home_2,
+    None => {
+      eprintln!("books-catalog: HOME is not set, so there is no Books folder to read");
+
+      return ExitCode::FAILURE;
+    }
+  };
+
+  match update_catalog(&home_3) {
+    Ok(()) => ExitCode::SUCCESS,
+    Err(fault) => {
+      eprintln!("books-catalog: {fault}");
+
+      ExitCode::FAILURE
+    }
+  }
+}
+
+#[derive(Debug)]
+enum CatalogError {
+  Folder(PathBuf, std::io::Error),
+  Written(console_core_atomic_writes::Unwritten),
+}
+
+impl std::fmt::Display for CatalogError {
+  fn fmt(&self, to: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+    match self {
+      CatalogError::Folder(at, fault) => write!(to, "{}: {fault}", at.display()),
+      CatalogError::Written(fault) => write!(to, "{fault}"),
+    }
+  }
+}
+
+impl std::error::Error for CatalogError {}
+
+fn update_catalog(home: &Path) -> Result<(), CatalogError> {
+  let Ok(folder) = library::books_folder(home);
+  let Ok(cache) = library::cache_folder(home);
+  let covers = cache.join("covers");
+  let at = cache.join(library::CATALOG);
+
+  std::fs::create_dir_all(&covers)
+    .map_err(|fault| CatalogError::Folder(covers.clone(), fault))?;
+
+  let Ok(contents) = console_core_atomic_writes::read(&at);
+  let contents_3 = match contents.text() {
+    Ok(Some(contents_2)) => contents_2,
+    Ok(None) | Err(_) => String::new(),
+  };
+
+  let Ok(mut catalog) = library::read_catalog(&contents_3);
+  let Ok(names) = library::names(&folder);
+  let Ok(books) = library::books(&folder, &names, &BTreeMap::new());
+
+  let present: std::collections::BTreeSet<&String> = names.iter().collect();
+
+  catalog.retain(|name, _| present.contains(name));
+
+  let Ok(()) = add_missing(&books, &covers, &mut catalog);
+  let Ok(text) = library::written_catalog(&catalog);
+
+  console_core_atomic_writes::whole(&at, text.as_bytes()).map_err(CatalogError::Written)
+}
+
+#[cfg_attr(
+  dylint_lib = "explicit029_no_asking_per_item",
+  allow(
+    explicit029_no_asking_per_item,
+    reason = "a catalog is a walk over the books the library has not seen, opening each one; that is the whole of the work this program exists to do off the library.s loop, and it is done once per book rather than once per opening"
+  )
+)]
+fn add_missing(
+  books: &[library::Book],
+  covers: &Path,
+  catalog: &mut BTreeMap<String, CatalogEntry>,
+) -> Result<(), Never> {
+  for book in books {
+    match ::core::primitive::bool::then_some(catalog.contains_key(&book.name), ()) {
+      ::core::option::Option::Some(()) => continue,
+      ::core::option::Option::None => {}
+    }
+
+    let Ok(entry) = entry(book, covers);
+
+    catalog.insert(book.name.clone(), entry);
+  }
+
+  Ok(())
+}
+
+fn entry(book: &library::Book, covers: &Path) -> Result<CatalogEntry, Never> {
+  let read = match book.format {
+    Format::Publication => from_publication(book, covers),
+    Format::Comic => from_comic(book, covers),
+    Format::PortableDocument => from_portable_document(book, covers),
+  };
+
+  Ok(match read {
+    Ok(entry) => entry,
+    Err(fault) => {
+      eprintln!("books-catalog: {}: {fault}", book.path.display());
+
+      CatalogEntry {
+        title: book.title.clone(),
+        cover: None,
+      }
+    }
+  })
+}
+
+fn write_cover(
+  covers: &Path,
+  book: &library::Book,
+  cover: CoverImage<'_>,
+) -> Result<Option<PathBuf>, Never> {
+  let Ok(ending) = open::extension(cover.name);
+  let at = match cover_path(covers, book, &ending) {
+    Ok(at) => at,
+    Err(InvalidFileName) => return Ok(None),
+  };
+
+  Ok(match console_core_atomic_writes::whole(&at, cover.bytes) {
+    Ok(()) => Some(at),
+    Err(fault) => {
+      eprintln!("books-catalog: {fault}");
+
+      None
+    }
+  })
+}
+
+fn cover_path(
+  covers: &Path,
+  book: &library::Book,
+  ending: &str,
+) -> Result<PathBuf, InvalidFileName> {
+  let file_name = format!("{}.{ending}", book.name);
+  let checked = FileName::new(&file_name)?;
+
+  Ok(covers.join(checked))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CoverImage<'a> {
+  name: &'a str,
+  bytes: &'a [u8],
+}
+
+fn from_publication(
+  book: &library::Book,
+  covers: &Path,
+) -> Result<CatalogEntry, open::BookError> {
+  let opened = open::publication(&book.path)?;
+
+  let title = match &opened.publication.title {
+    Some(title) => title.clone(),
+    None => book.title.clone(),
+  };
+
+  let cover = match &opened.publication.cover {
+    Some(named) => {
+      let bytes = opened.archive.extract(named)?;
+      let Ok(written) = write_cover(
+        covers,
+        book,
+        CoverImage {
+          name: named,
+          bytes: &bytes,
+        },
+      );
+
+      written
+    }
+    None => None,
+  };
+
+  Ok(CatalogEntry { title, cover })
+}
+
+fn from_comic(book: &library::Book, covers: &Path) -> Result<CatalogEntry, open::BookError> {
+  let opened = open::comic(&book.path)?;
+
+  let cover = match opened.pages.first() {
+    Some(named) => {
+      let bytes = opened.archive.extract(named)?;
+      let Ok(written) = write_cover(
+        covers,
+        book,
+        CoverImage {
+          name: named,
+          bytes: &bytes,
+        },
+      );
+
+      written
+    }
+    None => None,
+  };
+
+  Ok(CatalogEntry {
+    title: book.title.clone(),
+    cover,
+  })
+}
+
+fn from_portable_document(
+  book: &library::Book,
+  covers: &Path,
+) -> Result<CatalogEntry, open::BookError> {
+  let png = match cover_path(covers, book, "png") {
+    Ok(png) => png,
+    Err(InvalidFileName) => {
+      return Ok(CatalogEntry {
+        title: book.title.clone(),
+        cover: None,
+      });
+    }
+  };
+  let document = portable_document::opened(&book.path)
+    .map_err(|fault| open::BookError::Document(book.path.clone(), fault))?;
+  let drawn = document
+    .png(0, Scale::Tall(COVER_TALL))
+    .map_err(|fault| open::BookError::Document(book.path.clone(), fault))?;
+
+  let cover = match drawn.map(|bytes| console_core_atomic_writes::whole(&png, &bytes)) {
+    Some(Ok(())) => Some(png),
+    Some(Err(fault)) => {
+      eprintln!("books-catalog: {fault}");
+
+      None
+    }
+    None => None,
+  };
+
+  Ok(CatalogEntry {
+    title: book.title.clone(),
+    cover,
+  })
+}

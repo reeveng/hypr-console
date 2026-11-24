@@ -30,6 +30,7 @@ struct InfoSemanticSource {
 
 #[cfg(feature = "presentation")]
 impl InfoSemanticSource {
+    #[must_use]
     fn into_render_parts(self) -> (InfoDiagramModel, InfoOutputData) {
         (self.model, self.output_data)
     }
@@ -109,6 +110,7 @@ pub(crate) fn parse_info_model_for_render_controlled(
         EditorFactsDemand::Omit,
         control,
     )?;
+
     match construction {
         Ok(source) => Ok(Ok(source.into_render_parts())),
         Err(failure) => Ok(Err(failure.into_error())),
@@ -156,6 +158,7 @@ pub(crate) fn parse_info_semantic_model_controlled(
                     },
                 }
             }
+
             #[cfg(not(feature = "editor-facts"))]
             {
                 crate::family::SemanticConstruction {
@@ -221,21 +224,26 @@ fn construct_info_semantic_source_controlled(
 
     while offset < code.len() {
         control.checkpoint()?;
+
         match parse_info_statement(code, offset, !show_info && !common_seen) {
             InfoStatement::Common(parsed) => {
-                if let Some(diagnostic) = &parsed.diagnostic {
-                    #[cfg(feature = "editor-facts")]
-                    if let Some(facts) = &mut editor_facts {
-                        push_langium_common_recovery(facts, diagnostic);
-                    }
-                    first_error.get_or_insert_with(|| {
-                        Error::diagram_parse_insertion_point(
-                            diagram_type.to_string(),
-                            diagnostic.message.clone(),
-                            diagnostic.span.start,
-                        )
-                    });
+                match &parsed.diagnostic {
+                    Some(diagnostic) => {
+                        #[cfg(feature = "editor-facts")]
+                        if let Some(facts) = &mut editor_facts {
+                            push_langium_common_recovery(facts, diagnostic);
+                        }
+                        first_error.get_or_insert_with(|| {
+                            Error::diagram_parse_insertion_point(
+                                diagram_type.to_string(),
+                                diagnostic.message.clone(),
+                                diagnostic.span.start,
+                            )
+                        });
+                    },
+                    ::core::option::Option::None => {},
                 }
+
                 #[cfg(feature = "editor-facts")]
                 if let Some(facts) = editor_facts
                     .as_mut()
@@ -287,12 +295,15 @@ fn construct_info_semantic_source_controlled(
         }
     }
 
-    if let Some(error) = first_error {
-        return Ok(Err(family::CombinedSemanticFailure::new(
-            error,
-            #[cfg(feature = "editor-facts")]
-            editor_facts,
-        )));
+    match first_error {
+        Some(error) => {
+            return Ok(Err(family::CombinedSemanticFailure::new(
+                error,
+                #[cfg(feature = "editor-facts")]
+                editor_facts,
+            )));
+        },
+        ::core::option::Option::None => {},
     }
 
     control.checkpoint()?;
@@ -325,19 +336,25 @@ enum InfoStatement {
     },
 }
 
+#[must_use]
 fn parse_info_statement(code: &str, offset: usize, allow_show_info: bool) -> InfoStatement {
-    if let Some(parsed) = parse_langium_common(code, offset) {
-        return InfoStatement::Common(parsed);
+    match parse_langium_common(code, offset) {
+        Some(parsed) => {
+            return InfoStatement::Common(parsed);
+        },
+        ::core::option::Option::None => {},
     }
 
     let (line, next_offset) = physical_line(code, offset);
     let visible = strip_inline_comment(line);
     let trimmed = visible.trim();
+
     if trimmed.is_empty() {
         return InfoStatement::Empty { next_offset };
     }
 
     let leading = visible.len() - visible.trim_start().len();
+
     if allow_show_info && let Some(token_len) = keyword_token_len(visible.trim_start(), "showInfo")
     {
         #[cfg(feature = "editor-facts")]
@@ -349,9 +366,15 @@ fn parse_info_statement(code: &str, offset: usize, allow_show_info: bool) -> Inf
         };
     }
 
-    let bad_offset = offset + visible.find(trimmed).unwrap_or_default();
+    let bad_offset = offset + match visible.find(trimmed) {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => 0,
+    };
     InfoStatement::Unexpected {
-        ch: trimmed.chars().next().unwrap_or('?'),
+        ch: match trimmed.chars().next() {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => '?',
+        },
         skipped: trimmed.chars().count(),
         bad_offset,
         #[cfg(feature = "editor-facts")]
@@ -393,17 +416,21 @@ fn info_body_start_controlled(
     control: &crate::OperationControl,
 ) -> crate::OperationControlResult<InfoHeader> {
     let mut offset = 0usize;
+
     while offset < code.len() {
         control.checkpoint()?;
         let (line, next_offset) = physical_line(code, offset);
         let visible = strip_inline_comment(line);
         let trimmed = visible.trim_start();
+
         if trimmed.trim().is_empty() {
             offset = next_offset;
             continue;
         }
+
         let leading = visible.len() - trimmed.len();
         let header_start = offset + leading;
+
         let Some(header_len) = keyword_token_len(trimmed, "info") else {
             let token_len = trimmed.find(char::is_whitespace).unwrap_or(trimmed.len());
             return Ok(InfoHeader::ExpectedInfo(SourceSpan::new(
@@ -411,13 +438,16 @@ fn info_body_start_controlled(
                 header_start + token_len,
             )));
         };
+
         return Ok(InfoHeader::Body(InfoBodyStart {
             offset: header_start + header_len,
         }));
     }
+
     Ok(InfoHeader::Empty)
 }
 
+#[must_use]
 fn keyword_token_len(input: &str, keyword: &str) -> Option<usize> {
     let rest = input.strip_prefix(keyword)?;
     (rest.is_empty()
@@ -426,8 +456,10 @@ fn keyword_token_len(input: &str, keyword: &str) -> Option<usize> {
     .then_some(keyword.len())
 }
 
+#[must_use]
 fn physical_line(source: &str, offset: usize) -> (&str, usize) {
     let rest = &source[offset..];
+
     if let Some(newline) = rest.find('\n') {
         let line = rest[..newline]
             .strip_suffix('\r')
@@ -438,6 +470,7 @@ fn physical_line(source: &str, offset: usize) -> (&str, usize) {
     }
 }
 
+#[must_use]
 fn strip_inline_comment(line: &str) -> &str {
     match line.find("%%") {
         Some(idx) => &line[..idx],
@@ -820,7 +853,7 @@ mod output_data_tests {
         assert_eq!(empty_output, InfoOutputData::Empty);
         assert_eq!(header_output, InfoOutputData::Model);
         assert_eq!(InfoOutputData::default(), InfoOutputData::Model);
-        // Identical canonical values must not erase the source producer's distinct output shape.
+
         assert_eq!(
             serde_json::to_value(&empty).unwrap(),
             serde_json::to_value(&header).unwrap()

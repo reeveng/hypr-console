@@ -17,6 +17,7 @@ enum BorderSide {
     Right,
 }
 
+#[must_use]
 fn segment_enter_point(
     outside: &LayoutPoint,
     inside: &LayoutPoint,
@@ -32,6 +33,7 @@ fn segment_enter_point(
             y: outside.y,
         };
     }
+
     if same_x(outside, inside, EPSILON) {
         return LayoutPoint {
             x: outside.x,
@@ -42,80 +44,99 @@ fn segment_enter_point(
             },
         };
     }
+
     LayoutPoint {
         x: outside.x.clamp(rect.left, rect.right),
         y: outside.y.clamp(rect.top, rect.bottom),
     }
 }
 
+#[must_use]
 fn clip_endpoint(points: &[LayoutPoint], rect: RectBounds, at_start: bool) -> Vec<LayoutPoint> {
     let step: isize = if at_start { 1 } else { -1 };
     let mut outside_index = if at_start {
         0
     } else {
-        points.len() as isize - 1
+        points.len().cast_signed() - 1
     };
+
     while outside_index >= 0
-        && (outside_index as usize) < points.len()
-        && rect.contains_point(&points[outside_index as usize], INSIDE_EPSILON)
+        && ::core::primitive::isize::cast_unsigned(outside_index) < points.len()
+        && rect.contains_point(&points[::core::primitive::isize::cast_unsigned(outside_index)], INSIDE_EPSILON)
     {
         outside_index += step;
     }
-    if outside_index < 0 || outside_index as usize >= points.len() {
+
+    if outside_index < 0 || ::core::primitive::isize::cast_unsigned(outside_index) >= points.len() {
         return points.to_vec();
     }
 
     let inside_index = outside_index - step;
-    if inside_index < 0 || inside_index as usize >= points.len() {
+
+    if inside_index < 0 || inside_index.cast_unsigned() >= points.len() {
         return points.to_vec();
     }
 
     let entry = segment_enter_point(
-        &points[outside_index as usize],
-        &points[inside_index as usize],
+        &points[::core::primitive::isize::cast_unsigned(outside_index)],
+        &points[inside_index.cast_unsigned()],
         rect,
     );
+
     if at_start {
-        let mut result = Vec::with_capacity(points.len() - outside_index as usize + 1);
+        let mut result = Vec::with_capacity(points.len() - ::core::primitive::isize::cast_unsigned(outside_index) + 1);
         result.push(entry);
-        result.extend_from_slice(&points[outside_index as usize..]);
+        result.extend_from_slice(&points[::core::primitive::isize::cast_unsigned(outside_index)..]);
         result
     } else {
-        let mut result = points[..=outside_index as usize].to_vec();
+        let mut result = points[..=::core::primitive::isize::cast_unsigned(outside_index)].to_vec();
         result.push(entry);
         result
     }
 }
 
+#[must_use]
 fn node_rects(layout: &WorkingLayout) -> HashMap<String, RectBounds> {
     layout
         .nodes
         .values()
-        .filter_map(|node| Some((node.id.clone(), rect_of_node_bounds(node)?)))
+        .filter_map(|node| Some((node.id.clone(), { let checked_value = rect_of_node_bounds(node)?; checked_value })))
         .collect()
 }
 
 pub(super) fn clip_edge_endpoints_to_node_boundaries(layout: &mut WorkingLayout) {
     let rects = node_rects(layout);
+
     for edge in &mut layout.original_edges {
         if edge.points.len() < 2 {
             continue;
         }
+
         let source_rect = rects.get(&edge.from).copied();
         let destination_rect = rects.get(&edge.to).copied();
         let mut next = edge.points.clone();
-        if let Some(rect) = source_rect {
-            next = clip_endpoint(&next, rect, true);
+
+        match source_rect {
+            Some(rect) => {
+                next = clip_endpoint(&next, rect, true);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(rect) = destination_rect {
-            next = clip_endpoint(&next, rect, false);
+
+        match destination_rect {
+            Some(rect) => {
+                next = clip_endpoint(&next, rect, false);
+            },
+            ::core::option::Option::None => {},
         }
+
         next = simplify_polyline(&orthogonalize_polyline(&next));
         next = clear_straight_endpoint_corner_connections(&next, source_rect, destination_rect);
         edge.points = simplify_polyline(&orthogonalize_polyline(&next));
     }
 }
 
+#[must_use]
 fn snap_endpoint_to_boundary(
     inner: &LayoutPoint,
     endpoint: &LayoutPoint,
@@ -126,6 +147,7 @@ fn snap_endpoint_to_boundary(
         if endpoint.y < rect.top - EPSILON || endpoint.y > rect.bottom + EPSILON {
             return endpoint.clone();
         }
+
         if use_approach_side {
             if inner.x < rect.left - EPSILON {
                 return LayoutPoint {
@@ -133,6 +155,7 @@ fn snap_endpoint_to_boundary(
                     y: inner.y,
                 };
             }
+
             if inner.x > rect.right + EPSILON {
                 return LayoutPoint {
                     x: rect.right,
@@ -140,16 +163,19 @@ fn snap_endpoint_to_boundary(
                 };
             }
         }
+
         let to_left = (endpoint.x - rect.left).abs() <= (endpoint.x - rect.right).abs();
         return LayoutPoint {
             x: if to_left { rect.left } else { rect.right },
             y: inner.y,
         };
     }
+
     if same_x(inner, endpoint, EPSILON) {
         if endpoint.x < rect.left - EPSILON || endpoint.x > rect.right + EPSILON {
             return endpoint.clone();
         }
+
         if use_approach_side {
             if inner.y < rect.top - EPSILON {
                 return LayoutPoint {
@@ -157,6 +183,7 @@ fn snap_endpoint_to_boundary(
                     y: rect.top,
                 };
             }
+
             if inner.y > rect.bottom + EPSILON {
                 return LayoutPoint {
                     x: inner.x,
@@ -164,39 +191,48 @@ fn snap_endpoint_to_boundary(
                 };
             }
         }
+
         let to_top = (endpoint.y - rect.top).abs() <= (endpoint.y - rect.bottom).abs();
         return LayoutPoint {
             x: inner.x,
             y: if to_top { rect.top } else { rect.bottom },
         };
     }
+
     endpoint.clone()
 }
 
+#[must_use]
 fn first_distinct_adjacent(
     points: &[LayoutPoint],
     endpoint_index: usize,
     step: isize,
 ) -> Option<LayoutPoint> {
     let endpoint = points.get(endpoint_index)?;
-    let mut index = endpoint_index as isize + step;
-    while index >= 0 && (index as usize) < points.len() {
-        let candidate = &points[index as usize];
+    let mut index = endpoint_index.cast_signed() + step;
+
+    while index >= 0 && index.cast_unsigned() < points.len() {
+        let candidate = &points[index.cast_unsigned()];
+
         if !same_point(candidate, endpoint, EPSILON) {
             return Some(candidate.clone());
         }
+
         index += step;
     }
-    let fallback = endpoint_index as isize + step;
+
+    let fallback = endpoint_index.cast_signed() + step;
     (fallback >= 0)
-        .then(|| points.get(fallback as usize))
+        .then(|| points.get(fallback.cast_unsigned()))
         .flatten()
         .cloned()
 }
 
+#[must_use]
 fn corner_clearance_range(minimum: f64, maximum: f64) -> (f64, f64) {
     let low = minimum + CORNER_CLEARANCE;
     let high = maximum - CORNER_CLEARANCE;
+
     if low <= high {
         (low, high)
     } else {
@@ -205,17 +241,20 @@ fn corner_clearance_range(minimum: f64, maximum: f64) -> (f64, f64) {
     }
 }
 
+#[must_use]
 fn clamp_to_corner_clearance(value: f64, minimum: f64, maximum: f64) -> f64 {
     let (low, high) = corner_clearance_range(minimum, maximum);
     value.clamp(low, high)
 }
 
+#[must_use]
 fn intersect_ranges(ranges: &[(f64, f64)]) -> Option<(f64, f64)> {
     let low = ranges.iter().map(|range| range.0).reduce(f64::max)?;
     let high = ranges.iter().map(|range| range.1).reduce(f64::min)?;
     (low <= high).then_some((low, high))
 }
 
+#[must_use]
 fn clearance_range_for_side(rect: RectBounds, side: BorderSide) -> (f64, f64) {
     if is_horizontal_side(side) {
         corner_clearance_range(rect.top, rect.bottom)
@@ -224,6 +263,7 @@ fn clearance_range_for_side(rect: RectBounds, side: BorderSide) -> (f64, f64) {
     }
 }
 
+#[must_use]
 fn terminal_side_for_segment(
     endpoint: &LayoutPoint,
     adjacent: &LayoutPoint,
@@ -231,29 +271,36 @@ fn terminal_side_for_segment(
 ) -> Option<BorderSide> {
     let y_within = endpoint.y >= rect.top - EPSILON && endpoint.y <= rect.bottom + EPSILON;
     let x_within = endpoint.x >= rect.left - EPSILON && endpoint.x <= rect.right + EPSILON;
+
     if same_y(endpoint, adjacent, EPSILON) && y_within {
         if (endpoint.x - rect.left).abs() < EPSILON {
             return Some(BorderSide::Left);
         }
+
         if (endpoint.x - rect.right).abs() < EPSILON {
             return Some(BorderSide::Right);
         }
     }
+
     if same_x(endpoint, adjacent, EPSILON) && x_within {
         if (endpoint.y - rect.top).abs() < EPSILON {
             return Some(BorderSide::Top);
         }
+
         if (endpoint.y - rect.bottom).abs() < EPSILON {
             return Some(BorderSide::Bottom);
         }
     }
+
     None
 }
 
+#[must_use]
 fn is_horizontal_side(side: BorderSide) -> bool {
     matches!(side, BorderSide::Left | BorderSide::Right)
 }
 
+#[must_use]
 fn straight_clearance_range(
     start: &LayoutPoint,
     end: &LayoutPoint,
@@ -265,19 +312,23 @@ fn straight_clearance_range(
     let source_side = source_rect.and_then(|rect| terminal_side_for_segment(start, end, rect));
     let destination_side =
         destination_rect.and_then(|rect| terminal_side_for_segment(end, start, rect));
+
     if let (Some(rect), Some(side)) = (source_rect, source_side)
         && is_horizontal_side(side) == horizontal
     {
         ranges.push(clearance_range_for_side(rect, side));
     }
+
     if let (Some(rect), Some(side)) = (destination_rect, destination_side)
         && is_horizontal_side(side) == horizontal
     {
         ranges.push(clearance_range_for_side(rect, side));
     }
+
     intersect_ranges(&ranges)
 }
 
+#[must_use]
 fn clear_straight_endpoint_corner_axis(
     start: &LayoutPoint,
     end: &LayoutPoint,
@@ -289,9 +340,11 @@ fn clear_straight_endpoint_corner_axis(
         straight_clearance_range(start, end, source_rect, destination_rect, horizontal)?;
     let current = if horizontal { start.y } else { start.x };
     let next = current.clamp(low, high);
+
     if (next - current).abs() < EPSILON {
         return None;
     }
+
     Some(if horizontal {
         vec![
             LayoutPoint {
@@ -311,6 +364,7 @@ fn clear_straight_endpoint_corner_axis(
     })
 }
 
+#[must_use]
 fn clear_straight_endpoint_corner_connections(
     points: &[LayoutPoint],
     source_rect: Option<RectBounds>,
@@ -319,8 +373,10 @@ fn clear_straight_endpoint_corner_connections(
     if points.len() != 2 {
         return points.to_vec();
     }
+
     let start = &points[0];
     let end = &points[1];
+
     if same_y(start, end, EPSILON) {
         return clear_straight_endpoint_corner_axis(
             start,
@@ -331,6 +387,7 @@ fn clear_straight_endpoint_corner_connections(
         )
         .unwrap_or_else(|| points.to_vec());
     }
+
     if same_x(start, end, EPSILON) {
         return clear_straight_endpoint_corner_axis(
             start,
@@ -341,9 +398,11 @@ fn clear_straight_endpoint_corner_connections(
         )
         .unwrap_or_else(|| points.to_vec());
     }
+
     points.to_vec()
 }
 
+#[must_use]
 fn corner_cleared_endpoint(
     endpoint: &LayoutPoint,
     rect: RectBounds,
@@ -362,6 +421,7 @@ fn corner_cleared_endpoint(
     }
 }
 
+#[must_use]
 fn move_collinear_endpoint_run(
     points: &[LayoutPoint],
     endpoint_index: usize,
@@ -371,25 +431,32 @@ fn move_collinear_endpoint_run(
     horizontal_terminal: bool,
 ) -> Vec<LayoutPoint> {
     let mut next = points.to_vec();
-    let mut index = endpoint_index as isize;
-    while index >= 0 && (index as usize) < points.len() {
-        let point = &points[index as usize];
+    let mut index = endpoint_index.cast_signed();
+
+    while index >= 0 && index.cast_unsigned() < points.len() {
+        let point = &points[index.cast_unsigned()];
+
         if horizontal_terminal && !same_y(point, endpoint, EPSILON) {
             break;
         }
+
         if !horizontal_terminal && !same_x(point, endpoint, EPSILON) {
             break;
         }
+
         if horizontal_terminal {
-            next[index as usize].y = adjusted.y;
+            next[index.cast_unsigned()].y = adjusted.y;
         } else {
-            next[index as usize].x = adjusted.x;
+            next[index.cast_unsigned()].x = adjusted.x;
         }
+
         index += step;
     }
+
     next
 }
 
+#[must_use]
 fn clear_endpoint_corner_connection(
     points: &[LayoutPoint],
     rect: RectBounds,
@@ -398,20 +465,36 @@ fn clear_endpoint_corner_connection(
     if points.len() < 2 {
         return points.to_vec();
     }
+
     let endpoint_index = if at_start { 0 } else { points.len() - 1 };
     let step = if at_start { 1 } else { -1 };
     let endpoint = &points[endpoint_index];
-    let Some(adjacent) = first_distinct_adjacent(points, endpoint_index, step) else {
-        return points.to_vec();
+
+    let adjacent = {
+        let optional_adjacent = first_distinct_adjacent(points, endpoint_index, step);
+
+        match optional_adjacent {
+            Some(matched_adjacent) => matched_adjacent,
+            ::core::option::Option::None => return points.to_vec(),
+        }
     };
-    let Some(side) = terminal_side_for_segment(endpoint, &adjacent, rect) else {
-        return points.to_vec();
+
+    let side = {
+        let optional_side = terminal_side_for_segment(endpoint, &adjacent, rect);
+
+        match optional_side {
+            Some(matched_side) => matched_side,
+            ::core::option::Option::None => return points.to_vec(),
+        }
     };
+
     let horizontal_terminal = is_horizontal_side(side);
     let adjusted = corner_cleared_endpoint(endpoint, rect, side);
+
     if same_point(endpoint, &adjusted, EPSILON) {
         return points.to_vec();
     }
+
     move_collinear_endpoint_run(
         points,
         endpoint_index,
@@ -422,6 +505,7 @@ fn clear_endpoint_corner_connection(
     )
 }
 
+#[must_use]
 fn border_side_for_segment(
     start: &LayoutPoint,
     end: &LayoutPoint,
@@ -431,22 +515,28 @@ fn border_side_for_segment(
         start.x.min(end.x) >= rect.left - EPSILON && start.x.max(end.x) <= rect.right + EPSILON;
     let y_within =
         start.y.min(end.y) >= rect.top - EPSILON && start.y.max(end.y) <= rect.bottom + EPSILON;
+
     if (start.y - rect.top).abs() < EPSILON && (end.y - rect.top).abs() < EPSILON && x_within {
         return Some(BorderSide::Top);
     }
+
     if (start.y - rect.bottom).abs() < EPSILON && (end.y - rect.bottom).abs() < EPSILON && x_within
     {
         return Some(BorderSide::Bottom);
     }
+
     if (start.x - rect.left).abs() < EPSILON && (end.x - rect.left).abs() < EPSILON && y_within {
         return Some(BorderSide::Left);
     }
+
     if (start.x - rect.right).abs() < EPSILON && (end.x - rect.right).abs() < EPSILON && y_within {
         return Some(BorderSide::Right);
     }
+
     None
 }
 
+#[must_use]
 fn leaves_outward(
     side: BorderSide,
     from: &LayoutPoint,
@@ -461,6 +551,7 @@ fn leaves_outward(
     }
 }
 
+#[must_use]
 fn collapse_own_border_stub(
     points: &[LayoutPoint],
     rect: RectBounds,
@@ -469,73 +560,110 @@ fn collapse_own_border_stub(
     if points.len() < 3 {
         return points.to_vec();
     }
+
     if at_start {
         if let Some(side) = border_side_for_segment(&points[0], &points[1], rect)
             && leaves_outward(side, &points[1], &points[2], rect)
         {
             return points[1..].to_vec();
         }
+
         return points.to_vec();
     }
 
     let last = points.len() - 1;
+
     if let Some(side) = border_side_for_segment(&points[last - 1], &points[last], rect)
         && leaves_outward(side, &points[last - 1], &points[last - 2], rect)
     {
         return points[..last].to_vec();
     }
+
     points.to_vec()
 }
 
+#[must_use]
 fn snap_and_collapse_endpoints(
     points: &[LayoutPoint],
     source_rect: Option<RectBounds>,
     destination_rect: Option<RectBounds>,
 ) -> Vec<LayoutPoint> {
     let mut next = points.to_vec();
-    if let Some(rect) = source_rect {
-        if let Some(adjacent) = first_distinct_adjacent(&next, 0, 1) {
-            next[0] = snap_endpoint_to_boundary(&adjacent, &next[0], rect, false);
-        }
-        next = collapse_own_border_stub(&next, rect, true);
+
+    match source_rect {
+        Some(rect) => {
+            match first_distinct_adjacent(&next, 0, 1) {
+                Some(adjacent) => {
+                    next[0] = snap_endpoint_to_boundary(&adjacent, &next[0], rect, false);
+                },
+                ::core::option::Option::None => {},
+            }
+
+            next = collapse_own_border_stub(&next, rect, true);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(rect) = destination_rect {
-        let last = next.len() - 1;
-        if let Some(adjacent) = first_distinct_adjacent(&next, last, -1) {
-            next[last] = snap_endpoint_to_boundary(&adjacent, &next[last], rect, true);
-        }
-        next = collapse_own_border_stub(&next, rect, false);
+
+    match destination_rect {
+        Some(rect) => {
+            let last = next.len() - 1;
+
+            match first_distinct_adjacent(&next, last, -1) {
+                Some(adjacent) => {
+                    next[last] = snap_endpoint_to_boundary(&adjacent, &next[last], rect, true);
+                },
+                ::core::option::Option::None => {},
+            }
+
+            next = collapse_own_border_stub(&next, rect, false);
+        },
+        ::core::option::Option::None => {},
     }
 
     let straight_cleared =
         clear_straight_endpoint_corner_connections(&next, source_rect, destination_rect);
+
     if next.len() == 2 {
         return straight_cleared;
     }
+
     next = straight_cleared;
-    if let Some(rect) = source_rect {
-        next = clear_endpoint_corner_connection(&next, rect, true);
+
+    match source_rect {
+        Some(rect) => {
+            next = clear_endpoint_corner_connection(&next, rect, true);
+        },
+        ::core::option::Option::None => {},
     }
-    if let Some(rect) = destination_rect {
-        next = clear_endpoint_corner_connection(&next, rect, false);
+
+    match destination_rect {
+        Some(rect) => {
+            next = clear_endpoint_corner_connection(&next, rect, false);
+        },
+        ::core::option::Option::None => {},
     }
+
     next
 }
 
 pub(super) fn prepare_edge_endpoints_for_renderer(layout: &mut WorkingLayout) {
     let rects = node_rects(layout);
+
     for edge in &mut layout.original_edges {
         if edge.points.len() < 2 {
             continue;
         }
+
         let source_rect = rects.get(&edge.from).copied();
         let destination_rect = rects.get(&edge.to).copied();
         let input = dedupe_consecutive_points(&edge.points, EPSILON);
         let new_points = snap_and_collapse_endpoints(&input, source_rect, destination_rect);
+
         if new_points.len() < 3 {
             edge.points = new_points;
             continue;
         }
+
         let mut duplicated = Vec::with_capacity(new_points.len() + 2);
         duplicated.push(new_points[0].clone());
         duplicated.push(new_points[0].clone());

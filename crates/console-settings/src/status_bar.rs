@@ -21,11 +21,12 @@ pub fn rows() -> Result<Vec<Row>, Never> {
   };
 
   let Ok(folders) = applets::folders();
+  let Ok(applications) = console_core_places::applications();
 
-  rows_at(&path, &folders)
+  rows_at(&path, &folders, &applications)
 }
 
-fn rows_at(at: &Path, folders: &[PathBuf]) -> Result<Vec<Row>, Never> {
+fn rows_at(at: &Path, folders: &[PathBuf], applications: &[PathBuf]) -> Result<Vec<Row>, Never> {
   let preferences = match Preferences::load(at) {
     Ok(preferences) => preferences,
     Err(error) => {
@@ -63,7 +64,7 @@ fn rows_at(at: &Path, folders: &[PathBuf]) -> Result<Vec<Row>, Never> {
 
   let Ok(heading) = Row::naming("Installed applets", Aside(""));
   rows.push(heading);
-  let Ok(applets) = applets::discover(folders);
+  let Ok(applets) = applets::discover(folders, applications);
 
   match applets.as_slice() {
     [] => {
@@ -101,7 +102,7 @@ mod tests {
     console_core_atomic_writes::whole(&at, br#"{"hidden":["battery"]}"#)?;
     let applet_at = folder.join("example.json");
     console_core_atomic_writes::whole(&applet_at, br#"{"name":"Example applet"}"#)?;
-    let Ok(rows) = rows_at(&at, std::slice::from_ref(&folder));
+    let Ok(rows) = rows_at(&at, std::slice::from_ref(&folder), &[]);
     let row = |name: &str| {
       rows
         .iter()
@@ -113,6 +114,8 @@ mod tests {
       .choices
       .as_ref()
       .ok_or("missing position choices")?;
+    assert_eq!(placement.said, ["Top", "Bottom", "Left", "Right"]);
+    assert_eq!(placement.chosen, 0);
     let clock = row("Clock")?;
     let applet = row("Example applet")?;
     assert_eq!(clock.control, Some(Control::Switch(Switch::On)));
@@ -131,7 +134,16 @@ mod tests {
       assert_eq!(setting.control, Some(Control::Switch(expected)), "{tab:?}");
     }
 
-    (placement.choose)(&Nowhere, 1);
+    for (index, edge) in [
+      (2, Placement::Left),
+      (3, Placement::Right),
+      (0, Placement::Top),
+      (1, Placement::Bottom),
+    ] {
+      (placement.choose)(&Nowhere, index);
+      let load = Preferences::load(&at)?;
+      assert_eq!(load.placement, edge);
+    }
 
     let display = row("Display")?;
 
@@ -150,7 +162,7 @@ mod tests {
     }
 
     let saved = Preferences::load(&at)?;
-    assert_eq!(saved.placement, Placement::Left);
+    assert_eq!(saved.placement, Placement::Bottom);
     assert_eq!(saved.visibility(Item::Clock), Ok(Visibility::Hidden));
     assert_eq!(saved.applet_visibility("example"), Ok(Visibility::Shown));
     assert_eq!(
@@ -164,15 +176,51 @@ mod tests {
 
     Ok(())
   }
+
+  #[test]
+  fn obs_has_an_off_switch_only_when_its_desktop_entry_exists()
+  -> Result<(), Box<dyn std::error::Error>> {
+    let root = console_core_temporary_directories::fresh("settings-obs-applet")?;
+    let at = root.join("status-bar.json");
+    let applications = [root.join("applications")];
+    let [application_folder] = &applications;
+    let folders = std::slice::from_ref(&root);
+    console_core_atomic_writes::whole(
+      &root.join("obs.json"),
+      include_bytes!("../../../files/usr/local/share/console/bar-applets/obs.json"),
+    )?;
+    let Ok(absent) = rows_at(&at, folders, &applications);
+    assert!(absent.iter().all(|row| row.says != "OBS stream status"));
+
+    std::fs::create_dir(application_folder)?;
+    console_core_atomic_writes::whole(
+      &application_folder.join("com.obsproject.Studio.desktop"),
+      b"[Desktop Entry]\nName=OBS Studio\n",
+    )?;
+    let Ok(installed) = rows_at(&at, folders, &applications);
+    let setting = installed
+      .iter()
+      .find(|row| row.says == "OBS stream status")
+      .ok_or("missing OBS switch")?;
+    assert_eq!(setting.control, Some(Control::Switch(Switch::Off)));
+
+    Ok(())
+  }
 }
 
 fn placement(at: &Path, placement: Placement) -> Result<Row, Never> {
   let at_2 = at.to_path_buf();
-  let chosen = match placement {
-    Placement::Top => 0,
-    Placement::Left => 1,
-    Placement::Right => 2,
-  };
+  let ::core::result::Result::Ok(chosen) = ::console_core_number_conversion::fixed_index(
+    match Placement::EVERY.iter().position(|one| *one == placement) {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => 0,
+    },
+  );
+  let Ok(chosen_2) = console_core_number_conversion::fitted(
+    match ::console_core_number_conversion::index(chosen) {
+      ::core::result::Result::Ok(native_position) => native_position,
+    },
+  );
   let labels = Placement::EVERY
     .into_iter()
     .map(|one| {
@@ -180,23 +228,14 @@ fn placement(at: &Path, placement: Placement) -> Result<Row, Never> {
       name.to_owned()
     })
     .collect();
-  let Ok(control) = choices(labels, chosen, move |_showing, choice| {
+  let Ok(control) = choices(labels, chosen_2, move |showing, choice| {
     let Ok(index) = console_core_number_conversion::index(choice);
 
     match Placement::EVERY.get(index) {
       Some(&placement_3) => {
-        match Preferences::update(&at_2, |preferences| preferences.placement = placement_3) {
-          Ok(()) => {}
-          Err(error) => {
-            let Ok(()) = console_panel::running::say(
-              "error",
-              console_panel::running::Notification {
-                summary: "Could not move the status bar",
-                body: &error.to_string(),
-              },
-            );
-          }
-        }
+        let Ok(()) = save(&at_2, showing, |preferences| {
+          preferences.placement = placement_3
+        });
       }
       None => {}
     }

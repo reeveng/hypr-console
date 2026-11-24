@@ -14,6 +14,7 @@ name = "console-bar"
 path = "src/bin/console-bar.rs"
 
 [dependencies]
+console-applications.workspace = true
 console-bluetooth.workspace = true
 console-bus.workspace = true
 console-core-fonts.workspace = true
@@ -25,7 +26,7 @@ console-core-shapes.workspace = true
 console-onscreen.workspace = true
 console-draw-surface.workspace = true
 console-draw-painting.workspace = true
-console-music.workspace = true
+console-application-music.workspace = true
 console-core-internal-programs.workspace = true
 console-program-lifetime.workspace = true
 console-core-external-programs.workspace = true

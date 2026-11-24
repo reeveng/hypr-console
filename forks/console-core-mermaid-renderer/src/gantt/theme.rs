@@ -27,6 +27,7 @@ use label::GanttTaskLabelPlan;
 
 const MERMAID_TASK_RADIUS_PX: f64 = 3.0;
 
+#[must_use]
 fn task_label_css_priority(tasks: &[GanttTaskTerminalExpectation]) -> &'static str {
     if tasks
         .iter()
@@ -54,6 +55,7 @@ struct GanttTaskFillExpectation {
 }
 
 impl GanttTaskFillExpectation {
+    #[must_use]
     const fn typed_rule_index(&self) -> Option<usize> {
         match self.owner {
             GanttTaskFillOwner::Mermaid => None,
@@ -61,6 +63,7 @@ impl GanttTaskFillExpectation {
         }
     }
 
+    #[must_use]
     const fn typed_capability(&self) -> Option<ThemeCapability> {
         match self.owner {
             GanttTaskFillOwner::Mermaid => None,
@@ -135,6 +138,7 @@ struct GanttWarningStrokeResolution {
 }
 
 impl GanttTaskStrokeExpectation {
+    #[must_use]
     const fn typed_rule_index(&self) -> Option<usize> {
         match self.owner {
             GanttTaskStrokeOwner::Mermaid => None,
@@ -142,6 +146,7 @@ impl GanttTaskStrokeExpectation {
         }
     }
 
+    #[must_use]
     const fn typed_capability(&self) -> Option<ThemeCapability> {
         match self.owner {
             GanttTaskStrokeOwner::Mermaid => None,
@@ -163,6 +168,7 @@ struct GanttTaskTerminalExpectation {
 }
 
 impl GanttTaskTerminalExpectation {
+    #[must_use]
     fn baseline(task: &GanttRenderTask) -> Self {
         Self {
             semantic_id: task.id.clone().into_boxed_str(),
@@ -203,7 +209,8 @@ impl GanttTaskTheme {
         work_meter: &OperationWorkMeter,
     ) -> crate::Result<Self> {
         let typography = resolve_gantt_font_stack(theme, effective_config);
-        let Some(theme) = theme else {
+
+        let Some(theme_2) = theme else {
             let mut baseline = Self::baseline_with_css(
                 tasks,
                 GanttCssBinding::new(effective_config.as_value(), &typography.font_family_css),
@@ -228,40 +235,56 @@ impl GanttTaskTheme {
         let mut label_fill_capabilities = BTreeMap::new();
 
         for (task_index, expectation) in task_expectations.iter_mut().enumerate() {
-            let style = theme.style_with_work_meter(
+            let style = theme_2.style_with_work_meter(
                 ThemeTarget::Task,
                 expectation.state.theme_variant(),
                 Some(task_index + 1),
                 work_meter,
             )?;
+
             for (property, origin) in style.winner_rule_properties() {
                 winner_properties.insert((origin.rule_index(), property));
             }
 
-            let (radius_px, radius_rule_index) = typed_radius(theme, &style);
+            let (radius_px, radius_rule_index) = typed_radius(theme_2, &style);
             expectation.radius_px = radius_px;
             expectation.radius_rule_index = radius_rule_index;
-            if let Some(rule_index) = radius_rule_index {
-                radius_rules.insert(rule_index);
+
+            match radius_rule_index {
+                Some(rule_index) => {
+                    radius_rules.insert(rule_index);
+                },
+                ::core::option::Option::None => {},
             }
 
             expectation.fill =
-                typed_fill_expectation(theme, effective_config, expectation.state, &style)?;
-            if let Some(fill) = &expectation.fill {
-                if let (Some(rule_index), Some(capability)) =
-                    (fill.typed_rule_index(), fill.typed_capability())
-                {
-                    typed_fill_capabilities.insert(rule_index, capability);
-                } else if let Some(origin) = style.fill_resolution().winner() {
-                    source_owned_fill_rules.insert(origin.rule_index());
-                }
+                typed_fill_expectation(theme_2, effective_config, expectation.state, &style)?;
+
+            match &expectation.fill {
+                Some(fill) => {
+                    match (fill.typed_rule_index(), fill.typed_capability()) {
+                        (Some(rule_index), Some(capability)) => {
+                            typed_fill_capabilities.insert(rule_index, capability);
+                        },
+                        (::core::option::Option::None, _) | (_, ::core::option::Option::None) => {
+                            match style.fill_resolution().winner() {
+                                Some(origin) => {
+                                    source_owned_fill_rules.insert(origin.rule_index());
+                                },
+                                ::core::option::Option::None => {},
+                            };
+                        },
+                    }
+                },
+                ::core::option::Option::None => {},
             }
+
             let critical_border_style = matches!(
                 expectation.state,
                 GanttTaskBarState::ActiveCrit | GanttTaskBarState::DoneCrit
             )
             .then(|| {
-                theme.style_with_work_meter(
+                theme_2.style_with_work_meter(
                     ThemeTarget::Task,
                     ThemeVariant::Error,
                     Some(task_index + 1),
@@ -281,27 +304,34 @@ impl GanttTaskTheme {
                     })
                 })
                 .unwrap_or(&style);
-            if let Some(origin) = ordered_stroke_style.stroke_resolution().winner() {
-                winner_properties.insert((origin.rule_index(), ResolvedStyleProperty::Stroke));
+
+            match ordered_stroke_style.stroke_resolution().winner() {
+                Some(origin) => {
+                    winner_properties.insert((origin.rule_index(), ResolvedStyleProperty::Stroke));
+                },
+                ::core::option::Option::None => {},
             }
-            expectation.stroke = typed_stroke_expectation(
-                theme,
+
+            expectation.stroke = { let checked_value_2 = typed_stroke_expectation(
+                theme_2,
                 effective_config,
                 expectation.state,
                 ordered_stroke_style,
-            )?;
-            expectation.label = GanttTaskLabelPlan::resolve(
-                theme,
+            )?; checked_value_2 };
+            expectation.label = { let checked_value_3 = GanttTaskLabelPlan::resolve(
+                theme_2,
                 effective_config,
                 expectation.state,
                 task_index + 1,
                 work_meter,
-            )?;
+            )?; checked_value_3 };
             winner_properties.extend(expectation.label.winners());
+
             for paint in expectation.label.typed_candidates() {
                 winner_properties.insert((paint.rule_index(), ResolvedStyleProperty::Fill));
                 label_fill_capabilities.insert(paint.rule_index(), paint.capability());
             }
+
             if expectation.stroke.as_ref().is_some_and(|stroke| {
                 stroke.typed_rule_index().is_none() && stroke.typed_capability().is_none()
             }) && let Some(origin) = ordered_stroke_style.stroke_resolution().winner()
@@ -312,19 +342,21 @@ impl GanttTaskTheme {
 
         let title_config_owned =
             effective_config.config_paint_overrides_typed_default("themeVariables.titleColor");
-        let title_style = theme.style_with_work_meter(
+        let title_style = theme_2.style_with_work_meter(
             ThemeTarget::Title,
             ThemeVariant::Default,
             Some(1),
             work_meter,
         )?;
+
         for (property, origin) in title_style.winner_rule_properties() {
             winner_properties.insert((origin.rule_index(), property));
         }
+
         let title_fill = (!title_config_owned)
             .then(|| {
                 resolve_direct_static_fill(
-                    theme,
+                    theme_2,
                     &title_style,
                     &[ThemeTarget::Title],
                     DirectStaticSelectorDomain::Default,
@@ -340,26 +372,29 @@ impl GanttTaskTheme {
                 }
             });
 
-        let text_style = theme.style_with_work_meter(
+        let text_style = theme_2.style_with_work_meter(
             ThemeTarget::Text,
             ThemeVariant::Default,
             Some(1),
             work_meter,
         )?;
+
         for (property, origin) in text_style.winner_rule_properties() {
             winner_properties.insert((origin.rule_index(), property));
         }
-        let text_fill_resolution = resolve_gantt_text_fill(theme, effective_config, &text_style)?;
+
+        let text_fill_resolution = resolve_gantt_text_fill(theme_2, effective_config, &text_style)?;
         let text_fill = text_fill_resolution.expectation;
         let text_fill_source_owned = text_fill_resolution.source_owned;
 
         let warning_stroke_resolution =
-            resolve_gantt_warning_stroke(theme, effective_config, work_meter)?;
+            resolve_gantt_warning_stroke(theme_2, effective_config, work_meter)?;
         let warning_stroke = warning_stroke_resolution.expectation;
         let warning_stroke_source_owned = warning_stroke_resolution.source_owned;
         let vertical_source_owned =
             effective_config.config_paint_overrides_typed_default("themeVariables.vertLineColor");
         let mut ordinary_stroke_rules_replaced_on_vertical_tasks = BTreeSet::new();
+
         for expectation in &mut task_expectations {
             if expectation.vert && (warning_stroke.is_some() || vertical_source_owned) {
                 if let Some(stroke) = expectation.stroke.take()
@@ -367,21 +402,27 @@ impl GanttTaskTheme {
                 {
                     ordinary_stroke_rules_replaced_on_vertical_tasks.insert(rule_index);
                 }
-                if let Some(warning) = warning_stroke.as_ref().filter(|warning| warning.vert_typed)
+
                 {
-                    expectation.stroke = Some(GanttTaskStrokeExpectation {
-                        css: warning.vert_css.clone(),
-                        owner: GanttTaskStrokeOwner::Typed {
-                            rule_index: warning.rule_index,
-                            capability: warning.capability,
+                    match warning_stroke.as_ref().filter(|warning| warning.vert_typed) {
+                        Some(warning) => {
+                            expectation.stroke = Some(GanttTaskStrokeExpectation {
+                                css: warning.vert_css.clone(),
+                                owner: GanttTaskStrokeOwner::Typed {
+                                    rule_index: warning.rule_index,
+                                    capability: warning.capability,
+                                },
+                            });
                         },
-                    });
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         }
-        // Reconcile ordinary stroke ownership against the *final* terminal plan.  A vertical
-        // marker can be owned by warning or explicit vertical-line configuration. If these
-        // owners replace every occurrence, the ordinary route is NotApplicable, not incomplete.
+
+
+
+
         for expectation in &task_expectations {
             if let Some(stroke) = &expectation.stroke
                 && let (Some(rule_index), Some(capability)) =
@@ -390,13 +431,15 @@ impl GanttTaskTheme {
                 typed_stroke_capabilities.insert(rule_index, capability);
             }
         }
+
         if warning_stroke.is_some() || warning_stroke_source_owned {
-            let warning_style = theme.style_with_work_meter(
+            let warning_style = theme_2.style_with_work_meter(
                 ThemeTarget::Task,
                 ThemeVariant::Warning,
                 None,
                 work_meter,
             )?;
+
             for (property, origin) in warning_style.winner_rule_properties() {
                 winner_properties.insert((origin.rule_index(), property));
             }
@@ -404,7 +447,8 @@ impl GanttTaskTheme {
 
         let mut evidence = FamilyThemeOutcomes::default();
         let mut observations = BTreeMap::<(usize, ThemeTarget), GanttTaskRuleObservation>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
                     rule_index,
@@ -417,10 +461,13 @@ impl GanttTaskTheme {
                         .entry((rule_index, ThemeTarget::Task))
                         .or_default();
                     let property = resolved_style_property_for_facet(facet);
+
                     if !winner_properties.contains(&(rule_index, property)) {
                         continue;
                     }
+
                     observation.applicable = true;
+
                     if matches!(
                         (selector, facet),
                         (
@@ -445,8 +492,10 @@ impl GanttTaskTheme {
                         } else if !warning_stroke_source_owned {
                             observation.incomplete = true;
                         }
+
                         continue;
                     }
+
                     match (route.disposition(), facet) {
                         (FamilyThemeDisposition::TypedAdapter, FamilyThemeRuleFacet::Radius) => {
                             if radius_rules.contains(&rule_index) {
@@ -488,10 +537,10 @@ impl GanttTaskTheme {
                                 observation.incomplete = true;
                             }
                         }
-                        (FamilyThemeDisposition::Unsupported, facet) => {
+                        (FamilyThemeDisposition::Unsupported, facet_2) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_2));
                         }
                         (FamilyThemeDisposition::TypedAdapter, _) => {
                             observation.incomplete = true;
@@ -507,13 +556,17 @@ impl GanttTaskTheme {
                     if !matches!(facet, FamilyThemeRuleFacet::Fill(_)) {
                         continue;
                     }
+
                     let observation = observations
                         .entry((rule_index, ThemeTarget::Title))
                         .or_default();
+
                     if !winner_properties.contains(&(rule_index, ResolvedStyleProperty::Fill)) {
                         continue;
                     }
+
                     observation.applicable = true;
+
                     match route.disposition() {
                         FamilyThemeDisposition::TypedAdapter => {
                             if let Some(expectation) = title_fill.as_ref() {
@@ -542,13 +595,17 @@ impl GanttTaskTheme {
                     if !matches!(facet, FamilyThemeRuleFacet::Fill(_)) {
                         continue;
                     }
+
                     let observation = observations
                         .entry((rule_index, ThemeTarget::Text))
                         .or_default();
+
                     if !winner_properties.contains(&(rule_index, ResolvedStyleProperty::Fill)) {
                         continue;
                     }
+
                     observation.applicable = true;
+
                     match route.disposition() {
                         FamilyThemeDisposition::TypedAdapter => {
                             if let Some(expectation) = text_fill.as_ref() {
@@ -562,9 +619,15 @@ impl GanttTaskTheme {
                             {
                                 observation.incomplete = true;
                             }
-                            if let Some(capability) = label_fill_capabilities.get(&rule_index) {
-                                observation.pending.label_fill = true;
-                                observation.pending.capabilities.insert(*capability);
+
+                            {
+                                match label_fill_capabilities.get(&rule_index) {
+                                    Some(capability) => {
+                                        observation.pending.label_fill = true;
+                                        observation.pending.capabilities.insert(*capability);
+                                    },
+                                    ::core::option::Option::None => {},
+                                };
                             }
                         }
                         FamilyThemeDisposition::Unsupported => {
@@ -583,23 +646,31 @@ impl GanttTaskTheme {
                     let observation = observations
                         .entry((rule_index, ThemeTarget::TaskLabel))
                         .or_default();
+
                     if !winner_properties
                         .contains(&(rule_index, resolved_style_property_for_facet(facet)))
                     {
                         continue;
                     }
+
                     observation.applicable = true;
+
                     match (route.disposition(), facet) {
                         (FamilyThemeDisposition::TypedAdapter, FamilyThemeRuleFacet::Fill(_)) => {
-                            if let Some(capability) = label_fill_capabilities.get(&rule_index) {
-                                observation.pending.label_fill = true;
-                                observation.pending.capabilities.insert(*capability);
+                            {
+                                match label_fill_capabilities.get(&rule_index) {
+                                    Some(capability) => {
+                                        observation.pending.label_fill = true;
+                                        observation.pending.capabilities.insert(*capability);
+                                    },
+                                    ::core::option::Option::None => {},
+                                };
                             }
                         }
-                        (FamilyThemeDisposition::Unsupported, facet) => {
+                        (FamilyThemeDisposition::Unsupported, facet_3) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_3));
                         }
                         _ => observation.incomplete = true,
                     }
@@ -607,18 +678,26 @@ impl GanttTaskTheme {
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::Task,
                 } => {
-                    let key = theme.family_mechanism_key(route);
-                    if tasks.is_empty() {
-                        evidence.mark_not_applicable(key);
+                    let key = theme_2.family_mechanism_key(route);
+
+                    match tasks {
+                        [] => {
+                            evidence.mark_not_applicable(key);
+                        },
+                        [_, ..] => {},
                     }
                 }
                 FamilyThemeMechanism::EffectBinding {
                     target: ThemeTarget::Task,
                     ..
                 } => {
-                    let key = theme.family_mechanism_key(route);
-                    if tasks.is_empty() {
-                        evidence.mark_not_applicable(key);
+                    let key = theme_2.family_mechanism_key(route);
+
+                    match tasks {
+                        [] => {
+                            evidence.mark_not_applicable(key);
+                        },
+                        [_, ..] => {},
                     }
                 }
                 FamilyThemeMechanism::BaseTypography(_)
@@ -641,7 +720,7 @@ impl GanttTaskTheme {
             })
             .collect::<Vec<_>>();
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut evidence,
             &[UnsupportedTerminalDomain::fallbacks_only(
                 ThemeTarget::Task,
@@ -652,17 +731,19 @@ impl GanttTaskTheme {
         )?;
 
         let mut pending = BTreeMap::new();
+
         for ((rule_index, target), observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index: rule_index,
                 target,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // Mixed rules remain fail-closed until every winning facet has one terminal owner.
+
             } else if observation.pending.requires_terminal_proof() {
                 pending.insert(key, observation.pending);
             } else {
@@ -705,6 +786,7 @@ impl GanttTaskTheme {
         )
     }
 
+    #[must_use]
     fn baseline_with_css(tasks: &[GanttRenderTask], css: GanttCssBinding) -> Self {
         Self {
             task_count: tasks.len(),
@@ -723,22 +805,27 @@ impl GanttTaskTheme {
         }
     }
 
+    #[must_use]
     pub(crate) fn task_count(&self) -> usize {
         self.task_count
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.css.common.font_family()
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &GanttCssBinding {
         &self.css
     }
 
+    #[must_use]
     pub(crate) fn task_label_css_priority(&self) -> &'static str {
         task_label_css_priority(&self.tasks)
     }
 
+    #[must_use]
     pub(crate) fn radius_px(&self, task_index: usize) -> Option<f64> {
         (task_index < self.task_count).then(|| {
             self.tasks
@@ -747,24 +834,36 @@ impl GanttTaskTheme {
         })
     }
 
+    #[must_use]
     pub(crate) fn needs_layout_binding(&self) -> bool {
         !self.tasks.is_empty() || self.requires_terminal_receipt()
     }
 
+    #[must_use]
     pub(crate) fn bind_layout_occurrences(&self, layout_occurrences: Vec<usize>) -> bool {
         if layout_occurrences.len() != self.task_count() {
             return false;
         }
+
         let mut seen = vec![false; self.task_count()];
+
         for &semantic_index in &layout_occurrences {
-            let Some(entry) = seen.get_mut(semantic_index) else {
-                return false;
+            let entry = {
+                let optional_entry = seen.get_mut(semantic_index);
+
+                match optional_entry {
+                    Some(matched_entry) => matched_entry,
+                    ::core::option::Option::None => return false,
+                }
             };
+
             if *entry {
                 return false;
             }
+
             *entry = true;
         }
+
         seen.into_iter().all(|entry| entry)
             && self
                 .layout_occurrences
@@ -772,12 +871,14 @@ impl GanttTaskTheme {
                 .is_ok()
     }
 
+    #[must_use]
     pub(crate) fn terminal_fill_for_layout_task(&self, layout_index: usize) -> Option<&str> {
         self.layout_task(layout_index)
             .and_then(|task| task.fill.as_ref())
             .map(|fill| fill.css.as_ref())
     }
 
+    #[must_use]
     pub(crate) fn terminal_label_fill_for_layout_task(
         &self,
         layout_index: usize,
@@ -788,16 +889,19 @@ impl GanttTaskTheme {
             .map(|paint| paint.css())
     }
 
+    #[must_use]
     pub(crate) fn task_label_state_classes(task: &GanttRenderTask, suffix: &str) -> String {
         super::task_bar::label_state_classes(task, suffix)
     }
 
+    #[must_use]
     pub(crate) fn terminal_stroke_for_layout_task(&self, layout_index: usize) -> Option<&str> {
         self.layout_task(layout_index)
             .and_then(|task| task.stroke.as_ref())
             .map(|stroke| stroke.css.as_ref())
     }
 
+    #[must_use]
     fn requires_terminal_receipt(&self) -> bool {
         !self.pending.is_empty()
             || self
@@ -815,15 +919,23 @@ impl GanttTaskTheme {
             || self.warning_stroke.is_some()
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> Option<GanttTaskThemeReceipt> {
         self.requires_terminal_receipt().then(|| {
-            let Some(layout_occurrences) = self.layout_occurrences.get() else {
-                return GanttTaskThemeReceipt::invalid(self.task_count());
+            let layout_occurrences = {
+                let optional_layout_occurrences = self.layout_occurrences.get();
+
+                match optional_layout_occurrences {
+                    Some(matched_layout_occurrences) => matched_layout_occurrences,
+                    ::core::option::Option::None => return GanttTaskThemeReceipt::invalid(self.task_count()),
+                }
             };
+
             let expectations = layout_occurrences
                 .iter()
                 .filter_map(|semantic_index| self.tasks.get(*semantic_index).cloned())
                 .collect::<Vec<_>>();
+
             if expectations.len() != self.task_count() {
                 GanttTaskThemeReceipt::invalid(self.task_count())
             } else {
@@ -839,22 +951,31 @@ impl GanttTaskTheme {
         })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: GanttTaskThemeReceipt) -> bool {
         receipt.proves_complete() && self.terminal_receipt.set(receipt).is_ok()
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         for (key, pending) in &self.pending {
-            let Some(receipt) = self.terminal_receipt.get() else {
-                break;
+            let receipt = {
+                let optional_receipt = self.terminal_receipt.get();
+
+                match optional_receipt {
+                    Some(matched_receipt) => matched_receipt,
+                    ::core::option::Option::None => break,
+                }
             };
+
             let rule_index = match key {
                 FamilyThemeMechanismKey::Rule { index, .. } => *index,
                 FamilyThemeMechanismKey::Typography(_)
                 | FamilyThemeMechanismKey::OrdinalPalette { .. }
                 | FamilyThemeMechanismKey::EffectBinding { .. } => continue,
             };
+
             if pending.warning_stroke {
                 if receipt.has_matching_rule(rule_index, pending)
                     && receipt.has_typed_warning_terminal()
@@ -880,13 +1001,16 @@ impl GanttTaskTheme {
                 evidence.mark_not_applicable(key.clone());
             }
         }
+
         let terminal_observed = self.terminal_receipt.get().is_some();
         let has_visible_typography = self
             .terminal_receipt
             .get()
             .is_some_and(GanttTaskThemeReceipt::has_visible_typography);
+
         for property in &self.unsupported_typography_properties {
             let key = FamilyThemeMechanismKey::Typography(*property);
+
             if terminal_observed && !has_visible_typography {
                 evidence.mark_not_applicable(key);
             } else {
@@ -897,6 +1021,7 @@ impl GanttTaskTheme {
         if self.typed_font_stack_requested {
             let typography_key =
                 FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
             if !self.typed_font_stack_active || (terminal_observed && !has_visible_typography) {
                 evidence.mark_not_applicable(typography_key);
             } else if self
@@ -915,8 +1040,10 @@ impl GanttTaskTheme {
         }
     }
 
+    #[must_use]
     fn layout_task(&self, layout_index: usize) -> Option<&GanttTaskTerminalExpectation> {
-        let semantic_index = *self.layout_occurrences.get()?.get(layout_index)?;
+        let checked_value = self.layout_occurrences.get()?;
+        let semantic_index = ::core::option::Option::<&_>::copied(checked_value.get(layout_index))?;
         self.tasks.get(semantic_index)
     }
 }
@@ -928,12 +1055,20 @@ fn resolve_gantt_warning_stroke(
 ) -> crate::Result<GanttWarningStrokeResolution> {
     let style =
         theme.style_with_work_meter(ThemeTarget::Task, ThemeVariant::Warning, None, work_meter)?;
-    let Some(origin) = style.stroke_resolution().winner() else {
-        return Ok(GanttWarningStrokeResolution::default());
+
+    let origin = {
+        let optional_origin = style.stroke_resolution().winner();
+
+        match optional_origin {
+            Some(matched_origin) => matched_origin,
+            ::core::option::Option::None => return Ok(GanttWarningStrokeResolution::default()),
+        }
     };
+
     if origin.variant() != Some(ThemeVariant::Warning) {
         return Ok(GanttWarningStrokeResolution::default());
     }
+
     let Some(typed) = resolve_direct_static_stroke(
         theme,
         &style,
@@ -942,28 +1077,27 @@ fn resolve_gantt_warning_stroke(
     ) else {
         return Ok(GanttWarningStrokeResolution::default());
     };
+
     let (typed_css, rule_index, capability) = typed.into_parts();
     let today_source_owned =
         effective_config.config_paint_overrides_typed_default("themeVariables.todayLineColor");
     let vert_source_owned =
         effective_config.config_paint_overrides_typed_default("themeVariables.vertLineColor");
     let today_css = if today_source_owned {
-        effective_config
+        <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(effective_config
             .get_str("themeVariables.todayLineColor")
             .ok_or_else(|| crate::Error::InvalidModel {
                 message: "Gantt warning today-line owner had no effective value".to_string(),
-            })?
-            .into()
+            })?)
     } else {
         typed_css.clone()
     };
     let vert_css = if vert_source_owned {
-        effective_config
+        <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(effective_config
             .get_str("themeVariables.vertLineColor")
             .ok_or_else(|| crate::Error::InvalidModel {
                 message: "Gantt warning vertical-line owner had no effective value".to_string(),
-            })?
-            .into()
+            })?)
     } else {
         typed_css
     };
@@ -980,6 +1114,7 @@ fn resolve_gantt_warning_stroke(
     })
 }
 
+#[must_use]
 fn gantt_config_font_family_css(config: &PresentationConfig) -> String {
     let value = config
         .as_value()
@@ -991,6 +1126,7 @@ fn gantt_config_font_family_css(config: &PresentationConfig) -> String {
     value.unwrap_or_else(|| crate::config::config_font_family_css(config.as_value()))
 }
 
+#[must_use]
 fn gantt_config_owns_font_stack(config: &PresentationConfig) -> bool {
     [
         "gantt.fontFamily",
@@ -1009,12 +1145,14 @@ struct GanttTypographyResolution {
     unsupported_typography_properties: BTreeSet<ThemeTypographyProperty>,
 }
 
+#[must_use]
 fn resolve_gantt_font_stack(
     theme: Option<&ResolvedDiagramTheme>,
     effective_config: &PresentationConfig,
 ) -> GanttTypographyResolution {
     let configured_font = gantt_config_font_family_css(effective_config);
-    let Some(theme) = theme else {
+
+    let Some(theme_2) = theme else {
         return GanttTypographyResolution {
             font_family_css: configured_font.into_boxed_str(),
             typed_font_stack_requested: false,
@@ -1025,7 +1163,8 @@ fn resolve_gantt_font_stack(
 
     let mut typed_font_stack = false;
     let mut unsupported_typography_properties = BTreeSet::new();
-    for route in theme.family_mechanism_routes().iter().copied() {
+
+    for route in theme_2.family_mechanism_routes().iter().copied() {
         match route.mechanism() {
             FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontStack)
                 if route.disposition() == FamilyThemeDisposition::TypedAdapter =>
@@ -1047,27 +1186,35 @@ fn resolve_gantt_font_stack(
     let config_owned = gantt_config_owns_font_stack(effective_config);
     let typed_font_stack_active = typed_font_stack && !config_owned;
     let font_family = if typed_font_stack_active {
-        theme.typography().font_stack().as_css()
+        theme_2.typography().font_stack().as_css()
     } else {
         configured_font
     };
     GanttTypographyResolution {
-        font_family_css: font_family.into(),
+        font_family_css: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<::std::string::String>>::from(font_family),
         typed_font_stack_requested: typed_font_stack,
         typed_font_stack_active,
         unsupported_typography_properties,
     }
 }
 
+#[must_use]
 fn typed_radius(theme: &ResolvedDiagramTheme, style: &ResolvedThemeStyle) -> (f64, Option<usize>) {
-    let Some(origin) = style.radius_resolution().winner() else {
-        return (MERMAID_TASK_RADIUS_PX, None);
+    let origin = {
+        let optional_origin = style.radius_resolution().winner();
+
+        match optional_origin {
+            Some(matched_origin) => matched_origin,
+            ::core::option::Option::None => return (MERMAID_TASK_RADIUS_PX, None),
+        }
     };
+
     if theme.rule_facet_disposition(origin.rule_index(), FamilyThemeRuleFacet::Radius)
         != Some(FamilyThemeDisposition::TypedAdapter)
     {
         return (MERMAID_TASK_RADIUS_PX, None);
     }
+
     let radius = match style.radius_resolution().specified() {
         Specified::Value(value) => f64::from(*value),
         Specified::Unspecified | Specified::Clear => MERMAID_TASK_RADIUS_PX,
@@ -1089,6 +1236,7 @@ fn typed_fill_expectation(
     ) else {
         return Ok(None);
     };
+
     let (typed_css, rule_index, capability) = typed_fill.into_parts();
 
     let final_fill_path = state.final_fill_path();
@@ -1101,14 +1249,13 @@ fn typed_fill_expectation(
         }
     };
     let css = match owner {
-        GanttTaskFillOwner::Mermaid => effective_config
+        GanttTaskFillOwner::Mermaid => <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from({ let checked_value = effective_config
             .get_str(final_fill_path)
             .ok_or_else(|| crate::Error::InvalidModel {
                 message: format!(
                     "Gantt terminal fill owner `{final_fill_path}` had no effective value"
                 ),
-            })?
-            .into(),
+            })?; checked_value }),
         GanttTaskFillOwner::Typed { .. } => typed_css,
     };
 
@@ -1140,6 +1287,7 @@ fn typed_stroke_expectation(
     ) else {
         return Ok(None);
     };
+
     let (typed_css, rule_index, capability) = typed_stroke.into_parts();
 
     let final_stroke_path = state.final_stroke_path();
@@ -1152,14 +1300,13 @@ fn typed_stroke_expectation(
         }
     };
     let css = match owner {
-        GanttTaskStrokeOwner::Mermaid => effective_config
+        GanttTaskStrokeOwner::Mermaid => <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from({ let checked_value = effective_config
             .get_str(final_stroke_path)
             .ok_or_else(|| crate::Error::InvalidModel {
                 message: format!(
                     "Gantt terminal stroke owner `{final_stroke_path}` had no effective value"
                 ),
-            })?
-            .into(),
+            })?; checked_value }),
         GanttTaskStrokeOwner::Typed { .. } => typed_css,
     };
 
@@ -1191,6 +1338,7 @@ fn resolve_gantt_text_fill(
     ) else {
         return Ok(GanttTextFillResolution::default());
     };
+
     let (typed_css, rule_index, capability) = typed_fill.into_parts();
     let grid_source_owned =
         effective_config.config_paint_overrides_typed_default("themeVariables.textColor");
@@ -1249,6 +1397,7 @@ struct GanttTaskPendingEvidence {
 }
 
 impl GanttTaskPendingEvidence {
+    #[must_use]
     const fn requires_terminal_proof(&self) -> bool {
         self.radius
             || self.fill
@@ -1313,6 +1462,7 @@ impl GanttTaskThemeReceipt {
         Self::from_expectations(expectations, "", false, None, None, None)
     }
 
+    #[must_use]
     fn from_expectations(
         expectations: Vec<GanttTaskTerminalExpectation>,
         expected_font_family_css: &str,
@@ -1326,7 +1476,7 @@ impl GanttTaskThemeReceipt {
             checkpointed_labels: vec![false; expectations.len()],
             expectations: expectations.into_boxed_slice(),
             terminals_match: true,
-            expected_font_family_css: typography_required.then(|| expected_font_family_css.into()),
+            expected_font_family_css: typography_required.then(|| <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(expected_font_family_css)),
             typography_required,
             typography_css_recorded: false,
             typography_css_matches: true,
@@ -1375,6 +1525,7 @@ impl GanttTaskThemeReceipt {
         }
     }
 
+    #[must_use]
     fn invalid(expected_task_count: usize) -> Self {
         Self {
             expectations: Vec::new().into_boxed_slice(),
@@ -1440,16 +1591,19 @@ impl GanttTaskThemeReceipt {
             self.terminals_match = false;
             return;
         };
+
         if *checkpointed {
             self.terminals_match = false;
             return;
         }
+
         *checkpointed = true;
 
         let Some(expected) = self.expectations.get(layout_index) else {
             self.terminals_match = false;
             return;
         };
+
         let expected_terminal_id = if diagram_id.is_empty() {
             expected.semantic_id.to_string()
         } else {
@@ -1464,33 +1618,44 @@ impl GanttTaskThemeReceipt {
         let stroke_matches =
             emitted_stroke == expected.stroke.as_ref().map(|stroke| stroke.css.as_ref());
         let radius_matches =
-            emitted_radius_x == expected.radius_px && emitted_radius_y == expected.radius_px;
+            <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&emitted_radius_x, &expected.radius_px) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&emitted_radius_y, &expected.radius_px) == ::core::option::Option::Some(::core::cmp::Ordering::Equal);
         let terminal_matches = expected.semantic_id.as_ref() == semantic_id
             && expected_terminal_id == terminal_id
             && class_matches
             && fill_matches
             && stroke_matches
             && radius_matches
-            && self.terminal_ids.insert(terminal_id.into());
+            && self.terminal_ids.insert(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(terminal_id));
         self.terminals_match &= terminal_matches;
 
         if terminal_matches {
-            if let Some(rule_index) = expected.radius_rule_index {
-                self.radius_rules.insert(rule_index);
+            match expected.radius_rule_index {
+                Some(rule_index) => {
+                    self.radius_rules.insert(rule_index);
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(rule_index) = expected
+
+            match expected
                 .fill
                 .as_ref()
-                .and_then(GanttTaskFillExpectation::typed_rule_index)
-            {
-                self.fill_rules.insert(rule_index);
+                .and_then(GanttTaskFillExpectation::typed_rule_index) {
+                Some(rule_index) => {
+                    self.fill_rules.insert(rule_index);
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(rule_index) = expected
-                .stroke
-                .as_ref()
-                .and_then(GanttTaskStrokeExpectation::typed_rule_index)
+
             {
-                self.stroke_rules.insert(rule_index);
+                match expected
+                    .stroke
+                    .as_ref()
+                    .and_then(GanttTaskStrokeExpectation::typed_rule_index) {
+                    Some(rule_index) => {
+                        self.stroke_rules.insert(rule_index);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }
@@ -1506,23 +1671,27 @@ impl GanttTaskThemeReceipt {
             self.terminals_match = false;
             return;
         };
+
         if *checkpointed {
             self.terminals_match = false;
             return;
         }
+
         *checkpointed = true;
         let Some(expected) = self.expectations.get(layout_index) else {
             self.terminals_match = false;
             return;
         };
+
         let paint = expected.label.paint(class);
-        let matches = paint.map(|paint| paint.css()) == emitted_fill;
+        let matches = paint.map(|paint_2| paint_2.css()) == emitted_fill;
         self.terminals_match &= matches;
+
         if matches
             && visible
-            && let Some(paint) = paint
+            && let Some(paint_3) = paint
         {
-            self.label_fill_rules.insert(paint.rule_index());
+            self.label_fill_rules.insert(paint_3.rule_index());
         }
     }
 
@@ -1531,6 +1700,7 @@ impl GanttTaskThemeReceipt {
             self.typography_css_matches = false;
             return;
         }
+
         self.typography_css_recorded = true;
         self.typography_css_matches = self
             .expected_font_family_css
@@ -1552,68 +1722,83 @@ impl GanttTaskThemeReceipt {
     }
 
     pub(crate) fn record_global_css(&mut self, diagram_id: &str, css: &str, font_family: &str) {
-        if let Some(fill) = self.expected_title_fill_css.as_deref() {
-            if self.title_css_recorded {
-                self.title_css_matches = false;
-            } else {
-                self.title_css_recorded = true;
-                let expected_section = format!(
-                    "#{diagram_id} .sectionTitle0{{fill:{fill};}}#{diagram_id} .sectionTitle1{{fill:{fill};}}#{diagram_id} .sectionTitle2{{fill:{fill};}}#{diagram_id} .sectionTitle3{{fill:{fill};}}"
-                );
-                let expected_title = format!(
-                    "#{diagram_id} .titleText{{text-anchor:middle;font-size:18px;fill:{fill};font-family:{font_family};}}"
-                );
-                self.title_css_matches =
-                    css.contains(&expected_section) && css.contains(&expected_title);
-            }
+        match self.expected_title_fill_css.as_deref() {
+            Some(fill) => {
+                if self.title_css_recorded {
+                    self.title_css_matches = false;
+                } else {
+                    self.title_css_recorded = true;
+                    let expected_section = format!(
+                        "#{diagram_id} .sectionTitle0{{fill:{fill};}}#{diagram_id} .sectionTitle1{{fill:{fill};}}#{diagram_id} .sectionTitle2{{fill:{fill};}}#{diagram_id} .sectionTitle3{{fill:{fill};}}"
+                    );
+                    let expected_title = format!(
+                        "#{diagram_id} .titleText{{text-anchor:middle;font-size:18px;fill:{fill};font-family:{font_family};}}"
+                    );
+                    self.title_css_matches =
+                        css.contains(&expected_section) && css.contains(&expected_title);
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(fill) = self.expected_grid_text_fill_css.as_deref() {
-            if self.grid_text_css_recorded {
-                self.grid_text_css_matches = false;
-            } else {
-                self.grid_text_css_recorded = true;
-                let expected = format!(
-                    "#{diagram_id} .grid .tick text{{font-family:{font_family};fill:{fill};}}"
-                );
-                self.grid_text_css_matches = css.contains(&expected);
-            }
+        match self.expected_grid_text_fill_css.as_deref() {
+            Some(fill) => {
+                if self.grid_text_css_recorded {
+                    self.grid_text_css_matches = false;
+                } else {
+                    self.grid_text_css_recorded = true;
+                    let expected = format!(
+                        "#{diagram_id} .grid .tick text{{font-family:{font_family};fill:{fill};}}"
+                    );
+                    self.grid_text_css_matches = css.contains(&expected);
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(fill) = self.expected_task_text_fill_css.as_deref() {
-            if self.task_text_css_recorded {
-                self.task_text_css_matches = false;
-            } else {
-                self.task_text_css_recorded = true;
-                let expected = format!(
-                    "#{diagram_id} .taskText0,#{diagram_id} .taskText1,#{diagram_id} .taskText2,#{diagram_id} .taskText3{{fill:{fill};}}"
-                );
-                self.task_text_css_matches = css.contains(&expected);
-            }
+        match self.expected_task_text_fill_css.as_deref() {
+            Some(fill) => {
+                if self.task_text_css_recorded {
+                    self.task_text_css_matches = false;
+                } else {
+                    self.task_text_css_recorded = true;
+                    let expected = format!(
+                        "#{diagram_id} .taskText0,#{diagram_id} .taskText1,#{diagram_id} .taskText2,#{diagram_id} .taskText3{{fill:{fill};}}"
+                    );
+                    self.task_text_css_matches = css.contains(&expected);
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(color) = self.expected_warning_today_css.as_deref() {
-            if self.warning_today_css_recorded {
-                self.warning_today_css_matches = false;
-            } else {
-                self.warning_today_css_recorded = true;
-                let expected =
-                    format!("#{diagram_id} .today{{fill:none;stroke:{color};stroke-width:2px;}}");
-                self.warning_today_css_matches = css.contains(&expected);
-            }
+        match self.expected_warning_today_css.as_deref() {
+            Some(color) => {
+                if self.warning_today_css_recorded {
+                    self.warning_today_css_matches = false;
+                } else {
+                    self.warning_today_css_recorded = true;
+                    let expected =
+                        format!("#{diagram_id} .today{{fill:none;stroke:{color};stroke-width:2px;}}");
+                    self.warning_today_css_matches = css.contains(&expected);
+                }
+            },
+            ::core::option::Option::None => {},
         }
 
-        if let Some(color) = self.expected_warning_vert_css.as_deref() {
-            if self.warning_vert_css_recorded {
-                self.warning_vert_css_matches = false;
-            } else {
-                self.warning_vert_css_recorded = true;
-                let priority = task_label_css_priority(&self.expectations);
-                let expected = format!(
-                    "#{diagram_id} .vert{{stroke:{color};}}#{diagram_id} .vertText{{font-size:15px;text-anchor:middle;fill:{color}{priority};}}"
-                );
-                self.warning_vert_css_matches = css.contains(&expected);
-            }
+        match self.expected_warning_vert_css.as_deref() {
+            Some(color) => {
+                if self.warning_vert_css_recorded {
+                    self.warning_vert_css_matches = false;
+                } else {
+                    self.warning_vert_css_recorded = true;
+                    let priority = task_label_css_priority(&self.expectations);
+                    let expected = format!(
+                        "#{diagram_id} .vert{{stroke:{color};}}#{diagram_id} .vertText{{font-size:15px;text-anchor:middle;fill:{color}{priority};}}"
+                    );
+                    self.warning_vert_css_matches = css.contains(&expected);
+                }
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -1636,6 +1821,7 @@ impl GanttTaskThemeReceipt {
                 || token.starts_with("activeCritText")
                 || token == "vertText"
         });
+
         if is_regular_task_label && !has_terminal_override && !text.trim().is_empty() {
             self.task_text_count = self.task_text_count.saturating_add(1);
         }
@@ -1645,16 +1831,19 @@ impl GanttTaskThemeReceipt {
         if self.expected_warning_today_css.is_none() {
             return;
         }
+
         if self.warning_today_terminal_recorded {
             self.warning_today_terminal_matches = false;
             return;
         }
+
         self.warning_today_terminal_recorded = true;
         self.warning_today_terminal_visible = visible;
+
         if visible {
-            // Today-marker styles are source-owned when their final inline declaration sets
-            // `stroke`. Use the shared CSS declaration parser so quoted semicolons and casing do
-            // not turn an unrelated declaration into a false ownership result.
+
+
+
             let mut inline_owns_stroke = false;
             crate::mermaid_style::visit_parsed_style_declarations(inline_style, |declaration| {
                 inline_owns_stroke |= declaration.property() == "stroke";
@@ -1671,11 +1860,18 @@ impl GanttTaskThemeReceipt {
         _layout_index: usize,
         emitted_stroke: Option<&str>,
     ) {
-        let Some(expected) = self.expected_warning_vert_css.as_deref() else {
-            return;
+        let expected = {
+            let optional_expected = self.expected_warning_vert_css.as_deref();
+
+            match optional_expected {
+                Some(matched_expected) => matched_expected,
+                ::core::option::Option::None => return,
+            }
         };
+
         self.warning_vert_terminal_visible = true;
         self.warning_vert_terminal_count = self.warning_vert_terminal_count.saturating_add(1);
+
         if emitted_stroke != Some(expected) {
             self.warning_vert_terminal_matches = false;
         }
@@ -1687,10 +1883,12 @@ impl GanttTaskThemeReceipt {
         }
     }
 
+    #[must_use]
     fn has_visible_typography(&self) -> bool {
         self.typography_text_count != 0
     }
 
+    #[must_use]
     fn proves_complete(&self) -> bool {
         let labels_complete = self.expectations.iter().zip(&self.checkpointed_labels).all(
             |(expected, checkpointed)| {
@@ -1717,7 +1915,8 @@ impl GanttTaskThemeReceipt {
                 || (self.warning_vert_css_recorded && self.warning_vert_css_matches))
     }
 
-    // record_terminal checks completeness once before taking immutable ownership.
+
+    #[must_use]
     fn has_matching_rule(&self, rule_index: usize, pending: &GanttTaskPendingEvidence) -> bool {
         (!pending.radius || self.radius_rules.contains(&rule_index))
             && (!pending.fill || self.fill_rules.contains(&rule_index))
@@ -1736,15 +1935,18 @@ impl GanttTaskThemeReceipt {
             && (!pending.warning_stroke || self.expected_warning_rule == Some(rule_index))
     }
 
+    #[must_use]
     fn has_visible_text_fill_terminal(&self) -> bool {
         (self.expected_grid_text_fill_css.is_some() && self.grid_text_count != 0)
             || (self.expected_task_text_fill_css.is_some() && self.task_text_count != 0)
     }
 
+    #[must_use]
     fn has_visible_title_fill_terminal(&self) -> bool {
         self.expected_title_fill_css.is_some() && self.title_text_count != 0
     }
 
+    #[must_use]
     fn proves_warning_stroke(&self) -> bool {
         let today_proved = self.expected_warning_today_css.is_none()
             || (self.warning_today_terminal_recorded
@@ -1757,6 +1959,7 @@ impl GanttTaskThemeReceipt {
         today_proved && vert_proved
     }
 
+    #[must_use]
     fn has_typed_warning_terminal(&self) -> bool {
         (self.expected_warning_today_css.is_some()
             && self.warning_today_terminal_visible
@@ -1767,10 +1970,12 @@ impl GanttTaskThemeReceipt {
                 && self.warning_vert_terminal_matches)
     }
 
+    #[must_use]
     fn warning_is_not_applicable(&self) -> bool {
         self.proves_warning_stroke() && !self.has_typed_warning_terminal()
     }
 
+    #[must_use]
     fn proves_typography(&self) -> bool {
         !self.typography_required
             || (self.typography_css_recorded

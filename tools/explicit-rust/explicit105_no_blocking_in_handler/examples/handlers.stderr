@@ -9,7 +9,7 @@ note: this helper reaches a blocking operation
    |
 LL |     let _ = std::fs::read_to_string("settings");
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: offer a read effect and deliver the data or error as another request
+   = help: offer a read effect and deliver the data or error as another request. When the machine needs a reply, record the pending work in its state and decide how to handle failure, cancellation, and stale replies
    = note: `#[warn(explicit105_no_blocking_in_handler)]` on by default
 
 warning: blocking call in an event handler
@@ -18,7 +18,7 @@ warning: blocking call in an event handler
 LL |         wait(WAIT);
    |         ^^^^^^^^^^
    |
-   = help: schedule `Subscription::Once` and continue on its `Event::Tick`
+   = help: offer a timer effect and resume on its reply. Programs can schedule `Subscription::Once` and resume on `Event::Tick`. When the machine needs a reply, record the pending work in its state and decide how to handle failure, cancellation, and stale replies
 
 warning: blocking call in an event handler
   --> $DIR/handlers.rs:32:17
@@ -26,7 +26,7 @@ warning: blocking call in an event handler
 LL |         let _ = request.events.recv_timeout(WAIT);
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: offer an effect for the driver to perform and handle its outcome as another request
+   = help: offer an effect for the driver to perform and handle its outcome as another request. When the machine needs a reply, record the pending work in its state and decide how to handle failure, cancellation, and stale replies
 
 warning: blocking call in an event handler
   --> $DIR/handlers.rs:33:17
@@ -34,7 +34,7 @@ warning: blocking call in an event handler
 LL |         let _ = Receiver::recv_timeout(&request.events, WAIT);
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: offer an effect for the driver to perform and handle its outcome as another request
+   = help: offer an effect for the driver to perform and handle its outcome as another request. When the machine needs a reply, record the pending work in its state and decide how to handle failure, cancellation, and stale replies
 
 warning: blocking call in an event handler
   --> $DIR/handlers.rs:36:22
@@ -42,7 +42,7 @@ warning: blocking call in an event handler
 LL |         let _guard = mutex.lock();
    |                      ^^^^^^^^^^^^
    |
-   = help: offer an effect for the driver to perform and handle its outcome as another request
+   = help: offer an effect for the driver to perform and handle its outcome as another request. When the machine needs a reply, record the pending work in its state and decide how to handle failure, cancellation, and stale replies
 
 warning: blocking call in an event handler
   --> $DIR/handlers.rs:37:17
@@ -50,7 +50,7 @@ warning: blocking call in an event handler
 LL |         let _ = request.actor.get();
    |                 ^^^^^^^^^^^^^^^^^^^
    |
-   = help: offer an effect for the driver to perform and handle its outcome as another request
+   = help: offer an effect for the driver to perform and handle its outcome as another request. When the machine needs a reply, record the pending work in its state and decide how to handle failure, cancellation, and stale replies
 
 warning: blocking call in an event handler
   --> $DIR/handlers.rs:38:17
@@ -58,7 +58,7 @@ warning: blocking call in an event handler
 LL |         let _ = request.completions.recv_timeout(WAIT);
    |                 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
    |
-   = help: offer an effect for the driver to perform and handle its outcome as another request
+   = help: offer an effect for the driver to perform and handle its outcome as another request. When the machine needs a reply, record the pending work in its state and decide how to handle failure, cancellation, and stale replies
 
 warning: blocking call in an event handler
   --> $DIR/handlers.rs:41:9
@@ -71,7 +71,15 @@ note: this helper reaches a blocking operation
    |
 LL |     let _ = std::process::Command::new("example").output();
    |             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-   = help: offer `Effect::Run` or `Effect::Fork` and handle the result in `Event::Replied`
+   = help: offer a process effect and handle its reply. Programs can use `Effect::Run` or `Effect::Fork` with `Event::Replied`. When the machine needs a reply, record the pending work in its state and decide how to handle failure, cancellation, and stale replies
 
-warning: 8 warnings emitted
+warning: blocking call in an event handler
+  --> $DIR/handlers.rs:84:9
+   |
+LL |         wait(WAIT);
+   |         ^^^^^^^^^^
+   |
+   = help: offer a timer effect and resume on its reply. Programs can schedule `Subscription::Once` and resume on `Event::Tick`. When the machine needs a reply, record the pending work in its state and decide how to handle failure, cancellation, and stale replies
+
+warning: 9 warnings emitted
 

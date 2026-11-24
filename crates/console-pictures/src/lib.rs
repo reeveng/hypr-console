@@ -781,49 +781,71 @@ pub fn from_portable_pixmap(bytes: &[u8]) -> Result<Option<Pixels>, Never> {
   Pixels::packed(size, pixels).map(Some)
 }
 
-/// Read one frame with the three-line P6 header written by `portable_pixmap`.
+#[cfg_attr(
+  dylint_lib = "explicit057_no_unbounded_wait",
+  expect(
+    explicit057_no_unbounded_wait,
+    reason = "the caller supplies the buffered reader and the camera supplies a deadline for each pipe read"
+  )
+)]
 pub fn read_portable_pixmap(
   reader: &mut impl BufRead,
   limit: Size<u32>,
 ) -> io::Result<Option<Pixels>> {
   let mut frame = Vec::new();
+
   for line in 0..3 {
-    match reader.take(64).read_until(b'\n', &mut frame)? {
-      0 if line == 0 => return Ok(None),
-      0 => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
-      _ if !frame.ends_with(b"\n") => {
+    let Ok(before) = console_core_number_conversion::fixed_index(frame.len());
+    let _ = reader.take(64).read_until(b'\n', &mut frame)?;
+    let Ok(after) = console_core_number_conversion::fixed_index(frame.len());
+
+    match (after.saturating_sub(before), line, frame.last()) {
+      (0, 0, _) => return Ok(None),
+      (0, _, _) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
+      (_, _, Some(b'\n')) => {}
+      (_, _, _) => {
         return Err(io::Error::new(
           io::ErrorKind::InvalidData,
           "invalid pixmap header line",
         ));
       }
-      _ => {}
     }
   }
+
   let Ok(header) = portable_pixmap_header(&frame);
-  let header =
+  let header_2 =
     header.ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "invalid pixmap header"))?;
-  let Size { width, height } = header.size;
-  if width == 0
-    || height == 0
-    || width > limit.width
-    || height > limit.height
-    || !header.pixels.is_empty()
-  {
-    return Err(io::Error::new(
-      io::ErrorKind::InvalidData,
-      "invalid pixmap dimensions or header",
-    ));
+  let Size { width, height } = header_2.size;
+  let size_is_valid = width != 0
+    && height != 0
+    && width <= limit.width
+    && height <= limit.height
+    && header_2.pixels.is_empty();
+
+  match size_is_valid.then_some(()) {
+    Some(()) => {}
+    None => {
+      return Err(io::Error::new(
+        io::ErrorKind::InvalidData,
+        "invalid pixmap dimensions or header",
+      ));
+    }
   }
-  let length = u64::from(width)
-    .saturating_mul(u64::from(height))
-    .saturating_mul(3);
-  let length = usize::try_from(length).map_err(io::Error::other)?;
-  let header_length = frame.len();
-  frame.try_reserve(length).map_err(io::Error::other)?;
-  frame.resize(header_length.saturating_add(length), 0);
-  reader.read_exact(&mut frame[header_length..])?;
+
+  let pixel_count = u64::from(width).saturating_mul(u64::from(height));
+  let bytes = pixel_count
+    .checked_mul(3)
+    .ok_or(io::ErrorKind::InvalidData)?;
+  let mut payload = reader.take(bytes);
+  let _ = payload.read_to_end(&mut frame)?;
+
+  match payload.limit() {
+    0 => {}
+    _ => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
+  }
+
   let Ok(pixels) = from_portable_pixmap(&frame);
+
   Ok(pixels)
 }
 
@@ -929,6 +951,44 @@ mod tests {
     let Ok(read) = from_portable_pixmap(b"P6\n2 2\n255\n\x01\x02");
 
     assert_eq!(read, None);
+  }
+
+  #[test]
+  fn streaming_pixmaps_consume_one_frame_at_a_time() -> io::Result<()> {
+    let mut input: &[u8] = b"P6\n1 1\n255\n\x01\x02\x03P6\n1 1\n255\n\x04\x05\x06";
+    let limit = Size {
+      width: 1,
+      height: 1,
+    };
+
+    for expected in [[1, 2, 3, 255], [4, 5, 6, 255]] {
+      let frame = read_portable_pixmap(&mut input, limit)?;
+      let bytes = frame.as_ref().map(|pixels| pixels.bytes.as_ref());
+
+      assert_eq!(bytes, Some(expected.as_slice()));
+    }
+
+    let end = read_portable_pixmap(&mut input, limit)?;
+    assert_eq!(end, None);
+
+    Ok(())
+  }
+
+  #[test]
+  fn streaming_pixmaps_reject_a_short_payload() {
+    let mut input: &[u8] = b"P6\n1 1\n255\n\x01\x02";
+    let result = read_portable_pixmap(
+      &mut input,
+      Size {
+        width: 1,
+        height: 1,
+      },
+    );
+
+    assert_eq!(
+      result.map_err(|error| error.kind()),
+      Err(io::ErrorKind::UnexpectedEof)
+    );
   }
 
   #[test]

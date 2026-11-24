@@ -84,8 +84,9 @@ use std::process::{ExitCode, Stdio};
 use std::sync::mpsc::sync_channel;
 use std::time::{Duration, Instant};
 
-use console_compositor::{Carrying, Layer, Request, Workspace};
-use console_core_color::palette::{self, PaletteError, WearingError};
+use console_application_music::player::Sound;
+use console_compositor::{Carrying, Layer, Workspace, WorkspaceTarget};
+use console_core_color::palette::{self, PaletteError, ThemeSettings, WearingError};
 use console_core_geometry::{Point, Size};
 use console_core_internal_programs::InternalProgram;
 use console_core_iteration::Step;
@@ -96,7 +97,6 @@ use console_draw_painting::{Frame, onto};
 use console_draw_surface::layer_focus::Selection;
 use console_draw_surface::standing::{Anchor, Closed, Keyboard, Margin, Room, Under, Wanted};
 use console_draw_surface::{KeyboardEvent, PointerEvent, Surface, SurfaceError};
-use console_music::player::Sound;
 use console_notifications::updating;
 use console_onscreen::focus;
 use console_program_contract::EventGroup;
@@ -229,6 +229,7 @@ struct Tracked {
 struct ContentFiles {
   preferences: Option<PathBuf>,
   manifests: Vec<PathBuf>,
+  applications: Vec<PathBuf>,
   live: Option<PathBuf>,
   folders: Vec<PathBuf>,
   hearing: OwnedFd,
@@ -238,8 +239,10 @@ impl ContentFiles {
   fn open() -> Result<Self, Cannot> {
     let Ok(preferences) = preferences::path();
     let Ok(manifests) = applets::folders();
+    let Ok(applications) = console_core_places::applications();
     let Ok(live) = applets::live_folder();
     let mut folders = manifests.clone();
+    folders.extend(applications.iter().cloned());
     folders.extend(live.clone());
     folders.extend(
       preferences
@@ -252,6 +255,7 @@ impl ContentFiles {
     Ok(Self {
       preferences,
       manifests,
+      applications,
       live,
       folders,
       hearing,
@@ -269,7 +273,7 @@ impl ContentFiles {
       ::core::option::Option::None => {}
     }
 
-    let Ok(applets) = applets::discover(&self.manifests);
+    let Ok(applets) = applets::discover(&self.manifests, &self.applications);
     let Ok(slots) = applets::slots(&applets, &content.preferences, self.live.as_deref());
     content.applets = applets;
     content.slots = slots;
@@ -288,13 +292,15 @@ mod content_tests {
     let root = console_core_temporary_directories::fresh("bar-content-watch")?;
     let manifests = root.join("data/bar-applets");
     let live = root.join("runtime/bar-applets");
+    let applications = root.join("applications");
     let at = root.join("status-bar.json");
     let hearing = inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK)?;
     let files = ContentFiles {
       preferences: Some(at.clone()),
       manifests: vec![manifests.clone()],
+      applications: vec![applications.clone()],
       live: Some(live.clone()),
-      folders: vec![root, manifests.clone(), live.clone()],
+      folders: vec![root, manifests.clone(), live.clone(), applications.clone()],
       hearing,
     };
     let mut content = Content::default();
@@ -303,12 +309,12 @@ mod content_tests {
     std::fs::create_dir_all(&manifests)?;
     console_core_atomic_writes::whole(&manifests.join("example.json"), br#"{"name":"Example"}"#)?;
     Preferences::update(&at, |preferences| {
-      preferences.placement = Placement::Left;
+      preferences.placement = Placement::Bottom;
       let Ok(()) = preferences.toggle_applet("example");
     })?;
     assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Received));
     let Ok(()) = files.read(&mut content);
-    assert_eq!(content.preferences.placement, Placement::Left);
+    assert_eq!(content.preferences.placement, Placement::Bottom);
     assert_eq!(content.slots.len(), 1);
 
     std::fs::create_dir_all(&live)?;
@@ -319,6 +325,29 @@ mod content_tests {
     assert!(content.slots.is_empty());
 
     console_core_atomic_writes::whole(&status, b"Visible again")?;
+    assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Received));
+    let Ok(()) = files.read(&mut content);
+    assert_eq!(content.slots.len(), 1);
+
+    console_core_atomic_writes::whole(
+      &manifests.join("obs.json"),
+      include_bytes!("../../../../files/usr/local/share/console/bar-applets/obs.json"),
+    )?;
+    Preferences::update(&at, |preferences| {
+      let Ok(()) = preferences.toggle_applet("obs");
+    })?;
+    assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Received));
+    let Ok(()) = files.read(&mut content);
+    assert_eq!(content.slots.len(), 1);
+
+    std::fs::create_dir(&applications)?;
+    let desktop_entry = applications.join("com.obsproject.Studio.desktop");
+    console_core_atomic_writes::whole(&desktop_entry, b"[Desktop Entry]\nName=OBS Studio\n")?;
+    assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Received));
+    let Ok(()) = files.read(&mut content);
+    assert_eq!(content.slots.len(), 2);
+
+    std::fs::remove_file(&desktop_entry)?;
     assert_eq!(heard_again(&files.hearing), Ok(FileEvents::Received));
     let Ok(()) = files.read(&mut content);
     assert_eq!(content.slots.len(), 1);
@@ -334,9 +363,16 @@ struct Content {
   slots: Vec<Slot>,
 }
 
+fn read_wearing(theme: &ThemeSettings) -> Result<Wearing, WearingError> {
+  let spent_with = palette::spent_with(theme)?;
+  let colors = Wearing::out_of(&spent_with)?;
+
+  Ok(colors)
+}
+
 fn drawing() -> Result<(), Cannot> {
-  let spent = palette::spent()?;
-  let wearing = Wearing::out_of(&spent)?;
+  let Ok(theme) = ThemeSettings::current();
+  let wearing = read_wearing(&theme)?;
   let mut surface = Surface::connect()?;
   let hearing =
     inotify::init(CreateFlags::CLOEXEC | CreateFlags::NONBLOCK).map_err(Cannot::Deaf)?;
@@ -367,6 +403,8 @@ fn drawing() -> Result<(), Cannot> {
   let Ok(held) = first_held(&readings, &layers);
   let turning = Turning {
     surface,
+    theme,
+    wearing,
     dwindling,
     readings,
     held,
@@ -383,7 +421,6 @@ fn drawing() -> Result<(), Cannot> {
     waking,
   };
   let around = Around {
-    wearing: &wearing,
     whole,
     fitting,
     hearing: &hearing,
@@ -426,6 +463,8 @@ impl From<bool> for AppletChange {
 
 struct Turning {
   surface: Surface,
+  theme: ThemeSettings,
+  wearing: Wearing,
   dwindling: Watching,
   readings: Vec<Tracked>,
   held: BarState,
@@ -444,7 +483,6 @@ struct Turning {
 
 #[derive(Clone, Copy)]
 struct Around<'a> {
-  wearing: &'a Wearing,
   whole: Size<u32>,
   fitting: Fitting,
   hearing: &'a OwnedFd,
@@ -545,13 +583,13 @@ fn render_turn(
   let Ok(logical) = turning.surface.logical();
 
   match turning.placement {
-    Placement::Top => {
+    Placement::Top | Placement::Bottom => {
       let room = match logical {
         Some(room) => room,
         None => around.whole,
       };
 
-      showing::along_with_applets(&bar, &applets, around.wearing, room)
+      showing::along_with_applets(&bar, &applets, &turning.wearing, room, turning.placement)
     }
     Placement::Left | Placement::Right => {
       let room = match logical {
@@ -576,7 +614,7 @@ fn render_turn(
         let Ok(()) = measuring::compact(group, fitting, width);
       }
 
-      showing::sidebar(&bar, &applets, around.wearing, room, turning.placement)
+      showing::sidebar(&bar, &applets, &turning.wearing, room, turning.placement)
     }
   }
 }
@@ -611,7 +649,7 @@ fn focus_outline(
 
   match target.and_then(|action| drawn.touching.iter().find(|region| region.action == action)) {
     Some(region) => {
-      let Ok(outline) = region.panel.focus_outline(around.wearing.text);
+      let Ok(outline) = region.panel.focus_outline(turning.wearing.text);
       drawn.shapes.extend(outline.map(Shape::Line));
     }
     None => {}
@@ -721,6 +759,19 @@ fn reload_content(turning: &mut Turning, files: &ContentFiles) -> Result<(), Nev
     FileEvents::Received => {}
   }
 
+  let Ok(theme) = ThemeSettings::current();
+
+  match { ::core::primitive::bool::then_some(theme != turning.theme, ()) } {
+    ::core::option::Option::Some(()) => match read_wearing(&theme) {
+      Ok(wearing) => {
+        turning.theme = theme;
+        turning.wearing = wearing;
+      }
+      Err(fault) => console_core_logging::warn!("console-bar: loading theme: {fault}"),
+    },
+    ::core::option::Option::None => {}
+  }
+
   let Ok(target) = turning.selection.target();
   let position = match target {
     Some(BarAction::Applet(position)) => Some(position),
@@ -805,28 +856,19 @@ fn raised(
   let Ok(tall) = fitting.height();
   let Ok(wide) = fitting.sidebar_width();
   let Ok(margin) = Margin::none();
+  let horizontal = Size {
+    width: 0,
+    height: tall,
+  };
+  let vertical = Size {
+    width: wide,
+    height: 0,
+  };
   let (anchor, size) = match placement {
-    Placement::Top => (
-      Anchor::Top,
-      Size {
-        width: 0,
-        height: tall,
-      },
-    ),
-    Placement::Left => (
-      Anchor::Left,
-      Size {
-        width: wide,
-        height: 0,
-      },
-    ),
-    Placement::Right => (
-      Anchor::Right,
-      Size {
-        width: wide,
-        height: 0,
-      },
-    ),
+    Placement::Top => (Anchor::Top, horizontal),
+    Placement::Bottom => (Anchor::Bottom, horizontal),
+    Placement::Left => (Anchor::Left, vertical),
+    Placement::Right => (Anchor::Right, vertical),
   };
 
   let (namespace, keyboard, under) = match layer {
@@ -1139,13 +1181,14 @@ fn read_item(item: StatusItem, dwindling: &mut Watching) -> Result<Reading, Neve
 
 fn rung() -> Result<Reading, Never> {
   let Ok(whole) = console_notifications::serving::load_inbox();
-  let Ok(waiting) = Waiting::of(&whole.waiting, whole.do_not_disturb);
+  let Ok(quiet) = whole.effective_do_not_disturb();
+  let Ok(waiting) = Waiting::of(&whole.waiting, quiet);
 
   notifications(waiting)
 }
 
 fn playing() -> Result<Reading, Never> {
-  let Ok(requested) = console_music::player::playing();
+  let Ok(requested) = console_application_music::player::playing();
 
   let requested_3 = match requested {
     Some(requested_2) => requested_2,
@@ -1419,8 +1462,11 @@ fn start(mut starting: std::process::Command) -> Result<Option<Detached>, Never>
 }
 
 fn switched(id: i64) -> Result<Option<Detached>, Never> {
-  let Ok(lua) = console_compositor::onto(&id.to_string(), Carrying::None);
-  let Ok(_done) = console_compositor::request(Request::Dispatch, &lua);
+  let Ok(_done) = console_compositor::Action::MoveWorkspace {
+    target: WorkspaceTarget::Number(id),
+    carrying: Carrying::None,
+  }
+  .dispatch();
 
   Ok(None)
 }
@@ -1470,7 +1516,7 @@ fn sources() -> std::io::Result<Vec<waking::Source>> {
   let (said_player, heard_player) = sync_channel(1);
   let Ok(()) = console_events::again::about(
     &EventGroup::Player,
-    console_music::player::worth_asking_after,
+    console_application_music::player::worth_asking_after,
     said_player,
   );
   let player = waking::forwarded(Woke::Player, heard_player)?;

@@ -1,4 +1,6 @@
 //! Rasterizes SVG trees and nodes into sRGB pixmaps.
+//! With hosted compute enabled, `render_with_compute` dispatches convolution
+//! filters and `convolution_glsl` emits the kernel for Vulkan.
 //! Copyright 2017 the Resvg Authors.
 //! SPDX-License-Identifier: Apache-2.0 OR MIT
 
@@ -31,19 +33,68 @@ mod render;
   )
 )]
 pub fn render(tree: &Tree, transform: Transform, pixmap: &mut PixmapMut<'_>) {
+  let Ok(()) = render_tree(tree, transform, pixmap, &filter::convolve_matrix::apply);
+}
+
+fn render_tree(
+  tree: &Tree,
+  transform: Transform,
+  pixmap: &mut PixmapMut<'_>,
+  convolve: &filter::Convolve<'_>,
+) -> Result<(), Never> {
   let Ok(size) = target_size(pixmap);
   let size_3 = match size {
     Some(size_2) => size_2,
-    None => return,
+    None => return Ok(()),
   };
   let Ok(bounds) = max_filter_bbox(size_3);
   let bounds_3 = match bounds {
     Some(bounds_2) => bounds_2,
-    None => return,
+    None => return Ok(()),
   };
-  let Ok(context) = render::Context::root(bounds_3);
+  let Ok(mut context) = render::Context::root(bounds_3);
+  context.convolve = convolve;
   let Ok(root) = tree.root();
-  let Ok(()) = render::render_nodes(root, &context, transform, pixmap);
+  render::render_nodes(root, &context, transform, pixmap)
+}
+
+#[doc = "Draws an SVG using the selected compute backend for convolution filters."]
+#[cfg(feature = "hosted-compute")]
+pub fn render_with_compute(
+  tree: &Tree,
+  transform: Transform,
+  pixmap: &mut PixmapMut<'_>,
+  target: console_operating_system_linux::program_runtime::compute::Target<'_>,
+  shader: Option<&std::path::Path>,
+) -> std::io::Result<()> {
+  use std::cell::Cell;
+
+  let failure = Cell::new(None);
+  let Ok(()) =
+    render_tree(
+      tree,
+      transform,
+      pixmap,
+      &|filter, pixels| match filter::convolve_matrix::mapped(filter, pixels, target, shader) {
+        Ok(()) => Ok(()),
+        Err(error) => {
+          let first = match failure.take() {
+            Some(previous) => previous,
+            None => error,
+          };
+          failure.set(Some(first));
+
+          Err(filter::Error::NoResults)
+        }
+      },
+    );
+  failure.into_inner().map_or(Ok(()), Err)
+}
+
+#[doc = "Emits the GLSL for the convolution pass used by `render_with_compute`."]
+#[cfg(feature = "hosted-compute")]
+pub fn convolution_glsl() -> std::io::Result<String> {
+  filter::convolve_matrix::CONVOLUTION.glsl()
 }
 
 #[doc = "Draws one node in sRGB. Returns None when its layer has no size."]

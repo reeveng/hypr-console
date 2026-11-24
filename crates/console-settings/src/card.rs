@@ -7,7 +7,7 @@
 //! Anything that takes a moment, connecting above all, is done off to one side
 //! so the panel keeps answering the buttons while it happens.
 
-use console_books::appearance::Appearance;
+use console_application_books::appearance::Appearance;
 use console_core_arguments::{Command, Operands};
 use console_core_external_programs::Program;
 use console_core_internal_programs::InternalProgram;
@@ -28,12 +28,12 @@ pub fn door(arguments: &[String]) -> Result<Door, Never> {
 }
 
 pub fn card(arguments: &[String]) -> Result<Card, Never> {
-  card_with_monitors(arguments, read_monitors)
+  card_with_outputs(arguments, read_outputs)
 }
 
-pub fn card_with_monitors(
+fn card_with_outputs(
   arguments: &[String],
-  read: impl Fn() -> Result<Vec<Monitor>, HyprctlError> + Send + Sync + 'static,
+  read: impl Fn() -> Result<Vec<Output>, HyprctlError> + Send + Sync + 'static,
 ) -> Result<Card, Never> {
   let Ok(card) = Card::supervised::<Settings, _>((), move |looking| pages(looking, read));
 
@@ -41,10 +41,11 @@ pub fn card_with_monitors(
 }
 
 use crate::choosing::{
-  Closes, Deeper, Destination, Meeting, Settings, SettingsEffect, SettingsEvent, Under, closes,
-  under,
+  Closes, Deeper, Destination, KeyboardMenu, Meeting, Settings, SettingsEffect, SettingsEvent,
+  Under, WallpaperView, closes, under,
 };
 use crate::defaults;
+use crate::display;
 use crate::languages::{self, Language, Names};
 use crate::learned::{self, Following};
 use crate::level::{Muted, Step, apply_step};
@@ -52,12 +53,13 @@ use crate::light;
 use crate::network_code;
 use crate::rocker::{preview, sound_server};
 use crate::rows::{
-  Chosen, Languages, Opens, adjustment, alphabet_rows, answer, battery_rows, bluetooth_rows,
-  called_row, clock_rows, dictation_rows, dictation_says, engine_says, language_picker_rows,
-  language_rows, meeting_rows, notifications_rows, place_rows, region_rows, screen_rows,
-  search_rows, security_rows, sound_effects, sound_rows, tabs, wifi_rows, zone_rows,
+  Chosen, Languages, Opens, ScreenScale, SoundControls, adjustment, answer, automatic_leveling,
+  battery_rows, bluetooth_rows, called_row, clock_rows, dictation_rows, dictation_says,
+  engine_says, language_picker_rows, language_rows, meeting_rows, notifications_rows, place_rows,
+  region_rows, screen_rows, search_rows, security_rows, sound_effects, sound_rows, tabs,
+  wifi_rows, zone_rows,
 };
-use crate::wallpaper::{Found, Offered, wallpaper_rows};
+use crate::wallpaper::{self, Edit, Found, Offered, wallpaper_rows};
 use crate::warm::{self, NightShift};
 use crate::{bluetooth, screen, size, sound, turning, wifi};
 use crate::{hours, named};
@@ -65,8 +67,10 @@ use console_actor::Actor;
 use console_battery as battery;
 use console_bluetooth::device::Device;
 use console_bluetooth_agent::command;
-use console_compositor::{HyprctlError, Monitor, Monitors};
+use console_compositor::HyprctlError;
+use console_compositor::setup::{Output, Outputs};
 use console_core_atomic_writes as writes;
+use console_core_controls::Switch;
 use console_default_applications::editors::{self, Application};
 use console_home_screen::shape::{self, Shape};
 use console_input_alphabets as alphabets;
@@ -78,8 +82,10 @@ use console_panel::tasks::Task;
 use console_program_contract::{Effect, Event};
 use console_sound_effects::SoundEffects;
 use console_wallpaper::choose::{Set, Wanted};
-use console_wallpaper::place;
+use console_wallpaper::{place, rules};
+use std::io;
 use std::path::Path;
+use std::process::Output as CommandOutput;
 use std::sync::OnceLock;
 
 const NONE_AT_ALL: u32 = 0;
@@ -94,44 +100,199 @@ fn of_kind(kind: &str) -> Result<Vec<sound::Thing>, Never> {
   sound::read(&said)
 }
 
-fn hush(index: i64, kind: &'static str) -> Result<Handler, Never> {
-  Handler::and_stay(move |_| {
-    let Ok(_) = pactl(&[&format!("set-{kind}-mute"), &index.to_string(), "toggle"]);
+fn hush(target: sound::VolumeTarget) -> Result<Handler, Never> {
+  Handler::and_stay(move |showing| {
+    let Ok(kind) = target.kind();
+    let Ok(items) = of_kind(kind);
+    let items_2: Vec<_> = items
+      .iter()
+      .filter(|item| target.matches(item) == Ok(sound::TargetMatch::Selected))
+      .collect();
+    let mute = match {
+      ::core::primitive::bool::then_some(items_2.iter().all(|item| item.mute == Muted::Yes), ())
+    } {
+      ::core::option::Option::Some(()) => "0",
+      ::core::option::Option::None => "1",
+    };
+
+    for item in items_2 {
+      let Ok(_) = pactl(&[&format!("set-{kind}-mute"), &item.index.to_string(), mute]);
+    }
+
+    showing.refresh();
   })
 }
 
-fn turn_to(index: i64, kind: &'static str) -> Result<Level, Never> {
+fn select_sound_output(name: &str) -> core::result::Result<(), console_core_never::Never> {
+  {
+    match sound_server(&["set-default-sink", name]) {
+      Ok(_) => {}
+      Err(fault) => console_core_logging::warn!("could not select the audio output: {fault}"),
+    }
+  };
+
+  Ok(())
+}
+
+#[derive(PartialEq)]
+enum VolumeChange {
+  Applied,
+  Failed,
+}
+
+struct VolumeSetting<'a> {
+  kind: &'a str,
+  index: i64,
+  volume: &'a str,
+}
+
+fn set_volume(setting: VolumeSetting<'_>) -> core::result::Result<VolumeChange, Never> {
+  let VolumeSetting {
+    kind,
+    index,
+    volume,
+  } = setting;
+  Ok(
+    match sound_server(&[&format!("set-{kind}-volume"), &index.to_string(), volume]) {
+      Ok(_) => VolumeChange::Applied,
+      Err(fault) => {
+        console_core_logging::warn!("could not set the volume: {fault}");
+        VolumeChange::Failed
+      }
+    },
+  )
+}
+
+fn turn_to(target: sound::VolumeTarget) -> Result<Level, Never> {
   adjustment(move |step| {
-    let Ok(of_kind) = of_kind(kind);
-
-    let Ok(one) = sound::one(&of_kind, index);
-
-    let thing = match one.cloned() {
-      Some(thing) => thing,
-      None => return,
-    };
-
-    let Ok(level) = thing.level();
+    let Ok(kind) = target.kind();
+    let Ok(items) = of_kind(kind);
+    let items_2: Vec<_> = items
+      .iter()
+      .filter(|item| target.matches(item) == Ok(sound::TargetMatch::Selected))
+      .collect();
+    let Ok(level) = sound::loudest(&items_2);
     let Ok(going) = apply_step(level, Step(step));
 
-    let changed = sound_server(&[
-      &format!("set-{kind}-volume"),
-      &index.to_string(),
-      &format!("{going}%"),
-    ]);
-
-    match changed {
-      Ok(_) if kind == "sink" && !thing.mute && going != level => {
-        let Ok(()) = preview(&thing.name, Muted::No, Some(i64::from(going)));
+    match { ::core::primitive::bool::then_some(going == level, ()) } {
+      ::core::option::Option::Some(()) => {
+        return;
       }
-      Ok(_) => {}
-      Err(fault) => console_core_logging::warn!("could not set the volume: {fault}"),
+      ::core::option::Option::None => {}
+    }
+
+    let Ok(volume) = sound::volume_argument(sound::VolumeStep {
+      from: level,
+      to: going,
+    });
+
+    for item in items_2 {
+      match {
+        ::core::primitive::bool::then_some(
+          ({
+            let Ok(explicit_value) = set_volume(VolumeSetting {
+              kind,
+              index: item.index,
+              volume: &volume,
+            });
+            explicit_value
+          }) == VolumeChange::Applied
+            && matches!(target, sound::VolumeTarget::Output(_))
+            && item.mute == Muted::No,
+          (),
+        )
+      } {
+        ::core::option::Option::Some(()) => {
+          let Ok(()) = preview(&item.name, Muted::No, Some(i64::from(going)));
+        }
+        ::core::option::Option::None => {}
+      }
     }
   })
 }
 
+fn reset_app_volumes(
+  app: Option<&sound::App>,
+) -> core::result::Result<(), console_core_never::Never> {
+  {
+    let Ok(playing) = of_kind("sink-input");
+    let default = format!("{}%", sound::DEFAULT_APP_VOLUME);
+
+    for stream in playing.iter().filter(|stream| {
+      stream.node() == Ok(sound::AudioNode::Application)
+        && sound::adjusted(stream) == Ok(sound::StreamVolume::Adjusted)
+        && app.is_none_or(|filter| {
+          let Ok(identity) = stream.app();
+          &identity == filter
+        })
+    }) {
+      match set_volume(VolumeSetting {
+        kind: "sink-input",
+        index: stream.index,
+        volume: &default,
+      }) {
+        Ok(VolumeChange::Applied | VolumeChange::Failed) => {}
+      }
+    }
+  };
+
+  Ok(())
+}
+
+fn set_automatic_leveling(next: Switch) -> Result<(), Never> {
+  let Ok(mut wpctl) = Program::Wpctl.command();
+  let value = match next {
+    Switch::On => "true",
+    Switch::Off => "false",
+  };
+  let response = wpctl
+    .args(["settings", "--save", sound::AUTOMATIC_LEVELING, value])
+    .output();
+
+  report_leveling("automatic leveling", response)
+}
+
+fn set_app_leveling(key: &str, next: Switch) -> Result<(), Never> {
+  let Ok(mut metadata) = Program::PwMetadata.command();
+  let value = match next {
+    Switch::On => "true",
+    Switch::Off => "false",
+  };
+  let written = metadata
+    .args([
+      "-n",
+      sound::APP_LEVELING,
+      "0",
+      key,
+      value,
+      "Spa:String:JSON",
+    ])
+    .output();
+
+  report_leveling("app leveling", written)
+}
+
+fn report_leveling(setting: &str, response: io::Result<CommandOutput>) -> Result<(), Never> {
+  match response {
+    Ok(output) => match output.status.success().then_some(()) {
+      Some(()) => {}
+      None => match std::str::from_utf8(&output.stderr) {
+        Ok(text) => console_core_logging::warn!("could not change {setting}: {}", text.trim()),
+        Err(fault) => console_core_logging::warn!(
+          "could not change {setting}: {} with invalid diagnostic text ({fault})",
+          output.status,
+        ),
+      },
+    },
+    Err(fault) => console_core_logging::warn!("could not change {setting}: {fault}"),
+  }
+
+  Ok(())
+}
+
 const SINKS: &str = "sinks";
 const SPEAKERS: &str = "default sink";
+const LEVELING: &str = "automatic leveling";
 
 fn run_and_note(note: &str, program: Program, arguments: &[&str]) -> Result<String, Never> {
   before::run_and_note(note, program, arguments)
@@ -147,29 +308,97 @@ fn pactl_kept(note: &str, arguments: &[&str]) -> Result<String, Never> {
 
 fn sound_tab() -> Result<Vec<console_panel::page::Row>, Never> {
   let Ok(sinks) = pactl_kept(SINKS, &["-f", "json", "list", "sinks"]);
-  let Ok(mut playing) = of_kind("sink-input");
-  playing.retain(|stream| {
-    !stream.properties.contains_key("console.balance.output")
-      && !stream.properties.contains_key("console.balance.preview")
-  });
+  let Ok(playing) = of_kind("sink-input");
   let Ok(speakers) = pactl_kept(SPEAKERS, &["get-default-sink"]);
-
-  let Ok(sinks_2) = sound::read(&sinks);
-  let Ok(mut rows) = sound_rows(&sinks_2, &playing, &speakers, hush, turn_to);
-  let Ok(effects) = SoundEffects::current();
-  let Ok(switch) = sound_effects(effects);
-
-  rows.push(switch);
-
-  Ok(rows)
+  let Ok(leveling) = run_and_note(
+    LEVELING,
+    Program::Wpctl,
+    &["settings", sound::AUTOMATIC_LEVELING],
+  );
+  sound_settings(SoundReadings {
+    sinks: &sinks,
+    playing: &playing,
+    speakers: &speakers,
+    leveling: &leveling,
+  })
 }
 
 fn sound_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
   let Ok(sinks) = last_output(SINKS);
   let Ok(speakers) = last_output(SPEAKERS);
+  let Ok(leveling) = last_output(LEVELING);
+  sound_settings(SoundReadings {
+    sinks: &sinks,
+    playing: &[],
+    speakers: &speakers,
+    leveling: &leveling,
+  })
+}
 
-  let Ok(sinks_2) = sound::read(&sinks);
-  let Ok(mut rows) = sound_rows(&sinks_2, &[], &speakers, hush, turn_to);
+struct SoundReadings<'a> {
+  sinks: &'a str,
+  playing: &'a [sound::Thing],
+  speakers: &'a str,
+  leveling: &'a str,
+}
+
+fn sound_settings(readings: SoundReadings<'_>) -> Result<Vec<console_panel::page::Row>, Never> {
+  let SoundReadings {
+    sinks,
+    playing,
+    speakers,
+    leveling,
+  } = readings;
+  let Ok(sinks_2) = sound::read(sinks);
+  let bypassed = match {
+    ::core::primitive::bool::then_some(
+      playing.is_empty()
+        || ({
+          let Ok(explicit_value) = sound::automatic_leveling(leveling);
+          explicit_value
+        })
+        .is_none(),
+      (),
+    )
+  } {
+    ::core::option::Option::Some(()) => None,
+    ::core::option::Option::None => {
+      let Ok(metadata) = run_output(Program::PwMetadata, &["-n", sound::APP_LEVELING, "0"]);
+
+      {
+        let Ok(explicit_value) = sound::bypassed_apps(&metadata);
+        explicit_value
+      }
+    }
+  };
+  let controls = SoundControls {
+    select: (|explicit_argument_0| {
+      ({
+        let Ok(explicit_value) = select_sound_output(explicit_argument_0);
+        explicit_value
+      })
+    }),
+    mute: hush,
+    volume: turn_to,
+    reset: (|explicit_argument_0| {
+      ({
+        let Ok(explicit_value) = reset_app_volumes(explicit_argument_0);
+        explicit_value
+      })
+    }),
+    bypassed,
+    leveling: set_app_leveling,
+  };
+  let Ok(mut rows) = sound_rows(&sinks_2, playing, speakers, controls);
+
+  match sound::automatic_leveling(leveling) {
+    Ok(Some(now)) => {
+      let Ok(row) = automatic_leveling(now, set_automatic_leveling);
+      rows.push(row);
+    }
+    Ok(::core::option::Option::None) => {}
+  }
+
   let Ok(effects) = SoundEffects::current();
   let Ok(switch) = sound_effects(effects);
 
@@ -178,22 +407,21 @@ fn sound_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
   Ok(rows)
 }
 
-fn brightness() -> Result<i32, Never> {
+fn brightness() -> Result<Option<i32>, Never> {
   let Ok(panel) = screen::here();
 
-  let points = match panel {
-    Some(panel_2) => {
-      let Ok(now) = panel_2.now();
-
-      match now {
-        Some(now_2) => panel_2.as_points(now_2)?,
-        None => 0,
-      }
-    }
-    None => 0,
+  let panel_2 = match panel {
+    Some(matched_panel) => matched_panel,
+    ::core::option::Option::None => return Ok(None),
   };
 
-  fitted(points)
+  let Ok(now) = panel_2.now();
+
+  Ok(now.map(|now_2| {
+    let Ok(points) = panel_2.as_points(now_2);
+    let Ok(percent) = fitted(points);
+    percent
+  }))
 }
 
 fn dim() -> Result<Level, Never> {
@@ -237,9 +465,7 @@ const PROFILE: &str = "power profile";
 fn battery_tab() -> Result<Vec<console_panel::page::Row>, Never> {
   let Ok(profile) = run_and_note(PROFILE, Program::Powerprofilesctl, &["get"]);
 
-  let Ok(levels) = battery::Levels::here();
-
-  battery_rows(Some(&profile), levels, guard)
+  battery_controls(&profile)
 }
 
 fn warmth() -> Result<NightShift, Never> {
@@ -272,22 +498,28 @@ fn warmth() -> Result<NightShift, Never> {
 fn battery_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
   let Ok(profile) = last_output(PROFILE);
 
-  let Ok(levels) = battery::Levels::here();
+  battery_controls(&profile)
+}
 
-  battery_rows(Some(&profile), levels, guard)
+fn battery_controls(profile: &str) -> Result<Vec<console_panel::page::Row>, Never> {
+  let Ok(levels) = battery::Levels::here();
+  let Ok(mut rows) = battery_rows(Some(profile), levels, guard);
+  let Ok(limits) = crate::rows::charge_limit_rows();
+  rows.extend(limits);
+  Ok(rows)
 }
 
 const SCREENS: &str = "screens";
 
-fn read_monitors() -> Result<Vec<Monitor>, HyprctlError> {
-  console_compositor::ask_recorded(Monitors, |answer| {
+fn read_outputs() -> Result<Vec<Output>, HyprctlError> {
+  console_compositor::ask_recorded(Outputs, |answer| {
     let Ok(()) = before::keep(SCREENS, answer.as_bytes());
   })
 }
 
-fn refreshed_monitors(
-  read: impl FnOnce() -> Result<Vec<Monitor>, HyprctlError>,
-) -> Result<Vec<Monitor>, Never> {
+fn refreshed_outputs(
+  read: impl FnOnce() -> Result<Vec<Output>, HyprctlError>,
+) -> Result<Vec<Output>, Never> {
   Ok(match read() {
     Ok(monitors) => monitors,
     Err(fault) => {
@@ -299,14 +531,12 @@ fn refreshed_monitors(
 }
 
 fn screen_orientation(
-  monitors: &[Monitor],
+  screen: Option<&console_screen::Screen>,
 ) -> Result<(Option<turning::Turn>, console_screen::Shape), Never> {
-  let Ok(shown) = console_screen::shown(monitors);
-
-  Ok(match shown {
-    Some(screen) => {
-      let Ok(turn) = turning::current_turn(&screen);
-      let Ok(shape) = screen.shape();
+  Ok(match screen {
+    Some(screen_2) => {
+      let Ok(turn) = turning::current_turn(screen_2);
+      let Ok(shape) = screen_2.shape();
 
       (turn, shape)
     }
@@ -334,21 +564,69 @@ fn room() -> Result<Option<Following>, Never> {
   Ok(Some(following))
 }
 
-fn size_rows(
+fn primary_screen(outputs: &[Output]) -> Result<Option<console_screen::Screen>, Never> {
+  let Ok(primary) = display::selected(outputs, None);
+
+  match primary {
+    Some(output) => display::screen(output),
+    None => Ok(None),
+  }
+}
+
+fn display_rows(
   held: &ActorAddress,
-  monitors: &[Monitor],
+  outputs: &[Output],
 ) -> Result<Vec<console_panel::page::Row>, Never> {
   let Ok(brightness) = brightness();
   let Ok(warmth) = warmth();
-  let Ok((turned, shape)) = screen_orientation(monitors);
+  let Ok(primary) = primary_screen(outputs);
+  let Ok((_, shape)) = screen_orientation(primary.as_ref());
   let Ok(home) = home_rows(held, shape);
-  let Ok(standing) = size::current_size(monitors);
-
   let Ok(dim) = dim();
-
   let Ok(room) = room();
 
-  screen_rows(Some(brightness), dim, room, warmth, standing, turned, home)
+  let selected = match held.get() {
+    Ok(state) => state.display,
+    Err(_stopped) => None,
+  };
+
+  let output = {
+    let Ok(chosen) = display::selected(outputs, selected.as_deref());
+    let optional_output = chosen.or_else(|| {
+      let Ok(fallback) = display::selected(outputs, None);
+      fallback
+    });
+
+    match optional_output {
+      Some(matched_output) => matched_output,
+      ::core::option::Option::None => {
+        return screen_rows(brightness, dim, room, warmth, None, home);
+      }
+    }
+  };
+
+  let address = held.clone();
+  let Ok(selector) = display::rows::selector(outputs, output, move |showing, connector| {
+    let Ok(()) = press(&address, SettingsEvent::SelectDisplay(connector), showing);
+  });
+  let mut rows = vec![selector];
+  let Ok(settings) = display::rows::settings(output, outputs);
+  rows.extend(settings);
+
+  let Ok(screen) = display::screen(output);
+  let scale = screen.map(|current| {
+    let Ok(zoom) = size::for_screen(&current);
+    let Ok(turn) = turning::current_turn(&current);
+    ScreenScale {
+      connector: Some(&output.connector),
+      zoom,
+      turn,
+    }
+  });
+  let Ok(controls) = screen_rows(brightness, dim, room, warmth, scale, home);
+  rows.extend(controls);
+
+  Ok(rows)
 }
 
 fn home_standing() -> Result<console_screen::Shape, Never> {
@@ -523,7 +801,10 @@ fn shaped(effect: &Effect<SettingsEffect>) -> Result<Option<&shape::Shape>, Neve
     Effect::Custom(SettingsEffect::HomeScreen(shape)) => Some(shape),
 
     Effect::Custom(
-      SettingsEffect::Replace(_) | SettingsEffect::NetworkShown | SettingsEffect::NetworkHidden,
+      SettingsEffect::Replace(_)
+      | SettingsEffect::DisplaySelected
+      | SettingsEffect::NetworkShown
+      | SettingsEffect::NetworkHidden,
     )
     | Effect::Run(_)
     | Effect::Stream(_)
@@ -707,10 +988,12 @@ fn bluetooth_at(
     | Destination::Kind(_)
     | Destination::Languages
     | Destination::Language(_)
-    | Destination::Alphabets
+    | Destination::Alphabets(_)
     | Destination::Zones
     | Destination::Zone(_)
-    | Destination::Clock => None,
+    | Destination::Clock
+    | Destination::Wallpaper(_)
+    | Destination::QuickWorkspace => None,
   };
 
   match standing {
@@ -743,7 +1026,17 @@ fn bluetooth_meanwhile(looking: &ActorAddress) -> Result<Vec<console_panel::page
 const UP: &str = "wallpaper";
 
 fn on_the_screen() -> Result<String, Never> {
-  let Ok(said) = run_and_note(UP, Program::Awww, &["query"]);
+  let said = match console_paper::ask(&console_paper::Request::Query) {
+    Ok(said) => {
+      let Ok(()) = before::keep(UP, said.as_bytes());
+      said
+    }
+    Err(fault) => {
+      console_core_logging::warn!("could not query the wallpaper: {fault}");
+      let Ok(kept) = last_output(UP);
+      kept
+    }
+  };
 
   place::current_picture(&said)
 }
@@ -819,21 +1112,9 @@ fn ask_for(showing: &dyn Showing, wanted: &Wanted, going_on: &str) -> Result<(),
   Ok(())
 }
 
-fn offered() -> Result<Vec<Offered>, Never> {
-  let Ok(table_at) = place::table();
-
-  let held = std::fs::read_to_string(table_at);
-
-  let table = match held.as_deref() {
-    Ok(said) => {
-      let Ok(set) = Set::read(said);
-
-      set
-    }
-    Err(_unreadable) => None,
-  };
+fn offered(table: Option<&Set>) -> Result<Vec<Offered>, Never> {
   let written_down = |name: &str| {
-    let set = table.as_ref()?;
+    let set = table?;
 
     set
       .pictures
@@ -907,16 +1188,163 @@ fn dropped() -> Result<u32, Never> {
   )
 }
 
-fn wallpaper_tab() -> Result<Vec<console_panel::page::Row>, Never> {
-  let Ok(up) = on_the_screen();
-
-  wallpaper_at(&up)
+#[derive(Clone, Copy)]
+enum WallpaperReading {
+  Live,
+  Cached,
 }
 
-fn wallpaper_meanwhile() -> Result<Vec<console_panel::page::Row>, Never> {
-  let Ok(up) = was_on_the_screen();
+fn wallpaper_tab(
+  looking: &ActorAddress,
+  reading: WallpaperReading,
+) -> Result<Vec<console_panel::page::Row>, Never> {
+  let Ok(destination) = looking_at(looking);
+  let Ok(table) = Set::load();
 
-  wallpaper_at(&up)
+  match destination {
+    Destination::Wallpaper(WallpaperView::Pictures) => wallpaper_sets(looking, table.as_ref()),
+    Destination::Wallpaper(WallpaperView::Picture(picture)) => {
+      wallpaper_rule(looking, table.as_ref(), &picture.name)
+    }
+    Destination::Settings
+    | Destination::Search
+    | Destination::Dictation
+    | Destination::Kind(_)
+    | Destination::QuickWorkspace
+    | Destination::Meeting(_)
+    | Destination::Languages
+    | Destination::Language(_)
+    | Destination::Alphabets(_)
+    | Destination::Zones
+    | Destination::Zone(_)
+    | Destination::Clock => {
+      let Ok(up) = match reading {
+        WallpaperReading::Cached => was_on_the_screen(),
+        WallpaperReading::Live => on_the_screen(),
+      };
+
+      wallpaper_at(looking, table.as_ref(), &up)
+    }
+  }
+}
+
+fn wallpaper_sets(
+  looking: &ActorAddress,
+  table: Option<&Set>,
+) -> Result<Vec<console_panel::page::Row>, Never> {
+  use console_panel::page::Row;
+
+  let Ok(back) = back_up(looking);
+  let Ok(back_2) = Row::back("Wallpaper", back);
+  let Ok(title) = Row::naming(wallpaper::SETS, Aside(""));
+  let Ok(pictures) = offered(table);
+  let bundled: std::collections::HashSet<_> = table
+    .into_iter()
+    .flat_map(|set| &set.pictures)
+    .map(|entry| entry.name.as_str())
+    .collect();
+  let mut rows = vec![back_2, title];
+
+  match { ::core::primitive::bool::then_some(pictures.is_empty(), ()) } {
+    ::core::option::Option::Some(()) => {
+      let Ok(empty) = Row::placeholder("There are no pictures on this machine");
+      rows.push(empty);
+    }
+    ::core::option::Option::None => {}
+  }
+
+  for picture in pictures {
+    let Ok(at) = fitted(rows.len());
+    let Ok(custom) = rules::load(&picture.name);
+    let status = match custom {
+      Some(rule) => match rule.automatic.then_some(()) {
+        Some(()) => "Custom",
+        None => "Off",
+      },
+      None => match bundled.contains(picture.name.as_str()).then_some(()) {
+        Some(()) => "Default",
+        None => "Off",
+      },
+    };
+    let Ok(handler) = open(
+      looking,
+      Destination::Wallpaper(WallpaperView::Picture(Deeper {
+        name: picture.name,
+        at,
+      })),
+    );
+    let Ok(row) = Row::new(&picture.says, Aside(status), handler);
+    let Ok(row_2) = row.opening();
+    rows.push(row_2);
+  }
+
+  Ok(rows)
+}
+
+fn wallpaper_rule(
+  looking: &ActorAddress,
+  table: Option<&Set>,
+  name: &str,
+) -> Result<Vec<console_panel::page::Row>, Never> {
+  let bundled = table.and_then(|set| set.pictures.iter().find(|picture| picture.name == name));
+  let label = match bundled {
+    Some(picture) => picture.says.clone(),
+    None => {
+      let Ok(picture) = Offered::of(name);
+      picture.says
+    }
+  };
+  let default = match bundled {
+    Some(picture) => {
+      let Ok(rule) = rules::Rule::bundled(picture);
+      rule
+    }
+    None => rules::Rule::default(),
+  };
+  let Ok(custom) = rules::load(name);
+  let (rule, source) = match custom.as_ref() {
+    Some(rule) => (rule, wallpaper::RuleSource::Customized),
+    None => (&default, wallpaper::RuleSource::Default),
+  };
+  let Ok(back) = back_up(looking);
+
+  wallpaper::rule_rows(&label, rule, source, back, |edit| {
+    let name_2 = name.to_string();
+    let default_2 = default.clone();
+    let Ok(handler) = Handler::and_stay(move |showing| {
+      let Ok(custom_2) = rules::load(&name_2);
+      let mut rule_2 = match custom_2 {
+        Some(rule_3) => rule_3,
+        None => default_2.clone(),
+      };
+      let saved = match edit {
+        Edit::Reset => rules::reset(&name_2),
+        Edit::Automatic => {
+          rule_2.automatic = !rule_2.automatic;
+          rules::save(&name_2, &rule_2)
+        }
+        Edit::Condition(category, tag) => {
+          let Ok(()) = rule_2.toggle(category, tag);
+          rules::save(&name_2, &rule_2)
+        }
+      };
+
+      match saved {
+        Ok(()) => showing.refresh(),
+        Err(fault) => {
+          let Ok(()) = say(
+            "wallpaper-rules",
+            Notification {
+              summary: "Couldn't save the wallpaper rules",
+              body: &fault.to_string(),
+            },
+          );
+        }
+      }
+    });
+
+    handler
+  })
 }
 
 fn picture_label(pictures: &[Offered], name: &str) -> Result<String, Never> {
@@ -935,11 +1363,15 @@ fn picture_label(pictures: &[Offered], name: &str) -> Result<String, Never> {
   })
 }
 
-fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
+fn wallpaper_at(
+  looking: &ActorAddress,
+  table: Option<&Set>,
+  up: &str,
+) -> Result<Vec<console_panel::page::Row>, Never> {
   let Ok(asked) = Wanted::load();
 
   let up_2 = up.to_string();
-  let Ok(pictures) = offered();
+  let Ok(pictures) = offered(table);
   let Ok(waiting) = dropped();
   let found = Found {
     pictures: &pictures,
@@ -960,6 +1392,7 @@ fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
     showing.run(renders.clone());
   });
   let Ok(finding) = Handler::run(&["files", "Pictures"]);
+  let Ok(sets) = open(looking, Destination::Wallpaper(WallpaperView::Pictures));
 
   wallpaper_rows(
     &found,
@@ -967,7 +1400,7 @@ fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
       let picture = up_2.clone();
       let Ok(said) = picture_label(&pictures, &up_2);
       let going_on = match (following, up_2.is_empty()) {
-        (true, _) => "Wallpaper follows the weather".to_string(),
+        (true, _) => "Wallpaper follows time and weather".to_string(),
         (false, true) => "Wallpaper stays as it is".to_string(),
         (false, false) => format!("Wallpaper stays on {said}"),
       };
@@ -1005,6 +1438,7 @@ fn wallpaper_at(up: &str) -> Result<Vec<console_panel::page::Row>, Never> {
 
       does
     },
+    sets,
     taking,
     finding,
   )
@@ -1020,7 +1454,12 @@ fn opening(kind: &defaults::Kind, applications: &[Application]) -> Result<String
         ::core::option::Option::None => ::std::string::String::new(),
       })
     }
-    None => run_output(Program::XdgMime, &["query", "default", kind.mime]),
+    None => Ok(
+      match console_default_applications::opening::default_for(kind.mime) {
+        Ok(application) => application,
+        Err(_default_unavailable) => String::new(),
+      },
+    ),
   }
 }
 
@@ -1044,12 +1483,24 @@ fn use_it(
       }
       None => {
         for mime in &every_2 {
-          let Ok(_) = run_output(Program::XdgMime, &["default", &id, mime]);
+          use console_default_applications::opening::{Association, set_default};
+
+          match set_default(Association { mime, desktop: &id }) {
+            Ok(()) => {}
+            Err(fault) => {
+              console_core_logging::warn!("could not associate {mime} with {id}: {fault}")
+            }
+          }
         }
 
         match ::core::primitive::bool::then_some(scheme, ()) {
           ::core::option::Option::Some(()) => {
-            let Ok(_) = run_output(Program::XdgSettings, &["set", "default-web-browser", &id]);
+            match console_default_applications::browsers::set_default(&id) {
+              Ok(()) => {}
+              Err(fault) => {
+                console_core_logging::warn!("could not select {id} as default browser: {fault}")
+              }
+            }
           }
           ::core::option::Option::None => {}
         }
@@ -1101,9 +1552,11 @@ fn press(held: &ActorAddress, heard: SettingsEvent, showing: &dyn Showing) -> Re
       Effect::Custom(SettingsEffect::HomeScreen(shape)) => {
         let Ok(()) = home_set(shape);
       }
-      Effect::Custom(SettingsEffect::NetworkShown | SettingsEffect::NetworkHidden) => {
-        showing.refresh()
-      }
+      Effect::Custom(
+        SettingsEffect::DisplaySelected
+        | SettingsEffect::NetworkShown
+        | SettingsEffect::NetworkHidden,
+      ) => showing.refresh(),
 
       Effect::Run(_)
       | Effect::Stream(_)
@@ -1149,11 +1602,16 @@ fn defaults_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
 
   match under {
     Under::Configuration => {}
-    Under::Language => return setting_rows(looking),
+    Under::Language | Under::Wallpaper => return setting_rows(looking),
   }
 
   match onto {
     Destination::Settings => setting_rows(looking),
+    Destination::QuickWorkspace => {
+      let Ok(back) = back_up(looking);
+
+      crate::quick_workspace::rows(back)
+    }
     Destination::Search => {
       let Ok(back) = back_up(looking);
 
@@ -1195,7 +1653,8 @@ fn defaults_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
     | Destination::Dictation
     | Destination::Languages
     | Destination::Language(_)
-    | Destination::Alphabets => setting_rows(looking),
+    | Destination::Wallpaper(_)
+    | Destination::Alphabets(_) => setting_rows(looking),
 
     Destination::Kind(at) => {
       let leaving = looking.clone();
@@ -1227,7 +1686,7 @@ fn defaults_meanwhile(looking: &ActorAddress) -> Result<Vec<console_panel::page:
   let Ok(onto) = looking_at(looking);
 
   match onto {
-    Destination::Settings => {
+    Destination::Settings | Destination::Wallpaper(_) => {
       let Ok(zone) = last_output(TIMEZONE);
       let Ok(here) = hours::parse_zone(&zone);
       let Ok(name) = last_output(HOSTNAME);
@@ -1245,10 +1704,11 @@ fn defaults_meanwhile(looking: &ActorAddress) -> Result<Vec<console_panel::page:
     | Destination::Meeting(_)
     | Destination::Languages
     | Destination::Language(_)
-    | Destination::Alphabets
+    | Destination::Alphabets(_)
     | Destination::Zones
     | Destination::Zone(_)
-    | Destination::Clock => Ok(Vec::new()),
+    | Destination::Clock
+    | Destination::QuickWorkspace => Ok(Vec::new()),
   }
 }
 
@@ -1384,20 +1844,19 @@ fn language_top(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
     },
   };
 
-  let Ok(chosen) = alphabets::current();
-  let Ok(types) = alphabets::describe(&chosen);
+  let Ok(active) = console_input_language::active();
 
   let Ok(heard) = console_input_dictation::languages::current();
   let Ok(listens) = dictation_says(&heard);
 
   let Ok(words) = open(looking, Destination::Languages);
-  let Ok(keyboard) = open(looking, Destination::Alphabets);
+  let Ok(keyboard) = open(looking, Destination::Alphabets(KeyboardMenu::Closed));
   let Ok(dictation) = open(looking, Destination::Dictation);
 
   language_rows(
     Languages {
       says: &says,
-      types: &types,
+      types: active.says,
       listens: &listens,
     },
     [words, keyboard, dictation],
@@ -1410,7 +1869,7 @@ fn language_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
 
   match under {
     Under::Language => {}
-    Under::Configuration => return language_top(looking),
+    Under::Configuration | Under::Wallpaper => return language_top(looking),
   }
 
   match onto {
@@ -1448,11 +1907,19 @@ fn language_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
 
       place_rows(language, names, &generated, standing.as_ref(), back)
     }
-    Destination::Alphabets => {
+    Destination::Alphabets(menu) => {
       let Ok(back) = back_up(looking);
       let Ok(chosen) = alphabets::current();
+      let Ok(active) = console_input_language::active();
+      let panel = looking.clone();
 
-      alphabet_rows(&chosen, back)
+      crate::keyboard_layouts::rows(menu, &chosen, active, back, move |menu_2, showing| {
+        let Ok(()) = press(
+          &panel,
+          SettingsEvent::Opened(Destination::Alphabets(menu_2)),
+          showing,
+        );
+      })
     }
     Destination::Dictation => {
       let Ok(back) = back_up(looking);
@@ -1466,7 +1933,9 @@ fn language_tab(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>,
     | Destination::Meeting(_)
     | Destination::Zones
     | Destination::Zone(_)
-    | Destination::Clock => language_top(looking),
+    | Destination::Clock
+    | Destination::Wallpaper(_)
+    | Destination::QuickWorkspace => language_top(looking),
   }
 }
 
@@ -1522,12 +1991,25 @@ fn device_rows(
   let Ok(search) = search_row(looking);
   let Ok(where_) = where_row(looking, here);
   let Ok(clock) = clock_row(looking);
-  let Ok(called) = called_row(called);
+  let Ok(called_2) = called_row(called);
   let Ok(naming) = console_panel::page::Row::naming("On this device", Aside(""));
   let Ok(buttons) = buttons_row();
   let Ok(game) = crate::rows::game_row();
+  let Ok(quick) = open(looking, Destination::QuickWorkspace);
+  let Ok(quick_row) =
+    console_panel::page::Row::new(crate::quick_workspace::TITLE, Aside(""), quick);
+  let Ok(quick_row_2) = quick_row.opening();
 
-  Ok(vec![search, where_, clock, called, naming, buttons, game])
+  Ok(vec![
+    search,
+    where_,
+    clock,
+    called_2,
+    naming,
+    buttons,
+    game,
+    quick_row_2,
+  ])
 }
 
 fn setting_rows(looking: &ActorAddress) -> Result<Vec<console_panel::page::Row>, Never> {
@@ -1556,7 +2038,7 @@ fn tab(
 
 fn pages(
   looking: &ActorAddress,
-  read_monitors: impl Fn() -> Result<Vec<Monitor>, HyprctlError> + Send + Sync + 'static,
+  read_outputs: impl Fn() -> Result<Vec<Output>, HyprctlError> + Send + Sync + 'static,
 ) -> Result<Vec<Page>, Never> {
   let Ok(
     [
@@ -1567,6 +2049,7 @@ fn pages(
       notifications,
       size,
       status_bar,
+      theme,
       wallpaper,
       language,
       configuration,
@@ -1583,10 +2066,12 @@ fn pages(
   let Ok(asked) = tab(notifications_tab);
   let Ok(notifications_2) = Page::new(&notifications, asked);
 
-  let Ok(size_2) = size_page(&size, looking, read_monitors);
+  let Ok(size_2) = display_page(&size, looking, read_outputs);
   let Ok(status_bar_rows) = tab(crate::status_bar::rows);
   let Ok(status_bar_page) = Page::new(&status_bar, status_bar_rows);
-  let Ok(wallpaper_2) = wallpaper_page(&wallpaper);
+  let Ok(theme_rows) = tab(crate::theme::rows);
+  let Ok(theme_page) = Page::new(&theme, theme_rows);
+  let Ok(wallpaper_2) = wallpaper_page(&wallpaper, looking);
   let Ok(language_2) = language_page(&language, looking);
   let Ok(configuration_2) = configuration_page(&configuration, looking);
 
@@ -1608,6 +2093,7 @@ fn pages(
     notifications_2,
     size_2,
     status_bar_page,
+    theme_page,
     wallpaper_2,
     language_2,
     configuration_2,
@@ -1627,7 +2113,7 @@ fn sound_page(title: &str) -> Result<Page, Never> {
 
   page_2.with_subscription(
     console_program_contract::EventGroup::Sound,
-    console_events::again::sound,
+    console_events::again::playback,
   )
 }
 
@@ -1663,10 +2149,12 @@ fn bluetooth_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
       | Destination::Kind(_)
       | Destination::Languages
       | Destination::Language(_)
-      | Destination::Alphabets
+      | Destination::Alphabets(_)
       | Destination::Zones
       | Destination::Zone(_)
-      | Destination::Clock => ActionOutcome::Close,
+      | Destination::Clock
+      | Destination::Wallpaper(_)
+      | Destination::QuickWorkspace => ActionOutcome::Close,
     }
   })
 }
@@ -1719,41 +2207,84 @@ fn battery_page(title: &str) -> Result<Page, Never> {
   })
 }
 
-fn size_page(
+fn display_page(
   title: &str,
   looking: &ActorAddress,
-  read_monitors: impl Fn() -> Result<Vec<Monitor>, HyprctlError> + Send + Sync + 'static,
+  read_outputs: impl Fn() -> Result<Vec<Output>, HyprctlError> + Send + Sync + 'static,
 ) -> Result<Page, Never> {
   let sizing = looking.clone();
-  let drawing_size = looking.clone();
+  let drawing = looking.clone();
 
   let Ok(asked) = tab(move || {
-    let Ok(monitors) = refreshed_monitors(&read_monitors);
+    let Ok(outputs) = refreshed_outputs(&read_outputs);
 
-    size_rows(&drawing_size, &monitors)
+    display_rows(&drawing, &outputs)
   });
   let Ok(page) = Page::new(title, asked);
 
-  page.meanwhile(move || {
+  let Ok(page_2) = page.meanwhile(move || {
     let Ok(screens) = last_output(SCREENS);
-    let monitors = match console_compositor::read(Monitors, &screens) {
-      Ok(monitors) => monitors,
-      Err(_no_readable_cache) => Vec::new(),
+    let outputs = match console_compositor::read(Outputs, &screens) {
+      Ok(outputs) => outputs,
+      Err(_missing_or_invalid_cache) => Vec::new(),
     };
-    let Ok(rows) = size_rows(&sizing, &monitors);
+    let Ok(rows) = display_rows(&sizing, &outputs);
 
     rows
+  });
+  page_2.with_subscription(console_program_contract::EventGroup::Compositor, |line| {
+    use console_compositor::events::OutputChange;
+    use console_events::again::Worth;
+    let Ok(event) = console_compositor::events::read(line);
+    let Ok(outputs) = console_compositor::events::outputs_changed(line);
+    Ok(
+      match {
+        ::core::primitive::bool::then_some(
+          outputs == OutputChange::Changed
+            || event == console_compositor::events::CompositorEvent::ConfigurationReloaded,
+          (),
+        )
+      } {
+        ::core::option::Option::Some(()) => Worth::Querying,
+        ::core::option::Option::None => Worth::Ignoring,
+      },
+    )
   })
 }
 
-fn wallpaper_page(title: &str) -> Result<Page, Never> {
-  let Ok(asked) = tab(wallpaper_tab);
+fn wallpaper_page(title: &str, looking: &ActorAddress) -> Result<Page, Never> {
+  let drawing = looking.clone();
+  let waiting = looking.clone();
+  let backing = looking.clone();
+  let Ok(asked) = tab(move || wallpaper_tab(&drawing, WallpaperReading::Live));
   let Ok(page) = Page::new(title, asked);
 
-  page.meanwhile(move || {
-    let Ok(rows) = wallpaper_meanwhile();
+  let Ok(page_2) = page.meanwhile(move || {
+    let Ok(rows) = wallpaper_tab(&waiting, WallpaperReading::Cached);
 
     rows
+  });
+  page_2.on_back(move |showing| {
+    let Ok(destination) = looking_at(&backing);
+
+    match destination {
+      Destination::Wallpaper(_) => {
+        let Ok(()) = went_up(&backing, showing);
+        ActionOutcome::Stay
+      }
+      Destination::Settings
+      | Destination::Search
+      | Destination::Dictation
+      | Destination::Kind(_)
+      | Destination::QuickWorkspace
+      | Destination::Meeting(_)
+      | Destination::Languages
+      | Destination::Language(_)
+      | Destination::Alphabets(_)
+      | Destination::Zones
+      | Destination::Zone(_)
+      | Destination::Clock => ActionOutcome::Close,
+    }
   })
 }
 
@@ -1762,6 +2293,14 @@ fn backed(page: Page, looking: &ActorAddress) -> Result<Page, Never> {
 
   page.on_back(move |showing| {
     let Ok(was) = looking_at(&backing);
+
+    match matches!(was, Destination::Wallpaper(_)).then_some(()) {
+      Some(()) => {
+        return ActionOutcome::Close;
+      }
+      None => {}
+    }
+
     let Ok(()) = press(&backing, SettingsEvent::Back, showing);
 
     let Ok(closes) = closes(&was);
@@ -1801,21 +2340,47 @@ fn configuration_page(title: &str, looking: &ActorAddress) -> Result<Page, Never
 mod tests {
   use super::*;
   use console_compositor::{Query, socket};
+  use console_events::again::Worth;
 
   #[test]
-  fn refreshed_monitors_use_the_supplied_reading() -> Result<(), Never> {
-    let supplied = Monitor {
-      named: String::from("eDP-1"),
-      size: Some((1920, 1200)),
-      scale: Some(1.171875),
-      refresh: Some(60.0),
-      transform: Some(1),
-    };
-    let monitors = refreshed_monitors(|| Ok(vec![supplied]))?;
+  fn the_sound_tab_refreshes_when_an_application_starts_playing() -> Result<(), &'static str> {
+    let Ok(page) = sound_page("Sound");
+    let subscription = page.listens.ok_or("the Sound tab has no subscription")?;
 
-    assert_eq!(size::current_size(&monitors), Ok(Some(size::Size::Normal)));
     assert_eq!(
-      screen_orientation(&monitors),
+      subscription.event_group,
+      console_program_contract::EventGroup::Sound
+    );
+    assert_eq!(
+      (subscription.worth)("Event 'new' on sink-input #74"),
+      Ok(Worth::Querying)
+    );
+
+    Ok(())
+  }
+
+  #[test]
+  fn refreshed_outputs_use_the_supplied_reading() -> Result<(), Never> {
+    let outputs = refreshed_outputs(|| {
+      console_compositor::read(
+        Outputs,
+        r#"[{
+      "id": 0, "name": "eDP-1", "width": 1920, "height": 1200,
+      "scale": 1.171875, "refreshRate": 60.0, "transform": 1, "x": 0, "y": 0
+    }]"#,
+      )
+    })?;
+    let Ok(screen) = primary_screen(&outputs);
+
+    assert_eq!(
+      screen.and_then(|screen_2| {
+        let Ok(size) = size::for_screen(&screen_2);
+        size
+      }),
+      Some(size::Size::Normal)
+    );
+    assert_eq!(
+      screen_orientation(screen.as_ref()),
       Ok((Some(turning::Turn::Left), console_screen::Shape::Taller))
     );
 
@@ -1824,16 +2389,17 @@ mod tests {
 
   #[test]
   fn an_unavailable_compositor_leaves_live_size_and_turn_unknown() -> Result<(), Never> {
-    let monitors = refreshed_monitors(|| {
+    let outputs = refreshed_outputs(|| {
       Err(HyprctlError::Socket(
-        Query::Monitors,
+        Query::EveryMonitor,
         socket::SocketError::Unplaced(socket::Unplaced::Compositorless),
       ))
     })?;
 
-    assert_eq!(size::current_size(&monitors), Ok(None));
+    let Ok(screen) = primary_screen(&outputs);
+    assert_eq!(screen, None);
     assert_eq!(
-      screen_orientation(&monitors),
+      screen_orientation(screen.as_ref()),
       Ok((None, console_screen::Shape::Wider))
     );
 

@@ -88,6 +88,7 @@ pub(super) struct Lexer<'input> {
 }
 
 impl<'input> Lexer<'input> {
+    #[must_use]
     pub(super) fn new(input: &'input str) -> Self {
         Self {
             scanner: SequenceScanner::new(input),

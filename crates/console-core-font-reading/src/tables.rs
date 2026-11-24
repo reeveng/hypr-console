@@ -67,3 +67,8 @@ pub fn compute_checksum(table: &[u8]) -> u32 {
   let Ok(sum) = console_core_checksums::opentype::of(table);
   sum
 }
+
+#[cfg(feature = "hosted-compute")]
+mod compute;
+#[cfg(feature = "hosted-compute")]
+pub use compute::{checksum_glsl, compute_checksum_with_compute};

@@ -47,7 +47,7 @@ impl ValidatedIconBody {
         pack_index: usize,
         limits: &IconRegistryBuildLimits,
     ) -> Result<Self, IconRegistryBuildError> {
-        Self::parse_with_usage(body, pack_index, limits, 0, 0).map(|(body, _)| body)
+        Self::parse_with_usage(body, pack_index, limits, 0, 0).map(|(body_2, _)| body_2)
     }
 
     pub(super) fn parse_with_usage(
@@ -149,18 +149,22 @@ impl ValidatedIconBody {
         ))
     }
 
+    #[must_use]
     pub(super) fn source_len(&self) -> usize {
         self.source.len()
     }
 
+    #[must_use]
     pub(super) const fn element_count(&self) -> usize {
         self.element_count
     }
 
+    #[must_use]
     pub(super) const fn edit_count(&self) -> usize {
         self.edits.len()
     }
 
+    #[must_use]
     pub(super) const fn uses_xlink(&self) -> bool {
         self.uses_xlink
     }
@@ -169,6 +173,7 @@ impl ValidatedIconBody {
     ///
     /// The scope contributes only a fixed-width FNV-1a digest. All checked arithmetic is performed
     /// while the body is admitted, so render-time callers can pre-charge this value directly.
+    #[must_use]
     pub(super) const fn scoped_len(&self) -> usize {
         self.scoped_len
     }
@@ -189,6 +194,7 @@ impl ValidatedIconBody {
             .map_err(|_| arithmetic_error(self.pack_index, "icon ID scoping failed"))?;
             source_offset = range.end;
         }
+
         output.push_str(&self.source[source_offset..]);
 
         if output.len() != self.scoped_len {
@@ -197,6 +203,7 @@ impl ValidatedIconBody {
                 "scoped icon body length did not match its validated plan",
             ));
         }
+
         Ok(output)
     }
 
@@ -233,6 +240,7 @@ impl ValidatedIconBody {
         if self.defs_content_scoped_len > 0 {
             output.push_str(DEFS_OPEN);
             let mut edit_index = 0usize;
+
             for defs in &self.defs {
                 write_scoped_range(
                     &self.source,
@@ -244,12 +252,14 @@ impl ValidatedIconBody {
                     self.pack_index,
                 )?;
             }
+
             output.push_str(DEFS_CLOSE);
         }
 
         output.push_str(wrapper_start);
         let mut source_offset = 0usize;
         let mut edit_index = 0usize;
+
         for defs in &self.defs {
             let omission = defs.omission();
             write_scoped_range(
@@ -269,6 +279,7 @@ impl ValidatedIconBody {
             )?;
             source_offset = omission.end;
         }
+
         write_scoped_range(
             &self.source,
             &self.edits,
@@ -286,6 +297,7 @@ impl ValidatedIconBody {
                 "transformed icon length did not match its validated XML plan",
             ));
         }
+
         Ok(output)
     }
 }
@@ -297,14 +309,14 @@ pub(super) fn validate_icon_body(
     retained_plan_bytes_used: usize,
     build_work_units_used: usize,
 ) -> Result<(Arc<ValidatedIconBody>, XmlAdmissionUsage), IconRegistryBuildError> {
-    let (body, usage) = ValidatedIconBody::parse_with_usage(
+    let (body_2, usage) = ValidatedIconBody::parse_with_usage(
         body,
         pack_index,
         limits,
         retained_plan_bytes_used,
         build_work_units_used,
     )?;
-    Ok((Arc::new(body), usage))
+    Ok((Arc::new(body_2), usage))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -321,24 +333,26 @@ impl IdEdit {
         pack_index: usize,
     ) -> Result<Self, IconRegistryBuildError> {
         Ok(Self {
-            start: range
+            start: { let checked_value = range
                 .start
                 .try_into()
-                .map_err(|_| arithmetic_error(pack_index, "icon ID start offset overflowed"))?,
-            end: range
+                .map_err(|_| arithmetic_error(pack_index, "icon ID start offset overflowed"))?; checked_value },
+            end: { let checked_value_2 = range
                 .end
                 .try_into()
-                .map_err(|_| arithmetic_error(pack_index, "icon ID end offset overflowed"))?,
-            id_index: id_index
+                .map_err(|_| arithmetic_error(pack_index, "icon ID end offset overflowed"))?; checked_value_2 },
+            id_index: { let checked_value_3 = id_index
                 .try_into()
-                .map_err(|_| arithmetic_error(pack_index, "icon ID index overflowed"))?,
+                .map_err(|_| arithmetic_error(pack_index, "icon ID index overflowed"))?; checked_value_3 },
         })
     }
 
+    #[must_use]
     fn range(self) -> Range<usize> {
         self.start as usize..self.end as usize
     }
 
+    #[must_use]
     const fn id_index(self) -> usize {
         self.id_index as usize
     }
@@ -359,29 +373,31 @@ impl DefsRange {
         pack_index: usize,
     ) -> Result<Self, IconRegistryBuildError> {
         Ok(Self {
-            omission_start: omission
+            omission_start: { let checked_value = omission
                 .start
                 .try_into()
-                .map_err(|_| arithmetic_error(pack_index, "icon defs start offset overflowed"))?,
-            omission_end: omission
+                .map_err(|_| arithmetic_error(pack_index, "icon defs start offset overflowed"))?; checked_value },
+            omission_end: { let checked_value_2 = omission
                 .end
                 .try_into()
-                .map_err(|_| arithmetic_error(pack_index, "icon defs end offset overflowed"))?,
-            content_start: content
+                .map_err(|_| arithmetic_error(pack_index, "icon defs end offset overflowed"))?; checked_value_2 },
+            content_start: { let checked_value_3 = content
                 .start
                 .try_into()
-                .map_err(|_| arithmetic_error(pack_index, "icon defs content start overflowed"))?,
-            content_end: content
+                .map_err(|_| arithmetic_error(pack_index, "icon defs content start overflowed"))?; checked_value_3 },
+            content_end: { let checked_value_4 = content
                 .end
                 .try_into()
-                .map_err(|_| arithmetic_error(pack_index, "icon defs content end overflowed"))?,
+                .map_err(|_| arithmetic_error(pack_index, "icon defs content end overflowed"))?; checked_value_4 },
         })
     }
 
+    #[must_use]
     fn omission(&self) -> Range<usize> {
         self.omission_start as usize..self.omission_end as usize
     }
 
+    #[must_use]
     fn content(&self) -> Range<usize> {
         self.content_start as usize..self.content_end as usize
     }
@@ -410,9 +426,11 @@ fn validate_wrapped_fragment(
         let event = reader
             .read_event()
             .map_err(|_| invalid_xml_error(pack_index, "icon body is not well-formed XML"))?;
+
         match event {
             Event::Start(element) => {
                 let (namespace, local_name) = reader.resolver().resolve_element(element.name());
+
                 if !root_seen {
                     if depth != 0 || root_closed {
                         return Err(invalid_xml_error(
@@ -420,14 +438,17 @@ fn validate_wrapped_fragment(
                             "icon XML wrapper has an invalid root structure",
                         ));
                     }
+
                     let _ =
                         validate_element(&element, namespace, reader.resolver(), true, pack_index)?;
+
                     if local_name.as_ref() != "svg" {
                         return Err(invalid_xml_error(
                             pack_index,
                             "icon XML wrapper root is not SVG",
                         ));
                     }
+
                     root_seen = true;
                     depth = 1;
                     continue;
@@ -448,6 +469,7 @@ fn validate_wrapped_fragment(
                         "icon XML wrapper root is unexpectedly empty",
                     ));
                 }
+
                 ensure_inside_wrapper(depth, root_closed, pack_index)?;
                 let (namespace, _) = reader.resolver().resolve_element(element.name());
                 stats.uses_xlink |=
@@ -461,21 +483,28 @@ fn validate_wrapped_fragment(
                         "icon body closes an element outside its XML wrapper",
                     ));
                 }
+
                 depth = depth.checked_sub(1).ok_or_else(|| {
                     invalid_xml_error(pack_index, "icon body contains an unmatched end tag")
                 })?;
-                if depth == 0 {
-                    root_closed = true;
+
+                match depth {
+                    0 => {
+                        root_closed = true;
+                    },
+                    _ => {},
                 }
             }
             Event::Text(text) => {
                 ensure_inside_wrapper(depth, root_closed, pack_index)?;
+
                 if text.contains("]]>") {
                     return Err(invalid_xml_error(
                         pack_index,
                         "icon body contains a forbidden XML text terminator",
                     ));
                 }
+
                 let content = text.xml10_content();
                 validate_xml_chars(&content, pack_index, "icon body contains invalid XML text")?;
             }
@@ -525,6 +554,7 @@ fn validate_wrapped_fragment(
             "icon XML wrapper is not completely closed",
         ));
     }
+
     Ok(stats)
 }
 
@@ -537,8 +567,9 @@ fn validate_element(
 ) -> Result<bool, IconRegistryBuildError> {
     let mut uses_xlink = matches!(
         &namespace,
-        ResolveResult::Bound(namespace) if namespace.as_ref() == XLINK_NAMESPACE
+        ResolveResult::Bound(namespace_2) if namespace_2.as_ref() == XLINK_NAMESPACE
     ) && !is_wrapper;
+
     match namespace {
         ResolveResult::Unknown(_) => {
             return Err(invalid_xml_error(
@@ -546,7 +577,7 @@ fn validate_element(
                 "icon body uses an undeclared namespace prefix",
             ));
         }
-        ResolveResult::Bound(namespace) if is_wrapper && namespace.as_ref() != SVG_NAMESPACE => {
+        ResolveResult::Bound(namespace_3) if is_wrapper && namespace_3.as_ref() != SVG_NAMESPACE => {
             return Err(invalid_xml_error(
                 pack_index,
                 "icon XML wrapper uses a non-SVG namespace",
@@ -565,17 +596,19 @@ fn validate_element(
     let mut expanded_attributes = HashSet::new();
 
     for attribute in element.attributes() {
-        let attribute = attribute.map_err(|_| {
+        let attribute_2 = attribute.map_err(|_| {
             invalid_xml_error(pack_index, "icon body contains an invalid XML attribute")
         })?;
-        validate_xml_qname(attribute.key.as_ref(), pack_index)?;
-        if attribute.value.contains('<') {
+        validate_xml_qname(attribute_2.key.as_ref(), pack_index)?;
+
+        if attribute_2.value.contains('<') {
             return Err(invalid_xml_error(
                 pack_index,
                 "icon body contains an invalid XML attribute value",
             ));
         }
-        let normalized = attribute
+
+        let normalized = attribute_2
             .normalized_value(XmlVersion::Implicit1_0)
             .map_err(|_| {
                 invalid_xml_error(
@@ -589,25 +622,26 @@ fn validate_element(
             "icon body contains an invalid XML attribute value",
         )?;
 
-        if attribute.key.as_namespace_binding().is_some() {
+        if attribute_2.key.as_namespace_binding().is_some() {
             continue;
         }
 
-        let (attribute_namespace, local_name) = resolver.resolve_attribute(attribute.key);
-        let attribute_namespace = match attribute_namespace {
+        let (attribute_namespace, local_name) = resolver.resolve_attribute(attribute_2.key);
+        let attribute_namespace_2 = match attribute_namespace {
             ResolveResult::Unknown(_) => {
                 return Err(invalid_xml_error(
                     pack_index,
                     "icon body uses an undeclared attribute namespace prefix",
                 ));
             }
-            ResolveResult::Bound(namespace) => {
-                uses_xlink |= namespace.as_ref() == XLINK_NAMESPACE;
-                Some(namespace.into_inner())
+            ResolveResult::Bound(namespace_4) => {
+                uses_xlink |= namespace_4.as_ref() == XLINK_NAMESPACE;
+                Some(namespace_4.into_inner())
             }
             ResolveResult::Unbound => None,
         };
-        if !expanded_attributes.insert((attribute_namespace, local_name.into_inner())) {
+
+        if !expanded_attributes.insert((attribute_namespace_2, local_name.into_inner())) {
             return Err(invalid_xml_error(
                 pack_index,
                 "icon body contains duplicate expanded XML attributes",
@@ -628,6 +662,7 @@ fn record_element(
         .element_count
         .checked_add(1)
         .ok_or_else(|| arithmetic_error(pack_index, "icon XML element count overflowed"))?;
+
     if elements > limits.max_xml_elements_per_body {
         return Err(limit_error(
             pack_index,
@@ -637,6 +672,7 @@ fn record_element(
             "icon body exceeds the XML element limit",
         ));
     }
+
     if fragment_depth > limits.max_xml_depth_per_body {
         return Err(limit_error(
             pack_index,
@@ -662,6 +698,7 @@ fn ensure_inside_wrapper(
             "icon body contains XML outside its fragment wrapper",
         ));
     }
+
     Ok(())
 }
 
@@ -681,19 +718,23 @@ fn validate_general_reference(
     reference: &BytesRef<'_>,
     pack_index: usize,
 ) -> Result<(), IconRegistryBuildError> {
-    if let Some(value) = reference.resolve_char_ref().map_err(|_| {
-        invalid_xml_error(
-            pack_index,
-            "icon body contains an invalid XML character reference",
-        )
-    })? {
-        if crate::xml::is_xml_1_0_char(value) {
-            return Ok(());
-        }
-        return Err(invalid_xml_error(
-            pack_index,
-            "icon body contains an XML 1.0-forbidden character reference",
-        ));
+    match reference.resolve_char_ref().map_err(|_| {
+            invalid_xml_error(
+                pack_index,
+                "icon body contains an invalid XML character reference",
+            )
+        })? {
+        Some(value) => {
+            if crate::xml::is_xml_1_0_char(value) {
+                return Ok(());
+            }
+
+            return Err(invalid_xml_error(
+                pack_index,
+                "icon body contains an XML 1.0-forbidden character reference",
+            ));
+        },
+        ::core::option::Option::None => {},
     }
 
     if matches!(reference.as_ref(), "amp" | "apos" | "gt" | "lt" | "quot") {
@@ -708,8 +749,12 @@ fn validate_general_reference(
 
 fn validate_xml_qname(name: &str, pack_index: usize) -> Result<(), IconRegistryBuildError> {
     let mut components = name.split(':');
-    let first = components.next().unwrap_or_default();
+    let first = match components.next() {
+        ::core::option::Option::Some(option_value) => option_value,
+        ::core::option::Option::None => "",
+    };
     let second = components.next();
+
     if components.next().is_some()
         || !is_valid_xml_ncname(first)
         || second.is_some_and(|component| !is_valid_xml_ncname(component))
@@ -719,15 +764,18 @@ fn validate_xml_qname(name: &str, pack_index: usize) -> Result<(), IconRegistryB
             "icon body contains an invalid XML qualified name",
         ));
     }
+
     Ok(())
 }
 
+#[must_use]
 fn is_valid_xml_ncname(name: &str) -> bool {
     let mut chars = name.chars();
     chars.next().is_some_and(is_xml_name_start_char)
         && chars.all(|character| character != ':' && is_xml_name_char(character))
 }
 
+#[must_use]
 fn is_xml_name_start_char(character: char) -> bool {
     matches!(
         character,
@@ -749,6 +797,7 @@ fn is_xml_name_start_char(character: char) -> bool {
     )
 }
 
+#[must_use]
 fn is_xml_name_char(character: char) -> bool {
     is_xml_name_start_char(character)
         || matches!(
@@ -787,18 +836,25 @@ fn plan_xml_rewrites(
         .flat_map(|node| node.attributes())
         .filter(|attribute| attribute.namespace().is_none() && attribute.name() == "id")
     {
-        let Some(value_range) = body_source_range(attribute.range_value(), body.len(), pack_index)?
-        else {
-            continue;
+        let value_range = {
+            let optional_value_range = body_source_range(attribute.range_value(), body.len(), pack_index)?;
+
+            match optional_value_range {
+                Some(matched_value_range) => matched_value_range,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let id = attribute.value();
         let next_index = id_indexes.len();
+
         if id_indexes.insert(id.to_owned(), next_index).is_some() {
             return Err(invalid_xml_error(
                 pack_index,
                 "icon body contains duplicate unnamespaced id values",
             ));
         }
+
         let raw_value = &body[value_range.clone()];
         let semantic = [SemanticEdit {
             range: 0..id.len(),
@@ -833,11 +889,16 @@ fn plan_xml_rewrites(
             if attribute.namespace().is_none() && attribute.name() == "id" {
                 continue;
             }
-            let Some(value_range) =
-                body_source_range(attribute.range_value(), body.len(), pack_index)?
-            else {
-                continue;
+
+            let value_range = {
+                let optional_value_range = body_source_range(attribute.range_value(), body.len(), pack_index)?;
+
+                match optional_value_range {
+                    Some(matched_value_range) => matched_value_range,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let semantic_edits = attribute_reference_edits(
                 attribute,
                 &id_indexes,
@@ -845,9 +906,11 @@ fn plan_xml_rewrites(
                 limits.max_id_rewrite_edits_per_body,
                 pack_index,
             )?;
+
             if semantic_edits.is_empty() {
                 continue;
             }
+
             let raw_value = &body[value_range.clone()];
             let mapped = decoded_ranges_to_raw(
                 raw_value,
@@ -862,10 +925,11 @@ fn plan_xml_rewrites(
                     "icon body contains an unmappable XML ID reference",
                 )
             })?;
-            for (semantic_edit, mapped) in semantic_edits.into_iter().zip(mapped) {
+
+            for (semantic_edit, mapped_2) in semantic_edits.into_iter().zip(mapped) {
                 push_id_edit(
                     &mut edits,
-                    offset_range(value_range.start, mapped, pack_index)?,
+                    { let checked_value_5 = offset_range(value_range.start, mapped_2, pack_index)?; checked_value_5 },
                     semantic_edit.id_index,
                     defs.len(),
                     retained_plan_bytes_used,
@@ -884,12 +948,21 @@ fn plan_xml_rewrites(
                         && parent.tag_name().name() == "style"
                 })
         }) {
-            let Some(node_range) = body_source_range(node.range(), body.len(), pack_index)? else {
-                continue;
+            let node_range = {
+                let optional_node_range = body_source_range(node.range(), body.len(), pack_index)?;
+
+                match optional_node_range {
+                    Some(matched_node_range) => matched_node_range,
+                    ::core::option::Option::None => continue,
+                }
             };
+
             let (content_range, mode) = style_text_content_range(body, node_range, pack_index)?;
             let raw_text = &body[content_range.clone()];
-            let text = node.text().unwrap_or_default();
+            let text = match node.text() {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => "",
+            };
             let semantic_edits = url_reference_edits(
                 text,
                 &id_indexes,
@@ -905,10 +978,11 @@ fn plan_xml_rewrites(
                         "icon body contains unmappable SVG style text",
                     )
                 })?;
-            for (semantic_edit, mapped) in semantic_edits.into_iter().zip(mapped) {
+
+            for (semantic_edit, mapped_3) in semantic_edits.into_iter().zip(mapped) {
                 push_id_edit(
                     &mut edits,
-                    offset_range(content_range.start, mapped, pack_index)?,
+                    { let checked_value_6 = offset_range(content_range.start, mapped_3, pack_index)?; checked_value_6 },
                     semantic_edit.id_index,
                     defs.len(),
                     retained_plan_bytes_used,
@@ -929,8 +1003,10 @@ fn validate_edit_order(
     pack_index: usize,
 ) -> Result<(), IconRegistryBuildError> {
     let mut previous_end = 0usize;
+
     for edit in edits {
         let range = edit.range();
+
         if range.start < previous_end
             || range.end > body.len()
             || range.start > range.end
@@ -942,8 +1018,10 @@ fn validate_edit_order(
                 "icon body produced an invalid overlapping ID rewrite plan",
             ));
         }
+
         previous_end = range.end;
     }
+
     Ok(())
 }
 
@@ -962,6 +1040,7 @@ fn push_id_edit(
         .len()
         .checked_add(1)
         .ok_or_else(|| arithmetic_error(pack_index, "icon ID edit count overflowed"))?;
+
     if next_count > limits.max_id_rewrite_edits_per_body {
         return Err(limit_error(
             pack_index,
@@ -971,6 +1050,7 @@ fn push_id_edit(
             "icon body exceeds the ID rewrite edit limit",
         ));
     }
+
     ensure_retained_plan_bytes(
         retained_plan_bytes_used,
         next_count,
@@ -990,7 +1070,7 @@ fn push_id_edit(
     edits
         .try_reserve(1)
         .map_err(|_| allocation_error(pack_index, "icon ID rewrite plan allocation failed"))?;
-    edits.push(IdEdit::new(range, id_index, pack_index)?);
+    edits.push({ let checked_value = IdEdit::new(range, id_index, pack_index)?; checked_value });
     Ok(())
 }
 
@@ -1002,6 +1082,7 @@ fn plan_defs_ranges(
     retained_plan_bytes_used: usize,
 ) -> Result<Vec<DefsRange>, IconRegistryBuildError> {
     let mut source_ranges = Vec::<(Range<usize>, Range<usize>)>::new();
+
     for node in document.descendants().filter(|node| {
         node.is_element()
             && node.tag_name().namespace() == Some(SVG_NAMESPACE)
@@ -1012,9 +1093,15 @@ fn plan_defs_ranges(
                     && ancestor.tag_name().name() == "defs"
             })
     }) {
-        let Some(full) = body_source_range(node.range(), body.len(), pack_index)? else {
-            continue;
+        let full = {
+            let optional_full = body_source_range(node.range(), body.len(), pack_index)?;
+
+            match optional_full {
+                Some(matched_full) => matched_full,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let content = defs_content_range(body, full.clone(), pack_index)?;
         let next_count = source_ranges
             .len()
@@ -1030,6 +1117,7 @@ fn plan_defs_ranges(
     let mut defs = Vec::new();
     defs.try_reserve(source_ranges.len())
         .map_err(|_| allocation_error(pack_index, "icon defs extraction plan allocation failed"))?;
+
     for (index, (full, content)) in source_ranges.iter().enumerate() {
         let lower_bound = defs
             .last()
@@ -1038,6 +1126,7 @@ fn plan_defs_ranges(
             .get(index + 1)
             .map_or(body.len(), |(next, _)| next.start);
         let omission = expand_whitespace_range(body, full.clone(), lower_bound, upper_bound);
+
         if defs
             .last()
             .is_some_and(|previous: &DefsRange| previous.omission().end > omission.start)
@@ -1047,7 +1136,8 @@ fn plan_defs_ranges(
                 "icon defs extraction ranges overlap",
             ));
         }
-        defs.push(DefsRange::new(omission, content.clone(), pack_index)?);
+
+        defs.push({ let checked_value = DefsRange::new(omission, content.clone(), pack_index)?; checked_value });
     }
 
     Ok(defs)
@@ -1062,6 +1152,7 @@ fn defs_content_range(
     let opening_end = xml_opening_tag_end(raw)
         .ok_or_else(|| invalid_xml_error(pack_index, "icon defs opening tag is not readable"))?;
     let opening = &raw[..opening_end];
+
     if opening
         .trim_end_matches(char::is_whitespace)
         .ends_with("/>")
@@ -1072,6 +1163,7 @@ fn defs_content_range(
             .ok_or_else(|| arithmetic_error(pack_index, "icon defs range overflowed"))?;
         return Ok(point..point);
     }
+
     let closing_start = raw
         .rfind("</")
         .ok_or_else(|| invalid_xml_error(pack_index, "icon defs closing tag is not readable"))?;
@@ -1083,17 +1175,21 @@ fn defs_content_range(
         .start
         .checked_add(closing_start)
         .ok_or_else(|| arithmetic_error(pack_index, "icon defs content range overflowed"))?;
+
     if start > end {
         return Err(invalid_xml_error(
             pack_index,
             "icon defs content range is invalid",
         ));
     }
+
     Ok(start..end)
 }
 
+#[must_use]
 fn xml_opening_tag_end(raw: &str) -> Option<usize> {
     let mut quote = None;
+
     for (index, byte) in raw.bytes().enumerate() {
         match (quote, byte) {
             (Some(expected), actual) if expected == actual => quote = None,
@@ -1103,31 +1199,50 @@ fn xml_opening_tag_end(raw: &str) -> Option<usize> {
             (None, _) => {}
         }
     }
+
     None
 }
 
+#[must_use]
 fn trim_whitespace_range(body: &str, mut range: Range<usize>) -> Range<usize> {
     while range.start < range.end {
-        let Some(character) = body[range.start..range.end].chars().next() else {
-            break;
+        let character = {
+            let optional_character = body[range.start..range.end].chars().next();
+
+            match optional_character {
+                Some(matched_character) => matched_character,
+                ::core::option::Option::None => break,
+            }
         };
+
         if !character.is_whitespace() {
             break;
         }
+
         range.start += character.len_utf8();
     }
+
     while range.start < range.end {
-        let Some(character) = body[range.start..range.end].chars().next_back() else {
-            break;
+        let character = {
+            let optional_character = body[range.start..range.end].chars().next_back();
+
+            match optional_character {
+                Some(matched_character) => matched_character,
+                ::core::option::Option::None => break,
+            }
         };
+
         if !character.is_whitespace() {
             break;
         }
+
         range.end -= character.len_utf8();
     }
+
     range
 }
 
+#[must_use]
 fn expand_whitespace_range(
     body: &str,
     mut range: Range<usize>,
@@ -1135,23 +1250,39 @@ fn expand_whitespace_range(
     upper_bound: usize,
 ) -> Range<usize> {
     while range.start > lower_bound {
-        let Some(character) = body[lower_bound..range.start].chars().next_back() else {
-            break;
+        let character = {
+            let optional_character = body[lower_bound..range.start].chars().next_back();
+
+            match optional_character {
+                Some(matched_character) => matched_character,
+                ::core::option::Option::None => break,
+            }
         };
+
         if !character.is_whitespace() {
             break;
         }
+
         range.start -= character.len_utf8();
     }
+
     while range.end < upper_bound {
-        let Some(character) = body[range.end..upper_bound].chars().next() else {
-            break;
+        let character = {
+            let optional_character = body[range.end..upper_bound].chars().next();
+
+            match optional_character {
+                Some(matched_character) => matched_character,
+                ::core::option::Option::None => break,
+            }
         };
+
         if !character.is_whitespace() {
             break;
         }
+
         range.end += character.len_utf8();
     }
+
     range
 }
 
@@ -1164,15 +1295,18 @@ fn body_source_range(
     let body_end = body_start
         .checked_add(body_len)
         .ok_or_else(|| arithmetic_error(pack_index, "icon body source range overflowed"))?;
+
     if document_range.end <= body_start || document_range.start >= body_end {
         return Ok(None);
     }
+
     if document_range.start < body_start || document_range.end > body_end {
         return Err(invalid_xml_error(
             pack_index,
             "icon XML node crosses the fragment wrapper boundary",
         ));
     }
+
     Ok(Some(
         document_range.start - body_start..document_range.end - body_start,
     ))
@@ -1184,6 +1318,7 @@ fn style_text_content_range(
     pack_index: usize,
 ) -> Result<(Range<usize>, DecodeMode), IconRegistryBuildError> {
     let raw = &body[node_range.clone()];
+
     if raw.starts_with("<![CDATA[") {
         if !raw.ends_with("]]>") {
             return Err(invalid_xml_error(
@@ -1191,6 +1326,7 @@ fn style_text_content_range(
                 "icon body contains malformed SVG style CDATA",
             ));
         }
+
         let start = node_range
             .start
             .checked_add(9)
@@ -1217,17 +1353,21 @@ fn attribute_reference_edits(
     maximum: usize,
     pack_index: usize,
 ) -> Result<Vec<SemanticEdit>, IconRegistryBuildError> {
-    if let Some(namespace) = attribute.namespace() {
-        if namespace == XLINK_NAMESPACE && attribute.name() == "href" {
-            return fragment_reference_edits(
-                attribute.value(),
-                id_indexes,
-                base_count,
-                maximum,
-                pack_index,
-            );
-        }
-        return Ok(Vec::new());
+    match attribute.namespace() {
+        Some(namespace) => {
+            if namespace == XLINK_NAMESPACE && attribute.name() == "href" {
+                return fragment_reference_edits(
+                    attribute.value(),
+                    id_indexes,
+                    base_count,
+                    maximum,
+                    pack_index,
+                );
+            }
+
+            return Ok(Vec::new());
+        },
+        ::core::option::Option::None => {},
     }
 
     match attribute.name() {
@@ -1281,9 +1421,16 @@ fn fragment_reference_edits(
     let Some(id) = value.strip_prefix('#') else {
         return Ok(Vec::new());
     };
-    let Some(&id_index) = id_indexes.get(id) else {
-        return Ok(Vec::new());
+
+    let id_index = {
+        let optional_id_index = id_indexes.get(id);
+
+        match optional_id_index {
+            Some(&matched_id_index) => matched_id_index,
+            ::core::option::Option::None => return Ok(Vec::new()),
+        }
     };
+
     let mut edits = Vec::new();
     push_semantic_edit(
         &mut edits,
@@ -1307,6 +1454,7 @@ fn idref_list_edits(
 ) -> Result<Vec<SemanticEdit>, IconRegistryBuildError> {
     let mut edits = Vec::new();
     let mut token_start = None;
+
     for (index, character) in value
         .char_indices()
         .chain(std::iter::once((value.len(), ' ')))
@@ -1330,6 +1478,7 @@ fn idref_list_edits(
             token_start = Some(index);
         }
     }
+
     Ok(edits)
 }
 
@@ -1342,11 +1491,13 @@ fn smil_reference_edits(
 ) -> Result<Vec<SemanticEdit>, IconRegistryBuildError> {
     let mut edits = Vec::new();
     let mut segment_start = 0usize;
+
     for segment in value.split_inclusive(';') {
         let content = segment.strip_suffix(';').unwrap_or(segment);
         let leading = content.len() - content.trim_start_matches(char::is_whitespace).len();
         let timing = &content[leading..];
         let mut selected = None;
+
         for (dot, _) in timing.match_indices('.') {
             if timing[dot + 1..]
                 .chars()
@@ -1357,21 +1508,27 @@ fn smil_reference_edits(
                 selected = Some((dot, id_index));
             }
         }
-        if let Some((id_len, id_index)) = selected {
-            let start = segment_start + leading;
-            push_semantic_edit(
-                &mut edits,
-                SemanticEdit {
-                    range: start..start + id_len,
-                    id_index,
-                },
-                base_count,
-                maximum,
-                pack_index,
-            )?;
+
+        match selected {
+            Some((id_len, id_index)) => {
+                let start = segment_start + leading;
+                push_semantic_edit(
+                    &mut edits,
+                    SemanticEdit {
+                        range: start..start + id_len,
+                        id_index,
+                    },
+                    base_count,
+                    maximum,
+                    pack_index,
+                )?;
+            },
+            ::core::option::Option::None => {},
         }
+
         segment_start += segment.len();
     }
+
     Ok(edits)
 }
 
@@ -1393,11 +1550,14 @@ fn url_reference_edits(
         else {
             break;
         };
+
         let function_start = scan + relative;
         let mut cursor = function_start + 4;
+
         while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
             cursor += 1;
         }
+
         let quote = match bytes.get(cursor) {
             Some(b'\'' | b'"') => {
                 let quote = bytes[cursor];
@@ -1406,28 +1566,35 @@ fn url_reference_edits(
             }
             _ => None,
         };
+
         if bytes.get(cursor) != Some(&b'#') {
             scan = function_start + 4;
             continue;
         }
 
         let id_start = cursor + 1;
+
         let Some((id_end, function_end)) = url_reference_end(bytes, id_start, quote) else {
             scan = function_start + 4;
             continue;
         };
-        if let Some(&id_index) = id_indexes.get(&value[id_start..id_end]) {
-            push_semantic_edit(
-                &mut edits,
-                SemanticEdit {
-                    range: id_start..id_end,
-                    id_index,
-                },
-                base_count,
-                maximum,
-                pack_index,
-            )?;
+
+        match id_indexes.get(&value[id_start..id_end]) {
+            Some(&id_index) => {
+                push_semantic_edit(
+                    &mut edits,
+                    SemanticEdit {
+                        range: id_start..id_end,
+                        id_index,
+                    },
+                    base_count,
+                    maximum,
+                    pack_index,
+                )?;
+            },
+            ::core::option::Option::None => {},
         }
+
         scan = function_end;
     }
 
@@ -1445,6 +1612,7 @@ fn push_semantic_edit(
         .checked_add(edits.len())
         .and_then(|count| count.checked_add(1))
         .ok_or_else(|| arithmetic_error(pack_index, "semantic ID edit count overflowed"))?;
+
     if actual > maximum {
         return Err(limit_error(
             pack_index,
@@ -1454,6 +1622,7 @@ fn push_semantic_edit(
             "icon body exceeds the ID rewrite edit limit",
         ));
     }
+
     edits
         .try_reserve(1)
         .map_err(|_| allocation_error(pack_index, "semantic ID edit allocation failed"))?;
@@ -1461,23 +1630,31 @@ fn push_semantic_edit(
     Ok(())
 }
 
+#[must_use]
 fn url_reference_end(bytes: &[u8], id_start: usize, quote: Option<u8>) -> Option<(usize, usize)> {
-    if let Some(quote) = quote {
-        let relative_end = bytes[id_start..].iter().position(|byte| *byte == quote)?;
-        let id_end = id_start + relative_end;
-        let mut cursor = id_end + 1;
-        while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
-            cursor += 1;
-        }
-        (bytes.get(cursor) == Some(&b')')).then_some((id_end, cursor + 1))
-    } else {
-        let relative_end = bytes[id_start..].iter().position(|byte| *byte == b')')?;
-        let function_end = id_start + relative_end + 1;
-        let mut id_end = function_end - 1;
-        while id_end > id_start && bytes[id_end - 1].is_ascii_whitespace() {
-            id_end -= 1;
-        }
-        Some((id_end, function_end))
+    match quote {
+        Some(quote_2) => {
+            let relative_end = bytes[id_start..].iter().position(|byte| *byte == quote_2)?;
+            let id_end = id_start + relative_end;
+            let mut cursor = id_end + 1;
+
+            while bytes.get(cursor).is_some_and(u8::is_ascii_whitespace) {
+                cursor += 1;
+            }
+
+            (bytes.get(cursor) == Some(&b')')).then_some((id_end, cursor + 1))
+        },
+        ::core::option::Option::None => {
+            let relative_end = bytes[id_start..].iter().position(|byte| *byte == b')')?;
+            let function_end = id_start + relative_end + 1;
+            let mut id_end = function_end - 1;
+
+            while id_end > id_start && bytes[id_end - 1].is_ascii_whitespace() {
+                id_end -= 1;
+            }
+
+            Some((id_end, function_end))
+        },
     }
 }
 
@@ -1501,6 +1678,7 @@ fn decoded_ranges_to_raw(
     mode: DecodeMode,
 ) -> Result<Vec<Range<usize>>, DecodeMapError> {
     let mut previous_end = 0usize;
+
     for target in targets {
         if target.range.start < previous_end
             || target.range.start > target.range.end
@@ -1510,8 +1688,10 @@ fn decoded_ranges_to_raw(
         {
             return Err(DecodeMapError::InvalidMapping);
         }
+
         previous_end = target.range.end;
     }
+
     if raw == decoded {
         let mut mapped = Vec::new();
         mapped
@@ -1530,27 +1710,36 @@ fn decoded_ranges_to_raw(
         .try_reserve(targets.len())
         .map_err(|_| DecodeMapError::AllocationFailed)?;
 
-    let record_boundaries = |decoded_cursor: usize,
-                             raw_cursor: usize,
-                             target_index: &mut usize,
-                             raw_start: &mut Option<usize>,
-                             mapped: &mut Vec<Range<usize>>|
+    let record_boundaries = |decoded_cursor_2: usize,
+                             raw_cursor_2: usize,
+                             target_index_2: &mut usize,
+                             raw_start_2: &mut Option<usize>,
+                             mapped_2: &mut Vec<Range<usize>>|
      -> Option<()> {
         loop {
-            let Some(target) = targets.get(*target_index) else {
-                return Some(());
+            let target = {
+                let optional_target = targets.get(*target_index_2);
+
+                match optional_target {
+                    Some(matched_target) => matched_target,
+                    ::core::option::Option::None => return Some(()),
+                }
             };
-            if raw_start.is_none() {
-                if target.range.start != decoded_cursor {
+
+            if raw_start_2.is_none() {
+                if target.range.start != decoded_cursor_2 {
                     return Some(());
                 }
-                *raw_start = Some(raw_cursor);
+
+                *raw_start_2 = Some(raw_cursor_2);
             }
-            if target.range.end != decoded_cursor {
+
+            if target.range.end != decoded_cursor_2 {
                 return Some(());
             }
-            mapped.push(raw_start.take()?..raw_cursor);
-            *target_index += 1;
+
+            mapped_2.push(raw_start_2.take()?..raw_cursor_2);
+            *target_index_2 += 1;
         }
     };
 
@@ -1571,13 +1760,17 @@ fn decoded_ranges_to_raw(
         let decoded_end = decoded_cursor
             .checked_add(produced.len())
             .ok_or(DecodeMapError::InvalidMapping)?;
-        if decoded
+
+        let checked_value = decoded
             .get(decoded_cursor..decoded_end)
-            .ok_or(DecodeMapError::InvalidMapping)?
+            .ok_or(DecodeMapError::InvalidMapping)?;
+
+        if checked_value
             != produced
         {
             return Err(DecodeMapError::InvalidMapping);
         }
+
         raw_cursor = chunk_end;
         decoded_cursor = decoded_end;
         record_boundaries(
@@ -1593,9 +1786,11 @@ fn decoded_ranges_to_raw(
     if decoded_cursor != decoded.len() || target_index != targets.len() || raw_start.is_some() {
         return Err(DecodeMapError::InvalidMapping);
     }
+
     Ok(mapped)
 }
 
+#[must_use]
 fn decode_map_error(
     error: DecodeMapError,
     pack_index: usize,
@@ -1609,11 +1804,14 @@ fn decode_map_error(
     }
 }
 
+#[must_use]
 fn next_decoded_char(raw: &str, offset: usize, mode: DecodeMode) -> Option<(char, usize)> {
     let remaining = raw.get(offset..)?;
+
     if !matches!(mode, DecodeMode::CData) && remaining.starts_with('&') {
         return decode_xml_reference(raw, offset);
     }
+
     if remaining.starts_with("\r\n") {
         return Some((
             match mode {
@@ -1633,9 +1831,11 @@ fn next_decoded_char(raw: &str, offset: usize, mode: DecodeMode) -> Option<(char
     Some((decoded, offset + character.len_utf8()))
 }
 
+#[must_use]
 fn decode_xml_reference(raw: &str, ampersand: usize) -> Option<(char, usize)> {
     let content_start = ampersand.checked_add(1)?;
-    let relative_end = raw.get(content_start..)?.find(';')?;
+    let checked_value = raw.get(content_start..)?;
+    let relative_end = checked_value.find(';')?;
     let content_end = content_start.checked_add(relative_end)?;
     let entity = raw.get(content_start..content_end)?;
     let character = match entity {
@@ -1644,15 +1844,16 @@ fn decode_xml_reference(raw: &str, ampersand: usize) -> Option<(char, usize)> {
         "gt" => '>',
         "lt" => '<',
         "quot" => '"',
-        _ if entity.starts_with("#x") => u32::from_str_radix(&entity[2..], 16)
-            .ok()
+        _ if entity.starts_with("#x") => match u32::from_str_radix(&entity[2..], 16) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }
             .and_then(char::from_u32)?,
-        _ if entity.starts_with('#') => entity[1..].parse::<u32>().ok().and_then(char::from_u32)?,
+        _ if entity.starts_with('#') => match entity[1..].parse::<u32>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }.and_then(char::from_u32)?,
         _ => return None,
     };
+
     if !crate::xml::is_xml_1_0_char(character) {
         return None;
     }
+
     Some((character, content_end.checked_add(1)?))
 }
 
@@ -1676,6 +1877,7 @@ fn checked_scoped_len(
     pack_index: usize,
 ) -> Result<usize, IconRegistryBuildError> {
     let mut length = source_len;
+
     for edit in edits {
         let range = edit.range();
         length = length
@@ -1683,6 +1885,7 @@ fn checked_scoped_len(
             .and_then(|value| value.checked_add(scoped_id_len(edit.id_index())))
             .ok_or_else(|| arithmetic_error(pack_index, "scoped icon body length overflowed"))?;
     }
+
     Ok(length)
 }
 
@@ -1692,11 +1895,13 @@ fn checked_ranges_scoped_len(
     pack_index: usize,
 ) -> Result<usize, IconRegistryBuildError> {
     let mut total = 0usize;
+
     for range in ranges {
         total = total
             .checked_add(scoped_range_len(range, edits, pack_index)?)
             .ok_or_else(|| arithmetic_error(pack_index, "scoped XML range length overflowed"))?;
     }
+
     Ok(total)
 }
 
@@ -1706,25 +1911,31 @@ fn scoped_range_len(
     pack_index: usize,
 ) -> Result<usize, IconRegistryBuildError> {
     let mut length = range.len();
+
     for edit in edits {
         let edit_range = edit.range();
+
         if edit_range.end <= range.start {
             continue;
         }
+
         if edit_range.start >= range.end {
             break;
         }
+
         if edit_range.start < range.start || edit_range.end > range.end {
             return Err(invalid_xml_error(
                 pack_index,
                 "icon XML plan splits an ID rewrite range",
             ));
         }
+
         length = length
             .checked_sub(edit_range.len())
             .and_then(|value| value.checked_add(scoped_id_len(edit.id_index())))
             .ok_or_else(|| arithmetic_error(pack_index, "scoped XML range length overflowed"))?;
     }
+
     Ok(length)
 }
 
@@ -1753,6 +1964,7 @@ fn ensure_retained_plan_bytes(
     let actual = retained_plan_bytes_used
         .checked_add(plan_bytes)
         .ok_or_else(|| arithmetic_error(pack_index, "retained XML plan accounting overflowed"))?;
+
     if actual > limits.max_retained_xml_plan_bytes {
         return Err(limit_error(
             pack_index,
@@ -1762,6 +1974,7 @@ fn ensure_retained_plan_bytes(
             "retained XML rewrite plans exceed the registry byte budget",
         ));
     }
+
     Ok(())
 }
 
@@ -1775,6 +1988,7 @@ fn ensure_build_work(
     let actual = build_work_units_used
         .checked_add(additional)
         .ok_or_else(|| arithmetic_error(pack_index, "icon XML work accounting overflowed"))?;
+
     if actual > limits.max_build_work_units {
         return Err(limit_error(
             pack_index,
@@ -1784,13 +1998,18 @@ fn ensure_build_work(
             message,
         ));
     }
+
     Ok(())
 }
 
 fn checked_sort_work(count: usize, pack_index: usize) -> Result<usize, IconRegistryBuildError> {
-    if count < 2 {
-        return Ok(0);
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(count), &::core::convert::identity(2)); _explicit_ordering } {
+        ::core::cmp::Ordering::Less => {
+            return Ok(0);
+        },
+        ::core::cmp::Ordering::Equal | ::core::cmp::Ordering::Greater => {},
     }
+
     let levels = usize::BITS as usize - (count - 1).leading_zeros() as usize;
     count
         .checked_mul(levels)
@@ -1815,17 +2034,21 @@ fn write_scoped_range(
     }
 
     let mut source_offset = range.start;
+
     while let Some(edit) = edits.get(*edit_index) {
         let edit_range = edit.range();
+
         if edit_range.start >= range.end {
             break;
         }
+
         if edit_range.start < range.start || edit_range.end > range.end {
             return Err(invalid_xml_error(
                 pack_index,
                 "icon XML plan splits an ID rewrite range",
             ));
         }
+
         output.push_str(&source[source_offset..edit_range.start]);
         write!(
             output,
@@ -1836,6 +2059,7 @@ fn write_scoped_range(
         source_offset = edit_range.end;
         *edit_index += 1;
     }
+
     output.push_str(&source[source_offset..range.end]);
     Ok(())
 }
@@ -1848,33 +2072,42 @@ fn skip_edits_through(
 ) -> Result<(), IconRegistryBuildError> {
     while let Some(edit) = edits.get(*edit_index) {
         let range = edit.range();
+
         if range.start >= omission.end {
             break;
         }
+
         if range.start < omission.start || range.end > omission.end {
             return Err(invalid_xml_error(
                 pack_index,
                 "icon defs omission splits an ID rewrite range",
             ));
         }
+
         *edit_index += 1;
     }
+
     Ok(())
 }
 
+#[must_use]
 fn scoped_id_len(index: usize) -> usize {
     SCOPED_ID_PREFIX.len() + SCOPED_ID_HASH_HEX_LEN + decimal_digits(index)
 }
 
+#[must_use]
 fn decimal_digits(mut value: usize) -> usize {
     let mut digits = 1usize;
+
     while value >= 10 {
-        value /= 10;
+        value = value.wrapping_div(10);
         digits += 1;
     }
+
     digits
 }
 
+#[must_use]
 fn invalid_xml_error(pack_index: usize, message: &'static str) -> IconRegistryBuildError {
     IconRegistryBuildError::new(
         IconRegistryBuildErrorKind::InvalidXml,
@@ -1883,6 +2116,7 @@ fn invalid_xml_error(pack_index: usize, message: &'static str) -> IconRegistryBu
     )
 }
 
+#[must_use]
 fn arithmetic_error(pack_index: usize, message: &'static str) -> IconRegistryBuildError {
     IconRegistryBuildError::new(
         IconRegistryBuildErrorKind::ArithmeticOverflow,
@@ -1891,6 +2125,7 @@ fn arithmetic_error(pack_index: usize, message: &'static str) -> IconRegistryBui
     )
 }
 
+#[must_use]
 fn allocation_error(pack_index: usize, message: &'static str) -> IconRegistryBuildError {
     IconRegistryBuildError::new(
         IconRegistryBuildErrorKind::AllocationFailed,
@@ -1899,6 +2134,7 @@ fn allocation_error(pack_index: usize, message: &'static str) -> IconRegistryBui
     )
 }
 
+#[must_use]
 fn limit_error(
     pack_index: usize,
     limit: IconRegistryResourceLimitId,

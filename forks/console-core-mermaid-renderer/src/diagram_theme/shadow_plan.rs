@@ -23,6 +23,7 @@ pub(crate) enum SvgFilterUnits {
 }
 
 impl SvgFilterRegion {
+    #[must_use]
     pub(crate) fn try_bounded(x: f32, y: f32, width: f32, height: f32) -> Option<Self> {
         let region = Self {
             x,
@@ -39,14 +40,17 @@ impl SvgFilterRegion {
             .then_some(region)
     }
 
+    #[must_use]
     pub(crate) const fn as_array(self) -> [f32; 4] {
         [self.x, self.y, self.width, self.height]
     }
 
+    #[must_use]
     pub(crate) const fn units(self) -> SvgFilterUnits {
         self.units
     }
 
+    #[must_use]
     pub(crate) fn try_bounded_user_space(x: f32, y: f32, width: f32, height: f32) -> Option<Self> {
         let mut region = Self::try_bounded(x, y, width, height)?;
         region.units = SvgFilterUnits::UserSpaceOnUse;
@@ -70,32 +74,37 @@ impl EffectOutsets {
         self.left = self.left.max(other.left);
     }
 
+    #[must_use]
     pub(crate) fn with_shadow_stages(
         self,
         stages: impl IntoIterator<Item = (EffectInput, [f32; 2], [f32; 2])>,
     ) -> Option<Self> {
         let mut outsets = self;
+
         for (input, offset, deviation) in stages {
-            let input = match input {
+            let input_2 = match input {
                 EffectInput::SourceGraphic => self,
                 EffectInput::Previous => outsets,
             };
             let extension = Self::for_drop_shadow(0.0, match offset { [_explicit_element, ..] => _explicit_element }, match offset { [_, _explicit_element, ..] => _explicit_element }, deviation)?;
             outsets = Self {
-                top: input.top + extension.top,
-                right: input.right + extension.right,
-                bottom: input.bottom + extension.bottom,
-                left: input.left + extension.left,
+                top: input_2.top + extension.top,
+                right: input_2.right + extension.right,
+                bottom: input_2.bottom + extension.bottom,
+                left: input_2.left + extension.left,
             };
         }
+
         Some(outsets)
     }
 
+    #[must_use]
     pub(crate) fn with_independent_shadows(
         self,
         stages: impl IntoIterator<Item = ([f32; 2], [f32; 2])>,
     ) -> Option<Self> {
         let mut outsets = self;
+
         for (offset, deviation) in stages {
             let extension = Self::for_drop_shadow(0.0, match offset { [_explicit_element, ..] => _explicit_element }, match offset { [_, _explicit_element, ..] => _explicit_element }, deviation)?;
             outsets.include(Self {
@@ -105,9 +114,11 @@ impl EffectOutsets {
                 left: self.left + extension.left,
             });
         }
+
         Some(outsets)
     }
 
+    #[must_use]
     fn for_drop_shadow(
         stroke_width: f64,
         offset_x: f32,
@@ -126,17 +137,17 @@ impl EffectOutsets {
         }
 
         let half_stroke = stroke_width / 2.0;
-        let offset_x = f64::from(offset_x);
-        let offset_y = f64::from(offset_y);
-        // Gaussian support is mathematically unbounded. Merman deliberately materializes a finite
-        // four-sigma paint envelope so every target receives the same bounded clipping contract.
+        let offset_x_2 = f64::from(offset_x);
+        let offset_y_2 = f64::from(offset_y);
+
+
         let [blur_x, blur_y] =
             std_deviation.map(|value| f64::from(value) * DROP_SHADOW_PAINT_BOUNDS_SIGMAS);
         let outsets = Self {
-            top: half_stroke + blur_y + (-offset_y).max(0.0),
-            right: half_stroke + blur_x + offset_x.max(0.0),
-            bottom: half_stroke + blur_y + offset_y.max(0.0),
-            left: half_stroke + blur_x + (-offset_x).max(0.0),
+            top: half_stroke + blur_y + (-offset_y_2).max(0.0),
+            right: half_stroke + blur_x + offset_x_2.max(0.0),
+            bottom: half_stroke + blur_y + offset_y_2.max(0.0),
+            left: half_stroke + blur_x + (-offset_x_2).max(0.0),
         };
         [outsets.top, outsets.right, outsets.bottom, outsets.left]
             .into_iter()
@@ -163,6 +174,7 @@ pub(crate) struct SvgShadowEffect {
 }
 
 impl SvgShadowEffect {
+    #[must_use]
     pub(crate) fn from_graph(graph: &EffectGraph) -> Option<Self> {
         let stages = graph
             .primitives()
@@ -179,9 +191,11 @@ impl SvgShadowEffect {
                 else {
                     return None;
                 };
-                if *spread != 0.0 {
+
+                if !::core::matches!(::core::primitive::f32::classify(*spread), ::core::num::FpCategory::Zero) {
                     return None;
                 }
+
                 Some(SvgShadowStage {
                     input: *input,
                     offset_x: *offset_x,
@@ -199,22 +213,27 @@ impl SvgShadowEffect {
         })
     }
 
+    #[must_use]
     pub(crate) fn stages(&self) -> &[SvgShadowStage] {
         &self.stages
     }
 
+    #[must_use]
     pub(crate) const fn color_space(&self) -> EffectColorSpace {
         self.color_space
     }
 
+    #[must_use]
     pub(crate) const fn composition(&self) -> EffectComposition {
         self.composition
     }
 
+    #[must_use]
     pub(crate) fn id(&self) -> &str {
         &self.id
     }
 
+    #[must_use]
     fn paint_outsets(&self, source: EffectOutsets) -> Option<EffectOutsets> {
         if self.composition == EffectComposition::Independent {
             return source.with_independent_shadows(
@@ -223,6 +242,7 @@ impl SvgShadowEffect {
                     .map(|stage| ([stage.offset_x, stage.offset_y], [stage.std_deviation; 2])),
             );
         }
+
         source.with_shadow_stages(self.stages.iter().map(|stage| {
             (
                 stage.input,
@@ -242,6 +262,7 @@ impl SvgShadowEffect {
         if !stroke_width.is_finite() || stroke_width < 0.0 {
             return Ok(None);
         }
+
         let half_stroke = stroke_width / 2.0;
         self.materialize_with_source_outsets(
             resources,
@@ -274,38 +295,88 @@ impl SvgShadowEffect {
         {
             return Ok(None);
         }
-        let Some(outsets) = self.paint_outsets(source) else {
-            return Ok(None);
+
+        let outsets = {
+            let optional_outsets = self.paint_outsets(source);
+
+            match optional_outsets {
+                Some(matched_outsets) => matched_outsets,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         let min_x = -outsets.left / width;
         let min_y = -outsets.top / height;
         let max_x = 1.0 + outsets.right / width;
         let max_y = 1.0 + outsets.bottom / height;
-        let Some(x) = round_down_f32(min_x) else {
-            return Ok(None);
+
+        let x = {
+            let optional_x = round_down_f32(min_x);
+
+            match optional_x {
+                Some(matched_x) => matched_x,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(y) = round_down_f32(min_y) else {
-            return Ok(None);
+
+        let y = {
+            let optional_y = round_down_f32(min_y);
+
+            match optional_y {
+                Some(matched_y) => matched_y,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(max_x) = round_up_f32(max_x) else {
-            return Ok(None);
+
+        let max_x_2 = {
+            let optional_max_x = round_up_f32(max_x);
+
+            match optional_max_x {
+                Some(matched_max_x) => matched_max_x,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(max_y) = round_up_f32(max_y) else {
-            return Ok(None);
+
+        let max_y_2 = {
+            let optional_max_y = round_up_f32(max_y);
+
+            match optional_max_y {
+                Some(matched_max_y) => matched_max_y,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(region_width) = round_up_f32(f64::from(max_x) - f64::from(x)) else {
-            return Ok(None);
+
+        let region_width = {
+            let optional_region_width = round_up_f32(f64::from(max_x_2) - f64::from(x));
+
+            match optional_region_width {
+                Some(matched_region_width) => matched_region_width,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(region_height) = round_up_f32(f64::from(max_y) - f64::from(y)) else {
-            return Ok(None);
+
+        let region_height = {
+            let optional_region_height = round_up_f32(f64::from(max_y_2) - f64::from(y));
+
+            match optional_region_height {
+                Some(matched_region_height) => matched_region_height,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         if region_width <= 0.0 || region_height <= 0.0 {
             return Ok(None);
         }
 
-        let Some(region) = SvgFilterRegion::try_bounded(x, y, region_width, region_height) else {
-            return Ok(None);
+        let region = {
+            let optional_region = SvgFilterRegion::try_bounded(x, y, region_width, region_height);
+
+            match optional_region {
+                Some(matched_region) => matched_region,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         let magnitude = region
             .as_array()
             .into_iter()
@@ -336,30 +407,79 @@ impl SvgShadowEffect {
         {
             return Ok(None);
         }
-        let Some(outsets) = self.paint_outsets(source) else {
-            return Ok(None);
+
+        let outsets = {
+            let optional_outsets = self.paint_outsets(source);
+
+            match optional_outsets {
+                Some(matched_outsets) => matched_outsets,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(x) = round_down_f32(min_x - outsets.left) else {
-            return Ok(None);
+
+        let x = {
+            let optional_x = round_down_f32(min_x - outsets.left);
+
+            match optional_x {
+                Some(matched_x) => matched_x,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(y) = round_down_f32(min_y - outsets.top) else {
-            return Ok(None);
+
+        let y = {
+            let optional_y = round_down_f32(min_y - outsets.top);
+
+            match optional_y {
+                Some(matched_y) => matched_y,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(max_x) = round_up_f32(max_x + outsets.right) else {
-            return Ok(None);
+
+        let max_x_2 = {
+            let optional_max_x = round_up_f32(max_x + outsets.right);
+
+            match optional_max_x {
+                Some(matched_max_x) => matched_max_x,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(max_y) = round_up_f32(max_y + outsets.bottom) else {
-            return Ok(None);
+
+        let max_y_2 = {
+            let optional_max_y = round_up_f32(max_y + outsets.bottom);
+
+            match optional_max_y {
+                Some(matched_max_y) => matched_max_y,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(width) = round_up_f32(f64::from(max_x) - f64::from(x)) else {
-            return Ok(None);
+
+        let width = {
+            let optional_width = round_up_f32(f64::from(max_x_2) - f64::from(x));
+
+            match optional_width {
+                Some(matched_width) => matched_width,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(height) = round_up_f32(f64::from(max_y) - f64::from(y)) else {
-            return Ok(None);
+
+        let height = {
+            let optional_height = round_up_f32(f64::from(max_y_2) - f64::from(y));
+
+            match optional_height {
+                Some(matched_height) => matched_height,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
-        let Some(region) = SvgFilterRegion::try_bounded_user_space(x, y, width, height) else {
-            return Ok(None);
+
+        let region = {
+            let optional_region = SvgFilterRegion::try_bounded_user_space(x, y, width, height);
+
+            match optional_region {
+                Some(matched_region) => matched_region,
+                ::core::option::Option::None => return Ok(None),
+            }
         };
+
         let magnitude = region
             .as_array()
             .into_iter()
@@ -377,35 +497,45 @@ pub(crate) struct MaterializedShadowEffect {
 }
 
 impl MaterializedShadowEffect {
+    #[must_use]
     pub(crate) const fn region(self) -> SvgFilterRegion {
         self.region
     }
 
+    #[must_use]
     pub(crate) const fn outsets(self) -> EffectOutsets {
         self.outsets
     }
 }
 
+#[must_use]
 fn round_down_f32(value: f64) -> Option<f32> {
     let rounded = value as f32;
+
     if !value.is_finite() || !rounded.is_finite() {
         return None;
     }
+
     if f64::from(rounded) <= value {
         return Some(rounded);
     }
+
     let outward = rounded.next_down();
     outward.is_finite().then_some(outward)
 }
 
+#[must_use]
 fn round_up_f32(value: f64) -> Option<f32> {
     let rounded = value as f32;
+
     if !value.is_finite() || !rounded.is_finite() {
         return None;
     }
+
     if f64::from(rounded) >= value {
         return Some(rounded);
     }
+
     let outward = rounded.next_up();
     outward.is_finite().then_some(outward)
 }

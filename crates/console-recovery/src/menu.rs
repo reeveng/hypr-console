@@ -36,7 +36,7 @@ use console_boot_entries::{CONFIG, Snapshot, TakenBy};
 use console_core_external_programs::Program as ExternalProgram;
 use console_core_never::Never;
 use console_core_number_conversion::index;
-use console_core_state_machine::{Machine, Queue, Transition};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_core_walking::{Ring, Step, where_it_is};
 use console_core_words::Words;
 use console_program_contract::{Answer, Command, Effect, Event, Exit, ExitStatus};
@@ -145,6 +145,14 @@ pub struct Recovery;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Screen {
   Show(Menu),
+}
+
+impl EffectDependencies for Screen {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Show(_) => &[Service::Display],
+    })
+  }
 }
 
 impl Machine for Recovery {
@@ -349,10 +357,7 @@ fn chose(menu: &Menu) -> Result<Turn, Never> {
 }
 
 fn one_shot(menu: &Menu, snapshot: &Snapshot) -> Result<Turn, Never> {
-  let Ok(command) = Command::external(
-    ExternalProgram::Bootctl,
-    &["set-oneshot", &snapshot.identifier],
-  );
+  let Ok(command) = console_boot_entries::one_shot(Some(&snapshot.identifier));
 
   running(menu, Action::OneShot(snapshot.number), command)
 }

@@ -11,6 +11,7 @@ use core::cmp::Ordering;
 use console_core_number_conversion::{fixed_index, index};
 
 use crate::src::error::{Rav1dError::ENOMEM, Rav1dResult};
+use crate::src::internal::ScratchParallelism;
 
 pub use rav1d_disjoint_mut::AsMutPtr;
 pub use rav1d_disjoint_mut::DisjointImmutGuard;
@@ -49,14 +50,11 @@ pub fn dm_new<T: AsMutPtr>(
   })
 }
 
-#[cfg_attr(
-  all(feature = "unchecked", dylint_lib = "explicit058_contain_unsafe"),
-  expect(
-    explicit058_contain_unsafe,
-    reason = "only the opt-in unchecked mode selects the untracked form of the frame-shared tile allocation"
-  )
-)]
-pub fn dm_arc_try_new<T: Copy>(count: u64, value: T) -> Rav1dResult<DisjointMutArcSlice<T>> {
+pub(crate) fn dm_arc_try_new<T: Copy>(
+  count: u64,
+  value: T,
+  parallelism: &ScratchParallelism,
+) -> Rav1dResult<DisjointMutArcSlice<T>> {
   let Ok(native_count) = index(count);
   let Ok(round_trip) = fixed_index(native_count);
 
@@ -65,14 +63,22 @@ pub fn dm_arc_try_new<T: Copy>(count: u64, value: T) -> Rav1dResult<DisjointMutA
     Ordering::Less | Ordering::Greater => return Err(ENOMEM),
   }
 
-  #[cfg(not(feature = "unchecked"))]
-  let allocation = DisjointMutArcSlice::try_new(native_count, value);
-  #[cfg(feature = "unchecked")]
-  let allocation = {
-    // SAFETY: The shared slab uses the same tile ownership and access ranges
-    // as the always-checked configuration. See the unchecked dm_new path.
-    unsafe { DisjointMutArcSlice::try_new_unchecked(native_count, value) }
-  };
+  let mut values = Vec::new();
+  values
+    .try_resize(native_count, value)
+    .map_err(|_allocate| ENOMEM)?;
+  let Ok(mut allocation) = dm_new(values.into_boxed_slice());
+  let Ok(threads) = index(parallelism.workers);
+  let Ok(tiles) = index(parallelism.tiles);
+  allocation.configure_parallelism(threads, tiles);
+  #[cfg_attr(
+    dylint_lib = "explicit081_no_shared_ownership",
+    expect(
+      explicit081_no_shared_ownership,
+      reason = "the external DisjointMutArcSlice ABI retains a frame buffer across its decoded reference slots after its unique initialization"
+    )
+  )]
+  let shared = std::sync::Arc::new(allocation);
 
-  allocation.map_err(|_allocation| ENOMEM)
+  Ok(DisjointMutArcSlice { inner: shared })
 }

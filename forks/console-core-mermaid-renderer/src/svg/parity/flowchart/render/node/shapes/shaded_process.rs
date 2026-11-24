@@ -14,20 +14,25 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_shaded_process(
     details: &mut crate::svg::parity::flowchart::types::FlowchartRenderDetails,
 ) {
     let (pts, path_data) = prepare_shaded_process_geometry(common, label);
-    if let Some((fill_d, stroke_d)) = helpers::hand_drawn_path_pair(common, details, &path_data) {
-        let _ = write!(
-            out,
-            r##"<g class="basic label-container outer-path" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
-            escape_attr(common.rough_group_style),
-            escape_attr(&fill_d),
-            escape_attr(common.fill_color),
-            escape_attr(&stroke_d),
-            escape_attr(common.stroke_color),
-            fmt_display(common.stroke_width as f64),
-            escape_attr(common.stroke_dasharray),
-        );
-        return;
+
+    match helpers::hand_drawn_path_pair(common, details, &path_data) {
+        Some((fill_d, stroke_d)) => {
+            let _ = write!(
+                out,
+                r##"<g class="basic label-container outer-path" style="{}"><path d="{}" stroke="{}" stroke-width="4" fill="none" stroke-dasharray="0 0"/><path d="{}" stroke="{}" stroke-width="{}" fill="none" stroke-dasharray="{}"/></g>"##,
+                escape_attr(common.rough_group_style),
+                escape_attr(&fill_d),
+                escape_attr(common.fill_color),
+                escape_attr(&stroke_d),
+                escape_attr(common.stroke_color),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
+                escape_attr(common.stroke_dasharray),
+            );
+            return;
+        },
+        ::core::option::Option::None => {},
     }
+
     if common.look_is_hand_drawn() {
         let _ = write!(out, r#"<g class="basic label-container outer-path">"#);
         helpers::write_raw_filled_stroked_path(
@@ -60,7 +65,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_shaded_process(
         escape_attr(common.style),
         escape_attr(&stroke_d),
         escape_attr(common.stroke_color),
-        fmt_display(common.stroke_width as f64),
+        fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
         escape_attr(common.stroke_dasharray),
         escape_attr(common.style),
     );
@@ -70,9 +75,9 @@ fn prepare_shaded_process_geometry(
     common: &super::super::FlowchartNodeGeometry<'_>,
     label: &mut super::super::FlowchartNodeLabelState<'_>,
 ) -> (Vec<(f64, f64)>, String) {
-    // Mermaid `shadedProcess.ts`:
-    // - outer bbox includes an extra 8px on both sides (and an internal vertical line),
-    // - label is nudged +4px on x (handled by caller).
+
+
+
     let out_w = common.layout_node.width.max(1.0);
     let h = common.layout_node.height.max(1.0);
     let w = (out_w - 16.0).max(1.0);

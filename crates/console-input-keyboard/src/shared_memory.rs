@@ -33,7 +33,7 @@ pub fn keymap_file(text: &str) -> io::Result<(OwnedFd, u64)> {
 
 #[cfg(test)]
 mod tests {
-  use console_draw_surface::memory::Shared;
+  use console_wayland::memory::Shared;
   use rustix::io::Errno;
 
   use super::*;
@@ -69,22 +69,6 @@ mod tests {
       matches!(refused, Err(fault) if fault.kind() == io::ErrorKind::PermissionDenied),
       "a sealed keymap was writable again"
     );
-
-    Ok(())
-  }
-
-  #[test]
-  fn a_frame_can_be_drawn_into_more_than_once() -> Result<(), Failure> {
-    let mut shared = Shared::of(64)?;
-    let Ok(first) = shared.pixels();
-
-    first.fill(1);
-    let Ok(again) = shared.pixels();
-
-    again.fill(2);
-    let Ok(now) = shared.pixels();
-
-    assert_eq!(now.first(), Some(&2));
 
     Ok(())
   }

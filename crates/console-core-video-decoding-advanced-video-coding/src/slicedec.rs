@@ -1129,10 +1129,9 @@ impl<'a> SliceDecoder<'a> {
       (Some(x), Some(y)) => (x, y),
       _ => return invalid("macroblock position outside the picture"),
     };
-    ensure!(
-      y < self.pic.mb_h,
-      "macroblock address {address} out of range"
-    );
+    ensure(y < self.pic.mb_h, || {
+      format!("macroblock address {address} out of range")
+    })?;
     self.mb_addr = address;
     self.mb_x = x;
     self.mb_y = y;
@@ -1714,11 +1713,12 @@ impl<'a> SliceDecoder<'a> {
       let Ok(available) = list.entry(self.refs);
       let Ok(picture) = reference_entry(available, code);
       let list_number = mask.wrapping_shr(1);
-      ensure!(
-        picture.is_some(),
-        "ref_idx {code} out of range (list {list_number}, size {})",
-        available.len()
-      );
+      ensure(picture.is_some(), || {
+        format!(
+          "ref_idx {code} out of range (list {list_number}, size {})",
+          available.len()
+        )
+      })?;
       let Ok(reference) = wrapped::<_, u8>(code);
       *output = Some(reference);
     }
@@ -2503,10 +2503,9 @@ impl<'a> SliceDecoder<'a> {
   }
 
   pub fn apply_qp_delta(&mut self, delta: i32) -> Result<()> {
-    ensure!(
-      (-26..=25).contains(&delta),
-      "mb_qp_delta {delta} out of range"
-    );
+    ensure((-26..=25).contains(&delta), || {
+      format!("mb_qp_delta {delta} out of range")
+    })?;
     self.qp = self
       .qp
       .wrapping_add(delta)
@@ -2765,7 +2764,7 @@ impl<'a> SliceDecoder<'a> {
       SliceType::B => self.derive_direct(15)?,
       SliceType::P | SliceType::Sp | SliceType::I | SliceType::Si => {
         let [first, _second] = self.refs;
-        ensure!(!first.is_empty(), "P_Skip with empty reference list");
+        ensure(!first.is_empty(), || "P_Skip with empty reference list")?;
         let Ok(()) = self.derive_p_skip();
       }
     }
@@ -3009,7 +3008,7 @@ impl<'a> SliceDecoder<'a> {
         }
 
         let chroma_mode = reader.read_ue()?;
-        ensure!(chroma_mode <= 3, "intra_chroma_pred_mode out of range");
+        ensure(chroma_mode <= 3, || "intra_chroma_pred_mode out of range")?;
         let Ok(mode) = wrapped(chroma_mode);
         self.active.intra_chroma_mode = mode;
       }
@@ -3320,7 +3319,7 @@ impl<'a> SliceDecoder<'a> {
   ) -> Result<u64> {
     let run = reader.read_ue()?;
     let end = remaining.start.wrapping_add(u64::from(run));
-    ensure!(end <= remaining.end, "mb_skip_run out of range");
+    ensure(end <= remaining.end, || "mb_skip_run out of range")?;
 
     for skipped in remaining.start..end {
       let Ok(block) = wrapped::<_, u32>(skipped);
@@ -3354,7 +3353,9 @@ impl<'a> SliceDecoder<'a> {
           }
 
           address = next;
-          ensure!(address < total, "macroblock address {address} out of range");
+          ensure(address < total, || {
+            format!("macroblock address {address} out of range")
+          })?;
         }
       }
 
@@ -3371,7 +3372,9 @@ impl<'a> SliceDecoder<'a> {
         Remaining::Payload => {}
       }
 
-      ensure!(address < total, "macroblock address {address} out of range");
+      ensure(address < total, || {
+        format!("macroblock address {address} out of range")
+      })?;
     }
 
     invalid(format!("macroblock address {address} out of range"))

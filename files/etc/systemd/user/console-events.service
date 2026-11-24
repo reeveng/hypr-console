@@ -36,9 +36,9 @@ RestartSec=5
 # to standard error, which a source sends nowhere, so getting in is not
 # mistaken for something having happened.
 #
-# `gdbus monitor --system` for Bluetooth is the same again: a socket to the
-# system bus. `udevadm monitor` for the battery is not. The kernel says a supply
-# changed on a netlink socket, so this is `AF_UNIX AF_NETLINK`, which is what
+# Wi-Fi scan completion and Bluetooth signals arrive on native connections to
+# the system bus. `udevadm monitor` receives battery changes over netlink.
+# The unit consequently needs `AF_UNIX AF_NETLINK`, which is what
 # `confining.conf` says every other console unit is given anyway. Neither
 # reaches off this machine, and the one thing that would ever take it off the
 # machine is a mistake. The netlink socket wants no device node either, so

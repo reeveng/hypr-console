@@ -17,6 +17,7 @@ pub(in crate::svg::parity::flowchart) enum FlowchartMarkerBase {
 }
 
 impl FlowchartMarkerBase {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn id_suffix(self) -> &'static str {
         match self {
             Self::PointStart => "pointStart",
@@ -32,6 +33,7 @@ impl FlowchartMarkerBase {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn supports_margin(self) -> bool {
         !matches!(
             self,
@@ -43,6 +45,7 @@ impl FlowchartMarkerBase {
     }
 }
 
+#[must_use]
 pub(super) fn flowchart_edge_marker_end_base(
     edge: &crate::flowchart::FlowEdge,
 ) -> Option<FlowchartMarkerBase> {
@@ -60,6 +63,7 @@ pub(super) fn flowchart_edge_marker_end_base(
     }
 }
 
+#[must_use]
 pub(super) fn flowchart_edge_marker_start_base(
     edge: &crate::flowchart::FlowEdge,
 ) -> Option<FlowchartMarkerBase> {
@@ -78,14 +82,15 @@ pub(in crate::svg::parity::flowchart) struct FlowchartEdgeAnimationResolution {
 }
 
 impl FlowchartEdgeAnimationResolution {
+    #[must_use]
     pub(in crate::svg::parity::flowchart) fn resolve(
         edge: &crate::flowchart::FlowEdge,
         styles: &FlowchartCompiledStyles,
     ) -> Self {
-        // Mermaid 11.16.1 `edges.js` derives a fast class from `animate` and then lets the
-        // explicit `animation` speed replace it. In particular, `animate: false, animation: fast`
-        // is animated. Source declarations are resolved separately because their inline CSS can
-        // replace the computed animation name after the generated class is attached.
+
+
+
+
         let explicit_animation = edge
             .animation
             .as_deref()
@@ -107,10 +112,12 @@ impl FlowchartEdgeAnimationResolution {
         }
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn class(self) -> Option<&'static str> {
         self.generated_class
     }
 
+    #[must_use]
     pub(in crate::svg::parity::flowchart) const fn is_active(self) -> bool {
         self.active
     }

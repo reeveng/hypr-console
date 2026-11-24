@@ -42,6 +42,9 @@ use console_core_never::Never;
 
 use crate::{Oklch, Rgba};
 
+mod theme;
+pub use theme::{ColorRole, Overrides, Theme, ThemeSettings};
+
 pub const SPENT: &str = "usr/local/lib/console/palette.sh";
 
 pub const BIN: &str = "usr/local/bin";
@@ -107,6 +110,7 @@ pub enum WearingError {
   Lost(std::io::Error),
   Unread { at: PathBuf, why: std::io::Error },
   Palette(PaletteError),
+  Theme(crate::Short),
 }
 
 impl std::fmt::Display for WearingError {
@@ -115,6 +119,7 @@ impl std::fmt::Display for WearingError {
       WearingError::Lost(why) => write!(to, "this program cannot find itself: {why}"),
       WearingError::Unread { at, why } => write!(to, "no palette at {}: {why}", at.display()),
       WearingError::Palette(why) => write!(to, "{why}"),
+      WearingError::Theme(why) => write!(to, "{why}"),
     }
   }
 }
@@ -128,13 +133,20 @@ impl From<PaletteError> for WearingError {
 }
 
 pub fn spent() -> Result<BTreeMap<String, String>, WearingError> {
+  let Ok(theme) = ThemeSettings::current();
+
+  spent_with(&theme)
+}
+
+pub fn spent_with(theme: &ThemeSettings) -> Result<BTreeMap<String, String>, WearingError> {
   let me = std::env::current_exe().map_err(WearingError::Lost)?;
   let Ok(at) = beside(&me);
   let held = std::fs::read_to_string(&at).map_err(|why| WearingError::Unread {
     at: at.clone(),
     why,
   })?;
-  let Ok(spent) = read(&held);
+  let Ok(mut spent) = read(&held);
+  theme.apply(&mut spent).map_err(WearingError::Theme)?;
 
   Ok(spent)
 }
@@ -180,7 +192,13 @@ impl Wearing {
   }
 
   pub fn worn() -> Result<Wearing, WearingError> {
-    let spent = spent()?;
+    let Ok(theme) = ThemeSettings::current();
+
+    Self::for_theme(&theme)
+  }
+
+  pub fn for_theme(theme: &ThemeSettings) -> Result<Wearing, WearingError> {
+    let spent = spent_with(theme)?;
     let wearing = Wearing::out_of(&spent)?;
 
     Ok(wearing)

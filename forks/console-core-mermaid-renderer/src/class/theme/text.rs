@@ -85,6 +85,7 @@ pub(crate) struct ClassTextPaint {
 }
 
 impl ClassTextPaint {
+    #[must_use]
     pub(crate) fn style(&self) -> &str {
         &self.style
     }
@@ -93,6 +94,7 @@ impl ClassTextPaint {
         clippy::too_many_arguments,
         reason = "The family terminal receipt reconciles emitted geometry, paint, and source ownership."
     )]
+    #[must_use]
     pub(crate) fn observe(
         &self,
         facts: ClassTextTerminalFacts,
@@ -100,7 +102,7 @@ impl ClassTextPaint {
     ) -> ClassTextTerminalFacts {
         facts.with_paint(
             style
-                .filter(|style| !style.is_empty())
+                .filter(|style_2| !style_2.is_empty())
                 .map(|_| (self.rule_index, self.css.as_str())),
             style.unwrap_or(""),
         )
@@ -108,6 +110,7 @@ impl ClassTextPaint {
 }
 
 impl ClassTextThemePlan {
+    #[must_use]
     pub(crate) fn resolve(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &merman_model::presentation::PresentationConfig,
@@ -115,67 +118,80 @@ impl ClassTextThemePlan {
         let mut text_rules = BTreeMap::new();
         let mut shadowed = BTreeMap::new();
         let static_style =
-            theme.map(|theme| theme.style(ThemeTarget::Text, ThemeVariant::Default, None));
-        if let Some(theme) = theme {
-            let winners = static_style
-                .as_ref()
-                .expect("theme has a static style")
-                .winner_rule_properties()
-                .collect::<BTreeMap<_, _>>();
-            for route in theme.family_mechanism_routes() {
-                if let FamilyThemeMechanism::RuleFacet {
-                    rule_index,
-                    target: ThemeTarget::Text,
-                    facet,
-                    selector,
-                } = route.mechanism()
-                {
-                    // The later rule must cover the same selector and every property of this rule.
-                    let facet_shadowed = match selector {
-                        FamilyThemeSelectorShape::Static {
-                            variant: variant @ (None | Some(ThemeVariant::Default)),
-                        } => winners
-                            .get(&resolved_style_property_for_facet(facet))
-                            .is_some_and(|winner| {
-                                winner.rule_index() > rule_index
-                                    && winner.target() == ThemeTarget::Text
-                                    && winner.ordinal().is_none()
-                                    && winner.variant() == variant
-                            }),
-                        _ => false,
-                    };
-                    *shadowed.entry(rule_index).or_insert(true) &= facet_shadowed;
-                    if facet_shadowed {
-                        continue;
-                    }
-                    let capability = if route.disposition() == FamilyThemeDisposition::TypedAdapter
+            theme.map(|theme_2| theme_2.style(ThemeTarget::Text, ThemeVariant::Default, None));
+
+        match theme {
+            Some(theme_3) => {
+                let winners = static_style
+                    .as_ref()
+                    .expect("theme has a static style")
+                    .winner_rule_properties()
+                    .collect::<BTreeMap<_, _>>();
+
+                for route in theme_3.family_mechanism_routes() {
+                    if let FamilyThemeMechanism::RuleFacet {
+                        rule_index,
+                        target: ThemeTarget::Text,
+                        facet,
+                        selector,
+                    } = route.mechanism()
                     {
-                        match facet {
-                            FamilyThemeRuleFacet::Fill(FamilyThemePaintKind::Solid) => {
-                                Some(ThemeCapability::SolidPaint)
-                            }
-                            FamilyThemeRuleFacet::Fill(FamilyThemePaintKind::Transparent) => {
-                                Some(ThemeCapability::TransparentPaint)
-                            }
-                            _ => None,
+
+                        let facet_shadowed = match selector {
+                            FamilyThemeSelectorShape::Static {
+                                variant: variant @ (None | Some(ThemeVariant::Default)),
+                            } => winners
+                                .get(&resolved_style_property_for_facet(facet))
+                                .is_some_and(|winner| {
+                                    winner.rule_index() > rule_index
+                                        && winner.target() == ThemeTarget::Text
+                                        && winner.ordinal().is_none()
+                                        && winner.variant() == variant
+                                }),
+                            _ => false,
+                        };
+
+                        *shadowed.entry(rule_index).or_insert(true) &= facet_shadowed;
+                        if facet_shadowed {
+                            continue;
                         }
-                    } else {
-                        None
-                    };
-                    let entry = text_rules.entry(rule_index).or_insert(capability);
-                    if capability.is_none() {
-                        *entry = None;
+
+                        let capability = if route.disposition() == FamilyThemeDisposition::TypedAdapter
+                        {
+                            match facet {
+                                FamilyThemeRuleFacet::Fill(FamilyThemePaintKind::Solid) => {
+                                    Some(ThemeCapability::SolidPaint)
+                                }
+                                FamilyThemeRuleFacet::Fill(FamilyThemePaintKind::Transparent) => {
+                                    Some(ThemeCapability::TransparentPaint)
+                                }
+                                _ => None,
+                            }
+                        } else {
+                            None
+                        };
+                        let entry = text_rules.entry(rule_index).or_insert(capability);
+
+                        match capability {
+                            ::core::option::Option::None => {
+                                *entry = None;
+                            },
+                            ::core::option::Option::Some(_) => {},
+                        }
                     }
                 }
-            }
+            },
+            ::core::option::Option::None => {},
         }
-        // Fully shadowed rules still need their NotApplicable evidence key.
+
+
         for &rule_index in shadowed.keys() {
             text_rules.entry(rule_index).or_insert(None);
         }
-        let selected = theme.and_then(|theme| {
+
+        let selected = theme.and_then(|theme_4| {
             crate::family::resolve_direct_static_fill(
-                theme,
+                theme_4,
                 static_style.as_ref().expect("theme has a static style"),
                 &[ThemeTarget::Text],
                 crate::family::DirectStaticSelectorDomain::Default,
@@ -206,8 +222,8 @@ impl ClassTextThemePlan {
             .flatten();
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
-        let typed_font_size_requested = theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let typed_font_size_requested = theme.is_some_and(|theme_5| {
+            theme_5.family_mechanism_routes().iter().any(|route| {
                 route.mechanism()
                     == crate::diagram_theme::FamilyThemeMechanism::BaseTypography(
                         ThemeTypographyProperty::FontSize,
@@ -219,28 +235,35 @@ impl ClassTextThemePlan {
         let config_owns_font_size = typed_font_size_requested
             && effective_config.config_path_overrides_typed_default("themeVariables.fontSize");
         let typed_font_size_active = typed_font_size_requested && !config_owns_font_size;
-        let typed_font_size = theme.filter(|_| typed_font_size_active).map(|theme| {
-            crate::number_format::canonicalize_number(f64::from(theme.typography().font_size_px()))
+        let typed_font_size = theme.filter(|_| typed_font_size_active).map(|theme_6| {
+            crate::number_format::canonicalize_number(f64::from(theme_6.typography().font_size_px()))
                 .max(1.0)
         });
-        let (font_size_px, font_size_css) = if let Some(font_size_px) = typed_font_size {
-            (
-                font_size_px,
-                format!("{}px", crate::number_format::canonical_number(font_size_px)),
-            )
-        } else {
-            let font_size_css = crate::config::config_css_number_or_string(
-                effective_config.as_value(),
-                &["themeVariables", "fontSize"],
-            )
-            .unwrap_or_else(|| "16px".to_string());
-            let font_size_px = crate::config::config_f64_explicit_css_px(
-                effective_config.as_value(),
-                &["themeVariables", "fontSize"],
-            )
-            .unwrap_or(16.0)
-            .max(1.0);
-            (font_size_px, font_size_css)
+        let (font_size_px, font_size_css) = match typed_font_size {
+            Some(font_size_px) => {
+                (
+                    font_size_px,
+                    format!("{}px", crate::number_format::canonical_number(font_size_px)),
+                )
+            },
+            ::core::option::Option::None => {
+                let font_size_css = match crate::config::config_css_number_or_string(
+                    effective_config.as_value(),
+                    &["themeVariables", "fontSize"],
+                ) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => "16px".to_string(),
+                };
+                let font_size_px = match crate::config::config_f64_explicit_css_px(
+                    effective_config.as_value(),
+                    &["themeVariables", "fontSize"],
+                ) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 16.0,
+                }
+                .max(1.0);
+                (font_size_px, font_size_css)
+            },
         };
         let stylesheet_font_family_css = if inherited_font_stack.typed_font_stack_active() {
             crate::config::normalize_css_font_family(inherited_font_stack.font_family_css())
@@ -264,7 +287,7 @@ impl ClassTextThemePlan {
             text_rules,
             fully_shadowed_text_rules: shadowed
                 .into_iter()
-                .filter_map(|(index, shadowed)| shadowed.then_some(index))
+                .filter_map(|(index, shadowed_2)| shadowed_2.then_some(index))
                 .collect(),
             edge_paint,
             note_paint,
@@ -273,8 +296,8 @@ impl ClassTextThemePlan {
             font_size_px,
             typed_font_size_requested,
             typed_font_size_active,
-            node_style_facts_requested: theme.is_some_and(|theme| {
-                theme.family_mechanism_routes().iter().any(|route| {
+            node_style_facts_requested: theme.is_some_and(|theme_7| {
+                theme_7.family_mechanism_routes().iter().any(|route| {
                     matches!(
                         route.mechanism(),
                         FamilyThemeMechanism::RuleFacet {
@@ -295,18 +318,26 @@ impl ClassTextThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn edge_paint(&self) -> Option<&ClassTextPaint> {
         self.edge_paint.as_ref()
     }
+
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &super::ClassCssThemeBinding {
         &self.css_binding
     }
+
+    #[must_use]
     pub(crate) fn common_css(&self) -> &crate::svg::PreparedCommonCss {
         &self.common_css
     }
+
+    #[must_use]
     pub(crate) fn note_paint(&self) -> Option<&ClassTextPaint> {
         self.note_paint.as_ref()
     }
+
     pub(crate) fn bind_text_paints(
         &self,
         receipt: &mut ClassTextOutcomes,
@@ -320,32 +351,41 @@ impl ClassTextThemePlan {
             .node_paints
             .extend(nodes.into_iter().filter_map(|(id, rule)| {
                 rule.and_then(generic)
-                    .map(|rule| (id.as_ref().into(), rule))
+                    .map(|rule_2| (<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(id.as_ref()), rule_2))
             }));
-        if let Some(paint) = &self.note_paint {
-            receipt.node_paints.extend(
-                note_ids
-                    .into_iter()
-                    .map(|id| (id.as_ref().into(), paint.rule_index)),
-            );
+
+        match &self.note_paint {
+            Some(paint) => {
+                receipt.node_paints.extend(
+                    note_ids
+                        .into_iter()
+                        .map(|id| (<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(id.as_ref()), paint.rule_index)),
+                );
+            },
+            ::core::option::Option::None => {},
         }
+
         receipt.namespace_paint = namespace.and_then(|(rule, _)| generic(rule));
         receipt.edge_paint = self.edge_paint.as_ref().map(|paint| paint.rule_index);
         receipt.title_paint = diagram_title.and_then(|(rule, _)| generic(rule));
     }
 
+    #[must_use]
     pub(crate) fn layout_font_family_css(&self) -> &str {
         &self.layout_font_family_css
     }
 
+    #[must_use]
     pub(crate) const fn font_size_px(&self) -> f64 {
         self.font_size_px
     }
 
+    #[must_use]
     pub(crate) const fn typed_font_size_active(&self) -> bool {
         self.typed_font_size_active
     }
 
+    #[must_use]
     pub(crate) fn requires_text_outcomes(&self) -> bool {
         !self.text_rules.is_empty()
             || self.inherited_font_stack.typed_font_stack_active()
@@ -355,6 +395,7 @@ impl ClassTextThemePlan {
                 .has_unsupported_typography_properties()
     }
 
+    #[must_use]
     pub(crate) fn requires_node_style_facts(&self) -> bool {
         self.node_style_facts_requested
             || self.requires_text_outcomes()
@@ -369,11 +410,13 @@ impl ClassTextThemePlan {
     ) {
         text_style.font_family = Some(self.common_css.font_family().to_owned());
         html_calc_text_style.font_family = Some(self.layout_font_family_css().to_owned());
+
         if self.typed_font_size_active() {
             text_style.font_size = self.font_size_px();
         }
     }
 
+    #[must_use]
     pub(crate) fn seal_node_style_facts(
         &self,
         facts: BTreeMap<Box<str>, ClassNodeLabelStyleFacts>,
@@ -396,14 +439,18 @@ impl ClassTextThemePlan {
             })
     }
 
+    #[must_use]
     pub(crate) fn begin_text_outcomes(&self) -> Option<ClassTextOutcomes> {
         self.requires_text_outcomes()
             .then(ClassTextOutcomes::default)
     }
 
     pub(crate) fn record_outcomes(&self, outcomes: Option<ClassTextOutcomes>) {
-        if let Some(outcomes) = outcomes {
-            let _ = self.outcomes.set(outcomes);
+        match outcomes {
+            Some(outcomes_2) => {
+                let _ = self.outcomes.set(outcomes_2);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -419,10 +466,11 @@ impl ClassTextThemePlan {
         };
 
         let mut residuals = Vec::new();
+
         for (id, class) in model.classes() {
             control.checkpoint()?;
-            // Members are separate elements: a px declaration on one member cannot clear a
-            // root-dependent declaration on another. Node styles already include parser copies.
+
+
             let node_uses_html =
                 diagram_use_html_labels || crate::class::class_node_requires_math(class.node);
             let scopes = node_uses_html
@@ -435,22 +483,35 @@ impl ClassTextThemePlan {
                         .chain(&class.methods)
                         .map(|member| std::slice::from_ref(&member.css_style)),
                 );
+
             for styles in scopes {
-                if let Some((ordinal, raw)) = crate::mermaid_style::root_dependent_font_size(
-                    styles.iter().map(String::as_str),
-                    control,
-                )? {
-                    let provenance =
-                        SourceStyleProvenance::label_style(id, SourceStyleChannel::Label, ordinal);
-                    if let Ok(declaration) = SourceStyleDeclaration::parse(raw, provenance) {
-                        residuals.push(SourceStyleResidual::from_declaration(
-                            &declaration,
-                            SourceStyleResidualReason::UnsupportedSurface,
-                        ));
-                    }
+                {
+                    match crate::mermaid_style::root_dependent_font_size(
+                            styles.iter().map(String::as_str),
+                            control,
+                        )? {
+                        Some((ordinal, raw)) => {
+                            let provenance =
+                                SourceStyleProvenance::label_style(id, SourceStyleChannel::Label, ordinal);
+
+                            {
+                                match SourceStyleDeclaration::parse(raw, provenance) {
+                                    Ok(declaration) => {
+                                        residuals.push(SourceStyleResidual::from_declaration(
+                                            &declaration,
+                                            SourceStyleResidualReason::UnsupportedSurface,
+                                        ));
+                                    },
+                                    ::core::result::Result::Err(_) => {},
+                                };
+                            }
+                        },
+                        ::core::option::Option::None => {},
+                    };
                 }
             }
         }
+
         Ok(residuals)
     }
 
@@ -464,6 +525,7 @@ impl ClassTextThemePlan {
                     .is_none_or(ClassTextOutcomes::has_visible_font_run),
             );
         let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
         match self.inherited_font_stack.outcome() {
             InheritedFontStackOutcome::Typed => {
                 match self.outcomes.get() {
@@ -483,55 +545,69 @@ impl ClassTextThemePlan {
             }
             InheritedFontStackOutcome::Inactive => {}
         }
-        let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontSize);
+
+        let key_2 = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontSize);
+
         if self.typed_font_size_requested {
             if !self.typed_font_size_active {
-                evidence.mark_not_applicable(key);
+                evidence.mark_not_applicable(key_2);
             } else {
                 match self.outcomes.get() {
                     Some(receipt) if receipt.has_unverified_font_size_run() => evidence
-                        .mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography),
+                        .mark_residual(key_2, FamilyThemeResidualReason::UnsupportedTypography),
                     Some(receipt) if receipt.proves_font_size() => {
-                        evidence.mark_applied_with_capabilities(key, [ThemeCapability::Typography]);
+                        evidence.mark_applied_with_capabilities(key_2, [ThemeCapability::Typography]);
                     }
                     Some(receipt) if !receipt.has_applicable_font_size_run() => {
-                        evidence.mark_not_applicable(key)
+                        evidence.mark_not_applicable(key_2)
                     }
                     Some(_) | None => evidence
-                        .mark_residual(key, FamilyThemeResidualReason::UnsupportedTypography),
+                        .mark_residual(key_2, FamilyThemeResidualReason::UnsupportedTypography),
                 }
             }
         }
-        if let Some(receipt) = self.outcomes.get() {
-            for (&index, &capability) in &self.text_rules {
-                if self.fully_shadowed_text_rules.contains(&index) {
-                    evidence.mark_not_applicable(FamilyThemeMechanismKey::Rule {
+
+        match self.outcomes.get() {
+            Some(receipt) => {
+                for (&index, &capability) in &self.text_rules {
+                    if self.fully_shadowed_text_rules.contains(&index) {
+                        evidence.mark_not_applicable(FamilyThemeMechanismKey::Rule {
+                            index,
+                            target: ThemeTarget::Text,
+                        });
+                        continue;
+                    }
+
+                    let capability_2 = match capability {
+                        Some(matched_capability) => matched_capability,
+                        ::core::option::Option::None => continue,
+                    };
+
+                    let (applied, incomplete) = match receipt
+                        .paint_outcomes
+                        .get(&index)
+                        .copied() {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => (false, false),
+                    };
+
+                    if incomplete {
+                        continue;
+                    }
+
+                    let key_3 = FamilyThemeMechanismKey::Rule {
                         index,
                         target: ThemeTarget::Text,
-                    });
-                    continue;
+                    };
+
+                    if applied {
+                        evidence.mark_applied_with_capabilities(key_3, [capability_2]);
+                    } else {
+                        evidence.mark_not_applicable(key_3);
+                    }
                 }
-                let Some(capability) = capability else {
-                    continue;
-                };
-                let (applied, incomplete) = receipt
-                    .paint_outcomes
-                    .get(&index)
-                    .copied()
-                    .unwrap_or_default();
-                if incomplete {
-                    continue;
-                }
-                let key = FamilyThemeMechanismKey::Rule {
-                    index,
-                    target: ThemeTarget::Text,
-                };
-                if applied {
-                    evidence.mark_applied_with_capabilities(key, [capability]);
-                } else {
-                    evidence.mark_not_applicable(key);
-                }
-            }
+            },
+            ::core::option::Option::None => {},
         }
     }
 }
@@ -556,42 +632,51 @@ impl ClassNodeLabelStyleFacts {
         if !facts.parse_valid() {
             self.visible_runs = self.visible_runs.saturating_add(1);
             self.color_ownership_unverified |= !parent_owns_color;
+
             if font_ownership_unverified || !layout_parent_owns_font || !writer_parent_owns_font {
                 self.unverified_font_runs = self.unverified_font_runs.saturating_add(1);
             }
+
             if font_size_ownership_unverified
                 || !layout_parent_owns_font_size
                 || !writer_parent_owns_font_size
             {
                 self.unverified_font_size_runs = self.unverified_font_size_runs.saturating_add(1);
             }
+
             return;
         }
+
         let visible_runs = facts.visible_run_count();
         self.visible_runs = self.visible_runs.saturating_add(visible_runs);
         self.color_ownership_unverified |= color_ownership_unverified;
+
         if !parent_owns_color {
             self.inherited_color_runs = self
                 .inherited_color_runs
                 .saturating_add(facts.inherited_color_run_count());
         }
+
         if font_ownership_unverified {
             self.unverified_font_runs = self.unverified_font_runs.saturating_add(visible_runs);
         } else {
             self.unverified_font_runs = self
                 .unverified_font_runs
                 .saturating_add(facts.unverified_font_family_run_count());
+
             if !layout_parent_owns_font {
                 self.layout_inherited_font_runs = self
                     .layout_inherited_font_runs
                     .saturating_add(facts.inherited_font_family_run_count());
             }
+
             if !writer_parent_owns_font {
                 self.writer_inherited_font_runs = self
                     .writer_inherited_font_runs
                     .saturating_add(facts.inherited_font_family_run_count());
             }
         }
+
         if font_size_ownership_unverified
             || layout_parent_owns_font_size != writer_parent_owns_font_size
         {
@@ -601,16 +686,19 @@ impl ClassNodeLabelStyleFacts {
             self.unverified_font_size_runs = self
                 .unverified_font_size_runs
                 .saturating_add(facts.unverified_font_size_run_count());
+
             if !layout_parent_owns_font_size {
                 self.layout_inherited_font_size_runs = self
                     .layout_inherited_font_size_runs
                     .saturating_add(facts.inherited_font_size_run_count());
             }
+
             if !writer_parent_owns_font_size {
                 self.writer_inherited_font_size_runs = self
                     .writer_inherited_font_size_runs
                     .saturating_add(facts.inherited_font_size_run_count());
             }
+
             if !layout_parent_owns_font_size && !writer_parent_owns_font_size {
                 self.fully_inherited_font_size_runs = self
                     .fully_inherited_font_size_runs
@@ -648,71 +736,88 @@ impl ClassNodeLabelStyleFacts {
             .saturating_add(other.unverified_font_size_runs);
     }
 
+    #[must_use]
     pub(crate) const fn visible_run_count(self) -> usize {
         self.visible_runs
     }
 
+    #[must_use]
     pub(crate) const fn layout_inherited_font_run_count(self) -> usize {
         self.layout_inherited_font_runs
     }
 
+    #[must_use]
     pub(crate) const fn writer_inherited_font_run_count(self) -> usize {
         self.writer_inherited_font_runs
     }
 
+    #[must_use]
     pub(crate) const fn unverified_font_run_count(self) -> usize {
         self.unverified_font_runs
     }
 
+    #[must_use]
     pub(crate) const fn layout_inherited_font_size_run_count(self) -> usize {
         self.layout_inherited_font_size_runs
     }
 
+    #[must_use]
     pub(crate) const fn writer_inherited_font_size_run_count(self) -> usize {
         self.writer_inherited_font_size_runs
     }
 
+    #[must_use]
     pub(crate) const fn fully_inherited_font_size_run_count(self) -> usize {
         self.fully_inherited_font_size_runs
     }
 
+    #[must_use]
     pub(crate) const fn unverified_font_size_run_count(self) -> usize {
         self.unverified_font_size_runs
     }
 }
 
 impl ClassTextTerminalFacts {
+    #[must_use]
     pub(crate) const fn visible_run_count(self) -> usize {
         self.visible_runs
     }
+
+    #[must_use]
     pub(crate) fn with_paint(mut self, emitted: Option<(usize, &str)>, style: &str) -> Self {
         let _ = style;
         self.paint_observation = emitted.map(|(rule, _)| (rule, true));
         self
     }
 
+    #[must_use]
     pub(crate) const fn source_owns_every_visible_run(self) -> bool {
         self.visible_runs != 0 && self.inherited_color_runs == 0 && !self.color_ownership_unverified
     }
 
+    #[must_use]
     pub(crate) const fn has_mixed_color_ownership(self) -> bool {
         self.inherited_color_runs != 0 && self.inherited_color_runs < self.visible_runs
     }
 
+    #[must_use]
     pub(crate) const fn color_ownership_is_unverified(self) -> bool {
         self.color_ownership_unverified
     }
 
+    #[must_use]
     pub(crate) const fn paint_ownership_is_unambiguous(self) -> bool {
         !self.has_mixed_color_ownership() && !self.color_ownership_is_unverified()
     }
 
+    #[must_use]
     pub(crate) const fn has_verified_inherited_paint(self) -> bool {
         self.visible_runs != 0
             && self.inherited_color_runs == self.visible_runs
             && !self.color_ownership_unverified
     }
 
+    #[must_use]
     pub(crate) fn from_node_style_facts(facts: ClassNodeLabelStyleFacts) -> Self {
         Self {
             paint_observation: None,
@@ -729,6 +834,7 @@ impl ClassTextTerminalFacts {
         }
     }
 
+    #[must_use]
     pub(crate) fn inherited_text(text: &str) -> Self {
         let visible_runs = crate::text::VisibleTextStyleFacts::plain_text(text).visible_run_count();
         Self {
@@ -746,6 +852,7 @@ impl ClassTextTerminalFacts {
         }
     }
 
+    #[must_use]
     pub(crate) fn unverified_text(text: &str) -> Self {
         let visible_runs = crate::text::VisibleTextStyleFacts::plain_text(text).visible_run_count();
         Self {
@@ -763,6 +870,7 @@ impl ClassTextTerminalFacts {
         }
     }
 
+    #[must_use]
     pub(crate) fn fixed_font_size_text(text: &str) -> Self {
         let visible_runs = crate::text::VisibleTextStyleFacts::plain_text(text).visible_run_count();
         Self {
@@ -780,6 +888,7 @@ impl ClassTextTerminalFacts {
         }
     }
 
+    #[must_use]
     pub(crate) fn from_visible_style_facts(facts: &crate::text::VisibleTextStyleFacts) -> Self {
         if !facts.parse_valid() {
             return Self {
@@ -796,6 +905,7 @@ impl ClassTextTerminalFacts {
                 unverified_size_runs: 1,
             };
         }
+
         let visible_runs = facts.visible_run_count();
         let inherited_runs = facts.inherited_font_family_run_count();
         Self {
@@ -848,13 +958,18 @@ impl ClassTextOutcomes {
 
     fn record(&mut self, paint: Option<usize>, facts: ClassTextTerminalFacts) {
         self.facts.merge(facts);
-        let Some(index) = paint else {
-            return;
+
+        let index = match paint {
+            Some(matched_index) => matched_index,
+            ::core::option::Option::None => return,
         };
+
         if facts.visible_runs == 0 || facts.source_owns_every_visible_run() {
             return;
         }
+
         let (applied, unverified) = self.paint_outcomes.entry(index).or_default();
+
         if facts.has_verified_inherited_paint() && facts.paint_observation == Some((index, true)) {
             *applied = true;
         } else {
@@ -865,12 +980,15 @@ impl ClassTextOutcomes {
     pub(crate) fn record_node(&mut self, id: &str, facts: ClassTextTerminalFacts) {
         self.record(self.node_paints.get(id).copied(), facts);
     }
+
     pub(crate) fn record_namespace(&mut self, _id: &str, facts: ClassTextTerminalFacts) {
         self.record(self.namespace_paint, facts);
     }
+
     pub(crate) fn record_edge_label(&mut self, _id: &str, facts: ClassTextTerminalFacts) {
         self.record(self.edge_paint, facts);
     }
+
     pub(crate) fn record_cardinality(
         &mut self,
         _id: &str,
@@ -879,30 +997,47 @@ impl ClassTextOutcomes {
     ) {
         self.record(self.edge_paint, facts);
     }
+
     pub(crate) fn record_diagram_title(&mut self, facts: ClassTextTerminalFacts) {
         self.record(self.title_paint, facts);
     }
+
+    #[must_use]
     fn proves_font_family(&self) -> bool {
         self.css_emitted && self.has_applied_font_run() && !self.has_unverified_font_run()
     }
+
+    #[must_use]
     fn proves_font_size(&self) -> bool {
         self.css_emitted && self.has_applied_font_size_run() && !self.has_unverified_font_size_run()
     }
+
+    #[must_use]
     fn has_applied_font_run(&self) -> bool {
         self.facts.layout_inherited_runs != 0 || self.facts.writer_inherited_runs != 0
     }
+
+    #[must_use]
     fn has_visible_font_run(&self) -> bool {
         self.facts.visible_runs != 0
     }
+
+    #[must_use]
     fn has_unverified_font_run(&self) -> bool {
         self.facts.unverified_runs != 0
     }
+
+    #[must_use]
     fn has_applied_font_size_run(&self) -> bool {
         self.facts.fully_inherited_size_runs != 0
     }
+
+    #[must_use]
     fn has_applicable_font_size_run(&self) -> bool {
         self.has_applied_font_size_run()
     }
+
+    #[must_use]
     fn has_unverified_font_size_run(&self) -> bool {
         self.facts.unverified_size_runs != 0
     }

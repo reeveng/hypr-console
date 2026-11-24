@@ -9,6 +9,7 @@ pub(crate) enum SvgTextEntityMode {
 }
 
 impl SvgTextEntityMode {
+    #[must_use]
     pub(crate) fn visible_word(self, word: &str) -> std::borrow::Cow<'_, str> {
         match self {
             Self::DecodedModel => std::borrow::Cow::Borrowed(word),
@@ -59,15 +60,17 @@ pub struct TextMetrics {
 impl TextMetrics {
     /// Apply Mermaid's `labelHelper` minimum without changing the text's height or wrapping.
     /// The caller selects shapes that use `labelHelper`; explicit shape widths remain authoritative.
+    #[must_use]
     pub(crate) fn with_label_min_width(
         mut self,
         label: &str,
         min_width: f64,
         explicit_width: Option<f64>,
     ) -> Self {
-        if !label.is_empty() && !explicit_width.is_some_and(|width| width != 0.0) {
+        if !label.is_empty() && !explicit_width.is_some_and(|width| !::core::matches!(::core::primitive::f64::classify(width), ::core::num::FpCategory::Zero)) {
             self.width = self.width.max(min_width);
         }
+
         self
     }
 }

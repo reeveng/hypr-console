@@ -31,14 +31,22 @@ pub(crate) struct TimelineCssBinding {
 }
 
 impl TimelineCssBinding {
+    #[must_use]
     pub(crate) fn section_font_weight(&self) -> Option<&str> {
         (self.is_redux_theme && !self.sections.is_empty()).then_some(self.font_weight.as_str())
     }
 
+    #[must_use]
     pub(crate) fn node_text_style(&self, base: &crate::text::TextStyle) -> crate::text::TextStyle {
-        let Some(weight) = self.section_font_weight() else {
-            return base.clone();
+        let weight = {
+            let optional_weight = self.section_font_weight();
+
+            match optional_weight {
+                Some(matched_weight) => matched_weight,
+                ::core::option::Option::None => return base.clone(),
+            }
         };
+
         if self.section_font_weight_is_measurable() {
             let mut cascade = crate::mermaid_style::TextStyleCascade::new(
                 base,
@@ -54,6 +62,7 @@ impl TimelineCssBinding {
         }
     }
 
+    #[must_use]
     pub(crate) fn section_font_weight_is_measurable(&self) -> bool {
         self.section_font_weight().is_none_or(|weight| {
             crate::mermaid_style::parse_style_declaration(&format!("font-weight:{weight}"))
@@ -66,14 +75,18 @@ impl TimelineCssBinding {
         })
     }
 
+    #[must_use]
     pub(crate) fn resolve(config: &serde_json::Value) -> Self {
-        let theme = config_string(config, &["theme"]).unwrap_or_else(|| "default".into());
+        let theme = match config_string(config, &["theme"]) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("default"),
+        };
         let color = |key: &str, fallback: &str| {
-            config_string(config, &["themeVariables", key]).unwrap_or_else(|| fallback.into())
+            config_string(config, &["themeVariables", key]).unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(fallback))
         };
         let css = |key: &str, fallback: &str| {
             config_css_number_or_string(config, &["themeVariables", key])
-                .unwrap_or_else(|| fallback.into())
+                .unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(fallback))
         };
         let section_count = super::timeline_theme_color_limit(config);
         let sections = (0..section_count)
@@ -87,9 +100,9 @@ impl TimelineCssBinding {
                 TimelineSectionCssBinding {
                     source_scale_present: source_fill.is_some(),
                     source_inverse_present: source_inverse.is_some(),
-                    c_scale: source_fill.unwrap_or_else(|| fill.into()),
+                    c_scale: source_fill.unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(fill)),
                     c_scale_label: color(&format!("cScaleLabel{index}"), label),
-                    c_scale_inv: source_inverse.unwrap_or_else(|| inverse.into()),
+                    c_scale_inv: source_inverse.unwrap_or_else(|| <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from(inverse)),
                 }
             })
             .collect();
@@ -116,6 +129,7 @@ impl TimelineCssBinding {
         }
     }
 
+    #[must_use]
     pub(crate) fn source_scale(&self, slot: usize) -> Option<&str> {
         let section = self.sections.get(slot)?;
         section
@@ -123,6 +137,7 @@ impl TimelineCssBinding {
             .then_some(section.c_scale.as_str())
     }
 
+    #[must_use]
     pub(crate) fn source_inverse(&self, slot: usize) -> Option<&str> {
         let section = self.sections.get(slot)?;
         section
@@ -130,6 +145,7 @@ impl TimelineCssBinding {
             .then_some(section.c_scale_inv.as_str())
     }
 
+    #[must_use]
     pub(crate) fn has_source_border_slot(&self, slot: usize) -> bool {
         self.border_colors.get(slot).is_some()
     }

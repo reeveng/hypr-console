@@ -9,7 +9,7 @@ use crate::answers::PointOrder;
 use crate::edge_builder::{PathEdge, PathEdgeIter, edge_iter};
 use crate::line_clipper::{self, Column, Row};
 use crate::path_geometry::Boundary;
-use crate::{Path, Point, FloatRectangle, path_geometry};
+use crate::{FloatRectangle, Path, Point, path_geometry};
 
 #[cfg(all(not(feature = "std"), feature = "no-std-float"))]
 use console_core_paths::NoStdFloat;

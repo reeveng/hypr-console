@@ -388,10 +388,10 @@ impl SliceDecoder<'_> {
       };
       self.finish_mb(decoded)?;
       let Ok(exhaustion) = cabac.exhaustion();
-      ensure!(
+      ensure(
         exhaustion != Exhaustion::Overrun,
-        "CABAC read past end of slice data"
-      );
+        || "CABAC read past end of slice data",
+      )?;
       let Ok(terminate) = cabac.decode_terminate();
 
       match terminate {

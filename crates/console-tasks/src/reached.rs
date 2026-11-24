@@ -627,7 +627,10 @@ mod tests {
   fn with_forks() -> Result<Vec<Package>, Never> {
     [
       package(REPOSITORY, &[]),
-      package("console-notes", &[("console-core-mermaid", Kind::Normal)]),
+      package(
+        "console-application-notes",
+        &[("console-core-mermaid", Kind::Normal)],
+      ),
       package("console-lonely", &[]),
     ]
     .into_iter()
@@ -814,7 +817,7 @@ debug = \"line-tables-only\"
       &packages,
     );
 
-    let Ok(wanted) = named(&["console-notes", REPOSITORY]);
+    let Ok(wanted) = named(&["console-application-notes", REPOSITORY]);
 
     assert_eq!(scope, Scope::Packages(wanted));
   }
@@ -824,7 +827,7 @@ debug = \"line-tables-only\"
     let Ok(packages) = with_forks();
     let Ok(scope) = scope_of(&["forks/console-core-mermaid/Cargo.toml"], &packages);
 
-    let Ok(wanted) = named(&["console-notes", REPOSITORY]);
+    let Ok(wanted) = named(&["console-application-notes", REPOSITORY]);
 
     assert_eq!(scope, Scope::Packages(wanted));
   }

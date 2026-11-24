@@ -32,6 +32,7 @@ pub(crate) struct PieSurfaceStroke {
 }
 
 impl PieSurfaceStroke {
+    #[must_use]
     fn baseline(css: String) -> Self {
         Self {
             visible: css,
@@ -43,6 +44,7 @@ impl PieSurfaceStroke {
         self.absent = Some(std::mem::replace(&mut self.visible, css.to_owned()));
     }
 
+    #[must_use]
     pub(crate) fn css(&self, surface_present: bool) -> &str {
         if surface_present {
             &self.visible
@@ -53,6 +55,7 @@ impl PieSurfaceStroke {
 }
 
 impl PieCssBinding {
+    #[must_use]
     pub(super) fn new(
         effective_config: &serde_json::Value,
         font_family_override: Option<&str>,
@@ -125,6 +128,7 @@ impl PieCssBinding {
         self.text_styles[role.index()] = Some(style);
     }
 
+    #[must_use]
     pub(crate) fn text_size(&self, role: PieTextRole) -> &str {
         match role {
             PieTextRole::Title => &self.title_text_size,
@@ -133,6 +137,7 @@ impl PieCssBinding {
         }
     }
 
+    #[must_use]
     pub(crate) fn text_fill(&self, role: PieTextRole) -> &str {
         match role {
             PieTextRole::Title => &self.title_text_color,
@@ -141,26 +146,32 @@ impl PieCssBinding {
         }
     }
 
+    #[must_use]
     pub(crate) fn text_weight(&self, role: PieTextRole) -> Option<&str> {
         self.text_weights[role.index()].as_deref()
     }
 
+    #[must_use]
     pub(crate) fn text_style(&self, role: PieTextRole) -> Option<&str> {
         self.text_styles[role.index()].as_deref()
     }
 
+    #[must_use]
     pub(super) fn text_size_resolution(&self, role: PieTextRole) -> Option<(f64, bool)> {
         super::super::config::pie_font_size(self.text_size(role), self.inherited_font_size)
     }
 
+    #[must_use]
     pub(crate) fn legend_measurement_style(&self) -> TextStyle {
         self.measurement_style(PieTextRole::Legend)
     }
 
+    #[must_use]
     pub(crate) fn title_measurement_style(&self) -> TextStyle {
         self.measurement_style(PieTextRole::Title)
     }
 
+    #[must_use]
     fn measurement_style(&self, role: PieTextRole) -> TextStyle {
         TextStyle {
             font_family: Some(self.common.font_family().to_owned()),

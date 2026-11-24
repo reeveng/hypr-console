@@ -2,7 +2,17 @@
 //!
 //! Port of the `inv_txfm_add_wht_wht_4x4_8bpc_neon` assembly function
 //! from `src/arm/64/itx.S` to safe Rust NEON intrinsics.
-#![allow(clippy::too_many_arguments)]
+//!
+//! The inverse butterfly keeps the source lane order from `iwht4` in itx.S,
+//! including the reversed order of its two middle lanes. The 4x4 transpose
+//! matches `transpose_4x4h` from util.S using 16- then 32-bit interleaves.
+//! The scalar comparisons exercise the same lane order and saturation at the
+//! limits of the destination pixels.
+
+#![allow(
+  clippy::too_many_arguments,
+  reason = "the NEON entry points take the destination, coefficients, transform parameters and SIMD capability explicitly"
+)]
 #![cfg_attr(not(feature = "unchecked"), forbid(unsafe_code))]
 #![cfg_attr(feature = "unchecked", deny(unsafe_code))]
 
@@ -41,7 +51,6 @@ impl WhtOutput {
   }
 }
 
-/// Apply the 4x4 inverse Walsh–Hadamard transform in the source lane order.
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_wht_wht_4x4_8bpc_neon_inner(
@@ -95,22 +104,6 @@ pub(crate) fn inv_txfm_add_wht_wht_4x4_8bpc_neon_inner(
   Ok(())
 }
 
-/// WHT inverse butterfly: the iwht4 macro from itx.S lines 426-435.
-///
-/// Input:  (v16=in0, v17=in1, v18=in2, v19=in3)
-/// Output: (out0, out1, out2, out3)
-///
-/// ```text
-/// t0 = in0 + in1
-/// t2 = in2 - in3
-/// t4 = (t0 - t2) >> 1
-/// t1 = t4 - in1      (stored in out2 position)
-/// t3 = t4 - in3      (stored in out1 position)
-/// out0 = t0 - t3
-/// out1 = t3
-/// out2 = t1
-/// out3 = t2 + t1
-/// ```
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn iwht4([v16, v17, v18, v19]: [int16x4_t; 4]) -> Result<[int16x4_t; 4], Never> {
@@ -133,10 +126,6 @@ fn iwht4([v16, v17, v18, v19]: [int16x4_t; 4]) -> Result<[int16x4_t; 4], Never> 
   Ok([out0, t3, t1, out3])
 }
 
-/// 4x4 transpose for int16x4_t vectors.
-///
-/// Matches the `transpose_4x4h` macro from util.S lines 230-239.
-/// Uses trn1/trn2 at 16-bit level, then trn1/trn2 at 32-bit level.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn transpose_4x4h([r0, r1, r2, r3]: [int16x4_t; 4]) -> Result<[int16x4_t; 4], Never> {
@@ -175,7 +164,6 @@ mod tests {
   use super::*;
   use archmage::SimdToken;
 
-  /// Test that the NEON WHT 4x4 produces identical output to the scalar path.
   #[test]
   fn test_wht_4x4_neon_matches_scalar() -> Rav1dResult {
     let test_coeffs: &[[i16; 16]] = &[
@@ -253,10 +241,10 @@ mod tests {
         "Scalar coefficients not zeroed in test pattern {i}"
       );
     }
+
     Ok(())
   }
 
-  /// Test that the NEON WHT handles saturation correctly at boundaries.
   #[test]
   fn test_wht_4x4_neon_saturation() -> Rav1dResult {
     let token = match Arm64::summon() {
@@ -308,6 +296,7 @@ mod tests {
       inv_txfm_add_wht_wht_4x4_8bpc_neon_inner(token, &mut dst_neon, output, &mut coeff_neon)?;
       assert_eq!(dst_neon, dst_scalar, "Underflow saturation mismatch");
     }
+
     Ok(())
   }
 }

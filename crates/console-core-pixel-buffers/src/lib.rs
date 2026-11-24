@@ -1,6 +1,9 @@
 //! Checked strided rows and owned, row-major color pixels. Each owned pixel contains four eight-bit channels
 //! in red, green, blue, alpha order. With straight alpha, the color channels
 //! store their original intensities independently of opacity.
+//! [`Rgba8`] stores those channels in byte order. [`rgba_pixels`] borrows the
+//! complete pixels in a packed RGBA byte slice, and [`rgba_pixels_mut`]
+//! borrows them mutably.
 
 #![no_std]
 #![forbid(unsafe_code)]
@@ -21,15 +24,12 @@ pub use rows::{RowLayout, RowLayoutError, copy_clamped_window};
 
 pub const BYTES_PER_PIXEL: u32 = 4;
 
-/// The red, green, blue and alpha channels of one pixel, in byte order.
 pub type Rgba8 = [u8; 4];
 
-/// Borrows the complete pixels in a packed RGBA byte slice.
 pub fn rgba_pixels(bytes: &[u8]) -> Result<&[Rgba8], Never> {
   Ok(bytes.as_chunks().0)
 }
 
-/// Mutably borrows the complete pixels in a packed RGBA byte slice.
 pub fn rgba_pixels_mut(bytes: &mut [u8]) -> Result<&mut [Rgba8], Never> {
   Ok(bytes.as_chunks_mut().0)
 }

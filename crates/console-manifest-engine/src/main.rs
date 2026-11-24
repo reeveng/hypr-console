@@ -16,6 +16,7 @@ mod build;
 mod building;
 mod buttons;
 mod confirmation;
+mod device_command;
 mod enough;
 mod generations;
 mod going;
@@ -25,7 +26,9 @@ mod installing;
 mod laying;
 mod machine;
 mod migrating;
+mod migration_files;
 mod packages;
+mod program_staging;
 mod pruning;
 mod room;
 mod screen;
@@ -50,6 +53,7 @@ use console_core_number_conversion::fitted;
 use console_core_words::Words;
 use console_how_far::Progress;
 use console_manifest_migrations::done::Outstanding;
+use console_package_manager_pacman::{self as pacman, PacmanOutput};
 use laying::{Deploy, Put};
 use machine::Ran;
 use manifest::{Manifest, Section};
@@ -193,7 +197,7 @@ fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
       return Err(refusal);
     }
   };
-  let switch_from = match (switch_from, programs, root) {
+  let switch_from_2 = match (switch_from, programs, root) {
     (None, _, _) => None,
     (Some(at), build::Programs::Prebuilt, None) => Some(PathBuf::from(at)),
     (Some(at), _, _) => {
@@ -230,13 +234,21 @@ fn asked(words: &[String]) -> Result<Arguments, ValidationError> {
     },
     pending,
     programs,
-    switch_from,
+    switch_from: switch_from_2,
     paths: paths.to_vec(),
   })
 }
 
 fn main() -> ExitCode {
   let words: Vec<String> = std::env::args().skip(1).collect();
+
+  let Ok(direct) = device_command::dispatch(&words);
+
+  match direct {
+    Some(code) => return code,
+    None => {}
+  }
+
   let asked = match asked(&words) {
     Ok(asked) => asked,
     Err(refusal) => {
@@ -270,7 +282,10 @@ fn main() -> ExitCode {
   }
 
   let root = asked.root;
-  let manifest_root = asked.switch_from.as_deref().unwrap_or(&root);
+  let manifest_root = match asked.switch_from.as_deref() {
+    Some(candidate) => candidate,
+    None => &root,
+  };
   let manifest = match read(manifest_root) {
     Ok(manifest) => manifest,
     Err(fault) => {
@@ -289,12 +304,12 @@ fn main() -> ExitCode {
       return said;
     }
     Action::Apply => {
-      let Ok(said) = report(apply(
-        &root,
-        &manifest,
-        asked.programs,
-        asked.switch_from.as_deref(),
-      ));
+      let Ok(said) = report(apply(Apply {
+        root: &root,
+        manifest: &manifest,
+        programs: asked.programs,
+        switch_from: asked.switch_from.as_deref(),
+      }));
 
       return said;
     }
@@ -410,12 +425,12 @@ fn check(root: &Path, manifest: &Manifest) -> Result<ExitCode, Never> {
   let source = root.join("files");
   let Ok(whoever) = machine::whoever();
   let Ok(have) = confirmation::to("reading packages", || {
-    let Ok(have) = machine::installed_packages();
+    let Ok(have) = pacman::installed();
 
     have
   });
   let Ok(asked_for) = confirmation::to("reading wanted", || {
-    let Ok(asked_for) = machine::wanted_packages();
+    let Ok(asked_for) = pacman::explicit();
 
     asked_for
   });
@@ -1180,12 +1195,21 @@ struct Fetching<'a, 'b> {
   done: u32,
 }
 
-fn apply(
-  root: &Path,
-  manifest: &Manifest,
+#[derive(Clone, Copy)]
+struct Apply<'a> {
+  root: &'a Path,
+  manifest: &'a Manifest,
   programs: build::Programs,
-  switch_from: Option<&Path>,
-) -> Result<(), Unapplied> {
+  switch_from: Option<&'a Path>,
+}
+
+fn apply(asked: Apply<'_>) -> Result<(), Unapplied> {
+  let Apply {
+    root,
+    manifest,
+    programs,
+    switch_from,
+  } = asked;
   let Ok(root_is) = nix_is_root();
 
   match ::core::primitive::bool::then_some(root_is == Root::No, ()) {
@@ -1193,11 +1217,14 @@ fn apply(
     ::core::option::Option::None => {}
   }
 
-  let source = root.join("files");
   let _alone = alone::taking()?;
 
   enough_to_apply(root)?;
-  let manifest_root = switch_from.unwrap_or(root);
+  let manifest_root = match switch_from {
+    Some(candidate) => candidate,
+    None => root,
+  };
+
   match programs {
     build::Programs::Compile => {}
     build::Programs::Prebuilt => {
@@ -1206,8 +1233,8 @@ fn apply(
     }
   }
 
-  let Ok(asked) = console_awake::inhibit(console_awake::InhibitReason::FromStopping);
-  let _staying = match asked {
+  let Ok(inhibited) = console_awake::inhibit(console_awake::InhibitReason::FromStopping);
+  let _staying = match inhibited {
     console_awake::InhibitResult::Acquired(held) => Some(held),
     console_awake::InhibitResult::Failed(said) => {
       println!("{YELLOW}{said}{OFF}");
@@ -1215,10 +1242,12 @@ fn apply(
     }
   };
   let (was, running) = start_generation(manifest_root)?;
+
   match switch_from {
     Some(candidate) => switch_checkout(root, candidate)?,
     None => {}
   }
+
   let Ok(whoever) = machine::whoever();
 
   migrating::run(User(whoever))?;
@@ -1228,58 +1257,7 @@ fn apply(
   let Ok(applying) = confirmation::started();
   let Ok(mut going) = going::Going::starting();
 
-  packages_held(&mut going, manifest)?;
-
-  let Ok(()) = going.through(going::SWEEPING, || {
-    let Ok(()) = swept(manifest);
-  });
-
-  let mut laying = Laying {
-    deploy: Deploy::default(),
-    onto: machine::Here,
-  };
-  let written = staged_files(root, &source, manifest, programs, &mut going, &mut laying)?;
-  let Ok(swapped) = going.through_handed(going::SWAPPING, &mut laying, |laying_4| {
-    laying_4.deploy.swap(&mut laying_4.onto)
-  });
-
-  swapped?;
-
-  let Ok(()) = told_the_rest(&mut going);
-
-  match ::core::primitive::bool::then_some(
-    written.iter().any(|path| path.contains("/systemd/")),
-    (),
-  ) {
-    ::core::option::Option::Some(()) => {
-      let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
-    }
-    ::core::option::Option::None => {}
-  }
-
-  let Ok(()) = buttons::wear_again();
-
-  let Ok(services) = manifest.of(Section::Services);
-  let started = Started {
-    source: &source,
-    written: &written,
-  };
-  let Ok(asked_to_run) = services_running(&mut going, services, started);
-  let Ok(fell) = fallen(&asked_to_run);
-
-  match ::core::primitive::bool::then_some(!fell.is_empty(), ()) {
-    ::core::option::Option::Some(()) => {
-      let Ok(()) = undone(&mut laying, &written, &asked_to_run, &fell);
-
-      return Err(Unapplied::Restore(fell.clone()));
-    }
-    ::core::option::Option::None => {}
-  }
-
-  let Ok(()) = going.through_handed(going::RELEASE, &mut laying, |laying_5| {
-    let Ok(()) = laying_5.deploy.settle(&mut laying_5.onto);
-  });
-  let Ok(()) = masked_and_woken(manifest, &written, whoever);
+  install_generation(asked, &mut going)?;
 
   let Ok(uncommitted) = machine::uncommitted(root);
 
@@ -1314,19 +1292,86 @@ fn apply(
   Ok(())
 }
 
+fn install_generation(
+  Apply {
+    root,
+    manifest,
+    programs,
+    ..
+  }: Apply<'_>,
+  going: &mut going::Going,
+) -> Result<(), Unapplied> {
+  packages_held(going, manifest)?;
+
+  let Ok(()) = going.through(going::SWEEPING, || {
+    let Ok(()) = swept(manifest);
+  });
+
+  let mut laying = Laying {
+    deploy: Deploy::default(),
+    onto: machine::Here,
+  };
+  let source = root.join("files");
+  let written = staged_files(root, &source, manifest, programs, going, &mut laying)?;
+  let Ok(swapped) = going.through_handed(going::SWAPPING, &mut laying, |laying_4| {
+    laying_4.deploy.swap(&mut laying_4.onto)
+  });
+
+  swapped?;
+
+  let Ok(()) = told_the_rest(going);
+
+  match ::core::primitive::bool::then_some(
+    written.iter().any(|path| path.contains("/systemd/")),
+    (),
+  ) {
+    ::core::option::Option::Some(()) => {
+      let Ok(_) = machine::user_systemctl(&["daemon-reload"]);
+    }
+    ::core::option::Option::None => {}
+  }
+
+  let Ok(()) = buttons::wear_again();
+
+  let Ok(services) = manifest.of(Section::Services);
+  let started = Started {
+    source: &source,
+    written: &written,
+  };
+  let Ok(asked_to_run) = services_running(going, services, started);
+  let Ok(fell) = fallen(&asked_to_run);
+
+  match ::core::primitive::bool::then_some(!fell.is_empty(), ()) {
+    ::core::option::Option::Some(()) => {
+      let Ok(()) = undone(&mut laying, &written, &asked_to_run, &fell);
+
+      return Err(Unapplied::Restore(fell.clone()));
+    }
+    ::core::option::Option::None => {}
+  }
+
+  let Ok(()) = going.through_handed(going::RELEASE, &mut laying, |laying_5| {
+    let Ok(()) = laying_5.deploy.settle(&mut laying_5.onto);
+  });
+  let Ok(()) = mask_units(manifest);
+
+  Ok(())
+}
+
 fn switch_checkout(root: &Path, candidate: &Path) -> Result<(), Unapplied> {
-  let exchanged = std::process::Command::new("mv")
+  let Ok(mut exchange) = Program::Mv.command();
+  let exchanged = exchange
     .args(["--exchange", "--no-copy", "-T", "--"])
     .arg(candidate)
     .arg(root)
     .status()
     .map_err(Unapplied::CheckoutSwitch)?;
 
-  match exchanged.success() {
-    true => Ok(()),
-    false => Err(Unapplied::CheckoutSwitch(std::io::Error::other(format!(
-      "mv exited with {exchanged}"
-    )))),
+  match ::core::primitive::bool::then_some(exchanged.success(), ()) {
+    ::core::option::Option::Some(()) => Ok(()),
+    ::core::option::Option::None => Err(Unapplied::CheckoutSwitch(std::io::Error::other(
+      format!("mv exited with {exchanged}"),
+    ))),
   }
 }
 
@@ -1405,32 +1450,54 @@ fn staged_files(
 }
 
 fn recorded(event: boots::Event) -> Result<(), Unapplied> {
+  use console_core_state_machine::{Machine, Transition};
+
   let at = Path::new(generations::KEPT);
   let kept = generations::read(at)?;
-  let Ok(decided) = boots::decide(event, &kept);
+  let Ok(first) = boots::BootRecord::initial_transition(&boots::Recording { event, kept }, None);
+  let ended = console_core_iteration::iterate(first, |turn| {
+    let Transition {
+      state: current,
+      effects,
+    } = turn;
+    let requested: Result<[boots::Effect; 1], _> = effects.try_into();
+    let (state, effect) = match (current, requested) {
+      (boots::State::Finished(result), _) => return Ok(Step::Halt(result)),
+      (waiting, Ok([effect])) => (waiting, effect),
+      (_, Err(_unexpected)) => return Ok(Step::Halt(Err(Unapplied::BootRecordingStopped))),
+    };
+    let report = match effect {
+      boots::Effect::Remember(generation) => {
+        boots::Report::Remembered(remember_boot(at, &generation))
+      }
+      boots::Effect::Select(selection) => boots::Report::Selected(select_boot(selection)),
+    };
+    let Ok(next) = boots::BootRecord::transition(state, report);
 
-  match &decided.generation {
-    Some(generation) => {
-      generations::remember(at, generation)?;
+    Ok(Step::Again(next))
+  });
 
-      let Ok(named) = generation.label();
+  ended.map_err(|_endless| Unapplied::BootRecordingStopped)?
+}
 
-      println!(
-        "generation {named}: tried {} of {}, {:?}",
-        generation.tries,
-        boots::TRIES,
-        generation.boot
-      );
-    }
-    None => {}
-  }
+fn remember_boot(at: &Path, generation: &generations::Generation) -> Result<(), Unapplied> {
+  generations::remember(at, generation)?;
+  let Ok(named) = generation.label();
 
-  let Ok(bootctl) = Program::Bootctl.name();
+  println!(
+    "generation {named}: tried {} of {}, {:?}",
+    generation.tries,
+    boots::TRIES,
+    generation.boot
+  );
 
-  match decided.one_shot {
-    boots::OneShot::Leave => Ok(()),
-    boots::OneShot::Clear => one_shot(&[bootctl, "set-oneshot", ""]),
-    boots::OneShot::Snapshot(generations::SnapshotNumber(number)) => {
+  Ok(())
+}
+
+fn select_boot(selection: boots::Selection) -> Result<(), Unapplied> {
+  match selection {
+    boots::Selection::Clear => one_shot(None),
+    boots::Selection::Snapshot(generations::SnapshotNumber(number)) => {
       let config = Path::new(console_boot_entries::CONFIG);
       let Ok(held) = console_core_atomic_writes::read(config);
       let said = match held {
@@ -1450,13 +1517,16 @@ fn recorded(event: boots::Event) -> Result<(), Unapplied> {
         entry.identifier
       );
 
-      one_shot(&[bootctl, "set-oneshot", &entry.identifier])
+      one_shot(Some(&entry.identifier))
     }
   }
 }
 
-fn one_shot(arguments: &[&str]) -> Result<(), Unapplied> {
-  let Ok(answered) = machine::run_captured(arguments);
+fn one_shot(identifier: Option<&str>) -> Result<(), Unapplied> {
+  let Ok(command) = console_boot_entries::one_shot(identifier);
+  let Ok(program) = command.program.name();
+  let mut starting = std::process::Command::new(program);
+  let Ok(answered) = machine::capture(starting.args(&command.arguments));
 
   match answered.ran {
     Ran::Fine => Ok(()),
@@ -1475,13 +1545,15 @@ fn timed(going: going::Going, applying: std::time::Instant, whoever: &str) -> Re
 
 fn on_the_ordinary_root() -> Result<(), Unapplied> {
   let mounts = Path::new(snapshot::MOUNTS);
-  // The kernel resolves /proc/self to the current process's mount namespace.
+
   let said = match std::fs::read_to_string(mounts) {
     Ok(said) => said,
-    Err(fault) => match fault.kind() {
-      std::io::ErrorKind::NotFound => return Ok(()),
-      _ => return Err(Unapplied::Read(mounts.to_path_buf(), fault)),
-    },
+    Err(fault) => {
+      match ::core::primitive::bool::then_some(fault.kind() == std::io::ErrorKind::NotFound, ()) {
+        ::core::option::Option::Some(()) => return Ok(()),
+        ::core::option::Option::None => return Err(Unapplied::Read(mounts.to_path_buf(), fault)),
+      }
+    }
   };
   let Ok(running) = snapshot::running(&said);
 
@@ -1536,96 +1608,83 @@ fn enough_to_apply(root: &Path) -> Result<(), Unapplied> {
 fn packages_held(going: &mut going::Going, manifest: &Manifest) -> Result<(), Unapplied> {
   let Ok(named) = manifest.of(Section::Packages);
   let Ok(have) = going.through(going::READING, || {
-    let Ok(have) = machine::installed_packages();
+    let Ok(have) = pacman::installed();
 
     have
   });
   let Ok(asked_for) = going.through(going::WANTED, || {
-    let Ok(asked_for) = machine::wanted_packages();
+    let Ok(asked_for) = pacman::explicit();
 
     asked_for
   });
   let Ok(missing) = packages::missing_packages(named, &have);
   let Ok(installed) = going.during(going::PACKAGES, |moving| {
     match ::core::primitive::bool::then_some(missing.is_empty(), ()) {
-      ::core::option::Option::Some(()) => return Ran::Fine,
+      ::core::option::Option::Some(()) => return true,
       ::core::option::Option::None => {}
     }
 
     let Ok(many) = fitted::<_, u32>(missing.len());
     let Ok(()) = moving.say(&format!("{YELLOW}installing{OFF} {}", missing.join(" ")));
 
-    let Ok(pacman) = Program::Pacman.name();
-
-    let arguments: Vec<&str> = [pacman, "-S", "--needed", "--noconfirm"]
-      .into_iter()
-      .chain(missing)
-      .collect();
     let mut fetching = Fetching { moving, done: 0 };
-    let Ok(ran) = machine::run_watched(&arguments, &mut fetching, |fetching_2, line| {
-      let Ok(said) = installing::parse_line(line);
-      let Ok(()) = fetching_2.moving.say(line);
+    let installed = pacman::install_with(missing, &mut fetching, |progress, line, said| {
+      let Ok(()) = progress.moving.say(line);
 
       match said {
-        installing::PacmanOutput::Downloading(name) => {
-          fetching_2.done = fetching_2.done.saturating_add(1);
+        PacmanOutput::Downloading(name) => {
+          progress.done = progress.done.saturating_add(1);
 
           let Ok(far) = installing::fetched(Progress {
-            done: fetching_2.done,
+            done: progress.done,
             many,
           });
-          let Ok(()) = fetching_2
+          let Ok(()) = progress
             .moving
             .far(going::StageFraction(far), &format!("fetching {name}"));
         }
 
-        installing::PacmanOutput::Installing {
+        PacmanOutput::Installing {
           done,
           many: many_2,
           name,
         } => {
           let Ok(far) = installing::overall_fraction(Progress { done, many: many_2 });
           let Ok(counted) = console_how_far::format_count(Progress { done, many: many_2 });
-          let Ok(()) = fetching_2
+          let Ok(()) = progress
             .moving
             .far(going::StageFraction(far), &format!("{counted} {name}"));
         }
 
-        installing::PacmanOutput::Other => {}
+        PacmanOutput::Other => {}
       }
+
+      Ok(())
     });
 
-    ran
+    installed.is_ok_and(|status| status.success())
   });
 
-  match ::core::primitive::bool::then_some(installed == Ran::Badly, ()) {
-    ::core::option::Option::Some(()) => return Err(Unapplied::PacmanRefused),
-    ::core::option::Option::None => {}
+  match ::core::primitive::bool::then_some(installed, ()) {
+    Some(()) => {}
+    None => return Err(Unapplied::PacmanRefused),
   }
 
   let Ok(borrowed) = packages::borrowed(named, &have, &asked_for);
   let Ok(kept) = going.through(going::KEEPING, || {
     match ::core::primitive::bool::then_some(borrowed.is_empty(), ()) {
-      ::core::option::Option::Some(()) => return Ran::Fine,
+      ::core::option::Option::Some(()) => return true,
       ::core::option::Option::None => {}
     }
 
     println!("{YELLOW}keeping{OFF} {}", borrowed.join(" "));
 
-    let Ok(pacman) = Program::Pacman.name();
-
-    let arguments: Vec<&str> = [pacman, "-D", "--asexplicit", "--quiet"]
-      .into_iter()
-      .chain(borrowed)
-      .collect();
-    let Ok(ran) = machine::run_seen(&arguments);
-
-    ran
+    pacman::mark_explicit(borrowed).is_ok_and(|status| status.success())
   });
 
-  match ::core::primitive::bool::then_some(kept == Ran::Badly, ()) {
-    ::core::option::Option::Some(()) => return Err(Unapplied::PacmanUntold),
-    ::core::option::Option::None => {}
+  match ::core::primitive::bool::then_some(kept, ()) {
+    Some(()) => {}
+    None => return Err(Unapplied::PacmanUntold),
   }
 
   Ok(())
@@ -1755,7 +1814,7 @@ fn undone(
   Ok(())
 }
 
-fn masked_and_woken(manifest: &Manifest, written: &[String], whoever: &str) -> Result<(), Never> {
+fn mask_units(manifest: &Manifest) -> Result<(), Never> {
   let Ok(masked) = manifest.of(Section::Masked);
 
   for unit in masked {
@@ -1766,31 +1825,6 @@ fn masked_and_woken(manifest: &Manifest, written: &[String], whoever: &str) -> R
         println!("{YELLOW}masking{OFF} {unit}");
 
         let Ok(_) = machine::user_systemctl(&["mask", unit]);
-      }
-      ::core::option::Option::None => {}
-    }
-  }
-
-  let Ok(woken) = units::woken_by(written);
-
-  for wake in woken {
-    println!("{YELLOW}reloading{OFF} {}", wake.name);
-
-    let Ok(runuser) = Program::Runuser.name();
-    let Ok(program) = wake.program.name();
-    let arguments: Vec<&str> = [runuser, "-u", whoever, "--", program]
-      .into_iter()
-      .chain(wake.arguments.iter().copied())
-      .collect();
-    let Ok(ran) = machine::run_seen(&arguments);
-
-    match ::core::primitive::bool::then_some(ran == Ran::Badly, ()) {
-      ::core::option::Option::Some(()) => {
-        println!(
-          "{RED}did not{OFF} {}: {program} {}",
-          wake.name,
-          wake.arguments.join(" ")
-        );
       }
       ::core::option::Option::None => {}
     }
@@ -1998,41 +2032,100 @@ fn stage_programs(
   here: &mut machine::Here,
   moving: &mut going::Moving,
 ) -> Result<Vec<String>, Unapplied> {
+  use console_core_state_machine::{Machine, Transition};
+  use program_staging::{Effect, Input, ProgramStaging, Report, State};
+
   let Ok(names) = manifest.builds();
+  let programs_to_stage = names.collect::<Vec<_>>();
+  let Ok(first) = ProgramStaging::initial_transition(
+    &Input {
+      programs,
+      names: &programs_to_stage,
+    },
+    None,
+  );
+  let ended = console_core_iteration::iterate(
+    (first, deploy, here, moving),
+    |(turn, deploy_2, here_2, moving_2)| {
+      let Transition {
+        state: current,
+        effects,
+      } = turn;
+      let pending: Result<[Effect<'_>; 1], _> = effects.try_into();
+      let (state, effect) = match (current, pending) {
+        (State::Finished(result), _) => return Ok(Step::Halt(result)),
+        (waiting @ (State::Preparing | State::Staging), Ok([effect])) => (waiting, effect),
+        (State::Preparing | State::Staging, Err(_effects)) => {
+          return Ok(Step::Halt(Err(Unapplied::ProgramStagingStopped)));
+        }
+      };
+      let reply = match effect {
+        Effect::Build(requested) => Report::Prepared(
+          compile(root, requested.iter().copied(), moving_2).map(|()| {
+            let Ok(artifacts) = changed_artifacts(root, requested);
 
-  match ::core::primitive::bool::then_some(names.len() == 0, ()) {
-    ::core::option::Option::Some(()) => return Ok(Vec::new()),
-    ::core::option::Option::None => {}
-  }
+            artifacts
+          }),
+        ),
+        Effect::UsePrebuilt(requested) => {
+          let Ok(()) = moving_2.say("Using the programs supplied with this release.");
+          let Ok(artifacts) = changed_artifacts(root, requested);
 
-  match programs {
-    build::Programs::Compile => compile(root, names.clone(), moving)?,
-    build::Programs::Prebuilt => {
-      let Ok(()) = moving.say("Using the programs supplied with this release.");
-    }
-  }
+          Report::Prepared(Ok(artifacts))
+        }
+        Effect::Stage(artifacts) => {
+          Report::Staged(stage_artifacts(artifacts, deploy_2, here_2, moving_2))
+        }
+      };
+      let Ok(next) = ProgramStaging::transition(state, reply);
 
-  let staging: Vec<_> = names
-    .filter(|name| {
-      let Ok(state) = build::state(root, *name);
-      let Ok(settled) = state.up_to_date();
+      Ok(Step::Again((next, deploy_2, here_2, moving_2)))
+    },
+  );
 
-      settled == UpToDate::No
-    })
-    .collect();
-  let Ok(many) = fitted::<_, u32>(staging.len());
+  ended.map_err(|_endless| Unapplied::ProgramStagingStopped)?
+}
+
+fn changed_artifacts(
+  root: &Path,
+  names: &[manifest::BuildName<'_>],
+) -> Result<Vec<program_staging::Artifact>, Never> {
+  Ok(
+    names
+      .iter()
+      .copied()
+      .filter(|name| {
+        let Ok(state) = build::state(root, *name);
+        let Ok(settled) = state.up_to_date();
+
+        settled == UpToDate::No
+      })
+      .map(|name| {
+        let Ok(live) = build::live(name);
+        let Ok(built) = build::built_path(root, name);
+
+        program_staging::Artifact { built, live }
+      })
+      .collect(),
+  )
+}
+
+fn stage_artifacts(
+  artifacts: Vec<program_staging::Artifact>,
+  deploy: &mut Deploy,
+  here: &mut machine::Here,
+  moving: &mut going::Moving,
+) -> Result<Vec<String>, Unapplied> {
+  let Ok(many) = fitted::<_, u32>(artifacts.len());
 
   let mut staged: Vec<String> = Vec::new();
 
-  for (done, name) in staging.into_iter().enumerate() {
-    let Ok(live) = build::live(name);
-    let Ok(made) = build::built_path(root, name);
-
+  for (done, program_staging::Artifact { built, live }) in artifacts.into_iter().enumerate() {
     let Ok(()) = moving.say(&format!("{YELLOW}staging{OFF} {live}"));
     let Ok(done_2) = fitted::<_, u32>(done);
     let Ok(()) = moving.at(Progress { done: done_2, many }, &live);
 
-    deploy.stage(here, &made, &live)?;
+    deploy.stage(here, &built, &live)?;
 
     staged.push(live);
   }
@@ -2062,9 +2155,9 @@ fn compile<'a>(
     .collect();
   let built = cargo(root, &arguments, moving)?;
 
-  match built.success() {
-    true => Ok(()),
-    false => Err(Unapplied::CargoRefused),
+  match ::core::primitive::bool::then_some(built.success(), ()) {
+    ::core::option::Option::Some(()) => Ok(()),
+    ::core::option::Option::None => Err(Unapplied::CargoRefused),
   }
 }
 
@@ -2293,29 +2386,47 @@ fn nix_is_root() -> Result<Root, Never> {
 
 #[cfg(test)]
 mod tests {
-  use super::{Unapplied, asked, build, on_the_ordinary_root};
+  use super::{Reason, Unapplied, ValidationError, asked, build, on_the_ordinary_root};
   use std::path::Path;
 
   #[test]
-  fn switching_checkouts_requires_prebuilt_apply_and_the_live_root() {
+  fn switching_checkouts_requires_prebuilt_apply_and_the_live_root() -> Result<(), ValidationError>
+  {
     let words = |args: &[&str]| args.iter().map(|word| word.to_string()).collect::<Vec<_>>();
+
     let available = asked(&words(&[
       "apply",
       "--prebuilt",
       "--switch-from",
       "/candidate",
-    ]));
-    let Ok(available) = available else {
-      panic!("the updater's apply invocation was refused");
-    };
+    ]))?;
+
     assert_eq!(available.programs, build::Programs::Prebuilt);
     assert_eq!(
       available.switch_from.as_deref(),
       Some(Path::new("/candidate"))
     );
-    assert!(asked(&words(&["apply", "--switch-from", "/candidate"])).is_err());
-    assert!(asked(&words(&["check", "--prebuilt"])).is_err());
-    assert!(
+    assert!(matches!(
+      asked(&words(&["apply", "--switch-from", "/candidate"])),
+      Err(ValidationError {
+        reason: Reason::InvalidValue {
+          of: "--switch-from",
+          ..
+        },
+        ..
+      })
+    ));
+    assert!(matches!(
+      asked(&words(&["check", "--prebuilt"])),
+      Err(ValidationError {
+        reason: Reason::InvalidValue {
+          of: "--prebuilt",
+          ..
+        },
+        ..
+      })
+    ));
+    assert!(matches!(
       asked(&words(&[
         "apply",
         "--prebuilt",
@@ -2323,9 +2434,17 @@ mod tests {
         "/candidate",
         "--root",
         "/other"
-      ]))
-      .is_err()
-    );
+      ])),
+      Err(ValidationError {
+        reason: Reason::InvalidValue {
+          of: "--switch-from",
+          ..
+        },
+        ..
+      })
+    ));
+
+    Ok(())
   }
 
   #[test]

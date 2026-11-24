@@ -67,6 +67,7 @@ pub(crate) struct C4TypographyThemeReceipt<'a> {
 }
 
 impl C4TypographyThemePlan {
+    #[must_use]
     pub(crate) fn resolve(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &PresentationConfig,
@@ -75,27 +76,29 @@ impl C4TypographyThemePlan {
     ) -> Self {
         let inherited_font_stack =
             InheritedFontStackPlan::resolve_property_local(theme, effective_config);
-        let typed_font_size_requested = theme.is_some_and(|theme| {
-            theme.family_mechanism_routes().iter().any(|route| {
+        let typed_font_size_requested = theme.is_some_and(|theme_2| {
+            theme_2.family_mechanism_routes().iter().any(|route| {
                 route.mechanism()
                     == FamilyThemeMechanism::BaseTypography(ThemeTypographyProperty::FontSize)
                     && route.disposition() == FamilyThemeDisposition::TypedAdapter
             })
         });
-        // The theme-variable path is the typed base-size owner. A top-level `fontSize` remains a
-        // Mermaid-compatible fallback and must not shadow an active typed value.
+
+
         let config_owns_font_size = typed_font_size_requested
             && effective_config.config_path_overrides_typed_default("themeVariables.fontSize");
         let typed_font_size_active = typed_font_size_requested && !config_owns_font_size;
         let font_size_css = match (theme, typed_font_size_active) {
-            (Some(theme), true) => {
-                let font_size_px = f64::from(theme.typography().font_size_px()).max(1.0);
+            (Some(theme_3), true) => {
+                let font_size_px = f64::from(theme_3.typography().font_size_px()).max(1.0);
                 format!("{font_size_px}px").into_boxed_str()
             }
             _ => {
                 let font_size_px =
-                    config_theme_font_size_css_or_root_number_px_opt(effective_config.as_value())
-                        .unwrap_or(16.0)
+                    match config_theme_font_size_css_or_root_number_px_opt(effective_config.as_value()) {
+                        ::core::option::Option::Some(option_value) => option_value,
+                        ::core::option::Option::None => 16.0,
+                    }
                         .max(1.0);
                 format!("{font_size_px}px").into_boxed_str()
             }
@@ -138,11 +141,13 @@ impl C4TypographyThemePlan {
         );
         Self {
             common_css,
-            person_border: crate::config::config_string(
+            person_border: match crate::config::config_string(
                 config,
                 &["themeVariables", "personBorder"],
-            )
-            .unwrap_or_else(|| "hsl(240, 60%, 86.2745098039%)".to_owned()),
+            ) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => "hsl(240, 60%, 86.2745098039%)".to_owned(),
+            },
             person_background: crate::config::config_string(
                 config,
                 &["themeVariables", "personBkg"],
@@ -163,15 +168,22 @@ impl C4TypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn common_css(&self) -> &crate::svg::PreparedCommonCss {
         &self.common_css
     }
+
+    #[must_use]
     pub(crate) fn person_border(&self) -> &str {
         &self.person_border
     }
+
+    #[must_use]
     pub(crate) fn person_background(&self) -> &str {
         &self.person_background
     }
+
+    #[must_use]
     pub(crate) fn element_style(&self, name: &str) -> Option<&C4ElementStyle> {
         self.element_styles.get(name)
     }
@@ -195,16 +207,23 @@ impl C4TypographyThemePlan {
             }
         }))
     }
+
+    #[must_use]
     pub(crate) fn boundary_font(&self) -> &crate::text::TextStyle {
         &self.boundary_font
     }
+
+    #[must_use]
     pub(crate) fn message_font(&self) -> &crate::text::TextStyle {
         &self.message_font
     }
 
+    #[must_use]
     pub(crate) fn relationship_text_color(&self) -> &str {
         &self.relationship_text_color
     }
+
+    #[must_use]
     pub(crate) fn relationship_line_color(&self) -> &str {
         &self.relationship_line_color
     }
@@ -214,18 +233,22 @@ impl C4TypographyThemePlan {
         self.common_css = crate::svg::PreparedCommonCss::new(config, None);
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.inherited_font_stack.font_family_css()
     }
 
+    #[must_use]
     pub(crate) fn font_size_css(&self) -> &str {
         &self.font_size_css
     }
 
+    #[must_use]
     pub(crate) fn typography_requested(&self) -> bool {
         self.inherited_font_stack.typography_requested() || self.typed_font_size_requested
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> Option<C4TypographyThemeReceipt<'_>> {
         self.typography_requested()
             .then(|| C4TypographyThemeReceipt {
@@ -239,6 +262,7 @@ impl C4TypographyThemePlan {
             })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: C4TypographyThemeReceipt<'_>) -> bool {
         receipt
             .seal()
@@ -247,6 +271,7 @@ impl C4TypographyThemePlan {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if !self.typography_requested() {
             return;
         }
@@ -296,7 +321,9 @@ impl C4TypographyThemePlan {
         if !requested {
             return;
         }
+
         let key = FamilyThemeMechanismKey::Typography(property);
+
         if !active {
             evidence.mark_not_applicable(key);
         } else if self.terminal_seal.get().is_none() {
@@ -332,6 +359,7 @@ impl<'a> C4TypographyThemeReceipt<'a> {
         self.title_seen = true;
     }
 
+    #[must_use]
     fn seal(self) -> Option<C4TypographyTerminalSeal> {
         (self.valid
             && self.css_emitted
@@ -343,10 +371,11 @@ impl<'a> C4TypographyThemeReceipt<'a> {
     }
 }
 
+#[must_use]
 fn normalize_title(title: Option<&str>) -> Option<Box<str>> {
     title
         .map(str::trim)
-        .filter(|title| !title.is_empty())
+        .filter(|title_2| !title_2.is_empty())
         .map(Into::into)
 }
 

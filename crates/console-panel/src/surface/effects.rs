@@ -84,7 +84,7 @@ impl Front {
 
   fn over(state: &CardModel, row: Option<&Row>) -> Result<Front, Never> {
     let pressed = row
-      .and_then(|row| row.while_running.as_ref())
+      .and_then(|row_2| row_2.while_running.as_ref())
       .map(|named| named.command.clone());
     let Ok(new) = Front::new();
     let front = Front { pressed, ..new };
@@ -115,7 +115,6 @@ impl Front {
   }
 
   fn apply(self, state: &mut CardModel, rows: &[Row]) -> Result<(), Never> {
-    // Destructure every field so adding a buffered effect requires updating this code.
     let Self {
       at,
       tab,
@@ -133,15 +132,15 @@ impl Front {
     } = self;
 
     match at.into_inner() {
-      Some(at) => state.at = Some(at),
+      Some(at_2) => state.at = Some(at_2),
       None => {}
     }
 
     match tab.into_inner() {
-      Some(tab) => {
+      Some(tab_2) => {
         let Ok(last) = fitted(state.pages.len().saturating_sub(1));
 
-        state.here = tab.min(last);
+        state.here = tab_2.min(last);
         state.selected = Vec::new();
         state.opened = Opened::No;
         state.at = None;
@@ -151,7 +150,7 @@ impl Front {
     }
 
     match opened.into_inner() {
-      Some(opened) => state.opened = opened,
+      Some(opened_2) => state.opened = opened_2,
       None => {}
     }
 
@@ -182,11 +181,11 @@ impl Front {
     }
 
     match asking.into_inner() {
-      Some(asking) => {
+      Some(asking_2) => {
         state.prompt_identity = state.prompt_identity.wrapping_add(1);
         state.asking = Some(Prompt {
           identity: state.prompt_identity,
-          ..asking
+          ..asking_2
         });
         state.preedit = None;
       }
@@ -194,7 +193,7 @@ impl Front {
     }
 
     match sure.into_inner() {
-      Some(sure) => state.sure = Some(sure),
+      Some(sure_2) => state.sure = Some(sure_2),
       None => {}
     }
 

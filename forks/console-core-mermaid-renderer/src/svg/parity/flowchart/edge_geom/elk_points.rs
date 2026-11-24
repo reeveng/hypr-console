@@ -10,6 +10,7 @@
 use super::super::*;
 use super::{BoundaryNode, boundary_for_node, intersect_for_layout_shape};
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn missing_section_points(
     ctx: &FlowchartRenderCtx<'_>,
     edge: &crate::flowchart::FlowEdge,
@@ -30,6 +31,7 @@ pub(in crate::svg::parity::flowchart) fn missing_section_points(
     Some(clipped)
 }
 
+#[must_use]
 pub(in crate::svg::parity::flowchart) fn missing_section_label_position(
     ctx: &FlowchartRenderCtx<'_>,
     key: crate::flowchart::FlowchartEdgeKey,
@@ -40,6 +42,7 @@ pub(in crate::svg::parity::flowchart) fn missing_section_label_position(
     if !ctx.uses_elk_adapter_dom || !edge.points.is_empty() {
         return None;
     }
+
     let source = ctx.edges_by_key.get(&key)?;
     let points = missing_section_points(ctx, source, origin_x, origin_y)?;
     let first = points.first()?;
@@ -67,7 +70,7 @@ pub(in crate::svg::parity::flowchart) fn apply_flowchart_elk_endpoint_cutter(
     sanitize_flowchart_elk_points(ctx, edge, origin_x, origin_y, base_points, true, out)
 }
 
-// Adapt family-owned outlines to the shared source port; no provider points are mutated.
+
 #[allow(clippy::too_many_arguments)]
 fn sanitize_flowchart_elk_points(
     ctx: &FlowchartRenderCtx<'_>,
@@ -81,12 +84,25 @@ fn sanitize_flowchart_elk_points(
     use crate::elk_edge_geometry::{self as geometry, Outline, Shape};
     out.clear();
     out.extend_from_slice(base_points);
-    let Some(start_bounds) = boundary_for_node(ctx, &edge.from, origin_x, origin_y) else {
-        return ElkEndpointAdapterCorners::default();
+
+    let start_bounds = {
+        let optional_start_bounds = boundary_for_node(ctx, &edge.from, origin_x, origin_y);
+
+        match optional_start_bounds {
+            Some(matched_start_bounds) => matched_start_bounds,
+            ::core::option::Option::None => return ElkEndpointAdapterCorners::default(),
+        }
     };
-    let Some(end_bounds) = boundary_for_node(ctx, &edge.to, origin_x, origin_y) else {
-        return ElkEndpointAdapterCorners::default();
+
+    let end_bounds = {
+        let optional_end_bounds = boundary_for_node(ctx, &edge.to, origin_x, origin_y);
+
+        match optional_end_bounds {
+            Some(matched_end_bounds) => matched_end_bounds,
+            ::core::option::Option::None => return ElkEndpointAdapterCorners::default(),
+        }
     };
+
     let layout_node = |id: &str, bounds: &BoundaryNode| crate::model::LayoutNode {
         id: id.to_owned(),
         x: bounds.x,
@@ -124,19 +140,23 @@ fn sanitize_flowchart_elk_points(
         intersection: Some(&end_intersection),
     };
     let mut input = Vec::with_capacity(base_points.len() + 2);
+
     if has_section && start_shape != Some("rect33") {
         input.push(crate::model::LayoutPoint {
             x: start_bounds.x,
             y: start_bounds.y,
         });
     }
+
     input.extend_from_slice(base_points);
+
     if has_section && end_shape != Some("rect33") {
         input.push(crate::model::LayoutPoint {
             x: end_bounds.x,
             y: end_bounds.y,
         });
     }
+
     *out = geometry::sanitize(&input, start, end);
     let same_point = |a: &crate::model::LayoutPoint, b: &crate::model::LayoutPoint| {
         (a.x - b.x).abs() < 1e-6 && (a.y - b.y).abs() < 1e-6
@@ -155,6 +175,7 @@ fn sanitize_flowchart_elk_points(
                 .last()
                 .is_some_and(|p| same_point(&out[out.len() - 2], p)),
     };
+
     if has_section {
         finish_endpoint_adapters(
             out,
@@ -177,21 +198,22 @@ fn finish_endpoint_adapters(
     edge_type: Option<&str>,
     compact: bool,
 ) -> ElkEndpointAdapterCorners {
-    // Compact corners are a product projection of the sanitized provider route. Align
-    // them before marker shortening can discard the port that defines the route axis.
+
+
     if compact {
         align_elk_endpoint_adapters_to_route(start, end, &mut adapters, points);
     }
+
     let source_port = adapters.source.then(|| points[1].clone());
     let target_port = adapters.target.then(|| points[points.len() - 2].clone());
     let (start_marker, end_marker) = super::arrow_types_for_edge(edge_type);
-    // Mermaid applies the end adjustment before the start adjustment.
+
     crate::elk_edge_geometry::marker_segment(points, end, end_marker, false);
     crate::elk_edge_geometry::marker_segment(points, start, start_marker, true);
-    // Removing either terminal port can also exhaust the opposite adapter's segment.
+
     let same_port = |port: Option<&crate::model::LayoutPoint>, index: usize| {
         port.zip(points.get(index))
-            .is_some_and(|(a, b)| a.x == b.x && a.y == b.y)
+            .is_some_and(|(a, b)| <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&a.x, &b.x) == ::core::option::Option::Some(::core::cmp::Ordering::Equal) && <::core::primitive::f64 as ::core::cmp::PartialOrd>::partial_cmp(&a.y, &b.y) == ::core::option::Option::Some(::core::cmp::Ordering::Equal))
     };
     adapters.source = points.len() > 2 && same_port(source_port.as_ref(), 1);
     adapters.target =
@@ -205,6 +227,7 @@ fn align_elk_endpoint_adapters_to_route(
     adapters: &mut ElkEndpointAdapterCorners,
     points: &mut Vec<crate::model::LayoutPoint>,
 ) {
+    #[must_use]
     fn route_intersection(
         shape: crate::elk_edge_geometry::Shape<'_>,
         port: &crate::model::LayoutPoint,
@@ -214,22 +237,26 @@ fn align_elk_endpoint_adapters_to_route(
         let mut dx = route_neighbor.x - port.x;
         let mut dy = route_neighbor.y - port.y;
         let len = dx.hypot(dy);
+
         if !len.is_finite() || len <= 1e-9 {
             return None;
         }
+
         dx /= len;
         dy /= len;
-        // For either endpoint, the neighboring route point lies away from the node.
+
         let inward = -1.0;
 
         let is_inside = |point: &crate::model::LayoutPoint| {
             let boundary = shape.intersect(point);
             let point_distance = (point.x - bounds.x).hypot(point.y - bounds.y);
             let boundary_distance = (boundary.x - bounds.x).hypot(boundary.y - bounds.y);
+
             if boundary_distance <= 1e-9 {
                 return (point.x - bounds.x).abs() <= bounds.width / 2.0
                     && (point.y - bounds.y).abs() <= bounds.height / 2.0;
             }
+
             point_distance <= boundary_distance + 1e-6
         };
 
@@ -240,11 +267,13 @@ fn align_elk_endpoint_adapters_to_route(
         let max_distance = (bounds.width + bounds.height).max(1.0) * 2.0;
         let mut outside_distance = 0.0;
         let mut inside_distance = 1.0;
+
         while inside_distance <= max_distance {
             let candidate = crate::model::LayoutPoint {
                 x: port.x + inward * dx * inside_distance,
                 y: port.y + inward * dy * inside_distance,
             };
+
             if is_inside(&candidate) {
                 for _ in 0..40 {
                     let mid = (outside_distance + inside_distance) / 2.0;
@@ -252,20 +281,24 @@ fn align_elk_endpoint_adapters_to_route(
                         x: port.x + inward * dx * mid,
                         y: port.y + inward * dy * mid,
                     };
+
                     if is_inside(&candidate) {
                         inside_distance = mid;
                     } else {
                         outside_distance = mid;
                     }
                 }
+
                 return Some(crate::model::LayoutPoint {
                     x: port.x + inward * dx * inside_distance,
                     y: port.y + inward * dy * inside_distance,
                 });
             }
+
             outside_distance = inside_distance;
             inside_distance *= 2.0;
         }
+
         None
     }
 
@@ -280,6 +313,7 @@ fn align_elk_endpoint_adapters_to_route(
 
     if adapters.target && points.len() >= 3 {
         let n = points.len();
+
         if let Some(intersection) = route_intersection(end, &points[n - 2], &points[n - 3]) {
             points[n - 1] = intersection;
             points.remove(n - 2);
@@ -331,8 +365,8 @@ mod tests {
         ];
         for compact in [false, true] {
             let mut points = sanitize(&provider, source, target);
-            // Mermaid cutter2 pops the final intersection when its distance to the
-            // target port is below 2. The surviving port is an endpoint, not an adapter.
+
+
             assert_eq!(points.len(), 5);
             let same_point = |a: &P, b: &P| (a.x - b.x).abs() < 1e-6 && (a.y - b.y).abs() < 1e-6;
             let adapters = ElkEndpointAdapterCorners {

@@ -84,7 +84,21 @@ use console_core_words::Words;
 
 mod answer;
 pub mod events;
+pub mod lua;
+mod operation;
+pub mod quick_workspace;
+pub mod session;
+pub mod setup;
 pub mod socket;
+#[cfg(feature = "toplevel-mapping")]
+pub mod thumbnails;
+#[cfg(feature = "toplevel-mapping")]
+mod toplevel_mapping;
+
+pub use lua::{
+  BindingFlag, Coordinates, FullscreenMode, LaunchRules, MonitorRule, WindowChange, quote,
+};
+pub use operation::{Binding, BindingAction, Operation, Script, launch, unbind};
 
 #[cfg(kani)]
 #[path = "../proofs/click_routing.rs"]
@@ -271,34 +285,41 @@ fn ask_recorded_at<Q: Question>(
   Ok(reply)
 }
 
-pub fn ask_with<Q: Question>(
-  mut command: Command,
-  _question: Q,
-) -> Result<Q::Reply, HyprctlError> {
-  let Ok(words) = Q::ASKED.words();
-
-  let output = command
-    .args(words)
-    .output()
-    .map_err(|fault| HyprctlError::Spawn(Q::ASKED, fault))?;
-
-  let printed = match ::core::primitive::bool::then_some(output.status.success(), ()) {
-    ::core::option::Option::Some(()) => output.stdout,
-    ::core::option::Option::None => {
-      let Ok(complaint) = decode(&output.stderr);
-
-      return Err(HyprctlError::Failed(
-        Q::ASKED,
-        complaint.text.trim().to_string(),
-      ));
-    }
-  };
-
+pub fn ask_with<Q: Question>(command: Command, _question: Q) -> Result<Q::Reply, HyprctlError> {
+  let printed = query_output(command, Q::ASKED)?;
   let Ok(said) = answer::text(&printed);
   let value: serde_json::Value =
     read_json(&said).map_err(|fault| HyprctlError::Parse(Q::ASKED, fault))?;
 
   Q::said(value)
+}
+
+pub fn query_text(command: Command, query: Query) -> Result<String, HyprctlError> {
+  let printed = query_output(command, query)?;
+  let Ok(said) = answer::text(&printed);
+
+  Ok(said.into_owned())
+}
+
+fn query_output(mut command: Command, query: Query) -> Result<Vec<u8>, HyprctlError> {
+  let Ok(words) = query.words();
+
+  let output = command
+    .args(words)
+    .output()
+    .map_err(|fault| HyprctlError::Spawn(query, fault))?;
+
+  match ::core::primitive::bool::then_some(output.status.success(), ()) {
+    ::core::option::Option::Some(()) => Ok(output.stdout),
+    ::core::option::Option::None => {
+      let Ok(complaint) = decode(&output.stderr);
+
+      Err(HyprctlError::Failed(
+        query,
+        complaint.text.trim().to_string(),
+      ))
+    }
+  }
 }
 
 pub fn read<Q: Question>(_question: Q, text: &str) -> Result<Q::Reply, HyprctlError> {
@@ -723,16 +744,7 @@ pub fn switch_layout_with(
   name: &str,
   which: u32,
 ) -> Result<DispatchResult, Never> {
-  Ok(
-    match command.args([SWITCH, name, &which.to_string()]).output() {
-      Ok(output) => {
-        let Ok(result) = result_of(&output);
-
-        result
-      }
-      Err(fault) => DispatchResult::Failure(format!("no hyprctl to run: {fault}")),
-    },
-  )
+  run_control(command.args([SWITCH, name, &which.to_string()]))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -804,6 +816,25 @@ pub fn dispatch_at(at: &std::path::Path, line: &str) -> Result<DispatchResult, N
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Layouts<'a>(pub &'a str);
 
+pub fn set_default_layout(layout: &str, overrides: &[&str]) -> Result<DispatchResult, Never> {
+  let Ok(layout_2) = quote(layout);
+  let mut script = format!(
+    "hl.config({{ input = {{ {KB_LAYOUT} = {layout} }} }})",
+    layout = layout_2
+  );
+
+  for name in overrides {
+    let Ok(name_2) = quote(name);
+    script.push_str(&format!(
+      "\nhl.device({{ name = {name}, {KB_LAYOUT} = {layout} }})",
+      layout = layout_2,
+      name = name_2
+    ));
+  }
+
+  request(Request::Script, &script)
+}
+
 pub fn set_layouts(name: &str, layouts: Layouts<'_>) -> Result<DispatchResult, Never> {
   let Ok(lua) = device_layouts(name, layouts);
 
@@ -829,7 +860,28 @@ fn device_layouts(name: &str, layouts: Layouts<'_>) -> Result<String, Never> {
   ))
 }
 
-pub const CLOSE_WINDOW: &str = "hl.dsp.window.close()";
+const CLOSE_WINDOW: &str = "hl.dsp.window.close()";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DisplayPower {
+  On,
+  Off,
+}
+
+impl DisplayPower {
+  pub fn set(self) -> Result<DispatchResult, Never> {
+    let dispatcher = match self {
+      Self::On => lua::ENABLE_DISPLAY,
+      Self::Off => lua::DISABLE_DISPLAY,
+    };
+
+    request(Request::Dispatch, dispatcher)
+  }
+}
+
+pub fn exit() -> Result<DispatchResult, Never> {
+  request(Request::Dispatch, lua::EXIT)
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WindowAction {
@@ -839,8 +891,14 @@ pub enum WindowAction {
 }
 
 impl WindowAction {
+  pub fn dispatch(self, address: &str) -> Result<DispatchResult, Never> {
+    let Ok(dispatcher) = self.dispatcher(address);
+
+    request(Request::Dispatch, &dispatcher)
+  }
+
   pub fn dispatcher(self, address: &str) -> Result<String, Never> {
-    let target = quote(&format!("address:{address}"))?;
+    let Ok(target) = lua::window(address);
     let method = match self {
       Self::Focus => "focus",
       Self::Close => "window.close",
@@ -851,14 +909,20 @@ impl WindowAction {
   }
 }
 
-pub fn focus_window(app_id: &str) -> Result<String, Never> {
+fn focus_window(app_id: &str) -> Result<String, Never> {
   let Ok(target) = quote(&format!("class:^({app_id})$"));
 
   Ok(format!("hl.dsp.focus({{ window = {target} }})"))
 }
 
+pub fn focus_application(app_id: &str) -> Result<DispatchResult, Never> {
+  let Ok(dispatcher) = focus_window(app_id);
+
+  request(Request::Dispatch, &dispatcher)
+}
+
 pub fn paste_into(address: &str) -> Result<DispatchResult, Never> {
-  let Ok(window) = quote(&format!("address:{address}"));
+  let Ok(window) = lua::window(address);
   let lua = format!(
     "hl.dispatch(hl.dsp.send_key_state({{ window = {window}, mods = 'CTRL', key = 'v', state = 'down' }}))\n\
      hl.dispatch(hl.dsp.send_key_state({{ window = {window}, mods = 'CTRL', key = 'v', state = 'up' }}))"
@@ -944,13 +1008,6 @@ pub fn onto(where_: &str, carrying: Carrying) -> Result<String, Never> {
   Ok(format!("{dispatcher}({{workspace = {target}}})"))
 }
 
-pub fn quote(text: &str) -> Result<String, Never> {
-  Ok(format!(
-    "\"{}\"",
-    text.replace('\\', "\\\\").replace('"', "\\\"")
-  ))
-}
-
 pub fn request(request: Request, lua: &str) -> Result<DispatchResult, Never> {
   let Ok(line) = request.line(lua);
 
@@ -972,7 +1029,11 @@ pub fn request_with(
 ) -> Result<DispatchResult, Never> {
   let Ok(word) = request.word();
 
-  Ok(match command.args([word, lua]).output() {
+  run_control(command.args([word, lua]))
+}
+
+fn run_control(command: &mut Command) -> Result<DispatchResult, Never> {
+  Ok(match command.output() {
     Ok(output) => {
       let Ok(result) = result_of(&output);
 
@@ -1271,7 +1332,7 @@ pub fn windows_open(clients: &serde_json::Value) -> Result<Vec<Window>, Never> {
   )
 )]
 pub fn instance() -> Result<Option<String>, Never> {
-  Ok(match std::env::var("HYPRLAND_INSTANCE_SIGNATURE") {
+  Ok(match std::env::var(session::SIGNATURE) {
     Ok(value) => match ::core::primitive::bool::then_some(value.is_empty(), ()) {
       ::core::option::Option::Some(()) => None,
       ::core::option::Option::None => Some(value),

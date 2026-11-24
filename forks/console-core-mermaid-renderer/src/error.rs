@@ -51,6 +51,7 @@ pub(crate) struct ErrorSurfaceReceipt {
 }
 
 impl ErrorSurfaceReceipt {
+    #[must_use]
     fn new(
         expected_font_family_css: &str,
         expected_message: &InheritedTextRunFacts,
@@ -58,7 +59,7 @@ impl ErrorSurfaceReceipt {
         expected_details: &[InheritedTextRunFacts],
     ) -> Self {
         Self {
-            expected_font_family_css: expected_font_family_css.into(),
+            expected_font_family_css: <::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(expected_font_family_css),
             expected_message: expected_message.clone(),
             expected_version: expected_version.clone(),
             expected_details: expected_details.into(),
@@ -81,6 +82,7 @@ impl ErrorSurfaceReceipt {
             self.css_emission_unique = false;
             return;
         }
+
         let expected = self.expected_font_family_css.as_ref();
         self.terminal_matches &= !expected.trim().is_empty();
         self.terminal_matches &= root_font_family_css == expected;
@@ -107,13 +109,16 @@ impl ErrorSurfaceReceipt {
                     self.terminal_matches = false;
                     return;
                 };
+
                 expected
             }
         };
         self.terminal_matches &= expected.matches_terminal(text, font_size_px, x, y);
+
         if text.trim().is_empty() {
             return;
         }
+
         match role {
             ErrorTextRole::Message => {
                 self.message_text_count = self.message_text_count.saturating_add(1);
@@ -127,6 +132,7 @@ impl ErrorSurfaceReceipt {
         }
     }
 
+    #[must_use]
     fn proves_font_stack(&self) -> bool {
         self.css_emitted
             && self.css_emission_unique
@@ -164,13 +170,17 @@ impl ErrorTypographyThemePlan {
         Self::resolve_with_message(theme, effective_config, measurer, None)
     }
 
+    #[must_use]
     pub(crate) fn resolve_with_message(
         theme: Option<&ResolvedDiagramTheme>,
         effective_config: &PresentationConfig,
         measurer: &dyn TextMeasurer,
         message: Option<&str>,
     ) -> Self {
-        let details = wrap_error_message(message.unwrap_or_default());
+        let details = wrap_error_message(match message {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => "",
+        });
         let baseline_height = if details.is_empty() {
             ERROR_BASELINE_VIEWBOX_HEIGHT
         } else {
@@ -218,14 +228,17 @@ impl ErrorTypographyThemePlan {
         }
     }
 
+    #[must_use]
     pub(crate) fn font_family_css(&self) -> &str {
         self.inherited_font_stack.font_family_css()
     }
 
+    #[must_use]
     pub(crate) fn css_binding(&self) -> &crate::svg::PreparedCommonCss {
         &self.css_binding
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> ErrorSurfaceReceipt {
         ErrorSurfaceReceipt::new(
             self.font_family_css(),
@@ -235,44 +248,59 @@ impl ErrorTypographyThemePlan {
         )
     }
 
+    #[must_use]
     pub(crate) const fn viewport_width_px(&self) -> f64 {
         self.terminal_geometry.width_px()
     }
 
+    #[must_use]
     pub(crate) const fn viewport_height_px(&self) -> f64 {
         self.terminal_geometry.height_px()
     }
 
+    #[must_use]
     pub(crate) fn message_geometry(&self) -> &InheritedTextRunFacts {
         self.terminal_geometry.run(0)
     }
 
+    #[must_use]
     pub(crate) fn version_geometry(&self) -> &InheritedTextRunFacts {
         self.terminal_geometry.run(1)
     }
 
+    #[must_use]
     pub(crate) fn detail_geometry(&self) -> &[InheritedTextRunFacts] {
         &self.terminal_geometry.runs()[2..]
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: ErrorSurfaceReceipt) -> bool {
         self.terminal_receipt.set(receipt).is_ok()
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         for route in &self.unsupported_routes {
             evidence.mark_residual(route.key.clone(), route.reason);
         }
-        let Some(receipt) = self.terminal_receipt.get() else {
-            return;
+
+        let receipt = {
+            let optional_receipt = self.terminal_receipt.get();
+
+            match optional_receipt {
+                Some(matched_receipt) => matched_receipt,
+                ::core::option::Option::None => return,
+            }
         };
+
         self.inherited_font_stack
             .record_unsupported_typography_evidence(
                 evidence,
                 receipt.message_text_count != 0 || receipt.version_text_count != 0,
             );
         let key = FamilyThemeMechanismKey::Typography(ThemeTypographyProperty::FontStack);
+
         if self.inherited_font_stack.typed_font_stack_active() {
             if receipt.proves_font_stack() {
                 evidence.mark_applied_with_capabilities(key, [ThemeCapability::Typography]);
@@ -295,11 +323,14 @@ impl ErrorTypographyThemePlan {
     }
 }
 
+#[must_use]
 fn error_unsupported_routes(theme: Option<&ResolvedDiagramTheme>) -> Box<[ErrorUnsupportedRoute]> {
-    let Some(theme) = theme else {
-        return Box::new([]);
+    let theme_2 = match theme {
+        Some(matched_theme) => matched_theme,
+        ::core::option::Option::None => return Box::new([]),
     };
-    theme
+
+    theme_2
         .family_mechanism_routes()
         .iter()
         .copied()
@@ -307,6 +338,7 @@ fn error_unsupported_routes(theme: Option<&ResolvedDiagramTheme>) -> Box<[ErrorU
             if route.disposition() != FamilyThemeDisposition::Unsupported {
                 return None;
             }
+
             let reason = match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet { facet, .. } => {
                     unsupported_residual_for_facet(facet)
@@ -320,7 +352,7 @@ fn error_unsupported_routes(theme: Option<&ResolvedDiagramTheme>) -> Box<[ErrorU
                 FamilyThemeMechanism::BaseTypography(_) => return None,
             };
             Some(ErrorUnsupportedRoute {
-                key: theme.family_mechanism_key(route),
+                key: theme_2.family_mechanism_key(route),
                 reason,
             })
         })
@@ -329,41 +361,51 @@ fn error_unsupported_routes(theme: Option<&ResolvedDiagramTheme>) -> Box<[ErrorU
 }
 
 /// Wraps the upstream error text at 75 Unicode code points and at most four lines.
+#[must_use]
 pub(crate) fn wrap_error_message(message: &str) -> Vec<String> {
     const MAX_LINE_LENGTH: usize = 75;
     const MAX_LINES: usize = 4;
     let mut lines = Vec::new();
     let mut current = String::new();
     let mut current_length = 0;
+
     for token in
         message.split(|ch: char| (ch.is_whitespace() && ch != '\u{0085}') || ch == '\u{feff}')
     {
         let mut chars = token.chars().peekable();
+
         while chars.peek().is_some() {
             let word: String = chars.by_ref().take(MAX_LINE_LENGTH).collect();
             let word_length = word.chars().count();
             let separator_length = usize::from(!current.is_empty());
+
             if current_length + separator_length + word_length > MAX_LINE_LENGTH {
                 lines.push(std::mem::take(&mut current));
+
                 if lines.len() == MAX_LINES {
                     let last = &mut lines[MAX_LINES - 1];
                     *last = last.chars().take(MAX_LINE_LENGTH - 3).collect();
                     last.push_str("...");
                     return lines;
                 }
+
                 current_length = 0;
             }
+
             if !current.is_empty() {
                 current.push(' ');
                 current_length += 1;
             }
+
             current.push_str(&word);
             current_length += word_length;
         }
     }
+
     if !current.is_empty() {
         lines.push(current);
     }
+
     lines
 }
 

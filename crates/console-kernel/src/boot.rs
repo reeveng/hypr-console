@@ -144,6 +144,7 @@ fn own(
   };
 
   let Ok(()) = count_ticks(serial);
+
   match generation::CALCULATOR {
     Some(calculator) => {
       match reserved.prepare() {
@@ -152,6 +153,7 @@ fn own(
       }
 
       let Ok(machine) = machine();
+
       match generation::run(acpi_root, machine, reserved, trap_stack, calculator) {
         Ok(()) => exit(GENERATION_EXIT),
         Err(error) => stop(format_args!("USB keyboard stopped: {error}")),
@@ -160,10 +162,11 @@ fn own(
     None => {}
   }
 
-  let pixels = match userspace::check(reserved, trap_stack) {
-    Ok(pixels) => pixels,
+  match userspace::check(reserved, trap_stack) {
+    Ok(()) => {}
     Err(error) => stop(format_args!("user tasks failed: {error}")),
   };
+
   let Ok(()) = say(
     serial,
     format_args!(
@@ -195,12 +198,7 @@ fn own(
     ),
   );
 
-  run(
-    serial,
-    Bytes(owned),
-    pixels.as_chunks::<{ userspace::FRAME_WIDTH }>().0,
-    acpi_root,
-  )
+  run(serial, Bytes(owned), reserved, trap_stack, acpi_root)
 }
 
 fn say(_serial: &Serial, line: fmt::Arguments<'_>) -> Result<(), Never> {
@@ -318,7 +316,8 @@ fn heap_check(serial: &Serial) -> Result<(), Never> {
 fn run(
   serial: &Serial,
   memory: Bytes,
-  frame: &[[u32; userspace::FRAME_WIDTH]],
+  reserved: &mut Reserved,
+  trap_stack: Address,
   acpi_root: Option<acpi::Root>,
 ) -> ! {
   let page_shown = Cell::new(Presentation::Skipped);
@@ -337,10 +336,21 @@ fn run(
     Exit::Success => {
       let Ok(()) = say(serial, format_args!("console-kernel: every step held"));
 
-      let Ok(()) = report_presentation(serial, page_shown.get(), frame);
+      let Ok(pixels) = reserved.frame.pixels();
+      let Ok(()) = report_presentation(
+        serial,
+        page_shown.get(),
+        pixels.as_chunks::<{ userspace::FRAME_WIDTH }>().0,
+      );
       let Ok(machine) = machine();
+      let Ok(preview) = userspace::document::Preview::new(reserved, trap_stack);
 
-      match input::run(acpi_root, machine) {
+      match input::run(
+        acpi_root,
+        machine,
+        preview,
+        userspace::document::Preview::turn,
+      ) {
         Ok(()) => {}
         Err(error) => stop(format_args!("USB keyboard stopped: {error}")),
       }

@@ -56,17 +56,22 @@ pub(super) enum ArchitectureTextBaseline {
     Middle,
 }
 
+#[must_use]
 pub(super) fn svg_line_plain_text(line: &[SvgWord]) -> String {
     let mut out = String::new();
+
     for (idx, w) in line.iter().enumerate() {
         if idx > 0 {
             out.push(' ');
         }
+
         out.push_str(&w.content);
     }
+
     out
 }
 
+#[must_use]
 fn svg_word_style(
     style: &crate::text::TextStyle,
     word_type: SvgWordType,
@@ -82,14 +87,19 @@ fn svg_word_style(
     word_style
 }
 
+#[must_use]
 fn svg_word_rendered_text(word: &SvgWord, word_index: usize) -> String {
-    if word_index == 0 {
-        word.content.clone()
-    } else {
-        format!(" {}", word.content)
+    match word_index {
+        0 => {
+            word.content.clone()
+        },
+        _ => {
+            format!(" {}", word.content)
+        },
     }
 }
 
+#[must_use]
 fn svg_line_computed_length_px(
     line: &[SvgWord],
     measurer: &dyn crate::text::TextMeasurer,
@@ -105,14 +115,17 @@ fn svg_line_computed_length_px(
         .sum()
 }
 
+#[must_use]
 pub(super) fn svg_service_title_bounds(
     lines: &[SvgLine],
     measurer: &dyn crate::text::TextMeasurer,
     style: &crate::text::TextStyle,
 ) -> Option<Bounds> {
     let mut bounds = None;
+
     for (row_index, line) in lines.iter().enumerate() {
         let mut runs: Vec<(SvgWordType, String)> = Vec::new();
+
         for (word_index, word) in line.iter().enumerate() {
             if let Some((word_type, text)) = runs.last_mut()
                 && *word_type == word.word_type
@@ -127,9 +140,10 @@ pub(super) fn svg_service_title_bounds(
         let mixed_faces = runs.len() > 1;
         let mut advance = 0.0;
         let mut row_bounds = None;
+
         for (word_type, text) in runs {
             let run_style = svg_word_style(style, word_type);
-            // Scalar probes retain each face. Advances position runs; ink widths do not.
+
             let run_advance = if mixed_faces {
                 measurer.measure_svg_text_computed_length_px(&text, &run_style)
             } else {
@@ -152,40 +166,52 @@ pub(super) fn svg_service_title_bounds(
             );
             advance += run_advance;
         }
-        if let Some(mut row) = row_bounds {
-            // Each emitted outer tspan restarts at x=0 and advances by 1.1em per row.
-            let row_y = row_index as f64 * style.font_size.max(1.0) * 1.1;
-            row.min_x -= advance / 2.0;
-            row.max_x -= advance / 2.0;
-            row.min_y += row_y;
-            row.max_y += row_y;
-            extend_bounds(&mut bounds, row);
+
+        match row_bounds {
+            Some(mut row) => {
+
+                let row_y = row_index as f64 * style.font_size.max(1.0) * 1.1;
+                row.min_x -= advance / 2.0;
+                row.max_x -= advance / 2.0;
+                row.min_y += row_y;
+                row.max_y += row_y;
+                extend_bounds(&mut bounds, row);
+            },
+            ::core::option::Option::None => {},
         }
     }
+
     bounds
 }
 
+#[must_use]
 fn svg_line_formatted_bbox_x_px(
     line: &[SvgWord],
     measurer: &dyn crate::text::TextMeasurer,
     style: &crate::text::TextStyle,
 ) -> (f64, f64) {
-    if line.is_empty() {
-        return (0.0, 0.0);
+    match line {
+        [] => {
+            return (0.0, 0.0);
+        },
+        [_, ..] => {},
     }
+
     let text = svg_line_plain_text(line);
     let mut measured_style = style.clone();
-    // The current operation transports one style. Homogeneous rows can therefore preserve the
-    // exact inner-run style; mixed rows still use the correct outer-tspan primitive with the base
-    // style until measurement requests can carry structured runs.
+
+
+
     if let Some(word_type) = line.first().map(|word| word.word_type)
         && line.iter().all(|word| word.word_type == word_type)
     {
         measured_style = svg_word_style(style, word_type);
     }
+
     measurer.measure_svg_text_bbox_x(&text, &measured_style)
 }
 
+#[must_use]
 pub(super) fn svg_line_formatted_bbox_width_px(
     line: &[SvgWord],
     measurer: &dyn crate::text::TextMeasurer,
@@ -195,6 +221,7 @@ pub(super) fn svg_line_formatted_bbox_width_px(
     (left + right).max(0.0)
 }
 
+#[must_use]
 pub(super) fn architecture_svg_text_terminal_bounds(
     lines: &[SvgLine],
     anchor_x: f64,
@@ -226,6 +253,7 @@ pub(super) fn architecture_svg_text_terminal_bounds(
     #[cfg(merman_internal_theme_acceptance)]
     let mut right = 0.0_f64;
     let mut width = 0.0_f64;
+
     for line in lines {
         let (line_left, line_right) = svg_line_formatted_bbox_x_px(line, measurer, style);
         #[cfg(merman_internal_theme_acceptance)]
@@ -236,10 +264,12 @@ pub(super) fn architecture_svg_text_terminal_bounds(
         width = width.max((line_left + line_right).max(0.0));
     }
 
-    let first_line = lines
+    let first_line = match lines
         .first()
-        .map(|line| svg_line_plain_text(line))
-        .unwrap_or_default();
+        .map(|line| svg_line_plain_text(line)) {
+        ::core::option::Option::Some(present) => present,
+        ::core::option::Option::None => ::std::string::String::new(),
+    };
     let first_line_height = measurer
         .measure_svg_tspan_text_bbox_height_px(&first_line, style)
         .max(0.0);
@@ -267,43 +297,50 @@ pub(super) fn architecture_svg_text_terminal_bounds(
     }
 }
 
+#[must_use]
 pub(super) fn wrap_svg_words_to_lines(
     text: &str,
     max_width_px: f64,
     measurer: &dyn crate::text::TextMeasurer,
     style: &crate::text::TextStyle,
 ) -> Vec<SvgLine> {
-    // Mirrors Mermaid `createText(..., { useHtmlLabels: false, width })` behavior for SVG text
-    // labels:
-    // - tokenization matches `markdownToLines(...)`:
-    //   - Markdown parsed (strong/em) into per-word style tags
-    //   - inline HTML is kept as an atomic "word" (even if it contains spaces)
-    //   - plain text splits on ASCII space and drops empties
-    // - long tokens are split by character when they do not fit (via `splitWordToFitWidth`)
-    // - lines are greedily constructed and then split further as needed (`splitLineToFitWidth`)
-    //
-    // References (Mermaid@11.16.0):
-    // - `packages/mermaid/src/rendering-util/createText.ts`
-    // - `packages/mermaid/src/rendering-util/splitText.ts`
-    // - `packages/mermaid/src/rendering-util/handle-markdown-text.ts`
-    let max_width_px = if max_width_px.is_finite() && max_width_px > 0.0 {
+
+
+
+
+
+
+
+
+
+
+
+
+
+    let max_width_px_2 = if max_width_px.is_finite() && max_width_px > 0.0 {
         max_width_px
     } else {
         ARCHITECTURE_CREATE_TEXT_DEFAULT_WRAP_WIDTH_PX
     };
 
+    #[must_use]
     fn check_fit(
         measurer: &dyn crate::text::TextMeasurer,
         style: &crate::text::TextStyle,
         max_width_px: f64,
         line: &[SvgWord],
     ) -> bool {
-        if line.is_empty() {
-            return true;
+        match line {
+            [] => {
+                return true;
+            },
+            [_, ..] => {},
         }
+
         svg_line_computed_length_px(line, measurer, style) <= max_width_px
     }
 
+    #[must_use]
     fn split_word_to_fit_width(
         measurer: &dyn crate::text::TextMeasurer,
         style: &crate::text::TextStyle,
@@ -333,6 +370,7 @@ pub(super) fn wrap_svg_words_to_lines(
                 content: candidate.clone(),
                 word_type: word.word_type,
             };
+
             if check_fit(
                 measurer,
                 style,
@@ -344,11 +382,12 @@ pub(super) fn wrap_svg_words_to_lines(
             }
 
             if used.is_empty() {
-                // If the first character does not fit, split it anyway (Mermaid behavior).
+
                 used.push(ch);
             } else {
                 remaining.push_front(ch);
             }
+
             break;
         }
 
@@ -365,6 +404,7 @@ pub(super) fn wrap_svg_words_to_lines(
         )
     }
 
+    #[must_use]
     fn split_line_to_fit_width(
         measurer: &dyn crate::text::TextMeasurer,
         style: &crate::text::TextStyle,
@@ -395,6 +435,7 @@ pub(super) fn wrap_svg_words_to_lines(
                 let (head, rest) =
                     split_word_to_fit_width(measurer, style, max_width_px, next_word);
                 lines.push(vec![head]);
+
                 if !rest.content.is_empty() {
                     words.push_front(rest);
                 }
@@ -408,28 +449,34 @@ pub(super) fn wrap_svg_words_to_lines(
         lines
     }
 
+    #[must_use]
     fn preprocess_svg_markdown(text: &str) -> String {
-        // Mermaid preprocesses markdown before lexing:
-        // - replace `<br/>` with `\n`
-        // - collapse multiple newlines
-        // - dedent leading indentation
-        //
-        // We reuse our `<br>` normalization and trailing-empty trimming for determinism.
+
+
+
+
+
+
         let joined = crate::text::DeterministicTextMeasurer::normalized_text_lines(text).join("\n");
 
-        // Collapse multiple newlines to one (equivalent to `/\n{2,}/g -> "\n"`).
+
         let mut collapsed = String::with_capacity(joined.len());
         let mut prev_nl = false;
+
         for ch in joined.chars() {
-            if ch == '\n' {
-                if prev_nl {
-                    continue;
-                }
-                prev_nl = true;
-                collapsed.push('\n');
-            } else {
-                prev_nl = false;
-                collapsed.push(ch);
+            match ch {
+                '\n' => {
+                    if prev_nl {
+                        continue;
+                    }
+
+                    prev_nl = true;
+                    collapsed.push('\n');
+                },
+                _ => {
+                    prev_nl = false;
+                    collapsed.push(ch);
+                },
             }
         }
 
@@ -437,15 +484,22 @@ pub(super) fn wrap_svg_words_to_lines(
             .split('\n')
             .map(|s| s.to_string())
             .collect::<Vec<_>>();
-        let min_indent = lines
+        let min_indent = match lines
             .iter()
             .filter(|l| !l.trim().is_empty())
             .map(|l| l.chars().take_while(|c| *c == ' ' || *c == '\t').count())
-            .min()
-            .unwrap_or(0);
-        if min_indent == 0 {
-            return lines.join("\n");
+            .min() {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 0,
+        };
+
+        match min_indent {
+            0 => {
+                return lines.join("\n");
+            },
+            _ => {},
         }
+
         lines
             .into_iter()
             .map(|l| l.chars().skip(min_indent).collect::<String>())
@@ -483,25 +537,37 @@ pub(super) fn wrap_svg_words_to_lines(
                 em_depth = em_depth.saturating_sub(1);
             }
             console_core_markdown::Event::Text(t) | console_core_markdown::Event::Code(t) => {
-                let word_type = if strong_depth > 0 {
-                    SvgWordType::Strong
-                } else if em_depth > 0 {
-                    SvgWordType::Em
-                } else {
-                    SvgWordType::Normal
+                let word_type = match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(strong_depth), &::core::convert::identity(0)); _explicit_ordering } {
+                    ::core::cmp::Ordering::Greater => {
+                        SvgWordType::Strong
+                    },
+                    ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(em_depth), &::core::convert::identity(0)); _explicit_ordering } {
+                        ::core::cmp::Ordering::Greater => {
+                            SvgWordType::Em
+                        },
+                        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+                            SvgWordType::Normal
+                        },
+                    },
                 };
 
                 let parts = t.split('\n').collect::<Vec<_>>();
+
                 for (idx, part) in parts.iter().enumerate() {
-                    if idx != 0 {
-                        current_line += 1;
-                        parsed_lines.push(Vec::new());
+                    match idx {
+                        0 => {},
+                        _ => {
+                            current_line += 1;
+                            parsed_lines.push(Vec::new());
+                        },
                     }
+
                     for word in part.split(' ') {
-                        let word = word.replace("&#39;", "'");
-                        if !word.is_empty() {
+                        let word_2 = word.replace("&#39;", "'");
+
+                        if !word_2.is_empty() {
                             parsed_lines[current_line].push(SvgWord {
-                                content: word,
+                                content: word_2,
                                 word_type,
                             });
                         }
@@ -509,7 +575,7 @@ pub(super) fn wrap_svg_words_to_lines(
                 }
             }
             console_core_markdown::Event::Html(t) => {
-                // Mermaid `markdownToLines` keeps HTML as an atomic word (no whitespace split).
+
                 parsed_lines[current_line].push(SvgWord {
                     content: t.to_string(),
                     word_type: SvgWordType::Normal,
@@ -524,15 +590,17 @@ pub(super) fn wrap_svg_words_to_lines(
     }
 
     let mut out: Vec<SvgLine> = Vec::new();
+
     for line in parsed_lines {
         if line.is_empty() {
             out.push(Vec::new());
             continue;
         }
-        if check_fit(measurer, style, max_width_px, &line) {
+
+        if check_fit(measurer, style, max_width_px_2, &line) {
             out.push(line);
         } else {
-            out.extend(split_line_to_fit_width(measurer, style, max_width_px, line));
+            out.extend(split_line_to_fit_width(measurer, style, max_width_px_2, line));
         }
     }
 
@@ -552,10 +620,16 @@ pub(super) fn write_svg_text_lines(
     let start = out.len();
     out.push_str(r#"<text y="-10.1""#);
     out.push_str(r#" style=""#);
-    if let Some(style) = inline_style {
-        escape_attr_into(out, style);
+
+    match inline_style {
+        Some(style) => {
+            escape_attr_into(out, style);
+        },
+        ::core::option::Option::None => {},
     }
+
     out.push_str(r#"">"#);
+
     if lines.is_empty() || (lines.len() == 1 && lines[0].is_empty()) {
         out.push_str(r#"<tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em"/>"#);
         out.push_str("</text>");
@@ -564,6 +638,7 @@ pub(super) fn write_svg_text_lines(
         #[cfg(not(merman_internal_theme_acceptance))]
         return ArchitectureTextWriterFacts {};
     }
+
     for (idx, line) in lines.iter().enumerate() {
         if idx == 0 {
             out.push_str(r#"<tspan class="text-outer-tspan row" x="0" y="-0.1em" dy="1.1em">"#);
@@ -580,6 +655,7 @@ pub(super) fn write_svg_text_lines(
                 y_em
             );
         }
+
         for (word_idx, word) in line.iter().enumerate() {
             let (font_style, font_weight) = match word.word_type {
                 SvgWordType::Normal => ("normal", "normal"),
@@ -590,16 +666,20 @@ pub(super) fn write_svg_text_lines(
                 out,
                 r#"<tspan font-style="{font_style}" class="text-inner-tspan" font-weight="{font_weight}">"#,
             );
+
             if word_idx == 0 {
                 escape_xml_into(out, word.content.as_str());
             } else {
                 out.push(' ');
                 escape_xml_into(out, word.content.as_str());
             }
+
             out.push_str("</tspan>");
         }
+
         out.push_str("</tspan>");
     }
+
     out.push_str("</text>");
     #[cfg(merman_internal_theme_acceptance)]
     {
@@ -611,6 +691,7 @@ pub(super) fn write_svg_text_lines(
                 .saturating_add(lines.iter().map(Vec::len).sum::<usize>()),
         )
     }
+
     #[cfg(not(merman_internal_theme_acceptance))]
     {
         ArchitectureTextWriterFacts {}

@@ -10,6 +10,7 @@ pub(super) struct ClassEmitCheckpoint<'a> {
 }
 
 impl<'a> ClassEmitCheckpoint<'a> {
+    #[must_use]
     pub(super) fn new(
         checkpoint: &'a dyn Fn() -> crate::Result<()>,
         work_meter: &'a crate::resources::OperationWorkMeter,
@@ -49,33 +50,39 @@ pub(super) struct ClassRenderLookups<'a> {
 }
 
 impl<'a> ClassRenderLookups<'a> {
+    #[must_use]
     pub(super) fn new(model: &'a ClassSvgModel) -> Self {
         let mut class_nodes_by_id: FixedMap<&str, ClassSvgNode<'_>> = FixedMap::default();
         class_nodes_by_id.reserve(model.classes().len());
+
         for (id, n) in model.classes() {
             class_nodes_by_id.insert(id, n);
         }
 
         let mut relations_by_id: FixedMap<&str, ClassSvgRelation<'_>> = FixedMap::default();
         relations_by_id.reserve(model.relations().len());
+
         for r in model.relations() {
             relations_by_id.insert(r.source.id.as_str(), r);
         }
 
         let mut relation_index_by_id: FixedMap<&str, usize> = FixedMap::default();
         relation_index_by_id.reserve(model.relations().len());
+
         for (idx, r) in model.relations().enumerate() {
             relation_index_by_id.insert(r.source.id.as_str(), idx + 1);
         }
 
         let mut note_by_id: FixedMap<&str, ClassSvgNote<'_>> = FixedMap::default();
         note_by_id.reserve(model.notes().len());
+
         for n in model.notes() {
             note_by_id.insert(n.id, n);
         }
 
         let mut iface_by_id: FixedMap<&str, ClassSvgInterface<'_>> = FixedMap::default();
         iface_by_id.reserve(model.interfaces().len());
+
         for i in model.interfaces() {
             iface_by_id.insert(i.id, i);
         }

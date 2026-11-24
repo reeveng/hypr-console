@@ -15,6 +15,7 @@ pub(super) struct ArchitectureRenderSettings {
 }
 
 impl ArchitectureRenderSettings {
+    #[must_use]
     pub(super) fn from_prepared(
         diagram_id: SvgDiagramId<'_>,
         typography: &crate::architecture::ArchitectureTypographyThemePlan,

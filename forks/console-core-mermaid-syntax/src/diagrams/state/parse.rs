@@ -120,10 +120,12 @@ struct StateSemanticFailure {
 
 impl StateSemanticFailure {
     #[cfg(feature = "presentation")]
+    #[must_use]
     fn into_parse_error(self, meta: &SourcePresentationMetadata, fallback_offset: usize) -> Error {
         self.into_parse_error_for_type(&meta.diagram_type, fallback_offset)
     }
 
+    #[must_use]
     fn into_parse_error_for_type(self, diagram_type: &str, fallback_offset: usize) -> Error {
         Error::diagram_parse_diagnostic(
             diagram_type.to_string(),
@@ -171,8 +173,10 @@ impl StateSemanticFailure {
     }
 }
 
+#[must_use]
 fn state_parse_diagnostic(error: &StateGrammarError, fallback_offset: usize) -> ParseDiagnostic {
     let diagnostic = lalrpop_parse_diagnostic(error, fallback_offset);
+
     match error {
         lalrpop_util::ParseError::UnrecognizedToken {
             token: (start, Tok::Newline, end),
@@ -202,6 +206,7 @@ pub(crate) fn parse_state_model_for_render_controlled(
         EditorFactsDemand::Omit,
         control,
     )?;
+
     match construction {
         Ok(source) => source.db.into_model_controlled(meta, control),
         Err(failure) => Ok(Err(failure.into_parse_error(meta, code.len()))),
@@ -221,13 +226,14 @@ pub(crate) fn parse_state_semantic_model_controlled(
         editor_demand,
         control,
     )?;
+
     match construction {
         Ok(StateSemanticSource {
             db,
             #[cfg(feature = "editor-facts")]
             editor_facts,
         }) => {
-            let model = match db.into_semantic_model_controlled(diagram_type, config, control)? {
+            let model = match { let checked_value = db.into_semantic_model_controlled(diagram_type, config, control)?; checked_value } {
                 Ok(mut model) => {
                     super::sanitize_common_db_fields(&mut model, config);
                     control.checkpoint()?;
@@ -362,27 +368,34 @@ pub(super) fn assign_divider_ids(
     cnt: &mut usize,
     control: &OperationControl,
 ) -> OperationControlResult<()> {
-    let Some(root) = document.root else {
-        return Ok(());
+    let root = match document.root {
+        Some(matched_root) => matched_root,
+        ::core::option::Option::None => return Ok(()),
     };
+
     let mut stack = vec![(root, 0usize)];
     let mut inspected = 0usize;
+
     while let Some((doc, index)) = stack.last_mut() {
         if inspected.is_multiple_of(128) {
             control.checkpoint()?;
         }
+
         let Some(stmt) = document.get_mut(*doc).get_mut(*index) else {
             stack.pop();
             continue;
         };
+
         *index += 1;
         let mut child = None;
+
         match stmt {
             StateStatement::State(st) => {
                 if st.ty == "divider" && st.id == "__divider__" {
                     *cnt += 1;
                     st.id = format!("divider-id-{cnt}");
                 }
+
                 child = st.doc;
             }
             StateStatement::Relation(relation) => {
@@ -395,11 +408,17 @@ pub(super) fn assign_divider_ids(
             }
             _ => {}
         }
-        if let Some(child) = child {
-            stack.push((child, 0));
+
+        match child {
+            Some(child_2) => {
+                stack.push((child_2, 0));
+            },
+            ::core::option::Option::None => {},
         }
+
         inspected = inspected.saturating_add(1);
     }
+
     control.checkpoint()
 }
 

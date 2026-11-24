@@ -62,24 +62,25 @@ impl<T> StateLabelSlots<T> {
     fn insert(&mut self, owner: StateLabelOwner<'_>, value: T) {
         match owner {
             StateLabelOwner::Node(id) => {
-                self.nodes.insert(id.into(), value);
+                self.nodes.insert(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(id), value);
             }
             StateLabelOwner::NodeTitle(id) => {
-                self.node_titles.insert(id.into(), value);
+                self.node_titles.insert(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(id), value);
             }
             StateLabelOwner::NodeDescription(id) => {
-                self.node_descriptions.insert(id.into(), value);
+                self.node_descriptions.insert(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(id), value);
             }
             StateLabelOwner::ClusterTitle(id) => {
-                self.cluster_titles.insert(id.into(), value);
+                self.cluster_titles.insert(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(id), value);
             }
             StateLabelOwner::Edge(id) => {
-                self.edges.insert(id.into(), value);
+                self.edges.insert(<::std::boxed::Box<::core::primitive::str> as ::core::convert::From<&::core::primitive::str>>::from(id), value);
             }
         }
     }
 }
 
+#[must_use]
 fn label_slot<'a, T>(slots: &'a StateLabelSlots<T>, owner: StateLabelOwner<'_>) -> Option<&'a T> {
     match owner {
         StateLabelOwner::Node(id) => slots.nodes.get(id),
@@ -96,6 +97,7 @@ pub(crate) struct StateLabelSidecarBuilder {
 }
 
 impl StateLabelSidecarBuilder {
+    #[must_use]
     pub(crate) fn measured_native_geometry(
         &self,
         owner: StateLabelOwner<'_>,
@@ -104,6 +106,7 @@ impl StateLabelSidecarBuilder {
         label_slot(&geometries, owner).cloned()
     }
 
+    #[must_use]
     pub(crate) fn measure_for_layout(
         &self,
         request: StateLabelMetricsRequest<'_>,
@@ -111,20 +114,26 @@ impl StateLabelSidecarBuilder {
         let measurer = request
             .typography
             .svg_measurer(request.measurer, request.wrap_mode);
-        let request = StateLabelMetricsRequest {
+        let request_2 = StateLabelMetricsRequest {
             measurer: measurer.as_measurer(),
             ..request
         };
-        let mut measurement = measure_label(request);
-        if let Some(geometry) = StateNativeLabelGeometry::from_measurement(request, &measurement) {
-            measurement.metrics = geometry.layout_metrics();
-            self.measured_native_geometries
-                .borrow_mut()
-                .insert(request.owner, geometry);
+        let mut measurement = measure_label(request_2);
+
+        match StateNativeLabelGeometry::from_measurement(request_2, &measurement) {
+            Some(geometry) => {
+                measurement.metrics = geometry.layout_metrics();
+                self.measured_native_geometries
+                    .borrow_mut()
+                    .insert(request_2.owner, geometry);
+            },
+            ::core::option::Option::None => {},
         }
+
         measurement
     }
 
+    #[must_use]
     pub(crate) fn finish(self) -> StateLabelSidecar {
         StateLabelSidecar {
             measured_native_geometries: self.measured_native_geometries.into_inner(),
@@ -132,6 +141,7 @@ impl StateLabelSidecarBuilder {
     }
 }
 
+#[must_use]
 fn measure_label(request: StateLabelMetricsRequest<'_>) -> StateLabelMeasurement {
     let style = if request.wrap_mode == WrapMode::HtmlLike {
         std::borrow::Cow::Borrowed(request.typography.text_style())
@@ -141,6 +151,7 @@ fn measure_label(request: StateLabelMetricsRequest<'_>) -> StateLabelMeasurement
             crate::text::MermaidMarkdownWordType::Normal,
         )
     };
+
     match request.source_kind {
         StateLabelSourceKind::Markdown => measure_state_markdown_label(
             request.text,
@@ -180,6 +191,7 @@ pub(crate) struct StateLabelSidecar {
 }
 
 impl StateLabelSidecar {
+    #[must_use]
     pub(crate) fn measured_native_geometry(
         &self,
         owner: StateLabelOwner<'_>,

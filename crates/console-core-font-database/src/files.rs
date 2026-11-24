@@ -1,4 +1,4 @@
-//! Fonts read from disk: one file, every font under a directory, and a file mapped once and shared.
+//! Fonts read from disk: one file, every font under a directory, and a file read once and shared.
 //!
 //! A directory is walked depth first in the order it lists, descending into a
 //! directory the moment it is met, and a file is a font when its extension says
@@ -14,9 +14,8 @@
 //! directory or entry that cannot be read is passed over and said in the log.
 //!
 //! A face read from a file keeps only its path and reads the file again each time
-//! its bytes are asked for. `make_shared_face_data` maps it once and hands every
-//! face of that file the same mapping; the caller promises nothing changes the
-//! file while any face shares it, which is the promise a mapping needs.
+//! its bytes are asked for. `make_shared_face_data` reads it once and hands every
+//! face of that file the same owned bytes.
 
 #[cfg(feature = "memmap")]
 use std::cmp::Ordering;
@@ -96,7 +95,13 @@ impl Database {
     let Ok(read) = faces::read(&source, data, &named);
 
     for face in read {
-      let Ok(_id) = self.push_face_info(face);
+      match self.push_face_info(face) {
+        Ok(_id) => {}
+        Err(full) => {
+          console_core_logging::warn!("loading font '{}': {full}", path.display());
+          break;
+        }
+      }
     }
 
     Ok(())
@@ -130,22 +135,12 @@ impl Database {
   }
 
   #[cfg(feature = "memmap")]
-  #[cfg_attr(
-    dylint_lib = "explicit058_contain_unsafe",
-    expect(
-      explicit058_contain_unsafe,
-      reason = "this opt-in API maps the file only when its caller guarantees that the bytes stay unchanged until every face releases the mapping"
-    )
-  )]
-  #[allow(
-    clippy::missing_safety_doc,
-    reason = "the module head states the promise: nothing changes the font file while any face shares its mapping"
-  )]
-  pub unsafe fn make_shared_face_data(
+  pub fn make_shared_face_data(
     &mut self,
     id: crate::ID,
   ) -> Result<Option<(SharedFontData, u32)>, Never> {
-    let face_info = match self.faces.get(id.0) {
+    let Ok(found) = self.faces.get(id);
+    let face_info = match found {
       Some(face_info) => face_info,
       None => return Ok(None),
     };
@@ -156,14 +151,10 @@ impl Database {
       }
       Source::File(path) => path.clone(),
     };
-    let opened = std::fs::File::open(&path);
-    // SAFETY: the caller keeps the file unchanged for as long as any face shares the mapping.
-    let mapped = opened.and_then(|file| unsafe { memmap2::MmapOptions::new().map(&file) });
-
-    let data = match mapped {
+    let data = match std::fs::read(&path) {
       Ok(data) => data,
       Err(fault) => {
-        console_core_logging::warn!("Cannot map shared font '{}': {}", path.display(), fault);
+        console_core_logging::warn!("Cannot read shared font '{}': {}", path.display(), fault);
 
         return Ok(None);
       }
@@ -171,7 +162,9 @@ impl Database {
     let Ok(shared_data) = shared_font_data(data);
     let shared_source = Source::SharedFile(path.clone(), SharedFontData::clone(&shared_data));
 
-    for (_, face) in self.faces.iter_mut() {
+    let Ok(faces) = self.faces.iter_mut();
+
+    for face in faces {
       match &face.source {
         Source::File(face_path) => match face_path.cmp(&path) {
           Ordering::Equal => face.source = shared_source.clone(),
@@ -186,7 +179,8 @@ impl Database {
 
   #[cfg(feature = "memmap")]
   pub fn make_face_data_unshared(&mut self, id: crate::ID) -> Result<(), Never> {
-    let face_info = match self.faces.get(id.0) {
+    let Ok(found) = self.faces.get(id);
+    let face_info = match found {
       Some(face_info) => face_info,
       None => return Ok(()),
     };
@@ -196,7 +190,9 @@ impl Database {
     };
     let unshared_source = Source::File(shared_path.clone());
 
-    for (_, face) in self.faces.iter_mut() {
+    let Ok(faces) = self.faces.iter_mut();
+
+    for face in faces {
       match &face.source {
         Source::SharedFile(face_path, _) => match face_path.cmp(&shared_path) {
           Ordering::Equal => face.source = unshared_source.clone(),

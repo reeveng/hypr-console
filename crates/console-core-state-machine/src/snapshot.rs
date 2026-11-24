@@ -12,9 +12,11 @@
 //! version it cannot read, and is initialized as if nothing had been saved --
 //! losing a page somebody was on is a smaller fault than refusing to start.
 
+use alloc::vec::Vec;
+use core::cmp::Ordering;
+
 use console_core_checksums::crc32;
 use console_core_never::Never;
-use std::cmp::Ordering;
 
 use crate::Machine;
 use crate::schema::{Decoder, Encoder, ParseError, Serializable};

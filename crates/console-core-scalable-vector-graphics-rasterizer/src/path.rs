@@ -26,7 +26,7 @@ use console_core_scalable_vector_graphics::{
 pub(super) fn render(
   path: &Path,
   blend: BlendMode,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {
@@ -63,7 +63,7 @@ pub(super) fn render(
 pub(super) fn fill_path(
   path: &Path,
   blend: BlendMode,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {
@@ -117,7 +117,7 @@ pub(super) fn fill_path(
 fn stroke_path(
   path: &Path,
   blend: BlendMode,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
   target: &mut PixmapMut<'_>,
 ) -> Result<(), Never> {
@@ -174,7 +174,7 @@ enum ShapePaint<'a> {
 struct PaintSetup<'a> {
   blend: BlendMode,
   coverage: CoverageMode,
-  context: &'a Context,
+  context: &'a Context<'a>,
   opacity: Opacity,
   transform: Transform,
 }
@@ -326,7 +326,7 @@ fn convert_base_gradient(
 )]
 fn render_pattern_pixmap(
   pattern: &SvgPattern,
-  context: &Context,
+  context: &Context<'_>,
   transform: Transform,
 ) -> Result<Option<(Pixmap, Transform)>, Never> {
   let Ok(pattern_transform) = pattern.transform();

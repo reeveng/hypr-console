@@ -145,14 +145,17 @@ pub(crate) use source_styles::{
 pub struct ThemeRecipeFingerprint([u8; 32]);
 
 impl ThemeRecipeFingerprint {
+    #[must_use]
     pub(crate) const fn from_bytes(bytes: [u8; 32]) -> Self {
         Self(bytes)
     }
 
+    #[must_use]
     pub const fn as_bytes(&self) -> &[u8; 32] {
         &self.0
     }
 
+    #[must_use]
     pub fn to_hex(self) -> String {
         self.0.iter().map(|byte| format!("{byte:02x}")).collect()
     }
@@ -176,6 +179,7 @@ pub struct ThemeRecipeReport {
 }
 
 impl ThemeRecipeReport {
+    #[must_use]
     pub(crate) fn compiled(
         theme_recipe_fingerprint: ThemeRecipeFingerprint,
         font_catalog_fingerprint: FontCatalogFingerprint,
@@ -190,28 +194,34 @@ impl ThemeRecipeReport {
         }
     }
 
+    #[must_use]
     pub const fn theme_recipe_fingerprint(&self) -> ThemeRecipeFingerprint {
         self.theme_recipe_fingerprint
     }
 
+    #[must_use]
     pub const fn font_catalog_fingerprint(&self) -> FontCatalogFingerprint {
         self.font_catalog_fingerprint
     }
 
+    #[must_use]
     pub fn required_capabilities(&self) -> impl ExactSizeIterator<Item = ThemeCapability> + '_ {
         self.required_capabilities.iter().copied()
     }
 
+    #[must_use]
     pub fn requires_capability(&self, capability: ThemeCapability) -> bool {
         self.required_capabilities.contains(&capability)
     }
 
+    #[must_use]
     pub fn required_text_capabilities(
         &self,
     ) -> impl ExactSizeIterator<Item = TextLayoutCapability> + '_ {
         self.required_text_capabilities.iter().copied()
     }
 
+    #[must_use]
     pub fn requires_text_capability(&self, capability: TextLayoutCapability) -> bool {
         self.required_text_capabilities.contains(&capability)
     }
@@ -224,22 +234,27 @@ impl DiagramTheme {
     /// Returns the content identity of the canonical recipe and its retained resources.
     ///
     /// This identity does not prove host admission, family evaluation, or output portability.
+    #[must_use]
     pub fn recipe_fingerprint(&self) -> ThemeRecipeFingerprint {
         self.0.recipe_fingerprint
     }
 
+    #[must_use]
     pub(crate) fn source_map(&self) -> &source::ThemeSourceMap {
         &self.0.source_map
     }
 
+    #[must_use]
     pub(crate) fn spec(&self) -> &DiagramThemeSpec {
         self.0.spec.as_ref()
     }
 
+    #[must_use]
     pub(crate) fn root_plan(&self) -> &Arc<application::RootThemePlan> {
         &self.0.root_plan
     }
 
+    #[must_use]
     pub(crate) fn resource_restriction(&self) -> &ThemeResourcePolicy {
         &self.0.resource_restriction
     }
@@ -255,18 +270,22 @@ impl DiagramTheme {
         self.0.spec.effects().check_resources(resources)
     }
 
+    #[must_use]
     pub fn font_catalog(&self) -> &FontCatalog {
         &self.0.catalog
     }
 
+    #[must_use]
     pub fn report(&self) -> &ThemeRecipeReport {
         &self.0.report
     }
 
+    #[must_use]
     pub(crate) fn resolve(&self, family: crate::DiagramFamilyId) -> ResolvedDiagramTheme {
         ResolvedDiagramTheme::new(self.clone(), family)
     }
 
+    #[must_use]
     fn family_program(
         &self,
         family: crate::DiagramFamilyId,
@@ -275,6 +294,7 @@ impl DiagramTheme {
     }
 
     /// Borrows the complete normalized Mermaid compatibility recipe for source installation.
+    #[must_use]
     pub fn compatibility_recipe(&self) -> &merman_model::presentation::ThemeCompatibilityRecipe {
         &self.0.compatibility_recipe
     }
@@ -287,6 +307,7 @@ impl DiagramTheme {
         crate::test_support::install_parse_compatibility(self, engine)
     }
 
+    #[must_use]
     pub(crate) fn requirements(&self) -> &ThemeRequirements {
         &self.0.requirements
     }

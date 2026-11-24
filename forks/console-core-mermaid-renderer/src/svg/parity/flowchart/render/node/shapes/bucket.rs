@@ -8,25 +8,30 @@ use crate::svg::parity::{fmt, fmt_display};
 use super::super::geom::path_from_points;
 use super::super::roughjs::roughjs_paths_for_hand_drawn_svg_path;
 
+#[must_use]
 fn bucket_points(w: f64, top_y: f64, bottom_y: f64, bottom_w: f64, rim_ry: f64) -> Vec<(f64, f64)> {
     const ARC_SEGMENTS: usize = 12;
 
     let mut points = vec![(-w / 2.0, top_y), (-bottom_w / 2.0, bottom_y)];
+
     for step in 1..=ARC_SEGMENTS {
-        // The SVG arc travels from the left rim to the right rim with sweep=0. In the
-        // y-down coordinate system this is the lower half of the ellipse, so sample the
-        // angle from PI down to zero to keep x monotonic and avoid a self-folding polygon.
+
+
+
         let angle = std::f64::consts::PI - std::f64::consts::PI * step as f64 / ARC_SEGMENTS as f64;
         points.push((
             bottom_w / 2.0 * angle.cos(),
             bottom_y + rim_ry * angle.sin(),
         ));
     }
+
     points.push((w / 2.0, top_y));
+
     for step in 1..=ARC_SEGMENTS {
         let angle = std::f64::consts::PI * step as f64 / ARC_SEGMENTS as f64;
         points.push((w / 2.0 * angle.cos(), top_y - rim_ry * angle.sin()));
     }
+
     points
 }
 
@@ -58,6 +63,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_bucket(
         fmt(-w / 2.0),
         fmt(top_y),
     );
+
     if common.look_is_hand_drawn() {
         let _ = write!(
             out,
@@ -67,6 +73,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_bucket(
     } else {
         out.push_str(r#"<g class="basic label-container">"#);
     }
+
     if common.look_is_hand_drawn() {
         if let Some((fill_d, stroke_d)) =
             super::super::helpers::timed_node_roughjs(common.timing, details, || {
@@ -86,7 +93,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_bucket(
                 escape_attr(common.fill_color),
                 escape_attr(&stroke_d),
                 escape_attr(common.stroke_color),
-                fmt_display(common.stroke_width as f64),
+                fmt_display(<f64 as ::core::convert::From<::core::primitive::f32>>::from(common.stroke_width)),
                 escape_attr(common.stroke_dasharray),
             );
         } else {
@@ -120,6 +127,7 @@ pub(in crate::svg::parity::flowchart::render::node) fn render_bucket(
     label.dy = body_center_y;
 }
 
+#[must_use]
 fn prepare_bucket_geometry(
     ctx: &crate::svg::parity::flowchart::types::FlowchartRenderCtx<'_>,
     common: &super::super::FlowchartNodeGeometry<'_>,
@@ -157,6 +165,7 @@ pub(super) fn advance_bucket_rough_geometry(
     if !common.look_is_hand_drawn() {
         return;
     }
+
     let (_, _, _, _, hand_drawn_body) = prepare_bucket_geometry(ctx, common, label);
     let target = super::super::roughjs::RoughGeometryTarget::Query;
     let _ = super::super::helpers::prepare_node_path(common, &hand_drawn_body, target);

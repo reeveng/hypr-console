@@ -26,6 +26,7 @@ pub(super) use crate::sequence::SequenceOperationCheckpoints as SequenceEmitChec
 pub(super) use render::render_sequence_diagram_svg_model_with_config;
 
 /// Escape a prepared text node without interpreting another entity layer.
+#[must_use]
 pub(super) fn escape_prepared_text(text: &str) -> String {
     let mut escaped = String::with_capacity(text.len());
     super::util::escape_xml_raw_into(&mut escaped, text);

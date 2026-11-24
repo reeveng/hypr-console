@@ -27,9 +27,10 @@ struct TimelineEventRadius {
 }
 
 impl TimelineEventRadius {
+    #[must_use]
     fn value(value: f32, node: &crate::model::TimelineNodeLayout) -> Self {
         let max_radius = node.width.max(1.0).min(node.height.max(1.0)) / 2.0;
-        let normalized_value = if value == 0.0 { 0.0 } else { value };
+        let normalized_value = if ::core::matches!(::core::primitive::f32::classify(value), ::core::num::FpCategory::Zero) { 0.0 } else { value };
         let authored_value_px = f64::from(normalized_value);
         let effective_value_px = authored_value_px.min(max_radius);
         let token = if authored_value_px > max_radius {
@@ -76,22 +77,25 @@ struct TimelinePalettePaint {
 }
 
 impl TimelinePalettePaint {
+    #[must_use]
     fn typed(css: impl Into<Box<str>>, capability: ThemeCapability) -> Self {
         Self {
-            css: css.into(),
+            css: <_ as ::core::convert::Into<::std::boxed::Box<::core::primitive::str>>>::into(css),
             capability: Some(capability),
         }
     }
 
+    #[must_use]
     fn source_owned(css: impl Into<Box<str>>) -> Self {
         Self {
-            css: css.into(),
+            css: <_ as ::core::convert::Into<::std::boxed::Box<::core::primitive::str>>>::into(css),
             capability: None,
         }
     }
 }
 
 impl TimelineEventDecision {
+    #[must_use]
     fn baseline() -> Self {
         Self {
             fill: None,
@@ -127,12 +131,14 @@ impl TimelineEventTheme {
         layout: &TimelineDiagramLayout,
         work_meter: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let Some(theme) = theme else {
-            return Ok(Self::baseline());
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::baseline()),
         };
+
         let mut evidence = FamilyThemeOutcomes::default();
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut evidence,
             &[UnsupportedTerminalDomain::direct(
                 ThemeTarget::Title,
@@ -159,8 +165,9 @@ impl TimelineEventTheme {
             effective_config.config_paint_overrides_typed_default("themeVariables.textColor");
         let mut title_fill = None;
         let mut title_fill_winner = None;
+
         if title.is_some() && !title_owned {
-            let style = theme.style_with_work_meter(
+            let style = theme_2.style_with_work_meter(
                 ThemeTarget::Title,
                 ThemeVariant::Default,
                 Some(1),
@@ -171,17 +178,18 @@ impl TimelineEventTheme {
                 .winner()
                 .map(|origin| origin.rule_index());
             title_fill = resolve_direct_static_fill(
-                theme,
+                theme_2,
                 &style,
                 &[ThemeTarget::Title],
                 DirectStaticSelectorDomain::Default,
             )
             .map(DirectPaintExpectation::from_paint);
+
             if matches!(style.fill_resolution().specified(), Specified::Clear)
                 && let Some(origin) = style.fill_resolution().winner()
                 && origin.ordinal().is_none()
                 && matches!(origin.variant(), None | Some(ThemeVariant::Default))
-                && theme.rule_facet_disposition(
+                && theme_2.rule_facet_disposition(
                     origin.rule_index(),
                     FamilyThemeRuleFacet::Fill(FamilyThemePaintKind::Clear),
                 ) == Some(FamilyThemeDisposition::TypedAdapter)
@@ -198,7 +206,8 @@ impl TimelineEventTheme {
                 ));
             }
         }
-        for route in theme.family_mechanism_routes() {
+
+        for route in theme_2.family_mechanism_routes() {
             if let FamilyThemeMechanism::RuleFacet {
                 target: ThemeTarget::Title,
                 rule_index,
@@ -208,19 +217,20 @@ impl TimelineEventTheme {
                 && route.disposition() == FamilyThemeDisposition::TypedAdapter
             {
                 if title_fill_winner != Some(rule_index) {
-                    evidence.mark_not_applicable(theme.family_mechanism_key(*route));
+                    evidence.mark_not_applicable(theme_2.family_mechanism_key(*route));
                 } else if title_fill
                     .as_ref()
                     .is_none_or(|fill| fill.rule_index() != rule_index)
                 {
                     evidence.mark_residual(
-                        theme.family_mechanism_key(*route),
+                        theme_2.family_mechanism_key(*route),
                         FamilyThemeResidualReason::UnsupportedPaint,
                     );
                 }
             }
         }
-        if !theme.family_mechanism_routes().iter().any(|route| {
+
+        if !theme_2.family_mechanism_routes().iter().any(|route| {
             matches!(
                 route.mechanism(),
                 FamilyThemeMechanism::RuleFacet {
@@ -241,30 +251,34 @@ impl TimelineEventTheme {
                 ..Self::baseline()
             });
         }
+
         let event_nodes = timeline_event_nodes(layout);
         let event_count = event_nodes.clone().count();
 
         let palette_key = FamilyThemeMechanismKey::OrdinalPalette {
             target: ThemeTarget::TimelineEvent,
         };
-        let palette_disposition = theme.ordinal_palette_disposition(ThemeTarget::TimelineEvent);
+        let palette_disposition = theme_2.ordinal_palette_disposition(ThemeTarget::TimelineEvent);
         let has_palette_nodes = timeline_palette_nodes(layout).next().is_some();
         let active_palette_slot_limit = binding.sections.len().min(TIMELINE_PALETTE_SLOT_COUNT);
         let mut palette_slots: [Option<TimelinePalettePaint>; TIMELINE_PALETTE_SLOT_COUNT] =
             std::array::from_fn(|_| None);
         let mut palette_line_strokes: [Option<Box<str>>; TIMELINE_PALETTE_SLOT_COUNT] =
             std::array::from_fn(|_| None);
-        // Layout already applies Mermaid's modulo ring before it emits section classes. A valid
-        // class therefore always maps into the active limit; only malformed classes or missing
-        // colors are residuals here.
+
+
+
         let mut missing_palette_slot = false;
         let palette_enabled = palette_disposition == Some(FamilyThemeDisposition::TypedAdapter)
             && !binding.is_redux_theme
             && !binding.use_neo_gradient;
+
         if palette_enabled {
             let mut used_slots = [false; TIMELINE_PALETTE_SLOT_COUNT];
+
             for node in timeline_palette_nodes(layout) {
                 work_meter.charge(1)?;
+
                 if let Some(slot) = timeline_section_slot(&node.section_class)
                     .filter(|slot| *slot < active_palette_slot_limit)
                 {
@@ -273,10 +287,12 @@ impl TimelineEventTheme {
                     missing_palette_slot = true;
                 }
             }
+
             for (slot, used) in used_slots.into_iter().enumerate() {
                 if !used {
                     continue;
                 }
+
                 let color_scale_path = format!("themeVariables.cScale{slot}");
                 let paint =
                     if effective_config.config_paint_overrides_typed_default(&color_scale_path) {
@@ -284,7 +300,7 @@ impl TimelineEventTheme {
                             .source_scale(slot)
                             .map(|color| TimelinePalettePaint::source_owned(color.to_owned()))
                     } else {
-                        theme
+                        theme_2
                             .series_color(ThemeTarget::TimelineEvent, slot + 1)
                             .map(|color| {
                                 TimelinePalettePaint::typed(
@@ -297,19 +313,23 @@ impl TimelineEventTheme {
                                 )
                             })
                     };
-                if let Some(paint) = paint {
-                    let line_stroke =
-                        timeline_classic_line_stroke(effective_config, binding, slot, &paint.css);
-                    missing_palette_slot |= line_stroke.is_none();
-                    palette_line_strokes[slot] = line_stroke;
-                    palette_slots[slot] = Some(paint);
-                } else {
-                    missing_palette_slot = true;
+
+                match paint {
+                    Some(paint_2) => {
+                        let line_stroke =
+                            timeline_classic_line_stroke(effective_config, binding, slot, &paint_2.css);
+                        missing_palette_slot |= line_stroke.is_none();
+                        palette_line_strokes[slot] = line_stroke;
+                        palette_slots[slot] = Some(paint_2);
+                    },
+                    ::core::option::Option::None => {
+                        missing_palette_slot = true;
+                    },
                 }
             }
         }
 
-        let has_event_rules = theme
+        let has_event_rules = theme_2
             .family_rules()
             .any(|(_, rule)| rule.target() == ThemeTarget::TimelineEvent);
         let mut events = if has_event_rules {
@@ -320,7 +340,7 @@ impl TimelineEventTheme {
         let mut winner_counts =
             BTreeMap::<(usize, crate::diagram_theme::ResolvedStyleProperty), usize>::new();
         let mut source_owned_fill_rule_occurrences = BTreeMap::<usize, usize>::new();
-        let static_style = theme.style_with_work_meter(
+        let static_style = theme_2.style_with_work_meter(
             ThemeTarget::TimelineEvent,
             ThemeVariant::Default,
             None,
@@ -328,13 +348,13 @@ impl TimelineEventTheme {
         )?;
         let source_owns_event_stroke =
             effective_config.config_paint_overrides_typed_default("themeVariables.nodeBorder");
-        // nodeBorder is a shared Redux terminal: labels and the activity axis consume it even
-        // when there are no events. Color and Neo shapes have independent paint owners.
+
+
         let stroke_domain_active =
             binding.is_redux_theme && active_palette_slot_limit != 0 && !source_owns_event_stroke;
         let stroke = if stroke_domain_active {
             resolve_direct_static_stroke(
-                theme,
+                theme_2,
                 &static_style,
                 &[ThemeTarget::TimelineEvent],
                 DirectStaticSelectorDomain::Default,
@@ -353,15 +373,17 @@ impl TimelineEventTheme {
         } else {
             None
         };
-        let has_ordinal_event_rules = theme.family_rules().any(|(_, rule)| {
+        let has_ordinal_event_rules = theme_2.family_rules().any(|(_, rule)| {
             rule.target() == ThemeTarget::TimelineEvent && rule.ordinal().is_some()
         });
+
         if event_count != 0 && !has_ordinal_event_rules {
             let style = &static_style;
             collect_winners(style, event_count, &mut winner_counts);
+
             for (event, node) in events.iter_mut().zip(event_nodes.clone()) {
                 apply_event_style(
-                    theme,
+                    theme_2,
                     style,
                     event,
                     node,
@@ -371,7 +393,7 @@ impl TimelineEventTheme {
             }
         } else {
             for (event_index, (event, node)) in events.iter_mut().zip(event_nodes).enumerate() {
-                let style = theme.style_with_work_meter(
+                let style = theme_2.style_with_work_meter(
                     ThemeTarget::TimelineEvent,
                     ThemeVariant::Default,
                     Some(event_index + 1),
@@ -379,7 +401,7 @@ impl TimelineEventTheme {
                 )?;
                 collect_winners(&style, 1, &mut winner_counts);
                 apply_event_style(
-                    theme,
+                    theme_2,
                     &style,
                     event,
                     node,
@@ -390,7 +412,8 @@ impl TimelineEventTheme {
         }
 
         let mut observations = BTreeMap::<usize, TimelineEventRuleObservation>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
                     rule_index,
@@ -401,18 +424,22 @@ impl TimelineEventTheme {
                     let observation = observations.entry(rule_index).or_default();
                     let property = resolved_style_property_for_facet(facet);
                     let is_stroke = matches!(facet, FamilyThemeRuleFacet::Stroke(_));
+
                     if is_stroke && !stroke_domain_active {
-                        // A non-consuming facet cannot seal the whole rule: its fill, geometry,
-                        // or unsupported siblings still need their own winner accounting.
+
+
                         continue;
                     }
+
                     let is_static_stroke =
                         is_stroke && matches!(selector, FamilyThemeSelectorShape::Static { .. });
+
                     if !is_static_stroke
                         && !selector.ordinal_domain_intersects_occurrence_count(event_count)
                     {
                         continue;
                     }
+
                     let route_won = if is_static_stroke {
                         static_style
                             .stroke_resolution()
@@ -421,14 +448,18 @@ impl TimelineEventTheme {
                     } else {
                         winner_counts.contains_key(&(rule_index, property))
                     };
+
                     if !route_won {
                         continue;
                     }
+
                     observation.applicable = true;
+
                     match (route.disposition(), facet) {
                         (FamilyThemeDisposition::TypedAdapter, FamilyThemeRuleFacet::Radius) => {
-                            let property = resolved_style_property_for_facet(facet);
-                            if winner_counts.get(&(rule_index, property)).copied()
+                            let property_2 = resolved_style_property_for_facet(facet);
+
+                            if winner_counts.get(&(rule_index, property_2)).copied()
                                 == Some(
                                     events
                                         .iter()
@@ -442,8 +473,9 @@ impl TimelineEventTheme {
                             }
                         }
                         (FamilyThemeDisposition::TypedAdapter, FamilyThemeRuleFacet::Opacity) => {
-                            let property = resolved_style_property_for_facet(facet);
-                            if winner_counts.get(&(rule_index, property)).copied()
+                            let property_3 = resolved_style_property_for_facet(facet);
+
+                            if winner_counts.get(&(rule_index, property_3)).copied()
                                 == Some(
                                     events
                                         .iter()
@@ -459,8 +491,8 @@ impl TimelineEventTheme {
                             }
                         }
                         (FamilyThemeDisposition::TypedAdapter, FamilyThemeRuleFacet::Fill(_)) => {
-                            let property = resolved_style_property_for_facet(facet);
-                            let wins = winner_counts.get(&(rule_index, property)).copied();
+                            let property_4 = resolved_style_property_for_facet(facet);
+                            let wins = winner_counts.get(&(rule_index, property_4)).copied();
                             let typed_count = events
                                 .iter()
                                 .filter(|event| {
@@ -468,13 +500,19 @@ impl TimelineEventTheme {
                                         == Some(rule_index)
                                 })
                                 .count();
-                            let source_owned_count = source_owned_fill_rule_occurrences
+                            let source_owned_count = match source_owned_fill_rule_occurrences
                                 .get(&rule_index)
-                                .copied()
-                                .unwrap_or_default();
+                                .copied() {
+                                ::core::option::Option::Some(option_value) => option_value,
+                                ::core::option::Option::None => 0,
+                            };
+
                             if wins == Some(typed_count.saturating_add(source_owned_count)) {
-                                if typed_count != 0 {
-                                    observation.fill_pending = true;
+                                match typed_count {
+                                    0 => {},
+                                    _ => {
+                                        observation.fill_pending = true;
+                                    },
                                 }
                             } else {
                                 observation.incomplete = true;
@@ -483,17 +521,17 @@ impl TimelineEventTheme {
                         (FamilyThemeDisposition::TypedAdapter, FamilyThemeRuleFacet::Stroke(_)) => {
                             if stroke
                                 .as_ref()
-                                .is_some_and(|stroke| stroke.paint.rule_index == rule_index)
+                                .is_some_and(|stroke_2| stroke_2.paint.rule_index == rule_index)
                             {
                                 observation.stroke_pending = true;
                             } else {
                                 observation.incomplete = true;
                             }
                         }
-                        (FamilyThemeDisposition::Unsupported, facet) => {
+                        (FamilyThemeDisposition::Unsupported, facet_2) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_2));
                         }
                         (FamilyThemeDisposition::TypedAdapter, _) => {
                             observation.incomplete = true;
@@ -503,7 +541,8 @@ impl TimelineEventTheme {
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::TimelineEvent,
                 } => {
-                    let key = theme.family_mechanism_key(route);
+                    let key = theme_2.family_mechanism_key(route);
+
                     if !has_palette_nodes {
                         evidence.mark_not_applicable(key);
                     } else if route.disposition() == FamilyThemeDisposition::Unsupported {
@@ -524,11 +563,15 @@ impl TimelineEventTheme {
                     target: ThemeTarget::TimelineEvent,
                     ..
                 } => {
-                    let key = theme.family_mechanism_key(route);
-                    if event_count == 0 {
-                        evidence.mark_not_applicable(key);
-                    } else {
-                        evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedEffect);
+                    let key = theme_2.family_mechanism_key(route);
+
+                    match event_count {
+                        0 => {
+                            evidence.mark_not_applicable(key);
+                        },
+                        _ => {
+                            evidence.mark_residual(key, FamilyThemeResidualReason::UnsupportedEffect);
+                        },
                     }
                 }
                 FamilyThemeMechanism::BaseTypography(_)
@@ -539,29 +582,34 @@ impl TimelineEventTheme {
         }
 
         let mut pending = BTreeMap::new();
+
         for (rule_index, observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index: rule_index,
                 target: ThemeTarget::TimelineEvent,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // A mixed rule cannot be signed Applied until every winning facet is accounted.
+
             } else if observation.radius_pending
                 || observation.opacity_pending
                 || observation.fill_pending
                 || observation.stroke_pending
             {
                 let mut capabilities = BTreeSet::new();
+
                 if observation.radius_pending {
                     capabilities.insert(ThemeCapability::RoundedGeometry);
                 }
+
                 if observation.opacity_pending {
                     capabilities.insert(ThemeCapability::Opacity);
                 }
+
                 if observation.fill_pending {
                     capabilities.extend(events.iter().filter_map(|event| {
                         event
@@ -571,9 +619,11 @@ impl TimelineEventTheme {
                             .map(|fill| fill.capability)
                     }));
                 }
+
                 if observation.stroke_pending {
-                    capabilities.extend(stroke.as_ref().map(|stroke| stroke.paint.capability));
+                    capabilities.extend(stroke.as_ref().map(|stroke_3| stroke_3.paint.capability));
                 }
+
                 pending.insert(
                     key,
                     TimelineEventPendingEvidence {
@@ -605,6 +655,7 @@ impl TimelineEventTheme {
         })
     }
 
+    #[must_use]
     pub(crate) fn baseline() -> Self {
         Self {
             title: None,
@@ -621,25 +672,30 @@ impl TimelineEventTheme {
         }
     }
 
+    #[must_use]
     pub(crate) fn title_fill_css(&self) -> Option<&str> {
         self.title_fill.as_ref().map(DirectPaintExpectation::css)
     }
 
+    #[must_use]
     pub(crate) fn record_title_fill(&self, title: &str, fill: Option<&str>) -> bool {
         if self.title_fill.is_none() {
             return fill.is_none();
         }
+
         Some(title) == self.title.as_deref()
             && fill == self.title_fill_css()
             && self.title_terminal.set(()).is_ok()
     }
 
+    #[must_use]
     pub(crate) fn opacity_token_for_event(&self, event_index: usize) -> Option<&str> {
         self.events
             .get(event_index)
             .and_then(|event| event.opacity_token.as_deref())
     }
 
+    #[must_use]
     pub(crate) fn radius_for_event(&self, event_index: usize) -> Option<(&str, f64)> {
         self.events
             .get(event_index)
@@ -647,6 +703,7 @@ impl TimelineEventTheme {
             .map(|radius| (radius.token.as_ref(), radius.value_px))
     }
 
+    #[must_use]
     pub(crate) fn fill_for_event(&self, event_index: usize) -> Option<&str> {
         self.events
             .get(event_index)
@@ -654,10 +711,12 @@ impl TimelineEventTheme {
             .map(|fill| fill.css.as_ref())
     }
 
+    #[must_use]
     pub(crate) fn stroke_for_redux(&self) -> Option<&str> {
         self.stroke.as_ref().map(|stroke| stroke.paint.css.as_ref())
     }
 
+    #[must_use]
     pub(crate) fn palette_fill_for_slot(&self, slot: usize) -> Option<&str> {
         self.palette_slots
             .get(slot)
@@ -665,16 +724,19 @@ impl TimelineEventTheme {
             .map(|paint| paint.css.as_ref())
     }
 
+    #[must_use]
     pub(crate) fn palette_line_stroke_for_slot(&self, slot: usize) -> Option<&str> {
         self.palette_line_strokes
             .get(slot)
             .and_then(Option::as_deref)
     }
 
+    #[must_use]
     pub(crate) fn palette_slot_for_section(&self, section_class: &str) -> Option<usize> {
         timeline_section_slot(section_class)
     }
 
+    #[must_use]
     pub(crate) fn shape_stroke_for_redux(&self) -> Option<&str> {
         self.stroke
             .as_ref()
@@ -682,6 +744,7 @@ impl TimelineEventTheme {
             .map(|stroke| stroke.paint.css.as_ref())
     }
 
+    #[must_use]
     pub(crate) fn begin_emission(&self) -> Option<TimelineEventThemeOutcome> {
         (!self.pending.is_empty() || self.palette_key.is_some() || self.stroke.is_some())
             .then(TimelineEventThemeOutcome::default)
@@ -693,6 +756,7 @@ impl TimelineEventTheme {
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
+
         if self.title_terminal.get().is_some()
             && let Some(fill) = &self.title_fill
         {
@@ -704,9 +768,16 @@ impl TimelineEventTheme {
                 [fill.capability()],
             );
         }
-        let Some(outcome) = self.terminal_outcome.get() else {
-            return;
+
+        let outcome = {
+            let optional_outcome = self.terminal_outcome.get();
+
+            match optional_outcome {
+                Some(matched_outcome) => matched_outcome,
+                ::core::option::Option::None => return,
+            }
         };
+
         for (key, pending) in &self.pending {
             let rule_index = match key {
                 FamilyThemeMechanismKey::Rule { index, .. } => *index,
@@ -714,6 +785,7 @@ impl TimelineEventTheme {
                 | FamilyThemeMechanismKey::OrdinalPalette { .. }
                 | FamilyThemeMechanismKey::EffectBinding { .. } => continue,
             };
+
             if outcome.rule_was_written(self, rule_index, pending) {
                 evidence.mark_applied_with_capabilities(
                     key.clone(),
@@ -721,19 +793,26 @@ impl TimelineEventTheme {
                 );
             }
         }
-        if let Some(key) = self.palette_key.clone() {
-            if outcome.palette_capabilities.is_empty() {
-                evidence.mark_not_applicable(key);
-            } else {
-                evidence.mark_applied_with_capabilities(
-                    key,
-                    outcome.palette_capabilities.iter().copied(),
-                );
-            }
+
+        {
+            match self.palette_key.clone() {
+                Some(key) => {
+                    if outcome.palette_capabilities.is_empty() {
+                        evidence.mark_not_applicable(key);
+                    } else {
+                        evidence.mark_applied_with_capabilities(
+                            key,
+                            outcome.palette_capabilities.iter().copied(),
+                        );
+                    }
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 }
 
+#[must_use]
 fn timeline_event_nodes(
     layout: &TimelineDiagramLayout,
 ) -> impl Clone + Iterator<Item = &crate::model::TimelineNodeLayout> {
@@ -745,17 +824,25 @@ fn timeline_event_nodes(
         .flat_map(|task| task.events.iter())
 }
 
+#[must_use]
 fn timeline_event_fill_source_owned(
     config: &PresentationConfig,
     binding: &super::TimelineCssBinding,
     event: &crate::model::TimelineNodeLayout,
 ) -> bool {
-    let Some(slot) = timeline_section_slot(&event.section_class) else {
-        return false;
+    let slot = {
+        let optional_slot = timeline_section_slot(&event.section_class);
+
+        match optional_slot {
+            Some(matched_slot) => matched_slot,
+            ::core::option::Option::None => return false,
+        }
     };
+
     if binding.use_neo_gradient {
         return config.config_paint_overrides_typed_default("themeVariables.mainBkg");
     }
+
     if !binding.is_redux_theme {
         return config
             .config_paint_overrides_typed_default(&format!("themeVariables.cScale{slot}"));
@@ -765,16 +852,18 @@ fn timeline_event_fill_source_owned(
         if binding.has_source_border_slot(slot) {
             return config.config_paint_overrides_typed_default("themeVariables.borderColorArray");
         }
-        // A color theme owns an event fill only when the section has an actual
-        // border-color slot. An empty or short array cannot provide a fill
-        // terminal, so it must not suppress the typed event paint via the
-        // unrelated node-border token.
+
+
+
+
+
         return false;
     }
 
     config.config_paint_overrides_typed_default("themeVariables.mainBkg")
 }
 
+#[must_use]
 fn timeline_classic_line_stroke(
     config: &PresentationConfig,
     binding: &super::TimelineCssBinding,
@@ -784,27 +873,31 @@ fn timeline_classic_line_stroke(
     if binding.is_redux_theme {
         return None;
     }
+
     let inverse_path = format!("themeVariables.cScaleInv{slot}");
+
     if config.config_paint_overrides_typed_default(&inverse_path) {
         return binding
             .source_inverse(slot)
             .map(str::to_owned)
             .map(Into::into);
     }
+
     merman_markup::theme_color::invert(fill)
         .ok()
         .map(Into::into)
 }
 
+#[must_use]
 fn timeline_section_slot(section_class: &str) -> Option<usize> {
     let suffix = section_class.strip_prefix("section-")?;
-    let section = suffix.parse::<i64>().ok()?;
+    let section = match suffix.parse::<i64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None }?;
     let slot = section.checked_add(1)?;
-    usize::try_from(slot)
-        .ok()
-        .filter(|slot| *slot < TIMELINE_PALETTE_SLOT_COUNT)
+    match usize::try_from(slot) { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_outside_integer_range) => ::core::option::Option::None }
+        .filter(|slot_2| *slot_2 < TIMELINE_PALETTE_SLOT_COUNT)
 }
 
+#[must_use]
 fn timeline_palette_nodes(
     layout: &TimelineDiagramLayout,
 ) -> impl Iterator<Item = &crate::model::TimelineNodeLayout> {
@@ -846,25 +939,30 @@ fn apply_event_style(
     source_owns_event_fill: bool,
     source_owned_fill_rule_occurrences: &mut BTreeMap<usize, usize>,
 ) {
-    if let Some(fill) = resolve_direct_static_fill(
-        theme,
-        style,
-        &[ThemeTarget::TimelineEvent],
-        DirectStaticSelectorDomain::Default,
-    ) {
-        let (css, rule_index, capability) = fill.into_parts();
-        if source_owns_event_fill {
-            *source_owned_fill_rule_occurrences
-                .entry(rule_index)
-                .or_default() += 1;
-        } else {
-            event.fill = Some(TimelineEventPaint {
-                css,
-                rule_index,
-                capability,
-            });
-        }
+    match resolve_direct_static_fill(
+            theme,
+            style,
+            &[ThemeTarget::TimelineEvent],
+            DirectStaticSelectorDomain::Default,
+        ) {
+        Some(fill) => {
+            let (css, rule_index, capability) = fill.into_parts();
+
+            if source_owns_event_fill {
+                *source_owned_fill_rule_occurrences
+                    .entry(rule_index)
+                    .or_default() += 1;
+            } else {
+                event.fill = Some(TimelineEventPaint {
+                    css,
+                    rule_index,
+                    capability,
+                });
+            }
+        },
+        ::core::option::Option::None => {},
     }
+
     if let Some(origin) = style.radius_resolution().winner()
         && theme.rule_facet_disposition(origin.rule_index(), FamilyThemeRuleFacet::Radius)
             == Some(FamilyThemeDisposition::TypedAdapter)
@@ -881,6 +979,7 @@ fn apply_event_style(
             Specified::Unspecified => {}
         }
     }
+
     if let Some(origin) = style.opacity_resolution().winner()
         && theme.rule_facet_disposition(origin.rule_index(), FamilyThemeRuleFacet::Opacity)
             == Some(FamilyThemeDisposition::TypedAdapter)
@@ -925,17 +1024,34 @@ pub(crate) struct TimelineEventThemeOutcome {
 
 impl TimelineEventThemeOutcome {
     pub(crate) fn record_event(&mut self, theme: &TimelineEventTheme, event_index: usize) {
-        let Some(event) = theme.events.get(event_index) else {
-            return;
+        let event = {
+            let optional_event = theme.events.get(event_index);
+
+            match optional_event {
+                Some(matched_event) => matched_event,
+                ::core::option::Option::None => return,
+            }
         };
-        if let Some(rule_index) = event.radius_rule_index {
-            self.radius_rules.insert(rule_index);
+
+        match event.radius_rule_index {
+            Some(rule_index) => {
+                self.radius_rules.insert(rule_index);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(rule_index) = event.opacity_rule_index {
-            self.opacity_rules.insert(rule_index);
+
+        match event.opacity_rule_index {
+            Some(rule_index) => {
+                self.opacity_rules.insert(rule_index);
+            },
+            ::core::option::Option::None => {},
         }
-        if let Some(fill) = &event.fill {
-            self.fill_rules.insert(fill.rule_index);
+
+        match &event.fill {
+            Some(fill) => {
+                self.fill_rules.insert(fill.rule_index);
+            },
+            ::core::option::Option::None => {},
         }
     }
 
@@ -947,7 +1063,7 @@ impl TimelineEventThemeOutcome {
     ) {
         if palette_fill_written
             && let Some(capability) = slot
-                .and_then(|slot| theme.palette_slots.get(slot))
+                .and_then(|slot_2| theme.palette_slots.get(slot_2))
                 .and_then(Option::as_ref)
                 .and_then(|paint| paint.capability)
         {
@@ -963,6 +1079,7 @@ impl TimelineEventThemeOutcome {
         self.stroke_line_written = true;
     }
 
+    #[must_use]
     fn rule_was_written(
         &self,
         theme: &TimelineEventTheme,

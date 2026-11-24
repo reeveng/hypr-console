@@ -11,108 +11,32 @@
 //! this was ported from opened the socket itself and had a second copy of where
 //! that socket lives, which is the fault that crate exists to end.
 //!
-//! What stays is the spelling. A selector, a rule table and an escaped string
-//! are this program's words for its own saved file, and the general crate has no
-//! business knowing what `fullscreenstate` used to be called. `quote` is the one
-//! that will move: window titles and command lines arrive from other people's
-//! programs, and the first other caller that puts one into Lua is when escaping
-//! stops being ours and becomes the compositor crate's.
+//! This module reads launch rules from the resume file. The compositor crate
+//! encodes the Lua required to launch the saved command.
 
-use console_compositor::{DispatchResult, Request};
+use std::collections::BTreeMap;
+
+use console_compositor::{DispatchResult, LaunchRules};
 use console_core_never::Never;
-
-pub fn eval(lua: &str) -> Result<DispatchResult, Never> {
-  console_compositor::request(Request::Script, lua)
-}
-
-pub fn dispatch(dispatcher: &str) -> Result<DispatchResult, Never> {
-  eval(&format!("hl.dispatch({dispatcher})"))
-}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Start<'a> {
-  pub rules: String,
+  pub rules: LaunchRules,
   pub command: &'a str,
 }
 
 pub fn exec(start: &Start<'_>) -> Result<DispatchResult, Never> {
-  let Ok(quoted) = quote(start.command);
-  let rules = &start.rules;
-
-  eval(&format!("hl.exec_cmd({quoted}, {{{rules}}})"))
-}
-
-pub fn window(address: &str) -> Result<String, Never> {
-  quote(&format!("address:{address}"))
-}
-
-pub fn quote(text: &str) -> Result<String, Never> {
-  let mut quoted = String::with_capacity(text.len().saturating_add(2));
-  quoted.push('"');
-
-  for character in text.chars() {
-    match character {
-      '"' => quoted.push_str("\\\""),
-      '\\' => quoted.push_str("\\\\"),
-      '\n' => quoted.push_str("\\n"),
-      '\r' => quoted.push_str("\\r"),
-      '\t' => quoted.push_str("\\t"),
-      plain => match ::core::primitive::bool::then_some(u32::from(plain) < 0x20, ()) {
-        ::core::option::Option::Some(()) => {
-          quoted.push_str(&format!("\\{:03}", u32::from(plain)))
-        }
-        ::core::option::Option::None => quoted.push(plain),
-      },
-    }
-  }
-
-  quoted.push('"');
-
-  Ok(quoted)
-}
-
-pub fn rules_table(prefix: &str) -> Result<String, Never> {
-  Ok(
-    prefix
-      .split(';')
-      .map(str::trim)
-      .filter(|rule| !rule.is_empty())
-      .map(|rule| {
-        let named = |effect: &str| {
-          let Ok(spelled) = effect_name(effect);
-          let Ok(quoted) = quote(&spelled);
-
-          quoted
-        };
-
-        let valued = |value: &str| {
-          let Ok(quoted) = quote(value);
-
-          quoted
-        };
-
-        match rule.split_once(' ') {
-          Some((effect, value)) => format!("[{}] = {}", named(effect), valued(value)),
-          None => format!("[{}] = true", named(rule)),
-        }
-      })
-      .collect::<Vec<String>>()
-      .join(", "),
-  )
-}
-
-fn effect_name(legacy: &str) -> Result<String, Never> {
-  Ok(match legacy {
-    "fullscreenstate" => "fullscreen_state".to_string(),
-    "noinitialfocus" => "no_initial_focus".to_string(),
-    "keepaspectratio" => "keep_aspect_ratio".to_string(),
-    "maxsize" => "max_size".to_string(),
-    "minsize" => "min_size".to_string(),
-    other => other.to_string(),
-  })
+  console_compositor::launch(start.command, &start.rules)
 }
 
 pub fn split_exec_line(line: &str) -> Result<Start<'_>, Never> {
+  split_exec_line_on(line, None)
+}
+
+pub(crate) fn split_exec_line_on<'a>(
+  line: &'a str,
+  workspace_outputs: Option<&BTreeMap<&str, &str>>,
+) -> Result<Start<'a>, Never> {
   let line_2 = line.trim();
 
   let inside = match line_2.strip_prefix('[') {
@@ -122,7 +46,29 @@ pub fn split_exec_line(line: &str) -> Result<Start<'_>, Never> {
 
   match inside {
     Some((prefix, command)) => {
-      let Ok(rules) = rules_table(prefix);
+      let Ok(rules) = match workspace_outputs {
+        None => LaunchRules::from_legacy(prefix),
+        Some(workspace_outputs_2) => {
+          let mut rules: Vec<_> = prefix
+            .split(';')
+            .map(str::trim)
+            .filter(|rule| !rule.starts_with("monitor "))
+            .collect();
+          let monitor = rules
+            .iter()
+            .find_map(|rule| rule.strip_prefix("workspace "))
+            .and_then(|workspace| {
+              let name = match workspace.strip_suffix(" silent") {
+                Some(verbose) => verbose,
+                None => workspace,
+              };
+              workspace_outputs_2.get(name)
+            })
+            .map(|monitor| format!("monitor {monitor}"));
+          rules.extend(monitor.as_deref());
+          LaunchRules::from_legacy(&rules.join(";"))
+        }
+      };
 
       Ok(Start {
         rules,
@@ -130,7 +76,7 @@ pub fn split_exec_line(line: &str) -> Result<Start<'_>, Never> {
       })
     }
     None => Ok(Start {
-      rules: String::new(),
+      rules: LaunchRules::default(),
       command: line_2,
     }),
   }
@@ -139,6 +85,7 @@ pub fn split_exec_line(line: &str) -> Result<Start<'_>, Never> {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use console_compositor::lua::{quote, window};
 
   #[test]
   fn quotes_what_would_otherwise_end_the_string() {
@@ -153,34 +100,43 @@ mod tests {
   }
 
   #[test]
-  fn reads_a_rule_prefix_as_a_lua_table() {
-    assert_eq!(
-      rules_table("monitor 0;workspace 2 silent;float"),
-      Ok(r#"["monitor"] = "0", ["workspace"] = "2 silent", ["float"] = true"#.to_string())
-    );
-  }
-
-  #[test]
-  fn renames_the_effects_lua_spells_differently() {
-    assert_eq!(
-      rules_table("fullscreenstate 0"),
-      Ok(r#"["fullscreen_state"] = "0""#.to_string())
-    );
-  }
-
-  #[test]
   fn splits_a_line_into_rules_and_command() {
+    let Ok(rules) = LaunchRules::from_legacy("workspace 2 silent");
+
     assert_eq!(
       split_exec_line("[workspace 2 silent] foot --working-directory=/home"),
       Ok(Start {
-        rules: r#"["workspace"] = "2 silent""#.to_string(),
+        rules,
         command: "foot --working-directory=/home"
       })
     );
     assert_eq!(
       split_exec_line("foot"),
       Ok(Start {
-        rules: String::new(),
+        rules: LaunchRules::default(),
+        command: "foot"
+      })
+    );
+  }
+
+  #[test]
+  fn a_saved_monitor_rule_uses_the_current_connector() {
+    let line = "[monitor 1;workspace 7 silent] foot";
+    let monitors = BTreeMap::from([("7", "DP-3")]);
+    let Ok(resolved) = LaunchRules::from_legacy("workspace 7 silent;monitor DP-3");
+    let Ok(undocked) = LaunchRules::from_legacy("workspace 7 silent");
+
+    assert_eq!(
+      split_exec_line_on(line, Some(&monitors)),
+      Ok(Start {
+        rules: resolved,
+        command: "foot"
+      })
+    );
+    assert_eq!(
+      split_exec_line_on(line, Some(&BTreeMap::new())),
+      Ok(Start {
+        rules: undocked,
         command: "foot"
       })
     );

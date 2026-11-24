@@ -11,11 +11,12 @@ path = "src/lib.rs"
 
 [features]
 default = ["std"]
-std = []
+std = ["console-core-simd/std"]
 
 [dependencies]
 console-core-geometry.workspace = true
 console-core-never.workspace = true
+console-core-simd.workspace = true
 console-core-number-conversion = { path = "../console-core-number-conversion", default-features = false }
 
 [lints]

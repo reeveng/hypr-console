@@ -49,7 +49,9 @@ impl DecodeError {
       DecodeError::LayoutId => "alac: invalid channel layout info id",
       DecodeError::LayoutVersion => "alac: invalid channel layout info version",
       DecodeError::LayoutTag => "alac: invalid channel layout tag",
-      DecodeError::LayoutChannels => "alac: the number of channels differs from the channel layout",
+      DecodeError::LayoutChannels => {
+        "alac: the number of channels differs from the channel layout"
+      }
       DecodeError::LayoutReserved => "alac: reserved values in channel layout info are not 0",
       DecodeError::UnusedHeaderBits => "alac: unused header bits not 0",
       DecodeError::Shift => "alac: invalid shift value",

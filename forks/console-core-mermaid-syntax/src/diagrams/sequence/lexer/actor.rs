@@ -48,6 +48,7 @@ pub(super) struct ActorScan<'input> {
     pub config_allowed: bool,
 }
 
+#[must_use]
 pub(super) fn scan_actor(
     input: &str,
     start: usize,
@@ -65,24 +66,33 @@ pub(super) fn scan_actor(
             end += 1;
             continue;
         }
+
         if !uses_id_rules && signal_type_at(input, end).is_some() {
             break;
         }
+
         if !uses_id_rules && input[end..].starts_with("--") {
             break;
         }
+
         let ch = input[end..].chars().next()?;
         let b = bytes[end];
+
         if b == b'\n' || b == b';' || b == b',' || b == b':' || b == b'<' || b == b'>' {
             break;
         }
+
         if uses_id_rules {
-            if b == b'@' {
-                break;
+            match b {
+                b'@' => {
+                    break;
+                },
+                _ => {},
             }
+
             if boundary == ActorBoundary::Declaration
                 && is_ecmascript_whitespace(ch)
-                && declaration_alias_starts_at(input, start, end)
+                && declaration_alias_starts_at(input, self::DeclarationAliasStartsAtArguments { actor_start: start, whitespace_start: end })
             {
                 break;
             }
@@ -90,17 +100,23 @@ pub(super) fn scan_actor(
             if b == b'+' || b == b'/' || b == b'\\' || b == b')' {
                 break;
             }
+
             if boundary == ActorBoundary::Text && end == start && b == b'-' {
                 break;
             }
-            if b == b'(' {
-                if boundary == ActorBoundary::SignalSource
-                    && central_suffix_precedes_signal(input, end)
-                {
-                    end += 2;
-                    continue;
-                }
-                break;
+
+            match b {
+                b'(' => {
+                    if boundary == ActorBoundary::SignalSource
+                        && central_suffix_precedes_signal(input, end)
+                    {
+                        end += 2;
+                        continue;
+                    }
+
+                    break;
+                },
+                _ => {},
             }
         }
 
@@ -108,15 +124,22 @@ pub(super) fn scan_actor(
     }
 
     let mut token_end = end;
+
     while token_end > start {
         let ch = input[start..token_end].chars().next_back()?;
+
         if !is_ecmascript_whitespace(ch) {
             break;
         }
+
         token_end -= ch.len_utf8();
     }
-    if token_end == start {
-        return None;
+
+    match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(token_end), &::core::convert::identity(start)); _explicit_ordering } {
+        ::core::cmp::Ordering::Equal => {
+            return None;
+        },
+        ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Greater => {},
     }
 
     let text = trim_start_ecmascript(&input[start..token_end]);
@@ -129,6 +152,7 @@ pub(super) fn scan_actor(
     })
 }
 
+#[must_use]
 pub(super) fn signal_type_at(input: &str, position: usize) -> Option<(usize, i32)> {
     let rest = input.get(position..)?;
     half_arrow_type(rest)
@@ -156,39 +180,48 @@ pub(super) fn signal_type_at(input: &str, position: usize) -> Option<(usize, i32
         .or_else(|| rest.starts_with("-)").then_some((2, LINETYPE_SOLID_POINT)))
 }
 
+#[must_use]
 pub(super) fn config_followed_by_alias(input: &str, position: usize) -> bool {
     let mut alias_start = position;
     let mut saw_whitespace = false;
+
     while let Some(ch) = input[alias_start..].chars().next() {
         if ch == '\n' || !is_ecmascript_whitespace(ch) {
             break;
         }
+
         saw_whitespace = true;
         alias_start += ch.len_utf8();
     }
+
     saw_whitespace
         && starts_with_ci_at(input, alias_start, "as")
         && char_at_is_ecmascript_whitespace(input, alias_start + "as".len())
 }
 
+#[must_use]
 pub(super) fn trim_start_ecmascript(value: &str) -> &str {
     value.trim_start_matches(is_ecmascript_whitespace)
 }
 
+#[must_use]
 pub(super) fn trim_end_ecmascript(value: &str) -> &str {
     value.trim_end_matches(is_ecmascript_whitespace)
 }
 
+#[must_use]
 pub(super) fn trim_ecmascript(value: &str) -> &str {
     value.trim_matches(is_ecmascript_whitespace)
 }
 
+#[must_use]
 fn half_arrow_type(rest: &str) -> Option<(usize, i32)> {
     HALF_ARROW_TYPES
         .iter()
         .find_map(|(arrow, ty)| rest.starts_with(arrow).then_some((arrow.len(), *ty)))
 }
 
+#[must_use]
 fn declaration_id_allows_config(actor_id: &str) -> bool {
     !actor_id.is_empty()
         && actor_id.chars().all(|ch| {
@@ -196,21 +229,27 @@ fn declaration_id_allows_config(actor_id: &str) -> bool {
         })
 }
 
+#[must_use]
 fn central_suffix_precedes_signal(input: &str, position: usize) -> bool {
     if !input[position..].starts_with("()") {
         return false;
     }
+
     let mut signal_start = position + 2;
+
     while let Some(ch) = input[signal_start..].chars().next() {
         if ch == '\n' || !is_ecmascript_whitespace(ch) {
             break;
         }
+
         signal_start += ch.len_utf8();
     }
+
     signal_type_at(input, signal_start).is_some()
 }
 
-fn declaration_alias_starts_at(input: &str, actor_start: usize, whitespace_start: usize) -> bool {
+#[must_use]
+fn declaration_alias_starts_at(input: &str, DeclarationAliasStartsAtArguments { actor_start, whitespace_start }: DeclarationAliasStartsAtArguments) -> bool {
     if input[actor_start..whitespace_start]
         .chars()
         .any(is_ecmascript_whitespace)
@@ -219,16 +258,25 @@ fn declaration_alias_starts_at(input: &str, actor_start: usize, whitespace_start
     }
 
     let mut alias_start = whitespace_start;
+
     while let Some(ch) = input[alias_start..].chars().next() {
         if !is_ecmascript_whitespace(ch) || ch == '\n' {
             break;
         }
+
         alias_start += ch.len_utf8();
     }
+
     starts_with_ci_at(input, alias_start, "as")
         && char_at_is_ecmascript_whitespace(input, alias_start + 2)
 }
 
+struct DeclarationAliasStartsAtArguments {
+    actor_start: usize,
+    whitespace_start: usize,
+}
+
+#[must_use]
 fn char_at_is_ecmascript_whitespace(input: &str, position: usize) -> bool {
     input
         .get(position..)
@@ -236,6 +284,7 @@ fn char_at_is_ecmascript_whitespace(input: &str, position: usize) -> bool {
         .is_some_and(is_ecmascript_whitespace)
 }
 
+#[must_use]
 fn starts_with_ci_at(input: &str, position: usize, expected: &str) -> bool {
     let Some(actual) = input
         .as_bytes()
@@ -243,5 +292,6 @@ fn starts_with_ci_at(input: &str, position: usize, expected: &str) -> bool {
     else {
         return false;
     };
+
     actual.eq_ignore_ascii_case(expected.as_bytes())
 }

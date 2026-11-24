@@ -25,7 +25,7 @@ path = "src/bin/show.rs"
 [features]
 default = ["port"]
 port = [
-    "dep:console-input-alphabets",
+    "dep:console-wayland",
     "dep:console-input-gamepad",
     "dep:console-input-focus",
     "dep:console-response-times",
@@ -35,14 +35,11 @@ port = [
     "dep:console-input-keymaps",
     "dep:console-core-path-rasterizer",
     "dep:console-draw-painting",
-    "dep:console-draw-surface",
     "dep:console-core-fonts",
-    "dep:wayland-client",
-    "dep:wayland-protocols-wlr",
-    "dep:wayland-protocols-misc",
 ]
 
 [dependencies]
+console-wayland = { path = "../console-wayland", features = ["virtual-keyboard"], optional = true }
 console-core-arguments.workspace = true
 console-core-number-conversion.workspace = true
 console-core-color.workspace = true
@@ -61,18 +58,14 @@ console-input-gamepad = { workspace = true, optional = true }
 console-input-focus = { workspace = true, optional = true }
 console-response-times = { workspace = true, optional = true }
 console-screen = { workspace = true, optional = true }
-console-input-alphabets = { workspace = true, optional = true }
+console-input-alphabets.workspace = true
 console-core-places.workspace = true
 console-input-event-devices = { workspace = true, optional = true }
 rustix = { workspace = true, optional = true }
 console-input-keymaps = { workspace = true, optional = true }
 console-core-path-rasterizer = { workspace = true, optional = true }
 console-draw-painting = { workspace = true, optional = true }
-console-draw-surface = { workspace = true, optional = true }
 console-core-fonts = { workspace = true, optional = true }
-wayland-client = { version = "0.31", optional = true }
-wayland-protocols-wlr = { version = "0.3", features = ["client"], optional = true }
-wayland-protocols-misc = { version = "0.3", features = ["client"], optional = true }
 console-core-state-machine.workspace = true
 
 [dev-dependencies]

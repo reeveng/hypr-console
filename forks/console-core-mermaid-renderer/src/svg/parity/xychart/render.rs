@@ -1,21 +1,23 @@
 use super::super::*;
 use merman_model::families::xy_chart::XyChartPlotType;
 
-// XYChart diagram SVG renderer implementation (split from parity.rs).
+
 
 fn write_xychart_temporary_group(out: &mut impl SvgOutput) -> Result<()> {
     out.push_str(r#"<g class="mermaid-tmp-group"/>"#);
     out.checkpoint()
 }
 
+#[must_use]
 fn plot_group_index(group_texts: &[String], prefix: &str) -> Option<usize> {
     if group_texts.first().map(String::as_str) != Some("plot") {
         return None;
     }
+
     group_texts
         .get(1)
         .and_then(|group| group.strip_prefix(prefix))
-        .and_then(|index| index.parse().ok())
+        .and_then(|index| match index.parse() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_integer) => ::core::option::Option::None })
 }
 
 struct Node {
@@ -31,9 +33,10 @@ struct Node {
 
 impl Node {
     fn attr(&mut self, name: &'static str, value: impl Into<String>) {
-        self.attrs.push((name, value.into()));
+        self.attrs.push((name, <_ as ::core::convert::Into<::std::string::String>>::into(value)));
     }
 
+    #[must_use]
     fn attribute(&self, name: &str) -> Option<&str> {
         self.attrs
             .iter()
@@ -51,9 +54,11 @@ impl Node {
     }
 
     fn observe_paint(&self, receipt: &mut crate::xychart::XyChartPaintReceipt) {
-        let Some(id) = self.paint_terminal else {
-            return;
+        let id = match self.paint_terminal {
+            Some(matched_id) => matched_id,
+            ::core::option::Option::None => return,
         };
+
         let attribute = |name: &str| self.attribute(name);
         let content = if matches!(id, crate::xychart::XyChartPaintTerminalId::Path { .. }) {
             attribute("d")
@@ -69,6 +74,7 @@ impl Node {
         receipt: &mut crate::xychart::XyChartSeriesPaintReceipt,
     ) {
         let attribute = |name: &str| self.attribute(name);
+
         match self.series_terminal {
             Some(SeriesTerminal::Bar { plot, mark }) => {
                 receipt.record_mark(plan, plot, mark, XyChartPlotType::Bar, false, attribute)
@@ -87,6 +93,7 @@ impl Node {
     }
 }
 
+#[must_use]
 fn node(tag: &'static str) -> Node {
     Node {
         tag,
@@ -115,6 +122,7 @@ fn render_node(
     observe: &mut impl FnMut(&Node),
 ) -> Result<()> {
     let n = &arena[id];
+
     if let Some(shadow) = &n.shadow {
         super::super::shadow::write_theme_shadow_application(
             out,
@@ -124,28 +132,35 @@ fn render_node(
         );
         out.checkpoint()?;
     }
+
     let _ = write!(out, "<{}", n.tag);
     out.checkpoint()?;
+
     for (k, v) in &n.attrs {
         let _ = write!(out, r#" {k}="{v}""#);
         out.checkpoint()?;
     }
+
     if n.children.is_empty() && n.text.as_deref().unwrap_or("").is_empty() {
         out.push_str("/>");
         out.checkpoint()?;
     } else {
         out.push('>');
         out.checkpoint()?;
+
         if let Some(t) = n.text.as_deref() {
             out.push_str(t);
             out.checkpoint()?;
         }
+
         for c in &n.children {
             render_node(out, arena, *c, observe)?;
         }
+
         let _ = write!(out, "</{}>", n.tag);
         out.checkpoint()?;
     }
+
     observe(n);
     Ok(())
 }
@@ -190,9 +205,11 @@ fn prepare_series_shadows(
             0,
         ));
     }
+
     let resources = options.theme_resource_policy();
     let mut bounds = [0.0_f64, 0.0_f64, layout.width, layout.height];
     let mut expected = 0;
+
     for (terminal, node) in arena.iter_mut().enumerate() {
         let plot = match node.series_terminal {
             Some(
@@ -202,9 +219,16 @@ fn prepare_series_shadows(
             ) => plot,
             _ => continue,
         };
-        let Some(effect) = series.effect(plot) else {
-            continue;
+
+        let effect = {
+            let optional_effect = series.effect(plot);
+
+            match optional_effect {
+                Some(matched_effect) => matched_effect,
+                ::core::option::Option::None => continue,
+            }
         };
+
         expected += 1;
         options
             .work_meter()
@@ -216,7 +240,7 @@ fn prepare_series_shadows(
             "rect" => {
                 let number = |name| {
                     node.attribute(name)
-                        .and_then(|value| value.parse::<f64>().ok())
+                        .and_then(|value| match value.parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None })
                 };
                 number("x")
                     .zip(number("y"))
@@ -230,19 +254,24 @@ fn prepare_series_shadows(
                 .map(|path| [path.min_x, path.min_y, path.max_x, path.max_y]),
             _ => None,
         };
-        let Some([min_x, min_y, max_x, max_y]) = geometry else {
-            continue;
+
+        let (min_x, min_y, max_x, max_y) = match geometry {
+            Some([matched_min_x, matched_min_y, matched_max_x, matched_max_y]) => (matched_min_x, matched_min_y, matched_max_x, matched_max_y),
+            ::core::option::Option::None => continue,
         };
+
         let Some(stroke_width) = node
             .attribute("stroke-width")
-            .and_then(|value| value.parse::<f64>().ok())
+            .and_then(|value| match value.parse::<f64>() { ::core::result::Result::Ok(value_) => ::core::option::Option::Some(value_), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None })
         else {
             continue;
         };
+
         if !stroke_width.is_finite() || stroke_width < 0.0 {
             continue;
         }
-        // Paths use SVG's default miter limit of four; rectangles have right-angle corners.
+
+
         let stroke_outset = stroke_width / 2.0 * if node.tag == "path" { 4.0 } else { 1.0 };
         let source = crate::diagram_theme::EffectOutsets {
             top: stroke_outset,
@@ -250,11 +279,16 @@ fn prepare_series_shadows(
             bottom: stroke_outset,
             left: stroke_outset,
         };
-        let Some(materialized) =
-            effect.materialize_user_space(&resources, min_x, min_y, max_x, max_y, source)?
-        else {
-            continue;
+
+        let materialized = {
+            let optional_materialized = effect.materialize_user_space(&resources, min_x, min_y, max_x, max_y, source)?;
+
+            match optional_materialized {
+                Some(matched_materialized) => matched_materialized,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let region = materialized.region();
         let [x, y, width, height] = region.as_array().map(f64::from);
         *{ let [_explicit_part, ..] = &mut bounds; _explicit_part } = (match bounds { [_explicit_element, ..] => _explicit_element }).min(x);
@@ -272,6 +306,7 @@ fn prepare_series_shadows(
             region,
         }));
     }
+
     Ok((
         root_svg::DiagramBounds::from_extents(match bounds { [_explicit_element, ..] => _explicit_element }, match bounds { [_, _explicit_element, ..] => _explicit_element }, match bounds { [_, _, _explicit_element, ..] => _explicit_element }, match bounds { [_, _, _, _explicit_element, ..] => _explicit_element }, 0.0),
         expected,
@@ -289,6 +324,7 @@ fn prepare_text_shadows(
     if paint.expected_effect_applications() == 0 {
         return Ok((bounds, true));
     }
+
     let mut extents = [
         bounds.min_x,
         bounds.min_y,
@@ -296,20 +332,30 @@ fn prepare_text_shadows(
         bounds.min_y + bounds.height,
     ];
     let mut complete = true;
+
     for node in arena {
         let Some(id @ crate::xychart::XyChartPaintTerminalId::Text { drawable, item }) =
             node.paint_terminal
         else {
             continue;
         };
-        let Some(shadow) = paint.text_effect(id) else {
-            continue;
+
+        let shadow = {
+            let optional_shadow = paint.text_effect(id);
+
+            match optional_shadow {
+                Some(matched_shadow) => matched_shadow,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let crate::model::XyChartDrawableElem::Text { data, .. } = &layout.drawables[drawable]
         else {
             continue;
         };
+
         let label = &data[item];
+
         if !shadow.width.is_finite()
             || !shadow.height.is_finite()
             || shadow.width <= 0.0
@@ -318,12 +364,13 @@ fn prepare_text_shadows(
             complete = false;
             continue;
         }
+
         options
             .work_meter()
             .charge(shadow.effect.stages().len().saturating_mul(3))?;
-        // Keep blur margins in absolute SVG units. Scaling percentages derived from
-        // estimated text dimensions would shrink the halo when the host uses a smaller bbox.
-        // Native export independently verifies actual glyph ink against this allocation.
+
+
+
         let x = match label.horizontal_pos.as_str() {
             "left" => 0.0,
             "right" => -shadow.width,
@@ -334,18 +381,19 @@ fn prepare_text_shadows(
         } else {
             -shadow.height / 2.0
         };
-        // Native fallback-face advance differences accumulate across the line. Reserve one
-        // measured line width per side, with an em minimum for short labels; an underestimated
-        // measurement cannot grant unlimited space because native export still verifies ink.
+
+
+
         let horizontal_reserve = shadow.width.max(label.font_size);
+
         let Some(materialized) = shadow.effect.materialize_user_space(
             &options.theme_resource_policy(),
             x,
             y,
             x + shadow.width,
             y + shadow.height,
-            // Vertical font bearings retain the local em allocation. Long strings or unusual
-            // host fonts can exceed either reserve and must still fail native containment.
+
+
             crate::diagram_theme::EffectOutsets {
                 top: label.font_size,
                 right: horizontal_reserve,
@@ -357,8 +405,10 @@ fn prepare_text_shadows(
             complete = false;
             continue;
         };
+
         let [left, top, width, height] = materialized.region().as_array().map(f64::from);
         let (sin, cos) = label.rotation.to_radians().sin_cos();
+
         for px in [left, left + width] {
             for py in [top, top + height] {
                 let rx = label.x + px * cos - py * sin;
@@ -369,6 +419,7 @@ fn prepare_text_shadows(
                 *{ let [_, _, _, _explicit_part, ..] = &mut extents; _explicit_part } = (match extents { [_, _, _, _explicit_element, ..] => _explicit_element }).max(ry);
             }
         }
+
         let filter_id = paint
             .filter_id(diagram_id, id)
             .expect("text effect has a filter identity");
@@ -379,6 +430,7 @@ fn prepare_text_shadows(
             region: materialized.region(),
         }));
     }
+
     Ok((
         root_svg::DiagramBounds::from_extents(match extents { [_explicit_element, ..] => _explicit_element }, match extents { [_, _explicit_element, ..] => _explicit_element }, match extents { [_, _, _explicit_element, ..] => _explicit_element }, match extents { [_, _, _, _explicit_element, ..] => _explicit_element }, 0.0),
         complete,
@@ -399,6 +451,7 @@ pub(crate) fn render_xychart_diagram_svg(
     use console_core_perfect_hash::collections::FixedMap;
     use std::collections::hash_map::Entry;
 
+    #[must_use]
     fn text_anchor(horizontal_pos: &str) -> &'static str {
         match horizontal_pos {
             "left" => "start",
@@ -413,6 +466,7 @@ pub(crate) fn render_xychart_diagram_svg(
         group_texts: &'a [String],
     ) -> usize {
         let mut parent = 0usize;
+
         for seg in group_texts {
             let class = seg.as_str();
             let gid = match groups_by_path.entry((parent, class)) {
@@ -427,9 +481,11 @@ pub(crate) fn render_xychart_diagram_svg(
             };
             parent = gid;
         }
+
         parent
     }
 
+    #[must_use]
     fn dominant_baseline(vertical_pos: &str) -> &'static str {
         if vertical_pos == "top" {
             "text-before-edge"
@@ -438,13 +494,16 @@ pub(crate) fn render_xychart_diagram_svg(
         }
     }
 
+    #[must_use]
     fn fmt_xy(v: f64) -> String {
         if v.is_nan() {
             return "NaN".to_string();
         }
+
         if !v.is_finite() {
             return "NaN".to_string();
         }
+
         fmt_string(v)
     }
 
@@ -480,12 +539,12 @@ pub(crate) fn render_xychart_diagram_svg(
         paint_theme.begin_terminal_receipt(escape_xml, diagram_id.semantic_str());
     let mut typography_receipt = typography_theme.begin_terminal_receipt();
 
-    // Build the `.main` group as an ordered DOM tree, matching Mermaid's D3 `getGroup()` behavior.
+
     let mut arena: Vec<Node> = Vec::with_capacity(layout.drawables.len().saturating_mul(4) + 2);
     arena.push(node("g"));
     arena[0].attr("class", "main");
 
-    // Background rectangle.
+
     let mut bg = node("rect");
     bg.attr("width", fmt_xy(layout.width));
     bg.attr("height", fmt_xy(layout.height));
@@ -504,16 +563,19 @@ pub(crate) fn render_xychart_diagram_svg(
                 if data.is_empty() {
                     continue;
                 }
+
                 let parent = ensure_group_path(&mut arena, &mut groups_by_path, group_texts);
                 let bar_plot_index = plot_group_index(group_texts, "bar-plot-");
 
-                // Append rect elements.
+
                 for (mark_index, r) in data.iter().enumerate() {
                     let mut n = node("rect");
                     n.attr("x", fmt_xy(r.x));
+
                     if !r.y.is_nan() {
                         n.attr("y", fmt_xy(r.y));
                     }
+
                     n.attr("width", fmt_xy(r.width));
                     n.attr("height", fmt_xy(r.height));
                     n.attr("fill", escape_xml(&r.fill));
@@ -528,21 +590,27 @@ pub(crate) fn render_xychart_diagram_svg(
                             .then(|| series_paint.legend_plot(XyChartPlotType::Bar, mark_index))
                             .flatten()
                     });
+
                     if let Some(plot) = series {
                         for (name, value) in series_paint.opacity_attributes(plot) {
                             n.attr(name, value);
                         }
-                        if bar_plot_index.is_none() {
-                            n.series_terminal = Some(SeriesTerminal::Legend {
-                                plot,
-                                plot_type: XyChartPlotType::Bar,
-                            });
+
+                        match bar_plot_index {
+                            ::core::option::Option::None => {
+                                n.series_terminal = Some(SeriesTerminal::Legend {
+                                    plot,
+                                    plot_type: XyChartPlotType::Bar,
+                                });
+                            },
+                            ::core::option::Option::Some(_) => {},
                         }
                     }
+
                     push_child(&mut arena, parent, n);
                 }
 
-                // Mermaid emits data labels for every rectangle group, including legend markers.
+
                 if let Some((show_data_label_outside_bar, data_label_color)) = &data_label_config {
                     let bar_data_label_inset_px = crate::xychart::XY_CHART_DATA_LABEL_INSET_PX;
                     let labels = crate::xychart::rect_data_labels(
@@ -588,6 +656,7 @@ pub(crate) fn render_xychart_diagram_svg(
                             }
                         } else {
                             let y_offset = bar_data_label_inset_px;
+
                             for item in &valid_items {
                                 let mut t = node("text");
                                 t.attr("x", fmt_xy(item.rect.x + item.rect.width / 2.0));
@@ -627,6 +696,7 @@ pub(crate) fn render_xychart_diagram_svg(
                 if data.is_empty() {
                     continue;
                 }
+
                 let parent = ensure_group_path(&mut arena, &mut groups_by_path, group_texts);
                 let line_label_plot_index = (group_texts.get(2).map(String::as_str)
                     == Some("labels"))
@@ -639,6 +709,7 @@ pub(crate) fn render_xychart_diagram_svg(
                     n.attr("y", "0");
                     n.attr("fill", escape_xml(&t.fill));
                     n.attr("font-size", fmt_string(t.font_size));
+
                     if let Some(weight) = crate::xychart::XyChartTextRole::from_groups(
                         group_texts,
                         &layout.chart_orientation,
@@ -647,6 +718,7 @@ pub(crate) fn render_xychart_diagram_svg(
                     {
                         n.attr("font-weight", weight);
                     }
+
                     n.attr("dominant-baseline", dominant_baseline(&t.vertical_pos));
                     n.attr("text-anchor", text_anchor(&t.horizontal_pos));
                     let rot = t.rotation;
@@ -678,6 +750,7 @@ pub(crate) fn render_xychart_diagram_svg(
                 if data.is_empty() {
                     continue;
                 }
+
                 let parent = ensure_group_path(&mut arena, &mut groups_by_path, group_texts);
                 let line_plot_index = plot_group_index(group_texts, "line-plot-");
 
@@ -687,11 +760,13 @@ pub(crate) fn render_xychart_diagram_svg(
                     n.attr("fill", escape_xml(p.fill.as_deref().unwrap_or("none")));
                     n.attr("stroke", escape_xml(&p.stroke_fill));
                     n.attr("stroke-width", fmt_xy(p.stroke_width));
+
                     if let Some(opacity) =
                         paint_theme.path_opacity(group_texts, &layout.chart_orientation)
                     {
                         n.attr("opacity", opacity.to_string());
                     }
+
                     n.paint_terminal =
                         paint_theme.terminal_id(crate::xychart::XyChartPaintTerminalId::Path {
                             drawable,
@@ -706,17 +781,23 @@ pub(crate) fn render_xychart_diagram_svg(
                             .then(|| series_paint.legend_plot(XyChartPlotType::Line, mark_index))
                             .flatten()
                     });
+
                     if let Some(plot) = series {
                         for (name, value) in series_paint.opacity_attributes(plot) {
                             n.attr(name, value);
                         }
-                        if line_plot_index.is_none() {
-                            n.series_terminal = Some(SeriesTerminal::Legend {
-                                plot,
-                                plot_type: XyChartPlotType::Line,
-                            });
+
+                        match line_plot_index {
+                            ::core::option::Option::None => {
+                                n.series_terminal = Some(SeriesTerminal::Legend {
+                                    plot,
+                                    plot_type: XyChartPlotType::Line,
+                                });
+                            },
+                            ::core::option::Option::Some(_) => {},
                         }
                     }
+
                     push_child(&mut arena, parent, n);
                 }
             }
@@ -731,7 +812,7 @@ pub(crate) fn render_xychart_diagram_svg(
         layout,
         options,
     )?;
-    let (root_bounds, text_effect_allocation_complete) = prepare_text_shadows(
+    let (root_bounds_2, text_effect_allocation_complete) = prepare_text_shadows(
         &mut arena,
         paint_theme,
         diagram_id.semantic_str(),
@@ -742,9 +823,9 @@ pub(crate) fn render_xychart_diagram_svg(
     expected_effect_applications
         .set(series_effect_count + paint_theme.expected_effect_applications())
         .map_err(|_| crate::Error::InvalidModel {
-            message: "XY Chart effects were emitted more than once".into(),
+            message: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("XY Chart effects were emitted more than once"),
         })?;
-    let root_spec = root_svg::RootViewportSpec::responsive(root_bounds);
+    let root_spec = root_svg::RootViewportSpec::responsive(root_bounds_2);
     let mut root_chrome = root_svg::RootChrome::new(diagram_id, "xychart");
     root_chrome.aria_labelledby = aria_labelledby.as_deref();
     root_chrome.aria_describedby = aria_describedby.as_deref();
@@ -763,6 +844,7 @@ pub(crate) fn render_xychart_diagram_svg(
         );
         out.checkpoint()?;
     }
+
     if let Some(description) = acc_descr {
         let _ = write!(
             &mut out,
@@ -782,36 +864,42 @@ pub(crate) fn render_xychart_diagram_svg(
     out.checkpoint()?;
     out.push_str("</style>");
     out.checkpoint()?;
+
     if let Some(receipt) = typography_receipt.as_mut() {
         receipt.record_css(css_emission.root_font_family_css());
     }
 
-    // Mermaid always includes an empty `<g/>` placeholder after `<style>`.
+
     out.push_str(r#"<g/>"#);
     out.checkpoint()?;
 
     render_node(&mut out, &arena, 0, &mut |emitted| {
         emitted.observe_shadow(effect_evidence);
+
         if let Some(receipt) = paint_receipt.as_mut() {
             emitted.observe_paint(receipt);
         }
+
         if emitted.visible_text
             && let Some(receipt) = typography_receipt.as_mut()
         {
             receipt.record_visible_text();
         }
+
         if let Some(receipt) = series_paint_receipt.as_mut() {
             emitted.observe_series_paint(series_paint, receipt);
         }
     })?;
     write_xychart_temporary_group(&mut out)?;
     out.push_str("</svg>\n");
-    let rooted = root_document.complete(out.finish()?)?;
+    let rooted = root_document.complete({ let checked_value = out.finish()?; checked_value })?;
+
     if series_paint_receipt.is_some_and(|receipt| !series_paint.record_terminal(receipt)) {
         return Err(crate::Error::InvalidModel {
             message: "XY Chart series paint receipt did not match the terminal SVG".to_string(),
         });
     }
+
     if paint_receipt.is_some_and(|receipt| !paint_theme.record_terminal(receipt))
         && text_effect_allocation_complete
     {
@@ -819,9 +907,11 @@ pub(crate) fn render_xychart_diagram_svg(
             message: "XY Chart paint receipt did not match the terminal SVG".to_string(),
         });
     }
+
     if let Some(receipt) = typography_receipt {
         let _ = typography_theme.record_terminal(receipt);
     }
+
     Ok(rooted)
 }
 
@@ -1349,7 +1439,7 @@ mod tests {
                         arena[2].attrs.retain(|(key, _)| *key != "stroke-width")
                     }
                     "wrong-font-size" => {
-                        // Mutate the positive-area data label regardless of the selected terminal.
+
                         let value = arena[3]
                             .attrs
                             .iter_mut()

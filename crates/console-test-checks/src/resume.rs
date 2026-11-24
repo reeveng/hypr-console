@@ -212,7 +212,7 @@ fn refused(_stage: &mut Here) -> CheckResult {
     .arg(UNKNOWN)
     .env("CONSOLE_RESUME_PATH", at.join("sessions"))
     .env("XDG_RUNTIME_DIR", &at)
-    .env_remove("HYPRLAND_INSTANCE_SIGNATURE")
+    .env_remove(console_compositor::session::SIGNATURE)
     .stdout(Stdio::null())
     .stderr(Stdio::null());
 

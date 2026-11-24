@@ -19,6 +19,7 @@ pub enum MermaidNavigationSecurity {
 }
 
 impl MermaidNavigationSecurity {
+    #[must_use]
     pub const fn from_security_level_loose(loose: bool) -> Self {
         if loose { Self::Loose } else { Self::Sanitized }
     }
@@ -30,6 +31,7 @@ impl MermaidNavigationSecurity {
 pub struct SerializedMermaidNavigationHref(Box<str>);
 
 impl SerializedMermaidNavigationHref {
+    #[must_use]
     pub fn as_serialized_str(&self) -> &str {
         &self.0
     }
@@ -40,6 +42,7 @@ impl SerializedMermaidNavigationHref {
 /// Mermaid serializes its renderer DOM, restores `encodeEntities` placeholders, and then applies
 /// DOMPurify for strict-like security levels. The returned value remains serialized markup so
 /// renderers cannot accidentally validate or escape the wrong representation layer.
+#[must_use]
 pub fn prepare_mermaid_navigation_href(
     value: &str,
     security: MermaidNavigationSecurity,
@@ -63,6 +66,7 @@ pub fn prepare_mermaid_navigation_href(
 }
 
 /// Normalizes a URI attribute at a declared SVG representation boundary.
+#[must_use]
 pub fn admit_mermaid_svg_uri_attribute(
     value: &str,
     representation: MermaidSvgUriRepresentation,
@@ -78,16 +82,20 @@ pub fn admit_mermaid_svg_uri_attribute(
 }
 
 /// Applies Mermaid's strict-like normalization to a renderer-created tooltip attribute.
+#[must_use]
 pub fn normalize_mermaid_tooltip_attribute(value: &str) -> &str {
     merman_markup::sanitize::dompurify_normalize_dom_attribute_value("title", value)
 }
 
+#[must_use]
 fn serialize_svg_attribute_value(value: &str) -> String {
     let mut out = String::with_capacity(value.len());
+
     for ch in value.chars() {
         if !is_xml_1_0_char(ch) {
             continue;
         }
+
         match ch {
             '\n' => out.push_str("&#10;"),
             '\r' => out.push_str("&#13;"),
@@ -99,9 +107,11 @@ fn serialize_svg_attribute_value(value: &str) -> String {
             _ => out.push(ch),
         }
     }
+
     out
 }
 
+#[must_use]
 fn is_xml_1_0_char(ch: char) -> bool {
     matches!(ch, '\u{9}' | '\u{A}' | '\u{D}')
         || matches!(

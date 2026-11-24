@@ -63,19 +63,40 @@ pub(super) fn sequence_message_horizontal_model(
     msg: &SequenceMessage,
     ctx: SequenceMessageHorizontalContext<'_>,
 ) -> Result<Option<SequenceMessageHorizontalModel>> {
-    let Some(semantics) = msg.signal_semantics() else {
-        return Ok(None);
+    let semantics = {
+        let optional_semantics = msg.signal_semantics();
+
+        match optional_semantics {
+            Some(matched_semantics) => matched_semantics,
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     let central_decoration = msg.central_decoration().unwrap_or_default();
-    let (Some(from), Some(to)) = (msg.from.as_deref(), msg.to.as_deref()) else {
-        return Ok(None);
+
+    let (from, to) = {
+        let outcome_from = (msg.from.as_deref(), msg.to.as_deref());
+
+        match outcome_from {
+            (Some(matched_from), Some(matched_to)) => (matched_from, matched_to),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return Ok(None),
+        }
     };
-    let (Some(from_index), Some(to_index)) = (
-        ctx.actor_index.get(from).copied(),
-        ctx.actor_index.get(to).copied(),
-    ) else {
-        return Ok(None);
+
+    let (from_index, to_index) = {
+        let outcome_from_index = (
+            ctx.actor_index.get(from).copied(),
+            ctx.actor_index.get(to).copied(),
+        );
+
+        match outcome_from_index {
+            (Some(matched_from_index), Some(matched_to_index)) => (matched_from_index, matched_to_index),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return Ok(None),
+        }
     };
+
     let from_bounds = ctx
         .activation_state
         .actor_bounds(from_index, ctx.actor_centers_x[from_index]);
@@ -115,6 +136,7 @@ pub(super) fn sequence_message_horizontal_model(
     )))
 }
 
+#[must_use]
 fn message_horizontal_model_from_request(
     req: MessageHorizontalRequest,
 ) -> SequenceMessageHorizontalModel {
@@ -130,10 +152,11 @@ fn message_horizontal_model_from_request(
 
     if req.is_neo {
         const NEO_MARKER_OFFSET: f64 = 3.0;
-        // Mermaid exempts only SOLID_OPEN, not the headless dotted signal.
+
         let is_solid_open = req.semantics.stroke == SequenceMessageStroke::Solid
             && req.semantics.target_marker == SequenceMessageMarker::None
             && req.semantics.direction == SequenceMessageDirection::Forward;
+
         if !is_solid_open {
             stop_x += if is_arrow_to_right {
                 -NEO_MARKER_OFFSET
@@ -141,6 +164,7 @@ fn message_horizontal_model_from_request(
                 NEO_MARKER_OFFSET
             };
         }
+
         if req.semantics.direction == SequenceMessageDirection::Bidirectional {
             start_x += if is_arrow_to_right {
                 NEO_MARKER_OFFSET
@@ -164,9 +188,11 @@ fn message_horizontal_model_from_request(
         if req.activate && !is_arrow_to_activation {
             stop_x += adjust_value(req.activation_width / 2.0 - 1.0);
         }
+
         if marker_shortens_endpoint(req.semantics.target_marker) {
             stop_x += adjust_value(3.0);
         }
+
         if marker_shortens_endpoint(req.semantics.source_marker) {
             start_x -= adjust_value(3.0);
         }
@@ -192,6 +218,7 @@ fn message_horizontal_model_from_request(
     }
 }
 
+#[must_use]
 fn marker_shortens_endpoint(marker: SequenceMessageMarker) -> bool {
     matches!(
         marker,
@@ -245,15 +272,29 @@ pub(super) fn layout_sequence_message(
     msg: &SequenceMessage,
     ctx: SequenceMessageLayoutContext<'_>,
 ) -> Result<Option<SequenceMessageLayout>> {
-    let (Some(from), Some(to)) = (msg.from.as_deref(), msg.to.as_deref()) else {
-        return Ok(None);
+    let (from, to) = {
+        let outcome_from = (msg.from.as_deref(), msg.to.as_deref());
+
+        match outcome_from {
+            (Some(matched_from), Some(matched_to)) => (matched_from, matched_to),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return Ok(None),
+        }
     };
-    let (Some(fi), Some(ti)) = (
-        ctx.actor_index.get(from).copied(),
-        ctx.actor_index.get(to).copied(),
-    ) else {
-        return Ok(None);
+
+    let (fi, ti) = {
+        let outcome_fi = (
+            ctx.actor_index.get(from).copied(),
+            ctx.actor_index.get(to).copied(),
+        );
+
+        match outcome_fi {
+            (Some(matched_fi), Some(matched_ti)) => (matched_fi, matched_ti),
+            (::core::option::Option::None, _)
+            | (_, ::core::option::Option::None) => return Ok(None),
+        }
     };
+
     let from_x = ctx.actor_centers_x[fi];
     let to_x = ctx.actor_centers_x[ti];
 
@@ -275,6 +316,7 @@ pub(super) fn layout_sequence_message(
     else {
         return Ok(None);
     };
+
     let mut startx = horizontal.start_x;
     let mut stopx = horizontal.stop_x;
     let is_self = from == to;
@@ -349,25 +391,34 @@ pub(super) fn layout_sequence_message(
         .from_bound
         .min(startx)
         .min(stopx)
-        .min(self_insert.map(|bounds| bounds.0).unwrap_or(f64::INFINITY))
+        .min(match self_insert.map(|bounds| bounds.0) {
+            ::core::option::Option::Some(option_value) => option_value,
+            ::core::option::Option::None => f64::INFINITY,
+        })
         .min(
-            lifecycle_insert
-                .map(|bounds| bounds.0)
-                .unwrap_or(f64::INFINITY),
+            match lifecycle_insert
+                .map(|bounds| bounds.0) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => f64::INFINITY,
+            },
         );
     let inserted_max_x = horizontal
         .to_bound
         .max(startx)
         .max(stopx)
         .max(
-            self_insert
-                .map(|bounds| bounds.1)
-                .unwrap_or(f64::NEG_INFINITY),
+            match self_insert
+                .map(|bounds| bounds.1) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => f64::NEG_INFINITY,
+            },
         )
         .max(
-            lifecycle_insert
-                .map(|bounds| bounds.1)
-                .unwrap_or(f64::NEG_INFINITY),
+            match lifecycle_insert
+                .map(|bounds| bounds.1) {
+                ::core::option::Option::Some(option_value) => option_value,
+                ::core::option::Option::None => f64::NEG_INFINITY,
+            },
         );
 
     Ok(Some(SequenceMessageLayout {
@@ -406,6 +457,7 @@ pub(super) fn layout_sequence_message(
     }))
 }
 
+#[must_use]
 fn central_decoration_start_offset(
     central_decoration: SequenceCentralDecoration,
     direction: SequenceMessageDirection,
@@ -415,6 +467,7 @@ fn central_decoration_start_offset(
         central_decoration,
         SequenceCentralDecoration::Source | SequenceCentralDecoration::Both
     );
+
     if !has_source_decoration {
         return 0.0;
     }
@@ -444,10 +497,11 @@ struct EndpointAdjustmentRequest<'a, 'b> {
     ctx: &'b SequenceMessageLayoutContext<'a>,
 }
 
+#[must_use]
 fn adjust_created_destroyed_actor_endpoints(
     req: EndpointAdjustmentRequest<'_, '_>,
 ) -> Option<(f64, f64)> {
-    // Mermaid adjusts creating/destroying messages so arrowheads land outside the actor box.
+
     const ACTOR_TYPE_WIDTH_HALF: f64 = 18.0;
 
     if req.ctx.created_actor_index == Some(req.ctx.msg_idx) {
@@ -456,6 +510,7 @@ fn adjust_created_destroyed_actor_endpoints(
         } else {
             req.ctx.actor_widths[req.to_idx] / 2.0 + 3.0
         };
+
         if req.to_x < req.from_x {
             let inserted = ((*req.stopx - adjustment).min(*req.startx), *req.startx);
             *req.stopx += adjustment;
@@ -471,6 +526,7 @@ fn adjust_created_destroyed_actor_endpoints(
         } else {
             req.ctx.actor_widths[req.from_idx] / 2.0
         };
+
         if req.from_x < req.to_x {
             let inserted_start = *req.startx - adjustment;
             let inserted = (
@@ -494,6 +550,7 @@ fn adjust_created_destroyed_actor_endpoints(
         } else {
             req.ctx.actor_widths[req.to_idx] / 2.0 + 3.0
         };
+
         if req.to_x < req.from_x {
             let inserted = ((*req.stopx - adjustment).min(*req.startx), *req.startx);
             *req.stopx += adjustment;
@@ -519,7 +576,7 @@ fn wrapped_message_text(
         return Ok(None);
     }
 
-    // Upstream wraps message labels to `max(boundedWidth + 2*wrapPadding, conf.width)`.
+
     let wrap_w = (bounded_width + SEQUENCE_MESSAGE_WRAP_PADDING_SIDES * ctx.wrap_padding)
         .max(ctx.actor_width_min)
         .max(1.0);
@@ -594,6 +651,7 @@ struct SequenceMessageVerticalRequest {
     wrap_padding: f64,
 }
 
+#[must_use]
 fn message_vertical_geometry_from_measurement(
     req: SequenceMessageVerticalRequest,
 ) -> SequenceMessageVerticalGeometry {
@@ -611,7 +669,7 @@ fn message_vertical_geometry_from_measurement(
     SequenceMessageVerticalGeometry {
         text_width: 0.0,
         line_y,
-        // drawMessage sets y=starty+10; drawText then centers the first line within wrapPadding.
+
         label_y: super::sequence_drawn_text_first_y(req.cursor_y + 10.0, req.wrap_padding),
         cursor_step: line_y + self_advance - req.cursor_y,
         inserted_bottom_y: line_y + if req.is_self { 60.0 } else { 0.0 },
@@ -628,8 +686,8 @@ fn message_label(
     ctx: &SequenceMessageLayoutContext<'_>,
 ) -> Result<Option<LayoutLabel>> {
     if effective_text.is_empty() {
-        // Mermaid renders an (empty) message text node even when the label is empty (e.g.
-        // trailing colon `Alice->Bob:`). Keep a placeholder label to preserve DOM structure.
+
+
         return Ok(Some(LayoutLabel {
             x: ((x1 + x2) / 2.0).round(),
             y: label_y,
@@ -650,9 +708,9 @@ fn message_label(
             ctx.checkpoints.text(),
         )?
     } else {
-        // Sequence sets `textObj.tspan = false` for messages, so the final label bbox is a direct
-        // `<text>` measurement even though the earlier layout probe used `drawSimpleText` with a
-        // child `<tspan>`.
+
+
+
         measure_drawn_svg_like_with_html_br(
             ctx.measurer,
             effective_text,

@@ -1,7 +1,8 @@
-// FlowDB supplies no pre-paint width for crossed-circle nodes.
-// Pinned crossedCircle.ts therefore captures this radius before updateNodeBounds.
+
+
 pub(crate) const CROSSED_CIRCLE_RADIUS: f64 = 30.0;
 
+#[must_use]
 pub(crate) fn flowchart_brace_content_dimensions(
     shape: &str,
     label_width: f64,
@@ -9,9 +10,9 @@ pub(crate) fn flowchart_brace_content_dimensions(
     padding: f64,
     look_is_neo: bool,
 ) -> (f64, f64) {
-    // Public Flowchart configuration normalizes negative padding to zero.
-    // Mermaid's brace shapes otherwise preserve a zero-sized label box.
-    let padding = padding.max(0.0);
+
+
+    let padding_2 = padding.max(0.0);
     let (padding_x, padding_y) = if look_is_neo {
         if matches!(shape, "comment" | "brace" | "brace-l") {
             (18.0, 12.0)
@@ -19,7 +20,7 @@ pub(crate) fn flowchart_brace_content_dimensions(
             (36.0, 24.0)
         }
     } else {
-        (padding, padding)
+        (padding_2, padding_2)
     };
     (
         label_width.max(0.0) + padding_x,
@@ -35,19 +36,20 @@ pub(crate) struct StackedDocumentGeometry {
     pub(crate) label_dy: f64,
 }
 
+#[must_use]
 pub(crate) fn flowchart_stacked_document_geometry(
     label_width: f64,
     label_height: f64,
     padding: f64,
     look_is_neo: bool,
 ) -> StackedDocumentGeometry {
-    // Pinned multiWaveEdgedRectangle.ts: keep the same unshifted outer polygon
-    // for updateNodeBounds/intersection and a separate paint-group translation.
-    let padding = padding.max(0.0);
+
+
+    let padding_2 = padding.max(0.0);
     let (padding_x, padding_y) = if look_is_neo {
         (16.0, 12.0)
     } else {
-        (padding, padding)
+        (padding_2, padding_2)
     };
     let w = label_width.max(0.0) + 2.0 * padding_x;
     let h = label_height.max(0.0) + 3.0 * padding_y;
@@ -60,9 +62,9 @@ pub(crate) fn flowchart_stacked_document_geometry(
     let wave_y = y + final_h + offset;
     let delta_x = (x + w - offset) - wave_x;
     let cycle_length = delta_x / 0.8;
-    // Preserve the layout's finite zero-span fallback. Upstream divides by
-    // zero here for an empty classic label with zero padding.
-    let frequency = if cycle_length == 0.0 {
+
+
+    let frequency = if ::core::matches!(::core::primitive::f64::classify(cycle_length), ::core::num::FpCategory::Zero) {
         0.0
     } else {
         2.0 * std::f64::consts::PI / cycle_length
@@ -70,11 +72,13 @@ pub(crate) fn flowchart_stacked_document_geometry(
     let mut outer_points = Vec::with_capacity(62);
     outer_points.push((x - offset, y + offset));
     outer_points.push((x - offset, y + final_h + offset));
+
     for i in 0..=50 {
-        let px = wave_x + (i as f64 / 50.0) * delta_x;
+        let px = wave_x + (<f64 as ::core::convert::From<::core::primitive::i32>>::from(i) / 50.0) * delta_x;
         let py = wave_y + amplitude * (frequency * (px - wave_x)).sin();
         outer_points.push((px, py));
     }
+
     let last_y = outer_points[52].1;
     outer_points.extend([
         (x + w - offset, last_y - offset),
@@ -121,6 +125,7 @@ pub(crate) struct LeanGeometry {
 }
 
 impl LeanGeometry {
+    #[must_use]
     pub(crate) fn from_label(
         kind: LeanKind,
         label_width: f64,
@@ -128,17 +133,18 @@ impl LeanGeometry {
         padding: f64,
         neo: bool,
     ) -> Self {
-        let padding = padding.max(0.0);
+        let padding_2 = padding.max(0.0);
         let scale = if matches!(kind, LeanKind::InvertedTrapezoid) {
             2.0
         } else {
             1.0
         };
-        let h = label_height.max(0.0) + padding * scale;
-        let w = label_width.max(0.0) + padding * scale * if neo { 2.0 } else { 1.0 };
+        let h = label_height.max(0.0) + padding_2 * scale;
+        let w = label_width.max(0.0) + padding_2 * scale * if neo { 2.0 } else { 1.0 };
         Self::from_bounds(kind, w + h, h)
     }
 
+    #[must_use]
     pub(crate) fn from_bounds(kind: LeanKind, width: f64, height: f64) -> Self {
         let h = height.max(0.0);
         let w = (width - h).max(0.0);
@@ -167,6 +173,7 @@ pub(crate) struct OddGeometry {
 }
 
 impl OddGeometry {
+    #[must_use]
     pub(crate) fn from_label(label_width: f64, label_height: f64, padding: f64, neo: bool) -> Self {
         let p = padding.max(0.0);
         let w = label_width.max(0.0) + if neo { 42.0 } else { p };
@@ -174,6 +181,7 @@ impl OddGeometry {
         Self::from_bounds(w + h / 4.0, h)
     }
 
+    #[must_use]
     pub(crate) fn from_bounds(width: f64, height: f64) -> Self {
         let h = height.max(0.0);
         let w = (width - h / 4.0).max(0.0);
@@ -196,18 +204,21 @@ pub(crate) struct HexagonGeometry {
 }
 
 impl HexagonGeometry {
+    #[must_use]
     fn shoulder(height: f64, neo: bool) -> f64 {
         height / if neo { 3.5 } else { 4.0 }
     }
 
+    #[must_use]
     pub(crate) fn from_label(label_width: f64, label_height: f64, padding: f64, neo: bool) -> Self {
         let p = padding.max(0.0);
-        // Pinned hexagon.ts intentionally uses 70 on the height and 32 on the width.
+
         let h = label_height.max(0.0) + if neo { 70.0 } else { p };
         let w = label_width.max(0.0) + 2.0 * Self::shoulder(h, neo) + if neo { 32.0 } else { p };
         Self::from_bounds(w, h, neo)
     }
 
+    #[must_use]
     pub(crate) fn from_bounds(width: f64, height: f64, neo: bool) -> Self {
         let w = width.max(0.0);
         let h = height.max(0.0);
@@ -233,10 +244,12 @@ pub(crate) struct DoubleCircleGeometry {
 }
 
 impl DoubleCircleGeometry {
+    #[must_use]
     fn gap(neo: bool) -> f64 {
         if neo { 12.0 } else { 5.0 }
     }
 
+    #[must_use]
     pub(crate) fn from_label(label_width: f64, label_height: f64, padding: f64, neo: bool) -> Self {
         let w = label_width.max(0.0);
         let h = label_height.max(0.0);
@@ -247,6 +260,7 @@ impl DoubleCircleGeometry {
         }
     }
 
+    #[must_use]
     pub(crate) fn from_outer_diameter(diameter: f64, neo: bool) -> Self {
         let outer_radius = (diameter / 2.0).max(Self::gap(neo));
         Self {
@@ -256,6 +270,7 @@ impl DoubleCircleGeometry {
     }
 }
 
+#[must_use]
 fn sampled_circle_points(
     center_x: f64,
     center_y: f64,
@@ -272,6 +287,7 @@ fn sampled_circle_points(
             let angle = start + i as f64 * step;
             let x = center_x + radius * angle.cos();
             let y = center_y + radius * angle.sin();
+
             if negate { (-x, -y) } else { (x, y) }
         })
         .collect()
@@ -282,11 +298,13 @@ pub(crate) struct StadiumGeometry {
     pub(crate) height: f64,
     pub(crate) points: Vec<(f64, f64)>,
 }
+
 impl StadiumGeometry {
+    #[must_use]
     pub(crate) fn from_label(label_width: f64, label_height: f64, padding: f64, neo: bool) -> Self {
-        let padding = padding.max(0.0);
-        let padding_x = if neo { 40.0 } else { padding };
-        let padding_y = if neo { 24.0 } else { padding };
+        let padding_2 = padding.max(0.0);
+        let padding_x = if neo { 40.0 } else { padding_2 };
+        let padding_y = if neo { 24.0 } else { padding_2 };
         let h = label_height.max(0.0) + padding_y;
         let inscribed = h * (std::f64::consts::PI / (2.0 * 49.0)).cos();
         let cap = (inscribed * inscribed - label_height.max(0.0).powi(2))
@@ -316,8 +334,8 @@ impl StadiumGeometry {
             450.0,
             true,
         ));
-        // Keep the source theoretical dimensions. The sampled points are the paint/intersection
-        // outline, but using their narrower extrema for layout would shrink the same shape twice.
+
+
         Self {
             width: w,
             height: h,
@@ -331,11 +349,13 @@ pub(crate) struct DelayGeometry {
     pub(crate) height: f64,
     pub(crate) points: Vec<(f64, f64)>,
 }
+
 impl DelayGeometry {
+    #[must_use]
     pub(crate) fn from_label(label_width: f64, label_height: f64, padding: f64, neo: bool) -> Self {
-        let padding = padding.max(0.0);
-        let px = if neo { 16.0 } else { padding };
-        let py = if neo { 12.0 } else { padding };
+        let padding_2 = padding.max(0.0);
+        let px = if neo { 16.0 } else { padding_2 };
+        let py = if neo { 12.0 } else { padding_2 };
         let min_width = 15.0;
         let min_height = 10.0;
         let h = label_height.max(min_height) + py * 2.0;
@@ -371,11 +391,13 @@ pub(crate) struct DisplayGeometry {
     pub(crate) ty: f64,
     pub(crate) points: Vec<(f64, f64)>,
 }
+
 impl DisplayGeometry {
+    #[must_use]
     pub(crate) fn from_label(label_width: f64, label_height: f64, padding: f64, neo: bool) -> Self {
-        let padding = padding.max(0.0);
-        let px = if neo { 16.0 } else { padding };
-        let py = if neo { 12.0 } else { padding };
+        let padding_2 = padding.max(0.0);
+        let px = if neo { 16.0 } else { padding_2 };
+        let py = if neo { 12.0 } else { padding_2 };
         let min_width = 20.0;
         let min_height = 5.0;
         let h = (label_height.max(0.0) + py * 2.0).max(min_height);
@@ -410,20 +432,21 @@ impl DisplayGeometry {
     }
 }
 
+#[must_use]
 fn node_render_dimensions(
     layout_shape: Option<&str>,
     metrics: crate::text::TextMetrics,
     padding: f64,
     look_is_neo: bool,
 ) -> (f64, f64) {
-    // This function mirrors pinned Mermaid node shape sizing rules at the "rendering-elements"
-    // layer, but uses our headless `TextMeasurer` metrics instead of DOM `getBBox()`.
-    //
-    // References:
-    // - `packages/mermaid/src/diagrams/flowchart/flowDb.ts` (shape assignment + padding)
-    // - `packages/mermaid/src/rendering-util/rendering-elements/shapes/*.ts` (shape bounds)
-    // Mermaid's DOM `getBBox()` can legitimately return 0 for empty/whitespace-only labels.
-    // Do not clamp to 1px here, otherwise we skew layout widths (notably `max-width`) by 1px.
+
+
+
+
+
+
+
+
     let text_w = metrics.width.max(0.0);
     let text_h = metrics.height.max(0.0);
     let p = padding.max(0.0);
@@ -431,11 +454,13 @@ fn node_render_dimensions(
     let shape = layout_shape.unwrap_or("squareRect");
     let resolved_shape = crate::flowchart::FlowchartShape::resolve(shape)
         .unwrap_or_else(|error| panic!("unvalidated Flowchart shape reached layout: {error}"));
+
     if let crate::flowchart::FlowchartShape::Bpmn(shape) = resolved_shape {
         let geometry = shape.geometry(metrics, text_h > 0.0, false, false);
         return (geometry.width, geometry.height);
     }
 
+    #[must_use]
     fn circle_points(
         center_x: f64,
         center_y: f64,
@@ -448,36 +473,45 @@ fn node_render_dimensions(
         let start = start_deg.to_radians();
         let end = end_deg.to_radians();
         let angle_range = end - start;
-        let angle_step = if num_points > 1 {
-            angle_range / (num_points as f64 - 1.0)
-        } else {
-            0.0
+        let angle_step = match { let _explicit_ordering = ::core::cmp::Ord::cmp(&::core::convert::identity(num_points), &::core::convert::identity(1)); _explicit_ordering } {
+            ::core::cmp::Ordering::Greater => {
+                angle_range / (num_points as f64 - 1.0)
+            },
+            ::core::cmp::Ordering::Less | ::core::cmp::Ordering::Equal => {
+                0.0
+            },
         };
         let mut out: Vec<(f64, f64)> = Vec::with_capacity(num_points);
+
         for i in 0..num_points {
             let a = start + (i as f64) * angle_step;
             let x = center_x + radius * a.cos();
             let y = center_y + radius * a.sin();
+
             if negate {
                 out.push((-x, -y));
             } else {
                 out.push((x, y));
             }
         }
+
         out
     }
 
+    #[must_use]
     fn bbox_of_points(points: &[(f64, f64)]) -> Option<(f64, f64, f64, f64)> {
         let mut min_x = f64::INFINITY;
         let mut min_y = f64::INFINITY;
         let mut max_x = f64::NEG_INFINITY;
         let mut max_y = f64::NEG_INFINITY;
+
         for &(x, y) in points {
             min_x = min_x.min(x);
             min_y = min_y.min(y);
             max_x = max_x.max(x);
             max_y = max_y.max(y);
         }
+
         if min_x.is_finite() && min_y.is_finite() && max_x.is_finite() && max_y.is_finite() {
             Some((min_x, min_y, max_x, max_y))
         } else {
@@ -485,6 +519,7 @@ fn node_render_dimensions(
         }
     }
 
+    #[must_use]
     fn generate_full_sine_wave_points(
         x1: f64,
         y1: f64,
@@ -493,7 +528,7 @@ fn node_render_dimensions(
         amplitude: f64,
         num_cycles: f64,
     ) -> Vec<(f64, f64)> {
-        // Ported from Mermaid `generateFullSineWavePoints` (50 segments).
+
         let steps: usize = 50;
         let delta_x = x2 - x1;
         let delta_y = y2 - y1;
@@ -509,16 +544,19 @@ fn node_render_dimensions(
         };
         let mid_y = y1 + delta_y / 2.0;
 
-        let mut points: Vec<(f64, f64)> = Vec::with_capacity(steps + 1);
+        let mut points: Vec<(f64, f64)> = Vec::with_capacity(steps.wrapping_add(1));
+
         for i in 0..=steps {
             let t = (i as f64) / (steps as f64);
             let x = x1 + t * delta_x;
             let y = mid_y + amplitude * (frequency * (x - x1)).sin();
             points.push((x, y));
         }
+
         points
     }
 
+    #[must_use]
     fn arc_points(
         x1: f64,
         y1: f64,
@@ -539,6 +577,7 @@ fn node_render_dimensions(
         let transformed_x = dx / rx;
         let transformed_y = dy / ry;
         let distance = (transformed_x * transformed_x + transformed_y * transformed_y).sqrt();
+
         if distance > 1.0 {
             return vec![(x1, y1), (x2, y2)];
         }
@@ -552,29 +591,33 @@ fn node_render_dimensions(
         let end_angle = ((y2 - center_y) / ry).atan2((x2 - center_x) / rx);
 
         let mut angle_range = end_angle - start_angle;
+
         if clockwise && angle_range < 0.0 {
             angle_range += 2.0 * std::f64::consts::PI;
         }
+
         if !clockwise && angle_range > 0.0 {
             angle_range -= 2.0 * std::f64::consts::PI;
         }
 
         let mut points: Vec<(f64, f64)> = Vec::with_capacity(num_points);
+
         for i in 0..num_points {
-            let t = i as f64 / (num_points - 1) as f64;
+            let t = i as f64 / num_points.wrapping_sub(1) as f64;
             let a = start_angle + t * angle_range;
             let x = center_x + rx * a.cos();
             let y = center_y + ry * a.sin();
             points.push((x, y));
         }
+
         points
     }
 
     match shape {
-        // Flowchart v2 anchor ignores its label and uses a fixed 1px source radius.
+
         "anchor" => (2.0, 2.0),
 
-        // Default flowchart process node.
+
         "squareRect" | "rect" | "proc" | "process" | "rectangle" => {
             if look_is_neo {
                 (text_w + 32.0, text_h + 24.0)
@@ -584,14 +627,14 @@ fn node_render_dimensions(
         }
         "data-store" | "datastore" => (text_w + 4.0 * p, text_h + 2.0 * p),
 
-        // Mermaid uses a few aliases for the same rounded-rectangle shape across layers.
-        // In FlowDB output (flowchart-v2), this commonly appears as `rounded`.
+
+
         "roundedRect" | "rounded" | "event" => (text_w + 2.0 * p, text_h + 2.0 * p),
 
-        // Note (rendering-elements/state note box).
+
         "note" => (text_w + 2.0 * p, text_h + 2.0 * p),
 
-        // Diamond (decision/question).
+
         "diamond" | "question" | "diam" | "decision" => {
             let w = text_w + p;
             let h = text_h + p;
@@ -599,8 +642,8 @@ fn node_render_dimensions(
             (s, s)
         }
 
-        // Mermaid 11.17 folder/directory shape: a file-folder outline with a raised tab.
-        // The tab is part of the rendered bounds, so include it in the layout height.
+
+
         "folder" | "directory" => {
             let w = (text_w + 2.0 * p).max(90.0);
             let content_height = text_h + 2.0 * p;
@@ -608,14 +651,14 @@ fn node_render_dimensions(
             (w, content_height + tab_height)
         }
 
-        // Mermaid 11.17 object-storage bucket: a tapered body plus an elliptical rim.
+
         "bucket" => {
             let w = (text_w + 2.0 * p).max(80.0);
             let rim_ry = (w * 0.08).clamp(5.0, 12.0);
             (w, text_h + 2.0 * p + rim_ry)
         }
 
-        // Mermaid 11.17 console/browser windows reserve a top chrome band for their decoration.
+
         "console" => {
             let w = (text_w + 2.0 * p).max(90.0);
             (w, text_h + 2.0 * p + 20.0)
@@ -625,7 +668,7 @@ fn node_render_dimensions(
             (w, text_h + 2.0 * p + 18.0)
         }
 
-        // Mermaid 11.17 person: a C4-style head above a rounded body.
+
         "person" => {
             let w = (text_w + 2.0 * p).max(100.0);
             let head_radius = (w * 0.23).clamp(16.0, 56.0);
@@ -639,44 +682,44 @@ fn node_render_dimensions(
             (geometry.width, geometry.height)
         }
 
-        // Stadium/terminator.
+
         "stadium" | "terminal" | "pill" => {
             let geometry = StadiumGeometry::from_label(text_w, text_h, p, look_is_neo);
             (geometry.width, geometry.height)
         }
 
-        // Subroutine/subprocess (framed rectangle): adds an 8px "frame" on both sides.
+
         "subroutine" | "fr-rect" | "subproc" | "subprocess" | "framed-rectangle" => {
             let w = text_w + if look_is_neo { 28.0 } else { p };
             let h = text_h + if look_is_neo { 12.0 } else { p };
             (w + 16.0, h)
         }
 
-        // Cylinder/database.
+
         "cylinder" | "cyl" | "db" | "database" => {
             let label_padding = if look_is_neo { 24.0 } else { p };
             let w = text_w + label_padding;
             let rx = w / 2.0;
             let ry = rx / (2.5 + w / 50.0);
-            // Mermaid's cylinder path height ends up including two extra `ry` from the ellipses.
-            // See `createCylinderPathD` + `translate(..., -(h/2 + ry))`.
+
+
             let height = text_h + label_padding + 3.0 * ry;
             (w, height)
         }
 
-        // Flowchart v2 tilted cylinder ("horizontal-cylinder").
+
         "h-cyl" | "das" | "horizontal-cylinder" => {
-            // Mermaid `tiltedCylinder.ts`:
-            // - `labelPadding` is 12 for Neo and `halfPadding` for Classic.
-            // - `h = bbox.height + labelPadding`
-            // - `ry = h / 2`, `rx = ry / (2.5 + h / 50)`
-            // - `w = bbox.width + rx + labelPadding`
-            // - the rendered `<path>` bbox expands by `rx` on both sides (arc extents), so Dagre
-            //   sees `out_w = w + 2*rx` via `updateNodeBounds(...)`.
+
+
+
+
+
+
+
             let label_padding = if look_is_neo { 12.0 } else { p / 2.0 };
             let h = text_h + label_padding;
             let ry = h / 2.0;
-            let rx = if ry == 0.0 {
+            let rx = if ::core::matches!(::core::primitive::f64::classify(ry), ::core::num::FpCategory::Zero) {
                 0.0
             } else {
                 ry / (2.5 + h / 50.0)
@@ -685,10 +728,10 @@ fn node_render_dimensions(
             (w + 2.0 * rx, h)
         }
 
-        // Flowchart v2 window-pane ("internal-storage").
+
         "win-pane" | "internal-storage" | "window-pane" => {
-            // Mermaid `windowPane.ts` uses fixed 16px/12px axis padding in Neo. The final
-            // rendered bbox adds the 10px frame offset on both axes.
+
+
             let padding_x = if look_is_neo { 16.0 } else { p };
             let padding_y = if look_is_neo { 12.0 } else { p };
             let w = (text_w + 2.0 * padding_x).max(0.0);
@@ -697,9 +740,9 @@ fn node_render_dimensions(
             (w + rect_offset, h + rect_offset)
         }
 
-        // Circle. Mermaid sizes the radius from the label bbox diagonal, then adds
-        // the look-specific padding (circle.ts: labelRadius + labelPadding/halfPadding).
-        // Neo adds one 16px radius padding step, matching a double circle's inner ring.
+
+
+
         "circle" | "circ" => {
             let label_diameter = text_w.hypot(text_h);
             let diameter = if look_is_neo {
@@ -710,7 +753,7 @@ fn node_render_dimensions(
             (diameter, diameter)
         }
 
-        // Organic arc paths use the browser-visible path bbox, not their construction box.
+
         "bang" => {
             let geometry = crate::flowchart::bang_geometry(text_w, text_h, p);
             (geometry.width(), geometry.height())
@@ -720,8 +763,8 @@ fn node_render_dimensions(
             (geometry.width(), geometry.height())
         }
 
-        // Collapsed subgraphs are compact two-row nodes with fixed 8px padding, an 8px
-        // separator gap, and a 20px ellipsis row. Mermaid enforces an 80px minimum width.
+
+
         "collapsedGroup" | "collapsed-group" => {
             ((text_w + 16.0).max(80.0), text_h + 8.0 + 20.0 + 16.0)
         }
@@ -732,40 +775,40 @@ fn node_render_dimensions(
             (diameter, diameter)
         }
 
-        // Small start circle (stateStart in rendering-elements).
+
         "sm-circ" | "small-circle" | "start" => (14.0, 14.0),
 
-        // Stop framed circle (`stateEnd.ts`) normalizes both source dimensions to 14px.
+
         "fr-circ" | "framed-circle" | "stop" => (14.0, 14.0),
 
-        // Fork/join bar (uses `lineColor` fill/stroke; no label).
+
         "fork" | "join" => (70.0, 10.0),
 
-        // Choice diamond (stateChoice in rendering-elements).
+
         "choice" => (28.0, 28.0),
 
-        // Flowchart v2 lightning bolt (Communication link). Mermaid clears `node.label`.
+
         "bolt" | "com-link" | "lightning-bolt" => (35.0, 70.0),
 
-        // Flowchart v2 filled circle (`filledCircle.ts`) uses a fixed 7px source radius.
+
         "f-circ" | "junction" | "filled-circle" => (14.0, 14.0),
 
-        // Flowchart v2 crossed circle (`crossedCircle.ts`) has a minimum 30px source radius.
+
         "cross-circ" | "summary" | "crossed-circle" => {
             (2.0 * CROSSED_CIRCLE_RADIUS, 2.0 * CROSSED_CIRCLE_RADIUS)
         }
 
-        // Flowchart v2 delay / halfRoundedRectangle.
+
         "delay" | "half-rounded-rectangle" => {
             let geometry = DelayGeometry::from_label(text_w, text_h, p, look_is_neo);
             (geometry.width, geometry.height)
         }
 
-        // Flowchart v2 lined cylinder (Disk storage).
+
         "lin-cyl" | "disk" | "lined-cylinder" => {
-            // Mermaid `linedCylinder.ts` uses fixed axis padding for Neo and the configured
-            // padding for Classic. The cylinder height includes the top, body, and bottom
-            // ellipse radii from the rendered path.
+
+
+
             let (padding_x, padding_y) = if look_is_neo { (16.0, 24.0) } else { (p, p) };
             let w = text_w + 2.0 * padding_x;
             let rx = w / 2.0;
@@ -774,19 +817,19 @@ fn node_render_dimensions(
             (w, height)
         }
 
-        // Flowchart v2 curved trapezoid (Display).
+
         "curv-trap" | "display" | "curved-trapezoid" => {
             let geometry = DisplayGeometry::from_label(text_w, text_h, p, look_is_neo);
             (geometry.width, geometry.height)
         }
 
-        // Flowchart v2 divided rectangle (Divided process).
+
         "div-rect" | "div-proc" | "divided-rectangle" | "divided-process" => {
-            // Mermaid `dividedRect.ts` uses a single 16px Neo padding term before the
-            // rendered 20% top band expands the final height.
-            let padding = if look_is_neo { 16.0 } else { p };
-            let w = text_w + padding;
-            let h = text_h + padding;
+
+
+            let padding_2 = if look_is_neo { 16.0 } else { p };
+            let w = text_w + padding_2;
+            let h = text_h + padding_2;
             let rect_offset = h * 0.2;
             let x = -w / 2.0;
             let y = -h / 2.0 - rect_offset / 2.0;
@@ -803,23 +846,23 @@ fn node_render_dimensions(
             ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
         }
 
-        // Flowchart v2 triangle (Extract).
+
         "tri" | "extract" | "triangle" => {
-            // Mermaid uses two-side horizontal padding for Neo and one-side padding for Classic.
-            // The same width feeds both layout and SVG geometry.
+
+
             let w = text_w + if look_is_neo { 2.0 * p } else { p };
             let h = w + text_h;
             (h, h)
         }
 
-        // Flowchart v2 flipped triangle (Manual file).
+
         "manual-file" | "flipped-triangle" | "flip-tri" => {
             let w = text_w + if look_is_neo { 2.0 * p } else { p };
             let h = w + text_h;
             (h, h)
         }
 
-        // Flowchart v2 sloped rectangle (Manual input).
+
         "manual-input" | "sloped-rectangle" | "sl-rect" => {
             let padding_x = if look_is_neo { 16.0 } else { p };
             let padding_y = if look_is_neo { 12.0 } else { p };
@@ -828,7 +871,7 @@ fn node_render_dimensions(
             (w, (1.5 * h).max(0.0))
         }
 
-        // Flowchart v2 document (wave-edged rectangle).
+
         "doc" | "document" => {
             let padding_x = if look_is_neo { 16.0 } else { p };
             let padding_y = if look_is_neo { 12.0 } else { p };
@@ -865,18 +908,21 @@ fn node_render_dimensions(
             ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
         }
 
-        // Flowchart v2 stacked document (multi-wave edged rectangle).
+
         "docs" | "documents" | "st-doc" | "stacked-document" => {
             let geometry =
                 flowchart_stacked_document_geometry(text_w, text_h, padding, look_is_neo);
             let (min_x, min_y, max_x, max_y) =
-                bbox_of_points(&geometry.outer_points).unwrap_or((0.0, 0.0, 0.0, 0.0));
+                match bbox_of_points(&geometry.outer_points) {
+                    ::core::option::Option::Some(present) => present,
+                    ::core::option::Option::None => (0.0, 0.0, 0.0, 0.0),
+                };
             ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
         }
 
-        // Flowchart v2 stacked rectangle (multi-process).
+
         "st-rect" | "procs" | "processes" | "stacked-rectangle" => {
-            // Mermaid `multiRect.ts` uses fixed Neo label padding and a larger layer offset.
+
             let padding_x = if look_is_neo { 16.0 } else { p };
             let padding_y = if look_is_neo { 12.0 } else { p };
             let w = (text_w + 2.0 * padding_x).max(0.0);
@@ -885,10 +931,10 @@ fn node_render_dimensions(
             (w + 2.0 * rect_offset, h + 2.0 * rect_offset)
         }
 
-        // Flowchart v2 paper-tape / wave rectangle.
+
         "paper-tape" | "flag" => {
-            // Mermaid `waveRectangle.ts` uses look-specific label padding: Neo reserves
-            // 16px horizontally and 20px vertically, while Classic uses the configured padding.
+
+
             let padding_x = if look_is_neo { 16.0 } else { p };
             let padding_y = if look_is_neo { 20.0 } else { p };
             let w = (text_w + 2.0 * padding_x).max(0.0);
@@ -924,7 +970,7 @@ fn node_render_dimensions(
             ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
         }
 
-        // Flowchart v2 lined document.
+
         "lin-doc" | "lined-document" => {
             let padding_x = if look_is_neo { 16.0 } else { p };
             let padding_y = if look_is_neo { 12.0 } else { p };
@@ -960,9 +1006,9 @@ fn node_render_dimensions(
             ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
         }
 
-        // Flowchart v2 tagged rectangle.
+
         "tag-rect" | "tagged-rectangle" | "tag-proc" | "tagged-process" => {
-            // Mermaid `taggedRect.ts` applies label padding before adding the tag width.
+
             let padding_x = if look_is_neo { 16.0 } else { p };
             let padding_y = if look_is_neo { 12.0 } else { p };
             let w = (text_w + 2.0 * padding_x).max(0.0);
@@ -988,7 +1034,7 @@ fn node_render_dimensions(
             ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
         }
 
-        // Flowchart v2 tagged document.
+
         "tag-doc" | "tagged-document" => {
             let w = (text_w + 2.0 * p).max(0.0);
             let h = (text_h + 2.0 * p).max(0.0);
@@ -1036,16 +1082,16 @@ fn node_render_dimensions(
             ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
         }
 
-        // Flowchart v2 trapezoidal pentagon (Loop limit).
+
         "notch-pent" | "loop-limit" | "notched-pentagon" => {
-            // The source's 15x5 minimum only applies to an explicitly sized node.
-            // Flowchart's automatic size comes directly from the measured label.
+
+
             let padding_x = if look_is_neo { 16.0 } else { p };
             let padding_y = if look_is_neo { 12.0 } else { p };
             (text_w + 2.0 * padding_x, text_h + 2.0 * padding_y)
         }
 
-        // Flowchart v2 bow-tie rect (Stored data).
+
         "bow-rect" | "stored-data" | "bow-tie-rectangle" => {
             let padding_x = if look_is_neo { 16.0 } else { p };
             let padding_y = if look_is_neo { 12.0 } else { p };
@@ -1080,10 +1126,10 @@ fn node_render_dimensions(
             ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
         }
 
-        // Hourglass/collate (label cleared, but label group still emitted).
+
         "hourglass" | "collate" => (30.0, 30.0),
 
-        // Card/notched rectangle: Neo adds 28px horizontally and 24px vertically before drawing the notch.
+
         "notch-rect" | "notched-rectangle" | "card" => {
             if look_is_neo {
                 (text_w + 56.0, text_h + 48.0)
@@ -1092,8 +1138,8 @@ fn node_render_dimensions(
             }
         }
 
-        // Mermaid `shadedProcess.ts` uses fixed Neo label padding and one 8px frame on
-        // the outer width; Classic keeps two frame widths around the configured padding.
+
+
         "lin-rect" | "lined-rectangle" | "lined-process" | "lin-proc" | "shaded-process" => {
             let padding_x = if look_is_neo { 16.0 } else { p };
             let padding_y = if look_is_neo { 12.0 } else { p };
@@ -1105,10 +1151,10 @@ fn node_render_dimensions(
             )
         }
 
-        // Text block: bbox + 1x padding (not 2x).
+
         "text" => (text_w + p, text_h + p),
 
-        // Curly brace comment shapes (rendering-elements).
+
         "comment" | "brace" | "brace-l" => {
             let (w, h) =
                 flowchart_brace_content_dimensions(shape, text_w, text_h, padding, look_is_neo);
@@ -1179,9 +1225,11 @@ fn node_render_dimensions(
             rect_points.push((-w / 2.0 - radius, h / 2.0));
             rect_points.extend(circle_points(w / 2.0, h / 2.0, radius, 20, 0.0, 90.0, true));
             rect_points.extend([(-w / 2.0, h / 2.0 + radius), (w / 2.0, h / 2.0 + radius)]);
-            for p in points.iter_mut().chain(rect_points.iter_mut()) {
-                p.0 += group_tx;
+
+            for p_2 in points.iter_mut().chain(rect_points.iter_mut()) {
+                p_2.0 += group_tx;
             }
+
             let mut all_points: Vec<(f64, f64)> =
                 Vec::with_capacity(points.len() + rect_points.len());
             all_points.extend(points);
@@ -1236,9 +1284,11 @@ fn node_render_dimensions(
                 false,
             ));
             rect_points.extend([(w / 2.0, h / 2.0 + radius), (-w / 2.0, h / 2.0 + radius)]);
-            for p in &mut rect_points {
-                p.0 += group_tx;
+
+            for p_3 in &mut rect_points {
+                p_3.0 += group_tx;
             }
+
             let (min_x, min_y, max_x, max_y) =
                 bbox_of_points(&rect_points).unwrap_or((-w / 2.0, -h / 2.0, w / 2.0, h / 2.0));
             ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
@@ -1322,15 +1372,17 @@ fn node_render_dimensions(
                 -270.0,
                 true,
             ));
-            for p in &mut rect_points {
-                p.0 += group_tx;
+
+            for p_4 in &mut rect_points {
+                p_4.0 += group_tx;
             }
+
             let (min_x, min_y, max_x, max_y) =
                 bbox_of_points(&rect_points).unwrap_or((-w / 2.0, -h / 2.0, w / 2.0, h / 2.0));
             ((max_x - min_x).max(0.0), (max_y - min_y).max(0.0))
         }
 
-        // The first three variants share dimensions; only their vertex order differs.
+
         "lean_right" | "lean-r" | "lean-right" | "in-out" | "lean_left" | "lean-l"
         | "lean-left" | "out-in" | "trapezoid" | "trap-b" | "priority" | "trapezoid-bottom" => {
             let geometry =
@@ -1352,14 +1404,15 @@ fn node_render_dimensions(
             (geometry.width, geometry.height)
         }
 
-        // Ellipses are currently broken upstream but still emitted by FlowDB.
-        // Keep a reasonable headless size for layout stability.
+
+
         "ellipse" => (text_w + 2.0 * p, text_h + 2.0 * p),
 
         _ => panic!("Flowchart shape {shape} has no layout geometry"),
     }
 }
 
+#[must_use]
 pub(crate) fn flowchart_node_render_dimensions(
     layout_shape: Option<&str>,
     metrics: crate::text::TextMetrics,
@@ -1379,6 +1432,7 @@ pub(crate) struct ImageSquareGeometry {
 }
 
 impl ImageSquareGeometry {
+    #[must_use]
     pub(crate) fn from_label(
         metrics: crate::text::TextMetrics,
         has_label: bool,
@@ -1387,8 +1441,14 @@ impl ImageSquareGeometry {
         constraint_on: bool,
         wrapping_width: f64,
     ) -> Self {
-        let asset_h = asset_height.unwrap_or(60.0).max(1.0);
-        let asset_w = asset_width.unwrap_or(asset_h).max(1.0);
+        let asset_h = match asset_height {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 60.0,
+        }.max(1.0);
+        let asset_w = match asset_width {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => asset_h,
+        }.max(1.0);
         let aspect_ratio = asset_w / asset_h;
         let image_raw_width = asset_w.max(if has_label {
             wrapping_width.max(0.0)
@@ -1433,6 +1493,7 @@ pub(crate) struct NodeLayoutDimensionsRequest<'a> {
     pub(crate) node_asset_height: Option<f64>,
 }
 
+#[must_use]
 pub(crate) fn node_layout_dimensions(req: NodeLayoutDimensionsRequest<'_>) -> (f64, f64) {
     let NodeLayoutDimensionsRequest {
         layout_shape,
@@ -1490,8 +1551,14 @@ pub(crate) fn node_layout_dimensions(req: NodeLayoutDimensionsRequest<'_>) -> (f
         let label_bbox_w = if has_label { metrics.width + 4.0 } else { 0.0 };
         let label_bbox_h = if has_label { metrics.height + 4.0 } else { 0.0 };
 
-        let asset_h = node_asset_height.unwrap_or(48.0);
-        let asset_w = node_asset_width.unwrap_or(48.0);
+        let asset_h = match node_asset_height {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 48.0,
+        };
+        let asset_w = match node_asset_width {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => 48.0,
+        };
         let icon_size = asset_h.max(asset_w);
         let has_icon = node_icon.is_some_and(|icon| !icon.trim().is_empty());
         let icon_outer_size = match resolved_shape {
@@ -1508,16 +1575,16 @@ pub(crate) fn node_layout_dimensions(req: NodeLayoutDimensionsRequest<'_>) -> (f
         let outer_w = icon_outer_size.max(label_bbox_w);
         let outer_h = icon_outer_size + label_padding + label_bbox_h;
 
-        // Mermaid icon helpers support `pos=t` for top-aligned labels, but that does not
-        // change the node's outer bbox.
+
+
         let _ = node_pos;
         return (outer_w, outer_h);
     }
 
-    // Mermaid `forkJoin.ts` inflates the Dagre node dimensions by `state.padding / 2` after
-    // `updateNodeBounds(...)`, but does not re-render the rectangle with the inflated size.
-    // Horizontal flow (LR or RL) uses a vertical bar, perpendicular to the flow.
-    // Keep our layout spacing consistent with upstream by applying both rules here.
+
+
+
+
     if matches!(shape, "fork" | "join") {
         let extra = (state_padding / 2.0).max(0.0);
         let (render_w, render_h) = if layout_direction.eq_ignore_ascii_case("LR")
@@ -1532,13 +1599,13 @@ pub(crate) fn node_layout_dimensions(req: NodeLayoutDimensionsRequest<'_>) -> (f
 
     let (render_w, render_h) = node_render_dimensions(Some(shape), metrics, padding, look_is_neo);
 
-    // Mermaid flowchart-v2 renders nodes using the "rendering-elements" layer:
-    // 1) it generates SVG paths (roughjs-based even for non-handDrawn look),
-    // 2) calls `updateNodeBounds(node, shapeElem)` which sets `node.width/height` from `getBBox()`,
-    // 3) then feeds those updated dimensions into Dagre for layout.
-    //
-    // StadiumGeometry already owns the source dimensions and sampled points. Keep its
-    // theoretical width here; re-sampling would shrink the same source geometry twice.
+
+
+
+
+
+
+
 
     (render_w, render_h)
 }
@@ -1598,7 +1665,7 @@ mod render_dimension_tests {
 
     #[test]
     fn neo_shape_dimensions_match_pinned_source() {
-        // Executed Mermaid12 shape prefixes, with synthetic label bounds 100x20.
+
         for (
             neo,
             padding,
@@ -1803,7 +1870,7 @@ mod render_dimension_tests {
 
     #[test]
     fn stacked_document_geometry_matches_pinned_neo_and_classic_source() {
-        // Captured from the pinned TS outerPathPoints using its sine generator.
+
         for (neo, padding, width, height, bounds, label_dy, group_dy, last_wave_y) in [
             (
                 true,
@@ -1896,8 +1963,8 @@ mod render_dimension_tests {
             assert_eq!(other.outer_points, neo.outer_points);
             assert_eq!(other.label_dy, neo.label_dy);
         }
-        // Preserve the established finite zero-span layout fallback, rather
-        // than importing the TS sine helper's division-by-zero NaNs.
+
+
         for padding in [0.0, -2.0] {
             let empty = flowchart_stacked_document_geometry(0.0, 0.0, padding, false);
             assert!(
@@ -1942,7 +2009,7 @@ mod render_dimension_tests {
                 assert!((zero.0 - zero_width).abs() < 1e-9, "{shape}: {zero:?}");
                 assert!((zero.1 - 10.0).abs() < 1e-9, "{shape}: {zero:?}");
             }
-            // Neo owns its axis padding, independent of configured padding.
+
             for padding in [0.0, 15.0, 40.0] {
                 let neo = node_render_dimensions(Some(shape), metrics(), padding, true);
                 assert!((neo.0 - neo_width).abs() < 1e-9, "{shape}: {neo:?}");
@@ -1972,7 +2039,7 @@ mod render_dimension_tests {
         assert_eq!(cylinder_w, 124.0);
         assert!((cylinder_h - (44.0 + 3.0 * expected_ry)).abs() < 1e-9);
 
-        // `linedCylinder.ts` uses independent fixed x/y padding in Neo mode.
+
         for (neo, padding_x, padding_y) in [(false, 15.0, 15.0), (true, 16.0, 24.0)] {
             let (width, height) =
                 node_render_dimensions(Some("lined-cylinder"), metrics(), 15.0, neo);
@@ -2093,8 +2160,8 @@ mod render_dimension_tests {
                 "stacked rectangle neo={neo}: {actual:?}"
             );
         }
-        // The trapezoidal pentagon has no automatic minimum; 15x5 is only applied
-        // by Mermaid when an explicit node width or height is supplied.
+
+
         assert_eq!(
             node_render_dimensions(Some("notched-pentagon"), metrics(), 15.0, false),
             (130.0, 50.0)
@@ -2139,7 +2206,7 @@ mod render_dimension_tests {
             (140.0, 44.0)
         );
 
-        // Stored data uses Neo's 16px/12px axis padding before the sampled arc bbox.
+
         let neo_bow = node_render_dimensions(Some("bow-tie-rectangle"), metrics(), 15.0, true);
         assert!((neo_bow.0 - 137.07813754398302).abs() < 1e-9);
         assert!((neo_bow.1 - 32.0).abs() < 1e-9);
@@ -2147,8 +2214,8 @@ mod render_dimension_tests {
         assert!((classic_bow.0 - 135.4500714461302).abs() < 1e-9);
         assert!((classic_bow.1 - 35.0).abs() < 1e-9);
 
-        // Window pane: Neo uses 16px horizontal and 12px vertical padding before the
-        // fixed 10px frame offset; Classic keeps the configured padding on both axes.
+
+
         assert_eq!(
             node_render_dimensions(Some("window-pane"), metrics(), 15.0, false),
             (140.0, 60.0)
@@ -2158,8 +2225,8 @@ mod render_dimension_tests {
             (142.0, 54.0)
         );
 
-        // Divided rectangle: the source adds one 16px Neo padding term to each label
-        // axis, then the polygon's 20% top band expands only the rendered height.
+
+
         assert_eq!(
             node_render_dimensions(Some("divided-rectangle"), metrics(), 15.0, false),
             (115.0, 42.0)

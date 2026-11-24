@@ -53,23 +53,22 @@ pub fn through(unix: impl Into<UnixSeconds>) -> Result<f64, Never> {
 
 pub fn moon(unix: impl Into<UnixSeconds>) -> Result<Moon, Never> {
   let through = through(unix)?;
+  let new_moon = !through.is_nan() && !(0.0625..0.9375).contains(&through);
 
-  Ok(
-    match ::core::primitive::bool::then_some(through < 0.0625 || through >= 0.9375, ()) {
-      ::core::option::Option::Some(()) => Moon::New,
-      ::core::option::Option::None => {
-        match ::core::primitive::bool::then_some(through < 0.4375, ()) {
-          ::core::option::Option::Some(()) => Moon::Waxing,
-          ::core::option::Option::None => {
-            match ::core::primitive::bool::then_some(through < 0.5625, ()) {
-              ::core::option::Option::Some(()) => Moon::Full,
-              ::core::option::Option::None => Moon::Waning,
-            }
+  Ok(match ::core::primitive::bool::then_some(new_moon, ()) {
+    ::core::option::Option::Some(()) => Moon::New,
+    ::core::option::Option::None => {
+      match ::core::primitive::bool::then_some(through < 0.4375, ()) {
+        ::core::option::Option::Some(()) => Moon::Waxing,
+        ::core::option::Option::None => {
+          match ::core::primitive::bool::then_some(through < 0.5625, ()) {
+            ::core::option::Option::Some(()) => Moon::Full,
+            ::core::option::Option::None => Moon::Waning,
           }
         }
       }
-    },
-  )
+    }
+  })
 }
 
 #[cfg(test)]
@@ -106,7 +105,7 @@ mod tests {
       let apart = (later - first).abs();
 
       assert!(
-        apart < 0.001 || apart > 0.999,
+        !apart.is_nan() && !(0.001..=0.999).contains(&apart),
         "{cycles} cycles on it was {apart} through"
       );
     }

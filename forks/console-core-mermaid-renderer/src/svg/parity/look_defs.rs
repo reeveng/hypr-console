@@ -17,6 +17,7 @@ impl PreparedLookDefs {
         feature = "diagram-swimlane",
         feature = "diagram-agentflow"
     ))]
+    #[must_use]
     pub(crate) fn flood_color(&self) -> &str {
         self.flood_color
     }
@@ -26,6 +27,7 @@ impl PreparedLookDefs {
         feature = "diagram-swimlane",
         feature = "diagram-agentflow"
     ))]
+    #[must_use]
     pub(crate) fn gradient(&self) -> Option<(&str, &str)> {
         self.gradient
             .as_ref()
@@ -33,9 +35,12 @@ impl PreparedLookDefs {
     }
 
     #[cfg(feature = "diagram-class")]
+    #[must_use]
     pub(crate) fn uses_gradient(&self) -> bool {
         self.gradient.is_some()
     }
+
+    #[must_use]
     pub(crate) fn new(config: &serde_json::Value) -> Self {
         let flood_color = config
             .get("theme")
@@ -43,8 +48,10 @@ impl PreparedLookDefs {
             .filter(|theme| theme.contains("dark"))
             .map(|_| "#FFFFFF")
             .unwrap_or("#000000");
-        let gradient = config_bool(config, &["themeVariables", "useGradient"])
-            .unwrap_or(false)
+        let gradient = match config_bool(config, &["themeVariables", "useGradient"]) {
+            ::core::option::Option::Some(present) => present,
+            ::core::option::Option::None => false,
+        }
             .then(|| {
                 let start = config_string(config, &["themeVariables", "gradientStart"])
                     .or_else(|| config_string(config, &["themeVariables", "primaryBorderColor"]))
@@ -79,15 +86,17 @@ impl PreparedLookDefs {
         out: &mut impl SvgOutput,
         diagram_id: impl SvgDiagramIdValue,
     ) -> Result<()> {
-        let Some((start, stop)) = &self.gradient else {
-            return out.checkpoint();
+        let (start, stop) = match &self.gradient {
+            Some((matched_start, matched_stop)) => (matched_start, matched_stop),
+            ::core::option::Option::None => return out.checkpoint(),
         };
-        let start = escape_xml(start);
-        let stop = escape_xml(stop);
+
+        let start_2 = escape_xml(start);
+        let stop_2 = escape_xml(stop);
         let _ = write!(
             out,
             r#"<linearGradient id="{}-gradient" gradientUnits="objectBoundingBox" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="{}" stop-opacity="1"/><stop offset="100%" stop-color="{}" stop-opacity="1"/></linearGradient>"#,
-            diagram_id, start, stop
+            diagram_id, start_2, stop_2
         );
         out.checkpoint()
     }

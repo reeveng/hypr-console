@@ -41,6 +41,7 @@ pub(crate) struct FlowchartRenderModelRef<'a> {
 }
 
 impl<'a> FlowchartRenderModelRef<'a> {
+    #[must_use]
     pub(crate) const fn new(
         semantic: &'a FlowchartModel,
         render_context: &'a FlowchartRenderContext,
@@ -51,10 +52,12 @@ impl<'a> FlowchartRenderModelRef<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn node_label_for_render<'b>(&'b self, node: &'b FlowNode) -> Option<&'b str> {
         self.render_context.node_label_for_render(node)
     }
 
+    #[must_use]
     pub(crate) fn edge_label_for_render<'b>(
         &'b self,
         semantic_index: usize,
@@ -64,6 +67,7 @@ impl<'a> FlowchartRenderModelRef<'a> {
             .edge_label_for_render(semantic_index, edge)
     }
 
+    #[must_use]
     pub(crate) fn edge_label_for_occurrence<'b>(
         &'b self,
         key: FlowchartEdgeKey,
@@ -75,6 +79,7 @@ impl<'a> FlowchartRenderModelRef<'a> {
         }
     }
 
+    #[must_use]
     pub(crate) fn subgraph_title_for_render<'b>(
         &'b self,
         declaration_ordinal: usize,
@@ -84,6 +89,7 @@ impl<'a> FlowchartRenderModelRef<'a> {
             .subgraph_title_for_render(declaration_ordinal, subgraph)
     }
 
+    #[must_use]
     pub(crate) fn effective_subgraph_css<'b>(
         &'b self,
         declaration_ordinal: usize,
@@ -93,18 +99,22 @@ impl<'a> FlowchartRenderModelRef<'a> {
             .effective_subgraph_css(declaration_ordinal, subgraph)
     }
 
+    #[must_use]
     pub(crate) fn is_subgraph_collapsed(&self, id: &str) -> bool {
         self.render_context.is_subgraph_collapsed(id)
     }
 
+    #[must_use]
     pub(crate) fn collapsed_replacement(&self, id: &str) -> Option<&str> {
         self.render_context.collapsed_replacement(id)
     }
 
+    #[must_use]
     pub(crate) fn subgraph_color_ordinal(&self, id: &str) -> Option<usize> {
         self.render_context.subgraph_color_ordinal(id)
     }
 
+    #[must_use]
     pub(crate) fn requires_math(&self) -> bool {
         self.nodes
             .iter()
@@ -128,6 +138,7 @@ impl<'a> FlowchartRenderModelRef<'a> {
 /// Projects a logical Flowchart edge through Mermaid's collapsed-subgraph view. The typed model
 /// remains lossless; render/layout callers use this helper to hide fully internal edges and route
 /// boundary edges to the visible collapsed node.
+#[must_use]
 pub(crate) fn project_flowchart_edge_endpoints<'a>(
     edge: &'a FlowEdge,
     render_context: &'a FlowchartRenderContext,
@@ -139,21 +150,26 @@ pub(crate) fn project_flowchart_edge_endpoints<'a>(
         .collapsed_replacement(edge.to.as_str())
         .unwrap_or(edge.to.as_str());
     let changed = from != edge.from || to != edge.to;
+
     if from == to && changed {
         return None;
     }
+
     Some((from, to))
 }
 
+#[must_use]
 pub(crate) fn project_flowchart_edge(
     edge: &FlowEdge,
     render_context: &FlowchartRenderContext,
 ) -> Option<FlowEdge> {
     let (from, to) = project_flowchart_edge_endpoints(edge, render_context)?;
     let changed = from != edge.from || to != edge.to;
+
     if !changed {
         return Some(edge.clone());
     }
+
     let mut projected = edge.clone();
     projected.from = from.to_string();
     projected.to = to.to_string();

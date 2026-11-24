@@ -5,8 +5,8 @@ use std::time::Duration;
 use console_core_external_programs::Program;
 use console_core_never::Never;
 use console_program_contract::{
-  Answer, Command, Effect, Event, EventGroup, Exit, ExitStatus, Fork, Task, JobId, JobOwner,
-  Subscription, Timer,
+  Answer, Change, Command, Effect, Event, EventGroup, Exit, ExitStatus, Fork, JobId, JobOwner,
+  Subscription, Task, Timer,
 };
 use console_program_runtime::simulation::{After, Expected, Simulation};
 use console_program_runtime::{Limit, Subscribed, Wake, execute};
@@ -58,6 +58,8 @@ fn observation(seconds: UnixSeconds, elapsed: u64, wanted: Wanted) -> Result<Scr
       elapsed: Duration::from_secs(elapsed),
       at: AT,
       wanted,
+      pinned_file: false,
+      rules: Default::default(),
       covered: Covered::No,
     }),
   )
@@ -99,7 +101,7 @@ fn attempt(id: u64, delay: Duration, status: ExitStatus) -> Result<(Script, Answ
 }
 
 #[must_use]
-fn painting(name: &str, elapsed: u64) -> Result<[Result<Script, Never>; 3], Never> {
+fn painting(name: &str, elapsed: u64) -> Result<[Result<Script, Never>; 2], Never> {
   let path = PathBuf::from(format!("/pictures/{name}.gif"));
   Ok([
     custom(
@@ -117,7 +119,6 @@ fn painting(name: &str, elapsed: u64) -> Result<[Result<Script, Never>; 3], Neve
         }),
       },
     ),
-    plain(Effect::Custom(WallpaperEffect::Refresh(path.clone()))),
     custom(
       WallpaperEffect::Paint(path.clone()),
       WallpaperEvent::Rendered {
@@ -164,6 +165,7 @@ fn a_runtime_timer_selects_dusk_and_shutdown_discards_the_pending_forecast() -> 
   let input = Input {
     going: Going::KeepGoing,
     pictures: &table.pictures,
+    rule_directory: None,
   };
   let finished = execute::<Sun, _>(&input, &mut simulation, Limit::Turns(40))?;
 
@@ -178,6 +180,71 @@ fn a_runtime_timer_selects_dusk_and_shutdown_discards_the_pending_forecast() -> 
       .events
       .iter()
       .any(|event| matches!(event, Event::Replied(_)))
+  );
+  simulation.finish()?;
+
+  Ok(())
+}
+
+#[test]
+fn a_rule_saved_while_the_daemon_is_running_changes_the_wallpaper() -> Result<(), Failure> {
+  let table: Set = toml::from_str("[[picture]]\nname = 'bundled'\nsays = 'Bundled'")?;
+  let folder = PathBuf::from("/home/ada/.config/console");
+  let directory = folder.join("wallpaper-rules");
+  let group = EventGroup::Path(folder);
+  let watch = Subscription::EventGroup(group.clone());
+  let Ok((weather, _)) = attempt(1, Duration::from_secs(30), ExitStatus::Success);
+  let mut expected = vec![
+    plain(Effect::Subscribe(COMPOSITOR)),
+    plain(Effect::Subscribe(watch.clone())),
+    locate(),
+    observation(SUNSET, 0, Wanted::default()),
+    Ok(weather),
+  ];
+  let Ok(bundled) = painting("bundled", 0);
+  expected.extend(bundled);
+  let custom_rule = toml::from_str("automatic = true\nsky = ['sunset']")?;
+  expected.push(custom(
+    WallpaperEffect::Observe,
+    WallpaperEvent::Observed(Observation {
+      seconds: SUNSET,
+      elapsed: Duration::from_secs(1),
+      at: AT,
+      wanted: Wanted::default(),
+      pinned_file: false,
+      rules: [("my-photo".to_string(), custom_rule)]
+        .into_iter()
+        .collect(),
+      covered: Covered::No,
+    }),
+  ));
+  let Ok(configured) = painting("my-photo", 1);
+  expected.extend(configured);
+  expected.extend([
+    plain(Effect::Unsubscribe(COMPOSITOR)),
+    plain(Effect::Unsubscribe(watch)),
+  ]);
+  let Ok(script) = expected.into_iter().collect::<Result<Vec<_>, Never>>();
+  let Ok(mut simulation) = Simulation::new(script, Subscribed::No);
+  simulation.schedule(
+    Duration::from_secs(1),
+    Wake::Event(Event::Modified(Change {
+      event_group: group,
+      text: directory.join("my-photo.toml").display().to_string(),
+    })),
+  )?;
+  simulation.schedule(Duration::from_secs(2), Wake::Stop(Exit::Success))?;
+
+  let input = Input {
+    going: Going::KeepGoing,
+    pictures: &table.pictures,
+    rule_directory: Some(&directory),
+  };
+  let finished = execute::<Sun, _>(&input, &mut simulation, Limit::Turns(40))?;
+
+  assert_eq!(
+    finished.state.showing,
+    Some(PathBuf::from("/pictures/my-photo.gif"))
   );
   simulation.finish()?;
 
@@ -223,6 +290,7 @@ fn offline_retries_back_off_and_a_success_restores_the_normal_interval() -> Resu
   let input = Input {
     going: Going::KeepGoing,
     pictures: &[],
+    rule_directory: None,
   };
   let finished = execute::<Sun, _>(&input, &mut simulation, Limit::Turns(50))?;
   let attempts: Vec<_> = simulation
@@ -299,6 +367,7 @@ fn a_pinned_picture_can_be_put_up_once_without_a_forecast() -> Result<(), Failur
   let input = Input {
     going: Going::Once,
     pictures: &table.pictures,
+    rule_directory: None,
   };
 
   let finished = execute::<Sun, _>(&input, &mut simulation, Limit::Turns(10))?;
@@ -311,6 +380,41 @@ fn a_pinned_picture_can_be_put_up_once_without_a_forecast() -> Result<(), Failur
       .flatten()
       .any(|effect| matches!(effect, Effect::Subscribe(_)))
   );
+
+  Ok(())
+}
+
+#[test]
+fn an_imported_picture_can_be_pinned_without_a_catalog_entry() -> Result<(), Failure> {
+  let mut expected = vec![custom(
+    WallpaperEffect::Observe,
+    WallpaperEvent::Observed(Observation {
+      seconds: SUNSET,
+      elapsed: Duration::ZERO,
+      at: AT,
+      wanted: Wanted {
+        follow: false,
+        picture: "my-photo".to_string(),
+      },
+      pinned_file: true,
+      rules: Default::default(),
+      covered: Covered::No,
+    }),
+  )];
+  let Ok(pinned) = painting("my-photo", 0);
+  expected.extend(pinned);
+  let Ok(script) = expected.into_iter().collect::<Result<Vec<_>, Never>>();
+  let Ok(mut simulation) = Simulation::new(script, Subscribed::No);
+  let input = Input {
+    going: Going::Once,
+    pictures: &[],
+    rule_directory: None,
+  };
+
+  let finished = execute::<Sun, _>(&input, &mut simulation, Limit::Turns(10))?;
+
+  assert_eq!(finished.exit, Exit::Success);
+  simulation.finish()?;
 
   Ok(())
 }

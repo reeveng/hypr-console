@@ -31,6 +31,7 @@ pub enum EffectColorSpace {
 }
 
 impl EffectColorSpace {
+    #[must_use]
     pub(crate) const fn svg_name(self) -> &'static str {
         match self {
             Self::LinearRgb => "linearRGB",
@@ -96,6 +97,7 @@ impl EffectPrimitive {
                         field: "effects.color_matrix.values",
                     });
                 }
+
                 Ok(())
             }
             Self::Turbulence {
@@ -106,11 +108,13 @@ impl EffectPrimitive {
             } => {
                 validate_nonnegative(*base_frequency_x, "effects.turbulence.base_frequency_x")?;
                 validate_nonnegative(*base_frequency_y, "effects.turbulence.base_frequency_y")?;
+
                 if *octaves == 0 || usize::from(*octaves) > MAX_EFFECT_TURBULENCE_OCTAVES_HARD_CAP {
                     return Err(ThemeCompileValidationError::InvalidNumber {
                         field: "effects.turbulence.octaves",
                     });
                 }
+
                 Ok(())
             }
             Self::Displacement { scale, .. } => {
@@ -133,31 +137,36 @@ impl EffectGraph {
         id: impl Into<String>,
         primitives: impl IntoIterator<Item = EffectPrimitive>,
     ) -> Result<Self, ThemeCompileValidationError> {
-        let id = id.into();
-        validate_effect_id(&id)?;
-        let primitives = primitives.into_iter().collect::<Vec<_>>();
-        if primitives.is_empty() || primitives.len() > MAX_EFFECT_PRIMITIVES_PER_GRAPH_HARD_CAP {
+        let id_2 = <_ as ::core::convert::Into<::std::string::String>>::into(id);
+        validate_effect_id(&id_2)?;
+        let primitives_2 = primitives.into_iter().collect::<Vec<_>>();
+
+        if primitives_2.is_empty() || primitives_2.len() > MAX_EFFECT_PRIMITIVES_PER_GRAPH_HARD_CAP {
             return Err(ThemeCompileValidationError::InvalidCollection {
                 field: "effects.graph.primitives",
             });
         }
-        for primitive in &primitives {
+
+        for primitive in &primitives_2 {
             primitive.validate()?;
         }
-        validate_inputs(&primitives)?;
+
+        validate_inputs(&primitives_2)?;
         Ok(Self {
-            id,
-            primitives,
+            id: id_2,
+            primitives: primitives_2,
             color_space: EffectColorSpace::default(),
             composition: EffectComposition::default(),
         })
     }
 
+    #[must_use]
     pub fn with_color_space(mut self, color_space: EffectColorSpace) -> Self {
         self.color_space = color_space;
         self
     }
 
+    #[must_use]
     pub const fn color_space(&self) -> EffectColorSpace {
         self.color_space
     }
@@ -183,18 +192,22 @@ impl EffectGraph {
                 field: "effects.graph.composition",
             });
         }
+
         self.composition = composition;
         Ok(self)
     }
 
+    #[must_use]
     pub const fn composition(&self) -> EffectComposition {
         self.composition
     }
 
+    #[must_use]
     pub fn id(&self) -> &str {
         &self.id
     }
 
+    #[must_use]
     pub fn primitives(&self) -> &[EffectPrimitive] {
         &self.primitives
     }
@@ -210,11 +223,13 @@ struct EffectGraphResourceReceipt {
 }
 
 impl EffectGraphResourceReceipt {
+    #[must_use]
     fn from_primitives(primitives: &[EffectPrimitive]) -> Self {
         let mut receipt = Self {
             primitive_count: primitives.len(),
             ..Self::default()
         };
+
         for primitive in primitives {
             match primitive {
                 EffectPrimitive::DropShadow {
@@ -243,6 +258,7 @@ impl EffectGraphResourceReceipt {
                 EffectPrimitive::ColorMatrix { .. } => {}
             }
         }
+
         receipt
     }
 }
@@ -258,15 +274,17 @@ impl EffectBinding {
         target: ThemeTarget,
         effect_id: impl Into<String>,
     ) -> Result<Self, ThemeCompileValidationError> {
-        let effect_id = effect_id.into();
-        validate_effect_id(&effect_id)?;
-        Ok(Self { target, effect_id })
+        let effect_id_2 = <_ as ::core::convert::Into<::std::string::String>>::into(effect_id);
+        validate_effect_id(&effect_id_2)?;
+        Ok(Self { target, effect_id: effect_id_2 })
     }
 
+    #[must_use]
     pub const fn target(&self) -> ThemeTarget {
         self.target
     }
 
+    #[must_use]
     pub fn effect_id(&self) -> &str {
         &self.effect_id
     }
@@ -286,11 +304,13 @@ impl DiagramEffectSet {
                 field: "effects.graphs",
             });
         }
+
         if self.graphs.iter().any(|existing| existing.id == graph.id) {
             return Err(ThemeCompileValidationError::DuplicateId {
                 field: "effects.graph.id",
             });
         }
+
         self.resource_receipt
             .push_graph(EffectGraphResourceReceipt::from_primitives(
                 &graph.primitives,
@@ -308,6 +328,7 @@ impl DiagramEffectSet {
                 field: "effects.bindings",
             });
         }
+
         if self
             .bindings
             .iter()
@@ -317,19 +338,23 @@ impl DiagramEffectSet {
                 field: "effects.binding.target",
             });
         }
+
         self.bindings.push(binding);
         self.resource_receipt.binding_count = self.bindings.len();
         Ok(self)
     }
 
+    #[must_use]
     pub fn graphs(&self) -> &[EffectGraph] {
         &self.graphs
     }
 
+    #[must_use]
     pub fn bindings(&self) -> &[EffectBinding] {
         &self.bindings
     }
 
+    #[must_use]
     pub(crate) fn graph(&self, id: &str) -> Option<&EffectGraph> {
         self.graphs.iter().find(|graph| graph.id == id)
     }
@@ -341,6 +366,7 @@ impl DiagramEffectSet {
             .iter()
             .map(|graph| graph.id.as_str())
             .collect::<std::collections::BTreeSet<_>>();
+
         for binding in &self.bindings {
             if !ids.contains(binding.effect_id.as_str()) {
                 return Err(ThemeCompileValidationError::UnknownId {
@@ -348,6 +374,7 @@ impl DiagramEffectSet {
                 });
             }
         }
+
         Ok(())
     }
 
@@ -381,9 +408,11 @@ impl EffectResourceReceipt {
 
     fn validate(&self, resources: &ThemeResourcePolicy) -> Result<(), ThemeResourceLimitExceeded> {
         resources.check_effect_graph_count(self.primitives_per_graph.len())?;
+
         for primitive_count in &self.primitives_per_graph {
             resources.check_effect_primitives_per_graph(*primitive_count)?;
         }
+
         resources.check_effect_binding_count(self.binding_count)?;
         resources.check_effect_offset_magnitude(self.offset_magnitude)?;
         resources.check_effect_blur_magnitude(self.blur_magnitude)?;
@@ -404,6 +433,7 @@ fn validate_inputs(primitives: &[EffectPrimitive]) -> Result<(), ThemeCompileVal
                 input, map_input, ..
             } => [Some(*input), Some(*map_input)],
         };
+
         for input in inputs.into_iter().flatten() {
             if matches!(input, EffectInput::Previous) && max_input == 0 {
                 return Err(ThemeCompileValidationError::InvalidCollection {
@@ -412,6 +442,7 @@ fn validate_inputs(primitives: &[EffectPrimitive]) -> Result<(), ThemeCompileVal
             }
         }
     }
+
     Ok(())
 }
 
@@ -427,6 +458,7 @@ pub(crate) fn validate_effect_id(id: &str) -> Result<(), ThemeCompileValidationE
             field: "effects.graph.id",
         });
     }
+
     Ok(())
 }
 
@@ -434,6 +466,7 @@ fn validate_finite(value: f32, field: &'static str) -> Result<(), ThemeCompileVa
     if !value.is_finite() {
         return Err(ThemeCompileValidationError::InvalidNumber { field });
     }
+
     Ok(())
 }
 
@@ -444,6 +477,7 @@ fn validate_nonnegative(
     if !value.is_finite() || value < 0.0 {
         return Err(ThemeCompileValidationError::InvalidNumber { field });
     }
+
     Ok(())
 }
 

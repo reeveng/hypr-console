@@ -12,8 +12,23 @@
 //!   - Row transform: 4 groups of 8 rows, each processing 32 columns
 //!     (split into even/odd 16-column halves), storing to a 2048-byte scratch buffer
 //!   - Column transform: 4 groups of 8 columns from scratch, adding to destination
+//!
+//! The horizontal pass transforms 16 even and 16 odd columns separately
+//! before transposing and combining their butterflies. The sum is written in
+//! forward order and the difference in reverse order. The vertical pass uses
+//! the same decomposition over rows and rounds by four bits before adding
+//! to the destination. The identity scaling and row normalization cancel.
+//! Its 8x8 sub-block traversal respects end-of-block thresholds.
+//!
+//! The DC-only path clears the input coefficient, then rounds by two bits
+//! between the two coefficient scalings and by four bits before adding to
+//! the destination. The scalar routines use the specified AV1 coefficients
+//! as the reference for testing.
 
-#![allow(clippy::too_many_arguments)]
+#![allow(
+  clippy::too_many_arguments,
+  reason = "the NEON entry points take the destination, coefficients, transform parameters and SIMD capability explicitly"
+)]
 #![cfg_attr(not(feature = "unchecked"), forbid(unsafe_code))]
 #![cfg_attr(feature = "unchecked", deny(unsafe_code))]
 
@@ -30,19 +45,9 @@ use super::itx_arm_neon_8x8::{smull_smlal_q, smull_smlsl_q, sqrshrn_pair, transp
 use super::itx_arm_neon_16x16::idct_16_q;
 use super::itx_arm_neon_common::IDCT_COEFFS;
 
-/// Type alias for 16 NEON vectors.
 #[cfg(target_arch = "aarch64")]
 pub(crate) type V16 = [int16x8_t; 16];
 
-/// 32-point inverse DCT odd part on 16 int16x8_t vectors.
-///
-/// Takes 16 odd-indexed inputs (indices 1,3,5,...,31 from the original 32-point
-/// transform) in v[0..16] and produces 16 outputs (t16..t31).
-///
-/// This is a direct port of `inv_dct32_odd_8h_x16_neon` from itx.S.
-///
-/// The outputs represent t16..t31 and will be butterfly-combined with the
-/// even part (from idct_16) to produce the final 32-point DCT result.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn idct32_odd_q(v: V16) -> V16 {
@@ -442,14 +447,6 @@ pub(crate) fn idct32_odd_q(v: V16) -> V16 {
   ]
 }
 
-/// Full 32-point inverse DCT.
-///
-/// Takes 32 int16x8_t vectors (even[0..16] from idct_16, odd[0..16] from
-/// idct32_odd) and produces 32 output vectors via butterfly combination.
-///
-/// This is the top-level function that combines even and odd halves:
-///   out[i]      = even[i]      + odd[15 - i]   for i = 0..16
-///   out[31 - i] = even[i]      - odd[15 - i]   for i = 0..16
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn idct_32_full(even: &V16, odd: &V16) -> [int16x8_t; 32] {
@@ -464,20 +461,6 @@ pub(crate) fn idct_32_full(even: &V16, odd: &V16) -> [int16x8_t; 32] {
   out
 }
 
-/// Horizontal DCT 32x8: transform 8 rows of 32 coefficients.
-///
-/// Mirrors `inv_txfm_horz_dct_32x8_neon` from itx.S lines 2014-2094.
-///
-/// For each group of 8 rows:
-/// 1. Load 16 even-indexed columns, apply idct_16, transpose
-/// 2. Load 16 odd-indexed columns, apply idct32_odd, transpose
-/// 3. Butterfly-combine even and odd, apply shift, store to scratch
-///
-/// `coeff_base`: starting offset in `coeff` for the even-indexed columns
-/// `coeff_stride`: distance between consecutive rows in coeff (= 32 for 32x32)
-/// `scratch`: output buffer, one row = 32 i16 values
-/// `scratch_base`: starting offset in scratch
-/// `shift`: rounding shift to apply (2 for 32x32)
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn horz_dct_32x8(
@@ -739,8 +722,6 @@ pub(crate) fn horz_dct_32x8(
   let _ = shift;
 }
 
-/// Reverse all 8 i16 elements in an int16x8_t.
-/// Equivalent to: rev64 v.8h + ext v.16b, v.16b, #8
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 #[inline(always)]
@@ -749,7 +730,6 @@ pub(crate) fn rev128_s16(v: int16x8_t) -> int16x8_t {
   vextq_s16::<4>(rev, rev)
 }
 
-/// Store an int16x8_t to a slice at the given offset.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 #[inline(always)]
@@ -759,7 +739,6 @@ pub(crate) fn store_v16(buf: &mut [i16], off: usize, v: int16x8_t) {
   buf[off..off + 8].copy_from_slice(&tmp);
 }
 
-/// Load an int16x8_t from a slice at the given offset.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 #[inline(always)]
@@ -768,13 +747,6 @@ pub(crate) fn load_v16(buf: &[i16], off: usize) -> int16x8_t {
   safe_simd::vld1q_s16(&arr)
 }
 
-/// Vertical DCT 8x32: transform 8 columns and add to destination (8bpc).
-///
-/// Mirrors `inv_txfm_add_vert_dct_8x32_neon` from itx.S lines 2100-2167.
-///
-/// 1. Load 16 even-indexed rows from scratch, apply idct_16
-/// 2. Store results back, load 16 odd-indexed rows, apply idct32_odd
-/// 3. Butterfly-combine with shift >>4, add to destination pixels
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn vert_dct_add_8x32_8bpc(
@@ -841,7 +813,6 @@ pub(crate) fn vert_dct_add_8x32_8bpc(
   }
 }
 
-/// Vertical DCT 8x32: transform 8 columns and add to destination (16bpc).
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 pub(crate) fn vert_dct_add_8x32_16bpc(
@@ -937,17 +908,6 @@ pub(crate) fn vert_dct_add_8x32_16bpc(
   }
 }
 
-/// DC-only fast path for DCT_DCT 32x32 with eob=0 (8bpc).
-///
-/// Assembly: `idct_dc 32, 32, 2`
-/// ```text
-/// dc = coeff[0]; coeff[0] = 0;
-/// scale = 2896*8 = 23168
-/// dc = sqrdmulh(dc, scale)    // first scaling
-/// dc = srshr(dc, 2)           // shift=2 for 32x32
-/// dc = sqrdmulh(dc, scale)    // second scaling
-/// dc = srshr(dc, 4)           // final shift
-/// ```
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dc_only_32x32_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff: &mut [i16]) {
@@ -988,7 +948,6 @@ fn dc_only_32x32_8bpc(dst: &mut [u8], dst_base: usize, dst_stride: isize, coeff:
   }
 }
 
-/// DC-only fast path for DCT_DCT 32x32 (16bpc).
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn dc_only_32x32_16bpc(
@@ -1071,15 +1030,6 @@ fn dc_only_32x32_16bpc(
   }
 }
 
-/// Identity transform for 32x32 (8bpc).
-///
-/// The identity for 32x32 is a no-op on the coefficients (the shl<<1 from
-/// identity and >>1 from normalization cancel). Just loads, transposes (for
-/// the row transform), and adds to destination with shift >>2.
-///
-/// Mirrors `inv_txfm_add_identity_identity_32x32_8bpc_neon` from itx.S lines 2186-2219.
-/// Processes the block as 4x4 groups of 8x8 sub-blocks, with early termination
-/// based on eob thresholds.
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_identity_identity_32x32_8bpc_neon_inner(
@@ -1094,7 +1044,6 @@ pub(crate) fn inv_txfm_add_identity_identity_32x32_8bpc_neon_inner(
   identity_32x32_8bpc_impl(dst, dst_base, dst_stride, coeff, eob);
 }
 
-/// Inner implementation of identity 32x32 for 8bpc.
 #[cfg(target_arch = "aarch64")]
 #[rite(neon)]
 fn identity_32x32_8bpc_impl(
@@ -1186,7 +1135,6 @@ fn identity_32x32_8bpc_impl(
   }
 }
 
-/// Identity 32x32 for 16bpc.
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_identity_identity_32x32_16bpc_neon_inner(
@@ -1257,16 +1205,6 @@ pub(crate) fn inv_txfm_add_identity_identity_32x32_16bpc_neon_inner(
   }
 }
 
-/// NEON implementation of 32x32 DCT_DCT inverse transform add for 8bpc.
-///
-/// Mirrors `inv_txfm_add_dct_dct_32x32_8bpc_neon` from itx.S lines 2333-2378.
-///
-/// Algorithm:
-/// 1. DC fast path if eob=0
-/// 2. Row transform: 4 groups of 8 rows, each applies 32-point DCT,
-///    stores to 2048-byte scratch buffer
-/// 3. Column transform: 4 groups of 8 columns from scratch, applies
-///    32-point DCT, adds to destination
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_dct_dct_32x32_8bpc_neon_inner(
@@ -1324,7 +1262,6 @@ pub(crate) fn inv_txfm_add_dct_dct_32x32_8bpc_neon_inner(
   }
 }
 
-/// NEON implementation of 32x32 DCT_DCT inverse transform add for 16bpc.
 #[cfg(target_arch = "aarch64")]
 #[arcane]
 pub(crate) fn inv_txfm_add_dct_dct_32x32_16bpc_neon_inner(
@@ -1347,7 +1284,6 @@ pub(crate) fn inv_txfm_add_dct_dct_32x32_16bpc_neon_inner(
   scalar_dct_dct_32x32_16bpc(dst, dst_base, dst_stride, coeff, eob, bitdepth_max);
 }
 
-/// Scalar fallback for 32x32 DCT_DCT 16bpc.
 fn scalar_dct_dct_32x32_16bpc(
   dst: &mut [u16],
   dst_base: usize,
@@ -1409,9 +1345,6 @@ fn scalar_dct_dct_32x32_16bpc(
   }
 }
 
-/// Scalar 32-point inverse DCT.
-///
-/// Full precision implementation using the exact AV1 spec coefficients.
 #[must_use]
 fn scalar_dct32_1d(input: &[i32; 32]) -> [i32; 32] {
   let mut even = [0i32; 16];
@@ -1445,7 +1378,6 @@ fn scalar_dct32_1d(input: &[i32; 32]) -> [i32; 32] {
   out
 }
 
-/// Scalar 16-point inverse DCT (spec-accurate).
 #[must_use]
 fn scalar_dct16_1d(input: &[i32; 16]) -> [i32; 16] {
   let mut even = [0i32; 8];
@@ -1873,7 +1805,6 @@ fn scalar_dct16_1d(input: &[i32; 16]) -> [i32; 16] {
   out
 }
 
-/// Scalar 8-point inverse DCT.
 #[must_use]
 fn scalar_dct8_1d(input: &[i32; 8]) -> [i32; 8] {
   let even = scalar_dct4_1d(
@@ -2031,7 +1962,6 @@ fn scalar_dct8_1d(input: &[i32; 8]) -> [i32; 8] {
   ]
 }
 
-/// Scalar 4-point inverse DCT.
 #[must_use]
 fn scalar_dct4_1d(in0: i32, in1: i32, in2: i32, in3: i32) -> [i32; 4] {
   let t0 = ::core::primitive::i32::wrapping_shr(
@@ -2062,7 +1992,6 @@ fn scalar_dct4_1d(in0: i32, in1: i32, in2: i32, in3: i32) -> [i32; 4] {
   ]
 }
 
-/// Scalar 32-point inverse DCT odd part (matches idct32_odd_q exactly).
 #[must_use]
 fn scalar_idct32_odd(v: &[i32; 16]) -> [i32; 16] {
   let c0 = [201i32, 4091, 3035, 2751, 1751, 3703, 3857, 1380];
@@ -2627,7 +2556,6 @@ fn scalar_idct32_odd(v: &[i32; 16]) -> [i32; 16] {
 mod tests {
   use super::*;
 
-  /// Test that the scalar DCT4 produces expected results.
   #[test]
   fn test_scalar_dct4() {
     let out = scalar_dct4_1d(4096, 0, 0, 0);
@@ -2644,7 +2572,6 @@ mod tests {
     );
   }
 
-  /// Test that the scalar 32-point odd part with zero input produces zero output.
   #[test]
   fn test_scalar_idct32_odd_zero() {
     let input = [0i32; 16];
@@ -2652,7 +2579,6 @@ mod tests {
     assert_eq!(out, [0i32; 16]);
   }
 
-  /// Test that the scalar DCT32 with only DC produces flat output.
   #[test]
   fn test_scalar_dct32_dc_only() {
     let mut input = [0i32; 32];
@@ -2675,7 +2601,6 @@ mod tests {
     }
   }
 
-  /// Test that DCT32 → inverse DCT32 round-trips (within rounding).
   #[test]
   fn test_scalar_dct32_roundtrip() {
     let mut input = [0i32; 32];

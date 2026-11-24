@@ -58,7 +58,7 @@ but the difference gap should not be too large.
 
 ## Safety
 By default, the crate has the `simd` feature enabled, which uses the
-[`fearless_simd`](https://github.com/linebender/fearless_simd) crate to accelerate
+shared `console-core-simd` dispatcher to accelerate
 important parts of the pipeline. If you want to eliminate any usage of unsafe
 in this crate as well as its dependencies, you can simply disable this
 feature, at the cost of worse decoding performance. Unsafe code is forbidden

@@ -26,6 +26,7 @@ struct ExternalRail {
     maximum: f64,
 }
 
+#[must_use]
 fn endpoint_rects_for(
     layout: &WorkingLayout,
     edge: &WorkingEdge,
@@ -45,11 +46,16 @@ fn external_rail_for_segment(
     if segment.index == 0 || segment.index + 1 >= points.len().saturating_sub(1) {
         return Ok(None);
     }
-    let Some((source, destination)) =
-        endpoint_rects_for(layout, &layout.original_edges[edge_index])
-    else {
-        return Ok(None);
+
+    let (source, destination) = {
+        let optional_source = endpoint_rects_for(layout, &layout.original_edges[edge_index]);
+
+        match optional_source {
+            Some((matched_source, matched_destination)) => (matched_source, matched_destination),
+            ::core::option::Option::None => return Ok(None),
+        }
     };
+
     if segment.vertical {
         let coordinate = segment.a.x;
         let left_bound = source.left.min(destination.left);
@@ -73,6 +79,7 @@ fn external_rail_for_segment(
             maximum: segment.a.y.max(segment.b.y),
         }));
     }
+
     if segment.horizontal {
         let coordinate = segment.a.y;
         let top_bound = source.top.min(destination.top);
@@ -96,6 +103,7 @@ fn external_rail_for_segment(
             maximum: segment.a.x.max(segment.b.x),
         }));
     }
+
     Ok(None)
 }
 
@@ -104,8 +112,10 @@ fn collect_external_rails(
     work_budget: &mut LayoutWorkBudget,
 ) -> Result<Vec<ExternalRail>> {
     let mut rails = Vec::new();
+
     for (edge_index, edge) in layout.original_edges.iter().enumerate() {
         let points = dedupe_consecutive_points(&edge.points, EPSILON);
+
         for segment in segments_for(&points) {
             if let Some(rail) =
                 external_rail_for_segment(layout, edge_index, &points, &segment, work_budget)?
@@ -114,9 +124,11 @@ fn collect_external_rails(
             }
         }
     }
+
     Ok(rails)
 }
 
+#[must_use]
 fn rails_interact(first: &ExternalRail, second: &ExternalRail) -> bool {
     first.edge_index != second.edge_index
         && first.axis == second.axis
@@ -131,16 +143,20 @@ fn connected_components(
 ) -> Result<Vec<Vec<ExternalRail>>> {
     let mut result = Vec::new();
     let mut seen = vec![false; rails.len()];
+
     for rail_index in 0..rails.len() {
         if seen[rail_index] {
             continue;
         }
+
         let mut queue = vec![rail_index];
         let mut component = Vec::new();
         seen[rail_index] = true;
+
         while let Some(current_index) = queue.pop() {
             work_budget.charge(rails[current_index].points.len())?;
             component.push(rails[current_index].clone());
+
             for (next_index, rails_element) in <[_]>::iter(rails).enumerate() {
                 if !seen[next_index] && rails_interact(&rails[current_index], &*rails_element) {
                     seen[next_index] = true;
@@ -148,10 +164,12 @@ fn connected_components(
                 }
             }
         }
+
         if component.len() > 1 {
             result.push(component);
         }
     }
+
     Ok(result)
 }
 
@@ -160,8 +178,10 @@ fn unique_coordinates_for(
     work_budget: &mut LayoutWorkBudget,
 ) -> Result<Vec<f64>> {
     let mut coordinates = Vec::new();
+
     for rail in component {
         work_budget.charge(coordinates.len())?;
+
         if !coordinates
             .iter()
             .any(|coordinate: &f64| (*coordinate - rail.coordinate).abs() < EPSILON)
@@ -169,6 +189,7 @@ fn unique_coordinates_for(
             coordinates.push(rail.coordinate);
         }
     }
+
     while coordinates.len() < component.len() {
         work_budget.charge(coordinates.len().saturating_mul(2))?;
         let minimum = coordinates.iter().copied().fold(f64::INFINITY, f64::min);
@@ -185,6 +206,7 @@ fn unique_coordinates_for(
             },
         );
     }
+
     Ok(coordinates)
 }
 
@@ -198,6 +220,7 @@ fn visit_permutations(
 ) -> Result<()> {
     if next.len() == current.len() {
         work_budget.charge(current.len())?;
+
         if next
             .iter()
             .zip(current)
@@ -206,18 +229,22 @@ fn visit_permutations(
             work_budget.charge(1usize.saturating_add(next.len()))?;
             assignments.push(next.clone());
         }
+
         return Ok(());
     }
+
     for (coordinate_index, coordinate) in coordinates.iter().copied().enumerate() {
         if used[coordinate_index] {
             continue;
         }
+
         used[coordinate_index] = true;
         next.push(coordinate);
         visit_permutations(coordinates, current, used, next, assignments, work_budget)?;
         next.pop();
         used[coordinate_index] = false;
     }
+
     Ok(())
 }
 
@@ -229,6 +256,7 @@ fn coordinate_assignments_for(
     let current: Vec<_> = component.iter().map(|rail| rail.coordinate).collect();
     let coordinates = unique_coordinates_for(component, work_budget)?;
     let mut assignments = Vec::new();
+
     if component.len() <= MAX_EXHAUSTIVE_COMPONENT {
         visit_permutations(
             &coordinates,
@@ -240,6 +268,7 @@ fn coordinate_assignments_for(
         )?;
         return Ok(assignments);
     }
+
     for first in 0..current.len() {
         for second in first + 1..current.len() {
             work_budget.charge(1usize.saturating_add(current.len()))?;
@@ -248,6 +277,7 @@ fn coordinate_assignments_for(
             assignments.push(assignment);
         }
     }
+
     Ok(assignments)
 }
 
@@ -258,14 +288,17 @@ fn replacements_for_assignment(
 ) -> Result<Option<ReplacementMap>> {
     work_budget.charge(component.len())?;
     let mut drafts: IndexMap<usize, Vec<LayoutPoint>> = IndexMap::new();
+
     for (index, rail) in component.iter().enumerate() {
         if !drafts.contains_key(&rail.edge_index) {
             work_budget.charge(rail.points.len())?;
             drafts.insert(rail.edge_index, rail.points.clone());
         }
+
         let points = drafts
             .get_mut(&rail.edge_index)
             .expect("the rail draft was inserted above");
+
         if rail.axis == RailAxis::Vertical {
             points[rail.segment_index].x = assignment[index];
             points[rail.segment_index + 1].x = assignment[index];
@@ -274,16 +307,21 @@ fn replacements_for_assignment(
             points[rail.segment_index + 1].y = assignment[index];
         }
     }
+
     work_budget.charge(drafts.len())?;
     let mut replacements = ReplacementMap::new();
+
     for (edge_index, points) in drafts {
         work_budget.charge(points.len())?;
         let simplified = simplify_polyline(&dedupe_consecutive_points(&points, EPSILON));
+
         if segments_for(&simplified).len() != simplified.len().saturating_sub(1) {
             return Ok(None);
         }
+
         replacements.insert(edge_index, simplified);
     }
+
     Ok(Some(replacements))
 }
 
@@ -301,6 +339,7 @@ fn candidate_is_safe(
                 .saturating_sub(1)
                 .saturating_mul(real_node_rects.len().saturating_add(label_rects.len())),
         )?;
+
         if path_hits_rects(
             &layout.original_edges[*edge_index],
             points,
@@ -311,7 +350,9 @@ fn candidate_is_safe(
             return Ok(false);
         }
     }
+
     work_budget.charge(unordered_pair_count(layout.original_edges.len()))?;
+
     for first_index in 0..layout.original_edges.len() {
         let first_changed = replacements.contains_key(&first_index);
         let first_segments = segments_for(&points_for(
@@ -319,20 +360,24 @@ fn candidate_is_safe(
             first_index,
             replacements,
         ));
-        for second_index in first_index + 1..layout.original_edges.len() {
+
+        'over_second_index_2: for second_index in first_index + 1..layout.original_edges.len() {
             if !first_changed && !replacements.contains_key(&second_index) {
-                continue;
+                continue 'over_second_index_2;
             }
+
             let second_segments = segments_for(&points_for(
                 &layout.original_edges,
                 second_index,
                 replacements,
             ));
+
             if shared_track_conflicts(&first_segments, &second_segments) {
                 return Ok(false);
             }
         }
     }
+
     Ok(true)
 }
 
@@ -342,13 +387,19 @@ pub(in crate::swimlane::direction) fn reassign_crossing_external_rail_channels(
 ) -> Result<()> {
     work_budget.charge(layout.nodes.len())?;
     let (real_node_rects, label_rects) = collect_node_rect_entries(layout);
+
     for _ in 0..MAX_ITERATIONS {
         let empty = ReplacementMap::new();
         let current_crossings =
             checked_strict_crossing_count(&layout.original_edges, &empty, work_budget)?;
-        if current_crossings == 0 {
-            return Ok(());
+
+        match current_crossings {
+            0 => {
+                return Ok(());
+            },
+            _ => {},
         }
+
         let mut best_replacements = None;
         let mut best_crossings = current_crossings;
         let mut best_bends = checked_total_bends(&layout.original_edges, &empty, work_budget)?;
@@ -361,13 +412,18 @@ pub(in crate::swimlane::direction) fn reassign_crossing_external_rail_channels(
         work_budget.charge(edge_point_work)?;
         let external_rails = collect_external_rails(layout, work_budget)?;
         work_budget.charge(external_rails.len().saturating_mul(external_rails.len()))?;
+
         for component in connected_components(&external_rails, work_budget)? {
-            for assignment in coordinate_assignments_for(&component, work_budget)? {
-                let Some(replacements) =
-                    replacements_for_assignment(&component, &assignment, work_budget)?
-                else {
-                    continue;
+            'over_assignment_3: for assignment in coordinate_assignments_for(&component, work_budget)? {
+                let replacements = {
+                    let optional_replacements = replacements_for_assignment(&component, &assignment, work_budget)?;
+
+                    match optional_replacements {
+                        Some(matched_replacements) => matched_replacements,
+                        ::core::option::Option::None => continue 'over_assignment_3,
+                    }
                 };
+
                 if !candidate_is_safe(
                     layout,
                     &replacements,
@@ -375,16 +431,19 @@ pub(in crate::swimlane::direction) fn reassign_crossing_external_rail_channels(
                     &label_rects,
                     work_budget,
                 )? {
-                    continue;
+                    continue 'over_assignment_3;
                 }
+
                 let candidate_crossings = checked_strict_crossing_count(
                     &layout.original_edges,
                     &replacements,
                     work_budget,
                 )?;
+
                 if candidate_crossings >= current_crossings {
-                    continue;
+                    continue 'over_assignment_3;
                 }
+
                 let candidate_bends =
                     checked_total_bends(&layout.original_edges, &replacements, work_budget)?;
                 work_budget.charge(component.len())?;
@@ -393,25 +452,31 @@ pub(in crate::swimlane::direction) fn reassign_crossing_external_rail_channels(
                     .zip(&assignment)
                     .map(|(rail, coordinate)| (coordinate - rail.coordinate).abs())
                     .sum();
+
                 if candidate_crossings > best_crossings
                     || (candidate_crossings == best_crossings
                         && (candidate_bends > best_bends
                             || (candidate_bends == best_bends
                                 && candidate_displacement >= best_displacement)))
                 {
-                    continue;
+                    continue 'over_assignment_3;
                 }
+
                 best_replacements = Some(replacements);
                 best_crossings = candidate_crossings;
                 best_bends = candidate_bends;
                 best_displacement = candidate_displacement;
             }
         }
-        let Some(replacements) = best_replacements else {
-            return Ok(());
+
+        let replacements = match best_replacements {
+            Some(matched_replacements) => matched_replacements,
+            ::core::option::Option::None => return Ok(()),
         };
+
         apply_replacements(&mut layout.original_edges, replacements);
     }
+
     Ok(())
 }
 

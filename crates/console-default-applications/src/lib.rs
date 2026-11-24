@@ -14,4 +14,5 @@ pub mod browsers;
 pub mod clock;
 pub mod editors;
 pub mod engines;
+pub mod opening;
 pub mod policies;

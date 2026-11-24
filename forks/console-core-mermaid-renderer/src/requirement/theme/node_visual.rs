@@ -33,11 +33,13 @@ struct NodeStyleOverrides {
     stroke_width: Option<f64>,
 }
 
+#[must_use]
 fn parse_node_style_overrides(css_styles: &[String], html_labels: bool) -> NodeStyleOverrides {
-    // Mirror Mermaid `styles2String(node)` output:
-    // - De-duplicate by key (`Map` semantics) while preserving first insertion order.
-    // - Split into label vs node styles via Mermaid `isLabelStyle`.
-    // - Append ` !important` when emitting style strings.
+
+
+
+
+    #[must_use]
     fn is_label_style(key: &str) -> bool {
         matches!(
             key,
@@ -63,14 +65,21 @@ fn parse_node_style_overrides(css_styles: &[String], html_labels: bool) -> NodeS
     }
 
     let mut styles: IndexMap<String, String> = IndexMap::new();
+
     for raw in css_styles {
-        let Some(parsed) = crate::mermaid_style::parse_style_declaration(raw) else {
-            continue;
+        let parsed = {
+            let optional_parsed = crate::mermaid_style::parse_style_declaration(raw);
+
+            match optional_parsed {
+                Some(matched_parsed) => matched_parsed,
+                ::core::option::Option::None => continue,
+            }
         };
+
         let k = parsed.property().to_string();
         let v = parsed.value().to_string();
 
-        // JS `Map#set` overwrites the value without changing the key order.
+
         if let Some(existing) = styles.get_mut(&k) {
             *existing = v;
         } else {
@@ -80,6 +89,7 @@ fn parse_node_style_overrides(css_styles: &[String], html_labels: bool) -> NodeS
 
     let mut label_kv: Vec<(&str, &str)> = Vec::new();
     let mut node_kv: Vec<(&str, &str)> = Vec::new();
+
     for (k, v) in &styles {
         if is_label_style(k.trim().to_ascii_lowercase().as_str()) {
             label_kv.push((k.as_str(), v.as_str()));
@@ -93,16 +103,16 @@ fn parse_node_style_overrides(css_styles: &[String], html_labels: bool) -> NodeS
         .map(|(k, v)| format!("{k}:{v} !important"))
         .collect::<Vec<_>>()
         .join(";");
-    // createText converts color only on <text>; requirementBox retains the
-    // original declarations on the label group and first-row inner tspans.
+
+
     let svg_text_styles = if html_labels {
         String::new()
     } else {
         label_kv
             .iter()
             .map(|(key, value)| {
-                let key = if *key == "color" { "fill" } else { key };
-                format!("{key}:{value} !important")
+                let key_2 = if *key == "color" { "fill" } else { key };
+                format!("{key}:{value} !important", key = key_2)
             })
             .collect::<Vec<_>>()
             .join(";")
@@ -123,7 +133,7 @@ fn parse_node_style_overrides(css_styles: &[String], html_labels: bool) -> NodeS
     let stroke = styles.get("stroke").cloned();
     let stroke_width = styles
         .get("stroke-width")
-        .and_then(|v| v.trim_end_matches("px").trim().parse::<f64>().ok());
+        .and_then(|v| match v.trim_end_matches("px").trim().parse::<f64>() { ::core::result::Result::Ok(value__) => ::core::option::Option::Some(value__), ::core::result::Result::Err(_invalid_float) => ::core::option::Option::None });
 
     NodeStyleOverrides {
         label_styles,
@@ -144,17 +154,23 @@ impl RequirementPaintThemePlan {
         config: &PresentationConfig,
         work: &OperationWorkMeter,
     ) -> crate::Result<Self> {
-        let config = config.as_value();
-        let html = crate::config::config_bool(config, &["htmlLabels"]).unwrap_or(true);
-        let hand_drawn = crate::config::config_diagram_look(config).as_str() == "handDrawn";
-        // Match the writer's last requirement/element lookup, with requirement priority.
+        let config_2 = config.as_value();
+        let html = match crate::config::config_bool(config_2, &["htmlLabels"]) {
+            ::core::option::Option::Some(explicit_present) => explicit_present,
+            ::core::option::Option::None => true,
+        };
+        let hand_drawn = crate::config::config_diagram_look(config_2).as_str() == "handDrawn";
+
         let mut styles_by_id = BTreeMap::new();
+
         for node in &model.elements {
             styles_by_id.insert(node.name.as_str(), &node.css_styles);
         }
+
         for node in &model.requirements {
             styles_by_id.insert(node.name.as_str(), &node.css_styles);
         }
+
         for (id, styles) in styles_by_id {
             work.charge(
                 1usize.saturating_add(
@@ -167,8 +183,8 @@ impl RequirementPaintThemePlan {
             let source_owns_fill = source.fill.is_some();
             let source_owns_stroke = source.stroke.is_some();
             let index = self.index_for_node_id(id);
-            let typed_fill = index.and_then(|index| self.typed_fill(index, source_owns_fill));
-            let typed_stroke = index.and_then(|index| self.typed_stroke(index, source_owns_stroke));
+            let typed_fill = index.and_then(|index_2| self.typed_fill(index_2, source_owns_fill));
+            let typed_stroke = index.and_then(|index_3| self.typed_stroke(index_3, source_owns_stroke));
             let fill = source
                 .fill
                 .as_deref()
@@ -187,24 +203,30 @@ impl RequirementPaintThemePlan {
                 ""
             };
             let mut fill_style = path_style.to_owned();
+
             if source_owns_fill || typed_fill.is_some() {
                 if !fill_style.is_empty() {
                     fill_style.push(';');
                 }
+
                 write!(fill_style, "fill:{fill} !important").unwrap();
             }
+
             let fill_style_attr = if fill_style.is_empty() {
                 String::new()
             } else {
                 format!(r#" style="{}""#, crate::svg::escape_xml(&fill_style))
             };
             let mut stroke_style = path_style.to_owned();
+
             if source_owns_stroke || typed_stroke.is_some() {
                 if !stroke_style.is_empty() {
                     stroke_style.push(';');
                 }
+
                 write!(stroke_style, "stroke:{stroke} !important").unwrap();
             }
+
             let stroke_style_declaration = (!stroke_style.is_empty()).then_some(stroke_style);
             let stroke_style_attr = stroke_style_declaration
                 .as_deref()
@@ -222,7 +244,10 @@ impl RequirementPaintThemePlan {
                 source_owns_stroke,
                 fill,
                 stroke,
-                stroke_width: source.stroke_width.unwrap_or(1.3),
+                stroke_width: match source.stroke_width {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => 1.3,
+                },
                 fill_style_attr,
                 stroke_style_declaration,
                 stroke_style_attr,
@@ -251,6 +276,7 @@ impl RequirementPaintThemePlan {
             )?;
             self.node_visuals.insert(id.to_owned(), visual);
         }
+
         Ok(self)
     }
 }

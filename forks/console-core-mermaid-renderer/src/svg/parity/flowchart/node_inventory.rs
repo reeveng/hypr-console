@@ -17,7 +17,9 @@ pub(super) enum NodeGeometry<'a> {
     Flowchart(&'a LayoutNode),
     Swimlane(&'a crate::model::SwimlaneNodeLayout),
 }
+
 impl NodeGeometry<'_> {
+    #[must_use]
     pub(super) fn position(self) -> (f64, f64) {
         match self {
             Self::Flowchart(n) => (n.x, n.y),
@@ -34,7 +36,9 @@ pub(super) enum ClusterGeometry<'a> {
         crate::model::SwimlaneDirection,
     ),
 }
+
 impl<'a> ClusterGeometry<'a> {
+    #[must_use]
     pub(super) fn top_left(self) -> (f64, f64) {
         match self {
             Self::Flowchart(c) => (c.x - c.width / 2.0, c.y - c.height / 2.0),
@@ -44,6 +48,8 @@ impl<'a> ClusterGeometry<'a> {
             }
         }
     }
+
+    #[must_use]
     pub(super) fn direction(self) -> &'a str {
         match self {
             Self::Flowchart(c) => &c.effective_dir,
@@ -69,6 +75,7 @@ pub(super) struct FlowchartNodeInventoryInput<'a> {
 }
 
 impl<'a> FlowchartNodeInventoryInput<'a> {
+    #[must_use]
     fn prepare(
         model: &'a crate::flowchart::FlowchartModel,
         render_context: &'a crate::flowchart::FlowchartRenderContext,
@@ -81,19 +88,24 @@ impl<'a> FlowchartNodeInventoryInput<'a> {
             .iter()
             .map(|node| (node.id.as_str(), Some(node)))
             .collect::<FixedMap<_, _>>();
+
         for id in helper_ids {
             nodes_by_id.entry(id.as_str()).or_insert(None);
         }
+
         let mut subgraphs_by_id = FixedMap::default();
         let mut subgraph_indices_by_id = FixedMap::default();
         let mut subgraph_ids_with_children = FixedSet::default();
         let mut parent = FixedMap::default();
+
         for (index, subgraph) in model.subgraphs.iter().enumerate() {
             let id = subgraph.id.as_str();
+
             if let std::collections::hash_map::Entry::Vacant(entry) = subgraphs_by_id.entry(id) {
                 entry.insert(subgraph);
                 subgraph_indices_by_id.insert(id, index);
             }
+
             if !subgraph.nodes.is_empty()
                 && !render_context.is_subgraph_collapsed(id)
                 && render_context.collapsed_replacement(id).is_none()
@@ -101,11 +113,13 @@ impl<'a> FlowchartNodeInventoryInput<'a> {
                 subgraph_ids_with_children.insert(id);
             }
         }
+
         for subgraph in model.subgraphs.iter().rev() {
             for child in &subgraph.nodes {
                 parent.insert(child.as_str(), subgraph.id.as_str());
             }
         }
+
         for id in helper_ids {
             if let Some((base, _)) = id.split_once("---")
                 && let Some(owner) = parent.get(base).copied()
@@ -113,6 +127,7 @@ impl<'a> FlowchartNodeInventoryInput<'a> {
                 parent.insert(id, owner);
             }
         }
+
         let (
             layout_nodes_by_id,
             layout_clusters_by_id,
@@ -120,33 +135,33 @@ impl<'a> FlowchartNodeInventoryInput<'a> {
             recursive_clusters,
             uses_elk_adapter_dom,
         ) = match layout {
-            FlowchartNodeLayoutView::Flowchart(layout) => (
-                layout
+            FlowchartNodeLayoutView::Flowchart(layout_2) => (
+                layout_2
                     .nodes
                     .iter()
                     .map(|node| (node.id.as_str(), NodeGeometry::Flowchart(node)))
                     .collect(),
-                layout
+                layout_2
                     .clusters
                     .iter()
                     .map(|cluster| (cluster.id.as_str(), ClusterGeometry::Flowchart(cluster)))
                     .collect(),
-                std::borrow::Cow::Borrowed(&layout.dom_node_order_by_root),
-                layout
+                std::borrow::Cow::Borrowed(&layout_2.dom_node_order_by_root),
+                layout_2
                     .dom_node_order_by_root
                     .keys()
                     .filter(|id| !id.is_empty())
                     .map(String::as_str)
                     .collect(),
-                layout.uses_elk_adapter_dom,
+                layout_2.uses_elk_adapter_dom,
             ),
-            FlowchartNodeLayoutView::Swimlane(layout) => {
+            FlowchartNodeLayoutView::Swimlane(layout_3) => {
                 let order = model
                     .nodes
                     .iter()
                     .map(|node| node.id.clone())
                     .chain(
-                        layout
+                        layout_3
                             .nodes
                             .iter()
                             .filter(|node| node.is_edge_label)
@@ -154,19 +169,19 @@ impl<'a> FlowchartNodeInventoryInput<'a> {
                     )
                     .collect();
                 (
-                    layout
+                    layout_3
                         .nodes
                         .iter()
                         .filter(|node| !node.is_edge_label)
                         .map(|node| (node.id.as_str(), NodeGeometry::Swimlane(node)))
                         .collect(),
-                    layout
+                    layout_3
                         .lanes
                         .iter()
                         .map(|lane| {
                             (
                                 lane.id.as_str(),
-                                ClusterGeometry::Swimlane(lane, layout.direction),
+                                ClusterGeometry::Swimlane(lane, layout_3.direction),
                             )
                         })
                         .collect(),
@@ -180,11 +195,13 @@ impl<'a> FlowchartNodeInventoryInput<'a> {
             }
         };
         let mut node_dom_index = super::hierarchy::flowchart_node_dom_indices(model);
+
         for node in &model.nodes {
             if let Some(index) = render_context.node_dom_index(&node.id) {
                 node_dom_index.insert(&node.id, index);
             }
         }
+
         Self {
             nodes_by_id,
             subgraphs_by_id,
@@ -201,6 +218,7 @@ impl<'a> FlowchartNodeInventoryInput<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn subgraph_has_children(&self, id: &str) -> bool {
         self.subgraph_ids_with_children.contains(id)
     }
@@ -272,10 +290,10 @@ impl FlowchartPreparedNodes {
         };
         let label_typography = svg_labels.label_typography();
         let (owners, uses_elk) = match layout {
-            FlowchartNodeLayoutView::Flowchart(layout) => {
-                (&layout.edge_owners, layout.uses_elk_adapter_dom)
+            FlowchartNodeLayoutView::Flowchart(layout_2) => {
+                (&layout_2.edge_owners, layout_2.uses_elk_adapter_dom)
             }
-            FlowchartNodeLayoutView::Swimlane(layout) => (&layout.edge_owners, false),
+            FlowchartNodeLayoutView::Swimlane(layout_3) => (&layout_3.edge_owners, false),
         };
         let helper_ids =
             super::render_input::flowchart_helper_node_ids(model, render_context, owners, uses_elk);
@@ -294,6 +312,7 @@ impl FlowchartPreparedNodes {
             render_config,
         );
         let mut terminals = FixedMap::default();
+
         for id in schedule
             .top
             .iter()
@@ -301,16 +320,24 @@ impl FlowchartPreparedNodes {
         {
             work.checkpoint(merman_model::OperationPhase::Layout)?;
             work.charge(1)?;
+
             if !input.layout_nodes_by_id.contains_key(id.as_str()) {
                 continue;
             }
+
             let (source_styles, terminal_shape, label_source) = if let Some(subgraph) =
                 input.subgraphs_by_id.get(id.as_str())
                 && (render_context.is_subgraph_collapsed(id) || !input.subgraph_has_children(id))
             {
-                let Some(index) = input.subgraph_indices_by_id.get(id.as_str()).copied() else {
-                    continue;
+                let index = {
+                    let optional_index = input.subgraph_indices_by_id.get(id.as_str()).copied();
+
+                    match optional_index {
+                        Some(matched_index) => matched_index,
+                        ::core::option::Option::None => continue,
+                    }
                 };
+
                 let shape = if render_context.is_subgraph_collapsed(id) {
                     "collapsedGroup"
                 } else {
@@ -326,19 +353,19 @@ impl FlowchartPreparedNodes {
                 )
             } else if let Some(node) = input.nodes_by_id.get(id.as_str()) {
                 (
-                    node.map_or((&[][..], &[][..]), |node| {
-                        (node.classes.as_slice(), node.styles.as_slice())
+                    node.map_or((&[][..], &[][..]), |node_2| {
+                        (node_2.classes.as_slice(), node_2.styles.as_slice())
                     }),
-                    node.as_ref().map(|node| {
-                        // Match resolve_node_render_info, including the direct-model fallback.
-                        node.layout_shape.as_deref().unwrap_or("squareRect")
+                    node.as_ref().map(|node_3| {
+
+                        node_3.layout_shape.as_deref().unwrap_or("squareRect")
                     }),
-                    node.map_or((id.as_str(), "text"), |node| {
+                    node.map_or((id.as_str(), "text"), |node_4| {
                         (
                             render_model
-                                .node_label_for_render(node)
-                                .unwrap_or(node.id.as_str()),
-                            node.label_type.as_deref().unwrap_or("text"),
+                                .node_label_for_render(node_4)
+                                .unwrap_or(node_4.id.as_str()),
+                            node_4.label_type.as_deref().unwrap_or("text"),
                         )
                     }),
                 )
@@ -407,25 +434,29 @@ impl FlowchartPreparedNodes {
                 &occurrence_inputs,
                 work,
             )?;
+
             if terminals.insert(id.clone(), terminal).is_some() {
                 return Err(crate::Error::InvalidModel {
                     message: format!("Flowchart emits themed node `{id}` more than once"),
                 });
             }
         }
+
         let cluster_ids = prepared_cluster_ids(model, layout, &input, &schedule)?;
-        let render_model = crate::flowchart::FlowchartRenderModelRef::new(model, render_context);
+        let render_model_2 = crate::flowchart::FlowchartRenderModelRef::new(model, render_context);
         let class_styles = FlowchartPreparedClassStyles::prepare(
             &model.class_defs,
             cluster_ids.iter().flat_map(|id| {
-                input
+                match input
                     .subgraphs_by_id
                     .get(id.as_str())
                     .zip(input.subgraph_indices_by_id.get(id.as_str()))
                     .map(|(subgraph, index)| {
-                        render_model.effective_subgraph_css(*index, subgraph).0
-                    })
-                    .unwrap_or_default()
+                        render_model_2.effective_subgraph_css(*index, subgraph).0
+                    }) {
+                    ::core::option::Option::Some(option_value) => option_value,
+                    ::core::option::Option::None => &[],
+                }
                     .iter()
                     .map(String::as_str)
             }),
@@ -443,7 +474,7 @@ impl FlowchartPreparedNodes {
             .map(String::as_str)
             .collect::<FixedSet<_>>();
         let top_lane_ids = match layout {
-            FlowchartNodeLayoutView::Swimlane(layout) => layout
+            FlowchartNodeLayoutView::Swimlane(layout_4) => layout_4
                 .lanes
                 .iter()
                 .filter(|lane| lane.parent_id.is_none())
@@ -452,7 +483,7 @@ impl FlowchartPreparedNodes {
             FlowchartNodeLayoutView::Flowchart(_) => FixedSet::default(),
         };
         let lane_ids = match layout {
-            FlowchartNodeLayoutView::Swimlane(layout) => layout
+            FlowchartNodeLayoutView::Swimlane(layout_5) => layout_5
                 .lanes
                 .iter()
                 .map(|lane| lane.id.as_str())
@@ -460,6 +491,7 @@ impl FlowchartPreparedNodes {
             FlowchartNodeLayoutView::Flowchart(_) => Vec::new(),
         };
         let mut ordinal = 1usize;
+
         for id in model
             .subgraphs
             .iter()
@@ -467,19 +499,26 @@ impl FlowchartPreparedNodes {
             .chain(lane_ids)
         {
             work.charge(1)?;
+
             if !remaining.remove(id) {
                 continue;
             }
-            let source = input
+
+            let styles = input
                 .subgraphs_by_id
                 .get(id)
                 .zip(input.subgraph_indices_by_id.get(id))
-                .map(|(subgraph, index)| render_model.effective_subgraph_css(*index, subgraph))
-                .unwrap_or_default();
+                .map(|(subgraph, index)| render_model_2.effective_subgraph_css(*index, subgraph));
+
+            let (classes, inline_styles): (&[String], &[String]) = match styles {
+                Some(subgraph_styles) => subgraph_styles,
+                None => (&[], &[]),
+            };
+
             let compiled = flowchart_compile_prepared_styles(
                 &class_styles,
-                source.0,
-                source.1,
+                classes,
+                inline_styles,
                 &[],
                 Some(work),
             )?;
@@ -495,7 +534,7 @@ impl FlowchartPreparedNodes {
                             .get(id)
                             .zip(input.subgraph_indices_by_id.get(id))
                             .map_or("", |(subgraph, index)| {
-                                render_model.subgraph_title_for_render(*index, subgraph)
+                                render_model_2.subgraph_title_for_render(*index, subgraph)
                             }),
                         input
                             .subgraphs_by_id
@@ -508,7 +547,7 @@ impl FlowchartPreparedNodes {
                     work,
                 )?
             };
-            let theme =
+            let theme_2 =
                 crate::flowchart::FlowchartClusterThemeStyle::resolve(theme, Some(ordinal), work)?;
             ordinal = ordinal
                 .checked_add(1)
@@ -529,20 +568,20 @@ impl FlowchartPreparedNodes {
                     .merge(structural_sources.stroke_width),
                 false,
             );
-            let typed_fill = theme.fill_value(fill_precedence, true).map(str::to_owned);
+            let typed_fill = theme_2.fill_value(fill_precedence, true).map(str::to_owned);
             let fill = (model.keyword == "agentflow-beta")
                 .then_some(compiled.fill.as_deref())
                 .flatten()
                 .or(typed_fill.as_deref())
                 .unwrap_or(&render_config.cluster_fill_color)
                 .to_owned();
-            let stroke = theme
+            let stroke = theme_2
                 .stroke_value(stroke_precedence, true)
                 .unwrap_or(&render_config.cluster_stroke_color)
                 .to_owned();
-            let typed_stroke_width = theme.stroke_width_value(stroke_width_precedence);
+            let typed_stroke_width = theme_2.stroke_width_value(stroke_width_precedence);
             let mut rect_style = compiled.node_style.trim().to_owned();
-            theme.append_inline_style(
+            theme_2.append_inline_style(
                 &mut rect_style,
                 fill_precedence,
                 stroke_precedence,
@@ -555,7 +594,7 @@ impl FlowchartPreparedNodes {
                 svg_labels.subgraph_title_owner(id)
             };
             let title_text_style = match owner
-                .and_then(|owner| svg_labels.node_source_style(owner))
+                .and_then(|owner_2| svg_labels.node_source_style(owner_2))
                 .cloned()
             {
                 Some(style) => style,
@@ -568,12 +607,12 @@ impl FlowchartPreparedNodes {
                     let style = crate::flowchart::flowchart_effective_text_style_for_classes(
                         base,
                         &model.class_defs,
-                        source.0,
-                        source.1,
+                        classes,
+                        inline_styles,
                     )
                     .into_owned();
                     std::sync::Arc::new(
-                        crate::flowchart::FlowchartNodeSourceTypography::from_style(style, work)?,
+                        { let checked_value = crate::flowchart::FlowchartNodeSourceTypography::from_style(style, work)?; checked_value },
                     )
                 }
             };
@@ -585,7 +624,7 @@ impl FlowchartPreparedNodes {
             clusters.insert(
                 id.to_owned(),
                 FlowchartPreparedCluster {
-                    theme,
+                    theme: theme_2,
                     compiled,
                     structural_sources,
                     rect_style,
@@ -600,30 +639,38 @@ impl FlowchartPreparedNodes {
                 },
             );
         }
+
         if !remaining.is_empty() {
             return Err(crate::Error::InvalidModel {
-                message: "Flowchart hierarchy emits clusters outside the semantic inventory".into(),
+                message: <::std::string::String as ::core::convert::From<&::core::primitive::str>>::from("Flowchart hierarchy emits clusters outside the semantic inventory"),
             });
         }
+
         Ok(Self {
             schedule,
             terminals,
             cluster_ids,
             clusters,
-            _cluster_retained_reservation: work
-                .reserve_prepared_text_retained_bytes(cluster_retained_bytes)?,
+            _cluster_retained_reservation: { let checked_value_2 = work
+                .reserve_prepared_text_retained_bytes(cluster_retained_bytes)?; checked_value_2 },
         })
     }
 
+    #[must_use]
     pub(super) fn schedule(&self) -> &FlowchartNodeRootSchedule {
         &self.schedule
     }
+
+    #[must_use]
     pub(super) fn node(&self, id: &str) -> Option<&super::node_style::PreparedNodeTerminal> {
         self.terminals.get(id)
     }
+
+    #[must_use]
     pub(super) fn cluster_ids(&self) -> impl Iterator<Item = &str> {
         self.cluster_ids.iter().map(String::as_str)
     }
+
     pub(super) fn cluster(&self, id: &str) -> crate::Result<&FlowchartPreparedCluster> {
         self.clusters
             .get(id)
@@ -645,6 +692,7 @@ fn prepared_cluster_ids(
         .iter()
         .map(|(id, _)| id.as_str())
         .collect::<FixedSet<_>>();
+
     if input.uses_elk_adapter_dom {
         ids.extend(
             input
@@ -658,6 +706,7 @@ fn prepared_cluster_ids(
                 })
                 .cloned(),
         );
+
         if ids.is_empty() {
             let mut seen = FixedSet::default();
             ids.extend(
@@ -673,32 +722,38 @@ fn prepared_cluster_ids(
                     .map(|subgraph| subgraph.id.clone()),
             );
         }
-    } else if let FlowchartNodeLayoutView::Swimlane(layout) = layout {
-        ids.extend(layout.lanes.iter().map(|lane| lane.id.clone()));
+    } else if let FlowchartNodeLayoutView::Swimlane(layout_2) = layout {
+        ids.extend(layout_2.lanes.iter().map(|lane| lane.id.clone()));
     } else {
         for id in input.subgraphs_by_id.keys().copied() {
             if !input.subgraph_has_children(id) || !input.layout_clusters_by_id.contains_key(id) {
                 continue;
             }
+
             let root = if input.recursive_clusters.contains(id) {
                 Some(id)
             } else {
                 schedule.effective_parents.parent(id)
             };
-            if root.is_none_or(|root| scheduled_roots.contains(root)) {
+
+            if root.is_none_or(|root_2| scheduled_roots.contains(root_2)) {
                 ids.push(id.to_owned());
             }
         }
     }
+
     let mut seen = FixedSet::default();
+
     for id in &ids {
         input.work_meter.charge(1)?;
+
         if !seen.insert(id.as_str()) {
             return Err(crate::Error::InvalidModel {
                 message: format!("Flowchart hierarchy emits cluster `{id}` more than once"),
             });
         }
     }
+
     Ok(ids)
 }
 
@@ -711,6 +766,7 @@ impl FlowchartNodeRootSchedule {
         )?;
         let (top, nested) = {
             let mut candidates = FlowchartDomCandidateBuckets::prepare(ctx, &effective_parents)?;
+
             if ctx.uses_elk_adapter_dom {
                 let top = flowchart_elk_dom_order(ctx, candidates.take(None))?;
                 (top.into_iter().map(str::to_owned).collect(), Vec::new())
@@ -720,8 +776,8 @@ impl FlowchartNodeRootSchedule {
                 ctx.work_meter.charge(1)?;
                 let top = flowchart_dom_order_for_root(ctx, None, candidates.take(None))?;
                 let mut pending = Vec::new();
-                let push_roots = |order: &[&str], pending: &mut Vec<String>| {
-                    pending.extend(
+                let push_roots = |order: &[&str], pending_2: &mut Vec<String>| {
+                    pending_2.extend(
                         order
                             .iter()
                             .rev()
@@ -736,6 +792,7 @@ impl FlowchartNodeRootSchedule {
                 push_roots(&top, &mut pending);
                 let mut nested = Vec::new();
                 let mut visited = FixedSet::default();
+
                 while let Some(root) = pending.pop() {
                     ctx.work_meter
                         .checkpoint(merman_model::OperationPhase::Layout)?;
@@ -747,6 +804,7 @@ impl FlowchartNodeRootSchedule {
                         .ok_or_else(|| crate::Error::InvalidModel {
                             message: format!("missing prepared Flowchart recursive root `{root}`"),
                         })?;
+
                     if !visited.insert(root_id) {
                         return Err(crate::Error::InvalidModel {
                             message: format!(
@@ -754,6 +812,7 @@ impl FlowchartNodeRootSchedule {
                             ),
                         });
                     }
+
                     let order = flowchart_dom_order_for_root(
                         ctx,
                         Some(root_id),
@@ -762,6 +821,7 @@ impl FlowchartNodeRootSchedule {
                     push_roots(&order, &mut pending);
                     nested.push((root, order.into_iter().map(str::to_owned).collect()));
                 }
+
                 (top.into_iter().map(str::to_owned).collect(), nested)
             }
         };
@@ -772,12 +832,17 @@ impl FlowchartNodeRootSchedule {
         })
     }
 
+    #[must_use]
     pub(super) fn top(&self) -> &[String] {
         &self.top
     }
+
+    #[must_use]
     pub(super) fn nested(&self) -> &[(String, Vec<String>)] {
         &self.nested
     }
+
+    #[must_use]
     pub(super) fn effective_parents(&self) -> &FlowchartEffectiveParentIndex {
         &self.effective_parents
     }

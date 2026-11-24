@@ -17,6 +17,9 @@
 //! [`map`] uses one worker per core, limited by the number of items. Decoders with
 //! a caller-supplied thread budget use [`map_with_threads`] for borrowed tile
 //! columns or [`FifoPool`] for pictures that outlive the call that submits them.
+//! [`for_each`] runs independent effects with the given worker limit and
+//! returns each effect's typed result in input order. A failed effect stays
+//! in its slot and the other effects still run.
 //!
 //! **The cores are counted once and handed in.** Counting them reads a file
 //! under `/sys` for every thread the machine has, which took 0.23 ms on an
@@ -56,6 +59,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::fs;
 use std::iter;
+use std::num::NonZeroU32;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -124,6 +128,12 @@ impl Cores {
     Ok(Cores { counted: 1 })
   }
 
+  pub fn limited(limit: NonZeroU32) -> Result<Cores, Never> {
+    Ok(Cores {
+      counted: limit.get(),
+    })
+  }
+
   pub fn counted() -> Result<Cores, Never> {
     let Ok(threads) = threads();
     let Ok(cores) = counted_cores(Path::new(CPUS));
@@ -144,6 +154,19 @@ where
   F: Fn(&T) -> R + Sync,
 {
   map_with_threads(cores.counted, items, each).map_err(|_panic| Error::Defect)
+}
+
+pub fn for_each<Item, Reply, Failure>(
+  cores: Cores,
+  items: &[Item],
+  effect: impl Fn(&Item) -> Result<Reply, Failure> + Sync,
+) -> Result<Vec<Result<Reply, Failure>>, Error>
+where
+  Item: Sync,
+  Reply: Send,
+  Failure: Send,
+{
+  map(cores, items, effect)
 }
 
 pub fn map_with_threads<T, R, F>(width: u32, items: &[T], each: F) -> thread::Result<Vec<R>>
@@ -305,6 +328,22 @@ mod tests {
     let Ok(cores) = Cores::counted();
 
     assert_eq!(map(cores, &items, |item| *item), Ok(Vec::new()));
+  }
+
+  #[test]
+  fn each_effect_returns_its_reply_or_failure_in_input_order() -> Result<(), Failure> {
+    let limit = NonZeroU32::new(2).ok_or("invalid test concurrency limit")?;
+    let Ok(cores) = Cores::limited(limit);
+    let effect = |&item: &u32| match item {
+      0 => Err("zero"),
+      1..=u32::MAX => Ok(item.wrapping_mul(2)),
+    };
+    let replies = for_each(cores, &[5, 0, 2, 7], effect)?;
+    let empty = for_each(cores, &[], effect)?;
+    assert_eq!(replies, [Ok(10), Err("zero"), Ok(4), Ok(14)]);
+    assert!(empty.is_empty());
+
+    Ok(())
   }
 
   #[test]

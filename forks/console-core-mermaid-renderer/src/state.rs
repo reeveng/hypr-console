@@ -34,6 +34,7 @@ pub(crate) struct RectWithTitleGeometry {
 }
 
 impl RectWithTitleGeometry {
+    #[must_use]
     pub(crate) fn from_metrics(
         title_width: f64,
         title_height: f64,
@@ -41,25 +42,25 @@ impl RectWithTitleGeometry {
         description_height: f64,
         padding: f64,
     ) -> Self {
-        let title_width = title_width.max(0.0);
-        let title_height = title_height.max(0.0);
-        let description_width = description_width.max(0.0);
-        let description_height = description_height.max(0.0);
-        let padding = padding.max(0.0);
-        let half_padding = padding / 2.0;
-        let label_width = title_width.max(description_width);
-        let description_y = title_height + half_padding + 5.0;
-        let label_height = description_y + description_height;
+        let title_width_2 = title_width.max(0.0);
+        let title_height_2 = title_height.max(0.0);
+        let description_width_2 = description_width.max(0.0);
+        let description_height_2 = description_height.max(0.0);
+        let padding_2 = padding.max(0.0);
+        let half_padding = padding_2 / 2.0;
+        let label_width = title_width_2.max(description_width_2);
+        let description_y = title_height_2 + half_padding + 5.0;
+        let label_height = description_y + description_height_2;
 
         Self {
-            width: (label_width + padding).max(1.0),
-            height: (label_height + padding).max(1.0),
+            width: (label_width + padding_2).max(1.0),
+            height: (label_height + padding_2).max(1.0),
             label_x: -label_width / 2.0,
             label_y: -label_height / 2.0 - half_padding + 3.0,
-            title_x: ((label_width - title_width) / 2.0).max(0.0),
-            description_x: ((label_width - description_width) / 2.0).max(0.0),
+            title_x: ((label_width - title_width_2) / 2.0).max(0.0),
+            description_x: ((label_width - description_width_2) / 2.0).max(0.0),
             description_y,
-            divider_y: -label_height / 2.0 + title_height,
+            divider_y: -label_height / 2.0 + title_height_2,
         }
     }
 }

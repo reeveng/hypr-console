@@ -871,15 +871,7 @@ mod tests {
     Ok(())
   }
 
-  #[test]
-  #[cfg_attr(
-    dylint_lib = "explicit058_contain_unsafe",
-    expect(
-      explicit058_contain_unsafe,
-      reason = "the C ABI fixture provides live initialized pictures, writable output slots, and a local decoder handle"
-    )
-  )]
-  fn apply_grain_keeps_input_and_output_references_independent() -> Rav1dResult {
+  fn grain_fixture_picture() -> Rav1dResult<(Dav1dContext, Rav1dPicture)> {
     let settings = Rav1dSettings {
       n_threads: 1,
       max_frame_delay: 1,
@@ -895,6 +887,20 @@ mod tests {
     rav1d_send_data(&decoder, &mut input)?;
     rav1d_get_picture(&decoder, &mut picture)?;
     let Ok(context) = RawArc::from_arc(decoder);
+
+    Ok((context, picture))
+  }
+
+  #[test]
+  #[cfg_attr(
+    dylint_lib = "explicit058_contain_unsafe",
+    expect(
+      explicit058_contain_unsafe,
+      reason = "the C ABI fixture provides live initialized pictures, writable output slots, and a local decoder handle"
+    )
+  )]
+  fn apply_grain_keeps_input_and_output_references_independent() -> Rav1dResult {
+    let (context, picture) = grain_fixture_picture()?;
 
     let released = AtomicU32::new(0);
     let mut original = counted_picture(&picture, &released)?;
@@ -937,11 +943,10 @@ mod tests {
     assert!(original.itut_t35_ref.is_none());
 
     let mut in_place = counted_picture(&picture, &released)?;
-    let replaced_slot = NonNull::from(&mut in_place);
+    let replaced_slot = Some(NonNull::from(&mut in_place));
     // SAFETY: The output replaces the same initialized input slot.
-    let in_place_status =
-      unsafe { dav1d_apply_grain(Some(context), Some(replaced_slot), Some(replaced_slot)) };
-    assert_eq!(in_place_status, Dav1dResult(0));
+    let applied = unsafe { dav1d_apply_grain(Some(context), replaced_slot, replaced_slot) };
+    assert_eq!(applied, Dav1dResult(0));
     assert_eq!(in_place.data, original_fields.1);
     assert_eq!(released.load(Ordering::Relaxed), 1);
 
@@ -952,10 +957,9 @@ mod tests {
 
     let mut missing_header = Dav1dPicture::default();
     missing_header.m.timestamp = 42;
-    let invalid_slot = NonNull::from(&mut missing_header);
+    let invalid_slot = Some(NonNull::from(&mut missing_header));
     // SAFETY: Both pointers name the same exclusively accessible initialized record.
-    let invalid =
-      unsafe { dav1d_apply_grain(Some(context), Some(invalid_slot), Some(invalid_slot)) };
+    let invalid = unsafe { dav1d_apply_grain(Some(context), invalid_slot, invalid_slot) };
     let expected: Rav1dResult = Err(EINVAL);
     assert_eq!(invalid, Dav1dResult::from(expected));
     assert_eq!(missing_header.m.timestamp, 42);
@@ -986,10 +990,9 @@ mod tests {
     let mut packet = Dav1dData::from(wrapped);
     let original_buffer = packet.data;
     let metadata = NonNull::from(&USER_DATA);
-    let packet_slot = NonNull::from(&mut packet);
+    let packet_slot = Some(NonNull::from(&mut packet));
     // SAFETY: The packet is initialized and exclusive, and the static metadata is readable.
-    let status =
-      unsafe { dav1d_data_wrap_user_data(Some(packet_slot), Some(metadata), None, None) };
+    let status = unsafe { dav1d_data_wrap_user_data(packet_slot, Some(metadata), None, None) };
     let rejected: Rav1dResult = Err(EINVAL);
     assert_eq!(status, Dav1dResult::from(rejected));
     assert_eq!(packet.data, original_buffer);

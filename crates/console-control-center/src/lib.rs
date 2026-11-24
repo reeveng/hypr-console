@@ -142,8 +142,8 @@ pub fn sheet(room: Size<u32>, wearing: &Wearing) -> Result<Sheet, Never> {
   let down = margin.saturating_add(padding);
 
   let Ok(row_step) = fitted::<u32, i32>(BUTTON_TALL.saturating_add(PADDING));
-  let button = |across: i32, down: i32| Panel {
-    at: Point { x: across, y: down },
+  let button = |across: i32, top: i32| Panel {
+    at: Point { x: across, y: top },
     size: Size {
       width: button_wide,
       height: BUTTON_TALL,
@@ -166,6 +166,7 @@ pub fn hit_test(sheet: &Sheet, at: (f64, f64)) -> Result<Tapped, Never> {
   let Ok(across) = toward_zero_i32(at.0.floor());
   let Ok(down) = toward_zero_i32(at.1.floor());
   let point = Point { x: across, y: down };
+
   for (panel, target) in [
     (sheet.screenshot, Tapped::Screenshot),
     (sheet.screenshot_area, Tapped::ScreenshotArea),
@@ -173,10 +174,15 @@ pub fn hit_test(sheet: &Sheet, at: (f64, f64)) -> Result<Tapped, Never> {
     (sheet.close, Tapped::Close),
   ] {
     let Ok(covers) = panel.covers(point);
-    if covers == Covers::Yes {
-      return Ok(target);
+
+    match { ::core::primitive::bool::then_some(covers == Covers::Yes, ()) } {
+      ::core::option::Option::Some(()) => {
+        return Ok(target);
+      }
+      ::core::option::Option::None => {}
     }
   }
+
   Ok(Tapped::Outside)
 }
 

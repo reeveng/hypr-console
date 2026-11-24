@@ -95,9 +95,8 @@ use std::path::{Path, PathBuf};
 
 use console_core_arguments::{CommandLine, Flag, NoSubcommand, Operands, Presence, Takes};
 use console_core_external_programs::Program as ExternalProgram;
-use console_core_internal_programs::{CONFIRM_DOES, InternalProgram};
 use console_core_never::Never;
-use console_core_state_machine::{Machine, Queue, Transition};
+use console_core_state_machine::{EffectDependencies, Machine, Queue, Service, Transition};
 use console_program_contract::{Choice, Command, Effect, Event, Exit, ExitStatus, Prompt};
 use console_session::reaching;
 
@@ -133,10 +132,6 @@ pub const COMMAND: console_core_arguments::Command = console_core_arguments::Com
   flags: &[CHECK, YES, UNTESTED],
   operands: Operands::None,
 };
-
-pub fn card() -> Result<&'static str, Never> {
-  InternalProgram::Confirm.name()
-}
 
 pub fn unasked() -> Result<i32, Never> {
   Ok(i32::from(console_core_internal_programs::CONFIRM_UNASKED))
@@ -262,6 +257,7 @@ pub enum Step {
   Spread,
   Checking,
   Finding(Whether),
+  FindingUid(Whether),
   Wondering(Whether),
   Settling,
   Moved,
@@ -277,9 +273,16 @@ pub enum Step {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DeployingEffect {
   Take(PathBuf),
-  Mine(PathBuf),
   Read(PathBuf),
   Free(PathBuf),
+}
+
+impl EffectDependencies for DeployingEffect {
+  fn services(&self) -> Result<&'static [Service], Never> {
+    Ok(match self {
+      Self::Take(_) | Self::Read(_) | Self::Free(_) => &[Service::FileSystem],
+    })
+  }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -421,10 +424,7 @@ fn at(
 
       Transition::new(
         Deploying::At(Step::Still, going.clone()),
-        vec![
-          Effect::Custom(DeployingEffect::Mine(going.lock.clone())),
-          Effect::Run(runs),
-        ],
+        vec![Effect::Run(runs)],
       )
     }
 
@@ -692,7 +692,8 @@ fn at(
           )
         }
         How::Confirm => {
-          let Ok(runs) = on(going, reaching::OWNER);
+          let Ok(homes) = console_device_name::homes_command();
+          let Ok(runs) = on(going, &homes);
 
           Transition::new(
             Deploying::At(Step::Finding(Whether::Send), going.clone()),
@@ -708,30 +709,28 @@ fn at(
     ),
 
     (Step::Finding(which), Event::Replied(answer)) => {
-      let whom = answer.output.trim().to_string();
-      let going_6 = Going {
-        whom: whom.clone(),
-        ..going.clone()
-      };
+      let Ok(owner) = console_device_name::sole_home(&answer.output);
 
-      match ::core::primitive::bool::then_some(whom.is_empty(), ()) {
-        ::core::option::Option::Some(()) => {
-          let Ok(question) = putting(which, &going_6.host);
+      match (answer.status, owner) {
+        (ExitStatus::Success, Some(whom)) => inviting(going, which, Some(whom)),
+        _ => {
+          let Ok(fallback) = console_device_name::fallback_command();
+          let Ok(runs) = on(going, &fallback);
 
           Transition::new(
-            Deploying::At(Step::Wondering(which), going_6.clone()),
-            vec![Effect::Prompt(question)],
-          )
-        }
-        ::core::option::Option::None => {
-          let Ok(runs) = carding(&going_6, which);
-
-          Transition::new(
-            Deploying::At(Step::Wondering(which), going_6.clone()),
+            Deploying::At(Step::FindingUid(which), going.clone()),
             vec![Effect::Run(runs)],
           )
         }
       }
+    }
+
+    (Step::FindingUid(which), Event::Replied(answer)) => {
+      let Ok(whom) = match answer.status {
+        ExitStatus::Success => console_device_name::account(&answer.output),
+        ExitStatus::Failure(_) | ExitStatus::Interrupt => Ok(None),
+      };
+      inviting(going, which, whom)
     }
 
     (Step::Wondering(which), Event::Replied(answer)) => match answer.status {
@@ -968,6 +967,33 @@ pub fn toolchain(both: Toolchains<'_>) -> Result<Toolchain, Never> {
   })
 }
 
+fn inviting(
+  going: &Going,
+  which: Whether,
+  whom: Option<&str>,
+) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
+  let going_2 = Going {
+    whom: match whom {
+      ::core::option::Option::Some(present) => present,
+      ::core::option::Option::None => "",
+    }
+    .to_owned(),
+    ..going.clone()
+  };
+  let effect = match whom {
+    Some(_) => {
+      let Ok(runs) = carding(&going_2, which);
+      Effect::Run(runs)
+    }
+    None => {
+      let Ok(question) = putting(which, &going_2.host);
+      Effect::Prompt(question)
+    }
+  };
+
+  Transition::new(Deploying::At(Step::Wondering(which), going_2), vec![effect])
+}
+
 fn pressing(going: &Going) -> Result<Transition<Deploying, Effect<DeployingEffect>>, Never> {
   match (going.tests, going.how) {
     (Tests::Skipped, How::Yes | How::Confirm | How::Check) => Transition::new(
@@ -1109,15 +1135,13 @@ fn confirmation(which: Whether) -> Result<Confirmation, Never> {
 
 pub fn carding(going: &Going, which: Whether) -> Result<Command, Never> {
   let Ok(asking) = confirmation(which);
-  let Ok(named) = card();
-  let Ok(quoted) = reaching::shell_quote(&asking.question);
-  let Ok(does) = reaching::shell_quote(asking.does);
-
-  let card = format!(
-    "command -v {named} >/dev/null || exit {NO_CARD}; {CONFIRM_DOES}={does} exec {named} {quoted}"
+  let Ok(in_session) = reaching::confirmation(
+    reaching::Whom(&going.whom),
+    reaching::Confirmation {
+      label: asking.does,
+      question: &asking.question,
+    },
   );
-
-  let Ok(in_session) = reaching::in_session(reaching::Whom(&going.whom), &card);
 
   on(going, &in_session)
 }
@@ -1200,7 +1224,7 @@ fn git_log(tree: &Path, range: &str) -> Result<Command, Never> {
 }
 
 fn on(going: &Going, command: &str) -> Result<Command, Never> {
-  Command::external(ExternalProgram::Ssh, &[going.host.as_str(), command])
+  Command::external(ExternalProgram::Ssh, &["--", going.host.as_str(), command])
 }
 
 fn into(host: &str) -> Result<String, Never> {
@@ -1895,8 +1919,8 @@ mod tests {
 
   #[test]
   fn without_a_yes_the_question_goes_to_the_device_and_no_sends_nothing() {
-    let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Failure(SAID_NO)]);
-    let Ok(named) = card();
+    let Ok(said) = as_far_as(&[], vec![Step::Success("someone/"), Step::Failure(SAID_NO)]);
+    let named = "device-confirm";
 
     assert!(
       said
@@ -1954,65 +1978,24 @@ mod tests {
   }
 
   #[test]
-  fn the_word_for_going_ahead_travels_beside_the_question_and_not_inside_it()
-  -> Result<(), Box<dyn std::error::Error>> {
-    let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Failure(SAID_NO)]);
-    let raised: Vec<String> = said
-      .asks
-      .iter()
-      .flat_map(|runs| runs.arguments.clone())
-      .collect();
-    let Ok(named) = card();
-
-    let line = raised
-      .iter()
-      .find(|word| word.contains(&format!("exec {named}")))
-      .ok_or("nothing raised a card")?;
+  fn the_question_and_label_are_separate_arguments_for_the_native_card() {
+    let Ok(said) = as_far_as(&[], vec![Step::Success("someone/"), Step::Failure(SAID_NO)]);
 
     assert!(
-      line.contains(&format!("{CONFIRM_DOES}=")),
-      "the verb is not in the environment, so only a copy that knows it reads it: {line}"
-    );
-
-    let after = line
-      .split(&format!("exec {named} "))
-      .nth(1)
-      .ok_or_else(|| format!("the card was handed nothing at all: {line}"))?;
-
-    assert!(
-      !after.contains("--"),
-      "a copy of the card older than this change draws every word it is handed, and this hands it one it would draw as part of the question: {after}"
-    );
-
-    Ok(())
-  }
-
-  #[test]
-  fn the_card_is_what_the_shell_becomes_and_the_word_that_looks_for_it_is_not() {
-    let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Failure(SAID_NO)]);
-    let raised: Vec<String> = said
-      .asks
-      .iter()
-      .flat_map(|runs| runs.arguments.clone())
-      .collect();
-
-    let Ok(named) = card();
-
-    assert!(
-      raised
+      said
+        .asks
         .iter()
-        .any(|word| word.contains(&format!("exec {named}"))),
-      "the card is not what the shell becomes"
-    );
-    assert!(
-      raised.iter().all(|word| !word.contains("exec command")),
-      "exec was handed a builtin, which is how this asked at the terminal every time"
+        .flat_map(|runs| runs.arguments.iter())
+        .any(|line| {
+          line.contains("device-confirm Accept 'Accept the update sent to this device?'")
+            && line.starts_with("runuser -u someone -- ")
+        })
     );
   }
 
   #[test]
   fn a_device_with_no_card_to_raise_asks_at_this_terminal_instead() {
-    let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Failure(NO_CARD)]);
+    let Ok(said) = as_far_as(&[], vec![Step::Success("someone/"), Step::Failure(NO_CARD)]);
 
     assert!(
       said
@@ -2030,7 +2013,7 @@ mod tests {
   #[test]
   fn a_card_that_could_not_read_its_call_is_asked_here_rather_than_taken_for_a_no() {
     let Ok(unasked) = unasked();
-    let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Failure(unasked)]);
+    let Ok(said) = as_far_as(&[], vec![Step::Success("someone/"), Step::Failure(unasked)]);
 
     assert!(
       said
@@ -2047,7 +2030,7 @@ mod tests {
 
   #[test]
   fn a_yes_on_the_device_carries_on_into_the_second_look_at_the_tree() {
-    let Ok(said) = as_far_as(&[], vec![Step::Success("someone"), Step::Success("")]);
+    let Ok(said) = as_far_as(&[], vec![Step::Success("someone/"), Step::Success("")]);
     let Ok(tree) = deploy_tree();
     let Ok(looked) = standing(&tree);
 
@@ -2237,7 +2220,7 @@ mod tests {
     let Ok(said) = as_far_as(
       &[],
       vec![
-        Step::Success("someone"),
+        Step::Success("someone/"),
         Step::Success(""),
         Step::Success(""),
         Step::Success("abc123"),
@@ -2251,7 +2234,7 @@ mod tests {
       ],
     );
 
-    let Ok(named) = card();
+    let named = "device-confirm";
     let asked = said.asks;
     let cards: Vec<u32> = (0..)
       .zip(&asked)

@@ -215,7 +215,7 @@ pub(crate) struct StatementArena {
 }
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
-// Generated grammar actions retain the original lexer token and diagnostic span in errors.
+
 #[allow(clippy::result_large_err)]
 impl StatementArena {
     pub(crate) fn construction_checkpoint(
@@ -229,6 +229,7 @@ impl StatementArena {
                     error: LexError::new(error.to_string()),
                 })?;
         }
+
         self.construction_steps = self.construction_steps.saturating_add(1);
         Ok(())
     }
@@ -264,6 +265,7 @@ impl StatementArena {
 
 #[cfg(any(feature = "diagram-flowchart", feature = "diagram-swimlane"))]
 impl FlowchartAst {
+    #[must_use]
     pub(crate) fn walk(&self) -> StatementWalk<'_> {
         StatementWalk {
             arena: &self.statements,
@@ -300,19 +302,27 @@ impl<'a> Iterator for StatementWalk<'a> {
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let frame = self.frames.last_mut()?;
-            if let Some(id) = frame.next {
-                let record = &self.arena.records[id.0];
-                frame.next = record.next;
-                if let Stmt::Subgraph(subgraph) = &record.statement {
-                    self.frames.push(StatementWalkFrame {
-                        next: subgraph.statements.head,
-                        finish: Some(id),
-                    });
-                }
-                return Some(StatementEvent::Enter(&record.statement));
+
+            match frame.next {
+                Some(id) => {
+                    let record = &self.arena.records[id.0];
+                    frame.next = record.next;
+
+                    if let Stmt::Subgraph(subgraph) = &record.statement {
+                        self.frames.push(StatementWalkFrame {
+                            next: subgraph.statements.head,
+                            finish: Some(id),
+                        });
+                    }
+
+                    return Some(StatementEvent::Enter(&record.statement));
+                },
+                ::core::option::Option::None => {},
             }
-            let frame = self.frames.pop()?;
-            if let Some(id) = frame.finish
+
+            let frame_2 = self.frames.pop()?;
+
+            if let Some(id) = frame_2.finish
                 && let Stmt::Subgraph(subgraph) = &self.arena.records[id.0].statement
             {
                 return Some(StatementEvent::Exit(subgraph));
@@ -423,7 +433,7 @@ mod tests {
                 .count(),
             127
         );
-        // Both the retained arena and discarded parser symbols have flat ownership.
+
         drop(statements.clone());
         drop(statements);
         super::super::parse_flowchart_ast("flowchart TB\nA-->B\n", &metadata()).unwrap();

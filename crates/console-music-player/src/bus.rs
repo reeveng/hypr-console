@@ -1,7 +1,7 @@
 //! What the panel presses, answered where kew used to answer it.
 //!
 //! The interface is not this player's design and is not this desktop's either:
-//! it is MPRIS, spelled the way `console_music::player` already reads it and
+//! it is MPRIS, spelled the way `console_application_music::player` already reads it and
 //! the way the checks already press it through busctl. So the surface came
 //! first and the player was written to it, which is the opposite of how the
 //! rest of this tree is built and is right here -- a panel that has to be
@@ -53,9 +53,9 @@ use console_response_times::{Wait, Waiting};
 use std::path::{Path, PathBuf};
 
 use crate::answers::{self, Reply, Song, Status};
-use crate::bookmark;
+use crate::bookmark::{self, Bookmark, QueueSaved};
 use crate::library;
-use crate::playlist::{Moved, Order, Playlist};
+use crate::playlist::{Moved, Order, Playlist, SavedQueue};
 use crate::sounding::{Sounding, Wanted};
 use crate::{art, tags};
 
@@ -64,6 +64,7 @@ const CHANGED: &str = "org.freedesktop.DBus.Properties";
 const LOOKING: &str = "org.freedesktop.DBus.Introspectable";
 
 const PEER: &str = "org.freedesktop.DBus.Peer";
+const SESSION: &str = "org.console.MusicPlayer.Session";
 
 const ROOT_SAYS: [(&str, &str); 6] = [
   ("CanQuit", "b"),
@@ -93,6 +94,9 @@ const PLAYER_SAYS: [(&str, &str); 15] = [
 ];
 
 const XML: &str = r#"<node>
+  <interface name="org.console.MusicPlayer.Session">
+    <method name="Checkpoint"/>
+  </interface>
   <interface name="org.mpris.MediaPlayer2">
     <method name="Raise"/>
     <method name="Quit"/>
@@ -144,6 +148,12 @@ pub struct PlayerState {
   pub playing: Song,
   pub folder: Option<PathBuf>,
   pub turn: u64,
+  saved_queue: Option<SavedQueue>,
+}
+
+enum Restored {
+  Yes,
+  No,
 }
 
 impl PlayerState {
@@ -153,8 +163,12 @@ impl PlayerState {
       list,
       sounding,
       playing: Song::default(),
-      folder,
+      folder: folder.map(|supplied| match std::path::absolute(&supplied) {
+        Ok(absolute) => absolute,
+        Err(_unrooted) => supplied,
+      }),
       turn: 0,
+      saved_queue: None,
     };
 
     let Ok(()) = held.remembered();
@@ -169,6 +183,13 @@ impl PlayerState {
       Some(kept_2) => kept_2,
       None => return Ok(()),
     };
+
+    let Ok(restored) = self.restore_queue(&kept_3);
+
+    match restored {
+      Restored::Yes => return Ok(()),
+      Restored::No => {}
+    }
 
     let checked = match std::fs::metadata(&kept_3.song) {
       Ok(checked) => checked,
@@ -212,7 +233,59 @@ impl PlayerState {
     self.sounding.ready(&kept_3.song, kept_3.at)
   }
 
-  pub fn remember(&self) -> Result<(), Never> {
+  fn restore_queue(&mut self, kept: &Bookmark) -> Result<Restored, Never> {
+    let Ok(saved) = bookmark::read_queue();
+    let queue = match saved {
+      Some(queue) => queue,
+      None => return Ok(Restored::No),
+    };
+    let Ok(restored) = Playlist::restored(queue, &kept.song);
+    let playlist = match restored {
+      Some(playlist) => playlist,
+      None => return Ok(Restored::No),
+    };
+    let Ok(song) = playlist.song();
+    let path = match song {
+      Some(song_path) => song_path.to_path_buf(),
+      None => return Ok(Restored::No),
+    };
+
+    self.list = playlist;
+    let Ok(checkpoint) = self.list.checkpoint();
+    self.saved_queue = Some(checkpoint);
+    let at = match (path == kept.song).then_some(()) {
+      Some(()) => kept.at,
+      None => crate::Seconds(0.0),
+    };
+    let Ok(mut waiting) = Waiting::here(Wait {
+      who: "music-player",
+      what: "remembered",
+    });
+    let Ok(()) = self.describing(&path, &mut waiting);
+    let Ok(()) = self.sounding.ready(&path, at);
+
+    Ok(Restored::Yes)
+  }
+
+  pub fn remember(&mut self) -> Result<(), Never> {
+    let Ok(queue) = self.list.checkpoint();
+
+    match (self.saved_queue.as_ref() != Some(&queue)).then_some(()) {
+      Some(()) => {
+        let Ok(saved) = bookmark::write_queue(&queue);
+
+        match saved {
+          QueueSaved::Yes => self.saved_queue = Some(queue),
+          QueueSaved::No => {}
+        }
+      }
+      None => {}
+    }
+
+    self.remember_position()
+  }
+
+  pub fn remember_position(&self) -> Result<(), Never> {
     let Ok(song) = self.list.song();
 
     let song_3 = match song {
@@ -226,13 +299,18 @@ impl PlayerState {
   }
 
   pub fn opened(&mut self, at: &Path) -> Result<(), Never> {
+    let at_2 = match std::path::absolute(at) {
+      Ok(path) => path,
+      Err(_unrooted) => return Ok(()),
+    };
+
     let Ok(mut waiting) = Waiting::here(Wait {
       who: "music-player",
       what: "library",
     });
     let under = match &self.folder {
       Some(folder) => folder.clone(),
-      None => match at.parent() {
+      None => match at_2.parent() {
         Some(parent) => parent.to_path_buf(),
         None => return Ok(()),
       },
@@ -241,7 +319,7 @@ impl PlayerState {
     let Ok(songs) = library::songs_under(&under);
     let Ok(()) = waiting.mark("walked");
     let Ok(many) = fitted::<_, u64>(songs.len());
-    let Ok(list) = Playlist::opened(songs, at);
+    let Ok(list) = Playlist::opened(songs, &at_2);
 
     self.list = list;
 
@@ -524,13 +602,15 @@ fn player_told(held: &mut PlayerState, name: &str, value: &Value) -> Result<(), 
 
       let Ok(over) = answers::over_read(&said_3);
 
-      held.list.repeat(over)
+      let Ok(()) = held.list.repeat(over);
+      held.remember()
     }
     "Shuffle" => {
       let Ok(order) = shuffling(value);
       let Ok(seed) = seed();
 
-      held.list.shuffling(order, seed)
+      let Ok(()) = held.list.shuffling(order, seed);
+      held.remember()
     }
     _nothing_else_here_can_be_set => Ok(()),
   }
@@ -695,6 +775,15 @@ pub fn handle_message(held: &mut PlayerState, message: &Message) -> Result<Turn,
 
       Ok(Turn {
         say: Some(answer_2),
+        changed: Modified::No,
+      })
+    }
+    (SESSION, "Checkpoint") => {
+      let Ok(()) = held.remember();
+      let Ok(answer) = message.answering();
+
+      Ok(Turn {
+        say: Some(answer),
         changed: Modified::No,
       })
     }

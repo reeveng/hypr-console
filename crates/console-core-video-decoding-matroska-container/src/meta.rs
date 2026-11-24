@@ -10,6 +10,9 @@
 
 use std::cmp::Reverse;
 
+use console_core_matroska_blocks::elements::{
+  audio_track_fields, cue_track_position, seek_entries,
+};
 use console_core_never::Never;
 use console_core_number_conversion::{index, wrapped};
 
@@ -18,7 +21,7 @@ use crate::ebml::width;
 use crate::ids::*;
 use crate::track::{
   AudioInfo, Colour, ContentEncoding, Degrees, LuminanceNits, MasteringMetadata, Projection,
-  SampleRateHertz, Track, TrackKind, VideoInfo, gcd,
+  Track, TrackKind, VideoInfo, gcd,
 };
 use console_core_extensible_binary_meta_language::{Children, float, int, string, uint};
 
@@ -339,69 +342,37 @@ pub(crate) fn parse_info(data: &[u8]) -> Result<SegmentInfo, Never> {
   Ok(info)
 }
 
-fn parse_seek(data: &[u8]) -> Result<Option<SeekEntry>, Never> {
-  let (mut id, mut position) = (None, None);
-
-  for child in Children::from(data) {
-    match child.id {
-      SEEK_ID => {
-        let Ok(said) = narrow(child.data);
-
-        id = Some(said);
-      }
-      SEEK_POSITION => {
-        let Ok(said) = uint(child.data);
-
-        position = Some(said);
-      }
-      _ => {}
-    }
-  }
-
-  Ok(id.zip(position).map(|(id_2, position_2)| SeekEntry {
-    id: id_2,
-    position: position_2,
-  }))
-}
-
 pub(crate) fn parse_seekhead(data: &[u8]) -> Result<Vec<SeekEntry>, Never> {
-  Ok(
-    Children::from(data)
-      .filter(|child| child.id == SEEK)
-      .filter_map(|seek| {
-        let Ok(entry) = parse_seek(seek.data);
+  let Ok(entries) = seek_entries(data);
 
-        entry
+  Ok(
+    entries
+      .filter_map(|entry| match entry {
+        Ok(entry_2) => {
+          let Ok(identifier) = wrapped::<u64, u32>(entry_2.identifier);
+
+          Some(SeekEntry {
+            id: identifier,
+            position: entry_2.position,
+          })
+        }
+        Err(_missing_field) => None,
       })
       .collect(),
   )
 }
 
 fn parse_cue_position(data: &[u8]) -> Result<Option<CuePosition>, Never> {
-  let (mut track, mut cluster_position) = (None, None);
-  let (mut relative_position, mut block_number, mut duration) = (None, None, None);
+  let Ok(position) = cue_track_position(data);
 
-  for child in Children::from(data) {
-    let Ok(value) = uint(child.data);
-
-    match child.id {
-      CUE_TRACK => track = Some(value),
-      CUE_CLUSTER_POSITION => cluster_position = Some(value),
-      CUE_RELATIVE_POSITION => relative_position = Some(value),
-      CUE_BLOCK_NUMBER => block_number = Some(value),
-      CUE_DURATION => duration = Some(value),
-      _ => {}
-    }
-  }
-
-  Ok(match (track, cluster_position) {
+  Ok(match (position.track, position.cluster_position) {
     (Some(0) | None, _) | (_, None) => None,
-    (Some(track_2), Some(cluster_position_2)) => Some(CuePosition {
-      track: track_2,
-      cluster_position: cluster_position_2,
-      relative_position,
-      block_number,
-      duration,
+    (Some(track), Some(cluster_position)) => Some(CuePosition {
+      track,
+      cluster_position,
+      relative_position: position.relative_position,
+      block_number: position.block_number,
+      duration: position.duration,
     }),
   })
 }
@@ -766,25 +737,6 @@ fn parse_video(data: &[u8]) -> Result<VideoInfo, Never> {
   Ok(video)
 }
 
-fn parse_audio(data: &[u8]) -> Result<AudioInfo, Never> {
-  let mut audio = AudioInfo::default();
-
-  for child in Children::from(data) {
-    let Ok(rate) = float(child.data);
-    let Ok(value) = uint(child.data);
-
-    match child.id {
-      SAMPLING_FREQUENCY => audio.sampling_frequency = SampleRateHertz(rate),
-      OUTPUT_SAMPLING_FREQUENCY => audio.output_sampling_frequency = Some(SampleRateHertz(rate)),
-      CHANNELS => audio.channels = value,
-      BIT_DEPTH => audio.bit_depth = Some(value),
-      _ => {}
-    }
-  }
-
-  Ok(audio)
-}
-
 fn parse_compression(data: &[u8]) -> Result<(u64, Vec<u8>), Never> {
   let (mut algo, mut settings) = (0u64, Vec::new());
 
@@ -923,9 +875,9 @@ fn read_track_child(track: &mut Track, id: u32, data: &[u8]) -> Result<(), Never
       track.video = Some(video);
     }
     AUDIO => {
-      let Ok(audio) = parse_audio(data);
+      let Ok(fields) = audio_track_fields(data);
 
-      track.audio = Some(audio);
+      track.audio = Some(AudioInfo::from(fields));
     }
     CONTENT_ENCODINGS => {
       let Ok(encodings) = parse_encodings(data);

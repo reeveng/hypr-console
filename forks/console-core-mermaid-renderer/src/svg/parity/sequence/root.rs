@@ -43,6 +43,7 @@ pub(super) fn write_sequence_svg_root_open(
             text = escape_xml_display(title)
         );
     }
+
     if let Some(desc) = model.acc_descr.as_deref() {
         let _ = write!(
             out,
@@ -55,17 +56,21 @@ pub(super) fn write_sequence_svg_root_open(
     Ok(document)
 }
 
+#[must_use]
 pub(super) fn sequence_root_bounds(
     layout: &SequenceDiagramLayout,
     stroke_outset: f64,
     paint_bounds: &[Option<&Bounds>],
 ) -> root_svg::DiagramBounds {
-    let bounds = layout.bounds.clone().unwrap_or(Bounds {
-        min_x: 0.0,
-        min_y: 0.0,
-        max_x: 100.0,
-        max_y: 100.0,
-    });
+    let bounds = match (layout.bounds.clone(), Bounds {
+            min_x: 0.0,
+            min_y: 0.0,
+            max_x: 100.0,
+            max_y: 100.0,
+        }) {
+        (::core::option::Option::Some(present), alternate) => { ::core::mem::drop(alternate); present },
+        (::core::option::Option::None, alternate) => alternate,
+    };
     let mut root_bounds = root_svg::DiagramBounds::from_extents(
         bounds.min_x,
         bounds.min_y,
@@ -83,5 +88,6 @@ pub(super) fn sequence_root_bounds(
             0.0,
         );
     }
+
     root_bounds
 }

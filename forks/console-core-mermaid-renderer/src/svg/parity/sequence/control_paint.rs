@@ -17,6 +17,7 @@ pub(super) struct SequenceControlPaint<'a> {
 }
 
 impl<'a> SequenceControlPaint<'a> {
+    #[must_use]
     pub(super) fn new(
         receipt: &'a SequenceControlThemeReceipt,
         effect: Option<SvgShadowEffect>,
@@ -40,9 +41,12 @@ impl<'a> SequenceControlPaint<'a> {
         }
     }
 
+    #[must_use]
     pub(super) fn needs_bounds(&self) -> bool {
         self.effect.is_some() || self.width.is_some()
     }
+
+    #[must_use]
     pub(super) fn len(&self) -> usize {
         self.emitted.get()
     }
@@ -53,12 +57,14 @@ impl<'a> SequenceControlPaint<'a> {
         coordinates: [f64; 4],
     ) -> Result<Option<(String, SvgFilterRegion)>> {
         self.receipt.record_surface_candidate();
+
         if !self.needs_bounds() {
             return Ok(None);
         }
+
         let [x1, y1, x2, y2] = coordinates.map(crate::number_format::canonicalize_number);
-        // Keyword polygons can have acute joins; retain SVG's default miter envelope.
-        // Separate frame lines only need their half-stroke envelope.
+
+
         let half = self.width.map(f64::from).unwrap_or(self.baseline_width) / 2.0
             * if self.target == crate::diagram_theme::ThemeTarget::LoopLabelBackground {
                 4.0
@@ -72,10 +78,12 @@ impl<'a> SequenceControlPaint<'a> {
             max_y: y1.max(y2) + half,
         };
         let mut application = None;
+
         if let Some(effect) = &self.effect {
             self.options
                 .work_meter()
                 .charge(effect.stages().len().saturating_mul(3))?;
+
             if let Some(shadow) = effect.materialize_user_space(
                 &self.options.theme_resource_policy(),
                 bounds.min_x,
@@ -105,15 +113,18 @@ impl<'a> SequenceControlPaint<'a> {
                 self.receipt.effect_unhandled.set(true);
             }
         }
+
         let mut total = self.bounds.borrow_mut();
-        if let Some(total) = total.as_mut() {
-            total.min_x = total.min_x.min(bounds.min_x);
-            total.min_y = total.min_y.min(bounds.min_y);
-            total.max_x = total.max_x.max(bounds.max_x);
-            total.max_y = total.max_y.max(bounds.max_y);
+
+        if let Some(total_2) = total.as_mut() {
+            total_2.min_x = total_2.min_x.min(bounds.min_x);
+            total_2.min_y = total_2.min_y.min(bounds.min_y);
+            total_2.max_x = total_2.max_x.max(bounds.max_x);
+            total_2.max_y = total_2.max_y.max(bounds.max_y);
         } else {
             *total = Some(bounds);
         }
+
         out.checkpoint()?;
         Ok(application)
     }
@@ -128,24 +139,29 @@ impl<'a> SequenceControlPaint<'a> {
             if separator {
                 out.push_str(r#" style="stroke-dasharray: 3, 3;""#);
             }
+
             return;
         }
+
         let mut style = if separator {
             "stroke-dasharray: 3, 3;".to_owned()
         } else {
             String::new()
         };
+
         if let Some(width) = self.width {
             let _ = write!(style, "stroke-width:{}px;", fmt(f64::from(width)));
         }
+
         if let Some((id, _)) = application {
             let filter = format!("url(#{id})");
             let _ = write!(out, r#" filter="{}""#, escape_attr(&filter));
-            // The keyword stylesheet also declares filter, so the terminal must own its override.
+
             let _ = write!(style, "filter:{filter};");
         } else if self.receipt.effect_cleared {
             style.push_str("filter:none;");
         }
+
         if !style.is_empty() {
             let _ = write!(out, r#" style="{}""#, escape_attr(&style));
         }
@@ -157,6 +173,7 @@ impl<'a> SequenceControlPaint<'a> {
         evidence: &SvgShadowEvidenceRecorder,
     ) {
         self.receipt.record_surface_emission();
+
         if let Some((id, region)) = application {
             evidence.record_application(
                 self.effect.as_ref().expect("materialized control effect"),

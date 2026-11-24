@@ -42,6 +42,7 @@ struct JourneyTaskTerminalExpectation {
 }
 
 impl JourneyTaskTerminalExpectation {
+    #[must_use]
     fn baseline() -> Self {
         Self {
             radius: JourneyTaskRadius::baseline(),
@@ -72,16 +73,18 @@ struct JourneyTaskPalettePaint {
 }
 
 impl JourneyTaskPalettePaint {
+    #[must_use]
     fn typed(css: impl Into<Box<str>>, capability: ThemeCapability) -> Self {
         Self {
-            css: css.into(),
+            css: <_ as ::core::convert::Into<::std::boxed::Box<::core::primitive::str>>>::into(css),
             capability: Some(capability),
         }
     }
 
+    #[must_use]
     fn source_owned(css: impl Into<Box<str>>) -> Self {
         Self {
-            css: css.into(),
+            css: <_ as ::core::convert::Into<::std::boxed::Box<::core::primitive::str>>>::into(css),
             capability: None,
         }
     }
@@ -100,16 +103,17 @@ impl JourneyTaskTheme {
         sections: &[JourneySectionLayout],
         work_meter: &OperationWorkMeter,
     ) -> Result<Self, OperationWorkError> {
-        let Some(theme) = theme else {
-            return Ok(Self::baseline(tasks));
+        let theme_2 = match theme {
+            Some(matched_theme) => matched_theme,
+            ::core::option::Option::None => return Ok(Self::baseline(tasks)),
         };
 
         let task_count = tasks.len();
         let palette_key = FamilyThemeMechanismKey::OrdinalPalette {
             target: ThemeTarget::JourneyTask,
         };
-        let palette_disposition = theme.ordinal_palette_disposition(ThemeTarget::JourneyTask);
-        let static_style = theme.style_with_work_meter(
+        let palette_disposition = theme_2.ordinal_palette_disposition(ThemeTarget::JourneyTask);
+        let static_style = theme_2.style_with_work_meter(
             ThemeTarget::JourneyTask,
             ThemeVariant::Default,
             None,
@@ -138,15 +142,17 @@ impl JourneyTaskTheme {
         for (task_index, (task, expectation)) in
             tasks.iter().zip(task_expectations.iter_mut()).enumerate()
         {
-            let style = theme.style_with_work_meter(
+            let style = theme_2.style_with_work_meter(
                 ThemeTarget::JourneyTask,
                 ThemeVariant::Default,
                 Some(task_index + 1),
                 work_meter,
             )?;
+
             for (property, origin) in style.winner_rule_properties() {
                 let key = (origin.rule_index(), property);
                 occurrence_winners.insert(key);
+
                 match property {
                     ResolvedStyleProperty::Radius => {
                         *occurrence_radius_winners
@@ -163,46 +169,55 @@ impl JourneyTaskTheme {
                             .entry(origin.rule_index())
                             .or_default() += 1;
                     }
-                    _ => {}
+                    ResolvedStyleProperty::StrokeWidth | ResolvedStyleProperty::StrokeDasharray | ResolvedStyleProperty::StrokeLinecap | ResolvedStyleProperty::StrokeLinejoin | ResolvedStyleProperty::Opacity | ResolvedStyleProperty::FillOpacity | ResolvedStyleProperty::StrokeOpacity | ResolvedStyleProperty::Padding | ResolvedStyleProperty::Typography(_) | ResolvedStyleProperty::Effect => {}
                 }
             }
 
-            if let Some((radius, rule_index)) = typed_radius(theme, &style) {
-                radius_rules.insert(rule_index);
-                expectation.radius_rule_index = Some(rule_index);
-                expectation.radius = radius;
+            match typed_radius(theme_2, &style) {
+                Some((radius, rule_index)) => {
+                    radius_rules.insert(rule_index);
+                    expectation.radius_rule_index = Some(rule_index);
+                    expectation.radius = radius;
+                },
+                ::core::option::Option::None => {},
             }
 
-            if let Some(fill) = resolve_direct_static_fill(
-                theme,
-                &style,
-                &[ThemeTarget::JourneyTask],
-                DirectStaticSelectorDomain::Default,
-            ) {
-                if journey_fill_source_owned(effective_config, task.num) {
-                    source_owned_fill_rules.insert(fill.rule_index());
-                } else {
-                    typed_fill_rules.insert(fill.rule_index());
-                    expectation.fill = Some(JourneyTaskPaint {
-                        css: fill.css().to_owned().into_boxed_str(),
-                        rule_index: fill.rule_index(),
-                        capability: fill.capability(),
+            match resolve_direct_static_fill(
+                    theme_2,
+                    &style,
+                    &[ThemeTarget::JourneyTask],
+                    DirectStaticSelectorDomain::Default,
+                ) {
+                Some(fill) => {
+                    if journey_fill_source_owned(effective_config, task.num) {
+                        source_owned_fill_rules.insert(fill.rule_index());
+                    } else {
+                        typed_fill_rules.insert(fill.rule_index());
+                        expectation.fill = Some(JourneyTaskPaint {
+                            css: fill.css().to_owned().into_boxed_str(),
+                            rule_index: fill.rule_index(),
+                            capability: fill.capability(),
+                        });
+                    }
+                },
+                ::core::option::Option::None => {},
+            }
+
+            match resolve_direct_static_stroke(
+                    theme_2,
+                    &style,
+                    &[ThemeTarget::JourneyTask],
+                    DirectStaticSelectorDomain::Default,
+                ) {
+                Some(stroke) => {
+                    typed_stroke_rules.insert(stroke.rule_index());
+                    expectation.stroke = Some(JourneyTaskPaint {
+                        css: stroke.css().to_owned().into_boxed_str(),
+                        rule_index: stroke.rule_index(),
+                        capability: stroke.capability(),
                     });
-                }
-            }
-
-            if let Some(stroke) = resolve_direct_static_stroke(
-                theme,
-                &style,
-                &[ThemeTarget::JourneyTask],
-                DirectStaticSelectorDomain::Default,
-            ) {
-                typed_stroke_rules.insert(stroke.rule_index());
-                expectation.stroke = Some(JourneyTaskPaint {
-                    css: stroke.css().to_owned().into_boxed_str(),
-                    rule_index: stroke.rule_index(),
-                    capability: stroke.capability(),
-                });
+                },
+                ::core::option::Option::None => {},
             }
 
             if palette_disposition == Some(FamilyThemeDisposition::TypedAdapter)
@@ -219,7 +234,7 @@ impl JourneyTaskTheme {
                         missing_palette_slot = true;
                     }
                 } else if let Some(color) =
-                    theme.series_color(ThemeTarget::JourneyTask, task.num.max(0) as usize + 1)
+                    theme_2.series_color(ThemeTarget::JourneyTask, task.num.max(0) as usize + 1)
                 {
                     expectation.palette = Some(JourneyTaskPalettePaint::typed(
                         color.as_css(),
@@ -236,14 +251,15 @@ impl JourneyTaskTheme {
             }
         }
 
-        let (sections, missing_section_palette_slot) =
-            journey_section_expectations(theme, effective_config, sections);
+        let (sections_2, missing_section_palette_slot) =
+            journey_section_expectations(theme_2, effective_config, sections);
         missing_palette_slot |= missing_section_palette_slot;
-        palette_surface_owned |= sections.iter().any(|section| section.palette.is_some());
+        palette_surface_owned |= sections_2.iter().any(|section| section.palette.is_some());
 
         let mut evidence = FamilyThemeOutcomes::default();
         let mut observations = BTreeMap::<usize, JourneyTaskRuleObservation>::new();
-        for route in theme.family_mechanism_routes().iter().copied() {
+
+        for route in theme_2.family_mechanism_routes().iter().copied() {
             match route.mechanism() {
                 FamilyThemeMechanism::RuleFacet {
                     rule_index,
@@ -253,9 +269,11 @@ impl JourneyTaskTheme {
                 } => {
                     let observation = observations.entry(rule_index).or_default();
                     let property = resolved_style_property_for_facet(facet);
+
                     if !selector.ordinal_domain_intersects_occurrence_count(task_count) {
                         continue;
                     }
+
                     let qualified_variant = matches!(
                         selector,
                         FamilyThemeSelectorShape::Static { variant: Some(_) }
@@ -273,11 +291,13 @@ impl JourneyTaskTheme {
                             occurrence_winners.contains(&(rule_index, property))
                         }
                     };
+
                     if !route_won && !qualified_variant {
                         continue;
                     }
 
                     observation.applicable = true;
+
                     match (route.disposition(), selector, facet) {
                         (
                             FamilyThemeDisposition::TypedAdapter,
@@ -307,6 +327,7 @@ impl JourneyTaskTheme {
                             let wins = occurrence_fill_winners.get(&rule_index).copied();
                             let typed = typed_fill_rules.contains(&rule_index);
                             let source_owned = source_owned_fill_rules.contains(&rule_index);
+
                             if wins == Some(task_count) && (typed || source_owned) {
                                 if typed {
                                     observation.pending.fill = true;
@@ -349,10 +370,10 @@ impl JourneyTaskTheme {
                                 observation.incomplete = true;
                             }
                         }
-                        (FamilyThemeDisposition::Unsupported, _, facet) => {
+                        (FamilyThemeDisposition::Unsupported, _, facet_2) => {
                             observation
                                 .residual
-                                .get_or_insert(unsupported_residual_for_facet(facet));
+                                .get_or_insert(unsupported_residual_for_facet(facet_2));
                         }
                         (FamilyThemeDisposition::TypedAdapter, _, _) => {
                             observation.incomplete = true;
@@ -362,7 +383,8 @@ impl JourneyTaskTheme {
                 FamilyThemeMechanism::OrdinalPalette {
                     target: ThemeTarget::JourneyTask,
                 } => {
-                    let key = theme.family_mechanism_key(route);
+                    let key = theme_2.family_mechanism_key(route);
+
                     match route.disposition() {
                         FamilyThemeDisposition::TypedAdapter if task_count == 0 => {
                             evidence.mark_not_applicable(key);
@@ -389,9 +411,13 @@ impl JourneyTaskTheme {
                     target: ThemeTarget::JourneyTask,
                     ..
                 } => {
-                    let key = theme.family_mechanism_key(route);
-                    if task_count == 0 {
-                        evidence.mark_not_applicable(key);
+                    let key = theme_2.family_mechanism_key(route);
+
+                    match task_count {
+                        0 => {
+                            evidence.mark_not_applicable(key);
+                        },
+                        _ => {},
                     }
                 }
                 FamilyThemeMechanism::BaseTypography(_)
@@ -401,10 +427,10 @@ impl JourneyTaskTheme {
             }
         }
 
-        // Unsupported effect bindings must be reconciled against the final per-task winner so an
-        // explicit effect rule or clear does not leave a shadowed binding as a false residual.
+
+
         reconcile_unsupported_terminal_domains(
-            theme,
+            theme_2,
             &mut evidence,
             &[UnsupportedTerminalDomain::fallbacks_only(
                 ThemeTarget::JourneyTask,
@@ -414,18 +440,20 @@ impl JourneyTaskTheme {
         )?;
 
         let mut pending = BTreeMap::new();
+
         for (rule_index, observation) in observations {
             let key = FamilyThemeMechanismKey::Rule {
                 index: rule_index,
                 target: ThemeTarget::JourneyTask,
             };
+
             if !observation.applicable {
                 evidence.mark_not_applicable(key);
             } else if let Some(reason) = observation.residual {
                 evidence.mark_residual(key, reason);
             } else if observation.incomplete {
-                // Mixed or partially shadowed rules remain fail-closed until every winning facet
-                // has one terminal owner.
+
+
             } else if observation.pending.requires_terminal_proof() {
                 pending.insert(key, observation.pending);
             } else {
@@ -436,21 +464,22 @@ impl JourneyTaskTheme {
         Ok(Self {
             task_count,
             tasks: task_expectations.into_boxed_slice(),
-            sections: sections.into_boxed_slice(),
+            sections: sections_2.into_boxed_slice(),
             evidence,
             pending,
             palette_key: (palette_surface_owned && !missing_palette_slot).then_some(palette_key),
-            // Keep the historical CSS fallback available when the typed palette is incomplete.
-            // The route remains residual in that case, but permissive rendering should not lose
-            // the unclaimed fillType slots merely because one direct slot was unavailable.
+
+
+
             palette_surface_owned: palette_surface_owned && !missing_palette_slot,
             terminal_receipt: OnceLock::new(),
         })
     }
 
+    #[must_use]
     pub(crate) fn baseline(tasks: &[JourneyTaskLayout]) -> Self {
         Self {
-            // Preserve the layout-size guard without allocating proof state for absent themes.
+
             task_count: tasks.len(),
             tasks: Box::default(),
             sections: Vec::new().into_boxed_slice(),
@@ -462,16 +491,19 @@ impl JourneyTaskTheme {
         }
     }
 
+    #[must_use]
     pub(crate) const fn task_count(&self) -> usize {
         self.task_count
     }
 
+    #[must_use]
     pub(crate) fn terminal_radius_for_task(&self, task_index: usize) -> &str {
         self.tasks
             .get(task_index)
             .map_or("3", |task| task.radius.token.as_ref())
     }
 
+    #[must_use]
     pub(crate) fn terminal_fill_for_task(&self, task_index: usize) -> Option<(usize, &str)> {
         self.tasks
             .get(task_index)
@@ -479,6 +511,7 @@ impl JourneyTaskTheme {
             .map(|paint| (paint.rule_index, paint.css.as_ref()))
     }
 
+    #[must_use]
     pub(crate) fn terminal_palette_fill_for_task(&self, task_index: usize) -> Option<&str> {
         self.tasks
             .get(task_index)
@@ -486,12 +519,14 @@ impl JourneyTaskTheme {
             .map(|paint| paint.css.as_ref())
     }
 
+    #[must_use]
     pub(crate) fn terminal_fill_css_for_task(&self, task_index: usize) -> Option<&str> {
         self.terminal_fill_for_task(task_index)
             .map(|(_, css)| css)
             .or_else(|| self.terminal_palette_fill_for_task(task_index))
     }
 
+    #[must_use]
     pub(crate) fn terminal_palette_fill_for_section(&self, section_index: usize) -> Option<&str> {
         self.sections
             .get(section_index)
@@ -499,10 +534,12 @@ impl JourneyTaskTheme {
             .map(|paint| paint.css.as_ref())
     }
 
+    #[must_use]
     pub(crate) const fn palette_surface_owned(&self) -> bool {
         self.palette_surface_owned
     }
 
+    #[must_use]
     pub(crate) fn terminal_stroke_for_task(&self, task_index: usize) -> Option<(usize, &str)> {
         self.tasks
             .get(task_index)
@@ -510,6 +547,7 @@ impl JourneyTaskTheme {
             .map(|paint| (paint.rule_index, paint.css.as_ref()))
     }
 
+    #[must_use]
     pub(crate) fn begin_terminal_receipt(&self) -> Option<JourneyTaskThemeReceipt> {
         let requires_receipt = !self.pending.is_empty()
             || self
@@ -525,15 +563,23 @@ impl JourneyTaskTheme {
         })
     }
 
+    #[must_use]
     pub(crate) fn record_terminal(&self, receipt: JourneyTaskThemeReceipt) -> bool {
         receipt.proves_complete() && self.terminal_receipt.set(receipt).is_ok()
     }
 
     pub(crate) fn record_evidence(&self, evidence: &mut FamilyThemeEvidence) {
         evidence.merge_borrowed(&self.evidence);
-        let Some(receipt) = self.terminal_receipt.get() else {
-            return;
+
+        let receipt = {
+            let optional_receipt = self.terminal_receipt.get();
+
+            match optional_receipt {
+                Some(matched_receipt) => matched_receipt,
+                ::core::option::Option::None => return,
+            }
         };
+
         for (key, pending) in &self.pending {
             let rule_index = match key {
                 FamilyThemeMechanismKey::Rule { index, .. } => *index,
@@ -541,6 +587,7 @@ impl JourneyTaskTheme {
                 | FamilyThemeMechanismKey::OrdinalPalette { .. }
                 | FamilyThemeMechanismKey::EffectBinding { .. } => continue,
             };
+
             if receipt.has_matching_rule(rule_index, pending) {
                 evidence.mark_applied_with_capabilities(
                     key.clone(),
@@ -548,20 +595,27 @@ impl JourneyTaskTheme {
                 );
             }
         }
-        if let Some(key) = self.palette_key.clone() {
-            if receipt.palette_capabilities.is_empty() {
-                evidence.mark_not_applicable(key);
-            } else {
-                evidence.mark_applied_with_capabilities(
-                    key,
-                    receipt.palette_capabilities.iter().copied(),
-                );
-            }
+
+        {
+            match self.palette_key.clone() {
+                Some(key) => {
+                    if receipt.palette_capabilities.is_empty() {
+                        evidence.mark_not_applicable(key);
+                    } else {
+                        evidence.mark_applied_with_capabilities(
+                            key,
+                            receipt.palette_capabilities.iter().copied(),
+                        );
+                    }
+                },
+                ::core::option::Option::None => {},
+            };
         }
     }
 }
 
 impl JourneyTaskRadius {
+    #[must_use]
     fn baseline() -> Self {
         Self {
             token: MERMAID_TASK_RADIUS_PX.to_string().into_boxed_str(),
@@ -569,16 +623,19 @@ impl JourneyTaskRadius {
     }
 }
 
+#[must_use]
 fn typed_radius(
     theme: &ResolvedDiagramTheme,
     style: &crate::diagram_theme::ResolvedThemeStyle,
 ) -> Option<(JourneyTaskRadius, usize)> {
     let origin = style.radius_resolution().winner()?;
+
     if theme.rule_facet_disposition(origin.rule_index(), FamilyThemeRuleFacet::Radius)
         != Some(FamilyThemeDisposition::TypedAdapter)
     {
         return None;
     }
+
     match style.radius_resolution().specified() {
         Specified::Value(value) => Some((
             JourneyTaskRadius {
@@ -591,11 +648,13 @@ fn typed_radius(
     }
 }
 
+#[must_use]
 fn journey_fill_source_owned(config: &PresentationConfig, task_num: i64) -> bool {
     let path = format!("themeVariables.fillType{}", task_num.max(0));
     config.config_paint_overrides_typed_default(&path)
 }
 
+#[must_use]
 fn journey_palette_source_owned(config: &PresentationConfig, task_num: i64) -> Option<Box<str>> {
     let path = format!("themeVariables.fillType{}", task_num.max(0));
     config
@@ -609,6 +668,7 @@ fn journey_palette_source_owned(config: &PresentationConfig, task_num: i64) -> O
         .flatten()
 }
 
+#[must_use]
 fn journey_section_expectations(
     theme: &ResolvedDiagramTheme,
     effective_config: &PresentationConfig,
@@ -616,6 +676,7 @@ fn journey_section_expectations(
 ) -> (Vec<JourneySectionTerminalExpectation>, bool) {
     let mut sections = Vec::new();
     let mut missing_palette_slot = false;
+
     for section in layout_sections {
         let section_num = section.num;
         let palette = if journey_fill_source_owned(effective_config, section_num) {
@@ -635,11 +696,17 @@ fn journey_section_expectations(
                     )
                 })
         };
-        if palette.is_none() {
-            missing_palette_slot = true;
+
+        match palette {
+            ::core::option::Option::None => {
+                missing_palette_slot = true;
+            },
+            ::core::option::Option::Some(_) => {},
         }
+
         sections.push(JourneySectionTerminalExpectation { palette });
     }
+
     (sections, missing_palette_slot)
 }
 
@@ -658,6 +725,7 @@ pub(crate) struct JourneyTaskThemeReceipt {
 }
 
 impl JourneyTaskThemeReceipt {
+    #[must_use]
     fn from_expectations(
         expectations: Box<[JourneyTaskTerminalExpectation]>,
         section_expectations: Box<[JourneySectionTerminalExpectation]>,
@@ -687,16 +755,19 @@ impl JourneyTaskThemeReceipt {
             self.terminals_match = false;
             return;
         };
+
         if *checkpointed {
             self.terminals_match = false;
             return;
         }
+
         *checkpointed = true;
 
         let Some(expected) = self.expectations.get(task_index) else {
             self.terminals_match = false;
             return;
         };
+
         let radius_matches = emitted_rx_token == expected.radius.token.as_ref()
             && emitted_ry_token == expected.radius.token.as_ref();
         let expected_fill = expected
@@ -713,17 +784,34 @@ impl JourneyTaskThemeReceipt {
         self.terminals_match &= terminal_matches;
 
         if terminal_matches {
-            if let Some(rule_index) = expected.radius_rule_index {
-                self.radius_rules.insert(rule_index);
+            match expected.radius_rule_index {
+                Some(rule_index) => {
+                    self.radius_rules.insert(rule_index);
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(rule_index) = expected.fill.as_ref().map(|paint| paint.rule_index) {
-                self.fill_rules.insert(rule_index);
+
+            match expected.fill.as_ref().map(|paint| paint.rule_index) {
+                Some(rule_index) => {
+                    self.fill_rules.insert(rule_index);
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(rule_index) = expected.stroke.as_ref().map(|paint| paint.rule_index) {
-                self.stroke_rules.insert(rule_index);
+
+            match expected.stroke.as_ref().map(|paint| paint.rule_index) {
+                Some(rule_index) => {
+                    self.stroke_rules.insert(rule_index);
+                },
+                ::core::option::Option::None => {},
             }
-            if let Some(capability) = expected.palette.as_ref().and_then(|paint| paint.capability) {
-                self.palette_capabilities.insert(capability);
+
+            {
+                match expected.palette.as_ref().and_then(|paint| paint.capability) {
+                    Some(capability) => {
+                        self.palette_capabilities.insert(capability);
+                    },
+                    ::core::option::Option::None => {},
+                };
             }
         }
     }
@@ -737,19 +825,23 @@ impl JourneyTaskThemeReceipt {
             self.terminals_match = false;
             return;
         };
+
         if *checkpointed {
             self.terminals_match = false;
             return;
         }
+
         *checkpointed = true;
 
         let Some(expected) = self.section_expectations.get(section_index) else {
             self.terminals_match = false;
             return;
         };
+
         let expected_fill = expected.palette.as_ref().map(|paint| paint.css.as_ref());
         let terminal_matches = emitted_fill == expected_fill;
         self.terminals_match &= terminal_matches;
+
         if terminal_matches
             && let Some(capability) = expected.palette.as_ref().and_then(|paint| paint.capability)
         {
@@ -757,6 +849,7 @@ impl JourneyTaskThemeReceipt {
         }
     }
 
+    #[must_use]
     fn proves_complete(&self) -> bool {
         self.terminals_match
             && self
@@ -771,7 +864,8 @@ impl JourneyTaskThemeReceipt {
             && self.section_expectations.len() == self.checkpointed_sections.len()
     }
 
-    // record_terminal checks completeness once before taking immutable ownership.
+
+    #[must_use]
     fn has_matching_rule(&self, rule_index: usize, pending: &JourneyTaskPendingEvidence) -> bool {
         (!pending.radius || self.radius_rules.contains(&rule_index))
             && (!pending.fill || self.fill_rules.contains(&rule_index))
@@ -796,6 +890,7 @@ struct JourneyTaskPendingEvidence {
 }
 
 impl JourneyTaskPendingEvidence {
+    #[must_use]
     const fn requires_terminal_proof(&self) -> bool {
         self.radius || self.fill || self.stroke
     }
